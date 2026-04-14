@@ -1,0 +1,20 @@
+[
+  {
+    "name": "yoshis_island_1",
+    "translevel": 41,
+    "tilesetId": 7,
+    "spriteSet": 8
+  },
+  {
+    "name": "donut_plains_1",
+    "translevel": 7,
+    "tilesetId": 2,
+    "spriteSet": 2
+  },
+  {
+    "name": "vanilla_dome_1",
+    "translevel": 20,
+    "tilesetId": 5,
+    "spriteSet": 5
+  }
+]

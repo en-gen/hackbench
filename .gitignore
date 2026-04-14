@@ -1,11 +1,36 @@
 .DS_Store
-dist/electron/*
-dist/web/*
+
+# ROM files and patches — never commit copyrighted or redistributed game files
+*.smc
+*.sfc
+*.rom
+*.ips
+*.bps
+
+# Test/development ROM hacks (downloaded from SMW Central for local testing)
+test/roms/
+
+# Build output
+dist/
+dist-test/
+out/
+*.vsix
+
+# Dependencies
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# VS Code test runner
+.vscode-test/
+
+# Misc
+.DS_Store
+thumbs.db
+coverage/
 build/*
 !build/icons
-coverage
-node_modules/
-npm-debug.log
-npm-debug.log.*
-thumbs.db
-!.gitkeep
+.claude/
