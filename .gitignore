@@ -16,6 +16,14 @@ dist-test/
 out/
 *.vsix
 
+# Compiled test output written alongside source by tsc (build artifacts)
+test/suite/**/*.js
+test/suite/**/*.js.map
+test/suite/**/*.d.ts
+
+# Third-party tools — not redistributable
+test/magic/
+
 # Dependencies
 node_modules/
 
