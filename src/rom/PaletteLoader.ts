@@ -65,10 +65,12 @@ export const PALETTE_ROW_COLORS = 6
 export const PALETTE_ENTRY_BYTES  = 24
 export const PALETTE_ENTRY_COLORS = 12   // total words per entry (two halves of 6)
 
-// Player palettes: 12 bytes = 6 colors (cols 2–7).
-// Verified: CGRAM row 13 has data only in cols 2–7; cols 8–15 are all $0000.
-export const PLAYER_ENTRY_BYTES   = PALETTE_ROW_COLORS * 2  // 12B (= PALETTE_ROW_COLORS × 2)
-export const PLAYER_ENTRY_COLORS  = PALETTE_ROW_COLORS       // 6
+// Player palettes: 20 bytes = 10 colors, filling CGRAM palette 8 cols 6–F.
+// ROM map: $B2C8 Mario, $B2DC Luigi, $B2F0 Fire Mario, $B304 Fire Luigi (stride 20).
+// "Colours 6–F of palette 8" → colStart = 6, cgRamRow = 8.
+export const PLAYER_ENTRY_BYTES   = 20   // 10 colors × 2 bytes
+export const PLAYER_ENTRY_COLORS  = 10
+export const PLAYER_COL_START     = 6    // colors land at CGRAM cols 6–15
 
 // ── Verified ROM addresses ─────────────────────────────────────────────────────
 // SMW_Shared.smwpal = exact ROM bytes $B0A0–$B8A1 (confirmed 100% byte match).
@@ -97,12 +99,12 @@ export const ADDR_BG0         = 0x00B0B0  // = ADDR_BG_PAIR (row 0 half, variant
 export const ADDR_BG1         = 0x00B0BC  // = ADDR_BG_PAIR + 12 (row 1 half, variant 0)
 export const ADDR_FG0         = 0x00B190  // = ADDR_FG_PAIR (row 2 half)
 export const ADDR_FG1         = 0x00B19C  // = ADDR_FG_PAIR + 12 (row 3 half)
-// Player palettes: 6 colors × 2B = 12B each (cols 2–7); 4 variants at stride 12.
-// Verified: CGRAM row 13 cols 2–7 match Mario at $B2BC.
-export const ADDR_PLAYER_MARIO      = 0x00B2BC
-export const ADDR_PLAYER_LUIGI      = 0x00B2C8  // = $B2BC + 12
-export const ADDR_PLAYER_FIRE_MARIO = 0x00B2D4  // = $B2BC + 24
-export const ADDR_PLAYER_FIRE_LUIGI = 0x00B2E0  // = $B2BC + 36
+// Player palettes: 10 colors × 2B = 20B each (CGRAM row 8 cols 6–F); 4 variants at stride 20.
+// ROM map confirmed: $B2C8 Mario, $B2DC Luigi, $B2F0 Fire Mario, $B304 Fire Luigi.
+export const ADDR_PLAYER_MARIO      = 0x00B2C8
+export const ADDR_PLAYER_LUIGI      = 0x00B2DC  // = $B2C8 + 20
+export const ADDR_PLAYER_FIRE_MARIO = 0x00B2F0  // = $B2C8 + 40
+export const ADDR_PLAYER_FIRE_LUIGI = 0x00B304  // = $B2C8 + 60
 // SP_E and SP_F share one 24-byte PACKED PAIR at $B318 (same structure as BG/FG pairs):
 //   words 0–5 (12B at $B318) → SP_E (row 14 cols 2–7)  [verified 100% match]
 //   words 6–11 (12B at $B324) → SP_F (row 15 cols 2–7) [verified 100% match]
@@ -175,20 +177,20 @@ function emptyRow(): RgbaRow {
   return Array.from({ length: COLORS_PER_ROW }, (_, i) => i === 0 ? TRANSPARENT : UNKNOWN)
 }
 
-function readEntry(rom: RomFile, addr: number, numColors = PALETTE_ENTRY_COLORS): RgbaRow {
+function readEntry(rom: RomFile, addr: number, numColors = PALETTE_ENTRY_COLORS, colStart = 2): RgbaRow {
   const row = emptyRow()
-  const bytes = numColors * 2
-  const buf = rom.readAt(addr, bytes)
+  const buf = rom.readAt(addr, numColors * 2)
   if (!buf) return row
-  // Colors land at CGRAM cols 2+ (col 0 = transparent, col 1 = back-area color)
+  // Colors land at CGRAM col `colStart` (default 2: col 0 = transparent, col 1 = back-area color).
+  // Player palettes use colStart = 6 (colours 6–F of their CGRAM row).
   for (let i = 0; i < numColors; i++) {
-    row[i + 2] = bgr555ToRgba(buf.readUInt16LE(i * 2))
+    row[colStart + i] = bgr555ToRgba(buf.readUInt16LE(i * 2))
   }
   return row
 }
 
-function singleVariant(label: string, addr: number, rom: RomFile, numColors = PALETTE_ENTRY_COLORS): PaletteVariant {
-  return { label, rows: [readEntry(rom, addr, numColors)], romAddr: addr }
+function singleVariant(label: string, addr: number, rom: RomFile, numColors = PALETTE_ENTRY_COLORS, colStart = 2): PaletteVariant {
+  return { label, rows: [readEntry(rom, addr, numColors, colStart)], romAddr: addr }
 }
 
 // ── Main loader ───────────────────────────────────────────────────────────────
@@ -307,13 +309,14 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
 
     // ── Player ────────────────────────────────────────────────────────────────
     {
-      id: 'player', label: 'Player Palettes', cgRamRow: 13,
-      description: 'CGRAM row 13 — Mario/Luigi variants. 20 bytes each (10 colors, indices 1–10).',
+      id: 'player', label: 'Player Palettes', cgRamRow: 8,
+      description: 'CGRAM row 8, cols 6–F — Mario/Luigi variants (10 colors each). ' +
+        'ROM map: $B2C8 Mario / $B2DC Luigi / $B2F0 Fire Mario / $B304 Fire Luigi.',
       variants: [
-        singleVariant('Mario',      ADDR_PLAYER_MARIO,      rom, PLAYER_ENTRY_COLORS),
-        singleVariant('Luigi',      ADDR_PLAYER_LUIGI,      rom, PLAYER_ENTRY_COLORS),
-        singleVariant('Fire Mario', ADDR_PLAYER_FIRE_MARIO, rom, PLAYER_ENTRY_COLORS),
-        singleVariant('Fire Luigi', ADDR_PLAYER_FIRE_LUIGI, rom, PLAYER_ENTRY_COLORS),
+        singleVariant('Mario',      ADDR_PLAYER_MARIO,      rom, PLAYER_ENTRY_COLORS, PLAYER_COL_START),
+        singleVariant('Luigi',      ADDR_PLAYER_LUIGI,      rom, PLAYER_ENTRY_COLORS, PLAYER_COL_START),
+        singleVariant('Fire Mario', ADDR_PLAYER_FIRE_MARIO, rom, PLAYER_ENTRY_COLORS, PLAYER_COL_START),
+        singleVariant('Fire Luigi', ADDR_PLAYER_FIRE_LUIGI, rom, PLAYER_ENTRY_COLORS, PLAYER_COL_START),
       ],
     },
 
@@ -383,7 +386,7 @@ export function buildLevelCgram(
     }
   }
 
-  if (pl) rows[13] = pl.variants[Math.min(marioVariant, pl.variants.length - 1)]?.rows[0] ?? emptyRow()
+  if (pl) rows[8] = pl.variants[Math.min(marioVariant, pl.variants.length - 1)]?.rows[0] ?? emptyRow()
   if (se) rows[14] = se.variants[0]?.rows[0] ?? emptyRow()
   if (sf) rows[15] = sf.variants[0]?.rows[0] ?? emptyRow()
 
@@ -404,6 +407,14 @@ export function buildLevelCgram(
     fgVariantIndex: fgVariant,
     spriteSetIndex: spriteSet,
   }
+}
+
+/** Load all 8 back area color variants from $B0A0 (2 bytes each). */
+export function loadBackAreaColors(rom: RomFile): RgbaColor[] {
+  return Array.from({ length: 8 }, (_, i) => {
+    const buf = rom.readAt(ADDR_BACK_AREA + i * 2, 2)
+    return buf ? bgr555ToRgba(buf.readUInt16LE(0)) : (UNKNOWN as RgbaColor)
+  })
 }
 
 export function loadLevelPalette(rom: RomFile): { colors: RgbaColor[]; rows: RgbaRow[] } {

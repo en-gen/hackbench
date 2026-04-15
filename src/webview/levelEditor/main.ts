@@ -221,21 +221,24 @@ let atlasImg:    ImageBitmap | null = null
 let activeTileId = -1
 let activeTool: 'place' | 'erase' = 'place'
 let isPainting   = false
+// Which CGRAM rows to highlight in the palette panel (null = all rows at full brightness)
+let paletteHighlightRows: number[] | null = null
 
 interface TileUv { col: number; row: number }
 
 interface LevelPayload {
-  levelIndex:    number
-  screens:       number
-  tileGrid:      number[][]
-  l2TileGrid:    number[][] | null
-  atlasData:     number[]
-  atlasWidth:    number
-  atlasHeight:   number
-  tileUvMap:     Record<number, TileUv>
-  sprites:       Array<{ x: number; y: number; spriteId: number }>
-  backAreaColor: [number, number, number, number]
-  paletteRows:   number[][][]   // 16 rows × 16 colors × [r,g,b,a]
+  levelIndex:      number
+  screens:         number
+  tileGrid:        number[][]
+  l2TileGrid:      number[][] | null
+  atlasData:       number[]
+  atlasWidth:      number
+  atlasHeight:     number
+  tileUvMap:       Record<number, TileUv>
+  sprites:         Array<{ x: number; y: number; spriteId: number }>
+  backAreaColor:   [number, number, number, number]
+  backAreaColors:  number[][]   // 8 variants × [r,g,b,a]
+  paletteRows:     number[][][]   // 16 rows × 16 colors × [r,g,b,a]
   header: {
     music:          number
     spriteSet:      number
@@ -280,7 +283,6 @@ function drawPaletteCanvas(): void {
       const c = rows[row]?.[col] ?? [0, 0, 0, 0]
       const x = col * PAL_CELL
       const y = row * PAL_CELL
-      // Checkerboard for transparent/color-0 entries
       if (c[3] < 255) {
         palCtx.fillStyle = (col + row) % 2 === 0 ? '#666' : '#444'
         palCtx.fillRect(x, y, PAL_CELL, PAL_CELL)
@@ -288,6 +290,16 @@ function drawPaletteCanvas(): void {
       if (c[3] > 0) {
         palCtx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${(c[3] / 255).toFixed(3)})`
         palCtx.fillRect(x, y, PAL_CELL, PAL_CELL)
+      }
+    }
+  }
+
+  // Dim rows that are not part of the currently focused palette group
+  if (paletteHighlightRows !== null) {
+    palCtx.fillStyle = 'rgba(0,0,0,0.65)'
+    for (let row = 0; row < 16; row++) {
+      if (!paletteHighlightRows.includes(row)) {
+        palCtx.fillRect(0, row * PAL_CELL, 128, PAL_CELL)
       }
     }
   }
@@ -506,14 +518,42 @@ function postRerender(): void {
     spriteSet:      parseInt(selSpriteSet.value),
     spritePalette:  parseInt(selSpritePal.value),
     tilesetId:      parseInt(selTileset.value),
+    bgColorVariant: parseInt(selBgColor.value),
   })
 }
 
+function setPaletteHighlight(rows: number[] | null): void {
+  paletteHighlightRows = rows
+  drawPaletteCanvas()
+}
+
+selBgColor.addEventListener('change', () => {
+  // Update the back area swatch immediately from the pre-loaded colors array
+  const colors = levelData?.backAreaColors
+  const idx    = parseInt(selBgColor.value)
+  if (colors && colors[idx]) {
+    const [r, g, b] = colors[idx]
+    backAreaSwatch.style.background = `rgb(${r},${g},${b})`
+  }
+  postRerender()
+})
 selFgPalette.addEventListener('change',  postRerender)
 selBgPalette.addEventListener('change',  postRerender)
 selSpritePal.addEventListener('change',  postRerender)
 selSpriteSet.addEventListener('change',  postRerender)
 selTileset.addEventListener('change',    postRerender)
+
+// Palette row highlighting on focus
+selBgPalette.addEventListener('focus',  () => setPaletteHighlight([0, 1]))
+selBgPalette.addEventListener('blur',   () => setPaletteHighlight(null))
+selBgColor.addEventListener('focus',    () => setPaletteHighlight([0, 1, 2, 3, 4, 5, 6, 7]))
+selBgColor.addEventListener('blur',     () => setPaletteHighlight(null))
+selFgPalette.addEventListener('focus',  () => setPaletteHighlight([2, 3]))
+selFgPalette.addEventListener('blur',   () => setPaletteHighlight(null))
+selSpritePal.addEventListener('focus',  () => setPaletteHighlight([4, 5, 6, 7]))
+selSpritePal.addEventListener('blur',   () => setPaletteHighlight(null))
+selSpriteSet.addEventListener('focus',  () => setPaletteHighlight([4, 5, 6, 7]))
+selSpriteSet.addEventListener('blur',   () => setPaletteHighlight(null))
 
 // ── Message handler ───────────────────────────────────────────────────────────
 
@@ -533,17 +573,19 @@ window.addEventListener('message', async (event) => {
 
     // Populate props panel selectors (only on initial load)
     if (msg['_initial'] !== false) {
-      buildSelect(selBgColor,   8,  levelData.header.bgColor,       i => `Back Area Color ${i}`)
-      buildSelect(selFgPalette, 8,  levelData.header.fgPalette,     i => `FG Palette ${i}`)
-      buildSelect(selBgPalette, 8,  levelData.header.bgPalette,     i => `BG Palette ${i}`)
-      buildSelect(selSpritePal, 4,  levelData.header.spritePalette, i => `Sprite Palette ${i}`)
+      buildSelect(selBgColor,   8,  levelData.header.bgColor,       i => `Color ${i}`)
+      buildSelect(selFgPalette, 8,  levelData.header.fgPalette,     i => `FG ${i}`)
+      buildSelect(selBgPalette, 8,  levelData.header.bgPalette,     i => `BG ${i}`)
+      buildSelect(selSpritePal, 4,  levelData.header.spritePalette, i => `Set ${i}`)
       buildSelect(selTileset,   16, levelData.header.gfxTilesetId)
       buildSelect(selSpriteSet, 16, levelData.header.spriteSet)
     }
 
-    // Back area color swatch
-    const [r, g, b] = levelData.backAreaColor
-    backAreaSwatch.style.background = `rgb(${r},${g},${b})`
+    // Back area color swatch — use the selected variant from backAreaColors
+    const bac = levelData.backAreaColors
+    const bacIdx = levelData.header.bgColor
+    const bacColor = (bac && bac[bacIdx]) ? bac[bacIdx] : levelData.backAreaColor
+    backAreaSwatch.style.background = `rgb(${bacColor[0]},${bacColor[1]},${bacColor[2]})`
 
     // Room info
     infoScreens.textContent = String(screens)
