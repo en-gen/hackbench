@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import { RomSession } from './RomSession'
-import { RomExplorerProvider } from './providers/RomExplorerProvider'
+import { LevelsProvider, ResourcesProvider } from './providers/RomExplorerProvider'
 import { LevelEditorProvider } from './providers/LevelEditorProvider'
 import { PaletteEditorProvider } from './providers/PaletteEditorProvider'
 import { GfxViewerProvider } from './providers/GfxViewerProvider'
@@ -10,7 +10,8 @@ let session: RomSession | undefined
 
 export function activate(context: vscode.ExtensionContext): void {
   const fsProvider = new SmwFileSystemProvider()
-  const explorerProvider = new RomExplorerProvider()
+  const levelsProvider    = new LevelsProvider()
+  const resourcesProvider = new ResourcesProvider()
   const levelEditorProvider = new LevelEditorProvider(context)
   const paletteEditorProvider = new PaletteEditorProvider(context)
   const gfxViewerProvider = new GfxViewerProvider(context)
@@ -50,18 +51,19 @@ export function activate(context: vscode.ExtensionContext): void {
     )
   )
 
-  // Register the ROM explorer tree view
+  // Register the two explorer tree views
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('smwEditor.romExplorer', explorerProvider)
+    vscode.window.registerTreeDataProvider('smwEditor.levelsExplorer',    levelsProvider),
+    vscode.window.registerTreeDataProvider('smwEditor.resourcesExplorer', resourcesProvider),
   )
 
   // Commands
   context.subscriptions.push(
     vscode.commands.registerCommand('smwEditor.openRom', () =>
-      openRomCommand(context, fsProvider, explorerProvider)
+      openRomCommand(context, fsProvider, levelsProvider, resourcesProvider)
     ),
     vscode.commands.registerCommand('smwEditor.closeRom', () =>
-      closeRomCommand(context, fsProvider, explorerProvider)
+      closeRomCommand(context, fsProvider, levelsProvider, resourcesProvider)
     )
   )
 }
@@ -73,7 +75,8 @@ export function deactivate(): void {
 async function openRomCommand(
   context: vscode.ExtensionContext,
   fsProvider: SmwFileSystemProvider,
-  explorerProvider: RomExplorerProvider
+  levelsProvider: LevelsProvider,
+  resourcesProvider: ResourcesProvider,
 ): Promise<void> {
   const uris = await vscode.window.showOpenDialog({
     title: 'Open Super Mario World ROM',
@@ -92,7 +95,8 @@ async function openRomCommand(
         session = new RomSession(romPath)
 
         fsProvider.mount(session)
-        explorerProvider.refresh(session)
+        levelsProvider.refresh(session)
+        resourcesProvider.refresh(session)
         await vscode.commands.executeCommand('setContext', 'smwEditor.romLoaded', true)
 
         // Open the virtual folder in the explorer
@@ -113,11 +117,13 @@ async function openRomCommand(
 async function closeRomCommand(
   _context: vscode.ExtensionContext,
   fsProvider: SmwFileSystemProvider,
-  explorerProvider: RomExplorerProvider
+  levelsProvider: LevelsProvider,
+  resourcesProvider: ResourcesProvider,
 ): Promise<void> {
   if (!session) return
   fsProvider.unmount(session.slug)
-  explorerProvider.refresh(undefined)
+  levelsProvider.refresh(undefined)
+  resourcesProvider.refresh(undefined)
   session.dispose()
   session = undefined
   await vscode.commands.executeCommand('setContext', 'smwEditor.romLoaded', false)

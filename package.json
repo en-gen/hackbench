@@ -84,13 +84,18 @@
     "views": {
       "smwExplorer": [
         {
-          "id": "smwEditor.romExplorer",
-          "name": "ROM Explorer",
+          "id": "smwEditor.levelsExplorer",
+          "name": "Levels",
+          "when": "smwEditor.romLoaded"
+        },
+        {
+          "id": "smwEditor.resourcesExplorer",
+          "name": "Resources",
           "when": "smwEditor.romLoaded"
         },
         {
           "id": "smwEditor.romExplorerWelcome",
-          "name": "ROM Explorer",
+          "name": "SMW Editor",
           "when": "!smwEditor.romLoaded"
         }
       ]
