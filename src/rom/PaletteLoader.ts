@@ -105,6 +105,11 @@ export const ADDR_PLAYER_MARIO      = 0x00B2C8
 export const ADDR_PLAYER_LUIGI      = 0x00B2DC  // = $B2C8 + 20
 export const ADDR_PLAYER_FIRE_MARIO = 0x00B2F0  // = $B2C8 + 40
 export const ADDR_PLAYER_FIRE_LUIGI = 0x00B304  // = $B2C8 + 60
+// Row 8 base palette: 24 bytes = 12 colors at CGRAM row 8 cols 2–13.
+// Loaded before the player variant; player variant ($B2C8) overwrites cols 6–F.
+// Cols 2–5 (4 "base" colors) are not overwritten and show as the "missing" skin tones.
+export const ADDR_PLAYER_ROW8_BASE  = 0x00B2B0
+export const PLAYER_ROW8_BASE_COLS  = 12   // covers cols 2–13
 // SP_E and SP_F share one 24-byte PACKED PAIR at $B318 (same structure as BG/FG pairs):
 //   words 0–5 (12B at $B318) → SP_E (row 14 cols 2–7)  [verified 100% match]
 //   words 6–11 (12B at $B324) → SP_F (row 15 cols 2–7) [verified 100% match]
@@ -166,6 +171,8 @@ export interface PaletteVariant {
 export interface RomPalettes {
   groups: PaletteGroup[]
   backAreaColor: RgbaColor
+  /** Row 8 shared base: 12 colors at cols 2–13, loaded before player variant overlay. */
+  playerRow8Base: RgbaRow
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -334,7 +341,10 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
 
   ]
 
-  return { groups, backAreaColor }
+  // Row 8 base: shared colors at cols 2–13, present before player variant overlay.
+  const playerRow8Base = readEntry(rom, ADDR_PLAYER_ROW8_BASE, PLAYER_ROW8_BASE_COLS, 2)
+
+  return { groups, backAreaColor, playerRow8Base }
 }
 
 // ── Level-specific palette summary ─────────────────────────────────────────────
@@ -386,7 +396,17 @@ export function buildLevelCgram(
     }
   }
 
-  if (pl) rows[8] = pl.variants[Math.min(marioVariant, pl.variants.length - 1)]?.rows[0] ?? emptyRow()
+  // Row 8: start from the shared base ($B2B0, cols 2–13), then overlay player variant
+  // cols 6–F from the selected variant ($B2C8+). Cols 2–5 remain as the base "skin tones".
+  rows[8] = [...(palettes.playerRow8Base ?? emptyRow())]
+  if (pl) {
+    const variantRow = pl.variants[Math.min(marioVariant, pl.variants.length - 1)]?.rows[0]
+    if (variantRow) {
+      for (let c = PLAYER_COL_START; c < COLORS_PER_ROW; c++) {
+        if (variantRow[c]) rows[8][c] = variantRow[c]
+      }
+    }
+  }
   if (se) rows[14] = se.variants[0]?.rows[0] ?? emptyRow()
   if (sf) rows[15] = sf.variants[0]?.rows[0] ?? emptyRow()
 
