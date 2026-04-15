@@ -1,11 +1,13 @@
 import * as vscode from 'vscode'
-import { SmwRom } from '../rom/SmwRom'
+import { SmwRom, ADDR } from '../rom/SmwRom'
 import { parseLevelObjects, parseLevelSprites } from '../rom/LevelParser'
 import { loadAllMap16 } from '../rom/Map16'
 import { loadRomPalettes, buildLevelCgram } from '../rom/PaletteLoader'
 import { loadVram } from '../rom/GfxLoader'
 import { buildTileAtlas } from '../rom/TileRenderer'
 import { expandLevel } from '../rom/ObjectExpander'
+import { decompressRle1 } from '../rom/LcRle1'
+import { SCREEN_W, SCREEN_H } from '../rom/LevelParser'
 
 /**
  * Custom editor provider for .smwlevel virtual files.
@@ -107,8 +109,32 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
         if (sprData) sprites = parseLevelSprites(sprData)
       }
 
-      // ── Build tile grid ───────────────────────────────────────────────────
+      // ── Build L1 tile grid ────────────────────────────────────────────────
       const tileGrid = expandLevel(objects, screens)
+
+      // ── Build L2 tile grid (background tilemap, if present) ───────────────
+      let l2TileGrid: number[][] | null = null
+      const l2ptr = rom.getLevelL2Pointer(index)
+      // Bank byte $FF means data is an LC_RLE1 background tilemap (not an object stream).
+      if (l2ptr !== null && ((l2ptr >> 16) & 0xFF) === 0xFF) {
+        // lo/hi bytes hold the actual SNES data address; bank=$FF is just the flag.
+        const l2Base = ADDR.LEVEL_L2_PTR + index * 3
+        const l2lo = rom.rom.readByte(l2Base)
+        const l2hi = rom.rom.readByte(l2Base + 1)
+        if (l2lo !== null && l2hi !== null) {
+          const l2addr = (l2hi << 8) | l2lo
+          const l2raw  = rom.rom.readAt(l2addr, 0x2000)
+          if (l2raw) {
+            const l2data = decompressRle1(l2raw)
+            const cols   = screens * SCREEN_W
+            const rows   = SCREEN_H
+            // Each tile entry is 1 byte (Map16 page-0 tile ID for L2 background).
+            l2TileGrid = Array.from({ length: rows }, (_, r) =>
+              Array.from({ length: cols }, (_, c) => l2data[r * cols + c] ?? 0)
+            )
+          }
+        }
+      }
 
       // ── Load ROM rendering data (allow webview overrides) ─────────────────
       const romPalettes   = loadRomPalettes(rom.rom)
@@ -139,6 +165,7 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
         levelIndex:     index,
         screens,
         tileGrid,
+        l2TileGrid,
         atlasData:      Array.from(atlas),
         atlasWidth,
         atlasHeight,

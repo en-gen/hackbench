@@ -71,6 +71,15 @@ app.innerHTML = `
   </label>
   <div id="swatch-row" style="display:flex;gap:2px;align-items:center;margin-left:4px;"></div>
   <span style="color:#555;margin:0 2px">|</span>
+  <label id="fg-var-label" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#888;">
+    FG&nbsp;Variant
+    <select id="sel-fg-variant" style="
+      background:var(--vscode-dropdown-background,#3c3c3c);
+      color:var(--vscode-dropdown-foreground,#ccc);
+      border:1px solid #555;border-radius:3px;height:20px;font-size:11px;cursor:pointer;
+      font-family:monospace;"></select>
+  </label>
+  <span style="color:#555;margin:0 2px">|</span>
   <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#888;">
     BPP
     <select id="sel-bpp" style="
@@ -126,6 +135,8 @@ const stVram      = document.getElementById('st-vram')!
 const stColor     = document.getElementById('st-color')!
 const selRow      = document.getElementById('sel-palette-row') as HTMLSelectElement
 const selBpp      = document.getElementById('sel-bpp') as HTMLSelectElement
+const selFgVar    = document.getElementById('sel-fg-variant') as HTMLSelectElement
+const fgVarLabel  = document.getElementById('fg-var-label')!
 const chkGrid     = document.getElementById('chk-grid') as HTMLInputElement
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -136,6 +147,8 @@ interface GfxPayload {
   tilePixels: number[][]     // [tileIdx][pixelIdx] = palette color index 0–15 (server-decoded)
   tileCount:  number
   paletteRows: number[][][]  // [rowIdx][colorIdx] = [r, g, b, a]
+  /** FG palette variants: [[row2colors, row3colors], …] per variant index. ⚠ Addresses unverified beyond variant 0. */
+  fgVariants: number[][][][]
   suggestedPaletteRow: number  // best guess at which CGRAM row applies to this file
   rawBytes:   number[]       // decompressed GFX bytes — for client-side re-decode
   defaultBpp: 2 | 3 | 4     // server's decode format for this file
@@ -215,6 +228,10 @@ let paletteRow = 2
 let activeTiles: number[][] = []
 // Current bpp decoding mode — overridden per-file by defaultBpp from the host.
 let activeBpp: 2 | 3 | 4 = 3
+// Active FG variant (0 = vanilla/plains; higher = other level types ⚠ unverified).
+let activeFgVariant = 0
+// Effective palette rows — payload.paletteRows with rows 2-3 swapped per FG variant.
+let effectivePaletteRows: number[][][] = []
 
 // ── Offscreen tile buffer (rebuilt when tile count changes) ───────────────────
 
@@ -247,7 +264,7 @@ function redraw(): void {
 
   const imgData = offCtx.createImageData(pw, ph)
   const d       = imgData.data
-  const palRow  = payload.paletteRows[paletteRow] ?? payload.paletteRows[0]
+  const palRow  = effectivePaletteRows[paletteRow] ?? effectivePaletteRows[0]
 
   for (let t = 0; t < tileCount; t++) {
     const tileCol = t % TILE_COLS
@@ -303,7 +320,7 @@ function redraw(): void {
 
 function buildSwatches(): void {
   if (!payload) return
-  const row = payload.paletteRows[paletteRow] ?? []
+  const row = effectivePaletteRows[paletteRow] ?? []
   swatchRow.innerHTML = ''
   for (let i = 0; i < 16; i++) {
     const c  = row[i]
@@ -333,6 +350,43 @@ function buildPaletteSelector(): void {
 
 selRow.addEventListener('change', () => {
   paletteRow = parseInt(selRow.value)
+  buildSwatches()
+  redraw()
+})
+
+// ── FG variant selector ───────────────────────────────────────────────────────
+
+/** Rebuild effectivePaletteRows by swapping rows 2-3 from the selected FG variant. */
+function applyFgVariant(variantIdx: number): void {
+  if (!payload) return
+  effectivePaletteRows = payload.paletteRows.map(r => r)  // shallow copy
+  const fg = payload.fgVariants?.[variantIdx]
+  if (fg) {
+    effectivePaletteRows = effectivePaletteRows.slice()
+    effectivePaletteRows[2] = fg[0]  // row 2
+    effectivePaletteRows[3] = fg[1]  // row 3
+  }
+}
+
+function buildFgVariantSelector(): void {
+  selFgVar.innerHTML = ''
+  const count = payload?.fgVariants?.length ?? 1
+  const hasMultiple = count > 1
+  fgVarLabel.style.display = hasMultiple ? 'flex' : 'none'
+  if (!hasMultiple) return
+  for (let i = 0; i < count; i++) {
+    const opt = document.createElement('option')
+    opt.value = String(i)
+    opt.textContent = i === 0 ? `0 (plains)` : `${i} ⚠`
+    if (i === activeFgVariant) opt.selected = true
+    selFgVar.appendChild(opt)
+  }
+  selFgVar.value = String(activeFgVariant)
+}
+
+selFgVar.addEventListener('change', () => {
+  activeFgVariant = parseInt(selFgVar.value)
+  applyFgVariant(activeFgVariant)
   buildSwatches()
   redraw()
 })
@@ -416,9 +470,14 @@ window.addEventListener('message', (event) => {
     selBpp.value = String(activeBpp)
     activeTiles = decodeTiles(payload.rawBytes, activeBpp)
 
+    // Initialize FG variant (start at 0 for each new file)
+    activeFgVariant = 0
+    applyFgVariant(0)
+
     gfxId.textContent       = `GFX ${payload.gfxHex}`
     tileCountEl.textContent = `(${activeTiles.length} tiles)`
     buildPaletteSelector()
+    buildFgVariantSelector()
     buildSwatches()
     redraw()
 

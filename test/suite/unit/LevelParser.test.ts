@@ -49,18 +49,22 @@ describe('parseLevelObjects — header', () => {
 
 describe('parseLevelObjects — standard 2-byte objects', () => {
   it('parses a single standard object after 5-byte header', () => {
-    // b0 = 0x3A → y=3, x=10(0xA)
-    // b1 = 0x52 → objectType=5, param=2
+    // b0 = 0x3A → yNibble=3, x=10(0xA)
+    // b1 = 0x52 → param=5 (high nibble), objectType=2 (low nibble)
+    //
+    // SMW standard objects: Y nibble 0–12 encodes EVEN tile rows (0,2,4,…24).
+    // y = yNibble * 2 = 3 * 2 = 6  (tile row 6 out of 27)
+    // This matches Lunar Magic's coordinate display and the ObjectExpander grid.
     const buf = makeLevel(ZERO_HEADER, [0x3A, 0x52])
     const { objects } = parseLevelObjects(buf)
     expect(objects).toHaveLength(1)
     const obj = objects[0]
     expect(obj.type).toBe('standard')
     expect(obj.screen).toBe(0)
-    expect(obj.y).toBe(3)
+    expect(obj.y).toBe(6)   // yNibble=3 → tile row = 3 * 2 = 6
     expect(obj.x).toBe(10)
-    expect(obj.objectType).toBe(5)
-    expect(obj.param).toBe(2)
+    expect(obj.objectType).toBe(2)   // b1 low nibble
+    expect(obj.param).toBe(5)        // b1 high nibble
     expect(obj.raw).toEqual([0x3A, 0x52])
   })
 

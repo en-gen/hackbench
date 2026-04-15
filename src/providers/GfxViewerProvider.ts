@@ -16,7 +16,7 @@
 import * as vscode from 'vscode'
 import { SmwRom } from '../rom/SmwRom'
 import { GFX_FILE_COUNT, GFX_MARIO_3BPP_INDEX, loadGfxFile, loadGfxRaw } from '../rom/GfxLoader'
-import { loadRomPalettes, buildLevelCgram } from '../rom/PaletteLoader'
+import { loadRomPalettes, buildLevelCgram, loadCustomLevelPalette, RgbaRow } from '../rom/PaletteLoader'
 
 /**
  * Guess the most useful palette row to display for a given GFX file index.
@@ -95,10 +95,35 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
       const sheet     = loadGfxFile(rom.rom, gfxIndex)
       const tilePixels = sheet.map(tile => Array.from(tile))
 
-      // Build 16 CGRAM rows of RGBA colors from ROM palettes (default variants)
-      const romPalettes = loadRomPalettes(rom.rom)
-      const cgram = buildLevelCgram(romPalettes, 0, 0, 0)
-      const paletteRows = cgram.rows.map(row => row.map(c => Array.from(c)))
+      // Build 16 CGRAM rows from ROM palettes (FG variant 0 baseline).
+      // Also build rows 2–3 for each available FG variant so the webview can
+      // let the user switch between level types (plains, underground, castle…).
+      // Variants 1–5 are loaded from the intermediate region ($B1C0+); their
+      // addresses are unverified — use fg_palette_source.lua to confirm.
+      const PREVIEW_LEVEL = 0x025
+      const romPalettes   = loadRomPalettes(rom.rom)
+      const customPalette = loadCustomLevelPalette(rom.rom, PREVIEW_LEVEL)
+
+      // Base CGRAM (variant 0 for all groups)
+      const baseCgram = customPalette
+        ? customPalette.rows
+        : buildLevelCgram(romPalettes, 0, 0, 0).rows
+      const paletteRows = baseCgram.map(row => row.map(c => Array.from(c)))
+
+      // FG variants: rows 2 and 3 for each variant (0–5)
+      // Sent as [[row2, row3], [row2, row3], …] indexed by variant number.
+      const fg0Group = romPalettes.groups.find(g => g.id === 'fg0')
+      const fg1Group = romPalettes.groups.find(g => g.id === 'fg1')
+      const fgVariantCount = Math.min(
+        fg0Group?.variants.length ?? 1,
+        fg1Group?.variants.length ?? 1,
+      )
+      const fgVariants: number[][][][] = []
+      for (let v = 0; v < fgVariantCount; v++) {
+        const r2 = (fg0Group?.variants[v]?.rows[0] ?? baseCgram[2]) as RgbaRow
+        const r3 = (fg1Group?.variants[v]?.rows[0] ?? baseCgram[3]) as RgbaRow
+        fgVariants.push([r2.map(c => Array.from(c)), r3.map(c => Array.from(c))])
+      }
 
       webview.postMessage({
         type: 'load',
@@ -107,6 +132,7 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
         tilePixels,
         tileCount:        tilePixels.length,
         paletteRows,
+        fgVariants,           // [[row2, row3], …] per FG variant 0–N
         suggestedPaletteRow: _suggestPaletteRow(gfxIndex),
         // Raw decompressed bytes — sent so the webview can re-decode client-side
         // when the user toggles the 3bpp / 4bpp selector.

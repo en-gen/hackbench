@@ -89,7 +89,13 @@ bank = ROM[$00B9F6 + N]
 snesAddr = (bank << 16) | (hi << 8) | lo
 ```
 
-⚠ **Unknown:** Documentation confirms 32 entries (files 00–1F hex). It is not confirmed whether the same tables extend to cover files 20–33 hex (decimal 32–51) or whether separate tables exist for those. **Needs verification via Mesen or Lunar Magic source.**
+**Pointer table range:** The pointer tables at $B992/$B9C4/$B9F6 have exactly 50 entries each (spacing $32 = 50 bytes between lo/hi/bank tables). Our code sets `GFX_FILE_COUNT = 50` (indices 0–49, LM names GFX00–GFX31 hex). The last two files in the 52-file LM count (LM GFX32 = decimal 50, LM GFX33 = decimal 51) may use separate pointer storage or may not exist in vanilla — **needs verification**.
+
+**Naming convention:** LM uses hex file names. Decimal index 32 = LM "GFX20", decimal 33 = LM "GFX21", etc. Our code uses decimal indices throughout.
+
+**Static files always loaded regardless of tileset:**
+- Decimal index 32 (LM GFX20): Mario/Luigi sprite sheet (3bpp) → VRAM `an2` slot, chars $200–$27F
+- Decimal index 33 (LM GFX21): Animated tile graphics (larger file, ~12 KB) → VRAM `bg1` slot, chars $280–$2FF ⚠ slot assignment unverified
 
 ### Tile Format by File
 
@@ -210,49 +216,73 @@ Terminator: `$FF`
 
 ### Pointer Tables
 
-| SNES Address | Contents | Size |
-|---|---|---|
-| $05E000 | Layer 1 object data pointers (lo/hi/bank) | 3 × 0x200 = 1536 bytes |
-| $05E600 | Layer 2 data pointers (lo/hi/bank) | 3 × 0x200 = 1536 bytes |
-| $05EC00 | Sprite data pointers (lo/hi/bank) | 3 × 0x200 = 1536 bytes |
+Each table is 512 entries × 3 bytes = 1536 bytes. Each entry is a 24-bit SNES address stored little-endian (lo, hi, bank).
 
-**Note:** If Layer 2 pointer bank byte = $FF, the data is a background tilemap, not object data.
+| SNES Address | Contents |
+|---|---|
+| $05E000 | Layer 1 object data pointers |
+| $05E600 | Layer 2 data pointers |
+| $05EC00 | Sprite data pointers |
+
+**Layer 2 bank byte:** If the bank byte of the L2 pointer entry is `$FF`, the pointed-to data is a **background tilemap** compressed in LC_RLE1. Otherwise it is object data in the same format as Layer 1 (but without a primary header — objects start at byte 0).
 
 ### Primary Level Header (5 bytes, start of Layer 1 object data)
 
+**Confirmed via Mesen2 write watchpoints on live SMW:**
+
 ```
-Byte 1 (h[0]): BBBLLLLL   BBB = BG palette (3 bits)    LLLLL = level length in screens – 1
-Byte 2 (h[1]): CCCOOOOO   CCC = back area color (3 bits) OOOOO = level mode (5 bits)
-Byte 3 (h[2]): 3MMMSSSS   3 = Layer 3 priority flag    MMM = music (3 bits)   SSSS = sprite GFX setting (4 bits)
-Byte 4 (h[3]): TTPPPFFF   TT = timer (2 bits)          PPP = sprite palette (3 bits) FFF = FG palette (3 bits)
-Byte 5 (h[4]): IIVVZZZZ   II = item memory (2 bits)    VV = vertical scroll (2 bits) ZZZZ = FG/BG GFX selection (4 bits)
+Byte 0 (h[0]): BBBLLLLL   BBB = BG palette row variant [7:5]   LLLLL = level length in screens – 1 [4:0]
+Byte 1 (h[1]): CCCOOOOO   CCC = back area color index [7:5]    OOOOO = level mode [4:0]
+Byte 2 (h[2]): 3MMMSSSS   3 = Layer 3 priority flag [7]        MMM = music [6:4]   SSSS = (unused/mode bits) [3:0]
+Byte 3 (h[3]): TTPPSSSS   TT = timer [7:6]   PP = sprite palette [5:4]   SSSS = sprite set [3:0]
+Byte 4 (h[4]): IIVVZZZZ   II = item memory [7:6]   VV = vertical scroll [5:4]   ZZZZ = bgTypeId [3:0]
 ```
 
-⚠ **Caution:** Our code's byte 3/4 field assignments were partially derived from Mesen watchpoints on a single level (Yoshi's Island 1) and may conflict with the above. The speedruns wiki layout above is the documented standard. Cross-check before relying on spritePalette/spriteSet field positions.
+Field notes:
+- **BG palette** (h[0] bits 7–5): selects CGRAM rows 0–1 variant; 3 bits → values 0–7
+- **Back area color** (h[1] bits 7–5): indexes into the 8 back area colors at $B0A0; 3 bits → values 0–7
+- **Sprite set** (h[3] bits 3–0): 4-bit index into sprite GFX assignment table at $A8C3; also used to look up tileset ID via $05D760
+- **Sprite palette** (h[3] bits 5–4): 2-bit index into sprite palette sets at $B348
+- **bgTypeId** (h[4] bits 3–0): background type/tileset selector — NOT the GFX tileset index. The GFX tileset index is obtained via `ROM[$05D760 + spriteSet]`.
+- **FG palette** (derived): `spriteSet & 0x07` — lower 3 bits of sprite set field select the FG tile palette variant
+
+Note: the speedruns.com/Level_Data_Format wiki lists slightly different byte 3/4 field assignments (PPP=3-bit sprite palette, FFF=3-bit FG palette). Our layout is confirmed by Mesen2 watchpoints on $7E:192B (spriteSet) and visual palette comparison on multiple levels.
 
 ### GFX Assignment Tables
 
 | SNES Address | Contents |
 |---|---|
-| $00A8C3 | Sprite GFX: 4 bytes per sprite set (SP1–SP4 file indices). Index by `spriteGFXSetting` from header byte 3 bits 3–0 |
-| $00A92B | FG/BG GFX: 4 bytes per tileset (FG1–FG4 file indices). Index by tileset ID from $05D760 lookup |
-| $05D760 | Tileset ID lookup: ROM[$05D760 + spriteGFXSetting] → tileset index for $00A92B |
+| $00A8C3 | Sprite GFX: 4 bytes per sprite set → SP1, SP2, SP3, SP4 GFX file indices (reverse load order: byte[3]=SP1 … byte[0]=SP4) |
+| $00A92B | FG/BG GFX: 4 bytes per tileset → FG1, FG2, FG3, AnimFG file indices (same reverse order) |
+| $05D760 | Tileset ID lookup: `ROM[$05D760 + spriteSet]` → tilesetId for indexing $00A92B |
 
-### Object Data Format
+### Object Data Format (L1 and L2)
 
-**Standard object (3 bytes):**
+**Standard 2-byte object** (when first byte's high nibble ≤ 0x0C):
 ```
-Byte 1: NBBYYYYY  N=new screen  B=object ID high bits  Y=row
-Byte 2: bbbbXXXX  b=object ID low bits  X=column
-Byte 3: SSSSSSSS  settings (height/width, object-specific)
-Terminator: $FF
+Byte 0: YYYYXXXX   YYYY = y tile position (rows 0–12)   XXXX = x position within screen
+Byte 1: TTTTPPPP   TTTT = object type (high nibble)     PPPP = param / size (low nibble)
 ```
 
-### Background / Layer 2 Data
+**Extended 3-byte object** (when first byte's high nibble = 0x0D–0x0F):
+```
+Byte 0: 1110XXXX   high nibble flags extended; low = x
+Byte 1: 00YYYYYY   y position (6-bit)
+Byte 2: EEEEEEEE   extended object type (added to 0x100)
+```
 
-Compressed in LC_RLE1 format:
-- Header byte `FLLLLLLL`: F=0 → (L) literal bytes; F=1 → repeat next byte (L) times
+**Screen boundary:** `$FF $FF` advances the current screen counter by 1.
+**Terminator:** lone `$FF` ends the object stream.
+
+Layer 2 object data begins at byte 0 of the pointed-to block (no 5-byte primary header).
+
+### Layer 2 Background Tilemap (when L2 bank byte = $FF)
+
+Compressed with **LC_RLE1**:
+- Header byte `FLLLLLLL`: F=0 → copy next (L+1) literal bytes; F=1 → repeat next byte (L+1) times
 - Terminator: `$FF $FF`
+
+Decompressed data is a flat array of 16-bit Map16 tile IDs covering the full level grid (screens × 16 columns × 27 rows), stored row-major. **Not yet implemented** — currently we only handle object-based L2.
 
 ---
 

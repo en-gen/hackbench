@@ -108,14 +108,81 @@ export function parseLevelObjects(data: Buffer): Omit<ParsedLevel, 'sprites'> {
         type: 'standard',
         screen,
         x: screen * SCREEN_W + (b0 & 0xF),
-        y: yNibble,
-        objectType: (b1 >> 4) & 0xF,
-        param: b1 & 0xF,
+        y: yNibble * 2,          // Y nibble 0–12 = every other row; ×2 → tile rows 0,2,4…24
+        objectType: b1 & 0xF,   // low nibble = object type (SSSSOOOO format)
+        param: (b1 >> 4) & 0xF, // high nibble = size/extension parameter
         raw: [b0, b1],
       })
       pos += 2
     } else {
       // Extended 3-byte object
+      if (pos + 2 >= data.length) break
+      const b1 = data[pos + 1]
+      const b2 = data[pos + 2]
+      objects.push({
+        type: 'extended',
+        screen,
+        x: screen * SCREEN_W + (b0 & 0xF),
+        y: b1 & 0x3F,  // 6-bit Y; extended objects use tile-row units directly (no ×2)
+        objectType: 0x100 + b2,
+        param: 0,
+        raw: [b0, b1, b2],
+      })
+      pos += 3
+    }
+  }
+
+  return { header, objects, screens: screen + 1 }
+}
+
+/**
+ * Parse Layer 2 background objects from the L2 data stream.
+ *
+ * L2 data starts at byte 0 — there is no primary header (the screen count is
+ * inherited from the L1 header). Object format is identical to L1:
+ *   - 2-byte standard objects (y nibble 0x0–0xC)
+ *   - 3-byte extended objects (y nibble 0xD–0xF)
+ *   - 0xFF 0xFF = screen boundary increment
+ *   - lone 0xFF = end of object data
+ *
+ * @param data    Raw bytes at the L2 pointer address
+ * @param screens Screen count from the L1 header (header.levelLength + 1)
+ */
+export function parseL2Objects(data: Buffer, screens: number): LevelObject[] {
+  const objects: LevelObject[] = []
+  let pos = 0   // no header — L2 object data begins at byte 0
+  let screen = 0
+
+  while (pos < data.length && screen < screens) {
+    const b0 = data[pos]
+    if (b0 === undefined) break
+
+    if (b0 === 0xFF) {
+      if (pos + 1 < data.length && data[pos + 1] === 0xFF) {
+        screen++
+        pos += 2
+      } else {
+        break   // lone 0xFF = terminator
+      }
+      continue
+    }
+
+    const yNibble = (b0 >> 4) & 0xF
+
+    if (yNibble <= 0x0C) {
+      if (pos + 1 >= data.length) break
+      const b1 = data[pos + 1]
+      objects.push({
+        type: 'standard',
+        screen,
+        x: screen * SCREEN_W + (b0 & 0xF),
+        y: yNibble * 2,
+        objectType: b1 & 0xF,
+        param: (b1 >> 4) & 0xF,
+        raw: [b0, b1],
+      })
+      pos += 2
+    } else {
       if (pos + 2 >= data.length) break
       const b1 = data[pos + 1]
       const b2 = data[pos + 2]
@@ -132,7 +199,50 @@ export function parseLevelObjects(data: Buffer): Omit<ParsedLevel, 'sprites'> {
     }
   }
 
-  return { header, objects, screens: screen + 1 }
+  return objects
+}
+
+/**
+ * Reads the per-screen secondary exit table stored after the object stream terminator
+ * in a Lunar Magic-extended level data block.
+ *
+ * Returns an array of secondary entrance indices, indexed by screen number.
+ * An index of 0 means no exit for that screen and should be ignored by the caller.
+ *
+ * Format: 2 bytes per screen immediately after the lone $FF object-stream terminator.
+ *   lo byte:  secondary entrance index bits [7:0]
+ *   hi byte:  bit 0 (h) = index bit [8]; remaining bits are LM flags
+ *
+ * ⚠ Format is a Lunar Magic convention — not documented in vanilla SMW disassembly.
+ *   Callers should validate extracted indices against the secondary entrance table.
+ */
+export function parseLevelScreenExits(data: Buffer, screens: number): number[] {
+  // Walk the object stream (starting after the 5-byte primary header) to find
+  // the position of the lone $FF terminator.
+  let pos = 5
+  while (pos < data.length) {
+    const b = data[pos]
+    if (b === undefined) break
+    if (b === 0xFF) {
+      if (pos + 1 < data.length && data[pos + 1] === 0xFF) {
+        pos += 2  // screen boundary — skip
+      } else {
+        pos += 1  // lone $FF — terminator; exit table starts here
+        break
+      }
+    } else {
+      pos += (((b >> 4) & 0xF) <= 0x0C) ? 2 : 3
+    }
+  }
+
+  const exits: number[] = []
+  for (let s = 0; s < screens && pos + 1 < data.length; s++) {
+    const lo = data[pos]!
+    const hi = data[pos + 1]!
+    exits.push(((hi & 0x01) << 8) | lo)
+    pos += 2
+  }
+  return exits
 }
 
 export function parseLevelSprites(data: Buffer): LevelSprite[] {

@@ -1,11 +1,11 @@
 import * as vscode from 'vscode'
 import { RomSession } from '../RomSession'
 import { GFX_FILE_COUNT } from '../rom/GfxLoader'
-import { isOverworldLevel } from '../rom/SmwRom'
+import { getVanillaLevelName } from '../rom/SmwLevelNames'
 
 // ── Tree item types ───────────────────────────────────────────────────────────
 
-type TreeItem = RomInfoItem | SectionFolder | LevelItem | PaletteItem | GfxFileItem | PlaceholderItem
+type TreeItem = RomInfoItem | SectionFolder | LevelFolder | LevelItem | RoomItem | PaletteItem | GfxFileItem | PlaceholderItem
 
 /** Non-interactive header item showing ROM identity. */
 class RomInfoItem extends vscode.TreeItem {
@@ -38,21 +38,75 @@ class SectionFolder extends vscode.TreeItem {
   }
 }
 
+type LevelGroup = 'overworld' | 'sub-area'
+
 class LevelItem extends vscode.TreeItem {
   constructor(
     public readonly index: number,
     slug: string,
+    displayName?: string,
+    group: LevelGroup = 'overworld',
   ) {
     const hex = index.toString(16).toUpperCase().padStart(3, '0')
-    super(`Level $${hex}`, vscode.TreeItemCollapsibleState.None)
-    this.description = hex
-    this.iconPath = new vscode.ThemeIcon('symbol-field')
+    super(displayName ?? `$${hex}`, vscode.TreeItemCollapsibleState.None)
+    this.description = displayName ? `$${hex}` : undefined
+
+    this.iconPath = new vscode.ThemeIcon(group === 'sub-area' ? 'symbol-namespace' : 'symbol-field')
     this.command = {
       command: 'vscode.open',
       title: 'Open Level',
       arguments: [vscode.Uri.parse(`smwrom:/${slug}/levels/${hex}.smwlevel`)]
     }
-    this.contextValue = 'smwLevel'
+    this.contextValue = `smwLevel_${group}`
+  }
+}
+
+/**
+ * Collapsible folder for a named level.  Expands to show the entrance room
+ * plus any sub-rooms reached via screen-exit objects.
+ */
+class LevelFolder extends vscode.TreeItem {
+  readonly childIndices: number[]
+
+  constructor(
+    public readonly index: number,
+    public readonly slug: string,
+    displayName?: string,
+    childIndices: number[] = [],
+    group: LevelGroup = 'overworld',
+  ) {
+    const hex = index.toString(16).toUpperCase().padStart(3, '0')
+    super(
+      displayName ?? `$${hex}`,
+      childIndices.length > 0
+        ? vscode.TreeItemCollapsibleState.Collapsed
+        : vscode.TreeItemCollapsibleState.Collapsed,  // always collapsible (has entrance)
+    )
+    this.description    = displayName ? `$${hex}` : undefined
+    this.iconPath       = new vscode.ThemeIcon(group === 'sub-area' ? 'symbol-namespace' : 'symbol-field')
+    this.contextValue   = `smwLevelFolder_${group}`
+    this.childIndices   = childIndices
+  }
+}
+
+/** Leaf node representing a single room/area inside a level folder. */
+class RoomItem extends vscode.TreeItem {
+  constructor(
+    index: number,
+    slug: string,
+    label: string,
+    role: 'entrance' | 'sub',
+  ) {
+    const hex = index.toString(16).toUpperCase().padStart(3, '0')
+    super(label, vscode.TreeItemCollapsibleState.None)
+    this.description  = `$${hex}`
+    this.iconPath     = new vscode.ThemeIcon(role === 'entrance' ? 'home' : 'symbol-namespace')
+    this.command      = {
+      command: 'vscode.open',
+      title:   'Open Room',
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/levels/${hex}.smwlevel`)]
+    }
+    this.contextValue = `smwRoom_${role}`
   }
 }
 
@@ -118,39 +172,67 @@ export class RomExplorerProvider implements vscode.TreeDataProvider<TreeItem> {
     }
 
     if (element instanceof SectionFolder) return element.children
+    if (element instanceof LevelFolder) {
+      const entrance = new RoomItem(element.index, element.slug, 'Entrance', 'entrance')
+      const subRooms = element.childIndices.map((ci) => {
+        const hex  = ci.toString(16).toUpperCase().padStart(3, '0')
+        const name = getVanillaLevelName(ci) ?? `$${hex}`
+        return new RoomItem(ci, element.slug, name, 'sub')
+      })
+      return [entrance, ...subRooms]
+    }
     return []
   }
 
   private _buildRoot(slug: string): TreeItem[] {
     const rom = this.session!.rom
 
-    // ── Levels ────────────────────────────────────────────────────────────────
-    // SMW overworld-accessible levels live in two pointer table ranges:
-    //   $000–$024  Main overworld (translevel $00–$24)
-    //   $101–$13B  Submaps        (translevel $25–$5F, mapped via +$DC)
-    // Slots $025–$0FF and $13C–$1FF are secondary exits (doors, pipes,
-    // subareas) and are NOT directly accessible from the overworld.
-    // See docs/smw-overworld-levels.md for derivation.
-    // Deduplicate by L1 pointer address: some overworld exit tiles (normal +
-    // secret) lead to the same room. We keep the first occurrence (lowest
-    // room index) so each unique level appears exactly once.
-    const seenPointers = new Set<number>()
-    const levelItems = rom.getAllLevelPointers()
-      .filter(p => isOverworldLevel(p.index))
-      .filter(p => {
-        if (p.address === null) return false
-        if (seenPointers.has(p.address)) return false
-        const data = rom.getLevelRawData(p.index)
-        if (!data || data.length <= 5) return false
-        const levelMode = data[1] & 0x1F
-        if (levelMode > 20) return false
-        seenPointers.add(p.address)
-        return true
-      })
-      .map(p => new LevelItem(p.index, slug))
+    // ── Build exit graph and classify levels ─────────────────────────────────
+    const exitGraph = rom.buildLevelExitGraph()
+
+    // BFS from all valid levels to find what's transitively claimed as a child
+    const { overworld: overworldIndices, subarea: subareaIndices } = rom.classifyLevels()
+
+    // BFS: find all levels transitively reachable from any overworld level via exits
+    const claimed = new Set<number>()
+    const queue = [...overworldIndices]
+    const visitedBfs = new Set<number>(queue)
+    while (queue.length > 0) {
+      const lvl = queue.shift()!
+      const children = exitGraph.get(lvl) ?? []
+      for (const child of children) {
+        if (!visitedBfs.has(child)) {
+          visitedBfs.add(child)
+          claimed.add(child)
+          queue.push(child)
+        }
+      }
+    }
+
+    const overworldItems = overworldIndices.map(index =>
+      new LevelFolder(
+        index, slug,
+        getVanillaLevelName(index),
+        exitGraph.get(index) ?? [],
+        'overworld',
+      )
+    )
+
+    // Sub-areas folder: only levels NOT claimed as children of any overworld level
+    const subareaItems = subareaIndices
+      .filter(index => !claimed.has(index))
+      .map(index => new LevelItem(index, slug, getVanillaLevelName(index), 'sub-area'))
+
     const levelsFolder = new SectionFolder(
-      `Levels  (${levelItems.length})`, 'levels', 'symbol-field', levelItems,
-      false,  // expanded
+      `Levels  (${overworldItems.length})`,
+      'levels', 'symbol-field', overworldItems,
+      false,  // expanded by default
+    )
+
+    const subareasFolder = new SectionFolder(
+      `Sub-areas  (${subareaItems.length})`,
+      'subareas', 'symbol-namespace', subareaItems,
+      true,   // collapsed by default
     )
 
     // ── Palettes ──────────────────────────────────────────────────────────────
@@ -182,6 +264,6 @@ export class RomExplorerProvider implements vscode.TreeDataProvider<TreeItem> {
     )
 
     const infoItem = new RomInfoItem(this.session!.summary)
-    return [infoItem, levelsFolder, palettesFolder, gfxFolder, asmFolder, musicFolder]
+    return [infoItem, levelsFolder, subareasFolder, palettesFolder, gfxFolder, asmFolder, musicFolder]
   }
 }

@@ -4,97 +4,114 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-A VS Code extension for editing Super Mario World (SNES) ROM files. Treats the ROM as a virtual filesystem — opening a ROM mounts it as a navigable folder tree in VS Code. Custom editors handle level viewing/editing.
-
-See `docs/` for deeper documentation:
-- `docs/architecture.md` — extension model, virtual FS, provider structure, webview messaging
-- `docs/rom-format.md` — SMW binary structures (LoROM mapping, level pointers, GFX, palettes)
-- `docs/level-rendering.md` — current renderer state and full pipeline plan
+A VS Code extension for editing Super Mario World (SNES) ROM files. Opening a ROM mounts it as a navigable virtual folder tree. Custom editors handle level, palette, and GFX tile-sheet viewing/editing.
 
 ## Branch strategy
 
-- `master` — do not commit here
-- `develop` — integration base; all feature branches merge here
+- `master` — do not commit here directly
+- `develop` — integration base; all PRs target here
 - `feature/*` — branch off `develop`, one concern per branch
+- After merging a PR: `git checkout develop && git pull origin develop && git checkout -b feature/<next>`
 
 Do not add `Co-Authored-By: Claude` lines to commits.
 
 ## Commands
 
 ```bash
-npm install            # install dependencies
-npm run compile        # build extension + webviews (webpack, dev mode)
-npm run watch          # rebuild on file changes (use during development)
-npm run package        # production build
-npm run lint           # ESLint src/ (TypeScript)
+npm run compile        # webpack dev build — extension + all four webview bundles
+npm run watch          # rebuild on save
+npm run package        # production build (minified, hidden source maps)
+npm run lint           # ESLint src/ (.ts files)
 npm run lint:fix       # auto-fix
-npm run test:unit      # Vitest unit tests
+npm run test:unit      # Vitest unit tests (single run)
 npm run test:unit:watch
 ```
 
-To run the extension in VS Code: open the repo, press **F5** (launches Extension Development Host).
+To run a single test file: `npx vitest run test/suite/unit/GraphicsDecoder.test.ts`
+
+To launch the extension: **F5** in VS Code (Extension Development Host).
 
 ## Architecture
 
-### Extension host (Node.js)
+### Extension host (`src/`)
 
 ```
-src/extension.ts          — activate(); registers all providers and commands
-src/RomSession.ts         — holds the open SmwRom instance + slug for the session
-src/rom/                  — pure ROM parsing, no VS Code dependency
-  addressing.ts           — LoROM address ↔ file offset mapping
-  RomFile.ts              — binary ROM wrapper with SNES-addressed reads
-  SmwRom.ts               — SMW-specific pointer tables, header validation
-  LevelParser.ts          — layer-1 object + sprite stream parser
-  GraphicsDecoder.ts      — 3BPP/4BPP tile decoder, BGR555 palette decoder
-src/providers/
-  SmwFileSystemProvider.ts  — vscode.FileSystemProvider for smwrom:// URIs
-  RomExplorerProvider.ts    — TreeDataProvider for the SMW Explorer sidebar
-  LevelEditorProvider.ts    — CustomReadonlyEditorProvider for .smwlevel files
+extension.ts              — activate(); registers all providers and commands
+RomSession.ts             — holds the open SmwRom + URI slug for the session
+rom/                      — pure ROM parsing, zero VS Code dependency
+providers/                — VS Code integration layer (FileSystem, TreeView, editors)
+webview/                  — sandboxed browser bundles, one subfolder per editor
 ```
+
+### ROM parsing layer (`src/rom/`)
+
+All modules are plain TypeScript with no VS Code imports — independently testable.
+
+| File | Purpose |
+|------|---------|
+| `addressing.ts` | LoROM SNES address ↔ file offset conversion |
+| `RomFile.ts` | Binary ROM wrapper; all reads go through SNES-addressed helpers |
+| `SmwRom.ts` | SMW pointer tables, level list, header parsing |
+| `LcLz2.ts` | LC_LZ2 decompressor (used for all GFX files) |
+| `GfxLoader.ts` | GFX file loading: pointer tables → decompress → decode tiles into VRAM slots |
+| `GraphicsDecoder.ts` | 2BPP/3BPP/4BPP tile decoders; BGR555 → RGBA conversion |
+| `PaletteLoader.ts` | ROM palette groups → CGRAM rows |
+| `LevelParser.ts` | Layer-1 object + sprite stream parser; level header |
+| `ObjectExpander.ts` | Level object → 2D Map16 tile grid |
 
 ### Virtual filesystem
 
-When a ROM is opened, `SmwFileSystemProvider` mounts it at `smwrom://<slug>/`:
+Opening a ROM mounts `smwrom://<slug>/`. Each virtual file is a small JSON descriptor; the editor provider reads it and fetches actual ROM data on demand.
+
 ```
 smwrom://<slug>/
-  levels/
-    000.smwlevel    ← JSON descriptor; opens in LevelEditorProvider
-    001.smwlevel
-    ...
-```
-Each `.smwlevel` "file" contains `{ romPath, levelIndex }`. The editor reads it, loads the actual binary data from the ROM, and sends it to the webview.
-
-### Webview layer
-
-Webviews are sandboxed HTML/JS pages bundled by webpack to `dist/webview/`.
-
-```
-src/webview/
-  levelEditor/main.ts     — webview entry; receives parsed level, calls renderLevel()
-  shared/levelRenderer.ts — Canvas renderer (no VS Code dep; usable in any browser ctx)
+  levels/000.smwlevel     ← { romPath, levelIndex }
+  palettes/global.smwpalette
+  gfx/GFX00.smwgfx        ← { romPath, gfxIndex }
 ```
 
-**Message protocol** (`LevelEditorProvider` ↔ webview):
+### Providers (`src/providers/`)
+
+| Provider | Virtual file | Editor |
+|----------|-------------|--------|
+| `SmwFileSystemProvider` | — | Implements `vscode.FileSystemProvider` for `smwrom://` |
+| `RomExplorerProvider` | — | TreeDataProvider sidebar |
+| `LevelEditorProvider` | `.smwlevel` | Level tile grid + object/sprite overlay |
+| `PaletteEditorProvider` | `.smwpalette` | Palette group browser |
+| `GfxViewerProvider` | `.smwgfx` | Tile sheet viewer |
+
+### Webview layer (`src/webview/`)
+
+Webpack bundles each editor's `main.ts` into `dist/webview/<name>.js`. All communication is via `postMessage`.
+
+**Standard protocol:**
 - Webview → Extension: `{ type: 'ready' }` on mount
-- Extension → Webview: `{ type: 'load', level, levelIndex }` or `{ type: 'error', message }`
+- Extension → Webview: `{ type: 'load', ...payload }` or `{ type: 'error', message }`
+
+**GFX viewer payload** also includes `rawBytes` (decompressed tile data) and `defaultBpp` so the webview can re-decode client-side when the BPP selector changes.
 
 ### Adding a new editor
 
-1. Add a new `filenamePattern` entry in `contributes.customEditors` in `package.json`
-2. Create `src/providers/MyEditorProvider.ts` implementing `CustomReadonlyEditorProvider`
-3. Create `src/webview/myEditor/main.ts` as the webview entry point
-4. Add the webview entry to `webpack.config.js`
-5. Register the provider in `src/extension.ts`
+1. `package.json` → `contributes.customEditors`: add filename pattern
+2. `src/providers/MyEditorProvider.ts` — implement `CustomReadonlyEditorProvider`
+3. `src/webview/myEditor/main.ts` — webview entry
+4. `webpack.config.js` — add entry to the webview configs array
+5. `src/extension.ts` — register provider in `activate()`
 
-### Key SNES/SMW domain facts
+## GFX / graphics domain
 
-- SMW is **LoROM**: SNES `$XXYYYY` → offset `(bank & 0x7F) * 0x8000 + (addr - 0x8000)`. Banks `$7E–$7F` = WRAM, not in file.
-- Copier header: 512 bytes prepended in some `.smc` files. Detected by `fileSize % 1024 === 512`.
-- Level pointers: lo/hi/bank split tables at `$05E000` / `$05E200` / `$05E400`.
-- Palettes: BGR555 — `r=(v&0x1F)<<3`, `g=((v>>5)&0x1F)<<3`, `b=((v>>10)&0x1F)<<3`.
-- Map16 tiles: 16×16 definitions at `$0D8000` (lo) / `$0DC000` (hi).
+- **50 GFX files** (GFX00–GFX31 hex = indices 0–49). Pointer tables at `$00B992` (lo), `$00B9C4` (hi), `$00B9F6` (bank).
+- **3BPP is the default format** for standard 3072-byte files (128 tiles, fills a VRAM slot exactly). Only files whose decompressed size divides by 32 but not by 24 are 4BPP. 2BPP is used for some BG Layer 2 files. Auto-detected in `GfxLoader.loadGfxFile()`.
+- **VRAM slots**: fg1=`$000`, fg2=`$080`, fg3=`$100`, an1=`$180`, an2=`$200`, bg1=`$280` (128 chars each).
+- **Palettes**: BGR555 — bit-replicate for accurate range: `(c5 << 3) | (c5 >> 2)`. 16 CGRAM rows: rows 0–1 BG, 2–3 FG terrain, 4–8 sprites, 13 player (Mario).
 
-### ROM/patch files
+## Key SNES/SMW domain facts
 
-`*.smc`, `*.sfc`, `*.rom`, `*.ips`, `*.bps`, `test/roms/` are gitignored. **Never commit ROM or patch files.**
+- **LoROM**: SNES `$XXYYYY` → file offset `(bank & 0x7F) * 0x8000 + (addr & 0x7FFF)`. Banks `$7E–$7F` = WRAM (not in ROM file).
+- **Copier header**: 512 bytes prepended in some `.smc` files — detected by `fileSize % 1024 === 512`.
+- **Level pointers**: L1 (`$05E000`) and L2 (`$05E600`) use interleaved **3-byte** entries (lo, hi, bank) at `base + i*3`; `ptr = (bank<<16)|(hi<<8)|lo`. Sprites (`$05EC00`) use **2-byte** entries (lo, hi) at `base + i*2`; bank is always $07 implicit. L2 bank=$FF means a preset BG (65816 subroutine at bank $0D — not decodeable without CPU emulation).
+- **Map16**: 16×16 tile definitions at `$0D8000` (page 0) / `$0DC000` (page 1). Each entry = 4 words (TL, BL, TR, BR subtiles, column-major).
+
+## Files never to commit
+
+`*.smc`, `*.sfc`, `*.rom`, `*.ips`, `*.bps`, `test/roms/`, `test/magic/` are gitignored.

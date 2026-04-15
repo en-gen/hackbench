@@ -35,9 +35,13 @@ export const ADDR = {
   LEVEL_L2_PTR:     0x05E600,
 
   // Secondary entrance tables (midpoints, pipes, doors)
-  SEC_EXIT_LO:      0x05FA00,
-  SEC_EXIT_SCREEN:  0x05FC00,
-  SEC_EXIT_FLAGS:   0x05FE00,
+  SEC_EXIT_DEST:    0x05F800,  // 512 B — lo byte of destination level index
+  SEC_EXIT_LO:      0x05FA00,  // 512 B — BG/FG/Mario Y pos info
+  SEC_EXIT_SCREEN:  0x05FC00,  // 512 B — Mario X pos + destination screen#
+  SEC_EXIT_FLAGS:   0x05FE00,  // 512 B — slippery flag, dest level high bit, action
+
+  // Secondary entrance count
+  SEC_ENTRANCE_COUNT: 512,
 
   // Overworld tables
   OW_EXIT_DIRS:     0x04D678,   // 96 bytes, indexed by translevel
@@ -122,6 +126,17 @@ export class SmwRom {
     return (bk << 16) | (hi << 8) | lo
   }
 
+  getLevelL2Pointer(index: number): number | null {
+    // Same interleaved 3-byte layout as L1 pointers.
+    // If bank byte = $FF, the data is a background tilemap (LC_RLE1), not object data.
+    const base = ADDR.LEVEL_L2_PTR + index * 3
+    const lo = this.rom.readByte(base)
+    const hi = this.rom.readByte(base + 1)
+    const bk = this.rom.readByte(base + 2)
+    if (lo === null || hi === null || bk === null) return null
+    return (bk << 16) | (hi << 8) | lo
+  }
+
   getLevelSpritePointer(index: number): number | null {
     // Same interleaved 3-byte layout as L1 pointers.
     const base = ADDR.LEVEL_SPR_LOW + index * 3
@@ -186,5 +201,87 @@ export class SmwRom {
     if (!buf || buf.length < 4) return 0
     const spriteSet = buf[3] & 0x0F  // header byte 3 bits 3-0
     return this.rom.readByte(ADDR.TILESETID_TABLE + spriteSet) ?? 0
+  }
+
+  /**
+   * Classify all levels into overworld-accessible and sub-area groups.
+   *
+   * Overworld-accessible levels occupy two pointer table ranges:
+   *   $000–$024  (main overworld, 37 slots)
+   *   $101–$13B  (submaps, 59 slots)
+   * Everything else with valid object data is a sub-area (pipes, bonus rooms, etc.).
+   */
+  classifyLevels(): { overworld: number[]; subarea: number[] } {
+    const overworld: number[] = []
+    const subarea: number[] = []
+    const seenPointers = new Set<number>()
+
+    for (let i = 0; i < LEVEL_COUNT; i++) {
+      const ptr = this.getLevelL1Pointer(i)
+      if (!ptr) continue
+      if (seenPointers.has(ptr)) continue   // skip duplicate pointers (twin exits)
+
+      if (!this.levelHasObjects(i)) continue
+      seenPointers.add(ptr)
+
+      if (isOverworldLevel(i)) {
+        overworld.push(i)
+      } else {
+        subarea.push(i)
+      }
+    }
+
+    return { overworld, subarea }
+  }
+
+  /**
+   * Build an exit graph mapping each level index to the list of sub-levels
+   * it can reach via secondary exits (pipes, doors, screen exits).
+   *
+   * Reads the secondary entrance destination tables at $05F800 (lo byte) and
+   * $05FE00 (flags — bit 3 holds the high bit of the destination level index).
+   * Formula: destLevel = ((flags >> 3) & 1) << 8 | destLo
+   *
+   * Returns a Map<levelIndex, childLevelIndices[]>.
+   * Only links where the destination is a valid sub-area are included.
+   */
+  buildLevelExitGraph(): Map<number, number[]> {
+    // Build a fast set of valid sub-area destinations
+    const { subarea } = this.classifyLevels()
+    const validDestinations = new Set<number>(subarea)
+
+    // Read both secondary-entrance tables in one pass
+    const destTable  = this.rom.readAt(ADDR.SEC_EXIT_DEST,  ADDR.SEC_ENTRANCE_COUNT)
+    const flagsTable = this.rom.readAt(ADDR.SEC_EXIT_FLAGS, ADDR.SEC_ENTRANCE_COUNT)
+    if (!destTable || !flagsTable) return new Map()
+
+    // Map each destination level → set of source levels that reference it
+    // We need the reverse: for each *source* level, which destinations exist.
+    // Since object parsing to find screen-exit source levels is expensive,
+    // we use the pointer tables to map destination → the set of source levels
+    // that could reference it, then invert.
+    // Simpler approach: build dest→sourceLevel from what we can derive.
+    // For now, map each overworld level to destinations reachable from its
+    // secondary exit slots.  Secondary entrance n belongs to the level whose
+    // L1 pointer table slot is n — this is a 1:1 assignment in vanilla SMW.
+    const graph = new Map<number, number[]>()
+    const n = Math.min(destTable.length, flagsTable.length)
+    for (let entranceIdx = 0; entranceIdx < n; entranceIdx++) {
+      const flags   = flagsTable[entranceIdx]
+      const destLo  = destTable[entranceIdx]
+      if (flags === undefined || destLo === undefined) continue
+      const destLevel = (((flags >> 3) & 1) << 8) | destLo
+      if (!validDestinations.has(destLevel)) continue
+
+      // Map the entrance index as both the "source" level slot and destination.
+      // This gives a first-pass graph; the explorer only needs children per level.
+      const existing = graph.get(entranceIdx) ?? []
+      if (!existing.includes(destLevel)) {
+        existing.push(destLevel)
+        graph.set(entranceIdx, existing)
+      }
+    }
+
+    return graph
   }
 }

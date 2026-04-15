@@ -33,36 +33,41 @@ import { LevelObject, SCREEN_W, SCREEN_H } from './LevelParser'
 export const TILE_EMPTY   = 0
 export const TILE_UNKNOWN = 0
 
-// ── Common terrain Map16 IDs (vanilla SMW) ─────────────────────────────────────
-// Ground / dirt
-const T_GROUND_TL = 0x054   // ⚠ verify — top-left ground corner
-const T_GROUND_TM = 0x055   // top-middle ground
-const T_GROUND_TR = 0x056   // top-right ground corner
-const T_GROUND_ML = 0x074   // middle-left ground
-const T_GROUND_MM = 0x075   // middle (solid fill)
-const T_GROUND_MR = 0x076   // middle-right ground
-const T_GROUND_BL = 0x094   // bottom-left ground corner
-const T_GROUND_BM = 0x095   // bottom-middle ground
-const T_GROUND_BR = 0x096   // bottom-right ground corner
+// ── Common terrain Map16 IDs (vanilla SMW, confirmed via Lunar Magic Map16 editor) ──
+// Source: SMW Central Map16 tutorial — pages 00 and 01 are vanilla SMW default FG tiles.
+//
+// Ground / dirt  (3×3 tile set from page 01)
+const T_GROUND_TL = 0x145   // top-left corner
+const T_GROUND_TM = 0x100   // top-middle (regular ground surface)
+const T_GROUND_TR = 0x148   // top-right corner
+const T_GROUND_ML = 0x14B   // left wall
+const T_GROUND_MM = 0x03F   // dirt interior fill
+const T_GROUND_MR = 0x14C   // right wall
+const T_GROUND_BL = 0x14D   // bottom-left corner
+const T_GROUND_BM = 0x14E   // bottom surface (upside-down ground)
+const T_GROUND_BR = 0x14F   // bottom-right corner
 
 // Cement block / brick
-const T_CEMENT   = 0x012    // ⚠ verify — solid cement block
+const T_CEMENT   = 0x130    // solid cement block (acts as 130)
 const T_BRICK    = 0x011    // ⚠ verify — breakable brick
 
-// Pipe — correct Map16 IDs not yet identified.
-// $108-$10B in Map16 page 1 are all charNum=0 in vanilla SMW (wrong tiles).
-// Use TILE_UNKNOWN (0 = transparent) until correct IDs are found via Lunar Magic.
-const T_PIPE_TOP_L  = TILE_UNKNOWN
-const T_PIPE_TOP_R  = TILE_UNKNOWN
-const T_PIPE_BODY_L = TILE_UNKNOWN
-const T_PIPE_BODY_R = TILE_UNKNOWN
+// Pipe tile IDs (page 01, confirmed via Lunar Magic)
+// Non-exit vertical pipe top: $133 (left), $134 (right)
+// Exit-enabled vertical pipe top: $137 (left), $138 (right)
+// Body tiles: ⚠ IDs not yet confirmed — use UNKNOWN until verified
+const T_PIPE_TOP_L      = 0x133   // non-exit pipe top-left
+const T_PIPE_TOP_R      = 0x134   // non-exit pipe top-right
+const T_PIPE_TOP_EXIT_L = 0x137   // exit-enabled pipe top-left
+const T_PIPE_TOP_EXIT_R = 0x138   // exit-enabled pipe top-right
+const T_PIPE_BODY_L     = TILE_UNKNOWN   // ⚠ body tile IDs not yet confirmed
+const T_PIPE_BODY_R     = TILE_UNKNOWN
 
 // Question / coin
-const T_QUESTION = 0x010    // ⚠ verify — ? block
+const T_QUESTION = 0x010    // ⚠ verify — ? block (note block = $113, turn block = $11E)
 const T_COIN     = 0x001    // ⚠ verify — coin
 
 // Muncher / spike
-const T_MUNCHER  = 0x07F    // ⚠ verify
+const T_MUNCHER  = 0x12F    // muncher (acts as 12F)
 
 /** A 2D tile grid: grid[row][col] = Map16 tile ID. */
 export type TileGrid = number[][]
@@ -118,10 +123,10 @@ function placeGround(grid: TileGrid, col: number, row: number, width: number): v
   }
 }
 
-/** Place a vertical pipe at (col, row) with given height. */
-function placePipe(grid: TileGrid, col: number, row: number, height: number): void {
-  set(grid, col,     row, T_PIPE_TOP_L)
-  set(grid, col + 1, row, T_PIPE_TOP_R)
+/** Place a vertical pipe at (col, row) with given height. isExit selects exit-enabled top tiles. */
+function placePipe(grid: TileGrid, col: number, row: number, height: number, isExit = false): void {
+  set(grid, col,     row, isExit ? T_PIPE_TOP_EXIT_L : T_PIPE_TOP_L)
+  set(grid, col + 1, row, isExit ? T_PIPE_TOP_EXIT_R : T_PIPE_TOP_R)
   for (let r = row + 1; r < row + height; r++) {
     set(grid, col,     r, T_PIPE_BODY_L)
     set(grid, col + 1, r, T_PIPE_BODY_R)

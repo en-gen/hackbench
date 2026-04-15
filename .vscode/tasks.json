@@ -9,14 +9,25 @@
         "kind": "build",
         "isDefault": true
       },
-      "problemMatcher": ["$ts-webpack", "$tslint-webpack"]
+      "problemMatcher": "$tsc"
     },
     {
       "label": "npm: watch",
       "type": "npm",
       "script": "watch",
       "isBackground": true,
-      "problemMatcher": ["$ts-webpack-watch", "$tslint-webpack-watch"]
+      "problemMatcher": {
+        "owner": "webpack",
+        "pattern": {
+          "regexp": "^ERROR\\s+in\\s+(.*)",
+          "file": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^webpack",
+          "endsPattern": "compiled (successfully|with \\d+ error)"
+        }
+      }
     }
   ]
 }

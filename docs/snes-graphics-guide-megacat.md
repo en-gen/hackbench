@@ -32,6 +32,8 @@ The SNES PPU (Picture Processing Unit) renders graphics using three dedicated me
 
 The SNES uses **indirect/indexed color**: tile pixels store palette indices, not raw color values. The PPU looks up each index in CGRAM to get the actual display color. This decouples tile shape from color, allowing palette swaps without changing tile data.
 
+**Palette swaps in SMW**: because tile graphics only store *which color slot* each pixel uses (not the color itself), the same tile data can look completely different depending on which CGRAM sub-palette is active. SMW exploits this for: BG palette variants (different sky/terrain colors per level via `bgPalette` header field), FG tile variants (cave vs. overworld via `fgVariant = spriteSet & 0x07`), Mario vs. Luigi vs. Fire forms (row 13 swap), and reusing the same sprite GFX for multiple sprite types via the sprite palette field.
+
 The display resolution is **256×224 pixels** (standard) or 256×239 (overscan). High-resolution modes double the horizontal resolution to 512 pixels.
 
 ---

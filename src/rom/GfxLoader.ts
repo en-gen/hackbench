@@ -47,8 +47,10 @@
  *       NOT from header byte 4 directly.
  */
 
+import * as fs from 'fs'
+import * as path from 'path'
 import { RomFile } from './RomFile'
-import { decode2bpp, decode3bpp, decode4bpp, PIXELS_PER_TILE } from './GraphicsDecoder'
+import { decode4bpp, decode3bpp, PIXELS_PER_TILE } from './GraphicsDecoder'
 import { decompress } from './LcLz2'
 
 // ── GFX pointer tables (split lo/hi/bank, one byte per GFX file) ──────────────
@@ -57,24 +59,28 @@ export const GFX_PTR_HI   = 0x00B9C4
 export const GFX_PTR_BANK = 0x00B9F6
 
 // ── Counts and sizes ──────────────────────────────────────────────────────────
-// Pointer table has exactly 50 entries (GFX00–GFX31 hex = indices 0–49 decimal).
-// Confirmed: $B9C4-$B992 = $32 = 50. Do NOT read index 50 or 51.
-export const GFX_FILE_COUNT  = 50   // GFX00–GFX31 hex (0–49 decimal)
+// The lo, hi, and bank pointer tables are stored contiguously with one byte per
+// GFX file. The number of files in the lo table is therefore the gap between the
+// lo and hi table start addresses — no separate count byte exists in ROM.
+// ($B9C4 - $B992 = $32 = 50 entries in vanilla SMW.)
+export const GFX_FILE_COUNT = GFX_PTR_HI - GFX_PTR_LO
 
-// Actual decompressed sizes and formats (confirmed empirically):
+// Actual formats:
 //
-//   Size    3bpp tiles  4bpp tiles  Which files            Format
-//   ──────  ──────────  ──────────  ─────────────────────  ──────────────────────
-//   3072 B   128 ✓      96          GFX00–GFX1F hex (0–31) 3bpp  (fills 128-slot perfectly)
-//            128 ✓      128 ✓       GFX20 hex (32) Mario   3bpp  (same size/format)
-//   2048 B    85.3 ✗    64 ✓        GFX28–GFX2B hex (40-43) 4bpp (doesn't divide by 24)
-//   1024 B    42.7 ✗    32 ✓        GFX2F hex (47)          4bpp
-//   1536 B    64 ✓       48 ✓       GFX30–GFX31 hex (48-49) 3bpp (assumed; fills evenly)
+//   ROM storage: 3bpp SNES planar format (24 bytes/tile).
+//     Standard files: 128 tiles × 24 bytes = 3072 bytes (LC_LZ2 decompressed).
 //
-// Rule: if decompressed length is divisible by 24, use 3bpp.
-//       if only divisible by 32 (not 24), use 4bpp.
-export const GFX_TILES      = 128  // tiles per standard 3bpp file (3072 ÷ 24)
-export const GFX_TILES_3BPP = 128  // kept for compatibility (same value)
+//   Lunar Magic exports GFX files to <romdir>/Graphics/GFX<HEX>.bin.
+//   LM converts 3bpp→4bpp: adds a zero 4th bitplane (16 bytes/tile → 32 bytes/tile).
+//     Exported .bin files: 128 tiles × 32 bytes = 4096 bytes (4bpp, zero plane 3).
+//
+//   Mesen VRAM viewer shows 4bpp because the SNES renders everything as 4bpp;
+//   the zero 4th bitplane just means the top color bit is always 0 (palette indices 0–7).
+//
+//   LM extended GFX32.bin: 23808 bytes = 744 tiles × 32 B (4bpp export)
+//   LM extended GFX33.bin: 12288 bytes = 384 tiles × 32 B (4bpp export)
+export const GFX_TILES      = 128  // tiles per standard file
+export const GFX_TILES_3BPP = 128  // kept for compatibility
 
 // GFX20 hex (decimal index 32) is the Mario/Luigi sprites file.
 // It is NOT the only 3bpp file — virtually all GFX files use 3bpp encoding.
@@ -88,6 +94,46 @@ export const GFX_STATIC_INDEX = 32  // GFX20 hex
 // Upper bound for a single compressed GFX file read. Generous: actual
 // decompressed data is ~4096 bytes; compressed is typically much smaller.
 const GFX_MAX_COMPRESSED = 0x2000
+
+// ── Lunar Magic exported Graphics/ folder ─────────────────────────────────────
+
+/**
+ * Return the path to the Lunar Magic Graphics export directory adjacent to the ROM,
+ * or null if it does not exist.
+ *   <romdir>/Graphics/
+ */
+export function getGfxBinDir(rom: RomFile): string | null {
+  const dir = path.join(path.dirname(rom.filePath), 'Graphics')
+  return fs.existsSync(dir) ? dir : null
+}
+
+/**
+ * Path of a single exported .bin file for the given file index (0–51 decimal).
+ * Lunar Magic names them GFX<HEX>.bin  (e.g. index 0 → GFX00.bin, index 50 → GFX32.bin).
+ */
+export function gfxBinPath(binDir: string, fileIndex: number): string {
+  const hex = fileIndex.toString(16).toUpperCase().padStart(2, '0')
+  return path.join(binDir, `GFX${hex}.bin`)
+}
+
+/**
+ * Load a GFX sheet directly from a Lunar Magic exported .bin file.
+ * Files are raw 4bpp SNES planar data — no decompression needed.
+ * Returns null if the file does not exist or cannot be read.
+ */
+export function loadGfxFileBin(binDir: string, fileIndex: number): GfxSheet | null {
+  const p = gfxBinPath(binDir, fileIndex)
+  if (!fs.existsSync(p)) return null
+  let data: Buffer
+  try { data = fs.readFileSync(p) } catch { return null }
+  if (data.length === 0 || data.length % 32 !== 0) return null
+  const count = data.length / 32
+  const sheet: GfxSheet = []
+  for (let t = 0; t < count; t++) {
+    sheet.push(decode4bpp(data, t * 32))
+  }
+  return sheet
+}
 
 // ── GFX assignment tables ─────────────────────────────────────────────────────
 export const GFX_SPRITE_TABLE  = 0x00A8C3  // sprite GFX: 4 bytes per sprite set
@@ -132,71 +178,75 @@ export type VramState = Partial<Record<VramSlotName, GfxSheet>>
 // ── Core loader ───────────────────────────────────────────────────────────────
 
 /**
- * Read and decompress a single GFX file, returning the raw decompressed bytes.
- * Useful for client-side re-decoding (e.g. toggling 3bpp / 4bpp in the viewer).
- * Returns an empty Uint8Array if the pointer is invalid or the read fails.
+ * Read a single GFX file as raw bytes (4bpp SNES planar).
+ * Prefers the Lunar Magic exported .bin file; falls back to ROM decompression.
+ * Useful for client-side re-decoding or inspection.
+ * Returns an empty Uint8Array if neither source yields data.
  */
 export function loadGfxRaw(rom: RomFile, fileIndex: number): Uint8Array {
+  if (fileIndex >= GFX_FILE_COUNT) return new Uint8Array(0)
   const lo   = rom.readByte(GFX_PTR_LO   + fileIndex)
   const hi   = rom.readByte(GFX_PTR_HI   + fileIndex)
   const bank = rom.readByte(GFX_PTR_BANK + fileIndex)
-
   if (lo === null || hi === null || bank === null) return new Uint8Array(0)
-
   const snesAddr   = (bank << 16) | (hi << 8) | lo
   const compressed = rom.readAt(snesAddr, GFX_MAX_COMPRESSED)
   if (!compressed) return new Uint8Array(0)
-
   return decompress(compressed)
 }
 
 /**
- * Load and decompress a single GFX file by its index (0–51).
- * Uses the split pointer tables at $00B992/$00B9C4/$00B9F6 to find the
- * LC_LZ2-compressed data, decompresses it, then decodes to palette indices.
+ * Load and decode a single GFX file by its index (0–51 decimal).
  *
- * Returns an empty fallback sheet if the pointer is invalid or the read fails.
+ * Preferred path: load from Lunar Magic's exported Graphics/<romdir>/GFX<HEX>.bin.
+ * These are raw 4bpp SNES planar data confirmed correct by Mesen VRAM viewer.
+ *
+ * Fallback path: read from ROM pointer table and LC_LZ2 decompress.
+ * The fallback always decodes as 4bpp (all SMW GFX are 4bpp in VRAM).
+ *
+ * Returns an empty fallback sheet if neither source yields data.
  */
 export function loadGfxFile(rom: RomFile, fileIndex: number): GfxSheet {
+  // ROM-only: read from the pointer table and LC_LZ2 decompress.
+  // bpp is inferred from the decompressed tile stride:
+  //   32 bytes/tile → 4bpp  (all vanilla SMW GFX confirmed via Mesen + LM exports)
+  //   24 bytes/tile → 3bpp  (fallback for hacks / future use)
+  if (fileIndex >= GFX_FILE_COUNT) return _emptySheet(GFX_TILES)
+
   const lo   = rom.readByte(GFX_PTR_LO   + fileIndex)
   const hi   = rom.readByte(GFX_PTR_HI   + fileIndex)
   const bank = rom.readByte(GFX_PTR_BANK + fileIndex)
-
-  if (lo === null || hi === null || bank === null) {
-    return _emptySheet(GFX_TILES)
-  }
+  if (lo === null || hi === null || bank === null) return _emptySheet(GFX_TILES)
 
   const snesAddr = (bank << 16) | (hi << 8) | lo
   const compressed = rom.readAt(snesAddr, GFX_MAX_COMPRESSED)
-  if (!compressed) {
-    return _emptySheet(GFX_TILES)
-  }
+  if (!compressed) return _emptySheet(GFX_TILES)
 
   const data = decompress(compressed)
+  if (data.length === 0) return _emptySheet(GFX_TILES)
 
-  // Detect bpp from decompressed size:
-  //   only divisible by 32 (not 16 or 24) → 4bpp
-  //   only divisible by 24 (not 32)       → 3bpp
-  //   only divisible by 16 (not 24 or 32) → 2bpp
-  //   divisible by both 24 and 32         → prefer 3bpp (standard SMW files confirmed
-  //     3bpp by visual inspection; 128 tiles fills a VRAM slot exactly)
-  //   divisible by 16 and 24 (e.g. 3072)  → also prefer 3bpp over 2bpp
-  //   If auto-detection is wrong the viewer's BPP dropdown can override it.
-  const div16 = data.length % 16 === 0
-  const div24 = data.length % 24 === 0
-  const div32 = data.length % 32 === 0
-  const bpp   = (!div24 && !div32 && div16) ? 2
-              : (!div24 &&  div32)           ? 4
-              : 3   // 3bpp preferred for ambiguous sizes (e.g. 3072)
-  const bpt   = bpp === 4 ? 32 : bpp === 3 ? 24 : 16
-  const count = Math.floor(data.length / bpt)
-  const decode = bpp === 4 ? decode4bpp : bpp === 3 ? decode3bpp : decode2bpp
-
-  const sheet: GfxSheet = []
-  for (let t = 0; t < count; t++) {
-    sheet.push(decode(data, t * bpt))
+  // ⚠ Check 3bpp (24 bytes/tile) BEFORE 4bpp (32 bytes/tile).
+  // ROM stores GFX as 3bpp: 128 tiles × 24 bytes = 3072 bytes.
+  // 3072 is divisible by BOTH 24 (→ 128 tiles, correct) and 32 (→ 96 tiles, wrong),
+  // so checking 32 first would misidentify 3bpp data as 4bpp.
+  // Lunar Magic exports convert 3bpp→4bpp (32 bytes/tile, zero 4th bitplane),
+  // so genuine 4bpp data will be 4096 bytes (4096 % 24 ≠ 0 → falls through to check 32).
+  if (data.length % 24 === 0) {
+    // 3bpp: 24 bytes per tile (standard ROM format for all vanilla SMW GFX files)
+    const count = data.length / 24
+    const sheet: GfxSheet = []
+    for (let t = 0; t < count; t++) sheet.push(decode3bpp(data, t * 24))
+    return sheet
   }
-  return sheet
+  if (data.length % 32 === 0) {
+    // 4bpp: 32 bytes per tile (Lunar Magic export format, or hacks)
+    const count = data.length / 32
+    const sheet: GfxSheet = []
+    for (let t = 0; t < count; t++) sheet.push(decode4bpp(data, t * 32))
+    return sheet
+  }
+  // Unrecognised stride — return empty
+  return _emptySheet(GFX_TILES)
 }
 
 function _emptySheet(tileCount: number): GfxSheet {
@@ -219,12 +269,14 @@ export function readGfxAssignment(
   const fgBuf = rom.readAt(GFX_FGBG_TABLE   + tilesetId * GFX_BYTES_PER_SET, GFX_BYTES_PER_SET)
   const spBuf = rom.readAt(GFX_SPRITE_TABLE  + spriteSet * GFX_BYTES_PER_SET, GFX_BYTES_PER_SET)
 
-  // Reverse load order: byte[3] → VRAM slot 0, byte[2] → slot 1, etc.
+  // Natural byte order: byte[0] → FG1, byte[1] → FG2, byte[2] → FG3, byte[3] → AN1.
+  // Verified via VRAM dump for level $104: byte[0] content appears at chars $000–$07F (FG1).
+  // Previous "reverse order" comment was WRONG; empirical VRAM analysis shows byte[0]=FG1.
   return {
-    fg1: fgBuf?.[3] ?? 0,
-    fg2: fgBuf?.[2] ?? 0,
-    fg3: fgBuf?.[1] ?? 0,
-    an1: fgBuf?.[0] ?? 0,
+    fg1: fgBuf?.[0] ?? 0,
+    fg2: fgBuf?.[1] ?? 0,
+    fg3: fgBuf?.[2] ?? 0,
+    an1: fgBuf?.[3] ?? 0,
     sp1: spBuf?.[3] ?? 0,
     sp2: spBuf?.[2] ?? 0,
     sp3: spBuf?.[1] ?? 0,
