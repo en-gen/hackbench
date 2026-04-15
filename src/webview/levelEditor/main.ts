@@ -220,8 +220,10 @@ let atlasImg:    ImageBitmap | null = null
 let activeTileId = -1
 let activeTool: 'place' | 'erase' = 'place'
 let isPainting   = false
-// Which CGRAM rows to highlight in the palette panel (null = all rows at full brightness)
-let paletteHighlightRows: number[] | null = null
+// Which CGRAM cells to highlight in the palette panel (null = all at full brightness)
+// Each entry: { row, colStart, colEnd } — highlights cols colStart..colEnd (inclusive)
+interface PaletteHighlight { row: number; colStart: number; colEnd: number }
+let paletteHighlightCells: PaletteHighlight[] | null = null
 
 interface TileUv { col: number; row: number }
 
@@ -294,12 +296,17 @@ function drawPaletteCanvas(): void {
     }
   }
 
-  // Dim rows that are not part of the currently focused palette group
-  if (paletteHighlightRows !== null) {
+  // Dim cells that are NOT part of the currently focused palette group
+  if (paletteHighlightCells !== null) {
     palCtx.fillStyle = 'rgba(0,0,0,0.65)'
     for (let row = 0; row < 16; row++) {
-      if (!paletteHighlightRows.includes(row)) {
-        palCtx.fillRect(0, row * PAL_CELL, 128, PAL_CELL)
+      for (let col = 0; col < 16; col++) {
+        const isHighlighted = paletteHighlightCells.some(
+          h => h.row === row && col >= h.colStart && col <= h.colEnd
+        )
+        if (!isHighlighted) {
+          palCtx.fillRect(col * PAL_CELL, row * PAL_CELL, PAL_CELL, PAL_CELL)
+        }
       }
     }
   }
@@ -384,15 +391,18 @@ function redraw(): void {
     if (chkL1.checked)               drawBlockGrid(tileGrid,   cols, rows, px, 1.0)
   } else {
     if (!atlasImg) return
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const tileId = tileGrid[row]?.[col] ?? 0
-        if (tileId === 0) continue
-        const uv = tileUvMap[tileId]
-        if (!uv) continue
-        ctx.drawImage(atlasImg,
-          uv.col * TILE_PX, uv.row * TILE_PX, TILE_PX, TILE_PX,
-          Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
+    // TODO: L2 atlas rendering not yet implemented; L2 toggle only works in Block mode.
+    if (chkL1.checked) {
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const tileId = tileGrid[row]?.[col] ?? 0
+          if (tileId === 0) continue
+          const uv = tileUvMap[tileId]
+          if (!uv) continue
+          ctx.drawImage(atlasImg,
+            uv.col * TILE_PX, uv.row * TILE_PX, TILE_PX, TILE_PX,
+            Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
+        }
       }
     }
   }
@@ -523,9 +533,14 @@ function postRerender(): void {
   })
 }
 
-function setPaletteHighlight(rows: number[] | null): void {
-  paletteHighlightRows = rows
+function setPaletteHighlight(cells: PaletteHighlight[] | null): void {
+  paletteHighlightCells = cells
   drawPaletteCanvas()
+}
+
+/** Helper: highlight specific cols of specific rows. */
+function highlightRowCols(rows: number[], colStart: number, colEnd: number): PaletteHighlight[] {
+  return rows.map(row => ({ row, colStart, colEnd }))
 }
 
 selBgColor.addEventListener('change', () => {
@@ -544,19 +559,19 @@ selSpritePal.addEventListener('change',  postRerender)
 selSpriteSet.addEventListener('change',  postRerender)
 selTileset.addEventListener('change',    postRerender)
 
-// Palette row highlighting on focus
-selBgPalette.addEventListener('focus',  () => setPaletteHighlight([0, 1]))
+// Palette highlighting on focus — only highlight the cols controlled by each dropdown
+selBgPalette.addEventListener('focus',  () => setPaletteHighlight(highlightRowCols([0, 1], 2, 7)))
 selBgPalette.addEventListener('blur',   () => setPaletteHighlight(null))
-selBgColor.addEventListener('focus',    () => setPaletteHighlight([0, 1, 2, 3, 4, 5, 6, 7]))
+selBgColor.addEventListener('focus',    () => setPaletteHighlight(highlightRowCols([0, 1, 2, 3, 4, 5, 6, 7], 1, 1)))
 selBgColor.addEventListener('blur',     () => setPaletteHighlight(null))
-selFgPalette.addEventListener('focus',  () => setPaletteHighlight([2, 3]))
+selFgPalette.addEventListener('focus',  () => setPaletteHighlight(highlightRowCols([2, 3], 2, 7)))
 selFgPalette.addEventListener('blur',   () => setPaletteHighlight(null))
-selSpritePal.addEventListener('focus',  () => setPaletteHighlight([4, 5, 6, 7]))
+selSpritePal.addEventListener('focus',  () => setPaletteHighlight(highlightRowCols([14, 15], 2, 7)))
 selSpritePal.addEventListener('blur',   () => setPaletteHighlight(null))
-selSpriteSet.addEventListener('focus',  () => setPaletteHighlight([4, 5, 6, 7]))
+selSpriteSet.addEventListener('focus',  () => setPaletteHighlight(highlightRowCols([14, 15], 2, 7)))
 selSpriteSet.addEventListener('blur',   () => setPaletteHighlight(null))
 selMarioPal.addEventListener('change',  postRerender)
-selMarioPal.addEventListener('focus',   () => setPaletteHighlight([8]))
+selMarioPal.addEventListener('focus',   () => setPaletteHighlight(highlightRowCols([8], 6, 15)))
 selMarioPal.addEventListener('blur',    () => setPaletteHighlight(null))
 
 // ── Message handler ───────────────────────────────────────────────────────────

@@ -48,8 +48,14 @@ export class PaletteEditorProvider implements vscode.CustomReadonlyEditorProvide
       const rom = SmwRom.open(descriptor.romPath as string)
       const palettes = loadRomPalettes(rom.rom)
 
+      // If a specific groupId is requested, filter to just that group
+      const requestedGroupId = descriptor.groupId as string | null
+      const sourceGroups = requestedGroupId
+        ? palettes.groups.filter(g => g.id === requestedGroupId)
+        : palettes.groups
+
       // Convert RgbaColor tuples [r,g,b,a] to plain objects for JSON transfer
-      const groups = palettes.groups.map(g => ({
+      const groups = sourceGroups.map(g => ({
         id: g.id,
         label: g.label,
         description: g.description,

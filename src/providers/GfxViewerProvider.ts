@@ -21,34 +21,39 @@ import { loadRomPalettes, buildLevelCgram, loadCustomLevelPalette, RgbaRow } fro
 /**
  * Guess the most useful palette row to display for a given GFX file index.
  *
- * SMW CGRAM row conventions:
- *   Rows 0–1  : BG Layer 2 (background scenery)
- *   Rows 2–3  : FG Layer 1 (foreground terrain — most GFX files)
- *   Rows 4–8  : Sprites (enemies, items; SP1–SP4 GFX files)
- *   Row  13   : Player (Mario/Luigi — GFX20 hex / index 32, 3bpp)
- *   Rows 9–15 : Misc / special
+ * SMW GFX file ranges and their typical VRAM/palette usage:
+ *   GFX00–GFX0F (0–15)   : Sprite graphics (enemies, items) → sprite palettes (rows 4–7)
+ *   GFX10–GFX1F (16–31)  : FG terrain/objects → FG palettes (rows 2–3)
+ *   GFX20 (32)            : Mario/Luigi sprites (3bpp) → player palette (row 8)
+ *   GFX21–GFX24 (33–36)  : Additional sprite/FG tiles → sprite palettes
+ *   GFX25–GFX27 (37–39)  : BG Layer 2 background tiles → BG palettes (rows 0–1)
+ *   GFX28–GFX2F (40–47)  : SP1–SP4 sprite slots → sprite palettes
+ *   GFX30–GFX31 (48–49)  : Animated/misc tiles → varies
  *
- * GFX file→VRAM slot assignments vary per level tileset, but this heuristic
- * covers the majority of vanilla SMW files.
+ * The actual VRAM slot assignment varies per tileset, but these defaults
+ * cover the majority of vanilla SMW files.
  */
 function _suggestPaletteRow(gfxIndex: number): number {
-  // GFX20 hex (index 32) = Mario/Luigi 3bpp sprites → Player palette
-  if (gfxIndex === GFX_MARIO_3BPP_INDEX) return 13
+  // GFX20 hex (index 32) = Mario/Luigi 3bpp sprites → Player palette (row 8)
+  if (gfxIndex === GFX_MARIO_3BPP_INDEX) return 8
 
-  // GFX28–GFX2B hex (indices 40–43) = commonly assigned to SP1–SP4 sprite slots
-  if (gfxIndex >= 40 && gfxIndex <= 43) return 4
+  // GFX00–GFX0F hex (indices 0–15) = sprite graphics → sprite palette row 4
+  if (gfxIndex <= 15) return 4
 
-  // GFX2C–GFX2F hex (indices 44–47) = also used for sprites in many tilesets
-  if (gfxIndex >= 44 && gfxIndex <= 47) return 4
+  // GFX10–GFX1F hex (indices 16–31) = FG terrain tiles → FG palette row 2
+  if (gfxIndex <= 31) return 2
 
-  // GFX30–GFX31 hex (indices 48–49) = typically animated/misc tiles
-  if (gfxIndex >= 48) return 0
+  // GFX21–GFX24 hex (indices 33–36) = additional sprite/FG tiles
+  if (gfxIndex >= 33 && gfxIndex <= 36) return 4
 
   // GFX25–GFX27 hex (indices 37–39) = BG Layer 2 background tiles
   if (gfxIndex >= 37 && gfxIndex <= 39) return 0
 
-  // GFX00–GFX1F hex (indices 0–31) = FG terrain tiles
-  return 2
+  // GFX28–GFX2F hex (indices 40–47) = SP1–SP4 sprite slots
+  if (gfxIndex >= 40 && gfxIndex <= 47) return 4
+
+  // GFX30–GFX31 hex (indices 48–49) = animated/misc tiles
+  return 0
 }
 
 export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
@@ -110,18 +115,15 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
         : buildLevelCgram(romPalettes, 0, 0, 0).rows
       const paletteRows = baseCgram.map(row => row.map(c => Array.from(c)))
 
-      // FG variants: rows 2 and 3 for each variant (0–5)
-      // Sent as [[row2, row3], [row2, row3], …] indexed by variant number.
-      const fg0Group = romPalettes.groups.find(g => g.id === 'fg0')
-      const fg1Group = romPalettes.groups.find(g => g.id === 'fg1')
-      const fgVariantCount = Math.min(
-        fg0Group?.variants.length ?? 1,
-        fg1Group?.variants.length ?? 1,
-      )
+      // FG variants: rows 2 and 3 for each variant
+      // Now uses merged 'fg' group where each variant has 2 rows.
+      const fgGroup = romPalettes.groups.find(g => g.id === 'fg')
+      const fgVariantCount = fgGroup?.variants.length ?? 1
       const fgVariants: number[][][][] = []
       for (let v = 0; v < fgVariantCount; v++) {
-        const r2 = (fg0Group?.variants[v]?.rows[0] ?? baseCgram[2]) as RgbaRow
-        const r3 = (fg1Group?.variants[v]?.rows[0] ?? baseCgram[3]) as RgbaRow
+        const variant = fgGroup?.variants[v]
+        const r2 = (variant?.rows[0] ?? baseCgram[2]) as RgbaRow
+        const r3 = (variant?.rows[1] ?? baseCgram[3]) as RgbaRow
         fgVariants.push([r2.map(c => Array.from(c)), r3.map(c => Array.from(c))])
       }
 

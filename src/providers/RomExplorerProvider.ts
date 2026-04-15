@@ -2,11 +2,12 @@ import * as vscode from 'vscode'
 import { RomSession } from '../RomSession'
 import { GFX_FILE_COUNT } from '../rom/GfxLoader'
 import { getVanillaLevelName } from '../rom/SmwLevelNames'
+import { loadRomPalettes } from '../rom/PaletteLoader'
 
 // ── Shared tree item types ─────────────────────────────────────────────────────
 
 type LevelsTreeItem = RomInfoItem | LevelFolder | RoomItem
-type ResourcesTreeItem = SectionFolder | RoomItem | PaletteItem | GfxFileItem | PlaceholderItem
+type ResourcesTreeItem = SectionFolder | RoomItem | PaletteGroupItem | GfxFileItem | PlaceholderItem
 
 /** Non-interactive header item showing ROM identity. */
 class RomInfoItem extends vscode.TreeItem {
@@ -89,14 +90,16 @@ class RoomItem extends vscode.TreeItem {
   }
 }
 
-class PaletteItem extends vscode.TreeItem {
-  constructor(slug: string) {
-    super('Color Palettes', vscode.TreeItemCollapsibleState.None)
+/** A single palette group (e.g. "Layer 2 Background") that opens its own palette view. */
+class PaletteGroupItem extends vscode.TreeItem {
+  constructor(label: string, slug: string, groupId: string, description?: string) {
+    super(label, vscode.TreeItemCollapsibleState.None)
     this.iconPath = new vscode.ThemeIcon('symbol-color')
+    this.description = description
     this.command = {
       command: 'vscode.open',
-      title: 'Open Palettes',
-      arguments: [vscode.Uri.parse(`smwrom:/${slug}/palettes/global.smwpalette`)]
+      title: 'Open Palette Group',
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/palettes/${groupId}.smwpalette`)]
     }
     this.contextValue = 'smwPalette'
   }
@@ -243,9 +246,15 @@ export class ResourcesProvider implements vscode.TreeDataProvider<ResourcesTreeI
       const roomsSection = new SectionFolder(
         `Rooms  (${allRooms.length})`, 'rooms', 'file-code', roomItems, false,
       )
+      const romPalettes = loadRomPalettes(rom.rom)
+      const paletteItems: PaletteGroupItem[] = romPalettes.groups.map(g => {
+        const variantCount = g.variants.length
+        const desc = variantCount > 1 ? `${variantCount} variants` : undefined
+        return new PaletteGroupItem(g.label, slug, g.id, desc)
+      })
       const palettesSection = new SectionFolder(
-        'Palettes', 'palettes', 'symbol-color',
-        [new PaletteItem(slug)],
+        `Palettes  (${paletteItems.length})`, 'palettes', 'symbol-color',
+        paletteItems,
         false,
       )
       const gfxSection = new SectionFolder(

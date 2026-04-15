@@ -2,6 +2,7 @@ import * as vscode from 'vscode'
 import { RomSession } from '../RomSession'
 import { LEVEL_COUNT } from '../rom/SmwRom'
 import { GFX_FILE_COUNT } from '../rom/GfxLoader'
+import { loadRomPalettes } from '../rom/PaletteLoader'
 
 /**
  * Virtual filesystem provider for smwrom:// URIs.
@@ -85,7 +86,14 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     if (parts.length === 1 && parts[0] === 'palettes') {
-      return [['global.smwpalette', vscode.FileType.File]]
+      // List per-group palette files + the global overview
+      const session = this.sessions.get(slug)!
+      const palettes = loadRomPalettes(session.rom.rom)
+      const entries: [string, vscode.FileType][] = palettes.groups.map(
+        g => [`${g.id}.smwpalette`, vscode.FileType.File] as [string, vscode.FileType]
+      )
+      entries.unshift(['global.smwpalette', vscode.FileType.File])
+      return entries
     }
 
     if (parts.length === 1 && parts[0] === 'gfx') {
@@ -112,11 +120,13 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
       }), 'utf8')
     }
 
-    if (parts.length === 2 && parts[0] === 'palettes' && parts[1] === 'global.smwpalette') {
+    if (parts.length === 2 && parts[0] === 'palettes' && parts[1].endsWith('.smwpalette')) {
+      const groupId = parts[1].replace('.smwpalette', '')
       return Buffer.from(JSON.stringify({
         type: 'smwpalette', version: 1,
         romPath: session.rom.rom.filePath,
-        name: 'Global Palette',
+        groupId: groupId === 'global' ? null : groupId,
+        name: groupId === 'global' ? 'Global Palette' : groupId,
       }), 'utf8')
     }
 

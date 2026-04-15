@@ -23,6 +23,15 @@ test/suite/**/*.d.ts
 
 # Third-party tools — not redistributable
 test/magic/
+tools/
+
+# Large binary reference docs (PDFs, scanned pages, OCR intermediates)
+docs/*.pdf
+docs/book1_pages/
+docs/book1_raw.txt
+docs/book2_raw.txt
+docs/book2_cleaned.txt
+docs/book2_test.txt
 
 # Dependencies
 node_modules/

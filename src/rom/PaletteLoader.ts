@@ -44,18 +44,24 @@ import { bgr555ToRgba, RgbaColor } from './GraphicsDecoder'
 
 export const COLORS_PER_ROW    = 16
 
-// ── CGRAM row structure (empirically verified vs Mesen live CGRAM) ────────────
+// ── CGRAM row structure ──────────────────────────────────────────────────────
 //
-//   Col 0:    $0000 — transparent (hardware)
-//   Col 1:    back-area color (from $B0A0 table, written by SMW to every row)
-//   Cols 2–7: 6 palette colors from the ROM entry for this row-half
-//   Col 8:    $0000 — transparent (second 8-color half)
-//   Col 9:    back-area color B (varies; $7FFF for OBJ rows, TBD for BG rows)
-//   Cols 10–15: secondary palette colors (source address not yet confirmed)
+//   Col 0:    $0000 — transparent (SNES hardware: color index 0 = transparent
+//               for all sub-palettes; CGRAM[0] doubles as the backdrop color
+//               but SMW treats col 0 as transparent in the palette viewer).
+//   Col 1:    back-area color — SMW writes this at runtime to col 1 of every
+//               sub-palette row. For BG rows (0–7) it comes from the level's
+//               back-area variant ($B0A0 table). For OBJ rows (8–15) it is
+//               $7FFF (white). This value is NOT stored in the ROM palette
+//               entries — it is loaded separately from level metadata.
+//   Cols 2–7: 6 palette colors from the ROM packed-pair entry for this row-half
+//               (words 0–5 → cols 2–7 of row N; words 6–11 → cols 2–7 of row N+1).
+//   Cols 8–15: additional colors (source varies by row; many are $0000/unused
+//               for BG layers, but OBJ rows may have data from sprite sets).
 //
-//   Each 24-byte ROM palette entry covers ONE row (12 words = 12 colors).
-//   For BG pair entries (rows 0+1 and rows 2+3), the 24-byte block packs
-//   TWO rows: words 0–5 → row N, words 6–11 → row N+1.
+//   Each 24-byte ROM palette entry is a PACKED PAIR of two 6-color half-rows:
+//     words 0–5  (12 B) → row N   cols 2–7
+//     words 6–11 (12 B) → row N+1 cols 2–7
 
 // Colors active per row-half in the primary slot (cols 2–7 or 10–15)
 export const PALETTE_ROW_COLORS = 6
@@ -68,6 +74,7 @@ export const PALETTE_ENTRY_COLORS = 12   // total words per entry (two halves of
 // Player palettes: 20 bytes = 10 colors, filling CGRAM palette 8 cols 6–F.
 // ROM map: $B2C8 Mario, $B2DC Luigi, $B2F0 Fire Mario, $B304 Fire Luigi (stride 20).
 // "Colours 6–F of palette 8" → colStart = 6, cgRamRow = 8.
+// Note: cols 1–5 of row 8 come from the sprite set's 5th row (⚠ address TBD).
 export const PLAYER_ENTRY_BYTES   = 20   // 10 colors × 2 bytes
 export const PLAYER_ENTRY_COLORS  = 10
 export const PLAYER_COL_START     = 6    // colors land at CGRAM cols 6–15
@@ -105,26 +112,54 @@ export const ADDR_PLAYER_MARIO      = 0x00B2C8
 export const ADDR_PLAYER_LUIGI      = 0x00B2DC  // = $B2C8 + 20
 export const ADDR_PLAYER_FIRE_MARIO = 0x00B2F0  // = $B2C8 + 40
 export const ADDR_PLAYER_FIRE_LUIGI = 0x00B304  // = $B2C8 + 60
-// Row 8 base palette: 24 bytes = 12 colors at CGRAM row 8 cols 2–13.
-// Loaded before the player variant; player variant ($B2C8) overwrites cols 6–F.
-// Cols 2–5 (4 "base" colors) are not overwritten and show as the "missing" skin tones.
-export const ADDR_PLAYER_ROW8_BASE  = 0x00B2B0
-export const PLAYER_ROW8_BASE_COLS  = 12   // covers cols 2–13
 // SP_E and SP_F share one 24-byte PACKED PAIR at $B318 (same structure as BG/FG pairs):
 //   words 0–5 (12B at $B318) → SP_E (row 14 cols 2–7)  [verified 100% match]
 //   words 6–11 (12B at $B324) → SP_F (row 15 cols 2–7) [verified 100% match]
 export const ADDR_SP_E        = 0x00B318
 export const ADDR_SP_F        = 0x00B318 + 12  // = $B324
-// Sprite palette sets: 4 sets × 2 pairs × 24B = 48B/set.
-// Each set covers CGRAM rows 4–7 via 2 packed pairs:
-//   pair0 (24B): rows 4+5 (words 0–5 → row 4 cols 2–7, words 6–11 → row 5 cols 2–7)
-//   pair1 (24B): rows 6+7 (words 0–5 → row 6, words 6–11 → row 7)
-// CGRAM row 8 is dynamically assembled from sprite-specific data (not in static ROM table).
-// 4 variants indexed by sprite palette field (header byte 3 bits 5–4, values 0–3).
-export const ADDR_SPRITE_SETS = 0x00B250
-export const SPRITE_SET_COUNT = 4
-export const SPRITE_SET_ROWS  = 4   // CGRAM rows 4–7 (row 8 = dynamic)
-export const SPRITE_SET_BYTES = 2 * PALETTE_ENTRY_BYTES  // 48B/set (2 pairs)
+// ── Shared sprite colors (NOT variant-dependent) ────────────────────────────
+// SMW DMA at $00:AC1F loads from $B250 into CGRAM rows 4–13, cols 2–7.
+// 10 rows × 6 colors × 2B = 120 bytes, packed sequentially (NOT packed pairs).
+// This block ends at $B2C7, immediately before the player palettes at $B2C8.
+// Row 8 cols 2–5 are the player BASE colors (skin tones, shoe brown) shared
+// across all Mario/Luigi variants; cols 6–15 are overwritten by player variant.
+export const ADDR_SHARED_SPRITES      = 0x00B250
+export const SHARED_SPRITE_ROWS       = 10   // CGRAM rows 4–13
+export const SHARED_SPRITE_COLS       = 6    // cols 2–7
+export const SHARED_SPRITE_FIRST_ROW  = 4    // first CGRAM row
+
+// ── BG secondary colors (cols 8–15) ────────────────────────────────────────
+// SMW DMA at $00:AC06 loads from $B170 into CGRAM rows 0–1, cols 8–15.
+// 2 rows × 8 colors × 2B = 32 bytes packed sequentially.
+export const ADDR_BG_COLS_8_15        = 0x00B170
+export const BG_SECONDARY_COLORS      = 8    // cols 8–15
+export const BG_SECONDARY_COL_START   = 8
+
+// ── Berry/Secondary colors (cols 9–15) ──────────────────────────────────────
+// SMW DMA at $00:ACBF loads $B674 → rows 2–4 cols 9–15 (3 rows × 7 colors).
+// SMW DMA at $00:ACD6 reuses $B674 → rows 9–11 cols 9–15 (same 3 rows).
+// ROM map: $B674=pal 2&9, $B682=pal 3&A, $B690=pal 4&B (14 bytes each).
+export const ADDR_BERRY_COLS          = 0x00B674
+export const BERRY_COLS_COUNT         = 7    // cols 9–15
+export const BERRY_COL_START          = 9
+export const BERRY_ROW_COUNT          = 3    // 3 source rows
+export const BERRY_ROWS_A_START       = 2    // target A: rows 2–4
+export const BERRY_ROWS_B_START       = 9    // target B: rows 9–11 (same data reused)
+
+// ── Sprite rows 5–7 secondary (cols 9–15) ──────────────────────────────────
+// ROM map: $B552=pal 5, $B560=pal 6, $B56E=pal 7 (14 bytes each = 7 colors).
+// These are separate from the berry block above.
+export const ADDR_SPRITE_SECONDARY    = 0x00B552
+export const SPRITE_SEC_COLS_COUNT    = 7    // cols 9–15
+export const SPRITE_SEC_COL_START     = 9
+export const SPRITE_SEC_ROW_COUNT     = 3    // rows 5, 6, 7
+export const SPRITE_SEC_FIRST_ROW     = 5
+
+// Legacy aliases (kept for backward compatibility with palette viewer groups)
+export const ADDR_SPRITE_SETS = ADDR_SHARED_SPRITES
+export const SPRITE_SET_COUNT = 1       // single shared block, no variants
+export const SPRITE_SET_ROWS  = SHARED_SPRITE_ROWS
+export const SPRITE_SET_BYTES = SHARED_SPRITE_ROWS * SHARED_SPRITE_COLS * 2  // 120B
 
 // ── Per-level custom palette (Lunar Magic extension) ─────────────────────────
 // Lunar Magic stores a full per-level CGRAM override at $0EF600.
@@ -171,32 +206,42 @@ export interface PaletteVariant {
 export interface RomPalettes {
   groups: PaletteGroup[]
   backAreaColor: RgbaColor
-  /** Row 8 shared base: 12 colors at cols 2–13, loaded before player variant overlay. */
-  playerRow8Base: RgbaRow
+  /** Shared sprite colors: 10 rows (CGRAM 4–13) × 6 colors (cols 2–7). From $B250. */
+  sharedSpriteRows: RgbaRow[]
+  /** BG secondary colors: 2 rows (CGRAM 0–1) × 8 colors (cols 8–15). From $B170. */
+  bgSecondaryCols: RgbaRow[]
+  /** Berry/secondary: 3 rows × 7 cols 9–15. From $B674. Applied to rows 2–4 AND 9–11. */
+  berryCols: RgbaRow[]
+  /** Sprite rows 5–7 secondary: 3 rows × 7 cols 9–15. From $B552. */
+  spriteSecondaryCols: RgbaRow[]
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const TRANSPARENT: RgbaColor = [0, 0, 0, 0]
-const UNKNOWN: RgbaColor     = [40, 40, 40, 255]
+const BLACK: RgbaColor       = [0, 0, 0, 255]
 
 function emptyRow(): RgbaRow {
-  return Array.from({ length: COLORS_PER_ROW }, (_, i) => i === 0 ? TRANSPARENT : UNKNOWN)
+  // Col 0 = transparent (SNES color index 0); all other cols default to
+  // black ($0000) matching the SNES CGRAM power-on/cleared state.
+  return Array.from({ length: COLORS_PER_ROW }, (_, i) => i === 0 ? TRANSPARENT : BLACK)
 }
 
-function readEntry(rom: RomFile, addr: number, numColors = PALETTE_ENTRY_COLORS, colStart = 2): RgbaRow {
+function readEntry(rom: RomFile, addr: number, numColors = PALETTE_ROW_COLORS, colStart = 2): RgbaRow {
   const row = emptyRow()
   const buf = rom.readAt(addr, numColors * 2)
   if (!buf) return row
-  // Colors land at CGRAM col `colStart` (default 2: col 0 = transparent, col 1 = back-area color).
-  // Player palettes use colStart = 6 (colours 6–F of their CGRAM row).
+  // Colors land at CGRAM col `colStart`.
+  // Default colStart=2: col 0 = transparent ($0000), col 1 = back-area color
+  // (written by SMW at runtime), cols 2–7 = 6 ROM palette colors.
+  // Player palettes use colStart=6 (colours 6–F of their CGRAM row).
   for (let i = 0; i < numColors; i++) {
     row[colStart + i] = bgr555ToRgba(buf.readUInt16LE(i * 2))
   }
   return row
 }
 
-function singleVariant(label: string, addr: number, rom: RomFile, numColors = PALETTE_ENTRY_COLORS, colStart = 2): PaletteVariant {
+function singleVariant(label: string, addr: number, rom: RomFile, numColors = PALETTE_ROW_COLORS, colStart = 2): PaletteVariant {
   return { label, rows: [readEntry(rom, addr, numColors, colStart)], romAddr: addr }
 }
 
@@ -208,110 +253,108 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
   const backBuf = rom.readAt(ADDR_BACK_AREA + bgVariant * 2, 2)
   const backAreaColor: RgbaColor = backBuf
     ? bgr555ToRgba(backBuf.readUInt16LE(0))
-    : UNKNOWN
+    : BLACK
 
-  // ── BG pair variants 1+ ($B0C8–$B18F) ───────────────────────────────────────
-  // Each 24-byte block = row 0 (words 0–5, 12 B) + row 1 (words 6–11, 12 B).
-  // Variant 0 is at $B0B0 (ADDR_BG0/ADDR_BG1 above); variants 1+ start at $B0C8.
-  // stride = PALETTE_ENTRY_BYTES (24); number of extra variants:
-  //   ($B190 - $B0C8) / 24 = $C8 / 24 = 8 variants (indices 1–8)
-  const bgRow0ExtraVariants: PaletteVariant[] = []
-  const bgRow1ExtraVariants: PaletteVariant[] = []
-  for (let i = 0; i * PALETTE_ENTRY_BYTES < 0x00B190 - 0x00B0C8; i++) {
-    const pairAddr = 0x00B0C8 + i * PALETTE_ENTRY_BYTES
-    bgRow0ExtraVariants.push(singleVariant(`Variant ${i + 1}`, pairAddr,                          rom, PALETTE_ROW_COLORS))
-    bgRow1ExtraVariants.push(singleVariant(`Variant ${i + 1}`, pairAddr + PALETTE_ROW_COLORS * 2, rom, PALETTE_ROW_COLORS))
+  // ── BG pair variants ($B0B0–$B16F) ──────────────────────────────────────────
+  // Each 24-byte block is a PACKED PAIR: words 0–5 → row 0, words 6–11 → row 1.
+  // ROM map: $B0B0=BG 0, $B0C8=BG 1, ... $B158=BG 7. Stride = 24 bytes.
+  // Each variant produces 2 rows shown together in the palette viewer.
+  const bgPairVariants: PaletteVariant[] = []
+  for (let v = 0; v * PALETTE_ENTRY_BYTES < 0x00B170 - ADDR_BG_PAIR; v++) {
+    const pairAddr = ADDR_BG_PAIR + v * PALETTE_ENTRY_BYTES
+    bgPairVariants.push({
+      label: `Palette ${v}`,
+      rows: [
+        readEntry(rom, pairAddr,                          PALETTE_ROW_COLORS),  // row 0
+        readEntry(rom, pairAddr + PALETTE_ROW_COLORS * 2, PALETTE_ROW_COLORS),  // row 1
+      ],
+      romAddr: pairAddr,
+    })
   }
 
-  // ── Intermediate region ($B1C0–$B2C7, 264 bytes = 11 × 24-byte entries) ─────
-  // Best hypothesis: alternating FG row-2 and row-3 entries for palette variants 1–5.
-  //   $B1C0 = FG row 2 variant 1, $B1D8 = FG row 3 variant 1
-  //   $B1F0 = FG row 2 variant 2, $B208 = FG row 3 variant 2   … etc.
-  // Variants 1–5 use even/odd entries; entry 10 ($B2B0) is unassigned / padding.
-  // ⚠ Not yet confirmed against live CGRAM (use fg_palette_source.lua to verify).
-  const fgExtraRow2: PaletteVariant[] = []  // FG row 2 variants 1–5
-  const fgExtraRow3: PaletteVariant[] = []  // FG row 3 variants 1–5
-  for (let i = 0; i * PALETTE_ENTRY_BYTES < 0x00B2C8 - 0x00B1C0; i++) {
-    const addr = 0x00B1C0 + i * PALETTE_ENTRY_BYTES
-    const variantNum = Math.floor(i / 2) + 1
-    if (i % 2 === 0) {
-      fgExtraRow2.push(singleVariant(`Variant ${variantNum} ⚠`, addr, rom))
-    } else {
-      fgExtraRow3.push(singleVariant(`Variant ${variantNum} ⚠`, addr, rom))
-    }
+  // ── FG pair variants ($B190–$B24F) ──────────────────────────────────────────
+  // ROM map: $B190/$B19C=FG 0 (rows 2+3), $B1A8/$B1B4=FG 1, ...
+  // Each variant is 2 × 12 bytes (row 2 then row 3), stride = 24 bytes.
+  const fgPairVariants: PaletteVariant[] = []
+  for (let v = 0; v * PALETTE_ENTRY_BYTES < ADDR_SHARED_SPRITES - ADDR_FG_PAIR; v++) {
+    const row2Addr = ADDR_FG_PAIR + v * PALETTE_ENTRY_BYTES
+    const row3Addr = row2Addr + PALETTE_ROW_COLORS * 2
+    fgPairVariants.push({
+      label: `Palette ${v}`,
+      rows: [
+        readEntry(rom, row2Addr, PALETTE_ROW_COLORS),  // row 2
+        readEntry(rom, row3Addr, PALETTE_ROW_COLORS),  // row 3
+      ],
+      romAddr: row2Addr,
+    })
   }
 
-  // ── Sprite palette sets (CGRAM rows 4–7, indexed by sprite palette 0–3) ───
-  // Level header byte 3 bits 5-4 selects the sprite palette (0–3).
-  // Each set covers 4 CGRAM rows (4–7) stored as 2 packed pairs of 24 bytes:
-  //   pair0 at baseAddr +  0: rows 4+5 (words 0–5 → row 4, words 6–11 → row 5)
-  //   pair1 at baseAddr + 24: rows 6+7 (words 0–5 → row 6, words 6–11 → row 7)
-  const spriteSetVariants: PaletteVariant[] = []
-  for (let set = 0; set < SPRITE_SET_COUNT; set++) {
-    const baseAddr = ADDR_SPRITE_SETS + set * SPRITE_SET_BYTES
-    const pair0 = baseAddr
-    const pair1 = baseAddr + PALETTE_ENTRY_BYTES
-    const rows: RgbaRow[] = [
-      readEntry(rom, pair0,                          PALETTE_ROW_COLORS),  // row 4
-      readEntry(rom, pair0 + PALETTE_ROW_COLORS * 2, PALETTE_ROW_COLORS),  // row 5
-      readEntry(rom, pair1,                          PALETTE_ROW_COLORS),  // row 6
-      readEntry(rom, pair1 + PALETTE_ROW_COLORS * 2, PALETTE_ROW_COLORS),  // row 7
-    ]
-    spriteSetVariants.push({ label: `Set ${set}`, rows, romAddr: baseAddr })
+  // ── Shared sprite colors (rows 4–13, cols 2–7, NOT variant-dependent) ──────
+  // SMW DMA at $00:AC1F loads 10 sequential 6-color rows from $B250.
+  // No packed-pair structure — just 60 consecutive BGR555 words.
+  const sharedSpriteRows: RgbaRow[] = []
+  for (let row = 0; row < SHARED_SPRITE_ROWS; row++) {
+    const addr = ADDR_SHARED_SPRITES + row * SHARED_SPRITE_COLS * 2
+    sharedSpriteRows.push(readEntry(rom, addr, SHARED_SPRITE_COLS))
+  }
+
+  // ── BG secondary colors (rows 0–1, cols 8–15) ───────────────────────────
+  // SMW DMA at $00:AC06 loads 2 sequential 8-color rows from $B170.
+  const bgSecondaryCols: RgbaRow[] = []
+  for (let row = 0; row < 2; row++) {
+    const addr = ADDR_BG_COLS_8_15 + row * BG_SECONDARY_COLORS * 2
+    bgSecondaryCols.push(readEntry(rom, addr, BG_SECONDARY_COLORS, BG_SECONDARY_COL_START))
+  }
+
+  // ── Berry/secondary cols 9–15 (rows 2–4 and reused for 9–11) ─────────────
+  // ROM map: $B674 (pal 2&9), $B682 (pal 3&A), $B690 (pal 4&B) — 14B each.
+  const berryCols: RgbaRow[] = []
+  for (let row = 0; row < BERRY_ROW_COUNT; row++) {
+    const addr = ADDR_BERRY_COLS + row * BERRY_COLS_COUNT * 2
+    berryCols.push(readEntry(rom, addr, BERRY_COLS_COUNT, BERRY_COL_START))
+  }
+
+  // ── Sprite rows 5–7, cols 9–15 ─────────────────────────────────────────
+  // ROM map: $B552 (pal 5), $B560 (pal 6), $B56E (pal 7) — 14B each.
+  const spriteSecondaryCols: RgbaRow[] = []
+  for (let row = 0; row < SPRITE_SEC_ROW_COUNT; row++) {
+    const addr = ADDR_SPRITE_SECONDARY + row * SPRITE_SEC_COLS_COUNT * 2
+    spriteSecondaryCols.push(readEntry(rom, addr, SPRITE_SEC_COLS_COUNT, SPRITE_SEC_COL_START))
   }
 
   const groups: PaletteGroup[] = [
 
-    // ── Background ────────────────────────────────────────────────────────────
-    // Variant index = bgPaletteRow from level header (byte 0 bits 7-5).
-    // variants[0] → $B0B0, variants[1] → $B0C8 (level $104), variants[2] → $B0E0, …
+    // ── Background (rows 0+1, always loaded together) ──────────────────────
+    // Each variant is a 24-byte packed pair → 2 rows shown together.
+    // Variant selected by BG palette field (level header byte 0 bits 7-5).
+    // ROM map: $B0B0=BG 0, $B0C8=BG 1, ... $B158=BG 7.
     {
-      id: 'bg0', label: 'Layer 2 Background (Row 0)', cgRamRow: 0,
-      description: 'CGRAM row 0 — BG tile colors. Variant selected by BG palette row (level header byte 0 bits 7-5).',
-      variants: [
-        singleVariant('Variant 0', ADDR_BG0, rom, PALETTE_ROW_COLORS),  // $B0B0
-        ...bgRow0ExtraVariants,                                           // $B0C8, $B0E0, …
-      ],
-    },
-    {
-      id: 'bg1', label: 'Layer 2 Background (Row 1)', cgRamRow: 1,
-      description: 'CGRAM row 1 — BG tile colors second row. Same variant index as row 0.',
-      variants: [
-        singleVariant('Variant 0', ADDR_BG1, rom, PALETTE_ROW_COLORS),  // $B0BC
-        ...bgRow1ExtraVariants,                                           // $B0D4, $B0EC, …
-      ],
+      id: 'bg', label: 'Layer 2 Background (Rows 0–1)', cgRamRow: 0,
+      description: 'CGRAM rows 0–1 — BG tile colors (packed pair). ' +
+        'Variant selected by BG palette (level header byte 0 bits 7-5).',
+      variants: bgPairVariants,
     },
 
-    // ── Foreground ────────────────────────────────────────────────────────────
-    // FG palette variant = level header byte 3 bits 2-0 (= spriteSet & 0x07).
-    // Variants 1–5 are loaded speculatively from $B1C0–$B2C7 (every other 24-byte
-    // entry). Use fg_palette_source.lua in Mesen to verify the addresses.
+    // ── Foreground (rows 2+3, always loaded together) ────────────────────
+    // Each variant is a packed pair → 2 rows shown together.
+    // ROM map: $B190=FG 0, $B1A8=FG 1, ... $B238=FG 7.
     {
-      id: 'fg0', label: 'Layer 1 Foreground (Row 2)', cgRamRow: 2,
-      description: 'CGRAM row 2 — FG tile colors. ' +
-        'Variant = spriteSet & 0x07 (level header byte 3 bits 2-0). ' +
-        'Variants 1–5 loaded from $B1C0+ (⚠ addresses unverified).',
-      variants: [
-        singleVariant('Variant 0', ADDR_FG0, rom, PALETTE_ROW_COLORS),
-        ...fgExtraRow2,
-      ],
-    },
-    {
-      id: 'fg1', label: 'Layer 1 Foreground (Row 3)', cgRamRow: 3,
-      description: 'CGRAM row 3 — FG tile colors second row. Same variant index as row 2.',
-      variants: [
-        singleVariant('Variant 0', ADDR_FG1, rom, PALETTE_ROW_COLORS),
-        ...fgExtraRow3,
-      ],
+      id: 'fg', label: 'Layer 1 Foreground (Rows 2–3)', cgRamRow: 2,
+      description: 'CGRAM rows 2–3 — FG tile colors (packed pair). ' +
+        'Variant selected by FG palette (level header).',
+      variants: fgPairVariants,
     },
 
-    // ── Sprite palette sets (rows 4–7, indexed) ───────────────────────────────
+    // ── Shared sprite colors (rows 4–13, NOT variant-selectable) ───────────────
     {
-      id: 'sprite_sets', label: 'Sprite Palettes (Rows 4–7)', cgRamRow: 4,
-      description: 'CGRAM rows 4–7 — 4 sprite palette rows per set (row 8 is dynamic). ' +
-        'Set selected by sprite palette field (level header byte 3 bits 5-4, values 0–3). ' +
-        'Each variant shows all 4 rows for that set.',
-      variants: spriteSetVariants,
+      id: 'sprite_sets', label: 'Shared Sprite Colors (Rows 4–13)', cgRamRow: 4,
+      description: 'CGRAM rows 4–13, cols 2–7 — shared sprite base colors from $B250. ' +
+        'Fixed for all levels (not variant-selectable). 10 rows × 6 colors.',
+      variants: [{
+        label: 'Shared',
+        rows: sharedSpriteRows,
+        romAddr: ADDR_SHARED_SPRITES,
+      }],
     },
 
     // ── Player ────────────────────────────────────────────────────────────────
@@ -328,23 +371,22 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
     },
 
     // ── Shared sprite rows ────────────────────────────────────────────────────
+    // SP_E and SP_F are packed pairs at $B318: words 0–5 → SP_E cols 1–6,
+    // words 6–11 → SP_F cols 1–6.
     {
       id: 'sp_e', label: 'Sprite Palette E', cgRamRow: 14,
       description: 'CGRAM row 14 — shared sprite colors. Always loaded.',
-      variants: [singleVariant('Palette E', ADDR_SP_E, rom)],
+      variants: [singleVariant('Palette E', ADDR_SP_E, rom, PALETTE_ROW_COLORS)],
     },
     {
       id: 'sp_f', label: 'Sprite Palette F', cgRamRow: 15,
       description: 'CGRAM row 15 — shared sprite colors. Always loaded.',
-      variants: [singleVariant('Palette F', ADDR_SP_F, rom)],
+      variants: [singleVariant('Palette F', ADDR_SP_F, rom, PALETTE_ROW_COLORS)],
     },
 
   ]
 
-  // Row 8 base: shared colors at cols 2–13, present before player variant overlay.
-  const playerRow8Base = readEntry(rom, ADDR_PLAYER_ROW8_BASE, PLAYER_ROW8_BASE_COLS, 2)
-
-  return { groups, backAreaColor, playerRow8Base }
+  return { groups, backAreaColor, sharedSpriteRows, bgSecondaryCols, berryCols, spriteSecondaryCols }
 }
 
 // ── Level-specific palette summary ─────────────────────────────────────────────
@@ -366,39 +408,81 @@ export function buildLevelCgram(
 ): ActiveLevelPalette {
   const rows: RgbaRow[] = Array.from({ length: 16 }, emptyRow)
 
-  const bg0 = palettes.groups.find(g => g.id === 'bg0')
-  const bg1 = palettes.groups.find(g => g.id === 'bg1')
-  const fg0 = palettes.groups.find(g => g.id === 'fg0')
-  const fg1 = palettes.groups.find(g => g.id === 'fg1')
-  const sp  = palettes.groups.find(g => g.id === 'sprite_sets')
-  const pl  = palettes.groups.find(g => g.id === 'player')
-  const se  = palettes.groups.find(g => g.id === 'sp_e')
-  const sf  = palettes.groups.find(g => g.id === 'sp_f')
+  const bg = palettes.groups.find(g => g.id === 'bg')
+  const fg = palettes.groups.find(g => g.id === 'fg')
+  const sp = palettes.groups.find(g => g.id === 'sprite_sets')
+  const pl = palettes.groups.find(g => g.id === 'player')
+  const se = palettes.groups.find(g => g.id === 'sp_e')
+  const sf = palettes.groups.find(g => g.id === 'sp_f')
 
   // Clamp indices to available variant count to avoid undefined
-  const bg0Idx = bg0 ? Math.min(bgVariant, bg0.variants.length - 1) : 0
-  const bg1Idx = bg1 ? Math.min(bgVariant, bg1.variants.length - 1) : 0
-  const fg0Idx = fg0 ? Math.min(fgVariant, fg0.variants.length - 1) : 0
-  const fg1Idx = fg1 ? Math.min(fgVariant, fg1.variants.length - 1) : 0
-  const spIdx  = sp  ? Math.min(spriteSet,  sp.variants.length  - 1) : 0
+  const bgIdx = bg ? Math.min(bgVariant, bg.variants.length - 1) : 0
+  const fgIdx = fg ? Math.min(fgVariant, fg.variants.length - 1) : 0
+  const spIdx = sp ? Math.min(spriteSet, sp.variants.length - 1) : 0
 
-  if (bg0) rows[0] = bg0.variants[bg0Idx]?.rows[0] ?? emptyRow()
-  if (bg1) rows[1] = bg1.variants[bg1Idx]?.rows[0] ?? emptyRow()
-  if (fg0) rows[2] = fg0.variants[fg0Idx]?.rows[0] ?? emptyRow()
-  if (fg1) rows[3] = fg1.variants[fg1Idx]?.rows[0] ?? emptyRow()
+  // ── BG rows 0–1, cols 2–7 (variant-selectable, packed pair) ──────────────
+  if (bg) {
+    const bgV = bg.variants[bgIdx]
+    if (bgV) {
+      rows[0] = bgV.rows[0] ?? emptyRow()
+      rows[1] = bgV.rows[1] ?? emptyRow()
+    }
+  }
 
-  if (sp) {
-    const spVariant = sp.variants[spIdx]
-    if (spVariant) {
-      for (let r = 0; r < SPRITE_SET_ROWS; r++) {
-        rows[4 + r] = spVariant.rows[r] ?? emptyRow()
+  // ── BG rows 0–1, cols 8–15 (fixed from $B170) ──────────────────────────
+  for (let r = 0; r < 2; r++) {
+    const src = palettes.bgSecondaryCols[r]
+    if (src) {
+      for (let c = BG_SECONDARY_COL_START; c < COLORS_PER_ROW; c++) {
+        if (src[c]) rows[r][c] = src[c]
       }
     }
   }
 
-  // Row 8: start from the shared base ($B2B0, cols 2–13), then overlay player variant
-  // cols 6–F from the selected variant ($B2C8+). Cols 2–5 remain as the base "skin tones".
-  rows[8] = [...(palettes.playerRow8Base ?? emptyRow())]
+  // ── FG rows 2–3, cols 2–7 (variant-selectable, packed pair) ────────────
+  if (fg) {
+    const fgV = fg.variants[fgIdx]
+    if (fgV) {
+      rows[2] = fgV.rows[0] ?? emptyRow()
+      rows[3] = fgV.rows[1] ?? emptyRow()
+    }
+  }
+
+  // ── Shared sprite rows 4–13, cols 2–7 (fixed from $B250) ───────────────
+  for (let r = 0; r < SHARED_SPRITE_ROWS; r++) {
+    const src = palettes.sharedSpriteRows[r]
+    if (src) {
+      const cgramRow = SHARED_SPRITE_FIRST_ROW + r
+      for (let c = 2; c < 2 + SHARED_SPRITE_COLS; c++) {
+        if (src[c]) rows[cgramRow][c] = src[c]
+      }
+    }
+  }
+
+  // ── Berry cols 9–15 → rows 2–4 AND reused → rows 9–11 (from $B674) ────
+  for (let i = 0; i < BERRY_ROW_COUNT; i++) {
+    const src = palettes.berryCols[i]
+    if (src) {
+      for (let c = BERRY_COL_START; c < BERRY_COL_START + BERRY_COLS_COUNT; c++) {
+        if (src[c]) rows[BERRY_ROWS_A_START + i][c] = src[c]
+        if (src[c]) rows[BERRY_ROWS_B_START + i][c] = src[c]
+      }
+    }
+  }
+
+  // ── Sprite rows 5–7, cols 9–15 (from $B552) ──────────────────────────────
+  for (let i = 0; i < SPRITE_SEC_ROW_COUNT; i++) {
+    const src = palettes.spriteSecondaryCols[i]
+    if (src) {
+      for (let c = SPRITE_SEC_COL_START; c < SPRITE_SEC_COL_START + SPRITE_SEC_COLS_COUNT; c++) {
+        if (src[c]) rows[SPRITE_SEC_FIRST_ROW + i][c] = src[c]
+      }
+    }
+  }
+
+  // ── Row 8: overlay player variant at cols 6–F ──────────────────────────
+  // Cols 2–5 already filled from shared sprites ($B250 row index 4) above.
+  // Player variant ($B2C8 etc.) overwrites cols 6–15.
   if (pl) {
     const variantRow = pl.variants[Math.min(marioVariant, pl.variants.length - 1)]?.rows[0]
     if (variantRow) {
@@ -407,18 +491,19 @@ export function buildLevelCgram(
       }
     }
   }
+
+  // ── SP_E/F rows 14–15, cols 2–7 (variant-selectable) ──────────────────
   if (se) rows[14] = se.variants[0]?.rows[0] ?? emptyRow()
   if (sf) rows[15] = sf.variants[0]?.rows[0] ?? emptyRow()
 
-  // SMW writes the back-area color into col 1 of every CGRAM row at level load.
-  // Col 0 stays transparent (hardware); col 1 is the "background" fill color.
-  // Rows 0–7 (BG/FG/sprite): back-area color from the level's tileset/variant
-  //   (⚠ exact source unconfirmed; $B0A0+bgVariant*2 currently used as best estimate).
-  // Rows 8–15 (secondary sprite/player/shared): SMW uses $7FFF (pure white).
-  //   This is consistent across all levels and confirmed by CGRAM dump.
-  const WHITE: RgbaColor = [248, 248, 248, 255]  // BGR555 $7FFF
-  for (let r = 0; r < 8;  r++) rows[r][1]  = palettes.backAreaColor
-  for (let r = 8; r < 16; r++) rows[r][1]  = WHITE
+  // Col 0 = $0000 (transparent) for all rows — set by emptyRow().
+  // Col 1 = hardcoded in SMW's palette init routine at $00:ABF0:
+  //   BG rows 0–7:  LDA #$7FDD → JSR $ACED (near-white, BGR555)
+  //   OBJ rows 8–15: LDA #$7FFF → JSR $ACED (pure white, BGR555)
+  const COL1_BG:  RgbaColor = bgr555ToRgba(0x7FDD)  // #EFF7FF — SMW hardcoded
+  const COL1_OBJ: RgbaColor = bgr555ToRgba(0x7FFF)  // #FFFFFF — SMW hardcoded
+  for (let r = 0; r < 8;  r++) rows[r][1] = COL1_BG
+  for (let r = 8; r < 16; r++) rows[r][1] = COL1_OBJ
 
   return {
     colors: rows.flat(),
@@ -433,7 +518,7 @@ export function buildLevelCgram(
 export function loadBackAreaColors(rom: RomFile): RgbaColor[] {
   return Array.from({ length: 8 }, (_, i) => {
     const buf = rom.readAt(ADDR_BACK_AREA + i * 2, 2)
-    return buf ? bgr555ToRgba(buf.readUInt16LE(0)) : (UNKNOWN as RgbaColor)
+    return buf ? bgr555ToRgba(buf.readUInt16LE(0)) : (BLACK as RgbaColor)
   })
 }
 
