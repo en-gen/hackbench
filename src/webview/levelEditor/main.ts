@@ -56,6 +56,9 @@ app.innerHTML = `
   </div>
   <label style="${chkStyle()}"><input type="checkbox" id="chk-grid" checked> Grid</label>
   <label style="${chkStyle()}"><input type="checkbox" id="chk-sprites" checked> Sprites</label>
+  <label style="${chkStyle()}"><input type="checkbox" id="chk-block"> Block</label>
+  <label style="${chkStyle()}"><input type="checkbox" id="chk-l1" checked> L1</label>
+  <label style="${chkStyle()}"><input type="checkbox" id="chk-l2" checked> L2</label>
   <span style="color:#555;margin:0 2px">|</span>
   <label style="${chkStyle()}">BG&nbsp;<select id="sel-bg-palette" style="${selStyle()}"></select></label>
   <label style="${chkStyle()}">SP&nbsp;<select id="sel-sprite-set"  style="${selStyle()}"></select></label>
@@ -141,12 +144,16 @@ const objectList = document.getElementById('object-list')!
 const spriteList = document.getElementById('sprite-list')!
 const chkGrid    = document.getElementById('chk-grid')    as HTMLInputElement
 const chkSprites = document.getElementById('chk-sprites') as HTMLInputElement
+const chkBlock   = document.getElementById('chk-block')   as HTMLInputElement
+const chkL1      = document.getElementById('chk-l1')      as HTMLInputElement
+const chkL2      = document.getElementById('chk-l2')      as HTMLInputElement
 
 // ── State ────────────────────────────────────────────────────────────────────
 
 let zoomIdx      = ZOOM_DEFAULT_IDX
 let zoom         = ZOOM_STEPS[zoomIdx]
 let levelData: LevelPayload | null = null
+let l2TileGrid:  number[][] | null = null
 let atlasImg:  ImageBitmap | null = null
 let activeTileId = -1
 let activeTool: 'place' | 'erase' = 'place'
@@ -158,6 +165,7 @@ interface LevelPayload {
   levelIndex: number
   screens: number
   tileGrid: number[][]
+  l2TileGrid: number[][] | null
   atlasData: number[]           // serialised Uint8ClampedArray
   atlasWidth: number
   atlasHeight: number
@@ -196,8 +204,64 @@ canvasWrap.addEventListener('wheel', (e) => {
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
+/**
+ * Map a Map16 tile ID (0x000–0x1FF) to a deterministic RGB color.
+ * Uses the 9-bit ID split across R/G/B channels so nearby IDs look similar
+ * and different IDs are always visually distinguishable.
+ *
+ *   bits 0–4  (5 bits) → red   channel (scaled ×8, range 0–248)
+ *   bits 5–8  (4 bits) → green channel (scaled ×16, range 0–240)
+ *   bits 0–8  overlap  → blue  (brightness based on full ID, range 40–220)
+ *
+ * Tile $000 (empty/sky) is never drawn — callers must check tileId !== 0.
+ */
+function tileBlockColor(tileId: number): string {
+  const r = (tileId & 0x1F) << 3           // low 5 bits → red (0–248)
+  const g = ((tileId >> 5) & 0xF) << 4     // bits 5–8  → green (0–240)
+  const b = Math.round((tileId / 0x1FF) * 180) + 40  // 40–220 brightness
+  return `rgb(${r},${g},${b})`
+}
+
+/** Draw a tile grid as solid colored blocks (no VRAM/palette dependency). */
+function drawBlockGrid(
+  grid: number[][],
+  cols: number,
+  rows: number,
+  px: number,
+  alpha: number,
+): void {
+  ctx.save()
+  ctx.globalAlpha = alpha
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const tileId = grid[row]?.[col] ?? 0
+      if (tileId === 0) continue
+      ctx.fillStyle = tileBlockColor(tileId)
+      ctx.fillRect(Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
+    }
+  }
+  // Overlay tile ID hex text at zoom >= 2×
+  if (zoom >= 2) {
+    ctx.fillStyle = 'rgba(0,0,0,0.75)'
+    ctx.font = `${Math.max(6, Math.round(px * 0.28))}px monospace`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const tileId = grid[row]?.[col] ?? 0
+        if (tileId === 0) continue
+        const cx = Math.round(col * px) + Math.round(px / 2)
+        const cy = Math.round(row * px) + Math.round(px / 2)
+        ctx.fillText(`$${tileId.toString(16).toUpperCase().padStart(3, '0')}`, cx, cy)
+      }
+    }
+  }
+  ctx.restore()
+}
+
 function redraw(): void {
-  if (!levelData || !atlasImg) return
+  if (!levelData) return
+  if (!chkBlock.checked && !atlasImg) return
 
   const { tileGrid, screens, sprites, tileUvMap } = levelData
   const cols = screens * SCREEN_W
@@ -216,18 +280,30 @@ function redraw(): void {
   }
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-  // Tiles
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const tileId = tileGrid[row]?.[col] ?? 0
-      if (tileId === 0) continue  // empty sky — show canvas background color
-      const uv = tileUvMap[tileId]
-      if (!uv) continue
-      ctx.drawImage(
-        atlasImg,
-        uv.col * TILE_PX, uv.row * TILE_PX, TILE_PX, TILE_PX,
-        Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px),
-      )
+  if (chkBlock.checked) {
+    // ── Block render mode: draw colored rectangles by tile ID ─────────────────
+    // L2 first (background), then L1 on top
+    if (chkL2.checked && l2TileGrid) {
+      drawBlockGrid(l2TileGrid, cols, rows, px, 0.55)
+    }
+    if (chkL1.checked) {
+      drawBlockGrid(tileGrid, cols, rows, px, 1.0)
+    }
+  } else {
+    // ── Atlas render mode: draw real GFX tiles ────────────────────────────────
+    if (!atlasImg) return
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const tileId = tileGrid[row]?.[col] ?? 0
+        if (tileId === 0) continue  // empty sky — show canvas background color
+        const uv = tileUvMap[tileId]
+        if (!uv) continue
+        ctx.drawImage(
+          atlasImg,
+          uv.col * TILE_PX, uv.row * TILE_PX, TILE_PX, TILE_PX,
+          Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px),
+        )
+      }
     }
   }
 
@@ -272,6 +348,9 @@ function redraw(): void {
 
 chkGrid.addEventListener('change',    redraw)
 chkSprites.addEventListener('change', redraw)
+chkBlock.addEventListener('change',   redraw)
+chkL1.addEventListener('change',      redraw)
+chkL2.addEventListener('change',      redraw)
 
 // ── Mouse / edit interactions ─────────────────────────────────────────────────
 
@@ -423,7 +502,8 @@ selTileset.addEventListener('change',   postRerender)
 window.addEventListener('message', async (event) => {
   const msg = event.data as Record<string, unknown>
   if (msg['type'] === 'load') {
-    levelData = msg as unknown as LevelPayload
+    levelData   = msg as unknown as LevelPayload
+    l2TileGrid  = levelData.l2TileGrid ?? null
     const hex     = levelData.levelIndex.toString(16).toUpperCase().padStart(3, '0')
     const screens = levelData.screens
     levelId.textContent   = `Level $${hex}`
