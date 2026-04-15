@@ -54,10 +54,12 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
         await this._sendLevelData(document.uri, panel.webview, {})
       } else if (msg.type === 'rerender') {
         await this._sendLevelData(document.uri, panel.webview, {
-          bgVariant:  msg.bgVariant  as number,
-          spriteSet:  msg.spriteSet  as number,
-          tilesetId:  msg.tilesetId  as number,
-          _initial:   false,
+          bgVariant:      msg.bgVariant      as number,
+          fgVariant:      msg.fgVariant      as number,
+          spriteSet:      msg.spriteSet      as number,
+          spritePalette:  msg.spritePalette  as number,
+          tilesetId:      msg.tilesetId      as number,
+          _initial:       false,
         })
       } else if (msg.type === 'edit') {
         // Future: apply edit to ROM buffer and mark dirty
@@ -68,7 +70,7 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
   private async _sendLevelData(
     uri: vscode.Uri,
     webview: vscode.Webview,
-    overrides: { bgVariant?: number; spriteSet?: number; tilesetId?: number; _initial?: boolean },
+    overrides: { bgVariant?: number; fgVariant?: number; spriteSet?: number; spritePalette?: number; tilesetId?: number; _initial?: boolean },
   ): Promise<void> {
     try {
       const raw = await vscode.workspace.fs.readFile(uri)
@@ -138,12 +140,13 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
 
       // ── Load ROM rendering data (allow webview overrides) ─────────────────
       const romPalettes   = loadRomPalettes(rom.rom)
-      const bgVariant     = overrides.bgVariant  ?? header.bgPalette
-      const spriteSet     = overrides.spriteSet  ?? header.spriteSet
-      const spritePalette = header.spritePalette   // 2-bit (0–3), separate from sprite GFX set
-      const gfxTilesetId  = overrides.tilesetId  ?? rom.getGfxTilesetId(index)
+      const bgVariant     = overrides.bgVariant      ?? header.bgPalette
+      const fgVariant     = overrides.fgVariant      ?? 0
+      const spriteSet     = overrides.spriteSet      ?? header.spriteSet
+      const spritePalette = overrides.spritePalette  ?? header.spritePalette
+      const gfxTilesetId  = overrides.tilesetId      ?? rom.getGfxTilesetId(index)
 
-      const cgram = buildLevelCgram(romPalettes, bgVariant, 0, spritePalette)
+      const cgram = buildLevelCgram(romPalettes, bgVariant, fgVariant, spritePalette)
       const palette = { colors: cgram.colors, rows: cgram.rows }
       const vram    = loadVram(rom.rom, gfxTilesetId, spriteSet)
       const map16        = loadAllMap16(rom.rom)
@@ -171,12 +174,15 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
         atlasHeight,
         tileUvMap,
         backAreaColor:  romPalettes.backAreaColor,
+        paletteRows:    cgram.rows.map(row => row.map((c: number[]) => [c[0], c[1], c[2], c[3]])),
         sprites:        sprites.map(s => ({ x: s.x, y: s.y, spriteId: s.spriteId })),
         header: {
-          music:         header.music,
+          music:          header.music,
           spriteSet,
-          bgPalette:     bgVariant,
-          bgColor:       header.bgColor,
+          bgPalette:      bgVariant,
+          fgPalette:      fgVariant,
+          bgColor:        header.bgColor,
+          spritePalette,
           gfxTilesetId,
         },
       })

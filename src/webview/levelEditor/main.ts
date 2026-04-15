@@ -2,24 +2,16 @@
  * SMW Level Editor — webview entry point.
  *
  * Layout:
- *   ┌─ toolbar ────────────────────────────────────────────────────┐
- *   │ [Level $XXX]  [meta]       [zoom −][1×][+]  [Grid] [Sprites] │
- *   ├─ workspace ──────────────────────────────────────────────────┤
- *   │ ┌─ panel ──┐ ┌─ canvas-wrap (scroll) ──────────────────────┐ │
- *   │ │ Objects  │ │                                              │ │
- *   │ │ Sprites  │ │   <canvas> (pixel-art, no fit-to-window)    │ │
- *   │ └──────────┘ └──────────────────────────────────────────────┘ │
- *   ├─ status ─────────────────────────────────────────────────────┤
- *   └──────────────────────────────────────────────────────────────┘
- *
- * Messages FROM extension host:
- *   { type:'load', levelIndex, tileGrid, atlasData, atlasWidth, atlasHeight,
- *     tileUvMap, screens, sprites, header }
- *   { type:'error', message }
- *
- * Messages TO extension host:
- *   { type:'ready' }
- *   { type:'edit', kind:'place'|'erase', tileId, col, row }
+ *   ┌─ toolbar ──────────────────────────────────────────────────────────┐
+ *   │ [Level $XXX]  [meta]   [zoom −][1×][+]  [Grid][Sprites][Block][L1][L2] │
+ *   ├─ workspace ────────────────────────────────────────────────────────┤
+ *   │ ┌─ canvas-wrap (scroll) ──────────────────────┐ ┌─ props (220px) ─┐ │
+ *   │ │                                              │ │ PALETTE         │ │
+ *   │ │   <canvas> (pixel-art, no fit-to-window)    │ │ LEVEL HEADER    │ │
+ *   │ │                                              │ │ ROOM INFO       │ │
+ *   │ └──────────────────────────────────────────────┘ └─────────────────┘ │
+ *   ├─ status ───────────────────────────────────────────────────────────┤
+ *   └────────────────────────────────────────────────────────────────────┘
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -33,6 +25,27 @@ const SCREEN_W   = 16
 const SCREEN_H   = 27
 const ZOOM_STEPS = [0.25, 0.5, 1, 2, 3, 4]
 const ZOOM_DEFAULT_IDX = 2  // 1×
+const PAL_CELL   = 8        // pixels per palette swatch cell in the properties panel
+
+// ── Style helpers ─────────────────────────────────────────────────────────────
+
+function selStyle(): string {
+  return 'width:100%;background:var(--vscode-dropdown-background,#3c3c3c);' +
+         'color:var(--vscode-dropdown-foreground,#ccc);' +
+         'border:1px solid #555;border-radius:3px;height:22px;font-size:11px;cursor:pointer;'
+}
+function btnStyle(): string {
+  return 'background:transparent;border:1px solid #555;color:#ccc;border-radius:3px;' +
+         'width:22px;height:22px;font-size:14px;line-height:1;cursor:pointer;padding:0;'
+}
+function chkStyle(): string {
+  return 'display:flex;align-items:center;gap:4px;cursor:pointer;' +
+         'font-size:12px;color:#888;user-select:none;'
+}
+function propLabelStyle(): string {
+  return 'font-size:9px;font-weight:700;letter-spacing:.08em;' +
+         'color:var(--vscode-descriptionForeground,#888);margin-bottom:3px;'
+}
 
 // ── Build DOM ─────────────────────────────────────────────────────────────────
 
@@ -59,30 +72,90 @@ app.innerHTML = `
   <label style="${chkStyle()}"><input type="checkbox" id="chk-block"> Block</label>
   <label style="${chkStyle()}"><input type="checkbox" id="chk-l1" checked> L1</label>
   <label style="${chkStyle()}"><input type="checkbox" id="chk-l2" checked> L2</label>
-  <span style="color:#555;margin:0 2px">|</span>
-  <label style="${chkStyle()}">BG&nbsp;<select id="sel-bg-palette" style="${selStyle()}"></select></label>
-  <label style="${chkStyle()}">SP&nbsp;<select id="sel-sprite-set"  style="${selStyle()}"></select></label>
-  <label style="${chkStyle()}">GFX&nbsp;<select id="sel-tileset"    style="${selStyle()}"></select></label>
 </div>
 
 <div id="workspace" style="display:flex;flex:1;overflow:hidden;">
-  <div id="panel" style="
-    width:220px;flex-shrink:0;overflow-y:auto;
-    background:var(--vscode-sideBar-background,#252526);
-    border-right:1px solid var(--vscode-panel-border,#3a3a3a);
-    font-family:var(--vscode-font-family,system-ui);font-size:12px;">
-    <div style="padding:6px 0;">
-      <div class="section-hdr">OBJECTS</div>
-      <div id="object-list" style="padding:0 4px;"></div>
-    </div>
-    <div style="padding:6px 0;border-top:1px solid var(--vscode-panel-border,#3a3a3a);">
-      <div class="section-hdr">SPRITES</div>
-      <div id="sprite-list" style="padding:0 4px;"></div>
-    </div>
-  </div>
-
   <div id="canvas-wrap" style="flex:1;overflow:auto;background:#111111;cursor:crosshair;">
     <canvas id="level-canvas" style="display:block;image-rendering:pixelated;margin:8px;"></canvas>
+  </div>
+
+  <div id="props-panel" style="
+    width:220px;flex-shrink:0;overflow-y:auto;
+    background:var(--vscode-sideBar-background,#252526);
+    border-left:1px solid var(--vscode-panel-border,#3a3a3a);
+    font-family:var(--vscode-font-family,system-ui);font-size:12px;">
+
+    <div class="section-hdr">PALETTE</div>
+    <div style="padding:8px 8px 4px;">
+      <canvas id="palette-canvas" width="128" height="128" style="
+        width:100%;image-rendering:pixelated;cursor:crosshair;display:block;
+        background:repeating-conic-gradient(#555 0% 25%,#444 0% 50%) 0 0/8px 8px;
+        border:1px solid #3a3a3a;box-sizing:border-box;"></canvas>
+      <div id="palette-inspect" style="margin-top:4px;font-size:10px;
+        font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
+    </div>
+
+    <div class="section-hdr">LEVEL HEADER SETTINGS</div>
+    <div style="padding:8px;display:flex;flex-direction:column;gap:8px;">
+
+      <div>
+        <div style="${propLabelStyle()}">BACK AREA COLOR</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div id="back-area-swatch" style="
+            width:16px;height:16px;flex-shrink:0;
+            border:1px solid #555;border-radius:2px;"></div>
+          <select id="sel-bg-color" style="${selStyle()}"></select>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+        <div>
+          <div style="${propLabelStyle()}">FG PALETTE</div>
+          <select id="sel-fg-palette" style="${selStyle()}"></select>
+        </div>
+        <div>
+          <div style="${propLabelStyle()}">BG PALETTE</div>
+          <select id="sel-bg-palette" style="${selStyle()}"></select>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+        <div>
+          <div style="${propLabelStyle()}">SPRITE PALETTE</div>
+          <select id="sel-sprite-palette" style="${selStyle()}"></select>
+        </div>
+        <div>
+          <div style="${propLabelStyle()}">MARIO PALETTE</div>
+          <select id="sel-mario-palette" style="${selStyle()}">
+            <option>Mario</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <div style="${propLabelStyle()}">TILESET (GFX)</div>
+        <select id="sel-tileset" style="${selStyle()}"></select>
+      </div>
+
+      <div>
+        <div style="${propLabelStyle()}">SPRITE SET</div>
+        <select id="sel-sprite-set" style="${selStyle()}"></select>
+      </div>
+
+    </div>
+
+    <div class="section-hdr">ROOM INFO</div>
+    <div style="padding:8px;display:flex;flex-direction:column;gap:6px;">
+      <div>
+        <div style="${propLabelStyle()}">SCREENS</div>
+        <div id="info-screens" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+      </div>
+      <div>
+        <div style="${propLabelStyle()}">SPRITES</div>
+        <div id="info-sprites" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -104,49 +177,39 @@ app.innerHTML = `
     background:var(--vscode-sideBarSectionHeader-background,#2d2d2d);
     user-select:none;
   }
-  .lib-item {
-    display:flex;align-items:center;gap:6px;padding:3px 8px;
-    font-size:11px;cursor:pointer;border-radius:2px;
-    color:var(--vscode-foreground,#ccc);
-  }
-  .lib-item:hover  { background:var(--vscode-list-hoverBackground,#2a2d2e); }
-  .lib-item.active { background:var(--vscode-list-activeSelectionBackground,#094771); }
-  .lib-dot { width:10px;height:10px;border-radius:2px;flex-shrink:0; }
 </style>
 `
 
-function selStyle(): string {
-  return 'background:var(--vscode-dropdown-background,#3c3c3c);' +
-         'color:var(--vscode-dropdown-foreground,#ccc);' +
-         'border:1px solid #555;border-radius:3px;height:20px;font-size:11px;cursor:pointer;'
-}
-function btnStyle(): string {
-  return 'background:transparent;border:1px solid #555;color:#ccc;border-radius:3px;' +
-         'width:22px;height:22px;font-size:14px;line-height:1;cursor:pointer;padding:0;'
-}
-function chkStyle(): string {
-  return 'display:flex;align-items:center;gap:4px;cursor:pointer;' +
-         'font-size:12px;color:#888;user-select:none;'
-}
-
 // ── Element refs ─────────────────────────────────────────────────────────────
 
-const canvas     = document.getElementById('level-canvas') as HTMLCanvasElement
-const ctx        = canvas.getContext('2d')!
-const canvasWrap = document.getElementById('canvas-wrap')!
-const levelId    = document.getElementById('level-id')!
-const levelMeta  = document.getElementById('level-meta')!
-const zoomLabel  = document.getElementById('zoom-label')!
-const stPos      = document.getElementById('st-pos')!
-const stTile     = document.getElementById('st-tile')!
-const stInfo     = document.getElementById('st-info')!
-const objectList = document.getElementById('object-list')!
-const spriteList = document.getElementById('sprite-list')!
-const chkGrid    = document.getElementById('chk-grid')    as HTMLInputElement
-const chkSprites = document.getElementById('chk-sprites') as HTMLInputElement
-const chkBlock   = document.getElementById('chk-block')   as HTMLInputElement
-const chkL1      = document.getElementById('chk-l1')      as HTMLInputElement
-const chkL2      = document.getElementById('chk-l2')      as HTMLInputElement
+const canvas         = document.getElementById('level-canvas')   as HTMLCanvasElement
+const ctx            = canvas.getContext('2d')!
+const canvasWrap     = document.getElementById('canvas-wrap')!
+const levelId        = document.getElementById('level-id')!
+const levelMeta      = document.getElementById('level-meta')!
+const zoomLabel      = document.getElementById('zoom-label')!
+const stPos          = document.getElementById('st-pos')!
+const stTile         = document.getElementById('st-tile')!
+const stInfo         = document.getElementById('st-info')!
+const chkGrid        = document.getElementById('chk-grid')        as HTMLInputElement
+const chkSprites     = document.getElementById('chk-sprites')     as HTMLInputElement
+const chkBlock       = document.getElementById('chk-block')       as HTMLInputElement
+const chkL1          = document.getElementById('chk-l1')          as HTMLInputElement
+const chkL2          = document.getElementById('chk-l2')          as HTMLInputElement
+
+// Props panel
+const palCanvas      = document.getElementById('palette-canvas')  as HTMLCanvasElement
+const palCtx         = palCanvas.getContext('2d')!
+const palInspect     = document.getElementById('palette-inspect')!
+const backAreaSwatch = document.getElementById('back-area-swatch')!
+const selBgColor     = document.getElementById('sel-bg-color')     as HTMLSelectElement
+const selFgPalette   = document.getElementById('sel-fg-palette')   as HTMLSelectElement
+const selBgPalette   = document.getElementById('sel-bg-palette')   as HTMLSelectElement
+const selSpritePal   = document.getElementById('sel-sprite-palette') as HTMLSelectElement
+const selTileset     = document.getElementById('sel-tileset')      as HTMLSelectElement
+const selSpriteSet   = document.getElementById('sel-sprite-set')   as HTMLSelectElement
+const infoScreens    = document.getElementById('info-screens')!
+const infoSprites    = document.getElementById('info-sprites')!
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -154,7 +217,7 @@ let zoomIdx      = ZOOM_DEFAULT_IDX
 let zoom         = ZOOM_STEPS[zoomIdx]
 let levelData: LevelPayload | null = null
 let l2TileGrid:  number[][] | null = null
-let atlasImg:  ImageBitmap | null = null
+let atlasImg:    ImageBitmap | null = null
 let activeTileId = -1
 let activeTool: 'place' | 'erase' = 'place'
 let isPainting   = false
@@ -162,22 +225,25 @@ let isPainting   = false
 interface TileUv { col: number; row: number }
 
 interface LevelPayload {
-  levelIndex: number
-  screens: number
-  tileGrid: number[][]
-  l2TileGrid: number[][] | null
-  atlasData: number[]           // serialised Uint8ClampedArray
-  atlasWidth: number
-  atlasHeight: number
-  tileUvMap: Record<number, TileUv>
-  sprites: Array<{ x: number; y: number; spriteId: number }>
-  backAreaColor: [number, number, number, number]  // RGBA canvas background
+  levelIndex:    number
+  screens:       number
+  tileGrid:      number[][]
+  l2TileGrid:    number[][] | null
+  atlasData:     number[]
+  atlasWidth:    number
+  atlasHeight:   number
+  tileUvMap:     Record<number, TileUv>
+  sprites:       Array<{ x: number; y: number; spriteId: number }>
+  backAreaColor: [number, number, number, number]
+  paletteRows:   number[][][]   // 16 rows × 16 colors × [r,g,b,a]
   header: {
-    music: number
-    spriteSet: number
-    bgPalette: number
-    bgColor: number
-    gfxTilesetId: number
+    music:          number
+    spriteSet:      number
+    bgPalette:      number
+    fgPalette:      number
+    bgColor:        number
+    spritePalette:  number
+    gfxTilesetId:   number
   }
 }
 
@@ -202,34 +268,56 @@ canvasWrap.addEventListener('wheel', (e) => {
   if (next >= 0 && next < ZOOM_STEPS.length) { zoomIdx = next; applyZoom() }
 }, { passive: false })
 
+// ── Palette canvas ────────────────────────────────────────────────────────────
+
+function drawPaletteCanvas(): void {
+  if (!levelData?.paletteRows) return
+  const rows = levelData.paletteRows
+  palCtx.clearRect(0, 0, 128, 128)
+
+  for (let row = 0; row < 16; row++) {
+    for (let col = 0; col < 16; col++) {
+      const c = rows[row]?.[col] ?? [0, 0, 0, 0]
+      const x = col * PAL_CELL
+      const y = row * PAL_CELL
+      // Checkerboard for transparent/color-0 entries
+      if (c[3] < 255) {
+        palCtx.fillStyle = (col + row) % 2 === 0 ? '#666' : '#444'
+        palCtx.fillRect(x, y, PAL_CELL, PAL_CELL)
+      }
+      if (c[3] > 0) {
+        palCtx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${(c[3] / 255).toFixed(3)})`
+        palCtx.fillRect(x, y, PAL_CELL, PAL_CELL)
+      }
+    }
+  }
+}
+
+palCanvas.addEventListener('mousemove', (e) => {
+  if (!levelData?.paletteRows) return
+  const rect = palCanvas.getBoundingClientRect()
+  const scaleX = 128 / rect.width
+  const col = Math.floor((e.clientX - rect.left) * scaleX / PAL_CELL)
+  const row = Math.floor((e.clientY - rect.top)  * scaleX / PAL_CELL)
+  if (col < 0 || col > 15 || row < 0 || row > 15) return
+  const c = levelData.paletteRows[row]?.[col] ?? [0, 0, 0, 0]
+  const hex = `#${c[0].toString(16).padStart(2,'0')}${c[1].toString(16).padStart(2,'0')}${c[2].toString(16).padStart(2,'0')}`
+  palInspect.textContent = `row ${row}  col ${col}  ${hex}`
+})
+palCanvas.addEventListener('mouseleave', () => {
+  palInspect.textContent = 'hover to inspect'
+})
+
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
-/**
- * Map a Map16 tile ID (0x000–0x1FF) to a deterministic RGB color.
- * Uses the 9-bit ID split across R/G/B channels so nearby IDs look similar
- * and different IDs are always visually distinguishable.
- *
- *   bits 0–4  (5 bits) → red   channel (scaled ×8, range 0–248)
- *   bits 5–8  (4 bits) → green channel (scaled ×16, range 0–240)
- *   bits 0–8  overlap  → blue  (brightness based on full ID, range 40–220)
- *
- * Tile $000 (empty/sky) is never drawn — callers must check tileId !== 0.
- */
 function tileBlockColor(tileId: number): string {
-  const r = (tileId & 0x1F) << 3           // low 5 bits → red (0–248)
-  const g = ((tileId >> 5) & 0xF) << 4     // bits 5–8  → green (0–240)
-  const b = Math.round((tileId / 0x1FF) * 180) + 40  // 40–220 brightness
+  const r = (tileId & 0x1F) << 3
+  const g = ((tileId >> 5) & 0xF) << 4
+  const b = Math.round((tileId / 0x1FF) * 180) + 40
   return `rgb(${r},${g},${b})`
 }
 
-/** Draw a tile grid as solid colored blocks (no VRAM/palette dependency). */
-function drawBlockGrid(
-  grid: number[][],
-  cols: number,
-  rows: number,
-  px: number,
-  alpha: number,
-): void {
+function drawBlockGrid(grid: number[][], cols: number, rows: number, px: number, alpha: number): void {
   ctx.save()
   ctx.globalAlpha = alpha
   for (let row = 0; row < rows; row++) {
@@ -240,7 +328,6 @@ function drawBlockGrid(
       ctx.fillRect(Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
     }
   }
-  // Overlay tile ID hex text at zoom >= 2×
   if (zoom >= 2) {
     ctx.fillStyle = 'rgba(0,0,0,0.75)'
     ctx.font = `${Math.max(6, Math.round(px * 0.28))}px monospace`
@@ -250,9 +337,9 @@ function drawBlockGrid(
       for (let col = 0; col < cols; col++) {
         const tileId = grid[row]?.[col] ?? 0
         if (tileId === 0) continue
-        const cx = Math.round(col * px) + Math.round(px / 2)
-        const cy = Math.round(row * px) + Math.round(px / 2)
-        ctx.fillText(`$${tileId.toString(16).toUpperCase().padStart(3, '0')}`, cx, cy)
+        ctx.fillText(`$${tileId.toString(16).toUpperCase().padStart(3,'0')}`,
+          Math.round(col * px) + Math.round(px / 2),
+          Math.round(row * px) + Math.round(px / 2))
       }
     }
   }
@@ -272,7 +359,7 @@ function redraw(): void {
   canvas.height = Math.round(rows * px)
   ctx.imageSmoothingEnabled = false
 
-  if (levelData?.backAreaColor) {
+  if (levelData.backAreaColor) {
     const [r, g, b] = levelData.backAreaColor
     ctx.fillStyle = `rgb(${r},${g},${b})`
   } else {
@@ -281,28 +368,19 @@ function redraw(): void {
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
   if (chkBlock.checked) {
-    // ── Block render mode: draw colored rectangles by tile ID ─────────────────
-    // L2 first (background), then L1 on top
-    if (chkL2.checked && l2TileGrid) {
-      drawBlockGrid(l2TileGrid, cols, rows, px, 0.55)
-    }
-    if (chkL1.checked) {
-      drawBlockGrid(tileGrid, cols, rows, px, 1.0)
-    }
+    if (chkL2.checked && l2TileGrid) drawBlockGrid(l2TileGrid, cols, rows, px, 0.55)
+    if (chkL1.checked)               drawBlockGrid(tileGrid,   cols, rows, px, 1.0)
   } else {
-    // ── Atlas render mode: draw real GFX tiles ────────────────────────────────
     if (!atlasImg) return
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
         const tileId = tileGrid[row]?.[col] ?? 0
-        if (tileId === 0) continue  // empty sky — show canvas background color
+        if (tileId === 0) continue
         const uv = tileUvMap[tileId]
         if (!uv) continue
-        ctx.drawImage(
-          atlasImg,
+        ctx.drawImage(atlasImg,
           uv.col * TILE_PX, uv.row * TILE_PX, TILE_PX, TILE_PX,
-          Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px),
-        )
+          Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
       }
     }
   }
@@ -375,10 +453,7 @@ function paintAt(e: MouseEvent): void {
   vscode.postMessage({ type: 'edit', kind: activeTool, tileId, col: pos.col, row: pos.row })
 }
 
-canvas.addEventListener('mousedown', (e) => {
-  if (e.button !== 0) return
-  isPainting = true; paintAt(e)
-})
+canvas.addEventListener('mousedown', (e) => { if (e.button !== 0) return; isPainting = true; paintAt(e) })
 canvas.addEventListener('mousemove', (e) => {
   const pos = canvasTileAt(e)
   if (pos) {
@@ -390,95 +465,34 @@ canvas.addEventListener('mousemove', (e) => {
 })
 canvas.addEventListener('mouseup',    () => { isPainting = false })
 canvas.addEventListener('mouseleave', () => { isPainting = false })
-
 canvas.addEventListener('contextmenu', (e) => {
   e.preventDefault()
   const prev = activeTool; activeTool = 'erase'; paintAt(e); activeTool = prev
 })
-
-// ── Drag-drop from library ────────────────────────────────────────────────────
 
 canvas.addEventListener('dragover', (e) => { e.preventDefault() })
 canvas.addEventListener('drop', (e) => {
   e.preventDefault()
   const tileId = parseInt(e.dataTransfer?.getData('text/plain') ?? '', 10)
   if (isNaN(tileId) || !levelData) return
-  const rect   = canvas.getBoundingClientRect()
-  const px     = TILE_PX * zoom
-  const col    = Math.floor((e.clientX - rect.left) / px)
-  const row    = Math.floor((e.clientY - rect.top)  / px)
+  const rect = canvas.getBoundingClientRect()
+  const px   = TILE_PX * zoom
+  const col  = Math.floor((e.clientX - rect.left) / px)
+  const row  = Math.floor((e.clientY - rect.top)  / px)
   if (col < 0 || row < 0 || row >= SCREEN_H || col >= levelData.screens * SCREEN_W) return
   levelData.tileGrid[row][col] = tileId
   redraw()
   vscode.postMessage({ type: 'edit', kind: 'place', tileId, col, row })
 })
 
-// ── Library panel ─────────────────────────────────────────────────────────────
+// ── Properties panel — selectors ──────────────────────────────────────────────
 
-const OBJECT_ITEMS = [
-  { id: 0x054, label: 'Ground',       color: '#7a5c3a' },
-  { id: 0x012, label: 'Cement Block', color: '#888888' },
-  { id: 0x011, label: 'Brick',        color: '#cc8844' },
-  { id: 0x010, label: '? Block',      color: '#ffcc00' },
-  { id: 0x001, label: 'Coin',         color: '#ffdd44' },
-  { id: 0x10A, label: 'Pipe',         color: '#33aa88' },
-  { id: 0x07F, label: 'Muncher',      color: '#228822' },
-] as const
-
-const SPRITE_ITEMS = [
-  { id: 0x00, label: 'Goomba',        color: '#aa7744' },
-  { id: 0x01, label: 'Koopa (green)', color: '#448844' },
-  { id: 0x02, label: 'Koopa (red)',   color: '#aa4444' },
-  { id: 0x03, label: 'Piranha Plant', color: '#448844' },
-  { id: 0x0E, label: 'Boo',           color: '#eeeeee' },
-  { id: 0x14, label: '1-Up Mushroom', color: '#448844' },
-  { id: 0x74, label: 'Yoshi (green)', color: '#44aa44' },
-] as const
-
-type LibItem = { id: number; label: string; color: string }
-
-function buildLibrary(container: HTMLElement, items: ReadonlyArray<LibItem>): void {
-  container.innerHTML = ''
-  for (const item of items) {
-    const el = document.createElement('div')
-    el.className = 'lib-item'
-    el.draggable = true
-    el.dataset.id = String(item.id)
-    el.innerHTML =
-      `<div class="lib-dot" style="background:${item.color}"></div>` +
-      `<span>${item.label}</span>` +
-      `<span style="margin-left:auto;font-size:10px;color:#666;font-family:monospace">` +
-      `$${item.id.toString(16).toUpperCase().padStart(3,'0')}</span>`
-    el.addEventListener('click', () => {
-      document.querySelectorAll('.lib-item').forEach(e => e.classList.remove('active'))
-      el.classList.add('active')
-      activeTileId = item.id
-      activeTool   = 'place'
-    })
-    el.addEventListener('dragstart', (e) => {
-      e.dataTransfer?.setData('text/plain', String(item.id))
-    })
-    container.appendChild(el)
-  }
-}
-
-buildLibrary(objectList, OBJECT_ITEMS)
-buildLibrary(spriteList, SPRITE_ITEMS)
-
-// ── Message handler ───────────────────────────────────────────────────────────
-
-// ── Override controls ─────────────────────────────────────────────────────────
-
-const selBgPalette  = document.getElementById('sel-bg-palette')  as HTMLSelectElement
-const selSpriteSet  = document.getElementById('sel-sprite-set')  as HTMLSelectElement
-const selTileset    = document.getElementById('sel-tileset')      as HTMLSelectElement
-
-function buildSelect(el: HTMLSelectElement, count: number, value: number): void {
+function buildSelect(el: HTMLSelectElement, count: number, value: number, labelFn?: (i: number) => string): void {
   el.innerHTML = ''
   for (let i = 0; i < count; i++) {
     const opt = document.createElement('option')
     opt.value = String(i)
-    opt.textContent = String(i)
+    opt.textContent = labelFn ? labelFn(i) : String(i)
     if (i === value) opt.selected = true
     el.appendChild(opt)
   }
@@ -486,43 +500,59 @@ function buildSelect(el: HTMLSelectElement, count: number, value: number): void 
 
 function postRerender(): void {
   vscode.postMessage({
-    type: 'rerender',
-    bgVariant:  parseInt(selBgPalette.value),
-    spriteSet:  parseInt(selSpriteSet.value),
-    tilesetId:  parseInt(selTileset.value),
+    type:           'rerender',
+    bgVariant:      parseInt(selBgPalette.value),
+    fgVariant:      parseInt(selFgPalette.value),
+    spriteSet:      parseInt(selSpriteSet.value),
+    spritePalette:  parseInt(selSpritePal.value),
+    tilesetId:      parseInt(selTileset.value),
   })
 }
 
-selBgPalette.addEventListener('change', postRerender)
-selSpriteSet.addEventListener('change', postRerender)
-selTileset.addEventListener('change',   postRerender)
+selFgPalette.addEventListener('change',  postRerender)
+selBgPalette.addEventListener('change',  postRerender)
+selSpritePal.addEventListener('change',  postRerender)
+selSpriteSet.addEventListener('change',  postRerender)
+selTileset.addEventListener('change',    postRerender)
 
 // ── Message handler ───────────────────────────────────────────────────────────
 
 window.addEventListener('message', async (event) => {
   const msg = event.data as Record<string, unknown>
   if (msg['type'] === 'load') {
-    levelData   = msg as unknown as LevelPayload
-    l2TileGrid  = levelData.l2TileGrid ?? null
+    levelData  = msg as unknown as LevelPayload
+    l2TileGrid = levelData.l2TileGrid ?? null
+
     const hex     = levelData.levelIndex.toString(16).toUpperCase().padStart(3, '0')
     const screens = levelData.screens
     levelId.textContent   = `Level $${hex}`
-    levelMeta.textContent =
-      `${screens} screen${screens !== 1 ? 's' : ''} · ` +
-      `${levelData.sprites.length} sprites`
-    stInfo.textContent =
+    levelMeta.textContent = `${screens} screen${screens !== 1 ? 's' : ''}`
+    stInfo.textContent    =
       `Music $${levelData.header.music.toString(16).toUpperCase()} · ` +
-      `Tileset ${levelData.header.gfxTilesetId} · ` +
-      `SP $${levelData.header.spriteSet.toString(16).toUpperCase()}`
+      `Tileset ${levelData.header.gfxTilesetId}`
 
-    // Populate override selectors from header values (only on initial load)
+    // Populate props panel selectors (only on initial load)
     if (msg['_initial'] !== false) {
-      buildSelect(selBgPalette, 8,  levelData.header.bgPalette)
-      buildSelect(selSpriteSet, 16, levelData.header.spriteSet)
+      buildSelect(selBgColor,   8,  levelData.header.bgColor,       i => `Back Area Color ${i}`)
+      buildSelect(selFgPalette, 8,  levelData.header.fgPalette,     i => `FG Palette ${i}`)
+      buildSelect(selBgPalette, 8,  levelData.header.bgPalette,     i => `BG Palette ${i}`)
+      buildSelect(selSpritePal, 4,  levelData.header.spritePalette, i => `Sprite Palette ${i}`)
       buildSelect(selTileset,   16, levelData.header.gfxTilesetId)
+      buildSelect(selSpriteSet, 16, levelData.header.spriteSet)
     }
 
-    // Decode atlas
+    // Back area color swatch
+    const [r, g, b] = levelData.backAreaColor
+    backAreaSwatch.style.background = `rgb(${r},${g},${b})`
+
+    // Room info
+    infoScreens.textContent = String(screens)
+    infoSprites.textContent = String(levelData.sprites.length)
+
+    // Palette canvas
+    drawPaletteCanvas()
+
+    // Decode atlas and redraw
     const raw     = new Uint8ClampedArray(levelData.atlasData)
     const imgData = new ImageData(raw, levelData.atlasWidth, levelData.atlasHeight)
     atlasImg      = await createImageBitmap(imgData)
