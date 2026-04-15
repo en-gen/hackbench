@@ -68,12 +68,13 @@ class RoomItem extends vscode.TreeItem {
   constructor(
     index: number,
     slug: string,
-    label: string,
+    /** Named rooms show name + $hex description. Unnamed rooms show only $hex as label. */
+    name: string | null,
     role: 'entrance' | 'sub' | 'resource',
   ) {
     const hex = index.toString(16).toUpperCase().padStart(3, '0')
-    super(label, vscode.TreeItemCollapsibleState.None)
-    this.description = `$${hex}`
+    super(name ?? `$${hex}`, vscode.TreeItemCollapsibleState.None)
+    this.description = name ? `$${hex}` : undefined
     this.iconPath = new vscode.ThemeIcon(
       role === 'entrance' ? 'home'
       : role === 'sub'    ? 'symbol-namespace'
@@ -198,12 +199,10 @@ export class LevelsProvider implements vscode.TreeDataProvider<LevelsTreeItem> {
     }
 
     if (element instanceof LevelFolder) {
-      const entranceName = getVanillaLevelName(element.index) ?? 'Entrance'
-      const entrance = new RoomItem(element.index, element.slug, entranceName, 'entrance')
-      const subs = element.subIndices.map(ci => {
-        const name = getVanillaLevelName(ci) ?? `$${ci.toString(16).toUpperCase().padStart(3,'0')}`
-        return new RoomItem(ci, element.slug, name, 'sub')
-      })
+      const entrance = new RoomItem(element.index, element.slug, getVanillaLevelName(element.index) ?? null, 'entrance')
+      const subs = element.subIndices.map(ci =>
+        new RoomItem(ci, element.slug, getVanillaLevelName(ci) ?? null, 'sub')
+      )
       return [entrance, ...subs]
     }
 
@@ -237,10 +236,9 @@ export class ResourcesProvider implements vscode.TreeDataProvider<ResourcesTreeI
       const { overworld, subarea } = rom.classifyLevels()
       const allRooms = [...overworld, ...subarea].sort((a, b) => a - b)
 
-      const roomItems: RoomItem[] = allRooms.map(index => {
-        const name = getVanillaLevelName(index) ?? `Room $${index.toString(16).toUpperCase().padStart(3,'0')}`
-        return new RoomItem(index, slug, name, 'resource')
-      })
+      const roomItems: RoomItem[] = allRooms.map(index =>
+        new RoomItem(index, slug, getVanillaLevelName(index) ?? null, 'resource')
+      )
 
       const roomsSection = new SectionFolder(
         `Rooms  (${allRooms.length})`, 'rooms', 'file-code', roomItems, false,

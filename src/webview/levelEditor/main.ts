@@ -126,9 +126,7 @@ app.innerHTML = `
         </div>
         <div>
           <div style="${propLabelStyle()}">MARIO PALETTE</div>
-          <select id="sel-mario-palette" style="${selStyle()}">
-            <option>Mario</option>
-          </select>
+          <select id="sel-mario-palette" style="${selStyle()}"></select>
         </div>
       </div>
 
@@ -206,6 +204,7 @@ const selBgColor     = document.getElementById('sel-bg-color')     as HTMLSelect
 const selFgPalette   = document.getElementById('sel-fg-palette')   as HTMLSelectElement
 const selBgPalette   = document.getElementById('sel-bg-palette')   as HTMLSelectElement
 const selSpritePal   = document.getElementById('sel-sprite-palette') as HTMLSelectElement
+const selMarioPal    = document.getElementById('sel-mario-palette') as HTMLSelectElement
 const selTileset     = document.getElementById('sel-tileset')      as HTMLSelectElement
 const selSpriteSet   = document.getElementById('sel-sprite-set')   as HTMLSelectElement
 const infoScreens    = document.getElementById('info-screens')!
@@ -246,6 +245,7 @@ interface LevelPayload {
     fgPalette:      number
     bgColor:        number
     spritePalette:  number
+    marioVariant:   number
     gfxTilesetId:   number
   }
 }
@@ -519,6 +519,7 @@ function postRerender(): void {
     spritePalette:  parseInt(selSpritePal.value),
     tilesetId:      parseInt(selTileset.value),
     bgColorVariant: parseInt(selBgColor.value),
+    marioVariant:   parseInt(selMarioPal.value),
   })
 }
 
@@ -554,6 +555,9 @@ selSpritePal.addEventListener('focus',  () => setPaletteHighlight([4, 5, 6, 7]))
 selSpritePal.addEventListener('blur',   () => setPaletteHighlight(null))
 selSpriteSet.addEventListener('focus',  () => setPaletteHighlight([4, 5, 6, 7]))
 selSpriteSet.addEventListener('blur',   () => setPaletteHighlight(null))
+selMarioPal.addEventListener('change',  postRerender)
+selMarioPal.addEventListener('focus',   () => setPaletteHighlight([8]))
+selMarioPal.addEventListener('blur',    () => setPaletteHighlight(null))
 
 // ── Message handler ───────────────────────────────────────────────────────────
 
@@ -577,6 +581,8 @@ window.addEventListener('message', async (event) => {
       buildSelect(selFgPalette, 8,  levelData.header.fgPalette,     i => `FG ${i}`)
       buildSelect(selBgPalette, 8,  levelData.header.bgPalette,     i => `BG ${i}`)
       buildSelect(selSpritePal, 4,  levelData.header.spritePalette, i => `Set ${i}`)
+      buildSelect(selMarioPal,  4,  levelData.header.marioVariant,
+        i => ['Mario', 'Luigi', 'Fire Mario', 'Fire Luigi'][i] ?? String(i))
       buildSelect(selTileset,   16, levelData.header.gfxTilesetId)
       buildSelect(selSpriteSet, 16, levelData.header.spriteSet)
     }

@@ -60,6 +60,7 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
           spritePalette:  msg.spritePalette  as number,
           tilesetId:      msg.tilesetId      as number,
           bgColorVariant: msg.bgColorVariant as number,
+          marioVariant:   msg.marioVariant   as number,
           _initial:       false,
         })
       } else if (msg.type === 'edit') {
@@ -71,7 +72,7 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
   private async _sendLevelData(
     uri: vscode.Uri,
     webview: vscode.Webview,
-    overrides: { bgVariant?: number; fgVariant?: number; spriteSet?: number; spritePalette?: number; tilesetId?: number; bgColorVariant?: number; _initial?: boolean },
+    overrides: { bgVariant?: number; fgVariant?: number; spriteSet?: number; spritePalette?: number; tilesetId?: number; bgColorVariant?: number; marioVariant?: number; _initial?: boolean },
   ): Promise<void> {
     try {
       const raw = await vscode.workspace.fs.readFile(uri)
@@ -149,7 +150,8 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       const spritePalette = overrides.spritePalette  ?? header.spritePalette
       const gfxTilesetId  = overrides.tilesetId      ?? rom.getGfxTilesetId(index)
 
-      const cgram = buildLevelCgram(romPalettes, bgVariant, fgVariant, spritePalette)
+      const marioVariant = overrides.marioVariant ?? 0
+      const cgram = buildLevelCgram(romPalettes, bgVariant, fgVariant, spritePalette, marioVariant)
       const palette = { colors: cgram.colors, rows: cgram.rows }
       const vram    = loadVram(rom.rom, gfxTilesetId, spriteSet)
       const map16        = loadAllMap16(rom.rom)
@@ -187,6 +189,7 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
           fgPalette:      fgVariant,
           bgColor:        bgColorVariant,
           spritePalette,
+          marioVariant,
           gfxTilesetId,
         },
       })
