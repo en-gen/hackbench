@@ -3,8 +3,11 @@ import { SmwRom, ADDR } from '../rom/SmwRom'
 import { parseLevelObjects, parseLevelSprites } from '../rom/LevelParser'
 import { loadAllMap16 } from '../rom/Map16'
 import { loadRomPalettes, buildLevelCgram, loadBackAreaColors } from '../rom/PaletteLoader'
-import { loadVram } from '../rom/GfxLoader'
-import { buildTileAtlas } from '../rom/TileRenderer'
+import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, type VramState, type GfxSheet } from '../rom/GfxLoader'
+import { buildTileAtlas, renderMap16Tile } from '../rom/TileRenderer'
+import { loadAnimationData, ANIM_FRAME_COUNT, ANIM_INTERVAL_MS, type AnimationData } from '../rom/AnimationLoader'
+import type { Map16Tile } from '../rom/Map16'
+type RgbaColor = [number, number, number, number]
 import { expandLevel } from '../rom/ObjectExpander'
 import { decompressRle1 } from '../rom/LcRle1'
 import { SCREEN_W, SCREEN_H } from '../rom/LevelParser'
@@ -161,6 +164,92 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       const map16bg = loadAllMap16BG(rom.rom)
       const { atlas: map16BgAtlas } = buildTileAtlas(map16bg, vram, palette)
 
+      // ── Animation: build per-tile frame arrays ─────────────────────────
+      // Each tile gets N frames of RGBA data. Static tiles have 1 frame.
+      // Animated tiles have ANIM_FRAME_COUNT frames (typically 4).
+      // The webview cycles a frame counter; each tile displays tile.frames[n % tile.frameCount].
+      let animFrameCount = 1
+      let animIntervalMs = ANIM_INTERVAL_MS
+      const tileExtraFrames: Record<number, number[][]> = {}
+      let animTileUvs: Record<number, { col: number; row: number }> = {}
+      try {
+        const animData = loadAnimationData(rom.rom, objectTileset)
+        if (animData && animData.frameCount > 1) {
+          animFrameCount = animData.frameCount
+          animIntervalMs = animData.intervalMs
+          // Find which chars are animated
+          const animatedChars = new Set<number>()
+          for (const frameSlots of animData.frames) {
+            for (const slot of frameSlots) {
+              for (let i = 0; i < slot.tiles.length; i++) animatedChars.add(slot.charBase + i)
+            }
+          }
+          // Find ALL Map16 tiles with animated chars (for both level canvas and Map16 viewer)
+          const animatedTiles = map16.filter(t =>
+            [t.tl, t.tr, t.bl, t.br].some(s => animatedChars.has(s.charNum))
+          )
+          // Apply frame 0 to both atlases (level + Map16 viewer)
+          {
+            const frame0Overrides = new Map<number, Uint8Array>()
+            for (const slot of animData.frames[0]) {
+              for (let i = 0; i < slot.tiles.length; i++) {
+                frame0Overrides.set(slot.charBase + i, slot.tiles[i])
+              }
+            }
+            const frame0Vram = createAnimatedVramProxy(vram, frame0Overrides)
+            for (const tile of animatedTiles) {
+              const rgba = renderMap16Tile(tile, frame0Vram, palette)
+              // Blit into level atlas (if tile is used in the grid)
+              const uv = tileUvs.get(tile.id)
+              if (uv) {
+                const dx = uv.col * 16, dy = uv.row * 16
+                for (let py = 0; py < 16; py++)
+                  for (let px = 0; px < 16; px++) {
+                    const si = (py * 16 + px) * 4
+                    const di = ((dy + py) * atlasWidth + (dx + px)) * 4
+                    atlas[di] = rgba[si]; atlas[di+1] = rgba[si+1]
+                    atlas[di+2] = rgba[si+2]; atlas[di+3] = rgba[si+3]
+                  }
+              }
+              // Blit into Map16 atlas (tile ID = position in 16-per-row grid)
+              const m16col = tile.id % 16, m16row = Math.floor(tile.id / 16)
+              const m16dx = m16col * 16, m16dy = m16row * 16
+              if (m16dy + 16 <= 512) {  // within Map16 atlas bounds
+                for (let py = 0; py < 16; py++)
+                  for (let px = 0; px < 16; px++) {
+                    const si = (py * 16 + px) * 4
+                    const di = ((m16dy + py) * 256 + (m16dx + px)) * 4
+                    map16Atlas[di] = rgba[si]; map16Atlas[di+1] = rgba[si+1]
+                    map16Atlas[di+2] = rgba[si+2]; map16Atlas[di+3] = rgba[si+3]
+                  }
+              }
+            }
+          }
+          // For each extra frame (1..N-1), render animated tiles
+          for (let frame = 1; frame < animData.frameCount; frame++) {
+            const charOverrides = new Map<number, Uint8Array>()
+            for (const slot of animData.frames[frame]) {
+              for (let i = 0; i < slot.tiles.length; i++) {
+                charOverrides.set(slot.charBase + i, slot.tiles[i])
+              }
+            }
+            const proxyVram = createAnimatedVramProxy(vram, charOverrides)
+            for (const tile of animatedTiles) {
+              const rgba = renderMap16Tile(tile, proxyVram, palette)
+              if (!tileExtraFrames[tile.id]) tileExtraFrames[tile.id] = []
+              tileExtraFrames[tile.id].push(Array.from(rgba))
+            }
+          }
+          // Store Map16 atlas UV positions for animated tiles
+          for (const tile of animatedTiles) {
+            animTileUvs[tile.id] = { col: tile.id % 16, row: Math.floor(tile.id / 16) }
+          }
+          console.log(`[ANIM] ${animatedTiles.length} animated tiles, ${animFrameCount} frames, ${animIntervalMs}ms interval`)
+        }
+      } catch (err) {
+        console.warn('[LVL] Failed to load animation data:', (err as Error).message)
+      }
+
       // ── Build 8×8 VRAM tile sheet for the VRAM panel ───────────────────
       // 4 pages matching Mesen/LM layout:
       //   Page 0: chars $000-$0FF (FG1+FG2) — BG palette row 2
@@ -219,6 +308,12 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
         vramSheetH,
         map16AtlasData: Array.from(map16Atlas),
         map16BgAtlasData: Array.from(map16BgAtlas),
+        animation: {
+          frameCount: animFrameCount,
+          intervalMs: animIntervalMs,
+          tileExtraFrames,     // tileId → [frame1_rgba, frame2_rgba, ...] (frame 0 is in the atlas)
+          map16TileUvs: animTileUvs,
+        },
         backAreaColor:  romPalettes.backAreaColor,
         backAreaColors: backAreaColors.map(c => [c[0], c[1], c[2], c[3]]),
         paletteRows:    cgram.rows.map(row => row.map((c: number[]) => [c[0], c[1], c[2], c[3]])),
@@ -270,4 +365,77 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
 function getNonce(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
   return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
+// ── Animation helpers ─────────────────────────────────────────────────────────
+
+function buildAnimationPatches(
+  animData: AnimationData,
+  usedTiles: Map16Tile[],
+  tileUvs: Map<number, { col: number; row: number }>,
+  vram: VramState,
+  palette: { colors: RgbaColor[] },
+): Array<Array<{ tileId: number; col: number; row: number; rgba: number[] }>> {
+  const animatedChars = new Set<number>()
+  for (const frameSlots of animData.frames) {
+    for (const slot of frameSlots) {
+      for (let i = 0; i < slot.tiles.length; i++) {
+        animatedChars.add(slot.charBase + i)
+      }
+    }
+  }
+
+  const animatedTiles: Map16Tile[] = []
+  for (const tile of usedTiles) {
+    if ([tile.tl, tile.tr, tile.bl, tile.br].some(s => animatedChars.has(s.charNum))) {
+      animatedTiles.push(tile)
+    }
+  }
+  if (animatedTiles.length === 0) return []
+
+  const patches: Array<Array<{ tileId: number; col: number; row: number; rgba: number[] }>> = []
+  for (let frame = 0; frame < animData.frameCount; frame++) {
+    const charOverrides = new Map<number, Uint8Array>()
+    for (const slot of animData.frames[frame]) {
+      for (let i = 0; i < slot.tiles.length; i++) {
+        charOverrides.set(slot.charBase + i, slot.tiles[i])
+      }
+    }
+    const proxyVram = createAnimatedVramProxy(vram, charOverrides)
+    const framePatches: Array<{ tileId: number; col: number; row: number; rgba: number[] }> = []
+    for (const tile of animatedTiles) {
+      const uv = tileUvs.get(tile.id)
+      if (!uv) continue
+      const rgba = renderMap16Tile(tile, proxyVram, palette)
+      framePatches.push({ tileId: tile.id, col: uv.col, row: uv.row, rgba: Array.from(rgba) })
+    }
+    patches.push(framePatches)
+  }
+  return patches
+}
+
+function createAnimatedVramProxy(
+  baseVram: VramState,
+  charOverrides: Map<number, Uint8Array>,
+): VramState {
+  if (charOverrides.size === 0) return baseVram
+  const result: VramState = { ...baseVram }
+  for (const slot of VRAM_SLOT_NAMES) {
+    const base = VRAM_CHAR_BASE[slot]
+    const sheet = baseVram[slot]
+    if (!sheet) continue
+    let hasOverride = false
+    for (let i = 0; i < sheet.length; i++) {
+      if (charOverrides.has(base + i)) { hasOverride = true; break }
+    }
+    if (hasOverride) {
+      const newSheet: GfxSheet = [...sheet]
+      for (let i = 0; i < newSheet.length; i++) {
+        const override = charOverrides.get(base + i)
+        if (override) newSheet[i] = override
+      }
+      result[slot] = newSheet
+    }
+  }
+  return result
 }

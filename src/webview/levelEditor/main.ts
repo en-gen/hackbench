@@ -110,7 +110,10 @@ app.innerHTML = `
         border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
         <div id="map16-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
-        <button id="btn-map16-grid" style="${btnStyle()}border:none;" title="Toggle grid">⊞</button>
+        <div style="display:flex;gap:2px;">
+          <button id="btn-anim" style="${btnStyle()}border:none;" title="Play animation">▶</button>
+          <button id="btn-map16-grid" style="${btnStyle()}border:none;" title="Toggle grid">⊞</button>
+        </div>
       </div>
     </div>
 
@@ -306,6 +309,56 @@ document.getElementById('btn-map16-grid')!.addEventListener('click', () => {
   renderMap16Page()
 })
 
+// ── Animation ────────────────────────────────────────────────────────────────
+// Each Map16 tile is an AnimatedTile with N frames of pre-rendered RGBA data.
+// Static tiles have 1 frame. Animated tiles have 4 (or however many the ROM defines).
+// The timer advances each tile's frameIndex; renderMap16Page draws from the current frame.
+interface AnimatedTile {
+  id: number
+  frameIndex: number
+  frames: Uint8ClampedArray[]  // each entry = 16×16×4 = 1024 bytes of RGBA
+}
+
+const map16AnimTiles: Map<number, AnimatedTile> = new Map()  // tileId → AnimatedTile
+let animRunning = false
+let animTimer: ReturnType<typeof setInterval> | null = null
+let animIntervalMs = 17
+let hasAnimatedTiles = false
+
+const btnAnim = document.getElementById('btn-anim')!
+btnAnim.addEventListener('click', () => {
+  if (!hasAnimatedTiles) return
+  animRunning = !animRunning
+  btnAnim.textContent = animRunning ? '⏸' : '▶'
+  btnAnim.title = animRunning ? 'Pause animation' : 'Play animation'
+  btnAnim.style.color = animRunning ? '#5b9cf6' : '#ccc'
+  if (animRunning) {
+    startAnimTimer()
+  } else {
+    stopAnimTimer()
+  }
+})
+
+function startAnimTimer(): void {
+  stopAnimTimer()
+  console.log(`[ANIM-WV] Starting: ${map16AnimTiles.size} animated tiles, ${animIntervalMs}ms`)
+  animTimer = setInterval(() => {
+    for (const tile of map16AnimTiles.values()) {
+      tile.frameIndex = (tile.frameIndex + 1) % tile.frames.length
+    }
+    renderMap16Page()
+  }, animIntervalMs)
+}
+
+function stopAnimTimer(): void {
+  if (animTimer) { clearInterval(animTimer); animTimer = null }
+  // Reset all tiles to frame 0
+  for (const tile of map16AnimTiles.values()) {
+    tile.frameIndex = 0
+  }
+  renderMap16Page()
+}
+
 // ── Tile panel page navigation ───────────────────────────────────────────────
 // VRAM pages: 256 tiles per page (16×16 grid = 128×128px), matching Mesen/LM.
 // Page count derived from data height, not hardcoded.
@@ -364,18 +417,38 @@ function renderMap16Page(): void {
   if (map16Pages.length === 0) { mctx.clearRect(0, 0, 256, 256); return }
 
   const entry = map16Pages[map16PageIdx]
-  const srcY = entry.pageInAtlas * 256  // 16 rows × 16px
+  const srcY = entry.pageInAtlas * 256
   const srcH = 256
   const sw = entry.atlas.width
   if (srcY + srcH > entry.atlas.height) { mctx.clearRect(0, 0, 256, 256); return }
 
-  const slice = new Uint8ClampedArray(sw * srcH * 4)
+  // Start with the base atlas page
+  const pageImg = new Uint8ClampedArray(256 * 256 * 4)
   for (let row = 0; row < srcH; row++) {
     const srcOff = ((srcY + row) * sw) * 4
-    const dstOff = (row * sw) * 4
-    slice.set(entry.atlas.data.subarray(srcOff, srcOff + sw * 4), dstOff)
+    const dstOff = (row * 256) * 4
+    pageImg.set(entry.atlas.data.subarray(srcOff, srcOff + 256 * 4), dstOff)
   }
-  mctx.putImageData(new ImageData(slice, sw, srcH), 0, 0)
+
+  // Overlay animated tile frames for tiles on this page
+  const pageStartTile = entry.label.startsWith('L1') ? entry.pageInAtlas * 256 : 0x8000 + entry.pageInAtlas * 256
+  for (let row = 0; row < 16; row++) {
+    for (let col = 0; col < 16; col++) {
+      const tileId = (entry.label.startsWith('L1') ? entry.pageInAtlas * 256 : 0) + row * 16 + col
+      const animTile = map16AnimTiles.get(tileId)
+      if (animTile && animTile.frames.length > 1) {
+        const frame = animTile.frames[animTile.frameIndex]
+        const dx = col * 16, dy = row * 16
+        for (let py = 0; py < 16; py++) {
+          const srcOff = (py * 16) * 4
+          const dstOff = ((dy + py) * 256 + dx) * 4
+          pageImg.set(frame.subarray(srcOff, srcOff + 16 * 4), dstOff)
+        }
+      }
+    }
+  }
+
+  mctx.putImageData(new ImageData(pageImg, 256, 256), 0, 0)
   if (map16GridOn) {
     mctx.strokeStyle = 'rgba(0,0,0,0.6)'
     mctx.lineWidth = 1
@@ -446,6 +519,14 @@ interface LevelPayload {
   map16AtlasData?: number[]
   // L2/BG Map16 atlas (from Map16BGTiles)
   map16BgAtlasData?: number[]
+  // Animation: per-tile frame data. Frame 0 is in the atlas already.
+  // tileExtraFrames[tileId] = [frame1_rgba, frame2_rgba, ...] for animated tiles.
+  animation?: {
+    frameCount: number
+    intervalMs: number
+    tileExtraFrames: Record<number, number[][]>
+    map16TileUvs: Record<number, { col: number; row: number }>
+  }
   header: {
     music:          number
     spriteSet:      number
@@ -825,6 +906,48 @@ window.addEventListener('message', async (event) => {
     const raw     = new Uint8ClampedArray(levelData.atlasData)
     const imgData = new ImageData(raw, levelData.atlasWidth, levelData.atlasHeight)
     atlasImg      = await createImageBitmap(imgData)
+    // (atlas baseline no longer needed — animation uses per-tile frames)
+
+    // Build AnimatedTile objects from provider data
+    stopAnimTimer()
+    map16AnimTiles.clear()
+    hasAnimatedTiles = false
+    if (levelData.animation && levelData.animation.frameCount > 1) {
+      animIntervalMs = levelData.animation.intervalMs
+      const extraFrames = levelData.animation.tileExtraFrames
+      // For each tile with extra frames, build the AnimatedTile
+      // Frame 0 comes from the Map16 atlas; extra frames come from the provider
+      for (const [idStr, frames] of Object.entries(extraFrames)) {
+        const tileId = parseInt(idStr)
+        // Extract frame 0 from the Map16 atlas (tile position = id % 16, id / 16)
+        const col = tileId % 16, row = Math.floor(tileId / 16)
+        const frame0 = new Uint8ClampedArray(16 * 16 * 4)
+        if (levelData.map16AtlasData) {
+          const atlasW = 256
+          for (let py = 0; py < 16; py++) {
+            const srcOff = ((row * 16 + py) * atlasW + col * 16) * 4
+            const dstOff = (py * 16) * 4
+            for (let px = 0; px < 16; px++) {
+              for (let c = 0; c < 4; c++)
+                frame0[dstOff + px * 4 + c] = levelData.map16AtlasData[srcOff + px * 4 + c] ?? 0
+            }
+          }
+        }
+        // Build all frames: [frame0, frame1, frame2, ...]
+        const allFrames: Uint8ClampedArray[] = [frame0]
+        for (const f of frames) {
+          allFrames.push(new Uint8ClampedArray(f))
+        }
+        map16AnimTiles.set(tileId, { id: tileId, frameIndex: 0, frames: allFrames })
+      }
+      hasAnimatedTiles = map16AnimTiles.size > 0
+      console.log(`[ANIM-WV] Built ${map16AnimTiles.size} animated tiles, ${animIntervalMs}ms`)
+      btnAnim.style.display = ''
+      if (animRunning) startAnimTimer()
+    } else {
+      btnAnim.style.display = 'none'
+    }
+
     redraw()
 
     // ── VRAM 8×8 tile sheet (paged by slot) ──────────────────────────
@@ -871,6 +994,7 @@ window.addEventListener('message', async (event) => {
         const h = Math.floor(levelData.map16AtlasData.length / (256 * 4))
         const l1Atlas = new ImageData(new Uint8ClampedArray(levelData.map16AtlasData), 256, h)
         map16FullImageData = l1Atlas  // keep for detail preview
+        // (map16 baseline no longer needed — animation uses per-tile frames)
         const l1PageCount = Math.ceil(h / 256)
         for (let p = 0; p < l1PageCount; p++) {
           map16Pages.push({ atlas: l1Atlas, pageInAtlas: p, label: `L1 Page 0x${p.toString(16).padStart(2,'0')}` })
