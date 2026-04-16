@@ -197,10 +197,12 @@ export class SmwRom {
   getGfxTilesetId(index: number): number {
     const ptr = this.getLevelL1Pointer(index)
     if (!ptr) return 0
-    const buf = this.rom.readAt(ptr, 4)
-    if (!buf || buf.length < 4) return 0
-    const spriteSet = buf[3] & 0x0F  // header byte 3 bits 3-0
-    return this.rom.readByte(ADDR.TILESETID_TABLE + spriteSet) ?? 0
+    const buf = this.rom.readAt(ptr, 5)
+    if (!buf || buf.length < 5) return 0
+    // Tileset ID is stored directly in header byte 4 (bits 3-0).
+    // Confirmed via disassembly at $0587A2: LDA [$65],Y; AND #$0F; STA $1931.
+    // Previous implementation incorrectly used ROM[$05D760 + spriteSet].
+    return buf[4] & 0x0F
   }
 
   /**

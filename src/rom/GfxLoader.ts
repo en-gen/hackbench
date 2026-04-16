@@ -207,10 +207,9 @@ export function loadGfxRaw(rom: RomFile, fileIndex: number): Uint8Array {
  * Returns an empty fallback sheet if neither source yields data.
  */
 export function loadGfxFile(rom: RomFile, fileIndex: number): GfxSheet {
-  // ROM-only: read from the pointer table and LC_LZ2 decompress.
-  // bpp is inferred from the decompressed tile stride:
-  //   32 bytes/tile → 4bpp  (all vanilla SMW GFX confirmed via Mesen + LM exports)
-  //   24 bytes/tile → 3bpp  (fallback for hacks / future use)
+  // Read from ROM pointer table and LC_LZ2 decompress.
+  // ROM stores tiles as 3bpp (24 bytes/tile). The SNES renders as 4bpp but
+  // the 4th bitplane is zero for vanilla SMW, so palette indices are 0-7.
   if (fileIndex >= GFX_FILE_COUNT) return _emptySheet(GFX_TILES)
 
   const lo   = rom.readByte(GFX_PTR_LO   + fileIndex)
@@ -269,9 +268,8 @@ export function readGfxAssignment(
   const fgBuf = rom.readAt(GFX_FGBG_TABLE   + tilesetId * GFX_BYTES_PER_SET, GFX_BYTES_PER_SET)
   const spBuf = rom.readAt(GFX_SPRITE_TABLE  + spriteSet * GFX_BYTES_PER_SET, GFX_BYTES_PER_SET)
 
-  // Natural byte order: byte[0] → FG1, byte[1] → FG2, byte[2] → FG3, byte[3] → AN1.
-  // Verified via VRAM dump for level $104: byte[0] content appears at chars $000–$07F (FG1).
-  // Previous "reverse order" comment was WRONG; empirical VRAM analysis shows byte[0]=FG1.
+  // Forward byte order: byte[0]=FG1, byte[1]=FG2, byte[2]=FG3, byte[3]=AN1.
+  // Confirmed: byte[2]=GFX1B matches FG3 content in Mesen2/LM for tileset 4.
   return {
     fg1: fgBuf?.[0] ?? 0,
     fg2: fgBuf?.[1] ?? 0,

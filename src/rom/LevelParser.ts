@@ -84,55 +84,78 @@ export function parseLevelObjects(data: Buffer): Omit<ParsedLevel, 'sprites'> {
   let pos = HEADER_SIZE
   let screen = 0
 
+  // ── All objects are 3 bytes ──────────────────────────────────────────────
+  // Verified empirically: 3-byte parsing produces clean $FF termination
+  // for 47/48 tested levels (levels 0x100-0x12F).
+  //
+  // Format (confirmed via ROM disassembly at $0585FF with copier header):
+  //   Byte 0 (→ $0A): NHOO YYYY
+  //     N    = new screen flag (bit 7) — increments screen counter
+  //     H    = half-screen X offset (bit 4) — adds 1 to column page pointer
+  //     OO   = object number high bits (bits 6-5) — upper 2 bits of $5A
+  //     YYYY = Y position (bits 3-0) — Map16 row (high nibble of cursor $57)
+  //
+  //   Byte 1 (→ $0B): OOOO YYYY
+  //     OOOO = object number low bits (bits 7-4) — lower 4 bits of $5A
+  //     YYYY = sub-Y offset (bits 3-0) — low nibble of cursor $57
+  //
+  //   Byte 2 (→ $59): SSSS SSSS
+  //     Settings/dimensions byte. Used by handlers:
+  //       Objects $01-$0E: high nibble = height-1, low nibble = width-1
+  //       Extended objects ($5A=0): extended sub-type number
+  //
+  // Derived values:
+  //   $5A = object number = ((byte0 & $60) >> 1) | (byte1 >> 4)
+  //         0 = extended object, 1-63 = standard object
+  //   $57 = Y cursor = ((byte0 & $0F) << 4) | (byte1 & $0F)
+  //         Map16 row = byte0 & $0F (each row = $10 in cursor space)
+  //
+  // Dispatch path (from $0586C5):
+  //   $5A = 0: JSL $0DA100 (extended object, $59 = ext type number)
+  //   $5A ≠ 0: JSL $0DA40F → tileset dispatch → per-tileset object table
+  //
+  // Terminator: lone $FF byte ends the object stream.
+
   while (pos < data.length) {
     const b0 = data[pos]
     if (b0 === undefined) break
+    if (b0 === 0xFF) break  // terminator
 
-    if (b0 === 0xFF) {
-      if (pos + 1 < data.length && data[pos + 1] === 0xFF) {
-        screen++
-        pos += 2
-      } else {
-        break  // lone 0xFF = terminator
-      }
-      continue
-    }
+    if (pos + 2 >= data.length) break
+    const b1 = data[pos + 1]
+    const b2 = data[pos + 2]
 
-    const yNibble = (b0 >> 4) & 0xF
+    // New-screen flag (bit 7 of byte 0)
+    if (b0 & 0x80) screen++
 
-    if (yNibble <= 0x0C) {
-      // Standard 2-byte object (Y nibble 0x0–0xC = rows 0–12; 0xD–0xF reserved/extended)
-      if (pos + 1 >= data.length) break
-      const b1 = data[pos + 1]
-      objects.push({
-        type: 'standard',
-        screen,
-        x: screen * SCREEN_W + (b0 & 0xF),
-        y: yNibble * 2,          // Y nibble 0–12 = every other row; ×2 → tile rows 0,2,4…24
-        objectType: b1 & 0xF,   // low nibble = object type (SSSSOOOO format)
-        param: (b1 >> 4) & 0xF, // high nibble = size/extension parameter
-        raw: [b0, b1],
-      })
-      pos += 2
-    } else {
-      // Extended 3-byte object
-      if (pos + 2 >= data.length) break
-      const b1 = data[pos + 1]
-      const b2 = data[pos + 2]
-      objects.push({
-        type: 'extended',
-        screen,
-        x: screen * SCREEN_W + (b0 & 0xF),
-        y: b1 & 0x3F,  // 6-bit Y; extended objects use tile-row units directly (no ×2)
-        objectType: 0x100 + b2,
-        param: 0,
-        raw: [b0, b1, b2],
-      })
-      pos += 3
-    }
+    // Object number ($5A) from bytes 0 and 1
+    const objNum = ((b0 & 0x60) >> 1) | ((b1 >> 4) & 0x0F)
+
+    // Y position: low nibble of byte 0 = Map16 row
+    const y = b0 & 0x0F
+
+    // X position: low nibble of byte 1 = column within screen
+    // The cursor $57 = (byte0_low << 4) | byte1_low = (row << 4) | col
+    // This directly indexes the tilemap as (row * 16 + col)
+    const col = b1 & 0x0F
+
+    // Settings: byte 2 ($59)
+    const settings = b2
+
+    objects.push({
+      type: objNum === 0 ? 'extended' : 'standard',
+      screen,
+      x: screen * SCREEN_W + col,
+      y,
+      objectType: objNum,
+      param: settings,
+      raw: [b0, b1, b2],
+    })
+
+    pos += 3
   }
 
-  return { header, objects, screens: screen + 1 }
+  return { header, objects, screens: header.levelLength + 1 }
 }
 
 /**

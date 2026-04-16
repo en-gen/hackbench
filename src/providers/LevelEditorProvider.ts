@@ -114,7 +114,7 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       }
 
       // ── Build L1 tile grid ────────────────────────────────────────────────
-      const tileGrid = expandLevel(objects, screens)
+      const tileGrid = expandLevel(objects, screens, rom.rom)
 
       // ── Build L2 tile grid (background tilemap, if present) ───────────────
       let l2TileGrid: number[][] | null = null
@@ -157,8 +157,9 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       const map16        = loadAllMap16(rom.rom)
 
       // Collect unique tile IDs present in the grid to limit atlas size
+      // $25 = empty/air tile in SMW (also skip 0 for safety)
       const usedIds = new Set<number>()
-      for (const row of tileGrid) for (const id of row) if (id !== 0) usedIds.add(id)
+      for (const row of tileGrid) for (const id of row) if (id !== 0 && id !== 0x25) usedIds.add(id)
       const usedTiles = map16.filter(t => usedIds.has(t.id))
 
       const { atlas, atlasWidth, atlasHeight, tileUvs } = buildTileAtlas(usedTiles, vram, palette)
@@ -166,6 +167,49 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       // tileUvMap: plain object (JSON-serialisable)
       const tileUvMap: Record<number, { col: number; row: number }> = {}
       for (const [id, uv] of tileUvs) tileUvMap[id] = uv
+
+      // Build Map16 atlas for both pages (page 0: $000-$0FF, page 1: $100-$1FF).
+      // Page 1 contains the foreground tiles used in levels.
+      // 512 tiles arranged 16 per row → 256×512 pixels.
+      const { atlas: map16Atlas } = buildTileAtlas(map16, vram, palette)
+
+      // Build 8x8 VRAM tile sheet for the tile panel.
+      // Renders chars $000-$1FF (FG1+FG2+FG3+AN1 = 512 tiles) as 8x8 pixel blocks.
+      // Arranged 16 per row = 128px wide × 256px tall.
+      // Each tile rendered with palette row 2 (default FG palette) for visibility.
+      const VRAM_TILES_PER_ROW = 16
+      const VRAM_TILE_PX = 8
+      const vramTileCount = 512  // chars $000-$1FF
+      const vramRows = Math.ceil(vramTileCount / VRAM_TILES_PER_ROW)
+      const vramSheetW = VRAM_TILES_PER_ROW * VRAM_TILE_PX  // 128
+      const vramSheetH = vramRows * VRAM_TILE_PX             // 256
+      const vramSheet = new Uint8ClampedArray(vramSheetW * vramSheetH * 4)
+
+      const { getCharPixels: getChar } = require('../rom/GfxLoader') as typeof import('../rom/GfxLoader')
+      const { getPaletteColor: getPalColor } = require('../rom/PaletteLoader') as typeof import('../rom/PaletteLoader')
+      for (let i = 0; i < vramTileCount; i++) {
+        const pixels = getChar(vram, i)
+        const tileCol = i % VRAM_TILES_PER_ROW
+        const tileRow = Math.floor(i / VRAM_TILES_PER_ROW)
+        for (let py = 0; py < 8; py++) {
+          for (let px = 0; px < 8; px++) {
+            const palIdx = pixels ? pixels[py * 8 + px] : 0
+            const destX = tileCol * 8 + px
+            const destY = tileRow * 8 + py
+            const destOff = (destY * vramSheetW + destX) * 4
+            if (palIdx === 0) {
+              vramSheet[destOff + 3] = 0  // transparent
+            } else {
+              const c = getPalColor(palette, 2, palIdx)  // palette row 2 for FG
+              vramSheet[destOff]     = c[0]
+              vramSheet[destOff + 1] = c[1]
+              vramSheet[destOff + 2] = c[2]
+              vramSheet[destOff + 3] = 255
+            }
+          }
+        }
+      }
+      const vramSheetData = Array.from(vramSheet)
 
       webview.postMessage({
         type: 'load',
@@ -178,6 +222,10 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
         atlasWidth,
         atlasHeight,
         tileUvMap,
+        map16AtlasData: Array.from(map16Atlas),
+        vramSheetData,
+        vramSheetW: vramSheetW,
+        vramSheetH: vramSheetH,
         backAreaColor:  romPalettes.backAreaColor,
         backAreaColors: backAreaColors.map(c => [c[0], c[1], c[2], c[3]]),
         paletteRows:    cgram.rows.map(row => row.map((c: number[]) => [c[0], c[1], c[2], c[3]])),

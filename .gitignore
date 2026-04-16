@@ -22,8 +22,7 @@ test/suite/**/*.js.map
 test/suite/**/*.d.ts
 
 # Third-party tools — not redistributable
-test/magic/
-tools/
+tools/*
 
 # Large binary reference docs (PDFs, scanned pages, OCR intermediates)
 docs/*.pdf
@@ -51,3 +50,6 @@ coverage/
 build/*
 !build/icons
 .claude/
+
+# Disassembled game code — not distributable
+docs/disasm/*.asm

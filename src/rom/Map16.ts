@@ -26,7 +26,7 @@
 import { RomFile } from './RomFile'
 
 export const MAP16_PAGE0 = 0x0D8000  // tiles $000–$0FF
-export const MAP16_PAGE1 = 0x0DC000  // tiles $100–$1FF
+export const MAP16_PAGE1 = 0x0DC000  // tiles $100–$1FF (vanilla SMW address; LM may relocate)
 export const MAP16_TILE_BYTES = 8
 export const MAP16_TILES_PER_PAGE = 0x100
 export const MAP16_TOTAL_TILES = 0x200
@@ -77,11 +77,12 @@ function readTile(rom: RomFile, baseAddr: number, index: number): Map16Tile {
   const w3 = buf.readUInt16LE(6)
 
   const id = (baseAddr === MAP16_PAGE0 ? 0 : MAP16_TILES_PER_PAGE) + index
+  // Subtile word order: w0=TL, w1=TR, w2=BL, w3=BR (row-major).
   return {
     id,
     tl: decodeSubTile(w0),
-    bl: decodeSubTile(w1),
-    tr: decodeSubTile(w2),
+    tr: decodeSubTile(w1),
+    bl: decodeSubTile(w2),
     br: decodeSubTile(w3),
   }
 }

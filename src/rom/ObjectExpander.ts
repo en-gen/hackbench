@@ -1,265 +1,372 @@
 /**
  * SMW Object Expander — converts the level object stream into a 2D Map16 tile grid.
  *
- * Each level object encodes a TYPE, POSITION, and SIZE PARAMETER. The game's
- * object drawing routines expand these into regions of Map16 tile IDs on screen.
- *
- * This module replicates those drawing rules in TypeScript so the editor can
- * render the level without running the game.
- *
- * ── Coordinate system ──────────────────────────────────────────────────────────
- *   - Level is SCREEN_W (16) tiles wide × SCREEN_H (27) tiles tall per screen
- *   - Grid is [row][col] with row 0 at the TOP, row 26 at the bottom
- *   - Object x/y from LevelParser are already in absolute tile coords
- *
- * ── Standard object byte format (from LevelParser) ────────────────────────────
- *   objectType nibble (0–F from b1 hi nibble)
- *   param nibble (0–F from b1 lo nibble) — usually encodes width/height - 1
- *   x, y — tile position
- *
- * ── Map16 tile IDs used (vanilla SMW page 0, $0D8000) ─────────────────────────
- *   The specific Map16 tile IDs below are based on community documentation and
- *   known SMW tile layouts. IDs flagged with "⚠ verify" need cross-checking
- *   against the actual ROM's Map16 table.
- *
- * IMPORTANT: Many object types are stubs returning UNKNOWN_TILE.
- * The most common terrain objects for Yoshi's Island levels are implemented first.
+ * Ported from SMWDisX (IsoFrieze/SMWDisX) bank_0D.asm handlers.
+ * Each handler uses the TileCursor to write tiles exactly as the game does.
  */
 
 import { LevelObject, SCREEN_W, SCREEN_H } from './LevelParser'
+import { RomFile } from './RomFile'
+import { TileCursor, TileGrid, createGrid, TILE_EMPTY } from './TileCursor'
 
-// 0 = "nothing here" sentinel — never rendered (sky/transparent cells).
-// Both uninitialized grid cells and unimplemented objects use 0.
-export const TILE_EMPTY   = 0
-export const TILE_UNKNOWN = 0
+export { TILE_EMPTY, TileGrid, createGrid }
 
-// ── Common terrain Map16 IDs (vanilla SMW, confirmed via Lunar Magic Map16 editor) ──
-// Source: SMW Central Map16 tutorial — pages 00 and 01 are vanilla SMW default FG tiles.
-//
-// Ground / dirt  (3×3 tile set from page 01)
-const T_GROUND_TL = 0x145   // top-left corner
-const T_GROUND_TM = 0x100   // top-middle (regular ground surface)
-const T_GROUND_TR = 0x148   // top-right corner
-const T_GROUND_ML = 0x14B   // left wall
-const T_GROUND_MM = 0x03F   // dirt interior fill
-const T_GROUND_MR = 0x14C   // right wall
-const T_GROUND_BL = 0x14D   // bottom-left corner
-const T_GROUND_BM = 0x14E   // bottom surface (upside-down ground)
-const T_GROUND_BR = 0x14F   // bottom-right corner
+// Re-export TileCursor types for tests
+export type { TileCursor }
 
-// Cement block / brick
-const T_CEMENT   = 0x130    // solid cement block (acts as 130)
-const T_BRICK    = 0x011    // ⚠ verify — breakable brick
+// ── ROM helpers ────────────────────────────────────────────────────────────
 
-// Pipe tile IDs (page 01, confirmed via Lunar Magic)
-// Non-exit vertical pipe top: $133 (left), $134 (right)
-// Exit-enabled vertical pipe top: $137 (left), $138 (right)
-// Body tiles: ⚠ IDs not yet confirmed — use UNKNOWN until verified
-const T_PIPE_TOP_L      = 0x133   // non-exit pipe top-left
-const T_PIPE_TOP_R      = 0x134   // non-exit pipe top-right
-const T_PIPE_TOP_EXIT_L = 0x137   // exit-enabled pipe top-left
-const T_PIPE_TOP_EXIT_R = 0x138   // exit-enabled pipe top-right
-const T_PIPE_BODY_L     = TILE_UNKNOWN   // ⚠ body tile IDs not yet confirmed
-const T_PIPE_BODY_R     = TILE_UNKNOWN
-
-// Question / coin
-const T_QUESTION = 0x010    // ⚠ verify — ? block (note block = $113, turn block = $11E)
-const T_COIN     = 0x001    // ⚠ verify — coin
-
-// Muncher / spike
-const T_MUNCHER  = 0x12F    // muncher (acts as 12F)
-
-/** A 2D tile grid: grid[row][col] = Map16 tile ID. */
-export type TileGrid = number[][]
-
-/** Create a blank tile grid (all empty) for the given level dimensions. */
-export function createGrid(screens: number): TileGrid {
-  const cols = screens * SCREEN_W
-  return Array.from({ length: SCREEN_H }, () => new Array(cols).fill(TILE_EMPTY))
+function romByte(rom: RomFile | undefined, addr: number): number {
+  return rom?.readByte(addr) ?? 0
 }
 
-function set(grid: TileGrid, col: number, row: number, tileId: number): void {
-  if (row >= 0 && row < SCREEN_H && col >= 0 && col < grid[0].length) {
-    grid[row][col] = tileId
+// ── Standard Object Handlers ───────────────────────────────────────────────
+// Ported from bank_0D tileset 0 dispatch table at CODE_0DA44B.
+// X = object number ($5A), passed via the dispatch.
+
+/**
+ * Objects $01-$0E: Ground/fill tiles.
+ * CODE_0DA8C3. Settings: low=width, high=height.
+ * Tile from table at $0DA8B4 indexed by (objNum-1).
+ */
+function handleGround(c: TileCursor, objNum: number, settings: number, rom: RomFile | undefined): void {
+  const width = (settings & 0x0F)
+  const height = (settings >> 4) & 0x0F
+  const tileId = romByte(rom, 0x0DA8B4 + objNum - 1)
+  if (tileId === 0) return
+
+  c.saveCol()
+  for (let h = height; h >= 0; h--) {
+    for (let w = width; w >= 0; w--) {
+      c.setPage0()
+      // Item memory check for object $04 skipped (only affects collected items)
+      if (objNum >= 7) c.setPage1()
+      c.writeTileAdvanceCol(tileId)
+    }
+    c.restoreCol()
+    c.advanceRow()
   }
 }
 
-/** Fill a rectangular region with a single tile ID. */
-function fillRect(
-  grid: TileGrid, col: number, row: number,
-  w: number, h: number, tileId: number,
+/**
+ * Objects $18-$1B, $22-$2F: Generic tilemap handler.
+ * CODE_0DB3E3. First row from $0DB3DB[objNum-$17], body from $0DB3DF[objNum-$17].
+ */
+function handleGeneric(c: TileCursor, objNum: number, settings: number, rom: RomFile | undefined): void {
+  const width = (settings & 0x0F)
+  const height = (settings >> 4) & 0x0F
+  const idx = objNum - 0x17
+
+  const topTile = romByte(rom, 0x0DB3DB + idx)
+  const bodyTile = romByte(rom, 0x0DB3DF + idx)
+
+  c.saveCol()
+
+  // First row: top tiles
+  for (let w = width; w >= 0; w--) {
+    c.setPage0()
+    c.writeTileAdvanceCol(topTile)
+  }
+  c.restoreCol()
+  c.advanceRow()
+
+  // Body rows
+  for (let h = height - 1; h >= 0; h--) {
+    for (let w = width; w >= 0; w--) {
+      c.setPage0()
+      c.writeTileAdvanceCol(bodyTile)
+    }
+    c.restoreCol()
+    c.advanceRow()
+  }
+}
+
+/**
+ * Object $1C: 2-tile-wide ledge.
+ * CODE_0DB42D. Two columns using tiles from DATA_0DB42B.
+ */
+function handleLedge(c: TileCursor, settings: number, rom: RomFile | undefined): void {
+  const width = (settings & 0x0F)
+  const tile0 = romByte(rom, 0x0DB42B)  // $26
+  const tile1 = romByte(rom, 0x0DB42C)  // $44
+
+  c.saveCol()
+  for (let x = 0; x < 2; x++) {
+    for (let w = width; w >= 0; w--) {
+      if (x === 0) c.setPage0()
+      else c.setPage1()
+      c.writeTileAdvanceCol(x === 0 ? tile0 : tile1)
+    }
+    c.restoreCol()
+    c.advanceRow()
+  }
+}
+
+/**
+ * Object $1D: Fence/tree.
+ * CODE_0DB461. Body rows tile $0B, bottom row tile $0E.
+ */
+function handleFenceTree(c: TileCursor, settings: number): void {
+  const height = (settings >> 4) & 0x0F
+  const width = (settings & 0x0F)
+
+  c.saveCol()
+
+  // Body rows
+  for (let h = height; h > 0; h--) {
+    for (let w = width; w >= 0; w--) {
+      c.setPage0()
+      c.writeTileAdvanceCol(0x0B)
+    }
+    c.restoreCol()
+    c.advanceRow()
+  }
+
+  // Bottom row
+  for (let w = width; w >= 0; w--) {
+    c.setPage0()
+    c.writeTileAdvanceCol(0x0E)
+  }
+}
+
+/**
+ * Object $1F: Vertical pipe.
+ * CODE_0DB51F. Top=$53, body=$54, bottom=$55 (page 1).
+ */
+function handleVertPipe(c: TileCursor, settings: number): void {
+  const height = (settings >> 4) & 0x0F
+
+  c.setPage1()
+  c.writeTile(0x53)
+  c.advanceRow()
+  for (let h = height; h > 0; h--) {
+    c.setPage1()
+    c.writeTile(0x54)
+    c.advanceRow()
+  }
+  c.setPage1()
+  c.writeTile(0x55)
+}
+
+/**
+ * Object $20: Horizontal pipe.
+ * CODE_0DB547. Left=$56, body=$57, right=$58 (page 1).
+ */
+function handleHorizPipe(c: TileCursor, settings: number): void {
+  const width = (settings & 0x0F)
+
+  c.setPage1()
+  c.writeTileAdvanceCol(0x56)
+  for (let w = width; w > 0; w--) {
+    c.setPage1()
+    c.writeTileAdvanceCol(0x57)
+  }
+  c.setPage1()
+  c.writeTile(0x58)
+}
+
+/**
+ * Object $11: Vertical vine/column.
+ * CODE_0DAB0D. Top=$41, second=$42, body=$43 (page 1).
+ */
+function handleVertVine(c: TileCursor, settings: number): void {
+  let height = (settings >> 4) & 0x0F
+
+  c.setPage1()
+  c.writeTile(0x41)
+  c.advanceRow()
+  height--
+  if (height < 0) return
+  c.setPage1()
+  c.writeTile(0x42)
+  c.advanceRow()
+  height--
+  while (height >= 0) {
+    c.setPage1()
+    c.writeTile(0x43)
+    c.advanceRow()
+    height--
+  }
+}
+
+/**
+ * Object $30: Vertical 2-wide column.
+ * CODE_0DBB2C. Top=$61/$62, body=$63/$64 (page 1).
+ */
+function handleColumn2Wide(c: TileCursor, settings: number): void {
+  let height = (settings >> 4) & 0x0F
+
+  c.saveCol()
+  // Top row
+  c.setPage1()
+  c.writeTileAdvanceCol(0x61)
+  c.setPage1()
+  c.writeTile(0x62)
+  c.restoreCol()
+  c.advanceRow()
+
+  // Body rows
+  while (height >= 0) {
+    c.setPage1()
+    c.writeTileAdvanceCol(0x63)
+    c.setPage1()
+    c.writeTile(0x64)
+    c.restoreCol()
+    c.advanceRow()
+    height--
+  }
+}
+
+/**
+ * Object $31: Ground fill using tile $0E + object $0E's tile.
+ * CODE_0DBB63. Just calls ground handler with objNum=$0E.
+ */
+function handleObj31(c: TileCursor, settings: number, rom: RomFile | undefined): void {
+  handleGround(c, 0x0E, settings, rom)
+}
+
+/**
+ * Object $3F: 3-tile pattern (left/body/right).
+ * CODE_0DB5B7. Tiles from tables at $0DB5A8/$0DB5AD/$0DB5B2.
+ */
+function handleObj3F(c: TileCursor, settings: number, rom: RomFile | undefined): void {
+  const width = (settings & 0x0F)
+  const variant = (settings >> 4) & 0x0F
+
+  const leftTile = romByte(rom, 0x0DB5A8 + variant)
+  const bodyTile = romByte(rom, 0x0DB5AD + variant)
+  const rightTile = romByte(rom, 0x0DB5B2 + variant)
+
+  c.setPage0()
+  c.writeTileAdvanceCol(leftTile)
+  for (let w = width; w > 0; w--) {
+    c.setPage0()
+    c.writeTileAdvanceCol(bodyTile)
+  }
+  c.setPage0()
+  c.writeTile(rightTile)
+}
+
+// ── Extended Object Handlers ───────────────────────────────────────────────
+
+/**
+ * Extended objects $10-$42: Single tile placement.
+ * CODE_0DA57B/CODE_0DA5B1. Reads tile from $0DA548[extNum-$10].
+ */
+function handleExtSingleTile(c: TileCursor, extNum: number, rom: RomFile | undefined): void {
+  const idx = extNum - 0x10
+  const tileId = romByte(rom, 0x0DA548 + idx)
+  if (tileId === 0 || tileId === TILE_EMPTY) return
+
+  if (idx >= 0x13) c.setPage1()
+  else c.setPage0()
+  c.writeTile(tileId)
+}
+
+/**
+ * Extended object $85: Yoshi's House tilemap.
+ * CODE_0DEC33. Reads 160 bytes (10×16) from $0DEB93.
+ */
+function handleExtYoshiHouse(c: TileCursor, rom: RomFile): void {
+  for (let r = 0; r < 10; r++) {
+    c.saveCol()
+    for (let col = 0; col < 16; col++) {
+      const tileId = romByte(rom, 0x0DEB93 + r * 16 + col)
+      c.setPage0()
+      // This handler writes ALL 16 columns (including $25 empty)
+      c.writeTileAdvanceCol(tileId)
+    }
+    c.restoreCol()
+    c.advanceRow()
+  }
+}
+
+// ── Main Dispatch ──────────────────────────────────────────────────────────
+
+// Generic handler objects (CODE_0DB3E3 in tileset 0 dispatch)
+const GENERIC_OBJECTS = new Set([
+  0x18, 0x19, 0x1A, 0x1B,
+  0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29,
+  0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,
+])
+
+export function expandObject(
+  cursor: TileCursor,
+  obj: LevelObject,
+  rom?: RomFile,
 ): void {
-  for (let r = row; r < row + h; r++)
-    for (let c = col; c < col + w; c++)
-      set(grid, c, r, tileId)
-}
+  const { objectType, param } = obj
 
-/**
- * Place ground terrain with proper corner/edge tiles.
- *   width  = param + 1 tiles wide
- *   height = fills from row to bottom of screen (row 26)
- */
-function placeGround(grid: TileGrid, col: number, row: number, width: number): void {
-  const bottom = SCREEN_H - 1
-  const w = width
-
-  for (let r = row; r <= bottom; r++) {
-    for (let c = col; c < col + w; c++) {
-      const isTop   = r === row
-      const isBot   = r === bottom
-      const isLeft  = c === col
-      const isRight = c === col + w - 1
-
-      let tileId: number
-      if (isTop) {
-        tileId = isLeft ? T_GROUND_TL : isRight ? T_GROUND_TR : T_GROUND_TM
-      } else if (isBot) {
-        tileId = isLeft ? T_GROUND_BL : isRight ? T_GROUND_BR : T_GROUND_BM
-      } else {
-        tileId = isLeft ? T_GROUND_ML : isRight ? T_GROUND_MR : T_GROUND_MM
-      }
-      set(grid, c, r, tileId)
+  if (objectType === 0x00) {
+    // Extended object
+    const extNum = param
+    if (extNum === 0x85 && rom) {
+      handleExtYoshiHouse(cursor, rom)
+    } else if (extNum >= 0x10 && extNum <= 0x42) {
+      handleExtSingleTile(cursor, extNum, rom)
     }
-  }
-}
+    // Other ext objects: TODO as needed
 
-/** Place a vertical pipe at (col, row) with given height. isExit selects exit-enabled top tiles. */
-function placePipe(grid: TileGrid, col: number, row: number, height: number, isExit = false): void {
-  set(grid, col,     row, isExit ? T_PIPE_TOP_EXIT_L : T_PIPE_TOP_L)
-  set(grid, col + 1, row, isExit ? T_PIPE_TOP_EXIT_R : T_PIPE_TOP_R)
-  for (let r = row + 1; r < row + height; r++) {
-    set(grid, col,     r, T_PIPE_BODY_L)
-    set(grid, col + 1, r, T_PIPE_BODY_R)
-  }
-}
+  } else if (objectType >= 0x01 && objectType <= 0x0E) {
+    handleGround(cursor, objectType, param, rom)
 
-/**
- * Expand a single level object into the tile grid.
- *
- * Standard object types (nibble from b1[7:4]):
- *   0x0: Ground — fills column(s) from y to bottom; param = width - 1
- *   0x1: Flat ledge / platform; param = width - 1
- *   0x2: Ground, diagonal right-up slope
- *   0x3: Ground, diagonal left-up slope
- *   0x4: Cement block (solid); param = width - 1
- *   0x5: Brick row; param = width - 1
- *   0x6: ? block row; param = width - 1
- *   0x7: Coin row; param = count - 1
- *   0x8: Pipe (upward); param = height - 1
- *   0x9: Large pipe / water pipe
- *   0xA: Muncher row
- *   0xB: Water surface / lava
- *   0xC: Slope set
- *   0xD: Ledge/cliff
- *   0xE: Background object
- *   0xF: Extended (3-byte, handled by objectType 0x100+)
- *
- * Extended objects (objectType >= 0x100):
- *   Many extended objects are rare; stub as UNKNOWN_TILE.
- */
-export function expandObject(grid: TileGrid, obj: LevelObject): void {
-  const { x, y, objectType, param } = obj
+  } else if (GENERIC_OBJECTS.has(objectType)) {
+    handleGeneric(cursor, objectType, param, rom)
 
-  if (obj.type === 'standard') {
-    const size = param + 1
+  } else if (objectType === 0x1C) {
+    handleLedge(cursor, param, rom)
 
-    switch (objectType) {
-      case 0x0: // Ground
-        placeGround(grid, x, y, size)
-        break
+  } else if (objectType === 0x1D) {
+    handleFenceTree(cursor, param)
 
-      case 0x1: // Flat ledge / solid platform row
-        fillRect(grid, x, y, size, 1, T_GROUND_TM)
-        break
+  } else if (objectType === 0x1F) {
+    handleVertPipe(cursor, param)
 
-      case 0x2: // Right-rising slope (rough approximation)
-        for (let i = 0; i < size; i++) {
-          set(grid, x + i, y - i, T_GROUND_TM)
-          placeGround(grid, x + i, y - i + 1, 1)
-        }
-        break
+  } else if (objectType === 0x20) {
+    handleHorizPipe(cursor, param)
 
-      case 0x3: // Left-rising slope
-        for (let i = 0; i < size; i++) {
-          set(grid, x + i, y + i, T_GROUND_TM)
-          placeGround(grid, x + i, y + i + 1, 1)
-        }
-        break
+  } else if (objectType === 0x11) {
+    handleVertVine(cursor, param)
 
-      case 0x4: // Cement block row
-        fillRect(grid, x, y, size, 1, T_CEMENT)
-        break
+  } else if (objectType === 0x30) {
+    handleColumn2Wide(cursor, param)
 
-      case 0x5: // Brick row
-        fillRect(grid, x, y, size, 1, T_BRICK)
-        break
+  } else if (objectType === 0x31) {
+    handleObj31(cursor, param, rom)
 
-      case 0x6: // ? block row
-        fillRect(grid, x, y, size, 1, T_QUESTION)
-        break
+  } else if (objectType === 0x3F) {
+    handleObj3F(cursor, param, rom)
 
-      case 0x7: // Coin row
-        fillRect(grid, x, y, size, 1, T_COIN)
-        break
-
-      case 0x8: // Upward pipe
-        placePipe(grid, x, y, Math.max(2, size))
-        break
-
-      case 0x9: // Large pipe / water variant — treat same as pipe for now
-        placePipe(grid, x, y, Math.max(2, size))
-        break
-
-      case 0xA: // Muncher row
-        fillRect(grid, x, y, size, 1, T_MUNCHER)
-        break
-
-      case 0xB: // Water / lava surface — stub
-        fillRect(grid, x, y, size, 1, TILE_UNKNOWN)
-        break
-
-      case 0xC: // Slope set — stub
-        fillRect(grid, x, y, size, 1, TILE_UNKNOWN)
-        break
-
-      case 0xD: // Ledge/cliff — treat like ground column
-        fillRect(grid, x, y, 1, size, T_GROUND_MM)
-        break
-
-      case 0xE: // Background decoration — skip (no FG tile)
-        break
-
-      default:
-        fillRect(grid, x, y, Math.max(1, size), 1, TILE_UNKNOWN)
-        break
-    }
   } else {
-    // Extended objects (3-byte, objectType = 0x100 + extNum)
-    const extNum = objectType - 0x100
-    switch (extNum) {
-      case 0x00: // Horizontal pipe exit — stub
-      case 0x01:
-        fillRect(grid, x, y, 2, 2, TILE_UNKNOWN)
-        break
-      case 0x02: // Coin outline block — stub
-        set(grid, x, y, T_COIN)
-        break
-      default:
-        set(grid, x, y, TILE_UNKNOWN)
-        break
+    // Unimplemented: placeholder fill
+    const width = (param & 0x0F)
+    const height = (param >> 4) & 0x0F
+    cursor.saveCol()
+    for (let h = height; h >= 0; h--) {
+      for (let w = width; w >= 0; w--) {
+        cursor.setPage0()
+        cursor.writeTileAdvanceCol(0x0F)
+      }
+      cursor.restoreCol()
+      cursor.advanceRow()
     }
   }
 }
 
 /**
  * Expand all level objects into a tile grid.
- * Objects are processed in order; later objects overwrite earlier ones
- * (matching SMW's rendering behaviour).
  */
-export function expandLevel(objects: LevelObject[], screens: number): TileGrid {
+export function expandLevel(
+  objects: LevelObject[],
+  screens: number,
+  rom?: RomFile,
+): TileGrid {
   const grid = createGrid(screens)
+  const cursor = new TileCursor(grid)
+
   for (const obj of objects) {
-    expandObject(grid, obj)
+    cursor.setPosition(obj.screen, obj.y, obj.x % SCREEN_W)
+    expandObject(cursor, obj, rom)
   }
   return grid
 }

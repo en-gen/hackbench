@@ -67,15 +67,17 @@ describe.skipIf(!romPresent)('PaletteLoader (requires ROM)', () => {
     }
   })
 
-  it('col 1 of rows 0–7 matches back-area color; rows 8–15 use $7FFF (pure white)', () => {
+  it('col 1 of rows 0–7 is $7FDD (SMW hardcoded); rows 8–15 is $7FFF (pure white)', () => {
     const rom = SmwRom.open(ROM_PATH)
     const pal   = loadRomPalettes(rom.rom)
     const cgram = buildLevelCgram(pal, 0, 0, 0, 0)
-    const back  = pal.backAreaColor
-    const WHITE = [248, 248, 248]  // BGR555 $7FFF
+    // SMW hardcodes col 1: $7FDD for BG rows, $7FFF for OBJ rows
+    // BGR555 $7FDD = R=29,G=30,B=31 → bit-replicated: R=239,G=247,B=255
+    const COL1_BG  = [239, 247, 255]
+    const COL1_OBJ = [255, 255, 255]  // BGR555 $7FFF
     for (let r = 0; r < 16; r++) {
       const col1    = cgram.colors[r * 16 + 1]
-      const expected = r < 8 ? back : WHITE
+      const expected = r < 8 ? COL1_BG : COL1_OBJ
       expect(col1[0]).toBe(expected[0])
       expect(col1[1]).toBe(expected[1])
       expect(col1[2]).toBe(expected[2])
