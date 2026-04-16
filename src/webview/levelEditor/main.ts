@@ -254,6 +254,7 @@ const chkL2          = document.getElementById('chk-l2')          as HTMLInputEl
 // ── Tile detail preview state ─────────────────────────────────────────────────
 let selectedDetail: { type: 'vram'; page: number; col: number; row: number } |
                     { type: 'map16'; page: number; col: number; row: number } | null = null
+let selectedDetailTile: AnimatedTile | null = null  // reference to the same object the Map16 viewer uses
 
 function redrawDetail(): void {
   if (!selectedDetail) return
@@ -276,22 +277,19 @@ function redrawDetail(): void {
     const globalChar = selectedDetail.page * VRAM_TILES_PER_PAGE + selectedDetail.row * 16 + selectedDetail.col
     const slot = globalChar < 0x80 ? 'FG1' : globalChar < 0x100 ? 'FG2' : globalChar < 0x180 ? 'FG3' : globalChar < 0x200 ? 'AN1' : globalChar < 0x400 ? '—' : 'SP'
     info.innerHTML = `<b>8×8 char $${globalChar.toString(16).padStart(3,'0')}</b><br>slot: ${slot}`
-  } else if (selectedDetail.type === 'map16' && map16Pages[selectedDetail.page]) {
-    const entry = map16Pages[selectedDetail.page]
+  } else if (selectedDetail.type === 'map16') {
     dc.width = 16; dc.height = 16
-    const srcX = selectedDetail.col * 16
-    const srcY = entry.pageInAtlas * 256 + selectedDetail.row * 16
-    const tileData = dctx.createImageData(16, 16)
-    const w = entry.atlas.width
-    for (let ty = 0; ty < 16; ty++)
-      for (let tx = 0; tx < 16; tx++) {
-        const si = ((srcY + ty) * w + (srcX + tx)) * 4
-        const di = (ty * 16 + tx) * 4
-        for (let c = 0; c < 4; c++) tileData.data[di+c] = entry.atlas.data[si+c]
-      }
-    dctx.putImageData(tileData, 0, 0)
-    const localTile = selectedDetail.row * 16 + selectedDetail.col
-    info.innerHTML = `<b>Map16 tile ${localTile}</b><br>${entry.label}`
+
+    if (selectedDetailTile && selectedDetailTile.frames.length > 0) {
+      const frame = selectedDetailTile.frames[selectedDetailTile.frameIndex]
+      const tileData = dctx.createImageData(16, 16)
+      tileData.data.set(frame)
+      dctx.putImageData(tileData, 0, 0)
+      const frameInfo = selectedDetailTile.frames.length > 1
+        ? `<br>frame: ${selectedDetailTile.frameIndex + 1} / ${selectedDetailTile.frames.length}`
+        : ''
+      info.innerHTML = `<b>Map16 tile $${selectedDetailTile.id.toString(16).padStart(3,'0')}</b>${frameInfo}`
+    }
   }
 }
 
@@ -347,6 +345,7 @@ function startAnimTimer(): void {
       tile.frameIndex = (tile.frameIndex + 1) % tile.frames.length
     }
     renderMap16Page()
+    redrawDetail()
   }, animIntervalMs)
 }
 
@@ -357,6 +356,7 @@ function stopAnimTimer(): void {
     tile.frameIndex = 0
   }
   renderMap16Page()
+  redrawDetail()
 }
 
 // ── Tile panel page navigation ───────────────────────────────────────────────
@@ -1031,6 +1031,24 @@ window.addEventListener('message', async (event) => {
         const col = Math.floor((e.clientX - rect.left) * sx / 16)
         const row = Math.floor((e.clientY - rect.top) * sy / 16)
         selectedDetail = { type: 'map16', page: map16PageIdx, col, row }
+        // Resolve the AnimatedTile reference (or create a static one from atlas)
+        const entry = map16Pages[map16PageIdx]
+        const tileId = entry.label.startsWith('L1') ? entry.pageInAtlas * 256 + row * 16 + col : row * 16 + col
+        const existing = map16AnimTiles.get(tileId)
+        if (existing) {
+          selectedDetailTile = existing
+        } else {
+          // Static tile — extract frame 0 from atlas
+          const srcX = col * 16, srcY = entry.pageInAtlas * 256 + row * 16
+          const frame0 = new Uint8ClampedArray(16 * 16 * 4)
+          for (let ty = 0; ty < 16; ty++)
+            for (let tx = 0; tx < 16; tx++) {
+              const si = ((srcY + ty) * entry.atlas.width + (srcX + tx)) * 4
+              const di = (ty * 16 + tx) * 4
+              for (let c = 0; c < 4; c++) frame0[di+c] = entry.atlas.data[si+c]
+            }
+          selectedDetailTile = { id: tileId, frameIndex: 0, frames: [frame0] }
+        }
         redrawDetail()
       }
     }
