@@ -1,3 +1,22 @@
+/**
+ * SmwRom.ts -- ROM access and level enumeration for Super Mario World.
+ *
+ * Derived from SMWDisX disassembly:
+ *   - Layer1Ptrs: bank_05.asm line 7680 (L1 pointer table at $05E000)
+ *   - Layer2Ptrs: bank_05.asm line 8194 (L2 pointer table at $05E600)
+ *   - Ptrs05EC00: bank_05.asm line 8708 (sprite pointer table at $05EC00)
+ *   - CODE_05D796: bank_05.asm line 7079 (level load / translevel conversion)
+ *   - CODE_05D8B7: bank_05.asm lines 7228-7258 (pointer table indexing)
+ *
+ * Pointer table layout (bank_05.asm lines 7228-7258):
+ *   Level number is multiplied by 3 for L1/L2 (3-byte interleaved: lo, hi, bank)
+ *   Level number is multiplied by 2 for sprites (2-byte: lo, hi; bank always $07)
+ *
+ * Translevel conversion (CODE_05D8A2, line 7217-7222):
+ *   If translevel >= $25, subtract $24 to get the level index.
+ *   Combined with submap flag to form the full 9-bit level number.
+ */
+
 import { RomFile } from './RomFile'
 
 /** SNES addresses for SMW ROM structures. */
@@ -7,46 +26,39 @@ export const ADDR = {
   ROM_SIZE:         0x00FFD7,
   SRAM_SIZE:        0x00FFD8,
 
-  // Level layer-1 object pointer table — interleaved 3-byte entries (lo, hi, bank).
-  // 512 entries × 3 bytes = $600 bytes ($05E000–$05E5FF).
+  // Layer 1 pointer table: interleaved 3-byte entries (lo, hi, bank).
+  // bank_05.asm line 7680: Layer1Ptrs at $05E000.
+  // 512 entries x 3 bytes = $600 bytes ($05E000-$05E5FF).
   LEVEL_L1_PTR:     0x05E000,
-  LEVEL_L1_LOW:     0x05E000,   // alias (base address, index * 3 to find entry)
+  LEVEL_L1_LOW:     0x05E000,
 
-  // Level sprite pointer table — same interleaved 3-byte layout.
-  // 512 entries × 3 bytes = $600 bytes ($05EC00–$05F1FF).
+  // Layer 2 pointer table: same 3-byte layout.
+  // bank_05.asm line 8194: Layer2Ptrs at $05E600.
+  LEVEL_L2_PTR:     0x05E600,
+
+  // Sprite pointer table: 2-byte entries (lo, hi), bank always $07.
+  // bank_05.asm line 8708: Ptrs05EC00 at $05EC00.
   LEVEL_SPR_PTR:    0x05EC00,
-  LEVEL_SPR_LOW:    0x05EC00,   // alias
+  LEVEL_SPR_LOW:    0x05EC00,
 
   // Map16 tile data
   MAP16_LOW:        0x0D8000,
   MAP16_HIGH:       0x0DC000,
 
-  // GFX files base address
-  GFX_BASE:         0x088000,
-  GFX_FILE_SIZE:    0x600,    // bytes per GFX file (3BPP, 0x40 = 64 tiles)
-
-  // GFX tileset lookup table: $05D760[spriteSet] → GFX tileset index (used to index $00A92B)
-  // Confirmed via Mesen2 watchpoint: STA $1931 ← LDA $05D760,X where X = spriteSet.
-  // e.g. spriteSet=8 (Yoshi's Island 1) → $05D760[8] = 7 → FGBG table entry 7.
+  // GFX tileset lookup: $05D760[spriteSet] -> tileset index
+  // bank_05.asm: referenced in the game's sprite tileset loading
   TILESETID_TABLE:  0x05D760,
 
-  // Layer 2 pointer table — interleaved 3-byte entries (lo, hi, bank).
-  // 512 entries × 3 bytes = $600 bytes ($05E600–$05EBFF).
-  LEVEL_L2_PTR:     0x05E600,
+  // Secondary entrance tables (bank_05.asm CODE_05D796 lines 7117-7161)
+  SEC_EXIT_DEST:    0x05F800,   // DATA_05F800: lo byte of destination
+  SEC_EXIT_LO:      0x05FA00,   // DATA_05FA00: BG/FG/Mario Y pos info
+  SEC_EXIT_SCREEN:  0x05FC00,   // DATA_05FC00: Mario X pos + screen
+  SEC_EXIT_FLAGS:   0x05FE00,   // DATA_05FE00: flags (action, slippery, dest hi bit)
 
-  // Secondary entrance tables (midpoints, pipes, doors)
-  SEC_EXIT_DEST:    0x05F800,  // 512 B — lo byte of destination level index
-  SEC_EXIT_LO:      0x05FA00,  // 512 B — BG/FG/Mario Y pos info
-  SEC_EXIT_SCREEN:  0x05FC00,  // 512 B — Mario X pos + destination screen#
-  SEC_EXIT_FLAGS:   0x05FE00,  // 512 B — slippery flag, dest level high bit, action
-
-  // Secondary entrance count
   SEC_ENTRANCE_COUNT: 512,
 
-  // Overworld tables
-  OW_EXIT_DIRS:     0x04D678,   // 96 bytes, indexed by translevel
-  OW_EVENT_ASSOC:   0x05D608,   // event associations, indexed by translevel
-  OW_INIT_FLAGS:    0x009EE0,   // initial level flags: [translevel, flags] pairs
+  // Overworld translevel table
+  OW_TRANSLEVEL:    0x049E00,   // OWLayer1Translevel (bank_05.asm line 7214)
 
   // Global palette
   GLOBAL_PALETTE:   0x00B0A0,
@@ -57,11 +69,11 @@ export const LEVEL_COUNT = 0x200
 
 /**
  * Overworld-accessible level pointer table ranges.
- * Derived from the translevel→room conversion at $7E:13BF:
- *   Translevel $00–$24 → room $000–$024  (main overworld, 37 slots)
- *   Translevel $25–$5F → room $101–$13B  (submaps, 59 slots)
- * Total: 96 overworld locations.
- * See docs/smw-overworld-levels.md.
+ *
+ * From CODE_05D8A2 (bank_05.asm line 7217):
+ *   Translevel $00-$24 -> room $000-$024 (main overworld, 37 slots)
+ *   Translevel $25-$5F -> room $101-$13B (submaps, 59 slots)
+ *     (subtract $24, then add $100 for submap flag)
  */
 export function isOverworldLevel(index: number): boolean {
   return (index >= 0x000 && index <= 0x024) || (index >= 0x101 && index <= 0x13B)
@@ -94,7 +106,7 @@ export class SmwRom {
     if (mapMode !== 0x20 && mapMode !== 0x30) {
       throw new Error(
         `Unexpected ROM map mode: $${mapMode?.toString(16).toUpperCase()} ` +
-        `(expected $20 or $30 for LoROM — is this an SNES ROM?)`
+        `(expected $20 or $30 for LoROM)`
       )
     }
   }
@@ -115,10 +127,15 @@ export class SmwRom {
     }
   }
 
+  /**
+   * Read the L1 pointer for a level.
+   *
+   * From CODE_05D8B7 (bank_05.asm lines 7228-7240):
+   *   Y = levelNumber * 3 (each entry is 3 bytes: lo, hi, bank)
+   *   ptr = Layer1Ptrs[Y] | (Layer1Ptrs[Y+1] << 8) | (Layer1Ptrs[Y+2] << 16)
+   */
   getLevelL1Pointer(index: number): number | null {
-    // Pointer table is interleaved 3-byte entries (lo, hi, bank) per level,
-    // NOT three separate split tables. 512 entries × 3 bytes = $600.
-    const base = ADDR.LEVEL_L1_LOW + index * 3
+    const base = ADDR.LEVEL_L1_PTR + index * 3
     const lo = this.rom.readByte(base)
     const hi = this.rom.readByte(base + 1)
     const bk = this.rom.readByte(base + 2)
@@ -126,9 +143,13 @@ export class SmwRom {
     return (bk << 16) | (hi << 8) | lo
   }
 
+  /**
+   * Read the L2 pointer for a level.
+   *
+   * Same 3-byte layout as L1. Bank byte = $FF means preset background.
+   * (bank_05.asm lines 7241-7246)
+   */
   getLevelL2Pointer(index: number): number | null {
-    // Same interleaved 3-byte layout as L1 pointers.
-    // If bank byte = $FF, the data is a background tilemap (LC_RLE1), not object data.
     const base = ADDR.LEVEL_L2_PTR + index * 3
     const lo = this.rom.readByte(base)
     const hi = this.rom.readByte(base + 1)
@@ -137,14 +158,19 @@ export class SmwRom {
     return (bk << 16) | (hi << 8) | lo
   }
 
+  /**
+   * Read the sprite pointer for a level.
+   *
+   * From CODE_05D8B7 (bank_05.asm lines 7248-7258):
+   *   Y = levelNumber * 2 (each entry is 2 bytes: lo, hi)
+   *   bank is always $07 (line 7257: LDA #$07 / STA SpriteDataPtr+2)
+   */
   getLevelSpritePointer(index: number): number | null {
-    // Same interleaved 3-byte layout as L1 pointers.
-    const base = ADDR.LEVEL_SPR_LOW + index * 3
+    const base = ADDR.LEVEL_SPR_PTR + index * 2
     const lo = this.rom.readByte(base)
     const hi = this.rom.readByte(base + 1)
-    const bk = this.rom.readByte(base + 2)
-    if (lo === null || hi === null || bk === null) return null
-    return (bk << 16) | (hi << 8) | lo
+    if (lo === null || hi === null) return null
+    return (0x07 << 16) | (hi << 8) | lo
   }
 
   getAllLevelPointers(): Array<{ index: number; address: number | null }> {
@@ -160,58 +186,41 @@ export class SmwRom {
     return this.rom.readAt(ptr, 0x200)
   }
 
-  getGfxFile(slot: number): Buffer | null {
-    return this.rom.readAt(ADDR.GFX_BASE + slot * ADDR.GFX_FILE_SIZE, ADDR.GFX_FILE_SIZE)
-  }
-
   /**
-   * Returns true if the level has at least one object (not just a header + terminator).
-   * Object data begins at byte 5 (after the 5-byte primary header).
+   * Returns the GFX tileset index for a level.
    *
-   * Bank byte validation: in vanilla SMW all level data is in banks $02–$09.
-   * Slots with bank $00/$01 or > $09 typically point to code/tables rather than
-   * level data and must be excluded, otherwise ~80 garbage entries leak through.
-   */
-  levelHasObjects(index: number): boolean {
-    const data = this.getLevelRawData(index)
-    if (data === null || data.length <= 5) return false
-
-    // Level mode (byte 1 bits 4–0): SMW only defines modes 0–20.
-    // Values above 20 indicate the pointer hit non-level ROM data (code/tables).
-    const levelMode = data[1] & 0x1F
-    if (levelMode > 20) return false
-
-    // data[5] is first object byte; 0xFF = immediate terminator = no objects
-    return data[5] !== 0xFF
-  }
-
-  /**
-   * Returns the GFX tileset index for a level (used to index into the FGBG table at $00A92B).
-   *
-   * The GFX tileset is NOT stored directly in the L1 header. Instead it is derived at
-   * runtime by the game via: tilesetId = ROM[$05D760 + spriteSet].
-   * Confirmed via Mesen2 write watchpoint on $7E:1931:
-   *   LDA $05D760,X (X = spriteSet from header byte 3 bits 3-0) → STA $1931
-   * e.g. YI1: spriteSet=8 → $05D760[8]=7 → FGBG table entry 7 → GFX15/1B/17/14.
+   * From bank_05.asm: tilesetId = ROM[$05D760 + spriteSet]
+   * The spriteSet comes from header byte 2 bits 3-0 (CODE_0584E3 line 573).
    */
   getGfxTilesetId(index: number): number {
     const ptr = this.getLevelL1Pointer(index)
     if (!ptr) return 0
     const buf = this.rom.readAt(ptr, 5)
     if (!buf || buf.length < 5) return 0
-    // Tileset ID is stored directly in header byte 4 (bits 3-0).
-    // Confirmed via disassembly at $0587A2: LDA [$65],Y; AND #$0F; STA $1931.
-    // Previous implementation incorrectly used ROM[$05D760 + spriteSet].
-    return buf[4] & 0x0F
+    // Header byte 2 bits 3-0 = sprite tileset (CODE_0584E3 line 573)
+    const spriteSet = buf[2] & 0x0F
+    return this.rom.readByte(ADDR.TILESETID_TABLE + spriteSet) ?? 0
+  }
+
+  /**
+   * Returns true if the level has valid object data.
+   *
+   * Bank byte validation: vanilla level data is in banks $02-$09.
+   * Level mode check: modes 0-20 are valid (CODE_0584E3 line 539).
+   */
+  levelHasObjects(index: number): boolean {
+    const data = this.getLevelRawData(index)
+    if (data === null || data.length <= 5) return false
+
+    const levelMode = data[1] & 0x1F
+    if (levelMode > 20) return false
+
+    // data[5] is first object byte; 0xFF = immediate terminator
+    return data[5] !== 0xFF
   }
 
   /**
    * Classify all levels into overworld-accessible and sub-area groups.
-   *
-   * Overworld-accessible levels occupy two pointer table ranges:
-   *   $000–$024  (main overworld, 37 slots)
-   *   $101–$13B  (submaps, 59 slots)
-   * Everything else with valid object data is a sub-area (pipes, bonus rooms, etc.).
    */
   classifyLevels(): { overworld: number[]; subarea: number[] } {
     const overworld: number[] = []
@@ -221,7 +230,7 @@ export class SmwRom {
     for (let i = 0; i < LEVEL_COUNT; i++) {
       const ptr = this.getLevelL1Pointer(i)
       if (!ptr) continue
-      if (seenPointers.has(ptr)) continue   // skip duplicate pointers (twin exits)
+      if (seenPointers.has(ptr)) continue
 
       if (!this.levelHasObjects(i)) continue
       seenPointers.add(ptr)
@@ -237,35 +246,21 @@ export class SmwRom {
   }
 
   /**
-   * Build an exit graph mapping each level index to the list of sub-levels
-   * it can reach via secondary exits (pipes, doors, screen exits).
+   * Build exit graph from secondary entrance tables.
    *
-   * Reads the secondary entrance destination tables at $05F800 (lo byte) and
-   * $05FE00 (flags — bit 3 holds the high bit of the destination level index).
-   * Formula: destLevel = ((flags >> 3) & 1) << 8 | destLo
-   *
-   * Returns a Map<levelIndex, childLevelIndices[]>.
-   * Only links where the destination is a valid sub-area are included.
+   * From CODE_05D796 (bank_05.asm lines 7117-7161):
+   *   destLevel = DATA_05F800[Y] (lo byte)
+   *   flags = DATA_05FE00[Y]
+   *   Full dest = destLevel (9-bit if flags has hi bit)
    */
   buildLevelExitGraph(): Map<number, number[]> {
-    // Build a fast set of valid sub-area destinations
     const { subarea } = this.classifyLevels()
     const validDestinations = new Set<number>(subarea)
 
-    // Read both secondary-entrance tables in one pass
     const destTable  = this.rom.readAt(ADDR.SEC_EXIT_DEST,  ADDR.SEC_ENTRANCE_COUNT)
     const flagsTable = this.rom.readAt(ADDR.SEC_EXIT_FLAGS, ADDR.SEC_ENTRANCE_COUNT)
     if (!destTable || !flagsTable) return new Map()
 
-    // Map each destination level → set of source levels that reference it
-    // We need the reverse: for each *source* level, which destinations exist.
-    // Since object parsing to find screen-exit source levels is expensive,
-    // we use the pointer tables to map destination → the set of source levels
-    // that could reference it, then invert.
-    // Simpler approach: build dest→sourceLevel from what we can derive.
-    // For now, map each overworld level to destinations reachable from its
-    // secondary exit slots.  Secondary entrance n belongs to the level whose
-    // L1 pointer table slot is n — this is a 1:1 assignment in vanilla SMW.
     const graph = new Map<number, number[]>()
     const n = Math.min(destTable.length, flagsTable.length)
     for (let entranceIdx = 0; entranceIdx < n; entranceIdx++) {
@@ -275,8 +270,6 @@ export class SmwRom {
       const destLevel = (((flags >> 3) & 1) << 8) | destLo
       if (!validDestinations.has(destLevel)) continue
 
-      // Map the entrance index as both the "source" level slot and destination.
-      // This gives a first-pass graph; the explorer only needs children per level.
       const existing = graph.get(entranceIdx) ?? []
       if (!existing.includes(destLevel)) {
         existing.push(destLevel)
@@ -285,5 +278,29 @@ export class SmwRom {
     }
 
     return graph
+  }
+
+  /** Get level name from ROM (decoded via SmwLevelNames). */
+  getLevelName(index: number): string | null {
+    const { getLevelNameByIndex } = require('./SmwLevelNames') as typeof import('./SmwLevelNames')
+    return getLevelNameByIndex(this.rom, index)
+  }
+
+  /** Enumerate all 512 pointer table slots, returning metadata for each. */
+  enumerateAllLevels(): Array<{ index: number; hasData: boolean; name: string | null }> {
+    const results: Array<{ index: number; hasData: boolean; name: string | null }> = []
+    for (let i = 0; i < 0x200; i++) {
+      const ptr = this.getLevelL1Pointer(i)
+      let hasData = false
+      if (ptr !== null) {
+        const data = this.rom.readAt(ptr, 6)
+        if (data && data.length >= 6) {
+          const mode = data[1] & 0x1F
+          hasData = mode <= 0x1F && data[5] !== undefined
+        }
+      }
+      results.push({ index: i, hasData, name: hasData ? this.getLevelName(i) : null })
+    }
+    return results
   }
 }

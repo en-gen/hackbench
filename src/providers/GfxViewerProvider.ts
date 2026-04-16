@@ -139,11 +139,14 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
         // Raw decompressed bytes — sent so the webview can re-decode client-side
         // when the user toggles the 3bpp / 4bpp selector.
         rawBytes: Array.from(rawBytes),
-        // Mirror the bpp auto-detect logic from GfxLoader (size-based).
+        // Infer BPP from decompressed data size.
         defaultBpp: (() => {
           const n = rawBytes.length
-          const div16 = n % 16 === 0, div24 = n % 24 === 0, div32 = n % 32 === 0
-          return (!div24 && !div32 && div16) ? 2 : (!div24 && div32) ? 4 : 3
+          const d24 = n % 24 === 0, d16 = n % 16 === 0, d32 = n % 32 === 0
+          if (d24) return 3
+          if (d16 && !d32) return 2
+          if (d32) return 4
+          return 3
         })() as 2 | 3 | 4,
       })
     } catch (err) {
