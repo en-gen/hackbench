@@ -89,22 +89,7 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       }
 
       const { header, objects } = parseLevelObjects(rawL1)
-      const screens = header.levelLength + 1
-
-      // ── Debug: log raw header + pointer + first objects ───────────────────
-      const l1ptr = rom.rom.readAt(0x05E000 + index * 3, 3)
-      const ptrAddr = l1ptr ? (l1ptr[2] << 16) | (l1ptr[1] << 8) | l1ptr[0] : 0
-      console.log(`[LVL $${index.toString(16).toUpperCase()}] L1 ptr=$${ptrAddr.toString(16).toUpperCase()}`)
-      console.log(`[LVL] raw[0..9]: ${Array.from(rawL1.subarray(0,10)).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`)
-      console.log(`[LVL] header: screens=${screens} mode=${header.levelMode} bgPal=${header.bgPalette} spriteSet=${header.spriteSet} music=${header.music}`)
-      console.log(`[LVL] objects parsed: ${objects.length}`)
-      if (objects.length > 0) {
-        const first5 = objects.slice(0, 5).map(o =>
-          `{type=${o.objectType.toString(16)} x=${o.x} y=${o.y} param=${o.param} screen=${o.screen}}`
-        ).join(', ')
-        console.log(`[LVL] first objects: ${first5}`)
-      }
-      // ─────────────────────────────────────────────────────────────────────
+      const screens = header.levelLength
 
       const sprPtr = rom.getLevelSpritePointer(index)
       let sprites = parseLevelSprites(Buffer.alloc(1, 0xFF))
@@ -141,25 +126,25 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       }
 
       // ── Load ROM rendering data (allow webview overrides) ─────────────────
-      const bgVariant     = overrides.bgVariant      ?? header.bgPalette
+      const bgVariant      = overrides.bgVariant      ?? header.bgPalette
       const bgColorVariant = overrides.bgColorVariant ?? header.bgColor
-      const romPalettes   = loadRomPalettes(rom.rom, bgColorVariant)
+      const romPalettes    = loadRomPalettes(rom.rom, bgColorVariant)
       const backAreaColors = loadBackAreaColors(rom.rom)
-      const fgVariant     = overrides.fgVariant      ?? 0
-      const spriteSet     = overrides.spriteSet      ?? header.spriteSet
-      const spritePalette = overrides.spritePalette  ?? header.spritePalette
-      const gfxTilesetId  = overrides.tilesetId      ?? rom.getGfxTilesetId(index)
+      const fgVariant      = overrides.fgVariant      ?? header.fgPalette
+      const spriteTileset  = overrides.spriteSet      ?? header.spriteSet
+      const spritePalette  = overrides.spritePalette  ?? header.spritePalette
+      // ObjectTileset is stored directly in header byte 4 bits 3-0 (CODE_0584E3)
+      const objectTileset  = overrides.tilesetId      ?? header.objectTileset
 
       const marioVariant = overrides.marioVariant ?? 0
       const cgram = buildLevelCgram(romPalettes, bgVariant, fgVariant, spritePalette, marioVariant)
       const palette = { colors: cgram.colors, rows: cgram.rows }
-      const vram    = loadVram(rom.rom, gfxTilesetId, spriteSet)
-      const map16        = loadAllMap16(rom.rom)
+      const vram    = loadVram(rom.rom, objectTileset, spriteTileset)
+      const map16   = loadAllMap16(rom.rom, objectTileset)
 
       // Collect unique tile IDs present in the grid to limit atlas size
-      // $25 = empty/air tile in SMW (also skip 0 for safety)
       const usedIds = new Set<number>()
-      for (const row of tileGrid) for (const id of row) if (id !== 0 && id !== 0x25) usedIds.add(id)
+      for (const row of tileGrid) for (const id of row) if (id !== 0) usedIds.add(id)
       const usedTiles = map16.filter(t => usedIds.has(t.id))
 
       const { atlas, atlasWidth, atlasHeight, tileUvs } = buildTileAtlas(usedTiles, vram, palette)
@@ -168,48 +153,55 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       const tileUvMap: Record<number, { col: number; row: number }> = {}
       for (const [id, uv] of tileUvs) tileUvMap[id] = uv
 
-      // Build Map16 atlas for both pages (page 0: $000-$0FF, page 1: $100-$1FF).
-      // Page 1 contains the foreground tiles used in levels.
-      // 512 tiles arranged 16 per row → 256×512 pixels.
+      // ── Build full Map16 atlas (all 512 L1 tiles) for the Map16 panel ──
       const { atlas: map16Atlas } = buildTileAtlas(map16, vram, palette)
 
-      // Build 8x8 VRAM tile sheet for the tile panel.
-      // Renders chars $000-$1FF (FG1+FG2+FG3+AN1 = 512 tiles) as 8x8 pixel blocks.
-      // Arranged 16 per row = 128px wide × 256px tall.
-      // Each tile rendered with palette row 2 (default FG palette) for visibility.
-      const VRAM_TILES_PER_ROW = 16
-      const VRAM_TILE_PX = 8
-      const vramTileCount = 512  // chars $000-$1FF
-      const vramRows = Math.ceil(vramTileCount / VRAM_TILES_PER_ROW)
-      const vramSheetW = VRAM_TILES_PER_ROW * VRAM_TILE_PX  // 128
-      const vramSheetH = vramRows * VRAM_TILE_PX             // 256
-      const vramSheet = new Uint8ClampedArray(vramSheetW * vramSheetH * 4)
+      // ── Build Map16 BG atlas (L2 preset background tiles, pages 0x80-0x81) ──
+      const { loadAllMap16BG } = require('../rom/Map16') as typeof import('../rom/Map16')
+      const map16bg = loadAllMap16BG(rom.rom)
+      const { atlas: map16BgAtlas } = buildTileAtlas(map16bg, vram, palette)
 
+      // ── Build 8×8 VRAM tile sheet for the VRAM panel ───────────────────
+      // 4 pages matching Mesen/LM layout:
+      //   Page 0: chars $000-$0FF (FG1+FG2) — BG palette row 2
+      //   Page 1: chars $100-$1FF (FG3+AN1) — BG palette row 2
+      //   Page 2: chars $200-$2FF (AN2+BG1) — BG palette row 8 (sprite)
+      //   Page 3: chars $300-$3FF (SP1+SP2)  — OBJ palette row 8
+      // + Page 4: chars $400-$4FF (SP3+SP4) — OBJ palette row 8
+      // Arranged 16 per row = 128px wide
       const { getCharPixels: getChar } = require('../rom/GfxLoader') as typeof import('../rom/GfxLoader')
       const { getPaletteColor: getPalColor } = require('../rom/PaletteLoader') as typeof import('../rom/PaletteLoader')
-      for (let i = 0; i < vramTileCount; i++) {
+      // BG chars $000-$2FF + sprite chars $300-$5FF = 1536 tiles total (6 pages of 256)
+      // But we show 4 pages matching reference: page 0+1 (BG), skip 2 blank, page 4+5 (sprites)
+      // Render all contiguous for simplicity — the webview page navigator handles display
+      const VRAM_TILES = 1536  // chars $000-$5FF
+      const VR_PER_ROW = 16
+      const vramSheetW = VR_PER_ROW * 8  // 128px
+      const vramSheetH = Math.ceil(VRAM_TILES / VR_PER_ROW) * 8
+      const vramSheet = new Uint8ClampedArray(vramSheetW * vramSheetH * 4)
+      for (let i = 0; i < VRAM_TILES; i++) {
         const pixels = getChar(vram, i)
-        const tileCol = i % VRAM_TILES_PER_ROW
-        const tileRow = Math.floor(i / VRAM_TILES_PER_ROW)
+        const tileCol = i % VR_PER_ROW
+        const tileRow = Math.floor(i / VR_PER_ROW)
+        // BG chars ($000-$2FF) use palette row 2; sprite chars ($300+) use row 8
+        const palRow = i < 0x300 ? 2 : 8
         for (let py = 0; py < 8; py++) {
           for (let px = 0; px < 8; px++) {
             const palIdx = pixels ? pixels[py * 8 + px] : 0
             const destX = tileCol * 8 + px
             const destY = tileRow * 8 + py
             const destOff = (destY * vramSheetW + destX) * 4
-            if (palIdx === 0) {
-              vramSheet[destOff + 3] = 0  // transparent
+            if (palIdx === 0 || !pixels) {
+              vramSheet[destOff] = vramSheet[destOff + 1] = vramSheet[destOff + 2] = 0
+              vramSheet[destOff + 3] = pixels ? 0 : 128
             } else {
-              const c = getPalColor(palette, 2, palIdx)  // palette row 2 for FG
-              vramSheet[destOff]     = c[0]
-              vramSheet[destOff + 1] = c[1]
-              vramSheet[destOff + 2] = c[2]
-              vramSheet[destOff + 3] = 255
+              const color = getPalColor(palette, palRow, palIdx)
+              vramSheet[destOff] = color[0]; vramSheet[destOff + 1] = color[1]
+              vramSheet[destOff + 2] = color[2]; vramSheet[destOff + 3] = 255
             }
           }
         }
       }
-      const vramSheetData = Array.from(vramSheet)
 
       webview.postMessage({
         type: 'load',
@@ -222,23 +214,24 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
         atlasWidth,
         atlasHeight,
         tileUvMap,
+        vramSheetData:  Array.from(vramSheet),
+        vramSheetW,
+        vramSheetH,
         map16AtlasData: Array.from(map16Atlas),
-        vramSheetData,
-        vramSheetW: vramSheetW,
-        vramSheetH: vramSheetH,
+        map16BgAtlasData: Array.from(map16BgAtlas),
         backAreaColor:  romPalettes.backAreaColor,
         backAreaColors: backAreaColors.map(c => [c[0], c[1], c[2], c[3]]),
         paletteRows:    cgram.rows.map(row => row.map((c: number[]) => [c[0], c[1], c[2], c[3]])),
         sprites:        sprites.map(s => ({ x: s.x, y: s.y, spriteId: s.spriteId })),
         header: {
           music:          header.music,
-          spriteSet,
+          spriteSet:      spriteTileset,
           bgPalette:      bgVariant,
           fgPalette:      fgVariant,
           bgColor:        bgColorVariant,
           spritePalette,
           marioVariant,
-          gfxTilesetId,
+          gfxTilesetId:   objectTileset,
         },
       })
     } catch (err) {

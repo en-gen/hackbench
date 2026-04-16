@@ -82,32 +82,46 @@ app.innerHTML = `
     border-right:1px solid var(--vscode-panel-border,#3a3a3a);
     font-family:var(--vscode-font-family,system-ui);font-size:12px;">
 
-    <div class="section-hdr">8x8 TILES (VRAM)</div>
-    <div style="padding:4px;">
-      <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px;">
-        <button id="vram-prev" style="${btnStyle()}" title="Previous page">&#9664;</button>
-        <span id="vram-page" style="flex:1;text-align:center;font-family:monospace;font-size:10px;color:#aaa;">Page 1</span>
-        <button id="vram-next" style="${btnStyle()}" title="Next page">&#9654;</button>
-      </div>
+    <div class="section-hdr">8×8 TILES (VRAM)</div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:4px 8px;">
+      <button id="vram-prev" style="${btnStyle()}" title="Previous page">◀</button>
+      <span id="vram-page-label" style="font-size:11px;font-family:monospace;color:#aaa;min-width:70px;text-align:center;">Page 1 / 6</span>
+      <button id="vram-next" style="${btnStyle()}" title="Next page">▶</button>
+    </div>
+    <div style="padding:4px 8px 8px;">
       <canvas id="vram-canvas" width="128" height="128" style="
-        width:100%;image-rendering:pixelated;display:block;
-        background:#000;border:1px solid #3a3a3a;box-sizing:border-box;"></canvas>
-      <div id="vram-inspect" style="margin-top:2px;font-size:10px;
-        font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
+        width:100%;image-rendering:pixelated;display:block;cursor:crosshair;
+        border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
+        <div id="vram-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
+        <button id="btn-vram-grid" style="${btnStyle()}border:none;" title="Toggle grid">⊞</button>
+      </div>
     </div>
 
-    <div class="section-hdr">MAP16 TILES</div>
-    <div style="padding:4px;">
-      <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px;">
-        <button id="map16-prev" style="${btnStyle()}" title="Previous page">&#9664;</button>
-        <span id="map16-page" style="flex:1;text-align:center;font-family:monospace;font-size:10px;color:#aaa;">Page 0</span>
-        <button id="map16-next" style="${btnStyle()}" title="Next page">&#9654;</button>
-      </div>
+    <div class="section-hdr">16×16 TILES (MAP16)</div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:4px 8px;">
+      <button id="map16-prev" style="${btnStyle()}" title="Previous page">◀</button>
+      <span id="map16-page-label" style="font-size:11px;font-family:monospace;color:#aaa;min-width:70px;text-align:center;">Page 1 / 2</span>
+      <button id="map16-next" style="${btnStyle()}" title="Next page">▶</button>
+    </div>
+    <div style="padding:4px 8px 8px;">
       <canvas id="map16-canvas" width="256" height="256" style="
-        width:100%;image-rendering:pixelated;display:block;
-        background:#000;border:1px solid #3a3a3a;box-sizing:border-box;"></canvas>
-      <div id="map16-inspect" style="margin-top:2px;font-size:10px;
-        font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
+        width:100%;image-rendering:pixelated;display:block;cursor:crosshair;
+        border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
+        <div id="map16-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
+        <button id="btn-map16-grid" style="${btnStyle()}border:none;" title="Toggle grid">⊞</button>
+      </div>
+    </div>
+
+    <div class="section-hdr">SELECTED TILE</div>
+    <div id="tile-detail" style="padding:8px;">
+      <div style="display:flex;gap:8px;align-items:flex-start;">
+        <canvas id="detail-canvas" width="16" height="16" style="
+          width:64px;height:64px;image-rendering:pixelated;flex-shrink:0;
+          border:1px solid #555;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
+        <div id="detail-info" style="font-size:10px;font-family:monospace;color:#aaa;line-height:1.6;">click a tile to inspect</div>
+      </div>
     </div>
 
   </div>
@@ -212,6 +226,8 @@ app.innerHTML = `
     background:var(--vscode-sideBarSectionHeader-background,#2d2d2d);
     user-select:none;
   }
+  .tile-tab { transition: color 0.15s, border-bottom 0.15s; border-bottom: 2px solid transparent; }
+  .tile-tab-active { color: #ccc !important; border-bottom: 2px solid #007acc !important; }
 </style>
 `
 
@@ -232,21 +248,152 @@ const chkBlock       = document.getElementById('chk-block')       as HTMLInputEl
 const chkL1          = document.getElementById('chk-l1')          as HTMLInputElement
 const chkL2          = document.getElementById('chk-l2')          as HTMLInputElement
 
-// Tiles panel (left)
-const vramCanvas     = document.getElementById('vram-canvas')     as HTMLCanvasElement
-const vramCtx        = vramCanvas.getContext('2d')!
-const vramInspect    = document.getElementById('vram-inspect')!
-const vramPageLabel  = document.getElementById('vram-page')!
-const vramPrev       = document.getElementById('vram-prev')       as HTMLButtonElement
-const vramNext       = document.getElementById('vram-next')       as HTMLButtonElement
-const map16Canvas    = document.getElementById('map16-canvas')    as HTMLCanvasElement
-const map16Ctx       = map16Canvas.getContext('2d')!
-const map16Inspect   = document.getElementById('map16-inspect')!
-const map16PageLabel = document.getElementById('map16-page')!
-const map16Prev      = document.getElementById('map16-prev')      as HTMLButtonElement
-const map16Next      = document.getElementById('map16-next')      as HTMLButtonElement
+// ── Tile detail preview state ─────────────────────────────────────────────────
+let selectedDetail: { type: 'vram'; page: number; col: number; row: number } |
+                    { type: 'map16'; page: number; col: number; row: number } | null = null
 
-// Props panel (right)
+function redrawDetail(): void {
+  if (!selectedDetail) return
+  const dc = document.getElementById('detail-canvas') as HTMLCanvasElement
+  const dctx = dc.getContext('2d')!
+  const info = document.getElementById('detail-info')!
+  if (selectedDetail.type === 'vram' && vramFullImageData) {
+    dc.width = 8; dc.height = 8
+    const pageH = (VRAM_TILES_PER_PAGE / 16) * 8
+    const srcX = selectedDetail.col * 8
+    const srcTileY = selectedDetail.page * pageH + selectedDetail.row * 8
+    const tileData = dctx.createImageData(8, 8)
+    for (let ty = 0; ty < 8; ty++)
+      for (let tx = 0; tx < 8; tx++) {
+        const si = ((srcTileY + ty) * vramFullImageData.width + (srcX + tx)) * 4
+        const di = (ty * 8 + tx) * 4
+        for (let c = 0; c < 4; c++) tileData.data[di+c] = vramFullImageData.data[si+c]
+      }
+    dctx.putImageData(tileData, 0, 0)
+    const globalChar = selectedDetail.page * VRAM_TILES_PER_PAGE + selectedDetail.row * 16 + selectedDetail.col
+    const slot = globalChar < 0x80 ? 'FG1' : globalChar < 0x100 ? 'FG2' : globalChar < 0x180 ? 'FG3' : globalChar < 0x200 ? 'AN1' : globalChar < 0x400 ? '—' : 'SP'
+    info.innerHTML = `<b>8×8 char $${globalChar.toString(16).padStart(3,'0')}</b><br>slot: ${slot}`
+  } else if (selectedDetail.type === 'map16' && map16Pages[selectedDetail.page]) {
+    const entry = map16Pages[selectedDetail.page]
+    dc.width = 16; dc.height = 16
+    const srcX = selectedDetail.col * 16
+    const srcY = entry.pageInAtlas * 256 + selectedDetail.row * 16
+    const tileData = dctx.createImageData(16, 16)
+    const w = entry.atlas.width
+    for (let ty = 0; ty < 16; ty++)
+      for (let tx = 0; tx < 16; tx++) {
+        const si = ((srcY + ty) * w + (srcX + tx)) * 4
+        const di = (ty * 16 + tx) * 4
+        for (let c = 0; c < 4; c++) tileData.data[di+c] = entry.atlas.data[si+c]
+      }
+    dctx.putImageData(tileData, 0, 0)
+    const localTile = selectedDetail.row * 16 + selectedDetail.col
+    info.innerHTML = `<b>Map16 tile ${localTile}</b><br>${entry.label}`
+  }
+}
+
+// ── Tile viewer grid toggles ─────────────────────────────────────────────────
+let vramGridOn = false
+let map16GridOn = false
+document.getElementById('btn-vram-grid')!.addEventListener('click', () => {
+  vramGridOn = !vramGridOn
+  document.getElementById('btn-vram-grid')!.style.color = vramGridOn ? '#5b9cf6' : '#ccc'
+  renderVramPage()
+})
+document.getElementById('btn-map16-grid')!.addEventListener('click', () => {
+  map16GridOn = !map16GridOn
+  document.getElementById('btn-map16-grid')!.style.color = map16GridOn ? '#5b9cf6' : '#ccc'
+  renderMap16Page()
+})
+
+// ── Tile panel page navigation ───────────────────────────────────────────────
+// VRAM pages: 256 tiles per page (16×16 grid = 128×128px), matching Mesen/LM.
+// Page count derived from data height, not hardcoded.
+const VRAM_TILES_PER_PAGE = 256
+let vramPage = 0
+let vramTotalPages = 0
+let vramFullImageData: ImageData | null = null
+
+function renderVramPage(): void {
+  if (!vramFullImageData) return
+  const vc = document.getElementById('vram-canvas') as HTMLCanvasElement
+  const vctx = vc.getContext('2d')!
+  const tilesPerRow = 16
+  const rows = VRAM_TILES_PER_PAGE / tilesPerRow  // 16
+  vc.width = tilesPerRow * 8   // 128
+  vc.height = rows * 8          // 128
+  const srcY = vramPage * rows * 8
+  const srcH = rows * 8
+  const sw = vramFullImageData.width
+  if (srcY + srcH > vramFullImageData.height) { vctx.clearRect(0, 0, vc.width, vc.height); return }
+  const slice = new Uint8ClampedArray(sw * srcH * 4)
+  for (let row = 0; row < srcH; row++) {
+    const srcOff = ((srcY + row) * sw) * 4
+    const dstOff = (row * sw) * 4
+    slice.set(vramFullImageData.data.subarray(srcOff, srcOff + sw * 4), dstOff)
+  }
+  vctx.putImageData(new ImageData(slice, sw, srcH), 0, 0)
+  if (vramGridOn) {
+    vctx.strokeStyle = 'rgba(0,0,0,0.6)'
+    vctx.lineWidth = 1
+    for (let x = 8; x < vc.width; x += 8) { vctx.beginPath(); vctx.moveTo(x + 0.5, 0); vctx.lineTo(x + 0.5, vc.height); vctx.stroke() }
+    for (let y = 8; y < vc.height; y += 8) { vctx.beginPath(); vctx.moveTo(0, y + 0.5); vctx.lineTo(vc.width, y + 0.5); vctx.stroke() }
+  }
+  const lbl = document.getElementById('vram-page-label')!
+  lbl.textContent = `Page ${vramPage + 1} / ${vramTotalPages}`
+}
+
+document.getElementById('vram-prev')!.addEventListener('click', () => {
+  if (vramTotalPages > 0) { vramPage = (vramPage - 1 + vramTotalPages) % vramTotalPages; renderVramPage() }
+})
+document.getElementById('vram-next')!.addEventListener('click', () => {
+  if (vramTotalPages > 0) { vramPage = (vramPage + 1) % vramTotalPages; renderVramPage() }
+})
+
+// MAP16 page viewer — pages derived from atlas data, blank pages skipped.
+// Each page entry has an atlas ImageData and a page-within-atlas index.
+interface Map16PageEntry { atlas: ImageData; pageInAtlas: number; label: string }
+let map16Pages: Map16PageEntry[] = []
+let map16PageIdx = 0
+let map16FullImageData: ImageData | null = null  // kept for detail preview (L1 atlas)
+
+function renderMap16Page(): void {
+  const mc = document.getElementById('map16-canvas') as HTMLCanvasElement
+  const mctx = mc.getContext('2d')!
+  mc.width = 256; mc.height = 256
+  if (map16Pages.length === 0) { mctx.clearRect(0, 0, 256, 256); return }
+
+  const entry = map16Pages[map16PageIdx]
+  const srcY = entry.pageInAtlas * 256  // 16 rows × 16px
+  const srcH = 256
+  const sw = entry.atlas.width
+  if (srcY + srcH > entry.atlas.height) { mctx.clearRect(0, 0, 256, 256); return }
+
+  const slice = new Uint8ClampedArray(sw * srcH * 4)
+  for (let row = 0; row < srcH; row++) {
+    const srcOff = ((srcY + row) * sw) * 4
+    const dstOff = (row * sw) * 4
+    slice.set(entry.atlas.data.subarray(srcOff, srcOff + sw * 4), dstOff)
+  }
+  mctx.putImageData(new ImageData(slice, sw, srcH), 0, 0)
+  if (map16GridOn) {
+    mctx.strokeStyle = 'rgba(0,0,0,0.6)'
+    mctx.lineWidth = 1
+    for (let x = 16; x < mc.width; x += 16) { mctx.beginPath(); mctx.moveTo(x + 0.5, 0); mctx.lineTo(x + 0.5, mc.height); mctx.stroke() }
+    for (let y = 16; y < mc.height; y += 16) { mctx.beginPath(); mctx.moveTo(0, y + 0.5); mctx.lineTo(mc.width, y + 0.5); mctx.stroke() }
+  }
+  const lbl = document.getElementById('map16-page-label')!
+  lbl.textContent = `Page ${map16PageIdx + 1} / ${map16Pages.length}`
+}
+
+document.getElementById('map16-prev')!.addEventListener('click', () => {
+  if (map16Pages.length > 0) { map16PageIdx = (map16PageIdx - 1 + map16Pages.length) % map16Pages.length; renderMap16Page() }
+})
+document.getElementById('map16-next')!.addEventListener('click', () => {
+  if (map16Pages.length > 0) { map16PageIdx = (map16PageIdx + 1) % map16Pages.length; renderMap16Page() }
+})
+
+// Props panel
 const palCanvas      = document.getElementById('palette-canvas')  as HTMLCanvasElement
 const palCtx         = palCanvas.getContext('2d')!
 const palInspect     = document.getElementById('palette-inspect')!
@@ -287,14 +434,18 @@ interface LevelPayload {
   atlasWidth:      number
   atlasHeight:     number
   tileUvMap:       Record<number, TileUv>
-  map16AtlasData:  number[]     // RGBA pixels for all 512 Map16 tiles (16×16 each)
-  vramSheetData:   number[]     // RGBA pixels for 8x8 VRAM tiles (chars $000-$1FF)
-  vramSheetW:      number
-  vramSheetH:      number
   sprites:         Array<{ x: number; y: number; spriteId: number }>
   backAreaColor:   [number, number, number, number]
   backAreaColors:  number[][]   // 8 variants × [r,g,b,a]
   paletteRows:     number[][][]   // 16 rows × 16 colors × [r,g,b,a]
+  // 8x8 VRAM tile sheet (chars $000-$2FF, rendered with palette row 2)
+  vramSheetData?:  number[]   // RGBA pixels, 128px wide × Npx tall
+  vramSheetW?:     number
+  vramSheetH?:     number
+  // L1 Map16 atlas (from tileset-aware pointer table)
+  map16AtlasData?: number[]
+  // L2/BG Map16 atlas (from Map16BGTiles)
+  map16BgAtlasData?: number[]
   header: {
     music:          number
     spriteSet:      number
@@ -382,107 +533,6 @@ palCanvas.addEventListener('mouseleave', () => {
   palInspect.textContent = 'hover to inspect'
 })
 
-// ── VRAM 8x8 Tile Panel ──────────────────────────────────────────────────────
-
-let vramPage = 0  // 0 = chars $000-$0FF (FG1+FG2), 1 = chars $100-$1FF (FG3+AN1)
-const VRAM_PAGES = 2
-let vramBitmap: ImageBitmap | null = null
-
-async function drawVramPanel(): Promise<void> {
-  if (!levelData?.vramSheetData) return
-  const w = levelData.vramSheetW   // 128
-  const fullH = levelData.vramSheetH  // 256
-  const raw = new Uint8ClampedArray(levelData.vramSheetData)
-
-  // Cache full bitmap
-  if (raw.length >= w * fullH * 4) {
-    const imgData = new ImageData(raw.slice(0, w * fullH * 4), w, fullH)
-    vramBitmap = await createImageBitmap(imgData)
-  }
-  drawVramPage()
-}
-
-function drawVramPage(): void {
-  if (!vramBitmap) return
-  const pageH = 128  // 256 tiles per page, 16 per row = 16 rows × 8px = 128px
-  vramCanvas.width = 128
-  vramCanvas.height = pageH
-  // Draw the portion for the current page
-  vramCtx.drawImage(vramBitmap, 0, vramPage * pageH, 128, pageH, 0, 0, 128, pageH)
-  vramPageLabel.textContent = `Page ${vramPage + 1} / ${VRAM_PAGES}`
-}
-
-vramPrev.addEventListener('click', () => { vramPage = Math.max(0, vramPage - 1); drawVramPage() })
-vramNext.addEventListener('click', () => { vramPage = Math.min(VRAM_PAGES - 1, vramPage + 1); drawVramPage() })
-
-vramCanvas.addEventListener('mousemove', (e) => {
-  const rect = vramCanvas.getBoundingClientRect()
-  const scaleX = 128 / rect.width
-  const scaleY = 128 / rect.height
-  const col = Math.floor((e.clientX - rect.left) * scaleX / 8)
-  const row = Math.floor((e.clientY - rect.top)  * scaleY / 8)
-  const charNum = vramPage * 256 + row * 16 + col
-  if (col < 0 || col > 15 || row < 0 || row > 15) return
-  const slot = charNum < 128 ? 'FG1' : charNum < 256 ? 'FG2' : charNum < 384 ? 'FG3' : 'AN1'
-  vramInspect.textContent = `char $${charNum.toString(16).padStart(3, '0').toUpperCase()} (${slot})`
-})
-vramCanvas.addEventListener('mouseleave', () => { vramInspect.textContent = 'hover to inspect' })
-
-// ── Map16 Tile Panel ─────────────────────────────────────────────────────────
-
-let map16Page = 0   // page in hex: 0x0, 0x1, ...
-const MAP16_TOTAL_TILES = 512  // vanilla SMW: pages 0-1
-const MAP16_TILES_PER_PAGE = 256
-const MAP16_PAGES = Math.ceil(MAP16_TOTAL_TILES / MAP16_TILES_PER_PAGE)
-let map16Bitmap: ImageBitmap | null = null
-
-async function drawMap16Panel(): Promise<void> {
-  if (!levelData?.map16AtlasData) return
-  const PX = 16
-  const COLS = 16
-  const atlasW = COLS * PX  // 256
-  const raw = new Uint8ClampedArray(levelData.map16AtlasData)
-  const totalRows = Math.ceil(MAP16_TOTAL_TILES / COLS)
-  const atlasH = totalRows * PX
-
-  if (raw.length >= atlasW * atlasH * 4) {
-    const imgData = new ImageData(raw.slice(0, atlasW * atlasH * 4), atlasW, atlasH)
-    map16Bitmap = await createImageBitmap(imgData)
-  }
-  drawMap16Page()
-}
-
-function drawMap16Page(): void {
-  if (!map16Bitmap) return
-  const pageH = 256  // 256 tiles per page, 16 per row = 16 rows × 16px = 256px
-  map16Canvas.width = 256
-  map16Canvas.height = pageH
-  map16Ctx.fillStyle = '#000'
-  map16Ctx.fillRect(0, 0, 256, pageH)
-  // Draw the portion for the current page
-  const srcY = map16Page * pageH
-  const srcH = Math.min(pageH, map16Bitmap.height - srcY)
-  if (srcH > 0) {
-    map16Ctx.drawImage(map16Bitmap, 0, srcY, 256, srcH, 0, 0, 256, srcH)
-  }
-  map16PageLabel.textContent = `Page 0x${map16Page.toString(16).toUpperCase()}`
-}
-
-map16Prev.addEventListener('click', () => { map16Page = Math.max(0, map16Page - 1); drawMap16Page() })
-map16Next.addEventListener('click', () => { map16Page = Math.min(MAP16_PAGES - 1, map16Page + 1); drawMap16Page() })
-
-map16Canvas.addEventListener('mousemove', (e) => {
-  const rect = map16Canvas.getBoundingClientRect()
-  const scaleX = 256 / rect.width
-  const scaleY = 256 / rect.height
-  const col = Math.floor((e.clientX - rect.left) * scaleX / 16)
-  const row = Math.floor((e.clientY - rect.top)  * scaleY / 16)
-  if (col < 0 || col > 15 || row < 0 || row > 15) return
-  const tileId = map16Page * MAP16_TILES_PER_PAGE + row * 16 + col
-  map16Inspect.textContent = `tile $${tileId.toString(16).padStart(3, '0').toUpperCase()}`
-})
-map16Canvas.addEventListener('mouseleave', () => { map16Inspect.textContent = 'hover to inspect' })
-
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 function tileBlockColor(tileId: number): string {
@@ -523,6 +573,7 @@ function drawBlockGrid(grid: number[][], cols: number, rows: number, px: number,
 
 function redraw(): void {
   if (!levelData) return
+  if (!chkBlock.checked && !atlasImg) return
 
   const { tileGrid, screens, sprites, tileUvMap } = levelData
   const cols = screens * SCREEN_W
@@ -533,7 +584,6 @@ function redraw(): void {
   canvas.height = Math.round(rows * px)
   ctx.imageSmoothingEnabled = false
 
-  // Background fill
   if (levelData.backAreaColor) {
     const [r, g, b] = levelData.backAreaColor
     ctx.fillStyle = `rgb(${r},${g},${b})`
@@ -542,11 +592,11 @@ function redraw(): void {
   }
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-  // Tile layers
   if (chkBlock.checked) {
     if (chkL2.checked && l2TileGrid) drawBlockGrid(l2TileGrid, cols, rows, px, 0.55)
     if (chkL1.checked)               drawBlockGrid(tileGrid,   cols, rows, px, 1.0)
-  } else if (atlasImg) {
+  } else {
+    if (!atlasImg) return
     // TODO: L2 atlas rendering not yet implemented; L2 toggle only works in Block mode.
     if (chkL1.checked) {
       for (let row = 0; row < rows; row++) {
@@ -571,9 +621,9 @@ function redraw(): void {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
   }
 
-  // Tile grid — use dark lines for contrast against any background
+  // Tile grid
   if (chkGrid.checked) {
-    ctx.strokeStyle = 'rgba(0,0,0,0.15)'
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)'
     ctx.lineWidth = 1
     for (let c = 0; c <= cols; c++) {
       const x = Math.round(c * px) + 0.5
@@ -771,15 +821,98 @@ window.addEventListener('message', async (event) => {
     // Palette canvas
     drawPaletteCanvas()
 
-    // Tile panels
-    drawVramPanel()
-    drawMap16Panel()
-
     // Decode atlas and redraw
     const raw     = new Uint8ClampedArray(levelData.atlasData)
     const imgData = new ImageData(raw, levelData.atlasWidth, levelData.atlasHeight)
     atlasImg      = await createImageBitmap(imgData)
     redraw()
+
+    // ── VRAM 8×8 tile sheet (paged by slot) ──────────────────────────
+    if (levelData.vramSheetData && levelData.vramSheetW && levelData.vramSheetH) {
+      vramFullImageData = new ImageData(
+        new Uint8ClampedArray(levelData.vramSheetData),
+        levelData.vramSheetW, levelData.vramSheetH,
+      )
+      const pxPerPage = (VRAM_TILES_PER_PAGE / 16) * 8  // 128px per page
+      vramTotalPages = Math.ceil(levelData.vramSheetH / pxPerPage)
+      vramPage = 0
+      renderVramPage()
+
+      const vramCanvas = document.getElementById('vram-canvas') as HTMLCanvasElement
+      const vramInspect = document.getElementById('vram-inspect') as HTMLElement
+      vramCanvas.onmousemove = (e) => {
+        const rect = vramCanvas.getBoundingClientRect()
+        const sx = vramCanvas.width / rect.width, sy = vramCanvas.height / rect.height
+        const px = Math.floor((e.clientX - rect.left) * sx)
+        const py = Math.floor((e.clientY - rect.top) * sy)
+        const col = Math.floor(px / 8), row = Math.floor(py / 8)
+        const localChar = row * 16 + col
+        const globalChar = vramPage * VRAM_TILES_PER_PAGE + localChar
+        const slot = globalChar < 0x80 ? 'FG1' : globalChar < 0x100 ? 'FG2' : globalChar < 0x180 ? 'FG3' : globalChar < 0x200 ? 'AN1' : globalChar < 0x400 ? '—' : 'SP'
+        vramInspect.textContent = `char $${globalChar.toString(16).padStart(3,'0')} (${slot})`
+      }
+      vramCanvas.onmouseleave = () => { vramInspect.textContent = 'hover to inspect' }
+
+      vramCanvas.onclick = (e) => {
+        const rect = vramCanvas.getBoundingClientRect()
+        const sx = vramCanvas.width / rect.width, sy = vramCanvas.height / rect.height
+        const col = Math.floor((e.clientX - rect.left) * sx / 8)
+        const row = Math.floor((e.clientY - rect.top) * sy / 8)
+        selectedDetail = { type: 'vram', page: vramPage, col, row }
+        redrawDetail()
+      }
+    }
+
+    // ── Map16 tile atlases — build page list from L1 + L2/BG data ────
+    {
+      map16Pages = []
+      // L1 pages (from tileset-aware pointer table)
+      if (levelData.map16AtlasData) {
+        const h = Math.floor(levelData.map16AtlasData.length / (256 * 4))
+        const l1Atlas = new ImageData(new Uint8ClampedArray(levelData.map16AtlasData), 256, h)
+        map16FullImageData = l1Atlas  // keep for detail preview
+        const l1PageCount = Math.ceil(h / 256)
+        for (let p = 0; p < l1PageCount; p++) {
+          map16Pages.push({ atlas: l1Atlas, pageInAtlas: p, label: `L1 Page 0x${p.toString(16).padStart(2,'0')}` })
+        }
+      }
+      // L2/BG pages (from Map16BGTiles, pages labeled 0x80+)
+      if (levelData.map16BgAtlasData) {
+        const h = Math.floor(levelData.map16BgAtlasData.length / (256 * 4))
+        const bgAtlas = new ImageData(new Uint8ClampedArray(levelData.map16BgAtlasData), 256, h)
+        const bgPageCount = Math.ceil(h / 256)
+        for (let p = 0; p < bgPageCount; p++) {
+          map16Pages.push({ atlas: bgAtlas, pageInAtlas: p, label: `L2 Page 0x${(0x80 + p).toString(16)}` })
+        }
+      }
+      map16PageIdx = 0
+      renderMap16Page()
+
+      const m16Canvas = document.getElementById('map16-canvas') as HTMLCanvasElement
+      const m16Inspect = document.getElementById('map16-inspect') as HTMLElement
+      m16Canvas.onmousemove = (e) => {
+        if (map16Pages.length === 0) return
+        const rect = m16Canvas.getBoundingClientRect()
+        const sx = m16Canvas.width / rect.width, sy = m16Canvas.height / rect.height
+        const col = Math.floor((e.clientX - rect.left) * sx / 16)
+        const row = Math.floor((e.clientY - rect.top) * sy / 16)
+        const entry = map16Pages[map16PageIdx]
+        m16Inspect.textContent = `tile ${row * 16 + col}  (${entry.label})`
+      }
+      m16Canvas.onmouseleave = () => { m16Inspect.textContent = 'hover to inspect' }
+
+      m16Canvas.onclick = (e) => {
+        const rect = m16Canvas.getBoundingClientRect()
+        const sx = m16Canvas.width / rect.width, sy = m16Canvas.height / rect.height
+        const col = Math.floor((e.clientX - rect.left) * sx / 16)
+        const row = Math.floor((e.clientY - rect.top) * sy / 16)
+        selectedDetail = { type: 'map16', page: map16PageIdx, col, row }
+        redrawDetail()
+      }
+    }
+
+    // Refresh tile detail preview (persists across palette/tileset changes)
+    redrawDetail()
 
   } else if (msg['type'] === 'error') {
     levelId.textContent   = 'Error'

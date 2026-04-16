@@ -1,7 +1,6 @@
 import * as vscode from 'vscode'
 import { RomSession } from '../RomSession'
 import { GFX_FILE_COUNT } from '../rom/GfxLoader'
-import { getVanillaLevelName } from '../rom/SmwLevelNames'
 import { loadRomPalettes } from '../rom/PaletteLoader'
 
 // ── Shared tree item types ─────────────────────────────────────────────────────
@@ -167,6 +166,8 @@ function buildTransitiveLevelMap(
  * Expands to show the entrance map + all transitively reachable sub-maps.
  * Maps that are shared across levels appear under each level independently
  * but open the same virtual file.
+ *
+ * Level names are decoded from ROM data (no hardcoded lookup table).
  */
 export class LevelsProvider implements vscode.TreeDataProvider<LevelsTreeItem> {
   private session: RomSession | undefined
@@ -195,16 +196,20 @@ export class LevelsProvider implements vscode.TreeDataProvider<LevelsTreeItem> {
         new LevelFolder(
           index, slug,
           transitive.get(index) ?? [],
-          getVanillaLevelName(index),
+          rom.getLevelName(index) ?? undefined,
         )
       )
       return [new RomInfoItem(this.session.summary), ...folders]
     }
 
     if (element instanceof LevelFolder) {
-      const entrance = new RoomItem(element.index, element.slug, getVanillaLevelName(element.index) ?? null, 'entrance')
+      const entrance = new RoomItem(
+        element.index, element.slug,
+        rom.getLevelName(element.index),
+        'entrance',
+      )
       const subs = element.subIndices.map(ci =>
-        new RoomItem(ci, element.slug, getVanillaLevelName(ci) ?? null, 'sub')
+        new RoomItem(ci, element.slug, rom.getLevelName(ci), 'sub')
       )
       return [entrance, ...subs]
     }
@@ -217,7 +222,8 @@ export class LevelsProvider implements vscode.TreeDataProvider<LevelsTreeItem> {
 
 /**
  * Bottom tree view: every room in the ROM, palettes, GFX files, etc.
- * Rooms are listed in index order; overworld rooms are visually distinguished.
+ * The Maps section shows all 512 pointer table entries with valid data.
+ * Overworld rooms display their ROM-decoded name; others show only $XXX.
  */
 export class ResourcesProvider implements vscode.TreeDataProvider<ResourcesTreeItem> {
   private session: RomSession | undefined
@@ -236,15 +242,16 @@ export class ResourcesProvider implements vscode.TreeDataProvider<ResourcesTreeI
     const { slug, rom } = this.session
 
     if (!element) {
-      const { overworld, subarea } = rom.classifyLevels()
-      const allRooms = [...overworld, ...subarea].sort((a, b) => a - b)
+      // Build the Maps section from ALL 512 pointer table entries
+      const allSlots = rom.enumerateAllLevels()
+      const validRooms = allSlots.filter(s => s.hasData)
 
-      const roomItems: RoomItem[] = allRooms.map(index =>
-        new RoomItem(index, slug, getVanillaLevelName(index) ?? null, 'resource')
+      const roomItems: RoomItem[] = validRooms.map(s =>
+        new RoomItem(s.index, slug, s.name, 'resource')
       )
 
       const roomsSection = new SectionFolder(
-        `Rooms  (${allRooms.length})`, 'rooms', 'file-code', roomItems, false,
+        `Maps  (${validRooms.length})`, 'rooms', 'file-code', roomItems, false,
       )
       const romPalettes = loadRomPalettes(rom.rom)
       const paletteItems: PaletteGroupItem[] = romPalettes.groups.map(g => {
