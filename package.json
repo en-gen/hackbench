@@ -29,6 +29,12 @@
         "command": "smwEditor.closeRom",
         "title": "Close ROM",
         "category": "SMW Editor"
+      },
+      {
+        "command": "smwEditor.playTrack",
+        "title": "Play Track",
+        "category": "SMW Editor",
+        "icon": "$(play)"
       }
     ],
     "menus": {
@@ -37,6 +43,13 @@
           "command": "smwEditor.openRom",
           "when": "resourceExtname == .sfc || resourceExtname == .smc",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "smwEditor.playTrack",
+          "when": "viewItem == smwMusicTrack",
+          "group": "inline"
         }
       ]
     },

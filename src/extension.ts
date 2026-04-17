@@ -64,7 +64,11 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('smwEditor.closeRom', () =>
       closeRomCommand(context, fsProvider, levelsProvider, resourcesProvider)
-    )
+    ),
+    vscode.commands.registerCommand('smwEditor.playTrack', (trackIndex: number, bgmCommand: number) => {
+      const bgmHex = bgmCommand.toString(16).toUpperCase().padStart(2, '0')
+      vscode.window.showInformationMessage(`Track ${trackIndex} — BGM $${bgmHex} (SPC playback coming soon)`)
+    })
   )
 }
 
