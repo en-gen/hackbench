@@ -14,8 +14,12 @@
  *   └────────────────────────────────────────────────────────────────────┘
  */
 
+import { createTransportBar, TRANSPORT_CSS } from '../shared/transportBar'
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare function acquireVsCodeApi(): any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare const SMWCentral: any
 const vscode = acquireVsCodeApi()
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -136,8 +140,11 @@ app.innerHTML = `
 
   </div>
 
-  <div id="canvas-wrap" style="flex:1;overflow:auto;background:#111111;cursor:crosshair;">
-    <canvas id="level-canvas" style="display:block;image-rendering:pixelated;margin:8px;"></canvas>
+  <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+    <div id="canvas-wrap" style="flex:1;overflow:auto;background:#111111;cursor:crosshair;">
+      <canvas id="level-canvas" style="display:block;image-rendering:pixelated;margin:8px;"></canvas>
+    </div>
+    <div id="music-transport"></div>
   </div>
 
   <div id="props-panel" style="
@@ -238,6 +245,7 @@ app.innerHTML = `
   }
   .tile-tab { transition: color 0.15s, border-bottom 0.15s; border-bottom: 2px solid transparent; }
   .tile-tab-active { color: #ccc !important; border-bottom: 2px solid #007acc !important; }
+  ${TRANSPORT_CSS}
 </style>
 `
 
@@ -664,6 +672,9 @@ interface LevelPayload {
     extraVramSheets: number[][]
     extraVramIndexed: number[][]
   }
+  // SPC music data for this level
+  spcData?:        number[] | null
+  spcBgmCommand?:  number
   header: {
     music:          number
     spriteSet:      number
@@ -1187,6 +1198,83 @@ window.addEventListener('message', async (event) => {
     levelId.textContent   = 'Error'
     levelMeta.textContent = msg['message'] as string
     canvas.width = canvas.height = 1
+  }
+})
+
+// ── Music transport bar ──────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let spcBackend: any = null
+let spcPlaying = false
+let spcData: Uint8Array | null = null
+
+const musicTransport = createTransportBar({
+  onPlay() {
+    if (!spcBackend || !spcData) return
+    if (spcPlaying && spcBackend.context?.state === 'running') {
+      spcBackend.context.suspend()
+      musicTransport.setPaused(true)
+    } else if (spcPlaying && spcBackend.context?.state === 'suspended') {
+      spcBackend.context.resume()
+      musicTransport.setPaused(false)
+    } else {
+      spcBackend.locked = false
+      const ctx = spcBackend.context as AudioContext
+      if (ctx?.state === 'suspended') {
+        ctx.resume().then(() => {
+          spcBackend.loadSPC(spcData!)
+          if (spcBackend.gainNode) spcBackend.gainNode.gain.value = 1.0
+          spcPlaying = true
+          musicTransport.setPlaying(true)
+        })
+      } else {
+        spcBackend.loadSPC(spcData!)
+        if (spcBackend.gainNode) spcBackend.gainNode.gain.value = 1.0
+        spcPlaying = true
+        musicTransport.setPlaying(true)
+      }
+    }
+  },
+  onStop() {
+    if (spcBackend && spcPlaying) spcBackend.stopSPC(false)
+    spcPlaying = false
+    musicTransport.setPlaying(false)
+    musicTransport.updateTime(0)
+  },
+  onPrev() { /* single track per level — no-op */ },
+  onNext() { /* single track per level — no-op */ },
+})
+document.getElementById('music-transport')!.appendChild(musicTransport.element)
+
+// Time display
+setInterval(() => {
+  if (spcPlaying && spcBackend?.getTime) {
+    musicTransport.updateTime(spcBackend.getTime())
+  }
+}, 500)
+
+// Init SPC backend after spc.js loads
+setTimeout(() => {
+  spcBackend = SMWCentral?.SPCPlayer?.Backend ?? null
+  if (spcBackend && spcBackend.status === 0) spcBackend.initialize()
+}, 500)
+
+// Load SPC data when level loads (in the message handler above, levelData.spcData is set)
+// We hook into the existing message handler by watching levelData changes
+const _origHandler = window.onmessage
+window.addEventListener('message', (event) => {
+  const msg = event.data
+  if (msg.type === 'load' && msg.spcData) {
+    spcData = new Uint8Array(msg.spcData)
+    const bgm = msg.spcBgmCommand ?? 0
+    musicTransport.setTrackLabel(`BGM $${bgm.toString(16).toUpperCase().padStart(2, '0')}`)
+    // Stop previous playback on level change
+    if (spcPlaying && spcBackend) {
+      spcBackend.stopSPC(false)
+      spcPlaying = false
+      musicTransport.setPlaying(false)
+      musicTransport.updateTime(0)
+    }
   }
 })
 
