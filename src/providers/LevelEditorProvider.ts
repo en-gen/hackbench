@@ -158,9 +158,9 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       // can cycle them.
       let animIntervalMs = ANIM_INTERVAL_MS
       let animFrameCount = 1
-      const extraVramSheets: number[][] = []  // frames 1+ as RGBA pixel arrays
+      let animData: ReturnType<typeof loadAnimationData> = null
       try {
-        const animData = loadAnimationData(rom.rom, objectTileset)
+        animData = loadAnimationData(rom.rom, objectTileset)
         if (animData && animData.frameCount > 1) {
           animFrameCount = animData.frameCount
           animIntervalMs = animData.intervalMs
@@ -179,20 +179,6 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
           for (const slotName of VRAM_SLOT_NAMES) {
             if (baseVram[slotName]) (vram as Record<string, unknown>)[slotName] = baseVram[slotName]
           }
-
-          // Build extra VRAM sheets for frames 1+ (used by webview animation timer)
-          for (let frame = 1; frame < animData.frameCount; frame++) {
-            const charOverrides = new Map<number, Uint8Array>()
-            for (const slot of animData.frames[frame]) {
-              for (let i = 0; i < slot.tiles.length; i++) {
-                charOverrides.set(slot.charBase + i, slot.tiles[i])
-              }
-            }
-            const frameVram = createAnimatedVramProxy(vram, charOverrides)
-            // Build an 8×8 VRAM sheet for this frame (same code as the main sheet below)
-            const sheet = buildVramSheet(frameVram, palette)
-            extraVramSheets.push(Array.from(sheet))
-          }
           console.log(`[ANIM] ${animFrameCount} frames, ${animIntervalMs}ms interval`)
         }
       } catch (err) {
@@ -210,10 +196,45 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       const map16bg = loadAllMap16BG(rom.rom)
       const { atlas: map16BgAtlas } = buildTileAtlas(map16bg, vram, palette)
 
+      // ── Build extra animation frames (VRAM sheets only) ────────────────
+      // Map16 viewer composites from live VRAM chars per frame, so no
+      // separate Map16 atlases are needed for animation.
+      const extraVramSheets: number[][] = []
+      if (animData && animFrameCount > 1) {
+        for (let frame = 1; frame < animFrameCount; frame++) {
+          const charOverrides = new Map<number, Uint8Array>()
+          for (const slot of animData.frames[frame]) {
+            for (let i = 0; i < slot.tiles.length; i++) {
+              charOverrides.set(slot.charBase + i, slot.tiles[i])
+            }
+          }
+          const frameVram = createAnimatedVramProxy(vram, charOverrides)
+          extraVramSheets.push(Array.from(buildVramSheet(frameVram, palette)))
+        }
+      }
+
       // ── Build 8×8 VRAM sheet (frame 0 applied) ──
       const vramSheet = buildVramSheet(vram, palette)
       const vramSheetW = 128  // 16 tiles × 8px
       const vramSheetH = Math.ceil(1536 / 16) * 8
+
+      // ── Raw indexed VRAM for client-side Map16 composition ──
+      // 1 byte per pixel (palette index), 64 bytes per char, 1536 chars.
+      // Per-frame indexed data built alongside VRAM sheets above.
+      const vramIndexed = buildVramIndexed(vram)
+      const extraVramIndexed: number[][] = []
+      if (animData && animFrameCount > 1) {
+        for (let frame = 1; frame < animFrameCount; frame++) {
+          const charOverrides = new Map<number, Uint8Array>()
+          for (const slot of animData.frames[frame]) {
+            for (let i = 0; i < slot.tiles.length; i++) {
+              charOverrides.set(slot.charBase + i, slot.tiles[i])
+            }
+          }
+          const frameVram = createAnimatedVramProxy(vram, charOverrides)
+          extraVramIndexed.push(Array.from(buildVramIndexed(frameVram)))
+        }
+      }
 
       webview.postMessage({
         type: 'load',
@@ -231,10 +252,22 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
         vramSheetH,
         map16AtlasData: Array.from(map16Atlas),
         map16BgAtlasData: Array.from(map16BgAtlas),
+        // Map16 tile definitions for client-side composition from live VRAM chars.
+        // Each def: { id, tl, bl, tr, br } where subtile: { c, p, fx, fy }
+        map16Defs: map16.map(t => ({
+          id: t.id,
+          tl: { c: t.tl.charNum, p: t.tl.palette, fx: t.tl.flipX, fy: t.tl.flipY },
+          bl: { c: t.bl.charNum, p: t.bl.palette, fx: t.bl.flipX, fy: t.bl.flipY },
+          tr: { c: t.tr.charNum, p: t.tr.palette, fx: t.tr.flipX, fy: t.tr.flipY },
+          br: { c: t.br.charNum, p: t.br.palette, fx: t.br.flipX, fy: t.br.flipY },
+        })),
+        // Raw indexed VRAM: palette indices per char for client-side Map16 composition
+        vramIndexedData: Array.from(vramIndexed),
         animation: {
           frameCount: animFrameCount,
           intervalMs: animIntervalMs,
-          extraVramSheets,  // frames 1+ as RGBA pixel arrays (same format as vramSheetData)
+          extraVramSheets,      // frames 1+ RGBA for the 8×8 viewer
+          extraVramIndexed,     // frames 1+ raw indexed for Map16 composition
         },
         backAreaColor:  romPalettes.backAreaColor,
         backAreaColors: backAreaColors.map(c => [c[0], c[1], c[2], c[3]]),
@@ -325,6 +358,26 @@ function buildVramSheet(
     }
   }
   return sheet
+}
+
+/**
+ * Build raw indexed VRAM char data: 1 byte per pixel (palette index 0-15).
+ * Flat array of 1536 chars × 64 pixels = 98304 bytes.
+ * The webview uses this + palette rows to composite Map16 tiles with
+ * per-subtile palette selection (unlike the RGBA sheet which has fixed palette).
+ */
+function buildVramIndexed(vramState: VramState): Uint8Array {
+  const { getCharPixels: getChar } = require('../rom/GfxLoader') as typeof import('../rom/GfxLoader')
+  const VRAM_TILES = 1536
+  const buf = new Uint8Array(VRAM_TILES * 64)
+  for (let i = 0; i < VRAM_TILES; i++) {
+    const pixels = getChar(vramState, i)
+    const off = i * 64
+    if (pixels) {
+      for (let p = 0; p < 64; p++) buf[off + p] = pixels[p]
+    }
+  }
+  return buf
 }
 
 // ── Animation helpers ─────────────────────────────────────────────────────────

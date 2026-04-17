@@ -438,7 +438,17 @@ export function loadAnimationData(
         const charBase = vramAddrToChar(vramDest)
         const tiles = decodeTilesAt(buffer, bufferOffset)
 
-        frameSlots.push({ charBase, tiles })
+        // Special case: VRAM dest $0800 (berry tiles) — the DMA at CODE_00A3F0
+        // (bank_00.asm line ~4649) splits the 128-byte transfer into two 64-byte
+        // halves: first 2 tiles → VRAM $0800, next 2 tiles → VRAM $0900.
+        // This places the berry's TL/BL at chars $080-$081 and TR/BR at $090-$091,
+        // creating the correct 2×2 layout in the 16-wide VRAM char grid.
+        if (vramDest === 0x0800) {
+          frameSlots.push({ charBase, tiles: tiles.slice(0, 2) })
+          frameSlots.push({ charBase: vramAddrToChar(0x0900), tiles: tiles.slice(2, 4) })
+        } else {
+          frameSlots.push({ charBase, tiles })
+        }
       }
     }
 
