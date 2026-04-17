@@ -1,6 +1,7 @@
 import * as vscode from 'vscode'
 import { SmwRom } from '../rom/SmwRom'
 import { loadRomPalettes } from '../rom/PaletteLoader'
+import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
 
 /**
  * Custom editor for .smwpalette virtual files.
@@ -69,11 +70,13 @@ export class PaletteEditorProvider implements vscode.CustomReadonlyEditorProvide
       }))
 
       const [br, bg, bb, ba] = palettes.backAreaColor
+      const palAnimRaw = loadPaletteAnimData(rom.rom)
       webview.postMessage({
         type: 'load',
         groups,
         backAreaColor: { r: br, g: bg, b: bb, a: ba },
         romName: rom.internalName.trim(),
+        paletteAnimation: palAnimRaw ? serializePaletteAnimData(palAnimRaw) : null,
       })
     } catch (err) {
       webview.postMessage({ type: 'error', message: (err as Error).message })

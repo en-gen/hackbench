@@ -6,6 +6,7 @@ import { loadRomPalettes, buildLevelCgram, loadBackAreaColors } from '../rom/Pal
 import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, type VramState, type GfxSheet } from '../rom/GfxLoader'
 import { buildTileAtlas, renderMap16Tile } from '../rom/TileRenderer'
 import { loadAnimationData, ANIM_FRAME_COUNT, ANIM_INTERVAL_MS, type AnimationData } from '../rom/AnimationLoader'
+import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
 import type { Map16Tile } from '../rom/Map16'
 type RgbaColor = [number, number, number, number]
 import { expandLevel } from '../rom/ObjectExpander'
@@ -278,6 +279,10 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
           extraVramSheets,      // frames 1+ RGBA for the 8×8 viewer
           extraVramIndexed,     // frames 1+ raw indexed for Map16 composition
         },
+        paletteAnimation: (() => {
+          const palAnimRaw = loadPaletteAnimData(rom.rom, 'level')
+          return palAnimRaw ? serializePaletteAnimData(palAnimRaw) : null
+        })(),
         backAreaColor:  romPalettes.backAreaColor,
         backAreaColors: backAreaColors.map(c => [c[0], c[1], c[2], c[3]]),
         paletteRows:    cgram.rows.map(row => row.map((c: number[]) => [c[0], c[1], c[2], c[3]])),

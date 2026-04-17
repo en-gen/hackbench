@@ -159,8 +159,16 @@ app.innerHTML = `
         width:100%;image-rendering:pixelated;cursor:crosshair;display:block;
         background:repeating-conic-gradient(#555 0% 25%,#444 0% 50%) 0 0/8px 8px;
         border:1px solid #3a3a3a;box-sizing:border-box;"></canvas>
-      <div id="palette-inspect" style="margin-top:4px;font-size:10px;
-        font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
+        <div id="palette-inspect" style="font-size:10px;
+          font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
+        <div style="display:flex;align-items:center;gap:2px;">
+          <button id="btn-pal-grid" style="${btnStyle()}border:none;" title="Toggle palette grid">⊞</button>
+          <div id="pal-anim-controls" style="display:none;align-items:center;gap:2px;">
+            <button id="btn-pal-play" style="${btnStyle()}border:none;" title="Play palette animation">▶</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="section-hdr">LEVEL HEADER SETTINGS</div>
@@ -320,6 +328,7 @@ let map16HoverTile: { col: number; row: number } | null = null
 // ── Tile viewer grid toggles ─────────────────────────────────────────────────
 let vramGridOn = false
 let map16GridOn = false
+let palGridOn = false
 document.getElementById('btn-vram-grid')!.addEventListener('click', () => {
   vramGridOn = !vramGridOn
   document.getElementById('btn-vram-grid')!.style.color = vramGridOn ? '#5b9cf6' : '#ccc'
@@ -329,6 +338,11 @@ document.getElementById('btn-map16-grid')!.addEventListener('click', () => {
   map16GridOn = !map16GridOn
   document.getElementById('btn-map16-grid')!.style.color = map16GridOn ? '#5b9cf6' : '#ccc'
   renderMap16Page()
+})
+document.getElementById('btn-pal-grid')!.addEventListener('click', () => {
+  palGridOn = !palGridOn
+  document.getElementById('btn-pal-grid')!.style.color = palGridOn ? '#5b9cf6' : '#ccc'
+  drawPaletteCanvas()
 })
 
 // ── Animation ────────────────────────────────────────────────────────────────
@@ -344,6 +358,121 @@ let animFrame = 0
 let vramSheets: ImageData[] = []         // frame 0 = base, frames 1+ = extra (RGBA for 8×8 viewer)
 let vramIndexedFrames: Uint8Array[] = [] // frame 0 = base, frames 1+ (raw indexed for Map16 composition)
 let activeVramIndexed: Uint8Array | null = null  // current frame's indexed data
+
+// Palette animation state (FlashingColors CGRAM cycling)
+let palAnimTimer: ReturnType<typeof setInterval> | null = null
+let palAnimFrame   = 0
+let palAnimRunning = false
+let palAnimOriginals: Map<number, number[]> | null = null
+
+/**
+ * Rebuild the 8×8 VRAM tile sheet from raw indexed VRAM + current palette.
+ * Mirrors server-side buildVramSheet but runs on the live palette so palette
+ * animation is reflected immediately. Palette row selection: FG/AN chars
+ * (i < $300) use row 2; SP chars use row 8. Same logic as the server.
+ */
+function rebuildVramSheet(indexed: Uint8Array, palRows: number[][][]): ImageData {
+  const VRAM_TILES = 1536
+  const VR_PER_ROW = 16
+  const sheetW = VR_PER_ROW * 8
+  const sheetH = Math.ceil(VRAM_TILES / VR_PER_ROW) * 8
+  const buf = new Uint8ClampedArray(sheetW * sheetH * 4)
+  for (let i = 0; i < VRAM_TILES; i++) {
+    const tileCol = i % VR_PER_ROW
+    const tileRow = Math.floor(i / VR_PER_ROW)
+    // FG1/FG2/FG3 ($000–$17F): row 2 (terrain). AN1/AN2/BG1 ($180–$2FF): row 6
+    // (animation/sprite slots — FlashingColors writes here). SP ($300+): row 8.
+    const palRowIdx = i < 0x180 ? 2 : i < 0x300 ? 6 : 8
+    const pal = palRows[palRowIdx] ?? palRows[0]
+    const srcOff = i * 64
+    for (let py = 0; py < 8; py++) {
+      for (let px = 0; px < 8; px++) {
+        const palIdx = indexed[srcOff + py * 8 + px] ?? 0
+        const dx = tileCol * 8 + px
+        const dy = tileRow * 8 + py
+        const di = (dy * sheetW + dx) * 4
+        if (palIdx === 0) {
+          buf[di] = buf[di + 1] = buf[di + 2] = 0; buf[di + 3] = 0
+        } else {
+          const c = pal[palIdx] ?? [255, 0, 255, 255]
+          buf[di] = c[0]; buf[di + 1] = c[1]; buf[di + 2] = c[2]; buf[di + 3] = 255
+        }
+      }
+    }
+  }
+  return new ImageData(buf, sheetW, sheetH)
+}
+
+// ── Reactive rendering chain ─────────────────────────────────────────────────
+// Each layer rebuilds from its dependencies and notifies the next layer down.
+//   palette rows change  →  invalidatePalette()
+//   vram indexed changes →  invalidateVram()     (palette already live)
+//   map16 defs change    →  invalidateMap16()    (vram + palette already live)
+
+function invalidateMap16(): void {
+  if (!activeVramIndexed || !levelData?.paletteRows || !levelData.map16Defs) return
+  const newAtlas = rebuildMap16Atlas(activeVramIndexed, levelData.paletteRows, levelData.map16Defs)
+  for (const entry of map16Pages) {
+    if (entry.label.startsWith('L1')) entry.atlas = newAtlas
+  }
+  renderMap16Page()
+  redrawDetail()
+}
+
+function invalidateVram(): void {
+  if (!activeVramIndexed || !levelData?.paletteRows) return
+  vramFullImageData = rebuildVramSheet(activeVramIndexed, levelData.paletteRows)
+  renderVramPage()
+  invalidateMap16()
+}
+
+function invalidatePalette(): void {
+  drawPaletteCanvas()
+  invalidateVram()
+}
+
+function applyPalAnimFrame(f: number): void {
+  if (!levelData?.paletteAnimation || !levelData.paletteRows) return
+  const anim = levelData.paletteAnimation
+  const patches = anim.frames[f % anim.frameCount] ?? []
+  for (const p of patches) {
+    const row = p.cgramIdx >> 4
+    const col = p.cgramIdx & 15
+    if (levelData.paletteRows[row]) {
+      levelData.paletteRows[row][col] = [p.r, p.g, p.b, p.a]
+    }
+  }
+  invalidatePalette()
+}
+
+function syncPalAnimButton(): void {
+  const btn = document.getElementById('btn-pal-play')
+  if (btn) btn.textContent = palAnimRunning ? '⏸' : '▶'
+}
+
+function startPalAnimTimer(): void {
+  if (palAnimTimer) { clearInterval(palAnimTimer); palAnimTimer = null }
+  if (!levelData?.paletteAnimation) return
+  palAnimRunning = true
+  syncPalAnimButton()
+  palAnimTimer = setInterval(() => {
+    palAnimFrame = (palAnimFrame + 1) % (levelData?.paletteAnimation?.frameCount ?? 8)
+    applyPalAnimFrame(palAnimFrame)
+  }, levelData.paletteAnimation.intervalMs)
+}
+
+function stopPalAnimTimer(): void {
+  if (palAnimTimer) { clearInterval(palAnimTimer); palAnimTimer = null }
+  palAnimRunning = false
+  syncPalAnimButton()
+}
+
+function togglePalAnim(): void {
+  if (palAnimRunning) stopPalAnimTimer()
+  else startPalAnimTimer()
+}
+
+document.getElementById('btn-pal-play')!.addEventListener('click', togglePalAnim)
 
 const animPlayBtns = [document.getElementById('btn-anim')!, document.getElementById('btn-anim2')!]
 
@@ -372,19 +501,10 @@ function updateAnimLabel(): void {
 
 function stepFrame(delta: number): void {
   if (animFrameCount <= 1) return
-  if (animRunning) { stopAnimTimer(); animRunning = false; syncAnimButtons() }
+  if (animRunning) { stopAnimTimer(); stopPalAnimTimer(); animRunning = false; syncAnimButtons() }
   animFrame = ((animFrame + delta) % animFrameCount + animFrameCount) % animFrameCount
-  if (vramSheets[animFrame]) vramFullImageData = vramSheets[animFrame]
-  if (vramIndexedFrames[animFrame] && levelData?.map16Defs && levelData?.paletteRows) {
-    activeVramIndexed = vramIndexedFrames[animFrame]
-    const newAtlas = rebuildMap16Atlas(activeVramIndexed, levelData.paletteRows, levelData.map16Defs)
-    for (const entry of map16Pages) {
-      if (entry.label.startsWith('L1')) entry.atlas = newAtlas
-    }
-  }
-  renderVramPage()
-  renderMap16Page()
-  redrawDetail()
+  if (vramIndexedFrames[animFrame]) activeVramIndexed = vramIndexedFrames[animFrame]
+  invalidateVram()
   updateAnimLabel()
 }
 
@@ -394,42 +514,20 @@ document.getElementById('btn-anim-prev2')!.addEventListener('click', () => stepF
 document.getElementById('btn-anim-next2')!.addEventListener('click', () => stepFrame(1))
 
 function startAnimTimer(): void {
-  stopAnimTimer()
+  if (animTimer) { clearInterval(animTimer); animTimer = null }
   animFrame = 0
-  console.log(`[ANIM-WV] Starting: ${animFrameCount} frames, ${animIntervalMs}ms`)
   animTimer = setInterval(() => {
     animFrame = (animFrame + 1) % animFrameCount
-    if (vramSheets[animFrame]) {
-      vramFullImageData = vramSheets[animFrame]
-    }
-    // Rebuild L1 Map16 atlas from the current frame's indexed VRAM
-    if (vramIndexedFrames[animFrame] && levelData?.map16Defs && levelData?.paletteRows) {
-      activeVramIndexed = vramIndexedFrames[animFrame]
-      const newAtlas = rebuildMap16Atlas(activeVramIndexed, levelData.paletteRows, levelData.map16Defs)
-      for (const entry of map16Pages) {
-        if (entry.label.startsWith('L1')) entry.atlas = newAtlas
-      }
-    }
-    renderVramPage()
-    renderMap16Page()
-    redrawDetail()
+    if (vramIndexedFrames[animFrame]) activeVramIndexed = vramIndexedFrames[animFrame]
+    invalidateVram()
   }, animIntervalMs)
 }
 
 function stopAnimTimer(): void {
   if (animTimer) { clearInterval(animTimer); animTimer = null }
   animFrame = 0
-  if (vramSheets[0]) vramFullImageData = vramSheets[0]
-  if (vramIndexedFrames[0] && levelData?.map16Defs && levelData?.paletteRows) {
-    activeVramIndexed = vramIndexedFrames[0]
-    const newAtlas = rebuildMap16Atlas(activeVramIndexed, levelData.paletteRows, levelData.map16Defs)
-    for (const entry of map16Pages) {
-      if (entry.label.startsWith('L1')) entry.atlas = newAtlas
-    }
-  }
-  renderVramPage()
-  renderMap16Page()
-  redrawDetail()
+  if (vramIndexedFrames[0]) activeVramIndexed = vramIndexedFrames[0]
+  invalidateVram()
 }
 
 // ── Tile panel page navigation ───────────────────────────────────────────────
@@ -460,10 +558,10 @@ function renderVramPage(): void {
   }
   vctx.putImageData(new ImageData(slice, sw, srcH), 0, 0)
   if (vramGridOn) {
-    vctx.strokeStyle = 'rgba(0,0,0,0.6)'
-    vctx.lineWidth = 1
-    for (let x = 8; x < vc.width; x += 8) { vctx.beginPath(); vctx.moveTo(x + 0.5, 0); vctx.lineTo(x + 0.5, vc.height); vctx.stroke() }
-    for (let y = 8; y < vc.height; y += 8) { vctx.beginPath(); vctx.moveTo(0, y + 0.5); vctx.lineTo(vc.width, y + 0.5); vctx.stroke() }
+    vctx.strokeStyle = 'rgba(0,0,0,0.5)'
+    vctx.lineWidth = 0.5
+    for (let x = 0; x <= vc.width; x += 8) { vctx.beginPath(); vctx.moveTo(x, 0); vctx.lineTo(x, vc.height); vctx.stroke() }
+    for (let y = 0; y <= vc.height; y += 8) { vctx.beginPath(); vctx.moveTo(0, y); vctx.lineTo(vc.width, y); vctx.stroke() }
   }
   if (vramHoverTile) {
     vctx.fillStyle = 'rgba(0,0,0,0.55)'
@@ -570,10 +668,10 @@ function renderMap16Page(): void {
 
   mctx.putImageData(new ImageData(pageImg, 256, 256), 0, 0)
   if (map16GridOn) {
-    mctx.strokeStyle = 'rgba(0,0,0,0.6)'
-    mctx.lineWidth = 1
-    for (let x = 16; x < mc.width; x += 16) { mctx.beginPath(); mctx.moveTo(x + 0.5, 0); mctx.lineTo(x + 0.5, mc.height); mctx.stroke() }
-    for (let y = 16; y < mc.height; y += 16) { mctx.beginPath(); mctx.moveTo(0, y + 0.5); mctx.lineTo(mc.width, y + 0.5); mctx.stroke() }
+    mctx.strokeStyle = 'rgba(0,0,0,0.5)'
+    mctx.lineWidth = 0.5
+    for (let x = 0; x <= mc.width; x += 16) { mctx.beginPath(); mctx.moveTo(x, 0); mctx.lineTo(x, mc.height); mctx.stroke() }
+    for (let y = 0; y <= mc.height; y += 16) { mctx.beginPath(); mctx.moveTo(0, y); mctx.lineTo(mc.width, y); mctx.stroke() }
   }
   if (map16HoverTile) {
     mctx.fillStyle = 'rgba(0,0,0,0.55)'
@@ -672,6 +770,12 @@ interface LevelPayload {
     extraVramSheets: number[][]
     extraVramIndexed: number[][]
   }
+  // Palette animation: FlashingColors CGRAM cycling ($6D/$7D)
+  paletteAnimation?: {
+    frameCount: number
+    intervalMs: number
+    frames: Array<Array<{ cgramIdx: number; r: number; g: number; b: number; a: number }>>
+  } | null
   // SPC music data for this level
   spcData?:        number[] | null
   spcBgmCommand?:  number
@@ -743,6 +847,17 @@ function drawPaletteCanvas(): void {
           palCtx.fillRect(col * PAL_CELL, row * PAL_CELL, PAL_CELL, PAL_CELL)
         }
       }
+    }
+  }
+
+  if (palGridOn) {
+    palCtx.strokeStyle = 'rgba(0,0,0,0.5)'
+    palCtx.lineWidth = 0.5
+    for (let x = 0; x <= 128; x += PAL_CELL) {
+      palCtx.beginPath(); palCtx.moveTo(x, 0); palCtx.lineTo(x, 128); palCtx.stroke()
+    }
+    for (let y = 0; y <= 128; y += PAL_CELL) {
+      palCtx.beginPath(); palCtx.moveTo(0, y); palCtx.lineTo(128, y); palCtx.stroke()
     }
   }
 }
@@ -1064,15 +1179,12 @@ window.addEventListener('message', async (event) => {
 
     // ── VRAM 8×8 tile sheet (paged by slot) ──────────────────────────
     if (levelData.vramSheetData && levelData.vramSheetW && levelData.vramSheetH) {
-      const vw = levelData.vramSheetW, vh = levelData.vramSheetH
-      vramFullImageData = new ImageData(new Uint8ClampedArray(levelData.vramSheetData), vw, vh)
+      const vh = levelData.vramSheetH
       const pxPerPage = (VRAM_TILES_PER_PAGE / 16) * 8
       vramTotalPages = Math.ceil(vh / pxPerPage)
       vramPage = 0
 
-      // Build animation frame sheets: frame 0 = base, frames 1+ from provider
-      vramSheets = [vramFullImageData]
-      // Build indexed VRAM frames for Map16 client-side composition
+      // Build indexed VRAM frames for all animation frames
       vramIndexedFrames = []
       if (levelData.vramIndexedData) {
         activeVramIndexed = new Uint8Array(levelData.vramIndexedData)
@@ -1081,22 +1193,16 @@ window.addEventListener('message', async (event) => {
       if (levelData.animation && levelData.animation.frameCount > 1) {
         animFrameCount = levelData.animation.frameCount
         animIntervalMs = levelData.animation.intervalMs
-        for (const sheetData of levelData.animation.extraVramSheets) {
-          vramSheets.push(new ImageData(new Uint8ClampedArray(sheetData), vw, vh))
-        }
         if (levelData.animation.extraVramIndexed) {
           for (const idxData of levelData.animation.extraVramIndexed) {
             vramIndexedFrames.push(new Uint8Array(idxData))
           }
         }
         for (const b of animPlayBtns) b.style.display = ''
-        if (animRunning) startAnimTimer()
       } else {
         for (const b of animPlayBtns) b.style.display = 'none'
       }
-      console.log(`[ANIM-WV] ${animFrameCount} frames, ${vramSheets.length} VRAM sheets, ${vramIndexedFrames.length} indexed frames`)
 
-      renderVramPage()
 
       const vramCanvas = document.getElementById('vram-canvas') as HTMLCanvasElement
       const vramInspect = document.getElementById('vram-inspect') as HTMLElement
@@ -1129,25 +1235,19 @@ window.addEventListener('message', async (event) => {
       }
     }
 
-    // ── Map16 tile atlases — build page list from L1 + L2/BG data ────
+    // ── Map16 tile atlases — build page structure, then reactive chain fills content ──
     {
       map16Pages = []
-      // L1 pages — prefer client-side composition from indexed VRAM + defs,
-      // fall back to pre-rendered atlas from extension host.
+      // L1: placeholder atlas sized from defs count; invalidateVram() will fill it reactively
       {
-        let l1Atlas: ImageData
-        if (activeVramIndexed && levelData.map16Defs && levelData.paletteRows) {
-          l1Atlas = rebuildMap16Atlas(activeVramIndexed, levelData.paletteRows, levelData.map16Defs)
-        } else if (levelData.map16AtlasData) {
-          const h = Math.floor(levelData.map16AtlasData.length / (256 * 4))
-          l1Atlas = new ImageData(new Uint8ClampedArray(levelData.map16AtlasData), 256, h)
-        } else {
-          l1Atlas = new ImageData(256, 256)
-        }
-        map16FullImageData = l1Atlas
-        const l1PageCount = Math.ceil(l1Atlas.height / 256)
+        const l1PageCount = levelData.map16Defs
+          ? Math.ceil(levelData.map16Defs.length / 256)
+          : (levelData.map16AtlasData ? Math.floor(levelData.map16AtlasData.length / (256 * 256 * 4)) : 1)
+        const placeholderH = l1PageCount * 256
+        const placeholder = new ImageData(256, placeholderH)
+        map16FullImageData = placeholder
         for (let p = 0; p < l1PageCount; p++) {
-          map16Pages.push({ atlas: l1Atlas, pageInAtlas: p, label: `L1 0x${p.toString(16).padStart(2,'0')}` })
+          map16Pages.push({ atlas: placeholder, pageInAtlas: p, label: `L1 0x${p.toString(16).padStart(2,'0')}` })
         }
       }
       // L2/BG pages (from Map16BGTiles, pages labeled 0x80+)
@@ -1160,7 +1260,8 @@ window.addEventListener('message', async (event) => {
         }
       }
       map16PageIdx = 0
-      renderMap16Page()
+      // Full reactive rebuild: palette → invalidatePalette → vram → invalidateVram → map16
+      invalidatePalette()
 
       const m16Canvas = document.getElementById('map16-canvas') as HTMLCanvasElement
       const m16Inspect = document.getElementById('map16-inspect') as HTMLElement
@@ -1193,6 +1294,30 @@ window.addEventListener('message', async (event) => {
 
     // Refresh tile detail preview (persists across palette/tileset changes)
     redrawDetail()
+
+    // Reset palette animation state (user must press play to start)
+    palAnimOriginals = null
+    stopPalAnimTimer()
+    palAnimFrame = 0
+    const palAnimEl = document.getElementById('pal-anim-controls') as HTMLElement
+    palAnimEl.style.display = levelData.paletteAnimation ? 'flex' : 'none'
+
+    // Apply frame 0 immediately so the initial render shows the correct animated
+    // color — the ROM's static value at those CGRAM slots is overwritten by the
+    // NMI handler on the first game frame and is never actually visible in-game.
+    if (levelData.paletteAnimation && levelData.paletteRows) {
+      palAnimOriginals = new Map()
+      for (const frame of levelData.paletteAnimation.frames) {
+        for (const p of frame) {
+          if (!palAnimOriginals.has(p.cgramIdx)) {
+            const row = p.cgramIdx >> 4, col = p.cgramIdx & 15
+            const orig = levelData.paletteRows[row]?.[col]
+            if (orig) palAnimOriginals.set(p.cgramIdx, [...orig])
+          }
+        }
+      }
+      applyPalAnimFrame(0)
+    }
 
   } else if (msg['type'] === 'error') {
     levelId.textContent   = 'Error'
