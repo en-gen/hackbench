@@ -24,6 +24,7 @@ import {
   handle_0DB1C8, handle_0DB1D4, handle_0DB224,
   handle_0DB3BD, handle_0DB3E3, handle_0DB42D, handle_0DB461,
   handle_0DB51F, handle_0DB547, handle_0DB571, handle_0DB5B7,
+  handle_0DB73F, handle_0DB7AA,
 } from './standardHandlers'
 import {
   handle_0DA512, handle_0DA53D, handle_0DA57B,
@@ -53,6 +54,8 @@ export const STANDARD_HANDLERS: Record<number, HandlerFn> = {
   0x0DB547: handle_0DB547,
   0x0DB571: handle_0DB571,
   0x0DB5B7: handle_0DB5B7,
+  0x0DB73F: handle_0DB73F,
+  0x0DB7AA: handle_0DB7AA,
 }
 
 export const EXTENDED_HANDLERS: Record<number, HandlerFn> = {
