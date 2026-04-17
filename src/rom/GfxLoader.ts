@@ -39,6 +39,24 @@ export const GFX_FILE_COUNT = GFX_PTR_HI - GFX_PTR_LO  // 50
 
 export const GFX_TILES = 128  // tiles per standard file
 
+// ── Layer 3 GFX (2BPP) — CODE_00A993 (bank_00.asm line 5287) ────────────────
+// The Layer 3 upload routine loads a contiguous range of GFX files as raw 2BPP
+// (no 3→4bpp conversion). The start index and count are immediate operands:
+//   $A99B: LDA #$03   → count-1 (operand at $A99C)
+//   $A99F: LDA #$28   → start file index (operand at $A9A0)
+const L3_GFX_COUNT_ADDR = 0x00A99C  // immediate byte: count - 1
+const L3_GFX_START_ADDR = 0x00A9A0  // immediate byte: starting file index
+
+/**
+ * Read the Layer 3 GFX file range from CODE_00A993.
+ * Returns { start, end } inclusive file indices that should be decoded as 2BPP.
+ */
+export function getLayer3GfxRange(rom: RomFile): { start: number; end: number } {
+  const start = rom.readByte(L3_GFX_START_ADDR) ?? 0x28
+  const countMinus1 = rom.readByte(L3_GFX_COUNT_ADDR) ?? 3
+  return { start, end: start + countMinus1 }
+}
+
 // GFX20 hex (decimal 32) = Mario/Luigi sprites
 // bank_00.asm line 5407: LDY #$31 (special world variant)
 // bank_00.asm lines 5426-5431: GfxBppConvertFlag set for Y=$01 or Y=$17
@@ -191,8 +209,11 @@ export function loadGfxRaw(rom: RomFile, fileIndex: number): Uint8Array {
  *     2048 bytes = 128 tiles x 16 = 2bpp
  *   - Then 4bpp (32 bytes/tile): LM exports or hacks
  *
- * The game itself uses calling context (UploadGFXFile vs CODE_00A993)
- * to determine BPP, but we can't replicate that statically.
+ * The game uses calling context to determine BPP:
+ *   - CODE_00A993: Layer 3 files → 2BPP (file range read from ROM)
+ *   - UploadGFXFile: all others → 3BPP (with 3→4 conversion to VRAM)
+ * We read the L3 file range from CODE_00A993 operands, then fall back
+ * to size-based inference for non-L3 files.
  */
 export function loadGfxFile(rom: RomFile, fileIndex: number): GfxSheet {
   if (fileIndex >= GFX_FILE_COUNT) return _emptySheet(GFX_TILES)
@@ -200,18 +221,20 @@ export function loadGfxFile(rom: RomFile, fileIndex: number): GfxSheet {
   const data = loadGfxRaw(rom, fileIndex)
   if (data.length === 0) return _emptySheet(GFX_TILES)
 
+  // Layer 3 files are always 2BPP — range read from CODE_00A993 operands
+  const l3 = getLayer3GfxRange(rom)
+  if (fileIndex >= l3.start && fileIndex <= l3.end && data.length % 16 === 0) {
+    const count = data.length / 16
+    const sheet: GfxSheet = []
+    for (let t = 0; t < count; t++) sheet.push(decode2bpp(data, t * 16))
+    return sheet
+  }
+
   // Check 3bpp BEFORE 4bpp (3072 is divisible by both 24 and 32)
   if (data.length % 24 === 0 && data.length % 32 !== 0) {
     const count = data.length / 24
     const sheet: GfxSheet = []
     for (let t = 0; t < count; t++) sheet.push(decode3bpp(data, t * 24))
-    return sheet
-  }
-  // Check 2bpp (Layer 3 GFX: CODE_00A993 at bank_00 line 5287)
-  if (data.length % 16 === 0 && data.length % 24 !== 0 && data.length % 32 !== 0) {
-    const count = data.length / 16
-    const sheet: GfxSheet = []
-    for (let t = 0; t < count; t++) sheet.push(decode2bpp(data, t * 16))
     return sheet
   }
   // Standard: could be either 3bpp or 4bpp when divisible by both

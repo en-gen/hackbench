@@ -15,7 +15,7 @@
 
 import * as vscode from 'vscode'
 import { SmwRom } from '../rom/SmwRom'
-import { GFX_FILE_COUNT, GFX_MARIO_3BPP_INDEX, loadGfxFile, loadGfxRaw } from '../rom/GfxLoader'
+import { GFX_FILE_COUNT, GFX_MARIO_3BPP_INDEX, loadGfxFile, loadGfxRaw, getLayer3GfxRange } from '../rom/GfxLoader'
 import { loadRomPalettes, buildLevelCgram, loadCustomLevelPalette, RgbaRow } from '../rom/PaletteLoader'
 
 /**
@@ -139,13 +139,14 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
         // Raw decompressed bytes — sent so the webview can re-decode client-side
         // when the user toggles the 3bpp / 4bpp selector.
         rawBytes: Array.from(rawBytes),
-        // Infer BPP from decompressed data size.
+        // Determine BPP: Layer 3 files (from CODE_00A993) are always 2BPP,
+        // others use size-based inference (3BPP preferred for vanilla ROM).
         defaultBpp: (() => {
+          const l3 = getLayer3GfxRange(rom.rom)
+          if (gfxIndex >= l3.start && gfxIndex <= l3.end) return 2
           const n = rawBytes.length
-          const d24 = n % 24 === 0, d16 = n % 16 === 0, d32 = n % 32 === 0
-          if (d24) return 3
-          if (d16 && !d32) return 2
-          if (d32) return 4
+          if (n % 24 === 0) return 3
+          if (n % 32 === 0) return 4
           return 3
         })() as 2 | 3 | 4,
       })
