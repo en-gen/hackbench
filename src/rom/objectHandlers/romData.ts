@@ -84,6 +84,25 @@ export const ADDR_DATA_0DB057 = 0x0DB057
 /** DATA_0DB066 (bank_0D.asm line 3009): 15 tile IDs, CODE_0DB075 optional footer. */
 export const ADDR_DATA_0DB066 = 0x0DB066
 
+/** DATA_0DB72F (bank_0D.asm line 3953): 16 tile IDs, walker table for CODE_0DB73F. */
+export const ADDR_DATA_0DB72F = 0x0DB72F
+
+/** DATA_0DB0F0 (bank_0D.asm line 3074): 18 tile IDs, slope-column merge
+ *  existing-tile match table used by CODE_0DB114. */
+export const ADDR_DATA_0DB0F0 = 0x0DB0F0
+export const DATA_0DB0F0_LEN = 18
+/** DATA_0DB102 (bank_0D.asm line 3079): 18 tile IDs, parallel replacement
+ *  table to DATA_0DB0F0 for CODE_0DB114 merge hits. */
+export const ADDR_DATA_0DB102 = 0x0DB102
+
+/** DATA_0DB15C (bank_0D.asm line 3129): 30 tile IDs, slope-column merge
+ *  existing-tile match table used by CODE_0DB198. */
+export const ADDR_DATA_0DB15C = 0x0DB15C
+export const DATA_0DB15C_LEN = 30
+/** DATA_0DB17A (bank_0D.asm line 3135): 30 tile IDs, parallel replacement
+ *  table to DATA_0DB15C for CODE_0DB198 merge hits. */
+export const ADDR_DATA_0DB17A = 0x0DB17A
+
 /** DATA_0DB212/215/218 (bank_0D.asm lines 3216/3219/3222): 3-byte tile triples
  *  for CODE_0DB224's primary variant (top / middle / bottom of each column). */
 export const ADDR_DATA_0DB212 = 0x0DB212

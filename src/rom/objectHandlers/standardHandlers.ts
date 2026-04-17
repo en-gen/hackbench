@@ -24,6 +24,8 @@ import {
   saveBookmark, restoreBookmark, advanceCol,
   setPage0, setPage1,
   diagonalDownLeft, diagonalDownRight, stepDiag,
+  writeTileSlopeMerge, writeTilePipeMerge,
+  writeTileMergeCODE_0DB114, writeTileMergeCODE_0DB198,
 } from './cursor'
 import { RomFile } from '../RomFile'
 import {
@@ -34,8 +36,11 @@ import {
   ADDR_DATA_0DB42B,
   ADDR_DATA_0DB569, ADDR_DATA_0DB5A8, ADDR_DATA_0DB5AD, ADDR_DATA_0DB5B2,
   ADDR_DATA_0DB039, ADDR_DATA_0DB048, ADDR_DATA_0DB057, ADDR_DATA_0DB066,
+  ADDR_DATA_0DB0F0, DATA_0DB0F0_LEN, ADDR_DATA_0DB102,
+  ADDR_DATA_0DB15C, DATA_0DB15C_LEN, ADDR_DATA_0DB17A,
   ADDR_DATA_0DB212, ADDR_DATA_0DB215, ADDR_DATA_0DB218,
   ADDR_DATA_0DB21B, ADDR_DATA_0DB21E, ADDR_DATA_0DB221,
+  ADDR_DATA_0DB72F,
   readByteTable,
 } from './romData'
 
@@ -387,20 +392,22 @@ export function handle_0DB461(cur: Cursor): void {
  */
 export function handle_0DB075(cur: Cursor): void {
   const X = cur.size & 0x0F
-  let count = (cur.size >> 4) & 0x0F   // _0 starts as high nibble
+  let count = (cur.size >> 4) & 0x0F
 
   const topTile    = readByte(cur.rom, ADDR_DATA_0DB039 + X)
   const row1Tile   = readByte(cur.rom, ADDR_DATA_0DB048 + X)
   const middleTile = readByte(cur.rom, ADDR_DATA_0DB057 + X)
   const footerTile = readByte(cur.rom, ADDR_DATA_0DB066 + X)
 
-  // ASM: StzTo6ePointer first; then Sta1To6ePointer if X >= 3. For the middle
-  // loop, X ranges 7-8 and 11+ also add Sta1To6ePointer.
-  const mainPage1 = X >= 3
-  if (mainPage1) setPage1(cur); else setPage0(cur)
+  // Context-merge tables (same tables for every row; read once).
+  const db0F0 = readByteTable(cur.rom, ADDR_DATA_0DB0F0, DATA_0DB0F0_LEN)
+  const db102 = readByteTable(cur.rom, ADDR_DATA_0DB102, DATA_0DB0F0_LEN)
+  const db15C = readByteTable(cur.rom, ADDR_DATA_0DB15C, DATA_0DB15C_LEN)
+  const db17A = readByteTable(cur.rom, ADDR_DATA_0DB17A, DATA_0DB15C_LEN)
 
-  // Row 0: top segment (always written)
-  writeTile(cur, topTile)
+  // Row 0 page (ASM): page 0 if X < 3, else page 1. Merge may override to 1.
+  if (X < 3) setPage0(cur); else setPage1(cur)
+  writeTileMergeCODE_0DB114(cur, X, topTile, db0F0, db102)
   cur.row += 1
   count -= 1
   if (count < 0) {
@@ -408,12 +415,12 @@ export function handle_0DB075(cur: Cursor): void {
     return
   }
 
-  // Row 1: row-1 segment. For X in 3-6 the code does StzTo6ePointer only (page 0),
-  // X in 7-8 adds Sta1To6ePointer (page 1), X >= 9 also Sta1To6ePointer.
-  if (X >= 9 || (X >= 7 && X <= 8) || X < 3) setPage0(cur)
-  if (X >= 7 && X <= 8) setPage1(cur)
-  if (X >= 9) setPage1(cur)
-  writeTile(cur, row1Tile)
+  // Rows 1+ page (ASM): X in [3,6] or X >= 9 → page 1, else page 0.
+  const rowPage1 = (X >= 3 && X <= 6) || X >= 9
+
+  // Row 1 uses CODE_0DB198 merge.
+  if (rowPage1) setPage1(cur); else setPage0(cur)
+  writeTileMergeCODE_0DB198(cur, X, row1Tile, db15C, db17A)
   cur.row += 1
   count -= 1
   if (count < 0) {
@@ -421,17 +428,15 @@ export function handle_0DB075(cur: Cursor): void {
     return
   }
 
-  // Middle loop: DATA_0DB057 for each remaining count
+  // Middle loop: same page + merge pattern as row 1.
   while (count >= 0) {
-    if (X >= 9 || (X >= 7 && X <= 8) || X < 3) setPage0(cur)
-    if (X >= 7 && X <= 8) setPage1(cur)
-    if (X >= 9) setPage1(cur)
-    writeTile(cur, middleTile)
+    if (rowPage1) setPage1(cur); else setPage0(cur)
+    writeTileMergeCODE_0DB198(cur, X, middleTile, db15C, db17A)
     cur.row += 1
     count -= 1
   }
 
-  // Optional footer for X >= 0x0B variants (with Sta1To6ePointer).
+  // Footer (X >= 0x0B): plain page-1 write, no merge.
   if (X >= 0x0B) {
     setPage1(cur)
     writeTile(cur, footerTile)
@@ -918,4 +923,168 @@ export function handle_0DAB0D(cur: Cursor): void {
     writeTile(cur, 0x43); cur.row += 1
     X--
   }
+}
+
+/**
+ * CODE_0DB73F (bank_0D.asm line 3957) -- diagonal slope walker (object 57).
+ *
+ * Size byte: HHHHxxxx; H (high nibble, _0) = number of diagonal steps.
+ *
+ * The handler stamps an increasing number of tiles per row while walking an
+ * X-index forward through DATA_0DB72F (16 entries) and stepping diagonally
+ * down-left between rows. When X reaches 6 the code switches to a second
+ * loop variant which can wrap X back to 11 (`X = X - 5`) to cycle through a
+ * different subrange of the table. The $EB capper tile closes out the shape
+ * at the final diagonal position.
+ *
+ * Shape: a down-left-sloping ridge that gets wider each row. For SMW levels
+ * this renders the "diagonal ground with grass top" seen at screen 0B of the
+ * reference map.
+ *
+ * The ASM also does Sta1To6ePointer before each write (page 1).
+ */
+export function handle_0DB73F(cur: Cursor): void {
+  const steps = (cur.size >> 4) & 0x0F
+  const table = readByteTable(cur.rom, ADDR_DATA_0DB72F, 16)
+  const col0 = cur.col, row0 = cur.row
+
+  let _1 = 1
+  let X = 0
+  let _0 = steps
+  setPage1(cur)
+
+  // Phase 1 loop (CODE_0DB752): continues while X < 6.
+  while (true) {
+    let count = _1
+    saveBookmark(cur)
+    // Inner: write (_1 + 1) tiles, advancing X into DATA_0DB72F each write.
+    while (count >= 0) {
+      writeTileAdvance(cur, table[X & 0x0F] ?? 0)
+      X += 1
+      count -= 1
+    }
+    restoreBookmark(cur)
+    diagonalDownLeft(cur)
+    _1 += 2
+    _0 -= 1
+    if (_0 < 0) break
+    // ASM: `CPX #$06; BNE CODE_0DB752` — exits Phase 1 only when X == 6 exactly.
+    if (X === 6) { _1 -= 1; break }
+  }
+
+  // Phase 2 loop (CODE_0DB779): continues until _0 < 0.
+  if (_0 >= 0) {
+    while (_0 >= 0) {
+      let count = _1
+      saveBookmark(cur)
+      while (count >= 0) {
+        writeTileAdvance(cur, table[X & 0x0F] ?? 0)
+        X += 1
+        count -= 1
+      }
+      restoreBookmark(cur)
+      diagonalDownLeft(cur)
+      // ASM: `CPX #$10; BNE +; TXA SEC SBC #$05; TAX` — wraps X only when
+      // X == $10 exactly (X - 5 = 11, so Phase 2 cycles 11 → 16 → 11 → …).
+      if (X === 16) X = X - 5
+      _0 -= 1
+    }
+  }
+
+  // Final capper (CODE_0DB79F): advance one col, write $EB.
+  advanceCol(cur)
+  setPage1(cur)
+  writeTile(cur, 0xEB)
+
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * CODE_0DB7AA (bank_0D.asm line 4013) -- pyramid/hill slope (object 58).
+ *
+ * Size byte: HHHHWWWW.
+ *   W (low nibble, _0 / _2) = width of the hill at its widest point.
+ *   H (high nibble, _3)     = number of rows on the down-right side.
+ *
+ * The handler draws a two-phase sloped shape:
+ *   1. Up-left phase: increasing rows of $AA lip + $E2 body + $3F fills on the
+ *      left side; between rows, steps down-left (CODE_0DA992). Last row of the
+ *      phase caps with $A6.
+ *   2. Down-right phase: writes $F7 once, then iterates drawing $A3 lip + $3F
+ *      fill + $A6 capper per row, stepping diagonally down-right (CODE_0DA9B4).
+ *
+ * This renders the typical stepped hill / pyramid silhouette. Context-merge
+ * helpers (CODE_0DB84E) that would soften lip-to-ground transitions are
+ * skipped; each tile is written as-is.
+ */
+export function handle_0DB7AA(cur: Cursor): void {
+  const width = cur.size & 0x0F
+  const rightSide = (cur.size >> 4) & 0x0F
+  const col0 = cur.col, row0 = cur.row
+
+  // Phase 1 — up-left side.
+  let _1 = 1
+  let _2 = width
+  saveBookmark(cur)
+
+  // First row: pipe-merged $AA lip, slope-merged $A1 body. Both advance.
+  setPage1(cur); writeTilePipeMerge(cur, 0xAA)
+  setPage0(cur); writeTileSlopeMerge(cur, 0xA1)
+  restoreBookmark(cur)
+  diagonalDownLeft(cur)
+  _1 += 2
+  _2 -= 1
+  saveBookmark(cur)
+
+  // CODE_0DB7D6 loop: $AA lip (pipe-merge) + $E2 body + (X-2) $3F + $A6 cap
+  // (slope-merge on the cap so the right edge blends with ground).
+  while (_2 >= 0) {
+    setPage1(cur); writeTilePipeMerge(cur, 0xAA)
+    setPage1(cur); writeTileAdvance(cur, 0xE2)
+    let x = _1 - 2
+    while (x > 0) {
+      setPage0(cur); writeTileAdvance(cur, 0x3F)
+      x -= 1
+    }
+    setPage0(cur); writeTileSlopeMerge(cur, 0xA6)
+    restoreBookmark(cur)
+    diagonalDownLeft(cur)
+    _1 += 2
+    _2 -= 1
+    saveBookmark(cur)
+  }
+
+  // Advance one column + write $F7 (pipe-merge) as the first-row lip,
+  // then enter the down-right loop.
+  advanceCol(cur)
+  saveBookmark(cur)
+  const _1b = _1 - 2
+
+  // Phase 2 -- down-right side. The ASM's JMP CODE_0DB836 skips the $A3 lip
+  // on the FIRST iteration only; $F7 (written just above) fills that role.
+  // Subsequent iterations each start with an $A3 slope-merge lip.
+  let _3 = rightSide
+  let firstPhase2Iter = true
+  while (_3 >= 0) {
+    if (firstPhase2Iter) {
+      setPage1(cur); writeTilePipeMerge(cur, 0xF7)
+    } else {
+      setPage0(cur); writeTileSlopeMerge(cur, 0xA3)
+    }
+    let x = _1b
+    while (x > 0) {
+      setPage0(cur); writeTileAdvance(cur, 0x3F)
+      x -= 1
+    }
+    setPage0(cur); writeTileSlopeMerge(cur, 0xA6)
+    restoreBookmark(cur)
+    diagonalDownRight(cur)
+    saveBookmark(cur)
+    _3 -= 1
+    firstPhase2Iter = false
+  }
+
+  cur.col = col0
+  cur.row = row0
 }

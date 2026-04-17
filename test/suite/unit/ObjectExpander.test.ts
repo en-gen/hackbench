@@ -27,6 +27,7 @@ import {
   handle_0DB075, handle_0DB1C8, handle_0DB1D4, handle_0DB224,
   handle_0DB3BD, handle_0DB3E3,
   handle_0DB42D, handle_0DB461, handle_0DB51F, handle_0DB547, handle_0DB571, handle_0DB5B7,
+  handle_0DB73F, handle_0DB7AA,
 } from '../../../src/rom/objectHandlers/standardHandlers'
 import {
   handle_0DA57B, handle_0DA64D, handle_0DA656, handle_0DA673, handle_0DA68E, handle_0DA6D1,
@@ -965,5 +966,68 @@ describe('expandMap integration (real SMW ROM)', () => {
     for (let i = 0x105; i < 0x115; i++) {
       expect(() => expandLevelByIndex(i)).not.toThrow()
     }
+  })
+})
+
+// ── Slope handlers (port sanity checks) ──────────────────────────────────────
+// The slope shapes are data-dependent and intricate; these tests verify that
+// the handlers don't throw, produce tiles in the expected general region of
+// the grid, and advance diagonally (tile-count grows with the size parameter).
+
+describe('handle_0DB73F (diagonal slope walker, object 57)', () => {
+  it('produces tiles along a down-left diagonal starting at the cursor', () => {
+    const rom = makeMockRom({
+      [0x0DB72F]: [0xC4, 0xC5, 0xC7, 0xEC, 0xED, 0xC6, 0xC7, 0xEE,
+                   0x59, 0x5A, 0xEF, 0xC7, 0xEE, 0x59, 0x5B, 0x5C],
+    })
+    const grid = createGrid(3)
+    const cur = makeCursor(grid, rom, 0, 20, 10, 57, 0x20)  // _0 = 2
+    expect(() => handle_0DB73F(cur)).not.toThrow()
+    // Row 10: first tile from table[0] = $C4
+    expect(grid[10][20]).toBe(P1(0xC4))
+  })
+
+  it('larger size produces more total tiles', () => {
+    const rom = makeMockRom({
+      [0x0DB72F]: [0xC4, 0xC5, 0xC7, 0xEC, 0xED, 0xC6, 0xC7, 0xEE,
+                   0x59, 0x5A, 0xEF, 0xC7, 0xEE, 0x59, 0x5B, 0x5C],
+    })
+    function countTiles(size: number): number {
+      const g = createGrid(3)
+      const c = makeCursor(g, rom, 0, 25, 10, 57, size)
+      handle_0DB73F(c)
+      let n = 0
+      for (const row of g) for (const t of row) if (t !== TILE_EMPTY) n++
+      return n
+    }
+    expect(countTiles(0x30)).toBeGreaterThan(countTiles(0x10))
+  })
+})
+
+describe('handle_0DB7AA (pyramid/hill slope, object 58)', () => {
+  it('produces a non-empty hill shape without throwing', () => {
+    const rom = makeMockRom()
+    const grid = createGrid(4)
+    const cur = makeCursor(grid, rom, 0, 20, 10, 58, 0x22)  // W=2 H=2
+    expect(() => handle_0DB7AA(cur)).not.toThrow()
+    // Up-left phase emits $AA lip; should land somewhere on row 10 (first row).
+    let rowHasLip = false
+    for (const tile of grid[10]) {
+      if (tile === P1(0xAA)) { rowHasLip = true; break }
+    }
+    expect(rowHasLip).toBe(true)
+  })
+
+  it('larger widths create larger hills', () => {
+    const rom = makeMockRom()
+    function count(size: number): number {
+      const g = createGrid(5)
+      const c = makeCursor(g, rom, 0, 30, 10, 58, size)
+      handle_0DB7AA(c)
+      let n = 0
+      for (const row of g) for (const t of row) if (t !== TILE_EMPTY) n++
+      return n
+    }
+    expect(count(0x44)).toBeGreaterThan(count(0x11))
   })
 })
