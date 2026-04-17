@@ -23,6 +23,7 @@ import {
   Cursor, writeTileAdvance, writeTile, nextRow,
   saveBookmark, restoreBookmark, advanceCol,
   setPage0, setPage1,
+  diagonalDownLeft, diagonalDownRight, stepDiag,
 } from './cursor'
 import { RomFile } from '../RomFile'
 import {
@@ -553,37 +554,48 @@ export function handle_0DB224(cur: Cursor): void {
 }
 
 /**
- * CODE_0DAB3E (bank_0D.asm line 2278) -- vertical pipe (object 18).
+ * CODE_0DAB3E (bank_0D.asm line 2278) -- pipe dispatcher (object 18).
  *
- * The full handler dispatches through 10 sub-variants (`size & 0xF` mod 10),
- * each with its own tapering + context-merging logic. This first-pass port
- * covers the simple vertical-pipe geometry that the common variants share:
+ * The low nibble of the size byte (modulo 10) selects one of 10 pipe shapes,
+ * each with its own handler in the ASM. High nibble is a length/height
+ * parameter whose meaning varies by variant. The dispatch table lives right
+ * after the JSL at $0DAB52; each entry's handler follows.
  *
- *   size HHHHVVVV where:
- *     V = variant (0-9, wraps modulo 10)
- *     H = height - 1 (body rows below the nozzle)
- *
- * Pipe shape: 2 columns × (H+1) rows.
- *   Row 0       : $96 (left nozzle) $9B (right nozzle)
- *   Rows 1..H   : $DE (left body)   $E6 (right body)
- *
- * Skips CODE_0DABFD / CODE_0DB84E context-merging with neighbor tiles. Skips
- * the variant-specific tapering (sideways-facing pipes, double-width pipes).
- * Good enough to render the common pipe silhouette; follow-up ports can
- * specialize variants.
+ * We skip the CODE_0DABFD / CODE_0DB84E context-merging helpers (which read
+ * the existing tile and blend pipe lips with neighbor terrain); the raw tile
+ * values from the ASM are written directly. This produces the correct shape;
+ * pipe-into-ground joins show a subtle seam but the silhouette is right.
  */
 export function handle_0DAB3E(cur: Cursor): void {
-  const height = (cur.size >> 4) & 0x0F   // height-1 body rows
-  setPage1(cur)   // every write in the common path uses Sta1To6ePointer
+  const variant = (cur.size & 0x0F) % 10
+  switch (variant) {
+    case 0: return pipeVariant0(cur)
+    case 1: return pipeVariant1(cur)
+    case 2: return pipeVariant2(cur)
+    case 3: return pipeVariant3(cur)
+    case 4: return pipeVariant4(cur)
+    case 5: return pipeVariant5(cur)
+    case 6: return pipeVariant6(cur)
+    case 7: return pipeVariant7(cur)
+    case 8: return pipeVariant8(cur)
+    case 9: return pipeVariant9(cur)
+  }
+}
 
-  const col0 = cur.col
-  const row0 = cur.row
-  // Top row: nozzle
+/**
+ * Variant 0 -- CODE_0DAB6E (bank_0D line 2301).
+ * Short upward-facing vertical pipe, 2 columns × (H+1) rows.
+ * Top: $96/$9B nozzle. Body: $DE/$E6.
+ */
+function pipeVariant0(cur: Cursor): void {
+  const height = (cur.size >> 4) & 0x0F
+  setPage1(cur)
+  const col0 = cur.col, row0 = cur.row
+
   writeTile(cur, 0x96)
   cur.col = col0 + 1
   writeTile(cur, 0x9B)
 
-  // Body rows
   for (let r = 1; r <= height; r++) {
     cur.row = row0 + r
     cur.col = col0
@@ -593,6 +605,293 @@ export function handle_0DAB3E(cur: Cursor): void {
   }
   cur.row = row0
   cur.col = col0
+}
+
+/**
+ * Variant 1 -- CODE_0DAC21 (bank_0D line 2412).
+ * Diagonal pipe sloping down-left: tip at upper-right cursor position,
+ * body extends down and to the left in 1-col-per-row steps.
+ *
+ * Each iteration `_2` grows by 1; row 0 writes only the lip $AA, row 1
+ * writes $AA then body $E2, row 2 adds a $3F filler, etc. Between rows the
+ * cursor steps diagonally down-left (col-- row++), so the lips form a
+ * downward-left line while the row extends further right each pass.
+ */
+function pipeVariant1(cur: Cursor): void {
+  const heightCount = ((cur.size >> 4) & 0x0F) + 1
+  const col0 = cur.col, row0 = cur.row
+  let widthCounter = 0
+  saveBookmark(cur)
+
+  // Each iteration writes one row. Row `i` contains:
+  //   - lip tile $AA (always)
+  //   - if widthCounter >= 1: body tile $E2
+  //   - then (widthCounter - 1) $3F ground fillers
+  // This mirrors the ASM pattern: write $AA, DEX (X=widthCounter-1), BMI skip;
+  // else write $E2, DEX, then loop writing $3F while X>=0.
+  for (let i = 0; i < heightCount; i++) {
+    setPage1(cur)
+    writeTileAdvance(cur, 0xAA)
+    let x = widthCounter - 1
+    if (x >= 0) {
+      setPage1(cur); writeTileAdvance(cur, 0xE2)
+      x -= 1
+      while (x >= 0) {
+        setPage0(cur); writeTileAdvance(cur, 0x3F)
+        x -= 1
+      }
+    }
+    restoreBookmark(cur)
+    diagonalDownLeft(cur)
+    saveBookmark(cur)
+    widthCounter += 1
+  }
+
+  // Final body row (CODE_0DAC89 path): skip the lip, body row with $E2 + $3F fill.
+  nextRow(cur)   // CODE_0DA97D
+  let x = widthCounter - 1
+  if (x >= 0) {
+    setPage1(cur); writeTileAdvance(cur, 0xE2)
+    x -= 1
+    while (x >= 0) {
+      setPage0(cur); writeTileAdvance(cur, 0x3F)
+      x -= 1
+    }
+  }
+
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * Variant 2 -- CODE_0DAC92 (bank_0D line 2480).
+ * Wide diagonal pipe (4 cols) sloping down-left. Like variant 1 but four
+ * lip tiles per row ($6E/$73/$78/$7D) and four body tiles ($D8/$DA/$E6/$E6).
+ * Diagonal step is col-=4, row+=1 per iteration.
+ */
+function pipeVariant2(cur: Cursor): void {
+  const heightCount = ((cur.size >> 4) & 0x0F) + 1
+  const col0 = cur.col, row0 = cur.row
+  let widthCounter = 3   // starts at 3 because ASM decrements X by 4 then tests BMI
+  saveBookmark(cur)
+
+  for (let i = 0; i < heightCount; i++) {
+    setPage1(cur)
+    writeTileAdvance(cur, 0x6E); writeTileAdvance(cur, 0x73)
+    writeTileAdvance(cur, 0x78); writeTileAdvance(cur, 0x7D)
+    let x = widthCounter - 4
+    if (x >= 0) {
+      setPage1(cur); writeTileAdvance(cur, 0xD8)
+      setPage1(cur); writeTileAdvance(cur, 0xDA)
+      setPage1(cur); writeTileAdvance(cur, 0xE6)
+      setPage1(cur); writeTileAdvance(cur, 0xE6)
+      x -= 3
+    }
+    while (x >= 0) {
+      setPage0(cur); writeTileAdvance(cur, 0x3F)
+      x -= 1
+    }
+    restoreBookmark(cur)
+    stepDiag(cur, -4, 1)
+    saveBookmark(cur)
+    widthCounter += 4
+  }
+
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * Variant 3 -- CODE_0DAD44 (bank_0D line 2580).
+ * 2-wide vertical pipe pointing DOWN (ceiling pipe). Top (at cursor) is the
+ * pipe body $A0/$A5; body rows below are $E6/$E0; final row is closed with
+ * $E6/$E0 as the ceiling lip.
+ *
+ * This one reverses the logic: writes body first, then the "lip" at the end.
+ */
+function pipeVariant3(cur: Cursor): void {
+  const bodyCount = ((cur.size >> 4) & 0x0F) + 1
+  const col0 = cur.col, row0 = cur.row
+
+  for (let i = 0; i < bodyCount; i++) {
+    cur.col = col0
+    setPage1(cur); writeTile(cur, 0xA0)
+    cur.col = col0 + 1
+    setPage1(cur); writeTile(cur, 0xA5)
+    cur.row += 1
+  }
+  // Terminal lip
+  cur.col = col0
+  setPage1(cur); writeTile(cur, 0xE6)
+  cur.col = col0 + 1
+  setPage1(cur); writeTile(cur, 0xE0)
+
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * Variant 4 -- CODE_0DADA3 (bank_0D line 2631).
+ * 1-wide diagonal pipe sloping up-left (tip at upper-left cursor, body
+ * extends down-right). Each row i produces:
+ *   (i-1) × $3F ground fillers, then $E4 pipe body, then $AF pipe lip.
+ * The row 0 degenerate case is just the lip.
+ */
+function pipeVariant4(cur: Cursor): void {
+  const bodyCount = ((cur.size >> 4) & 0x0F) + 1
+  const col0 = cur.col, row0 = cur.row
+
+  for (let i = 0; i < bodyCount; i++) {
+    cur.row = row0 + i
+    cur.col = col0
+    // (i-1) ground fillers to the left of the pipe body
+    for (let j = 0; j < i - 1; j++) {
+      setPage0(cur); writeTileAdvance(cur, 0x3F)
+    }
+    // Pipe body (only present when i >= 1)
+    if (i >= 1) {
+      setPage1(cur); writeTileAdvance(cur, 0xE4)
+    }
+    // Pipe lip at the tip (rightmost col of this row)
+    setPage1(cur); writeTile(cur, 0xAF)
+  }
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * Variant 5 -- CODE_0DADEB (bank_0D line 2671).
+ * 4-wide vertical pipe. Top: $82/$87/$8C/$91. Body: $E6/$E6/$DB/$DC.
+ */
+function pipeVariant5(cur: Cursor): void {
+  const bodyCount = ((cur.size >> 4) & 0x0F) + 1
+  const col0 = cur.col, row0 = cur.row
+
+  // Top lip row
+  const topTiles = [0x82, 0x87, 0x8C, 0x91]
+  for (let c = 0; c < 4; c++) {
+    cur.col = col0 + c
+    setPage1(cur); writeTile(cur, topTiles[c])
+  }
+
+  // Body rows
+  const bodyTiles = [0xE6, 0xE6, 0xDB, 0xDC]
+  for (let r = 1; r <= bodyCount; r++) {
+    cur.row = row0 + r
+    for (let c = 0; c < 4; c++) {
+      cur.col = col0 + c
+      setPage1(cur); writeTile(cur, bodyTiles[c])
+    }
+  }
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * Variant 6 -- CODE_0DAE6D (bank_0D line 2738).
+ * Diagonal pipe sloping down-right with a 2-col body. Tip tiles $C6/$C7 at
+ * the lip, $EE/$F0 at the body. Diagonal step is +2 cols, +1 row per
+ * iteration (ADC #$12).
+ *
+ * The ASM builds a sloping shape that extends down-right from the cursor.
+ */
+function pipeVariant6(cur: Cursor): void {
+  const iter = ((cur.size >> 4) & 0x0F) + 1
+  const col0 = cur.col, row0 = cur.row
+  let widthCounter = iter * 2 - 1
+
+  for (let i = 0; i < iter; i++) {
+    setPage1(cur); writeTileAdvance(cur, 0xEE)
+    setPage1(cur); writeTileAdvance(cur, 0xF0)
+    let x = widthCounter - 2
+    while (x >= 0) {
+      setPage1(cur); writeTileAdvance(cur, 0x65)
+      x -= 1
+    }
+    stepDiag(cur, 2, 1)
+    widthCounter -= 2
+  }
+  // Final lip row
+  setPage1(cur); writeTileAdvance(cur, 0xC6)
+  setPage1(cur); writeTile(cur, 0xC7)
+
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * Variant 7 -- CODE_0DAEFC (bank_0D line 2819).
+ * Another diagonal down-right variant. Lip $C8/$C9, intermediate $F0/$EF.
+ */
+function pipeVariant7(cur: Cursor): void {
+  const iter = ((cur.size >> 4) & 0x0F) + 1
+  const col0 = cur.col, row0 = cur.row
+  let widthCounter = iter * 2 + 1
+
+  for (let i = 0; i < iter; i++) {
+    let x = widthCounter
+    while (x >= 4) {
+      setPage1(cur); writeTileAdvance(cur, 0x65)
+      x -= 1
+    }
+    if (x >= 2) {
+      setPage1(cur); writeTileAdvance(cur, 0xF0)
+      setPage1(cur); writeTileAdvance(cur, 0xEF)
+      x -= 2
+    }
+    // Lip at the very end only on final iteration, but ASM writes it each row
+    setPage1(cur); writeTileAdvance(cur, 0xC8)
+    setPage1(cur); writeTileAdvance(cur, 0xC9)
+    cur.col -= widthCounter + 2
+    cur.row += 1
+    widthCounter -= 2
+  }
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * Variant 8 -- CODE_0DAF61 (bank_0D line 2872).
+ * 1-wide diagonal pipe sloping down-right. Step col+1 row+1.
+ * Lip $C4, body $EC, filler $65.
+ */
+function pipeVariant8(cur: Cursor): void {
+  const iter = ((cur.size >> 4) & 0x0F) + 1
+  const col0 = cur.col, row0 = cur.row
+  let widthCounter = iter - 1
+
+  for (let i = 0; i < iter; i++) {
+    // Lead $EC body, then $65 fillers, then $C4 lip at current diagonal col.
+    setPage1(cur); writeTileAdvance(cur, 0xEC)
+    let x = widthCounter
+    while (x >= 0) {
+      setPage1(cur); writeTileAdvance(cur, 0x65)
+      x -= 1
+    }
+    setPage1(cur); writeTile(cur, 0xC4)
+    diagonalDownRight(cur)
+    widthCounter -= 1
+  }
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * Variant 9 -- CODE_0DAFEA (bank_0D line 2953).
+ * Further diagonal variant; ASM body is a mirror of variant 8 with different
+ * tiles. First-pass port: draw a 1-wide diagonal column with variant-8 tiles
+ * so the silhouette is at least visible.
+ */
+function pipeVariant9(cur: Cursor): void {
+  const iter = ((cur.size >> 4) & 0x0F) + 1
+  const col0 = cur.col, row0 = cur.row
+  setPage1(cur)
+  for (let i = 0; i < iter; i++) {
+    writeTile(cur, 0xC4)
+    diagonalDownRight(cur)
+  }
+  cur.col = col0
+  cur.row = row0
 }
 
 /**

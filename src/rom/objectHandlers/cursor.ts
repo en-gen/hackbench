@@ -123,6 +123,38 @@ export function advanceRowRaw(cur: Cursor): void {
   cur.row += 1
 }
 
+/**
+ * CODE_0DA992 (bank_0D line 2033) -- diagonal step NW↘SE: `LevelLoadPos += $0F`.
+ *
+ * In the flat-grid model that's col-- + row++. SMW uses this for diagonal pipes
+ * sloping up-right (tip at upper-right, pipe extends down-left to the ground)
+ * and for NW-SE-facing slopes.
+ */
+export function diagonalDownLeft(cur: Cursor): void {
+  cur.col -= 1
+  cur.row += 1
+}
+
+/**
+ * CODE_0DA9B4 (bank_0D line 2055) -- diagonal step NE↙SW: `LevelLoadPos += $11`.
+ *
+ * In flat coords: col++ + row++. Used for diagonal pipes sloping up-left
+ * (tip at upper-left, pipe extends down-right) and NE-SW slopes.
+ */
+export function diagonalDownRight(cur: Cursor): void {
+  cur.col += 1
+  cur.row += 1
+}
+
+/**
+ * Step by an arbitrary (dcol, drow) diagonal. Wider pipes step by e.g. (-2, +1)
+ * or (-4, +1) to form wider diagonals; variant 2 uses col-=4 row+=1 via ADC #$0C.
+ */
+export function stepDiag(cur: Cursor, dcol: number, drow: number): void {
+  cur.col += dcol
+  cur.row += drow
+}
+
 /** Save current column as bookmark (CODE_0DA6B1). */
 export function saveBookmark(cur: Cursor): void {
   cur.bookmarkCol = cur.col

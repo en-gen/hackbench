@@ -760,20 +760,76 @@ describe('handle_0DB075 (slope/vine column, object 19)', () => {
   })
 })
 
-describe('handle_0DAB3E (vertical pipe, object 18)', () => {
-  it('H=2 produces a 2-wide × 3-tall pipe', () => {
+describe('handle_0DAB3E pipe variants (object 18)', () => {
+  it('variant 0: 2-wide × 3-tall upward pipe', () => {
     const rom = makeMockRom()
     const grid = createGrid(1)
-    // H=2, V=0
-    const cur = makeCursor(grid, rom, 0, 4, 10, 18, 0x20)
+    const cur = makeCursor(grid, rom, 0, 4, 10, 18, 0x20)   // H=2, V=0
     handle_0DAB3E(cur)
-    expect(grid[10][4]).toBe(P1(0x96))
-    expect(grid[10][5]).toBe(P1(0x9B))
-    expect(grid[11][4]).toBe(P1(0xDE))
-    expect(grid[11][5]).toBe(P1(0xE6))
-    expect(grid[12][4]).toBe(P1(0xDE))
-    expect(grid[12][5]).toBe(P1(0xE6))
+    expect(grid[10][4]).toBe(P1(0x96)); expect(grid[10][5]).toBe(P1(0x9B))
+    expect(grid[11][4]).toBe(P1(0xDE)); expect(grid[11][5]).toBe(P1(0xE6))
+    expect(grid[12][4]).toBe(P1(0xDE)); expect(grid[12][5]).toBe(P1(0xE6))
     expect(grid[13][4]).toBe(TILE_EMPTY)
+  })
+
+  it('variant 1: diagonal down-left pipe, lips form a stair', () => {
+    const rom = makeMockRom()
+    const grid = createGrid(2)
+    const cur = makeCursor(grid, rom, 0, 10, 10, 18, 0x21)   // H=2, V=1
+    handle_0DAB3E(cur)
+    // Row 10: lip $AA at col 10 (widthCounter=0 → no body tiles)
+    expect(grid[10][10]).toBe(P1(0xAA))
+    expect(grid[10][11]).toBe(TILE_EMPTY)
+    // Row 11: diagonal step → lip at col 9; widthCounter=1 so $E2 body at col 10
+    expect(grid[11][9]).toBe(P1(0xAA))
+    expect(grid[11][10]).toBe(P1(0xE2))
+    // Row 12: lip at col 8, body $E2 at 9, fill $3F at 10
+    expect(grid[12][8]).toBe(P1(0xAA))
+    expect(grid[12][9]).toBe(P1(0xE2))
+    expect(grid[12][10]).toBe(0x3F)
+  })
+
+  it('variant 3: 2-wide ceiling pipe ($A0/$A5 body, $E6/$E0 lip at end)', () => {
+    const rom = makeMockRom()
+    const grid = createGrid(1)
+    const cur = makeCursor(grid, rom, 0, 4, 10, 18, 0x13)   // H=1, V=3
+    handle_0DAB3E(cur)
+    expect(grid[10][4]).toBe(P1(0xA0)); expect(grid[10][5]).toBe(P1(0xA5))
+    expect(grid[11][4]).toBe(P1(0xA0)); expect(grid[11][5]).toBe(P1(0xA5))
+    expect(grid[12][4]).toBe(P1(0xE6)); expect(grid[12][5]).toBe(P1(0xE0))
+  })
+
+  it('variant 4: 1-wide diagonal pipe sloping up-left', () => {
+    const rom = makeMockRom()
+    const grid = createGrid(1)
+    const cur = makeCursor(grid, rom, 0, 4, 10, 18, 0x24)   // H=2, V=4 → bodyCount=3
+    handle_0DAB3E(cur)
+    // Row 0: lip only
+    expect(grid[10][4]).toBe(P1(0xAF))
+    // Row 1: body + lip
+    expect(grid[11][4]).toBe(P1(0xE4))
+    expect(grid[11][5]).toBe(P1(0xAF))
+    // Row 2: ground fill + body + lip
+    expect(grid[12][4]).toBe(0x3F)
+    expect(grid[12][5]).toBe(P1(0xE4))
+    expect(grid[12][6]).toBe(P1(0xAF))
+  })
+
+  it('variant 5: 4-wide vertical pipe', () => {
+    const rom = makeMockRom()
+    const grid = createGrid(1)
+    const cur = makeCursor(grid, rom, 0, 4, 10, 18, 0x15)   // H=1, V=5
+    handle_0DAB3E(cur)
+    // Top row: 4 lip tiles
+    expect(grid[10][4]).toBe(P1(0x82))
+    expect(grid[10][5]).toBe(P1(0x87))
+    expect(grid[10][6]).toBe(P1(0x8C))
+    expect(grid[10][7]).toBe(P1(0x91))
+    // Body rows (H+1 = 2 body rows)
+    expect(grid[11][4]).toBe(P1(0xE6))
+    expect(grid[11][5]).toBe(P1(0xE6))
+    expect(grid[11][6]).toBe(P1(0xDB))
+    expect(grid[11][7]).toBe(P1(0xDC))
   })
 })
 
