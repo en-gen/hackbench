@@ -1147,7 +1147,7 @@ window.addEventListener('message', async (event) => {
         map16FullImageData = l1Atlas
         const l1PageCount = Math.ceil(l1Atlas.height / 256)
         for (let p = 0; p < l1PageCount; p++) {
-          map16Pages.push({ atlas: l1Atlas, pageInAtlas: p, label: `L1 Page 0x${p.toString(16).padStart(2,'0')}` })
+          map16Pages.push({ atlas: l1Atlas, pageInAtlas: p, label: `L1 0x${p.toString(16).padStart(2,'0')}` })
         }
       }
       // L2/BG pages (from Map16BGTiles, pages labeled 0x80+)
@@ -1156,7 +1156,7 @@ window.addEventListener('message', async (event) => {
         const bgAtlas = new ImageData(new Uint8ClampedArray(levelData.map16BgAtlasData), 256, h)
         const bgPageCount = Math.ceil(h / 256)
         for (let p = 0; p < bgPageCount; p++) {
-          map16Pages.push({ atlas: bgAtlas, pageInAtlas: p, label: `L2 Page 0x${(0x80 + p).toString(16)}` })
+          map16Pages.push({ atlas: bgAtlas, pageInAtlas: p, label: `L2 0x${(0x80 + p).toString(16)}` })
         }
       }
       map16PageIdx = 0
