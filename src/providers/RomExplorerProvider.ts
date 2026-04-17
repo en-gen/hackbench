@@ -2,12 +2,11 @@ import * as vscode from 'vscode'
 import { RomSession } from '../RomSession'
 import { GFX_FILE_COUNT } from '../rom/GfxLoader'
 import { loadRomPalettes } from '../rom/PaletteLoader'
-import { readLevelMusicTable } from '../rom/MusicData'
 
 // ── Shared tree item types ─────────────────────────────────────────────────────
 
 type LevelsTreeItem = RomInfoItem | LevelFolder | RoomItem
-type ResourcesTreeItem = SectionFolder | RoomItem | PaletteGroupItem | GfxFileItem | MusicTrackItem | PlaceholderItem
+type ResourcesTreeItem = SectionFolder | RoomItem | PaletteGroupItem | GfxFileItem | PlaceholderItem
 
 /** Non-interactive header item showing ROM identity. */
 class RomInfoItem extends vscode.TreeItem {
@@ -117,24 +116,6 @@ class GfxFileItem extends vscode.TreeItem {
       arguments: [vscode.Uri.parse(`smwrom:/${slug}/gfx/GFX${hex}.smwgfx`)]
     }
     this.contextValue = 'smwGfxFile'
-  }
-}
-
-class MusicTrackItem extends vscode.TreeItem {
-  constructor(
-    public readonly trackIndex: number,
-    public readonly bgmCommand: number,
-  ) {
-    const bgmHex = bgmCommand.toString(16).toUpperCase().padStart(2, '0')
-    super(`Track ${trackIndex}`, vscode.TreeItemCollapsibleState.None)
-    this.description = `BGM $${bgmHex}`
-    this.iconPath = new vscode.ThemeIcon('music')
-    this.contextValue = 'smwMusicTrack'
-    this.command = {
-      command: 'smwEditor.playTrack',
-      title: 'Play Track',
-      arguments: [trackIndex, bgmCommand],
-    }
   }
 }
 
@@ -293,15 +274,15 @@ export class ResourcesProvider implements vscode.TreeDataProvider<ResourcesTreeI
         [new PlaceholderItem('ROM Code')],
         true,
       )
-      const musicEntries = readLevelMusicTable(rom.rom)
-      const musicItems = musicEntries.map(e => new MusicTrackItem(e.index, e.bgmCommand))
-      const musicSection = new SectionFolder(
-        `Music  (${musicItems.length})`, 'music', 'music',
-        musicItems,
-        true,
-      )
+      const musicItem = new vscode.TreeItem('Music', vscode.TreeItemCollapsibleState.None)
+      musicItem.iconPath = new vscode.ThemeIcon('music')
+      musicItem.command = {
+        command: 'vscode.open',
+        title: 'Open Music Player',
+        arguments: [vscode.Uri.parse(`smwrom:/${slug}/music/player.smwmusic`)]
+      }
 
-      return [roomsSection, palettesSection, gfxSection, asmSection, musicSection]
+      return [roomsSection, palettesSection, gfxSection, asmSection, musicItem]
     }
 
     if (element instanceof SectionFolder) return element.children

@@ -49,10 +49,12 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
     if (parts.length === 0) return dir(now)
 
     if (parts.length === 1) {
-      if (parts[0] === 'levels' || parts[0] === 'palettes' || parts[0] === 'gfx') return dir(now)
+      if (parts[0] === 'levels' || parts[0] === 'palettes' || parts[0] === 'gfx' || parts[0] === 'music') return dir(now)
     }
 
     if (parts.length === 2) {
+      if (parts[0] === 'music' && parts[1].endsWith('.smwmusic'))
+        return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
       if (parts[0] === 'levels' && parts[1].endsWith('.smwlevel'))
         return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
 
@@ -102,6 +104,10 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
       )
     }
 
+    if (parts.length === 1 && parts[0] === 'music') {
+      return [['player.smwmusic', vscode.FileType.File]]
+    }
+
     throw vscode.FileSystemError.FileNotFound(uri)
   }
 
@@ -137,6 +143,13 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
         type: 'smwgfx', version: 1,
         romPath: session.rom.rom.filePath,
         gfxIndex,
+      }), 'utf8')
+    }
+
+    if (parts.length === 2 && parts[0] === 'music' && parts[1].endsWith('.smwmusic')) {
+      return Buffer.from(JSON.stringify({
+        type: 'smwmusic', version: 1,
+        romPath: session.rom.rom.filePath,
       }), 'utf8')
     }
 

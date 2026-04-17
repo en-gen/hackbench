@@ -116,4 +116,41 @@ const gfxViewerWebviewConfig = {
   devtool: 'nosources-source-map'
 }
 
-module.exports = [extensionConfig, levelEditorWebviewConfig, paletteEditorWebviewConfig, gfxViewerWebviewConfig]
+/** @type {import('webpack').Configuration} */
+const musicPlayerWebviewConfig = {
+  target: 'web',
+  mode: 'none',
+  entry: './src/webview/musicPlayer/main.ts',
+  output: {
+    path: path.resolve(__dirname, 'dist/webview'),
+    filename: 'musicPlayer.js'
+  },
+  resolve: { extensions: ['.ts', '.js'] },
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        exclude: /node_modules/,
+        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } }
+      }
+    ]
+  },
+  plugins: [
+    // Copy spc.js + spc.wasm from @smwcentral/spc-player to dist/webview
+    new (require('copy-webpack-plugin'))({
+      patterns: [
+        {
+          from: path.resolve(__dirname, 'node_modules/@smwcentral/spc-player/dist/spc.wasm'),
+          to: path.resolve(__dirname, 'dist/webview/spc.wasm')
+        },
+        {
+          from: path.resolve(__dirname, 'node_modules/@smwcentral/spc-player/dist/spc.js'),
+          to: path.resolve(__dirname, 'dist/webview/spc.js')
+        }
+      ]
+    })
+  ],
+  devtool: 'nosources-source-map'
+}
+
+module.exports = [extensionConfig, levelEditorWebviewConfig, paletteEditorWebviewConfig, gfxViewerWebviewConfig, musicPlayerWebviewConfig]

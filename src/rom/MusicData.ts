@@ -20,6 +20,7 @@
  */
 
 import { RomFile } from './RomFile'
+import { getLevelMusicBankAddr, countBankSongs } from './SpcBuilder'
 
 // ── ROM addresses ────────────────────────────────────────────────────────────
 
@@ -62,4 +63,22 @@ export function getLevelMusicBgm(rom: RomFile, musicIndex: number): number {
   if (musicIndex < 0 || musicIndex >= LEVEL_MUSIC_COUNT) return 0
   const byte = rom.readByte(ADDR_LEVEL_MUSIC_TABLE + musicIndex)
   return byte ?? 0
+}
+
+// ── Full track enumeration ───────────────────────────────────────────────────
+
+export interface BgmTrack {
+  /** 1-based BGM command number (the value sent to the SPC engine). */
+  bgmCommand: number
+}
+
+/**
+ * Enumerate all playable BGM tracks in the level music bank.
+ * Reads the song pointer table from the music bank to determine the count.
+ * Each track is identified by its BGM command number (1-based).
+ */
+export function getAllLevelBgmTracks(rom: RomFile): BgmTrack[] {
+  const bankAddr = getLevelMusicBankAddr(rom)
+  const count = countBankSongs(rom, bankAddr)
+  return Array.from({ length: count }, (_, i) => ({ bgmCommand: i + 1 }))
 }
