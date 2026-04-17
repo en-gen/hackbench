@@ -5,7 +5,7 @@ export const PIXELS_PER_TILE = TILE_W * TILE_H
 export type RgbaColor = [number, number, number, number]
 
 /** Decode a single 2BPP tile (16 bytes) → 64 palette indices (0–3). */
-export function decode2bpp(data: Buffer | Uint8Array, offset = 0): Uint8Array {
+export function decode2bpp(data: ArrayLike<number>, offset = 0): Uint8Array {
   const px = new Uint8Array(PIXELS_PER_TILE)
   for (let row = 0; row < 8; row++) {
     const p0lo = data[offset + row * 2]
@@ -21,7 +21,7 @@ export function decode2bpp(data: Buffer | Uint8Array, offset = 0): Uint8Array {
 }
 
 /** Decode a single 4BPP tile (32 bytes) → 64 palette indices. */
-export function decode4bpp(data: Buffer | Uint8Array, offset = 0): Uint8Array {
+export function decode4bpp(data: ArrayLike<number>, offset = 0): Uint8Array {
   const px = new Uint8Array(PIXELS_PER_TILE)
   for (let row = 0; row < 8; row++) {
     const p0lo = data[offset + row * 2]
@@ -41,7 +41,7 @@ export function decode4bpp(data: Buffer | Uint8Array, offset = 0): Uint8Array {
 }
 
 /** Decode a single 3BPP tile (24 bytes) → 64 palette indices (0–7). */
-export function decode3bpp(data: Buffer | Uint8Array, offset = 0): Uint8Array {
+export function decode3bpp(data: ArrayLike<number>, offset = 0): Uint8Array {
   const px = new Uint8Array(PIXELS_PER_TILE)
   for (let row = 0; row < 8; row++) {
     const p0lo = data[offset + row * 2]
@@ -56,6 +56,15 @@ export function decode3bpp(data: Buffer | Uint8Array, offset = 0): Uint8Array {
     }
   }
   return px
+}
+
+/** Decode all tiles from raw bytes using the given BPP mode.
+ *  Works in both Node and browser contexts (accepts any array-like input). */
+export function decodeTilesBatch(data: ArrayLike<number>, bpp: 2 | 3 | 4): Uint8Array[] {
+  const bpt = bpp === 4 ? 32 : bpp === 3 ? 24 : 16
+  const count = Math.floor(data.length / bpt)
+  const decode = bpp === 4 ? decode4bpp : bpp === 3 ? decode3bpp : decode2bpp
+  return Array.from({ length: count }, (_, i) => decode(data, i * bpt))
 }
 
 /** Decode all tiles in a GFX buffer. */

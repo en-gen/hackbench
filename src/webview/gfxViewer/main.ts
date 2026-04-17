@@ -14,6 +14,8 @@
  *   { type:'ready' }
  */
 
+import { decodeTilesBatch } from '../../rom/GraphicsDecoder'
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare function acquireVsCodeApi(): any
 const vscode = acquireVsCodeApi()
@@ -154,78 +156,15 @@ interface GfxPayload {
   defaultBpp: 2 | 3 | 4     // server's decode format for this file
 }
 
-// ── Client-side tile decoders ─────────────────────────────────────────────────
-
-/** Decode one 2bpp tile (16 bytes) → 64 palette indices 0–3. */
-function decode2bpp(data: number[], offset: number): number[] {
-  const px: number[] = new Array(64)
-  for (let row = 0; row < 8; row++) {
-    const p0lo = data[offset + row * 2]
-    const p0hi = data[offset + row * 2 + 1]
-    for (let col = 0; col < 8; col++) {
-      const bit = 7 - col
-      px[row * 8 + col] =
-        ((p0lo >> bit) & 1) |
-        (((p0hi >> bit) & 1) << 1)
-    }
-  }
-  return px
-}
-
-/** Decode one 4bpp tile (32 bytes) → 64 palette indices 0–15. */
-function decode4bpp(data: number[], offset: number): number[] {
-  const px: number[] = new Array(64)
-  for (let row = 0; row < 8; row++) {
-    const p0lo = data[offset + row * 2]
-    const p0hi = data[offset + row * 2 + 1]
-    const p1lo = data[offset + 16 + row * 2]
-    const p1hi = data[offset + 16 + row * 2 + 1]
-    for (let col = 0; col < 8; col++) {
-      const bit = 7 - col
-      px[row * 8 + col] =
-        ((p0lo >> bit) & 1)        |
-        (((p0hi >> bit) & 1) << 1) |
-        (((p1lo >> bit) & 1) << 2) |
-        (((p1hi >> bit) & 1) << 3)
-    }
-  }
-  return px
-}
-
-/** Decode one 3bpp tile (24 bytes) → 64 palette indices 0–7. */
-function decode3bpp(data: number[], offset: number): number[] {
-  const px: number[] = new Array(64)
-  for (let row = 0; row < 8; row++) {
-    const p0lo = data[offset + row * 2]
-    const p0hi = data[offset + row * 2 + 1]
-    const p2   = data[offset + 16 + row]
-    for (let col = 0; col < 8; col++) {
-      const bit = 7 - col
-      px[row * 8 + col] =
-        ((p0lo >> bit) & 1)        |
-        (((p0hi >> bit) & 1) << 1) |
-        (((p2   >> bit) & 1) << 2)
-    }
-  }
-  return px
-}
-
-/** Decode all tiles from rawBytes using the given bpp mode. */
-function decodeTiles(rawBytes: number[], bpp: 2 | 3 | 4): number[][] {
-  const bpt    = bpp === 4 ? 32 : bpp === 3 ? 24 : 16
-  const count  = Math.floor(rawBytes.length / bpt)
-  const decode = bpp === 4 ? decode4bpp : bpp === 3 ? decode3bpp : decode2bpp
-  const tiles: number[][] = []
-  for (let t = 0; t < count; t++) tiles.push(decode(rawBytes, t * bpt))
-  return tiles
-}
+// ── Tile decoders — imported from shared rom/GraphicsDecoder ─────────────────
+// decode2bpp, decode3bpp, decode4bpp, decodeTilesBatch imported at top
 
 let payload:    GfxPayload | null = null
 let zoomIdx    = ZOOM_DEFAULT
 // Overridden per-file by suggestedPaletteRow from the extension host.
 let paletteRow = 2
 // Active decoded tiles — rebuilt when payload changes or bpp mode is toggled.
-let activeTiles: number[][] = []
+let activeTiles: Uint8Array[] = []
 // Current bpp decoding mode — overridden per-file by defaultBpp from the host.
 let activeBpp: 2 | 3 | 4 = 3
 // Active FG variant (0 = vanilla/plains; higher = other level types ⚠ unverified).
@@ -451,7 +390,7 @@ canvas.addEventListener('mouseleave', () => {
 selBpp.addEventListener('change', () => {
   if (!payload) return
   activeBpp   = parseInt(selBpp.value) as 2 | 3 | 4
-  activeTiles = decodeTiles(payload.rawBytes, activeBpp)
+  activeTiles = decodeTilesBatch(payload.rawBytes, activeBpp)
   tileCountEl.textContent = `(${activeTiles.length} tiles)`
   redraw()
 })
@@ -468,7 +407,7 @@ window.addEventListener('message', (event) => {
     // Decode tiles client-side using the default bpp for this file
     activeBpp   = payload.defaultBpp ?? 3
     selBpp.value = String(activeBpp)
-    activeTiles = decodeTiles(payload.rawBytes, activeBpp)
+    activeTiles = decodeTilesBatch(payload.rawBytes, activeBpp)
 
     // Initialize FG variant (start at 0 for each new file)
     activeFgVariant = 0
