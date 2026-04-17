@@ -80,6 +80,7 @@ const transport = createTransportBar({
   onStop: () => stopTrack(),
   onPrev: () => prevTrack(),
   onNext: () => nextTrack(),
+  onStateChange: (playing) => vscode.postMessage({ type: 'musicState', playing }),
 })
 document.getElementById('transport-mount')!.appendChild(transport.element)
 

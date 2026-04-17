@@ -20,6 +20,8 @@ export interface TransportCallbacks {
   onStop: () => void
   onPrev: () => void
   onNext: () => void
+  /** Called when playback state changes — use to notify extension for tab icon updates. */
+  onStateChange?: (playing: boolean) => void
 }
 
 export interface TransportBar {
@@ -107,7 +109,7 @@ export function createTransportBar(cb: TransportCallbacks): TransportBar {
 
   return {
     element: el,
-    setPlaying(playing: boolean) { isPlaying = playing; isPaused = false; updateButtons() },
+    setPlaying(playing: boolean) { isPlaying = playing; isPaused = false; updateButtons(); cb.onStateChange?.(playing) },
     setPaused(paused: boolean) { isPaused = paused; updateButtons() },
     setTrackLabel(label: string) { labelEl.textContent = label },
     updateTime(seconds: number) { timeEl.textContent = formatTime(seconds) },
