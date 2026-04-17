@@ -1027,27 +1027,27 @@ function redraw(): void {
     }
   }
 
-  // Screen numbers (LM-style) — 2-digit hex in the top-left cell of each screen.
-  // Object stream encodes screen transitions by this index, and screen exits /
-  // entrance mappings are keyed on it, so visibility is diagnostic.
+  // Screen numbers (LM-style) — 2-digit hex label floating over the top-left
+  // of each screen. Font size is independent of the tile size so low-zoom
+  // views stay readable. Object stream transitions, screen exits and entrance
+  // mappings are all keyed on this index, so visibility is diagnostic.
   if (chkScreens.checked) {
     ctx.save()
-    const cellPx = px
-    const fontSize = Math.max(8, Math.round(cellPx * 0.55))
+    const fontSize = 14   // fixed, readable at any zoom
     ctx.font = `bold ${fontSize}px monospace`
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
+    const padX = 6
+    const padY = 3
     for (let s = 0; s < screens; s++) {
-      const cellX = Math.round(s * SCREEN_W * px)
-      const cellY = 0
+      const chipX = Math.round(s * SCREEN_W * px) + 3
+      const chipY = 3
       const label = s.toString(16).toUpperCase().padStart(2, '0')
-      // Background chip behind the text so it stays legible over any tile.
-      const pad = Math.max(1, Math.round(cellPx * 0.08))
       const textW = ctx.measureText(label).width
-      ctx.fillStyle = 'rgba(0,0,0,0.6)'
-      ctx.fillRect(cellX + pad, cellY + pad, textW + pad * 2, fontSize + pad)
+      ctx.fillStyle = 'rgba(0,0,0,0.72)'
+      ctx.fillRect(chipX, chipY, textW + padX * 2, fontSize + padY * 2)
       ctx.fillStyle = '#e8d050'
-      ctx.fillText(label, cellX + pad * 2, cellY + pad * 1.3)
+      ctx.fillText(label, chipX + padX, chipY + padY)
     }
     ctx.restore()
   }
