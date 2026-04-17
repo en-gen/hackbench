@@ -59,6 +59,16 @@ export interface Cursor {
    * semantics — those routines are *page selectors*, not layer/collision flags.
    */
   page: number
+  /**
+   * SNES address of the handler being invoked. Resolved by the dispatcher from
+   * ROM pointer tables (tileset → per-tileset dispatcher → handler pointer).
+   *
+   * Handlers use this to read their own data-table addresses and immediate
+   * operands from the ROM bytecode rather than hardcoded vanilla-ROM
+   * addresses -- so Lunar Magic patches that relocate tables (by patching
+   * LDA.L operands inside the handler body) still resolve correctly.
+   */
+  handlerAddr: number
 }
 
 export function makeCursor(
@@ -71,7 +81,28 @@ export function makeCursor(
     bookmarkCol: col, bookmarkRow: row,
     objNo, size,
     page: 0,
+    handlerAddr: 0,     // filled in by dispatcher right before calling handler
   }
+}
+
+/**
+ * Read a 24-bit long address operand from the ROM at the given SNES address.
+ * Used to resolve data-table addresses from LDA.L instruction operands.
+ * The 3-byte operand is stored little-endian (lo, mid, hi).
+ */
+export function readLongOperand(cur: Cursor, snesAddr: number): number {
+  const lo = cur.rom.readByte(snesAddr) ?? 0
+  const mi = cur.rom.readByte(snesAddr + 1) ?? 0
+  const hi = cur.rom.readByte(snesAddr + 2) ?? 0
+  return (hi << 16) | (mi << 8) | lo
+}
+
+/**
+ * Read a single-byte immediate operand at the given SNES address. Used to
+ * resolve LDA #$XX / CMP #$XX operand values from the handler bytecode.
+ */
+export function readImmByte(cur: Cursor, snesAddr: number): number {
+  return cur.rom.readByte(snesAddr) ?? 0
 }
 
 /**
@@ -213,30 +244,39 @@ function slopeMergeTile(cur: Cursor, baseTile: number): number {
  * whatever terrain was drawn underneath by an earlier object.
  */
 export function writeTileMergeCODE_0DB114(
-  cur: Cursor, X: number, baseTile: number,
-  db0F0: number[], db102: number[],
+  cur: Cursor, helperAddr: number, X: number, baseTile: number,
 ): void {
   if ((X >= 9 && X < 0x0B) || X === 2) {
-    // Skip merge, leave page as caller set it
     writeTile(cur, baseTile)
     return
   }
+  // Inside CODE_0DB114:
+  //   +25  CMP.L DATA_0DB0F0,X  operand (3 bytes = table A address)
+  //   +66  LDA.L DATA_0DB102,X  operand (3 bytes = table B address)
+  //   +34  CMP #$25   (skip-tile trigger)
+  //   +40/+44/+48/+52  CMP #$01/$03/$45/$48  (bump-by-1 triggers)
+  const addrDB0F0 = readLongOperand(cur, helperAddr + 25)
+  const addrDB102 = readLongOperand(cur, helperAddr + 66)
+  const skipTile  = readImmByte(cur, helperAddr + 34)
+  const bump1 = readImmByte(cur, helperAddr + 40)
+  const bump2 = readImmByte(cur, helperAddr + 44)
+  const bump3 = readImmByte(cur, helperAddr + 48)
+  const bump4 = readImmByte(cur, helperAddr + 52)
+
   const existing = readExisting(cur)
-  // Scan DATA_0DB0F0 backwards from index 17.
   for (let k = 17; k >= 0; k--) {
-    if ((db0F0[k] ?? -1) === existing) {
-      // Match -- replace with DATA_0DB102[k] on page 1.
+    const entry = cur.rom.readByte(addrDB0F0 + k) ?? 0
+    if (entry === existing) {
       setPage1(cur)
-      writeTile(cur, db102[k] ?? baseTile)
+      writeTile(cur, cur.rom.readByte(addrDB102 + k) ?? baseTile)
       return
     }
   }
-  if (existing === 0x25) {
+  if (existing === skipTile) {
     writeTile(cur, baseTile)
     return
   }
-  // Existing is non-empty, non-match: nudge specific bases by +1.
-  if (baseTile === 0x01 || baseTile === 0x03 || baseTile === 0x45 || baseTile === 0x48) {
+  if (baseTile === bump1 || baseTile === bump2 || baseTile === bump3 || baseTile === bump4) {
     writeTile(cur, (baseTile + 1) & 0xFF)
   } else {
     writeTile(cur, baseTile)
@@ -258,18 +298,24 @@ export function writeTileMergeCODE_0DB114(
  * Called by CODE_0DB075 for row-1 and middle tiles.
  */
 export function writeTileMergeCODE_0DB198(
-  cur: Cursor, X: number, baseTile: number,
-  db15C: number[], db17A: number[],
+  cur: Cursor, helperAddr: number, X: number, baseTile: number,
 ): void {
   if ((X >= 3 && X < 7) || X >= 9 || X === 2) {
     writeTile(cur, baseTile)
     return
   }
+  // Inside CODE_0DB198:
+  //   +25  CMP.L DATA_0DB15C,X  operand (3 bytes = trigger table address)
+  //   +42  LDA.L DATA_0DB17A,X  operand (3 bytes = substitution table address)
+  const addrDB15C = readLongOperand(cur, helperAddr + 25)
+  const addrDB17A = readLongOperand(cur, helperAddr + 42)
+
   const existing = readExisting(cur)
   for (let k = 29; k >= 0; k--) {
-    if ((db15C[k] ?? -1) === existing) {
+    const entry = cur.rom.readByte(addrDB15C + k) ?? 0
+    if (entry === existing) {
       setPage1(cur)
-      writeTile(cur, db17A[k] ?? baseTile)
+      writeTile(cur, cur.rom.readByte(addrDB17A + k) ?? baseTile)
       return
     }
   }

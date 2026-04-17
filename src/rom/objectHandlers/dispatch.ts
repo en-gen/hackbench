@@ -22,9 +22,10 @@ import {
   handle_0DA8C3, handle_0DAA26, handle_0DAAB4, handle_0DAB0D, handle_0DAB3E,
   handle_0DB075,
   handle_0DB1C8, handle_0DB1D4, handle_0DB224,
-  handle_0DB3BD, handle_0DB3E3, handle_0DB42D, handle_0DB461,
+  handle_0DB3BD, handle_0DB3E3, handle_0DB42D, handle_0DB461, handle_0DB49E,
   handle_0DB51F, handle_0DB547, handle_0DB571, handle_0DB5B7,
   handle_0DB73F, handle_0DB7AA,
+  handle_0DBA0A,
 } from './standardHandlers'
 import {
   handle_0DA512, handle_0DA53D, handle_0DA57B,
@@ -50,12 +51,14 @@ export const STANDARD_HANDLERS: Record<number, HandlerFn> = {
   0x0DB3E3: handle_0DB3E3,
   0x0DB42D: handle_0DB42D,
   0x0DB461: handle_0DB461,
+  0x0DB49E: handle_0DB49E,
   0x0DB51F: handle_0DB51F,
   0x0DB547: handle_0DB547,
   0x0DB571: handle_0DB571,
   0x0DB5B7: handle_0DB5B7,
   0x0DB73F: handle_0DB73F,
   0x0DB7AA: handle_0DB7AA,
+  0x0DBA0A: handle_0DBA0A,
 }
 
 export const EXTENDED_HANDLERS: Record<number, HandlerFn> = {
@@ -85,7 +88,7 @@ export function dispatchExtended(cur: Cursor): void {
   if (addr === null || addr === 0) return
   const snesAddr = addr & 0xFFFFFF
   const handler = EXTENDED_HANDLERS[snesAddr]
-  if (handler) handler(cur)
+  if (handler) { cur.handlerAddr = snesAddr; handler(cur) }
   // else: unmapped extended handler -- silently no-op.
 }
 
@@ -117,6 +120,6 @@ export function dispatchStandard(cur: Cursor): void {
   )
   const handlerAddr = handlerPtrTable[cur.objNo - 1] & 0xFFFFFF
   const handler = STANDARD_HANDLERS[handlerAddr]
-  if (handler) handler(cur)
+  if (handler) { cur.handlerAddr = handlerAddr; handler(cur) }
   // else: unmapped handler -- silently no-op.
 }
