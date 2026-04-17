@@ -10,6 +10,8 @@ import type { Map16Tile } from '../rom/Map16'
 type RgbaColor = [number, number, number, number]
 import { expandLevel } from '../rom/ObjectExpander'
 import { decompressRle1 } from '../rom/LcRle1'
+import { getLevelMusicBgm } from '../rom/MusicData'
+import { buildSpc } from '../rom/SpcBuilder'
 import { SCREEN_W, SCREEN_H } from '../rom/LevelParser'
 
 /**
@@ -273,6 +275,13 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
         backAreaColors: backAreaColors.map(c => [c[0], c[1], c[2], c[3]]),
         paletteRows:    cgram.rows.map(row => row.map((c: number[]) => [c[0], c[1], c[2], c[3]])),
         sprites:        sprites.map(s => ({ x: s.x, y: s.y, spriteId: s.spriteId })),
+        // SPC music for this level's BGM
+        spcData: (() => {
+          const bgm = getLevelMusicBgm(rom.rom, header.music)
+          const spc = bgm > 0 ? buildSpc(rom.rom, bgm, 'level') : null
+          return spc ? Array.from(spc) : null
+        })(),
+        spcBgmCommand: getLevelMusicBgm(rom.rom, header.music),
         header: {
           music:          header.music,
           spriteSet:      spriteTileset,
@@ -293,6 +302,12 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'levelEditor.js')
     )
+    const spcJsUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'spc.js')
+    )
+    const wasmUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'spc.wasm')
+    )
     const nonce = getNonce()
     return /* html */`<!DOCTYPE html>
 <html lang="en">
@@ -300,7 +315,8 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none';
-             script-src 'nonce-${nonce}';
+             script-src 'nonce-${nonce}' 'wasm-unsafe-eval' 'unsafe-eval';
+             connect-src ${webview.cspSource};
              style-src ${webview.cspSource} 'unsafe-inline';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SMW Level Editor</title>
@@ -310,7 +326,32 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
   </style>
 </head>
 <body>
+  <!-- Stub DOM for spc.js UI init -->
+  <div id="spc-player-interface" style="display:none;">
+    <div id="spc-player-header" class="header-button"></div>
+    <div class="title"></div><div class="subtitle"></div><div class="details"></div>
+    <button class="pause hidden"></button><button class="play"></button>
+    <button class="restart"></button><button class="stop"></button><button class="close"></button>
+    <input type="checkbox" id="spc-player-toggle"/>
+    <input type="checkbox" id="spc-player-loop"/>
+    <input type="range" id="volume-slider" class="volume-slider" min="0" max="1.5" step="0.01" value="1"/>
+    <div class="volume-fill"></div><div class="volume-level"></div><div class="volume-thumb"></div>
+    <div class="seek-container"><input type="range" class="seek-control" min="0" max="1"/><span class="seek-preview"></span></div>
+    <span class="track-time-elapsed"></span><span class="track-duration"></span>
+    <div id="track-list-container" class="hidden"><div class="track-list-scrollbox"></div>
+      <div class="track-list"></div>
+      <div class="overflow-indicator top"></div><div class="overflow-indicator bottom"></div>
+    </div><div class="seek"></div>
+  </div>
   <div id="app"></div>
+  <script nonce="${nonce}">
+    window.Module = { locateFile: function(path) {
+      if (path.endsWith('.wasm')) return '${wasmUri}';
+      return path;
+    }};
+    window.SMWCentral = { SPCPlayer: {} };
+  </script>
+  <script nonce="${nonce}" src="${spcJsUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`
