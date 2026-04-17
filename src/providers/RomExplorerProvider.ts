@@ -29,7 +29,7 @@ class SectionFolder extends vscode.TreeItem {
     public readonly sectionId: string,
     icon: string,
     public readonly children: ResourcesTreeItem[],
-    collapsed = false,
+    collapsed = true,
   ) {
     super(label, collapsed
       ? vscode.TreeItemCollapsibleState.Collapsed
@@ -251,7 +251,7 @@ export class ResourcesProvider implements vscode.TreeDataProvider<ResourcesTreeI
       )
 
       const roomsSection = new SectionFolder(
-        `Maps  (${validRooms.length})`, 'rooms', 'file-code', roomItems, false,
+        `Maps  (${validRooms.length})`, 'rooms', 'file-code', roomItems, true,
       )
       const romPalettes = loadRomPalettes(rom.rom)
       const paletteItems: PaletteGroupItem[] = romPalettes.groups.map(g => {
@@ -262,7 +262,7 @@ export class ResourcesProvider implements vscode.TreeDataProvider<ResourcesTreeI
       const palettesSection = new SectionFolder(
         `Palettes  (${paletteItems.length})`, 'palettes', 'symbol-color',
         paletteItems,
-        false,
+        true,
       )
       const gfxSection = new SectionFolder(
         `GFX Files  (${GFX_FILE_COUNT})`, 'gfx', 'file-media',
