@@ -33,10 +33,18 @@ interface PaletteGroup {
   cgRamRow: number | null
 }
 
+interface SerializedPaletteAnimPatch { cgramIdx: number; r: number; g: number; b: number; a: number }
+interface SerializedPaletteAnimData {
+  frameCount: number
+  intervalMs: number
+  frames: SerializedPaletteAnimPatch[][]
+}
+
 interface LoadMsg {
   groups: PaletteGroup[]
   backAreaColor: Color
   romName: string
+  paletteAnimation: SerializedPaletteAnimData | null
 }
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
@@ -166,6 +174,14 @@ let activeVariantIdx = 0
 let selectedRowIdx   = 0
 let selectedColIdx   = -1
 
+// Palette animation
+let paletteAnim: SerializedPaletteAnimData | null = null
+let palAnimFrame   = 0
+let palAnimRunning = false
+let palAnimTimer: ReturnType<typeof setInterval> | null = null
+// cgramIdx → live color overrides (updated each animation frame)
+const animOverrides = new Map<number, Color>()
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toHex(c: Color): string {
@@ -181,6 +197,78 @@ function toBgr555(c: Color): number {
 
 function isUnknown(c: Color): boolean {
   return c.a === 255 && c.r === 40 && c.g === 40 && c.b === 40
+}
+
+// ── Palette animation ─────────────────────────────────────────────────────────
+
+function liveColorAt(group: PaletteGroup, rowIdx: number, col: number): Color {
+  if (group.cgRamRow !== null) {
+    const cgramIdx = ((group.cgRamRow + rowIdx) << 4) | col
+    const override = animOverrides.get(cgramIdx)
+    if (override) return override
+  }
+  const variant = group.variants[activeVariantIdx]
+  return variant?.rows[rowIdx]?.[col] ?? { r: 0, g: 0, b: 0, a: 255 }
+}
+
+/** True if the group contains CGRAM rows targeted by FlashingColors ($6D/$7D = rows 6–7). */
+function groupHasAnimation(group: PaletteGroup): boolean {
+  if (!paletteAnim || group.cgRamRow === null) return false
+  const rowCount = group.variants[0]?.rows.length ?? 0
+  const rowMin = group.cgRamRow
+  const rowMax = group.cgRamRow + rowCount - 1
+  return rowMin <= 7 && rowMax >= 6
+}
+
+function applyPalFrame(f: number): void {
+  if (!paletteAnim) return
+  palAnimFrame = ((f % paletteAnim.frameCount) + paletteAnim.frameCount) % paletteAnim.frameCount
+
+  const patches = paletteAnim.frames[palAnimFrame] ?? []
+  for (const p of patches) {
+    animOverrides.set(p.cgramIdx, { r: p.r, g: p.g, b: p.b, a: p.a })
+  }
+
+  // Refresh visible swatches for affected CGRAM indices
+  const group = groups.find(g => g.id === activeGroupId)
+  if (!group || group.cgRamRow === null) return
+  for (const [cgramIdx, color] of animOverrides) {
+    const absRow = cgramIdx >> 4
+    const col    = cgramIdx & 15
+    const rowIdx = absRow - group.cgRamRow
+    if (rowIdx < 0 || rowIdx >= (group.variants[activeVariantIdx]?.rows.length ?? 0)) continue
+    const el = swatchRows.querySelector<HTMLElement>(`.swatch[data-row="${rowIdx}"][data-col="${col}"]`)
+    if (el && !isUnknown(color) && color.a !== 0) {
+      el.style.background = toHex(color)
+    }
+  }
+
+  // Refresh detail bar if selected swatch is animated
+  if (selectedColIdx >= 0) {
+    const cgramIdx = group.cgRamRow !== null
+      ? ((group.cgRamRow + selectedRowIdx) << 4) | selectedColIdx
+      : -1
+    if (animOverrides.has(cgramIdx)) {
+      const variant = group.variants[activeVariantIdx]
+      if (variant) selectColor(selectedRowIdx, selectedColIdx, variant, group)
+    }
+  }
+}
+
+function setPalAnimRunning(running: boolean): void {
+  palAnimRunning = running
+  // Update whichever play button is currently in the group header
+  const btn = document.getElementById('pal-play-btn')
+  if (btn) btn.textContent = running ? '⏸' : '▶'
+  if (running) {
+    if (palAnimTimer) clearInterval(palAnimTimer)
+    palAnimTimer = setInterval(() => {
+      if (!paletteAnim) return
+      applyPalFrame(palAnimFrame + 1)
+    }, paletteAnim?.intervalMs ?? 66)
+  } else {
+    if (palAnimTimer) { clearInterval(palAnimTimer); palAnimTimer = null }
+  }
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────────
@@ -220,7 +308,14 @@ function renderGroup(): void {
     ? `<span class="unverified-badge">⚠ some addresses unverified</span>`
     : ''
 
-  groupTitle.innerHTML = group.label + cgBadge + warnBadge
+  const animBtn = groupHasAnimation(group)
+    ? `<button id="pal-play-btn" title="${palAnimRunning ? 'Pause' : 'Play'} palette animation" style="
+        background:none;border:none;color:var(--vscode-foreground,#ccc);
+        cursor:pointer;font-size:13px;padding:1px 6px;border-radius:3px;line-height:1;
+        vertical-align:middle;margin-left:6px;">${palAnimRunning ? '⏸' : '▶'}</button>`
+    : ''
+  groupTitle.innerHTML = group.label + cgBadge + warnBadge + animBtn
+  groupTitle.querySelector('#pal-play-btn')?.addEventListener('click', () => setPalAnimRunning(!palAnimRunning))
   groupDesc.textContent = group.description
 
   // Variant tabs
@@ -280,7 +375,7 @@ function renderVariant(group: PaletteGroup): void {
     row.style.cssText = `display:flex;gap:${GAP}px;margin-bottom:2px;`
 
     for (let col = 0; col < COLS; col++) {
-      const c   = rowColors[col] ?? { r: 0, g: 0, b: 0, a: 255 }
+      const c   = liveColorAt(group, rowIdx, col)
       const unk = isUnknown(c)
       const transparent = c.a === 0
 
@@ -317,8 +412,7 @@ function selectColor(rowIdx: number, col: number, variant: PaletteVariant, group
   swatchRows.querySelectorAll('.swatch').forEach(e => e.classList.remove('active'))
   swatchRows.querySelector(`.swatch[data-row="${rowIdx}"][data-col="${col}"]`)?.classList.add('active')
 
-  const rowColors = variant.rows[rowIdx]
-  const c   = rowColors?.[col] ?? { r: 0, g: 0, b: 0, a: 255 }
+  const c   = liveColorAt(group, rowIdx, col)
   const unk = isUnknown(c)
   const transparent = c.a === 0
 
@@ -347,6 +441,12 @@ window.addEventListener('message', (event) => {
     const data = msg as unknown as LoadMsg
     groups = data.groups
     romNameEl.textContent = data.romName
+
+    // Initialize palette animation (button appears in group header when relevant)
+    paletteAnim = data.paletteAnimation ?? null
+    animOverrides.clear()
+    palAnimRunning = false
+    if (palAnimTimer) { clearInterval(palAnimTimer); palAnimTimer = null }
 
     if (groups.length > 0) {
       activeGroupId = groups[0].id
