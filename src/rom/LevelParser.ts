@@ -70,6 +70,10 @@ export interface LevelObject {
   // Backward-compatible aliases used by webview/providers:
   objectType: number   // = objectNumber for normal, 0x100+objectNumber for extended
   param: number        // = settings
+  /** For screen exit objects: the destination level (primary) or entrance index (secondary). */
+  screenExitDest?: number
+  /** True if this is a secondary exit (needs DATA_05F800 lookup), false if primary (dest is direct). */
+  screenExitIsSecondary?: boolean
 }
 
 export interface LevelSprite {
@@ -211,6 +215,23 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
 
     const isExtended = objectNumber === 0
 
+    // Screen exit: extended object with settings ($59 / LvlLoadObjSize) == 0.
+    // Handler CODE_0DA512 (bank_0D.asm line 1416):
+    //   Reads 1 extra byte → ExitTableLow[screen]
+    //   _B (byte 1) & 0x01 → ExitTableHigh[screen] (bit 8)
+    //   _B >> 1 → UseSecondaryExit
+    //   Primary (UseSecondaryExit=0): value IS the destination level
+    //   Secondary (UseSecondaryExit!=0): value is index into DATA_05F800
+    let screenExitDest: number | undefined
+    let screenExitIsSecondary: boolean | undefined
+    if (isExtended && b2 === 0 && pos < data.length) {
+      const extraByte = data[pos]!
+      const highBit = b1 & 0x01
+      screenExitDest = (highBit << 8) | extraByte
+      screenExitIsSecondary = (b1 >> 1) !== 0
+      pos += 1
+    }
+
     const objNum = isExtended ? b2 : objectNumber
     objects.push({
       type: isExtended ? 'extended' : 'standard',
@@ -222,9 +243,10 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
       newScreen,
       highCoord,
       raw: [b0, b1, b2],
-      // Backward-compatible aliases
       objectType: isExtended ? 0x100 + b2 : objectNumber,
       param: b2,
+      screenExitDest,
+      screenExitIsSecondary,
     })
   }
 

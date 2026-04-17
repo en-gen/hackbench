@@ -18,6 +18,7 @@
  */
 
 import { RomFile } from './RomFile'
+import { parseLevelObjects } from './LevelParser'
 
 /** SNES addresses for SMW ROM structures. */
 export const ADDR = {
@@ -246,34 +247,73 @@ export class SmwRom {
   }
 
   /**
-   * Build exit graph from secondary entrance tables.
+   * Build exit graph: sourceLevelIndex → [destLevelIndex].
    *
-   * From CODE_05D796 (bank_05.asm lines 7117-7161):
-   *   destLevel = DATA_05F800[Y] (lo byte)
-   *   flags = DATA_05FE00[Y]
-   *   Full dest = destLevel (9-bit if flags has hi bit)
+   * For each level, parse its L1 data to find screen exit entrance indices,
+   * then look up destinations in the secondary entrance table at $05F800.
+   *
+   * Screen exits in vanilla SMW are encoded in the level's object stream.
+   * The game stores per-screen exit data when loading a level. We parse
+   * the level data to find which secondary entrance indices each level uses,
+   * then resolve destinations via DATA_05F800.
+   *
+   * Additionally, the level header's L2 pointer with bank=$FF indicates
+   * a secondary entrance destination (the lo/hi bytes form the dest level).
    */
   buildLevelExitGraph(): Map<number, number[]> {
     const { subarea } = this.classifyLevels()
     const validDestinations = new Set<number>(subarea)
 
+    // Read the secondary entrance destination table
     const destTable  = this.rom.readAt(ADDR.SEC_EXIT_DEST,  ADDR.SEC_ENTRANCE_COUNT)
     const flagsTable = this.rom.readAt(ADDR.SEC_EXIT_FLAGS, ADDR.SEC_ENTRANCE_COUNT)
     if (!destTable || !flagsTable) return new Map()
 
-    const graph = new Map<number, number[]>()
+    // Build entranceIdx → destLevel lookup
+    const entranceToDest = new Map<number, number>()
     const n = Math.min(destTable.length, flagsTable.length)
-    for (let entranceIdx = 0; entranceIdx < n; entranceIdx++) {
-      const flags   = flagsTable[entranceIdx]
-      const destLo  = destTable[entranceIdx]
+    for (let i = 0; i < n; i++) {
+      const flags  = flagsTable[i]
+      const destLo = destTable[i]
       if (flags === undefined || destLo === undefined) continue
-      const destLevel = (((flags >> 3) & 1) << 8) | destLo
-      if (!validDestinations.has(destLevel)) continue
+      const dest = (((flags >> 3) & 1) << 8) | destLo
+      if (validDestinations.has(dest)) {
+        entranceToDest.set(i, dest)
+      }
+    }
 
-      const existing = graph.get(entranceIdx) ?? []
-      if (!existing.includes(destLevel)) {
-        existing.push(destLevel)
-        graph.set(entranceIdx, existing)
+    const graph = new Map<number, number[]>()
+
+    // For each level with data, find screen exit objects in the L1 stream.
+    // Screen exits are extended objects (objectNumber=0, settings=0) that
+    // have an extra byte: the secondary entrance index.
+    for (let levelIdx = 0; levelIdx < LEVEL_COUNT; levelIdx++) {
+      const rawL1 = this.getLevelRawData(levelIdx)
+      if (!rawL1 || rawL1.length < 6) continue
+
+      let parsed
+      try { parsed = parseLevelObjects(rawL1) } catch { continue }
+
+      const dests: number[] = []
+      for (const obj of parsed.objects) {
+        if (obj.screenExitDest === undefined) continue
+        let dest: number
+        if (obj.screenExitIsSecondary) {
+          // Secondary exit: look up destination in DATA_05F800 table
+          const resolved = entranceToDest.get(obj.screenExitDest)
+          if (resolved === undefined) continue
+          dest = resolved
+        } else {
+          // Primary exit: value IS the destination level directly
+          dest = obj.screenExitDest
+        }
+        if (dest !== levelIdx && !dests.includes(dest)) {
+          dests.push(dest)
+        }
+      }
+
+      if (dests.length > 0) {
+        graph.set(levelIdx, dests)
       }
     }
 

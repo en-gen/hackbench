@@ -60,6 +60,12 @@ class LevelFolder extends vscode.TreeItem {
     this.description  = displayName ? `$${hex}` : undefined
     this.iconPath     = new vscode.ThemeIcon('symbol-field')
     this.contextValue = 'smwLevelFolder'
+    // Opening the folder also opens the entrance room
+    this.command = {
+      command: 'vscode.open',
+      title: 'Open Level',
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/levels/${hex}.smwlevel`)]
+    }
   }
 }
 
@@ -77,7 +83,7 @@ class RoomItem extends vscode.TreeItem {
     this.description = name ? `$${hex}` : undefined
     this.iconPath = new vscode.ThemeIcon(
       role === 'entrance' ? 'home'
-      : role === 'sub'    ? 'symbol-namespace'
+      : role === 'sub'    ? 'group-by-ref-type'
       :                     'file-code'
     )
     this.command = {
