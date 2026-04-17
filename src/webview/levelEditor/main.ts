@@ -90,11 +90,16 @@ app.innerHTML = `
     </div>
     <div style="padding:4px 8px 8px;">
       <canvas id="vram-canvas" width="128" height="128" style="
-        width:100%;image-rendering:pixelated;display:block;cursor:crosshair;
+        width:100%;image-rendering:pixelated;display:block;cursor:default;
         border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
         <div id="vram-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
-        <button id="btn-vram-grid" style="${btnStyle()}border:none;" title="Toggle grid">⊞</button>
+        <div style="display:flex;gap:2px;">
+          <button id="btn-anim-prev" style="${btnStyle()}border:none;" title="Previous frame">⏮</button>
+          <button id="btn-anim" style="${btnStyle()}border:none;" title="Play animation">▶</button>
+          <button id="btn-anim-next" style="${btnStyle()}border:none;" title="Next frame">⏭</button>
+          <button id="btn-vram-grid" style="${btnStyle()}border:none;" title="Toggle grid">⊞</button>
+        </div>
       </div>
     </div>
 
@@ -106,12 +111,14 @@ app.innerHTML = `
     </div>
     <div style="padding:4px 8px 8px;">
       <canvas id="map16-canvas" width="256" height="256" style="
-        width:100%;image-rendering:pixelated;display:block;cursor:crosshair;
+        width:100%;image-rendering:pixelated;display:block;cursor:default;
         border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
         <div id="map16-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
         <div style="display:flex;gap:2px;">
-          <button id="btn-anim" style="${btnStyle()}border:none;" title="Play animation">▶</button>
+          <button id="btn-anim-prev2" style="${btnStyle()}border:none;" title="Previous frame">⏮</button>
+          <button id="btn-anim2" style="${btnStyle()}border:none;" title="Play animation">▶</button>
+          <button id="btn-anim-next2" style="${btnStyle()}border:none;" title="Next frame">⏭</button>
           <button id="btn-map16-grid" style="${btnStyle()}border:none;" title="Toggle grid">⊞</button>
         </div>
       </div>
@@ -254,7 +261,7 @@ const chkL2          = document.getElementById('chk-l2')          as HTMLInputEl
 // ── Tile detail preview state ─────────────────────────────────────────────────
 let selectedDetail: { type: 'vram'; page: number; col: number; row: number } |
                     { type: 'map16'; page: number; col: number; row: number } | null = null
-let selectedDetailTile: AnimatedTile | null = null  // reference to the same object the Map16 viewer uses
+let selectedDetailTileId: number | null = null
 
 function redrawDetail(): void {
   if (!selectedDetail) return
@@ -277,21 +284,30 @@ function redrawDetail(): void {
     const globalChar = selectedDetail.page * VRAM_TILES_PER_PAGE + selectedDetail.row * 16 + selectedDetail.col
     const slot = globalChar < 0x80 ? 'FG1' : globalChar < 0x100 ? 'FG2' : globalChar < 0x180 ? 'FG3' : globalChar < 0x200 ? 'AN1' : globalChar < 0x400 ? '—' : 'SP'
     info.innerHTML = `<b>8×8 char $${globalChar.toString(16).padStart(3,'0')}</b><br>slot: ${slot}`
-  } else if (selectedDetail.type === 'map16') {
+  } else if (selectedDetail.type === 'map16' && map16Pages[selectedDetail.page]) {
+    const entry = map16Pages[selectedDetail.page]
     dc.width = 16; dc.height = 16
-
-    if (selectedDetailTile && selectedDetailTile.frames.length > 0) {
-      const frame = selectedDetailTile.frames[selectedDetailTile.frameIndex]
-      const tileData = dctx.createImageData(16, 16)
-      tileData.data.set(frame)
-      dctx.putImageData(tileData, 0, 0)
-      const frameInfo = selectedDetailTile.frames.length > 1
-        ? `<br>frame: ${selectedDetailTile.frameIndex + 1} / ${selectedDetailTile.frames.length}`
-        : ''
-      info.innerHTML = `<b>Map16 tile $${selectedDetailTile.id.toString(16).padStart(3,'0')}</b>${frameInfo}`
-    }
+    const srcX = selectedDetail.col * 16
+    const srcY = entry.pageInAtlas * 256 + selectedDetail.row * 16
+    const tileData = dctx.createImageData(16, 16)
+    const w = entry.atlas.width
+    for (let ty = 0; ty < 16; ty++)
+      for (let tx = 0; tx < 16; tx++) {
+        const si = ((srcY + ty) * w + (srcX + tx)) * 4
+        const di = (ty * 16 + tx) * 4
+        for (let c = 0; c < 4; c++) tileData.data[di+c] = entry.atlas.data[si+c]
+      }
+    dctx.putImageData(tileData, 0, 0)
+    const localTile = selectedDetail.row * 16 + selectedDetail.col
+    const tileId = entry.label.startsWith('L1') ? entry.pageInAtlas * 256 + localTile : localTile
+    const frameInfo = animFrameCount > 1 ? `<br>frame: ${animFrame + 1} / ${animFrameCount}` : ''
+    info.innerHTML = `<b>Map16 tile $${tileId.toString(16).padStart(3,'0')}</b>${frameInfo}`
   }
 }
+
+// ── Tile viewer hover highlight ───────────────────────────────────────────────
+let vramHoverTile: { col: number; row: number } | null = null
+let map16HoverTile: { col: number; row: number } | null = null
 
 // ── Tile viewer grid toggles ─────────────────────────────────────────────────
 let vramGridOn = false
@@ -308,42 +324,68 @@ document.getElementById('btn-map16-grid')!.addEventListener('click', () => {
 })
 
 // ── Animation ────────────────────────────────────────────────────────────────
-// Each Map16 tile is an AnimatedTile with N frames of pre-rendered RGBA data.
-// Static tiles have 1 frame. Animated tiles have 4 (or however many the ROM defines).
-// The timer advances each tile's frameIndex; renderMap16Page draws from the current frame.
-interface AnimatedTile {
-  id: number
-  frameIndex: number
-  frames: Uint8ClampedArray[]  // each entry = 16×16×4 = 1024 bytes of RGBA
-}
-
-const map16AnimTiles: Map<number, AnimatedTile> = new Map()  // tileId → AnimatedTile
+// Animation happens at the VRAM level. The provider sends per-frame 8×8 VRAM sheets.
+// Frame 0 is the base vramSheetData. Extra frames are in animation.extraVramSheets.
+// The timer swaps VRAM sheets; both the 8×8 viewer and Map16 viewer redraw from
+// the current sheet. Map16 tiles are static references — they don't change.
 let animRunning = false
 let animTimer: ReturnType<typeof setInterval> | null = null
-let animIntervalMs = 17
-let hasAnimatedTiles = false
+let animIntervalMs = 133
+let animFrameCount = 1
+let animFrame = 0
+let vramSheets: ImageData[] = []  // frame 0 = base, frames 1+ = extra
 
-const btnAnim = document.getElementById('btn-anim')!
-btnAnim.addEventListener('click', () => {
-  if (!hasAnimatedTiles) return
-  animRunning = !animRunning
-  btnAnim.textContent = animRunning ? '⏸' : '▶'
-  btnAnim.title = animRunning ? 'Pause animation' : 'Play animation'
-  btnAnim.style.color = animRunning ? '#5b9cf6' : '#ccc'
-  if (animRunning) {
-    startAnimTimer()
-  } else {
-    stopAnimTimer()
+const animPlayBtns = [document.getElementById('btn-anim')!, document.getElementById('btn-anim2')!]
+
+function syncAnimButtons(): void {
+  for (const btn of animPlayBtns) {
+    btn.textContent = animRunning ? '⏸' : '▶'
+    btn.title = animRunning ? 'Pause animation' : 'Play animation'
+    btn.style.color = animRunning ? '#5b9cf6' : '#ccc'
   }
-})
+}
+
+function toggleAnim(): void {
+  if (animFrameCount <= 1) return
+  animRunning = !animRunning
+  syncAnimButtons()
+  if (animRunning) startAnimTimer()
+  else stopAnimTimer()
+}
+
+for (const btn of animPlayBtns) btn.addEventListener('click', toggleAnim)
+
+function updateAnimLabel(): void {
+  const lbl = document.getElementById('anim-frame-label')
+  if (lbl) lbl.textContent = animFrameCount > 1 ? `${animFrame + 1}/${animFrameCount}` : ''
+}
+
+function stepFrame(delta: number): void {
+  if (animFrameCount <= 1) return
+  if (animRunning) { stopAnimTimer(); animRunning = false; syncAnimButtons() }
+  animFrame = ((animFrame + delta) % animFrameCount + animFrameCount) % animFrameCount
+  if (vramSheets[animFrame]) vramFullImageData = vramSheets[animFrame]
+  renderVramPage()
+  renderMap16Page()
+  redrawDetail()
+  updateAnimLabel()
+}
+
+document.getElementById('btn-anim-prev')!.addEventListener('click', () => stepFrame(-1))
+document.getElementById('btn-anim-next')!.addEventListener('click', () => stepFrame(1))
+document.getElementById('btn-anim-prev2')!.addEventListener('click', () => stepFrame(-1))
+document.getElementById('btn-anim-next2')!.addEventListener('click', () => stepFrame(1))
 
 function startAnimTimer(): void {
   stopAnimTimer()
-  console.log(`[ANIM-WV] Starting: ${map16AnimTiles.size} animated tiles, ${animIntervalMs}ms`)
+  animFrame = 0
+  console.log(`[ANIM-WV] Starting: ${animFrameCount} frames, ${animIntervalMs}ms`)
   animTimer = setInterval(() => {
-    for (const tile of map16AnimTiles.values()) {
-      tile.frameIndex = (tile.frameIndex + 1) % tile.frames.length
+    animFrame = (animFrame + 1) % animFrameCount
+    if (vramSheets[animFrame]) {
+      vramFullImageData = vramSheets[animFrame]
     }
+    renderVramPage()
     renderMap16Page()
     redrawDetail()
   }, animIntervalMs)
@@ -351,10 +393,9 @@ function startAnimTimer(): void {
 
 function stopAnimTimer(): void {
   if (animTimer) { clearInterval(animTimer); animTimer = null }
-  // Reset all tiles to frame 0
-  for (const tile of map16AnimTiles.values()) {
-    tile.frameIndex = 0
-  }
+  animFrame = 0
+  if (vramSheets[0]) vramFullImageData = vramSheets[0]
+  renderVramPage()
   renderMap16Page()
   redrawDetail()
 }
@@ -391,6 +432,21 @@ function renderVramPage(): void {
     vctx.lineWidth = 1
     for (let x = 8; x < vc.width; x += 8) { vctx.beginPath(); vctx.moveTo(x + 0.5, 0); vctx.lineTo(x + 0.5, vc.height); vctx.stroke() }
     for (let y = 8; y < vc.height; y += 8) { vctx.beginPath(); vctx.moveTo(0, y + 0.5); vctx.lineTo(vc.width, y + 0.5); vctx.stroke() }
+  }
+  if (vramHoverTile) {
+    vctx.fillStyle = 'rgba(0,0,0,0.55)'
+    vctx.fillRect(0, 0, vc.width, vc.height)
+    vctx.clearRect(vramHoverTile.col * 8, vramHoverTile.row * 8, 8, 8)
+    // Re-draw just the hovered tile from the slice
+    const hx = vramHoverTile.col * 8, hy = vramHoverTile.row * 8
+    const tileSlice = new Uint8ClampedArray(8 * 8 * 4)
+    for (let py = 0; py < 8; py++)
+      for (let px = 0; px < 8; px++) {
+        const si = ((hy + py) * sw + (hx + px)) * 4
+        const di = (py * 8 + px) * 4
+        for (let c = 0; c < 4; c++) tileSlice[di+c] = slice[si+c]
+      }
+    vctx.putImageData(new ImageData(tileSlice, 8, 8), hx, hy)
   }
   const lbl = document.getElementById('vram-page-label')!
   lbl.textContent = `Page ${vramPage + 1} / ${vramTotalPages}`
@@ -430,23 +486,7 @@ function renderMap16Page(): void {
     pageImg.set(entry.atlas.data.subarray(srcOff, srcOff + 256 * 4), dstOff)
   }
 
-  // Overlay animated tile frames for tiles on this page
-  const pageStartTile = entry.label.startsWith('L1') ? entry.pageInAtlas * 256 : 0x8000 + entry.pageInAtlas * 256
-  for (let row = 0; row < 16; row++) {
-    for (let col = 0; col < 16; col++) {
-      const tileId = (entry.label.startsWith('L1') ? entry.pageInAtlas * 256 : 0) + row * 16 + col
-      const animTile = map16AnimTiles.get(tileId)
-      if (animTile && animTile.frames.length > 1) {
-        const frame = animTile.frames[animTile.frameIndex]
-        const dx = col * 16, dy = row * 16
-        for (let py = 0; py < 16; py++) {
-          const srcOff = (py * 16) * 4
-          const dstOff = ((dy + py) * 256 + dx) * 4
-          pageImg.set(frame.subarray(srcOff, srcOff + 16 * 4), dstOff)
-        }
-      }
-    }
-  }
+
 
   mctx.putImageData(new ImageData(pageImg, 256, 256), 0, 0)
   if (map16GridOn) {
@@ -454,6 +494,20 @@ function renderMap16Page(): void {
     mctx.lineWidth = 1
     for (let x = 16; x < mc.width; x += 16) { mctx.beginPath(); mctx.moveTo(x + 0.5, 0); mctx.lineTo(x + 0.5, mc.height); mctx.stroke() }
     for (let y = 16; y < mc.height; y += 16) { mctx.beginPath(); mctx.moveTo(0, y + 0.5); mctx.lineTo(mc.width, y + 0.5); mctx.stroke() }
+  }
+  if (map16HoverTile) {
+    mctx.fillStyle = 'rgba(0,0,0,0.55)'
+    mctx.fillRect(0, 0, mc.width, mc.height)
+    const hx = map16HoverTile.col * 16, hy = map16HoverTile.row * 16
+    mctx.clearRect(hx, hy, 16, 16)
+    const tileSlice = new Uint8ClampedArray(16 * 16 * 4)
+    for (let py = 0; py < 16; py++)
+      for (let px = 0; px < 16; px++) {
+        const si = ((hy + py) * 256 + (hx + px)) * 4
+        const di = (py * 16 + px) * 4
+        for (let c = 0; c < 4; c++) tileSlice[di+c] = pageImg[si+c]
+      }
+    mctx.putImageData(new ImageData(tileSlice, 16, 16), hx, hy)
   }
   const lbl = document.getElementById('map16-page-label')!
   lbl.textContent = `Page ${map16PageIdx + 1} / ${map16Pages.length}`
@@ -519,13 +573,13 @@ interface LevelPayload {
   map16AtlasData?: number[]
   // L2/BG Map16 atlas (from Map16BGTiles)
   map16BgAtlasData?: number[]
-  // Animation: per-tile frame data. Frame 0 is in the atlas already.
-  // tileExtraFrames[tileId] = [frame1_rgba, frame2_rgba, ...] for animated tiles.
+  // Animation: VRAM-level frame data. Frame 0 is the base vramSheetData.
+  // extraVramSheets contains frames 1+ as RGBA pixel arrays (same format as vramSheetData).
+  // The webview cycles VRAM sheets; Map16 tiles are static references into VRAM chars.
   animation?: {
     frameCount: number
     intervalMs: number
-    tileExtraFrames: Record<number, number[][]>
-    map16TileUvs: Record<number, { col: number; row: number }>
+    extraVramSheets: number[][]
   }
   header: {
     music:          number
@@ -906,59 +960,37 @@ window.addEventListener('message', async (event) => {
     const raw     = new Uint8ClampedArray(levelData.atlasData)
     const imgData = new ImageData(raw, levelData.atlasWidth, levelData.atlasHeight)
     atlasImg      = await createImageBitmap(imgData)
-    // (atlas baseline no longer needed — animation uses per-tile frames)
-
-    // Build AnimatedTile objects from provider data
+    // Build VRAM animation sheets — frame 0 is the base vramSheetData,
+    // extra frames come from animation.extraVramSheets
     stopAnimTimer()
-    map16AnimTiles.clear()
-    hasAnimatedTiles = false
-    if (levelData.animation && levelData.animation.frameCount > 1) {
-      animIntervalMs = levelData.animation.intervalMs
-      const extraFrames = levelData.animation.tileExtraFrames
-      // For each tile with extra frames, build the AnimatedTile
-      // Frame 0 comes from the Map16 atlas; extra frames come from the provider
-      for (const [idStr, frames] of Object.entries(extraFrames)) {
-        const tileId = parseInt(idStr)
-        // Extract frame 0 from the Map16 atlas (tile position = id % 16, id / 16)
-        const col = tileId % 16, row = Math.floor(tileId / 16)
-        const frame0 = new Uint8ClampedArray(16 * 16 * 4)
-        if (levelData.map16AtlasData) {
-          const atlasW = 256
-          for (let py = 0; py < 16; py++) {
-            const srcOff = ((row * 16 + py) * atlasW + col * 16) * 4
-            const dstOff = (py * 16) * 4
-            for (let px = 0; px < 16; px++) {
-              for (let c = 0; c < 4; c++)
-                frame0[dstOff + px * 4 + c] = levelData.map16AtlasData[srcOff + px * 4 + c] ?? 0
-            }
-          }
-        }
-        // Build all frames: [frame0, frame1, frame2, ...]
-        const allFrames: Uint8ClampedArray[] = [frame0]
-        for (const f of frames) {
-          allFrames.push(new Uint8ClampedArray(f))
-        }
-        map16AnimTiles.set(tileId, { id: tileId, frameIndex: 0, frames: allFrames })
-      }
-      hasAnimatedTiles = map16AnimTiles.size > 0
-      console.log(`[ANIM-WV] Built ${map16AnimTiles.size} animated tiles, ${animIntervalMs}ms`)
-      btnAnim.style.display = ''
-      if (animRunning) startAnimTimer()
-    } else {
-      btnAnim.style.display = 'none'
-    }
+    vramSheets = []
+    animFrameCount = 1
 
     redraw()
 
     // ── VRAM 8×8 tile sheet (paged by slot) ──────────────────────────
     if (levelData.vramSheetData && levelData.vramSheetW && levelData.vramSheetH) {
-      vramFullImageData = new ImageData(
-        new Uint8ClampedArray(levelData.vramSheetData),
-        levelData.vramSheetW, levelData.vramSheetH,
-      )
-      const pxPerPage = (VRAM_TILES_PER_PAGE / 16) * 8  // 128px per page
-      vramTotalPages = Math.ceil(levelData.vramSheetH / pxPerPage)
+      const vw = levelData.vramSheetW, vh = levelData.vramSheetH
+      vramFullImageData = new ImageData(new Uint8ClampedArray(levelData.vramSheetData), vw, vh)
+      const pxPerPage = (VRAM_TILES_PER_PAGE / 16) * 8
+      vramTotalPages = Math.ceil(vh / pxPerPage)
       vramPage = 0
+
+      // Build animation frame sheets: frame 0 = base, frames 1+ from provider
+      vramSheets = [vramFullImageData]
+      if (levelData.animation && levelData.animation.frameCount > 1) {
+        animFrameCount = levelData.animation.frameCount
+        animIntervalMs = levelData.animation.intervalMs
+        for (const sheetData of levelData.animation.extraVramSheets) {
+          vramSheets.push(new ImageData(new Uint8ClampedArray(sheetData), vw, vh))
+        }
+        for (const b of animPlayBtns) b.style.display = ''
+        if (animRunning) startAnimTimer()
+      } else {
+        for (const b of animPlayBtns) b.style.display = 'none'
+      }
+      console.log(`[ANIM-WV] ${animFrameCount} frames, ${vramSheets.length} VRAM sheets`)
+
       renderVramPage()
 
       const vramCanvas = document.getElementById('vram-canvas') as HTMLCanvasElement
@@ -973,8 +1005,14 @@ window.addEventListener('message', async (event) => {
         const globalChar = vramPage * VRAM_TILES_PER_PAGE + localChar
         const slot = globalChar < 0x80 ? 'FG1' : globalChar < 0x100 ? 'FG2' : globalChar < 0x180 ? 'FG3' : globalChar < 0x200 ? 'AN1' : globalChar < 0x400 ? '—' : 'SP'
         vramInspect.textContent = `char $${globalChar.toString(16).padStart(3,'0')} (${slot})`
+        vramHoverTile = { col, row }
+        renderVramPage()
       }
-      vramCanvas.onmouseleave = () => { vramInspect.textContent = 'hover to inspect' }
+      vramCanvas.onmouseleave = () => {
+        vramInspect.textContent = 'hover to inspect'
+        vramHoverTile = null
+        renderVramPage()
+      }
 
       vramCanvas.onclick = (e) => {
         const rect = vramCanvas.getBoundingClientRect()
@@ -1022,8 +1060,14 @@ window.addEventListener('message', async (event) => {
         const row = Math.floor((e.clientY - rect.top) * sy / 16)
         const entry = map16Pages[map16PageIdx]
         m16Inspect.textContent = `tile ${row * 16 + col}  (${entry.label})`
+        map16HoverTile = { col, row }
+        renderMap16Page()
       }
-      m16Canvas.onmouseleave = () => { m16Inspect.textContent = 'hover to inspect' }
+      m16Canvas.onmouseleave = () => {
+        m16Inspect.textContent = 'hover to inspect'
+        map16HoverTile = null
+        renderMap16Page()
+      }
 
       m16Canvas.onclick = (e) => {
         const rect = m16Canvas.getBoundingClientRect()
@@ -1031,24 +1075,6 @@ window.addEventListener('message', async (event) => {
         const col = Math.floor((e.clientX - rect.left) * sx / 16)
         const row = Math.floor((e.clientY - rect.top) * sy / 16)
         selectedDetail = { type: 'map16', page: map16PageIdx, col, row }
-        // Resolve the AnimatedTile reference (or create a static one from atlas)
-        const entry = map16Pages[map16PageIdx]
-        const tileId = entry.label.startsWith('L1') ? entry.pageInAtlas * 256 + row * 16 + col : row * 16 + col
-        const existing = map16AnimTiles.get(tileId)
-        if (existing) {
-          selectedDetailTile = existing
-        } else {
-          // Static tile — extract frame 0 from atlas
-          const srcX = col * 16, srcY = entry.pageInAtlas * 256 + row * 16
-          const frame0 = new Uint8ClampedArray(16 * 16 * 4)
-          for (let ty = 0; ty < 16; ty++)
-            for (let tx = 0; tx < 16; tx++) {
-              const si = ((srcY + ty) * entry.atlas.width + (srcX + tx)) * 4
-              const di = (ty * 16 + tx) * 4
-              for (let c = 0; c < 4; c++) frame0[di+c] = entry.atlas.data[si+c]
-            }
-          selectedDetailTile = { id: tileId, frameIndex: 0, frames: [frame0] }
-        }
         redrawDetail()
       }
     }
