@@ -4,6 +4,7 @@ import { LevelsProvider, ResourcesProvider } from './providers/RomExplorerProvid
 import { LevelEditorProvider } from './providers/LevelEditorProvider'
 import { PaletteEditorProvider } from './providers/PaletteEditorProvider'
 import { GfxViewerProvider } from './providers/GfxViewerProvider'
+import { MusicPlayerProvider } from './providers/MusicPlayerProvider'
 import { SmwFileSystemProvider } from './providers/SmwFileSystemProvider'
 
 let session: RomSession | undefined
@@ -15,6 +16,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const levelEditorProvider = new LevelEditorProvider(context)
   const paletteEditorProvider = new PaletteEditorProvider(context)
   const gfxViewerProvider = new GfxViewerProvider(context)
+  const musicPlayerProvider = new MusicPlayerProvider(context)
 
   // Register the virtual filesystem for smwrom:// URIs
   context.subscriptions.push(
@@ -57,6 +59,15 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerTreeDataProvider('smwEditor.resourcesExplorer', resourcesProvider),
   )
 
+  // Register the music player custom editor
+  context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      'smwEditor.musicPlayer',
+      musicPlayerProvider,
+      { webviewOptions: { retainContextWhenHidden: true } }
+    )
+  )
+
   // Commands
   context.subscriptions.push(
     vscode.commands.registerCommand('smwEditor.openRom', () =>
@@ -64,17 +75,15 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('smwEditor.closeRom', () =>
       closeRomCommand(context, fsProvider, levelsProvider, resourcesProvider)
-    ),
-    vscode.commands.registerCommand('smwEditor.playTrack', (trackIndex: number, bgmCommand: number) => {
-      const bgmHex = bgmCommand.toString(16).toUpperCase().padStart(2, '0')
-      vscode.window.showInformationMessage(`Track ${trackIndex} — BGM $${bgmHex} (SPC playback coming soon)`)
-    })
+    )
   )
 }
 
 export function deactivate(): void {
   session?.dispose()
 }
+
+// ── ROM commands ─────────────────────────────────────────────────────────────
 
 async function openRomCommand(
   context: vscode.ExtensionContext,
