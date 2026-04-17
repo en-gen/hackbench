@@ -180,16 +180,20 @@ function readExisting(cur: Cursor): number {
  * Writes + advances column.
  */
 export function writeTileSlopeMerge(cur: Cursor, baseTile: number): void {
+  writeTile(cur, slopeMergeTile(cur, baseTile))
+  advanceCol(cur)
+}
+
+/** Non-advancing variant of writeTileSlopeMerge (CODE_0DB84E). */
+export function writeTileSlopeMergeNoAdvance(cur: Cursor, baseTile: number): void {
+  writeTile(cur, slopeMergeTile(cur, baseTile))
+}
+
+function slopeMergeTile(cur: Cursor, baseTile: number): number {
   const existing = readExisting(cur)
-  let out = baseTile
-  if (existing === 0x25) {
-    // keep out = baseTile (+0)
-  } else if (existing === 0x3F) {
-    out = (baseTile + 1) & 0xFF
-  } else {
-    out = (baseTile + 2) & 0xFF
-  }
-  writeTileAdvance(cur, out)
+  if (existing === 0x25) return baseTile
+  if (existing === 0x3F) return (baseTile + 1) & 0xFF
+  return (baseTile + 2) & 0xFF
 }
 
 /**
@@ -282,20 +286,25 @@ export function writeTileMergeCODE_0DB198(
  * This handles pipe-lip-into-ground and pipe-lip-onto-other-pipe blending.
  */
 export function writeTilePipeMerge(cur: Cursor, baseTile: number): void {
+  writeTile(cur, pipeMergeTile(cur, baseTile))
+  advanceCol(cur)
+}
+
+/** Same merge logic as writeTilePipeMerge but without advancing the cursor.
+ *  Used by variants that manage column positioning manually. */
+export function writeTilePipeMergeNoAdvance(cur: Cursor, baseTile: number): void {
+  writeTile(cur, pipeMergeTile(cur, baseTile))
+}
+
+/** Computes the CODE_0DABFD merged tile ID from (existing tile, base tile). */
+function pipeMergeTile(cur: Cursor, baseTile: number): number {
   const existing = readExisting(cur)
-  // DATA_0DABF7 indexed by X in 0..2; DATA_0DABFA holds the matching deltas.
-  const matches = [0x3F, 0x01, 0x03]
-  const deltas  = [0x01, 0x03, 0x04]
-  let out = baseTile
-  // ASM scans X = 2 down to 0; first match wins (but since entries are
-  // distinct, match order doesn't matter — the delta's the same either way).
+  const matches = [0x3F, 0x01, 0x03]  // DATA_0DABF7
+  const deltas  = [0x01, 0x03, 0x04]  // DATA_0DABFA
   for (let x = 0; x < 3; x++) {
-    if (existing === matches[x]) {
-      out = (baseTile + deltas[x]) & 0xFF
-      break
-    }
+    if (existing === matches[x]) return (baseTile + deltas[x]) & 0xFF
   }
-  writeTileAdvance(cur, out)
+  return baseTile
 }
 
 /** Save current column as bookmark (CODE_0DA6B1). */
