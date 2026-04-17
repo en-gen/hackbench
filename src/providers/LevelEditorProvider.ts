@@ -145,87 +145,42 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       const vram    = loadVram(rom.rom, objectTileset, spriteTileset)
       const map16   = loadAllMap16(rom.rom, objectTileset)
 
-      // Collect unique tile IDs present in the grid to limit atlas size
+      // Collect unique tile IDs present in the grid
       const usedIds = new Set<number>()
       for (const row of tileGrid) for (const id of row) if (id !== 0) usedIds.add(id)
       const usedTiles = map16.filter(t => usedIds.has(t.id))
 
-      const { atlas, atlasWidth, atlasHeight, tileUvs } = buildTileAtlas(usedTiles, vram, palette)
-
-      // tileUvMap: plain object (JSON-serialisable)
-      const tileUvMap: Record<number, { col: number; row: number }> = {}
-      for (const [id, uv] of tileUvs) tileUvMap[id] = uv
-
-      // ── Build full Map16 atlas (all 512 L1 tiles) for the Map16 panel ──
-      const { atlas: map16Atlas } = buildTileAtlas(map16, vram, palette)
-
-      // ── Build Map16 BG atlas (L2 preset background tiles, pages 0x80-0x81) ──
-      const { loadAllMap16BG } = require('../rom/Map16') as typeof import('../rom/Map16')
-      const map16bg = loadAllMap16BG(rom.rom)
-      const { atlas: map16BgAtlas } = buildTileAtlas(map16bg, vram, palette)
-
-      // ── Animation: build per-tile frame arrays ─────────────────────────
-      // Each tile gets N frames of RGBA data. Static tiles have 1 frame.
-      // Animated tiles have ANIM_FRAME_COUNT frames (typically 4).
-      // The webview cycles a frame counter; each tile displays tile.frames[n % tile.frameCount].
-      let animFrameCount = 1
+      // ── Animation: apply frame 0 to VRAM BEFORE building any atlases ──
+      // The SNES animation engine replaces 8×8 char data in VRAM via DMA.
+      // Map16 tiles are just pointers to chars — they don't change.
+      // We apply frame 0 to the base VRAM before building any atlases,
+      // then build additional VRAM sheets for frames 1+ so the webview
+      // can cycle them.
       let animIntervalMs = ANIM_INTERVAL_MS
-      const tileExtraFrames: Record<number, number[][]> = {}
-      let animTileUvs: Record<number, { col: number; row: number }> = {}
+      let animFrameCount = 1
+      const extraVramSheets: number[][] = []  // frames 1+ as RGBA pixel arrays
       try {
         const animData = loadAnimationData(rom.rom, objectTileset)
         if (animData && animData.frameCount > 1) {
           animFrameCount = animData.frameCount
           animIntervalMs = animData.intervalMs
-          // Find which chars are animated
-          const animatedChars = new Set<number>()
-          for (const frameSlots of animData.frames) {
-            for (const slot of frameSlots) {
-              for (let i = 0; i < slot.tiles.length; i++) animatedChars.add(slot.charBase + i)
+
+          // Apply frame 0 overrides directly to the base VRAM
+          // This makes ALL downstream rendering (8×8 sheet, Map16 atlas, level atlas)
+          // use the correct animated char data from the start.
+          const frame0Overrides = new Map<number, Uint8Array>()
+          for (const slot of animData.frames[0]) {
+            for (let i = 0; i < slot.tiles.length; i++) {
+              frame0Overrides.set(slot.charBase + i, slot.tiles[i])
             }
           }
-          // Find ALL Map16 tiles with animated chars (for both level canvas and Map16 viewer)
-          const animatedTiles = map16.filter(t =>
-            [t.tl, t.tr, t.bl, t.br].some(s => animatedChars.has(s.charNum))
-          )
-          // Apply frame 0 to both atlases (level + Map16 viewer)
-          {
-            const frame0Overrides = new Map<number, Uint8Array>()
-            for (const slot of animData.frames[0]) {
-              for (let i = 0; i < slot.tiles.length; i++) {
-                frame0Overrides.set(slot.charBase + i, slot.tiles[i])
-              }
-            }
-            const frame0Vram = createAnimatedVramProxy(vram, frame0Overrides)
-            for (const tile of animatedTiles) {
-              const rgba = renderMap16Tile(tile, frame0Vram, palette)
-              // Blit into level atlas (if tile is used in the grid)
-              const uv = tileUvs.get(tile.id)
-              if (uv) {
-                const dx = uv.col * 16, dy = uv.row * 16
-                for (let py = 0; py < 16; py++)
-                  for (let px = 0; px < 16; px++) {
-                    const si = (py * 16 + px) * 4
-                    const di = ((dy + py) * atlasWidth + (dx + px)) * 4
-                    atlas[di] = rgba[si]; atlas[di+1] = rgba[si+1]
-                    atlas[di+2] = rgba[si+2]; atlas[di+3] = rgba[si+3]
-                  }
-              }
-              // Blit into Map16 atlas (tile ID = position in 16-per-row grid)
-              const m16col = tile.id % 16, m16row = Math.floor(tile.id / 16)
-              const m16dx = m16col * 16, m16dy = m16row * 16
-              if (m16dy + 16 <= 512) {  // within Map16 atlas bounds
-                for (let py = 0; py < 16; py++)
-                  for (let px = 0; px < 16; px++) {
-                    const si = (py * 16 + px) * 4
-                    const di = ((m16dy + py) * 256 + (m16dx + px)) * 4
-                    map16Atlas[di] = rgba[si]; map16Atlas[di+1] = rgba[si+1]
-                    map16Atlas[di+2] = rgba[si+2]; map16Atlas[di+3] = rgba[si+3]
-                  }
-              }
-            }
+          const baseVram = createAnimatedVramProxy(vram, frame0Overrides)
+          // Replace vram slots with the frame-0-applied versions
+          for (const slotName of VRAM_SLOT_NAMES) {
+            if (baseVram[slotName]) (vram as Record<string, unknown>)[slotName] = baseVram[slotName]
           }
-          // For each extra frame (1..N-1), render animated tiles
+
+          // Build extra VRAM sheets for frames 1+ (used by webview animation timer)
           for (let frame = 1; frame < animData.frameCount; frame++) {
             const charOverrides = new Map<number, Uint8Array>()
             for (const slot of animData.frames[frame]) {
@@ -233,64 +188,32 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
                 charOverrides.set(slot.charBase + i, slot.tiles[i])
               }
             }
-            const proxyVram = createAnimatedVramProxy(vram, charOverrides)
-            for (const tile of animatedTiles) {
-              const rgba = renderMap16Tile(tile, proxyVram, palette)
-              if (!tileExtraFrames[tile.id]) tileExtraFrames[tile.id] = []
-              tileExtraFrames[tile.id].push(Array.from(rgba))
-            }
+            const frameVram = createAnimatedVramProxy(vram, charOverrides)
+            // Build an 8×8 VRAM sheet for this frame (same code as the main sheet below)
+            const sheet = buildVramSheet(frameVram, palette)
+            extraVramSheets.push(Array.from(sheet))
           }
-          // Store Map16 atlas UV positions for animated tiles
-          for (const tile of animatedTiles) {
-            animTileUvs[tile.id] = { col: tile.id % 16, row: Math.floor(tile.id / 16) }
-          }
-          console.log(`[ANIM] ${animatedTiles.length} animated tiles, ${animFrameCount} frames, ${animIntervalMs}ms interval`)
+          console.log(`[ANIM] ${animFrameCount} frames, ${animIntervalMs}ms interval`)
         }
       } catch (err) {
         console.warn('[LVL] Failed to load animation data:', (err as Error).message)
       }
 
-      // ── Build 8×8 VRAM tile sheet for the VRAM panel ───────────────────
-      // 4 pages matching Mesen/LM layout:
-      //   Page 0: chars $000-$0FF (FG1+FG2) — BG palette row 2
-      //   Page 1: chars $100-$1FF (FG3+AN1) — BG palette row 2
-      //   Page 2: chars $200-$2FF (AN2+BG1) — BG palette row 8 (sprite)
-      //   Page 3: chars $300-$3FF (SP1+SP2)  — OBJ palette row 8
-      // + Page 4: chars $400-$4FF (SP3+SP4) — OBJ palette row 8
-      // Arranged 16 per row = 128px wide
-      const { getCharPixels: getChar } = require('../rom/GfxLoader') as typeof import('../rom/GfxLoader')
-      const { getPaletteColor: getPalColor } = require('../rom/PaletteLoader') as typeof import('../rom/PaletteLoader')
-      // BG chars $000-$2FF + sprite chars $300-$5FF = 1536 tiles total (6 pages of 256)
-      // But we show 4 pages matching reference: page 0+1 (BG), skip 2 blank, page 4+5 (sprites)
-      // Render all contiguous for simplicity — the webview page navigator handles display
-      const VRAM_TILES = 1536  // chars $000-$5FF
-      const VR_PER_ROW = 16
-      const vramSheetW = VR_PER_ROW * 8  // 128px
-      const vramSheetH = Math.ceil(VRAM_TILES / VR_PER_ROW) * 8
-      const vramSheet = new Uint8ClampedArray(vramSheetW * vramSheetH * 4)
-      for (let i = 0; i < VRAM_TILES; i++) {
-        const pixels = getChar(vram, i)
-        const tileCol = i % VR_PER_ROW
-        const tileRow = Math.floor(i / VR_PER_ROW)
-        // BG chars ($000-$2FF) use palette row 2; sprite chars ($300+) use row 8
-        const palRow = i < 0x300 ? 2 : 8
-        for (let py = 0; py < 8; py++) {
-          for (let px = 0; px < 8; px++) {
-            const palIdx = pixels ? pixels[py * 8 + px] : 0
-            const destX = tileCol * 8 + px
-            const destY = tileRow * 8 + py
-            const destOff = (destY * vramSheetW + destX) * 4
-            if (palIdx === 0 || !pixels) {
-              vramSheet[destOff] = vramSheet[destOff + 1] = vramSheet[destOff + 2] = 0
-              vramSheet[destOff + 3] = pixels ? 0 : 128
-            } else {
-              const color = getPalColor(palette, palRow, palIdx)
-              vramSheet[destOff] = color[0]; vramSheet[destOff + 1] = color[1]
-              vramSheet[destOff + 2] = color[2]; vramSheet[destOff + 3] = 255
-            }
-          }
-        }
-      }
+      // ── Build all atlases using the frame-0-applied VRAM ──────────────
+      const { atlas, atlasWidth, atlasHeight, tileUvs } = buildTileAtlas(usedTiles, vram, palette)
+      const tileUvMap: Record<number, { col: number; row: number }> = {}
+      for (const [id, uv] of tileUvs) tileUvMap[id] = uv
+
+      const { atlas: map16Atlas } = buildTileAtlas(map16, vram, palette)
+
+      const { loadAllMap16BG } = require('../rom/Map16') as typeof import('../rom/Map16')
+      const map16bg = loadAllMap16BG(rom.rom)
+      const { atlas: map16BgAtlas } = buildTileAtlas(map16bg, vram, palette)
+
+      // ── Build 8×8 VRAM sheet (frame 0 applied) ──
+      const vramSheet = buildVramSheet(vram, palette)
+      const vramSheetW = 128  // 16 tiles × 8px
+      const vramSheetH = Math.ceil(1536 / 16) * 8
 
       webview.postMessage({
         type: 'load',
@@ -311,8 +234,7 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
         animation: {
           frameCount: animFrameCount,
           intervalMs: animIntervalMs,
-          tileExtraFrames,     // tileId → [frame1_rgba, frame2_rgba, ...] (frame 0 is in the atlas)
-          map16TileUvs: animTileUvs,
+          extraVramSheets,  // frames 1+ as RGBA pixel arrays (same format as vramSheetData)
         },
         backAreaColor:  romPalettes.backAreaColor,
         backAreaColors: backAreaColors.map(c => [c[0], c[1], c[2], c[3]]),
@@ -365,6 +287,44 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
 function getNonce(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
   return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
+// ── VRAM sheet builder ───────────────────────────────────────────────────────
+
+function buildVramSheet(
+  vramState: VramState,
+  palette: { colors: RgbaColor[] },
+): Uint8ClampedArray {
+  const { getCharPixels: getChar } = require('../rom/GfxLoader') as typeof import('../rom/GfxLoader')
+  const { getPaletteColor: getPalColor } = require('../rom/PaletteLoader') as typeof import('../rom/PaletteLoader')
+  const VRAM_TILES = 1536
+  const VR_PER_ROW = 16
+  const vramSheetW = VR_PER_ROW * 8
+  const vramSheetH = Math.ceil(VRAM_TILES / VR_PER_ROW) * 8
+  const sheet = new Uint8ClampedArray(vramSheetW * vramSheetH * 4)
+  for (let i = 0; i < VRAM_TILES; i++) {
+    const pixels = getChar(vramState, i)
+    const tileCol = i % VR_PER_ROW
+    const tileRow = Math.floor(i / VR_PER_ROW)
+    const palRow = i < 0x300 ? 2 : 8
+    for (let py = 0; py < 8; py++) {
+      for (let px = 0; px < 8; px++) {
+        const palIdx = pixels ? pixels[py * 8 + px] : 0
+        const destX = tileCol * 8 + px
+        const destY = tileRow * 8 + py
+        const destOff = (destY * vramSheetW + destX) * 4
+        if (palIdx === 0 || !pixels) {
+          sheet[destOff] = sheet[destOff + 1] = sheet[destOff + 2] = 0
+          sheet[destOff + 3] = pixels ? 0 : 128
+        } else {
+          const color = getPalColor(palette, palRow, palIdx)
+          sheet[destOff] = color[0]; sheet[destOff + 1] = color[1]
+          sheet[destOff + 2] = color[2]; sheet[destOff + 3] = 255
+        }
+      }
+    }
+  }
+  return sheet
 }
 
 // ── Animation helpers ─────────────────────────────────────────────────────────

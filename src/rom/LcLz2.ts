@@ -41,9 +41,19 @@
  * @param srcOffset  Byte offset within `src` to start reading (default 0)
  * @returns          Decompressed bytes as a Uint8Array
  */
-export function decompress(src: Buffer | Uint8Array, srcOffset = 0): Uint8Array {
-  const out: number[] = []
+export function decompress(src: Buffer | Uint8Array, srcOffset = 0, initialBuffer?: Uint8Array): Uint8Array {
+  // initialBuffer: optional pre-filled output buffer. The decompressor writes starting at
+  // position 0, overwriting the beginning while higher offsets remain intact. Backreferences
+  // can read from pre-existing data at ANY position (the game decompresses into pre-filled RAM).
+  const out: number[] = initialBuffer ? Array.from(initialBuffer) : []
   let i = srcOffset
+  let wp = 0  // write position (always starts at 0)
+
+  function writeByte(b: number): void {
+    if (wp < out.length) out[wp] = b
+    else while (out.length <= wp) out.push(wp === out.length ? b : 0)  // extend if needed
+    wp++
+  }
 
   while (i < src.length) {
     const header = src[i++]
@@ -66,7 +76,7 @@ export function decompress(src: Buffer | Uint8Array, srcOffset = 0): Uint8Array 
       case 0: {
         // Direct copy: len bytes from input → output
         for (let n = 0; n < len && i < src.length; n++) {
-          out.push(src[i++])
+          writeByte(src[i++])
         }
         break
       }
@@ -74,7 +84,7 @@ export function decompress(src: Buffer | Uint8Array, srcOffset = 0): Uint8Array 
         // Byte fill: one input byte repeated len times
         if (i >= src.length) break
         const b = src[i++]
-        for (let n = 0; n < len; n++) out.push(b)
+        for (let n = 0; n < len; n++) writeByte(b)
         break
       }
       case 2: {
@@ -82,24 +92,25 @@ export function decompress(src: Buffer | Uint8Array, srcOffset = 0): Uint8Array 
         if (i + 1 >= src.length) break
         const b0 = src[i++]
         const b1 = src[i++]
-        for (let n = 0; n < len; n++) out.push(n % 2 === 0 ? b0 : b1)
+        for (let n = 0; n < len; n++) writeByte(n % 2 === 0 ? b0 : b1)
         break
       }
       case 3: {
         // Increasing fill: one input byte, written then incremented each step
         if (i >= src.length) break
         let b = src[i++]
-        for (let n = 0; n < len; n++) out.push(b++ & 0xFF)
+        for (let n = 0; n < len; n++) writeByte(b++ & 0xFF)
         break
       }
       case 4: {
-        // Back-reference: 2-byte big-endian index into the output buffer so far
+        // Back-reference: 2-byte big-endian index into the output buffer
+        // Can read from ANY position including pre-filled data beyond current write pos
         if (i + 1 >= src.length) break
         const addrHi = src[i++]
         const addrLo = src[i++]
         const addr   = (addrHi << 8) | addrLo
         for (let n = 0; n < len; n++) {
-          out.push(addr + n < out.length ? out[addr + n] : 0)
+          writeByte(addr + n < out.length ? out[addr + n] : 0)
         }
         break
       }

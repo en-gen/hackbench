@@ -106,16 +106,24 @@ export const SNES_NTSC_FPS = 60.098
 export const ANIM_INTERVAL_MS = Math.round((8 / SNES_NTSC_FPS) * 1000)  // ~133ms per animation frame
 
 /**
- * Base address of AnimatedTiles in WRAM ($7E:7D00).
+ * RAM layout after CODE_00B888 (bank_00.asm lines 6250-6302):
  *
- * CODE_00B888 decompresses GFX33 (3bpp, ~9216 bytes) into a temporary area at
- * MarioGraphics ($7E:2000), then expands it to 4bpp (32 bytes/tile) in reverse
- * order. The expanded 4bpp result is written from WRAM $ACFE downward, landing
- * at $7D00–$ACFE — exactly the AnimatedTiles region (384 tiles × 32 bytes).
+ *   $7E:2000 — MarioGraphics start. GFX33 decompresses here (3bpp), then gets
+ *              expanded to 4bpp at $7D00-$ACFE. Then GFX32 decompresses into
+ *              $2000+ (overwriting the original GFX33 3bpp data).
  *
- * The AnimatedTileData table stores 16-bit WRAM pointers into this region.
- * We subtract this base to convert those pointers to offsets in our expanded buffer.
+ *   $7E:2000-$7CFF — GFX32 decompressed 3bpp data (Mario sprites). Berry
+ *                     animation frames reference addresses in this region
+ *                     (e.g., $6D80 = MarioGraphics + $4D80).
+ *
+ *   $7E:7D00-$ACFE — GFX33 expanded 4bpp data (AnimatedTiles). Most animation
+ *                     frames reference addresses here.
+ *
+ * The AnimatedTileData table stores 16-bit WRAM pointers. We use
+ * MARIO_GRAPHICS_RAM_BASE ($2000) as our buffer base so both GFX32 and GFX33
+ * regions can be addressed with positive offsets.
  */
+const MARIO_GRAPHICS_RAM_BASE = 0x2000
 const ANIMATED_TILES_RAM_BASE = 0x7D00
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -191,34 +199,92 @@ function readGfx33Pointer(rom: RomFile): number {
 }
 
 /**
- * Decompress and expand GFX33 (animated tile graphics) from ROM.
- * Returns the expanded 4bpp tile data buffer, or null on failure.
+ * Build the full MarioGraphics RAM region as the game does in CODE_00B888.
  *
- * This replicates the sequence in CODE_00B888:
- *   1. LC_LZ2 decompress GFX33 → 3bpp data
- *   2. Expand 3bpp → 4bpp (insert zero bitplane 3)
+ * Replicates the sequence:
+ *   1. Decompress GFX33 (3bpp) into MarioGraphics ($2000)
+ *   2. Expand GFX33 3bpp → 4bpp, writing from $ACFE downward to $7D00
+ *   3. Decompress GFX32 (3bpp) into MarioGraphics ($2000), overwriting the
+ *      original GFX33 source data
+ *
+ * Returns a buffer indexed from MARIO_GRAPHICS_RAM_BASE ($2000):
+ *   buffer[addr - $2000] = RAM byte at $7E:addr
+ *
+ * Berry animations reference $6D80-$7C80 (GFX32 3bpp region).
+ * Standard animations reference $7D00-$ACFE (GFX33 expanded 4bpp region).
  */
 function loadAnimatedTileBuffer(rom: RomFile): Uint8Array | null {
-  const ptr = readGfx33Pointer(rom)
-  if (ptr === 0) return null
+  // Replicate CODE_00B888 (bank_00.asm lines 6250-6302):
+  //
+  // Step 1: Decompress GFX33 from $00B882 pointer into MarioGraphics ($2000).
+  //         This is a SPECIAL oversized GFX33 (not the same as the pointer table entry).
+  //         Decompresses to much more than 9216 bytes — fills $2000 to ~$7B00+.
+  //
+  // Step 2: Expand first $2400 bytes (384 tiles) from 3bpp→4bpp,
+  //         writing from $ACFE downward to $7D00 (the AnimatedTiles region).
+  //         Data past $4400 in the decompressed output is NOT expanded — it stays
+  //         as raw 3bpp. Berry animation frames reference this region.
+  //
+  // Step 3: Decompress GFX32 into $2000, overwriting the first ~$C00 bytes.
+  //
+  // Our buffer covers $2000-$ACFE, indexed from MARIO_GRAPHICS_RAM_BASE ($2000).
 
-  const compressed = rom.readAt(ptr, GFX33_MAX_COMPRESSED)
-  if (!compressed) return null
+  const gfx33Ptr = readGfx33Pointer(rom)
+  if (gfx33Ptr === 0) return null
+  const gfx33Compressed = rom.readAt(gfx33Ptr, GFX33_MAX_COMPRESSED)
+  if (!gfx33Compressed) return null
+  const gfx33Decompressed = decompress(gfx33Compressed)
+  if (gfx33Decompressed.length === 0) return null
 
-  const decompressed = decompress(compressed)
-  if (decompressed.length === 0) return null
+  console.log(`[ANIM-BUF] GFX33 ptr=$${gfx33Ptr.toString(16)} decompressed=${gfx33Decompressed.length} bytes ($${gfx33Decompressed.length.toString(16)})`)
+  console.log(`[ANIM-BUF] GFX33 fills RAM $2000-$${(0x2000 + gfx33Decompressed.length - 1).toString(16)}`)
 
-  // The decompressed data is 3bpp format (24 bytes per tile)
-  if (decompressed.length % 24 === 0) {
-    return expand3bppTo4bpp(decompressed)
+  // Expand ALL decompressed bytes from 3bpp → 4bpp.
+  // CODE_00B888 starts LDX at #$23FF and processes source bytes from X down to 0.
+  // The destination starts at $ACFE and writes downward. Mesen confirms the expansion
+  // writes well below $7D00 (e.g., $6D80 for berry data), meaning the full expanded
+  // output is larger than just the AnimatedTiles region.
+  const gfx33Expanded = expand3bppTo4bpp(gfx33Decompressed)
+  console.log(`[ANIM-BUF] Expansion: ${gfx33Decompressed.length} bytes 3bpp → ${gfx33Expanded.length} bytes 4bpp`)
+
+  // Decompress GFX32 (Mario sprites) — CODE_00B8D7 continues decompression
+  // from the same bank as GFX33 at offset $8000. This is a LARGE version of GFX32
+  // (23,808 bytes), NOT the same as the GFX pointer table entry (3,072 bytes).
+  // It overwrites $2000+ with the full Mario sprite tileset including berry data.
+  const gfx33Bank = (gfx33Ptr >> 16) & 0xFF
+  const gfx32Ptr = (gfx33Bank << 16) | 0x8000  // CODE_00B8D7: LDA #$8000; STA GraphicsCompPtr
+  const gfx32Compressed = rom.readAt(gfx32Ptr, GFX33_MAX_COMPRESSED)
+  // Pre-fill the output buffer with the expanded GFX33 data at the correct offset.
+  // The game decompresses GFX32 into RAM that already contains GFX33 expanded data
+  // at $7D00+ ($5D00+ in our buffer). Backreferences in GFX32 can read from this data.
+  const ANIM_TILES_BUF_OFFSET = ANIMATED_TILES_RAM_BASE - MARIO_GRAPHICS_RAM_BASE  // $5D00
+  const preFilled = new Uint8Array(ANIM_TILES_BUF_OFFSET + gfx33Expanded.length)
+  preFilled.set(gfx33Expanded, ANIM_TILES_BUF_OFFSET)
+  let gfx32Decompressed: Uint8Array = preFilled
+  if (gfx32Compressed) {
+    gfx32Decompressed = decompress(gfx32Compressed, 0, preFilled)
+  }
+  console.log(`[ANIM-BUF] GFX32 ptr=$${gfx32Ptr.toString(16)} decompressed=${gfx32Decompressed.length} bytes`)
+
+  // The decompressed GFX32 output already includes the pre-filled GFX33 expanded data.
+  // It's the full MarioGraphics buffer matching the game's RAM layout:
+  //   buffer[0..$5CFF]: GFX32 4bpp data (from decompression)
+  //   buffer[$5D00+]: GFX33 expanded 4bpp data (from pre-fill, preserved by GFX32 decompression)
+  const buffer = gfx32Decompressed instanceof Uint8Array ? gfx32Decompressed : new Uint8Array(gfx32Decompressed)
+
+  console.log(`[ANIM-BUF] Buffer: ${buffer.length} bytes`)
+
+  // Log berry-relevant region
+  const berryOffset = 0x6D80 - MARIO_GRAPHICS_RAM_BASE
+  const berryInRange = berryOffset >= 0 && berryOffset + 128 <= buffer.length
+  console.log(`[ANIM-BUF] Berry offset=$${berryOffset.toString(16)} inRange=${berryInRange}`)
+  if (berryInRange) {
+    const nonZero = buffer.slice(berryOffset, berryOffset + 128).filter(b => b !== 0).length
+    console.log(`[ANIM-BUF] Berry region: ${nonZero}/128 non-zero bytes`)
+    console.log(`[ANIM-BUF] Berry first 16 bytes: ${Array.from(buffer.slice(berryOffset, berryOffset + 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`)
   }
 
-  // If already 4bpp (shouldn't happen for vanilla, but handle gracefully)
-  if (decompressed.length % 32 === 0) {
-    return decompressed
-  }
-
-  return null
+  return buffer
 }
 
 /**
@@ -231,8 +297,10 @@ function readAnimatedTileDataEntry(rom: RomFile, byteOffset: number): number {
   const buf = rom.readAt(addr, 2)
   if (!buf) return 0
   const ramAddr = buf[0] | (buf[1] << 8)
-  // Convert WRAM address to buffer offset by subtracting AnimatedTiles base ($7D00).
-  return ramAddr - ANIMATED_TILES_RAM_BASE
+  // Convert WRAM address to buffer offset from MarioGraphics base ($2000).
+  // Most entries point into AnimatedTiles ($7D00+), but berry entries point
+  // into the GFX32 region ($2000-$7CFF).
+  return ramAddr - MARIO_GRAPHICS_RAM_BASE
 }
 
 /**
@@ -254,8 +322,12 @@ function readVramDest(rom: RomFile, tableAddr: number, byteOffset: number): numb
 }
 
 /**
- * Decode 4 consecutive 4bpp tiles from the expanded buffer at the given byte offset.
- * Returns an array of 4 Uint8Arrays, each containing PIXELS_PER_TILE palette indices.
+ * Decode 4 consecutive 4bpp tiles from the buffer at the given byte offset.
+ *
+ * The game DMA's 128 bytes (4 tiles × 32 bytes) from RAM to VRAM regardless
+ * of the source region. VRAM always interprets the data as 4bpp. Even berry
+ * animation frames that source from the GFX32 3bpp region get treated as raw
+ * bytes and interpreted as 4bpp by the SNES PPU.
  */
 function decodeTilesAt(buffer: Uint8Array, offset: number): Uint8Array[] {
   const tiles: Uint8Array[] = []
@@ -265,7 +337,6 @@ function decodeTilesAt(buffer: Uint8Array, offset: number): Uint8Array[] {
       tiles.push(new Uint8Array(PIXELS_PER_TILE))
       continue
     }
-    // Decode 4bpp tile manually (same as decode4bpp but from Uint8Array)
     const px = new Uint8Array(PIXELS_PER_TILE)
     for (let row = 0; row < 8; row++) {
       const p0lo = buffer[tileOffset + row * 2]
@@ -354,7 +425,14 @@ export function loadAnimationData(
         const bufferOffset = readAnimatedTileDataEntry(rom, dataTableIdx)
 
         if (bufferOffset < 0 || bufferOffset + TILES_PER_TRANSFER * 32 > buffer.length) {
+          if (frame === 0) {
+            console.log(`[ANIM-SKIP] group=${group} sub=${sub} tileIdx=${tileIdx} adj=${adjustedIdx} behavior=${behavior} dataIdx=$${dataTableIdx.toString(16)} bufOff=$${bufferOffset.toString(16)} (${bufferOffset}) bufLen=${buffer.length} → SKIPPED (out of range)`)
+          }
           continue
+        }
+        if (frame === 0) {
+          const charBase = vramAddrToChar(vramDest)
+          console.log(`[ANIM-SLOT] group=${group} sub=${sub} tileIdx=${tileIdx} adj=${adjustedIdx} behavior=${behavior} → char=$${charBase.toString(16).padStart(3,'0')} bufOff=$${bufferOffset.toString(16)}`)
         }
 
         const charBase = vramAddrToChar(vramDest)
