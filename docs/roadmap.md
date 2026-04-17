@@ -43,6 +43,7 @@ Complete the viewer so every level renders pixel-accurately.
 | Animated tile cycling | Medium | `$05B93B` (AnimatedTileData), 5-frame cycle | Water, lava, coins, question blocks, berries |
 | Layer 3 tides/effects | Medium | `$008A79` (Layer3TilemapSettings) | Parallax, water level overlays |
 | Correct sprite rendering | Hard | Banks $01-$03 sprite routines | Show sprite graphics instead of red squares |
+| Level canvas viewport culling | Medium | — | Current renderer allocates one backing `<canvas>` sized to the whole level × zoom. Chrome/Firefox cap canvases at 16384 px per side, so we clamp zoom on wide levels. The proper fix: size the canvas to the viewport (`canvas-wrap.clientWidth/Height`), use a spacer div to drive the scrollbar, and on scroll re-render only the tile range that intersects the viewport. Removes the zoom cap entirely and is cheap per-frame (a few thousand blits). Localized to `redraw()` and a new scroll handler. |
 
 ---
 
@@ -158,6 +159,7 @@ Connect to the SMWCentral API to offer a built-in library of community resources
 | Extension marketplace publish | Easy | Package and distribute via VS Code |
 | Plugin API for community tools | Hard | Let others extend the editor |
 | Documentation & tutorials | Medium | SMWCentral wiki integration |
+| Replace unicode button glyphs with codicons | Easy | All webview toolbar buttons currently use raw unicode chars (`⏮ ▶ ⏭` for animation, `⊞` for grid, `◀ ▶` for page nav, `−` / `+` for zoom, etc.) which render inconsistently across fonts/platforms. Migrate to VS Code codicons for native-looking, uniformly-sized icons. Codicon infrastructure already wired for the map editor (`codicon.css`/`codicon.ttf` copied to `dist/webview`, CSP allows `font-src`, `<link>` in HTML). Extend to `paletteEditor`, `gfxViewer`, `musicPlayer` webview configs. Suggested mappings: anim `debug-reverse-continue` / `play` / `debug-step-over`, grid `symbol-namespace` or `layout-panel`, page nav `chevron-left` / `chevron-right`, zoom `zoom-in` / `zoom-out`. Audit `transportBar.ts` too. |
 
 ---
 

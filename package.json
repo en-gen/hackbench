@@ -42,11 +42,11 @@
     },
     "customEditors": [
       {
-        "viewType": "smwEditor.levelEditor",
-        "displayName": "SMW Level Editor",
+        "viewType": "smwEditor.mapEditor",
+        "displayName": "SMW Map Editor",
         "selector": [
           {
-            "filenamePattern": "**/*.smwlevel"
+            "filenamePattern": "**/*.smwmap"
           }
         ],
         "priority": "default"
@@ -94,8 +94,8 @@
     "views": {
       "smwExplorer": [
         {
-          "id": "smwEditor.levelsExplorer",
-          "name": "Levels",
+          "id": "smwEditor.mapsExplorer",
+          "name": "Maps",
           "when": "smwEditor.romLoaded"
         },
         {

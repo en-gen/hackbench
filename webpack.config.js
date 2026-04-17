@@ -6,7 +6,7 @@ const path = require('path')
 /**
  * Two webpack targets:
  *  1. extension  — the extension host code (Node.js, externalises vscode)
- *  2. levelEditor — the level editor webview (browser)
+ *  2. mapEditor — the map editor webview (browser)
  *
  * Run `npm run compile` to build both.
  * Run `npm run watch` during development.
@@ -42,13 +42,13 @@ const extensionConfig = {
 }
 
 /** @type {import('webpack').Configuration} */
-const levelEditorWebviewConfig = {
+const mapEditorWebviewConfig = {
   target: 'web',
   mode: 'none',
-  entry: './src/webview/levelEditor/main.ts',
+  entry: './src/webview/mapEditor/main.ts',
   output: {
     path: path.resolve(__dirname, 'dist/webview'),
-    filename: 'levelEditor.js'
+    filename: 'mapEditor.js'
   },
   resolve: {
     extensions: ['.ts', '.js']
@@ -69,6 +69,21 @@ const levelEditorWebviewConfig = {
       }
     ]
   },
+  plugins: [
+    // VS Code codicon font + stylesheet, referenced via <link> in the webview HTML.
+    new (require('copy-webpack-plugin'))({
+      patterns: [
+        {
+          from: path.resolve(__dirname, 'node_modules/@vscode/codicons/dist/codicon.css'),
+          to: path.resolve(__dirname, 'dist/webview/codicon.css')
+        },
+        {
+          from: path.resolve(__dirname, 'node_modules/@vscode/codicons/dist/codicon.ttf'),
+          to: path.resolve(__dirname, 'dist/webview/codicon.ttf')
+        }
+      ]
+    })
+  ],
   devtool: 'nosources-source-map'
 }
 
@@ -153,4 +168,4 @@ const musicPlayerWebviewConfig = {
   devtool: 'nosources-source-map'
 }
 
-module.exports = [extensionConfig, levelEditorWebviewConfig, paletteEditorWebviewConfig, gfxViewerWebviewConfig, musicPlayerWebviewConfig]
+module.exports = [extensionConfig, mapEditorWebviewConfig, paletteEditorWebviewConfig, gfxViewerWebviewConfig, musicPlayerWebviewConfig]

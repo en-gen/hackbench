@@ -1,17 +1,8 @@
 /**
- * SMW Level Editor — webview entry point.
+ * SMW Map Editor — webview entry point.
  *
- * Layout:
- *   ┌─ toolbar ──────────────────────────────────────────────────────────┐
- *   │ [Level $XXX]  [meta]   [zoom −][1×][+]  [Grid][Sprites][Block][L1][L2] │
- *   ├─ workspace ────────────────────────────────────────────────────────┤
- *   │ ┌─ canvas-wrap (scroll) ──────────────────────┐ ┌─ props (220px) ─┐ │
- *   │ │                                              │ │ PALETTE         │ │
- *   │ │   <canvas> (pixel-art, no fit-to-window)    │ │ LEVEL HEADER    │ │
- *   │ │                                              │ │ ROOM INFO       │ │
- *   │ └──────────────────────────────────────────────┘ └─────────────────┘ │
- *   ├─ status ───────────────────────────────────────────────────────────┤
- *   └────────────────────────────────────────────────────────────────────┘
+ * Opens a single map (1 of 512 from the SMW ROM). Several related maps linked
+ * by entrances/exits together form a "level" in the player-facing sense.
  */
 
 import { createTransportBar, TRANSPORT_CSS } from '../shared/transportBar'
@@ -27,8 +18,11 @@ const vscode = acquireVsCodeApi()
 const TILE_PX    = 16
 const SCREEN_W   = 16
 const SCREEN_H   = 27
-const ZOOM_STEPS = [0.25, 0.5, 1, 2, 3, 4]
-const ZOOM_DEFAULT_IDX = 2  // 1×
+// 0.25 increments around 1× so one zoom-in jump is a small visual change
+// (1.00 → 1.25 instead of 1× → 2×). Coarser steps above 2× since detail
+// differences there are less perceptible.
+const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4]
+const ZOOM_DEFAULT_IDX = 3  // 1×
 const PAL_CELL   = 8        // pixels per palette swatch cell in the properties panel
 
 // ── Style helpers ─────────────────────────────────────────────────────────────
@@ -64,14 +58,14 @@ app.innerHTML = `
   border-bottom:1px solid var(--vscode-panel-border,#3a3a3a);
   font-size:12px;font-family:var(--vscode-font-family,system-ui);
   color:var(--vscode-foreground,#e0e0e0);">
-  <span id="level-id" style="font-family:monospace;color:#5b9cf6;font-weight:600;min-width:90px"></span>
-  <span id="level-meta" style="color:#888;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+  <span id="map-id" style="font-family:monospace;color:#5b9cf6;font-weight:600;min-width:90px"></span>
+  <span id="map-meta" style="color:#888;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
   <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
     <button id="zoom-out" title="Zoom out (Ctrl+scroll)" style="${btnStyle()}">&#8722;</button>
     <span id="zoom-label" style="font-family:monospace;font-size:11px;min-width:32px;text-align:center">1&#215;</span>
     <button id="zoom-in"  title="Zoom in (Ctrl+scroll)"  style="${btnStyle()}">&#43;</button>
   </div>
-  <label style="${chkStyle()}"><input type="checkbox" id="chk-grid" checked> Grid</label>
+  <label style="${chkStyle()}"><input type="checkbox" id="chk-screens"> Screens</label>
   <label style="${chkStyle()}"><input type="checkbox" id="chk-sprites" checked> Sprites</label>
   <label style="${chkStyle()}"><input type="checkbox" id="chk-block"> Block</label>
   <label style="${chkStyle()}"><input type="checkbox" id="chk-l1" checked> L1</label>
@@ -82,6 +76,7 @@ app.innerHTML = `
 
   <div id="tiles-panel" style="
     width:220px;flex-shrink:0;overflow-y:auto;
+    display:flex;flex-direction:column;
     background:var(--vscode-sideBar-background,#252526);
     border-right:1px solid var(--vscode-panel-border,#3a3a3a);
     font-family:var(--vscode-font-family,system-ui);font-size:12px;">
@@ -138,13 +133,26 @@ app.innerHTML = `
       </div>
     </div>
 
+    <div id="music-transport" style="margin-top:auto;"></div>
   </div>
 
   <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
     <div id="canvas-wrap" style="flex:1;overflow:auto;background:#111111;cursor:crosshair;">
-      <canvas id="level-canvas" style="display:block;image-rendering:pixelated;margin:8px;"></canvas>
+      <canvas id="map-canvas" style="display:block;image-rendering:pixelated;margin:8px;"></canvas>
     </div>
-    <div id="music-transport"></div>
+    <div id="minimap-wrap" style="flex-shrink:0;background:#0a0a0a;border-top:1px solid #3a3a3a;padding:4px 8px;display:flex;justify-content:center;">
+      <canvas id="minimap-canvas" style="display:block;image-rendering:pixelated;cursor:pointer;background:#000;"></canvas>
+    </div>
+    <div id="map-bottom-bar" style="display:flex;align-items:center;gap:12px;padding:4px 8px;background:#1a1a1a;border-top:1px solid #3a3a3a;font-family:monospace;font-size:11px;color:#ccc;">
+      <span id="st-pos" style="min-width:90px;">—</span>
+      <span id="st-tile" style="min-width:70px;">—</span>
+      <span id="st-info" style="flex:1;color:#888;"></span>
+      <button id="btn-anim-prev3" style="${btnStyle()}border:none;" title="Previous frame">⏮</button>
+      <button id="btn-anim3" style="${btnStyle()}border:none;" title="Play animation">▶</button>
+      <button id="btn-anim-next3" style="${btnStyle()}border:none;" title="Next frame">⏭</button>
+      <button id="btn-map-minimap" style="${btnStyle()}border:none;" title="Toggle minimap"><span class="codicon codicon-map"></span></button>
+      <button id="btn-map-grid" style="${btnStyle()}border:none;" title="Toggle tile grid">⊞</button>
+    </div>
   </div>
 
   <div id="props-panel" style="
@@ -163,10 +171,10 @@ app.innerHTML = `
         <div id="palette-inspect" style="font-size:10px;
           font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
         <div style="display:flex;align-items:center;gap:2px;">
-          <button id="btn-pal-grid" style="${btnStyle()}border:none;" title="Toggle palette grid">⊞</button>
           <div id="pal-anim-controls" style="display:none;align-items:center;gap:2px;">
             <button id="btn-pal-play" style="${btnStyle()}border:none;" title="Play palette animation">▶</button>
           </div>
+          <button id="btn-pal-grid" style="${btnStyle()}border:none;" title="Toggle palette grid">⊞</button>
         </div>
       </div>
     </div>
@@ -233,17 +241,6 @@ app.innerHTML = `
   </div>
 </div>
 
-<div id="status" style="
-  display:flex;gap:16px;align-items:center;flex-shrink:0;
-  padding:3px 12px;height:22px;
-  background:var(--vscode-statusBar-background,#007acc);
-  font-family:monospace;font-size:11px;
-  color:var(--vscode-statusBar-foreground,#fff);">
-  <span id="st-pos">—</span>
-  <span id="st-tile">—</span>
-  <span id="st-info" style="margin-left:auto"></span>
-</div>
-
 <style>
   .section-hdr {
     padding:4px 8px 3px;font-size:10px;font-weight:700;letter-spacing:.08em;
@@ -259,16 +256,18 @@ app.innerHTML = `
 
 // ── Element refs ─────────────────────────────────────────────────────────────
 
-const canvas         = document.getElementById('level-canvas')   as HTMLCanvasElement
+const canvas         = document.getElementById('map-canvas')   as HTMLCanvasElement
 const ctx            = canvas.getContext('2d')!
 const canvasWrap     = document.getElementById('canvas-wrap')!
-const levelId        = document.getElementById('level-id')!
-const levelMeta      = document.getElementById('level-meta')!
+const minimapCanvas  = document.getElementById('minimap-canvas') as HTMLCanvasElement
+const minimapCtx     = minimapCanvas.getContext('2d')!
+const mapId          = document.getElementById('map-id')!
+const mapMeta        = document.getElementById('map-meta')!
 const zoomLabel      = document.getElementById('zoom-label')!
 const stPos          = document.getElementById('st-pos')!
 const stTile         = document.getElementById('st-tile')!
 const stInfo         = document.getElementById('st-info')!
-const chkGrid        = document.getElementById('chk-grid')        as HTMLInputElement
+const chkScreens     = document.getElementById('chk-screens')     as HTMLInputElement
 const chkSprites     = document.getElementById('chk-sprites')     as HTMLInputElement
 const chkBlock       = document.getElementById('chk-block')       as HTMLInputElement
 const chkL1          = document.getElementById('chk-l1')          as HTMLInputElement
@@ -329,6 +328,8 @@ let map16HoverTile: { col: number; row: number } | null = null
 let vramGridOn = false
 let map16GridOn = false
 let palGridOn = false
+let mapGridOn = false
+let minimapOn = true
 document.getElementById('btn-vram-grid')!.addEventListener('click', () => {
   vramGridOn = !vramGridOn
   document.getElementById('btn-vram-grid')!.style.color = vramGridOn ? '#5b9cf6' : '#ccc'
@@ -344,6 +345,25 @@ document.getElementById('btn-pal-grid')!.addEventListener('click', () => {
   document.getElementById('btn-pal-grid')!.style.color = palGridOn ? '#5b9cf6' : '#ccc'
   drawPaletteCanvas()
 })
+document.getElementById('btn-map-grid')!.addEventListener('click', () => {
+  mapGridOn = !mapGridOn
+  document.getElementById('btn-map-grid')!.style.color = mapGridOn ? '#5b9cf6' : '#ccc'
+  redraw()
+})
+document.getElementById('btn-map-minimap')!.addEventListener('click', () => {
+  minimapOn = !minimapOn
+  document.getElementById('btn-map-minimap')!.style.color = minimapOn ? '#5b9cf6' : '#ccc'
+  const wrap = document.getElementById('minimap-wrap')!
+  wrap.style.display = minimapOn ? 'flex' : 'none'
+  if (minimapOn) drawMinimap()
+})
+// Sync each button's initial tint with its default state.
+{
+  const grid = document.getElementById('btn-map-grid')
+  if (grid) grid.style.color = mapGridOn ? '#5b9cf6' : '#ccc'
+  const mini = document.getElementById('btn-map-minimap')
+  if (mini) mini.style.color = minimapOn ? '#5b9cf6' : '#ccc'
+}
 
 // ── Animation ────────────────────────────────────────────────────────────────
 // Animation happens at the VRAM level. The provider sends per-frame 8×8 VRAM sheets.
@@ -410,18 +430,29 @@ function rebuildVramSheet(indexed: Uint8Array, palRows: number[][][]): ImageData
 //   map16 defs change    →  invalidateMap16()    (vram + palette already live)
 
 function invalidateMap16(): void {
-  if (!activeVramIndexed || !levelData?.paletteRows || !levelData.map16Defs) return
-  const newAtlas = rebuildMap16Atlas(activeVramIndexed, levelData.paletteRows, levelData.map16Defs)
+  if (!activeVramIndexed || !mapData?.paletteRows || !mapData.map16Defs) return
+  const newAtlas = rebuildMap16Atlas(activeVramIndexed, mapData.paletteRows, mapData.map16Defs)
   for (const entry of map16Pages) {
     if (entry.label.startsWith('L1')) entry.atlas = newAtlas
   }
+  map16FullImageData = newAtlas
+  // Mirror the atlas into an offscreen canvas so drawImage can sample it per tile.
+  if (!map16AtlasCanvas) {
+    map16AtlasCanvas = document.createElement('canvas')
+  }
+  if (map16AtlasCanvas.width !== newAtlas.width || map16AtlasCanvas.height !== newAtlas.height) {
+    map16AtlasCanvas.width = newAtlas.width
+    map16AtlasCanvas.height = newAtlas.height
+  }
+  map16AtlasCanvas.getContext('2d')!.putImageData(newAtlas, 0, 0)
   renderMap16Page()
   redrawDetail()
+  redraw()
 }
 
 function invalidateVram(): void {
-  if (!activeVramIndexed || !levelData?.paletteRows) return
-  vramFullImageData = rebuildVramSheet(activeVramIndexed, levelData.paletteRows)
+  if (!activeVramIndexed || !mapData?.paletteRows) return
+  vramFullImageData = rebuildVramSheet(activeVramIndexed, mapData.paletteRows)
   renderVramPage()
   invalidateMap16()
 }
@@ -432,14 +463,14 @@ function invalidatePalette(): void {
 }
 
 function applyPalAnimFrame(f: number): void {
-  if (!levelData?.paletteAnimation || !levelData.paletteRows) return
-  const anim = levelData.paletteAnimation
+  if (!mapData?.paletteAnimation || !mapData.paletteRows) return
+  const anim = mapData.paletteAnimation
   const patches = anim.frames[f % anim.frameCount] ?? []
   for (const p of patches) {
     const row = p.cgramIdx >> 4
     const col = p.cgramIdx & 15
-    if (levelData.paletteRows[row]) {
-      levelData.paletteRows[row][col] = [p.r, p.g, p.b, p.a]
+    if (mapData.paletteRows[row]) {
+      mapData.paletteRows[row][col] = [p.r, p.g, p.b, p.a]
     }
   }
   invalidatePalette()
@@ -452,13 +483,13 @@ function syncPalAnimButton(): void {
 
 function startPalAnimTimer(): void {
   if (palAnimTimer) { clearInterval(palAnimTimer); palAnimTimer = null }
-  if (!levelData?.paletteAnimation) return
+  if (!mapData?.paletteAnimation) return
   palAnimRunning = true
   syncPalAnimButton()
   palAnimTimer = setInterval(() => {
-    palAnimFrame = (palAnimFrame + 1) % (levelData?.paletteAnimation?.frameCount ?? 8)
+    palAnimFrame = (palAnimFrame + 1) % (mapData?.paletteAnimation?.frameCount ?? 8)
     applyPalAnimFrame(palAnimFrame)
-  }, levelData.paletteAnimation.intervalMs)
+  }, mapData.paletteAnimation.intervalMs)
 }
 
 function stopPalAnimTimer(): void {
@@ -474,7 +505,11 @@ function togglePalAnim(): void {
 
 document.getElementById('btn-pal-play')!.addEventListener('click', togglePalAnim)
 
-const animPlayBtns = [document.getElementById('btn-anim')!, document.getElementById('btn-anim2')!]
+const animPlayBtns = [
+  document.getElementById('btn-anim')!,
+  document.getElementById('btn-anim2')!,
+  document.getElementById('btn-anim3')!,
+]
 
 function syncAnimButtons(): void {
   for (const btn of animPlayBtns) {
@@ -512,6 +547,8 @@ document.getElementById('btn-anim-prev')!.addEventListener('click', () => stepFr
 document.getElementById('btn-anim-next')!.addEventListener('click', () => stepFrame(1))
 document.getElementById('btn-anim-prev2')!.addEventListener('click', () => stepFrame(-1))
 document.getElementById('btn-anim-next2')!.addEventListener('click', () => stepFrame(1))
+document.getElementById('btn-anim-prev3')!.addEventListener('click', () => stepFrame(-1))
+document.getElementById('btn-anim-next3')!.addEventListener('click', () => stepFrame(1))
 
 function startAnimTimer(): void {
   if (animTimer) { clearInterval(animTimer); animTimer = null }
@@ -619,7 +656,7 @@ function blitSubTile(
 /** Rebuild the L1 Map16 atlas from indexed VRAM + palette + tile defs. */
 function rebuildMap16Atlas(
   indexed: Uint8Array, palRows: number[][][],
-  defs: LevelPayload['map16Defs'],
+  defs: MapPayload['map16Defs'],
 ): ImageData {
   if (!defs || defs.length === 0) return new ImageData(256, 256)
   const cols = 16, tileW = 16
@@ -717,9 +754,12 @@ const infoSprites    = document.getElementById('info-sprites')!
 
 let zoomIdx      = ZOOM_DEFAULT_IDX
 let zoom         = ZOOM_STEPS[zoomIdx]
-let levelData: LevelPayload | null = null
+let mapData: MapPayload | null = null
 let l2TileGrid:  number[][] | null = null
-let atlasImg:    ImageBitmap | null = null
+// Offscreen canvas holding the live L1 Map16 atlas (16 cols × N rows of 16×16 tiles).
+// Kept in sync with rebuildMap16Atlas output so the level canvas, Map16 page viewer,
+// and tile detail preview all render from the same animated source.
+let map16AtlasCanvas: HTMLCanvasElement | null = null
 let activeTileId = -1
 let activeTool: 'place' | 'erase' = 'place'
 let isPainting   = false
@@ -728,17 +768,11 @@ let isPainting   = false
 interface PaletteHighlight { row: number; colStart: number; colEnd: number }
 let paletteHighlightCells: PaletteHighlight[] | null = null
 
-interface TileUv { col: number; row: number }
-
-interface LevelPayload {
-  levelIndex:      number
+interface MapPayload {
+  mapIndex:      number
   screens:         number
   tileGrid:        number[][]
   l2TileGrid:      number[][] | null
-  atlasData:       number[]
-  atlasWidth:      number
-  atlasHeight:     number
-  tileUvMap:       Record<number, TileUv>
   sprites:         Array<{ x: number; y: number; spriteId: number }>
   backAreaColor:   [number, number, number, number]
   backAreaColors:  number[][]   // 8 variants × [r,g,b,a]
@@ -747,9 +781,8 @@ interface LevelPayload {
   vramSheetData?:  number[]   // RGBA pixels, 128px wide × Npx tall
   vramSheetW?:     number
   vramSheetH?:     number
-  // L1 Map16 atlas (from tileset-aware pointer table)
-  map16AtlasData?: number[]
-  // L2/BG Map16 atlas (from Map16BGTiles)
+  // L2/BG Map16 atlas (from Map16BGTiles). L1 atlas is built live in the webview
+  // from map16Defs + vramIndexedData + paletteRows.
   map16BgAtlasData?: number[]
   // Animation: VRAM-level frame data. Frame 0 is the base vramSheetData.
   // extraVramSheets contains frames 1+ as RGBA pixel arrays (same format as vramSheetData).
@@ -793,14 +826,40 @@ interface LevelPayload {
 
 // ── Zoom ─────────────────────────────────────────────────────────────────────
 
+/** Browser canvas dimension cap. Chrome and Firefox limit canvases to 16384
+ *  pixels per side; beyond that, the canvas silently fails or allocations
+ *  thrash the webview. Stay well under that. */
+const MAX_CANVAS_PX = 16000
+
+/** Highest zoom index whose resulting canvas still fits under MAX_CANVAS_PX.
+ *  Depends on level width (screens × 16 tiles). Recomputed per level load. */
+function maxZoomIdx(): number {
+  if (!mapData) return ZOOM_STEPS.length - 1
+  const cols = mapData.screens * SCREEN_W
+  const rows = SCREEN_H
+  let limit = ZOOM_STEPS.length - 1
+  for (let i = ZOOM_STEPS.length - 1; i >= 0; i--) {
+    const px = TILE_PX * ZOOM_STEPS[i]
+    if (cols * px <= MAX_CANVAS_PX && rows * px <= MAX_CANVAS_PX) {
+      limit = i
+      break
+    }
+    limit = i - 1
+  }
+  return Math.max(0, limit)
+}
+
 function applyZoom(): void {
+  // Clamp to whatever the current level can actually fit on-screen.
+  const cap = maxZoomIdx()
+  if (zoomIdx > cap) zoomIdx = cap
   zoom = ZOOM_STEPS[zoomIdx]
   zoomLabel.textContent = `${zoom}×`
-  if (levelData) redraw()
+  if (mapData) redraw()
 }
 
 document.getElementById('zoom-in')!.addEventListener('click', () => {
-  if (zoomIdx < ZOOM_STEPS.length - 1) { zoomIdx++; applyZoom() }
+  if (zoomIdx < maxZoomIdx()) { zoomIdx++; applyZoom() }
 })
 document.getElementById('zoom-out')!.addEventListener('click', () => {
   if (zoomIdx > 0) { zoomIdx--; applyZoom() }
@@ -809,14 +868,14 @@ canvasWrap.addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return
   e.preventDefault()
   const next = zoomIdx + (e.deltaY < 0 ? 1 : -1)
-  if (next >= 0 && next < ZOOM_STEPS.length) { zoomIdx = next; applyZoom() }
+  if (next >= 0 && next <= maxZoomIdx()) { zoomIdx = next; applyZoom() }
 }, { passive: false })
 
 // ── Palette canvas ────────────────────────────────────────────────────────────
 
 function drawPaletteCanvas(): void {
-  if (!levelData?.paletteRows) return
-  const rows = levelData.paletteRows
+  if (!mapData?.paletteRows) return
+  const rows = mapData.paletteRows
   palCtx.clearRect(0, 0, 128, 128)
 
   for (let row = 0; row < 16; row++) {
@@ -863,13 +922,13 @@ function drawPaletteCanvas(): void {
 }
 
 palCanvas.addEventListener('mousemove', (e) => {
-  if (!levelData?.paletteRows) return
+  if (!mapData?.paletteRows) return
   const rect = palCanvas.getBoundingClientRect()
   const scaleX = 128 / rect.width
   const col = Math.floor((e.clientX - rect.left) * scaleX / PAL_CELL)
   const row = Math.floor((e.clientY - rect.top)  * scaleX / PAL_CELL)
   if (col < 0 || col > 15 || row < 0 || row > 15) return
-  const c = levelData.paletteRows[row]?.[col] ?? [0, 0, 0, 0]
+  const c = mapData.paletteRows[row]?.[col] ?? [0, 0, 0, 0]
   const hex = `#${c[0].toString(16).padStart(2,'0')}${c[1].toString(16).padStart(2,'0')}${c[2].toString(16).padStart(2,'0')}`
   palInspect.textContent = `row ${row}  col ${col}  ${hex}`
 })
@@ -916,10 +975,10 @@ function drawBlockGrid(grid: number[][], cols: number, rows: number, px: number,
 }
 
 function redraw(): void {
-  if (!levelData) return
-  if (!chkBlock.checked && !atlasImg) return
+  if (!mapData) return
+  if (!chkBlock.checked && !map16AtlasCanvas) return
 
-  const { tileGrid, screens, sprites, tileUvMap } = levelData
+  const { tileGrid, screens, sprites } = mapData
   const cols = screens * SCREEN_W
   const rows = SCREEN_H
   const px   = TILE_PX * zoom
@@ -928,8 +987,8 @@ function redraw(): void {
   canvas.height = Math.round(rows * px)
   ctx.imageSmoothingEnabled = false
 
-  if (levelData.backAreaColor) {
-    const [r, g, b] = levelData.backAreaColor
+  if (mapData.backAreaColor) {
+    const [r, g, b] = mapData.backAreaColor
     ctx.fillStyle = `rgb(${r},${g},${b})`
   } else {
     ctx.fillStyle = '#000'
@@ -940,33 +999,61 @@ function redraw(): void {
     if (chkL2.checked && l2TileGrid) drawBlockGrid(l2TileGrid, cols, rows, px, 0.55)
     if (chkL1.checked)               drawBlockGrid(tileGrid,   cols, rows, px, 1.0)
   } else {
-    if (!atlasImg) return
+    // Live L1 Map16 atlas: 16 cols of 16×16 tiles, tile ID directly addresses (col,row).
     // TODO: L2 atlas rendering not yet implemented; L2 toggle only works in Block mode.
-    if (chkL1.checked) {
+    if (chkL1.checked && map16AtlasCanvas) {
+      const atlasCols = 16
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
           const tileId = tileGrid[row]?.[col] ?? 0
           if (tileId === 0) continue
-          const uv = tileUvMap[tileId]
-          if (!uv) continue
-          ctx.drawImage(atlasImg,
-            uv.col * TILE_PX, uv.row * TILE_PX, TILE_PX, TILE_PX,
+          const sx = (tileId % atlasCols) * TILE_PX
+          const sy = Math.floor(tileId / atlasCols) * TILE_PX
+          ctx.drawImage(map16AtlasCanvas,
+            sx, sy, TILE_PX, TILE_PX,
             Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
         }
       }
     }
   }
 
-  // Screen dividers
-  ctx.strokeStyle = 'rgba(100,120,255,0.4)'
-  ctx.lineWidth = 1
-  for (let s = 1; s < screens; s++) {
-    const x = Math.round(s * SCREEN_W * px) + 0.5
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
+  // Screen dividers (shown together with the screen-number chips)
+  if (chkScreens.checked) {
+    ctx.strokeStyle = 'rgba(100,120,255,0.4)'
+    ctx.lineWidth = 1
+    for (let s = 1; s < screens; s++) {
+      const x = Math.round(s * SCREEN_W * px) + 0.5
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
+    }
+  }
+
+  // Screen numbers (LM-style) — 2-digit hex in the top-left cell of each screen.
+  // Object stream encodes screen transitions by this index, and screen exits /
+  // entrance mappings are keyed on it, so visibility is diagnostic.
+  if (chkScreens.checked) {
+    ctx.save()
+    const cellPx = px
+    const fontSize = Math.max(8, Math.round(cellPx * 0.55))
+    ctx.font = `bold ${fontSize}px monospace`
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'top'
+    for (let s = 0; s < screens; s++) {
+      const cellX = Math.round(s * SCREEN_W * px)
+      const cellY = 0
+      const label = s.toString(16).toUpperCase().padStart(2, '0')
+      // Background chip behind the text so it stays legible over any tile.
+      const pad = Math.max(1, Math.round(cellPx * 0.08))
+      const textW = ctx.measureText(label).width
+      ctx.fillStyle = 'rgba(0,0,0,0.6)'
+      ctx.fillRect(cellX + pad, cellY + pad, textW + pad * 2, fontSize + pad)
+      ctx.fillStyle = '#e8d050'
+      ctx.fillText(label, cellX + pad * 2, cellY + pad * 1.3)
+    }
+    ctx.restore()
   }
 
   // Tile grid
-  if (chkGrid.checked) {
+  if (mapGridOn) {
     ctx.strokeStyle = 'rgba(255,255,255,0.07)'
     ctx.lineWidth = 1
     for (let c = 0; c <= cols; c++) {
@@ -994,9 +1081,137 @@ function redraw(): void {
       }
     }
   }
+
+  drawMinimap()
 }
 
-chkGrid.addEventListener('change',    redraw)
+// ── Minimap ──────────────────────────────────────────────────────────────────
+// Small overview rendering of the full map along the bottom, with a rectangle
+// outlining the main viewport so you can tell where you are in wide maps.
+
+/** Height cap for the minimap strip. Tile size is picked to fit under this. */
+const MINIMAP_MAX_HEIGHT = 54
+
+function minimapTilePx(): number {
+  if (!mapData) return 1
+  const cols = mapData.screens * SCREEN_W
+  const rows = SCREEN_H
+  // Pick the largest tile size (1–4 px) that keeps the minimap under the
+  // available width and height caps. Browser pixelated scaling handles the
+  // downscale when we drawImage the live atlas.
+  const availW = Math.max(100, minimapCanvas.parentElement!.clientWidth - 16)
+  const byW = Math.floor(availW / cols)
+  const byH = Math.floor(MINIMAP_MAX_HEIGHT / rows)
+  return Math.max(1, Math.min(4, byW, byH))
+}
+
+function drawMinimap(): void {
+  if (!minimapOn) return
+  if (!mapData || !map16AtlasCanvas) return
+  const cols = mapData.screens * SCREEN_W
+  const rows = SCREEN_H
+  const tp = minimapTilePx()
+  const w = cols * tp
+  const h = rows * tp
+
+  if (minimapCanvas.width !== w || minimapCanvas.height !== h) {
+    minimapCanvas.width = w
+    minimapCanvas.height = h
+  }
+
+  // Background
+  if (mapData.backAreaColor) {
+    const [r, g, b] = mapData.backAreaColor
+    minimapCtx.fillStyle = `rgb(${r},${g},${b})`
+  } else {
+    minimapCtx.fillStyle = '#000'
+  }
+  minimapCtx.fillRect(0, 0, w, h)
+
+  // Blit each tile scaled from the live Map16 atlas (same source the main
+  // canvas uses, so any palette/animation change is reflected instantly).
+  const atlasCols = 16
+  const tileGrid = mapData.tileGrid
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const tileId = tileGrid[row]?.[col] ?? 0
+      if (tileId === 0) continue
+      const sx = (tileId % atlasCols) * TILE_PX
+      const sy = Math.floor(tileId / atlasCols) * TILE_PX
+      minimapCtx.drawImage(map16AtlasCanvas, sx, sy, TILE_PX, TILE_PX,
+        col * tp, row * tp, tp, tp)
+    }
+  }
+
+  drawMinimapViewport()
+}
+
+/** Repaint just the viewport rectangle (fast path for scroll events). */
+function drawMinimapViewport(): void {
+  if (!mapData) return
+  const cols = mapData.screens * SCREEN_W
+  const rows = SCREEN_H
+  const mainPx = TILE_PX * zoom
+  const mainW = cols * mainPx
+  const mainH = rows * mainPx
+  if (mainW === 0 || mainH === 0) return
+
+  const mmW = minimapCanvas.width
+  const mmH = minimapCanvas.height
+  const vx = Math.round((canvasWrap.scrollLeft / mainW) * mmW)
+  const vy = Math.round((canvasWrap.scrollTop  / mainH) * mmH)
+  // clientWidth/clientHeight minus canvas margins (8px on each side)
+  const vw = Math.max(1, Math.round((canvasWrap.clientWidth  / mainW) * mmW))
+  const vh = Math.max(1, Math.round((canvasWrap.clientHeight / mainH) * mmH))
+
+  minimapCtx.strokeStyle = 'rgba(255,220,80,0.9)'
+  minimapCtx.lineWidth = 1
+  minimapCtx.strokeRect(vx + 0.5, vy + 0.5, Math.min(vw, mmW - vx) - 1, Math.min(vh, mmH - vy) - 1)
+  minimapCtx.fillStyle = 'rgba(255,220,80,0.12)'
+  minimapCtx.fillRect(vx, vy, Math.min(vw, mmW - vx), Math.min(vh, mmH - vy))
+}
+
+// Click-to-center and drag-to-pan. Pointer capture keeps the drag live even
+// when the cursor strays outside the minimap rectangle.
+let minimapDragging = false
+function minimapPanTo(e: PointerEvent): void {
+  if (!mapData) return
+  const rect = minimapCanvas.getBoundingClientRect()
+  const cols = mapData.screens * SCREEN_W
+  const rows = SCREEN_H
+  const mainPx = TILE_PX * zoom
+  const fx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+  const fy = Math.max(0, Math.min(1, (e.clientY - rect.top)  / rect.height))
+  canvasWrap.scrollLeft = fx * cols * mainPx - canvasWrap.clientWidth  / 2
+  canvasWrap.scrollTop  = fy * rows * mainPx - canvasWrap.clientHeight / 2
+}
+minimapCanvas.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return
+  minimapDragging = true
+  minimapCanvas.setPointerCapture(e.pointerId)
+  minimapPanTo(e)
+})
+minimapCanvas.addEventListener('pointermove', (e) => {
+  if (!minimapDragging) return
+  minimapPanTo(e)
+})
+const endDrag = (e: PointerEvent) => {
+  if (!minimapDragging) return
+  minimapDragging = false
+  minimapCanvas.releasePointerCapture(e.pointerId)
+}
+minimapCanvas.addEventListener('pointerup',     endDrag)
+minimapCanvas.addEventListener('pointercancel', endDrag)
+
+// Viewport rectangle follows main-view scrolling.
+canvasWrap.addEventListener('scroll', () => {
+  drawMinimap()  // cheapest reliable option; tile blits are tiny
+})
+
+// Keep the minimap sized to the available width as the window/panel resizes.
+new ResizeObserver(() => drawMinimap()).observe(minimapCanvas.parentElement!)
+
+chkScreens.addEventListener('change', redraw)
 chkSprites.addEventListener('change', redraw)
 chkBlock.addEventListener('change',   redraw)
 chkL1.addEventListener('change',      redraw)
@@ -1005,22 +1220,22 @@ chkL2.addEventListener('change',      redraw)
 // ── Mouse / edit interactions ─────────────────────────────────────────────────
 
 function canvasTileAt(e: MouseEvent): { col: number; row: number } | null {
-  if (!levelData) return null
+  if (!mapData) return null
   const rect = canvas.getBoundingClientRect()
   const px   = TILE_PX * zoom
   const col  = Math.floor((e.clientX - rect.left) / px)
   const row  = Math.floor((e.clientY - rect.top)  / px)
-  if (col < 0 || row < 0 || row >= SCREEN_H || col >= levelData.screens * SCREEN_W) return null
+  if (col < 0 || row < 0 || row >= SCREEN_H || col >= mapData.screens * SCREEN_W) return null
   return { col, row }
 }
 
 function paintAt(e: MouseEvent): void {
   const pos = canvasTileAt(e)
-  if (!pos || !levelData) return
+  if (!pos || !mapData) return
   const tileId = activeTool === 'erase' ? 0 : activeTileId
   if (tileId < 0) return
-  if (levelData.tileGrid[pos.row][pos.col] === tileId) return
-  levelData.tileGrid[pos.row][pos.col] = tileId
+  if (mapData.tileGrid[pos.row][pos.col] === tileId) return
+  mapData.tileGrid[pos.row][pos.col] = tileId
   redraw()
   vscode.postMessage({ type: 'edit', kind: activeTool, tileId, col: pos.col, row: pos.row })
 }
@@ -1029,7 +1244,7 @@ canvas.addEventListener('mousedown', (e) => { if (e.button !== 0) return; isPain
 canvas.addEventListener('mousemove', (e) => {
   const pos = canvasTileAt(e)
   if (pos) {
-    const tileId = levelData?.tileGrid[pos.row]?.[pos.col] ?? 0
+    const tileId = mapData?.tileGrid[pos.row]?.[pos.col] ?? 0
     stPos.textContent  = `col ${pos.col}  row ${pos.row}`
     stTile.textContent = `tile $${tileId.toString(16).toUpperCase().padStart(3,'0')}`
   }
@@ -1046,13 +1261,13 @@ canvas.addEventListener('dragover', (e) => { e.preventDefault() })
 canvas.addEventListener('drop', (e) => {
   e.preventDefault()
   const tileId = parseInt(e.dataTransfer?.getData('text/plain') ?? '', 10)
-  if (isNaN(tileId) || !levelData) return
+  if (isNaN(tileId) || !mapData) return
   const rect = canvas.getBoundingClientRect()
   const px   = TILE_PX * zoom
   const col  = Math.floor((e.clientX - rect.left) / px)
   const row  = Math.floor((e.clientY - rect.top)  / px)
-  if (col < 0 || row < 0 || row >= SCREEN_H || col >= levelData.screens * SCREEN_W) return
-  levelData.tileGrid[row][col] = tileId
+  if (col < 0 || row < 0 || row >= SCREEN_H || col >= mapData.screens * SCREEN_W) return
+  mapData.tileGrid[row][col] = tileId
   redraw()
   vscode.postMessage({ type: 'edit', kind: 'place', tileId, col, row })
 })
@@ -1095,7 +1310,7 @@ function highlightRowCols(rows: number[], colStart: number, colEnd: number): Pal
 
 selBgColor.addEventListener('change', () => {
   // Update the back area swatch immediately from the pre-loaded colors array
-  const colors = levelData?.backAreaColors
+  const colors = mapData?.backAreaColors
   const idx    = parseInt(selBgColor.value)
   if (colors && colors[idx]) {
     const [r, g, b] = colors[idx]
@@ -1129,72 +1344,69 @@ selMarioPal.addEventListener('blur',    () => setPaletteHighlight(null))
 window.addEventListener('message', async (event) => {
   const msg = event.data as Record<string, unknown>
   if (msg['type'] === 'load') {
-    levelData  = msg as unknown as LevelPayload
-    l2TileGrid = levelData.l2TileGrid ?? null
+    mapData  = msg as unknown as MapPayload
+    l2TileGrid = mapData.l2TileGrid ?? null
 
-    const hex     = levelData.levelIndex.toString(16).toUpperCase().padStart(3, '0')
-    const screens = levelData.screens
-    levelId.textContent   = `Level $${hex}`
-    levelMeta.textContent = `${screens} screen${screens !== 1 ? 's' : ''}`
+    const hex     = mapData.mapIndex.toString(16).toUpperCase().padStart(3, '0')
+    const screens = mapData.screens
+    mapId.textContent   = `Map $${hex}`
+    mapMeta.textContent = `${screens} screen${screens !== 1 ? 's' : ''}`
     stInfo.textContent    =
-      `Music $${levelData.header.music.toString(16).toUpperCase()} · ` +
-      `Tileset ${levelData.header.gfxTilesetId}`
+      `Music $${mapData.header.music.toString(16).toUpperCase()} · ` +
+      `Tileset ${mapData.header.gfxTilesetId}`
 
     // Populate props panel selectors (only on initial load)
     if (msg['_initial'] !== false) {
-      buildSelect(selBgColor,   8,  levelData.header.bgColor,       i => `Color ${i}`)
-      buildSelect(selFgPalette, 8,  levelData.header.fgPalette,     i => `FG ${i}`)
-      buildSelect(selBgPalette, 8,  levelData.header.bgPalette,     i => `BG ${i}`)
-      buildSelect(selSpritePal, 4,  levelData.header.spritePalette, i => `Set ${i}`)
-      buildSelect(selMarioPal,  4,  levelData.header.marioVariant,
+      buildSelect(selBgColor,   8,  mapData.header.bgColor,       i => `Color ${i}`)
+      buildSelect(selFgPalette, 8,  mapData.header.fgPalette,     i => `FG ${i}`)
+      buildSelect(selBgPalette, 8,  mapData.header.bgPalette,     i => `BG ${i}`)
+      buildSelect(selSpritePal, 4,  mapData.header.spritePalette, i => `Set ${i}`)
+      buildSelect(selMarioPal,  4,  mapData.header.marioVariant,
         i => ['Mario', 'Luigi', 'Fire Mario', 'Fire Luigi'][i] ?? String(i))
-      buildSelect(selTileset,   16, levelData.header.gfxTilesetId)
-      buildSelect(selSpriteSet, 16, levelData.header.spriteSet)
+      buildSelect(selTileset,   16, mapData.header.gfxTilesetId)
+      buildSelect(selSpriteSet, 16, mapData.header.spriteSet)
     }
 
     // Back area color swatch — use the selected variant from backAreaColors
-    const bac = levelData.backAreaColors
-    const bacIdx = levelData.header.bgColor
-    const bacColor = (bac && bac[bacIdx]) ? bac[bacIdx] : levelData.backAreaColor
+    const bac = mapData.backAreaColors
+    const bacIdx = mapData.header.bgColor
+    const bacColor = (bac && bac[bacIdx]) ? bac[bacIdx] : mapData.backAreaColor
     backAreaSwatch.style.background = `rgb(${bacColor[0]},${bacColor[1]},${bacColor[2]})`
 
     // Room info
     infoScreens.textContent = String(screens)
-    infoSprites.textContent = String(levelData.sprites.length)
+    infoSprites.textContent = String(mapData.sprites.length)
 
     // Palette canvas
     drawPaletteCanvas()
 
-    // Decode atlas and redraw
-    const raw     = new Uint8ClampedArray(levelData.atlasData)
-    const imgData = new ImageData(raw, levelData.atlasWidth, levelData.atlasHeight)
-    atlasImg      = await createImageBitmap(imgData)
-    // Build VRAM animation sheets — frame 0 is the base vramSheetData,
-    // extra frames come from animation.extraVramSheets
+    // Level canvas now renders from the live Map16 atlas (built reactively below
+    // via invalidatePalette → invalidateVram → invalidateMap16 → redraw).
     stopAnimTimer()
     vramSheets = []
     animFrameCount = 1
 
-    redraw()
+    // Clamp zoom to what the freshly-loaded level can fit, then draw.
+    applyZoom()
 
     // ── VRAM 8×8 tile sheet (paged by slot) ──────────────────────────
-    if (levelData.vramSheetData && levelData.vramSheetW && levelData.vramSheetH) {
-      const vh = levelData.vramSheetH
+    if (mapData.vramSheetData && mapData.vramSheetW && mapData.vramSheetH) {
+      const vh = mapData.vramSheetH
       const pxPerPage = (VRAM_TILES_PER_PAGE / 16) * 8
       vramTotalPages = Math.ceil(vh / pxPerPage)
       vramPage = 0
 
       // Build indexed VRAM frames for all animation frames
       vramIndexedFrames = []
-      if (levelData.vramIndexedData) {
-        activeVramIndexed = new Uint8Array(levelData.vramIndexedData)
+      if (mapData.vramIndexedData) {
+        activeVramIndexed = new Uint8Array(mapData.vramIndexedData)
         vramIndexedFrames = [activeVramIndexed]
       }
-      if (levelData.animation && levelData.animation.frameCount > 1) {
-        animFrameCount = levelData.animation.frameCount
-        animIntervalMs = levelData.animation.intervalMs
-        if (levelData.animation.extraVramIndexed) {
-          for (const idxData of levelData.animation.extraVramIndexed) {
+      if (mapData.animation && mapData.animation.frameCount > 1) {
+        animFrameCount = mapData.animation.frameCount
+        animIntervalMs = mapData.animation.intervalMs
+        if (mapData.animation.extraVramIndexed) {
+          for (const idxData of mapData.animation.extraVramIndexed) {
             vramIndexedFrames.push(new Uint8Array(idxData))
           }
         }
@@ -1240,9 +1452,9 @@ window.addEventListener('message', async (event) => {
       map16Pages = []
       // L1: placeholder atlas sized from defs count; invalidateVram() will fill it reactively
       {
-        const l1PageCount = levelData.map16Defs
-          ? Math.ceil(levelData.map16Defs.length / 256)
-          : (levelData.map16AtlasData ? Math.floor(levelData.map16AtlasData.length / (256 * 256 * 4)) : 1)
+        const l1PageCount = mapData.map16Defs
+          ? Math.ceil(mapData.map16Defs.length / 256)
+          : 1
         const placeholderH = l1PageCount * 256
         const placeholder = new ImageData(256, placeholderH)
         map16FullImageData = placeholder
@@ -1251,9 +1463,9 @@ window.addEventListener('message', async (event) => {
         }
       }
       // L2/BG pages (from Map16BGTiles, pages labeled 0x80+)
-      if (levelData.map16BgAtlasData) {
-        const h = Math.floor(levelData.map16BgAtlasData.length / (256 * 4))
-        const bgAtlas = new ImageData(new Uint8ClampedArray(levelData.map16BgAtlasData), 256, h)
+      if (mapData.map16BgAtlasData) {
+        const h = Math.floor(mapData.map16BgAtlasData.length / (256 * 4))
+        const bgAtlas = new ImageData(new Uint8ClampedArray(mapData.map16BgAtlasData), 256, h)
         const bgPageCount = Math.ceil(h / 256)
         for (let p = 0; p < bgPageCount; p++) {
           map16Pages.push({ atlas: bgAtlas, pageInAtlas: p, label: `L2 0x${(0x80 + p).toString(16)}` })
@@ -1300,18 +1512,18 @@ window.addEventListener('message', async (event) => {
     stopPalAnimTimer()
     palAnimFrame = 0
     const palAnimEl = document.getElementById('pal-anim-controls') as HTMLElement
-    palAnimEl.style.display = levelData.paletteAnimation ? 'flex' : 'none'
+    palAnimEl.style.display = mapData.paletteAnimation ? 'flex' : 'none'
 
     // Apply frame 0 immediately so the initial render shows the correct animated
     // color — the ROM's static value at those CGRAM slots is overwritten by the
     // NMI handler on the first game frame and is never actually visible in-game.
-    if (levelData.paletteAnimation && levelData.paletteRows) {
+    if (mapData.paletteAnimation && mapData.paletteRows) {
       palAnimOriginals = new Map()
-      for (const frame of levelData.paletteAnimation.frames) {
+      for (const frame of mapData.paletteAnimation.frames) {
         for (const p of frame) {
           if (!palAnimOriginals.has(p.cgramIdx)) {
             const row = p.cgramIdx >> 4, col = p.cgramIdx & 15
-            const orig = levelData.paletteRows[row]?.[col]
+            const orig = mapData.paletteRows[row]?.[col]
             if (orig) palAnimOriginals.set(p.cgramIdx, [...orig])
           }
         }
@@ -1320,8 +1532,8 @@ window.addEventListener('message', async (event) => {
     }
 
   } else if (msg['type'] === 'error') {
-    levelId.textContent   = 'Error'
-    levelMeta.textContent = msg['message'] as string
+    mapId.textContent   = 'Error'
+    mapMeta.textContent = msg['message'] as string
     canvas.width = canvas.height = 1
   }
 })
@@ -1386,8 +1598,8 @@ setTimeout(() => {
   if (spcBackend && spcBackend.status === 0) spcBackend.initialize()
 }, 500)
 
-// Load SPC data when level loads (in the message handler above, levelData.spcData is set)
-// We hook into the existing message handler by watching levelData changes
+// Load SPC data when level loads (in the message handler above, mapData.spcData is set)
+// We hook into the existing message handler by watching mapData changes
 const _origHandler = window.onmessage
 window.addEventListener('message', (event) => {
   const msg = event.data

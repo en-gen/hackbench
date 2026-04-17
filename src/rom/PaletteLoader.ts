@@ -465,11 +465,11 @@ export interface CustomLevelPalette {
 
 export function loadCustomLevelPalette(
   rom: RomFile,
-  levelIndex: number,
+  mapIndex: number,
 ): CustomLevelPalette | null {
-  if (levelIndex < 0 || levelIndex >= CUSTOM_PALETTE_LEVEL_COUNT) return null
+  if (mapIndex < 0 || mapIndex >= CUSTOM_PALETTE_LEVEL_COUNT) return null
 
-  const ptrAddr = ADDR_CUSTOM_PALETTE_TABLE + levelIndex * CUSTOM_PALETTE_PTR_BYTES
+  const ptrAddr = ADDR_CUSTOM_PALETTE_TABLE + mapIndex * CUSTOM_PALETTE_PTR_BYTES
   const ptrBuf = rom.readAt(ptrAddr, CUSTOM_PALETTE_PTR_BYTES)
   if (!ptrBuf) return null
 
