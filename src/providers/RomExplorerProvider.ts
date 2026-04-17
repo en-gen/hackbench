@@ -5,7 +5,7 @@ import { loadRomPalettes } from '../rom/PaletteLoader'
 
 // ── Shared tree item types ─────────────────────────────────────────────────────
 
-type LevelsTreeItem = RomInfoItem | LevelFolder | RoomItem
+type MapsTreeItem = RomInfoItem | LevelFolder | RoomItem
 type ResourcesTreeItem = SectionFolder | RoomItem | PaletteGroupItem | GfxFileItem | PlaceholderItem
 
 /** Non-interactive header item showing ROM identity. */
@@ -64,7 +64,7 @@ class LevelFolder extends vscode.TreeItem {
     this.command = {
       command: 'vscode.open',
       title: 'Open Level',
-      arguments: [vscode.Uri.parse(`smwrom:/${slug}/levels/${hex}.smwlevel`)]
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/maps/${hex}.smwmap`)]
     }
   }
 }
@@ -89,7 +89,7 @@ class RoomItem extends vscode.TreeItem {
     this.command = {
       command: 'vscode.open',
       title:   'Open Room',
-      arguments: [vscode.Uri.parse(`smwrom:/${slug}/levels/${hex}.smwlevel`)]
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/maps/${hex}.smwmap`)]
     }
     this.contextValue = `smwRoom_${role}`
   }
@@ -175,9 +175,9 @@ function buildTransitiveLevelMap(
  *
  * Level names are decoded from ROM data (no hardcoded lookup table).
  */
-export class LevelsProvider implements vscode.TreeDataProvider<LevelsTreeItem> {
+export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
   private session: RomSession | undefined
-  private _emitter = new vscode.EventEmitter<LevelsTreeItem | undefined | null | void>()
+  private _emitter = new vscode.EventEmitter<MapsTreeItem | undefined | null | void>()
   readonly onDidChangeTreeData = this._emitter.event
 
   refresh(session: RomSession | undefined): void {
@@ -185,9 +185,9 @@ export class LevelsProvider implements vscode.TreeDataProvider<LevelsTreeItem> {
     this._emitter.fire()
   }
 
-  getTreeItem(element: LevelsTreeItem): vscode.TreeItem { return element }
+  getTreeItem(element: MapsTreeItem): vscode.TreeItem { return element }
 
-  getChildren(element?: LevelsTreeItem): LevelsTreeItem[] {
+  getChildren(element?: MapsTreeItem): MapsTreeItem[] {
     if (!this.session) return []
     const { slug, rom } = this.session
 

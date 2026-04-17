@@ -197,7 +197,10 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
       screen++
     }
 
-    // High coordinate flag: bit 4 of byte 0 (line 778-782)
+    // High coordinate flag: bit 4 of byte 0 (line 778-782).
+    // When set, bank_05 does INC Map16LowPtr+1 — effectively adding 0x100 to
+    // the level tile pointer, which in our flat (col, row) grid means +16 rows.
+    // This is how objects reach rows 16-26 in a horizontal level.
     const highCoord = (b0 & 0x10) !== 0
 
     // Object number: $5A = ($0B >> 4) | (($0A & $60) >> 1)
@@ -210,7 +213,8 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
     // bank_05.asm lines 714-724:
     //   Y = ($0A & $0F) → upper nibble (shifted left 4)
     //   X = ($0B & $0F) → lower nibble
-    const yLocal = b0 & 0x0F
+    // With highCoord, the game adds 16 to Y (via INC Map16LowPtr+1).
+    const yLocal = (b0 & 0x0F) + (highCoord ? 16 : 0)
     const xLocal = b1 & 0x0F
 
     const isExtended = objectNumber === 0

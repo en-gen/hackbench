@@ -10,9 +10,9 @@ import { loadRomPalettes } from '../rom/PaletteLoader'
  * Directory tree exposed when a ROM is mounted:
  *
  *   smwrom://<slug>/
- *     levels/
- *       000.smwlevel         ← opens in LevelEditorProvider
- *       001.smwlevel
+ *     maps/
+ *       000.smwmap         ← opens in MapEditorProvider
+ *       001.smwmap
  *       ...
  *     palettes/
  *       global.smwpalette    ← opens in PaletteEditorProvider
@@ -49,13 +49,13 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
     if (parts.length === 0) return dir(now)
 
     if (parts.length === 1) {
-      if (parts[0] === 'levels' || parts[0] === 'palettes' || parts[0] === 'gfx' || parts[0] === 'music') return dir(now)
+      if (parts[0] === 'maps' || parts[0] === 'palettes' || parts[0] === 'gfx' || parts[0] === 'music') return dir(now)
     }
 
     if (parts.length === 2) {
       if (parts[0] === 'music' && parts[1].endsWith('.smwmusic'))
         return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
-      if (parts[0] === 'levels' && parts[1].endsWith('.smwlevel'))
+      if (parts[0] === 'maps' && parts[1].endsWith('.smwmap'))
         return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
 
       if (parts[0] === 'palettes' && parts[1].endsWith('.smwpalette'))
@@ -74,13 +74,13 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
 
     if (parts.length === 0) {
       return [
-        ['levels',   vscode.FileType.Directory],
+        ['maps',     vscode.FileType.Directory],
         ['palettes', vscode.FileType.Directory],
         ['gfx',      vscode.FileType.Directory],
       ]
     }
 
-    if (parts.length === 1 && parts[0] === 'levels') {
+    if (parts.length === 1 && parts[0] === 'maps') {
       const session = this.sessions.get(slug)!
       return session.rom.getAllLevelPointers()
         .filter(p => p.address !== null)
@@ -116,13 +116,13 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
     const session = this.sessions.get(slug)
     if (!session) throw vscode.FileSystemError.FileNotFound(uri)
 
-    if (parts.length === 2 && parts[0] === 'levels' && parts[1].endsWith('.smwlevel')) {
+    if (parts.length === 2 && parts[0] === 'maps' && parts[1].endsWith('.smwmap')) {
       const index = filenameToIndex(parts[1])
       if (index < 0 || index >= LEVEL_COUNT) throw vscode.FileSystemError.FileNotFound(uri)
       return Buffer.from(JSON.stringify({
-        type: 'smwlevel', version: 1,
+        type: 'smwmap', version: 1,
         romPath: session.rom.rom.filePath,
-        levelIndex: index,
+        mapIndex: index,
       }), 'utf8')
     }
 
@@ -172,9 +172,9 @@ function dir(now: number): vscode.FileStat {
 }
 
 function indexToFilename(index: number): string {
-  return index.toString(16).toUpperCase().padStart(3, '0') + '.smwlevel'
+  return index.toString(16).toUpperCase().padStart(3, '0') + '.smwmap'
 }
 
 function filenameToIndex(filename: string): number {
-  return parseInt(filename.replace('.smwlevel', ''), 16)
+  return parseInt(filename.replace('.smwmap', ''), 16)
 }

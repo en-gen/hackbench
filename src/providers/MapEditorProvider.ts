@@ -4,19 +4,18 @@ import { parseLevelObjects, parseLevelSprites } from '../rom/LevelParser'
 import { loadAllMap16 } from '../rom/Map16'
 import { loadRomPalettes, buildLevelCgram, loadBackAreaColors } from '../rom/PaletteLoader'
 import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, type VramState, type GfxSheet } from '../rom/GfxLoader'
-import { buildTileAtlas, renderMap16Tile } from '../rom/TileRenderer'
-import { loadAnimationData, ANIM_FRAME_COUNT, ANIM_INTERVAL_MS, type AnimationData } from '../rom/AnimationLoader'
+import { buildTileAtlas } from '../rom/TileRenderer'
+import { loadAnimationData, ANIM_INTERVAL_MS } from '../rom/AnimationLoader'
 import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
-import type { Map16Tile } from '../rom/Map16'
 type RgbaColor = [number, number, number, number]
-import { expandLevel } from '../rom/ObjectExpander'
+import { expandMap } from '../rom/ObjectExpander'
 import { decompressRle1 } from '../rom/LcRle1'
 import { getLevelMusicBgm } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
 import { SCREEN_W, SCREEN_H } from '../rom/LevelParser'
 
 /**
- * Custom editor provider for .smwlevel virtual files.
+ * Custom editor provider for .smwmap virtual files.
  *
  * Build pipeline (extension host → webview):
  *   1. Parse level objects + sprites from ROM
@@ -29,14 +28,14 @@ import { SCREEN_W, SCREEN_H } from '../rom/LevelParser'
  *
  * Message protocol (extension ↔ webview):
  *   Extension → Webview:
- *     { type:'load', levelIndex, screens, tileGrid, atlasData,
+ *     { type:'load', mapIndex, screens, tileGrid, atlasData,
  *       atlasWidth, atlasHeight, tileUvMap, sprites, header }
  *     { type:'error', message }
  *   Webview → Extension:
  *     { type:'ready' }
  *     { type:'edit', kind:'place'|'erase', tileId, col, row }
  */
-export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider {
+export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   async openCustomDocument(uri: vscode.Uri): Promise<vscode.CustomDocument> {
@@ -92,12 +91,12 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
 
       const rom   = SmwRom.open(descriptor.romPath as string)
-      const index = descriptor.levelIndex as number
+      const index = descriptor.mapIndex as number
 
       // ── Parse level ───────────────────────────────────────────────────────
       const rawL1 = rom.getLevelRawData(index)
       if (!rawL1) {
-        webview.postMessage({ type: 'error', message: `Level $${index.toString(16).toUpperCase()} has no data` })
+        webview.postMessage({ type: 'error', message: `Map $${index.toString(16).toUpperCase()} has no data` })
         return
       }
 
@@ -112,7 +111,10 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       }
 
       // ── Build L1 tile grid ────────────────────────────────────────────────
-      const tileGrid = expandLevel(objects, screens, rom.rom)
+      // Tileset byte from the header selects which dispatch table (CODE_0DA415)
+      // and thus which handler set is used. Must be passed so standard-object
+      // dispatch reads the correct per-tileset handler pointer table.
+      const tileGrid = expandMap(objects, screens, rom.rom, header.objectTileset)
 
       // ── Build L2 tile grid (background tilemap, if present) ───────────────
       let l2TileGrid: number[][] | null = null
@@ -155,11 +157,6 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       const vram    = loadVram(rom.rom, objectTileset, spriteTileset)
       const map16   = loadAllMap16(rom.rom, objectTileset)
 
-      // Collect unique tile IDs present in the grid
-      const usedIds = new Set<number>()
-      for (const row of tileGrid) for (const id of row) if (id !== 0) usedIds.add(id)
-      const usedTiles = map16.filter(t => usedIds.has(t.id))
-
       // ── Animation: apply frame 0 to VRAM BEFORE building any atlases ──
       // The SNES animation engine replaces 8×8 char data in VRAM via DMA.
       // Map16 tiles are just pointers to chars — they don't change.
@@ -195,13 +192,8 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
         console.warn('[LVL] Failed to load animation data:', (err as Error).message)
       }
 
-      // ── Build all atlases using the frame-0-applied VRAM ──────────────
-      const { atlas, atlasWidth, atlasHeight, tileUvs } = buildTileAtlas(usedTiles, vram, palette)
-      const tileUvMap: Record<number, { col: number; row: number }> = {}
-      for (const [id, uv] of tileUvs) tileUvMap[id] = uv
-
-      const { atlas: map16Atlas } = buildTileAtlas(map16, vram, palette)
-
+      // L1 Map16 tiles are composited live in the webview from map16Defs +
+      // vramIndexedData + paletteRows. L2/BG still uses a baked atlas.
       const { loadAllMap16BG } = require('../rom/Map16') as typeof import('../rom/Map16')
       const map16bg = loadAllMap16BG(rom.rom)
       const { atlas: map16BgAtlas } = buildTileAtlas(map16bg, vram, palette)
@@ -249,18 +241,13 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
       webview.postMessage({
         type: 'load',
         _initial:       overrides._initial !== false,
-        levelIndex:     index,
+        mapIndex:     index,
         screens,
         tileGrid,
         l2TileGrid,
-        atlasData:      Array.from(atlas),
-        atlasWidth,
-        atlasHeight,
-        tileUvMap,
         vramSheetData:  Array.from(vramSheet),
         vramSheetW,
         vramSheetH,
-        map16AtlasData: Array.from(map16Atlas),
         map16BgAtlasData: Array.from(map16BgAtlas),
         // Map16 tile definitions for client-side composition from live VRAM chars.
         // Each def: { id, tl, bl, tr, br } where subtile: { c, p, fx, fy }
@@ -312,13 +299,16 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
 
   private _buildHtml(webview: vscode.Webview): string {
     const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'levelEditor.js')
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'mapEditor.js')
     )
     const spcJsUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'spc.js')
     )
     const wasmUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'spc.wasm')
+    )
+    const codiconCssUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'codicon.css')
     )
     const nonce = getNonce()
     return /* html */`<!DOCTYPE html>
@@ -329,9 +319,11 @@ export class LevelEditorProvider implements vscode.CustomReadonlyEditorProvider 
     content="default-src 'none';
              script-src 'nonce-${nonce}' 'wasm-unsafe-eval' 'unsafe-eval';
              connect-src ${webview.cspSource};
+             font-src ${webview.cspSource};
              style-src ${webview.cspSource} 'unsafe-inline';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SMW Level Editor</title>
+  <title>SMW Map Editor</title>
+  <link rel="stylesheet" href="${codiconCssUri}" />
   <style>
     html, body { height:100%; margin:0; padding:0; overflow:hidden; }
     #app { height:100%; }
@@ -434,51 +426,6 @@ function buildVramIndexed(vramState: VramState): Uint8Array {
 }
 
 // ── Animation helpers ─────────────────────────────────────────────────────────
-
-function buildAnimationPatches(
-  animData: AnimationData,
-  usedTiles: Map16Tile[],
-  tileUvs: Map<number, { col: number; row: number }>,
-  vram: VramState,
-  palette: { colors: RgbaColor[] },
-): Array<Array<{ tileId: number; col: number; row: number; rgba: number[] }>> {
-  const animatedChars = new Set<number>()
-  for (const frameSlots of animData.frames) {
-    for (const slot of frameSlots) {
-      for (let i = 0; i < slot.tiles.length; i++) {
-        animatedChars.add(slot.charBase + i)
-      }
-    }
-  }
-
-  const animatedTiles: Map16Tile[] = []
-  for (const tile of usedTiles) {
-    if ([tile.tl, tile.tr, tile.bl, tile.br].some(s => animatedChars.has(s.charNum))) {
-      animatedTiles.push(tile)
-    }
-  }
-  if (animatedTiles.length === 0) return []
-
-  const patches: Array<Array<{ tileId: number; col: number; row: number; rgba: number[] }>> = []
-  for (let frame = 0; frame < animData.frameCount; frame++) {
-    const charOverrides = new Map<number, Uint8Array>()
-    for (const slot of animData.frames[frame]) {
-      for (let i = 0; i < slot.tiles.length; i++) {
-        charOverrides.set(slot.charBase + i, slot.tiles[i])
-      }
-    }
-    const proxyVram = createAnimatedVramProxy(vram, charOverrides)
-    const framePatches: Array<{ tileId: number; col: number; row: number; rgba: number[] }> = []
-    for (const tile of animatedTiles) {
-      const uv = tileUvs.get(tile.id)
-      if (!uv) continue
-      const rgba = renderMap16Tile(tile, proxyVram, palette)
-      framePatches.push({ tileId: tile.id, col: uv.col, row: uv.row, rgba: Array.from(rgba) })
-    }
-    patches.push(framePatches)
-  }
-  return patches
-}
 
 function createAnimatedVramProxy(
   baseVram: VramState,

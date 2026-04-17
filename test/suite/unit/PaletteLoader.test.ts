@@ -98,7 +98,7 @@ describe.skipIf(!romPresent)('PaletteLoader (requires ROM)', () => {
       const spritePalette   = header.spritePalette
       const fgVariant       = spriteSet & 0x07
 
-      // Try custom LM palette first (same as LevelEditorProvider)
+      // Try custom LM palette first (same as MapEditorProvider)
       const customPalette = loadCustomLevelPalette(rom.rom, LEVEL_104)
       const pal    = loadRomPalettes(rom.rom, backAreaVariant)
       const cgram  = customPalette ?? buildLevelCgram(pal, bgPaletteRow, fgVariant, spritePalette, 0)

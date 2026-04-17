@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
 import { RomSession } from './RomSession'
-import { LevelsProvider, ResourcesProvider } from './providers/RomExplorerProvider'
-import { LevelEditorProvider } from './providers/LevelEditorProvider'
+import { MapsProvider, ResourcesProvider } from './providers/RomExplorerProvider'
+import { MapEditorProvider } from './providers/MapEditorProvider'
 import { PaletteEditorProvider } from './providers/PaletteEditorProvider'
 import { GfxViewerProvider } from './providers/GfxViewerProvider'
 import { MusicPlayerProvider } from './providers/MusicPlayerProvider'
@@ -11,9 +11,9 @@ let session: RomSession | undefined
 
 export function activate(context: vscode.ExtensionContext): void {
   const fsProvider = new SmwFileSystemProvider()
-  const levelsProvider    = new LevelsProvider()
+  const mapsProvider      = new MapsProvider()
   const resourcesProvider = new ResourcesProvider()
-  const levelEditorProvider = new LevelEditorProvider(context)
+  const mapEditorProvider = new MapEditorProvider(context)
   const paletteEditorProvider = new PaletteEditorProvider(context)
   const gfxViewerProvider = new GfxViewerProvider(context)
   const musicPlayerProvider = new MusicPlayerProvider(context)
@@ -26,11 +26,11 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   )
 
-  // Register the level custom editor
+  // Register the map custom editor
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
-      'smwEditor.levelEditor',
-      levelEditorProvider,
+      'smwEditor.mapEditor',
+      mapEditorProvider,
       { webviewOptions: { retainContextWhenHidden: true } }
     )
   )
@@ -55,7 +55,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Register the two explorer tree views
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('smwEditor.levelsExplorer',    levelsProvider),
+    vscode.window.registerTreeDataProvider('smwEditor.mapsExplorer',      mapsProvider),
     vscode.window.registerTreeDataProvider('smwEditor.resourcesExplorer', resourcesProvider),
   )
 
@@ -71,10 +71,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // Commands
   context.subscriptions.push(
     vscode.commands.registerCommand('smwEditor.openRom', () =>
-      openRomCommand(context, fsProvider, levelsProvider, resourcesProvider)
+      openRomCommand(context, fsProvider, mapsProvider, resourcesProvider)
     ),
     vscode.commands.registerCommand('smwEditor.closeRom', () =>
-      closeRomCommand(context, fsProvider, levelsProvider, resourcesProvider)
+      closeRomCommand(context, fsProvider, mapsProvider, resourcesProvider)
     )
   )
 }
@@ -88,7 +88,7 @@ export function deactivate(): void {
 async function openRomCommand(
   context: vscode.ExtensionContext,
   fsProvider: SmwFileSystemProvider,
-  levelsProvider: LevelsProvider,
+  mapsProvider: MapsProvider,
   resourcesProvider: ResourcesProvider,
 ): Promise<void> {
   const uris = await vscode.window.showOpenDialog({
@@ -108,7 +108,7 @@ async function openRomCommand(
         session = new RomSession(romPath)
 
         fsProvider.mount(session)
-        levelsProvider.refresh(session)
+        mapsProvider.refresh(session)
         resourcesProvider.refresh(session)
         await vscode.commands.executeCommand('setContext', 'smwEditor.romLoaded', true)
 
@@ -130,12 +130,12 @@ async function openRomCommand(
 async function closeRomCommand(
   _context: vscode.ExtensionContext,
   fsProvider: SmwFileSystemProvider,
-  levelsProvider: LevelsProvider,
+  mapsProvider: MapsProvider,
   resourcesProvider: ResourcesProvider,
 ): Promise<void> {
   if (!session) return
   fsProvider.unmount(session.slug)
-  levelsProvider.refresh(undefined)
+  mapsProvider.refresh(undefined)
   resourcesProvider.refresh(undefined)
   session.dispose()
   session = undefined
