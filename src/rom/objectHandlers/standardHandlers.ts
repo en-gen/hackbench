@@ -26,32 +26,12 @@ import {
   diagonalDownLeft, diagonalDownRight, stepDiag,
   writeTileSlopeMerge, writeTilePipeMerge, writeTilePipeMergeNoAdvance,
   writeTileMergeCODE_0DB114, writeTileMergeCODE_0DB198,
+  readLongOperand, readImmByte,
 } from './cursor'
-import { RomFile } from '../RomFile'
-import {
-  ADDR_DATA_0DA8B4, DATA_0DA8B4_LEN,
-  ADDR_DATA_0DAA12, ADDR_DATA_0DAA17, ADDR_DATA_0DAA1C, ADDR_DATA_0DAA21,
-  ADDR_DATA_0DAAA4, ADDR_DATA_0DAAAC,
-  ADDR_DATA_0DB3BB, ADDR_DATA_0DB3DB, ADDR_DATA_0DB3DF,
-  ADDR_DATA_0DB42B,
-  ADDR_DATA_0DB569, ADDR_DATA_0DB5A8, ADDR_DATA_0DB5AD, ADDR_DATA_0DB5B2,
-  ADDR_DATA_0DB039, ADDR_DATA_0DB048, ADDR_DATA_0DB057, ADDR_DATA_0DB066,
-  ADDR_DATA_0DB0F0, DATA_0DB0F0_LEN, ADDR_DATA_0DB102,
-  ADDR_DATA_0DB15C, DATA_0DB15C_LEN, ADDR_DATA_0DB17A,
-  ADDR_DATA_0DB212, ADDR_DATA_0DB215, ADDR_DATA_0DB218,
-  ADDR_DATA_0DB21B, ADDR_DATA_0DB21E, ADDR_DATA_0DB221,
-  ADDR_DATA_0DB72F,
-  readByteTable,
-} from './romData'
+// No ADDR_DATA_* imports: every handler resolves its table addresses and
+// immediate tile IDs dynamically from its own bytecode via cur.handlerAddr.
+// No RomFile / readByteTable imports either -- reads go through cur.rom directly.
 
-/** Read a single byte at a computed SNES address, defaulting to 0 on failure.
- *  Used by handlers that index data tables with out-of-range X values — SMW
- *  relies on the bytes that follow each table in ROM, so bounds-checking on
- *  the TS side would suppress that behavior. */
-function readByte(rom: RomFile, snesAddr: number): number {
-  const b = rom.readByte(snesAddr)
-  return b ?? 0
-}
 
 /**
  * CODE_0DA8C3 (bank_0D.asm line 1913) -- rectangular terrain fill.
@@ -69,9 +49,11 @@ export function handle_0DA8C3(cur: Cursor): void {
   const widthM1  = cur.size & 0x0F
   const heightM1 = (cur.size >> 4) & 0x0F
   const x = cur.objNo - 1
-  if (x < 0 || x >= DATA_0DA8B4_LEN) return
-  const tileTable = readByteTable(cur.rom, ADDR_DATA_0DA8B4, DATA_0DA8B4_LEN)
-  const tileId = tileTable[x]
+  if (x < 0 || x >= 14) return  // 14 tiles in the table (objects 1-14)
+
+  // LDA.L DATA_0DA8B4,X at handler offset +107 (operand at +108). ASM: line 1974.
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 108)
+  const tileId = cur.rom.readByte(tableAddr + x) ?? 0
 
   // ASM (CODE_0DA92E): StzTo6ePointer, then if X>=7 also Sta1To6ePointer.
   // Net: objNo 1-7 write page 0, objNo 8-14 write page 1.
@@ -107,10 +89,27 @@ export function handle_0DAA26(cur: Cursor): void {
   const H = (cur.size >> 4) & 0x0F
   const X = cur.size & 0x0F
 
-  const leftTop    = readByteTable(cur.rom, ADDR_DATA_0DAA12, 5)
-  const leftBottom = readByteTable(cur.rom, ADDR_DATA_0DAA17, 5)
-  const rightTop   = readByteTable(cur.rom, ADDR_DATA_0DAA1C, 5)
-  const rightBottom= readByteTable(cur.rom, ADDR_DATA_0DAA21, 5)
+  // Data-table addresses read from LDA.L operands inside the handler body:
+  //   +26  LDA.L DATA_0DAA12,X  (left-cap top)
+  //   +36  LDA.L DATA_0DAA17,X  (left-cap bottom)
+  //   +110 LDA.L DATA_0DAA1C,X  (right-cap top)
+  //   +120 LDA.L DATA_0DAA21,X  (right-cap bottom)
+  const addrLeftTop     = readLongOperand(cur, cur.handlerAddr + 26)
+  const addrLeftBottom  = readLongOperand(cur, cur.handlerAddr + 36)
+  const addrRightTop    = readLongOperand(cur, cur.handlerAddr + 110)
+  const addrRightBottom = readLongOperand(cur, cur.handlerAddr + 120)
+  const leftTop     = [0,1,2,3,4].map(i => cur.rom.readByte(addrLeftTop + i) ?? 0)
+  const leftBottom  = [0,1,2,3,4].map(i => cur.rom.readByte(addrLeftBottom + i) ?? 0)
+  const rightTop    = [0,1,2,3,4].map(i => cur.rom.readByte(addrRightTop + i) ?? 0)
+  const rightBottom = [0,1,2,3,4].map(i => cur.rom.readByte(addrRightBottom + i) ?? 0)
+
+  // Inline tile immediates (LDA #$XX) for the X==5 and X>=3 branches:
+  //   +52 $68 top   +60 $69 bottom   (X == 5)
+  //   +70 $35 top   +78 $36 bottom   (X >= 3)
+  const x5Top = readImmByte(cur, cur.handlerAddr + 52)
+  const x5Bot = readImmByte(cur, cur.handlerAddr + 60)
+  const x3Top = readImmByte(cur, cur.handlerAddr + 70)
+  const x3Bot = readImmByte(cur, cur.handlerAddr + 78)
 
   // All writes in CODE_0DAA26 are preceded by Sta1To6ePointer -- page 1.
   setPage1(cur)
@@ -118,12 +117,12 @@ export function handle_0DAA26(cur: Cursor): void {
   saveBookmark(cur)
   if (X < 3) {
     // Top row: left cap
-    writeTile(cur, leftTop[X] ?? 0)
+    writeTile(cur, leftTop[X])
     // Bottom row: left cap
     const col0 = cur.col
     const row0 = cur.row
     cur.row += 1
-    writeTile(cur, leftBottom[X] ?? 0)
+    writeTile(cur, leftBottom[X])
     cur.row = row0
     cur.col = col0 + 1
   }
@@ -134,15 +133,14 @@ export function handle_0DAA26(cur: Cursor): void {
     let topTile: number
     let botTile: number
     if (X === 5) {
-      topTile = 0x68
-      botTile = 0x69
+      topTile = x5Top
+      botTile = x5Bot
     } else if (X >= 3) {
-      // The ASM falls through CODE_0DAA68 which writes $35/$36; used for ledge types 3,4.
-      topTile = 0x35
-      botTile = 0x36
+      topTile = x3Top
+      botTile = x3Bot
     } else {
-      topTile = leftTop[X] ?? 0
-      botTile = leftBottom[X] ?? 0
+      topTile = leftTop[X]
+      botTile = leftBottom[X]
     }
     const col0 = cur.col
     const row0 = cur.row
@@ -158,9 +156,9 @@ export function handle_0DAA26(cur: Cursor): void {
   if (X !== 5 && X >= 2) {
     const col0 = cur.col
     const row0 = cur.row
-    writeTile(cur, rightTop[X] ?? 0)
+    writeTile(cur, rightTop[X])
     cur.row += 1
-    writeTile(cur, rightBottom[X] ?? 0)
+    writeTile(cur, rightBottom[X])
     cur.row = row0
     cur.col = col0
   }
@@ -189,8 +187,12 @@ export function handle_0DAAB4(cur: Cursor): void {
   const H = (cur.size >> 4) & 0x0F
   let X = H  // ASM uses H as X directly (no shift: AND $F0; LSR LSR LSR -> high nibble)
 
-  const tableA = readByteTable(cur.rom, ADDR_DATA_0DAAA4, 8)  // X < 4
-  const tableB = readByteTable(cur.rom, ADDR_DATA_0DAAAC, 8)  // X >= 4
+  // LDA.L DATA_0DAAA4,X operand at handler offset +29
+  // LDA.L DATA_0DAAAC,X operand at handler offset +42
+  const addrA = readLongOperand(cur, cur.handlerAddr + 29)
+  const addrB = readLongOperand(cur, cur.handlerAddr + 42)
+  const tableA = [0,1,2,3,4,5,6,7].map(i => cur.rom.readByte(addrA + i) ?? 0)
+  const tableB = [0,1,2,3,4,5,6,7].map(i => cur.rom.readByte(addrB + i) ?? 0)
 
   setPage1(cur)   // Sta1To6ePointer throughout
   saveBookmark(cur)
@@ -229,7 +231,8 @@ export function handle_0DAAB4(cur: Cursor): void {
 export function handle_0DB1D4(cur: Cursor): void {
   const widthM1 = cur.size & 0x0F
   const heightM1 = (cur.size >> 4) & 0x0F
-  fillRectTopBottom(cur, widthM1, heightM1)
+  // CODE_0DB1D4 falls through into the shared CODE_0DB1E3 body at handler +15.
+  fillRectTopBottom(cur, cur.handlerAddr + 15, widthM1, heightM1)
 }
 
 /**
@@ -243,8 +246,14 @@ export function handle_0DB1D4(cur: Cursor): void {
  */
 export function handle_0DB1C8(cur: Cursor): void {
   const widthM1 = cur.size & 0xFF   // full byte as width-1
-  const heightM1 = 2                // fixed 3 rows (height-1 = 2)
-  fillRectTopBottom(cur, widthM1, heightM1)
+  // LDA #$02 at handler +5, STA _2 then JMP CODE_0DB1E3. Height-1 immediate at +6.
+  const heightM1 = readImmByte(cur, cur.handlerAddr + 6)
+  // JMP CODE_0DB1E3 operand at handler +10 (2-byte same-bank target).
+  const sharedBodyAddr =
+    (cur.handlerAddr & 0xFF0000)
+    | ((cur.rom.readByte(cur.handlerAddr + 11) ?? 0) << 8)
+    | (cur.rom.readByte(cur.handlerAddr + 10) ?? 0)
+  fillRectTopBottom(cur, sharedBodyAddr, widthM1, heightM1)
 }
 
 /** Shared body for CODE_0DB1D4 / CODE_0DB1C8 (the CODE_0DB1E3 loop).
@@ -253,11 +262,20 @@ export function handle_0DB1C8(cur: Cursor): void {
  *  tile. Rows 1+ use StzTo6ePointer (page 0) -- $03F = plain dirt. Without the
  *  page switch, the top row would render as $000 (empty) and the ground strip
  *  would appear without its characteristic green top. */
-function fillRectTopBottom(cur: Cursor, widthM1: number, heightM1: number): void {
+function fillRectTopBottom(cur: Cursor, bodyAddr: number, widthM1: number, heightM1: number): void {
+  // CODE_0DB1E3 layout (shared body at bodyAddr):
+  //   +8  LDA #$00   ← grass tile (row 0, page 1). Immediate at bodyAddr + 9.
+  //   +24 LDA #$3F   ← dirt tile (rows 1+, page 0). Immediate at bodyAddr + 25.
+  //
+  // (Offsets are relative to CODE_0DB1E3 and independent of whether we arrived
+  // via fall-through from CODE_0DB1D4 or JMP from CODE_0DB1C8.)
+  const grassTile = readImmByte(cur, bodyAddr + 9)
+  const dirtTile  = readImmByte(cur, bodyAddr + 25)
+
   saveBookmark(cur)
   setPage1(cur)               // Sta1To6ePointer
   for (let c = 0; c <= widthM1; c++) {
-    writeTileAdvance(cur, 0x00)
+    writeTileAdvance(cur, grassTile)
   }
   restoreBookmark(cur)
   setPage0(cur)               // StzTo6ePointer
@@ -265,7 +283,7 @@ function fillRectTopBottom(cur: Cursor, widthM1: number, heightM1: number): void
     cur.row += 1
     cur.col = cur.bookmarkCol
     for (let c = 0; c <= widthM1; c++) {
-      writeTileAdvance(cur, 0x3F)
+      writeTileAdvance(cur, dirtTile)
     }
   }
 }
@@ -279,7 +297,10 @@ function fillRectTopBottom(cur: Cursor, widthM1: number, heightM1: number): void
 export function handle_0DB3BD(cur: Cursor): void {
   const widthM1 = cur.size & 0x0F
   const H = (cur.size >> 4) & 0x0F
-  const tileId = readByte(cur.rom, ADDR_DATA_0DB3BB + H)
+
+  // LDA.L DATA_0DB3BB,X at handler offset +18 (operand at +19).
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 19)
+  const tileId = cur.rom.readByte(tableAddr + H) ?? 0
 
   setPage1(cur)   // Sta1To6ePointer
   for (let c = 0; c <= widthM1; c++) {
@@ -303,8 +324,12 @@ export function handle_0DB3E3(cur: Cursor): void {
   const heightM1 = (cur.size >> 4) & 0x0F
   const X = cur.objNo - 0x18
 
-  const topTile = readByte(cur.rom, ADDR_DATA_0DB3DB + X)
-  const botTile = readByte(cur.rom, ADDR_DATA_0DB3DF + X)
+  // LDA.L DATA_0DB3DB,X at handler offset +29 (operand at +30)
+  // LDA.L DATA_0DB3DF,X at handler offset +46 (operand at +47)
+  const addrTop = readLongOperand(cur, cur.handlerAddr + 30)
+  const addrBot = readLongOperand(cur, cur.handlerAddr + 47)
+  const topTile = cur.rom.readByte(addrTop + X) ?? 0
+  const botTile = cur.rom.readByte(addrBot + X) ?? 0
 
   setPage0(cur)   // StzTo6ePointer
   saveBookmark(cur)
@@ -328,8 +353,11 @@ export function handle_0DB3E3(cur: Cursor): void {
  */
 export function handle_0DB42D(cur: Cursor): void {
   const widthM1 = cur.size & 0x0F
-  const row0Tile = readByte(cur.rom, ADDR_DATA_0DB42B + 0)
-  const row1Tile = readByte(cur.rom, ADDR_DATA_0DB42B + 1)
+
+  // LDA.L DATA_0DB42B,X at handler offset +25 (operand at +26).
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 26)
+  const row0Tile = cur.rom.readByte(tableAddr + 0) ?? 0
+  const row1Tile = cur.rom.readByte(tableAddr + 1) ?? 0
 
   // ASM: row 0 does StzTo6ePointer only (page 0); row 1 adds Sta1To6ePointer
   // after StzTo6ePointer (net page 1).
@@ -357,19 +385,22 @@ export function handle_0DB461(cur: Cursor): void {
   const widthM1 = cur.size & 0x0F
   const height = (cur.size >> 4) & 0x0F
 
-  setPage0(cur)   // all StzTo6ePointer
+  // LDA #$0B immediate at handler +28 (opcode A9 at +27)
+  // LDA #$0E immediate at handler +51 (opcode A9 at +50)
+  const midTile = readImmByte(cur, cur.handlerAddr + 28)
+  const endTile = readImmByte(cur, cur.handlerAddr + 51)
+
+  setPage0(cur)
   saveBookmark(cur)
-  // For `height` rows, stamp $0B across (width+1) columns.
   for (let r = 0; r < height; r++) {
     for (let c = 0; c <= widthM1; c++) {
-      writeTileAdvance(cur, 0x0B)
+      writeTileAdvance(cur, midTile)
     }
     restoreBookmark(cur)
     nextRow(cur)
   }
-  // Final row: tile $0E across (width+1) columns.
   for (let c = 0; c <= widthM1; c++) {
-    writeTileAdvance(cur, 0x0E)
+    writeTileAdvance(cur, endTile)
   }
 }
 
@@ -391,23 +422,35 @@ export function handle_0DB461(cur: Cursor): void {
  * port writes the raw table values — adequate for rendering without stitching.
  */
 export function handle_0DB075(cur: Cursor): void {
+  const base = cur.handlerAddr
   const X = cur.size & 0x0F
   let count = (cur.size >> 4) & 0x0F
 
-  const topTile    = readByte(cur.rom, ADDR_DATA_0DB039 + X)
-  const row1Tile   = readByte(cur.rom, ADDR_DATA_0DB048 + X)
-  const middleTile = readByte(cur.rom, ADDR_DATA_0DB057 + X)
-  const footerTile = readByte(cur.rom, ADDR_DATA_0DB066 + X)
+  // LDA.L operands within CODE_0DB075:
+  //   +26  DATA_0DB039 (top)   +60  DATA_0DB048 (row 1)
+  //   +94  DATA_0DB057 (mid)   +117 DATA_0DB066 (footer)
+  const addrTop = readLongOperand(cur, base + 26)
+  const addrRow1 = readLongOperand(cur, base + 60)
+  const addrMid = readLongOperand(cur, base + 94)
+  const addrFooter = readLongOperand(cur, base + 117)
+  const topTile    = cur.rom.readByte(addrTop + X) ?? 0
+  const row1Tile   = cur.rom.readByte(addrRow1 + X) ?? 0
+  const middleTile = cur.rom.readByte(addrMid + X) ?? 0
+  const footerTile = cur.rom.readByte(addrFooter + X) ?? 0
 
-  // Context-merge tables (same tables for every row; read once).
-  const db0F0 = readByteTable(cur.rom, ADDR_DATA_0DB0F0, DATA_0DB0F0_LEN)
-  const db102 = readByteTable(cur.rom, ADDR_DATA_0DB102, DATA_0DB0F0_LEN)
-  const db15C = readByteTable(cur.rom, ADDR_DATA_0DB15C, DATA_0DB15C_LEN)
-  const db17A = readByteTable(cur.rom, ADDR_DATA_0DB17A, DATA_0DB15C_LEN)
+  // JSR CODE_0DB114 operand at +30; JSR CODE_0DB198 operand at +64.
+  // Bank is same as CODE_0DB075.
+  const bank = base & 0xFF0000
+  const merge114Addr = bank
+    | ((cur.rom.readByte(base + 31) ?? 0) << 8)
+    | (cur.rom.readByte(base + 30) ?? 0)
+  const merge198Addr = bank
+    | ((cur.rom.readByte(base + 65) ?? 0) << 8)
+    | (cur.rom.readByte(base + 64) ?? 0)
 
-  // Row 0 page (ASM): page 0 if X < 3, else page 1. Merge may override to 1.
+  // Row 0 page: page 0 if X < 3, else page 1.
   if (X < 3) setPage0(cur); else setPage1(cur)
-  writeTileMergeCODE_0DB114(cur, X, topTile, db0F0, db102)
+  writeTileMergeCODE_0DB114(cur, merge114Addr, X, topTile)
   cur.row += 1
   count -= 1
   if (count < 0) {
@@ -415,12 +458,10 @@ export function handle_0DB075(cur: Cursor): void {
     return
   }
 
-  // Rows 1+ page (ASM): X in [3,6] or X >= 9 → page 1, else page 0.
   const rowPage1 = (X >= 3 && X <= 6) || X >= 9
 
-  // Row 1 uses CODE_0DB198 merge.
   if (rowPage1) setPage1(cur); else setPage0(cur)
-  writeTileMergeCODE_0DB198(cur, X, row1Tile, db15C, db17A)
+  writeTileMergeCODE_0DB198(cur, merge198Addr, X, row1Tile)
   cur.row += 1
   count -= 1
   if (count < 0) {
@@ -428,15 +469,13 @@ export function handle_0DB075(cur: Cursor): void {
     return
   }
 
-  // Middle loop: same page + merge pattern as row 1.
   while (count >= 0) {
     if (rowPage1) setPage1(cur); else setPage0(cur)
-    writeTileMergeCODE_0DB198(cur, X, middleTile, db15C, db17A)
+    writeTileMergeCODE_0DB198(cur, merge198Addr, X, middleTile)
     cur.row += 1
     count -= 1
   }
 
-  // Footer (X >= 0x0B): plain page-1 write, no merge.
   if (X >= 0x0B) {
     setPage1(cur)
     writeTile(cur, footerTile)
@@ -452,8 +491,159 @@ export function handle_0DB075(cur: Cursor): void {
 export function handle_0DB571(cur: Cursor): void {
   const X = cur.size - 0x68
   if (X < 0 || X > 7) return
+
+  // LDA.L DATA_0DB569,X at handler offset +11 (operand at +12).
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
   setPage0(cur)   // StzTo6ePointer
-  writeTile(cur, readByte(cur.rom, ADDR_DATA_0DB569 + X))
+  writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
+}
+
+/**
+ * CODE_0DB49E (bank_0D.asm line 3585) -- vertical pipe (object 31 = std $1F).
+ *
+ * 1-wide vertical pipe of (_0+2) tiles: top merged, body, bottom merged. Tile
+ * from DATA_0DB49C[X] where X = size low nibble; _0 = size high nibble = body
+ * row count. Top via CODE_0DB4D9 and bottom via CODE_0DB4FE are context-merge
+ * writes that swap different IDs when the existing cell is $08 or $0E, letting
+ * adjacent pipes fuse visually.
+ *
+ * All addresses/immediates are read from the handler's own bytecode so that
+ * LM-patched ROMs (which may relocate data tables by patching LDA.L operands)
+ * still resolve correctly.
+ *
+ * Byte layout at cur.handlerAddr:
+ *   +0..14  LDY/LDA/LSR×4/STA/LDA/AND/TAX  (state setup)
+ *   +15     $BF opcode (LDA.L abs,X)
+ *   +16..18 operand: address of DATA_0DB49C  (pipe tile table)
+ *   +19..21 JSR CODE_0DB4D9 (top merge)
+ *   +22..24 JMP CODE_0DB4C0
+ *   +25..   CODE_0DB4B7 body-write branch
+ *   +34..   CODE_0DB4C0 loop
+ *   +34+18..20  JMP CODE_0DB4FE operand
+ */
+export function handle_0DB49E(cur: Cursor): void {
+  const base = cur.handlerAddr
+  const dataTableAddr  = readLongOperand(cur, base + 16)
+  const topMergeAddr   = resolveJsrTarget(cur, base + 19)
+  const bottomMergeAddr = resolveJmpTarget(cur, base + 34 + 19)
+
+  const middleCount = (cur.size >> 4) & 0x0F
+  const X = cur.size & 0x0F
+  const pipeTile = cur.rom.readByte(dataTableAddr + X) ?? 0
+
+  // Top row: CODE_0DB4D9 context merge.
+  writeVerticalPipeMerge(cur, topMergeAddr, X, pipeTile)
+
+  // Middle rows. ASM flow: row++; DEC _0; BNE body; else fall through to
+  // bottom merge. BNE exits when _0 reaches 0, so we break on _0 === 0 AFTER
+  // the decrement (before writing a body for that iteration).
+  let _0 = middleCount
+  for (;;) {
+    cur.row += 1
+    _0 -= 1
+    if (_0 === 0) break
+    setPage0(cur); writeTile(cur, pipeTile)
+  }
+
+  // Bottom row: CODE_0DB4FE context merge.
+  writeVerticalPipeMerge(cur, bottomMergeAddr, X, pipeTile)
+}
+
+/**
+ * Context-merge write for CODE_0DB4D9 / CODE_0DB4FE.
+ *
+ * Both helpers have identical structure -- only their data tables and trigger
+ * bytes differ. We read both from the helper's own bytecode:
+ *
+ *   +0..3    STA _C; LDA [Map16LowPtr],Y
+ *   +4..5    CMP #$XX    (first trigger immediate at +5)
+ *   +6..7    BNE branch
+ *   +8..11   LDA.L $XXXXXX,X    (first data table operand at +9..11)
+ *   +12..14  JMP CODE_0DBxxx
+ *   +15..16  CMP #$XX    (second trigger immediate at +16)
+ *   +17..18  BNE branch
+ *   +19..22  LDA.L $XXXXXX,X    (second data table operand at +20..22)
+ */
+function writeVerticalPipeMerge(
+  cur: Cursor, helperAddr: number, X: number, baseTile: number,
+): void {
+  const trigger1 = readImmByte(cur, helperAddr + 5)
+  const table1   = readLongOperand(cur, helperAddr + 9)
+  const trigger2 = readImmByte(cur, helperAddr + 16)
+  const table2   = readLongOperand(cur, helperAddr + 20)
+
+  const existing = readExistingLow(cur)
+  let out = baseTile
+  if (existing === trigger1) {
+    out = cur.rom.readByte(table1 + X) ?? baseTile
+  } else if (existing === trigger2) {
+    out = cur.rom.readByte(table2 + X) ?? baseTile
+  }
+  setPage0(cur)   // ASM StzTo6ePointer before the write
+  writeTile(cur, out)
+}
+
+function readExistingLow(cur: Cursor): number {
+  const row = cur.grid[cur.row]
+  if (!row) return 0x25
+  const v = row[cur.col]
+  if (v === undefined) return 0x25
+  return v & 0xFF
+}
+
+/**
+ * Resolve a JSR $XXXX (absolute, same-bank) target.
+ * opcodeAddr points at the $20 opcode; the 2-byte operand follows at +1.
+ * Bank comes from the calling handler (same bank for JSR).
+ */
+function resolveJsrTarget(cur: Cursor, opcodeAddr: number): number {
+  const lo = cur.rom.readByte(opcodeAddr + 1) ?? 0
+  const hi = cur.rom.readByte(opcodeAddr + 2) ?? 0
+  const bank = opcodeAddr & 0xFF0000
+  return bank | (hi << 8) | lo
+}
+
+/** Resolve a JMP $XXXX (absolute, same-bank) target. Same layout as JSR. */
+function resolveJmpTarget(cur: Cursor, opcodeAddr: number): number {
+  return resolveJsrTarget(cur, opcodeAddr)
+}
+
+/**
+ * CODE_0DBA0A (bank_0D.asm line 4346) -- wide vertical pipe (object 57 = std $39).
+ *
+ * Size byte: HHHHWWWW
+ *   W (low nibble)  = width-1
+ *   H (high nibble) = height-1 (applies to body rows only; top row always drawn)
+ *
+ * Top row: $0E page 1 across (W+1) tiles.
+ * Body rows: $B8 page 0 across (W+1) tiles, repeated (H+1) times.
+ *
+ * Unlike CODE_0DB49E this has no bottom cap — the body just extends and the
+ * pipe meets whatever terrain follows below (ground, etc.).
+ */
+export function handle_0DBA0A(cur: Cursor): void {
+  const widthM1 = cur.size & 0x0F
+  let heightM1 = (cur.size >> 4) & 0x0F
+
+  // LDA #$0E (top-row tile, page 1) immediate at handler +24 (opcode at +23)
+  // LDA #$B8 (body-row tile, page 0) immediate at handler +38 (opcode at +37)
+  const topTile  = readImmByte(cur, cur.handlerAddr + 24)
+  const bodyTile = readImmByte(cur, cur.handlerAddr + 38)
+
+  saveBookmark(cur)
+
+  for (let c = 0; c <= widthM1; c++) {
+    setPage1(cur); writeTileAdvance(cur, topTile)
+  }
+
+  while (heightM1 >= 0) {
+    restoreBookmark(cur)
+    cur.row += 1
+    for (let c = 0; c <= widthM1; c++) {
+      setPage0(cur); writeTileAdvance(cur, bodyTile)
+    }
+    heightM1 -= 1
+  }
 }
 
 /**
@@ -464,16 +654,20 @@ export function handle_0DB571(cur: Cursor): void {
  */
 export function handle_0DB51F(cur: Cursor): void {
   const X = (cur.size >> 4) & 0x0F
-  setPage1(cur)   // Sta1To6ePointer for every write
-  writeTile(cur, 0x53)
+  // LDA #$53/$54/$55 immediates at handler +15/+23/+36 (opcodes at +14/+22/+35)
+  const topTile    = readImmByte(cur, cur.handlerAddr + 15)
+  const midTile    = readImmByte(cur, cur.handlerAddr + 23)
+  const bottomTile = readImmByte(cur, cur.handlerAddr + 36)
+  setPage1(cur)
+  writeTile(cur, topTile)
   let count = X
   while (count > 0) {
     cur.row += 1
-    writeTile(cur, 0x54)
+    writeTile(cur, midTile)
     count -= 1
   }
   cur.row += 1
-  writeTile(cur, 0x55)
+  writeTile(cur, bottomTile)
 }
 
 /**
@@ -484,14 +678,18 @@ export function handle_0DB51F(cur: Cursor): void {
  */
 export function handle_0DB547(cur: Cursor): void {
   const X = cur.size & 0x0F
-  setPage1(cur)   // Sta1To6ePointer for every write
-  writeTileAdvance(cur, 0x56)
+  // LDA #$56/$57/$58 immediates at handler +11/+19/+30 (opcodes at +10/+18/+29)
+  const leftTile  = readImmByte(cur, cur.handlerAddr + 11)
+  const midTile   = readImmByte(cur, cur.handlerAddr + 19)
+  const rightTile = readImmByte(cur, cur.handlerAddr + 30)
+  setPage1(cur)
+  writeTileAdvance(cur, leftTile)
   let count = X
   while (count > 1) {
-    writeTileAdvance(cur, 0x57)
+    writeTileAdvance(cur, midTile)
     count -= 1
   }
-  writeTile(cur, 0x58)
+  writeTile(cur, rightTile)
 }
 
 /**
@@ -506,9 +704,15 @@ export function handle_0DB547(cur: Cursor): void {
 export function handle_0DB5B7(cur: Cursor): void {
   const W = cur.size & 0x0F
   const X = (cur.size >> 4) & 0x0F
-  const leftCap  = readByte(cur.rom, ADDR_DATA_0DB5A8 + X)
-  const middle   = readByte(cur.rom, ADDR_DATA_0DB5AD + X)
-  const rightCap = readByte(cur.rom, ADDR_DATA_0DB5B2 + X)
+  // LDA.L DATA_0DB5A8,X operand at handler offset +19 (opcode $BF at +18)
+  // LDA.L DATA_0DB5AD,X operand at handler offset +29 (opcode at +28)
+  // LDA.L DATA_0DB5B2,X operand at handler offset +43 (opcode at +42)
+  const addrLeft   = readLongOperand(cur, cur.handlerAddr + 19)
+  const addrMiddle = readLongOperand(cur, cur.handlerAddr + 29)
+  const addrRight  = readLongOperand(cur, cur.handlerAddr + 43)
+  const leftCap  = cur.rom.readByte(addrLeft + X) ?? 0
+  const middle   = cur.rom.readByte(addrMiddle + X) ?? 0
+  const rightCap = cur.rom.readByte(addrRight + X) ?? 0
 
   setPage0(cur)   // StzTo6ePointer
   writeTileAdvance(cur, leftCap)
@@ -536,9 +740,23 @@ export function handle_0DB5B7(cur: Cursor): void {
 export function handle_0DB224(cur: Cursor): void {
   const V = cur.size & 0x0F
   const H = (cur.size >> 4) & 0x0F
-  const top = V === 0 ? ADDR_DATA_0DB212 : ADDR_DATA_0DB21B
-  const mid = V === 0 ? ADDR_DATA_0DB215 : ADDR_DATA_0DB21E
-  const bot = V === 0 ? ADDR_DATA_0DB218 : ADDR_DATA_0DB221
+
+  // LDA.L operands inside CODE_0DB224 (6 total):
+  //   V=0 branch:  +24  DATA_0DB212  (top)
+  //                +66  DATA_0DB215  (mid)
+  //                +108 DATA_0DB218  (bot)
+  //   V!=0 branch: +34  DATA_0DB21B  (top)
+  //                +76  DATA_0DB21E  (mid)
+  //                +118 DATA_0DB221  (bot)
+  const topV0 = readLongOperand(cur, cur.handlerAddr + 24)
+  const midV0 = readLongOperand(cur, cur.handlerAddr + 66)
+  const botV0 = readLongOperand(cur, cur.handlerAddr + 108)
+  const topV1 = readLongOperand(cur, cur.handlerAddr + 34)
+  const midV1 = readLongOperand(cur, cur.handlerAddr + 76)
+  const botV1 = readLongOperand(cur, cur.handlerAddr + 118)
+  const top = V === 0 ? topV0 : topV1
+  const mid = V === 0 ? midV0 : midV1
+  const bot = V === 0 ? botV0 : botV1
 
   setPage0(cur)
   const origCol = cur.col
@@ -546,13 +764,13 @@ export function handle_0DB224(cur: Cursor): void {
   for (let X = 0; X < 3; X++) {
     cur.col = origCol + X
     cur.row = origRow
-    writeTile(cur, readByte(cur.rom, top + X))
+    writeTile(cur, cur.rom.readByte(top + X) ?? 0)
     for (let r = 0; r < H; r++) {
       cur.row += 1
-      writeTile(cur, readByte(cur.rom, mid + X))
+      writeTile(cur, cur.rom.readByte(mid + X) ?? 0)
     }
     cur.row += 1
-    writeTile(cur, readByte(cur.rom, bot + X))
+    writeTile(cur, cur.rom.readByte(bot + X) ?? 0)
   }
   cur.col = origCol
   cur.row = origRow
@@ -572,19 +790,38 @@ export function handle_0DB224(cur: Cursor): void {
  * pipe-into-ground joins show a subtle seam but the silhouette is right.
  */
 export function handle_0DAB3E(cur: Cursor): void {
+  // The ASM reduces low nibble modulo 10 (CODE_0DAB42 loop), then does
+  // JSL ExecutePtrLong which reads a 3-byte long pointer from the table
+  // immediately after the JSL. That table lives at cur.handlerAddr + 18.
   const variant = (cur.size & 0x0F) % 10
-  switch (variant) {
-    case 0: return pipeVariant0(cur)
-    case 1: return pipeVariant1(cur)
-    case 2: return pipeVariant2(cur)
-    case 3: return pipeVariant3(cur)
-    case 4: return pipeVariant4(cur)
-    case 5: return pipeVariant5(cur)
-    case 6: return pipeVariant6(cur)
-    case 7: return pipeVariant7(cur)
-    case 8: return pipeVariant8(cur)
-    case 9: return pipeVariant9(cur)
+  const tableBase = cur.handlerAddr + 18
+  const target = readLongOperand(cur, tableBase + variant * 3) & 0xFFFFFF
+
+  // Run each variant handler with its own handlerAddr so that its LDA.L
+  // and LDA # operands resolve correctly against its own bytecode.
+  const prevHandler = cur.handlerAddr
+  cur.handlerAddr = target
+  try {
+    PIPE_VARIANT_HANDLERS[target]?.(cur)
+  } finally {
+    cur.handlerAddr = prevHandler
   }
+}
+
+/** Registry mapping each pipe-variant's SNES start address to its TS port.
+ *  handle_0DAB3E looks up the target from the ROM dispatch table and calls
+ *  the function here. */
+const PIPE_VARIANT_HANDLERS: Record<number, (cur: Cursor) => void> = {
+  0x0DAB6E: pipeVariant0,
+  0x0DAC21: pipeVariant1,
+  0x0DAC92: pipeVariant2,
+  0x0DAD44: pipeVariant3,
+  0x0DADA3: pipeVariant4,
+  0x0DADEB: pipeVariant5,
+  0x0DAE6D: pipeVariant6,
+  0x0DAEFC: pipeVariant7,
+  0x0DAF61: pipeVariant8,
+  0x0DAFEA: pipeVariant9,
 }
 
 /**
@@ -596,17 +833,23 @@ function pipeVariant0(cur: Cursor): void {
   const height = (cur.size >> 4) & 0x0F
   const col0 = cur.col, row0 = cur.row
 
-  // Top row nozzle: CODE_0DAB83 writes $96, $9B via CODE_0DABFD (merge).
-  setPage1(cur); writeTilePipeMergeNoAdvance(cur, 0x96)
+  // CODE_0DAB6E inline immediates: +27 $96, +35 $9B (nozzle pair via CODE_0DABFD);
+  // +47 $DE, +55 $E6 (body pair).
+  const nozL = readImmByte(cur, cur.handlerAddr + 27)
+  const nozR = readImmByte(cur, cur.handlerAddr + 35)
+  const bodL = readImmByte(cur, cur.handlerAddr + 47)
+  const bodR = readImmByte(cur, cur.handlerAddr + 55)
+
+  setPage1(cur); writeTilePipeMergeNoAdvance(cur, nozL)
   cur.col = col0 + 1
-  setPage1(cur); writeTilePipeMergeNoAdvance(cur, 0x9B)
+  setPage1(cur); writeTilePipeMergeNoAdvance(cur, nozR)
 
   for (let r = 1; r <= height; r++) {
     cur.row = row0 + r
     cur.col = col0
-    setPage1(cur); writeTile(cur, 0xDE)
+    setPage1(cur); writeTile(cur, bodL)
     cur.col = col0 + 1
-    setPage1(cur); writeTile(cur, 0xE6)
+    setPage1(cur); writeTile(cur, bodR)
   }
   cur.row = row0
   cur.col = col0
@@ -634,16 +877,21 @@ function pipeVariant1(cur: Cursor): void {
   //   - then (widthCounter - 1) $3F ground fillers
   // This mirrors the ASM pattern: write $AA, DEX (X=widthCounter-1), BMI skip;
   // else write $E2, DEX, then loop writing $3F while X>=0.
+  // CODE_0DAC21 inline immediates: +25 $AA (lip via CODE_0DABFD merge),
+  // +36 $E2 (body), +47 $3F (filler).
+  const lipTile  = readImmByte(cur, cur.handlerAddr + 25)
+  const bodyTile = readImmByte(cur, cur.handlerAddr + 36)
+  const fillTile = readImmByte(cur, cur.handlerAddr + 47)
+
   for (let i = 0; i < heightCount; i++) {
-    // CODE_0DAC3A: lip $AA through CODE_0DABFD merge, then body/fillers plain.
     setPage1(cur)
-    writeTilePipeMerge(cur, 0xAA)
+    writeTilePipeMerge(cur, lipTile)
     let x = widthCounter - 1
     if (x >= 0) {
-      setPage1(cur); writeTileAdvance(cur, 0xE2)
+      setPage1(cur); writeTileAdvance(cur, bodyTile)
       x -= 1
       while (x >= 0) {
-        setPage0(cur); writeTileAdvance(cur, 0x3F)
+        setPage0(cur); writeTileAdvance(cur, fillTile)
         x -= 1
       }
     }
@@ -653,14 +901,13 @@ function pipeVariant1(cur: Cursor): void {
     widthCounter += 1
   }
 
-  // Final body row (CODE_0DAC89 path): skip the lip, body row with $E2 + $3F fill.
-  nextRow(cur)   // CODE_0DA97D
+  nextRow(cur)
   let x = widthCounter - 1
   if (x >= 0) {
-    setPage1(cur); writeTileAdvance(cur, 0xE2)
+    setPage1(cur); writeTileAdvance(cur, bodyTile)
     x -= 1
     while (x >= 0) {
-      setPage0(cur); writeTileAdvance(cur, 0x3F)
+      setPage0(cur); writeTileAdvance(cur, fillTile)
       x -= 1
     }
   }
@@ -681,22 +928,33 @@ function pipeVariant2(cur: Cursor): void {
   let widthCounter = 3   // starts at 3 because ASM decrements X by 4 then tests BMI
   saveBookmark(cur)
 
+  // CODE_0DAC92 inline immediates: +27 $6E, +35 $73, +43 $78, +51 $7D (lips);
+  // +65 $D8, +73 $DA, +81 $E6, +89 $E6 (bodies); +103 $3F (filler).
+  const lip1 = readImmByte(cur, cur.handlerAddr + 27)
+  const lip2 = readImmByte(cur, cur.handlerAddr + 35)
+  const lip3 = readImmByte(cur, cur.handlerAddr + 43)
+  const lip4 = readImmByte(cur, cur.handlerAddr + 51)
+  const body1 = readImmByte(cur, cur.handlerAddr + 65)
+  const body2 = readImmByte(cur, cur.handlerAddr + 73)
+  const body3 = readImmByte(cur, cur.handlerAddr + 81)
+  const body4 = readImmByte(cur, cur.handlerAddr + 89)
+  const fillTile = readImmByte(cur, cur.handlerAddr + 103)
+
   for (let i = 0; i < heightCount; i++) {
-    // CODE_0DACA7: $6E, $73, $78, $7D lips all go through CODE_0DABFD.
-    setPage1(cur); writeTilePipeMerge(cur, 0x6E)
-    setPage1(cur); writeTilePipeMerge(cur, 0x73)
-    setPage1(cur); writeTilePipeMerge(cur, 0x78)
-    setPage1(cur); writeTilePipeMerge(cur, 0x7D)
+    setPage1(cur); writeTilePipeMerge(cur, lip1)
+    setPage1(cur); writeTilePipeMerge(cur, lip2)
+    setPage1(cur); writeTilePipeMerge(cur, lip3)
+    setPage1(cur); writeTilePipeMerge(cur, lip4)
     let x = widthCounter - 4
     if (x >= 0) {
-      setPage1(cur); writeTileAdvance(cur, 0xD8)
-      setPage1(cur); writeTileAdvance(cur, 0xDA)
-      setPage1(cur); writeTileAdvance(cur, 0xE6)
-      setPage1(cur); writeTileAdvance(cur, 0xE6)
+      setPage1(cur); writeTileAdvance(cur, body1)
+      setPage1(cur); writeTileAdvance(cur, body2)
+      setPage1(cur); writeTileAdvance(cur, body3)
+      setPage1(cur); writeTileAdvance(cur, body4)
       x -= 3
     }
     while (x >= 0) {
-      setPage0(cur); writeTileAdvance(cur, 0x3F)
+      setPage0(cur); writeTileAdvance(cur, fillTile)
       x -= 1
     }
     restoreBookmark(cur)
@@ -721,19 +979,25 @@ function pipeVariant3(cur: Cursor): void {
   const bodyCount = ((cur.size >> 4) & 0x0F) + 1
   const col0 = cur.col, row0 = cur.row
 
+  // CODE_0DAD44 inline immediates: +28 $3F (filler, unused at H=1),
+  // +41 $E6, +49 $E0 (terminal lip pair via plain writes); +63 $A0, +71 $A5
+  // (body pair via CODE_0DABFD merge).
+  const nozL = readImmByte(cur, cur.handlerAddr + 63)
+  const nozR = readImmByte(cur, cur.handlerAddr + 71)
+  const lipL = readImmByte(cur, cur.handlerAddr + 41)
+  const lipR = readImmByte(cur, cur.handlerAddr + 49)
+
   for (let i = 0; i < bodyCount; i++) {
-    // CODE_0DAD7F: nozzle $A0/$A5 through CODE_0DABFD merge.
     cur.col = col0
-    setPage1(cur); writeTilePipeMergeNoAdvance(cur, 0xA0)
+    setPage1(cur); writeTilePipeMergeNoAdvance(cur, nozL)
     cur.col = col0 + 1
-    setPage1(cur); writeTilePipeMergeNoAdvance(cur, 0xA5)
+    setPage1(cur); writeTilePipeMergeNoAdvance(cur, nozR)
     cur.row += 1
   }
-  // Terminal lip -- body tiles $E6/$E0 use plain writes in CODE_0DAD65.
   cur.col = col0
-  setPage1(cur); writeTile(cur, 0xE6)
+  setPage1(cur); writeTile(cur, lipL)
   cur.col = col0 + 1
-  setPage1(cur); writeTile(cur, 0xE0)
+  setPage1(cur); writeTile(cur, lipR)
 
   cur.col = col0
   cur.row = row0
@@ -759,17 +1023,23 @@ function pipeVariant4(cur: Cursor): void {
   const bodyCount = ((cur.size >> 4) & 0x0F) + 1
   const col0 = cur.col, row0 = cur.row
 
+  // CODE_0DADA3 inline immediates: +28 $3F (filler), +41 $E4 (body),
+  // +53 $AF (lip via CODE_0DABFD merge).
+  const fillTile = readImmByte(cur, cur.handlerAddr + 28)
+  const bodyTile = readImmByte(cur, cur.handlerAddr + 41)
+  const lipTile  = readImmByte(cur, cur.handlerAddr + 53)
+
   // Rows 0..bodyCount-1: each ends in a lip.
   for (let i = 0; i < bodyCount; i++) {
     cur.row = row0 + i
     cur.col = col0
     for (let j = 0; j < i - 1; j++) {
-      setPage0(cur); writeTileAdvance(cur, 0x3F)
+      setPage0(cur); writeTileAdvance(cur, fillTile)
     }
     if (i >= 1) {
-      setPage1(cur); writeTileAdvance(cur, 0xE4)
+      setPage1(cur); writeTileAdvance(cur, bodyTile)
     }
-    setPage1(cur); writeTilePipeMergeNoAdvance(cur, 0xAF)
+    setPage1(cur); writeTilePipeMergeNoAdvance(cur, lipTile)
   }
 
   // Final `CODE_0DADC4` pass after the last lip: writes bodyCount-1 dirts
@@ -778,9 +1048,9 @@ function pipeVariant4(cur: Cursor): void {
   cur.row = row0 + bodyCount
   cur.col = col0
   for (let j = 0; j < bodyCount - 1; j++) {
-    setPage0(cur); writeTileAdvance(cur, 0x3F)
+    setPage0(cur); writeTileAdvance(cur, fillTile)
   }
-  setPage1(cur); writeTileAdvance(cur, 0xE4)
+  setPage1(cur); writeTileAdvance(cur, bodyTile)
 
   cur.col = col0
   cur.row = row0
@@ -794,15 +1064,26 @@ function pipeVariant5(cur: Cursor): void {
   const bodyCount = ((cur.size >> 4) & 0x0F) + 1
   const col0 = cur.col, row0 = cur.row
 
-  // Top lip row -- CODE_0DADEB writes $82/$87/$8C/$91 through CODE_0DABFD.
-  const topTiles = [0x82, 0x87, 0x8C, 0x91]
+  // CODE_0DADEB inline immediates: +79 $82, +87 $87, +95 $8C, +103 $91 (top
+  // lip tiles through CODE_0DABFD); +39 $E6, +47 $E6, +55 $DB, +63 $DC (body).
+  const topTiles = [
+    readImmByte(cur, cur.handlerAddr + 79),
+    readImmByte(cur, cur.handlerAddr + 87),
+    readImmByte(cur, cur.handlerAddr + 95),
+    readImmByte(cur, cur.handlerAddr + 103),
+  ]
+  const bodyTiles = [
+    readImmByte(cur, cur.handlerAddr + 39),
+    readImmByte(cur, cur.handlerAddr + 47),
+    readImmByte(cur, cur.handlerAddr + 55),
+    readImmByte(cur, cur.handlerAddr + 63),
+  ]
+
   for (let c = 0; c < 4; c++) {
     cur.col = col0 + c
     setPage1(cur); writeTilePipeMergeNoAdvance(cur, topTiles[c])
   }
 
-  // Body rows
-  const bodyTiles = [0xE6, 0xE6, 0xDB, 0xDC]
   for (let r = 1; r <= bodyCount; r++) {
     cur.row = row0 + r
     for (let c = 0; c < 4; c++) {
@@ -827,20 +1108,29 @@ function pipeVariant6(cur: Cursor): void {
   const col0 = cur.col, row0 = cur.row
   let widthCounter = iter * 2 - 1
 
+  // CODE_0DAE6D inline immediates:
+  //   +33 $C6  +41 $C7  (lip pair)
+  //   +53 $EE  +61 $F0  (body pair)
+  //   +73 $65  (filler)
+  const lipL  = readImmByte(cur, cur.handlerAddr + 33)
+  const lipR  = readImmByte(cur, cur.handlerAddr + 41)
+  const bodyL = readImmByte(cur, cur.handlerAddr + 53)
+  const bodyR = readImmByte(cur, cur.handlerAddr + 61)
+  const fillTile = readImmByte(cur, cur.handlerAddr + 73)
+
   for (let i = 0; i < iter; i++) {
-    setPage1(cur); writeTileAdvance(cur, 0xEE)
-    setPage1(cur); writeTileAdvance(cur, 0xF0)
+    setPage1(cur); writeTileAdvance(cur, bodyL)
+    setPage1(cur); writeTileAdvance(cur, bodyR)
     let x = widthCounter - 2
     while (x >= 0) {
-      setPage1(cur); writeTileAdvance(cur, 0x65)
+      setPage1(cur); writeTileAdvance(cur, fillTile)
       x -= 1
     }
     stepDiag(cur, 2, 1)
     widthCounter -= 2
   }
-  // Final lip row
-  setPage1(cur); writeTileAdvance(cur, 0xC6)
-  setPage1(cur); writeTile(cur, 0xC7)
+  setPage1(cur); writeTileAdvance(cur, lipL)
+  setPage1(cur); writeTile(cur, lipR)
 
   cur.col = col0
   cur.row = row0
@@ -855,20 +1145,29 @@ function pipeVariant7(cur: Cursor): void {
   const col0 = cur.col, row0 = cur.row
   let widthCounter = iter * 2 + 1
 
+  // CODE_0DAEFC inline immediates (per-row writes):
+  //   +31 $65  (filler)
+  //   +48 $F0  +56 $EF  (body pair)
+  //   +68 $C8  +76 $C9  (lip pair)
+  const fillTile = readImmByte(cur, cur.handlerAddr + 31)
+  const bodyL = readImmByte(cur, cur.handlerAddr + 48)
+  const bodyR = readImmByte(cur, cur.handlerAddr + 56)
+  const lipL  = readImmByte(cur, cur.handlerAddr + 68)
+  const lipR  = readImmByte(cur, cur.handlerAddr + 76)
+
   for (let i = 0; i < iter; i++) {
     let x = widthCounter
     while (x >= 4) {
-      setPage1(cur); writeTileAdvance(cur, 0x65)
+      setPage1(cur); writeTileAdvance(cur, fillTile)
       x -= 1
     }
     if (x >= 2) {
-      setPage1(cur); writeTileAdvance(cur, 0xF0)
-      setPage1(cur); writeTileAdvance(cur, 0xEF)
+      setPage1(cur); writeTileAdvance(cur, bodyL)
+      setPage1(cur); writeTileAdvance(cur, bodyR)
       x -= 2
     }
-    // Lip at the very end only on final iteration, but ASM writes it each row
-    setPage1(cur); writeTileAdvance(cur, 0xC8)
-    setPage1(cur); writeTileAdvance(cur, 0xC9)
+    setPage1(cur); writeTileAdvance(cur, lipL)
+    setPage1(cur); writeTileAdvance(cur, lipR)
     cur.col -= widthCounter + 2
     cur.row += 1
     widthCounter -= 2
@@ -887,15 +1186,19 @@ function pipeVariant8(cur: Cursor): void {
   const col0 = cur.col, row0 = cur.row
   let widthCounter = iter - 1
 
+  // CODE_0DAF61 inline immediates: +32 $C4 (lip), +43 $EC (body), +54 $65 (fill).
+  const lipTile  = readImmByte(cur, cur.handlerAddr + 32)
+  const bodyTile = readImmByte(cur, cur.handlerAddr + 43)
+  const fillTile = readImmByte(cur, cur.handlerAddr + 54)
+
   for (let i = 0; i < iter; i++) {
-    // Lead $EC body, then $65 fillers, then $C4 lip at current diagonal col.
-    setPage1(cur); writeTileAdvance(cur, 0xEC)
+    setPage1(cur); writeTileAdvance(cur, bodyTile)
     let x = widthCounter
     while (x >= 0) {
-      setPage1(cur); writeTileAdvance(cur, 0x65)
+      setPage1(cur); writeTileAdvance(cur, fillTile)
       x -= 1
     }
-    setPage1(cur); writeTile(cur, 0xC4)
+    setPage1(cur); writeTile(cur, lipTile)
     diagonalDownRight(cur)
     widthCounter -= 1
   }
@@ -912,9 +1215,11 @@ function pipeVariant8(cur: Cursor): void {
 function pipeVariant9(cur: Cursor): void {
   const iter = ((cur.size >> 4) & 0x0F) + 1
   const col0 = cur.col, row0 = cur.row
+  // CODE_0DAFEA inline tile at +57 ($C5, mirror of variant 8's $C4).
+  const lipTile = readImmByte(cur, cur.handlerAddr + 57)
   setPage1(cur)
   for (let i = 0; i < iter; i++) {
-    writeTile(cur, 0xC4)
+    writeTile(cur, lipTile)
     diagonalDownRight(cur)
   }
   cur.col = col0
@@ -934,15 +1239,19 @@ function pipeVariant9(cur: Cursor): void {
  */
 export function handle_0DAB0D(cur: Cursor): void {
   let X = (cur.size >> 4) & 0x0F
-  setPage1(cur)   // Sta1To6ePointer before each write
-  writeTile(cur, 0x41); cur.row += 1
+  // LDA #$41/$42/$43 immediates at handler +13/+26/+39 (opcodes at +12/+25/+38).
+  const topTile = readImmByte(cur, cur.handlerAddr + 13)
+  const midTile = readImmByte(cur, cur.handlerAddr + 26)
+  const botTile = readImmByte(cur, cur.handlerAddr + 39)
+  setPage1(cur)
+  writeTile(cur, topTile); cur.row += 1
   X--
   if (X < 0) return
-  writeTile(cur, 0x42); cur.row += 1
+  writeTile(cur, midTile); cur.row += 1
   X--
   if (X < 0) return
   while (X >= 0) {
-    writeTile(cur, 0x43); cur.row += 1
+    writeTile(cur, botTile); cur.row += 1
     X--
   }
 }
@@ -967,10 +1276,16 @@ export function handle_0DAB0D(cur: Cursor): void {
  */
 export function handle_0DB73F(cur: Cursor): void {
   const steps = (cur.size >> 4) & 0x0F
-  const table = readByteTable(cur.rom, ADDR_DATA_0DB72F, 16)
+  // LDA.L DATA_0DB72F,X operand at handler +27 (opcode $BF at +26).
+  // Final capper $EB is LDA # immediate at handler +103 (opcode at +102).
+  // Initial _1 value is LDA #$01 immediate at +11 (opcode at +10).
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 27)
+  const cappingTile = readImmByte(cur, cur.handlerAddr + 103)
+  const initialOne  = readImmByte(cur, cur.handlerAddr + 11)
+  const table = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15].map(i => cur.rom.readByte(tableAddr + i) ?? 0)
   const col0 = cur.col, row0 = cur.row
 
-  let _1 = 1
+  let _1 = initialOne
   let X = 0
   let _0 = steps
   setPage1(cur)
@@ -1016,7 +1331,7 @@ export function handle_0DB73F(cur: Cursor): void {
   // Final capper (CODE_0DB79F): advance one col, write $EB.
   advanceCol(cur)
   setPage1(cur)
-  writeTile(cur, 0xEB)
+  writeTile(cur, cappingTile)
 
   cur.col = col0
   cur.row = row0
@@ -1045,31 +1360,50 @@ export function handle_0DB7AA(cur: Cursor): void {
   const rightSide = (cur.size >> 4) & 0x0F
   const col0 = cur.col, row0 = cur.row
 
-  // Phase 1 — up-left side.
+  // Inline LDA #$XX immediates inside CODE_0DB7AA. Opcode $A9 is at each
+  // offset listed by the disasm; the 1-byte immediate follows at +1.
+  //   opcode +28  imm +29  $AA  first-row pipe-lip
+  //   opcode +36  imm +37  $A1  first-row slope body
+  //   opcode +47  imm +48  $AA  CODE_0DB7D6 loop lip
+  //   opcode +56  imm +57  $E2  CODE_0DB7D6 body
+  //   opcode +67  imm +68  $3F  CODE_0DB7D6 filler
+  //   opcode +78  imm +79  $A6  CODE_0DB7D6 cap
+  //   opcode +113 imm +114 $F7  phase-2 first-row lip
+  //   opcode +124 imm +125 $A3  phase-2 per-row lip
+  //   opcode +135 imm +136 $3F  phase-2 filler
+  //   opcode +146 imm +147 $A6  phase-2 cap
+  const tAA1 = readImmByte(cur, cur.handlerAddr + 29)
+  const tA1  = readImmByte(cur, cur.handlerAddr + 37)
+  const tAA2 = readImmByte(cur, cur.handlerAddr + 48)
+  const tE2  = readImmByte(cur, cur.handlerAddr + 57)
+  const t3Fa = readImmByte(cur, cur.handlerAddr + 68)
+  const tA6a = readImmByte(cur, cur.handlerAddr + 79)
+  const tF7  = readImmByte(cur, cur.handlerAddr + 114)
+  const tA3  = readImmByte(cur, cur.handlerAddr + 125)
+  const t3Fb = readImmByte(cur, cur.handlerAddr + 136)
+  const tA6b = readImmByte(cur, cur.handlerAddr + 147)
+
   let _1 = 1
   let _2 = width
   saveBookmark(cur)
 
-  // First row: pipe-merged $AA lip, slope-merged $A1 body. Both advance.
-  setPage1(cur); writeTilePipeMerge(cur, 0xAA)
-  setPage0(cur); writeTileSlopeMerge(cur, 0xA1)
+  setPage1(cur); writeTilePipeMerge(cur, tAA1)
+  setPage0(cur); writeTileSlopeMerge(cur, tA1)
   restoreBookmark(cur)
   diagonalDownLeft(cur)
   _1 += 2
   _2 -= 1
   saveBookmark(cur)
 
-  // CODE_0DB7D6 loop: $AA lip (pipe-merge) + $E2 body + (X-2) $3F + $A6 cap
-  // (slope-merge on the cap so the right edge blends with ground).
   while (_2 >= 0) {
-    setPage1(cur); writeTilePipeMerge(cur, 0xAA)
-    setPage1(cur); writeTileAdvance(cur, 0xE2)
+    setPage1(cur); writeTilePipeMerge(cur, tAA2)
+    setPage1(cur); writeTileAdvance(cur, tE2)
     let x = _1 - 2
     while (x > 0) {
-      setPage0(cur); writeTileAdvance(cur, 0x3F)
+      setPage0(cur); writeTileAdvance(cur, t3Fa)
       x -= 1
     }
-    setPage0(cur); writeTileSlopeMerge(cur, 0xA6)
+    setPage0(cur); writeTileSlopeMerge(cur, tA6a)
     restoreBookmark(cur)
     diagonalDownLeft(cur)
     _1 += 2
@@ -1077,29 +1411,24 @@ export function handle_0DB7AA(cur: Cursor): void {
     saveBookmark(cur)
   }
 
-  // Advance one column + write $F7 (pipe-merge) as the first-row lip,
-  // then enter the down-right loop.
   advanceCol(cur)
   saveBookmark(cur)
   const _1b = _1 - 2
 
-  // Phase 2 -- down-right side. The ASM's JMP CODE_0DB836 skips the $A3 lip
-  // on the FIRST iteration only; $F7 (written just above) fills that role.
-  // Subsequent iterations each start with an $A3 slope-merge lip.
   let _3 = rightSide
   let firstPhase2Iter = true
   while (_3 >= 0) {
     if (firstPhase2Iter) {
-      setPage1(cur); writeTilePipeMerge(cur, 0xF7)
+      setPage1(cur); writeTilePipeMerge(cur, tF7)
     } else {
-      setPage0(cur); writeTileSlopeMerge(cur, 0xA3)
+      setPage0(cur); writeTileSlopeMerge(cur, tA3)
     }
     let x = _1b
     while (x > 0) {
-      setPage0(cur); writeTileAdvance(cur, 0x3F)
+      setPage0(cur); writeTileAdvance(cur, t3Fb)
       x -= 1
     }
-    setPage0(cur); writeTileSlopeMerge(cur, 0xA6)
+    setPage0(cur); writeTileSlopeMerge(cur, tA6b)
     restoreBookmark(cur)
     diagonalDownRight(cur)
     saveBookmark(cur)

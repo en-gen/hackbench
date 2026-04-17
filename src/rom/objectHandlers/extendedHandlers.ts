@@ -6,20 +6,7 @@
  * CODE_0DA106 dispatch table (bank_0D.asm line 1056).
  */
 
-import { RomFile } from '../RomFile'
-import { Cursor, writeTile, setPage0, setPage1 } from './cursor'
-import {
-  ADDR_DATA_0DA548, DATA_0DA548_LEN,
-  ADDR_DATA_0DA652, ADDR_DATA_0DA654,
-  ADDR_DATA_0DA671,
-  ADDR_DATA_0DA6CD, ADDR_DATA_0DA6CF,
-  readByteTable,
-} from './romData'
-
-function readByte(rom: RomFile, snesAddr: number): number {
-  const b = rom.readByte(snesAddr)
-  return b ?? 0
-}
+import { Cursor, writeTile, setPage0, setPage1, readLongOperand, readImmByte } from './cursor'
 
 /**
  * CODE_0DA512 (bank_0D.asm line 1416) -- screen exit marker (ext type 0x00).
@@ -47,15 +34,15 @@ export function handle_0DA53D(_cur: Cursor): void {
  * CODE_0DA57F that hides collected bonus tiles (conditional for ext types 0x18-0x1D).
  */
 export function handle_0DA57B(cur: Cursor): void {
-  const extType = cur.objNo   // extended dispatch uses LvlLoadObjSize as selector,
-                              // which parseLevelObjects places in cur.objNo for extended.
+  const extType = cur.objNo
   const idx = extType - 0x10
-  if (idx < 0 || idx >= DATA_0DA548_LEN) return
-  const table = readByteTable(cur.rom, ADDR_DATA_0DA548, DATA_0DA548_LEN)
-  // ASM CODE_0DA5B1: StzTo6ePointer, then if _0 >= $13 also Sta1To6ePointer.
-  // _0 = extType - $10 = idx. So idx 0-0x12 write page 0, idx 0x13+ write page 1.
+  if (idx < 0 || idx >= 0x33) return
+  // LDA.L DATA_0DA548,X lives inside CODE_0DA5B1 (offset +54 from CODE_0DA57B).
+  // Within CODE_0DA5B1, the LDA.L opcode is at +14 so its operand is at +15.
+  // Net: operand byte at cur.handlerAddr + 69.
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 69)
   if (idx >= 0x13) setPage1(cur); else setPage0(cur)
-  writeTile(cur, table[idx] ?? 0)
+  writeTile(cur, cur.rom.readByte(tableAddr + idx) ?? 0)
 }
 
 /**
@@ -67,10 +54,29 @@ export function handle_0DA57B(cur: Cursor): void {
  * falls outside the CPX #$18..#$1D window the branches test.
  */
 export function handle_0DA64D(cur: Cursor): void {
-  const table = readByteTable(cur.rom, ADDR_DATA_0DA548, DATA_0DA548_LEN)
-  // Same CODE_0DA5B1 page logic: _0 = $32, which is >= $13, so page 1.
+  // CODE_0DA64D: LDA #$32 at cur.handlerAddr + 0 (operand at +1), then JMP
+  // CODE_0DA57F which reads DATA_0DA548[X]. The DATA_0DA548 address is
+  // embedded in CODE_0DA5B1's LDA.L, not in CODE_0DA64D itself. To get it
+  // dynamically we'd need to follow the JMP target -- for now the index is
+  // the only immediate of interest here, and the table comes from the same
+  // source as handle_0DA57B. Derive it from CODE_0DA57B's JMP path by
+  // reading it from its known vanilla-ROM position, relative to the
+  // CODE_0DA64D handler: the JMP CODE_0DA57F operand is at +4, and from
+  // there CODE_0DA5B1's LDA.L operand is at +69 relative to CODE_0DA57B.
+  // (CODE_0DA5B1 = CODE_0DA57B + 54; LDA.L opcode at +14; operand at +15.)
+  const idx = readImmByte(cur, cur.handlerAddr + 1)   // $32 by default
+  // CODE_0DA64D does JMP CODE_0DA57F which is inside CODE_0DA57B at offset +4.
+  // Read the JMP operand at +4 (after LDA #$32 + JMP opcode).
+  const jmpLo = cur.rom.readByte(cur.handlerAddr + 3) ?? 0
+  const jmpHi = cur.rom.readByte(cur.handlerAddr + 4) ?? 0
+  const bank = cur.handlerAddr & 0xFF0000
+  const code0DA57F = bank | (jmpHi << 8) | jmpLo
+  // CODE_0DA57F is 4 bytes into CODE_0DA57B (the SBC #$10 ends at CODE_0DA57F).
+  // CODE_0DA57B = code0DA57F - 4. The LDA.L operand is at CODE_0DA57B + 69.
+  const code0DA57B = code0DA57F - 4
+  const tableAddr = readLongOperand(cur, code0DA57B + 69)
   setPage1(cur)
-  writeTile(cur, table[0x32] ?? 0)
+  writeTile(cur, cur.rom.readByte(tableAddr + idx) ?? 0)
 }
 
 /**
@@ -81,9 +87,12 @@ export function handle_0DA64D(cur: Cursor): void {
 export function handle_0DA656(cur: Cursor): void {
   const X = cur.objNo - 0x42
   if (X < 0 || X > 1) return
-  const left  = readByte(cur.rom, ADDR_DATA_0DA652 + X)
-  const right = readByte(cur.rom, ADDR_DATA_0DA654 + X)
-  setPage1(cur)   // Sta1To6ePointer before both writes
+  // CODE_0DA656: LDA.L DATA_0DA652,X operand at +11; LDA.L DATA_0DA654,X at +18.
+  const addrLeft  = readLongOperand(cur, cur.handlerAddr + 11)
+  const addrRight = readLongOperand(cur, cur.handlerAddr + 18)
+  const left  = cur.rom.readByte(addrLeft + X) ?? 0
+  const right = cur.rom.readByte(addrRight + X) ?? 0
+  setPage1(cur)
   writeTile(cur, left)
   const col0 = cur.col
   cur.col = col0 + 1
@@ -98,15 +107,15 @@ export function handle_0DA656(cur: Cursor): void {
 export function handle_0DA673(cur: Cursor): void {
   const X = cur.objNo - 0x44
   if (X < 0 || X > 1) return
-  const top = readByte(cur.rom, ADDR_DATA_0DA671 + X)
-  // ASM writes first tile directly (inheriting the caller's Map16HighPtr byte),
-  // then issues Sta1To6ePointer before the second write. In the flat-cursor
-  // model, default to page 0 for the first write to match the common case.
+  // CODE_0DA673: LDA.L DATA_0DA671,X operand at +8; LDA #$EB immediate at +20.
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 8)
+  const top = cur.rom.readByte(tableAddr + X) ?? 0
+  const bot = readImmByte(cur, cur.handlerAddr + 20)
   setPage0(cur)
   writeTile(cur, top)
   cur.row += 1
   setPage1(cur)
-  writeTile(cur, 0xEB)
+  writeTile(cur, bot)
   cur.row -= 1
 }
 
@@ -118,13 +127,15 @@ export function handle_0DA673(cur: Cursor): void {
  * midway post.
  */
 export function handle_0DA68E(cur: Cursor): void {
-  // ASM uses StzTo6ePointer before both writes -- page 0.
+  // CODE_0DA68E inline tile immediates: +23 $35 (tape), +31 $38 (base).
+  const tapeTile = readImmByte(cur, cur.handlerAddr + 23)
+  const baseTile = readImmByte(cur, cur.handlerAddr + 31)
   const origCol = cur.col
   setPage0(cur)
   cur.col = origCol - 1
-  writeTile(cur, 0x35)
+  writeTile(cur, tapeTile)
   cur.col = origCol
-  writeTile(cur, 0x38)
+  writeTile(cur, baseTile)
 }
 
 /**
@@ -139,10 +150,13 @@ export function handle_0DA68E(cur: Cursor): void {
  * always show both tiles: $2D (top) and $2E (bottom).
  */
 export function handle_0DB2CA(cur: Cursor): void {
-  setPage0(cur)   // StzTo6ePointer both writes
-  writeTile(cur, 0x2D)
+  // CODE_0DB2CA inline tile immediates: +95 $2D (top), +105 $2E (bottom).
+  const topTile = readImmByte(cur, cur.handlerAddr + 95)
+  const botTile = readImmByte(cur, cur.handlerAddr + 105)
+  setPage0(cur)
+  writeTile(cur, topTile)
   cur.row += 1
-  writeTile(cur, 0x2E)
+  writeTile(cur, botTile)
   cur.row -= 1
 }
 
@@ -153,17 +167,28 @@ export function handle_0DB2CA(cur: Cursor): void {
  * table at bank_0D line 1196).
  */
 export function handle_0DA7E7(cur: Cursor): void {
+  // CODE_0DA7E7: LDA.L DATA_0DA7E3,X operand at +11. Table has 4 entries
+  // stamped by the inner loop at positions [0..3]; the ASM's cursor layout
+  // gives us (col0, row0) -> (col0+1, row0) on first pair, then nextRow to
+  // (col0, row0+1) -> (col0+1, row0+1).
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 11)
+  const tiles = [
+    cur.rom.readByte(tableAddr + 0) ?? 0,
+    cur.rom.readByte(tableAddr + 1) ?? 0,
+    cur.rom.readByte(tableAddr + 2) ?? 0,
+    cur.rom.readByte(tableAddr + 3) ?? 0,
+  ]
   const col0 = cur.col, row0 = cur.row
   setPage0(cur)
-  writeTile(cur, 0x66)
+  writeTile(cur, tiles[0])
   cur.col = col0 + 1
-  writeTile(cur, 0x67)
+  writeTile(cur, tiles[1])
   cur.col = col0
   cur.row = row0 + 1
   setPage0(cur)
-  writeTile(cur, 0x68)
+  writeTile(cur, tiles[2])
   cur.col = col0 + 1
-  writeTile(cur, 0x69)
+  writeTile(cur, tiles[3])
   cur.col = col0
   cur.row = row0
 }
@@ -179,20 +204,23 @@ export function handle_0DA7E7(cur: Cursor): void {
  * inspected but can be added if the dispatch table points at it.
  */
 export function handle_0DB583(cur: Cursor): void {
+  // CODE_0DB583: LDX #$01 at +0 (X selects the pal-1 variant).
+  // The dormant path (switch off) takes LDA.L DATA_0DB589,X at +21.
+  // For editor rendering we always show the dormant tile.
+  const X = readImmByte(cur, cur.handlerAddr + 1)
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 21)
   setPage0(cur)
-  writeTile(cur, 0x6B)
+  writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
 }
 
 export function handle_0DA6D1(cur: Cursor): void {
-  // ASM computes X = extType - $47 without bounds-checking. For ext types
-  // beyond $48 (when the dispatch table redirects ext 0x49-0xFF back here)
-  // the reads land past DATA_0DA6CD / DATA_0DA6CF and hit whatever ROM bytes
-  // follow -- typically code, which SMW interprets as arbitrary Map16 IDs.
-  // We mirror that behavior: read raw from ROM, no clamping.
+  // CODE_0DA6D1: LDA.L DATA_0DA6CD,X operand at +11; LDA.L DATA_0DA6CF,X at +23.
+  const addrTop = readLongOperand(cur, cur.handlerAddr + 11)
+  const addrBot = readLongOperand(cur, cur.handlerAddr + 23)
   const X = cur.objNo - 0x47
-  const top = readByte(cur.rom, ADDR_DATA_0DA6CD + X)
-  const bot = readByte(cur.rom, ADDR_DATA_0DA6CF + X)
-  setPage0(cur)   // StzTo6ePointer both writes
+  const top = cur.rom.readByte(addrTop + X) ?? 0
+  const bot = cur.rom.readByte(addrBot + X) ?? 0
+  setPage0(cur)
   writeTile(cur, top)
   cur.row += 1
   writeTile(cur, bot)
