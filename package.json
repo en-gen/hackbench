@@ -134,6 +134,7 @@
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
+    "@vscode/codicons": "^0.0.45",
     "@vscode/test-electron": "^2.3.8",
     "copy-webpack-plugin": "^14.0.0",
     "css-loader": "^6.10.0",

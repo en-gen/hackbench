@@ -38,9 +38,16 @@ export class MusicPlayerProvider implements vscode.CustomReadonlyEditorProvider 
     }
     panel.webview.html = this._buildHtml(panel.webview)
 
+    const unmuteIcon = {
+          light: vscode.Uri.joinPath(this.context.extensionUri, 'build', 'icons', 'light', 'unmute.svg'),
+          dark: vscode.Uri.joinPath(this.context.extensionUri, 'build', 'icons', 'dark', 'unmute.svg'),
+        }
+
     panel.webview.onDidReceiveMessage(async (msg) => {
       if (msg.type === 'ready') {
         await this._sendMusicData(document.uri, panel.webview)
+      } else if (msg.type === 'musicState') {
+        panel.iconPath = msg.playing ? unmuteIcon : undefined
       }
     })
   }
