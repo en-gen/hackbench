@@ -1369,6 +1369,7 @@ const musicTransport = createTransportBar({
   onPrev() { /* single track per level — no-op */ },
   onNext() { /* single track per level — no-op */ },
   onStateChange(playing: boolean) { vscode.postMessage({ type: 'musicState', playing }) },
+  hidePrevNext: true,
 })
 document.getElementById('music-transport')!.appendChild(musicTransport.element)
 
