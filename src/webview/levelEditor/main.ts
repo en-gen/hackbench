@@ -333,7 +333,9 @@ let animTimer: ReturnType<typeof setInterval> | null = null
 let animIntervalMs = 133
 let animFrameCount = 1
 let animFrame = 0
-let vramSheets: ImageData[] = []  // frame 0 = base, frames 1+ = extra
+let vramSheets: ImageData[] = []         // frame 0 = base, frames 1+ = extra (RGBA for 8×8 viewer)
+let vramIndexedFrames: Uint8Array[] = [] // frame 0 = base, frames 1+ (raw indexed for Map16 composition)
+let activeVramIndexed: Uint8Array | null = null  // current frame's indexed data
 
 const animPlayBtns = [document.getElementById('btn-anim')!, document.getElementById('btn-anim2')!]
 
@@ -365,6 +367,13 @@ function stepFrame(delta: number): void {
   if (animRunning) { stopAnimTimer(); animRunning = false; syncAnimButtons() }
   animFrame = ((animFrame + delta) % animFrameCount + animFrameCount) % animFrameCount
   if (vramSheets[animFrame]) vramFullImageData = vramSheets[animFrame]
+  if (vramIndexedFrames[animFrame] && levelData?.map16Defs && levelData?.paletteRows) {
+    activeVramIndexed = vramIndexedFrames[animFrame]
+    const newAtlas = rebuildMap16Atlas(activeVramIndexed, levelData.paletteRows, levelData.map16Defs)
+    for (const entry of map16Pages) {
+      if (entry.label.startsWith('L1')) entry.atlas = newAtlas
+    }
+  }
   renderVramPage()
   renderMap16Page()
   redrawDetail()
@@ -385,6 +394,14 @@ function startAnimTimer(): void {
     if (vramSheets[animFrame]) {
       vramFullImageData = vramSheets[animFrame]
     }
+    // Rebuild L1 Map16 atlas from the current frame's indexed VRAM
+    if (vramIndexedFrames[animFrame] && levelData?.map16Defs && levelData?.paletteRows) {
+      activeVramIndexed = vramIndexedFrames[animFrame]
+      const newAtlas = rebuildMap16Atlas(activeVramIndexed, levelData.paletteRows, levelData.map16Defs)
+      for (const entry of map16Pages) {
+        if (entry.label.startsWith('L1')) entry.atlas = newAtlas
+      }
+    }
     renderVramPage()
     renderMap16Page()
     redrawDetail()
@@ -395,6 +412,13 @@ function stopAnimTimer(): void {
   if (animTimer) { clearInterval(animTimer); animTimer = null }
   animFrame = 0
   if (vramSheets[0]) vramFullImageData = vramSheets[0]
+  if (vramIndexedFrames[0] && levelData?.map16Defs && levelData?.paletteRows) {
+    activeVramIndexed = vramIndexedFrames[0]
+    const newAtlas = rebuildMap16Atlas(activeVramIndexed, levelData.paletteRows, levelData.map16Defs)
+    for (const entry of map16Pages) {
+      if (entry.label.startsWith('L1')) entry.atlas = newAtlas
+    }
+  }
   renderVramPage()
   renderMap16Page()
   redrawDetail()
@@ -458,6 +482,54 @@ document.getElementById('vram-prev')!.addEventListener('click', () => {
 document.getElementById('vram-next')!.addEventListener('click', () => {
   if (vramTotalPages > 0) { vramPage = (vramPage + 1) % vramTotalPages; renderVramPage() }
 })
+
+// ── Map16 client-side composition from indexed VRAM chars ────────────────────
+
+/** Composite a single 8x8 subtile from indexed VRAM into an RGBA ImageData. */
+function blitSubTile(
+  indexed: Uint8Array, palRows: number[][][],
+  sub: { c: number; p: number; fx: boolean; fy: boolean },
+  dest: Uint8ClampedArray, destX: number, destY: number, destW: number,
+): void {
+  const srcOff = sub.c * 64
+  const pal = palRows[sub.p] ?? palRows[0]
+  for (let py = 0; py < 8; py++) {
+    const sy = sub.fy ? 7 - py : py
+    for (let px = 0; px < 8; px++) {
+      const sx = sub.fx ? 7 - px : px
+      const palIdx = indexed[srcOff + sy * 8 + sx] ?? 0
+      const dx = destX + px, dy = destY + py
+      const di = (dy * destW + dx) * 4
+      if (palIdx === 0) {
+        dest[di] = dest[di + 1] = dest[di + 2] = 0; dest[di + 3] = 0
+      } else {
+        const c = pal[palIdx] ?? [255, 0, 255, 255]
+        dest[di] = c[0]; dest[di + 1] = c[1]; dest[di + 2] = c[2]; dest[di + 3] = 255
+      }
+    }
+  }
+}
+
+/** Rebuild the L1 Map16 atlas from indexed VRAM + palette + tile defs. */
+function rebuildMap16Atlas(
+  indexed: Uint8Array, palRows: number[][][],
+  defs: LevelPayload['map16Defs'],
+): ImageData {
+  if (!defs || defs.length === 0) return new ImageData(256, 256)
+  const cols = 16, tileW = 16
+  const rows = Math.ceil(defs.length / cols)
+  const w = cols * tileW, h = rows * tileW
+  const buf = new Uint8ClampedArray(w * h * 4)
+  for (let i = 0; i < defs.length; i++) {
+    const def = defs[i]
+    const tx = (i % cols) * tileW, ty = Math.floor(i / cols) * tileW
+    blitSubTile(indexed, palRows, def.tl, buf, tx, ty, w)
+    blitSubTile(indexed, palRows, def.tr, buf, tx + 8, ty, w)
+    blitSubTile(indexed, palRows, def.bl, buf, tx, ty + 8, w)
+    blitSubTile(indexed, palRows, def.br, buf, tx + 8, ty + 8, w)
+  }
+  return new ImageData(buf, w, h)
+}
 
 // MAP16 page viewer — pages derived from atlas data, blank pages skipped.
 // Each page entry has an atlas ImageData and a page-within-atlas index.
@@ -576,10 +648,21 @@ interface LevelPayload {
   // Animation: VRAM-level frame data. Frame 0 is the base vramSheetData.
   // extraVramSheets contains frames 1+ as RGBA pixel arrays (same format as vramSheetData).
   // The webview cycles VRAM sheets; Map16 tiles are static references into VRAM chars.
+  // Map16 tile definitions for client-side composition
+  map16Defs?: Array<{
+    id: number
+    tl: { c: number; p: number; fx: boolean; fy: boolean }
+    bl: { c: number; p: number; fx: boolean; fy: boolean }
+    tr: { c: number; p: number; fx: boolean; fy: boolean }
+    br: { c: number; p: number; fx: boolean; fy: boolean }
+  }>
+  // Raw indexed VRAM: 1 byte per pixel, 64 bytes per char, 1536 chars
+  vramIndexedData?: number[]
   animation?: {
     frameCount: number
     intervalMs: number
     extraVramSheets: number[][]
+    extraVramIndexed: number[][]
   }
   header: {
     music:          number
@@ -978,18 +1061,29 @@ window.addEventListener('message', async (event) => {
 
       // Build animation frame sheets: frame 0 = base, frames 1+ from provider
       vramSheets = [vramFullImageData]
+      // Build indexed VRAM frames for Map16 client-side composition
+      vramIndexedFrames = []
+      if (levelData.vramIndexedData) {
+        activeVramIndexed = new Uint8Array(levelData.vramIndexedData)
+        vramIndexedFrames = [activeVramIndexed]
+      }
       if (levelData.animation && levelData.animation.frameCount > 1) {
         animFrameCount = levelData.animation.frameCount
         animIntervalMs = levelData.animation.intervalMs
         for (const sheetData of levelData.animation.extraVramSheets) {
           vramSheets.push(new ImageData(new Uint8ClampedArray(sheetData), vw, vh))
         }
+        if (levelData.animation.extraVramIndexed) {
+          for (const idxData of levelData.animation.extraVramIndexed) {
+            vramIndexedFrames.push(new Uint8Array(idxData))
+          }
+        }
         for (const b of animPlayBtns) b.style.display = ''
         if (animRunning) startAnimTimer()
       } else {
         for (const b of animPlayBtns) b.style.display = 'none'
       }
-      console.log(`[ANIM-WV] ${animFrameCount} frames, ${vramSheets.length} VRAM sheets`)
+      console.log(`[ANIM-WV] ${animFrameCount} frames, ${vramSheets.length} VRAM sheets, ${vramIndexedFrames.length} indexed frames`)
 
       renderVramPage()
 
@@ -1027,13 +1121,20 @@ window.addEventListener('message', async (event) => {
     // ── Map16 tile atlases — build page list from L1 + L2/BG data ────
     {
       map16Pages = []
-      // L1 pages (from tileset-aware pointer table)
-      if (levelData.map16AtlasData) {
-        const h = Math.floor(levelData.map16AtlasData.length / (256 * 4))
-        const l1Atlas = new ImageData(new Uint8ClampedArray(levelData.map16AtlasData), 256, h)
-        map16FullImageData = l1Atlas  // keep for detail preview
-        // (map16 baseline no longer needed — animation uses per-tile frames)
-        const l1PageCount = Math.ceil(h / 256)
+      // L1 pages — prefer client-side composition from indexed VRAM + defs,
+      // fall back to pre-rendered atlas from extension host.
+      {
+        let l1Atlas: ImageData
+        if (activeVramIndexed && levelData.map16Defs && levelData.paletteRows) {
+          l1Atlas = rebuildMap16Atlas(activeVramIndexed, levelData.paletteRows, levelData.map16Defs)
+        } else if (levelData.map16AtlasData) {
+          const h = Math.floor(levelData.map16AtlasData.length / (256 * 4))
+          l1Atlas = new ImageData(new Uint8ClampedArray(levelData.map16AtlasData), 256, h)
+        } else {
+          l1Atlas = new ImageData(256, 256)
+        }
+        map16FullImageData = l1Atlas
+        const l1PageCount = Math.ceil(l1Atlas.height / 256)
         for (let p = 0; p < l1PageCount; p++) {
           map16Pages.push({ atlas: l1Atlas, pageInAtlas: p, label: `L1 Page 0x${p.toString(16).padStart(2,'0')}` })
         }
