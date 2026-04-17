@@ -252,6 +252,16 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
       screenExitDest,
       screenExitIsSecondary,
     })
+
+    // Extended object $01 — CODE_0DA53D (bank_0D.asm line 1441):
+    //   LDA _A; AND #$1F; STA LevelLoadObject
+    // Overwrites the screen counter with the low 5 bits of byte 0. This lets
+    // level data jump forward to an arbitrary screen without emitting tiles.
+    // Must run after the NS-increment for this object so subsequent objects
+    // are positioned relative to the new screen value.
+    if (isExtended && b2 === 0x01) {
+      screen = b0 & 0x1F
+    }
   }
 
   return { header, objects, screens: header.levelLength }
@@ -308,6 +318,11 @@ export function parseL2Objects(data: Buffer | Uint8Array, _screens: number): Lev
       objectType: isExtended ? 0x100 + b2 : objectNumber,
       param: b2,
     })
+
+    // Ext $01 screen-jump: see parseLevelObjects for the ASM reference.
+    if (isExtended && b2 === 0x01) {
+      screen = b0 & 0x1F
+    }
   }
 
   return objects

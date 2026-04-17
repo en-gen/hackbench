@@ -126,6 +126,46 @@ describe('parseLevelObjects — new screen flag', () => {
   })
 })
 
+describe('parseLevelObjects — extended object $01 screen jump', () => {
+  it('overwrites the screen counter with (byte0 & 0x1F) after the object', () => {
+    // CODE_0DA53D: LDA _A; AND #$1F; STA LevelLoadObject
+    // Sequence: a normal object on screen 0, then ext $01 with byte0=0x0A
+    // jumping the counter to 10, then a normal object (no NS) should land on
+    // screen 10 -- NOT screen 1.
+    const buf = makeLevel(ZERO_HEADER, [
+      0x00, 0x10, 0x00,   // std objNo=1, screen 0
+      0x0A, 0x00, 0x01,   // ext $01, b0=0x0A → set screen to 10
+      0x00, 0x10, 0x00,   // std objNo=1, no NS → screen 10
+    ])
+    const { objects } = parseLevelObjects(buf)
+    expect(objects).toHaveLength(3)
+    expect(objects[0].screen).toBe(0)
+    expect(objects[1].screen).toBe(0)       // ext $01 itself reports pre-jump screen
+    expect(objects[2].screen).toBe(10)      // subsequent object uses new counter
+  })
+
+  it('composes with the NS flag: NS increments first, then ext $01 overwrites', () => {
+    const buf = makeLevel(ZERO_HEADER, [
+      0x80, 0x10, 0x00,   // NS → screen 1
+      0x0A, 0x00, 0x01,   // ext $01, screen jumps to 10
+      0x80, 0x10, 0x00,   // NS → screen 11 (0x0B)
+    ])
+    const { objects } = parseLevelObjects(buf)
+    expect(objects[0].screen).toBe(1)
+    expect(objects[1].screen).toBe(1)
+    expect(objects[2].screen).toBe(11)
+  })
+
+  it('ignores extended objects with settings != 0x01', () => {
+    const buf = makeLevel(ZERO_HEADER, [
+      0x0A, 0x00, 0x12,   // ext $12 -- not a screen jump; no counter change
+      0x00, 0x10, 0x00,   // std -- still on screen 0
+    ])
+    const { objects } = parseLevelObjects(buf)
+    expect(objects[1].screen).toBe(0)
+  })
+})
+
 describe('parseLevelObjects — terminator', () => {
   it('stops at 0xFF immediately after header', () => {
     const buf = Buffer.from([0, 0, 0, 0, 0, 0xFF])

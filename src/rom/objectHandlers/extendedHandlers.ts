@@ -31,7 +31,9 @@ export function handle_0DA512(_cur: Cursor): void {
 
 /**
  * CODE_0DA53D (bank_0D.asm line 1441) -- screen-number set (ext type 0x01).
- * Updates LevelLoadObject/LevelLoadObjectTile; emits no tiles.
+ * `LDA _A; AND #$1F; STA LevelLoadObject` -- overwrites the screen counter.
+ * The side effect is applied in LevelParser (the counter is parser-time state,
+ * not expansion-time). This handler emits no tiles.
  */
 export function handle_0DA53D(_cur: Cursor): void {
   // No tiles.
@@ -142,6 +144,43 @@ export function handle_0DB2CA(cur: Cursor): void {
   cur.row += 1
   writeTile(cur, 0x2E)
   cur.row -= 1
+}
+
+/**
+ * CODE_0DA7E7 (bank_0D.asm line 1784) -- 2×2 tile block from DATA_0DA7E3.
+ * Writes [$66, $67] on row 0 then [$68, $69] on row 1, all page 0.
+ * Dispatched for extended types $86 (and others that redirect here via the
+ * table at bank_0D line 1196).
+ */
+export function handle_0DA7E7(cur: Cursor): void {
+  const col0 = cur.col, row0 = cur.row
+  setPage0(cur)
+  writeTile(cur, 0x66)
+  cur.col = col0 + 1
+  writeTile(cur, 0x67)
+  cur.col = col0
+  cur.row = row0 + 1
+  setPage0(cur)
+  writeTile(cur, 0x68)
+  cur.col = col0 + 1
+  writeTile(cur, 0x69)
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * CODE_0DB583 (bank_0D.asm line 3726) -- on/off switch block, palette-1
+ * variant (extended type $8e). Single tile: $6A page 1 when the switch is
+ * on, $6B page 0 when off. For editor rendering we always show the
+ * dormant $6B so level layout is visible regardless of switch state.
+ *
+ * Paired with CODE_0DB58B (ext type $8f, LDX #$00) which would mirror this
+ * for a different switch flag; not yet encountered in the levels we've
+ * inspected but can be added if the dispatch table points at it.
+ */
+export function handle_0DB583(cur: Cursor): void {
+  setPage0(cur)
+  writeTile(cur, 0x6B)
 }
 
 export function handle_0DA6D1(cur: Cursor): void {

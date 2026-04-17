@@ -24,7 +24,7 @@ import {
   saveBookmark, restoreBookmark, advanceCol,
   setPage0, setPage1,
   diagonalDownLeft, diagonalDownRight, stepDiag,
-  writeTileSlopeMerge, writeTilePipeMerge,
+  writeTileSlopeMerge, writeTilePipeMerge, writeTilePipeMergeNoAdvance,
   writeTileMergeCODE_0DB114, writeTileMergeCODE_0DB198,
 } from './cursor'
 import { RomFile } from '../RomFile'
@@ -594,19 +594,19 @@ export function handle_0DAB3E(cur: Cursor): void {
  */
 function pipeVariant0(cur: Cursor): void {
   const height = (cur.size >> 4) & 0x0F
-  setPage1(cur)
   const col0 = cur.col, row0 = cur.row
 
-  writeTile(cur, 0x96)
+  // Top row nozzle: CODE_0DAB83 writes $96, $9B via CODE_0DABFD (merge).
+  setPage1(cur); writeTilePipeMergeNoAdvance(cur, 0x96)
   cur.col = col0 + 1
-  writeTile(cur, 0x9B)
+  setPage1(cur); writeTilePipeMergeNoAdvance(cur, 0x9B)
 
   for (let r = 1; r <= height; r++) {
     cur.row = row0 + r
     cur.col = col0
-    writeTile(cur, 0xDE)
+    setPage1(cur); writeTile(cur, 0xDE)
     cur.col = col0 + 1
-    writeTile(cur, 0xE6)
+    setPage1(cur); writeTile(cur, 0xE6)
   }
   cur.row = row0
   cur.col = col0
@@ -635,8 +635,9 @@ function pipeVariant1(cur: Cursor): void {
   // This mirrors the ASM pattern: write $AA, DEX (X=widthCounter-1), BMI skip;
   // else write $E2, DEX, then loop writing $3F while X>=0.
   for (let i = 0; i < heightCount; i++) {
+    // CODE_0DAC3A: lip $AA through CODE_0DABFD merge, then body/fillers plain.
     setPage1(cur)
-    writeTileAdvance(cur, 0xAA)
+    writeTilePipeMerge(cur, 0xAA)
     let x = widthCounter - 1
     if (x >= 0) {
       setPage1(cur); writeTileAdvance(cur, 0xE2)
@@ -681,9 +682,11 @@ function pipeVariant2(cur: Cursor): void {
   saveBookmark(cur)
 
   for (let i = 0; i < heightCount; i++) {
-    setPage1(cur)
-    writeTileAdvance(cur, 0x6E); writeTileAdvance(cur, 0x73)
-    writeTileAdvance(cur, 0x78); writeTileAdvance(cur, 0x7D)
+    // CODE_0DACA7: $6E, $73, $78, $7D lips all go through CODE_0DABFD.
+    setPage1(cur); writeTilePipeMerge(cur, 0x6E)
+    setPage1(cur); writeTilePipeMerge(cur, 0x73)
+    setPage1(cur); writeTilePipeMerge(cur, 0x78)
+    setPage1(cur); writeTilePipeMerge(cur, 0x7D)
     let x = widthCounter - 4
     if (x >= 0) {
       setPage1(cur); writeTileAdvance(cur, 0xD8)
@@ -719,13 +722,14 @@ function pipeVariant3(cur: Cursor): void {
   const col0 = cur.col, row0 = cur.row
 
   for (let i = 0; i < bodyCount; i++) {
+    // CODE_0DAD7F: nozzle $A0/$A5 through CODE_0DABFD merge.
     cur.col = col0
-    setPage1(cur); writeTile(cur, 0xA0)
+    setPage1(cur); writeTilePipeMergeNoAdvance(cur, 0xA0)
     cur.col = col0 + 1
-    setPage1(cur); writeTile(cur, 0xA5)
+    setPage1(cur); writeTilePipeMergeNoAdvance(cur, 0xA5)
     cur.row += 1
   }
-  // Terminal lip
+  // Terminal lip -- body tiles $E6/$E0 use plain writes in CODE_0DAD65.
   cur.col = col0
   setPage1(cur); writeTile(cur, 0xE6)
   cur.col = col0 + 1
@@ -737,29 +741,47 @@ function pipeVariant3(cur: Cursor): void {
 
 /**
  * Variant 4 -- CODE_0DADA3 (bank_0D line 2631).
- * 1-wide diagonal pipe sloping up-left (tip at upper-left cursor, body
- * extends down-right). Each row i produces:
- *   (i-1) × $3F ground fillers, then $E4 pipe body, then $AF pipe lip.
- * The row 0 degenerate case is just the lip.
+ *
+ * Diagonal pipe sloping up-left: tip at upper-left cursor, shape extends
+ * down-right forming a right triangle with the diagonal lip on the right
+ * edge. The ASM's loop structure draws one lip per `CODE_0DADD0` visit,
+ * with `CODE_0DADC4` writing the pre-lip tiles (dirts + body) for each new
+ * row. After the final lip, one more `CODE_0DADC4` runs without a trailing
+ * lip -- producing an extra row of dirts+body at the bottom that flattens
+ * the slope into the ground.
+ *
+ * For size `0xHW` (W ignored here; height count = H+1):
+ *   row 0: lip
+ *   row i (1 ≤ i ≤ H): (i-1) dirts, body, lip
+ *   row H+1: H dirts, body (no lip)  ← ground-merge row
  */
 function pipeVariant4(cur: Cursor): void {
   const bodyCount = ((cur.size >> 4) & 0x0F) + 1
   const col0 = cur.col, row0 = cur.row
 
+  // Rows 0..bodyCount-1: each ends in a lip.
   for (let i = 0; i < bodyCount; i++) {
     cur.row = row0 + i
     cur.col = col0
-    // (i-1) ground fillers to the left of the pipe body
     for (let j = 0; j < i - 1; j++) {
       setPage0(cur); writeTileAdvance(cur, 0x3F)
     }
-    // Pipe body (only present when i >= 1)
     if (i >= 1) {
       setPage1(cur); writeTileAdvance(cur, 0xE4)
     }
-    // Pipe lip at the tip (rightmost col of this row)
-    setPage1(cur); writeTile(cur, 0xAF)
+    setPage1(cur); writeTilePipeMergeNoAdvance(cur, 0xAF)
   }
+
+  // Final `CODE_0DADC4` pass after the last lip: writes bodyCount-1 dirts
+  // then the body, no lip. This row overwrites any grass/terrain beneath
+  // the slope's base, flattening it into the adjacent ground plane.
+  cur.row = row0 + bodyCount
+  cur.col = col0
+  for (let j = 0; j < bodyCount - 1; j++) {
+    setPage0(cur); writeTileAdvance(cur, 0x3F)
+  }
+  setPage1(cur); writeTileAdvance(cur, 0xE4)
+
   cur.col = col0
   cur.row = row0
 }
@@ -772,11 +794,11 @@ function pipeVariant5(cur: Cursor): void {
   const bodyCount = ((cur.size >> 4) & 0x0F) + 1
   const col0 = cur.col, row0 = cur.row
 
-  // Top lip row
+  // Top lip row -- CODE_0DADEB writes $82/$87/$8C/$91 through CODE_0DABFD.
   const topTiles = [0x82, 0x87, 0x8C, 0x91]
   for (let c = 0; c < 4; c++) {
     cur.col = col0 + c
-    setPage1(cur); writeTile(cur, topTiles[c])
+    setPage1(cur); writeTilePipeMergeNoAdvance(cur, topTiles[c])
   }
 
   // Body rows
