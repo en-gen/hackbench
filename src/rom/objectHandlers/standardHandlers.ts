@@ -86,84 +86,102 @@ export function handle_0DA8C3(cur: Cursor): void {
  *   - For X != 5 && X >= 2: write right-cap at the final position.
  */
 export function handle_0DAA26(cur: Cursor): void {
+  // CODE_0DAA26 is a 2-wide × (H+1)-tall vertical structure. Each iteration
+  // writes a horizontal pair of tiles (left tile via CODE_0DA95B which
+  // advances Y, then right tile via STA [Map16LowPtr],Y at the advanced Y),
+  // then restores the bookmark column and advances to the next row.
+  //
+  // Behaviour by row and by X (ledge variant, low nibble of size):
+  //   X < 3:   row 0 = left-cap pair (DATA_0DAA12[X] / DATA_0DAA17[X])
+  //            rows 1..H = middle pair ($35 / $36)
+  //            no right cap
+  //   X = 5:   every row = $68 / $69
+  //   X in {3, 4}: rows 0..H-1 = middle pair ($35 / $36)
+  //                final row (H) = right-cap pair
+  //                (DATA_0DAA1C[X] / DATA_0DAA21[X])
+  //   X = 2:   row 0 = left-cap ($39/$3A), rows 1..H-1 = middle ($35/$36),
+  //            final row (H) = right-cap ($39/$3A)
+  //
+  // All writes are on page 1 (Sta1To6ePointer precedes every write).
   const H = (cur.size >> 4) & 0x0F
   const X = cur.size & 0x0F
 
-  // Data-table addresses read from LDA.L operands inside the handler body:
-  //   +26  LDA.L DATA_0DAA12,X  (left-cap top)
-  //   +36  LDA.L DATA_0DAA17,X  (left-cap bottom)
-  //   +110 LDA.L DATA_0DAA1C,X  (right-cap top)
-  //   +120 LDA.L DATA_0DAA21,X  (right-cap bottom)
+  // LDA.L operands inside the handler body (opcodes $BF at -1):
+  //   +26  DATA_0DAA12 (left-cap top)     +36  DATA_0DAA17 (left-cap bottom)
+  //   +110 DATA_0DAA1C (right-cap top)    +120 DATA_0DAA21 (right-cap bottom)
   const addrLeftTop     = readLongOperand(cur, cur.handlerAddr + 26)
   const addrLeftBottom  = readLongOperand(cur, cur.handlerAddr + 36)
   const addrRightTop    = readLongOperand(cur, cur.handlerAddr + 110)
   const addrRightBottom = readLongOperand(cur, cur.handlerAddr + 120)
-  const leftTop     = [0,1,2,3,4].map(i => cur.rom.readByte(addrLeftTop + i) ?? 0)
-  const leftBottom  = [0,1,2,3,4].map(i => cur.rom.readByte(addrLeftBottom + i) ?? 0)
-  const rightTop    = [0,1,2,3,4].map(i => cur.rom.readByte(addrRightTop + i) ?? 0)
-  const rightBottom = [0,1,2,3,4].map(i => cur.rom.readByte(addrRightBottom + i) ?? 0)
+  const leftTop     = (i: number) => cur.rom.readByte(addrLeftTop + i) ?? 0
+  const leftBottom  = (i: number) => cur.rom.readByte(addrLeftBottom + i) ?? 0
+  const rightTop    = (i: number) => cur.rom.readByte(addrRightTop + i) ?? 0
+  const rightBottom = (i: number) => cur.rom.readByte(addrRightBottom + i) ?? 0
 
-  // Inline tile immediates (LDA #$XX) for the X==5 and X>=3 branches:
-  //   +52 $68 top   +60 $69 bottom   (X == 5)
-  //   +70 $35 top   +78 $36 bottom   (X >= 3)
+  // LDA # immediates (X==5 and X>=3 branches). Operand follows the $A9
+  // opcode, so operand offset = opcode offset + 1:
+  //   +52 $68 (X==5 top)   +60 $69 (X==5 bottom)
+  //   +70 $35 (fallthrough middle top)   +78 $36 (fallthrough middle bottom)
   const x5Top = readImmByte(cur, cur.handlerAddr + 52)
   const x5Bot = readImmByte(cur, cur.handlerAddr + 60)
-  const x3Top = readImmByte(cur, cur.handlerAddr + 70)
-  const x3Bot = readImmByte(cur, cur.handlerAddr + 78)
+  const midTop = readImmByte(cur, cur.handlerAddr + 70)
+  const midBot = readImmByte(cur, cur.handlerAddr + 78)
 
-  // All writes in CODE_0DAA26 are preceded by Sta1To6ePointer -- page 1.
-  setPage1(cur)
-  // Top-left cap (if X < 3) -- matches branch BPL CODE_0DAA52 (X >= 3 skips this).
-  saveBookmark(cur)
-  if (X < 3) {
-    // Top row: left cap
-    writeTile(cur, leftTop[X])
-    // Bottom row: left cap
-    const col0 = cur.col
-    const row0 = cur.row
-    cur.row += 1
-    writeTile(cur, leftBottom[X])
-    cur.row = row0
-    cur.col = col0 + 1
-  }
+  const col0 = cur.col
+  const row0 = cur.row
+  let row = 0
 
-  // Middle section: H+1 iterations (or H for X==5 loop-back path)
-  let iter = 0
-  while (iter <= H) {
-    let topTile: number
-    let botTile: number
-    if (X === 5) {
-      topTile = x5Top
-      botTile = x5Bot
-    } else if (X >= 3) {
-      topTile = x3Top
-      botTile = x3Bot
-    } else {
-      topTile = leftTop[X]
-      botTile = leftBottom[X]
-    }
-    const col0 = cur.col
-    const row0 = cur.row
-    writeTile(cur, topTile)
-    cur.row += 1
-    writeTile(cur, botTile)
-    cur.row = row0
-    cur.col = col0 + 1
-    iter++
-  }
-
-  // Right cap (for X != 5 && X >= 2) -- CODE_0DAA8C
-  if (X !== 5 && X >= 2) {
-    const col0 = cur.col
-    const row0 = cur.row
-    writeTile(cur, rightTop[X])
-    cur.row += 1
-    writeTile(cur, rightBottom[X])
-    cur.row = row0
+  const writePair = (top: number, bot: number) => {
     cur.col = col0
+    cur.row = row0 + row
+    setPage1(cur); writeTile(cur, top)
+    cur.col = col0 + 1
+    setPage1(cur); writeTile(cur, bot)
+    row++
   }
 
-  restoreBookmark(cur)
+  // Row 0 (only if X < 3) -- left cap.
+  if (X < 3) {
+    writePair(leftTop(X), leftBottom(X))
+  }
+
+  // Remaining rows. Loop count depends on ASM flow:
+  //   X < 2 (and not skipped): DEC _0 counts down _0 from H, writes H+1 middles
+  //     after the left cap, producing (H+1) total iterations AFTER row 0.
+  //     But ASM wraps: we wrote 1 row already, so middles run while _0 >= 0.
+  //   X >= 2 (and X != 5): writes (H) middles, then replaces the final row
+  //     with right cap when _0 reaches 0.
+  //   X == 5: all rows use $68/$69, loops H+1 times total from the start.
+
+  // ASM loop behaviour after the optional left-cap row:
+  //   _0 starts at H. DEC _0 before each subsequent write. BPL (X<2 path via
+  //   CODE_0DAA85) continues while _0 >= 0 after DEC. BNE (X>=2 path via
+  //   CODE_0DAA8C) continues while _0 != 0 after DEC, then writes the right
+  //   cap when _0 reaches 0.
+  //
+  // Net row counts (all shapes are H+1 rows total, 2 cols wide):
+  //   X == 5:     H+1 rows of $68/$69. No left or right cap.
+  //   X in {0,1}: row 0 = left cap, rows 1..H = middle pair ($35/$36).
+  //   X == 2:     row 0 = left cap, rows 1..H-1 = middle, row H = right cap.
+  //   X in {3,4}: rows 0..H-1 = middle, row H = right cap. No left cap.
+  if (X === 5) {
+    for (let i = 0; i <= H; i++) writePair(x5Top, x5Bot)
+  } else if (X === 2) {
+    // Left cap (written above) + (H-1) middles + right cap.
+    for (let i = 0; i < H - 1; i++) writePair(midTop, midBot)
+    writePair(rightTop(X), rightBottom(X))
+  } else if (X >= 3) {
+    // No left cap. H middles + right cap.
+    for (let i = 0; i < H; i++) writePair(midTop, midBot)
+    writePair(rightTop(X), rightBottom(X))
+  } else {
+    // X in {0, 1}: left cap (written above) + H middles. No right cap.
+    for (let i = 0; i < H; i++) writePair(midTop, midBot)
+  }
+
+  // Leave cursor unchanged from ASM perspective; our bookmark is implicit.
+  cur.col = col0
+  cur.row = row0
 }
 
 /**
