@@ -1,5 +1,3 @@
-.DS_Store
-
 # ROM files and patches — never commit copyrighted or redistributed game files
 *.smc
 *.sfc
@@ -28,14 +26,19 @@ tools/*
 docs/*.pdf
 docs/book1_pages/
 docs/book1_raw.txt
+docs/book2.md
 docs/book2_raw.txt
 docs/book2_cleaned.txt
 docs/book2_test.txt
+
+# Disassembled game code — not distributable
+docs/disasm/*.asm
 
 # Dependencies
 node_modules/
 
 # Logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -43,13 +46,27 @@ yarn-error.log*
 # VS Code test runner
 .vscode-test/
 
-# Misc
-.DS_Store
-thumbs.db
+# Coverage output (vitest/v8)
 coverage/
+*.lcov
+
+# Secrets / local env overrides
+.env
+.env.*
+!.env.example
+
+# Editors
+.DS_Store
+**/.DS_Store
+Thumbs.db
+**/Thumbs.db
+.idea/
+*.swp
+
+# Build assets that we DO want committed: only build/icons/
 build/*
 !build/icons
-.claude/
+!build/icons/**
 
-# Disassembled game code — not distributable
-docs/disasm/*.asm
+# Claude / local agent state
+.claude/
