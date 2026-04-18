@@ -2,7 +2,7 @@
 Thanks for contributing to HackBench!
 
 Before submitting, please confirm:
-- Your branch targets `develop` (not `master`)
+- Your branch targets `develop` (not `main`)
 - You have read CONTRIBUTING.md
 -->
 

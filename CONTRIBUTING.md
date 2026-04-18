@@ -47,7 +47,7 @@ npx vitest run test/suite/unit/GraphicsDecoder.test.ts
 
 ## Branch strategy
 
-- `master` — do not commit directly.
+- `main` — do not commit directly.
 - `develop` — integration base. **All PRs target `develop`.**
 - `feature/<short-slug>` — one concern per branch, off `develop`.
 
@@ -81,7 +81,7 @@ Short version:
 
 ## Pull request checklist
 
-- [ ] Targets `develop` (not `master`)
+- [ ] Targets `develop` (not `main`)
 - [ ] `npm run lint` passes
 - [ ] `npm run test:unit` passes
 - [ ] New behavior covered by a unit test in `test/suite/unit/`
