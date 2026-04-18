@@ -8,10 +8,10 @@ import { loadRomPalettes } from '../rom/PaletteLoader'
 type MapsTreeItem = RomInfoItem | LevelFolder | RoomItem
 type ResourcesTreeItem = SectionFolder | RoomItem | PaletteGroupItem | GfxFileItem | PlaceholderItem
 
-/** Non-interactive header item showing ROM identity. */
+/** Collapsible header item showing ROM identity; levels nest under it. */
 class RomInfoItem extends vscode.TreeItem {
   constructor(summary: { internalName: string; romSizeKb: number; isVanilla: boolean }) {
-    super(summary.internalName.trim(), vscode.TreeItemCollapsibleState.None)
+    super(summary.internalName.trim(), vscode.TreeItemCollapsibleState.Expanded)
     this.description = `${summary.romSizeKb} KB`
     this.tooltip = summary.isVanilla ? 'Vanilla SMW ROM' : 'Modified ROM'
     this.iconPath = new vscode.ThemeIcon(
@@ -58,14 +58,8 @@ class LevelFolder extends vscode.TreeItem {
       vscode.TreeItemCollapsibleState.Collapsed,
     )
     this.description  = displayName ? `$${hex}` : undefined
-    this.iconPath     = new vscode.ThemeIcon('symbol-field')
+    this.iconPath     = new vscode.ThemeIcon('symbol-method')
     this.contextValue = 'smwLevelFolder'
-    // Opening the folder also opens the entrance room
-    this.command = {
-      command: 'vscode.open',
-      title: 'Open Level',
-      arguments: [vscode.Uri.parse(`smwrom:/${slug}/maps/${hex}.smwmap`)]
-    }
   }
 }
 
@@ -192,7 +186,12 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
     const { slug, rom } = this.session
 
     if (!element) {
-      // Root: ROM info + one LevelFolder per overworld level
+      // Root: ROM info (levels nest under it)
+      return [new RomInfoItem(this.session.summary)]
+    }
+
+    if (element instanceof RomInfoItem) {
+      // Under ROM: one LevelFolder per overworld level
       const { overworld, subarea } = rom.classifyLevels()
       const subareaSet = new Set(subarea)
       const exitGraph  = rom.buildLevelExitGraph()
@@ -205,7 +204,7 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
           rom.getLevelName(index) ?? undefined,
         )
       )
-      return [new RomInfoItem(this.session.summary), ...folders]
+      return folders
     }
 
     if (element instanceof LevelFolder) {

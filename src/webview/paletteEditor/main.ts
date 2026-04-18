@@ -259,7 +259,7 @@ function setPalAnimRunning(running: boolean): void {
   palAnimRunning = running
   // Update whichever play button is currently in the group header
   const btn = document.getElementById('pal-play-btn')
-  if (btn) btn.textContent = running ? '⏸' : '▶'
+  if (btn) btn.innerHTML = running ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
   if (running) {
     if (palAnimTimer) clearInterval(palAnimTimer)
     palAnimTimer = setInterval(() => {
@@ -312,7 +312,7 @@ function renderGroup(): void {
     ? `<button id="pal-play-btn" title="${palAnimRunning ? 'Pause' : 'Play'} palette animation" style="
         background:none;border:none;color:var(--vscode-foreground,#ccc);
         cursor:pointer;font-size:13px;padding:1px 6px;border-radius:3px;line-height:1;
-        vertical-align:middle;margin-left:6px;">${palAnimRunning ? '⏸' : '▶'}</button>`
+        vertical-align:middle;margin-left:6px;">${palAnimRunning ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'}</button>`
     : ''
   groupTitle.innerHTML = group.label + cgBadge + warnBadge + animBtn
   groupTitle.querySelector('#pal-play-btn')?.addEventListener('click', () => setPalAnimRunning(!palAnimRunning))

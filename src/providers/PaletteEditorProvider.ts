@@ -87,6 +87,9 @@ export class PaletteEditorProvider implements vscode.CustomReadonlyEditorProvide
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'paletteEditor.js')
     )
+    const codiconCssUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'codicon.css')
+    )
     const nonce = getNonce()
     return /* html */`<!DOCTYPE html>
 <html lang="en">
@@ -95,9 +98,11 @@ export class PaletteEditorProvider implements vscode.CustomReadonlyEditorProvide
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none';
              script-src 'nonce-${nonce}';
+             font-src ${webview.cspSource};
              style-src ${webview.cspSource} 'unsafe-inline';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SMW Palette Editor</title>
+  <link rel="stylesheet" href="${codiconCssUri}" />
   <style>
     html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
     #app { height: 100%; }
