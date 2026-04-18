@@ -146,7 +146,7 @@
     "copy-webpack-plugin": "^14.0.0",
     "css-loader": "^6.10.0",
     "eslint": "^8.57.0",
-    "glob": "^10.3.10",
+    "glob": "^13.0.6",
     "mocha": "^10.3.0",
     "style-loader": "^3.3.4",
     "ts-loader": "^9.5.1",
