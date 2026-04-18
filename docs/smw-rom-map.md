@@ -1,8 +1,8 @@
-# SMW ROM Map — ASM Entry Points
+# SMW ROM Map - ASM Entry Points
 
 Source: SMW Central (smwcentral.net), authoritative community reference.
 
-## Bank $00 — System Init, Main Loop, Core Routines
+## Bank $00 - System Init, Main Loop, Core Routines
 
 | Address | Size | Description |
 |---------|------|-------------|
@@ -63,7 +63,7 @@ Source: SMW Central (smwcentral.net), authoritative community reference.
 | $00F7AA | 24 | Layer 2 vertical scroll settings |
 | $00FB53 | 5 | Goal point 1UP spawn |
 
-## Bank $01 — Sprites
+## Bank $01 - Sprites
 
 | Address | Size | Description |
 |---------|------|-------------|
@@ -104,7 +104,7 @@ Source: SMW Central (smwcentral.net), authoritative community reference.
 | $01FC74 | 1 | Iggy/Larry right bound |
 | $01FCC6 | 1 | Iggy/Larry invincibility timer |
 
-## Bank $02 — More Sprites, Blocks
+## Bank $02 - More Sprites, Blocks
 
 | Address | Size | Description |
 |---------|------|-------------|
@@ -125,7 +125,7 @@ Source: SMW Central (smwcentral.net), authoritative community reference.
 | $02EAF2 | 4 | Super Koopa feather spawn |
 | $02EB19 | 4 | Super Koopa feather spawn (pair) |
 
-## Bank $03 — More Sprites, Bosses
+## Bank $03 - More Sprites, Bosses
 
 | Address | Size | Description |
 |---------|------|-------------|
@@ -140,7 +140,7 @@ Source: SMW Central (smwcentral.net), authoritative community reference.
 | $03CED0 | 3 | Lemmy/Wendy sprite death on stomp |
 | $03E016 | 5 | Bowser battle lightning sound |
 
-## Bank $04 — Overworld
+## Bank $04 - Overworld
 
 | Address | Size | Description |
 |---------|------|-------------|
@@ -149,7 +149,7 @@ Source: SMW Central (smwcentral.net), authoritative community reference.
 | $048EEB | 3 | OW water tiles |
 | $048F93 | 1 | OW save prompt tile |
 
-## Bank $05 — Level Loading
+## Bank $05 - Level Loading
 
 | Address | Size | Description |
 |---------|------|-------------|
@@ -161,20 +161,20 @@ Source: SMW Central (smwcentral.net), authoritative community reference.
 | $05CDD8 | 1 | Course Clear drumroll/timer disable |
 | $05CF1B | 3 | Bonus stars disable |
 
-## Bank $07 — Effects
+## Bank $07 - Effects
 
 | Address | Size | Description |
 |---------|------|-------------|
 | $07FC3B | 85 | Spin Jump Star GFX subroutine. Objects at $07FC53 |
 
-## Bank $0C — Credits
+## Bank $0C - Credits
 
 | Address | Size | Description |
 |---------|------|-------------|
 | $0C93B6 | 1 | Yoshi's House replay after credits |
 | $0C9FF8 | 2 | Credits powerup status |
 
-## Bank $0D — Object Handlers
+## Bank $0D - Object Handlers
 
 | Address | Size | Description |
 |---------|------|-------------|

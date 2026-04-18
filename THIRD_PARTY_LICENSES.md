@@ -23,7 +23,7 @@ with a modified version. To exercise that right:
 
 1. Fork this repository.
 2. Replace `node_modules/@smwcentral/spc-player` with your modified
-   build (same directory layout — `dist/spc.js` is the entry point).
+   build (same directory layout - `dist/spc.js` is the entry point).
 3. Run `npm run compile` (webpack rebuilds the music player webview
    against your modified copy).
 
@@ -33,7 +33,7 @@ https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html and in the
 
 ---
 
-## snesrev/smw — vendored LC_LZ2 decompressor (dev-only)
+## snesrev/smw - vendored LC_LZ2 decompressor (dev-only)
 
 - **License:** MIT
 - **Copyright:** (c) 2023 snesrev, (c) 2021 elzo_d
@@ -43,7 +43,7 @@ https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html and in the
   decompressor, invoked by [`tools/scripts/dump-vanilla-gfx.py`](./tools/scripts/dump-vanilla-gfx.py),
   can turn the developer's own legally owned SMW ROM into local LC_LZ2
   input/output pairs under `test/fixtures/` (gitignored). HackBench
-  **does not distribute any ROM-derived data** — the CI suite relies on
+  **does not distribute any ROM-derived data** - the CI suite relies on
   synthetic hand-crafted LC_LZ2 vectors instead
   ([`test/suite/unit/LcLz2.synthetic.test.ts`](./test/suite/unit/LcLz2.synthetic.test.ts)).
   The vendored decompressor is **never shipped** in the packaged

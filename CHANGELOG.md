@@ -17,19 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `LICENSE` — MIT
-- `THIRD_PARTY_LICENSES.md` — LGPL-2.1 attribution for
+- `LICENSE` - MIT
+- `THIRD_PARTY_LICENSES.md` - LGPL-2.1 attribution for
   `@smwcentral/spc-player`
 - `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`
 - GitHub issue forms, pull request template, Dependabot config
 
-## [0.1.0] — 2026-04-17
+## [0.1.0] - 2026-04-17
 
 Initial pre-alpha release.
 
 ### Added
 
-- Virtual filesystem provider for `smwrom://` — opens a SMW ROM as a
+- Virtual filesystem provider for `smwrom://` - opens a SMW ROM as a
   navigable folder tree.
 - Level viewer: Layer 1 object + sprite parsing from ROM bytecode,
   rendered against live Map16 + GFX + palette data.
@@ -42,7 +42,7 @@ Initial pre-alpha release.
 
 ### Known limitations
 
-- Read-only — write-back of edited levels/palettes/GFX is not yet
+- Read-only - write-back of edited levels/palettes/GFX is not yet
   implemented.
 - Layer 2 preset backgrounds (ROM bank `$FF` sentinel) are not
   decodable without CPU emulation and show a placeholder.

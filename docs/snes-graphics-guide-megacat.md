@@ -1,7 +1,7 @@
 # SNES Graphics Technical Reference
 
 > Compiled from the Mega Cat Studios Super Nintendo Graphics Guide and corroborating technical sources (SNESdev Wiki, SnesLab, Super Famicom Development Wiki).
-> Intended as a reference for direct ROM reading and graphics display — no emulation layer.
+> Intended as a reference for direct ROM reading and graphics display - no emulation layer.
 
 ---
 
@@ -10,7 +10,7 @@
 1. [System Overview](#system-overview)
 2. [Memory Areas](#memory-areas)
 3. [Color Format (BGR555)](#color-format-bgr555)
-4. [CGRAM — Palette Storage](#cgram--palette-storage)
+4. [CGRAM - Palette Storage](#cgram--palette-storage)
 5. [Tile Formats](#tile-formats)
 6. [Background Layers](#background-layers)
 7. [Tilemaps](#tilemaps)
@@ -98,7 +98,7 @@ The second method maps 0→0 and 31→255 correctly.
 
 ---
 
-## CGRAM — Palette Storage
+## CGRAM - Palette Storage
 
 ### Layout
 
@@ -130,7 +130,7 @@ Entry 240–255: Sub-palette 15 (Sprite palette 7)
 
 ### Special Entries
 
-- **Entry 0** (first color of sub-palette 0): the **backdrop color** — displayed where no tile/sprite is rendered, and where all rendering is windowed out
+- **Entry 0** (first color of sub-palette 0): the **backdrop color** - displayed where no tile/sprite is rendered, and where all rendering is windowed out
 - **Entry 0 of each sub-palette**: treated as **transparent** for tiles and sprites; the pixel is considered see-through
 
 ### Palette Usage by Tile Depth
@@ -156,7 +156,7 @@ The number of bitplanes determines the number of colors per tile:
 | 3bpp | 3 | 8 | 24 |
 | 4bpp | 4 | 16 | 32 |
 | 8bpp | 8 | 256 | 64 |
-| Mode 7 | — (chunky) | 256 | 64 |
+| Mode 7 | - (chunky) | 256 | 64 |
 
 ### 2bpp Format (16 bytes per tile)
 
@@ -258,7 +258,7 @@ paletteIndex = bp0 | (bp1<<1) | (bp2<<2) | (bp3<<3)
 
 ### Mode 7 Format (64 bytes per tile)
 
-Mode 7 uses a **chunky pixel** format — no bitplanes. Each byte is one pixel's palette index directly:
+Mode 7 uses a **chunky pixel** format - no bitplanes. Each byte is one pixel's palette index directly:
 
 ```
 Byte 0: pixel (0,0)   [row 0, col 0]
@@ -270,7 +270,7 @@ Byte 8: pixel (1,0)   [row 1, col 0]
 Byte 63: pixel (7,7)
 ```
 
-Note: In VRAM, Mode 7 tile data and the tilemap are interleaved — the high byte of each VRAM word is the tile's pixel/graphics byte, and the low byte is the tile's map entry. This is unique to Mode 7.
+Note: In VRAM, Mode 7 tile data and the tilemap are interleaved - the high byte of each VRAM word is the tile's pixel/graphics byte, and the low byte is the tile's map entry. This is unique to Mode 7.
 
 ### Tile Size: 8×8 vs. 16×16
 
@@ -292,14 +292,14 @@ The SNES supports 8 BG modes selected by bits 2–0 of register $2105:
 | Mode | BG1 | BG2 | BG3 | BG4 | Notes |
 |------|-----|-----|-----|-----|-------|
 | 0 | 2bpp (4c) | 2bpp (4c) | 2bpp (4c) | 2bpp (4c) | 4 layers, limited colors |
-| 1 | 4bpp (16c) | 4bpp (16c) | 2bpp (4c) | — | Most common mode |
-| 2 | 4bpp (16c) | 4bpp (16c) | OPT* | — | Offset-per-tile on BG3 |
-| 3 | 8bpp (256c) | 4bpp (16c) | — | — | |
-| 4 | 8bpp (256c) | 2bpp (4c) | OPT* | — | Offset-per-tile on BG3 |
-| 5 | 4bpp (16c) | 2bpp (4c) | — | — | 512-px hires horizontal |
-| 6 | 4bpp (16c) | — | OPT* | — | 512-px hires + offset-per-tile |
-| 7 | 8bpp (256c) | — | — | — | Matrix transform, 128×128 tilemap |
-| 7+EXTBG | 8bpp (256c) | 7bpp* | — | — | Mode 7 with secondary BG layer |
+| 1 | 4bpp (16c) | 4bpp (16c) | 2bpp (4c) | - | Most common mode |
+| 2 | 4bpp (16c) | 4bpp (16c) | OPT* | - | Offset-per-tile on BG3 |
+| 3 | 8bpp (256c) | 4bpp (16c) | - | - | |
+| 4 | 8bpp (256c) | 2bpp (4c) | OPT* | - | Offset-per-tile on BG3 |
+| 5 | 4bpp (16c) | 2bpp (4c) | - | - | 512-px hires horizontal |
+| 6 | 4bpp (16c) | - | OPT* | - | 512-px hires + offset-per-tile |
+| 7 | 8bpp (256c) | - | - | - | Matrix transform, 128×128 tilemap |
+| 7+EXTBG | 8bpp (256c) | 7bpp* | - | - | Mode 7 with secondary BG layer |
 
 *OPT = Offset-Per-Tile (special scrolling feature). Mode 7 EXTBG BG2 uses 7 bits of color + 1 priority bit.
 
@@ -329,11 +329,11 @@ A tilemap is a 2D array of 16-bit entries stored in VRAM. It describes which til
 ### Tilemap Entry Format (2 bytes per tile)
 
 ```
-Bit 15:    v  — Vertical flip   (1 = flip tile vertically)
-Bit 14:    h  — Horizontal flip (1 = flip tile horizontally)
-Bit 13:    o  — Tile priority   (0 = low priority, 1 = high priority)
-Bits 12–10: ppp — Palette number (0–7, selects sub-palette)
-Bits 9–0:  cccccccccc — Tile index (0–1023)
+Bit 15:    v  - Vertical flip   (1 = flip tile vertically)
+Bit 14:    h  - Horizontal flip (1 = flip tile horizontally)
+Bit 13:    o  - Tile priority   (0 = low priority, 1 = high priority)
+Bits 12–10: ppp - Palette number (0–7, selects sub-palette)
+Bits 9–0:  cccccccccc - Tile index (0–1023)
 ```
 
 Full bit notation (high byte first): `vhopppcc cccccccc`
@@ -358,8 +358,8 @@ Each additional tilemap block is placed consecutively in VRAM. For a 64×32 map,
 Register $2107 (BG1), $2108 (BG2), $2109 (BG3), $210A (BG4):
 
 ```
-Bits 7–2: aaaaaа  — Base address (multiply by 0x800 to get VRAM byte offset)
-Bits 1–0: ss      — Size bits (see table above)
+Bits 7–2: aaaaaа  - Base address (multiply by 0x800 to get VRAM byte offset)
+Bits 1–0: ss      - Size bits (see table above)
 ```
 
 Example: value $58 = base 0x16 → VRAM byte offset 0x16 × 0x800 = 0xB000
@@ -399,15 +399,15 @@ spriteAddr = spriteBase + (tileNum × 32)   // sprites always 4bpp = 32 bytes
 
 OAM (Object Attribute Memory) holds data for up to **128 sprites**. Total size: **544 bytes**, split into two tables.
 
-### OAM Table 1 (Low Table — 512 bytes)
+### OAM Table 1 (Low Table - 512 bytes)
 
 4 bytes per sprite, sprites 0–127:
 
 ```
-Byte 0:  xxxxxxxx  — X position, bits 7–0 (low 8 bits of 9-bit X coordinate)
-Byte 1:  yyyyyyyy  — Y position (0–255; sprite appears 1 scanline below Y value)
-Byte 2:  cccccccc  — Tile index, bits 7–0 (low 8 bits of 9-bit tile number)
-Byte 3:  vhoopppc  — Attribute byte:
+Byte 0:  xxxxxxxx  - X position, bits 7–0 (low 8 bits of 9-bit X coordinate)
+Byte 1:  yyyyyyyy  - Y position (0–255; sprite appears 1 scanline below Y value)
+Byte 2:  cccccccc  - Tile index, bits 7–0 (low 8 bits of 9-bit tile number)
+Byte 3:  vhoopppc  - Attribute byte:
            bit 7:   v = vertical flip
            bit 6:   h = horizontal flip
            bits 5–4: oo = priority (0–3; higher = drawn in front of more BG layers)
@@ -415,12 +415,12 @@ Byte 3:  vhoopppc  — Attribute byte:
            bit 0:   c = tile index bit 8 (MSB of tile number, for name table selection)
 ```
 
-### OAM Table 2 (High Table — 32 bytes)
+### OAM Table 2 (High Table - 32 bytes)
 
 2 bits per sprite; each byte covers 4 consecutive sprites (starting with the lowest index):
 
 ```
-Bits 1–0: sprite N+0  — bit 1 = size toggle, bit 0 = X coordinate bit 8 (sign bit)
+Bits 1–0: sprite N+0  - bit 1 = size toggle, bit 0 = X coordinate bit 8 (sign bit)
 Bits 3–2: sprite N+1
 Bits 5–4: sprite N+2
 Bits 7–6: sprite N+3
@@ -630,9 +630,9 @@ Super Mario World graphics, as an example, are organized with background tiles i
 
 ```
 Bits 7–5: OBJ size select (see sprite size table)
-Bits 4–3: Name select — selects which of two 256-tile name tables to use for the high-bit tile slot
+Bits 4–3: Name select - selects which of two 256-tile name tables to use for the high-bit tile slot
            00 = no offset, 01 = +256 tiles, 10 = +512 tiles, 11 = +768 tiles
-Bits 2–1: Base select — OAM tile base address = (bits 2–1) × 0x2000 VRAM words
+Bits 2–1: Base select - OAM tile base address = (bits 2–1) × 0x2000 VRAM words
 Bit  0:   Unused
 ```
 
@@ -697,17 +697,17 @@ function cgramEntryToRGB(cgWord) {
 
 ## Sources
 
-- [Mega Cat Studios — Super Nintendo Graphics Guide](https://megacatstudios.com/blogs/retro-development/super-nintendo-graphic-guide)
-- [SNESdev Wiki — Tiles](https://snes.nesdev.org/wiki/Tiles)
-- [SNESdev Wiki — Backgrounds](https://snes.nesdev.org/wiki/Backgrounds)
-- [SNESdev Wiki — Palettes / CGRAM](https://snes.nesdev.org/wiki/Palettes)
-- [SNESdev Wiki — Sprites](https://snes.nesdev.org/wiki/Sprites)
-- [SNESdev Wiki — OAM Layout](https://snes.nesdev.org/wiki/OAM_layout)
-- [SNESdev Wiki — Memory Map](https://snes.nesdev.org/wiki/Memory_map)
-- [SNESdev Wiki — ROM Header](https://snes.nesdev.org/wiki/ROM_header)
-- [SnesLab — Graphics Format](https://sneslab.net/wiki/Graphics_Format)
-- [Super Famicom Development Wiki — Backgrounds](https://wiki.superfamicom.org/backgrounds)
-- [Super Famicom Development Wiki — SNES Sprites](https://wiki.superfamicom.org/snes-sprites)
-- [Super NES Programming / Graphics Tutorial — Wikibooks](https://en.wikibooks.org/wiki/Super_NES_Programming/Graphics_tutorial)
-- [Bumbershoot Software — SNES Graphics Data](https://bumbershootsoft.wordpress.com/2023/09/16/snes-graphics-data/)
-- [raphnet — SNES Graphics Information](https://www.raphnet.net/divers/retro_challenge_2019_03/qsnesdoc.html)
+- [Mega Cat Studios - Super Nintendo Graphics Guide](https://megacatstudios.com/blogs/retro-development/super-nintendo-graphic-guide)
+- [SNESdev Wiki - Tiles](https://snes.nesdev.org/wiki/Tiles)
+- [SNESdev Wiki - Backgrounds](https://snes.nesdev.org/wiki/Backgrounds)
+- [SNESdev Wiki - Palettes / CGRAM](https://snes.nesdev.org/wiki/Palettes)
+- [SNESdev Wiki - Sprites](https://snes.nesdev.org/wiki/Sprites)
+- [SNESdev Wiki - OAM Layout](https://snes.nesdev.org/wiki/OAM_layout)
+- [SNESdev Wiki - Memory Map](https://snes.nesdev.org/wiki/Memory_map)
+- [SNESdev Wiki - ROM Header](https://snes.nesdev.org/wiki/ROM_header)
+- [SnesLab - Graphics Format](https://sneslab.net/wiki/Graphics_Format)
+- [Super Famicom Development Wiki - Backgrounds](https://wiki.superfamicom.org/backgrounds)
+- [Super Famicom Development Wiki - SNES Sprites](https://wiki.superfamicom.org/snes-sprites)
+- [Super NES Programming / Graphics Tutorial - Wikibooks](https://en.wikibooks.org/wiki/Super_NES_Programming/Graphics_tutorial)
+- [Bumbershoot Software - SNES Graphics Data](https://bumbershootsoft.wordpress.com/2023/09/16/snes-graphics-data/)
+- [raphnet - SNES Graphics Information](https://www.raphnet.net/divers/retro_challenge_2019_03/qsnesdoc.html)

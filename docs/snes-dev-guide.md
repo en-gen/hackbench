@@ -32,7 +32,7 @@ Sum all bytes in the ROM data. If the ROM isn't a power-of-2 size (e.g., 12Mbit)
 
 ## 2. Memory Map
 
-### LoROM (Mode 20/30) — used by SMW
+### LoROM (Mode 20/30) - used by SMW
 
 | Bank Range | Address Range | Maps To |
 |------------|---------------|---------|
@@ -44,7 +44,7 @@ Sum all bytes in the ROM data. If the ROM isn't a power-of-2 size (e.g., 12Mbit)
 | `$70`–`$7D` | `$0000`–`$7FFF` | SRAM |
 | `$7E` | `$0000`–`$FFFF` | WRAM (first 64 KB) |
 | `$7F` | `$0000`–`$FFFF` | WRAM (second 64 KB) |
-| `$80`–`$FF` | — | Mirrors of `$00`–`$7F` |
+| `$80`–`$FF` | - | Mirrors of `$00`–`$7F` |
 
 **LoROM file offset formula:**
 ```
@@ -67,7 +67,7 @@ offset = (bank & 0x3F) × 0x10000 + addr
 
 ---
 
-## 3. PPU — Picture Processing Unit
+## 3. PPU - Picture Processing Unit
 
 The S-PPU generates the video output. All PPU registers are at addresses `$2100`–`$213F` (I/O region, accessible from banks `$00`–`$3F` and `$80`–`$BF`).
 
@@ -112,7 +112,7 @@ The SNES supports 8 BG modes (0–7) set via register `$2105` (BGMODE).
 | `$2133` | SETINI | W | Screen mode: interlace, pseudo-512, overscan |
 | `$213B` | CGDATAREAD | R | **CG-RAM data read** (BGR555, 2 reads per color) |
 
-### 3.3 VRAM (Video RAM) — 64 KB
+### 3.3 VRAM (Video RAM) - 64 KB
 
 VRAM holds both tile character data and tilemap (screen) data. Addressed as 32K words (each word = 2 bytes).
 
@@ -139,7 +139,7 @@ Byte 0 (low):  C C C C C C C C
 
 ---
 
-## 4. CG-RAM (Color Generator RAM) — Palettes
+## 4. CG-RAM (Color Generator RAM) - Palettes
 
 CG-RAM holds **256 colors** (512 bytes). Each color is a 15-bit BGR555 word.
 
@@ -184,10 +184,10 @@ In our palette viewer, this maps to a **16×16 grid** where:
 - **Rows 0–7** = BG sub-palettes (tiles select via 3-bit palette attribute)
 - **Rows 8–15** = OBJ sub-palettes (sprites select via 3-bit palette attribute)
 
-### 4.3 Color Index 0 — Transparency & Backdrop
+### 4.3 Color Index 0 - Transparency & Backdrop
 
-- **CG-RAM[0x00]** (row 0, col 0) is special: it is the **backdrop color** — the color displayed when no BG or OBJ pixel is drawn at a screen position.
-- For **all other sub-palettes** (index `N×16+0` where N > 0): color index 0 means "transparent" — that pixel is not drawn, and lower-priority layers show through.
+- **CG-RAM[0x00]** (row 0, col 0) is special: it is the **backdrop color** - the color displayed when no BG or OBJ pixel is drawn at a screen position.
+- For **all other sub-palettes** (index `N×16+0` where N > 0): color index 0 means "transparent" - that pixel is not drawn, and lower-priority layers show through.
 - Color index 0 is **never drawn** for sprites (OBJ pixels with index 0 are always transparent).
 
 ### 4.4 Writing to CG-RAM
@@ -278,7 +278,7 @@ Transfers a block of data between CPU bus and a PPU register. Used during V-Blan
 
 ### 6.2 H-DMA
 
-Horizontal DMA — transfers data every scanline (during H-Blank). Used for raster effects like gradient backgrounds, HDMA color math, and parallax scrolling.
+Horizontal DMA - transfers data every scanline (during H-Blank). Used for raster effects like gradient backgrounds, HDMA color math, and parallax scrolling.
 
 - **Absolute addressing (Type 0)**: table in CPU RAM has line count + data
 - **Indirect addressing (Type 1)**: table has line count + pointer to data
@@ -288,8 +288,8 @@ Horizontal DMA — transfers data every scanline (during H-Blank). Used for rast
 ## 7. Sound (SPC700/DSP)
 
 The SNES audio system consists of:
-- **SPC700** — 8-bit sound CPU, independent from main 65816 CPU
-- **DSP** — 8-channel digital signal processor
+- **SPC700** - 8-bit sound CPU, independent from main 65816 CPU
+- **DSP** - 8-channel digital signal processor
 - **64 KB** Audio RAM (shared between SPC700 program and sample data)
 
 Communication between SCPU and SPC700 via 4 I/O ports:

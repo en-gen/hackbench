@@ -33,7 +33,7 @@ and from the SNES CGRAM tile indices used for general gameplay text.
 ## Word Token Table
 
 **ROM location confirmed:** file offset `$021CC5`, SNES address `$049AC5`  
-(bank $04, LoROM mapping — `bank*$8000 + addr - $8000 + header`)
+(bank $04, LoROM mapping - `bank*$8000 + addr - $8000 + header`)
 
 Found by brute-force encoding scan in `scripts/find-yoshi-house.mjs`.  
 Verified: bytes `18 0E 12 07 08` at that offset decode to `YOSHI` under
@@ -92,7 +92,7 @@ the parser; **IDs must be verified against the composition table before use**):
 | 39        | ROAD                  |                                  |
 | 40        | WORLD                 | suffix: STAR WORLD               |
 | 41        | AWESOME               | Special World level name         |
-| 42+       | GROOVY, MONDO, OUTRAGEOUS, FUNKY, PALACE, AREA, … | partial — need pointer table verification |
+| 42+       | GROOVY, MONDO, OUTRAGEOUS, FUNKY, PALACE, AREA, … | partial - need pointer table verification |
 
 **Note:** token IDs above are sequential parser assignments, NOT the game's
 internal IDs. The actual IDs used in the composition table are determined by

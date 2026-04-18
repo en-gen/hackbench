@@ -27,7 +27,7 @@ Include:
 
 You can expect an initial acknowledgement within **7 days**. Because
 HackBench is a hobbyist project, timelines on fixes depend on severity
-and maintainer availability — but you will be kept informed.
+and maintainer availability - but you will be kept informed.
 
 Once a fix is released, the reporter will be credited in the release
 notes unless they prefer to remain anonymous.
@@ -45,8 +45,8 @@ In scope:
 
 Out of scope:
 
-- Vulnerabilities in VS Code itself — report those to Microsoft
-- Vulnerabilities in bundled third-party libraries — report those
+- Vulnerabilities in VS Code itself - report those to Microsoft
+- Vulnerabilities in bundled third-party libraries - report those
   upstream (e.g., `@smwcentral/spc-player`). A courtesy heads-up here
   is welcome but not required.
 - Social-engineering, physical-access, or DoS scenarios that require

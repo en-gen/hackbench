@@ -1,4 +1,4 @@
-# Super Mario World — RAM Memory Map Reference
+# Super Mario World - RAM Memory Map Reference
 
 Source: SMW Central memory map (RAM only: banks `$7E`/`$7F`).  
 This is **not** a ROM map. All addresses are runtime RAM addresses.
@@ -44,12 +44,12 @@ This is **not** a ROM map. All addresses are runtime RAM addresses.
 | Address | Size | Description |
 |---------|------|-------------|
 | `$7E:0012` | 1 byte | Stripe image loader index. Value must be divisible by 3. Controls which VRAM stripe image is uploaded (title screen, overworld border, cutscene BGs, etc.). |
-| `$7E:0D76–0D77` | 2 bytes | GFX33 DMA — first source address for animated graphics. |
-| `$7E:0D78–0D79` | 2 bytes | GFX33 DMA — second source address for animated graphics. |
-| `$7E:0D7A–0D7B` | 2 bytes | GFX33 DMA — third source address for animated graphics. |
-| `$7E:0D7C–0D7D` | 2 bytes | GFX33 DMA — first VRAM destination address for animated graphics. |
-| `$7E:0D7E–0D7F` | 2 bytes | GFX33 DMA — second VRAM destination address for animated graphics. |
-| `$7E:0D80–0D81` | 2 bytes | GFX33 DMA — third VRAM destination address for animated graphics. |
+| `$7E:0D76–0D77` | 2 bytes | GFX33 DMA - first source address for animated graphics. |
+| `$7E:0D78–0D79` | 2 bytes | GFX33 DMA - second source address for animated graphics. |
+| `$7E:0D7A–0D7B` | 2 bytes | GFX33 DMA - third source address for animated graphics. |
+| `$7E:0D7C–0D7D` | 2 bytes | GFX33 DMA - first VRAM destination address for animated graphics. |
+| `$7E:0D7E–0D7F` | 2 bytes | GFX33 DMA - second VRAM destination address for animated graphics. |
+| `$7E:0D80–0D81` | 2 bytes | GFX33 DMA - third VRAM destination address for animated graphics. |
 | `$7E:0D85–0D98` | 20 bytes | 16-bit RAM pointers for uploading player, Yoshi, and Podoboo on-screen tiles. Two sets of 10 bytes; each two bytes covers two 8×8 tiles. |
 | `$7E:0D99–0D9A` | 2 bytes | Low two bytes of the 24-bit RAM address (bank `$7E`) of tile 7F graphics; used during the player graphics DMA routine. |
 | `$7E:192B` | 1 byte | Sprite GFX setting from the level header. Also used on the overworld and in cutscenes to determine which GFX files to upload. |

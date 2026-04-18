@@ -1,6 +1,6 @@
 # SNES / Super Famicom Technical Reference
 
-Sourced from https://wiki.superfamicom.org/ — covers PPU/graphics, memory map, ROM format,
+Sourced from https://wiki.superfamicom.org/ - covers PPU/graphics, memory map, ROM format,
 DMA/HDMA, SPC700/APU/BRR, controllers, and auxiliary chips. Intended for ROM-file reading,
 level-graphics display, and audio playback without emulation.
 
@@ -11,10 +11,10 @@ level-graphics display, and audio playback without emulation.
 1. [System Overview & Timing](#1-system-overview--timing)
 2. [Memory Map](#2-memory-map)
 3. [ROM Header & Cartridge Formats](#3-rom-header--cartridge-formats)
-4. [PPU — Palettes & CGRAM](#4-ppu--palettes--cgram)
-5. [PPU — BG Modes & Tilemaps](#5-ppu--bg-modes--tilemaps)
-6. [PPU — Sprites / OAM](#6-ppu--sprites--oam)
-7. [PPU — Rendering, Color Math & Windows](#7-ppu--rendering-color-math--windows)
+4. [PPU - Palettes & CGRAM](#4-ppu--palettes--cgram)
+5. [PPU - BG Modes & Tilemaps](#5-ppu--bg-modes--tilemaps)
+6. [PPU - Sprites / OAM](#6-ppu--sprites--oam)
+7. [PPU - Rendering, Color Math & Windows](#7-ppu--rendering-color-math--windows)
 8. [DMA & HDMA](#8-dma--hdma)
 9. [SPC700 / APU](#9-spc700--apu)
 10. [BRR Audio Sample Format](#10-brr-audio-sample-format)
@@ -95,7 +95,7 @@ level-graphics display, and audio playback without emulation.
 |-------------|----------------|--------|------------------------------------------------|
 | `$00–$3F`   | `$0000–$1FFF`  | Slow   | WRAM mirror (maps to `$7E:0000–$1FFF`)         |
 | `$00–$3F`   | `$2000–$20FF`  | Fast   | Bus A (unmapped / open bus)                    |
-| `$00–$3F`   | `$2100–$21FF`  | Fast   | Bus B — PPU1/PPU2 (`$2100–$213F`), APU (`$2140–$2143`), WRAM (`$2180–$2183`) |
+| `$00–$3F`   | `$2100–$21FF`  | Fast   | Bus B - PPU1/PPU2 (`$2100–$213F`), APU (`$2140–$2143`), WRAM (`$2180–$2183`) |
 | `$00–$3F`   | `$2200–$3FFF`  | Fast   | Bus A (open bus in base SNES)                  |
 | `$00–$3F`   | `$4000–$41FF`  | XSlow  | CPU internal (joypad serial `$4016–$4017`)     |
 | `$00–$3F`   | `$4200–$43FF`  | Fast   | CPU internal registers (interrupt, DMA, etc.)  |
@@ -104,7 +104,7 @@ level-graphics display, and audio playback without emulation.
 | `$00–$3F`   | `$8000–$FFFF`  | Slow   | Bus A + /CART (LoROM data)                     |
 | `$40–$7D`   | `$0000–$FFFF`  | Slow   | Bus A + /CART (HiROM / ExHiROM upper banks)    |
 | `$7E–$7F`   | `$0000–$FFFF`  | Slow   | WRAM (128 KB total: `$7E:0000–$7F:FFFF`)       |
-| `$80–$BF`   | (mirrors)      | —      | Same as `$00–$3F` (FastROM mirror)             |
+| `$80–$BF`   | (mirrors)      | -      | Same as `$00–$3F` (FastROM mirror)             |
 | `$C0–$FF`   | `$0000–$FFFF`  | Note*  | Bus A + /CART                                  |
 
 *Speed = Fast if `$420D` bit 0 set, Slow otherwise.
@@ -248,7 +248,7 @@ complement + checksum must equal 0xFFFF
 
 ---
 
-## 4. PPU — Palettes & CGRAM
+## 4. PPU - Palettes & CGRAM
 
 ### CGRAM Layout
 
@@ -312,33 +312,33 @@ DMA is the preferred method for bulk palette loads (destination `$2122`, mode `$
 | Mode | BG Colors | Palette calc for BG1 | BG2 | BG3 | BG4 |
 |------|-----------|----------------------|-----|-----|-----|
 | 0    | 4 each    | `ppp*4 + 0`          | `ppp*4+32` | `ppp*4+64` | `ppp*4+96` |
-| 1    | 16/16/4   | `ppp*16`             | `ppp*16` | `ppp*4` | — |
-| 2    | 16/16     | `ppp*16`             | `ppp*16` | — | — |
-| 3    | 256/16    | `0` (or Direct)      | `ppp*16` | — | — |
-| 4    | 256/4     | `0` (or Direct)      | `ppp*4` | — | — |
-| 5    | 16/4      | `ppp*16`             | `ppp*4` | — | — |
-| 6    | 16        | `ppp*16`             | — | — | — |
-| 7    | 256       | `0` (or Direct)      | — | — | — |
+| 1    | 16/16/4   | `ppp*16`             | `ppp*16` | `ppp*4` | - |
+| 2    | 16/16     | `ppp*16`             | `ppp*16` | - | - |
+| 3    | 256/16    | `0` (or Direct)      | `ppp*16` | - | - |
+| 4    | 256/4     | `0` (or Direct)      | `ppp*4` | - | - |
+| 5    | 16/4      | `ppp*16`             | `ppp*4` | - | - |
+| 6    | 16        | `ppp*16`             | - | - | - |
+| 7    | 256       | `0` (or Direct)      | - | - | - |
 
 ---
 
-## 5. PPU — BG Modes & Tilemaps
+## 5. PPU - BG Modes & Tilemaps
 
 ### BG Mode Selection (`$2105` BGMODE, bits 2–0)
 
 | Mode | BG1 Colors | BG2 Colors | BG3 Colors | BG4 Colors | Notes |
 |------|-----------|-----------|-----------|-----------|-------|
 | 0    | 4         | 4         | 4         | 4         | All 4 BGs active |
-| 1    | 16        | 16        | 4         | —         | BG3 priority via `$2105` bit 3 |
-| 2    | 16        | 16        | —         | —         | BG3 = offset-per-tile data |
-| 3    | 256       | 16        | —         | —         | BG1 supports Direct Color |
-| 4    | 256       | 4         | —         | —         | BG3 = offset-per-tile; BG1 Direct Color |
-| 5    | 16        | 4         | —         | —         | Hi-res 512-wide; always 16px tiles |
-| 6    | 16        | —         | —         | —         | Hi-res + offset-per-tile |
-| 7    | 256       | —         | —         | —         | Matrix transform; 128×128 tilemap |
-| 7EXTBG | 256    | 128       | —         | —         | Enable via `$2133` bit 6 |
+| 1    | 16        | 16        | 4         | -         | BG3 priority via `$2105` bit 3 |
+| 2    | 16        | 16        | -         | -         | BG3 = offset-per-tile data |
+| 3    | 256       | 16        | -         | -         | BG1 supports Direct Color |
+| 4    | 256       | 4         | -         | -         | BG3 = offset-per-tile; BG1 Direct Color |
+| 5    | 16        | 4         | -         | -         | Hi-res 512-wide; always 16px tiles |
+| 6    | 16        | -         | -         | -         | Hi-res + offset-per-tile |
+| 7    | 256       | -         | -         | -         | Matrix transform; 128×128 tilemap |
+| 7EXTBG | 256    | 128       | -         | -         | Enable via `$2133` bit 6 |
 
-`$2105` bit 3: Mode 1 BG3 priority — when set, BG3 renders above BG1/BG2 sprites.
+`$2105` bit 3: Mode 1 BG3 priority - when set, BG3 renders above BG1/BG2 sprites.
 
 ### BGMODE Register (`$2105`)
 
@@ -377,11 +377,11 @@ where SX/SY = 1 if tilemap is 64-wide / 64-tall.
 ### Tilemap Entry Format (2 bytes per tile, little-endian)
 
 ```
-Bit 15    : v — Vertical flip
-Bit 14    : h — Horizontal flip
-Bit 13    : o — Tile priority (0 = low, 1 = high)
-Bits 12–10: ppp — Sub-palette index (3 bits)
-Bits 9–0  : cccccccccc — Tile number (10 bits, 0–1023)
+Bit 15    : v - Vertical flip
+Bit 14    : h - Horizontal flip
+Bit 13    : o - Tile priority (0 = low, 1 = high)
+Bits 12–10: ppp - Sub-palette index (3 bits)
+Bits 9–0  : cccccccccc - Tile number (10 bits, 0–1023)
 ```
 
 Byte 0 (low): `cccccccc` (tile bits 7–0)
@@ -511,20 +511,20 @@ Character data = 0 is still transparent. Recommended near-black: `$01`, `$08`, `
 
 **VMAIN (`$2115`) bit layout:**
 ```
-Bit 7  : i — Increment on high byte write (0=incr on low, 1=incr on high)
-Bits 3–2: mm — Address remapping
+Bit 7  : i - Increment on high byte write (0=incr on low, 1=incr on high)
+Bits 3–2: mm - Address remapping
   00 = no remap
   01 = remap bits [7:0] → [12:5], bits [4:2] → [4:2], bits [1:0] → [14:13] (8×8 tile remap)
   10 = similar 64-wide remap
   11 = similar 128-wide remap
-Bits 1–0: ii — Increment amount (00=+1, 01=+32, 10=+128, 11=+128)
+Bits 1–0: ii - Increment amount (00=+1, 01=+32, 10=+128, 11=+128)
 ```
 
 VRAM read is buffered: read address is latched when VMADDL/H is written; actual data available after one dummy read or from the buffer register.
 
 ---
 
-## 6. PPU — Sprites / OAM
+## 6. PPU - Sprites / OAM
 
 ### OAM Memory Layout
 
@@ -532,7 +532,7 @@ VRAM read is buffered: read address is latched when VMADDL/H is written; actual 
 - **Low table**: 512 bytes → 128 sprites × 4 bytes each
 - **High table**: 32 bytes → 128 sprites × 2 bits each (4 sprites per byte)
 
-### Low Table — 4 Bytes Per Sprite
+### Low Table - 4 Bytes Per Sprite
 
 | Byte offset | Field | Description |
 |-------------|-------|-------------|
@@ -543,19 +543,19 @@ VRAM read is buffered: read address is latched when VMADDL/H is written; actual 
 
 **Attribute byte (byte 3) bit layout:**
 ```
-Bit 7: v — Vertical flip
-Bit 6: h — Horizontal flip
-Bits 5–4: oo — Priority (0=lowest, 3=highest relative to BGs)
-Bits 3–1: ppp — Palette (selects CGRAM 128 + ppp*16 through +ppp*16+15)
-Bit 0: N — Name table select
+Bit 7: v - Vertical flip
+Bit 6: h - Horizontal flip
+Bits 5–4: oo - Priority (0=lowest, 3=highest relative to BGs)
+Bits 3–1: ppp - Palette (selects CGRAM 128 + ppp*16 through +ppp*16+15)
+Bit 0: N - Name table select
 ```
 
-### High Table — 2 Bits Per Sprite
+### High Table - 2 Bits Per Sprite
 
 Each byte in the 32-byte high table covers 4 sprites (`OBJ/4`):
 
 ```
-Bits 7–6: sprite (OBJ&3)==3 — [size_bit, x_high_bit]
+Bits 7–6: sprite (OBJ&3)==3 - [size_bit, x_high_bit]
 Bits 5–4: sprite (OBJ&3)==2
 Bits 3–2: sprite (OBJ&3)==1
 Bits 1–0: sprite (OBJ&3)==0
@@ -566,7 +566,7 @@ Bits 1–0: sprite (OBJ&3)==0
 ### Sprite Sizes (`$2101` OBSEL)
 
 ```
-Bits 7–5: sss — Size pair select
+Bits 7–5: sss - Size pair select
   000 : 8×8  / 16×16
   001 : 8×8  / 32×32
   010 : 8×8  / 64×64
@@ -576,8 +576,8 @@ Bits 7–5: sss — Size pair select
   110 : 16×32 / 32×64
   111 : 16×32 / 32×32
 
-Bits 4–3: nn — Name table select offset (for N=1 tiles)
-Bits 2–0: bbb — Name table base address (× $2000 in VRAM)
+Bits 4–3: nn - Name table select offset (for N=1 tiles)
+Bits 2–0: bbb - Name table base address (× $2000 in VRAM)
 ```
 
 ### Sprite VRAM Tile Address Calculation
@@ -602,7 +602,7 @@ Where:
 | OAMDATA  | `$2104` | W         | OAM write port |
 | OAMDATAREAD | `$2138` | R      | OAM read port |
 
-`$2103` bit 7: Priority rotation — when set, sprite at FirstSprite index always appears on top.
+`$2103` bit 7: Priority rotation - when set, sprite at FirstSprite index always appears on top.
 
 ### Sprite Display Limits (per scanline)
 
@@ -625,7 +625,7 @@ Where:
 
 ---
 
-## 7. PPU — Rendering, Color Math & Windows
+## 7. PPU - Rendering, Color Math & Windows
 
 ### Layer Priority Order (highest to lowest)
 
@@ -648,11 +648,11 @@ Backdrop (CGRAM color 0)
 ### Mosaic Filter (`$2106` MOSAIC)
 
 ```
-Bits 7–4: xxxx — Pixel block size (0=1×1 off, 1=2×2, ... 15=16×16)
-Bit 3: D — Apply to BG4
-Bit 2: C — Apply to BG3
-Bit 1: B — Apply to BG2
-Bit 0: A — Apply to BG1
+Bits 7–4: xxxx - Pixel block size (0=1×1 off, 1=2×2, ... 15=16×16)
+Bit 3: D - Apply to BG4
+Bit 2: C - Apply to BG3
+Bit 1: B - Apply to BG2
+Bit 0: A - Apply to BG1
 ```
 
 Sprites are never affected by mosaic. Block positioning aligns to screen left at the scanline where `$2106` was written.
@@ -663,14 +663,14 @@ Two-screen architecture: **main screen** (displayed) + **sub screen** (source fo
 
 `$2131` (CGADSUB) designates which layers participate:
 ```
-Bit 7: s — Add or subtract (0=add, 1=subtract)
-Bit 6: h — Half math (divide result by 2)
-Bit 5: b — Backdrop participates
-Bit 4: o — Sprite layer (palettes 4–7 only)
-Bit 3: 4 — BG4
-Bit 2: 3 — BG3
-Bit 1: 2 — BG2
-Bit 0: 1 — BG1
+Bit 7: s - Add or subtract (0=add, 1=subtract)
+Bit 6: h - Half math (divide result by 2)
+Bit 5: b - Backdrop participates
+Bit 4: o - Sprite layer (palettes 4–7 only)
+Bit 3: 4 - BG4
+Bit 2: 3 - BG3
+Bit 1: 2 - BG2
+Bit 0: 1 - BG1
 ```
 
 `$2130` (CGWSEL) bits 1–0 select what the sub-screen contributes:
@@ -689,10 +689,10 @@ Bit 0: 1 — BG1
 
 **Fixed color register `$2132` (COLDATA):**
 ```
-Bit 7: b — Apply value to Blue component
-Bit 6: g — Apply value to Green component
-Bit 5: r — Apply value to Red component
-Bits 4–0: ccccc — Intensity (0–31)
+Bit 7: b - Apply value to Blue component
+Bit 6: g - Apply value to Green component
+Bit 5: r - Apply value to Red component
+Bits 4–0: ccccc - Intensity (0–31)
 ```
 
 **Transparency edge cases:**
@@ -739,19 +739,19 @@ WH3 ($2129): Window 2 right edge
 ### Screen Display (`$2100` INIDISP)
 
 ```
-Bit 7: x — Force blank (1=screen black, VRAM/OAM accessible)
-Bits 3–0: bbbb — Master brightness (0=black, 15=full)
+Bit 7: x - Force blank (1=screen black, VRAM/OAM accessible)
+Bits 3–0: bbbb - Master brightness (0=black, 15=full)
 ```
 
 ### Display Initialization / Setini (`$2133` SETINI)
 
 ```
-Bit 7: s — External sync (0=normal)
-Bit 6: e — Mode 7 EXTBG enable
-Bit 3: p — Pseudo-hires (512-wide output in Mode 0–6)
-Bit 2: o — Overscan (0=224 lines, 1=239 lines)
-Bit 1: I — Interlace sprites (1=use 8×16 sprite tiles in interlace)
-Bit 0: i — Interlace screen (1=interlace; 448 or 478 lines)
+Bit 7: s - External sync (0=normal)
+Bit 6: e - Mode 7 EXTBG enable
+Bit 3: p - Pseudo-hires (512-wide output in Mode 0–6)
+Bit 2: o - Overscan (0=224 lines, 1=239 lines)
+Bit 1: I - Interlace sprites (1=use 8×16 sprite tiles in interlace)
+Bit 0: i - Interlace screen (1=interlace; 448 or 478 lines)
 ```
 
 ---
@@ -777,12 +777,12 @@ Bit 0: i — Interlace screen (1=interlace; 448 or 478 lines)
 ### DMAPx Control Register (`$43x0`) Bit Layout
 
 ```
-Bit 7: d — Transfer direction (0=CPU→PPU, 1=PPU→CPU)
-Bit 6: a — HDMA addressing mode (0=direct, 1=indirect)
+Bit 7: d - Transfer direction (0=CPU→PPU, 1=PPU→CPU)
+Bit 6: a - HDMA addressing mode (0=direct, 1=indirect)
 Bit 5: (unused)
-Bit 4: i — Address increment/decrement (0=auto, 1=fixed)
-Bit 3: f — Address direction (0=increment, 1=decrement) [only if bit 4=0]
-Bits 2–0: ttt — Transfer mode
+Bit 4: i - Address increment/decrement (0=auto, 1=fixed)
+Bit 3: f - Address direction (0=increment, 1=decrement) [only if bit 4=0]
+Bits 2–0: ttt - Transfer mode
   000: 1 byte → 1 register
   001: 2 bytes → 2 consecutive registers (write once each)
   010: 2 bytes → 1 register (write twice)
@@ -841,8 +841,8 @@ Tables are arrays of cells terminated by `$00`:
 **Each cell:**
 ```
 Byte 0: line count byte
-  Bits 6–0: N — Number of lines (1–128; $00 = end of table)
-  Bit 7:    r — Repeat flag
+  Bits 6–0: N - Number of lines (1–128; $00 = end of table)
+  Bit 7:    r - Repeat flag
     r=0: Write data once, skip N-1 scanlines (N total)
     r=1: Write data every scanline for N scanlines
     $80 special: write every line for 128 lines
@@ -918,7 +918,7 @@ Total: 64 KB addressable.
 
 | Address | Register | R/W | Description |
 |---------|----------|-----|-------------|
-| `$F0`   | —        | R/W | Undocumented |
+| `$F0`   | -        | R/W | Undocumented |
 | `$F1`   | Control  | W   | Timer enable & port clear |
 | `$F2`   | DSPADDR  | R/W | DSP register pointer |
 | `$F3`   | DSPDATA  | R/W | DSP register read/write |
@@ -926,8 +926,8 @@ Total: 64 KB addressable.
 | `$F5`   | Port 1   | R/W | Port 1 |
 | `$F6`   | Port 2   | R/W | Port 2 |
 | `$F7`   | Port 3   | R/W | Port 3 |
-| `$F8`   | —        | R/W | Regular RAM |
-| `$F9`   | —        | R/W | Regular RAM |
+| `$F8`   | -        | R/W | Regular RAM |
+| `$F9`   | -        | R/W | Regular RAM |
 | `$FA`   | Timer 0  | W   | Timer 0 period (8 kHz base) |
 | `$FB`   | Timer 1  | W   | Timer 1 period (8 kHz base) |
 | `$FC`   | Timer 2  | W   | Timer 2 period (64 kHz base) |
@@ -940,12 +940,12 @@ Total: 64 KB addressable.
 ```
 Bit 7: (reserved)
 Bit 6: (reserved)
-Bit 5: PC32 — Clear ports 2 & 3 (write 1 to reset)
-Bit 4: PC10 — Clear ports 0 & 1
+Bit 5: PC32 - Clear ports 2 & 3 (write 1 to reset)
+Bit 4: PC10 - Clear ports 0 & 1
 Bit 3: (reserved)
-Bit 2: ST2  — Enable Timer 2
-Bit 1: ST1  — Enable Timer 1
-Bit 0: ST0  — Enable Timer 0
+Bit 2: ST2  - Enable Timer 2
+Bit 1: ST1  - Enable Timer 1
+Bit 0: ST0  - Enable Timer 0
 ```
 
 ### Timers
@@ -1050,17 +1050,17 @@ Bytes 2–3: Loop point address of BRR sample (little-endian 16-bit)
 
 ### Overview
 
-BRR (Bit Rate Reduction): SNES's lossy audio compression. Ratio 32:9 — for every 32 bytes of 16-bit PCM, 9 bytes of BRR.
+BRR (Bit Rate Reduction): SNES's lossy audio compression. Ratio 32:9 - for every 32 bytes of 16-bit PCM, 9 bytes of BRR.
 
 Each BRR block = **9 bytes**: 1 header byte + 8 data bytes (16 nibbles = 16 samples).
 
 ### Header Byte
 
 ```
-Bits 7–4: RANGE  — Left-shift amount for decoded nibble (0–11 valid; 12–15 invalid)
-Bits 3–2: FILTER — Filter type (0–3)
-Bit 1:    LOOP   — Set on last block if sample loops
-Bit 0:    END    — Set on last block of sample
+Bits 7–4: RANGE  - Left-shift amount for decoded nibble (0–11 valid; 12–15 invalid)
+Bits 3–2: FILTER - Filter type (0–3)
+Bit 1:    LOOP   - Set on last block if sample loops
+Bit 0:    END    - Set on last block of sample
 ```
 
 ### Data Bytes
@@ -1122,17 +1122,17 @@ This is a reduced command set. Commands are shifted relative to the standard N-S
 
 | VCMD     | Hex      | Arguments     | Description |
 |----------|----------|---------------|-------------|
-| End/Ret  | `$00`    | —             | End sequence or return from subroutine |
+| End/Ret  | `$00`    | -             | End sequence or return from subroutine |
 | Note length | `$01`–`$7F` | [len] optional [vel] | Note length (48 = quarter note) |
-| Notes    | `$80`–`$C7` | —          | Pitch (chromatic, 6 octaves) |
-| Tie      | `$C8`    | —             | Extend previous note |
-| Rest     | `$C9`    | —             | Silence |
-| Perc note | `$CA`–`$DF` | —         | Percussion note |
+| Notes    | `$80`–`$C7` | -          | Pitch (chromatic, 6 octaves) |
+| Tie      | `$C8`    | -             | Extend previous note |
+| Rest     | `$C9`    | -             | Silence |
+| Perc note | `$CA`–`$DF` | -         | Percussion note |
 | Instrument | `$E0`  | [xx]          | Set instrument (SRCN index) |
 | Pan      | `$E1`    | [xx]          | Pan (low 5 bits = 0–20; bits 6–7 = phase reverse) |
 | Pan Fade | `$E2`    | [xx yy]       | Fade to pan |
 | Vibrato On | `$E3` | [xx yy zz]   | Delay/rate/depth |
-| Vibrato Off | `$E4` | —            | Disable vibrato |
+| Vibrato Off | `$E4` | -            | Disable vibrato |
 | Main Vol | `$E5`   | [xx]          | Master volume |
 | Main Vol Fade | `$E6` | [xx yy]   | Fade master volume |
 | Tempo    | `$E7`    | [xx]          | Playback speed |
@@ -1140,17 +1140,17 @@ This is a reduced command set. Commands are shifted relative to the standard N-S
 | Global Transpose | `$E9` | [xx]  | Semitone transpose (signed) |
 | Voice Transpose | `$EA` | [xx]   | Per-voice transpose |
 | Tremolo On | `$EB` | [xx yy zz]   | Delay/rate/depth |
-| Tremolo Off | `$EC` | —           | Disable tremolo |
+| Tremolo Off | `$EC` | -           | Disable tremolo |
 | Volume   | `$ED`    | [xx]          | Voice volume |
 | Vol Fade | `$EE`    | [xx yy]       | Fade volume |
 | Subroutine | `$EF` | [xx yy zz]   | Call block `$yyxx` for `zz+1` times |
 | Vibrato Fade | `$F0` | [xx]       | Fade vibrato depth |
 | Pitch Env To | `$F1` | [xx yy zz] | Pitch slide up: delay/length/semitones |
 | Pitch Env From | `$F2` | [xx yy zz] | Pitch slide down |
-| Pitch Env Off | `$F3` | —        | Disable pitch envelope |
+| Pitch Env Off | `$F3` | -        | Disable pitch envelope |
 | Tuning   | `$F4`    | [xx]          | Fine tuning |
 | Echo VBits/Vol | `$F5` | [xx yy zz] | Echo voice bits, L vol, R vol |
-| Echo Off | `$F6`   | —             | Disable echo |
+| Echo Off | `$F6`   | -             | Disable echo |
 | Echo Params | `$F7` | [xx yy zz] | Delay (EDL), feedback (EFB), FIR index |
 | Echo Vol Fade | `$F8` | [xx yy zz] | Fade echo volume |
 | Pitch Slide | `$F9` | [xx yy zz]  | Slide within current note: delay/length/target |
@@ -1303,14 +1303,14 @@ In emulation mode, bits 4–5 are B (Break) and fixed 1 respectively.
 ### SEP / REP Instructions
 
 ```
-SEP #xx  — Set processor flags (bits set in xx become 1 in P)
-REP #xx  — Reset processor flags (bits set in xx become 0 in P)
+SEP #xx  - Set processor flags (bits set in xx become 1 in P)
+REP #xx  - Reset processor flags (bits set in xx become 0 in P)
 
-SEP #$20 — Switch A to 8-bit
-REP #$20 — Switch A to 16-bit
-SEP #$10 — Switch X,Y to 8-bit
-REP #$10 — Switch X,Y to 16-bit
-REP #$30 — Switch all to 16-bit
+SEP #$20 - Switch A to 8-bit
+REP #$20 - Switch A to 16-bit
+SEP #$10 - Switch X,Y to 8-bit
+REP #$10 - Switch X,Y to 16-bit
+REP #$30 - Switch all to 16-bit
 ```
 
 ### Key Addressing Modes
@@ -1328,9 +1328,9 @@ REP #$30 — Switch all to 16-bit
 
 ### Long Jump / Call
 
-- `JML $xxxxxx` — Update PB and jump (24-bit)
-- `JSL $xxxxxx` — Long subroutine call (pushes 3-byte return address)
-- `RTL` — Return from long call
+- `JML $xxxxxx` - Update PB and jump (24-bit)
+- `JSL $xxxxxx` - Long subroutine call (pushes 3-byte return address)
+- `RTL` - Return from long call
 
 ---
 
@@ -1372,8 +1372,8 @@ Bits 3–0: 0000 (always 0 for standard controller)
 ### Serial (Manual) Read
 
 ```
-Write $01 to $4016  — latch controllers
-Write $00 to $4016  — release latch
+Write $01 to $4016  - latch controllers
+Write $00 to $4016  - release latch
 Then read $4016 (port 1) and $4017 (port 2) 16 times each.
 Each read shifts out one bit (MSB first): B, Y, Sel, Start, Up, Down, Left, Right, A, X, L, R, 0, 0, 0, 0
 ```
@@ -1598,8 +1598,8 @@ Header at `$7FBx` (LoROM) or `$FFBx` (HiROM).
 | `xFC0–xFCF`  | 16   | Title (Shift-JIS) |
 | `xFD0–xFD3`  | 4    | Block Allocation Flags (1 bit per Mbit block) |
 | `xFD4–xFD5`  | 2    | Limited Starts counter |
-| `xFD6`       | 1    | Date — Month |
-| `xFD7`       | 1    | Date — Day |
+| `xFD6`       | 1    | Date - Month |
+| `xFD7`       | 1    | Date - Day |
 | `xFD8`       | 1    | ROM Speed & Map Mode (upper=speed, lower=LoROM/HiROM) |
 | `xFD9`       | 1    | File/Execution Type |
 | `xFDA`       | 1    | Fixed value `$33` |
@@ -1651,7 +1651,7 @@ PPU1 and PPU2 each have their own MDR, updated only during reads of that PPU's r
 | SuperFX / GSU | Star Fox, Yoshi's Island | 3D rendering RISC processor; own SRAM |
 | DSP-1 | Super Mario Kart, Pilotwings | Matrix math coprocessor |
 | DSP-2 | Dungeon Master | Pixel masking |
-| DSP-3 | SD Gundam GX | — |
+| DSP-3 | SD Gundam GX | - |
 | DSP-4 | Top Gear 3000 | Road generation |
 | Cx4 (HG51B169) | Mega Man X2/X3 | Wireframe graphics |
 | S-DD1 | Street Fighter Alpha 2, Star Ocean | On-the-fly graphics decompression |
@@ -1660,8 +1660,8 @@ PPU1 and PPU2 each have their own MDR, updated only during reads of that PPU's r
 | OBC-1 | Metal Combat | Object control |
 | ST010 | F1 ROC II | AI coprocessor |
 | MX15001TFC | Nintendo Power | Flash cartridge |
-| Super Game Boy | — | GB-Z80 CPU for Game Boy compatibility |
+| Super Game Boy | - | GB-Z80 CPU for Game Boy compatibility |
 
 ---
 
-*Document compiled from https://wiki.superfamicom.org/ — pages: memory-mapping, palettes, sprites, backgrounds, rendering-the-screen, windows, transparency, dma-and-hdma, spc700-reference, bit-rate-reduction-(brr), transferring-data-from-rom-to-the-snes-apu, nintendo-music-format-(n-spc), spc-and-rsn-file-format, id666-format, registers, sa-1-registers, bs-x-satellaview-header, expansion-chips, timing, open-bus, pointers, grog's-guide-to-dma-and-hdma-on-the-snes, 65816-reference, controllers, writing-the-header, schematics-ports-and-pinouts. Compiled 2026-04-13.*
+*Document compiled from https://wiki.superfamicom.org/ - pages: memory-mapping, palettes, sprites, backgrounds, rendering-the-screen, windows, transparency, dma-and-hdma, spc700-reference, bit-rate-reduction-(brr), transferring-data-from-rom-to-the-snes-apu, nintendo-music-format-(n-spc), spc-and-rsn-file-format, id666-format, registers, sa-1-registers, bs-x-satellaview-header, expansion-chips, timing, open-bus, pointers, grog's-guide-to-dma-and-hdma-on-the-snes, 65816-reference, controllers, writing-the-header, schematics-ports-and-pinouts. Compiled 2026-04-13.*
