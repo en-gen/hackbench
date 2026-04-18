@@ -4,7 +4,7 @@ import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { buildSpc, getLevelMusicBankAddr, getOverworldMusicBankAddr, getCreditsMusicBankAddr, countBankSongs } from '../../../src/rom/SpcBuilder'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).sfc')
+const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent = existsSync(ROM_PATH)
 
 describe('SpcBuilder', () => {

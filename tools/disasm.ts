@@ -12,7 +12,7 @@
 
 import * as fs from 'fs'
 
-const ROM_PATH = 'test/roms/Super Mario World (USA).sfc'
+const ROM_PATH = 'test/roms/Super Mario World (USA).vanilla.sfc'
 
 interface Op { n: string; l: number; m?: string }
 

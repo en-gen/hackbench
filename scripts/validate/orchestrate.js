@@ -9,7 +9,7 @@
  *   node scripts/validate/orchestrate.js [--rom <path>] [--mesen <path>]
  *
  * Defaults (relative to project root):
- *   --rom    test/roms/Super Mario World (USA).sfc
+ *   --rom    test/roms/Super Mario World (USA).vanilla.sfc
  *   --mesen  test/roms/Mesen.exe
  */
 
@@ -29,7 +29,7 @@ function getArg(name, def) {
   return i !== -1 ? args[i + 1] : def
 }
 
-const ROM_PATH   = getArg('--rom',   path.join(ROOT, 'test/roms/Super Mario World (USA).sfc'))
+const ROM_PATH   = getArg('--rom',   path.join(ROOT, 'test/roms/Super Mario World (USA).vanilla.sfc'))
 const MESEN_PATH = getArg('--mesen', path.join(ROOT, 'test/roms/Mesen.exe'))
 
 // ── ROM parsing (require from compiled JS — run `npm run build` first, or use ts-node) ──

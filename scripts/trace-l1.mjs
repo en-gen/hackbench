@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs'
-const raw = readFileSync('C:/Users/engenb/Super Mario World (USA).sfc')
+const raw = readFileSync('test/roms/Super Mario World (USA).vanilla.sfc')
 const hdrOff = (raw.length % 1024) === 512 ? 512 : 0
 const off = s => hdrOff + ((s>>>16)&0x7F)*0x8000 + ((s&0xFFFF)-0x8000)
 const rd = s => raw[off(s)]

@@ -13,7 +13,7 @@ import { SmwRom } from '../../../src/rom/SmwRom'
 import { loadAnimationData } from '../../../src/rom/AnimationLoader'
 import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, getCharPixels } from '../../../src/rom/GfxLoader'
 
-const ROM_PATH  = resolve(__dirname, '../../roms/Super Mario World (USA).sfc')
+const ROM_PATH  = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent  = existsSync(ROM_PATH)
 
 describe('AnimationLoader berry tiles', () => {

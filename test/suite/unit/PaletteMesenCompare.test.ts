@@ -12,7 +12,7 @@ import { SmwRom } from '../../../src/rom/SmwRom'
 import { loadRomPalettes, buildLevelCgram } from '../../../src/rom/PaletteLoader'
 import { bgr555ToRgba as toRgba } from '../../../src/rom/GraphicsDecoder'
 
-const ROM_PATH   = resolve(__dirname, '../../roms/Super Mario World (USA).sfc')
+const ROM_PATH   = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
 const CGRAM_PATH = resolve(__dirname, '../../../tools/mesen/Debugger/Super Mario World (USA) - SnesCgRam.dmp')
 const romPresent   = existsSync(ROM_PATH)
 const cgramPresent = existsSync(CGRAM_PATH)

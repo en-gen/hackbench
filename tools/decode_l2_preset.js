@@ -30,7 +30,7 @@ const fs = require('fs')
 const path = require('path')
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const ROM_PATH = path.join(__dirname, '../test/roms/Super Mario World (USA).sfc')
+const ROM_PATH = path.join(__dirname, '../test/roms/Super Mario World (USA).vanilla.sfc')
 
 // Known-good charNum set from vram-analysis.md BG2 tilemap
 const VALID_CHAR_SET = new Set([

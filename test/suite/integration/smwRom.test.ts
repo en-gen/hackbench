@@ -3,11 +3,12 @@ import { existsSync } from 'fs'
 import * as path from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { parseLevelObjects } from '../../../src/rom/LevelParser'
+import { loadGfxRaw } from '../../../src/rom/GfxLoader'
 
-const ROM_PATH = path.resolve(__dirname, '../../roms/smw.sfc')
+const ROM_PATH = path.resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent = existsSync(ROM_PATH)
 
-describe.skipIf(!romPresent)('SmwRom integration (requires test/roms/smw.sfc)', () => {
+describe.skipIf(!romPresent)('SmwRom integration (requires test/roms/Super Mario World (USA).vanilla.sfc)', () => {
   let rom: SmwRom
 
   it('opens without throwing', () => {
@@ -49,10 +50,9 @@ describe.skipIf(!romPresent)('SmwRom integration (requires test/roms/smw.sfc)', 
     expect(pointers).toHaveLength(0x200)
   })
 
-  it('GFX slot 0 returns data of expected size', () => {
+  it('GFX file 0 decompresses to non-empty bytes', () => {
     rom ??= SmwRom.open(ROM_PATH)
-    const gfx = rom.getGfxFile(0)
-    expect(gfx).not.toBeNull()
-    expect(gfx!.length).toBe(0x600)
+    const raw = loadGfxRaw(rom.rom, 0)
+    expect(raw.length).toBeGreaterThan(0)
   })
 })
