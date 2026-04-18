@@ -14,6 +14,12 @@ live in an IDE.
 > **Status:** pre-alpha. Core read-path for levels, palettes, GFX, and
 > music is working; write-back is in progress. Pinning a release at
 > `0.1.0` — expect breaking changes until `0.2.0`.
+>
+> **Distribution plan:** HackBench will ship as a regular VS Code
+> extension through the Visual Studio Code Marketplace, auto-updating
+> like any other extension. Until the first Marketplace release, the
+> only way to try it is to build from source (below). Early testers
+> who want to help shake out alpha/beta bugs are very welcome.
 
 ## Features
 
@@ -33,7 +39,17 @@ live in an IDE.
 
 ## Install
 
-Not yet published to the Marketplace. Build from source:
+### Once we hit Marketplace release
+
+You'll install HackBench like any other VS Code extension — search
+`HackBench` in the Extensions sidebar (Ctrl+Shift+X / Cmd+Shift+X),
+click **Install**, and VS Code handles updates automatically. **This
+path isn't live yet** — pending the `v0.1.0` Marketplace publish.
+
+### Build from source (current alpha/beta path)
+
+If you want to help test HackBench before the Marketplace release, or
+you just want the latest `develop` changes:
 
 ```bash
 git clone https://github.com/en-gen/hackbench
@@ -43,7 +59,10 @@ npm run compile
 ```
 
 Open the folder in VS Code and hit **F5** to launch an Extension
-Development Host with HackBench loaded.
+Development Host with HackBench loaded. Bug reports from this path
+are especially welcome — see
+[CONTRIBUTING.md](./CONTRIBUTING.md) and
+[issue templates](https://github.com/en-gen/hackbench/issues/new/choose).
 
 ## Usage
 
