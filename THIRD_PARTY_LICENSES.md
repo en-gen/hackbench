@@ -40,7 +40,7 @@ https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html and in the
 - **Upstream:** https://github.com/snesrev/smw
 - **Vendored at:** [`tools/vendor/snesrev-smw/`](./tools/vendor/snesrev-smw/)
 - **Used for:** an optional *developer-only* workflow. The Python
-  decompressor, invoked by [`tools/dump-vanilla-gfx.py`](./tools/dump-vanilla-gfx.py),
+  decompressor, invoked by [`tools/scripts/dump-vanilla-gfx.py`](./tools/scripts/dump-vanilla-gfx.py),
   can turn the developer's own legally owned SMW ROM into local LC_LZ2
   input/output pairs under `test/fixtures/` (gitignored). HackBench
   **does not distribute any ROM-derived data** — the CI suite relies on

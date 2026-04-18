@@ -28,11 +28,13 @@ test/suite/**/*.d.ts
 
 # Third-party tools — not redistributable (emulator binaries, proprietary apps)
 tools/*
-# ...but vendored open-source helpers and in-repo scripts stay tracked
-!tools/*.py
-!tools/*.ts
-!tools/*.js
-!tools/*.lua
+# ...but our own scripts, vendored open-source helpers, and emulator-glue
+# scripts stay tracked. Organization:
+#   tools/scripts/  — first-party CLI helpers (.ts/.js/.py/.mjs)
+#   tools/vendor/   — vendored open-source libraries (each in its own subdir)
+#   tools/mesen/    — Mesen integration (*.lua kept, binaries gitignored)
+!tools/scripts/
+!tools/scripts/**
 !tools/vendor/
 !tools/vendor/**
 !tools/mesen/*.lua

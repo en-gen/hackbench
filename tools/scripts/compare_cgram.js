@@ -4,8 +4,8 @@
  * what our PaletteLoader.ts would produce for a given level.
  *
  * Usage:
- *   node tools/compare_cgram.js <levelIndex_hex> <cgram_dump.txt>
- *   node tools/compare_cgram.js 104 tools/cgram_104_yoshi_house.txt
+ *   node tools/scripts/compare_cgram.js <levelIndex_hex> <cgram_dump.txt>
+ *   node tools/scripts/compare_cgram.js 104 tools/cgram_104_yoshi_house.txt
  *
  * The dump file must contain lines of the form:
  *   row XX: w0 w1 w2 ... w15

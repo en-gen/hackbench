@@ -1,6 +1,6 @@
 /**
  * Dump raw Map16 data for specific tiles to compare against Lunar Magic.
- * Run: npx tsx tools/dump_map16.ts
+ * Run: npx tsx tools/scripts/dump_map16.ts
  */
 import { SmwRom } from '../src/rom/SmwRom'
 import { RomFile } from '../src/rom/RomFile'

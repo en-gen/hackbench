@@ -85,7 +85,7 @@ implementation in a different language gives us cross-validation.
 HackBench ships a vendored copy of the LC_LZ2 decompressor from
 [`snesrev/smw`](https://github.com/snesrev/smw) (MIT) at
 [`tools/vendor/snesrev-smw/`](../tools/vendor/snesrev-smw/) and a
-developer-run script, [`tools/dump-vanilla-gfx.py`](../tools/dump-vanilla-gfx.py),
+developer-run script, [`tools/scripts/dump-vanilla-gfx.py`](../tools/scripts/dump-vanilla-gfx.py),
 which:
 
 1. Loads the vanilla ROM from your local `test/roms/` directory.
@@ -101,7 +101,7 @@ cp /path/to/your/Super\ Mario\ World\ \(USA\).sfc \
    test/roms/Super\ Mario\ World\ \(USA\).vanilla.sfc
 
 # Dump fixtures from your ROM (output lives under gitignored test/fixtures/).
-python tools/dump-vanilla-gfx.py
+python tools/scripts/dump-vanilla-gfx.py
 
 # You can now enable fixture-based decoder tests locally by adding a
 # *.fixtures.test.ts file that reads from test/fixtures/gfx/. Keep those
