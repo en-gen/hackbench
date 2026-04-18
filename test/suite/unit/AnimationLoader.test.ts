@@ -7,10 +7,9 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import { existsSync, readFileSync } from 'fs'
 import { loadAnimationData } from '../../../src/rom/AnimationLoader'
 import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, getCharPixels } from '../../../src/rom/GfxLoader'
 
