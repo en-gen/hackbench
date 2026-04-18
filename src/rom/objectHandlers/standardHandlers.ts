@@ -847,90 +847,136 @@ const PIPE_VARIANT_HANDLERS: Record<number, (cur: Cursor) => void> = {
 
 /**
  * Variant 0 -- CODE_0DAB6E (bank_0D line 2301).
- * Short upward-facing vertical pipe, 2 columns × (H+1) rows.
- * Top: $96/$9B nozzle. Body: $DE/$E6.
+ *
+ * Diagonal down-left slope, 2-wide lip/body pair descending col-2 / row+1
+ * per iteration. A final straight-down body row at the bottom flattens the
+ * slope into the ground. (Previously mis-classified as "vertical pipe".)
+ *
+ * Shape for size $HW (H = high nibble; heightCount = H + 1):
+ *   iter 0:   lip pair at (col0,         row0)                   -- 2 tiles
+ *   iter 1:   lip pair at (col0-2,       row0+1), body pair col0 -- 4 tiles
+ *   iter 2:   lip pair at (col0-4,       row0+2), body pair + 2 fills
+ *   ...
+ *   iter N-1: lip pair at (col0-2(N-1),  row0+N-1), body + 2(N-2) fills
+ *   final:    body pair at (col0-2(N-1), row0+N) + 2(N-1) fills
+ *
+ * ASM control flow: saveBookmark once; between lip iters,
+ * `LevelLoadPos += $0E` (col-2 row+1); on _0 hitting 0, BEQ into CODE_0DABEC
+ * which calls CODE_0DA97D (row+=1 only, no diagonal) and JMPs into the
+ * body/fill phase WITHOUT a lip write.
+ *
+ * Width counter `_2` starts at 1 and grows by 2 per iter (tracking body+fill
+ * length per row).
  */
 function pipeVariant0(cur: Cursor): void {
-  const height = (cur.size >> 4) & 0x0F
+  const heightCount = ((cur.size >> 4) & 0x0F) + 1
   const col0 = cur.col, row0 = cur.row
 
-  // CODE_0DAB6E inline immediates: +27 $96, +35 $9B (nozzle pair via CODE_0DABFD);
-  // +47 $DE, +55 $E6 (body pair).
-  const nozL = readImmByte(cur, cur.handlerAddr + 27)
-  const nozR = readImmByte(cur, cur.handlerAddr + 35)
+  // CODE_0DAB6E inline immediates:
+  //   +27 $96, +35 $9B (lip pair, pipe-merged via CODE_0DABFD)
+  //   +47 $DE, +55 $E6 (body pair, page 1, plain write)
+  //   hardcoded $3F (fill, page 0, plain write inside the `-` label)
+  const lipL = readImmByte(cur, cur.handlerAddr + 27)
+  const lipR = readImmByte(cur, cur.handlerAddr + 35)
   const bodL = readImmByte(cur, cur.handlerAddr + 47)
   const bodR = readImmByte(cur, cur.handlerAddr + 55)
+  const fillTile = 0x3F  // inline LDA #$3F in the fill-writer branch
 
-  setPage1(cur); writeTilePipeMergeNoAdvance(cur, nozL)
-  cur.col = col0 + 1
-  setPage1(cur); writeTilePipeMergeNoAdvance(cur, nozR)
-
-  for (let r = 1; r <= height; r++) {
-    cur.row = row0 + r
-    cur.col = col0
-    setPage1(cur); writeTile(cur, bodL)
-    cur.col = col0 + 1
-    setPage1(cur); writeTile(cur, bodR)
+  // Lip phase. Iter i at (col0 - 2i, row0 + i). X at iter entry = _2 = 1 + 2i.
+  //   i = 0: X = 1. Write lip pair. DEX DEX -> -1. BMI. No body.
+  //   i = 1: X = 3. Lip. DEX DEX -> 1. Body pair. DEX -> 0. JMP body-exit. DEX -> -1. Exit.
+  //   i = 2: X = 5. Lip. DEX DEX -> 3. Body. DEX -> 2. JMP body-exit. DEX -> 1. Fill. DEX -> 0. Fill. DEX -> -1.
+  // Body+fill count: i=0 -> 0; i>=1 -> body (2 tiles) + 2*(i-1) fills.
+  for (let i = 0; i < heightCount; i++) {
+    cur.col = col0 - 2 * i
+    cur.row = row0 + i
+    setPage1(cur); writeTilePipeMerge(cur, lipL)
+    setPage1(cur); writeTilePipeMerge(cur, lipR)
+    if (i >= 1) {
+      setPage1(cur); writeTileAdvance(cur, bodL)
+      setPage1(cur); writeTileAdvance(cur, bodR)
+      for (let k = 0; k < 2 * (i - 1); k++) {
+        setPage0(cur); writeTileAdvance(cur, fillTile)
+      }
+    }
   }
-  cur.row = row0
+
+  // Final body row (CODE_0DABEC -> CODE_0DA97D -> CODE_0DAB99).
+  // X at CODE_0DABEC entry = _2 = 1 + 2*heightCount. DEX DEX -> 2*heightCount - 1.
+  // Write body pair. DEX -> 2*heightCount - 2. JMP body-exit. DEX -> 2*heightCount - 3.
+  // Loop fills until X = -1. Total fills = 2*(heightCount - 1).
+  cur.col = col0 - 2 * (heightCount - 1)
+  cur.row = row0 + heightCount
+  setPage1(cur); writeTileAdvance(cur, bodL)
+  setPage1(cur); writeTileAdvance(cur, bodR)
+  for (let k = 0; k < 2 * (heightCount - 1); k++) {
+    setPage0(cur); writeTileAdvance(cur, fillTile)
+  }
+
   cur.col = col0
+  cur.row = row0
 }
 
 /**
  * Variant 1 -- CODE_0DAC21 (bank_0D line 2412).
- * Diagonal pipe sloping down-left: tip at upper-right cursor position,
- * body extends down and to the left in 1-col-per-row steps.
  *
- * Each iteration `_2` grows by 1; row 0 writes only the lip $AA, row 1
- * writes $AA then body $E2, row 2 adds a $3F filler, etc. Between rows the
- * cursor steps diagonally down-left (col-- row++), so the lips form a
- * downward-left line while the row extends further right each pass.
+ * Diagonal down-left slope: 1-wide lip column descending col-1 / row+1 per
+ * iteration, with body ($E2) and dirt fills ($3F) trailing to the right of
+ * each new lip row. A final straight-down body row at the bottom flattens
+ * the slope into ground.
+ *
+ * Shape for size $HW (H = high nibble; heightCount = H + 1):
+ *   iter 0: lip at (col0,      row0)                          -- 1 tile
+ *   iter 1: lip at (col0-1,    row0+1), body at col0          -- 2 tiles
+ *   iter 2: lip at (col0-2,    row0+2), body + 1 fill         -- 3 tiles
+ *   ...
+ *   iter N-1: lip at (col0-N+1, row0+N-1), body + N-2 fills   -- N tiles
+ *   final:    body at (col0-N+1, row0+N), plus N-1 fills      -- N tiles (no lip)
+ *
+ * ASM control-flow: saveBookmark once; accumulate `LevelLoadPos += $0F` (col-1
+ * row+1) between lip iters; on _0 hitting 0, BEQ into CODE_0DAC89 which calls
+ * CODE_0DA97D (row++ only, no diagonal) and JMPs into the body/fill phase
+ * WITHOUT a lip write. Previously mis-ported (bookmark re-saved per iter) so
+ * the final straight-down row landed one col and one row off.
  */
 function pipeVariant1(cur: Cursor): void {
   const heightCount = ((cur.size >> 4) & 0x0F) + 1
   const col0 = cur.col, row0 = cur.row
-  let widthCounter = 0
-  saveBookmark(cur)
 
-  // Each iteration writes one row. Row `i` contains:
-  //   - lip tile $AA (always)
-  //   - if widthCounter >= 1: body tile $E2
-  //   - then (widthCounter - 1) $3F ground fillers
-  // This mirrors the ASM pattern: write $AA, DEX (X=widthCounter-1), BMI skip;
-  // else write $E2, DEX, then loop writing $3F while X>=0.
-  // CODE_0DAC21 inline immediates: +25 $AA (lip via CODE_0DABFD merge),
-  // +36 $E2 (body), +47 $3F (filler).
+  // CODE_0DAC21 inline immediates:
+  //   +25 $AA (lip, pipe-merged via CODE_0DABFD)
+  //   +36 $E2 (body, page 1, plain write)
+  //   +47 $3F (fill, page 0, plain write)
   const lipTile  = readImmByte(cur, cur.handlerAddr + 25)
   const bodyTile = readImmByte(cur, cur.handlerAddr + 36)
   const fillTile = readImmByte(cur, cur.handlerAddr + 47)
 
+  // Lip phase: iter i at (col0 - i, row0 + i). X = _2 = i at entry, so:
+  //   i = 0: X = 0. DEX -> -1. BMI. No body/fills.
+  //   i >= 1: 1 body + (i - 1) fills.
   for (let i = 0; i < heightCount; i++) {
-    setPage1(cur)
-    writeTilePipeMerge(cur, lipTile)
-    let x = widthCounter - 1
-    if (x >= 0) {
+    cur.col = col0 - i
+    cur.row = row0 + i
+    setPage1(cur); writeTilePipeMerge(cur, lipTile)
+    if (i >= 1) {
       setPage1(cur); writeTileAdvance(cur, bodyTile)
-      x -= 1
-      while (x >= 0) {
+      for (let k = 0; k < i - 1; k++) {
         setPage0(cur); writeTileAdvance(cur, fillTile)
-        x -= 1
       }
     }
-    restoreBookmark(cur)
-    diagonalDownLeft(cur)
-    saveBookmark(cur)
-    widthCounter += 1
   }
 
-  nextRow(cur)
-  let x = widthCounter - 1
-  if (x >= 0) {
-    setPage1(cur); writeTileAdvance(cur, bodyTile)
-    x -= 1
-    while (x >= 0) {
-      setPage0(cur); writeTileAdvance(cur, fillTile)
-      x -= 1
-    }
+  // Straight-down body row (CODE_0DAC89 -> CODE_0DAC3E).
+  // Position: row0 + heightCount, col shifted by (heightCount - 1) since
+  // LevelLoadPos has accumulated (heightCount - 1) diagonal steps before
+  // BEQ fires, plus one straight row++.
+  // X entering body phase = _2 = heightCount. DEX at CODE_0DAC3E -> heightCount - 1.
+  // Write body. DEX at CODE_0DAC54 -> heightCount - 2. Loop writes (heightCount - 1) fills total.
+  cur.col = col0 - (heightCount - 1)
+  cur.row = row0 + heightCount
+  setPage1(cur); writeTileAdvance(cur, bodyTile)
+  for (let k = 0; k < heightCount - 1; k++) {
+    setPage0(cur); writeTileAdvance(cur, fillTile)
   }
 
   cur.col = col0
@@ -990,35 +1036,64 @@ function pipeVariant2(cur: Cursor): void {
 
 /**
  * Variant 3 -- CODE_0DAD44 (bank_0D line 2580).
- * 2-wide vertical pipe pointing DOWN (ceiling pipe). Top (at cursor) is the
- * pipe body $A0/$A5; body rows below are $E6/$E0; final row is closed with
- * $E6/$E0 as the ceiling lip.
  *
- * This one reverses the logic: writes body first, then the "lip" at the end.
+ * Diagonal down-right slope that widens each row. The 2-wide lip pair
+ * (`$A0/$A5`, pipe-merged) shifts 2 cols right every row while a 2-wide
+ * mid-body pair (`$E6/$E0`) fills in behind the lip. Each subsequent row
+ * adds two dirt fills on the left. The final row omits the trailing lip,
+ * leaving the slope to flatten into the ground.
+ *
+ * Shape for size $HW (H = high nibble; rowCount = H + 2):
+ *   row 0: A0 A5                                        at cols (col0, col0+1)
+ *   row 1: E6 E0 A0 A5                                  at cols (col0..col0+3)
+ *   row 2: 3F 3F E6 E0 A0 A5                            at cols (col0..col0+5)
+ *   ...
+ *   row N-2: 3F... E6 E0 A0 A5                           at cols (col0..col0+2N-3)
+ *   row N-1 (final): 3F... E6 E0                         at cols (col0..col0+2N-3), no lip
+ *
+ * ASM control flow: first row JMPs to `CODE_0DAD7F` which writes just the
+ * lip pair; subsequent rows enter `CODE_0DAD65` where `CPX #$03` eats
+ * (X - 3) fills before falling through to the mid pair, and then (when
+ * `_0 > 0`) falls into `CODE_0DAD7F` again to append the lip pair. The
+ * last iteration's `BEQ Return0DAD9F` skips the trailing lip.
  */
 function pipeVariant3(cur: Cursor): void {
-  const bodyCount = ((cur.size >> 4) & 0x0F) + 1
+  const highNibble = (cur.size >> 4) & 0x0F
+  const rowCount = highNibble + 2
   const col0 = cur.col, row0 = cur.row
 
-  // CODE_0DAD44 inline immediates: +28 $3F (filler, unused at H=1),
-  // +41 $E6, +49 $E0 (terminal lip pair via plain writes); +63 $A0, +71 $A5
-  // (body pair via CODE_0DABFD merge).
-  const nozL = readImmByte(cur, cur.handlerAddr + 63)
-  const nozR = readImmByte(cur, cur.handlerAddr + 71)
-  const lipL = readImmByte(cur, cur.handlerAddr + 41)
-  const lipR = readImmByte(cur, cur.handlerAddr + 49)
+  // CODE_0DAD44 inline immediates:
+  //   +28 $3F (fill, page 0, plain write)
+  //   +41 $E6, +49 $E0 (mid pair, page 1, plain write)
+  //   +63 $A0, +71 $A5 (lip pair, page 1, pipe-merged via CODE_0DABFD)
+  const fillTile = readImmByte(cur, cur.handlerAddr + 28)
+  const midL     = readImmByte(cur, cur.handlerAddr + 41)
+  const midR     = readImmByte(cur, cur.handlerAddr + 49)
+  const lipL     = readImmByte(cur, cur.handlerAddr + 63)
+  const lipR     = readImmByte(cur, cur.handlerAddr + 71)
 
-  for (let i = 0; i < bodyCount; i++) {
-    cur.col = col0
-    setPage1(cur); writeTilePipeMergeNoAdvance(cur, nozL)
-    cur.col = col0 + 1
-    setPage1(cur); writeTilePipeMergeNoAdvance(cur, nozR)
-    cur.row += 1
-  }
+  // Row 0: just the pipe-merged lip pair.
   cur.col = col0
-  setPage1(cur); writeTile(cur, lipL)
-  cur.col = col0 + 1
-  setPage1(cur); writeTile(cur, lipR)
+  cur.row = row0
+  setPage1(cur); writeTilePipeMerge(cur, lipL)
+  setPage1(cur); writeTilePipeMerge(cur, lipR)
+
+  // Rows 1..rowCount-1. Each writes 2*(i-1) dirt fills, then the mid pair,
+  // then (if not the last row) the pipe-merged lip pair. All row starts at col0.
+  for (let i = 1; i < rowCount; i++) {
+    cur.col = col0
+    cur.row = row0 + i
+    const fillCount = 2 * (i - 1)
+    for (let j = 0; j < fillCount; j++) {
+      setPage0(cur); writeTileAdvance(cur, fillTile)
+    }
+    setPage1(cur); writeTileAdvance(cur, midL)
+    setPage1(cur); writeTileAdvance(cur, midR)
+    if (i < rowCount - 1) {
+      setPage1(cur); writeTilePipeMerge(cur, lipL)
+      setPage1(cur); writeTilePipeMerge(cur, lipR)
+    }
+  }
 
   cur.col = col0
   cur.row = row0

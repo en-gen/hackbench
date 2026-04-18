@@ -918,24 +918,35 @@ describe('handle_0DAB3E pipe variants (object 18)', () => {
     }
   }
 
-  it('variant 0: 2-wide × 3-tall upward pipe', () => {
-    // pipeVariant0 reads inline tile immediates from CODE_0DAB6E body.
-    // Offsets inside CODE_0DAB6E: +27 $96, +35 $9B (CODE_0DABFD-merged nozzles);
-    // +47 $DE, +55 $E6 (plain bodies); +67 $3F (filler, unused at H=2).
+  it('variant 0: 2-wide diagonal down-left slope', () => {
+    // Per CODE_0DAB6E (bank_0D:2301): 2-wide lip/body descending col-2/row+1
+    // per iter, with a final straight-down body row. For size $20 (H=2):
+    //   row 10 (iter 0):    lip pair at cols 4-5
+    //   row 11 (iter 1):    lip pair at cols 2-3, body pair at cols 4-5
+    //   row 12 (iter 2):    lip pair at cols 0-1, body pair at cols 2-3, fills at cols 4-5
+    //   row 13 (final):     body pair at cols 0-1, fills at cols 2-5
     const rom = makeMockRom()
     stampDispatchTable(rom)
     rom.writeAt(0x0DAB6E + 27, [0x96])
     rom.writeAt(0x0DAB6E + 35, [0x9B])
     rom.writeAt(0x0DAB6E + 47, [0xDE])
     rom.writeAt(0x0DAB6E + 55, [0xE6])
-    rom.writeAt(0x0DAB6E + 67, [0x3F])
     const grid = createGrid(1)
     const cur = makeCursorForHandler(DISPATCHER_ADDR, grid, rom, 0, 4, 10, 18, 0x20)
     handle_0DAB3E(cur)
+    // Row 10: lip pair at cols 4-5
     expect(grid[10][4]).toBe(P1(0x96)); expect(grid[10][5]).toBe(P1(0x9B))
+    // Row 11: lip pair at cols 2-3, body pair at cols 4-5
+    expect(grid[11][2]).toBe(P1(0x96)); expect(grid[11][3]).toBe(P1(0x9B))
     expect(grid[11][4]).toBe(P1(0xDE)); expect(grid[11][5]).toBe(P1(0xE6))
-    expect(grid[12][4]).toBe(P1(0xDE)); expect(grid[12][5]).toBe(P1(0xE6))
-    expect(grid[13][4]).toBe(TILE_EMPTY)
+    // Row 12: lip pair at cols 0-1, body pair at cols 2-3, fills at cols 4-5
+    expect(grid[12][0]).toBe(P1(0x96)); expect(grid[12][1]).toBe(P1(0x9B))
+    expect(grid[12][2]).toBe(P1(0xDE)); expect(grid[12][3]).toBe(P1(0xE6))
+    expect(grid[12][4]).toBe(0x3F);     expect(grid[12][5]).toBe(0x3F)
+    // Row 13: body pair at cols 0-1, fills at cols 2-5
+    expect(grid[13][0]).toBe(P1(0xDE)); expect(grid[13][1]).toBe(P1(0xE6))
+    expect(grid[13][2]).toBe(0x3F);     expect(grid[13][3]).toBe(0x3F)
+    expect(grid[13][4]).toBe(0x3F);     expect(grid[13][5]).toBe(0x3F)
   })
 
   it('variant 1: diagonal down-left pipe, lips form a stair', () => {
@@ -957,8 +968,11 @@ describe('handle_0DAB3E pipe variants (object 18)', () => {
     expect(grid[12][10]).toBe(0x3F)
   })
 
-  it('variant 3: 2-wide ceiling pipe ($A0/$A5 body, $E6/$E0 lip at end)', () => {
-    // pipeVariant3 (CODE_0DAD44): +28 $3F, +41 $E6, +49 $E0, +63 $A0, +71 $A5.
+  it('variant 3: diagonal down-right slope, lip shifts 2 cols per row', () => {
+    // Per CODE_0DAD44 (bank_0D:2580). Size $13 -> H=1 -> rowCount=3:
+    //   row 10: lip pair at cols 4-5
+    //   row 11: mid pair at cols 4-5, lip pair at cols 6-7
+    //   row 12 (final): 2 fills at cols 4-5, mid pair at cols 6-7 (no lip)
     const rom = makeMockRom()
     stampDispatchTable(rom)
     rom.writeAt(0x0DAD44 + 28, [0x3F])
@@ -969,9 +983,15 @@ describe('handle_0DAB3E pipe variants (object 18)', () => {
     const grid = createGrid(1)
     const cur = makeCursorForHandler(DISPATCHER_ADDR, grid, rom, 0, 4, 10, 18, 0x13)
     handle_0DAB3E(cur)
+    // Row 10
     expect(grid[10][4]).toBe(P1(0xA0)); expect(grid[10][5]).toBe(P1(0xA5))
-    expect(grid[11][4]).toBe(P1(0xA0)); expect(grid[11][5]).toBe(P1(0xA5))
-    expect(grid[12][4]).toBe(P1(0xE6)); expect(grid[12][5]).toBe(P1(0xE0))
+    // Row 11
+    expect(grid[11][4]).toBe(P1(0xE6)); expect(grid[11][5]).toBe(P1(0xE0))
+    expect(grid[11][6]).toBe(P1(0xA0)); expect(grid[11][7]).toBe(P1(0xA5))
+    // Row 12 (final, no lip)
+    expect(grid[12][4]).toBe(0x3F);     expect(grid[12][5]).toBe(0x3F)
+    expect(grid[12][6]).toBe(P1(0xE6)); expect(grid[12][7]).toBe(P1(0xE0))
+    expect(grid[12][8]).toBe(TILE_EMPTY)
   })
 
   it('variant 4: 1-wide diagonal pipe sloping up-left', () => {
