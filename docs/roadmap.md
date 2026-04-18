@@ -240,7 +240,7 @@ Features that can be developed independently on separate branches/worktrees:
 
 ## Testing & Coverage
 
-Cross-cutting — applies to every phase. Current baseline (as of `feature/community-health`): **62% line / 43% function coverage on `src/rom/`**, measured by vitest + v8.
+Cross-cutting — applies to every phase. Current baseline: **~65% line / ~61% function coverage on `src/rom/`**, measured by vitest + v8. `LcLz2` is fully validated in CI against an independent reference (see below).
 
 ### Problem: ROM-gated tests don't run in CI
 
@@ -250,7 +250,8 @@ Cross-cutting — applies to every phase. Current baseline (as of `feature/commu
 
 | Priority | Area | Approach | Rationale |
 |---|---|---|---|
-| 🔴 High | **Critical-path ROM parsing** — `LcLz2`, `GraphicsDecoder`, `addressing`, `LevelParser` header + object/sprite stream, `Map16` loaders | Fixture-based tests: record byte-range snapshots (input bytes → expected output) from a real ROM once, commit the recorded fixtures (derived data, not ROM itself), run against fixtures in CI | These modules are load-bearing for every feature; a silent regression breaks all downstream rendering |
+| ✅ Done | ~~`LcLz2` decompressor~~ | 50 compressed/decompressed input/output pairs at `test/fixtures/gfx/`, generated from the vanilla ROM via the vendored [snesrev/smw](../tools/vendor/snesrev-smw/) Python decoder (independent implementation). Runs in CI without a ROM. See [`test/suite/unit/LcLz2.fixtures.test.ts`](../test/suite/unit/LcLz2.fixtures.test.ts). | Landed 2026-04-18 |
+| 🔴 High | **Critical-path ROM parsing** — `GraphicsDecoder`, `addressing`, `LevelParser` header + object/sprite stream, `Map16` loaders | Same fixture-based approach as LcLz2: record byte-range snapshots from a real ROM, commit the recorded fixtures, run against fixtures in CI | These modules are load-bearing for every feature; a silent regression breaks all downstream rendering |
 | 🔴 High | **Object handlers** (`src/rom/objectHandlers/*`) | Per-handler table-driven tests: `(cursor state + object bytes) → expected Map16 grid writes`. Currently only ~15 of ~55 have coverage. | Object expansion has been the buggiest area historically (slopes, pipes, screen-jumps); regressions here are subtle |
 | 🟡 Med | **LCR-LE / LcRle1** decompressor | Round-trip fixtures + known edge cases (max-run, terminator handling) | Used for L2 backgrounds; small but easy to break |
 | 🟡 Med | **`PaletteLoader.buildLevelCgram`** row selection logic | Table-driven per-level-header permutations | Complex conditional logic, history of off-by-one bugs |
