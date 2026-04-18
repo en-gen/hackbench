@@ -186,10 +186,11 @@ export function stepDiag(cur: Cursor, dcol: number, drow: number): void {
 
 /**
  * Read the low byte of whatever tile is currently at the cursor. Used by the
- * context-merge helpers below to decide how to adjust the tile being written.
+ * context-merge helpers below (and by ground-ledge handlers that pick their
+ * left/right cap tile based on what was already drawn at the cursor).
  * Returns the empty-tile sentinel ($25) if the cursor is outside the grid.
  */
-function readExisting(cur: Cursor): number {
+export function peekExistingLow(cur: Cursor): number {
   const row = cur.grid[cur.row]
   if (!row) return 0x25
   const v = row[cur.col]
@@ -221,7 +222,7 @@ export function writeTileSlopeMergeNoAdvance(cur: Cursor, baseTile: number): voi
 }
 
 function slopeMergeTile(cur: Cursor, baseTile: number): number {
-  const existing = readExisting(cur)
+  const existing = peekExistingLow(cur)
   if (existing === 0x25) return baseTile
   if (existing === 0x3F) return (baseTile + 1) & 0xFF
   return (baseTile + 2) & 0xFF
@@ -263,7 +264,7 @@ export function writeTileMergeCODE_0DB114(
   const bump3 = readImmByte(cur, helperAddr + 48)
   const bump4 = readImmByte(cur, helperAddr + 52)
 
-  const existing = readExisting(cur)
+  const existing = peekExistingLow(cur)
   for (let k = 17; k >= 0; k--) {
     const entry = cur.rom.readByte(addrDB0F0 + k) ?? 0
     if (entry === existing) {
@@ -310,7 +311,7 @@ export function writeTileMergeCODE_0DB198(
   const addrDB15C = readLongOperand(cur, helperAddr + 25)
   const addrDB17A = readLongOperand(cur, helperAddr + 42)
 
-  const existing = readExisting(cur)
+  const existing = peekExistingLow(cur)
   for (let k = 29; k >= 0; k--) {
     const entry = cur.rom.readByte(addrDB15C + k) ?? 0
     if (entry === existing) {
@@ -344,7 +345,7 @@ export function writeTilePipeMergeNoAdvance(cur: Cursor, baseTile: number): void
 
 /** Computes the CODE_0DABFD merged tile ID from (existing tile, base tile). */
 function pipeMergeTile(cur: Cursor, baseTile: number): number {
-  const existing = readExisting(cur)
+  const existing = peekExistingLow(cur)
   const matches = [0x3F, 0x01, 0x03]  // DATA_0DABF7
   const deltas  = [0x01, 0x03, 0x04]  // DATA_0DABFA
   for (let x = 0; x < 3; x++) {

@@ -22,7 +22,7 @@
 import {
   Cursor, writeTileAdvance, writeTile, nextRow,
   saveBookmark, restoreBookmark, advanceCol,
-  setPage0, setPage1,
+  setPage0, setPage1, peekExistingLow,
   diagonalDownLeft, diagonalDownRight, stepDiag,
   writeTileSlopeMerge, writeTilePipeMerge, writeTilePipeMergeNoAdvance,
   writeTileMergeCODE_0DB114, writeTileMergeCODE_0DB198,
@@ -185,53 +185,71 @@ export function handle_0DAA26(cur: Cursor): void {
 }
 
 /**
- * CODE_0DAAB4 (bank_0D.asm line 2200) -- used-block horizontal line (object 16).
+ * CODE_0DAAB4 (bank_0D.asm line 2200) -- used-block / horizontal-pipe pair (object 16).
  *
  * Size byte: HHHHWWWW
- *   W (low nibble)            = width-1 of the run.
- *   H (high nibble, X = H>>4) = selector into tile tables; controls which row
- *                               of DATA_0DAAA4 / DATA_0DAAAC is used and whether
- *                               the bottom run of the pair is emitted.
+ *   W (low nibble)  = width-1 of the row (column count = W + 1).
+ *   H (high nibble) = style selector; X starts at H * 2 (ASM: AND #$F0; LSR x3).
  *
- * Pattern: alternating tile pairs from DATA_0DAAA4 (odd) and DATA_0DAAAC (even)
- * depending on position, producing the classic "used-block staircase".
+ * Produces a 2-row horizontal pair (always 2 rows because X_start = H*2 is
+ * always even, and the outer loop continues while X is odd after increment).
  *
- * Faithful implementation keeps the ASM's X-index cycling: writes a tile, toggles
- * X's low bit, and loops for (width+1) columns; the BPL/BMI branches on X<4 vs X>=4
- * select which table and whether to continue on the second row.
+ * Tile tables, indexed by X after each row:
+ *   DATA_0DAAA4 = [$3B, $3C, $3B, $3F, $3B, $3C, $3B, $3F]  cap tiles
+ *   DATA_0DAAAC = [$3D, $3E, $3D, $3E, $3D, $3E, $3D, $3E]  middle tiles
+ *
+ * Per-row layout (all page 1):
+ *   X<4  (left-cap rows):   AAAA[X] at col 0, then AAAC[X] at cols 1..W.
+ *   X>=4 (right-cap rows):  AAAC[X] at cols 0..W-1, then AAAA[X] at col W
+ *                           (STA without advance — row ends here anyway).
+ *
+ * Between rows: CODE_0DA6BA + CODE_0DA97D (restore bookmark, row += 1); INX; loop
+ * while (X & 1) != 0.
+ *
+ * Used by the horizontal goal-area pipe at the end of level $002 (objNum $10,
+ * size $15 → H=1 W=5 → rows $13B $13D×5 / $13F $13E×5).
  */
 export function handle_0DAAB4(cur: Cursor): void {
-  const W = cur.size & 0x0F
-  const H = (cur.size >> 4) & 0x0F
-  let X = H  // ASM uses H as X directly (no shift: AND $F0; LSR LSR LSR -> high nibble)
+  const width = cur.size & 0x0F                      // _0 = _1 = W
+  const heightNibble = (cur.size >> 4) & 0x0F        // H
+  let X = (heightNibble << 1) & 0xFF                 // ASM: AND #$F0; LSR x3 → H * 2
 
-  // LDA.L DATA_0DAAA4,X operand at handler offset +29
-  // LDA.L DATA_0DAAAC,X operand at handler offset +42
+  // LDA.L DATA_0DAAA4,X operand at handler offset +29 (the $BF opcode at +28).
+  // LDA.L DATA_0DAAAC,X operand at handler offset +42 (the $BF opcode at +41).
   const addrA = readLongOperand(cur, cur.handlerAddr + 29)
   const addrB = readLongOperand(cur, cur.handlerAddr + 42)
-  const tableA = [0,1,2,3,4,5,6,7].map(i => cur.rom.readByte(addrA + i) ?? 0)
-  const tableB = [0,1,2,3,4,5,6,7].map(i => cur.rom.readByte(addrB + i) ?? 0)
+  const tableA = [0, 1, 2, 3, 4, 5, 6, 7].map(i => cur.rom.readByte(addrA + i) ?? 0)
+  const tableB = [0, 1, 2, 3, 4, 5, 6, 7].map(i => cur.rom.readByte(addrB + i) ?? 0)
 
-  setPage1(cur)   // Sta1To6ePointer throughout
-  saveBookmark(cur)
-  // Outer loop: ASM rotates X between low and high tables via `INX; AND #$01`
-  // which toggles low bit; each iteration writes a run of width+1 tiles.
-  // Faithful port: two possible passes (X<4 then X>=4) per size-nibble cycle.
-  let guard = 0
-  while (guard++ < 32) {
-    let widthCounter = W
-    while (widthCounter >= 0) {
-      if (X < 4) {
-        writeTileAdvance(cur, tableA[X] ?? 0)
-      } else {
-        writeTileAdvance(cur, tableB[X] ?? 0)
+  saveBookmark(cur)    // CODE_0DA6B1
+
+  // Outer loop runs while X (post-increment) is still odd. With X_start always
+  // even, this yields exactly 2 iterations — one for the top row, one for the
+  // bottom.
+  let iter = 0
+  while (iter++ < 4) {   // bounded for safety; expected 2
+    const idx = X & 7
+    const capTile = tableA[idx] ?? 0
+    const midTile = tableB[idx] ?? 0
+
+    if (X < 4) {
+      // Left-cap row: cap at col 0, then W middles.
+      setPage1(cur); writeTileAdvance(cur, capTile)
+      for (let w = 0; w < width; w++) {
+        setPage1(cur); writeTileAdvance(cur, midTile)
       }
-      widthCounter--
+    } else {
+      // Right-cap row: W middles, then cap at col W (STA-only in ASM, no advance).
+      for (let w = 0; w < width; w++) {
+        setPage1(cur); writeTileAdvance(cur, midTile)
+      }
+      setPage1(cur); writeTile(cur, capTile)
     }
-    restoreBookmark(cur)
-    nextRow(cur)
-    X++
-    if ((X & 0x01) === 0) break  // AND #$01; BNE loops -> exits when low bit clears
+
+    restoreBookmark(cur)   // CODE_0DA6BA
+    nextRow(cur)           // CODE_0DA97D (row += 1, col = bookmark)
+    X = (X + 1) & 0xFF
+    if ((X & 0x01) === 0) break   // AND #$01; BNE — stop when X becomes even
   }
 }
 
@@ -749,14 +767,23 @@ export function handle_0DB5B7(cur: Cursor): void {
 /**
  * CODE_0DB224 (bank_0D.asm line 3234) -- 3-column framed vertical structure (object 21).
  *
+ * Used for the midway-post base, donut-plateau columns, etc.
+ *
  * Size byte: HHHHVVVV
  *   V (low nibble)  = variant flag. V=0 uses DATA_0DB212/15/18 (primary set);
  *                     V!=0 uses DATA_0DB21B/1E/21 (alternate set).
- *   H (high nibble) = inner body height (both structures produce top + H middles + bottom).
+ *   H (high nibble) = body-height counter (_1 in ASM). Total rows = H + 1.
  *
- * Per column X in 0..2: writes top[X] at row 0, middle[X] for H rows, then
- * bottom[X] at the final row. Each column is placed one column to the right
- * of the previous. All writes go through StzTo6ePointer -- page 0.
+ * Per column X in 0..2 the ASM runs:
+ *   1. Write top[X]; advance row; DEC _1; BEQ to bot write (skips middle loop).
+ *   2. If _1 didn't hit 0: middle loop — write mid[X]; advance row; DEC _1;
+ *      BNE to loop head. Runs H-1 times for a total of H-1 middle writes.
+ *   3. Write bot[X] at the final row.
+ *
+ * Net per column: 1 top + (H-1) middles + 1 bot = H+1 rows. For H=1 that is
+ * just {top, bot}. An earlier version of this port wrote one extra middle row
+ * (H middles instead of H-1), which shifted the midway pole's base tile down
+ * by one row vs the real SMW output.
  */
 export function handle_0DB224(cur: Cursor): void {
   const V = cur.size & 0x0F
@@ -785,11 +812,17 @@ export function handle_0DB224(cur: Cursor): void {
   for (let X = 0; X < 3; X++) {
     cur.col = origCol + X
     cur.row = origRow
+    // TOP row (always).
     writeTile(cur, cur.rom.readByte(top + X) ?? 0)
-    for (let r = 0; r < H; r++) {
+    // Middle rows: H-1 of them. The ASM's post-TOP `DEC _1; BEQ CODE_0DB28F`
+    // skips the middle loop entirely when H == 1, so there are no middle
+    // rows in that case. Middle loop `DEC _1; BNE` runs until _1 hits 0,
+    // giving H-1 middle writes.
+    for (let r = 0; r < H - 1; r++) {
       cur.row += 1
       writeTile(cur, cur.rom.readByte(mid + X) ?? 0)
     }
+    // BOT row.
     cur.row += 1
     writeTile(cur, cur.rom.readByte(bot + X) ?? 0)
   }
@@ -1534,4 +1567,93 @@ export function handle_0DB7AA(cur: Cursor): void {
 
   cur.col = col0
   cur.row = row0
+}
+
+/**
+ * CODE_0DD103 (bank_0D.asm line 5917) -- horizontal ground ledge, page 1.
+ *
+ * Dispatched for standard object $3C on tileset-8 family dispatchers
+ * ($0DCD90 — tilesets 2/6/8). Writes a single row of ledge tiles with
+ * context-sensitive end caps that fuse into adjacent grass-top terrain.
+ *
+ *   Size byte: ????WWWW — only low nibble matters (width counter = _0).
+ *   Total columns = _0 + 1 (1 left cap + _0-1 middles + 1 right cap).
+ *
+ * Every column is set page-1 via Sta1To6ePointer before the low-byte write,
+ * so stored IDs are $107-$10B (page << 8 | low).
+ *
+ * Cap selection at each end:
+ *   - Existing tile in [$73..$75]  →  fusion cap ($0A left / $0B right)
+ *   - Otherwise                     →  plain cap ($07 left / $09 right)
+ * Middle columns are always $08.
+ */
+export function handle_0DD103(cur: Cursor): void {
+  const width = cur.size & 0x0F    // _0 (line 5920)
+
+  // Left cap (lines 5922-5931).
+  setPage1(cur)
+  const existingLeft = peekExistingLow(cur)
+  const leftCap = (existingLeft >= 0x73 && existingLeft <= 0x75) ? 0x0A : 0x07
+  writeTileAdvance(cur, leftCap)
+
+  // Middle tiles: _0 - 1 of them. The ASM's JMP CODE_0DD12B after the left
+  // cap write folds the first DEC into the left-cap iteration, so the loop
+  // body runs width-1 times before _0 hits zero (lines 5933-5939).
+  for (let i = 0; i < width - 1; i++) {
+    setPage1(cur)
+    writeTileAdvance(cur, 0x08)
+  }
+
+  // Right cap (lines 5940-5949).
+  setPage1(cur)
+  const existingRight = peekExistingLow(cur)
+  const rightCap = (existingRight >= 0x73 && existingRight <= 0x75) ? 0x0B : 0x09
+  writeTileAdvance(cur, rightCap)
+}
+
+/**
+ * CODE_0DD145 (bank_0D.asm line 5952) -- grass-top row, page 0.
+ *
+ * Dispatched for standard object $3D on tileset-8 family dispatchers. This is
+ * the ubiquitous grass-top row used for ground runs in grassland / Donut-style
+ * levels. Vanilla level data typically pairs this with a matching dirt-fill
+ * rectangle underneath (via CODE_0DA8C3).
+ *
+ *   Size byte: HHHHWWWW — H = height (_1), W = width (_0).
+ *   Total columns per row = _0 + 1, total rows = _1 + 1.
+ *
+ * Each row: $73 left cap, $74 × (_0-1) middles, $75 right cap. All writes are
+ * page-0 via StzTo6ePointer, so stored IDs are $073-$075.
+ *
+ * Between rows the ASM calls CODE_0DA6BA (restore Map16LowPtr bookmark) +
+ * CODE_0DA97D (LevelLoadPos += $10). In our flat-grid cursor that's nextRow:
+ * col resets to the saved bookmark, row advances by one.
+ */
+export function handle_0DD145(cur: Cursor): void {
+  const width  = cur.size & 0x0F          // _0 (line 5955)
+  const height = (cur.size >> 4) & 0x0F   // _1 (lines 5957-5961)
+
+  saveBookmark(cur)   // CODE_0DA6B1 (line 5963)
+
+  // Row loop: DEC _1 then BPL while _1 >= 0 → total rows = height + 1
+  // (lines 5964-5983).
+  for (let r = 0; r <= height; r++) {
+    // Left cap $73 (lines 5965-5968, written at the JMP-skip target).
+    setPage0(cur)
+    writeTileAdvance(cur, 0x73)
+
+    // Middle $74 tiles: width - 1 of them. First X-loop iteration is folded
+    // into the left-cap write via the JMP pattern (lines 5970-5975).
+    for (let i = 0; i < width - 1; i++) {
+      setPage0(cur)
+      writeTileAdvance(cur, 0x74)
+    }
+
+    // Right cap $75 (lines 5976-5978).
+    setPage0(cur)
+    writeTileAdvance(cur, 0x75)
+
+    // Next row: CODE_0DA6BA + CODE_0DA97D (lines 5979-5981).
+    if (r < height) nextRow(cur)
+  }
 }
