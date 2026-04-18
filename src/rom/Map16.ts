@@ -155,6 +155,19 @@ export function buildMap16PointerTable(rom: RomFile, tileset: number): number[] 
     }
   }
 
+  // CODE_058281 (bank_05.asm line 321): tilesets 0 and 7 overwrite the
+  // pointers for tiles $1C4-$1C7 and $1EC-$1EF with a special run of 8
+  // consecutive Map16 entries starting at $0D8A70. These are the diagonal
+  // slope-pipe tiles (green-pipe variant, palette 5) that replace the
+  // common-bank browns that the bitmap walk would otherwise point at.
+  if (tileset === 0 || tileset === 7) {
+    let slopePtr = 0x0D8A70
+    for (const t of [0x1C4, 0x1C5, 0x1C6, 0x1C7, 0x1EC, 0x1ED, 0x1EE, 0x1EF]) {
+      pointers[t] = slopePtr
+      slopePtr += MAP16_TILE_BYTES
+    }
+  }
+
   return pointers
 }
 

@@ -671,18 +671,21 @@ export function handle_0DBA0A(cur: Cursor): void {
  * middle, $55 at bottom. If X is 0 the loop writes nothing in the middle.
  */
 export function handle_0DB51F(cur: Cursor): void {
+  // ASM flow: write top $53; row++; DEX; BNE middle-loop; write bottom $55.
+  // Middle loop entry re-writes $54 and re-DEXes. Total rows = X+1:
+  //   X=1 → top + bot             (2 rows)
+  //   X=2 → top + 1 mid + bot     (3 rows)
+  //   X=3 → top + 2 mid + bot     (4 rows)
   const X = (cur.size >> 4) & 0x0F
-  // LDA #$53/$54/$55 immediates at handler +15/+23/+36 (opcodes at +14/+22/+35)
   const topTile    = readImmByte(cur, cur.handlerAddr + 15)
   const midTile    = readImmByte(cur, cur.handlerAddr + 23)
   const bottomTile = readImmByte(cur, cur.handlerAddr + 36)
   setPage1(cur)
   writeTile(cur, topTile)
-  let count = X
-  while (count > 0) {
+  // (X - 1) middle rows — X=2 writes 1 middle, X=1 writes 0 middles, etc.
+  for (let i = 1; i < X; i++) {
     cur.row += 1
     writeTile(cur, midTile)
-    count -= 1
   }
   cur.row += 1
   writeTile(cur, bottomTile)
