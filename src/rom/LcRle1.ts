@@ -1,45 +1,41 @@
 /**
- * LC_RLE1 decompressor — used for SMW Layer 2 background tilemaps.
+ * LC_RLE1 decompressor — SMW Layer 2 preset background tilemaps.
  *
- * Format:
- *   Each command byte: FLLLLLLL
- *     F=0 → copy next (L+1) bytes literally from input
- *     F=1 → repeat next single byte (L+1) times
- *   Terminator: $FF $FF (two consecutive $FF bytes)
+ * Faithful port of CODE_058126 (bank_05.asm lines 159-240). Each byte in the
+ * output is a Map16 low-byte tile ID; the input is a stream of commands:
  *
- * The decompressed output is a flat byte array of Map16 tile bytes.
- * For L2 background tilemaps the bytes represent tile IDs in row-major order.
+ *   cmd byte = FLLLLLLL
+ *     F=0 (bit 7 clear) → LITERAL: emit (L + 1) bytes read verbatim from input
+ *     F=1 (bit 7 set)   → RLE:     emit (L & 0x7F) + 1 copies of the next byte
+ *   terminator: two consecutive $FF bytes at a command position
+ *
+ * The terminator check in ASM (CODE_058188) peeks two bytes without consuming
+ * them. If only the first is $FF but the second isn't, execution jumps back
+ * to CODE_058136 which re-reads the $FF at the same position and dispatches
+ * it normally — which makes it an RLE command (length 128, bit 7 set). We
+ * reproduce this by checking terminator before consuming the command byte.
  */
 export function decompressRle1(data: Buffer | Uint8Array): Uint8Array {
   const out: number[] = []
   let pos = 0
 
   while (pos < data.length) {
+    // Peek terminator (FF FF) before consuming cmd
+    if (data[pos] === 0xFF && data[pos + 1] === 0xFF) break
     const cmd = data[pos++]
     if (cmd === undefined) break
 
-    // Terminator: $FF $FF
-    if (cmd === 0xFF) {
-      const next = data[pos]
-      if (next === 0xFF) break
-      // Single $FF that isn't the terminator — treat as literal byte (length 0 = 1 byte)
-      // This shouldn't normally happen, but be defensive
-      out.push(cmd)
-      continue
-    }
+    const length = (cmd & 0x7F) + 1
 
-    const flag   = (cmd >> 7) & 1
-    const length = (cmd & 0x7F) + 1   // L+1 bytes to emit
-
-    if (flag === 0) {
-      // Literal copy: read `length` bytes from input
+    if ((cmd & 0x80) === 0) {
+      // LITERAL: copy `length` bytes from input
       for (let i = 0; i < length; i++) {
         const b = data[pos++]
         if (b === undefined) break
         out.push(b)
       }
     } else {
-      // Run-length: repeat next byte `length` times
+      // RLE: repeat next byte `length` times
       const b = data[pos++]
       if (b === undefined) break
       for (let i = 0; i < length; i++) out.push(b)

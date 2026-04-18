@@ -760,6 +760,9 @@ let l2TileGrid:  number[][] | null = null
 // Kept in sync with rebuildMap16Atlas output so the level canvas, Map16 page viewer,
 // and tile detail preview all render from the same animated source.
 let map16AtlasCanvas: HTMLCanvasElement | null = null
+// Offscreen canvas for the L2 (Map16BGTiles) atlas — built once per load from
+// map16BgAtlasData. Used for graphical L2 rendering in redraw().
+let map16BgAtlasCanvas: HTMLCanvasElement | null = null
 let activeTileId = -1
 let activeTool: 'place' | 'erase' = 'place'
 let isPainting   = false
@@ -784,6 +787,10 @@ interface MapPayload {
   // L2/BG Map16 atlas (from Map16BGTiles). L1 atlas is built live in the webview
   // from map16Defs + vramIndexedData + paletteRows.
   map16BgAtlasData?: number[]
+  // Which atlas the L2 tile grid should sample:
+  //   true  → map16BgAtlasCanvas  (preset BG; IDs are into Map16BGTiles)
+  //   false → map16AtlasCanvas    (object-stream L2; IDs are regular Map16)
+  l2UsesBgAtlas?: boolean
   // Animation: VRAM-level frame data. Frame 0 is the base vramSheetData.
   // extraVramSheets contains frames 1+ as RGBA pixel arrays (same format as vramSheetData).
   // The webview cycles VRAM sheets; Map16 tiles are static references into VRAM chars.
@@ -974,6 +981,27 @@ function drawBlockGrid(grid: number[][], cols: number, rows: number, px: number,
   ctx.restore()
 }
 
+/**
+ * Transparency-checkerboard pattern, matching the one used by gfxViewer
+ * (4×4 grayscale squares at 40/60 luma). Cached as an offscreen canvas
+ * so the main redraw + minimap redraw can reuse a single CanvasPattern.
+ */
+let checkerPatternCanvas: HTMLCanvasElement | null = null
+function getCheckerPattern(c: CanvasRenderingContext2D): CanvasPattern | null {
+  if (!checkerPatternCanvas) {
+    checkerPatternCanvas = document.createElement('canvas')
+    checkerPatternCanvas.width = 8
+    checkerPatternCanvas.height = 8
+    const p = checkerPatternCanvas.getContext('2d')!
+    p.fillStyle = 'rgb(40,40,40)'
+    p.fillRect(0, 0, 8, 8)
+    p.fillStyle = 'rgb(60,60,60)'
+    p.fillRect(0, 0, 4, 4)
+    p.fillRect(4, 4, 4, 4)
+  }
+  return c.createPattern(checkerPatternCanvas, 'repeat')
+}
+
 function redraw(): void {
   if (!mapData) return
   if (!chkBlock.checked && !map16AtlasCanvas) return
@@ -987,7 +1015,12 @@ function redraw(): void {
   canvas.height = Math.round(rows * px)
   ctx.imageSmoothingEnabled = false
 
-  if (mapData.backAreaColor) {
+  // When L2 is hidden, show a transparency checkerboard in place of the
+  // back-area color so the user can clearly tell what's solid L1 vs BG.
+  if (!chkL2.checked) {
+    const pat = getCheckerPattern(ctx)
+    ctx.fillStyle = pat ?? '#202020'
+  } else if (mapData.backAreaColor) {
     const [r, g, b] = mapData.backAreaColor
     ctx.fillStyle = `rgb(${r},${g},${b})`
   } else {
@@ -999,8 +1032,33 @@ function redraw(): void {
     if (chkL2.checked && l2TileGrid) drawBlockGrid(l2TileGrid, cols, rows, px, 0.55)
     if (chkL1.checked)               drawBlockGrid(tileGrid,   cols, rows, px, 1.0)
   } else {
+    // L2 atlas: 16 cols of 16×16 tiles, tile ID addresses (col,row). Draw
+    // underneath L1 so L1 solid tiles cover the BG (matches SNES PPU layer
+    // priority). Atlas source depends on L2 type:
+    //   preset BG   → map16BgAtlasCanvas (IDs into Map16BGTiles)
+    //   object stream → map16AtlasCanvas (IDs into the regular Map16 table)
+    if (chkL2.checked && l2TileGrid) {
+      const useBg = mapData.l2UsesBgAtlas ?? true
+      const atlas = useBg ? map16BgAtlasCanvas : map16AtlasCanvas
+      if (atlas) {
+        const atlasCols = 16
+        for (let row = 0; row < rows; row++) {
+          for (let col = 0; col < cols; col++) {
+            const tileId = l2TileGrid[row]?.[col] ?? 0
+            // For object-stream L2, tile 0 is "empty" (never drawn). For
+            // preset L2 every slot is meaningful (including $25 "empty BG"),
+            // so we always draw.
+            if (!useBg && tileId === 0) continue
+            const sx = (tileId % atlasCols) * TILE_PX
+            const sy = Math.floor(tileId / atlasCols) * TILE_PX
+            ctx.drawImage(atlas,
+              sx, sy, TILE_PX, TILE_PX,
+              Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
+          }
+        }
+      }
+    }
     // Live L1 Map16 atlas: 16 cols of 16×16 tiles, tile ID directly addresses (col,row).
-    // TODO: L2 atlas rendering not yet implemented; L2 toggle only works in Block mode.
     if (chkL1.checked && map16AtlasCanvas) {
       const atlasCols = 16
       for (let row = 0; row < rows; row++) {
@@ -1119,8 +1177,11 @@ function drawMinimap(): void {
     minimapCanvas.height = h
   }
 
-  // Background
-  if (mapData.backAreaColor) {
+  // Background — checkerboard when L2 is hidden, otherwise back-area color.
+  if (!chkL2.checked) {
+    const pat = getCheckerPattern(minimapCtx)
+    minimapCtx.fillStyle = pat ?? '#202020'
+  } else if (mapData.backAreaColor) {
     const [r, g, b] = mapData.backAreaColor
     minimapCtx.fillStyle = `rgb(${r},${g},${b})`
   } else {
@@ -1130,7 +1191,25 @@ function drawMinimap(): void {
 
   // Blit each tile scaled from the live Map16 atlas (same source the main
   // canvas uses, so any palette/animation change is reflected instantly).
+  // L2 draws first (under L1), using whichever atlas the level's L2 type
+  // maps to — BG atlas for preset, L1 atlas for object-stream.
   const atlasCols = 16
+  if (l2TileGrid) {
+    const useBg = mapData.l2UsesBgAtlas ?? true
+    const l2Atlas = useBg ? map16BgAtlasCanvas : map16AtlasCanvas
+    if (l2Atlas) {
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const tileId = l2TileGrid[row]?.[col] ?? 0
+          if (!useBg && tileId === 0) continue
+          const sx = (tileId % atlasCols) * TILE_PX
+          const sy = Math.floor(tileId / atlasCols) * TILE_PX
+          minimapCtx.drawImage(l2Atlas, sx, sy, TILE_PX, TILE_PX,
+            col * tp, row * tp, tp, tp)
+        }
+      }
+    }
+  }
   const tileGrid = mapData.tileGrid
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
@@ -1470,6 +1549,15 @@ window.addEventListener('message', async (event) => {
         for (let p = 0; p < bgPageCount; p++) {
           map16Pages.push({ atlas: bgAtlas, pageInAtlas: p, label: `L2 0x${(0x80 + p).toString(16)}` })
         }
+        // Mirror into an offscreen canvas for per-tile drawImage during level render.
+        if (!map16BgAtlasCanvas) map16BgAtlasCanvas = document.createElement('canvas')
+        if (map16BgAtlasCanvas.width !== 256 || map16BgAtlasCanvas.height !== h) {
+          map16BgAtlasCanvas.width = 256
+          map16BgAtlasCanvas.height = h
+        }
+        map16BgAtlasCanvas.getContext('2d')!.putImageData(bgAtlas, 0, 0)
+      } else {
+        map16BgAtlasCanvas = null
       }
       map16PageIdx = 0
       // Full reactive rebuild: palette → invalidatePalette → vram → invalidateVram → map16
