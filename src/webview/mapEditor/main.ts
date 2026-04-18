@@ -276,7 +276,7 @@ const chkL2          = document.getElementById('chk-l2')          as HTMLInputEl
 // ── Tile detail preview state ─────────────────────────────────────────────────
 let selectedDetail: { type: 'vram'; page: number; col: number; row: number } |
                     { type: 'map16'; page: number; col: number; row: number } | null = null
-let selectedDetailTileId: number | null = null
+const selectedDetailTileId: number | null = null
 
 function redrawDetail(): void {
   if (!selectedDetail) return
@@ -763,7 +763,7 @@ let map16AtlasCanvas: HTMLCanvasElement | null = null
 // Offscreen canvas for the L2 (Map16BGTiles) atlas — built once per load from
 // map16BgAtlasData. Used for graphical L2 rendering in redraw().
 let map16BgAtlasCanvas: HTMLCanvasElement | null = null
-let activeTileId = -1
+const activeTileId = -1
 let activeTool: 'place' | 'erase' = 'place'
 let isPainting   = false
 // Which CGRAM cells to highlight in the palette panel (null = all at full brightness)

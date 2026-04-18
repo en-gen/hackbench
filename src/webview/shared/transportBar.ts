@@ -70,7 +70,7 @@ export function createTransportBar(cb: TransportCallbacks): TransportBar {
 
   // Hide prev/next if not applicable
   if (cb.hidePrevNext) {
-    ;(el.querySelector('[data-action="prev"]') as HTMLElement).style.display = 'none'
+    (el.querySelector('[data-action="prev"]') as HTMLElement).style.display = 'none'
     ;(el.querySelector('[data-action="next"]') as HTMLElement).style.display = 'none'
   }
 

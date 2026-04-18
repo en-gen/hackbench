@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest an idea or enhancement.
+title: "[feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! Check the
+        [roadmap](../../docs/roadmap.md) and open issues first — your
+        idea may already be tracked.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The pain point or use case. "I can't currently…" or "It's hard to…"
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like HackBench to do? Sketches, UI ideas, API shapes are all welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you've tried; other tools that handle this; why they're not sufficient.
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Links to relevant ROM map entries, SMW Central threads, related issues, etc.

@@ -1,4 +1,4 @@
-# SMW Editor — Feature Roadmap
+# HackBench — Feature Roadmap
 
 **Goal:** An open-source, community-driven VS Code extension that fully replaces Lunar Magic as the primary Super Mario World ROM editor.
 
@@ -235,6 +235,38 @@ Features that can be developed independently on separate branches/worktrees:
 - Animated tiles (needs correct VRAM loading)
 - Level editing (needs correct rendering)
 - GFX/palette editing (needs correct tile display)
+
+---
+
+## Testing & Coverage
+
+Cross-cutting — applies to every phase. Current baseline (as of `feature/community-health`): **62% line / 43% function coverage on `src/rom/`**, measured by vitest + v8.
+
+### Problem: ROM-gated tests don't run in CI
+
+~20 unit/integration tests are gated behind `skipIf(!romPresent)` because they need a real SMW ROM at `test/roms/smw.sfc` — legally non-distributable, gitignored. CI never runs them. A regression in code only exercised by those tests would not fail a PR.
+
+### Targets
+
+| Priority | Area | Approach | Rationale |
+|---|---|---|---|
+| 🔴 High | **Critical-path ROM parsing** — `LcLz2`, `GraphicsDecoder`, `addressing`, `LevelParser` header + object/sprite stream, `Map16` loaders | Fixture-based tests: record byte-range snapshots (input bytes → expected output) from a real ROM once, commit the recorded fixtures (derived data, not ROM itself), run against fixtures in CI | These modules are load-bearing for every feature; a silent regression breaks all downstream rendering |
+| 🔴 High | **Object handlers** (`src/rom/objectHandlers/*`) | Per-handler table-driven tests: `(cursor state + object bytes) → expected Map16 grid writes`. Currently only ~15 of ~55 have coverage. | Object expansion has been the buggiest area historically (slopes, pipes, screen-jumps); regressions here are subtle |
+| 🟡 Med | **LCR-LE / LcRle1** decompressor | Round-trip fixtures + known edge cases (max-run, terminator handling) | Used for L2 backgrounds; small but easy to break |
+| 🟡 Med | **`PaletteLoader.buildLevelCgram`** row selection logic | Table-driven per-level-header permutations | Complex conditional logic, history of off-by-one bugs |
+| 🟡 Med | **`GfxLoader.loadGfxFile`** BPP auto-detection | Fixture sizes → expected BPP | Silent miscalssification produces garbled tiles |
+| 🟢 Low | Webview rendering (`mapEditor`, `paletteEditor`, `gfxViewer`) | DOM/Canvas tests via `@vitest/browser` or Playwright | UI-layer, harder to assert on, lower ROI until the render path stabilizes |
+
+### Approach for fixture-based testing
+
+1. **Fixture generation script** (one-off, needs ROM): dumps deterministic byte ranges from `test/roms/smw.sfc` into `test/fixtures/*.bin` — decompressed GFX tiles, palette bytes, sample level object streams.
+2. **Fixtures are committed as narrow-as-possible byte ranges** — small, test-specific slices (e.g., a single decompressed palette group, one level header). Following community norms around derived-data distribution (cf. SMW Central's AllGFX.bin), but kept deliberately minimal. Not a full ROM dump. Legal posture: this is a grey area and worth revisiting if Nintendo ever sends a takedown in the SMW hacking scene (none to date).
+3. **Tests run against fixtures in CI.** No ROM required, real coverage numbers.
+4. **Live-ROM tests remain `skipIf(!romPresent)`** as a belt-and-suspenders check for developers with a ROM on hand.
+
+### Coverage gate (future)
+
+Once critical-path coverage hits ~80%, add a CI step that fails PRs which reduce line coverage below a threshold (vitest + `--coverage.thresholds`). Don't add this yet — threshold gates create noise when the baseline is still moving.
 
 ---
 

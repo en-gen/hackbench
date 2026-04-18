@@ -19,6 +19,7 @@
 
 import { RomFile } from './RomFile'
 import { parseLevelObjects } from './LevelParser'
+import { getLevelNameByIndex } from './SmwLevelNames'
 
 /** SNES addresses for SMW ROM structures. */
 export const ADDR = {
@@ -322,7 +323,6 @@ export class SmwRom {
 
   /** Get level name from ROM (decoded via SmwLevelNames). */
   getLevelName(index: number): string | null {
-    const { getLevelNameByIndex } = require('./SmwLevelNames') as typeof import('./SmwLevelNames')
     return getLevelNameByIndex(this.rom, index)
   }
 

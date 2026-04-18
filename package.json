@@ -1,9 +1,11 @@
 {
-  "name": "smw-editor",
-  "displayName": "SMW Editor",
+  "name": "hackbench",
+  "displayName": "HackBench",
   "description": "Super Mario World ROM editor for Visual Studio Code",
   "version": "0.1.0",
   "publisher": "engenb",
+  "author": "Brian Engen",
+  "license": "MIT",
   "private": true,
   "engines": {
     "vscode": "^1.85.0"
@@ -14,27 +16,31 @@
   "icon": "build/icons/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/engenb/smw-editor"
+    "url": "https://github.com/en-gen/hackbench"
   },
+  "bugs": {
+    "url": "https://github.com/en-gen/hackbench/issues"
+  },
+  "homepage": "https://github.com/en-gen/hackbench#readme",
   "main": "./dist/extension.js",
   "activationEvents": [],
   "contributes": {
     "commands": [
       {
-        "command": "smwEditor.openRom",
+        "command": "hackbench.openRom",
         "title": "Open ROM…",
-        "category": "SMW Editor"
+        "category": "HackBench"
       },
       {
-        "command": "smwEditor.closeRom",
+        "command": "hackbench.closeRom",
         "title": "Close ROM",
-        "category": "SMW Editor"
+        "category": "HackBench"
       }
     ],
     "menus": {
       "explorer/context": [
         {
-          "command": "smwEditor.openRom",
+          "command": "hackbench.openRom",
           "when": "resourceExtname == .sfc || resourceExtname == .smc",
           "group": "navigation"
         }
@@ -42,8 +48,8 @@
     },
     "customEditors": [
       {
-        "viewType": "smwEditor.mapEditor",
-        "displayName": "SMW Map Editor",
+        "viewType": "hackbench.mapEditor",
+        "displayName": "HackBench Map Editor",
         "selector": [
           {
             "filenamePattern": "**/*.smwmap"
@@ -52,8 +58,8 @@
         "priority": "default"
       },
       {
-        "viewType": "smwEditor.paletteEditor",
-        "displayName": "SMW Palette Editor",
+        "viewType": "hackbench.paletteEditor",
+        "displayName": "HackBench Palette Editor",
         "selector": [
           {
             "filenamePattern": "**/*.smwpalette"
@@ -62,8 +68,8 @@
         "priority": "default"
       },
       {
-        "viewType": "smwEditor.gfxViewer",
-        "displayName": "SMW GFX Viewer",
+        "viewType": "hackbench.gfxViewer",
+        "displayName": "HackBench GFX Viewer",
         "selector": [
           {
             "filenamePattern": "**/*.smwgfx"
@@ -72,8 +78,8 @@
         "priority": "default"
       },
       {
-        "viewType": "smwEditor.musicPlayer",
-        "displayName": "SMW Music Player",
+        "viewType": "hackbench.musicPlayer",
+        "displayName": "HackBench Music Player",
         "selector": [
           {
             "filenamePattern": "**/*.smwmusic"
@@ -85,35 +91,35 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "smwExplorer",
-          "title": "SMW Editor",
+          "id": "hackbenchExplorer",
+          "title": "HackBench",
           "icon": "build/icons/icon.svg"
         }
       ]
     },
     "views": {
-      "smwExplorer": [
+      "hackbenchExplorer": [
         {
-          "id": "smwEditor.mapsExplorer",
+          "id": "hackbench.mapsExplorer",
           "name": "Maps",
-          "when": "smwEditor.romLoaded"
+          "when": "hackbench.romLoaded"
         },
         {
-          "id": "smwEditor.resourcesExplorer",
+          "id": "hackbench.resourcesExplorer",
           "name": "Resources",
-          "when": "smwEditor.romLoaded"
+          "when": "hackbench.romLoaded"
         },
         {
-          "id": "smwEditor.romExplorerWelcome",
-          "name": "SMW Editor",
-          "when": "!smwEditor.romLoaded"
+          "id": "hackbench.romExplorerWelcome",
+          "name": "HackBench",
+          "when": "!hackbench.romLoaded"
         }
       ]
     },
     "viewsWelcome": [
       {
-        "view": "smwEditor.romExplorerWelcome",
-        "contents": "No ROM open.\n[Open ROM…](command:smwEditor.openRom)\nOpen a Super Mario World .sfc or .smc file to begin."
+        "view": "hackbench.romExplorerWelcome",
+        "contents": "No ROM open.\n[Open ROM…](command:hackbench.openRom)\nOpen a Super Mario World .sfc or .smc file to begin."
       }
     ]
   },
@@ -134,6 +140,7 @@
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
+    "@vitest/coverage-v8": "^1.6.1",
     "@vscode/codicons": "^0.0.45",
     "@vscode/test-electron": "^2.3.8",
     "copy-webpack-plugin": "^14.0.0",

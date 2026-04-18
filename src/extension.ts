@@ -29,7 +29,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Register the map custom editor
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
-      'smwEditor.mapEditor',
+      'hackbench.mapEditor',
       mapEditorProvider,
       { webviewOptions: { retainContextWhenHidden: true } }
     )
@@ -38,7 +38,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Register the palette editor
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
-      'smwEditor.paletteEditor',
+      'hackbench.paletteEditor',
       paletteEditorProvider,
       { webviewOptions: { retainContextWhenHidden: true } }
     )
@@ -47,7 +47,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Register the GFX tile sheet viewer
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
-      'smwEditor.gfxViewer',
+      'hackbench.gfxViewer',
       gfxViewerProvider,
       { webviewOptions: { retainContextWhenHidden: true } }
     )
@@ -55,14 +55,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Register the two explorer tree views
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('smwEditor.mapsExplorer',      mapsProvider),
-    vscode.window.registerTreeDataProvider('smwEditor.resourcesExplorer', resourcesProvider),
+    vscode.window.registerTreeDataProvider('hackbench.mapsExplorer',      mapsProvider),
+    vscode.window.registerTreeDataProvider('hackbench.resourcesExplorer', resourcesProvider),
   )
 
   // Register the music player custom editor
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
-      'smwEditor.musicPlayer',
+      'hackbench.musicPlayer',
       musicPlayerProvider,
       { webviewOptions: { retainContextWhenHidden: true } }
     )
@@ -70,10 +70,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Commands
   context.subscriptions.push(
-    vscode.commands.registerCommand('smwEditor.openRom', () =>
+    vscode.commands.registerCommand('hackbench.openRom', () =>
       openRomCommand(context, fsProvider, mapsProvider, resourcesProvider)
     ),
-    vscode.commands.registerCommand('smwEditor.closeRom', () =>
+    vscode.commands.registerCommand('hackbench.closeRom', () =>
       closeRomCommand(context, fsProvider, mapsProvider, resourcesProvider)
     )
   )
@@ -110,14 +110,14 @@ async function openRomCommand(
         fsProvider.mount(session)
         mapsProvider.refresh(session)
         resourcesProvider.refresh(session)
-        await vscode.commands.executeCommand('setContext', 'smwEditor.romLoaded', true)
+        await vscode.commands.executeCommand('setContext', 'hackbench.romLoaded', true)
 
         // Open the virtual folder in the explorer
         const rootUri = vscode.Uri.parse(`smwrom:/${session.slug}/`)
         await vscode.commands.executeCommand('revealInExplorer', rootUri)
 
         vscode.window.setStatusBarMessage(
-          `SMW Editor: ${session.summary.internalName.trim()} (${session.summary.romSizeKb} KB)`,
+          `HackBench: ${session.summary.internalName.trim()} (${session.summary.romSizeKb} KB)`,
           5000
         )
       } catch (err) {
@@ -139,5 +139,5 @@ async function closeRomCommand(
   resourcesProvider.refresh(undefined)
   session.dispose()
   session = undefined
-  await vscode.commands.executeCommand('setContext', 'smwEditor.romLoaded', false)
+  await vscode.commands.executeCommand('setContext', 'hackbench.romLoaded', false)
 }
