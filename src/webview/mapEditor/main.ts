@@ -157,6 +157,7 @@ app.innerHTML = `
 
   <div id="props-panel" style="
     width:220px;flex-shrink:0;overflow-y:auto;
+    display:flex;flex-direction:column;
     background:var(--vscode-sideBar-background,#252526);
     border-left:1px solid var(--vscode-panel-border,#3a3a3a);
     font-family:var(--vscode-font-family,system-ui);font-size:12px;">
@@ -238,6 +239,24 @@ app.innerHTML = `
       </div>
     </div>
 
+    <div class="section-hdr" style="margin-top:auto;">SWITCH PALACE STATE</div>
+    <div style="padding:8px;display:flex;flex-direction:column;gap:6px;">
+      <div id="switch-palace-toggles" style="display:flex;gap:6px;justify-content:space-between;">
+        <button class="switch-toggle" data-color="0" title="Green switch — click to toggle cleared state">
+          <canvas width="16" height="16"></canvas>
+        </button>
+        <button class="switch-toggle" data-color="1" title="Yellow switch — click to toggle cleared state">
+          <canvas width="16" height="16"></canvas>
+        </button>
+        <button class="switch-toggle" data-color="2" title="Blue switch — click to toggle cleared state">
+          <canvas width="16" height="16"></canvas>
+        </button>
+        <button class="switch-toggle" data-color="3" title="Red switch — click to toggle cleared state">
+          <canvas width="16" height="16"></canvas>
+        </button>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -250,6 +269,18 @@ app.innerHTML = `
   }
   .tile-tab { transition: color 0.15s, border-bottom 0.15s; border-bottom: 2px solid transparent; }
   .tile-tab-active { color: #ccc !important; border-bottom: 2px solid #007acc !important; }
+  .switch-toggle {
+    width:36px;height:36px;padding:2px;border-radius:4px;cursor:pointer;
+    background:var(--vscode-input-background,#1e1e1e);border:2px solid #555;
+    display:flex;align-items:center;justify-content:center;
+    transition:border-color 0.15s, box-shadow 0.15s;
+  }
+  .switch-toggle:hover { border-color:#888; }
+  .switch-toggle.switch-on { border-color:#007acc; box-shadow:0 0 4px rgba(0,122,204,0.4); }
+  .switch-toggle canvas {
+    width:28px;height:28px;image-rendering:pixelated;display:block;
+    background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/4px 4px;
+  }
   ${TRANSPORT_CSS}
 </style>
 `
@@ -272,6 +303,21 @@ const chkSprites     = document.getElementById('chk-sprites')     as HTMLInputEl
 const chkBlock       = document.getElementById('chk-block')       as HTMLInputElement
 const chkL1          = document.getElementById('chk-l1')          as HTMLInputElement
 const chkL2          = document.getElementById('chk-l2')          as HTMLInputElement
+
+// ── Switch-palace "cleared" toggles ──────────────────────────────────────────
+// Four booleans indexed by color: 0=green, 1=yellow, 2=blue, 3=red.
+// When true, switch blocks of that color render as their page-1 (cleared,
+// solid) variant; when false, they render as page-0 (uncleared, dotted outline).
+// Map16 tile IDs: page 0 is $06A..$06D, page 1 is $16A..$16D.
+const switchPalaceState: [boolean, boolean, boolean, boolean] = [false, false, false, false]
+
+/** If tileId is a switch-block variant, return the variant for the current toggle state. */
+function applySwitchPalaceState(tileId: number): number {
+  const low = tileId & 0xFF
+  if (low < 0x6A || low > 0x6D) return tileId
+  const colorIdx = low - 0x6A
+  return (switchPalaceState[colorIdx] ? 0x100 : 0x000) | low
+}
 
 // ── Tile detail preview state ─────────────────────────────────────────────────
 let selectedDetail: { type: 'vram'; page: number; col: number; row: number } |
@@ -447,6 +493,7 @@ function invalidateMap16(): void {
   map16AtlasCanvas.getContext('2d')!.putImageData(newAtlas, 0, 0)
   renderMap16Page()
   redrawDetail()
+  refreshSwitchToggleThumbs()
   redraw()
 }
 
@@ -1063,7 +1110,7 @@ function redraw(): void {
       const atlasCols = 16
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
-          const tileId = tileGrid[row]?.[col] ?? 0
+          const tileId = applySwitchPalaceState(tileGrid[row]?.[col] ?? 0)
           if (tileId === 0) continue
           const sx = (tileId % atlasCols) * TILE_PX
           const sy = Math.floor(tileId / atlasCols) * TILE_PX
@@ -1213,7 +1260,7 @@ function drawMinimap(): void {
   const tileGrid = mapData.tileGrid
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
-      const tileId = tileGrid[row]?.[col] ?? 0
+      const tileId = applySwitchPalaceState(tileGrid[row]?.[col] ?? 0)
       if (tileId === 0) continue
       const sx = (tileId % atlasCols) * TILE_PX
       const sy = Math.floor(tileId / atlasCols) * TILE_PX
@@ -1295,6 +1342,44 @@ chkSprites.addEventListener('change', redraw)
 chkBlock.addEventListener('change',   redraw)
 chkL1.addEventListener('change',      redraw)
 chkL2.addEventListener('change',      redraw)
+
+// ── Switch-palace toggles ─────────────────────────────────────────────────────
+// Each button shows the Map16 tile in its current state; clicking flips between
+// the uncleared (page 0) and cleared (page 1) variants for that color.
+
+function drawSwitchToggleThumb(colorIdx: number): void {
+  const btn = document.querySelector(
+    `.switch-toggle[data-color="${colorIdx}"]`) as HTMLButtonElement | null
+  if (!btn) return
+  const tc = btn.querySelector('canvas') as HTMLCanvasElement | null
+  if (!tc) return
+  const c = tc.getContext('2d')
+  if (!c) return
+  c.imageSmoothingEnabled = false
+  c.clearRect(0, 0, tc.width, tc.height)
+  if (!map16AtlasCanvas) return
+  const tileId = (switchPalaceState[colorIdx] ? 0x100 : 0x000) | (0x6A + colorIdx)
+  const sx = (tileId % 16) * TILE_PX
+  const sy = Math.floor(tileId / 16) * TILE_PX
+  c.drawImage(map16AtlasCanvas, sx, sy, TILE_PX, TILE_PX, 0, 0, tc.width, tc.height)
+}
+
+function refreshSwitchToggleThumbs(): void {
+  for (let i = 0; i < 4; i++) drawSwitchToggleThumb(i)
+}
+
+for (let i = 0; i < 4; i++) {
+  const btn = document.querySelector(
+    `.switch-toggle[data-color="${i}"]`) as HTMLButtonElement | null
+  if (!btn) continue
+  btn.addEventListener('click', () => {
+    switchPalaceState[i] = !switchPalaceState[i]
+    btn.classList.toggle('switch-on', switchPalaceState[i])
+    drawSwitchToggleThumb(i)
+    redraw()
+    drawMinimap()
+  })
+}
 
 // ── Mouse / edit interactions ─────────────────────────────────────────────────
 

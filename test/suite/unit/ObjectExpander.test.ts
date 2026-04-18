@@ -22,10 +22,12 @@ import {
   handle_0DB3BD, handle_0DB3E3,
   handle_0DB42D, handle_0DB461, handle_0DB51F, handle_0DB547, handle_0DB571, handle_0DB5B7,
   handle_0DB73F, handle_0DB7AA,
+  handle_0DB916, handle_0DB91E,
 } from '../../../src/rom/objectHandlers/standardHandlers'
 import {
   handle_0DA57B, handle_0DA64D, handle_0DA656, handle_0DA673, handle_0DA68E, handle_0DA6D1,
   handle_0DB2CA,
+  handle_0DB583, handle_0DB58B,
 } from '../../../src/rom/objectHandlers/extendedHandlers'
 import { RomFile } from '../../../src/rom/RomFile'
 
@@ -1288,5 +1290,128 @@ describe('handle_0DB7AA (pyramid/hill slope, object 58)', () => {
       return n
     }
     expect(count(0x44)).toBeGreaterThan(count(0x11))
+  })
+})
+
+// ── Switch-palace blocks: all 4 colors render in their uncleared (dormant) state ──
+// Green/yellow are extended single-tile handlers; blue/red are standard
+// rectangular handlers. All four write a page-0 Map16 tile so the editor shows
+// the dotted "!" outline regardless of save-state flags.
+
+describe('handle_0DB58B (green switch-palace block, ext)', () => {
+  const HANDLER_ADDR = 0x0DB58B
+  const TABLE_ADDR = 0x0DB589
+
+  it('writes $06A (green uncleared) at cursor', () => {
+    const rom = makeMockRom({
+      [TABLE_ADDR]: [0x6A, 0x6B],          // DATA_0DB589[0]=$6A (green), [1]=$6B (yellow)
+      [HANDLER_ADDR + 1]: [0x00],          // LDX #$00 immediate
+    })
+    stampLongOperand(rom, HANDLER_ADDR, 13, TABLE_ADDR)
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 10, 0, 0x87)
+    handle_0DB58B(cur)
+    expect(grid[10][5]).toBe(0x06A)        // page 0 | $6A
+  })
+})
+
+describe('handle_0DB583 (yellow switch-palace block, ext)', () => {
+  const HANDLER_ADDR = 0x0DB583
+  const TABLE_ADDR = 0x0DB589
+
+  it('writes $06B (yellow uncleared) at cursor', () => {
+    const rom = makeMockRom({
+      [TABLE_ADDR]: [0x6A, 0x6B],
+      [HANDLER_ADDR + 1]: [0x01],          // LDX #$01 immediate
+    })
+    stampLongOperand(rom, HANDLER_ADDR, 21, TABLE_ADDR)
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 10, 0, 0x8E)
+    handle_0DB583(cur)
+    expect(grid[10][5]).toBe(0x06B)
+  })
+})
+
+describe('handle_0DB916 (blue switch-palace block, standard rect)', () => {
+  const HANDLER_ADDR = 0x0DB916
+  const TABLE_ADDR = 0x0DB91A
+
+  function setupRom(): RomFile {
+    const rom = makeMockRom({
+      [TABLE_ADDR]: [0x6C, 0x6D],          // DATA_0DB91A[0]=$6C (blue), [1]=$6D (red)
+      [HANDLER_ADDR + 1]: [0x00],          // LDX #$00 immediate
+    })
+    stampLongOperand(rom, HANDLER_ADDR, 37, TABLE_ADDR)
+    return rom
+  }
+
+  it('size $00 writes a single $06C at cursor', () => {
+    const rom = setupRom()
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 30, 0x00)
+    handle_0DB916(cur)
+    expect(grid[10][3]).toBe(0x06C)
+    // Ensure no accidental spill into neighbors.
+    expect(grid[10][2]).toBe(TILE_EMPTY)
+    expect(grid[10][4]).toBe(TILE_EMPTY)
+    expect(grid[11][3]).toBe(TILE_EMPTY)
+  })
+
+  it('size $23 fills a 4-wide x 3-tall rect of $06C', () => {
+    const rom = setupRom()
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 2, 10, 30, 0x23)
+    handle_0DB916(cur)
+    for (let r = 10; r <= 12; r++) {
+      for (let c = 2; c <= 5; c++) {
+        expect(grid[r][c]).toBe(0x06C)
+      }
+    }
+    // One past the right edge must remain empty.
+    expect(grid[10][6]).toBe(TILE_EMPTY)
+    expect(grid[13][2]).toBe(TILE_EMPTY)
+  })
+
+  it('restores cursor col/row after writing', () => {
+    const rom = setupRom()
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 7, 10, 30, 0x12)
+    handle_0DB916(cur)
+    expect(cur.col).toBe(7)
+    expect(cur.row).toBe(10)
+  })
+})
+
+describe('handle_0DB91E (red switch-palace block, standard rect)', () => {
+  const HANDLER_ADDR = 0x0DB91E
+  const TABLE_ADDR = 0x0DB91A
+
+  it('writes $06D (red uncleared) — single tile at size $00', () => {
+    const rom = makeMockRom({
+      [TABLE_ADDR]: [0x6C, 0x6D],
+      [HANDLER_ADDR + 1]: [0x01],          // LDX #$01 immediate
+    })
+    stampLongOperand(rom, HANDLER_ADDR, 29, TABLE_ADDR)
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 8, 10, 30, 0x00)
+    handle_0DB91E(cur)
+    expect(grid[10][8]).toBe(0x06D)
+  })
+
+  it('size $11 fills a 2x2 rect of $06D', () => {
+    const rom = makeMockRom({
+      [TABLE_ADDR]: [0x6C, 0x6D],
+      [HANDLER_ADDR + 1]: [0x01],
+    })
+    stampLongOperand(rom, HANDLER_ADDR, 29, TABLE_ADDR)
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 4, 12, 30, 0x11)
+    handle_0DB91E(cur)
+    expect(grid[12][4]).toBe(0x06D)
+    expect(grid[12][5]).toBe(0x06D)
+    expect(grid[13][4]).toBe(0x06D)
+    expect(grid[13][5]).toBe(0x06D)
+    expect(grid[12][6]).toBe(TILE_EMPTY)
+    expect(grid[14][4]).toBe(TILE_EMPTY)
   })
 })

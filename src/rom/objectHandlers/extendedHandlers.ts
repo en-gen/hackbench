@@ -195,21 +195,38 @@ export function handle_0DA7E7(cur: Cursor): void {
 }
 
 /**
- * CODE_0DB583 (bank_0D.asm line 3726) -- on/off switch block, palette-1
- * variant (extended type $8e). Single tile: $6A page 1 when the switch is
- * on, $6B page 0 when off. For editor rendering we always show the
- * dormant $6B so level layout is visible regardless of switch state.
+ * CODE_0DB583 (bank_0D.asm line 3726) -- yellow switch-palace block (single tile).
  *
- * Paired with CODE_0DB58B (ext type $8f, LDX #$00) which would mirror this
- * for a different switch flag; not yet encountered in the levels we've
- * inspected but can be added if the dispatch table points at it.
+ * X=1 (LDX #$01) selects index 1 in the shared data tables. Falls through to
+ * the common body at CODE_0DB58B+2. SMW picks between:
+ *   DATA_0DB589[1] = $6B on page 0 when SwitchBlockFlags[1] is zero (uncleared)
+ *   DATA_0DB587[1] = $6B on page 1 when the yellow switch has been pressed
+ * For editor rendering we always show the dormant (uncleared, page-0) tile so
+ * the level layout is visible regardless of the save-state flag.
  */
 export function handle_0DB583(cur: Cursor): void {
-  // CODE_0DB583: LDX #$01 at +0 (X selects the pal-1 variant).
-  // The dormant path (switch off) takes LDA.L DATA_0DB589,X at +21.
-  // For editor rendering we always show the dormant tile.
+  // LDX #$01 at +0 → X at +1. LDA.L DATA_0DB589 operand at +21 inside the
+  // shared body (entered via the intentional BNE +; fall-through to CODE_0DB58B).
   const X = readImmByte(cur, cur.handlerAddr + 1)
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 21)
+  setPage0(cur)
+  writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
+}
+
+/**
+ * CODE_0DB58B (bank_0D.asm line 3736) -- green switch-palace block (single tile).
+ *
+ * Sibling of CODE_0DB583; enters the shared body directly with X=0 via LDX #$00.
+ * DATA_0DB589[0] = $6A (green uncleared) → Map16 $06A.
+ * DATA_0DB587[0] = $6A (green cleared)   → Map16 $16A.
+ * Editor always renders the dormant ($06A) state.
+ */
+export function handle_0DB58B(cur: Cursor): void {
+  // LDX #$00 at +0 → X at +1. CODE_0DB58B enters the shared body 8 bytes
+  // before CODE_0DB583's equivalent offset, so LDA.L DATA_0DB589 operand
+  // lands at +13 (= 21 - 8).
+  const X = readImmByte(cur, cur.handlerAddr + 1)
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 13)
   setPage0(cur)
   writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
 }
