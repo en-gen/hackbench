@@ -1072,12 +1072,12 @@ describe('handle_0DB224 (3-column framed structure, object 21)', () => {
   })
 })
 
-describe('handle_0DB2CA (dragon coin, ext 0x30)', () => {
+describe('handle_0DB2CA (dragon coin, ext 0x41)', () => {
   const HANDLER_ADDR = 0x0DB2CA
   it('writes $2D above $2E', () => {
     const rom = makeMockRom()
-    rom.writeAt(HANDLER_ADDR + 95, [0x2D])
-    rom.writeAt(HANDLER_ADDR + 105, [0x2E])
+    rom.writeAt(HANDLER_ADDR + 94, [0x2D])
+    rom.writeAt(HANDLER_ADDR + 104, [0x2E])
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 15, 0x30, 0)
     handle_0DB2CA(cur)

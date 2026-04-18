@@ -150,9 +150,10 @@ export function handle_0DA68E(cur: Cursor): void {
  * always show both tiles: $2D (top) and $2E (bottom).
  */
 export function handle_0DB2CA(cur: Cursor): void {
-  // CODE_0DB2CA inline tile immediates: +95 $2D (top), +105 $2E (bottom).
-  const topTile = readImmByte(cur, cur.handlerAddr + 95)
-  const botTile = readImmByte(cur, cur.handlerAddr + 105)
+  // CODE_0DB2CA inline tile immediates. Opcodes at +93 ($A9 LDA #) and +103;
+  // the 1-byte immediates follow at +94 ($2D top) and +104 ($2E bottom).
+  const topTile = readImmByte(cur, cur.handlerAddr + 94)
+  const botTile = readImmByte(cur, cur.handlerAddr + 104)
   setPage0(cur)
   writeTile(cur, topTile)
   cur.row += 1
