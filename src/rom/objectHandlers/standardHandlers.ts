@@ -1657,3 +1657,49 @@ export function handle_0DD145(cur: Cursor): void {
     if (r < height) nextRow(cur)
   }
 }
+
+/**
+ * CODE_0DB916 (bank_0D.asm line 4199) -- blue switch-palace block (rectangular).
+ *
+ * Counterpart to the extended green/yellow handlers (CODE_0DB58B/0DB583) but
+ * as a rectangular *standard* object. Size byte: HHHHWWWW. Iterates (W+1) by
+ * (H+1) tiles, writing DATA_0DB91A[X] at each. The shared body (entered via
+ * BEQ +) branches on SwitchBlockFlags+2,X (X=0 blue, X=1 red at $7E1F29/$7E1F2A):
+ *   DATA_0DB91A[0] = $6C page 0 -> Map16 $06C (blue uncleared, dotted outline)
+ *   DATA_0DB91C[0] = $6C page 1 -> Map16 $16C (blue cleared, solid)
+ * Editor always emits the dormant ($06C) state.
+ */
+export function handle_0DB916(cur: Cursor): void {
+  writeSwitchBlockRect(cur, 37)
+}
+
+/**
+ * CODE_0DB91E (bank_0D.asm line 4209) -- red switch-palace block (rectangular).
+ *
+ * Sibling of CODE_0DB916 entered 8 bytes later (after the two shared data
+ * tables); LDX #$01 selects index 1 -> DATA_0DB91A[1] = $6D page 0 = Map16 $06D.
+ * LDA.L operand offset relative to this entry point is 37 - 8 = 29.
+ */
+export function handle_0DB91E(cur: Cursor): void {
+  writeSwitchBlockRect(cur, 29)
+}
+
+function writeSwitchBlockRect(cur: Cursor, ldaOperandOffset: number): void {
+  const W = cur.size & 0x0F
+  const H = (cur.size >> 4) & 0x0F
+  const X = readImmByte(cur, cur.handlerAddr + 1)
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + ldaOperandOffset)
+  const tile = cur.rom.readByte(tableAddr + X) ?? 0
+  setPage0(cur)
+  const origCol = cur.col
+  const origRow = cur.row
+  for (let r = 0; r <= H; r++) {
+    cur.row = origRow + r
+    for (let c = 0; c <= W; c++) {
+      cur.col = origCol + c
+      writeTile(cur, tile)
+    }
+  }
+  cur.col = origCol
+  cur.row = origRow
+}
