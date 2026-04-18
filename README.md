@@ -82,6 +82,8 @@ are especially welcome — see
 - [ROM format reference](docs/smw-rom-format.md) — LoROM addressing,
   pointer tables, Map16, GFX files
 - [Roadmap](docs/roadmap.md) — planned features and milestones
+- [Testing guide](docs/testing.md) — test layout, ROM-legality policy,
+  how to run richer local tests with your own ROM
 - [Contributing](CONTRIBUTING.md) — dev setup, branch strategy, PR
   checklist
 - [Code of conduct](CODE_OF_CONDUCT.md)
@@ -98,11 +100,17 @@ including how to exercise your LGPL relink rights.
 
 ## Legal
 
-Super Mario World, its code, and its assets are © Nintendo. HackBench
-does not contain, distribute, or enable download of any ROM data. You
-must supply your own legally-obtained ROM. HackBench is an unofficial
-tool with no affiliation with, endorsement by, or sponsorship from
-Nintendo.
+Super Mario World, its code, and all of its assets (graphics, palette
+data, level data, audio, text, map tiles, etc.) are © Nintendo.
+HackBench contains **no ROM bytes of any kind**: not the raw ROM file,
+not compressed asset slices, not decompressed GFX, not CGRAM dumps, not
+tilemap snapshots. This applies to the source tree, the packaged
+extension, and every fixture, test input, and documentation sample.
+
+You must supply your own legally-obtained ROM. HackBench is an
+unofficial tool with no affiliation with, endorsement by, or
+sponsorship from Nintendo. Developers who own a legal ROM can run
+richer tests locally — see [Testing guide](docs/testing.md).
 
 ## Credits
 

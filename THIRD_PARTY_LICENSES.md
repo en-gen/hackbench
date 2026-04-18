@@ -33,19 +33,21 @@ https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html and in the
 
 ---
 
-## snesrev/smw — vendored LC_LZ2 decompressor (test-only)
+## snesrev/smw — vendored LC_LZ2 decompressor (dev-only)
 
 - **License:** MIT
 - **Copyright:** (c) 2023 snesrev, (c) 2021 elzo_d
 - **Upstream:** https://github.com/snesrev/smw
 - **Vendored at:** [`tools/vendor/snesrev-smw/`](./tools/vendor/snesrev-smw/)
-- **Used for:** generating byte-for-byte reference fixtures at
-  `test/fixtures/gfx/` that validate HackBench's own LC_LZ2
-  implementation (`src/rom/LcLz2.ts`). The Python decompressor is
-  invoked only by the developer-run script
-  [`tools/dump-vanilla-gfx.py`](./tools/dump-vanilla-gfx.py) when
-  regenerating fixtures; it is **not shipped in the packaged
-  extension**.
+- **Used for:** an optional *developer-only* workflow. The Python
+  decompressor, invoked by [`tools/dump-vanilla-gfx.py`](./tools/dump-vanilla-gfx.py),
+  can turn the developer's own legally owned SMW ROM into local LC_LZ2
+  input/output pairs under `test/fixtures/` (gitignored). HackBench
+  **does not distribute any ROM-derived data** — the CI suite relies on
+  synthetic hand-crafted LC_LZ2 vectors instead
+  ([`test/suite/unit/LcLz2.synthetic.test.ts`](./test/suite/unit/LcLz2.synthetic.test.ts)).
+  The vendored decompressor is **never shipped** in the packaged
+  extension.
 
 The MIT license text is preserved verbatim in
 [`tools/vendor/snesrev-smw/LICENSE.txt`](./tools/vendor/snesrev-smw/LICENSE.txt).

@@ -8,6 +8,13 @@
 # Test/development ROM hacks (downloaded from SMW Central for local testing)
 test/roms/
 
+# ROM-DERIVED test fixtures (decompressed GFX, palette dumps, tilemap snapshots,
+# SPC audio extracts, etc.) — STRICTLY LOCAL. Nintendo owns this data regardless
+# of the transform. Developers regenerate these locally from their own legally
+# owned ROM. See docs/testing.md.
+test/fixtures/
+!test/fixtures/README.md
+
 # Build output
 dist/
 dist-test/
