@@ -693,15 +693,27 @@ describe('handle_0DB51F (3-segment vertical, object 32 — page 1)', () => {
     return rom
   }
 
-  it('H=2 writes $53/$54/$54/$55', () => {
+  it('H=2 writes $53/$54/$55 (X=2: top + 1 mid + bot = 3 rows)', () => {
     const rom = setupRom()
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 32, 0x20)
     handle_0DB51F(cur)
     expect(grid[10][3]).toBe(P1(0x53))
     expect(grid[11][3]).toBe(P1(0x54))
+    expect(grid[12][3]).toBe(P1(0x55))
+    expect(grid[13][3]).toBe(TILE_EMPTY)
+  })
+
+  it('H=3 writes $53/$54/$54/$55 (X=3: top + 2 mid + bot = 4 rows)', () => {
+    const rom = setupRom()
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 32, 0x30)
+    handle_0DB51F(cur)
+    expect(grid[10][3]).toBe(P1(0x53))
+    expect(grid[11][3]).toBe(P1(0x54))
     expect(grid[12][3]).toBe(P1(0x54))
     expect(grid[13][3]).toBe(P1(0x55))
+    expect(grid[14][3]).toBe(TILE_EMPTY)
   })
 
   it('H=0 writes just $53/$55 (no middle)', () => {
