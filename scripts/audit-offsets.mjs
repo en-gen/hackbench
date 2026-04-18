@@ -6,7 +6,7 @@
  */
 import { readFileSync } from 'fs'
 
-const buf = readFileSync('C:/Users/engenb/Super Mario World (USA).sfc')
+const buf = readFileSync('test/roms/Super Mario World (USA).vanilla.sfc')
 const off = s => ((s>>>16)&0x7F)*0x8000 + ((s&0xFFFF)-0x8000)
 const byte = (base, o) => buf[off(base) + o]
 

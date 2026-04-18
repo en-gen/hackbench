@@ -18,7 +18,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
-const ROM_PATH = 'C:/Projects/frontend/test/roms/Super Mario World (USA).sfc';
+const ROM_PATH = 'C:/Projects/frontend/test/roms/Super Mario World (USA).vanilla.sfc';
 const rom = readFileSync(ROM_PATH);
 
 const hasHeader = rom.length % 1024 === 512;

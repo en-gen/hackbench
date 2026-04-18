@@ -14,7 +14,7 @@ import { SmwRom } from '../src/rom/SmwRom'
 import { loadVram, getCharPixels, readGfxAssignment, VRAM_CHAR_BASE } from '../src/rom/GfxLoader'
 import { loadRomPalettes, buildLevelCgram } from '../src/rom/PaletteLoader'
 
-const ROM_PATH = 'test/roms/Super Mario World (USA).sfc'
+const ROM_PATH = 'test/roms/Super Mario World (USA).vanilla.sfc'
 const LEVEL_INDEX = 0x104
 const TARGET_CHAR = 0x1EC
 const TARGET_PALETTE_ROW = 2

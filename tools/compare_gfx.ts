@@ -6,7 +6,7 @@
 import { RomFile } from '../src/rom/RomFile'
 import { loadGfxFile, loadGfxFileBin, getGfxBinDir } from '../src/rom/GfxLoader'
 
-const rom = RomFile.load('test/roms/Super Mario World (USA).sfc')
+const rom = RomFile.load('test/roms/Super Mario World (USA).vanilla.sfc')
 const binDir = getGfxBinDir(rom)!
 
 // GFX08 = AN1 slot for tileset 4 (Yoshi's House level-specific tiles)

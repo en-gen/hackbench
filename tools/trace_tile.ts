@@ -6,7 +6,7 @@ import { SmwRom } from '../src/rom/SmwRom'
 import { loadAllMap16 } from '../src/rom/Map16'
 import { loadVram, readGfxAssignment, getCharPixels, VRAM_CHAR_BASE } from '../src/rom/GfxLoader'
 
-const rom = SmwRom.open('test/roms/Super Mario World (USA).sfc')
+const rom = SmwRom.open('test/roms/Super Mario World (USA).vanilla.sfc')
 const map16 = loadAllMap16(rom.rom)
 
 const tilesetId = rom.getGfxTilesetId(0x104)

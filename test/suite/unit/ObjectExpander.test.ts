@@ -1087,11 +1087,11 @@ describe('handle_0DB2CA (dragon coin, ext 0x41)', () => {
 })
 
 // ── Integration: real SMW ROM, level $105 (Yoshi's Island 1) ─────────────────
-// These tests require test/roms/Super Mario World (USA).sfc to be present.
+// These tests require test/roms/Super Mario World (USA).vanilla.sfc to be present.
 // They confirm the ported handlers produce non-empty tile grids for a known
 // reference level.
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).sfc')
+const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent = existsSync(ROM_PATH)
 
 describe('expandMap integration (real SMW ROM)', () => {

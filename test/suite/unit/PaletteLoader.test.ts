@@ -24,7 +24,7 @@ import { loadRomPalettes, buildLevelCgram, loadCustomLevelPalette } from '../../
 import { bgr555ToRgba } from '../../../src/rom/GraphicsDecoder'
 import { parseLevelObjects } from '../../../src/rom/LevelParser'
 
-const ROM_PATH  = resolve(__dirname, '../../roms/Super Mario World (USA).sfc')
+const ROM_PATH  = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
 const CGRAM_DMP = resolve(__dirname, '../../../tools/mesen/Debugger/Super Mario World (USA) - SnesCgRam.dmp')
 const romPresent  = existsSync(ROM_PATH)
 const dumpPresent = existsSync(CGRAM_DMP)
@@ -96,7 +96,10 @@ describe.skipIf(!romPresent)('PaletteLoader (requires ROM)', () => {
       const bgPaletteRow    = header.bgPalette
       const spriteSet       = header.spriteSet
       const spritePalette   = header.spritePalette
-      const fgVariant       = spriteSet & 0x07
+      // Use header.fgPalette (byte 3 bits 2-0) — same field MapEditorProvider reads.
+      // A previous iteration derived fgVariant from `spriteSet & 0x07`, which is a
+      // different header byte and produced wrong palette rows.
+      const fgVariant       = header.fgPalette
 
       // Try custom LM palette first (same as MapEditorProvider)
       const customPalette = loadCustomLevelPalette(rom.rom, LEVEL_104)
