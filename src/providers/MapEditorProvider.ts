@@ -9,7 +9,7 @@ import { loadAnimationData, ANIM_INTERVAL_MS } from '../rom/AnimationLoader'
 import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
 type RgbaColor = [number, number, number, number]
 import { expandMap } from '../rom/ObjectExpander'
-import { decompressRle1 } from '../rom/LcRle1'
+import { loadL2Preset, loadL2Objects, readL2Pointer, isPresetPtr, L2_TILEMAP_COLS, L2_TILEMAP_ROWS } from '../rom/L2Loader'
 import { getLevelMusicBgm } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
 import { SCREEN_W, SCREEN_H } from '../rom/LevelParser'
@@ -116,27 +116,44 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       // dispatch reads the correct per-tileset handler pointer table.
       const tileGrid = expandMap(objects, screens, rom.rom, header.objectTileset)
 
-      // ── Build L2 tile grid (background tilemap, if present) ───────────────
+      // ── Build L2 tile grid ────────────────────────────────────────────────
+      // Ported from CODE_05801E (bank_05.asm lines 20-74) and LoadLevel's
+      // LayerProcessing=1 path (line 458). Two distinct flavors:
+      //
+      //   - bank == $FF: preset background. LC_RLE1-compressed Map16 tile
+      //     IDs in bank $0C (see loadL2Preset). Tiles render against the BG
+      //     Map16 pointer table (Map16BGTiles @ $0D9100).
+      //
+      //   - bank != $FF: object stream. Same format as L1. LoadLevel skips
+      //     L2's 5-byte header (+5 offset) and expands using L1's screen
+      //     count and L1's ObjectTileset. Tiles render against the regular
+      //     Map16 pointer table (same atlas as L1).
+      //
+      // The `l2UsesBgAtlas` flag tells the webview which atlas to sample.
       let l2TileGrid: number[][] | null = null
-      const l2ptr = rom.getLevelL2Pointer(index)
-      // Bank byte $FF means data is an LC_RLE1 background tilemap (not an object stream).
-      if (l2ptr !== null && ((l2ptr >> 16) & 0xFF) === 0xFF) {
-        // lo/hi bytes hold the actual SNES data address; bank=$FF is just the flag.
-        const l2Base = ADDR.LEVEL_L2_PTR + index * 3
-        const l2lo = rom.rom.readByte(l2Base)
-        const l2hi = rom.rom.readByte(l2Base + 1)
-        if (l2lo !== null && l2hi !== null) {
-          const l2addr = (l2hi << 8) | l2lo
-          const l2raw  = rom.rom.readAt(l2addr, 0x2000)
-          if (l2raw) {
-            const l2data = decompressRle1(l2raw)
-            const cols   = screens * SCREEN_W
-            const rows   = SCREEN_H
-            // Each tile entry is 1 byte (Map16 page-0 tile ID for L2 background).
-            l2TileGrid = Array.from({ length: rows }, (_, r) =>
-              Array.from({ length: cols }, (_, c) => l2data[r * cols + c] ?? 0)
-            )
-          }
+      let l2UsesBgAtlas = false
+      const levelL2Ptr = readL2Pointer(rom.rom, index) ?? 0
+      if (levelL2Ptr !== 0 && isPresetPtr(levelL2Ptr)) {
+        const preset = loadL2Preset(rom.rom, levelL2Ptr)
+        if (preset) {
+          l2UsesBgAtlas = true
+          // Tile the 32×27 preset grid across the full L1 area (level width ×
+          // 27 rows). Mirrors how the live game scrolls the BG: the same
+          // pattern repeats every 2 screens.
+          const cols = screens * SCREEN_W
+          const rows = SCREEN_H
+          l2TileGrid = Array.from({ length: rows }, (_, r) =>
+            Array.from({ length: cols }, (_, c) =>
+              preset.grid[r % L2_TILEMAP_ROWS][c % L2_TILEMAP_COLS],
+            ),
+          )
+        }
+      } else if (levelL2Ptr !== 0 && !isPresetPtr(levelL2Ptr)) {
+        // Object-stream L2. Uses L1's screens + tileset, no BG atlas.
+        const tilesetForL2 = overrides.tilesetId ?? header.objectTileset
+        const objL2 = loadL2Objects(rom.rom, levelL2Ptr, screens, tilesetForL2)
+        if (objL2) {
+          l2TileGrid = objL2.grid
         }
       }
 
@@ -245,6 +262,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         screens,
         tileGrid,
         l2TileGrid,
+        l2UsesBgAtlas,
         vramSheetData:  Array.from(vramSheet),
         vramSheetW,
         vramSheetH,
