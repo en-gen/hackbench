@@ -7,7 +7,7 @@
  *   Palette index: 2
  *   No flip, no priority
  *
- * Run: npx tsx tools/render_one_tile.ts
+ * Run: npx tsx tools/scripts/render_one_tile.ts
  */
 
 import { SmwRom } from '../src/rom/SmwRom'

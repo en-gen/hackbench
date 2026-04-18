@@ -2,7 +2,7 @@
 /**
  * decode_l2_preset.js — probe the L2 preset format for a given level.
  *
- * Usage:  node tools/decode_l2_preset.js [levelIndex]
+ * Usage:  node tools/scripts/decode_l2_preset.js [levelIndex]
  *   levelIndex: decimal or hex (prefix 0x). Default: 260 (= $104, Yoshi's House)
  *
  * The script:

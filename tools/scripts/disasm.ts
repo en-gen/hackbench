@@ -2,12 +2,12 @@
  * Simple 65816 disassembler for SMW ROM analysis.
  * Handles 8-bit accumulator/index mode (SEP #$30 context).
  *
- * Usage: npx tsx tools/disasm.ts <snesAddr> [length] [--16bit]
+ * Usage: npx tsx tools/scripts/disasm.ts <snesAddr> [length] [--16bit]
  *   snesAddr: SNES address in hex (e.g. 0587FF or 0DA8C3)
  *   length:   bytes to disassemble (default 128)
  *   --16bit:  start in 16-bit accumulator mode
  *
- * Example: npx tsx tools/disasm.ts 0587FF 200
+ * Example: npx tsx tools/scripts/disasm.ts 0587FF 200
  */
 
 import * as fs from 'fs'
@@ -228,7 +228,7 @@ function disassemble(rom: Buffer, snesStart: number, len: number, startA16 = fal
 // --- Main ---
 const args = process.argv.slice(2)
 if (args.length < 1) {
-  console.log('Usage: npx tsx tools/disasm.ts <snesAddr> [length]')
+  console.log('Usage: npx tsx tools/scripts/disasm.ts <snesAddr> [length]')
   console.log('  snesAddr: hex SNES address (e.g. 0587FF)')
   console.log('  length:   bytes to disassemble (default 128)')
   process.exit(1)

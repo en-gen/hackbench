@@ -257,7 +257,7 @@ a local ROM for the richer tests.
 
 | Priority | Area | Approach | Rationale |
 |---|---|---|---|
-| ✅ Done | ~~`LcLz2` decompressor~~ | Hand-crafted synthetic test vectors at [`test/suite/unit/LcLz2.synthetic.test.ts`](../test/suite/unit/LcLz2.synthetic.test.ts) exercise every LC_LZ2 command + edge cases with original inputs (no ROM content). Local-only cross-validation against the vendored [snesrev/smw](../tools/vendor/snesrev-smw/) Python decoder is available via [`tools/dump-vanilla-gfx.py`](../tools/dump-vanilla-gfx.py) + a developer-authored `*.fixtures.test.ts` (fixtures stay under `test/fixtures/`, gitignored). | Landed 2026-04-18 |
+| ✅ Done | ~~`LcLz2` decompressor~~ | Hand-crafted synthetic test vectors at [`test/suite/unit/LcLz2.synthetic.test.ts`](../test/suite/unit/LcLz2.synthetic.test.ts) exercise every LC_LZ2 command + edge cases with original inputs (no ROM content). Local-only cross-validation against the vendored [snesrev/smw](../tools/vendor/snesrev-smw/) Python decoder is available via [`tools/scripts/dump-vanilla-gfx.py`](../tools/scripts/dump-vanilla-gfx.py) + a developer-authored `*.fixtures.test.ts` (fixtures stay under `test/fixtures/`, gitignored). | Landed 2026-04-18 |
 | 🔴 High | **Critical-path ROM parsing** — `GraphicsDecoder`, `addressing`, `LevelParser` header + object/sprite stream, `Map16` loaders | Follow the LcLz2 pattern: synthetic inputs in CI + optional local fixtures from the developer's ROM for richer spot-checking | These modules are load-bearing for every feature; a silent regression breaks all downstream rendering |
 | 🟡 Med | **`PaletteLoader.buildLevelCgram`** — broaden reference coverage | Enumerate all 512 level headers to find the minimal set of unique `(bgColor, bgPalette, fgPalette, spritePalette, spriteSet)` tuples, capture a CGRAM dump from Mesen at each representative level (dumps stay local), assert byte-for-byte match per level. Planned follow-up. | Currently only level $104 is validated against a Mesen CGRAM dump — single point in a 5-dimensional parameter space. |
 | 🔴 High | **Object handlers** (`src/rom/objectHandlers/*`) | Per-handler table-driven tests: `(cursor state + object bytes) → expected Map16 grid writes`. Currently only ~15 of ~55 have coverage. | Object expansion has been the buggiest area historically (slopes, pipes, screen-jumps); regressions here are subtle |
@@ -278,7 +278,7 @@ The workflow instead:
 1. **CI uses synthetic inputs only** — hand-crafted byte sequences
    authored from format specifications, original to this project.
 2. **Developers who own a legal ROM can opt into richer local tests** by
-   running scripts like [`tools/dump-vanilla-gfx.py`](../tools/dump-vanilla-gfx.py)
+   running scripts like [`tools/scripts/dump-vanilla-gfx.py`](../tools/scripts/dump-vanilla-gfx.py)
    to generate fixtures under `test/fixtures/` (gitignored).
 3. **Fixture-backed tests are gated on fixture presence** via
    `existsSync()` and never committed in a form that requires ROM bytes

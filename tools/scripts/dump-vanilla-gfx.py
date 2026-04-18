@@ -21,7 +21,7 @@ Usage:
   # Place your vanilla ROM first (gitignored):
   #   test/roms/Super Mario World (USA).vanilla.sfc
   #   SHA-1: 6B47BB75D16514B6A476AA0C73A683A2A4C18765
-  python tools/dump-vanilla-gfx.py
+  python tools/scripts/dump-vanilla-gfx.py
 
 Reads:   test/roms/Super Mario World (USA).vanilla.sfc   (your ROM)
 Writes:  test/fixtures/gfx/GFX<HH>.bin      (decompressed bytes)
@@ -38,12 +38,14 @@ import os
 import sys
 
 # Make the vendored util.py importable without modifying it.
+# Script lives at tools/scripts/, vendored code at tools/vendor/snesrev-smw/.
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "vendor", "snesrev-smw"))
+TOOLS_DIR = os.path.abspath(os.path.join(HERE, os.pardir))
+sys.path.insert(0, os.path.join(TOOLS_DIR, "vendor", "snesrev-smw"))
 
 import util  # noqa: E402
 
-REPO_ROOT = os.path.abspath(os.path.join(HERE, os.pardir))
+REPO_ROOT = os.path.abspath(os.path.join(TOOLS_DIR, os.pardir))
 ROM_PATH = os.path.join(REPO_ROOT, "test", "roms", "Super Mario World (USA).vanilla.sfc")
 OUT_DIR = os.path.join(REPO_ROOT, "test", "fixtures", "gfx")
 
