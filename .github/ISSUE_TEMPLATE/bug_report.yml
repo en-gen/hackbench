@@ -1,0 +1,101 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+title: "[bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report! Please fill in as
+        much detail as you can — it's easier to fix what we can reproduce.
+
+        **Do not attach or paste ROM data.** A region/version description
+        (e.g. "US 1.0") and byte offsets are sufficient. See the project's
+        [legal notes](../../README.md#legal).
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: When I open GFX00 in the tile viewer, the palette is…
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, numbered steps.
+      placeholder: |
+        1. Open a US 1.0 SMW ROM
+        2. Navigate to gfx/GFX00.smwgfx
+        3. Switch BPP selector to 4BPP
+        4. Observe…
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: input
+    id: rom-version
+    attributes:
+      label: ROM region / version
+      description: "e.g. US 1.0, JP 1.1, PAL. Do not paste filenames or dumps."
+      placeholder: US 1.0 (unmodified)
+    validations:
+      required: true
+
+  - type: input
+    id: extension-version
+    attributes:
+      label: HackBench version
+      description: From the Extensions pane or `package.json`.
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: vscode-version
+    attributes:
+      label: VS Code version
+      placeholder: 1.96.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other (specify in additional context)
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Output from the `HackBench` output channel, developer
+        tools console (Help → Toggle Developer Tools), or screenshots.
+      render: shell
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context

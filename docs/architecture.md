@@ -36,7 +36,7 @@ VS Code extensions run in a dedicated Node.js process (the extension host). UI i
 
 The "ROM as database" concept is implemented with `vscode.FileSystemProvider`.
 
-When the user runs **SMW Editor: Open ROM**, the extension:
+When the user runs **HackBench: Open ROM**, the extension:
 1. Opens and validates the ROM file
 2. Creates a `RomSession` wrapping the `SmwRom` instance
 3. Mounts the session at `smwrom://<slug>/` via `SmwFileSystemProvider`
@@ -60,7 +60,7 @@ Registered via `contributes.customEditors` in `package.json`. Each entry binds a
 
 | Pattern | View type | Provider |
 |---|---|---|
-| `*.smwlevel` | `smwEditor.levelEditor` | `LevelEditorProvider` |
+| `*.smwlevel` | `hackbench.levelEditor` | `LevelEditorProvider` |
 
 ## Webview message protocol
 

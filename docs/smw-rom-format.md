@@ -5,7 +5,7 @@ Sources:
 - smwspeedruns.com/Level_Data_Format
 - smwspeedruns.com/Overworld_Data_Format
 - datacrystal.tcrf.net/wiki/Super_Mario_World_(SNES)/GFX_Files
-- smw-editor.github.io/docs/smw-rom
+- hackbench docs (this repo): docs/smw-rom-format.md
 - sneslab.net/wiki/LC_LZ2
 - superfamicom.org
 

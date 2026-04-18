@@ -1312,7 +1312,7 @@ export function handle_0DB73F(cur: Cursor): void {
   setPage1(cur)
 
   // Phase 1 loop (CODE_0DB752): continues while X < 6.
-  while (true) {
+  for (;;) {
     let count = _1
     saveBookmark(cur)
     // Inner: write (_1 + 1) tiles, advancing X into DATA_0DB72F each write.

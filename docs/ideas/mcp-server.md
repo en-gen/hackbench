@@ -15,7 +15,7 @@ Agents connect via `mcp.json` (VS Code) or Claude Desktop config:
 ```json
 {
   "servers": {
-    "smw-editor": {
+    "hackbench": {
       "type": "http",
       "url": "http://localhost:3579/mcp"
     }
@@ -44,7 +44,7 @@ import * as http from 'http';
 export function activate(ctx: vscode.ExtensionContext) {
     // ... existing providers ...
 
-    const mcp = new McpServer({ name: 'smw-editor', version: '0.1.0' });
+    const mcp = new McpServer({ name: 'hackbench', version: '0.1.0' });
 
     mcp.tool('smw_list_levels', {}, async () => {
         const rom = RomSession.current?.rom;

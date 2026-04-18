@@ -80,7 +80,7 @@ function uploadBlocks(rom: RomFile, romAddr: number, aram: Uint8Array): number {
   let firstDest = -1
   let blockCount = 0
 
-  while (true) {
+  for (;;) {
     const header = rom.readAt(offset, 4)
     if (!header) break
     const size     = header[0] | (header[1] << 8)

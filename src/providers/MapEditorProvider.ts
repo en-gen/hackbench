@@ -1,9 +1,9 @@
 import * as vscode from 'vscode'
 import { SmwRom, ADDR } from '../rom/SmwRom'
 import { parseLevelObjects, parseLevelSprites } from '../rom/LevelParser'
-import { loadAllMap16 } from '../rom/Map16'
-import { loadRomPalettes, buildLevelCgram, loadBackAreaColors } from '../rom/PaletteLoader'
-import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, type VramState, type GfxSheet } from '../rom/GfxLoader'
+import { loadAllMap16, loadAllMap16BG } from '../rom/Map16'
+import { loadRomPalettes, buildLevelCgram, loadBackAreaColors, getPaletteColor } from '../rom/PaletteLoader'
+import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, getCharPixels, type VramState, type GfxSheet } from '../rom/GfxLoader'
 import { buildTileAtlas } from '../rom/TileRenderer'
 import { loadAnimationData, ANIM_INTERVAL_MS } from '../rom/AnimationLoader'
 import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
@@ -211,7 +211,6 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
       // L1 Map16 tiles are composited live in the webview from map16Defs +
       // vramIndexedData + paletteRows. L2/BG still uses a baked atlas.
-      const { loadAllMap16BG } = require('../rom/Map16') as typeof import('../rom/Map16')
       const map16bg = loadAllMap16BG(rom.rom)
       const { atlas: map16BgAtlas } = buildTileAtlas(map16bg, vram, palette)
 
@@ -391,8 +390,8 @@ function buildVramSheet(
   vramState: VramState,
   palette: { colors: RgbaColor[] },
 ): Uint8ClampedArray {
-  const { getCharPixels: getChar } = require('../rom/GfxLoader') as typeof import('../rom/GfxLoader')
-  const { getPaletteColor: getPalColor } = require('../rom/PaletteLoader') as typeof import('../rom/PaletteLoader')
+  const getChar = getCharPixels
+  const getPalColor = getPaletteColor
   const VRAM_TILES = 1536
   const VR_PER_ROW = 16
   const vramSheetW = VR_PER_ROW * 8
@@ -430,7 +429,7 @@ function buildVramSheet(
  * per-subtile palette selection (unlike the RGBA sheet which has fixed palette).
  */
 function buildVramIndexed(vramState: VramState): Uint8Array {
-  const { getCharPixels: getChar } = require('../rom/GfxLoader') as typeof import('../rom/GfxLoader')
+  const getChar = getCharPixels
   const VRAM_TILES = 1536
   const buf = new Uint8Array(VRAM_TILES * 64)
   for (let i = 0; i < VRAM_TILES; i++) {
