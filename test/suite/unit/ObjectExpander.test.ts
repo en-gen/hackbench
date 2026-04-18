@@ -1054,7 +1054,7 @@ describe('handle_0DB224 (3-column framed structure, object 21)', () => {
     stampLongOperand(rom, HANDLER_ADDR, 118, 0x0DB221)
   }
 
-  it('variant 0 uses DATA_0DB212/215/218 triples', () => {
+  it('variant 0, H=1: TOP + BOT only (no middle, H-1=0 iterations)', () => {
     const rom = makeMockRom({
       [0x0DB212]: [0x2F, 0x25, 0x32],
       [0x0DB215]: [0x30, 0x25, 0x33],
@@ -1064,14 +1064,29 @@ describe('handle_0DB224 (3-column framed structure, object 21)', () => {
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 2, 10, 21, 0x10)
     handle_0DB224(cur)
+    // H=1 → ASM's `DEC _1; BEQ CODE_0DB28F` after TOP skips the middle loop.
+    // Net: row 0 = TOP, row 1 = BOT.
+    expect(grid[10][2]).toBe(0x2F)
+    expect(grid[11][2]).toBe(0x31)
+    expect(grid[10][3]).toBe(0x25)
+    expect(grid[11][3]).toBe(0x25)
+    expect(grid[10][4]).toBe(0x32)
+    expect(grid[11][4]).toBe(0x34)
+  })
+
+  it('variant 0, H=2: TOP + 1 middle + BOT', () => {
+    const rom = makeMockRom({
+      [0x0DB212]: [0x2F, 0x25, 0x32],
+      [0x0DB215]: [0x30, 0x25, 0x33],
+      [0x0DB218]: [0x31, 0x25, 0x34],
+    })
+    stampAllTables(rom)
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 2, 10, 21, 0x20)
+    handle_0DB224(cur)
     expect(grid[10][2]).toBe(0x2F)
     expect(grid[11][2]).toBe(0x30)
     expect(grid[12][2]).toBe(0x31)
-    expect(grid[10][3]).toBe(0x25)
-    expect(grid[11][3]).toBe(0x25)
-    expect(grid[12][3]).toBe(0x25)
-    expect(grid[10][4]).toBe(0x32)
-    expect(grid[11][4]).toBe(0x33)
     expect(grid[12][4]).toBe(0x34)
   })
 
@@ -1085,10 +1100,10 @@ describe('handle_0DB224 (3-column framed structure, object 21)', () => {
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 2, 10, 21, 0x11)
     handle_0DB224(cur)
+    // H=1 variant-1: TOP + BOT only.
     expect(grid[10][2]).toBe(0x39)
-    expect(grid[11][2]).toBe(0x3A)
-    expect(grid[12][2]).toBe(0x3B)
-    expect(grid[12][4]).toBe(0x3E)
+    expect(grid[11][2]).toBe(0x3B)
+    expect(grid[11][4]).toBe(0x3E)
   })
 })
 

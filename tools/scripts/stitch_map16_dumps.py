@@ -70,8 +70,22 @@ def parse_dumps(text: str) -> list[dict]:
 
 
 def stitch(ticks: list[dict]) -> dict[tuple[int, int], int]:
-    """Return {(col,row): tile_id}, choosing the observation closest to mario each cell."""
-    best: dict[tuple[int, int], tuple[int, int]] = {}
+    """Return {(col,row): tile_id} for each observed cell.
+
+    Selection rules (in priority order):
+      1. If any tick observed a non-empty tile at this cell, prefer a non-empty
+         observation over an empty one. Collectible items (coins, dragon coins,
+         P-switch blocks, etc.) are removed from Map16 RAM when Mario collects
+         them; treating an "after collection" empty observation as authoritative
+         would silently drop real level data. If the cell was ever recorded with
+         a tile, that tile exists in the level.
+      2. Among observations of the same category (all non-empty, or all empty),
+         keep the one whose `marioCol` is closest to this cell — Mario's
+         vicinity is the most recently SMW-expanded and therefore most
+         trustworthy.
+    """
+    # best[(col,row)] = (is_empty, dist, tile)
+    best: dict[tuple[int, int], tuple[bool, int, int]] = {}
     for t in ticks:
         mcol = t['marioCol']
         lo   = t['lo']
@@ -81,11 +95,18 @@ def stitch(ticks: list[dict]) -> dict[tuple[int, int], int]:
                 col = lo + i
                 if col > hi:
                     break
+                is_empty = (tile == EMPTY)
                 dist = abs(col - mcol)
                 prev = best.get((col, row))
-                if prev is None or dist < prev[0]:
-                    best[(col, row)] = (dist, tile)
-    return {k: v[1] for k, v in best.items()}
+                if prev is None:
+                    best[(col, row)] = (is_empty, dist, tile)
+                elif prev[0] and not is_empty:
+                    # Upgrade: previous was empty, this is non-empty — take it.
+                    best[(col, row)] = (is_empty, dist, tile)
+                elif prev[0] == is_empty and dist < prev[1]:
+                    # Same category (both empty or both non-empty): closer-to-Mario wins.
+                    best[(col, row)] = (is_empty, dist, tile)
+    return {k: v[2] for k, v in best.items()}
 
 
 def write_fixture(grid: dict[tuple[int, int], int], out_path: Path) -> None:

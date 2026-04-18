@@ -2,8 +2,10 @@
  * dispatch.ts -- Routes objects to handlers by reading the ROM pointer tables.
  *
  * The game's dispatch chain for standard objects:
- *   CODE_0DA415 (tileset dispatch) → per-tileset handler (e.g. CODE_0DA44B)
- *       which itself holds a pointer table (ADDR_TILESET0_HANDLERS).
+ *   CODE_0DA415 (tileset dispatch) → per-tileset dispatcher routine
+ *       (one of $0DA44B, $0DC190, $0DCD90, $0DD990, $0DE890)
+ *       which itself holds a 63-entry pointer table immediately after its
+ *       10-byte preamble.
  *
  * Each entry in those tables is a 24-bit SNES pointer to a handler routine. We
  * read the pointer from the ROM, then look it up in a TypeScript map keyed by
@@ -15,7 +17,7 @@ import { Cursor } from './cursor'
 import {
   ADDR_EXTENDED_DISPATCH, EXTENDED_DISPATCH_COUNT,
   ADDR_TILESET_DISPATCH, TILESET_DISPATCH_COUNT,
-  ADDR_TILESET0_HANDLERS, STANDARD_HANDLER_COUNT,
+  STANDARD_HANDLER_COUNT,
   readLongPointer, readLongPointerTable,
 } from './romData'
 import {
@@ -26,6 +28,7 @@ import {
   handle_0DB51F, handle_0DB547, handle_0DB571, handle_0DB5B7,
   handle_0DB73F, handle_0DB7AA,
   handle_0DBA0A,
+  handle_0DD103, handle_0DD145,
 } from './standardHandlers'
 import {
   handle_0DA512, handle_0DA53D, handle_0DA57B,
@@ -59,6 +62,8 @@ export const STANDARD_HANDLERS: Record<number, HandlerFn> = {
   0x0DB73F: handle_0DB73F,
   0x0DB7AA: handle_0DB7AA,
   0x0DBA0A: handle_0DBA0A,
+  0x0DD103: handle_0DD103,
+  0x0DD145: handle_0DD145,
 }
 
 export const EXTENDED_HANDLERS: Record<number, HandlerFn> = {
@@ -93,30 +98,43 @@ export function dispatchExtended(cur: Cursor): void {
 }
 
 /**
+ * Every per-tileset dispatcher in bank_0D has the identical 10-byte preamble:
+ *
+ *   SEP #$30         ; 2 bytes
+ *   LDX.B LvlLoadObjNo ; 2 bytes
+ *   DEX              ; 1 byte
+ *   TXA              ; 1 byte
+ *   JSL ExecutePtrLong ; 4 bytes
+ *
+ * The 63-entry `dl` handler pointer table immediately follows. Known dispatcher
+ * addresses: $0DA44B (tilesets 0, 7, 12), $0DC190 (1), $0DCD90 (2, 6, 8),
+ * $0DD990 (3, 9, 10, 11, 14), $0DE890 (4, 5, 13). The first ~45 pointer slots
+ * are shared across all five dispatchers; slots 46-63 hold the tileset-specific
+ * object handlers.
+ */
+const DISPATCHER_PREAMBLE_SIZE = 10
+
+/**
  * Resolve a standard-object handler via the tileset dispatch → tileset-specific
- * table → object-number lookup chain.
+ * table → object-number lookup chain. Works for any of the five dispatchers
+ * because their layout is identical; individual handler addresses that we have
+ * not ported yet silently no-op via the STANDARD_HANDLERS map.
  */
 export function dispatchStandard(cur: Cursor): void {
   if (cur.objNo < 1 || cur.objNo > STANDARD_HANDLER_COUNT) return
 
-  // Step 1: tileset-specific dispatch routine address.
+  // Step 1: tileset-specific dispatcher routine address.
   const tilesetIdx = cur.tileset & 0x0F
   if (tilesetIdx >= TILESET_DISPATCH_COUNT) return
   const tilesetHandlerAddr = readLongPointer(cur.rom, ADDR_TILESET_DISPATCH + tilesetIdx * 3)
   if (tilesetHandlerAddr === null) return
-  const tilesetSnesAddr = tilesetHandlerAddr & 0xFFFFFF
+  const dispatcherSnesAddr = tilesetHandlerAddr & 0xFFFFFF
 
-  // Step 2: only CODE_0DA44B (tilesets 0, 7, 12) is fully mapped. Other
-  // tileset-specific dispatchers fall through for now.
-  if (tilesetSnesAddr !== 0x0DA44B) {
-    // TODO: port CODE_0DC190, CODE_0DCD90, CODE_0DD990, CODE_0DE890.
-    // For now, do nothing — unhandled tileset objects stay as empty ($25).
-    return
-  }
-
-  // Step 3: look up handler pointer for this object number (1-based index).
+  // Step 2: the handler pointer table lives immediately after the dispatcher's
+  // 10-byte preamble. Look up this tileset's entry for the 1-based objNo.
+  const handlerTableAddr = dispatcherSnesAddr + DISPATCHER_PREAMBLE_SIZE
   const handlerPtrTable = readLongPointerTable(
-    cur.rom, ADDR_TILESET0_HANDLERS, STANDARD_HANDLER_COUNT,
+    cur.rom, handlerTableAddr, STANDARD_HANDLER_COUNT,
   )
   const handlerAddr = handlerPtrTable[cur.objNo - 1] & 0xFFFFFF
   const handler = STANDARD_HANDLERS[handlerAddr]
