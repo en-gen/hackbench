@@ -240,7 +240,14 @@ Features that can be developed independently on separate branches/worktrees:
 
 ## Testing & Coverage
 
-Cross-cutting — applies to every phase. Current baseline: **~65% line / ~61% function coverage on `src/rom/`**, measured by vitest + v8. `LcLz2` is fully validated in CI against an independent reference (see below).
+Cross-cutting — applies to every phase. Current baseline: **~65% line / ~61% function coverage on `src/rom/`**, measured by vitest + v8.
+
+**Legal floor — read first:** HackBench distributes no SMW ROM data in any
+form. Tests that touch ROM content are either synthetic (hand-crafted
+original inputs, CI-runnable) or developer-local (gated on the presence
+of the user's own legally owned ROM, never committed). See
+[docs/testing.md](./testing.md) for the detailed policy and how to set up
+a local ROM for the richer tests.
 
 ### Problem: ROM-gated tests don't run in CI
 
@@ -250,8 +257,9 @@ Cross-cutting — applies to every phase. Current baseline: **~65% line / ~61% f
 
 | Priority | Area | Approach | Rationale |
 |---|---|---|---|
-| ✅ Done | ~~`LcLz2` decompressor~~ | 50 compressed/decompressed input/output pairs at `test/fixtures/gfx/`, generated from the vanilla ROM via the vendored [snesrev/smw](../tools/vendor/snesrev-smw/) Python decoder (independent implementation). Runs in CI without a ROM. See [`test/suite/unit/LcLz2.fixtures.test.ts`](../test/suite/unit/LcLz2.fixtures.test.ts). | Landed 2026-04-18 |
-| 🔴 High | **Critical-path ROM parsing** — `GraphicsDecoder`, `addressing`, `LevelParser` header + object/sprite stream, `Map16` loaders | Same fixture-based approach as LcLz2: record byte-range snapshots from a real ROM, commit the recorded fixtures, run against fixtures in CI | These modules are load-bearing for every feature; a silent regression breaks all downstream rendering |
+| ✅ Done | ~~`LcLz2` decompressor~~ | Hand-crafted synthetic test vectors at [`test/suite/unit/LcLz2.synthetic.test.ts`](../test/suite/unit/LcLz2.synthetic.test.ts) exercise every LC_LZ2 command + edge cases with original inputs (no ROM content). Local-only cross-validation against the vendored [snesrev/smw](../tools/vendor/snesrev-smw/) Python decoder is available via [`tools/dump-vanilla-gfx.py`](../tools/dump-vanilla-gfx.py) + a developer-authored `*.fixtures.test.ts` (fixtures stay under `test/fixtures/`, gitignored). | Landed 2026-04-18 |
+| 🔴 High | **Critical-path ROM parsing** — `GraphicsDecoder`, `addressing`, `LevelParser` header + object/sprite stream, `Map16` loaders | Follow the LcLz2 pattern: synthetic inputs in CI + optional local fixtures from the developer's ROM for richer spot-checking | These modules are load-bearing for every feature; a silent regression breaks all downstream rendering |
+| 🟡 Med | **`PaletteLoader.buildLevelCgram`** — broaden reference coverage | Enumerate all 512 level headers to find the minimal set of unique `(bgColor, bgPalette, fgPalette, spritePalette, spriteSet)` tuples, capture a CGRAM dump from Mesen at each representative level (dumps stay local), assert byte-for-byte match per level. Planned follow-up. | Currently only level $104 is validated against a Mesen CGRAM dump — single point in a 5-dimensional parameter space. |
 | 🔴 High | **Object handlers** (`src/rom/objectHandlers/*`) | Per-handler table-driven tests: `(cursor state + object bytes) → expected Map16 grid writes`. Currently only ~15 of ~55 have coverage. | Object expansion has been the buggiest area historically (slopes, pipes, screen-jumps); regressions here are subtle |
 | 🟡 Med | **LCR-LE / LcRle1** decompressor | Round-trip fixtures + known edge cases (max-run, terminator handling) | Used for L2 backgrounds; small but easy to break |
 | 🟡 Med | **`PaletteLoader.buildLevelCgram`** row selection logic | Table-driven per-level-header permutations | Complex conditional logic, history of off-by-one bugs |
@@ -260,10 +268,24 @@ Cross-cutting — applies to every phase. Current baseline: **~65% line / ~61% f
 
 ### Approach for fixture-based testing
 
-1. **Fixture generation script** (one-off, needs ROM): dumps deterministic byte ranges from `test/roms/smw.sfc` into `test/fixtures/*.bin` — decompressed GFX tiles, palette bytes, sample level object streams.
-2. **Fixtures are committed as narrow-as-possible byte ranges** — small, test-specific slices (e.g., a single decompressed palette group, one level header). Following community norms around derived-data distribution (cf. SMW Central's AllGFX.bin), but kept deliberately minimal. Not a full ROM dump. Legal posture: this is a grey area and worth revisiting if Nintendo ever sends a takedown in the SMW hacking scene (none to date).
-3. **Tests run against fixtures in CI.** No ROM required, real coverage numbers.
-4. **Live-ROM tests remain `skipIf(!romPresent)`** as a belt-and-suspenders check for developers with a ROM on hand.
+**ROM data is never committed.** The project's legal position is that
+decompressed GFX bytes, CGRAM dumps, tilemap snapshots, and every other
+byte slice derived from the ROM are Nintendo's copyrighted property and
+cannot live in the repo — even under a "narrow fixture" framing.
+
+The workflow instead:
+
+1. **CI uses synthetic inputs only** — hand-crafted byte sequences
+   authored from format specifications, original to this project.
+2. **Developers who own a legal ROM can opt into richer local tests** by
+   running scripts like [`tools/dump-vanilla-gfx.py`](../tools/dump-vanilla-gfx.py)
+   to generate fixtures under `test/fixtures/` (gitignored).
+3. **Fixture-backed tests are gated on fixture presence** via
+   `existsSync()` and never committed in a form that requires ROM bytes
+   to pass CI.
+
+See [docs/testing.md](./testing.md) for the full policy and how to
+contribute new tests that respect it.
 
 ### Coverage gate (future)
 

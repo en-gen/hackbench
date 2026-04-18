@@ -1,22 +1,37 @@
 """
-Dump all 50 vanilla SMW GFX files as decompressed .bin fixtures for tests.
+Developer-only script: dump vanilla SMW GFX files to LOCAL fixtures.
 
-Uses the vendored snesrev/smw LC_LZ2 decompressor (tools/vendor/snesrev-smw/util.py)
-as an INDEPENDENT reference — it's written in Python, completely separate from
-our TypeScript src/rom/LcLz2.ts. A regression in our decompressor will surface
-as a byte-for-byte mismatch against the fixtures emitted here.
+========================================================================
+  ⚠  HackBench distributes no SMW ROM data, decompressed or otherwise.
+     This script produces Nintendo-copyrighted output on YOUR machine
+     only. Never commit anything it writes. The output directory is
+     gitignored; keep it that way. See docs/testing.md.
+========================================================================
+
+For developers who own a legal copy of Super Mario World (USA), this
+script builds a local set of LC_LZ2 compressed/decompressed pairs that
+can back cross-validation tests for src/rom/LcLz2.ts.
+
+The reference decompressor is the Python `decomp()` from the vendored
+snesrev/smw project (tools/vendor/snesrev-smw/util.py, MIT). It's a
+completely independent implementation from our TypeScript code, so a
+bug in ours will surface as a byte mismatch.
 
 Usage:
+  # Place your vanilla ROM first (gitignored):
+  #   test/roms/Super Mario World (USA).vanilla.sfc
+  #   SHA-1: 6B47BB75D16514B6A476AA0C73A683A2A4C18765
   python tools/dump-vanilla-gfx.py
 
-Reads:   test/roms/Super Mario World (USA).vanilla.sfc
-Writes:  test/fixtures/gfx/GFX<HH>.bin      (50 files, decompressed bytes)
-         test/fixtures/gfx/GFX<HH>.lz2.bin  (50 files, raw compressed slices
-                                             including the $FF terminator)
+Reads:   test/roms/Super Mario World (USA).vanilla.sfc   (your ROM)
+Writes:  test/fixtures/gfx/GFX<HH>.bin      (decompressed bytes)
+         test/fixtures/gfx/GFX<HH>.lz2.bin  (raw compressed slices)
 
-Committing both the compressed inputs AND the expected decompressed outputs
-lets LcLz2 tests run in CI without the ROM present. See THIRD_PARTY_LICENSES.md
-for attribution to snesrev/smw (MIT).
+The CI test suite uses *synthetic* LC_LZ2 vectors (no ROM content) in
+test/suite/unit/LcLz2.synthetic.test.ts. If you want the richer
+fixture-based validation locally, write a *.fixtures.test.ts guarded by
+existsSync() — don't commit that file unless it also works fine without
+the fixtures present.
 """
 
 import os
