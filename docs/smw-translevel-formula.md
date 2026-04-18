@@ -13,14 +13,14 @@ else:
 
 ## Overworld-Accessible Pointer Table Ranges
 
-- **$000–$024** — Main overworld (37 slots)
-- **$101–$13B** — Submaps (59 slots)
+- **$000–$024** - Main overworld (37 slots)
+- **$101–$13B** - Submaps (59 slots)
 - **Total: 96** overworld-accessible level slots
 
 ## NOT Overworld-Accessible
 
-- **$025–$0FF** — Secondary exits (pipes, doors, subareas, bonus rooms)
-- **$13C–$1FF** — More secondary exits and unused slots
+- **$025–$0FF** - Secondary exits (pipes, doors, subareas, bonus rooms)
+- **$13C–$1FF** - More secondary exits and unused slots
 
 ## Implementation
 

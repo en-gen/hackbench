@@ -31,7 +31,7 @@ Where S = submap flag (`$7E:1F11` != 0).
 
 ## Level Flags Table
 
-`$7E:1EA2–$7E:1F01` — 96 bytes, indexed **directly by translevel** (0x00–0x5F).
+`$7E:1EA2–$7E:1F01` - 96 bytes, indexed **directly by translevel** (0x00–0x5F).
 
 | Bit | Mask | Meaning              |
 |-----|------|----------------------|

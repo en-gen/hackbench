@@ -1,4 +1,4 @@
-# SNES Super Famicom Wiki — Selected Technical Reference
+# SNES Super Famicom Wiki - Selected Technical Reference
 
 Compiled from:
 - https://wiki.superfamicom.org/palettes
@@ -54,7 +54,7 @@ B = B / 8
 Color = B × 1024 + G × 32 + R
 ```
 
-**Example — White (255, 255, 255):**
+**Example - White (255, 255, 255):**
 
 ```
 R = 255 / 8 = 31
@@ -185,7 +185,7 @@ bit 7 of byte OBJ/4: s (size flag for sprite OBJ*4+3)
 |---|---|---|
 | X position | 9 bits total | Low 8 from low table byte 0; bit 8 (sign/overflow) from high table. Signed: 0–239 on-screen, -63 to -1 off-left |
 | Y position | 8 bits | 0–239 on-screen; -63 to -1 off-top |
-| Tile | 8 bits | `rrrrcccc` — row (high 4 bits) and column (low 4 bits) in a 16×16 tile table |
+| Tile | 8 bits | `rrrrcccc` - row (high 4 bits) and column (low 4 bits) in a 16×16 tile table |
 | Palette | 3 bits (ppp) | Selects from 8 sprite palettes; maps to CGRAM indices 128+ppp×16 through 128+ppp×16+15 |
 | Priority | 2 bits (oo) | Sprite-to-background priority (0=lowest, 3=highest) |
 | H-flip | 1 bit (h) | Horizontal flip |
@@ -216,7 +216,7 @@ Where:
 - `Name` = Name Select bits from `$2101` (bits 0–2)
 - `cccccccc` = tile byte from OAM byte 2
 
-### Register $2101 — Object Size and Character Address
+### Register $2101 - Object Size and Character Address
 
 | Bits | Field | Description |
 |---|---|---|
@@ -296,21 +296,21 @@ Each tile is linked to its X position (accounting for 256/−256 wrap), palette,
 
 Source: https://wiki.superfamicom.org/backgrounds
 
-## BG Mode Selection — Register $2105 (BGMODE)
+## BG Mode Selection - Register $2105 (BGMODE)
 
 Bits 0–2 select the background mode:
 
 | Mode | BG1 colors | BG2 colors | BG3 colors | BG4 colors |
 |---|---|---|---|---|
 | 0 | 4 | 4 | 4 | 4 |
-| 1 | 16 | 16 | 4 | — |
-| 2 | 16 | 16 | — | — |
-| 3 | 256 | 16 | — | — |
-| 4 | 256 | 4 | — | — |
-| 5 | 16 | 4 | — | — |
-| 6 | 16 | — | — | — |
-| 7 | 256 | — | — | — |
-| 7EXTBG | 256 | 128 | — | — |
+| 1 | 16 | 16 | 4 | - |
+| 2 | 16 | 16 | - | - |
+| 3 | 256 | 16 | - | - |
+| 4 | 256 | 4 | - | - |
+| 5 | 16 | 4 | - | - |
+| 6 | 16 | - | - | - |
+| 7 | 256 | - | - | - |
+| 7EXTBG | 256 | 128 | - | - |
 
 Additional $2105 bits:
 
@@ -329,7 +329,7 @@ In all modes and for all BGs, color 0 in any palette is considered transparent.
 
 ## Tilemap Configuration
 
-### Register $2107–$210A (BGnSC — BG Screen Base and Size)
+### Register $2107–$210A (BGnSC - BG Screen Base and Size)
 
 One register per BG layer (BG1=$2107, BG2=$2108, BG3=$2109, BG4=$210A):
 
@@ -369,7 +369,7 @@ Byte layout (high byte first, then low byte):
   v          = Vertical flip (1=flipped)
   h          = Horizontal flip (1=flipped)
   o          = Tile priority bit (0 or 1)
-  ppp        = Palette number (3 bits; meaning varies by mode — see mode sections)
+  ppp        = Palette number (3 bits; meaning varies by mode - see mode sections)
   cccccccccc = Tile/character number (10 bits)
 ```
 
@@ -391,7 +391,7 @@ Where:
 
 ## Character Data (CHR) Address
 
-### Registers $210B–$210C (BGnCHR — BG Character Data Address)
+### Registers $210B–$210C (BGnCHR - BG Character Data Address)
 
 | Register | Bits 3–0 | Bits 7–4 |
 |---|---|---|
@@ -422,8 +422,8 @@ When the appropriate tile size bit of `$2105` is set, each entry in the tilemap 
 
 | Register | Description |
 |---|---|
-| $210D | BG1 Horizontal Scroll (BGnHOFS) — also Mode 7 H scroll |
-| $210E | BG1 Vertical Scroll (BGnVOFS) — also Mode 7 V scroll |
+| $210D | BG1 Horizontal Scroll (BGnHOFS) - also Mode 7 H scroll |
+| $210E | BG1 Vertical Scroll (BGnVOFS) - also Mode 7 V scroll |
 | $210F | BG2 Horizontal Scroll |
 | $2110 | BG2 Vertical Scroll |
 | $2111 | BG3 Horizontal Scroll |
@@ -624,7 +624,7 @@ ByteAddr = (((TileData << 6) + ((Y & 7) << 3) + (X & 7)) << 1) + 1
 
 Mode 7 supports full matrix transformation. See registers `$211B–$2120` for the transformation formula. HDMA can change the matrix per scanline for perspective effects.
 
-### Register $211A (M7SEL) — Mode 7 Settings
+### Register $211A (M7SEL) - Mode 7 Settings
 
 | Bits | Description |
 |---|---|
@@ -697,7 +697,7 @@ The SNES provides two masking windows (Window 1 and Window 2). Windows can mask 
 
 ## Window Enable Registers
 
-### $212A (WBGLOG) — Window Logic for BG Layers
+### $212A (WBGLOG) - Window Logic for BG Layers
 
 Controls how Window 1 and Window 2 are combined for each BG:
 
@@ -708,7 +708,7 @@ Controls how Window 1 and Window 2 are combined for each BG:
 | 5–4 | BG3 | Window 1+2 combination logic |
 | 7–6 | BG4 | Window 1+2 combination logic |
 
-### $212B (WOBJLOG) — Window Logic for OBJ and Color Window
+### $212B (WOBJLOG) - Window Logic for OBJ and Color Window
 
 | Bits | Layer | Description |
 |---|---|---|
@@ -726,7 +726,7 @@ Controls how Window 1 and Window 2 are combined for each BG:
 
 ## Window Layer Enable Registers
 
-### $2123 (WBG12EN) — Window Enable for BG1 and BG2
+### $2123 (WBG12EN) - Window Enable for BG1 and BG2
 
 | Bits | Description |
 |---|---|
@@ -739,21 +739,21 @@ Controls how Window 1 and Window 2 are combined for each BG:
 | 6 | BG2 Window 2 enable |
 | 7 | BG2 Window 2 invert |
 
-### $2124 (WBG34EN) — Window Enable for BG3 and BG4
+### $2124 (WBG34EN) - Window Enable for BG3 and BG4
 
 Same structure as $2123 but for BG3 (bits 0–3) and BG4 (bits 4–7).
 
-### $2125 (WOBJSEN) — Window Enable for OBJ and Color Window
+### $2125 (WOBJSEN) - Window Enable for OBJ and Color Window
 
 Same structure as $2123 but for OBJ (bits 0–3) and Color Window (bits 4–7).
 
 ## Main Screen and Sub-Screen Masking
 
-### $212E (WSEL) — Window Mask for Main Screen
+### $212E (WSEL) - Window Mask for Main Screen
 
 Controls which layers are clipped on the main screen by the window mask.
 
-### $212F (WSEL) — Window Mask for Sub Screen
+### $212F (WSEL) - Window Mask for Sub Screen
 
 Controls which layers are clipped on the sub-screen by the window mask.
 
@@ -764,7 +764,7 @@ The color window has two distinct functions, both controlled by register `$2130`
 1. **Color clipping:** Clips pixel colors to black (color 0) inside/outside the window
 2. **Color math prevention:** Prevents color math from being applied inside/outside the window
 
-### Register $2130 (CGWSEL) — Color Addition Select
+### Register $2130 (CGWSEL) - Color Addition Select
 
 | Bits | Description |
 |---|---|
@@ -805,7 +805,7 @@ The SNES renders two independent screens:
 
 Each of the 5 layers (BG1, BG2, BG3, BG4, OBJ) can independently appear on the main screen, the sub-screen, or both.
 
-### $212C (MSCREEN) — Main Screen Designation
+### $212C (MSCREEN) - Main Screen Designation
 
 | Bit | Layer |
 |---|---|
@@ -815,7 +815,7 @@ Each of the 5 layers (BG1, BG2, BG3, BG4, OBJ) can independently appear on the m
 | 3 | BG4 on main screen |
 | 4 | OBJ on main screen |
 
-### $212D (SSCREEN) — Sub-Screen Designation
+### $212D (SSCREEN) - Sub-Screen Designation
 
 Same bit layout as $212C, but for the sub-screen.
 
@@ -866,7 +866,7 @@ This allows asymmetric mosaic blocks:
 
 Color math is applied after per-layer rendering and window masking.
 
-### Register $2131 (CGADSUB) — Color Math Control
+### Register $2131 (CGADSUB) - Color Math Control
 
 | Bits | Description |
 |---|---|
@@ -879,7 +879,7 @@ Color math is applied after per-layer rendering and window masking.
 | 1 | Enable color math for BG2 |
 | 0 | Enable color math for BG1 |
 
-### Register $2132 (COLDATA) — Fixed Color Data
+### Register $2132 (COLDATA) - Fixed Color Data
 
 Sets the fixed color used when sub-screen is not enabled or the sub-screen pixel is transparent.
 
@@ -994,7 +994,7 @@ Rarely used in practice (produces extremely dark results).
 
 - **Two-layer maximum:** Color math always occurs between exactly 2 pixels from different layers. At most two layers participate in a single transparency operation.
 - **Sprite restriction:** A sprite cannot be transparent through another sprite, because all sprites are merged into a single layer. Multiple transparent objects can exist but cannot overlap without clipping.
-- **Sprite palette constraint:** For sprite layers, color math is either always disabled, or — if enabled — only sprites using palettes 4–7 receive the effect. Palettes 0–3 are never affected by color math.
+- **Sprite palette constraint:** For sprite layers, color math is either always disabled, or - if enabled - only sprites using palettes 4–7 receive the effect. Palettes 0–3 are never affected by color math.
 
 ## Main Screen / Sub-Screen Architecture
 

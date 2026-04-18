@@ -1,4 +1,4 @@
-# HackBench — Feature Roadmap
+# HackBench - Feature Roadmap
 
 **Goal:** An open-source, community-driven VS Code extension that fully replaces Lunar Magic as the primary Super Mario World ROM editor.
 
@@ -6,7 +6,7 @@
 
 ---
 
-## Phase 0 — Foundation (current)
+## Phase 0 - Foundation (current)
 
 Get the level viewer rendering correctly. Everything else builds on this.
 
@@ -30,24 +30,24 @@ Get the level viewer rendering correctly. Everything else builds on this.
 
 ---
 
-## Phase 1 — Correct Rendering
+## Phase 1 - Correct Rendering
 
 Complete the viewer so every level renders pixel-accurately.
 
 | Feature | Complexity | ROM Reference | Description |
 |---------|-----------|---------------|-------------|
 | Tileset-aware Map16 loading | Medium | `$058000` (TilesetMAP16Loc), `$0581BB` (bitmap) | Page 0 tiles vary by tileset; build dynamic lookup |
-| Map16 subtile order fix | Easy | — | Swap w1/w2 (column-major: TL, BL, TR, BR) |
+| Map16 subtile order fix | Easy | - | Swap w1/w2 (column-major: TL, BL, TR, BR) |
 | Remaining object handlers | Hard | `$0DA100` (extended), `$0DA40F` (normal) in bank_0D | ~40 unimplemented object types |
 | L2 texture rendering | Medium | `$05E600` (L2 pointers), bank $0D | Render L2 as textured tiles, not just blocks |
 | Animated tile cycling | Medium | `$05B93B` (AnimatedTileData), 5-frame cycle | Water, lava, coins, question blocks, berries |
 | Layer 3 tides/effects | Medium | `$008A79` (Layer3TilemapSettings) | Parallax, water level overlays |
 | Correct sprite rendering | Hard | Banks $01-$03 sprite routines | Show sprite graphics instead of red squares |
-| Level canvas viewport culling | Medium | — | Current renderer allocates one backing `<canvas>` sized to the whole level × zoom. Chrome/Firefox cap canvases at 16384 px per side, so we clamp zoom on wide levels. The proper fix: size the canvas to the viewport (`canvas-wrap.clientWidth/Height`), use a spacer div to drive the scrollbar, and on scroll re-render only the tile range that intersects the viewport. Removes the zoom cap entirely and is cheap per-frame (a few thousand blits). Localized to `redraw()` and a new scroll handler. |
+| Level canvas viewport culling | Medium | - | Current renderer allocates one backing `<canvas>` sized to the whole level × zoom. Chrome/Firefox cap canvases at 16384 px per side, so we clamp zoom on wide levels. The proper fix: size the canvas to the viewport (`canvas-wrap.clientWidth/Height`), use a spacer div to drive the scrollbar, and on scroll re-render only the tile range that intersects the viewport. Removes the zoom cap entirely and is cheap per-frame (a few thousand blits). Localized to `redraw()` and a new scroll handler. |
 
 ---
 
-## Phase 2 — Read-Only Browsing & Inspection
+## Phase 2 - Read-Only Browsing & Inspection
 
 Make the extension a comprehensive ROM analysis tool.
 
@@ -64,7 +64,7 @@ Make the extension a comprehensive ROM analysis tool.
 
 ---
 
-## Phase 3 — Level Editing (Write Support)
+## Phase 3 - Level Editing (Write Support)
 
 The core editing experience. This is what replaces Lunar Magic's primary function.
 
@@ -73,7 +73,7 @@ The core editing experience. This is what replaces Lunar Magic's primary functio
 | Level header editing | Easy | 5-byte header at L1 data start | UI controls for all header fields |
 | Object placement/removal | Medium | L1 object stream format (3-byte entries) | Click to place, drag to size, delete |
 | Sprite placement/removal | Medium | Sprite data format (3-byte entries at $05EC00) | Place sprites from catalog |
-| Undo/redo stack | Medium | — | In-memory edit history |
+| Undo/redo stack | Medium | - | In-memory edit history |
 | Save modified level to ROM | Hard | Must rewrite object stream, update pointer table | Write back to ROM file preserving structure |
 | Map16 tile picker | Easy | Map16 panel integration | Click a Map16 tile to use as brush |
 | Screen management | Medium | Header byte 0 [4:0] (screen count) | Add/remove screens, resize levels |
@@ -82,7 +82,7 @@ The core editing experience. This is what replaces Lunar Magic's primary functio
 
 ---
 
-## Phase 4 — Graphics & Palette Editing
+## Phase 4 - Graphics & Palette Editing
 
 | Feature | Complexity | ROM Reference | Description |
 |---------|-----------|---------------|-------------|
@@ -95,7 +95,7 @@ The core editing experience. This is what replaces Lunar Magic's primary functio
 
 ---
 
-## Phase 5 — Overworld Editing
+## Phase 5 - Overworld Editing
 
 | Feature | Complexity | ROM Reference | Description |
 |---------|-----------|---------------|-------------|
@@ -106,7 +106,7 @@ The core editing experience. This is what replaces Lunar Magic's primary functio
 
 ---
 
-## Phase 6 — Audio
+## Phase 6 - Audio
 
 | Feature | Complexity | ROM Reference | Description |
 |---------|-----------|---------------|-------------|
@@ -117,7 +117,7 @@ The core editing experience. This is what replaces Lunar Magic's primary functio
 
 ---
 
-## Phase 7 — ROM Expansion & Advanced
+## Phase 7 - ROM Expansion & Advanced
 
 | Feature | Complexity | ROM Reference | Description |
 |---------|-----------|---------------|-------------|
@@ -130,7 +130,7 @@ The core editing experience. This is what replaces Lunar Magic's primary functio
 
 ---
 
-## Phase 8 — SMWCentral Integration
+## Phase 8 - SMWCentral Integration
 
 Connect to the SMWCentral API to offer a built-in library of community resources.
 
@@ -148,7 +148,7 @@ Connect to the SMWCentral API to offer a built-in library of community resources
 
 ---
 
-## Phase 9 — Polish & Community
+## Phase 9 - Polish & Community
 
 | Feature | Complexity | Description |
 |---------|-----------|-------------|
@@ -240,9 +240,9 @@ Features that can be developed independently on separate branches/worktrees:
 
 ## Testing & Coverage
 
-Cross-cutting — applies to every phase. Current baseline: **~65% line / ~61% function coverage on `src/rom/`**, measured by vitest + v8.
+Cross-cutting - applies to every phase. Current baseline: **~65% line / ~61% function coverage on `src/rom/`**, measured by vitest + v8.
 
-**Legal floor — read first:** HackBench distributes no SMW ROM data in any
+**Legal floor - read first:** HackBench distributes no SMW ROM data in any
 form. Tests that touch ROM content are either synthetic (hand-crafted
 original inputs, CI-runnable) or developer-local (gated on the presence
 of the user's own legally owned ROM, never committed). See
@@ -251,15 +251,15 @@ a local ROM for the richer tests.
 
 ### Problem: ROM-gated tests don't run in CI
 
-~20 unit/integration tests are gated behind `skipIf(!romPresent)` because they need a real SMW ROM at `test/roms/smw.sfc` — legally non-distributable, gitignored. CI never runs them. A regression in code only exercised by those tests would not fail a PR.
+~20 unit/integration tests are gated behind `skipIf(!romPresent)` because they need a real SMW ROM at `test/roms/smw.sfc` - legally non-distributable, gitignored. CI never runs them. A regression in code only exercised by those tests would not fail a PR.
 
 ### Targets
 
 | Priority | Area | Approach | Rationale |
 |---|---|---|---|
 | ✅ Done | ~~`LcLz2` decompressor~~ | Hand-crafted synthetic test vectors at [`test/suite/unit/LcLz2.synthetic.test.ts`](../test/suite/unit/LcLz2.synthetic.test.ts) exercise every LC_LZ2 command + edge cases with original inputs (no ROM content). Local-only cross-validation against the vendored [snesrev/smw](../tools/vendor/snesrev-smw/) Python decoder is available via [`tools/scripts/dump-vanilla-gfx.py`](../tools/scripts/dump-vanilla-gfx.py) + a developer-authored `*.fixtures.test.ts` (fixtures stay under `test/fixtures/`, gitignored). | Landed 2026-04-18 |
-| 🔴 High | **Critical-path ROM parsing** — `GraphicsDecoder`, `addressing`, `LevelParser` header + object/sprite stream, `Map16` loaders | Follow the LcLz2 pattern: synthetic inputs in CI + optional local fixtures from the developer's ROM for richer spot-checking | These modules are load-bearing for every feature; a silent regression breaks all downstream rendering |
-| 🟡 Med | **`PaletteLoader.buildLevelCgram`** — broaden reference coverage | Enumerate all 512 level headers to find the minimal set of unique `(bgColor, bgPalette, fgPalette, spritePalette, spriteSet)` tuples, capture a CGRAM dump from Mesen at each representative level (dumps stay local), assert byte-for-byte match per level. Planned follow-up. | Currently only level $104 is validated against a Mesen CGRAM dump — single point in a 5-dimensional parameter space. |
+| 🔴 High | **Critical-path ROM parsing** - `GraphicsDecoder`, `addressing`, `LevelParser` header + object/sprite stream, `Map16` loaders | Follow the LcLz2 pattern: synthetic inputs in CI + optional local fixtures from the developer's ROM for richer spot-checking | These modules are load-bearing for every feature; a silent regression breaks all downstream rendering |
+| 🟡 Med | **`PaletteLoader.buildLevelCgram`** - broaden reference coverage | Enumerate all 512 level headers to find the minimal set of unique `(bgColor, bgPalette, fgPalette, spritePalette, spriteSet)` tuples, capture a CGRAM dump from Mesen at each representative level (dumps stay local), assert byte-for-byte match per level. Planned follow-up. | Currently only level $104 is validated against a Mesen CGRAM dump - single point in a 5-dimensional parameter space. |
 | 🔴 High | **Object handlers** (`src/rom/objectHandlers/*`) | Per-handler table-driven tests: `(cursor state + object bytes) → expected Map16 grid writes`. Currently only ~15 of ~55 have coverage. | Object expansion has been the buggiest area historically (slopes, pipes, screen-jumps); regressions here are subtle |
 | 🟡 Med | **LCR-LE / LcRle1** decompressor | Round-trip fixtures + known edge cases (max-run, terminator handling) | Used for L2 backgrounds; small but easy to break |
 | 🟡 Med | **`PaletteLoader.buildLevelCgram`** row selection logic | Table-driven per-level-header permutations | Complex conditional logic, history of off-by-one bugs |
@@ -271,11 +271,11 @@ a local ROM for the richer tests.
 **ROM data is never committed.** The project's legal position is that
 decompressed GFX bytes, CGRAM dumps, tilemap snapshots, and every other
 byte slice derived from the ROM are Nintendo's copyrighted property and
-cannot live in the repo — even under a "narrow fixture" framing.
+cannot live in the repo - even under a "narrow fixture" framing.
 
 The workflow instead:
 
-1. **CI uses synthetic inputs only** — hand-crafted byte sequences
+1. **CI uses synthetic inputs only** - hand-crafted byte sequences
    authored from format specifications, original to this project.
 2. **Developers who own a legal ROM can opt into richer local tests** by
    running scripts like [`tools/scripts/dump-vanilla-gfx.py`](../tools/scripts/dump-vanilla-gfx.py)
@@ -289,7 +289,7 @@ contribute new tests that respect it.
 
 ### Coverage gate (future)
 
-Once critical-path coverage hits ~80%, add a CI step that fails PRs which reduce line coverage below a threshold (vitest + `--coverage.thresholds`). Don't add this yet — threshold gates create noise when the baseline is still moving.
+Once critical-path coverage hits ~80%, add a CI step that fails PRs which reduce line coverage below a threshold (vitest + `--coverage.thresholds`). Don't add this yet - threshold gates create noise when the baseline is still moving.
 
 ---
 

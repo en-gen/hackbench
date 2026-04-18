@@ -1,4 +1,4 @@
-# Super Mario World — ROM Format Reference
+# Super Mario World - ROM Format Reference
 
 Sources:
 - SMWDisX disassembly (github.com/IsoFrieze/SMWDisX)
@@ -89,7 +89,7 @@ bank = ROM[$00B9F6 + N]
 snesAddr = (bank << 16) | (hi << 8) | lo
 ```
 
-**Pointer table range:** The pointer tables at $B992/$B9C4/$B9F6 have exactly 50 entries each (spacing $32 = 50 bytes between lo/hi/bank tables). Our code sets `GFX_FILE_COUNT = 50` (indices 0–49, LM names GFX00–GFX31 hex). The last two files in the 52-file LM count (LM GFX32 = decimal 50, LM GFX33 = decimal 51) may use separate pointer storage or may not exist in vanilla — **needs verification**.
+**Pointer table range:** The pointer tables at $B992/$B9C4/$B9F6 have exactly 50 entries each (spacing $32 = 50 bytes between lo/hi/bank tables). Our code sets `GFX_FILE_COUNT = 50` (indices 0–49, LM names GFX00–GFX31 hex). The last two files in the 52-file LM count (LM GFX32 = decimal 50, LM GFX33 = decimal 51) may use separate pointer storage or may not exist in vanilla - **needs verification**.
 
 **Naming convention:** LM uses hex file names. Decimal index 32 = LM "GFX20", decimal 33 = LM "GFX21", etc. Our code uses decimal indices throughout.
 
@@ -102,7 +102,7 @@ snesAddr = (bank << 16) | (hi << 8) | lo
 | Format | Bytes/tile | Colors | Used by |
 |---|---|---|---|
 | 4bpp | 32 | 16 | Standard GFX files (most terrain, sprites) |
-| 3bpp | 24 | 8 | GFX32 (Mario) — SNES hardware doesn't support natively; game inserts 4th bitplane at runtime |
+| 3bpp | 24 | 8 | GFX32 (Mario) - SNES hardware doesn't support natively; game inserts 4th bitplane at runtime |
 | 2bpp | 16 | 4 | Layer 3 GFX files |
 | Mode 7 / 8bpp | 64 | 256 | GFX27 (Iggy/Larry platform, Reznor BG) |
 
@@ -116,14 +116,14 @@ snesAddr = (bank << 16) | (hi << 8) | lo
 ```
 Bitplanes 1+2 interleaved (row by row), then bitplanes 3+4 interleaved.
 
-### 3bpp Tile Format (24 bytes per tile — GFX32/Mario only)
+### 3bpp Tile Format (24 bytes per tile - GFX32/Mario only)
 
 ```
 [r0,bp1] [r0,bp2] [r1,bp1] [r1,bp2] ... [r7,bp1] [r7,bp2]   (16 bytes: bp1+bp2 interleaved)
 [r0,bp3] [r1,bp3] [r2,bp3] [r3,bp3] [r4,bp3] [r5,bp3] [r6,bp3] [r7,bp3]   (8 bytes: bp3 flat)
 ```
 
-### 2bpp Tile Format (16 bytes per tile — Layer 3)
+### 2bpp Tile Format (16 bytes per tile - Layer 3)
 
 ```
 [r0,bp1] [r0,bp2] [r1,bp1] [r1,bp2] ... [r7,bp1] [r7,bp2]   (bp1+bp2 interleaved)
@@ -174,7 +174,7 @@ Bitplanes 1+2 interleaved (row by row), then bitplanes 3+4 interleaved.
 | GFX24 | 24 | Mechakoopa, Bowser Fire |
 | GFX25 | 25 | Iggy, Larry, Reznor |
 | GFX26 | 26 | Credits Yoshi |
-| GFX27 | 27 | Iggy Platform, Reznor Background (Mode 7 — 8bpp, not standard 4bpp) |
+| GFX27 | 27 | Iggy Platform, Reznor Background (Mode 7 - 8bpp, not standard 4bpp) |
 | GFX28 | 28 | HUD Letters |
 | GFX29 | 29 | Title Screen |
 | GFX2A | 2A | Message Box Letters |
@@ -204,9 +204,9 @@ Header byte: `CCCLLLLL` (C = 3-bit command, L = 5-bit length)
 | 010 | Word Fill | Alternate 2 bytes for (L+1) total bytes written |
 | 011 | Increasing Fill | Write byte, incrementing it each time, (L+1) times |
 | 100 | Back Reference | Copy (L+1) bytes from output buffer at address (2 bytes, big-endian follow) |
-| 101 | (unused) | — |
-| 110 | (unused) | — |
-| 111 | Long Length | 2-byte header: `111CCCLL LLLLLLLL` — 10-bit length, real command in CCC bits |
+| 101 | (unused) | - |
+| 110 | (unused) | - |
+| 111 | Long Length | 2-byte header: `111CCCLL LLLLLLLL` - 10-bit length, real command in CCC bits |
 
 Terminator: `$FF`
 
@@ -224,7 +224,7 @@ Each table is 512 entries × 3 bytes = 1536 bytes. Each entry is a 24-bit SNES a
 | $05E600 | Layer 2 data pointers |
 | $05EC00 | Sprite data pointers |
 
-**Layer 2 bank byte:** If the bank byte of the L2 pointer entry is `$FF`, the pointed-to data is a **background tilemap** compressed in LC_RLE1. Otherwise it is object data in the same format as Layer 1 (but without a primary header — objects start at byte 0).
+**Layer 2 bank byte:** If the bank byte of the L2 pointer entry is `$FF`, the pointed-to data is a **background tilemap** compressed in LC_RLE1. Otherwise it is object data in the same format as Layer 1 (but without a primary header - objects start at byte 0).
 
 ### Primary Level Header (5 bytes, start of Layer 1 object data)
 
@@ -243,8 +243,8 @@ Field notes:
 - **Back area color** (h[1] bits 7–5): indexes into the 8 back area colors at $B0A0; 3 bits → values 0–7
 - **Sprite set** (h[3] bits 3–0): 4-bit index into sprite GFX assignment table at $A8C3; also used to look up tileset ID via $05D760
 - **Sprite palette** (h[3] bits 5–4): 2-bit index into sprite palette sets at $B348
-- **bgTypeId** (h[4] bits 3–0): background type/tileset selector — NOT the GFX tileset index. The GFX tileset index is obtained via `ROM[$05D760 + spriteSet]`.
-- **FG palette** (derived): `spriteSet & 0x07` — lower 3 bits of sprite set field select the FG tile palette variant
+- **bgTypeId** (h[4] bits 3–0): background type/tileset selector - NOT the GFX tileset index. The GFX tileset index is obtained via `ROM[$05D760 + spriteSet]`.
+- **FG palette** (derived): `spriteSet & 0x07` - lower 3 bits of sprite set field select the FG tile palette variant
 
 Note: the speedruns.com/Level_Data_Format wiki lists slightly different byte 3/4 field assignments (PPP=3-bit sprite palette, FFF=3-bit FG palette). Our layout is confirmed by Mesen2 watchpoints on $7E:192B (spriteSet) and visual palette comparison on multiple levels.
 
@@ -282,15 +282,15 @@ Compressed with **LC_RLE1**:
 - Header byte `FLLLLLLL`: F=0 → copy next (L+1) literal bytes; F=1 → repeat next byte (L+1) times
 - Terminator: `$FF $FF`
 
-Decompressed data is a flat array of 16-bit Map16 tile IDs covering the full level grid (screens × 16 columns × 27 rows), stored row-major. **Not yet implemented** — currently we only handle object-based L2.
+Decompressed data is a flat array of 16-bit Map16 tile IDs covering the full level grid (screens × 16 columns × 27 rows), stored row-major. **Not yet implemented** - currently we only handle object-based L2.
 
 ---
 
 ## Map16 Data
 
 - **Location:** Bank $0D (PC £068000)
-- **Format:** 8 bytes per 16×16 tile — four 8×8 sub-tiles, each 2 bytes
-- **Sub-tile word format:** `YXPCCCTT TTTTTTTT` — Y/X flip, Priority, Palette (CCC), Tile number (TT TTTTTTTT)
+- **Format:** 8 bytes per 16×16 tile - four 8×8 sub-tiles, each 2 bytes
+- **Sub-tile word format:** `YXPCCCTT TTTTTTTT` - Y/X flip, Priority, Palette (CCC), Tile number (TT TTTTTTTT)
 - **VRAM pages:** Page 0 starts at SNES $0D8000, Page 1 at $0DC000 (⚠ unverified)
 
 ---
@@ -302,7 +302,7 @@ All palette data is SNES BGR555:
 Bit layout: 0BBBBBGG GGGRRRRR
 Bytes:       lo=GGGRRRRR  hi=0BBBBBGG
 ```
-Conversion to 8-bit channel: `c8 = (c5 << 3) | (c5 >> 2)` — gives exact 0→0, 31→255.
+Conversion to 8-bit channel: `c8 = (c5 << 3) | (c5 >> 2)` - gives exact 0→0, 31→255.
 
 ### Palette ROM Locations (verified)
 
@@ -331,7 +331,7 @@ Conversion to 8-bit channel: `c8 = (c5 << 3) | (c5 >> 2)` — gives exact 0→0,
 
 - `emu.read(0x088000, prgRom)` reads SNES $088000 = start of GFX data
 - `emu.read(0x0689F7, prgRom)` reads SNES $0689F7 = the L1 header for level index in earlier tests
-- Addresses where `(addr & 0xFFFF) < 0x8000` are **not ROM space** in LoROM and will return zero or open-bus values — do NOT use computed file offsets as prgRom addresses
+- Addresses where `(addr & 0xFFFF) < 0x8000` are **not ROM space** in LoROM and will return zero or open-bus values - do NOT use computed file offsets as prgRom addresses
 
 **Correct LoROM address formula for Mesen scripts:**
 ```lua
@@ -347,7 +347,7 @@ Conversion to 8-bit channel: `c8 = (c5 << 3) | (c5 >> 2)` — gives exact 0→0,
 
 ## What Is Not Yet Known / Needs Verification
 
-1. **GFX pointer table range:** Confirmed for files 00–1F (32 files). Files 20–33 hex (decimal 32–51) — unknown whether same tables extend or separate tables exist.
+1. **GFX pointer table range:** Confirmed for files 00–1F (32 files). Files 20–33 hex (decimal 32–51) - unknown whether same tables extend or separate tables exist.
 2. **Exact decompressed GFX tile count:** AllGFX.bin uses 0x1000 bytes per file (= 128 tiles × 32 bytes at 4bpp), but storage format vs. VRAM slot size relationship needs verification.
 3. **Layer 2 pointer table address:** $05E600 documented but not Mesen-confirmed for this project.
 4. **Map16 VRAM addresses:** $0D8000 and $0DC000 listed but not verified against live VRAM.

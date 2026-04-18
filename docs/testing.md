@@ -1,17 +1,17 @@
 # HackBench Testing Guide
 
-## Legal position — read first
+## Legal position - read first
 
 **HackBench does not distribute any Super Mario World ROM data, decompressed
 resources, or other content derived from the ROM.** Super Mario World is
-© Nintendo, and any bytes extracted from it — compressed *or* decompressed,
-whole files *or* narrow slices — remain Nintendo's copyrighted property.
+© Nintendo, and any bytes extracted from it - compressed *or* decompressed,
+whole files *or* narrow slices - remain Nintendo's copyrighted property.
 Committing that data to this repository would create legal exposure and is
 forbidden by project policy.
 
 This affects how the test suite is organized:
 
-- **CI runs only on content original to this project** — hand-crafted test
+- **CI runs only on content original to this project** - hand-crafted test
   vectors, pure-function assertions, synthetic inputs.
 - **Tests that need real ROM data are developer-local only.** They are
   either skipped automatically when no ROM is present, or depend on fixtures
@@ -50,13 +50,13 @@ Most of `test/suite/unit/` falls here. These test decoders, parsers, and
 helpers with hand-crafted byte sequences or literal inputs. Examples:
 
 - [`LcLz2.synthetic.test.ts`](../test/suite/unit/LcLz2.synthetic.test.ts)
-  — exercises every LC_LZ2 command type with synthetic vectors created
+  - exercises every LC_LZ2 command type with synthetic vectors created
   from the format spec, not dumped from any ROM.
 - [`GraphicsDecoder.test.ts`](../test/suite/unit/GraphicsDecoder.test.ts)
-  — feeds planar byte patterns into the 2bpp/3bpp/4bpp decoders and
+  - feeds planar byte patterns into the 2bpp/3bpp/4bpp decoders and
   checks pixel output.
 - [`ObjectExpander.test.ts`](../test/suite/unit/ObjectExpander.test.ts)
-  (the non-integration portion) — feeds tiny constructed object streams
+  (the non-integration portion) - feeds tiny constructed object streams
   into the expander.
 
 These run in CI on Node 20 and Node 22 and are the project's primary
@@ -67,18 +67,18 @@ correctness gate.
 Blocks marked with `describe.skipIf(!romPresent)` or `if (!romPresent)`.
 Examples:
 
-- `SmwRom integration` — opens the ROM and exercises the pointer-table
+- `SmwRom integration` - opens the ROM and exercises the pointer-table
   logic end-to-end.
-- `GfxLoader (ROM-only)` — checks that `loadGfxRaw`/`loadGfxFile` return
+- `GfxLoader (ROM-only)` - checks that `loadGfxRaw`/`loadGfxFile` return
   expected sizes and pixel counts for specific GFX files.
-- `PaletteLoader (requires ROM)` — verifies CGRAM assembly for level $104.
+- `PaletteLoader (requires ROM)` - verifies CGRAM assembly for level $104.
 
 These skip cleanly when `test/roms/Super Mario World (USA).vanilla.sfc`
 is missing. If you've dropped your ROM in place, they run automatically.
 
 ### 3. Fixture-based reference tests (developer-local)
 
-Some tests benefit from comparing against an **independent reference** —
+Some tests benefit from comparing against an **independent reference** -
 the canonical example is the LC_LZ2 decompressor, where a different
 implementation in a different language gives us cross-validation.
 
@@ -91,7 +91,7 @@ which:
 1. Loads the vanilla ROM from your local `test/roms/` directory.
 2. Uses the vendored Python decompressor to decompress every GFX file.
 3. Writes each compressed slice + expected decompressed output to
-   `test/fixtures/gfx/` — **a gitignored directory on your machine only**.
+   `test/fixtures/gfx/` - **a gitignored directory on your machine only**.
 
 ### Regenerating fixtures from your own ROM
 
@@ -110,7 +110,7 @@ python tools/scripts/dump-vanilla-gfx.py
 ```
 
 **Do not commit the contents of `test/fixtures/`.** The `.gitignore` rule
-blocks the directory by default — if you're tempted to `git add -f`, don't.
+blocks the directory by default - if you're tempted to `git add -f`, don't.
 
 ## Writing new tests
 
@@ -139,7 +139,7 @@ npx vitest run test/suite/unit/LcLz2.synthetic.test.ts   # one file
 
 ## Related docs
 
-- [`CONTRIBUTING.md`](../CONTRIBUTING.md) — general dev setup and PR flow
-- [`docs/roadmap.md`](./roadmap.md) — "Testing & Coverage" section tracks
+- [`CONTRIBUTING.md`](../CONTRIBUTING.md) - general dev setup and PR flow
+- [`docs/roadmap.md`](./roadmap.md) - "Testing & Coverage" section tracks
   critical-path test priorities
-- [`docs/smw-rom-format.md`](./smw-rom-format.md) — ROM layout reference
+- [`docs/smw-rom-format.md`](./smw-rom-format.md) - ROM layout reference

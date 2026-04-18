@@ -9,7 +9,7 @@ Before submitting, please confirm:
 ## Summary
 
 <!-- One or two sentences on what this PR does and why. Focus on the
-motivation — the diff shows the mechanics. -->
+motivation - the diff shows the mechanics. -->
 
 ## Related issue
 

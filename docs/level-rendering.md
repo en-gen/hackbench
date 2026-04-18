@@ -9,7 +9,7 @@ Keep this document in sync whenever the corresponding source files change.
 
 | File | Role |
 |---|---|
-| `src/rom/SmwRom.ts` | ROM access — pointer resolution, level data reads |
+| `src/rom/SmwRom.ts` | ROM access - pointer resolution, level data reads |
 | `src/rom/LevelParser.ts` | L1/L2 header + object stream parsing |
 | `src/rom/ObjectExpander.ts` | Object → 2D Map16 tile grid |
 | `src/rom/Map16.ts` | Map16 tile definitions (4 subtiles per 16×16 tile) |
@@ -70,7 +70,7 @@ ROM
 │     sp1–sp4: OBJ char space ← Sprite GFX (not used in BG tile atlas)
 │
 ├─ Map16 tables ($0D8000 page 0, $0DC000 page 1)
-│     tile ID → Map16Tile { tl, bl, tr, br }   (subtile order: TL, BL, TR, BR — column-major)
+│     tile ID → Map16Tile { tl, bl, tr, br }   (subtile order: TL, BL, TR, BR - column-major)
 │     each SubTile: { charNum: 10 bits, palette: 3 bits, priority, flipX, flipY }
 │     SubTile word format (2 bytes LE): YXPCCCTT TTTTTTTT
 │       Y=flipY, X=flipX, P=priority, CCC=palette(0–7), TT TTTTTTTT=charNum
@@ -123,7 +123,7 @@ verification of the full pipeline.
 SMW uses **Mode 1**:
 - BG1 (Layer 1): 4bpp, 16 colors per tile, CGRAM sub-palettes 0–7
 - BG2 (Layer 2): 4bpp, 16 colors per tile, CGRAM sub-palettes 0–7
-- BG3 (Layer 3): 2bpp — used for the **HUD/status bar only**, not level content
+- BG3 (Layer 3): 2bpp - used for the **HUD/status bar only**, not level content
 - All sprites: 4bpp, CGRAM sub-palettes 8–15 (OBJ space, separate from BG VRAM)
 
 The 3-bit palette field in each Map16 SubTile (CCC = 0–7) selects one of CGRAM rows 0–7.
@@ -144,7 +144,7 @@ SMW assigns these rows per layer type:
 | CGRAM rows 9–12 (berry/Yoshi/misc) | PaletteLoader.ts | ❌ Not loaded |
 | Colors 13–15 per palette row | PaletteLoader.ts | ❌ Not read (only indices 1–12) |
 | Sprite GFX rendering (sp1–sp4) | TileRenderer.ts | ❌ OBJ space not in atlas |
-| GFX33 (decimal 33) VRAM slot | GfxLoader.ts | ⚠ Loaded into bg1 ($280–$2FF) — unverified |
+| GFX33 (decimal 33) VRAM slot | GfxLoader.ts | ⚠ Loaded into bg1 ($280–$2FF) - unverified |
 | L2 object type meanings | ObjectExpander.ts | ❌ All expand to TILE_UNKNOWN |
 | Screen exits (level folder links) | SmwRom.ts, RomExplorerProvider.ts | ❌ Not implemented |
 

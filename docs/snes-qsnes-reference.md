@@ -3,7 +3,7 @@
 
 Source: https://www.raphnet.net/divers/retro_challenge_2019_03/qsnesdoc.html
 
-This document consolidates the technically useful information from the qsnesdoc reference for use in a SNES ROM editor/viewer. Focus is on PPU registers, memory layout, data formats, and DMA — everything needed to parse and display graphics from a SNES ROM without emulation.
+This document consolidates the technically useful information from the qsnesdoc reference for use in a SNES ROM editor/viewer. Focus is on PPU registers, memory layout, data formats, and DMA - everything needed to parse and display graphics from a SNES ROM without emulation.
 
 ---
 
@@ -97,7 +97,7 @@ Sprites always use 4bpp (16 colors), so each 8×8 tile = 32 bytes.
 
 Sprite tile data is organized in **16-tile rows** with 512-byte spacing between rows regardless of sprite size. For larger sprites, multiple 8×8 tiles are drawn from adjacent character numbers:
 - 16×16 sprite: 4 tiles (2×2 grid)
-- 32×32 sprite: 16 tiles (4×4 grid) — tiles stored in interleaved 16-tile rows
+- 32×32 sprite: 16 tiles (4×4 grid) - tiles stored in interleaved 16-tile rows
 - 64×64 sprite: 64 tiles (8×8 grid)
 
 ---
@@ -273,34 +273,34 @@ Set by register $2105 bits 2-0.
 | Mode | BG1       | BG2       | BG3       | BG4       | Notes                        |
 |------|-----------|-----------|-----------|-----------|------------------------------|
 | 0    | 2bpp (4)  | 2bpp (4)  | 2bpp (4)  | 2bpp (4)  | 128 total colors             |
-| 1    | 4bpp (16) | 4bpp (16) | 2bpp (4)  | —         | Most common mode             |
-| 2    | 4bpp (16) | 4bpp (16) | —         | —         | Offset-per-tile scroll       |
-| 3    | 8bpp (256)| 4bpp (16) | —         | —         |                              |
-| 4    | 8bpp (256)| 2bpp (4)  | —         | —         | Offset-per-tile scroll       |
-| 5    | 4bpp (16) | 2bpp (4)  | —         | —         | 512-pixel wide (interlaced)  |
-| 6    | 4bpp (16) | —         | —         | —         | 512-wide + offset-per-tile   |
-| 7    | 8bpp (256)| —         | —         | —         | Rotation/scaling; special VRAM layout |
+| 1    | 4bpp (16) | 4bpp (16) | 2bpp (4)  | -         | Most common mode             |
+| 2    | 4bpp (16) | 4bpp (16) | -         | -         | Offset-per-tile scroll       |
+| 3    | 8bpp (256)| 4bpp (16) | -         | -         |                              |
+| 4    | 8bpp (256)| 2bpp (4)  | -         | -         | Offset-per-tile scroll       |
+| 5    | 4bpp (16) | 2bpp (4)  | -         | -         | 512-pixel wide (interlaced)  |
+| 6    | 4bpp (16) | -         | -         | -         | 512-wide + offset-per-tile   |
+| 7    | 8bpp (256)| -         | -         | -         | Rotation/scaling; special VRAM layout |
 
 ### Palette Counts per Mode
 
 | Mode | BG1 Palettes | BG2 Palettes | BG3 Palettes | BG4 Palettes |
 |------|-------------|-------------|-------------|-------------|
 | 0    | 8           | 8           | 8           | 8           |
-| 1    | 8           | 8           | 8           | —           |
-| 2    | 8           | 8           | —           | —           |
-| 3    | 1 (direct)  | 8           | —           | —           |
-| 4    | 1 (direct)  | 8           | —           | —           |
-| 5    | 8           | 8           | —           | —           |
-| 6    | 8           | —           | —           | —           |
-| 7    | 1 (direct)  | —           | —           | —           |
+| 1    | 8           | 8           | 8           | -           |
+| 2    | 8           | 8           | -           | -           |
+| 3    | 1 (direct)  | 8           | -           | -           |
+| 4    | 1 (direct)  | 8           | -           | -           |
+| 5    | 8           | 8           | -           | -           |
+| 6    | 8           | -           | -           | -           |
+| 7    | 1 (direct)  | -           | -           | -           |
 
 ### Tile Size Options (register $2105 bits 7-4)
 
 Register $2105 bits 7-4 (`dcba`) set tile size per BG layer:
-- `a` (bit 4): BG1 tile size — 0=8×8, 1=16×16
-- `b` (bit 5): BG2 tile size — 0=8×8, 1=16×16
-- `c` (bit 6): BG3 tile size — 0=8×8, 1=16×16
-- `d` (bit 7): BG4 tile size — 0=8×8, 1=16×16
+- `a` (bit 4): BG1 tile size - 0=8×8, 1=16×16
+- `b` (bit 5): BG2 tile size - 0=8×8, 1=16×16
+- `c` (bit 6): BG3 tile size - 0=8×8, 1=16×16
+- `d` (bit 7): BG4 tile size - 0=8×8, 1=16×16
 
 16×16 BG tiles are composed of four 8×8 character tiles arranged 2×2.
 
@@ -312,13 +312,13 @@ All addresses are in the CPU's $00 bank ($0000–$FFFF).
 
 ### Screen Display
 
-#### $2100 — Screen Display (W)
+#### $2100 - Screen Display (W)
 ```
 Bit 7:    d    Force blank (1 = screen off/black)
 Bits 3-0: bbbb Brightness (0=off, 15=full)
 ```
 
-#### $2105 — Screen Mode and Tile Size (W)
+#### $2105 - Screen Mode and Tile Size (W)
 ```
 Bit 7:    d    BG4 tile size (0=8×8, 1=16×16)
 Bit 6:    c    BG3 tile size
@@ -330,22 +330,22 @@ Bits 2-0: mmm  Video mode (0–7)
 
 ### Background Control
 
-#### $2107 — BG1 Tilemap Address and Size (W)
-#### $2108 — BG2 Tilemap Address and Size (W)
-#### $2109 — BG3 Tilemap Address and Size (W)
-#### $210A — BG4 Tilemap Address and Size (W)
+#### $2107 - BG1 Tilemap Address and Size (W)
+#### $2108 - BG2 Tilemap Address and Size (W)
+#### $2109 - BG3 Tilemap Address and Size (W)
+#### $210A - BG4 Tilemap Address and Size (W)
 ```
 Bits 7-2: aaaaaa  Tilemap VRAM word address = value << 11
 Bits 1-0: ss      Screen size (00=32×32, 01=64×32, 10=32×64, 11=64×64)
 ```
 
-#### $210B — BG1/BG2 Character Data Address (W)
+#### $210B - BG1/BG2 Character Data Address (W)
 ```
 Bits 7-4: bbbb  BG2 character base address = value << 13 (bytes)
 Bits 3-0: aaaa  BG1 character base address = value << 13 (bytes)
 ```
 
-#### $210C — BG3/BG4 Character Data Address (W)
+#### $210C - BG3/BG4 Character Data Address (W)
 ```
 Bits 7-4: dddd  BG4 character base address = value << 13 (bytes)
 Bits 3-0: cccc  BG3 character base address = value << 13 (bytes)
@@ -357,20 +357,20 @@ All scroll registers are **double-write** (write twice to set 11 bits). Written 
 
 The actual scroll behavior for double-write: write low byte first, then high byte (only bits 2-0 matter for bits 10-8 of the 11-bit value).
 
-#### $210D — BG1 Horizontal Scroll / Mode 7 X (W, double-write)
-#### $210E — BG1 Vertical Scroll / Mode 7 Y (W, double-write)
-#### $210F — BG2 Horizontal Scroll (W, double-write)
-#### $2110 — BG2 Vertical Scroll (W, double-write)
-#### $2111 — BG3 Horizontal Scroll (W, double-write)
-#### $2112 — BG3 Vertical Scroll (W, double-write)
-#### $2113 — BG4 Horizontal Scroll (W, double-write)
-#### $2114 — BG4 Vertical Scroll (W, double-write)
+#### $210D - BG1 Horizontal Scroll / Mode 7 X (W, double-write)
+#### $210E - BG1 Vertical Scroll / Mode 7 Y (W, double-write)
+#### $210F - BG2 Horizontal Scroll (W, double-write)
+#### $2110 - BG2 Vertical Scroll (W, double-write)
+#### $2111 - BG3 Horizontal Scroll (W, double-write)
+#### $2112 - BG3 Vertical Scroll (W, double-write)
+#### $2113 - BG4 Horizontal Scroll (W, double-write)
+#### $2114 - BG4 Vertical Scroll (W, double-write)
 
 Scroll range: 0–1023 pixels (11-bit value). Bits 10-8 apply to Mode 7 extended fields.
 
 ### VRAM Access
 
-#### $2115 — VRAM Port Control (W)
+#### $2115 - VRAM Port Control (W)
 ```
 Bit 7:    i    Increment timing (0=after $2118/$2139, 1=after $2119/$213A)
 Bits 5-4: ff   Full graphic (address remapping, usually 00)
@@ -383,36 +383,36 @@ Bits 1-0: rr   Increment rate:
 
 Bits 5-4 remap VRAM addresses for specific column-based tile access patterns (set to `00` for normal sequential access).
 
-#### $2116 — VRAM Address Low (W)
-#### $2117 — VRAM Address High (W)
+#### $2116 - VRAM Address Low (W)
+#### $2117 - VRAM Address High (W)
 
 Sets 16-bit **word address** (0–$7FFF) for VRAM operations. Write low byte first, then high byte.
 
-#### $2118 — VRAM Data Write Low (W)
-#### $2119 — VRAM Data Write High (W)
+#### $2118 - VRAM Data Write Low (W)
+#### $2119 - VRAM Data Write High (W)
 
 Write to VRAM at address set by $2116/$2117. Auto-increments based on $2115.
 
-#### $2139 — VRAM Data Read Low (R)
-#### $213A — VRAM Data Read High (R)
+#### $2139 - VRAM Data Read Low (R)
+#### $213A - VRAM Data Read High (R)
 
 Read from VRAM. **A dummy read is required after writing the address** before actual data is valid. Auto-increments based on $2115.
 
 ### OAM Access
 
-#### $2101 — OAM Size and Character Address (W)
+#### $2101 - OAM Size and Character Address (W)
 ```
 Bits 7-5: sss  Sprite size selection (see size table)
-Bits 4-2: nnn  Name selection (additional sprite name table offset — limited documentation)
+Bits 4-2: nnn  Name selection (additional sprite name table offset - limited documentation)
 Bits 1-0: bb   Sprite character base = value << 14 (byte address)
 ```
 
-#### $2102 — OAM Address Low (W)
+#### $2102 - OAM Address Low (W)
 ```
 Bits 7-0: aaaaaaaa  Low byte of OAM byte address
 ```
 
-#### $2103 — OAM Address High (W)
+#### $2103 - OAM Address High (W)
 ```
 Bit 7:  r  OAM priority rotation (1 = rotate first-rendered sprite)
 Bit 0:  m  OAM address MSB (bit 8; set to 1 to access secondary table at bytes 512–543)
@@ -420,39 +420,39 @@ Bit 0:  m  OAM address MSB (bit 8; set to 1 to access secondary table at bytes 5
 
 Set $2103 then $2102 together to specify OAM access address.
 
-#### $2104 — OAM Data Write (W)
+#### $2104 - OAM Data Write (W)
 ```
 Bits 7-0: dddddddd  Data byte to write to OAM
 ```
 
 Writes are buffered in pairs; primary OAM is written in pairs only.
 
-#### $2138 — OAM Data Read (R)
+#### $2138 - OAM Data Read (R)
 ```
 Bits 7-0: dddddddd  Data byte read from OAM
 ```
 
 ### CGRAM Access
 
-#### $2121 — CGRAM Address (W)
+#### $2121 - CGRAM Address (W)
 ```
 Bits 7-0: aaaaaaaa  CGRAM word address (0–255)
 ```
 
-#### $2122 — CGRAM Data Write (W)
+#### $2122 - CGRAM Data Write (W)
 ```
 Bits 7-0: dddddddd  Data byte (write twice: low byte then high byte per color entry)
 ```
 
-#### $213B — CGRAM Data Read (R)
+#### $213B - CGRAM Data Read (R)
 ```
 Bits 7-0: dddddddd  Data byte (read twice per entry)
 ```
 
 ### Layer Enable
 
-#### $212C — Main Screen Designation (W)
-#### $212D — Sub Screen Designation (W)
+#### $212C - Main Screen Designation (W)
+#### $212D - Sub Screen Designation (W)
 ```
 Bit 4: s  Sprites enable
 Bit 3: d  BG4 enable
@@ -463,19 +463,19 @@ Bit 0: a  BG1 enable
 
 ### Window Registers
 
-#### $2123 — Window Mask Settings for BG1 and BG2 (W)
+#### $2123 - Window Mask Settings for BG1 and BG2 (W)
 ```
 Bits 7-4: BG2 window settings
 Bits 3-0: BG1 window settings
 ```
 
-#### $2124 — Window Mask Settings for BG3 and BG4 (W)
+#### $2124 - Window Mask Settings for BG3 and BG4 (W)
 ```
 Bits 7-4: BG4 window settings
 Bits 3-0: BG3 window settings
 ```
 
-#### $2125 — Window Mask Settings for OBJ and Color (W)
+#### $2125 - Window Mask Settings for OBJ and Color (W)
 ```
 Bits 7-4: Color/math window settings
 Bits 3-0: Sprite window settings
@@ -487,15 +487,15 @@ Per 4-bit group: `dcba`
 - bit 1 (b): Enable window 1
 - bit 0 (a): Window 1 invert
 
-#### $2126 — Window 1 Left Position (W)
-#### $2127 — Window 1 Right Position (W)
-#### $2128 — Window 2 Left Position (W)
-#### $2129 — Window 2 Right Position (W)
+#### $2126 - Window 1 Left Position (W)
+#### $2127 - Window 1 Right Position (W)
+#### $2128 - Window 2 Left Position (W)
+#### $2129 - Window 2 Right Position (W)
 ```
 Bits 7-0: xxxxxxxx  X pixel position (0–255)
 ```
 
-#### $212A — Mask Logic for BGs (W)
+#### $212A - Mask Logic for BGs (W)
 ```
 Bits 7-6: BG4 window logic
 Bits 5-4: BG3 window logic
@@ -505,7 +505,7 @@ Bits 1-0: BG1 window logic
 
 Logic values: `00`=OR, `01`=AND, `10`=XOR, `11`=XNOR
 
-#### $212B — Mask Logic for OBJ and Color (W)
+#### $212B - Mask Logic for OBJ and Color (W)
 ```
 Bits 3-2: Color window logic
 Bits 1-0: Sprite window logic
@@ -513,8 +513,8 @@ Bits 1-0: Sprite window logic
 
 Same logic values as $212A.
 
-#### $212E — Main Screen Window Mask Designation (W)
-#### $212F — Sub Screen Window Mask Designation (W)
+#### $212E - Main Screen Window Mask Designation (W)
+#### $212F - Sub Screen Window Mask Designation (W)
 ```
 Bit 4: s  Sprites window enable
 Bit 3: d  BG4 window enable
@@ -525,16 +525,16 @@ Bit 0: a  BG1 window enable
 
 ### Scan Counter / Latch
 
-#### $2137 — Software H/V Counter Latch (R)
+#### $2137 - Software H/V Counter Latch (R)
 
 Reading latches current H/V beam position into $213C/$213D. No useful return value.
 
-#### $213C — Horizontal Scan Location (R, double-read)
+#### $213C - Horizontal Scan Location (R, double-read)
 ```
 Bits 8-0: lllllllll  Current horizontal pixel position
 ```
 
-#### $213D — Vertical Scan Location (R, double-read)
+#### $213D - Vertical Scan Location (R, double-read)
 ```
 Bits 8-0: lllllllll  Current scanline number
 ```
@@ -547,20 +547,20 @@ The SNES has **8 DMA channels** (channels 0–7). Register addresses for channel
 
 ### DMA Initiation
 
-#### $420B — DMA Enable (W)
+#### $420B - DMA Enable (W)
 ```
 Bits 7-0: One bit per channel; write 1 to start that channel's transfer
           Bit 7 = Channel 7, Bit 0 = Channel 0
 ```
 
-#### $420C — HDMA Enable (W)
+#### $420C - HDMA Enable (W)
 ```
 Bits 7-0: One bit per channel; write 1 to enable HDMA on that channel
 ```
 
 ### Per-Channel Registers
 
-#### $43X0 — DMA/HDMA Control (W)
+#### $43X0 - DMA/HDMA Control (W)
 ```
 Bit 7:    d    Direction (0=CPU→PPU, 1=PPU→CPU) [DMA only]
 Bit 6:    a    Indirect addressing mode [HDMA only]
@@ -578,11 +578,11 @@ Bits 2-0: ttt  Transfer type (see table)
 | `010` | 1 register × 2       | Dest+0, Dest+0                 |
 | `011` | 2 registers × 2      | Dest+0, Dest+1, Dest+0, Dest+1 |
 | `100` | 4 registers × 1      | Dest+0, Dest+1, Dest+2, Dest+3 |
-| `101–111` | Undefined       | —                              |
+| `101–111` | Undefined       | -                              |
 
 Note: Types `000` and `010` appear identical but behave differently in HDMA mode.
 
-#### $43X1 — DMA Destination Register (W)
+#### $43X1 - DMA Destination Register (W)
 ```
 Bits 7-0: bbbbbbbb  Register offset added to $2100
                     e.g., $18 → writes to $2118 (VRAM data)
@@ -594,27 +594,27 @@ Common destination values:
 - `$19` → $2119 (VRAM high byte)
 - `$22` → $2122 (CGRAM data)
 
-#### $43X2 — DMA Source Address Low (W)
-#### $43X3 — DMA Source Address High (W)
-#### $43X4 — DMA Source Address Bank (W)
+#### $43X2 - DMA Source Address Low (W)
+#### $43X3 - DMA Source Address High (W)
+#### $43X4 - DMA Source Address Bank (W)
 
 Together: 24-bit source address in CPU address space.
 
-#### $43X5 — DMA Byte Count Low (W) [DMA only]
-#### $43X6 — DMA Byte Count High (W) [DMA only]
+#### $43X5 - DMA Byte Count Low (W) [DMA only]
+#### $43X6 - DMA Byte Count High (W) [DMA only]
 
 16-bit byte count. Value `$0000` = transfer 65536 bytes.
 
-#### $43X7 — HDMA Indirect Bank (W) [HDMA only]
+#### $43X7 - HDMA Indirect Bank (W) [HDMA only]
 
 Bank byte for the indirect data address in indirect HDMA mode.
 
-#### $43X8 — HDMA Table Address Low (RW) [HDMA]
-#### $43X9 — HDMA Table Address High (RW) [HDMA]
+#### $43X8 - HDMA Table Address Low (RW) [HDMA]
+#### $43X9 - HDMA Table Address High (RW) [HDMA]
 
 16-bit pointer to current position in the HDMA table (auto-updated during HDMA operation).
 
-#### $43XA — HDMA Scanline Counter (RW) [HDMA]
+#### $43XA - HDMA Scanline Counter (RW) [HDMA]
 
 Remaining scanlines for current HDMA table segment (auto-updated).
 
@@ -635,7 +635,7 @@ To copy tile data from ROM/RAM to VRAM:
 
 HDMA (H-blank DMA) runs automatically every scanline, writing values to PPU registers to create per-scanline effects (gradients, wavy distortion, window animations, etc.).
 
-### HDMA Table Format — Direct Mode (bit 6 of $43X0 = 0)
+### HDMA Table Format - Direct Mode (bit 6 of $43X0 = 0)
 
 Each segment in the table:
 
@@ -652,7 +652,7 @@ Each segment in the table:
 
 With transfer type `001` (2 bytes), each segment has 2 data bytes. With type `000` (1 byte), 1 data byte.
 
-### HDMA Table Format — Indirect Mode (bit 6 of $43X0 = 1)
+### HDMA Table Format - Indirect Mode (bit 6 of $43X0 = 1)
 
 ```
 [count_byte] [addr_low] [addr_high]
@@ -674,7 +674,7 @@ The 16-bit address (addr_low, addr_high) combined with the bank in `$43X7` forms
 
 ### Interrupt and Timing
 
-#### $4200 — Interrupt Enable and Joypad Request (W)
+#### $4200 - Interrupt Enable and Joypad Request (W)
 ```
 Bit 7: n  NMI enable (V-blank interrupt)
 Bit 5: v  V-counter IRQ enable
@@ -682,30 +682,30 @@ Bit 4: h  H-counter IRQ enable
 Bit 0: j  Auto-read joypad enable
 ```
 
-#### $4207 — H-Count IRQ Trigger Low (W)
-#### $4208 — H-Count IRQ Trigger High (W)
+#### $4207 - H-Count IRQ Trigger Low (W)
+#### $4208 - H-Count IRQ Trigger High (W)
 ```
 Bits 8-0: lllllllll  Horizontal pixel position to fire IRQ
 ```
 
-#### $4209 — V-Count IRQ Trigger Low (W)
-#### $420A — V-Count IRQ Trigger High (W)
+#### $4209 - V-Count IRQ Trigger Low (W)
+#### $420A - V-Count IRQ Trigger High (W)
 ```
 Bits 8-0: lllllllll  Scanline number to fire IRQ
 ```
 
-#### $4210 — NMI Flag (R)
+#### $4210 - NMI Flag (R)
 ```
 Bit 7:    n     NMI occurred (1=yes, cleared on read)
 Bits 3-0: vvvv  Chip version number
 ```
 
-#### $4211 — IRQ Flag (R)
+#### $4211 - IRQ Flag (R)
 ```
 Bit 7: i  IRQ occurred (1=yes, cleared on read)
 ```
 
-#### $4212 — PPU Status (R)
+#### $4212 - PPU Status (R)
 ```
 Bit 7: v  In V-blank (1=yes)
 Bit 6: h  In H-blank (1=yes)
@@ -714,10 +714,10 @@ Bit 0: j  Joypad auto-read complete (1=ready)
 
 ### Joypad
 
-#### $4218/$4219 — Joypad 1 Auto-Read Data (R)
-#### $421A/$421B — Joypad 2 Auto-Read Data (R)
-#### $421C/$421D — Joypad 3 Auto-Read Data (R)
-#### $421E/$421F — Joypad 4 Auto-Read Data (R)
+#### $4218/$4219 - Joypad 1 Auto-Read Data (R)
+#### $421A/$421B - Joypad 2 Auto-Read Data (R)
+#### $421C/$421D - Joypad 3 Auto-Read Data (R)
+#### $421E/$421F - Joypad 4 Auto-Read Data (R)
 
 Auto-read data is available after $4212 bit 0 goes high.
 
@@ -739,28 +739,28 @@ Auto-read data is available after $4212 bit 0 goes high.
 | 4   | R          |
 | 3-0 | (unused, 0)|
 
-#### $4016 — Old-Style Joypad 1 (RW)
-#### $4017 — Old-Style Joypad 2 (RW)
+#### $4016 - Old-Style Joypad 1 (RW)
+#### $4017 - Old-Style Joypad 2 (RW)
 
 Write any value to strobe (latch) buttons. Read bit 0 repeatedly to get button states serially.
 
 ### Multiplication / Division
 
-#### $4202 — Multiplicand (W)
-#### $4203 — Multiplier (W)
+#### $4202 - Multiplicand (W)
+#### $4203 - Multiplier (W)
 
 Write both; result appears in $4216/$4217 after ~8 cycles. 8×8 → 16-bit unsigned.
 
-#### $4204 — Dividend Low (W)
-#### $4205 — Dividend High (W)
-#### $4206 — Divisor (W)
+#### $4204 - Dividend Low (W)
+#### $4205 - Dividend High (W)
+#### $4206 - Divisor (W)
 
 Write dividend then divisor; 16÷8 unsigned. Quotient in $4214/$4215, remainder in $4216/$4217.
 
-#### $4214 — Quotient Low (R)
-#### $4215 — Quotient High (R)
-#### $4216 — Product/Remainder Low (R)
-#### $4217 — Product/Remainder High (R)
+#### $4214 - Quotient Low (R)
+#### $4215 - Quotient High (R)
+#### $4216 - Product/Remainder Low (R)
+#### $4217 - Product/Remainder High (R)
 
 ---
 
@@ -768,16 +768,16 @@ Write dividend then divisor; 16÷8 unsigned. Quotient in $4214/$4215, remainder 
 
 The WRAM (128 KB main RAM) can be accessed via the CPU bus normally ($7E0000–$7FFFFF) or via these registers:
 
-#### $2180 — WRAM Data (RW)
+#### $2180 - WRAM Data (RW)
 ```
 Bits 7-0: dddddddd  Read/write byte at current WRAM address
 ```
 
 Auto-increments the address after each access.
 
-#### $2181 — WRAM Address Low (W)
-#### $2182 — WRAM Address High (W)
-#### $2183 — WRAM Address Bank (W)
+#### $2181 - WRAM Address Low (W)
+#### $2182 - WRAM Address High (W)
+#### $2183 - WRAM Address Bank (W)
 ```
 Bits 16-0: xxxxxxxxxxxxxxxxx  17-bit WRAM address (bits above 16 ignored)
 ```

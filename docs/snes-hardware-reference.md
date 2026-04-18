@@ -1,4 +1,4 @@
-# SNES Hardware Reference — ROM Editor/Viewer
+# SNES Hardware Reference - ROM Editor/Viewer
 
 Primary source: Rodrigo Copetti, *Super Nintendo Architecture* (copetti.org/writings/consoles/super-nintendo/)  
 Supplementary details drawn from established SNES hardware documentation (No Intro, SNES Developer Manual, anomie's register docs).
@@ -10,7 +10,7 @@ Supplementary details drawn from established SNES hardware documentation (No Int
 1. [CPU](#1-cpu)
 2. [Memory Map](#2-memory-map)
 3. [LoROM vs HiROM](#3-lorom-vs-hirom)
-4. [PPU — Graphics System](#4-ppu--graphics-system)
+4. [PPU - Graphics System](#4-ppu--graphics-system)
 5. [Tiles](#5-tiles)
 6. [Tilemaps](#6-tilemaps)
 7. [Background Modes](#7-background-modes)
@@ -19,7 +19,7 @@ Supplementary details drawn from established SNES hardware documentation (No Int
 10. [Color Math and Windows](#10-color-math-and-windows)
 11. [DMA and HDMA](#11-dma-and-hdma)
 12. [SPC700 / S-SMP Audio](#12-spc700--s-smp-audio)
-13. [S-DSP — Sound Generation](#13-s-dsp--sound-generation)
+13. [S-DSP - Sound Generation](#13-s-dsp--sound-generation)
 14. [Cartridge and ROM Structure](#14-cartridge-and-rom-structure)
 15. [Practical Notes for ROM Editors](#15-practical-notes-for-rom-editors)
 
@@ -27,7 +27,7 @@ Supplementary details drawn from established SNES hardware documentation (No Int
 
 ## 1. CPU
 
-**Chip**: Ricoh 5A22 — a customized WDC 65C816 variant.
+**Chip**: Ricoh 5A22 - a customized WDC 65C816 variant.
 
 | Property | Value |
 |---|---|
@@ -37,7 +37,7 @@ Supplementary details drawn from established SNES hardware documentation (No Int
 | Address bus | 24-bit (16 MB address space) |
 | Max clock | 3.58 MHz (FastROM, internal registers) |
 | Min clock | 1.79 MHz (slow bus regions) |
-| General registers | A (accumulator), X, Y — each switchable between 8-bit and 16-bit mode |
+| General registers | A (accumulator), X, Y - each switchable between 8-bit and 16-bit mode |
 
 **Extras on the 5A22** (not on a stock 65816):
 - Hardware **multiply**: 8-bit × 8-bit → 16-bit result (WRMPYA/WRMPYB/RDMPYL/RDMPYH)
@@ -105,7 +105,7 @@ $C0–$FF $0000–$FFFF     HiROM ROM (full 64 KB banks, FastROM)
 | Address Range | Purpose |
 |---|---|
 | $2100–$2143 | PPU registers (screen mode, BG setup, scroll, window, color math) |
-| $2140–$2143 | SPC700 communication ports (APU I/O) — 4 bytes, bidirectional |
+| $2140–$2143 | SPC700 communication ports (APU I/O) - 4 bytes, bidirectional |
 | $2180–$2183 | WRAM access port (WMDATA, WMADDL, WMADDM, WMADDH) |
 | $4200–$420D | CPU control (NMI enable, IRQ enable, joypad auto-read, HDMA enable) |
 | $4210–$4212 | Status flags (NMI flag, IRQ flag, V/H counter) |
@@ -178,7 +178,7 @@ The **ROM header** (inside the cartridge ROM) contains a mapper type byte. For S
 
 ---
 
-## 4. PPU — Graphics System
+## 4. PPU - Graphics System
 
 The SNES uses **two PPU chips** (Picture Processing Units), commonly called PPU1 and PPU2, that work together:
 
@@ -206,7 +206,7 @@ The PPU can access VRAM only during **H-Blank and V-Blank**. CPU writes to VRAM 
 | V-Blank scanlines | 38 (NTSC) | 72 (PAL) |
 | Pixel aspect ratio | 8:7 | 8:7 |
 
-Pixels are **not square** — on a 4:3 TV, 256 horizontal pixels stretch to fill the same width as ~292 square pixels would.
+Pixels are **not square** - on a 4:3 TV, 256 horizontal pixels stretch to fill the same width as ~292 square pixels would.
 
 ### Rendering Pipeline
 
@@ -346,13 +346,13 @@ Set via `BGMODE` register (`$2105`), bits 2–0.
 | Mode | BG1 | BG2 | BG3 | BG4 | Notes |
 |---|---|---|---|---|---|
 | 0 | 2 bpp (4 colors) | 2 bpp (4 colors) | 2 bpp (4 colors) | 2 bpp (4 colors) | 4 layers; limited colors |
-| 1 | 4 bpp (16 colors) | 4 bpp (16 colors) | 2 bpp (4 colors) | — | Most common mode |
-| 2 | 4 bpp (16 colors) | 4 bpp (16 colors) | — | — | Offset-per-tile scroll |
-| 3 | 8 bpp (256 colors) | 4 bpp (16 colors) | — | — | Direct RGB color in Mode 3 BG1 |
-| 4 | 8 bpp (256 colors) | 2 bpp (4 colors) | — | — | Offset-per-tile |
-| 5 | 4 bpp (16 colors) | 2 bpp (4 colors) | — | — | 512×224 hi-res; interlace → 512×448 |
-| 6 | 4 bpp (16 colors) | — | — | — | Hi-res + offset-per-tile; 1 layer only |
-| 7 | 8 bpp | — | — | — | Affine transform (rotation/scale); EXTBG adds second layer |
+| 1 | 4 bpp (16 colors) | 4 bpp (16 colors) | 2 bpp (4 colors) | - | Most common mode |
+| 2 | 4 bpp (16 colors) | 4 bpp (16 colors) | - | - | Offset-per-tile scroll |
+| 3 | 8 bpp (256 colors) | 4 bpp (16 colors) | - | - | Direct RGB color in Mode 3 BG1 |
+| 4 | 8 bpp (256 colors) | 2 bpp (4 colors) | - | - | Offset-per-tile |
+| 5 | 4 bpp (16 colors) | 2 bpp (4 colors) | - | - | 512×224 hi-res; interlace → 512×448 |
+| 6 | 4 bpp (16 colors) | - | - | - | Hi-res + offset-per-tile; 1 layer only |
+| 7 | 8 bpp | - | - | - | Affine transform (rotation/scale); EXTBG adds second layer |
 
 ### Mode 1 Details (Most Common)
 
@@ -478,7 +478,7 @@ For **2 bpp** layers: 4 colors per palette, 8 palettes in the first 64 CGRAM ent
 For **4 bpp** layers: 16 colors per palette, 8 palettes (BG at `$00`, sprites at `$80`).  
 For **8 bpp** layers: all 256 CGRAM entries as one contiguous palette.
 
-**Color 0 in each palette** is transparent (not drawn) for BG tiles and sprites. CGRAM entry `$00` (palette 0 color 0) is the **backdrop color** — the color shown where no opaque pixel exists.
+**Color 0 in each palette** is transparent (not drawn) for BG tiles and sprites. CGRAM entry `$00` (palette 0 color 0) is the **backdrop color** - the color shown where no opaque pixel exists.
 
 ### CGRAM Access
 
@@ -507,7 +507,7 @@ When color math is enabled (`CGADSUB` at `$2131`), the final pixel from the Sub 
 | Half-addition | Result = (Main + Sub) / 2 |
 | Half-subtraction | Result = (Main − Sub) / 2 |
 
-The Sub Screen can also be set to a **fixed color** (via `COLDATA` at `$2132`) instead of a rendered layer — useful for static transparency tints.
+The Sub Screen can also be set to a **fixed color** (via `COLDATA` at `$2132`) instead of a rendered layer - useful for static transparency tints.
 
 ### Windows
 
@@ -569,7 +569,7 @@ Used to transfer bulk data (tile graphics, palettes) into VRAM or CGRAM during V
 
 ### HDMA (Horizontal DMA)
 
-HDMA transfers **up to 4 bytes** to any B Bus register **every scanline** during H-Blank. This allows per-scanline register changes without CPU intervention — essential for raster effects.
+HDMA transfers **up to 4 bytes** to any B Bus register **every scanline** during H-Blank. This allows per-scanline register changes without CPU intervention - essential for raster effects.
 
 HDMA runs throughout the frame (if enabled via `HDMAEN` at `$420C`). It does **not** halt the CPU.
 
@@ -639,7 +639,7 @@ Data written by the main CPU to `$2140` appears at SPC700 address `$00F4`, and v
 ### PSRAM Layout (game-dependent, but typical)
 
 ```
-$0000–$00EF   Zero page — SPC700 fast-access variables
+$0000–$00EF   Zero page - SPC700 fast-access variables
 $00F0–$00FF   SPC700 internal registers (DSP data/address, timer control, I/O ports)
 $0100–$01FF   Stack
 $0200–$xxxx   Sound driver code
@@ -658,15 +658,15 @@ The S-DSP register `DIR` (DSP register `$5D`) × 256 gives the base address of t
 
 ---
 
-## 13. S-DSP — Sound Generation
+## 13. S-DSP - Sound Generation
 
 The S-DSP plays **8 simultaneous audio channels** (voices), each independently configurable.
 
 ### S-DSP Register Access
 
 SPC700 writes to the S-DSP via two registers in its own address space:
-- `$00F2` — DSP register address select
-- `$00F3` — DSP register data read/write
+- `$00F2` - DSP register address select
+- `$00F3` - DSP register data read/write
 
 DSP registers are 8-bit, addressed `$00–$7F`.
 
@@ -738,7 +738,7 @@ Bytes 1–8: 16 nibbles of 4-bit signed sample deltas (2 nibbles per byte, high 
 
 **Decoding**: Each nibble is sign-extended to 16 bits, shifted left by the header shift amount, then an IIR filter is applied using the previous two decoded samples and the filter coefficients.
 
-The **loop flag** marks which block to return to after the end block is reached. This is how looping instruments work — the sample plays through once, then loops from the loop point to the end indefinitely.
+The **loop flag** marks which block to return to after the end block is reached. This is how looping instruments work - the sample plays through once, then loops from the loop point to the end indefinitely.
 
 ### Echo System
 
@@ -822,7 +822,7 @@ Some cartridges contain additional chips that expand capabilities:
 
 1. Level tilemaps reference tile indices (10-bit) and palette/flip attributes per the 16-bit entry format (Section 6).
 2. Level data is almost always compressed in ROM. Look for decompression routines called during level load.
-3. The VRAM address where tilemaps are stored is configured by `BGnSC` registers — trace the level-loading code to find which VRAM addresses the game uses.
+3. The VRAM address where tilemaps are stored is configured by `BGnSC` registers - trace the level-loading code to find which VRAM addresses the game uses.
 
 ### Locating Palette Data
 
@@ -832,7 +832,7 @@ Some cartridges contain additional chips that expand capabilities:
 ### Locating Audio Data
 
 1. The main CPU uploads the entire SPC700 program + audio data to PSRAM at startup or level load.
-2. Search for writes to `$2140–$2143` (SPC700 ports) followed by upload loops — this is where audio data originates in ROM.
+2. Search for writes to `$2140–$2143` (SPC700 ports) followed by upload loops - this is where audio data originates in ROM.
 3. In PSRAM, the sample directory (at `DIR × 256`) lists BRR sample start and loop addresses.
 4. BRR data is identified by its 9-byte block structure (1-byte header + 8 bytes of nibbles).
 5. **SPC dumps**: Tools can extract PSRAM + SPC700 state into `.spc` files for analysis.
@@ -843,13 +843,13 @@ Some cartridges contain additional chips that expand capabilities:
 $0000–$1FFF   Sprite tiles (4 bpp, 16 colors each)
 $2000–$3FFF   BG1 tiles (4 bpp)
 $4000–$5FFF   BG2 tiles (4 bpp) or BG1 extended
-$6000–$6FFF   BG3 tiles (2 bpp) — often UI/HUD
+$6000–$6FFF   BG3 tiles (2 bpp) - often UI/HUD
 $7000–$73FF   BG1 tilemap (32×32 = 2 KB)
 $7400–$77FF   BG2 tilemap
 $7800–$7BFF   BG3 tilemap
 $7C00–$7FFF   Available / second tilemap screens
 ```
-(Actual layout varies per game — determined by BGnSC and BGnNBA register values.)
+(Actual layout varies per game - determined by BGnSC and BGnNBA register values.)
 
 ### Key Sizes at a Glance
 

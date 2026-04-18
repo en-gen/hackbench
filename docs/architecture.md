@@ -13,22 +13,22 @@
 
 ## Extension model
 
-VS Code extensions run in a dedicated Node.js process (the extension host). UI is rendered inside VS Code using **webview panels** — sandboxed HTML/JS iframes that communicate with the extension host via `postMessage`.
+VS Code extensions run in a dedicated Node.js process (the extension host). UI is rendered inside VS Code using **webview panels** - sandboxed HTML/JS iframes that communicate with the extension host via `postMessage`.
 
 ```
 ┌───────────────────────────────────────────────────────┐
 │  VS Code Extension Host (Node.js)                      │
 │                                                        │
-│  extension.ts          — activate(), command handlers  │
-│  RomSession.ts         — open ROM instance             │
-│  src/rom/              — binary ROM parsing            │
-│  src/providers/        — FS, TreeView, CustomEditor    │
+│  extension.ts          - activate(), command handlers  │
+│  RomSession.ts         - open ROM instance             │
+│  src/rom/              - binary ROM parsing            │
+│  src/providers/        - FS, TreeView, CustomEditor    │
 └──────────────────┬────────────────────────────────────┘
                    │  postMessage / webview.onDidReceiveMessage
 ┌──────────────────▼────────────────────────────────────┐
 │  Webview (sandboxed HTML/JS, no Node.js access)        │
 │                                                        │
-│  dist/webview/levelEditor.js  — level Canvas renderer  │
+│  dist/webview/levelEditor.js  - level Canvas renderer  │
 └───────────────────────────────────────────────────────┘
 ```
 
@@ -70,7 +70,7 @@ All webview↔host communication uses `panel.webview.postMessage` and `panel.web
 
 | Direction | Message |
 |---|---|
-| Webview → Host | `{ type: 'ready' }` — webview mounted, send data |
+| Webview → Host | `{ type: 'ready' }` - webview mounted, send data |
 | Host → Webview | `{ type: 'load', level: ParsedLevel, levelIndex: number }` |
 | Host → Webview | `{ type: 'error', message: string }` |
 
@@ -80,9 +80,9 @@ Future edit messages will follow the same pattern with a `{ type: 'edit', ... }`
 
 ```
 src/
-  extension.ts              Entry point — activate(), register everything
+  extension.ts              Entry point - activate(), register everything
   RomSession.ts             Wraps SmwRom + derives slug for smwrom:// URIs
-  rom/                      Pure ROM parsing — no vscode dependency
+  rom/                      Pure ROM parsing - no vscode dependency
   providers/
     SmwFileSystemProvider.ts  smwrom:// virtual FS
     RomExplorerProvider.ts    SMW Explorer sidebar (TreeDataProvider)
@@ -93,7 +93,7 @@ src/
 docs/
 test/
   suite/                     VS Code integration tests
-  roms/                      GITIGNORED — local ROM files only
+  roms/                      GITIGNORED - local ROM files only
 ```
 
 ## Adding a new editor

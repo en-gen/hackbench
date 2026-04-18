@@ -25,7 +25,7 @@ LoROM formula: `fileOffset = (bank & 0x7F) * 0x8000 + (addr - 0x8000)`
 
 | Address   | Size | Description |
 |-----------|------|-------------|
-| `$00FFC0` | 21 B | Internal ROM name (ASCII, space-padded) — `"SUPER MARIOWORLD"` |
+| `$00FFC0` | 21 B | Internal ROM name (ASCII, space-padded) - `"SUPER MARIOWORLD"` |
 | `$00FFD5` | 1 B  | ROM speed/map mode (`$20` = LoROM, `$30` = LoROM fast) |
 | `$00FFD7` | 1 B  | ROM size byte (`n` → `1 << n` KB) |
 | `$00FFD8` | 1 B  | SRAM size byte |
@@ -38,13 +38,13 @@ LoROM formula: `fileOffset = (bank & 0x7F) * 0x8000 + (addr - 0x8000)`
 
 512 levels indexed $000–$1FF. L1 and L2 use **interleaved 3-byte entries**
 `(lo, hi, bank)` at `base + i*3`. The sprite table uses **2-byte entries**
-`(lo, hi)` at `base + i*2` — all sprite data is in bank $07 (implicit).
+`(lo, hi)` at `base + i*2` - all sprite data is in bank $07 (implicit).
 
 | Address   | Size    | Stride | Description |
 |-----------|---------|--------|-------------|
-| `$05E000` | 1536 B  | 3      | L1 object pointer table — `(lo, hi, bank)` per level |
-| `$05E600` | 1536 B  | 3      | L2 object pointer table — `(lo, hi, bank)` per level |
-| `$05EC00` | 1024 B  | 2      | Sprite pointer table — `(lo, hi)` per level; bank = $07 implicit |
+| `$05E000` | 1536 B  | 3      | L1 object pointer table - `(lo, hi, bank)` per level |
+| `$05E600` | 1536 B  | 3      | L2 object pointer table - `(lo, hi, bank)` per level |
+| `$05EC00` | 1024 B  | 2      | Sprite pointer table - `(lo, hi)` per level; bank = $07 implicit |
 
 **L1/L2 reconstruction:** `ptr = (bank << 16) | (hi << 8) | lo`
 where bytes are at `base + i*3`, `base + i*3 + 1`, `base + i*3 + 2`.
@@ -80,7 +80,7 @@ to find the current location:
 
 | Address   | Size   | Byte format  | Description |
 |-----------|--------|--------------|-------------|
-| `$05F800` | 512 B  | lo byte      | Destination level — low byte of level number |
+| `$05F800` | 512 B  | lo byte      | Destination level - low byte of level number |
 | `$05FA00` | 512 B  | `bbffyyyy`   | BG initial pos [7:6], FG initial pos [5:4], Mario Y pos [3:0] (index into table at $05D730/$05D740) |
 | `$05FC00` | 512 B  | `xxxeeeee`   | Mario X pos [7:5] (index into table at $05D750/$05D758), destination screen# [4:0] |
 | `$05FE00` | 512 B  | `s???hAAA`   | Slippery flag [7], dest level high bit [3], Mario start action [2:0] |
@@ -109,7 +109,7 @@ Object data begins at byte offset 5.
 
 ### Level Object Format
 
-**Standard (2 bytes)** — when byte0 high nibble ≤ $C (yNibble 0–12):
+**Standard (2 bytes)** - when byte0 high nibble ≤ $C (yNibble 0–12):
 ```
 byte0: YYYY XXXX   (Y nibble 0–12 = tile row × 2; X = local col in screen)
 byte1: PPPP OOOO   (P = param/size nibble; O = object type nibble)
@@ -117,15 +117,15 @@ byte1: PPPP OOOO   (P = param/size nibble; O = object type nibble)
 Absolute X = `screen * 16 + (byte0 & 0xF)`  
 Absolute Y = `(byte0 >> 4) * 2`  (Y nibble 0 → row 0, nibble 12 → row 24)
 
-**Extended (3 bytes)** — when byte0 high nibble ≥ $D (yNibble $D–$F):
+**Extended (3 bytes)** - when byte0 high nibble ≥ $D (yNibble $D–$F):
 ```
 byte0: ???? XXXX
-byte1: 00YY YYYY   (Y = tile row, 6-bit, used directly — no ×2)
+byte1: 00YY YYYY   (Y = tile row, 6-bit, used directly - no ×2)
 byte2: NNNNNNNN   (extended object number)
 ```
 Object type = `0x100 + byte2`
 
-**Screen advance:** `$FF $FF` — increments screen counter  
+**Screen advance:** `$FF $FF` - increments screen counter  
 **Terminator:** lone `$FF`
 
 ---
@@ -133,10 +133,10 @@ Object type = `0x100 + byte2`
 ## Level Data Blobs (Banks $06–$07)
 
 The actual binary level data lives in ROM banks $06 and $07.
-Use the pointer tables at $05E000 / $05E600 / $05EC00 to locate specific levels —
+Use the pointer tables at $05E000 / $05E600 / $05EC00 to locate specific levels -
 the addresses below are fixed in vanilla SMW but move in hacked/LM-edited ROMs.
 
-### Object Data — Bank $06 ($068000–$06FFFF)
+### Object Data - Bank $06 ($068000–$06FFFF)
 
 | Address   | Size   | Contents |
 |-----------|--------|----------|
@@ -280,13 +280,13 @@ the addresses below are fixed in vanilla SMW but move in hacked/LM-edited ROMs.
 | `$06E815` | 130 B  | Level 0FC |
 | `$06E897` | 238 B  | Level 024 |
 | `$06E985` | 118 B  | Level 0CF |
-| `$06E9FB` | 181 B  | Chocolate Island 2 — Level 1 |
-| `$06EAB0` | 91 B   | Chocolate Island 2 — Level 2 |
+| `$06E9FB` | 181 B  | Chocolate Island 2 - Level 1 |
+| `$06EAB0` | 91 B   | Chocolate Island 2 - Level 2 |
 | `$06EB0B` | 103 B  | Level 0CE |
-| `$06EB72` | 76 B   | Chocolate Island 2 — Level 3 |
-| `$06EBBE` | 102 B  | Chocolate Island 2 — Level 4 |
+| `$06EB72` | 76 B   | Chocolate Island 2 - Level 3 |
+| `$06EBBE` | 102 B  | Chocolate Island 2 - Level 4 |
 | `$06EC24` | 90 B   | Level 0CD |
-| `$06EC7E` | 75 B   | Chocolate Island 2 — Level 5 |
+| `$06EC7E` | 75 B   | Chocolate Island 2 - Level 5 |
 | `$06ECC9` | 286 B  | Level 023 |
 | `$06EDE7` | 79 B   | Level 0D7 |
 | `$06EE36` | 199 B  | Level 01B |
@@ -299,12 +299,12 @@ the addresses below are fixed in vanilla SMW but move in hacked/LM-edited ROMs.
 | `$06F511` | 40 B   | Level 1C0 |
 | `$06F539` | 2759 B | *Empty* (filled with $FF; used by Lunar Magic for extended data) |
 
-### Object Data — Bank $07 ($078000–$07FFFF)
+### Object Data - Bank $07 ($078000–$07FFFF)
 
 | Address   | Size   | Contents |
 |-----------|--------|----------|
 | `$078000` | 24 B   | Ghost house entrance |
-| `$078018` | 6 B    | Empty level (header only) — used as L2 when no background needed |
+| `$078018` | 6 B    | Empty level (header only) - used as L2 when no background needed |
 | `$07801E` | 15 B   | Castle entrance 1 |
 | `$07802D` | 33 B   | **Level 104** (Yoshi's House) |
 | `$07804E` | 18 B   | No Yoshi sign entrance 1 |
@@ -386,7 +386,7 @@ the addresses below are fixed in vanilla SMW but move in hacked/LM-edited ROMs.
 | `$07BF65` | 705 B  | Level 125 |
 | `$07C226` | 218 B  | *Empty* (filled with $FF) |
 
-### Sprite Data — Bank $07 ($07C300–$07E76F)
+### Sprite Data - Bank $07 ($07C300–$07E76F)
 
 | Address   | Size  | Contents |
 |-----------|-------|----------|
@@ -602,7 +602,7 @@ CGRAM index 0 of every row is transparent.
 
 | Address    | CGRAM Row | Label          | Description |
 |------------|-----------|----------------|-------------|
-| `$00B0A0`  | —         | Back area color | 2 bytes only, single BGR555 word |
+| `$00B0A0`  | -         | Back area color | 2 bytes only, single BGR555 word |
 | `$00B0B0`  | 0         | BG Palette 0   | Background tiles |
 | `$00B0C8`  | 1         | BG Palette 1   | Background tiles (alt) |
 | `$00B190`  | 2         | FG Palette 0   | Foreground/hills/clouds |
@@ -614,7 +614,7 @@ CGRAM index 0 of every row is transparent.
 
 Rows 4–13 are assembled at runtime from tileset-specific tables:
 - **Rows 4–12:** Sprite palettes loaded from tileset table
-- **Row 13:** Mario's palette — RAM pointer at `$7E:0D82`
+- **Row 13:** Mario's palette - RAM pointer at `$7E:0D82`
   - Regular Mario: `$B2C8`, Luigi: `$B2DC`, Fire Mario: `$B2F0`, Fire Luigi: `$B304`
 
 ### Per-Level Custom Palettes (Lunar Magic)
@@ -652,7 +652,7 @@ Indexed by: sprite set from header byte 3 bits 3–0, tileset ID from `$05D760[s
 
 ### VRAM Layout (⚠ needs verification)
 
-VRAM char number ranges per slot (approximate — not yet verified against SMW's level init code):
+VRAM char number ranges per slot (approximate - not yet verified against SMW's level init code):
 
 | Slot | Chars       | Palette rows | Notes |
 |------|-------------|--------------|-------|
@@ -670,8 +670,8 @@ VRAM char number ranges per slot (approximate — not yet verified against SMW's
 
 | Address    | Description |
 |------------|-------------|
-| `$0D8000`  | Map16 page 0 — tiles $000–$0FF (8 bytes each) |
-| `$0DC000`  | Map16 page 1 — tiles $100–$1FF (8 bytes each) |
+| `$0D8000`  | Map16 page 0 - tiles $000–$0FF (8 bytes each) |
+| `$0DC000`  | Map16 page 1 - tiles $100–$1FF (8 bytes each) |
 
 Each 8-byte entry = four 2-byte SNES BG tile attributes (little-endian):
 ```
@@ -689,33 +689,33 @@ Subtile order within the 8 bytes: **TL, BL, TR, BR** (column-major).
 
 ### Level Exit Tables ($049964–$049A0D, 170 bytes total)
 
-These three tables together describe every exit point on the overworld map —
+These three tables together describe every exit point on the overworld map -
 which tile Mario stands on when leaving a level, and where he ends up after.
 This is the link between "a level's exit" and "which overworld tile Mario walks
 to next."
 
 > **WRAM note:** SNES Work RAM lives at `$7E0000–$7FFFFF`. Addresses `$0000–$1FFF`
 > in any bank mirror to WRAM `$7E0000–$7E1FFF`. SMW Central annotations like
-> `($1F19)` are WRAM runtime addresses — they tell you *which RAM location the
+> `($1F19)` are WRAM runtime addresses - they tell you *which RAM location the
 > overworld code writes the table value into*, not ROM addresses. Useful as
 > Mesen watchpoints; not part of the ROM table layout.
 
 If no entry matches the tile Mario is on, he is not moved and tries to exit again.
 
-#### $049964–$0499A9 — Exit Source Positions (14 entries × 5 bytes)
+#### $049964–$0499A9 - Exit Source Positions (14 entries × 5 bytes)
 
-Where each exit *originates* — the overworld tile Mario is standing on when
+Where each exit *originates* - the overworld tile Mario is standing on when
 he clears a level and triggers a path exit.
 
 | Offset | Size | Field   | Description |
 |--------|------|---------|-------------|
 | +0     | 2 B  | Y pos   | Y tile position of the exit trigger (written to WRAM $1F19) |
 | +2     | 2 B  | X pos   | X tile position of the exit trigger (written to WRAM $1F21) |
-| +4     | 1 B  | Submap  | Overworld submap index — 0=Yoshi's Island, 1=Donut Plains, … (written to WRAM $13C3) |
+| +4     | 1 B  | Submap  | Overworld submap index - 0=Yoshi's Island, 1=Donut Plains, … (written to WRAM $13C3) |
 
-#### $0499AA–$0499EF — Exit Destination Positions (14 entries × 5 bytes)
+#### $0499AA–$0499EF - Exit Destination Positions (14 entries × 5 bytes)
 
-Where each exit *leads* — the overworld tile Mario ends up on after the path
+Where each exit *leads* - the overworld tile Mario ends up on after the path
 animation plays. Same 5-byte format as the source table.
 
 | Offset | Size | Field   | Description |
@@ -724,7 +724,7 @@ animation plays. Same 5-byte format as the source table.
 | +2     | 2 B  | X pos   | Target X tile position (written to WRAM $1F21) |
 | +4     | 1 B  | Submap  | Target submap index (written to WRAM $13C3) |
 
-#### $0499F0–$049A0D — Exit High Position Adjustments (15 entries × 2 bytes)
+#### $0499F0–$049A0D - Exit High Position Adjustments (15 entries × 2 bytes)
 
 Fine-grained position correction for the destination tile; applied on top of
 the destination entry from the table above.

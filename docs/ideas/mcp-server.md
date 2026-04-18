@@ -65,9 +65,9 @@ export function activate(ctx: vscode.ExtensionContext) {
 
 ## Design notes
 
-- `RomSession.current` needs to be a singleton — currently sessions are per-document.
+- `RomSession.current` needs to be a singleton - currently sessions are per-document.
   An "active session" concept (set when the user opens a ROM, cleared on close) would be needed.
-- Port conflicts if multiple VS Code windows run the extension simultaneously — consider a
+- Port conflicts if multiple VS Code windows run the extension simultaneously - consider a
   configurable port setting or dynamic port with status-bar display.
 - The ROM parsing layer (`src/rom/`) is already VS Code-free, making it straightforward to
   expose over MCP without architectural changes.

@@ -1,7 +1,7 @@
 # Contributing to HackBench
 
 Thanks for your interest in contributing! HackBench is a hobbyist
-project and welcomes PRs — from documentation fixes to entirely new
+project and welcomes PRs - from documentation fixes to entirely new
 editors.
 
 ## Before you start
@@ -31,7 +31,7 @@ HackBench loaded).
 
 | Command | Purpose |
 |---|---|
-| `npm run compile` | Webpack dev build — extension + all webview bundles |
+| `npm run compile` | Webpack dev build - extension + all webview bundles |
 | `npm run watch` | Rebuild on save |
 | `npm run package` | Production build (minified, hidden source maps) |
 | `npm run lint` | ESLint `src/` |
@@ -47,9 +47,9 @@ npx vitest run test/suite/unit/GraphicsDecoder.test.ts
 
 ## Branch strategy
 
-- `main` — do not commit directly.
-- `develop` — integration base. **All PRs target `develop`.**
-- `feature/<short-slug>` — one concern per branch, off `develop`.
+- `main` - do not commit directly.
+- `develop` - integration base. **All PRs target `develop`.**
+- `feature/<short-slug>` - one concern per branch, off `develop`.
 
 After your PR merges:
 
@@ -64,10 +64,10 @@ git checkout -b feature/<next>
 See [docs/architecture.md](./docs/architecture.md) for the full tour.
 Short version:
 
-- `src/extension.ts` — activation + provider registration
-- `src/rom/` — pure ROM parsing (zero VS Code imports, fully unit-testable)
-- `src/providers/` — VS Code integration (virtual FS, tree views, custom editors)
-- `src/webview/<name>/main.ts` — webview entry points, bundled by webpack
+- `src/extension.ts` - activation + provider registration
+- `src/rom/` - pure ROM parsing (zero VS Code imports, fully unit-testable)
+- `src/providers/` - VS Code integration (virtual FS, tree views, custom editors)
+- `src/webview/<name>/main.ts` - webview entry points, bundled by webpack
 
 ## Adding a new editor
 
@@ -93,7 +93,7 @@ Short version:
 ## Commit style
 
 One concern per commit. Subject line in the imperative mood
-("Add GFX re-decode on BPP change" — not "Added..." or "Adds..."). Body
+("Add GFX re-decode on BPP change" - not "Added..." or "Adds..."). Body
 explains the motivation. See recent `git log --oneline` for examples.
 
 ## Reporting bugs & suggesting features
