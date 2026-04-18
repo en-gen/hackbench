@@ -33,6 +33,25 @@ https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html and in the
 
 ---
 
+## snesrev/smw — vendored LC_LZ2 decompressor (test-only)
+
+- **License:** MIT
+- **Copyright:** (c) 2023 snesrev, (c) 2021 elzo_d
+- **Upstream:** https://github.com/snesrev/smw
+- **Vendored at:** [`tools/vendor/snesrev-smw/`](./tools/vendor/snesrev-smw/)
+- **Used for:** generating byte-for-byte reference fixtures at
+  `test/fixtures/gfx/` that validate HackBench's own LC_LZ2
+  implementation (`src/rom/LcLz2.ts`). The Python decompressor is
+  invoked only by the developer-run script
+  [`tools/dump-vanilla-gfx.py`](./tools/dump-vanilla-gfx.py) when
+  regenerating fixtures; it is **not shipped in the packaged
+  extension**.
+
+The MIT license text is preserved verbatim in
+[`tools/vendor/snesrev-smw/LICENSE.txt`](./tools/vendor/snesrev-smw/LICENSE.txt).
+
+---
+
 ## VS Code API (`@types/vscode`, `vscode` module)
 
 - **License:** MIT (type declarations); the VS Code extension host API
