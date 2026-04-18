@@ -83,9 +83,9 @@ app.innerHTML = `
 
     <div class="section-hdr">8×8 TILES (VRAM)</div>
     <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:4px 8px;">
-      <button id="vram-prev" style="${btnStyle()}" title="Previous page">◀</button>
+      <button id="vram-prev" style="${btnStyle()}border:none;" title="Previous page"><span class="codicon codicon-chevron-left"></span></button>
       <span id="vram-page-label" style="font-size:11px;font-family:monospace;color:#aaa;min-width:70px;text-align:center;">Page 1 / 6</span>
-      <button id="vram-next" style="${btnStyle()}" title="Next page">▶</button>
+      <button id="vram-next" style="${btnStyle()}border:none;" title="Next page"><span class="codicon codicon-chevron-right"></span></button>
     </div>
     <div style="padding:4px 8px 8px;">
       <canvas id="vram-canvas" width="128" height="128" style="
@@ -94,19 +94,19 @@ app.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
         <div id="vram-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
         <div style="display:flex;gap:2px;">
-          <button id="btn-anim-prev" style="${btnStyle()}border:none;" title="Previous frame">⏮</button>
-          <button id="btn-anim" style="${btnStyle()}border:none;" title="Play animation">▶</button>
-          <button id="btn-anim-next" style="${btnStyle()}border:none;" title="Next frame">⏭</button>
-          <button id="btn-vram-grid" style="${btnStyle()}border:none;" title="Toggle grid">⊞</button>
+          <button id="btn-anim-prev" style="${btnStyle()}border:none;" title="Previous frame"><span class="codicon codicon-debug-reverse-continue"></span></button>
+          <button id="btn-anim" style="${btnStyle()}border:none;" title="Play animation"><span class="codicon codicon-play"></span></button>
+          <button id="btn-anim-next" style="${btnStyle()}border:none;" title="Next frame"><span class="codicon codicon-debug-continue"></span></button>
+          <button id="btn-vram-grid" style="${btnStyle()}border:none;" title="Toggle grid"><span class="codicon codicon-table"></span></button>
         </div>
       </div>
     </div>
 
     <div class="section-hdr">16×16 TILES (MAP16)</div>
     <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:4px 8px;">
-      <button id="map16-prev" style="${btnStyle()}" title="Previous page">◀</button>
+      <button id="map16-prev" style="${btnStyle()}border:none;" title="Previous page"><span class="codicon codicon-chevron-left"></span></button>
       <span id="map16-page-label" style="font-size:11px;font-family:monospace;color:#aaa;min-width:70px;text-align:center;">Page 1 / 2</span>
-      <button id="map16-next" style="${btnStyle()}" title="Next page">▶</button>
+      <button id="map16-next" style="${btnStyle()}border:none;" title="Next page"><span class="codicon codicon-chevron-right"></span></button>
     </div>
     <div style="padding:4px 8px 8px;">
       <canvas id="map16-canvas" width="256" height="256" style="
@@ -115,10 +115,10 @@ app.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
         <div id="map16-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
         <div style="display:flex;gap:2px;">
-          <button id="btn-anim-prev2" style="${btnStyle()}border:none;" title="Previous frame">⏮</button>
-          <button id="btn-anim2" style="${btnStyle()}border:none;" title="Play animation">▶</button>
-          <button id="btn-anim-next2" style="${btnStyle()}border:none;" title="Next frame">⏭</button>
-          <button id="btn-map16-grid" style="${btnStyle()}border:none;" title="Toggle grid">⊞</button>
+          <button id="btn-anim-prev2" style="${btnStyle()}border:none;" title="Previous frame"><span class="codicon codicon-debug-reverse-continue"></span></button>
+          <button id="btn-anim2" style="${btnStyle()}border:none;" title="Play animation"><span class="codicon codicon-play"></span></button>
+          <button id="btn-anim-next2" style="${btnStyle()}border:none;" title="Next frame"><span class="codicon codicon-debug-continue"></span></button>
+          <button id="btn-map16-grid" style="${btnStyle()}border:none;" title="Toggle grid"><span class="codicon codicon-table"></span></button>
         </div>
       </div>
     </div>
@@ -147,11 +147,11 @@ app.innerHTML = `
       <span id="st-pos" style="min-width:90px;">—</span>
       <span id="st-tile" style="min-width:70px;">—</span>
       <span id="st-info" style="flex:1;color:#888;"></span>
-      <button id="btn-anim-prev3" style="${btnStyle()}border:none;" title="Previous frame">⏮</button>
-      <button id="btn-anim3" style="${btnStyle()}border:none;" title="Play animation">▶</button>
-      <button id="btn-anim-next3" style="${btnStyle()}border:none;" title="Next frame">⏭</button>
+      <button id="btn-anim-prev3" style="${btnStyle()}border:none;" title="Previous frame"><span class="codicon codicon-debug-reverse-continue"></span></button>
+      <button id="btn-anim3" style="${btnStyle()}border:none;" title="Play animation"><span class="codicon codicon-play"></span></button>
+      <button id="btn-anim-next3" style="${btnStyle()}border:none;" title="Next frame"><span class="codicon codicon-debug-continue"></span></button>
       <button id="btn-map-minimap" style="${btnStyle()}border:none;" title="Toggle minimap"><span class="codicon codicon-map"></span></button>
-      <button id="btn-map-grid" style="${btnStyle()}border:none;" title="Toggle tile grid">⊞</button>
+      <button id="btn-map-grid" style="${btnStyle()}border:none;" title="Toggle tile grid"><span class="codicon codicon-table"></span></button>
     </div>
   </div>
 
@@ -172,9 +172,9 @@ app.innerHTML = `
           font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
         <div style="display:flex;align-items:center;gap:2px;">
           <div id="pal-anim-controls" style="display:none;align-items:center;gap:2px;">
-            <button id="btn-pal-play" style="${btnStyle()}border:none;" title="Play palette animation">▶</button>
+            <button id="btn-pal-play" style="${btnStyle()}border:none;" title="Play palette animation"><span class="codicon codicon-play"></span></button>
           </div>
-          <button id="btn-pal-grid" style="${btnStyle()}border:none;" title="Toggle palette grid">⊞</button>
+          <button id="btn-pal-grid" style="${btnStyle()}border:none;" title="Toggle palette grid"><span class="codicon codicon-table"></span></button>
         </div>
       </div>
     </div>
@@ -478,7 +478,7 @@ function applyPalAnimFrame(f: number): void {
 
 function syncPalAnimButton(): void {
   const btn = document.getElementById('btn-pal-play')
-  if (btn) btn.textContent = palAnimRunning ? '⏸' : '▶'
+  if (btn) btn.innerHTML = palAnimRunning ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
 }
 
 function startPalAnimTimer(): void {
@@ -513,7 +513,7 @@ const animPlayBtns = [
 
 function syncAnimButtons(): void {
   for (const btn of animPlayBtns) {
-    btn.textContent = animRunning ? '⏸' : '▶'
+    btn.innerHTML = animRunning ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
     btn.title = animRunning ? 'Pause animation' : 'Play animation'
     btn.style.color = animRunning ? '#5b9cf6' : '#ccc'
   }

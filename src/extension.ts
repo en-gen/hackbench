@@ -11,7 +11,7 @@ let session: RomSession | undefined
 
 export function activate(context: vscode.ExtensionContext): void {
   const fsProvider = new SmwFileSystemProvider()
-  const mapsProvider      = new MapsProvider()
+  const mapsProvider = new MapsProvider()
   const resourcesProvider = new ResourcesProvider()
   const mapEditorProvider = new MapEditorProvider(context)
   const paletteEditorProvider = new PaletteEditorProvider(context)
@@ -141,3 +141,4 @@ async function closeRomCommand(
   session = undefined
   await vscode.commands.executeCommand('setContext', 'hackbench.romLoaded', false)
 }
+

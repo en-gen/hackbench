@@ -74,11 +74,11 @@ const mapEditorWebviewConfig = {
     new (require('copy-webpack-plugin'))({
       patterns: [
         {
-          from: path.resolve(__dirname, 'node_modules/@vscode/codicons/dist/codicon.css'),
+          from: require.resolve('@vscode/codicons/dist/codicon.css'),
           to: path.resolve(__dirname, 'dist/webview/codicon.css')
         },
         {
-          from: path.resolve(__dirname, 'node_modules/@vscode/codicons/dist/codicon.ttf'),
+          from: require.resolve('@vscode/codicons/dist/codicon.ttf'),
           to: path.resolve(__dirname, 'dist/webview/codicon.ttf')
         }
       ]
