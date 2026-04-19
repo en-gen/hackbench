@@ -192,9 +192,15 @@ function parseFixture(text: string) {
 // ── Main loop ───────────────────────────────────────────────────────────────
 const rom = SmwRom.open(ROM_PATH)
 
+// Optional --level <hex> filter to iterate faster on one level.
+const args = process.argv.slice(2)
+const levelArgIdx = args.indexOf('--level')
+const levelFilter = levelArgIdx >= 0 ? args[levelArgIdx + 1]?.toLowerCase() : null
+
 const folders = readdirSync(MAPS_DIR)
   .filter(name => /^[0-9a-fA-F]{3}$/.test(name))
   .filter(name => existsSync(`${MAPS_DIR}/${name}/map16.txt`))
+  .filter(name => !levelFilter || name.toLowerCase() === levelFilter)
   .sort()
 
 console.log(`found ${folders.length} fixtures to diff\n`)

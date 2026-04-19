@@ -2657,3 +2657,140 @@ export function handle_0DD1D9(cur: Cursor): void {
   cur.col = col0
   cur.row = row0
 }
+
+/**
+ * CODE_0DDCEA (bank_0D.asm line 6762) -- tileset 9-14 "filled rectangle with
+ * distinct bottom row".
+ *
+ * Size byte: HHHHWWWW
+ *   H (high nibble) = number of rows of body tile (tile $65).
+ *   W (low nibble)  = width-1 of the object (both body rows and bottom row).
+ *
+ * Structure:
+ *   - If H > 0: draw H rows of tile $65, W+1 tiles wide, on page 1.
+ *   - Always: draw 1 row of tile $4E, W+1 tiles wide, on page 1, at the bottom.
+ *
+ * The ASM writes via CODE_0DA95B (write + advance col), then restores bookmark
+ * via CODE_0DA6BA and advances row via CODE_0DA97D between body rows. The final
+ * row is written but cursor advance after is irrelevant (handler returns).
+ */
+export function handle_0DDCEA(cur: Cursor): void {
+  const H = (cur.size >> 4) & 0x0F
+  const W = cur.size & 0x0F
+
+  // LDA # immediates inside the handler body. The opcode is $A9, operand follows.
+  //   +28 $A9 $65 → body tile (operand at +29, body loop's LDA #$65)
+  //   +51 $A9 $4E → bottom tile (operand at +52, bottom-row loop's LDA #$4E)
+  const bodyTile   = readImmByte(cur, cur.handlerAddr + 29)
+  const bottomTile = readImmByte(cur, cur.handlerAddr + 52)
+
+  saveBookmark(cur)
+  for (let r = 0; r < H; r++) {
+    for (let x = 0; x <= W; x++) {
+      setPage1(cur)
+      writeTileAdvance(cur, bodyTile)
+    }
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+  }
+  for (let x = 0; x <= W; x++) {
+    setPage1(cur)
+    writeTileAdvance(cur, bottomTile)
+  }
+}
+
+/**
+ * CODE_0DDD2E (bank_0D.asm line 6803) -- tileset 9-14 "vertical pillar with
+ * variant-selected body / bottom tiles".
+ *
+ * Size byte: HHHHVVVV
+ *   H (high nibble) = number of body tiles (always stacked downward).
+ *   V (low nibble)  = variant selector (0-3), indexes DATA_0DDD26 / DATA_0DDD2A.
+ *
+ * Tables (ROM addresses resolved from LDA.L operands):
+ *   DATA_0DDD26[V] = body tile (written H times, each on its own row)
+ *   DATA_0DDD2A[V] = bottom tile (written once at the final row)
+ *
+ * All writes on page 1. Body writes use STA [Map16LowPtr],Y (no col advance)
+ * followed by CODE_0DA97D (row advance). Final tile uses CODE_0DA95B.
+ */
+export function handle_0DDD2E(cur: Cursor): void {
+  const H = (cur.size >> 4) & 0x0F
+  const V = cur.size & 0x0F
+
+  // LDA.L DATA_0DDD26,X — opcode $BF at +22, 3-byte operand at +23.
+  // LDA.L DATA_0DDD2A,X — opcode $BF at +38, 3-byte operand at +39.
+  const addrBody   = readLongOperand(cur, cur.handlerAddr + 23)
+  const addrBottom = readLongOperand(cur, cur.handlerAddr + 39)
+  const bodyTile   = cur.rom.readByte(addrBody   + V) ?? 0
+  const bottomTile = cur.rom.readByte(addrBottom + V) ?? 0
+
+  for (let r = 0; r < H; r++) {
+    setPage1(cur)
+    writeTile(cur, bodyTile)
+    advanceRowRaw(cur)
+  }
+  setPage1(cur)
+  writeTile(cur, bottomTile)
+}
+
+/**
+ * CODE_0DE135 (bank_0D.asm line 7327) -- three-part rectangle (top / middle /
+ * bottom rows), each row having distinct left / middle-fill / right tiles.
+ *
+ * Size byte: HHHHWWWW
+ *   W (low nibble) = width-related; row width = W + 1 tiles.
+ *                    (ASM's DEC _2 BNE loop requires W >= 1.)
+ *   H (high nibble) = height-related; total rows = H + 1.
+ *
+ * Each row picks an X index into three parallel 3-byte tables:
+ *   X = 0 for the first (top) row
+ *   X = 1 for intermediate middle rows
+ *   X = 2 for the final (bottom) row (if H >= 1)
+ *
+ * Tables (resolved from LDA.L operands):
+ *   DATA_0DE12C[X] = left-cap tile
+ *   DATA_0DE12F[X] = middle tile (repeated to fill)
+ *   DATA_0DE132[X] = right-cap tile
+ *
+ * All writes on page 1.
+ */
+export function handle_0DE135(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  const H = (cur.size >> 4) & 0x0F
+
+  // LDA.L DATA_0DE12C,X — opcode $BF at +28, 3-byte operand at +29.
+  // LDA.L DATA_0DE12F,X — opcode $BF at +41, 3-byte operand at +42.
+  // LDA.L DATA_0DE132,X — opcode $BF at +55, 3-byte operand at +56.
+  const addrLeft   = readLongOperand(cur, cur.handlerAddr + 29)
+  const addrMiddle = readLongOperand(cur, cur.handlerAddr + 42)
+  const addrRight  = readLongOperand(cur, cur.handlerAddr + 56)
+
+  // Trace for W=W (>=1): write LEFT (advance), then DEC _2 from W. Loop middle
+  // writes while _2 != 0; falls through after _2 reaches 0, writing RIGHT
+  // without advance. Net row width = 1 + (W - 1) + 1 = W + 1 tiles.
+  const emitRow = (x: number): void => {
+    setPage1(cur)
+    writeTileAdvance(cur, cur.rom.readByte(addrLeft + x) ?? 0)
+    for (let m = 0; m < W - 1; m++) {
+      setPage1(cur)
+      writeTileAdvance(cur, cur.rom.readByte(addrMiddle + x) ?? 0)
+    }
+    setPage1(cur)
+    writeTile(cur, cur.rom.readByte(addrRight + x) ?? 0)
+  }
+
+  saveBookmark(cur)
+  // First row always uses X = 0.
+  emitRow(0)
+  restoreBookmark(cur)
+  advanceRowRaw(cur)
+
+  // Remaining rows: X = 1 for middle, X = 2 for the final row (when H >= 1).
+  for (let r = 0; r < H; r++) {
+    const isLast = (r === H - 1)
+    emitRow(isLast ? 2 : 1)
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+  }
+}
