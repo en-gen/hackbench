@@ -136,12 +136,35 @@ local function currentLevelByL1Ptr()
   return mapCache[key]
 end
 
--- Combined map-id detection: prefer L1Ptr lookup (works for BOTH main levels
--- and pipe-entered sub-areas), fall back to translevel (main only) so hacks
--- where snesMemory doesn't see the live pointer table still identify main
--- levels correctly.
+-- Load-edge snapshot of the 16-bit level index the engine looks up in the
+-- Layer 1 pointer table ($05E000). Per bank_05.asm CODE_05D8B7, the engine
+-- reads `$7E:000E` as a 16-bit word — (_F << 8) | _E — and multiplies by 3
+-- to get the table offset. `_E` (= low byte, also stored at $17BB) and `_F`
+-- (= high bit, 0 or 1) are set right before the JSR LoadLevel.
+--
+-- $000E/$000F are general-purpose scratch RAM that many subroutines reuse
+-- during gameplay. To avoid noise we only sample during level-load game
+-- modes ($0F/$11/$12/$13) and freeze the value when gameMode returns to
+-- $14. This disambiguates sub-areas whose L1 end-pointers collide in the
+-- mapCache (e.g. multiple rooms of Donut Ghost House aliasing to $004).
+local snapshotLevel = nil   -- last (_F<<8)|_E observed during a load mode
+
+local function currentLevelBySnapshot()
+  return snapshotLevel
+end
+
+-- Combined map-id detection. Preference order:
+--   1. snapshot from $000E/$000F captured during level-load modes — the
+--      authoritative 9-bit level index the engine used to pick L1 data.
+--      Correct even when the L1 end-ptr cache has collisions.
+--   2. L1Ptr reverse-lookup — works live for both main levels and
+--      pipe-entered sub-areas, but can false-positive on cache collisions.
+--   3. translevel — main overworld only; always stays on the parent map
+--      across pipes, so use only as last resort.
 local function currentLevel()
-  return currentLevelByL1Ptr() or currentLevelByTranslevel()
+  return currentLevelBySnapshot()
+      or currentLevelByL1Ptr()
+      or currentLevelByTranslevel()
 end
 
 -- Folder-safe 3-digit lowercase hex for a map-id.
@@ -287,8 +310,11 @@ local function drawLevelHud()
   emu.drawString(8, 30, string.format("map=%s  TL=%02X  L1Ptr=%02X:%02X%02X",
     lvlStr, tl, l1bk, l1hi, l1lo), color, 0x000000)
   emu.drawString(8, 40, fileStatus, color, 0x000000)
-  emu.drawString(8, 50, string.format("SublevelCount=%02X  $17BB=%02X", sub, lln),
-    color, 0x000000)
+  local snapStr = snapshotLevel
+    and string.format("$%03x", snapshotLevel)
+    or "nil"
+  emu.drawString(8, 50, string.format("SublevelCount=%02X  $17BB=%02X  snap=%s",
+    sub, lln, snapStr), color, 0x000000)
 end
 
 -- ── Main loop ─────────────────────────────────────────────────────────────
@@ -313,9 +339,10 @@ local function onFrame()
   if prevSublevelCount ~= nil and sublevelCount ~= prevSublevelCount then
     local byL1 = currentLevelByL1Ptr()
     local byTL = currentLevelByTranslevel()
+    local snapStr = snapshotLevel and string.format("$%03x", snapshotLevel) or "nil"
     emu.log(string.format(
-      "[SUBLVL_EDGE] %d->%d  gameMode=%02X  L1Ptr=$%06X  mapByL1=%s  mapByTL=%s  $17BB=%02X",
-      prevSublevelCount, sublevelCount, gameMode, l1Key,
+      "[SUBLVL_EDGE] %d->%d  gameMode=%02X  L1Ptr=$%06X  mapBySnap=%s  mapByL1=%s  mapByTL=%s  $17BB=%02X",
+      prevSublevelCount, sublevelCount, gameMode, l1Key, snapStr,
       byL1 and string.format("$%03x", byL1) or "nil",
       byTL and string.format("$%03x", byTL) or "nil",
       r(0x7E17BB)))
@@ -340,6 +367,7 @@ local function onFrame()
       seenLevels = {}
       currentFileLevel = -1
       autoScroll = false
+      snapshotLevel = nil
       emu.log("session reset: overworld, NORMAL mode restored")
     end
     emu.drawString(8, 8, string.format("PAUSED  mode=0x%02x", gameMode), 0xFFFF00, 0x000000)
@@ -352,15 +380,30 @@ local function onFrame()
   -- engage AUTO-SCROLL in the new area, including sub-areas via pipe — that
   -- way a level with a tricky post-pipe intro doesn't auto-walk Mario into
   -- a wall.
-  local nowLevel = currentLevel()
+  -- Resolve current map-id with confidence tracking. The TranslevelNo
+  -- fallback always returns the PARENT overworld map-id, which is WRONG
+  -- during sub-area play. SMW also briefly writes sentinel values like
+  -- $00BDA8 to Layer1DataPtr during pipe/door entry, causing the L1Ptr
+  -- cache to miss mid-play. Without confidence tracking we'd fall through
+  -- to TranslevelNo on every sentinel frame and incorrectly switch the
+  -- dump file back to the parent map.
+  --
+  -- Policy: require a high-confidence signal (snapshot or L1Ptr cache hit)
+  -- to open or switch files. A TL-only answer is allowed only for the
+  -- very first file-open (currentFileLevel == -1) so OW entry still works
+  -- if the L1Ptr cache hasn't built yet.
+  local snapLevel = currentLevelBySnapshot()
+  local l1Level   = currentLevelByL1Ptr()
+  local tlLevel   = currentLevelByTranslevel()
+  local nowLevel  = snapLevel or l1Level or tlLevel
+  local highConfidence = (snapLevel ~= nil) or (l1Level ~= nil)
   local justEntered = not wasInLevel
   wasInLevel = true
-  -- Only open a new file when we have a valid level-id AND it differs from
-  -- what we had last frame. If currentLevel() returned nil (nothing loaded),
-  -- stay on the previous file.
   if nowLevel ~= nil and (justEntered or nowLevel ~= currentFileLevel) then
-    openFileForLevel(nowLevel)
-    autoScroll = false
+    if highConfidence or currentFileLevel == -1 then
+      openFileForLevel(nowLevel)
+      autoScroll = false
+    end
   end
 
   -- Space edge-toggle.
@@ -417,6 +460,30 @@ local function onFrame()
 end
 
 emu.addEventCallback(onFrame, emu.eventType.endFrame)
+
+-- Memory-write callback on $7E:000F (_F, the high bit of the level index).
+-- Per bank_05.asm lines 7110 and 7226, the level-load code writes 0 or 1 to
+-- _F right after $17BB gets the low byte. Every OTHER write to _F is scratch
+-- noise from unrelated subroutines, so we filter on value <= 1 AND gameMode
+-- in load modes. When both hold, read $17BB for the low byte and commit the
+-- full 9-bit level index to snapshotLevel.
+--
+-- This gives us a clean signal at the exact moment SMW commits the level
+-- number, eliminating the need for per-frame polling of scratch RAM.
+local function onFWrite(address, value)
+  if value > 1 then return end
+  local gm = r(0x7E0100)
+  if gm ~= 0x0F and gm ~= 0x11 and gm ~= 0x12 and gm ~= 0x13 then return end
+  local low = r(0x7E17BB)
+  local candidate = value * 0x100 + low
+  if candidate ~= snapshotLevel then
+    emu.log(string.format("[LOAD_SNAP] gameMode=%02X  $000F:=%d  $17BB=%02X  -> $%03x",
+      gm, value, low, candidate))
+    snapshotLevel = candidate
+  end
+end
+emu.addMemoryCallback(onFWrite, emu.callbackType.write, 0x7E000F)
+
 writeLine(string.format("# auto-walker session start  tick_frames=%d  step=%dpx  float_y=0x%02x",
   TICK_FRAMES, STEP_PIXELS, FLOAT_Y_PX))
 if file then file:flush() end
