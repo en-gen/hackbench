@@ -182,10 +182,37 @@ export class SmwRom {
     }))
   }
 
+  /**
+   * Read enough of a level's Layer-1 stream to cover the object data AND
+   * the Lunar Magic per-screen exit table that follows the $FF terminator.
+   *
+   * Why not a fixed 512 bytes (the original behavior)?
+   *   Vanilla levels are tiny, but LM-extended L1 streams can exceed 512 bytes
+   *   (confirmed: sublevel $103 is ~655 bytes of object data alone). Truncating
+   *   at 512 drops tail objects and silently breaks rendering.
+   *
+   * Strategy:
+   *   Read a generous ceiling (0x2000 = 8 KB) and let callers stop at the first
+   *   $FF in the object stream. Vanilla max L1 is well under 1 KB; even
+   *   heavily-expanded LM levels fit in a few KB. We also fall back to
+   *   progressively smaller reads if the level's pointer lands near the end
+   *   of the ROM buffer (RomFile.readAt returns null when the read would
+   *   exceed file length).
+   *
+   *   This is the smallest safe change: parseLevelObjects and
+   *   parseLevelScreenExits both terminate on $FF, so over-reading is
+   *   harmless. The alternative (walk-and-measure) gives an exactly-sized
+   *   buffer but adds complexity for no caller benefit.
+   */
   getLevelRawData(index: number): Buffer | null {
     const ptr = this.getLevelL1Pointer(index)
     if (!ptr) return null
-    return this.rom.readAt(ptr, 0x200)
+    // Try a generous ceiling first, then fall back for pointers near EOF.
+    for (const len of [0x2000, 0x1000, 0x800, 0x400, 0x200]) {
+      const buf = this.rom.readAt(ptr, len)
+      if (buf) return buf
+    }
+    return null
   }
 
   /**
