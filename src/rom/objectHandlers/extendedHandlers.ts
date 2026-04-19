@@ -527,5 +527,39 @@ export function handle_0DCEDA(cur: Cursor): void {
   cur.col = col0 + 1
   setPage0(cur)
   writeTile(cur, t1)
+}
+
+/**
+ * CODE_0DEC33 (bank_0D.asm line 7854) -- extended type $85: Yoshi's House tree.
+ *
+ * Stamps a fixed 16-column × 10-row blob of Map16 tile IDs from DATA_0DEB93
+ * (0xA0 bytes of raw tile data, line 7832) into the level grid, anchored at
+ * the object's cursor position. All tiles are page 0 (StzTo6ePointer per cell).
+ *
+ * ASM structure:
+ *   LDY LevelLoadPos ; LDX #$00
+ * outer:
+ *   LDA #$0F ; STA _0            ; inner counter = 15
+ *   -loop 15x:  StzTo6ePointer + LDA DATA_0DEB93,X + JSR CODE_0DA95B (write+INY) + INX + DEC _0 + BNE -
+ *   StzTo6ePointer + LDA DATA_0DEB93,X + STA [Map16LowPtr],Y + INX   ; 16th tile, no INY
+ *   JSR CODE_0DA97D                                                   ; LevelLoadPos += $10 (row+1, col reset to col0)
+ *   CPX #$A0 ; BNE outer                                              ; 10 rows total
+ *
+ * Used at sublevel $104 (Yoshi's House) to stamp the big tree/house graphic.
+ */
+export function handle_0DEC33(cur: Cursor): void {
+  // LDA.L DATA_0DEB93,X opcode at +11; operand (3 bytes) at +12.
+  // (LDY LevelLoadPos=2 + LDX #$00=2 + LDA #$0F=2 + STA _0=2 + JSR StzTo6ePointer=3 = 11.)
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
+  setPage0(cur)
+  const col0 = cur.col
+  for (let r = 0; r < 10; r++) {
+    for (let c = 0; c < 16; c++) {
+      const tile = cur.rom.readByte(tableAddr + r * 16 + c) ?? 0
+      cur.col = col0 + c
+      writeTile(cur, tile)
+    }
+    cur.row += 1
+  }
   cur.col = col0
 }
