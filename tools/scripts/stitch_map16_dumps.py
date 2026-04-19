@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Stitch Map16 level dumps from tools/mesen/record_level_map16.lua into a
+Stitch Map16 level dumps from tools/mesen/auto_walker.lua into a
 canonical fixture.
 
 Each tick block in the input looks like:
