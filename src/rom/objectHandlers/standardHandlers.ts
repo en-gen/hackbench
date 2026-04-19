@@ -21,7 +21,7 @@
 
 import {
   Cursor, writeTileAdvance, writeTile, nextRow,
-  saveBookmark, restoreBookmark, advanceCol,
+  saveBookmark, restoreBookmark, advanceCol, advanceRowRaw,
   setPage0, setPage1, peekExistingLow,
   diagonalDownLeft, diagonalDownRight, stepDiag,
   writeTileSlopeMerge, writeTilePipeMerge, writeTilePipeMergeNoAdvance,
@@ -1702,4 +1702,544 @@ function writeSwitchBlockRect(cur: Cursor, ldaOperandOffset: number): void {
   }
   cur.col = origCol
   cur.row = origRow
+}
+
+// ── Tileset-1 (castle/dungeon) standard-object handlers ───────────────────
+// These serve CODE_0DC190's slots 46-63 (object numbers 52-63 in 1-based
+// tiling). The layout + byte counts for LDA.L operand offsets were verified
+// by re-reading bank_0D.asm branch-by-branch.
+
+/**
+ * ADDR_0DB336 (bank_0D.asm line 3376) -- used-block rectangle (object 22 on
+ * CODE_0DC190). A per-tile item-memory lookup decides whether the slot gets
+ * its "not yet collected" tile ($2C on page 0) or is left blank. Our editor
+ * always renders the uncollected state -- see the header comment block at
+ * the top of this file for the rationale.
+ *
+ *   Size byte: HHHHWWWW -- W width-1, H height-1. Result is a (W+1)x(H+1)
+ *   rectangle of tile $2C (read from the LDA #$2C immediate at handler+95 so
+ *   that relocated LM-patched handlers still resolve).
+ */
+export function handle_0DB336(cur: Cursor): void {
+  const widthM1  = cur.size & 0x0F
+  const heightM1 = (cur.size >> 4) & 0x0F
+  // LDA #$2C at handler offset +95 (opcode $A9 at +95; immediate at +96).
+  const tile = readImmByte(cur, cur.handlerAddr + 96)
+
+  setPage0(cur)
+  saveBookmark(cur)
+  for (let r = 0; r <= heightM1; r++) {
+    for (let c = 0; c <= widthM1; c++) {
+      writeTileAdvance(cur, tile)
+    }
+    restoreBookmark(cur)
+    if (r < heightM1) nextRow(cur)
+  }
+}
+
+/**
+ * CODE_0DCF12 (bank_0D.asm line 5611) -- horizontal row, page 0. Used by
+ * CODE_0DC190 (tileset 1) for object 55 and by CODE_0DCD90 (tilesets 2/6/8)
+ * for the same slot.
+ *
+ *   Size byte: HHHHWWWW -- W width-1, H selects DATA_0DCF10[H] (2-entry
+ *   table of tiles, [$92, $93] in vanilla).
+ *   Result: (W+1) tiles in a row, all tile[H], page 0.
+ */
+export function handle_0DCF12(cur: Cursor): void {
+  const widthM1 = cur.size & 0x0F
+  const H = (cur.size >> 4) & 0x0F
+  // LDA.L DATA_0DCF10,X at handler offset +18 (operand at +19).
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 19)
+  const tile = cur.rom.readByte(tableAddr + H) ?? 0
+
+  setPage0(cur)   // StzTo6ePointer
+  for (let c = 0; c <= widthM1; c++) {
+    writeTileAdvance(cur, tile)
+  }
+}
+
+/**
+ * CODE_0DCF33 (bank_0D.asm line 5633) -- vertical column, page 0. Used by
+ * CODE_0DC190 (tileset 1) for object 56 and by CODE_0DCD90 for the same slot.
+ *
+ *   Size byte: HHHHXXXX -- X selects DATA_0DCF30[X] (3-entry table of tiles,
+ *   [$90, $91, $A2] in vanilla), H = height-1 of the column.
+ *   Result: (H+1) tiles stacked vertically, all tile[X], page 0.
+ */
+export function handle_0DCF33(cur: Cursor): void {
+  const X = cur.size & 0x0F
+  const heightM1 = (cur.size >> 4) & 0x0F
+  // LDA.L DATA_0DCF30,X at handler offset +18 (operand at +19).
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 19)
+  const tile = cur.rom.readByte(tableAddr + X) ?? 0
+
+  saveBookmark(cur)
+  for (let r = 0; r <= heightM1; r++) {
+    setPage0(cur)   // StzTo6ePointer before every write
+    writeTile(cur, tile)   // STA [Map16LowPtr],Y -- no advance
+    if (r < heightM1) nextRow(cur)   // CODE_0DA97D
+  }
+}
+
+/**
+ * CODE_0DC42E (bank_0D.asm line 4981) -- horizontal row from DATA_0DC42C,
+ * page 1. Object 62 on CODE_0DC190. DATA_0DC42C = [$5A, $59].
+ *
+ *   Size byte: HHHHWWWW -- W width-1 (row length), H selects DATA_0DC42C[H].
+ *   Result: (W+1) tiles in a row, page 1.
+ */
+export function handle_0DC42E(cur: Cursor): void {
+  const widthM1 = cur.size & 0x0F
+  const H = (cur.size >> 4) & 0x0F
+  // LDA.L DATA_0DC42C,X at handler offset +18 (operand at +19).
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 19)
+  const tile = cur.rom.readByte(tableAddr + H) ?? 0
+
+  for (let c = 0; c <= widthM1; c++) {
+    setPage1(cur)   // Sta1To6ePointer before every write
+    writeTileAdvance(cur, tile)
+  }
+}
+
+/**
+ * CODE_0DC44F (bank_0D.asm line 5003) -- vertical column from DATA_0DC44C,
+ * page 1. Object 63 on CODE_0DC190. DATA_0DC44C = [$5B, $5C, $53].
+ *
+ *   Size byte: HHHHXXXX -- X selects DATA_0DC44C[X], H = height-1.
+ *   Result: (H+1) tiles stacked vertically, page 1.
+ */
+export function handle_0DC44F(cur: Cursor): void {
+  const heightM1 = (cur.size >> 4) & 0x0F
+  const X = cur.size & 0x0F
+  // LDA.L DATA_0DC44C,X at handler offset +18 (operand at +19).
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 19)
+  const tile = cur.rom.readByte(tableAddr + X) ?? 0
+
+  saveBookmark(cur)
+  for (let r = 0; r <= heightM1; r++) {
+    setPage1(cur)   // Sta1To6ePointer
+    writeTile(cur, tile)   // STA [Map16LowPtr],Y (no advance)
+    if (r < heightM1) nextRow(cur)   // CODE_0DA97D
+  }
+}
+
+/**
+ * CODE_0DC478 (bank_0D.asm line 5032) -- vertical stack of 3-row-tall pole
+ * segments. Object 60 on CODE_0DC190.
+ *
+ *   DATA_0DC46F = [$5D, $60, $63]  -- left cap for each of the 3 row-types
+ *   DATA_0DC472 = [$5E, $61, $64]  -- middle fill for each
+ *   DATA_0DC475 = [$5F, $62, $65]  -- right cap for each
+ *
+ *   Size byte: HHHHWWWW -- W width-1 of middle section, H = total rows - 1.
+ *   Row 0 uses X=0 (top segment: $5D / $5E / $5F).
+ *   Middle rows (if any) use X=1 ($60 / $61 / $62).
+ *   Final row uses X=2 ($63 / $64 / $65).
+ *
+ *   The ASM picks "final row" via X=2 when _1 reaches 0 AFTER decrement;
+ *   otherwise X stays at 1. So H=0 → 1 row (top only). H=1 → top + bottom.
+ *   H>=2 → top + (H-1) middles + bottom.
+ *
+ * Each row: Sta1To6ePointer + left cap (advance), Sta1To6ePointer + W middle
+ * fills (advance), Sta1To6ePointer + right cap (no advance), restore + row++.
+ */
+export function handle_0DC478(cur: Cursor): void {
+  const widthM1 = cur.size & 0x0F
+  let rowsLeft  = (cur.size >> 4) & 0x0F
+  const base    = cur.handlerAddr
+  // LDA.L DATA_0DC46F,X at +28 (operand at +29).
+  // LDA.L DATA_0DC472,X at +41 (operand at +42).
+  // LDA.L DATA_0DC475,X at +55 (operand at +56).
+  const addrLeft  = readLongOperand(cur, base + 29)
+  const addrMid   = readLongOperand(cur, base + 42)
+  const addrRight = readLongOperand(cur, base + 56)
+
+  saveBookmark(cur)
+  // First row uses X=0 (top cap variant).
+  // Inside the loop we pick X=1 for middles, X=2 for the final row.
+  let X = 0
+  while (true) {
+    const leftTile  = cur.rom.readByte(addrLeft + X) ?? 0
+    const midTile   = cur.rom.readByte(addrMid + X) ?? 0
+    const rightTile = cur.rom.readByte(addrRight + X) ?? 0
+
+    setPage1(cur); writeTileAdvance(cur, leftTile)
+    for (let c = 0; c < widthM1; c++) {
+      setPage1(cur); writeTileAdvance(cur, midTile)
+    }
+    setPage1(cur); writeTile(cur, rightTile)   // STA [Map16LowPtr],Y no advance
+    // Restore + row++.
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+
+    // DEC _1 → BMI exit; BNE keep X=1 (middle); else (_1 exactly 0) X=2 (final row).
+    rowsLeft -= 1
+    if (rowsLeft < 0) break
+    if (rowsLeft === 0) X = 2
+    else X = 1
+  }
+}
+
+/**
+ * CODE_0DC4C9 (bank_0D.asm line 5074) -- two-row horizontal strip
+ * (castle-window / similar). Object 59 on CODE_0DC190.
+ *
+ *   Size byte: WWWW (low nibble only) -- W = width-1.
+ *   Row 0: tile $09 (page 1) repeated W+1 times.
+ *   Row 1: tile $86 (page 0) repeated W+1 times.
+ */
+export function handle_0DC4C9(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  // Byte layout in vanilla (non-hires build, so the `ver_is_hires` JSR
+  // CODE_0DA6B1/BA save/restore hooks are NOT emitted):
+  //   +0..+7  LDY/LDA/AND/STA/LDX  state setup
+  //   +8      loop -
+  //   +10..+12 JSR Sta1To6ePointer
+  //   +13     A9 09   (LDA #$09 → immediate at +14)
+  //   +15..+17 JSR CODE_0DA95B
+  //   +18     CA     DEX
+  //   +19..+20 10 XX BPL -
+  //   +21..+23 JSR CODE_0DA97D
+  //   +24..+25 LDX _0
+  //   +26..+28 JSR StzTo6ePointer
+  //   +29     A9 86  (LDA #$86 → immediate at +30)
+  const row0Tile = readImmByte(cur, cur.handlerAddr + 14)
+  const row1Tile = readImmByte(cur, cur.handlerAddr + 30)
+
+  saveBookmark(cur)
+  for (let c = 0; c <= W; c++) {
+    setPage1(cur); writeTileAdvance(cur, row0Tile)
+  }
+  restoreBookmark(cur); advanceRowRaw(cur)
+  for (let c = 0; c <= W; c++) {
+    setPage0(cur); writeTileAdvance(cur, row1Tile)
+  }
+}
+
+/**
+ * CODE_0DC4EF (bank_0D.asm line 5100) -- castle spike trap (crusher) frame
+ * with optional top and bottom caps. Object 54 on CODE_0DC190.
+ *
+ *   Size byte: HHHHXXXX -- X selects top/bottom cap presence (0 = caps on
+ *   both ends, non-zero = caps on top only -- see trace below), H = body
+ *   row count - 1 (the alternating $89/$66/$67/$8A vs $8B/$68/$69/$8C pairs).
+ *
+ *   Col layout is always 4 wide: (col0, col0+1, col0+2, col0+3).
+ *
+ *   If X != 0: top cap half-row at (col0+1, col0+2) with $87/$88 (page 0);
+ *   the outer columns stay blank. Then row++.
+ *
+ *   Main body alternating rows (row types A/B):
+ *     Row A:  $89,  $66,  $67,  $8A   (page pattern 0/1/1/0)
+ *     Row B:  $8B,  $68,  $69,  $8C   (page pattern 0/1/1/0)
+ *   Alternation: A, (B, A), (B, A), ... repeated.
+ *   The ASM's DEC _0 + BPL loop produces (_0_init + 1) total rows (A, B, A, B, ...).
+ *
+ *   If X == 0 at the end: trailing half-row $8D/$8E at (col0+1, col0+2) (page 0).
+ */
+export function handle_0DC4EF(cur: Cursor): void {
+  const X = cur.size & 0x0F
+  const _0init = (cur.size >> 4) & 0x0F
+  // LDA # immediates inside the handler (offset of the $A9 opcode; the
+  // immediate byte lives at opcode offset + 1). Verified byte-by-byte via
+  // direct ROM dump at 0DC4EF.
+  //   +28  $87   top-cap L     (imm at +29)
+  //   +36  $88   top-cap R     (imm at +37)
+  //   +50  $89   A-row col 0   (imm at +51)
+  //   +58  $66   A-row col 1   (imm at +59)
+  //   +66  $67   A-row col 2   (imm at +67)
+  //   +74  $8A   A-row col 3   (imm at +75)
+  //   +92  $8B   B-row col 0   (imm at +93)
+  //   +100 $68   B-row col 1   (imm at +101)
+  //   +108 $69   B-row col 2   (imm at +109)
+  //   +116 $8C   B-row col 3   (imm at +117)
+  //   +141 $8D   bot-cap L     (imm at +142)
+  //   +149 $8E   bot-cap R     (imm at +150)
+  const base = cur.handlerAddr
+  const t87 = readImmByte(cur, base + 29)
+  const t88 = readImmByte(cur, base + 37)
+  const t89 = readImmByte(cur, base + 51)
+  const t66 = readImmByte(cur, base + 59)
+  const t67 = readImmByte(cur, base + 67)
+  const t8A = readImmByte(cur, base + 75)
+  const t8B = readImmByte(cur, base + 93)
+  const t68 = readImmByte(cur, base + 101)
+  const t69 = readImmByte(cur, base + 109)
+  const t8C = readImmByte(cur, base + 117)
+  const t8D = readImmByte(cur, base + 142)
+  const t8E = readImmByte(cur, base + 150)
+
+  saveBookmark(cur)
+  const col0 = cur.col
+
+  // Top cap (only when X != 0). ASM does CODE_0DA95D (INY = advance col)
+  // before writing, which puts $87/$88 at col+1, col+2. col+0 and col+3 stay
+  // empty.
+  if (X !== 0) {
+    cur.col = col0 + 1
+    setPage0(cur); writeTile(cur, t87)
+    cur.col = col0 + 2
+    setPage0(cur); writeTile(cur, t88)
+    restoreBookmark(cur); advanceRowRaw(cur)
+  }
+
+  // Alternating A/B body rows. Run (_0init + 1) total rows.
+  //   DEC _0 after row A: BMI exits if _0 was 0 (one A row only).
+  //   DEC _0 after row B: BPL loops back to A if _0 was positive.
+  let _0 = _0init
+  // Safety cap: the vanilla ASM would loop 256 times if _0 starts at 0 and
+  // the B row runs (_0 wraps through 0xFF). Our editor caps at 32 which is
+  // well above any reasonable level geometry.
+  let safetyCap = 64
+  for (;;) {
+    // Row A
+    setPage0(cur); writeTileAdvance(cur, t89)
+    setPage1(cur); writeTileAdvance(cur, t66)
+    setPage1(cur); writeTileAdvance(cur, t67)
+    setPage0(cur); writeTileAdvance(cur, t8A)
+    restoreBookmark(cur); advanceRowRaw(cur)
+    _0 = (_0 - 1) & 0xFF
+    if (_0 === 0xFF) break   // BMI: _0 was 0 before DEC
+    if (--safetyCap < 0) break
+    // Row B
+    setPage0(cur); writeTileAdvance(cur, t8B)
+    setPage1(cur); writeTileAdvance(cur, t68)
+    setPage1(cur); writeTileAdvance(cur, t69)
+    setPage0(cur); writeTileAdvance(cur, t8C)
+    restoreBookmark(cur); advanceRowRaw(cur)
+    _0 = (_0 - 1) & 0xFF
+    if (_0 === 0xFF) break   // BPL not taken: _0 wrapped to 0xFF
+    if (--safetyCap < 0) break
+  }
+
+  // Bottom cap (only when X == 0). Same offset pattern as top cap.
+  if (X === 0) {
+    cur.col = col0 + 1
+    setPage0(cur); writeTile(cur, t8D)
+    cur.col = col0 + 2
+    setPage0(cur); writeTile(cur, t8E)
+  }
+}
+
+/**
+ * CODE_0DC58A (bank_0D.asm line 5168) -- checkerboard / 2-wide decorative
+ * wall. Object 53 on CODE_0DC190.
+ *
+ *   Size byte: HHHHWWWW -- W = pair-count - 1 (so 2*(W+1) tiles per row),
+ *   H = row-pair-count - 1 (so 2*(H+1) total rows).
+ *   Row A:  $94, $95, $94, $95, ...   (page 0)
+ *   Row B:  $96, $97, $96, $97, ...   (page 0)
+ *
+ *   Pattern: (A, B) repeated (H+1) times top-to-bottom, each row being 2*(W+1)
+ *   tiles wide.
+ */
+export function handle_0DC58A(cur: Cursor): void {
+  const pairCountM1 = cur.size & 0x0F
+  const rowPairM1   = (cur.size >> 4) & 0x0F
+  // LDA # immediate offsets (verified via ROM byte dump):
+  //   +24 $94 (imm at +25),  +32 $95 (imm at +33)   -- row A pair
+  //   +51 $96 (imm at +52),  +59 $97 (imm at +60)   -- row B pair
+  const base = cur.handlerAddr
+  const t94 = readImmByte(cur, base + 25)
+  const t95 = readImmByte(cur, base + 33)
+  const t96 = readImmByte(cur, base + 52)
+  const t97 = readImmByte(cur, base + 60)
+
+  saveBookmark(cur)
+  for (let rp = 0; rp <= rowPairM1; rp++) {
+    for (let c = 0; c <= pairCountM1; c++) {
+      setPage0(cur); writeTileAdvance(cur, t94)
+      setPage0(cur); writeTileAdvance(cur, t95)
+    }
+    restoreBookmark(cur); advanceRowRaw(cur)
+    for (let c = 0; c <= pairCountM1; c++) {
+      setPage0(cur); writeTileAdvance(cur, t96)
+      setPage0(cur); writeTileAdvance(cur, t97)
+    }
+    restoreBookmark(cur); advanceRowRaw(cur)
+  }
+}
+
+/**
+ * CODE_0DC5D8 (bank_0D.asm line 5207) -- 2-wide vertical chain/pole with
+ * top+bottom cap ($33/$34) and middle segments ($9D/$9E). Object 52 on
+ * CODE_0DC190.
+ *
+ *   Size byte: HHHH???? -- H = middle-row count (the body length counter _0
+ *   that the ASM decrements with BNE). Low nibble ignored.
+ *
+ *   ASM flow: write top ($33/$34 page 1), row++, DEC _0. Loop: if _0 != 0,
+ *   write middle ($9D/$9E page 0), row++, DEC _0 again. Loop until _0 == 0.
+ *   Write bottom cap ($33/$34 page 1).
+ *
+ *   For H==0 the ASM hits an infinite loop (DEC _0 wraps to 0xFF and BNE keeps
+ *   firing). We cap iterations at 64 for safety; vanilla level data never
+ *   trips this.
+ */
+export function handle_0DC5D8(cur: Cursor): void {
+  let _0 = (cur.size >> 4) & 0x0F
+  // LDA # immediate offsets (verified via ROM byte dump):
+  //   +16 $33 (imm at +17),  +24 $34 (imm at +25)   -- top/bottom cap pair
+  //   +34 $9D (imm at +35),  +42 $9E (imm at +43)   -- middle pair
+  const base = cur.handlerAddr
+  const t33 = readImmByte(cur, base + 17)
+  const t34 = readImmByte(cur, base + 25)
+  const t9D = readImmByte(cur, base + 35)
+  const t9E = readImmByte(cur, base + 43)
+
+  saveBookmark(cur)
+  // Top cap.
+  setPage1(cur); writeTileAdvance(cur, t33)
+  setPage1(cur); writeTile(cur, t34)   // STA no advance
+  restoreBookmark(cur); advanceRowRaw(cur)
+
+  // Middle rows. DEC _0; BNE loops.
+  let safety = 64
+  _0 = (_0 - 1) & 0xFF
+  while (_0 !== 0 && safety-- > 0) {
+    setPage0(cur); writeTileAdvance(cur, t9D)
+    setPage0(cur); writeTile(cur, t9E)
+    restoreBookmark(cur); advanceRowRaw(cur)
+    _0 = (_0 - 1) & 0xFF
+  }
+
+  // Bottom cap.
+  setPage1(cur); writeTileAdvance(cur, t33)
+  setPage1(cur); writeTile(cur, t34)
+}
+
+/**
+ * CODE_0DC341 (bank_0D.asm line 4845) -- castle staircase dispatcher.
+ * Object 61 on CODE_0DC190. Dispatches by size bit 1:
+ *   bit 1 = 0 → CODE_0DC358 (staircase up-left)
+ *   bit 1 = 1 → CODE_0DC3D8 (staircase up-right)
+ *
+ * Both variants share tile tables DATA_0DC350 ($CE,$D1,$CF,$D0 step caps)
+ * and DATA_0DC354 ($F3,$F6,$F4,$F5 step edges); the low 2 bits of size
+ * select the style (X), the high nibble sets step count.
+ */
+export function handle_0DC341(cur: Cursor): void {
+  // dl CODE_0DC358, dl CODE_0DC3D8 table starts at handler +9 (after
+  // SEP/LDA/AND/LSR/JSL = 9 bytes).
+  const variantIdx = (cur.size >> 1) & 1
+  const target = readLongOperand(cur, cur.handlerAddr + 9 + variantIdx * 3) & 0xFFFFFF
+
+  const prevHandler = cur.handlerAddr
+  cur.handlerAddr = target
+  try {
+    STAIRCASE_VARIANT_HANDLERS[target]?.(cur)
+  } finally {
+    cur.handlerAddr = prevHandler
+  }
+}
+
+const STAIRCASE_VARIANT_HANDLERS: Record<number, (cur: Cursor) => void> = {
+  0x0DC358: staircaseVariantA,
+  0x0DC3D8: staircaseVariantB,
+}
+
+/**
+ * CODE_0DC358 (bank_0D.asm line 4860) -- staircase variant A (up-left).
+ *
+ *   Size byte: HHHHSSXX -- X (bits 0-1) selects tile style into DATA_0DC350
+ *     and DATA_0DC354 (0-3); bits 2-3 ignored here (they were consumed by
+ *     the CODE_0DC341 dispatcher). H = step-count (_0 initialized to H+1).
+ *
+ *   For each step i in 0..H (total H+1 steps, moving up-left):
+ *     (col0 - i, row0 + i):              step cap (DATA_0DC350[X], page 1)
+ *     (col0 - i + 1, row0 + i):          step edge (DATA_0DC354[X], page 1)  if i >= 1
+ *     (col0 - i + 2 .. col0, row0 + i):  $3F fill (page 0)                    if i >= 2
+ *
+ *   Final ground row at (row0 + H + 1):
+ *     (col0 - H, ...): step edge (DATA_0DC354[X], page 1)
+ *     (col0 - H + 1 .. col0, ...): $3F fill (page 0)   -- (H) tiles
+ */
+function staircaseVariantA(cur: Cursor): void {
+  const X = cur.size & 0x03
+  const H = (cur.size >> 4) & 0x0F
+  const base = cur.handlerAddr
+  // Verified via ROM byte dump:
+  //   LDA.L DATA_0DC350,X  opcode at +31, operand at +32  (step cap)
+  //   LDA.L DATA_0DC354,X  opcode at +45, operand at +46  (step edge)
+  //   LDA #$3F             opcode at +58, imm at +59      (page-0 fill)
+  const addrCap  = readLongOperand(cur, base + 32)
+  const addrEdge = readLongOperand(cur, base + 46)
+  const capTile  = cur.rom.readByte(addrCap  + X) ?? 0
+  const edgeTile = cur.rom.readByte(addrEdge + X) ?? 0
+  const fillTile = readImmByte(cur, base + 59)
+
+  const col0 = cur.col, row0 = cur.row
+
+  // Step rows.
+  for (let i = 0; i <= H; i++) {
+    cur.row = row0 + i
+    cur.col = col0 - i
+    setPage1(cur); writeTileAdvance(cur, capTile)
+    if (i >= 1) { setPage1(cur); writeTileAdvance(cur, edgeTile) }
+    for (let k = 2; k <= i; k++) {
+      setPage0(cur); writeTileAdvance(cur, fillTile)
+    }
+  }
+
+  // Ground row at row0 + H + 1: one edge tile at col0 - H, then H $3F fills.
+  cur.row = row0 + H + 1
+  cur.col = col0 - H
+  setPage1(cur); writeTileAdvance(cur, edgeTile)
+  for (let k = 0; k < H; k++) {
+    setPage0(cur); writeTileAdvance(cur, fillTile)
+  }
+
+  // Restore cursor (bookkeeping; handler caller does not depend on this).
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * CODE_0DC3D8 (bank_0D.asm line 4933) -- staircase variant B (up-right).
+ *
+ *   Same table layout as variant A, but the staircase descends to the right
+ *   instead of the left: step i at (col0 + i, row0 + i), with preceding
+ *   tiles on the row filled with $3F (page 0) and an $F3 edge next to the
+ *   step cap.
+ *
+ *   For each step i in 0..H (total H+1 steps):
+ *     (col0 + 0 .. col0 + i - 2, row0 + i): $3F fill (page 0)   -- (i-1) tiles
+ *     (col0 + i - 1, row0 + i):             step edge ($F3, page 1)  if i >= 1
+ *     (col0 + i, row0 + i):                 step cap ($CE, page 1)
+ *
+ *   No separate ground row (unlike variant A) -- the bottom step IS the
+ *   terminating row.
+ */
+function staircaseVariantB(cur: Cursor): void {
+  const X = cur.size & 0x03
+  const H = (cur.size >> 4) & 0x0F
+  const base = cur.handlerAddr
+  // Verified via ROM byte dump:
+  //   LDA #$3F             opcode at +30, imm at +31      (page-0 fill)
+  //   LDA.L DATA_0DC354,X  opcode at +46, operand at +47  (step edge)
+  //   LDA.L DATA_0DC350,X  opcode at +60, operand at +61  (step cap)
+  const fillTile = readImmByte(cur, base + 31)
+  const addrEdge = readLongOperand(cur, base + 47)
+  const addrCap  = readLongOperand(cur, base + 61)
+  const capTile  = cur.rom.readByte(addrCap  + X) ?? 0
+  const edgeTile = cur.rom.readByte(addrEdge + X) ?? 0
+
+  const col0 = cur.col, row0 = cur.row
+
+  for (let i = 0; i <= H; i++) {
+    cur.row = row0 + i
+    cur.col = col0
+    // (i - 1) fills on page 0.
+    for (let k = 0; k < i - 1; k++) {
+      setPage0(cur); writeTileAdvance(cur, fillTile)
+    }
+    // Edge tile (only if i >= 1).
+    if (i >= 1) { setPage1(cur); writeTileAdvance(cur, edgeTile) }
+    // Step cap.
+    setPage1(cur); writeTileAdvance(cur, capTile)
+  }
+
+  cur.col = col0
+  cur.row = row0
 }
