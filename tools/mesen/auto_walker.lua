@@ -29,7 +29,7 @@
 -- Horizontal levels only. Vertical levels (header levelMode bit) need a
 -- different scroll strategy.
 
-local PROJECT_DIR = "C:/Projects/frontend"
+local PROJECT_DIR = "C:/Projects/hackbench-subarea"
 local TICK_FRAMES = 20    -- dump every 1/3s; Mario covers 80px (5 cols) in AUTO-SCROLL between dumps.
 local STEP_PIXELS = 4     -- AUTO-SCROLL speed (~Mario running, 240 px/s = 15 cols/s).
 local FLOAT_Y_PX  = 0x20  -- Mario's Y when AUTO-SCROLL clamps him. Row 2-ish; adjust with Up/Down.
@@ -257,6 +257,15 @@ local prevSpace  = false
 local floatY     = FLOAT_Y_PX   -- AUTO-SCROLL clamp target; Up/Down tweak it
 local wasInLevel = false        -- detects re-entry even when the level number repeats
 
+-- ── Sub-area detection diagnostics ────────────────────────────────────────
+-- SublevelCount at $7E141A is SMW's own bookkeeping: incremented every
+-- time the player enters a sub-area via pipe/door (bank_00.asm:9632 and
+-- bank_05.asm:7619 both `INC SublevelCount`). Watching edges on it is the
+-- most reliable "just entered a sub-area" signal regardless of whether
+-- the L1Ptr cache lookup resolves.
+local prevSublevelCount = nil   -- nil on first frame; set to live value
+local prevL1Key         = nil
+
 -- Map-ID HUD line shown on every frame. "map" is the umbrella term for
 -- both overworld-entered levels and pipe-entered sublevels. Green when we
 -- have a file open; yellow when the translevel read returns nothing
@@ -269,6 +278,8 @@ local function drawLevelHud()
   local l1lo = r(0x7E0065)
   local l1hi = r(0x7E0066)
   local l1bk = r(0x7E0067)
+  local sub    = r(0x7E141A)
+  local lln    = r(0x7E17BB)
   local fileStatus = file and ("file: $" .. string.format("%03x", currentFileLevel) .. " open")
                            or "file: <none>"
   local lvlStr = lvl and ("$" .. string.format("%03x", lvl)) or "?"
@@ -276,6 +287,8 @@ local function drawLevelHud()
   emu.drawString(8, 30, string.format("map=%s  TL=%02X  L1Ptr=%02X:%02X%02X",
     lvlStr, tl, l1bk, l1hi, l1lo), color, 0x000000)
   emu.drawString(8, 40, fileStatus, color, 0x000000)
+  emu.drawString(8, 50, string.format("SublevelCount=%02X  $17BB=%02X", sub, lln),
+    color, 0x000000)
 end
 
 -- ── Main loop ─────────────────────────────────────────────────────────────
@@ -289,6 +302,34 @@ local function onFrame()
   --   20 (0x14) = Level play    — RECORD
   --   21+       = game over / cutscene / etc. — SKIP
   local gameMode = r(0x7E0100)
+
+  -- Edge detectors: log (and surface for debugging) any transition on
+  -- SublevelCount ($7E141A) or Layer1DataPtr ($7E:0065-0067). We sample
+  -- every frame regardless of gameMode so transitions during level-load
+  -- modes ($0F-$13) are captured — that's when the new sub-area's L1Ptr
+  -- gets written.
+  local sublevelCount = r(0x7E141A)
+  local l1Key = r(0x7E0067) * 0x10000 + r(0x7E0066) * 0x100 + r(0x7E0065)
+  if prevSublevelCount ~= nil and sublevelCount ~= prevSublevelCount then
+    local byL1 = currentLevelByL1Ptr()
+    local byTL = currentLevelByTranslevel()
+    emu.log(string.format(
+      "[SUBLVL_EDGE] %d->%d  gameMode=%02X  L1Ptr=$%06X  mapByL1=%s  mapByTL=%s  $17BB=%02X",
+      prevSublevelCount, sublevelCount, gameMode, l1Key,
+      byL1 and string.format("$%03x", byL1) or "nil",
+      byTL and string.format("$%03x", byTL) or "nil",
+      r(0x7E17BB)))
+  end
+  if prevL1Key ~= nil and l1Key ~= prevL1Key then
+    local byL1 = currentLevelByL1Ptr()
+    emu.log(string.format(
+      "[L1_EDGE] $%06X -> $%06X  gameMode=%02X  mapByL1=%s",
+      prevL1Key, l1Key, gameMode,
+      byL1 and string.format("$%03x", byL1) or "nil"))
+  end
+  prevSublevelCount = sublevelCount
+  prevL1Key = l1Key
+
   if gameMode ~= 0x14 then
     wasInLevel = false
     -- Overworld fully exits level-chain: wipe per-session state so the next
