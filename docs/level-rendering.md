@@ -16,8 +16,8 @@ Keep this document in sync whenever the corresponding source files change.
 | `src/rom/GfxLoader.ts` | GFX file loading, VRAM slot assignment |
 | `src/rom/PaletteLoader.ts` | CGRAM assembly from ROM palette tables |
 | `src/rom/TileRenderer.ts` | Atlas build: Map16 + VRAM + CGRAM → RGBA tiles |
-| `src/providers/LevelEditorProvider.ts` | Orchestrates the pipeline; sends data to webview |
-| `src/webview/levelEditor/main.ts` | Canvas renderer in the webview |
+| `src/providers/MapEditorProvider.ts` | Orchestrates the pipeline; sends data to webview |
+| `src/webview/mapEditor/main.ts` | Canvas renderer in the webview |
 
 ---
 
@@ -113,9 +113,6 @@ ROM
 4. sprite markers                    ← colored boxes + hex ID overlays
 ```
 
-Tile rendering is currently **disabled** (`RENDER_TILES = false` in `main.ts`) pending
-verification of the full pipeline.
-
 ---
 
 ## SNES BG Mode
@@ -138,8 +135,7 @@ SMW assigns these rows per layer type:
 
 | Gap | File | Status |
 |---|---|---|
-| L2 bank=$FF tilemap (LC_RLE1) | LevelParser.ts, LevelEditorProvider.ts | ❌ Not implemented |
-| Tile rendering enabled | main.ts (`RENDER_TILES`) | ❌ Disabled pending verification |
+| L2 bank=$FF tilemap (LC_RLE1) | LevelParser.ts, MapEditorProvider.ts | ❌ Not implemented |
 | BG/FG palette variant addresses for variants ≥ 1 | PaletteLoader.ts | ⚠ Unverified ($B0E0 region) |
 | CGRAM rows 9–12 (berry/Yoshi/misc) | PaletteLoader.ts | ❌ Not loaded |
 | Colors 13–15 per palette row | PaletteLoader.ts | ❌ Not read (only indices 1–12) |
