@@ -33,27 +33,6 @@ https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html and in the
 
 ---
 
-## snesrev/smw - vendored LC_LZ2 decompressor (dev-only)
-
-- **License:** MIT
-- **Copyright:** (c) 2023 snesrev, (c) 2021 elzo_d
-- **Upstream:** https://github.com/snesrev/smw
-- **Vendored at:** [`tools/vendor/snesrev-smw/`](./tools/vendor/snesrev-smw/)
-- **Used for:** an optional *developer-only* workflow. The Python
-  decompressor, invoked by [`tools/scripts/dump-vanilla-gfx.py`](./tools/scripts/dump-vanilla-gfx.py),
-  can turn the developer's own legally owned SMW ROM into local LC_LZ2
-  input/output pairs under `test/fixtures/` (gitignored). HackBench
-  **does not distribute any ROM-derived data** - the CI suite relies on
-  synthetic hand-crafted LC_LZ2 vectors instead
-  ([`test/suite/unit/LcLz2.synthetic.test.ts`](./test/suite/unit/LcLz2.synthetic.test.ts)).
-  The vendored decompressor is **never shipped** in the packaged
-  extension.
-
-The MIT license text is preserved verbatim in
-[`tools/vendor/snesrev-smw/LICENSE.txt`](./tools/vendor/snesrev-smw/LICENSE.txt).
-
----
-
 ## VS Code API (`@types/vscode`, `vscode` module)
 
 - **License:** MIT (type declarations); the VS Code extension host API

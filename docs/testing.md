@@ -76,42 +76,6 @@ Examples:
 These skip cleanly when `test/roms/Super Mario World (USA).vanilla.sfc`
 is missing. If you've dropped your ROM in place, they run automatically.
 
-### 3. Fixture-based reference tests (developer-local)
-
-Some tests benefit from comparing against an **independent reference** -
-the canonical example is the LC_LZ2 decompressor, where a different
-implementation in a different language gives us cross-validation.
-
-HackBench ships a vendored copy of the LC_LZ2 decompressor from
-[`snesrev/smw`](https://github.com/snesrev/smw) (MIT) at
-[`tools/vendor/snesrev-smw/`](../tools/vendor/snesrev-smw/) and a
-developer-run script, [`tools/scripts/dump-vanilla-gfx.py`](../tools/scripts/dump-vanilla-gfx.py),
-which:
-
-1. Loads the vanilla ROM from your local `test/roms/` directory.
-2. Uses the vendored Python decompressor to decompress every GFX file.
-3. Writes each compressed slice + expected decompressed output to
-   `test/fixtures/gfx/` - **a gitignored directory on your machine only**.
-
-### Regenerating fixtures from your own ROM
-
-```bash
-# One-time: place your vanilla ROM at the expected path.
-cp /path/to/your/Super\ Mario\ World\ \(USA\).sfc \
-   test/roms/Super\ Mario\ World\ \(USA\).vanilla.sfc
-
-# Dump fixtures from your ROM (output lives under gitignored test/fixtures/).
-python tools/scripts/dump-vanilla-gfx.py
-
-# You can now enable fixture-based decoder tests locally by adding a
-# *.fixtures.test.ts file that reads from test/fixtures/gfx/. Keep those
-# tests under a skipIf(!fixturesPresent) guard so they don't break other
-# contributors' CI runs.
-```
-
-**Do not commit the contents of `test/fixtures/`.** The `.gitignore` rule
-blocks the directory by default - if you're tempted to `git add -f`, don't.
-
 ## Writing new tests
 
 Order of preference, highest to lowest:
