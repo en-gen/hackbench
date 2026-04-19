@@ -44,6 +44,7 @@ import {
   handle_0DA71B, handle_0DA760, handle_0DA7C1,
   handle_0DA7E7, handle_0DB2CA, handle_0DB583, handle_0DB58B,
   handle_0DCE67, handle_0DCE94, handle_0DCEA6, handle_0DCEC0, handle_0DCEDA,
+  handle_0DEC33,
 } from './extendedHandlers'
 
 /** A handler writes tiles into `cur.grid` based on `cur.objNo` and `cur.size`. */
@@ -117,6 +118,7 @@ export const EXTENDED_HANDLERS: Record<number, HandlerFn> = {
   0x0DCEA6: handle_0DCEA6,
   0x0DCEC0: handle_0DCEC0,
   0x0DCEDA: handle_0DCEDA,
+  0x0DEC33: handle_0DEC33,
 }
 
 /**
