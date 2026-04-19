@@ -361,7 +361,8 @@ function redrawDetail(): void {
     dctx.putImageData(tileData, 0, 0)
     const localTile = selectedDetail.row * 16 + selectedDetail.col
     const tileId = entry.label.startsWith('L1') ? entry.pageInAtlas * 256 + localTile : localTile
-    const frameInfo = animFrameCount > 1 ? `<br>frame: ${animFrame + 1} / ${animFrameCount}` : ''
+    const tileFrames = entry.label.startsWith('L1') ? map16TileFrameCount(tileId) : 1
+    const frameInfo = tileFrames > 1 ? `<br>frame: ${(animFrame % tileFrames) + 1} / ${tileFrames}` : ''
     info.innerHTML = `<b>Map16 tile $${tileId.toString(16).padStart(3,'0')}</b>${frameInfo}`
   }
 }
@@ -424,6 +425,13 @@ let animFrame = 0
 let vramSheets: ImageData[] = []         // frame 0 = base, frames 1+ = extra (RGBA for 8×8 viewer)
 let vramIndexedFrames: Uint8Array[] = [] // frame 0 = base, frames 1+ (raw indexed for Map16 composition)
 let activeVramIndexed: Uint8Array | null = null  // current frame's indexed data
+
+// Pre-built caches for each animation frame.
+// Built once after the palette is ready; swapped cheaply on each animation tick
+// instead of calling the expensive invalidateVram() → rebuildMap16Atlas() → redraw() chain.
+let prebuiltVramSheets: ImageData[] = []
+let prebuiltMap16Atlases: ImageData[] = []         // for map16Pages entries / renderMap16Page()
+let prebuiltMap16Canvases: HTMLCanvasElement[] = [] // for redraw() drawImage calls
 
 // Palette animation state (FlashingColors CGRAM cycling)
 let palAnimTimer: ReturnType<typeof setInterval> | null = null
@@ -509,6 +517,82 @@ function invalidatePalette(): void {
   invalidateVram()
 }
 
+/** True if the given 8×8 char's indexed pixels differ across any animation frame. */
+function charIsAnimated(charIdx: number): boolean {
+  if (vramIndexedFrames.length <= 1) return false
+  const base = vramIndexedFrames[0]
+  const off = charIdx * 64
+  for (let f = 1; f < vramIndexedFrames.length; f++) {
+    const frame = vramIndexedFrames[f]
+    for (let i = 0; i < 64; i++) {
+      if (base[off + i] !== frame[off + i]) return true
+    }
+  }
+  return false
+}
+
+/**
+ * Returns the effective frame count for a Map16 L1 tile.
+ * A tile with no animated subtile chars has 1 frame; otherwise it shares the
+ * global animFrameCount cycle.
+ */
+function map16TileFrameCount(tileId: number): number {
+  const def = mapData?.map16Defs?.[tileId]
+  if (!def) return 1
+  if (charIsAnimated(def.tl.c) || charIsAnimated(def.tr.c) ||
+      charIsAnimated(def.bl.c) || charIsAnimated(def.br.c)) {
+    return animFrameCount
+  }
+  return 1
+}
+
+/**
+ * Pre-build RGBA VRAM sheets and Map16 atlas canvases for every animation frame.
+ * Must be called after invalidatePalette() has run (so mapData.paletteRows is live).
+ * The resulting arrays let applyAnimFrame() do a cheap pointer-swap on each tick.
+ */
+function prebuildAnimFrames(): void {
+  prebuiltVramSheets = []
+  prebuiltMap16Atlases = []
+  prebuiltMap16Canvases = []
+  if (!mapData?.paletteRows || !mapData.map16Defs) return
+  for (let f = 0; f < vramIndexedFrames.length; f++) {
+    const indexed = vramIndexedFrames[f]
+    prebuiltVramSheets.push(rebuildVramSheet(indexed, mapData.paletteRows))
+    const atlas = rebuildMap16Atlas(indexed, mapData.paletteRows, mapData.map16Defs)
+    prebuiltMap16Atlases.push(atlas)
+    const cvs = document.createElement('canvas')
+    cvs.width = atlas.width
+    cvs.height = atlas.height
+    cvs.getContext('2d')!.putImageData(atlas, 0, 0)
+    prebuiltMap16Canvases.push(cvs)
+  }
+}
+
+/**
+ * Swap to a pre-built animation frame. No pixel rebuilds — just pointer swaps
+ * + renderVramPage (slice copy) + redraw (drawImage calls, GPU-accelerated).
+ * Falls back to invalidateVram() if pre-built caches aren't ready yet.
+ */
+function applyAnimFrame(f: number): void {
+  activeVramIndexed = vramIndexedFrames[f] ?? activeVramIndexed
+  // Use pre-built caches only when palette animation isn't changing colors underneath us.
+  if (!palAnimRunning && prebuiltVramSheets[f] && prebuiltMap16Canvases[f]) {
+    vramFullImageData = prebuiltVramSheets[f]
+    map16AtlasCanvas = prebuiltMap16Canvases[f]
+    map16FullImageData = prebuiltMap16Atlases[f]
+    for (const entry of map16Pages) {
+      if (entry.label.startsWith('L1')) entry.atlas = prebuiltMap16Atlases[f]
+    }
+    renderVramPage()
+    renderMap16Page()
+    redrawDetail()
+    redraw()
+  } else {
+    invalidateVram()
+  }
+}
+
 function applyPalAnimFrame(f: number): void {
   if (!mapData?.paletteAnimation || !mapData.paletteRows) return
   const anim = mapData.paletteAnimation
@@ -543,6 +627,8 @@ function stopPalAnimTimer(): void {
   if (palAnimTimer) { clearInterval(palAnimTimer); palAnimTimer = null }
   palAnimRunning = false
   syncPalAnimButton()
+  // Palette has changed — rebuild tile animation caches so subsequent tile ticks show correct colors.
+  if (animFrameCount > 1) prebuildAnimFrames()
 }
 
 function togglePalAnim(): void {
@@ -585,8 +671,7 @@ function stepFrame(delta: number): void {
   if (animFrameCount <= 1) return
   if (animRunning) { stopAnimTimer(); stopPalAnimTimer(); animRunning = false; syncAnimButtons() }
   animFrame = ((animFrame + delta) % animFrameCount + animFrameCount) % animFrameCount
-  if (vramIndexedFrames[animFrame]) activeVramIndexed = vramIndexedFrames[animFrame]
-  invalidateVram()
+  applyAnimFrame(animFrame)
   updateAnimLabel()
 }
 
@@ -602,16 +687,14 @@ function startAnimTimer(): void {
   animFrame = 0
   animTimer = setInterval(() => {
     animFrame = (animFrame + 1) % animFrameCount
-    if (vramIndexedFrames[animFrame]) activeVramIndexed = vramIndexedFrames[animFrame]
-    invalidateVram()
+    applyAnimFrame(animFrame)
   }, animIntervalMs)
 }
 
 function stopAnimTimer(): void {
   if (animTimer) { clearInterval(animTimer); animTimer = null }
   animFrame = 0
-  if (vramIndexedFrames[0]) activeVramIndexed = vramIndexedFrames[0]
-  invalidateVram()
+  applyAnimFrame(0)
 }
 
 // ── Tile panel page navigation ───────────────────────────────────────────────
@@ -1647,6 +1730,8 @@ window.addEventListener('message', async (event) => {
       map16PageIdx = 0
       // Full reactive rebuild: palette → invalidatePalette → vram → invalidateVram → map16
       invalidatePalette()
+      // Pre-build per-frame caches so animation ticks are cheap pointer swaps, not rebuilds.
+      prebuildAnimFrames()
 
       const m16Canvas = document.getElementById('map16-canvas') as HTMLCanvasElement
       const m16Inspect = document.getElementById('map16-inspect') as HTMLElement
