@@ -29,7 +29,7 @@
 -- Horizontal levels only. Vertical levels (header levelMode bit) need a
 -- different scroll strategy.
 
-local PROJECT_DIR = "C:/Projects/hackbench-subarea"
+local DUMPS_DIR = "C:/Users/engenb/OneDrive/hackbench-fixtures/maps"
 local TICK_FRAMES = 20    -- dump every 1/3s; Mario covers 80px (5 cols) in AUTO-SCROLL between dumps.
 local STEP_PIXELS = 4     -- AUTO-SCROLL speed (~Mario running, 240 px/s = 15 cols/s).
 local FLOAT_Y_PX  = 0x20  -- Mario's Y when AUTO-SCROLL clamps him. Row 2-ish; adjust with Up/Down.
@@ -168,7 +168,7 @@ end
 local function openFileForLevel(lvl)
   closeCurrentFile("switching level")
   local hex = formatLevelId(lvl)
-  local dir = PROJECT_DIR .. "/test/fixtures/maps/" .. hex
+  local dir = DUMPS_DIR .. "/" .. hex
   pcall(os.execute, string.format('if not exist "%s" mkdir "%s"',
     dir:gsub("/", "\\"), dir:gsub("/", "\\")))
   local path = dir .. "/dumps.txt"

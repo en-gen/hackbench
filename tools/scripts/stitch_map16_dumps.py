@@ -19,8 +19,11 @@ and therefore the most trustworthy).
 Usage:
   python stitch_map16_dumps.py <in.txt> <out.txt> [--report]
 
-The output fixture is not committed (see .gitignore test/fixtures/); each
-developer regenerates it locally from their own Mesen capture.
+Inputs and outputs typically live under
+  C:/Users/engenb/OneDrive/hackbench-fixtures/maps/<hhh>/
+  { dumps.txt, map16.txt }
+(see tools/mesen/auto_walker.lua DUMPS_DIR). ROM-derived data is kept out
+of the repo; each developer captures from their own legally owned ROM.
 """
 from __future__ import annotations
 
