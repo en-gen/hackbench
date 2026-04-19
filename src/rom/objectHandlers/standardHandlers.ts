@@ -2794,3 +2794,200 @@ export function handle_0DE135(cur: Cursor): void {
     advanceRowRaw(cur)
   }
 }
+
+/**
+ * CODE_0DECC9 (bank_0D.asm line 7939) -- single-tile rectangular fill for
+ * tileset-5 (ghost house / castle) standard objects $35 and $36.
+ *
+ * Size byte: WWWWHHHH → width-1 (low nibble), height-1 (high nibble).
+ *
+ * Tile selection (DATA_0DECC6 = $92, $5E, $82):
+ *   - Dispatcher preamble leaves X = objNo - 1 on entry. Handler immediately
+ *     does TXA; SEC; SBC #$34; TAX, so in the body:
+ *       obj $35 → X = 0 → low byte $92, page 0 (CPX #$01 not equal → skip
+ *                                               Sta1To6ePointer)
+ *       obj $36 → X = 1 → low byte $5E, page 1 (Sta1To6ePointer runs)
+ *   - DATA_0DECC6[2] = $82 is unused from the $35/$36 dispatch path; reachable
+ *     only if another routine jumps directly into CODE_0DECCE with X pre-set
+ *     (no such caller in vanilla SMW).
+ *
+ * ASM control flow: saveBookmark once; per row, inner loop writes (W+1) tiles
+ * advancing col, then restoreBookmark + nextRow; outer repeats for (H+1) rows.
+ * The StzTo6ePointer / Sta1To6ePointer pair runs inside the inner loop in the
+ * ASM, but the page is invariant for the whole call, so we set it once up front.
+ */
+export function handle_0DECC9(cur: Cursor): void {
+  const widthM1  = cur.size & 0x0F
+  const heightM1 = (cur.size >> 4) & 0x0F
+
+  // Dispatcher preamble: X = objNo - 1 on entry. Handler then subtracts $34.
+  const X = (cur.objNo - 1 - 0x34) & 0xFF
+
+  // LDA.L DATA_0DECC6,X — opcode $BF at handler+36, 3-byte operand at +37.
+  // Byte layout: TXA(1) SEC(1) SBC#(2) TAX(1) LDY_dp(2) LDA_dp(2) AND#(2)
+  //   STA_dp(2) STA_dp(2) LDA_dp(2) LSR×4(4) STA_dp(2) JSR(3) JSR(3) CPX#(2)
+  //   BNE(2) JSR(3) = 36 bytes before the BF.
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 37)
+  const tileLow = cur.rom.readByte(tableAddr + X) ?? 0
+
+  if (X === 1) setPage1(cur); else setPage0(cur)
+
+  saveBookmark(cur)
+  for (let r = 0; r <= heightM1; r++) {
+    for (let c = 0; c <= widthM1; c++) {
+      writeTileAdvance(cur, tileLow)
+    }
+    restoreBookmark(cur)
+    nextRow(cur)
+  }
+}
+
+/**
+ * CODE_0DED99 (bank_0D.asm line 8067) -- vertical tile strip for tileset-5
+ * standard object $3A (ghost-house pillar pieces).
+ *
+ * Size byte: HHHHVVVV
+ *   V (low nibble)  = variant, indexes DATA_0DED95 = $5F, $60, $5A, $5B
+ *   H (high nibble) = strip length - 1
+ *
+ * Tile ID is always page 1 (Sta1To6ePointer runs per iteration), so the final
+ * stored tiles are $015F / $0160 / $015A / $015B. Writes (H+1) tiles straight
+ * down from the cursor; no column advance between rows.
+ */
+export function handle_0DED99(cur: Cursor): void {
+  const variant  = cur.size & 0x0F
+  const heightM1 = (cur.size >> 4) & 0x0F
+
+  // LDA.L DATA_0DED95,X — opcode $BF at handler+18, 3-byte operand at +19.
+  // Byte layout: LDA_dp(2) AND#(2) TAX(1) LDY_dp(2) LDA_dp(2) LSR×4(4)
+  //   STA_dp(2) JSR(3) = 18 bytes before the BF.
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 19)
+  const tileLow = cur.rom.readByte(tableAddr + variant) ?? 0
+
+  setPage1(cur)
+  for (let r = 0; r <= heightM1; r++) {
+    writeTile(cur, tileLow)
+    advanceRowRaw(cur)
+  }
+}
+
+/**
+ * Shared body of CODE_0DED43 / CODE_0DED4A -- draws a horizontal catwalk
+ * strip starting at the cursor's current column. Writes 1 left-cap ($010A),
+ * (initialX - 1) middles ($010B), and 1 right-cap ($010C) -- total `initialX
+ * + 1` tiles -- all on page 1. The cursor is left one column past the final
+ * middle ($010B) write; the right-cap write does NOT advance.
+ *
+ * ASM (CODE_0DED4A, bank_0D.asm line 8016):
+ *   JSR Sta1To6ePointer; LDA #$0A; JMP into loop       ; first iter
+ *   loop: JSR Sta1To6ePointer; LDA #$0B; CODE_0DA95B (write + advanceCol);
+ *         DEX; BNE loop
+ *   post: JSR Sta1To6ePointer; LDA #$0C; STA [Map16LowPtr],Y (no advance)
+ */
+function drawCatwalkStrip_0DED4A(cur: Cursor, initialX: number): void {
+  if (initialX < 1) return
+  setPage1(cur); writeTileAdvance(cur, 0x0A)
+  for (let k = 0; k < initialX - 1; k++) {
+    setPage1(cur); writeTileAdvance(cur, 0x0B)
+  }
+  setPage1(cur); writeTile(cur, 0x0C)
+}
+
+/**
+ * CODE_0DED43 (bank_0D.asm line 8011) -- horizontal catwalk for tileset-5
+ * standard object $38 (bare catwalk walkway, no support poles).
+ *
+ * Size byte: HHHHWWWW → W (low nibble) = strip length - 1. High nibble unused
+ * by this handler. Emits (W + 1) tiles: $010A, $010B × (W - 1), $010C.
+ *
+ * Body is CODE_0DED4A which CODE_0DEEC0 also inlines; factored here as
+ * drawCatwalkStrip_0DED4A(cur, X) with X = W.
+ */
+export function handle_0DED43(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  drawCatwalkStrip_0DED4A(cur, W)
+}
+
+/**
+ * CODE_0DEEC0 (bank_0D.asm line 8234) -- tileset-5 standard object $34:
+ * horizontal catwalk + periodic vertical support poles.
+ *
+ * Size byte: HHHHWWWW
+ *   W (low nibble)  = controls BOTH the catwalk width and the pole count:
+ *                     catwalk is (W*4 + 3) tiles, poles are drawn W+1 times
+ *                     (spaced 4 columns apart).
+ *   H (high nibble) = pole height: writes H tiles per pole ($0078 then
+ *                     $0079 × (H - 1)). All four vanilla instances use H=2.
+ *
+ * ASM control flow:
+ *   1. saveBookmark (Map16LowPtr).
+ *   2. JSR CODE_0DED4A with X = W*4 + 2 → catwalk of W*4 + 3 tiles on page 1.
+ *   3. restoreBookmark; advance cursor to (startCol + 1, startRow + 1).
+ *   4. Loop (W+1) times: draw one pole at current column going down H tiles
+ *      on page 0 ($78, $79, $79, ...); then advance LevelLoadPos by 4 cols
+ *      (with screen-wrap rollback that effectively keeps absolute col = prev
+ *      pole's col + 4).
+ *
+ * The screen-wrap branch at the end of each pole loop (SBC #$10 + CODE_0DA9EF)
+ * unwinds the automatic row++ that happens when the byte-encoded LevelLoadPos
+ * overflows its low nibble past $F. In the flat (col, row) model we compute
+ * absolute columns directly, so no rollback is needed -- each pole lives at
+ * startCol + 1 + 4 * p for p in [0, W].
+ */
+export function handle_0DEEC0(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  const H = (cur.size >> 4) & 0x0F
+  const startCol = cur.col
+  const startRow = cur.row
+
+  saveBookmark(cur)
+
+  // Catwalk: X = W*4 + 2 produces W*4 + 3 tiles at row = startRow.
+  drawCatwalkStrip_0DED4A(cur, W * 4 + 2)
+
+  // Poles: W + 1 of them, spaced 4 cols, each H tiles tall starting one
+  // row below the catwalk. First pole is at startCol + 1 (the catwalk's
+  // second tile).
+  for (let p = 0; p <= W; p++) {
+    cur.col = startCol + 1 + p * 4
+    cur.row = startRow + 1
+    setPage0(cur); writeTile(cur, 0x78)
+    for (let k = 1; k < H; k++) {
+      cur.row += 1
+      setPage0(cur); writeTile(cur, 0x79)
+    }
+  }
+}
+
+/**
+ * CODE_0DED6B (bank_0D.asm line 8039) -- standalone vertical pole/column for
+ * tileset-5 standard object $39. Same shape as CODE_0DED99 but with a
+ * two-table top-cap / body split (and page 0 instead of page 1).
+ *
+ * Size byte: HHHHVVVV → V (low nibble) = variant, H (high nibble) = length - 1.
+ *
+ * Tile selection:
+ *   First row:      DATA_0DED65[V] → $83, $78, $79
+ *   Remaining rows: DATA_0DED68[V] → $83, $79, $79
+ *
+ *   V=0: uniform $0083 pole (no cap).
+ *   V=1: $0078 cap + $0079 body — identical to CODE_0DEEC0's catwalk poles
+ *        (obj $34), used for poles detached from a catwalk.
+ *   V=2: uniform $0079 body (no cap).
+ */
+export function handle_0DED6B(cur: Cursor): void {
+  const variant  = cur.size & 0x0F
+  const heightM1 = (cur.size >> 4) & 0x0F
+
+  // First-row LDA.L operand at +19, subsequent-row LDA.L operand at +29.
+  const addrFirst = readLongOperand(cur, cur.handlerAddr + 19)
+  const addrBody  = readLongOperand(cur, cur.handlerAddr + 29)
+  const firstTile = cur.rom.readByte(addrFirst + variant) ?? 0
+  const bodyTile  = cur.rom.readByte(addrBody  + variant) ?? 0
+
+  setPage0(cur); writeTile(cur, firstTile)
+  for (let r = 1; r <= heightM1; r++) {
+    advanceRowRaw(cur)
+    setPage0(cur); writeTile(cur, bodyTile)
+  }
+}
