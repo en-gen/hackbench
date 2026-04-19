@@ -407,3 +407,125 @@ export function handle_0DA7C1(cur: Cursor): void {
     if (r < 3) nextRow(cur)
   }
 }
+
+// ── Tileset-8 (ghost-house) extended-object handlers ─────────────────────────
+// Bank_0D's extended-object dispatch table ($0DA106 + 3*type) points these
+// at ext types $4D-$56 for ghost-house wall art and doors. They weren't
+// ported earlier because no fixture level used them directly; ghost-house
+// fixtures like $00F / $12A use them heavily.
+
+/**
+ * CODE_0DCE67 (bank_0D.asm line 5500) -- ext types $4D-$50 (ghost-house
+ * window / picture-frame 2x2 pattern). Reads 4 tiles from DATA_0DCE57 at
+ * offset (objNo-$4D)*4 and stamps them in a 2x2 grid.
+ *
+ *   DATA_0DCE57 =
+ *     $7A, $7B, $7C, $25,   ; ext $4D
+ *     $7E, $7F, $25, $7D,   ; ext $4E
+ *     $82, $25, $80, $81,   ; ext $4F
+ *     $25, $83, $84, $85    ; ext $50
+ *
+ * Layout: [0][1] on top row, restoreBookmark + nextRow, [2][3] on bottom.
+ * All writes page 0.
+ */
+export function handle_0DCE67(cur: Cursor): void {
+  const X = (cur.objNo - 0x4D) * 4
+  if (X < 0 || X >= 16) return
+  // Byte layout verified by dumping $0DCE67:
+  //   +16 BF 57 CE 0D   LDA.L DATA_0DCE57,X   (operand at +17..+19)
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 17)
+  const tiles = [0, 1, 2, 3].map(i => cur.rom.readByte(tableAddr + X + i) ?? 0)
+  const col0 = cur.col, row0 = cur.row
+  setPage0(cur)
+  writeTile(cur, tiles[0])
+  cur.col = col0 + 1
+  setPage0(cur)
+  writeTile(cur, tiles[1])
+  cur.col = col0
+  cur.row = row0 + 1
+  setPage0(cur)
+  writeTile(cur, tiles[2])
+  cur.col = col0 + 1
+  setPage0(cur)
+  writeTile(cur, tiles[3])
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * CODE_0DCE94 (bank_0D.asm line 5527) -- ext types $51-$54 single-tile
+ * stamps. Reads DATA_0DCE90 = [$76, $77, $78, $79] indexed by objNo-$51.
+ * Writes one tile at the cursor, page 0, no advance.
+ */
+export function handle_0DCE94(cur: Cursor): void {
+  const X = cur.objNo - 0x51
+  if (X < 0 || X >= 4) return
+  // Byte layout verified by dumping $0DCE94:
+  //   +11 BF 90 CE 0D   LDA.L DATA_0DCE90,X   (operand at +12..+14)
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
+  setPage0(cur)
+  writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
+}
+
+/**
+ * ADDR_0DCEA6 (bank_0D.asm line 5538) -- ext type $70 (ghost-house double
+ * tile). Writes $84 at Y (advance), $85 at Y (no advance). Page 0.
+ * Dispatched for ext $70 per line 1174.
+ */
+export function handle_0DCEA6(cur: Cursor): void {
+  // Byte layout verified by dumping $0DCEA6:
+  //   +11 A9 84   LDA #$84 (imm at +12)
+  //   +19 A9 85   LDA #$85 (imm at +20)
+  const tA = readImmByte(cur, cur.handlerAddr + 12)
+  const tB = readImmByte(cur, cur.handlerAddr + 20)
+  const col0 = cur.col
+  setPage0(cur)
+  writeTile(cur, tA)
+  cur.col = col0 + 1
+  setPage0(cur)
+  writeTile(cur, tB)
+  cur.col = col0
+}
+
+/**
+ * CODE_0DCEC0 (bank_0D.asm line 5556) -- ext type $55 (vertical 2-tile stack
+ * $96 / $97, page 0). Writes $96 at (col, row), then $97 at (col, row+1).
+ *
+ * The ASM uses `STA [Map16LowPtr],Y` (no advance) followed by CODE_0DA97D
+ * (row += 1), so each write stays in the same column.
+ */
+export function handle_0DCEC0(cur: Cursor): void {
+  // Byte layout verified by dumping $0DCEC0:
+  //   +9 BF BE CE 0D   LDA.L DATA_0DCEBE,X   (operand at +10..+12)
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 10)
+  const t0 = cur.rom.readByte(tableAddr + 0) ?? 0
+  const t1 = cur.rom.readByte(tableAddr + 1) ?? 0
+  const row0 = cur.row
+  setPage0(cur)
+  writeTile(cur, t0)
+  cur.row = row0 + 1
+  setPage0(cur)
+  writeTile(cur, t1)
+  cur.row = row0
+}
+
+/**
+ * CODE_0DCEDA (bank_0D.asm line 5573) -- ext type $56 (horizontal 2-tile
+ * pair $98 / $99, page 0). Writes $98 at (col, row), $99 at (col+1, row).
+ *
+ * The ASM uses CODE_0DA95B (advance) between writes, so cursor walks right.
+ */
+export function handle_0DCEDA(cur: Cursor): void {
+  // Byte layout verified by dumping $0DCEDA:
+  //   +9 BF D8 CE 0D   LDA.L DATA_0DCED8,X   (operand at +10..+12)
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 10)
+  const t0 = cur.rom.readByte(tableAddr + 0) ?? 0
+  const t1 = cur.rom.readByte(tableAddr + 1) ?? 0
+  const col0 = cur.col
+  setPage0(cur)
+  writeTile(cur, t0)
+  cur.col = col0 + 1
+  setPage0(cur)
+  writeTile(cur, t1)
+  cur.col = col0
+}
