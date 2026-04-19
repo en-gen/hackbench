@@ -6,7 +6,12 @@
  * CODE_0DA106 dispatch table (bank_0D.asm line 1056).
  */
 
-import { Cursor, writeTile, setPage0, setPage1, readLongOperand, readImmByte } from './cursor'
+import {
+  Cursor, writeTile, setPage0, setPage1,
+  advanceCol, saveBookmark, nextRow,
+  peekExistingLow,
+  readLongOperand, readImmByte,
+} from './cursor'
 
 /**
  * CODE_0DA512 (bank_0D.asm line 1416) -- screen exit marker (ext type 0x00).
@@ -243,4 +248,162 @@ export function handle_0DA6D1(cur: Cursor): void {
   cur.row += 1
   writeTile(cur, bot)
   cur.row -= 1
+}
+
+/**
+ * CODE_0DA78D (bank_0D.asm line 1736) -- hillside tile-merge write.
+ *
+ * Shared by the tall-hillside (ext $82, CODE_0DA71B) and short-hillside
+ * (ext $83, CODE_0DA760) handlers. Each caller hands us one table entry `A`;
+ * we decide what low byte to stamp at the cursor and then advance one column.
+ *
+ * ASM decision tree:
+ *   A == $25  → JMP CODE_0DA95D       (skip write; just advance cursor)
+ *   A <  $49  → JMP CODE_0DA95B at +2 (write A as-is, advance)
+ *   A <  $54  → JMP CODE_0DA95B at +2 (write A as-is, advance)
+ *   else      → read existing low byte at cursor and blend:
+ *                 existing == $25   → write A
+ *                 existing == $49   → write A + 1
+ *                 existing other    → write A + 2
+ *               then advance one column.
+ *
+ * The $25-in check at the top matters because the data tables are padded with
+ * $25 (empty) to preserve grid shape; stamping $25 on top would clobber
+ * whatever terrain was drawn underneath. The $54-range blend is how the
+ * hillside's outer cap/slope tiles merge with pre-existing ground or other
+ * hill tiles.
+ *
+ * Caller is responsible for setting the page (the hillside handlers call
+ * StzTo6ePointer == setPage0 before each call).
+ */
+function hillsideMergeWriteAdvance(cur: Cursor, A: number): void {
+  if (A === 0x25) {
+    advanceCol(cur)
+    return
+  }
+  if (A < 0x49 || A < 0x54) {
+    writeTile(cur, A)
+    advanceCol(cur)
+    return
+  }
+  // A >= $54 → merge with existing.
+  const existing = peekExistingLow(cur)
+  let tile = A
+  if (existing !== 0x25) {
+    // BEQ skip both INCs when existing == $25 (no bump). BEQ skip one INC
+    // when existing == $49 (bump by 1). Else fall through both INCs (bump by 2).
+    tile = (tile + 1) & 0xFF
+    if (existing !== 0x49) tile = (tile + 1) & 0xFF
+  }
+  writeTile(cur, tile)
+  advanceCol(cur)
+}
+
+/**
+ * CODE_0DA71B (bank_0D.asm line 1684) -- extended type $82: tall hillside.
+ *
+ * Stamps a 9-wide × 5-tall grid of tiles from DATA_0DA6EE into the level
+ * tilemap. The data is read row-major (X increments linearly through 45
+ * entries). Each tile passes through the CODE_0DA78D hillside-merge helper
+ * so $25 entries act as "leave cell alone" padding and out-of-range tiles
+ * blend with whatever terrain is already at the destination.
+ *
+ * Used on the overworld and in grass/hill-themed levels for the large
+ * hillside silhouette behind foreground terrain.
+ */
+export function handle_0DA71B(cur: Cursor): void {
+  // LDA.L DATA_0DA6EE operand lives at handler +19 (opcode $BF at +18).
+  // Layout:
+  //   +0  LDY  LevelLoadPos           (2 bytes)
+  //   +2  LDA #$08 / STA _0           (4 bytes)
+  //   +6  LDA #$04 / STA _1           (4 bytes)
+  //   +10 LDX #$00                    (2 bytes)
+  //   +12 JSR CODE_0DA6B1             (3 bytes)
+  //   +15 LDA _0 / STA _2             (4 bytes)   ← CODE_0DA72A
+  //   +19 JSR StzTo6ePointer          (3 bytes)
+  //   +22 LDA.L DATA_0DA6EE,X         (4 bytes)   operand at +23
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 23)
+
+  const cols = 9    // _0 = 8, loop `DEC _2; BPL -` runs while _2 >= 0 → 9 iters
+  const rows = 5    // _1 = 4, same pattern → 5 iters
+
+  saveBookmark(cur)   // CODE_0DA6B1
+  let x = 0
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      setPage0(cur)   // StzTo6ePointer before each tile
+      const tile = cur.rom.readByte(tableAddr + x) ?? 0
+      hillsideMergeWriteAdvance(cur, tile)
+      x++
+    }
+    // CODE_0DA6BA + CODE_0DA97D → nextRow (col = bookmark, row += 1).
+    // Skip on the last row; the ASM's `BPL` exits naturally here too.
+    if (r < rows - 1) nextRow(cur)
+  }
+}
+
+/**
+ * CODE_0DA760 (bank_0D.asm line 1713) -- extended type $83: short hillside.
+ *
+ * Same machinery as CODE_0DA71B but with a 6-wide × 4-tall grid from
+ * DATA_0DA748 (24 bytes). Used for smaller rolling-hill silhouettes on the
+ * overworld and in grass-themed levels.
+ */
+export function handle_0DA760(cur: Cursor): void {
+  // LDA.L DATA_0DA748 operand at handler +23 (same layout as CODE_0DA71B —
+  // the only differences are the LDA #$05 / #$03 immediates at +3/+7 and
+  // the table address).
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 23)
+
+  const cols = 6    // _0 = 5 → 6 iters
+  const rows = 4    // _1 = 3 → 4 iters
+
+  saveBookmark(cur)
+  let x = 0
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      setPage0(cur)
+      const tile = cur.rom.readByte(tableAddr + x) ?? 0
+      hillsideMergeWriteAdvance(cur, tile)
+      x++
+    }
+    if (r < rows - 1) nextRow(cur)
+  }
+}
+
+/**
+ * CODE_0DA7C1 (bank_0D.asm line 1762) -- extended type $4A.
+ *
+ * Stamps a 4-wide × 4-tall grid from DATA_0DA7B1 (16 bytes). Unlike the
+ * hillside handlers this one writes tiles directly via CODE_0DA95B -- no
+ * merge, no $25 skip, no StzTo6ePointer. The page byte at each destination
+ * is whatever was there before (typically page 0 for a fresh level because
+ * the Map16High array is zero-initialised).
+ *
+ * Loop terminates when X reaches $10 (= 16 entries consumed).
+ */
+export function handle_0DA7C1(cur: Cursor): void {
+  // Layout:
+  //   +0  LDY  LevelLoadPos           (2 bytes)
+  //   +2  LDX #$00                    (2 bytes)
+  //   +4  JSR CODE_0DA6B1             (3 bytes)
+  //   +7  LDA #$03 / STA _2           (4 bytes)  ← CODE_0DA7C8
+  //   +11 LDA.L DATA_0DA7B1,X         (4 bytes)  operand at +12
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
+
+  saveBookmark(cur)
+  let x = 0
+  // Outer loop mimics `CPX #$10; BNE CODE_0DA7C8` → 4 iterations of 4 cols.
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 4; c++) {
+      // No page setter in the ASM -- inherit cursor.page. For a freshly
+      // expanded level that's 0 (default), which matches what the game
+      // sees via the zero-initialised Map16High array.
+      const tile = cur.rom.readByte(tableAddr + x) ?? 0
+      writeTile(cur, tile)
+      advanceCol(cur)
+      x++
+    }
+    if (r < 3) nextRow(cur)
+  }
 }
