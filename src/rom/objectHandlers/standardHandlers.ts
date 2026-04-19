@@ -2243,3 +2243,417 @@ function staircaseVariantB(cur: Cursor): void {
   cur.col = col0
   cur.row = row0
 }
+
+// ── Tileset-8 (ghost-house) novel handlers ───────────────────────────────────
+// Ported from CODE_0DCD90's dispatch table in bank_0D.asm. Most ghost-house
+// levels only use shared handlers (CODE_0DA8C3, CODE_0DD103, CODE_0DD145, …)
+// but a handful use these tileset-8-specific routines for doors, wall edges,
+// picture frames, and staircases. Handlers that duplicate tileset-1 entries
+// (handle_0DB336, handle_0DCF12, handle_0DCF33, handle_0DC341) are reused
+// from the tileset-1 port above.
+
+/**
+ * ADDR_0DCEF2 (bank_0D.asm line 5589) -- tileset-8 object $36 (horizontal run
+ * of $0C/$0D on page 1). Low nibble = width-1, high nibble = which of two
+ * tiles (DATA_0DCEF0 = $0C, $0D). Only 2 valid X values.
+ *
+ * Single row, (W+1) tiles wide. Writes via CODE_0DA95B which is
+ * advance-after-write, so the cursor walks right by (W+1) steps.
+ */
+export function handle_0DCEF2(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  const X = (cur.size >> 4) & 0x0F
+  // Byte layout verified by dumping $0DCEF2 from ROM:
+  //   +18 BF F0 CE 0D   LDA.L DATA_0DCEF0,X   (operand at +19..+21)
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 19)
+  const tile = cur.rom.readByte(tableAddr + (X & 0x01)) ?? 0   // only 2 entries
+  const col0 = cur.col
+  for (let c = 0; c <= W; c++) {
+    cur.col = col0 + c
+    setPage1(cur)
+    writeTile(cur, tile)
+  }
+  cur.col = col0
+}
+
+/**
+ * CODE_0DCF53 (bank_0D.asm line 5652) -- tileset-8 object $3A sub-dispatcher.
+ * Low nibble = variant (0-5):
+ *   0: CODE_0DCF6E  -- 2-wide staircase going down-left with $8C/$8D.
+ *   1: CODE_0DCFB1  -- 1-wide diagonal going down-left with $86.
+ *   2: ADDR_0DCFF0  -- 2-wide staircase going down-right with $8E/$8F.
+ *   3: CODE_0DD034  -- 1-wide diagonal going down-right with $87.
+ *   4: CODE_0DCFB1  -- 1-wide diagonal going down-left with $94 (X=4 selects).
+ *   5: CODE_0DD034  -- 1-wide diagonal going down-right with $95 (X=5 selects).
+ * High nibble = step count (X+1 steps total).
+ */
+export function handle_0DCF53(cur: Cursor): void {
+  const X = cur.size & 0x0F
+  if (X >= 6) return
+  // Byte layout verified by dumping $0DCF53:
+  //   +0 A5 59 29 0F AA 22 FA 86 00   LDA size; AND #$0F; TAX; JSL ExecutePtrLong
+  //   +9..+26   dl $0DCF6E, $0DCFB1, $0DCFF0, $0DD034, $0DCFB1, $0DD034
+  const target = readLongOperand(cur, cur.handlerAddr + 9 + X * 3) & 0xFFFFFF
+  const prevHandler = cur.handlerAddr
+  cur.handlerAddr = target
+  try {
+    STAIR_VARIANT_HANDLERS[target]?.(cur, X)
+  } finally {
+    cur.handlerAddr = prevHandler
+  }
+}
+
+const STAIR_VARIANT_HANDLERS: Record<number, (cur: Cursor, X: number) => void> = {
+  0x0DCF6E: stairVariantDownLeft2Wide,
+  0x0DCFB1: stairVariantDownLeft1Wide,
+  0x0DCFF0: stairVariantDownRight2Wide,
+  0x0DD034: stairVariantDownRight1Wide,
+}
+
+/**
+ * CODE_0DCF6E (bank_0D.asm line 5665) -- 2-wide staircase descending to left.
+ * Each step writes a horizontal pair ($8C/$8D) then shifts (col-=2, row+=1).
+ * X = (size >> 4) & 0x0F = count, produces X+1 steps total.
+ */
+function stairVariantDownLeft2Wide(cur: Cursor, _subX: number): void {
+  const X = (cur.size >> 4) & 0x0F
+  // Byte layout verified by dumping $0DCF6E:
+  //   +15 A9 8C   LDA #$8C  (imm at +16)
+  //   +23 A9 8D   LDA #$8D  (imm at +24)
+  const tileA = readImmByte(cur, cur.handlerAddr + 16)
+  const tileB = readImmByte(cur, cur.handlerAddr + 24)
+  const col0 = cur.col, row0 = cur.row
+  for (let i = 0; i <= X; i++) {
+    cur.col = col0 - i * 2
+    cur.row = row0 + i
+    setPage0(cur)
+    writeTile(cur, tileA)
+    cur.col += 1
+    setPage0(cur)
+    writeTile(cur, tileB)
+  }
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * ADDR_0DCFF0 (bank_0D.asm line 5745) -- 2-wide staircase descending to right.
+ * Each step writes a horizontal pair ($8E/$8F) then shifts (col+=2, row+=1).
+ */
+function stairVariantDownRight2Wide(cur: Cursor, _subX: number): void {
+  const X = (cur.size >> 4) & 0x0F
+  // Byte layout verified by dumping $0DCFF0:
+  //   +15 A9 8E   LDA #$8E  (imm at +16)
+  //   +23 A9 8F   LDA #$8F  (imm at +24)
+  const tileA = readImmByte(cur, cur.handlerAddr + 16)
+  const tileB = readImmByte(cur, cur.handlerAddr + 24)
+  const col0 = cur.col, row0 = cur.row
+  for (let i = 0; i <= X; i++) {
+    cur.col = col0 + i * 2
+    cur.row = row0 + i
+    setPage0(cur)
+    writeTile(cur, tileA)
+    cur.col += 1
+    setPage0(cur)
+    writeTile(cur, tileB)
+  }
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * CODE_0DCFB1 (bank_0D.asm line 5705) -- 1-wide diagonal staircase going
+ * down-left. Tile = $86 (variant 1) or $94 (variant 4, sub-dispatcher X=4).
+ * Each step shifts (col-=1, row+=1). Total X+1 steps.
+ */
+function stairVariantDownLeft1Wide(cur: Cursor, subX: number): void {
+  const X = (cur.size >> 4) & 0x0F
+  // Byte layout verified by dumping $0DCFB1:
+  //   +0 A9 86   LDA #$86        (imm at +1)
+  //   +2 E0 04   CPX #$04
+  //   +4 D0 02   BNE +2
+  //   +6 A9 94   LDA #$94        (imm at +7) — overrides when X==4
+  const tile86 = readImmByte(cur, cur.handlerAddr + 1)
+  const tile94 = readImmByte(cur, cur.handlerAddr + 7)
+  const tile = subX === 4 ? tile94 : tile86
+  const col0 = cur.col, row0 = cur.row
+  for (let i = 0; i <= X; i++) {
+    cur.col = col0 - i
+    cur.row = row0 + i
+    setPage0(cur)
+    writeTile(cur, tile)
+  }
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * CODE_0DD034 (bank_0D.asm line 5786) -- 1-wide diagonal staircase going
+ * down-right. Tile = $87 (variant 3) or $95 (variant 5). Each step shifts
+ * (col+=1, row+=1). Total X+1 steps.
+ */
+function stairVariantDownRight1Wide(cur: Cursor, subX: number): void {
+  const X = (cur.size >> 4) & 0x0F
+  // Byte layout verified by dumping $0DD034:
+  //   +0 A9 87   LDA #$87        (imm at +1)
+  //   +6 A9 95   LDA #$95        (imm at +7) — overrides when X==5
+  const tile87 = readImmByte(cur, cur.handlerAddr + 1)
+  const tile95 = readImmByte(cur, cur.handlerAddr + 7)
+  const tile = subX === 5 ? tile95 : tile87
+  const col0 = cur.col, row0 = cur.row
+  for (let i = 0; i <= X; i++) {
+    cur.col = col0 + i
+    cur.row = row0 + i
+    setPage0(cur)
+    writeTile(cur, tile)
+  }
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * ADDR_0DD070 (bank_0D.asm line 5825) -- tileset-8 object $3B sub-dispatcher.
+ * Bit 4 of size selects variant. High nibble >> 4 → 0 or 1.
+ *   0: ADDR_0DD080 -- descends to left with $88/$8A (top/bottom of each step).
+ *   1: ADDR_0DD0C3 -- descends to right with $89/$8B.
+ * Low nibble = W = iteration count (W+1 steps). Each step is 2 tiles tall.
+ */
+export function handle_0DD070(cur: Cursor): void {
+  const sel = (cur.size >> 4) & 0x0F
+  if (sel >= 2) return
+  // Byte layout verified by dumping $0DD070:
+  //   +0 A5 59 4A 4A 4A 4A 22 FA 86 00   LDA size; LSR×4; JSL ExecutePtrLong
+  //   +10..+15   dl $0DD080, $0DD0C3
+  const target = readLongOperand(cur, cur.handlerAddr + 10 + sel * 3) & 0xFFFFFF
+  const prevHandler = cur.handlerAddr
+  cur.handlerAddr = target
+  try {
+    if (target === 0x0DD080) twoTallStairDownLeft(cur)
+    else if (target === 0x0DD0C3) twoTallStairDownRight(cur)
+  } finally {
+    cur.handlerAddr = prevHandler
+  }
+}
+
+/** ADDR_0DD080: 2-tall staircase down-left, tiles $88 (top) / $8A (bottom). */
+function twoTallStairDownLeft(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  // Byte layout verified by dumping $0DD080:
+  //   +10 A9 88   LDA #$88 (imm at +11)
+  //   +27 A9 8A   LDA #$8A (imm at +28)
+  const tileTop = readImmByte(cur, cur.handlerAddr + 11)
+  const tileBot = readImmByte(cur, cur.handlerAddr + 28)
+  const col0 = cur.col, row0 = cur.row
+  for (let i = 0; i <= W; i++) {
+    cur.col = col0 - i
+    cur.row = row0 + i * 2
+    setPage0(cur)
+    writeTile(cur, tileTop)
+    cur.row += 1
+    setPage0(cur)
+    writeTile(cur, tileBot)
+  }
+  cur.col = col0
+  cur.row = row0
+}
+
+/** ADDR_0DD0C3: 2-tall staircase down-right, tiles $89 (top) / $8B (bottom). */
+function twoTallStairDownRight(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  // Byte layout verified by dumping $0DD0C3:
+  //   +10 A9 89   LDA #$89 (imm at +11)
+  //   +27 A9 8B   LDA #$8B (imm at +28)
+  const tileTop = readImmByte(cur, cur.handlerAddr + 11)
+  const tileBot = readImmByte(cur, cur.handlerAddr + 28)
+  const col0 = cur.col, row0 = cur.row
+  for (let i = 0; i <= W; i++) {
+    cur.col = col0 + i
+    cur.row = row0 + i * 2
+    setPage0(cur)
+    writeTile(cur, tileTop)
+    cur.row += 1
+    setPage0(cur)
+    writeTile(cur, tileBot)
+  }
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * ADDR_0DD182 (bank_0D.asm line 5986) -- tileset-8 object $3E (horizontal
+ * window/door with 3-segment pattern). Low nibble = width counter X (total
+ * X+1 tiles). Writes $59 (left cap) + $5A * (X-1 middles) + $5B (right cap),
+ * all page 1.
+ */
+export function handle_0DD182(cur: Cursor): void {
+  const X = cur.size & 0x0F
+  // Byte layout verified by dumping $0DD182:
+  //   +10 A9 59   LDA #$59   (imm at +11) — left cap
+  //   +18 A9 5A   LDA #$5A   (imm at +19) — middle
+  //   +29 A9 5B   LDA #$5B   (imm at +30) — right cap
+  const leftTile  = readImmByte(cur, cur.handlerAddr + 11)
+  const midTile   = readImmByte(cur, cur.handlerAddr + 19)
+  const rightTile = readImmByte(cur, cur.handlerAddr + 30)
+  if (X === 0) {
+    // Degenerate: ASM writes left cap + right cap only (the BNE loop runs 0
+    // iterations because DEX from 0 gives $FF which is not zero, so the
+    // loop actually runs forever in the real game — a level-author bug).
+    // For safety emit just the left cap.
+    setPage1(cur)
+    writeTile(cur, leftTile)
+    return
+  }
+  const col0 = cur.col
+  setPage1(cur)
+  writeTileAdvance(cur, leftTile)
+  for (let i = 0; i < X - 1; i++) {
+    setPage1(cur)
+    writeTileAdvance(cur, midTile)
+  }
+  setPage1(cur)
+  writeTile(cur, rightTile)
+  cur.col = col0
+}
+
+/**
+ * ADDR_0DD1A5 (bank_0D.asm line 6006) -- tileset-8 object $3F (vertical
+ * pillar/support). High nibble = X = height count (total X+1 tiles).
+ * Writes $5C (top) + $5D * (X-1 middles) + $5E (bottom), all page 1, one
+ * column wide.
+ */
+export function handle_0DD1A5(cur: Cursor): void {
+  const X = (cur.size >> 4) & 0x0F
+  // Byte layout verified by dumping $0DD1A5:
+  //   +12 A9 5C   LDA #$5C   (imm at +13) — top
+  //   +20 A9 5D   LDA #$5D   (imm at +21) — middle
+  //   +33 A9 5E   LDA #$5E   (imm at +34) — bottom
+  const topTile  = readImmByte(cur, cur.handlerAddr + 13)
+  const midTile  = readImmByte(cur, cur.handlerAddr + 21)
+  const botTile  = readImmByte(cur, cur.handlerAddr + 34)
+  const row0 = cur.row
+  if (X === 0) {
+    setPage1(cur)
+    writeTile(cur, topTile)
+    return
+  }
+  cur.row = row0
+  setPage1(cur)
+  writeTile(cur, topTile)
+  for (let i = 0; i < X - 1; i++) {
+    cur.row += 1
+    setPage1(cur)
+    writeTile(cur, midTile)
+  }
+  cur.row += 1
+  setPage1(cur)
+  writeTile(cur, botTile)
+  cur.row = row0
+}
+
+/**
+ * CODE_0DD24E (bank_0D.asm line 6098) -- tileset-8 object $32 (2-row wide
+ * fill of $A3 top + $0E bottom). Low nibble = W = width count; total (W+1)
+ * tiles wide, 2 rows tall. Row 0 is page 0 ($A3), row 1 is page 1 ($0E).
+ *
+ *   DATA_0DD24C: db $A3, $0E
+ *
+ * Inner loop visits X=0 (top) and X=1 (bot). On X=0 the code runs only
+ * StzTo6ePointer (page 0); on X=1 both StzTo6ePointer and Sta1To6ePointer
+ * run, so the net page is 1.
+ */
+export function handle_0DD24E(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  // Byte layout verified by dumping $0DD24E:
+  //   +25 BF 4C D2 0D   LDA.L DATA_0DD24C,X   (operand at +26..+28)
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 26)
+  const row0Tile = cur.rom.readByte(tableAddr + 0) ?? 0
+  const row1Tile = cur.rom.readByte(tableAddr + 1) ?? 0
+  const col0 = cur.col, row0 = cur.row
+
+  for (let x = 0; x < 2; x++) {
+    cur.row = row0 + x
+    const tile = x === 0 ? row0Tile : row1Tile
+    for (let c = 0; c <= W; c++) {
+      cur.col = col0 + c
+      if (x === 0) setPage0(cur); else setPage1(cur)
+      writeTile(cur, tile)
+    }
+  }
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * CODE_0DD1D9 (bank_0D.asm line 6040) -- tileset-8 object $35 (vertical
+ * picture-frame / stacked bordered structure). Low nibble = X (frame style,
+ * 0-3). High nibble = H = body-segment count.
+ *
+ *   DATA_0DD1CB = $9A, $9C, $9E, $A0    (top-left capstone per style)
+ *   DATA_0DD1CF = $9B, $9D, $9F, $A1    (top-right capstone per style)
+ *   middle connector pair: $5F (left) / $60 (right)
+ *   body cycle DATA_0DD1D3 = $61, $62, $63, $64, $65, $66 (reads 2 at a time,
+ *     wraps after 6 entries)
+ *
+ * Structure: 2 columns wide. Row 0 = DATA_0DD1CB[X]/DATA_0DD1CF[X] pair
+ * (page 0). If H >= 0, row 1 = $5F/$60 pair (page 1). Then H more rows each
+ * drawing 2 tiles from DATA_0DD1D3 cycling [0,1], [2,3], [4,5], [0,1], …
+ */
+export function handle_0DD1D9(cur: Cursor): void {
+  const X = cur.size & 0x0F
+  let _0 = (cur.size >> 4) & 0x0F     // body segment count
+
+  // Byte layout verified by dumping $0DD1D9 from ROM:
+  //   +21 BF CB D1 0D   LDA.L DATA_0DD1CB,X   (operand at +22..+24)
+  //   +31 BF CF D1 0D   LDA.L DATA_0DD1CF,X   (operand at +32..+34)
+  //   +53 A9 5F         LDA #$5F               (imm at +54)
+  //   +61 A9 60         LDA #$60               (imm at +62)
+  //   +80 BF D3 D1 0D   LDA.L DATA_0DD1D3,X   (operand at +81..+83)
+  const addrCB = readLongOperand(cur, cur.handlerAddr + 22)
+  const addrCF = readLongOperand(cur, cur.handlerAddr + 32)
+  const addrD3 = readLongOperand(cur, cur.handlerAddr + 81)
+  const t5F = readImmByte(cur, cur.handlerAddr + 54)
+  const t60 = readImmByte(cur, cur.handlerAddr + 62)
+
+  const col0 = cur.col, row0 = cur.row
+
+  // Row 0: capstone pair at (col, row), (col+1, row), page 0.
+  setPage0(cur)
+  writeTile(cur, cur.rom.readByte(addrCB + (X & 0x03)) ?? 0)
+  cur.col = col0 + 1
+  setPage0(cur)
+  writeTile(cur, cur.rom.readByte(addrCF + (X & 0x03)) ?? 0)
+  _0 -= 1
+  if (_0 < 0) { cur.col = col0; cur.row = row0; return }
+
+  // Row 1: middle-connector pair $5F/$60, page 1.
+  cur.col = col0
+  cur.row = row0 + 1
+  setPage1(cur)
+  writeTile(cur, t5F)
+  cur.col = col0 + 1
+  setPage1(cur)
+  writeTile(cur, t60)
+  _0 -= 1
+  if (_0 < 0) { cur.col = col0; cur.row = row0; return }
+
+  // Body cycle: pairs from DATA_0DD1D3, each iteration writes 2 tiles and
+  // advances to next row. X_cycle cycles [0,2,4] mod 6.
+  let cycX = 0
+  let bodyRow = row0 + 2
+  while (_0 >= 0) {
+    cur.col = col0
+    cur.row = bodyRow
+    setPage1(cur)
+    writeTile(cur, cur.rom.readByte(addrD3 + cycX) ?? 0)
+    cur.col = col0 + 1
+    setPage1(cur)
+    writeTile(cur, cur.rom.readByte(addrD3 + cycX + 1) ?? 0)
+    cycX += 2
+    if (cycX >= 6) cycX = 0
+    bodyRow += 1
+    _0 -= 1
+  }
+
+  cur.col = col0
+  cur.row = row0
+}
