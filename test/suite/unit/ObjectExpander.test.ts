@@ -23,6 +23,7 @@ import {
   handle_0DB42D, handle_0DB461, handle_0DB51F, handle_0DB547, handle_0DB571, handle_0DB5B7,
   handle_0DB73F, handle_0DB7AA,
   handle_0DB916, handle_0DB91E,
+  handle_0DDCEA, handle_0DDD2E, handle_0DE135,
 } from '../../../src/rom/objectHandlers/standardHandlers'
 import {
   handle_0DA57B, handle_0DA64D, handle_0DA656, handle_0DA673, handle_0DA68E, handle_0DA6D1,
@@ -1413,5 +1414,175 @@ describe('handle_0DB91E (red switch-palace block, standard rect)', () => {
     expect(grid[13][5]).toBe(0x06D)
     expect(grid[12][6]).toBe(TILE_EMPTY)
     expect(grid[14][4]).toBe(TILE_EMPTY)
+  })
+})
+
+// ── CODE_0DDCEA (tileset 9-14, object $3D: fill + distinct bottom row) ────────
+
+describe('handle_0DDCEA (filled rect with distinct bottom row, object $3D)', () => {
+  const HANDLER_ADDR = 0x0DDCEA
+  // Operand offsets inside the handler body for the body / bottom LDA #$imm.
+  const BODY_IMM_OFFSET   = 29  // $A9 $65 → body tile (size = 1 byte)
+  const BOTTOM_IMM_OFFSET = 52  // $A9 $4E → bottom tile
+
+  function romWithHandlerBytes(bodyTile: number, bottomTile: number): RomFile {
+    const rom = makeMockRom({})
+    rom.writeAt(HANDLER_ADDR + BODY_IMM_OFFSET, [bodyTile])
+    rom.writeAt(HANDLER_ADDR + BOTTOM_IMM_OFFSET, [bottomTile])
+    return rom
+  }
+
+  it('H=0 draws only the bottom row (width W+1, page 1)', () => {
+    const grid = createGrid(1)
+    const rom = romWithHandlerBytes(0x65, 0x4E)
+    // size = $06 → H=0 W=6 → single row of bottomTile, width 7.
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 2, 10, 0x3D, 0x06)
+    handle_0DDCEA(cur)
+    for (let c = 2; c <= 8; c++) expect(grid[10][c]).toBe(P1(0x4E))
+    expect(grid[10][1]).toBe(TILE_EMPTY)
+    expect(grid[10][9]).toBe(TILE_EMPTY)
+    expect(grid[9][2]).toBe(TILE_EMPTY)
+  })
+
+  it('H>0 draws H rows of body tile + one bottom row', () => {
+    const grid = createGrid(1)
+    const rom = romWithHandlerBytes(0x65, 0x4E)
+    // size = $21 → H=2 W=1 → 2 rows of bodyTile + 1 row of bottomTile, width 2.
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 0, 4, 0x3D, 0x21)
+    handle_0DDCEA(cur)
+    for (let r = 4; r <= 5; r++) {
+      expect(grid[r][0]).toBe(P1(0x65))
+      expect(grid[r][1]).toBe(P1(0x65))
+    }
+    expect(grid[6][0]).toBe(P1(0x4E))
+    expect(grid[6][1]).toBe(P1(0x4E))
+    expect(grid[7][0]).toBe(TILE_EMPTY)
+  })
+
+  it('resolves body/bottom tiles from handler bytecode (tolerates relocated imms)', () => {
+    const grid = createGrid(1)
+    // Simulate a ROM hack that used different body/bottom tiles by rewriting the
+    // LDA #$imm operand bytes. Handler must pick these up.
+    const rom = romWithHandlerBytes(0xAA, 0xBB)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 0, 0, 0x3D, 0x10)
+    handle_0DDCEA(cur)
+    expect(grid[0][0]).toBe(P1(0xAA))
+    expect(grid[1][0]).toBe(P1(0xBB))
+  })
+})
+
+// ── CODE_0DDD2E (tileset 9-14, object $3E: vertical pillar) ───────────────────
+
+describe('handle_0DDD2E (vertical pillar, object $3E)', () => {
+  const HANDLER_ADDR = 0x0DDD2E
+  const BODY_LDA_OFFSET   = 23  // LDA.L DATA_0DDD26,X operand
+  const BOTTOM_LDA_OFFSET = 39  // LDA.L DATA_0DDD2A,X operand
+
+  function romWithPillarTables(): RomFile {
+    const rom = makeMockRom({})
+    // Vanilla-style tables: 4 variants each.
+    const addrBody   = 0x0DDD26
+    const addrBottom = 0x0DDD2A
+    rom.writeAt(addrBody,   [0x50, 0x50, 0x51, 0x51])
+    rom.writeAt(addrBottom, [0x4D, 0x50, 0x4F, 0x51])
+    stampLongOperand(rom, HANDLER_ADDR, BODY_LDA_OFFSET,   addrBody)
+    stampLongOperand(rom, HANDLER_ADDR, BOTTOM_LDA_OFFSET, addrBottom)
+    return rom
+  }
+
+  it('H=0 V=0 draws a single bottom tile', () => {
+    const grid = createGrid(1)
+    const rom = romWithPillarTables()
+    // size = $00 → H=0 V=0 → 1 bottom tile at cursor row.
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 3, 6, 0x3E, 0x00)
+    handle_0DDD2E(cur)
+    expect(grid[6][3]).toBe(P1(0x4D))
+    expect(grid[7][3]).toBe(TILE_EMPTY)
+  })
+
+  it('H=3 V=2 stacks 3 body tiles above the bottom tile', () => {
+    const grid = createGrid(1)
+    const rom = romWithPillarTables()
+    // size = $32 → H=3 V=2 → 3 body + 1 bottom.
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 0, 0, 0x3E, 0x32)
+    handle_0DDD2E(cur)
+    expect(grid[0][0]).toBe(P1(0x51))   // body tile (variant 2 of DATA_0DDD26)
+    expect(grid[1][0]).toBe(P1(0x51))
+    expect(grid[2][0]).toBe(P1(0x51))
+    expect(grid[3][0]).toBe(P1(0x4F))   // bottom tile (variant 2 of DATA_0DDD2A)
+    expect(grid[4][0]).toBe(TILE_EMPTY)
+    expect(grid[0][1]).toBe(TILE_EMPTY) // no horizontal spread
+  })
+})
+
+// ── CODE_0DE135 (tileset 9-14, object $36: three-part rectangle) ──────────────
+
+describe('handle_0DE135 (three-part rect, object $36)', () => {
+  const HANDLER_ADDR = 0x0DE135
+  const LEFT_LDA_OFFSET   = 29  // LDA.L DATA_0DE12C,X
+  const MIDDLE_LDA_OFFSET = 42  // LDA.L DATA_0DE12F,X
+  const RIGHT_LDA_OFFSET  = 56  // LDA.L DATA_0DE132,X
+
+  function romWithBoxTables(): RomFile {
+    const rom = makeMockRom({})
+    const addrLeft   = 0x0DE12C
+    const addrMid    = 0x0DE12F
+    const addrRight  = 0x0DE132
+    rom.writeAt(addrLeft,  [0x45, 0x50, 0x4D])    // top-L, mid-L, bot-L
+    rom.writeAt(addrMid,   [0x00, 0xF0, 0x4E])    // top-M, mid-M, bot-M
+    rom.writeAt(addrRight, [0x48, 0x51, 0x4F])    // top-R, mid-R, bot-R
+    stampLongOperand(rom, HANDLER_ADDR, LEFT_LDA_OFFSET,   addrLeft)
+    stampLongOperand(rom, HANDLER_ADDR, MIDDLE_LDA_OFFSET, addrMid)
+    stampLongOperand(rom, HANDLER_ADDR, RIGHT_LDA_OFFSET,  addrRight)
+    return rom
+  }
+
+  it('W=2 H=2 (size $22) paints a 3-wide × 3-tall framed box', () => {
+    const grid = createGrid(1)
+    const rom = romWithBoxTables()
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 2, 4, 0x36, 0x22)
+    handle_0DE135(cur)
+    // Row 0 (X=0): top-L, top-M, top-R
+    expect(grid[4][2]).toBe(P1(0x45))
+    expect(grid[4][3]).toBe(P1(0x00))
+    expect(grid[4][4]).toBe(P1(0x48))
+    // Row 1 (X=1 middle): mid-L, mid-M, mid-R
+    expect(grid[5][2]).toBe(P1(0x50))
+    expect(grid[5][3]).toBe(P1(0xF0))
+    expect(grid[5][4]).toBe(P1(0x51))
+    // Row 2 (X=2 last): bot-L, bot-M, bot-R
+    expect(grid[6][2]).toBe(P1(0x4D))
+    expect(grid[6][3]).toBe(P1(0x4E))
+    expect(grid[6][4]).toBe(P1(0x4F))
+    // Bounds
+    expect(grid[4][5]).toBe(TILE_EMPTY)
+    expect(grid[3][2]).toBe(TILE_EMPTY)
+    expect(grid[7][2]).toBe(TILE_EMPTY)
+  })
+
+  it('W=1 row emits left + right with no middle fill', () => {
+    const grid = createGrid(1)
+    const rom = romWithBoxTables()
+    // size = $11 → W=1 H=1 → 2-wide × 2-tall box, no middle body tiles.
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 0, 0, 0x36, 0x11)
+    handle_0DE135(cur)
+    expect(grid[0][0]).toBe(P1(0x45)) // top-L
+    expect(grid[0][1]).toBe(P1(0x48)) // top-R (adjacent to left, no middle)
+    expect(grid[1][0]).toBe(P1(0x4D)) // bot-L
+    expect(grid[1][1]).toBe(P1(0x4F)) // bot-R
+    expect(grid[0][2]).toBe(TILE_EMPTY)
+  })
+
+  it('H=0 draws a single top-row strip (no middle or bottom row)', () => {
+    const grid = createGrid(1)
+    const rom = romWithBoxTables()
+    // size = $03 → H=0 W=3 → single top row with left + 2 middle + right (width 4).
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 0, 0, 0x36, 0x03)
+    handle_0DE135(cur)
+    expect(grid[0][0]).toBe(P1(0x45))   // top-L
+    expect(grid[0][1]).toBe(P1(0x00))   // top-M
+    expect(grid[0][2]).toBe(P1(0x00))   // top-M
+    expect(grid[0][3]).toBe(P1(0x48))   // top-R
+    expect(grid[1][0]).toBe(TILE_EMPTY) // no row below
   })
 })
