@@ -26,12 +26,17 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   )
 
-  // Register the map custom editor
+  // Register the map custom editor.
+  // retainContextWhenHidden:false — each map webview copies VRAM frames +
+  // animation frames + an AudioContext (postMessage is a structured clone,
+  // not a reference). Keeping 100 hidden tabs alive would pile up hundreds
+  // of MB. With the ROM buffer shared via RomSession.resolveRom(), rebuild
+  // on re-show is all in-memory compute, no disk I/O.
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
       'hackbench.mapEditor',
       mapEditorProvider,
-      { webviewOptions: { retainContextWhenHidden: true } }
+      { webviewOptions: { retainContextWhenHidden: false } }
     )
   )
 
@@ -40,7 +45,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerCustomEditorProvider(
       'hackbench.paletteEditor',
       paletteEditorProvider,
-      { webviewOptions: { retainContextWhenHidden: true } }
+      { webviewOptions: { retainContextWhenHidden: false } }
     )
   )
 
@@ -49,7 +54,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerCustomEditorProvider(
       'hackbench.gfxViewer',
       gfxViewerProvider,
-      { webviewOptions: { retainContextWhenHidden: true } }
+      { webviewOptions: { retainContextWhenHidden: false } }
     )
   )
 
@@ -64,7 +69,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerCustomEditorProvider(
       'hackbench.musicPlayer',
       musicPlayerProvider,
-      { webviewOptions: { retainContextWhenHidden: true } }
+      { webviewOptions: { retainContextWhenHidden: false } }
     )
   )
 

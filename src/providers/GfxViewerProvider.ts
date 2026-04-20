@@ -14,7 +14,7 @@
  */
 
 import * as vscode from 'vscode'
-import { SmwRom } from '../rom/SmwRom'
+import { resolveRom } from '../RomSession'
 import { GFX_FILE_COUNT, GFX_MARIO_3BPP_INDEX, loadGfxFile, loadGfxRaw, getLayer3GfxRange } from '../rom/GfxLoader'
 import { loadRomPalettes, buildLevelCgram, loadCustomLevelPalette, RgbaRow } from '../rom/PaletteLoader'
 
@@ -87,7 +87,7 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
       const raw = await vscode.workspace.fs.readFile(uri)
       const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
 
-      const rom = SmwRom.open(descriptor.romPath as string)
+      const rom = resolveRom(descriptor.romPath as string)
       const gfxIndex = descriptor.gfxIndex as number
 
       if (gfxIndex < 0 || gfxIndex >= GFX_FILE_COUNT) {

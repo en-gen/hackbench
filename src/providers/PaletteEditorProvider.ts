@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { SmwRom } from '../rom/SmwRom'
+import { resolveRom } from '../RomSession'
 import { loadRomPalettes } from '../rom/PaletteLoader'
 import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
 
@@ -46,7 +46,7 @@ export class PaletteEditorProvider implements vscode.CustomReadonlyEditorProvide
     try {
       const raw = await vscode.workspace.fs.readFile(uri)
       const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
-      const rom = SmwRom.open(descriptor.romPath as string)
+      const rom = resolveRom(descriptor.romPath as string)
       const palettes = loadRomPalettes(rom.rom)
 
       // If a specific groupId is requested, filter to just that group

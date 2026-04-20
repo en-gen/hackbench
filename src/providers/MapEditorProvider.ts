@@ -1,17 +1,13 @@
 import * as vscode from 'vscode'
-import { SmwRom, ADDR } from '../rom/SmwRom'
+import { getActiveRomSession, resolveRom, type RomSession } from '../RomSession'
 import { parseLevelObjects, parseLevelSprites, isLevelModeVerticalL2 } from '../rom/LevelParser'
-import { loadAllMap16, loadAllMap16BG } from '../rom/Map16'
-import { loadRomPalettes, buildLevelCgram, loadBackAreaColors, getPaletteColor } from '../rom/PaletteLoader'
+import { loadAllMap16BG, loadMap16WithPipeVariants, type Map16Tile } from '../rom/Map16'
+import { loadRomPalettes, loadBackAreaColors, buildLevelCgram } from '../rom/PaletteLoader'
 import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, getCharPixels, type VramState, type GfxSheet } from '../rom/GfxLoader'
-import { buildTileAtlas } from '../rom/TileRenderer'
-import { loadAnimationData, ANIM_INTERVAL_MS } from '../rom/AnimationLoader'
+import { loadAnimationData, ANIM_INTERVAL_MS, type AnimationData } from '../rom/AnimationLoader'
 import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
-type RgbaColor = [number, number, number, number]
 import { expandMap } from '../rom/ObjectExpander'
 import { loadL2Preset, loadL2Objects, readL2Pointer, isPresetPtr, L2_TILEMAP_COLS, L2_TILEMAP_ROWS, L2_BG_PLANE_ROWS, L2_EMPTY_TILE } from '../rom/L2Loader'
-import { getLevelMusicBgm } from '../rom/MusicData'
-import { buildSpc } from '../rom/SpcBuilder'
 import { SCREEN_W, SCREEN_H, SCREEN_W_VERT, SCREEN_H_VERT } from '../rom/LevelParser'
 
 /**
@@ -54,16 +50,9 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
     }
     panel.webview.html = this._buildHtml(panel.webview)
 
-    const unmuteIcon = {
-          light: vscode.Uri.joinPath(this.context.extensionUri, 'build', 'icons', 'light', 'unmute.svg'),
-          dark: vscode.Uri.joinPath(this.context.extensionUri, 'build', 'icons', 'dark', 'unmute.svg'),
-        }
-
     panel.webview.onDidReceiveMessage(async (msg) => {
       if (msg.type === 'ready') {
         await this._sendLevelData(document.uri, panel.webview, {})
-      } else if (msg.type === 'musicState') {
-        panel.iconPath = msg.playing ? unmuteIcon : undefined
       } else if (msg.type === 'rerender') {
         await this._sendLevelData(document.uri, panel.webview, {
           bgVariant:      msg.bgVariant      as number,
@@ -90,7 +79,11 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       const raw = await vscode.workspace.fs.readFile(uri)
       const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
 
-      const rom   = SmwRom.open(descriptor.romPath as string)
+      const romPath = descriptor.romPath as string
+      const activeSession = getActiveRomSession()
+      const session: RomSession | null =
+        activeSession && activeSession.rom.rom.filePath === romPath ? activeSession : null
+      const rom   = session?.rom ?? resolveRom(romPath)
       const index = descriptor.mapIndex as number
 
       // ── Parse level ───────────────────────────────────────────────────────
@@ -177,8 +170,8 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       // ── Load ROM rendering data (allow webview overrides) ─────────────────
       const bgVariant      = overrides.bgVariant      ?? header.bgPalette
       const bgColorVariant = overrides.bgColorVariant ?? header.bgColor
-      const romPalettes    = loadRomPalettes(rom.rom, bgColorVariant)
-      const backAreaColors = loadBackAreaColors(rom.rom)
+      const romPalettes    = session?.getRomPalettes(bgColorVariant) ?? loadRomPalettes(rom.rom, bgColorVariant)
+      const backAreaColors = session?.getBackAreaColors() ?? loadBackAreaColors(rom.rom)
       const fgVariant      = overrides.fgVariant      ?? header.fgPalette
       const spriteTileset  = overrides.spriteSet      ?? header.spriteSet
       const spritePalette  = overrides.spritePalette  ?? header.spritePalette
@@ -187,68 +180,51 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
       const marioVariant = overrides.marioVariant ?? 0
       const cgram = buildLevelCgram(romPalettes, bgVariant, fgVariant, spritePalette, marioVariant)
-      const palette = { colors: cgram.colors, rows: cgram.rows }
-      const vram    = loadVram(rom.rom, objectTileset, spriteTileset)
+      const baseVram: VramState = session?.getVram(objectTileset, spriteTileset) ?? loadVram(rom.rom, objectTileset, spriteTileset)
       // Default map16 (variant 1 / green) for tiles outside the $133..$13A pipe
-      // range and as a fallback for tooling that doesn't know about variants.
-      const map16   = loadAllMap16(rom.rom, objectTileset)
+      // range, plus the four pipe variants for $133..$13A. Single pointer-table
+      // build shared across all five outputs.
+      const m16: { tiles: Map16Tile[]; pipeVariants: Map16Tile[][] } =
+        session?.getMap16(objectTileset) ?? loadMap16WithPipeVariants(rom.rom, objectTileset)
+      const map16 = m16.tiles
+      const pipeVariants = m16.pipeVariants
 
       // Vanilla SMW cycles pipe palettes per screen via MAP16AppTable redirection
       // (CODE_0580BD, bank_05.asm:110-143). Tiles $133..$13A render with palette
       // 3/5/6/7 depending on which screen they're on. We expose all four variants
       // here so the webview can pick per screen at draw time.
-      const pipeVariantDefs: Array<Array<{
-        id: number
-        tl: { c: number; p: number; fx: boolean; fy: boolean }
-        bl: { c: number; p: number; fx: boolean; fy: boolean }
-        tr: { c: number; p: number; fx: boolean; fy: boolean }
-        br: { c: number; p: number; fx: boolean; fy: boolean }
-      }>> = []
-      for (let v = 0; v < 4; v++) {
-        const variantTiles = loadAllMap16(rom.rom, objectTileset, v)
-        const defs = []
-        for (let i = 0; i < 8; i++) {
-          const t = variantTiles[0x133 + i]
-          defs.push({
-            id: t.id,
-            tl: { c: t.tl.charNum, p: t.tl.palette, fx: t.tl.flipX, fy: t.tl.flipY },
-            bl: { c: t.bl.charNum, p: t.bl.palette, fx: t.bl.flipX, fy: t.bl.flipY },
-            tr: { c: t.tr.charNum, p: t.tr.palette, fx: t.tr.flipX, fy: t.tr.flipY },
-            br: { c: t.br.charNum, p: t.br.palette, fx: t.br.flipX, fy: t.br.flipY },
-          })
-        }
-        pipeVariantDefs.push(defs)
-      }
+      const pipeVariantDefs = pipeVariants.map(variantTiles =>
+        variantTiles.map(t => ({
+          id: t.id,
+          tl: { c: t.tl.charNum, p: t.tl.palette, fx: t.tl.flipX, fy: t.tl.flipY },
+          bl: { c: t.bl.charNum, p: t.bl.palette, fx: t.bl.flipX, fy: t.bl.flipY },
+          tr: { c: t.tr.charNum, p: t.tr.palette, fx: t.tr.flipX, fy: t.tr.flipY },
+          br: { c: t.br.charNum, p: t.br.palette, fx: t.br.flipX, fy: t.br.flipY },
+        })),
+      )
 
-      // ── Animation: apply frame 0 to VRAM BEFORE building any atlases ──
+      // ── Animation: apply frame 0 to VRAM non-destructively ──
       // The SNES animation engine replaces 8×8 char data in VRAM via DMA.
-      // Map16 tiles are just pointers to chars — they don't change.
-      // We apply frame 0 to the base VRAM before building any atlases,
-      // then build additional VRAM sheets for frames 1+ so the webview
-      // can cycle them.
+      // Map16 tiles are just pointers to chars — they don't change. We build a
+      // frame-0 proxy over the cached base VRAM so subsequent reuses of the
+      // cached VRAM (other levels sharing this tileset) are not polluted.
       let animIntervalMs = ANIM_INTERVAL_MS
       let animFrameCount = 1
-      let animData: ReturnType<typeof loadAnimationData> = null
+      let animData: AnimationData | null = null
+      let vram: VramState = baseVram
       try {
-        animData = loadAnimationData(rom.rom, objectTileset)
+        animData = session?.getAnimationData(objectTileset) ?? loadAnimationData(rom.rom, objectTileset)
         if (animData && animData.frameCount > 1) {
           animFrameCount = animData.frameCount
           animIntervalMs = animData.intervalMs
 
-          // Apply frame 0 overrides directly to the base VRAM
-          // This makes ALL downstream rendering (8×8 sheet, Map16 atlas, level atlas)
-          // use the correct animated char data from the start.
           const frame0Overrides = new Map<number, Uint8Array>()
           for (const slot of animData.frames[0]) {
             for (let i = 0; i < slot.tiles.length; i++) {
               frame0Overrides.set(slot.charBase + i, slot.tiles[i])
             }
           }
-          const baseVram = createAnimatedVramProxy(vram, frame0Overrides)
-          // Replace vram slots with the frame-0-applied versions
-          for (const slotName of VRAM_SLOT_NAMES) {
-            if (baseVram[slotName]) (vram as Record<string, unknown>)[slotName] = baseVram[slotName]
-          }
+          vram = createAnimatedVramProxy(baseVram, frame0Overrides)
           console.log(`[ANIM] ${animFrameCount} frames, ${animIntervalMs}ms interval`)
         }
       } catch (err) {
@@ -256,37 +232,11 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       }
 
       // L1 + L2/BG Map16 tiles are both composited live in the webview from
-      // their defs + vramIndexedData + paletteRows, so animation frames can
-      // swap the L2 atlas the same way they swap L1. The baked atlas is kept
-      // as an initial-paint fallback before the client rebuild runs.
-      const map16bg = loadAllMap16BG(rom.rom)
-      const { atlas: map16BgAtlas } = buildTileAtlas(map16bg, vram, palette)
+      // their defs + vramIndexedData + paletteRows. No baked RGBA atlases are
+      // sent; the webview's reactive chain produces first paint from indexed
+      // data within a frame of the 'load' message.
+      const map16bg = session?.getMap16BG() ?? loadAllMap16BG(rom.rom)
 
-      // ── Build extra animation frames (VRAM sheets only) ────────────────
-      // Map16 viewer composites from live VRAM chars per frame, so no
-      // separate Map16 atlases are needed for animation.
-      const extraVramSheets: number[][] = []
-      if (animData && animFrameCount > 1) {
-        for (let frame = 1; frame < animFrameCount; frame++) {
-          const charOverrides = new Map<number, Uint8Array>()
-          for (const slot of animData.frames[frame]) {
-            for (let i = 0; i < slot.tiles.length; i++) {
-              charOverrides.set(slot.charBase + i, slot.tiles[i])
-            }
-          }
-          const frameVram = createAnimatedVramProxy(vram, charOverrides)
-          extraVramSheets.push(Array.from(buildVramSheet(frameVram, palette)))
-        }
-      }
-
-      // ── Build 8×8 VRAM sheet (frame 0 applied) ──
-      const vramSheet = buildVramSheet(vram, palette)
-      const vramSheetW = 128  // 16 tiles × 8px
-      const vramSheetH = Math.ceil(1536 / 16) * 8
-
-      // ── Raw indexed VRAM for client-side Map16 composition ──
-      // 1 byte per pixel (palette index), 64 bytes per char, 1536 chars.
-      // Per-frame indexed data built alongside VRAM sheets above.
       // ── Layer 2 scroll settings ─────────────────────────────────────────
       // CODE_05D26E (bank_05.asm:7268-7277) reads byte $05F000+levelIndex,
       // takes the top nibble, and uses it as index into the 16-byte scroll
@@ -302,6 +252,9 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       const vertLayer2Setting  = rom.rom.readByte(0x05D710 + scrollIndex) ?? 0
       const horizLayer2Setting = rom.rom.readByte(0x05D720 + scrollIndex) ?? 0
 
+      // ── Raw indexed VRAM for client-side Map16 composition ──
+      // 1 byte per pixel (palette index), 64 bytes per char, 1536 chars.
+      // Frame 0 has animation-frame-0 overrides already baked in via the proxy.
       const vramIndexed = buildVramIndexed(vram)
       const extraVramIndexed: number[][] = []
       if (animData && animFrameCount > 1) {
@@ -312,7 +265,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
               charOverrides.set(slot.charBase + i, slot.tiles[i])
             }
           }
-          const frameVram = createAnimatedVramProxy(vram, charOverrides)
+          const frameVram = createAnimatedVramProxy(baseVram, charOverrides)
           extraVramIndexed.push(Array.from(buildVramIndexed(frameVram)))
         }
       }
@@ -331,10 +284,6 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         tileGrid,
         l2TileGrid,
         l2UsesBgAtlas,
-        vramSheetData:  Array.from(vramSheet),
-        vramSheetW,
-        vramSheetH,
-        map16BgAtlasData: Array.from(map16BgAtlas),
         // Map16 tile definitions for client-side composition from live VRAM chars.
         // Each def: { id, tl, bl, tr, br } where subtile: { c, p, fx, fy }
         map16Defs: map16.map(t => ({
@@ -344,8 +293,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
           tr: { c: t.tr.charNum, p: t.tr.palette, fx: t.tr.flipX, fy: t.tr.flipY },
           br: { c: t.br.charNum, p: t.br.palette, fx: t.br.flipX, fy: t.br.flipY },
         })),
-        // L2/BG Map16 defs (same shape as map16Defs) so the webview can re-composite
-        // the BG atlas per animation frame instead of relying on the baked atlas.
+        // L2/BG Map16 defs (same shape as map16Defs) — webview recomposites live.
         map16BgDefs: map16bg.map(t => ({
           id: t.id,
           tl: { c: t.tl.charNum, p: t.tl.palette, fx: t.tl.flipX, fy: t.tl.flipY },
@@ -358,24 +306,16 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         animation: {
           frameCount: animFrameCount,
           intervalMs: animIntervalMs,
-          extraVramSheets,      // frames 1+ RGBA for the 8×8 viewer
           extraVramIndexed,     // frames 1+ raw indexed for Map16 composition
         },
         paletteAnimation: (() => {
-          const palAnimRaw = loadPaletteAnimData(rom.rom, 'level')
+          const palAnimRaw = session?.getPaletteAnim('level') ?? loadPaletteAnimData(rom.rom, 'level')
           return palAnimRaw ? serializePaletteAnimData(palAnimRaw) : null
         })(),
         backAreaColor:  romPalettes.backAreaColor,
         backAreaColors: backAreaColors.map(c => [c[0], c[1], c[2], c[3]]),
         paletteRows:    cgram.rows.map(row => row.map((c: number[]) => [c[0], c[1], c[2], c[3]])),
         sprites:        sprites.map(s => ({ x: s.x, y: s.y, spriteId: s.spriteId })),
-        // SPC music for this level's BGM
-        spcData: (() => {
-          const bgm = getLevelMusicBgm(rom.rom, header.music)
-          const spc = bgm > 0 ? buildSpc(rom.rom, bgm, 'level') : null
-          return spc ? Array.from(spc) : null
-        })(),
-        spcBgmCommand: getLevelMusicBgm(rom.rom, header.music),
         header: {
           music:          header.music,
           spriteSet:      spriteTileset,
@@ -398,12 +338,6 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'mapEditor.js')
     )
-    const spcJsUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'spc.js')
-    )
-    const wasmUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'spc.wasm')
-    )
     const codiconCssUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'codicon.css')
     )
@@ -414,7 +348,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none';
-             script-src 'nonce-${nonce}' 'wasm-unsafe-eval' 'unsafe-eval';
+             script-src 'nonce-${nonce}';
              connect-src ${webview.cspSource};
              font-src ${webview.cspSource};
              style-src ${webview.cspSource} 'unsafe-inline';" />
@@ -427,32 +361,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
   </style>
 </head>
 <body>
-  <!-- Stub DOM for spc.js UI init -->
-  <div id="spc-player-interface" style="display:none;">
-    <div id="spc-player-header" class="header-button"></div>
-    <div class="title"></div><div class="subtitle"></div><div class="details"></div>
-    <button class="pause hidden"></button><button class="play"></button>
-    <button class="restart"></button><button class="stop"></button><button class="close"></button>
-    <input type="checkbox" id="spc-player-toggle"/>
-    <input type="checkbox" id="spc-player-loop"/>
-    <input type="range" id="volume-slider" class="volume-slider" min="0" max="1.5" step="0.01" value="1"/>
-    <div class="volume-fill"></div><div class="volume-level"></div><div class="volume-thumb"></div>
-    <div class="seek-container"><input type="range" class="seek-control" min="0" max="1"/><span class="seek-preview"></span></div>
-    <span class="track-time-elapsed"></span><span class="track-duration"></span>
-    <div id="track-list-container" class="hidden"><div class="track-list-scrollbox"></div>
-      <div class="track-list"></div>
-      <div class="overflow-indicator top"></div><div class="overflow-indicator bottom"></div>
-    </div><div class="seek"></div>
-  </div>
   <div id="app"></div>
-  <script nonce="${nonce}">
-    window.Module = { locateFile: function(path) {
-      if (path.endsWith('.wasm')) return '${wasmUri}';
-      return path;
-    }};
-    window.SMWCentral = { SPCPlayer: {} };
-  </script>
-  <script nonce="${nonce}" src="${spcJsUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`
@@ -462,44 +371,6 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
 function getNonce(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
   return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-}
-
-// ── VRAM sheet builder ───────────────────────────────────────────────────────
-
-function buildVramSheet(
-  vramState: VramState,
-  palette: { colors: RgbaColor[] },
-): Uint8ClampedArray {
-  const getChar = getCharPixels
-  const getPalColor = getPaletteColor
-  const VRAM_TILES = 1536
-  const VR_PER_ROW = 16
-  const vramSheetW = VR_PER_ROW * 8
-  const vramSheetH = Math.ceil(VRAM_TILES / VR_PER_ROW) * 8
-  const sheet = new Uint8ClampedArray(vramSheetW * vramSheetH * 4)
-  for (let i = 0; i < VRAM_TILES; i++) {
-    const pixels = getChar(vramState, i)
-    const tileCol = i % VR_PER_ROW
-    const tileRow = Math.floor(i / VR_PER_ROW)
-    const palRow = i < 0x300 ? 2 : 8
-    for (let py = 0; py < 8; py++) {
-      for (let px = 0; px < 8; px++) {
-        const palIdx = pixels ? pixels[py * 8 + px] : 0
-        const destX = tileCol * 8 + px
-        const destY = tileRow * 8 + py
-        const destOff = (destY * vramSheetW + destX) * 4
-        if (palIdx === 0 || !pixels) {
-          sheet[destOff] = sheet[destOff + 1] = sheet[destOff + 2] = 0
-          sheet[destOff + 3] = pixels ? 0 : 128
-        } else {
-          const color = getPalColor(palette, palRow, palIdx)
-          sheet[destOff] = color[0]; sheet[destOff + 1] = color[1]
-          sheet[destOff + 2] = color[2]; sheet[destOff + 3] = 255
-        }
-      }
-    }
-  }
-  return sheet
 }
 
 /**

@@ -15,7 +15,7 @@
  */
 
 import * as vscode from 'vscode'
-import { SmwRom } from '../rom/SmwRom'
+import { resolveRom } from '../RomSession'
 import { getAllLevelBgmTracks, readLevelMusicTable } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
 
@@ -56,7 +56,7 @@ export class MusicPlayerProvider implements vscode.CustomReadonlyEditorProvider 
     try {
       const raw = await vscode.workspace.fs.readFile(uri)
       const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
-      const rom = SmwRom.open(descriptor.romPath as string)
+      const rom = resolveRom(descriptor.romPath as string)
 
       // Get all track info
       const allTracks = getAllLevelBgmTracks(rom.rom)
