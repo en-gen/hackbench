@@ -3199,6 +3199,46 @@ export function handle_0DED6B(cur: Cursor): void {
 }
 
 /**
+ * CODE_0DEF67 (bank_0D.asm line 8334) -- tileset-5 standard object $32:
+ * floor/ground strip with a top row of page-1 cap tiles and a solid body
+ * of page-0 fill tiles below.
+ *
+ * Size byte: HHHHWWWW
+ *   W (low nibble)  = strip width - 1.
+ *   H (high nibble) = body row count (rows of fill beneath the top cap).
+ *
+ * Layout:
+ *   row 0:        (W+1) tiles of $010E (page 1, floor cap)
+ *   rows 1..H+1:  (W+1) tiles of $00A3 (page 0, body fill) each
+ *
+ * ASM control flow: JSR CODE_0DA6B1 saves the starting column, the first
+ * inner loop runs LDX _0 / DEX / BPL for (W+1) writes, then CODE_0DEF87
+ * decrements _1 and loops with JSR CODE_0DA6BA (restore column) + JSR
+ * CODE_0DA97D (advance row) before the next row's (W+1) fill writes.
+ */
+export function handle_0DEF67(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  const H = (cur.size >> 4) & 0x0F
+
+  // Immediate operands (bytecode layout at CODE_0DEF67):
+  //   +24  A9 0E    LDA #$0E   (page-1 floor cap)   — operand at +25
+  //   +47  A9 A3    LDA #$A3   (page-0 body fill)   — operand at +48
+  const capTile  = readImmByte(cur, cur.handlerAddr + 25)
+  const fillTile = readImmByte(cur, cur.handlerAddr + 48)
+
+  saveBookmark(cur)
+  setPage1(cur)
+  for (let c = 0; c <= W; c++) writeTileAdvance(cur, capTile)
+  for (let r = 0; r <= H; r++) {
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+    saveBookmark(cur)
+    setPage0(cur)
+    for (let c = 0; c <= W; c++) writeTileAdvance(cur, fillTile)
+  }
+}
+
+/**
  * CODE_0DB966 (bank_0D.asm line 4251) -- vertical tree-trunk stripe, single column
  * (object 55 in tilesets 0/7/12). Draws a 1-column-wide vertical stripe where the
  * tile alternates between a "top" tile (DATA_0DB962[X]) and a "bottom" tile

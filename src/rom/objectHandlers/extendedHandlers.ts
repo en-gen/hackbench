@@ -332,6 +332,39 @@ export function handle_0DA6D1(cur: Cursor): void {
 }
 
 /**
+ * CODE_0DEABF (bank_0D.asm line 7772) -- tileset-5 extended object $49:
+ * ghost-house facade stamped from DATA_0DEA71, a fixed 6-column ×
+ * 13-row tile image (78 bytes total).
+ *
+ * The ASM iterates with a single running index X from 0 to $4E (=78),
+ * emitting 6 page-0 tiles per row before CODE_0DA97D advances the row
+ * and LevelLoadPos resets the column back to the object's start col.
+ *
+ * Used by sublevels of Donut Ghost House (e.g. $0C4) to paint the
+ * visible wall + staircase that sits behind the catwalks. Called a
+ * "facade" because it's a pre-baked image in ROM rather than
+ * procedurally generated.
+ */
+export function handle_0DEABF(cur: Cursor): void {
+  // LDA.L DATA_0DEA71,X — opcode $BF at handler+11, 3-byte operand at +12.
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
+  const TILES_PER_ROW = 6
+  const TOTAL_TILES   = 0x4E   // 78
+
+  const origCol = cur.col
+  setPage0(cur)
+  for (let x = 0; x < TOTAL_TILES; x++) {
+    const tile = cur.rom.readByte(tableAddr + x) ?? 0
+    writeTile(cur, tile)
+    cur.col += 1
+    if ((x + 1) % TILES_PER_ROW === 0) {
+      cur.col = origCol
+      cur.row += 1
+    }
+  }
+}
+
+/**
  * CODE_0DA78D (bank_0D.asm line 1736) -- hillside tile-merge write.
  *
  * Shared by the tall-hillside (ext $82, CODE_0DA71B) and short-hillside
