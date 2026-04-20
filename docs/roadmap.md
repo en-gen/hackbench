@@ -58,6 +58,7 @@ Make the extension a comprehensive ROM analysis tool.
 | Music playback (SPC700) | Medium | `$008165` (UploadLevelMusic) | JS/WASM SPC player; play tracks from UI |
 | Overworld map viewer | Hard | Bank $0C (OW tilemaps), `$04D678` (exit dirs) | Render the 7 overworld submaps |
 | Level interconnection graph | Medium | `$05F800` (secondary exits), sprite exit data | Show how levels connect via pipes/doors |
+| MAPS tree: gate screen-exits on reachable screens | Medium | `ExitTableLow/High` populated by ext-$00 in L1 stream (`$0DA512`); Map16 grid from `ObjectExpander` | Current MAPS tree treats every ext-$00 screen-exit in a level's L1 stream as an edge. Several vanilla levels have vestigial entries on screens with no pipe/door/pit - e.g. Valley Fortress screen 14 (Reznor room) has a primary exit to $0DE that never fires because the screen has no triggering tile. Filter edges by expanding the level to Map16, detecting pipe/door Map16 IDs and pit columns per screen, and only emitting an edge if the screen has a trigger. Localized to `buildLevelExitGraph` in `SmwRom.ts` plus a new per-screen-trigger helper. |
 | Sprite browser | Easy | `$00A8C3` (sprite GFX assignment) | List all sprite types with their graphics |
 | GFX file browser (all 50) | Easy | `$00B992/$00B9C4/$00B9F6` (GFX pointers) | Browse/inspect every GFX file |
 | ROM statistics dashboard | Easy | Various | Level count, free space, GFX usage, etc. |
