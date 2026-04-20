@@ -2736,6 +2736,35 @@ export function handle_0DDD2E(cur: Cursor): void {
 }
 
 /**
+ * CODE_0DDD5C (bank_0D.asm line 6828) -- tileset 9-14 solid rectangular fill.
+ *
+ * Size byte: HHHHWWWW
+ *   H (high nibble) = rect height, actual rows = H + 1 (BPL loop is inclusive).
+ *   W (low nibble)  = rect width,  actual cols = W + 1 (BPL loop is inclusive).
+ *
+ * Writes the immediate tile $65 on page 1 across the full (H+1) x (W+1) rect.
+ * Structure mirrors the body-row loop of CODE_0DDCEA but with no final "bottom"
+ * row and with BPL (inclusive) replacing BNE (exclusive) on the outer DEC.
+ */
+export function handle_0DDD5C(cur: Cursor): void {
+  const H = (cur.size >> 4) & 0x0F
+  const W = cur.size & 0x0F
+
+  // LDA #$65 — opcode $A9 at +24, operand at +25.
+  const tile = readImmByte(cur, cur.handlerAddr + 25)
+
+  saveBookmark(cur)
+  for (let r = 0; r <= H; r++) {
+    for (let x = 0; x <= W; x++) {
+      setPage1(cur)
+      writeTileAdvance(cur, tile)
+    }
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+  }
+}
+
+/**
  * CODE_0DE135 (bank_0D.asm line 7327) -- three-part rectangle (top / middle /
  * bottom rows), each row having distinct left / middle-fill / right tiles.
  *
