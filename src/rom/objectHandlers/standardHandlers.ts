@@ -2939,6 +2939,147 @@ export function handle_0DED43(cur: Cursor): void {
 }
 
 /**
+ * CODE_0DEDDB (bank_0D.asm line 8106) -- tileset-4/5 standard object $3C:
+ * cave/underground ceiling + BG fill block.
+ *
+ * Size byte: HHHHWWWW
+ *   W (low nibble)  = width - 1.
+ *   H (high nibble) = row count of $53 BG-fill ABOVE the $54 ceiling row.
+ *
+ * Emits an (H+1) x (W+1) rectangle:
+ *   rows 0..H-1: $153 fill (page 1, Sta1To6ePointer)
+ *   row H:       $154 ceiling (page 1)
+ *
+ * Loop structure in ASM: outer loop runs H times, each inner loop writes W+1
+ * tiles of $53; after H iterations falls through to the $54 writer that runs
+ * once with X still = W.
+ */
+export function handle_0DEDDB(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  const H = (cur.size >> 4) & 0x0F
+
+  // Immediate operands verified by ROM dump (see disassembly byte layout):
+  //   +29  A9 53    LDA #$53   (BG fill)
+  //   +52  A9 54    LDA #$54   (ceiling)
+  const fillTile    = readImmByte(cur, cur.handlerAddr + 29)
+  const ceilingTile = readImmByte(cur, cur.handlerAddr + 52)
+
+  setPage1(cur)
+  saveBookmark(cur)
+  for (let r = 0; r < H; r++) {
+    for (let c = 0; c <= W; c++) writeTileAdvance(cur, fillTile)
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+  }
+  for (let c = 0; c <= W; c++) writeTileAdvance(cur, ceilingTile)
+}
+
+/**
+ * CODE_0DEE17 (bank_0D.asm line 8139) -- tileset-4/5 standard object $3D:
+ * cave/underground floor + BG fill block.
+ *
+ * Size byte: HHHHWWWW
+ *   W (low nibble)  = width - 1.
+ *   H (high nibble) = row count of $53 BG-fill BELOW the $5D floor row.
+ *
+ * Emits an (H+2) x (W+1) rectangle:
+ *   row 0:       $15D floor top (page 1)
+ *   rows 1..H+1: $153 BG fill (page 1)
+ *
+ * Loop structure: first writes one $5D row (W+1 tiles); then jumps into the
+ * shared end block (restore/advance/LDX/DEC/BPL) which then loops back into
+ * the $53 writer. The outer BPL runs while _1 >= 0, so (H+1) iterations of
+ * the $53 writer execute -- plus the initial $5D row = H+2 rows total.
+ */
+export function handle_0DEE17(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  const H = (cur.size >> 4) & 0x0F
+
+  // Immediate operands:
+  //   +25  A9 5D    LDA #$5D   (floor top)
+  //   +39  A9 53    LDA #$53   (BG fill)
+  const floorTile = readImmByte(cur, cur.handlerAddr + 25)
+  const fillTile  = readImmByte(cur, cur.handlerAddr + 39)
+
+  setPage1(cur)
+  saveBookmark(cur)
+  for (let c = 0; c <= W; c++) writeTileAdvance(cur, floorTile)
+  for (let r = 0; r <= H; r++) {
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+    for (let c = 0; c <= W; c++) writeTileAdvance(cur, fillTile)
+  }
+}
+
+/**
+ * CODE_0DEE52 (bank_0D.asm line 8172) -- tileset-4/5 standard object $3E:
+ * left-wall column with optional BG fill to its right.
+ *
+ * Size byte: HHHHWWWW
+ *   W (low nibble)  = count of $53 BG-fill tiles to the LEFT of each $55 wall.
+ *                     (ASM: BNE loop, so exactly W tiles are written; W=0 skips.)
+ *   H (high nibble) = row count - 1 for the whole structure.
+ *
+ * For each row 0..H: writes W tiles of $53 (page 1), then 1 tile of $55 (page 1).
+ * Used in level 014 with W=0: produces a pure vertical wall of $155 tiles.
+ */
+export function handle_0DEE52(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  const H = (cur.size >> 4) & 0x0F
+
+  // Immediate operands:
+  //   +27  A9 53    LDA #$53   (BG fill, repeated W times per row)
+  //   +38  A9 55    LDA #$55   (left wall, once per row)
+  const fillTile = readImmByte(cur, cur.handlerAddr + 27)
+  const wallTile = readImmByte(cur, cur.handlerAddr + 38)
+
+  setPage1(cur)
+  saveBookmark(cur)
+  for (let r = 0; r <= H; r++) {
+    for (let c = 0; c < W; c++) writeTileAdvance(cur, fillTile)
+    writeTileAdvance(cur, wallTile)
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+  }
+}
+
+/**
+ * CODE_0DEE89 (bank_0D.asm line 8203) -- tileset-4/5 standard object $3F:
+ * right-wall column with optional BG fill to its left.
+ *
+ * Size byte: HHHHWWWW
+ *   W (low nibble)  = count of $53 BG-fill tiles to the RIGHT of each $5C wall.
+ *                     (ASM: BPL loop, so W+1 tiles are written; W=0 via BEQ
+ *                     skip → zero tiles.)
+ *   H (high nibble) = row count - 1 for the whole structure.
+ *
+ * For each row 0..H: writes 1 tile of $5C (page 1), then (W+1 when W>0, else 0)
+ * tiles of $53 (page 1). Used in level 014 with W=0: produces a pure vertical
+ * right-wall of $15C tiles.
+ */
+export function handle_0DEE89(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  const H = (cur.size >> 4) & 0x0F
+
+  // Immediate operands:
+  //   +23  A9 5C    LDA #$5C   (right wall, once per row)
+  //   +35  A9 53    LDA #$53   (BG fill, W+1 times per row when W>0)
+  const wallTile = readImmByte(cur, cur.handlerAddr + 23)
+  const fillTile = readImmByte(cur, cur.handlerAddr + 35)
+
+  setPage1(cur)
+  saveBookmark(cur)
+  for (let r = 0; r <= H; r++) {
+    writeTileAdvance(cur, wallTile)
+    if (W !== 0) {
+      for (let c = 0; c <= W; c++) writeTileAdvance(cur, fillTile)
+    }
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+  }
+}
+
+/**
  * CODE_0DEEC0 (bank_0D.asm line 8234) -- tileset-5 standard object $34:
  * horizontal catwalk + periodic vertical support poles.
  *

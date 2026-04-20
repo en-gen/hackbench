@@ -652,3 +652,87 @@ export function handle_0DB6E3(cur: Cursor): void {
   setPage0(cur)
   writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
 }
+
+/**
+ * CODE_0DEC5C (bank_0D.asm line 7875) -- extended type $97: single-tile write
+ * of $110 (page 1) at the cursor. Dispatched from the extended table at line
+ * 1213. Used in level $0CA among others for the small light/detail block.
+ *
+ * ASM:
+ *   LDY LevelLoadPos
+ *   JSR Sta1To6ePointer   ; page 1
+ *   LDA #$10              ; tile immediate at handler+6
+ *   STA [Map16LowPtr],Y   ; write, no advance
+ */
+export function handle_0DEC5C(cur: Cursor): void {
+  const tile = readImmByte(cur, cur.handlerAddr + 6)
+  setPage1(cur)
+  writeTile(cur, tile)
+}
+
+/**
+ * CODE_0DEC8E (bank_0D.asm line 7901) -- extended types $8A..$8D: 2x2 switch-
+ * block sprite (four consecutive tiles from DATA_0DEC7E indexed by
+ * (extType - $8A) * 4). Tiles laid out (tl, tr, bl, br), all on page 0.
+ *
+ * DATA_0DEC7E = EC ED EE EF  F0 F1 F2 F3  F4 F5 F6 F7  F8 F9 FA FB
+ *                (ext $8A)    (ext $8B)    (ext $8C)    (ext $8D)
+ *
+ * The ASM first consults `SwitchBlockFlags` ($1F27,X) and returns without
+ * emitting anything if the flag is set (block has been triggered). For the
+ * editor we always render the pre-trigger state.
+ */
+export function handle_0DEC8E(cur: Cursor): void {
+  const extType = cur.objNo
+  const baseType = readImmByte(cur, cur.handlerAddr + 6)
+  const idx = extType - baseType
+  if (idx < 0 || idx >= 4) return
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 32)
+  const base = idx * 4
+  const tl = cur.rom.readByte(tableAddr + base + 0) ?? 0
+  const tr = cur.rom.readByte(tableAddr + base + 1) ?? 0
+  const bl = cur.rom.readByte(tableAddr + base + 2) ?? 0
+  const br = cur.rom.readByte(tableAddr + base + 3) ?? 0
+  const col0 = cur.col, row0 = cur.row
+  setPage0(cur)
+  writeTile(cur, tl)
+  cur.col = col0 + 1
+  setPage0(cur)
+  writeTile(cur, tr)
+  cur.col = col0
+  cur.row = row0 + 1
+  setPage0(cur)
+  writeTile(cur, bl)
+  cur.col = col0 + 1
+  setPage0(cur)
+  writeTile(cur, br)
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * CODE_0DE95F (bank_0D.asm line 7626) -- single-tile extended handler for the
+ * eight cave-trim corner/edge types $57..$5E. Dispatched from the extended
+ * table at lines 1149..1156 (eight consecutive entries, one per type).
+ *
+ * ASM:
+ *   LDY LevelLoadPos ; LDA LvlLoadObjSize ; SEC ; SBC #$57 ; TAX
+ *   JSR StzTo6ePointer                            ; page 0
+ *   LDA.L DATA_0DE957,X ; STA [Map16LowPtr],Y    ; single tile write
+ *
+ * DATA_0DE957 = $73, $74, $75, $76, $93, $94, $95, $96  (cave corners / cap row)
+ *
+ * Index = (extType - $57). We resolve both the base ($57 immediate at +6) and
+ * the table address (LDA.L operand at +12) from handler bytecode so Lunar Magic
+ * relocations still work.
+ */
+export function handle_0DE95F(cur: Cursor): void {
+  const extType = cur.objNo
+  const baseType = readImmByte(cur, cur.handlerAddr + 6)
+  const idx = extType - baseType
+  if (idx < 0 || idx >= 8) return
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
+  const tile = cur.rom.readByte(tableAddr + idx) ?? 0
+  setPage0(cur)
+  writeTile(cur, tile)
+}
