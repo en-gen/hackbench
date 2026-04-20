@@ -256,6 +256,37 @@ export function loadAllMap16(rom: RomFile, tileset = 0, pipeVariantIdx?: number)
 }
 
 /**
+ * Load the tileset's Map16 table PLUS the four pipe-variant tile blocks
+ * ($133..$13A) in a single pass.
+ *
+ * Vanilla callers (the map editor) need both the default table (for all
+ * non-pipe tiles) and the per-screen palette variants for $133..$13A. Calling
+ * `loadAllMap16` five times (default + 4 variants) re-runs the bitmap walk
+ * from scratch each time even though only 8 pointers differ. This reuses the
+ * pointer table and reads only what actually changes.
+ */
+export function loadMap16WithPipeVariants(rom: RomFile, tileset: number): {
+  tiles: Map16Tile[]
+  pipeVariants: Map16Tile[][]
+} {
+  const pointers = buildMap16PointerTable(rom, tileset)
+  const tiles: Map16Tile[] = new Array(512)
+  for (let i = 0; i < 512; i++) {
+    tiles[i] = readTileAt(rom, pointers[i], i)
+  }
+  const pipeVariants: Map16Tile[][] = new Array(4)
+  for (let v = 0; v < 4; v++) {
+    const base = MAP16_APP_TABLE[v]
+    const variant: Map16Tile[] = new Array(PIPE_VARIANT_TILE_COUNT)
+    for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) {
+      variant[i] = readTileAt(rom, base + i * MAP16_TILE_BYTES, PIPE_VARIANT_TILE_START + i)
+    }
+    pipeVariants[v] = variant
+  }
+  return { tiles, pipeVariants }
+}
+
+/**
  * Load a single Map16 tile by ID, using the pointer table for the given tileset.
  */
 export function loadMap16Tile(rom: RomFile, tileId: number, tileset = 0): Map16Tile {

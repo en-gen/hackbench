@@ -5,12 +5,9 @@
  * by entrances/exits together form a "level" in the player-facing sense.
  */
 
-import { createTransportBar, TRANSPORT_CSS } from '../shared/transportBar'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare function acquireVsCodeApi(): any
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-declare const SMWCentral: any
 const vscode = acquireVsCodeApi()
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -134,7 +131,6 @@ app.innerHTML = `
       </div>
     </div>
 
-    <div id="music-transport" style="margin-top:auto;"></div>
   </div>
 
   <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
@@ -300,7 +296,6 @@ app.innerHTML = `
     width:28px;height:28px;image-rendering:pixelated;display:block;
     background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/4px 4px;
   }
-  ${TRANSPORT_CSS}
 </style>
 `
 
@@ -535,8 +530,15 @@ document.getElementById('btn-map-minimap')!.addEventListener('click', () => {
 // Frame 0 is the base vramSheetData. Extra frames are in animation.extraVramSheets.
 // The timer swaps VRAM sheets; both the 8×8 viewer and Map16 viewer redraw from
 // the current sheet. Map16 tiles are static references — they don't change.
+//
+// Driven by requestAnimationFrame rather than setInterval so that hidden or
+// backgrounded webviews stop ticking automatically (Chromium throttles rAF to
+// 0 Hz in hidden iframes, but leaves setInterval running at ≥1 Hz — which
+// produced the main-thread contention the user saw when rapid preview-tab
+// cycling left zombie webviews alive).
 let animRunning = false
-let animTimer: ReturnType<typeof setInterval> | null = null
+let animRafId: number | null = null
+let animLastTickMs = 0
 let animIntervalMs = 133
 let animFrameCount = 1
 let animFrame = 0
@@ -554,7 +556,9 @@ let prebuiltMap16BgAtlases: ImageData[] = []         // L2 per-frame atlas for r
 let prebuiltMap16BgCanvases: HTMLCanvasElement[] = [] // L2 per-frame canvas for redraw() drawImage
 
 // Palette animation state (FlashingColors CGRAM cycling)
-let palAnimTimer: ReturnType<typeof setInterval> | null = null
+let palAnimRafId: number | null = null
+let palAnimLastTickMs = 0
+let palAnimIntervalMs = 133
 let palAnimFrame   = 0
 let palAnimRunning = false
 let palAnimOriginals: Map<number, number[]> | null = null
@@ -841,19 +845,28 @@ function syncPalAnimButton(): void {
   if (btn) btn.innerHTML = palAnimRunning ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
 }
 
-function startPalAnimTimer(): void {
-  if (palAnimTimer) { clearInterval(palAnimTimer); palAnimTimer = null }
-  if (!mapData?.paletteAnimation) return
-  palAnimRunning = true
-  syncPalAnimButton()
-  palAnimTimer = setInterval(() => {
+function palAnimTick(now: number): void {
+  if (!palAnimRunning) return
+  if (now - palAnimLastTickMs >= palAnimIntervalMs) {
     palAnimFrame = (palAnimFrame + 1) % (mapData?.paletteAnimation?.frameCount ?? 8)
     applyPalAnimFrame(palAnimFrame)
-  }, mapData.paletteAnimation.intervalMs)
+    palAnimLastTickMs = now
+  }
+  palAnimRafId = requestAnimationFrame(palAnimTick)
+}
+
+function startPalAnimTimer(): void {
+  if (palAnimRafId !== null) { cancelAnimationFrame(palAnimRafId); palAnimRafId = null }
+  if (!mapData?.paletteAnimation) return
+  palAnimRunning = true
+  palAnimIntervalMs = mapData.paletteAnimation.intervalMs
+  palAnimLastTickMs = performance.now()
+  syncPalAnimButton()
+  palAnimRafId = requestAnimationFrame(palAnimTick)
 }
 
 function stopPalAnimTimer(): void {
-  if (palAnimTimer) { clearInterval(palAnimTimer); palAnimTimer = null }
+  if (palAnimRafId !== null) { cancelAnimationFrame(palAnimRafId); palAnimRafId = null }
   palAnimRunning = false
   syncPalAnimButton()
   // Palette has changed — rebuild tile animation caches so subsequent tile ticks show correct colors.
@@ -911,17 +924,25 @@ document.getElementById('btn-anim-next2')!.addEventListener('click', () => stepF
 document.getElementById('btn-anim-prev3')!.addEventListener('click', () => stepFrame(-1))
 document.getElementById('btn-anim-next3')!.addEventListener('click', () => stepFrame(1))
 
-function startAnimTimer(): void {
-  if (animTimer) { clearInterval(animTimer); animTimer = null }
-  animFrame = 0
-  animTimer = setInterval(() => {
+function animTick(now: number): void {
+  if (!animRunning) return
+  if (now - animLastTickMs >= animIntervalMs) {
     animFrame = (animFrame + 1) % animFrameCount
     applyAnimFrame(animFrame)
-  }, animIntervalMs)
+    animLastTickMs = now
+  }
+  animRafId = requestAnimationFrame(animTick)
+}
+
+function startAnimTimer(): void {
+  if (animRafId !== null) { cancelAnimationFrame(animRafId); animRafId = null }
+  animFrame = 0
+  animLastTickMs = performance.now()
+  animRafId = requestAnimationFrame(animTick)
 }
 
 function stopAnimTimer(): void {
-  if (animTimer) { clearInterval(animTimer); animTimer = null }
+  if (animRafId !== null) { cancelAnimationFrame(animRafId); animRafId = null }
   animFrame = 0
   applyAnimFrame(0)
 }
@@ -1164,8 +1185,8 @@ let map16AtlasCanvas: HTMLCanvasElement | null = null
  * offset (0..7). Populated by rebuildPipeVariantCanvases() in invalidateMap16.
  */
 let pipeVariantAtlasCanvases: (HTMLCanvasElement | null)[] = [null, null, null, null]
-// Offscreen canvas for the L2 (Map16BGTiles) atlas — built once per load from
-// map16BgAtlasData. Used for graphical L2 rendering in redraw().
+// Offscreen canvas for the L2 (Map16BGTiles) atlas — rebuilt live from
+// map16BgDefs + activeVramIndexed + paletteRows (see invalidateMap16).
 let map16BgAtlasCanvas: HTMLCanvasElement | null = null
 const activeTileId = -1
 let activeTool: 'place' | 'erase' = 'place'
@@ -1186,20 +1207,10 @@ interface MapPayload {
   backAreaColor:   [number, number, number, number]
   backAreaColors:  number[][]   // 8 variants × [r,g,b,a]
   paletteRows:     number[][][]   // 16 rows × 16 colors × [r,g,b,a]
-  // 8x8 VRAM tile sheet (chars $000-$2FF, rendered with palette row 2)
-  vramSheetData?:  number[]   // RGBA pixels, 128px wide × Npx tall
-  vramSheetW?:     number
-  vramSheetH?:     number
-  // L2/BG Map16 atlas (from Map16BGTiles). L1 atlas is built live in the webview
-  // from map16Defs + vramIndexedData + paletteRows.
-  map16BgAtlasData?: number[]
   // Which atlas the L2 tile grid should sample:
   //   true  → map16BgAtlasCanvas  (preset BG; IDs are into Map16BGTiles)
   //   false → map16AtlasCanvas    (object-stream L2; IDs are regular Map16)
   l2UsesBgAtlas?: boolean
-  // Animation: VRAM-level frame data. Frame 0 is the base vramSheetData.
-  // extraVramSheets contains frames 1+ as RGBA pixel arrays (same format as vramSheetData).
-  // The webview cycles VRAM sheets; Map16 tiles are static references into VRAM chars.
   // Map16 tile definitions for client-side composition
   map16Defs?: Array<{
     id: number
@@ -1233,7 +1244,6 @@ interface MapPayload {
   animation?: {
     frameCount: number
     intervalMs: number
-    extraVramSheets: number[][]
     extraVramIndexed: number[][]
   }
   // Palette animation: FlashingColors CGRAM cycling ($6D/$7D)
@@ -1242,9 +1252,6 @@ interface MapPayload {
     intervalMs: number
     frames: Array<Array<{ cgramIdx: number; r: number; g: number; b: number; a: number }>>
   } | null
-  // SPC music data for this level
-  spcData?:        number[] | null
-  spcBgmCommand?:  number
   header: {
     music:          number
     spriteSet:      number
@@ -2356,6 +2363,9 @@ window.addEventListener('message', async (event) => {
     // Level canvas now renders from the live Map16 atlas (built reactively below
     // via invalidatePalette → invalidateVram → invalidateMap16 → redraw).
     stopAnimTimer()
+    stopPalAnimTimer()
+    animRunning = false
+    syncAnimButtons()
     vramSheets = []
     animFrameCount = 1
 
@@ -2363,18 +2373,19 @@ window.addEventListener('message', async (event) => {
     applyZoom()
 
     // ── VRAM 8×8 tile sheet (paged by slot) ──────────────────────────
-    if (mapData.vramSheetData && mapData.vramSheetW && mapData.vramSheetH) {
-      const vh = mapData.vramSheetH
+    // 1536 chars @ 16 per row = 96 rows × 8 px = 768 px tall. Pages cover
+    // 256 chars (128 px) each, so 6 pages total. The actual RGBA sheet is
+    // rebuilt reactively from vramIndexedData + paletteRows in invalidateVram().
+    if (mapData.vramIndexedData) {
+      const vh = Math.ceil(1536 / 16) * 8
       const pxPerPage = (VRAM_TILES_PER_PAGE / 16) * 8
       vramTotalPages = Math.ceil(vh / pxPerPage)
       vramPage = 0
 
       // Build indexed VRAM frames for all animation frames
       vramIndexedFrames = []
-      if (mapData.vramIndexedData) {
-        activeVramIndexed = new Uint8Array(mapData.vramIndexedData)
-        vramIndexedFrames = [activeVramIndexed]
-      }
+      activeVramIndexed = new Uint8Array(mapData.vramIndexedData)
+      vramIndexedFrames = [activeVramIndexed]
       if (mapData.animation && mapData.animation.frameCount > 1) {
         animFrameCount = mapData.animation.frameCount
         animIntervalMs = mapData.animation.intervalMs
@@ -2435,21 +2446,14 @@ window.addEventListener('message', async (event) => {
           map16Pages.push({ atlas: placeholder, pageInAtlas: p, label: `L1 0x${p.toString(16).padStart(2,'0')}` })
         }
       }
-      // L2/BG pages (from Map16BGTiles, pages labeled 0x80+)
-      if (mapData.map16BgAtlasData) {
-        const h = Math.floor(mapData.map16BgAtlasData.length / (256 * 4))
-        const bgAtlas = new ImageData(new Uint8ClampedArray(mapData.map16BgAtlasData), 256, h)
-        const bgPageCount = Math.ceil(h / 256)
+      // L2/BG pages: placeholder sized from defs count; invalidateMap16() fills
+      // map16BgAtlasCanvas reactively from map16BgDefs + activeVramIndexed + paletteRows.
+      if (mapData.map16BgDefs && mapData.map16BgDefs.length > 0) {
+        const bgPageCount = Math.ceil(mapData.map16BgDefs.length / 256)
+        const bgPlaceholder = new ImageData(256, bgPageCount * 256)
         for (let p = 0; p < bgPageCount; p++) {
-          map16Pages.push({ atlas: bgAtlas, pageInAtlas: p, label: `L2 0x${(0x80 + p).toString(16)}` })
+          map16Pages.push({ atlas: bgPlaceholder, pageInAtlas: p, label: `L2 0x${(0x80 + p).toString(16)}` })
         }
-        // Mirror into an offscreen canvas for per-tile drawImage during level render.
-        if (!map16BgAtlasCanvas) map16BgAtlasCanvas = document.createElement('canvas')
-        if (map16BgAtlasCanvas.width !== 256 || map16BgAtlasCanvas.height !== h) {
-          map16BgAtlasCanvas.width = 256
-          map16BgAtlasCanvas.height = h
-        }
-        map16BgAtlasCanvas.getContext('2d')!.putImageData(bgAtlas, 0, 0)
       } else {
         map16BgAtlasCanvas = null
       }
@@ -2522,81 +2526,36 @@ window.addEventListener('message', async (event) => {
   }
 })
 
-// ── Music transport bar ──────────────────────────────────────────────────────
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let spcBackend: any = null
-let spcPlaying = false
-let spcData: Uint8Array | null = null
-
-const musicTransport = createTransportBar({
-  onPlay() {
-    if (!spcBackend || !spcData) return
-    if (spcPlaying && spcBackend.context?.state === 'running') {
-      spcBackend.context.suspend()
-      musicTransport.setPaused(true)
-    } else if (spcPlaying && spcBackend.context?.state === 'suspended') {
-      spcBackend.context.resume()
-      musicTransport.setPaused(false)
-    } else {
-      spcBackend.locked = false
-      const ctx = spcBackend.context as AudioContext
-      if (ctx?.state === 'suspended') {
-        ctx.resume().then(() => {
-          spcBackend.loadSPC(spcData!)
-          if (spcBackend.gainNode) spcBackend.gainNode.gain.value = 1.0
-          spcPlaying = true
-          musicTransport.setPlaying(true)
-        })
-      } else {
-        spcBackend.loadSPC(spcData!)
-        if (spcBackend.gainNode) spcBackend.gainNode.gain.value = 1.0
-        spcPlaying = true
-        musicTransport.setPlaying(true)
-      }
-    }
-  },
-  onStop() {
-    if (spcBackend && spcPlaying) spcBackend.stopSPC(false)
-    spcPlaying = false
-    musicTransport.setPlaying(false)
-    musicTransport.updateTime(0)
-  },
-  onPrev() { /* single track per level — no-op */ },
-  onNext() { /* single track per level — no-op */ },
-  onStateChange(playing: boolean) { vscode.postMessage({ type: 'musicState', playing }) },
-  hidePrevNext: true,
+// Tear down animation + palette timers when the webview is disposed
+// (preview-tab replacement, close, reload) so nothing keeps firing in a
+// zombie context.
+window.addEventListener('pagehide', () => {
+  stopAnimTimer()
+  stopPalAnimTimer()
+  animRunning = false
+  palAnimRunning = false
 })
-document.getElementById('music-transport')!.appendChild(musicTransport.element)
 
-// Time display
-setInterval(() => {
-  if (spcPlaying && spcBackend?.getTime) {
-    musicTransport.updateTime(spcBackend.getTime())
-  }
-}, 500)
-
-// Init SPC backend after spc.js loads
-setTimeout(() => {
-  spcBackend = SMWCentral?.SPCPlayer?.Backend ?? null
-  if (spcBackend && spcBackend.status === 0) spcBackend.initialize()
-}, 500)
-
-// Load SPC data when level loads (in the message handler above, mapData.spcData is set)
-// We hook into the existing message handler by watching mapData changes
-const _origHandler = window.onmessage
-window.addEventListener('message', (event) => {
-  const msg = event.data
-  if (msg.type === 'load' && msg.spcData) {
-    spcData = new Uint8Array(msg.spcData)
-    const bgm = msg.spcBgmCommand ?? 0
-    musicTransport.setTrackLabel(`BGM $${bgm.toString(16).toUpperCase().padStart(2, '0')}`)
-    // Stop previous playback on level change
-    if (spcPlaying && spcBackend) {
-      spcBackend.stopSPC(false)
-      spcPlaying = false
-      musicTransport.setPlaying(false)
-      musicTransport.updateTime(0)
+// Pause animation loops whenever the webview becomes hidden. VS Code keeps
+// replaced preview-tab webviews alive briefly (and sometimes for much
+// longer) while they transition out — before pagehide fires. Without this,
+// a stack of hidden-but-alive webviews each with an animation loop fights
+// the visible tab's main thread and drops its FPS.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    if (animRafId !== null) { cancelAnimationFrame(animRafId); animRafId = null }
+    if (palAnimRafId !== null) { cancelAnimationFrame(palAnimRafId); palAnimRafId = null }
+  } else if (document.visibilityState === 'visible') {
+    // Resume what was running before we went hidden. State (animRunning /
+    // palAnimRunning) was preserved on purpose so the user's play/pause
+    // intent survives tab-switching.
+    if (animRunning && animRafId === null) {
+      animLastTickMs = performance.now()
+      animRafId = requestAnimationFrame(animTick)
+    }
+    if (palAnimRunning && palAnimRafId === null) {
+      palAnimLastTickMs = performance.now()
+      palAnimRafId = requestAnimationFrame(palAnimTick)
     }
   }
 })
