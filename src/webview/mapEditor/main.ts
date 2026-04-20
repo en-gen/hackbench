@@ -641,6 +641,9 @@ function invalidateMap16(): void {
   if (mapData.pipeVariantDefs) {
     rebuildPipeVariantCanvases(activeVramIndexed, mapData.paletteRows, mapData.pipeVariantDefs)
   }
+  if (mapData.spriteLayouts) {
+    rebuildSpriteAtlas(activeVramIndexed, mapData.paletteRows, mapData.spriteLayouts)
+  }
   renderMap16Page()
   redrawDetail()
   refreshSwitchToggleThumbs()
@@ -1070,6 +1073,54 @@ function rebuildPipeVariantCanvases(
   }
 }
 
+/**
+ * Rebuild the sprite-layout atlas. Each cell is 16x32 so both short (16x16)
+ * and tall (16x32) sprites fit the same slot. Layout dy values are measured
+ * from the anchor row — short: 0..8, tall: -16..8 — and map into the cell
+ * by offsetting +16 so the anchor row lands on the cell's vertical midline.
+ *
+ *   cell y=0..15   ← tall sprite's top half (dy -16..-1)
+ *   cell y=16..31  ← anchor row and below (dy 0..15)
+ *
+ * At draw time the render loop samples either the bottom half (short) or
+ * the whole cell (tall) depending on layout.height.
+ */
+function rebuildSpriteAtlas(
+  indexed: Uint8Array, palRows: number[][][],
+  layouts: MapPayload['spriteLayouts'],
+): void {
+  if (!layouts || layouts.length === 0) {
+    spriteAtlasCanvas = null
+    return
+  }
+  const cellW = SPRITE_ATLAS_CELL_W
+  const cellH = SPRITE_ATLAS_CELL_H
+  const cols = SPRITE_ATLAS_COLS
+  const maxId = layouts.reduce((m, l) => Math.max(m, l.spriteId), 0)
+  const rows = Math.ceil((maxId + 1) / cols)
+  const w = cols * cellW, h = rows * cellH
+  const buf = new Uint8ClampedArray(w * h * 4)
+  for (const layout of layouts) {
+    const tx = (layout.spriteId % cols) * cellW
+    const ty = Math.floor(layout.spriteId / cols) * cellH
+    // Wide (32×32) sprites use all 32 rows of the cell (dy in 0..31, no +16
+    // offset). Short/tall sprites use the bottom half or centered layout.
+    const yOffset = (layout.width ?? 16) >= 32 ? 0 : 16
+    for (const t of layout.tiles) {
+      blitSubTile(indexed, palRows,
+        { c: t.charNum, p: t.palette, fx: t.flipX, fy: t.flipY },
+        buf, tx + t.dx, ty + yOffset + t.dy, w)
+    }
+  }
+  if (!spriteAtlasCanvas) spriteAtlasCanvas = document.createElement('canvas')
+  if (spriteAtlasCanvas.width !== w || spriteAtlasCanvas.height !== h) {
+    spriteAtlasCanvas.width = w
+    spriteAtlasCanvas.height = h
+  }
+  const img = new ImageData(buf, w, h)
+  spriteAtlasCanvas.getContext('2d')!.putImageData(img, 0, 0)
+}
+
 /** Rebuild the L1 Map16 atlas from indexed VRAM + palette + tile defs. */
 function rebuildMap16Atlas(
   indexed: Uint8Array, palRows: number[][][],
@@ -1188,6 +1239,18 @@ let pipeVariantAtlasCanvases: (HTMLCanvasElement | null)[] = [null, null, null, 
 // Offscreen canvas for the L2 (Map16BGTiles) atlas — rebuilt live from
 // map16BgDefs + activeVramIndexed + paletteRows (see invalidateMap16).
 let map16BgAtlasCanvas: HTMLCanvasElement | null = null
+/**
+ * Offscreen sprite atlas: one 16x32 image per sprite ID in the generic-layout
+ * range (0x00..0x53). Each cell is tall so that SubSprGfx1 sprites (16x32)
+ * can live alongside the 16x16 ones — short sprites occupy the bottom half
+ * of the cell and the top half stays transparent. The render loop samples
+ * either the full cell (tall) or just the bottom half (short) depending on
+ * the layout's `height`.
+ */
+let spriteAtlasCanvas: HTMLCanvasElement | null = null
+const SPRITE_ATLAS_CELL_W = 32   // accommodates 32x32 wide sprites; 16-wide sprites use the left half
+const SPRITE_ATLAS_CELL_H = 32   // accommodates 16x32 tall sprites
+const SPRITE_ATLAS_COLS = 16
 const activeTileId = -1
 let activeTool: 'place' | 'erase' = 'place'
 let isPainting   = false
@@ -1204,6 +1267,24 @@ interface MapPayload {
   tileGrid:        number[][]
   l2TileGrid:      number[][] | null
   sprites:         Array<{ x: number; y: number; spriteId: number }>
+  // Per-sprite-ID 8x8 corner list derived from SMW's generic sprite draw
+  // routines. Short sprites (height=16) use SubSprGfx2 semantics; tall
+  // sprites (height=32) use SubSprGfx1 and draw with a -16px Y offset so
+  // the bottom aligns with the anchor tile. IDs without a layout fall back
+  // to the marker.
+  spriteLayouts?: Array<{
+    spriteId: number
+    height: 16 | 32
+    width?: 16 | 32
+    tiles: Array<{
+      charNum: number
+      palette: number
+      flipX: boolean
+      flipY: boolean
+      dx: number
+      dy: number
+    }>
+  }> | null
   backAreaColor:   [number, number, number, number]
   backAreaColors:  number[][]   // 8 variants × [r,g,b,a]
   paletteRows:     number[][][]   // 16 rows × 16 colors × [r,g,b,a]
@@ -1593,18 +1674,57 @@ function redraw(): void {
     }
   }
 
-  // Sprite markers
+  // Sprites: draw generic-layout sprites from the sprite atlas; fall back to a
+  // red marker + hex label for IDs that use custom draw routines (no entry in
+  // spriteLayouts) so they remain visible. The atlas stores each sprite in a
+  // 32x32 cell; 16-wide sprites use the left half; wide (32x32) sprites fill
+  // the whole cell. Short sprites fill only the bottom half of the cell.
+  // Tall sprites (height=32, width=16) draw anchored at the bottom row.
+  // Wide sprites (height=32, width=32) draw top-anchored at (sx, sy).
   if (chkSprites.checked) {
+    const cellH = SPRITE_ATLAS_CELL_H
+    const cols = SPRITE_ATLAS_COLS
+    const layoutMap = new Map<number, { height: 16 | 32; width: 16 | 32 }>(
+      (mapData?.spriteLayouts ?? []).map(l => [l.spriteId, { height: l.height, width: l.width ?? 16 }])
+    )
     for (const spr of sprites) {
       const sx = Math.round(spr.x * px)
       const sy = Math.round(spr.y * px)
-      const sp = Math.max(1, Math.round(px) - 2)
-      ctx.fillStyle = 'rgba(255,70,70,0.8)'
-      ctx.fillRect(sx + 1, sy + 1, sp, sp)
+      const size = Math.round(px)
+      const layout = layoutMap.get(spr.spriteId)
+      if (spriteAtlasCanvas && layout !== undefined) {
+        const ax = (spr.spriteId % cols) * SPRITE_ATLAS_CELL_W
+        const ayCell = Math.floor(spr.spriteId / cols) * cellH
+        const { height, width } = layout
+        if (width === 32) {
+          // Wide (32x32) sprite: full cell, anchored top-left at (sx, sy).
+          ctx.drawImage(spriteAtlasCanvas,
+            ax, ayCell, 32, 32,
+            sx, sy, size * 2, size * 2)
+        } else if (height === 32) {
+          // Tall (16x32) sprite: full 16x32 cell, bottom row on (sx, sy).
+          ctx.drawImage(spriteAtlasCanvas,
+            ax, ayCell, 16, cellH,
+            sx, sy - size, size, size * 2)
+        } else {
+          // Short (16x16) sprite: bottom half of cell, placed at (sx, sy).
+          ctx.drawImage(spriteAtlasCanvas,
+            ax, ayCell + 16, 16, 16,
+            sx, sy, size, size)
+        }
+      } else {
+        const sp = Math.max(1, size - 2)
+        ctx.fillStyle = 'rgba(255,70,70,0.8)'
+        ctx.fillRect(sx + 1, sy + 1, sp, sp)
+      }
       if (px >= 14) {
         ctx.fillStyle = '#fff'
+        ctx.strokeStyle = 'rgba(0,0,0,0.9)'
+        ctx.lineWidth = 2
         ctx.font = `bold ${Math.max(7, Math.round(px * 0.44))}px monospace`
-        ctx.fillText(spr.spriteId.toString(16).toUpperCase().padStart(2,'0'), sx + 2, sy + Math.round(px) - 3)
+        const label = spr.spriteId.toString(16).toUpperCase().padStart(2, '0')
+        ctx.strokeText(label, sx + 2, sy + size - 3)
+        ctx.fillText(label, sx + 2, sy + size - 3)
       }
     }
   }

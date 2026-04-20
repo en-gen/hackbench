@@ -415,26 +415,33 @@ export function parseL2Objects(
 /**
  * Parse sprite data from the sprite pointer address.
  *
- * Sprite data format from bank_05.asm CODE_05D796 lines 7259-7261:
- *   Byte 0: header byte (buoyancy[7:6], sprite memory[5:0])
- *   Bytes 1+: sprite entries, 3 bytes each:
- *     Byte 0: YYYYEEXX  Y=y pos[7:4], E=extra bit[3:2]?, X=x pos bits
- *     Byte 1: SSSSXXXX  S=screen number[7:4], X=x pos[3:0]
- *     Byte 2: sprite number
- *   Terminator: $FF
+ * Header byte (pos 0) carries sprite-memory/buoyancy settings
+ * (see bank_05.asm CODE_05D796 lines 7259-7264). Each sprite entry is
+ * 3 bytes, and the stream ends at $FF.
  *
- * The exact sprite format from community docs (since the game's sprite
- * parsing is spread across multiple routines):
- *   Byte 0: YYYYEENN  Y=y pos[7:4], E=extra bit[1], N=new screen high bits
- *   Byte 1: XXXXSSSS  note: exact layout from SpriteDataPtr reading
+ * Byte layout per bank_02.asm LoadSprFromLevel (lines 5240-5451):
+ *   Byte 0: YYYYEEsy
+ *     bits 7-4 = Y position within screen, in tiles (16px units)
+ *     bits 3-2 = extra bits (EE) — Lunar Magic uses for extended sprite banks
+ *     bit 1    = screen-number high bit (s), combined with SSSS to form 5-bit screen
+ *     bit 0    = Y-position high bit (y), used only by vertical levels
+ *   Byte 1: XXXXSSSS
+ *     bits 7-4 = X position within screen, in tiles
+ *     bits 3-0 = screen number low 4 bits
  *   Byte 2: sprite ID
+ *
+ * ASM evidence that the nibbles of byte 1 are X-high, screen-low:
+ *   line 5263: AND.B #$0F  → masks SSSS, compares vs current screen ($_1)
+ *   line 5279: AND.B #$F0  → masks XXXX, compares vs screen-relative X ($_0)
+ *
+ * For vertical levels (ScreenMode bit 0 set) the parser swaps: YYYY becomes
+ * the X-within-screen and XXXX becomes the Y-within-screen (ASM path at
+ * CODE_02A93C, lines 5427-5438).
  */
-export function parseLevelSprites(data: Buffer | Uint8Array): LevelSprite[] {
+export function parseLevelSprites(data: Buffer | Uint8Array, isVertical = false): LevelSprite[] {
   const sprites: LevelSprite[] = []
   if (data.length < 2) return sprites
 
-  // First byte is the sprite header (memory/buoyancy settings)
-  // bank_05.asm lines 7259-7264
   let pos = 1  // skip header byte
 
   while (pos + 2 < data.length) {
@@ -445,28 +452,39 @@ export function parseLevelSprites(data: Buffer | Uint8Array): LevelSprite[] {
     const b2 = data[pos + 2]
     pos += 3
 
-    // Sprite entry: community standard encoding
-    // b0: YYYYEENN — Y=y position[7:4], E=extra bit[1], N=screen high bits
-    // b1: XXXXSSSS — note: this is the second sprite byte
-    // But the vanilla format is simpler for our purposes:
-    //   Y position = b0 high nibble
-    //   Extra bit  = (b0 >> 1) & 1
-    //   Screen-Y offset bits from b0[0] and b1 high nibble
-    const yPos = (b0 >> 4) & 0x0F
-    const extraBit = ((b0 >> 1) & 1) !== 0
-    const xPos = b1 & 0x0F
-    const screenBits = (b1 >> 4) & 0x0F
+    const yyyy = (b0 >> 4) & 0x0F
+    const extraBits = (b0 >> 2) & 0x03
+    const screenHi = (b0 >> 1) & 0x01
+    const yHi = b0 & 0x01
+    const xxxx = (b1 >> 4) & 0x0F
+    const ssss = b1 & 0x0F
 
-    // Screen number is the upper nibble of b1, but combined with b0 low bit
-    // for levels > 16 screens (rare in vanilla)
-    const screen = ((b0 & 0x01) << 4) | screenBits
+    const screen = (screenHi << 4) | ssss
+
+    // Vertical levels swap the meaning of YYYY and XXXX; SSSS still indexes
+    // the (vertical) screen. See bank_02.asm:5427-5437 — YYYY→X low byte,
+    // bit 0 (y)→X high byte so X spans SCREEN_W_VERT=32 tiles.
+    //
+    // Horizontal levels put the y bit into the high byte of Y position
+    // (bank_02.asm:5446, AND #$0D then STA SpriteYPosHigh) — combined with
+    // YYYY*16 pixel low byte, Y spans 0..511 pixels (0..31 tiles), which
+    // covers the 27-tile-tall horizontal screen.
+    let x: number
+    let y: number
+    if (isVertical) {
+      x = yyyy + (yHi << 4)
+      y = screen * SCREEN_H_VERT + xxxx
+    } else {
+      x = screen * SCREEN_W + xxxx
+      y = yyyy + (yHi << 4)
+    }
 
     sprites.push({
       screen,
-      x: screen * SCREEN_W + xPos,
-      y: yPos,
+      x,
+      y,
       spriteId: b2,
-      extraBit,
+      extraBit: extraBits !== 0,
       raw: [b0, b1, b2],
     })
   }
