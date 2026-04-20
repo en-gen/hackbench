@@ -2,6 +2,7 @@ import * as vscode from 'vscode'
 import { RomSession } from '../RomSession'
 import { GFX_FILE_COUNT } from '../rom/GfxLoader'
 import { loadRomPalettes } from '../rom/PaletteLoader'
+import { buildTransitiveLevelMap } from '../rom/LevelTree'
 
 // ── Shared tree item types ─────────────────────────────────────────────────────
 
@@ -127,38 +128,6 @@ class PlaceholderItem extends vscode.TreeItem {
   }
 }
 
-// ── Shared computation ─────────────────────────────────────────────────────────
-
-/**
- * For each overworld level, BFS the exit graph to collect all transitively
- * reachable sub-area indices.  Returns a Map<overworldIndex, subIndices[]>.
- * Sub-areas may appear in multiple levels.
- */
-function buildTransitiveLevelMap(
-  overworldIndices: number[],
-  subareaSet: Set<number>,
-  exitGraph: Map<number, number[]>,
-): Map<number, number[]> {
-  const result = new Map<number, number[]>()
-  for (const root of overworldIndices) {
-    const visited = new Set<number>([root])
-    const queue   = [root]
-    const subs: number[] = []
-    while (queue.length > 0) {
-      const cur = queue.shift()!
-      for (const child of exitGraph.get(cur) ?? []) {
-        if (!visited.has(child) && subareaSet.has(child)) {
-          visited.add(child)
-          subs.push(child)
-          queue.push(child)
-        }
-      }
-    }
-    result.set(root, subs)
-  }
-  return result
-}
-
 // ── Levels provider ────────────────────────────────────────────────────────────
 
 /**
@@ -192,10 +161,9 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
 
     if (element instanceof RomInfoItem) {
       // Under ROM: one LevelFolder per overworld level
-      const { overworld, subarea } = rom.classifyLevels()
-      const subareaSet = new Set(subarea)
+      const { overworld } = rom.classifyLevels()
       const exitGraph  = rom.buildLevelExitGraph()
-      const transitive = buildTransitiveLevelMap(overworld, subareaSet, exitGraph)
+      const transitive = buildTransitiveLevelMap(overworld, exitGraph)
 
       const folders = overworld.map(index =>
         new LevelFolder(
