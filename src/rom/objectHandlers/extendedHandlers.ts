@@ -605,3 +605,17 @@ export function handle_0DEC33(cur: Cursor): void {
   }
   cur.col = col0
 }
+
+/**
+ * CODE_0DB6E3 (bank_0D.asm line 3911) -- single-tile extended object for types
+ * 0x88 ($C1) and 0x89 ($C2). Used for one-off decorative tiles (e.g. the Forest
+ * of Illusion spore dots). Reads DATA_0DB6E1[type - 0x88] and stamps it at the
+ * anchor position.
+ */
+export function handle_0DB6E3(cur: Cursor): void {
+  const X = (cur.objNo - 0x88) & 0xFF
+  // LDA.L DATA_0DB6E1,X — $BF opcode at +11, operand at +12..+14.
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
+  setPage0(cur)
+  writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
+}
