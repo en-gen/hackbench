@@ -24,6 +24,7 @@ import {
   handle_0DB73F, handle_0DB7AA,
   handle_0DB916, handle_0DB91E,
   handle_0DDCEA, handle_0DDD2E, handle_0DE135,
+  handle_0DEDB9,
 } from '../../../src/rom/objectHandlers/standardHandlers'
 import {
   handle_0DA57B, handle_0DA64D, handle_0DA656, handle_0DA673, handle_0DA68E, handle_0DA6D1,
@@ -660,14 +661,14 @@ describe('handle_0DA656 (ext 0x42/0x43 horizontal pair — page 1)', () => {
 
 describe('handle_0DA673 (ext 0x44/0x45 vertical pair)', () => {
   const HANDLER_ADDR = 0x0DA673
-  it('0x44 writes DATA_0DA671[0] on page 0 above $EB on page 1', () => {
+  it('0x44 writes DATA_0DA671[0] and $EB both on page 1', () => {
     const rom = makeMockRom({ [0x0DA671]: [0xB4, 0xB5] })
     stampLongOperand(rom, HANDLER_ADDR, 8, 0x0DA671)
     rom.writeAt(HANDLER_ADDR + 20, [0xEB])
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 0x44, 0)
     handle_0DA673(cur)
-    expect(grid[10][3]).toBe(0xB4)
+    expect(grid[10][3]).toBe(P1(0xB4))
     expect(grid[11][3]).toBe(P1(0xEB))
   })
 })
@@ -1294,42 +1295,43 @@ describe('handle_0DB7AA (pyramid/hill slope, object 58)', () => {
   })
 })
 
-// ── Switch-palace blocks: all 4 colors render in their uncleared (dormant) state ──
+// ── Switch-palace blocks: all 4 colors render in their cleared (pressed) state ──
 // Green/yellow are extended single-tile handlers; blue/red are standard
-// rectangular handlers. All four write a page-0 Map16 tile so the editor shows
-// the dotted "!" outline regardless of save-state flags.
+// rectangular handlers. All four write the page-1 Map16 tile so fixtures
+// captured from Mesen (which runs with switches pressed) match byte-exact; the
+// webview's `applySwitchPalaceState` re-applies the page bit per the UI toggle.
 
 describe('handle_0DB58B (green switch-palace block, ext)', () => {
   const HANDLER_ADDR = 0x0DB58B
-  const TABLE_ADDR = 0x0DB589
+  const TABLE_ADDR = 0x0DB587
 
-  it('writes $06A (green uncleared) at cursor', () => {
+  it('writes $16A (green cleared) at cursor', () => {
     const rom = makeMockRom({
-      [TABLE_ADDR]: [0x6A, 0x6B],          // DATA_0DB589[0]=$6A (green), [1]=$6B (yellow)
+      [TABLE_ADDR]: [0x6A, 0x6B],          // DATA_0DB587[0]=$6A (green), [1]=$6B (yellow)
       [HANDLER_ADDR + 1]: [0x00],          // LDX #$00 immediate
     })
-    stampLongOperand(rom, HANDLER_ADDR, 13, TABLE_ADDR)
+    stampLongOperand(rom, HANDLER_ADDR, 23, TABLE_ADDR)
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 10, 0, 0x87)
     handle_0DB58B(cur)
-    expect(grid[10][5]).toBe(0x06A)        // page 0 | $6A
+    expect(grid[10][5]).toBe(P1(0x6A))     // page 1 | $6A
   })
 })
 
 describe('handle_0DB583 (yellow switch-palace block, ext)', () => {
   const HANDLER_ADDR = 0x0DB583
-  const TABLE_ADDR = 0x0DB589
+  const TABLE_ADDR = 0x0DB587
 
-  it('writes $06B (yellow uncleared) at cursor', () => {
+  it('writes $16B (yellow cleared) at cursor', () => {
     const rom = makeMockRom({
       [TABLE_ADDR]: [0x6A, 0x6B],
       [HANDLER_ADDR + 1]: [0x01],          // LDX #$01 immediate
     })
-    stampLongOperand(rom, HANDLER_ADDR, 21, TABLE_ADDR)
+    stampLongOperand(rom, HANDLER_ADDR, 31, TABLE_ADDR)
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 10, 0, 0x8E)
     handle_0DB583(cur)
-    expect(grid[10][5]).toBe(0x06B)
+    expect(grid[10][5]).toBe(P1(0x6B))
   })
 })
 
@@ -1346,26 +1348,26 @@ describe('handle_0DB916 (blue switch-palace block, standard rect)', () => {
     return rom
   }
 
-  it('size $00 writes a single $06C at cursor', () => {
+  it('size $00 writes a single $16C at cursor', () => {
     const rom = setupRom()
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 30, 0x00)
     handle_0DB916(cur)
-    expect(grid[10][3]).toBe(0x06C)
+    expect(grid[10][3]).toBe(P1(0x6C))
     // Ensure no accidental spill into neighbors.
     expect(grid[10][2]).toBe(TILE_EMPTY)
     expect(grid[10][4]).toBe(TILE_EMPTY)
     expect(grid[11][3]).toBe(TILE_EMPTY)
   })
 
-  it('size $23 fills a 4-wide x 3-tall rect of $06C', () => {
+  it('size $23 fills a 4-wide x 3-tall rect of $16C', () => {
     const rom = setupRom()
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 2, 10, 30, 0x23)
     handle_0DB916(cur)
     for (let r = 10; r <= 12; r++) {
       for (let c = 2; c <= 5; c++) {
-        expect(grid[r][c]).toBe(0x06C)
+        expect(grid[r][c]).toBe(P1(0x6C))
       }
     }
     // One past the right edge must remain empty.
@@ -1387,7 +1389,7 @@ describe('handle_0DB91E (red switch-palace block, standard rect)', () => {
   const HANDLER_ADDR = 0x0DB91E
   const TABLE_ADDR = 0x0DB91A
 
-  it('writes $06D (red uncleared) — single tile at size $00', () => {
+  it('writes $16D (red cleared) — single tile at size $00', () => {
     const rom = makeMockRom({
       [TABLE_ADDR]: [0x6C, 0x6D],
       [HANDLER_ADDR + 1]: [0x01],          // LDX #$01 immediate
@@ -1396,10 +1398,10 @@ describe('handle_0DB91E (red switch-palace block, standard rect)', () => {
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 8, 10, 30, 0x00)
     handle_0DB91E(cur)
-    expect(grid[10][8]).toBe(0x06D)
+    expect(grid[10][8]).toBe(P1(0x6D))
   })
 
-  it('size $11 fills a 2x2 rect of $06D', () => {
+  it('size $11 fills a 2x2 rect of $16D', () => {
     const rom = makeMockRom({
       [TABLE_ADDR]: [0x6C, 0x6D],
       [HANDLER_ADDR + 1]: [0x01],
@@ -1408,12 +1410,88 @@ describe('handle_0DB91E (red switch-palace block, standard rect)', () => {
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 4, 12, 30, 0x11)
     handle_0DB91E(cur)
-    expect(grid[12][4]).toBe(0x06D)
-    expect(grid[12][5]).toBe(0x06D)
-    expect(grid[13][4]).toBe(0x06D)
-    expect(grid[13][5]).toBe(0x06D)
+    expect(grid[12][4]).toBe(P1(0x6D))
+    expect(grid[12][5]).toBe(P1(0x6D))
+    expect(grid[13][4]).toBe(P1(0x6D))
+    expect(grid[13][5]).toBe(P1(0x6D))
     expect(grid[12][6]).toBe(TILE_EMPTY)
     expect(grid[14][4]).toBe(TILE_EMPTY)
+  })
+})
+
+// ── CODE_0DEDB9 (tileset-4 object $3B: horizontal rail/fence strip) ───────────
+
+describe('handle_0DEDB9 (horizontal cap-body-cap strip, tileset-4 object $3B)', () => {
+  const HANDLER_ADDR = 0x0DEDB9
+  const LEFT_IMM_OFFSET  = 11  // LDA #$07 immediate operand
+  const BODY_IMM_OFFSET  = 19  // LDA #$08 immediate operand
+  const RIGHT_IMM_OFFSET = 30  // LDA #$09 immediate operand
+
+  function romWithHandlerBytes(left: number, body: number, right: number): RomFile {
+    const rom = makeMockRom({})
+    rom.writeAt(HANDLER_ADDR + LEFT_IMM_OFFSET,  [left])
+    rom.writeAt(HANDLER_ADDR + BODY_IMM_OFFSET,  [body])
+    rom.writeAt(HANDLER_ADDR + RIGHT_IMM_OFFSET, [right])
+    return rom
+  }
+
+  it('W=1 emits just the cap pair [$107, $109] (no body)', () => {
+    const grid = createGrid(1)
+    const rom = romWithHandlerBytes(0x07, 0x08, 0x09)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 2, 10, 0x3B, 0x01)
+    handle_0DEDB9(cur)
+    expect(grid[10][2]).toBe(P1(0x07))
+    expect(grid[10][3]).toBe(P1(0x09))
+    expect(grid[10][1]).toBe(TILE_EMPTY)
+    expect(grid[10][4]).toBe(TILE_EMPTY)
+  })
+
+  it('W=2 emits [$107, $108, $109]', () => {
+    const grid = createGrid(1)
+    const rom = romWithHandlerBytes(0x07, 0x08, 0x09)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 5, 10, 0x3B, 0x02)
+    handle_0DEDB9(cur)
+    expect(grid[10][5]).toBe(P1(0x07))
+    expect(grid[10][6]).toBe(P1(0x08))
+    expect(grid[10][7]).toBe(P1(0x09))
+    expect(grid[10][8]).toBe(TILE_EMPTY)
+  })
+
+  it('W=4 emits [$107, $108, $108, $108, $109] (3 body tiles)', () => {
+    const grid = createGrid(1)
+    const rom = romWithHandlerBytes(0x07, 0x08, 0x09)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 0, 12, 0x3B, 0x04)
+    handle_0DEDB9(cur)
+    expect(grid[12][0]).toBe(P1(0x07))
+    expect(grid[12][1]).toBe(P1(0x08))
+    expect(grid[12][2]).toBe(P1(0x08))
+    expect(grid[12][3]).toBe(P1(0x08))
+    expect(grid[12][4]).toBe(P1(0x09))
+    expect(grid[12][5]).toBe(TILE_EMPTY)
+  })
+
+  it('ignores the high nibble of the size byte', () => {
+    const grid = createGrid(1)
+    const rom = romWithHandlerBytes(0x07, 0x08, 0x09)
+    // size = $F2 → H=15 W=2; result must match W=2 above.
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 1, 8, 0x3B, 0xF2)
+    handle_0DEDB9(cur)
+    expect(grid[8][1]).toBe(P1(0x07))
+    expect(grid[8][2]).toBe(P1(0x08))
+    expect(grid[8][3]).toBe(P1(0x09))
+    // No rows above/below.
+    expect(grid[7][1]).toBe(TILE_EMPTY)
+    expect(grid[9][1]).toBe(TILE_EMPTY)
+  })
+
+  it('resolves cap/body tiles from handler bytecode (tolerates relocated imms)', () => {
+    const grid = createGrid(1)
+    const rom = romWithHandlerBytes(0xAA, 0xBB, 0xCC)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 0, 0, 0x3B, 0x02)
+    handle_0DEDB9(cur)
+    expect(grid[0][0]).toBe(P1(0xAA))
+    expect(grid[0][1]).toBe(P1(0xBB))
+    expect(grid[0][2]).toBe(P1(0xCC))
   })
 })
 
