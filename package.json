@@ -149,7 +149,7 @@
     "glob": "^13.0.6",
     "globals": "^17.5.0",
     "mocha": "^11.7.5",
-    "style-loader": "^3.3.4",
+    "style-loader": "^4.0.0",
     "ts-loader": "^9.5.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.58.2",
