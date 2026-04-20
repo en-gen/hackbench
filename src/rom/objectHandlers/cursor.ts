@@ -117,11 +117,22 @@ export function writeTileAdvance(cur: Cursor, lowByte: number): void {
  * Write the low byte at the cursor, combined with the current page.
  * Mirrors raw STA [Map16LowPtr],Y — the page byte was set by a prior call to
  * Sta1To6ePointer / StzTo6ePointer (setPage1 / setPage0 here).
+ *
+ * Writes past the current row length auto-grow the row (padded with TILE_EMPTY)
+ * up to a 512-col cap — matches the SNES behaviour where the Map16 RAM buffer
+ * has far more headroom than the level's declared screen count. Narrow castle
+ * rooms (e.g. level $0FD) stamp right-wall fill tiles one column past the
+ * declared levelLength; the engine happily writes there and Mesen captures it.
  */
 export function writeTile(cur: Cursor, lowByte: number): void {
-  if (cur.row >= 0 && cur.row < cur.grid.length && cur.col >= 0 && cur.col < cur.grid[0].length) {
-    cur.grid[cur.row][cur.col] = ((cur.page & 0x01) << 8) | (lowByte & 0xFF)
-  }
+  if (cur.row < 0 || cur.row >= cur.grid.length) return
+  if (cur.col < 0 || cur.col >= 0x200) return
+  const tile = ((cur.page & 0x01) << 8) | (lowByte & 0xFF)
+  const row = cur.grid[cur.row]
+  // Pad with TILE_EMPTY ($25) up to the target column so downstream readers
+  // that iterate by row length see a contiguous tile stream.
+  while (row.length < cur.col) row.push(0x25)
+  row[cur.col] = tile
 }
 
 /** Sta1To6ePointer (bank_0D line 2107) -- next tile is on page 1 ($100-$1FF). */

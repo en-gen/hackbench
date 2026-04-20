@@ -108,6 +108,10 @@ export function handle_0DA656(cur: Cursor): void {
 /**
  * CODE_0DA673 (bank_0D.asm line 1603) -- ext types 0x44 and 0x45: 2-tile
  * vertical pair. Top from DATA_0DA671[X], bottom is $EB. X = extType - 0x44.
+ *
+ * Both writes run the low-byte store BEFORE `Sta1To6ePointer`, so the high
+ * byte ends up $01 on both rows — the whole pair lives on page 1 ($1B4/$1B5
+ * on top, $1EB on bottom).
  */
 export function handle_0DA673(cur: Cursor): void {
   const X = cur.objNo - 0x44
@@ -116,10 +120,9 @@ export function handle_0DA673(cur: Cursor): void {
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 8)
   const top = cur.rom.readByte(tableAddr + X) ?? 0
   const bot = readImmByte(cur, cur.handlerAddr + 20)
-  setPage0(cur)
+  setPage1(cur)
   writeTile(cur, top)
   cur.row += 1
-  setPage1(cur)
   writeTile(cur, bot)
   cur.row -= 1
 }
@@ -281,15 +284,18 @@ export function handle_0DDAA2(cur: Cursor): void {
  * the common body at CODE_0DB58B+2. SMW picks between:
  *   DATA_0DB589[1] = $6B on page 0 when SwitchBlockFlags[1] is zero (uncleared)
  *   DATA_0DB587[1] = $6B on page 1 when the yellow switch has been pressed
- * For editor rendering we always show the dormant (uncleared, page-0) tile so
- * the level layout is visible regardless of the save-state flag.
+ *
+ * We emit the cleared ($16B, page 1) variant so fixtures captured from Mesen —
+ * which runs with the switches already pressed in the save state — match
+ * byte-exact. The webview's `applySwitchPalaceState` re-applies the page bit
+ * per the UI toggle, so the on-screen dormant/cleared state is unaffected.
  */
 export function handle_0DB583(cur: Cursor): void {
-  // LDX #$01 at +0 → X at +1. LDA.L DATA_0DB589 operand at +21 inside the
-  // shared body (entered via the intentional BNE +; fall-through to CODE_0DB58B).
+  // LDX #$01 at +0 → X at +1. LDA.L DATA_0DB587 operand at +31 inside the
+  // shared body (the cleared-path LDA.L that runs after BNE + was taken).
   const X = readImmByte(cur, cur.handlerAddr + 1)
-  const tableAddr = readLongOperand(cur, cur.handlerAddr + 21)
-  setPage0(cur)
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 31)
+  setPage1(cur)
   writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
 }
 
@@ -299,15 +305,15 @@ export function handle_0DB583(cur: Cursor): void {
  * Sibling of CODE_0DB583; enters the shared body directly with X=0 via LDX #$00.
  * DATA_0DB589[0] = $6A (green uncleared) → Map16 $06A.
  * DATA_0DB587[0] = $6A (green cleared)   → Map16 $16A.
- * Editor always renders the dormant ($06A) state.
+ * Emits the cleared ($16A, page 1) variant — see the CODE_0DB583 comment.
  */
 export function handle_0DB58B(cur: Cursor): void {
   // LDX #$00 at +0 → X at +1. CODE_0DB58B enters the shared body 8 bytes
-  // before CODE_0DB583's equivalent offset, so LDA.L DATA_0DB589 operand
-  // lands at +13 (= 21 - 8).
+  // before CODE_0DB583's equivalent offset, so LDA.L DATA_0DB587 operand
+  // lands at +23 (= 31 - 8).
   const X = readImmByte(cur, cur.handlerAddr + 1)
-  const tableAddr = readLongOperand(cur, cur.handlerAddr + 13)
-  setPage0(cur)
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 23)
+  setPage1(cur)
   writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
 }
 

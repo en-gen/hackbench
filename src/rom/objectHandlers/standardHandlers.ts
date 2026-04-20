@@ -1667,7 +1667,10 @@ export function handle_0DD145(cur: Cursor): void {
  * BEQ +) branches on SwitchBlockFlags+2,X (X=0 blue, X=1 red at $7E1F29/$7E1F2A):
  *   DATA_0DB91A[0] = $6C page 0 -> Map16 $06C (blue uncleared, dotted outline)
  *   DATA_0DB91C[0] = $6C page 1 -> Map16 $16C (blue cleared, solid)
- * Editor always emits the dormant ($06C) state.
+ *
+ * We emit the cleared ($16C, page 1) variant to match Mesen fixtures, which
+ * run with switches pressed in the save state. The webview's
+ * `applySwitchPalaceState` re-applies the page bit per the UI toggle.
  */
 export function handle_0DB916(cur: Cursor): void {
   writeSwitchBlockRect(cur, 37)
@@ -1677,8 +1680,8 @@ export function handle_0DB916(cur: Cursor): void {
  * CODE_0DB91E (bank_0D.asm line 4209) -- red switch-palace block (rectangular).
  *
  * Sibling of CODE_0DB916 entered 8 bytes later (after the two shared data
- * tables); LDX #$01 selects index 1 -> DATA_0DB91A[1] = $6D page 0 = Map16 $06D.
- * LDA.L operand offset relative to this entry point is 37 - 8 = 29.
+ * tables); LDX #$01 selects index 1 -> DATA_0DB91A[1] = $6D -> Map16 $16D on
+ * page 1. LDA.L operand offset relative to this entry point is 37 - 8 = 29.
  */
 export function handle_0DB91E(cur: Cursor): void {
   writeSwitchBlockRect(cur, 29)
@@ -1690,7 +1693,7 @@ function writeSwitchBlockRect(cur: Cursor, ldaOperandOffset: number): void {
   const X = readImmByte(cur, cur.handlerAddr + 1)
   const tableAddr = readLongOperand(cur, cur.handlerAddr + ldaOperandOffset)
   const tile = cur.rom.readByte(tableAddr + X) ?? 0
-  setPage0(cur)
+  setPage1(cur)
   const origCol = cur.col
   const origRow = cur.row
   for (let r = 0; r <= H; r++) {
@@ -2936,6 +2939,38 @@ function drawCatwalkStrip_0DED4A(cur: Cursor, initialX: number): void {
 export function handle_0DED43(cur: Cursor): void {
   const W = cur.size & 0x0F
   drawCatwalkStrip_0DED4A(cur, W)
+}
+
+/**
+ * CODE_0DEDB9 (bank_0D.asm line 8086) -- tileset-4 standard object $3B:
+ * horizontal rail / fence strip (cap-body-cap, width W+1).
+ *
+ * Size byte: HHHHWWWW → W (low nibble) = strip length - 1. High nibble unused
+ * by this handler. Emits (W+1) tiles, all on page 1:
+ *   col 0        : $107 (left cap)
+ *   cols 1..W-1  : $108 (body repeat)
+ *   col W        : $109 (right cap)
+ *
+ * W=1 degenerates to $107,$109 (no body) because the `DEX / BNE -` loop hits
+ * zero after the first CODE_0DEDCD entry. Cursor is left one column past the
+ * final $108 write; the $109 store does not advance.
+ */
+export function handle_0DEDB9(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  if (W < 1) return
+  // Immediate operands:
+  //   +11  A9 07    LDA #$07   (entry tile, left cap)
+  //   +19  A9 08    LDA #$08   (loop body tile)
+  //   +30  A9 09    LDA #$09   (right cap, no advance)
+  const leftCap  = readImmByte(cur, cur.handlerAddr + 11)
+  const bodyTile = readImmByte(cur, cur.handlerAddr + 19)
+  const rightCap = readImmByte(cur, cur.handlerAddr + 30)
+
+  setPage1(cur); writeTileAdvance(cur, leftCap)
+  for (let k = 0; k < W - 1; k++) {
+    setPage1(cur); writeTileAdvance(cur, bodyTile)
+  }
+  setPage1(cur); writeTile(cur, rightCap)
 }
 
 /**
