@@ -70,6 +70,7 @@ app.innerHTML = `
   <label style="${chkStyle()}"><input type="checkbox" id="chk-block"> Block</label>
   <label style="${chkStyle()}"><input type="checkbox" id="chk-l1" checked> L1</label>
   <label style="${chkStyle()}"><input type="checkbox" id="chk-l2" checked> L2</label>
+  <label style="${chkStyle()}"><input type="checkbox" id="chk-camera"> Camera</label>
 </div>
 
 <div id="workspace" style="display:flex;flex:1;overflow:hidden;">
@@ -227,6 +228,17 @@ app.innerHTML = `
         <select id="sel-sprite-set" style="${selStyle()}"></select>
       </div>
 
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+        <div>
+          <div style="${propLabelStyle()}">BG V-SCROLL</div>
+          <div id="info-bg-vscroll" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+        </div>
+        <div>
+          <div style="${propLabelStyle()}">BG H-SCROLL</div>
+          <div id="info-bg-hscroll" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+        </div>
+      </div>
+
     </div>
 
     <div class="section-hdr">ROOM INFO</div>
@@ -310,6 +322,7 @@ const chkSprites     = document.getElementById('chk-sprites')     as HTMLInputEl
 const chkBlock       = document.getElementById('chk-block')       as HTMLInputElement
 const chkL1          = document.getElementById('chk-l1')          as HTMLInputElement
 const chkL2          = document.getElementById('chk-l2')          as HTMLInputElement
+const chkCamera      = document.getElementById('chk-camera')      as HTMLInputElement
 
 // ── Switch-palace "cleared" toggles ──────────────────────────────────────────
 // Four booleans indexed by color: 0=green, 1=yellow, 2=blue, 3=red.
@@ -324,6 +337,49 @@ function applySwitchPalaceState(tileId: number): number {
   if (low < 0x6A || low > 0x6D) return tileId
   const colorIdx = low - 0x6A
   return (switchPalaceState[colorIdx] ? 0x100 : 0x000) | low
+}
+
+// ── Camera viewport overlay ──────────────────────────────────────────────────
+// A draggable 16×14 tile rectangle representing the SNES FG screen window
+// (256×224 px). When the "Camera" toggle is on, the rectangle is drawn over
+// the map; inside it we re-composite L2 at its parallax-adjusted Y position
+// so the user sees what the player actually sees in-game at that scroll point.
+// Scroll ratios come from mapData.header.vertLayer2Setting (0..3):
+//   0 = locked (BG static),  1 = 1:1 (BG pinned to camera),
+//   2 = 1/2 rate,             3 = 1/32 rate
+// Per CODE_00F7AA (bank_00.asm:13735-13749). Position stored in FG-tile coords.
+const CAMERA_W_TILES = 16
+const CAMERA_H_TILES = 14
+let cameraTileX = 0
+let cameraTileY = 0
+let cameraDragging = false
+let cameraDragOffX = 0  // pointer offset from rect top-left at mousedown (tile coords)
+let cameraDragOffY = 0
+// "Focused" = user has clicked inside the rect and hasn't clicked outside since.
+// Drives the dim overlay and arrow-key handling; cleared when the toggle is off
+// or when the user clicks elsewhere on the map.
+let cameraFocused = false
+
+/** Pixel shift applied to FG pixel Y to get BG pixel Y, per VertLayer2Setting. */
+function verticalScrollPixelShift(setting: number): number | null {
+  // Returns null for setting 0 (BG locked, BG Y doesn't update).
+  // Otherwise: shift is applied to Layer1YPos in pixels (bank_00.asm:13737-13746).
+  switch (setting) {
+    case 1: return 0
+    case 2: return 1
+    case 3: return 5
+    default: return null
+  }
+}
+
+function horizontalScrollPixelShift(setting: number): number | null {
+  // bank_00.asm:13727-13733. Setting 0 locks BG X; 1 is 1:1, 2 is 1/2.
+  // (No setting 3 for horizontal; the table tops out at 2.)
+  switch (setting) {
+    case 1: return 0
+    case 2: return 1
+    default: return null
+  }
 }
 
 // ── Blue P-switch "show hidden tiles" toggle ─────────────────────────────────
@@ -1089,6 +1145,8 @@ const selTileset     = document.getElementById('sel-tileset')      as HTMLSelect
 const selSpriteSet   = document.getElementById('sel-sprite-set')   as HTMLSelectElement
 const infoScreens    = document.getElementById('info-screens')!
 const infoSprites    = document.getElementById('info-sprites')!
+const infoBgVScroll  = document.getElementById('info-bg-vscroll')!
+const infoBgHScroll  = document.getElementById('info-bg-hscroll')!
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -1196,6 +1254,11 @@ interface MapPayload {
     spritePalette:  number
     marioVariant:   number
     gfxTilesetId:   number
+    // VertLayer2Setting / HorizLayer2Setting (0..3) looked up from the
+    // per-level scroll byte. Drives the BG parallax ratio: 0=locked, 1=1:1,
+    // 2=1/2, 3=1/32. See MapEditorProvider comment at the lookup site.
+    vertLayer2Setting:  number
+    horizLayer2Setting: number
   }
 }
 
@@ -1455,41 +1518,10 @@ function redraw(): void {
     }
     // Live L1 Map16 atlas: 16 cols of 16×16 tiles, tile ID directly addresses (col,row).
     if (chkL1.checked && map16AtlasCanvas) {
-      const atlasCols = 16
-      const screenVariants = mapData.screenPipeVariants
-      const isVert = mapData.isVertical === true
       ctx.save()
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
-          const rawTileId = tileGrid[row]?.[col] ?? 0
-          const tileId = applySwitchPalaceState(rawTileId)
-          if (tileId === 0) continue
-          const reveal = pSwitchReveal(rawTileId)
-          ctx.globalAlpha = reveal ? (pSwitchBlueOn ? 1.0 : 0.5) : 1.0
-          const dx = Math.round(col * px), dy = Math.round(row * px)
-          const dw = Math.round(px), dh = Math.round(px)
-          if (reveal?.palOverride !== undefined) {
-            const override = getPalOverrideCanvas(reveal.substitute, reveal.palOverride)
-            if (override) ctx.drawImage(override, 0, 0, TILE_PX, TILE_PX, dx, dy, dw, dh)
-          } else {
-            const drawId = reveal?.substitute ?? tileId
-            // Pipe-palette cycle: tiles $133..$13A use a screen-indexed palette
-            // variant via MAP16AppTable (bank_05.asm:110-143). Pick the right
-            // variant canvas per screen.
-            if (drawId >= 0x133 && drawId < 0x13B && screenVariants && pipeVariantAtlasCanvases[0]) {
-              const screenIdx = isVert ? Math.floor(row / 16) : Math.floor(col / 16)
-              const variantIdx = screenVariants[screenIdx] ?? 1
-              const variantCanvas = pipeVariantAtlasCanvases[variantIdx]
-              if (variantCanvas) {
-                const sx = (drawId - 0x133) * TILE_PX
-                ctx.drawImage(variantCanvas, sx, 0, TILE_PX, TILE_PX, dx, dy, dw, dh)
-                continue
-              }
-            }
-            const sx = (drawId % atlasCols) * TILE_PX
-            const sy = Math.floor(drawId / atlasCols) * TILE_PX
-            ctx.drawImage(map16AtlasCanvas, sx, sy, TILE_PX, TILE_PX, dx, dy, dw, dh)
-          }
+          drawL1TileAt(row, col, Math.round(col * px), Math.round(row * px), Math.round(px))
         }
       }
       ctx.restore()
@@ -1570,7 +1602,200 @@ function redraw(): void {
     }
   }
 
+  // Camera viewport — drawn last so it sits above everything else.
+  if (chkCamera.checked) drawCameraViewport()
+
   drawMinimap()
+}
+
+/**
+ * Dim everything outside the camera rect. Called inside drawCameraViewport()
+ * when the camera has focus; mirrors the "spotlight" pattern used by the
+ * 8×8/Map16 selected-tile highlights.
+ */
+function dimOutsideCamera(rx: number, ry: number, rw: number, rh: number): void {
+  ctx.save()
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'
+  // Top band
+  ctx.fillRect(0, 0, canvas.width, ry)
+  // Bottom band
+  ctx.fillRect(0, ry + rh, canvas.width, canvas.height - (ry + rh))
+  // Left band (between top and bottom bands)
+  ctx.fillRect(0, ry, rx, rh)
+  // Right band
+  ctx.fillRect(rx + rw, ry, canvas.width - (rx + rw), rh)
+  ctx.restore()
+}
+
+/**
+ * Draw a single L1 tile from the Map16 atlas at the given destination pixel.
+ * Honors switch-palace state, P-switch reveal (with alpha + palette override),
+ * and the screen-indexed pipe-palette variant for tiles $133..$13A. Called
+ * from both the main map loop and the camera re-paint so they stay in sync.
+ * `worldRow`/`worldCol` drive the screen lookup — always level-space, never
+ * rect-local.
+ */
+function drawL1TileAt(worldRow: number, worldCol: number, dx: number, dy: number, size: number): void {
+  if (!mapData || !map16AtlasCanvas) return
+  const rawTileId = mapData.tileGrid[worldRow]?.[worldCol] ?? 0
+  const tileId = applySwitchPalaceState(rawTileId)
+  if (tileId === 0) return
+  const reveal = pSwitchReveal(rawTileId)
+  ctx.globalAlpha = reveal ? (pSwitchBlueOn ? 1.0 : 0.5) : 1.0
+  if (reveal?.palOverride !== undefined) {
+    const override = getPalOverrideCanvas(reveal.substitute, reveal.palOverride)
+    if (override) ctx.drawImage(override, 0, 0, TILE_PX, TILE_PX, dx, dy, size, size)
+    return
+  }
+  const drawId = reveal?.substitute ?? tileId
+  const screenVariants = mapData.screenPipeVariants
+  const vert = mapData.isVertical === true
+  if (drawId >= 0x133 && drawId < 0x13B && screenVariants && pipeVariantAtlasCanvases[0]) {
+    const screenIdx = vert ? Math.floor(worldRow / 16) : Math.floor(worldCol / 16)
+    const variantIdx = screenVariants[screenIdx] ?? 1
+    const variantCanvas = pipeVariantAtlasCanvases[variantIdx]
+    if (variantCanvas) {
+      const sx = (drawId - 0x133) * TILE_PX
+      ctx.drawImage(variantCanvas, sx, 0, TILE_PX, TILE_PX, dx, dy, size, size)
+      return
+    }
+  }
+  const sx = (drawId % 16) * TILE_PX
+  const sy = Math.floor(drawId / 16) * TILE_PX
+  ctx.drawImage(map16AtlasCanvas, sx, sy, TILE_PX, TILE_PX, dx, dy, size, size)
+}
+
+/**
+ * Draw the draggable camera rectangle with parallax-composited BG inside it.
+ * Outside the rect we dim the map (so the camera's content stands out); inside,
+ * we paint the BG at its parallax-shifted position over the existing FG.
+ */
+function drawCameraViewport(): void {
+  if (!mapData) return
+  const cols = levelCols()
+  const rows = levelRows()
+  const px   = TILE_PX * zoom
+
+  // Clamp camera so rect stays within level bounds.
+  const maxX = Math.max(0, cols - CAMERA_W_TILES)
+  const maxY = Math.max(0, rows - CAMERA_H_TILES)
+  cameraTileX = Math.max(0, Math.min(maxX, cameraTileX))
+  cameraTileY = Math.max(0, Math.min(maxY, cameraTileY))
+
+  const rx = Math.round(cameraTileX * px)
+  const ry = Math.round(cameraTileY * px)
+  const rw = Math.round(CAMERA_W_TILES * px)
+  const rh = Math.round(CAMERA_H_TILES * px)
+
+  // Dim the rest of the map when the camera is focused so the composited
+  // preview inside the rect visually dominates. Drawn before the rect contents
+  // so the parallax repaint lands on top of clean (non-dimmed) tiles.
+  if (cameraFocused) dimOutsideCamera(rx, ry, rw, rh)
+
+  // Wipe the rect with the level's back-area color so the map's original L1/L2
+  // (drawn by the earlier full-map pass) can't bleed through. Without this,
+  // object-stream L2 levels would show two overlapping BGs inside the rect:
+  // the raw-position L2 underneath, and the parallax L2 on top, through any
+  // "empty" cells the parallax pass skipped.
+  ctx.save()
+  const bac = mapData.backAreaColor
+  ctx.fillStyle = bac ? `rgb(${bac[0]},${bac[1]},${bac[2]})` : '#000'
+  ctx.fillRect(rx, ry, rw, rh)
+  ctx.restore()
+
+  // Parallax-composited BG inside the rect. Skip if L2 hidden or no preset.
+  // The BG origin tracks the camera FG position via shift on pixel Y:
+  //   bg_px_y = fg_px_y >> shift    (locked settings mean BG doesn't move)
+  // We convert back to tile rows for atlas sampling.
+  const vSetting = mapData.header.vertLayer2Setting ?? 0
+  const hSetting = mapData.header.horizLayer2Setting ?? 0
+  const vShift = verticalScrollPixelShift(vSetting)
+  const hShift = horizontalScrollPixelShift(hSetting)
+  if (chkL2.checked && l2TileGrid) {
+    const useBg = mapData.l2UsesBgAtlas ?? true
+    const atlas = useBg ? map16BgAtlasCanvas : map16AtlasCanvas
+    if (atlas) {
+      const bgRows = l2TileGrid.length
+      const bgCols = l2TileGrid[0]?.length ?? 0
+      // fg pixel Y of camera top-left. Shift to BG pixels, then wrap mod BG grid size.
+      const fgPxY = cameraTileY * TILE_PX
+      const fgPxX = cameraTileX * TILE_PX
+      const bgPxY = vShift === null ? 0 : (fgPxY >> vShift)
+      const bgPxX = hShift === null ? 0 : (fgPxX >> hShift)
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(rx, ry, rw, rh)
+      ctx.clip()
+      for (let r = 0; r < CAMERA_H_TILES; r++) {
+        for (let c = 0; c < CAMERA_W_TILES; c++) {
+          const bgWorldRow = Math.floor((bgPxY + r * TILE_PX) / TILE_PX) % bgRows
+          const bgWorldCol = Math.floor((bgPxX + c * TILE_PX) / TILE_PX) % bgCols
+          const tileId = l2TileGrid[(bgWorldRow + bgRows) % bgRows]?.[(bgWorldCol + bgCols) % bgCols] ?? 0
+          if (!useBg && tileId === 0) continue
+          const sx = (tileId % 16) * TILE_PX
+          const sy = Math.floor(tileId / 16) * TILE_PX
+          const dx = rx + Math.round(c * px)
+          const dy = ry + Math.round(r * px)
+          ctx.drawImage(atlas, sx, sy, TILE_PX, TILE_PX, dx, dy, Math.round(px), Math.round(px))
+        }
+      }
+      ctx.restore()
+      // Re-paint L1 on top of the parallax BG so FG stays dominant inside the
+      // rect. Uses drawL1TileAt with world-space row/col so pipe-palette
+      // variants and P-switch reveal stay consistent with the main map.
+      if (chkL1.checked && map16AtlasCanvas) {
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(rx, ry, rw, rh)
+        ctx.clip()
+        for (let r = 0; r < CAMERA_H_TILES; r++) {
+          for (let c = 0; c < CAMERA_W_TILES; c++) {
+            const worldRow = cameraTileY + r
+            const worldCol = cameraTileX + c
+            const dx = rx + Math.round(c * px)
+            const dy = ry + Math.round(r * px)
+            drawL1TileAt(worldRow, worldCol, dx, dy, Math.round(px))
+          }
+        }
+        ctx.restore()
+      }
+    }
+  }
+
+  // Border — bright outline so the rect is easy to spot and grab.
+  ctx.save()
+  ctx.strokeStyle = 'rgba(255,255,80,0.95)'
+  ctx.lineWidth = 2
+  ctx.strokeRect(rx + 1, ry + 1, rw - 2, rh - 2)
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)'
+  ctx.lineWidth = 1
+  ctx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1)
+  ctx.restore()
+}
+
+/** True if the given canvas pixel (x,y) lies inside the camera rect. */
+function hitCameraRect(canvasX: number, canvasY: number): boolean {
+  if (!chkCamera.checked || !mapData) return false
+  const px = TILE_PX * zoom
+  const rx = cameraTileX * px
+  const ry = cameraTileY * px
+  const rw = CAMERA_W_TILES * px
+  const rh = CAMERA_H_TILES * px
+  return canvasX >= rx && canvasX < rx + rw && canvasY >= ry && canvasY < ry + rh
+}
+
+/** Scroll the map container so the camera rect stays fully visible. */
+function scrollContainerToCamera(): void {
+  const px = TILE_PX * zoom
+  const rx = cameraTileX * px
+  const ry = cameraTileY * px
+  const rw = CAMERA_W_TILES * px
+  const rh = CAMERA_H_TILES * px
+  const wrap = canvasWrap
+  const marginX = Math.max(0, (wrap.clientWidth  - rw) / 2)
+  const marginY = Math.max(0, (wrap.clientHeight - rh) / 2)
+  wrap.scrollLeft = Math.max(0, rx - marginX)
+  wrap.scrollTop  = Math.max(0, ry - marginY)
 }
 
 // ── Minimap ──────────────────────────────────────────────────────────────────
@@ -1755,6 +1980,92 @@ chkSprites.addEventListener('change', redraw)
 chkBlock.addEventListener('change',   redraw)
 chkL1.addEventListener('change',      redraw)
 chkL2.addEventListener('change',      redraw)
+chkCamera.addEventListener('change',  () => {
+  if (chkCamera.checked) scrollContainerToCamera()
+  else cameraFocused = false
+  redraw()
+})
+
+// ── Camera rectangle drag + focus ────────────────────────────────────────────
+// Click inside the rect: focus camera, start drag. Click outside: blur camera.
+// Cursor switches to grab/grabbing when hovering/dragging the rect.
+canvas.addEventListener('pointerdown', (e) => {
+  if (!chkCamera.checked || e.button !== 0) return
+  const rect = canvas.getBoundingClientRect()
+  const cx = e.clientX - rect.left
+  const cy = e.clientY - rect.top
+  if (hitCameraRect(cx, cy)) {
+    cameraFocused = true
+    const px = TILE_PX * zoom
+    cameraDragging = true
+    cameraDragOffX = cx / px - cameraTileX
+    cameraDragOffY = cy / px - cameraTileY
+    canvas.setPointerCapture(e.pointerId)
+    canvas.style.cursor = 'grabbing'
+    redraw()
+    e.preventDefault()
+  } else if (cameraFocused) {
+    // Click anywhere else on the map: release focus so dimming clears and
+    // arrow keys stop capturing.
+    cameraFocused = false
+    redraw()
+  }
+})
+
+canvas.addEventListener('pointermove', (e) => {
+  const rect = canvas.getBoundingClientRect()
+  const cx = e.clientX - rect.left
+  const cy = e.clientY - rect.top
+
+  if (cameraDragging) {
+    const px = TILE_PX * zoom
+    cameraTileX = Math.round(cx / px - cameraDragOffX)
+    cameraTileY = Math.round(cy / px - cameraDragOffY)
+    scrollContainerToCamera()
+    redraw()
+    return
+  }
+
+  if (chkCamera.checked && hitCameraRect(cx, cy)) {
+    canvas.style.cursor = 'grab'
+  } else {
+    canvas.style.cursor = ''
+  }
+})
+
+canvas.addEventListener('pointerup', (e) => {
+  if (!cameraDragging) return
+  cameraDragging = false
+  canvas.releasePointerCapture(e.pointerId)
+  // Restore hover cursor based on where we ended up.
+  const rect = canvas.getBoundingClientRect()
+  const cx = e.clientX - rect.left
+  const cy = e.clientY - rect.top
+  canvas.style.cursor = (chkCamera.checked && hitCameraRect(cx, cy)) ? 'grab' : ''
+})
+
+// Arrow-key nudge when camera is focused. Shift = 4-tile jumps for faster scan.
+window.addEventListener('keydown', (e) => {
+  if (!chkCamera.checked || !cameraFocused) return
+  // Don't swallow keys when typing into a form field.
+  const tgt = e.target as HTMLElement | null
+  if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'SELECT' || tgt.tagName === 'TEXTAREA')) return
+  const step = e.shiftKey ? 4 : 1
+  let handled = true
+  switch (e.key) {
+    case 'ArrowUp':    cameraTileY -= step; break
+    case 'ArrowDown':  cameraTileY += step; break
+    case 'ArrowLeft':  cameraTileX -= step; break
+    case 'ArrowRight': cameraTileX += step; break
+    case 'Escape':     cameraFocused = false; break
+    default: handled = false
+  }
+  if (handled) {
+    e.preventDefault()
+    scrollContainerToCamera()
+    redraw()
+  }
+})
 
 // ── Switch-palace toggles ─────────────────────────────────────────────────────
 // Each button shows the Map16 tile in its current state; clicking flips between
@@ -2023,6 +2334,21 @@ window.addEventListener('message', async (event) => {
     // Room info
     infoScreens.textContent = String(screens)
     infoSprites.textContent = String(mapData.sprites.length)
+
+    // BG scroll settings (read-only, derived from per-level ROM byte via
+    // DATA_05F000 → top-nibble → DATA_05D710/20). Label each setting with a
+    // human-readable rate so the UI is useful without peeking at ASM comments.
+    const vSet = mapData.header.vertLayer2Setting ?? 0
+    const hSet = mapData.header.horizLayer2Setting ?? 0
+    const vLabel = ['locked', '1:1', '1/2', '1/32'][vSet] ?? '?'
+    const hLabel = ['locked', '1:1', '1/2', '?'   ][hSet] ?? '?'
+    infoBgVScroll.textContent = `${vSet} (${vLabel})`
+    infoBgHScroll.textContent = `${hSet} (${hLabel})`
+
+    // Reset camera to level start and scroll into view if Camera is on.
+    cameraTileX = 0
+    cameraTileY = 0
+    if (chkCamera.checked) scrollContainerToCamera()
 
     // Palette canvas
     drawPaletteCanvas()

@@ -67,6 +67,16 @@ export const L2_TILEMAP_COLS = L2_PRESET_SCREEN_COLS * 2  // 32
 export const L2_TILEMAP_ROWS = L2_PRESET_SCREEN_ROWS      // 27
 export const L2_TILEMAP_SIZE = L2_PRESET_SCREEN_BYTES * 2  // 864
 
+/**
+ * BG2 PPU sub-tilemap height in tiles. Layer2TilemapLow is a 1024-byte buffer
+ * (32×32 tiles); only the first 864 bytes hold preset data — the bottom 5 rows
+ * stay at the $25 init fill (CODE_05801E lines 24-30). For vertical levels the
+ * BG scrolls vertically and the PPU wraps the sub-tilemap every 32 rows, so
+ * the tiled pattern repeats with a 5-row $25 strip between iterations. Lunar
+ * Magic draws the same strip as solid back-area color.
+ */
+export const L2_BG_PLANE_ROWS = 32
+
 /** Default empty-tile byte written by CODE_05801E init loop (line 25). */
 export const L2_EMPTY_TILE = 0x25
 
