@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseLevelObjects, parseLevelSprites } from '../../../src/rom/LevelParser'
+import { parseLevelObjects, parseLevelSprites, isLevelModeVertical } from '../../../src/rom/LevelParser'
 
 /**
  * Build a minimal valid level buffer.
@@ -171,6 +171,69 @@ describe('parseLevelObjects — terminator', () => {
     const buf = Buffer.from([0, 0, 0, 0, 0, 0xFF])
     const { objects } = parseLevelObjects(buf)
     expect(objects).toHaveLength(0)
+  })
+})
+
+describe('isLevelModeVertical — VerticalTable bit 0', () => {
+  it('matches bank_05.asm:480 VerticalTable entries with bit 0 set', () => {
+    // Modes with bit-0 set per the table: 3 ($01), 4 ($81), 7 ($03), 8 ($83),
+    // 10 ($01), 13 ($01). Every other mode is horizontal for L1.
+    const expectedVertical = new Set([3, 4, 7, 8, 10, 13])
+    for (let mode = 0; mode < 32; mode++) {
+      expect(isLevelModeVertical(mode)).toBe(expectedVertical.has(mode))
+    }
+  })
+})
+
+describe('parseLevelObjects — vertical level layout', () => {
+  it('places object at 32-wide column + screen*16 row when levelMode is vertical (mode 3)', () => {
+    // levelMode = 3 → VerticalTable[3] = $01 → L1 vertical.
+    // Header byte 1 low 5 bits = levelMode = 3.
+    const vertHeader: [number, number, number, number, number] = [0, 3, 0, 0, 0]
+
+    // Object bytes encode (after CODE_0585D8 swap):
+    //   $0A = NSxxYYYY : we use $05 → highCoord=0, x_local=5 (low nibble of $0A)
+    //   $0B = OOOOyyyy : we use $17 → objNumHigh nibble of $17 = 1 (so objNo base = 1),
+    //                    y_local = 7
+    // In vertical mode: x_abs = 5, y_abs = screen(0)*16 + 7 = 7
+    const buf = makeLevel(vertHeader, [0x05, 0x17, 0x00])
+    const { objects, isVertical } = parseLevelObjects(buf)
+    expect(isVertical).toBe(true)
+    expect(objects).toHaveLength(1)
+    expect(objects[0].x).toBe(5)
+    expect(objects[0].y).toBe(7)
+  })
+
+  it('high-coord moves object to the right half (col += 16) in vertical mode', () => {
+    const vertHeader: [number, number, number, number, number] = [0, 3, 0, 0, 0]
+    // $0A = 0x15 = 0001_0101 → highCoord=1 (bit 4), low nibble = 5 (x within screen)
+    // $0B = 0x17 → low nibble = 7 (y within screen)
+    const buf = makeLevel(vertHeader, [0x15, 0x17, 0x00])
+    const { objects } = parseLevelObjects(buf)
+    expect(objects[0].x).toBe(5 + 16)   // right half
+    expect(objects[0].y).toBe(7)
+  })
+
+  it('new-screen flag advances downward (y += 16) in vertical mode', () => {
+    const vertHeader: [number, number, number, number, number] = [0, 3, 0, 0, 0]
+    const buf = makeLevel(vertHeader, [
+      0x03, 0x10, 0x00,   // screen 0, x=3, y=0
+      0x82, 0x14, 0x00,   // NS → screen 1, x=2, y=4  → y_abs = 16 + 4 = 20
+    ])
+    const { objects } = parseLevelObjects(buf)
+    expect(objects[1].screen).toBe(1)
+    expect(objects[1].x).toBe(2)
+    expect(objects[1].y).toBe(16 + 4)
+  })
+
+  it('leaves horizontal levels unchanged (mode 0)', () => {
+    // levelMode = 0 → VerticalTable[0] = $00 → not vertical.
+    // Same encoding as before my change: x = screen*16 + x_local, y = b0 low nibble.
+    const buf = makeLevel([0, 0, 0, 0, 0], [0x03, 0x25, 0x10])
+    const { objects, isVertical } = parseLevelObjects(buf)
+    expect(isVertical).toBe(false)
+    expect(objects[0].x).toBe(5)   // screen 0, x = 5 (low of $25)
+    expect(objects[0].y).toBe(3)   // y = 3 (low of $03, no highCoord)
   })
 })
 

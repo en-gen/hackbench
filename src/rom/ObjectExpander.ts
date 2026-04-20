@@ -14,7 +14,7 @@
  * ported handler.
  */
 
-import { LevelObject, SCREEN_W, SCREEN_H } from './LevelParser'
+import { LevelObject, SCREEN_W, SCREEN_H, SCREEN_W_VERT, SCREEN_H_VERT } from './LevelParser'
 import { RomFile } from './RomFile'
 import { makeCursor, TileGrid } from './objectHandlers/cursor'
 import { dispatchStandard, dispatchExtended } from './objectHandlers/dispatch'
@@ -26,10 +26,15 @@ export const TILE_UNKNOWN = 0x00
 
 export type { TileGrid } from './objectHandlers/cursor'
 
-/** Create a blank level grid filled with TILE_EMPTY. */
-export function createGrid(screens: number): TileGrid {
-  const cols = screens * SCREEN_W
-  return Array.from({ length: SCREEN_H }, () => new Array(cols).fill(TILE_EMPTY))
+/**
+ * Create a blank level grid filled with TILE_EMPTY.
+ *   Horizontal (default): screens * 16 cols, 27 rows.
+ *   Vertical:              32 cols, screens * 16 rows.
+ */
+export function createGrid(screens: number, isVertical = false): TileGrid {
+  const cols = isVertical ? SCREEN_W_VERT : screens * SCREEN_W
+  const rows = isVertical ? screens * SCREEN_H_VERT : SCREEN_H
+  return Array.from({ length: rows }, () => new Array(cols).fill(TILE_EMPTY))
 }
 
 /**
@@ -55,12 +60,14 @@ export function expandObject(
  * Expand every object in the level stream into a 2D Map16 tile grid.
  *
  * The caller is expected to pass the level header's `objectTileset` so
- * tileset-specific dispatch resolves correctly.
+ * tileset-specific dispatch resolves correctly. For vertical levels the
+ * grid is 32 wide × (screens*16) tall instead of (screens*16) × 27.
  */
 export function expandMap(
   objects: LevelObject[], screens: number, rom: RomFile, tileset = 0,
+  isVertical = false,
 ): TileGrid {
-  const grid = createGrid(screens)
+  const grid = createGrid(screens, isVertical)
   for (const obj of objects) {
     expandObject(grid, obj, rom, tileset)
   }

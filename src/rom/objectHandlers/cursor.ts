@@ -29,7 +29,6 @@
  */
 
 import { RomFile } from '../RomFile'
-import { SCREEN_H } from '../LevelParser'
 
 /** A 2D tile grid; grid[row][col] = 9-bit Map16 tile ID (page << 8 | low). */
 export type TileGrid = number[][]
@@ -120,7 +119,7 @@ export function writeTileAdvance(cur: Cursor, lowByte: number): void {
  * Sta1To6ePointer / StzTo6ePointer (setPage1 / setPage0 here).
  */
 export function writeTile(cur: Cursor, lowByte: number): void {
-  if (cur.row >= 0 && cur.row < SCREEN_H && cur.col >= 0 && cur.col < cur.grid[0].length) {
+  if (cur.row >= 0 && cur.row < cur.grid.length && cur.col >= 0 && cur.col < cur.grid[0].length) {
     cur.grid[cur.row][cur.col] = ((cur.page & 0x01) << 8) | (lowByte & 0xFF)
   }
 }

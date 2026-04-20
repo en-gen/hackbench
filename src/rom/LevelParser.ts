@@ -11,8 +11,32 @@
 
 /** Tiles per screen horizontally. */
 export const SCREEN_W = 16
-/** Tiles per screen vertically. */
+/** Tiles per screen vertically (horizontal levels). */
 export const SCREEN_H = 27
+/** Tiles per screen vertically (vertical levels — screens stack downward, 16 rows each). */
+export const SCREEN_H_VERT = 16
+/** Tiles per screen horizontally (vertical levels — always 32 tiles wide, 2 sub-screens). */
+export const SCREEN_W_VERT = 32
+
+/**
+ * VerticalTable from bank_05.asm line 480-484 — indexed by 5-bit levelMode.
+ *   Format per entry: ?uuuuu?v  (v=bit 0 = Layer 1 vertical, bit 1 = Layer 2 vertical,
+ *   bit 7 = "special" flag set for boss levels; we only care about bit 0 here).
+ * The game loads this into ScreenMode ($7E:005B) in CODE_0584E3; rammap.asm:481
+ * confirms `!ScrMode_Layer1Vert = %01`.
+ */
+const LEVEL_MODE_VERTICAL_TABLE: readonly number[] = [
+  0x00, 0x00, 0x80, 0x01, 0x81, 0x02, 0x82, 0x03,
+  0x83, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80,
+]
+
+/** True if a level's Layer 1 is vertical, per the ROM's VerticalTable (bit 0). */
+export function isLevelModeVertical(levelMode: number): boolean {
+  const entry = LEVEL_MODE_VERTICAL_TABLE[levelMode & 0x1F] ?? 0
+  return (entry & 0x01) !== 0
+}
 
 /**
  * SMW Level Primary Header -- 5 bytes at the start of Layer 1 data.
@@ -90,6 +114,8 @@ export interface ParsedLevel {
   objects: LevelObject[]
   sprites: LevelSprite[]
   screens: number
+  /** True for Layer-1-vertical levels (VerticalTable[levelMode] bit 0 set). */
+  isVertical: boolean
 }
 
 const HEADER_SIZE = 5   // bytes before object data begins (CODE_0584E3 line 645-651)
@@ -170,12 +196,33 @@ export function parseLevelHeader(data: Buffer | Uint8Array): LevelHeader {
  *   - When $5A != 0: normal object (CODE_0DA40F), $59 = size/settings
  *   - Terminator: $FF at next read position (line 794)
  *
- * Note on vertical levels: The disassembly at lines 707-713 shows X/Y nibble
- * swapping for vertical levels (CODE_0585D8), but we skip that here as the
- * caller can handle it based on header.levelMode's vertical flag.
+ * Vertical levels: In vertical mode (ScreenMode bit 0 set per VerticalTable),
+ * the game calls CODE_0585D8 (bank_05.asm:654-675) which swaps the low
+ * nibbles of bytes 0 and 1. The Map16 RAM layout for vertical levels is
+ * TWO 16-wide half-screens concatenated, each row-major (bank_00.asm:6763
+ * DATA_00BB38, stride $200 per screen; `INC Map16LowPtr+1` at line 781
+ * adds $100 to skip to the right half). So within a 32×16 screen:
+ *
+ *   offset = (col // 16) * 256 + (row % 16) * 16 + (col % 16)
+ *
+ * Trace: b0=0x02, b1=0x13 → swap gives LevelLoadPos = 0x32 = 50 = row 3 *
+ * 16 + col 2, placing the tile at (col=2, row=3). Under that constraint:
+ *   - X (col) = byte 0 low nibble (original, pre-swap)
+ *   - Y (row) = byte 1 low nibble (original, pre-swap)
+ *   - highCoord (b0 bit 4) selects the right half → col += 16 (cols 16-31)
+ *   - new-screen flag advances downward → row += 16 per screen
+ *
+ * Net effect in grid space (nibble sources are the SAME as horizontal — only
+ * the axis that gets screen*16 and highCoord+16 flips):
+ *   horizontal: X = screen*16 + b1_low,        Y = b0_low + (16 if highCoord)
+ *   vertical:   X = b0_low + (16 if highCoord), Y = screen*16 + b1_low
+ *
+ * We detect verticality via isLevelModeVertical(header.levelMode) and emit
+ * absolute (x, y) coordinates in a 32 × (screens*16) grid.
  */
 export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 'sprites'> {
   const header = parseLevelHeader(data)
+  const isVertical = isLevelModeVertical(header.levelMode)
 
   const objects: LevelObject[] = []
   let pos = HEADER_SIZE   // Object data begins after 5-byte header (line 645-651)
@@ -198,24 +245,37 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
     }
 
     // High coordinate flag: bit 4 of byte 0 (line 778-782).
-    // When set, bank_05 does INC Map16LowPtr+1 — effectively adding 0x100 to
-    // the level tile pointer, which in our flat (col, row) grid means +16 rows.
-    // This is how objects reach rows 16-26 in a horizontal level.
+    // Horizontal: INC Map16LowPtr+1 → +16 rows (reach rows 16-26 below row 15).
+    // Vertical:   same flag → "right half of vertical level" (cols 16-31).
     const highCoord = (b0 & 0x10) !== 0
 
     // Object number: $5A = ($0B >> 4) | (($0A & $60) >> 1)
-    // bank_05.asm lines 696-706
+    // bank_05.asm lines 696-706 (computed BEFORE the XY swap, so using raw b0/b1)
     const objNumHigh = (b0 & 0x60) >> 1   // bits 6-5 shifted to bits 5-4
     const objNumLow = (b1 >> 4) & 0x0F     // high nibble of byte 1
     const objectNumber = objNumLow | objNumHigh
 
-    // Position: Y in upper nibble, X in lower nibble of LevelLoadPos
-    // bank_05.asm lines 714-724:
-    //   Y = ($0A & $0F) → upper nibble (shifted left 4)
-    //   X = ($0B & $0F) → lower nibble
-    // With highCoord, the game adds 16 to Y (via INC Map16LowPtr+1).
-    const yLocal = (b0 & 0x0F) + (highCoord ? 16 : 0)
-    const xLocal = b1 & 0x0F
+    // Position decoding — bank_05.asm lines 714-724.
+    // Horizontal: Y = b0 low, X = b1 low (within 16-col screen at column screen*16).
+    // Vertical:   after CODE_0585D8 low-nibble swap, the game interprets positions
+    //             against vertical Map16 tables. Net effect in grid space:
+    //               X = b0 low + (highCoord ? 16 : 0)   (0..31, whole level width)
+    //               Y = b1 low + screen * 16            (screens stack down)
+    let xLocal: number
+    let yLocal: number
+    let xAbs: number
+    let yAbs: number
+    if (isVertical) {
+      xLocal = b0 & 0x0F
+      yLocal = b1 & 0x0F
+      xAbs = xLocal + (highCoord ? 16 : 0)
+      yAbs = screen * 16 + yLocal
+    } else {
+      yLocal = (b0 & 0x0F) + (highCoord ? 16 : 0)
+      xLocal = b1 & 0x0F
+      xAbs = screen * SCREEN_W + xLocal
+      yAbs = yLocal
+    }
 
     const isExtended = objectNumber === 0
 
@@ -240,8 +300,8 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
     objects.push({
       type: isExtended ? 'extended' : 'standard',
       screen,
-      x: screen * SCREEN_W + xLocal,
-      y: yLocal,
+      x: xAbs,
+      y: yAbs,
       objectNumber: objNum,
       settings: b2,
       newScreen,
@@ -264,7 +324,7 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
     }
   }
 
-  return { header, objects, screens: header.levelLength }
+  return { header, objects, screens: header.levelLength, isVertical }
 }
 
 /**
@@ -276,8 +336,14 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
  *
  * When the L2 bank byte is $FF, the data is a preset background (not objects)
  * and this function should NOT be called.
+ *
+ * L2 verticality is governed by ScreenMode bit 1 (rammap.asm:482), which for
+ * vanilla levels tracks L1 verticality closely. Callers pass the flag down
+ * from the L1 header's levelMode.
  */
-export function parseL2Objects(data: Buffer | Uint8Array, _screens: number): LevelObject[] {
+export function parseL2Objects(
+  data: Buffer | Uint8Array, _screens: number, isVertical = false,
+): LevelObject[] {
   const objects: LevelObject[] = []
   let pos = 0   // No header for L2
   let screen = 0
@@ -299,8 +365,15 @@ export function parseL2Objects(data: Buffer | Uint8Array, _screens: number): Lev
     const objNumLow = (b1 >> 4) & 0x0F
     const objectNumber = objNumLow | objNumHigh
 
-    const yLocal = b0 & 0x0F
-    const xLocal = b1 & 0x0F
+    let xAbs: number
+    let yAbs: number
+    if (isVertical) {
+      xAbs = (b0 & 0x0F) + (highCoord ? 16 : 0)
+      yAbs = screen * 16 + (b1 & 0x0F)
+    } else {
+      xAbs = screen * SCREEN_W + (b1 & 0x0F)
+      yAbs = b0 & 0x0F
+    }
 
     const isExtended = objectNumber === 0
 
@@ -308,8 +381,8 @@ export function parseL2Objects(data: Buffer | Uint8Array, _screens: number): Lev
     objects.push({
       type: isExtended ? 'extended' : 'standard',
       screen,
-      x: screen * SCREEN_W + xLocal,
-      y: yLocal,
+      x: xAbs,
+      y: yAbs,
       objectNumber: objNum,
       settings: b2,
       newScreen,
