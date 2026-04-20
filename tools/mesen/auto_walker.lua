@@ -204,6 +204,63 @@ local function currentLevelByL1Ptr()
   return mapCache[key]
 end
 
+-- Entrance-cutscene detection.
+--
+-- When Mario lands on an overworld tile that triggers a cutscene (ghost
+-- house intro, castle intro, no-Yoshi intro), the engine at bank_05.asm
+-- CODE_05DA5E copies one of the six cutscene L1 pointers from
+-- PtrsLong05D766 ($05D766) into Layer1DataPtr and plays a short scripted
+-- sequence where Mario walks toward the door. This reuses the normal
+-- Layer-1 Map16 tilemap (the $7EC800 buffer we dump), so without filtering
+-- the dumper records the cutscene facade as if it were gameplay content.
+--
+-- The mapCache built from $05E000 doesn't contain these cutscene
+-- pointers, so currentLevelByL1Ptr() returns nil during the cutscene and
+-- currentLevel() falls back to translevel — tagging the dumps as the
+-- overworld's parent map. Explicit detection via PtrsLong05D766 membership
+-- keeps those frames out of the dump entirely.
+-- Set of 24-bit pointers that indicate an entrance cutscene is live. For
+-- each of the six cutscene streams we register BOTH the start pointer
+-- (Layer1DataPtr value during parsing) and the post-parse pointer at the
+-- $FF terminator (the value LoadLevelData leaves behind once the stream
+-- is fully consumed). Without the post-parse pointer the filter misses
+-- because gameMode only hits $14 after parsing completes, so by the time
+-- dumps fire Layer1DataPtr is past the header+objects and no longer
+-- equals the start.
+local cutscenePtrs = nil   -- lazy-loaded
+
+local function loadCutscenePtrs()
+  if cutscenePtrs ~= nil then return end
+  cutscenePtrs = {}
+  -- PtrsLong05D766: 6 × 3-byte long pointers (lo, hi, bank) at $05D766.
+  for i = 0, 5 do
+    local base = 0x05D766 + i * 3
+    local lo    = r(base)     or 0
+    local hi    = r(base + 1) or 0
+    local bank  = r(base + 2) or 0
+    local start = bank * 0x10000 + hi * 0x100 + lo
+    cutscenePtrs[start] = true
+    -- Walk the stream to the $FF terminator. Same parsing shape as
+    -- walkObjStreamEnd above (3-byte objects, 4-byte screen-exit extended
+    -- when objNum==0 && settings==0). The +5 skip matches the game's
+    -- treatment of the first 5 bytes as a header even for cutscenes that
+    -- don't strictly use the header fields.
+    local endAddr = walkObjStreamEnd(start)
+    if endAddr ~= nil then cutscenePtrs[endAddr] = true end
+  end
+end
+
+-- True when Layer1DataPtr currently points at one of the six entrance
+-- cutscenes in PtrsLong05D766 (either the start or the post-parse $FF).
+-- Skip dumps while this is true.
+local function isInEntranceCutscene()
+  loadCutscenePtrs()
+  local lo   = r(0x7E0065) or 0
+  local hi   = r(0x7E0066) or 0
+  local bank = r(0x7E0067) or 0
+  return cutscenePtrs[bank * 0x10000 + hi * 0x100 + lo] == true
+end
+
 -- Load-edge snapshot of the 16-bit level index the engine looks up in the
 -- Layer 1 pointer table ($05E000). Per bank_05.asm CODE_05D8B7, the engine
 -- reads `$7E:000E` as a 16-bit word — (_F << 8) | _E — and multiplies by 3
@@ -320,6 +377,7 @@ local tickNum = 0
 -- Horizontal dump: LEFT_PAD..RIGHT_PAD cols around marioCol × all 27 rows.
 local function dumpAroundCol(marioCol)
   if not file then return end
+  if isInEntranceCutscene() then return end
   tickNum = tickNum + 1
   local lo = math.max(0, marioCol - LEFT_PAD)
   local hi = marioCol + RIGHT_PAD
@@ -343,6 +401,7 @@ end
 -- to use when reconstructing (col, row).
 local function dumpAroundRow(marioRow)
   if not file then return end
+  if isInEntranceCutscene() then return end
   tickNum = tickNum + 1
   local lo = math.max(0, marioRow - UP_PAD)
   local hi = marioRow + DOWN_PAD
