@@ -200,6 +200,48 @@ export function handle_0DA7E7(cur: Cursor): void {
 }
 
 /**
+ * CODE_0DC31E (bank_0D.asm line 4826) -- 2×3 tile block from DATA_0DC318.
+ * Extended object $90. Writes (all page 0):
+ *   Row 0: $98, $99
+ *   Row 1: $9A, $9B
+ *   Row 2: $9C, $9C
+ *
+ * ASM loops with X stepping 0..5 through the table; _0=1 gives 2 writes per
+ * inner loop, CPX #$06 then terminates the outer loop after 3 rows.
+ */
+export function handle_0DC31E(cur: Cursor): void {
+  // Byte layout from opcode sequence:
+  //   +0   LDY LevelLoadPos        (A4 xx)
+  //   +2   LDX #$00                (A2 00)
+  //   +4   LDA #$01                (A9 01)
+  //   +6   STA _0                  (85 xx)
+  //   +8   LDA _0                  (A5 xx)   ← CODE_0DC326
+  //   +10  STA _1                  (85 xx)
+  //   +12  JSR StzTo6ePointer      (20 xx xx)
+  //   +15  LDA.L DATA_0DC318,X     (BF ...) operand at +16
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 16)
+  const tiles = [
+    cur.rom.readByte(tableAddr + 0) ?? 0,
+    cur.rom.readByte(tableAddr + 1) ?? 0,
+    cur.rom.readByte(tableAddr + 2) ?? 0,
+    cur.rom.readByte(tableAddr + 3) ?? 0,
+    cur.rom.readByte(tableAddr + 4) ?? 0,
+    cur.rom.readByte(tableAddr + 5) ?? 0,
+  ]
+  const col0 = cur.col, row0 = cur.row
+  for (let r = 0; r < 3; r++) {
+    cur.row = row0 + r
+    cur.col = col0
+    setPage0(cur)
+    writeTile(cur, tiles[r * 2])
+    cur.col = col0 + 1
+    writeTile(cur, tiles[r * 2 + 1])
+  }
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
  * CODE_0DB583 (bank_0D.asm line 3726) -- yellow switch-palace block (single tile).
  *
  * X=1 (LDX #$01) selects index 1 in the shared data tables. Falls through to
