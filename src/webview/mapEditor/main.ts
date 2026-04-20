@@ -239,9 +239,12 @@ app.innerHTML = `
       </div>
     </div>
 
-    <div class="section-hdr" style="margin-top:auto;">SWITCH PALACE STATE</div>
+    <div class="section-hdr" style="margin-top:auto;">SWITCH STATE</div>
     <div style="padding:8px;display:flex;flex-direction:column;gap:6px;">
-      <div id="switch-palace-toggles" style="display:flex;gap:6px;justify-content:space-between;">
+      <div id="switch-toggles" style="display:flex;gap:6px;justify-content:space-between;">
+        <button class="pswitch-toggle" data-pcolor="blue" title="Blue P-switch — reveals hidden doors, ? blocks, and P-switch coins at 50% opacity">
+          <canvas width="16" height="16"></canvas>
+        </button>
         <button class="switch-toggle" data-color="0" title="Green switch — click to toggle cleared state">
           <canvas width="16" height="16"></canvas>
         </button>
@@ -269,15 +272,17 @@ app.innerHTML = `
   }
   .tile-tab { transition: color 0.15s, border-bottom 0.15s; border-bottom: 2px solid transparent; }
   .tile-tab-active { color: #ccc !important; border-bottom: 2px solid #007acc !important; }
-  .switch-toggle {
+  .switch-toggle, .pswitch-toggle {
     width:36px;height:36px;padding:2px;border-radius:4px;cursor:pointer;
     background:var(--vscode-input-background,#1e1e1e);border:2px solid #555;
     display:flex;align-items:center;justify-content:center;
     transition:border-color 0.15s, box-shadow 0.15s;
   }
-  .switch-toggle:hover { border-color:#888; }
-  .switch-toggle.switch-on { border-color:#007acc; box-shadow:0 0 4px rgba(0,122,204,0.4); }
-  .switch-toggle canvas {
+  .switch-toggle:hover, .pswitch-toggle:hover { border-color:#888; }
+  .switch-toggle.switch-on, .pswitch-toggle.switch-on {
+    border-color:#007acc; box-shadow:0 0 4px rgba(0,122,204,0.4);
+  }
+  .switch-toggle canvas, .pswitch-toggle canvas {
     width:28px;height:28px;image-rendering:pixelated;display:block;
     background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/4px 4px;
   }
@@ -317,6 +322,61 @@ function applySwitchPalaceState(tileId: number): number {
   if (low < 0x6A || low > 0x6D) return tileId
   const colorIdx = low - 0x6A
   return (switchPalaceState[colorIdx] ? 0x100 : 0x000) | low
+}
+
+// ── Blue P-switch "show hidden tiles" toggle ─────────────────────────────────
+// Blue-P-switch-gated tiles are effectively invisible in the level viewer, so
+// we always draw the tile that would be visible when the switch is pressed,
+// using alpha to convey toggle state: 50% off (preview), 100% on (activated).
+// The hidden-door Map16 defs ($27/$28) use palette 4 (silver/blue) vs the
+// normal doors' palette 6 (brown), so for doors we composite $1F/$20's chars
+// with a palette-4 override. See bank_00.asm CODE_00F545 and lines 12111-12116.
+let pSwitchBlueOn = false
+
+interface PSwitchReveal {
+  substitute: number
+  /** If set, composite the substitute's chars with this palette instead of using the atlas. */
+  palOverride?: number
+}
+
+function pSwitchReveal(tileId: number): PSwitchReveal | null {
+  if ((tileId & ~0xFF) !== 0) return null
+  switch (tileId) {
+    case 0x27: return { substitute: 0x1F, palOverride: 4 }  // silver door top
+    case 0x28: return { substitute: 0x20, palOverride: 4 }  // silver door bottom
+    case 0x29: return { substitute: 0x24 }                  // ? block
+    case 0x2A: return { substitute: 0x2B }                  // coin
+    default: return null
+  }
+}
+
+/** Cached per-tile 16×16 canvases composed with a palette override. Cleared
+ *  whenever VRAM or palette changes, same lifecycle as map16AtlasCanvas. */
+const palOverrideCache = new Map<number, HTMLCanvasElement>()
+
+function getPalOverrideCanvas(tileId: number, palOverride: number): HTMLCanvasElement | null {
+  const key = (tileId << 8) | palOverride
+  const cached = palOverrideCache.get(key)
+  if (cached) return cached
+  if (!activeVramIndexed || !mapData?.paletteRows || !mapData.map16Defs) return null
+  const def = mapData.map16Defs[tileId]
+  if (!def) return null
+  const buf = new Uint8ClampedArray(16 * 16 * 4)
+  const subs = [
+    { s: def.tl, dx: 0, dy: 0 },
+    { s: def.tr, dx: 8, dy: 0 },
+    { s: def.bl, dx: 0, dy: 8 },
+    { s: def.br, dx: 8, dy: 8 },
+  ]
+  for (const { s, dx, dy } of subs) {
+    blitSubTile(activeVramIndexed, mapData.paletteRows,
+      { c: s.c, p: palOverride, fx: s.fx, fy: s.fy }, buf, dx, dy, 16)
+  }
+  const canvas = document.createElement('canvas')
+  canvas.width = 16; canvas.height = 16
+  canvas.getContext('2d')!.putImageData(new ImageData(buf, 16, 16), 0, 0)
+  palOverrideCache.set(key, canvas)
+  return canvas
 }
 
 // ── Tile detail preview state ─────────────────────────────────────────────────
@@ -509,6 +569,8 @@ function invalidateVram(): void {
   if (!activeVramIndexed || !mapData?.paletteRows) return
   vramFullImageData = rebuildVramSheet(activeVramIndexed, mapData.paletteRows)
   renderVramPage()
+  palOverrideCache.clear()
+  drawPSwitchToggleThumb()
   invalidateMap16()
 }
 
@@ -1191,17 +1253,28 @@ function redraw(): void {
     // Live L1 Map16 atlas: 16 cols of 16×16 tiles, tile ID directly addresses (col,row).
     if (chkL1.checked && map16AtlasCanvas) {
       const atlasCols = 16
+      ctx.save()
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
-          const tileId = applySwitchPalaceState(tileGrid[row]?.[col] ?? 0)
+          const rawTileId = tileGrid[row]?.[col] ?? 0
+          const tileId = applySwitchPalaceState(rawTileId)
           if (tileId === 0) continue
-          const sx = (tileId % atlasCols) * TILE_PX
-          const sy = Math.floor(tileId / atlasCols) * TILE_PX
-          ctx.drawImage(map16AtlasCanvas,
-            sx, sy, TILE_PX, TILE_PX,
-            Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
+          const reveal = pSwitchReveal(rawTileId)
+          ctx.globalAlpha = reveal ? (pSwitchBlueOn ? 1.0 : 0.5) : 1.0
+          const dx = Math.round(col * px), dy = Math.round(row * px)
+          const dw = Math.round(px), dh = Math.round(px)
+          if (reveal?.palOverride !== undefined) {
+            const override = getPalOverrideCanvas(reveal.substitute, reveal.palOverride)
+            if (override) ctx.drawImage(override, 0, 0, TILE_PX, TILE_PX, dx, dy, dw, dh)
+          } else {
+            const drawId = reveal?.substitute ?? tileId
+            const sx = (drawId % atlasCols) * TILE_PX
+            const sy = Math.floor(drawId / atlasCols) * TILE_PX
+            ctx.drawImage(map16AtlasCanvas, sx, sy, TILE_PX, TILE_PX, dx, dy, dw, dh)
+          }
         }
       }
+      ctx.restore()
     }
   }
 
@@ -1462,6 +1535,74 @@ for (let i = 0; i < 4; i++) {
     redraw()
     drawMinimap()
   })
+}
+
+// ── Blue P-switch toggle ─────────────────────────────────────────────────────
+// Thumbnail renders the P-switch sprite directly from VRAM (not from Map16),
+// since P-switches are sprites and don't appear in the Map16 tile pages.
+//   Standing (off): 2×2 of 8×8 chars at $442/$443/$452/$453 in sp1
+//   Pressed  (on):  one 8×8 char at $4FE drawn twice, right copy h-flipped
+//   Palette: OBJ palette 3 = CGRAM row $0B, from PSwitchPal table (bank_01.asm:681).
+
+function drawVramTileToCtx(
+  c: CanvasRenderingContext2D, charIdx: number,
+  pal: number[][], dstX: number, dstY: number, hFlip: boolean,
+): void {
+  if (!activeVramIndexed) return
+  const srcOff = charIdx * 64
+  const img = c.createImageData(8, 8)
+  for (let py = 0; py < 8; py++) {
+    for (let px = 0; px < 8; px++) {
+      const sx = hFlip ? 7 - px : px
+      const palIdx = activeVramIndexed[srcOff + py * 8 + sx] ?? 0
+      const di = (py * 8 + px) * 4
+      if (palIdx === 0) {
+        img.data[di] = img.data[di + 1] = img.data[di + 2] = img.data[di + 3] = 0
+      } else {
+        const col = pal[palIdx] ?? [255, 0, 255, 255]
+        img.data[di] = col[0]; img.data[di + 1] = col[1]
+        img.data[di + 2] = col[2]; img.data[di + 3] = 255
+      }
+    }
+  }
+  c.putImageData(img, dstX, dstY)
+}
+
+function drawPSwitchToggleThumb(): void {
+  const btn = document.querySelector('.pswitch-toggle[data-pcolor="blue"]') as HTMLButtonElement | null
+  if (!btn) return
+  const tc = btn.querySelector('canvas') as HTMLCanvasElement | null
+  if (!tc) return
+  const c = tc.getContext('2d')
+  if (!c) return
+  c.imageSmoothingEnabled = false
+  c.clearRect(0, 0, tc.width, tc.height)
+  if (!activeVramIndexed || !mapData?.paletteRows) return
+  const palRow = mapData.paletteRows[0x0B]
+  if (!palRow) return
+  if (pSwitchBlueOn) {
+    // Pressed: 16×8, centered vertically on 16×16 canvas (dstY=4)
+    drawVramTileToCtx(c, 0x4FE, palRow, 0, 4, false)
+    drawVramTileToCtx(c, 0x4FE, palRow, 8, 4, true)
+  } else {
+    drawVramTileToCtx(c, 0x442, palRow, 0, 0, false)
+    drawVramTileToCtx(c, 0x443, palRow, 8, 0, false)
+    drawVramTileToCtx(c, 0x452, palRow, 0, 8, false)
+    drawVramTileToCtx(c, 0x453, palRow, 8, 8, false)
+  }
+}
+
+{
+  const btn = document.querySelector('.pswitch-toggle[data-pcolor="blue"]') as HTMLButtonElement | null
+  if (btn) {
+    btn.addEventListener('click', () => {
+      pSwitchBlueOn = !pSwitchBlueOn
+      btn.classList.toggle('switch-on', pSwitchBlueOn)
+      drawPSwitchToggleThumb()
+      redraw()
+      drawMinimap()
+    })
+  }
 }
 
 // ── Mouse / edit interactions ─────────────────────────────────────────────────
