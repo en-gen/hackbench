@@ -135,6 +135,7 @@
     "test:unit:watch": "vitest"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.116.0",
@@ -145,7 +146,7 @@
     "@vscode/test-electron": "^2.3.8",
     "copy-webpack-plugin": "^14.0.0",
     "css-loader": "^7.1.4",
-    "eslint": "^9.39.4",
+    "eslint": "^10.2.1",
     "glob": "^13.0.6",
     "globals": "^17.5.0",
     "mocha": "^11.7.5",

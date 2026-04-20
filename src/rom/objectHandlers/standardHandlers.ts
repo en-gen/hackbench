@@ -1293,7 +1293,6 @@ function pipeVariant7(cur: Cursor): void {
     if (x >= 2) {
       setPage1(cur); writeTileAdvance(cur, bodyL)
       setPage1(cur); writeTileAdvance(cur, bodyR)
-      x -= 2
     }
     setPage1(cur); writeTileAdvance(cur, lipL)
     setPage1(cur); writeTileAdvance(cur, lipR)
