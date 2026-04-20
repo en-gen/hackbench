@@ -576,6 +576,11 @@ function invalidateMap16(): void {
     }
     map16BgAtlasCanvas.getContext('2d')!.putImageData(newBgAtlas, 0, 0)
   }
+  // Build the 4 pipe-palette variant atlases so the main draw loop can pick
+  // per-screen when rendering tiles $133..$13A.
+  if (mapData.pipeVariantDefs) {
+    rebuildPipeVariantCanvases(activeVramIndexed, mapData.paletteRows, mapData.pipeVariantDefs)
+  }
   renderMap16Page()
   redrawDetail()
   refreshSwitchToggleThumbs()
@@ -951,6 +956,43 @@ function blitSubTile(
   }
 }
 
+/** Rebuild the 4 pipe-variant canvas atlases from indexed VRAM + palette + variant defs.
+ *  Each variant atlas is 128×16 (8 tiles × 16 px wide, 1 row). Stored in
+ *  pipeVariantAtlasCanvases[0..3] for use by drawCells when a tile in
+ *  $133..$13A is drawn on a given screen. */
+function rebuildPipeVariantCanvases(
+  indexed: Uint8Array, palRows: number[][][],
+  variantDefs: MapPayload['pipeVariantDefs'],
+): void {
+  if (!variantDefs) {
+    pipeVariantAtlasCanvases = [null, null, null, null]
+    return
+  }
+  const TILE_W = 16
+  const w = 8 * TILE_W, h = TILE_W
+  for (let v = 0; v < 4; v++) {
+    const defs = variantDefs[v] ?? []
+    const buf = new Uint8ClampedArray(w * h * 4)
+    for (let i = 0; i < defs.length && i < 8; i++) {
+      const def = defs[i]
+      const tx = i * TILE_W
+      blitSubTile(indexed, palRows, def.tl, buf, tx,     0, w)
+      blitSubTile(indexed, palRows, def.tr, buf, tx + 8, 0, w)
+      blitSubTile(indexed, palRows, def.bl, buf, tx,     8, w)
+      blitSubTile(indexed, palRows, def.br, buf, tx + 8, 8, w)
+    }
+    const img = new ImageData(buf, w, h)
+    let canvas = pipeVariantAtlasCanvases[v]
+    if (!canvas) {
+      canvas = document.createElement('canvas')
+      pipeVariantAtlasCanvases[v] = canvas
+    }
+    canvas.width = w
+    canvas.height = h
+    canvas.getContext('2d')!.putImageData(img, 0, 0)
+  }
+}
+
 /** Rebuild the L1 Map16 atlas from indexed VRAM + palette + tile defs. */
 function rebuildMap16Atlas(
   indexed: Uint8Array, palRows: number[][][],
@@ -1058,6 +1100,12 @@ let l2TileGrid:  number[][] | null = null
 // Kept in sync with rebuildMap16Atlas output so the level canvas, Map16 page viewer,
 // and tile detail preview all render from the same animated source.
 let map16AtlasCanvas: HTMLCanvasElement | null = null
+/**
+ * Per-variant canvas atlases for pipe tiles $133..$13A. Each canvas is a
+ * 128x16 strip of 8 tiles (16x16 each). Indexed by variant (0..3) then tile
+ * offset (0..7). Populated by rebuildPipeVariantCanvases() in invalidateMap16.
+ */
+let pipeVariantAtlasCanvases: (HTMLCanvasElement | null)[] = [null, null, null, null]
 // Offscreen canvas for the L2 (Map16BGTiles) atlas — built once per load from
 // map16BgAtlasData. Used for graphical L2 rendering in redraw().
 let map16BgAtlasCanvas: HTMLCanvasElement | null = null
@@ -1110,6 +1158,18 @@ interface MapPayload {
     tr: { c: number; p: number; fx: boolean; fy: boolean }
     br: { c: number; p: number; fx: boolean; fy: boolean }
   }>
+  // Pipe palette variants for tiles $133..$13A (see MAP16AppTable in bank_05.asm).
+  // 4 variants × 8 tile defs. At render time, tiles in that range are
+  // composited using pipeVariantDefs[screenPipeVariants[screen]][tileId-0x133].
+  pipeVariantDefs?: Array<Array<{
+    id: number
+    tl: { c: number; p: number; fx: boolean; fy: boolean }
+    bl: { c: number; p: number; fx: boolean; fy: boolean }
+    tr: { c: number; p: number; fx: boolean; fy: boolean }
+    br: { c: number; p: number; fx: boolean; fy: boolean }
+  }>>
+  // Per-screen variant index (0..3) for the pipe cycle.
+  screenPipeVariants?: number[]
   // Raw indexed VRAM: 1 byte per pixel, 64 bytes per char, 1536 chars
   vramIndexedData?: number[]
   animation?: {
@@ -1396,6 +1456,8 @@ function redraw(): void {
     // Live L1 Map16 atlas: 16 cols of 16×16 tiles, tile ID directly addresses (col,row).
     if (chkL1.checked && map16AtlasCanvas) {
       const atlasCols = 16
+      const screenVariants = mapData.screenPipeVariants
+      const isVert = mapData.isVertical === true
       ctx.save()
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
@@ -1411,6 +1473,19 @@ function redraw(): void {
             if (override) ctx.drawImage(override, 0, 0, TILE_PX, TILE_PX, dx, dy, dw, dh)
           } else {
             const drawId = reveal?.substitute ?? tileId
+            // Pipe-palette cycle: tiles $133..$13A use a screen-indexed palette
+            // variant via MAP16AppTable (bank_05.asm:110-143). Pick the right
+            // variant canvas per screen.
+            if (drawId >= 0x133 && drawId < 0x13B && screenVariants && pipeVariantAtlasCanvases[0]) {
+              const screenIdx = isVert ? Math.floor(row / 16) : Math.floor(col / 16)
+              const variantIdx = screenVariants[screenIdx] ?? 1
+              const variantCanvas = pipeVariantAtlasCanvases[variantIdx]
+              if (variantCanvas) {
+                const sx = (drawId - 0x133) * TILE_PX
+                ctx.drawImage(variantCanvas, sx, 0, TILE_PX, TILE_PX, dx, dy, dw, dh)
+                continue
+              }
+            }
             const sx = (drawId % atlasCols) * TILE_PX
             const sy = Math.floor(drawId / atlasCols) * TILE_PX
             ctx.drawImage(map16AtlasCanvas, sx, sy, TILE_PX, TILE_PX, dx, dy, dw, dh)

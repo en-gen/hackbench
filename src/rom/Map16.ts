@@ -37,6 +37,48 @@ export const MAP16_BITMAP_ADDR = 0x0581BB   // bank_05.asm line 243
 /** Number of tileset entries in TilesetMAP16Loc */
 export const TILESET_COUNT = 15             // bank_05.asm lines 3-17
 
+/**
+ * MAP16AppTable at SNES `$058776` (bank_05.asm line 884):
+ *   db $B0,$8A,$E0,$84,$F0,$8A,$30,$8B
+ *
+ * Four 16-bit pointers (bank $0D) to four palette variants of the pipe
+ * tile block `$133..$13A`:
+ *   idx 0 → $0D8AB0 — palette 3 (FG pal row 3; grey in FG pal 0)
+ *   idx 1 → $0D84E0 — palette 5 (StandardColors green)
+ *   idx 2 → $0D8AF0 — palette 6 (StandardColors yellow/brown)
+ *   idx 3 → $0D8B30 — palette 7 (StandardColors blue/purple)
+ *
+ * CODE_0580BD (level load, bank_05.asm lines 110-143) and CODE_05877E
+ * (scroll-triggered, bank_05.asm lines 900-929) both select one of these
+ * variants via `(Layer1TileDown >> 3) & 6` and rewrite Map16Pointers[$133..$13A]
+ * to redirect tiles $133..$13A to the chosen variant's 8-tile block.
+ *
+ * Effect: the same Map16 RAM tile ID can render as any of four colors
+ * depending on which screen/scroll-position it was uploaded at. This is how
+ * vanilla SMW produces the cycling pipe colors across screens.
+ */
+export const MAP16_APP_TABLE: readonly number[] = [
+  0x0D8AB0,  // variant 0: palette 3 (grey)
+  0x0D84E0,  // variant 1: palette 5 (green)
+  0x0D8AF0,  // variant 2: palette 6 (yellow)
+  0x0D8B30,  // variant 3: palette 7 (blue/purple)
+] as const
+
+/** Tile IDs `$133..$13A` are the 8 consecutive pipe tiles the app-table redirects. */
+export const PIPE_VARIANT_TILE_START = 0x133
+export const PIPE_VARIANT_TILE_COUNT = 8
+
+/**
+ * Compute the MAP16AppTable index (0-3) for a given scroll-ish counter, matching
+ * the ASM's `(Layer1TileDown >> 3) & 6` then divided by 2.
+ *
+ * bank_05.asm:119-124 uses Layer1TileDown (level-load loop, increments per strip).
+ * bank_05.asm:910-915 uses Layer1TileUp (scroll-triggered, derived from Layer1YPos).
+ */
+export function pipeVariantIndex(scrollCounter: number): number {
+  return ((scrollCounter >>> 3) & 0x06) >>> 1
+}
+
 /** Tileset-specific Map16 addresses from SMW_U.sym */
 export const MAP16_TILESET_ADDRS: number[] = [
   0x0D8B70,  // Map16Tileset0
@@ -172,14 +214,40 @@ export function buildMap16PointerTable(rom: RomFile, tileset: number): number[] 
 }
 
 /**
+ * Apply the MAP16AppTable pipe-palette override to a pointer table in place.
+ *
+ * Tiles `$133..$13A` get their pointers redirected to `MAP16_APP_TABLE[variantIdx]`,
+ * which references an 8-tile block whose Map16 data has a different palette row
+ * baked in. Matches the runtime behavior of CODE_0580BD / CODE_05877E.
+ *
+ * @param pointers     Pointer table produced by `buildMap16PointerTable`.
+ * @param variantIdx   0..3 selecting grey/green/yellow/blue pipe variant.
+ *                     Out-of-range values are masked to the lower 2 bits.
+ */
+export function applyPipePaletteVariant(pointers: number[], variantIdx: number): void {
+  const base = MAP16_APP_TABLE[variantIdx & 0x03]
+  for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) {
+    pointers[PIPE_VARIANT_TILE_START + i] = base + i * MAP16_TILE_BYTES
+  }
+}
+
+/**
  * Load all 512 Map16 tiles using the bitmap-driven pointer table.
  *
  * This is the correct algorithm from the game -- tiles are NOT simply
  * page 0 ($0D8000) + page 1 ($0DC000). The bitmap at DATA_0581BB
  * interleaves common and tileset-specific tiles.
+ *
+ * If `pipeVariantIdx` is supplied, tiles `$133..$13A` are redirected through
+ * MAP16_APP_TABLE to that palette variant (matches CODE_0580BD behavior).
+ * Omit the argument for the bitmap-default pointers (equivalent to variant 1 /
+ * green).
  */
-export function loadAllMap16(rom: RomFile, tileset = 0): Map16Tile[] {
+export function loadAllMap16(rom: RomFile, tileset = 0, pipeVariantIdx?: number): Map16Tile[] {
   const pointers = buildMap16PointerTable(rom, tileset)
+  if (pipeVariantIdx !== undefined) {
+    applyPipePaletteVariant(pointers, pipeVariantIdx)
+  }
   const tiles: Map16Tile[] = new Array(512)
   for (let i = 0; i < 512; i++) {
     tiles[i] = readTileAt(rom, pointers[i], i)

@@ -173,7 +173,36 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       const cgram = buildLevelCgram(romPalettes, bgVariant, fgVariant, spritePalette, marioVariant)
       const palette = { colors: cgram.colors, rows: cgram.rows }
       const vram    = loadVram(rom.rom, objectTileset, spriteTileset)
+      // Default map16 (variant 1 / green) for tiles outside the $133..$13A pipe
+      // range and as a fallback for tooling that doesn't know about variants.
       const map16   = loadAllMap16(rom.rom, objectTileset)
+
+      // Vanilla SMW cycles pipe palettes per screen via MAP16AppTable redirection
+      // (CODE_0580BD, bank_05.asm:110-143). Tiles $133..$13A render with palette
+      // 3/5/6/7 depending on which screen they're on. We expose all four variants
+      // here so the webview can pick per screen at draw time.
+      const pipeVariantDefs: Array<Array<{
+        id: number
+        tl: { c: number; p: number; fx: boolean; fy: boolean }
+        bl: { c: number; p: number; fx: boolean; fy: boolean }
+        tr: { c: number; p: number; fx: boolean; fy: boolean }
+        br: { c: number; p: number; fx: boolean; fy: boolean }
+      }>> = []
+      for (let v = 0; v < 4; v++) {
+        const variantTiles = loadAllMap16(rom.rom, objectTileset, v)
+        const defs = []
+        for (let i = 0; i < 8; i++) {
+          const t = variantTiles[0x133 + i]
+          defs.push({
+            id: t.id,
+            tl: { c: t.tl.charNum, p: t.tl.palette, fx: t.tl.flipX, fy: t.tl.flipY },
+            bl: { c: t.bl.charNum, p: t.bl.palette, fx: t.bl.flipX, fy: t.bl.flipY },
+            tr: { c: t.tr.charNum, p: t.tr.palette, fx: t.tr.flipX, fy: t.tr.flipY },
+            br: { c: t.br.charNum, p: t.br.palette, fx: t.br.flipX, fy: t.br.flipY },
+          })
+        }
+        pipeVariantDefs.push(defs)
+      }
 
       // ── Animation: apply frame 0 to VRAM BEFORE building any atlases ──
       // The SNES animation engine replaces 8×8 char data in VRAM via DMA.
@@ -263,6 +292,11 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         mapIndex:     index,
         screens,
         isVertical,
+        // Per-screen pipe-palette variant for tiles $133..$13A, matching
+        // vanilla SMW's MAP16AppTable cycle (CODE_0580BD, bank_05.asm:110-143).
+        // Variant cycles 0→1→2→3→0 every screen for horizontal levels.
+        pipeVariantDefs,
+        screenPipeVariants: Array.from({ length: screens }, (_, s) => s & 0x03),
         tileGrid,
         l2TileGrid,
         l2UsesBgAtlas,
