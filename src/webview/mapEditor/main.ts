@@ -494,6 +494,8 @@ let activeVramIndexed: Uint8Array | null = null  // current frame's indexed data
 let prebuiltVramSheets: ImageData[] = []
 let prebuiltMap16Atlases: ImageData[] = []         // for map16Pages entries / renderMap16Page()
 let prebuiltMap16Canvases: HTMLCanvasElement[] = [] // for redraw() drawImage calls
+let prebuiltMap16BgAtlases: ImageData[] = []         // L2 per-frame atlas for renderMap16Page()
+let prebuiltMap16BgCanvases: HTMLCanvasElement[] = [] // L2 per-frame canvas for redraw() drawImage
 
 // Palette animation state (FlashingColors CGRAM cycling)
 let palAnimTimer: ReturnType<typeof setInterval> | null = null
@@ -561,6 +563,19 @@ function invalidateMap16(): void {
     map16AtlasCanvas.height = newAtlas.height
   }
   map16AtlasCanvas.getContext('2d')!.putImageData(newAtlas, 0, 0)
+  // L2 BG atlas mirrors the L1 rebuild so preset-BG tiles animate alongside FG.
+  if (mapData.map16BgDefs) {
+    const newBgAtlas = rebuildMap16Atlas(activeVramIndexed, mapData.paletteRows, mapData.map16BgDefs)
+    for (const entry of map16Pages) {
+      if (entry.label.startsWith('L2')) entry.atlas = newBgAtlas
+    }
+    if (!map16BgAtlasCanvas) map16BgAtlasCanvas = document.createElement('canvas')
+    if (map16BgAtlasCanvas.width !== newBgAtlas.width || map16BgAtlasCanvas.height !== newBgAtlas.height) {
+      map16BgAtlasCanvas.width = newBgAtlas.width
+      map16BgAtlasCanvas.height = newBgAtlas.height
+    }
+    map16BgAtlasCanvas.getContext('2d')!.putImageData(newBgAtlas, 0, 0)
+  }
   renderMap16Page()
   redrawDetail()
   refreshSwitchToggleThumbs()
@@ -611,25 +626,108 @@ function map16TileFrameCount(tileId: number): number {
 }
 
 /**
+ * Array indices in `defs` whose subtiles reference a char that differs across
+ * animation frames. Drives the hybrid prebuild: frame 0 is composited in full,
+ * later frames clone that buffer and repaint only these tiles.
+ */
+function computeAnimatedTileIndices(defs: MapPayload['map16Defs']): number[] {
+  if (!defs) return []
+  const out: number[] = []
+  for (let i = 0; i < defs.length; i++) {
+    const d = defs[i]
+    if (charIsAnimated(d.tl.c) || charIsAnimated(d.tr.c) ||
+        charIsAnimated(d.bl.c) || charIsAnimated(d.br.c)) {
+      out.push(i)
+    }
+  }
+  return out
+}
+
+/**
+ * Overwrite the given tile indices in a 16-column RGBA atlas buffer.
+ * Layout must match rebuildMap16Atlas() output: tile `i` at col `i%16`,
+ * row `floor(i/16)`, in a 256-px-wide buffer.
+ */
+function blitTilesInto(
+  buf: Uint8ClampedArray, indices: number[],
+  indexed: Uint8Array, palRows: number[][][],
+  defs: MapPayload['map16Defs'],
+): void {
+  if (!defs) return
+  const cols = 16, tileW = 16, w = cols * tileW
+  for (const i of indices) {
+    const def = defs[i]
+    const tx = (i % cols) * tileW, ty = Math.floor(i / cols) * tileW
+    blitSubTile(indexed, palRows, def.tl, buf, tx,     ty,     w)
+    blitSubTile(indexed, palRows, def.tr, buf, tx + 8, ty,     w)
+    blitSubTile(indexed, palRows, def.bl, buf, tx,     ty + 8, w)
+    blitSubTile(indexed, palRows, def.br, buf, tx + 8, ty + 8, w)
+  }
+}
+
+function imageDataToCanvas(img: ImageData): HTMLCanvasElement {
+  const c = document.createElement('canvas')
+  c.width = img.width
+  c.height = img.height
+  c.getContext('2d')!.putImageData(img, 0, 0)
+  return c
+}
+
+/**
  * Pre-build RGBA VRAM sheets and Map16 atlas canvases for every animation frame.
  * Must be called after invalidatePalette() has run (so mapData.paletteRows is live).
  * The resulting arrays let applyAnimFrame() do a cheap pointer-swap on each tick.
+ *
+ * Hybrid strategy for Map16 atlases: frame 0 is composited in full, then each
+ * later frame starts as a clone of the frame-0 pixels with only animated tiles
+ * repainted. Most levels animate a small fraction of their Map16 table, so this
+ * skips ~90% of subtile blits per extra frame vs. a full rebuild.
  */
 function prebuildAnimFrames(): void {
   prebuiltVramSheets = []
   prebuiltMap16Atlases = []
   prebuiltMap16Canvases = []
+  prebuiltMap16BgAtlases = []
+  prebuiltMap16BgCanvases = []
   if (!mapData?.paletteRows || !mapData.map16Defs) return
-  for (let f = 0; f < vramIndexedFrames.length; f++) {
+  const palRows = mapData.paletteRows
+  const defs = mapData.map16Defs
+  const bgDefs = mapData.map16BgDefs
+  const frameCount = vramIndexedFrames.length
+  if (frameCount === 0) return
+
+  const animL1 = computeAnimatedTileIndices(defs)
+  const animL2 = bgDefs ? computeAnimatedTileIndices(bgDefs) : []
+
+  // Frame 0 in full — the base every later frame clones.
+  const base0 = vramIndexedFrames[0]
+  prebuiltVramSheets.push(rebuildVramSheet(base0, palRows))
+  const atlas0 = rebuildMap16Atlas(base0, palRows, defs)
+  prebuiltMap16Atlases.push(atlas0)
+  prebuiltMap16Canvases.push(imageDataToCanvas(atlas0))
+  let bgAtlas0: ImageData | null = null
+  if (bgDefs) {
+    bgAtlas0 = rebuildMap16Atlas(base0, palRows, bgDefs)
+    prebuiltMap16BgAtlases.push(bgAtlas0)
+    prebuiltMap16BgCanvases.push(imageDataToCanvas(bgAtlas0))
+  }
+
+  // Frames 1+: clone frame-0 bytes, repaint only the animated tiles.
+  for (let f = 1; f < frameCount; f++) {
     const indexed = vramIndexedFrames[f]
-    prebuiltVramSheets.push(rebuildVramSheet(indexed, mapData.paletteRows))
-    const atlas = rebuildMap16Atlas(indexed, mapData.paletteRows, mapData.map16Defs)
+    prebuiltVramSheets.push(rebuildVramSheet(indexed, palRows))
+    const buf = new Uint8ClampedArray(atlas0.data)
+    blitTilesInto(buf, animL1, indexed, palRows, defs)
+    const atlas = new ImageData(buf, atlas0.width, atlas0.height)
     prebuiltMap16Atlases.push(atlas)
-    const cvs = document.createElement('canvas')
-    cvs.width = atlas.width
-    cvs.height = atlas.height
-    cvs.getContext('2d')!.putImageData(atlas, 0, 0)
-    prebuiltMap16Canvases.push(cvs)
+    prebuiltMap16Canvases.push(imageDataToCanvas(atlas))
+    if (bgDefs && bgAtlas0) {
+      const bgBuf = new Uint8ClampedArray(bgAtlas0.data)
+      blitTilesInto(bgBuf, animL2, indexed, palRows, bgDefs)
+      const bgAtlas = new ImageData(bgBuf, bgAtlas0.width, bgAtlas0.height)
+      prebuiltMap16BgAtlases.push(bgAtlas)
+      prebuiltMap16BgCanvases.push(imageDataToCanvas(bgAtlas))
+    }
   }
 }
 
@@ -647,6 +745,12 @@ function applyAnimFrame(f: number): void {
     map16FullImageData = prebuiltMap16Atlases[f]
     for (const entry of map16Pages) {
       if (entry.label.startsWith('L1')) entry.atlas = prebuiltMap16Atlases[f]
+    }
+    if (prebuiltMap16BgCanvases[f] && prebuiltMap16BgAtlases[f]) {
+      map16BgAtlasCanvas = prebuiltMap16BgCanvases[f]
+      for (const entry of map16Pages) {
+        if (entry.label.startsWith('L2')) entry.atlas = prebuiltMap16BgAtlases[f]
+      }
     }
     renderVramPage()
     renderMap16Page()
@@ -992,6 +1096,14 @@ interface MapPayload {
   // The webview cycles VRAM sheets; Map16 tiles are static references into VRAM chars.
   // Map16 tile definitions for client-side composition
   map16Defs?: Array<{
+    id: number
+    tl: { c: number; p: number; fx: boolean; fy: boolean }
+    bl: { c: number; p: number; fx: boolean; fy: boolean }
+    tr: { c: number; p: number; fx: boolean; fy: boolean }
+    br: { c: number; p: number; fx: boolean; fy: boolean }
+  }>
+  // L2/BG Map16 tile defs (same shape). Enables per-frame L2 atlas rebuild.
+  map16BgDefs?: Array<{
     id: number
     tl: { c: number; p: number; fx: boolean; fy: boolean }
     bl: { c: number; p: number; fx: boolean; fy: boolean }

@@ -210,8 +210,10 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         console.warn('[LVL] Failed to load animation data:', (err as Error).message)
       }
 
-      // L1 Map16 tiles are composited live in the webview from map16Defs +
-      // vramIndexedData + paletteRows. L2/BG still uses a baked atlas.
+      // L1 + L2/BG Map16 tiles are both composited live in the webview from
+      // their defs + vramIndexedData + paletteRows, so animation frames can
+      // swap the L2 atlas the same way they swap L1. The baked atlas is kept
+      // as an initial-paint fallback before the client rebuild runs.
       const map16bg = loadAllMap16BG(rom.rom)
       const { atlas: map16BgAtlas } = buildTileAtlas(map16bg, vram, palette)
 
@@ -271,6 +273,15 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         // Map16 tile definitions for client-side composition from live VRAM chars.
         // Each def: { id, tl, bl, tr, br } where subtile: { c, p, fx, fy }
         map16Defs: map16.map(t => ({
+          id: t.id,
+          tl: { c: t.tl.charNum, p: t.tl.palette, fx: t.tl.flipX, fy: t.tl.flipY },
+          bl: { c: t.bl.charNum, p: t.bl.palette, fx: t.bl.flipX, fy: t.bl.flipY },
+          tr: { c: t.tr.charNum, p: t.tr.palette, fx: t.tr.flipX, fy: t.tr.flipY },
+          br: { c: t.br.charNum, p: t.br.palette, fx: t.br.flipX, fy: t.br.flipY },
+        })),
+        // L2/BG Map16 defs (same shape as map16Defs) so the webview can re-composite
+        // the BG atlas per animation frame instead of relying on the baked atlas.
+        map16BgDefs: map16bg.map(t => ({
           id: t.id,
           tl: { c: t.tl.charNum, p: t.tl.palette, fx: t.tl.flipX, fy: t.tl.flipY },
           bl: { c: t.bl.charNum, p: t.bl.palette, fx: t.bl.flipX, fy: t.bl.flipY },
