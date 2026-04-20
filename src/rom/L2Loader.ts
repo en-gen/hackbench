@@ -28,8 +28,8 @@
 
 import { RomFile } from './RomFile'
 import { decompressRle1 } from './LcRle1'
-import { parseLevelObjects, SCREEN_W, SCREEN_H } from './LevelParser'
-import { expandMap } from './ObjectExpander'
+import { parseL2Objects, SCREEN_W, SCREEN_H } from './LevelParser'
+import { expandObject, createGrid } from './ObjectExpander'
 
 /** L2 pointer table base. 3 bytes per level: lo, hi, bank. */
 export const L2_POINTER_TABLE = 0x05E600
@@ -160,6 +160,7 @@ export function loadL2Preset(rom: RomFile, ptr: number): L2PresetLoad | null {
  */
 export function loadL2Objects(
   rom: RomFile, ptr: number, screens: number, objectTileset: number,
+  isVertical = false,
 ): { grid: number[][] } | null {
   if (isPresetPtr(ptr)) return null
 
@@ -168,11 +169,14 @@ export function loadL2Objects(
   const raw = rom.readAt(snesAddr, 0x2000)
   if (!raw) return null
 
-  const { objects } = parseLevelObjects(raw)
-  const grid = expandMap(objects, screens, rom, objectTileset)
-  // expandMap produces a grid sized (screens * SCREEN_W, SCREEN_H). If the
-  // object stream was empty the grid will be all-empty ($25) — the caller
-  // still gets back a usable l2TileGrid with the right dimensions.
+  // L2 has no header; skip straight to object parsing. The vertical flag
+  // mirrors L1's — in vanilla SMW, L2 verticality tracks L1 closely.
+  // parseL2Objects applies the same XY-swap rules as parseLevelObjects.
+  const objects = parseL2Objects(raw, screens, isVertical)
+  const grid = createGrid(screens, isVertical)
+  for (const obj of objects) {
+    expandObject(grid, obj, rom, objectTileset)
+  }
   return { grid }
 }
 

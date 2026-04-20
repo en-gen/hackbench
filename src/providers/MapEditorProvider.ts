@@ -12,7 +12,7 @@ import { expandMap } from '../rom/ObjectExpander'
 import { loadL2Preset, loadL2Objects, readL2Pointer, isPresetPtr, L2_TILEMAP_COLS, L2_TILEMAP_ROWS } from '../rom/L2Loader'
 import { getLevelMusicBgm } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
-import { SCREEN_W, SCREEN_H } from '../rom/LevelParser'
+import { SCREEN_W, SCREEN_H, SCREEN_W_VERT, SCREEN_H_VERT } from '../rom/LevelParser'
 
 /**
  * Custom editor provider for .smwmap virtual files.
@@ -100,7 +100,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         return
       }
 
-      const { header, objects } = parseLevelObjects(rawL1)
+      const { header, objects, isVertical } = parseLevelObjects(rawL1)
       const screens = header.levelLength
 
       const sprPtr = rom.getLevelSpritePointer(index)
@@ -114,7 +114,8 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       // Tileset byte from the header selects which dispatch table (CODE_0DA415)
       // and thus which handler set is used. Must be passed so standard-object
       // dispatch reads the correct per-tileset handler pointer table.
-      const tileGrid = expandMap(objects, screens, rom.rom, header.objectTileset)
+      // Vertical levels flip the grid shape to 32 × (screens*16).
+      const tileGrid = expandMap(objects, screens, rom.rom, header.objectTileset, isVertical)
 
       // ── Build L2 tile grid ────────────────────────────────────────────────
       // Ported from CODE_05801E (bank_05.asm lines 20-74) and LoadLevel's
@@ -137,11 +138,11 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         const preset = loadL2Preset(rom.rom, levelL2Ptr)
         if (preset) {
           l2UsesBgAtlas = true
-          // Tile the 32×27 preset grid across the full L1 area (level width ×
-          // 27 rows). Mirrors how the live game scrolls the BG: the same
-          // pattern repeats every 2 screens.
-          const cols = screens * SCREEN_W
-          const rows = SCREEN_H
+          // Tile the 32×27 preset grid across the full L1 area. Mirrors how the
+          // live game scrolls the BG: the same pattern repeats in both axes.
+          // Horizontal: level width × 27 rows. Vertical: 32 × (screens*16) rows.
+          const cols = isVertical ? SCREEN_W_VERT : screens * SCREEN_W
+          const rows = isVertical ? screens * SCREEN_H_VERT : SCREEN_H
           l2TileGrid = Array.from({ length: rows }, (_, r) =>
             Array.from({ length: cols }, (_, c) =>
               preset.grid[r % L2_TILEMAP_ROWS][c % L2_TILEMAP_COLS],
@@ -151,7 +152,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       } else if (levelL2Ptr !== 0 && !isPresetPtr(levelL2Ptr)) {
         // Object-stream L2. Uses L1's screens + tileset, no BG atlas.
         const tilesetForL2 = overrides.tilesetId ?? header.objectTileset
-        const objL2 = loadL2Objects(rom.rom, levelL2Ptr, screens, tilesetForL2)
+        const objL2 = loadL2Objects(rom.rom, levelL2Ptr, screens, tilesetForL2, isVertical)
         if (objL2) {
           l2TileGrid = objL2.grid
         }
@@ -259,6 +260,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         _initial:       overrides._initial !== false,
         mapIndex:     index,
         screens,
+        isVertical,
         tileGrid,
         l2TileGrid,
         l2UsesBgAtlas,

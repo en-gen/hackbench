@@ -137,11 +137,13 @@ app.innerHTML = `
   </div>
 
   <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
-    <div id="canvas-wrap" style="flex:1;overflow:auto;background:#111111;cursor:crosshair;">
-      <canvas id="map-canvas" style="display:block;image-rendering:pixelated;margin:8px;"></canvas>
-    </div>
-    <div id="minimap-wrap" style="flex-shrink:0;background:#0a0a0a;border-top:1px solid #3a3a3a;padding:4px 8px;display:flex;justify-content:center;">
-      <canvas id="minimap-canvas" style="display:block;image-rendering:pixelated;cursor:pointer;background:#000;"></canvas>
+    <div id="main-view" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+      <div id="canvas-wrap" style="flex:1;overflow:auto;background:#111111;cursor:crosshair;">
+        <canvas id="map-canvas" style="display:block;image-rendering:pixelated;margin:8px;"></canvas>
+      </div>
+      <div id="minimap-wrap" style="flex-shrink:0;background:#0a0a0a;border-top:1px solid #3a3a3a;padding:4px 8px;display:flex;justify-content:center;align-items:center;">
+        <canvas id="minimap-canvas" style="display:block;image-rendering:pixelated;cursor:pointer;background:#000;"></canvas>
+      </div>
     </div>
     <div id="map-bottom-bar" style="display:flex;align-items:center;gap:12px;padding:4px 8px;background:#1a1a1a;border-top:1px solid #3a3a3a;font-family:monospace;font-size:11px;color:#ccc;">
       <span id="st-pos" style="min-width:90px;">—</span>
@@ -966,6 +968,8 @@ let paletteHighlightCells: PaletteHighlight[] | null = null
 interface MapPayload {
   mapIndex:      number
   screens:         number
+  /** True if Layer 1 is vertical (ScreenMode bit 0 via VerticalTable). */
+  isVertical?:     boolean
   tileGrid:        number[][]
   l2TileGrid:      number[][] | null
   sprites:         Array<{ x: number; y: number; spriteId: number }>
@@ -1023,6 +1027,33 @@ interface MapPayload {
   }
 }
 
+// ── Level-dimension helpers ──────────────────────────────────────────────────
+// In vertical levels the grid shape flips: 32 cols × (screens*16) rows instead
+// of (screens*16) cols × 27 rows. `SCREEN_H` (27) is the horizontal-only tall,
+// `SCREEN_H_VERT` (16) is a vertical-level screen's row count.
+const SCREEN_H_VERT = 16
+const SCREEN_W_VERT = 32
+
+function isVert(): boolean {
+  return mapData?.isVertical === true
+}
+function levelCols(): number {
+  if (!mapData) return 0
+  return isVert() ? SCREEN_W_VERT : mapData.screens * SCREEN_W
+}
+function levelRows(): number {
+  if (!mapData) return 0
+  return isVert() ? mapData.screens * SCREEN_H_VERT : SCREEN_H
+}
+/** Pixel X of the top-left of screen `s` in the main canvas. */
+function screenX(s: number, px: number): number {
+  return isVert() ? 0 : Math.round(s * SCREEN_W * px)
+}
+/** Pixel Y of the top-left of screen `s` in the main canvas. */
+function screenY(s: number, px: number): number {
+  return isVert() ? Math.round(s * SCREEN_H_VERT * px) : 0
+}
+
 // ── Zoom ─────────────────────────────────────────────────────────────────────
 
 /** Browser canvas dimension cap. Chrome and Firefox limit canvases to 16384
@@ -1034,8 +1065,8 @@ const MAX_CANVAS_PX = 16000
  *  Depends on level width (screens × 16 tiles). Recomputed per level load. */
 function maxZoomIdx(): number {
   if (!mapData) return ZOOM_STEPS.length - 1
-  const cols = mapData.screens * SCREEN_W
-  const rows = SCREEN_H
+  const cols = levelCols()
+  const rows = levelRows()
   let limit = ZOOM_STEPS.length - 1
   for (let i = ZOOM_STEPS.length - 1; i >= 0; i--) {
     const px = TILE_PX * ZOOM_STEPS[i]
@@ -1199,8 +1230,8 @@ function redraw(): void {
   if (!chkBlock.checked && !map16AtlasCanvas) return
 
   const { tileGrid, screens, sprites } = mapData
-  const cols = screens * SCREEN_W
-  const rows = SCREEN_H
+  const cols = levelCols()
+  const rows = levelRows()
   const px   = TILE_PX * zoom
 
   canvas.width  = Math.round(cols * px)
@@ -1278,13 +1309,22 @@ function redraw(): void {
     }
   }
 
-  // Screen dividers (shown together with the screen-number chips)
+  // Screen dividers (shown together with the screen-number chips).
+  // Horizontal levels: vertical lines at screen boundaries on X.
+  // Vertical levels:   horizontal lines at screen boundaries on Y.
   if (chkScreens.checked) {
     ctx.strokeStyle = 'rgba(100,120,255,0.4)'
     ctx.lineWidth = 1
-    for (let s = 1; s < screens; s++) {
-      const x = Math.round(s * SCREEN_W * px) + 0.5
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
+    if (isVert()) {
+      for (let s = 1; s < screens; s++) {
+        const y = Math.round(s * SCREEN_H_VERT * px) + 0.5
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke()
+      }
+    } else {
+      for (let s = 1; s < screens; s++) {
+        const x = Math.round(s * SCREEN_W * px) + 0.5
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
+      }
     }
   }
 
@@ -1301,8 +1341,8 @@ function redraw(): void {
     const padX = 6
     const padY = 3
     for (let s = 0; s < screens; s++) {
-      const chipX = Math.round(s * SCREEN_W * px) + 3
-      const chipY = 3
+      const chipX = screenX(s, px) + 3
+      const chipY = screenY(s, px) + 3
       const label = s.toString(16).toUpperCase().padStart(2, '0')
       const textW = ctx.measureText(label).width
       ctx.fillStyle = 'rgba(0,0,0,0.72)'
@@ -1347,30 +1387,60 @@ function redraw(): void {
 }
 
 // ── Minimap ──────────────────────────────────────────────────────────────────
-// Small overview rendering of the full map along the bottom, with a rectangle
-// outlining the main viewport so you can tell where you are in wide maps.
+// Small overview rendering of the full map. Horizontal levels pin it to the
+// bottom as a short strip; vertical levels pin it to the right as a narrow
+// column so the aspect ratio matches the level shape.
 
-/** Height cap for the minimap strip. Tile size is picked to fit under this. */
-const MINIMAP_MAX_HEIGHT = 54
+/**
+ * Toggle the main-view flex direction and minimap-wrap border/padding based on
+ * level orientation. Called once per load so the layout matches the level shape:
+ *   horizontal → main-view column + minimap below
+ *   vertical   → main-view row + minimap to the right
+ */
+function applyMinimapOrientation(): void {
+  const mainView = document.getElementById('main-view')
+  const minimapWrap = document.getElementById('minimap-wrap')
+  if (!mainView || !minimapWrap) return
+  if (isVert()) {
+    mainView.style.flexDirection = 'row'
+    minimapWrap.style.borderTop = 'none'
+    minimapWrap.style.borderLeft = '1px solid #3a3a3a'
+    minimapWrap.style.padding = '8px 4px'
+  } else {
+    mainView.style.flexDirection = 'column'
+    minimapWrap.style.borderLeft = 'none'
+    minimapWrap.style.borderTop = '1px solid #3a3a3a'
+    minimapWrap.style.padding = '4px 8px'
+  }
+}
+
+/** Short-axis cap for the minimap (height when bottom, width when right). */
+const MINIMAP_SHORT_AXIS_MAX = 54
+/** Long-axis cap: fraction of the available parent extent we're willing to use. */
+const MINIMAP_LONG_AXIS_SLACK_PX = 16
 
 function minimapTilePx(): number {
   if (!mapData) return 1
-  const cols = mapData.screens * SCREEN_W
-  const rows = SCREEN_H
-  // Pick the largest tile size (1–4 px) that keeps the minimap under the
-  // available width and height caps. Browser pixelated scaling handles the
-  // downscale when we drawImage the live atlas.
-  const availW = Math.max(100, minimapCanvas.parentElement!.clientWidth - 16)
-  const byW = Math.floor(availW / cols)
-  const byH = Math.floor(MINIMAP_MAX_HEIGHT / rows)
-  return Math.max(1, Math.min(4, byW, byH))
+  const cols = levelCols()
+  const rows = levelRows()
+  const vert = isVert()
+  // Pick the largest tile size (1–4 px) that keeps the minimap within the
+  // available space along both axes. In vertical mode, the long axis is the
+  // parent's height and the short axis is the width, and vice versa.
+  const parent = minimapCanvas.parentElement!
+  const availLong = Math.max(100, (vert ? parent.clientHeight : parent.clientWidth) - MINIMAP_LONG_AXIS_SLACK_PX)
+  const longTiles = vert ? rows : cols
+  const shortTiles = vert ? cols : rows
+  const byLong = Math.floor(availLong / longTiles)
+  const byShort = Math.floor(MINIMAP_SHORT_AXIS_MAX / shortTiles)
+  return Math.max(1, Math.min(4, byLong, byShort))
 }
 
 function drawMinimap(): void {
   if (!minimapOn) return
   if (!mapData || !map16AtlasCanvas) return
-  const cols = mapData.screens * SCREEN_W
-  const rows = SCREEN_H
+  const cols = levelCols()
+  const rows = levelRows()
   const tp = minimapTilePx()
   const w = cols * tp
   const h = rows * tp
@@ -1431,8 +1501,8 @@ function drawMinimap(): void {
 /** Repaint just the viewport rectangle (fast path for scroll events). */
 function drawMinimapViewport(): void {
   if (!mapData) return
-  const cols = mapData.screens * SCREEN_W
-  const rows = SCREEN_H
+  const cols = levelCols()
+  const rows = levelRows()
   const mainPx = TILE_PX * zoom
   const mainW = cols * mainPx
   const mainH = rows * mainPx
@@ -1459,8 +1529,8 @@ let minimapDragging = false
 function minimapPanTo(e: PointerEvent): void {
   if (!mapData) return
   const rect = minimapCanvas.getBoundingClientRect()
-  const cols = mapData.screens * SCREEN_W
-  const rows = SCREEN_H
+  const cols = levelCols()
+  const rows = levelRows()
   const mainPx = TILE_PX * zoom
   const fx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
   const fy = Math.max(0, Math.min(1, (e.clientY - rect.top)  / rect.height))
@@ -1613,7 +1683,7 @@ function canvasTileAt(e: MouseEvent): { col: number; row: number } | null {
   const px   = TILE_PX * zoom
   const col  = Math.floor((e.clientX - rect.left) / px)
   const row  = Math.floor((e.clientY - rect.top)  / px)
-  if (col < 0 || row < 0 || row >= SCREEN_H || col >= mapData.screens * SCREEN_W) return null
+  if (col < 0 || row < 0 || row >= levelRows() || col >= levelCols()) return null
   return { col, row }
 }
 
@@ -1654,7 +1724,7 @@ canvas.addEventListener('drop', (e) => {
   const px   = TILE_PX * zoom
   const col  = Math.floor((e.clientX - rect.left) / px)
   const row  = Math.floor((e.clientY - rect.top)  / px)
-  if (col < 0 || row < 0 || row >= SCREEN_H || col >= mapData.screens * SCREEN_W) return
+  if (col < 0 || row < 0 || row >= levelRows() || col >= levelCols()) return
   mapData.tileGrid[row][col] = tileId
   redraw()
   vscode.postMessage({ type: 'edit', kind: 'place', tileId, col, row })
@@ -1735,10 +1805,12 @@ window.addEventListener('message', async (event) => {
     mapData  = msg as unknown as MapPayload
     l2TileGrid = mapData.l2TileGrid ?? null
 
+    applyMinimapOrientation()
+
     const hex     = mapData.mapIndex.toString(16).toUpperCase().padStart(3, '0')
     const screens = mapData.screens
     mapId.textContent   = `Map $${hex}`
-    mapMeta.textContent = `${screens} screen${screens !== 1 ? 's' : ''}`
+    mapMeta.textContent = `${screens} screen${screens !== 1 ? 's' : ''}${mapData.isVertical ? ' · vertical' : ''}`
     stInfo.textContent    =
       `Music $${mapData.header.music.toString(16).toUpperCase()} · ` +
       `Tileset ${mapData.header.gfxTilesetId}`

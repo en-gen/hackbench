@@ -170,12 +170,48 @@ function drawText(dst: Uint8Array, dstW: number, x: number, y: number, text: str
   }
 }
 
+// ── Tile equivalence ────────────────────────────────────────────────────────
+
+/**
+ * Normalize Map16 IDs whose RAM value depends on ambient game state so that
+ * logically-identical blocks compare equal across the TS port (stateless
+ * page-0 baseline) and the Mesen fixture (whichever page was live when the
+ * dump happened).
+ *
+ * Switch-palace blocks: low ID $6A-$6D are green/yellow/blue/red switches.
+ * Page 0 ($06A-$06D) = outlined/uncleared, page 1 ($16A-$16D) = solid/cleared.
+ * The game flips the page globally when the player hits a switch palace; the
+ * block's identity doesn't change. Collapse both variants onto page 0.
+ */
+function normalizeTile(id: number): number {
+  const low = id & 0xFF
+  if (low >= 0x6A && low <= 0x6D) return low
+  return id
+}
+
 // ── Fixture parse ───────────────────────────────────────────────────────────
-function parseFixture(text: string) {
+interface Fixture {
+  orientation: 'horizontal' | 'vertical'
+  // Horizontal: col range (rows always 0..26). Vertical: row range (cols always 0..31).
+  minCol: number; maxCol: number
+  minRow: number; maxRow: number
+  // rows[row] = tile array. Index within the array:
+  //   horizontal → offset from minCol   (i.e. rows[r][i] is at col minCol+i)
+  //   vertical   → absolute col 0..31   (i.e. rows[r][c] is at col c)
+  rows: Record<number, (number | null)[]>
+}
+
+function parseFixture(text: string): Fixture {
+  let orientation: 'horizontal' | 'vertical' = 'horizontal'
   let minCol = 0, maxCol = 0
+  let minRow = 0, maxRow = 26
   for (const line of text.split(/\r?\n/)) {
-    const m = line.match(/min_col=(\d+)\s+max_col=(\d+)/)
-    if (m) { minCol = Number(m[1]); maxCol = Number(m[2]); break }
+    const o = line.match(/orientation=(horizontal|vertical)/)
+    if (o) orientation = o[1] as 'horizontal' | 'vertical'
+    const mc = line.match(/min_col=(\d+)\s+max_col=(\d+)/)
+    if (mc) { minCol = Number(mc[1]); maxCol = Number(mc[2]) }
+    const mr = line.match(/min_row=(\d+)\s+max_row=(\d+)/)
+    if (mr) { minRow = Number(mr[1]); maxRow = Number(mr[2]) }
   }
   const rows: Record<number, (number | null)[]> = {}
   for (const line of text.split(/\r?\n/)) {
@@ -186,7 +222,7 @@ function parseFixture(text: string) {
       t === '???' ? null : t === '.' ? TILE_EMPTY : parseInt(t, 16),
     )
   }
-  return { minCol, maxCol, rows }
+  return { orientation, minCol, maxCol, minRow, maxRow, rows }
 }
 
 // ── Main loop ───────────────────────────────────────────────────────────────
@@ -215,8 +251,8 @@ for (const name of folders) {
   const rawL1 = rom.getLevelRawData(levelNum)
   if (!rawL1) { results.push({ lvl: name, diffs: -1, observed: 0, pct: '—', status: 'no L1 data' }); continue }
 
-  const { header, objects } = parseLevelObjects(rawL1)
-  const ourGrid = expandMap(objects, header.levelLength, rom.rom, header.objectTileset)
+  const { header, objects, isVertical } = parseLevelObjects(rawL1)
+  const ourGrid = expandMap(objects, header.levelLength, rom.rom, header.objectTileset, isVertical)
 
   let vram, cgram, tiles
   try {
@@ -232,43 +268,111 @@ for (const name of folders) {
 
   const fx = parseFixture(readFileSync(fixturePath, 'utf8'))
 
-  const colLo = fx.minCol
-  const colHi = fx.maxCol
-  const cols  = colHi - colLo + 1
-  // Trim to populated rows so the image isn't 95% sky.
-  let rowLo = 26, rowHi = 0
-  for (let r = 0; r <= 26; r++) {
-    const arr = fx.rows[r] ?? []
-    const ourArr = ourGrid[r] ?? []
-    let hasContent = false
-    for (let c = 0; c < cols; c++) {
-      const fxT = arr[c]
-      const ourT = ourArr[colLo + c] ?? TILE_EMPTY
-      if ((fxT != null && fxT !== TILE_EMPTY) || ourT !== TILE_EMPTY) { hasContent = true; break }
-    }
-    if (hasContent) { if (r < rowLo) rowLo = r; if (r > rowHi) rowHi = r }
+  // Mismatch between fixture orientation and ROM-declared orientation is
+  // almost always a wrong dump (stale file from before the vertical fix).
+  if ((fx.orientation === 'vertical') !== isVertical) {
+    results.push({
+      lvl: name, diffs: -1, observed: 0, pct: '—',
+      status: `orientation mismatch: fixture=${fx.orientation} ROM=${isVertical ? 'vertical' : 'horizontal'}`,
+    })
+    continue
   }
-  if (rowHi < rowLo) { rowLo = 0; rowHi = 26 }
-  // Pad 1 row so nearby empties are visible.
-  rowLo = Math.max(0, rowLo - 1)
-  rowHi = Math.min(26, rowHi + 1)
+
+  // Compute iteration bounds in (colLo, colHi, rowLo, rowHi) on the level grid.
+  // Then trim on the perpendicular axis to avoid 95% empty strips.
+  let colLo: number, colHi: number, rowLo: number, rowHi: number
+  if (isVertical) {
+    // Vertical: all 32 cols, row range from fixture. Trim cols that are all empty
+    // across the observed row range to keep the image compact.
+    rowLo = fx.minRow
+    rowHi = fx.maxRow
+    let cLo = 31, cHi = 0
+    for (let r = rowLo; r <= rowHi; r++) {
+      const arr = fx.rows[r] ?? []
+      const ourArr = ourGrid[r] ?? []
+      for (let c = 0; c < 32; c++) {
+        const fxT = arr[c]
+        const ourT = ourArr[c] ?? TILE_EMPTY
+        if ((fxT != null && fxT !== TILE_EMPTY) || ourT !== TILE_EMPTY) {
+          if (c < cLo) cLo = c
+          if (c > cHi) cHi = c
+        }
+      }
+    }
+    if (cHi < cLo) { cLo = 0; cHi = 31 }
+    colLo = Math.max(0, cLo - 1)
+    colHi = Math.min(31, cHi + 1)
+  } else {
+    colLo = fx.minCol
+    colHi = fx.maxCol
+    const cols = colHi - colLo + 1
+    let rLo = 26, rHi = 0
+    for (let r = 0; r <= 26; r++) {
+      const arr = fx.rows[r] ?? []
+      const ourArr = ourGrid[r] ?? []
+      let hasContent = false
+      for (let c = 0; c < cols; c++) {
+        const fxT = arr[c]
+        const ourT = ourArr[colLo + c] ?? TILE_EMPTY
+        if ((fxT != null && fxT !== TILE_EMPTY) || ourT !== TILE_EMPTY) { hasContent = true; break }
+      }
+      if (hasContent) { if (r < rLo) rLo = r; if (r > rHi) rHi = r }
+    }
+    if (rHi < rLo) { rLo = 0; rHi = 26 }
+    rowLo = Math.max(0, rLo - 1)
+    rowHi = Math.min(26, rHi + 1)
+  }
+  const cols = colHi - colLo + 1
   const rows = rowHi - rowLo + 1
+
+  // Helper: read fixture tile at absolute (col, row).
+  //   horizontal → rows[r][col - minCol]   (only populated for col in [minCol, maxCol])
+  //   vertical   → rows[r][col]            (always col 0..31)
+  const fxTileAt = (col: number, row: number): number | null | undefined => {
+    const arr = fx.rows[row]
+    if (!arr) return undefined
+    return isVertical ? arr[col] : arr[col - fx.minCol]
+  }
 
   const stripW = cols * TILE_PX
   const stripH = rows * TILE_PX
   const GAP = 12
   const LABEL_H = 22   // 5x7 glyph @ scale 2 = 14 px + 4 px padding top/bot
-  const imgW = stripW
-  const imgH = LABEL_H + stripH + GAP + LABEL_H + stripH
+
+  // Layout depends on orientation so neither strip becomes absurdly elongated.
+  //   horizontal → strips stacked (ours on top, fixture below, label above each)
+  //   vertical   → strips side-by-side (ours on left, fixture on right, labels above each)
+  let imgW: number, imgH: number
+  let oursX: number, oursY: number   // "ours" strip top-left
+  let fxX: number, fxY: number       // "fixture" strip top-left
+  let oursLabelX: number, oursLabelY: number, oursLabelW: number
+  let fxLabelX: number, fxLabelY: number, fxLabelW: number
+  if (isVertical) {
+    imgW = stripW + GAP + stripW
+    imgH = LABEL_H + stripH
+    oursX = 0;              oursY = LABEL_H
+    fxX   = stripW + GAP;   fxY   = LABEL_H
+    oursLabelX = 0;            oursLabelY = 0; oursLabelW = stripW
+    fxLabelX   = stripW + GAP; fxLabelY   = 0; fxLabelW   = stripW
+  } else {
+    imgW = stripW
+    imgH = LABEL_H + stripH + GAP + LABEL_H + stripH
+    oursX = 0; oursY = LABEL_H
+    fxX   = 0; fxY   = LABEL_H + stripH + GAP + LABEL_H
+    oursLabelX = 0; oursLabelY = 0;                        oursLabelW = stripW
+    fxLabelX   = 0; fxLabelY   = LABEL_H + stripH + GAP;   fxLabelW   = stripW
+  }
 
   const img = new Uint8Array(imgW * imgH * 4)
   fillRect(img, imgW, 0, 0, imgW, imgH, 20, 20, 30)
-  fillRect(img, imgW, 0, 0, imgW, LABEL_H, 60, 100, 60)                      // ours (TS port) = green
-  fillRect(img, imgW, 0, LABEL_H + stripH + GAP, imgW, LABEL_H, 60, 60, 100)  // fixture (Mesen) = blue
+  fillRect(img, imgW, oursLabelX, oursLabelY, oursLabelW, LABEL_H, 60, 100, 60)  // ours (TS port) = green
+  fillRect(img, imgW, fxLabelX,   fxLabelY,   fxLabelW,   LABEL_H, 60, 60, 100)  // fixture (Mesen) = blue
   const levelName = getLevelNameByIndex(rom.rom, levelNum)
   const nameSuffix = levelName ? ` - ${levelName}` : ''
-  drawText(img, imgW, 6, 4, `OURS (TS PORT) - $${name.toUpperCase()}${nameSuffix}`, 255, 255, 255, 2)
-  drawText(img, imgW, 6, LABEL_H + stripH + GAP + 4, `FIXTURE (MESEN) - $${name.toUpperCase()}${nameSuffix}`, 255, 255, 255, 2)
+  drawText(img, imgW, oursLabelX + 6, oursLabelY + 4,
+    `OURS (TS PORT) - $${name.toUpperCase()}${nameSuffix}`, 255, 255, 255, 2)
+  drawText(img, imgW, fxLabelX + 6, fxLabelY + 4,
+    `FIXTURE (MESEN) - $${name.toUpperCase()}${nameSuffix}`, 255, 255, 255, 2)
 
   const emptySlot = new Uint8ClampedArray(TILE_PX * TILE_PX * 4)
   const getRender = (id: number): Uint8ClampedArray => {
@@ -276,36 +380,36 @@ for (const name of folders) {
     return renderMap16Tile(tiles![id], vram!, cgram!)
   }
 
-  const topY = LABEL_H
   for (let r = 0; r < rows; r++) {
     const rowIdx = rowLo + r
     for (let c = 0; c < cols; c++) {
-      const id = ourGrid[rowIdx]?.[colLo + c] ?? TILE_EMPTY
-      blit(img, imgW, c * TILE_PX, topY + r * TILE_PX, getRender(id), TILE_PX, TILE_PX)
-    }
-  }
-  const botY = LABEL_H + stripH + GAP + LABEL_H
-  for (let r = 0; r < rows; r++) {
-    const rowIdx = rowLo + r
-    const rowArr = fx.rows[rowIdx] ?? []
-    for (let c = 0; c < cols; c++) {
-      const id = rowArr[c] ?? TILE_EMPTY
-      blit(img, imgW, c * TILE_PX, botY + r * TILE_PX, getRender(id), TILE_PX, TILE_PX)
+      const colIdx = colLo + c
+      // Render the normalized tile on both strips so a state-flip switch
+      // block (same logical tile, different RAM page) doesn't look visually
+      // different between the two halves. Structural diffs still highlight
+      // in red because the count uses normalizeTile too.
+      const ourId = normalizeTile(ourGrid[rowIdx]?.[colIdx] ?? TILE_EMPTY)
+      const fxId  = normalizeTile(fxTileAt(colIdx, rowIdx) ?? TILE_EMPTY)
+      blit(img, imgW, oursX + c * TILE_PX, oursY + r * TILE_PX, getRender(ourId), TILE_PX, TILE_PX)
+      blit(img, imgW, fxX   + c * TILE_PX, fxY   + r * TILE_PX, getRender(fxId),  TILE_PX, TILE_PX)
     }
   }
 
   let diffs = 0, observed = 0
   for (let r = 0; r < rows; r++) {
     const rowIdx = rowLo + r
-    const rowArr = fx.rows[rowIdx] ?? []
     for (let c = 0; c < cols; c++) {
-      const expected = rowArr[c]
+      const colIdx = colLo + c
+      const expected = fxTileAt(colIdx, rowIdx)
       if (expected == null) continue
       observed++
-      const actual = ourGrid[rowIdx]?.[colLo + c] ?? TILE_EMPTY
-      if (actual !== expected) {
-        drawRect(img, imgW, c * TILE_PX, topY + r * TILE_PX, TILE_PX, TILE_PX, 255, 50, 50)
-        drawRect(img, imgW, c * TILE_PX, botY + r * TILE_PX, TILE_PX, TILE_PX, 255, 50, 50)
+      const actual = ourGrid[rowIdx]?.[colIdx] ?? TILE_EMPTY
+      // Normalize before comparing — state-dependent tile IDs (switch blocks)
+      // are rendered as-is in both strips so the visual still shows what was
+      // in RAM, but a state-flip shouldn't count as a structural diff.
+      if (normalizeTile(actual) !== normalizeTile(expected)) {
+        drawRect(img, imgW, oursX + c * TILE_PX, oursY + r * TILE_PX, TILE_PX, TILE_PX, 255, 50, 50)
+        drawRect(img, imgW, fxX   + c * TILE_PX, fxY   + r * TILE_PX, TILE_PX, TILE_PX, 255, 50, 50)
         diffs++
       }
     }

@@ -3,44 +3,83 @@
 -- Two modes:
 --   NORMAL       (default on every level entry) -- completely hands off.
 --                SMW physics + the SNES controller drive Mario as usual.
---                The script just dumps the Map16 tilemap around Mario's
---                column every tick so manual playthroughs are captured.
---   AUTO-SCROLL  (Space-toggled)                -- Mario is snapped to the
---                top of the screen (floatY) and his X position advances
---                STEP_PIXELS per frame. Arrow keys nudge Mario's X/floatY.
+--                The script just dumps the Map16 tilemap around Mario every
+--                tick so manual playthroughs are captured.
+--   AUTO-SCROLL  (Space-toggled)                -- Mario is snapped along the
+--                cross-axis (floatY in horizontal levels, floatX in vertical)
+--                and his main-axis position advances STEP_PIXELS per frame.
+--                Arrow keys nudge position / adjust the clamp target.
 --                Dumps continue at the same tick rate.
 --
 -- Controls:
 --   Space        -- toggle NORMAL <-> AUTO-SCROLL.
---                   Toggling ON snaps Mario to FLOAT_Y_PX immediately and
---                   every frame thereafter. Toggling OFF releases physics.
---   Right/Left   -- (AUTO-SCROLL only) nudge Mario's X by NUDGE_PX/frame.
---   Up/Down      -- (AUTO-SCROLL only) move the floatY clamp target up/down.
+--                   Toggling ON snaps Mario to the cross-axis clamp immediately.
+--                   Toggling OFF releases physics.
+--   Horizontal levels:
+--     Right/Left -- (AUTO-SCROLL) nudge Mario's X by NUDGE_PX/frame.
+--     Up/Down    -- (AUTO-SCROLL) move the floatY clamp target up/down.
+--   Vertical levels:
+--     Down/Up    -- (AUTO-SCROLL) nudge Mario's Y by NUDGE_PX/frame.
+--     Left/Right -- (AUTO-SCROLL) move the floatX clamp target left/right.
+--   (Auto-advance direction is always "forward" along the main axis:
+--    +X in horizontal, +Y in vertical — vanilla vertical levels descend.)
+--
+-- Vertical detection: ScreenMode ($7E005B) bit 0 = Layer 1 vertical
+-- (rammap.asm:481, VerticalTable at bank_05.asm:480 stamps this bit per
+-- levelMode). Flipping this flag selects the right Map16 memory layout and
+-- swaps the dump window to "all 32 cols, rows around Mario".
 --
 -- Workflow:
 --   1. Enter a level from the overworld. Script sees gameMode=$14 and opens
 --      test/fixtures/maps/<hhh>/dumps.txt in write mode.
 --   2. If the level has a tricky intro, play it manually. When you're ready
---      to cruise, tap Space. Mario snaps up, auto-walk begins.
+--      to cruise, tap Space. Mario snaps to the clamp, auto-walk begins.
 --   3. Tap Space again to take over manually (e.g. to enter a pipe).
 --   4. Reaching the overworld wipes the per-level flags so the next visit
 --      re-opens its dumps.txt fresh.
---
--- Horizontal levels only. Vertical levels (header levelMode bit) need a
--- different scroll strategy.
 
 local DUMPS_DIR = "C:/Users/engenb/OneDrive/hackbench-fixtures/maps"
-local TICK_FRAMES = 20    -- dump every 1/3s; Mario covers 80px (5 cols) in AUTO-SCROLL between dumps.
-local STEP_PIXELS = 4     -- AUTO-SCROLL speed (~Mario running, 240 px/s = 15 cols/s).
-local FLOAT_Y_PX  = 0x20  -- Mario's Y when AUTO-SCROLL clamps him. Row 2-ish; adjust with Up/Down.
+local TICK_FRAMES = 20    -- dump every 1/3s; Mario covers 80px (5 tiles) in AUTO-SCROLL between dumps.
+local STEP_PIXELS = 4     -- AUTO-SCROLL speed (~Mario running, 240 px/s = 15 tiles/s).
+local FLOAT_Y_PX  = 0x20  -- Mario's Y when horizontal AUTO-SCROLL clamps him. Row 2-ish; Up/Down tweak.
+local FLOAT_X_PX  = 0x80  -- Mario's X when vertical AUTO-SCROLL clamps him. Col 8-ish (middle); Left/Right tweak.
 local NUDGE_PX    = 1     -- AUTO-SCROLL arrow-key nudge amount, per frame held.
 
+-- Horizontal dump window: 27 rows × (LEFT_PAD + 1 + RIGHT_PAD) cols around marioCol.
 local LEFT_PAD   = 8
 local RIGHT_PAD  = 20
 local ROW_LO     = 0
 local ROW_HI     = 26
-local BYTES_PER_SCREEN = 0x1B0
-local BYTES_PER_ROW    = 0x10
+
+-- Vertical dump window: 32 cols (the full level width) × (UP_PAD + 1 + DOWN_PAD) rows around marioRow.
+local UP_PAD     = 8
+local DOWN_PAD   = 20
+local VERT_COLS  = 32
+
+-- Map16 memory layout — separate stride tables per orientation, derived from
+-- bank_00.asm:6727+ (DATA_00BAD8 = horizontal, DATA_00BB38 = vertical):
+--
+--   Horizontal: stride $1B0 per screen, 16 cols × 27 rows, row-major
+--       off = row*$10 + (col % 16)
+--
+--   Vertical:   stride $200 per screen; the screen is TWO 16-wide half-
+--       screens concatenated, each row-major. Within a 32×16 screen:
+--       off = (col // 16)*$100 + (row % 16)*$10 + (col % 16)
+--
+--       bank_05.asm:781 does `INC Map16LowPtr+1` (+$100) to jump from the
+--       left half to the right half. That's consistent with row-major-halves
+--       (skip 256 bytes = skip the entire 16-col left half) and NOT with a
+--       single col-major 32×16 screen (which would also skip 256 bytes, but
+--       would make the handlers' INY-advance-col actually advance row, and
+--       CODE_0585D8's nibble swap then places tiles at a 90°-rotated
+--       position from what the extension renders). Verified by trace:
+--       b0=0x02 b1=0x13 → post-swap LevelLoadPos = 0x32 = 50, which under
+--       row-major-halves = (col=2, row=3) — matching the intended grid.
+local BYTES_PER_SCREEN_H  = 0x1B0
+local BYTES_PER_ROW_H     = 0x10
+local BYTES_PER_SCREEN_V  = 0x200
+local BYTES_PER_HALF_V    = 0x100   -- 16 cols × 16 rows per half
+local BYTES_PER_ROW_V     = 0x10
 
 local MEM = emu.memType.snesMemory
 local function r(addr)        return emu.read(addr, MEM) end
@@ -75,23 +114,40 @@ end
 
 -- Sublevel detection via Layer1DataPtr reverse-lookup.
 --
--- During gameplay, the L1 parser stops AT the $FF terminator, leaving
--- Layer1DataPtr ($7E:0065-0067) pointing AT that $FF. By walking every map
--- in the ROM's L1 pointer table to its own $FF terminator, we can build
--- a cache keyed on the end-pointer. When the player pipes into a sub-area,
--- Layer1DataPtr changes to the new map's end-pointer and the cache gives
--- us its map-id directly.
+-- During gameplay, the object parser (bank_05.asm LoadLevelData line 677)
+-- stops AT the $FF terminator, leaving Layer1DataPtr ($7E:0065-0067)
+-- pointing AT that $FF. But there's a subtlety: after finishing L1, the
+-- level loader REUSES Layer1DataPtr for L2 parsing — it copies
+-- `Layer2DataPtr + 5` into Layer1DataPtr and jumps back to LoadAgain
+-- (bank_05.asm LoadLevel path around line 424-470). So the live end-
+-- pointer depends on the level's L2 type:
+--
+--   L2 preset (L2 bank byte = $FF): game never runs object parsing for
+--     L2, so Layer1DataPtr stays at L1's $FF.
+--   L2 object stream (bank != $FF): parser re-runs on L2, leaving
+--     Layer1DataPtr at L2's $FF instead.
+--
+-- Missing this branch routes all object-stream-L2 levels to their parent
+-- level's folder via the translevel fallback — we saw this with level
+-- $0E7 (a vertical sub-area of $007) whose vertical ticks landed in
+-- 007/dumps.txt. Fix: cache whichever end-pointer will actually be live.
 --
 -- Verified: $106 start=$068A2F end=$068BB2 matches live; $1CA start=$068BB3
--- end=$068BDD matches live. 194 unique entries built from the running ROM.
+-- end=$068BDD matches live; $0E7 L2-end=$069F63 now routes to $0E7.
 local LEVEL_COUNT = 0x200
+local L1_PTR_TABLE = 0x05E000
+local L2_PTR_TABLE = 0x05E600
 local mapCache = nil                 -- [end-pointer] = map-id
 local mapCacheBuilt = false
 
--- Walk L1 stream from startAddr until $FF terminator. Returns the SNES
--- address of the $FF byte itself. Handles both 3-byte objects and 4-byte
--- screen-exit extended objects (extended object with settings == 0).
-local function walkL1End(startAddr)
+-- Walk an object stream from startAddr until $FF terminator. Returns the
+-- SNES address of the $FF byte itself. Handles both 3-byte objects and
+-- 4-byte screen-exit extended objects (extended object with settings == 0).
+--
+-- `startAddr` is the raw L1/L2 pointer value: the walker adds 5 to skip
+-- what the game treats as a header (L1 really has one; L2 doesn't but the
+-- game skips 5 bytes anyway via LoadLevel's `ADC #$05`).
+local function walkObjStreamEnd(startAddr)
   local p = startAddr + 5
   for _ = 1, 2048 do
     local b0 = r(p)
@@ -109,16 +165,28 @@ local function walkL1End(startAddr)
   return nil
 end
 
+local function readPtr(tableBase, i)
+  local lo   = r(tableBase + i * 3)     or 0
+  local hi   = r(tableBase + i * 3 + 1) or 0
+  local bank = r(tableBase + i * 3 + 2) or 0
+  return bank * 0x10000 + hi * 0x100 + lo, bank
+end
+
 local function buildMapCache()
   mapCacheBuilt = true
   mapCache = {}
-  local tableBase = 0x05E000
   for i = 0, LEVEL_COUNT - 1 do
-    local lo   = r(tableBase + i * 3)     or 0
-    local hi   = r(tableBase + i * 3 + 1) or 0
-    local bank = r(tableBase + i * 3 + 2) or 0
-    local start = bank * 0x10000 + hi * 0x100 + lo
-    local endAddr = walkL1End(start)
+    local l1Start, _          = readPtr(L1_PTR_TABLE, i)
+    local l2Start, l2Bank     = readPtr(L2_PTR_TABLE, i)
+    -- Pick the end-pointer the game will actually leave Layer1DataPtr at.
+    -- Preset L2 (bank $FF) or unused L2 (bank $00): L1 end wins.
+    -- Object-stream L2: L2 end wins (L1 ran first, then got overwritten).
+    local endAddr
+    if l2Bank == 0xFF or l2Bank == 0 then
+      endAddr = walkObjStreamEnd(l1Start)
+    else
+      endAddr = walkObjStreamEnd(l2Start)
+    end
     if endAddr ~= nil and mapCache[endAddr] == nil then
       mapCache[endAddr] = i
     end
@@ -215,18 +283,42 @@ end
 -- First file open is lazy inside onFrame. Opening at script start would
 -- truncate the last-visited level's dump if the user is on the overworld.
 
-local function tileAt(col, row)
+-- True when the current level is Layer-1 vertical.
+-- ScreenMode ($7E005B) bit 0 is set by LoadLevel via VerticalTable lookup
+-- (bank_05.asm:552). We read the live value rather than recomputing from
+-- LevelModeSetting so we automatically track sub-area transitions.
+local function levelIsVertical()
+  return (r(0x7E005B) % 2) == 1
+end
+
+local function tileAtHoriz(col, row)
   local screen = col // 16
   local cs     = col % 16
-  local off    = screen * BYTES_PER_SCREEN + row * BYTES_PER_ROW + cs
+  local off    = screen * BYTES_PER_SCREEN_H + row * BYTES_PER_ROW_H + cs
   return ((r(0x7FC800 + off) % 2) * 256) + r(0x7EC800 + off)
 end
 
+local function tileAtVert(col, row)
+  local screen   = row // 16
+  local rs       = row % 16
+  local halfIdx  = col // 16        -- 0 = left half (cols 0-15), 1 = right half (16-31)
+  local halfCol  = col % 16
+  local off = screen * BYTES_PER_SCREEN_V
+           + halfIdx * BYTES_PER_HALF_V
+           + rs * BYTES_PER_ROW_V
+           + halfCol
+  return ((r(0x7FC800 + off) % 2) * 256) + r(0x7EC800 + off)
+end
+
+local function tileAt(col, row)
+  if levelIsVertical() then return tileAtVert(col, row) end
+  return tileAtHoriz(col, row)
+end
+
 local tickNum = 0
+
+-- Horizontal dump: LEFT_PAD..RIGHT_PAD cols around marioCol × all 27 rows.
 local function dumpAroundCol(marioCol)
-  -- Skip dumping entirely if we have no open file. Otherwise dumps get
-  -- routed to emu.log (because writeLine falls back to log on startup),
-  -- flooding the Script Window console with tile grids.
   if not file then return end
   tickNum = tickNum + 1
   local lo = math.max(0, marioCol - LEFT_PAD)
@@ -235,7 +327,30 @@ local function dumpAroundCol(marioCol)
   for row = ROW_LO, ROW_HI do
     local line = string.format("r%2d:", row)
     for col = lo, hi do
-      local id = tileAt(col, row)
+      local id = tileAtHoriz(col, row)
+      if id == 0x25 then line = line .. " .  "
+      else              line = line .. string.format("%03x ", id) end
+    end
+    writeLine(line)
+  end
+  file:flush()
+end
+
+-- Vertical dump: all 32 cols (full level width) × UP_PAD..DOWN_PAD rows
+-- around marioRow. Row numbers are absolute (0..screens*16-1) so a multi-
+-- screen vertical level produces row indices >= 16 naturally. The dump
+-- header tags the orientation so downstream consumers know which formula
+-- to use when reconstructing (col, row).
+local function dumpAroundRow(marioRow)
+  if not file then return end
+  tickNum = tickNum + 1
+  local lo = math.max(0, marioRow - UP_PAD)
+  local hi = marioRow + DOWN_PAD
+  writeLine(string.format("=== tick %d  marioRow=%d  range=%d..%d (VERTICAL) ===", tickNum, marioRow, lo, hi))
+  for row = lo, hi do
+    local line = string.format("r%3d:", row)
+    for col = 0, VERT_COLS - 1 do
+      local id = tileAtVert(col, row)
       if id == 0x25 then line = line .. " .  "
       else              line = line .. string.format("%03x ", id) end
     end
@@ -277,8 +392,48 @@ end
 -- ── Mode state ────────────────────────────────────────────────────────────
 local autoScroll = false        -- default: hands-off NORMAL mode
 local prevSpace  = false
-local floatY     = FLOAT_Y_PX   -- AUTO-SCROLL clamp target; Up/Down tweak it
+local floatY     = FLOAT_Y_PX   -- Horizontal AUTO-SCROLL Y clamp; Up/Down tweak it
+local floatX     = FLOAT_X_PX   -- Vertical   AUTO-SCROLL X clamp; Left/Right tweak it
 local wasInLevel = false        -- detects re-entry even when the level number repeats
+local stableFrames = 0          -- frames spent continuously in gameMode=$14
+
+-- GameMode labels from rammap.asm:982-1021. The important cluster for the
+-- auto-walker is the level-transition sequence $0F..$13 and its landing
+-- state $14. The full table is included so the HUD shows something sensible
+-- in any mode.
+local GAMEMODE_NAMES = {
+  [0x00] = "LoadPresents",
+  [0x01] = "Presents",
+  [0x02] = "FadeToTitle",
+  [0x03] = "LoadTitle",
+  [0x04] = "PrepareTitle",
+  [0x05] = "FadeInTitle",
+  [0x06] = "SpotlightTitle",
+  [0x07] = "TitleScreen",
+  [0x08] = "FileSelect",
+  [0x09] = "FileDelete",
+  [0x0A] = "PlayerSelect",
+  [0x0B] = "FadeToOverworld",
+  [0x0C] = "LoadOverworld",
+  [0x0D] = "FadeInOverworld",
+  [0x0E] = "Overworld",
+  [0x0F] = "FadeToLevel",
+  [0x10] = "FadeLevelBlack",
+  [0x11] = "LoadLevel",
+  [0x12] = "PrepareLevel",
+  [0x13] = "FadeInLevel",
+  [0x14] = "Level",
+  [0x15] = "FadeToGameOver",
+  [0x16] = "LoadGameOver",
+  [0x17] = "GameOver",
+  [0x18] = "FadeToCutscene",
+  [0x19] = "LoadCutscene",
+  [0x1A] = "FadeInCutscene",
+  [0x1B] = "Cutscene",
+}
+local function gameModeLabel(m)
+  return GAMEMODE_NAMES[m] or "?"
+end
 
 -- ── Sub-area detection diagnostics ────────────────────────────────────────
 -- SublevelCount at $7E141A is SMW's own bookkeeping: incremented every
@@ -303,12 +458,15 @@ local function drawLevelHud()
   local l1bk = r(0x7E0067)
   local sub    = r(0x7E141A)
   local lln    = r(0x7E17BB)
+  local scrMode = r(0x7E005B)
+  local vert    = levelIsVertical()
   local fileStatus = file and ("file: $" .. string.format("%03x", currentFileLevel) .. " open")
                            or "file: <none>"
   local lvlStr = lvl and ("$" .. string.format("%03x", lvl)) or "?"
   local color  = lvl and 0x00FF88 or 0xFFFF00
-  emu.drawString(8, 30, string.format("map=%s  TL=%02X  L1Ptr=%02X:%02X%02X",
-    lvlStr, tl, l1bk, l1hi, l1lo), color, 0x000000)
+  local orient = vert and "VERT" or "HORIZ"
+  emu.drawString(8, 30, string.format("map=%s  TL=%02X  L1Ptr=%02X:%02X%02X  %s(scr=%02X)",
+    lvlStr, tl, l1bk, l1hi, l1lo, orient, scrMode), color, 0x000000)
   emu.drawString(8, 40, fileStatus, color, 0x000000)
   local snapStr = snapshotLevel
     and string.format("$%03x", snapshotLevel)
@@ -358,7 +516,16 @@ local function onFrame()
   prevL1Key = l1Key
 
   if gameMode ~= 0x14 then
+    -- Edge log: we were stable in level play last frame; now we're not.
+    -- This marks the START of a transition (pipe, door, death, exit).
+    if wasInLevel then
+      emu.log(string.format(
+        "[STABLE_EDGE] stable->transition  gameMode=%02X %s  afterFrames=%d  currentFile=%s",
+        gameMode, gameModeLabel(gameMode), stableFrames,
+        currentFileLevel == -1 and "<none>" or string.format("$%03x", currentFileLevel)))
+    end
     wasInLevel = false
+    stableFrames = 0
     -- Overworld fully exits level-chain: wipe per-session state so the next
     -- level visit starts a fresh dumps.txt, and drop back to NORMAL mode so
     -- the user has to re-engage AUTO-SCROLL manually on the next level.
@@ -370,7 +537,8 @@ local function onFrame()
       snapshotLevel = nil
       emu.log("session reset: overworld, NORMAL mode restored")
     end
-    emu.drawString(8, 8, string.format("PAUSED  mode=0x%02x", gameMode), 0xFFFF00, 0x000000)
+    emu.drawString(8, 8, string.format("%s  (0x%02X)",
+      gameModeLabel(gameMode), gameMode), 0xFFFF00, 0x000000)
     drawLevelHud()
     return
   end
@@ -383,14 +551,14 @@ local function onFrame()
   -- Resolve current map-id with confidence tracking. The TranslevelNo
   -- fallback always returns the PARENT overworld map-id, which is WRONG
   -- during sub-area play. SMW also briefly writes sentinel values like
-  -- $00BDA8 to Layer1DataPtr during pipe/door entry, causing the L1Ptr
-  -- cache to miss mid-play. Without confidence tracking we'd fall through
-  -- to TranslevelNo on every sentinel frame and incorrectly switch the
-  -- dump file back to the parent map.
+  -- $00BDA8 to Layer1DataPtr during pipe/door entry (GenerateTile in
+  -- bank_00.asm:7179 overwrites $7E0065-0067 with the LoadBlkPtrs scratch
+  -- address when Mario hits any interactive block), causing the L1Ptr cache
+  -- to miss mid-play.
   --
   -- Policy: require a high-confidence signal (snapshot or L1Ptr cache hit)
-  -- to open or switch files. A TL-only answer is allowed only for the
-  -- very first file-open (currentFileLevel == -1) so OW entry still works
+  -- to open or switch files. A TL-only answer is allowed only for the very
+  -- first file-open (currentFileLevel == -1) so overworld entry still works
   -- if the L1Ptr cache hasn't built yet.
   local snapLevel = currentLevelBySnapshot()
   local l1Level   = currentLevelByL1Ptr()
@@ -399,6 +567,17 @@ local function onFrame()
   local highConfidence = (snapLevel ~= nil) or (l1Level ~= nil)
   local justEntered = not wasInLevel
   wasInLevel = true
+  stableFrames = stableFrames + 1
+  if justEntered then
+    -- Edge log: transition just finished. Record which signal resolved
+    -- the level-id (snapshot > L1Ptr cache > translevel fallback).
+    emu.log(string.format(
+      "[STABLE_EDGE] transition->stable  gameMode=14 Level  resolved=%s (conf=%s)  prevFile=%s",
+      nowLevel and string.format("$%03x", nowLevel) or "nil",
+      highConfidence and "high" or "low",
+      currentFileLevel == -1 and "<none>" or string.format("$%03x", currentFileLevel)))
+    stableFrames = 1
+  end
   if nowLevel ~= nil and (justEntered or nowLevel ~= currentFileLevel) then
     if highConfidence or currentFileLevel == -1 then
       openFileForLevel(nowLevel)
@@ -408,54 +587,96 @@ local function onFrame()
 
   -- Space edge-toggle.
   local spaceNow = keyPressed("Space")
+  local vert     = levelIsVertical()
   if spaceNow and not prevSpace then
     autoScroll = not autoScroll
     if autoScroll then
-      floatY = FLOAT_Y_PX   -- snap clamp target back to sky on engage
+      -- Snap the cross-axis clamp back to its default on engage. Orientation-
+      -- specific: horizontal clamps Y (sky), vertical clamps X (mid-screen).
+      if vert then floatX = FLOAT_X_PX else floatY = FLOAT_Y_PX end
     end
-    emu.log("AUTO-SCROLL: " .. (autoScroll and "ON" or "OFF"))
+    emu.log("AUTO-SCROLL: " .. (autoScroll and "ON" or "OFF") .. "  (" .. (vert and "vertical" or "horizontal") .. ")")
   end
   prevSpace = spaceNow
+
+  local marioCol = marioX() // 16
+  local marioRow = marioY() // 16
 
   if not autoScroll then
     -- NORMAL mode: hands off Mario entirely. SMW physics + SNES controller
     -- (which keyboard arrows map to by default in Mesen) drive the game.
     -- Dumps still fire so manual playthroughs get captured.
-    emu.drawString(8, 8,  "NORMAL  (tap Space for auto-scroll)", 0xFFFFFF, 0x000000)
-    emu.drawString(8, 18, string.format("col=%d  marioY=0x%04x  tick=%d",
-      marioX() // 16, marioY(), tickNum), 0xFFFFFF, 0x000000)
+    emu.drawString(8, 8, string.format("NORMAL  STABLE %d  (tap Space for auto-scroll)",
+      stableFrames), 0xFFFFFF, 0x000000)
+    if vert then
+      emu.drawString(8, 18, string.format("col=%d  row=%d  marioY=0x%04x  tick=%d",
+        marioCol, marioRow, marioY(), tickNum), 0xFFFFFF, 0x000000)
+    else
+      emu.drawString(8, 18, string.format("col=%d  marioY=0x%04x  tick=%d",
+        marioCol, marioY(), tickNum), 0xFFFFFF, 0x000000)
+    end
     drawLevelHud()
     if frames % TICK_FRAMES == 0 then
-      dumpAroundCol(marioX() // 16)
+      if vert then dumpAroundRow(marioRow) else dumpAroundCol(marioCol) end
     end
     return
   end
 
-  -- AUTO-SCROLL: arrow-key nudges, clamp-to-floatY, auto-advance X.
+  -- AUTO-SCROLL: arrow-key nudges, clamp the cross-axis, auto-advance the
+  -- main axis. Direction depends on orientation:
+  --   horizontal: clamp Y (floatY), advance X         (→)
+  --   vertical:   clamp X (floatX), advance Y downward (↓) — vanilla vertical
+  --               levels descend; reverse with Up to nudge back.
   local nudged = false
-  if keyPressed("Right") then setMarioX(marioX() + NUDGE_PX); nudged = true end
-  if keyPressed("Left")  then setMarioX(math.max(0, marioX() - NUDGE_PX)); nudged = true end
-  if keyPressed("Up")    then floatY = math.max(0, floatY - NUDGE_PX); nudged = true end
-  if keyPressed("Down")  then floatY = floatY + NUDGE_PX; nudged = true end
+  if vert then
+    if keyPressed("Down")  then setMarioY(marioY() + NUDGE_PX); nudged = true end
+    if keyPressed("Up")    then setMarioY(math.max(0, marioY() - NUDGE_PX)); nudged = true end
+    if keyPressed("Left")  then floatX = math.max(0, floatX - NUDGE_PX); nudged = true end
+    if keyPressed("Right") then floatX = floatX + NUDGE_PX; nudged = true end
 
-  setMarioY(floatY)
-  w(MARIO_VX, 0)
-  w(MARIO_VY, 0)
+    setMarioX(floatX)
+    w(MARIO_VX, 0)
+    w(MARIO_VY, 0)
 
-  if not nudged then
-    setMarioX(marioX() + STEP_PIXELS)
+    if not nudged then
+      setMarioY(marioY() + STEP_PIXELS)
+    end
+  else
+    if keyPressed("Right") then setMarioX(marioX() + NUDGE_PX); nudged = true end
+    if keyPressed("Left")  then setMarioX(math.max(0, marioX() - NUDGE_PX)); nudged = true end
+    if keyPressed("Up")    then floatY = math.max(0, floatY - NUDGE_PX); nudged = true end
+    if keyPressed("Down")  then floatY = floatY + NUDGE_PX; nudged = true end
+
+    setMarioY(floatY)
+    w(MARIO_VX, 0)
+    w(MARIO_VY, 0)
+
+    if not nudged then
+      setMarioX(marioX() + STEP_PIXELS)
+    end
   end
 
-  local marioCol = marioX() // 16
+  -- Re-read post-move positions so the HUD + dump line up with what
+  -- we just set. Cheap and keeps status honest under a NUDGE tap.
+  marioCol = marioX() // 16
+  marioRow = marioY() // 16
+
   local remaining = TICK_FRAMES - (frames % TICK_FRAMES)
   local secs = math.ceil(remaining / 60)
   local status = nudged and "NUDGE" or "AUTO"
-  emu.drawString(8, 8,  string.format("%s  DUMP IN %ds  (Space to stop)", status, secs), 0x00FF00, 0x000000)
-  emu.drawString(8, 18, string.format("col=%d  tick=%d  floatY=0x%02x", marioCol, tickNum, floatY), 0x00FF00, 0x000000)
+  emu.drawString(8, 8,  string.format("%s  STABLE %d  DUMP IN %ds  (Space to stop)",
+    status, stableFrames, secs), 0x00FF00, 0x000000)
+  if vert then
+    emu.drawString(8, 18, string.format("col=%d  row=%d  tick=%d  floatX=0x%02x",
+      marioCol, marioRow, tickNum, floatX), 0x00FF00, 0x000000)
+  else
+    emu.drawString(8, 18, string.format("col=%d  tick=%d  floatY=0x%02x",
+      marioCol, tickNum, floatY), 0x00FF00, 0x000000)
+  end
   drawLevelHud()
 
   if frames % TICK_FRAMES == 0 then
-    dumpAroundCol(marioCol)
+    if vert then dumpAroundRow(marioRow) else dumpAroundCol(marioCol) end
   end
 end
 
@@ -484,6 +705,6 @@ local function onFWrite(address, value)
 end
 emu.addMemoryCallback(onFWrite, emu.callbackType.write, 0x7E000F)
 
-writeLine(string.format("# auto-walker session start  tick_frames=%d  step=%dpx  float_y=0x%02x",
-  TICK_FRAMES, STEP_PIXELS, FLOAT_Y_PX))
+writeLine(string.format("# auto-walker session start  tick_frames=%d  step=%dpx  float_y=0x%02x  float_x=0x%02x",
+  TICK_FRAMES, STEP_PIXELS, FLOAT_Y_PX, FLOAT_X_PX))
 if file then file:flush() end
