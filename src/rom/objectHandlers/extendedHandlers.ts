@@ -242,6 +242,39 @@ export function handle_0DC31E(cur: Cursor): void {
 }
 
 /**
+ * CODE_0DDAA2 (bank_0D.asm line 6426) -- 2x2 accent block on page 1.
+ *
+ * Fixed layout, no size-byte parameters: writes DATA_0DDA9E[0..3] = $66/$67/
+ * $68/$69 into a 2x2 grid at (col0, row0). The ASM's `AND #$01 BNE -` pattern
+ * toggles row advancement on every odd X, yielding:
+ *   (col0, row0)   = $66    (col0+1, row0)   = $67
+ *   (col0, row0+1) = $68    (col0+1, row0+1) = $69
+ */
+export function handle_0DDAA2(cur: Cursor): void {
+  // LDA.L DATA_0DDA9E,X — opcode $BF at +10, operand at +11.
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 11)
+  const tiles = [
+    cur.rom.readByte(tableAddr + 0) ?? 0,
+    cur.rom.readByte(tableAddr + 1) ?? 0,
+    cur.rom.readByte(tableAddr + 2) ?? 0,
+    cur.rom.readByte(tableAddr + 3) ?? 0,
+  ]
+  const col0 = cur.col, row0 = cur.row
+  setPage1(cur)
+  writeTile(cur, tiles[0])
+  cur.col = col0 + 1
+  writeTile(cur, tiles[1])
+  cur.col = col0
+  cur.row = row0 + 1
+  setPage1(cur)
+  writeTile(cur, tiles[2])
+  cur.col = col0 + 1
+  writeTile(cur, tiles[3])
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
  * CODE_0DB583 (bank_0D.asm line 3726) -- yellow switch-palace block (single tile).
  *
  * X=1 (LDX #$01) selects index 1 in the shared data tables. Falls through to
