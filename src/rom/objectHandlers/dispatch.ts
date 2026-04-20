@@ -39,7 +39,8 @@ import {
   handle_0DD182, handle_0DD1A5,
   handle_0DD1D9, handle_0DD24E,
   handle_0DDCEA, handle_0DDD2E, handle_0DDD5C, handle_0DE135,
-  handle_0DECC9, handle_0DED43, handle_0DED6B, handle_0DED99, handle_0DEEC0,
+  handle_0DECC9, handle_0DED43, handle_0DED6B, handle_0DED99,
+  handle_0DEDDB, handle_0DEE17, handle_0DEE52, handle_0DEE89, handle_0DEEC0,
 } from './standardHandlers'
 import {
   handle_0DA512, handle_0DA53D, handle_0DA57B,
@@ -50,7 +51,7 @@ import {
   handle_0DC31E,
   handle_0DDAA2,
   handle_0DCE67, handle_0DCE94, handle_0DCEA6, handle_0DCEC0, handle_0DCEDA,
-  handle_0DEC33,
+  handle_0DE95F, handle_0DEC33, handle_0DEC5C, handle_0DEC8E,
 } from './extendedHandlers'
 
 /** A handler writes tiles into `cur.grid` based on `cur.objNo` and `cur.size`. */
@@ -113,6 +114,10 @@ export const STANDARD_HANDLERS: Record<number, HandlerFn> = {
   0x0DED43: handle_0DED43,
   0x0DED6B: handle_0DED6B,
   0x0DED99: handle_0DED99,
+  0x0DEDDB: handle_0DEDDB,
+  0x0DEE17: handle_0DEE17,
+  0x0DEE52: handle_0DEE52,
+  0x0DEE89: handle_0DEE89,
   0x0DEEC0: handle_0DEEC0,
 }
 
@@ -140,7 +145,10 @@ export const EXTENDED_HANDLERS: Record<number, HandlerFn> = {
   0x0DCEC0: handle_0DCEC0,
   0x0DCEDA: handle_0DCEDA,
   0x0DDAA2: handle_0DDAA2,
+  0x0DE95F: handle_0DE95F,
   0x0DEC33: handle_0DEC33,
+  0x0DEC5C: handle_0DEC5C,
+  0x0DEC8E: handle_0DEC8E,
 }
 
 /**
