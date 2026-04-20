@@ -1832,7 +1832,11 @@ export function handle_0DC44F(cur: Cursor): void {
  *   DATA_0DC472 = [$5E, $61, $64]  -- middle fill for each
  *   DATA_0DC475 = [$5F, $62, $65]  -- right cap for each
  *
- *   Size byte: HHHHWWWW -- W width-1 of middle section, H = total rows - 1.
+ *   Size byte: HHHHWWWW -- W = (total row width) - 1, H = total rows - 1.
+ *   Per row the ASM writes: 1 left cap + (W-1) middles + 1 right cap = W+1 tiles.
+ *   The loop seeds _2 = W, writes the left cap, then DECs _2 before each middle,
+ *   so W=1 emits 0 middles (cap-cap), W=2 emits 1 middle, W=6 emits 5 middles.
+ *
  *   Row 0 uses X=0 (top segment: $5D / $5E / $5F).
  *   Middle rows (if any) use X=1 ($60 / $61 / $62).
  *   Final row uses X=2 ($63 / $64 / $65).
@@ -1840,9 +1844,6 @@ export function handle_0DC44F(cur: Cursor): void {
  *   The ASM picks "final row" via X=2 when _1 reaches 0 AFTER decrement;
  *   otherwise X stays at 1. So H=0 → 1 row (top only). H=1 → top + bottom.
  *   H>=2 → top + (H-1) middles + bottom.
- *
- * Each row: Sta1To6ePointer + left cap (advance), Sta1To6ePointer + W middle
- * fills (advance), Sta1To6ePointer + right cap (no advance), restore + row++.
  */
 export function handle_0DC478(cur: Cursor): void {
   const widthM1 = cur.size & 0x0F
@@ -1865,7 +1866,7 @@ export function handle_0DC478(cur: Cursor): void {
     const rightTile = cur.rom.readByte(addrRight + X) ?? 0
 
     setPage1(cur); writeTileAdvance(cur, leftTile)
-    for (let c = 0; c < widthM1; c++) {
+    for (let c = 0; c < widthM1 - 1; c++) {
       setPage1(cur); writeTileAdvance(cur, midTile)
     }
     setPage1(cur); writeTile(cur, rightTile)   // STA [Map16LowPtr],Y no advance
