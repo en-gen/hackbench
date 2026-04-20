@@ -40,6 +40,7 @@ Complete the viewer so every level renders pixel-accurately.
 | Map16 subtile order fix | Easy | - | Swap w1/w2 (column-major: TL, BL, TR, BR) |
 | Remaining object handlers | Hard | `$0DA100` (extended), `$0DA40F` (normal) in bank_0D | ~40 unimplemented object types |
 | L2 texture rendering | Medium | `$05E600` (L2 pointers), bank $0D | Render L2 as textured tiles, not just blocks |
+| BG parallax-correct preview | Medium | `DATA_05F000` (per-level byte), `DATA_05D710` (VertLayer2Setting translation), `CODE_00A796` (scroll formula) | Stretch/offset the L2 preset by the level's vertical scroll ratio so the editor shows the BG as the player sees it in-game. Per-level lookup: `VertLayer2Setting = DATA_05D710[DATA_05F000[level] >> 4]`, then `bg_y = (fg_y >> shift) + layer2Y`. Hides the `$25` padding strip that LM renders as visible gaps on vertical levels — one of the first concrete ways hackbench's view can beat LM's editor experience. Ship alongside a toggle so the raw/LM view is still available for data-accurate editing. |
 | Animated tile cycling | Medium | `$05B93B` (AnimatedTileData), 5-frame cycle | Water, lava, coins, question blocks, berries |
 | Layer 3 tides/effects | Medium | `$008A79` (Layer3TilemapSettings) | Parallax, water level overlays |
 | Correct sprite rendering | Hard | Banks $01-$03 sprite routines | Show sprite graphics instead of red squares |

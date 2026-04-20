@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import { SmwRom, ADDR } from '../rom/SmwRom'
-import { parseLevelObjects, parseLevelSprites } from '../rom/LevelParser'
+import { parseLevelObjects, parseLevelSprites, isLevelModeVerticalL2 } from '../rom/LevelParser'
 import { loadAllMap16, loadAllMap16BG } from '../rom/Map16'
 import { loadRomPalettes, buildLevelCgram, loadBackAreaColors, getPaletteColor } from '../rom/PaletteLoader'
 import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, getCharPixels, type VramState, type GfxSheet } from '../rom/GfxLoader'
@@ -9,7 +9,7 @@ import { loadAnimationData, ANIM_INTERVAL_MS } from '../rom/AnimationLoader'
 import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
 type RgbaColor = [number, number, number, number]
 import { expandMap } from '../rom/ObjectExpander'
-import { loadL2Preset, loadL2Objects, readL2Pointer, isPresetPtr, L2_TILEMAP_COLS, L2_TILEMAP_ROWS } from '../rom/L2Loader'
+import { loadL2Preset, loadL2Objects, readL2Pointer, isPresetPtr, L2_TILEMAP_COLS, L2_TILEMAP_ROWS, L2_BG_PLANE_ROWS, L2_EMPTY_TILE } from '../rom/L2Loader'
 import { getLevelMusicBgm } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
 import { SCREEN_W, SCREEN_H, SCREEN_W_VERT, SCREEN_H_VERT } from '../rom/LevelParser'
@@ -134,25 +134,41 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       let l2TileGrid: number[][] | null = null
       let l2UsesBgAtlas = false
       const levelL2Ptr = readL2Pointer(rom.rom, index) ?? 0
+      // L2 verticality is an independent bit from L1. Per bank_05.asm
+      // LoadLevelData (lines 707-715) the game right-shifts the VerticalTable
+      // entry for LayerProcessing=1 before checking bit 0, so L2 tracks bit 1
+      // of the same entry. Vanilla mode-10 levels (0C2, 0DB, 0EA, 0F7, 108,
+      // 109, 12A, 134, 1ED) have vertical L1 but horizontal L2.
+      const isVerticalL2 = isLevelModeVerticalL2(header.levelMode)
       if (levelL2Ptr !== 0 && isPresetPtr(levelL2Ptr)) {
         const preset = loadL2Preset(rom.rom, levelL2Ptr)
         if (preset) {
           l2UsesBgAtlas = true
-          // Tile the 32×27 preset grid across the full L1 area. Mirrors how the
-          // live game scrolls the BG: the same pattern repeats in both axes.
-          // Horizontal: level width × 27 rows. Vertical: 32 × (screens*16) rows.
+          // Tile the preset across the L1 footprint. The PPU's BG2 sub-tilemap
+          // is 32×32 (1024 bytes); only rows 0..26 hold preset data and rows
+          // 27..31 stay at the $25 init fill (CODE_05801E). For vertical
+          // levels the BG scrolls vertically and the sub-tilemap wraps every
+          // 32 rows, so the pattern repeats with a 5-row $25 strip between
+          // iterations — matches the gap Lunar Magic shows between screens.
+          // Horizontal levels never exceed 27 visible rows so the wrap
+          // distinction doesn't matter.
           const cols = isVertical ? SCREEN_W_VERT : screens * SCREEN_W
           const rows = isVertical ? screens * SCREEN_H_VERT : SCREEN_H
+          const bgPaddingTile = (preset.page << 8) | L2_EMPTY_TILE
           l2TileGrid = Array.from({ length: rows }, (_, r) =>
-            Array.from({ length: cols }, (_, c) =>
-              preset.grid[r % L2_TILEMAP_ROWS][c % L2_TILEMAP_COLS],
-            ),
+            Array.from({ length: cols }, (_, c) => {
+              const rr = r % L2_BG_PLANE_ROWS
+              return rr < L2_TILEMAP_ROWS
+                ? preset.grid[rr][c % L2_TILEMAP_COLS]
+                : bgPaddingTile
+            }),
           )
         }
       } else if (levelL2Ptr !== 0 && !isPresetPtr(levelL2Ptr)) {
         // Object-stream L2. Uses L1's screens + tileset, no BG atlas.
+        // Orientation comes from L2's own bit, not L1's.
         const tilesetForL2 = overrides.tilesetId ?? header.objectTileset
-        const objL2 = loadL2Objects(rom.rom, levelL2Ptr, screens, tilesetForL2, isVertical)
+        const objL2 = loadL2Objects(rom.rom, levelL2Ptr, screens, tilesetForL2, isVerticalL2)
         if (objL2) {
           l2TileGrid = objL2.grid
         }
@@ -271,6 +287,21 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       // ── Raw indexed VRAM for client-side Map16 composition ──
       // 1 byte per pixel (palette index), 64 bytes per char, 1536 chars.
       // Per-frame indexed data built alongside VRAM sheets above.
+      // ── Layer 2 scroll settings ─────────────────────────────────────────
+      // CODE_05D26E (bank_05.asm:7268-7277) reads byte $05F000+levelIndex,
+      // takes the top nibble, and uses it as index into the 16-byte scroll
+      // tables at $05D710 (VertLayer2Setting) and $05D720 (HorizLayer2Setting).
+      // Each setting is 0..3 and drives the per-frame scroll divisor:
+      //   0 = BG locked (no update), 1 = 1:1, 2 = 1/2 rate, 3 = 1/32 rate
+      // (bank_00.asm:13735-13749 — px-wise shifts 0, 1, 5 for the non-zero
+      // settings). The 1/32 rate is why vanilla mode-10 vertical levels never
+      // expose the $25 padding strip in-game: BG scrolls so slowly that the
+      // 32-row wrap is never reached within the level's height.
+      const scrollByte = rom.rom.readByte(0x05F000 + index) ?? 0
+      const scrollIndex = (scrollByte >> 4) & 0x0F
+      const vertLayer2Setting  = rom.rom.readByte(0x05D710 + scrollIndex) ?? 0
+      const horizLayer2Setting = rom.rom.readByte(0x05D720 + scrollIndex) ?? 0
+
       const vramIndexed = buildVramIndexed(vram)
       const extraVramIndexed: number[][] = []
       if (animData && animFrameCount > 1) {
@@ -354,6 +385,8 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
           spritePalette,
           marioVariant,
           gfxTilesetId:   objectTileset,
+          vertLayer2Setting,
+          horizLayer2Setting,
         },
       })
     } catch (err) {

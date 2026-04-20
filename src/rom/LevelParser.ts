@@ -39,6 +39,17 @@ export function isLevelModeVertical(levelMode: number): boolean {
 }
 
 /**
+ * True if a level's Layer 2 is vertical, per the ROM's VerticalTable (bit 1).
+ * Per bank_05.asm LoadLevelData (lines 707-715): when LayerProcessing=1 (L2)
+ * the game right-shifts ScreenMode once before AND #$01, so L2's vertical bit
+ * lives at position 1 of the same table entry.
+ */
+export function isLevelModeVerticalL2(levelMode: number): boolean {
+  const entry = LEVEL_MODE_VERTICAL_TABLE[levelMode & 0x1F] ?? 0
+  return (entry & 0x02) !== 0
+}
+
+/**
  * SMW Level Primary Header -- 5 bytes at the start of Layer 1 data.
  *
  * Byte layout from CODE_0584E3:
