@@ -243,22 +243,72 @@ describe('parseLevelSprites', () => {
     expect(parseLevelSprites(Buffer.from([0x00, 0xFF]))).toHaveLength(0)
   })
 
-  it('parses a single sprite (3-byte format with header byte)', () => {
-    // Byte 0: header (buoyancy + memory settings)
-    // Sprite entry: b0=0x40, b1=0x0A, b2=0x0E
-    //   y = (b0 >> 4) & 0xF = 4
-    //   x = b1 & 0xF = 0xA = 10
-    //   screen = (b1 >> 4) & 0xF = 0
-    //   spriteId = b2 = 0x0E
-    const result = parseLevelSprites(Buffer.from([0x00, 0x40, 0x0A, 0x0E, 0xFF]))
+  it('parses a single sprite: b0=YYYYEEsy, b1=XXXXSSSS, b2=id', () => {
+    // Byte 0: header (buoyancy + memory settings) = 0x00
+    // Entry: b0=0x40 (YYYY=4, EE=0, s=0, y=0)
+    //        b1=0xA0 (XXXX=0xA, SSSS=0)       → screen 0, X=10 tiles within screen
+    //        b2=0x0E (sprite id)
+    // Horizontal: abs x = 0*16 + 10 = 10, abs y = 4.
+    const result = parseLevelSprites(Buffer.from([0x00, 0x40, 0xA0, 0x0E, 0xFF]))
     expect(result).toHaveLength(1)
     expect(result[0].spriteId).toBe(0x0E)
-    expect(result[0].y).toBe(4)
+    expect(result[0].screen).toBe(0)
     expect(result[0].x).toBe(10)
+    expect(result[0].y).toBe(4)
+  })
+
+  it('uses byte1 low nibble as screen number', () => {
+    // b1=0x05 → XXXX=0, SSSS=5 → screen 5, x within screen = 0.
+    // Horizontal: abs x = 5*16 + 0 = 80.
+    const result = parseLevelSprites(Buffer.from([0x00, 0x30, 0x05, 0x11, 0xFF]))
+    expect(result).toHaveLength(1)
+    expect(result[0].screen).toBe(5)
+    expect(result[0].x).toBe(80)
+    expect(result[0].y).toBe(3)
+  })
+
+  it('combines b0 bit 1 with b1 low nibble for 5-bit screen number', () => {
+    // b0 bit 1 = s (screen high bit); bit 0 = y (Y high bit).
+    // b0=0x02 → s=1, rest zero. b1=0x03 → SSSS=3 → screen = (1<<4)|3 = 19.
+    // Horizontal: abs x = 19*16 + 0 = 304.
+    const result = parseLevelSprites(Buffer.from([0x00, 0x02, 0x03, 0x20, 0xFF]))
+    expect(result).toHaveLength(1)
+    expect(result[0].screen).toBe(19)
+    expect(result[0].x).toBe(304)
+  })
+
+  it('does NOT treat b0 bit 0 as screen high (bit 0 is Y-high)', () => {
+    // b0=0x01 → y=1 only. Screen high bit is bit 1, which is 0 here.
+    const result = parseLevelSprites(Buffer.from([0x00, 0x01, 0x00, 0x00, 0xFF]))
+    expect(result[0].screen).toBe(0)
+  })
+
+  it('adds the Y-high bit for rows 16-31 in horizontal levels', () => {
+    // Horizontal screens are 27 tiles tall, so rows 16-26 require yHi=1.
+    // b0=0x41 → YYYY=4, yHi=1 → row 16+4 = 20.
+    const result = parseLevelSprites(Buffer.from([0x00, 0x41, 0x00, 0x00, 0xFF]))
+    expect(result[0].y).toBe(20)
+  })
+
+  it('parses extra bits from b0 bits 2-3', () => {
+    // b0=0x0C → EE=0b11 → extra bit flag true.
+    const result = parseLevelSprites(Buffer.from([0x00, 0x0C, 0x00, 0x00, 0xFF]))
+    expect(result[0].extraBit).toBe(true)
   })
 
   it('stops at 0xFF', () => {
-    const result = parseLevelSprites(Buffer.from([0x00, 0x40, 0x0A, 0x0E, 0xFF, 0x10, 0x05, 0x01]))
+    const result = parseLevelSprites(Buffer.from([0x00, 0x40, 0xA0, 0x0E, 0xFF, 0x10, 0x05, 0x01]))
     expect(result).toHaveLength(1)
+  })
+
+  it('vertical level swaps X/Y: YYYY→x, XXXX→within-screen y', () => {
+    // Vertical: YYYY is x-within-screen; XXXX is y-within-screen; SSSS indexes
+    // the vertical screen. b0=0x40 (YYYY=4), b1=0x32 (XXXX=3, SSSS=2).
+    // abs y = 2*16 + 3 = 35; abs x = 4.
+    const result = parseLevelSprites(Buffer.from([0x00, 0x40, 0x32, 0x0E, 0xFF]), true)
+    expect(result).toHaveLength(1)
+    expect(result[0].screen).toBe(2)
+    expect(result[0].x).toBe(4)
+    expect(result[0].y).toBe(35)
   })
 })

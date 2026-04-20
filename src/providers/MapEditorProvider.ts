@@ -4,6 +4,7 @@ import { parseLevelObjects, parseLevelSprites, isLevelModeVerticalL2 } from '../
 import { loadAllMap16BG, loadMap16WithPipeVariants, type Map16Tile } from '../rom/Map16'
 import { loadRomPalettes, loadBackAreaColors, buildLevelCgram } from '../rom/PaletteLoader'
 import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, getCharPixels, type VramState, type GfxSheet } from '../rom/GfxLoader'
+import { readSpriteTileTables, buildSpriteLayout, MAX_SPRITE_ID_WITH_LAYOUT } from '../rom/SpriteTileLoader'
 import { loadAnimationData, ANIM_INTERVAL_MS, type AnimationData } from '../rom/AnimationLoader'
 import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
 import { expandMap } from '../rom/ObjectExpander'
@@ -97,10 +98,10 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       const screens = header.levelLength
 
       const sprPtr = rom.getLevelSpritePointer(index)
-      let sprites = parseLevelSprites(Buffer.alloc(1, 0xFF))
+      let sprites = parseLevelSprites(Buffer.alloc(1, 0xFF), isVertical)
       if (sprPtr) {
         const sprData = rom.rom.readAt(sprPtr, 0x200)
-        if (sprData) sprites = parseLevelSprites(sprData)
+        if (sprData) sprites = parseLevelSprites(sprData, isVertical)
       }
 
       // ── Build L1 tile grid ────────────────────────────────────────────────
@@ -316,6 +317,26 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         backAreaColors: backAreaColors.map(c => [c[0], c[1], c[2], c[3]]),
         paletteRows:    cgram.rows.map(row => row.map((c: number[]) => [c[0], c[1], c[2], c[3]])),
         sprites:        sprites.map(s => ({ x: s.x, y: s.y, spriteId: s.spriteId })),
+        // Per-sprite-ID layout derived from SMW's generic sprite draw
+        // routines (SubSprGfx0/1/2) plus a hand-extracted override table
+        // for handlers that build OAM directly. Shell aliases $DA-$DD
+        // remap to Koopas $04-$07 with shell-only rendering. Sprites still
+        // without a layout (e.g. generators $C9-$DF, scroll sprites $E7+)
+        // fall back to the anchor marker.
+        spriteLayouts: (() => {
+          const tables = readSpriteTileTables(rom.rom)
+          if (!tables) return null
+          const layouts = []
+          for (let id = 0; id <= MAX_SPRITE_ID_WITH_LAYOUT; id++) {
+            const layout = buildSpriteLayout(tables, id)
+            if (layout) layouts.push(layout)
+          }
+          for (let id = 0xDA; id <= 0xDD; id++) {
+            const layout = buildSpriteLayout(tables, id)
+            if (layout) layouts.push(layout)
+          }
+          return layouts
+        })(),
         header: {
           music:          header.music,
           spriteSet:      spriteTileset,
