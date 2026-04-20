@@ -2992,3 +2992,186 @@ export function handle_0DED6B(cur: Cursor): void {
     setPage0(cur); writeTile(cur, bodyTile)
   }
 }
+
+/**
+ * CODE_0DB966 (bank_0D.asm line 4251) -- vertical tree-trunk stripe, single column
+ * (object 55 in tilesets 0/7/12). Draws a 1-column-wide vertical stripe where the
+ * tile alternates between a "top" tile (DATA_0DB962[X]) and a "bottom" tile
+ * (DATA_0DB964[X]) every row. X comes from the low nibble of the size byte and
+ * selects between two trunk variants ($BD/$BE vs $BF/$C0).
+ *
+ * Size byte: HHHHVVVV
+ *   V (low nibble, X)  = variant (0 or 1).
+ *   H (high nibble)    = length counter; total rows = H + 1 if H is even, else H.
+ *
+ * The ASM double-decrements `_0` per iteration (once between the two rows of a
+ * pair, once at the bottom of the loop). Net row count = H + 1.
+ *
+ * CODE_0DB997 context-merge (only for X == 1):
+ *   - existing tile is $B1 or $B6 → write existing+1 (B1→B2, B6→B7)
+ * CODE_0DB997 context-merge (otherwise, X != 1):
+ *   - existing tile is $0E (slope) → set page 1 and write $0D
+ *
+ * The bottom tile is written via raw STA (no merge, no advance).
+ */
+export function handle_0DB966(cur: Cursor): void {
+  const X = cur.size & 0x0F
+  // LDA.L DATA_0DB962 operand at handler +19, DATA_0DB964 operand at handler +36.
+  const addrTop    = readLongOperand(cur, cur.handlerAddr + 19)
+  const addrBottom = readLongOperand(cur, cur.handlerAddr + 36)
+  const topTile    = cur.rom.readByte(addrTop + X)    ?? 0
+  const bottomTile = cur.rom.readByte(addrBottom + X) ?? 0
+
+  let count = (cur.size >> 4) & 0x0F
+  while (true) {
+    // Top tile with context merge.
+    const existingTop = peekExistingLow(cur)
+    setPage0(cur)
+    let out = topTile
+    if (X === 1) {
+      if (existingTop === 0xB1 || existingTop === 0xB6) out = (existingTop + 1) & 0xFF
+    } else {
+      if (existingTop === 0x0E) { setPage1(cur); out = 0x0D }
+    }
+    writeTile(cur, out)
+    advanceRowRaw(cur)
+    count -= 1
+    if (count < 0) return
+
+    // Bottom tile -- raw write, no merge.
+    setPage0(cur)
+    writeTile(cur, bottomTile)
+    advanceRowRaw(cur)
+    count -= 1
+    if (count < 0) return
+  }
+}
+
+/**
+ * CODE_0DB9C0 (bank_0D.asm line 4304) -- vertical 2-wide tree-trunk stripe
+ * (object 54 in tilesets 0/7/12). Each iteration writes two tiles horizontally
+ * across two rows:
+ *   Row R:   $B9 (left, context-merged), $BA (right)
+ *   Row R+1: $BB (left),                 $BC (right)
+ *
+ * CODE_0DB9F6 context-merge (left tile of top row): if existing tile is $0E
+ * (slope), set page 1 and replace X ($B9) with $0B ($0C for the neighbour).
+ *
+ * Size byte: HHHH----
+ *   H (high nibble) = length counter; loops H+1 times producing 2×(H+1) rows.
+ */
+export function handle_0DB9C0(cur: Cursor): void {
+  const topLeftTile  = readImmByte(cur, cur.handlerAddr + 14)  // LDX.B #$B9 at +13, imm at +14
+  const botLeftTile  = readImmByte(cur, cur.handlerAddr + 32)  // LDA.B #$BB at +31, imm at +32
+  const botRightTile = readImmByte(cur, cur.handlerAddr + 40)  // LDA.B #$BC at +39, imm at +40
+
+  let count = (cur.size >> 4) & 0x0F
+  const startCol = cur.col
+  while (true) {
+    // Top row: CODE_0DB9F6 context merge on left tile. Right tile = X+1.
+    const existing = peekExistingLow(cur)
+    if (existing === 0x0E) {
+      setPage1(cur); writeTile(cur, 0x0B)        // replace slope with $0B
+      cur.col += 1
+      writeTile(cur, 0x0C)                        // neighbour = $0B + 1
+    } else {
+      writeTile(cur, topLeftTile)                 // $B9
+      cur.col += 1
+      writeTile(cur, (topLeftTile + 1) & 0xFF)    // $BA
+    }
+    cur.col = startCol
+    advanceRowRaw(cur)
+    count -= 1
+    if (count < 0) return
+
+    // Bottom row: raw $BB, $BC (no merge).
+    setPage0(cur)
+    writeTile(cur, botLeftTile)
+    cur.col += 1
+    writeTile(cur, botRightTile)
+    cur.col = startCol
+    advanceRowRaw(cur)
+    count -= 1
+    if (count < 0) return
+  }
+}
+
+/**
+ * CODE_0DBA4C (bank_0D.asm line 4386) -- vertical slope-shoulder stripe
+ * (object 52 in tilesets 0/7/12). Single-column vertical line; the top row uses
+ * DATA_0DBA44[X] (page 1), and all following rows use DATA_0DBA48[X] with a
+ * page-1 prefix that only applies when X < 2.
+ *
+ * Size byte: HHHHVVVV
+ *   V (low nibble, X)  = variant index (0-3) selecting both tables.
+ *   H (high nibble)    = count (H + 1 rows written below the top).
+ *
+ * ASM path: JSR Sta1To6ePointer once up-front, then STA top tile, JMP to loop
+ * body. Each iteration in the body: CPX #$02 / BPL skip / JSR Sta1To6ePointer;
+ * then STA body tile, advance row, DEC _0, BPL.
+ */
+export function handle_0DBA4C(cur: Cursor): void {
+  const X = cur.size & 0x0F
+  const addrTop  = readLongOperand(cur, cur.handlerAddr + 19)  // DATA_0DBA44
+  const addrBody = readLongOperand(cur, cur.handlerAddr + 35)  // DATA_0DBA48
+  const topTile  = cur.rom.readByte(addrTop  + X) ?? 0
+  const bodyTile = cur.rom.readByte(addrBody + X) ?? 0
+
+  // Top row: page 1 unconditionally.
+  setPage1(cur); writeTile(cur, topTile)
+
+  let count = (cur.size >> 4) & 0x0F
+  while (count >= 0) {
+    advanceRowRaw(cur)
+    // Body tile: page 1 only when X < 2 (CPX #$02 / BPL skip-page1).
+    if (X < 2) setPage1(cur); else setPage0(cur)
+    writeTile(cur, bodyTile)
+    count -= 1
+  }
+}
+
+/**
+ * CODE_0DBADC (bank_0D.asm line 4429) -- large 16×6 canopy rectangle, repeated
+ * horizontally (object 51 in tilesets 0/7/12). Used to tile the Forest of
+ * Illusion canopy and similar wide foliage blocks.
+ *
+ * Size byte: raw count of additional 16-col repeats (count + 1 total). So
+ * settings=$0F draws 16 blocks × 16 cols = 256 cols wide.
+ *
+ * Each block is a 16 cols × 6 rows slab drawn from DATA_0DBA7C (96 bytes). The
+ * table is indexed sequentially by X which is reset to 0 at the start of each
+ * block, so every block emits the identical 6×16 pattern.
+ *
+ * Row advance uses CODE_0DA97D (the "+$10 to LevelLoadPos" pattern); we model
+ * that with advanceRowRaw. Block advance in the ASM is Map16LowPtr += $B0 after
+ * the 6th row has already bumped Map16LowPtr+1 by $01 (via CODE_0DA987 on the
+ * row-5 → row-6 carry). Net effect: next block starts 16 cols to the right at
+ * the same starting row. In the flat-grid model this is simply col = startCol +
+ * blockIndex × 16, row = startRow for each block.
+ */
+export function handle_0DBADC(cur: Cursor): void {
+  const blockCount = cur.size & 0xFF       // raw size byte (count + 1 blocks)
+  const innerRows  = readImmByte(cur, cur.handlerAddr + 12) + 1  // #$05 + 1 = 6
+  const innerCols  = readImmByte(cur, cur.handlerAddr + 16) + 1  // #$0F + 1 = 16
+  const dataAddr   = readLongOperand(cur, cur.handlerAddr + 27)  // DATA_0DBA7C
+
+  const startCol = cur.col
+  const startRow = cur.row
+
+  setPage0(cur)   // ASM does not Stz/Sta here, but CODE_0DA95B preserves page
+                  // state via the caller; the default at object entry is page 0.
+
+  for (let block = 0; block <= blockCount; block++) {
+    const blockStartCol = startCol + block * innerCols
+    let x = 0
+    for (let r = 0; r < innerRows; r++) {
+      cur.row = startRow + r
+      for (let c = 0; c < innerCols; c++) {
+        cur.col = blockStartCol + c
+        const tile = cur.rom.readByte(dataAddr + x) ?? 0
+        writeTile(cur, tile)
+        x += 1
+      }
+    }
+  }
+}
