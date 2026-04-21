@@ -7,6 +7,10 @@ export class CanvasRenderTarget implements RenderTarget {
   private readonly ctx2d: CanvasRenderingContext2D
   private readonly imageData: ImageData
   private readonly buf: Uint8ClampedArray
+  private clipX0 = 0
+  private clipX1 = 0
+  private clipY0 = 0
+  private clipY1 = 0
 
   constructor(canvas: HTMLCanvasElement) {
     this.width = canvas.width
@@ -16,6 +20,22 @@ export class CanvasRenderTarget implements RenderTarget {
     this.ctx2d = ctx
     this.imageData = ctx.createImageData(this.width, this.height)
     this.buf = this.imageData.data
+    this.clipX1 = this.width
+    this.clipY1 = this.height
+  }
+
+  setClip(x: number, y: number, w: number, h: number): void {
+    this.clipX0 = x
+    this.clipY0 = y
+    this.clipX1 = x + w
+    this.clipY1 = y + h
+  }
+
+  clearClip(): void {
+    this.clipX0 = 0
+    this.clipY0 = 0
+    this.clipX1 = this.width
+    this.clipY1 = this.height
   }
 
   clear(color: RgbaColor = [0, 0, 0, 0]): void {
@@ -45,17 +65,16 @@ export class CanvasRenderTarget implements RenderTarget {
       return
     }
     const w = this.width
-    const h = this.height
     const buf = this.buf
     const a = alpha === undefined || alpha >= 1 ? 1 : (alpha <= 0 ? 0 : alpha)
     const blend = a < 1
     for (let py = 0; py < 8; py++) {
       const dstY = pos.y + py
-      if (dstY < 0 || dstY >= h) continue
+      if (dstY < this.clipY0 || dstY >= this.clipY1) continue
       const srcY = flipY ? 7 - py : py
       for (let px = 0; px < 8; px++) {
         const dstX = pos.x + px
-        if (dstX < 0 || dstX >= w) continue
+        if (dstX < this.clipX0 || dstX >= this.clipX1) continue
         const srcX = flipX ? 7 - px : px
         const idx = pixels[srcY * 8 + srcX]
         if (idx === 0) continue
@@ -90,14 +109,13 @@ export class CanvasRenderTarget implements RenderTarget {
 
   fillRect(pos: PixelPos, size: PixelSize, color: RgbaColor): void {
     const w = this.width
-    const h = this.height
     const buf = this.buf
     for (let py = 0; py < size.h; py++) {
       const dstY = pos.y + py
-      if (dstY < 0 || dstY >= h) continue
+      if (dstY < this.clipY0 || dstY >= this.clipY1) continue
       for (let px = 0; px < size.w; px++) {
         const dstX = pos.x + px
-        if (dstX < 0 || dstX >= w) continue
+        if (dstX < this.clipX0 || dstX >= this.clipX1) continue
         const off = (dstY * w + dstX) * 4
         buf[off] = color[0]
         buf[off + 1] = color[1]
