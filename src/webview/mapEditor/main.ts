@@ -10,6 +10,444 @@
 declare function acquireVsCodeApi(): any
 const vscode = acquireVsCodeApi()
 
+import { effect } from '@vue/reactivity'
+import { storeToRefs } from 'pinia'
+import { buildGraph } from '../../rom/model/rehydrate'
+import { L2ObjectStream, L2Preset } from '../../rom/model/L2Layer'
+import type { MapPayload as ModelMapPayload } from '../../rom/model/MapPayload'
+import type { SmwMap } from '../../rom/model/SmwMap'
+import { cellBoxOf, type RenderContext } from '../../rom/model/RenderTarget'
+import { CanvasRenderTarget } from './CanvasRenderTarget'
+import { useEditorStore } from './store'
+
+// FLUX: the store owns state; views dispatch actions; observers read refs.
+// `store.foo`      — read a value (auto-unwrapped by Pinia's proxy).
+// `storeRefs.foo`  — Ref<T> for passing into the render context so that
+//                    @vue/reactivity tracks `.value` reads inside behaviors.
+// `store.doThing()` — action (mutation). Never mutate refs from outside.
+const store     = useEditorStore()
+const storeRefs = storeToRefs(store)
+
+// Self-rendering model graph. Populated from the `modelPayload` message
+// alongside the legacy `load`; exposed on window for dev inspection.
+// __smwModelChars is the flat VRAM char lookup used by the GFX viewer
+// and any other panel that needs a specific char by its flat index.
+declare global {
+  interface Window {
+    __smwModelMap?: SmwMap
+    __smwModelChars?: Map<number, import('../../rom/model/chars/Char').Char>
+    __smwModelTiles?: Map<number, import('../../rom/model/tiles/Tile').Tile>
+    __smwModelBgTiles?: Map<number, import('../../rom/model/tiles/Tile').Tile>
+  }
+}
+
+/**
+ * Set up the reactive render effect for the current map. Vue's effect()
+ * tracks every ref read inside renderModelOverlay (transitively, including
+ * reads inside behaviors during map.render). Subsequent ref mutations
+ * trigger an automatic re-run — exactly the cells that changed get
+ * recomposed, and untouched cells are skipped via the per-row scratch
+ * + computed-cache discipline lower in the model.
+ */
+let modelRenderRunner: { stop(): void } | null = null
+function ensureReactiveRender(map: SmwMap): void {
+  modelRenderRunner?.stop()
+  const runner = effect(() => renderModelOverlay(map)) as unknown as { effect?: { stop(): void } }
+  // @vue/reactivity exposes effect.stop on the returned runner.
+  modelRenderRunner = { stop: () => runner.effect?.stop() }
+}
+
+/**
+ * Mirror legacy state into model refs. The reactive render effect()
+ * re-runs whenever any of these change.
+ */
+// NOTE: the model refs (imported from ./state) are the single source of
+// truth for every reactive input. Event handlers write to them directly;
+// there is no legacy→model sync shim. Any legacy variable that still
+// exists (e.g. `animFrame`, `zoom`) is kept in lockstep at the write
+// site, not via a separate bridging function.
+
+/**
+ * Render the self-rendering model graph to the model canvas — now the
+ * default view. Called when `modelPayload` arrives and re-runs
+ * automatically (via effect()) whenever a tracked ref changes. Sized at
+ * 1× natural pixels; legacy zoom/pan is independent for now.
+ */
+function renderModelOverlay(map: SmwMap): void {
+  const overlay = document.getElementById('model-canvas') as HTMLCanvasElement | null
+  if (!overlay) return
+  const rows = map.l1.length
+  const cols = rows > 0 ? map.l1[0].length : 0
+  const w = cols * 16
+  const h = rows * 16
+  if (w === 0 || h === 0) return
+  if (overlay.width !== w) overlay.width = w
+  if (overlay.height !== h) overlay.height = h
+  // Zoom applies via CSS scaling — framebuffer stays at natural resolution
+  // so the output is pixel-perfect (image-rendering: pixelated).
+  const z = store.zoom
+  overlay.style.width = `${w * z}px`
+  overlay.style.height = `${h * z}px`
+
+  const target = new CanvasRenderTarget(overlay)
+  // Level-wide state on ctx — tile behaviors (PipeVariants) derive
+  // per-cell concerns from their own cell position + these fields,
+  // so the camera viewport / detail preview / Map16 panel can all
+  // reuse the same ctx without pre-computing per-cell variants.
+  const ctx: RenderContext = {
+    animFrame: storeRefs.animFrame,
+    palAnimFrame: storeRefs.palAnimFrame,
+    pSwitchActive: storeRefs.pSwitchActive,
+    switchPalaceState: storeRefs.switchPalaceState,
+    palette: map.palette,
+    camera: storeRefs.camera,
+    zoom: storeRefs.zoom,
+    layerToggles: storeRefs.layerToggles,
+    levelOrientation: map.header.orientation,
+    screenPipeVariantIdx: map.screenPipeVariantIdx,
+  }
+  target.clear(map.palette.backAreaColor.rgba(ctx))
+  map.render(ctx, target)
+  // Camera viewport parallax BG + L1 re-render must land in the
+  // framebuffer BEFORE the flush so pixel ops (blend + overwrite) reach
+  // the canvas. Read `store.cameraOn` here so flipping the checkbox
+  // invalidates the effect and re-renders.
+  const cameraOn = store.cameraOn
+  if (cameraOn) compositeCameraViewport(target, ctx, map)
+  target.flush()
+
+  // Overlays on top of the rendered framebuffer. Canvas 2D draw calls
+  // are used here rather than the pixel-level RenderTarget so the lines
+  // can be sub-pixel aligned at the natural render resolution. Any read
+  // of `store.layerToggles.*` keeps the reactive effect invalidated
+  // when a checkbox flips.
+  const toggles = store.layerToggles
+  if (toggles.block) {
+    const octx = overlay.getContext('2d')!
+    drawBlockView(octx, map, toggles.l1, toggles.l2)
+  }
+  if (toggles.screens || toggles.mapGrid) {
+    const octx = overlay.getContext('2d')!
+    drawScreenAndGridOverlays(octx, map, toggles.screens, toggles.mapGrid)
+  }
+  if (cameraOn) {
+    const octx = overlay.getContext('2d')!
+    drawCameraRectOverlay(octx, map)
+  }
+
+  // Side-panel canvases share the reactive pass — each re-reads its
+  // model inputs via `ctx.*.value`, so a ref change invalidates the
+  // effect and rebuilds every panel that reads the changed ref.
+  drawPaletteCanvas()
+  renderVramPage()
+  renderMap16Page()
+  // Detail preview goes through the model too so animation / pswitch /
+  // switch-palace are reflected. Cheap no-op when nothing is selected.
+  redrawDetail()
+  // Minimap is a scaled drawImage of this model canvas. The reactive
+  // re-run keeps it in step with everything rendered above.
+  if (minimapOn) drawMinimap()
+}
+
+/**
+ * Composite the parallax preview strip into the framebuffer before
+ * flush. Horizontal levels get a full-height, camera-width vertical
+ * strip at the camera's X position; vertical levels get a full-width,
+ * camera-height horizontal strip at the camera's Y position. The
+ * parallax shift is sampled at the camera's FG origin, then tiled
+ * across the strip. L1 is re-rendered on top of the parallax BG so
+ * foreground geometry stays dominant.
+ */
+function compositeCameraViewport(
+  target: CanvasRenderTarget,
+  ctx: RenderContext,
+  map: SmwMap,
+): void {
+  const rows = map.l1.length
+  const cols = rows > 0 ? map.l1[0].length : 0
+  if (rows === 0 || cols === 0) return
+  const isVert = map.header.orientation === 'vertical'
+  // Read from the store (reactive) so pointer-drag updates invalidate
+  // the effect and re-paint at the new camera position. `store.camera`
+  // can hold a fractional tile position (free drag). The outer rect
+  // overlay uses the float value for smooth gliding, but the strip's
+  // tile content floors to stay tile-aligned — otherwise fillRect and
+  // tile.render would leave seams when the camera sits between tiles.
+  const cam = store.camera
+  const camX = Math.floor(Math.max(0, Math.min(Math.max(0, cols - CAMERA_W_TILES), cam.tileX)))
+  const camY = Math.floor(Math.max(0, Math.min(Math.max(0, rows - CAMERA_H_TILES), cam.tileY)))
+
+  // Strip dimensions in natural pixels. Horizontal levels scroll L→R so
+  // the preview strip runs top-to-bottom at the camera's X; vertical
+  // levels do the opposite.
+  const sx = isVert ? 0 : camX * 16
+  const sy = isVert ? camY * 16 : 0
+  const sw = isVert ? cols * 16 : CAMERA_W_TILES * 16
+  const sh = isVert ? CAMERA_H_TILES * 16 : rows * 16
+
+  // Repaint the strip from scratch — wipe the existing render inside
+  // so parallax BG can be re-sampled without double-painting.
+  target.fillRect({ x: sx, y: sy }, { w: sw, h: sh }, map.palette.backAreaColor.rgba(ctx))
+
+  const toggles = store.layerToggles
+
+  // Parallax L2. The strip extends across the "fixed" axis of the map
+  // (full height for horizontal levels, full width for vertical), so
+  // along that axis the BG should render in its natural layout —
+  // otherwise the camera position would double-shift the content and
+  // the preview drifts away from the real level geometry. Along the
+  // "scrolling" axis, shift by `camera >> shift` as usual (null shift
+  // = BG locked to origin 0).
+  if (toggles.l2 && map.l2) {
+    const vShift = verticalScrollPixelShift(map.header.vertLayer2Setting ?? 0)
+    const hShift = horizontalScrollPixelShift(map.header.horizLayer2Setting ?? 0)
+    const bgGrid = map.l2.layout()
+    const bgRows = bgGrid.length
+    const bgCols = bgRows > 0 ? bgGrid[0].length : 0
+    if (bgRows > 0 && bgCols > 0) {
+      // Horizontal level: camera scrolls X → shift BG cols; keep rows natural.
+      // Vertical   level: camera scrolls Y → shift BG rows; keep cols natural.
+      const bgOriginRow = isVert
+        ? (vShift === null ? 0 : Math.floor(((camY * 16) >> vShift) / 16))
+        : 0
+      const bgOriginCol = isVert
+        ? 0
+        : (hShift === null ? 0 : Math.floor(((camX * 16) >> hShift) / 16))
+      const stripCols = sw / 16
+      const stripRows = sh / 16
+      for (let r = 0; r < stripRows; r++) {
+        for (let c = 0; c < stripCols; c++) {
+          const bgR = ((bgOriginRow + r) % bgRows + bgRows) % bgRows
+          const bgC = ((bgOriginCol + c) % bgCols + bgCols) % bgCols
+          const tile = bgGrid[bgR]?.[bgC]
+          if (!tile) continue
+          const px = sx + c * 16
+          const py = sy + r * 16
+          const cell = {
+            tl: { x: px,     y: py },
+            tr: { x: px + 8, y: py },
+            bl: { x: px,     y: py + 8 },
+            br: { x: px + 8, y: py + 8 },
+          }
+          tile.render(ctx, target, cell, 'nonPriority')
+          tile.render(ctx, target, cell, 'priority')
+        }
+      }
+    }
+  }
+
+  // L1 on top — reuses world-space tiles so every tile behavior
+  // (pipe variants, P-switch reveals, switch-palace alt) self-selects
+  // from the world-space cell position. No caller-side injection.
+  if (toggles.l1) {
+    const worldStartX = Math.floor(sx / 16)
+    const worldStartY = Math.floor(sy / 16)
+    const stripCols = sw / 16
+    const stripRows = sh / 16
+    for (let r = 0; r < stripRows; r++) {
+      for (let c = 0; c < stripCols; c++) {
+        const wx = worldStartX + c
+        const wy = worldStartY + r
+        const id = map.l1[wy]?.[wx]
+        if (id === null || id === undefined) continue
+        const tile = map.l1Tiles.get(id)
+        if (!tile) continue
+        const cell = cellBoxOf(wx, wy)
+        tile.render(ctx, target, cell, 'nonPriority')
+        tile.render(ctx, target, cell, 'priority')
+      }
+    }
+  }
+}
+
+/**
+ * Draw the camera-viewport border after the framebuffer flush. The
+ * viewport rect is always CAMERA_W_TILES × CAMERA_H_TILES regardless of
+ * level orientation — it shows the actual playfield size the player
+ * sees, independent of the parallax preview strip.
+ */
+function drawCameraRectOverlay(
+  octx: CanvasRenderingContext2D,
+  map: SmwMap,
+): void {
+  const rows = map.l1.length
+  const cols = rows > 0 ? map.l1[0].length : 0
+  if (rows === 0 || cols === 0) return
+  const isVert = map.header.orientation === 'vertical'
+  const cam = store.camera
+  // Fractional position — lets the rect glide between tiles as the user
+  // drags. Strip content is floored elsewhere; only the visual rect is
+  // sub-tile.
+  const camXf = Math.max(0, Math.min(Math.max(0, cols - CAMERA_W_TILES), cam.tileX))
+  const camYf = Math.max(0, Math.min(Math.max(0, rows - CAMERA_H_TILES), cam.tileY))
+
+  // Inner rect: the actual camera viewport (CAMERA_W × CAMERA_H).
+  const rx = camXf * 16
+  const ry = camYf * 16
+  const rw = CAMERA_W_TILES * 16
+  const rh = CAMERA_H_TILES * 16
+
+  // Outer rect: the full preview strip — camera-wide × full-height for
+  // horizontal levels, full-width × camera-tall for vertical.
+  const sx = isVert ? 0 : rx
+  const sy = isVert ? ry : 0
+  const sw = isVert ? cols * 16 : rw
+  const sh = isVert ? rh : rows * 16
+
+  const w = cols * 16
+  const h = rows * 16
+  octx.save()
+  // Focused dim: spotlight the camera's playfield rect; everything
+  // outside (including the parallax strip area) gets a 40% darken.
+  if (cam.focused) {
+    octx.fillStyle = 'rgba(0,0,0,0.4)'
+    octx.fillRect(0, 0, w, ry)                     // above
+    octx.fillRect(0, ry + rh, w, h - (ry + rh))    // below
+    octx.fillRect(0, ry, rx, rh)                   // left of
+    octx.fillRect(rx + rw, ry, w - (rx + rw), rh)  // right of
+  }
+
+  // Outer rect — yellow border around the full preview strip.
+  octx.strokeStyle = 'rgba(255,255,80,0.95)'
+  octx.lineWidth = 2
+  octx.strokeRect(sx + 1, sy + 1, sw - 2, sh - 2)
+  octx.strokeStyle = 'rgba(0,0,0,0.6)'
+  octx.lineWidth = 1
+  octx.strokeRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1)
+
+  // Inner rect — indicates the actual camera viewport size inside the
+  // strip. Drawn thinner so it doesn't compete with the strip border.
+  octx.strokeStyle = 'rgba(255,255,80,0.95)'
+  octx.lineWidth = 1
+  octx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1)
+  octx.restore()
+}
+
+/**
+ * Block-view overlay: paint each non-empty L1 (and optionally L2) tile
+ * as a colored 16×16 square keyed on the Map16 tile id, deterministic
+ * via `tileBlockColor`. L2 renders at 55% alpha so L1 reads over it.
+ * Useful for level troubleshooting since it surfaces the underlying
+ * tile layout with zero GFX rendering.
+ *
+ * No text labels on the blocks for now — the hex-id labels need a
+ * different approach to scale legibly at every zoom from 1× to 16×.
+ * Revisit with a proper bitmap-font / DOM-overlay strategy later.
+ */
+function drawBlockView(
+  octx: CanvasRenderingContext2D,
+  map: SmwMap,
+  l1On: boolean,
+  l2On: boolean,
+): void {
+  const rows = map.l1.length
+  const cols = rows > 0 ? map.l1[0].length : 0
+  if (rows === 0 || cols === 0) return
+
+  const paintFills = (
+    grid: readonly (readonly (number | null)[])[],
+    alpha: number,
+  ) => {
+    octx.save()
+    octx.globalAlpha = alpha
+    for (let r = 0; r < grid.length; r++) {
+      const row = grid[r]
+      if (!row) continue
+      for (let c = 0; c < row.length; c++) {
+        const id = row[c]
+        if (id === null) continue
+        octx.fillStyle = tileBlockColor(id)
+        octx.fillRect(c * 16, r * 16, 16, 16)
+      }
+    }
+    octx.restore()
+  }
+
+  // L2 grids are ids (L2Preset → bgTiles, L2ObjectStream → l1Tiles);
+  // we only need the ids for the colored-block visualization, no
+  // lookup required.
+  if (l2On && map.l2) {
+    const l2Grid = map.l2 instanceof L2Preset || map.l2 instanceof L2ObjectStream
+      ? map.l2.grid
+      : null
+    if (l2Grid) paintFills(l2Grid, 0.55)
+  }
+  if (l1On) paintFills(map.l1, 1.0)
+}
+
+/**
+ * Draw screen dividers + 2-hex screen-number chips (if `screens`) and/or
+ * a 16×16 tile grid (if `mapGrid`) over the model canvas. Both overlays
+ * use natural-resolution coordinates — the model canvas is always sized
+ * at `cols*16 × rows*16` regardless of zoom (CSS scales it at display).
+ */
+function drawScreenAndGridOverlays(
+  octx: CanvasRenderingContext2D,
+  map: SmwMap,
+  screens: boolean,
+  mapGrid: boolean,
+): void {
+  const rows = map.l1.length
+  const cols = rows > 0 ? map.l1[0].length : 0
+  const w = cols * 16
+  const h = rows * 16
+  const isVert = map.header.orientation === 'vertical'
+  const screenCount = map.screenCount
+  // Screen size in tile coordinates — horizontal 16×27, vertical 32×16.
+  const SCREEN_W_TILES = isVert ? 32 : 16
+  const SCREEN_H_TILES = isVert ? 16 : 27
+
+  if (screens && screenCount > 1) {
+    octx.strokeStyle = 'rgba(100,120,255,0.4)'
+    octx.lineWidth = 1
+    if (isVert) {
+      for (let s = 1; s < screenCount; s++) {
+        const y = Math.round(s * SCREEN_H_TILES * 16) + 0.5
+        octx.beginPath(); octx.moveTo(0, y); octx.lineTo(w, y); octx.stroke()
+      }
+    } else {
+      for (let s = 1; s < screenCount; s++) {
+        const x = Math.round(s * SCREEN_W_TILES * 16) + 0.5
+        octx.beginPath(); octx.moveTo(x, 0); octx.lineTo(x, h); octx.stroke()
+      }
+    }
+  }
+
+  if (screens) {
+    octx.save()
+    const fontSize = 14
+    octx.font = `bold ${fontSize}px monospace`
+    octx.textAlign = 'left'
+    octx.textBaseline = 'top'
+    const padX = 6
+    const padY = 3
+    for (let s = 0; s < screenCount; s++) {
+      const chipX = (isVert ? 0 : s * SCREEN_W_TILES * 16) + 3
+      const chipY = (isVert ? s * SCREEN_H_TILES * 16 : 0) + 3
+      const label = s.toString(16).toUpperCase().padStart(2, '0')
+      const textW = octx.measureText(label).width
+      octx.fillStyle = 'rgba(0,0,0,0.72)'
+      octx.fillRect(chipX, chipY, textW + padX * 2, fontSize + padY * 2)
+      octx.fillStyle = '#e8d050'
+      octx.fillText(label, chipX + padX, chipY + padY)
+    }
+    octx.restore()
+  }
+
+  if (mapGrid) {
+    octx.strokeStyle = 'rgba(255,255,255,0.07)'
+    octx.lineWidth = 1
+    for (let c = 0; c <= cols; c++) {
+      const x = Math.round(c * 16) + 0.5
+      octx.beginPath(); octx.moveTo(x, 0); octx.lineTo(x, h); octx.stroke()
+    }
+    for (let r = 0; r <= rows; r++) {
+      const y = Math.round(r * 16) + 0.5
+      octx.beginPath(); octx.moveTo(0, y); octx.lineTo(w, y); octx.stroke()
+    }
+  }
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const TILE_PX    = 16
@@ -92,9 +530,7 @@ app.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
         <div id="vram-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
         <div style="display:flex;gap:2px;">
-          <button id="btn-anim-prev" style="${btnStyle()}border:none;" title="Previous frame"><span class="codicon codicon-debug-reverse-continue"></span></button>
           <button id="btn-anim" style="${btnStyle()}border:none;" title="Play animation"><span class="codicon codicon-play"></span></button>
-          <button id="btn-anim-next" style="${btnStyle()}border:none;" title="Next frame"><span class="codicon codicon-debug-continue"></span></button>
           <button id="btn-vram-grid" style="${btnStyle()}border:none;" title="Toggle grid"><span class="codicon codicon-table"></span></button>
         </div>
       </div>
@@ -113,9 +549,7 @@ app.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
         <div id="map16-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
         <div style="display:flex;gap:2px;">
-          <button id="btn-anim-prev2" style="${btnStyle()}border:none;" title="Previous frame"><span class="codicon codicon-debug-reverse-continue"></span></button>
           <button id="btn-anim2" style="${btnStyle()}border:none;" title="Play animation"><span class="codicon codicon-play"></span></button>
-          <button id="btn-anim-next2" style="${btnStyle()}border:none;" title="Next frame"><span class="codicon codicon-debug-continue"></span></button>
           <button id="btn-map16-grid" style="${btnStyle()}border:none;" title="Toggle grid"><span class="codicon codicon-table"></span></button>
         </div>
       </div>
@@ -135,8 +569,8 @@ app.innerHTML = `
 
   <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
     <div id="main-view" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
-      <div id="canvas-wrap" style="flex:1;overflow:auto;background:#111111;cursor:crosshair;">
-        <canvas id="map-canvas" style="display:block;image-rendering:pixelated;margin:8px;"></canvas>
+      <div id="canvas-wrap" style="flex:1;overflow:auto;background:#111111;cursor:crosshair;display:flex;justify-content:safe center;align-items:safe center;">
+        <canvas id="model-canvas" style="display:block;image-rendering:pixelated;margin:8px;"></canvas>
       </div>
       <div id="minimap-wrap" style="flex-shrink:0;background:#0a0a0a;border-top:1px solid #3a3a3a;padding:4px 8px;display:flex;justify-content:center;align-items:center;">
         <canvas id="minimap-canvas" style="display:block;image-rendering:pixelated;cursor:pointer;background:#000;"></canvas>
@@ -146,10 +580,8 @@ app.innerHTML = `
       <span id="st-pos" style="min-width:90px;">—</span>
       <span id="st-tile" style="min-width:70px;">—</span>
       <span id="st-info" style="flex:1;color:#888;"></span>
-      <button id="btn-anim-prev3" style="${btnStyle()}border:none;" title="Previous frame"><span class="codicon codicon-debug-reverse-continue"></span></button>
-      <button id="btn-anim3" style="${btnStyle()}border:none;" title="Play animation"><span class="codicon codicon-play"></span></button>
-      <button id="btn-anim-next3" style="${btnStyle()}border:none;" title="Next frame"><span class="codicon codicon-debug-continue"></span></button>
       <button id="btn-map-minimap" style="${btnStyle()}border:none;" title="Toggle minimap"><span class="codicon codicon-map"></span></button>
+      <button id="btn-anim3" style="${btnStyle()}border:none;" title="Play animation"><span class="codicon codicon-play"></span></button>
       <button id="btn-map-grid" style="${btnStyle()}border:none;" title="Toggle tile grid"><span class="codicon codicon-table"></span></button>
     </div>
   </div>
@@ -301,8 +733,7 @@ app.innerHTML = `
 
 // ── Element refs ─────────────────────────────────────────────────────────────
 
-const canvas         = document.getElementById('map-canvas')   as HTMLCanvasElement
-const ctx            = canvas.getContext('2d')!
+const modelCanvas    = document.getElementById('model-canvas') as HTMLCanvasElement
 const canvasWrap     = document.getElementById('canvas-wrap')!
 const minimapCanvas  = document.getElementById('minimap-canvas') as HTMLCanvasElement
 const minimapCtx     = minimapCanvas.getContext('2d')!
@@ -319,41 +750,20 @@ const chkL1          = document.getElementById('chk-l1')          as HTMLInputEl
 const chkL2          = document.getElementById('chk-l2')          as HTMLInputElement
 const chkCamera      = document.getElementById('chk-camera')      as HTMLInputElement
 
-// ── Switch-palace "cleared" toggles ──────────────────────────────────────────
-// Four booleans indexed by color: 0=green, 1=yellow, 2=blue, 3=red.
-// When true, switch blocks of that color render as their page-1 (cleared,
-// solid) variant; when false, they render as page-0 (uncleared, dotted outline).
-// Map16 tile IDs: page 0 is $06A..$06D, page 1 is $16A..$16D.
-const switchPalaceState: [boolean, boolean, boolean, boolean] = [false, false, false, false]
-
-/** If tileId is a switch-block variant, return the variant for the current toggle state. */
-function applySwitchPalaceState(tileId: number): number {
-  const low = tileId & 0xFF
-  if (low < 0x6A || low > 0x6D) return tileId
-  const colorIdx = low - 0x6A
-  return (switchPalaceState[colorIdx] ? 0x100 : 0x000) | low
-}
-
 // ── Camera viewport overlay ──────────────────────────────────────────────────
 // A draggable 16×14 tile rectangle representing the SNES FG screen window
 // (256×224 px). When the "Camera" toggle is on, the rectangle is drawn over
-// the map; inside it we re-composite L2 at its parallax-adjusted Y position
-// so the user sees what the player actually sees in-game at that scroll point.
-// Scroll ratios come from mapData.header.vertLayer2Setting (0..3):
+// the map; inside it the parallax strip re-composites L2 at its parallax-adjusted
+// position so the user sees what the player actually sees in-game at that scroll
+// point. Scroll ratios come from mapData.header.vertLayer2Setting (0..3):
 //   0 = locked (BG static),  1 = 1:1 (BG pinned to camera),
 //   2 = 1/2 rate,             3 = 1/32 rate
-// Per CODE_00F7AA (bank_00.asm:13735-13749). Position stored in FG-tile coords.
+// Per CODE_00F7AA (bank_00.asm:13735-13749). Position lives in `store.camera`.
 const CAMERA_W_TILES = 16
 const CAMERA_H_TILES = 14
-let cameraTileX = 0
-let cameraTileY = 0
 let cameraDragging = false
 let cameraDragOffX = 0  // pointer offset from rect top-left at mousedown (tile coords)
 let cameraDragOffY = 0
-// "Focused" = user has clicked inside the rect and hasn't clicked outside since.
-// Drives the dim overlay and arrow-key handling; cleared when the toggle is off
-// or when the user clicks elsewhere on the map.
-let cameraFocused = false
 
 /** Pixel shift applied to FG pixel Y to get BG pixel Y, per VertLayer2Setting. */
 function verticalScrollPixelShift(setting: number): number | null {
@@ -377,106 +787,101 @@ function horizontalScrollPixelShift(setting: number): number | null {
   }
 }
 
-// ── Blue P-switch "show hidden tiles" toggle ─────────────────────────────────
-// Blue-P-switch-gated tiles are effectively invisible in the level viewer, so
-// we always draw the tile that would be visible when the switch is pressed,
-// using alpha to convey toggle state: 50% off (preview), 100% on (activated).
-// The hidden-door Map16 defs ($27/$28) use palette 4 (silver/blue) vs the
-// normal doors' palette 6 (brown), so for doors we composite $1F/$20's chars
-// with a palette-4 override. See bank_00.asm CODE_00F545 and lines 12111-12116.
-let pSwitchBlueOn = false
-
-interface PSwitchReveal {
-  substitute: number
-  /** If set, composite the substitute's chars with this palette instead of using the atlas. */
-  palOverride?: number
-}
-
-function pSwitchReveal(tileId: number): PSwitchReveal | null {
-  if ((tileId & ~0xFF) !== 0) return null
-  switch (tileId) {
-    case 0x27: return { substitute: 0x1F, palOverride: 4 }  // silver door top
-    case 0x28: return { substitute: 0x20, palOverride: 4 }  // silver door bottom
-    case 0x29: return { substitute: 0x24 }                  // ? block
-    case 0x2A: return { substitute: 0x2B }                  // coin
-    default: return null
-  }
-}
-
-/** Cached per-tile 16×16 canvases composed with a palette override. Cleared
- *  whenever VRAM or palette changes, same lifecycle as map16AtlasCanvas. */
-const palOverrideCache = new Map<number, HTMLCanvasElement>()
-
-function getPalOverrideCanvas(tileId: number, palOverride: number): HTMLCanvasElement | null {
-  const key = (tileId << 8) | palOverride
-  const cached = palOverrideCache.get(key)
-  if (cached) return cached
-  if (!activeVramIndexed || !mapData?.paletteRows || !mapData.map16Defs) return null
-  const def = mapData.map16Defs[tileId]
-  if (!def) return null
-  const buf = new Uint8ClampedArray(16 * 16 * 4)
-  const subs = [
-    { s: def.tl, dx: 0, dy: 0 },
-    { s: def.tr, dx: 8, dy: 0 },
-    { s: def.bl, dx: 0, dy: 8 },
-    { s: def.br, dx: 8, dy: 8 },
-  ]
-  for (const { s, dx, dy } of subs) {
-    blitSubTile(activeVramIndexed, mapData.paletteRows,
-      { c: s.c, p: palOverride, fx: s.fx, fy: s.fy }, buf, dx, dy, 16)
-  }
-  const canvas = document.createElement('canvas')
-  canvas.width = 16; canvas.height = 16
-  canvas.getContext('2d')!.putImageData(new ImageData(buf, 16, 16), 0, 0)
-  palOverrideCache.set(key, canvas)
-  return canvas
-}
-
 // ── Tile detail preview state ─────────────────────────────────────────────────
 let selectedDetail: { type: 'vram'; page: number; col: number; row: number } |
                     { type: 'map16'; page: number; col: number; row: number } | null = null
-const selectedDetailTileId: number | null = null
 
 function redrawDetail(): void {
   if (!selectedDetail) return
-  const dc = document.getElementById('detail-canvas') as HTMLCanvasElement
-  const dctx = dc.getContext('2d')!
+  // Self-rendering model drives the preview — animation / pswitch /
+  // switch-palace state all reflect automatically via the reactive chain.
+  redrawDetailFromModel()
+}
+
+/**
+ * Render the selected-tile preview through the model. Every read here
+ * goes through `storeRefs.*.value` (via char.getPixels / tile.render /
+ * palette.row), so when this function runs inside the reactive effect
+ * it auto-retracks animation / pswitch / palette-cycle changes and
+ * re-renders on each tick.
+ */
+function redrawDetailFromModel(): void {
+  if (!selectedDetail) return
+  const map      = window.__smwModelMap
+  const chars    = window.__smwModelChars
+  const l1Tiles  = window.__smwModelTiles
+  const bgTiles  = window.__smwModelBgTiles
+  if (!map) return
+
+  const dc   = document.getElementById('detail-canvas') as HTMLCanvasElement
   const info = document.getElementById('detail-info')!
-  if (selectedDetail.type === 'vram' && vramFullImageData) {
-    dc.width = 8; dc.height = 8
-    const pageH = (VRAM_TILES_PER_PAGE / 16) * 8
-    const srcX = selectedDetail.col * 8
-    const srcTileY = selectedDetail.page * pageH + selectedDetail.row * 8
-    const tileData = dctx.createImageData(8, 8)
-    for (let ty = 0; ty < 8; ty++)
-      for (let tx = 0; tx < 8; tx++) {
-        const si = ((srcTileY + ty) * vramFullImageData.width + (srcX + tx)) * 4
-        const di = (ty * 8 + tx) * 4
-        for (let c = 0; c < 4; c++) tileData.data[di+c] = vramFullImageData.data[si+c]
+  const ctx: RenderContext = {
+    animFrame:         storeRefs.animFrame,
+    palAnimFrame:      storeRefs.palAnimFrame,
+    pSwitchActive:     storeRefs.pSwitchActive,
+    switchPalaceState: storeRefs.switchPalaceState,
+    palette:           map.palette,
+    camera:            storeRefs.camera,
+    zoom:              storeRefs.zoom,
+    layerToggles:      storeRefs.layerToggles,
+  }
+
+  if (selectedDetail.type === 'vram' && chars) {
+    dc.width = 8
+    dc.height = 8
+    const charNum = selectedDetail.page * VRAM_TILES_PER_PAGE
+                  + selectedDetail.row * 16 + selectedDetail.col
+    const char = chars.get(charNum)
+    const slot = charNum < 0x80 ? 'FG1'
+               : charNum < 0x100 ? 'FG2'
+               : charNum < 0x180 ? 'FG3'
+               : charNum < 0x200 ? 'AN1'
+               : charNum < 0x400 ? '—'
+               : 'SP'
+    info.innerHTML = `<b>8×8 char $${charNum.toString(16).padStart(3,'0')}</b><br>slot: ${slot}`
+    const dctx = dc.getContext('2d')!
+    if (!char) { dctx.clearRect(0, 0, 8, 8); return }
+    const pixels = char.getPixels(ctx)
+    // Palette-row convention matches VRAM viewer: $000-$17F → row 2
+    // (FG terrain), $180-$2FF → row 6 (AN / sprite-slot), $300+ → row 8.
+    const palRowIdx = charNum < 0x180 ? 2 : charNum < 0x300 ? 6 : 8
+    const paletteRow = map.palette.row(palRowIdx, ctx)
+    const buf = new Uint8ClampedArray(8 * 8 * 4)
+    for (let py = 0; py < 8; py++) {
+      for (let px = 0; px < 8; px++) {
+        const idx = pixels[py * 8 + px] ?? 0
+        if (idx === 0) continue
+        const col = paletteRow[idx]
+        if (!col) continue
+        const di = (py * 8 + px) * 4
+        buf[di]     = col[0]
+        buf[di + 1] = col[1]
+        buf[di + 2] = col[2]
+        buf[di + 3] = 255
       }
-    dctx.putImageData(tileData, 0, 0)
-    const globalChar = selectedDetail.page * VRAM_TILES_PER_PAGE + selectedDetail.row * 16 + selectedDetail.col
-    const slot = globalChar < 0x80 ? 'FG1' : globalChar < 0x100 ? 'FG2' : globalChar < 0x180 ? 'FG3' : globalChar < 0x200 ? 'AN1' : globalChar < 0x400 ? '—' : 'SP'
-    info.innerHTML = `<b>8×8 char $${globalChar.toString(16).padStart(3,'0')}</b><br>slot: ${slot}`
-  } else if (selectedDetail.type === 'map16' && map16Pages[selectedDetail.page]) {
+    }
+    dctx.putImageData(new ImageData(buf, 8, 8), 0, 0)
+    return
+  }
+
+  if (selectedDetail.type === 'map16' && l1Tiles && map16Pages[selectedDetail.page]) {
     const entry = map16Pages[selectedDetail.page]
-    dc.width = 16; dc.height = 16
-    const srcX = selectedDetail.col * 16
-    const srcY = entry.pageInAtlas * 256 + selectedDetail.row * 16
-    const tileData = dctx.createImageData(16, 16)
-    const w = entry.atlas.width
-    for (let ty = 0; ty < 16; ty++)
-      for (let tx = 0; tx < 16; tx++) {
-        const si = ((srcY + ty) * w + (srcX + tx)) * 4
-        const di = (ty * 16 + tx) * 4
-        for (let c = 0; c < 4; c++) tileData.data[di+c] = entry.atlas.data[si+c]
-      }
-    dctx.putImageData(tileData, 0, 0)
+    const isL1 = entry.label.startsWith('L1')
+    const tileSource = isL1 ? l1Tiles : (bgTiles ?? new Map())
     const localTile = selectedDetail.row * 16 + selectedDetail.col
-    const tileId = entry.label.startsWith('L1') ? entry.pageInAtlas * 256 + localTile : localTile
-    const tileFrames = entry.label.startsWith('L1') ? map16TileFrameCount(tileId) : 1
-    const frameInfo = tileFrames > 1 ? `<br>frame: ${(animFrame % tileFrames) + 1} / ${tileFrames}` : ''
-    info.innerHTML = `<b>Map16 tile $${tileId.toString(16).padStart(3,'0')}</b>${frameInfo}`
+    const tileId = entry.pageInAtlas * 256 + localTile
+    info.innerHTML = `<b>Map16 tile $${tileId.toString(16).padStart(3,'0')}</b>`
+    dc.width = 16
+    dc.height = 16
+    const target = new CanvasRenderTarget(dc)
+    target.clear()
+    const tile = tileSource.get(tileId)
+    if (tile) {
+      const cellBox = cellBoxOf(0, 0)
+      tile.render(ctx, target, cellBox, 'nonPriority')
+      tile.render(ctx, target, cellBox, 'priority')
+    }
+    target.flush()
   }
 }
 
@@ -507,8 +912,8 @@ document.getElementById('btn-pal-grid')!.addEventListener('click', () => {
 })
 document.getElementById('btn-map-grid')!.addEventListener('click', () => {
   mapGridOn = !mapGridOn
+  store.setLayerToggle('mapGrid', mapGridOn)
   document.getElementById('btn-map-grid')!.style.color = mapGridOn ? '#5b9cf6' : '#ccc'
-  redraw()
 })
 document.getElementById('btn-map-minimap')!.addEventListener('click', () => {
   minimapOn = !minimapOn
@@ -526,10 +931,10 @@ document.getElementById('btn-map-minimap')!.addEventListener('click', () => {
 }
 
 // ── Animation ────────────────────────────────────────────────────────────────
-// Animation happens at the VRAM level. The provider sends per-frame 8×8 VRAM sheets.
-// Frame 0 is the base vramSheetData. Extra frames are in animation.extraVramSheets.
-// The timer swaps VRAM sheets; both the 8×8 viewer and Map16 viewer redraw from
-// the current sheet. Map16 tiles are static references — they don't change.
+// Animation drives `store.animFrame` (tile-animation timer) and
+// `store.palAnimFrame` (palette-cycle timer). Every model behavior that
+// cares reads these through the RenderContext refs, so the reactive
+// render effect re-runs only the cells whose input actually changed.
 //
 // Driven by requestAnimationFrame rather than setInterval so that hidden or
 // backgrounded webviews stop ticking automatically (Chromium throttles rAF to
@@ -541,306 +946,24 @@ let animRafId: number | null = null
 let animLastTickMs = 0
 let animIntervalMs = 133
 let animFrameCount = 1
-let animFrame = 0
-let vramSheets: ImageData[] = []         // frame 0 = base, frames 1+ = extra (RGBA for 8×8 viewer)
-let vramIndexedFrames: Uint8Array[] = [] // frame 0 = base, frames 1+ (raw indexed for Map16 composition)
-let activeVramIndexed: Uint8Array | null = null  // current frame's indexed data
 
-// Pre-built caches for each animation frame.
-// Built once after the palette is ready; swapped cheaply on each animation tick
-// instead of calling the expensive invalidateVram() → rebuildMap16Atlas() → redraw() chain.
-let prebuiltVramSheets: ImageData[] = []
-let prebuiltMap16Atlases: ImageData[] = []         // for map16Pages entries / renderMap16Page()
-let prebuiltMap16Canvases: HTMLCanvasElement[] = [] // for redraw() drawImage calls
-let prebuiltMap16BgAtlases: ImageData[] = []         // L2 per-frame atlas for renderMap16Page()
-let prebuiltMap16BgCanvases: HTMLCanvasElement[] = [] // L2 per-frame canvas for redraw() drawImage
-
-// Palette animation state (FlashingColors CGRAM cycling)
 let palAnimRafId: number | null = null
 let palAnimLastTickMs = 0
 let palAnimIntervalMs = 133
-let palAnimFrame   = 0
 let palAnimRunning = false
-let palAnimOriginals: Map<number, number[]> | null = null
 
-/**
- * Rebuild the 8×8 VRAM tile sheet from raw indexed VRAM + current palette.
- * Mirrors server-side buildVramSheet but runs on the live palette so palette
- * animation is reflected immediately. Palette row selection: FG/AN chars
- * (i < $300) use row 2; SP chars use row 8. Same logic as the server.
- */
-function rebuildVramSheet(indexed: Uint8Array, palRows: number[][][]): ImageData {
-  const VRAM_TILES = 1536
-  const VR_PER_ROW = 16
-  const sheetW = VR_PER_ROW * 8
-  const sheetH = Math.ceil(VRAM_TILES / VR_PER_ROW) * 8
-  const buf = new Uint8ClampedArray(sheetW * sheetH * 4)
-  for (let i = 0; i < VRAM_TILES; i++) {
-    const tileCol = i % VR_PER_ROW
-    const tileRow = Math.floor(i / VR_PER_ROW)
-    // FG1/FG2/FG3 ($000–$17F): row 2 (terrain). AN1/AN2/BG1 ($180–$2FF): row 6
-    // (animation/sprite slots — FlashingColors writes here). SP ($300+): row 8.
-    const palRowIdx = i < 0x180 ? 2 : i < 0x300 ? 6 : 8
-    const pal = palRows[palRowIdx] ?? palRows[0]
-    const srcOff = i * 64
-    for (let py = 0; py < 8; py++) {
-      for (let px = 0; px < 8; px++) {
-        const palIdx = indexed[srcOff + py * 8 + px] ?? 0
-        const dx = tileCol * 8 + px
-        const dy = tileRow * 8 + py
-        const di = (dy * sheetW + dx) * 4
-        if (palIdx === 0) {
-          buf[di] = buf[di + 1] = buf[di + 2] = 0; buf[di + 3] = 0
-        } else {
-          const c = pal[palIdx] ?? [255, 0, 255, 255]
-          buf[di] = c[0]; buf[di + 1] = c[1]; buf[di + 2] = c[2]; buf[di + 3] = 255
-        }
-      }
-    }
-  }
-  return new ImageData(buf, sheetW, sheetH)
-}
-
-// ── Reactive rendering chain ─────────────────────────────────────────────────
-// Each layer rebuilds from its dependencies and notifies the next layer down.
-//   palette rows change  →  invalidatePalette()
-//   vram indexed changes →  invalidateVram()     (palette already live)
-//   map16 defs change    →  invalidateMap16()    (vram + palette already live)
-
-function invalidateMap16(): void {
-  if (!activeVramIndexed || !mapData?.paletteRows || !mapData.map16Defs) return
-  const newAtlas = rebuildMap16Atlas(activeVramIndexed, mapData.paletteRows, mapData.map16Defs)
-  for (const entry of map16Pages) {
-    if (entry.label.startsWith('L1')) entry.atlas = newAtlas
-  }
-  map16FullImageData = newAtlas
-  // Mirror the atlas into an offscreen canvas so drawImage can sample it per tile.
-  if (!map16AtlasCanvas) {
-    map16AtlasCanvas = document.createElement('canvas')
-  }
-  if (map16AtlasCanvas.width !== newAtlas.width || map16AtlasCanvas.height !== newAtlas.height) {
-    map16AtlasCanvas.width = newAtlas.width
-    map16AtlasCanvas.height = newAtlas.height
-  }
-  map16AtlasCanvas.getContext('2d')!.putImageData(newAtlas, 0, 0)
-  // L2 BG atlas mirrors the L1 rebuild so preset-BG tiles animate alongside FG.
-  if (mapData.map16BgDefs) {
-    const newBgAtlas = rebuildMap16Atlas(activeVramIndexed, mapData.paletteRows, mapData.map16BgDefs)
-    for (const entry of map16Pages) {
-      if (entry.label.startsWith('L2')) entry.atlas = newBgAtlas
-    }
-    if (!map16BgAtlasCanvas) map16BgAtlasCanvas = document.createElement('canvas')
-    if (map16BgAtlasCanvas.width !== newBgAtlas.width || map16BgAtlasCanvas.height !== newBgAtlas.height) {
-      map16BgAtlasCanvas.width = newBgAtlas.width
-      map16BgAtlasCanvas.height = newBgAtlas.height
-    }
-    map16BgAtlasCanvas.getContext('2d')!.putImageData(newBgAtlas, 0, 0)
-  }
-  // Build the 4 pipe-palette variant atlases so the main draw loop can pick
-  // per-screen when rendering tiles $133..$13A.
-  if (mapData.pipeVariantDefs) {
-    rebuildPipeVariantCanvases(activeVramIndexed, mapData.paletteRows, mapData.pipeVariantDefs)
-  }
-  if (mapData.spriteLayouts) {
-    rebuildSpriteAtlas(activeVramIndexed, mapData.paletteRows, mapData.spriteLayouts)
-  }
-  renderMap16Page()
-  redrawDetail()
-  refreshSwitchToggleThumbs()
-  redraw()
-}
-
-function invalidateVram(): void {
-  if (!activeVramIndexed || !mapData?.paletteRows) return
-  vramFullImageData = rebuildVramSheet(activeVramIndexed, mapData.paletteRows)
-  renderVramPage()
-  palOverrideCache.clear()
-  drawPSwitchToggleThumb()
-  invalidateMap16()
-}
-
-function invalidatePalette(): void {
-  drawPaletteCanvas()
-  invalidateVram()
-}
-
-/** True if the given 8×8 char's indexed pixels differ across any animation frame. */
-function charIsAnimated(charIdx: number): boolean {
-  if (vramIndexedFrames.length <= 1) return false
-  const base = vramIndexedFrames[0]
-  const off = charIdx * 64
-  for (let f = 1; f < vramIndexedFrames.length; f++) {
-    const frame = vramIndexedFrames[f]
-    for (let i = 0; i < 64; i++) {
-      if (base[off + i] !== frame[off + i]) return true
-    }
-  }
-  return false
-}
-
-/**
- * Returns the effective frame count for a Map16 L1 tile.
- * A tile with no animated subtile chars has 1 frame; otherwise it shares the
- * global animFrameCount cycle.
- */
-function map16TileFrameCount(tileId: number): number {
-  const def = mapData?.map16Defs?.[tileId]
-  if (!def) return 1
-  if (charIsAnimated(def.tl.c) || charIsAnimated(def.tr.c) ||
-      charIsAnimated(def.bl.c) || charIsAnimated(def.br.c)) {
-    return animFrameCount
-  }
-  return 1
-}
-
-/**
- * Array indices in `defs` whose subtiles reference a char that differs across
- * animation frames. Drives the hybrid prebuild: frame 0 is composited in full,
- * later frames clone that buffer and repaint only these tiles.
- */
-function computeAnimatedTileIndices(defs: MapPayload['map16Defs']): number[] {
-  if (!defs) return []
-  const out: number[] = []
-  for (let i = 0; i < defs.length; i++) {
-    const d = defs[i]
-    if (charIsAnimated(d.tl.c) || charIsAnimated(d.tr.c) ||
-        charIsAnimated(d.bl.c) || charIsAnimated(d.br.c)) {
-      out.push(i)
-    }
-  }
-  return out
-}
-
-/**
- * Overwrite the given tile indices in a 16-column RGBA atlas buffer.
- * Layout must match rebuildMap16Atlas() output: tile `i` at col `i%16`,
- * row `floor(i/16)`, in a 256-px-wide buffer.
- */
-function blitTilesInto(
-  buf: Uint8ClampedArray, indices: number[],
-  indexed: Uint8Array, palRows: number[][][],
-  defs: MapPayload['map16Defs'],
-): void {
-  if (!defs) return
-  const cols = 16, tileW = 16, w = cols * tileW
-  for (const i of indices) {
-    const def = defs[i]
-    const tx = (i % cols) * tileW, ty = Math.floor(i / cols) * tileW
-    blitSubTile(indexed, palRows, def.tl, buf, tx,     ty,     w)
-    blitSubTile(indexed, palRows, def.tr, buf, tx + 8, ty,     w)
-    blitSubTile(indexed, palRows, def.bl, buf, tx,     ty + 8, w)
-    blitSubTile(indexed, palRows, def.br, buf, tx + 8, ty + 8, w)
-  }
-}
-
-function imageDataToCanvas(img: ImageData): HTMLCanvasElement {
-  const c = document.createElement('canvas')
-  c.width = img.width
-  c.height = img.height
-  c.getContext('2d')!.putImageData(img, 0, 0)
-  return c
-}
-
-/**
- * Pre-build RGBA VRAM sheets and Map16 atlas canvases for every animation frame.
- * Must be called after invalidatePalette() has run (so mapData.paletteRows is live).
- * The resulting arrays let applyAnimFrame() do a cheap pointer-swap on each tick.
- *
- * Hybrid strategy for Map16 atlases: frame 0 is composited in full, then each
- * later frame starts as a clone of the frame-0 pixels with only animated tiles
- * repainted. Most levels animate a small fraction of their Map16 table, so this
- * skips ~90% of subtile blits per extra frame vs. a full rebuild.
- */
-function prebuildAnimFrames(): void {
-  prebuiltVramSheets = []
-  prebuiltMap16Atlases = []
-  prebuiltMap16Canvases = []
-  prebuiltMap16BgAtlases = []
-  prebuiltMap16BgCanvases = []
-  if (!mapData?.paletteRows || !mapData.map16Defs) return
-  const palRows = mapData.paletteRows
-  const defs = mapData.map16Defs
-  const bgDefs = mapData.map16BgDefs
-  const frameCount = vramIndexedFrames.length
-  if (frameCount === 0) return
-
-  const animL1 = computeAnimatedTileIndices(defs)
-  const animL2 = bgDefs ? computeAnimatedTileIndices(bgDefs) : []
-
-  // Frame 0 in full — the base every later frame clones.
-  const base0 = vramIndexedFrames[0]
-  prebuiltVramSheets.push(rebuildVramSheet(base0, palRows))
-  const atlas0 = rebuildMap16Atlas(base0, palRows, defs)
-  prebuiltMap16Atlases.push(atlas0)
-  prebuiltMap16Canvases.push(imageDataToCanvas(atlas0))
-  let bgAtlas0: ImageData | null = null
-  if (bgDefs) {
-    bgAtlas0 = rebuildMap16Atlas(base0, palRows, bgDefs)
-    prebuiltMap16BgAtlases.push(bgAtlas0)
-    prebuiltMap16BgCanvases.push(imageDataToCanvas(bgAtlas0))
-  }
-
-  // Frames 1+: clone frame-0 bytes, repaint only the animated tiles.
-  for (let f = 1; f < frameCount; f++) {
-    const indexed = vramIndexedFrames[f]
-    prebuiltVramSheets.push(rebuildVramSheet(indexed, palRows))
-    const buf = new Uint8ClampedArray(atlas0.data)
-    blitTilesInto(buf, animL1, indexed, palRows, defs)
-    const atlas = new ImageData(buf, atlas0.width, atlas0.height)
-    prebuiltMap16Atlases.push(atlas)
-    prebuiltMap16Canvases.push(imageDataToCanvas(atlas))
-    if (bgDefs && bgAtlas0) {
-      const bgBuf = new Uint8ClampedArray(bgAtlas0.data)
-      blitTilesInto(bgBuf, animL2, indexed, palRows, bgDefs)
-      const bgAtlas = new ImageData(bgBuf, bgAtlas0.width, bgAtlas0.height)
-      prebuiltMap16BgAtlases.push(bgAtlas)
-      prebuiltMap16BgCanvases.push(imageDataToCanvas(bgAtlas))
-    }
-  }
-}
-
-/**
- * Swap to a pre-built animation frame. No pixel rebuilds — just pointer swaps
- * + renderVramPage (slice copy) + redraw (drawImage calls, GPU-accelerated).
- * Falls back to invalidateVram() if pre-built caches aren't ready yet.
- */
 function applyAnimFrame(f: number): void {
-  activeVramIndexed = vramIndexedFrames[f] ?? activeVramIndexed
-  // Use pre-built caches only when palette animation isn't changing colors underneath us.
-  if (!palAnimRunning && prebuiltVramSheets[f] && prebuiltMap16Canvases[f]) {
-    vramFullImageData = prebuiltVramSheets[f]
-    map16AtlasCanvas = prebuiltMap16Canvases[f]
-    map16FullImageData = prebuiltMap16Atlases[f]
-    for (const entry of map16Pages) {
-      if (entry.label.startsWith('L1')) entry.atlas = prebuiltMap16Atlases[f]
-    }
-    if (prebuiltMap16BgCanvases[f] && prebuiltMap16BgAtlases[f]) {
-      map16BgAtlasCanvas = prebuiltMap16BgCanvases[f]
-      for (const entry of map16Pages) {
-        if (entry.label.startsWith('L2')) entry.atlas = prebuiltMap16BgAtlases[f]
-      }
-    }
-    renderVramPage()
-    renderMap16Page()
-    redrawDetail()
-    redraw()
-  } else {
-    invalidateVram()
-  }
+  // Dispatch to the store. AnimatedPixels chars read ctx.animFrame.value
+  // and their per-char caches invalidate only when their frame actually
+  // moves, so swapping the frame ref re-renders only the animated chars.
+  store.setAnimFrame(f)
 }
 
 function applyPalAnimFrame(f: number): void {
-  if (!mapData?.paletteAnimation || !mapData.paletteRows) return
-  const anim = mapData.paletteAnimation
-  const patches = anim.frames[f % anim.frameCount] ?? []
-  for (const p of patches) {
-    const row = p.cgramIdx >> 4
-    const col = p.cgramIdx & 15
-    if (mapData.paletteRows[row]) {
-      mapData.paletteRows[row][col] = [p.r, p.g, p.b, p.a]
-    }
-  }
-  invalidatePalette()
+  // Dispatch to the store. CyclingColor cells read ctx.palAnimFrame.value
+  // — each cell's computed invalidates only when its frame actually moves,
+  // so the whole palette doesn't rebuild on every tick.
+  store.setPalAnimFrame(f)
 }
 
 function syncPalAnimButton(): void {
@@ -851,8 +974,8 @@ function syncPalAnimButton(): void {
 function palAnimTick(now: number): void {
   if (!palAnimRunning) return
   if (now - palAnimLastTickMs >= palAnimIntervalMs) {
-    palAnimFrame = (palAnimFrame + 1) % (mapData?.paletteAnimation?.frameCount ?? 8)
-    applyPalAnimFrame(palAnimFrame)
+    const frameCount = mapData?.paletteAnimation?.frameCount ?? 8
+    applyPalAnimFrame((store.palAnimFrame + 1) % frameCount)
     palAnimLastTickMs = now
   }
   palAnimRafId = requestAnimationFrame(palAnimTick)
@@ -872,8 +995,6 @@ function stopPalAnimTimer(): void {
   if (palAnimRafId !== null) { cancelAnimationFrame(palAnimRafId); palAnimRafId = null }
   palAnimRunning = false
   syncPalAnimButton()
-  // Palette has changed — rebuild tile animation caches so subsequent tile ticks show correct colors.
-  if (animFrameCount > 1) prebuildAnimFrames()
 }
 
 function togglePalAnim(): void {
@@ -907,31 +1028,12 @@ function toggleAnim(): void {
 
 for (const btn of animPlayBtns) btn.addEventListener('click', toggleAnim)
 
-function updateAnimLabel(): void {
-  const lbl = document.getElementById('anim-frame-label')
-  if (lbl) lbl.textContent = animFrameCount > 1 ? `${animFrame + 1}/${animFrameCount}` : ''
-}
-
-function stepFrame(delta: number): void {
-  if (animFrameCount <= 1) return
-  if (animRunning) { stopAnimTimer(); stopPalAnimTimer(); animRunning = false; syncAnimButtons() }
-  animFrame = ((animFrame + delta) % animFrameCount + animFrameCount) % animFrameCount
-  applyAnimFrame(animFrame)
-  updateAnimLabel()
-}
-
-document.getElementById('btn-anim-prev')!.addEventListener('click', () => stepFrame(-1))
-document.getElementById('btn-anim-next')!.addEventListener('click', () => stepFrame(1))
-document.getElementById('btn-anim-prev2')!.addEventListener('click', () => stepFrame(-1))
-document.getElementById('btn-anim-next2')!.addEventListener('click', () => stepFrame(1))
-document.getElementById('btn-anim-prev3')!.addEventListener('click', () => stepFrame(-1))
-document.getElementById('btn-anim-next3')!.addEventListener('click', () => stepFrame(1))
-
 function animTick(now: number): void {
   if (!animRunning) return
   if (now - animLastTickMs >= animIntervalMs) {
-    animFrame = (animFrame + 1) % animFrameCount
-    applyAnimFrame(animFrame)
+    // Compute from store (single source of truth); applyAnimFrame handles
+    // both the dispatch and the legacy-mirror update.
+    applyAnimFrame((store.animFrame + 1) % animFrameCount)
     animLastTickMs = now
   }
   animRafId = requestAnimationFrame(animTick)
@@ -939,14 +1041,13 @@ function animTick(now: number): void {
 
 function startAnimTimer(): void {
   if (animRafId !== null) { cancelAnimationFrame(animRafId); animRafId = null }
-  animFrame = 0
+  applyAnimFrame(0)
   animLastTickMs = performance.now()
   animRafId = requestAnimationFrame(animTick)
 }
 
 function stopAnimTimer(): void {
   if (animRafId !== null) { cancelAnimationFrame(animRafId); animRafId = null }
-  animFrame = 0
   applyAnimFrame(0)
 }
 
@@ -956,50 +1057,9 @@ function stopAnimTimer(): void {
 const VRAM_TILES_PER_PAGE = 256
 let vramPage = 0
 let vramTotalPages = 0
-let vramFullImageData: ImageData | null = null
 
 function renderVramPage(): void {
-  if (!vramFullImageData) return
-  const vc = document.getElementById('vram-canvas') as HTMLCanvasElement
-  const vctx = vc.getContext('2d')!
-  const tilesPerRow = 16
-  const rows = VRAM_TILES_PER_PAGE / tilesPerRow  // 16
-  vc.width = tilesPerRow * 8   // 128
-  vc.height = rows * 8          // 128
-  const srcY = vramPage * rows * 8
-  const srcH = rows * 8
-  const sw = vramFullImageData.width
-  if (srcY + srcH > vramFullImageData.height) { vctx.clearRect(0, 0, vc.width, vc.height); return }
-  const slice = new Uint8ClampedArray(sw * srcH * 4)
-  for (let row = 0; row < srcH; row++) {
-    const srcOff = ((srcY + row) * sw) * 4
-    const dstOff = (row * sw) * 4
-    slice.set(vramFullImageData.data.subarray(srcOff, srcOff + sw * 4), dstOff)
-  }
-  vctx.putImageData(new ImageData(slice, sw, srcH), 0, 0)
-  if (vramGridOn) {
-    vctx.strokeStyle = 'rgba(0,0,0,0.5)'
-    vctx.lineWidth = 0.5
-    for (let x = 0; x <= vc.width; x += 8) { vctx.beginPath(); vctx.moveTo(x, 0); vctx.lineTo(x, vc.height); vctx.stroke() }
-    for (let y = 0; y <= vc.height; y += 8) { vctx.beginPath(); vctx.moveTo(0, y); vctx.lineTo(vc.width, y); vctx.stroke() }
-  }
-  if (vramHoverTile) {
-    vctx.fillStyle = 'rgba(0,0,0,0.55)'
-    vctx.fillRect(0, 0, vc.width, vc.height)
-    vctx.clearRect(vramHoverTile.col * 8, vramHoverTile.row * 8, 8, 8)
-    // Re-draw just the hovered tile from the slice
-    const hx = vramHoverTile.col * 8, hy = vramHoverTile.row * 8
-    const tileSlice = new Uint8ClampedArray(8 * 8 * 4)
-    for (let py = 0; py < 8; py++)
-      for (let px = 0; px < 8; px++) {
-        const si = ((hy + py) * sw + (hx + px)) * 4
-        const di = (py * 8 + px) * 4
-        for (let c = 0; c < 4; c++) tileSlice[di+c] = slice[si+c]
-      }
-    vctx.putImageData(new ImageData(tileSlice, 8, 8), hx, hy)
-  }
-  const lbl = document.getElementById('vram-page-label')!
-  lbl.textContent = `Page ${vramPage + 1} / ${vramTotalPages}`
+  renderVramPageFromModel()
 }
 
 document.getElementById('vram-prev')!.addEventListener('click', () => {
@@ -1009,191 +1069,225 @@ document.getElementById('vram-next')!.addEventListener('click', () => {
   if (vramTotalPages > 0) { vramPage = (vramPage + 1) % vramTotalPages; renderVramPage() }
 })
 
-// ── Map16 client-side composition from indexed VRAM chars ────────────────────
+/**
+ * Render the current VRAM page from the self-rendering model. Each
+ * char on the page gets its pixels via `Char.getPixels(ctx)` — so
+ * AnimatedPixels / PSwitchAlternate / etc. all reflect current
+ * state automatically. Palette row selection mirrors the legacy
+ * convention: $000-$17F → row 2 (FG), $180-$2FF → row 6 (AN/BG),
+ * $300+ → row 8 (sprite).
+ */
+function renderVramPageFromModel(): void {
+  const map = window.__smwModelMap
+  const chars = window.__smwModelChars
+  const vc = document.getElementById('vram-canvas') as HTMLCanvasElement
+  const vctx = vc.getContext('2d')!
+  const tilesPerRow = 16
+  const rowsPerPage = VRAM_TILES_PER_PAGE / tilesPerRow // 16
+  vc.width = tilesPerRow * 8
+  vc.height = rowsPerPage * 8
 
-/** Composite a single 8x8 subtile from indexed VRAM into an RGBA ImageData. */
-function blitSubTile(
-  indexed: Uint8Array, palRows: number[][][],
-  sub: { c: number; p: number; fx: boolean; fy: boolean },
-  dest: Uint8ClampedArray, destX: number, destY: number, destW: number,
-): void {
-  const srcOff = sub.c * 64
-  const pal = palRows[sub.p] ?? palRows[0]
-  for (let py = 0; py < 8; py++) {
-    const sy = sub.fy ? 7 - py : py
-    for (let px = 0; px < 8; px++) {
-      const sx = sub.fx ? 7 - px : px
-      const palIdx = indexed[srcOff + sy * 8 + sx] ?? 0
-      const dx = destX + px, dy = destY + py
-      const di = (dy * destW + dx) * 4
-      if (palIdx === 0) {
-        dest[di] = dest[di + 1] = dest[di + 2] = 0; dest[di + 3] = 0
-      } else {
-        const c = pal[palIdx] ?? [255, 0, 255, 255]
-        dest[di] = c[0]; dest[di + 1] = c[1]; dest[di + 2] = c[2]; dest[di + 3] = 255
+  if (!map || !chars) {
+    vctx.clearRect(0, 0, vc.width, vc.height)
+    return
+  }
+
+  const palette = map.palette
+  const ctx: RenderContext = {
+    animFrame: storeRefs.animFrame,
+    palAnimFrame: storeRefs.palAnimFrame,
+    pSwitchActive: storeRefs.pSwitchActive,
+    switchPalaceState: storeRefs.switchPalaceState,
+    palette,
+    camera: storeRefs.camera,
+    zoom: storeRefs.zoom,
+    layerToggles: storeRefs.layerToggles,
+  }
+
+  const sw = vc.width
+  const sh = vc.height
+  const buf = new Uint8ClampedArray(sw * sh * 4)
+  const firstCharNum = vramPage * VRAM_TILES_PER_PAGE
+
+  for (let ti = 0; ti < VRAM_TILES_PER_PAGE; ti++) {
+    const charNum = firstCharNum + ti
+    const char = chars.get(charNum)
+    // Char/palette-row convention from legacy rebuildVramSheet:
+    //   $000-$17F → palette row 2 (FG terrain)
+    //   $180-$2FF → palette row 6 (AN / sprite-slot; FlashingColors writes here)
+    //   $300+     → palette row 8 (sprite)
+    const palRowIdx = charNum < 0x180 ? 2 : charNum < 0x300 ? 6 : 8
+    const paletteRow = palette.row(palRowIdx, ctx)
+
+    const tileCol = ti % tilesPerRow
+    const tileRow = Math.floor(ti / tilesPerRow)
+    const dx0 = tileCol * 8
+    const dy0 = tileRow * 8
+
+    if (!char) continue // unmapped slot → leave transparent
+    const pixels = char.getPixels(ctx)
+    if (!pixels) continue
+    for (let py = 0; py < 8; py++) {
+      for (let px = 0; px < 8; px++) {
+        const palIdx = pixels[py * 8 + px] ?? 0
+        if (palIdx === 0) continue
+        const col = paletteRow[palIdx]
+        if (!col) continue
+        const di = ((dy0 + py) * sw + (dx0 + px)) * 4
+        buf[di] = col[0]
+        buf[di + 1] = col[1]
+        buf[di + 2] = col[2]
+        buf[di + 3] = 255
       }
     }
   }
+
+  vctx.putImageData(new ImageData(buf, sw, sh), 0, 0)
+
+  if (vramGridOn) {
+    vctx.strokeStyle = 'rgba(0,0,0,0.5)'
+    vctx.lineWidth = 0.5
+    for (let x = 0; x <= vc.width; x += 8) { vctx.beginPath(); vctx.moveTo(x, 0); vctx.lineTo(x, vc.height); vctx.stroke() }
+    for (let y = 0; y <= vc.height; y += 8) { vctx.beginPath(); vctx.moveTo(0, y); vctx.lineTo(vc.width, y); vctx.stroke() }
+  }
+
+  // Hover: dim everything, un-dim just the hovered tile. Same visual
+  // convention the legacy render uses so the two paths feel identical.
+  if (vramHoverTile) {
+    vctx.fillStyle = 'rgba(0,0,0,0.55)'
+    vctx.fillRect(0, 0, vc.width, vc.height)
+    const hx = vramHoverTile.col * 8
+    const hy = vramHoverTile.row * 8
+    vctx.clearRect(hx, hy, 8, 8)
+    const tileSlice = new Uint8ClampedArray(8 * 8 * 4)
+    for (let py = 0; py < 8; py++) {
+      for (let px = 0; px < 8; px++) {
+        const si = ((hy + py) * sw + (hx + px)) * 4
+        const di = (py * 8 + px) * 4
+        tileSlice[di]     = buf[si]
+        tileSlice[di + 1] = buf[si + 1]
+        tileSlice[di + 2] = buf[si + 2]
+        tileSlice[di + 3] = buf[si + 3]
+      }
+    }
+    vctx.putImageData(new ImageData(tileSlice, 8, 8), hx, hy)
+  }
+
+  // Selected tile: yellow outline when the selection is on this page.
+  if (selectedDetail?.type === 'vram' && selectedDetail.page === vramPage) {
+    vctx.strokeStyle = '#ffcf5b'
+    vctx.lineWidth = 1
+    vctx.strokeRect(selectedDetail.col * 8 + 0.5, selectedDetail.row * 8 + 0.5, 7, 7)
+  }
+
+  const lbl = document.getElementById('vram-page-label')!
+  lbl.textContent = `Page ${vramPage + 1} / ${vramTotalPages}`
 }
 
-/** Rebuild the 4 pipe-variant canvas atlases from indexed VRAM + palette + variant defs.
- *  Each variant atlas is 128×16 (8 tiles × 16 px wide, 1 row). Stored in
- *  pipeVariantAtlasCanvases[0..3] for use by drawCells when a tile in
- *  $133..$13A is drawn on a given screen. */
-function rebuildPipeVariantCanvases(
-  indexed: Uint8Array, palRows: number[][][],
-  variantDefs: MapPayload['pipeVariantDefs'],
-): void {
-  if (!variantDefs) {
-    pipeVariantAtlasCanvases = [null, null, null, null]
-    return
-  }
-  const TILE_W = 16
-  const w = 8 * TILE_W, h = TILE_W
-  for (let v = 0; v < 4; v++) {
-    const defs = variantDefs[v] ?? []
-    const buf = new Uint8ClampedArray(w * h * 4)
-    for (let i = 0; i < defs.length && i < 8; i++) {
-      const def = defs[i]
-      const tx = i * TILE_W
-      blitSubTile(indexed, palRows, def.tl, buf, tx,     0, w)
-      blitSubTile(indexed, palRows, def.tr, buf, tx + 8, 0, w)
-      blitSubTile(indexed, palRows, def.bl, buf, tx,     8, w)
-      blitSubTile(indexed, palRows, def.br, buf, tx + 8, 8, w)
-    }
-    const img = new ImageData(buf, w, h)
-    let canvas = pipeVariantAtlasCanvases[v]
-    if (!canvas) {
-      canvas = document.createElement('canvas')
-      pipeVariantAtlasCanvases[v] = canvas
-    }
-    canvas.width = w
-    canvas.height = h
-    canvas.getContext('2d')!.putImageData(img, 0, 0)
-  }
-}
+// ── Map16 model render ───────────────────────────────────────────────────────
 
 /**
- * Rebuild the sprite-layout atlas. Each cell is 16x32 so both short (16x16)
- * and tall (16x32) sprites fit the same slot. Layout dy values are measured
- * from the anchor row — short: 0..8, tall: -16..8 — and map into the cell
- * by offsetting +16 so the anchor row lands on the cell's vertical midline.
- *
- *   cell y=0..15   ← tall sprite's top half (dy -16..-1)
- *   cell y=16..31  ← anchor row and below (dy 0..15)
- *
- * At draw time the render loop samples either the bottom half (short) or
- * the whole cell (tall) depending on layout.height.
+ * Render the current Map16 page using the self-rendering model.
+ * Each tile's `render()` drives SubTile → Char → pixel lookup through
+ * the model graph, so animated / switch-palace / pipe-variant behaviors
+ * all reflect the current reactive state automatically.
  */
-function rebuildSpriteAtlas(
-  indexed: Uint8Array, palRows: number[][][],
-  layouts: MapPayload['spriteLayouts'],
-): void {
-  if (!layouts || layouts.length === 0) {
-    spriteAtlasCanvas = null
+function renderMap16PageFromModel(): void {
+  const mc = document.getElementById('map16-canvas') as HTMLCanvasElement | null
+  if (!mc) return
+  const map = window.__smwModelMap
+  const l1Tiles = window.__smwModelTiles
+  const bgTiles = window.__smwModelBgTiles
+  if (!map || !l1Tiles) {
+    mc.getContext('2d')?.clearRect(0, 0, mc.width, mc.height)
     return
   }
-  const cellW = SPRITE_ATLAS_CELL_W
-  const cellH = SPRITE_ATLAS_CELL_H
-  const cols = SPRITE_ATLAS_COLS
-  const maxId = layouts.reduce((m, l) => Math.max(m, l.spriteId), 0)
-  const rows = Math.ceil((maxId + 1) / cols)
-  const w = cols * cellW, h = rows * cellH
-  const buf = new Uint8ClampedArray(w * h * 4)
-  for (const layout of layouts) {
-    const tx = (layout.spriteId % cols) * cellW
-    const ty = Math.floor(layout.spriteId / cols) * cellH
-    // Wide (32×32) sprites use all 32 rows of the cell (dy in 0..31, no +16
-    // offset). Short/tall sprites use the bottom half or centered layout.
-    const yOffset = (layout.width ?? 16) >= 32 ? 0 : 16
-    for (const t of layout.tiles) {
-      blitSubTile(indexed, palRows,
-        { c: t.charNum, p: t.palette, fx: t.flipX, fy: t.flipY },
-        buf, tx + t.dx, ty + yOffset + t.dy, w)
+
+  mc.width = 256
+  mc.height = 256
+  const target = new CanvasRenderTarget(mc)
+  const ctx: RenderContext = {
+    animFrame: storeRefs.animFrame,
+    palAnimFrame: storeRefs.palAnimFrame,
+    pSwitchActive: storeRefs.pSwitchActive,
+    switchPalaceState: storeRefs.switchPalaceState,
+    palette: map.palette,
+    camera: storeRefs.camera,
+    zoom: storeRefs.zoom,
+    layerToggles: storeRefs.layerToggles,
+  }
+
+  target.clear()
+
+  if (map16Pages.length > 0) {
+    const entry = map16Pages[map16PageIdx]
+    const isL1 = entry.label.startsWith('L1')
+    const tileSource = isL1 ? l1Tiles : (bgTiles ?? new Map())
+    const startId = entry.pageInAtlas * 256
+    for (let i = 0; i < 256; i++) {
+      const tile = tileSource.get(startId + i)
+      if (!tile) continue
+      const col = i % 16
+      const row = Math.floor(i / 16)
+      const cellBox = cellBoxOf(col, row)
+      tile.render(ctx, target, cellBox, 'nonPriority')
+      tile.render(ctx, target, cellBox, 'priority')
     }
   }
-  if (!spriteAtlasCanvas) spriteAtlasCanvas = document.createElement('canvas')
-  if (spriteAtlasCanvas.width !== w || spriteAtlasCanvas.height !== h) {
-    spriteAtlasCanvas.width = w
-    spriteAtlasCanvas.height = h
-  }
-  const img = new ImageData(buf, w, h)
-  spriteAtlasCanvas.getContext('2d')!.putImageData(img, 0, 0)
-}
 
-/** Rebuild the L1 Map16 atlas from indexed VRAM + palette + tile defs. */
-function rebuildMap16Atlas(
-  indexed: Uint8Array, palRows: number[][][],
-  defs: MapPayload['map16Defs'],
-): ImageData {
-  if (!defs || defs.length === 0) return new ImageData(256, 256)
-  const cols = 16, tileW = 16
-  const rows = Math.ceil(defs.length / cols)
-  const w = cols * tileW, h = rows * tileW
-  const buf = new Uint8ClampedArray(w * h * 4)
-  for (let i = 0; i < defs.length; i++) {
-    const def = defs[i]
-    const tx = (i % cols) * tileW, ty = Math.floor(i / cols) * tileW
-    blitSubTile(indexed, palRows, def.tl, buf, tx, ty, w)
-    blitSubTile(indexed, palRows, def.tr, buf, tx + 8, ty, w)
-    blitSubTile(indexed, palRows, def.bl, buf, tx, ty + 8, w)
-    blitSubTile(indexed, palRows, def.br, buf, tx + 8, ty + 8, w)
-  }
-  return new ImageData(buf, w, h)
-}
+  target.flush()
 
-// MAP16 page viewer — pages derived from atlas data, blank pages skipped.
-// Each page entry has an atlas ImageData and a page-within-atlas index.
-interface Map16PageEntry { atlas: ImageData; pageInAtlas: number; label: string }
-let map16Pages: Map16PageEntry[] = []
-let map16PageIdx = 0
-let map16FullImageData: ImageData | null = null  // kept for detail preview (L1 atlas)
-
-function renderMap16Page(): void {
-  const mc = document.getElementById('map16-canvas') as HTMLCanvasElement
   const mctx = mc.getContext('2d')!
-  mc.width = 256; mc.height = 256
-  if (map16Pages.length === 0) { mctx.clearRect(0, 0, 256, 256); return }
-
-  const entry = map16Pages[map16PageIdx]
-  const srcY = entry.pageInAtlas * 256
-  const srcH = 256
-  const sw = entry.atlas.width
-  if (srcY + srcH > entry.atlas.height) { mctx.clearRect(0, 0, 256, 256); return }
-
-  // Start with the base atlas page
-  const pageImg = new Uint8ClampedArray(256 * 256 * 4)
-  for (let row = 0; row < srcH; row++) {
-    const srcOff = ((srcY + row) * sw) * 4
-    const dstOff = (row * 256) * 4
-    pageImg.set(entry.atlas.data.subarray(srcOff, srcOff + 256 * 4), dstOff)
-  }
-
-
-
-  mctx.putImageData(new ImageData(pageImg, 256, 256), 0, 0)
   if (map16GridOn) {
     mctx.strokeStyle = 'rgba(0,0,0,0.5)'
     mctx.lineWidth = 0.5
-    for (let x = 0; x <= mc.width; x += 16) { mctx.beginPath(); mctx.moveTo(x, 0); mctx.lineTo(x, mc.height); mctx.stroke() }
-    for (let y = 0; y <= mc.height; y += 16) { mctx.beginPath(); mctx.moveTo(0, y); mctx.lineTo(mc.width, y); mctx.stroke() }
+    for (let x = 0; x <= 256; x += 16) { mctx.beginPath(); mctx.moveTo(x, 0); mctx.lineTo(x, 256); mctx.stroke() }
+    for (let y = 0; y <= 256; y += 16) { mctx.beginPath(); mctx.moveTo(0, y); mctx.lineTo(256, y); mctx.stroke() }
   }
+  // Hover: dim everything, un-dim just the hovered tile. Snapshot the
+  // rendered canvas first so we can restore the hovered 16×16 slice
+  // without re-running the whole render pass.
   if (map16HoverTile) {
+    const fullSnap = mctx.getImageData(0, 0, 256, 256)
     mctx.fillStyle = 'rgba(0,0,0,0.55)'
-    mctx.fillRect(0, 0, mc.width, mc.height)
-    const hx = map16HoverTile.col * 16, hy = map16HoverTile.row * 16
+    mctx.fillRect(0, 0, 256, 256)
+    const hx = map16HoverTile.col * 16
+    const hy = map16HoverTile.row * 16
     mctx.clearRect(hx, hy, 16, 16)
     const tileSlice = new Uint8ClampedArray(16 * 16 * 4)
-    for (let py = 0; py < 16; py++)
+    for (let py = 0; py < 16; py++) {
       for (let px = 0; px < 16; px++) {
         const si = ((hy + py) * 256 + (hx + px)) * 4
         const di = (py * 16 + px) * 4
-        for (let c = 0; c < 4; c++) tileSlice[di+c] = pageImg[si+c]
+        tileSlice[di]     = fullSnap.data[si]
+        tileSlice[di + 1] = fullSnap.data[si + 1]
+        tileSlice[di + 2] = fullSnap.data[si + 2]
+        tileSlice[di + 3] = fullSnap.data[si + 3]
       }
+    }
     mctx.putImageData(new ImageData(tileSlice, 16, 16), hx, hy)
   }
-  const lbl = document.getElementById('map16-page-label')!
-  lbl.textContent = `Page ${map16PageIdx + 1} / ${map16Pages.length}`
+
+  // Selected tile: yellow outline when the selection is on this page.
+  if (selectedDetail?.type === 'map16' && selectedDetail.page === map16PageIdx) {
+    mctx.strokeStyle = '#ffcf5b'
+    mctx.lineWidth = 1
+    mctx.strokeRect(selectedDetail.col * 16 + 0.5, selectedDetail.row * 16 + 0.5, 15, 15)
+  }
+
+  const lbl2 = document.getElementById('map16-page-label')
+  if (lbl2) lbl2.textContent = `Page ${map16PageIdx + 1} / ${map16Pages.length}`
+}
+
+// MAP16 page viewer — pages derived from L1 / L2 Map16 table sizes.
+// Each entry labels a page and carries its index within its table; the
+// renderer asks the model for tiles at those indices.
+interface Map16PageEntry { pageInAtlas: number; label: string }
+let map16Pages: Map16PageEntry[] = []
+let map16PageIdx = 0
+
+function renderMap16Page(): void {
+  renderMap16PageFromModel()
 }
 
 document.getElementById('map16-prev')!.addEventListener('click', () => {
@@ -1223,34 +1317,7 @@ const infoBgHScroll  = document.getElementById('info-bg-hscroll')!
 // ── State ────────────────────────────────────────────────────────────────────
 
 let zoomIdx      = ZOOM_DEFAULT_IDX
-let zoom         = ZOOM_STEPS[zoomIdx]
 let mapData: MapPayload | null = null
-let l2TileGrid:  number[][] | null = null
-// Offscreen canvas holding the live L1 Map16 atlas (16 cols × N rows of 16×16 tiles).
-// Kept in sync with rebuildMap16Atlas output so the level canvas, Map16 page viewer,
-// and tile detail preview all render from the same animated source.
-let map16AtlasCanvas: HTMLCanvasElement | null = null
-/**
- * Per-variant canvas atlases for pipe tiles $133..$13A. Each canvas is a
- * 128x16 strip of 8 tiles (16x16 each). Indexed by variant (0..3) then tile
- * offset (0..7). Populated by rebuildPipeVariantCanvases() in invalidateMap16.
- */
-let pipeVariantAtlasCanvases: (HTMLCanvasElement | null)[] = [null, null, null, null]
-// Offscreen canvas for the L2 (Map16BGTiles) atlas — rebuilt live from
-// map16BgDefs + activeVramIndexed + paletteRows (see invalidateMap16).
-let map16BgAtlasCanvas: HTMLCanvasElement | null = null
-/**
- * Offscreen sprite atlas: one 16x32 image per sprite ID in the generic-layout
- * range (0x00..0x53). Each cell is tall so that SubSprGfx1 sprites (16x32)
- * can live alongside the 16x16 ones — short sprites occupy the bottom half
- * of the cell and the top half stays transparent. The render loop samples
- * either the full cell (tall) or just the bottom half (short) depending on
- * the layout's `height`.
- */
-let spriteAtlasCanvas: HTMLCanvasElement | null = null
-const SPRITE_ATLAS_CELL_W = 32   // accommodates 32x32 wide sprites; 16-wide sprites use the left half
-const SPRITE_ATLAS_CELL_H = 32   // accommodates 16x32 tall sprites
-const SPRITE_ATLAS_COLS = 16
 const activeTileId = -1
 let activeTool: 'place' | 'erase' = 'place'
 let isPainting   = false
@@ -1265,73 +1332,21 @@ interface MapPayload {
   /** True if Layer 1 is vertical (ScreenMode bit 0 via VerticalTable). */
   isVertical?:     boolean
   tileGrid:        number[][]
-  l2TileGrid:      number[][] | null
   sprites:         Array<{ x: number; y: number; spriteId: number }>
-  // Per-sprite-ID 8x8 corner list derived from SMW's generic sprite draw
-  // routines. Short sprites (height=16) use SubSprGfx2 semantics; tall
-  // sprites (height=32) use SubSprGfx1 and draw with a -16px Y offset so
-  // the bottom aligns with the anchor tile. IDs without a layout fall back
-  // to the marker.
-  spriteLayouts?: Array<{
-    spriteId: number
-    height: 16 | 32
-    width?: 16 | 32
-    tiles: Array<{
-      charNum: number
-      palette: number
-      flipX: boolean
-      flipY: boolean
-      dx: number
-      dy: number
-    }>
-  }> | null
   backAreaColor:   [number, number, number, number]
   backAreaColors:  number[][]   // 8 variants × [r,g,b,a]
-  paletteRows:     number[][][]   // 16 rows × 16 colors × [r,g,b,a]
-  // Which atlas the L2 tile grid should sample:
-  //   true  → map16BgAtlasCanvas  (preset BG; IDs are into Map16BGTiles)
-  //   false → map16AtlasCanvas    (object-stream L2; IDs are regular Map16)
-  l2UsesBgAtlas?: boolean
-  // Map16 tile definitions for client-side composition
-  map16Defs?: Array<{
-    id: number
-    tl: { c: number; p: number; fx: boolean; fy: boolean }
-    bl: { c: number; p: number; fx: boolean; fy: boolean }
-    tr: { c: number; p: number; fx: boolean; fy: boolean }
-    br: { c: number; p: number; fx: boolean; fy: boolean }
-  }>
-  // L2/BG Map16 tile defs (same shape). Enables per-frame L2 atlas rebuild.
-  map16BgDefs?: Array<{
-    id: number
-    tl: { c: number; p: number; fx: boolean; fy: boolean }
-    bl: { c: number; p: number; fx: boolean; fy: boolean }
-    tr: { c: number; p: number; fx: boolean; fy: boolean }
-    br: { c: number; p: number; fx: boolean; fy: boolean }
-  }>
-  // Pipe palette variants for tiles $133..$13A (see MAP16AppTable in bank_05.asm).
-  // 4 variants × 8 tile defs. At render time, tiles in that range are
-  // composited using pipeVariantDefs[screenPipeVariants[screen]][tileId-0x133].
-  pipeVariantDefs?: Array<Array<{
-    id: number
-    tl: { c: number; p: number; fx: boolean; fy: boolean }
-    bl: { c: number; p: number; fx: boolean; fy: boolean }
-    tr: { c: number; p: number; fx: boolean; fy: boolean }
-    br: { c: number; p: number; fx: boolean; fy: boolean }
-  }>>
-  // Per-screen variant index (0..3) for the pipe cycle.
-  screenPipeVariants?: number[]
-  // Raw indexed VRAM: 1 byte per pixel, 64 bytes per char, 1536 chars
-  vramIndexedData?: number[]
+  /** Count of L1 Map16 tiles — used to page the Map16 panel. */
+  map16DefCount?:  number
+  /** Count of L2 Map16 tiles — used to add L2 pages when > 0. */
+  map16BgDefCount?: number
   animation?: {
     frameCount: number
     intervalMs: number
-    extraVramIndexed: number[][]
   }
-  // Palette animation: FlashingColors CGRAM cycling ($6D/$7D)
+  /** Palette animation timing only — the model drives actual cycling. */
   paletteAnimation?: {
     frameCount: number
     intervalMs: number
-    frames: Array<Array<{ cgramIdx: number; r: number; g: number; b: number; a: number }>>
   } | null
   header: {
     music:          number
@@ -1368,15 +1383,6 @@ function levelRows(): number {
   if (!mapData) return 0
   return isVert() ? mapData.screens * SCREEN_H_VERT : SCREEN_H
 }
-/** Pixel X of the top-left of screen `s` in the main canvas. */
-function screenX(s: number, px: number): number {
-  return isVert() ? 0 : Math.round(s * SCREEN_W * px)
-}
-/** Pixel Y of the top-left of screen `s` in the main canvas. */
-function screenY(s: number, px: number): number {
-  return isVert() ? Math.round(s * SCREEN_H_VERT * px) : 0
-}
-
 // ── Zoom ─────────────────────────────────────────────────────────────────────
 
 /** Browser canvas dimension cap. Chrome and Firefox limit canvases to 16384
@@ -1406,9 +1412,9 @@ function applyZoom(): void {
   // Clamp to whatever the current level can actually fit on-screen.
   const cap = maxZoomIdx()
   if (zoomIdx > cap) zoomIdx = cap
-  zoom = ZOOM_STEPS[zoomIdx]
-  zoomLabel.textContent = `${zoom}×`
-  if (mapData) redraw()
+  const z = ZOOM_STEPS[zoomIdx]
+  store.setZoom(z)  // reactive — triggers renderModelOverlay with the new zoom
+  zoomLabel.textContent = `${z}×`
 }
 
 document.getElementById('zoom-in')!.addEventListener('click', () => {
@@ -1427,13 +1433,43 @@ canvasWrap.addEventListener('wheel', (e) => {
 // ── Palette canvas ────────────────────────────────────────────────────────────
 
 function drawPaletteCanvas(): void {
-  if (!mapData?.paletteRows) return
-  const rows = mapData.paletteRows
+  drawPaletteFromModel()
+}
+
+/**
+ * Render the palette panel from the self-rendering model's Palette.
+ * Reads each cell via its ColorBehavior (static or CyclingColor) so
+ * palette animation is naturally driven by `ctx.palAnimFrame` — no
+ * separate tick logic needed. Falls back to the legacy path if the
+ * model hasn't arrived yet.
+ */
+function drawPaletteFromModel(): void {
+  const map = window.__smwModelMap
+  if (!map) {
+    // Model not yet rehydrated — clear to transparent so the panel
+    // doesn't keep showing stale legacy content.
+    palCtx.clearRect(0, 0, 128, 128)
+    return
+  }
+  const palette = map.palette
+  const ctx: RenderContext = {
+    animFrame: storeRefs.animFrame,
+    palAnimFrame: storeRefs.palAnimFrame,
+    pSwitchActive: storeRefs.pSwitchActive,
+    switchPalaceState: storeRefs.switchPalaceState,
+    palette,
+    camera: storeRefs.camera,
+    zoom: storeRefs.zoom,
+    layerToggles: storeRefs.layerToggles,
+  }
+
   palCtx.clearRect(0, 0, 128, 128)
 
   for (let row = 0; row < 16; row++) {
     for (let col = 0; col < 16; col++) {
-      const c = rows[row]?.[col] ?? [0, 0, 0, 0]
+      const cell = palette.cells[row]?.[col]
+      if (!cell) continue
+      const c = cell.rgba(ctx)
       const x = col * PAL_CELL
       const y = row * PAL_CELL
       if (c[3] < 255) {
@@ -1447,13 +1483,12 @@ function drawPaletteCanvas(): void {
     }
   }
 
-  // Dim cells that are NOT part of the currently focused palette group
   if (paletteHighlightCells !== null) {
     palCtx.fillStyle = 'rgba(0,0,0,0.65)'
     for (let row = 0; row < 16; row++) {
       for (let col = 0; col < 16; col++) {
         const isHighlighted = paletteHighlightCells.some(
-          h => h.row === row && col >= h.colStart && col <= h.colEnd
+          h => h.row === row && col >= h.colStart && col <= h.colEnd,
         )
         if (!isHighlighted) {
           palCtx.fillRect(col * PAL_CELL, row * PAL_CELL, PAL_CELL, PAL_CELL)
@@ -1475,13 +1510,25 @@ function drawPaletteCanvas(): void {
 }
 
 palCanvas.addEventListener('mousemove', (e) => {
-  if (!mapData?.paletteRows) return
+  const map = window.__smwModelMap
+  if (!map) return
   const rect = palCanvas.getBoundingClientRect()
   const scaleX = 128 / rect.width
   const col = Math.floor((e.clientX - rect.left) * scaleX / PAL_CELL)
   const row = Math.floor((e.clientY - rect.top)  * scaleX / PAL_CELL)
   if (col < 0 || col > 15 || row < 0 || row > 15) return
-  const c = mapData.paletteRows[row]?.[col] ?? [0, 0, 0, 0]
+  const ctx: RenderContext = {
+    animFrame: storeRefs.animFrame,
+    palAnimFrame: storeRefs.palAnimFrame,
+    pSwitchActive: storeRefs.pSwitchActive,
+    switchPalaceState: storeRefs.switchPalaceState,
+    palette: map.palette,
+    camera: storeRefs.camera,
+    zoom: storeRefs.zoom,
+    layerToggles: storeRefs.layerToggles,
+  }
+  const cell = map.palette.cells[row]?.[col]
+  const c = cell ? cell.rgba(ctx) : [0, 0, 0, 0]
   const hex = `#${c[0].toString(16).padStart(2,'0')}${c[1].toString(16).padStart(2,'0')}${c[2].toString(16).padStart(2,'0')}`
   palInspect.textContent = `row ${row}  col ${col}  ${hex}`
 })
@@ -1498,414 +1545,13 @@ function tileBlockColor(tileId: number): string {
   return `rgb(${r},${g},${b})`
 }
 
-function drawBlockGrid(grid: number[][], cols: number, rows: number, px: number, alpha: number): void {
-  ctx.save()
-  ctx.globalAlpha = alpha
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const tileId = grid[row]?.[col] ?? 0
-      if (tileId === 0) continue
-      ctx.fillStyle = tileBlockColor(tileId)
-      ctx.fillRect(Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
-    }
-  }
-  if (zoom >= 2) {
-    ctx.fillStyle = 'rgba(0,0,0,0.75)'
-    ctx.font = `${Math.max(6, Math.round(px * 0.28))}px monospace`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const tileId = grid[row]?.[col] ?? 0
-        if (tileId === 0) continue
-        ctx.fillText(`$${tileId.toString(16).toUpperCase().padStart(3,'0')}`,
-          Math.round(col * px) + Math.round(px / 2),
-          Math.round(row * px) + Math.round(px / 2))
-      }
-    }
-  }
-  ctx.restore()
-}
-
-/**
- * Transparency-checkerboard pattern, matching the one used by gfxViewer
- * (4×4 grayscale squares at 40/60 luma). Cached as an offscreen canvas
- * so the main redraw + minimap redraw can reuse a single CanvasPattern.
- */
-let checkerPatternCanvas: HTMLCanvasElement | null = null
-function getCheckerPattern(c: CanvasRenderingContext2D): CanvasPattern | null {
-  if (!checkerPatternCanvas) {
-    checkerPatternCanvas = document.createElement('canvas')
-    checkerPatternCanvas.width = 8
-    checkerPatternCanvas.height = 8
-    const p = checkerPatternCanvas.getContext('2d')!
-    p.fillStyle = 'rgb(40,40,40)'
-    p.fillRect(0, 0, 8, 8)
-    p.fillStyle = 'rgb(60,60,60)'
-    p.fillRect(0, 0, 4, 4)
-    p.fillRect(4, 4, 4, 4)
-  }
-  return c.createPattern(checkerPatternCanvas, 'repeat')
-}
-
-function redraw(): void {
-  if (!mapData) return
-  if (!chkBlock.checked && !map16AtlasCanvas) return
-
-  const { tileGrid, screens, sprites } = mapData
-  const cols = levelCols()
-  const rows = levelRows()
-  const px   = TILE_PX * zoom
-
-  canvas.width  = Math.round(cols * px)
-  canvas.height = Math.round(rows * px)
-  ctx.imageSmoothingEnabled = false
-
-  // When L2 is hidden, show a transparency checkerboard in place of the
-  // back-area color so the user can clearly tell what's solid L1 vs BG.
-  if (!chkL2.checked) {
-    const pat = getCheckerPattern(ctx)
-    ctx.fillStyle = pat ?? '#202020'
-  } else if (mapData.backAreaColor) {
-    const [r, g, b] = mapData.backAreaColor
-    ctx.fillStyle = `rgb(${r},${g},${b})`
-  } else {
-    ctx.fillStyle = '#000'
-  }
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-  if (chkBlock.checked) {
-    if (chkL2.checked && l2TileGrid) drawBlockGrid(l2TileGrid, cols, rows, px, 0.55)
-    if (chkL1.checked)               drawBlockGrid(tileGrid,   cols, rows, px, 1.0)
-  } else {
-    // L2 atlas: 16 cols of 16×16 tiles, tile ID addresses (col,row). Draw
-    // underneath L1 so L1 solid tiles cover the BG (matches SNES PPU layer
-    // priority). Atlas source depends on L2 type:
-    //   preset BG   → map16BgAtlasCanvas (IDs into Map16BGTiles)
-    //   object stream → map16AtlasCanvas (IDs into the regular Map16 table)
-    if (chkL2.checked && l2TileGrid) {
-      const useBg = mapData.l2UsesBgAtlas ?? true
-      const atlas = useBg ? map16BgAtlasCanvas : map16AtlasCanvas
-      if (atlas) {
-        const atlasCols = 16
-        for (let row = 0; row < rows; row++) {
-          for (let col = 0; col < cols; col++) {
-            const tileId = l2TileGrid[row]?.[col] ?? 0
-            // For object-stream L2, tile 0 is "empty" (never drawn). For
-            // preset L2 every slot is meaningful (including $25 "empty BG"),
-            // so we always draw.
-            if (!useBg && tileId === 0) continue
-            const sx = (tileId % atlasCols) * TILE_PX
-            const sy = Math.floor(tileId / atlasCols) * TILE_PX
-            ctx.drawImage(atlas,
-              sx, sy, TILE_PX, TILE_PX,
-              Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
-          }
-        }
-      }
-    }
-    // Live L1 Map16 atlas: 16 cols of 16×16 tiles, tile ID directly addresses (col,row).
-    if (chkL1.checked && map16AtlasCanvas) {
-      ctx.save()
-      for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-          drawL1TileAt(row, col, Math.round(col * px), Math.round(row * px), Math.round(px))
-        }
-      }
-      ctx.restore()
-    }
-  }
-
-  // Screen dividers (shown together with the screen-number chips).
-  // Horizontal levels: vertical lines at screen boundaries on X.
-  // Vertical levels:   horizontal lines at screen boundaries on Y.
-  if (chkScreens.checked) {
-    ctx.strokeStyle = 'rgba(100,120,255,0.4)'
-    ctx.lineWidth = 1
-    if (isVert()) {
-      for (let s = 1; s < screens; s++) {
-        const y = Math.round(s * SCREEN_H_VERT * px) + 0.5
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke()
-      }
-    } else {
-      for (let s = 1; s < screens; s++) {
-        const x = Math.round(s * SCREEN_W * px) + 0.5
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
-      }
-    }
-  }
-
-  // Screen numbers (LM-style) — 2-digit hex label floating over the top-left
-  // of each screen. Font size is independent of the tile size so low-zoom
-  // views stay readable. Object stream transitions, screen exits and entrance
-  // mappings are all keyed on this index, so visibility is diagnostic.
-  if (chkScreens.checked) {
-    ctx.save()
-    const fontSize = 14   // fixed, readable at any zoom
-    ctx.font = `bold ${fontSize}px monospace`
-    ctx.textAlign = 'left'
-    ctx.textBaseline = 'top'
-    const padX = 6
-    const padY = 3
-    for (let s = 0; s < screens; s++) {
-      const chipX = screenX(s, px) + 3
-      const chipY = screenY(s, px) + 3
-      const label = s.toString(16).toUpperCase().padStart(2, '0')
-      const textW = ctx.measureText(label).width
-      ctx.fillStyle = 'rgba(0,0,0,0.72)'
-      ctx.fillRect(chipX, chipY, textW + padX * 2, fontSize + padY * 2)
-      ctx.fillStyle = '#e8d050'
-      ctx.fillText(label, chipX + padX, chipY + padY)
-    }
-    ctx.restore()
-  }
-
-  // Tile grid
-  if (mapGridOn) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)'
-    ctx.lineWidth = 1
-    for (let c = 0; c <= cols; c++) {
-      const x = Math.round(c * px) + 0.5
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
-    }
-    for (let r = 0; r <= rows; r++) {
-      const y = Math.round(r * px) + 0.5
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke()
-    }
-  }
-
-  // Sprites: draw generic-layout sprites from the sprite atlas; fall back to a
-  // red marker + hex label for IDs that use custom draw routines (no entry in
-  // spriteLayouts) so they remain visible. The atlas stores each sprite in a
-  // 32x32 cell; 16-wide sprites use the left half; wide (32x32) sprites fill
-  // the whole cell. Short sprites fill only the bottom half of the cell.
-  // Tall sprites (height=32, width=16) draw anchored at the bottom row.
-  // Wide sprites (height=32, width=32) draw top-anchored at (sx, sy).
-  if (chkSprites.checked) {
-    const cellH = SPRITE_ATLAS_CELL_H
-    const cols = SPRITE_ATLAS_COLS
-    const layoutMap = new Map<number, { height: 16 | 32; width: 16 | 32 }>(
-      (mapData?.spriteLayouts ?? []).map(l => [l.spriteId, { height: l.height, width: l.width ?? 16 }])
-    )
-    for (const spr of sprites) {
-      const sx = Math.round(spr.x * px)
-      const sy = Math.round(spr.y * px)
-      const size = Math.round(px)
-      const layout = layoutMap.get(spr.spriteId)
-      if (spriteAtlasCanvas && layout !== undefined) {
-        const ax = (spr.spriteId % cols) * SPRITE_ATLAS_CELL_W
-        const ayCell = Math.floor(spr.spriteId / cols) * cellH
-        const { height, width } = layout
-        if (width === 32) {
-          // Wide (32x32) sprite: full cell, anchored top-left at (sx, sy).
-          ctx.drawImage(spriteAtlasCanvas,
-            ax, ayCell, 32, 32,
-            sx, sy, size * 2, size * 2)
-        } else if (height === 32) {
-          // Tall (16x32) sprite: full 16x32 cell, bottom row on (sx, sy).
-          ctx.drawImage(spriteAtlasCanvas,
-            ax, ayCell, 16, cellH,
-            sx, sy - size, size, size * 2)
-        } else {
-          // Short (16x16) sprite: bottom half of cell, placed at (sx, sy).
-          ctx.drawImage(spriteAtlasCanvas,
-            ax, ayCell + 16, 16, 16,
-            sx, sy, size, size)
-        }
-      } else {
-        const sp = Math.max(1, size - 2)
-        ctx.fillStyle = 'rgba(255,70,70,0.8)'
-        ctx.fillRect(sx + 1, sy + 1, sp, sp)
-      }
-      if (px >= 14) {
-        ctx.fillStyle = '#fff'
-        ctx.strokeStyle = 'rgba(0,0,0,0.9)'
-        ctx.lineWidth = 2
-        ctx.font = `bold ${Math.max(7, Math.round(px * 0.44))}px monospace`
-        const label = spr.spriteId.toString(16).toUpperCase().padStart(2, '0')
-        ctx.strokeText(label, sx + 2, sy + size - 3)
-        ctx.fillText(label, sx + 2, sy + size - 3)
-      }
-    }
-  }
-
-  // Camera viewport — drawn last so it sits above everything else.
-  if (chkCamera.checked) drawCameraViewport()
-
-  drawMinimap()
-}
-
-/**
- * Dim everything outside the camera rect. Called inside drawCameraViewport()
- * when the camera has focus; mirrors the "spotlight" pattern used by the
- * 8×8/Map16 selected-tile highlights.
- */
-function dimOutsideCamera(rx: number, ry: number, rw: number, rh: number): void {
-  ctx.save()
-  ctx.fillStyle = 'rgba(0,0,0,0.55)'
-  // Top band
-  ctx.fillRect(0, 0, canvas.width, ry)
-  // Bottom band
-  ctx.fillRect(0, ry + rh, canvas.width, canvas.height - (ry + rh))
-  // Left band (between top and bottom bands)
-  ctx.fillRect(0, ry, rx, rh)
-  // Right band
-  ctx.fillRect(rx + rw, ry, canvas.width - (rx + rw), rh)
-  ctx.restore()
-}
-
-/**
- * Draw a single L1 tile from the Map16 atlas at the given destination pixel.
- * Honors switch-palace state, P-switch reveal (with alpha + palette override),
- * and the screen-indexed pipe-palette variant for tiles $133..$13A. Called
- * from both the main map loop and the camera re-paint so they stay in sync.
- * `worldRow`/`worldCol` drive the screen lookup — always level-space, never
- * rect-local.
- */
-function drawL1TileAt(worldRow: number, worldCol: number, dx: number, dy: number, size: number): void {
-  if (!mapData || !map16AtlasCanvas) return
-  const rawTileId = mapData.tileGrid[worldRow]?.[worldCol] ?? 0
-  const tileId = applySwitchPalaceState(rawTileId)
-  if (tileId === 0) return
-  const reveal = pSwitchReveal(rawTileId)
-  ctx.globalAlpha = reveal ? (pSwitchBlueOn ? 1.0 : 0.5) : 1.0
-  if (reveal?.palOverride !== undefined) {
-    const override = getPalOverrideCanvas(reveal.substitute, reveal.palOverride)
-    if (override) ctx.drawImage(override, 0, 0, TILE_PX, TILE_PX, dx, dy, size, size)
-    return
-  }
-  const drawId = reveal?.substitute ?? tileId
-  const screenVariants = mapData.screenPipeVariants
-  const vert = mapData.isVertical === true
-  if (drawId >= 0x133 && drawId < 0x13B && screenVariants && pipeVariantAtlasCanvases[0]) {
-    const screenIdx = vert ? Math.floor(worldRow / 16) : Math.floor(worldCol / 16)
-    const variantIdx = screenVariants[screenIdx] ?? 1
-    const variantCanvas = pipeVariantAtlasCanvases[variantIdx]
-    if (variantCanvas) {
-      const sx = (drawId - 0x133) * TILE_PX
-      ctx.drawImage(variantCanvas, sx, 0, TILE_PX, TILE_PX, dx, dy, size, size)
-      return
-    }
-  }
-  const sx = (drawId % 16) * TILE_PX
-  const sy = Math.floor(drawId / 16) * TILE_PX
-  ctx.drawImage(map16AtlasCanvas, sx, sy, TILE_PX, TILE_PX, dx, dy, size, size)
-}
-
-/**
- * Draw the draggable camera rectangle with parallax-composited BG inside it.
- * Outside the rect we dim the map (so the camera's content stands out); inside,
- * we paint the BG at its parallax-shifted position over the existing FG.
- */
-function drawCameraViewport(): void {
-  if (!mapData) return
-  const cols = levelCols()
-  const rows = levelRows()
-  const px   = TILE_PX * zoom
-
-  // Clamp camera so rect stays within level bounds.
-  const maxX = Math.max(0, cols - CAMERA_W_TILES)
-  const maxY = Math.max(0, rows - CAMERA_H_TILES)
-  cameraTileX = Math.max(0, Math.min(maxX, cameraTileX))
-  cameraTileY = Math.max(0, Math.min(maxY, cameraTileY))
-
-  const rx = Math.round(cameraTileX * px)
-  const ry = Math.round(cameraTileY * px)
-  const rw = Math.round(CAMERA_W_TILES * px)
-  const rh = Math.round(CAMERA_H_TILES * px)
-
-  // Dim the rest of the map when the camera is focused so the composited
-  // preview inside the rect visually dominates. Drawn before the rect contents
-  // so the parallax repaint lands on top of clean (non-dimmed) tiles.
-  if (cameraFocused) dimOutsideCamera(rx, ry, rw, rh)
-
-  // Wipe the rect with the level's back-area color so the map's original L1/L2
-  // (drawn by the earlier full-map pass) can't bleed through. Without this,
-  // object-stream L2 levels would show two overlapping BGs inside the rect:
-  // the raw-position L2 underneath, and the parallax L2 on top, through any
-  // "empty" cells the parallax pass skipped.
-  ctx.save()
-  const bac = mapData.backAreaColor
-  ctx.fillStyle = bac ? `rgb(${bac[0]},${bac[1]},${bac[2]})` : '#000'
-  ctx.fillRect(rx, ry, rw, rh)
-  ctx.restore()
-
-  // Parallax-composited BG inside the rect. Skip if L2 hidden or no preset.
-  // The BG origin tracks the camera FG position via shift on pixel Y:
-  //   bg_px_y = fg_px_y >> shift    (locked settings mean BG doesn't move)
-  // We convert back to tile rows for atlas sampling.
-  const vSetting = mapData.header.vertLayer2Setting ?? 0
-  const hSetting = mapData.header.horizLayer2Setting ?? 0
-  const vShift = verticalScrollPixelShift(vSetting)
-  const hShift = horizontalScrollPixelShift(hSetting)
-  if (chkL2.checked && l2TileGrid) {
-    const useBg = mapData.l2UsesBgAtlas ?? true
-    const atlas = useBg ? map16BgAtlasCanvas : map16AtlasCanvas
-    if (atlas) {
-      const bgRows = l2TileGrid.length
-      const bgCols = l2TileGrid[0]?.length ?? 0
-      // fg pixel Y of camera top-left. Shift to BG pixels, then wrap mod BG grid size.
-      const fgPxY = cameraTileY * TILE_PX
-      const fgPxX = cameraTileX * TILE_PX
-      const bgPxY = vShift === null ? 0 : (fgPxY >> vShift)
-      const bgPxX = hShift === null ? 0 : (fgPxX >> hShift)
-      ctx.save()
-      ctx.beginPath()
-      ctx.rect(rx, ry, rw, rh)
-      ctx.clip()
-      for (let r = 0; r < CAMERA_H_TILES; r++) {
-        for (let c = 0; c < CAMERA_W_TILES; c++) {
-          const bgWorldRow = Math.floor((bgPxY + r * TILE_PX) / TILE_PX) % bgRows
-          const bgWorldCol = Math.floor((bgPxX + c * TILE_PX) / TILE_PX) % bgCols
-          const tileId = l2TileGrid[(bgWorldRow + bgRows) % bgRows]?.[(bgWorldCol + bgCols) % bgCols] ?? 0
-          if (!useBg && tileId === 0) continue
-          const sx = (tileId % 16) * TILE_PX
-          const sy = Math.floor(tileId / 16) * TILE_PX
-          const dx = rx + Math.round(c * px)
-          const dy = ry + Math.round(r * px)
-          ctx.drawImage(atlas, sx, sy, TILE_PX, TILE_PX, dx, dy, Math.round(px), Math.round(px))
-        }
-      }
-      ctx.restore()
-      // Re-paint L1 on top of the parallax BG so FG stays dominant inside the
-      // rect. Uses drawL1TileAt with world-space row/col so pipe-palette
-      // variants and P-switch reveal stay consistent with the main map.
-      if (chkL1.checked && map16AtlasCanvas) {
-        ctx.save()
-        ctx.beginPath()
-        ctx.rect(rx, ry, rw, rh)
-        ctx.clip()
-        for (let r = 0; r < CAMERA_H_TILES; r++) {
-          for (let c = 0; c < CAMERA_W_TILES; c++) {
-            const worldRow = cameraTileY + r
-            const worldCol = cameraTileX + c
-            const dx = rx + Math.round(c * px)
-            const dy = ry + Math.round(r * px)
-            drawL1TileAt(worldRow, worldCol, dx, dy, Math.round(px))
-          }
-        }
-        ctx.restore()
-      }
-    }
-  }
-
-  // Border — bright outline so the rect is easy to spot and grab.
-  ctx.save()
-  ctx.strokeStyle = 'rgba(255,255,80,0.95)'
-  ctx.lineWidth = 2
-  ctx.strokeRect(rx + 1, ry + 1, rw - 2, rh - 2)
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)'
-  ctx.lineWidth = 1
-  ctx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1)
-  ctx.restore()
-}
-
 /** True if the given canvas pixel (x,y) lies inside the camera rect. */
 function hitCameraRect(canvasX: number, canvasY: number): boolean {
   if (!chkCamera.checked || !mapData) return false
-  const px = TILE_PX * zoom
-  const rx = cameraTileX * px
-  const ry = cameraTileY * px
+  const px = TILE_PX * store.zoom
+  const cam = store.camera
+  const rx = cam.tileX * px
+  const ry = cam.tileY * px
   const rw = CAMERA_W_TILES * px
   const rh = CAMERA_H_TILES * px
   return canvasX >= rx && canvasX < rx + rw && canvasY >= ry && canvasY < ry + rh
@@ -1913,9 +1559,10 @@ function hitCameraRect(canvasX: number, canvasY: number): boolean {
 
 /** Scroll the map container so the camera rect stays fully visible. */
 function scrollContainerToCamera(): void {
-  const px = TILE_PX * zoom
-  const rx = cameraTileX * px
-  const ry = cameraTileY * px
+  const px = TILE_PX * store.zoom
+  const cam = store.camera
+  const rx = cam.tileX * px
+  const ry = cam.tileY * px
   const rw = CAMERA_W_TILES * px
   const rh = CAMERA_H_TILES * px
   const wrap = canvasWrap
@@ -1977,7 +1624,13 @@ function minimapTilePx(): number {
 
 function drawMinimap(): void {
   if (!minimapOn) return
-  if (!mapData || !map16AtlasCanvas) return
+  // Use the already-rendered model canvas as the source. Everything
+  // model-correct — pipe-variant palettes, P-switch reveals, animated
+  // tiles, switch-palace alt — carries through for free because the
+  // source was produced by the same `tile.render` chain that draws the
+  // main viewport. No per-tile re-render needed here.
+  const src = document.getElementById('model-canvas') as HTMLCanvasElement | null
+  if (!src || src.width === 0 || src.height === 0) return
   const cols = levelCols()
   const rows = levelRows()
   const tp = minimapTilePx()
@@ -1989,50 +1642,12 @@ function drawMinimap(): void {
     minimapCanvas.height = h
   }
 
-  // Background — checkerboard when L2 is hidden, otherwise back-area color.
-  if (!chkL2.checked) {
-    const pat = getCheckerPattern(minimapCtx)
-    minimapCtx.fillStyle = pat ?? '#202020'
-  } else if (mapData.backAreaColor) {
-    const [r, g, b] = mapData.backAreaColor
-    minimapCtx.fillStyle = `rgb(${r},${g},${b})`
-  } else {
-    minimapCtx.fillStyle = '#000'
-  }
-  minimapCtx.fillRect(0, 0, w, h)
-
-  // Blit each tile scaled from the live Map16 atlas (same source the main
-  // canvas uses, so any palette/animation change is reflected instantly).
-  // L2 draws first (under L1), using whichever atlas the level's L2 type
-  // maps to — BG atlas for preset, L1 atlas for object-stream.
-  const atlasCols = 16
-  if (l2TileGrid) {
-    const useBg = mapData.l2UsesBgAtlas ?? true
-    const l2Atlas = useBg ? map16BgAtlasCanvas : map16AtlasCanvas
-    if (l2Atlas) {
-      for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-          const tileId = l2TileGrid[row]?.[col] ?? 0
-          if (!useBg && tileId === 0) continue
-          const sx = (tileId % atlasCols) * TILE_PX
-          const sy = Math.floor(tileId / atlasCols) * TILE_PX
-          minimapCtx.drawImage(l2Atlas, sx, sy, TILE_PX, TILE_PX,
-            col * tp, row * tp, tp, tp)
-        }
-      }
-    }
-  }
-  const tileGrid = mapData.tileGrid
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const tileId = applySwitchPalaceState(tileGrid[row]?.[col] ?? 0)
-      if (tileId === 0) continue
-      const sx = (tileId % atlasCols) * TILE_PX
-      const sy = Math.floor(tileId / atlasCols) * TILE_PX
-      minimapCtx.drawImage(map16AtlasCanvas, sx, sy, TILE_PX, TILE_PX,
-        col * tp, row * tp, tp, tp)
-    }
-  }
+  // Smooth downsample — at 1–4 px per tile each source 16×16 tile gets
+  // averaged to a single color-ish blob, which reads better as a
+  // thumbnail than hard nearest-neighbor picks.
+  minimapCtx.imageSmoothingEnabled = true
+  minimapCtx.clearRect(0, 0, w, h)
+  minimapCtx.drawImage(src, 0, 0, src.width, src.height, 0, 0, w, h)
 
   drawMinimapViewport()
 }
@@ -2042,7 +1657,7 @@ function drawMinimapViewport(): void {
   if (!mapData) return
   const cols = levelCols()
   const rows = levelRows()
-  const mainPx = TILE_PX * zoom
+  const mainPx = TILE_PX * store.zoom
   const mainW = cols * mainPx
   const mainH = rows * mainPx
   if (mainW === 0 || mainH === 0) return
@@ -2070,11 +1685,23 @@ function minimapPanTo(e: PointerEvent): void {
   const rect = minimapCanvas.getBoundingClientRect()
   const cols = levelCols()
   const rows = levelRows()
-  const mainPx = TILE_PX * zoom
+  const mainPx = TILE_PX * store.zoom
   const fx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
   const fy = Math.max(0, Math.min(1, (e.clientY - rect.top)  / rect.height))
   canvasWrap.scrollLeft = fx * cols * mainPx - canvasWrap.clientWidth  / 2
   canvasWrap.scrollTop  = fy * rows * mainPx - canvasWrap.clientHeight / 2
+  // If the camera viewport is on, pull it along to the new center so
+  // the preview stays on-screen after the pan. Center of visible area
+  // in tile-coords minus half the camera window gives the new top-left.
+  if (store.cameraOn) {
+    const centerX = fx * cols
+    const centerY = fy * rows
+    const nextX = Math.max(0, Math.min(Math.max(0, cols - CAMERA_W_TILES),
+      centerX - CAMERA_W_TILES / 2))
+    const nextY = Math.max(0, Math.min(Math.max(0, rows - CAMERA_H_TILES),
+      centerY - CAMERA_H_TILES / 2))
+    store.setCamera({ tileX: nextX, tileY: nextY, focused: store.camera.focused })
+  }
 }
 minimapCanvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return
@@ -2102,101 +1729,139 @@ canvasWrap.addEventListener('scroll', () => {
 // Keep the minimap sized to the available width as the window/panel resizes.
 new ResizeObserver(() => drawMinimap()).observe(minimapCanvas.parentElement!)
 
-chkScreens.addEventListener('change', redraw)
-chkSprites.addEventListener('change', redraw)
-chkBlock.addEventListener('change',   redraw)
-chkL1.addEventListener('change',      redraw)
-chkL2.addEventListener('change',      redraw)
+function syncLayerTogglesFromDom(): void {
+  store.setLayerToggles({
+    l1:      chkL1.checked,
+    l2:      chkL2.checked,
+    sprites: chkSprites.checked,
+    screens: chkScreens.checked,
+    block:   chkBlock.checked,
+    mapGrid: mapGridOn,
+  })
+}
+chkScreens.addEventListener('change', syncLayerTogglesFromDom)
+chkSprites.addEventListener('change', syncLayerTogglesFromDom)
+chkBlock.addEventListener('change',   syncLayerTogglesFromDom)
+chkL1.addEventListener('change',      syncLayerTogglesFromDom)
+chkL2.addEventListener('change',      syncLayerTogglesFromDom)
 chkCamera.addEventListener('change',  () => {
-  if (chkCamera.checked) scrollContainerToCamera()
-  else cameraFocused = false
-  redraw()
+  const on = chkCamera.checked
+  store.setCameraOn(on)  // reactive — triggers renderModelOverlay
+  if (on) {
+    scrollContainerToCamera()
+  } else {
+    const cam = store.camera
+    if (cam.focused) store.setCamera({ tileX: cam.tileX, tileY: cam.tileY, focused: false })
+  }
 })
 
 // ── Camera rectangle drag + focus ────────────────────────────────────────────
 // Click inside the rect: focus camera, start drag. Click outside: blur camera.
 // Cursor switches to grab/grabbing when hovering/dragging the rect.
-canvas.addEventListener('pointerdown', (e) => {
+//
+// Coords come from the visible modelCanvas. Its bounding rect covers the
+// CSS-scaled display, so a `pxPerTile = rect.width / levelCols()` ratio
+// works at any zoom without reading the zoom ref directly.
+modelCanvas.addEventListener('pointerdown', (e) => {
   if (!chkCamera.checked || e.button !== 0) return
-  const rect = canvas.getBoundingClientRect()
+  const rect = modelCanvas.getBoundingClientRect()
   const cx = e.clientX - rect.left
   const cy = e.clientY - rect.top
+  const cam = store.camera
   if (hitCameraRect(cx, cy)) {
-    cameraFocused = true
-    const px = TILE_PX * zoom
+    const pxPerTile = rect.width / Math.max(1, levelCols())
     cameraDragging = true
-    cameraDragOffX = cx / px - cameraTileX
-    cameraDragOffY = cy / px - cameraTileY
-    canvas.setPointerCapture(e.pointerId)
-    canvas.style.cursor = 'grabbing'
-    redraw()
+    cameraDragOffX = cx / pxPerTile - cam.tileX
+    cameraDragOffY = cy / pxPerTile - cam.tileY
+    store.setCamera({ tileX: cam.tileX, tileY: cam.tileY, focused: true })
+    modelCanvas.setPointerCapture(e.pointerId)
+    modelCanvas.style.cursor = 'grabbing'
     e.preventDefault()
-  } else if (cameraFocused) {
-    // Click anywhere else on the map: release focus so dimming clears and
-    // arrow keys stop capturing.
-    cameraFocused = false
-    redraw()
+  } else if (cam.focused) {
+    store.setCamera({ tileX: cam.tileX, tileY: cam.tileY, focused: false })
   }
 })
 
-canvas.addEventListener('pointermove', (e) => {
-  const rect = canvas.getBoundingClientRect()
+modelCanvas.addEventListener('pointermove', (e) => {
+  const rect = modelCanvas.getBoundingClientRect()
   const cx = e.clientX - rect.left
   const cy = e.clientY - rect.top
 
   if (cameraDragging) {
-    const px = TILE_PX * zoom
-    cameraTileX = Math.round(cx / px - cameraDragOffX)
-    cameraTileY = Math.round(cy / px - cameraDragOffY)
+    const pxPerTile = rect.width / Math.max(1, levelCols())
+    const cols = levelCols()
+    const rows = levelRows()
+    // No rounding — keep the drag in fractional-tile space so the rect
+    // glides pixel-smooth with the cursor. The strip floors this value
+    // internally so its parallax content stays tile-aligned.
+    const nextX = Math.max(0, Math.min(Math.max(0, cols - CAMERA_W_TILES),
+      cx / pxPerTile - cameraDragOffX))
+    const nextY = Math.max(0, Math.min(Math.max(0, rows - CAMERA_H_TILES),
+      cy / pxPerTile - cameraDragOffY))
+    // Dispatch to the store so the reactive effect re-runs; the overlay
+    // (`compositeCameraViewport`, `drawCameraRectOverlay`) reads
+    // `store.camera` and re-renders to the new position.
+    store.setCamera({ tileX: nextX, tileY: nextY, focused: true })
+    // Keep the viewport near the center of the visible scroll area as
+    // the user drags. Without this, the rect can leave the fold and
+    // the drag snaps when cursor runs out of canvas.
     scrollContainerToCamera()
-    redraw()
     return
   }
 
   if (chkCamera.checked && hitCameraRect(cx, cy)) {
-    canvas.style.cursor = 'grab'
+    modelCanvas.style.cursor = 'grab'
   } else {
-    canvas.style.cursor = ''
+    modelCanvas.style.cursor = ''
   }
 })
 
-canvas.addEventListener('pointerup', (e) => {
+modelCanvas.addEventListener('pointerup', (e) => {
   if (!cameraDragging) return
   cameraDragging = false
-  canvas.releasePointerCapture(e.pointerId)
-  // Restore hover cursor based on where we ended up.
-  const rect = canvas.getBoundingClientRect()
+  modelCanvas.releasePointerCapture(e.pointerId)
+  const rect = modelCanvas.getBoundingClientRect()
   const cx = e.clientX - rect.left
   const cy = e.clientY - rect.top
-  canvas.style.cursor = (chkCamera.checked && hitCameraRect(cx, cy)) ? 'grab' : ''
+  modelCanvas.style.cursor = (chkCamera.checked && hitCameraRect(cx, cy)) ? 'grab' : ''
 })
 
 // Arrow-key nudge when camera is focused. Shift = 4-tile jumps for faster scan.
 window.addEventListener('keydown', (e) => {
-  if (!chkCamera.checked || !cameraFocused) return
+  if (!chkCamera.checked || !store.camera.focused) return
   // Don't swallow keys when typing into a form field.
   const tgt = e.target as HTMLElement | null
   if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'SELECT' || tgt.tagName === 'TEXTAREA')) return
   const step = e.shiftKey ? 4 : 1
+  const cam = store.camera
+  let tileX = cam.tileX
+  let tileY = cam.tileY
+  let focused = cam.focused
   let handled = true
   switch (e.key) {
-    case 'ArrowUp':    cameraTileY -= step; break
-    case 'ArrowDown':  cameraTileY += step; break
-    case 'ArrowLeft':  cameraTileX -= step; break
-    case 'ArrowRight': cameraTileX += step; break
-    case 'Escape':     cameraFocused = false; break
+    case 'ArrowUp':    tileY -= step; break
+    case 'ArrowDown':  tileY += step; break
+    case 'ArrowLeft':  tileX -= step; break
+    case 'ArrowRight': tileX += step; break
+    case 'Escape':     focused = false; break
     default: handled = false
   }
   if (handled) {
     e.preventDefault()
+    const cols = levelCols()
+    const rows = levelRows()
+    tileX = Math.max(0, Math.min(Math.max(0, cols - CAMERA_W_TILES), tileX))
+    tileY = Math.max(0, Math.min(Math.max(0, rows - CAMERA_H_TILES), tileY))
+    store.setCamera({ tileX, tileY, focused })
     scrollContainerToCamera()
-    redraw()
   }
 })
 
 // ── Switch-palace toggles ─────────────────────────────────────────────────────
 // Each button shows the Map16 tile in its current state; clicking flips between
-// the uncleared (page 0) and cleared (page 1) variants for that color.
+// the uncleared (page 0) and cleared (page 1) variants for that color. Thumb
+// renders through the model (Tile → SubTile → Char → pixel) so animation /
+// palette cycle / switch-palace-alt behaviors are reflected automatically.
 
 function drawSwitchToggleThumb(colorIdx: number): void {
   const btn = document.querySelector(
@@ -2208,11 +1873,32 @@ function drawSwitchToggleThumb(colorIdx: number): void {
   if (!c) return
   c.imageSmoothingEnabled = false
   c.clearRect(0, 0, tc.width, tc.height)
-  if (!map16AtlasCanvas) return
-  const tileId = (switchPalaceState[colorIdx] ? 0x100 : 0x000) | (0x6A + colorIdx)
-  const sx = (tileId % 16) * TILE_PX
-  const sy = Math.floor(tileId / 16) * TILE_PX
-  c.drawImage(map16AtlasCanvas, sx, sy, TILE_PX, TILE_PX, 0, 0, tc.width, tc.height)
+  const map = window.__smwModelMap
+  const l1Tiles = window.__smwModelTiles
+  if (!map || !l1Tiles) return
+  const tileId = (store.switchPalaceState[colorIdx] ? 0x100 : 0x000) | (0x6A + colorIdx)
+  const tile = l1Tiles.get(tileId)
+  if (!tile) return
+  // Render at 16×16 natural, CSS-scale via the canvas's width/height to the
+  // button's displayed size.
+  tc.width = 16
+  tc.height = 16
+  const target = new CanvasRenderTarget(tc)
+  const ctx: RenderContext = {
+    animFrame: storeRefs.animFrame,
+    palAnimFrame: storeRefs.palAnimFrame,
+    pSwitchActive: storeRefs.pSwitchActive,
+    switchPalaceState: storeRefs.switchPalaceState,
+    palette: map.palette,
+    camera: storeRefs.camera,
+    zoom: storeRefs.zoom,
+    layerToggles: storeRefs.layerToggles,
+  }
+  target.clear()
+  const cellBox = cellBoxOf(0, 0)
+  tile.render(ctx, target, cellBox, 'nonPriority')
+  tile.render(ctx, target, cellBox, 'priority')
+  target.flush()
 }
 
 function refreshSwitchToggleThumbs(): void {
@@ -2224,11 +1910,9 @@ for (let i = 0; i < 4; i++) {
     `.switch-toggle[data-color="${i}"]`) as HTMLButtonElement | null
   if (!btn) continue
   btn.addEventListener('click', () => {
-    switchPalaceState[i] = !switchPalaceState[i]
-    btn.classList.toggle('switch-on', switchPalaceState[i])
+    store.toggleSwitchPalace(i as 0 | 1 | 2 | 3)
+    btn.classList.toggle('switch-on', store.switchPalaceState[i])
     drawSwitchToggleThumb(i)
-    redraw()
-    drawMinimap()
   })
 }
 
@@ -2239,28 +1923,32 @@ for (let i = 0; i < 4; i++) {
 //   Pressed  (on):  one 8×8 char at $4FE drawn twice, right copy h-flipped
 //   Palette: OBJ palette 3 = CGRAM row $0B, from PSwitchPal table (bank_01.asm:681).
 
-function drawVramTileToCtx(
-  c: CanvasRenderingContext2D, charIdx: number,
-  pal: number[][], dstX: number, dstY: number, hFlip: boolean,
+/** Draw one 8×8 char from the model into an RGBA buffer at the given offset. */
+function blitCharIntoBuf(
+  buf: Uint8ClampedArray, dstW: number,
+  charNum: number, palRow: ReadonlyArray<readonly [number, number, number, number]>,
+  ctx: RenderContext, dstX: number, dstY: number, hFlip: boolean, vFlip = false,
 ): void {
-  if (!activeVramIndexed) return
-  const srcOff = charIdx * 64
-  const img = c.createImageData(8, 8)
+  const chars = window.__smwModelChars
+  if (!chars) return
+  const char = chars.get(charNum)
+  if (!char) return
+  const pixels = char.getPixels(ctx)
   for (let py = 0; py < 8; py++) {
+    const sy = vFlip ? 7 - py : py
     for (let px = 0; px < 8; px++) {
       const sx = hFlip ? 7 - px : px
-      const palIdx = activeVramIndexed[srcOff + py * 8 + sx] ?? 0
-      const di = (py * 8 + px) * 4
-      if (palIdx === 0) {
-        img.data[di] = img.data[di + 1] = img.data[di + 2] = img.data[di + 3] = 0
-      } else {
-        const col = pal[palIdx] ?? [255, 0, 255, 255]
-        img.data[di] = col[0]; img.data[di + 1] = col[1]
-        img.data[di + 2] = col[2]; img.data[di + 3] = 255
-      }
+      const palIdx = pixels[sy * 8 + sx] ?? 0
+      if (palIdx === 0) continue
+      const col = palRow[palIdx]
+      if (!col) continue
+      const di = ((dstY + py) * dstW + (dstX + px)) * 4
+      buf[di]     = col[0]
+      buf[di + 1] = col[1]
+      buf[di + 2] = col[2]
+      buf[di + 3] = 255
     }
   }
-  c.putImageData(img, dstX, dstY)
 }
 
 function drawPSwitchToggleThumb(): void {
@@ -2271,31 +1959,46 @@ function drawPSwitchToggleThumb(): void {
   const c = tc.getContext('2d')
   if (!c) return
   c.imageSmoothingEnabled = false
-  c.clearRect(0, 0, tc.width, tc.height)
-  if (!activeVramIndexed || !mapData?.paletteRows) return
-  const palRow = mapData.paletteRows[0x0B]
-  if (!palRow) return
-  if (pSwitchBlueOn) {
-    // Pressed: 16×8, centered vertically on 16×16 canvas (dstY=4)
-    drawVramTileToCtx(c, 0x4FE, palRow, 0, 4, false)
-    drawVramTileToCtx(c, 0x4FE, palRow, 8, 4, true)
-  } else {
-    drawVramTileToCtx(c, 0x442, palRow, 0, 0, false)
-    drawVramTileToCtx(c, 0x443, palRow, 8, 0, false)
-    drawVramTileToCtx(c, 0x452, palRow, 0, 8, false)
-    drawVramTileToCtx(c, 0x453, palRow, 8, 8, false)
+  tc.width = 16
+  tc.height = 16
+  c.clearRect(0, 0, 16, 16)
+  const map = window.__smwModelMap
+  if (!map) return
+  const ctx: RenderContext = {
+    animFrame: storeRefs.animFrame,
+    palAnimFrame: storeRefs.palAnimFrame,
+    pSwitchActive: storeRefs.pSwitchActive,
+    switchPalaceState: storeRefs.switchPalaceState,
+    palette: map.palette,
+    camera: storeRefs.camera,
+    zoom: storeRefs.zoom,
+    layerToggles: storeRefs.layerToggles,
   }
+  const palRow = map.palette.row(0x0B, ctx) as ReadonlyArray<readonly [number, number, number, number]>
+  if (!palRow) return
+  const buf = new Uint8ClampedArray(16 * 16 * 4)
+  if (store.pSwitchActive) {
+    // Pressed: the sprite is 16×8 (chars $4FE + $4FE h-flipped), with
+    // the top half empty. Bottom-align so the button sits flush with
+    // the "ground" — matches how the pressed P-switch sits in-game.
+    blitCharIntoBuf(buf, 16, 0x4FE, palRow, ctx, 0, 8, false)
+    blitCharIntoBuf(buf, 16, 0x4FE, palRow, ctx, 8, 8, true)
+  } else {
+    blitCharIntoBuf(buf, 16, 0x442, palRow, ctx, 0, 0, false)
+    blitCharIntoBuf(buf, 16, 0x443, palRow, ctx, 8, 0, false)
+    blitCharIntoBuf(buf, 16, 0x452, palRow, ctx, 0, 8, false)
+    blitCharIntoBuf(buf, 16, 0x453, palRow, ctx, 8, 8, false)
+  }
+  c.putImageData(new ImageData(buf, 16, 16), 0, 0)
 }
 
 {
   const btn = document.querySelector('.pswitch-toggle[data-pcolor="blue"]') as HTMLButtonElement | null
   if (btn) {
     btn.addEventListener('click', () => {
-      pSwitchBlueOn = !pSwitchBlueOn
-      btn.classList.toggle('switch-on', pSwitchBlueOn)
+      store.togglePSwitch()
+      btn.classList.toggle('switch-on', store.pSwitchActive)
       drawPSwitchToggleThumb()
-      redraw()
-      drawMinimap()
     })
   }
 }
@@ -2304,11 +2007,15 @@ function drawPSwitchToggleThumb(): void {
 
 function canvasTileAt(e: MouseEvent): { col: number; row: number } | null {
   if (!mapData) return null
-  const rect = canvas.getBoundingClientRect()
-  const px   = TILE_PX * zoom
-  const col  = Math.floor((e.clientX - rect.left) / px)
-  const row  = Math.floor((e.clientY - rect.top)  / px)
-  if (col < 0 || row < 0 || row >= levelRows() || col >= levelCols()) return null
+  const rect = modelCanvas.getBoundingClientRect()
+  const cols = levelCols()
+  const rows = levelRows()
+  if (rect.width <= 0 || rect.height <= 0 || cols === 0 || rows === 0) return null
+  // Compute from the bounding rect directly — works at any zoom since
+  // the model canvas is CSS-scaled by the zoom ref.
+  const col = Math.floor((e.clientX - rect.left) / (rect.width  / cols))
+  const row = Math.floor((e.clientY - rect.top)  / (rect.height / rows))
+  if (col < 0 || row < 0 || row >= rows || col >= cols) return null
   return { col, row }
 }
 
@@ -2319,12 +2026,11 @@ function paintAt(e: MouseEvent): void {
   if (tileId < 0) return
   if (mapData.tileGrid[pos.row][pos.col] === tileId) return
   mapData.tileGrid[pos.row][pos.col] = tileId
-  redraw()
   vscode.postMessage({ type: 'edit', kind: activeTool, tileId, col: pos.col, row: pos.row })
 }
 
-canvas.addEventListener('mousedown', (e) => { if (e.button !== 0) return; isPainting = true; paintAt(e) })
-canvas.addEventListener('mousemove', (e) => {
+modelCanvas.addEventListener('mousedown', (e) => { if (e.button !== 0) return; isPainting = true; paintAt(e) })
+modelCanvas.addEventListener('mousemove', (e) => {
   const pos = canvasTileAt(e)
   if (pos) {
     const tileId = mapData?.tileGrid[pos.row]?.[pos.col] ?? 0
@@ -2333,26 +2039,22 @@ canvas.addEventListener('mousemove', (e) => {
   }
   if (isPainting) paintAt(e)
 })
-canvas.addEventListener('mouseup',    () => { isPainting = false })
-canvas.addEventListener('mouseleave', () => { isPainting = false })
-canvas.addEventListener('contextmenu', (e) => {
+modelCanvas.addEventListener('mouseup',    () => { isPainting = false })
+modelCanvas.addEventListener('mouseleave', () => { isPainting = false })
+modelCanvas.addEventListener('contextmenu', (e) => {
   e.preventDefault()
   const prev = activeTool; activeTool = 'erase'; paintAt(e); activeTool = prev
 })
 
-canvas.addEventListener('dragover', (e) => { e.preventDefault() })
-canvas.addEventListener('drop', (e) => {
+modelCanvas.addEventListener('dragover', (e) => { e.preventDefault() })
+modelCanvas.addEventListener('drop', (e) => {
   e.preventDefault()
   const tileId = parseInt(e.dataTransfer?.getData('text/plain') ?? '', 10)
   if (isNaN(tileId) || !mapData) return
-  const rect = canvas.getBoundingClientRect()
-  const px   = TILE_PX * zoom
-  const col  = Math.floor((e.clientX - rect.left) / px)
-  const row  = Math.floor((e.clientY - rect.top)  / px)
-  if (col < 0 || row < 0 || row >= levelRows() || col >= levelCols()) return
-  mapData.tileGrid[row][col] = tileId
-  redraw()
-  vscode.postMessage({ type: 'edit', kind: 'place', tileId, col, row })
+  const pos = canvasTileAt(e)
+  if (!pos) return
+  mapData.tileGrid[pos.row][pos.col] = tileId
+  vscode.postMessage({ type: 'edit', kind: 'place', tileId, col: pos.col, row: pos.row })
 })
 
 // ── Properties panel — selectors ──────────────────────────────────────────────
@@ -2426,9 +2128,37 @@ selMarioPal.addEventListener('blur',    () => setPaletteHighlight(null))
 
 window.addEventListener('message', async (event) => {
   const msg = event.data as Record<string, unknown>
+  if (msg['type'] === 'modelPayload') {
+    try {
+      const payload = msg['payload'] as ModelMapPayload
+      const { map, chars, tiles, bgTiles } = buildGraph(payload)
+      window.__smwModelMap = map
+      window.__smwModelChars = chars
+      window.__smwModelTiles = tiles
+      window.__smwModelBgTiles = bgTiles
+      console.log(
+        '[mapEditor] model ready —',
+        'chars:', chars.size,
+        'tiles:', tiles.size,
+        'bgTiles:', bgTiles.size,
+        'sprites:', payload.sprites.length,
+        'l2:', payload.l2?.kind ?? 'none',
+      )
+      ensureReactiveRender(map)
+      renderMap16Page()
+      // Switch-state button thumbnails render from Map16 tiles ($06A..$06D
+      // off / $16A..$16D on) + the blue P-switch from OBJ chars; both need
+      // the model graph populated before they can draw. Triggering here
+      // means the very first paint is correct without needing a user click.
+      refreshSwitchToggleThumbs()
+      drawPSwitchToggleThumb()
+    } catch (err) {
+      console.error('[mapEditor] modelPayload rehydrate failed:', err)
+    }
+    return
+  }
   if (msg['type'] === 'load') {
     mapData  = msg as unknown as MapPayload
-    l2TileGrid = mapData.l2TileGrid ?? null
 
     applyMinimapOrientation()
 
@@ -2473,52 +2203,42 @@ window.addEventListener('message', async (event) => {
     infoBgHScroll.textContent = `${hSet} (${hLabel})`
 
     // Reset camera to level start and scroll into view if Camera is on.
-    cameraTileX = 0
-    cameraTileY = 0
+    store.setCamera({ tileX: 0, tileY: 0, focused: false })
     if (chkCamera.checked) scrollContainerToCamera()
 
-    // Palette canvas
+    // Palette canvas — the model render effect will also render this
+    // reactively once the model arrives, but this first paint keeps the
+    // panel from showing stale content before `modelPayload` lands.
     drawPaletteCanvas()
 
-    // Level canvas now renders from the live Map16 atlas (built reactively below
-    // via invalidatePalette → invalidateVram → invalidateMap16 → redraw).
+    // Reset animation state. Tile-anim / palette-anim frames come from
+    // the store and are re-read by every model behavior on every effect
+    // tick, so there is no cache to invalidate here.
     stopAnimTimer()
     stopPalAnimTimer()
     animRunning = false
     syncAnimButtons()
-    vramSheets = []
     animFrameCount = 1
+    if (mapData.animation && mapData.animation.frameCount > 1) {
+      animFrameCount = mapData.animation.frameCount
+      animIntervalMs = mapData.animation.intervalMs
+      for (const b of animPlayBtns) b.style.display = ''
+    } else {
+      for (const b of animPlayBtns) b.style.display = 'none'
+    }
 
     // Clamp zoom to what the freshly-loaded level can fit, then draw.
     applyZoom()
 
-    // ── VRAM 8×8 tile sheet (paged by slot) ──────────────────────────
+    // ── VRAM 8×8 tile sheet paged by slot ─────────────────────────────
     // 1536 chars @ 16 per row = 96 rows × 8 px = 768 px tall. Pages cover
-    // 256 chars (128 px) each, so 6 pages total. The actual RGBA sheet is
-    // rebuilt reactively from vramIndexedData + paletteRows in invalidateVram().
-    if (mapData.vramIndexedData) {
+    // 256 chars (128 px) each, so 6 pages total. Content comes from the
+    // self-rendering model via `renderVramPageFromModel`.
+    {
       const vh = Math.ceil(1536 / 16) * 8
       const pxPerPage = (VRAM_TILES_PER_PAGE / 16) * 8
       vramTotalPages = Math.ceil(vh / pxPerPage)
       vramPage = 0
-
-      // Build indexed VRAM frames for all animation frames
-      vramIndexedFrames = []
-      activeVramIndexed = new Uint8Array(mapData.vramIndexedData)
-      vramIndexedFrames = [activeVramIndexed]
-      if (mapData.animation && mapData.animation.frameCount > 1) {
-        animFrameCount = mapData.animation.frameCount
-        animIntervalMs = mapData.animation.intervalMs
-        if (mapData.animation.extraVramIndexed) {
-          for (const idxData of mapData.animation.extraVramIndexed) {
-            vramIndexedFrames.push(new Uint8Array(idxData))
-          }
-        }
-        for (const b of animPlayBtns) b.style.display = ''
-      } else {
-        for (const b of animPlayBtns) b.style.display = 'none'
-      }
-
 
       const vramCanvas = document.getElementById('vram-canvas') as HTMLCanvasElement
       const vramInspect = document.getElementById('vram-inspect') as HTMLElement
@@ -2548,40 +2268,27 @@ window.addEventListener('message', async (event) => {
         const row = Math.floor((e.clientY - rect.top) * sy / 8)
         selectedDetail = { type: 'vram', page: vramPage, col, row }
         redrawDetail()
+        renderVramPage()  // repaint so the yellow selection outline shows
       }
     }
 
-    // ── Map16 tile atlases — build page structure, then reactive chain fills content ──
+    // ── Map16 tile pages — page structure only; render driven by model ──
     {
       map16Pages = []
-      // L1: placeholder atlas sized from defs count; invalidateVram() will fill it reactively
-      {
-        const l1PageCount = mapData.map16Defs
-          ? Math.ceil(mapData.map16Defs.length / 256)
-          : 1
-        const placeholderH = l1PageCount * 256
-        const placeholder = new ImageData(256, placeholderH)
-        map16FullImageData = placeholder
-        for (let p = 0; p < l1PageCount; p++) {
-          map16Pages.push({ atlas: placeholder, pageInAtlas: p, label: `L1 0x${p.toString(16).padStart(2,'0')}` })
-        }
+      const l1DefCount = mapData.map16DefCount ?? 0
+      const l1PageCount = l1DefCount > 0 ? Math.ceil(l1DefCount / 256) : 1
+      for (let p = 0; p < l1PageCount; p++) {
+        map16Pages.push({ pageInAtlas: p, label: `L1 0x${p.toString(16).padStart(2,'0')}` })
       }
-      // L2/BG pages: placeholder sized from defs count; invalidateMap16() fills
-      // map16BgAtlasCanvas reactively from map16BgDefs + activeVramIndexed + paletteRows.
-      if (mapData.map16BgDefs && mapData.map16BgDefs.length > 0) {
-        const bgPageCount = Math.ceil(mapData.map16BgDefs.length / 256)
-        const bgPlaceholder = new ImageData(256, bgPageCount * 256)
+      const l2DefCount = mapData.map16BgDefCount ?? 0
+      if (l2DefCount > 0) {
+        const bgPageCount = Math.ceil(l2DefCount / 256)
         for (let p = 0; p < bgPageCount; p++) {
-          map16Pages.push({ atlas: bgPlaceholder, pageInAtlas: p, label: `L2 0x${(0x80 + p).toString(16)}` })
+          map16Pages.push({ pageInAtlas: p, label: `L2 0x${(0x80 + p).toString(16)}` })
         }
-      } else {
-        map16BgAtlasCanvas = null
       }
       map16PageIdx = 0
-      // Full reactive rebuild: palette → invalidatePalette → vram → invalidateVram → map16
-      invalidatePalette()
-      // Pre-build per-frame caches so animation ticks are cheap pointer swaps, not rebuilds.
-      prebuildAnimFrames()
+      renderMap16Page()
 
       const m16Canvas = document.getElementById('map16-canvas') as HTMLCanvasElement
       const m16Inspect = document.getElementById('map16-inspect') as HTMLElement
@@ -2609,40 +2316,24 @@ window.addEventListener('message', async (event) => {
         const row = Math.floor((e.clientY - rect.top) * sy / 16)
         selectedDetail = { type: 'map16', page: map16PageIdx, col, row }
         redrawDetail()
+        renderMap16Page()  // repaint so the yellow selection outline shows
       }
     }
 
     // Refresh tile detail preview (persists across palette/tileset changes)
     redrawDetail()
 
-    // Reset palette animation state (user must press play to start)
-    palAnimOriginals = null
+    // Reset palette animation timer. CyclingColor cells read
+    // `ctx.palAnimFrame.value` directly, so every ref update invalidates
+    // only the cells that actually moved.
     stopPalAnimTimer()
-    palAnimFrame = 0
+    applyPalAnimFrame(0)
     const palAnimEl = document.getElementById('pal-anim-controls') as HTMLElement
     palAnimEl.style.display = mapData.paletteAnimation ? 'flex' : 'none'
-
-    // Apply frame 0 immediately so the initial render shows the correct animated
-    // color — the ROM's static value at those CGRAM slots is overwritten by the
-    // NMI handler on the first game frame and is never actually visible in-game.
-    if (mapData.paletteAnimation && mapData.paletteRows) {
-      palAnimOriginals = new Map()
-      for (const frame of mapData.paletteAnimation.frames) {
-        for (const p of frame) {
-          if (!palAnimOriginals.has(p.cgramIdx)) {
-            const row = p.cgramIdx >> 4, col = p.cgramIdx & 15
-            const orig = mapData.paletteRows[row]?.[col]
-            if (orig) palAnimOriginals.set(p.cgramIdx, [...orig])
-          }
-        }
-      }
-      applyPalAnimFrame(0)
-    }
 
   } else if (msg['type'] === 'error') {
     mapId.textContent   = 'Error'
     mapMeta.textContent = msg['message'] as string
-    canvas.width = canvas.height = 1
   }
 })
 
