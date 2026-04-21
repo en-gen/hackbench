@@ -36,7 +36,7 @@ for (let lv = 0; lv < 0x200; lv++) {
   let grid
   try {
     const { header, objects } = parseLevelObjects(raw)
-    grid = expandMap(objects, header.levelLength, rom.rom, header.objectTileset & 0x0F)
+    grid = expandMap(objects, header.levelLength, rom.rom, header.objectTileset & 0x0F, false, header.levelMode)
   } catch {
     continue
   }

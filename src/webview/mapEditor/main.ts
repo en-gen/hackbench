@@ -684,7 +684,7 @@ app.innerHTML = `
     <div class="section-hdr" style="margin-top:auto;">SWITCH STATE</div>
     <div style="padding:8px;display:flex;flex-direction:column;gap:6px;">
       <div id="switch-toggles" style="display:flex;gap:6px;justify-content:space-between;">
-        <button class="pswitch-toggle" data-pcolor="blue" title="Blue P-switch — reveals hidden doors, ? blocks, and P-switch coins at 50% opacity">
+        <button class="pswitch-toggle" data-pcolor="blue" title="Blue P-switch — swaps coins ↔ used blocks and reveals hidden doors / ? blocks">
           <canvas width="16" height="16"></canvas>
         </button>
         <button class="switch-toggle" data-color="0" title="Green switch — click to toggle cleared state">
@@ -786,6 +786,97 @@ function horizontalScrollPixelShift(setting: number): number | null {
     default: return null
   }
 }
+
+// ── Blue P-switch toggle ─────────────────────────────────────────────────────
+// Two sources of substitution, composed in drawL1TileAt:
+//   1. Data-driven swap — each Map16 tile def carries `pSwitchSub`, the
+//      ROM-derived substitute tile ID for P-switch activation (CODE_00F545 /
+//      CODE_00F577). When the toggle is ON we render that substitute at full
+//      alpha instead of the original. Populated in rom/Map16.ts.
+//   2. UI-only reveal — webview-specific alpha-preview of tiles that are
+//      effectively invisible in the editor (hidden ? block, invisible coin
+//      block) or use a non-obvious palette (silver doors). Not in the ROM's
+//      P-switch logic; it's a hint so users can see what's there without
+//      toggling. Alpha is 50% when OFF, 100% when ON.
+let pSwitchBlueOn = false  // eslint-disable-line prefer-const
+
+interface PSwitchReveal {
+  substitute: number
+  /** If set, composite the substitute's chars with this palette instead of using the atlas. */
+  palOverride?: number
+}
+
+function pSwitchReveal(tileId: number): PSwitchReveal | null {
+  if ((tileId & ~0xFF) !== 0) return null
+  switch (tileId) {
+    case 0x27: return { substitute: 0x1F, palOverride: 4 }  // silver door top
+    case 0x28: return { substitute: 0x20, palOverride: 4 }  // silver door bottom
+    case 0x29: return { substitute: 0x24 }                  // invisible ? block
+    case 0x2A: return { substitute: 0x2B }                  // invisible coin block
+    default: return null
+  }
+}
+
+function blitSubTile(
+  indexed: Uint8Array, palRows: number[][][],
+  sub: { c: number; p: number; fx: boolean; fy: boolean },
+  dest: Uint8ClampedArray, destX: number, destY: number, destW: number,
+): void {
+  const srcOff = sub.c * 64
+  const pal = palRows[sub.p] ?? palRows[0]
+  for (let py = 0; py < 8; py++) {
+    const sy = sub.fy ? 7 - py : py
+    for (let px = 0; px < 8; px++) {
+      const sx = sub.fx ? 7 - px : px
+      const palIdx = indexed[srcOff + sy * 8 + sx] ?? 0
+      const dx2 = destX + px, dy2 = destY + py
+      const di = (dy2 * destW + dx2) * 4
+      if (palIdx === 0) {
+        dest[di] = dest[di + 1] = dest[di + 2] = 0; dest[di + 3] = 0
+      } else {
+        const c = pal[palIdx] ?? [255, 0, 255, 255]
+        dest[di] = c[0]; dest[di + 1] = c[1]; dest[di + 2] = c[2]; dest[di + 3] = 255
+      }
+    }
+  }
+}
+
+function applySwitchPalaceState(tileId: number): number {
+  const low = tileId & 0xFF
+  if (low < 0x6A || low > 0x6D) return tileId
+  const colorIdx = low - 0x6A
+  return (store.switchPalaceState[colorIdx] ? 0x100 : 0x000) | low
+}
+
+/** Cached per-tile 16×16 canvases composed with a palette override. Cleared
+ *  whenever VRAM or palette changes, same lifecycle as map16AtlasCanvas. */
+const palOverrideCache = new Map<number, HTMLCanvasElement>()
+
+function getPalOverrideCanvas(tileId: number, palOverride: number): HTMLCanvasElement | null {
+  const key = (tileId << 8) | palOverride
+  const cached = palOverrideCache.get(key)
+  if (cached) return cached
+  if (!activeVramIndexed || !mapData?.paletteRows || !mapData.map16Defs) return null
+  const def = mapData.map16Defs[tileId]
+  if (!def) return null
+  const buf = new Uint8ClampedArray(16 * 16 * 4)
+  const subs = [
+    { s: def.tl, dx: 0, dy: 0 },
+    { s: def.tr, dx: 8, dy: 0 },
+    { s: def.bl, dx: 0, dy: 8 },
+    { s: def.br, dx: 8, dy: 8 },
+  ]
+  for (const { s, dx, dy } of subs) {
+    blitSubTile(activeVramIndexed, mapData.paletteRows,
+      { c: s.c, p: palOverride, fx: s.fx, fy: s.fy }, buf, dx, dy, 16)
+  }
+  const canvas = document.createElement('canvas')
+  canvas.width = 16; canvas.height = 16
+  canvas.getContext('2d')!.putImageData(new ImageData(buf, 16, 16), 0, 0)
+  palOverrideCache.set(key, canvas)
+  return canvas
+}
+
 
 // ── Tile detail preview state ─────────────────────────────────────────────────
 let selectedDetail: { type: 'vram'; page: number; col: number; row: number } |
@@ -1318,6 +1409,20 @@ const infoBgHScroll  = document.getElementById('info-bg-hscroll')!
 
 let zoomIdx      = ZOOM_DEFAULT_IDX
 let mapData: MapPayload | null = null
+let l2TileGrid: number[][] | null = null
+
+// Legacy rendering state — re-introduced from pre-#62 stash. The model renderer
+// owns main display; these back the block-mode and camera-viewport overlays.
+const canvas = modelCanvas  // map-canvas was renamed model-canvas in #62
+const ctx    = canvas.getContext('2d')!
+let zoom     = ZOOM_STEPS[ZOOM_DEFAULT_IDX]
+const activeVramIndexed: Uint8Array | null = null
+const map16AtlasCanvas:    HTMLCanvasElement | null = null
+const map16BgAtlasCanvas:  HTMLCanvasElement | null = null
+const pipeVariantAtlasCanvases: (HTMLCanvasElement | null)[] = [null, null, null, null]
+let cameraTileX  = 0
+let cameraTileY  = 0
+const cameraFocused = false
 const activeTileId = -1
 let activeTool: 'place' | 'erase' = 'place'
 let isPainting   = false
@@ -1332,13 +1437,47 @@ interface MapPayload {
   /** True if Layer 1 is vertical (ScreenMode bit 0 via VerticalTable). */
   isVertical?:     boolean
   tileGrid:        number[][]
+  l2TileGrid?:     number[][] | null
   sprites:         Array<{ x: number; y: number; spriteId: number }>
   backAreaColor:   [number, number, number, number]
   backAreaColors:  number[][]   // 8 variants × [r,g,b,a]
-  /** Count of L1 Map16 tiles — used to page the Map16 panel. */
-  map16DefCount?:  number
-  /** Count of L2 Map16 tiles — used to add L2 pages when > 0. */
-  map16BgDefCount?: number
+  paletteRows:     number[][][]   // 16 rows × 16 colors × [r,g,b,a]
+  // Which atlas the L2 tile grid should sample:
+  //   true  → map16BgAtlasCanvas  (preset BG; IDs are into Map16BGTiles)
+  //   false → map16AtlasCanvas    (object-stream L2; IDs are regular Map16)
+  l2UsesBgAtlas?: boolean
+  // Map16 tile definitions for client-side composition.
+  // pSwitchSub is L1-only (ROM-derived P-switch swap); L2 BG defs omit it.
+  map16Defs?: Array<{
+    id: number
+    tl: { c: number; p: number; fx: boolean; fy: boolean }
+    bl: { c: number; p: number; fx: boolean; fy: boolean }
+    tr: { c: number; p: number; fx: boolean; fy: boolean }
+    br: { c: number; p: number; fx: boolean; fy: boolean }
+    pSwitchSub?: number | null
+  }>
+  // L2/BG Map16 tile defs (same shape). Enables per-frame L2 atlas rebuild.
+  map16BgDefs?: Array<{
+    id: number
+    tl: { c: number; p: number; fx: boolean; fy: boolean }
+    bl: { c: number; p: number; fx: boolean; fy: boolean }
+    tr: { c: number; p: number; fx: boolean; fy: boolean }
+    br: { c: number; p: number; fx: boolean; fy: boolean }
+  }>
+  // Pipe palette variants for tiles $133..$13A (see MAP16AppTable in bank_05.asm).
+  // 4 variants × 8 tile defs. At render time, tiles in that range are
+  // composited using pipeVariantDefs[screenPipeVariants[screen]][tileId-0x133].
+  pipeVariantDefs?: Array<Array<{
+    id: number
+    tl: { c: number; p: number; fx: boolean; fy: boolean }
+    bl: { c: number; p: number; fx: boolean; fy: boolean }
+    tr: { c: number; p: number; fx: boolean; fy: boolean }
+    br: { c: number; p: number; fx: boolean; fy: boolean }
+  }>>
+  // Per-screen variant index (0..3) for the pipe cycle.
+  screenPipeVariants?: number[]
+  // Raw indexed VRAM: 1 byte per pixel, 64 bytes per char, 1536 chars
+  vramIndexedData?: number[]
   animation?: {
     frameCount: number
     intervalMs: number
@@ -1413,6 +1552,7 @@ function applyZoom(): void {
   const cap = maxZoomIdx()
   if (zoomIdx > cap) zoomIdx = cap
   const z = ZOOM_STEPS[zoomIdx]
+  zoom = z
   store.setZoom(z)  // reactive — triggers renderModelOverlay with the new zoom
   zoomLabel.textContent = `${z}×`
 }
@@ -1538,11 +1678,383 @@ palCanvas.addEventListener('mouseleave', () => {
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
+function screenX(s: number, px: number): number {
+  return isVert() ? 0 : Math.round(s * SCREEN_W * px)
+}
+function screenY(s: number, px: number): number {
+  return isVert() ? Math.round(s * SCREEN_H_VERT * px) : 0
+}
+
 function tileBlockColor(tileId: number): string {
   const r = (tileId & 0x1F) << 3
   const g = ((tileId >> 5) & 0xF) << 4
   const b = Math.round((tileId / 0x1FF) * 180) + 40
   return `rgb(${r},${g},${b})`
+}
+
+function drawBlockGrid(grid: number[][], cols: number, rows: number, px: number, alpha: number): void {
+  ctx.save()
+  ctx.globalAlpha = alpha
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const tileId = grid[row]?.[col] ?? 0
+      if (tileId === 0) continue
+      ctx.fillStyle = tileBlockColor(tileId)
+      ctx.fillRect(Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
+    }
+  }
+  if (zoom >= 2) {
+    ctx.fillStyle = 'rgba(0,0,0,0.75)'
+    ctx.font = `${Math.max(6, Math.round(px * 0.28))}px monospace`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const tileId = grid[row]?.[col] ?? 0
+        if (tileId === 0) continue
+        ctx.fillText(`$${tileId.toString(16).toUpperCase().padStart(3,'0')}`,
+          Math.round(col * px) + Math.round(px / 2),
+          Math.round(row * px) + Math.round(px / 2))
+      }
+    }
+  }
+  ctx.restore()
+}
+
+/**
+ * Transparency-checkerboard pattern, matching the one used by gfxViewer
+ * (4×4 grayscale squares at 40/60 luma). Cached as an offscreen canvas
+ * so the main redraw + minimap redraw can reuse a single CanvasPattern.
+ */
+let checkerPatternCanvas: HTMLCanvasElement | null = null
+function getCheckerPattern(c: CanvasRenderingContext2D): CanvasPattern | null {
+  if (!checkerPatternCanvas) {
+    checkerPatternCanvas = document.createElement('canvas')
+    checkerPatternCanvas.width = 8
+    checkerPatternCanvas.height = 8
+    const p = checkerPatternCanvas.getContext('2d')!
+    p.fillStyle = 'rgb(40,40,40)'
+    p.fillRect(0, 0, 8, 8)
+    p.fillStyle = 'rgb(60,60,60)'
+    p.fillRect(0, 0, 4, 4)
+    p.fillRect(4, 4, 4, 4)
+  }
+  return c.createPattern(checkerPatternCanvas, 'repeat')
+}
+
+function redraw(): void {
+  if (!mapData) return
+  if (!chkBlock.checked && !map16AtlasCanvas) return
+
+  const { tileGrid, screens, sprites } = mapData
+  const cols = levelCols()
+  const rows = levelRows()
+  const px   = TILE_PX * zoom
+
+  canvas.width  = Math.round(cols * px)
+  canvas.height = Math.round(rows * px)
+  ctx.imageSmoothingEnabled = false
+
+  // When L2 is hidden, show a transparency checkerboard in place of the
+  // back-area color so the user can clearly tell what's solid L1 vs BG.
+  if (!chkL2.checked) {
+    const pat = getCheckerPattern(ctx)
+    ctx.fillStyle = pat ?? '#202020'
+  } else if (mapData.backAreaColor) {
+    const [r, g, b] = mapData.backAreaColor
+    ctx.fillStyle = `rgb(${r},${g},${b})`
+  } else {
+    ctx.fillStyle = '#000'
+  }
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  if (chkBlock.checked) {
+    if (chkL2.checked && l2TileGrid) drawBlockGrid(l2TileGrid, cols, rows, px, 0.55)
+    if (chkL1.checked)               drawBlockGrid(tileGrid,   cols, rows, px, 1.0)
+  } else {
+    // L2 atlas: 16 cols of 16×16 tiles, tile ID addresses (col,row). Draw
+    // underneath L1 so L1 solid tiles cover the BG (matches SNES PPU layer
+    // priority). Atlas source depends on L2 type:
+    //   preset BG   → map16BgAtlasCanvas (IDs into Map16BGTiles)
+    //   object stream → map16AtlasCanvas (IDs into the regular Map16 table)
+    if (chkL2.checked && l2TileGrid) {
+      const useBg = mapData.l2UsesBgAtlas ?? true
+      const atlas = useBg ? map16BgAtlasCanvas : map16AtlasCanvas
+      if (atlas) {
+        const atlasCols = 16
+        for (let row = 0; row < rows; row++) {
+          for (let col = 0; col < cols; col++) {
+            const tileId = l2TileGrid[row]?.[col] ?? 0
+            // For object-stream L2, tile 0 is "empty" (never drawn). For
+            // preset L2 every slot is meaningful (including $25 "empty BG"),
+            // so we always draw.
+            if (!useBg && tileId === 0) continue
+            const sx = (tileId % atlasCols) * TILE_PX
+            const sy = Math.floor(tileId / atlasCols) * TILE_PX
+            ctx.drawImage(atlas,
+              sx, sy, TILE_PX, TILE_PX,
+              Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
+          }
+        }
+      }
+    }
+    // Live L1 Map16 atlas: 16 cols of 16×16 tiles, tile ID directly addresses (col,row).
+    if (chkL1.checked && map16AtlasCanvas) {
+      ctx.save()
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          drawL1TileAt(row, col, Math.round(col * px), Math.round(row * px), Math.round(px))
+        }
+      }
+      ctx.restore()
+    }
+  }
+
+  // Screen dividers (shown together with the screen-number chips).
+  // Horizontal levels: vertical lines at screen boundaries on X.
+  // Vertical levels:   horizontal lines at screen boundaries on Y.
+  if (chkScreens.checked) {
+    ctx.strokeStyle = 'rgba(100,120,255,0.4)'
+    ctx.lineWidth = 1
+    if (isVert()) {
+      for (let s = 1; s < screens; s++) {
+        const y = Math.round(s * SCREEN_H_VERT * px) + 0.5
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke()
+      }
+    } else {
+      for (let s = 1; s < screens; s++) {
+        const x = Math.round(s * SCREEN_W * px) + 0.5
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
+      }
+    }
+  }
+
+  // Screen numbers (LM-style) — 2-digit hex label floating over the top-left
+  // of each screen. Font size is independent of the tile size so low-zoom
+  // views stay readable. Object stream transitions, screen exits and entrance
+  // mappings are all keyed on this index, so visibility is diagnostic.
+  if (chkScreens.checked) {
+    ctx.save()
+    const fontSize = 14   // fixed, readable at any zoom
+    ctx.font = `bold ${fontSize}px monospace`
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'top'
+    const padX = 6
+    const padY = 3
+    for (let s = 0; s < screens; s++) {
+      const chipX = screenX(s, px) + 3
+      const chipY = screenY(s, px) + 3
+      const label = s.toString(16).toUpperCase().padStart(2, '0')
+      const textW = ctx.measureText(label).width
+      ctx.fillStyle = 'rgba(0,0,0,0.72)'
+      ctx.fillRect(chipX, chipY, textW + padX * 2, fontSize + padY * 2)
+      ctx.fillStyle = '#e8d050'
+      ctx.fillText(label, chipX + padX, chipY + padY)
+    }
+    ctx.restore()
+  }
+
+  // Tile grid
+  if (mapGridOn) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)'
+    ctx.lineWidth = 1
+    for (let c = 0; c <= cols; c++) {
+      const x = Math.round(c * px) + 0.5
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
+    }
+    for (let r = 0; r <= rows; r++) {
+      const y = Math.round(r * px) + 0.5
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke()
+    }
+  }
+
+  // Sprite markers
+  if (chkSprites.checked) {
+    for (const spr of sprites) {
+      const sx = Math.round(spr.x * px)
+      const sy = Math.round(spr.y * px)
+      const sp = Math.max(1, Math.round(px) - 2)
+      ctx.fillStyle = 'rgba(255,70,70,0.8)'
+      ctx.fillRect(sx + 1, sy + 1, sp, sp)
+      if (px >= 14) {
+        ctx.fillStyle = '#fff'
+        ctx.font = `bold ${Math.max(7, Math.round(px * 0.44))}px monospace`
+        ctx.fillText(spr.spriteId.toString(16).toUpperCase().padStart(2,'0'), sx + 2, sy + Math.round(px) - 3)
+      }
+    }
+  }
+
+  // Camera viewport — drawn last so it sits above everything else.
+  if (chkCamera.checked) drawCameraViewport()
+
+  drawMinimap()
+}
+
+/**
+ * Dim everything outside the camera rect. Called inside drawCameraViewport()
+ * when the camera has focus; mirrors the "spotlight" pattern used by the
+ * 8×8/Map16 selected-tile highlights.
+ */
+function dimOutsideCamera(rx: number, ry: number, rw: number, rh: number): void {
+  ctx.save()
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'
+  // Top band
+  ctx.fillRect(0, 0, canvas.width, ry)
+  // Bottom band
+  ctx.fillRect(0, ry + rh, canvas.width, canvas.height - (ry + rh))
+  // Left band (between top and bottom bands)
+  ctx.fillRect(0, ry, rx, rh)
+  // Right band
+  ctx.fillRect(rx + rw, ry, canvas.width - (rx + rw), rh)
+  ctx.restore()
+}
+
+/**
+ * Draw a single L1 tile from the Map16 atlas at the given destination pixel.
+ * Honors switch-palace state, P-switch reveal (with alpha + palette override),
+ * and the screen-indexed pipe-palette variant for tiles $133..$13A. Called
+ * from both the main map loop and the camera re-paint so they stay in sync.
+ * `worldRow`/`worldCol` drive the screen lookup — always level-space, never
+ * rect-local.
+ */
+function drawL1TileAt(worldRow: number, worldCol: number, dx: number, dy: number, size: number): void {
+  if (!mapData || !map16AtlasCanvas) return
+  const rawTileId = mapData.tileGrid[worldRow]?.[worldCol] ?? 0
+  const tileId = applySwitchPalaceState(rawTileId)
+  if (tileId === 0) return
+  // ROM-derived P-switch swap wins over the UI reveal when both apply.
+  const romSub = pSwitchBlueOn ? (mapData.map16Defs?.[tileId]?.pSwitchSub ?? null) : null
+  const reveal = romSub === null ? pSwitchReveal(rawTileId) : null
+  ctx.globalAlpha = reveal ? (pSwitchBlueOn ? 1.0 : 0.5) : 1.0
+  if (reveal?.palOverride !== undefined) {
+    const override = getPalOverrideCanvas(reveal.substitute, reveal.palOverride)
+    if (override) ctx.drawImage(override, 0, 0, TILE_PX, TILE_PX, dx, dy, size, size)
+    return
+  }
+  const drawId = romSub ?? reveal?.substitute ?? tileId
+  const screenVariants = mapData.screenPipeVariants
+  const vert = mapData.isVertical === true
+  if (drawId >= 0x133 && drawId < 0x13B && screenVariants && pipeVariantAtlasCanvases[0]) {
+    const screenIdx = vert ? Math.floor(worldRow / 16) : Math.floor(worldCol / 16)
+    const variantIdx = screenVariants[screenIdx] ?? 1
+    const variantCanvas = pipeVariantAtlasCanvases[variantIdx]
+    if (variantCanvas) {
+      const sx = (drawId - 0x133) * TILE_PX
+      ctx.drawImage(variantCanvas, sx, 0, TILE_PX, TILE_PX, dx, dy, size, size)
+      return
+    }
+  }
+  const sx = (drawId % 16) * TILE_PX
+  const sy = Math.floor(drawId / 16) * TILE_PX
+  ctx.drawImage(map16AtlasCanvas, sx, sy, TILE_PX, TILE_PX, dx, dy, size, size)
+}
+
+/**
+ * Draw the draggable camera rectangle with parallax-composited BG inside it.
+ * Outside the rect we dim the map (so the camera's content stands out); inside,
+ * we paint the BG at its parallax-shifted position over the existing FG.
+ */
+function drawCameraViewport(): void {
+  if (!mapData) return
+  const cols = levelCols()
+  const rows = levelRows()
+  const px   = TILE_PX * zoom
+
+  // Clamp camera so rect stays within level bounds.
+  const maxX = Math.max(0, cols - CAMERA_W_TILES)
+  const maxY = Math.max(0, rows - CAMERA_H_TILES)
+  cameraTileX = Math.max(0, Math.min(maxX, cameraTileX))
+  cameraTileY = Math.max(0, Math.min(maxY, cameraTileY))
+
+  const rx = Math.round(cameraTileX * px)
+  const ry = Math.round(cameraTileY * px)
+  const rw = Math.round(CAMERA_W_TILES * px)
+  const rh = Math.round(CAMERA_H_TILES * px)
+
+  // Dim the rest of the map when the camera is focused so the composited
+  // preview inside the rect visually dominates. Drawn before the rect contents
+  // so the parallax repaint lands on top of clean (non-dimmed) tiles.
+  if (cameraFocused) dimOutsideCamera(rx, ry, rw, rh)
+
+  // Wipe the rect with the level's back-area color so the map's original L1/L2
+  // (drawn by the earlier full-map pass) can't bleed through. Without this,
+  // object-stream L2 levels would show two overlapping BGs inside the rect:
+  // the raw-position L2 underneath, and the parallax L2 on top, through any
+  // "empty" cells the parallax pass skipped.
+  ctx.save()
+  const bac = mapData.backAreaColor
+  ctx.fillStyle = bac ? `rgb(${bac[0]},${bac[1]},${bac[2]})` : '#000'
+  ctx.fillRect(rx, ry, rw, rh)
+  ctx.restore()
+
+  // Parallax-composited BG inside the rect. Skip if L2 hidden or no preset.
+  // The BG origin tracks the camera FG position via shift on pixel Y:
+  //   bg_px_y = fg_px_y >> shift    (locked settings mean BG doesn't move)
+  // We convert back to tile rows for atlas sampling.
+  const vSetting = mapData.header.vertLayer2Setting ?? 0
+  const hSetting = mapData.header.horizLayer2Setting ?? 0
+  const vShift = verticalScrollPixelShift(vSetting)
+  const hShift = horizontalScrollPixelShift(hSetting)
+  if (chkL2.checked && l2TileGrid) {
+    const useBg = mapData.l2UsesBgAtlas ?? true
+    const atlas = useBg ? map16BgAtlasCanvas : map16AtlasCanvas
+    if (atlas) {
+      const bgRows = l2TileGrid.length
+      const bgCols = l2TileGrid[0]?.length ?? 0
+      // fg pixel Y of camera top-left. Shift to BG pixels, then wrap mod BG grid size.
+      const fgPxY = cameraTileY * TILE_PX
+      const fgPxX = cameraTileX * TILE_PX
+      const bgPxY = vShift === null ? 0 : (fgPxY >> vShift)
+      const bgPxX = hShift === null ? 0 : (fgPxX >> hShift)
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(rx, ry, rw, rh)
+      ctx.clip()
+      for (let r = 0; r < CAMERA_H_TILES; r++) {
+        for (let c = 0; c < CAMERA_W_TILES; c++) {
+          const bgWorldRow = Math.floor((bgPxY + r * TILE_PX) / TILE_PX) % bgRows
+          const bgWorldCol = Math.floor((bgPxX + c * TILE_PX) / TILE_PX) % bgCols
+          const tileId = l2TileGrid[(bgWorldRow + bgRows) % bgRows]?.[(bgWorldCol + bgCols) % bgCols] ?? 0
+          if (!useBg && tileId === 0) continue
+          const sx = (tileId % 16) * TILE_PX
+          const sy = Math.floor(tileId / 16) * TILE_PX
+          const dx = rx + Math.round(c * px)
+          const dy = ry + Math.round(r * px)
+          ctx.drawImage(atlas, sx, sy, TILE_PX, TILE_PX, dx, dy, Math.round(px), Math.round(px))
+        }
+      }
+      ctx.restore()
+      // Re-paint L1 on top of the parallax BG so FG stays dominant inside the
+      // rect. Uses drawL1TileAt with world-space row/col so pipe-palette
+      // variants and P-switch reveal stay consistent with the main map.
+      if (chkL1.checked && map16AtlasCanvas) {
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(rx, ry, rw, rh)
+        ctx.clip()
+        for (let r = 0; r < CAMERA_H_TILES; r++) {
+          for (let c = 0; c < CAMERA_W_TILES; c++) {
+            const worldRow = cameraTileY + r
+            const worldCol = cameraTileX + c
+            const dx = rx + Math.round(c * px)
+            const dy = ry + Math.round(r * px)
+            drawL1TileAt(worldRow, worldCol, dx, dy, Math.round(px))
+          }
+        }
+        ctx.restore()
+      }
+    }
+  }
+
+  // Border — bright outline so the rect is easy to spot and grab.
+  ctx.save()
+  ctx.strokeStyle = 'rgba(255,255,80,0.95)'
+  ctx.lineWidth = 2
+  ctx.strokeRect(rx + 1, ry + 1, rw - 2, rh - 2)
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)'
+  ctx.lineWidth = 1
+  ctx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1)
+  ctx.restore()
 }
 
 /** True if the given canvas pixel (x,y) lies inside the camera rect. */
@@ -1623,7 +2135,7 @@ function minimapTilePx(): number {
 }
 
 function drawMinimap(): void {
-  if (!minimapOn) return
+  if (!minimapOn || !mapData) return
   // Use the already-rendered model canvas as the source. Everything
   // model-correct — pipe-variant palettes, P-switch reveals, animated
   // tiles, switch-palace alt — carries through for free because the
@@ -1642,12 +2154,57 @@ function drawMinimap(): void {
     minimapCanvas.height = h
   }
 
-  // Smooth downsample — at 1–4 px per tile each source 16×16 tile gets
-  // averaged to a single color-ish blob, which reads better as a
-  // thumbnail than hard nearest-neighbor picks.
-  minimapCtx.imageSmoothingEnabled = true
-  minimapCtx.clearRect(0, 0, w, h)
-  minimapCtx.drawImage(src, 0, 0, src.width, src.height, 0, 0, w, h)
+  // Background — checkerboard when L2 is hidden, otherwise back-area color.
+  if (!chkL2.checked) {
+    const pat = getCheckerPattern(minimapCtx)
+    minimapCtx.fillStyle = pat ?? '#202020'
+  } else if (mapData.backAreaColor) {
+    const [r, g, b] = mapData.backAreaColor
+    minimapCtx.fillStyle = `rgb(${r},${g},${b})`
+  } else {
+    minimapCtx.fillStyle = '#000'
+  }
+  minimapCtx.fillRect(0, 0, w, h)
+
+  // Blit each tile scaled from the live Map16 atlas (same source the main
+  // canvas uses, so any palette/animation change is reflected instantly).
+  // L2 draws first (under L1), using whichever atlas the level's L2 type
+  // maps to — BG atlas for preset, L1 atlas for object-stream.
+  const atlasCols = 16
+  if (l2TileGrid) {
+    const useBg = mapData.l2UsesBgAtlas ?? true
+    const l2Atlas = useBg ? map16BgAtlasCanvas : map16AtlasCanvas
+    if (l2Atlas) {
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const tileId = l2TileGrid[row]?.[col] ?? 0
+          if (!useBg && tileId === 0) continue
+          const sx = (tileId % atlasCols) * TILE_PX
+          const sy = Math.floor(tileId / atlasCols) * TILE_PX
+          minimapCtx.drawImage(l2Atlas, sx, sy, TILE_PX, TILE_PX,
+            col * tp, row * tp, tp, tp)
+        }
+      }
+    }
+  }
+  const tileGrid = mapData.tileGrid
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const rawTileId = tileGrid[row]?.[col] ?? 0
+      let tileId = applySwitchPalaceState(rawTileId)
+      if (tileId === 0) continue
+      // ROM-derived P-switch swap (coin ↔ used block). Skip the reveal-alpha
+      // path since the preview doesn't read well at minimap scale.
+      if (pSwitchBlueOn) {
+        const sub = mapData.map16Defs?.[tileId]?.pSwitchSub
+        if (sub != null) tileId = sub
+      }
+      const sx = (tileId % atlasCols) * TILE_PX
+      const sy = Math.floor(tileId / atlasCols) * TILE_PX
+      if (map16AtlasCanvas) minimapCtx.drawImage(map16AtlasCanvas, sx, sy, TILE_PX, TILE_PX,
+        col * tp, row * tp, tp, tp)
+    }
+  }
 
   drawMinimapViewport()
 }
@@ -2159,6 +2716,7 @@ window.addEventListener('message', async (event) => {
   }
   if (msg['type'] === 'load') {
     mapData  = msg as unknown as MapPayload
+    l2TileGrid = mapData.l2TileGrid ?? null
 
     applyMinimapOrientation()
 
@@ -2275,12 +2833,12 @@ window.addEventListener('message', async (event) => {
     // ── Map16 tile pages — page structure only; render driven by model ──
     {
       map16Pages = []
-      const l1DefCount = mapData.map16DefCount ?? 0
+      const l1DefCount = mapData.map16Defs?.length ?? 0
       const l1PageCount = l1DefCount > 0 ? Math.ceil(l1DefCount / 256) : 1
       for (let p = 0; p < l1PageCount; p++) {
         map16Pages.push({ pageInAtlas: p, label: `L1 0x${p.toString(16).padStart(2,'0')}` })
       }
-      const l2DefCount = mapData.map16BgDefCount ?? 0
+      const l2DefCount = mapData.map16BgDefs?.length ?? 0
       if (l2DefCount > 0) {
         const bgPageCount = Math.ceil(l2DefCount / 256)
         for (let p = 0; p < bgPageCount; p++) {

@@ -2,10 +2,13 @@ import * as vscode from 'vscode'
 import { getActiveRomSession, resolveRom, type RomSession } from '../RomSession'
 import { parseLevelObjects, parseLevelSprites } from '../rom/LevelParser'
 import { loadAllMap16BG, loadMap16WithPipeVariants, type Map16Tile } from '../rom/Map16'
-import { loadRomPalettes, loadBackAreaColors } from '../rom/PaletteLoader'
-import { loadAnimationData, ANIM_INTERVAL_MS } from '../rom/AnimationLoader'
+import { pSwitchSubstitute } from '../rom/PSwitchRules'
+import { loadRomPalettes, loadBackAreaColors, buildLevelCgram } from '../rom/PaletteLoader'
+import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, getCharPixels, type VramState, type GfxSheet } from '../rom/GfxLoader'
+import { loadAnimationData, ANIM_INTERVAL_MS, type AnimationData } from '../rom/AnimationLoader'
 import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
 import { expandMap } from '../rom/ObjectExpander'
+import { readL2Pointer, isPresetPtr, loadL2Preset, loadL2Objects, L2_TILEMAP_COLS, L2_TILEMAP_ROWS, L1_SCREEN_W, L1_SCREEN_H } from '../rom/L2Loader'
 import { buildMapPayload } from '../rom/model/MapBuilder'
 
 /**
@@ -106,7 +109,29 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       // and thus which handler set is used. Must be passed so standard-object
       // dispatch reads the correct per-tileset handler pointer table.
       // Vertical levels flip the grid shape to 32 × (screens*16).
-      const tileGrid = expandMap(objects, screens, rom.rom, header.objectTileset, isVertical)
+      const tileGrid = expandMap(objects, screens, rom.rom, header.objectTileset, isVertical, header.levelMode)
+
+      // ── Build L2 tile grid ────────────────────────────────────────────────
+      let l2TileGrid: number[][] | null = null
+      let l2UsesBgAtlas = false
+      const levelL2Ptr = readL2Pointer(rom.rom, index) ?? 0
+      if (levelL2Ptr !== 0 && isPresetPtr(levelL2Ptr)) {
+        const preset = loadL2Preset(rom.rom, levelL2Ptr)
+        if (preset) {
+          l2UsesBgAtlas = true
+          const cols = screens * L1_SCREEN_W
+          const rows = L1_SCREEN_H
+          l2TileGrid = Array.from({ length: rows }, (_, r) =>
+            Array.from({ length: cols }, (_, c) =>
+              preset.grid[r % L2_TILEMAP_ROWS][c % L2_TILEMAP_COLS],
+            ),
+          )
+        }
+      } else if (levelL2Ptr !== 0) {
+        const tilesetForL2 = overrides.tilesetId ?? header.objectTileset
+        const objL2 = loadL2Objects(rom.rom, levelL2Ptr, screens, tilesetForL2, isVertical)
+        if (objL2) l2TileGrid = objL2.grid
+      }
 
       // ── Load ROM rendering data (allow webview overrides) ─────────────────
       const bgVariant      = overrides.bgVariant      ?? header.bgPalette
@@ -141,6 +166,11 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         console.warn('[LVL] Failed to load animation data:', (err as Error).message)
       }
 
+      // vramIndexedData was used by the legacy renderer (removed in #62).
+      // The model now owns VRAM rendering; pass an empty array so the field
+      // remains in the payload without breaking old webview reads.
+      const vramIndexed: number[] = []
+
       // ── Layer 2 scroll settings ─────────────────────────────────────────
       // CODE_05D26E (bank_05.asm:7268-7277) reads byte $05F000+levelIndex,
       // takes the top nibble, and uses it as index into the 16-byte scroll
@@ -167,8 +197,31 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         screens,
         isVertical,
         tileGrid,
-        map16DefCount:   map16.length,
-        map16BgDefCount: map16bg.length,
+        l2TileGrid,
+        l2UsesBgAtlas,
+        // Map16 tile definitions for client-side composition from live VRAM chars.
+        // Each def: { id, tl, bl, tr, br, pSwitchSub } where subtile: { c, p, fx, fy }.
+        // pSwitchSub is attached here (not in Map16.ts) so each tile carries its own
+        // "I have a P-switch counterpart" description while keeping the ROM reader
+        // free of game-specific substitution rules.
+        map16Defs: map16.map(t => ({
+          id: t.id,
+          tl: { c: t.tl.charNum, p: t.tl.palette, fx: t.tl.flipX, fy: t.tl.flipY },
+          bl: { c: t.bl.charNum, p: t.bl.palette, fx: t.bl.flipX, fy: t.bl.flipY },
+          tr: { c: t.tr.charNum, p: t.tr.palette, fx: t.tr.flipX, fy: t.tr.flipY },
+          br: { c: t.br.charNum, p: t.br.palette, fx: t.br.flipX, fy: t.br.flipY },
+          pSwitchSub: pSwitchSubstitute(t.id),
+        })),
+        // L2/BG Map16 defs (same shape as map16Defs) — webview recomposites live.
+        map16BgDefs: map16bg.map(t => ({
+          id: t.id,
+          tl: { c: t.tl.charNum, p: t.tl.palette, fx: t.tl.flipX, fy: t.tl.flipY },
+          bl: { c: t.bl.charNum, p: t.bl.palette, fx: t.bl.flipX, fy: t.bl.flipY },
+          tr: { c: t.tr.charNum, p: t.tr.palette, fx: t.tr.flipX, fy: t.tr.flipY },
+          br: { c: t.br.charNum, p: t.br.palette, fx: t.br.flipX, fy: t.br.flipY },
+        })),
+        // Raw indexed VRAM: palette indices per char for client-side Map16 composition
+        vramIndexedData: Array.from(vramIndexed),
         animation: {
           frameCount: animFrameCount,
           intervalMs: animIntervalMs,

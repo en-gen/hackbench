@@ -555,13 +555,13 @@ export function handle_0DB571(cur: Cursor): void {
  *   +22..24 JMP CODE_0DB4C0
  *   +25..   CODE_0DB4B7 body-write branch
  *   +34..   CODE_0DB4C0 loop
- *   +34+18..20  JMP CODE_0DB4FE operand
+ *   +34+18..20  JMP CODE_0DB4FE opcode at +52, operand at +53..+54
  */
 export function handle_0DB49E(cur: Cursor): void {
   const base = cur.handlerAddr
   const dataTableAddr  = readLongOperand(cur, base + 16)
   const topMergeAddr   = resolveJsrTarget(cur, base + 19)
-  const bottomMergeAddr = resolveJmpTarget(cur, base + 34 + 19)
+  const bottomMergeAddr = resolveJmpTarget(cur, base + 34 + 18)
 
   const middleCount = (cur.size >> 4) & 0x0F
   const X = cur.size & 0x0F
@@ -1018,49 +1018,75 @@ function pipeVariant1(cur: Cursor): void {
 
 /**
  * Variant 2 -- CODE_0DAC92 (bank_0D line 2480).
- * Wide diagonal pipe (4 cols) sloping down-left. Like variant 1 but four
- * lip tiles per row ($6E/$73/$78/$7D) and four body tiles ($D8/$DA/$E6/$E6).
- * Diagonal step is col-=4, row+=1 per iteration.
+ *
+ * Wide 4-tile diagonal pipe sloping down-left. Each lip iteration shifts the
+ * 4-wide lip group (6E/73/78/7D) left by 4 columns and down by 1 row.
+ * Iterations i >= 1 also write a body section (D8/DA/E6/E6 + fills) to the
+ * right of the lip group on that same row. After all lip iterations a final
+ * straight body row is written one row below the last lip row.
+ *
+ * ASM control-flow (CODE_0DAC92): _0 = (size>>4)+1, _2 = 3.
+ *   - Each CODE_0DACA7 pass: write 4 lips, DEX x4. If X < 0 (iter 0): BMI to
+ *     CODE_0DAD00. Otherwise (iter >= 1): fall into CODE_0DACCF body section.
+ *   - CODE_0DAD00: restore bookmark, _2 += 4, DEC _0. If _0==0: CODE_0DAD37
+ *     (straight row++ + final body). If _0>0: LevelLoadPos += $0C (col-4,row+1)
+ *     diagonal step, JMP CODE_0DACA7.
+ *   - CODE_0DAD37: LDX _2, DEX x4, CODE_0DA97D (row+1 only), JMP CODE_0DACCF.
+ *
+ * Shape for N = (size>>4)+1:
+ *   iter i (0..N-1): lips at (col0-4i, row0+i)
+ *   iter i>=1:       bodies at (col0-4i+4, row0+i); filler x 4*(i-1)
+ *   final row:       bodies at (col0-4*(N-1), row0+N); filler x 4*(N-1)
+ *
+ * Inline immediates from CODE_0DAC92: +27=$6E, +35=$73, +43=$78, +51=$7D
+ * (lips); +65=$D8, +73=$DA, +81=$E6, +89=$E6 (bodies); +103=$3F (filler).
  */
 function pipeVariant2(cur: Cursor): void {
-  const heightCount = ((cur.size >> 4) & 0x0F) + 1
+  const N = ((cur.size >> 4) & 0x0F) + 1
   const col0 = cur.col, row0 = cur.row
-  let widthCounter = 3   // starts at 3 because ASM decrements X by 4 then tests BMI
-  saveBookmark(cur)
 
-  // CODE_0DAC92 inline immediates: +27 $6E, +35 $73, +43 $78, +51 $7D (lips);
-  // +65 $D8, +73 $DA, +81 $E6, +89 $E6 (bodies); +103 $3F (filler).
-  const lip1 = readImmByte(cur, cur.handlerAddr + 27)
-  const lip2 = readImmByte(cur, cur.handlerAddr + 35)
-  const lip3 = readImmByte(cur, cur.handlerAddr + 43)
-  const lip4 = readImmByte(cur, cur.handlerAddr + 51)
-  const body1 = readImmByte(cur, cur.handlerAddr + 65)
-  const body2 = readImmByte(cur, cur.handlerAddr + 73)
-  const body3 = readImmByte(cur, cur.handlerAddr + 81)
-  const body4 = readImmByte(cur, cur.handlerAddr + 89)
+  const lip1    = readImmByte(cur, cur.handlerAddr + 27)
+  const lip2    = readImmByte(cur, cur.handlerAddr + 35)
+  const lip3    = readImmByte(cur, cur.handlerAddr + 43)
+  const lip4    = readImmByte(cur, cur.handlerAddr + 51)
+  const body1   = readImmByte(cur, cur.handlerAddr + 65)
+  const body2   = readImmByte(cur, cur.handlerAddr + 73)
+  const body3   = readImmByte(cur, cur.handlerAddr + 81)
+  const body4   = readImmByte(cur, cur.handlerAddr + 89)
   const fillTile = readImmByte(cur, cur.handlerAddr + 103)
 
-  for (let i = 0; i < heightCount; i++) {
+  for (let i = 0; i < N; i++) {
+    // Lip group at (col0-4i, row0+i).
+    cur.col = col0 - 4 * i
+    cur.row = row0 + i
     setPage1(cur); writeTilePipeMerge(cur, lip1)
     setPage1(cur); writeTilePipeMerge(cur, lip2)
     setPage1(cur); writeTilePipeMerge(cur, lip3)
     setPage1(cur); writeTilePipeMerge(cur, lip4)
-    let x = widthCounter - 4
-    if (x >= 0) {
+    // Body+filler section only for iterations i >= 1. The cursor is now at
+    // col0-4i+4 (right after the lip group). ASM X = _2-4 = 4*i-1 >= 0.
+    if (i >= 1) {
       setPage1(cur); writeTileAdvance(cur, body1)
       setPage1(cur); writeTileAdvance(cur, body2)
       setPage1(cur); writeTileAdvance(cur, body3)
       setPage1(cur); writeTileAdvance(cur, body4)
-      x -= 3
+      // Filler: 4*(i-1) tiles. ASM DEX x3 + JMP DACFD loop: net (4*i-1-3) = 4*(i-1) fills.
+      for (let k = 0; k < 4 * (i - 1); k++) {
+        setPage0(cur); writeTileAdvance(cur, fillTile)
+      }
     }
-    while (x >= 0) {
-      setPage0(cur); writeTileAdvance(cur, fillTile)
-      x -= 1
-    }
-    restoreBookmark(cur)
-    stepDiag(cur, -4, 1)
-    saveBookmark(cur)
-    widthCounter += 4
+  }
+
+  // Final straight body row (CODE_0DAD37): one row below last lip group,
+  // same starting column as that lip group. Width = 4*N tiles: 4 body + 4*(N-1) fills.
+  cur.col = col0 - 4 * (N - 1)
+  cur.row = row0 + N
+  setPage1(cur); writeTileAdvance(cur, body1)
+  setPage1(cur); writeTileAdvance(cur, body2)
+  setPage1(cur); writeTileAdvance(cur, body3)
+  setPage1(cur); writeTileAdvance(cur, body4)
+  for (let k = 0; k < 4 * (N - 1); k++) {
+    setPage0(cur); writeTileAdvance(cur, fillTile)
   }
 
   cur.col = col0
@@ -1226,40 +1252,60 @@ function pipeVariant5(cur: Cursor): void {
 
 /**
  * Variant 6 -- CODE_0DAE6D (bank_0D line 2738).
- * Diagonal pipe sloping down-right with a 2-col body. Tip tiles $C6/$C7 at
- * the lip, $EE/$F0 at the body. Diagonal step is +2 cols, +1 row per
- * iteration (ADC #$12).
+ * Diagonal pipe sloping down-right. Builds a staircase shape stepping +2 cols
+ * per row. _0 = size >> 4 (high nibble). _2 = 2*_0 - 1.
  *
- * The ASM builds a sloping shape that extends down-right from the cursor.
+ * Row 0 (body only, first pass jumps to CODE_0DAE9E):
+ *   body($EE/$F0) at col0, then (_2-1) fill($65) tiles = 2*(_0-1) fills.
+ * Rows 1.._0 (lip+body passes at CODE_0DAE88):
+ *   lip($C6/$C7) at col0+2*(r-1); if _2-2>=0: body+fills; _2 -= 2 each row.
+ *
+ * ASM: CODE_0DA6BA (restoreBookmark) resets col0 each pass, but the diagonal
+ * step (ADC #$12) also calls CODE_0DA9EF which updates _4/_5 to track the
+ * shifted column. So in the flat model each lip row starts at col0+2*(r-1).
  */
 function pipeVariant6(cur: Cursor): void {
-  const iter = ((cur.size >> 4) & 0x0F) + 1
+  const _0 = (cur.size >> 4) & 0x0F  // number of lip rows
   const col0 = cur.col, row0 = cur.row
-  let widthCounter = iter * 2 - 1
 
-  // CODE_0DAE6D inline immediates:
-  //   +33 $C6  +41 $C7  (lip pair)
-  //   +53 $EE  +61 $F0  (body pair)
-  //   +73 $65  (filler)
+  // CODE_0DAE6D inline immediates (verified against ROM bytes at $0DAE6D):
+  //   +33 $C6  +41 $C7  (lip pair, page 1)
+  //   +53 $EE  +61 $F0  (body pair, page 1)
+  //   +73 $65  (filler, page 1)
   const lipL  = readImmByte(cur, cur.handlerAddr + 33)
   const lipR  = readImmByte(cur, cur.handlerAddr + 41)
   const bodyL = readImmByte(cur, cur.handlerAddr + 53)
   const bodyR = readImmByte(cur, cur.handlerAddr + 61)
   const fillTile = readImmByte(cur, cur.handlerAddr + 73)
 
-  for (let i = 0; i < iter; i++) {
-    setPage1(cur); writeTileAdvance(cur, bodyL)
-    setPage1(cur); writeTileAdvance(cur, bodyR)
-    let x = widthCounter - 2
-    while (x >= 0) {
-      setPage1(cur); writeTileAdvance(cur, fillTile)
-      x -= 1
-    }
-    stepDiag(cur, 2, 1)
-    widthCounter -= 2
+  // Row 0: body pair + 2*(_0-1) fills. (_2=2*_0-1; row-0 fill count = _2-1.)
+  cur.col = col0; cur.row = row0
+  setPage1(cur); writeTileAdvance(cur, bodyL)
+  setPage1(cur); writeTileAdvance(cur, bodyR)
+  for (let f = 0; f < 2 * (_0 - 1); f++) {
+    setPage1(cur); writeTileAdvance(cur, fillTile)
   }
-  setPage1(cur); writeTileAdvance(cur, lipL)
-  setPage1(cur); writeTile(cur, lipR)
+
+  // Rows 1.._0: lip at (col0+2*(r-1), row0+r), body+fills as _2 shrinks.
+  let _2 = 2 * _0 - 1
+  for (let r = 1; r <= _0; r++) {
+    cur.col = col0 + 2 * (r - 1); cur.row = row0 + r
+    setPage1(cur); writeTileAdvance(cur, lipL)
+    setPage1(cur); writeTileAdvance(cur, lipR)
+    // After lip DEX DEX: x = _2 - 2. BMI if < 0 → no body/fill.
+    let x = _2 - 2
+    if (x >= 0) {
+      setPage1(cur); writeTileAdvance(cur, bodyL)
+      setPage1(cur); writeTileAdvance(cur, bodyR)
+      x -= 1  // DEX after body
+      x -= 1  // DEX at CODE_0DAEBA before fill-loop BPL
+      while (x >= 0) {
+        setPage1(cur); writeTileAdvance(cur, fillTile)
+        x -= 1
+      }
+    }
+    _2 -= 2
+  }
 
   cur.col = col0
   cur.row = row0
@@ -1270,9 +1316,9 @@ function pipeVariant6(cur: Cursor): void {
  * Another diagonal down-right variant. Lip $C8/$C9, intermediate $F0/$EF.
  */
 function pipeVariant7(cur: Cursor): void {
-  const iter = ((cur.size >> 4) & 0x0F) + 1
+  const H = (cur.size >> 4) & 0x0F
   const col0 = cur.col, row0 = cur.row
-  let widthCounter = iter * 2 + 1
+  let widthCounter = H * 2 + 1
 
   // CODE_0DAEFC inline immediates (per-row writes):
   //   +31 $65  (filler)
@@ -1284,7 +1330,7 @@ function pipeVariant7(cur: Cursor): void {
   const lipL  = readImmByte(cur, cur.handlerAddr + 68)
   const lipR  = readImmByte(cur, cur.handlerAddr + 76)
 
-  for (let i = 0; i < iter; i++) {
+  for (let i = 0; i <= H; i++) {
     let x = widthCounter
     while (x >= 4) {
       setPage1(cur); writeTileAdvance(cur, fillTile)
@@ -1293,10 +1339,17 @@ function pipeVariant7(cur: Cursor): void {
     if (x >= 2) {
       setPage1(cur); writeTileAdvance(cur, bodyL)
       setPage1(cur); writeTileAdvance(cur, bodyR)
+      // Row 0 (first pass, _1==0 in ASM) has no lip.
+      if (i > 0) {
+        setPage1(cur); writeTileAdvance(cur, lipL)
+        setPage1(cur); writeTileAdvance(cur, lipR)
+      }
+    } else {
+      // x < 2 (BMI path): final row, only lip.
+      setPage1(cur); writeTileAdvance(cur, lipL)
+      setPage1(cur); writeTileAdvance(cur, lipR)
     }
-    setPage1(cur); writeTileAdvance(cur, lipL)
-    setPage1(cur); writeTileAdvance(cur, lipR)
-    cur.col -= widthCounter + 2
+    cur.col = col0
     cur.row += 1
     widthCounter -= 2
   }
@@ -1306,50 +1359,113 @@ function pipeVariant7(cur: Cursor): void {
 
 /**
  * Variant 8 -- CODE_0DAF61 (bank_0D line 2872).
- * 1-wide diagonal pipe sloping down-right. Step col+1 row+1.
- * Lip $C4, body $EC, filler $65.
+ *
+ * Diagonal slope descending to the right: a right-angled triangle with a
+ * vertical right edge and a diagonal left edge. The right column is always
+ * at col0+H-1 where H = (size>>4) & 0xF. The left edge starts at col0 for
+ * rows 0-1, then steps one column right per row from row 2 onward.
+ *
+ * ASM state: _0 = H, _2 = H-1, _1 = 0, X = H-1.
+ *   - Iter 0 (JMP CODE_0DAF88, first pass): writes EC at col0, then H-1 fill
+ *     tiles ($65) at col0+1..col0+H-1. After: row-only advance.
+ *   - Iter 1 (CODE_0DAF7B): LDX _2 = H-1. Writes C4 (lip) at col0, EC at
+ *     col0+1, H-2 fills. After: _2-=1, diagonal (col+1 row+1 via +=11).
+ *   - Iter k >= 2 at (col0+k-1, row0+k): LDX _2 = H-k. Writes C4, EC,
+ *     then H-k-1 fills. After: _2-=1, diagonal step.
+ *
+ * All rows end at col0+H-1 (vertical right wall). Total iterations = H+1.
+ *
+ * Inline immediates (CODE_0DAF61): +32 $C4 (lip), +43 $EC (body), +54 $65 (fill).
  */
 function pipeVariant8(cur: Cursor): void {
-  const iter = ((cur.size >> 4) & 0x0F) + 1
+  const H = (cur.size >> 4) & 0x0F
   const col0 = cur.col, row0 = cur.row
-  let widthCounter = iter - 1
 
-  // CODE_0DAF61 inline immediates: +32 $C4 (lip), +43 $EC (body), +54 $65 (fill).
   const lipTile  = readImmByte(cur, cur.handlerAddr + 32)
   const bodyTile = readImmByte(cur, cur.handlerAddr + 43)
   const fillTile = readImmByte(cur, cur.handlerAddr + 54)
 
-  for (let i = 0; i < iter; i++) {
-    setPage1(cur); writeTileAdvance(cur, bodyTile)
-    let x = widthCounter
-    while (x >= 0) {
-      setPage1(cur); writeTileAdvance(cur, fillTile)
-      x -= 1
+  for (let i = 0; i <= H; i++) {
+    // Set starting col/row per iteration formula.
+    // Iter 0 and 1 share the same left column (col0); iter k>=2 steps right.
+    cur.col = (i <= 1) ? col0 : col0 + i - 1
+    cur.row = row0 + i
+
+    if (i === 0) {
+      // First pass (JMP CODE_0DAF88): EC body then H-1 fill tiles.
+      setPage1(cur); writeTileAdvance(cur, bodyTile)
+      for (let f = 0; f < H - 1; f++) {
+        setPage1(cur); writeTileAdvance(cur, fillTile)
+      }
+    } else {
+      // CODE_0DAF7B: write C4 lip, DEX. BMI if _2==0 (i==H) -> skip EC+fills.
+      setPage1(cur); writeTileAdvance(cur, lipTile)
+      if (i < H) {
+        // _2 = H-i >= 1 -> fall to CODE_0DAF88: EC body + (H-i-1) fills.
+        setPage1(cur); writeTileAdvance(cur, bodyTile)
+        const fillCount = H - i - 1
+        for (let f = 0; f < fillCount; f++) {
+          setPage1(cur); writeTileAdvance(cur, fillTile)
+        }
+      }
+      // i == H (_2 == 0): only C4 was written; EC+fills skipped by BMI.
     }
-    setPage1(cur); writeTile(cur, lipTile)
-    diagonalDownRight(cur)
-    widthCounter -= 1
   }
+
   cur.col = col0
   cur.row = row0
 }
 
 /**
  * Variant 9 -- CODE_0DAFEA (bank_0D line 2953).
- * Further diagonal variant; ASM body is a mirror of variant 8 with different
- * tiles. First-pass port: draw a 1-wide diagonal column with variant-8 tiles
- * so the silhouette is at least visible.
+ *
+ * Diagonal slope with a vertical left edge and a diagonal right edge,
+ * mirroring variant 8's orientation. All rows start at col0; the right edge
+ * shrinks by one column per row starting from row 2. Tiles: fill $65 on the
+ * left, body $ED in the next-to-last position, lip $C5 at the rightmost.
+ *
+ * ASM state: _0 = H, _2 = H (NOT H-1 like variant 8), _1 = 0, X = H.
+ *   Loop: fill while X>=2 (H-k-1 fills for iter k), ED if X==1, C5 unless
+ *   _1==0 (skip on iter 0 only). After each row: _2-=1, row-only advance.
+ *
+ *   Iter 0: (H-1) fills + ED. No C5. Ends at col0+H-1.
+ *   Iter 1: (H-2) fills + ED + C5. Ends at col0+H-1.
+ *   Iter k (1<=k<=H-1): (H-k-1) fills + ED + C5. Ends at col0+H-k.
+ *   Iter H: C5 only (X=0, skip fills and ED). 1 tile at col0.
+ *
+ * Inline immediates (CODE_0DAFEA): +28 $65 (fill), +45 $ED (body), +57 $C5 (lip).
  */
 function pipeVariant9(cur: Cursor): void {
-  const iter = ((cur.size >> 4) & 0x0F) + 1
+  const H = (cur.size >> 4) & 0x0F
   const col0 = cur.col, row0 = cur.row
-  // CODE_0DAFEA inline tile at +57 ($C5, mirror of variant 8's $C4).
-  const lipTile = readImmByte(cur, cur.handlerAddr + 57)
-  setPage1(cur)
-  for (let i = 0; i < iter; i++) {
-    writeTile(cur, lipTile)
-    diagonalDownRight(cur)
+
+  const fillTile = readImmByte(cur, cur.handlerAddr + 28)
+  const bodyTile = readImmByte(cur, cur.handlerAddr + 45)
+  const lipTile  = readImmByte(cur, cur.handlerAddr + 57)
+
+  for (let i = 0; i <= H; i++) {
+    cur.col = col0
+    cur.row = row0 + i
+
+    const X = H - i  // _2 at start of iteration i
+
+    if (X === 0) {
+      // Only C5 lip; ED is skipped when X < 1.
+      setPage1(cur); writeTileAdvance(cur, lipTile)
+    } else {
+      // Fill loop: writes while X >= 2, count = X-1 = H-i-1 fills.
+      for (let f = 0; f < X - 1; f++) {
+        setPage1(cur); writeTileAdvance(cur, fillTile)
+      }
+      // ED body (X == 1 after fill loop).
+      setPage1(cur); writeTileAdvance(cur, bodyTile)
+      // C5 lip on all iterations except iter 0 (_1 == 0 skip).
+      if (i > 0) {
+        setPage1(cur); writeTileAdvance(cur, lipTile)
+      }
+    }
   }
+
   cur.col = col0
   cur.row = row0
 }
@@ -2662,6 +2778,62 @@ export function handle_0DD1D9(cur: Cursor): void {
 }
 
 /**
+ * CODE_0DDCA9 (bank_0D.asm line 6724) -- tileset 9-14 two-tile-type floor/ceil.
+ *
+ * Used by objects $3A and $3B in tilesets 3/9/10/11/14 (dispatcher CODE_0DD990).
+ * The handler is shared by two consecutive dispatch entries; it uses the 0-based
+ * object index (passed in the X register by the dispatcher) to decide which tile
+ * to use on the FIRST row:
+ *
+ *   objNo == $3A (index $39): first row = tile $59 (page 1), then $FF rows.
+ *   objNo == $3B (index $3A): all rows = tile $FF (page 1).
+ *
+ * Size byte: HHHHWWWW
+ *   H (high nibble) = number of additional $FF rows after the first row (BPL loop).
+ *   W (low nibble)  = width - 1 (tiles per row).
+ *
+ * Total rows:
+ *   obj $3A: 1 ($59 row) + H ($FF rows) = H + 1 rows
+ *   obj $3B: H + 1 ($FF rows only)
+ *
+ * Inline immediates: +31 = $59 (first-row tile for obj $3A); +45 = $FF (all-row
+ * tile for obj $3B / subsequent rows for obj $3A).
+ */
+export function handle_0DDCA9(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  const H = (cur.size >> 4) & 0x0F
+
+  const tile59 = readImmByte(cur, cur.handlerAddr + 31)  // $59
+  const tileFF = readImmByte(cur, cur.handlerAddr + 45)  // $FF
+
+  saveBookmark(cur)
+
+  if (cur.objNo === 0x3A) {
+    // First row: tile $59 (the "ceiling" / distinct top tile).
+    for (let x = 0; x <= W; x++) {
+      setPage1(cur)
+      writeTileAdvance(cur, tile59)
+    }
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+  }
+
+  // H rows of tile $FF (page 1). For obj $3A: H rows below the $59 row.
+  // For obj $3B: H+1 rows total (the BPL is inclusive so H+1 iterations).
+  const ffRows = H + (cur.objNo === 0x3A ? 0 : 1)
+  for (let r = 0; r < ffRows; r++) {
+    for (let x = 0; x <= W; x++) {
+      setPage1(cur)
+      writeTileAdvance(cur, tileFF)
+    }
+    if (r < ffRows - 1) {
+      restoreBookmark(cur)
+      advanceRowRaw(cur)
+    }
+  }
+}
+
+/**
  * CODE_0DDCEA (bank_0D.asm line 6762) -- tileset 9-14 "filled rectangle with
  * distinct bottom row".
  *
@@ -2763,6 +2935,73 @@ export function handle_0DDD5C(cur: Cursor): void {
     }
     restoreBookmark(cur)
     advanceRowRaw(cur)
+  }
+}
+
+/**
+ * CODE_0DDD87 (bank_0D.asm line 6853) -- tileset 9-14 diagonal staircase.
+ *
+ * Size byte: BBBBWWWW
+ *   W (low nibble) = width: staircase has W+1 columns.
+ *   B (bit 4 of high nibble) = branch selector:
+ *     0 → CODE_0DDD99: header tiles $CA/$CB/$F1, staircase goes UP-LEFT
+ *         (each successive column is one col to the left and two rows higher)
+ *     1 → CODE_0DDE3C: header tiles $CC/$CD/$F2, staircase goes UP-RIGHT
+ *         (each successive column is one col to the right and two rows higher)
+ *
+ * Each column writes the 3-tile header (page 1) then (height-2) fill tiles of
+ * $3F (page 0) vertically downward. The first (rightmost/leftmost depending on
+ * branch) column has height = W*2+2; each successive column's height shrinks
+ * by 2.
+ *
+ * ASM structure (CODE_0DDD99):
+ *   _0 = size & 0x0F  (W)
+ *   _1 = _0*2 + 2     (height)
+ *   Outer loop (runs _0+1 times, DEC _0; BMI exit):
+ *     saveBookmark; write $CA/$CB/$F1 at Y, Y+$10, Y+$20; DEX DEX (_1-=2);
+ *     inner fill loop (DEX; BPL write $3F at Y; Y+=10): writes _1-2 tiles;
+ *     restoreBookmark; LevelLoadPos += $1F (col-1, row+2); _1-=2; _0-=1
+ *
+ * Branch 1 (CODE_0DDE3C) is identical except tiles $CC/$CD/$F2 and
+ * LevelLoadPos += $21 (col+1, row+2).
+ */
+export function handle_0DDD87(cur: Cursor): void {
+  const W      = cur.size & 0x0F           // low nibble: W+1 columns
+  const branch = (cur.size >> 4) & 0x01   // bit 4: 0=left($CA/$CB/$F1) / 1=right($CC/$CD/$F2)
+
+  const [tileA, tileB, tileC] = branch === 0
+    ? [0xCA, 0xCB, 0xF1]
+    : [0xCC, 0xCD, 0xF2]
+  const dCol = branch === 0 ? -1 : +1
+
+  let height = W * 2 + 2  // _1
+  let rem    = W           // _0 countdown
+
+  while (rem >= 0) {
+    const startCol = cur.col
+    const startRow = cur.row
+
+    // Header: three page-1 tiles written straight down this column.
+    setPage1(cur);  writeTile(cur, tileA);  cur.row++
+    setPage1(cur);  writeTile(cur, tileB);  cur.row++
+    setPage1(cur);  writeTile(cur, tileC);  cur.row++
+
+    // Fill: (height - 2) page-0 $3F tiles continuing downward.
+    // DEX DEX gives X = height-2; CODE_0DDE09 does DEX first (→ height-3),
+    // then BPL; so fill count = max(0, height-2).
+    const fillCount = Math.max(0, height - 2)
+    for (let i = 0; i < fillCount; i++) {
+      setPage0(cur);  writeTile(cur, 0x3F);  cur.row++
+    }
+
+    // Advance to next column: col ± 1, row + 2 from this iteration's start.
+    // (LevelLoadPos += $1F for branch 0 → abs col-1, abs row+2;
+    //  LevelLoadPos += $21 for branch 1 → abs col+1, abs row+2)
+    cur.col = startCol + dCol
+    cur.row = startRow + 2
+
+    height -= 2
+    rem    -= 1
   }
 }
 
@@ -3417,5 +3656,660 @@ export function handle_0DBADC(cur: Cursor): void {
         x += 1
       }
     }
+  }
+}
+
+/**
+ * CODE_0DB604 (bank_0D.asm line 3800) -- 2:1 slope block (object $3C).
+ *
+ * Draws a 4-row × (3·n+1)-column slope shape from DATA_0DB5E8 (28-byte stream).
+ * Row 0 uses page 1 (Sta1To6ePointer); rows 1-3 use page 0 (StzTo6ePointer).
+ *
+ * Size byte: ----NNNN
+ *   N (low nibble, _0) = width divisor (must be ≥ 1).
+ *   Tiles per row = 3·N + 1; total data consumed = 4 × (3·N + 1) = 28 for N=2.
+ *
+ * Within each row the tile stream is:
+ *   - 3 tiles from the "first" group (DATA_0DB5E8 base table, indices X..X+2)
+ *   - (N-1) × 3 tiles from the "middle" groups (DATA[X..X+2] repeated N-1 times,
+ *     with the SAME X as above, so middle uses DATA[X], DATA[X+1], DATA[X+2])
+ *   - X += 3 (skip to cap group), 1 cap tile
+ *   - X++ (position for next row)
+ *
+ * DATA_0DB5E8 base address is read from the LDA.L operand at handler offset +$1D.
+ */
+export function handle_0DB604(cur: Cursor): void {
+  const _0 = cur.size & 0x0F            // width parameter (N)
+  // LDA.L DATA_0DB5E8,X opcode=$BF at handler+$1C, operand at handler+$1D.
+  const dataBase = readLongOperand(cur, cur.handlerAddr + 0x1D)
+
+  const startCol = cur.col
+  const startRow = cur.row
+
+  let X = 0
+  for (let rowIdx = 0; rowIdx < 4; rowIdx++) {
+    cur.col = startCol
+    cur.row = startRow + rowIdx
+
+    // Row 0 uses page 1 (CODE_0DB604 path: Sta1To6ePointer).
+    // Rows 1-3 use page 0 (CODE_0DB664 path: StzTo6ePointer).
+    const page = rowIdx === 0 ? 1 : 0
+
+    // First group: 3 tiles at DATA[X], DATA[X+1], DATA[X+2] (always 3 tiles).
+    for (let i = 0; i < 3; i++) {
+      cur.page = page
+      writeTileAdvance(cur, cur.rom.readByte(dataBase + X + i) ?? 0)
+    }
+    X += 3
+
+    // Middle groups: (_0 - 1) iterations, each reading DATA[X], DATA[X+1], DATA[X+2].
+    // Note: X does NOT advance inside the middle loop body (same 3 entries re-read).
+    let _2 = _0
+    _2 -= 1   // mirrors DEC _2 before the BEQ check
+    if (_2 > 0) {
+      // Middle loop: run _2 more times (DEC _2; BNE -)
+      let mid = _2
+      while (mid > 0) {
+        cur.page = page; writeTileAdvance(cur, cur.rom.readByte(dataBase + X + 0) ?? 0)
+        cur.page = page; writeTileAdvance(cur, cur.rom.readByte(dataBase + X + 1) ?? 0)
+        cur.page = page; writeTileAdvance(cur, cur.rom.readByte(dataBase + X + 2) ?? 0)
+        mid -= 1
+      }
+    }
+    // CODE_0DB652/0DB6A3: X += 3, then write cap tile.
+    X += 3
+    cur.page = page
+    writeTileAdvance(cur, cur.rom.readByte(dataBase + X) ?? 0)
+    // CODE_0DB6B2: INX (position for next row).
+    X += 1
+  }
+}
+
+/**
+ * CODE_0DBB2C (bank_0D.asm line 4473) -- 2-wide vertical slope pillar (object $30).
+ *
+ * Draws a 2-column-wide vertical stripe downward. The top row writes tile-pair
+ * ($161, $162). Each subsequent row writes ($163, $164). Total rows = 1 + X+1
+ * where X = LvlLoadObjSize >> 4 (high nibble of size byte).
+ *
+ * Size byte: NNNN----
+ *   N (high nibble) = body row count - 1 (BPL loop runs N+1 times after header).
+ *
+ * All tiles are written page 1 (Sta1To6ePointer before each write).
+ *
+ * ASM flow:
+ *   - Header: write $61 (page 1, advance), $62 (page 1, no advance) → JMP CODE_0DBB59
+ *   - Body (label -): write $63 (page 1, advance), $64 (page 1, no advance)
+ *   CODE_0DBB59: restoreBookmark, nextRow, DEX, BPL -
+ */
+export function handle_0DBB2C(cur: Cursor): void {
+  const startCol = cur.col
+  const startRow = cur.row
+  const X = (cur.size >> 4) & 0x0F   // high nibble
+
+  // Header row: write $61 (advance) and $62 (no advance), both page 1.
+  cur.row = startRow
+  cur.col = startCol
+  cur.page = 1
+  writeTileAdvance(cur, 0x61)   // → tile $161
+  cur.page = 1
+  writeTile(cur, 0x62)          // → tile $162 at col+1, no advance
+
+  // JMP CODE_0DBB59: restore col, next row, DEX, BPL.
+  // Body loop: runs while X >= 0 after DEX, but first DEX is at CODE_0DBB59
+  // which is reached via JMP from the header. So DEX happens before first body.
+  // Total body rows = X (initial value, since DEX runs before re-entering '-').
+  for (let row = 1; row <= X; row++) {
+    cur.row = startRow + row
+    cur.col = startCol
+    cur.page = 1
+    writeTileAdvance(cur, 0x63)  // → tile $163
+    cur.page = 1
+    writeTile(cur, 0x64)         // → tile $164 at col+1, no advance
+  }
+}
+
+/**
+ * CODE_0DBB63 (bank_0D.asm line 4503) -- rectangular fill using tile slot 14.
+ *
+ *   LDX.B #$0E
+ *   JMP CODE_0DA8C3
+ *
+ * Identical to handle_0DA8C3 but forces X=14, which reads DATA_0DA8B4[14]=$65
+ * (the 15th entry) and uses page 1 (X >= 7 → Sta1To6ePointer). Effectively
+ * stamps tile $165 in a (width+1) × (height+1) rectangle.
+ *
+ * Size byte: WWWWHHHH (same as CODE_0DA8C3).
+ *
+ * We read DATA_0DA8B4 from CODE_0DA8C3's LDA.L operand (at $0DA8C3 + $6C)
+ * and use index 14 directly, bypassing handle_0DA8C3's x<14 bounds check
+ * (the table has 15 entries; handle_0DA8C3 only covers objects 1-14 = x 0-13).
+ */
+export function handle_0DBB63(cur: Cursor): void {
+  const widthM1  = cur.size & 0x0F
+  const heightM1 = (cur.size >> 4) & 0x0F
+
+  // CODE_0DA8C3 is at $0DA8C3; its LDA.L DATA_0DA8B4,X opcode (CODE_0DA92E)
+  // is at offset +$6B; 3-byte operand at +$6C = absolute $0DA92F.
+  const tableAddr = readLongOperand(cur, 0x0DA8C3 + 0x6C)
+  const tileId    = cur.rom.readByte(tableAddr + 14) ?? 0  // index 14 = $65
+
+  // X=14 >= 7 → Sta1To6ePointer → page 1.
+  setPage1(cur)
+  saveBookmark(cur)
+  for (let r = 0; r <= heightM1; r++) {
+    for (let c = 0; c <= widthM1; c++) {
+      writeTileAdvance(cur, tileId)
+    }
+    restoreBookmark(cur)
+    nextRow(cur)
+  }
+}
+
+/**
+ * CODE_0DED12 (bank_0D.asm line 7985) -- ghost-house horizontal strip
+ * (object $37 in tileset-5 family dispatcher $0DE890 — tilesets 4/5/13).
+ *
+ * Writes a single horizontal row of W+1 tiles: one start tile, W-1 body tiles,
+ * and one end tile. The three tile IDs are selected from three parallel 3-entry
+ * tables (DATA_0DED09, DATA_0DED0C, DATA_0DED0F) indexed by the high nibble of
+ * the size byte (X = size >> 4).
+ *
+ * Size byte: XXXWWWWW (only low nibble W used as repeat counter; high nibble X
+ * selects the variant row from each 3-entry table).
+ *
+ * ASM layout:
+ *   _0 = size & $0F  (W, width counter)
+ *   X  = size >> 4   (variant index for table lookup)
+ *   StzTo6ePointer; LDA.L DATA_0DED09,X; JMP CODE_0DED32
+ *     (→ writeTileAdvance; DEC _0; BNE to body)
+ *   body: StzTo6ePointer; LDA.L DATA_0DED0C,X
+ *   CODE_0DED32: writeTileAdvance; DEC _0; BNE body
+ *   end: StzTo6ePointer; LDA.L DATA_0DED0F,X; STA (no advance)
+ *
+ * Total = W+1 tiles (1 start + W-1 bodies + 1 end).
+ * LDA.L DATA_0DED09,X operand at handler offset +19 (opcode $BF at +18)
+ * LDA.L DATA_0DED0C,X operand at handler offset +29 (opcode at +28)
+ * LDA.L DATA_0DED0F,X operand at handler offset +43 (opcode at +42)
+ */
+export function handle_0DED12(cur: Cursor): void {
+  const W = cur.size & 0x0F
+  const X = (cur.size >> 4) & 0x0F
+  const addrStart = readLongOperand(cur, cur.handlerAddr + 19)  // DATA_0DED09
+  const addrBody  = readLongOperand(cur, cur.handlerAddr + 29)  // DATA_0DED0C
+  const addrEnd   = readLongOperand(cur, cur.handlerAddr + 43)  // DATA_0DED0F
+  const startTile = cur.rom.readByte(addrStart + X) ?? 0
+  const bodyTile  = cur.rom.readByte(addrBody  + X) ?? 0
+  const endTile   = cur.rom.readByte(addrEnd   + X) ?? 0
+
+  setPage0(cur); writeTileAdvance(cur, startTile)
+  for (let i = 1; i < W; i++) {
+    setPage0(cur); writeTileAdvance(cur, bodyTile)
+  }
+  setPage0(cur); writeTile(cur, endTile)
+}
+
+/**
+ * CODE_0DB863 (bank_0D.asm line 4108) -- diagonal staircase, left-descending
+ * (object $3B in tileset-5 family dispatcher $0DE890 — tilesets 4/5/13).
+ *
+ * Draws a staircase that descends diagonally down-left. Each diagonal step uses
+ * CODE_0DA992 (diagonalDownLeft: col--, row++). The staircase has two phases:
+ *
+ *   Phase 1 — expanding triangle of width-height rows:
+ *     First row: slopeMerge($AF) + pipeMerge($1AF) [1-tile row]
+ *     Main loop (width rows): slopeMerge($A9) + (_1-2) fills($3F) + advance($1E4) + pipeMerge($1AF)
+ *       where _1 grows by 2 each diagonal step (starts at 1, first loop at 3).
+ *     End row: slopeMerge($A9) + (_1-2) fills($3F) + slopeMerge($1F9) [no E4/AF]
+ *       Note: at the end row, _1 is decremented by 1 (DEX; STX _1), so fills = _1-1.
+ *
+ *   Phase 2 — extending tail of height+1 rows:
+ *     Each row: slopeMerge($A9) + (_1-1) fills($3F) + slopeMerge($0AC)
+ *     _1 stays fixed at the phase1-end value. Runs height+1 times.
+ *
+ * Size byte: HHHHWWWW  (H = high nibble = height, W = low nibble = width).
+ *
+ * Immediate tile offsets from CODE_0DB863 base address:
+ *   +29  $AF  first row slope (page 0)
+ *   +37  $AF  first row pipe (page 1)
+ *   +48  $A9  main-loop slope (page 0)
+ *   +59  $3F  main-loop fill (page 0)
+ *   +72  $E4  main-loop E4 (page 1)
+ *   +80  $AF  main-loop pipe (page 1)
+ *   +107 $A9  phase1-end slope (page 0)
+ *   +118 $3F  phase1-end fill (page 0)
+ *   +129 $F9  phase1-end cap (page 1)
+ *   +140 $A9  phase2 slope (page 0)
+ *   +151 $3F  phase2 fill (page 0)
+ *   +162 $AC  phase2 cap (page 0)
+ */
+export function handle_0DB863(cur: Cursor): void {
+  const width  = cur.size & 0x0F
+  const height = (cur.size >> 4) & 0x0F
+
+  const tAF1 = readImmByte(cur, cur.handlerAddr + 29)   // $AF  first-row slope
+  const tAF2 = readImmByte(cur, cur.handlerAddr + 37)   // $AF  first-row pipe
+  const tA9a = readImmByte(cur, cur.handlerAddr + 48)   // $A9  main-loop slope
+  const t3Fa = readImmByte(cur, cur.handlerAddr + 59)   // $3F  main-loop fill
+  const tE4  = readImmByte(cur, cur.handlerAddr + 72)   // $E4  main-loop E4
+  const tAFb = readImmByte(cur, cur.handlerAddr + 80)   // $AF  main-loop pipe
+  const tA9b = readImmByte(cur, cur.handlerAddr + 107)  // $A9  phase1-end slope
+  const t3Fb = readImmByte(cur, cur.handlerAddr + 118)  // $3F  phase1-end fill
+  const tF9  = readImmByte(cur, cur.handlerAddr + 129)  // $F9  phase1-end cap
+  const tA9c = readImmByte(cur, cur.handlerAddr + 140)  // $A9  phase2 slope
+  const t3Fc = readImmByte(cur, cur.handlerAddr + 151)  // $3F  phase2 fill
+  const tAC  = readImmByte(cur, cur.handlerAddr + 162)  // $AC  phase2 cap
+
+  let _1 = 1
+  let _2 = width
+  let _3 = height
+
+  // First diagonal row (jumps directly to CODE_0DB8B7 via JMP).
+  saveBookmark(cur)
+  setPage0(cur); writeTileSlopeMerge(cur, tAF1)
+  setPage1(cur); writeTilePipeMerge(cur, tAF2)
+  // CODE_0DB8B7: restoreBookmark, diagonalDownLeft, then update counters and loop.
+  restoreBookmark(cur); diagonalDownLeft(cur)
+  _1 += 2; _2--; saveBookmark(cur)
+
+  // Main loop (CODE_0DB88F): runs while _2 >= 0.
+  // X = _1 on each entry (set by LDX _1 at the top of CODE_0DB8B7).
+  // Fill loop (CODE_0DB8A2): DEX first, then BNE while X != 1 → fills = _1 - 2.
+  while (_2 >= 0) {
+    setPage0(cur); writeTileSlopeMerge(cur, tA9a)
+    let x = _1 - 1         // first DEX inside CODE_0DB8A2
+    while (x !== 1) {
+      setPage0(cur); writeTileAdvance(cur, t3Fa)
+      x--
+    }
+    setPage1(cur); writeTileAdvance(cur, tE4)
+    setPage1(cur); writeTilePipeMerge(cur, tAFb)
+    // CODE_0DB8B7
+    restoreBookmark(cur); diagonalDownLeft(cur)
+    _1 += 2; _2--; saveBookmark(cur)
+  }
+
+  // Phase 1 end: DEX; STX _1 → _1 decremented by 1.
+  // Fill loop (CODE_0DB8DD): DEX first, then BNE while X != 0 → fills = _1 - 1.
+  _1 -= 1
+  setPage0(cur); writeTileSlopeMerge(cur, tA9b)
+  let x2 = _1 - 1          // first DEX inside CODE_0DB8DD
+  while (x2 !== 0) {
+    setPage0(cur); writeTileAdvance(cur, t3Fb)
+    x2--
+  }
+  setPage1(cur); writeTileSlopeMerge(cur, tF9)
+  // JMP CODE_0DB909
+  restoreBookmark(cur); diagonalDownLeft(cur); saveBookmark(cur)
+
+  // Phase 2 loop (CODE_0DB8EB): runs while _3 >= 0.
+  // X = _1 on each entry (LDX _1 at CODE_0DB909).
+  // Fill loop (CODE_0DB8FE): DEX first, then BNE while X != 0 → fills = _1 - 1.
+  // CODE_0DB909 does DEC _3 BEFORE the BPL check, so decrement once before entering.
+  _3--
+  while (_3 >= 0) {
+    setPage0(cur); writeTileSlopeMerge(cur, tA9c)
+    let x3 = _1 - 1        // first DEX inside CODE_0DB8FE
+    while (x3 !== 0) {
+      setPage0(cur); writeTileAdvance(cur, t3Fc)
+      x3--
+    }
+    setPage0(cur); writeTileSlopeMerge(cur, tAC)
+    // CODE_0DB909
+    restoreBookmark(cur); diagonalDownLeft(cur); saveBookmark(cur)
+    _3--
+  }
+}
+
+/**
+ * CODE_0DDAC8 (bank_0D.asm line 6450) -- vertical column of cliff tiles
+ * (object $38 in tileset-3/9/10/11/14 dispatcher $0DD990).
+ *
+ * Writes a vertical strip: one top tile from DATA_0DDAC4[X] (page 1), then
+ * _0 body tiles from DATA_0DDAC6[X] (page 1), each advancing one row down.
+ * Uses raw row-advance (CODE_0DA97D), not restoreBookmark.
+ *
+ * Size byte HHHHWWWW:
+ *   W = low nibble  → tile-variant selector X (DATA table index)
+ *   H = high nibble → body row count after the first tile
+ *
+ * DATA_0DDAC4 = [$5A, $5B]  (top tile variants)
+ * DATA_0DDAC6 = [$5B, $5B]  (body tile variants, both $5B)
+ */
+export function handle_0DDAC8(cur: Cursor): void {
+  const DATA_0DDAC4 = [0x5A, 0x5B]
+  const DATA_0DDAC6 = [0x5B, 0x5B]
+  const X = cur.size & 0x0F
+  let _0 = (cur.size >> 4) & 0x0F
+
+  setPage1(cur)
+  writeTile(cur, DATA_0DDAC4[X] ?? 0x5B)
+  advanceRowRaw(cur)
+  _0--
+  while (_0 >= 0) {
+    setPage1(cur)
+    writeTile(cur, DATA_0DDAC6[X] ?? 0x5B)
+    advanceRowRaw(cur)
+    _0--
+  }
+}
+
+/**
+ * CODE_0DDAF2 (bank_0D.asm line 6474) -- diagonal cliff staircase dispatcher
+ * (object $39 in tileset-3/9/10/11/14 dispatcher $0DD990).
+ *
+ * Dispatches on the low 2 bits of size to one of four sub-handlers, each
+ * building a different staircase/cliff shape using page-1 terrain tiles.
+ *
+ * Sub-handlers:
+ *   bits 00 → CODE_0DDB06: 2-wide diagonal staircase ($D2/$D3 header, $FB/$FF fill)
+ *   bits 01 → CODE_0DDB8F: 1-wide diagonal staircase ($D6 header, $FD/$FF fill)
+ *   bits 10 → ADDR_0DDC02: 2-wide right-growing staircase ($D4/$D5 header, $FC/$FF fill)
+ *   bits 11 → CODE_0DDC61: 1-wide right-growing staircase ($D7 header, $FE/$FF fill)
+ *
+ * Size byte: HHHHWWWW -- high nibble encodes the step count (_0 = H+1); low 2 bits
+ * select the sub-handler variant.
+ *
+ * All tile writes use page 1 (Sta1To6ePointer before each CODE_0DA95B call).
+ *
+ * ASM: bank_0D.asm lines 6474–6722.
+ */
+export function handle_0DDAF2(cur: Cursor): void {
+  const variant = cur.size & 0x03
+  switch (variant) {
+    case 0: return _0DDB06(cur)
+    case 1: return _0DDB8F(cur)
+    case 2: return _0DDC02(cur)
+    case 3: return _0DDC61(cur)
+  }
+}
+
+/**
+ * CODE_0DDB06 (bank_0D.asm line 6484) -- 2-wide left-descending cliff staircase.
+ *
+ * Draws a staircase that descends diagonally down-left by 2 columns per row.
+ * Row 0 (at the object origin) writes the 2-tile header $D2/$D3.
+ * Each subsequent row steps 2 columns left and 1 row down, then writes a growing
+ * run: $D2/$D3 header + $FB/$FF fill + $FF inner fill (width grows by 2/row).
+ * When _0 hits zero (BEQ CODE_0DDB84), one extra row is written one row below the
+ * last diagonal position, using only the $FB/$FF fill pattern (no D2/D3 header).
+ *
+ * Initial _2=1. _0=(size>>4)+1.
+ *
+ * SNES invariant: `LevelLoadPos` RAM holds the diagonal-position accumulator.
+ * `CODE_0DA6BA` (restoreBookmark) restores Map16LowPtr (screen pointer) but does
+ * NOT touch LevelLoadPos. The diagonal step `LDA LevelLoadPos; ADC #$0E; STY
+ * LevelLoadPos` therefore accumulates from the PREVIOUS step's position, not from
+ * the bookmark. In the flat cursor model, we track `diagCol`/`diagRow` separately.
+ */
+function _0DDB06(cur: Cursor): void {
+  let _2 = 1
+  let _0 = ((cur.size >> 4) & 0x0F) + 1
+  // diagCol/diagRow mirror LevelLoadPos RAM: starts at origin, accumulates +0x0E steps.
+  let diagCol = cur.col
+  let diagRow = cur.row
+
+  // Main loop (CODE_0DDB1B).
+  while (true) {
+    cur.col = diagCol
+    cur.row = diagRow
+    const X0 = _2   // LDX _2 at top of CODE_0DDB1B
+
+    // Write D2/D3 header (always 2 tiles).
+    setPage1(cur); writeTileAdvance(cur, 0xD2)
+    setPage1(cur); writeTileAdvance(cur, 0xD3)
+
+    let x = X0 - 2   // DEX; DEX
+
+    if (x >= 0) {
+      // CODE_0DDB31: FB/FF pair + inner FF fills.
+      setPage1(cur); writeTileAdvance(cur, 0xFB)
+      setPage1(cur); writeTileAdvance(cur, 0xFF)
+      x--   // DEX before JMP CODE_0DDB4D
+      // CODE_0DDB4D: DEX; BPL -
+      x--
+      while (x >= 0) {
+        setPage1(cur); writeTileAdvance(cur, 0xFF)
+        x--
+      }
+    }
+
+    // CODE_0DDB50: (restoreBookmark = no-op in flat model), update counters.
+    _2 += 2
+    _0--
+
+    if (_0 === 0) {
+      // CODE_0DDB84: one final row at (diagCol, diagRow+1), no diagonal step.
+      // advanceRowRaw = LevelLoadPos += $10 (row++ keeping same col).
+      let xFinal = _2 - 2   // X = _2; DEX; DEX
+      cur.col = diagCol
+      cur.row = diagRow + 1
+      // JMP CODE_0DDB31
+      setPage1(cur); writeTileAdvance(cur, 0xFB)
+      setPage1(cur); writeTileAdvance(cur, 0xFF)
+      xFinal--   // DEX before JMP CODE_0DDB4D
+      xFinal--
+      while (xFinal >= 0) {
+        setPage1(cur); writeTileAdvance(cur, 0xFF)
+        xFinal--
+      }
+      return
+    }
+
+    if (_0 < 0) return
+
+    // Diagonal step: LevelLoadPos += 0x0E → diagCol -= 2, diagRow += 1.
+    // (screen-boundary wrap omitted for flat-grid model)
+    diagCol -= 2
+    diagRow += 1
+    // loop back to CODE_0DDB1B
+  }
+}
+
+/**
+ * CODE_0DDB8F (bank_0D.asm line 6564) -- 1-wide left-descending cliff staircase.
+ *
+ * Similar to _0DDB06 but steps 1 column left per row (LevelLoadPos += 0x0F).
+ * Row 0 writes $D6 header. Fill tiles: $FD (right edge) + $FF (inner).
+ * Width grows by 1 per row. Initial _2=0; _2 increments by 1 each iteration.
+ *
+ * Final-row path (CODE_0DDBF9, BEQ): advanceRowRaw from diagPos, then write
+ * the $FD/$FF fill with X = _2 (entering CODE_0DDBAE: DEX first → _2-1 tiles).
+ *
+ * Same LevelLoadPos-accumulator semantics as _0DDB06: restoreBookmark (CODE_0DA6BA)
+ * does not touch LevelLoadPos, so the diagonal step always accumulates.
+ */
+function _0DDB8F(cur: Cursor): void {
+  let _2 = 0
+  let _0 = ((cur.size >> 4) & 0x0F) + 1
+  // diagCol/diagRow mirror LevelLoadPos RAM.
+  let diagCol = cur.col
+  let diagRow = cur.row
+
+  // Main loop (CODE_0DDBA4).
+  while (true) {
+    cur.col = diagCol
+    cur.row = diagRow
+    const X0 = _2   // LDX _2
+
+    // Write D6 header.
+    setPage1(cur); writeTileAdvance(cur, 0xD6)
+
+    // CODE_0DDBAE: DEX; BMI cleanup if X < 0.
+    let x = X0 - 1
+    if (x >= 0) {
+      // Write FD right-edge + FF inner fills.
+      setPage1(cur); writeTileAdvance(cur, 0xFD)
+      // JMP CODE_0DDBC4: DEX; BPL -
+      x--
+      while (x >= 0) {
+        setPage1(cur); writeTileAdvance(cur, 0xFF)
+        x--
+      }
+    }
+
+    // CODE_0DDBC7: (restoreBookmark = no-op in flat model), update counters.
+    _2++
+    _0--
+
+    if (_0 === 0) {
+      // CODE_0DDBF9: final row at (diagCol, diagRow+1).
+      // LDX _2; advanceRowRaw; JMP CODE_0DDBAE
+      let xFinal = _2 - 1   // LDX _2; CODE_0DDBAE starts with DEX
+      cur.col = diagCol
+      cur.row = diagRow + 1
+      if (xFinal >= 0) {
+        setPage1(cur); writeTileAdvance(cur, 0xFD)
+        xFinal--
+        while (xFinal >= 0) {
+          setPage1(cur); writeTileAdvance(cur, 0xFF)
+          xFinal--
+        }
+      }
+      return
+    }
+
+    if (_0 < 0) return
+
+    // Diagonal step: LevelLoadPos += 0x0F → diagCol -= 1, diagRow += 1.
+    diagCol -= 1
+    diagRow += 1
+    // loop back to CODE_0DDBA4
+  }
+}
+
+/**
+ * ADDR_0DDC02 (bank_0D.asm line 6633) -- 2-wide right-growing cliff staircase.
+ *
+ * Draws a staircase where each row extends 2 tiles to the right. The structure
+ * alternates between a "step cap" phase ($D4/$D5 written at the current cursor)
+ * and a "fill" phase ($FF...$FF/$FC written from the bookmark column).
+ *
+ * Phase sequence each outer step:
+ *   ADDR_0DDC3D: write $D4 + $D5 at current col (expanding rightward each row),
+ *                then restoreBookmark + advanceRowRaw + _2 += 2 + DEC _0.
+ *   ADDR_0DDC23: write ($FF × (X-3)) + $FF + $FC starting at bookmarkCol,
+ *                then check _0 and fall through to ADDR_0DDC3D for next cap pair.
+ *
+ * Initial _2=1. _0=(size>>4)+1. First action is JMP ADDR_0DDC3D.
+ */
+function _0DDC02(cur: Cursor): void {
+  let _2 = 1
+  saveBookmark(cur)
+  let _0 = ((cur.size >> 4) & 0x0F) + 1
+
+  // JMP ADDR_0DDC3D on entry.
+  // Interleaved loop: each outer cycle = cap (D4/D5) then fill (FF.../FC).
+
+  while (true) {
+    // ADDR_0DDC3D: write D4/D5 cap at current position.
+    setPage1(cur); writeTileAdvance(cur, 0xD4)
+    setPage1(cur); writeTileAdvance(cur, 0xD5)
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+    _2 += 2
+    let x = _2
+    _0--
+    if (_0 < 0) return   // BPL failed
+
+    // ADDR_0DDC23: fill from bookmark col. Write (x-3) loop $FF + terminal $FF + $FC.
+    // minus label: write $FF, DEX; ADDR_0DDC23: CPX #3; BNE -
+    // i.e., loop while x != 3.
+    while (x !== 3) {
+      setPage1(cur); writeTileAdvance(cur, 0xFF)
+      x--
+    }
+    // x == 3: write terminal $FF + $FC.
+    setPage1(cur); writeTileAdvance(cur, 0xFF)
+    setPage1(cur); writeTileAdvance(cur, 0xFC)
+    // DEX; DEX → x = 1 (not used further in this path)
+
+    // LDA _0; BEQ return
+    if (_0 === 0) return
+
+    // Fall through to ADDR_0DDC3D: loop back.
+  }
+}
+
+/**
+ * CODE_0DDC61 (bank_0D.asm line 6684) -- 1-wide right-growing cliff staircase.
+ *
+ * Each row: (n-1) $FF fill tiles + $FE right-edge tile + $D7 corner tile,
+ * where n grows by 1 per row. The cursor always resets to bookmarkCol after
+ * the $D7 write via restoreBookmark.
+ *
+ * Initial _2=0. _0=(size>>4)+1. First action is JMP CODE_0DDC8E.
+ *
+ * CODE_0DDC8E: if _0==0 return; write $D7, restoreBookmark, advanceRowRaw, _2++, DEC _0; BPL CODE_0DDC82.
+ * CODE_0DDC82: write ($FF × (X-1)) + $FE, fall through to CODE_0DDC8E.
+ */
+function _0DDC61(cur: Cursor): void {
+  let _2 = 0
+  saveBookmark(cur)
+  let _0 = ((cur.size >> 4) & 0x0F) + 1
+
+  // JMP CODE_0DDC8E on entry.
+  while (true) {
+    // CODE_0DDC8E.
+    if (_0 === 0) return
+    setPage1(cur); writeTileAdvance(cur, 0xD7)
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+    _2++
+    let x = _2
+    _0--
+    if (_0 < 0) return   // BPL failed
+
+    // CODE_0DDC82: write $FF while x != 1, then write $FE.
+    // minus label: write $FF, DEX; CODE_0DDC82: CPX #1; BNE -
+    while (x !== 1) {
+      setPage1(cur); writeTileAdvance(cur, 0xFF)
+      x--
+    }
+    // x == 1: write $FE.
+    setPage1(cur); writeTileAdvance(cur, 0xFE)
+
+    // Fall through to CODE_0DDC8E (loop back).
+  }
+}
+
+/**
+ * CODE_0DF02B (bank_0D.asm line 8441) -- staircase floor cap + body fill
+ * (object $30 in tileset-4/5/13 dispatcher $0DE890).
+ *
+ * Writes a multi-row rectangle: one cap row of page-1 $0F tiles, then _1 rows
+ * of page-0 $EA tiles, all (_0+1) wide.
+ *
+ * Size byte: HHHHWWWW
+ *   W = low nibble  → width: writes W+1 tiles per row
+ *   H = high nibble → body row count: writes H rows of $EA after the cap row
+ *
+ * ASM flow:
+ *   saveBookmark
+ *   LDX _0; loop: Sta1To6ePointer; LDA #$0F; writeTileAdvance; DEX; BPL
+ *   JMP CODE_0DF05B:
+ *     restoreBookmark; row++; DEC _1; BPL CODE_0DF04E; RTS
+ *   CODE_0DF04E:
+ *     LDX _0; loop: StzTo6ePointer; LDA #$EA; writeTileAdvance; DEX; BPL
+ *     (fall through to CODE_0DF05B)
+ */
+export function handle_0DF02B(cur: Cursor): void {
+  const _0 = cur.size & 0x0F
+  let _1 = (cur.size >> 4) & 0x0F
+
+  saveBookmark(cur)
+  for (let x = _0; x >= 0; x--) {
+    setPage1(cur)
+    writeTileAdvance(cur, 0x0F)
+  }
+  nextRow(cur)
+  _1--
+  while (_1 >= 0) {
+    for (let x = _0; x >= 0; x--) {
+      setPage0(cur)
+      writeTileAdvance(cur, 0xEA)
+    }
+    nextRow(cur)
+    _1--
   }
 }
