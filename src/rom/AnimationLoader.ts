@@ -374,8 +374,12 @@ export function loadAnimationData(
   const buffer = loadAnimatedTileBuffer(rom)
   if (!buffer) return null
 
-  // Read the behavior and tileset offset tables
-  const behaviorBuf = rom.readAt(TILE_BEHAVIOR_TABLE, 18)
+  // Read the behavior and tileset offset tables.
+  // The behavior table (DATA_05B96B) has 18 explicit entries, but the SNES reads it
+  // for all 24 tile indices (TILE_GROUP_COUNT * 3). Indices 18-23 overflow into
+  // DATA_05B97D territory; DATA_05B97D[0] = $02 (tileset-dependent), so tileIdx 18
+  // must be treated as behavior 2. Reading 24 bytes replicates the SNES memory layout.
+  const behaviorBuf = rom.readAt(TILE_BEHAVIOR_TABLE, TILE_GROUP_COUNT * 3)
   const tilesetOffsetBuf = rom.readAt(TILESET_OFFSET_TABLE, 16)
   if (!behaviorBuf || !tilesetOffsetBuf) return null
 
@@ -409,7 +413,7 @@ export function loadAnimationData(
 
         // Determine which AnimatedTileData entry to use based on behavior type
         let adjustedIdx = tileIdx
-        const behavior = tileIdx < 18 ? behaviorBuf[tileIdx] : 0
+        const behavior = behaviorBuf[tileIdx] ?? 0
 
         if (behavior === 1) {
           // P-switch/ON-OFF dependent — use default state (no P-switch active)

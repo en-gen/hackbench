@@ -1379,7 +1379,7 @@ function renderMap16PageFromModel(): void {
 // MAP16 page viewer — pages derived from L1 / L2 Map16 table sizes.
 // Each entry labels a page and carries its index within its table; the
 // renderer asks the model for tiles at those indices.
-interface Map16PageEntry { pageInAtlas: number; label: string }
+interface Map16PageEntry { pageInAtlas: number; pageNum: number; label: string }
 let map16Pages: Map16PageEntry[] = []
 let map16PageIdx = 0
 
@@ -2813,13 +2813,13 @@ window.addEventListener('message', async (event) => {
       const l1DefCount = mapData.map16Defs?.length ?? 0
       const l1PageCount = l1DefCount > 0 ? Math.ceil(l1DefCount / 256) : 1
       for (let p = 0; p < l1PageCount; p++) {
-        map16Pages.push({ pageInAtlas: p, label: `L1 0x${p.toString(16).padStart(2,'0')}` })
+        map16Pages.push({ pageInAtlas: p, pageNum: p, label: `L1 0x${p.toString(16).padStart(2,'0')}` })
       }
       const l2DefCount = mapData.map16BgDefs?.length ?? 0
       if (l2DefCount > 0) {
         const bgPageCount = Math.ceil(l2DefCount / 256)
         for (let p = 0; p < bgPageCount; p++) {
-          map16Pages.push({ pageInAtlas: p, label: `L2 0x${(0x80 + p).toString(16)}` })
+          map16Pages.push({ pageInAtlas: p, pageNum: 0x80 + p, label: `L2 0x${(0x80 + p).toString(16)}` })
         }
       }
       map16PageIdx = 0
@@ -2834,7 +2834,9 @@ window.addEventListener('message', async (event) => {
         const col = Math.floor((e.clientX - rect.left) * sx / 16)
         const row = Math.floor((e.clientY - rect.top) * sy / 16)
         const entry = map16Pages[map16PageIdx]
-        m16Inspect.textContent = `tile ${row * 16 + col}  (${entry.label})`
+        const tileWithinPage = row * 16 + col
+        const tileId = (entry.pageNum * 256 + tileWithinPage).toString(16).toUpperCase().padStart(3, '0')
+        m16Inspect.textContent = `tile ${tileWithinPage}  $${tileId}  (${entry.label})`
         map16HoverTile = { col, row }
         renderMap16Page()
       }
