@@ -205,24 +205,29 @@ function compositeCameraViewport(
     const bgRows = bgGrid.length
     const bgCols = bgRows > 0 ? bgGrid[0].length : 0
     if (bgRows > 0 && bgCols > 0) {
-      // Horizontal level: camera scrolls X → shift BG cols; keep rows natural.
-      // Vertical   level: camera scrolls Y → shift BG rows; keep cols natural.
-      const bgOriginRow = isVert
-        ? (vShift === null ? 0 : Math.floor(((camY * 16) >> vShift) / 16))
-        : 0
-      const bgOriginCol = isVert
-        ? 0
-        : (hShift === null ? 0 : Math.floor(((camX * 16) >> hShift) / 16))
+      // Compute BG parallax position in pixels (matches SNES: Layer2XPos = Layer1XPos >> hShift).
+      // Keep the full pixel value before dividing by 16 so we get a sub-tile remainder that
+      // lets us shift the first tile's canvas position and achieve smooth pixel-level scroll.
+      const bgParallaxPxX = isVert ? 0 : (hShift === null ? 0 : (camX * 16) >> hShift)
+      const bgParallaxPxY = isVert ? (vShift === null ? 0 : (camY * 16) >> vShift) : 0
+      const bgOriginCol = bgParallaxPxX >> 4          // which BG tile column is at the left edge
+      const bgOriginRow = bgParallaxPxY >> 4          // which BG tile row is at the top edge
+      const bgSubOffsetX = bgParallaxPxX & 0xF        // pixels into bgOriginCol before viewport edge
+      const bgSubOffsetY = bgParallaxPxY & 0xF        // pixels into bgOriginRow before viewport edge
       const stripCols = sw / 16
       const stripRows = sh / 16
-      for (let r = 0; r < stripRows; r++) {
-        for (let c = 0; c < stripCols; c++) {
+      // One extra tile on the scrolling edge fills the gap left by the sub-tile shift.
+      // setClip constrains blit8x8/fillRect to the strip so the extra tile doesn't bleed
+      // into adjacent world-map tiles outside the camera viewport.
+      target.setClip(sx, sy, sw, sh)
+      for (let r = 0; r < stripRows + (bgSubOffsetY > 0 ? 1 : 0); r++) {
+        for (let c = 0; c < stripCols + (bgSubOffsetX > 0 ? 1 : 0); c++) {
           const bgR = ((bgOriginRow + r) % bgRows + bgRows) % bgRows
           const bgC = ((bgOriginCol + c) % bgCols + bgCols) % bgCols
           const tile = bgGrid[bgR]?.[bgC]
           if (!tile) continue
-          const px = sx + c * 16
-          const py = sy + r * 16
+          const px = sx + c * 16 - bgSubOffsetX
+          const py = sy + r * 16 - bgSubOffsetY
           const cell = {
             tl: { x: px,     y: py },
             tr: { x: px + 8, y: py },
@@ -233,6 +238,7 @@ function compositeCameraViewport(
           tile.render(ctx, target, cell, 'priority')
         }
       }
+      target.clearClip()
     }
   }
 
@@ -2070,7 +2076,7 @@ function hitCameraRect(canvasX: number, canvasY: number): boolean {
 }
 
 /** Scroll the map container so the camera rect stays fully visible. */
-function scrollContainerToCamera(): void {
+function scrollContainerToCamera(center = false): void {
   const px = TILE_PX * store.zoom
   const cam = store.camera
   const rx = cam.tileX * px
@@ -2078,10 +2084,25 @@ function scrollContainerToCamera(): void {
   const rw = CAMERA_W_TILES * px
   const rh = CAMERA_H_TILES * px
   const wrap = canvasWrap
-  const marginX = Math.max(0, (wrap.clientWidth  - rw) / 2)
-  const marginY = Math.max(0, (wrap.clientHeight - rh) / 2)
-  wrap.scrollLeft = Math.max(0, rx - marginX)
-  wrap.scrollTop  = Math.max(0, ry - marginY)
+  if (center) {
+    const marginX = Math.max(0, (wrap.clientWidth  - rw) / 2)
+    const marginY = Math.max(0, (wrap.clientHeight - rh) / 2)
+    wrap.scrollLeft = Math.max(0, rx - marginX)
+    wrap.scrollTop  = Math.max(0, ry - marginY)
+  } else {
+    // During drag/keyboard nudge: scroll only enough to keep the camera rect
+    // visible with a 1-tile margin. Full centering on every move snaps the
+    // viewport too aggressively and changes getBoundingClientRect() mid-drag.
+    const pad = px
+    const sl = wrap.scrollLeft
+    const st = wrap.scrollTop
+    const vw = wrap.clientWidth
+    const vh = wrap.clientHeight
+    if (rx - pad < sl)               wrap.scrollLeft = Math.max(0, rx - pad)
+    else if (rx + rw + pad > sl + vw) wrap.scrollLeft = rx + rw + pad - vw
+    if (ry - pad < st)               wrap.scrollTop  = Math.max(0, ry - pad)
+    else if (ry + rh + pad > st + vh) wrap.scrollTop  = ry + rh + pad - vh
+  }
 }
 
 // ── Minimap ──────────────────────────────────────────────────────────────────
@@ -2136,11 +2157,11 @@ function minimapTilePx(): number {
 
 function drawMinimap(): void {
   if (!minimapOn || !mapData) return
-  // Use the already-rendered model canvas as the source. Everything
-  // model-correct — pipe-variant palettes, P-switch reveals, animated
-  // tiles, switch-palace alt — carries through for free because the
-  // source was produced by the same `tile.render` chain that draws the
-  // main viewport. No per-tile re-render needed here.
+  // Scale the already-rendered model canvas into the minimap. The model
+  // canvas is at natural 1× resolution (cols*16 × rows*16); drawImage
+  // handles the scale-down so every rendering effect (pipe-variant
+  // palettes, P-switch reveals, animated tiles, switch-palace alt,
+  // parallax BG) is reflected here automatically.
   const src = document.getElementById('model-canvas') as HTMLCanvasElement | null
   if (!src || src.width === 0 || src.height === 0) return
   const cols = levelCols()
@@ -2154,57 +2175,8 @@ function drawMinimap(): void {
     minimapCanvas.height = h
   }
 
-  // Background — checkerboard when L2 is hidden, otherwise back-area color.
-  if (!chkL2.checked) {
-    const pat = getCheckerPattern(minimapCtx)
-    minimapCtx.fillStyle = pat ?? '#202020'
-  } else if (mapData.backAreaColor) {
-    const [r, g, b] = mapData.backAreaColor
-    minimapCtx.fillStyle = `rgb(${r},${g},${b})`
-  } else {
-    minimapCtx.fillStyle = '#000'
-  }
-  minimapCtx.fillRect(0, 0, w, h)
-
-  // Blit each tile scaled from the live Map16 atlas (same source the main
-  // canvas uses, so any palette/animation change is reflected instantly).
-  // L2 draws first (under L1), using whichever atlas the level's L2 type
-  // maps to — BG atlas for preset, L1 atlas for object-stream.
-  const atlasCols = 16
-  if (l2TileGrid) {
-    const useBg = mapData.l2UsesBgAtlas ?? true
-    const l2Atlas = useBg ? map16BgAtlasCanvas : map16AtlasCanvas
-    if (l2Atlas) {
-      for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-          const tileId = l2TileGrid[row]?.[col] ?? 0
-          if (!useBg && tileId === 0) continue
-          const sx = (tileId % atlasCols) * TILE_PX
-          const sy = Math.floor(tileId / atlasCols) * TILE_PX
-          minimapCtx.drawImage(l2Atlas, sx, sy, TILE_PX, TILE_PX,
-            col * tp, row * tp, tp, tp)
-        }
-      }
-    }
-  }
-  const tileGrid = mapData.tileGrid
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const rawTileId = tileGrid[row]?.[col] ?? 0
-      let tileId = applySwitchPalaceState(rawTileId)
-      if (tileId === 0) continue
-      // ROM-derived P-switch swap (coin ↔ used block). Skip the reveal-alpha
-      // path since the preview doesn't read well at minimap scale.
-      if (pSwitchBlueOn) {
-        const sub = mapData.map16Defs?.[tileId]?.pSwitchSub
-        if (sub != null) tileId = sub
-      }
-      const sx = (tileId % atlasCols) * TILE_PX
-      const sy = Math.floor(tileId / atlasCols) * TILE_PX
-      if (map16AtlasCanvas) minimapCtx.drawImage(map16AtlasCanvas, sx, sy, TILE_PX, TILE_PX,
-        col * tp, row * tp, tp, tp)
-    }
-  }
+  minimapCtx.imageSmoothingEnabled = false
+  minimapCtx.drawImage(src, 0, 0, src.width, src.height, 0, 0, w, h)
 
   drawMinimapViewport()
 }
@@ -2305,7 +2277,7 @@ chkCamera.addEventListener('change',  () => {
   const on = chkCamera.checked
   store.setCameraOn(on)  // reactive — triggers renderModelOverlay
   if (on) {
-    scrollContainerToCamera()
+    scrollContainerToCamera(true)
   } else {
     const cam = store.camera
     if (cam.focused) store.setCamera({ tileX: cam.tileX, tileY: cam.tileY, focused: false })
@@ -2359,10 +2331,15 @@ modelCanvas.addEventListener('pointermove', (e) => {
     // (`compositeCameraViewport`, `drawCameraRectOverlay`) reads
     // `store.camera` and re-renders to the new position.
     store.setCamera({ tileX: nextX, tileY: nextY, focused: true })
-    // Keep the viewport near the center of the visible scroll area as
-    // the user drags. Without this, the rect can leave the fold and
-    // the drag snaps when cursor runs out of canvas.
+    // Scroll just enough to keep the camera rect visible. Then compensate
+    // the drag offsets for any scroll that occurred: scrolling changes
+    // getBoundingClientRect() which shifts cx/cy on the next pointermove,
+    // so we absorb that shift into the offsets here to keep the drag origin stable.
+    const prevSL = canvasWrap.scrollLeft
+    const prevST = canvasWrap.scrollTop
     scrollContainerToCamera()
+    cameraDragOffX += (canvasWrap.scrollLeft - prevSL) / pxPerTile
+    cameraDragOffY += (canvasWrap.scrollTop  - prevST) / pxPerTile
     return
   }
 
@@ -2762,7 +2739,7 @@ window.addEventListener('message', async (event) => {
 
     // Reset camera to level start and scroll into view if Camera is on.
     store.setCamera({ tileX: 0, tileY: 0, focused: false })
-    if (chkCamera.checked) scrollContainerToCamera()
+    if (chkCamera.checked) scrollContainerToCamera(true)
 
     // Palette canvas — the model render effect will also render this
     // reactively once the model arrives, but this first paint keeps the
