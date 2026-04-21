@@ -81,15 +81,14 @@ function renderModelOverlay(map: SmwMap): void {
   const w = cols * 16
   const h = rows * 16
   if (w === 0 || h === 0) return
-  if (overlay.width !== w) overlay.width = w
-  if (overlay.height !== h) overlay.height = h
-  // Zoom applies via CSS scaling — framebuffer stays at natural resolution
-  // so the output is pixel-perfect (image-rendering: pixelated).
-  const z = store.zoom
-  overlay.style.width = `${w * z}px`
-  overlay.style.height = `${h * z}px`
 
-  const target = new CanvasRenderTarget(overlay)
+  // Ensure the full-level offscreen canvas matches the level dimensions (1× natural).
+  if (!fullLevelCanvas || fullLevelCanvas.width !== w || fullLevelCanvas.height !== h) {
+    fullLevelCanvas = document.createElement('canvas')
+    fullLevelCanvas.width  = w
+    fullLevelCanvas.height = h
+  }
+
   // Level-wide state on ctx — tile behaviors (PipeVariants) derive
   // per-cell concerns from their own cell position + these fields,
   // so the camera viewport / detail preview / Map16 panel can all
@@ -106,6 +105,9 @@ function renderModelOverlay(map: SmwMap): void {
     levelOrientation: map.header.orientation,
     screenPipeVariantIdx: map.screenPipeVariantIdx,
   }
+
+  // Render the full level at 1× to the offscreen canvas.
+  const target = new CanvasRenderTarget(fullLevelCanvas)
   target.clear(map.palette.backAreaColor.rgba(ctx))
   map.render(ctx, target)
   // Camera viewport parallax BG + L1 re-render must land in the
@@ -122,18 +124,19 @@ function renderModelOverlay(map: SmwMap): void {
   // of `store.layerToggles.*` keeps the reactive effect invalidated
   // when a checkbox flips.
   const toggles = store.layerToggles
-  if (toggles.block) {
-    const octx = overlay.getContext('2d')!
-    drawBlockView(octx, map, toggles.l1, toggles.l2)
-  }
-  if (toggles.screens || toggles.mapGrid) {
-    const octx = overlay.getContext('2d')!
-    drawScreenAndGridOverlays(octx, map, toggles.screens, toggles.mapGrid)
-  }
-  if (cameraOn) {
-    const octx = overlay.getContext('2d')!
-    drawCameraRectOverlay(octx, map)
-  }
+  const foctx = fullLevelCanvas.getContext('2d')!
+  if (toggles.block) drawBlockView(foctx, map, toggles.l1, toggles.l2)
+  if (toggles.screens || toggles.mapGrid) drawScreenAndGridOverlays(foctx, map, toggles.screens, toggles.mapGrid)
+  if (cameraOn) drawCameraRectOverlay(foctx, map)
+
+  // Spacer drives the native scrollbar to the full level × zoom extent.
+  const z = store.zoom
+  levelSpacer.style.width  = `${w * z}px`
+  levelSpacer.style.height = `${h * z}px`
+
+  // Viewport canvas: size it to the visible area and blit from the offscreen.
+  resizeViewportCanvas(overlay)
+  blitViewport(overlay)
 
   // Side-panel canvases share the reactive pass — each re-reads its
   // model inputs via `ctx.*.value`, so a ref change invalidates the
@@ -144,9 +147,47 @@ function renderModelOverlay(map: SmwMap): void {
   // Detail preview goes through the model too so animation / pswitch /
   // switch-palace are reflected. Cheap no-op when nothing is selected.
   redrawDetail()
-  // Minimap is a scaled drawImage of this model canvas. The reactive
-  // re-run keeps it in step with everything rendered above.
+  // Minimap sources from the full-level offscreen canvas.
   if (minimapOn) drawMinimap()
+}
+
+/**
+ * Size the viewport canvas to match the current canvas-wrap client area.
+ * Called before each blit so the canvas tracks panel/window resize.
+ */
+function resizeViewportCanvas(overlay: HTMLCanvasElement): void {
+  const vpW = canvasWrap.clientWidth
+  const vpH = canvasWrap.clientHeight
+  if (overlay.width !== vpW)  overlay.width  = vpW
+  if (overlay.height !== vpH) overlay.height = vpH
+  // No CSS scaling — canvas renders 1:1 with CSS pixels, zoom is handled
+  // via the drawImage scale in blitViewport.
+  overlay.style.width  = ''
+  overlay.style.height = ''
+}
+
+/**
+ * Copy the visible portion of the full-level offscreen canvas into the
+ * viewport canvas. The drawImage scale converts 1× natural pixels to
+ * CSS-zoom-level pixels so tiles appear at TILE_PX * z each.
+ * Safe to call from the scroll handler without a full model re-render.
+ */
+function blitViewport(overlay?: HTMLCanvasElement): void {
+  const el = overlay ?? (document.getElementById('model-canvas') as HTMLCanvasElement | null)
+  if (!el || !fullLevelCanvas) return
+  const z   = store.zoom
+  const vpW = el.width
+  const vpH = el.height
+  // Viewport origin in 1× natural pixels.
+  const srcX = canvasWrap.scrollLeft / z
+  const srcY = canvasWrap.scrollTop  / z
+  // Source rect width/height in natural pixels (covers the viewport at zoom z).
+  const srcW = vpW / z
+  const srcH = vpH / z
+  const oc = el.getContext('2d')!
+  oc.imageSmoothingEnabled = false
+  oc.clearRect(0, 0, vpW, vpH)
+  oc.drawImage(fullLevelCanvas, srcX, srcY, srcW, srcH, 0, 0, vpW, vpH)
 }
 
 /**
@@ -575,8 +616,9 @@ app.innerHTML = `
 
   <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
     <div id="main-view" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
-      <div id="canvas-wrap" style="flex:1;overflow:auto;background:#111111;cursor:crosshair;display:flex;justify-content:safe center;align-items:safe center;">
-        <canvas id="model-canvas" style="display:block;image-rendering:pixelated;margin:8px;"></canvas>
+      <div id="canvas-wrap" style="flex:1;overflow:auto;position:relative;background:#111111;cursor:crosshair;">
+        <div id="level-spacer" style="position:absolute;top:0;left:0;pointer-events:none;"></div>
+        <canvas id="model-canvas" style="position:sticky;top:0;left:0;display:block;image-rendering:pixelated;"></canvas>
       </div>
       <div id="minimap-wrap" style="flex-shrink:0;background:#0a0a0a;border-top:1px solid #3a3a3a;padding:4px 8px;display:flex;justify-content:center;align-items:center;">
         <canvas id="minimap-canvas" style="display:block;image-rendering:pixelated;cursor:pointer;background:#000;"></canvas>
@@ -741,6 +783,7 @@ app.innerHTML = `
 
 const modelCanvas    = document.getElementById('model-canvas') as HTMLCanvasElement
 const canvasWrap     = document.getElementById('canvas-wrap')!
+const levelSpacer    = document.getElementById('level-spacer') as HTMLDivElement
 const minimapCanvas  = document.getElementById('minimap-canvas') as HTMLCanvasElement
 const minimapCtx     = minimapCanvas.getContext('2d')!
 const mapId          = document.getElementById('map-id')!
@@ -1421,6 +1464,9 @@ let l2TileGrid: number[][] | null = null
 // owns main display; these back the block-mode and camera-viewport overlays.
 const canvas = modelCanvas  // map-canvas was renamed model-canvas in #62
 const ctx    = canvas.getContext('2d')!
+// Off-screen full-level canvas (1× natural pixels). The viewport canvas blits
+// from this on scroll; the minimap samples from it for its overview.
+let fullLevelCanvas: HTMLCanvasElement | null = null
 let zoom     = ZOOM_STEPS[ZOOM_DEFAULT_IDX]
 const activeVramIndexed: Uint8Array | null = null
 const map16AtlasCanvas:    HTMLCanvasElement | null = null
@@ -1530,33 +1576,7 @@ function levelRows(): number {
 }
 // ── Zoom ─────────────────────────────────────────────────────────────────────
 
-/** Browser canvas dimension cap. Chrome and Firefox limit canvases to 16384
- *  pixels per side; beyond that, the canvas silently fails or allocations
- *  thrash the webview. Stay well under that. */
-const MAX_CANVAS_PX = 16000
-
-/** Highest zoom index whose resulting canvas still fits under MAX_CANVAS_PX.
- *  Depends on level width (screens × 16 tiles). Recomputed per level load. */
-function maxZoomIdx(): number {
-  if (!mapData) return ZOOM_STEPS.length - 1
-  const cols = levelCols()
-  const rows = levelRows()
-  let limit = ZOOM_STEPS.length - 1
-  for (let i = ZOOM_STEPS.length - 1; i >= 0; i--) {
-    const px = TILE_PX * ZOOM_STEPS[i]
-    if (cols * px <= MAX_CANVAS_PX && rows * px <= MAX_CANVAS_PX) {
-      limit = i
-      break
-    }
-    limit = i - 1
-  }
-  return Math.max(0, limit)
-}
-
 function applyZoom(): void {
-  // Clamp to whatever the current level can actually fit on-screen.
-  const cap = maxZoomIdx()
-  if (zoomIdx > cap) zoomIdx = cap
   const z = ZOOM_STEPS[zoomIdx]
   zoom = z
   store.setZoom(z)  // reactive — triggers renderModelOverlay with the new zoom
@@ -1564,7 +1584,7 @@ function applyZoom(): void {
 }
 
 document.getElementById('zoom-in')!.addEventListener('click', () => {
-  if (zoomIdx < maxZoomIdx()) { zoomIdx++; applyZoom() }
+  if (zoomIdx < ZOOM_STEPS.length - 1) { zoomIdx++; applyZoom() }
 })
 document.getElementById('zoom-out')!.addEventListener('click', () => {
   if (zoomIdx > 0) { zoomIdx--; applyZoom() }
@@ -1573,7 +1593,7 @@ canvasWrap.addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return
   e.preventDefault()
   const next = zoomIdx + (e.deltaY < 0 ? 1 : -1)
-  if (next >= 0 && next <= maxZoomIdx()) { zoomIdx = next; applyZoom() }
+  if (next >= 0 && next < ZOOM_STEPS.length) { zoomIdx = next; applyZoom() }
 }, { passive: false })
 
 // ── Palette canvas ────────────────────────────────────────────────────────────
@@ -2157,13 +2177,11 @@ function minimapTilePx(): number {
 
 function drawMinimap(): void {
   if (!minimapOn || !mapData) return
-  // Scale the already-rendered model canvas into the minimap. The model
-  // canvas is at natural 1× resolution (cols*16 × rows*16); drawImage
-  // handles the scale-down so every rendering effect (pipe-variant
-  // palettes, P-switch reveals, animated tiles, switch-palace alt,
-  // parallax BG) is reflected here automatically.
-  const src = document.getElementById('model-canvas') as HTMLCanvasElement | null
-  if (!src || src.width === 0 || src.height === 0) return
+  // Scale the full-level offscreen canvas into the minimap. The offscreen
+  // canvas is always at natural 1× resolution (cols*16 × rows*16), so
+  // all rendering effects (pipe-variant palettes, P-switch reveals,
+  // animated tiles, parallax BG, camera overlay) are captured.
+  if (!fullLevelCanvas || fullLevelCanvas.width === 0 || fullLevelCanvas.height === 0) return
   const cols = levelCols()
   const rows = levelRows()
   const tp = minimapTilePx()
@@ -2176,7 +2194,7 @@ function drawMinimap(): void {
   }
 
   minimapCtx.imageSmoothingEnabled = false
-  minimapCtx.drawImage(src, 0, 0, src.width, src.height, 0, 0, w, h)
+  minimapCtx.drawImage(fullLevelCanvas, 0, 0, fullLevelCanvas.width, fullLevelCanvas.height, 0, 0, w, h)
 
   drawMinimapViewport()
 }
@@ -2195,7 +2213,6 @@ function drawMinimapViewport(): void {
   const mmH = minimapCanvas.height
   const vx = Math.round((canvasWrap.scrollLeft / mainW) * mmW)
   const vy = Math.round((canvasWrap.scrollTop  / mainH) * mmH)
-  // clientWidth/clientHeight minus canvas margins (8px on each side)
   const vw = Math.max(1, Math.round((canvasWrap.clientWidth  / mainW) * mmW))
   const vh = Math.max(1, Math.round((canvasWrap.clientHeight / mainH) * mmH))
 
@@ -2250,10 +2267,19 @@ const endDrag = (e: PointerEvent) => {
 minimapCanvas.addEventListener('pointerup',     endDrag)
 minimapCanvas.addEventListener('pointercancel', endDrag)
 
-// Viewport rectangle follows main-view scrolling.
+// On scroll: fast blit of the already-rendered offscreen level to the
+// viewport canvas, then redraw the minimap (single drawImage + indicator).
 canvasWrap.addEventListener('scroll', () => {
-  drawMinimap()  // cheapest reliable option; tile blits are tiny
+  blitViewport()
+  drawMinimap()
 })
+
+// Resize the viewport canvas and re-blit when the panel or window changes.
+new ResizeObserver(() => {
+  const overlay = document.getElementById('model-canvas') as HTMLCanvasElement | null
+  if (overlay) { resizeViewportCanvas(overlay); blitViewport(overlay) }
+  drawMinimap()
+}).observe(canvasWrap)
 
 // Keep the minimap sized to the available width as the window/panel resizes.
 new ResizeObserver(() => drawMinimap()).observe(minimapCanvas.parentElement!)
@@ -2288,20 +2314,20 @@ chkCamera.addEventListener('change',  () => {
 // Click inside the rect: focus camera, start drag. Click outside: blur camera.
 // Cursor switches to grab/grabbing when hovering/dragging the rect.
 //
-// Coords come from the visible modelCanvas. Its bounding rect covers the
-// CSS-scaled display, so a `pxPerTile = rect.width / levelCols()` ratio
-// works at any zoom without reading the zoom ref directly.
+// Canvas is now viewport-sized (sticky), so pointer coords are viewport-local.
+// Add canvasWrap.scrollLeft/scrollTop to convert to level CSS-pixel space,
+// then divide by (TILE_PX × zoom) to get tile coords.
 modelCanvas.addEventListener('pointerdown', (e) => {
   if (!chkCamera.checked || e.button !== 0) return
   const rect = modelCanvas.getBoundingClientRect()
-  const cx = e.clientX - rect.left
-  const cy = e.clientY - rect.top
+  const px = TILE_PX * store.zoom
+  const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft
+  const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop
   const cam = store.camera
-  if (hitCameraRect(cx, cy)) {
-    const pxPerTile = rect.width / Math.max(1, levelCols())
+  if (hitCameraRect(lx, ly)) {
     cameraDragging = true
-    cameraDragOffX = cx / pxPerTile - cam.tileX
-    cameraDragOffY = cy / pxPerTile - cam.tileY
+    cameraDragOffX = lx / px - cam.tileX
+    cameraDragOffY = ly / px - cam.tileY
     store.setCamera({ tileX: cam.tileX, tileY: cam.tileY, focused: true })
     modelCanvas.setPointerCapture(e.pointerId)
     modelCanvas.style.cursor = 'grabbing'
@@ -2313,37 +2339,37 @@ modelCanvas.addEventListener('pointerdown', (e) => {
 
 modelCanvas.addEventListener('pointermove', (e) => {
   const rect = modelCanvas.getBoundingClientRect()
-  const cx = e.clientX - rect.left
-  const cy = e.clientY - rect.top
+  const px = TILE_PX * store.zoom
+  const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft
+  const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop
 
   if (cameraDragging) {
-    const pxPerTile = rect.width / Math.max(1, levelCols())
     const cols = levelCols()
     const rows = levelRows()
     // No rounding — keep the drag in fractional-tile space so the rect
     // glides pixel-smooth with the cursor. The strip floors this value
     // internally so its parallax content stays tile-aligned.
     const nextX = Math.max(0, Math.min(Math.max(0, cols - CAMERA_W_TILES),
-      cx / pxPerTile - cameraDragOffX))
+      lx / px - cameraDragOffX))
     const nextY = Math.max(0, Math.min(Math.max(0, rows - CAMERA_H_TILES),
-      cy / pxPerTile - cameraDragOffY))
+      ly / px - cameraDragOffY))
     // Dispatch to the store so the reactive effect re-runs; the overlay
     // (`compositeCameraViewport`, `drawCameraRectOverlay`) reads
     // `store.camera` and re-renders to the new position.
     store.setCamera({ tileX: nextX, tileY: nextY, focused: true })
     // Scroll just enough to keep the camera rect visible. Then compensate
-    // the drag offsets for any scroll that occurred: scrolling changes
-    // getBoundingClientRect() which shifts cx/cy on the next pointermove,
-    // so we absorb that shift into the offsets here to keep the drag origin stable.
+    // the drag offsets for any scroll that occurred: scrolling shifts
+    // scrollLeft/scrollTop so level-space coords change on the next
+    // pointermove — absorb the delta so the drag origin stays stable.
     const prevSL = canvasWrap.scrollLeft
     const prevST = canvasWrap.scrollTop
     scrollContainerToCamera()
-    cameraDragOffX += (canvasWrap.scrollLeft - prevSL) / pxPerTile
-    cameraDragOffY += (canvasWrap.scrollTop  - prevST) / pxPerTile
+    cameraDragOffX += (canvasWrap.scrollLeft - prevSL) / px
+    cameraDragOffY += (canvasWrap.scrollTop  - prevST) / px
     return
   }
 
-  if (chkCamera.checked && hitCameraRect(cx, cy)) {
+  if (chkCamera.checked && hitCameraRect(lx, ly)) {
     modelCanvas.style.cursor = 'grab'
   } else {
     modelCanvas.style.cursor = ''
@@ -2355,9 +2381,10 @@ modelCanvas.addEventListener('pointerup', (e) => {
   cameraDragging = false
   modelCanvas.releasePointerCapture(e.pointerId)
   const rect = modelCanvas.getBoundingClientRect()
-  const cx = e.clientX - rect.left
-  const cy = e.clientY - rect.top
-  modelCanvas.style.cursor = (chkCamera.checked && hitCameraRect(cx, cy)) ? 'grab' : ''
+  const px = TILE_PX * store.zoom
+  const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft
+  const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop
+  modelCanvas.style.cursor = (chkCamera.checked && hitCameraRect(lx, ly)) ? 'grab' : ''
 })
 
 // Arrow-key nudge when camera is focused. Shift = 4-tile jumps for faster scan.
@@ -2545,10 +2572,13 @@ function canvasTileAt(e: MouseEvent): { col: number; row: number } | null {
   const cols = levelCols()
   const rows = levelRows()
   if (rect.width <= 0 || rect.height <= 0 || cols === 0 || rows === 0) return null
-  // Compute from the bounding rect directly — works at any zoom since
-  // the model canvas is CSS-scaled by the zoom ref.
-  const col = Math.floor((e.clientX - rect.left) / (rect.width  / cols))
-  const row = Math.floor((e.clientY - rect.top)  / (rect.height / rows))
+  // Add scroll offset to convert viewport-relative coords to level CSS coords,
+  // then divide by (TILE_PX × zoom) to get tile indices.
+  const px = TILE_PX * store.zoom
+  const levelCssX = (e.clientX - rect.left) + canvasWrap.scrollLeft
+  const levelCssY = (e.clientY - rect.top)  + canvasWrap.scrollTop
+  const col = Math.floor(levelCssX / px)
+  const row = Math.floor(levelCssY / px)
   if (col < 0 || row < 0 || row >= rows || col >= cols) return null
   return { col, row }
 }
