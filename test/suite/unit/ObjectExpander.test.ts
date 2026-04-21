@@ -29,6 +29,7 @@ import {
   handle_0DED12,
   handle_0DEDB9,
   handle_0DDAF2,
+  handle_0DD070,
 } from '../../../src/rom/objectHandlers/standardHandlers'
 import {
   handle_0DA57B, handle_0DA64D, handle_0DA656, handle_0DA673, handle_0DA68E, handle_0DA6D1,
@@ -2982,4 +2983,114 @@ describe('handle_0DF06C (horizontal page-1 strip)', () => {
     expect(cur.grid[7][5]).toBe(P1(0x59))
     expect(cur.grid[7][6]).toBe(TILE_EMPTY)
   })
+})
+
+describe('handle_0DD070 (2-tall staircase, screen $0A)', () => {
+  // ADDR_0DD070 = $0DD070: sub-dispatches to $0DD080 (down-left) or $0DD0C3 (down-right)
+  // via a 2-entry dl pointer table immediately after the 10-byte JSL preamble.
+  //
+  // ADDR_0DD080 byte layout (verified against bank_0D.asm line 5836):
+  //   +7  JSR StzTo6ePointer (+7..+9)
+  //   +10 LDA #tileTop (+11 = immediate)
+  //   +24 JSR StzTo6ePointer (+24..+26)
+  //   +27 LDA #tileBot (+28 = immediate)
+  //
+  // ADDR_0DD0C3 has the identical layout (+11 = tileTop, +28 = tileBot).
+  //
+  // size byte: high nibble >> 4 = sel (0 = left, 1 = right); low nibble = W (W+1 steps).
+
+  const HANDLER_ADDR = 0x0DD070
+  const ADDR_LEFT    = 0x0DD080
+  const ADDR_RIGHT   = 0x0DD0C3
+
+  function stampSubDispatch(rom: RomFile): void {
+    // Pointer table at HANDLER_ADDR+10: dl ADDR_LEFT, dl ADDR_RIGHT
+    stampLongOperand(rom, HANDLER_ADDR, 10, ADDR_LEFT)
+    stampLongOperand(rom, HANDLER_ADDR, 13, ADDR_RIGHT)
+    // Tile immediates inside each sub-handler
+    rom.writeAt(ADDR_LEFT  + 11, [0x88])  // tileTop (left)
+    rom.writeAt(ADDR_LEFT  + 28, [0x8A])  // tileBot (left)
+    rom.writeAt(ADDR_RIGHT + 11, [0x89])  // tileTop (right)
+    rom.writeAt(ADDR_RIGHT + 28, [0x8B])  // tileBot (right)
+  }
+
+  // Each row: [absCol, startRow, W, sel, expected: [row, col, tile][]]
+  // sel 0 → down-left (size = sel<<4 | W = W), sel 1 → down-right (size = 0x10 | W)
+  // Screen $0A = screen 10 decimal; abs col = 10*16 + local = 160 + local.
+
+  const cases: Array<{
+    name: string
+    col: number
+    row: number
+    size: number
+    tiles: [number, number, number][]
+  }> = [
+    {
+      name: 'down-left W=0: single step at screen $0A col 5',
+      col: 165, row: 10, size: 0x00,
+      tiles: [[10, 165, 0x88], [11, 165, 0x8A]],
+    },
+    {
+      name: 'down-left W=2: 3 steps mid-screen $0A',
+      // col 5 → steps at cols 165, 164, 163; rows 10-11, 12-13, 14-15
+      col: 165, row: 10, size: 0x02,
+      tiles: [
+        [10, 165, 0x88], [11, 165, 0x8A],
+        [12, 164, 0x88], [13, 164, 0x8A],
+        [14, 163, 0x88], [15, 163, 0x8A],
+      ],
+    },
+    {
+      name: 'down-left W=3: crosses screen $0A→$09 boundary at col 1',
+      // col 1 (abs 161): steps at 161, 160 (still screen $0A), 159, 158 (screen $09)
+      col: 161, row: 10, size: 0x03,
+      tiles: [
+        [10, 161, 0x88], [11, 161, 0x8A],
+        [12, 160, 0x88], [13, 160, 0x8A],
+        [14, 159, 0x88], [15, 159, 0x8A],  // screen $09 col 15
+        [16, 158, 0x88], [17, 158, 0x8A],  // screen $09 col 14
+      ],
+    },
+    {
+      name: 'down-right W=0: single step at screen $0A col 5',
+      col: 165, row: 10, size: 0x10,
+      tiles: [[10, 165, 0x89], [11, 165, 0x8B]],
+    },
+    {
+      name: 'down-right W=2: 3 steps mid-screen $0A',
+      // col 3 (abs 163): steps at 163, 164, 165; rows 10-11, 12-13, 14-15
+      col: 163, row: 10, size: 0x12,
+      tiles: [
+        [10, 163, 0x89], [11, 163, 0x8B],
+        [12, 164, 0x89], [13, 164, 0x8B],
+        [14, 165, 0x89], [15, 165, 0x8B],
+      ],
+    },
+    {
+      name: 'down-right W=2: crosses screen $0A→$0B boundary at col 14',
+      // col 14 (abs 174): steps at 174, 175 (screen $0A), 176 (screen $0B col 0)
+      col: 174, row: 10, size: 0x12,
+      tiles: [
+        [10, 174, 0x89], [11, 174, 0x8B],
+        [12, 175, 0x89], [13, 175, 0x8B],
+        [14, 176, 0x89], [15, 176, 0x8B],  // screen $0B col 0
+      ],
+    },
+  ]
+
+  for (const tc of cases) {
+    it(tc.name, () => {
+      const rom = makeMockRom()
+      stampSubDispatch(rom)
+      const grid = createGrid(12)  // 192 cols covers screens $00-$0B
+      const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 2, tc.col, tc.row, 59, tc.size)
+      handle_0DD070(cur)
+      for (const [r, c, tile] of tc.tiles) {
+        expect(grid[r][c]).toBe(tile)
+      }
+      // Cursor restored to entry position after handler
+      expect(cur.col).toBe(tc.col)
+      expect(cur.row).toBe(tc.row)
+    })
+  }
 })
