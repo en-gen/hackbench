@@ -7,8 +7,8 @@
  */
 
 import {
-  Cursor, writeTile, setPage0, setPage1,
-  advanceCol, saveBookmark, nextRow,
+  Cursor, writeTile, writeTileAdvance, setPage0, setPage1,
+  advanceCol, advanceRowRaw, saveBookmark, restoreBookmark, nextRow,
   peekExistingLow,
   readLongOperand, readImmByte,
 } from './cursor'
@@ -850,4 +850,297 @@ export function handle_0DE9ED(cur: Cursor): void {
 export function handle_0DDA57(cur: Cursor): void {
   setPage1(cur)
   writeTile(cur, 0xFE)
+}
+
+/**
+ * ADDR_0DE971 (bank_0D.asm line 7637) -- cave background fill (ext $5F).
+ * ASM fills 4×256 WRAM positions with tile $77 starting at Map16LowPtr[0],
+ * ignoring LevelLoadPos entirely. We approximate by filling the entire grid.
+ */
+export function handle_0DE971(cur: Cursor): void {
+  for (const row of cur.grid) {
+    if (row) row.fill(0x77)
+  }
+}
+
+/**
+ * CODE_0DE9AA (bank_0D.asm line 7662) -- 3×3 tile block (ext $61..$63).
+ *
+ * Index into DATA_0DE98F: X = (objNo − $61) × 9.
+ * Reads 9 tiles row-major (3 per row), page 0.
+ *
+ * ASM: saveBookmark; inner BPL loop (_0=2, 3 iters); restoreBookmark+advanceRowRaw;
+ * outer BPL (_1=2, 3 rows).
+ *
+ * DATA_0DE98F operand at handler+29.
+ */
+export function handle_0DE9AA(cur: Cursor): void {
+  const xi = (cur.objNo - 0x61) * 9
+  const addr = readLongOperand(cur, cur.handlerAddr + 29)
+  saveBookmark(cur)
+  let x = xi
+  for (let row = 0; row < 3; row++) {
+    setPage0(cur)
+    for (let col = 0; col < 3; col++) {
+      writeTileAdvance(cur, cur.rom.readByte(addr + x++) ?? 0)
+    }
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+  }
+}
+
+/**
+ * ADDR_0DEA3E (bank_0D.asm line 7731) -- 4×4 tile block (ext $66..$67).
+ *
+ * Index into DATA_0DEA1E: X = (objNo − $66) × 16.
+ * Reads 16 tiles row-major (4 per row), page 0.
+ *
+ * DATA_0DEA1E operand at handler+25.
+ */
+export function handle_0DEA3E(cur: Cursor): void {
+  const xi = (cur.objNo - 0x66) * 16
+  const addr = readLongOperand(cur, cur.handlerAddr + 25)
+  saveBookmark(cur)
+  let x = xi
+  for (let row = 0; row < 4; row++) {
+    setPage0(cur)
+    for (let col = 0; col < 4; col++) {
+      writeTileAdvance(cur, cur.rom.readByte(addr + x++) ?? 0)
+    }
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+  }
+}
+
+/**
+ * CODE_0DE0AE (bank_0D.asm line 7260) -- 6-row waterfall/cascade tile column
+ * (ext $71..$74). Per-variant offset from DATA_0DE0AA; tile data from DATA_0DE05E.
+ *
+ * Row 0: 4 tiles, page 1.
+ * Rows 1–3: 3 tiles each, page 0 (3 middle rows).
+ * Row 4: 3 tiles page 0 + hardcoded tile $5F page 1.
+ * Row 5: 3 tiles, page 0.
+ *
+ * DATA_0DE0AA operand at handler+9; DATA_0DE05E operand at handler+28.
+ */
+export function handle_0DE0AE(cur: Cursor): void {
+  const addrIdx  = readLongOperand(cur, cur.handlerAddr + 9)   // DATA_0DE0AA
+  const addrData = readLongOperand(cur, cur.handlerAddr + 28)  // DATA_0DE05E
+  let xi = cur.rom.readByte(addrIdx + (cur.objNo - 0x71)) ?? 0
+  saveBookmark(cur)
+  // Row 0: 4 tiles, page 1
+  setPage1(cur)
+  for (let c = 0; c < 4; c++) {
+    writeTileAdvance(cur, cur.rom.readByte(addrData + xi++) ?? 0)
+  }
+  restoreBookmark(cur)
+  advanceRowRaw(cur)
+  // Rows 1–3: 3 tiles each, page 0
+  for (let r = 0; r < 3; r++) {
+    setPage0(cur)
+    for (let c = 0; c < 3; c++) {
+      writeTileAdvance(cur, cur.rom.readByte(addrData + xi++) ?? 0)
+    }
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+  }
+  // Row 4: 3 tiles page 0 + tile $5F page 1
+  setPage0(cur)
+  for (let c = 0; c < 3; c++) {
+    writeTileAdvance(cur, cur.rom.readByte(addrData + xi++) ?? 0)
+  }
+  setPage1(cur)
+  writeTile(cur, 0x5F)
+  restoreBookmark(cur)
+  advanceRowRaw(cur)
+  // Row 5: 3 tiles, page 0
+  setPage0(cur)
+  for (let c = 0; c < 3; c++) {
+    writeTileAdvance(cur, cur.rom.readByte(addrData + xi++) ?? 0)
+  }
+}
+
+/**
+ * CODE_0DDA68 (bank_0D.asm line 6389) -- single page-0 tile (ext $75..$7B).
+ *
+ * X = objNo − $75; tile from DATA_0DDA61[X] = {$7D..$83}.
+ * DATA_0DDA61 operand at handler+12.
+ */
+export function handle_0DDA68(cur: Cursor): void {
+  const X = cur.objNo - 0x75
+  const addr = readLongOperand(cur, cur.handlerAddr + 12)
+  setPage0(cur)
+  writeTile(cur, cur.rom.readByte(addr + X) ?? 0)
+}
+
+/**
+ * CODE_0DDA80 (bank_0D.asm line 6407) -- 2-tile vertical page-0 strip (ext $7C..$7E).
+ *
+ * X = objNo − $7C; top from DATA_0DDA7A[X], bottom from DATA_0DDA7D[X].
+ * DATA_0DDA7A operand at handler+12; DATA_0DDA7D operand at handler+24.
+ */
+export function handle_0DDA80(cur: Cursor): void {
+  const X = cur.objNo - 0x7C
+  const addr1 = readLongOperand(cur, cur.handlerAddr + 12)
+  const addr2 = readLongOperand(cur, cur.handlerAddr + 24)
+  setPage0(cur)
+  writeTile(cur, cur.rom.readByte(addr1 + X) ?? 0)
+  advanceRowRaw(cur)
+  setPage0(cur)
+  writeTile(cur, cur.rom.readByte(addr2 + X) ?? 0)
+}
+
+/**
+ * CODE_0DEB6A (bank_0D.asm line 7756) -- fixed 14×10 page-0 tile grid (ext $80).
+ *
+ * Reads DATA_0DEADE (140 bytes) in row-major order: 9 writeTileAdvance + 1
+ * writeTile per row, 14 rows. No per-type offset; always starts at index 0.
+ *
+ * DATA_0DEADE operand at handler+12.
+ */
+export function handle_0DEB6A(cur: Cursor): void {
+  const col0 = cur.col
+  const addr = readLongOperand(cur, cur.handlerAddr + 12)
+  let X = 0
+  for (let row = 0; row < 14; row++) {
+    cur.col = col0
+    setPage0(cur)
+    for (let col = 0; col < 9; col++) {
+      writeTileAdvance(cur, cur.rom.readByte(addr + X++) ?? 0)
+    }
+    writeTile(cur, cur.rom.readByte(addr + X++) ?? 0)
+    advanceRowRaw(cur)
+  }
+}
+
+/**
+ * ADDR_0DEC68 (bank_0D.asm line 7882) -- 2-tile vertical page-0 strip (ext $81).
+ *
+ * Data source: ADDR_0DEC66 is a CMP.B #$CA instruction ($C9,$CA), whose two
+ * bytes are read as tile values for consecutive rows.
+ * ADDR_0DEC66 operand at handler+8.
+ */
+export function handle_0DEC68(cur: Cursor): void {
+  const addr = readLongOperand(cur, cur.handlerAddr + 8)
+  setPage0(cur)
+  writeTile(cur, cur.rom.readByte(addr + 0) ?? 0)
+  advanceRowRaw(cur)
+  setPage0(cur)
+  writeTile(cur, cur.rom.readByte(addr + 1) ?? 0)
+  advanceRowRaw(cur)
+}
+
+/**
+ * CODE_0DC2E9 (bank_0D.asm line 4797) -- 14×9 page-0 grid with transparency
+ * (ext $84). Tile $25 (TILE_EMPTY) in DATA_0DC26B is transparent: no write,
+ * but column still advances (CODE_0DA95D = advanceCol).
+ * The 9th tile per row is always written.
+ *
+ * DATA_0DC26B operand at handler+12.
+ */
+export function handle_0DC2E9(cur: Cursor): void {
+  const col0 = cur.col
+  const addr = readLongOperand(cur, cur.handlerAddr + 12)
+  let X = 0
+  for (let row = 0; row < 14; row++) {
+    cur.col = col0
+    setPage0(cur)
+    for (let col = 0; col < 8; col++) {
+      const tile = cur.rom.readByte(addr + X++) ?? 0
+      if (tile !== 0x25) writeTile(cur, tile)
+      advanceCol(cur)
+    }
+    writeTile(cur, cur.rom.readByte(addr + X++) ?? 0)
+    advanceRowRaw(cur)
+  }
+}
+
+/**
+ * CODE_0DECC1 (bank_0D.asm line 7939) -- 2×2 tile block via CODE_0DE9F5 (ext $8F).
+ *
+ * LDX #8; JMP CODE_0DE9F5 — enters handle_0DE9ED at CODE_0DE9F5 with X=8,
+ * reading DATA_0DE9E1[8..11] = [$FC,$FD,$FE,$FF] as a 2×2 grid, page 0.
+ *
+ * JMP target lo/hi at handler+3/+4; DATA_0DE9E1 operand at target+15.
+ */
+export function handle_0DECC1(cur: Cursor): void {
+  const jmpLo = cur.rom.readByte(cur.handlerAddr + 3) ?? 0
+  const jmpHi = cur.rom.readByte(cur.handlerAddr + 4) ?? 0
+  const jmpTarget = 0x0D0000 | (jmpHi << 8) | jmpLo
+  const addr = readLongOperand(cur, jmpTarget + 15)
+  saveBookmark(cur)
+  let xi = 8
+  for (let row = 0; row < 2; row++) {
+    setPage0(cur)
+    for (let col = 0; col < 2; col++) {
+      writeTileAdvance(cur, cur.rom.readByte(addr + xi++) ?? 0)
+    }
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+  }
+}
+
+/**
+ * CODE_0DA80D (bank_0D.asm line 1808) -- 2-tile vertical page-1 strip (ext $91..$92).
+ *
+ * X = objNo − $91; top from DATA_0DA809[X], bottom from DATA_0DA80B[X].
+ * DATA_0DA809 operand at handler+11; DATA_0DA80B operand at handler+23.
+ */
+export function handle_0DA80D(cur: Cursor): void {
+  const X = cur.objNo - 0x91
+  const addr1 = readLongOperand(cur, cur.handlerAddr + 11)
+  const addr2 = readLongOperand(cur, cur.handlerAddr + 23)
+  setPage1(cur)
+  writeTile(cur, cur.rom.readByte(addr1 + X) ?? 0)
+  advanceRowRaw(cur)
+  setPage1(cur)
+  writeTile(cur, cur.rom.readByte(addr2 + X) ?? 0)
+}
+
+/**
+ * CODE_0DA846 (bank_0D.asm line 1850) -- 2×2 page-1 tile block (ext $93..$94).
+ *
+ * X = objNo − $93; four data tables: DATA_0DA83E/40/42/44[X].
+ * Row 0: writeTileAdvance(table1[X]) + writeTile(table2[X]), page 1.
+ * Row 1: writeTileAdvance(table3[X]) + writeTile(table4[X]), page 1.
+ * Operands at handler+11/21/33/43.
+ */
+export function handle_0DA846(cur: Cursor): void {
+  const col0 = cur.col
+  const X = cur.objNo - 0x93
+  const addr1 = readLongOperand(cur, cur.handlerAddr + 11)
+  const addr2 = readLongOperand(cur, cur.handlerAddr + 21)
+  const addr3 = readLongOperand(cur, cur.handlerAddr + 33)
+  const addr4 = readLongOperand(cur, cur.handlerAddr + 43)
+  setPage1(cur)
+  writeTileAdvance(cur, cur.rom.readByte(addr1 + X) ?? 0)
+  setPage1(cur)
+  writeTile(cur, cur.rom.readByte(addr2 + X) ?? 0)
+  advanceRowRaw(cur)
+  cur.col = col0
+  setPage1(cur)
+  writeTileAdvance(cur, cur.rom.readByte(addr3 + X) ?? 0)
+  setPage1(cur)
+  writeTile(cur, cur.rom.readByte(addr4 + X) ?? 0)
+}
+
+/**
+ * CODE_0DA87D (bank_0D.asm line 1881) -- 3-tile vertical page-1 strip (ext $95..$96).
+ *
+ * X = objNo − $95; tiles from DATA_0DA877[X], DATA_0DA879[X], DATA_0DA87B[X].
+ * Operands at handler+11/23/35.
+ */
+export function handle_0DA87D(cur: Cursor): void {
+  const X = cur.objNo - 0x95
+  const addr1 = readLongOperand(cur, cur.handlerAddr + 11)
+  const addr2 = readLongOperand(cur, cur.handlerAddr + 23)
+  const addr3 = readLongOperand(cur, cur.handlerAddr + 35)
+  setPage1(cur)
+  writeTile(cur, cur.rom.readByte(addr1 + X) ?? 0)
+  advanceRowRaw(cur)
+  setPage1(cur)
+  writeTile(cur, cur.rom.readByte(addr2 + X) ?? 0)
+  advanceRowRaw(cur)
+  setPage1(cur)
+  writeTile(cur, cur.rom.readByte(addr3 + X) ?? 0)
 }

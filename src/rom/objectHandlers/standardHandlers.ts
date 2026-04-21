@@ -4313,3 +4313,172 @@ export function handle_0DF02B(cur: Cursor): void {
     _1--
   }
 }
+
+/**
+ * CODE_0DB6C3 (bank_0D.asm line 3889) -- horizontal tile strip, page 0.
+ *
+ * Size byte XXXXXWWWW: high nibble selects tile from DATA_0DB6C1 = {$93,$9C};
+ * low nibble + 1 = count.  Writes count writeTileAdvance calls.
+ *
+ * DATA_0DB6C1 operand at handler+19.
+ */
+export function handle_0DB6C3(cur: Cursor): void {
+  const X     = cur.size >> 4
+  const count = (cur.size & 0x0F) + 1
+  const addr  = readLongOperand(cur, cur.handlerAddr + 19)
+  const tile  = cur.rom.readByte(addr + X) ?? 0
+  setPage0(cur)
+  for (let i = 0; i < count; i++) {
+    writeTileAdvance(cur, tile)
+  }
+}
+
+/**
+ * ADDR_0DB705 (bank_0D.asm line 3928) -- vertical tile strip, page 0.
+ *
+ * Size byte HHHHTTTT: high nibble + 1 = height; low nibble selects tile type.
+ * Top tile from DATA_0DB6F5[low]; subsequent tiles from DATA_0DB6FD[low].
+ *
+ * DATA_0DB6F5 operand at handler+19; DATA_0DB6FD operand at handler+29.
+ */
+export function handle_0DB705(cur: Cursor): void {
+  const X      = cur.size & 0x0F
+  const height = (cur.size >> 4) + 1
+  const addrTop = readLongOperand(cur, cur.handlerAddr + 19)
+  const addrMid = readLongOperand(cur, cur.handlerAddr + 29)
+  const topTile = cur.rom.readByte(addrTop + X) ?? 0
+  const midTile = cur.rom.readByte(addrMid + X) ?? 0
+  setPage0(cur)
+  writeTile(cur, topTile)
+  for (let r = 1; r < height; r++) {
+    advanceRowRaw(cur)
+    setPage0(cur)
+    writeTile(cur, midTile)
+  }
+}
+
+/**
+ * CODE_0DEF45 (bank_0D.asm line 8314) -- horizontal rope/chain strip, page 0.
+ *
+ * Size low nibble = X (DEX-BNE loop count).  Pattern: $A0 + ($A1 × X−1) + $A2.
+ * Total tiles = X + 1.
+ */
+export function handle_0DEF45(cur: Cursor): void {
+  const count = cur.size & 0x0F
+  setPage0(cur)
+  writeTileAdvance(cur, 0xA0)
+  for (let i = 1; i < count; i++) {
+    setPage0(cur)
+    writeTileAdvance(cur, 0xA1)
+  }
+  setPage0(cur)
+  writeTile(cur, 0xA2)
+}
+
+/**
+ * CODE_0DEFA8 (bank_0D.asm line 8378) -- bordered rectangular box, page 1.
+ *
+ * Size: HHHHWWWW. width = low nibble; height = high nibble.
+ * Total rows = height + 1 (top + (height−1) middle + bottom).
+ * Top row:    page-1 tiles $61 + ($0D × width−1) + $62.
+ * Middle rows: page-1 left (DATA_0DEFA2[X]) + page-0 middle (DATA_0DEFA4[X])
+ *              × width−1 + page-1 right (DATA_0DEFA6[X]); X alternates 0/1.
+ * Bottom row: page-1 tiles $6B + ($6C × width−1) + $6D.
+ *
+ * DATA_0DEFA2 operand at handler+58; DATA_0DEFA4 at +67; DATA_0DEFA6 at +81.
+ */
+export function handle_0DEFA8(cur: Cursor): void {
+  const width  = cur.size & 0x0F
+  const height = (cur.size >> 4) & 0x0F
+  const addrSide  = readLongOperand(cur, cur.handlerAddr + 58)
+  const addrMid   = readLongOperand(cur, cur.handlerAddr + 67)
+  const addrRight = readLongOperand(cur, cur.handlerAddr + 81)
+  saveBookmark(cur)
+  // Top row (page 1)
+  setPage1(cur)
+  writeTileAdvance(cur, 0x61)
+  for (let c = 1; c < width; c++) {
+    setPage1(cur)
+    writeTileAdvance(cur, 0x0D)
+  }
+  setPage1(cur)
+  writeTile(cur, 0x62)
+  // Middle rows: height−1 rows (none for height≤1)
+  let X = 0
+  for (let r = 0; r < height - 1; r++) {
+    restoreBookmark(cur)
+    advanceRowRaw(cur)
+    const left  = cur.rom.readByte(addrSide  + X) ?? 0
+    const mid   = cur.rom.readByte(addrMid   + X) ?? 0
+    const right = cur.rom.readByte(addrRight + X) ?? 0
+    setPage1(cur)
+    writeTileAdvance(cur, left)
+    setPage0(cur)
+    for (let c = 1; c < width; c++) {
+      writeTileAdvance(cur, mid)
+    }
+    setPage1(cur)
+    writeTile(cur, right)
+    X ^= 1
+  }
+  // Bottom row (page 1)
+  restoreBookmark(cur)
+  advanceRowRaw(cur)
+  setPage1(cur)
+  writeTileAdvance(cur, 0x6B)
+  for (let c = 1; c < width; c++) {
+    setPage1(cur)
+    writeTileAdvance(cur, 0x6C)
+  }
+  setPage1(cur)
+  writeTile(cur, 0x6D)
+}
+
+/**
+ * ADDR_0DF066 (bank_0D.asm line 8475) -- rectangular fill via CODE_0DECCE.
+ *
+ * LDX #imm; JMP CODE_0DECCE — enters the core of handle_0DECC9 with X set
+ * from bytecode rather than from the dispatched object number. Tile and page
+ * are determined by DATA_0DECC6[X]; rectangle size from cur.size.
+ *
+ * X immediate at handler+1; JMP lo/hi at handler+2/3; DATA_0DECC6 operand at
+ * CODE_0DECCE+32 (= JMP target + 32).
+ */
+export function handle_0DF066(cur: Cursor): void {
+  const X        = readImmByte(cur, cur.handlerAddr + 1)
+  const jmpLo    = cur.rom.readByte(cur.handlerAddr + 2) ?? 0
+  const jmpHi    = cur.rom.readByte(cur.handlerAddr + 3) ?? 0
+  const target   = 0x0D0000 | (jmpHi << 8) | jmpLo  // CODE_0DECCE
+  const tableAddr = readLongOperand(cur, target + 32)  // DATA_0DECC6
+  const tile     = cur.rom.readByte(tableAddr + X) ?? 0
+  if (X === 1) setPage1(cur); else setPage0(cur)
+  const widthM1  = cur.size & 0x0F
+  const heightM1 = (cur.size >> 4) & 0x0F
+  saveBookmark(cur)
+  for (let r = 0; r <= heightM1; r++) {
+    for (let c = 0; c <= widthM1; c++) {
+      writeTileAdvance(cur, tile)
+    }
+    restoreBookmark(cur)
+    nextRow(cur)
+  }
+}
+
+/**
+ * CODE_0DF06C (bank_0D.asm line 8483) -- horizontal page-1 tile strip.
+ *
+ * Size byte TTTTCCCC: high nibble = type index into DATA_0DF06B = {$59};
+ * low nibble + 1 = count.  Writes count writeTileAdvance calls, page 1.
+ *
+ * DATA_0DF06B operand at handler+19.
+ */
+export function handle_0DF06C(cur: Cursor): void {
+  const X     = cur.size >> 4
+  const count = (cur.size & 0x0F) + 1
+  const addr  = readLongOperand(cur, cur.handlerAddr + 19)
+  const tile  = cur.rom.readByte(addr + X) ?? 0
+  setPage1(cur)
+  for (let i = 0; i < count; i++) {
+    writeTileAdvance(cur, tile)
+  }
+}
