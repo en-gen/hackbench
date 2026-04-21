@@ -159,6 +159,8 @@
     "webpack-cli": "^7.0.2"
   },
   "dependencies": {
-    "@smwcentral/spc-player": "^2.0.2"
+    "@smwcentral/spc-player": "^2.0.2",
+    "@vue/reactivity": "^3.5.32",
+    "pinia": "^3.0.4"
   }
 }
