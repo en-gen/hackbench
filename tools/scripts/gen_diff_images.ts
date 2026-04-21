@@ -13,7 +13,7 @@ import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from '
 import { resolve } from 'path'
 import { deflateSync } from 'zlib'
 import { SmwRom } from '../../src/rom/SmwRom'
-import { parseLevelObjects } from '../../src/rom/LevelParser'
+import { parseLevelObjects, SCREEN_W } from '../../src/rom/LevelParser'
 import { expandMap, TILE_EMPTY } from '../../src/rom/ObjectExpander'
 import { loadVram } from '../../src/rom/GfxLoader'
 import { loadAllMap16 } from '../../src/rom/Map16'
@@ -143,6 +143,8 @@ const FONT: Record<string, number[]> = {
   '-': [0, 0, 0, 0x0E, 0, 0, 0],
   '(': [0x02, 0x04, 0x08, 0x08, 0x08, 0x04, 0x02],
   ')': [0x08, 0x04, 0x02, 0x02, 0x02, 0x04, 0x08],
+  '%': [0x18, 0x18, 0x04, 0x08, 0x10, 0x03, 0x03],
+  '.': [0, 0, 0, 0, 0, 0x04, 0],
 }
 
 function drawText(dst: Uint8Array, dstW: number, x: number, y: number, text: string, r: number, g: number, b: number, scale = 2) {
@@ -182,10 +184,22 @@ function drawText(dst: Uint8Array, dstW: number, x: number, y: number, text: str
  * Page 0 ($06A-$06D) = outlined/uncleared, page 1 ($16A-$16D) = solid/cleared.
  * The game flips the page globally when the player hits a switch palace; the
  * block's identity doesn't change. Collapse both variants onto page 0.
+ *
+ * P-switch pairs: blue P-switch swaps hidden ? blocks ($29↔$24) and coins
+ * ($2B↔$32); silver P-switch swaps silver coins ($2F↔$2B). A Mesen dump
+ * captured while a P-switch was active will show the alternate tile ID — treat
+ * each pair as identical so those cells don't generate spurious diffs.
  */
 function normalizeTile(id: number): number {
   const low = id & 0xFF
+  // Switch-palace blocks (page 0 and page 1 variants are logically the same block).
   if (low >= 0x6A && low <= 0x6D) return low
+  // P-switch: hidden ? block ($29) ↔ visible ? block ($24) — normalize to $24.
+  if (id === 0x29) return 0x24
+  // P-switch: coin ($2B) ↔ active-state coin ($32) — normalize to $2B.
+  if (id === 0x32) return 0x2B
+  // Silver P-switch: silver coin ($2F) ↔ regular coin ($2B) — normalize to $2B.
+  if (id === 0x2F) return 0x2B
   return id
 }
 
@@ -252,7 +266,7 @@ for (const name of folders) {
   if (!rawL1) { results.push({ lvl: name, diffs: -1, observed: 0, pct: '—', status: 'no L1 data' }); continue }
 
   const { header, objects, isVertical } = parseLevelObjects(rawL1)
-  const ourGrid = expandMap(objects, header.levelLength, rom.rom, header.objectTileset, isVertical)
+  const ourGrid = expandMap(objects, header.levelLength, rom.rom, header.objectTileset, isVertical, header.levelMode, levelNum)
 
   let vram, cgram, tiles
   try {
@@ -304,7 +318,10 @@ for (const name of folders) {
     colHi = Math.min(31, cHi + 1)
   } else {
     colLo = fx.minCol
-    colHi = fx.maxCol
+    // Cap at the level's declared width — the Mesen walker reads WRAM
+    // unconditionally, so fixture columns beyond levelLength*16 contain
+    // garbage from adjacent WRAM regions, not actual level tiles.
+    colHi = Math.min(fx.maxCol, header.levelLength * SCREEN_W - 1)
     const cols = colHi - colLo + 1
     let rLo = 26, rHi = 0
     for (let r = 0; r <= 26; r++) {
@@ -415,8 +432,22 @@ for (const name of folders) {
     }
   }
 
+  // Match percentage badge — drawn after counting so we know the number.
+  const pct = observed > 0 ? ((100 * (observed - diffs)) / observed).toFixed(2) + '%' : '—'
+  if (observed > 0) {
+    const matchPct = Math.round((observed - diffs) * 100 / observed)
+    const badgeText = `${matchPct}%`
+    const hPad = 4
+    const badgeW = badgeText.length * 12 + hPad * 2   // 12px per char at scale 2
+    const badgeH = LABEL_H
+    const badgeX = oursLabelX + oursLabelW - badgeW - 4
+    const badgeY = oursLabelY
+    const vPad = Math.floor((LABEL_H - 14) / 2)        // 14 = 7 rows × scale 2
+    const [bR, bG, bB2] = matchPct === 100 ? [50, 200, 50] : matchPct >= 95 ? [200, 150, 30] : [220, 50, 50]
+    drawRect(img, imgW, badgeX, badgeY, badgeW, badgeH, bR, bG, bB2)
+    drawText(img, imgW, badgeX + hPad, badgeY + vPad, badgeText, 255, 255, 255, 2)
+  }
   writeFileSync(outPath, encodePng(imgW, imgH, img))
-  const pct = observed ? ((100 * (observed - diffs)) / observed).toFixed(2) + '%' : '—'
   results.push({ lvl: name, diffs, observed, pct, status: `wrote ${imgW}x${imgH}` })
   console.log(`  \$${name.toUpperCase()}  ${diffs.toString().padStart(5)} diffs / ${observed.toString().padStart(5)} observed  (${pct.padStart(7)})`)
 }

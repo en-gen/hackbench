@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'fs'
 import { SmwRom } from '../../src/rom/SmwRom'
-import { parseLevelObjects } from '../../src/rom/LevelParser'
+import { parseLevelObjects, SCREEN_W } from '../../src/rom/LevelParser'
 import { expandMap, TILE_EMPTY } from '../../src/rom/ObjectExpander'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
@@ -18,7 +18,7 @@ const levelNum = parseInt(arg, 16)
 const rom = SmwRom.open(ROM_PATH)
 const raw = rom.getLevelRawData(levelNum)!
 const { header, objects } = parseLevelObjects(raw)
-const ourGrid = expandMap(objects, header.levelLength, rom.rom, header.objectTileset)
+const ourGrid = expandMap(objects, header.levelLength, rom.rom, header.objectTileset, false, header.levelMode, levelNum)
 
 const text = readFileSync(`${MAPS_DIR}/${arg}/map16.txt`, 'utf8')
 let minCol = 0, maxCol = 0
@@ -36,7 +36,13 @@ for (const line of text.split(/\r?\n/)) {
   )
 }
 
-const cols = maxCol - minCol + 1
+// Cap comparison at the level's declared width. The Mesen walker reads
+// WRAM unconditionally, so fixture columns beyond levelLength*16 contain
+// data from adjacent WRAM regions (overworld event tilemap, etc.), not
+// actual level tiles. Comparing against them always produces false diffs.
+const levelMaxCol = header.levelLength * SCREEN_W - 1
+const cappedMaxCol = Math.min(maxCol, levelMaxCol)
+const cols = cappedMaxCol - minCol + 1
 let shown = 0
 const byExpected = new Map<string, number>()
 const byActual = new Map<string, number>()

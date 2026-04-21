@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
-import { expandMap, expandObject, createGrid, TILE_EMPTY } from '../../../src/rom/ObjectExpander'
+import { expandMap, expandObject, createGrid, readLayer3Setting, TILE_EMPTY } from '../../../src/rom/ObjectExpander'
 import { LevelObject, SCREEN_W, parseLevelObjects } from '../../../src/rom/LevelParser'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
@@ -20,16 +20,21 @@ import {
   handle_0DA8C3, handle_0DAA26, handle_0DAAB4, handle_0DAB0D, handle_0DAB3E,
   handle_0DB075, handle_0DB1C8, handle_0DB1D4, handle_0DB224,
   handle_0DB3BD, handle_0DB3E3,
-  handle_0DB42D, handle_0DB461, handle_0DB51F, handle_0DB547, handle_0DB571, handle_0DB5B7,
+  handle_0DB42D, handle_0DB461, handle_0DB49E, handle_0DB51F, handle_0DB547, handle_0DB571, handle_0DB5B7,
   handle_0DB73F, handle_0DB7AA,
+  handle_0DB863,
   handle_0DB916, handle_0DB91E,
+  handle_0DB604, handle_0DBB2C, handle_0DBB63,
   handle_0DDCEA, handle_0DDD2E, handle_0DE135,
+  handle_0DED12,
   handle_0DEDB9,
+  handle_0DDAF2,
 } from '../../../src/rom/objectHandlers/standardHandlers'
 import {
   handle_0DA57B, handle_0DA64D, handle_0DA656, handle_0DA673, handle_0DA68E, handle_0DA6D1,
   handle_0DB2CA,
   handle_0DB583, handle_0DB58B,
+  handle_0DC259,
 } from '../../../src/rom/objectHandlers/extendedHandlers'
 import { RomFile } from '../../../src/rom/RomFile'
 
@@ -116,6 +121,82 @@ describe('createGrid', () => {
   it('widens with screens', () => {
     const grid = createGrid(3)
     expect(grid[0].length).toBe(3 * SCREEN_W)
+  })
+
+  // ── Overflow screen tests (layer3Setting != 0) ──────────────────────────────
+  //
+  // When layer3Setting is non-zero, createGrid appends 2 extra screens beyond the
+  // defined level.  CODE_00A045 (bank_00.asm) zeroes OWLayer1VramBuffer in batches:
+  // $B0 bytes zeroed, then $100 bytes skipped, repeating every $1B0 bytes.
+  //
+  // For a level with `screens` screens, the row-major WRAM layout starts the first
+  // overflow screen at offset `screens * $1B0`.  OWLayer1VramBuffer starts at $1C00.
+  // A cell at (screen, row) is zeroed iff:
+  //   owlBufOff = screen * $1B0 + row * $10 - $1C00 >= 0 AND
+  //   (owlBufOff % $1B0) < $B0
+
+  it('no overflow appended when layer3Setting=0', () => {
+    const grid = createGrid(16, false, 0)
+    // 16 screens × 16 cols = 256 cols; no overflow
+    expect(grid[0].length).toBe(256)
+  })
+
+  it('appends 2 overflow screens when layer3Setting != 0', () => {
+    const grid = createGrid(16, false, 1)
+    // 16 defined + 2 overflow = 18 screens × 16 = 288 cols
+    expect(grid[0].length).toBe(288)
+  })
+
+  it('overflow screen 16 rows 0-15 are TILE_EMPTY (before OWLayer1VramBuffer)', () => {
+    // Screen 16, rows 0-15: wramOffset = 16 * 0x1B0 + row * 0x10 = 0x1B00 + row * 0x10
+    // For row 15: 0x1B00 + 0xF0 = 0x1BF0 < 0x1C00 → NOT in OWLayer1VramBuffer → $025
+    const grid = createGrid(16, false, 1)
+    for (let r = 0; r <= 15; r++) {
+      // Screen 16 cols 256-271
+      for (let c = 256; c < 272; c++) {
+        expect(grid[r][c]).toBe(TILE_EMPTY)
+      }
+    }
+  })
+
+  it('overflow screen 16 rows 16-26 are $000 (zeroed by CODE_00A045)', () => {
+    // Screen 16, row 16: wramOffset = 16 * 0x1B0 + 16 * 0x10 = 0x1C00
+    // owlBufOff = 0; 0 % 0x1B0 = 0 < 0xB0 → ZEROED
+    const grid = createGrid(16, false, 1)
+    for (let r = 16; r <= 26; r++) {
+      for (let c = 256; c < 272; c++) {
+        expect(grid[r][c]).toBe(0x00)
+      }
+    }
+  })
+
+  it('overflow screen 17 rows 0-15 are TILE_EMPTY (in CODE_00A045 skip gap)', () => {
+    // Screen 17, row 0: wramOffset = 17 * 0x1B0 = 0x1CB0
+    // owlBufOff = 0x1CB0 - 0x1C00 = 0xB0; 0xB0 % 0x1B0 = 0xB0, NOT < 0xB0 → $025
+    // Screen 17, row 15: owlBufOff = 0xB0 + 15*0x10 = 0x1A0; 0x1A0 % 0x1B0 = 0x1A0 >= 0xB0 → $025
+    const grid = createGrid(16, false, 1)
+    for (let r = 0; r <= 15; r++) {
+      for (let c = 272; c < 288; c++) {
+        expect(grid[r][c]).toBe(TILE_EMPTY)
+      }
+    }
+  })
+
+  it('overflow screen 17 rows 16-26 are $000 (in CODE_00A045 batch 1)', () => {
+    // Screen 17, row 16: owlBufOff = 0xB0 + 16*0x10 = 0x1B0; 0x1B0 % 0x1B0 = 0 < 0xB0 → ZEROED
+    const grid = createGrid(16, false, 1)
+    for (let r = 16; r <= 26; r++) {
+      for (let c = 272; c < 288; c++) {
+        expect(grid[r][c]).toBe(0x00)
+      }
+    }
+  })
+
+  it('vertical levels never append overflow screens', () => {
+    const grid = createGrid(8, true, 2)
+    // 8 screens × 16 rows = 128 rows, 32 cols — no horizontal overflow
+    expect(grid.length).toBe(128)
+    expect(grid[0].length).toBe(32)
   })
 })
 
@@ -1042,6 +1123,78 @@ describe('handle_0DAB3E pipe variants (object 18)', () => {
     expect(grid[11][6]).toBe(P1(0xDB))
     expect(grid[11][7]).toBe(P1(0xDC))
   })
+
+  it('variant 8: diagonal slope with vertical right edge, H=3', () => {
+    // pipeVariant8 (CODE_0DAF61): +32 $C4 (lip), +43 $EC (body), +54 $65 (fill).
+    //
+    // Size $38 -> H=3. Starting at col=5, row=10. Right edge always at col 7 (col0+H-1).
+    //   Iter 0 at (5, 10): EC $65 $65           [body + H-1=2 fills]
+    //   Iter 1 at (5, 11): C4 EC $65            [C4 lip + body + H-2=1 fill]
+    //   Iter 2 at (6, 12): C4 EC                [C4 lip + body + H-3=0 fills]
+    //   Iter 3 at (7, 13): C4                   [C4 lip only; _2==0 -> BMI skips EC]
+    const rom = makeMockRom()
+    stampDispatchTable(rom)
+    rom.writeAt(0x0DAF61 + 32, [0xC4])
+    rom.writeAt(0x0DAF61 + 43, [0xEC])
+    rom.writeAt(0x0DAF61 + 54, [0x65])
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(DISPATCHER_ADDR, grid, rom, 0, 5, 10, 18, 0x38)
+    handle_0DAB3E(cur)
+    // Row 10 (iter 0): EC at 5, fill at 6, fill at 7.
+    expect(grid[10][5]).toBe(P1(0xEC))
+    expect(grid[10][6]).toBe(P1(0x65))
+    expect(grid[10][7]).toBe(P1(0x65))
+    expect(grid[10][8]).toBe(TILE_EMPTY)
+    // Row 11 (iter 1): C4 at 5, EC at 6, fill at 7.
+    expect(grid[11][5]).toBe(P1(0xC4))
+    expect(grid[11][6]).toBe(P1(0xEC))
+    expect(grid[11][7]).toBe(P1(0x65))
+    expect(grid[11][8]).toBe(TILE_EMPTY)
+    // Row 12 (iter 2): C4 at 6, EC at 7.
+    expect(grid[12][5]).toBe(TILE_EMPTY)
+    expect(grid[12][6]).toBe(P1(0xC4))
+    expect(grid[12][7]).toBe(P1(0xEC))
+    expect(grid[12][8]).toBe(TILE_EMPTY)
+    // Row 13 (iter 3, i==H=3): C4 at 7 only (_2==0 -> BMI skips EC).
+    expect(grid[13][6]).toBe(TILE_EMPTY)
+    expect(grid[13][7]).toBe(P1(0xC4))
+    expect(grid[13][8]).toBe(TILE_EMPTY)
+  })
+
+  it('variant 9: diagonal slope with vertical left edge, H=3', () => {
+    // pipeVariant9 (CODE_0DAFEA): +28 $65 (fill), +45 $ED (body), +57 $C5 (lip).
+    //
+    // Size $39 -> H=3. Starting at col=5, row=10. All rows start at col0=5.
+    //   Iter 0 (X=3): $65 $65 ED at cols 5,6,7  [2 fills + body; no C5 since _1=0]
+    //   Iter 1 (X=2): $65 ED C5 at cols 5,6,7   [1 fill + body + lip]
+    //   Iter 2 (X=1): ED C5 at cols 5,6          [no fills + body + lip]
+    //   Iter 3 (X=0): C5 at col 5 only            [X==0: skip fills+ED, just lip]
+    const rom = makeMockRom()
+    stampDispatchTable(rom)
+    rom.writeAt(0x0DAFEA + 28, [0x65])
+    rom.writeAt(0x0DAFEA + 45, [0xED])
+    rom.writeAt(0x0DAFEA + 57, [0xC5])
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(DISPATCHER_ADDR, grid, rom, 0, 5, 10, 18, 0x39)
+    handle_0DAB3E(cur)
+    // Row 10 (iter 0, X=3): fills at 5,6; ED at 7; no C5.
+    expect(grid[10][5]).toBe(P1(0x65))
+    expect(grid[10][6]).toBe(P1(0x65))
+    expect(grid[10][7]).toBe(P1(0xED))
+    expect(grid[10][8]).toBe(TILE_EMPTY)
+    // Row 11 (iter 1, X=2): fill at 5; ED at 6; C5 at 7.
+    expect(grid[11][5]).toBe(P1(0x65))
+    expect(grid[11][6]).toBe(P1(0xED))
+    expect(grid[11][7]).toBe(P1(0xC5))
+    expect(grid[11][8]).toBe(TILE_EMPTY)
+    // Row 12 (iter 2, X=1): ED at 5; C5 at 6.
+    expect(grid[12][5]).toBe(P1(0xED))
+    expect(grid[12][6]).toBe(P1(0xC5))
+    expect(grid[12][7]).toBe(TILE_EMPTY)
+    // Row 13 (iter 3, X=0): C5 only at 5.
+    expect(grid[13][5]).toBe(P1(0xC5))
+    expect(grid[13][6]).toBe(TILE_EMPTY)
+  })
 })
 
 describe('handle_0DB224 (3-column framed structure, object 21)', () => {
@@ -1141,13 +1294,13 @@ describe('expandMap integration (real SMW ROM)', () => {
 
   const rom = SmwRom.open(ROM_PATH)
 
-  /** Load and expand a level by translevel index. */
+  /** Load and expand a level by translevel index (passes levelNum for layer3 overflow). */
   function expandLevelByIndex(index: number) {
     const rawL1 = rom.getLevelRawData(index)
     if (!rawL1) throw new Error(`Level $${index.toString(16)} has no data`)
     const { header, objects } = parseLevelObjects(rawL1)
     const screens = header.levelLength
-    const grid = expandMap(objects, screens, rom.rom, header.objectTileset)
+    const grid = expandMap(objects, screens, rom.rom, header.objectTileset, false, header.levelMode, index)
     return { grid, header, objects, screens }
   }
 
@@ -1204,6 +1357,70 @@ describe('expandMap integration (real SMW ROM)', () => {
     // latent infinite loop or unbounded index, one of these should trip it.
     for (let i = 0x105; i < 0x115; i++) {
       expect(() => expandLevelByIndex(i)).not.toThrow()
+    }
+  })
+
+  // ── Layer 3 / overflow screen tests (require ROM for DATA_05F200 read) ────────
+
+  it('readLayer3Setting returns 2 for level $002 (byte $80 → bits 7:6 = 2)', () => {
+    // DATA_05F200[$002] = $80 → (0x80 & 0xC0) >> 6 = 2
+    expect(readLayer3Setting(rom.rom, 0x002)).toBe(2)
+  })
+
+  it('readLayer3Setting returns 1 for level $127 (byte $40 → bits 7:6 = 1)', () => {
+    // DATA_05F200[$127] = $40 → (0x40 & 0xC0) >> 6 = 1
+    expect(readLayer3Setting(rom.rom, 0x127)).toBe(1)
+  })
+
+  it('readLayer3Setting returns 0 for level $005 (no Layer 3 tide)', () => {
+    // DATA_05F200[$005] = $01 → (0x01 & 0xC0) >> 6 = 0
+    expect(readLayer3Setting(rom.rom, 0x005)).toBe(0)
+  })
+
+  it('level $002: grid has 2 overflow screens (18 total × 16 = 288 cols)', () => {
+    // levelLength=16, Layer3Setting=2 → 16 defined + 2 overflow = 18 screens
+    const { grid, header } = expandLevelByIndex(0x002)
+    expect(header.levelLength).toBe(16)
+    expect(grid[0].length).toBe(18 * SCREEN_W)
+  })
+
+  it('level $002: screen 16 rows 0-15 are TILE_EMPTY (before OWLayer1VramBuffer)', () => {
+    const { grid } = expandLevelByIndex(0x002)
+    for (let r = 0; r <= 15; r++) {
+      for (let c = 256; c < 272; c++) {
+        expect(grid[r][c]).toBe(TILE_EMPTY)
+      }
+    }
+  })
+
+  it('level $002: screen 16 rows 16-26 are $000 (zeroed by CODE_00A045)', () => {
+    const { grid } = expandLevelByIndex(0x002)
+    for (let r = 16; r <= 26; r++) {
+      for (let c = 256; c < 272; c++) {
+        expect(grid[r][c]).toBe(0x00)
+      }
+    }
+  })
+
+  it('level $127: screen 17 rows 0-15 are TILE_EMPTY (CODE_00A045 skip gap)', () => {
+    // owlBufOff for screen 17 row 0 = 17*0x1B0 - 0x1C00 = 0xB0
+    // 0xB0 % 0x1B0 = 0xB0 which is NOT < 0xB0 → not zeroed
+    const { grid } = expandLevelByIndex(0x127)
+    for (let r = 0; r <= 15; r++) {
+      for (let c = 272; c < 288; c++) {
+        expect(grid[r][c]).toBe(TILE_EMPTY)
+      }
+    }
+  })
+
+  it('level $127: screen 17 rows 16-26 are $000 (CODE_00A045 batch 1)', () => {
+    // owlBufOff for screen 17 row 16 = 0xB0 + 16*0x10 = 0x1B0
+    // 0x1B0 % 0x1B0 = 0 < 0xB0 → zeroed
+    const { grid } = expandLevelByIndex(0x127)
+    for (let r = 16; r <= 26; r++) {
+      for (let c = 272; c < 288; c++) {
+        expect(grid[r][c]).toBe(0x00)
+      }
     }
   })
 })
@@ -1662,5 +1879,673 @@ describe('handle_0DE135 (three-part rect, object $36)', () => {
     expect(grid[0][2]).toBe(P1(0x00))   // top-M
     expect(grid[0][3]).toBe(P1(0x48))   // top-R
     expect(grid[1][0]).toBe(TILE_EMPTY) // no row below
+  })
+})
+
+// ── CODE_0DB604 (2:1 slope block, obj=$3C) ────────────────────────────────────
+
+describe('handle_0DB604 (2:1 slope block, obj=$3C)', () => {
+  const HANDLER_ADDR = 0x0DB604
+  const DATA_ADDR    = 0x0DB5E8
+
+  // DATA_0DB5E8/9/EA stream: 28 bytes matching vanilla ROM values.
+  const TABLE = [
+    0x07, 0x0A,                                                         // index 0,1
+    0x0A, 0x08, 0x0A, 0x0A, 0x09, 0x81, 0x82, 0x83,                    // 2-9
+    0x81, 0x82, 0x83, 0x81, 0x81, 0x25, 0x84, 0x81,                    // 10-17
+    0x25, 0x84, 0x81, 0x81, 0x25, 0x84, 0x81, 0x25, 0x84, 0x81,        // 18-27
+  ]
+
+  function makeRom(): RomFile {
+    const rom = makeMockRom({ [DATA_ADDR]: TABLE })
+    // Stamp LDA.L DATA_0DB5E8,X operand at handler+$1D.
+    stampLongOperand(rom, HANDLER_ADDR, 0x1D, DATA_ADDR)
+    return rom
+  }
+
+  it('size=$02 (N=2) paints correct 7-wide × 4-row tile pattern', () => {
+    const rom = makeRom()
+    const grid = createGrid(4)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 0, 0, 0x3C, 0x02)
+    handle_0DB604(cur)
+
+    // Row 0 (page 1): indices 0-6
+    expect(grid[0][0]).toBe(P1(0x07))
+    expect(grid[0][1]).toBe(P1(0x0A))
+    expect(grid[0][2]).toBe(P1(0x0A))
+    expect(grid[0][3]).toBe(P1(0x08))
+    expect(grid[0][4]).toBe(P1(0x0A))
+    expect(grid[0][5]).toBe(P1(0x0A))
+    expect(grid[0][6]).toBe(P1(0x09))
+
+    // Row 1 (page 0): indices 7-13
+    expect(grid[1][0]).toBe(0x81)
+    expect(grid[1][1]).toBe(0x82)
+    expect(grid[1][2]).toBe(0x83)
+    expect(grid[1][3]).toBe(0x81)
+    expect(grid[1][4]).toBe(0x82)
+    expect(grid[1][5]).toBe(0x83)
+    expect(grid[1][6]).toBe(0x81)
+
+    // Row 2 (page 0): indices 14-20
+    expect(grid[2][0]).toBe(0x81)
+    expect(grid[2][1]).toBe(0x25)
+    expect(grid[2][2]).toBe(0x84)
+    expect(grid[2][3]).toBe(0x81)
+    expect(grid[2][4]).toBe(0x25)
+    expect(grid[2][5]).toBe(0x84)
+    expect(grid[2][6]).toBe(0x81)
+
+    // Row 3 (page 0): indices 21-27
+    expect(grid[3][0]).toBe(0x81)
+    expect(grid[3][1]).toBe(0x25)
+    expect(grid[3][2]).toBe(0x84)
+    expect(grid[3][3]).toBe(0x81)
+    expect(grid[3][4]).toBe(0x25)
+    expect(grid[3][5]).toBe(0x84)
+    expect(grid[3][6]).toBe(0x81)
+
+    // No spill into row 4.
+    expect(grid[4]?.[0] ?? TILE_EMPTY).toBe(TILE_EMPTY)
+  })
+
+  it('size=$01 (N=1) paints a 4-wide × 4-row shape', () => {
+    const rom = makeRom()
+    const grid = createGrid(4)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 0, 0, 0x3C, 0x01)
+    handle_0DB604(cur)
+    // With N=1: first loop=3 tiles, no middle loop, cap=1 → 4 tiles per row.
+    // Row 0 (page 1): TABLE[0..2], skip to TABLE[3] for cap (X+=3 after first loop).
+    // But wait: N=1, _0=1. After first loop (X=0→3), DEC _2 (1→0), BEQ → skip middle.
+    // CODE_0DB652: X+=3→6, write TABLE[6]=$09 (page 1). X++=7.
+    expect(grid[0][0]).toBe(P1(0x07))  // TABLE[0]
+    expect(grid[0][1]).toBe(P1(0x0A))  // TABLE[1]
+    expect(grid[0][2]).toBe(P1(0x0A))  // TABLE[2]
+    expect(grid[0][3]).toBe(P1(0x09))  // TABLE[6] (skip 3,4,5)
+    expect(grid[0][4]).toBe(TILE_EMPTY)  // not written
+  })
+})
+
+// ── CODE_0DBB2C (2-wide vertical slope pillar, obj=$30) ──────────────────────
+
+describe('handle_0DBB2C (2-wide vertical pillar, obj=$30)', () => {
+  it('size=$00 (X=0) draws only header row ($161, $162), no body', () => {
+    const rom = makeMockRom()
+    const grid = createGrid(3)
+    const cur = makeCursorForHandler(0x0DBB2C, grid, rom, 0, 2, 5, 0x30, 0x00)
+    handle_0DBB2C(cur)
+    expect(grid[5][2]).toBe(P1(0x61))  // header left
+    expect(grid[5][3]).toBe(P1(0x62))  // header right
+    expect(grid[6][2]).toBe(TILE_EMPTY)  // no body rows (X=0, loop runs 0 times)
+    expect(grid[6][3]).toBe(TILE_EMPTY)
+  })
+
+  it('size=$20 (X=2) draws header + 2 body rows', () => {
+    const rom = makeMockRom()
+    const grid = createGrid(5)
+    const cur = makeCursorForHandler(0x0DBB2C, grid, rom, 0, 0, 0, 0x30, 0x20)
+    handle_0DBB2C(cur)
+    // Header row (row 0):
+    expect(grid[0][0]).toBe(P1(0x61))
+    expect(grid[0][1]).toBe(P1(0x62))
+    // Body row 1:
+    expect(grid[1][0]).toBe(P1(0x63))
+    expect(grid[1][1]).toBe(P1(0x64))
+    // Body row 2:
+    expect(grid[2][0]).toBe(P1(0x63))
+    expect(grid[2][1]).toBe(P1(0x64))
+    // No body row 3:
+    expect(grid[3][0]).toBe(TILE_EMPTY)
+  })
+
+  it('size=$80 (X=8) draws header + 8 body rows (9 total rows)', () => {
+    const rom = makeMockRom()
+    const grid = createGrid(15)
+    const cur = makeCursorForHandler(0x0DBB2C, grid, rom, 0, 0, 0, 0x30, 0x80)
+    handle_0DBB2C(cur)
+    expect(grid[0][0]).toBe(P1(0x61))  // header
+    for (let r = 1; r <= 8; r++) {
+      expect(grid[r][0]).toBe(P1(0x63))  // body left
+      expect(grid[r][1]).toBe(P1(0x64))  // body right
+    }
+    expect(grid[9][0]).toBe(TILE_EMPTY)  // no more rows
+  })
+})
+
+// ── CODE_0DBB63 (obj=$31: rect fill with DATA_0DA8B4[14]=$65, page 1) ────────
+
+describe('handle_0DBB63 (rectangular fill using tile slot 14, obj=$31)', () => {
+  // handle_0DBB63 reads DATA_0DA8B4 via CODE_0DA8C3's LDA.L operand at $0DA92F.
+  const TABLE_ADDR = 0x0DA8B4  // vanilla location of DATA_0DA8B4
+  const TILE_AT_14 = 0x65      // DATA_0DA8B4[14]
+
+  function makeRom(): RomFile {
+    // 15-entry table; index 14 = $65.
+    const table = [0x02, 0x21, 0x23, 0x2A, 0x2B, 0x3F, 0x03, 0x13,
+                   0x1E, 0x24, 0x2E, 0x2F, 0x30, 0x32, TILE_AT_14]
+    const rom = makeMockRom({ [TABLE_ADDR]: table })
+    // Stamp the LDA.L operand inside CODE_0DA8C3 at 0x0DA8C3 + 0x6C = 0x0DA92F.
+    stampLongOperand(rom, 0x0DA8C3, 0x6C, TABLE_ADDR)
+    return rom
+  }
+
+  it('size=$00 writes a single $165 at the cursor', () => {
+    const rom = makeRom()
+    const grid = createGrid(2)
+    const cur = makeCursorForHandler(0x0DBB63, grid, rom, 0, 3, 5, 0x31, 0x00)
+    handle_0DBB63(cur)
+    expect(grid[5][3]).toBe(P1(TILE_AT_14))  // $165
+    expect(grid[5][4]).toBe(TILE_EMPTY)
+    expect(grid[6][3]).toBe(TILE_EMPTY)
+  })
+
+  it('size=$03 fills a 4-wide × 1-tall row of $165', () => {
+    const rom = makeRom()
+    const grid = createGrid(2)
+    const cur = makeCursorForHandler(0x0DBB63, grid, rom, 0, 0, 0, 0x31, 0x03)
+    handle_0DBB63(cur)
+    for (let c = 0; c < 4; c++) expect(grid[0][c]).toBe(P1(TILE_AT_14))
+    expect(grid[0][4]).toBe(TILE_EMPTY)
+    expect(grid[1][0]).toBe(TILE_EMPTY)
+  })
+
+  it('size=$10 fills a 1-wide × 2-tall column of $165', () => {
+    const rom = makeRom()
+    const grid = createGrid(3)
+    const cur = makeCursorForHandler(0x0DBB63, grid, rom, 0, 2, 0, 0x31, 0x10)
+    handle_0DBB63(cur)
+    expect(grid[0][2]).toBe(P1(TILE_AT_14))
+    expect(grid[1][2]).toBe(P1(TILE_AT_14))
+    expect(grid[2][2]).toBe(TILE_EMPTY)
+  })
+})
+
+// ── CODE_0DC259 (ext $4B/$4C: coin block variant, missing handler) ────────────
+
+describe('handle_0DC259 (coin block variant, ext $4B/$4C)', () => {
+  // DATA_0DC257 = [$07, $08], immediately before CODE_0DC259.
+  // LDA.L DATA_0DC257,X opcode at handler+11; 3-byte operand at handler+12.
+  const HANDLER_ADDR = 0x0DC259
+  const DATA_ADDR    = 0x0DC257   // DATA_0DC257 = [$07, $08]
+
+  function setupRom(): RomFile {
+    const rom = makeMockRom({ [DATA_ADDR]: [0x07, 0x08] })
+    stampLongOperand(rom, HANDLER_ADDR, 12, DATA_ADDR)
+    return rom
+  }
+
+  it('ext $4B writes $107 (page-1 tile $07) at cursor', () => {
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 5, 10, 0x4B, 0x4B)
+    handle_0DC259(cur)
+    expect(grid[10][5]).toBe(P1(0x07))
+    expect(grid[10][6]).toBe(TILE_EMPTY)   // no advance
+    expect(grid[11][5]).toBe(TILE_EMPTY)   // single tile, no row change
+  })
+
+  it('ext $4C writes $108 (page-1 tile $08) at cursor', () => {
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 3, 20, 0x4C, 0x4C)
+    handle_0DC259(cur)
+    expect(grid[20][3]).toBe(P1(0x08))
+    expect(grid[20][4]).toBe(TILE_EMPTY)
+  })
+
+  it('out-of-range ext type emits nothing', () => {
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 0, 0, 0x4A, 0x4A)
+    handle_0DC259(cur)
+    expect(grid[0][0]).toBe(TILE_EMPTY)
+  })
+})
+
+// ── handle_0DB49E (vertical pipe): pipe-bottom-meets-rope context merge ────────
+
+describe('handle_0DB49E (vertical pipe) bottom-merge fix', () => {
+  // Vanilla SNES addresses:
+  //   CODE_0DB49E  $0DB49E  -- handler
+  //   DATA_0DB49C  $0DB49C  -- pipe tile table [$0A, $0C]
+  //   CODE_0DB4D9  $0DB4D9  -- top merge helper
+  //   CODE_0DB4C0  $0DB4C0  -- body loop (JMP target from handler+22)
+  //   CODE_0DB4FE  $0DB4FE  -- bottom merge helper (JMP target from CODE_0DB4C0+18)
+  //   DATA_0DB4D5  $0DB4D5  -- top-merge table1 [$07, $09]
+  //   DATA_0DB4D7  $0DB4D7  -- top-merge table2 [$1A, $19]
+  //   DATA_0DB4FA  $0DB4FA  -- bottom-merge table1 [$0D, $0F]
+  //   DATA_0DB4FC  $0DB4FC  -- bottom-merge table2 [$1C, $1B]
+  const HANDLER   = 0x0DB49E
+  const DATA_49C  = 0x0DB49C
+  const TOP_MERGE = 0x0DB4D9
+  const BODY_LOOP = 0x0DB4C0
+  const BOT_MERGE = 0x0DB4FE
+  const DATA_4D5  = 0x0DB4D5
+  const DATA_4D7  = 0x0DB4D7
+  const DATA_4FA  = 0x0DB4FA
+  const DATA_4FC  = 0x0DB4FC
+
+  function buildPipeRom(): RomFile {
+    const rom = makeMockRom()
+
+    // DATA_0DB49C = [$0A, $0C]
+    rom.writeAt(DATA_49C, [0x0A, 0x0C])
+    stampLongOperand(rom, HANDLER, 16, DATA_49C)
+
+    // JSR CODE_0DB4D9 at handler+19: stamp 2-byte target in same bank ($0D)
+    rom.writeAt(HANDLER + 20, [TOP_MERGE & 0xFF, (TOP_MERGE >> 8) & 0xFF])
+
+    // JMP CODE_0DB4C0 at handler+22: 2-byte target
+    rom.writeAt(HANDLER + 23, [BODY_LOOP & 0xFF, (BODY_LOOP >> 8) & 0xFF])
+
+    // CODE_0DB4C0 layout (18 bytes before JMP CODE_0DB4FE):
+    //   TYA CLC ADC#$10 TAY BCC(+2) JSR_CODE_0DA987 DEC_0 BNE LDA.L JMP
+    // We only need to stamp:
+    //   JMP CODE_0DB4FE at BODY_LOOP+18 (opcode $4C), operand at +19..+20
+    rom.writeAt(BODY_LOOP + 19, [BOT_MERGE & 0xFF, (BOT_MERGE >> 8) & 0xFF])
+
+    // Top merge helper CODE_0DB4D9:
+    //   trigger1 = $08 at +5, table1 = DATA_0DB4D5 at +9..+11
+    //   trigger2 = $0E at +16, table2 = DATA_0DB4D7 at +20..+22
+    rom.writeAt(TOP_MERGE + 5, [0x08])
+    stampLongOperand(rom, TOP_MERGE, 9, DATA_4D5)
+    rom.writeAt(TOP_MERGE + 16, [0x0E])
+    stampLongOperand(rom, TOP_MERGE, 20, DATA_4D7)
+    rom.writeAt(DATA_4D5, [0x07, 0x09])
+    rom.writeAt(DATA_4D7, [0x1A, 0x19])
+
+    // Bottom merge helper CODE_0DB4FE:
+    //   trigger1 = $0E at +5, table1 = DATA_0DB4FA at +9..+11
+    //   trigger2 = $08 at +16, table2 = DATA_0DB4FC at +20..+22
+    rom.writeAt(BOT_MERGE + 5, [0x0E])
+    stampLongOperand(rom, BOT_MERGE, 9, DATA_4FA)
+    rom.writeAt(BOT_MERGE + 16, [0x08])
+    stampLongOperand(rom, BOT_MERGE, 20, DATA_4FC)
+    rom.writeAt(DATA_4FA, [0x0D, 0x0F])
+    rom.writeAt(DATA_4FC, [0x1C, 0x1B])
+
+    return rom
+  }
+
+  it('plain pipe: no existing tile -- top and bottom both write base tile $0A', () => {
+    // middleCount = 2, X = 0 → pipe tile = $0A. Rows: top=10, body=11, bottom=12.
+    const grid = createGrid(1)
+    const rom = buildPipeRom()
+    const cur = makeCursorForHandler(HANDLER, grid, rom, 1, 5, 10, 31, 0x20)
+    handle_0DB49E(cur)
+    expect(grid[10][5]).toBe(0x0A)   // top (no existing → base tile, page 0)
+    expect(grid[11][5]).toBe(0x0A)   // middle body row
+    expect(grid[12][5]).toBe(0x0A)   // bottom (no existing → base tile, page 0)
+    expect(grid[13][5]).toBe(TILE_EMPTY)
+  })
+
+  it('bottom merge: rope end ($0E) below pipe → produces merged tile $0D', () => {
+    // Place a rope end tile at the pipe's bottom position, then run the pipe.
+    // settings = 0x60 → middleCount=6, X=0 → pipe from row 14 to row 20.
+    // Rope end tile $0E pre-written at (row=20, col=0).
+    const grid = createGrid(1)
+    grid[20][0] = 0x0E   // rope end tile at bottom of pipe
+    const rom = buildPipeRom()
+    const cur = makeCursorForHandler(HANDLER, grid, rom, 1, 0, 14, 31, 0x60)
+    handle_0DB49E(cur)
+    // Bottom at row 20: existing=$0E → trigger1 match → DATA_0DB4FA[0]=$0D
+    expect(grid[20][0]).toBe(0x0D)
+    // Top at row 14: no existing → base tile $0A
+    expect(grid[14][0]).toBe(0x0A)
+    // Middle row 15-19: base tile $0A
+    for (let r = 15; r <= 19; r++) expect(grid[r][0]).toBe(0x0A)
+  })
+
+  it('top merge: existing $08 below pipe top → produces merged tile $07 (X=0)', () => {
+    const grid = createGrid(1)
+    grid[10][5] = 0x08   // existing $08 at top position
+    const rom = buildPipeRom()
+    // middleCount=1, X=0 → size=$10
+    const cur = makeCursorForHandler(HANDLER, grid, rom, 1, 5, 10, 31, 0x10)
+    handle_0DB49E(cur)
+    // Top merge: existing=$08 → trigger1 match → DATA_0DB4D5[0]=$07
+    expect(grid[10][5]).toBe(0x07)
+  })
+})
+
+// ── CODE_0DED12 (ghost-house horizontal strip, tileset-5 object $37) ──────────
+//
+// Writes W+1 tiles: start + (W-1) body + end.  Tile IDs come from three 3-entry
+// tables indexed by the high nibble X of the size byte.
+// Identical LDA.L operand layout to handle_0DB5B7, plus the X-indexed lookup.
+
+describe('handle_0DED12 (ghost-house horizontal strip, object $37)', () => {
+  const HANDLER_ADDR = 0x0DED12
+  // Place data tables well away from the handler body to avoid overlap with the
+  // stampLongOperand patches at offsets +19, +29, +43 (0x0DED25–0x0DED45).
+  const START_ADDR = 0x0DEE00   // DATA_0DED09 (test alias)
+  const BODY_ADDR  = 0x0DEE10   // DATA_0DED0C (test alias)
+  const END_ADDR   = 0x0DEE20   // DATA_0DED0F (test alias)
+
+  function setupRom(startBytes: number[], bodyBytes: number[], endBytes: number[]): RomFile {
+    const rom = makeMockRom({
+      [START_ADDR]: startBytes,
+      [BODY_ADDR]:  bodyBytes,
+      [END_ADDR]:   endBytes,
+    })
+    stampLongOperand(rom, HANDLER_ADDR, 19, START_ADDR)
+    stampLongOperand(rom, HANDLER_ADDR, 29, BODY_ADDR)
+    stampLongOperand(rom, HANDLER_ADDR, 43, END_ADDR)
+    return rom
+  }
+
+  // Tables have 3 entries (X=0,1,2). Use distinct values for clarity.
+  const START = [0x82, 0x89, 0x88]
+  const BODY  = [0x82, 0x8A, 0x88]
+  const END   = [0x82, 0x8B, 0x88]
+
+  it('W=3 X=0: writes start + 2 body + end from variant 0', () => {
+    // size = 0x03 → W=3, X=0
+    const rom = setupRom(START, BODY, END)
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 2, 10, 0x37, 0x03)
+    handle_0DED12(cur)
+    expect(grid[10][2]).toBe(0x82)   // start[0] = $82
+    expect(grid[10][3]).toBe(0x82)   // body[0]  = $82
+    expect(grid[10][4]).toBe(0x82)   // body[0]  = $82
+    expect(grid[10][5]).toBe(0x82)   // end[0]   = $82
+    expect(grid[10][6]).toBe(TILE_EMPTY)
+  })
+
+  it('W=1 X=1: writes start + end only (no body tiles)', () => {
+    // size = 0x11 → W=1, X=1
+    const rom = setupRom(START, BODY, END)
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 0, 5, 0x37, 0x11)
+    handle_0DED12(cur)
+    expect(grid[5][0]).toBe(0x89)    // start[1] = $89
+    expect(grid[5][1]).toBe(0x8B)    // end[1]   = $8B
+    expect(grid[5][2]).toBe(TILE_EMPTY)
+  })
+
+  it('W=2 X=2: uses variant 2 tile IDs', () => {
+    // size = 0x22 → W=2, X=2
+    const rom = setupRom(START, BODY, END)
+    const grid = createGrid(1)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 4, 15, 0x37, 0x22)
+    handle_0DED12(cur)
+    expect(grid[15][4]).toBe(0x88)   // start[2] = $88
+    expect(grid[15][5]).toBe(0x88)   // body[2]  = $88 (1 body tile)
+    expect(grid[15][6]).toBe(0x88)   // end[2]   = $88
+    expect(grid[15][7]).toBe(TILE_EMPTY)
+  })
+
+  it('does not write to adjacent rows', () => {
+    const rom = setupRom(START, BODY, END)
+    const grid = createGrid(2)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 2, 10, 0x37, 0x03)
+    handle_0DED12(cur)
+    expect(grid[9][2]).toBe(TILE_EMPTY)
+    expect(grid[11][2]).toBe(TILE_EMPTY)
+  })
+})
+
+// ── CODE_0DB863 (diagonal staircase left-descending, tileset-5 object $3B) ────
+//
+// Two-phase diagonal staircase descending down-left. Phase 1 expands width; phase
+// 2 continues as a constant-width tail. Smoke-tested for non-throw and for
+// structural invariants (tile count grows with width/height).
+
+describe('handle_0DB863 (diagonal staircase, object $3B)', () => {
+  const HANDLER_ADDR = 0x0DB863
+
+  function setupRom(): RomFile {
+    const rom = makeMockRom()
+    // 12 inline LDA #$XX immediates. Stamp a recognisable value at each offset.
+    rom.writeAt(HANDLER_ADDR + 29,  [0xAF])   // tAF1 first-row slope
+    rom.writeAt(HANDLER_ADDR + 37,  [0xAF])   // tAF2 first-row pipe
+    rom.writeAt(HANDLER_ADDR + 48,  [0xA9])   // tA9a main-loop slope
+    rom.writeAt(HANDLER_ADDR + 59,  [0x3F])   // t3Fa main-loop fill
+    rom.writeAt(HANDLER_ADDR + 72,  [0xE4])   // tE4  main-loop E4
+    rom.writeAt(HANDLER_ADDR + 80,  [0xAF])   // tAFb main-loop pipe
+    rom.writeAt(HANDLER_ADDR + 107, [0xA9])   // tA9b phase1-end slope
+    rom.writeAt(HANDLER_ADDR + 118, [0x3F])   // t3Fb phase1-end fill
+    rom.writeAt(HANDLER_ADDR + 129, [0xF9])   // tF9  phase1-end cap
+    rom.writeAt(HANDLER_ADDR + 140, [0xA9])   // tA9c phase2 slope
+    rom.writeAt(HANDLER_ADDR + 151, [0x3F])   // t3Fc phase2 fill
+    rom.writeAt(HANDLER_ADDR + 162, [0xAC])   // tAC  phase2 cap
+    return rom
+  }
+
+  it('produces a non-empty staircase shape without throwing', () => {
+    const rom = setupRom()
+    const grid = createGrid(5)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 40, 5, 0x3B, 0x22)
+    expect(() => handle_0DB863(cur)).not.toThrow()
+    let count = 0
+    for (const row of grid) for (const t of row) if (t !== TILE_EMPTY) count++
+    expect(count).toBeGreaterThan(0)
+  })
+
+  it('first row always starts with tAF1 (page 0)', () => {
+    // The very first tile written is the first-row slope (tAF1).
+    const rom = setupRom()
+    const grid = createGrid(5)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 30, 4, 0x3B, 0x11)
+    handle_0DB863(cur)
+    // The first tile is at the initial cursor position.
+    expect(grid[4][30]).toBe(0xAF)
+  })
+
+  it('larger width produces more total tiles', () => {
+    const rom = setupRom()
+    function countTiles(size: number): number {
+      const g = createGrid(6)
+      const c = makeCursorForHandler(HANDLER_ADDR, g, rom, 5, 40, 3, 0x3B, size)
+      handle_0DB863(c)
+      let n = 0
+      for (const row of g) for (const t of row) if (t !== TILE_EMPTY) n++
+      return n
+    }
+    expect(countTiles(0x23)).toBeGreaterThan(countTiles(0x11))
+  })
+
+  it('each diagonal step is one row lower than the last', () => {
+    // The last tile written to row R means row R+1 must have at least one tile.
+    // Specifically, col descends so tiles spread across multiple rows.
+    const rom = setupRom()
+    const grid = createGrid(5)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 40, 3, 0x3B, 0x21)
+    handle_0DB863(cur)
+    const rowsWithTiles = grid.filter(row => row.some(t => t !== TILE_EMPTY)).length
+    expect(rowsWithTiles).toBeGreaterThan(1)
+  })
+})
+
+describe('handle_0DDAF2 (diagonal cliff staircase dispatcher, object $39)', () => {
+  const HANDLER_ADDR = 0x0DDAF2
+
+  function makeCur(size: number, col = 10, row = 2): ReturnType<typeof makeCursorForHandler> {
+    const rom = makeMockRom()
+    const grid = createGrid(5)
+    return makeCursorForHandler(HANDLER_ADDR, grid, rom, 3, col, row, 0x39, size)
+  }
+
+  // ── Variant dispatch ──────────────────────────────────────────────────────
+
+  it('variant 00 (bits 00): first tile is page-1 $D2 at origin', () => {
+    const cur = makeCur(0x10)   // low 2 bits = 0x00
+    handle_0DDAF2(cur)
+    // First tile written is p1:$D2 at (col=10, row=2).
+    expect(cur.grid[2][10]).toBe(P1(0xD2))
+  })
+
+  it('variant 01 (bits 01): first tile is page-1 $D6 at origin', () => {
+    const cur = makeCur(0x11)   // low 2 bits = 0x01
+    handle_0DDAF2(cur)
+    expect(cur.grid[2][10]).toBe(P1(0xD6))
+  })
+
+  it('variant 10 (bits 10): first tile is page-1 $D4 at origin', () => {
+    const cur = makeCur(0x12)   // low 2 bits = 0x02
+    handle_0DDAF2(cur)
+    expect(cur.grid[2][10]).toBe(P1(0xD4))
+  })
+
+  it('variant 11 (bits 11): first tile is page-1 $D7 at origin', () => {
+    const cur = makeCur(0x13)   // low 2 bits = 0x03
+    handle_0DDAF2(cur)
+    expect(cur.grid[2][10]).toBe(P1(0xD7))
+  })
+
+  // ── Variant 00 (CODE_0DDB06) ──────────────────────────────────────────────
+
+  describe('variant 00 (CODE_0DDB06): 2-wide left-descending staircase', () => {
+    it('row 0 is only 2 tiles: $D2 and $D3', () => {
+      // _0 = (size>>4)+1 = 1+1 = 2, so there are enough rows to test.
+      // With size=0x10 (_0=2), rows: row 0 has $D2/$D3, row 1 is diagonal step.
+      const cur = makeCur(0x10, 10, 0)
+      handle_0DDAF2(cur)
+      // Row 0: expect $D2 at col 10, $D3 at col 11, nothing at col 12.
+      expect(cur.grid[0][10]).toBe(P1(0xD2))
+      expect(cur.grid[0][11]).toBe(P1(0xD3))
+      expect(cur.grid[0][12]).toBe(TILE_EMPTY)
+    })
+
+    it('row 1 starts 2 cols left of origin (diagonal -2 step)', () => {
+      // After the diagonal step (col-=2, row+=1), iteration 2 starts at col 8.
+      const cur = makeCur(0x20, 10, 0)   // _0=3: 3 main rows + final row
+      handle_0DDAF2(cur)
+      // Row 1: should have tiles starting at col 8.
+      expect(cur.grid[1][8]).toBe(P1(0xD2))
+      expect(cur.grid[1][9]).toBe(P1(0xD3))
+    })
+
+    it('BEQ final row written at diagCol (same as origin when _0=1)', () => {
+      // With _0=1 (size>>4=0): only 1 main-loop iteration (row 0), then BEQ fires.
+      // BEQ path: row++, write $FB/$FF fill at diagCol=10 (no diagonal step taken).
+      const cur = makeCur(0x00, 10, 0)   // _0 = (0)+1 = 1
+      handle_0DDAF2(cur)
+      // Row 0: $D2/$D3 at col 10.
+      expect(cur.grid[0][10]).toBe(P1(0xD2))
+      expect(cur.grid[0][11]).toBe(P1(0xD3))
+      // Row 1 (BEQ final row at bookmarkCol=10): _2=3 at this point, xFinal=1.
+      // CODE_0DDB31 with xFinal=1: $FB, $FF, DEX→0; CODE_0DDB4D: DEX→-1 stop.
+      expect(cur.grid[1][10]).toBe(P1(0xFB))
+      expect(cur.grid[1][11]).toBe(P1(0xFF))
+    })
+
+    it('larger height produces more rows', () => {
+      function rowCount(sizeH: number): number {
+        const c = makeCur((sizeH << 4) | 0x00, 20, 0)
+        handle_0DDAF2(c)
+        return c.grid.filter(r => r.some(t => t !== TILE_EMPTY)).length
+      }
+      expect(rowCount(2)).toBeGreaterThan(rowCount(1))
+    })
+  })
+
+  // ── Variant 01 (CODE_0DDB8F) ──────────────────────────────────────────────
+
+  describe('variant 01 (CODE_0DDB8F): 1-wide left-descending staircase', () => {
+    it('row 0 is only 1 tile: $D6', () => {
+      // _2 starts at 0; iteration 0 writes $D6 then CODE_0DDBAE: DEX→-1 → BMI.
+      const cur = makeCur(0x11, 10, 0)   // _0=2, variant 01
+      handle_0DDAF2(cur)
+      expect(cur.grid[0][10]).toBe(P1(0xD6))
+      expect(cur.grid[0][11]).toBe(TILE_EMPTY)
+    })
+
+    it('row 1 starts 1 col left of origin (diagonal -1 step)', () => {
+      const cur = makeCur(0x21, 10, 0)   // _0=3
+      handle_0DDAF2(cur)
+      expect(cur.grid[1][9]).toBe(P1(0xD6))
+    })
+
+    it('row 1 has D6 + FD (fill tile)', () => {
+      // After diagonal step to col 9: _2=1, X=1 after DEX → not BMI.
+      // Writes $FD, then DEX→0, CODE_0DDBC4: DEX→-1, stop.
+      const cur = makeCur(0x11, 10, 0)   // _0=2
+      handle_0DDAF2(cur)
+      // Row 1 starts at col 9 (10 - 1 step).
+      expect(cur.grid[1][9]).toBe(P1(0xD6))
+      expect(cur.grid[1][10]).toBe(P1(0xFD))
+    })
+
+    it('BEQ final row: writes fill at diagCol (same as origin when _0=1)', () => {
+      // _0=1: 1 main loop iteration → BEQ CODE_0DDBF9.
+      // CODE_0DDBF9: X=_2=1, row++, JMP CODE_0DDBAE: DEX→0 (not BMI).
+      // Writes $FD at diagCol=10 (no diagonal step taken for _0=1).
+      const cur = makeCur(0x01, 10, 0)   // low2=01, size>>4=0 → _0=1
+      handle_0DDAF2(cur)
+      expect(cur.grid[0][10]).toBe(P1(0xD6))
+      expect(cur.grid[1][10]).toBe(P1(0xFD))
+    })
+  })
+
+  // ── Variant 10 (ADDR_0DDC02) ─────────────────────────────────────────────
+
+  describe('variant 10 (ADDR_0DDC02): 2-wide right-growing staircase', () => {
+    it('_0=1: row 0 gets $D4/$D5, row 1 gets $FF/$FC', () => {
+      // size=0x02 → low2=10, size>>4=0 → _0=1.
+      // ADDR_0DDC3D: write $D4(C0), $D5(C0+1), restoreBookmark, row++, _2=3, DEC _0→0, BPL→ADDR_0DDC23.
+      // ADDR_0DDC23 (X=3): no loop, write $FF(C0), $FC(C0+1). _0=0→return.
+      const cur = makeCur(0x02, 10, 0)
+      handle_0DDAF2(cur)
+      expect(cur.grid[0][10]).toBe(P1(0xD4))
+      expect(cur.grid[0][11]).toBe(P1(0xD5))
+      expect(cur.grid[1][10]).toBe(P1(0xFF))
+      expect(cur.grid[1][11]).toBe(P1(0xFC))
+      expect(cur.grid[1][12]).toBe(TILE_EMPTY)
+    })
+
+    it('_0=2: each row extends 2 tiles rightward', () => {
+      // size=0x12 → _0=2.
+      // Row 0: $D4(10), $D5(11). Row 1: $FF(10), $FC(11), $D4(12), $D5(13). Row 2: $FF(10), $FF(11), $FF(12), $FC(13).
+      const cur = makeCur(0x12, 10, 0)
+      handle_0DDAF2(cur)
+      expect(cur.grid[0][10]).toBe(P1(0xD4))
+      expect(cur.grid[0][11]).toBe(P1(0xD5))
+      expect(cur.grid[1][10]).toBe(P1(0xFF))
+      expect(cur.grid[1][11]).toBe(P1(0xFC))
+      expect(cur.grid[1][12]).toBe(P1(0xD4))
+      expect(cur.grid[1][13]).toBe(P1(0xD5))
+      expect(cur.grid[2][10]).toBe(P1(0xFF))
+      expect(cur.grid[2][11]).toBe(P1(0xFF))
+      expect(cur.grid[2][12]).toBe(P1(0xFF))
+      expect(cur.grid[2][13]).toBe(P1(0xFC))
+    })
+  })
+
+  // ── Variant 11 (CODE_0DDC61) ─────────────────────────────────────────────
+
+  describe('variant 11 (CODE_0DDC61): 1-wide right-growing staircase', () => {
+    it('_0=1: row 0 gets $D7, row 1 gets $FE', () => {
+      // size=0x03 → _0=1.
+      // CODE_0DDC8E: _0=1≠0, write $D7(10,R0), restoreBookmark, row++, _2=1, X=1, DEC _0→0, BPL.
+      // CODE_0DDC82: X=1, no $FF, write $FE(10,R1). Fall through to CODE_0DDC8E: _0=0 → return.
+      const cur = makeCur(0x03, 10, 0)
+      handle_0DDAF2(cur)
+      expect(cur.grid[0][10]).toBe(P1(0xD7))
+      expect(cur.grid[1][10]).toBe(P1(0xFE))
+      expect(cur.grid[1][11]).toBe(TILE_EMPTY)
+    })
+
+    it('_0=2: row 1 has $FE+$D7, row 2 has $FF+$FE', () => {
+      // size=0x13 → _0=2.
+      // Row 0: $D7(10,R0). Row 1: $FE(10,R1), $D7(11,R1). Row 2: $FF(10,R2), $FE(11,R2). _0=0→return.
+      const cur = makeCur(0x13, 10, 0)
+      handle_0DDAF2(cur)
+      expect(cur.grid[0][10]).toBe(P1(0xD7))
+      expect(cur.grid[1][10]).toBe(P1(0xFE))
+      expect(cur.grid[1][11]).toBe(P1(0xD7))
+      expect(cur.grid[2][10]).toBe(P1(0xFF))
+      expect(cur.grid[2][11]).toBe(P1(0xFE))
+      expect(cur.grid[2][12]).toBe(TILE_EMPTY)
+    })
+
+    it('_0=3: row 2 has $FF+$FE+$D7, row 3 has $FF+$FF+$FE', () => {
+      const cur = makeCur(0x23, 10, 0)
+      handle_0DDAF2(cur)
+      expect(cur.grid[2][10]).toBe(P1(0xFF))
+      expect(cur.grid[2][11]).toBe(P1(0xFE))
+      expect(cur.grid[2][12]).toBe(P1(0xD7))
+      expect(cur.grid[3][10]).toBe(P1(0xFF))
+      expect(cur.grid[3][11]).toBe(P1(0xFF))
+      expect(cur.grid[3][12]).toBe(P1(0xFE))
+      expect(cur.grid[3][13]).toBe(TILE_EMPTY)
+    })
   })
 })

@@ -86,7 +86,7 @@ export function buildMapWithGraph(
   // hold ids that resolve against this shared map at render time.
   const bgTiles = buildBgTiles(rom.rom, chars)
 
-  const grid = expandMap(parsed.objects, screens, rom.rom, tileset, isVertical)
+  const grid = expandMap(parsed.objects, screens, rom.rom, tileset, isVertical, rawHeader.levelMode)
   // L1 tilemap as ids — resolve against `tiles` (aka l1Tiles) at render
   // time. Empty cells survive as null.
   const l1: (number | null)[][] = grid.map(row =>

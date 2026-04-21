@@ -35,8 +35,8 @@ export function handle_0DA53D(_cur: Cursor): void {
  * CODE_0DA57B (bank_0D.asm line 1458) -- single-tile extended object.
  *
  * The ASM does `TXA; SEC; SBC #$10` to index `DATA_0DA548` with `(objSize - 0x10)`.
- * For editor purposes we always emit the tile, skipping the item-memory check at
- * CODE_0DA57F that hides collected bonus tiles (conditional for ext types 0x18-0x1D).
+ * For editor purposes we emit the tile, skipping the item-memory checks at
+ * CODE_0DA57F (the editor always shows the "not collected" state).
  */
 export function handle_0DA57B(cur: Cursor): void {
   const extType = cur.objNo
@@ -750,6 +750,31 @@ export function handle_0DEC8E(cur: Cursor): void {
 }
 
 /**
+ * CODE_0DC259 (bank_0D.asm line 4767) -- ext types $4B and $4C: coin block
+ * variants. DATA_0DC257 = [$07, $08]; index X = extType - $4B (0 or 1).
+ * Writes DATA_0DC257[X] on page 1 at the cursor position (no advance).
+ *
+ * ASM:
+ *   LDY.B LevelLoadPos
+ *   LDA.B LvlLoadObjSize   ; = ext type byte
+ *   SEC
+ *   SBC.B #$4B             ; X = extType - $4B
+ *   TAX
+ *   JSR Sta1To6ePointer    ; page 1
+ *   LDA.L DATA_0DC257,X    ; operand at handler+12
+ *   STA.B [Map16LowPtr],Y  ; write, no advance
+ */
+export function handle_0DC259(cur: Cursor): void {
+  const X = cur.objNo - 0x4B
+  if (X < 0 || X >= 2) return
+  // LDA.L DATA_0DC257,X opcode ($BF) at +11; 3-byte operand at +12..+14.
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
+  const tile = cur.rom.readByte(tableAddr + X) ?? 0
+  setPage1(cur)
+  writeTile(cur, tile)
+}
+
+/**
  * CODE_0DE95F (bank_0D.asm line 7626) -- single-tile extended handler for the
  * eight cave-trim corner/edge types $57..$5E. Dispatched from the extended
  * table at lines 1149..1156 (eight consecutive entries, one per type).
@@ -774,4 +799,55 @@ export function handle_0DE95F(cur: Cursor): void {
   const tile = cur.rom.readByte(tableAddr + idx) ?? 0
   setPage0(cur)
   writeTile(cur, tile)
+}
+
+/**
+ * CODE_0DE9ED (bank_0D.asm line 7697) -- 2×2 tile block from DATA_0DE9E1,
+ * dispatched for extended types $64 and $65 (cave-exit opening / capped arch).
+ *
+ * DATA_0DE9E1 = $8C,$8D,$25,$8E,$90,$91,$8F,$25,$FC,$FD,$FE,$FF
+ *
+ * Entry table index:  X = (extType - $64) * 4
+ *   ext=$64: X=0  → tiles [$8C,$8D] row 0, [$25,$8E] row 1
+ *   ext=$65: X=4  → tiles [$90,$91] row 0, [$8F,$25] row 1
+ *
+ * ASM structure (CODE_0DE9F5):
+ *   _1 = _0 = 1; save bookmark.
+ *   Inner loop (BPL, 2 iters): page-0 write + advance col; INX; DEC _0; BPL.
+ *   After inner: restore bookmark; row++; reset _0=1; DEC _1; BPL (back to inner).
+ *   Outer runs 2 times (_1=1→0→-1), so 2 rows × 2 cols = 4 writes total.
+ *
+ * Bytecode offsets (verified against ROM at $0DE9ED):
+ *   +4   LDA.B #$64  SBC immediate (base ext type)
+ *   +23  LDA.L DATA_0DE9E1,X operand (3-byte table address)
+ */
+export function handle_0DE9ED(cur: Cursor): void {
+  const extType = cur.objNo
+  const base = readImmByte(cur, cur.handlerAddr + 4)
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 23)
+  const X = (extType - base) * 4
+  if (X < 0 || X + 3 >= 256) return   // safety: only ext=$64,$65 are valid
+
+  const col0 = cur.col, row0 = cur.row
+  for (let row = 0; row < 2; row++) {
+    cur.col = col0
+    cur.row = row0 + row
+    setPage0(cur)
+    writeTile(cur, cur.rom.readByte(tableAddr + X + row * 2 + 0) ?? 0)
+    advanceCol(cur)
+    setPage0(cur)
+    writeTile(cur, cur.rom.readByte(tableAddr + X + row * 2 + 1) ?? 0)
+  }
+  cur.col = col0
+  cur.row = row0
+}
+
+/**
+ * CODE_0DDA57 (bank_0D.asm line 6378) -- single coin/reveal tile (ext $60).
+ * Writes one page-1 tile $FE at the current position. Used as a standalone
+ * one-tile marker; no column or row advance.
+ */
+export function handle_0DDA57(cur: Cursor): void {
+  setPage1(cur)
+  writeTile(cur, 0xFE)
 }
