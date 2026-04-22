@@ -10,6 +10,7 @@ import {
   StaticSpriteAppearance,
   type SpritePart,
 } from './sprites/appearances/StaticSpriteAppearance'
+import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -114,18 +115,21 @@ function buildAppearance(
   chars: Map<number, Char>,
   placeholder: Char,
 ): SpriteAppearance {
+  const buildParts = (rawParts: typeof desc.parts): SpritePart[] =>
+    rawParts.map(p => ({
+      char: chars.get(p.charNum) ?? placeholder,
+      palette: p.palette,
+      flipX: p.flipX,
+      flipY: p.flipY,
+      dx: p.dx,
+      dy: p.dy,
+    }))
+
   switch (desc.kind) {
-    case 'static': {
-      const parts: SpritePart[] = desc.parts.map(p => ({
-        char: chars.get(p.charNum) ?? placeholder,
-        palette: p.palette,
-        flipX: p.flipX,
-        flipY: p.flipY,
-        dx: p.dx,
-        dy: p.dy,
-      }))
-      return new StaticSpriteAppearance(parts)
-    }
+    case 'static':
+      return new StaticSpriteAppearance(buildParts(desc.parts))
+    case 'pSwitch':
+      return new PSwitchAppearance(buildParts(desc.parts))
   }
 }
 

@@ -76,6 +76,7 @@ export interface SpritePartDescriptor {
 
 export type SpriteAppearanceDescriptor =
   | { kind: 'static'; parts: readonly SpritePartDescriptor[] }
+  | { kind: 'pSwitch'; parts: readonly SpritePartDescriptor[] }
 
 export interface SpriteBehaviorDescriptor {
   kind: string
