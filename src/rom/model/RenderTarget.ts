@@ -97,6 +97,13 @@ export interface RenderContext {
    * doesn't jitter tile-by-tile. Snaps back on drag release.
    */
   cameraDragging?: Ref<boolean>
+  /**
+   * Current cursor position in level natural pixels (1× coords), or null
+   * when the pointer is off the canvas. Cursor-aware sprites (Thwomp face
+   * proximity) read this to pick which tiles to draw. Most sprites and
+   * every tile ignore it.
+   */
+  cursorPx?: Ref<{ x: number; y: number } | null>
 }
 
 export interface RenderTarget {

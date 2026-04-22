@@ -12,6 +12,6 @@ export class Sprite {
   ) {}
 
   render(ctx: RenderContext, target: RenderTarget): void {
-    this.appearance.render(ctx, target, this.x, this.y)
+    this.appearance.render(ctx, target, this.x, this.y, this.behavior)
   }
 }

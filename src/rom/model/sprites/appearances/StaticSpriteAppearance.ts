@@ -22,3 +22,5 @@ export class StaticSpriteAppearance implements SpriteAppearance {
     }
   }
 }
+// `behavior` arg on SpriteAppearance.render is unused here — static sprites
+// draw the same parts regardless of behavioral state. TS lets us omit it.

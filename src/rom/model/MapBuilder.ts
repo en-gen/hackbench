@@ -113,7 +113,7 @@ export function buildMapWithGraph(
     const sprData = rom.rom.readAt(sprPtr, 0x200)
     if (sprData) levelSprites = parseLevelSprites(sprData, isVertical)
   }
-  const sprites = buildSprites(rom.rom, levelSprites, chars)
+  const sprites = buildSprites(rom.rom, levelSprites, chars, l1)
 
   // Layer-2 scroll/parallax settings. CODE_05D26E (bank_05.asm:7268-7277)
   // reads $05F000+idx, takes the top nibble, and looks up per-axis rate
