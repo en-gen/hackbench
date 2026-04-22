@@ -35,6 +35,16 @@
         "command": "hackbench.closeRom",
         "title": "Close ROM",
         "category": "HackBench"
+      },
+      {
+        "command": "workbench.actions.treeView.hackbench.mapsExplorer.collapseAll",
+        "title": "Collapse All",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "workbench.actions.treeView.hackbench.resourcesExplorer.collapseAll",
+        "title": "Collapse All",
+        "icon": "$(collapse-all)"
       }
     ],
     "menus": {

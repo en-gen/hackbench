@@ -82,12 +82,9 @@ function renderModelOverlay(map: SmwMap): void {
   const h = rows * 16
   if (w === 0 || h === 0) return
 
-  // Ensure the full-level offscreen canvas matches the level dimensions (1× natural).
-  if (!fullLevelCanvas || fullLevelCanvas.width !== w || fullLevelCanvas.height !== h) {
-    fullLevelCanvas = document.createElement('canvas')
-    fullLevelCanvas.width  = w
-    fullLevelCanvas.height = h
-  }
+  // Read cameraDragging as a tracked dep so the effect re-runs when drag
+  // starts/ends, but we skip the expensive base render during drag.
+  const dragging = store.cameraDragging
 
   // Level-wide state on ctx — tile behaviors (PipeVariants) derive
   // per-cell concerns from their own cell position + these fields,
@@ -108,35 +105,62 @@ function renderModelOverlay(map: SmwMap): void {
     screenPipeVariantIdx: map.screenPipeVariantIdx,
   }
 
-  // Render the full level at 1× to the offscreen canvas.
-  const target = new CanvasRenderTarget(fullLevelCanvas)
-  target.clear(map.palette.backAreaColor.rgba(ctx))
-  map.render(ctx, target)
-  // Camera viewport parallax BG + L1 re-render must land in the
-  // framebuffer BEFORE the flush so pixel ops (blend + overwrite) reach
-  // the canvas. Read `store.cameraOn` here so flipping the checkbox
-  // invalidates the effect and re-renders.
-  const cameraOn = store.cameraOn
-  if (cameraOn) compositeCameraViewport(target, ctx, map)
-  target.flush()
+  if (!dragging) {
+    // ── Base render (expensive): tiles + non-camera overlays ──────────────
+    // Skipped during camera drag so pointermove only pays for the cheap
+    // camera-strip composite below.
+    if (!baseLevelCanvas || baseLevelCanvas.width !== w || baseLevelCanvas.height !== h) {
+      baseLevelCanvas = document.createElement('canvas')
+      baseLevelCanvas.width  = w
+      baseLevelCanvas.height = h
+    }
+    const baseTarget = new CanvasRenderTarget(baseLevelCanvas)
+    baseTarget.clear(map.palette.backAreaColor.rgba(ctx))
+    map.render(ctx, baseTarget)
+    baseTarget.flush()
 
-  // Overlays on top of the rendered framebuffer. Canvas 2D draw calls
-  // are used here rather than the pixel-level RenderTarget so the lines
-  // can be sub-pixel aligned at the natural render resolution. Any read
-  // of `store.layerToggles.*` keeps the reactive effect invalidated
-  // when a checkbox flips.
-  const toggles = store.layerToggles
+    // Canvas 2D overlays that don't depend on camera position go on the
+    // base canvas so drag recomposites inherit them for free.
+    const toggles = store.layerToggles
+    const bctx = baseLevelCanvas.getContext('2d')!
+    if (toggles.block) drawBlockView(bctx, map, toggles.l1, toggles.l2)
+    if (toggles.screens || toggles.mapGrid) drawScreenAndGridOverlays(bctx, map, toggles.screens, toggles.mapGrid)
+    drawVineIndicators(bctx, map)
+    drawVinePaths(bctx, map)
+  }
+
+  // Guard: base canvas must exist before we can composite.
+  if (!baseLevelCanvas) return
+
+  // Ensure fullLevelCanvas dimensions match.
+  if (!fullLevelCanvas || fullLevelCanvas.width !== w || fullLevelCanvas.height !== h) {
+    fullLevelCanvas = document.createElement('canvas')
+    fullLevelCanvas.width  = w
+    fullLevelCanvas.height = h
+  }
+
+  // Copy base → full (cheap drawImage, no pixel-level JS).
   const foctx = fullLevelCanvas.getContext('2d')!
-  if (toggles.block) drawBlockView(foctx, map, toggles.l1, toggles.l2)
-  if (toggles.screens || toggles.mapGrid) drawScreenAndGridOverlays(foctx, map, toggles.screens, toggles.mapGrid)
-  if (cameraOn) drawCameraRectOverlay(foctx, map)
-  drawVineIndicators(foctx, map)
-  drawVinePaths(foctx, map)
+  foctx.drawImage(baseLevelCanvas, 0, 0)
 
-  // Spacer drives the native scrollbar to the full level × zoom extent.
+  // ── Camera composite (fast): only re-renders the viewport strip ─────────
+  const cameraOn = store.cameraOn
+  if (cameraOn) {
+    const camTarget = new CanvasRenderTarget(fullLevelCanvas)
+    const strip = compositeCameraViewport(camTarget, ctx, map)
+    // Only overwrite the strip region on fullLevelCanvas — the rest of the
+    // base render copied above is left intact.
+    if (strip) camTarget.flushRegion(strip.sx, strip.sy, strip.sw, strip.sh)
+    drawCameraRectOverlay(foctx, map)
+  }
+
+  // Spacer drives the native scrollbar. Padding centers the level when it
+  // fits within the viewport (horizontal levels vertically, vertical horizontally).
   const z = store.zoom
-  levelSpacer.style.width  = `${w * z}px`
-  levelSpacer.style.height = `${h * z}px`
+  levelPadX = isVert() ? Math.max(0, Math.floor((canvasWrap.clientWidth  - w * z) / 2)) : 0
+  levelPadY = isVert() ? 0 : Math.max(0, Math.floor((canvasWrap.clientHeight - h * z) / 2))
+  levelSpacer.style.width  = `${w * z + levelPadX * 2}px`
+  levelSpacer.style.height = `${h * z + levelPadY * 2}px`
 
   // Viewport canvas: size it to the visible area and blit from the offscreen.
   resizeViewportCanvas(overlay)
@@ -182,16 +206,21 @@ function blitViewport(overlay?: HTMLCanvasElement): void {
   const z   = store.zoom
   const vpW = el.width
   const vpH = el.height
-  // Viewport origin in 1× natural pixels.
-  const srcX = canvasWrap.scrollLeft / z
-  const srcY = canvasWrap.scrollTop  / z
-  // Source rect width/height in natural pixels (covers the viewport at zoom z).
-  const srcW = vpW / z
-  const srcH = vpH / z
+  // Scroll origin in natural pixels, accounting for centering padding.
+  const rawSrcX = (canvasWrap.scrollLeft - levelPadX) / z
+  const rawSrcY = (canvasWrap.scrollTop  - levelPadY) / z
+  // When the level is smaller than the viewport the raw origin is negative
+  // (we're panning into the padding). Clamp to 0 and offset the dst.
+  const srcX = Math.max(0, rawSrcX)
+  const srcY = Math.max(0, rawSrcY)
+  const dstX = rawSrcX < 0 ? Math.round(-rawSrcX * z) : 0
+  const dstY = rawSrcY < 0 ? Math.round(-rawSrcY * z) : 0
   const oc = el.getContext('2d')!
   oc.imageSmoothingEnabled = false
   oc.clearRect(0, 0, vpW, vpH)
-  oc.drawImage(fullLevelCanvas, srcX, srcY, srcW, srcH, 0, 0, vpW, vpH)
+  if (dstX < vpW && dstY < vpH) {
+    oc.drawImage(fullLevelCanvas, srcX, srcY, (vpW - dstX) / z, (vpH - dstY) / z, dstX, dstY, vpW - dstX, vpH - dstY)
+  }
   drawHoveredVineIcon(el)
 }
 
@@ -208,10 +237,10 @@ function compositeCameraViewport(
   target: CanvasRenderTarget,
   ctx: RenderContext,
   map: SmwMap,
-): void {
+): { sx: number; sy: number; sw: number; sh: number } | null {
   const rows = map.l1.length
   const cols = rows > 0 ? map.l1[0].length : 0
-  if (rows === 0 || cols === 0) return
+  if (rows === 0 || cols === 0) return null
   const isVert = map.header.orientation === 'vertical'
   // Read from the store (reactive) so pointer-drag updates invalidate
   // the effect and re-paint at the new camera position. `store.camera`
@@ -326,6 +355,7 @@ function compositeCameraViewport(
     map.l3.render(levelCtx, target, { xMin: sx, xMax: sx + sw })
     target.clearClip()
   }
+  return { sx, sy, sw, sh }
 }
 
 /**
@@ -718,82 +748,97 @@ function propLabelStyle(): string {
 // ── Build DOM ─────────────────────────────────────────────────────────────────
 
 const app = document.getElementById('app')!
-app.style.cssText = 'display:flex;flex-direction:column;height:100vh;overflow:hidden;'
+app.style.cssText = [
+  'display:grid',
+  'grid-template-areas:"left toolbar right" "left main right"',
+  'grid-template-columns:210px 1fr 230px',
+  'grid-template-rows:36px 1fr',
+  'height:100vh',
+  'overflow:hidden',
+  'font-family:var(--vscode-font-family,system-ui)',
+  'font-size:12px',
+  'color:var(--vscode-foreground,#e0e0e0)',
+  'user-select:none',
+].join(';')
 
 app.innerHTML = `
-<div id="toolbar" style="
-  display:flex;align-items:center;gap:10px;flex-shrink:0;
-  padding:0 12px;height:36px;
-  background:var(--vscode-editor-background,#1e1e1e);
-  border-bottom:1px solid var(--vscode-panel-border,#3a3a3a);
-  font-size:12px;font-family:var(--vscode-font-family,system-ui);
-  color:var(--vscode-foreground,#e0e0e0);">
-  <span id="map-id" style="font-family:monospace;color:#5b9cf6;font-weight:600;min-width:90px"></span>
-  <span id="map-meta" style="color:#888;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
-  <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
-    <button id="zoom-out" title="Zoom out (Ctrl+scroll)" style="${btnStyle()}">&#8722;</button>
-    <span id="zoom-label" style="font-family:monospace;font-size:11px;min-width:32px;text-align:center">1&#215;</span>
-    <button id="zoom-in"  title="Zoom in (Ctrl+scroll)"  style="${btnStyle()}">&#43;</button>
-  </div>
-  <label style="${chkStyle()}"><input type="checkbox" id="chk-screens"> Screens</label>
-  <label style="${chkStyle()}"><input type="checkbox" id="chk-sprites" checked> Sprites</label>
-  <label style="${chkStyle()}"><input type="checkbox" id="chk-block"> Block</label>
-  <label style="${chkStyle()}"><input type="checkbox" id="chk-l1" checked> L1</label>
-  <label style="${chkStyle()}"><input type="checkbox" id="chk-l2" checked> L2</label>
-  <label style="${chkStyle()}"><input type="checkbox" id="chk-l3" checked> L3</label>
-  <label style="${chkStyle()}"><input type="checkbox" id="chk-l3hud"> HUD</label>
-  <label style="${chkStyle()}"><input type="checkbox" id="chk-camera"> Camera</label>
-</div>
+<div id="workspace" style="display:contents">
 
-<div id="workspace" style="display:flex;flex:1;overflow:hidden;">
-
-  <div id="tiles-panel" style="
-    width:220px;flex-shrink:0;overflow-y:auto;
-    display:flex;flex-direction:column;
+  <!-- ── LEFT PANEL ───────────────────────────────────────────────────────── -->
+  <div id="left-panel" style="
+    grid-area:left;display:flex;flex-direction:column;overflow:hidden;
     background:var(--vscode-sideBar-background,#252526);
-    border-right:1px solid var(--vscode-panel-border,#3a3a3a);
-    font-family:var(--vscode-font-family,system-ui);font-size:12px;">
+    border-right:1px solid var(--vscode-panel-border,#3a3a3a);">
 
-    <div class="section-hdr">8×8 TILES (VRAM)</div>
-    <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:4px 8px;">
-      <button id="vram-prev" style="${btnStyle()}border:none;" title="Previous page"><span class="codicon codicon-chevron-left"></span></button>
-      <span id="vram-page-label" style="font-size:11px;font-family:monospace;color:#aaa;min-width:70px;text-align:center;">Page 1 / 6</span>
-      <button id="vram-next" style="${btnStyle()}border:none;" title="Next page"><span class="codicon codicon-chevron-right"></span></button>
+    <!-- Tab bar -->
+    <div style="display:flex;flex-shrink:0;border-bottom:1px solid var(--vscode-panel-border,#3a3a3a);height:30px;overflow:hidden;">
+      <button class="tab-btn active" id="tab-vram"    data-tab="vram">8×8</button>
+      <button class="tab-btn"        id="tab-map16"   data-tab="map16">Map16</button>
+      <button class="tab-btn"        id="tab-objects" data-tab="objects">Objects</button>
+      <button class="tab-btn"        id="tab-sprites" data-tab="sprites">Sprites</button>
     </div>
-    <div style="padding:4px 8px 8px;">
-      <canvas id="vram-canvas" width="128" height="128" style="
-        width:100%;image-rendering:pixelated;display:block;cursor:default;
-        border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
-        <div id="vram-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
-        <div style="display:flex;gap:2px;">
-          <button id="btn-anim" style="${btnStyle()}border:none;" title="Play animation"><span class="codicon codicon-play"></span></button>
-          <button id="btn-vram-grid" style="${btnStyle()}border:none;" title="Toggle grid"><span class="codicon codicon-table"></span></button>
+
+    <!-- Scrollable tab content -->
+    <div style="flex:1;overflow-y:auto;min-height:0;">
+    <div id="tab-panels">
+
+      <!-- 8×8 VRAM panel -->
+      <div id="panel-vram" style="padding:4px 0;">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:4px 8px;">
+          <button id="vram-prev" class="iconBtn" title="Previous page"><span class="codicon codicon-chevron-left"></span></button>
+          <span id="vram-page-label" style="font-size:11px;font-family:monospace;color:#aaa;min-width:70px;text-align:center;">Page 1 / 6</span>
+          <button id="vram-next" class="iconBtn" title="Next page"><span class="codicon codicon-chevron-right"></span></button>
+        </div>
+        <div style="padding:0 8px 8px;">
+          <canvas id="vram-canvas" width="128" height="128" style="width:100%;image-rendering:pixelated;display:block;cursor:default;border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
+          <div id="vram-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
         </div>
       </div>
-    </div>
 
-    <div class="section-hdr">16×16 TILES (MAP16)</div>
-    <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:4px 8px;">
-      <button id="map16-prev" style="${btnStyle()}border:none;" title="Previous page"><span class="codicon codicon-chevron-left"></span></button>
-      <span id="map16-page-label" style="font-size:11px;font-family:monospace;color:#aaa;min-width:70px;text-align:center;">Page 1 / 2</span>
-      <button id="map16-next" style="${btnStyle()}border:none;" title="Next page"><span class="codicon codicon-chevron-right"></span></button>
-    </div>
-    <div style="padding:4px 8px 8px;">
-      <canvas id="map16-canvas" width="256" height="256" style="
-        width:100%;image-rendering:pixelated;display:block;cursor:default;
-        border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
-        <div id="map16-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
-        <div style="display:flex;gap:2px;">
-          <button id="btn-anim2" style="${btnStyle()}border:none;" title="Play animation"><span class="codicon codicon-play"></span></button>
-          <button id="btn-map16-grid" style="${btnStyle()}border:none;" title="Toggle grid"><span class="codicon codicon-table"></span></button>
+      <!-- Map16 panel -->
+      <div id="panel-map16" style="display:none;padding:4px 0;">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:4px 8px;">
+          <button id="map16-prev" class="iconBtn" title="Previous page"><span class="codicon codicon-chevron-left"></span></button>
+          <span id="map16-page-label" style="font-size:11px;font-family:monospace;color:#aaa;min-width:70px;text-align:center;">Page 1 / 2</span>
+          <button id="map16-next" class="iconBtn" title="Next page"><span class="codicon codicon-chevron-right"></span></button>
+        </div>
+        <div style="padding:0 8px 8px;">
+          <canvas id="map16-canvas" width="256" height="256" style="width:100%;image-rendering:pixelated;display:block;cursor:default;border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
+          <div id="map16-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
         </div>
       </div>
-    </div>
 
-    <div class="section-hdr">SELECTED TILE</div>
-    <div id="tile-detail" style="padding:8px;">
+      <!-- Objects panel (stub) -->
+      <div id="panel-objects" style="display:none;padding:4px 0;">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:4px 8px;">
+          <button id="obj-prev" class="iconBtn" title="Previous page"><span class="codicon codicon-chevron-left"></span></button>
+          <span id="obj-page-label" style="font-size:11px;font-family:monospace;color:#aaa;min-width:70px;text-align:center;">Page 1 / 4</span>
+          <button id="obj-next" class="iconBtn" title="Next page"><span class="codicon codicon-chevron-right"></span></button>
+        </div>
+        <div style="padding:0 8px 8px;">
+          <canvas id="obj-canvas" width="128" height="256" style="width:100%;image-rendering:pixelated;display:block;cursor:default;border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
+          <div id="obj-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
+        </div>
+      </div>
+
+      <!-- Sprites panel (stub) -->
+      <div id="panel-sprites" style="display:none;padding:4px 0;">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:4px 8px;">
+          <button id="spr-prev" class="iconBtn" title="Previous page"><span class="codicon codicon-chevron-left"></span></button>
+          <span id="spr-page-label" style="font-size:11px;font-family:monospace;color:#aaa;min-width:70px;text-align:center;">Page 1 / 4</span>
+          <button id="spr-next" class="iconBtn" title="Next page"><span class="codicon codicon-chevron-right"></span></button>
+        </div>
+        <div style="padding:0 8px 8px;">
+          <canvas id="spr-canvas" width="128" height="256" style="width:100%;image-rendering:pixelated;display:block;cursor:default;border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
+          <div id="spr-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
+        </div>
+      </div>
+
+    </div><!-- #tab-panels -->
+
+    <!-- Selected preview (immediately below tile viewer) -->
+    <div style="border-top:1px solid var(--vscode-panel-border,#3a3a3a);padding:8px;">
+      <div style="font-size:9px;font-weight:700;letter-spacing:.08em;color:#888;margin-bottom:4px;">SELECTED</div>
       <div style="display:flex;gap:8px;align-items:flex-start;">
         <canvas id="detail-canvas" width="16" height="16" style="
           width:64px;height:64px;image-rendering:pixelated;flex-shrink:0;
@@ -802,156 +847,275 @@ app.innerHTML = `
       </div>
     </div>
 
-  </div>
-
-  <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
-    <div id="main-view" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
-      <div id="canvas-wrap" style="flex:1;overflow:auto;position:relative;background:#111111;cursor:crosshair;">
-        <div id="level-spacer" style="position:absolute;top:0;left:0;pointer-events:none;"></div>
-        <canvas id="model-canvas" style="position:sticky;top:0;left:0;display:block;image-rendering:pixelated;"></canvas>
-      </div>
-      <div id="minimap-wrap" style="flex-shrink:0;background:#0a0a0a;border-top:1px solid #3a3a3a;padding:4px 8px;display:flex;justify-content:center;align-items:center;">
-        <canvas id="minimap-canvas" style="display:block;image-rendering:pixelated;cursor:pointer;background:#000;"></canvas>
-      </div>
-    </div>
-    <div id="map-bottom-bar" style="display:flex;align-items:center;gap:12px;padding:4px 8px;background:#1a1a1a;border-top:1px solid #3a3a3a;font-family:monospace;font-size:11px;color:#ccc;">
-      <span id="st-pos" style="min-width:90px;">—</span>
-      <span id="st-tile" style="min-width:70px;">—</span>
-      <span id="st-info" style="flex:1;color:#888;"></span>
-      <button id="btn-map-minimap" style="${btnStyle()}border:none;" title="Toggle minimap"><span class="codicon codicon-map"></span></button>
-      <button id="btn-anim3" style="${btnStyle()}border:none;" title="Play animation"><span class="codicon codicon-play"></span></button>
-      <button id="btn-map-grid" style="${btnStyle()}border:none;" title="Toggle tile grid"><span class="codicon codicon-table"></span></button>
-    </div>
-  </div>
-
-  <div id="props-panel" style="
-    width:220px;flex-shrink:0;overflow-y:auto;
-    display:flex;flex-direction:column;
-    background:var(--vscode-sideBar-background,#252526);
-    border-left:1px solid var(--vscode-panel-border,#3a3a3a);
-    font-family:var(--vscode-font-family,system-ui);font-size:12px;">
-
-    <div class="section-hdr">PALETTE</div>
-    <div style="padding:8px 8px 4px;">
+    <!-- Palette (CGRAM) -->
+    <div style="border-top:1px solid var(--vscode-panel-border,#3a3a3a);padding:4px 8px 8px;">
       <canvas id="palette-canvas" width="128" height="128" style="
         width:100%;image-rendering:pixelated;cursor:crosshair;display:block;
         background:repeating-conic-gradient(#555 0% 25%,#444 0% 50%) 0 0/8px 8px;
         border:1px solid #3a3a3a;box-sizing:border-box;"></canvas>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
-        <div id="palette-inspect" style="font-size:10px;
-          font-family:monospace;color:#666;min-height:14px;">hover to inspect</div>
-        <div style="display:flex;align-items:center;gap:2px;">
-          <div id="pal-anim-controls" style="display:none;align-items:center;gap:2px;">
-            <button id="btn-pal-play" style="${btnStyle()}border:none;" title="Play palette animation"><span class="codicon codicon-play"></span></button>
+      <div id="palette-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
+    </div>
+
+    </div><!-- left scroll wrapper -->
+  </div><!-- #left-panel -->
+
+  <!-- ── TOOLBAR (center top) ───────────────────────────────────────────────── -->
+  <div id="toolbar" style="
+    grid-area:toolbar;display:flex;align-items:center;gap:4px;padding:0 8px;
+    background:var(--vscode-editor-background,#1e1e1e);
+    border-bottom:1px solid var(--vscode-panel-border,#3a3a3a);">
+
+    <!-- Layer toggles (SVG 3-bar icons, 40% opacity when off) -->
+    <button id="btn-l2" class="iconBtn layerBtn on" title="Layer 2 — background">
+      <svg width="16" height="14" viewBox="0 0 16 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1"  width="14" height="3" rx="1" fill="#666"/>
+        <rect x="1" y="6"  width="14" height="3" rx="1" fill="#666"/>
+        <rect x="1" y="11" width="14" height="3" rx="1" fill="currentColor"/>
+      </svg>
+    </button>
+    <button id="btn-l1" class="iconBtn layerBtn on" title="Layer 1 — foreground">
+      <svg width="16" height="14" viewBox="0 0 16 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1"  width="14" height="3" rx="1" fill="#666"/>
+        <rect x="1" y="6"  width="14" height="3" rx="1" fill="currentColor"/>
+        <rect x="1" y="11" width="14" height="3" rx="1" fill="#666"/>
+      </svg>
+    </button>
+    <button id="btn-l3" class="iconBtn layerBtn on" title="Layer 3 — special">
+      <svg width="16" height="14" viewBox="0 0 16 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1"  width="14" height="3" rx="1" fill="currentColor"/>
+        <rect x="1" y="6"  width="14" height="3" rx="1" fill="#666"/>
+        <rect x="1" y="11" width="14" height="3" rx="1" fill="#666"/>
+      </svg>
+    </button>
+
+    <div class="tb-sep"></div>
+
+    <!-- Overlay toggles -->
+    <button id="btn-sprites"     class="iconBtn on" title="Sprites overlay"><span class="codicon codicon-symbol-misc"></span></button>
+    <button id="btn-block"       class="iconBtn"    title="Block view"><span class="codicon codicon-symbol-method"></span></button>
+    <button id="btn-play"        class="iconBtn"    title="Play animation"><span class="codicon codicon-play"></span></button>
+    <button id="btn-camera"      class="iconBtn"    title="Camera viewport"><span class="codicon codicon-device-camera-video"></span></button>
+    <button id="btn-hud"         class="iconBtn"    title="HUD in camera"><span class="codicon codicon-window"></span></button>
+
+    <div class="tb-sep"></div>
+
+    <!-- Zoom -->
+    <button id="zoom-out" class="iconBtn" title="Zoom out (Ctrl+scroll)"><span class="codicon codicon-zoom-out"></span></button>
+    <span id="zoom-label" style="font-family:monospace;font-size:11px;min-width:28px;text-align:center;flex-shrink:0;">1×</span>
+    <button id="zoom-in"  class="iconBtn" title="Zoom in (Ctrl+scroll)"><span class="codicon codicon-zoom-in"></span></button>
+
+    <div class="tb-sep"></div>
+
+    <!-- View toggles -->
+    <button id="btn-map-minimap" class="iconBtn on" title="Toggle minimap"><span class="codicon codicon-map"></span></button>
+    <button id="btn-map-grid-tb" class="iconBtn"    title="Toggle tile grid"><span class="codicon codicon-table"></span></button>
+    <button id="btn-screens"     class="iconBtn"    title="Toggle screen dividers" style="transform:rotate(-90deg)"><span class="codicon codicon-server"></span></button>
+
+    <div class="tb-sep"></div>
+
+    <!-- Edit (stubs) -->
+    <button class="iconBtn" title="Undo (not yet implemented)" disabled><span class="codicon codicon-discard"></span></button>
+    <button class="iconBtn" title="Redo (not yet implemented)" disabled><span class="codicon codicon-redo"></span></button>
+
+    <div class="tb-sep"></div>
+
+    <!-- Nav (stubs) -->
+    <button class="iconBtn" title="Entrances (not yet implemented)" disabled><span class="codicon codicon-sign-in"></span></button>
+    <button class="iconBtn" title="Exits (not yet implemented)" disabled><span class="codicon codicon-sign-out"></span></button>
+
+    <!-- Right-aligned: settings gear + level info -->
+    <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-shrink:0;">
+      <button class="iconBtn" style="color:#e8a72b;" title="Level settings (not yet implemented)" disabled><span class="codicon codicon-settings-gear"></span></button>
+      <span id="map-id" style="font-family:monospace;font-size:11px;color:#aaa;white-space:nowrap;"></span>
+    </div>
+
+  </div><!-- #toolbar -->
+
+  <!-- ── MAIN CANVAS (center bottom) ──────────────────────────────────────── -->
+  <div id="main" style="grid-area:main;display:flex;flex-direction:column;overflow:hidden;position:relative;">
+    <div id="canvas-wrap" style="flex:1;overflow:auto;position:relative;background:#111111;cursor:crosshair;min-height:0;">
+      <div id="level-spacer" style="position:absolute;top:0;left:0;pointer-events:none;"></div>
+      <canvas id="model-canvas" style="position:sticky;top:0;left:0;display:block;image-rendering:pixelated;"></canvas>
+    </div>
+    <div id="minimap-wrap" style="flex-shrink:0;background:#0a0a0a;border-top:1px solid #3a3a3a;padding:4px 8px;display:flex;justify-content:center;align-items:center;">
+      <canvas id="minimap-canvas" style="display:block;image-rendering:pixelated;cursor:pointer;background:#000;"></canvas>
+    </div>
+    <!-- Hidden status/meta elements kept for backward compat -->
+    <span id="st-pos"   style="display:none;"></span>
+    <span id="st-tile"  style="display:none;"></span>
+    <span id="st-info"  style="display:none;"></span>
+    <span id="map-meta" style="display:none;"></span>
+    <!-- Hidden checkbox inputs: bridge for legacy event handlers -->
+    <input type="checkbox" id="chk-l1"      checked style="display:none">
+    <input type="checkbox" id="chk-l2"      checked style="display:none">
+    <input type="checkbox" id="chk-l3"      checked style="display:none">
+    <input type="checkbox" id="chk-sprites" checked style="display:none">
+    <input type="checkbox" id="chk-screens"         style="display:none">
+    <input type="checkbox" id="chk-block"           style="display:none">
+    <input type="checkbox" id="chk-l3hud"           style="display:none">
+    <input type="checkbox" id="chk-camera"          style="display:none">
+  </div><!-- #main -->
+
+  <!-- ── RIGHT PANEL ──────────────────────────────────────────────────────── -->
+  <div id="right-panel" style="
+    grid-area:right;display:flex;flex-direction:column;overflow:hidden;
+    background:var(--vscode-sideBar-background,#252526);
+    border-left:1px solid var(--vscode-panel-border,#3a3a3a);">
+
+    <!-- Dynamic inspector header -->
+    <div id="props-hdr" style="
+      padding:6px 8px;border-bottom:1px solid var(--vscode-panel-border,#3a3a3a);
+      font-size:11px;min-height:30px;flex-shrink:0;display:flex;align-items:center;">
+      <span id="props-ctx" style="color:#888;font-style:italic;">Click a tile, sprite, or object…</span>
+    </div>
+
+    <!-- Context panes -->
+    <div id="pp-empty" style="flex:1;display:flex;align-items:center;justify-content:center;color:#444;font-size:11px;padding:16px;text-align:center;min-height:0;"></div>
+    <div id="pp-tile"   style="display:none;flex:1;padding:8px;overflow-y:auto;min-height:0;font-size:11px;color:#ccc;"></div>
+    <div id="pp-sprite" style="display:none;flex:1;padding:8px;overflow-y:auto;min-height:0;font-size:11px;color:#ccc;"></div>
+    <div id="pp-object" style="display:none;flex:1;padding:8px;overflow-y:auto;min-height:0;font-size:11px;color:#ccc;"></div>
+
+    <!-- Level Settings + Switch State in a scrollable wrapper so they're never
+         clipped by the panel's overflow:hidden when the context pane is tall -->
+    <div style="flex-shrink:1;overflow-y:auto;min-height:0;">
+
+    <!-- Level Settings (collapsible) -->
+    <details class="prop-section" open>
+      <summary class="section-hdr" style="cursor:pointer;">LEVEL SETTINGS</summary>
+      <div style="padding:8px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;">
+
+        <div>
+          <div style="${propLabelStyle()}">BACK AREA COLOR</div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <div id="back-area-swatch" style="width:16px;height:16px;flex-shrink:0;border:1px solid #555;border-radius:2px;"></div>
+            <select id="sel-bg-color" style="${selStyle()}"></select>
           </div>
-          <button id="btn-pal-grid" style="${btnStyle()}border:none;" title="Toggle palette grid"><span class="codicon codicon-table"></span></button>
         </div>
-      </div>
-    </div>
 
-    <div class="section-hdr">LEVEL HEADER SETTINGS</div>
-    <div style="padding:8px;display:flex;flex-direction:column;gap:8px;">
-
-      <div>
-        <div style="${propLabelStyle()}">BACK AREA COLOR</div>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <div id="back-area-swatch" style="
-            width:16px;height:16px;flex-shrink:0;
-            border:1px solid #555;border-radius:2px;"></div>
-          <select id="sel-bg-color" style="${selStyle()}"></select>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <div>
+            <div style="${propLabelStyle()}">FG PALETTE</div>
+            <select id="sel-fg-palette" style="${selStyle()}"></select>
+          </div>
+          <div>
+            <div style="${propLabelStyle()}">BG PALETTE</div>
+            <select id="sel-bg-palette" style="${selStyle()}"></select>
+          </div>
         </div>
-      </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <div>
+            <div style="${propLabelStyle()}">SPRITE PAL</div>
+            <select id="sel-sprite-palette" style="${selStyle()}"></select>
+          </div>
+          <div>
+            <div style="${propLabelStyle()}">MARIO PAL</div>
+            <select id="sel-mario-palette" style="${selStyle()}"></select>
+          </div>
+        </div>
+
         <div>
-          <div style="${propLabelStyle()}">FG PALETTE</div>
-          <select id="sel-fg-palette" style="${selStyle()}"></select>
+          <div style="${propLabelStyle()}">TILESET (GFX)</div>
+          <select id="sel-tileset" style="${selStyle()}"></select>
         </div>
+
         <div>
-          <div style="${propLabelStyle()}">BG PALETTE</div>
-          <select id="sel-bg-palette" style="${selStyle()}"></select>
+          <div style="${propLabelStyle()}">SPRITE SET</div>
+          <select id="sel-sprite-set" style="${selStyle()}"></select>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <div>
+            <div style="${propLabelStyle()}">SCREENS</div>
+            <div id="info-screens" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+          </div>
+          <div>
+            <div style="${propLabelStyle()}">SPRITES</div>
+            <div id="info-sprites" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <div>
+            <div style="${propLabelStyle()}">BG V-SCROLL</div>
+            <div id="info-bg-vscroll" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+          </div>
+          <div>
+            <div style="${propLabelStyle()}">BG H-SCROLL</div>
+            <div id="info-bg-hscroll" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+          </div>
+        </div>
+
+      </div>
+    </details>
+
+    <!-- Switch State (collapsible) -->
+    <details class="prop-section" open>
+      <summary class="section-hdr" style="cursor:pointer;">SWITCH STATE</summary>
+      <div style="padding:8px;">
+        <div id="switch-toggles" style="display:flex;gap:6px;justify-content:space-between;">
+          <button class="pswitch-toggle" data-pcolor="blue" title="Blue P-switch — swaps coins ↔ used blocks and reveals hidden doors / ? blocks">
+            <canvas width="16" height="16"></canvas>
+          </button>
+          <button class="switch-toggle" data-color="0" title="Green switch — click to toggle cleared state">
+            <canvas width="16" height="16"></canvas>
+          </button>
+          <button class="switch-toggle" data-color="1" title="Yellow switch — click to toggle cleared state">
+            <canvas width="16" height="16"></canvas>
+          </button>
+          <button class="switch-toggle" data-color="2" title="Blue switch — click to toggle cleared state">
+            <canvas width="16" height="16"></canvas>
+          </button>
+          <button class="switch-toggle" data-color="3" title="Red switch — click to toggle cleared state">
+            <canvas width="16" height="16"></canvas>
+          </button>
         </div>
       </div>
+    </details>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-        <div>
-          <div style="${propLabelStyle()}">SPRITE PALETTE</div>
-          <select id="sel-sprite-palette" style="${selStyle()}"></select>
-        </div>
-        <div>
-          <div style="${propLabelStyle()}">MARIO PALETTE</div>
-          <select id="sel-mario-palette" style="${selStyle()}"></select>
-        </div>
-      </div>
+    </div><!-- scrollable wrapper -->
 
-      <div>
-        <div style="${propLabelStyle()}">TILESET (GFX)</div>
-        <select id="sel-tileset" style="${selStyle()}"></select>
-      </div>
+  </div><!-- #right-panel -->
 
-      <div>
-        <div style="${propLabelStyle()}">SPRITE SET</div>
-        <select id="sel-sprite-set" style="${selStyle()}"></select>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-        <div>
-          <div style="${propLabelStyle()}">BG V-SCROLL</div>
-          <div id="info-bg-vscroll" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
-        </div>
-        <div>
-          <div style="${propLabelStyle()}">BG H-SCROLL</div>
-          <div id="info-bg-hscroll" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
-        </div>
-      </div>
-
-    </div>
-
-    <div class="section-hdr">ROOM INFO</div>
-    <div style="padding:8px;display:flex;flex-direction:column;gap:6px;">
-      <div>
-        <div style="${propLabelStyle()}">SCREENS</div>
-        <div id="info-screens" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
-      </div>
-      <div>
-        <div style="${propLabelStyle()}">SPRITES</div>
-        <div id="info-sprites" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
-      </div>
-    </div>
-
-    <div class="section-hdr" style="margin-top:auto;">SWITCH STATE</div>
-    <div style="padding:8px;display:flex;flex-direction:column;gap:6px;">
-      <div id="switch-toggles" style="display:flex;gap:6px;justify-content:space-between;">
-        <button class="pswitch-toggle" data-pcolor="blue" title="Blue P-switch — swaps coins ↔ used blocks and reveals hidden doors / ? blocks">
-          <canvas width="16" height="16"></canvas>
-        </button>
-        <button class="switch-toggle" data-color="0" title="Green switch — click to toggle cleared state">
-          <canvas width="16" height="16"></canvas>
-        </button>
-        <button class="switch-toggle" data-color="1" title="Yellow switch — click to toggle cleared state">
-          <canvas width="16" height="16"></canvas>
-        </button>
-        <button class="switch-toggle" data-color="2" title="Blue switch — click to toggle cleared state">
-          <canvas width="16" height="16"></canvas>
-        </button>
-        <button class="switch-toggle" data-color="3" title="Red switch — click to toggle cleared state">
-          <canvas width="16" height="16"></canvas>
-        </button>
-      </div>
-    </div>
-
-  </div>
-</div>
+</div><!-- #workspace -->
 
 <style>
-  .section-hdr {
-    padding:4px 8px 3px;font-size:10px;font-weight:700;letter-spacing:.08em;
-    color:var(--vscode-sideBarSectionHeader-foreground,#bbb);
-    background:var(--vscode-sideBarSectionHeader-background,#2d2d2d);
-    user-select:none;
+  .iconBtn {
+    background: transparent; border: none; color: #ccc;
+    width: 24px; height: 24px; border-radius: 4px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; padding: 0; flex-shrink: 0; pointer-events: all;
   }
-  .tile-tab { transition: color 0.15s, border-bottom 0.15s; border-bottom: 2px solid transparent; }
-  .tile-tab-active { color: #ccc !important; border-bottom: 2px solid #007acc !important; }
+  .iconBtn:hover:not(:disabled) { background: rgba(255,255,255,0.08); }
+  .iconBtn.on { color: #5b9cf6; }
+  .iconBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .layerBtn { transition: opacity 0.15s; }
+  .layerBtn:not(.on) { opacity: 0.4; }
+
+  .canvas-float-btn { background: rgba(0,0,0,0.55); border-radius: 4px; }
+  .canvas-float-btn:hover:not(:disabled) { background: rgba(0,0,0,0.75); }
+
+  .tb-sep { width:1px;height:20px;background:var(--vscode-panel-border,#444);margin:0 2px;flex-shrink:0; }
+
+  .tab-btn {
+    background: transparent; border: none; border-bottom: 2px solid transparent;
+    color: #888; padding: 0 8px; height: 100%; cursor: pointer;
+    font-size: 11px; font-family: var(--vscode-font-family, system-ui);
+    transition: color 0.15s, border-bottom-color 0.15s; flex-shrink: 0;
+  }
+  .tab-btn.active { color: #e0e0e0; border-bottom-color: #007acc; }
+  .tab-btn:hover:not(.active) { color: #ccc; }
+
+  .section-hdr {
+    padding: 4px 8px 3px; font-size: 10px; font-weight: 700; letter-spacing: .08em;
+    color: var(--vscode-sideBarSectionHeader-foreground,#bbb);
+    background: var(--vscode-sideBarSectionHeader-background,#2d2d2d);
+    user-select: none; flex-shrink: 0;
+  }
+  details.prop-section > summary { list-style: none; }
+  details.prop-section > summary::-webkit-details-marker { display: none; }
+
   .switch-toggle, .pswitch-toggle {
     width:36px;height:36px;padding:2px;border-radius:4px;cursor:pointer;
     background:var(--vscode-input-background,#1e1e1e);border:2px solid #555;
@@ -1222,44 +1386,127 @@ let vramHoverTile: { col: number; row: number } | null = null
 let map16HoverTile: { col: number; row: number } | null = null
 
 // ── Tile viewer grid toggles ─────────────────────────────────────────────────
-let vramGridOn = false
-let map16GridOn = false
-let palGridOn = false
+const vramGridOn = false
+const map16GridOn = false
+const palGridOn = false
 let mapGridOn = false
 let minimapOn = true
-document.getElementById('btn-vram-grid')!.addEventListener('click', () => {
-  vramGridOn = !vramGridOn
-  document.getElementById('btn-vram-grid')!.style.color = vramGridOn ? '#5b9cf6' : '#ccc'
-  renderVramPage()
-})
-document.getElementById('btn-map16-grid')!.addEventListener('click', () => {
-  map16GridOn = !map16GridOn
-  document.getElementById('btn-map16-grid')!.style.color = map16GridOn ? '#5b9cf6' : '#ccc'
-  renderMap16Page()
-})
-document.getElementById('btn-pal-grid')!.addEventListener('click', () => {
-  palGridOn = !palGridOn
-  document.getElementById('btn-pal-grid')!.style.color = palGridOn ? '#5b9cf6' : '#ccc'
-  drawPaletteCanvas()
-})
-document.getElementById('btn-map-grid')!.addEventListener('click', () => {
-  mapGridOn = !mapGridOn
-  store.setLayerToggle('mapGrid', mapGridOn)
-  document.getElementById('btn-map-grid')!.style.color = mapGridOn ? '#5b9cf6' : '#ccc'
-})
 document.getElementById('btn-map-minimap')!.addEventListener('click', () => {
   minimapOn = !minimapOn
-  document.getElementById('btn-map-minimap')!.style.color = minimapOn ? '#5b9cf6' : '#ccc'
+  document.getElementById('btn-map-minimap')!.classList.toggle('on', minimapOn)
   const wrap = document.getElementById('minimap-wrap')!
   wrap.style.display = minimapOn ? 'flex' : 'none'
   if (minimapOn) drawMinimap()
 })
-// Sync each button's initial tint with its default state.
+
+// ── Toolbar tile-grid button ──────────────────────────────────────────────────
+document.getElementById('btn-map-grid-tb')?.addEventListener('click', () => {
+  mapGridOn = !mapGridOn
+  store.setLayerToggle('mapGrid', mapGridOn)
+  const toolbar = document.getElementById('btn-map-grid-tb')
+  if (toolbar) toolbar.style.color = mapGridOn ? '#5b9cf6' : '#ccc'
+})
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+const TAB_NAMES = ['vram', 'map16', 'objects', 'sprites'] as const
+function switchTab(tab: typeof TAB_NAMES[number]): void {
+  for (const t of TAB_NAMES) {
+    const panel = document.getElementById(`panel-${t}`)
+    const btn   = document.getElementById(`tab-${t}`)
+    if (panel) panel.style.display = t === tab ? '' : 'none'
+    if (btn)   btn.classList.toggle('active', t === tab)
+  }
+}
+for (const t of TAB_NAMES) {
+  document.getElementById(`tab-${t}`)?.addEventListener('click', () => switchTab(t))
+}
+
+// ── Layer icon button → hidden checkbox bridge ────────────────────────────────
+// Each icon button flips the backing hidden <input type="checkbox"> and fires
+// its 'change' event so the existing syncLayerTogglesFromDom handler picks it up.
+function wireLayerBtn(btnId: string, chkId: string): void {
+  const btn = document.getElementById(btnId)
+  const chk = document.getElementById(chkId) as HTMLInputElement | null
+  if (!btn || !chk) return
+  btn.classList.toggle('on', chk.checked)
+  btn.addEventListener('click', () => {
+    chk.checked = !chk.checked
+    chk.dispatchEvent(new Event('change'))
+    btn.classList.toggle('on', chk.checked)
+  })
+}
+wireLayerBtn('btn-l1',      'chk-l1')
+wireLayerBtn('btn-l2',      'chk-l2')
+wireLayerBtn('btn-l3',      'chk-l3')
+wireLayerBtn('btn-sprites', 'chk-sprites')
+wireLayerBtn('btn-block',   'chk-block')
+wireLayerBtn('btn-screens', 'chk-screens')
+wireLayerBtn('btn-hud',     'chk-l3hud')
+
+// Camera icon button wires into the existing chkCamera handler.
 {
-  const grid = document.getElementById('btn-map-grid')
-  if (grid) grid.style.color = mapGridOn ? '#5b9cf6' : '#ccc'
-  const mini = document.getElementById('btn-map-minimap')
-  if (mini) mini.style.color = minimapOn ? '#5b9cf6' : '#ccc'
+  const btn = document.getElementById('btn-camera')
+  const chk = document.getElementById('chk-camera') as HTMLInputElement | null
+  if (btn && chk) {
+    btn.addEventListener('click', () => {
+      chk.checked = !chk.checked
+      chk.dispatchEvent(new Event('change'))
+      btn.classList.toggle('on', chk.checked)
+    })
+  }
+}
+
+// ── Dynamic properties panel ──────────────────────────────────────────────────
+const PROP_CTX_LABELS: Record<string, string> = {
+  tile:   '',  // filled in when a tile is selected
+  sprite: '',
+  object: '',
+  empty:  '',
+}
+function setPropContext(type: 'tile' | 'sprite' | 'object' | 'empty', label = ''): void {
+  const ctx = document.getElementById('props-ctx')
+  if (ctx) ctx.textContent = label || PROP_CTX_LABELS[type] || ''
+  ctx?.setAttribute('style', label
+    ? 'color:#ccc;font-style:normal;'
+    : 'color:#888;font-style:italic;')
+  for (const t of ['tile', 'sprite', 'object', 'empty'] as const) {
+    const el = document.getElementById(`pp-${t}`)
+    if (el) el.style.display = t === type ? (t === 'empty' ? 'flex' : 'block') : 'none'
+  }
+}
+
+// ── Tile properties panel ────────────────────────────────────────────────────
+type Map16DefEntry = NonNullable<MapPayload['map16Defs']>[number]
+
+function populateTileProps(tileId: number, def: Map16DefEntry | undefined): void {
+  const pp = document.getElementById('pp-tile')!
+  if (!def || !mapData) {
+    pp.innerHTML = '<span style="color:#555;font-style:italic;">No data</span>'
+    return
+  }
+  const palRow = def.tl.p
+  const colors = mapData.paletteRows[palRow] ?? []
+  const swatches = colors.map(([r, g, b]: number[]) =>
+    `<span style="display:inline-block;width:9px;height:9px;background:rgb(${r},${g},${b});flex-shrink:0;"></span>`
+  ).join('')
+  const hex = (n: number) => `$${n.toString(16).padStart(3, '0').toUpperCase()}`
+  pp.innerHTML = `
+    <div style="margin-bottom:8px;">
+      <div style="font-size:9px;font-weight:700;letter-spacing:.08em;color:#888;margin-bottom:4px;">PALETTE ROW</div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-family:monospace;color:#ccc;">${palRow}</span>
+        <div style="display:flex;gap:1px;flex-wrap:wrap;">${swatches}</div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:.08em;color:#888;margin-bottom:4px;">SUBTILES</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;font-family:monospace;font-size:11px;">
+        <div><span style="color:#666;">TL </span><span style="color:#5b9cf6;">${hex(def.tl.c)}</span></div>
+        <div><span style="color:#666;">TR </span><span style="color:#5b9cf6;">${hex(def.tr.c)}</span></div>
+        <div><span style="color:#666;">BL </span><span style="color:#5b9cf6;">${hex(def.bl.c)}</span></div>
+        <div><span style="color:#666;">BR </span><span style="color:#5b9cf6;">${hex(def.br.c)}</span></div>
+      </div>
+    </div>`
 }
 
 // ── Animation ────────────────────────────────────────────────────────────────
@@ -1334,19 +1581,15 @@ function togglePalAnim(): void {
   else startPalAnimTimer()
 }
 
-document.getElementById('btn-pal-play')!.addEventListener('click', togglePalAnim)
-
 const animPlayBtns = [
-  document.getElementById('btn-anim')!,
-  document.getElementById('btn-anim2')!,
-  document.getElementById('btn-anim3')!,
+  document.getElementById('btn-play')!,
 ]
 
 function syncAnimButtons(): void {
   for (const btn of animPlayBtns) {
     btn.innerHTML = animRunning ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
     btn.title = animRunning ? 'Pause animation' : 'Play animation'
-    btn.style.color = animRunning ? '#5b9cf6' : '#ccc'
+    btn.classList.toggle('on', animRunning)
   }
 }
 
@@ -1354,8 +1597,13 @@ function toggleAnim(): void {
   if (animFrameCount <= 1) return
   animRunning = !animRunning
   syncAnimButtons()
-  if (animRunning) startAnimTimer()
-  else stopAnimTimer()
+  if (animRunning) {
+    startAnimTimer()
+    if (mapData?.paletteAnimation) startPalAnimTimer()
+  } else {
+    stopAnimTimer()
+    if (palAnimRunning) stopPalAnimTimer()
+  }
 }
 
 for (const btn of animPlayBtns) btn.addEventListener('click', toggleAnim)
@@ -1658,8 +1906,17 @@ const canvas = modelCanvas  // map-canvas was renamed model-canvas in #62
 const ctx    = canvas.getContext('2d')!
 // Off-screen full-level canvas (1× natural pixels). The viewport canvas blits
 // from this on scroll; the minimap samples from it for its overview.
+// baseLevelCanvas holds the same render WITHOUT the camera-viewport composite,
+// so a camera drag can skip the expensive map.render() and just copy the base
+// then re-apply the strip overlay.
 let fullLevelCanvas: HTMLCanvasElement | null = null
+let baseLevelCanvas: HTMLCanvasElement | null = null
 let zoom     = ZOOM_STEPS[ZOOM_DEFAULT_IDX]
+// CSS-pixel padding added to the spacer on each side so the level is centered
+// when it's smaller than the canvas-wrap viewport. Horizontal levels get
+// vertical padding (levelPadY); vertical levels get horizontal (levelPadX).
+let levelPadX = 0
+let levelPadY = 0
 const activeVramIndexed: Uint8Array | null = null
 const map16AtlasCanvas:    HTMLCanvasElement | null = null
 const map16BgAtlasCanvas:  HTMLCanvasElement | null = null
@@ -2301,21 +2558,18 @@ function scrollContainerToCamera(center = false): void {
   if (center) {
     const marginX = Math.max(0, (wrap.clientWidth  - rw) / 2)
     const marginY = Math.max(0, (wrap.clientHeight - rh) / 2)
-    wrap.scrollLeft = Math.max(0, rx - marginX)
-    wrap.scrollTop  = Math.max(0, ry - marginY)
+    wrap.scrollLeft = Math.max(0, rx + levelPadX - marginX)
+    wrap.scrollTop  = Math.max(0, ry + levelPadY - marginY)
   } else {
-    // During drag/keyboard nudge: scroll only enough to keep the camera rect
-    // visible with a 1-tile margin. Full centering on every move snaps the
-    // viewport too aggressively and changes getBoundingClientRect() mid-drag.
     const pad = px
     const sl = wrap.scrollLeft
     const st = wrap.scrollTop
     const vw = wrap.clientWidth
     const vh = wrap.clientHeight
-    if (rx - pad < sl)               wrap.scrollLeft = Math.max(0, rx - pad)
-    else if (rx + rw + pad > sl + vw) wrap.scrollLeft = rx + rw + pad - vw
-    if (ry - pad < st)               wrap.scrollTop  = Math.max(0, ry - pad)
-    else if (ry + rh + pad > st + vh) wrap.scrollTop  = ry + rh + pad - vh
+    if (rx + levelPadX - pad < sl)                      wrap.scrollLeft = Math.max(0, rx + levelPadX - pad)
+    else if (rx + levelPadX + rw + pad > sl + vw)       wrap.scrollLeft = rx + levelPadX + rw + pad - vw
+    if (ry + levelPadY - pad < st)                      wrap.scrollTop  = Math.max(0, ry + levelPadY - pad)
+    else if (ry + levelPadY + rh + pad > st + vh)       wrap.scrollTop  = ry + levelPadY + rh + pad - vh
   }
 }
 
@@ -2405,8 +2659,8 @@ function drawMinimapViewport(): void {
 
   const mmW = minimapCanvas.width
   const mmH = minimapCanvas.height
-  const vx = Math.round((canvasWrap.scrollLeft / mainW) * mmW)
-  const vy = Math.round((canvasWrap.scrollTop  / mainH) * mmH)
+  const vx = Math.round(((canvasWrap.scrollLeft - levelPadX) / mainW) * mmW)
+  const vy = Math.round(((canvasWrap.scrollTop  - levelPadY) / mainH) * mmH)
   const vw = Math.max(1, Math.round((canvasWrap.clientWidth  / mainW) * mmW))
   const vh = Math.max(1, Math.round((canvasWrap.clientHeight / mainH) * mmH))
 
@@ -2428,8 +2682,8 @@ function minimapPanTo(e: PointerEvent): void {
   const mainPx = TILE_PX * store.zoom
   const fx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
   const fy = Math.max(0, Math.min(1, (e.clientY - rect.top)  / rect.height))
-  canvasWrap.scrollLeft = fx * cols * mainPx - canvasWrap.clientWidth  / 2
-  canvasWrap.scrollTop  = fy * rows * mainPx - canvasWrap.clientHeight / 2
+  canvasWrap.scrollLeft = fx * cols * mainPx + levelPadX - canvasWrap.clientWidth  / 2
+  canvasWrap.scrollTop  = fy * rows * mainPx + levelPadY - canvasWrap.clientHeight / 2
   // If the camera viewport is on, pull it along to the new center so
   // the preview stays on-screen after the pan. Center of visible area
   // in tile-coords minus half the camera window gives the new top-left.
@@ -2470,6 +2724,18 @@ canvasWrap.addEventListener('scroll', () => {
 
 // Resize the viewport canvas and re-blit when the panel or window changes.
 new ResizeObserver(() => {
+  // Recompute centering pads with the new viewport size — without this the
+  // initial render can use a stale levelPadY (computed before a horizontal
+  // scrollbar appeared and shrank clientHeight).
+  if (fullLevelCanvas) {
+    const z = store.zoom
+    const fw = fullLevelCanvas.width
+    const fh = fullLevelCanvas.height
+    levelPadX = isVert() ? Math.max(0, Math.floor((canvasWrap.clientWidth  - fw * z) / 2)) : 0
+    levelPadY = isVert() ? 0 : Math.max(0, Math.floor((canvasWrap.clientHeight - fh * z) / 2))
+    levelSpacer.style.width  = `${fw * z + levelPadX * 2}px`
+    levelSpacer.style.height = `${fh * z + levelPadY * 2}px`
+  }
   const overlay = document.getElementById('model-canvas') as HTMLCanvasElement | null
   if (overlay) { resizeViewportCanvas(overlay); blitViewport(overlay) }
   drawMinimap()
@@ -2519,8 +2785,8 @@ modelCanvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return
   const rect = modelCanvas.getBoundingClientRect()
   const px = TILE_PX * store.zoom
-  const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft
-  const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop
+  const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft - levelPadX
+  const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop  - levelPadY
 
   // Vine icon click: toggle vine path for this source (runs regardless of camera mode).
   const vk = vineIconKeyAt(lx, ly)
@@ -2549,8 +2815,8 @@ modelCanvas.addEventListener('pointerdown', (e) => {
 modelCanvas.addEventListener('pointermove', (e) => {
   const rect = modelCanvas.getBoundingClientRect()
   const px = TILE_PX * store.zoom
-  const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft
-  const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop
+  const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft - levelPadX
+  const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop  - levelPadY
 
   if (cameraDragging) {
     const cols = levelCols()
@@ -2607,8 +2873,8 @@ modelCanvas.addEventListener('pointerup', (e) => {
   modelCanvas.releasePointerCapture(e.pointerId)
   const rect = modelCanvas.getBoundingClientRect()
   const px = TILE_PX * store.zoom
-  const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft
-  const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop
+  const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft - levelPadX
+  const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop  - levelPadY
   modelCanvas.style.cursor = (chkCamera.checked && hitCameraRect(lx, ly)) ? 'grab' : ''
 })
 
@@ -2988,10 +3254,10 @@ window.addEventListener('message', async (event) => {
     // human-readable rate so the UI is useful without peeking at ASM comments.
     const vSet = mapData.header.vertLayer2Setting ?? 0
     const hSet = mapData.header.horizLayer2Setting ?? 0
-    const vLabel = ['locked', '1:1', '1/2', '1/32'][vSet] ?? '?'
-    const hLabel = ['locked', '1:1', '1/2', '?'   ][hSet] ?? '?'
-    infoBgVScroll.textContent = `${vSet} (${vLabel})`
-    infoBgHScroll.textContent = `${hSet} (${hLabel})`
+    const vLabel = ['locked', '1:1', '1:2', '1:32'][vSet] ?? '?'
+    const hLabel = ['locked', '1:1', '1:2', '?'   ][hSet] ?? '?'
+    infoBgVScroll.textContent = vLabel
+    infoBgHScroll.textContent = hLabel
 
     // Seed camera viewport Y from the ROM-derived Layer1YPos at level init
     // (bank_05.asm:7329-7335 for primary levels, 7129-7136 for sublevels via
@@ -3062,7 +3328,9 @@ window.addEventListener('message', async (event) => {
         const row = Math.floor((e.clientY - rect.top) * sy / 8)
         selectedDetail = { type: 'vram', page: vramPage, col, row }
         redrawDetail()
-        renderVramPage()  // repaint so the yellow selection outline shows
+        renderVramPage()
+        const charNum = vramPage * VRAM_TILES_PER_PAGE + row * 16 + col
+        setPropContext('empty', `8×8 char $${charNum.toString(16).padStart(3, '0').toUpperCase()}`)
       }
     }
 
@@ -3112,7 +3380,16 @@ window.addEventListener('message', async (event) => {
         const row = Math.floor((e.clientY - rect.top) * sy / 16)
         selectedDetail = { type: 'map16', page: map16PageIdx, col, row }
         redrawDetail()
-        renderMap16Page()  // repaint so the yellow selection outline shows
+        renderMap16Page()
+        const entry = map16Pages[map16PageIdx]
+        const localTile = row * 16 + col
+        const tileId = entry.pageInAtlas * 256 + localTile
+        const globalId = entry.pageNum * 256 + localTile
+        const label = `Map16 $${globalId.toString(16).padStart(3, '0').toUpperCase()} — Tile`
+        const isL1 = entry.label.startsWith('L1')
+        const def = isL1 ? mapData?.map16Defs?.[tileId] : mapData?.map16BgDefs?.[tileId]
+        setPropContext('tile', label)
+        populateTileProps(tileId, def)
       }
     }
 
@@ -3124,8 +3401,6 @@ window.addEventListener('message', async (event) => {
     // only the cells that actually moved.
     stopPalAnimTimer()
     applyPalAnimFrame(0)
-    const palAnimEl = document.getElementById('pal-anim-controls') as HTMLElement
-    palAnimEl.style.display = mapData.paletteAnimation ? 'flex' : 'none'
 
   } else if (msg['type'] === 'error') {
     mapId.textContent   = 'Error'
