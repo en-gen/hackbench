@@ -11,6 +11,7 @@ import {
   type SpritePart,
 } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
+import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -26,6 +27,7 @@ import type {
   PaletteDescriptor,
   SpriteAppearanceDescriptor,
   SpriteDescriptor,
+  SpritePartDescriptor,
   SubTileDescriptor,
   SubtileQuadDescriptor,
   TileDescriptor,
@@ -107,6 +109,7 @@ function buildSprite(desc: SpriteDescriptor, chars: Map<number, Char>, placehold
     displayName: desc.behavior.displayName,
     spawns: desc.behavior.spawns,
     isGenerator: desc.behavior.isGenerator,
+    reactRangeDy: desc.behavior.reactRangeDy,
   })
 }
 
@@ -115,7 +118,7 @@ function buildAppearance(
   chars: Map<number, Char>,
   placeholder: Char,
 ): SpriteAppearance {
-  const buildParts = (rawParts: typeof desc.parts): SpritePart[] =>
+  const buildParts = (rawParts: readonly SpritePartDescriptor[]): SpritePart[] =>
     rawParts.map(p => ({
       char: chars.get(p.charNum) ?? placeholder,
       palette: p.palette,
@@ -130,6 +133,12 @@ function buildAppearance(
       return new StaticSpriteAppearance(buildParts(desc.parts))
     case 'pSwitch':
       return new PSwitchAppearance(buildParts(desc.parts))
+    case 'thwomp':
+      return new ThwompAppearance(
+        buildParts(desc.bodyParts),
+        buildParts(desc.alertFace),
+        buildParts(desc.aggressiveFace),
+      )
   }
 }
 

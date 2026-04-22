@@ -54,6 +54,13 @@ export const useEditorStore = defineStore('editor', () => {
     block: false, mapGrid: false, l3Hud: false,
   })
   const activeVineSources = ref<ReadonlySet<string>>(new Set())
+  /** Thwomps whose detection-zone overlay is currently toggled on, keyed
+   *  by `"x,y"` in natural pixels (sprite.x / sprite.y, unique per sprite). */
+  const activeThwomps     = ref<ReadonlySet<string>>(new Set())
+  /** Pointer position in level natural pixels (1× coords), or null when the
+   *  pointer is off the canvas. Rounded to integer pixels so sub-pixel
+   *  wiggle doesn't spam the reactive effect. */
+  const cursorPx          = ref<{ x: number; y: number } | null>(null)
 
   // ── Actions (the only mutation sites) ────────────────────────────────
   function toggleSwitchPalace(color: 0 | 1 | 2 | 3): void {
@@ -131,10 +138,25 @@ export const useEditorStore = defineStore('editor', () => {
     activeVineSources.value = next
   }
 
+  function toggleThwomp(key: string): void {
+    const next = new Set(activeThwomps.value)
+    if (next.has(key)) next.delete(key); else next.add(key)
+    activeThwomps.value = next
+  }
+
+  function setCursorPx(pos: { x: number; y: number } | null): void {
+    const cur = cursorPx.value
+    if (!pos) { if (cur !== null) cursorPx.value = null; return }
+    const nx = Math.round(pos.x), ny = Math.round(pos.y)
+    if (cur && cur.x === nx && cur.y === ny) return
+    cursorPx.value = { x: nx, y: ny }
+  }
+
   return {
     // state
     animFrame, palAnimFrame, pSwitchActive, switchPalaceState,
-    camera, cameraOn, cameraDragging, zoom, layerToggles, activeVineSources,
+    camera, cameraOn, cameraDragging, zoom, layerToggles,
+    activeVineSources, activeThwomps, cursorPx,
     // actions
     toggleSwitchPalace, setSwitchPalace,
     togglePSwitch,      setPSwitch,
@@ -142,7 +164,7 @@ export const useEditorStore = defineStore('editor', () => {
     setZoom,
     setLayerToggle,     setLayerToggles,
     setCamera,          setCameraOn,       setCameraDragging,
-    toggleVineSource,
+    toggleVineSource,   toggleThwomp,      setCursorPx,
   }
 })
 

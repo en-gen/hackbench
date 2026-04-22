@@ -7,8 +7,9 @@ import { StaticPixels } from './chars/behaviors/StaticPixels'
 import { L2ObjectStream, L2Preset, type L2Layer } from './L2Layer'
 import { L3TilemapLayer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
-import { StaticSpriteAppearance } from './sprites/appearances/StaticSpriteAppearance'
+import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
+import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -82,6 +83,7 @@ function serializeSprite(s: Sprite): SpriteDescriptor {
   if (s.behavior.displayName !== undefined) behavior.displayName = s.behavior.displayName
   if (s.behavior.spawns !== undefined) behavior.spawns = s.behavior.spawns
   if (s.behavior.isGenerator !== undefined) behavior.isGenerator = s.behavior.isGenerator
+  if (s.behavior.reactRangeDy !== undefined) behavior.reactRangeDy = s.behavior.reactRangeDy
   return {
     id: s.id,
     x: s.x,
@@ -92,33 +94,34 @@ function serializeSprite(s: Sprite): SpriteDescriptor {
 }
 
 function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
-  if (a instanceof PSwitchAppearance) {
+  if (a instanceof ThwompAppearance) {
     return {
-      kind: 'pSwitch',
-      parts: a.parts.map(p => ({
-        charNum: p.char.id,
-        palette: p.palette,
-        flipX: p.flipX,
-        flipY: p.flipY,
-        dx: p.dx,
-        dy: p.dy,
-      })),
+      kind: 'thwomp',
+      bodyParts:      a.bodyParts.map(partDescriptor),
+      alertFace:      a.alertFace.map(partDescriptor),
+      aggressiveFace: a.aggressiveFace.map(partDescriptor),
     }
+  }
+  if (a instanceof PSwitchAppearance) {
+    return { kind: 'pSwitch', parts: a.parts.map(partDescriptor) }
   }
   if (a instanceof StaticSpriteAppearance) {
-    return {
-      kind: 'static',
-      parts: a.parts.map(p => ({
-        charNum: p.char.id,
-        palette: p.palette,
-        flipX: p.flipX,
-        flipY: p.flipY,
-        dx: p.dx,
-        dy: p.dy,
-      })),
-    }
+    return { kind: 'static', parts: a.parts.map(partDescriptor) }
   }
   throw new Error(`Unknown SpriteAppearance: ${(a as object).constructor.name}`)
+}
+
+function partDescriptor(p: SpritePart): {
+  charNum: number; palette: number; flipX: boolean; flipY: boolean; dx: number; dy: number
+} {
+  return {
+    charNum: p.char.id,
+    palette: p.palette,
+    flipX: p.flipX,
+    flipY: p.flipY,
+    dx: p.dx,
+    dy: p.dy,
+  }
 }
 
 function serializeL3(l3: import('./L3Layer').L3Layer | null): L3Descriptor | null {

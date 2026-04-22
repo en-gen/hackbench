@@ -86,6 +86,13 @@ function renderModelOverlay(map: SmwMap): void {
   // starts/ends, but we skip the expensive base render during drag.
   const dragging = store.cameraDragging
 
+  // Register cursorPx as a toplevel dep so the effect re-runs on every
+  // pointer move. The nested read inside ThwompAppearance.render is only
+  // tracked while a thwomp is actually rendered — if sprites are toggled
+  // off at first paint, the dep never registers and cursor changes fall
+  // on the floor. This line keeps the wiring unconditional.
+  void storeRefs.cursorPx.value
+
   // Level-wide state on ctx — tile behaviors (PipeVariants) derive
   // per-cell concerns from their own cell position + these fields,
   // so the camera viewport / detail preview / Map16 panel can all
@@ -101,6 +108,7 @@ function renderModelOverlay(map: SmwMap): void {
     cameraDragging: storeRefs.cameraDragging,
     zoom: storeRefs.zoom,
     layerToggles: storeRefs.layerToggles,
+    cursorPx: storeRefs.cursorPx,
     levelOrientation: map.header.orientation,
     screenPipeVariantIdx: map.screenPipeVariantIdx,
   }
@@ -127,6 +135,7 @@ function renderModelOverlay(map: SmwMap): void {
     if (toggles.screens || toggles.mapGrid) drawScreenAndGridOverlays(bctx, map, toggles.screens, toggles.mapGrid)
     drawVineIndicators(bctx, map)
     drawVinePaths(bctx, map)
+    drawThwompZones(bctx, map)
   }
 
   // Guard: base canvas must exist before we can composite.
@@ -542,6 +551,109 @@ function drawVinePaths(octx: CanvasRenderingContext2D, map: SmwMap): void {
     }
   }
   octx.restore()
+}
+
+/**
+ * Thwomp detection-zone overlay — one rect outlining the sprite body, two
+ * dashed vertical strips showing the alert (±64 px) and aggressive (±36 px)
+ * horizontal ranges, and a tinted fall-path column from below the body down
+ * to the first solid L1 tile.
+ *
+ * Zones are centered on the InitThwomp-shifted anchor (sprite.x + 8), not
+ * the raw sprite.x, so the overlay aligns with where the game actually
+ * measures SubHorizPos from.
+ */
+function drawThwompZones(octx: CanvasRenderingContext2D, map: SmwMap): void {
+  const active = store.activeThwomps
+  if (active.size === 0) return
+  const rows = map.l1.length
+  octx.save()
+  for (const sprite of map.sprites) {
+    if (sprite.id !== 0x26) continue
+    const key = `${sprite.x},${sprite.y}`
+    if (!active.has(key)) continue
+    const px = sprite.x
+    const py = sprite.y
+    const anchorX = px + 8
+
+    // Walk down from below the body to find the first solid L1 row (the
+    // fall blocker). Any non-null tile counts.
+    const colStart = Math.floor((px + 4) / 16)
+    const colEnd   = Math.ceil((px + 28) / 16)
+    const startRow = Math.ceil((py + 32) / 16)
+    let blockerRow = rows
+    outer: for (let r = startRow; r < rows; r++) {
+      for (let c = colStart; c < colEnd; c++) {
+        if ((map.l1[r]?.[c] ?? null) !== null) { blockerRow = r; break outer }
+      }
+    }
+
+    // Vertical band for the detection rectangles: top of thwomp body down
+    // through the bottom of the impact row (or the level floor).
+    const zoneTop    = py
+    const zoneBottom = blockerRow < rows ? (blockerRow + 1) * 16 : rows * 16
+    const zoneH      = zoneBottom - zoneTop
+
+    // Alert zone ±64 — amber filled rect with dashed outline (outer).
+    const alertL = anchorX - 64
+    const alertW = 128
+    octx.fillStyle = 'rgba(255,160,0,0.15)'
+    octx.fillRect(alertL, zoneTop, alertW, zoneH)
+    octx.lineWidth = 1
+    octx.setLineDash([4, 3])
+    octx.strokeStyle = 'rgba(255,160,0,0.50)'
+    octx.strokeRect(alertL + 0.5, zoneTop + 0.5, alertW - 1, zoneH - 1)
+
+    // Aggressive zone ±36 — brighter orange rect layered over alert.
+    const aggL = anchorX - 36
+    const aggW = 72
+    octx.fillStyle = 'rgba(255,100,0,0.20)'
+    octx.fillRect(aggL, zoneTop, aggW, zoneH)
+    octx.setLineDash([2, 2])
+    octx.strokeStyle = 'rgba(255,100,0,0.75)'
+    octx.strokeRect(aggL + 0.5, zoneTop + 0.5, aggW - 1, zoneH - 1)
+
+    // Fall path — red fill under the body down to the blocker. Drawn after
+    // the zones so the red reads as "the physical strike column" and isn't
+    // muddied by the orange zone fill underneath.
+    octx.setLineDash([])
+    octx.fillStyle = 'rgba(240,60,60,0.30)'
+    octx.fillRect(px + 4, startRow * 16, 24, (blockerRow - startRow) * 16)
+    if (blockerRow < rows) {
+      octx.lineWidth = 2
+      octx.strokeStyle = 'rgba(240,60,60,0.85)'
+      octx.strokeRect(px + 4 + 1, blockerRow * 16 + 1, 22, 14)
+    }
+
+    // Body outline on top of everything — red, matching the fall path, so
+    // the thwomp reads as part of the strike column (not the detection
+    // zones underneath).
+    octx.lineWidth = 2
+    octx.strokeStyle = 'rgba(240,60,60,0.85)'
+    octx.strokeRect(px + 4 + 1, py + 1, 22, 30)
+  }
+  octx.restore()
+}
+
+/**
+ * Return the `"x,y"` key of the thwomp sprite under the given level-space
+ * CSS-pixel coordinate, or null if none. Hit-box matches the rendered body
+ * (24×32 at sprite.x+4..+28, sprite.y..+32).
+ */
+function thwompAt(lx: number, ly: number): string | null {
+  const map = window.__smwModelMap
+  if (!map) return null
+  const z = store.zoom
+  const natX = lx / z
+  const natY = ly / z
+  for (const sprite of map.sprites) {
+    if (sprite.id !== 0x26) continue
+    if (natX >= sprite.x + 4 && natX < sprite.x + 28 &&
+        natY >= sprite.y     && natY < sprite.y + 32) {
+      return `${sprite.x},${sprite.y}`
+    }
+  }
+  return null
 }
 
 /** Module-level: which vine icon is currently under the pointer (natural-px key). */
@@ -2796,6 +2908,15 @@ modelCanvas.addEventListener('pointerdown', (e) => {
     return
   }
 
+  // Thwomp click: toggle its detection-zone overlay. Runs regardless of
+  // camera mode so the zones can be inspected while the camera rect is off.
+  const tk = thwompAt(lx, ly)
+  if (tk) {
+    store.toggleThwomp(tk)
+    e.stopPropagation()
+    return
+  }
+
   if (!chkCamera.checked) return
   const cam = store.camera
   if (hitCameraRect(lx, ly)) {
@@ -2850,6 +2971,11 @@ modelCanvas.addEventListener('pointermove', (e) => {
     modelCanvas.style.cursor = ''
   }
 
+  // Cursor position in natural (1×) pixels. Cursor-aware sprites (Thwomp)
+  // read ctx.cursorPx to pick which tiles to draw; setCursorPx rounds to
+  // integer px and suppresses no-op updates so we don't spam re-renders.
+  store.setCursorPx({ x: lx / store.zoom, y: ly / store.zoom })
+
   const pos = canvasTileAt(e)
   if (pos) {
     const tileId = mapData?.tileGrid[pos.row]?.[pos.col] ?? 0
@@ -2864,6 +2990,12 @@ modelCanvas.addEventListener('pointermove', (e) => {
     const el = document.getElementById('model-canvas') as HTMLCanvasElement | null
     if (el) blitViewport(el)
   }
+})
+
+modelCanvas.addEventListener('pointerleave', () => {
+  // Clear the cursor so thwomp face tiles revert to idle when the pointer
+  // leaves the canvas. Hovered vine icon follows the same pattern.
+  store.setCursorPx(null)
 })
 
 modelCanvas.addEventListener('pointerup', (e) => {

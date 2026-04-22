@@ -77,12 +77,19 @@ export interface SpritePartDescriptor {
 export type SpriteAppearanceDescriptor =
   | { kind: 'static'; parts: readonly SpritePartDescriptor[] }
   | { kind: 'pSwitch'; parts: readonly SpritePartDescriptor[] }
+  | {
+      kind: 'thwomp'
+      bodyParts: readonly SpritePartDescriptor[]
+      alertFace: readonly SpritePartDescriptor[]
+      aggressiveFace: readonly SpritePartDescriptor[]
+    }
 
 export interface SpriteBehaviorDescriptor {
   kind: string
   displayName?: string
   spawns?: number
   isGenerator?: boolean
+  reactRangeDy?: number
 }
 
 export interface SpriteDescriptor {
