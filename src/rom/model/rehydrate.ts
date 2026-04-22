@@ -101,7 +101,12 @@ export function buildGraph(payload: MapPayload): {
 
 function buildSprite(desc: SpriteDescriptor, chars: Map<number, Char>, placeholder: Char): Sprite {
   const appearance = buildAppearance(desc.appearance, chars, placeholder)
-  return new Sprite(desc.id, desc.x, desc.y, appearance, { kind: desc.behavior.kind })
+  return new Sprite(desc.id, desc.x, desc.y, appearance, {
+    kind: desc.behavior.kind,
+    displayName: desc.behavior.displayName,
+    spawns: desc.behavior.spawns,
+    isGenerator: desc.behavior.isGenerator,
+  })
 }
 
 function buildAppearance(
@@ -245,4 +250,4 @@ function buildColorBehavior(desc: ColorDescriptor): ColorBehavior {
 }
 
 // Exposed for tests.
-export { buildCharBehavior, buildTileBehavior, buildColorBehavior, buildPalette }
+export { buildCharBehavior, buildTileBehavior, buildColorBehavior, buildPalette, buildSprite }

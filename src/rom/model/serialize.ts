@@ -77,12 +77,16 @@ export function serialize(map: SmwMap, chars: Map<number, Char>, tiles: Map<numb
 }
 
 function serializeSprite(s: Sprite): SpriteDescriptor {
+  const behavior: SpriteDescriptor['behavior'] = { kind: s.behavior.kind }
+  if (s.behavior.displayName !== undefined) behavior.displayName = s.behavior.displayName
+  if (s.behavior.spawns !== undefined) behavior.spawns = s.behavior.spawns
+  if (s.behavior.isGenerator !== undefined) behavior.isGenerator = s.behavior.isGenerator
   return {
     id: s.id,
     x: s.x,
     y: s.y,
     appearance: serializeAppearance(s.appearance),
-    behavior: { kind: s.behavior.kind },
+    behavior,
   }
 }
 
@@ -199,4 +203,4 @@ function serializeColorBehavior(b: ColorBehavior): ColorDescriptor {
 }
 
 // Exposed for tests.
-export { serializeCharBehavior, serializeTileBehavior, serializeColor }
+export { serializeCharBehavior, serializeTileBehavior, serializeColor, serializeSprite }

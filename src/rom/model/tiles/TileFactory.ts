@@ -152,6 +152,15 @@ export function makeTransparentPlaceholderChar(): Char {
   return new CharClass(-1, new StaticPixels(new Uint8Array(64)))
 }
 
+export function makePlaceholderBoxChar(): Char {
+  const p = new Uint8Array(64)
+  for (let x = 0; x < 8; x++) { p[x] = 3; p[56 + x] = 3 }
+  for (let y = 1; y <= 6; y++) { p[y * 8] = 3; p[y * 8 + 7] = 3 }
+  p[3 * 8 + 3] = 3; p[3 * 8 + 4] = 3
+  p[4 * 8 + 3] = 3; p[4 * 8 + 4] = 3
+  return new CharClass(-2, new StaticPixels(p))
+}
+
 function toSubTile(
   desc: Map16SubTileDescriptor,
   chars: Map<number, Char>,

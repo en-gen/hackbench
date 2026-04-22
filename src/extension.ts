@@ -58,10 +58,12 @@ export function activate(context: vscode.ExtensionContext): void {
     )
   )
 
-  // Register the two explorer tree views
+  // Register the two explorer tree views. `createTreeView` (rather than
+  // `registerTreeDataProvider`) is used so `showCollapseAll` renders the
+  // native collapse-all button in the view title bar.
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('hackbench.mapsExplorer',      mapsProvider),
-    vscode.window.registerTreeDataProvider('hackbench.resourcesExplorer', resourcesProvider),
+    vscode.window.createTreeView('hackbench.mapsExplorer',      { treeDataProvider: mapsProvider,      showCollapseAll: true }),
+    vscode.window.createTreeView('hackbench.resourcesExplorer', { treeDataProvider: resourcesProvider, showCollapseAll: true }),
   )
 
   // Register the music player custom editor

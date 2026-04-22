@@ -19,7 +19,7 @@ import { serialize } from './serialize'
 import { SmwMap } from './SmwMap'
 import { buildSprites } from './SpriteFactory'
 import type { Tile } from './tiles/Tile'
-import { buildTiles } from './tiles/TileFactory'
+import { buildTiles, makePlaceholderBoxChar } from './tiles/TileFactory'
 
 export interface BuiltMap {
   map: SmwMap
@@ -81,6 +81,7 @@ export function buildMapWithGraph(
   const vram = loadVram(rom.rom, tileset, header.spriteSet)
   const animData = loadAnimationData(rom.rom, tileset) ?? undefined
   const chars = buildChars(vram, animData)
+  chars.set(-2, makePlaceholderBoxChar())
   const tiles = buildTiles(rom.rom, tileset, chars)
   const l3Chars = loadL3Chars(rom.rom)
   // The BG Map16 table is always loaded fresh from the ROM (all 512

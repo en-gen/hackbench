@@ -7,6 +7,7 @@ import { Sprite } from './sprites/Sprite'
 import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
+import { getSpriteMetadata } from './sprites/SpriteMetadata'
 
 /**
  * Load sprites for a level and wrap them in the self-rendering model.
@@ -31,8 +32,23 @@ export function buildSprites(
   const placeholder = makeTransparentPlaceholderChar()
   const out: Sprite[] = []
   for (const s of levelSprites) {
+    const behavior: SpriteBehavior = {
+      kind: `sprite_${s.spriteId.toString(16)}`,
+      ...getSpriteMetadata(s.spriteId),
+    }
     const layout = buildSpriteLayout(tables, s.spriteId)
-    if (!layout) continue // no known layout — skip (legacy draws a red marker we don't)
+    if (!layout) {
+      const boxChar = chars.get(-2) ?? makeTransparentPlaceholderChar()
+      const palette = 8 + ((tables.spriteAttr[s.spriteId] ?? 0) >> 1 & 0x07)
+      const boxParts: SpritePart[] = [
+        { char: boxChar, palette, flipX: false, flipY: false, dx: 0, dy: 0 },
+        { char: boxChar, palette, flipX: true,  flipY: false, dx: 8, dy: 0 },
+        { char: boxChar, palette, flipX: false, flipY: true,  dx: 0, dy: 8 },
+        { char: boxChar, palette, flipX: true,  flipY: true,  dx: 8, dy: 8 },
+      ]
+      out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, new StaticSpriteAppearance(boxParts), behavior))
+      continue
+    }
 
     const parts: SpritePart[] = layout.tiles.map(t => ({
       char: chars.get(t.charNum) ?? placeholder,
@@ -44,7 +60,6 @@ export function buildSprites(
     }))
 
     const appearance: SpriteAppearance = new StaticSpriteAppearance(parts)
-    const behavior: SpriteBehavior = { kind: `sprite_${s.spriteId.toString(16)}` }
     out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, appearance, behavior))
   }
   return out
