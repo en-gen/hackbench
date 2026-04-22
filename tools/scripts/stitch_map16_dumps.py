@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 Stitch Map16 level dumps from tools/mesen/auto_walker.lua into a
 canonical fixture. Handles both horizontal and vertical levels — each

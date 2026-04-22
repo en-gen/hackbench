@@ -130,6 +130,8 @@ function renderModelOverlay(map: SmwMap): void {
   if (toggles.block) drawBlockView(foctx, map, toggles.l1, toggles.l2)
   if (toggles.screens || toggles.mapGrid) drawScreenAndGridOverlays(foctx, map, toggles.screens, toggles.mapGrid)
   if (cameraOn) drawCameraRectOverlay(foctx, map)
+  drawVineIndicators(foctx, map)
+  drawVinePaths(foctx, map)
 
   // Spacer drives the native scrollbar to the full level × zoom extent.
   const z = store.zoom
@@ -190,6 +192,7 @@ function blitViewport(overlay?: HTMLCanvasElement): void {
   oc.imageSmoothingEnabled = false
   oc.clearRect(0, 0, vpW, vpH)
   oc.drawImage(fullLevelCanvas, srcX, srcY, srcW, srcH, 0, 0, vpW, vpH)
+  drawHoveredVineIcon(el)
 }
 
 /**
@@ -386,6 +389,173 @@ function drawCameraRectOverlay(
   octx.lineWidth = 1
   octx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1)
   octx.restore()
+}
+
+// ── Vine overlay ─────────────────────────────────────────────────────────────
+
+/** Map16 tile ID that is written during vine growth (used as the vine icon). */
+const VINE_TILE_ID = 0x006
+
+/**
+ * Map16 tile IDs that generate a vine when hit by Mario.
+ * Sprite 0x79 directly placed in the sprite list is handled separately.
+ *
+ * Verification chain (bank_00.asm):
+ *   low_byte(tileId) → DATA_00F05C[low_byte] = $03
+ *   → Map16TileGenerate = $03
+ *   → GeneratedTiles[2] = CODE_00C077 (labeled "03 - vine")
+ *   → TileToGeneratePg0[3] = $06 (writes Map16 vine tile $006)
+ *
+ * Tiles with low byte $19 (index 25) and $1A (index 26) both resolve to
+ * DATA_00F05C = $03. Only page-0 and page-1 variants observed in levels.
+ */
+const VINE_SOURCE_TILES: ReadonlySet<number> = new Set<number>([
+  0x019, 0x01A,  // page-0 vine blocks (common tileset)
+  0x119, 0x11A,  // page-1 vine blocks (tileset-specific, e.g. yellow turn blocks)
+])
+
+/** Tile IDs (and null = out-of-bounds) that the vine can grow through. */
+const VINE_PASSABLE = new Set<number | null>([null, 0x000, 0x006])
+
+/** Cached offscreen rendering of Map16 tile 0x006 for the vine icon. */
+let vineTileCanvas: HTMLCanvasElement | null = null
+
+function getVineTileCanvas(): HTMLCanvasElement | null {
+  if (vineTileCanvas) return vineTileCanvas
+  const map   = window.__smwModelMap
+  const tiles = window.__smwModelTiles
+  if (!map || !tiles) return null
+  const tile = tiles.get(VINE_TILE_ID)
+  if (!tile) return null
+  const tc = document.createElement('canvas')
+  tc.width = 16; tc.height = 16
+  const target = new CanvasRenderTarget(tc)
+  const rctx: RenderContext = {
+    animFrame: storeRefs.animFrame,
+    palAnimFrame: storeRefs.palAnimFrame,
+    pSwitchActive: storeRefs.pSwitchActive,
+    switchPalaceState: storeRefs.switchPalaceState,
+    palette: map.palette,
+    camera: storeRefs.camera,
+    zoom: storeRefs.zoom,
+    layerToggles: storeRefs.layerToggles,
+  }
+  target.clear()
+  const cellBox = cellBoxOf(0, 0)
+  tile.render(rctx, target, cellBox, 'nonPriority')
+  tile.render(rctx, target, cellBox, 'priority')
+  target.flush()
+  return (vineTileCanvas = tc)
+}
+
+/** Collect all vine-source positions for the current map. */
+function getVineSources(map: SmwMap): Array<{ col: number; row: number }> {
+  const T = 16
+  const sources: Array<{ col: number; row: number }> = []
+  for (const spr of mapData?.sprites ?? []) {
+    if (spr.spriteId === 0x79)
+      sources.push({ col: Math.floor(spr.x / T), row: Math.floor(spr.y / T) })
+  }
+  if (VINE_SOURCE_TILES.size > 0) {
+    const l1 = map.l1
+    for (let r = 0; r < l1.length; r++)
+      for (let c = 0; c < (l1[r]?.length ?? 0); c++) {
+        const id = l1[r]?.[c] ?? null
+        if (id !== null && VINE_SOURCE_TILES.has(id))
+          sources.push({ col: c, row: r })
+      }
+  }
+  return sources
+}
+
+/**
+ * Draw a semi-transparent vine tile icon centered at the bottom-right corner
+ * of each vine-source tile. Icon is 50% opacity; hover is applied post-blit.
+ */
+function drawVineIndicators(octx: CanvasRenderingContext2D, map: SmwMap): void {
+  const vineTc = getVineTileCanvas()
+  if (!vineTc) return
+  const sources = getVineSources(map)
+  if (sources.length === 0) return
+  octx.save()
+  octx.globalAlpha = 0.5
+  octx.imageSmoothingEnabled = false
+  for (const { col, row } of sources)
+    octx.drawImage(vineTc, col * 16 + 8, row * 16 + 8, 16, 16)
+  octx.restore()
+}
+
+/**
+ * Draw upward vine-path overlays for all toggled vine sources.
+ * Green tint on passable tiles, red outline on the first solid blocker.
+ */
+function drawVinePaths(octx: CanvasRenderingContext2D, map: SmwMap): void {
+  const active = store.activeVineSources
+  if (active.size === 0) return
+  const l1 = map.l1
+  const T = 16
+  octx.save()
+  octx.strokeStyle = 'rgba(0,220,80,0.85)'
+  octx.lineWidth = 2
+  for (const key of active) {
+    const [col, row] = key.split(',').map(Number)
+    octx.strokeRect(col * T + 1, row * T + 1, T - 2, T - 2)
+    for (let r = row - 1; r >= 0; r--) {
+      const id = l1[r]?.[col] ?? null
+      if (!VINE_PASSABLE.has(id)) {
+        octx.strokeStyle = 'rgba(240,60,60,0.85)'
+        octx.strokeRect(col * T + 1, r * T + 1, T - 2, T - 2)
+        break
+      }
+      octx.fillStyle = 'rgba(0,220,80,0.22)'
+      octx.fillRect(col * T, r * T, T, T)
+    }
+  }
+  octx.restore()
+}
+
+/** Module-level: which vine icon is currently under the pointer (natural-px key). */
+let hoveredVineKey: string | null = null
+
+/**
+ * Draw the hovered vine icon at 100% opacity directly on the viewport canvas
+ * (post-blit), replacing the 50% version from fullLevelCanvas.
+ */
+function drawHoveredVineIcon(el: HTMLCanvasElement): void {
+  if (!hoveredVineKey) return
+  const vineTc = getVineTileCanvas()
+  if (!vineTc) return
+  const [col, row] = hoveredVineKey.split(',').map(Number)
+  const z = store.zoom
+  const natX = col * 16 + 8
+  const natY = row * 16 + 8
+  const dx = (natX - canvasWrap.scrollLeft / z) * z
+  const dy = (natY - canvasWrap.scrollTop  / z) * z
+  const oc = el.getContext('2d')!
+  oc.save()
+  oc.globalAlpha = 1.0
+  oc.imageSmoothingEnabled = false
+  oc.drawImage(vineTc, dx, dy, 16 * z, 16 * z)
+  oc.restore()
+}
+
+/**
+ * Return the "col,row" key of the vine icon under the given level-space
+ * CSS-pixel coordinate, or null if none.
+ */
+function vineIconKeyAt(lx: number, ly: number): string | null {
+  const map = window.__smwModelMap
+  if (!map) return null
+  const z = store.zoom
+  const natX = lx / z
+  const natY = ly / z
+  for (const src of getVineSources(map)) {
+    const ix = src.col * 16 + 8
+    const iy = src.row * 16 + 8
+    if (natX >= ix && natX < ix + 16 && natY >= iy && natY < iy + 16)
+      return `${src.col},${src.row}`
+  }
+  return null
 }
 
 /**
@@ -2346,11 +2516,21 @@ chkCamera.addEventListener('change',  () => {
 // Add canvasWrap.scrollLeft/scrollTop to convert to level CSS-pixel space,
 // then divide by (TILE_PX × zoom) to get tile coords.
 modelCanvas.addEventListener('pointerdown', (e) => {
-  if (!chkCamera.checked || e.button !== 0) return
+  if (e.button !== 0) return
   const rect = modelCanvas.getBoundingClientRect()
   const px = TILE_PX * store.zoom
   const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft
   const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop
+
+  // Vine icon click: toggle vine path for this source (runs regardless of camera mode).
+  const vk = vineIconKeyAt(lx, ly)
+  if (vk) {
+    store.toggleVineSource(vk)
+    e.stopPropagation()
+    return
+  }
+
+  if (!chkCamera.checked) return
   const cam = store.camera
   if (hitCameraRect(lx, ly)) {
     cameraDragging = true
@@ -2402,6 +2582,14 @@ modelCanvas.addEventListener('pointermove', (e) => {
     modelCanvas.style.cursor = 'grab'
   } else {
     modelCanvas.style.cursor = ''
+  }
+
+  // Vine icon hover: update hovered key and re-blit (cheap, no model re-render).
+  const vk = vineIconKeyAt(lx, ly)
+  if (vk !== hoveredVineKey) {
+    hoveredVineKey = vk
+    const el = document.getElementById('model-canvas') as HTMLCanvasElement | null
+    if (el) blitViewport(el)
   }
 })
 
@@ -2754,6 +2942,7 @@ window.addEventListener('message', async (event) => {
   if (msg['type'] === 'load') {
     mapData  = msg as unknown as MapPayload
     l2TileGrid = mapData.l2TileGrid ?? null
+    vineTileCanvas = null  // invalidate cached vine icon so it re-renders with new palette
 
     applyMinimapOrientation()
 
