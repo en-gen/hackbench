@@ -91,20 +91,29 @@ export class L3TilemapLayer extends L3Layer {
     }
     this.firstDataRow = first
 
-    // Find the first row after firstDataRow that repeats its charIdx pattern,
-    // signalling the start of the second VRAM copy used for tide animation.
-    const firstRow = this.cells[this.firstDataRow]!
+    // Tide overlays write two identical VRAM copies for smooth animation (e.g.
+    // rows 32–47 then 48–63).  For tides we find the repeat and stop there so
+    // the editor doesn't render a double band.
+    //
+    // Non-tide overlays (fish, cage, clouds, …) fill sub 0/1 (rows 0–31) and
+    // sub 2/3 (rows 32–63) with *different* content at the same charIdx values;
+    // running the repeat-detection on them prematurely sets dataEndRow = 32 and
+    // hides all sub 2/3 tiles.  Skip the detection entirely for non-tides.
+    const isTide = this.initialYPx > 0 && this.initialYPx < 0xC0
     let end = L3_TILEMAP_ROWS
-    for (let r = this.firstDataRow + 1; r < L3_TILEMAP_ROWS; r++) {
-      const row = this.cells[r]!
-      let match = true
-      for (let c = 0; c < L3_TILEMAP_COLS; c++) {
-        const a = firstRow[c], b = row[c]
-        if ((a === null) !== (b === null) || (a !== null && b !== null && a.charIdx !== b.charIdx)) {
-          match = false; break
+    if (isTide) {
+      const firstRow = this.cells[this.firstDataRow]!
+      for (let r = this.firstDataRow + 1; r < L3_TILEMAP_ROWS; r++) {
+        const row = this.cells[r]!
+        let match = true
+        for (let c = 0; c < L3_TILEMAP_COLS; c++) {
+          const a = firstRow[c], b = row[c]
+          if ((a === null) !== (b === null) || (a !== null && b !== null && a.charIdx !== b.charIdx)) {
+            match = false; break
+          }
         }
+        if (match) { end = r; break }
       }
-      if (match) { end = r; break }
     }
     this.dataEndRow = end
   }

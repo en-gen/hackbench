@@ -31,8 +31,11 @@
  *   Each byte encodes the tide behaviour / initial Y position.
  *   If bit 7 = 0: !Tide_UpAndDown ($01) or !Tide_Stationary ($00) → tide effect.
  *     Layer3YPos = $70 (up-and-down) or $40 (stationary).
- *   If bit 7 = 1 and bit 6 = 0: non-tide overlay (cage, windows, crusher, fish…).
- *     Layer3YPos = $D0.
+ *   If bit 7 = 1 and bit 6 = 0 ($80/$81): non-tide overlay.
+ *     $80 / $C0: Layer3YPos = $D0 (fixed, scroll type incremented).
+ *     $81 Castle1/Underground1: Layer3YPos = $C0 (fixed via CODE_009FFA).
+ *     $81 other tilesets: Layer3YPos = Layer1YPos every frame (camera-tracked)
+ *       → tiles sit at fixed level Y = row*8 (cage bars, windows, fish…).
  *   If bits 7:6 = 11: code takes another branch (BigCrusherColors, etc.) — no L3 bg.
  *
  * VRAM layout:
@@ -290,16 +293,43 @@ export function readL3TilemapAddr(
 // ── Stripe-image parser ───────────────────────────────────────────────────────
 
 /**
+ * Convert a VRAM word address in the BG3 64×64 tilemap to a flat row-major
+ * index (row * L3_TILEMAP_COLS + col) usable in our 64×64 buffer.
+ *
+ * SNES 64×64 BG tilemap splits into four 32×32 sub-screens in VRAM:
+ *   sub 0  $5000–$53FF  → rows  0-31, cols  0-31
+ *   sub 1  $5400–$57FF  → rows  0-31, cols 32-63
+ *   sub 2  $5800–$5BFF  → rows 32-63, cols  0-31
+ *   sub 3  $5C00–$5FFF  → rows 32-63, cols 32-63
+ * Within each sub, entry (r_sub, c_sub) lives at sub_base + r_sub*32 + c_sub.
+ *
+ * Returns -1 for addresses outside $5000–$5FFF.
+ */
+function vramAddrToFlat(vramAddr: number): number {
+  const off = vramAddr - L3_TILEMAP_BASE
+  if (off < 0 || off >= L3_TILEMAP_COLS * L3_TILEMAP_ROWS) return -1
+  const sub    = (off >> 10) & 3       // which sub-screen (0-3)
+  const within = off & 0x3FF           // position within sub (0-1023)
+  const hwRow  = (within >> 5) + (sub >= 2 ? 32 : 0)
+  const hwCol  = (within & 0x1F) + (sub & 1 ? 32 : 0)
+  return hwRow * L3_TILEMAP_COLS + hwCol
+}
+
+/**
  * Parse a stripe-image byte stream into a 64×64 VRAM tilemap buffer.
  *
- * The returned Uint16Array has 4096 entries; index = row*64 + col.
- * VRAM word address for entry i = L3_TILEMAP_BASE + i.
+ * The returned Uint16Array has 4096 entries; index = hw_row*64 + hw_col,
+ * where hw_row/hw_col are the hardware BG3 tile coordinates (0-63 each).
  * Entries outside $5000–$5FFF are silently ignored.
  *
- * RLE format (bit 6 of FLAGS set): the data payload is exactly 2 bytes
- * (one tile word) that gets DMA-repeated countBytes/2 times in VRAM.
- * Y advances by 2 in the stream (not countBytes) — per LoadStripeImage ASM
- * LDX.W #2 / STX.B _3 / ADC.B _3 / TAY after the RLE DMA branch.
+ * Horizontal writes (FLAGS bit 7 = 0): VRAM address increments by 1 per tile
+ * (SNES VMAINC mode 00 = +1 word).
+ * Vertical writes (FLAGS bit 7 = 1): VRAM address increments by 32 per tile
+ * (SNES VMAINC mode 01 = +32 words = one row within a 32-wide sub-screen).
+ *
+ * RLE format (FLAGS bit 6 = 1): 2 data bytes (one tile word) repeated
+ * tileCount times. Stream advances by 2 (not countBytes) — per LoadStripeImage
+ * ASM: LDX.W #2 / STX.B _3 / ADC.B _3 / TAY after the RLE DMA branch.
  */
 export function parseStripeImage(data: Uint8Array): Uint16Array {
   const tilemap = new Uint16Array(L3_TILEMAP_COLS * L3_TILEMAP_ROWS)
@@ -321,14 +351,16 @@ export function parseStripeImageInto(tilemap: Uint16Array, data: Uint8Array): vo
     const b1 = data[i + 1]!
     const b2 = data[i + 2]!
     const b3 = data[i + 3]!
-    const vramAddr = (b0 << 8) | b1
-    const vertical = (b2 & 0x80) !== 0
-    const rle      = (b2 & 0x40) !== 0
+    const vramAddr   = (b0 << 8) | b1
+    const vertical   = (b2 & 0x80) !== 0
+    const rle        = (b2 & 0x40) !== 0
     const countBytes = (((b2 & 0x3F) << 8) | b3) + 1
     i += 4
 
     const tileCount = countBytes >> 1
-    const vramOffset = vramAddr - L3_TILEMAP_BASE
+    // VRAM address stride: horizontal = +1 word, vertical = +32 words
+    // (matches SNES VMAINC register modes 00/01 used by LoadStripeImage)
+    const stride = vertical ? 32 : 1
 
     if (rle) {
       // RLE: 2 data bytes (one tile word) repeated tileCount times.
@@ -339,12 +371,8 @@ export function parseStripeImageInto(tilemap: Uint16Array, data: Uint8Array): vo
       i += 2
       const word = (hi << 8) | lo
       for (let t = 0; t < tileCount; t++) {
-        const pos = vertical
-          ? vramOffset + t * L3_TILEMAP_COLS
-          : vramOffset + t
-        if (pos >= 0 && pos < L3_TILEMAP_COLS * L3_TILEMAP_ROWS) {
-          tilemap[pos] = word
-        }
+        const pos = vramAddrToFlat(vramAddr + t * stride)
+        if (pos >= 0) tilemap[pos] = word
       }
       continue
     }
@@ -355,12 +383,8 @@ export function parseStripeImageInto(tilemap: Uint16Array, data: Uint8Array): vo
       const hi = data[i + 1]!
       i += 2
       const word = (hi << 8) | lo
-      const pos = vertical
-        ? vramOffset + t * L3_TILEMAP_COLS
-        : vramOffset + t
-      if (pos >= 0 && pos < L3_TILEMAP_COLS * L3_TILEMAP_ROWS) {
-        tilemap[pos] = word
-      }
+      const pos  = vramAddrToFlat(vramAddr + t * stride)
+      if (pos >= 0) tilemap[pos] = word
     }
   }
 }
@@ -398,8 +422,21 @@ export function loadL3Tilemap(
   if (!raw) return null
 
   const settingsByte = readL3SettingsByte(rom, tileset, layer3Setting) ?? 0
-  const initialYPx   = l3InitialYPx(settingsByte)
+  let initialYPx     = l3InitialYPx(settingsByte)
   const initialCameraYPx = readInitialLayer1YPos(rom, levelId)
+
+  // $81 with non-castle/non-underground tilesets: CODE_009FB8 takes the
+  // CODE_00A01F path (no Layer3YPos write, no Layer3ScrollType increment).
+  // The game loop (CODE_05C40C → CODE_05C428 → CODE_05C48D) then runs
+  //   Layer3YPos = Layer1YPos  every frame,
+  // so tiles sit at fixed level Y = row*8 regardless of camera position.
+  // Setting initialYPx = initialCameraYPx makes the render formula
+  //   pixelY = row*8 - initialYPx + initialCamY  collapse to  row*8.
+  // ObjTileset_Castle1 = 1, ObjTileset_Underground1 = 3 (constants.asm:229/231):
+  // those tilesets reach CODE_009FFA which sets Layer3YPos = $C0 instead.
+  if (settingsByte === 0x81 && tileset !== 1 && tileset !== 3) {
+    initialYPx = initialCameraYPx
+  }
 
   // Game order: UploadStaticBar (HUD) runs first, then UpdateStatusBar writes
   // the initial timer digits over the runtime-placeholder slots, then the

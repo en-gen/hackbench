@@ -85,33 +85,35 @@ describe('parseStripeImage', () => {
   })
 
   it('handles multi-entry streams', () => {
-    // Two consecutive entries
+    // Two consecutive entries.
+    // VRAM $5000 → sub 0, within=0 → hw (row 0, col 0) → flat 0
+    // VRAM $5040 → sub 0, within=$40=64 → hw (row 2, col 0) → flat 128
     const data = new Uint8Array([
-      0x50, 0x00,  // VRAM $5000 → offset 0, row 0, col 0
+      0x50, 0x00,  // VRAM $5000
       0x00, 0x01,  // 2 bytes = 1 tile
       0x01, 0x02,
-      0x50, 0x40,  // VRAM $5040 → offset $40=64, row 1, col 0
+      0x50, 0x40,  // VRAM $5040
       0x00, 0x01,  // 2 bytes = 1 tile
       0x03, 0x04,
       0xFF,
     ])
     const buf = parseStripeImage(data)
-    expect(buf[0]).toBe(0x0201)   // row 0, col 0
-    expect(buf[64]).toBe(0x0403)  // row 1, col 0
+    expect(buf[0]).toBe(0x0201)    // hw row 0, col 0
+    expect(buf[128]).toBe(0x0403)  // hw row 2, col 0
   })
 
   it('HUD rows (0 to L3_HUD_ROW_CUTOFF-1) may contain data from some tilemaps', () => {
-    // VRAM $50A8 → offset=$A8=168, row=2, col=40 (in HUD area)
+    // VRAM $50A8 → sub 0, within=$A8=168 → hw row=168/32=5, col=168%32=8 → flat=5*64+8=328
     const data = new Uint8Array([
-      0x50, 0xA8,  // VRAM $50A8 → row 2, col 40
+      0x50, 0xA8,  // VRAM $50A8
       0x00, 0x01,  // 1 tile
       0x99, 0x3D,
       0xFF,
     ])
     const buf = parseStripeImage(data)
-    const offset = 0x50A8 - L3_TILEMAP_BASE  // 168
-    expect(offset >> 6).toBeLessThan(L3_HUD_ROW_CUTOFF)  // confirms it's in HUD area
-    expect(buf[offset]).toBe(0x3D99)
+    const flat = 5 * L3_TILEMAP_COLS + 8  // hw row 5, col 8 = 328
+    expect(flat >> 6).toBeLessThan(L3_HUD_ROW_CUTOFF)  // row 5 < 8 cutoff
+    expect(buf[flat]).toBe(0x3D99)
   })
 
   it('terminates on first byte with bit 7 set', () => {
@@ -143,6 +145,8 @@ describe('parseStripeImage', () => {
 
   it('RLE entry followed by normal entry parses both correctly', () => {
     // RLE at $5800 (2 tiles of $AABB), then normal at $5040 (1 tile of $0201)
+    // $5800 → sub 2, within=0 → hw (row 32, col 0) → flat 2048
+    // $5040 → sub 0, within=$40=64 → hw (row 2, col 0) → flat 128
     const data = new Uint8Array([
       0x58, 0x00, 0x40, 0x03,  // RLE header: $5800, tileCount=2
       0xBB, 0xAA,              // tile word $AABB
@@ -151,11 +155,9 @@ describe('parseStripeImage', () => {
       0xFF,
     ])
     const buf = parseStripeImage(data)
-    const rleBase = 0x5800 - L3_TILEMAP_BASE  // 2048
-    expect(buf[rleBase]).toBe(0xAABB)
-    expect(buf[rleBase + 1]).toBe(0xAABB)
-    const normBase = 0x5040 - L3_TILEMAP_BASE  // 64 (row 1, col 0)
-    expect(buf[normBase]).toBe(0x0201)
+    expect(buf[2048]).toBe(0xAABB)  // hw row 32, col 0
+    expect(buf[2049]).toBe(0xAABB)  // hw row 32, col 1
+    expect(buf[128]).toBe(0x0201)   // hw row 2, col 0
   })
 })
 
