@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildSpriteLayout, type SpriteTileTables } from '../../../src/rom/SpriteTileLoader'
+import { makePlaceholderBoxChar } from '../../../src/rom/model/tiles/TileFactory'
+import { StaticPixels } from '../../../src/rom/model/chars/behaviors/StaticPixels'
 
 function makeTables(overrides: Partial<SpriteTileTables> = {}): SpriteTileTables {
   const tilemap = new Uint8Array(0xFC)
@@ -197,5 +199,47 @@ describe('buildSpriteLayout', () => {
     const tables = makeTables({ spr0to13Prop })
     const layout = buildSpriteLayout(tables, 0x00)!
     expect(layout.height).toBe(16)
+  })
+
+  // IDs 0xC9-0xFF (beyond the dispatch table) have no visual tile — they
+  // render as placeholder boxes via SpriteFactory. Confirm null here so the
+  // two paths stay in sync: any change to the table boundary is caught.
+  const generatorNullCases: Array<{ name: string; id: number }> = [
+    { name: '0xC9 layer-2 smash (generator, no tile)',  id: 0xC9 },
+    { name: '0xCA layer-2 scroll left (generator)',     id: 0xCA },
+    { name: '0xCB layer-2 scroll right (generator)',    id: 0xCB },
+    { name: '0xCF layer-2 scroll up (generator)',       id: 0xCF },
+    { name: '0xE7 last generator-range ID',             id: 0xE7 },
+    { name: '0xE8 beyond dispatch table',               id: 0xE8 },
+    { name: '0xFF no sprite at this ID',                id: 0xFF },
+  ]
+  for (const tc of generatorNullCases) {
+    it(`returns null for ${tc.name}`, () => {
+      expect(buildSpriteLayout(makeTables(), tc.id)).toBeNull()
+    })
+  }
+})
+
+describe('makePlaceholderBoxChar', () => {
+  it('has id -2', () => {
+    expect(makePlaceholderBoxChar().id).toBe(-2)
+  })
+
+  it('draws a border frame with palette index 3 and transparent interior', () => {
+    const char = makePlaceholderBoxChar()
+    expect(char.behavior).toBeInstanceOf(StaticPixels)
+    const pixels = (char.behavior as StaticPixels).pixels
+    // Top and bottom rows are all 3
+    for (let x = 0; x < 8; x++) {
+      expect(pixels[x]).toBe(3)       // top row
+      expect(pixels[56 + x]).toBe(3)  // bottom row
+    }
+    // Left and right columns are 3, interior edges are 0
+    for (let y = 1; y <= 6; y++) {
+      expect(pixels[y * 8]).toBe(3)       // left col
+      expect(pixels[y * 8 + 7]).toBe(3)   // right col
+      expect(pixels[y * 8 + 1]).toBe(0)   // interior
+      expect(pixels[y * 8 + 6]).toBe(0)   // interior
+    }
   })
 })

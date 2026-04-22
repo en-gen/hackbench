@@ -79,6 +79,9 @@ export type SpriteAppearanceDescriptor =
 
 export interface SpriteBehaviorDescriptor {
   kind: string
+  displayName?: string
+  spawns?: number
+  isGenerator?: boolean
 }
 
 export interface SpriteDescriptor {

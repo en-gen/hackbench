@@ -44,18 +44,6 @@
           "when": "resourceExtname == .sfc || resourceExtname == .smc",
           "group": "navigation"
         }
-      ],
-      "view/title": [
-        {
-          "command": "workbench.actions.treeView.hackbench.mapsExplorer.collapseAll",
-          "when": "view == hackbench.mapsExplorer",
-          "group": "navigation"
-        },
-        {
-          "command": "workbench.actions.treeView.hackbench.resourcesExplorer.collapseAll",
-          "when": "view == hackbench.resourcesExplorer",
-          "group": "navigation"
-        }
       ]
     },
     "customEditors": [
