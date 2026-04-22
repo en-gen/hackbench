@@ -1672,7 +1672,7 @@ function applyPalAnimFrame(f: number): void {
 
 function syncPalAnimButton(): void {
   const btn = document.getElementById('btn-pal-play')
-  if (btn) btn.innerHTML = palAnimRunning ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
+  if (btn) btn.innerHTML = palAnimRunning ? '<span class="codicon codicon-debug-stop"></span>' : '<span class="codicon codicon-play"></span>'
 }
 
 function palAnimTick(now: number): void {
@@ -1698,6 +1698,7 @@ function startPalAnimTimer(): void {
 function stopPalAnimTimer(): void {
   if (palAnimRafId !== null) { cancelAnimationFrame(palAnimRafId); palAnimRafId = null }
   palAnimRunning = false
+  applyPalAnimFrame(1)
   syncPalAnimButton()
 }
 
@@ -1712,8 +1713,8 @@ const animPlayBtns = [
 
 function syncAnimButtons(): void {
   for (const btn of animPlayBtns) {
-    btn.innerHTML = animRunning ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
-    btn.title = animRunning ? 'Pause animation' : 'Play animation'
+    btn.innerHTML = animRunning ? '<span class="codicon codicon-debug-stop"></span>' : '<span class="codicon codicon-play"></span>'
+    btn.title = animRunning ? 'Stop animation' : 'Play animation'
     btn.classList.toggle('on', animRunning)
   }
 }
@@ -1746,14 +1747,14 @@ function animTick(now: number): void {
 
 function startAnimTimer(): void {
   if (animRafId !== null) { cancelAnimationFrame(animRafId); animRafId = null }
-  applyAnimFrame(0)
+  applyAnimFrame(1)
   animLastTickMs = performance.now()
   animRafId = requestAnimationFrame(animTick)
 }
 
 function stopAnimTimer(): void {
   if (animRafId !== null) { cancelAnimationFrame(animRafId); animRafId = null }
-  applyAnimFrame(0)
+  applyAnimFrame(1)
 }
 
 // ── Tile panel page navigation ───────────────────────────────────────────────

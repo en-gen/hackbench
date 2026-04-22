@@ -7,6 +7,7 @@ import { Sprite } from './sprites/Sprite'
 import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
+import { WingedBlockAppearance } from './sprites/appearances/WingedBlockAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
 import { getSpriteMetadata } from './sprites/SpriteMetadata'
@@ -59,6 +60,42 @@ export function buildSprites(
         s.spriteId, px, py,
         ThwompAppearance.fromTables(chars, palette, charHigh, placeholder),
         thwompBehavior,
+      ))
+      continue
+    }
+
+    // Sprites $83/$84 (Left/Right Flying Question Block) draw a 16×16 ? block
+    // body plus two animated 8×8 wing tiles driven by ctx.animFrame, matching
+    // the in-game KoopaWingGfxRt/CODE_019E95 routine (bank_01.asm:4024/4083).
+    if (s.spriteId === 0x83 || s.spriteId === 0x84) {
+      const layout = buildSpriteLayout(tables, s.spriteId)
+      const bodyParts: SpritePart[] = (layout?.tiles ?? []).map(t => ({
+        char: chars.get(t.charNum) ?? placeholder,
+        palette: t.palette, flipX: t.flipX, flipY: t.flipY, dx: t.dx, dy: t.dy,
+      }))
+      const WING_PAL = 11
+      const BASE = 0x400
+      const c = (n: number) => chars.get(BASE + n) ?? placeholder
+      const p = (n: number, dx: number, dy: number, flipX: boolean): SpritePart =>
+        ({ char: c(n), palette: WING_PAL, flipX, flipY: false, dx, dy })
+      // Frame 0: one 8×8 tile per wing (OAM size $00)
+      const wf0: SpritePart[] = [
+        p(0x5D,  -3, -2, true),   // left
+        p(0x5D,  11, -2, false),  // right
+      ]
+      // Frame 1: 16×16 OAM tile per wing (size $02) = 2×2 block of 8×8 chars.
+      // Left wing has flipX set → SNES swaps columns and flips each tile.
+      // Sibling chars: $C6→TL, $C7→TR, $D6→BL, $D7→BR (VRAM layout: +1 right, +$10 down)
+      const wf1: SpritePart[] = [
+        p(0xC7, -11, -10, true),  p(0xC6,  -3, -10, true),   // left wing top row
+        p(0xD7, -11,  -2, true),  p(0xD6,  -3,  -2, true),   // left wing bottom row
+        p(0xC6,  11, -10, false), p(0xC7,  19, -10, false),  // right wing top row
+        p(0xD6,  11,  -2, false), p(0xD7,  19,  -2, false),  // right wing bottom row
+      ]
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        new WingedBlockAppearance(bodyParts, [wf0, wf1]),
+        behavior,
       ))
       continue
     }

@@ -83,6 +83,11 @@ export type SpriteAppearanceDescriptor =
       alertFace: readonly SpritePartDescriptor[]
       aggressiveFace: readonly SpritePartDescriptor[]
     }
+  | {
+      kind: 'wingedBlock'
+      bodyParts: readonly SpritePartDescriptor[]
+      wingFrames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
+    }
 
 export interface SpriteBehaviorDescriptor {
   kind: string

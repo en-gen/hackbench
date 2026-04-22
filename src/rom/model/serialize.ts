@@ -10,6 +10,7 @@ import { Sprite } from './sprites/Sprite'
 import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
+import { WingedBlockAppearance } from './sprites/appearances/WingedBlockAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -100,6 +101,13 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
       bodyParts:      a.bodyParts.map(partDescriptor),
       alertFace:      a.alertFace.map(partDescriptor),
       aggressiveFace: a.aggressiveFace.map(partDescriptor),
+    }
+  }
+  if (a instanceof WingedBlockAppearance) {
+    return {
+      kind: 'wingedBlock',
+      bodyParts:  a.bodyParts.map(partDescriptor),
+      wingFrames: [a.wingFrames[0].map(partDescriptor), a.wingFrames[1].map(partDescriptor)],
     }
   }
   if (a instanceof PSwitchAppearance) {
