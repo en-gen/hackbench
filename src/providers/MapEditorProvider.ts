@@ -7,6 +7,7 @@ import { loadRomPalettes, loadBackAreaColors, buildLevelCgram } from '../rom/Pal
 import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, getCharPixels, type VramState, type GfxSheet } from '../rom/GfxLoader'
 import { loadAnimationData, ANIM_INTERVAL_MS, type AnimationData } from '../rom/AnimationLoader'
 import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
+import { readInitialLayer1YPos } from '../rom/L3Loader'
 import { expandMap } from '../rom/ObjectExpander'
 import { readL2Pointer, isPresetPtr, loadL2Preset, loadL2Objects, L2_TILEMAP_COLS, L2_TILEMAP_ROWS, L1_SCREEN_W, L1_SCREEN_H } from '../rom/L2Loader'
 import { buildMapPayload } from '../rom/model/MapBuilder'
@@ -185,6 +186,10 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       const scrollIndex = (scrollByte >> 4) & 0x0F
       const vertLayer2Setting  = rom.rom.readByte(0x05D710 + scrollIndex) ?? 0
       const horizLayer2Setting = rom.rom.readByte(0x05D720 + scrollIndex) ?? 0
+      // Initial camera Y — see readInitialLayer1YPos in L3Loader.ts. Seeds
+      // the camera viewport so sublevels (accessed only via pipes/doors) show
+      // the player's actual starting viewport.
+      const initialCameraYPx = readInitialLayer1YPos(rom.rom, index, isVertical)
 
       // Palette-animation raw — the model owns the frame cycle; the
       // legacy load payload only needs the timer's frameCount / intervalMs.
@@ -243,6 +248,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
           gfxTilesetId:   objectTileset,
           vertLayer2Setting,
           horizLayer2Setting,
+          initialCameraYPx,
         },
       })
       // Ship the self-rendering model payload alongside the legacy atlas

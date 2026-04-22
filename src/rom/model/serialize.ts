@@ -5,6 +5,7 @@ import { AnimatedPixels } from './chars/behaviors/AnimatedPixels'
 import { PSwitchAlternate } from './chars/behaviors/PSwitchAlternate'
 import { StaticPixels } from './chars/behaviors/StaticPixels'
 import { L2ObjectStream, L2Preset, type L2Layer } from './L2Layer'
+import { L3TilemapLayer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
 import { StaticSpriteAppearance } from './sprites/appearances/StaticSpriteAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
@@ -17,6 +18,7 @@ import type {
   CharDescriptor,
   ColorDescriptor,
   L2Descriptor,
+  L3Descriptor,
   MapPayload,
   PaletteDescriptor,
   SpriteAppearanceDescriptor,
@@ -66,6 +68,7 @@ export function serialize(map: SmwMap, chars: Map<number, Char>, tiles: Map<numb
     // L1 grid is already ids; pass through.
     layout: map.l1.map(row => row.map(id => id)),
     l2: serializeL2(map.l2),
+    l3: serializeL3(map.l3),
     sprites: map.sprites.map(serializeSprite),
     tileset: map.tileset,
     screenCount: map.screenCount,
@@ -98,6 +101,26 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
     }
   }
   throw new Error(`Unknown SpriteAppearance: ${(a as object).constructor.name}`)
+}
+
+function serializeL3(l3: import('./L3Layer').L3Layer | null): L3Descriptor | null {
+  if (l3 === null) return null
+  if (!(l3 instanceof L3TilemapLayer)) return null
+
+  const chars: number[][] = []
+  for (const sheet of l3.l3Chars) {
+    for (const pixels of sheet) {
+      chars.push(Array.from(pixels))
+    }
+  }
+
+  return {
+    tilemap: Array.from(l3.tilemap),
+    chars,
+    initialYPx: l3.initialYPx,
+    levelPixelW: l3.levelPixelW,
+    levelPixelH: l3.levelPixelH,
+  }
 }
 
 function serializeL2(l2: L2Layer | null): L2Descriptor | null {

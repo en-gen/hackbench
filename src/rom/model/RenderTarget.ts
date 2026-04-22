@@ -35,11 +35,17 @@ export interface CameraState {
 export interface LayerToggles {
   l1: boolean
   l2: boolean
+  l3: boolean
   sprites: boolean
   screens: boolean
   block: boolean
   /** Tile-grid overlay on the main canvas (toolbar btn-map-grid). */
   mapGrid: boolean
+  /**
+   * Show HUD-area L3 tiles (VRAM rows 0–7) inside the camera viewport.
+   * Default false — only meaningful when camera viewport is focused.
+   */
+  l3Hud: boolean
 }
 
 /**
@@ -73,6 +79,24 @@ export interface RenderContext {
    * `screenPipeVariantIdx[screenOf(cell)]`.
    */
   screenPipeVariantIdx?: readonly number[]
+  /**
+   * Initial Layer1YPos (camera Y) for this level, in pixels.
+   * L3 tide overlays use this to compute their level Y:
+   *   level_Y = row*8 - Layer3YPos + initialCameraYPx.
+   */
+  initialCameraYPx?: number
+  /**
+   * Whether the camera-viewport preview is shown. Used to gate the L3 HUD
+   * overlay — the HUD is meaningful only when the viewport rectangle is on,
+   * since its tiles are positioned relative to the camera.
+   */
+  cameraOn?: Ref<boolean>
+  /**
+   * True between pointer-down and pointer-up of a camera rect drag. Used to
+   * skip the HUD render during sub-tile-smooth drags so the status bar
+   * doesn't jitter tile-by-tile. Snaps back on drag release.
+   */
+  cameraDragging?: Ref<boolean>
 }
 
 export interface RenderTarget {

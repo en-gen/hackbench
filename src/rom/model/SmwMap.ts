@@ -1,6 +1,7 @@
 import { cellBoxOf } from './RenderTarget'
 import type { Phase, RenderContext, RenderTarget } from './RenderTarget'
 import type { L2Layer } from './L2Layer'
+import type { L3Layer } from './L3Layer'
 import type { Palette } from './palette/Palette'
 import type { Sprite } from './sprites/Sprite'
 import type { Tile } from './tiles/Tile'
@@ -19,6 +20,21 @@ export interface LevelHeader {
    */
   vertLayer2Setting?: number
   horizLayer2Setting?: number
+  /** True when BG3 priority is set — L3 draws in front of L1 non-priority tiles. */
+  layer3Priority?: boolean
+  /**
+   * Initial Layer1YPos (camera Y) in pixels, from DATA_05D708 via
+   * DATA_05F200[level] bits 3:2 (bank_05.asm:7329-7335). Seeds the camera
+   * viewport at load and positions L3 tide overlays within the level.
+   */
+  initialCameraYPx: number
+  /**
+   * Time-limit index from header byte 3 bits 7:6 (0..3). Indexes TimerTable
+   * at $0584D7 (`db $00, $02, $03, $04`) to give the starting timer digit
+   * (0 = no timer, 2/3/4 = 200/300/400 seconds). Drives the HUD timer
+   * display and any "show level time limit" panel.
+   */
+  timeLimit: number
 }
 
 export class SmwMap {
@@ -34,6 +50,7 @@ export class SmwMap {
      */
     readonly l1: (number | null)[][],
     readonly l2: L2Layer | null,
+    readonly l3: L3Layer | null,
     readonly sprites: Sprite[],
     readonly palette: Palette,
     readonly tileset: number,
@@ -60,14 +77,20 @@ export class SmwMap {
       ...ctx,
       levelOrientation: this.header.orientation,
       screenPipeVariantIdx: this.screenPipeVariantIdx,
+      initialCameraYPx: this.header.initialCameraYPx,
     }
     const toggles = levelCtx.layerToggles.value
+    const l3Priority = this.header.layer3Priority ?? false
+    // layer3Priority=false → L3 behind everything (before L2)
+    if (toggles.l3 && !l3Priority) this.l3?.render(levelCtx, target)
     if (toggles.l2) this.l2?.render(levelCtx, target)
     if (toggles.l1) this.renderL1(levelCtx, target, 'nonPriority')
     if (toggles.sprites) {
       for (const sprite of this.sortedSprites()) sprite.render(levelCtx, target)
     }
     if (toggles.l1) this.renderL1(levelCtx, target, 'priority')
+    // layer3Priority=true → L3 in front of sprites, behind L1 priority
+    if (toggles.l3 && l3Priority) this.l3?.render(levelCtx, target)
   }
 
   private renderL1(ctx: RenderContext, target: RenderTarget, phase: Phase): void {

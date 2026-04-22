@@ -40,12 +40,18 @@ export const useEditorStore = defineStore('editor', () => {
   /** Camera-viewport preview is visible when true. Separate from the
    *  `focused` bit on `camera` which only controls drag-to-move. */
   const cameraOn          = ref(false)
+  /** True between pointer-down and pointer-up while the camera rect is being
+   *  dragged. The L3 HUD uses this to suppress rendering during drag — the
+   *  HUD tiles snap to whole tiles, so during a sub-tile-smooth drag they
+   *  would jitter. Snaps back on drag release. */
+  const cameraDragging    = ref(false)
   const zoom              = ref(1)
   // Defaults match the toolbar `<input checked>` attributes — L1/L2/sprites
   // on, screens/block off. Any DOM-vs-store drift at first paint is a bug
   // in whoever wired the checkbox, not here.
   const layerToggles      = ref<LayerToggles>({
-    l1: true, l2: true, sprites: true, screens: false, block: false, mapGrid: false,
+    l1: true, l2: true, l3: true, sprites: true, screens: false,
+    block: false, mapGrid: false, l3Hud: false,
   })
 
   // ── Actions (the only mutation sites) ────────────────────────────────
@@ -95,9 +101,11 @@ export const useEditorStore = defineStore('editor', () => {
     if (
       cur.l1      === next.l1      &&
       cur.l2      === next.l2      &&
+      cur.l3      === next.l3      &&
       cur.sprites === next.sprites &&
       cur.screens === next.screens &&
-      cur.block   === next.block
+      cur.block   === next.block   &&
+      cur.l3Hud   === next.l3Hud
     ) return
     layerToggles.value = { ...next }
   }
@@ -112,17 +120,21 @@ export const useEditorStore = defineStore('editor', () => {
     if (cameraOn.value !== on) cameraOn.value = on
   }
 
+  function setCameraDragging(on: boolean): void {
+    if (cameraDragging.value !== on) cameraDragging.value = on
+  }
+
   return {
     // state
     animFrame, palAnimFrame, pSwitchActive, switchPalaceState,
-    camera, cameraOn, zoom, layerToggles,
+    camera, cameraOn, cameraDragging, zoom, layerToggles,
     // actions
     toggleSwitchPalace, setSwitchPalace,
     togglePSwitch,      setPSwitch,
     setAnimFrame,       setPalAnimFrame,
     setZoom,
     setLayerToggle,     setLayerToggles,
-    setCamera,          setCameraOn,
+    setCamera,          setCameraOn,       setCameraDragging,
   }
 })
 
