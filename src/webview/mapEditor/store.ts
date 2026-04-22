@@ -53,6 +53,7 @@ export const useEditorStore = defineStore('editor', () => {
     l1: true, l2: true, l3: true, sprites: true, screens: false,
     block: false, mapGrid: false, l3Hud: false,
   })
+  const activeVineSources = ref<ReadonlySet<string>>(new Set())
 
   // ── Actions (the only mutation sites) ────────────────────────────────
   function toggleSwitchPalace(color: 0 | 1 | 2 | 3): void {
@@ -124,10 +125,16 @@ export const useEditorStore = defineStore('editor', () => {
     if (cameraDragging.value !== on) cameraDragging.value = on
   }
 
+  function toggleVineSource(key: string): void {
+    const next = new Set(activeVineSources.value)
+    if (next.has(key)) next.delete(key); else next.add(key)
+    activeVineSources.value = next
+  }
+
   return {
     // state
     animFrame, palAnimFrame, pSwitchActive, switchPalaceState,
-    camera, cameraOn, cameraDragging, zoom, layerToggles,
+    camera, cameraOn, cameraDragging, zoom, layerToggles, activeVineSources,
     // actions
     toggleSwitchPalace, setSwitchPalace,
     togglePSwitch,      setPSwitch,
@@ -135,6 +142,7 @@ export const useEditorStore = defineStore('editor', () => {
     setZoom,
     setLayerToggle,     setLayerToggles,
     setCamera,          setCameraOn,       setCameraDragging,
+    toggleVineSource,
   }
 })
 
