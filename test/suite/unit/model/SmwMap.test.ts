@@ -92,7 +92,7 @@ function makeCtx(): RenderContext {
     palette,
     camera: ref({ tileX: 0, tileY: 0, focused: false }),
     zoom: ref(1),
-    layerToggles: ref({ l1: true, l2: true, sprites: true, screens: true, block: true, mapGrid: false }),
+    layerToggles: ref({ l1: true, l2: true, l3: true, sprites: true, screens: true, block: true, mapGrid: false, l3Hud: false }),
   }
 }
 
@@ -105,6 +105,7 @@ describe('SmwMap.render', () => {
       0,
       { mode: 0, music: 0, tileset: 0, orientation: 'horizontal' },
       [[0]],
+      null,
       null,
       [],
       makeCtx().palette,
@@ -167,6 +168,7 @@ describe('SmwMap.render', () => {
       { mode: 0, music: 0, tileset: 0, orientation: 'horizontal' },
       [[0]],
       l2,
+      null,
       [sprite],
       makeCtx().palette,
       0,
@@ -197,6 +199,7 @@ describe('SmwMap.render', () => {
       { mode: 0, music: 0, tileset: 0, orientation: 'horizontal' },
       [[0]],
       new L2ObjectStream([[100]], l1Tiles),
+      null,
       [],
       makeCtx().palette,
       0,

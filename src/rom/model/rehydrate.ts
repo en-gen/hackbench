@@ -4,6 +4,7 @@ import { AnimatedPixels } from './chars/behaviors/AnimatedPixels'
 import { PSwitchAlternate } from './chars/behaviors/PSwitchAlternate'
 import { StaticPixels } from './chars/behaviors/StaticPixels'
 import { L2ObjectStream, L2Preset, type L2Layer } from './L2Layer'
+import { L3TilemapLayer, type L3Layer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
 import {
   StaticSpriteAppearance,
@@ -19,6 +20,7 @@ import type {
   CharDescriptor,
   ColorDescriptor,
   L2Descriptor,
+  L3Descriptor,
   MapPayload,
   PaletteDescriptor,
   SpriteAppearanceDescriptor,
@@ -76,6 +78,7 @@ export function buildGraph(payload: MapPayload): {
   )
 
   const l2 = buildL2(payload.l2, tiles, bgTiles)
+  const l3 = buildL3(payload.l3 ?? null)
   const sprites = payload.sprites.map(s => buildSprite(s, chars, placeholderChar))
 
   const map = new SmwMap(
@@ -83,6 +86,7 @@ export function buildGraph(payload: MapPayload): {
     payload.header,
     l1,
     l2,
+    l3,
     sprites,
     palette,
     payload.tileset,
@@ -118,6 +122,23 @@ function buildAppearance(
       return new StaticSpriteAppearance(parts)
     }
   }
+}
+
+function buildL3(desc: L3Descriptor | null): L3Layer | null {
+  if (!desc) return null
+  const tilemap = new Uint16Array(desc.tilemap)
+  // Reconstruct GfxSheet[]: each sheet has 128 tiles; 4 sheets total.
+  const l3Chars: Uint8Array[][] = []
+  for (let f = 0; f < 4; f++) {
+    const sheet: Uint8Array[] = []
+    for (let t = 0; t < 128; t++) {
+      const idx = f * 128 + t
+      const pixels = desc.chars[idx]
+      sheet.push(pixels ? new Uint8Array(pixels) : new Uint8Array(64))
+    }
+    l3Chars.push(sheet)
+  }
+  return new L3TilemapLayer(tilemap, l3Chars, desc.initialYPx, desc.levelPixelW, desc.levelPixelH)
 }
 
 function buildL2(

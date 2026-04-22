@@ -100,6 +100,8 @@ function renderModelOverlay(map: SmwMap): void {
     switchPalaceState: storeRefs.switchPalaceState,
     palette: map.palette,
     camera: storeRefs.camera,
+    cameraOn: storeRefs.cameraOn,
+    cameraDragging: storeRefs.cameraDragging,
     zoom: storeRefs.zoom,
     layerToggles: storeRefs.layerToggles,
     levelOrientation: map.header.orientation,
@@ -304,6 +306,22 @@ function compositeCameraViewport(
         tile.render(ctx, target, cell, 'priority')
       }
     }
+  }
+
+  // L3 on top (if toggled) — the camera strip wipe above erased the main
+  // render's L3, so re-render it clipped to the strip. Pass clipRangeX so
+  // the L3 renderer skips the full-level repeat and only emits tiles for
+  // the strip, keeping drag-redraw responsive.
+  if (toggles.l3 && map.l3) {
+    target.setClip(sx, sy, sw, sh)
+    const levelCtx: RenderContext = {
+      ...ctx,
+      levelOrientation: map.header.orientation,
+      screenPipeVariantIdx: map.screenPipeVariantIdx,
+      initialCameraYPx: map.header.initialCameraYPx,
+    }
+    map.l3.render(levelCtx, target, { xMin: sx, xMax: sx + sw })
+    target.clearClip()
   }
 }
 
@@ -552,6 +570,8 @@ app.innerHTML = `
   <label style="${chkStyle()}"><input type="checkbox" id="chk-block"> Block</label>
   <label style="${chkStyle()}"><input type="checkbox" id="chk-l1" checked> L1</label>
   <label style="${chkStyle()}"><input type="checkbox" id="chk-l2" checked> L2</label>
+  <label style="${chkStyle()}"><input type="checkbox" id="chk-l3" checked> L3</label>
+  <label style="${chkStyle()}"><input type="checkbox" id="chk-l3hud"> HUD</label>
   <label style="${chkStyle()}"><input type="checkbox" id="chk-camera"> Camera</label>
 </div>
 
@@ -797,6 +817,8 @@ const chkSprites     = document.getElementById('chk-sprites')     as HTMLInputEl
 const chkBlock       = document.getElementById('chk-block')       as HTMLInputElement
 const chkL1          = document.getElementById('chk-l1')          as HTMLInputElement
 const chkL2          = document.getElementById('chk-l2')          as HTMLInputElement
+const chkL3          = document.getElementById('chk-l3')          as HTMLInputElement
+const chkL3Hud       = document.getElementById('chk-l3hud')       as HTMLInputElement
 const chkCamera      = document.getElementById('chk-camera')      as HTMLInputElement
 
 // ── Camera viewport overlay ──────────────────────────────────────────────────
@@ -1553,6 +1575,8 @@ interface MapPayload {
     // 2=1/2, 3=1/32. See MapEditorProvider comment at the lookup site.
     vertLayer2Setting:  number
     horizLayer2Setting: number
+    /** Initial Layer1YPos (camera Y) in pixels — see LevelHeaderDescriptor. */
+    initialCameraYPx?: number
   }
 }
 
@@ -2288,10 +2312,12 @@ function syncLayerTogglesFromDom(): void {
   store.setLayerToggles({
     l1:      chkL1.checked,
     l2:      chkL2.checked,
+    l3:      chkL3.checked,
     sprites: chkSprites.checked,
     screens: chkScreens.checked,
     block:   chkBlock.checked,
     mapGrid: mapGridOn,
+    l3Hud:   chkL3Hud.checked,
   })
 }
 chkScreens.addEventListener('change', syncLayerTogglesFromDom)
@@ -2299,6 +2325,8 @@ chkSprites.addEventListener('change', syncLayerTogglesFromDom)
 chkBlock.addEventListener('change',   syncLayerTogglesFromDom)
 chkL1.addEventListener('change',      syncLayerTogglesFromDom)
 chkL2.addEventListener('change',      syncLayerTogglesFromDom)
+chkL3.addEventListener('change',      syncLayerTogglesFromDom)
+chkL3Hud.addEventListener('change',   syncLayerTogglesFromDom)
 chkCamera.addEventListener('change',  () => {
   const on = chkCamera.checked
   store.setCameraOn(on)  // reactive — triggers renderModelOverlay
@@ -2329,6 +2357,7 @@ modelCanvas.addEventListener('pointerdown', (e) => {
     cameraDragOffX = lx / px - cam.tileX
     cameraDragOffY = ly / px - cam.tileY
     store.setCamera({ tileX: cam.tileX, tileY: cam.tileY, focused: true })
+    store.setCameraDragging(true)
     modelCanvas.setPointerCapture(e.pointerId)
     modelCanvas.style.cursor = 'grabbing'
     e.preventDefault()
@@ -2379,6 +2408,7 @@ modelCanvas.addEventListener('pointermove', (e) => {
 modelCanvas.addEventListener('pointerup', (e) => {
   if (!cameraDragging) return
   cameraDragging = false
+  store.setCameraDragging(false)
   modelCanvas.releasePointerCapture(e.pointerId)
   const rect = modelCanvas.getBoundingClientRect()
   const px = TILE_PX * store.zoom
@@ -2767,8 +2797,11 @@ window.addEventListener('message', async (event) => {
     infoBgVScroll.textContent = `${vSet} (${vLabel})`
     infoBgHScroll.textContent = `${hSet} (${hLabel})`
 
-    // Reset camera to level start and scroll into view if Camera is on.
-    store.setCamera({ tileX: 0, tileY: 0, focused: false })
+    // Seed camera viewport Y from the ROM-derived Layer1YPos at level init
+    // (bank_05.asm:7329-7335 for primary levels, 7129-7136 for sublevels via
+    // secondary entrance). Falls back to 0 when the payload predates this field.
+    const initCamYPx = mapData.header.initialCameraYPx ?? 0
+    store.setCamera({ tileX: 0, tileY: Math.floor(initCamYPx / 16), focused: false })
     if (chkCamera.checked) scrollContainerToCamera(true)
 
     // Palette canvas — the model render effect will also render this

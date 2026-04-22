@@ -103,6 +103,39 @@ export interface LevelHeaderDescriptor {
    */
   vertLayer2Setting?: number
   horizLayer2Setting?: number
+  /** True when BG3 draws in front of L1 non-priority tiles. */
+  layer3Priority?: boolean
+  /**
+   * Initial Layer1YPos (camera Y) in pixels. From DATA_05D708 via
+   * DATA_05F200[level] bits 3:2 (bank_05.asm:7329-7335). For vertical levels,
+   * the high byte comes from DATA_05F600[level] & $1F.
+   * Seeds the camera viewport and positions L3 tide overlays correctly.
+   */
+  initialCameraYPx: number
+  /**
+   * Time-limit index from header byte 3 bits 7:6 (0..3). Indexes TimerTable
+   * ($0584D7) to give the starting timer: 0=none, 1=200, 2=300, 3=400.
+   */
+  timeLimit: number
+}
+
+// ── Layer 3 ──────────────────────────────────────────────────────────
+
+export interface L3Descriptor {
+  /** 4096-entry VRAM tilemap (index = row*64+col), as 16-bit unsigned values. */
+  tilemap: readonly number[]
+  /**
+   * Decoded 2BPP pixel data for each L3 char: flat array of 512 entries
+   * (4 files × 128 tiles), each entry is 64 pixel indices (0–3).
+   * Access: chars[fileIdx * 128 + localIdx]
+   */
+  chars: readonly (readonly number[])[]
+  /** Initial Layer3YPos in pixels (from Layer3TilemapSettings). */
+  initialYPx: number
+  /** Level pixel width (screens × 256, or 512 for vertical). */
+  levelPixelW: number
+  /** Level pixel height (432 for horizontal, screens × 256 for vertical). */
+  levelPixelH: number
 }
 
 export type L2Descriptor =
@@ -131,6 +164,8 @@ export interface MapPayload {
   /** L1 grid as tileIds (or null for empty cells). row-major. */
   layout: readonly (readonly (number | null)[])[]
   l2: L2Descriptor | null
+  /** Layer 3 tilemap + decoded chars. null when the level has no L3. */
+  l3?: L3Descriptor | null
   sprites: readonly SpriteDescriptor[]
   tileset: number
   screenCount: number

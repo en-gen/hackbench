@@ -344,3 +344,24 @@ export function getCharPixels(vram: VramState, charNum: number): Uint8Array | nu
   }
   return null
 }
+
+// ── Layer 3 char loading ─────────────────────────────────────────────────────
+
+/**
+ * Load L3 GFX chars (GFX28–GFX2B, 2BPP) into a flat 4-element array.
+ *
+ * Char index n (bits [9:0] of an L3 tilemap entry) maps to:
+ *   file  = n >> 7   (0=GFX28, 1=GFX29, 2=GFX2A, 3=GFX2B)
+ *   local = n & 0x7F (tile within that file)
+ *
+ * CODE_00A993 uploads these 4 files to VRAM word $4000 (VRam_L3Tiles).
+ * Each 2BPP char is 8 words; 128 chars × 4 files = 512 chars total.
+ */
+export function loadL3Chars(rom: RomFile): GfxSheet[] {
+  const { start, end } = getLayer3GfxRange(rom)
+  const sheets: GfxSheet[] = []
+  for (let i = start; i <= end; i++) {
+    sheets.push(loadGfxFile(rom, i))
+  }
+  return sheets
+}

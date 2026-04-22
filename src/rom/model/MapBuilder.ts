@@ -1,5 +1,5 @@
 import { loadAnimationData } from '../AnimationLoader'
-import { loadVram } from '../GfxLoader'
+import { loadL3Chars, loadVram } from '../GfxLoader'
 import {
   isLevelModeVertical,
   parseLevelHeader,
@@ -11,6 +11,8 @@ import type { SmwRom } from '../SmwRom'
 import type { Char } from './chars/Char'
 import { buildChars } from './chars/CharFactory'
 import { buildBgTiles, buildL2 } from './L2Factory'
+import { buildL3 } from './L3Factory'
+import { readInitialLayer1YPos } from '../L3Loader'
 import type { MapPayload } from './MapPayload'
 import { buildPalette } from './palette/PaletteFactory'
 import { serialize } from './serialize'
@@ -80,6 +82,7 @@ export function buildMapWithGraph(
   const animData = loadAnimationData(rom.rom, tileset) ?? undefined
   const chars = buildChars(vram, animData)
   const tiles = buildTiles(rom.rom, tileset, chars)
+  const l3Chars = loadL3Chars(rom.rom)
   // The BG Map16 table is always loaded fresh from the ROM (all 512
   // entries, regardless of whether this level's L2 references every
   // one) so tile-viewer panels can show the full palette. L2 layers
@@ -99,6 +102,7 @@ export function buildMapWithGraph(
   const screenPipeVariantIdx = Array.from({ length: screens }, (_, s) => s & 0x03)
 
   const l2 = buildL2(rom.rom, levelId, header, screens, isVertical, chars, tiles, bgTiles)
+  const l3 = buildL3(rom.rom, levelId, tileset, l3Chars, screens, isVertical, rawHeader.timeLimit)
 
   // Sprites live in a separate pointer table from L1; empty list if the level
   // has no sprite data (e.g., title screens, OW sub-maps without spawns).
@@ -120,6 +124,11 @@ export function buildMapWithGraph(
   const vertLayer2Setting  = rom.rom.readByte(0x05D710 + scrollIndex) ?? 0
   const horizLayer2Setting = rom.rom.readByte(0x05D720 + scrollIndex) ?? 0
 
+  // Initial camera Y (Layer1YPos): bits 3:2 of DATA_05F200[level] index into
+  // DATA_05D708 ($00, $60, $C0, $00). For vertical levels, DATA_05F600[level]
+  // & $1F provides the page high byte. See bank_05.asm:7329-7335 and 7386-7388.
+  const initialCameraYPx = readInitialLayer1YPos(rom.rom, levelId, isVertical)
+
   const map = new SmwMap(
     levelId,
     {
@@ -129,9 +138,13 @@ export function buildMapWithGraph(
       orientation,
       vertLayer2Setting,
       horizLayer2Setting,
+      layer3Priority: rawHeader.layer3Priority,
+      initialCameraYPx,
+      timeLimit: rawHeader.timeLimit,
     },
     l1,
     l2,
+    l3,
     sprites,
     buildPalette(rom.rom, header),
     tileset,
