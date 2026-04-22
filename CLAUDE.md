@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `feature/*` - branch off `develop`, one concern per branch
 - After merging a PR: `git checkout develop && git pull origin develop && git checkout -b feature/<next>`
 
-Do not add `Co-Authored-By: Claude` lines to commits.
+Do not add `Co-Authored-By: Claude` lines to commits. Do not add "Generated with Claude Code" footers or any AI attribution to PR bodies or commit messages.
 
 ## Commands
 

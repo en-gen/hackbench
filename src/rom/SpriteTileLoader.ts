@@ -187,8 +187,8 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x80: 0x5D,   // Key
   0x81: 0x80,   // Changing item from translucent block
   0x82: 0xE4,   // Bonus game sprite
-  0x83: 0x2E,   // Left flying question block
-  0x84: 0x2E,   // Flying question block
+  0x83: 0x2A,   // Left flying question block (initial/unhit state; $2E after hit)
+  0x84: 0x2A,   // Flying question block (initial/unhit state; $2E after hit)
   0x86: 0xC4,   // Wiggler — WigglerTiles first byte, bank_02.asm:14984
   0x87: 0x60,   // Lakitu's cloud
   0x8B: 0xC5,   // Puff of smoke from Yoshi's house

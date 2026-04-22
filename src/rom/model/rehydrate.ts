@@ -12,6 +12,7 @@ import {
 } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
+import { WingedBlockAppearance } from './sprites/appearances/WingedBlockAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -138,6 +139,11 @@ function buildAppearance(
         buildParts(desc.bodyParts),
         buildParts(desc.alertFace),
         buildParts(desc.aggressiveFace),
+      )
+    case 'wingedBlock':
+      return new WingedBlockAppearance(
+        buildParts(desc.bodyParts),
+        [buildParts(desc.wingFrames[0]), buildParts(desc.wingFrames[1])],
       )
   }
 }

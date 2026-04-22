@@ -30,8 +30,8 @@ setActivePinia(createPinia())
 
 export const useEditorStore = defineStore('editor', () => {
   // ── State ────────────────────────────────────────────────────────────
-  const animFrame         = ref(0)
-  const palAnimFrame      = ref(0)
+  const animFrame         = ref(1)
+  const palAnimFrame      = ref(1)
   const pSwitchActive     = ref(false)
   const switchPalaceState = ref<readonly [boolean, boolean, boolean, boolean]>(
     [false, false, false, false],
