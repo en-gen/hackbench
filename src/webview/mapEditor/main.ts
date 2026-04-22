@@ -594,24 +594,34 @@ function drawThwompZones(octx: CanvasRenderingContext2D, map: SmwMap): void {
     const zoneBottom = blockerRow < rows ? (blockerRow + 1) * 16 : rows * 16
     const zoneH      = zoneBottom - zoneTop
 
-    // Alert zone ±64 — amber filled rect with dashed outline (outer).
-    const alertL = anchorX - 64
-    const alertW = 128
+    // Body horizontal bounds — the sprite occupies px+4 .. px+28. Detection
+    // zone rects are split into left + right columns so they never overlap
+    // the thwomp artwork.
+    const bodyL = px + 4
+    const bodyR = px + 28
+
+    // Alert zone ±64 — amber, two column-rects flanking the body.
+    const alertFarL = anchorX - 64   // left edge of left column
+    const alertFarR = anchorX + 64   // right edge of right column
     octx.fillStyle = 'rgba(255,160,0,0.15)'
-    octx.fillRect(alertL, zoneTop, alertW, zoneH)
+    octx.fillRect(alertFarL, zoneTop, bodyL - alertFarL, zoneH)   // left col
+    octx.fillRect(bodyR,     zoneTop, alertFarR - bodyR, zoneH)   // right col
     octx.lineWidth = 1
     octx.setLineDash([4, 3])
     octx.strokeStyle = 'rgba(255,160,0,0.50)'
-    octx.strokeRect(alertL + 0.5, zoneTop + 0.5, alertW - 1, zoneH - 1)
+    octx.strokeRect(alertFarL + 0.5, zoneTop + 0.5, bodyL - alertFarL - 1, zoneH - 1)
+    octx.strokeRect(bodyR     + 0.5, zoneTop + 0.5, alertFarR - bodyR - 1, zoneH - 1)
 
-    // Aggressive zone ±36 — brighter orange rect layered over alert.
-    const aggL = anchorX - 36
-    const aggW = 72
+    // Aggressive zone ±36 — brighter orange, same split approach.
+    const aggFarL = anchorX - 36
+    const aggFarR = anchorX + 36
     octx.fillStyle = 'rgba(255,100,0,0.20)'
-    octx.fillRect(aggL, zoneTop, aggW, zoneH)
+    octx.fillRect(aggFarL, zoneTop, bodyL - aggFarL, zoneH)       // left col
+    octx.fillRect(bodyR,   zoneTop, aggFarR - bodyR, zoneH)       // right col
     octx.setLineDash([2, 2])
     octx.strokeStyle = 'rgba(255,100,0,0.75)'
-    octx.strokeRect(aggL + 0.5, zoneTop + 0.5, aggW - 1, zoneH - 1)
+    octx.strokeRect(aggFarL + 0.5, zoneTop + 0.5, bodyL - aggFarL - 1, zoneH - 1)
+    octx.strokeRect(bodyR   + 0.5, zoneTop + 0.5, aggFarR - bodyR - 1, zoneH - 1)
 
     // Fall path — red fill under the body down to the blocker. Drawn after
     // the zones so the red reads as "the physical strike column" and isn't
@@ -625,12 +635,15 @@ function drawThwompZones(octx: CanvasRenderingContext2D, map: SmwMap): void {
       octx.strokeRect(px + 4 + 1, blockerRow * 16 + 1, 22, 14)
     }
 
-    // Body outline on top of everything — red, matching the fall path, so
-    // the thwomp reads as part of the strike column (not the detection
-    // zones underneath).
+    // Body outline — red, matching the fall path so the thwomp reads as
+    // part of the strike column (not the detection zones underneath).
+    // Drawn just *outside* the 24×32 body rect (at px+3..px+29, py-1..py+33
+    // with lineWidth=2) so the stroke never paints over the thwomp's own
+    // tile pixels. Keeps the sprite artwork fully legible even with the
+    // overlay active.
     octx.lineWidth = 2
     octx.strokeStyle = 'rgba(240,60,60,0.85)'
-    octx.strokeRect(px + 4 + 1, py + 1, 22, 30)
+    octx.strokeRect(px + 4 - 1, py - 1, 26, 34)
   }
   octx.restore()
 }
