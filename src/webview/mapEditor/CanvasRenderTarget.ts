@@ -128,4 +128,12 @@ export class CanvasRenderTarget implements RenderTarget {
   flush(): void {
     this.ctx2d.putImageData(this.imageData, 0, 0)
   }
+
+  /** Write only a sub-region of the buffer to the canvas.
+   *  Pixels outside (x, y, w, h) on the canvas are not touched.
+   *  Used by the camera composite to update just the viewport strip
+   *  without overwriting the base level render. */
+  flushRegion(x: number, y: number, w: number, h: number): void {
+    this.ctx2d.putImageData(this.imageData, 0, 0, x, y, w, h)
+  }
 }
