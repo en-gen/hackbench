@@ -409,9 +409,10 @@ const VINE_TILE_ID = 0x006
  * Tiles with low byte $19 (index 25) and $1A (index 26) both resolve to
  * DATA_00F05C = $03. Only page-0 and page-1 variants observed in levels.
  */
+// DATA_00F05C is indexed by (tile_id - $11); vine behavior code $03 is at
+// indices 25 ($19) and 26 ($1A), so tile_id = $11+25=$2A and $11+26=$2B.
 const VINE_SOURCE_TILES: ReadonlySet<number> = new Set<number>([
-  0x019, 0x01A,  // page-0 vine blocks (common tileset)
-  0x119, 0x11A,  // page-1 vine blocks (tileset-specific, e.g. yellow turn blocks)
+  0x02A, 0x02B,
 ])
 
 /** Tile IDs (and null = out-of-bounds) that the vine can grow through. */
@@ -450,11 +451,10 @@ function getVineTileCanvas(): HTMLCanvasElement | null {
 
 /** Collect all vine-source positions for the current map. */
 function getVineSources(map: SmwMap): Array<{ col: number; row: number }> {
-  const T = 16
   const sources: Array<{ col: number; row: number }> = []
   for (const spr of mapData?.sprites ?? []) {
     if (spr.spriteId === 0x79)
-      sources.push({ col: Math.floor(spr.x / T), row: Math.floor(spr.y / T) })
+      sources.push({ col: spr.x, row: spr.y })
   }
   if (VINE_SOURCE_TILES.size > 0) {
     const l1 = map.l1
@@ -2582,6 +2582,13 @@ modelCanvas.addEventListener('pointermove', (e) => {
     modelCanvas.style.cursor = 'grab'
   } else {
     modelCanvas.style.cursor = ''
+  }
+
+  const pos = canvasTileAt(e)
+  if (pos) {
+    const tileId = mapData?.tileGrid[pos.row]?.[pos.col] ?? 0
+    stPos.textContent  = `col ${pos.col}  row ${pos.row}`
+    stTile.textContent = `tile $${tileId.toString(16).toUpperCase().padStart(3,'0')}`
   }
 
   // Vine icon hover: update hovered key and re-blit (cheap, no model re-render).
