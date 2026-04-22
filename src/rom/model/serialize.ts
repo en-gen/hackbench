@@ -8,6 +8,7 @@ import { L2ObjectStream, L2Preset, type L2Layer } from './L2Layer'
 import { L3TilemapLayer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
 import { StaticSpriteAppearance } from './sprites/appearances/StaticSpriteAppearance'
+import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -91,6 +92,19 @@ function serializeSprite(s: Sprite): SpriteDescriptor {
 }
 
 function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
+  if (a instanceof PSwitchAppearance) {
+    return {
+      kind: 'pSwitch',
+      parts: a.parts.map(p => ({
+        charNum: p.char.id,
+        palette: p.palette,
+        flipX: p.flipX,
+        flipY: p.flipY,
+        dx: p.dx,
+        dy: p.dy,
+      })),
+    }
+  }
   if (a instanceof StaticSpriteAppearance) {
     return {
       kind: 'static',

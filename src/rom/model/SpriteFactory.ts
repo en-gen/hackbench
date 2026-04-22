@@ -5,6 +5,7 @@ import type { Char } from './chars/Char'
 import { makeTransparentPlaceholderChar } from './tiles/TileFactory'
 import { Sprite } from './sprites/Sprite'
 import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
+import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
 import { getSpriteMetadata } from './sprites/SpriteMetadata'
@@ -59,7 +60,9 @@ export function buildSprites(
       dy: t.dy,
     }))
 
-    const appearance: SpriteAppearance = new StaticSpriteAppearance(parts)
+    const appearance: SpriteAppearance = s.spriteId === 0x3E
+      ? new PSwitchAppearance(parts)
+      : new StaticSpriteAppearance(parts)
     out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, appearance, behavior))
   }
   return out
