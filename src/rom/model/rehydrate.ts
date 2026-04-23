@@ -13,7 +13,7 @@ import {
 } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
-import { WingedBlockAppearance } from './sprites/appearances/WingedBlockAppearance'
+import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import { Color } from './palette/Color'
@@ -42,6 +42,7 @@ import { PipeVariants } from './tiles/behaviors/PipeVariants'
 import { PSwitchReveal } from './tiles/behaviors/PSwitchReveal'
 import { StaticQuad } from './tiles/behaviors/StaticQuad'
 import { SwitchPalaceAlternate } from './tiles/behaviors/SwitchPalaceAlternate'
+import { VineSource } from './tiles/behaviors/VineSource'
 
 /**
  * Rebuild the model graph from a `MapPayload`. This is the single
@@ -64,7 +65,7 @@ export function buildGraph(payload: MapPayload): {
   const tiles = new Map<number, Tile>()
   for (const [idStr, desc] of Object.entries(payload.tiles)) {
     const id = Number(idStr)
-    tiles.set(id, new Tile(id, buildTileBehavior(desc, chars, placeholderChar)))
+    tiles.set(id, new Tile(id, buildTileBehavior(desc, chars, placeholderChar), desc.actsLike ?? id))
   }
 
   // BG tiles (for L2 preset Map16 viewer) — built separately from the L2
@@ -73,7 +74,7 @@ export function buildGraph(payload: MapPayload): {
   if (payload.bgTiles) {
     for (const [idStr, td] of Object.entries(payload.bgTiles)) {
       const id = Number(idStr)
-      bgTiles.set(id, new Tile(id, buildTileBehavior(td, chars, placeholderChar)))
+      bgTiles.set(id, new Tile(id, buildTileBehavior(td, chars, placeholderChar), td.actsLike ?? id))
     }
   }
 
@@ -147,10 +148,11 @@ function buildAppearance(
         buildParts(desc.alertFace),
         buildParts(desc.aggressiveFace),
       )
-    case 'wingedBlock':
-      return new WingedBlockAppearance(
+    case 'wingedSprite':
+      return new WingedSpriteAppearance(
         buildParts(desc.bodyParts),
         [buildParts(desc.wingFrames[0]), buildParts(desc.wingFrames[1])],
+        desc.wingsInFront,
       )
     case 'hammerBroPlatform':
       return new HammerBroPlatformAppearance(
@@ -232,6 +234,8 @@ function buildTileBehavior(
   switch (desc.kind) {
     case 'static':
       return new StaticQuad(buildQuad(desc.quad, chars, placeholder))
+    case 'vineSource':
+      return new VineSource(buildQuad(desc.quad, chars, placeholder))
     case 'pipeVariants':
       return new PipeVariants(desc.variants.map(q => buildQuad(q, chars, placeholder)))
     case 'switchPalaceAlternate':

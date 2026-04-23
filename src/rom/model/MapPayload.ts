@@ -37,19 +37,22 @@ export type SubtileQuadDescriptor = readonly [
 ]
 
 export type TileDescriptor =
-  | { kind: 'static'; quad: SubtileQuadDescriptor }
-  | { kind: 'pipeVariants'; variants: readonly SubtileQuadDescriptor[] }
+  | { kind: 'static'; quad: SubtileQuadDescriptor; actsLike: number }
+  | { kind: 'vineSource'; quad: SubtileQuadDescriptor; actsLike: number }
+  | { kind: 'pipeVariants'; variants: readonly SubtileQuadDescriptor[]; actsLike: number }
   | {
       kind: 'switchPalaceAlternate'
       off: SubtileQuadDescriptor
       on: SubtileQuadDescriptor
       color: 0 | 1 | 2 | 3
+      actsLike: number
     }
   | {
       kind: 'pSwitchReveal'
       revealedQuad: SubtileQuadDescriptor
       /** Off-state alpha (0..1). Default 0.5 when omitted. */
       offAlpha?: number
+      actsLike: number
     }
 
 // ── Palette ──────────────────────────────────────────────────────────
@@ -84,9 +87,10 @@ export type SpriteAppearanceDescriptor =
       aggressiveFace: readonly SpritePartDescriptor[]
     }
   | {
-      kind: 'wingedBlock'
+      kind: 'wingedSprite'
       bodyParts: readonly SpritePartDescriptor[]
       wingFrames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
+      wingsInFront: boolean
     }
   | {
       kind: 'hammerBroPlatform'

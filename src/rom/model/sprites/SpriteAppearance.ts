@@ -25,4 +25,11 @@ export interface SpriteAppearance {
 
   /** Pixel-space bounding rect relative to the sprite origin. Used for cursor hit-testing. */
   readonly hitRect: HitRect
+
+  /**
+   * Advance this appearance's internal animation state by one frame.
+   * Called by the editor's animation timer for every visible sprite.
+   * Appearances without multi-frame animation may omit this.
+   */
+  tickAnimation?(): void
 }

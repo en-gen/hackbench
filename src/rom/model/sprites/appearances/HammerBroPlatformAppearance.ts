@@ -1,3 +1,4 @@
+import { ref } from '@vue/reactivity'
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
@@ -23,7 +24,7 @@ import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
  * All tiles use OBJ palette 1 (attr $32 & $0F = $02 → CGRAM row 9),
  * charHigh 0.
  *
- * Wing animation selector matches `WingedBlockAppearance`:
+ * Wing animation selector matches `WingedSpriteAppearance`:
  * `ctx.animFrame.value % 2`. The store's animFrame is a tile-graphics
  * counter (level-data-driven cadence, ~133ms/tick by default) rather than
  * a 60Hz game clock — so the ASM's `EffFrame>>1 & 4` (flip-every-8-game-
@@ -37,18 +38,21 @@ import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
  */
 export class HammerBroPlatformAppearance implements SpriteAppearance {
   readonly hitRect: HitRect
+  private readonly frame = ref(0)
 
   constructor(
     readonly platformParts: readonly SpritePart[],
     readonly wingFrames: readonly [readonly SpritePart[], readonly SpritePart[]],
   ) {
-    // Union of all parts across both frames so the hit box covers the
-    // widest visual extent.
     this.hitRect = partsHitRect([
       ...platformParts,
       ...wingFrames[0],
       ...wingFrames[1],
     ])
+  }
+
+  tickAnimation(): void {
+    this.frame.value = (this.frame.value + 1) % this.wingFrames.length
   }
 
   render(ctx: RenderContext, target: RenderTarget, x: number, y: number): void {
@@ -57,8 +61,7 @@ export class HammerBroPlatformAppearance implements SpriteAppearance {
       const row = ctx.palette.row(part.palette, ctx)
       target.blit8x8(pixels, { x: x + part.dx, y: y + part.dy }, row, part.flipX, part.flipY)
     }
-    const frame = ctx.animFrame.value % 2
-    for (const part of this.wingFrames[frame]) {
+    for (const part of this.wingFrames[this.frame.value]) {
       const pixels = part.char.getPixels(ctx)
       const row = ctx.palette.row(part.palette, ctx)
       target.blit8x8(pixels, { x: x + part.dx, y: y + part.dy }, row, part.flipX, part.flipY)

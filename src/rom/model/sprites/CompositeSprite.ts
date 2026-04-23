@@ -36,6 +36,11 @@ export class CompositeSprite extends Sprite {
     this.secondary?.render(ctx, target)
   }
 
+  override tickAnimation(): void {
+    super.tickAnimation()
+    this.secondary?.tickAnimation()
+  }
+
   override pickAt(levelPx: number, levelPy: number): Sprite | null {
     // Secondary is drawn on top, so it wins hit-test priority.
     const sHit = this.secondary?.pickAt(levelPx, levelPy)

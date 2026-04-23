@@ -60,6 +60,9 @@ export const useEditorStore = defineStore('editor', () => {
   /** $9C Hammer Bro Platforms whose U-shaped path overlay is toggled on,
    *  keyed by `"x,y"` in natural pixels (sprite origin). */
   const activePlatforms   = ref<ReadonlySet<string>>(new Set())
+  /** $0A/$0B Red Para-Koopas whose movement-range overlay is toggled on,
+   *  keyed by `"x,y"` in natural pixels (sprite origin). */
+  const activeParaKoopas  = ref<ReadonlySet<string>>(new Set())
   /** Pointer position in level natural pixels (1× coords), or null when the
    *  pointer is off the canvas. Rounded to integer pixels so sub-pixel
    *  wiggle doesn't spam the reactive effect. */
@@ -153,6 +156,12 @@ export const useEditorStore = defineStore('editor', () => {
     activePlatforms.value = next
   }
 
+  function toggleParaKoopa(key: string): void {
+    const next = new Set(activeParaKoopas.value)
+    if (next.has(key)) next.delete(key); else next.add(key)
+    activeParaKoopas.value = next
+  }
+
   function setCursorPx(pos: { x: number; y: number } | null): void {
     const cur = cursorPx.value
     if (!pos) { if (cur !== null) cursorPx.value = null; return }
@@ -165,7 +174,7 @@ export const useEditorStore = defineStore('editor', () => {
     // state
     animFrame, palAnimFrame, pSwitchActive, switchPalaceState,
     camera, cameraOn, cameraDragging, zoom, layerToggles,
-    activeVineSources, activeThwomps, activePlatforms, cursorPx,
+    activeVineSources, activeThwomps, activePlatforms, activeParaKoopas, cursorPx,
     // actions
     toggleSwitchPalace, setSwitchPalace,
     togglePSwitch,      setPSwitch,
@@ -173,7 +182,7 @@ export const useEditorStore = defineStore('editor', () => {
     setZoom,
     setLayerToggle,     setLayerToggles,
     setCamera,          setCameraOn,       setCameraDragging,
-    toggleVineSource,   toggleThwomp,      togglePlatform,      setCursorPx,
+    toggleVineSource,   toggleThwomp,      togglePlatform,      toggleParaKoopa,     setCursorPx,
   }
 })
 

@@ -5,7 +5,21 @@ import type { TileBehavior } from './TileBehavior'
 export type SubtileQuad = readonly [SubTile, SubTile, SubTile, SubTile]
 
 export class Tile {
-  constructor(readonly id: number, readonly behavior: TileBehavior) {}
+  /**
+   * @param id         Map16 tile id this tile occupies in the tilemap.
+   * @param behavior   Rendering behavior (static, pipe variants, vine source…).
+   *                   Dispatched by `TileFactory` from the acts-like value
+   *                   so e.g. a page-1 tile that acts-like $2B renders a
+   *                   normal quad but carries `VineSource` semantics.
+   * @param actsLike   Tile id whose game behavior this tile dispatches as.
+   *                   Defaults to `id` (identity). Lunar Magic's acts-like
+   *                   override lets custom tiles behave as vanilla ones.
+   */
+  constructor(
+    readonly id: number,
+    readonly behavior: TileBehavior,
+    readonly actsLike: number = id,
+  ) {}
 
   render(ctx: RenderContext, target: RenderTarget, cell: CellBox, phase: Phase): void {
     // Pass `cell` through so behaviors can self-select per-cell state
