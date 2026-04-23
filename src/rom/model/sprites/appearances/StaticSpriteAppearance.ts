@@ -1,6 +1,6 @@
 import type { Char } from '../../chars/Char'
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
-import type { SpriteAppearance } from '../SpriteAppearance'
+import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 
 export interface SpritePart {
   char: Char
@@ -11,8 +11,23 @@ export interface SpritePart {
   dy: number
 }
 
+/** Compute the tightest axis-aligned bounding rect over a set of 8×8 parts. */
+export function partsHitRect(parts: Iterable<SpritePart>): HitRect {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const p of parts) {
+    x0 = Math.min(x0, p.dx);     y0 = Math.min(y0, p.dy)
+    x1 = Math.max(x1, p.dx + 8); y1 = Math.max(y1, p.dy + 8)
+  }
+  return x0 === Infinity ? { dx: 0, dy: 0, w: 16, h: 16 }
+    : { dx: x0, dy: y0, w: x1 - x0, h: y1 - y0 }
+}
+
 export class StaticSpriteAppearance implements SpriteAppearance {
-  constructor(readonly parts: readonly SpritePart[]) {}
+  readonly hitRect: HitRect
+
+  constructor(readonly parts: readonly SpritePart[]) {
+    this.hitRect = partsHitRect(parts)
+  }
 
   render(ctx: RenderContext, target: RenderTarget, x: number, y: number): void {
     for (const part of this.parts) {

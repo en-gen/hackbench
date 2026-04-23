@@ -7,6 +7,7 @@ export interface SpriteMetadata {
 const SPRITE_METADATA: Record<number, SpriteMetadata> = {
   0x1E: { displayName: 'Lakitu' },
   0x3E: { displayName: 'P-Switch' },
+  0x9F: { displayName: 'Banzai Bill' },
 
   0xC9: { displayName: 'Eerie Generator', isGenerator: true, spawns: 0x38 },
   0xCA: { displayName: 'Para-Enemy Generator', isGenerator: true },

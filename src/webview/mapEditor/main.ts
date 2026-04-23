@@ -19,6 +19,7 @@ import type { SmwMap } from '../../rom/model/SmwMap'
 import { cellBoxOf, type RenderContext } from '../../rom/model/RenderTarget'
 import { CanvasRenderTarget } from './CanvasRenderTarget'
 import { useEditorStore } from './store'
+import { createRafTimer } from '../shared/animTimer'
 
 // FLUX: the store owns state; views dispatch actions; observers read refs.
 // `store.foo`      — read a value (auto-unwrapped by Pinia's proxy).
@@ -982,6 +983,13 @@ app.innerHTML = `
     </div>
 
     </div><!-- left scroll wrapper -->
+
+    <!-- Tile hover status pinned at bottom of left panel -->
+    <div style="flex-shrink:0;border-top:1px solid var(--vscode-panel-border,#3a3a3a);padding:3px 8px;display:flex;gap:10px;background:var(--vscode-sideBar-background,#252526);">
+      <span id="st-pos"  style="font-family:monospace;font-size:10px;color:#666;white-space:nowrap;"></span>
+      <span id="st-tile" style="font-family:monospace;font-size:10px;color:#888;white-space:nowrap;"></span>
+    </div>
+
   </div><!-- #left-panel -->
 
   <!-- ── TOOLBAR (center top) ───────────────────────────────────────────────── -->
@@ -1062,12 +1070,10 @@ app.innerHTML = `
       <div id="level-spacer" style="position:absolute;top:0;left:0;pointer-events:none;"></div>
       <canvas id="model-canvas" style="position:sticky;top:0;left:0;display:block;image-rendering:pixelated;"></canvas>
     </div>
-    <div id="minimap-wrap" style="flex-shrink:0;background:#0a0a0a;border-top:1px solid #3a3a3a;padding:4px 8px;display:flex;justify-content:center;align-items:center;">
+    <div id="minimap-wrap" style="flex-shrink:0;background:#0a0a0a;border-top:1px solid #3a3a3a;padding:4px 8px;display:flex;align-items:center;justify-content:center;">
       <canvas id="minimap-canvas" style="display:block;image-rendering:pixelated;cursor:pointer;background:#000;"></canvas>
     </div>
-    <!-- Hidden status/meta elements kept for backward compat -->
-    <span id="st-pos"   style="display:none;"></span>
-    <span id="st-tile"  style="display:none;"></span>
+    <!-- Hidden meta elements kept for backward compat -->
     <span id="st-info"  style="display:none;"></span>
     <span id="map-meta" style="display:none;"></span>
     <!-- Hidden checkbox inputs: bridge for legacy event handlers -->
@@ -1645,65 +1651,50 @@ function populateTileProps(tileId: number, def: Map16DefEntry | undefined): void
 // 0 Hz in hidden iframes, but leaves setInterval running at ≥1 Hz — which
 // produced the main-thread contention the user saw when rapid preview-tab
 // cycling left zombie webviews alive).
-let animRunning = false
-let animRafId: number | null = null
-let animLastTickMs = 0
 let animIntervalMs = 133
 let animFrameCount = 1
-
-let palAnimRafId: number | null = null
-let palAnimLastTickMs = 0
 let palAnimIntervalMs = 133
-let palAnimRunning = false
 
 function applyAnimFrame(f: number): void {
-  // Dispatch to the store. AnimatedPixels chars read ctx.animFrame.value
-  // and their per-char caches invalidate only when their frame actually
-  // moves, so swapping the frame ref re-renders only the animated chars.
   store.setAnimFrame(f)
 }
 
 function applyPalAnimFrame(f: number): void {
-  // Dispatch to the store. CyclingColor cells read ctx.palAnimFrame.value
-  // — each cell's computed invalidates only when its frame actually moves,
-  // so the whole palette doesn't rebuild on every tick.
   store.setPalAnimFrame(f)
 }
 
-function syncPalAnimButton(): void {
-  const btn = document.getElementById('btn-pal-play')
-  if (btn) btn.innerHTML = palAnimRunning ? '<span class="codicon codicon-debug-stop"></span>' : '<span class="codicon codicon-play"></span>'
-}
+const animTimer = createRafTimer(
+  () => animIntervalMs,
+  () => { applyAnimFrame((store.animFrame + 1) % animFrameCount) },
+)
 
-function palAnimTick(now: number): void {
-  if (!palAnimRunning) return
-  if (now - palAnimLastTickMs >= palAnimIntervalMs) {
+const palAnimTimer = createRafTimer(
+  () => palAnimIntervalMs,
+  () => {
     const frameCount = mapData?.paletteAnimation?.frameCount ?? 8
     applyPalAnimFrame((store.palAnimFrame + 1) % frameCount)
-    palAnimLastTickMs = now
-  }
-  palAnimRafId = requestAnimationFrame(palAnimTick)
+  },
+)
+
+function syncPalAnimButton(): void {
+  const btn = document.getElementById('btn-pal-play')
+  if (btn) btn.innerHTML = palAnimTimer.running ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
 }
 
 function startPalAnimTimer(): void {
-  if (palAnimRafId !== null) { cancelAnimationFrame(palAnimRafId); palAnimRafId = null }
   if (!mapData?.paletteAnimation) return
-  palAnimRunning = true
   palAnimIntervalMs = mapData.paletteAnimation.intervalMs
-  palAnimLastTickMs = performance.now()
+  palAnimTimer.start()
   syncPalAnimButton()
-  palAnimRafId = requestAnimationFrame(palAnimTick)
 }
 
 function stopPalAnimTimer(): void {
-  if (palAnimRafId !== null) { cancelAnimationFrame(palAnimRafId); palAnimRafId = null }
-  palAnimRunning = false
-  applyPalAnimFrame(1)
+  palAnimTimer.stop()
   syncPalAnimButton()
 }
 
 function togglePalAnim(): void {
-  if (palAnimRunning) stopPalAnimTimer()
+  if (palAnimTimer.running) stopPalAnimTimer()
   else startPalAnimTimer()
 }
 
@@ -1713,48 +1704,34 @@ const animPlayBtns = [
 
 function syncAnimButtons(): void {
   for (const btn of animPlayBtns) {
-    btn.innerHTML = animRunning ? '<span class="codicon codicon-debug-stop"></span>' : '<span class="codicon codicon-play"></span>'
-    btn.title = animRunning ? 'Stop animation' : 'Play animation'
-    btn.classList.toggle('on', animRunning)
+    btn.innerHTML = animTimer.running ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
+    btn.title = animTimer.running ? 'Pause animation' : 'Play animation'
+    btn.classList.toggle('on', animTimer.running)
   }
 }
 
 function toggleAnim(): void {
   if (animFrameCount <= 1) return
-  animRunning = !animRunning
-  syncAnimButtons()
-  if (animRunning) {
+  if (animTimer.running) {
+    animTimer.stop()
+    if (palAnimTimer.running) stopPalAnimTimer()
+  } else {
     startAnimTimer()
     if (mapData?.paletteAnimation) startPalAnimTimer()
-  } else {
-    stopAnimTimer()
-    if (palAnimRunning) stopPalAnimTimer()
   }
+  syncAnimButtons()
 }
 
 for (const btn of animPlayBtns) btn.addEventListener('click', toggleAnim)
 
-function animTick(now: number): void {
-  if (!animRunning) return
-  if (now - animLastTickMs >= animIntervalMs) {
-    // Compute from store (single source of truth); applyAnimFrame handles
-    // both the dispatch and the legacy-mirror update.
-    applyAnimFrame((store.animFrame + 1) % animFrameCount)
-    animLastTickMs = now
-  }
-  animRafId = requestAnimationFrame(animTick)
-}
-
 function startAnimTimer(): void {
-  if (animRafId !== null) { cancelAnimationFrame(animRafId); animRafId = null }
-  applyAnimFrame(1)
-  animLastTickMs = performance.now()
-  animRafId = requestAnimationFrame(animTick)
+  applyAnimFrame(0)
+  animTimer.start()
 }
 
 function stopAnimTimer(): void {
-  if (animRafId !== null) { cancelAnimationFrame(animRafId); animRafId = null }
-  applyAnimFrame(1)
+  animTimer.stop()
+  applyAnimFrame(0)
 }
 
 // ── Tile panel page navigation ───────────────────────────────────────────────
@@ -2711,7 +2688,7 @@ function scrollContainerToCamera(center = false): void {
  *   vertical   → main-view row + minimap to the right
  */
 function applyMinimapOrientation(): void {
-  const mainView = document.getElementById('main-view')
+  const mainView = document.getElementById('main')
   const minimapWrap = document.getElementById('minimap-wrap')
   if (!mainView || !minimapWrap) return
   if (isVert()) {
@@ -2990,12 +2967,8 @@ modelCanvas.addEventListener('pointermove', (e) => {
   // integer px and suppresses no-op updates so we don't spam re-renders.
   store.setCursorPx({ x: lx / store.zoom, y: ly / store.zoom })
 
-  const pos = canvasTileAt(e)
-  if (pos) {
-    const tileId = mapData?.tileGrid[pos.row]?.[pos.col] ?? 0
-    stPos.textContent  = `col ${pos.col}  row ${pos.row}`
-    stTile.textContent = `tile $${tileId.toString(16).toUpperCase().padStart(3,'0')}`
-  }
+  const hPos = canvasLevelPxAt(e)
+  updateHoverStatus(hPos?.levelPx ?? null, hPos?.levelPy ?? null)
 
   // Vine icon hover: update hovered key and re-blit (cheap, no model re-render).
   const vk = vineIconKeyAt(lx, ly)
@@ -3203,21 +3176,84 @@ function drawPSwitchToggleThumb(): void {
 
 // ── Mouse / edit interactions ─────────────────────────────────────────────────
 
-function canvasTileAt(e: MouseEvent): { col: number; row: number } | null {
+type PickResult =
+  | { kind: 'sprite'; id: number; displayName?: string }
+  | { kind: 'tile';   layer: 'l1' | 'l2'; tileId: number }
+
+/**
+ * Z-ordered hit test at a level-pixel coordinate (1× unzoomed space, same
+ * as Sprite.x / Sprite.y). Iterates sprites in reverse render order so the
+ * topmost visual wins, then falls through to L1 → L2 tiles. Each sprite's
+ * hitRect is computed from its rendered part offsets by the appearance class,
+ * so multi-tile sprites (Banzai Bill 64×64, Thwomp shifted body) are handled
+ * automatically without any per-ID special cases here.
+ */
+function pickAt(levelPx: number, levelPy: number): PickResult | null {
+  const map = window.__smwModelMap
+  if (chkSprites.checked && map) {
+    const ordered = map.spritesInRenderOrder()
+    for (let i = ordered.length - 1; i >= 0; i--) {
+      const spr = ordered[i]
+      const hr  = spr.appearance.hitRect
+      if (levelPx >= spr.x + hr.dx && levelPx < spr.x + hr.dx + hr.w
+       && levelPy >= spr.y + hr.dy && levelPy < spr.y + hr.dy + hr.h) {
+        return { kind: 'sprite', id: spr.id, displayName: spr.behavior.displayName }
+      }
+    }
+  }
+  const col = Math.floor(levelPx / TILE_PX)
+  const row = Math.floor(levelPy / TILE_PX)
+  if (chkL1.checked && mapData) {
+    const id = mapData.tileGrid[row]?.[col] ?? 0
+    if (id !== 0) return { kind: 'tile', layer: 'l1', tileId: id }
+  }
+  if (chkL2.checked && mapData?.l2TileGrid) {
+    const id = mapData.l2TileGrid[row]?.[col] ?? 0
+    if (id !== 0) return { kind: 'tile', layer: 'l2', tileId: id }
+  }
+  return null
+}
+
+function updateHoverStatus(levelPx: number | null, levelPy: number | null): void {
+  if (levelPx === null || levelPy === null) {
+    stPos.textContent = ''; stTile.textContent = ''; return
+  }
+  const col = Math.floor(levelPx / TILE_PX)
+  const row = Math.floor(levelPy / TILE_PX)
+  stPos.textContent = `col ${col}  row ${row}`
+  const pick = pickAt(levelPx, levelPy)
+  if (!pick) {
+    stTile.textContent = ''
+  } else if (pick.kind === 'sprite') {
+    stTile.textContent = pick.displayName
+      ? `$${pick.id.toString(16).toUpperCase().padStart(2,'0')} ${pick.displayName}`
+      : `sprite $${pick.id.toString(16).toUpperCase().padStart(2,'0')}`
+  } else {
+    stTile.textContent = `${pick.layer.toUpperCase()} $${pick.tileId.toString(16).toUpperCase().padStart(3,'0')}`
+  }
+}
+
+/**
+ * Level-pixel position (1× unzoomed) under the mouse, or null when the cursor
+ * is outside the level area (padding / beyond level bounds).
+ */
+function canvasLevelPxAt(e: MouseEvent): { levelPx: number; levelPy: number } | null {
   if (!mapData) return null
   const rect = modelCanvas.getBoundingClientRect()
-  const cols = levelCols()
-  const rows = levelRows()
-  if (rect.width <= 0 || rect.height <= 0 || cols === 0 || rows === 0) return null
-  // Add scroll offset to convert viewport-relative coords to level CSS coords,
-  // then divide by (TILE_PX × zoom) to get tile indices.
-  const px = TILE_PX * store.zoom
-  const levelCssX = (e.clientX - rect.left) + canvasWrap.scrollLeft
-  const levelCssY = (e.clientY - rect.top)  + canvasWrap.scrollTop
-  const col = Math.floor(levelCssX / px)
-  const row = Math.floor(levelCssY / px)
-  if (col < 0 || row < 0 || row >= rows || col >= cols) return null
-  return { col, row }
+  if (rect.width <= 0 || rect.height <= 0) return null
+  const z = store.zoom
+  const levelPx = ((e.clientX - rect.left) + canvasWrap.scrollLeft - levelPadX) / z
+  const levelPy = ((e.clientY - rect.top)  + canvasWrap.scrollTop  - levelPadY) / z
+  if (levelPx < 0 || levelPy < 0
+   || levelPx >= levelCols() * TILE_PX
+   || levelPy >= levelRows() * TILE_PX) return null
+  return { levelPx, levelPy }
+}
+
+function canvasTileAt(e: MouseEvent): { col: number; row: number } | null {
+  const p = canvasLevelPxAt(e)
+  if (!p) return null
+  return { col: Math.floor(p.levelPx / TILE_PX), row: Math.floor(p.levelPy / TILE_PX) }
 }
 
 function paintAt(e: MouseEvent): void {
@@ -3232,16 +3268,12 @@ function paintAt(e: MouseEvent): void {
 
 modelCanvas.addEventListener('mousedown', (e) => { if (e.button !== 0) return; isPainting = true; paintAt(e) })
 modelCanvas.addEventListener('mousemove', (e) => {
-  const pos = canvasTileAt(e)
-  if (pos) {
-    const tileId = mapData?.tileGrid[pos.row]?.[pos.col] ?? 0
-    stPos.textContent  = `col ${pos.col}  row ${pos.row}`
-    stTile.textContent = `tile $${tileId.toString(16).toUpperCase().padStart(3,'0')}`
-  }
+  const hPos = canvasLevelPxAt(e)
+  updateHoverStatus(hPos?.levelPx ?? null, hPos?.levelPy ?? null)
   if (isPainting) paintAt(e)
 })
 modelCanvas.addEventListener('mouseup',    () => { isPainting = false })
-modelCanvas.addEventListener('mouseleave', () => { isPainting = false })
+modelCanvas.addEventListener('mouseleave', () => { isPainting = false; updateHoverStatus(null, null) })
 modelCanvas.addEventListener('contextmenu', (e) => {
   e.preventDefault()
   const prev = activeTool; activeTool = 'erase'; paintAt(e); activeTool = prev
@@ -3422,7 +3454,6 @@ window.addEventListener('message', async (event) => {
     // tick, so there is no cache to invalidate here.
     stopAnimTimer()
     stopPalAnimTimer()
-    animRunning = false
     syncAnimButtons()
     animFrameCount = 1
     if (mapData.animation && mapData.animation.frameCount > 1) {
@@ -3558,10 +3589,8 @@ window.addEventListener('message', async (event) => {
 // (preview-tab replacement, close, reload) so nothing keeps firing in a
 // zombie context.
 window.addEventListener('pagehide', () => {
-  stopAnimTimer()
-  stopPalAnimTimer()
-  animRunning = false
-  palAnimRunning = false
+  animTimer.stop()
+  palAnimTimer.stop()
 })
 
 // Pause animation loops whenever the webview becomes hidden. VS Code keeps
@@ -3571,20 +3600,11 @@ window.addEventListener('pagehide', () => {
 // the visible tab's main thread and drops its FPS.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
-    if (animRafId !== null) { cancelAnimationFrame(animRafId); animRafId = null }
-    if (palAnimRafId !== null) { cancelAnimationFrame(palAnimRafId); palAnimRafId = null }
+    animTimer.suspend()
+    palAnimTimer.suspend()
   } else if (document.visibilityState === 'visible') {
-    // Resume what was running before we went hidden. State (animRunning /
-    // palAnimRunning) was preserved on purpose so the user's play/pause
-    // intent survives tab-switching.
-    if (animRunning && animRafId === null) {
-      animLastTickMs = performance.now()
-      animRafId = requestAnimationFrame(animTick)
-    }
-    if (palAnimRunning && palAnimRafId === null) {
-      palAnimLastTickMs = performance.now()
-      palAnimRafId = requestAnimationFrame(palAnimTick)
-    }
+    animTimer.resume()
+    palAnimTimer.resume()
   }
 })
 

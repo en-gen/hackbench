@@ -52,6 +52,15 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
       if (parts[0] === 'maps' || parts[0] === 'palettes' || parts[0] === 'gfx' || parts[0] === 'music') return dir(now)
     }
 
+    if (parts.length === 1 && parts[0] === 'info.smwinfo')
+      return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
+
+    if (parts.length === 1 && parts[0] === 'graph.smwgraph')
+      return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
+
+    if (parts.length === 1 && parts[0] === 'compare.smwtilecomp')
+      return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
+
     if (parts.length === 2) {
       if (parts[0] === 'music' && parts[1].endsWith('.smwmusic'))
         return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
@@ -149,6 +158,28 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
     if (parts.length === 2 && parts[0] === 'music' && parts[1].endsWith('.smwmusic')) {
       return Buffer.from(JSON.stringify({
         type: 'smwmusic', version: 1,
+        romPath: session.rom.rom.filePath,
+      }), 'utf8')
+    }
+
+    if (parts.length === 1 && parts[0] === 'info.smwinfo') {
+      return Buffer.from(JSON.stringify({
+        type: 'smwinfo', version: 1,
+        romPath: session.rom.rom.filePath,
+      }), 'utf8')
+    }
+
+    if (parts.length === 1 && parts[0] === 'graph.smwgraph') {
+      return Buffer.from(JSON.stringify({
+        type: 'smwgraph', version: 1,
+        romPath: session.rom.rom.filePath,
+        slug,
+      }), 'utf8')
+    }
+
+    if (parts.length === 1 && parts[0] === 'compare.smwtilecomp') {
+      return Buffer.from(JSON.stringify({
+        type: 'smwtilecomp', version: 1,
         romPath: session.rom.rom.filePath,
       }), 'utf8')
     }

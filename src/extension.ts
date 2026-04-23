@@ -5,6 +5,9 @@ import { MapEditorProvider } from './providers/MapEditorProvider'
 import { PaletteEditorProvider } from './providers/PaletteEditorProvider'
 import { GfxViewerProvider } from './providers/GfxViewerProvider'
 import { MusicPlayerProvider } from './providers/MusicPlayerProvider'
+import { RomStatsProvider } from './providers/RomStatsProvider'
+import { LevelGraphProvider } from './providers/LevelGraphProvider'
+import { TilesetCompareProvider } from './providers/TilesetCompareProvider'
 import { SmwFileSystemProvider } from './providers/SmwFileSystemProvider'
 
 let session: RomSession | undefined
@@ -17,6 +20,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const paletteEditorProvider = new PaletteEditorProvider(context)
   const gfxViewerProvider = new GfxViewerProvider(context)
   const musicPlayerProvider = new MusicPlayerProvider(context)
+  const romStatsProvider = new RomStatsProvider()
+  const levelGraphProvider = new LevelGraphProvider(context)
+  const tilesetCompareProvider = new TilesetCompareProvider(context)
 
   // Register the virtual filesystem for smwrom:// URIs
   context.subscriptions.push(
@@ -71,6 +77,33 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerCustomEditorProvider(
       'hackbench.musicPlayer',
       musicPlayerProvider,
+      { webviewOptions: { retainContextWhenHidden: false } }
+    )
+  )
+
+  // Register the ROM stats dashboard
+  context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      'hackbench.romStats',
+      romStatsProvider,
+      { webviewOptions: { retainContextWhenHidden: false } }
+    )
+  )
+
+  // Register the level interconnection graph
+  context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      'hackbench.levelGraph',
+      levelGraphProvider,
+      { webviewOptions: { retainContextWhenHidden: false } }
+    )
+  )
+
+  // Register the tileset comparison view
+  context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      'hackbench.tilesetCompare',
+      tilesetCompareProvider,
       { webviewOptions: { retainContextWhenHidden: false } }
     )
   )

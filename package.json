@@ -96,6 +96,36 @@
           }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "hackbench.romStats",
+        "displayName": "HackBench ROM Statistics",
+        "selector": [
+          {
+            "filenamePattern": "**/*.smwinfo"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "hackbench.levelGraph",
+        "displayName": "HackBench Level Graph",
+        "selector": [
+          {
+            "filenamePattern": "**/*.smwgraph"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "hackbench.tilesetCompare",
+        "displayName": "HackBench Tileset Compare",
+        "selector": [
+          {
+            "filenamePattern": "**/*.smwtilecomp"
+          }
+        ],
+        "priority": "default"
       }
     ],
     "viewsContainers": {

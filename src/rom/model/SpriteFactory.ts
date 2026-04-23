@@ -8,6 +8,7 @@ import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/S
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedBlockAppearance } from './sprites/appearances/WingedBlockAppearance'
+import { BanzaiBillAppearance } from './sprites/appearances/BanzaiBillAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
 import { getSpriteMetadata } from './sprites/SpriteMetadata'
@@ -39,6 +40,19 @@ export function buildSprites(
     const behavior: SpriteBehavior = {
       kind: `sprite_${s.spriteId.toString(16)}`,
       ...getSpriteMetadata(s.spriteId),
+    }
+
+    // Sprite $9F (Banzai Bill) renders a 4×4 grid of 16×16 big-tiles (64×64 px)
+    // from CODE_02D5E4 (bank_02.asm:11338) — not the single 16×16 fallback that
+    // buildSpriteLayout would produce. Placed at the screen edge to show the
+    // spawn-in position when the screen scrolls.
+    if (s.spriteId === 0x9F) {
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        BanzaiBillAppearance.fromTables(chars, placeholder),
+        behavior,
+      ))
+      continue
     }
 
     // Sprite $26 (Thwomp) has a custom ROM draw routine (ThwompGfx, not
