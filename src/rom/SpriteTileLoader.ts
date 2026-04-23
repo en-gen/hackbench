@@ -159,9 +159,13 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x61: 0xE2,   // Floating skulls
   0x62: 0xC8,   // Brown platform, line-guided
   0x63: 0xC8,   // Checker/brown platform, line-guided
+  0x5B: 0x60,   // Brown platform floating in water — CODE_01B344 base tile (SpriteMisc1602=0)
+  0x5C: 0xEA,   // Checkerboard platform that falls — CODE_01B2DF tile (SpriteMisc1602=1 from InitFallingPlat)
+  0x5D: 0xCB,   // Orange platform floating in water — DiagPlatTiles[0], bank_01.asm:6989
   0x64: 0xAE,   // Rope mechanism, line-guided
   0x65: 0xAE,   // Chainsaw, line-guided
   0x66: 0xAE,   // Upside down chainsaw, line-guided
+  0x67: 0x6C,   // Grinder, line-guided — CODE_01DC0B: (EffFrame & 2) | $6C, bank_01.asm:12534
   0x68: 0xC8,   // Fuzz ball, line-guided
   0x6A: 0x60,   // Coin game cloud
   0x6B: 0x3D,   // Spring board, left wall
@@ -179,6 +183,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x77: 0x44,   // Feather — (feather sprite uses char $44 in SP2)
   0x78: 0x0E,   // 1-Up — PowerUpTiles[3]
   0x79: 0xAE,   // Growing Vine
+  0x7A: 0xAE,   // Firework — Bank3SprHandler, uses same particle tile range as vine
   0x7B: 0xD4,   // Goal Point
   0x7C: 0x6E,   // Princess Peach
   0x7D: 0x5D,   // Balloon
@@ -189,8 +194,11 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x82: 0xE4,   // Bonus game sprite
   0x83: 0x2A,   // Left flying question block (initial/unhit state; $2E after hit)
   0x84: 0x2A,   // Flying question block (initial/unhit state; $2E after hit)
+  0x85: 0x2A,   // Unused sprite — per-frame InitFlying_Block; shares tile with 0x83/0x84
   0x86: 0xC4,   // Wiggler — WigglerTiles first byte, bank_02.asm:14984
   0x87: 0x60,   // Lakitu's cloud
+  0x88: 0xC6,   // Winged cage (unused) — ADDR_02CCB9: BCC→$C6, bank_02.asm:10161
+  0x8A: 0xD2,   // Bird from Yoshi's house — BirdsTilemap[0], bank_02.asm:15379
   0x8B: 0xC5,   // Puff of smoke from Yoshi's house
   0x8C: 0x60,   // Fireplace smoke/exit from side screen
   0x8D: 0x9C,   // Ghost house exit sign and door
@@ -214,6 +222,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0xA1: 0x45,   // Bowser's bowling ball
   0xA2: 0x40,   // MechaKoopa
   0xA3: 0xA2,   // Grey platform on chain
+  0xA4: 0xAA,   // Floating Spike ball — CODE_01B666: (EffFrame>>2&2) | $AA, bank_01.asm:12413
   0xA5: 0xC8,   // Fuzzball/Sparky, ground-guided
   0xA6: 0xC8,   // HotHead, ground-guided
   0xA7: 0x4A,   // Iggy's ball

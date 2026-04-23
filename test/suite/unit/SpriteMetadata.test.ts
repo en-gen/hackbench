@@ -27,9 +27,15 @@ describe('getSpriteMetadata', () => {
     expect(m?.spawns).toBeUndefined()
   })
 
-  it('returns undefined for IDs outside the seed set', () => {
-    expect(getSpriteMetadata(0x00)).toBeUndefined()
+  it('returns undefined for IDs beyond the defined range', () => {
     expect(getSpriteMetadata(0xFF)).toBeUndefined()
+    expect(getSpriteMetadata(0xF0)).toBeUndefined()
+  })
+
+  it('returns display name for common sprite IDs', () => {
+    expect(getSpriteMetadata(0x00)?.displayName).toBe('Green Koopa (no shell)')
+    expect(getSpriteMetadata(0x0F)?.displayName).toBe('Goomba')
+    expect(getSpriteMetadata(0x26)?.displayName).toBe('Thwomp')
   })
 
   it.each([

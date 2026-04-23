@@ -1,4 +1,5 @@
 import { loadAnimationData } from '../AnimationLoader'
+import { loadExAnimData, mergeAnimationData } from '../ExAnimationLoader'
 import { loadL3Chars, loadVram } from '../GfxLoader'
 import {
   isLevelModeVertical,
@@ -79,7 +80,11 @@ export function buildMapWithGraph(
   const tileset = header.objectTileset
 
   const vram = loadVram(rom.rom, tileset, header.spriteSet)
-  const animData = loadAnimationData(rom.rom, tileset) ?? undefined
+  const vanillaAnimData = loadAnimationData(rom.rom, tileset) ?? undefined
+  const exAnimData = loadExAnimData(rom.rom, levelId) ?? undefined
+  const animData = vanillaAnimData && exAnimData
+    ? mergeAnimationData(vanillaAnimData, exAnimData)
+    : vanillaAnimData ?? exAnimData
   const chars = buildChars(vram, animData)
   chars.set(-2, makePlaceholderBoxChar())
   const tiles = buildTiles(rom.rom, tileset, chars)
