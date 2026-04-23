@@ -4,11 +4,13 @@ import { buildSpriteLayout, readSpriteTileTables } from '../SpriteTileLoader'
 import type { Char } from './chars/Char'
 import { makeTransparentPlaceholderChar } from './tiles/TileFactory'
 import { Sprite } from './sprites/Sprite'
+import { CompositeSprite } from './sprites/CompositeSprite'
 import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedBlockAppearance } from './sprites/appearances/WingedBlockAppearance'
 import { BanzaiBillAppearance } from './sprites/appearances/BanzaiBillAppearance'
+import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
 import { getSpriteMetadata } from './sprites/SpriteMetadata'
@@ -35,8 +37,31 @@ export function buildSprites(
   if (!tables) return []
 
   const placeholder = makeTransparentPlaceholderChar()
+
+  // Pre-scan: $9C (Hammer Bro Platform) absorbs a co-located $9B into a
+  // CompositeSprite. In vanilla SMW these always come paired at identical
+  // (x, y); the paired $9B is suppressed from the top-level list and
+  // re-emitted as the composite's child. See plan in
+  // docs/sprite-validation-batches.md (and Annex in the plan file).
+  const suppressed = new Set<number>()          // indices to skip
+  const pairedBro = new Map<number, number>()   // $9C index → $9B index
+  for (let i = 0; i < levelSprites.length; i++) {
+    if (levelSprites[i].spriteId !== 0x9C) continue
+    for (let j = 0; j < levelSprites.length; j++) {
+      if (i === j || suppressed.has(j)) continue
+      const a = levelSprites[i], b = levelSprites[j]
+      if (b.spriteId === 0x9B && a.x === b.x && a.y === b.y) {
+        pairedBro.set(i, j)
+        suppressed.add(j)
+        break
+      }
+    }
+  }
+
   const out: Sprite[] = []
-  for (const s of levelSprites) {
+  for (let i = 0; i < levelSprites.length; i++) {
+    if (suppressed.has(i)) continue
+    const s = levelSprites[i]
     const behavior: SpriteBehavior = {
       kind: `sprite_${s.spriteId.toString(16)}`,
       ...getSpriteMetadata(s.spriteId),
@@ -114,6 +139,41 @@ export function buildSprites(
       continue
     }
 
+    // Sprite $9C (Hammer Brother Platform). FlyingPlatformGfx (bank_02.asm:12216)
+    // draws 2 static turn-blocks + 2 animated wings; at runtime, when a $9B is
+    // co-located, PutHammerBroOnPlat repositions it 16px up and calls
+    // HammerBroGfx. We build a CompositeSprite so the Hammer Bro retains its
+    // own id/displayName/behavior for hover.
+    if (s.spriteId === 0x9C) {
+      const platformApp = buildHammerBroPlatformAppearance(chars, placeholder)
+      const broIdx = pairedBro.get(i)
+      let spr: Sprite
+      if (broIdx !== undefined) {
+        const broLevelSprite = levelSprites[broIdx]
+        const broBehavior: SpriteBehavior = {
+          kind: `sprite_${broLevelSprite.spriteId.toString(16)}`,
+          ...getSpriteMetadata(broLevelSprite.spriteId),
+        }
+        const broLayout = buildSpriteLayout(tables, 0x9B)
+        const broParts: SpritePart[] = (broLayout?.tiles ?? []).map(t => ({
+          char: chars.get(t.charNum) ?? placeholder,
+          palette: t.palette, flipX: t.flipX, flipY: t.flipY, dx: t.dx, dy: t.dy,
+        }))
+        const broSprite = new Sprite(
+          broLevelSprite.spriteId,
+          broLevelSprite.x * 16,
+          broLevelSprite.y * 16 - 16,          // 16px = 1 tile above the platform
+          new StaticSpriteAppearance(broParts),
+          broBehavior,
+        )
+        spr = new CompositeSprite(s.spriteId, s.x * 16, s.y * 16, platformApp, behavior, broSprite)
+      } else {
+        spr = new Sprite(s.spriteId, s.x * 16, s.y * 16, platformApp, behavior)
+      }
+      out.push(spr)
+      continue
+    }
+
     const layout = buildSpriteLayout(tables, s.spriteId)
     if (!layout) {
       const boxChar = chars.get(-2) ?? makeTransparentPlaceholderChar()
@@ -143,6 +203,66 @@ export function buildSprites(
     out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, appearance, behavior))
   }
   return out
+}
+
+/**
+ * Build $9C's own visual parts (2 static turn-blocks + 2 animated wing frames)
+ * directly from the ROM tile data in FlyingPlatformGfx. Palette 9 / charHigh 0
+ * come from the hardcoded attribute $32 — independent of Sprite166EVals which
+ * the runtime routine doesn't consult.
+ */
+function buildHammerBroPlatformAppearance(
+  chars: Map<number, Char>,
+  placeholder: Char,
+): HammerBroPlatformAppearance {
+  const PAL = 9                 // attr $32 & $0F = $02 → OBJ palette 1 → CGRAM row 9
+  const OBJ_BASE = 0x400
+  const c = (n: number) => chars.get(OBJ_BASE + (n & 0x1FF)) ?? placeholder
+
+  // SNES large-OBJ expansion: baseTile N → chars [N, N+1, N+$10, N+$11] at
+  // (0,0), (8,0), (0,8), (8,8). flipX reverses column order AND flips each tile.
+  const bigTile = (baseTile: number, dx: number, dy: number, flipX = false): SpritePart[] => {
+    const co = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
+    const dxo = [0, 8, 0, 8]
+    const dyo = [0, 0, 8, 8]
+    return co.map((off, i) => ({
+      char: c(baseTile + off),
+      palette: PAL,
+      flipX,
+      flipY: false,
+      dx: dx + dxo[i],
+      dy: dy + dyo[i],
+    }))
+  }
+
+  // Single 8×8 OAM tile (OAM size $00 in HammerBroTileSize).
+  const smallTile = (tile: number, dx: number, dy: number, flipX = false): SpritePart => ({
+    char: c(tile),
+    palette: PAL,
+    flipX,
+    flipY: false,
+    dx,
+    dy,
+  })
+
+  const platformParts: SpritePart[] = [
+    ...bigTile(0x40,  0, 0),
+    ...bigTile(0x40, 16, 0),
+  ]
+
+  // Frame 0: big-tile wings at (-14, -10) flipX and (+30, -10).
+  const frame0: SpritePart[] = [
+    ...bigTile(0xC6, -14, -10, true),
+    ...bigTile(0xC6,  30, -10, false),
+  ]
+
+  // Frame 1: 8×8 wings at (-6, -2) flipX and (+30, -2).
+  const frame1: SpritePart[] = [
+    smallTile(0x5D, -6, -2, true),
+    smallTile(0x5D, 30, -2, false),
+  ]
+
+  return new HammerBroPlatformAppearance(platformParts, [frame0, frame1])
 }
 
 /**

@@ -57,6 +57,9 @@ export const useEditorStore = defineStore('editor', () => {
   /** Thwomps whose detection-zone overlay is currently toggled on, keyed
    *  by `"x,y"` in natural pixels (sprite.x / sprite.y, unique per sprite). */
   const activeThwomps     = ref<ReadonlySet<string>>(new Set())
+  /** $9C Hammer Bro Platforms whose U-shaped path overlay is toggled on,
+   *  keyed by `"x,y"` in natural pixels (sprite origin). */
+  const activePlatforms   = ref<ReadonlySet<string>>(new Set())
   /** Pointer position in level natural pixels (1× coords), or null when the
    *  pointer is off the canvas. Rounded to integer pixels so sub-pixel
    *  wiggle doesn't spam the reactive effect. */
@@ -144,6 +147,12 @@ export const useEditorStore = defineStore('editor', () => {
     activeThwomps.value = next
   }
 
+  function togglePlatform(key: string): void {
+    const next = new Set(activePlatforms.value)
+    if (next.has(key)) next.delete(key); else next.add(key)
+    activePlatforms.value = next
+  }
+
   function setCursorPx(pos: { x: number; y: number } | null): void {
     const cur = cursorPx.value
     if (!pos) { if (cur !== null) cursorPx.value = null; return }
@@ -156,7 +165,7 @@ export const useEditorStore = defineStore('editor', () => {
     // state
     animFrame, palAnimFrame, pSwitchActive, switchPalaceState,
     camera, cameraOn, cameraDragging, zoom, layerToggles,
-    activeVineSources, activeThwomps, cursorPx,
+    activeVineSources, activeThwomps, activePlatforms, cursorPx,
     // actions
     toggleSwitchPalace, setSwitchPalace,
     togglePSwitch,      setPSwitch,
@@ -164,7 +173,7 @@ export const useEditorStore = defineStore('editor', () => {
     setZoom,
     setLayerToggle,     setLayerToggles,
     setCamera,          setCameraOn,       setCameraDragging,
-    toggleVineSource,   toggleThwomp,      setCursorPx,
+    toggleVineSource,   toggleThwomp,      togglePlatform,      setCursorPx,
   }
 })
 

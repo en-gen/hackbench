@@ -171,8 +171,8 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x6B: 0x3D,   // Spring board, left wall
   0x6C: 0x3D,   // Spring board, right wall
   0x6D: 0x80,   // Invisible solid block
-  0x6E: 0x80,   // Dino Rhino
-  0x6F: 0x80,   // Dino Torch
+  0x6E: 0x80,   // Dino Rhino — superseded by SPRITE_WIDE_OVERRIDES; kept as fallback
+  0x6F: 0xEA,   // Dino Torch — DinoTorchTiles[0] (frame 0 body), bank_03.asm:3900
   0x70: 0xE8,   // Pokey
   0x71: 0xC8,   // Super Koopa, red cape
   0x72: 0xC8,   // Super Koopa, yellow cape
@@ -214,6 +214,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x98: 0x06,   // Pitchin' Chuck
   0x99: 0xCE,   // Volcano Lotus
   0x9A: 0x98,   // Sumo Brother
+  0x9B: 0x46,   // Hammer Brother — HammerBroTiles[2] (left body big-tile), bank_02.asm:12040
   0x9C: 0x40,   // Flying blocks for Hammer Brother
   0x9D: 0xAA,   // Bubble with sprite
   0x9E: 0xA2,   // Ball and Chain — sphere at start of BanzaiBnCGrayPlat
@@ -270,29 +271,26 @@ const SPRITE_LOW_RANGE_OVERRIDES: Readonly<Record<number, number>> = {
 export const MAX_SPRITE_ID_WITH_LAYOUT = 0xC8
 
 /**
- * Tall (16x32) overrides for prominent enemies whose handler builds OAM
- * with two stacked big-tiles. Values come from direct inspection of each
- * sprite's tile table in bank_02/bank_03:
+ * Tall (16x32) overrides for sprites whose handler builds OAM with exactly
+ * two stacked 16×16 big-tiles (one column, two rows). Values derived from
+ * the sprite's tile table in bank_02/bank_03.
  *
- *   DinoRhinoTiles   bank_03.asm:3911  $C0,$C2,$E4,$E6 ...   top=$C0 bottom=$E4
- *   SuperKoopaTiles  bank_02.asm:14373 $C8,$D8,$D0,$E0 ...   top=$C8 bottom=$D0
- *   RexTiles         bank_03.asm:2877  $8A,$AA ...           top=$8A bottom=$AA
- *   MegaMoleTiles    bank_03.asm:1018  $C6,$C8,$E6,$E8 ...   top=$C6 bottom=$E6
- *   SumoBrosTiles    bank_02.asm:12447 $98,$99,$A7,$A8 ...   top=$98 bottom=$A7
- *   HammerBroTiles   bank_02.asm:12039 $5A,$4A,$46,$48 ...   top=$5A bottom=$46
- *   VolcanoLotusTiles bank_02.asm:12708 $8E,$9E,$E2          top=$8E bottom=$9E
+ * Sprites removed because they are 2×2 WIDE (4 OBJ entries):
+ *   $6E Dino Rhino  → SPRITE_WIDE_OVERRIDES (DinoRhinoTiles: $C0,$C2,$E4,$E6)
+ *   $BF Mega Mole   → SPRITE_WIDE_OVERRIDES (MegaMoleTiles:  $C6,$C8,$E6,$E8)
+ *   $71/$72/$73 Super Koopa → under investigation (4 OBJ entries, bank_02.asm:14373)
+ *
+ * Sprites removed because they use custom mixed-size OAM (base tile fallback):
+ *   $6F Dino Torch   — 1 body + flame particles; BASE=$EA
+ *   $99 Volcano Lotus — custom quad; BASE=$CE
+ *   $9A Sumo Brother  — 8×8 head + 16×16 body pairs; BASE=$98
+ *   $9B Hammer Brother — mixed 8×8/16×16; BASE=$5A
  */
 const SPRITE_TALL_OVERRIDES: Readonly<Record<number, { top: number; bottom: number }>> = {
-  0x6E: { top: 0xC0, bottom: 0xE4 },   // Dino Rhino
-  0x6F: { top: 0xC0, bottom: 0xE4 },   // Dino Torch
-  0x71: { top: 0xC8, bottom: 0xD0 },   // Super Koopa, red cape
+  0x71: { top: 0xC8, bottom: 0xD0 },   // Super Koopa, red cape   (TODO: may be WIDE)
   0x72: { top: 0xC8, bottom: 0xD0 },   // Super Koopa, yellow cape
   0x73: { top: 0xC8, bottom: 0xD0 },   // Super Koopa, feather
-  0x99: { top: 0x8E, bottom: 0x9E },   // Volcano Lotus
-  0x9A: { top: 0x98, bottom: 0xA7 },   // Sumo Brother
-  0x9B: { top: 0x5A, bottom: 0x46 },   // Hammer Brother
-  0xAB: { top: 0x8A, bottom: 0xAA },   // Rex
-  0xBF: { top: 0xC6, bottom: 0xE6 },   // Mega Mole
+  0xAB: { top: 0x8A, bottom: 0xAA },   // Rex — RexTiles bank_03.asm:2877
 }
 
 /**
@@ -352,12 +350,46 @@ const SPRITE_GFX_OVERRIDES: Readonly<Record<number, 'sub0' | 'sub1'>> = {
  */
 const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
   quadrants: ReadonlyArray<{ baseTile: number; baseDx: number; baseDy: number; flipX?: boolean }>
+  /** Extra individual 8×8 tiles for sprites with mixed-size OAM (e.g. 8×8 head + 16×16 body).
+   *  dx/dy are pixel offsets from the sprite anchor; charHigh from `attr` is applied automatically. */
+  parts?: ReadonlyArray<{ tile: number; dx: number; dy: number; flipX?: boolean }>
+  /** Override the sprite's OBJ attribute when Sprite166EVals differs from the runtime draw routine.
+   *  Low nibble only (matches readSpriteTileTables masking): bits 3-1 = palette offset, bit 0 = charHigh. */
+  attr?: number
 }>> = {
   0x26: { quadrants: [
     { baseTile: 0x8E, baseDx:  0, baseDy:  0 },             // top-left
     { baseTile: 0x8E, baseDx: 16, baseDy:  0, flipX: true }, // top-right
     { baseTile: 0xAE, baseDx:  0, baseDy: 16 },              // bottom-left
     { baseTile: 0xAE, baseDx: 16, baseDy: 16, flipX: true }, // bottom-right
+  ]},
+  // Dino Rhino ($6E): DinoRhinoTiles frame 0, DinoRhinoTileDispX $F8/$08 (-8/+8),
+  //   DinoRhinoTileDispY $F0/$00 (-16/0) — bank_03.asm:3904
+  0x6E: { quadrants: [
+    { baseTile: 0xC0, baseDx:  -8, baseDy: -16 },  // top-left
+    { baseTile: 0xC2, baseDx:   8, baseDy: -16 },  // top-right
+    { baseTile: 0xE4, baseDx:  -8, baseDy:   0 },  // bottom-left
+    { baseTile: 0xE6, baseDx:   8, baseDy:   0 },  // bottom-right
+  ]},
+  // Hammer Brother ($9B): HammerBroGfx ORA.B #$37 → palette 3, charHigh 1.
+  //   Sprite166EVals[$9B]=0x00 is wrong; override attr=0x07 (pal 3, charHigh 1).
+  //   HammerBroDispX $08/$10/$00/$10, HammerBroDispY $F8/$F8/$00/$00 — bank_02.asm:12033
+  //   Loop X=3..0: entry[3]=$48(16x16) at (+16,0), [2]=$46(16x16) at (0,0),
+  //                entry[1]=$4A(8x8) at (+16,-8), [0]=$5A(8x8) at (+8,-8)
+  0x9B: { attr: 0x07, quadrants: [
+    { baseTile: 0x46, baseDx:  0, baseDy: 0 },   // body-left  (16×16)
+    { baseTile: 0x48, baseDx: 16, baseDy: 0 },   // body-right (16×16)
+  ], parts: [
+    { tile: 0x5A, dx:  8, dy: -8 },              // head-left  (8×8)
+    { tile: 0x4A, dx: 16, dy: -8 },              // head-right (8×8)
+  ]},
+  // Mega Mole ($BF): MegaMoleTiles frame 0, MegaMoleTileDispX $00/$10 (0/+16),
+  //   MegaMoleTileDispY $F0/$00 (-16/0) — bank_03.asm:1013
+  0xBF: { quadrants: [
+    { baseTile: 0xC6, baseDx:  0, baseDy: -16 },  // top-left
+    { baseTile: 0xC8, baseDx: 16, baseDy: -16 },  // top-right
+    { baseTile: 0xE6, baseDx:  0, baseDy:   0 },  // bottom-left
+    { baseTile: 0xE8, baseDx: 16, baseDy:   0 },  // bottom-right
   ]},
 }
 
@@ -419,6 +451,45 @@ export function buildSpriteLayout(
     return { spriteId, height: 16, tiles: shellTiles }
   }
 
+  // Wide (32×32) sprites: checked before the range guard so that sprites
+  // above SPR_TILEMAP_OFFSET_COUNT ($6E Dino Rhino, $BF Mega Mole) are handled.
+  // For sprites 0x00-0x53 this also intercepts Thwomp ($26) before the
+  // generic SprTilemap path.
+  const wideSpec = SPRITE_WIDE_OVERRIDES[spriteId]
+  if (wideSpec) {
+    const wAttr = wideSpec.attr ?? (tables.spriteAttr[spriteId] ?? 0)
+    const wPalette = 8 + ((wAttr >> 1) & 0x07)
+    const wCharHigh = (wAttr & 0x01) !== 0 ? 0x100 : 0
+    const W_OBJ_BASE = 0x400
+    const wCornerOff = [0x00, 0x01, 0x10, 0x11]
+    const wideCorners = (baseTile: number, baseDx: number, baseDy: number, flipX = false): SpriteSubtile[] =>
+      [0, 1, 2, 3].map(corner => {
+        const co = flipX ? [0x01, 0x00, 0x11, 0x10][corner] : wCornerOff[corner]
+        return {
+          charNum: W_OBJ_BASE + wCharHigh + ((baseTile + co) & 0x1FF),
+          palette: wPalette,
+          flipX,
+          flipY: false,
+          dx: baseDx + (tables.dispX[corner] ?? 0),
+          dy: baseDy + (tables.dispY[corner] ?? 0),
+        }
+      })
+    const extraParts: SpriteSubtile[] = (wideSpec.parts ?? []).map(p => ({
+      charNum: W_OBJ_BASE + wCharHigh + (p.tile & 0x1FF),
+      palette: wPalette,
+      flipX: p.flipX ?? false,
+      flipY: false,
+      dx: p.dx,
+      dy: p.dy,
+    }))
+    return {
+      spriteId,
+      height: 32,
+      width: 32,
+      tiles: [...wideSpec.quadrants.flatMap(q => wideCorners(q.baseTile, q.baseDx, q.baseDy, q.flipX)), ...extraParts],
+    }
+  }
+
   // Sprites 0x54..0xC8 aren't covered by SprTilemapOffset. Check the
   // tall-override table first (16x32 big-tile stack), then fall back to
   // the single-tile base-tile override (16x16 via hardware large-size).
@@ -453,34 +524,6 @@ export function buildSpriteLayout(
   }
 
   if (spriteId < 0 || spriteId >= SPR_TILEMAP_OFFSET_COUNT) return null
-
-  // Wide (32×32) sprites: 4 quadrant big-tiles drawn side-by-side + stacked.
-  const wideSpec = SPRITE_WIDE_OVERRIDES[spriteId]
-  if (wideSpec) {
-    const wAttr = tables.spriteAttr[spriteId] ?? 0
-    const wPalette = 8 + ((wAttr >> 1) & 0x07)
-    const wCharHigh = (wAttr & 0x01) !== 0 ? 0x100 : 0
-    const W_OBJ_BASE = 0x400
-    const wCornerOff = [0x00, 0x01, 0x10, 0x11]
-    const wideCorners = (baseTile: number, baseDx: number, baseDy: number, flipX = false): SpriteSubtile[] =>
-      [0, 1, 2, 3].map(corner => {
-        const co = flipX ? [0x01, 0x00, 0x11, 0x10][corner] : wCornerOff[corner]
-        return {
-          charNum: W_OBJ_BASE + wCharHigh + ((baseTile + co) & 0x1FF),
-          palette: wPalette,
-          flipX,
-          flipY: false,
-          dx: baseDx + (tables.dispX[corner] ?? 0),
-          dy: baseDy + (tables.dispY[corner] ?? 0),
-        }
-      })
-    return {
-      spriteId,
-      height: 32,
-      width: 32,
-      tiles: wideSpec.quadrants.flatMap(q => wideCorners(q.baseTile, q.baseDx, q.baseDy, q.flipX)),
-    }
-  }
 
   const tilemapBase = tables.tilemapOffset[spriteId]
   const attr = tables.spriteAttr[spriteId] ?? 0

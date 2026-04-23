@@ -6,6 +6,7 @@ import { StaticPixels } from './chars/behaviors/StaticPixels'
 import { L2ObjectStream, L2Preset, type L2Layer } from './L2Layer'
 import { L3TilemapLayer, type L3Layer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
+import { CompositeSprite } from './sprites/CompositeSprite'
 import {
   StaticSpriteAppearance,
   type SpritePart,
@@ -13,6 +14,7 @@ import {
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedBlockAppearance } from './sprites/appearances/WingedBlockAppearance'
+import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -105,13 +107,18 @@ export function buildGraph(payload: MapPayload): {
 
 function buildSprite(desc: SpriteDescriptor, chars: Map<number, Char>, placeholder: Char): Sprite {
   const appearance = buildAppearance(desc.appearance, chars, placeholder)
-  return new Sprite(desc.id, desc.x, desc.y, appearance, {
+  const behavior = {
     kind: desc.behavior.kind,
     displayName: desc.behavior.displayName,
     spawns: desc.behavior.spawns,
     isGenerator: desc.behavior.isGenerator,
     reactRangeDy: desc.behavior.reactRangeDy,
-  })
+  }
+  if (desc.secondary) {
+    const child = buildSprite(desc.secondary, chars, placeholder)
+    return new CompositeSprite(desc.id, desc.x, desc.y, appearance, behavior, child)
+  }
+  return new Sprite(desc.id, desc.x, desc.y, appearance, behavior)
 }
 
 function buildAppearance(
@@ -143,6 +150,11 @@ function buildAppearance(
     case 'wingedBlock':
       return new WingedBlockAppearance(
         buildParts(desc.bodyParts),
+        [buildParts(desc.wingFrames[0]), buildParts(desc.wingFrames[1])],
+      )
+    case 'hammerBroPlatform':
+      return new HammerBroPlatformAppearance(
+        buildParts(desc.platformParts),
         [buildParts(desc.wingFrames[0]), buildParts(desc.wingFrames[1])],
       )
   }

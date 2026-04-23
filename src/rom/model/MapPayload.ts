@@ -88,6 +88,11 @@ export type SpriteAppearanceDescriptor =
       bodyParts: readonly SpritePartDescriptor[]
       wingFrames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
     }
+  | {
+      kind: 'hammerBroPlatform'
+      platformParts: readonly SpritePartDescriptor[]
+      wingFrames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
+    }
 
 export interface SpriteBehaviorDescriptor {
   kind: string
@@ -103,6 +108,9 @@ export interface SpriteDescriptor {
   y: number
   appearance: SpriteAppearanceDescriptor
   behavior: SpriteBehaviorDescriptor
+  /** Nested child sprite for CompositeSprite (e.g. Hammer Bro on Platform).
+   *  Absolute-positioned; recursion is intentional so composites can nest. */
+  secondary?: SpriteDescriptor
 }
 
 // ── Level header / map ───────────────────────────────────────────────

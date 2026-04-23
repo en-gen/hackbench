@@ -137,6 +137,7 @@ function renderModelOverlay(map: SmwMap): void {
     drawVineIndicators(bctx, map)
     drawVinePaths(bctx, map)
     drawThwompZones(bctx, map)
+    drawPlatformPaths(bctx, map)
   }
 
   // Guard: base canvas must exist before we can composite.
@@ -436,21 +437,7 @@ function drawCameraRectOverlay(
 /** Map16 tile ID that is written during vine growth (used as the vine icon). */
 const VINE_TILE_ID = 0x006
 
-/**
- * Map16 tile IDs that generate a vine when hit by Mario.
- * Sprite 0x79 directly placed in the sprite list is handled separately.
- *
- * Verification chain (bank_00.asm):
- *   low_byte(tileId) → DATA_00F05C[low_byte] = $03
- *   → Map16TileGenerate = $03
- *   → GeneratedTiles[2] = CODE_00C077 (labeled "03 - vine")
- *   → TileToGeneratePg0[3] = $06 (writes Map16 vine tile $006)
- *
- * Tiles with low byte $19 (index 25) and $1A (index 26) both resolve to
- * DATA_00F05C = $03. Only page-0 and page-1 variants observed in levels.
- */
-// DATA_00F05C is indexed by (tile_id - $11); vine behavior code $03 is at
-// indices 25 ($19) and 26 ($1A), so tile_id = $11+25=$2A and $11+26=$2B.
+/** Map16 tile IDs whose runtime behavior grows a vine upward on P-switch activation. */
 const VINE_SOURCE_TILES: ReadonlySet<number> = new Set<number>([
   0x02A, 0x02B,
 ])
@@ -509,8 +496,10 @@ function getVineSources(map: SmwMap): Array<{ col: number; row: number }> {
 }
 
 /**
- * Draw a semi-transparent vine tile icon centered at the bottom-right corner
- * of each vine-source tile. Icon is 50% opacity; hover is applied post-blit.
+ * Draw a semi-transparent vine tile icon directly above each vine-source
+ * block: horizontally aligned with the block, shifted up by half a tile
+ * height, and clipped so only the portion above the block is visible —
+ * giving the impression the vine grows from behind the block.
  */
 function drawVineIndicators(octx: CanvasRenderingContext2D, map: SmwMap): void {
   const vineTc = getVineTileCanvas()
@@ -520,8 +509,18 @@ function drawVineIndicators(octx: CanvasRenderingContext2D, map: SmwMap): void {
   octx.save()
   octx.globalAlpha = 0.5
   octx.imageSmoothingEnabled = false
-  for (const { col, row } of sources)
-    octx.drawImage(vineTc, col * 16 + 8, row * 16 + 8, 16, 16)
+  for (const { col, row } of sources) {
+    const vineX = col * 16
+    const vineY = row * 16 - 8  // translate up 50% of tile height
+    // Clip so only the pixels above the block (y < row*16) render —
+    // the bottom half would otherwise draw over the block sprite.
+    octx.save()
+    octx.beginPath()
+    octx.rect(vineX, 0, 16, row * 16)
+    octx.clip()
+    octx.drawImage(vineTc, vineX, vineY, 16, 16)
+    octx.restore()
+  }
   octx.restore()
 }
 
@@ -650,6 +649,96 @@ function drawThwompZones(octx: CanvasRenderingContext2D, map: SmwMap): void {
 }
 
 /**
+ * Precomputed $9C Hammer Bro Platform path — one full 256-frame cycle of
+ * pixel offsets from the sprite's anchor. Faithful to CODE_02DB5C
+ * (bank_02.asm:12149-12174):
+ *   - Even frames: XSpeed += ±1 toward ±$20; YSpeed += ±2 toward ±$20,
+ *     with direction flipping when speed equals target.
+ *   - Every frame: pos += speed (UpdateXPosNoGrvty / UpdateYPosNoGrvty).
+ *   - Starting state is zeroed (both speeds 0, both state counters 0), so
+ *     the integrated position traces a one-sided parabolic arc from the
+ *     spawn point — not a centered oscillation.
+ *
+ * The path spans roughly 128×64 pixels (8×4 tiles) from the spawn anchor,
+ * looks like a wide U (opens upward toward the spawn row), and retraces
+ * itself on the return half of the cycle. Palette uses lemon-yellow to
+ * stand clear of Thwomp/vine overlays.
+ */
+const PLATFORM_PATH: readonly { x: number; y: number }[] = (() => {
+  const s8 = (v: number): number => ((v + 128) & 0xFF) - 128
+  const X_ACC = [ 1, -1], X_TGT = [0x20, 0xE0]
+  const Y_ACC = [ 2, -2], Y_TGT = [0x20, 0xE0]
+  let xSpeed = 0, ySpeed = 0, xState = 0, yState = 0
+  let xPos = 0, yPos = 0
+  const pts: { x: number; y: number }[] = []
+  for (let frame = 0; frame < 256; frame++) {
+    if ((frame & 1) === 0) {
+      const xi = xState & 1
+      const nx = s8(xSpeed + X_ACC[xi])
+      if ((nx & 0xFF) === X_TGT[xi]) xState = (xState + 1) & 0xFF
+      xSpeed = nx
+      const yi = yState & 1
+      const ny = s8(ySpeed + Y_ACC[yi])
+      if ((ny & 0xFF) === Y_TGT[yi]) yState = (yState + 1) & 0xFF
+      ySpeed = ny
+    }
+    xPos += xSpeed
+    yPos += ySpeed
+    // xPos/yPos are in 1/16-px subpixels; convert to pixels.
+    pts.push({ x: xPos / 16, y: yPos / 16 })
+  }
+  return pts
+})()
+
+/**
+ * Draw the U-shaped arc that each active $9C Hammer Bro Platform traces
+ * through one 256-frame (~4.3s) movement cycle. The path is the same for
+ * every instance — only the anchor shifts per sprite.
+ */
+function drawPlatformPaths(octx: CanvasRenderingContext2D, map: SmwMap): void {
+  const active = store.activePlatforms
+  if (active.size === 0) return
+  octx.save()
+  octx.lineWidth = 2
+  octx.setLineDash([])
+  for (const sprite of map.sprites) {
+    if (sprite.id !== 0x9C) continue
+    const key = `${sprite.x},${sprite.y}`
+    if (!active.has(key)) continue
+
+    const ax = sprite.x
+    const ay = sprite.y
+
+    // Fill the bounded region of the arc with a translucent wash, then
+    // stroke the polyline on top. Use a bright lemon that won't clash with
+    // amber Thwomp zones or green vine paths.
+    octx.fillStyle = 'rgba(255,220,40,0.10)'
+    octx.beginPath()
+    octx.moveTo(ax + PLATFORM_PATH[0].x, ay + PLATFORM_PATH[0].y)
+    for (let i = 1; i < PLATFORM_PATH.length; i++) {
+      octx.lineTo(ax + PLATFORM_PATH[i].x, ay + PLATFORM_PATH[i].y)
+    }
+    octx.closePath()
+    octx.fill()
+
+    octx.strokeStyle = 'rgba(255,220,40,0.80)'
+    octx.stroke()
+
+    // Mark the spawn anchor with a small cross — useful for seeing where
+    // the U opens from, since the anchor is at the upper-left corner of the
+    // arc's bounding box, not its center.
+    octx.lineWidth = 1
+    octx.strokeStyle = 'rgba(255,220,40,0.95)'
+    octx.beginPath()
+    octx.moveTo(ax - 3, ay + 0.5); octx.lineTo(ax + 4, ay + 0.5)
+    octx.moveTo(ax + 0.5, ay - 3); octx.lineTo(ax + 0.5, ay + 4)
+    octx.stroke()
+    octx.lineWidth = 2
+  }
+  octx.restore()
+}
+
+/**
  * Return the `"x,y"` key of the thwomp sprite under the given level-space
  * CSS-pixel coordinate, or null if none. Hit-box matches the rendered body
  * (24×32 at sprite.x+4..+28, sprite.y..+32).
@@ -670,12 +759,36 @@ function thwompAt(lx: number, ly: number): string | null {
   return null
 }
 
+/**
+ * Hit-test for $9C Hammer Bro Platform sprites. Uses each platform's
+ * hitRect (which includes its wings, and, if a Hammer Bro is aboard via
+ * CompositeSprite.secondary, the bro area too) so clicking anywhere on
+ * the composed unit toggles the path overlay. Returns the sprite's anchor
+ * key (x,y) so the same click on a paired $9B (absorbed into the composite)
+ * still targets the platform.
+ */
+function platformAt(lx: number, ly: number): string | null {
+  const map = window.__smwModelMap
+  if (!map) return null
+  const z = store.zoom
+  const natX = lx / z
+  const natY = ly / z
+  for (const sprite of map.sprites) {
+    if (sprite.id !== 0x9C) continue
+    if (sprite.pickAt(natX, natY)) {
+      return `${sprite.x},${sprite.y}`
+    }
+  }
+  return null
+}
+
 /** Module-level: which vine icon is currently under the pointer (natural-px key). */
 let hoveredVineKey: string | null = null
 
 /**
- * Draw the hovered vine icon at 100% opacity directly on the viewport canvas
- * (post-blit), replacing the 50% version from fullLevelCanvas.
+ * Draw the hovered vine icon at 100% opacity directly on the viewport
+ * canvas (post-blit). Positioned like `drawVineIndicators` — above the
+ * block, clipped so only the visible top half reads over the block.
  */
 function drawHoveredVineIcon(el: HTMLCanvasElement): void {
   if (!hoveredVineKey) return
@@ -683,12 +796,18 @@ function drawHoveredVineIcon(el: HTMLCanvasElement): void {
   if (!vineTc) return
   const [col, row] = hoveredVineKey.split(',').map(Number)
   const z = store.zoom
-  const natX = col * 16 + 8
-  const natY = row * 16 + 8
+  const natX = col * 16
+  const natY = row * 16 - 8
   const dx = (natX - canvasWrap.scrollLeft / z) * z
   const dy = (natY - canvasWrap.scrollTop  / z) * z
+  // Clip to the area strictly above the block so the bottom half stays
+  // hidden at 1.0 alpha too.
+  const clipY = (row * 16 - canvasWrap.scrollTop / z) * z
   const oc = el.getContext('2d')!
   oc.save()
+  oc.beginPath()
+  oc.rect(dx, 0, 16 * z, clipY)
+  oc.clip()
   oc.globalAlpha = 1.0
   oc.imageSmoothingEnabled = false
   oc.drawImage(vineTc, dx, dy, 16 * z, 16 * z)
@@ -696,8 +815,10 @@ function drawHoveredVineIcon(el: HTMLCanvasElement): void {
 }
 
 /**
- * Return the "col,row" key of the vine icon under the given level-space
- * CSS-pixel coordinate, or null if none.
+ * Return the "col,row" key of the vine-source BLOCK under the given
+ * level-space CSS-pixel coordinate, or null if none. Hit-testing the
+ * block (rather than the vine icon above it) means the user clicks the
+ * actual tile to toggle the path overlay — the vine icon is decorative.
  */
 function vineIconKeyAt(lx: number, ly: number): string | null {
   const map = window.__smwModelMap
@@ -705,11 +826,10 @@ function vineIconKeyAt(lx: number, ly: number): string | null {
   const z = store.zoom
   const natX = lx / z
   const natY = ly / z
+  const col = Math.floor(natX / 16)
+  const row = Math.floor(natY / 16)
   for (const src of getVineSources(map)) {
-    const ix = src.col * 16 + 8
-    const iy = src.row * 16 + 8
-    if (natX >= ix && natX < ix + 16 && natY >= iy && natY < iy + 16)
-      return `${src.col},${src.row}`
+    if (src.col === col && src.row === row) return `${src.col},${src.row}`
   }
   return null
 }
@@ -2908,6 +3028,14 @@ modelCanvas.addEventListener('pointerdown', (e) => {
     return
   }
 
+  // $9C Hammer Bro Platform click: toggle its U-path overlay.
+  const pk = platformAt(lx, ly)
+  if (pk) {
+    store.togglePlatform(pk)
+    e.stopPropagation()
+    return
+  }
+
   if (!chkCamera.checked) return
   const cam = store.camera
   if (hitCameraRect(lx, ly)) {
@@ -3193,11 +3321,9 @@ function pickAt(levelPx: number, levelPy: number): PickResult | null {
   if (chkSprites.checked && map) {
     const ordered = map.spritesInRenderOrder()
     for (let i = ordered.length - 1; i >= 0; i--) {
-      const spr = ordered[i]
-      const hr  = spr.appearance.hitRect
-      if (levelPx >= spr.x + hr.dx && levelPx < spr.x + hr.dx + hr.w
-       && levelPy >= spr.y + hr.dy && levelPy < spr.y + hr.dy + hr.h) {
-        return { kind: 'sprite', id: spr.id, displayName: spr.behavior.displayName }
+      const hit = ordered[i].pickAt(levelPx, levelPy)
+      if (hit) {
+        return { kind: 'sprite', id: hit.id, displayName: hit.behavior.displayName }
       }
     }
   }
