@@ -8,7 +8,7 @@ import { CompositeSprite } from './sprites/CompositeSprite'
 import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
-import { WingedBlockAppearance } from './sprites/appearances/WingedBlockAppearance'
+import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { BanzaiBillAppearance } from './sprites/appearances/BanzaiBillAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
@@ -133,9 +133,45 @@ export function buildSprites(
       ]
       out.push(new Sprite(
         s.spriteId, s.x * 16, s.y * 16,
-        new WingedBlockAppearance(bodyParts, [wf0, wf1]),
+        new WingedSpriteAppearance(bodyParts, [wf0, wf1]),
         behavior,
       ))
+      continue
+    }
+
+    // Sprites $0A/$0B/$0C (Red Vert Para-Koopa / Red Horz Para-Koopa / Yellow Para-Koopa).
+    // Spr0to13Gfx (bank_01.asm:1748) calls KoopaWingGfxRt for indices > $08 — no
+    // CODE_019E95 pre-adjustment, so wing offsets come directly from KoopaWingDispXLo/Y
+    // (bank_01.asm:4006). Wings render in front of the koopa body (wingsInFront=true).
+    if (s.spriteId === 0x0A || s.spriteId === 0x0B || s.spriteId === 0x0C) {
+      const layout = buildSpriteLayout(tables, s.spriteId)
+      const bodyParts: SpritePart[] = (layout?.tiles ?? []).map(t => ({
+        char: chars.get(t.charNum) ?? placeholder,
+        palette: t.palette, flipX: t.flipX, flipY: t.flipY, dx: t.dx, dy: t.dy,
+      }))
+      const [wf0, wf1] = buildKoopaWingFrames(chars, placeholder)
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        new WingedSpriteAppearance(bodyParts, [wf0, wf1], true),
+        behavior,
+      ))
+      continue
+    }
+
+    // Keyhole ($0E). The game's handler (bank_01.asm:13209) writes two 8×8 OAM
+    // entries with hardcoded tile numbers — tile $EB at (x+8, y) and tile $FB
+    // at (x+8, y+8), attr $30 (OBJ palette 0 = CGRAM row 8, charHigh=0, priority 3).
+    // InitKeyHole (bank_01.asm:13199) permanently adds +8 to SpriteXPosLow before
+    // the main loop starts, so the tile positions already include that offset.
+    // The generic SprTilemapOffset path picks the wrong tiles; this case overrides it.
+    if (s.spriteId === 0x0E) {
+      const OBJ_BASE = 0x400
+      const KEYHOLE_PAL = 8   // OBJ palette 0 = CGRAM row 8
+      const keyholeparts: SpritePart[] = [
+        { char: chars.get(OBJ_BASE + 0xEB) ?? placeholder, palette: KEYHOLE_PAL, flipX: false, flipY: false, dx: 8, dy: 0 },
+        { char: chars.get(OBJ_BASE + 0xFB) ?? placeholder, palette: KEYHOLE_PAL, flipX: false, flipY: false, dx: 8, dy: 8 },
+      ]
+      out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, new StaticSpriteAppearance(keyholeparts), behavior))
       continue
     }
 
@@ -203,6 +239,46 @@ export function buildSprites(
     out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, appearance, behavior))
   }
   return out
+}
+
+/**
+ * Build para-koopa wing frames from the raw KoopaWingGfxRt tables (bank_01.asm:4006).
+ * Para-koopas call KoopaWingGfxRt directly (no CODE_019E95 pre-adjustment).
+ *
+ * KoopaWingGfxRt is called ONCE per frame (Spr0to13Gfx:1788) and draws ONE wing.
+ * SpriteMisc157C selects the wing side: 0 → left (index 0/1, dx=-1, flipX),
+ *                                        1 → right (index 2/3, dx=+9, no flip).
+ * SubSprGfx1:3957 maps SpriteMisc157C=1 → body NOT flipped (right-facing), so
+ * we display the right wing to match the default right-facing body.
+ *
+ *   KoopaWingDispXLo/Hi index 2/3: $09/$00 → dx=+9
+ *   KoopaWingDispY       index 2/3: $FC/$F4 → dy=-4 / -12
+ *   KoopaWingTiles:      $5D (8×8, frame 0), $C6 (16×16, frame 1)
+ *   KoopaWingGfxProp     index 2/3: $06 → no flipX
+ */
+function buildKoopaWingFrames(
+  chars: Map<number, Char>,
+  placeholder: Char,
+): [SpritePart[], SpritePart[]] {
+  const WING_PAL = 11
+  const BASE = 0x400
+  const c = (n: number) => chars.get(BASE + n) ?? placeholder
+  const p = (n: number, dx: number, dy: number, flipX: boolean): SpritePart =>
+    ({ char: c(n), palette: WING_PAL, flipX, flipY: false, dx, dy })
+
+  // Frame 0 (editor default, animFrame=0): 16×16 right wing open (tile $C6, table index 3).
+  // Game frame order has $5D first, but animFrame resets to 0 before first render,
+  // so we put the open wing here to match the editor's default display state.
+  // SNES large-OBJ no-flip: TL←N, TR←N+1, BL←N+$10, BR←N+$11.
+  const wf0: SpritePart[] = [
+    p(0xC6,  9, -12, false), p(0xC7, 17, -12, false),
+    p(0xD6,  9,  -4, false), p(0xD7, 17,  -4, false),
+  ]
+
+  // Frame 1: 8×8 right wing closed (tile $5D, table index 2)
+  const wf1: SpritePart[] = [p(0x5D, 9, -4, false)]
+
+  return [wf0, wf1]
 }
 
 /**

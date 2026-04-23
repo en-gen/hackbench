@@ -11,7 +11,7 @@ import { CompositeSprite } from './sprites/CompositeSprite'
 import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
-import { WingedBlockAppearance } from './sprites/appearances/WingedBlockAppearance'
+import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { Color } from './palette/Color'
@@ -40,6 +40,7 @@ import { PipeVariants } from './tiles/behaviors/PipeVariants'
 import { PSwitchReveal } from './tiles/behaviors/PSwitchReveal'
 import { StaticQuad } from './tiles/behaviors/StaticQuad'
 import { SwitchPalaceAlternate } from './tiles/behaviors/SwitchPalaceAlternate'
+import { VineSource } from './tiles/behaviors/VineSource'
 
 /**
  * Walk an `SmwMap` and emit a `MapPayload` that can cross `postMessage`.
@@ -53,14 +54,14 @@ export function serialize(map: SmwMap, chars: Map<number, Char>, tiles: Map<numb
   for (const [id, char] of chars) charsOut[id] = serializeCharBehavior(char.behavior)
 
   const tilesOut: Record<number, TileDescriptor> = {}
-  for (const [id, tile] of tiles) tilesOut[id] = serializeTileBehavior(tile.behavior)
+  for (const [id, tile] of tiles) tilesOut[id] = serializeTile(tile)
 
   // Always ship the full BG Map16 table from `map.bgTiles`. Tile-viewer
   // panels in the editor rely on the whole palette being present, so we
   // never filter down to just the tiles this level's L2 references.
   const bgTilesOut: Record<number, TileDescriptor> = {}
   for (const [id, tile] of map.bgTiles) {
-    bgTilesOut[id] = serializeTileBehavior(tile.behavior)
+    bgTilesOut[id] = serializeTile(tile)
   }
 
   return {
@@ -109,11 +110,12 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
       aggressiveFace: a.aggressiveFace.map(partDescriptor),
     }
   }
-  if (a instanceof WingedBlockAppearance) {
+  if (a instanceof WingedSpriteAppearance) {
     return {
-      kind: 'wingedBlock',
-      bodyParts:  a.bodyParts.map(partDescriptor),
-      wingFrames: [a.wingFrames[0].map(partDescriptor), a.wingFrames[1].map(partDescriptor)],
+      kind: 'wingedSprite',
+      bodyParts:   a.bodyParts.map(partDescriptor),
+      wingFrames:  [a.wingFrames[0].map(partDescriptor), a.wingFrames[1].map(partDescriptor)],
+      wingsInFront: a.wingsInFront,
     }
   }
   if (a instanceof HammerBroPlatformAppearance) {
@@ -197,16 +199,25 @@ function serializeCharBehavior(b: CharBehavior): CharDescriptor {
   throw new Error(`Unknown CharBehavior: ${(b as object).constructor.name}`)
 }
 
-function serializeTileBehavior(b: TileBehavior): TileDescriptor {
-  if (b instanceof StaticQuad) return { kind: 'static', quad: quadDesc(b.quad) }
-  if (b instanceof PipeVariants) return { kind: 'pipeVariants', variants: b.variants.map(quadDesc) }
+function serializeTile(tile: Tile): TileDescriptor {
+  const actsLike = tile.actsLike
+  const b = tile.behavior
+  if (b instanceof StaticQuad) return { kind: 'static', quad: quadDesc(b.quad), actsLike }
+  if (b instanceof VineSource) return { kind: 'vineSource', quad: quadDesc(b.quad), actsLike }
+  if (b instanceof PipeVariants) return { kind: 'pipeVariants', variants: b.variants.map(quadDesc), actsLike }
   if (b instanceof SwitchPalaceAlternate) {
-    return { kind: 'switchPalaceAlternate', off: quadDesc(b.off), on: quadDesc(b.on), color: b.color }
+    return { kind: 'switchPalaceAlternate', off: quadDesc(b.off), on: quadDesc(b.on), color: b.color, actsLike }
   }
   if (b instanceof PSwitchReveal) {
-    return { kind: 'pSwitchReveal', revealedQuad: quadDesc(b.revealedQuad), offAlpha: b.offAlpha }
+    return { kind: 'pSwitchReveal', revealedQuad: quadDesc(b.revealedQuad), offAlpha: b.offAlpha, actsLike }
   }
   throw new Error(`Unknown TileBehavior: ${(b as object).constructor.name}`)
+}
+
+function serializeTileBehavior(b: TileBehavior): TileDescriptor {
+  // Kept for existing test imports — constructs a descriptor with actsLike
+  // unknown (0). Use `serializeTile` for the real serialization path.
+  return serializeTile(new Tile(0, b, 0))
 }
 
 function quadDesc(quad: SubtileQuad): SubtileQuadDescriptor {

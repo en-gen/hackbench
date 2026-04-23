@@ -15,6 +15,10 @@ export class Sprite {
     this.appearance.render(ctx, target, this.x, this.y, this.behavior)
   }
 
+  tickAnimation(): void {
+    this.appearance.tickAnimation?.()
+  }
+
   /**
    * Returns `this` when (levelPx, levelPy) is inside the sprite's hit rect,
    * else null. Subclasses override to drill into nested children.

@@ -1,3 +1,4 @@
+import { readActsLikeTable } from '../../ActsLikeLoader'
 import {
   loadMap16WithPipeVariants,
   PIPE_VARIANT_TILE_COUNT,
@@ -15,6 +16,7 @@ import { PipeVariants } from './behaviors/PipeVariants'
 import { PSwitchReveal } from './behaviors/PSwitchReveal'
 import { StaticQuad } from './behaviors/StaticQuad'
 import { SwitchPalaceAlternate } from './behaviors/SwitchPalaceAlternate'
+import { VineSource } from './behaviors/VineSource'
 
 const SWITCH_PALACE_OFF_BASE = 0x06A
 const SWITCH_PALACE_ON_BASE = 0x16A
@@ -62,6 +64,7 @@ export function buildTiles(
 ): Map<number, Tile> {
   const placeholder = makePlaceholderChar()
   const { tiles: baseTiles, pipeVariants } = loadMap16WithPipeVariants(rom, tileset)
+  const actsLike = readActsLikeTable(rom)
   const tiles = new Map<number, Tile>()
 
   // Pre-compute all quads so we can cross-reference off/on pairs for
@@ -74,7 +77,18 @@ export function buildTiles(
     if (isSwitchPalaceTile(m16.id)) continue // handled below
     if (P_SWITCH_REVEALS.has(m16.id)) continue // handled below
 
-    tiles.set(m16.id, new Tile(m16.id, new StaticQuad(quads.get(m16.id)!)))
+    const override = actsLike.get(m16.id)
+    const actsLikeId = override ?? m16.id
+    const quad = quads.get(m16.id)!
+    // Only mark as vine source when an explicit acts-like override
+    // redirects to a vine tile. Without an override we default to
+    // identity but don't infer vine behavior from the raw id —
+    // LM-edited ROMs can repurpose $02A/$02B as coins, etc. Proper
+    // support requires reading LM's acts-like hijack table.
+    const behavior = override !== undefined && isVineSource(override)
+      ? new VineSource(quad)
+      : new StaticQuad(quad)
+    tiles.set(m16.id, new Tile(m16.id, behavior, actsLikeId))
   }
 
   // Hidden tiles revealed by the blue P-switch. We always draw the
@@ -89,7 +103,8 @@ export function buildTiles(
     const revealed = entry.palOverride !== undefined
       ? withPaletteOverride(srcQuad, entry.palOverride)
       : srcQuad
-    tiles.set(hiddenId, new Tile(hiddenId, new PSwitchReveal(revealed)))
+    const actsLikeId = actsLike.get(hiddenId) ?? hiddenId
+    tiles.set(hiddenId, new Tile(hiddenId, new PSwitchReveal(revealed), actsLikeId))
   }
 
   for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) {
@@ -97,7 +112,8 @@ export function buildTiles(
     const variantQuads: SubtileQuad[] = pipeVariants.map(variant =>
       quadFromMap16(variant[i], chars, placeholder),
     )
-    tiles.set(id, new Tile(id, new PipeVariants(variantQuads)))
+    const actsLikeId = actsLike.get(id) ?? id
+    tiles.set(id, new Tile(id, new PipeVariants(variantQuads), actsLikeId))
   }
 
   for (let c = 0; c < SWITCH_PALACE_COLORS; c++) {
@@ -107,11 +123,24 @@ export function buildTiles(
     const onQuad = quads.get(onId)!
     const color = c as 0 | 1 | 2 | 3
     const behavior = new SwitchPalaceAlternate(offQuad, onQuad, color)
-    tiles.set(offId, new Tile(offId, behavior))
-    tiles.set(onId, new Tile(onId, behavior))
+    tiles.set(offId, new Tile(offId, behavior, actsLike.get(offId) ?? offId))
+    tiles.set(onId,  new Tile(onId,  behavior, actsLike.get(onId)  ?? onId))
   }
 
   return tiles
+}
+
+/**
+ * True when a tile's acts-like value routes the block-hit dispatch to the
+ * vine generator (`GeneratedTiles[3] = CODE_00C077`). The game reads only
+ * the low byte of `Map16TileNumber` and subtracts $11 to index DATA_00F05C,
+ * so any tile whose acts-like low byte is $2A or $2B (→ indices 25/26 →
+ * behavior $03) spawns a vine. That's why e.g. $11A acts-like $2B works
+ * despite the page bit differing.
+ */
+function isVineSource(actsLikeId: number): boolean {
+  const lowByte = actsLikeId & 0xFF
+  return lowByte === 0x2A || lowByte === 0x2B
 }
 
 function isSwitchPalaceTile(id: number): boolean {

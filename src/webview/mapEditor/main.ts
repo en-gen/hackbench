@@ -13,6 +13,7 @@ const vscode = acquireVsCodeApi()
 import { effect } from '@vue/reactivity'
 import { storeToRefs } from 'pinia'
 import { buildGraph } from '../../rom/model/rehydrate'
+import { VineSource } from '../../rom/model/tiles/behaviors/VineSource'
 import { L2ObjectStream, L2Preset } from '../../rom/model/L2Layer'
 import type { MapPayload as ModelMapPayload } from '../../rom/model/MapPayload'
 import type { SmwMap } from '../../rom/model/SmwMap'
@@ -138,6 +139,7 @@ function renderModelOverlay(map: SmwMap): void {
     drawVinePaths(bctx, map)
     drawThwompZones(bctx, map)
     drawPlatformPaths(bctx, map)
+    drawParaKoopaPaths(bctx, map)
   }
 
   // Guard: base canvas must exist before we can composite.
@@ -437,11 +439,6 @@ function drawCameraRectOverlay(
 /** Map16 tile ID that is written during vine growth (used as the vine icon). */
 const VINE_TILE_ID = 0x006
 
-/** Map16 tile IDs whose runtime behavior grows a vine upward on P-switch activation. */
-const VINE_SOURCE_TILES: ReadonlySet<number> = new Set<number>([
-  0x02A, 0x02B,
-])
-
 /** Tile IDs (and null = out-of-bounds) that the vine can grow through. */
 const VINE_PASSABLE = new Set<number | null>([null, 0x000, 0x006])
 
@@ -483,12 +480,13 @@ function getVineSources(map: SmwMap): Array<{ col: number; row: number }> {
     if (spr.spriteId === 0x79)
       sources.push({ col: spr.x, row: spr.y })
   }
-  if (VINE_SOURCE_TILES.size > 0) {
+  const tiles = window.__smwModelTiles
+  if (tiles) {
     const l1 = map.l1
     for (let r = 0; r < l1.length; r++)
       for (let c = 0; c < (l1[r]?.length ?? 0); c++) {
         const id = l1[r]?.[c] ?? null
-        if (id !== null && VINE_SOURCE_TILES.has(id))
+        if (id !== null && tiles.get(id)?.behavior instanceof VineSource)
           sources.push({ col: c, row: r })
       }
   }
@@ -690,17 +688,35 @@ const PLATFORM_PATH: readonly { x: number; y: number }[] = (() => {
   return pts
 })()
 
+/** Bounding box of PLATFORM_PATH, used to parameterise the arc overlay. */
+const PLATFORM_PATH_BOUNDS = (() => {
+  let minX = 0, maxX = 0, minY = 0, maxY = 0
+  for (const p of PLATFORM_PATH) {
+    if (p.x < minX) minX = p.x
+    if (p.x > maxX) maxX = p.x
+    if (p.y < minY) minY = p.y
+    if (p.y > maxY) maxY = p.y
+  }
+  return { minX, maxX, minY, maxY }
+})()
+
 /**
  * Draw the U-shaped arc that each active $9C Hammer Bro Platform traces
  * through one 256-frame (~4.3s) movement cycle. The path is the same for
  * every instance — only the anchor shifts per sprite.
+ *
+ * Rendered as the bottom half of an ellipse whose top edge sits at the
+ * spawn row and whose vertex sits at the deepest point of the U. This
+ * matches the translucent-rect style used by the Thwomp and vine overlays
+ * while naturally expressing the curved path shape.
  */
 function drawPlatformPaths(octx: CanvasRenderingContext2D, map: SmwMap): void {
   const active = store.activePlatforms
   if (active.size === 0) return
+  const { minX, maxX, minY, maxY } = PLATFORM_PATH_BOUNDS
+  const rx = (maxX - minX) / 2
+  const ry = maxY - minY
   octx.save()
-  octx.lineWidth = 2
-  octx.setLineDash([])
   for (const sprite of map.sprites) {
     if (sprite.id !== 0x9C) continue
     const key = `${sprite.x},${sprite.y}`
@@ -708,32 +724,147 @@ function drawPlatformPaths(octx: CanvasRenderingContext2D, map: SmwMap): void {
 
     const ax = sprite.x
     const ay = sprite.y
+    // Centre the ellipse horizontally over the path range; top of U = spawn row.
+    const cx = ax + minX + rx
+    const topY = ay + minY
 
-    // Fill the bounded region of the arc with a translucent wash, then
-    // stroke the polyline on top. Use a bright lemon that won't clash with
-    // amber Thwomp zones or green vine paths.
-    octx.fillStyle = 'rgba(255,220,40,0.10)'
+    // Translucent fill: bottom-half ellipse from angle 0 (right) → π (left),
+    // closed with a straight line across the top.
+    octx.fillStyle = 'rgba(255,220,40,0.12)'
     octx.beginPath()
-    octx.moveTo(ax + PLATFORM_PATH[0].x, ay + PLATFORM_PATH[0].y)
-    for (let i = 1; i < PLATFORM_PATH.length; i++) {
-      octx.lineTo(ax + PLATFORM_PATH[i].x, ay + PLATFORM_PATH[i].y)
-    }
+    octx.ellipse(cx, topY, rx, ry, 0, 0, Math.PI)
     octx.closePath()
     octx.fill()
 
-    octx.strokeStyle = 'rgba(255,220,40,0.80)'
+    // Dashed border on the same arc path.
+    octx.lineWidth = 1.5
+    octx.setLineDash([4, 3])
+    octx.strokeStyle = 'rgba(255,220,40,0.70)'
+    octx.beginPath()
+    octx.ellipse(cx, topY, rx, ry, 0, 0, Math.PI)
+    octx.closePath()
     octx.stroke()
 
-    // Mark the spawn anchor with a small cross — useful for seeing where
-    // the U opens from, since the anchor is at the upper-left corner of the
-    // arc's bounding box, not its center.
+    // Spawn-anchor crosshair — marks where the U opens from.
+    octx.setLineDash([])
     octx.lineWidth = 1
     octx.strokeStyle = 'rgba(255,220,40,0.95)'
     octx.beginPath()
     octx.moveTo(ax - 3, ay + 0.5); octx.lineTo(ax + 4, ay + 0.5)
     octx.moveTo(ax + 0.5, ay - 3); octx.lineTo(ax + 0.5, ay + 4)
     octx.stroke()
-    octx.lineWidth = 2
+  }
+  octx.restore()
+}
+
+/**
+ * Precomputed para-koopa range in pixels.
+ *
+ * CODE_018CFD (bank_01.asm): speed ±1 per 4 frames toward ±16, 48-frame
+ * cooldown at max. Steady-state oscillation reaches ~82 px from spawn.
+ *   $0A (RedVertParaKoopa)  — moves UP   (−Y) from spawn
+ *   $0B (RedHorzParaKoopa)  — moves LEFT (−X) from spawn, ±4 px Y bounce
+ */
+const PARA_KOOPA_RANGE = 82
+
+/**
+ * Draw the movement-range overlay for active $0A/$0B/$0C Para-Koopa sprites.
+ *
+ * $0A/$0B — translucent cyan rect along axis of oscillation (fixed range).
+ * $0C (Yellow Para-Koopa) — horizontal patrol corridor from the nearest solid
+ *   L1 wall to the left to the nearest solid wall to the right, derived from
+ *   the same FlipIfTouchingObj logic the game uses (bank_01.asm:2369).
+ *   Sprite is 2 tiles tall (Spr0to13Prop bit 6), so both body rows are checked.
+ */
+function drawParaKoopaPaths(octx: CanvasRenderingContext2D, map: SmwMap): void {
+  const active = store.activeParaKoopas
+  if (active.size === 0) return
+  octx.save()
+  for (const sprite of map.sprites) {
+    if (sprite.id !== 0x0A && sprite.id !== 0x0B && sprite.id !== 0x0C) continue
+    const key = `${sprite.x},${sprite.y}`
+    if (!active.has(key)) continue
+
+    const ax = sprite.x
+    const ay = sprite.y
+
+    if (sprite.id === 0x0A) {
+      // Vertical: moves UP from spawn by up to PARA_KOOPA_RANGE px.
+      octx.fillStyle = 'rgba(0,200,255,0.15)'
+      octx.fillRect(ax, ay - PARA_KOOPA_RANGE, 16, PARA_KOOPA_RANGE)
+      octx.lineWidth = 1
+      octx.setLineDash([4, 3])
+      octx.strokeStyle = 'rgba(0,200,255,0.60)'
+      octx.strokeRect(ax + 0.5, ay - PARA_KOOPA_RANGE + 0.5, 15, PARA_KOOPA_RANGE - 1)
+      // Solid top boundary at maximum displacement.
+      octx.setLineDash([])
+      octx.lineWidth = 2
+      octx.strokeStyle = 'rgba(0,200,255,0.90)'
+      octx.beginPath()
+      octx.moveTo(ax, ay - PARA_KOOPA_RANGE)
+      octx.lineTo(ax + 16, ay - PARA_KOOPA_RANGE)
+      octx.stroke()
+    } else if (sprite.id === 0x0B) {
+      // Horizontal ($0B): moves LEFT from spawn; small ±4 px Y bounce.
+      const yBounce = 4
+      octx.fillStyle = 'rgba(0,200,255,0.15)'
+      octx.fillRect(ax - PARA_KOOPA_RANGE, ay - yBounce, PARA_KOOPA_RANGE, 16 + yBounce * 2)
+      octx.lineWidth = 1
+      octx.setLineDash([4, 3])
+      octx.strokeStyle = 'rgba(0,200,255,0.60)'
+      octx.strokeRect(ax - PARA_KOOPA_RANGE + 0.5, ay - yBounce + 0.5, PARA_KOOPA_RANGE - 1, 15 + yBounce * 2)
+      // Solid left boundary at maximum displacement.
+      octx.setLineDash([])
+      octx.lineWidth = 2
+      octx.strokeStyle = 'rgba(0,200,255,0.90)'
+      octx.beginPath()
+      octx.moveTo(ax - PARA_KOOPA_RANGE, ay - yBounce)
+      octx.lineTo(ax - PARA_KOOPA_RANGE, ay + 16 + yBounce)
+      octx.stroke()
+    } else {
+      // $0C Yellow Para-Koopa: patrols horizontally at ±12 px/frame, bouncing
+      // off solid objects via FlipIfTouchingObj (bank_01.asm:2369). Range is
+      // determined by level geometry — scan L1 left and right from spawn.
+      // Sprite is 2 tiles tall (Spr0to13Prop $DD bit 6); check both body rows.
+      const sprCol = Math.floor(ax / 16)
+      const rowTop = Math.floor((ay - 16) / 16)  // top tile (tall sprite: top = anchor - 1)
+      const rowBot = Math.floor(ay / 16)           // bottom tile (anchor row)
+      const cols   = map.l1[0]?.length ?? 0
+      const rowCount = map.l1.length
+
+      const isSolid = (c: number): boolean => {
+        for (let r = Math.max(0, rowTop); r <= Math.min(rowCount - 1, rowBot); r++) {
+          if ((map.l1[r]?.[c] ?? null) !== null) return true
+        }
+        return false
+      }
+
+      let leftX = 0
+      for (let c = sprCol - 1; c >= 0; c--) {
+        if (isSolid(c)) { leftX = (c + 1) * 16; break }
+      }
+      let rightX = cols * 16
+      for (let c = sprCol + 1; c < cols; c++) {
+        if (isSolid(c)) { rightX = c * 16; break }
+      }
+
+      const corridorTop = ay - 16   // top of 2-tile-tall body
+      const corridorH   = 32
+      octx.fillStyle = 'rgba(180,80,255,0.13)'
+      octx.fillRect(leftX, corridorTop, rightX - leftX, corridorH)
+      octx.lineWidth = 1
+      octx.setLineDash([4, 3])
+      octx.strokeStyle = 'rgba(180,80,255,0.55)'
+      octx.strokeRect(leftX + 0.5, corridorTop + 0.5, rightX - leftX - 1, corridorH - 1)
+      // Solid wall lines at each boundary.
+      octx.setLineDash([])
+      octx.lineWidth = 2
+      octx.strokeStyle = 'rgba(180,80,255,0.90)'
+      octx.beginPath()
+      octx.moveTo(leftX,  corridorTop); octx.lineTo(leftX,  corridorTop + corridorH)
+      octx.moveTo(rightX, corridorTop); octx.lineTo(rightX, corridorTop + corridorH)
+      octx.stroke()
+    }
   }
   octx.restore()
 }
@@ -778,6 +909,23 @@ function platformAt(lx: number, ly: number): string | null {
     if (sprite.pickAt(natX, natY)) {
       return `${sprite.x},${sprite.y}`
     }
+  }
+  return null
+}
+
+/**
+ * Hit-test for $0A/$0B Red Para-Koopa sprites. Uses the sprite's hitRect
+ * so the click target matches the rendered wing+body area.
+ */
+function paraKoopaAt(lx: number, ly: number): string | null {
+  const map = window.__smwModelMap
+  if (!map) return null
+  const z = store.zoom
+  const natX = lx / z
+  const natY = ly / z
+  for (const sprite of map.sprites) {
+    if (sprite.id !== 0x0A && sprite.id !== 0x0B && sprite.id !== 0x0C) continue
+    if (sprite.pickAt(natX, natY)) return `${sprite.x},${sprite.y}`
   }
   return null
 }
@@ -1105,9 +1253,9 @@ app.innerHTML = `
     </div><!-- left scroll wrapper -->
 
     <!-- Tile hover status pinned at bottom of left panel -->
-    <div style="flex-shrink:0;border-top:1px solid var(--vscode-panel-border,#3a3a3a);padding:3px 8px;display:flex;gap:10px;background:var(--vscode-sideBar-background,#252526);">
+    <div style="flex-shrink:0;border-top:1px solid var(--vscode-panel-border,#3a3a3a);padding:3px 8px;display:flex;flex-direction:column;gap:1px;background:var(--vscode-sideBar-background,#252526);">
+      <span id="st-tile" style="font-family:monospace;font-size:10px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>
       <span id="st-pos"  style="font-family:monospace;font-size:10px;color:#666;white-space:nowrap;"></span>
-      <span id="st-tile" style="font-family:monospace;font-size:10px;color:#888;white-space:nowrap;"></span>
     </div>
 
   </div><!-- #left-panel -->
@@ -1785,7 +1933,11 @@ function applyPalAnimFrame(f: number): void {
 
 const animTimer = createRafTimer(
   () => animIntervalMs,
-  () => { applyAnimFrame((store.animFrame + 1) % animFrameCount) },
+  () => {
+    applyAnimFrame((store.animFrame + 1) % animFrameCount)
+    const map = window.__smwModelMap
+    if (map) for (const spr of map.sprites) spr.tickAnimation()
+  },
 )
 
 const palAnimTimer = createRafTimer(
@@ -3036,6 +3188,14 @@ modelCanvas.addEventListener('pointerdown', (e) => {
     return
   }
 
+  // $0A/$0B Red Para-Koopa click: toggle its movement-range overlay.
+  const qk = paraKoopaAt(lx, ly)
+  if (qk) {
+    store.toggleParaKoopa(qk)
+    e.stopPropagation()
+    return
+  }
+
   if (!chkCamera.checked) return
   const cam = store.camera
   if (hitCameraRect(lx, ly)) {
@@ -3346,16 +3506,17 @@ function updateHoverStatus(levelPx: number | null, levelPy: number | null): void
   }
   const col = Math.floor(levelPx / TILE_PX)
   const row = Math.floor(levelPy / TILE_PX)
-  stPos.textContent = `col ${col}  row ${row}`
   const pick = pickAt(levelPx, levelPy)
   if (!pick) {
     stTile.textContent = ''
+    stPos.textContent = `col ${col}  row ${row}`
   } else if (pick.kind === 'sprite') {
-    stTile.textContent = pick.displayName
-      ? `$${pick.id.toString(16).toUpperCase().padStart(2,'0')} ${pick.displayName}`
-      : `sprite $${pick.id.toString(16).toUpperCase().padStart(2,'0')}`
+    const hex = `$${pick.id.toString(16).toUpperCase().padStart(2,'0')}`
+    stTile.textContent = pick.displayName ?? hex
+    stPos.textContent = `${pick.displayName ? hex + '  ' : ''}col ${col}  row ${row}`
   } else {
     stTile.textContent = `${pick.layer.toUpperCase()} $${pick.tileId.toString(16).toUpperCase().padStart(3,'0')}`
+    stPos.textContent = `col ${col}  row ${row}`
   }
 }
 
