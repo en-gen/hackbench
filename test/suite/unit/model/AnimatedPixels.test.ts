@@ -7,8 +7,8 @@ import { loadVram } from '../../../../src/rom/GfxLoader'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { buildChars } from '../../../../src/rom/model/chars/CharFactory'
-import { AnimatedPixels } from '../../../../src/rom/model/chars/behaviors/AnimatedPixels'
-import { StaticPixels } from '../../../../src/rom/model/chars/behaviors/StaticPixels'
+import { AnimatedPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/AnimatedPixelsBehavior'
+import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import type { RenderContext } from '../../../../src/rom/model/RenderTarget'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
@@ -26,23 +26,23 @@ function mockCtx(animFrame = 0): RenderContext {
   }
 }
 
-describe('AnimatedPixels behavior', () => {
+describe('AnimatedPixelsBehavior behavior', () => {
   it('returns the frame at ctx.animFrame.value (wraps modulo length)', () => {
     const f0 = new Uint8Array(64).fill(1)
     const f1 = new Uint8Array(64).fill(2)
     const f2 = new Uint8Array(64).fill(3)
-    const behavior = new AnimatedPixels([f0, f1, f2])
+    const behavior = new AnimatedPixelsBehavior([f0, f1, f2])
     expect(behavior.getPixels(mockCtx(0))).toBe(f0)
     expect(behavior.getPixels(mockCtx(1))).toBe(f1)
     expect(behavior.getPixels(mockCtx(2))).toBe(f2)
     expect(behavior.getPixels(mockCtx(3))).toBe(f0) // wraps
   })
 
-  it('computed() wrapping an AnimatedPixels char invalidates only on animFrame change', () => {
+  it('computed() wrapping an AnimatedPixelsBehavior char invalidates only on animFrame change', () => {
     const ctx = mockCtx(0)
     const f0 = new Uint8Array(64).fill(10)
     const f1 = new Uint8Array(64).fill(20)
-    const char = new Char(0x100, new AnimatedPixels([f0, f1]))
+    const char = new Char(0x100, new AnimatedPixelsBehavior([f0, f1]))
     const reactive = computed(() => char.getPixels(ctx))
 
     expect(reactive.value).toBe(f0)
@@ -56,7 +56,7 @@ describe('AnimatedPixels behavior', () => {
 })
 
 describe.skipIf(!existsSync(ROM_PATH))('CharFactory animation wiring (vanilla ROM)', () => {
-  it('wraps animated chars with AnimatedPixels; leaves others Static', () => {
+  it('wraps animated chars with AnimatedPixelsBehavior; leaves others Static', () => {
     const rom = SmwRom.open(ROM_PATH)
     // Level $105 (YI1) uses tileset 0 and has standard animation (coins, ? blocks, etc)
     const raw = rom.getLevelRawData(0x105)!
@@ -67,11 +67,11 @@ describe.skipIf(!existsSync(ROM_PATH))('CharFactory animation wiring (vanilla RO
     const chars = buildChars(vram, animData)
 
     // At least one animated char should exist
-    const animatedChars = [...chars.values()].filter(c => c.behavior instanceof AnimatedPixels)
+    const animatedChars = [...chars.values()].filter(c => c.behavior instanceof AnimatedPixelsBehavior)
     expect(animatedChars.length).toBeGreaterThan(0)
 
     // And most chars should still be static
-    const staticChars = [...chars.values()].filter(c => c.behavior instanceof StaticPixels)
+    const staticChars = [...chars.values()].filter(c => c.behavior instanceof StaticPixelsBehavior)
     expect(staticChars.length).toBeGreaterThan(animatedChars.length * 10)
   })
 })

@@ -38,7 +38,23 @@ export type SubtileQuadDescriptor = readonly [
 
 export type TileDescriptor =
   | { kind: 'static'; quad: SubtileQuadDescriptor; actsLike: number }
-  | { kind: 'vineSource'; quad: SubtileQuadDescriptor; actsLike: number }
+  | {
+      kind: 'vineSource'
+      quad: SubtileQuadDescriptor
+      /** Tile $006 quad used as the vine indicator icon above the block. */
+      overlayQuad: SubtileQuadDescriptor | null
+      actsLike: number
+    }
+  | {
+      kind: 'starOneUpVineBlock'
+      quad: SubtileQuadDescriptor
+      vineOverlayQuad: SubtileQuadDescriptor | null
+      /** OBJ chars for 1-up mushroom sprite $78 (TL/TR/BL/BR), -1 when missing. */
+      oneupCharNums: readonly number[]
+      /** OBJ chars for star sprite $76 (TL/TR/BL/BR), -1 when missing. */
+      starCharNums: readonly number[]
+      actsLike: number
+    }
   | { kind: 'pipeVariants'; variants: readonly SubtileQuadDescriptor[]; actsLike: number }
   | {
       kind: 'switchPalaceAlternate'

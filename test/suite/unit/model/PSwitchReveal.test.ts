@@ -6,11 +6,11 @@ import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildChars } from '../../../../src/rom/model/chars/CharFactory'
 import { Char } from '../../../../src/rom/model/chars/Char'
-import { StaticPixels } from '../../../../src/rom/model/chars/behaviors/StaticPixels'
+import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { SubTile } from '../../../../src/rom/model/tiles/SubTile'
 import { Tile, type SubtileQuad } from '../../../../src/rom/model/tiles/Tile'
 import { buildTiles } from '../../../../src/rom/model/tiles/TileFactory'
-import { PSwitchReveal } from '../../../../src/rom/model/tiles/behaviors/PSwitchReveal'
+import { PSwitchRevealBehavior } from '../../../../src/rom/model/tiles/behaviors/PSwitchRevealBehavior'
 import type { RenderContext } from '../../../../src/rom/model/RenderTarget'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
@@ -31,7 +31,7 @@ function mockCtx(pSwitchActive = false): RenderContext {
 function makeQuad(tag: number): SubtileQuad {
   const sub = () =>
     new SubTile(
-      new Char(tag, new StaticPixels(new Uint8Array(64))),
+      new Char(tag, new StaticPixelsBehavior(new Uint8Array(64))),
       0,
       false,
       false,
@@ -40,32 +40,32 @@ function makeQuad(tag: number): SubtileQuad {
   return [sub(), sub(), sub(), sub()]
 }
 
-describe('PSwitchReveal behavior', () => {
+describe('PSwitchRevealBehavior behavior', () => {
   it('returns the revealed quad regardless of P-switch state', () => {
     const quad = makeQuad(1)
-    const b = new PSwitchReveal(quad)
+    const b = new PSwitchRevealBehavior(quad)
     expect(b.selectQuad(mockCtx(false))).toBe(quad)
     expect(b.selectQuad(mockCtx(true))).toBe(quad)
   })
 
   it('selectAlpha returns offAlpha when P-switch inactive', () => {
-    const b = new PSwitchReveal(makeQuad(1), 0.5)
+    const b = new PSwitchRevealBehavior(makeQuad(1), 0.5)
     expect(b.selectAlpha(mockCtx(false))).toBe(0.5)
   })
 
   it('selectAlpha returns 1 when P-switch active', () => {
-    const b = new PSwitchReveal(makeQuad(1), 0.5)
+    const b = new PSwitchRevealBehavior(makeQuad(1), 0.5)
     expect(b.selectAlpha(mockCtx(true))).toBe(1)
   })
 
   it('respects a custom offAlpha override', () => {
-    const b = new PSwitchReveal(makeQuad(1), 0.25)
+    const b = new PSwitchRevealBehavior(makeQuad(1), 0.25)
     expect(b.selectAlpha(mockCtx(false))).toBe(0.25)
     expect(b.selectAlpha(mockCtx(true))).toBe(1)
   })
 
   it('alpha is reactive to pSwitchActive ref changes', () => {
-    const b = new PSwitchReveal(makeQuad(1))
+    const b = new PSwitchRevealBehavior(makeQuad(1))
     const ctx = mockCtx(false)
     const a = computed(() => b.selectAlpha(ctx))
     expect(a.value).toBe(0.5)
@@ -77,7 +77,7 @@ describe('PSwitchReveal behavior', () => {
 })
 
 describe.skipIf(!existsSync(ROM_PATH))('TileFactory P-switch reveal wiring (vanilla ROM)', () => {
-  it('$27/$28/$29/$2A all wear PSwitchReveal', () => {
+  it('$27/$28/$29/$2A all wear PSwitchRevealBehavior', () => {
     const rom = SmwRom.open(ROM_PATH)
     const raw = rom.getLevelRawData(0x105)!
     const header = parseLevelHeader(raw)
@@ -88,7 +88,7 @@ describe.skipIf(!existsSync(ROM_PATH))('TileFactory P-switch reveal wiring (vani
     for (const id of [0x27, 0x28, 0x29, 0x2A]) {
       const tile = tiles.get(id)
       expect(tile, `tile $${id.toString(16)}`).toBeInstanceOf(Tile)
-      expect(tile!.behavior, `behavior of $${id.toString(16)}`).toBeInstanceOf(PSwitchReveal)
+      expect(tile!.behavior, `behavior of $${id.toString(16)}`).toBeInstanceOf(PSwitchRevealBehavior)
     }
   })
 
@@ -101,7 +101,7 @@ describe.skipIf(!existsSync(ROM_PATH))('TileFactory P-switch reveal wiring (vani
     const tiles = buildTiles(rom.rom, header.objectTileset, chars)
 
     for (const id of [0x27, 0x28]) {
-      const behavior = tiles.get(id)!.behavior as PSwitchReveal
+      const behavior = tiles.get(id)!.behavior as PSwitchRevealBehavior
       for (const sub of behavior.revealedQuad) {
         expect(sub.palette, `subtile palette in $${id.toString(16)}`).toBe(4)
       }

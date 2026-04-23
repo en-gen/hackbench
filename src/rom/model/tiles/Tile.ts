@@ -10,7 +10,7 @@ export class Tile {
    * @param behavior   Rendering behavior (static, pipe variants, vine source…).
    *                   Dispatched by `TileFactory` from the acts-like value
    *                   so e.g. a page-1 tile that acts-like $2B renders a
-   *                   normal quad but carries `VineSource` semantics.
+   *                   normal quad but carries `VineSourceBehavior` semantics.
    * @param actsLike   Tile id whose game behavior this tile dispatches as.
    *                   Defaults to `id` (identity). Lunar Magic's acts-like
    *                   override lets custom tiles behave as vanilla ones.
@@ -21,9 +21,13 @@ export class Tile {
     readonly actsLike: number = id,
   ) {}
 
+  renderOverlay(ctx: RenderContext, target: RenderTarget, cell: CellBox): void {
+    this.behavior.renderOverlay?.(ctx, target, cell)
+  }
+
   render(ctx: RenderContext, target: RenderTarget, cell: CellBox, phase: Phase): void {
     // Pass `cell` through so behaviors can self-select per-cell state
-    // (e.g. PipeVariants resolves its own screen idx from cell.tl).
+    // (e.g. PipeVariantsBehavior resolves its own screen idx from cell.tl).
     const quad = this.behavior.selectQuad(ctx, cell)
     const alpha = this.behavior.selectAlpha?.(ctx, cell)
     const positions: readonly [SubTile, PixelPos][] = [

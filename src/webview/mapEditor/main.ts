@@ -13,7 +13,8 @@ const vscode = acquireVsCodeApi()
 import { effect } from '@vue/reactivity'
 import { storeToRefs } from 'pinia'
 import { buildGraph } from '../../rom/model/rehydrate'
-import { VineSource } from '../../rom/model/tiles/behaviors/VineSource'
+import { VineSourceBehavior } from '../../rom/model/tiles/behaviors/VineSourceBehavior'
+import { StarOneUpVineBlockBehavior } from '../../rom/model/tiles/behaviors/StarOneUpVineBlockBehavior'
 import { L2ObjectStream, L2Preset } from '../../rom/model/L2Layer'
 import type { MapPayload as ModelMapPayload } from '../../rom/model/MapPayload'
 import type { SmwMap } from '../../rom/model/SmwMap'
@@ -95,7 +96,7 @@ function renderModelOverlay(map: SmwMap): void {
   // on the floor. This line keeps the wiring unconditional.
   void storeRefs.cursorPx.value
 
-  // Level-wide state on ctx — tile behaviors (PipeVariants) derive
+  // Level-wide state on ctx — tile behaviors (PipeVariantsBehavior) derive
   // per-cell concerns from their own cell position + these fields,
   // so the camera viewport / detail preview / Map16 panel can all
   // reuse the same ctx without pre-computing per-cell variants.
@@ -135,7 +136,6 @@ function renderModelOverlay(map: SmwMap): void {
     const bctx = baseLevelCanvas.getContext('2d')!
     if (toggles.block) drawBlockView(bctx, map, toggles.l1, toggles.l2)
     if (toggles.screens || toggles.mapGrid) drawScreenAndGridOverlays(bctx, map, toggles.screens, toggles.mapGrid)
-    drawVineIndicators(bctx, map)
     drawVinePaths(bctx, map)
     drawThwompZones(bctx, map)
     drawPlatformPaths(bctx, map)
@@ -234,7 +234,6 @@ function blitViewport(overlay?: HTMLCanvasElement): void {
   if (dstX < vpW && dstY < vpH) {
     oc.drawImage(fullLevelCanvas, srcX, srcY, (vpW - dstX) / z, (vpH - dstY) / z, dstX, dstY, vpW - dstX, vpH - dstY)
   }
-  drawHoveredVineIcon(el)
 }
 
 /**
@@ -436,91 +435,8 @@ function drawCameraRectOverlay(
 
 // ── Vine overlay ─────────────────────────────────────────────────────────────
 
-/** Map16 tile ID that is written during vine growth (used as the vine icon). */
-const VINE_TILE_ID = 0x006
-
 /** Tile IDs (and null = out-of-bounds) that the vine can grow through. */
 const VINE_PASSABLE = new Set<number | null>([null, 0x000, 0x006])
-
-/** Cached offscreen rendering of Map16 tile 0x006 for the vine icon. */
-let vineTileCanvas: HTMLCanvasElement | null = null
-
-function getVineTileCanvas(): HTMLCanvasElement | null {
-  if (vineTileCanvas) return vineTileCanvas
-  const map   = window.__smwModelMap
-  const tiles = window.__smwModelTiles
-  if (!map || !tiles) return null
-  const tile = tiles.get(VINE_TILE_ID)
-  if (!tile) return null
-  const tc = document.createElement('canvas')
-  tc.width = 16; tc.height = 16
-  const target = new CanvasRenderTarget(tc)
-  const rctx: RenderContext = {
-    animFrame: storeRefs.animFrame,
-    palAnimFrame: storeRefs.palAnimFrame,
-    pSwitchActive: storeRefs.pSwitchActive,
-    switchPalaceState: storeRefs.switchPalaceState,
-    palette: map.palette,
-    camera: storeRefs.camera,
-    zoom: storeRefs.zoom,
-    layerToggles: storeRefs.layerToggles,
-  }
-  target.clear()
-  const cellBox = cellBoxOf(0, 0)
-  tile.render(rctx, target, cellBox, 'nonPriority')
-  tile.render(rctx, target, cellBox, 'priority')
-  target.flush()
-  return (vineTileCanvas = tc)
-}
-
-/** Collect all vine-source positions for the current map. */
-function getVineSources(map: SmwMap): Array<{ col: number; row: number }> {
-  const sources: Array<{ col: number; row: number }> = []
-  for (const spr of mapData?.sprites ?? []) {
-    if (spr.spriteId === 0x79)
-      sources.push({ col: spr.x, row: spr.y })
-  }
-  const tiles = window.__smwModelTiles
-  if (tiles) {
-    const l1 = map.l1
-    for (let r = 0; r < l1.length; r++)
-      for (let c = 0; c < (l1[r]?.length ?? 0); c++) {
-        const id = l1[r]?.[c] ?? null
-        if (id !== null && tiles.get(id)?.behavior instanceof VineSource)
-          sources.push({ col: c, row: r })
-      }
-  }
-  return sources
-}
-
-/**
- * Draw a semi-transparent vine tile icon directly above each vine-source
- * block: horizontally aligned with the block, shifted up by half a tile
- * height, and clipped so only the portion above the block is visible —
- * giving the impression the vine grows from behind the block.
- */
-function drawVineIndicators(octx: CanvasRenderingContext2D, map: SmwMap): void {
-  const vineTc = getVineTileCanvas()
-  if (!vineTc) return
-  const sources = getVineSources(map)
-  if (sources.length === 0) return
-  octx.save()
-  octx.globalAlpha = 0.5
-  octx.imageSmoothingEnabled = false
-  for (const { col, row } of sources) {
-    const vineX = col * 16
-    const vineY = row * 16 - 8  // translate up 50% of tile height
-    // Clip so only the pixels above the block (y < row*16) render —
-    // the bottom half would otherwise draw over the block sprite.
-    octx.save()
-    octx.beginPath()
-    octx.rect(vineX, 0, 16, row * 16)
-    octx.clip()
-    octx.drawImage(vineTc, vineX, vineY, 16, 16)
-    octx.restore()
-  }
-  octx.restore()
-}
 
 /**
  * Draw upward vine-path overlays for all toggled vine sources.
@@ -930,55 +846,25 @@ function paraKoopaAt(lx: number, ly: number): string | null {
   return null
 }
 
-/** Module-level: which vine icon is currently under the pointer (natural-px key). */
-let hoveredVineKey: string | null = null
-
 /**
- * Draw the hovered vine icon at 100% opacity directly on the viewport
- * canvas (post-blit). Positioned like `drawVineIndicators` — above the
- * block, clipped so only the visible top half reads over the block.
+ * Return the "col,row" key of the vine-source block under the given
+ * level-space CSS-pixel coordinate, or null if none. Driven by tile
+ * behavior (VineSourceBehavior or StarOneUpVineBlockBehavior at a vine column) so the
+ * detection is consistent with what the tile renders.
  */
-function drawHoveredVineIcon(el: HTMLCanvasElement): void {
-  if (!hoveredVineKey) return
-  const vineTc = getVineTileCanvas()
-  if (!vineTc) return
-  const [col, row] = hoveredVineKey.split(',').map(Number)
-  const z = store.zoom
-  const natX = col * 16
-  const natY = row * 16 - 8
-  const dx = (natX - canvasWrap.scrollLeft / z) * z
-  const dy = (natY - canvasWrap.scrollTop  / z) * z
-  // Clip to the area strictly above the block so the bottom half stays
-  // hidden at 1.0 alpha too.
-  const clipY = (row * 16 - canvasWrap.scrollTop / z) * z
-  const oc = el.getContext('2d')!
-  oc.save()
-  oc.beginPath()
-  oc.rect(dx, 0, 16 * z, clipY)
-  oc.clip()
-  oc.globalAlpha = 1.0
-  oc.imageSmoothingEnabled = false
-  oc.drawImage(vineTc, dx, dy, 16 * z, 16 * z)
-  oc.restore()
-}
-
-/**
- * Return the "col,row" key of the vine-source BLOCK under the given
- * level-space CSS-pixel coordinate, or null if none. Hit-testing the
- * block (rather than the vine icon above it) means the user clicks the
- * actual tile to toggle the path overlay — the vine icon is decorative.
- */
-function vineIconKeyAt(lx: number, ly: number): string | null {
+function vineSourceKeyAt(lx: number, ly: number): string | null {
   const map = window.__smwModelMap
-  if (!map) return null
+  const tiles = window.__smwModelTiles
+  if (!map || !tiles) return null
   const z = store.zoom
-  const natX = lx / z
-  const natY = ly / z
-  const col = Math.floor(natX / 16)
-  const row = Math.floor(natY / 16)
-  for (const src of getVineSources(map)) {
-    if (src.col === col && src.row === row) return `${src.col},${src.row}`
-  }
+  const col = Math.floor(lx / z / 16)
+  const row = Math.floor(ly / z / 16)
+  const id = map.l1[row]?.[col] ?? null
+  if (id === null) return null
+  const tile = tiles.get(id)
+  if (!tile) return null
+  if (tile.behavior instanceof VineSourceBehavior) return `${col},${row}`
+  if (tile.behavior instanceof StarOneUpVineBlockBehavior && tile.behavior.itemAtCol(col) === 'vine') return `${col},${row}`
   return null
 }
 
@@ -1604,13 +1490,13 @@ function horizontalScrollPixelShift(setting: number): number | null {
 //      toggling. Alpha is 50% when OFF, 100% when ON.
 let pSwitchBlueOn = false  // eslint-disable-line prefer-const
 
-interface PSwitchReveal {
+interface PSwitchRevealBehavior {
   substitute: number
   /** If set, composite the substitute's chars with this palette instead of using the atlas. */
   palOverride?: number
 }
 
-function pSwitchReveal(tileId: number): PSwitchReveal | null {
+function pSwitchReveal(tileId: number): PSwitchRevealBehavior | null {
   if ((tileId & ~0xFF) !== 0) return null
   switch (tileId) {
     case 0x27: return { substitute: 0x1F, palOverride: 4 }  // silver door top
@@ -2027,7 +1913,7 @@ document.getElementById('vram-next')!.addEventListener('click', () => {
 /**
  * Render the current VRAM page from the self-rendering model. Each
  * char on the page gets its pixels via `Char.getPixels(ctx)` — so
- * AnimatedPixels / PSwitchAlternate / etc. all reflect current
+ * AnimatedPixelsBehavior / PSwitchAlternateBehavior / etc. all reflect current
  * state automatically. Palette row selection mirrors the legacy
  * convention: $000-$17F → row 2 (FG), $180-$2FF → row 6 (AN/BG),
  * $300+ → row 8 (sprite).
@@ -2430,7 +2316,7 @@ function drawPaletteCanvas(): void {
 
 /**
  * Render the palette panel from the self-rendering model's Palette.
- * Reads each cell via its ColorBehavior (static or CyclingColor) so
+ * Reads each cell via its ColorBehavior (static or CyclingColorBehavior) so
  * palette animation is naturally driven by `ctx.palAnimFrame` — no
  * separate tick logic needed. Falls back to the legacy path if the
  * model hasn't arrived yet.
@@ -3163,8 +3049,8 @@ modelCanvas.addEventListener('pointerdown', (e) => {
   const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft - levelPadX
   const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop  - levelPadY
 
-  // Vine icon click: toggle vine path for this source (runs regardless of camera mode).
-  const vk = vineIconKeyAt(lx, ly)
+  // Vine block click: toggle vine path for this source (runs regardless of camera mode).
+  const vk = vineSourceKeyAt(lx, ly)
   if (vk) {
     store.toggleVineSource(vk)
     e.stopPropagation()
@@ -3257,19 +3143,9 @@ modelCanvas.addEventListener('pointermove', (e) => {
 
   const hPos = canvasLevelPxAt(e)
   updateHoverStatus(hPos?.levelPx ?? null, hPos?.levelPy ?? null)
-
-  // Vine icon hover: update hovered key and re-blit (cheap, no model re-render).
-  const vk = vineIconKeyAt(lx, ly)
-  if (vk !== hoveredVineKey) {
-    hoveredVineKey = vk
-    const el = document.getElementById('model-canvas') as HTMLCanvasElement | null
-    if (el) blitViewport(el)
-  }
 })
 
 modelCanvas.addEventListener('pointerleave', () => {
-  // Clear the cursor so thwomp face tiles revert to idle when the pointer
-  // leaves the canvas. Hovered vine icon follows the same pattern.
   store.setCursorPx(null)
 })
 
@@ -3680,7 +3556,6 @@ window.addEventListener('message', async (event) => {
   if (msg['type'] === 'load') {
     mapData  = msg as unknown as MapPayload
     l2TileGrid = mapData.l2TileGrid ?? null
-    vineTileCanvas = null  // invalidate cached vine icon so it re-renders with new palette
 
     applyMinimapOrientation()
 
@@ -3860,7 +3735,7 @@ window.addEventListener('message', async (event) => {
     // Refresh tile detail preview (persists across palette/tileset changes)
     redrawDetail()
 
-    // Reset palette animation timer. CyclingColor cells read
+    // Reset palette animation timer. CyclingColorBehavior cells read
     // `ctx.palAnimFrame.value` directly, so every ref update invalidates
     // only the cells that actually moved.
     stopPalAnimTimer()

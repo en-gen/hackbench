@@ -71,7 +71,7 @@ export class SmwMap {
 
   render(ctx: RenderContext, target: RenderTarget): void {
     // Stamp level-wide state onto the ctx once per render pass so tile
-    // behaviors can self-select per-cell concerns (e.g. PipeVariants
+    // behaviors can self-select per-cell concerns (e.g. PipeVariantsBehavior
     // derives its own screen idx from the cell it's drawing onto).
     const levelCtx: RenderContext = {
       ...ctx,
@@ -84,6 +84,7 @@ export class SmwMap {
     // layer3Priority=false → L3 behind everything (before L2)
     if (toggles.l3 && !l3Priority) this.l3?.render(levelCtx, target)
     if (toggles.l2) this.l2?.render(levelCtx, target)
+    if (toggles.l1) this.renderL1Overlays(levelCtx, target)
     if (toggles.l1) this.renderL1(levelCtx, target, 'nonPriority')
     if (toggles.sprites) {
       for (const sprite of this.spritesInRenderOrder()) sprite.render(levelCtx, target)
@@ -91,6 +92,20 @@ export class SmwMap {
     if (toggles.l1) this.renderL1(levelCtx, target, 'priority')
     // layer3Priority=true → L3 in front of sprites, behind L1 priority
     if (toggles.l3 && l3Priority) this.l3?.render(levelCtx, target)
+  }
+
+  private renderL1Overlays(ctx: RenderContext, target: RenderTarget): void {
+    for (let y = 0; y < this.l1.length; y++) {
+      const row = this.l1[y]
+      if (!row) continue
+      for (let x = 0; x < row.length; x++) {
+        const id = row[x]
+        if (id === null) continue
+        const tile = this.l1Tiles.get(id)
+        if (!tile?.behavior.renderOverlay) continue
+        tile.renderOverlay(ctx, target, cellBoxOf(x, y))
+      }
+    }
   }
 
   private renderL1(ctx: RenderContext, target: RenderTarget, phase: Phase): void {

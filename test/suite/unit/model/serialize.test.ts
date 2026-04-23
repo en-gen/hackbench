@@ -11,9 +11,9 @@ import { buildMap } from '../../../../src/rom/model/MapBuilder'
 import { buildGraph } from '../../../../src/rom/model/rehydrate'
 import { serialize } from '../../../../src/rom/model/serialize'
 import { buildTiles } from '../../../../src/rom/model/tiles/TileFactory'
-import { AnimatedPixels } from '../../../../src/rom/model/chars/behaviors/AnimatedPixels'
-import { PipeVariants } from '../../../../src/rom/model/tiles/behaviors/PipeVariants'
-import { SwitchPalaceAlternate } from '../../../../src/rom/model/tiles/behaviors/SwitchPalaceAlternate'
+import { AnimatedPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/AnimatedPixelsBehavior'
+import { PipeVariantsBehavior } from '../../../../src/rom/model/tiles/behaviors/PipeVariantsBehavior'
+import { SwitchPalaceAlternateBehavior } from '../../../../src/rom/model/tiles/behaviors/SwitchPalaceAlternateBehavior'
 import type {
   PixelPos,
   PixelSize,
@@ -72,7 +72,7 @@ describe.skipIf(!existsSync(ROM_PATH))('MapPayload round-trip (vanilla ROM)', ()
     // Behavior-kind preservation on known tile classes. The L1 grid
     // holds ids; resolve against the rehydrated l1Tiles lookup.
     const pipe = rehydrated.l1Tiles.get(0x133)!
-    expect(pipe.behavior).toBeInstanceOf(PipeVariants)
+    expect(pipe.behavior).toBeInstanceOf(PipeVariantsBehavior)
 
     // Ground-plane tiles still render; subtile chars resolve
     const ground = rehydrated.l1Tiles.get(0x100)
@@ -109,7 +109,7 @@ describe.skipIf(!existsSync(ROM_PATH))('MapPayload round-trip (vanilla ROM)', ()
     }
   })
 
-  it('preserves AnimatedPixels and SwitchPalaceAlternate through round-trip', () => {
+  it('preserves AnimatedPixelsBehavior and SwitchPalaceAlternateBehavior through round-trip', () => {
     const rom = SmwRom.open(ROM_PATH)
     const map = buildMap(rom, 0x105)
     const raw = rom.getLevelRawData(0x105)!
@@ -122,14 +122,14 @@ describe.skipIf(!existsSync(ROM_PATH))('MapPayload round-trip (vanilla ROM)', ()
     const payload = serialize(map, chars, tiles)
     const { chars: reChars, tiles: reTiles } = buildGraph(payload)
 
-    // At least one char is AnimatedPixels
-    const hasAnimated = [...reChars.values()].some(c => c.behavior instanceof AnimatedPixels)
+    // At least one char is AnimatedPixelsBehavior
+    const hasAnimated = [...reChars.values()].some(c => c.behavior instanceof AnimatedPixelsBehavior)
     expect(hasAnimated).toBe(true)
 
     // Switch-palace tiles preserved
     for (let c = 0; c < 4; c++) {
-      expect(reTiles.get(0x06A + c)!.behavior).toBeInstanceOf(SwitchPalaceAlternate)
-      expect(reTiles.get(0x16A + c)!.behavior).toBeInstanceOf(SwitchPalaceAlternate)
+      expect(reTiles.get(0x06A + c)!.behavior).toBeInstanceOf(SwitchPalaceAlternateBehavior)
+      expect(reTiles.get(0x16A + c)!.behavior).toBeInstanceOf(SwitchPalaceAlternateBehavior)
     }
   })
 })

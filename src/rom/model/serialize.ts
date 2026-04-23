@@ -1,9 +1,9 @@
 import type { RgbaColor } from '../GraphicsDecoder'
 import type { Char } from './chars/Char'
 import type { CharBehavior } from './chars/CharBehavior'
-import { AnimatedPixels } from './chars/behaviors/AnimatedPixels'
-import { PSwitchAlternate } from './chars/behaviors/PSwitchAlternate'
-import { StaticPixels } from './chars/behaviors/StaticPixels'
+import { AnimatedPixelsBehavior } from './chars/behaviors/AnimatedPixelsBehavior'
+import { PSwitchAlternateBehavior } from './chars/behaviors/PSwitchAlternateBehavior'
+import { StaticPixelsBehavior } from './chars/behaviors/StaticPixelsBehavior'
 import { L2ObjectStream, L2Preset, type L2Layer } from './L2Layer'
 import { L3TilemapLayer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
@@ -16,8 +16,8 @@ import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlat
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
-import { CyclingColor } from './palette/behaviors/CyclingColor'
-import { StaticColor } from './palette/behaviors/StaticColor'
+import { CyclingColorBehavior } from './palette/behaviors/CyclingColorBehavior'
+import { StaticColorBehavior } from './palette/behaviors/StaticColorBehavior'
 import type { Palette } from './palette/Palette'
 import type {
   CharDescriptor,
@@ -36,11 +36,12 @@ import type { SmwMap } from './SmwMap'
 import type { SubTile } from './tiles/SubTile'
 import { Tile, type SubtileQuad } from './tiles/Tile'
 import type { TileBehavior } from './tiles/TileBehavior'
-import { PipeVariants } from './tiles/behaviors/PipeVariants'
-import { PSwitchReveal } from './tiles/behaviors/PSwitchReveal'
-import { StaticQuad } from './tiles/behaviors/StaticQuad'
-import { SwitchPalaceAlternate } from './tiles/behaviors/SwitchPalaceAlternate'
-import { VineSource } from './tiles/behaviors/VineSource'
+import { PipeVariantsBehavior } from './tiles/behaviors/PipeVariantsBehavior'
+import { PSwitchRevealBehavior } from './tiles/behaviors/PSwitchRevealBehavior'
+import { StaticQuadBehavior } from './tiles/behaviors/StaticQuadBehavior'
+import { StarOneUpVineBlockBehavior } from './tiles/behaviors/StarOneUpVineBlockBehavior'
+import { SwitchPalaceAlternateBehavior } from './tiles/behaviors/SwitchPalaceAlternateBehavior'
+import { VineSourceBehavior } from './tiles/behaviors/VineSourceBehavior'
 
 /**
  * Walk an `SmwMap` and emit a `MapPayload` that can cross `postMessage`.
@@ -187,9 +188,9 @@ function serializeL2(l2: L2Layer | null): L2Descriptor | null {
 }
 
 function serializeCharBehavior(b: CharBehavior): CharDescriptor {
-  if (b instanceof StaticPixels) return { kind: 'static', pixels: Array.from(b.pixels) }
-  if (b instanceof AnimatedPixels) return { kind: 'animated', frames: b.frames.map(f => Array.from(f)) }
-  if (b instanceof PSwitchAlternate) {
+  if (b instanceof StaticPixelsBehavior) return { kind: 'static', pixels: Array.from(b.pixels) }
+  if (b instanceof AnimatedPixelsBehavior) return { kind: 'animated', frames: b.frames.map(f => Array.from(f)) }
+  if (b instanceof PSwitchAlternateBehavior) {
     return {
       kind: 'pSwitchAlt',
       normal: serializeCharBehavior(b.normal),
@@ -202,13 +203,26 @@ function serializeCharBehavior(b: CharBehavior): CharDescriptor {
 function serializeTile(tile: Tile): TileDescriptor {
   const actsLike = tile.actsLike
   const b = tile.behavior
-  if (b instanceof StaticQuad) return { kind: 'static', quad: quadDesc(b.quad), actsLike }
-  if (b instanceof VineSource) return { kind: 'vineSource', quad: quadDesc(b.quad), actsLike }
-  if (b instanceof PipeVariants) return { kind: 'pipeVariants', variants: b.variants.map(quadDesc), actsLike }
-  if (b instanceof SwitchPalaceAlternate) {
+  if (b instanceof StaticQuadBehavior) return { kind: 'static', quad: quadDesc(b.quad), actsLike }
+  if (b instanceof VineSourceBehavior) return {
+    kind: 'vineSource',
+    quad: quadDesc(b.quad),
+    overlayQuad: b.overlayQuad ? quadDesc(b.overlayQuad) : null,
+    actsLike,
+  }
+  if (b instanceof StarOneUpVineBlockBehavior) return {
+    kind: 'starOneUpVineBlock',
+    quad: quadDesc(b.quad),
+    vineOverlayQuad: b.vineOverlayQuad ? quadDesc(b.vineOverlayQuad) : null,
+    oneupCharNums: b.oneupChars.map(c => c?.id ?? -1),
+    starCharNums: b.starChars.map(c => c?.id ?? -1),
+    actsLike,
+  }
+  if (b instanceof PipeVariantsBehavior) return { kind: 'pipeVariants', variants: b.variants.map(quadDesc), actsLike }
+  if (b instanceof SwitchPalaceAlternateBehavior) {
     return { kind: 'switchPalaceAlternate', off: quadDesc(b.off), on: quadDesc(b.on), color: b.color, actsLike }
   }
-  if (b instanceof PSwitchReveal) {
+  if (b instanceof PSwitchRevealBehavior) {
     return { kind: 'pSwitchReveal', revealedQuad: quadDesc(b.revealedQuad), offAlpha: b.offAlpha, actsLike }
   }
   throw new Error(`Unknown TileBehavior: ${(b as object).constructor.name}`)
@@ -246,8 +260,8 @@ function serializeColor(color: Color): ColorDescriptor {
 }
 
 function serializeColorBehavior(b: ColorBehavior): ColorDescriptor {
-  if (b instanceof StaticColor) return { kind: 'static', value: b.value }
-  if (b instanceof CyclingColor) return { kind: 'cycling', frames: b.frames as readonly RgbaColor[] }
+  if (b instanceof StaticColorBehavior) return { kind: 'static', value: b.value }
+  if (b instanceof CyclingColorBehavior) return { kind: 'cycling', frames: b.frames as readonly RgbaColor[] }
   throw new Error(`Unknown ColorBehavior: ${(b as object).constructor.name}`)
 }
 

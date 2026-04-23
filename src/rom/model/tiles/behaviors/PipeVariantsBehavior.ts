@@ -17,7 +17,7 @@ import type { TileBehavior } from '../TileBehavior'
  * behavior still renders something sensible in isolated previews
  * (e.g. the Map16 viewer where "which screen" isn't meaningful).
  */
-export class PipeVariants implements TileBehavior {
+export class PipeVariantsBehavior implements TileBehavior {
   constructor(readonly variants: readonly SubtileQuad[]) {}
 
   selectQuad(ctx: RenderContext, cell: CellBox): SubtileQuad {

@@ -5,15 +5,15 @@ import { buildLevelCgram, loadBackAreaColors, loadRomPalettes } from '../../Pale
 import type { RomFile } from '../../RomFile'
 import { Color } from './Color'
 import { Palette } from './Palette'
-import { CyclingColor } from './behaviors/CyclingColor'
-import { StaticColor } from './behaviors/StaticColor'
+import { CyclingColorBehavior } from './behaviors/CyclingColorBehavior'
+import { StaticColorBehavior } from './behaviors/StaticColorBehavior'
 
 /**
  * Build a level's palette from ROM per the level header.
  *
  * CGRAM cells that participate in the NMI palette animation ($64 in
- * level mode) are wrapped in `CyclingColor` using the ROM's
- * FlashingColors frames. All other cells get `StaticColor`. This means
+ * level mode) are wrapped in `CyclingColorBehavior` using the ROM's
+ * FlashingColors frames. All other cells get `StaticColorBehavior`. This means
  * frame 0 is already applied on initial render (matching legacy's
  * `applyPalAnimFrame(0)` kick-off), and advancing `ctx.palAnimFrame`
  * cycles them automatically.
@@ -32,14 +32,14 @@ export function buildPalette(rom: RomFile, header: LevelHeader): Palette {
     row.map((rgba, c) => {
       const cgramIdx = (r << 4) | c
       const frames = animByCgramIdx.get(cgramIdx)
-      if (frames) return new Color(new CyclingColor(frames))
-      return new Color(new StaticColor(rgba))
+      if (frames) return new Color(new CyclingColorBehavior(frames))
+      return new Color(new StaticColorBehavior(rgba))
     }),
   )
 
   const backAreas = loadBackAreaColors(rom)
   const backArea: RgbaColor = backAreas[header.bgColor] ?? [0, 0, 0, 255]
-  return new Palette(cells, new Color(new StaticColor(backArea)))
+  return new Palette(cells, new Color(new StaticColorBehavior(backArea)))
 }
 
 /**

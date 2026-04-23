@@ -7,8 +7,8 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import { Color } from '../../../../src/rom/model/palette/Color'
 import { Palette } from '../../../../src/rom/model/palette/Palette'
 import { buildPalette } from '../../../../src/rom/model/palette/PaletteFactory'
-import { StaticColor } from '../../../../src/rom/model/palette/behaviors/StaticColor'
-import { CyclingColor } from '../../../../src/rom/model/palette/behaviors/CyclingColor'
+import { StaticColorBehavior } from '../../../../src/rom/model/palette/behaviors/StaticColorBehavior'
+import { CyclingColorBehavior } from '../../../../src/rom/model/palette/behaviors/CyclingColorBehavior'
 import type { RenderContext } from '../../../../src/rom/model/RenderTarget'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
@@ -28,16 +28,16 @@ function mockCtx(palAnimFrame = 0): RenderContext {
 
 function uniformPalette(color: RgbaColor): Palette {
   const cells = Array.from({ length: 16 }, () =>
-    Array.from({ length: 16 }, () => new Color(new StaticColor(color))),
+    Array.from({ length: 16 }, () => new Color(new StaticColorBehavior(color))),
   )
-  return new Palette(cells, new Color(new StaticColor(color)))
+  return new Palette(cells, new Color(new StaticColorBehavior(color)))
 }
 
 describe('Reactivity integration', () => {
-  it('computed() wrapping CyclingColor.rgba invalidates only when palAnimFrame changes', () => {
+  it('computed() wrapping CyclingColorBehavior.rgba invalidates only when palAnimFrame changes', () => {
     const ctx = mockCtx(0)
     const color = new Color(
-      new CyclingColor([
+      new CyclingColorBehavior([
         [255, 0, 0, 255],
         [0, 255, 0, 255],
       ]),
@@ -56,7 +56,7 @@ describe('Reactivity integration', () => {
     expect(reactive.value).toEqual([0, 255, 0, 255])
   })
 
-  it('computed() wrapping StaticColor.rgba never recomputes', () => {
+  it('computed() wrapping StaticColorBehavior.rgba never recomputes', () => {
     const ctx = mockCtx(0)
     let rgbaCalls = 0
     const staticInstrumented = {
@@ -79,18 +79,18 @@ describe('Reactivity integration', () => {
 })
 
 describe('Color behaviors', () => {
-  it('StaticColor returns the stored rgba unchanged', () => {
-    const c = new Color(new StaticColor([10, 20, 30, 255]))
+  it('StaticColorBehavior returns the stored rgba unchanged', () => {
+    const c = new Color(new StaticColorBehavior([10, 20, 30, 255]))
     expect(c.rgba(mockCtx())).toEqual([10, 20, 30, 255])
   })
 
-  it('CyclingColor cycles through frames based on ctx.palAnimFrame', () => {
+  it('CyclingColorBehavior cycles through frames based on ctx.palAnimFrame', () => {
     const frames: RgbaColor[] = [
       [255, 255, 0, 255],
       [200, 200, 0, 255],
       [150, 150, 0, 255],
     ]
-    const c = new Color(new CyclingColor(frames))
+    const c = new Color(new CyclingColorBehavior(frames))
     expect(c.rgba(mockCtx(0))).toEqual([255, 255, 0, 255])
     expect(c.rgba(mockCtx(1))).toEqual([200, 200, 0, 255])
     expect(c.rgba(mockCtx(2))).toEqual([150, 150, 0, 255])
@@ -118,14 +118,14 @@ describe('Palette', () => {
   it('mixed static + cycling cells co-exist in one palette', () => {
     const black: RgbaColor = [0, 0, 0, 255]
     const cells: Color[][] = Array.from({ length: 16 }, () =>
-      Array.from({ length: 16 }, () => new Color(new StaticColor(black))),
+      Array.from({ length: 16 }, () => new Color(new StaticColorBehavior(black))),
     )
     const yellowFrames: RgbaColor[] = [
       [255, 255, 0, 255],
       [200, 200, 0, 255],
     ]
-    cells[6][4] = new Color(new CyclingColor(yellowFrames))
-    const palette = new Palette(cells, new Color(new StaticColor(black)))
+    cells[6][4] = new Color(new CyclingColorBehavior(yellowFrames))
+    const palette = new Palette(cells, new Color(new StaticColorBehavior(black)))
 
     const row6f0 = palette.row(6, mockCtx(0))
     expect(row6f0[4]).toEqual([255, 255, 0, 255])
@@ -142,11 +142,11 @@ describe('Palette', () => {
   it('stacking multiple animated cells in different rows works without wrappers', () => {
     const black: RgbaColor = [0, 0, 0, 255]
     const cells: Color[][] = Array.from({ length: 16 }, () =>
-      Array.from({ length: 16 }, () => new Color(new StaticColor(black))),
+      Array.from({ length: 16 }, () => new Color(new StaticColorBehavior(black))),
     )
-    cells[6][13] = new Color(new CyclingColor([[255, 255, 0, 255]]))
-    cells[7][13] = new Color(new CyclingColor([[255, 0, 0, 255]]))
-    const palette = new Palette(cells, new Color(new StaticColor(black)))
+    cells[6][13] = new Color(new CyclingColorBehavior([[255, 255, 0, 255]]))
+    cells[7][13] = new Color(new CyclingColorBehavior([[255, 0, 0, 255]]))
+    const palette = new Palette(cells, new Color(new StaticColorBehavior(black)))
 
     expect(palette.row(6, mockCtx())[13]).toEqual([255, 255, 0, 255])
     expect(palette.row(7, mockCtx())[13]).toEqual([255, 0, 0, 255])
@@ -165,7 +165,7 @@ describe.skipIf(!existsSync(ROM_PATH))('PaletteFactory (vanilla ROM)', () => {
     expect(palette.cells).toHaveLength(16)
     expect(palette.cells[0]).toHaveLength(16)
     expect(palette.cells[0][0]).toBeInstanceOf(Color)
-    expect(palette.cells[0][0].behavior).toBeInstanceOf(StaticColor)
+    expect(palette.cells[0][0].behavior).toBeInstanceOf(StaticColorBehavior)
 
     // Col 0 is transparent per SNES convention; col 1+ has real colors
     for (let r = 0; r < 16; r++) {

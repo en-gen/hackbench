@@ -1,4 +1,4 @@
-import type { CellBox, RenderContext } from '../RenderTarget'
+import type { CellBox, RenderContext, RenderTarget } from '../RenderTarget'
 import type { SubtileQuad } from './Tile'
 
 /**
@@ -16,4 +16,14 @@ export interface TileBehavior {
    * (e.g. blue-P-switch "hidden" tiles shown at 50% when inactive).
    */
   selectAlpha?(ctx: RenderContext, cell: CellBox): number
+  /**
+   * Optional editor overlay drawn in a pre-pass BEFORE the tile's own pixels.
+   * Since tiles render afterward, they naturally cover the lower portion of
+   * any overlay that extends into the tile's own cell — achieving a
+   * "peek out from behind" effect without explicit clipping.
+   *
+   * Used for vine/1-up indicator icons drawn above vine-source blocks.
+   * Alpha should be 0.5 at rest, 1.0 when `ctx.cursorPx` is within the cell.
+   */
+  renderOverlay?(ctx: RenderContext, target: RenderTarget, cell: CellBox): void
 }

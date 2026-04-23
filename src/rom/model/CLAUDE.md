@@ -34,6 +34,22 @@ behaviors can mix palettes within a single 16x16 cell.
 | `PSwitchReveal` | `behaviors/PSwitchReveal.ts` | $27/$28/$29/$2A | Renders the revealed artwork; fades to 50% when `ctx.pSwitchActive` is false |
 | `PipeVariants` | `behaviors/PipeVariants.ts` | $133–$13A | Picks one of 4 palette variants from `ctx.screenPipeVariantIdx[screenOf(cell)]` — grey/green/yellow/blue per screen |
 | `SwitchPalaceAlternate` | `behaviors/SwitchPalaceAlternate.ts` | $06A–$06D, $16A–$16D | Swaps off/on quad based on `ctx.switchPalaceState.value[color]` |
+| `VineSource` | `behaviors/VineSource.ts` | acts-like $2A/$2B (LM hacks) | Carries vine-source identity; `renderOverlay` draws vine tile above block |
+| `ItemBlock` | `behaviors/ItemBlock.ts` | low bytes $11-$2D | Ports CODE_00F17F dispatch; per-column vine/1-up/star via DATA_00F080/F100; `renderOverlay` draws indicator |
+
+### Editor overlays via `renderOverlay`
+
+`TileBehavior` has an optional `renderOverlay?(ctx, target, cell): void`.
+`SmwMap.render()` calls a pre-pass (`renderL1Overlays`) **before** drawing
+L1 tiles, so the overlay renders first and the tile's own pixels cover the
+lower half — producing a "peek from behind" effect without any explicit clip.
+
+Rules for `renderOverlay` implementations:
+- Draw at `cell.tl.y - 8` (8 px above the tile) for a standard indicator.
+- Alpha: `0.5` at rest; `1.0` when `ctx.cursorPx` falls within the cell.
+- Do **not** add overlay logic to the webview (`main.ts`). If you find
+  yourself writing canvas 2D overlay code for a tile-specific visual
+  (vine icon, item indicator, etc.), put it here instead.
 
 ### Factory wiring
 
@@ -41,9 +57,9 @@ behaviors can mix palettes within a single 16x16 cell.
 attaches to which tile ID. The flow is:
 
 1. Load all Map16 quads from ROM.
-2. For each tile ID, check if it belongs to a special group (P-switch hidden,
-   pipe, switch-palace). If yes, construct the right behavior class and skip
-   the default. If no, wrap it in `StaticQuad`.
+2. For each tile ID, check if it belongs to a special group (item block,
+   P-switch hidden, pipe, switch-palace, vine source). If yes, construct the
+   right behavior class and skip the default. If no, wrap it in `StaticQuad`.
 3. Nothing else. No per-frame logic. No switch-on-ID in the renderer.
 
 ## Sprite rendering

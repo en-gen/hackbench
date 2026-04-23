@@ -6,9 +6,9 @@ import {
 } from '../../GfxLoader'
 import type { CharBehavior } from './CharBehavior'
 import { Char } from './Char'
-import { AnimatedPixels } from './behaviors/AnimatedPixels'
-import { PSwitchAlternate } from './behaviors/PSwitchAlternate'
-import { StaticPixels } from './behaviors/StaticPixels'
+import { AnimatedPixelsBehavior } from './behaviors/AnimatedPixelsBehavior'
+import { PSwitchAlternateBehavior } from './behaviors/PSwitchAlternateBehavior'
+import { StaticPixelsBehavior } from './behaviors/StaticPixelsBehavior'
 
 const TILES_PER_SLOT = 4
 
@@ -29,10 +29,10 @@ export interface PSwitchPair {
  * Build a char graph from a loaded VRAM state.
  *
  * Behavior selection per char, in order of precedence:
- *   1. If the char has a `PSwitchPair` entry, wrap in `PSwitchAlternate`
+ *   1. If the char has a `PSwitchPair` entry, wrap in `PSwitchAlternateBehavior`
  *      over the base behavior (static or animated) and the alt's base.
- *   2. Else if the char is in an animation slot, wrap in `AnimatedPixels`.
- *   3. Else `StaticPixels`.
+ *   2. Else if the char is in an animation slot, wrap in `AnimatedPixelsBehavior`.
+ *   3. Else `StaticPixelsBehavior`.
  *
  * Passing `pSwitchPairs = []` (the default) produces no P-switch
  * wrapping — levels render correctly without animation. The full
@@ -57,7 +57,7 @@ export function buildChars(
       if (!pixels) continue
       const charNum = base + i
       const frames = animFrames.get(charNum)
-      baseBehaviors.set(charNum, frames ? new AnimatedPixels(frames) : new StaticPixels(pixels))
+      baseBehaviors.set(charNum, frames ? new AnimatedPixelsBehavior(frames) : new StaticPixelsBehavior(pixels))
     }
   }
 
@@ -65,7 +65,7 @@ export function buildChars(
   for (const [charNum, base] of baseBehaviors) {
     const altNum = pSwitchByNormal.get(charNum)
     const alt = altNum !== undefined ? baseBehaviors.get(altNum) : undefined
-    const behavior = alt ? new PSwitchAlternate(base, alt) : base
+    const behavior = alt ? new PSwitchAlternateBehavior(base, alt) : base
     chars.set(charNum, new Char(charNum, behavior))
   }
   return chars

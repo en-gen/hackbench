@@ -6,11 +6,11 @@ import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildChars } from '../../../../src/rom/model/chars/CharFactory'
 import { Char } from '../../../../src/rom/model/chars/Char'
-import { StaticPixels } from '../../../../src/rom/model/chars/behaviors/StaticPixels'
+import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { SubTile } from '../../../../src/rom/model/tiles/SubTile'
 import { Tile, type SubtileQuad } from '../../../../src/rom/model/tiles/Tile'
 import { buildTiles } from '../../../../src/rom/model/tiles/TileFactory'
-import { SwitchPalaceAlternate } from '../../../../src/rom/model/tiles/behaviors/SwitchPalaceAlternate'
+import { SwitchPalaceAlternateBehavior } from '../../../../src/rom/model/tiles/behaviors/SwitchPalaceAlternateBehavior'
 import type { RenderContext } from '../../../../src/rom/model/RenderTarget'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
@@ -31,7 +31,7 @@ function mockCtx(switchPalaceState: readonly [boolean, boolean, boolean, boolean
 function makeQuad(tag: number): SubtileQuad {
   const sub = () =>
     new SubTile(
-      new Char(tag, new StaticPixels(new Uint8Array(64))),
+      new Char(tag, new StaticPixelsBehavior(new Uint8Array(64))),
       0,
       false,
       false,
@@ -40,25 +40,25 @@ function makeQuad(tag: number): SubtileQuad {
   return [sub(), sub(), sub(), sub()]
 }
 
-describe('SwitchPalaceAlternate behavior', () => {
+describe('SwitchPalaceAlternateBehavior behavior', () => {
   it('returns the off quad when the color slot is false', () => {
     const off = makeQuad(1)
     const on = makeQuad(2)
-    const b = new SwitchPalaceAlternate(off, on, 0)
+    const b = new SwitchPalaceAlternateBehavior(off, on, 0)
     expect(b.selectQuad(mockCtx([false, false, false, false]))).toBe(off)
   })
 
   it('returns the on quad when the color slot is true', () => {
     const off = makeQuad(1)
     const on = makeQuad(2)
-    const b = new SwitchPalaceAlternate(off, on, 2)
+    const b = new SwitchPalaceAlternateBehavior(off, on, 2)
     expect(b.selectQuad(mockCtx([false, false, true, false]))).toBe(on)
   })
 
   it('reads only the specific color slot, not others', () => {
     const off = makeQuad(1)
     const on = makeQuad(2)
-    const b = new SwitchPalaceAlternate(off, on, 1) // green
+    const b = new SwitchPalaceAlternateBehavior(off, on, 1) // green
     // yellow + red + blue on, green off → still returns off
     expect(b.selectQuad(mockCtx([true, false, true, true]))).toBe(off)
   })
@@ -66,7 +66,7 @@ describe('SwitchPalaceAlternate behavior', () => {
   it('computed() invalidates only when switchPalaceState ref changes', () => {
     const off = makeQuad(1)
     const on = makeQuad(2)
-    const b = new SwitchPalaceAlternate(off, on, 0)
+    const b = new SwitchPalaceAlternateBehavior(off, on, 0)
     const ctx = mockCtx([false, false, false, false])
     const reactive = computed(() => b.selectQuad(ctx))
 
@@ -81,7 +81,7 @@ describe('SwitchPalaceAlternate behavior', () => {
 })
 
 describe.skipIf(!existsSync(ROM_PATH))('TileFactory switch-palace wiring (vanilla ROM)', () => {
-  it('$06A-$06D and $16A-$16D all wear SwitchPalaceAlternate', () => {
+  it('$06A-$06D and $16A-$16D all wear SwitchPalaceAlternateBehavior', () => {
     const rom = SmwRom.open(ROM_PATH)
     const raw = rom.getLevelRawData(0x105)!
     const header = parseLevelHeader(raw)
@@ -94,17 +94,17 @@ describe.skipIf(!existsSync(ROM_PATH))('TileFactory switch-palace wiring (vanill
       const on = tiles.get(0x16A + c)!
       expect(off, `off $${(0x06A + c).toString(16)}`).toBeInstanceOf(Tile)
       expect(on, `on $${(0x16A + c).toString(16)}`).toBeInstanceOf(Tile)
-      expect(off.behavior).toBeInstanceOf(SwitchPalaceAlternate)
-      expect(on.behavior).toBeInstanceOf(SwitchPalaceAlternate)
+      expect(off.behavior).toBeInstanceOf(SwitchPalaceAlternateBehavior)
+      expect(on.behavior).toBeInstanceOf(SwitchPalaceAlternateBehavior)
     }
 
     // With color 0 set, $06A and $16A both select the "on" quad
     const ctx = mockCtx([true, false, false, false])
     const off06A = tiles.get(0x06A)!
     const on16A = tiles.get(0x16A)!
-    const q1 = off06A.behavior as SwitchPalaceAlternate
-    const q2 = on16A.behavior as SwitchPalaceAlternate
-    expect(q1.selectQuad(ctx)).toBe((q1 as SwitchPalaceAlternate).on)
-    expect(q2.selectQuad(ctx)).toBe((q2 as SwitchPalaceAlternate).on)
+    const q1 = off06A.behavior as SwitchPalaceAlternateBehavior
+    const q2 = on16A.behavior as SwitchPalaceAlternateBehavior
+    expect(q1.selectQuad(ctx)).toBe((q1 as SwitchPalaceAlternateBehavior).on)
+    expect(q2.selectQuad(ctx)).toBe((q2 as SwitchPalaceAlternateBehavior).on)
   })
 })
