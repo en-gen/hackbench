@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { computed, ref } from '@vue/reactivity'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { buildChars } from '../../../../src/rom/model/chars/CharFactory'
-import { AnimatedPixels } from '../../../../src/rom/model/chars/behaviors/AnimatedPixels'
-import { PSwitchAlternate } from '../../../../src/rom/model/chars/behaviors/PSwitchAlternate'
-import { StaticPixels } from '../../../../src/rom/model/chars/behaviors/StaticPixels'
+import { AnimatedPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/AnimatedPixelsBehavior'
+import { PSwitchAlternateBehavior } from '../../../../src/rom/model/chars/behaviors/PSwitchAlternateBehavior'
+import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import type { RenderContext } from '../../../../src/rom/model/RenderTarget'
 import type { VramState } from '../../../../src/rom/GfxLoader'
 
@@ -21,31 +21,31 @@ function mockCtx(pSwitchActive = false, animFrame = 0): RenderContext {
   }
 }
 
-describe('PSwitchAlternate behavior', () => {
+describe('PSwitchAlternateBehavior behavior', () => {
   it('returns the normal behavior when pSwitchActive is false', () => {
-    const normal = new StaticPixels(new Uint8Array(64).fill(1))
-    const alt = new StaticPixels(new Uint8Array(64).fill(2))
-    const b = new PSwitchAlternate(normal, alt)
-    expect(b.getPixels(mockCtx(false))).toBe((normal as StaticPixels).pixels)
+    const normal = new StaticPixelsBehavior(new Uint8Array(64).fill(1))
+    const alt = new StaticPixelsBehavior(new Uint8Array(64).fill(2))
+    const b = new PSwitchAlternateBehavior(normal, alt)
+    expect(b.getPixels(mockCtx(false))).toBe((normal as StaticPixelsBehavior).pixels)
   })
 
   it('returns the alt behavior when pSwitchActive is true', () => {
-    const normal = new StaticPixels(new Uint8Array(64).fill(1))
-    const alt = new StaticPixels(new Uint8Array(64).fill(2))
-    const b = new PSwitchAlternate(normal, alt)
-    expect(b.getPixels(mockCtx(true))).toBe((alt as StaticPixels).pixels)
+    const normal = new StaticPixelsBehavior(new Uint8Array(64).fill(1))
+    const alt = new StaticPixelsBehavior(new Uint8Array(64).fill(2))
+    const b = new PSwitchAlternateBehavior(normal, alt)
+    expect(b.getPixels(mockCtx(true))).toBe((alt as StaticPixelsBehavior).pixels)
   })
 
-  it('composes with AnimatedPixels — animated coin that responds to P-switch', () => {
+  it('composes with AnimatedPixelsBehavior — animated coin that responds to P-switch', () => {
     const coinFrames = [
       new Uint8Array(64).fill(10),
       new Uint8Array(64).fill(11),
       new Uint8Array(64).fill(12),
     ]
     const usedBlock = new Uint8Array(64).fill(99)
-    const behavior = new PSwitchAlternate(
-      new AnimatedPixels(coinFrames),
-      new StaticPixels(usedBlock),
+    const behavior = new PSwitchAlternateBehavior(
+      new AnimatedPixelsBehavior(coinFrames),
+      new StaticPixelsBehavior(usedBlock),
     )
 
     // P-switch off: cycles through coin frames
@@ -57,7 +57,7 @@ describe('PSwitchAlternate behavior', () => {
     expect(behavior.getPixels(mockCtx(true, 1))).toBe(usedBlock)
   })
 
-  it('CharFactory wraps paired chars in PSwitchAlternate over their base behaviors', () => {
+  it('CharFactory wraps paired chars in PSwitchAlternateBehavior over their base behaviors', () => {
     // Build a synthetic VRAM with two chars in the fg1 slot — coin at
     // index 0x5C (flat 0x05C) and used-block at 0x82 (flat 0x082).
     const fg1Sheet: Uint8Array[] = new Array(128)
@@ -70,22 +70,22 @@ describe('PSwitchAlternate behavior', () => {
 
     const coin = chars.get(0x5C)!
     const usedBlock = chars.get(0x82)!
-    expect(coin.behavior).toBeInstanceOf(PSwitchAlternate)
-    expect(usedBlock.behavior).toBeInstanceOf(StaticPixels) // not paired, stays plain
+    expect(coin.behavior).toBeInstanceOf(PSwitchAlternateBehavior)
+    expect(usedBlock.behavior).toBeInstanceOf(StaticPixelsBehavior) // not paired, stays plain
 
-    const psa = coin.behavior as PSwitchAlternate
-    expect(psa.normal).toBeInstanceOf(StaticPixels)
-    expect(psa.alt).toBeInstanceOf(StaticPixels)
-    expect((psa.alt as StaticPixels).pixels).toBe(fg1Sheet[0x82])
+    const psa = coin.behavior as PSwitchAlternateBehavior
+    expect(psa.normal).toBeInstanceOf(StaticPixelsBehavior)
+    expect(psa.alt).toBeInstanceOf(StaticPixelsBehavior)
+    expect((psa.alt as StaticPixelsBehavior).pixels).toBe(fg1Sheet[0x82])
   })
 
   it('computed() tracks pSwitchActive + animFrame transitively', () => {
     const ctx = mockCtx(false, 0)
     const coin = new Uint8Array(64).fill(7)
     const used = new Uint8Array(64).fill(8)
-    const behavior = new PSwitchAlternate(
-      new AnimatedPixels([coin, new Uint8Array(64).fill(70)]),
-      new StaticPixels(used),
+    const behavior = new PSwitchAlternateBehavior(
+      new AnimatedPixelsBehavior([coin, new Uint8Array(64).fill(70)]),
+      new StaticPixelsBehavior(used),
     )
     const char = new Char(0x100, behavior)
     const reactive = computed(() => char.getPixels(ctx))

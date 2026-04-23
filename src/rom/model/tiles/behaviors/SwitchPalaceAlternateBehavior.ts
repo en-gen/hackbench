@@ -13,7 +13,7 @@ import type { TileBehavior } from '../TileBehavior'
  * carry this behavior with the same off/on quad pair, matching the
  * existing editor convention where both ids respond to the toggle.
  */
-export class SwitchPalaceAlternate implements TileBehavior {
+export class SwitchPalaceAlternateBehavior implements TileBehavior {
   constructor(
     readonly off: SubtileQuad,
     readonly on: SubtileQuad,

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildSpriteLayout, type SpriteTileTables } from '../../../src/rom/SpriteTileLoader'
 import { makePlaceholderBoxChar } from '../../../src/rom/model/tiles/TileFactory'
-import { StaticPixels } from '../../../src/rom/model/chars/behaviors/StaticPixels'
+import { StaticPixelsBehavior } from '../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 
 function makeTables(overrides: Partial<SpriteTileTables> = {}): SpriteTileTables {
   const tilemap = new Uint8Array(0xFC)
@@ -227,8 +227,8 @@ describe('makePlaceholderBoxChar', () => {
 
   it('draws a border frame with palette index 3 and transparent interior', () => {
     const char = makePlaceholderBoxChar()
-    expect(char.behavior).toBeInstanceOf(StaticPixels)
-    const pixels = (char.behavior as StaticPixels).pixels
+    expect(char.behavior).toBeInstanceOf(StaticPixelsBehavior)
+    const pixels = (char.behavior as StaticPixelsBehavior).pixels
     // Top and bottom rows are all 3
     for (let x = 0; x < 8; x++) {
       expect(pixels[x]).toBe(3)       // top row

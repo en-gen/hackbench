@@ -9,14 +9,15 @@ import {
 import type { RomFile } from '../../RomFile'
 import type { Char } from '../chars/Char'
 import { Char as CharClass } from '../chars/Char'
-import { StaticPixels } from '../chars/behaviors/StaticPixels'
+import { StaticPixelsBehavior } from '../chars/behaviors/StaticPixelsBehavior'
 import { SubTile } from './SubTile'
 import { Tile, type SubtileQuad } from './Tile'
-import { PipeVariants } from './behaviors/PipeVariants'
-import { PSwitchReveal } from './behaviors/PSwitchReveal'
-import { StaticQuad } from './behaviors/StaticQuad'
-import { SwitchPalaceAlternate } from './behaviors/SwitchPalaceAlternate'
-import { VineSource } from './behaviors/VineSource'
+import { StarOneUpVineBlockBehavior, ONEUP_CHAR_NUMS, STAR_CHAR_NUMS } from './behaviors/StarOneUpVineBlockBehavior'
+import { PipeVariantsBehavior } from './behaviors/PipeVariantsBehavior'
+import { PSwitchRevealBehavior } from './behaviors/PSwitchRevealBehavior'
+import { StaticQuadBehavior } from './behaviors/StaticQuadBehavior'
+import { SwitchPalaceAlternateBehavior } from './behaviors/SwitchPalaceAlternateBehavior'
+import { VineSourceBehavior } from './behaviors/VineSourceBehavior'
 
 const SWITCH_PALACE_OFF_BASE = 0x06A
 const SWITCH_PALACE_ON_BASE = 0x16A
@@ -48,9 +49,9 @@ const P_SWITCH_REVEALS: ReadonlyMap<number, PSwitchRevealEntry> = new Map([
 /**
  * Build the Map16 tile graph for a tileset.
  *
- * Pipe tiles ($133-$13A) get `PipeVariants([v0Quad, v1Quad, v2Quad, v3Quad])`
+ * Pipe tiles ($133-$13A) get `PipeVariantsBehavior([v0Quad, v1Quad, v2Quad, v3Quad])`
  * so the rendered palette follows `ctx.pipeVariantIdx` (per-screen). Every
- * other tile gets `StaticQuad(quad)`. Further state-driven wrappers
+ * other tile gets `StaticQuadBehavior(quad)`. Further state-driven wrappers
  * (switch palace, etc) layer on top in later refactor steps.
  *
  * @param chars char graph keyed by flat VRAM char index. A missing char
@@ -72,6 +73,14 @@ export function buildTiles(
   const quads = new Map<number, SubtileQuad>()
   for (const m16 of baseTiles) quads.set(m16.id, quadFromMap16(m16, chars, placeholder))
 
+  // Vine overlay: tile $006 quad used as the indicator icon drawn above
+  // vine-source blocks. Null if this tileset has no vine tile (rare).
+  const vineOverlayQuad = quads.get(0x006) ?? null
+
+  // Item-block indicator chars from sprite OBJ VRAM.
+  const oneupChars = ONEUP_CHAR_NUMS.map(i => chars.get(i) ?? null)
+  const starChars  = STAR_CHAR_NUMS.map(i => chars.get(i) ?? null)
+
   for (const m16 of baseTiles) {
     if (isPipeTile(m16.id)) continue // handled below
     if (isSwitchPalaceTile(m16.id)) continue // handled below
@@ -80,14 +89,25 @@ export function buildTiles(
     const override = actsLike.get(m16.id)
     const actsLikeId = override ?? m16.id
     const quad = quads.get(m16.id)!
-    // Only mark as vine source when an explicit acts-like override
-    // redirects to a vine tile. Without an override we default to
-    // identity but don't infer vine behavior from the raw id —
-    // LM-edited ROMs can repurpose $02A/$02B as coins, etc. Proper
-    // support requires reading LM's acts-like hijack table.
+
+    // Tile $1A (any page) — 3-state column-cycle item block (star/1-up/vine).
+    // The block-hit dispatch keys on the Map16 low byte (CODE_00F17F), so
+    // tiles whose acts-like resolves to low byte $1A get this behavior.
+    const lowByte = actsLikeId & 0xFF
+    if (lowByte === 0x1A) {
+      tiles.set(m16.id, new Tile(m16.id, new StarOneUpVineBlockBehavior(
+        quad, vineOverlayQuad, oneupChars, starChars,
+      ), actsLikeId))
+      continue
+    }
+
+    // VineSourceBehavior for tiles whose acts-like is $2A/$2B — vine generators
+    // (DATA_00F05C index 25/26 = $03). Without reading the real LM
+    // acts-like table, only explicit overrides in the acts-like map hit
+    // this branch.
     const behavior = override !== undefined && isVineSource(override)
-      ? new VineSource(quad)
-      : new StaticQuad(quad)
+      ? new VineSourceBehavior(quad, vineOverlayQuad)
+      : new StaticQuadBehavior(quad)
     tiles.set(m16.id, new Tile(m16.id, behavior, actsLikeId))
   }
 
@@ -104,7 +124,7 @@ export function buildTiles(
       ? withPaletteOverride(srcQuad, entry.palOverride)
       : srcQuad
     const actsLikeId = actsLike.get(hiddenId) ?? hiddenId
-    tiles.set(hiddenId, new Tile(hiddenId, new PSwitchReveal(revealed), actsLikeId))
+    tiles.set(hiddenId, new Tile(hiddenId, new PSwitchRevealBehavior(revealed), actsLikeId))
   }
 
   for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) {
@@ -113,7 +133,7 @@ export function buildTiles(
       quadFromMap16(variant[i], chars, placeholder),
     )
     const actsLikeId = actsLike.get(id) ?? id
-    tiles.set(id, new Tile(id, new PipeVariants(variantQuads), actsLikeId))
+    tiles.set(id, new Tile(id, new PipeVariantsBehavior(variantQuads), actsLikeId))
   }
 
   for (let c = 0; c < SWITCH_PALACE_COLORS; c++) {
@@ -122,7 +142,7 @@ export function buildTiles(
     const offQuad = quads.get(offId)!
     const onQuad = quads.get(onId)!
     const color = c as 0 | 1 | 2 | 3
-    const behavior = new SwitchPalaceAlternate(offQuad, onQuad, color)
+    const behavior = new SwitchPalaceAlternateBehavior(offQuad, onQuad, color)
     tiles.set(offId, new Tile(offId, behavior, actsLike.get(offId) ?? offId))
     tiles.set(onId,  new Tile(onId,  behavior, actsLike.get(onId)  ?? onId))
   }
@@ -178,7 +198,7 @@ function withPaletteOverride(quad: SubtileQuad, palette: number): SubtileQuad {
 }
 
 export function makeTransparentPlaceholderChar(): Char {
-  return new CharClass(-1, new StaticPixels(new Uint8Array(64)))
+  return new CharClass(-1, new StaticPixelsBehavior(new Uint8Array(64)))
 }
 
 export function makePlaceholderBoxChar(): Char {
@@ -187,7 +207,7 @@ export function makePlaceholderBoxChar(): Char {
   for (let y = 1; y <= 6; y++) { p[y * 8] = 3; p[y * 8 + 7] = 3 }
   p[3 * 8 + 3] = 3; p[3 * 8 + 4] = 3
   p[4 * 8 + 3] = 3; p[4 * 8 + 4] = 3
-  return new CharClass(-2, new StaticPixels(p))
+  return new CharClass(-2, new StaticPixelsBehavior(p))
 }
 
 function toSubTile(
@@ -201,7 +221,7 @@ function toSubTile(
 
 function makePlaceholderChar(): Char {
   // 64 palette-index-0 pixels = fully transparent per SNES convention.
-  return new CharClass(-1, new StaticPixels(new Uint8Array(64)))
+  return new CharClass(-1, new StaticPixelsBehavior(new Uint8Array(64)))
 }
 
 // Re-export Map16Tile for callers that want to sanity-check factory input.

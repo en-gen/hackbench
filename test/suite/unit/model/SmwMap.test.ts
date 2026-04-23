@@ -3,12 +3,12 @@ import { ref } from '@vue/reactivity'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { Color } from '../../../../src/rom/model/palette/Color'
 import { Palette } from '../../../../src/rom/model/palette/Palette'
-import { StaticColor } from '../../../../src/rom/model/palette/behaviors/StaticColor'
+import { StaticColorBehavior } from '../../../../src/rom/model/palette/behaviors/StaticColorBehavior'
 import { Char } from '../../../../src/rom/model/chars/Char'
-import { StaticPixels } from '../../../../src/rom/model/chars/behaviors/StaticPixels'
+import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { SubTile } from '../../../../src/rom/model/tiles/SubTile'
 import { Tile, type SubtileQuad } from '../../../../src/rom/model/tiles/Tile'
-import { StaticQuad } from '../../../../src/rom/model/tiles/behaviors/StaticQuad'
+import { StaticQuadBehavior } from '../../../../src/rom/model/tiles/behaviors/StaticQuadBehavior'
 import { L2ObjectStream } from '../../../../src/rom/model/L2Layer'
 import type { Sprite } from '../../../../src/rom/model/sprites/Sprite'
 import { SmwMap } from '../../../../src/rom/model/SmwMap'
@@ -60,13 +60,13 @@ class MockRenderTarget implements RenderTarget {
 
 function makeCharWithPixels(id: number, mock: MockRenderTarget): Char {
   const pixels = new Uint8Array(64).fill(1) // non-zero so blits happen
-  const char = new Char(id, new StaticPixels(pixels))
+  const char = new Char(id, new StaticPixelsBehavior(pixels))
   mock.registerChar(char, pixels)
   return char
 }
 
 function makeStaticTile(id: number, quad: SubtileQuad): Tile {
-  return new Tile(id, new StaticQuad(quad))
+  return new Tile(id, new StaticQuadBehavior(quad))
 }
 
 function makeQuad(chars: [number, number, number, number], mock: MockRenderTarget, priority = false): SubtileQuad {
@@ -81,9 +81,9 @@ function makeQuad(chars: [number, number, number, number], mock: MockRenderTarge
 function makeCtx(): RenderContext {
   const black: RgbaColor = [0, 0, 0, 255]
   const cells: Color[][] = Array.from({ length: 16 }, () =>
-    Array.from({ length: 16 }, () => new Color(new StaticColor(black))),
+    Array.from({ length: 16 }, () => new Color(new StaticColorBehavior(black))),
   )
-  const palette = new Palette(cells, new Color(new StaticColor(black)))
+  const palette = new Palette(cells, new Color(new StaticColorBehavior(black)))
   return {
     animFrame: ref(0),
     palAnimFrame: ref(0),

@@ -6,13 +6,13 @@ import { Char } from '../../../../src/rom/model/chars/Char'
 import { buildChars } from '../../../../src/rom/model/chars/CharFactory'
 import { Tile } from '../../../../src/rom/model/tiles/Tile'
 import { buildTiles } from '../../../../src/rom/model/tiles/TileFactory'
-import { StaticPixels } from '../../../../src/rom/model/chars/behaviors/StaticPixels'
-import { StaticQuad } from '../../../../src/rom/model/tiles/behaviors/StaticQuad'
+import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
+import { StaticQuadBehavior } from '../../../../src/rom/model/tiles/behaviors/StaticQuadBehavior'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
 
 describe.skipIf(!existsSync(ROM_PATH))('CharFactory / TileFactory (vanilla ROM)', () => {
-  it('buildChars wraps every loaded VRAM char as a Char with StaticPixels', () => {
+  it('buildChars wraps every loaded VRAM char as a Char with StaticPixelsBehavior', () => {
     const rom = SmwRom.open(ROM_PATH)
     const vram = loadVram(rom.rom, /* tilesetId */ 0, /* spriteSet */ 0)
 
@@ -22,11 +22,11 @@ describe.skipIf(!existsSync(ROM_PATH))('CharFactory / TileFactory (vanilla ROM)'
 
     const sample = chars.values().next().value as Char
     expect(sample).toBeInstanceOf(Char)
-    expect(sample.behavior).toBeInstanceOf(StaticPixels)
+    expect(sample.behavior).toBeInstanceOf(StaticPixelsBehavior)
     expect(sample.getPixels({} as never)).toHaveLength(64)
   })
 
-  it('buildTiles wraps every Map16 entry as a Tile with StaticQuad', () => {
+  it('buildTiles wraps every Map16 entry as a Tile with StaticQuadBehavior', () => {
     const rom = SmwRom.open(ROM_PATH)
     const vram = loadVram(rom.rom, 0, 0)
     const chars = buildChars(vram)
@@ -38,7 +38,7 @@ describe.skipIf(!existsSync(ROM_PATH))('CharFactory / TileFactory (vanilla ROM)'
 
     const tile = tiles.get(0x100)
     expect(tile).toBeInstanceOf(Tile)
-    expect(tile!.behavior).toBeInstanceOf(StaticQuad)
+    expect(tile!.behavior).toBeInstanceOf(StaticQuadBehavior)
   })
 
   it('tile subtiles reference real chars from the graph', () => {
@@ -50,7 +50,7 @@ describe.skipIf(!existsSync(ROM_PATH))('CharFactory / TileFactory (vanilla ROM)'
     // Tile $100 is a standard ground tile in SMW; verify its TL subtile
     // references a char that exists in the char graph.
     const tile = tiles.get(0x100)!
-    const quad = (tile.behavior as StaticQuad).quad
+    const quad = (tile.behavior as StaticQuadBehavior).quad
     const tl = quad[0]
     // The TL subtile's char came from the chars map (or placeholder id=-1).
     // A real ground tile should hit a real char.

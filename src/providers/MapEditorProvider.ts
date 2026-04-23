@@ -154,7 +154,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       const map16bg = session?.getMap16BG() ?? loadAllMap16BG(rom.rom)
 
       // Animation timing — just the counters. The model reads VRAM directly
-      // via AnimatedPixels behaviors, so the webview never sees raw frames.
+      // via AnimatedPixelsBehavior behaviors, so the webview never sees raw frames.
       let animIntervalMs = ANIM_INTERVAL_MS
       let animFrameCount = 1
       try {

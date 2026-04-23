@@ -1,8 +1,8 @@
 import { Char } from './chars/Char'
 import type { CharBehavior } from './chars/CharBehavior'
-import { AnimatedPixels } from './chars/behaviors/AnimatedPixels'
-import { PSwitchAlternate } from './chars/behaviors/PSwitchAlternate'
-import { StaticPixels } from './chars/behaviors/StaticPixels'
+import { AnimatedPixelsBehavior } from './chars/behaviors/AnimatedPixelsBehavior'
+import { PSwitchAlternateBehavior } from './chars/behaviors/PSwitchAlternateBehavior'
+import { StaticPixelsBehavior } from './chars/behaviors/StaticPixelsBehavior'
 import { L2ObjectStream, L2Preset, type L2Layer } from './L2Layer'
 import { L3TilemapLayer, type L3Layer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
@@ -18,8 +18,8 @@ import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlat
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
-import { CyclingColor } from './palette/behaviors/CyclingColor'
-import { StaticColor } from './palette/behaviors/StaticColor'
+import { CyclingColorBehavior } from './palette/behaviors/CyclingColorBehavior'
+import { StaticColorBehavior } from './palette/behaviors/StaticColorBehavior'
 import { Palette } from './palette/Palette'
 import type {
   CharDescriptor,
@@ -38,11 +38,12 @@ import type {
 import { SmwMap } from './SmwMap'
 import { SubTile } from './tiles/SubTile'
 import { Tile, type SubtileQuad } from './tiles/Tile'
-import { PipeVariants } from './tiles/behaviors/PipeVariants'
-import { PSwitchReveal } from './tiles/behaviors/PSwitchReveal'
-import { StaticQuad } from './tiles/behaviors/StaticQuad'
-import { SwitchPalaceAlternate } from './tiles/behaviors/SwitchPalaceAlternate'
-import { VineSource } from './tiles/behaviors/VineSource'
+import { PipeVariantsBehavior } from './tiles/behaviors/PipeVariantsBehavior'
+import { PSwitchRevealBehavior } from './tiles/behaviors/PSwitchRevealBehavior'
+import { StaticQuadBehavior } from './tiles/behaviors/StaticQuadBehavior'
+import { SwitchPalaceAlternateBehavior } from './tiles/behaviors/SwitchPalaceAlternateBehavior'
+import { StarOneUpVineBlockBehavior } from './tiles/behaviors/StarOneUpVineBlockBehavior'
+import { VineSourceBehavior } from './tiles/behaviors/VineSourceBehavior'
 
 /**
  * Rebuild the model graph from a `MapPayload`. This is the single
@@ -61,7 +62,7 @@ export function buildGraph(payload: MapPayload): {
     chars.set(id, new Char(id, buildCharBehavior(desc)))
   }
 
-  const placeholderChar = new Char(-1, new StaticPixels(new Uint8Array(64)))
+  const placeholderChar = new Char(-1, new StaticPixelsBehavior(new Uint8Array(64)))
   const tiles = new Map<number, Tile>()
   for (const [idStr, desc] of Object.entries(payload.tiles)) {
     const id = Number(idStr)
@@ -203,23 +204,23 @@ function buildCharBehavior(desc: CharDescriptor): CharBehavior {
     case 'static': {
       const pixels = Array.isArray(desc.pixels) ? desc.pixels : Array.from(desc.pixels as ArrayLike<number>)
       if (!pixels || pixels.length !== 64) {
-        console.warn('[rehydrate] StaticPixels desc has bad pixel length:', pixels?.length ?? 'undefined')
-        return new StaticPixels(new Uint8Array(64))
+        console.warn('[rehydrate] StaticPixelsBehavior desc has bad pixel length:', pixels?.length ?? 'undefined')
+        return new StaticPixelsBehavior(new Uint8Array(64))
       }
-      return new StaticPixels(new Uint8Array(pixels))
+      return new StaticPixelsBehavior(new Uint8Array(pixels))
     }
     case 'animated': {
       if (!desc.frames || desc.frames.length === 0 || desc.frames.some(f => !f || f.length !== 64)) {
-        console.warn('[rehydrate] AnimatedPixels desc has bad frames:', {
+        console.warn('[rehydrate] AnimatedPixelsBehavior desc has bad frames:', {
           frameCount: desc.frames?.length,
           frameLengths: desc.frames?.map(f => f?.length),
         })
-        return new StaticPixels(new Uint8Array(64))
+        return new StaticPixelsBehavior(new Uint8Array(64))
       }
-      return new AnimatedPixels(desc.frames.map(f => new Uint8Array(f)))
+      return new AnimatedPixelsBehavior(desc.frames.map(f => new Uint8Array(f)))
     }
     case 'pSwitchAlt':
-      return new PSwitchAlternate(
+      return new PSwitchAlternateBehavior(
         buildCharBehavior(desc.normal),
         buildCharBehavior(desc.alt),
       )
@@ -233,19 +234,29 @@ function buildTileBehavior(
 ) {
   switch (desc.kind) {
     case 'static':
-      return new StaticQuad(buildQuad(desc.quad, chars, placeholder))
+      return new StaticQuadBehavior(buildQuad(desc.quad, chars, placeholder))
     case 'vineSource':
-      return new VineSource(buildQuad(desc.quad, chars, placeholder))
+      return new VineSourceBehavior(
+        buildQuad(desc.quad, chars, placeholder),
+        desc.overlayQuad ? buildQuad(desc.overlayQuad, chars, placeholder) : null,
+      )
+    case 'starOneUpVineBlock':
+      return new StarOneUpVineBlockBehavior(
+        buildQuad(desc.quad, chars, placeholder),
+        desc.vineOverlayQuad ? buildQuad(desc.vineOverlayQuad, chars, placeholder) : null,
+        desc.oneupCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
+        desc.starCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
+      )
     case 'pipeVariants':
-      return new PipeVariants(desc.variants.map(q => buildQuad(q, chars, placeholder)))
+      return new PipeVariantsBehavior(desc.variants.map(q => buildQuad(q, chars, placeholder)))
     case 'switchPalaceAlternate':
-      return new SwitchPalaceAlternate(
+      return new SwitchPalaceAlternateBehavior(
         buildQuad(desc.off, chars, placeholder),
         buildQuad(desc.on, chars, placeholder),
         desc.color,
       )
     case 'pSwitchReveal':
-      return new PSwitchReveal(
+      return new PSwitchRevealBehavior(
         buildQuad(desc.revealedQuad, chars, placeholder),
         desc.offAlpha ?? 0.5,
       )
@@ -278,9 +289,9 @@ function buildPalette(desc: PaletteDescriptor): Palette {
 function buildColorBehavior(desc: ColorDescriptor): ColorBehavior {
   switch (desc.kind) {
     case 'static':
-      return new StaticColor(desc.value)
+      return new StaticColorBehavior(desc.value)
     case 'cycling':
-      return new CyclingColor(desc.frames)
+      return new CyclingColorBehavior(desc.frames)
   }
 }
 

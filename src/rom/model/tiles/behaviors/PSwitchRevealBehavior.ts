@@ -20,7 +20,7 @@ import type { TileBehavior } from '../TileBehavior'
  * Matches legacy editor semantics from `pSwitchReveal(tileId)` +
  * `ctx.globalAlpha = pSwitchBlueOn ? 1.0 : 0.5`.
  */
-export class PSwitchReveal implements TileBehavior {
+export class PSwitchRevealBehavior implements TileBehavior {
   constructor(
     readonly revealedQuad: SubtileQuad,
     readonly offAlpha: number = 0.5,

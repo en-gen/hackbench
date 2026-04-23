@@ -20,7 +20,7 @@ import {
 import { loadAllMap16BG } from '../Map16'
 import type { Char } from './chars/Char'
 import { L2ObjectStream, L2Preset, type L2Layer } from './L2Layer'
-import { StaticQuad } from './tiles/behaviors/StaticQuad'
+import { StaticQuadBehavior } from './tiles/behaviors/StaticQuadBehavior'
 import { makeTransparentPlaceholderChar, quadFromMap16 } from './tiles/TileFactory'
 import { Tile } from './tiles/Tile'
 
@@ -93,7 +93,7 @@ export function buildBgTiles(rom: RomFile, chars: Map<number, Char>): Map<number
   const bgMap16 = loadAllMap16BG(rom)
   const tiles = new Map<number, Tile>()
   for (const m16 of bgMap16) {
-    tiles.set(m16.id, new Tile(m16.id, new StaticQuad(quadFromMap16(m16, chars, placeholder))))
+    tiles.set(m16.id, new Tile(m16.id, new StaticQuadBehavior(quadFromMap16(m16, chars, placeholder))))
   }
   return tiles
 }

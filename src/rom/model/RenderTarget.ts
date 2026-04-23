@@ -68,14 +68,14 @@ export interface RenderContext {
   zoom: Ref<number>
   layerToggles: Ref<LayerToggles>
   /**
-   * Level orientation — lets behaviors that care (PipeVariants) decide
+   * Level orientation — lets behaviors that care (PipeVariantsBehavior) decide
    * whether the "scrolling axis" is X or Y when computing which screen
    * a given cell belongs to.
    */
   levelOrientation?: 'horizontal' | 'vertical'
   /**
    * Per-screen MAP16AppTable index (0..3), one entry per screen in the
-   * level. PipeVariants picks its variant via
+   * level. PipeVariantsBehavior picks its variant via
    * `screenPipeVariantIdx[screenOf(cell)]`.
    */
   screenPipeVariantIdx?: readonly number[]

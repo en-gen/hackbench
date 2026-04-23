@@ -11,7 +11,7 @@ import type { CharBehavior } from '../CharBehavior'
  * Frame index wraps modulo `frames.length`; most slots use 4 frames
  * but the behavior doesn't assume a fixed count.
  */
-export class AnimatedPixels implements CharBehavior {
+export class AnimatedPixelsBehavior implements CharBehavior {
   constructor(readonly frames: readonly Uint8Array[]) {}
 
   getPixels(ctx: RenderContext): Uint8Array {
