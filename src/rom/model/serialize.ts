@@ -7,10 +7,12 @@ import { StaticPixels } from './chars/behaviors/StaticPixels'
 import { L2ObjectStream, L2Preset, type L2Layer } from './L2Layer'
 import { L3TilemapLayer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
+import { CompositeSprite } from './sprites/CompositeSprite'
 import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedBlockAppearance } from './sprites/appearances/WingedBlockAppearance'
+import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -85,13 +87,17 @@ function serializeSprite(s: Sprite): SpriteDescriptor {
   if (s.behavior.spawns !== undefined) behavior.spawns = s.behavior.spawns
   if (s.behavior.isGenerator !== undefined) behavior.isGenerator = s.behavior.isGenerator
   if (s.behavior.reactRangeDy !== undefined) behavior.reactRangeDy = s.behavior.reactRangeDy
-  return {
+  const desc: SpriteDescriptor = {
     id: s.id,
     x: s.x,
     y: s.y,
     appearance: serializeAppearance(s.appearance),
     behavior,
   }
+  if (s instanceof CompositeSprite && s.secondary) {
+    desc.secondary = serializeSprite(s.secondary)
+  }
+  return desc
 }
 
 function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
@@ -107,6 +113,13 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
     return {
       kind: 'wingedBlock',
       bodyParts:  a.bodyParts.map(partDescriptor),
+      wingFrames: [a.wingFrames[0].map(partDescriptor), a.wingFrames[1].map(partDescriptor)],
+    }
+  }
+  if (a instanceof HammerBroPlatformAppearance) {
+    return {
+      kind: 'hammerBroPlatform',
+      platformParts: a.platformParts.map(partDescriptor),
       wingFrames: [a.wingFrames[0].map(partDescriptor), a.wingFrames[1].map(partDescriptor)],
     }
   }

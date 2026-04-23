@@ -28,6 +28,7 @@ describe('getSpriteMetadata', () => {
   })
 
   it('returns undefined for IDs beyond the defined range', () => {
+    expect(getSpriteMetadata(0xE8)).toBeUndefined()
     expect(getSpriteMetadata(0xFF)).toBeUndefined()
     expect(getSpriteMetadata(0xF0)).toBeUndefined()
   })
