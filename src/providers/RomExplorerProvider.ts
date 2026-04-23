@@ -7,7 +7,7 @@ import { buildTransitiveLevelMap } from '../rom/LevelTree'
 // ── Shared tree item types ─────────────────────────────────────────────────────
 
 type MapsTreeItem = RomInfoItem | LevelFolder | RoomItem
-type ResourcesTreeItem = SectionFolder | RoomItem | PaletteGroupItem | GfxFileItem | PlaceholderItem
+type ResourcesTreeItem = StatsItem | GraphItem | TileCompItem | SectionFolder | RoomItem | PaletteGroupItem | GfxFileItem | PlaceholderItem
 
 /** Collapsible header item showing ROM identity; levels nest under it. */
 class RomInfoItem extends vscode.TreeItem {
@@ -120,6 +120,49 @@ class GfxFileItem extends vscode.TreeItem {
   }
 }
 
+/** ROM statistics dashboard opener. */
+class StatsItem extends vscode.TreeItem {
+  constructor(slug: string) {
+    super('ROM Info', vscode.TreeItemCollapsibleState.None)
+    this.iconPath = new vscode.ThemeIcon('info')
+    this.command = {
+      command: 'vscode.open',
+      title: 'ROM Statistics',
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/info.smwinfo`)]
+    }
+    this.contextValue = 'smwRomStats'
+  }
+}
+
+/** Tileset comparison view opener. */
+class TileCompItem extends vscode.TreeItem {
+  constructor(slug: string) {
+    super('Tileset Compare', vscode.TreeItemCollapsibleState.None)
+    this.iconPath = new vscode.ThemeIcon('diff')
+    this.command = {
+      command: 'vscode.open',
+      title: 'Open Tileset Comparison',
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/compare.smwtilecomp`)]
+    }
+    this.contextValue = 'smwTileComp'
+  }
+}
+
+/** Level interconnection graph opener. */
+class GraphItem extends vscode.TreeItem {
+  constructor(slug: string) {
+    super('Level Graph', vscode.TreeItemCollapsibleState.None)
+    this.iconPath = new vscode.ThemeIcon('type-hierarchy')
+    this.command = {
+      command: 'vscode.open',
+      title: 'Open Level Graph',
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/graph.smwgraph`)]
+    }
+    this.contextValue = 'smwLevelGraph'
+  }
+}
+
+
 class PlaceholderItem extends vscode.TreeItem {
   constructor(label: string) {
     super(label, vscode.TreeItemCollapsibleState.None)
@@ -165,13 +208,11 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
       const exitGraph  = rom.buildLevelExitGraph()
       const transitive = buildTransitiveLevelMap(overworld, exitGraph)
 
-      const folders = overworld.map(index =>
-        new LevelFolder(
-          index, slug,
-          transitive.get(index) ?? [],
-          rom.getLevelName(index) ?? undefined,
-        )
-      )
+      const folders = overworld.map(index => new LevelFolder(
+        index, slug,
+        transitive.get(index) ?? [],
+        rom.getLevelName(index) ?? undefined,
+      ))
       return folders
     }
 
@@ -247,15 +288,7 @@ export class ResourcesProvider implements vscode.TreeDataProvider<ResourcesTreeI
         [new PlaceholderItem('ROM Code')],
         true,
       )
-      const musicItem = new vscode.TreeItem('Music', vscode.TreeItemCollapsibleState.None)
-      musicItem.iconPath = new vscode.ThemeIcon('music')
-      musicItem.command = {
-        command: 'vscode.open',
-        title: 'Open Music Player',
-        arguments: [vscode.Uri.parse(`smwrom:/${slug}/music/player.smwmusic`)]
-      }
-
-      return [roomsSection, palettesSection, gfxSection, asmSection, musicItem]
+      return [new StatsItem(slug), new GraphItem(slug), new TileCompItem(slug), roomsSection, palettesSection, gfxSection, asmSection]
     }
 
     if (element instanceof SectionFolder) return element.children

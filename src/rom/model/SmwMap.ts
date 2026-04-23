@@ -86,7 +86,7 @@ export class SmwMap {
     if (toggles.l2) this.l2?.render(levelCtx, target)
     if (toggles.l1) this.renderL1(levelCtx, target, 'nonPriority')
     if (toggles.sprites) {
-      for (const sprite of this.sortedSprites()) sprite.render(levelCtx, target)
+      for (const sprite of this.spritesInRenderOrder()) sprite.render(levelCtx, target)
     }
     if (toggles.l1) this.renderL1(levelCtx, target, 'priority')
     // layer3Priority=true → L3 in front of sprites, behind L1 priority
@@ -107,7 +107,7 @@ export class SmwMap {
     }
   }
 
-  private sortedSprites(): Sprite[] {
+  spritesInRenderOrder(): Sprite[] {
     const horizontal = this.header.orientation === 'horizontal'
     return [...this.sprites].sort((a, b) => {
       if (horizontal) return a.x - b.x || a.y - b.y

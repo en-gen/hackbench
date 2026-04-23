@@ -1,6 +1,6 @@
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
-import type { SpriteAppearance } from '../SpriteAppearance'
-import type { SpritePart } from './StaticSpriteAppearance'
+import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
+import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
 
 /**
  * P-Switch (sprite $3E): selects blue or silver OBJ palette at render time
@@ -18,7 +18,11 @@ export class PSwitchAppearance implements SpriteAppearance {
   static readonly BLUE_PALETTE   = 8 + ((0x06 >> 1) & 0x07)  // 11
   static readonly SILVER_PALETTE = 8 + ((0x02 >> 1) & 0x07)  // 9
 
-  constructor(readonly parts: readonly SpritePart[]) {}
+  readonly hitRect: HitRect
+
+  constructor(readonly parts: readonly SpritePart[]) {
+    this.hitRect = partsHitRect(parts)
+  }
 
   render(ctx: RenderContext, target: RenderTarget, x: number, y: number): void {
     const palette = ((x >> 4) & 1) === 0

@@ -168,4 +168,48 @@ const musicPlayerWebviewConfig = {
   devtool: 'nosources-source-map'
 }
 
-module.exports = [extensionConfig, mapEditorWebviewConfig, paletteEditorWebviewConfig, gfxViewerWebviewConfig, musicPlayerWebviewConfig]
+/** @type {import('webpack').Configuration} */
+const levelGraphWebviewConfig = {
+  target: 'web',
+  mode: 'none',
+  entry: './src/webview/levelGraph/main.ts',
+  output: {
+    path: path.resolve(__dirname, 'dist/webview'),
+    filename: 'levelGraph.js'
+  },
+  resolve: { extensions: ['.ts', '.js'] },
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        exclude: /node_modules/,
+        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } }
+      }
+    ]
+  },
+  devtool: 'nosources-source-map'
+}
+
+/** @type {import('webpack').Configuration} */
+const tilesetCompareWebviewConfig = {
+  target: 'web',
+  mode: 'none',
+  entry: './src/webview/tilesetCompare/main.ts',
+  output: {
+    path: path.resolve(__dirname, 'dist/webview'),
+    filename: 'tilesetCompare.js'
+  },
+  resolve: { extensions: ['.ts', '.js'] },
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        exclude: /node_modules/,
+        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } }
+      }
+    ]
+  },
+  devtool: 'nosources-source-map'
+}
+
+module.exports = [extensionConfig, mapEditorWebviewConfig, paletteEditorWebviewConfig, gfxViewerWebviewConfig, musicPlayerWebviewConfig, levelGraphWebviewConfig, tilesetCompareWebviewConfig]

@@ -18,8 +18,66 @@
  */
 
 import { RomFile } from './RomFile'
-import { parseLevelObjects } from './LevelParser'
+import {
+  parseLevelHeader, parseLevelObjects, isLevelModeVertical,
+  SCREEN_W, SCREEN_H, SCREEN_W_VERT, SCREEN_H_VERT,
+} from './LevelParser'
+import { expandMap, type TileGrid, TILE_EMPTY } from './ObjectExpander'
 import { getLevelNameByIndex } from './SmwLevelNames'
+
+// ── Exit-trigger detection ─────────────────────────────────────────────────────
+
+// Standard vertical-pipe body/top/bottom tiles on Map16 page 0.
+// Sources: DATA_0DB49C body bytes ($0A, $0C); context-merge tables at
+// CODE_0DB4D9 / CODE_0DB4FE produce $08/$0E triggers and $09/$0B/$0D/$0F
+// merged ends; fused adjacent-pipe corners are $19-$1C.
+const PIPE_TILES_P0 = new Set([
+  0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+  0x19, 0x1A, 0x1B, 0x1C,
+])
+
+// Page-1 pipe range: pipe-dispatcher variants 0-9 (object $18, bank_0D line
+// 2278) write page-1 lip/body tiles. Vanilla SMW keeps all of them in $180-$1FF.
+const PIPE_PAGE1_MIN = 0x180
+const PIPE_PAGE1_MAX = 0x1FF
+
+// Ghost-house door/window tiles on Map16 page 0 written by ext objects $4D-$50
+// (CODE_0DCE67, bank_0D line 5500). Data table tiles: $7A-$85.
+const DOOR_TILES_P0 = new Set([
+  0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85,
+])
+
+/**
+ * Returns true if screen `screenIndex` in `grid` contains at least one tile
+ * that can trigger a level exit: a pipe body/entrance, a ghost-house door, or
+ * an open-bottom column (pit). Used by buildLevelExitGraph to suppress
+ * vestigial exit entries on screens that have no reachable exit mechanism
+ * (e.g. Valley Fortress screen 14 — the sealed Reznor arena).
+ */
+export function screenHasExitTrigger(
+  grid: TileGrid,
+  screenIndex: number,
+  isVertical: boolean,
+): boolean {
+  const colStart = isVertical ? 0              : screenIndex * SCREEN_W
+  const colEnd   = isVertical ? SCREEN_W_VERT  : colStart + SCREEN_W
+  const rowStart = isVertical ? screenIndex * SCREEN_H_VERT : 0
+  const rowEnd   = isVertical ? rowStart + SCREEN_H_VERT    : SCREEN_H
+  const lastRow  = rowEnd - 1
+
+  for (let col = colStart; col < colEnd; col++) {
+    const bottomTile = grid[lastRow]?.[col] ?? TILE_EMPTY
+    if (bottomTile === TILE_EMPTY) return true   // open bottom = pit
+
+    for (let row = rowStart; row < rowEnd; row++) {
+      const tile = grid[row]?.[col] ?? TILE_EMPTY
+      if (PIPE_TILES_P0.has(tile)) return true
+      if (tile >= PIPE_PAGE1_MIN && tile <= PIPE_PAGE1_MAX) return true
+      if (DOOR_TILES_P0.has(tile)) return true
+    }
+  }
+  return false
+}
 
 /** SNES addresses for SMW ROM structures. */
 export const ADDR = {
@@ -322,18 +380,34 @@ export class SmwRom {
       let parsed
       try { parsed = parseLevelObjects(rawL1) } catch { continue }
 
+      const exitObjs = parsed.objects.filter(o => o.screenExitDest !== undefined)
+      if (exitObjs.length === 0) continue
+
+      // Expand Map16 grid to suppress vestigial exits (screens with no pipe/door/pit).
+      const header = parseLevelHeader(rawL1)
+      const isVertical = isLevelModeVertical(header.levelMode)
+      let grid: TileGrid | undefined
+      try {
+        grid = expandMap(
+          parsed.objects, header.levelLength, this.rom,
+          header.objectTileset, isVertical, header.levelMode, levelIdx,
+        )
+      } catch { /* leave grid undefined — skip trigger filter on error */ }
+
       const dests: number[] = []
-      for (const obj of parsed.objects) {
-        if (obj.screenExitDest === undefined) continue
+      for (const obj of exitObjs) {
+        // Skip exits on screens that contain no pipe, door, or pit.
+        if (grid && !screenHasExitTrigger(grid, obj.screen, isVertical)) continue
+
         let dest: number
         if (obj.screenExitIsSecondary) {
           // Secondary exit: look up destination in DATA_05F800 table
-          const resolved = entranceToDest.get(obj.screenExitDest)
+          const resolved = entranceToDest.get(obj.screenExitDest!)
           if (resolved === undefined) continue
           dest = resolved
         } else {
           // Primary exit: value IS the destination level directly
-          dest = obj.screenExitDest
+          dest = obj.screenExitDest!
         }
         if (dest !== levelIdx && !dests.includes(dest)) {
           dests.push(dest)

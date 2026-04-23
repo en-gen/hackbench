@@ -1,8 +1,8 @@
 import type { Char } from '../../chars/Char'
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
-import type { SpriteAppearance } from '../SpriteAppearance'
+import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
-import type { SpritePart } from './StaticSpriteAppearance'
+import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
 
 /**
  * Sprite $26 — Thwomp. Self-rendering appearance that mirrors ThwompGfx
@@ -72,11 +72,15 @@ function bigTileParts(
 }
 
 export class ThwompAppearance implements SpriteAppearance {
+  readonly hitRect: HitRect
+
   constructor(
     readonly bodyParts:      readonly SpritePart[],
     readonly alertFace:      readonly SpritePart[],
     readonly aggressiveFace: readonly SpritePart[],
-  ) {}
+  ) {
+    this.hitRect = partsHitRect([...bodyParts, ...alertFace])
+  }
 
   /**
    * Build from raw ROM tables — used by `SpriteFactory` on the extension

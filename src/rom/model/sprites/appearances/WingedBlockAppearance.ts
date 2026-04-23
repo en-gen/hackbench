@@ -1,6 +1,6 @@
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
-import type { SpriteAppearance } from '../SpriteAppearance'
-import type { SpritePart } from './StaticSpriteAppearance'
+import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
+import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
 
 /**
  * Flying Question Block ($83/$84) appearance.
@@ -16,11 +16,15 @@ import type { SpritePart } from './StaticSpriteAppearance'
  * Wings use OBJ palette 3 (CGRAM row 11) from KoopaWingGfxProp $46/$06.
  */
 export class WingedBlockAppearance implements SpriteAppearance {
+  readonly hitRect: HitRect
+
   constructor(
     readonly bodyParts: readonly SpritePart[],
     /** Two wing-frame layouts indexed by animFrame % 2. */
     readonly wingFrames: readonly [readonly SpritePart[], readonly SpritePart[]],
-  ) {}
+  ) {
+    this.hitRect = partsHitRect(bodyParts)
+  }
 
   render(ctx: RenderContext, target: RenderTarget, x: number, y: number): void {
     const wingParts = this.wingFrames[ctx.animFrame.value % 2]
