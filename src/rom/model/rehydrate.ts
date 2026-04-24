@@ -13,6 +13,7 @@ import {
 } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
+import { ThwimpAppearance } from './sprites/appearances/ThwimpAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
@@ -171,6 +172,7 @@ function buildAppearance(
       if (spriteId === 0x18) return new JumpingFishAppearance(parts)
       if (spriteId === 0x47) return new SwimJumpFishAppearance(parts)
       if (spriteId === 0x1D) return new HopFlameAppearance(parts)
+      if (spriteId === 0x27) return new ThwimpAppearance(parts)
       if (spriteId >= 0x04 && spriteId <= 0x07) return new KoopaAppearance(parts)
       return new StaticSpriteAppearance(parts)
     }

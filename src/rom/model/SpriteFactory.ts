@@ -11,6 +11,7 @@ import { CompositeSprite } from './sprites/CompositeSprite'
 import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
+import { ThwimpAppearance } from './sprites/appearances/ThwimpAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { BanzaiBillAppearance } from './sprites/appearances/BanzaiBillAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
@@ -118,6 +119,20 @@ export function buildSprites(
         s.spriteId, px, py,
         ThwompAppearance.fromTables(chars, palette, charHigh, placeholder),
         thwompBehavior,
+      ))
+      continue
+    }
+
+    // Sprite $27 (Thwimp) uses SubSprGfx0Entry0 with _5=1, giving four
+    // independent 8×8 tiles with H-flip on the right column (TR, BR).
+    // The generic sub0 path in buildSpriteLayout hardcodes flipX=false,
+    // so it renders the right column un-mirrored. Dispatch to the
+    // dedicated appearance which reads the same tables correctly.
+    if (s.spriteId === 0x27) {
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        ThwimpAppearance.fromTables(chars, tables, placeholder),
+        behavior,
       ))
       continue
     }
