@@ -1,6 +1,8 @@
 import type { Char } from '../../chars/Char'
+import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
+import type { SpriteBehavior } from '../SpriteBehavior'
 
 export interface SpritePart {
   char: Char
@@ -36,6 +38,19 @@ export class StaticSpriteAppearance implements SpriteAppearance {
       target.blit8x8(pixels, { x: x + part.dx, y: y + part.dy }, row, part.flipX, part.flipY)
     }
   }
+
+  // Declared so subclasses that add overlay logic can use the `override`
+  // modifier and get a compile-time check that the signature matches.
+  renderOverlay?(
+    ctx:       OverlayContext,
+    x:         number,
+    y:         number,
+    isActive:  boolean,
+    getL1:     GetL1Tile,
+    levelCols: number,
+    levelRows: number,
+    behavior?: SpriteBehavior,
+  ): void
 }
 // `behavior` arg on SpriteAppearance.render is unused here — static sprites
 // draw the same parts regardless of behavioral state. TS lets us omit it.

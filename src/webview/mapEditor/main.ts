@@ -18,8 +18,10 @@ import { StarOneUpVineBlockBehavior } from '../../rom/model/tiles/behaviors/Star
 import { L2ObjectStream, L2Preset } from '../../rom/model/L2Layer'
 import type { MapPayload as ModelMapPayload } from '../../rom/model/MapPayload'
 import type { SmwMap } from '../../rom/model/SmwMap'
+import type { OverlayContext } from '../../rom/model/OverlayContext'
 import { cellBoxOf, type RenderContext } from '../../rom/model/RenderTarget'
 import { CanvasRenderTarget } from './CanvasRenderTarget'
+import { drawSurfaces } from './overlays/drawSurfaces'
 import { useEditorStore } from './store'
 import { createRafTimer } from '../shared/animTimer'
 
@@ -136,10 +138,9 @@ function renderModelOverlay(map: SmwMap): void {
     const bctx = baseLevelCanvas.getContext('2d')!
     if (toggles.block) drawBlockView(bctx, map, toggles.l1, toggles.l2)
     if (toggles.screens || toggles.mapGrid) drawScreenAndGridOverlays(bctx, map, toggles.screens, toggles.mapGrid)
+    if (toggles.surfaces) drawSurfaces(bctx, map, store.switchPalaceState)
     drawVinePaths(bctx, map)
-    drawThwompZones(bctx, map)
-    drawPlatformPaths(bctx, map)
-    drawParaKoopaPaths(bctx, map)
+    map.renderSpriteOverlays(bctx as unknown as OverlayContext, store.activeSpriteOverlays)
   }
 
   // Guard: base canvas must exist before we can composite.
@@ -468,380 +469,21 @@ function drawVinePaths(octx: CanvasRenderingContext2D, map: SmwMap): void {
 }
 
 /**
- * Thwomp detection-zone overlay — one rect outlining the sprite body, two
- * dashed vertical strips showing the alert (±64 px) and aggressive (±36 px)
- * horizontal ranges, and a tinted fall-path column from below the body down
- * to the first solid L1 tile.
- *
- * Zones are centered on the InitThwomp-shifted anchor (sprite.x + 8), not
- * the raw sprite.x, so the overlay aligns with where the game actually
- * measures SubHorizPos from.
+ * Return the `"id:x,y"` overlay key of the first sprite under the given
+ * level-space CSS-pixel coordinate whose appearance implements
+ * `renderOverlay`. Sprites without overlays are skipped. The key format
+ * matches `SmwMap.renderSpriteOverlays` so a single `activeSpriteOverlays`
+ * set drives both rendering and toggle state.
  */
-function drawThwompZones(octx: CanvasRenderingContext2D, map: SmwMap): void {
-  const active = store.activeThwomps
-  if (active.size === 0) return
-  const rows = map.l1.length
-  octx.save()
-  for (const sprite of map.sprites) {
-    if (sprite.id !== 0x26) continue
-    const key = `${sprite.x},${sprite.y}`
-    if (!active.has(key)) continue
-    const px = sprite.x
-    const py = sprite.y
-    const anchorX = px + 8
-
-    // Walk down from below the body to find the first solid L1 row (the
-    // fall blocker). Any non-null tile counts.
-    const colStart = Math.floor((px + 4) / 16)
-    const colEnd   = Math.ceil((px + 28) / 16)
-    const startRow = Math.ceil((py + 32) / 16)
-    let blockerRow = rows
-    outer: for (let r = startRow; r < rows; r++) {
-      for (let c = colStart; c < colEnd; c++) {
-        if ((map.l1[r]?.[c] ?? null) !== null) { blockerRow = r; break outer }
-      }
-    }
-
-    // Vertical band for the detection rectangles: top of thwomp body down
-    // through the bottom of the impact row (or the level floor).
-    const zoneTop    = py
-    const zoneBottom = blockerRow < rows ? (blockerRow + 1) * 16 : rows * 16
-    const zoneH      = zoneBottom - zoneTop
-
-    // Body horizontal bounds — the sprite occupies px+4 .. px+28. Detection
-    // zone rects are split into left + right columns so they never overlap
-    // the thwomp artwork.
-    const bodyL = px + 4
-    const bodyR = px + 28
-
-    // Alert zone ±64 — amber, two column-rects flanking the body.
-    const alertFarL = anchorX - 64   // left edge of left column
-    const alertFarR = anchorX + 64   // right edge of right column
-    octx.fillStyle = 'rgba(255,160,0,0.15)'
-    octx.fillRect(alertFarL, zoneTop, bodyL - alertFarL, zoneH)   // left col
-    octx.fillRect(bodyR,     zoneTop, alertFarR - bodyR, zoneH)   // right col
-    octx.lineWidth = 1
-    octx.setLineDash([4, 3])
-    octx.strokeStyle = 'rgba(255,160,0,0.50)'
-    octx.strokeRect(alertFarL + 0.5, zoneTop + 0.5, bodyL - alertFarL - 1, zoneH - 1)
-    octx.strokeRect(bodyR     + 0.5, zoneTop + 0.5, alertFarR - bodyR - 1, zoneH - 1)
-
-    // Aggressive zone ±36 — brighter orange, same split approach.
-    const aggFarL = anchorX - 36
-    const aggFarR = anchorX + 36
-    octx.fillStyle = 'rgba(255,100,0,0.20)'
-    octx.fillRect(aggFarL, zoneTop, bodyL - aggFarL, zoneH)       // left col
-    octx.fillRect(bodyR,   zoneTop, aggFarR - bodyR, zoneH)       // right col
-    octx.setLineDash([2, 2])
-    octx.strokeStyle = 'rgba(255,100,0,0.75)'
-    octx.strokeRect(aggFarL + 0.5, zoneTop + 0.5, bodyL - aggFarL - 1, zoneH - 1)
-    octx.strokeRect(bodyR   + 0.5, zoneTop + 0.5, aggFarR - bodyR - 1, zoneH - 1)
-
-    // Fall path — red fill under the body down to the blocker. Drawn after
-    // the zones so the red reads as "the physical strike column" and isn't
-    // muddied by the orange zone fill underneath.
-    octx.setLineDash([])
-    octx.fillStyle = 'rgba(240,60,60,0.30)'
-    octx.fillRect(px + 4, startRow * 16, 24, (blockerRow - startRow) * 16)
-    if (blockerRow < rows) {
-      octx.lineWidth = 2
-      octx.strokeStyle = 'rgba(240,60,60,0.85)'
-      octx.strokeRect(px + 4 + 1, blockerRow * 16 + 1, 22, 14)
-    }
-
-    // Body outline — red, matching the fall path so the thwomp reads as
-    // part of the strike column (not the detection zones underneath).
-    // Drawn just *outside* the 24×32 body rect (at px+3..px+29, py-1..py+33
-    // with lineWidth=2) so the stroke never paints over the thwomp's own
-    // tile pixels. Keeps the sprite artwork fully legible even with the
-    // overlay active.
-    octx.lineWidth = 2
-    octx.strokeStyle = 'rgba(240,60,60,0.85)'
-    octx.strokeRect(px + 4 - 1, py - 1, 26, 34)
-  }
-  octx.restore()
-}
-
-/**
- * Precomputed $9C Hammer Bro Platform path — one full 256-frame cycle of
- * pixel offsets from the sprite's anchor. Faithful to CODE_02DB5C
- * (bank_02.asm:12149-12174):
- *   - Even frames: XSpeed += ±1 toward ±$20; YSpeed += ±2 toward ±$20,
- *     with direction flipping when speed equals target.
- *   - Every frame: pos += speed (UpdateXPosNoGrvty / UpdateYPosNoGrvty).
- *   - Starting state is zeroed (both speeds 0, both state counters 0), so
- *     the integrated position traces a one-sided parabolic arc from the
- *     spawn point — not a centered oscillation.
- *
- * The path spans roughly 128×64 pixels (8×4 tiles) from the spawn anchor,
- * looks like a wide U (opens upward toward the spawn row), and retraces
- * itself on the return half of the cycle. Palette uses lemon-yellow to
- * stand clear of Thwomp/vine overlays.
- */
-const PLATFORM_PATH: readonly { x: number; y: number }[] = (() => {
-  const s8 = (v: number): number => ((v + 128) & 0xFF) - 128
-  const X_ACC = [ 1, -1], X_TGT = [0x20, 0xE0]
-  const Y_ACC = [ 2, -2], Y_TGT = [0x20, 0xE0]
-  let xSpeed = 0, ySpeed = 0, xState = 0, yState = 0
-  let xPos = 0, yPos = 0
-  const pts: { x: number; y: number }[] = []
-  for (let frame = 0; frame < 256; frame++) {
-    if ((frame & 1) === 0) {
-      const xi = xState & 1
-      const nx = s8(xSpeed + X_ACC[xi])
-      if ((nx & 0xFF) === X_TGT[xi]) xState = (xState + 1) & 0xFF
-      xSpeed = nx
-      const yi = yState & 1
-      const ny = s8(ySpeed + Y_ACC[yi])
-      if ((ny & 0xFF) === Y_TGT[yi]) yState = (yState + 1) & 0xFF
-      ySpeed = ny
-    }
-    xPos += xSpeed
-    yPos += ySpeed
-    // xPos/yPos are in 1/16-px subpixels; convert to pixels.
-    pts.push({ x: xPos / 16, y: yPos / 16 })
-  }
-  return pts
-})()
-
-/** Bounding box of PLATFORM_PATH, used to parameterise the arc overlay. */
-const PLATFORM_PATH_BOUNDS = (() => {
-  let minX = 0, maxX = 0, minY = 0, maxY = 0
-  for (const p of PLATFORM_PATH) {
-    if (p.x < minX) minX = p.x
-    if (p.x > maxX) maxX = p.x
-    if (p.y < minY) minY = p.y
-    if (p.y > maxY) maxY = p.y
-  }
-  return { minX, maxX, minY, maxY }
-})()
-
-/**
- * Draw the U-shaped arc that each active $9C Hammer Bro Platform traces
- * through one 256-frame (~4.3s) movement cycle. The path is the same for
- * every instance — only the anchor shifts per sprite.
- *
- * Rendered as the bottom half of an ellipse whose top edge sits at the
- * spawn row and whose vertex sits at the deepest point of the U. This
- * matches the translucent-rect style used by the Thwomp and vine overlays
- * while naturally expressing the curved path shape.
- */
-function drawPlatformPaths(octx: CanvasRenderingContext2D, map: SmwMap): void {
-  const active = store.activePlatforms
-  if (active.size === 0) return
-  const { minX, maxX, minY, maxY } = PLATFORM_PATH_BOUNDS
-  const rx = (maxX - minX) / 2
-  const ry = maxY - minY
-  octx.save()
-  for (const sprite of map.sprites) {
-    if (sprite.id !== 0x9C) continue
-    const key = `${sprite.x},${sprite.y}`
-    if (!active.has(key)) continue
-
-    const ax = sprite.x
-    const ay = sprite.y
-    // Centre the ellipse horizontally over the path range; top of U = spawn row.
-    const cx = ax + minX + rx
-    const topY = ay + minY
-
-    // Translucent fill: bottom-half ellipse from angle 0 (right) → π (left),
-    // closed with a straight line across the top.
-    octx.fillStyle = 'rgba(255,220,40,0.12)'
-    octx.beginPath()
-    octx.ellipse(cx, topY, rx, ry, 0, 0, Math.PI)
-    octx.closePath()
-    octx.fill()
-
-    // Dashed border on the same arc path.
-    octx.lineWidth = 1.5
-    octx.setLineDash([4, 3])
-    octx.strokeStyle = 'rgba(255,220,40,0.70)'
-    octx.beginPath()
-    octx.ellipse(cx, topY, rx, ry, 0, 0, Math.PI)
-    octx.closePath()
-    octx.stroke()
-
-    // Spawn-anchor crosshair — marks where the U opens from.
-    octx.setLineDash([])
-    octx.lineWidth = 1
-    octx.strokeStyle = 'rgba(255,220,40,0.95)'
-    octx.beginPath()
-    octx.moveTo(ax - 3, ay + 0.5); octx.lineTo(ax + 4, ay + 0.5)
-    octx.moveTo(ax + 0.5, ay - 3); octx.lineTo(ax + 0.5, ay + 4)
-    octx.stroke()
-  }
-  octx.restore()
-}
-
-/**
- * Precomputed para-koopa range in pixels.
- *
- * CODE_018CFD (bank_01.asm): speed ±1 per 4 frames toward ±16, 48-frame
- * cooldown at max. Steady-state oscillation reaches ~82 px from spawn.
- *   $0A (RedVertParaKoopa)  — moves UP   (−Y) from spawn
- *   $0B (RedHorzParaKoopa)  — moves LEFT (−X) from spawn, ±4 px Y bounce
- */
-const PARA_KOOPA_RANGE = 82
-
-/**
- * Draw the movement-range overlay for active $0A/$0B/$0C Para-Koopa sprites.
- *
- * $0A/$0B — translucent cyan rect along axis of oscillation (fixed range).
- * $0C (Yellow Para-Koopa) — horizontal patrol corridor from the nearest solid
- *   L1 wall to the left to the nearest solid wall to the right, derived from
- *   the same FlipIfTouchingObj logic the game uses (bank_01.asm:2369).
- *   Sprite is 2 tiles tall (Spr0to13Prop bit 6), so both body rows are checked.
- */
-function drawParaKoopaPaths(octx: CanvasRenderingContext2D, map: SmwMap): void {
-  const active = store.activeParaKoopas
-  if (active.size === 0) return
-  octx.save()
-  for (const sprite of map.sprites) {
-    if (sprite.id !== 0x0A && sprite.id !== 0x0B && sprite.id !== 0x0C) continue
-    const key = `${sprite.x},${sprite.y}`
-    if (!active.has(key)) continue
-
-    const ax = sprite.x
-    const ay = sprite.y
-
-    if (sprite.id === 0x0A) {
-      // Vertical: moves UP from spawn by up to PARA_KOOPA_RANGE px.
-      octx.fillStyle = 'rgba(0,200,255,0.15)'
-      octx.fillRect(ax, ay - PARA_KOOPA_RANGE, 16, PARA_KOOPA_RANGE)
-      octx.lineWidth = 1
-      octx.setLineDash([4, 3])
-      octx.strokeStyle = 'rgba(0,200,255,0.60)'
-      octx.strokeRect(ax + 0.5, ay - PARA_KOOPA_RANGE + 0.5, 15, PARA_KOOPA_RANGE - 1)
-      // Solid top boundary at maximum displacement.
-      octx.setLineDash([])
-      octx.lineWidth = 2
-      octx.strokeStyle = 'rgba(0,200,255,0.90)'
-      octx.beginPath()
-      octx.moveTo(ax, ay - PARA_KOOPA_RANGE)
-      octx.lineTo(ax + 16, ay - PARA_KOOPA_RANGE)
-      octx.stroke()
-    } else if (sprite.id === 0x0B) {
-      // Horizontal ($0B): moves LEFT from spawn; small ±4 px Y bounce.
-      const yBounce = 4
-      octx.fillStyle = 'rgba(0,200,255,0.15)'
-      octx.fillRect(ax - PARA_KOOPA_RANGE, ay - yBounce, PARA_KOOPA_RANGE, 16 + yBounce * 2)
-      octx.lineWidth = 1
-      octx.setLineDash([4, 3])
-      octx.strokeStyle = 'rgba(0,200,255,0.60)'
-      octx.strokeRect(ax - PARA_KOOPA_RANGE + 0.5, ay - yBounce + 0.5, PARA_KOOPA_RANGE - 1, 15 + yBounce * 2)
-      // Solid left boundary at maximum displacement.
-      octx.setLineDash([])
-      octx.lineWidth = 2
-      octx.strokeStyle = 'rgba(0,200,255,0.90)'
-      octx.beginPath()
-      octx.moveTo(ax - PARA_KOOPA_RANGE, ay - yBounce)
-      octx.lineTo(ax - PARA_KOOPA_RANGE, ay + 16 + yBounce)
-      octx.stroke()
-    } else {
-      // $0C Yellow Para-Koopa: patrols horizontally at ±12 px/frame, bouncing
-      // off solid objects via FlipIfTouchingObj (bank_01.asm:2369). Range is
-      // determined by level geometry — scan L1 left and right from spawn.
-      // Sprite is 2 tiles tall (Spr0to13Prop $DD bit 6); check both body rows.
-      const sprCol = Math.floor(ax / 16)
-      const rowTop = Math.floor((ay - 16) / 16)  // top tile (tall sprite: top = anchor - 1)
-      const rowBot = Math.floor(ay / 16)           // bottom tile (anchor row)
-      const cols   = map.l1[0]?.length ?? 0
-      const rowCount = map.l1.length
-
-      const isSolid = (c: number): boolean => {
-        for (let r = Math.max(0, rowTop); r <= Math.min(rowCount - 1, rowBot); r++) {
-          if ((map.l1[r]?.[c] ?? null) !== null) return true
-        }
-        return false
-      }
-
-      let leftX = 0
-      for (let c = sprCol - 1; c >= 0; c--) {
-        if (isSolid(c)) { leftX = (c + 1) * 16; break }
-      }
-      let rightX = cols * 16
-      for (let c = sprCol + 1; c < cols; c++) {
-        if (isSolid(c)) { rightX = c * 16; break }
-      }
-
-      const corridorTop = ay - 16   // top of 2-tile-tall body
-      const corridorH   = 32
-      octx.fillStyle = 'rgba(180,80,255,0.13)'
-      octx.fillRect(leftX, corridorTop, rightX - leftX, corridorH)
-      octx.lineWidth = 1
-      octx.setLineDash([4, 3])
-      octx.strokeStyle = 'rgba(180,80,255,0.55)'
-      octx.strokeRect(leftX + 0.5, corridorTop + 0.5, rightX - leftX - 1, corridorH - 1)
-      // Solid wall lines at each boundary.
-      octx.setLineDash([])
-      octx.lineWidth = 2
-      octx.strokeStyle = 'rgba(180,80,255,0.90)'
-      octx.beginPath()
-      octx.moveTo(leftX,  corridorTop); octx.lineTo(leftX,  corridorTop + corridorH)
-      octx.moveTo(rightX, corridorTop); octx.lineTo(rightX, corridorTop + corridorH)
-      octx.stroke()
-    }
-  }
-  octx.restore()
-}
-
-/**
- * Return the `"x,y"` key of the thwomp sprite under the given level-space
- * CSS-pixel coordinate, or null if none. Hit-box matches the rendered body
- * (24×32 at sprite.x+4..+28, sprite.y..+32).
- */
-function thwompAt(lx: number, ly: number): string | null {
+function spriteOverlayKeyAt(lx: number, ly: number): string | null {
   const map = window.__smwModelMap
   if (!map) return null
   const z = store.zoom
   const natX = lx / z
   const natY = ly / z
   for (const sprite of map.sprites) {
-    if (sprite.id !== 0x26) continue
-    if (natX >= sprite.x + 4 && natX < sprite.x + 28 &&
-        natY >= sprite.y     && natY < sprite.y + 32) {
-      return `${sprite.x},${sprite.y}`
-    }
-  }
-  return null
-}
-
-/**
- * Hit-test for $9C Hammer Bro Platform sprites. Uses each platform's
- * hitRect (which includes its wings, and, if a Hammer Bro is aboard via
- * CompositeSprite.secondary, the bro area too) so clicking anywhere on
- * the composed unit toggles the path overlay. Returns the sprite's anchor
- * key (x,y) so the same click on a paired $9B (absorbed into the composite)
- * still targets the platform.
- */
-function platformAt(lx: number, ly: number): string | null {
-  const map = window.__smwModelMap
-  if (!map) return null
-  const z = store.zoom
-  const natX = lx / z
-  const natY = ly / z
-  for (const sprite of map.sprites) {
-    if (sprite.id !== 0x9C) continue
-    if (sprite.pickAt(natX, natY)) {
-      return `${sprite.x},${sprite.y}`
-    }
-  }
-  return null
-}
-
-/**
- * Hit-test for $0A/$0B Red Para-Koopa sprites. Uses the sprite's hitRect
- * so the click target matches the rendered wing+body area.
- */
-function paraKoopaAt(lx: number, ly: number): string | null {
-  const map = window.__smwModelMap
-  if (!map) return null
-  const z = store.zoom
-  const natX = lx / z
-  const natY = ly / z
-  for (const sprite of map.sprites) {
-    if (sprite.id !== 0x0A && sprite.id !== 0x0B && sprite.id !== 0x0C) continue
-    if (sprite.pickAt(natX, natY)) return `${sprite.x},${sprite.y}`
+    if (!sprite.appearance.renderOverlay) continue
+    if (sprite.pickAt(natX, natY)) return `${sprite.id}:${sprite.x},${sprite.y}`
   }
   return null
 }
@@ -875,9 +517,11 @@ function vineSourceKeyAt(lx: number, ly: number): string | null {
  * Useful for level troubleshooting since it surfaces the underlying
  * tile layout with zero GFX rendering.
  *
- * No text labels on the blocks for now — the hex-id labels need a
- * different approach to scale legibly at every zoom from 1× to 16×.
- * Revisit with a proper bitmap-font / DOM-overlay strategy later.
+ * Labels: each cell gets a 3-char uppercase hex Map16 ID rendered at
+ * 7px natural-resolution so it stays crisp under `image-rendering:
+ * pixelated` at higher zooms. Shadowed (black 1px offset) so it reads
+ * against the full range of tileBlockColor fills. Small at zoom 1× but
+ * intended — this is an analysis / troubleshooting overlay.
  */
 function drawBlockView(
   octx: CanvasRenderingContext2D,
@@ -908,6 +552,33 @@ function drawBlockView(
     octx.restore()
   }
 
+  const paintLabels = (
+    grid: readonly (readonly (number | null)[])[],
+    alpha: number,
+  ) => {
+    octx.save()
+    octx.globalAlpha = alpha
+    octx.font = 'bold 7px monospace'
+    octx.textAlign = 'left'
+    octx.textBaseline = 'top'
+    for (let r = 0; r < grid.length; r++) {
+      const row = grid[r]
+      if (!row) continue
+      for (let c = 0; c < row.length; c++) {
+        const id = row[c]
+        if (id === null) continue
+        const label = id.toString(16).toUpperCase().padStart(3, '0')
+        const x = c * 16 + 1
+        const y = r * 16 + 1
+        octx.fillStyle = '#000'
+        octx.fillText(label, x + 1, y + 1)
+        octx.fillStyle = '#fff'
+        octx.fillText(label, x,     y)
+      }
+    }
+    octx.restore()
+  }
+
   // L2 grids are ids (L2Preset → bgTiles, L2ObjectStream → l1Tiles);
   // we only need the ids for the colored-block visualization, no
   // lookup required.
@@ -915,9 +586,15 @@ function drawBlockView(
     const l2Grid = map.l2 instanceof L2Preset || map.l2 instanceof L2ObjectStream
       ? map.l2.grid
       : null
-    if (l2Grid) paintFills(l2Grid, 0.55)
+    if (l2Grid) {
+      paintFills(l2Grid, 0.55)
+      paintLabels(l2Grid, 0.55)
+    }
   }
-  if (l1On) paintFills(map.l1, 1.0)
+  if (l1On) {
+    paintFills(map.l1, 1.0)
+    paintLabels(map.l1, 1.0)
+  }
 }
 
 /**
@@ -1179,6 +856,7 @@ app.innerHTML = `
     <div class="tb-sep"></div>
 
     <!-- Overlay toggles -->
+    <button id="btn-surfaces"    class="iconBtn"    title="Show surfaces"><span class="codicon codicon-layout-panel-dock"></span></button>
     <button id="btn-block"       class="iconBtn"    title="Block view"><span class="codicon codicon-symbol-method"></span></button>
     <button id="btn-play"        class="iconBtn"    title="Play animation"><span class="codicon codicon-play"></span></button>
     <button id="btn-camera"      class="iconBtn"    title="Camera viewport"><span class="codicon codicon-device-camera-video"></span></button>
@@ -1239,6 +917,7 @@ app.innerHTML = `
     <input type="checkbox" id="chk-block"           style="display:none">
     <input type="checkbox" id="chk-l3hud"           style="display:none">
     <input type="checkbox" id="chk-camera"          style="display:none">
+    <input type="checkbox" id="chk-surfaces"        style="display:none">
   </div><!-- #main -->
 
   <!-- ── RIGHT PANEL ──────────────────────────────────────────────────────── -->
@@ -1439,6 +1118,7 @@ const chkL2          = document.getElementById('chk-l2')          as HTMLInputEl
 const chkL3          = document.getElementById('chk-l3')          as HTMLInputElement
 const chkL3Hud       = document.getElementById('chk-l3hud')       as HTMLInputElement
 const chkCamera      = document.getElementById('chk-camera')      as HTMLInputElement
+const chkSurfaces    = document.getElementById('chk-surfaces')    as HTMLInputElement
 
 // ── Camera viewport overlay ──────────────────────────────────────────────────
 // A draggable 16×14 tile rectangle representing the SNES FG screen window
@@ -1720,13 +1400,14 @@ function wireLayerBtn(btnId: string, chkId: string): void {
     btn.classList.toggle('on', chk.checked)
   })
 }
-wireLayerBtn('btn-l1',      'chk-l1')
-wireLayerBtn('btn-l2',      'chk-l2')
-wireLayerBtn('btn-l3',      'chk-l3')
-wireLayerBtn('btn-sprites', 'chk-sprites')
-wireLayerBtn('btn-block',   'chk-block')
-wireLayerBtn('btn-screens', 'chk-screens')
-wireLayerBtn('btn-hud',     'chk-l3hud')
+wireLayerBtn('btn-l1',       'chk-l1')
+wireLayerBtn('btn-l2',       'chk-l2')
+wireLayerBtn('btn-l3',       'chk-l3')
+wireLayerBtn('btn-sprites',  'chk-sprites')
+wireLayerBtn('btn-surfaces', 'chk-surfaces')
+wireLayerBtn('btn-block',    'chk-block')
+wireLayerBtn('btn-screens',  'chk-screens')
+wireLayerBtn('btn-hud',      'chk-l3hud')
 
 // Camera icon button wires into the existing chkCamera handler.
 {
@@ -3007,23 +2688,25 @@ new ResizeObserver(() => drawMinimap()).observe(minimapCanvas.parentElement!)
 
 function syncLayerTogglesFromDom(): void {
   store.setLayerToggles({
-    l1:      chkL1.checked,
-    l2:      chkL2.checked,
-    l3:      chkL3.checked,
-    sprites: chkSprites.checked,
-    screens: chkScreens.checked,
-    block:   chkBlock.checked,
-    mapGrid: mapGridOn,
-    l3Hud:   chkL3Hud.checked,
+    l1:       chkL1.checked,
+    l2:       chkL2.checked,
+    l3:       chkL3.checked,
+    sprites:  chkSprites.checked,
+    screens:  chkScreens.checked,
+    block:    chkBlock.checked,
+    mapGrid:  mapGridOn,
+    l3Hud:    chkL3Hud.checked,
+    surfaces: chkSurfaces.checked,
   })
 }
-chkScreens.addEventListener('change', syncLayerTogglesFromDom)
-chkSprites.addEventListener('change', syncLayerTogglesFromDom)
-chkBlock.addEventListener('change',   syncLayerTogglesFromDom)
-chkL1.addEventListener('change',      syncLayerTogglesFromDom)
-chkL2.addEventListener('change',      syncLayerTogglesFromDom)
-chkL3.addEventListener('change',      syncLayerTogglesFromDom)
-chkL3Hud.addEventListener('change',   syncLayerTogglesFromDom)
+chkScreens.addEventListener('change',  syncLayerTogglesFromDom)
+chkSprites.addEventListener('change',  syncLayerTogglesFromDom)
+chkBlock.addEventListener('change',    syncLayerTogglesFromDom)
+chkL1.addEventListener('change',       syncLayerTogglesFromDom)
+chkL2.addEventListener('change',       syncLayerTogglesFromDom)
+chkL3.addEventListener('change',       syncLayerTogglesFromDom)
+chkL3Hud.addEventListener('change',    syncLayerTogglesFromDom)
+chkSurfaces.addEventListener('change', syncLayerTogglesFromDom)
 chkCamera.addEventListener('change',  () => {
   const on = chkCamera.checked
   store.setCameraOn(on)  // reactive — triggers renderModelOverlay
@@ -3057,27 +2740,11 @@ modelCanvas.addEventListener('pointerdown', (e) => {
     return
   }
 
-  // Thwomp click: toggle its detection-zone overlay. Runs regardless of
-  // camera mode so the zones can be inspected while the camera rect is off.
-  const tk = thwompAt(lx, ly)
-  if (tk) {
-    store.toggleThwomp(tk)
-    e.stopPropagation()
-    return
-  }
-
-  // $9C Hammer Bro Platform click: toggle its U-path overlay.
-  const pk = platformAt(lx, ly)
-  if (pk) {
-    store.togglePlatform(pk)
-    e.stopPropagation()
-    return
-  }
-
-  // $0A/$0B Red Para-Koopa click: toggle its movement-range overlay.
-  const qk = paraKoopaAt(lx, ly)
-  if (qk) {
-    store.toggleParaKoopa(qk)
+  // Sprite overlay click: any sprite whose appearance owns a renderOverlay
+  // toggles its overlay on/off when clicked. The key is "id:x,y".
+  const sok = spriteOverlayKeyAt(lx, ly)
+  if (sok) {
+    store.toggleSpriteOverlay(sok)
     e.stopPropagation()
     return
   }

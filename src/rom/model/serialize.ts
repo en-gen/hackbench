@@ -203,13 +203,14 @@ function serializeCharBehavior(b: CharBehavior): CharDescriptor {
 
 function serializeTile(tile: Tile): TileDescriptor {
   const actsLike = tile.actsLike
+  const collision = tile.collision
   const b = tile.behavior
-  if (b instanceof StaticQuadBehavior) return { kind: 'static', quad: quadDesc(b.quad), actsLike }
+  if (b instanceof StaticQuadBehavior) return { kind: 'static', quad: quadDesc(b.quad), actsLike, collision }
   if (b instanceof VineSourceBehavior) return {
     kind: 'vineSource',
     quad: quadDesc(b.quad),
     overlayQuad: b.overlayQuad ? quadDesc(b.overlayQuad) : null,
-    actsLike,
+    actsLike, collision,
   }
   if (b instanceof StarOneUpVineBlockBehavior) return {
     kind: 'starOneUpVineBlock',
@@ -217,14 +218,14 @@ function serializeTile(tile: Tile): TileDescriptor {
     vineOverlayQuad: b.vineOverlayQuad ? quadDesc(b.vineOverlayQuad) : null,
     oneupCharNums: b.oneupChars.map(c => c?.id ?? -1),
     starCharNums: b.starChars.map(c => c?.id ?? -1),
-    actsLike,
+    actsLike, collision,
   }
-  if (b instanceof PipeVariantsBehavior) return { kind: 'pipeVariants', variants: b.variants.map(quadDesc), actsLike }
+  if (b instanceof PipeVariantsBehavior) return { kind: 'pipeVariants', variants: b.variants.map(quadDesc), actsLike, collision }
   if (b instanceof SwitchPalaceAlternateBehavior) {
-    return { kind: 'switchPalaceAlternate', off: quadDesc(b.off), on: quadDesc(b.on), color: b.color, actsLike }
+    return { kind: 'switchPalaceAlternate', off: quadDesc(b.off), on: quadDesc(b.on), color: b.color, actsLike, collision }
   }
   if (b instanceof PSwitchRevealBehavior) {
-    return { kind: 'pSwitchReveal', revealedQuad: quadDesc(b.revealedQuad), offAlpha: b.offAlpha, actsLike }
+    return { kind: 'pSwitchReveal', revealedQuad: quadDesc(b.revealedQuad), offAlpha: b.offAlpha, actsLike, collision }
   }
   if (b instanceof InvisibleBlockRevealBehavior) {
     return {
@@ -232,7 +233,7 @@ function serializeTile(tile: Tile): TileDescriptor {
       revealedQuad: quadDesc(b.revealedQuad),
       rewardOverlayQuad: b.rewardOverlayQuad ? quadDesc(b.rewardOverlayQuad) : null,
       alpha: b.alpha,
-      actsLike,
+      actsLike, collision,
     }
   }
   throw new Error(`Unknown TileBehavior: ${(b as object).constructor.name}`)

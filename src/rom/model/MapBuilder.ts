@@ -119,7 +119,7 @@ export function buildMapWithGraph(
     if (sprData) levelSprites = parseLevelSprites(sprData, isVertical)
   }
   const marioStartPx = readMarioStartPos(rom.rom, levelId)
-  const sprites = buildSprites(rom.rom, levelSprites, chars, l1, marioStartPx)
+  const sprites = buildSprites(rom.rom, levelSprites, chars, l1, marioStartPx, tiles)
 
   // Layer-2 scroll/parallax settings. CODE_05D26E (bank_05.asm:7268-7277)
   // reads $05F000+idx, takes the top nibble, and looks up per-axis rate

@@ -1,5 +1,20 @@
 import { readActsLikeTable } from '../../ActsLikeLoader'
 import {
+  blockBehaviorFor,
+  isBlockBehaviorWall,
+  isMarioStandable,
+  isSlopeTile,
+  readBlockBehaviorTable,
+  readSlopeTable,
+} from '../../BlockBehaviorLoader'
+import {
+  marioFeetLanding,
+  marioTileDispatch,
+  marioTileSolidity,
+  PSWITCH_INACTIVE,
+  readMarioDispatchTables,
+} from '../../MarioTileDispatch'
+import {
   loadMap16WithPipeVariants,
   PIPE_VARIANT_TILE_COUNT,
   PIPE_VARIANT_TILE_START,
@@ -91,7 +106,145 @@ export function buildTiles(
   const placeholder = makePlaceholderChar()
   const { tiles: baseTiles, pipeVariants } = loadMap16WithPipeVariants(rom, tileset)
   const actsLike = readActsLikeTable(rom)
+  const blockBehavior = readBlockBehaviorTable(rom)
+  const slopeTable   = readSlopeTable(rom)
+  const marioTables  = readMarioDispatchTables(rom)
   const tiles = new Map<number, Tile>()
+
+  /**
+   * Classify a tile's sprite-collision fields. Every branch is a
+   * direct port of a named ASM routine — no folklore, no approximation.
+   * Landing (Y=2) and bonking (Y=3) go through different code paths
+   * with different ranges; they're tracked as separate flags.
+   */
+  const classify = (actsLikeId: number) => {
+    // SMW sprite-tile collision reads the LOW BYTE of the Map16 tile
+    // into the 8-bit RAM variable `Map16TileNumber` (rammap.asm:1745)
+    // via `CODE_019523` (bank_01.asm:2957-2968):
+    //   LDA.B [_5]               ; load low byte of Map16 tile
+    //   STA.W Map16TileNumber    ; 8-bit store
+    // The range tests in CODE_01928E / CODE_0192C9 then compare that
+    // single byte. There is NO page/high-byte check anywhere in the
+    // collision path — a tile's high byte only feeds the P-switch
+    // tile-swap routine (CODE_00F545). Therefore classify operates
+    // purely on the low byte, with no page-0 filtering.
+    const low = actsLikeId & 0xFF
+
+    // Block-behavior filter — coin / vine / empty types bypass all
+    // collision via `CODE_00F17F` (bank_00.asm:12846) early returns.
+    // Tiles outside the table's range ($11-$34) get bhBlocks=true
+    // (no veto), matching how the ASM falls through the dispatch.
+    const bh = blockBehaviorFor(actsLikeId, blockBehavior)
+    const bhBlocks = bh === null || isBlockBehaviorWall(bh)
+
+    // CODE_01928E (bank_01.asm:2613-2635) — sprite horizontal wall.
+    //   CMP #$11 / BCC +       (< $11 → not a wall)
+    //   CMP #$6E / BCS +       (>= $6E → not a wall)
+    //   → JSR CODE_019425       (sets SpriteBlockedDirs)
+    const wall = bhBlocks && low >= 0x11 && low <= 0x6D
+
+    // CODE_01933B (bank_01.asm:2705-2721) — LANDING path (reached from
+    // CODE_0192C9 Y=2 via CODE_019310). Broader than the bonking path:
+    //   <$11     → CODE_0193B0 semi-solid (sub-pixel gate; approximated
+    //              as "solid from above" for the static overlay).
+    //   $11-$6D  → CODE_0193B8 solid.
+    //   $6E-$D7  → slope-angle table via CODE_00FA19 (we surface slope
+    //              membership via `slopeTable`; consumers OR the two).
+    //   >=$D8    → CODE_019386 solid.
+    const inSolidRange    = low >= 0x11 && low <= 0x6D
+    const inTilesetWindow = tileset !== 0 && tileset !== 7 && low >= 0xC4 && low <= 0xC9
+    const floor =
+      bhBlocks && (
+        low <= 0x10 ||            // CODE_0193B0 semi-solid platform range
+        inSolidRange ||            // standard solid
+        low >= 0xD8                // CODE_019386 upper solid range
+      )
+
+    // CODE_0192C9 (bank_01.asm:2646-2668) — BONKING path (Y=3):
+    //   CMP #$11 / BCC return    (< $11 → not solid)
+    //   CMP #$6E / BCC +solid    ($11-$6D → solid)
+    //   CMP SolidTileStart       (tileset window default $C4)
+    //     BCC return             (below window → not solid)
+    //   CMP SolidTileEnd         (tileset window default $CA)
+    //     BCS return             (at/above window → not solid)
+    //   → solid (in window range)
+    const ceiling = bhBlocks && (inSolidRange || inTilesetWindow)
+
+    // DATA_00EAC1 (bank_00.asm:11946) membership — slope recognition.
+    const slopeTableFlag = isSlopeTile(actsLikeId, slopeTable)
+
+    // Mario perspective — tiles Mario comes to rest on. Uses the real
+    // ASM dispatches ported in `src/rom/MarioTileDispatch.ts`:
+    //
+    //   1. `marioFeetLanding` = `CODE_00EDF7` (bank_00.asm:12401) —
+    //      the feet-landing dispatcher. Returns `land` for most
+    //      $00-$6D low bytes (Mario's fall stops on these), `hole`
+    //      for tileset 3/$E $59-$5B, `slope` for $6E-$FA (slope-angle
+    //      path separate), `special` for $FB+. `marioFloor` is true
+    //      when feet-landing returns `land`, OR when the tile is
+    //      in the slope table (slopes ARE Mario surfaces).
+    //
+    //   2. `marioTileDispatch` = `CODE_00F127` (bank_00.asm:12789) —
+    //      block-action dispatcher. Returns `hurt` for tiles that
+    //      `HurtMario` (spike $2F unconditional, tileset 5/$D
+    //      $59-$5B, tileset 1 $66-$69). Hurt tiles bounce Mario off
+    //      and are excluded from ALL Mario surface fields.
+    //
+    //   3. `isMarioStandable` — thin wide-pattern pass-through filter
+    //      (coins $2A-$2E, checkpoint $66-$69) where the block-action
+    //      ALWAYS fires to collect/pass regardless of tileset.
+    //
+    // Sprite `ceiling` and `wall` fields don't have dedicated ASM
+    // ports yet, so `marioCeiling` / `marioWall` stay on the sprite
+    // range with the hand-list and hurt filters.
+    const hurtsFromAnyDir = (
+      marioTileDispatch(low, tileset, 0, marioTables).kind === 'hurt' ||
+      marioTileDispatch(low, tileset, 1, marioTables).kind === 'hurt' ||
+      marioTileDispatch(low, tileset, 2, marioTables).kind === 'hurt' ||
+      marioTileDispatch(low, tileset, 3, marioTables).kind === 'hurt'
+    )
+    const feetLanding  = marioFeetLanding(low, tileset)
+    const marioOk      = isMarioStandable(actsLikeId) && !hurtsFromAnyDir
+    // CODE_00F545 (bank_00.asm:13410) is Mario's SOLIDITY predicate,
+    // gating the wall-flag set at bank_00.asm:12189 via the F44D probe
+    // at bank_00.asm:13342-13353. Page-0 tiles ($0xx) outside a few
+    // P-switch / switch-palace special cases are non-solid — that's
+    // why checkpoint-post bodies ($030/$032/$033/$035), midway tape
+    // ($038), goal tape ($039/$03C), decorative fill ($03F), and
+    // lava-corner graphics ($0A3/$0A6) pass through Mario. Page-1
+    // tiles ($1xx) are solid by default — ground $100, item blocks
+    // $11A/$11E, structural terrain. P-switch state is assumed
+    // inactive at classify time; per-frame overlays can layer the
+    // reactive state if needed.
+    const high = (actsLikeId >> 8) & 0xFF
+    const marioSolid = marioTileSolidity(low, high, PSWITCH_INACTIVE)
+    // Mario's ceiling/wall range check matches the sprite-range
+    // $11-$6D / $C4-$C9 tileset window (CODE_00EC46 bank_00.asm:12161
+    // and CODE_00ECB1 bank_00.asm:12218), but NOT via the sprite
+    // `ceiling`/`wall` fields — those are gated through `bhBlocks`
+    // (F05C-empty bypass) which is a sprite-side convention that
+    // excludes tiles like $11A (F05C value $00 but a real head-bumpable
+    // item block). F545 is the authoritative gate for Mario; F05C's
+    // block-hit dispatch fires on top. So Mario fields derive directly
+    // from the raw low-byte ranges gated only by F545 and the
+    // hurt/Mario-standable filters.
+    const marioInSolidRange    = low >= 0x11 && low <= 0x6D
+    const marioInCeilingWindow = tileset !== 0 && tileset !== 7 && low >= 0xC4 && low <= 0xC9
+    // Slopes are NOT floors. `feetLanding` returns 'slope' (not 'land')
+    // for tiles in the $6E-$D7 range — they have a diagonal surface,
+    // not a flat top. The "Show surfaces" overlay draws a horizontal
+    // line, which is only correct for flat floors. Slope membership is
+    // still surfaced via `slopeTable` for overlays that render angle.
+    const marioFloor   = marioSolid && (feetLanding.kind === 'land') && marioOk
+    const marioCeiling = marioSolid && (marioInSolidRange || marioInCeilingWindow) && marioOk
+    const marioWall    = marioSolid && marioInSolidRange && marioOk
+
+    return {
+      floor, ceiling, wall,
+      marioFloor, marioCeiling, marioWall,
+      slopeTable: slopeTableFlag,
+    }
+  }
 
   // Pre-compute all quads so we can cross-reference off/on pairs for
   // switch-palace without repeating subtile conversion.
@@ -123,7 +276,7 @@ export function buildTiles(
     if (lowByte === 0x1A) {
       tiles.set(m16.id, new Tile(m16.id, new StarOneUpVineBlockBehavior(
         quad, vineOverlayQuad, oneupChars, starChars,
-      ), actsLikeId))
+      ), actsLikeId, classify(actsLikeId)))
       continue
     }
 
@@ -134,7 +287,7 @@ export function buildTiles(
     const behavior = override !== undefined && isVineSource(override)
       ? new VineSourceBehavior(quad, vineOverlayQuad)
       : new StaticQuadBehavior(quad)
-    tiles.set(m16.id, new Tile(m16.id, behavior, actsLikeId))
+    tiles.set(m16.id, new Tile(m16.id, behavior, actsLikeId, classify(actsLikeId)))
   }
 
   // Hidden tiles revealed by the blue P-switch. We always draw the
@@ -150,7 +303,7 @@ export function buildTiles(
       ? withPaletteOverride(srcQuad, entry.palOverride)
       : srcQuad
     const actsLikeId = actsLike.get(hiddenId) ?? hiddenId
-    tiles.set(hiddenId, new Tile(hiddenId, new PSwitchRevealBehavior(revealed), actsLikeId))
+    tiles.set(hiddenId, new Tile(hiddenId, new PSwitchRevealBehavior(revealed), actsLikeId, classify(actsLikeId)))
   }
 
   // Invisible blocks revealed as a visible counterpart at a fixed 50%
@@ -178,7 +331,7 @@ export function buildTiles(
       quadFromMap16(variant[i], chars, placeholder),
     )
     const actsLikeId = actsLike.get(id) ?? id
-    tiles.set(id, new Tile(id, new PipeVariantsBehavior(variantQuads), actsLikeId))
+    tiles.set(id, new Tile(id, new PipeVariantsBehavior(variantQuads), actsLikeId, classify(actsLikeId)))
   }
 
   for (let c = 0; c < SWITCH_PALACE_COLORS; c++) {
@@ -187,9 +340,17 @@ export function buildTiles(
     const offQuad = quads.get(offId)!
     const onQuad = quads.get(onId)!
     const color = c as 0 | 1 | 2 | 3
+    // Both `$06x` and `$16x` share one behavior instance that renders
+    // (state ? onQuad : offQuad) — i.e., both default to the dotted
+    // "off" visual when the palace has not been hit, and both flip to
+    // the solid "on" visual when it has. The collision rule in
+    // drawSurfaces matches: both passable by default, both solid
+    // when their corresponding color is toggled.
     const behavior = new SwitchPalaceAlternateBehavior(offQuad, onQuad, color)
-    tiles.set(offId, new Tile(offId, behavior, actsLike.get(offId) ?? offId))
-    tiles.set(onId,  new Tile(onId,  behavior, actsLike.get(onId)  ?? onId))
+    const offActsLike = actsLike.get(offId) ?? offId
+    const onActsLike  = actsLike.get(onId)  ?? onId
+    tiles.set(offId, new Tile(offId, behavior, offActsLike, classify(offActsLike)))
+    tiles.set(onId,  new Tile(onId,  behavior, onActsLike,  classify(onActsLike)))
   }
 
   return tiles

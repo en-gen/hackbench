@@ -1,3 +1,4 @@
+import type { GetL1Tile, OverlayContext } from '../OverlayContext'
 import type { RenderContext, RenderTarget } from '../RenderTarget'
 import type { SpriteAppearance } from './SpriteAppearance'
 import type { SpriteBehavior } from './SpriteBehavior'
@@ -17,6 +18,18 @@ export class Sprite {
 
   tickAnimation(): void {
     this.appearance.tickAnimation?.()
+  }
+
+  renderOverlay(
+    ctx:       OverlayContext,
+    x:         number,
+    y:         number,
+    isActive:  boolean,
+    getL1:     GetL1Tile,
+    levelCols: number,
+    levelRows: number,
+  ): void {
+    this.appearance.renderOverlay?.(ctx, x, y, isActive, getL1, levelCols, levelRows, this.behavior)
   }
 
   /**

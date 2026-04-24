@@ -1,3 +1,4 @@
+import { NO_COLLISION, type TileCollision } from './TileCollision'
 import type { CellBox, Phase, PixelPos, RenderContext, RenderTarget } from '../RenderTarget'
 import type { SubTile } from './SubTile'
 import type { TileBehavior } from './TileBehavior'
@@ -14,11 +15,18 @@ export class Tile {
    * @param actsLike   Tile id whose game behavior this tile dispatches as.
    *                   Defaults to `id` (identity). Lunar Magic's acts-like
    *                   override lets custom tiles behave as vanilla ones.
+   * @param collision  Pre-computed per-direction collision classification —
+   *                   horizontal wall / top-stand / bottom-bonk. Pulls from
+   *                   the ROM's block-behavior table + acts-like ranges at
+   *                   factory time so the overlay predicates don't have to
+   *                   re-derive per draw. Defaults to `NO_COLLISION` for
+   *                   tiles constructed without classification (test fixtures).
    */
   constructor(
     readonly id: number,
     readonly behavior: TileBehavior,
     readonly actsLike: number = id,
+    readonly collision: TileCollision = NO_COLLISION,
   ) {}
 
   renderOverlay(ctx: RenderContext, target: RenderTarget, cell: CellBox): void {

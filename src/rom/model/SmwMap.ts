@@ -1,3 +1,4 @@
+import { isPriorityDecorative, type GetL1Tile, type OverlayContext } from './OverlayContext'
 import { cellBoxOf } from './RenderTarget'
 import type { Phase, RenderContext, RenderTarget } from './RenderTarget'
 import type { L2Layer } from './L2Layer'
@@ -127,6 +128,45 @@ export class SmwMap {
         if (!tile) continue
         tile.render(ctx, target, cellBoxOf(x, y), phase)
       }
+    }
+  }
+
+  /**
+   * Draw geometric overlays (corridors, zones, arc paths) for every sprite
+   * whose appearance implements `renderOverlay`. Called as a Canvas2D pre-pass
+   * before the model pixel-render so sprite artwork sits on top of tinted
+   * regions automatically.
+   *
+   * @param ctx        CanvasRenderingContext2D cast as OverlayContext.
+   * @param activeKeys Set of `"id:x,y"` keys for sprites whose overlay is
+   *                   currently toggled on by the user.
+   */
+  renderSpriteOverlays(ctx: OverlayContext, activeKeys: ReadonlySet<string>): void {
+    const rows     = this.l1.length
+    const cols     = this.l1[0]?.length ?? 0
+    // Priority-1 decorative tiles (foreground grass, backdrop tubes, etc.)
+    // render in front of sprites but pass through sprite collision per
+    // SMW's bank_01 interaction routines. Filter them out once here so every
+    // sprite overlay sees a collision-correct L1 grid without open-coding
+    // the check — matches CODE_01928E's "actsLike is gospel except when the
+    // quad is all-priority decoration" semantics.
+    // Emit the priority-decorative status as a cell field rather than
+    // filtering the cell to null. Per-predicate consumers decide the
+    // semantics: `solidH`/`solidV` treat priority cells as passable
+    // (matches SMW collision rules) while `hasGround` treats them as
+    // ground (matches what the user sees the sprite sitting on).
+    const getL1: GetL1Tile = (c, r) => {
+      const id = this.l1[r]?.[c] ?? null
+      if (id === null) return null
+      const tile = this.l1Tiles.get(id)
+      const isPriority = tile ? isPriorityDecorative(tile) : false
+      const collision = tile?.collision
+      return { id, actsLike: tile?.actsLike ?? id, isPriority, collision }
+    }
+    for (const sprite of this.sprites) {
+      if (!sprite.appearance.renderOverlay) continue
+      const key    = `${sprite.id}:${sprite.x},${sprite.y}`
+      sprite.renderOverlay(ctx, sprite.x, sprite.y, activeKeys.has(key), getL1, cols, rows)
     }
   }
 

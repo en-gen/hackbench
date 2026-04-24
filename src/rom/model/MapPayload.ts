@@ -1,4 +1,5 @@
 import type { RgbaColor } from '../GraphicsDecoder'
+import type { TileCollision } from './tiles/TileCollision'
 
 /**
  * Wire-format for shipping a built map from the extension host to the
@@ -36,16 +37,27 @@ export type SubtileQuadDescriptor = readonly [
   SubTileDescriptor,
 ]
 
+/**
+ * Shared fields on every TileDescriptor. `actsLike` survives any LM
+ * acts-like override; `collision` is pre-computed at factory time from
+ * the ROM's block-behavior table (DATA_00F05C) and the acts-like ranges
+ * so the webview doesn't need ROM bytes to answer "does this tile block
+ * a sprite from direction X?".
+ */
+interface TileDescriptorBase {
+  actsLike: number
+  collision: TileCollision
+}
+
 export type TileDescriptor =
-  | { kind: 'static'; quad: SubtileQuadDescriptor; actsLike: number }
-  | {
+  | ({ kind: 'static'; quad: SubtileQuadDescriptor } & TileDescriptorBase)
+  | ({
       kind: 'vineSource'
       quad: SubtileQuadDescriptor
       /** Tile $006 quad used as the vine indicator icon above the block. */
       overlayQuad: SubtileQuadDescriptor | null
-      actsLike: number
-    }
-  | {
+    } & TileDescriptorBase)
+  | ({
       kind: 'starOneUpVineBlock'
       quad: SubtileQuadDescriptor
       vineOverlayQuad: SubtileQuadDescriptor | null
@@ -53,32 +65,28 @@ export type TileDescriptor =
       oneupCharNums: readonly number[]
       /** OBJ chars for star sprite $76 (TL/TR/BL/BR), -1 when missing. */
       starCharNums: readonly number[]
-      actsLike: number
-    }
-  | { kind: 'pipeVariants'; variants: readonly SubtileQuadDescriptor[]; actsLike: number }
-  | {
+    } & TileDescriptorBase)
+  | ({ kind: 'pipeVariants'; variants: readonly SubtileQuadDescriptor[] } & TileDescriptorBase)
+  | ({
       kind: 'switchPalaceAlternate'
       off: SubtileQuadDescriptor
       on: SubtileQuadDescriptor
       color: 0 | 1 | 2 | 3
-      actsLike: number
-    }
-  | {
+    } & TileDescriptorBase)
+  | ({
       kind: 'pSwitchReveal'
       revealedQuad: SubtileQuadDescriptor
       /** Off-state alpha (0..1). Default 0.5 when omitted. */
       offAlpha?: number
-      actsLike: number
-    }
-  | {
+    } & TileDescriptorBase)
+  | ({
       kind: 'invisibleBlockReveal'
       revealedQuad: SubtileQuadDescriptor
       /** Optional reward indicator drawn above the block in a pre-pass. */
       rewardOverlayQuad: SubtileQuadDescriptor | null
       /** Constant alpha (0..1). Default 0.5 when omitted. */
       alpha?: number
-      actsLike: number
-    }
+    } & TileDescriptorBase)
 
 // ── Palette ──────────────────────────────────────────────────────────
 

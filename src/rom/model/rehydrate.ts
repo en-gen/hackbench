@@ -15,6 +15,13 @@ import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
+import { CheepCheepAppearance } from './sprites/appearances/CheepCheepAppearance'
+import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppearance'
+import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearance'
+import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
+import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
+import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
+import type { SpriteBehavior } from './sprites/SpriteBehavior'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -35,6 +42,7 @@ import type {
   SubtileQuadDescriptor,
   TileDescriptor,
 } from './MapPayload'
+import { NO_COLLISION } from './tiles/TileCollision'
 import { SmwMap } from './SmwMap'
 import { SubTile } from './tiles/SubTile'
 import { Tile, type SubtileQuad } from './tiles/Tile'
@@ -67,7 +75,7 @@ export function buildGraph(payload: MapPayload): {
   const tiles = new Map<number, Tile>()
   for (const [idStr, desc] of Object.entries(payload.tiles)) {
     const id = Number(idStr)
-    tiles.set(id, new Tile(id, buildTileBehavior(desc, chars, placeholderChar), desc.actsLike ?? id))
+    tiles.set(id, new Tile(id, buildTileBehavior(desc, chars, placeholderChar), desc.actsLike ?? id, desc.collision ?? NO_COLLISION))
   }
 
   // BG tiles (for L2 preset Map16 viewer) — built separately from the L2
@@ -76,7 +84,7 @@ export function buildGraph(payload: MapPayload): {
   if (payload.bgTiles) {
     for (const [idStr, td] of Object.entries(payload.bgTiles)) {
       const id = Number(idStr)
-      bgTiles.set(id, new Tile(id, buildTileBehavior(td, chars, placeholderChar), td.actsLike ?? id))
+      bgTiles.set(id, new Tile(id, buildTileBehavior(td, chars, placeholderChar), td.actsLike ?? id, td.collision ?? NO_COLLISION))
     }
   }
 
@@ -109,14 +117,8 @@ export function buildGraph(payload: MapPayload): {
 }
 
 function buildSprite(desc: SpriteDescriptor, chars: Map<number, Char>, placeholder: Char): Sprite {
-  const appearance = buildAppearance(desc.appearance, chars, placeholder)
-  const behavior = {
-    kind: desc.behavior.kind,
-    displayName: desc.behavior.displayName,
-    spawns: desc.behavior.spawns,
-    isGenerator: desc.behavior.isGenerator,
-    reactRangeDy: desc.behavior.reactRangeDy,
-  }
+  const appearance = buildAppearance(desc.appearance, chars, placeholder, desc.id)
+  const behavior = buildBehavior(desc)
   if (desc.secondary) {
     const child = buildSprite(desc.secondary, chars, placeholder)
     return new CompositeSprite(desc.id, desc.x, desc.y, appearance, behavior, child)
@@ -124,10 +126,29 @@ function buildSprite(desc: SpriteDescriptor, chars: Map<number, Char>, placehold
   return new Sprite(desc.id, desc.x, desc.y, appearance, behavior)
 }
 
+/**
+ * Reconstruct the sprite's `SpriteBehavior` from its descriptor. Delegates
+ * to the single `buildMovementBehavior` dispatch — the same factory used on
+ * the extension host — so class instances exist identically on both sides
+ * without any prototype-reattach dance. The descriptor's `kind` is then
+ * layered back on in case the serialized value differed from what the id
+ * alone would derive.
+ */
+function buildBehavior(desc: SpriteDescriptor): SpriteBehavior {
+  const b = buildMovementBehavior(desc.id, {
+    displayName:  desc.behavior.displayName,
+    spawns:       desc.behavior.spawns,
+    isGenerator:  desc.behavior.isGenerator,
+    reactRangeDy: desc.behavior.reactRangeDy,
+  })
+  return Object.assign(b, { kind: desc.behavior.kind })
+}
+
 function buildAppearance(
   desc: SpriteAppearanceDescriptor,
   chars: Map<number, Char>,
   placeholder: Char,
+  spriteId: number,
 ): SpriteAppearance {
   const buildParts = (rawParts: readonly SpritePartDescriptor[]): SpritePart[] =>
     rawParts.map(p => ({
@@ -140,8 +161,17 @@ function buildAppearance(
     }))
 
   switch (desc.kind) {
-    case 'static':
-      return new StaticSpriteAppearance(buildParts(desc.parts))
+    case 'static': {
+      const parts = buildParts(desc.parts)
+      // Dispatch to overlay-capable subclasses based on sprite id.
+      if (spriteId === 0x15) return new CheepCheepAppearance(parts, false)
+      if (spriteId === 0x16) return new CheepCheepAppearance(parts, true)
+      if (spriteId === 0x18) return new JumpingFishAppearance(parts)
+      if (spriteId === 0x47) return new SwimJumpFishAppearance(parts)
+      if (spriteId === 0x1D) return new HopFlameAppearance(parts)
+      if (spriteId >= 0x04 && spriteId <= 0x07) return new KoopaAppearance(parts)
+      return new StaticSpriteAppearance(parts)
+    }
     case 'pSwitch':
       return new PSwitchAppearance(buildParts(desc.parts))
     case 'thwomp':

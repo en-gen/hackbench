@@ -3,6 +3,8 @@ import { LINE_TRACKED_SPRITE_IDS, resolveLineGuideAttachment } from '../LineGuid
 import type { RomFile } from '../RomFile'
 import { buildSpriteLayout, readSpriteTileTables } from '../SpriteTileLoader'
 import type { Char } from './chars/Char'
+import { isActsLikeVertSolid } from './OverlayContext'
+import type { Tile } from './tiles/Tile'
 import { makeTransparentPlaceholderChar } from './tiles/TileFactory'
 import { Sprite } from './sprites/Sprite'
 import { CompositeSprite } from './sprites/CompositeSprite'
@@ -12,6 +14,12 @@ import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { BanzaiBillAppearance } from './sprites/appearances/BanzaiBillAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
+import { CheepCheepAppearance } from './sprites/appearances/CheepCheepAppearance'
+import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearance'
+import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppearance'
+import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
+import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
+import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
 import { getSpriteMetadata } from './sprites/SpriteMetadata'
@@ -34,6 +42,7 @@ export function buildSprites(
   chars: Map<number, Char>,
   l1: readonly (number | null)[][],
   marioStartPx: { x: number; y: number },
+  l1Tiles: Map<number, Tile>,
 ): Sprite[] {
   const tables = readSpriteTileTables(rom)
   if (!tables) return []
@@ -69,11 +78,11 @@ export function buildSprites(
     const lineGuide = LINE_TRACKED_SPRITE_IDS.has(s.spriteId)
       ? resolveLineGuideAttachment(s.spriteId, s.x * 16, s.y * 16, l1, false)
       : undefined
-    const behavior: SpriteBehavior = {
-      kind: `sprite_${s.spriteId.toString(16)}`,
-      ...getSpriteMetadata(s.spriteId),
-      ...(lineGuide !== undefined ? { lineGuide } : {}),
-    }
+    const meta = getSpriteMetadata(s.spriteId) ?? {}
+    const behavior: SpriteBehavior = Object.assign(
+      buildMovementBehavior(s.spriteId, meta),
+      lineGuide !== undefined ? { lineGuide } : {},
+    )
 
     // Sprite $9F (Banzai Bill) renders a 4×4 grid of 16×16 big-tiles (64×64 px)
     // from CODE_02D5E4 (bank_02.asm:11338) — not the single 16×16 fallback that
@@ -101,7 +110,7 @@ export function buildSprites(
       const py       = s.y * 16
       const thwompBehavior: SpriteBehavior = {
         ...behavior,
-        reactRangeDy: thwompReactRangeDy(l1, px, py),
+        reactRangeDy: thwompReactRangeDy(l1, l1Tiles, px, py),
       }
       out.push(new Sprite(
         s.spriteId, px, py,
@@ -147,8 +156,27 @@ export function buildSprites(
       continue
     }
 
+    // Sprites $08/$09 (Green Para-Koopa flying-left / bouncing).
+    // GreenParaKoopa (bank_01.asm:1817) ends with JMP Spr0to13Gfx. Spr0to13Gfx
+    // calls KoopaWingGfxRt for sprite IDs >= $08 (bank_01.asm:1785-1788) — same
+    // wing data as $0A/$0B/$0C, wingsInFront=true.
+    if (s.spriteId === 0x08 || s.spriteId === 0x09) {
+      const layout = buildSpriteLayout(tables, s.spriteId)
+      const bodyParts: SpritePart[] = (layout?.tiles ?? []).map(t => ({
+        char: chars.get(t.charNum) ?? placeholder,
+        palette: t.palette, flipX: t.flipX, flipY: t.flipY, dx: t.dx, dy: t.dy,
+      }))
+      const [wf0, wf1] = buildKoopaWingFrames(chars, placeholder)
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        new WingedSpriteAppearance(bodyParts, [wf0, wf1], true),
+        behavior,
+      ))
+      continue
+    }
+
     // Sprites $0A/$0B/$0C (Red Vert Para-Koopa / Red Horz Para-Koopa / Yellow Para-Koopa).
-    // Spr0to13Gfx (bank_01.asm:1748) calls KoopaWingGfxRt for indices > $08 — no
+    // Spr0to13Gfx (bank_01.asm:1748) calls KoopaWingGfxRt for indices >= $08 — no
     // CODE_019E95 pre-adjustment, so wing offsets come directly from KoopaWingDispXLo/Y
     // (bank_01.asm:4006). Wings render in front of the koopa body (wingsInFront=true).
     if (s.spriteId === 0x0A || s.spriteId === 0x0B || s.spriteId === 0x0C) {
@@ -161,6 +189,43 @@ export function buildSprites(
       out.push(new Sprite(
         s.spriteId, s.x * 16, s.y * 16,
         new WingedSpriteAppearance(bodyParts, [wf0, wf1], true),
+        behavior,
+      ))
+      continue
+    }
+
+    // Sprite $10 (Para-Goomba) uses WingedGoomba (bank_01.asm:1934):
+    // GoombaWingGfxRt draws 2 wing OBJ entries then SubSprGfx2Entry1 draws the
+    // Goomba body tile ($AA). Wings use OBJ palette 3 (CGRAM row 11) from
+    // GoombaWingGfxProp $06/$46 (no-flip left / flipX right). Facing left:
+    //   frame 0: 16×16 $C6 — left wing at DATA_018DC7[0]=$F7=−9 / DATA_018DD7[0]=$F7=−9
+    //                        right wing at DATA_018DC7[1]=$0B=+11 / DATA_018DD7[1]=$F7=−9, flipX
+    //   frame 1: 8×8 $5D  — left wing at DATA_018DC7[4]=$FD=−3  / DATA_018DD7[4]=$01=+1
+    //                        right wing at DATA_018DC7[5]=$0C=+12 / DATA_018DD7[5]=$01=+1, flipX
+    if (s.spriteId === 0x10) {
+      const gLayout = buildSpriteLayout(tables, s.spriteId)
+      const gBody: SpritePart[] = (gLayout?.tiles ?? []).map(t => ({
+        char: chars.get(t.charNum) ?? placeholder,
+        palette: t.palette, flipX: t.flipX, flipY: t.flipY, dx: t.dx, dy: t.dy,
+      }))
+      const GPAL = 11
+      const GBASE = 0x400
+      const gc = (n: number) => chars.get(GBASE + n) ?? placeholder
+      const gp = (n: number, dx: number, dy: number, flipX: boolean): SpritePart =>
+        ({ char: gc(n), palette: GPAL, flipX, flipY: false, dx, dy })
+      const gwf0: SpritePart[] = [          // large wings
+        gp(0xC6, -9, -9, false), gp(0xC7, -1, -9, false),
+        gp(0xD6, -9, -1, false), gp(0xD7, -1, -1, false),
+        gp(0xC7, 11, -9, true),  gp(0xC6, 19, -9, true),
+        gp(0xD7, 11, -1, true),  gp(0xD6, 19, -1, true),
+      ]
+      const gwf1: SpritePart[] = [          // small wings
+        gp(0x5D, -3, 1, false),
+        gp(0x5D, 12, 1, true),
+      ]
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        new WingedSpriteAppearance(gBody, [gwf0, gwf1]),
         behavior,
       ))
       continue
@@ -283,9 +348,25 @@ export function buildSprites(
       dy: t.dy,
     }))
 
-    const appearance: SpriteAppearance = s.spriteId === 0x3E
-      ? new PSwitchAppearance(parts)
-      : new StaticSpriteAppearance(parts)
+    let appearance: SpriteAppearance
+    if (s.spriteId === 0x3E) {
+      appearance = new PSwitchAppearance(parts)
+    } else if (s.spriteId === 0x15) {
+      appearance = new CheepCheepAppearance(parts, false)
+    } else if (s.spriteId === 0x16) {
+      appearance = new CheepCheepAppearance(parts, true)
+    } else if (s.spriteId === 0x18) {
+      appearance = new JumpingFishAppearance(parts)
+    } else if (s.spriteId === 0x47) {
+      appearance = new SwimJumpFishAppearance(parts)
+    } else if (s.spriteId === 0x1D) {
+      appearance = new HopFlameAppearance(parts)
+    } else if (s.spriteId >= 0x04 && s.spriteId <= 0x07) {
+      // Ground-walking koopas — overlay hands off to KoopaWalkBehavior.
+      appearance = new KoopaAppearance(parts)
+    } else {
+      appearance = new StaticSpriteAppearance(parts)
+    }
     out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, appearance, behavior))
   }
   return out
@@ -400,6 +481,7 @@ function buildHammerBroPlatformAppearance(
  */
 function thwompReactRangeDy(
   l1: readonly (number | null)[][],
+  l1Tiles: Map<number, Tile>,
   px: number,
   py: number,
 ): number {
@@ -410,7 +492,10 @@ function thwompReactRangeDy(
   let blockerRow = rows
   outer: for (let r = startRow; r < rows; r++) {
     for (let c = colStart; c < colEnd; c++) {
-      if ((l1[r]?.[c] ?? null) !== null) { blockerRow = r; break outer }
+      const id = l1[r]?.[c]
+      if (id === null || id === undefined) continue
+      const actsLike = l1Tiles.get(id)?.actsLike ?? id
+      if (isActsLikeVertSolid(actsLike)) { blockerRow = r; break outer }
     }
   }
   const zoneBottom = blockerRow < rows ? (blockerRow + 1) * 16 : rows * 16
