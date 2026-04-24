@@ -1,4 +1,3 @@
-import { ref } from '@vue/reactivity'
 import { type GetL1Tile, type OverlayContext } from '../../OverlayContext'
 import {
   COLORS,
@@ -41,7 +40,7 @@ import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
 
 export class WingedSpriteAppearance implements SpriteAppearance {
   readonly hitRect: HitRect
-  private readonly frame = ref(0)
+  private frame = 0
 
   constructor(
     readonly bodyParts: readonly SpritePart[],
@@ -52,11 +51,11 @@ export class WingedSpriteAppearance implements SpriteAppearance {
   }
 
   tickAnimation(): void {
-    this.frame.value = (this.frame.value + 1) % this.wingFrames.length
+    this.frame = (this.frame + 1) % this.wingFrames.length
   }
 
   render(_ctx: RenderContext, target: RenderTarget, x: number, y: number): void {
-    const wingParts = this.wingFrames[this.frame.value]
+    const wingParts = this.wingFrames[this.frame]
     const blit = (part: SpritePart) => {
       const pixels = part.char.getPixels(_ctx)
       const row = _ctx.palette.row(part.palette, _ctx)

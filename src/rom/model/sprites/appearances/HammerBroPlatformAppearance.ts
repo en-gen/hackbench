@@ -1,4 +1,3 @@
-import { ref } from '@vue/reactivity'
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
@@ -85,7 +84,7 @@ const PLATFORM_BOUNDS = (() => {
  */
 export class HammerBroPlatformAppearance implements SpriteAppearance {
   readonly hitRect: HitRect
-  private readonly frame = ref(0)
+  private frame = 0
 
   constructor(
     readonly platformParts: readonly SpritePart[],
@@ -99,7 +98,7 @@ export class HammerBroPlatformAppearance implements SpriteAppearance {
   }
 
   tickAnimation(): void {
-    this.frame.value = (this.frame.value + 1) % this.wingFrames.length
+    this.frame = (this.frame + 1) % this.wingFrames.length
   }
 
   renderOverlay(
@@ -147,7 +146,7 @@ export class HammerBroPlatformAppearance implements SpriteAppearance {
       const row = ctx.palette.row(part.palette, ctx)
       target.blit8x8(pixels, { x: x + part.dx, y: y + part.dy }, row, part.flipX, part.flipY)
     }
-    for (const part of this.wingFrames[this.frame.value]) {
+    for (const part of this.wingFrames[this.frame]) {
       const pixels = part.char.getPixels(ctx)
       const row = ctx.palette.row(part.palette, ctx)
       target.blit8x8(pixels, { x: x + part.dx, y: y + part.dy }, row, part.flipX, part.flipY)

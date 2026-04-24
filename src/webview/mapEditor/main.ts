@@ -1559,9 +1559,9 @@ function applyPalAnimFrame(f: number): void {
 const animTimer = createRafTimer(
   () => animIntervalMs,
   () => {
-    applyAnimFrame((store.animFrame + 1) % animFrameCount)
     const map = window.__smwModelMap
     if (map) for (const spr of map.sprites) spr.tickAnimation()
+    applyAnimFrame((store.animFrame + 1) % animFrameCount)
   },
 )
 
