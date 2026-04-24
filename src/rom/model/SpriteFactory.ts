@@ -1,4 +1,5 @@
 import type { LevelSprite } from '../LevelParser'
+import { LINE_TRACKED_SPRITE_IDS, resolveLineGuideAttachment } from '../LineGuide'
 import type { RomFile } from '../RomFile'
 import { buildSpriteLayout, readSpriteTileTables } from '../SpriteTileLoader'
 import type { Char } from './chars/Char'
@@ -63,9 +64,15 @@ export function buildSprites(
   for (let i = 0; i < levelSprites.length; i++) {
     if (suppressed.has(i)) continue
     const s = levelSprites[i]
+    // OnOffSwitch starts OFF at level load (RAM $14AF initializes to 0).
+    // Expose as an editor toggle later; for now, false matches default play.
+    const lineGuide = LINE_TRACKED_SPRITE_IDS.has(s.spriteId)
+      ? resolveLineGuideAttachment(s.spriteId, s.x * 16, s.y * 16, l1, false)
+      : undefined
     const behavior: SpriteBehavior = {
       kind: `sprite_${s.spriteId.toString(16)}`,
       ...getSpriteMetadata(s.spriteId),
+      ...(lineGuide !== undefined ? { lineGuide } : {}),
     }
 
     // Sprite $9F (Banzai Bill) renders a 4×4 grid of 16×16 big-tiles (64×64 px)
