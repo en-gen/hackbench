@@ -70,6 +70,15 @@ export type TileDescriptor =
       offAlpha?: number
       actsLike: number
     }
+  | {
+      kind: 'invisibleBlockReveal'
+      revealedQuad: SubtileQuadDescriptor
+      /** Optional reward indicator drawn above the block in a pre-pass. */
+      rewardOverlayQuad: SubtileQuadDescriptor | null
+      /** Constant alpha (0..1). Default 0.5 when omitted. */
+      alpha?: number
+      actsLike: number
+    }
 
 // ── Palette ──────────────────────────────────────────────────────────
 
