@@ -65,9 +65,13 @@ export function readMarioDispatchTables(rom: RomFile): MarioDispatchTables {
  * Parameters:
  *   lowByte     — `Map16TileNumber` low byte (A register at entry)
  *   tileset     — `ObjectTileset` (0-$F)
- *   direction   — Mario-approach direction index (AND #$03 → 0-3)
- *                 0 → from above (landing), 3 → from below (head bump),
- *                 1/2 → side contact (per `DATA_00F0EC` bit layout).
+ *   direction   — which Mario face touches the tile (AND #$03 → 0-3).
+ *                 Per `DATA_00F0EC` (bank_00.asm:12772) mapped to
+ *                 `PlayerBlockedDir` bits (rammap.asm:632):
+ *                   0 → $08 bit 3 = PlayerBlock_Top    → head bump  (ceiling)
+ *                   1 → $01 bit 0 = PlayerBlock_Right  → side       (wall)
+ *                   2 → $02 bit 1 = PlayerBlock_Left   → side       (wall)
+ *                   3 → $04 bit 2 = PlayerBlock_Bottom → feet land  (floor)
  *   tables      — pre-loaded `DATA_00A625` / `F0A4` / `F0EC` byte arrays
  *
  * Returns the dispatch outcome Mario experiences at this tile.

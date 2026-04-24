@@ -194,15 +194,39 @@ export function buildTiles(
     //      (coins $2A-$2E, checkpoint $66-$69) where the block-action
     //      ALWAYS fires to collect/pass regardless of tileset.
     //
-    // Sprite `ceiling` and `wall` fields don't have dedicated ASM
-    // ports yet, so `marioCeiling` / `marioWall` stay on the sprite
-    // range with the hand-list and hurt filters.
+    // Each Mario field is the UNION of two collision sources: the
+    // physical-wall flag (F545) AND the block-action dispatch (F127).
+    // F545 covers tiles that physically block Mario in the current
+    // frame; F127 covers tiles that trigger an interaction on contact
+    // (hidden blocks, note blocks, ? blocks) even when F545 says the
+    // tile is passable in its current form. Both paths are gated by
+    // the same `marioOk` filter so pass-through tiles (coins, midway
+    // tape) and hurt tiles (spike) stay excluded.
+    const dispatch0 = marioTileDispatch(low, tileset, 0, marioTables)
+    const dispatch1 = marioTileDispatch(low, tileset, 1, marioTables)
+    const dispatch2 = marioTileDispatch(low, tileset, 2, marioTables)
+    const dispatch3 = marioTileDispatch(low, tileset, 3, marioTables)
     const hurtsFromAnyDir = (
-      marioTileDispatch(low, tileset, 0, marioTables).kind === 'hurt' ||
-      marioTileDispatch(low, tileset, 1, marioTables).kind === 'hurt' ||
-      marioTileDispatch(low, tileset, 2, marioTables).kind === 'hurt' ||
-      marioTileDispatch(low, tileset, 3, marioTables).kind === 'hurt'
+      dispatch0.kind === 'hurt' ||
+      dispatch1.kind === 'hurt' ||
+      dispatch2.kind === 'hurt' ||
+      dispatch3.kind === 'hurt'
     )
+    // F127 block-action hits, split by which Mario face touches the
+    // tile. DATA_00F0EC encoding per `PlayerBlockedDir` (rammap.asm:632):
+    //   dir 0 → F0EC[0]=$08 = bit 3 = PlayerBlock_Top    → Mario head bump → CEILING
+    //   dir 1 → F0EC[1]=$01 = bit 0 = PlayerBlock_Right  → WALL (right face)
+    //   dir 2 → F0EC[2]=$02 = bit 1 = PlayerBlock_Left   → WALL (left face)
+    //   dir 3 → F0EC[3]=$04 = bit 2 = PlayerBlock_Bottom → Mario feet land → FLOOR
+    // Included as classification triggers because tiles like $021
+    // (invisible coin block) are F545-non-solid but DO interact with
+    // Mario on head bump: the dispatch transforms them to their visible
+    // counterpart and Mario bonks. Coins $2A-$2E and spike $2F also
+    // return 'hit' from some directions — they stay excluded via the
+    // `marioOk` filter (isMarioStandable hand-list + hurtsFromAnyDir).
+    const hitOnHead  = dispatch0.kind === 'hit'
+    const hitOnSides = dispatch1.kind === 'hit' || dispatch2.kind === 'hit'
+    const hitOnFeet  = dispatch3.kind === 'hit'
     const feetLanding  = marioFeetLanding(low, tileset)
     const marioOk      = isMarioStandable(actsLikeId) && !hurtsFromAnyDir
     // CODE_00F545 (bank_00.asm:13410) is Mario's SOLIDITY predicate,
@@ -224,10 +248,9 @@ export function buildTiles(
     // `ceiling`/`wall` fields — those are gated through `bhBlocks`
     // (F05C-empty bypass) which is a sprite-side convention that
     // excludes tiles like $11A (F05C value $00 but a real head-bumpable
-    // item block). F545 is the authoritative gate for Mario; F05C's
-    // block-hit dispatch fires on top. So Mario fields derive directly
-    // from the raw low-byte ranges gated only by F545 and the
-    // hurt/Mario-standable filters.
+    // item block). F545 is the physical-wall gate; F127 is the
+    // block-action gate. Mario fields OR the two, gated by the
+    // hurt/Mario-standable filters on top.
     const marioInSolidRange    = low >= 0x11 && low <= 0x6D
     const marioInCeilingWindow = tileset !== 0 && tileset !== 7 && low >= 0xC4 && low <= 0xC9
     // Slopes are NOT floors. `feetLanding` returns 'slope' (not 'land')
@@ -235,9 +258,9 @@ export function buildTiles(
     // not a flat top. The "Show surfaces" overlay draws a horizontal
     // line, which is only correct for flat floors. Slope membership is
     // still surfaced via `slopeTable` for overlays that render angle.
-    const marioFloor   = marioSolid && (feetLanding.kind === 'land') && marioOk
-    const marioCeiling = marioSolid && (marioInSolidRange || marioInCeilingWindow) && marioOk
-    const marioWall    = marioSolid && marioInSolidRange && marioOk
+    const marioFloor   = (marioSolid || hitOnFeet)  && (feetLanding.kind === 'land') && marioOk
+    const marioCeiling = (marioSolid || hitOnHead)  && (marioInSolidRange || marioInCeilingWindow) && marioOk
+    const marioWall    = (marioSolid || hitOnSides) && marioInSolidRange && marioOk
 
     return {
       floor, ceiling, wall,
@@ -322,6 +345,7 @@ export function buildTiles(
       hiddenId,
       new InvisibleBlockRevealBehavior(srcQuad, rewardQuad),
       actsLikeId,
+      classify(actsLikeId),
     ))
   }
 

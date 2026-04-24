@@ -48,10 +48,16 @@ export interface LayerToggles {
   l3Hud: boolean
   /**
    * Draw floor/ceiling face lines on L1 cells (toolbar btn-surfaces).
-   * Reads `tile.collision.floor` / `.ceiling`; see
+   * Reads `tile.collision.marioFloor` / `.marioCeiling`; see
    * `src/rom/model/tiles/COLLISION.md`.
    */
   surfaces: boolean
+  /**
+   * Draw left/right wall face lines on L1 cells (toolbar btn-walls).
+   * Reads `tile.collision.marioWall`; see
+   * `src/rom/model/tiles/COLLISION.md`.
+   */
+  walls: boolean
 }
 
 /**
