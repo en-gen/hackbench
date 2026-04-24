@@ -189,7 +189,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x7D: 0x5D,   // Balloon
   0x7E: 0x5D,   // Flying Red coin
   0x7F: 0x5D,   // Flying yellow 1-Up
-  0x80: 0x5D,   // Key
+  0x80: 0xEC,   // Key — PowerUpGfxRt with PowerUpTiles[$0C], bank_01.asm:9528
   0x81: 0x80,   // Changing item from translucent block
   0x82: 0xE4,   // Bonus game sprite
   0x83: 0x2A,   // Left flying question block (initial/unhit state; $2E after hit)
