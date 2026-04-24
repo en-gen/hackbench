@@ -55,14 +55,16 @@ export function buildL2(
     const rows = isVertical ? screens * SCREEN_H_VERT : SCREEN_H
     // Grid of BG Map16 ids. The L2Preset resolves ids against the shared
     // `bgTiles` map at render time rather than holding Tile references.
+    //
+    // We render every byte — including the $25 pre-init filler CODE_05801E
+    // writes before decompression — because SMW's upload loop (CODE_058D7A,
+    // bank_05.asm:1680-1705) indexes Map16BGTiles with that byte unconditionally.
+    // Map16BGTiles[$025] is a real visible tile (char $13D), not empty.
     const grid: (number | null)[][] = Array.from({ length: rows }, (_, r) =>
       Array.from({ length: cols }, (_, c) => {
         const rr = r % L2_BG_PLANE_ROWS
         if (rr >= L2_TILEMAP_ROWS) return null
-        const tileId = preset.grid[rr][c % L2_TILEMAP_COLS]
-        const baseId = tileId & 0xFF
-        if (baseId === L2_EMPTY_TILE) return null
-        return tileId
+        return preset.grid[rr][c % L2_TILEMAP_COLS]
       }),
     )
     return new L2Preset(preset.page, grid, bgTiles)

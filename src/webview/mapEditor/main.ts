@@ -1174,11 +1174,11 @@ app.innerHTML = `
         <rect x="1" y="11" width="14" height="3" rx="1" fill="#666"/>
       </svg>
     </button>
+    <button id="btn-sprites"     class="iconBtn on" title="Sprites overlay"><span class="codicon codicon-symbol-misc"></span></button>
 
     <div class="tb-sep"></div>
 
     <!-- Overlay toggles -->
-    <button id="btn-sprites"     class="iconBtn on" title="Sprites overlay"><span class="codicon codicon-symbol-misc"></span></button>
     <button id="btn-block"       class="iconBtn"    title="Block view"><span class="codicon codicon-symbol-method"></span></button>
     <button id="btn-play"        class="iconBtn"    title="Play animation"><span class="codicon codicon-play"></span></button>
     <button id="btn-camera"      class="iconBtn"    title="Camera viewport"><span class="codicon codicon-device-camera-video"></span></button>
@@ -1290,11 +1290,11 @@ app.innerHTML = `
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
           <div>
-            <div style="${propLabelStyle()}">SPRITE PAL</div>
+            <div style="${propLabelStyle()}">SPRITE PALETTE</div>
             <select id="sel-sprite-palette" style="${selStyle()}"></select>
           </div>
           <div>
-            <div style="${propLabelStyle()}">MARIO PAL</div>
+            <div style="${propLabelStyle()}">MARIO PALETTE</div>
             <select id="sel-mario-palette" style="${selStyle()}"></select>
           </div>
         </div>
