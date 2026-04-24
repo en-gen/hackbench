@@ -325,6 +325,74 @@ export function buildSprites(
       continue
     }
 
+    // Chargin' Chuck ($91). Render in charging pose $13 (from DATA_02C6A3 in
+    // CODE_02C6A7 / state 1, bank_02.asm:9401) with the football: 3 big-tile
+    // body parts (ChuckHeadTiles, ChuckBody1[$13]=$20, ChuckBody2[$13]=$21)
+    // plus 2 small 8×8 football tiles (chars $1C/$1D) drawn by CODE_02CAFC
+    // (bank_02.asm:9874) with palette 3 from ChuckGfxProp. InitChuck
+    // (bank_01.asm:772) calls FaceMario, storing SubHorizPos's Y into
+    // SpriteMisc157C (=_3) and setting SpriteMisc151C (=_2) from
+    // DATA_018526={$00,$04}: Mario-right → Chuck faces right (all body tiles
+    // hflipped via _6=$40; head hflipped via DATA_02C885[0]=$40; football
+    // hflipped via ChuckGfxProp[0]=$47); Mario-left → Chuck faces left (no
+    // flips; DATA_02C885[4]=$00, ChuckGfxProp[1]=$07). Pose $13 offsets:
+    // head (-10,-12) from DATA_02C830/02C84A; body2 (0,0) from DATA_02C93D;
+    // body1 (-8,0) from DATA_02C909/02C971; football at (0,-8) and (+8,-8).
+    if (s.spriteId === 0x91) {
+      const attr          = tables.spriteAttr[s.spriteId] ?? 0
+      const bodyPalette   = 8 + ((attr >> 1) & 0x07)
+      const bodyCharHigh  = (attr & 0x01) !== 0 ? 0x100 : 0
+      // Football uses hardcoded ChuckGfxProp (attr $07 in both directions for
+      // palette/charHigh — only the hflip bit differs). Low nibble $07 →
+      // palette 3 (8+3=11), charHigh 1.
+      const ballAttr      = 0x07
+      const ballPalette   = 8 + ((ballAttr >> 1) & 0x07)
+      const ballCharHigh  = (ballAttr & 0x01) !== 0 ? 0x100 : 0
+      const spritePx      = s.x * 16
+      const faceRight     = marioStartPx.x >= spritePx      // _3 == 0 branch
+      const OBJ_BASE = 0x400
+      // SNES large-OBJ expansion: base char N → [N, N+1, N+$10, N+$11] at
+      // corner offsets (0,0),(8,0),(0,8),(8,8). flipX reverses column order
+      // AND flips each 8×8.
+      const bigTile = (baseTile: number, bdx: number, bdy: number, flipX: boolean, pal: number, cHigh: number): SpritePart[] => {
+        const co = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
+        const dxo = [0, 8, 0, 8]
+        const dyo = [0, 0, 8, 8]
+        return co.map((off, i) => ({
+          char: chars.get(OBJ_BASE + cHigh + ((baseTile + off) & 0x1FF)) ?? placeholder,
+          palette: pal, flipX, flipY: false,
+          dx: bdx + dxo[i], dy: bdy + dyo[i],
+        }))
+      }
+      const smallTile = (tile: number, dx: number, dy: number, flipX: boolean, pal: number, cHigh: number): SpritePart => ({
+        char: chars.get(OBJ_BASE + cHigh + (tile & 0x1FF)) ?? placeholder,
+        palette: pal, flipX, flipY: false, dx, dy,
+      })
+      // Draw order matches SMW OAM priority: head first (behind), then body2,
+      // then body1 on top; football layered last (in front of head, overlapping body).
+      const parts: SpritePart[] = faceRight
+        ? [
+            ...bigTile(0x06,  10, -12, true,  bodyPalette, bodyCharHigh),  // head (behind)
+            ...bigTile(0x21,   0,   0, true,  bodyPalette, bodyCharHigh),  // body2
+            ...bigTile(0x20,   8,   0, true,  bodyPalette, bodyCharHigh),  // body1
+            smallTile(0x1C,  8,  -8, true,  ballPalette, ballCharHigh),    // football tile 1
+            smallTile(0x1D,  0,  -8, true,  ballPalette, ballCharHigh),    // football tile 2
+          ]
+        : [
+            ...bigTile(0x06, -10, -12, false, bodyPalette, bodyCharHigh),  // head (behind)
+            ...bigTile(0x21,   0,   0, false, bodyPalette, bodyCharHigh),  // body2
+            ...bigTile(0x20,  -8,   0, false, bodyPalette, bodyCharHigh),  // body1
+            smallTile(0x1C,  0,  -8, false, ballPalette, ballCharHigh),    // football tile 1
+            smallTile(0x1D,  8,  -8, false, ballPalette, ballCharHigh),    // football tile 2
+          ]
+      out.push(new Sprite(
+        s.spriteId, spritePx, s.y * 16,
+        new StaticSpriteAppearance(parts),
+        behavior,
+      ))
+      continue
+    }
+
     const layout = buildSpriteLayout(tables, s.spriteId)
     if (!layout) {
       const boxChar = chars.get(-2) ?? makeTransparentPlaceholderChar()

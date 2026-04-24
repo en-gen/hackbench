@@ -204,7 +204,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x8D: 0x9C,   // Ghost house exit sign and door
   0x8F: 0x80,   // Scale platforms
   0x90: 0x80,   // Large green gas bubble
-  0x91: 0x06,   // Chargin' Chuck — ChuckHeadTiles[0], bank_02.asm:9621
+  0x91: 0x06,   // Chargin' Chuck — handled in SpriteFactory (FaceMario direction); kept as fallback
   0x92: 0x06,   // Splittin' Chuck
   0x93: 0x06,   // Bouncin' Chuck
   0x94: 0x06,   // Whistlin' Chuck
@@ -402,9 +402,10 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
     { baseTile: 0x6C, baseDx: -16, baseDy:   0,               flipY: true }, // BL
     { baseTile: 0x6C, baseDx:   0, baseDy:   0, flipX: true,  flipY: true }, // BR
   ]},
-  // Dry Bones ($30, $32) is handled in SpriteFactory rather than here because
-  // its flip direction depends on FaceMario evaluated against the level's
-  // Mario start position — not a property of the sprite tile tables.
+  // Dry Bones ($30, $32) and Chargin' Chuck ($91) are handled in SpriteFactory
+  // rather than here because their flip direction depends on FaceMario
+  // evaluated against the level's Mario start position — not a property of the
+  // sprite tile tables.
 }
 
 /**
