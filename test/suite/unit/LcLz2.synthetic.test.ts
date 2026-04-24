@@ -155,3 +155,65 @@ describe('LC_LZ2 decompress — synthetic vectors', () => {
     expect(toArr(decompress(input))).toEqual([0xFF, 0xFF, 0xFF])
   })
 })
+
+describe('LC_LZ2 decompress — unused commands and edge cases', () => {
+  // Commands 5 and 6 are not used by SMW. The decoder hits the
+  // `default: break` branch and produces no output for that command.
+
+  it('command 5 (0xA0 header) is silently skipped — no output, no throw', () => {
+    // 0xA0 → cmd=(0xA0>>5)&7=5, len=(0xA0&0x1F)+1=1; default: break; 0xFF terminates
+    expect(() => decompress(toBytes([0xA0, FF]))).not.toThrow()
+    expect(toArr(decompress(toBytes([0xA0, FF])))).toEqual([])
+  })
+
+  it('command 6 (0xC0 header) is silently skipped — no output, no throw', () => {
+    // 0xC0 → cmd=6, len=1; default: break
+    expect(() => decompress(toBytes([0xC0, FF]))).not.toThrow()
+    expect(toArr(decompress(toBytes([0xC0, FF])))).toEqual([])
+  })
+
+  it('command 5 followed by a real command: real command still executes', () => {
+    // cmd 5 (no-op), then cmd 1 byte-fill 2 × 0xAA
+    const input = toBytes([0xA0, hdr(1, 1), 0xAA, FF])
+    expect(toArr(decompress(input))).toEqual([0xAA, 0xAA])
+  })
+
+  it('extended header (cmd 7) with no ext byte terminates gracefully', () => {
+    // 0xE0 → cmd=7; i advances past header but ext byte is missing → break
+    expect(() => decompress(toBytes([0xE0]))).not.toThrow()
+    expect(toArr(decompress(toBytes([0xE0])))).toEqual([])
+  })
+
+  it('word fill (cmd 2) with only one fill byte available is skipped', () => {
+    // 0x40 → cmd=2, len=1; needs 2 fill bytes but only 1 remains → break
+    expect(toArr(decompress(toBytes([0x40, 0xAA])))).toEqual([])
+  })
+
+  it('back-reference beyond current write position produces zeros', () => {
+    // Write 1 byte (0xAA) via byte-fill, then back-ref addr=5 (beyond) len=2 → zeros
+    // hdr(1,0) = cmd1 len1; 0x81 = cmd4 len2
+    const input = toBytes([hdr(1, 0), 0xAA, 0x81, 0x00, 0x05, FF])
+    const result = toArr(decompress(input))
+    expect(result[0]).toBe(0xAA)
+    expect(result[1]).toBe(0)
+    expect(result[2]).toBe(0)
+  })
+
+  it('initialBuffer: back-reference reads pre-filled data before write position', () => {
+    // No bytes written yet (wp=0). initialBuffer=[0xAA, 0xBB].
+    // back-ref addr=0 len=2 → reads initialBuffer[0] and [1].
+    // 0x81 → cmd=(0x81>>5)&7=4, len=(0x81&0x1F)+1=2
+    const init = new Uint8Array([0xAA, 0xBB])
+    const result = toArr(decompress(toBytes([0x81, 0x00, 0x00, FF]), 0, init))
+    expect(result[0]).toBe(0xAA)
+    expect(result[1]).toBe(0xBB)
+  })
+
+  it('initialBuffer: data beyond initialBuffer length still produces zeros', () => {
+    // initialBuffer=[0x55]; back-ref addr=1 (just outside) len=1 → 0
+    const init = new Uint8Array([0x55])
+    const result = toArr(decompress(toBytes([0x80, 0x00, 0x01, FF]), 0, init))
+    // 0x80 → cmd=4, len=1; addr=0x0001; 0+1=1 >= out.length(1) → writeByte(0)
+    expect(result[0]).toBe(0)
+  })
+})
