@@ -42,18 +42,24 @@ function switchPalacePassable(id: number, state: readonly boolean[]): boolean {
 /**
  * Draw the "Show walls" overlay — a 2px purple line along the left edge
  * of every L1 cell whose `marioWall` is true AND whose left neighbour
- * is NOT `marioWall`, and symmetrically along the right edge when the
- * right neighbour is not `marioWall`.
+ * is neither `marioWall` nor a slope cell, and symmetrically along the
+ * right edge.
  *
- * Reads `tile.collision.marioWall` directly; the Mario classify lives
- * in `TileFactory.classify` and is gated by `marioTileSolidity`
- * (CODE_00F545 port) and the `isMarioStandable` hand-list. See
- * `src/rom/model/tiles/COLLISION.md` for derivation.
+ * Reads `tile.collision.marioWall` / `.slope` directly; the Mario
+ * classify lives in `TileFactory.classify` and is gated by
+ * `marioTileSolidity` (CODE_00F545 port) and the `isMarioStandable`
+ * hand-list. See `src/rom/model/tiles/COLLISION.md` for derivation.
  *
  * Silhouette rule (vertical-edge variant): a left-face line is drawn
- * iff the cell at (c-1, r) is not itself a Mario-wall, and a right-face
- * line iff (c+1, r) is not. Without this, interior columns of a solid
- * mass draw stripes on every column. Unlike surfaces, adjacency in the
+ * iff the cell at (c-1, r) is not itself a Mario-wall or slope, and a
+ * right-face line iff (c+1, r) is neither. Without the wall half of
+ * this rule, interior columns of a solid mass draw stripes on every
+ * column. Without the slope half, a slope tile butting up against a
+ * solid-fill column exposes a vertical face that the slope's diagonal
+ * graphic actually covers — that was the stair-step artefact the Phase
+ * 3 work removes. Slope cells themselves never draw vertical lines
+ * (the `continue` on `!marioWall` below keeps them out); they only
+ * suppress their neighbours' faces. Unlike surfaces, adjacency in the
  * Y-axis does NOT merge faces — a wall cell stacked on another wall
  * cell still exposes its left/right faces on both cells.
  */
@@ -65,14 +71,14 @@ export function drawWalls(
   const rows = map.l1.length
   if (rows === 0) return
   const cols = map.l1[0].length
-  const marioWallAt = (c: number, r: number): boolean => {
+  const wallishAt = (c: number, r: number): boolean => {
     if (r < 0 || r >= rows || c < 0 || c >= cols) return false
     const id = map.l1[r]?.[c]
     if (id === null || id === undefined) return false
     const tile = map.l1Tiles.get(id)
     if (!tile) return false
     if (switchPalacePassable(tile.id, switchPalaceState)) return false
-    return tile.collision.marioWall
+    return tile.collision.marioWall || tile.collision.slope !== undefined
   }
   octx.save()
   octx.strokeStyle = WALL_COLOR
@@ -89,11 +95,11 @@ export function drawWalls(
       if (!tile.collision.marioWall) continue
       const x = c * TILE_PX
       const y = r * TILE_PX
-      if (!marioWallAt(c - 1, r)) {
+      if (!wallishAt(c - 1, r)) {
         octx.moveTo(x, y)
         octx.lineTo(x, y + TILE_PX)
       }
-      if (!marioWallAt(c + 1, r)) {
+      if (!wallishAt(c + 1, r)) {
         octx.moveTo(x + TILE_PX, y)
         octx.lineTo(x + TILE_PX, y + TILE_PX)
       }

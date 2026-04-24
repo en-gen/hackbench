@@ -63,20 +63,32 @@
  * Slope membership
  * ------------------------------------------------------------------
  *
- *   slopeTable  LEGACY (becomes `slope?: SlopeInfo` in Phase 3).
- *               `DATA_00EAC1` membership (bank_00.asm:11946) via
+ *   slopeTable  `DATA_00EAC1` membership (bank_00.asm:11946) via
  *               `CODE_00F04D` (bank_00.asm:12730-12741). 26-entry
- *               lookup recognising slope tiles. Per-tile diagonal
- *               collision is NOT ported — the flag just surfaces
- *               membership so consumers route slopes through their
- *               own logic.
+ *               lookup recognising slope tiles at the sprite-collision
+ *               layer. Separate from `slope` below — this flag stays
+ *               for sprite-side consumers (KoopaWalk patrol, etc.)
+ *               until Phase 4 migrates them.
  *
- * All fields default `false` for tiles built without a classification
- * pass (test fixtures / pre-rehydration cells).
+ *   slope       Mario-side slope surface profile from
+ *               `resolveSlope` in `src/rom/SlopeResolver.ts`. Present
+ *               when the tile's acts-like low byte is in `$6E..$D7`
+ *               and the per-tileset `SlopesPtr`-indexed map yields a
+ *               valid slope index (`CODE_00ED86`, bank_00.asm:12334).
+ *               Absent for non-slope tiles. The 16-byte `heights`
+ *               array is the ROM's `DATA_00E632` surface profile
+ *               consumed by the "Show surfaces" overlay to draw a
+ *               pixel-accurate diagonal polyline.
+ *
+ * All boolean fields default `false` for tiles built without a
+ * classification pass (test fixtures / pre-rehydration cells); `slope`
+ * defaults `undefined`.
  *
  * See `COLLISION.md` (this directory) for the design rationale,
  * consumer guide, and phase roadmap.
  */
+import type { SlopeInfo } from '../../SlopeResolver'
+
 export interface TileCollision {
   // Sprite perspective — matches `CODE_01928E` / `CODE_0192C9`.
   readonly floor:        boolean
@@ -88,8 +100,11 @@ export interface TileCollision {
   readonly marioCeiling: boolean
   readonly marioWall:    boolean
 
-  // Slope membership — shared.
+  // Slope membership — sprite-side (DATA_00EAC1).
   readonly slopeTable:   boolean
+
+  // Mario-side slope surface profile (CODE_00ED86 / DATA_00E632).
+  readonly slope?:       SlopeInfo
 }
 
 export const NO_COLLISION: TileCollision = {

@@ -44,6 +44,15 @@ function makeMap(
 
 const WALL: TileCollision = { ...NO_COLLISION, wall: true, marioWall: true }
 
+/**
+ * Minimal slope fixture — only `slope` matters for the silhouette rule.
+ * Heights are placeholder bytes; drawWalls never reads them.
+ */
+const SLOPE: TileCollision = {
+  ...NO_COLLISION,
+  slope: { slopeIndex: 0, heights: new Uint8Array(16) },
+}
+
 describe('drawWalls', () => {
   it('draws BOTH vertical edges for a single marioWall cell', () => {
     const map = makeMap([[1]], new Map([[1, WALL]]))
@@ -144,6 +153,75 @@ describe('drawWalls', () => {
     // right cell has nothing right of it. Interior shared faces
     // suppressed.
     const map = makeMap([[1, 1, 1]], new Map([[1, WALL]]))
+    const ctx = makeCtx()
+    drawWalls(ctx, map)
+    expect(ctx.ops).toEqual([
+      { kind: 'move', x: 0,  y: 0  },
+      { kind: 'line', x: 0,  y: 16 },
+      { kind: 'move', x: 48, y: 0  },
+      { kind: 'line', x: 48, y: 16 },
+    ])
+  })
+
+  it('slope cell itself draws no vertical lines (only suppresses neighbours)', () => {
+    // Slopes fall outside the marioWall range ($11-$6D) so the outer
+    // `if (!marioWall) continue` skips them. The polyline belongs to
+    // drawSurfaces, not drawWalls.
+    const map = makeMap([[1]], new Map([[1, SLOPE]]))
+    const ctx = makeCtx()
+    drawWalls(ctx, map)
+    expect(ctx.ops).toEqual([])
+  })
+
+  it('wall cell suppresses its right face when the right neighbour is a slope', () => {
+    // Row: [wall, slope]. The wall's right face is covered by the
+    // slope's diagonal graphic, so it should not be drawn. The wall's
+    // left face still draws (no neighbour there).
+    const map = makeMap(
+      [[1, 2]],
+      new Map([
+        [1, WALL],
+        [2, SLOPE],
+      ]),
+    )
+    const ctx = makeCtx()
+    drawWalls(ctx, map)
+    expect(ctx.ops).toEqual([
+      { kind: 'move', x: 0, y: 0  },
+      { kind: 'line', x: 0, y: 16 },
+    ])
+  })
+
+  it('wall cell suppresses its left face when the left neighbour is a slope', () => {
+    const map = makeMap(
+      [[2, 1]],
+      new Map([
+        [1, WALL],
+        [2, SLOPE],
+      ]),
+    )
+    const ctx = makeCtx()
+    drawWalls(ctx, map)
+    // Only the wall's right face should draw (col 1 right edge at x=32).
+    expect(ctx.ops).toEqual([
+      { kind: 'move', x: 32, y: 0  },
+      { kind: 'line', x: 32, y: 16 },
+    ])
+  })
+
+  it('row [wall, slope, wall] emits only the outer faces — no stair-step', () => {
+    // Reproduces the picture-1 artefact fix. Pre-Phase-3, the left
+    // wall's right face and the right wall's left face would each draw
+    // a vertical purple line against the slope's surface graphic. With
+    // `wallishAt` treating slope cells as wall-covering, both shared
+    // faces are suppressed.
+    const map = makeMap(
+      [[1, 2, 1]],
+      new Map([
+        [1, WALL],
+        [2, SLOPE],
+      ]),
+    )
     const ctx = makeCtx()
     drawWalls(ctx, map)
     expect(ctx.ops).toEqual([

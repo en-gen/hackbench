@@ -43,9 +43,10 @@ these without touching other consumers.
     platforms, vines, ropes; sprite lands when pixel-Y is near tile top)
   - `$11-$6D` — full solid
   - `$6E-$D7` — slope tiles; landing routes through slope-angle table
-    at `CODE_00FA19` (bank_00.asm:14053-14079). Phase 1 surfaces slope
-    membership via the `slopeTable` field; Phase 3 replaces it with
-    `slope?: SlopeInfo` carrying the angle data.
+    at `CODE_00FA19` (bank_00.asm:14053-14079). Sprite-side slope
+    membership is surfaced via the `slopeTable` field;
+    Mario-perspective slopes carry the per-pixel height profile in
+    `slope?: SlopeInfo` (Phase 3).
   - `>=$D8` — upper solid range (`CODE_019386`)
 - Additionally gated by the block-behavior filter (see below).
 
@@ -144,15 +145,46 @@ body-overlap grab-on-UP-press logic, but the feet-level `CODE_00F127`
 dispatch still marks `$11-$2D` as solid. Turn blocks in that range
 stop Mario from above.
 
-### `slopeTable` — slope membership (legacy; becomes `slope?: SlopeInfo` in Phase 3)
+### `slopeTable` — sprite-side slope membership
 - `DATA_00EAC1` (bank_00.asm:11946-11950) — 26-entry table of slope tile
   IDs.
 - Looked up by `CODE_00F04D` (bank_00.asm:12730-12741) linear search.
-- Phase 1 surfaces membership only. Per-tile diagonal collision (the
-  height profile + slope angle at a given pixel-X inside the tile) is
-  NOT ported — consumers route slopes through their own logic until
-  Phase 3 adds `slope.heightTable` + `slope.angle` from
-  `CODE_00FA19` + `DATA_00E53D`.
+- Surfaces sprite-collision slope membership. Sprite consumers
+  (`KoopaWalk` patrol, `CheepCheep` arc) still read this flag until
+  Phase 4 migrates them to the Mario-side `slope` field below.
+
+### `slope?: SlopeInfo` — Mario-side slope surface profile (Phase 3)
+- `DATA_00E632` (bank_00.asm:11604-11667) — 510-byte slope-height LUT.
+- `DATA_00E55E` (bank_00.asm:11572-11586) — default per-tile
+  slope-index map (106 bytes, `map[low-$6E]` → slope index).
+- `DATA_00E5C8` (bank_00.asm:11588-11602) — overworld / cave slope-index
+  map used when `ObjectTileset == 0 || == 7` per the `CODE_058281`
+  branch at bank_05.asm:317-327.
+- Resolved by `CODE_00ED86` (bank_00.asm:12334-12381) at runtime via
+  `LDA [SlopesPtr],Y` (where Y = `low-$6E`) → `ASL×4` → `ORA pixelX` →
+  `DATA_00E632,X`. Ported as `resolveSlope` in
+  `src/rom/SlopeResolver.ts`.
+- Present when (a) the tile's acts-like low byte is in `$6E..$D7` (the
+  `CPY #$6E BCC` / `CPY #$D8 BCS` guards at bank_00.asm:12327-12330)
+  AND (b) the tile is F545-solid. `marioFeetLanding` still classifies
+  `$D8-$FA` as `'slope'`, but those low bytes fall outside the
+  106-entry SlopesPtr map and have no per-pixel height data, so they
+  resolve to `null`.
+- F545 gate: the ROM's slope dispatch at `CODE_00EDE9` (bank_00.asm:12392-12394)
+  is `JSR CODE_00F44D / BNE CODE_00EDF3` — slope-angle path only fires
+  when F545 returns solid. Page-0 placements of slope-range low bytes
+  (`$0A6` lava-corner graphics, `$073` / `$074` / `$079` bush graphics)
+  hit the non-solid branch and never enter the slope dispatch — Mario
+  walks through them as decoration. `TileFactory.classify` mirrors this
+  by gating `resolveSlope` on `marioSolid` so the overlay doesn't draw
+  misleading diagonals on those tiles. `resolveSlope` itself stays
+  low-byte-only (matching the ROM's `LDA [SlopesPtr],Y`).
+- The `CPY #$D2 BCS` gate at bank_00.asm:12340-12342 (tileset 3/$E
+  skips `$D2+` at runtime) is deliberately NOT replicated in the
+  resolver — overlay-only deviation; the slope graphic is still present
+  in ROM data and designers benefit from seeing it.
+- `heights[x]` is the surface Y (0..15) at pixel column x; "Show
+  surfaces" draws a pixel-accurate diagonal polyline from this array.
 
 ### Block-behavior filter (applied to `floor`, `ceiling`, `sideSolid`)
 `DATA_00F05C` (bank_00.asm:12744-12749) is a 36-byte table indexed by
@@ -226,9 +258,13 @@ three live in `src/rom/MarioTileDispatch.ts`:
    F127:
    - `< $6E`: lands on Mario (except `$59-$5B` in tilesets 3/$E,
      which are holes).
-   - `$6E-$D7` and `$D8-$FA`: slope-angle dispatch via
-     `CODE_00ED86` (per-tile slope height from `DATA_00E632`,
-     tracked for Phase 3).
+   - `$6E-$D7`: slope-angle dispatch via `CODE_00ED86` (per-tile
+     slope height from `DATA_00E632`). Ported as `resolveSlope` in
+     `src/rom/SlopeResolver.ts`; surfaced on `TileCollision` as the
+     `slope?: SlopeInfo` field.
+   - `$D8-$FA`: also marked `'slope'` by `marioFeetLanding`, but falls
+     outside the 106-entry `SlopesPtr` map so `resolveSlope` returns
+     `null` — no per-pixel height data exists for that range.
    - `$FB+`: special path `CODE_00F629`.
 
 3. **`CODE_01928E` / `CODE_0192C9` — sprite-range solidity.** Used
@@ -272,9 +308,9 @@ The current `TileCollision` fields are computed as follows:
     in tileset 1 — Mario bounces off these, doesn't settle).
 
 The ASM ports are exported from `MarioTileDispatch.ts` for future
-consumers: a block-hit overlay would consume `marioTileDispatch`;
-the slope-angle work in Phase 3 will extend `marioFeetLanding`'s
-slope branch with the `DATA_00E632` height-profile port.
+consumers: a block-hit overlay would consume `marioTileDispatch`.
+Slope-angle data is ported separately in `src/rom/SlopeResolver.ts`
+and surfaced as `TileCollision.slope` (Phase 3).
 
 ### Switch palace state in the overlay — editor convention, not ROM
 
@@ -312,7 +348,7 @@ then, the toggle provides a useful approximation of intent.
 | Does Mario bonk his head here? | `marioCeiling` |
 | Is this a wall for Mario? | `marioWall` |
 | Is this a ledge? | `marioFloor === true` for this cell, and `marioFloor === false` for the neighbor in the fall direction |
-| Is this a slope? | `slopeTable === true` (Phase 1); `slope !== undefined` (Phase 3+) |
+| Is this a slope? | `slope !== undefined` (Mario perspective, with heights); `slopeTable === true` (sprite perspective, legacy boolean) |
 
 Consumers reading these fields should NOT duplicate the range logic in
 their own code. The point of `TileCollision` is that the classification
@@ -324,13 +360,22 @@ happens once in `TileFactory.classify`; everything else reads the boolean.
 |---|---|---|---|---|
 | Phase 1 | `floor`, `ceiling` | `topSolid`, `bottomSolid` | "Show surfaces" (`layout-panel-dock`) | shipped |
 | Phase 2 | `wall` | `sideSolid` | "Show walls" (`layout-sidebar-right-dock`) | shipped |
-| Phase 3 | `slope?: SlopeInfo` | `slopeTable` | (extends Phase 1 overlay) | pending |
-| Phase 4 | — | `solidityFromL1` helper | — | pending |
+| Phase 3 | `slope?: SlopeInfo` | — | (extends Phase 1 + Phase 2 overlays) | shipped |
+| Phase 4 | — | `slopeTable`, `solidityFromL1` helper | — | pending |
+
+Phase 3 renders slopes as pixel-accurate diagonal polylines in the
+"Show surfaces" overlay via `DATA_00E632` per-pixel heights resolved
+through the per-tileset `SlopesPtr` map. It also extends the "Show
+walls" silhouette: slope cells count as wall-covering for neighbour
+suppression, removing the stair-step purple artefacts that appeared on
+solid-fill tiles butting up against slope graphics pre-Phase-3.
 
 Phase 4 migrates sprite-overlay consumers (KoopaWalk, CheepCheep,
-HopFlame, Thwomp, WingedSprite) to read `cell.collision.*` directly and
-deletes the `solidityFromL1` helper. Snapshot-compare `gen_diff_images.ts`
-output against a pre-migration baseline; byte-identical required.
+HopFlame, Thwomp, WingedSprite) to read `cell.collision.*` directly,
+deletes `slopeTable` once sprite consumers switch to `slope !==
+undefined`, and removes the `solidityFromL1` helper. Snapshot-compare
+`gen_diff_images.ts` output against a pre-migration baseline;
+byte-identical required.
 
 ## Not in scope (future tickets)
 

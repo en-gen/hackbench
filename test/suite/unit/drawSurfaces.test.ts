@@ -55,6 +55,21 @@ const FLOOR_CEILING: TileCollision = {
   marioFloor: true, marioCeiling: true,
 }
 
+/**
+ * Vanilla slope-index-0 heights from `DATA_00E632[0..15]`
+ * (bank_00.asm:11605-11606). This is the ROM's gentle-down-right slope,
+ * first tile: Y-surface steps from $0F (bottom) to $0C (3/4 down) across
+ * pixel columns 0..15 in 4-pixel treads.
+ */
+const SLOPE_0_HEIGHTS = new Uint8Array([
+  0x0F, 0x0F, 0x0F, 0x0F, 0x0E, 0x0E, 0x0E, 0x0E,
+  0x0D, 0x0D, 0x0D, 0x0D, 0x0C, 0x0C, 0x0C, 0x0C,
+])
+const SLOPE_0: TileCollision = {
+  ...NO_COLLISION,
+  slope: { slopeIndex: 0, heights: SLOPE_0_HEIGHTS },
+}
+
 describe('drawSurfaces', () => {
   it('draws a line along the TOP edge for a marioFloor cell', () => {
     const map = makeMap([[1]], new Map([[1, FLOOR]]))
@@ -225,6 +240,58 @@ describe('drawSurfaces', () => {
       { kind: 'move', x: 16, y: 0 },
       { kind: 'line', x: 32, y: 0 },
     ])
+  })
+
+  it('slope cell emits a 17-operation polyline tracing DATA_00E632 heights', () => {
+    // 1 moveTo + 15 lineTo (one per pixel column 1..15) + 1 terminal
+    // lineTo at x=16 using heights[15]. Each point lands at
+    // (x + pixelX, y + heights[pixelX]).
+    const map = makeMap([[1]], new Map([[1, SLOPE_0]]))
+    const ctx = makeCtx()
+    drawSurfaces(ctx, map)
+    const expected: PathOp[] = [{ kind: 'move', x: 0, y: 0x0F }]
+    for (let px = 1; px < 16; px++) {
+      expected.push({ kind: 'line', x: px, y: SLOPE_0_HEIGHTS[px] })
+    }
+    expected.push({ kind: 'line', x: 16, y: SLOPE_0_HEIGHTS[15] })
+    expect(ctx.ops).toEqual(expected)
+  })
+
+  it('slope cell positions polyline at its (c, r) offset', () => {
+    // Same polyline at cell (2, 3) should be offset by (32, 48).
+    const map = makeMap(
+      [
+        [null, null, null],
+        [null, null, null],
+        [null, null, null],
+        [null, null, 1],
+      ],
+      new Map([[1, SLOPE_0]]),
+    )
+    const ctx = makeCtx()
+    drawSurfaces(ctx, map)
+    const baseX = 32
+    const baseY = 48
+    const expected: PathOp[] = [
+      { kind: 'move', x: baseX + 0, y: baseY + SLOPE_0_HEIGHTS[0] },
+    ]
+    for (let px = 1; px < 16; px++) {
+      expected.push({ kind: 'line', x: baseX + px, y: baseY + SLOPE_0_HEIGHTS[px] })
+    }
+    expected.push({ kind: 'line', x: baseX + 16, y: baseY + SLOPE_0_HEIGHTS[15] })
+    expect(ctx.ops).toEqual(expected)
+  })
+
+  it('slope cell does NOT draw a flat horizontal floor line', () => {
+    // Slopes have marioFloor = false by design (feet-landing returns
+    // 'slope'), so the flat-top yellow line path must not fire — only
+    // the polyline.
+    const map = makeMap([[1]], new Map([[1, SLOPE_0]]))
+    const ctx = makeCtx()
+    drawSurfaces(ctx, map)
+    // A horizontal floor line would be moveTo(0,0) + lineTo(16,0).
+    // The polyline starts at moveTo(0,15), so the first op's y is $0F.
+    expect(ctx.ops[0]).toEqual({ kind: 'move', x: 0, y: 0x0F })
   })
 
   it('clean silhouette of a 3x3 solid mass — top row + bottom row only', () => {
