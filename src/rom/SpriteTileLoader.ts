@@ -157,7 +157,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x5F: 0xA2,   // Brown platform on a chain
   0x60: 0x00,   // Flat green switch palace switch
   0x61: 0xE2,   // Floating skulls
-  0x62: 0xC8,   // Brown platform, line-guided
+  // 0x62 Brown platform, line-guided: rendered by LineBrownPlatAppearance (direction-aware, not a static override).
   0x63: 0xC8,   // Checker/brown platform, line-guided
   0x5B: 0x60,   // Brown platform floating in water — CODE_01B344 base tile (SpriteMisc1602=0)
   0x5C: 0xEA,   // Checkerboard platform that falls — CODE_01B2DF tile (SpriteMisc1602=1 from InitFallingPlat)

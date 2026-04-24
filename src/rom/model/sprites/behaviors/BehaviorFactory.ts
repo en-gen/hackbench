@@ -4,6 +4,7 @@ import { BouncingKoopaBehavior } from './BouncingKoopaBehavior'
 import { FlyingLeftKoopaBehavior } from './FlyingLeftKoopaBehavior'
 import { HopFlameBehavior } from './HopFlameBehavior'
 import { KoopaWalkBehavior, propsFromSpriteId } from './KoopaWalkBehavior'
+import { LineBrownPlatBehavior } from './LineBrownPlatBehavior'
 import { SinusoidalParaKoopaBehavior } from './SinusoidalParaKoopaBehavior'
 import { SuperKoopaBehavior } from './SuperKoopaBehavior'
 
@@ -51,6 +52,8 @@ export function buildMovementBehavior(
       return Object.assign(new SinusoidalParaKoopaBehavior({ axis: 'horizontal' }, meta), common)
     case 0x1D:
       return Object.assign(new HopFlameBehavior(meta), common)
+    case 0x62:
+      return Object.assign(new LineBrownPlatBehavior(meta), common)
     case 0x71: case 0x72: case 0x73:
       return Object.assign(new SuperKoopaBehavior(spriteId), common)
     default:
