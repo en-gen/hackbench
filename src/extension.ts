@@ -8,6 +8,7 @@ import { MusicPlayerProvider } from './providers/MusicPlayerProvider'
 import { RomStatsProvider } from './providers/RomStatsProvider'
 import { LevelGraphProvider } from './providers/LevelGraphProvider'
 import { TilesetCompareProvider } from './providers/TilesetCompareProvider'
+import { RomMapProvider } from './providers/RomMapProvider'
 import { SmwFileSystemProvider } from './providers/SmwFileSystemProvider'
 
 let session: RomSession | undefined
@@ -23,6 +24,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const romStatsProvider = new RomStatsProvider()
   const levelGraphProvider = new LevelGraphProvider(context)
   const tilesetCompareProvider = new TilesetCompareProvider(context)
+  const romMapProvider = new RomMapProvider(context)
 
   // Register the virtual filesystem for smwrom:// URIs
   context.subscriptions.push(
@@ -104,6 +106,15 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerCustomEditorProvider(
       'hackbench.tilesetCompare',
       tilesetCompareProvider,
+      { webviewOptions: { retainContextWhenHidden: false } }
+    )
+  )
+
+  // Register the ROM memory-map viewer
+  context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      'hackbench.romMap',
+      romMapProvider,
       { webviewOptions: { retainContextWhenHidden: false } }
     )
   )

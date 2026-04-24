@@ -61,6 +61,9 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
     if (parts.length === 1 && parts[0] === 'compare.smwtilecomp')
       return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
 
+    if (parts.length === 1 && parts[0] === 'rom.smwrommap')
+      return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
+
     if (parts.length === 2) {
       if (parts[0] === 'music' && parts[1].endsWith('.smwmusic'))
         return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
@@ -180,6 +183,13 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
     if (parts.length === 1 && parts[0] === 'compare.smwtilecomp') {
       return Buffer.from(JSON.stringify({
         type: 'smwtilecomp', version: 1,
+        romPath: session.rom.rom.filePath,
+      }), 'utf8')
+    }
+
+    if (parts.length === 1 && parts[0] === 'rom.smwrommap') {
+      return Buffer.from(JSON.stringify({
+        type: 'smwrommap', version: 1,
         romPath: session.rom.rom.filePath,
       }), 'utf8')
     }

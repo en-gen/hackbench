@@ -7,7 +7,7 @@ import { buildTransitiveLevelMap } from '../rom/LevelTree'
 // ── Shared tree item types ─────────────────────────────────────────────────────
 
 type MapsTreeItem = RomInfoItem | LevelFolder | RoomItem
-type ResourcesTreeItem = StatsItem | GraphItem | TileCompItem | SectionFolder | RoomItem | PaletteGroupItem | GfxFileItem | PlaceholderItem
+type ResourcesTreeItem = StatsItem | GraphItem | TileCompItem | RomMapItem | SectionFolder | RoomItem | PaletteGroupItem | GfxFileItem | PlaceholderItem
 
 /** Collapsible header item showing ROM identity; levels nest under it. */
 class RomInfoItem extends vscode.TreeItem {
@@ -162,6 +162,20 @@ class GraphItem extends vscode.TreeItem {
   }
 }
 
+/** ROM memory-map viewer opener. */
+class RomMapItem extends vscode.TreeItem {
+  constructor(slug: string) {
+    super('ROM Map', vscode.TreeItemCollapsibleState.None)
+    this.iconPath = new vscode.ThemeIcon('map')
+    this.command = {
+      command: 'vscode.open',
+      title: 'Open ROM Map',
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/rom.smwrommap`)]
+    }
+    this.contextValue = 'smwRomMap'
+  }
+}
+
 
 class PlaceholderItem extends vscode.TreeItem {
   constructor(label: string) {
@@ -288,7 +302,7 @@ export class ResourcesProvider implements vscode.TreeDataProvider<ResourcesTreeI
         [new PlaceholderItem('ROM Code')],
         true,
       )
-      return [new StatsItem(slug), new GraphItem(slug), new TileCompItem(slug), roomsSection, palettesSection, gfxSection, asmSection]
+      return [new StatsItem(slug), new GraphItem(slug), new TileCompItem(slug), new RomMapItem(slug), roomsSection, palettesSection, gfxSection, asmSection]
     }
 
     if (element instanceof SectionFolder) return element.children

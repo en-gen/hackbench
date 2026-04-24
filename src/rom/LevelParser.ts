@@ -522,3 +522,49 @@ export function parseLevelScreenExits(data: Buffer | Uint8Array, screens: number
   }
   return exits
 }
+
+/**
+ * Walk an L1 or L2 object stream and return its total byte length
+ * (inclusive of the $FF terminator).
+ *
+ * Position-advancement rules mirror parseLevelObjects (bank_05.asm LoadLevelData
+ * lines 677-808). A screen-exit extended object (objNum==0 and settings byte==0)
+ * consumes one extra byte (bank_0D.asm CODE_0DA512 line 1416).
+ *
+ * When `hasHeader` is true, skips the 5-byte primary level header (L1 layout).
+ * When false, parsing starts at byte 0 (L2 layout).
+ *
+ * Returns the byte count from the start of `data` up to and including the
+ * terminator. If no terminator is found before the end of `data`, returns the
+ * total data length.
+ */
+export function getObjectStreamLength(data: Buffer | Uint8Array, hasHeader: boolean): number {
+  let pos = hasHeader ? HEADER_SIZE : 0
+  while (pos < data.length) {
+    const b0 = data[pos]
+    if (b0 === undefined) return pos
+    if (b0 === 0xFF) return pos + 1
+    if (pos + 2 >= data.length) return pos
+    const b1 = data[pos + 1]!
+    const b2 = data[pos + 2]!
+    pos += 3
+    const objNum = ((b0 & 0x60) >> 1) | ((b1 >> 4) & 0x0F)
+    if (objNum === 0 && b2 === 0) pos += 1
+  }
+  return pos
+}
+
+/**
+ * Walk a sprite stream and return its total byte length
+ * (1-byte header + 3-byte sprite entries + $FF terminator).
+ */
+export function getSpriteStreamLength(data: Buffer | Uint8Array): number {
+  let pos = 1   // skip 1-byte sprite-memory/buoyancy header
+  while (pos < data.length) {
+    const b0 = data[pos]
+    if (b0 === undefined) return pos
+    if (b0 === 0xFF) return pos + 1
+    pos += 3
+  }
+  return pos
+}

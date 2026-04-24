@@ -126,6 +126,16 @@
           }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "hackbench.romMap",
+        "displayName": "HackBench ROM Map",
+        "selector": [
+          {
+            "filenamePattern": "**/*.smwrommap"
+          }
+        ],
+        "priority": "default"
       }
     ],
     "viewsContainers": {
