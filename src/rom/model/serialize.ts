@@ -38,6 +38,7 @@ import { Tile, type SubtileQuad } from './tiles/Tile'
 import type { TileBehavior } from './tiles/TileBehavior'
 import { PipeVariantsBehavior } from './tiles/behaviors/PipeVariantsBehavior'
 import { PSwitchRevealBehavior } from './tiles/behaviors/PSwitchRevealBehavior'
+import { InvisibleBlockRevealBehavior } from './tiles/behaviors/InvisibleBlockRevealBehavior'
 import { StaticQuadBehavior } from './tiles/behaviors/StaticQuadBehavior'
 import { StarOneUpVineBlockBehavior } from './tiles/behaviors/StarOneUpVineBlockBehavior'
 import { SwitchPalaceAlternateBehavior } from './tiles/behaviors/SwitchPalaceAlternateBehavior'
@@ -224,6 +225,15 @@ function serializeTile(tile: Tile): TileDescriptor {
   }
   if (b instanceof PSwitchRevealBehavior) {
     return { kind: 'pSwitchReveal', revealedQuad: quadDesc(b.revealedQuad), offAlpha: b.offAlpha, actsLike }
+  }
+  if (b instanceof InvisibleBlockRevealBehavior) {
+    return {
+      kind: 'invisibleBlockReveal',
+      revealedQuad: quadDesc(b.revealedQuad),
+      rewardOverlayQuad: b.rewardOverlayQuad ? quadDesc(b.rewardOverlayQuad) : null,
+      alpha: b.alpha,
+      actsLike,
+    }
   }
   throw new Error(`Unknown TileBehavior: ${(b as object).constructor.name}`)
 }

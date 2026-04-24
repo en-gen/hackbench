@@ -12,6 +12,7 @@ import { Char as CharClass } from '../chars/Char'
 import { StaticPixelsBehavior } from '../chars/behaviors/StaticPixelsBehavior'
 import { SubTile } from './SubTile'
 import { Tile, type SubtileQuad } from './Tile'
+import { InvisibleBlockRevealBehavior } from './behaviors/InvisibleBlockRevealBehavior'
 import { StarOneUpVineBlockBehavior, ONEUP_CHAR_NUMS, STAR_CHAR_NUMS } from './behaviors/StarOneUpVineBlockBehavior'
 import { PipeVariantsBehavior } from './behaviors/PipeVariantsBehavior'
 import { PSwitchRevealBehavior } from './behaviors/PSwitchRevealBehavior'
@@ -44,6 +45,30 @@ const P_SWITCH_REVEALS: ReadonlyMap<number, PSwitchRevealEntry> = new Map([
   [0x28, { substitute: 0x20, palOverride: 4 }],
   [0x29, { substitute: 0x24 }],
   [0x2A, { substitute: 0x2B }],
+])
+
+/**
+ * Invisible blocks that reveal as their *visible* coin-giver counterpart
+ * at a fixed 50% alpha, plus an optional reward-indicator quad drawn as
+ * a pre-pass overlay above the block. Unlike `P_SWITCH_REVEALS`, there
+ * is no state that flips these back to full opacity — the designer just
+ * needs to see that something is there.
+ *
+ * We don't draw the post-hit form ($132 "used block") because that tile
+ * is the shared exhausted state for ~18 different block types (coin
+ * blocks, item blocks, invisible wings, turn blocks) per DATA_00F0C8
+ * (bank_00.asm:12766); showing it would conflate distinct block
+ * semantics.
+ *
+ *   $21  invisible coin block  → reveal $123 (? block graphic)
+ *                               + reward overlay $02B (coin)
+ */
+interface InvisibleBlockRevealEntry {
+  readonly substitute: number
+  readonly rewardOverlay?: number
+}
+const INVISIBLE_BLOCK_REVEALS: ReadonlyMap<number, InvisibleBlockRevealEntry> = new Map([
+  [0x021, { substitute: 0x123, rewardOverlay: 0x02B }],
 ])
 
 /**
@@ -85,6 +110,7 @@ export function buildTiles(
     if (isPipeTile(m16.id)) continue // handled below
     if (isSwitchPalaceTile(m16.id)) continue // handled below
     if (P_SWITCH_REVEALS.has(m16.id)) continue // handled below
+    if (INVISIBLE_BLOCK_REVEALS.has(m16.id)) continue // handled below
 
     const override = actsLike.get(m16.id)
     const actsLikeId = override ?? m16.id
@@ -125,6 +151,25 @@ export function buildTiles(
       : srcQuad
     const actsLikeId = actsLike.get(hiddenId) ?? hiddenId
     tiles.set(hiddenId, new Tile(hiddenId, new PSwitchRevealBehavior(revealed), actsLikeId))
+  }
+
+  // Invisible blocks revealed as a visible counterpart at a fixed 50%
+  // alpha, with an optional reward-indicator quad drawn as a pre-pass
+  // overlay. Fall back to the hidden tile's own quad if the substitute
+  // is missing from this tileset's Map16 table; the reward overlay is
+  // silently omitted if its quad is missing.
+  for (const [hiddenId, entry] of INVISIBLE_BLOCK_REVEALS) {
+    const srcQuad = quads.get(entry.substitute) ?? quads.get(hiddenId)
+    if (!srcQuad) continue
+    const rewardQuad = entry.rewardOverlay !== undefined
+      ? (quads.get(entry.rewardOverlay) ?? null)
+      : null
+    const actsLikeId = actsLike.get(hiddenId) ?? hiddenId
+    tiles.set(hiddenId, new Tile(
+      hiddenId,
+      new InvisibleBlockRevealBehavior(srcQuad, rewardQuad),
+      actsLikeId,
+    ))
   }
 
   for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) {

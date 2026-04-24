@@ -38,6 +38,7 @@ import type {
 import { SmwMap } from './SmwMap'
 import { SubTile } from './tiles/SubTile'
 import { Tile, type SubtileQuad } from './tiles/Tile'
+import { InvisibleBlockRevealBehavior } from './tiles/behaviors/InvisibleBlockRevealBehavior'
 import { PipeVariantsBehavior } from './tiles/behaviors/PipeVariantsBehavior'
 import { PSwitchRevealBehavior } from './tiles/behaviors/PSwitchRevealBehavior'
 import { StaticQuadBehavior } from './tiles/behaviors/StaticQuadBehavior'
@@ -259,6 +260,12 @@ function buildTileBehavior(
       return new PSwitchRevealBehavior(
         buildQuad(desc.revealedQuad, chars, placeholder),
         desc.offAlpha ?? 0.5,
+      )
+    case 'invisibleBlockReveal':
+      return new InvisibleBlockRevealBehavior(
+        buildQuad(desc.revealedQuad, chars, placeholder),
+        desc.rewardOverlayQuad ? buildQuad(desc.rewardOverlayQuad, chars, placeholder) : null,
+        desc.alpha ?? 0.5,
       )
   }
 }
