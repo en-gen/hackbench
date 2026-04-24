@@ -165,7 +165,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x64: 0xAE,   // Rope mechanism, line-guided
   0x65: 0xAE,   // Chainsaw, line-guided
   0x66: 0xAE,   // Upside down chainsaw, line-guided
-  0x67: 0x6C,   // Grinder, line-guided — CODE_01DC0B: (EffFrame & 2) | $6C, bank_01.asm:12534
+  // 0x67 Grinder line-guided — promoted to SPRITE_WIDE_OVERRIDES (32×32, 4-way symmetric)
   0x68: 0xC8,   // Fuzz ball, line-guided
   0x6A: 0x60,   // Coin game cloud
   0x6B: 0x3D,   // Spring board, left wall
@@ -349,7 +349,7 @@ const SPRITE_GFX_OVERRIDES: Readonly<Record<number, 'sub0' | 'sub1'>> = {
  * Left column uses tile $8E/$AE with no flip; right column mirrors them.
  */
 const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
-  quadrants: ReadonlyArray<{ baseTile: number; baseDx: number; baseDy: number; flipX?: boolean }>
+  quadrants: ReadonlyArray<{ baseTile: number; baseDx: number; baseDy: number; flipX?: boolean; flipY?: boolean }>
   /** Extra individual 8×8 tiles for sprites with mixed-size OAM (e.g. 8×8 head + 16×16 body).
    *  dx/dy are pixel offsets from the sprite anchor; charHigh from `attr` is applied automatically. */
   parts?: ReadonlyArray<{ tile: number; dx: number; dy: number; flipX?: boolean }>
@@ -390,6 +390,17 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
     { baseTile: 0xC8, baseDx: 16, baseDy: -16 },  // top-right
     { baseTile: 0xE6, baseDx:  0, baseDy:   0 },  // bottom-left
     { baseTile: 0xE8, baseDx: 16, baseDy:   0 },  // bottom-right
+  ]},
+  // Grinder line-guided ($67): CODE_01DC0B (bank_01.asm:12521) draws 4 big-tiles
+  // all sharing base char $6C (animated to $6C/$6E via EffFrame bit 1), with
+  // hardcoded attr table DATA_01DC43=$33/$73/$B3/$F3 (pal 1, charHigh 1, 4-way
+  // symmetric flip). DATA_01DC3B/3F put the sprite anchor at the center: TL at
+  // (-16,-16), TR at (0,-16) flipX, BL at (-16,0) flipY, BR at (0,0) flipX+flipY.
+  0x67: { attr: 0x03, quadrants: [
+    { baseTile: 0x6C, baseDx: -16, baseDy: -16 },                         // TL
+    { baseTile: 0x6C, baseDx:   0, baseDy: -16, flipX: true },             // TR
+    { baseTile: 0x6C, baseDx: -16, baseDy:   0,               flipY: true }, // BL
+    { baseTile: 0x6C, baseDx:   0, baseDy:   0, flipX: true,  flipY: true }, // BR
   ]},
   // Dry Bones ($30, $32) is handled in SpriteFactory rather than here because
   // its flip direction depends on FaceMario evaluated against the level's
@@ -467,19 +478,29 @@ export function buildSpriteLayout(
     const wPalette = 8 + ((wAttr >> 1) & 0x07)
     const wCharHigh = (wAttr & 0x01) !== 0 ? 0x100 : 0
     const W_OBJ_BASE = 0x400
-    const wCornerOff = [0x00, 0x01, 0x10, 0x11]
-    const wideCorners = (baseTile: number, baseDx: number, baseDy: number, flipX = false): SpriteSubtile[] =>
-      [0, 1, 2, 3].map(corner => {
-        const co = flipX ? [0x01, 0x00, 0x11, 0x10][corner] : wCornerOff[corner]
-        return {
-          charNum: W_OBJ_BASE + wCharHigh + ((baseTile + co) & 0x1FF),
-          palette: wPalette,
-          flipX,
-          flipY: false,
-          dx: baseDx + (tables.dispX[corner] ?? 0),
-          dy: baseDy + (tables.dispY[corner] ?? 0),
-        }
-      })
+    // SNES large-OBJ expansion of base char N → [N, N+1, N+$10, N+$11]
+    // at corners [TL, TR, BL, BR]. flipX swaps columns AND flips each 8×8;
+    // flipY swaps rows AND flips each 8×8; both swaps both and flips both.
+    const CORNER_OFFSETS = {
+      none:  [0x00, 0x01, 0x10, 0x11],
+      flipX: [0x01, 0x00, 0x11, 0x10],
+      flipY: [0x10, 0x11, 0x00, 0x01],
+      both:  [0x11, 0x10, 0x01, 0x00],
+    } as const
+    const wideCorners = (baseTile: number, baseDx: number, baseDy: number, flipX = false, flipY = false): SpriteSubtile[] => {
+      const offsets = flipX && flipY ? CORNER_OFFSETS.both
+                    : flipX          ? CORNER_OFFSETS.flipX
+                    : flipY          ? CORNER_OFFSETS.flipY
+                    :                   CORNER_OFFSETS.none
+      return [0, 1, 2, 3].map(corner => ({
+        charNum: W_OBJ_BASE + wCharHigh + ((baseTile + offsets[corner]) & 0x1FF),
+        palette: wPalette,
+        flipX,
+        flipY,
+        dx: baseDx + (tables.dispX[corner] ?? 0),
+        dy: baseDy + (tables.dispY[corner] ?? 0),
+      }))
+    }
     const extraParts: SpriteSubtile[] = (wideSpec.parts ?? []).map(p => ({
       charNum: W_OBJ_BASE + wCharHigh + (p.tile & 0x1FF),
       palette: wPalette,
@@ -492,7 +513,7 @@ export function buildSpriteLayout(
       spriteId,
       height: 32,
       width: 32,
-      tiles: [...wideSpec.quadrants.flatMap(q => wideCorners(q.baseTile, q.baseDx, q.baseDy, q.flipX)), ...extraParts],
+      tiles: [...wideSpec.quadrants.flatMap(q => wideCorners(q.baseTile, q.baseDx, q.baseDy, q.flipX, q.flipY)), ...extraParts],
     }
   }
 
