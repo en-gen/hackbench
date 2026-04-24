@@ -12,42 +12,33 @@ import { StaticPixelsBehavior } from './behaviors/StaticPixelsBehavior'
 
 const TILES_PER_SLOT = 4
 
-/**
- * A blue-P-switch char pairing: when the switch is active, VRAM char
- * `normalCharNum` renders the pixels of `altCharNum` instead. In SMW
- * this comes from the DMA table at bank_05.asm:4418-4421 via the
- * `+0x26` offset at DATA_05B97D. The full ROM walk that derives these
- * pairs is a separate task; this type is the interface the factory
- * expects once that walk lands.
- */
-export interface PSwitchPair {
-  normalCharNum: number
-  altCharNum: number
+interface CharAnim {
+  frames: Uint8Array[]
+  altFrames?: Uint8Array[]
 }
 
 /**
  * Build a char graph from a loaded VRAM state.
  *
  * Behavior selection per char, in order of precedence:
- *   1. If the char has a `PSwitchPair` entry, wrap in `PSwitchAlternateBehavior`
- *      over the base behavior (static or animated) and the alt's base.
+ *   1. If the char's animation slot provides `altTiles` (blue-P-switch
+ *      DMA pair from bank_05.asm:4417-4422), wrap in
+ *      `PSwitchAlternateBehavior` over the normal and alt animated pixel
+ *      behaviors.
  *   2. Else if the char is in an animation slot, wrap in `AnimatedPixelsBehavior`.
  *   3. Else `StaticPixelsBehavior`.
  *
- * Passing `pSwitchPairs = []` (the default) produces no P-switch
- * wrapping — levels render correctly without animation. The full
- * bank_05 DMA-table walk that derives real pairs is a separate task.
+ * Passing `animData = undefined` produces no animation or P-switch
+ * wrapping — every VRAM char gets `StaticPixelsBehavior` over its baked
+ * pixels.
  */
 export function buildChars(
   vram: VramState,
   animData?: AnimationData,
-  pSwitchPairs: readonly PSwitchPair[] = [],
 ): Map<number, Char> {
   const animFrames = collectAnimFrames(animData)
-  const pSwitchByNormal = new Map<number, number>()
-  for (const pair of pSwitchPairs) pSwitchByNormal.set(pair.normalCharNum, pair.altCharNum)
 
-  const baseBehaviors = new Map<number, CharBehavior>()
+  const chars = new Map<number, Char>()
   for (const slot of VRAM_SLOT_NAMES) {
     const sheet = vram[slot]
     if (!sheet) continue
@@ -56,30 +47,38 @@ export function buildChars(
       const pixels = sheet[i]
       if (!pixels) continue
       const charNum = base + i
-      const frames = animFrames.get(charNum)
-      baseBehaviors.set(charNum, frames ? new AnimatedPixelsBehavior(frames) : new StaticPixelsBehavior(pixels))
+      const anim = animFrames.get(charNum)
+      let behavior: CharBehavior
+      if (anim?.altFrames) {
+        behavior = new PSwitchAlternateBehavior(
+          new AnimatedPixelsBehavior(anim.frames),
+          new AnimatedPixelsBehavior(anim.altFrames),
+        )
+      } else if (anim) {
+        behavior = new AnimatedPixelsBehavior(anim.frames)
+      } else {
+        behavior = new StaticPixelsBehavior(pixels)
+      }
+      chars.set(charNum, new Char(charNum, behavior))
     }
-  }
-
-  const chars = new Map<number, Char>()
-  for (const [charNum, base] of baseBehaviors) {
-    const altNum = pSwitchByNormal.get(charNum)
-    const alt = altNum !== undefined ? baseBehaviors.get(altNum) : undefined
-    const behavior = alt ? new PSwitchAlternateBehavior(base, alt) : base
-    chars.set(charNum, new Char(charNum, behavior))
   }
   return chars
 }
 
 /**
  * Transpose AnimationData — which is frame-major (per-frame list of
- * slot patches) — into char-major: Map<charNum, Uint8Array[]> where
- * each array is indexed by frame.
+ * slot patches) — into char-major: `Map<charNum, CharAnim>` where each
+ * `CharAnim.frames` is indexed by frame, and `altFrames` (when present)
+ * holds the blue-P-switch-active pixel data for the same char.
  *
  * Returns an empty map when animData is omitted or has no slots.
+ *
+ * A char is dropped if any of its normal frames are missing. Alt frames
+ * are dropped as a unit if any frame is missing — the normal animation
+ * still runs, just without the P-switch swap.
  */
-function collectAnimFrames(animData: AnimationData | undefined): Map<number, Uint8Array[]> {
-  const out = new Map<number, Uint8Array[]>()
+function collectAnimFrames(animData: AnimationData | undefined): Map<number, CharAnim> {
+  const out = new Map<number, CharAnim>()
   if (!animData) return out
   const frameCount = animData.frames.length
   for (let f = 0; f < frameCount; f++) {
@@ -88,25 +87,40 @@ function collectAnimFrames(animData: AnimationData | undefined): Map<number, Uin
         const charNum = slot.charBase + i
         const tile = slot.tiles[i]
         if (!tile) continue
-        let frames = out.get(charNum)
-        if (!frames) {
+        let anim = out.get(charNum)
+        if (!anim) {
           // Dense array (undefined-filled), not sparse — sparse arrays
           // cause `some()` / `every()` to skip holes and miss gaps.
-          frames = new Array<Uint8Array>(frameCount).fill(undefined as unknown as Uint8Array)
-          out.set(charNum, frames)
+          anim = { frames: new Array<Uint8Array>(frameCount).fill(undefined as unknown as Uint8Array) }
+          out.set(charNum, anim)
         }
-        frames[f] = tile
+        anim.frames[f] = tile
+        const altTile = slot.altTiles?.[i]
+        if (altTile) {
+          if (!anim.altFrames) {
+            anim.altFrames = new Array<Uint8Array>(frameCount).fill(undefined as unknown as Uint8Array)
+          }
+          anim.altFrames[f] = altTile
+        }
       }
     }
   }
-  // Drop any char whose frame list has holes. Explicit index walk — avoids
-  // the sparse-array `some()` trap where holes are invisible to the callback.
+  // Drop chars with holes in normal frames; drop alt frames with holes
+  // but keep the char's normal animation.
   const toDelete: number[] = []
-  for (const [charNum, frames] of out) {
+  for (const [charNum, anim] of out) {
     for (let f = 0; f < frameCount; f++) {
-      if (!frames[f] || frames[f].length === 0) {
+      if (!anim.frames[f] || anim.frames[f].length === 0) {
         toDelete.push(charNum)
         break
+      }
+    }
+    if (anim.altFrames) {
+      for (let f = 0; f < frameCount; f++) {
+        if (!anim.altFrames[f] || anim.altFrames[f].length === 0) {
+          anim.altFrames = undefined
+          break
+        }
       }
     }
   }
