@@ -5,6 +5,7 @@ import { FlyingLeftKoopaBehavior } from './FlyingLeftKoopaBehavior'
 import { HopFlameBehavior } from './HopFlameBehavior'
 import { KoopaWalkBehavior, propsFromSpriteId } from './KoopaWalkBehavior'
 import { SinusoidalParaKoopaBehavior } from './SinusoidalParaKoopaBehavior'
+import { SuperKoopaBehavior } from './SuperKoopaBehavior'
 
 /**
  * Single dispatch site that builds the `SpriteBehavior` for a given sprite
@@ -50,6 +51,8 @@ export function buildMovementBehavior(
       return Object.assign(new SinusoidalParaKoopaBehavior({ axis: 'horizontal' }, meta), common)
     case 0x1D:
       return Object.assign(new HopFlameBehavior(meta), common)
+    case 0x71: case 0x72: case 0x73:
+      return Object.assign(new SuperKoopaBehavior(spriteId), common)
     default:
       return common
   }

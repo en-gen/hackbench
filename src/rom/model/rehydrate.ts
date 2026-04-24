@@ -15,6 +15,7 @@ import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
+import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import { CheepCheepAppearance } from './sprites/appearances/CheepCheepAppearance'
 import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppearance'
 import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearance'
@@ -191,6 +192,19 @@ function buildAppearance(
         buildParts(desc.platformParts),
         [buildParts(desc.wingFrames[0]), buildParts(desc.wingFrames[1])],
       )
+    case 'superKoopa': {
+      const rp = (frames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]) => ({
+        flapA: buildParts(frames[0]),
+        flapB: buildParts(frames[1]),
+      })
+      return new SuperKoopaAppearance(
+        rp(desc.grounded),
+        rp(desc.groundedFlash),
+        rp(desc.airborne),
+        rp(desc.airborneFlash),
+        desc.isAirborne,
+      )
+    }
   }
 }
 
