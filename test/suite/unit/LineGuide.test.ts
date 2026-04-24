@@ -142,32 +142,41 @@ describe('resolveLineGuideAttachment', () => {
   })
 
   describe('$62-$64 (InitLinePlat / CODE_01DAA2)', () => {
-    it('forward (even col): probes spawnX - $28, spawnY - $08', () => {
-      // col 10 row 10 → spawnX=$A0 (bit 4 of $A0 is clear = forward).
-      // Probe shift: X -= $28 = -40, Y -= $08 = -8. Probe at (120, 152).
-      // Corners land in cols 7-8, rows 9-10.
-      const l1 = makeL1(20, 20, { '9,8': 0x80 })  // Y=1 corner (+4, -4) → (124, 148) → (col 7, row 9)... wait let me recompute
-      // Actually (120, 152): corners ±4 = (116-124, 148-156). col 7-7 (116/16=7, 124/16=7), row 9-9 (148/16=9, 156/16=9).
-      // All 4 corners in (col 7, row 9).
-      const l1b = makeL1(20, 20, { '9,7': 0x80 })
-      const r = resolveLineGuideAttachment(0x62, 160, 160, l1b, false)
-      expect(r).toEqual({ trackTile: { col: 7, row: 9 }, direction: 'forward' })
+    it('forward (even col): probes from spawn, NOT from (spawnX-$28, spawnY-$08)', () => {
+      // col 10 row 10 → spawnX=$A0=160 (bit 4 of $A0 is clear = forward).
+      // InitLinePlat INC SpriteMisc1540→1 (bank_01.asm:11781), bypassing the
+      // same-tile check. CODE_01DAA2 restores X/Y before CODE_01D74D (line 12358),
+      // so the probe runs at (160, 160), not at (120, 152) = spawnX-$28, spawnY-$08.
+      // Tile at (9, 7) is reachable from the wrong probe but NOT from (160, 160):
+      const l1wrong = makeL1(20, 20, { '9,7': 0x80 })
+      expect(resolveLineGuideAttachment(0x62, 160, 160, l1wrong, false)).toBeNull()
+
+      // Correct probe (160, 160): corners (164,164)/(156,164)/(164,156)/(156,156)
+      // → tiles (10,10)/(9,10)/(10,9)/(9,9). Tile (10,10) found first.
+      const l1 = makeL1(20, 20, { '10,10': 0x80 })
+      const r = resolveLineGuideAttachment(0x62, 160, 160, l1, false)
+      expect(r).toEqual({ trackTile: { col: 10, row: 10 }, direction: 'forward' })
     })
 
-    it('reverse (odd col): probes spawnX - $18, spawnY - $08', () => {
-      // col 11 row 10 → spawnX=$B0 (bit 4 of $B0 is set = reverse).
-      // Probe shift: X -= $18 = -24, Y -= $08 = -8. Probe at (152, 152).
-      // Corners ±4: col 9-9, row 9-9. (148/16=9, 156/16=9)
-      const l1 = makeL1(20, 20, { '9,9': 0x80 })
+    it('reverse (odd col): probes from spawn, NOT from (spawnX-$18, spawnY-$08)', () => {
+      // col 11 row 10 → spawnX=$B0=176 (bit 4 of $B0 is set = reverse).
+      // Tile at (9, 9) is reachable from wrong probe (152, 152) but NOT from (176, 160):
+      const l1wrong = makeL1(20, 20, { '9,9': 0x80 })
+      expect(resolveLineGuideAttachment(0x62, 176, 160, l1wrong, false)).toBeNull()
+
+      // Correct probe (176, 160): corners (180,164)/(172,164)/(180,156)/(172,156)
+      // → tiles (11,10)/(10,10)/(11,9)/(10,9). Tile (11,10) found first.
+      const l1 = makeL1(20, 20, { '10,11': 0x80 })
       const r = resolveLineGuideAttachment(0x63, 176, 160, l1, false)
-      expect(r).toEqual({ trackTile: { col: 9, row: 9 }, direction: 'reverse' })
+      expect(r).toEqual({ trackTile: { col: 11, row: 10 }, direction: 'reverse' })
     })
 
     it('applies to $62, $63, $64 identically', () => {
-      const l1 = makeL1(20, 20, { '9,9': 0x80 })
+      // Reverse: spawnX=176, corners land first at tile (11, 10).
+      const l1 = makeL1(20, 20, { '10,11': 0x80 })
       for (const id of [0x62, 0x63, 0x64]) {
         const r = resolveLineGuideAttachment(id, 176, 160, l1, false)
-        expect(r?.trackTile).toEqual({ col: 9, row: 9 })
+        expect(r?.trackTile).toEqual({ col: 11, row: 10 })
         expect(r?.direction).toBe('reverse')
       }
     })

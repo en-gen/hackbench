@@ -15,6 +15,7 @@ import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppear
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppearance'
+import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -147,6 +148,9 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
       headParts: a.headParts.map(partDescriptor),
       flowerFrames: [a.flowerFrames[0].map(partDescriptor), a.flowerFrames[1].map(partDescriptor)],
     }
+  }
+  if (a instanceof LineBrownPlatAppearance) {
+    return { kind: 'lineBrownPlat', platformParts: a.platformParts.map(partDescriptor), direction: a.direction }
   }
   if (a instanceof PSwitchAppearance) {
     return { kind: 'pSwitch', parts: a.parts.map(partDescriptor) }

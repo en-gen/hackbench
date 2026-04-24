@@ -121,24 +121,27 @@ function applyInitLineGuidedSpr(spawnX: number, spawnY: number): InitResult {
 }
 
 /**
- * InitLinePlat for sprites $62-$64 (bank_01.asm:11774) composed with
- * CODE_01DAA2 (bank_01.asm:12323), which actually performs the probe shift.
+ * InitLinePlat for sprites $62-$64 (bank_01.asm:11774).
  *
- * Bit 4 of SpriteXPosLow (XORed into SpriteMisc1602) picks the shift:
- *   clear → SpriteMisc1602=$10 → probe shift = -$28  (2.5 tiles left)
- *   set   → SpriteMisc1602=$00 → probe shift = -$18  (1.5 tiles left)
+ * Bit 4 of SpriteXPosLow (XORed into SpriteMisc1602) picks the draw shift:
+ *   clear → SpriteMisc1602=$10 → xShift=$28 (forward)
+ *   set   → SpriteMisc1602=$00 → xShift=$18 (reverse)
  *
- * The Y is also shifted -$08 in CODE_01DAA2, so we mirror that too.
- * Direction mapping: clear=forward / set=reverse (same convention as
- * InitLineGuidedSpr so the editor exposes one unified direction toggle).
+ * CODE_01DAA2 (bank_01.asm:12323) applies (X -= xShift, Y -= $08) only for
+ * the OAM draw, then RESTORES X/Y from the stack before calling CODE_01D74D
+ * (bank_01.asm:12358). InitLinePlat also INCs SpriteMisc1540 to 1 before the
+ * first LineFuzzy_Plats call (bank_01.asm:11781), which bypasses the same-tile
+ * skip in CODE_01D7F4 so all four corners are probed.
+ *
+ * The 4-corner probe therefore runs at the UNSHIFTED spawn position — not at
+ * (spawnX - xShift, spawnY - $08).
  */
 function applyInitLinePlat(spawnX: number, spawnY: number): InitResult {
   const xLow = spawnX & 0xFF
   const forward = (xLow & 0x10) === 0
-  const xShift = forward ? 0x28 : 0x18
   return {
-    probeX: (spawnX - xShift) & 0xFFFF,
-    probeY: (spawnY - 0x08) & 0xFFFF,
+    probeX: spawnX,
+    probeY: spawnY,
     direction: forward ? 'forward' : 'reverse',
   }
 }

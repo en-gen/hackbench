@@ -23,6 +23,7 @@ import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppear
 import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearance'
 import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
 import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
+import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
@@ -213,6 +214,8 @@ function buildAppearance(
         buildParts(desc.headParts),
         [buildParts(desc.flowerFrames[0]), buildParts(desc.flowerFrames[1])],
       )
+    case 'lineBrownPlat':
+      return new LineBrownPlatAppearance(buildParts(desc.platformParts), desc.direction)
   }
 }
 

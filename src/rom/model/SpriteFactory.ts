@@ -20,6 +20,7 @@ import { CheepCheepAppearance } from './sprites/appearances/CheepCheepAppearance
 import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearance'
 import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppearance'
 import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
+import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
 import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
@@ -585,6 +586,32 @@ export function buildSprites(
       out.push(new Sprite(
         s.spriteId, spritePx, s.y * 16,
         new StaticSpriteAppearance(parts),
+        behavior,
+      ))
+      continue
+    }
+
+    // Sprite $62 (Brown Platform, line-guided): direction-aware appearance.
+    // Direction is derived from bit 4 of SpriteXPosLow by InitLinePlat
+    // (bank_01.asm:11774) and resolved into lineGuide.direction above.
+    if (s.spriteId === 0x62) {
+      const attr     = tables.spriteAttr[0x62] ?? 0x01
+      const palette  = 8 + ((attr >> 1) & 0x07)
+      const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+      const dir = lineGuide?.direction ?? 'reverse'
+      // CODE_01DAA2 draws OAM at (anchor - xShift, anchor - 8). Set the anchor
+      // so the 48px platform is centered on the attached track tile:
+      //   center = anchor - xShift + 24 = trackCenterX  →  anchor = trackCenterX + (xShift - 24)
+      const xShift = dir === 'forward' ? 0x28 : 0x18
+      const anchorX = lineGuide?.trackTile
+        ? lineGuide.trackTile.col * 16 + 8 + (xShift - 24)
+        : s.x * 16
+      const anchorY = lineGuide?.trackTile
+        ? lineGuide.trackTile.row * 16 + 8
+        : s.y * 16
+      out.push(new Sprite(
+        s.spriteId, anchorX, anchorY,
+        LineBrownPlatAppearance.fromTables(chars, palette, charHigh, placeholder, dir),
         behavior,
       ))
       continue

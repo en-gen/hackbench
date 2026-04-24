@@ -143,6 +143,11 @@ export type SpriteAppearanceDescriptor =
       headParts: readonly SpritePartDescriptor[]
       flowerFrames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
     }
+  | {
+      kind: 'lineBrownPlat'
+      platformParts: readonly SpritePartDescriptor[]
+      direction: 'forward' | 'reverse'
+    }
 
 export interface SpriteBehaviorDescriptor {
   kind: string
