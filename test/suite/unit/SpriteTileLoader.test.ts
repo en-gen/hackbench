@@ -167,26 +167,32 @@ describe('buildSpriteLayout', () => {
     ])
   })
 
-  it('maps shell sprite $DB to Koopa $05 and keeps only the shell half', () => {
-    // $DB (Red shell) → remaps to $05 (Red Koopa, tall via Spr0to13Prop).
-    // The shell-only layout keeps the top big-tile but shifts it down so it
-    // renders at the anchor row, giving a stationary 16x16 shell.
+  it('maps shell sprite $DB to Koopa $05 and draws the stunned-shell tile', () => {
+    // $DB (Red shell) → SpriteNumber aliased to $05 and SpriteStatus forced to
+    // $09 (bank_02.asm:5339-5362, 5454-5462). The stunned path CODE_019806
+    // (bank_01.asm:3313) sets SpriteMisc1602=$06, then SubSprGfx2Entry1
+    // (bank_01.asm:4148) draws SprTilemap[SprTilemapOffset[$05] + $06] — NOT
+    // the Koopa's walking top tile. In vanilla ROMs that resolves to $8C, the
+    // shell-on-ground graphic.
     const tilemap = new Uint8Array(0xFC)
     const tilemapOffset = new Uint8Array(0x54)
-    const spr0to13Prop = new Uint8Array(0x14)
+    const spriteAttr = new Uint8Array(0x100)
     tilemapOffset[0x05] = 0x00
-    tilemap[0x00] = 0x82   // shell
-    tilemap[0x01] = 0xA0   // legs (must be ignored in shell mode)
-    spr0to13Prop[0x05] = 0x42   // Koopa is tall
+    tilemap[0x00] = 0x82   // walking Koopa top (must NOT be picked)
+    tilemap[0x01] = 0xA0   // walking Koopa legs (must NOT be picked)
+    tilemap[0x06] = 0x8C   // stationary shell at offset $06 — this is the one
+    spriteAttr[0x05] = 0x08   // Sprite166EVals[$05] & $0F — palette 4, charHigh 0
 
-    const tables = makeTables({ tilemap, tilemapOffset, spr0to13Prop })
+    const tables = makeTables({ tilemap, tilemapOffset, spriteAttr })
     const layout = buildSpriteLayout(tables, 0xDB)!
     expect(layout.height).toBe(16)
     expect(layout.tiles).toHaveLength(4)
     expect(layout.tiles.map(t => t.charNum)).toEqual([
-      0x400 + 0x82, 0x400 + 0x83, 0x400 + 0x92, 0x400 + 0x93,
+      0x400 + 0x8C, 0x400 + 0x8D, 0x400 + 0x9C, 0x400 + 0x9D,
     ])
     expect(layout.tiles.map(t => t.dy)).toEqual([0, 0, 8, 8])
+    // Palette derived from aliased Koopa attr (not the shell's Sprite166EVals).
+    expect(layout.tiles.every(t => t.palette === 8 + 4)).toBe(true)
   })
 
   it('renders Thwomp ($26) as a 32x32 wide sprite with 4 big-tiles', () => {

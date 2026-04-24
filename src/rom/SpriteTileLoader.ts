@@ -439,12 +439,20 @@ function spriteGfxRoutine(
  * Returns null for sprite IDs outside the generic-layout range (0x54+).
  */
 /**
- * Shell-sprite IDs $DA-$DD are mapped to Koopa IDs $04-$07 at level-load
- * time (bank_02.asm:5460: `SEC; SBC #$DA; CLC; ADC #$04`) but with a "shell"
- * state so only the top-half of the usual 16x32 Koopa renders — the legs
- * don't appear. For the level viewer we treat them as 16x16 sprites that
- * reuse the Koopa color-variant palette.
+ * Shell-sprite IDs $DA-$DD spawn as empty shells lying on the ground. At level
+ * load (bank_02.asm:5339-5362, 5454-5462) their SpriteStatus is forced to $09
+ * (stunned/carryable) and their SpriteNumber is re-aliased to the Koopa ID
+ * $04-$07 via `SEC; SBC #$DA; CLC; ADC #$04`. Status $09 routes through
+ * HandleSprStunned → CODE_019806 (bank_01.asm:3313), which stores $06 into
+ * SpriteMisc1602 (for OAMIndex ≠ 0; $08 otherwise), then calls SubSprGfx2Entry1
+ * (bank_01.asm:4148). That routine reads a SINGLE base tile from
+ * SprTilemap[SprTilemapOffset[Koopa] + SpriteMisc1602] and writes it as one
+ * 16×16 OAM entry — the stationary shell-on-ground graphic, not the walking
+ * Koopa's upper body. Palette comes from Sprite166EVals[$04..$07] (the Koopa
+ * attr), since SpriteNumber has been aliased by draw time.
  */
+const STUNNED_ANIM_OFFSET = 0x06
+
 function resolveShellAlias(spriteId: number): { targetId: number; shellOnly: boolean } {
   if (spriteId >= 0xDA && spriteId <= 0xDD) {
     return { targetId: spriteId - 0xDA + 0x04, shellOnly: true }
@@ -458,12 +466,21 @@ export function buildSpriteLayout(
 ): SpriteLayout | null {
   const alias = resolveShellAlias(spriteId)
   if (alias.shellOnly) {
-    const inner = buildSpriteLayout(tables, alias.targetId)
-    if (!inner) return null
-    // Tall Koopa layout has 8 corners — the first 4 are the top big-tile
-    // (shell). Shift them down so they render at the anchor row instead of
-    // a row above, since the stationary shell occupies just one tile row.
-    const shellTiles = inner.tiles.slice(0, 4).map(t => ({ ...t, dy: t.dy + 16 }))
+    const tilemapBase = tables.tilemapOffset[alias.targetId] ?? 0
+    const shellBaseTile = tables.tilemap[tilemapBase + STUNNED_ANIM_OFFSET] ?? 0
+    const attr = tables.spriteAttr[alias.targetId] ?? 0
+    const palette = 8 + ((attr >> 1) & 0x07)
+    const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+    const OBJ_CHAR_BASE = 0x400
+    const cornerOffset = [0x00, 0x01, 0x10, 0x11]
+    const shellTiles: SpriteSubtile[] = [0, 1, 2, 3].map(corner => ({
+      charNum: OBJ_CHAR_BASE + charHigh + ((shellBaseTile + cornerOffset[corner]) & 0x1FF),
+      palette,
+      flipX: false,
+      flipY: false,
+      dx: tables.dispX[corner] ?? 0,
+      dy: tables.dispY[corner] ?? 0,
+    }))
     return { spriteId, height: 16, tiles: shellTiles }
   }
 
