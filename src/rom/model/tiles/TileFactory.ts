@@ -14,6 +14,7 @@ import {
   PSWITCH_INACTIVE,
   readMarioDispatchTables,
 } from '../../MarioTileDispatch'
+import { readSlopeTables, resolveSlope } from '../../SlopeResolver'
 import {
   loadMap16WithPipeVariants,
   PIPE_VARIANT_TILE_COUNT,
@@ -109,6 +110,7 @@ export function buildTiles(
   const blockBehavior = readBlockBehaviorTable(rom)
   const slopeTable   = readSlopeTable(rom)
   const marioTables  = readMarioDispatchTables(rom)
+  const slopeTables  = readSlopeTables(rom)
   const tiles = new Map<number, Tile>()
 
   /**
@@ -262,10 +264,32 @@ export function buildTiles(
     const marioCeiling = (marioSolid || hitOnHead)  && (marioInSolidRange || marioInCeilingWindow) && marioOk
     const marioWall    = (marioSolid || hitOnSides) && marioInSolidRange && marioOk
 
+    // CODE_00ED86 (bank_00.asm:12334) — Mario's slope-surface profile.
+    // resolveSlope returns null outside the $6E-$D7 range, otherwise a
+    // 16-byte per-pixel-X height array derived from DATA_00E632 via the
+    // tileset-specific SlopesPtr map (DATA_00E55E or DATA_00E5C8).
+    //
+    // Gated by F545 solidity. The ROM checks F545 at bank_00.asm:12393
+    // (`CODE_00EDE9: JSR CODE_00F44D / BNE`) before any slope dispatch
+    // fires — non-solid tiles route to `CODE_00F309` (midway / coin
+    // handlers) instead. F545 says page-0 tiles outside the P-switch /
+    // switch-palace special cases are non-solid, so a page-0 placement
+    // of a slope-range low byte (e.g. $0A6 lava-corner graphic, $073
+    // bush graphic) is decorative — Mario walks straight through it
+    // and the slope-angle path never runs. Without this gate the
+    // overlay would draw misleading slope lines on those passthrough
+    // tiles. resolveSlope itself stays low-byte-only (matching the
+    // ROM's `LDA [SlopesPtr],Y` indirection); the high-byte solidity
+    // gate lives here at the call site beside the rest of F545.
+    const slope = marioSolid
+      ? resolveSlope(low, tileset, slopeTables)
+      : null
+
     return {
       floor, ceiling, wall,
       marioFloor, marioCeiling, marioWall,
       slopeTable: slopeTableFlag,
+      ...(slope ? { slope } : {}),
     }
   }
 

@@ -20,6 +20,10 @@ import {
   PSWITCH_INACTIVE,
   type MarioDispatchTables,
 } from '../../../../src/rom/MarioTileDispatch'
+import {
+  resolveSlope,
+  type SlopeTables,
+} from '../../../../src/rom/SlopeResolver'
 
 /** Vanilla SMW `DATA_00F05C` (bank_00.asm:12744). */
 const BLOCK_BEHAVIOR_TABLE = new Uint8Array([
@@ -57,6 +61,54 @@ const DISPATCH_TABLES: MarioDispatchTables = {
   ]),
 }
 
+/** Vanilla SMW `DATA_00E55E` (bank_00.asm:11572). */
+const VANILLA_E55E = new Uint8Array([
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01,
+  0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x02,
+  0x03, 0x03, 0x03, 0x03, 0x03, 0x04, 0x04, 0x04,
+  0x04, 0x04, 0x05, 0x05, 0x05, 0x05, 0x05, 0x06,
+  0x06, 0x06, 0x06, 0x06, 0x07, 0x07, 0x07, 0x07,
+  0x07, 0x08, 0x08, 0x08, 0x08, 0x08, 0x09, 0x09,
+  0x09, 0x09, 0x09, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A,
+  0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0C, 0x0C, 0x0C,
+  0x0C, 0x0C, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0E,
+  0x0F, 0x10, 0x11, 0x03, 0x03, 0x04, 0x04, 0x09,
+  0x09, 0x0A, 0x0A, 0x0C, 0x0C, 0x0D, 0x0D, 0x12,
+  0x13, 0x14, 0x15, 0x16, 0x17, 0x1C, 0x1D, 0x1E,
+  0x1F, 0x18, 0x19, 0x1A, 0x1B, 0x08, 0x09, 0x0A,
+  0x0B, 0x0C, 0x0D,
+])
+const VANILLA_E5C8 = new Uint8Array([
+  0x00, 0x00, 0x00, 0x00, 0x00,
+  0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02,
+  0x02, 0x02, 0x03, 0x03, 0x03, 0x03, 0x03, 0x04,
+  0x04, 0x04, 0x04, 0x04, 0x05, 0x05, 0x05, 0x05,
+  0x05, 0x06, 0x06, 0x06, 0x06, 0x06, 0x07, 0x07,
+  0x07, 0x07, 0x07, 0x08, 0x08, 0x08, 0x08, 0x08,
+  0x09, 0x09, 0x09, 0x09, 0x09, 0x0A, 0x0A, 0x0A,
+  0x0A, 0x0A, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0C,
+  0x0C, 0x0C, 0x0C, 0x0C, 0x0D, 0x0D, 0x0D, 0x0D,
+  0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x03, 0x03, 0x04,
+  0x04, 0x09, 0x09, 0x0A, 0x0A, 0x0C, 0x0C, 0x0D,
+  0x0D, 0x0C, 0x0D, 0x0D, 0x0C, 0x16, 0x17, 0x1C,
+  0x1D, 0x1E, 0x1F, 0x18, 0x19, 0x1A, 0x1B, 0x08,
+  0x09, 0x0A, 0x0B, 0x0C, 0x0D,
+])
+/** Synthetic DATA_00E632 — only slope index 0 is asserted. */
+const SYNTHETIC_E632 = (() => {
+  const t = new Uint8Array(510)
+  t.set([
+    0x0F, 0x0F, 0x0F, 0x0F, 0x0E, 0x0E, 0x0E, 0x0E,
+    0x0D, 0x0D, 0x0D, 0x0D, 0x0C, 0x0C, 0x0C, 0x0C,
+  ], 0)
+  return t
+})()
+const SLOPE_TABLES: SlopeTables = {
+  heightTable:       SYNTHETIC_E632,
+  indexMapDefault:   VANILLA_E55E,
+  indexMapOverworld: VANILLA_E5C8,
+}
+
 /**
  * Mirror of `TileFactory.classify`'s arithmetic — extracted here so
  * tests can verify the invariants without going through the ROM
@@ -67,6 +119,11 @@ function classify(low: number, tileset: number = 1, high: number = 0): {
   floor: boolean; ceiling: boolean; wall: boolean
   marioFloor: boolean; marioCeiling: boolean; marioWall: boolean
   slopeTable: boolean
+  /** True when `classify` emits a `slope` field. Mirrors the
+   *  `marioSolid && resolveSlope(low, tileset, slopeTables)` gate in
+   *  `TileFactory.classify` — F545 non-solid tiles never carry slope
+   *  data even when their low byte is in $6E-$D7. */
+  slopeResolved: boolean
 } {
   const lo = low & 0xFF
   const hi = high & 0xFF
@@ -104,7 +161,13 @@ function classify(low: number, tileset: number = 1, high: number = 0): {
   const marioCeiling = (marioSolid || hitOnHead)  && (inSolidRange || marioInCeilingWindow) && marioOk
   const marioWall    = (marioSolid || hitOnSides) && inSolidRange && marioOk
 
-  return { floor, ceiling, wall, marioFloor, marioCeiling, marioWall, slopeTable }
+  // Phase 3: slope resolution is gated by F545 solidity. Mirrors the
+  // `marioSolid ? resolveSlope(...) : null` call in TileFactory.classify
+  // and the ROM's `JSR CODE_00F44D / BNE` gate at bank_00.asm:12393.
+  const slope = marioSolid ? resolveSlope(lo, tileset, SLOPE_TABLES) : null
+  const slopeResolved = slope !== null
+
+  return { floor, ceiling, wall, marioFloor, marioCeiling, marioWall, slopeTable, slopeResolved }
 }
 
 describe('TileCollision invariants', () => {
@@ -235,5 +298,50 @@ describe('TileCollision — known tile IDs', () => {
     const c = classify(0x71)
     expect(c.slopeTable).toBe(true)
     expect(c.marioFloor).toBe(false)
+  })
+})
+
+describe('TileCollision — Phase 3 slope field', () => {
+  it('page-1 slope tile (e.g. $171) emits slope (F545 says solid)', () => {
+    // High=$01 → F545 default branch returns A=$01 (solid). Low $71 is
+    // in the $6E-$D7 slope range, so resolveSlope returns a SlopeInfo.
+    expect(classify(0x71, 1, 0x01).slopeResolved).toBe(true)
+    expect(classify(0xB3, 1, 0x01).slopeResolved).toBe(true)  // last EAC1 entry
+  })
+
+  it('page-0 slope-range tile (e.g. $073 bush, $0A6 lava-corner) emits NO slope', () => {
+    // F545 with high=$00 returns non-solid for low bytes outside the
+    // P-switch / switch-palace special cases. These tiles render as
+    // decorative graphics only — Mario walks straight through them and
+    // the ROM never enters the slope-angle dispatch (CODE_00EDE9
+    // BEQ at bank_00.asm:12393-12394 short-circuits to F309).
+    //
+    // Without the F545 gate the overlay would draw misleading slope
+    // lines on $073 / $074 / $079 bush graphics and $0A3 / $0A6 lava
+    // corners — the bug the user flagged in the level-screen 1 review.
+    expect(classify(0x73, 1, 0x00).slopeResolved).toBe(false)
+    expect(classify(0x74, 1, 0x00).slopeResolved).toBe(false)
+    expect(classify(0x79, 1, 0x00).slopeResolved).toBe(false)
+    expect(classify(0xA3, 1, 0x00).slopeResolved).toBe(false)
+    expect(classify(0xA6, 1, 0x00).slopeResolved).toBe(false)
+    expect(classify(0x71, 1, 0x00).slopeResolved).toBe(false)  // even EAC1 members
+  })
+
+  it('low byte outside the $6E-$D7 SlopesPtr range never emits slope', () => {
+    // Whether F545 says solid or not, low bytes outside the slope
+    // map range fall through resolveSlope to null.
+    expect(classify(0x00, 1, 0x01).slopeResolved).toBe(false)
+    expect(classify(0x11, 1, 0x01).slopeResolved).toBe(false)  // turn block
+    expect(classify(0x6D, 1, 0x01).slopeResolved).toBe(false)  // boundary - 1
+    expect(classify(0xD8, 1, 0x01).slopeResolved).toBe(false)  // boundary + 1
+    expect(classify(0xFF, 1, 0x01).slopeResolved).toBe(false)
+  })
+
+  it('every DATA_00EAC1 member emits slope when placed page-1+', () => {
+    for (const low of SLOPE_TABLE) {
+      expect(classify(low, 1, 0x01).slopeResolved, `tileset 1 high=$01 low=$${low.toString(16)}`).toBe(true)
+      expect(classify(low, 0, 0x01).slopeResolved, `tileset 0 high=$01 low=$${low.toString(16)}`).toBe(true)
+      expect(classify(low, 7, 0x01).slopeResolved, `tileset 7 high=$01 low=$${low.toString(16)}`).toBe(true)
+    }
   })
 })

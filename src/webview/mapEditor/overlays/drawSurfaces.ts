@@ -47,19 +47,29 @@ function switchPalacePassable(id: number, state: readonly boolean[]): boolean {
 
 /**
  * Draw the "Show surfaces" overlay — a 2px yellow line along the top
- * edge of every L1 cell that is a Mario-floor (standable from above)
- * and along the bottom edge of every Mario-ceiling (bonkable from below).
+ * edge of every L1 cell that is a Mario-floor (standable from above),
+ * the bottom edge of every Mario-ceiling (bonkable from below), and a
+ * pixel-accurate diagonal polyline along the collision surface of every
+ * slope cell.
  *
- * Reads `tile.collision.marioFloor` / `.marioCeiling` directly; the
- * Mario classify lives in `TileFactory.classify` via
- * `isMarioStandable` (bank_00.asm-derived exclusions). Additionally
- * applies `switchPalacePassable` so switch palace tiles obey the
- * editor's palace-state toggle.
+ * Reads `tile.collision.marioFloor` / `.marioCeiling` / `.slope`
+ * directly; the Mario classify lives in `TileFactory.classify` via
+ * `isMarioStandable` + `resolveSlope` (bank_00.asm-derived).
+ * Additionally applies `switchPalacePassable` so switch palace tiles
+ * obey the editor's palace-state toggle.
  *
  * Silhouette rule: a floor line is drawn iff the cell at (c, r-1) is
  * not itself a Mario-floor. Without this, interior fill tiles inside a
  * solid mass draw stripes on every row. Ceiling line suppressed when
  * the cell at (c, r+1) is a Mario-ceiling.
+ *
+ * Slope polyline: when `tile.collision.slope` is defined, draw 16 line
+ * segments tracing the ROM's `DATA_00E632` surface Y per pixel column.
+ * Each cell emits an independent sub-path (no cross-tile connection) so
+ * the visual matches the per-tile dispatch in `CODE_00ED86`. Slope
+ * cells do NOT also draw a horizontal floor line — `marioFloor` is
+ * `false` for slopes by design (feet-landing returns `'slope'`, not
+ * `'land'`).
  */
 export function drawSurfaces(
   octx: SurfaceDrawCtx,
@@ -99,8 +109,8 @@ export function drawSurfaces(
       const tile = map.l1Tiles.get(id)
       if (!tile) continue
       if (switchPalacePassable(tile.id, switchPalaceState)) continue
-      const { marioFloor, marioCeiling } = tile.collision
-      if (!marioFloor && !marioCeiling) continue
+      const { marioFloor, marioCeiling, slope } = tile.collision
+      if (!marioFloor && !marioCeiling && !slope) continue
       const x = c * TILE_PX
       const y = r * TILE_PX
       if (marioFloor && !marioFloorAt(c, r - 1)) {
@@ -110,6 +120,18 @@ export function drawSurfaces(
       if (marioCeiling && !marioCeilingAt(c, r + 1)) {
         octx.moveTo(x,            y + TILE_PX)
         octx.lineTo(x + TILE_PX,  y + TILE_PX)
+      }
+      if (slope) {
+        // 16 sample points (one per pixel column) + a terminal lineTo
+        // at the right tile edge so the polyline closes cleanly against
+        // any horizontally-adjacent tile's collision.
+        // Heights are ROM-derived 0..15 for the $6E-$D7 range, but mask
+        // defensively in case hacked ROMs seed out-of-range values.
+        octx.moveTo(x, y + (slope.heights[0] & 0x0F))
+        for (let px = 1; px < TILE_PX; px++) {
+          octx.lineTo(x + px, y + (slope.heights[px] & 0x0F))
+        }
+        octx.lineTo(x + TILE_PX, y + (slope.heights[TILE_PX - 1] & 0x0F))
       }
     }
   }

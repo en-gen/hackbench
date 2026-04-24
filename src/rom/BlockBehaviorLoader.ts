@@ -78,6 +78,67 @@ export function readSlopeTable(rom: RomFile): Uint8Array {
 }
 
 /**
+ * Slope low-byte range served by the per-tileset `SlopesPtr` map. Mario's
+ * slope collision dispatch (`CODE_00ED86`, bank_00.asm:12334) is entered
+ * only when the tile's low byte is in `$6E..$D7` (the `CPY #$6E BCC` /
+ * `CPY #$D8 BCS` guards at bank_00.asm:12327-12330). The two pointer
+ * targets `DATA_00E55E` / `DATA_00E5C8` each contain exactly 106 bytes
+ * covering that range — anything outside it has no defined slope data.
+ */
+export const SLOPE_LOW_BASE = 0x6E
+export const SLOPE_LOW_END  = 0xD7
+
+/**
+ * `DATA_00E632` slope-height LUT (bank_00.asm:11604). 510 bytes, indexed
+ * by `(slopeIdx << 4) | pixelX` at bank_00.asm:12350-12363. Each byte is
+ * the surface Y-offset (0..15) within the 16x16 tile at that pixel
+ * column. `CODE_00ED86` subtracts the returned value from Mario's Y
+ * position in the block; a negative result sets `PlayerIsOnGround`.
+ */
+export const DATA_E632_LEN = 510
+
+export function readSlopeHeightTable(rom: RomFile): Uint8Array {
+  const out = new Uint8Array(DATA_E632_LEN)
+  for (let i = 0; i < DATA_E632_LEN; i++) {
+    out[i] = rom.readByte(0x00E632 + i) ?? 0
+  }
+  return out
+}
+
+/**
+ * `DATA_00E55E` — default per-tile slope-index map. 106 bytes covering
+ * low bytes `$6E..$D7`. `map[low - $6E]` gives the slope index fed into
+ * `DATA_00E632`. This is the pointer target set for every non-overworld
+ * tileset at `bank_05.asm:260-268` (`STA.B SlopesPtr+2` and
+ * `STA.B SlopesPtr`).
+ */
+export const DATA_E55E_LEN = 106
+
+export function readSlopeIndexMapDefault(rom: RomFile): Uint8Array {
+  const out = new Uint8Array(DATA_E55E_LEN)
+  for (let i = 0; i < DATA_E55E_LEN; i++) {
+    out[i] = rom.readByte(0x00E55E + i) ?? 0
+  }
+  return out
+}
+
+/**
+ * `DATA_00E5C8` — overworld/cave slope-index map. Same 106-byte shape as
+ * `DATA_00E55E`, used when `ObjectTileset == 0 || ObjectTileset == 7`
+ * per the `CODE_058281` branch at `bank_05.asm:317-327`
+ * (`STA.B SlopesPtr` with the `DATA_00E5C8` address).
+ */
+export const DATA_E5C8_LEN = 106
+
+export function readSlopeIndexMapOverworld(rom: RomFile): Uint8Array {
+  const out = new Uint8Array(DATA_E5C8_LEN)
+  for (let i = 0; i < DATA_E5C8_LEN; i++) {
+    out[i] = rom.readByte(0x00E5C8 + i) ?? 0
+  }
+  return out
+}
+
+/**
  * Per-tileset properties table `DATA_00A625` (bank_00.asm:4909). 16
  * bytes indexed by `ObjectTileset` (0-$F). `CODE_00F160` AND's this
  * byte with `$03` to decide whether the tileset-dep fallthrough returns
