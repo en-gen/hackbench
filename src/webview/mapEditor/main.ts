@@ -235,6 +235,89 @@ function blitViewport(overlay?: HTMLCanvasElement): void {
   if (dstX < vpW && dstY < vpH) {
     oc.drawImage(fullLevelCanvas, srcX, srcY, (vpW - dstX) / z, (vpH - dstY) / z, dstX, dstY, vpW - dstX, vpH - dstY)
   }
+  // Block-view tile-id labels are drawn on the viewport canvas post-blit
+  // so text rasterizes at display pixel density — crisp at every zoom,
+  // unlike the base canvas which is nearest-neighbor-upscaled.
+  drawBlockViewLabels(oc, srcX, srcY, dstX, dstY, z, vpW, vpH)
+}
+
+/**
+ * Paint `$XXX` tile-id labels over visible block-view cells on the viewport
+ * canvas. Must be called AFTER the fullLevelCanvas blit — drawing here
+ * (rather than on the natural-resolution base canvas) keeps text vector-like:
+ * the glyphs are re-rasterized at the current zoom's font size every blit,
+ * so they stay crisp from 1× to 16× without the pixelation that bitmap-scaled
+ * text would have.
+ *
+ * Label prefers L1 id if present; else falls back to L2 id — matching the
+ * paint order in `drawBlockView` (L1 on top of L2 at 0.55 alpha).
+ */
+function drawBlockViewLabels(
+  octx: CanvasRenderingContext2D,
+  srcX: number,
+  srcY: number,
+  dstX: number,
+  dstY: number,
+  z: number,
+  vpW: number,
+  vpH: number,
+): void {
+  const toggles = store.layerToggles
+  if (!toggles.block) return
+  const map = window.__smwModelMap
+  if (!map) return
+
+  const TILE = 16
+  const tilePx = TILE * z
+  // Below 1× the tile shrinks under 16 px and the label can't fit even a
+  // 6-px font; skip rather than render unreadable overlap.
+  if (tilePx < 16) return
+
+  const l1 = toggles.l1 ? map.l1 : null
+  const l2Grid = toggles.l2 && map.l2 &&
+    (map.l2 instanceof L2Preset || map.l2 instanceof L2ObjectStream)
+      ? map.l2.grid
+      : null
+  if (!l1 && !l2Grid) return
+
+  // Visible tile range in natural (pre-zoom) coordinates. The viewport shows
+  // srcX..srcX+visW horizontally, srcY..srcY+visH vertically.
+  const visW = (vpW - dstX) / z
+  const visH = (vpH - dstY) / z
+  const maxCols = Math.max(l1?.[0]?.length ?? 0, l2Grid?.[0]?.length ?? 0)
+  const maxRows = Math.max(l1?.length ?? 0, l2Grid?.length ?? 0)
+  const colStart = Math.max(0, Math.floor(srcX / TILE))
+  const colEnd   = Math.min(maxCols - 1, Math.floor((srcX + visW) / TILE))
+  const rowStart = Math.max(0, Math.floor(srcY / TILE))
+  const rowEnd   = Math.min(maxRows - 1, Math.floor((srcY + visH) / TILE))
+  if (colEnd < colStart || rowEnd < rowStart) return
+
+  octx.save()
+  // 0.35 * tilePx keeps the 4-char `$XXX` label fitting a monospace tile
+  // (char ≈ 0.55 * font-size), with a 6-px floor for low-zoom legibility.
+  const fontSize = Math.max(6, Math.round(tilePx * 0.35))
+  octx.font = `${fontSize}px monospace`
+  octx.textAlign = 'center'
+  octx.textBaseline = 'middle'
+  octx.lineWidth = Math.max(2, Math.round(fontSize * 0.22))
+  octx.strokeStyle = 'rgba(0,0,0,0.85)'
+  octx.lineJoin = 'round'
+  octx.fillStyle = '#fff'
+
+  for (let r = rowStart; r <= rowEnd; r++) {
+    for (let c = colStart; c <= colEnd; c++) {
+      const l1Id = l1?.[r]?.[c] ?? null
+      const l2Id = l2Grid?.[r]?.[c] ?? null
+      const id = l1Id !== null ? l1Id : l2Id
+      if (id === null || id === undefined) continue
+      const cx = (c * TILE + TILE / 2 - srcX) * z + dstX
+      const cy = (r * TILE + TILE / 2 - srcY) * z + dstY
+      const label = `$${id.toString(16).toUpperCase().padStart(3, '0')}`
+      octx.strokeText(label, cx, cy)
+      octx.fillText(label, cx, cy)
+    }
+  }
+  octx.restore()
 }
 
 /**
@@ -517,11 +600,10 @@ function vineSourceKeyAt(lx: number, ly: number): string | null {
  * Useful for level troubleshooting since it surfaces the underlying
  * tile layout with zero GFX rendering.
  *
- * Labels: each cell gets a 3-char uppercase hex Map16 ID rendered at
- * 7px natural-resolution so it stays crisp under `image-rendering:
- * pixelated` at higher zooms. Shadowed (black 1px offset) so it reads
- * against the full range of tileBlockColor fills. Small at zoom 1× but
- * intended — this is an analysis / troubleshooting overlay.
+ * Hex-id labels are drawn separately by `drawBlockViewLabels`, which
+ * runs on the viewport canvas post-blit so the text rasterizes at
+ * display pixel density (crisp at every zoom) instead of getting
+ * nearest-neighbor-scaled with the rest of the base canvas.
  */
 function drawBlockView(
   octx: CanvasRenderingContext2D,
@@ -552,33 +634,6 @@ function drawBlockView(
     octx.restore()
   }
 
-  const paintLabels = (
-    grid: readonly (readonly (number | null)[])[],
-    alpha: number,
-  ) => {
-    octx.save()
-    octx.globalAlpha = alpha
-    octx.font = 'bold 7px monospace'
-    octx.textAlign = 'left'
-    octx.textBaseline = 'top'
-    for (let r = 0; r < grid.length; r++) {
-      const row = grid[r]
-      if (!row) continue
-      for (let c = 0; c < row.length; c++) {
-        const id = row[c]
-        if (id === null) continue
-        const label = id.toString(16).toUpperCase().padStart(3, '0')
-        const x = c * 16 + 1
-        const y = r * 16 + 1
-        octx.fillStyle = '#000'
-        octx.fillText(label, x + 1, y + 1)
-        octx.fillStyle = '#fff'
-        octx.fillText(label, x,     y)
-      }
-    }
-    octx.restore()
-  }
-
   // L2 grids are ids (L2Preset → bgTiles, L2ObjectStream → l1Tiles);
   // we only need the ids for the colored-block visualization, no
   // lookup required.
@@ -586,15 +641,9 @@ function drawBlockView(
     const l2Grid = map.l2 instanceof L2Preset || map.l2 instanceof L2ObjectStream
       ? map.l2.grid
       : null
-    if (l2Grid) {
-      paintFills(l2Grid, 0.55)
-      paintLabels(l2Grid, 0.55)
-    }
+    if (l2Grid) paintFills(l2Grid, 0.55)
   }
-  if (l1On) {
-    paintFills(map.l1, 1.0)
-    paintLabels(map.l1, 1.0)
-  }
+  if (l1On) paintFills(map.l1, 1.0)
 }
 
 /**
