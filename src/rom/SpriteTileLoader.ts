@@ -211,7 +211,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x95: 0x06,   // Clapin' Chuck
   0x96: 0x06,   // Unused Chargin' Chuck clone
   0x97: 0x06,   // Puntin' Chuck
-  0x98: 0x06,   // Pitchin' Chuck
+  // 0x98 Pitchin' Chuck — promoted to SPRITE_WIDE_OVERRIDES (release pose $19)
   0x99: 0xCE,   // Volcano Lotus
   0x9A: 0x98,   // Sumo Brother
   0x9B: 0x46,   // Hammer Brother — HammerBroTiles[2] (left body big-tile), bank_02.asm:12040
@@ -351,8 +351,11 @@ const SPRITE_GFX_OVERRIDES: Readonly<Record<number, 'sub0' | 'sub1'>> = {
 const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
   quadrants: ReadonlyArray<{ baseTile: number; baseDx: number; baseDy: number; flipX?: boolean; flipY?: boolean }>
   /** Extra individual 8×8 tiles for sprites with mixed-size OAM (e.g. 8×8 head + 16×16 body).
-   *  dx/dy are pixel offsets from the sprite anchor; charHigh from `attr` is applied automatically. */
-  parts?: ReadonlyArray<{ tile: number; dx: number; dy: number; flipX?: boolean }>
+   *  dx/dy are pixel offsets from the sprite anchor; charHigh from `attr` is applied automatically.
+   *  palette defaults to the sprite's main OBJ palette; override when a specific part uses a
+   *  different palette in its own draw routine (e.g. Pitchin' Chuck's baseball uses attr $09 → pal 12).
+   *  Parts are appended AFTER all quadrants in the tiles list, so they render ON TOP of quadrants. */
+  parts?: ReadonlyArray<{ tile: number; dx: number; dy: number; flipX?: boolean; palette?: number }>
   /** Override the sprite's OBJ attribute when Sprite166EVals differs from the runtime draw routine.
    *  Low nibble only (matches readSpriteTileTables masking): bits 3-1 = palette offset, bit 0 = charHigh. */
   attr?: number
@@ -406,6 +409,30 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
   // rather than here because their flip direction depends on FaceMario
   // evaluated against the level's Mario start position — not a property of the
   // sprite tile tables.
+  //
+  // Pitchin' Chuck ($98) — pose $19 (windup overhead, ball cocked for release).
+  // bank_02.asm:9591 CODE_02C81A. SMW OAM order back→front:
+  //   entry 3 head ($06)  →  entry 2 ball ($AD, pal 12 via attr $09)
+  //   → entry 1 body-bot ($AE)  →  entry 0 body-top ($5D)
+  // We keep head as a quadrant (16×16), then flatten body-bot into 4 explicit
+  // 8×8 parts so we can insert the baseball BETWEEN head and body. That lets
+  // body-bot and body-top render on top of the ball (matches OAM priority).
+  // Offsets: head (-6,-11) from DATA_02C830/02C84A; body-bot at anchor;
+  // body-top (+1,-8) from DATA_02C909/02C971; baseball (+1,-12) from
+  // CODE_02CB2D/02CB39. Face-left (_151C=4), no flipX.
+  0x98: { quadrants: [
+    { baseTile: 0x06, baseDx: -6, baseDy: -11 },   // head 16×16 (back)
+  ], parts: [
+    // Baseball (attr $09 → OBJ pal 4 = CGRAM row 12, red stitches).
+    { tile: 0xAD, dx:  1, dy: -12, palette: 12 },
+    // Body-bot $AE expanded to 4 explicit 8×8 chars (large-OBJ: N, N+1, N+$10, N+$11).
+    { tile: 0xAE, dx:  0, dy:   0 },
+    { tile: 0xAF, dx:  8, dy:   0 },
+    { tile: 0xBE, dx:  0, dy:   8 },
+    { tile: 0xBF, dx:  8, dy:   8 },
+    // Body-top / arm detail on top so it isn't obscured by the ball.
+    { tile: 0x5D, dx:  1, dy:  -8 },
+  ]},
 }
 
 /**
@@ -520,7 +547,7 @@ export function buildSpriteLayout(
     }
     const extraParts: SpriteSubtile[] = (wideSpec.parts ?? []).map(p => ({
       charNum: W_OBJ_BASE + wCharHigh + (p.tile & 0x1FF),
-      palette: wPalette,
+      palette: p.palette ?? wPalette,
       flipX: p.flipX ?? false,
       flipY: false,
       dx: p.dx,
