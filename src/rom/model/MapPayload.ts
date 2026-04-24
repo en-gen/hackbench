@@ -161,6 +161,13 @@ export interface LevelHeaderDescriptor {
    * ($0584D7) to give the starting timer: 0=none, 1=200, 2=300, 3=400.
    */
   timeLimit: number
+  /**
+   * Mario's starting pixel position at level load — picked from DATA_05F000/
+   * 05F200 (or DATA_05FA00/05FC00 for sublevels reached via a secondary
+   * entrance), resolved through DATA_05D730/740/750/758. Used by sprite
+   * handlers whose flip/state depends on FaceMario at spawn.
+   */
+  marioStartPx: { x: number; y: number }
 }
 
 // ── Layer 3 ──────────────────────────────────────────────────────────
