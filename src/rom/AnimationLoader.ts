@@ -78,8 +78,22 @@ const VRAM_DEST_TABLE_A = 0x05B93F
 /** Tile behavior type table — one byte per tile index (18 entries). */
 const TILE_BEHAVIOR_TABLE = 0x05B96B
 
+/** Per-slot P-switch/ON-OFF selector for behavior=1 slots (0=blue, 1=silver, 2=ON/OFF). */
+const PSWITCH_SELECTOR_TABLE = 0x05B97D
+
 /** Per-tileset offset into AnimatedTileData for behavior type 2. */
 const TILESET_OFFSET_TABLE = 0x05B98B
+
+/**
+ * Slot-index shift applied by the animation routine when a P-switch/ON-OFF is
+ * active (bank_05.asm:4421: `CLC; ADC #$26`). Treats the active slot as if it
+ * were slot + 0x26 when indexing AnimatedTileData, loading different pixels
+ * into the same VRAM chars.
+ */
+const PSWITCH_SLOT_SHIFT = 0x26
+
+/** PSWITCH_SELECTOR_TABLE value meaning "track the blue P-switch timer". */
+const PSWITCH_SELECTOR_BLUE = 0
 
 /** Number of animation frames in one complete cycle. */
 export const ANIM_FRAME_COUNT = 4
@@ -137,6 +151,15 @@ export interface AnimFrameSlot {
   charBase: number
   /** 4 tiles of pixel data, each PIXELS_PER_TILE palette indices. */
   tiles: Uint8Array[]
+  /**
+   * Alternate pixel data loaded into the same VRAM chars when the blue
+   * P-switch is active. Populated only for slots whose
+   * `DATA_05B96B` behavior byte is 1 and `DATA_05B97D` selector is 0
+   * (blue). Undefined otherwise. bank_05.asm:4417-4422 reads the slot
+   * index shifted by 0x26 into `AnimatedTileData` while the P-switch
+   * timer is non-zero, so the same VRAM chars render different pixels.
+   */
+  altTiles?: Uint8Array[]
 }
 
 /**
@@ -381,7 +404,11 @@ export function loadAnimationData(
   // must be treated as behavior 2. Reading 24 bytes replicates the SNES memory layout.
   const behaviorBuf = rom.readAt(TILE_BEHAVIOR_TABLE, TILE_GROUP_COUNT * 3)
   const tilesetOffsetBuf = rom.readAt(TILESET_OFFSET_TABLE, 16)
-  if (!behaviorBuf || !tilesetOffsetBuf) return null
+  // PSWITCH_SELECTOR_TABLE has 14 bytes in vanilla; only indices where the
+  // behavior byte is 1 matter (slots 6..13), but reading 24 bytes matches
+  // the SNES memory layout in case of out-of-range reads.
+  const pSwitchSelectorBuf = rom.readAt(PSWITCH_SELECTOR_TABLE, TILE_GROUP_COUNT * 3)
+  if (!behaviorBuf || !tilesetOffsetBuf || !pSwitchSelectorBuf) return null
 
   const frames: AnimFrameSlot[][] = []
 
@@ -442,16 +469,33 @@ export function loadAnimationData(
         const charBase = vramAddrToChar(vramDest)
         const tiles = decodeTilesAt(buffer, bufferOffset)
 
+        // Blue-P-switch alt pixel data: for behavior=1 slots whose
+        // selector is 0 (blue), load the +0x26 shifted slot too. Same
+        // VRAM chars, different pixels. Silver and ON/OFF variants use
+        // different timers and are ignored for now -- the editor
+        // currently only toggles blue.
+        let altTiles: Uint8Array[] | undefined
+        if (behavior === 1 && pSwitchSelectorBuf[tileIdx] === PSWITCH_SELECTOR_BLUE) {
+          const altIdx = (tileIdx + PSWITCH_SLOT_SHIFT) & 0xFF
+          const altDataTableIdx = (altIdx << 3) | tileDataIndexPart
+          const altBufferOffset = readAnimatedTileDataEntry(rom, altDataTableIdx)
+          if (altBufferOffset >= 0 && altBufferOffset + TILES_PER_TRANSFER * 32 <= buffer.length) {
+            altTiles = decodeTilesAt(buffer, altBufferOffset)
+          }
+        }
+
         // Special case: VRAM dest $0800 (berry tiles) — the DMA at CODE_00A3F0
         // (bank_00.asm line ~4649) splits the 128-byte transfer into two 64-byte
         // halves: first 2 tiles → VRAM $0800, next 2 tiles → VRAM $0900.
         // This places the berry's TL/BL at chars $080-$081 and TR/BR at $090-$091,
         // creating the correct 2×2 layout in the 16-wide VRAM char grid.
         if (vramDest === 0x0800) {
+          // Berry slots are behavior=2 (tileset-dependent), never P-switch,
+          // so altTiles is always undefined here.
           frameSlots.push({ charBase, tiles: tiles.slice(0, 2) })
           frameSlots.push({ charBase: vramAddrToChar(0x0900), tiles: tiles.slice(2, 4) })
         } else {
-          frameSlots.push({ charBase, tiles })
+          frameSlots.push({ charBase, tiles, altTiles })
         }
       }
     }
