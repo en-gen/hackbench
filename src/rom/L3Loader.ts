@@ -70,8 +70,27 @@ const L3_PTR_TABLE = 0x059000
 /** Bytes per entry in Layer3Ptr (3-byte long address). */
 const L3_PTR_ENTRY_SIZE = 3
 
+/** SNES address of DATA_05F000 (per-level primary-entrance Y settings byte). */
+const DATA_05F000_ADDR = 0x05F000
+
 /** SNES address of DATA_05F200 (per-level primary-entrance settings byte). */
 const DATA_05F200_ADDR = 0x05F200
+
+/**
+ * Mario start Y lookup — low byte at $05D730, high byte at $05D740.
+ * Indexed by low nibble of the entrance-Y byte (DATA_05F000 primary, DATA_05FA00 secondary).
+ * bank_05.asm:7045-7049.
+ */
+const DATA_05D730_ADDR = 0x05D730
+const DATA_05D740_ADDR = 0x05D740
+
+/**
+ * Mario start X lookup — low byte at $05D750, high byte at $05D758.
+ * Primary: indexed by low 3 bits of DATA_05F200 (bank_05.asm:7311).
+ * Secondary: indexed by top 3 bits of DATA_05FC00 (bank_05.asm:7153).
+ */
+const DATA_05D750_ADDR = 0x05D750
+const DATA_05D758_ADDR = 0x05D758
 
 /** SNES address of DATA_05F600 (first level-data byte per level — holds vertical page for vert levels). */
 const DATA_05F600_ADDR = 0x05F600
@@ -235,6 +254,52 @@ export function readInitialLayer1YPos(rom: RomFile, levelId: number, isVertical 
   if (!isVertical) return loByte
   const hiByte = (rom.readByte(DATA_05F600_ADDR + levelId) ?? 0) & 0x1F
   return (hiByte << 8) | loByte
+}
+
+/**
+ * Read Mario's starting pixel position for a level, picking the primary
+ * entrance for main levels ($000-$0FF) and the secondary entrance that
+ * targets the level for sublevels ($100-$1FF).
+ *
+ * Primary entry (bank_05.asm:7302-7316):
+ *   Y = { DATA_05D740[F000[lvl] & $0F] : DATA_05D730[F000[lvl] & $0F] }
+ *   X = { DATA_05D758[F200[lvl] & $07] : DATA_05D750[F200[lvl] & $07] }
+ *
+ * Secondary entry (bank_05.asm:7120-7158):
+ *   Y = { DATA_05D740[FA00[ent] & $0F] : DATA_05D730[FA00[ent] & $0F] }
+ *   X = { DATA_05D758[FC00[ent] >> 5]  : DATA_05D750[FC00[ent] >> 5] }
+ *
+ * Sublevels in the primary-only range (e.g. $100 with no entrance target)
+ * fall back to their primary-table bytes so callers still get a usable
+ * coordinate — that's also how the LM "view as entrance" workflow decodes
+ * unreachable sublevels.
+ */
+export function readMarioStartPos(rom: RomFile, levelId: number): { x: number; y: number } {
+  let yByte: number
+  let xByte: number
+  let xIdx: number
+  if (levelId >= 0x100) {
+    const entrance = findSecondaryEntranceForLevel(rom, levelId)
+    if (entrance !== null) {
+      yByte = rom.readByte(DATA_05FA00_ADDR + entrance) ?? 0
+      xByte = rom.readByte(DATA_05FC00_ADDR + entrance) ?? 0
+      xIdx = (xByte >> 5) & 0x07
+    } else {
+      yByte = rom.readByte(DATA_05F000_ADDR + levelId) ?? 0
+      xByte = rom.readByte(DATA_05F200_ADDR + levelId) ?? 0
+      xIdx = xByte & 0x07
+    }
+  } else {
+    yByte = rom.readByte(DATA_05F000_ADDR + levelId) ?? 0
+    xByte = rom.readByte(DATA_05F200_ADDR + levelId) ?? 0
+    xIdx = xByte & 0x07
+  }
+  const yIdx = yByte & 0x0F
+  const yLo = rom.readByte(DATA_05D730_ADDR + yIdx) ?? 0
+  const yHi = rom.readByte(DATA_05D740_ADDR + yIdx) ?? 0
+  const xLo = rom.readByte(DATA_05D750_ADDR + xIdx) ?? 0
+  const xHi = rom.readByte(DATA_05D758_ADDR + xIdx) ?? 0
+  return { x: (xHi << 8) | xLo, y: (yHi << 8) | yLo }
 }
 
 // ── Per-tileset settings ──────────────────────────────────────────────────────

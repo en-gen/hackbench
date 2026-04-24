@@ -13,7 +13,7 @@ import type { Char } from './chars/Char'
 import { buildChars } from './chars/CharFactory'
 import { buildBgTiles, buildL2 } from './L2Factory'
 import { buildL3 } from './L3Factory'
-import { readInitialLayer1YPos } from '../L3Loader'
+import { readInitialLayer1YPos, readMarioStartPos } from '../L3Loader'
 import type { MapPayload } from './MapPayload'
 import { buildPalette } from './palette/PaletteFactory'
 import { serialize } from './serialize'
@@ -118,7 +118,8 @@ export function buildMapWithGraph(
     const sprData = rom.rom.readAt(sprPtr, 0x200)
     if (sprData) levelSprites = parseLevelSprites(sprData, isVertical)
   }
-  const sprites = buildSprites(rom.rom, levelSprites, chars, l1)
+  const marioStartPx = readMarioStartPos(rom.rom, levelId)
+  const sprites = buildSprites(rom.rom, levelSprites, chars, l1, marioStartPx)
 
   // Layer-2 scroll/parallax settings. CODE_05D26E (bank_05.asm:7268-7277)
   // reads $05F000+idx, takes the top nibble, and looks up per-axis rate
@@ -147,6 +148,7 @@ export function buildMapWithGraph(
       layer3Priority: rawHeader.layer3Priority,
       initialCameraYPx,
       timeLimit: rawHeader.timeLimit,
+      marioStartPx,
     },
     l1,
     l2,

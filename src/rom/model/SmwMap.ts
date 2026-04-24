@@ -35,6 +35,14 @@ export interface LevelHeader {
    * display and any "show level time limit" panel.
    */
   timeLimit: number
+  /**
+   * Mario's starting pixel position at level load. Primary levels pick from
+   * DATA_05F000/DATA_05F200 via DATA_05D730/740/750/758; sublevels pick from
+   * the secondary entrance that targets them. See `readMarioStartPos` in
+   * L3Loader.ts. Used by sprite handlers that depend on Mario's spawn side
+   * (e.g. FaceMario → Dry Bones flip direction) and as an editor anchor.
+   */
+  marioStartPx: { x: number; y: number }
 }
 
 export class SmwMap {

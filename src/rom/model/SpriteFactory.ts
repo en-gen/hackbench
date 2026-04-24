@@ -32,6 +32,7 @@ export function buildSprites(
   levelSprites: readonly LevelSprite[],
   chars: Map<number, Char>,
   l1: readonly (number | null)[][],
+  marioStartPx: { x: number; y: number },
 ): Sprite[] {
   const tables = readSpriteTileTables(rom)
   if (!tables) return []
@@ -207,6 +208,48 @@ export function buildSprites(
         spr = new Sprite(s.spriteId, s.x * 16, s.y * 16, platformApp, behavior)
       }
       out.push(spr)
+      continue
+    }
+
+    // Dry Bones ($30 throws bones, $32 stays on ledge). DryBonesAndBeetle
+    // (bank_01.asm:13520) dispatches to CODE_03C3DA (bank_03.asm:7831), which
+    // writes two 16×16 big-tiles directly from DryBonesTiles. InitDryBones is
+    // FaceMario, so SpriteMisc157C = SubHorizPos's Y at spawn: 0 when Mario is
+    // right of (or at) the sprite → Prop $43 (hflip), top at DispX[1]=+8; else 1
+    // → Prop $03 (no flip), top at DispX[4]=-8. Top tile $64 (state 0 anim 0),
+    // bottom tile $66. Palette 1 + charHigh 1 from Sprite166EVals[$30/$32]=$13.
+    // Sprite $31 (Bony Beetle) shares the handler but CODE_03C3DA diverts it
+    // (CMP #$31 BEQ → GenericSprGfxRt2), so $31 stays on the generic path.
+    if (s.spriteId === 0x30 || s.spriteId === 0x32) {
+      const attr     = tables.spriteAttr[s.spriteId] ?? 0
+      const palette  = 8 + ((attr >> 1) & 0x07)
+      const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+      const spritePx = s.x * 16
+      const faceRight = marioStartPx.x >= spritePx
+      const topDx   = faceRight ? 8 : -8
+      const flipX   = faceRight
+      const OBJ_BASE = 0x400
+      // SNES large-OBJ: baseTile N → [N, N+1, N+$10, N+$11] at corner offsets
+      // (0,0), (8,0), (0,8), (8,8). flipX reverses column order AND flips each tile.
+      const bigTile = (baseTile: number, bdx: number, bdy: number): SpritePart[] => {
+        const co = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
+        const dxo = [0, 8, 0, 8]
+        const dyo = [0, 0, 8, 8]
+        return co.map((off, i) => ({
+          char: chars.get(OBJ_BASE + charHigh + ((baseTile + off) & 0x1FF)) ?? placeholder,
+          palette, flipX, flipY: false,
+          dx: bdx + dxo[i], dy: bdy + dyo[i],
+        }))
+      }
+      const parts: SpritePart[] = [
+        ...bigTile(0x64, topDx, -16),   // top body
+        ...bigTile(0x66, 0, 0),         // bottom body
+      ]
+      out.push(new Sprite(
+        s.spriteId, spritePx, s.y * 16,
+        new StaticSpriteAppearance(parts),
+        behavior,
+      ))
       continue
     }
 

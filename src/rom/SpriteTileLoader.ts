@@ -391,6 +391,9 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
     { baseTile: 0xE6, baseDx:  0, baseDy:   0 },  // bottom-left
     { baseTile: 0xE8, baseDx: 16, baseDy:   0 },  // bottom-right
   ]},
+  // Dry Bones ($30, $32) is handled in SpriteFactory rather than here because
+  // its flip direction depends on FaceMario evaluated against the level's
+  // Mario start position — not a property of the sprite tile tables.
 }
 
 /**
