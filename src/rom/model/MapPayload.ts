@@ -138,6 +138,11 @@ export type SpriteAppearanceDescriptor =
       airborneFlash: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
       isAirborne: boolean
     }
+  | {
+      kind: 'volcanoLotus'
+      headParts: readonly SpritePartDescriptor[]
+      flowerFrames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
+    }
 
 export interface SpriteBehaviorDescriptor {
   kind: string

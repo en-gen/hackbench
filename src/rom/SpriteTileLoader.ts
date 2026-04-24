@@ -212,7 +212,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x96: 0x06,   // Unused Chargin' Chuck clone
   0x97: 0x06,   // Puntin' Chuck
   // 0x98 Pitchin' Chuck — promoted to SPRITE_WIDE_OVERRIDES (release pose $19)
-  0x99: 0xCE,   // Volcano Lotus
+  // 0x99 Volcano Lotus — handled in SpriteFactory (VolcanoLotusAppearance: head + animated flower)
   0x9A: 0x98,   // Sumo Brother
   0x9B: 0x46,   // Hammer Brother — HammerBroTiles[2] (left body big-tile), bank_02.asm:12040
   0x9C: 0x40,   // Flying blocks for Hammer Brother
@@ -282,7 +282,7 @@ export const MAX_SPRITE_ID_WITH_LAYOUT = 0xC8
  * Sprites removed because they use custom mixed-size OAM (base tile fallback):
  *   $6F Dino Torch   — 1 body + flame particles; BASE=$EA
  *   $71/$72/$73 Super Koopa — per-entry charHigh + vflip + FaceMario, handled in SpriteFactory
- *   $99 Volcano Lotus — custom quad; BASE=$CE
+ *   $99 Volcano Lotus — handled in SpriteFactory (VolcanoLotusAppearance)
  *   $9A Sumo Brother  — 8×8 head + 16×16 body pairs; BASE=$98
  *   $9B Hammer Brother — mixed 8×8/16×16; BASE=$5A
  */
