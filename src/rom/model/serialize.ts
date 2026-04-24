@@ -13,6 +13,7 @@ import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
+import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -125,6 +126,18 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
       kind: 'hammerBroPlatform',
       platformParts: a.platformParts.map(partDescriptor),
       wingFrames: [a.wingFrames[0].map(partDescriptor), a.wingFrames[1].map(partDescriptor)],
+    }
+  }
+  if (a instanceof SuperKoopaAppearance) {
+    const sp = (frames: typeof a.grounded) =>
+      [frames.flapA.map(partDescriptor), frames.flapB.map(partDescriptor)] as const
+    return {
+      kind: 'superKoopa',
+      grounded:      sp(a.grounded),
+      groundedFlash: sp(a.groundedFlash),
+      airborne:      sp(a.airborne),
+      airborneFlash: sp(a.airborneFlash),
+      isAirborne:    a.isAirborne,
     }
   }
   if (a instanceof PSwitchAppearance) {

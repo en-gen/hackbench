@@ -19,6 +19,7 @@ import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearan
 import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppearance'
 import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
 import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
+import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
@@ -320,6 +321,135 @@ export function buildSprites(
       out.push(new Sprite(
         s.spriteId, spritePx, s.y * 16,
         new StaticSpriteAppearance(parts),
+        behavior,
+      ))
+      continue
+    }
+
+    // Super Koopa ($71 red cape, $72 yellow cape straight, $73 yellow cape swooping).
+    // SuperKoopaMain (bank_02.asm:14216) → CODE_02ECDE OAM builder
+    // (bank_02.asm:14394). All three share SuperKoopaTiles (bank_02.asm:14373)
+    // and call FaceMario at init (InitSuperKoopa bank_01.asm:797,
+    // InitSuperKoopaFthr bank_01.asm:802) — direction (SpriteMisc157C)
+    // drives hflip via the BCS test at bank_02.asm:14465.
+    //
+    // Pose selection: if the tile directly below is empty (airborne), render
+    // the swoop-flap pair (Frames 2/3); otherwise the cape-spread (Frame 0).
+    // Airborne animation alternates Frame 2 ↔ Frame 3 via SuperKoopaAppearance.
+    //
+    // Per-entry routing (DATA_02EC96 byte per frame entry):
+    //   bit 1 set → palette-override path (CODE_02ED3B, bank_02.asm:14449):
+    //     OR capeOverride with attr, AND $FD. capeOverride is either
+    //       the static value ($71 → $08, $72/$73 → $04), or
+    //       DATA_02ED39 $10,$0A (CGRAM row 8, 13) when SpriteMisc1534 != 0
+    //       (feather-dropping $73) — this is the cape-flash effect.
+    //   bit 1 clear → standard path (CODE_02ED4D, bank_02.asm:14461):
+    //     OR with _5 = Sprite166EVals[id] & $0E. Sprite166EVals: $71=$0B,
+    //     $72=$09, $73=$07.
+    //
+    // Frame 0 (bank_02.asm:14373+$00):  tiles $C8/$D8/$D0/$E0, dx (+8,+8,+16,0),
+    //   dy (0,+8,+8,0), attrs (03,03,03,00), sizes (8,8,8,16).
+    // Frame 2 (bank_02.asm:14373+$08):  tiles $E4/$E5/$F2/$E0, dx (+8,+16,+16,0),
+    //   dy (+3,+3,+8,0), attrs (03,03,01,01), sizes (8,8,8,16).
+    // Frame 3 (bank_02.asm:14373+$0C):  tiles $F4/$F5/$F2/$E0, same geometry
+    //   as Frame 2 — only upper-wing char swaps for the flap animation.
+    if (s.spriteId === 0x71 || s.spriteId === 0x72 || s.spriteId === 0x73) {
+      const OBJ_BASE = 0x400
+      const spritePx = s.x * 16
+      const faceRight = marioStartPx.x >= spritePx
+      const flipX = faceRight
+      const sprObjAttr = tables.spriteAttr[s.spriteId] ?? 0       // Sprite166EVals & $0F
+      const bodyAttr5 = sprObjAttr & 0x0E                          // _5 (palette bits only)
+      const normalCapeOverride = s.spriteId === 0x71 ? 0x08 : 0x04 // CODE_02ED3B static
+      const FLASH_A = 0x10                                          // DATA_02ED39[0]
+      const FLASH_B = 0x0A                                          // DATA_02ED39[1]
+      const tileBelow = l1[s.y + 1]?.[s.x]
+      const airborne = tileBelow === null || tileBelow === undefined
+
+      type Entry = {
+        tile: number; size: 8 | 16;
+        attrByte: number; dx: number; dy: number;
+      }
+      const buildFrameParts = (entries: readonly Entry[], capeOverride: number): SpritePart[] => {
+        const parts: SpritePart[] = []
+        for (const e of entries) {
+          const palOverride = (e.attrByte & 0x02) !== 0
+          const finalAttr = palOverride
+            ? (e.attrByte | capeOverride) & 0xFD
+            : e.attrByte | bodyAttr5
+          const palette = 8 + ((finalAttr >> 1) & 0x07)
+          const charHigh = (finalAttr & 0x01) !== 0 ? 0x100 : 0
+          const vflip = (finalAttr & 0x80) !== 0
+          // ASM doesn't mirror dx on hflip — it just flips each tile's content
+          // in place (bank_02.asm:14476 computes X pos from _0 + DATA_02EC06[X]
+          // with no direction-dependent math).
+          if (e.size === 16) {
+            // SNES 16×16 OBJ: base char N → corners [N, N+1, N+$10, N+$11] at
+            // (0,0), (+8,0), (0,+8), (+8,+8). flipX swaps columns AND flips
+            // each 8×8; flipY swaps rows AND flips each 8×8; both — both.
+            const co = flipX && vflip ? [0x11, 0x10, 0x01, 0x00]
+                     : flipX          ? [0x01, 0x00, 0x11, 0x10]
+                     : vflip          ? [0x10, 0x11, 0x00, 0x01]
+                     :                  [0x00, 0x01, 0x10, 0x11]
+            const dxo = [0, 8, 0, 8]
+            const dyo = [0, 0, 8, 8]
+            for (let i = 0; i < 4; i++) {
+              parts.push({
+                char: chars.get(OBJ_BASE + charHigh + ((e.tile + co[i]) & 0x1FF)) ?? placeholder,
+                palette, flipX, flipY: vflip,
+                dx: e.dx + dxo[i], dy: e.dy + dyo[i],
+              })
+            }
+          } else {
+            parts.push({
+              char: chars.get(OBJ_BASE + charHigh + (e.tile & 0x1FF)) ?? placeholder,
+              palette, flipX, flipY: vflip,
+              dx: e.dx, dy: e.dy,
+            })
+          }
+        }
+        return parts
+      }
+
+      const FRAME_0: readonly Entry[] = [
+        { tile: 0xC8, size:  8, attrByte: 0x03, dx:  8, dy:  0 },
+        { tile: 0xD8, size:  8, attrByte: 0x03, dx:  8, dy:  8 },
+        { tile: 0xD0, size:  8, attrByte: 0x03, dx: 16, dy:  8 },
+        { tile: 0xE0, size: 16, attrByte: 0x00, dx:  0, dy:  0 },
+      ]
+      const FRAME_2: readonly Entry[] = [
+        { tile: 0xE4, size:  8, attrByte: 0x03, dx:  8, dy:  3 },
+        { tile: 0xE5, size:  8, attrByte: 0x03, dx: 16, dy:  3 },
+        { tile: 0xF2, size:  8, attrByte: 0x01, dx: 16, dy:  8 },
+        { tile: 0xE0, size: 16, attrByte: 0x01, dx:  0, dy:  0 },
+      ]
+      const FRAME_3: readonly Entry[] = [
+        { tile: 0xF4, size:  8, attrByte: 0x03, dx:  8, dy:  3 },
+        { tile: 0xF5, size:  8, attrByte: 0x03, dx: 16, dy:  3 },
+        { tile: 0xF2, size:  8, attrByte: 0x01, dx: 16, dy:  8 },
+        { tile: 0xE0, size: 16, attrByte: 0x01, dx:  0, dy:  0 },
+      ]
+
+      // Grounded pose uses Frame 0 for both flaps (no wing animation); flash
+      // cycles the cape palette via FLASH_A/FLASH_B between flap ticks.
+      const groundedNormal = buildFrameParts(FRAME_0, normalCapeOverride)
+      const grounded = { flapA: groundedNormal, flapB: groundedNormal }
+      const groundedFlash = {
+        flapA: buildFrameParts(FRAME_0, FLASH_A),
+        flapB: buildFrameParts(FRAME_0, FLASH_B),
+      }
+      const airborneFrames = {
+        flapA: buildFrameParts(FRAME_2, normalCapeOverride),
+        flapB: buildFrameParts(FRAME_3, normalCapeOverride),
+      }
+      const airborneFlash = {
+        flapA: buildFrameParts(FRAME_2, FLASH_A),
+        flapB: buildFrameParts(FRAME_3, FLASH_B),
+      }
+
+      out.push(new Sprite(
+        s.spriteId, spritePx, s.y * 16,
+        new SuperKoopaAppearance(grounded, groundedFlash, airborneFrames, airborneFlash, airborne),
         behavior,
       ))
       continue

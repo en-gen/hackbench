@@ -130,6 +130,14 @@ export type SpriteAppearanceDescriptor =
       platformParts: readonly SpritePartDescriptor[]
       wingFrames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
     }
+  | {
+      kind: 'superKoopa'
+      grounded:      readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
+      groundedFlash: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
+      airborne:      readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
+      airborneFlash: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
+      isAirborne: boolean
+    }
 
 export interface SpriteBehaviorDescriptor {
   kind: string

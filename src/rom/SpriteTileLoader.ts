@@ -174,9 +174,9 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x6E: 0x80,   // Dino Rhino — superseded by SPRITE_WIDE_OVERRIDES; kept as fallback
   0x6F: 0xEA,   // Dino Torch — DinoTorchTiles[0] (frame 0 body), bank_03.asm:3900
   0x70: 0xE8,   // Pokey
-  0x71: 0xC8,   // Super Koopa, red cape
-  0x72: 0xC8,   // Super Koopa, yellow cape
-  0x73: 0xC8,   // Super Koopa, feather
+  0x71: 0xC8,   // Super Koopa, red cape — superseded by SpriteFactory custom handler; kept as fallback
+  0x72: 0xC8,   // Super Koopa, yellow cape, straight, drops feather — superseded by SpriteFactory
+  0x73: 0xC8,   // Super Koopa, yellow cape, swooping, drops feather — superseded by SpriteFactory
   0x74: 0x24,   // Mushroom — PowerUpTiles[0], bank_01.asm:9528
   0x75: 0x26,   // Fire Flower — PowerUpTiles[1]
   0x76: 0x48,   // Star — PowerUpTiles[2]
@@ -278,18 +278,15 @@ export const MAX_SPRITE_ID_WITH_LAYOUT = 0xC8
  * Sprites removed because they are 2×2 WIDE (4 OBJ entries):
  *   $6E Dino Rhino  → SPRITE_WIDE_OVERRIDES (DinoRhinoTiles: $C0,$C2,$E4,$E6)
  *   $BF Mega Mole   → SPRITE_WIDE_OVERRIDES (MegaMoleTiles:  $C6,$C8,$E6,$E8)
- *   $71/$72/$73 Super Koopa → under investigation (4 OBJ entries, bank_02.asm:14373)
  *
  * Sprites removed because they use custom mixed-size OAM (base tile fallback):
  *   $6F Dino Torch   — 1 body + flame particles; BASE=$EA
+ *   $71/$72/$73 Super Koopa — per-entry charHigh + vflip + FaceMario, handled in SpriteFactory
  *   $99 Volcano Lotus — custom quad; BASE=$CE
  *   $9A Sumo Brother  — 8×8 head + 16×16 body pairs; BASE=$98
  *   $9B Hammer Brother — mixed 8×8/16×16; BASE=$5A
  */
 const SPRITE_TALL_OVERRIDES: Readonly<Record<number, { top: number; bottom: number }>> = {
-  0x71: { top: 0xC8, bottom: 0xD0 },   // Super Koopa, red cape   (TODO: may be WIDE)
-  0x72: { top: 0xC8, bottom: 0xD0 },   // Super Koopa, yellow cape
-  0x73: { top: 0xC8, bottom: 0xD0 },   // Super Koopa, feather
   0xAB: { top: 0x8A, bottom: 0xAA },   // Rex — RexTiles bank_03.asm:2877
 }
 
