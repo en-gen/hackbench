@@ -198,12 +198,17 @@ export function buildSprites(
 
     // Sprite $10 (Para-Goomba) uses WingedGoomba (bank_01.asm:1934):
     // GoombaWingGfxRt draws 2 wing OBJ entries then SubSprGfx2Entry1 draws the
-    // Goomba body tile ($AA). Wings use OBJ palette 3 (CGRAM row 11) from
-    // GoombaWingGfxProp $06/$46 (no-flip left / flipX right). Facing left:
-    //   frame 0: 16×16 $C6 — left wing at DATA_018DC7[0]=$F7=−9 / DATA_018DD7[0]=$F7=−9
-    //                        right wing at DATA_018DC7[1]=$0B=+11 / DATA_018DD7[1]=$F7=−9, flipX
-    //   frame 1: 8×8 $5D  — left wing at DATA_018DC7[4]=$FD=−3  / DATA_018DD7[4]=$01=+1
-    //                        right wing at DATA_018DC7[5]=$0C=+12 / DATA_018DD7[5]=$01=+1, flipX
+    // Goomba body tile ($AA). Wings use OBJ palette 3 (CGRAM row 11).
+    // GoombaWingGfxProp[0]=$46 (hflip) is always applied to the lower-X wing
+    // entry (the LEFT wing); GoombaWingGfxProp[1]=$06 (no-flip) is applied to
+    // the RIGHT wing. Facing-right EORs #$40 on both, swapping hflip between
+    // entries — but the inner loop indexes X positions from DATA_018DC7+8, so
+    // the LEFT-vs-RIGHT assignment stays consistent: LEFT=hflip, RIGHT=natural.
+    // Facing left:
+    //   frame 0: 16×16 $C6 — left wing at DATA_018DC7[0]=$F7=−9 / DATA_018DD7[0]=$F7=−9, flipX
+    //                        right wing at DATA_018DC7[1]=$0B=+11 / DATA_018DD7[1]=$F7=−9
+    //   frame 1: 8×8 $5D  — left wing at DATA_018DC7[4]=$FD=−3 / DATA_018DD7[4]=$01=+1, flipX
+    //                        right wing at DATA_018DC7[5]=$0C=+12 / DATA_018DD7[5]=$01=+1
     if (s.spriteId === 0x10) {
       const gLayout = buildSpriteLayout(tables, s.spriteId)
       const gBody: SpritePart[] = (gLayout?.tiles ?? []).map(t => ({
@@ -215,15 +220,16 @@ export function buildSprites(
       const gc = (n: number) => chars.get(GBASE + n) ?? placeholder
       const gp = (n: number, dx: number, dy: number, flipX: boolean): SpritePart =>
         ({ char: gc(n), palette: GPAL, flipX, flipY: false, dx, dy })
+      // SNES 16×16 hflip: TL←N+1(flipped), TR←N(flipped), BL←N+$11(flipped), BR←N+$10(flipped).
       const gwf0: SpritePart[] = [          // large wings
-        gp(0xC6, -9, -9, false), gp(0xC7, -1, -9, false),
-        gp(0xD6, -9, -1, false), gp(0xD7, -1, -1, false),
-        gp(0xC7, 11, -9, true),  gp(0xC6, 19, -9, true),
-        gp(0xD7, 11, -1, true),  gp(0xD6, 19, -1, true),
+        gp(0xC7, -9, -9, true),  gp(0xC6, -1, -9, true),   // left wing hflipped
+        gp(0xD7, -9, -1, true),  gp(0xD6, -1, -1, true),
+        gp(0xC6, 11, -9, false), gp(0xC7, 19, -9, false),  // right wing natural
+        gp(0xD6, 11, -1, false), gp(0xD7, 19, -1, false),
       ]
       const gwf1: SpritePart[] = [          // small wings
-        gp(0x5D, -3, 1, false),
-        gp(0x5D, 12, 1, true),
+        gp(0x5D, -3, 1, true),     // left wing hflipped
+        gp(0x5D, 12, 1, false),    // right wing natural
       ]
       out.push(new Sprite(
         s.spriteId, s.x * 16, s.y * 16,
