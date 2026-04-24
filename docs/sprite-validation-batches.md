@@ -40,7 +40,7 @@ For each sprite ID in your batch:
 | 3 | `$0A $0B $0C $0D $0E` | Red/Red Para-Koopa, Yellow Para-Koopa, Bob-omb, Keyhole |
 | 4 | `$0F $10 $11 $12 $13` | Goomba, Para-Goomba, Buzzy Beetle, Unused, Spiny |
 | 5 | `$14 $15 $16 $17 $18` | Spiny Egg, Cheep-Cheeps (3 variants), Jumping Cheep |
-| 6 | `$19 $1A $1B $1C $1D` | Message Box, Piranha Plant, Football, Bullet Bill, Hopping Flame |
+| 6 | `$19 $1A $1B $1C $1D` | Message Box, Piranha Plant, Football, Bullet Bill, Hopping Flame | ✅ analysed — see notes below |
 | 7 | `$1E $1F $20 $21 $22` | Lakitu, Magikoopa, Magic, Moving Coin, Green Net Koopa |
 | 8 | `$23 $24 $25 ~~$26~~ $27` | Net Koopas, ~~Thwomp~~, Thwimp |
 | 9 | `$28 $29 $2A $2B $2C` | Blue Shell, Spike Top, Piranha (upside-down), Lightning, Yoshi Egg |
@@ -78,3 +78,39 @@ For each sprite ID in your batch:
 | 41 | `$C8` | Light Switch Block (tail of list) |
 
 Generators (`$C9`–`$D9`) and scroll controllers (`$DE`–`$E7`) are skipped — no visuals. Shell aliases (`$DA`–`$DD`) are handled via `resolveShellAlias` in `SpriteTileLoader`.
+
+---
+
+## Batch analysis notes
+
+### Batch 6 — `$19 $1A $1B $1C $1D`
+
+Sources: `bank_01.asm` PSwitch/Pirahna/FootBall/BulletBill/HopFlame handlers;
+`SprTilemapOffset` table at `$01:9C7F`; `Sprite166EVals` at `$07:F3FE`; ROM
+sprite-stream scan via `find_sprite_levels.py`.
+
+| ID | displayName | Layout | tilemapOffset | tile[0] | charHigh | Palette row | Sample level | Code status |
+|----|-------------|--------|--------------|---------|----------|-------------|--------------|-------------|
+| `$19` | Message Box | none (invisible in-game) | `$56` | `$A0` | 1 | CGRAM13 | `$0C5` (Intro level) | **needs fix** - renders a stray charHigh tile; should show placeholder |
+| `$1A` | Piranha Plant | sub1 TALL 16×32 | `$3A` | `$AC` (top) / `$CE` (bottom) | 0 | CGRAM12 | none - vanilla uses pipe objects, never direct sprite entry | OK - already in `SPRITE_BASE_TILE_OVERRIDES` |
+| `$1B` | Football (Chargin' Chuck projectile) | sub2 16×16 | `$46` | `$8A` | 1 | CGRAM8 | none - runtime-spawned by `$91` Chargin' Chuck | OK |
+| `$1C` | Bullet Bill | sub2 16×16 | `$47` | `$A6` | 0 | CGRAM9 | none - runtime-spawned by `$D3` cannon generator | OK |
+| `$1D` | Hopping Flame | sub2 16×16 | `$69` | `$AE` | 1 | CGRAM10 | `$126` (Outrageous) | OK |
+
+**`$19` Message Box** - `PSwitch` handler (`bank_01.asm`) stores OAM data then
+returns immediately without drawing; the sprite is invisible at runtime. The
+editor currently falls through to the generic sub2 path and renders tile
+`SprTilemap[$56] | charHigh<<8`, which is an unrelated object tile. Correct fix:
+add `$19` to `SPRITE_BASE_TILE_OVERRIDES` with a sentinel value (or handle it in
+`SpriteFactory`) so it renders as a placeholder box rather than a random glyph.
+
+**`$1A` Piranha Plant** - confirmed TALL (sub1) via `Sprite166EVals[$1A]`; top
+tile `$AC` and bottom tile `$CE` are correctly encoded in the existing
+`SPRITE_BASE_TILE_OVERRIDES` entry. No fix needed. Vanilla SMW never places `$1A`
+as a direct sprite entry anywhere in the 512 level slots (including sub-areas);
+pipe-based Piranha Plants are spawned by the pipe object layer instead.
+
+**`$1B` Football** and **`$1C` Bullet Bill** - `find_sprite_levels.py` returns
+0 direct placements across all 512 level slots. Football is thrown at runtime by
+`$91` Chargin' Chuck; Bullet Bill is fired by the `$D3` cannon generator. Neither
+is ever placed as a standalone sprite in vanilla ROM.

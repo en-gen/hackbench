@@ -411,14 +411,13 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
  * Sprites that route through Spr0to13Gfx (bank_01.asm:1762-1767) promote
  * to tall when Spr0to13Prop bit 6 is set. Direct callers of Spr0to13Start:
  * 0x04-0x07, 0x0C, 0x0F, 0x11, 0x13. Indirect callers that use their own
- * handlers then call Spr0to13Gfx: 0x0A (RedVertParaKoopa), 0x0B
- * (RedHorzParaKoopa). All are included in the check below.
+ * handlers then JMP Spr0to13Gfx: 0x08-0x09 (GreenParaKoopa), 0x0A-0x0B
+ * (RedVertParaKoopa/RedHorzParaKoopa). Sprites 0x00-0x03 share the prop
+ * table but use a different handler and stay 16x16.
  */
 function isSpr0to13TallSprite(tables: SpriteTileTables, spriteId: number): boolean {
   if (spriteId >= tables.spr0to13Prop.length) return false
-  // $0A/$0B (RedVertParaKoopa/RedHorzParaKoopa) call their own handlers which
-  // then dispatch to Spr0to13Gfx — same prop-bit-6 check applies.
-  const SPR_0_TO_13_START_IDS = [0x04, 0x05, 0x06, 0x07, 0x0A, 0x0B, 0x0C, 0x0F, 0x11, 0x13]
+  const SPR_0_TO_13_START_IDS = [0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0F, 0x11, 0x13]
   if (!SPR_0_TO_13_START_IDS.includes(spriteId)) return false
   return (tables.spr0to13Prop[spriteId] & 0x40) !== 0
 }

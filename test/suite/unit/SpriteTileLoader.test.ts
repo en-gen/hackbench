@@ -127,6 +127,26 @@ describe('buildSpriteLayout', () => {
     expect(bottomTiles.map(t => t.dy)).toEqual([0, 0, 8, 8])
   })
 
+  it('emits height=32 for Green Para-Koopas $08/$09 (prop $50 has bit 6 set)', () => {
+    // Sprites $08 and $09 use GreenParaKoopa → JMP Spr0to13Gfx (bank_01.asm:1868).
+    // Spr0to13Prop[$08/$09] = $50; $50 & $40 = $40 ≠ 0 → TALL 16x32 via SubSprGfx1.
+    const tilemap = new Uint8Array(0xFC)
+    const tilemapOffset = new Uint8Array(0x54)
+    const spr0to13Prop = new Uint8Array(0x14)
+    tilemapOffset[0x08] = 0x00
+    tilemapOffset[0x09] = 0x00
+    tilemap[0x00] = 0x82   // top tile (shell)
+    tilemap[0x01] = 0xA0   // bottom tile (legs)
+    spr0to13Prop[0x08] = 0x50
+    spr0to13Prop[0x09] = 0x50
+    const tables = makeTables({ tilemap, tilemapOffset, spr0to13Prop })
+    for (const id of [0x08, 0x09]) {
+      const layout = buildSpriteLayout(tables, id)!
+      expect(layout.height, `sprite $0${id.toString(16)}`).toBe(32)
+      expect(layout.tiles).toHaveLength(8)
+    }
+  })
+
   it('uses SubSprGfx0 (4 independent chars) for sprite $4D (Monty Mole)', () => {
     // Monty Mole is in the SPRITE_GFX_OVERRIDES table with routine 'sub0'.
     // Each of its 4 corners picks its own char from SprTilemap[offset+0..3],

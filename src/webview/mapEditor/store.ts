@@ -51,18 +51,18 @@ export const useEditorStore = defineStore('editor', () => {
   // in whoever wired the checkbox, not here.
   const layerToggles      = ref<LayerToggles>({
     l1: true, l2: true, l3: true, sprites: true, screens: false,
-    block: false, mapGrid: false, l3Hud: false,
+    block: false, mapGrid: false, l3Hud: false, surfaces: false,
   })
   const activeVineSources = ref<ReadonlySet<string>>(new Set())
-  /** Thwomps whose detection-zone overlay is currently toggled on, keyed
-   *  by `"x,y"` in natural pixels (sprite.x / sprite.y, unique per sprite). */
-  const activeThwomps     = ref<ReadonlySet<string>>(new Set())
-  /** $9C Hammer Bro Platforms whose U-shaped path overlay is toggled on,
-   *  keyed by `"x,y"` in natural pixels (sprite origin). */
-  const activePlatforms   = ref<ReadonlySet<string>>(new Set())
-  /** $0A/$0B Red Para-Koopas whose movement-range overlay is toggled on,
-   *  keyed by `"x,y"` in natural pixels (sprite origin). */
-  const activeParaKoopas  = ref<ReadonlySet<string>>(new Set())
+  /**
+   * Sprites whose movement-zone overlay is currently toggled on, keyed by
+   * `"id:x,y"` where id is the sprite id (decimal) and x/y are the sprite's
+   * natural-pixel origin. This unified set replaces the old per-type sets
+   * (activeThwomps, activePlatforms, activeParaKoopas, activeCheepCheeps,
+   * activeSwimJumpFish, activeHopFlames). Keying by id prevents collisions
+   * when different sprite types share the same spawn position.
+   */
+  const activeSpriteOverlays = ref<ReadonlySet<string>>(new Set())
   /** Pointer position in level natural pixels (1× coords), or null when the
    *  pointer is off the canvas. Rounded to integer pixels so sub-pixel
    *  wiggle doesn't spam the reactive effect. */
@@ -113,13 +113,14 @@ export const useEditorStore = defineStore('editor', () => {
   function setLayerToggles(next: LayerToggles): void {
     const cur = layerToggles.value
     if (
-      cur.l1      === next.l1      &&
-      cur.l2      === next.l2      &&
-      cur.l3      === next.l3      &&
-      cur.sprites === next.sprites &&
-      cur.screens === next.screens &&
-      cur.block   === next.block   &&
-      cur.l3Hud   === next.l3Hud
+      cur.l1       === next.l1       &&
+      cur.l2       === next.l2       &&
+      cur.l3       === next.l3       &&
+      cur.sprites  === next.sprites  &&
+      cur.screens  === next.screens  &&
+      cur.block    === next.block    &&
+      cur.l3Hud    === next.l3Hud    &&
+      cur.surfaces === next.surfaces
     ) return
     layerToggles.value = { ...next }
   }
@@ -144,22 +145,10 @@ export const useEditorStore = defineStore('editor', () => {
     activeVineSources.value = next
   }
 
-  function toggleThwomp(key: string): void {
-    const next = new Set(activeThwomps.value)
+  function toggleSpriteOverlay(key: string): void {
+    const next = new Set(activeSpriteOverlays.value)
     if (next.has(key)) next.delete(key); else next.add(key)
-    activeThwomps.value = next
-  }
-
-  function togglePlatform(key: string): void {
-    const next = new Set(activePlatforms.value)
-    if (next.has(key)) next.delete(key); else next.add(key)
-    activePlatforms.value = next
-  }
-
-  function toggleParaKoopa(key: string): void {
-    const next = new Set(activeParaKoopas.value)
-    if (next.has(key)) next.delete(key); else next.add(key)
-    activeParaKoopas.value = next
+    activeSpriteOverlays.value = next
   }
 
   function setCursorPx(pos: { x: number; y: number } | null): void {
@@ -174,15 +163,15 @@ export const useEditorStore = defineStore('editor', () => {
     // state
     animFrame, palAnimFrame, pSwitchActive, switchPalaceState,
     camera, cameraOn, cameraDragging, zoom, layerToggles,
-    activeVineSources, activeThwomps, activePlatforms, activeParaKoopas, cursorPx,
+    activeVineSources, activeSpriteOverlays, cursorPx,
     // actions
     toggleSwitchPalace, setSwitchPalace,
     togglePSwitch,      setPSwitch,
     setAnimFrame,       setPalAnimFrame,
     setZoom,
     setLayerToggle,     setLayerToggles,
-    setCamera,          setCameraOn,       setCameraDragging,
-    toggleVineSource,   toggleThwomp,      togglePlatform,      toggleParaKoopa,     setCursorPx,
+    setCamera,          setCameraOn,    setCameraDragging,
+    toggleVineSource,   toggleSpriteOverlay, setCursorPx,
   }
 })
 

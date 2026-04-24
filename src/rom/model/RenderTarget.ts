@@ -46,6 +46,12 @@ export interface LayerToggles {
    * Default false — only meaningful when camera viewport is focused.
    */
   l3Hud: boolean
+  /**
+   * Draw floor/ceiling face lines on L1 cells (toolbar btn-surfaces).
+   * Reads `tile.collision.floor` / `.ceiling`; see
+   * `src/rom/model/tiles/COLLISION.md`.
+   */
+  surfaces: boolean
 }
 
 /**
