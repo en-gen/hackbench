@@ -1,4 +1,3 @@
-import { ref } from '@vue/reactivity'
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
@@ -23,8 +22,8 @@ import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
  * 8 SNES game frames. So advancing the flower by one frame per editor
  * tick matches the ASM cadence exactly: idle 8 game frames, blink 8
  * game frames. The canvas redraws at rAF rate (60fps), but the flower
- * frame index only changes on tick — which is the point of ref(): render
- * reads the same value for ~8 redraws before it changes.
+ * frame index only changes on tick — render reads the same value for ~8
+ * redraws before it changes.
  *
  * The attack/rising poses ($E2 open mouth, CGRAM row 10 flash) are not
  * reachable from the editor snapshot — those are transient runtime states
@@ -37,7 +36,7 @@ import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
  */
 export class VolcanoLotusAppearance implements SpriteAppearance {
   readonly hitRect: HitRect
-  private readonly frame = ref(0)
+  private frame = 0
 
   constructor(
     readonly headParts: readonly SpritePart[],
@@ -51,7 +50,7 @@ export class VolcanoLotusAppearance implements SpriteAppearance {
   }
 
   tickAnimation(): void {
-    this.frame.value = (this.frame.value + 1) % this.flowerFrames.length
+    this.frame = (this.frame + 1) % this.flowerFrames.length
   }
 
   render(ctx: RenderContext, target: RenderTarget, x: number, y: number): void {
@@ -61,6 +60,6 @@ export class VolcanoLotusAppearance implements SpriteAppearance {
       target.blit8x8(pixels, { x: x + part.dx, y: y + part.dy }, row, part.flipX, part.flipY)
     }
     for (const part of this.headParts) blit(part)
-    for (const part of this.flowerFrames[this.frame.value]) blit(part)
+    for (const part of this.flowerFrames[this.frame]) blit(part)
   }
 }
