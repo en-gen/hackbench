@@ -623,6 +623,44 @@ export function buildSpriteLayout(
     }))
   }
 
+  // Para-Goomba ($3F) and Para-Bomb ($40): ParachuteSprites (bank_01.asm:11558).
+  // Two draw units in sequence:
+  //   1. 16×16 parachute via SubSprGfx2Entry1 — drawn at ORIGINAL_X, ORIGINAL_Y−16.
+  //      SpriteX is NOT modified before SubSprGfx2Entry1 (line 11663); X modification
+  //      happens AFTER (lines 11671–11679) for the body draw. So parachute dx = 0.
+  //      SubSprGfx2Entry1 adds SpriteMisc1602 DIRECTLY to tilemapOffset (no ×4).
+  //      Frame 0 (SpriteMisc1570=0): DATA_01D55E[0]=$0D → tilemapIdx=$0D+tilemapBase.
+  //      OBJAttr override: (attr & $F1)|$06 → palette=OBJ_3/row_11, charHigh preserved.
+  //      DATA_01D56E[0]=$00 → SpriteMisc157C LSR → carry=0 → EOR OBJ_XFlip → h-flip.
+  //      H-flipped big-tile: columns swap (TL↔TR, BL↔BR) and each 8×8 char individually flipX'd.
+  //   2. Body via SubSprGfx0 at (ORIGINAL_X + DATA_01D57E[0], ORIGINAL_Y − 2).
+  //      DATA_01D57E[0]=$F8=−8 → body dx = −8.
+  //      DATA_01D59E[0]=$0E=14 → body_Y = (ORIGINAL_Y−16)+14 = ORIGINAL_Y−2 → dy = −2.
+  //      DATA_01D5B0[0]=$01 → GeneralSprGfxProp[$04..$07]={$00,$40,$00,$40} → flipX right column.
+  if (spriteId === 0x3F || spriteId === 0x40) {
+    const PARACHUTE_FRAME = 0x0D     // DATA_01D55E[0]
+    const pc = tables.tilemap[tilemapBase + PARACHUTE_FRAME] ?? 0
+    const ppRow = 11                 // (attr & $F1)|$06 → ppp=011 → OBJ pal 3 → CGRAM row 11
+    // Parachute: drawn at (ORIGINAL_X, ORIGINAL_Y−16). X is unmodified at draw time.
+    const parachuteTiles: SpriteSubtile[] = [
+      { charNum: OBJ_CHAR_BASE + charHigh + ((pc + 0x01) & 0x1FF), palette: ppRow, flipX: true,  flipY: false, dx: 0, dy: -16 },  // TL ← orig TR
+      { charNum: OBJ_CHAR_BASE + charHigh + ((pc + 0x00) & 0x1FF), palette: ppRow, flipX: true,  flipY: false, dx: 8, dy: -16 },  // TR ← orig TL
+      { charNum: OBJ_CHAR_BASE + charHigh + ((pc + 0x11) & 0x1FF), palette: ppRow, flipX: true,  flipY: false, dx: 0, dy:  -8 },  // BL ← orig BR
+      { charNum: OBJ_CHAR_BASE + charHigh + ((pc + 0x10) & 0x1FF), palette: ppRow, flipX: true,  flipY: false, dx: 8, dy:  -8 },  // BR ← orig BL
+    ]
+    // Body: drawn at (ORIGINAL_X−8, ORIGINAL_Y−2). DATA_01D57E[0]=$F8=−8, DATA_01D59E[0]=$0E=14.
+    const bodyFlipX = [false, true, false, true]  // GeneralSprGfxProp[$04..$07] bit 6
+    const bodyTiles: SpriteSubtile[] = [0, 1, 2, 3].map(corner => ({
+      charNum: OBJ_CHAR_BASE + charHigh + ((tables.tilemap[tilemapBase + corner] ?? 0) & 0x1FF),
+      palette,
+      flipX: bodyFlipX[corner],
+      flipY: false,
+      dx: (tables.dispX[corner] ?? 0) - 8,   // SpriteX shifted −8 before body draw
+      dy: (tables.dispY[corner] ?? 0) - 2,   // SpriteY = (ORIGINAL_Y−16)+14 = ORIGINAL_Y−2
+    }))
+    return { spriteId, height: 32, tiles: [...parachuteTiles, ...bodyTiles] }
+  }
+
   const routine = spriteGfxRoutine(tables, spriteId)
 
   if (routine === 'sub1') {

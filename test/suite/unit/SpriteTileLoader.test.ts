@@ -227,6 +227,98 @@ describe('buildSpriteLayout', () => {
     expect(layout.height).toBe(16)
   })
 
+  it('renders Para-Goomba ($3F) as h-flipped parachute above + 4-char body at anchor', () => {
+    // ParachuteSprites (bank_01.asm:11558) draws two OAM units:
+    //   parachute via SubSprGfx2Entry1 (SpriteMisc1602=$0D added directly to tilemapBase),
+    //   body via SubSprGfx0 (4 explicit chars from SprTilemap[tilemapBase..+3]).
+    // Sprite166EVals[$3F]=$05 → attr=$05, palette OBJ2/row10, charHigh=1.
+    // Parachute OBJAttr: (attr & $F1)|$06 → palette OBJ3/row11, charHigh=1.
+    // DATA_01D56E[0]=$00 → carry=0 → EOR OBJ_XFlip → parachute h-flipped.
+    // DATA_01D5B0[0]=$01 → GeneralSprGfxProp[$04..$07]={$00,$40,$00,$40} → flipX right column.
+    const tilemap = new Uint8Array(0xFC)
+    const tilemapOffset = new Uint8Array(0x54)
+    const spriteAttr = new Uint8Array(0x100)
+    tilemapOffset[0x3F] = 0x17
+    tilemap[0x17] = 0xA3  // body TL
+    tilemap[0x18] = 0xA3  // body TR
+    tilemap[0x19] = 0xB3  // body BL
+    tilemap[0x1A] = 0xB3  // body BR
+    tilemap[0x24] = 0xE6  // parachute char at tilemapBase+$0D = $17+$0D = $24
+    spriteAttr[0x3F] = 0x05  // charHigh=1, palette=OBJ2
+
+    const tables = makeTables({ tilemap, tilemapOffset, spriteAttr })
+    const layout = buildSpriteLayout(tables, 0x3F)!
+    expect(layout.height).toBe(32)
+    expect(layout.tiles).toHaveLength(8)
+
+    // Parachute: h-flipped big-tile — TL←orig_TR, TR←orig_TL, BL←orig_BR, BR←orig_BL
+    const para = layout.tiles.slice(0, 4)
+    expect(para.map(t => t.charNum)).toEqual([
+      0x400 + 0x100 + 0xE7,  // TL ← original TR (base+1)
+      0x400 + 0x100 + 0xE6,  // TR ← original TL (base+0)
+      0x400 + 0x100 + 0xF7,  // BL ← original BR (base+$11)
+      0x400 + 0x100 + 0xF6,  // BR ← original BL (base+$10)
+    ])
+    expect(para.every(t => t.palette === 11)).toBe(true)
+    expect(para.every(t => t.flipX)).toBe(true)
+    // Parachute at ORIGINAL_X (dx=0), ORIGINAL_Y−16 (dy=−16). X is unmodified at draw time.
+    expect(para.map(t => t.dx)).toEqual([0, 8, 0, 8])
+    expect(para.map(t => t.dy)).toEqual([-16, -16, -8, -8])
+
+    // Body: drawn at ORIGINAL_X−8 (dx=−8), ORIGINAL_Y−2 (dy=−2).
+    // DATA_01D57E[0]=$F8=−8 shifts body X; DATA_01D59E[0]=$0E=14 with SpriteY−16 → body Y−2.
+    const body = layout.tiles.slice(4)
+    expect(body.map(t => t.charNum)).toEqual([
+      0x400 + 0x100 + 0xA3,
+      0x400 + 0x100 + 0xA3,
+      0x400 + 0x100 + 0xB3,
+      0x400 + 0x100 + 0xB3,
+    ])
+    expect(body.map(t => t.flipX)).toEqual([false, true, false, true])
+    expect(body.every(t => t.palette === 10)).toBe(true)
+    expect(body.map(t => t.dx)).toEqual([-8, 0, -8, 0])
+    expect(body.map(t => t.dy)).toEqual([-2, -2, 6, 6])
+  })
+
+  it('renders Para-Bomb ($40) with the same parachute/body structure', () => {
+    // Same ParachuteSprites handler; tilemapBase=$00, different tile bytes.
+    // Sprite166EVals[$40]=$15 → attr=$05, same charHigh+palette as Para-Goomba.
+    const tilemap = new Uint8Array(0xFC)
+    const tilemapOffset = new Uint8Array(0x54)
+    const spriteAttr = new Uint8Array(0x100)
+    tilemapOffset[0x40] = 0x00
+    tilemap[0x00] = 0x82  // body TL
+    tilemap[0x01] = 0xA0  // body TR
+    tilemap[0x02] = 0x82  // body BL
+    tilemap[0x03] = 0xA2  // body BR
+    tilemap[0x0D] = 0xCC  // parachute char at tilemapBase+$0D = $00+$0D = $0D
+    spriteAttr[0x40] = 0x05  // charHigh=1, palette=OBJ2
+
+    const tables = makeTables({ tilemap, tilemapOffset, spriteAttr })
+    const layout = buildSpriteLayout(tables, 0x40)!
+    expect(layout.height).toBe(32)
+    expect(layout.tiles).toHaveLength(8)
+
+    const para = layout.tiles.slice(0, 4)
+    expect(para.map(t => t.charNum)).toEqual([
+      0x400 + 0x100 + 0xCD,
+      0x400 + 0x100 + 0xCC,
+      0x400 + 0x100 + 0xDD,
+      0x400 + 0x100 + 0xDC,
+    ])
+    expect(para.every(t => t.flipX)).toBe(true)
+    expect(para.every(t => t.palette === 11)).toBe(true)
+
+    const body = layout.tiles.slice(4)
+    expect(body.map(t => t.charNum)).toEqual([
+      0x400 + 0x100 + 0x82,
+      0x400 + 0x100 + 0xA0,
+      0x400 + 0x100 + 0x82,
+      0x400 + 0x100 + 0xA2,
+    ])
+    expect(body.map(t => t.flipX)).toEqual([false, true, false, true])
+  })
+
   // IDs 0xC9-0xFF (beyond the dispatch table) have no visual tile — they
   // render as placeholder boxes via SpriteFactory. Confirm null here so the
   // two paths stay in sync: any change to the table boundary is caught.
