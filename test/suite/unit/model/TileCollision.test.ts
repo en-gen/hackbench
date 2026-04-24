@@ -80,19 +80,29 @@ function classify(low: number, tileset: number = 1, high: number = 0): {
   const ceiling = bhBlocks && (inSolidRange || inTilesetWindow)
   const slopeTable = isSlopeTile(lo, SLOPE_TABLE)
 
+  const dispatch0 = marioTileDispatch(lo, tileset, 0, DISPATCH_TABLES)
+  const dispatch1 = marioTileDispatch(lo, tileset, 1, DISPATCH_TABLES)
+  const dispatch2 = marioTileDispatch(lo, tileset, 2, DISPATCH_TABLES)
+  const dispatch3 = marioTileDispatch(lo, tileset, 3, DISPATCH_TABLES)
   const hurtsFromAnyDir = (
-    marioTileDispatch(lo, tileset, 0, DISPATCH_TABLES).kind === 'hurt' ||
-    marioTileDispatch(lo, tileset, 1, DISPATCH_TABLES).kind === 'hurt' ||
-    marioTileDispatch(lo, tileset, 2, DISPATCH_TABLES).kind === 'hurt' ||
-    marioTileDispatch(lo, tileset, 3, DISPATCH_TABLES).kind === 'hurt'
+    dispatch0.kind === 'hurt' ||
+    dispatch1.kind === 'hurt' ||
+    dispatch2.kind === 'hurt' ||
+    dispatch3.kind === 'hurt'
   )
+  // F0EC direction encoding per PlayerBlockedDir (rammap.asm:632):
+  //   dir 0 → head bump (CEILING), dir 3 → feet landing (FLOOR),
+  //   dir 1/2 → sides (WALL).
+  const hitOnHead  = dispatch0.kind === 'hit'
+  const hitOnSides = dispatch1.kind === 'hit' || dispatch2.kind === 'hit'
+  const hitOnFeet  = dispatch3.kind === 'hit'
   const feetLanding = marioFeetLanding(lo, tileset)
   const marioOk     = isMarioStandable(lo) && !hurtsFromAnyDir
   const marioSolid  = marioTileSolidity(lo, hi, PSWITCH_INACTIVE)
   const marioInCeilingWindow = tileset !== 0 && tileset !== 7 && lo >= 0xC4 && lo <= 0xC9
-  const marioFloor   = marioSolid && (feetLanding.kind === 'land') && marioOk
-  const marioCeiling = marioSolid && (inSolidRange || marioInCeilingWindow) && marioOk
-  const marioWall    = marioSolid && inSolidRange && marioOk
+  const marioFloor   = (marioSolid || hitOnFeet)  && (feetLanding.kind === 'land') && marioOk
+  const marioCeiling = (marioSolid || hitOnHead)  && (inSolidRange || marioInCeilingWindow) && marioOk
+  const marioWall    = (marioSolid || hitOnSides) && inSolidRange && marioOk
 
   return { floor, ceiling, wall, marioFloor, marioCeiling, marioWall, slopeTable }
 }
@@ -134,17 +144,33 @@ describe('TileCollision invariants', () => {
 })
 
 describe('TileCollision — known tile IDs', () => {
-  it('?-block page-0 low $1F: sprite-solid; Mario-solid via F545 page-0 catch-all? No', () => {
+  it('?-block page-0 low $1F: F545 non-solid but F127 head-bump fires → marioCeiling via F127 union', () => {
     // Low $1F with high=$00: F545 SBC #$EC = $33, BCS F592 → non-solid.
-    // So page-0 $01F is NOT a Mario wall. Sprite fields still true via
-    // the $11-$6D range check which F545 gating doesn't apply to.
+    // So page-0 $01F is NOT F545-solid. BUT F0A4[$0E] = $08 (bit 3 =
+    // PlayerBlock_Top), so the F127 dispatch fires on head-bump (dir 0)
+    // — Mario triggers the ?-block action when jumping into the tile
+    // from below. marioCeiling unions the two, so it reports true.
+    // marioWall/marioFloor stay false: F0A4[$0E] has no side bits and
+    // no feet bit.
     const c = classify(0x1F, 1, 0x00)
     expect(c.floor).toBe(true)
     expect(c.ceiling).toBe(true)
     expect(c.wall).toBe(true)
     expect(c.marioFloor).toBe(false)
-    expect(c.marioCeiling).toBe(false)
+    expect(c.marioCeiling).toBe(true)   // F127 head-bump fires
     expect(c.marioWall).toBe(false)
+  })
+
+  it('invisible coin block $021: F545 non-solid but F127 head-bump → marioCeiling', () => {
+    // The canonical hidden block. F545 page-0 says non-solid (Mario
+    // walks through freely until he jumps up into it). F0A4[$10] = $08
+    // (bit 3 = PlayerBlock_Top), matching F127 dir 0 — head bump fires
+    // the reveal-to-$123 + coin-spawn action. The overlay must surface
+    // this so designers see where hidden blocks land.
+    const c = classify(0x21, 1, 0x00)
+    expect(c.marioCeiling).toBe(true)
+    expect(c.marioFloor).toBe(false)   // no feet-landing action
+    expect(c.marioWall).toBe(false)    // no side action
   })
 
   it('?-block page-1 low $11F: solid for both sprite AND Mario', () => {

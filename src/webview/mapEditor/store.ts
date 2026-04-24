@@ -52,6 +52,7 @@ export const useEditorStore = defineStore('editor', () => {
   const layerToggles      = ref<LayerToggles>({
     l1: true, l2: true, l3: true, sprites: true, screens: false,
     block: false, mapGrid: false, l3Hud: false, surfaces: false,
+    walls: false,
   })
   const activeVineSources = ref<ReadonlySet<string>>(new Set())
   /**
@@ -120,7 +121,8 @@ export const useEditorStore = defineStore('editor', () => {
       cur.screens  === next.screens  &&
       cur.block    === next.block    &&
       cur.l3Hud    === next.l3Hud    &&
-      cur.surfaces === next.surfaces
+      cur.surfaces === next.surfaces &&
+      cur.walls    === next.walls
     ) return
     layerToggles.value = { ...next }
   }

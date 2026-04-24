@@ -22,6 +22,7 @@ import type { OverlayContext } from '../../rom/model/OverlayContext'
 import { cellBoxOf, type RenderContext } from '../../rom/model/RenderTarget'
 import { CanvasRenderTarget } from './CanvasRenderTarget'
 import { drawSurfaces } from './overlays/drawSurfaces'
+import { drawWalls } from './overlays/drawWalls'
 import { useEditorStore } from './store'
 import { createRafTimer } from '../shared/animTimer'
 
@@ -139,6 +140,7 @@ function renderModelOverlay(map: SmwMap): void {
     if (toggles.block) drawBlockView(bctx, map, toggles.l1, toggles.l2)
     if (toggles.screens || toggles.mapGrid) drawScreenAndGridOverlays(bctx, map, toggles.screens, toggles.mapGrid)
     if (toggles.surfaces) drawSurfaces(bctx, map, store.switchPalaceState)
+    if (toggles.walls)    drawWalls(bctx,    map, store.switchPalaceState)
     drawVinePaths(bctx, map)
     map.renderSpriteOverlays(bctx as unknown as OverlayContext, store.activeSpriteOverlays)
   }
@@ -778,10 +780,10 @@ app.innerHTML = `
 
     <!-- Tab bar -->
     <div style="display:flex;flex-shrink:0;border-bottom:1px solid var(--vscode-panel-border,#3a3a3a);height:30px;overflow:hidden;">
-      <button class="tab-btn active" id="tab-vram"    data-tab="vram">8×8</button>
+      <button class="tab-btn"        id="tab-vram"    data-tab="vram">8×8</button>
       <button class="tab-btn"        id="tab-map16"   data-tab="map16">Map16</button>
       <button class="tab-btn"        id="tab-objects" data-tab="objects">Objects</button>
-      <button class="tab-btn"        id="tab-sprites" data-tab="sprites">Sprites</button>
+      <button class="tab-btn active" id="tab-sprites" data-tab="sprites">Sprites</button>
     </div>
 
     <!-- Scrollable tab content -->
@@ -789,7 +791,7 @@ app.innerHTML = `
     <div id="tab-panels">
 
       <!-- 8×8 VRAM panel -->
-      <div id="panel-vram" style="padding:4px 0;">
+      <div id="panel-vram" style="display:none;padding:4px 0;">
         <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:4px 8px;">
           <button id="vram-prev" class="iconBtn" title="Previous page"><span class="codicon codicon-chevron-left"></span></button>
           <span id="vram-page-label" style="font-size:11px;font-family:monospace;color:#aaa;min-width:70px;text-align:center;">Page 1 / 6</span>
@@ -797,7 +799,7 @@ app.innerHTML = `
         </div>
         <div style="padding:0 8px 8px;">
           <canvas id="vram-canvas" width="128" height="128" style="width:100%;image-rendering:pixelated;display:block;cursor:default;border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
-          <div id="vram-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
+          <div id="vram-inspect" style="font-size:11px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
         </div>
       </div>
 
@@ -810,7 +812,7 @@ app.innerHTML = `
         </div>
         <div style="padding:0 8px 8px;">
           <canvas id="map16-canvas" width="256" height="256" style="width:100%;image-rendering:pixelated;display:block;cursor:default;border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
-          <div id="map16-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
+          <div id="map16-inspect" style="font-size:11px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
         </div>
       </div>
 
@@ -823,12 +825,12 @@ app.innerHTML = `
         </div>
         <div style="padding:0 8px 8px;">
           <canvas id="obj-canvas" width="128" height="256" style="width:100%;image-rendering:pixelated;display:block;cursor:default;border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
-          <div id="obj-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
+          <div id="obj-inspect" style="font-size:11px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
         </div>
       </div>
 
       <!-- Sprites panel (stub) -->
-      <div id="panel-sprites" style="display:none;padding:4px 0;">
+      <div id="panel-sprites" style="padding:4px 0;">
         <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:4px 8px;">
           <button id="spr-prev" class="iconBtn" title="Previous page"><span class="codicon codicon-chevron-left"></span></button>
           <span id="spr-page-label" style="font-size:11px;font-family:monospace;color:#aaa;min-width:70px;text-align:center;">Page 1 / 4</span>
@@ -836,7 +838,7 @@ app.innerHTML = `
         </div>
         <div style="padding:0 8px 8px;">
           <canvas id="spr-canvas" width="128" height="256" style="width:100%;image-rendering:pixelated;display:block;cursor:default;border:1px solid #3a3a3a;box-sizing:border-box;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/8px 8px;"></canvas>
-          <div id="spr-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
+          <div id="spr-inspect" style="font-size:11px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
         </div>
       </div>
 
@@ -859,15 +861,15 @@ app.innerHTML = `
         width:100%;image-rendering:pixelated;cursor:crosshair;display:block;
         background:repeating-conic-gradient(#555 0% 25%,#444 0% 50%) 0 0/8px 8px;
         border:1px solid #3a3a3a;box-sizing:border-box;"></canvas>
-      <div id="palette-inspect" style="font-size:10px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
+      <div id="palette-inspect" style="font-size:11px;font-family:monospace;color:#666;min-height:14px;margin-top:4px;">hover to inspect</div>
     </div>
 
     </div><!-- left scroll wrapper -->
 
     <!-- Tile hover status pinned at bottom of left panel -->
     <div style="flex-shrink:0;border-top:1px solid var(--vscode-panel-border,#3a3a3a);padding:3px 8px;display:flex;flex-direction:column;gap:1px;background:var(--vscode-sideBar-background,#252526);">
-      <span id="st-tile" style="font-family:monospace;font-size:10px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>
-      <span id="st-pos"  style="font-family:monospace;font-size:10px;color:#666;white-space:nowrap;"></span>
+      <span id="st-tile" style="font-family:monospace;font-size:11px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>
+      <span id="st-pos"  style="font-family:monospace;font-size:11px;color:#666;white-space:nowrap;"></span>
     </div>
 
   </div><!-- #left-panel -->
@@ -906,7 +908,11 @@ app.innerHTML = `
 
     <!-- Overlay toggles -->
     <button id="btn-surfaces"    class="iconBtn"    title="Show surfaces"><span class="codicon codicon-layout-panel-dock"></span></button>
+    <button id="btn-walls"       class="iconBtn"    title="Show walls"><span class="codicon codicon-layout-sidebar-right-dock"></span></button>
     <button id="btn-block"       class="iconBtn"    title="Block view"><span class="codicon codicon-symbol-method"></span></button>
+
+    <div class="tb-sep"></div>
+
     <button id="btn-play"        class="iconBtn"    title="Play animation"><span class="codicon codicon-play"></span></button>
     <button id="btn-camera"      class="iconBtn"    title="Camera viewport"><span class="codicon codicon-device-camera-video"></span></button>
     <button id="btn-hud"         class="iconBtn"    title="HUD in camera"><span class="codicon codicon-window"></span></button>
@@ -967,6 +973,7 @@ app.innerHTML = `
     <input type="checkbox" id="chk-l3hud"           style="display:none">
     <input type="checkbox" id="chk-camera"          style="display:none">
     <input type="checkbox" id="chk-surfaces"        style="display:none">
+    <input type="checkbox" id="chk-walls"           style="display:none">
   </div><!-- #main -->
 
   <!-- ── RIGHT PANEL ──────────────────────────────────────────────────────── -->
@@ -1168,6 +1175,7 @@ const chkL3          = document.getElementById('chk-l3')          as HTMLInputEl
 const chkL3Hud       = document.getElementById('chk-l3hud')       as HTMLInputElement
 const chkCamera      = document.getElementById('chk-camera')      as HTMLInputElement
 const chkSurfaces    = document.getElementById('chk-surfaces')    as HTMLInputElement
+const chkWalls       = document.getElementById('chk-walls')       as HTMLInputElement
 
 // ── Camera viewport overlay ──────────────────────────────────────────────────
 // A draggable 16×14 tile rectangle representing the SNES FG screen window
@@ -1454,6 +1462,7 @@ wireLayerBtn('btn-l2',       'chk-l2')
 wireLayerBtn('btn-l3',       'chk-l3')
 wireLayerBtn('btn-sprites',  'chk-sprites')
 wireLayerBtn('btn-surfaces', 'chk-surfaces')
+wireLayerBtn('btn-walls',    'chk-walls')
 wireLayerBtn('btn-block',    'chk-block')
 wireLayerBtn('btn-screens',  'chk-screens')
 wireLayerBtn('btn-hud',      'chk-l3hud')
@@ -2746,6 +2755,7 @@ function syncLayerTogglesFromDom(): void {
     mapGrid:  mapGridOn,
     l3Hud:    chkL3Hud.checked,
     surfaces: chkSurfaces.checked,
+    walls:    chkWalls.checked,
   })
 }
 chkScreens.addEventListener('change',  syncLayerTogglesFromDom)
@@ -2756,6 +2766,7 @@ chkL2.addEventListener('change',       syncLayerTogglesFromDom)
 chkL3.addEventListener('change',       syncLayerTogglesFromDom)
 chkL3Hud.addEventListener('change',    syncLayerTogglesFromDom)
 chkSurfaces.addEventListener('change', syncLayerTogglesFromDom)
+chkWalls.addEventListener('change',    syncLayerTogglesFromDom)
 chkCamera.addEventListener('change',  () => {
   const on = chkCamera.checked
   store.setCameraOn(on)  // reactive — triggers renderModelOverlay

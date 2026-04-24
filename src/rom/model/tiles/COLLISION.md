@@ -95,10 +95,28 @@ F545 dispatch:
 Current classify formula:
 ```
 marioSolid   = marioTileSolidity(low, high, PSWITCH_INACTIVE)  // F545 port
-marioFloor   = marioSolid && (feetLanding === 'land') && isMarioStandable(actsLike)
-marioCeiling = marioSolid && ceiling                  && isMarioStandable(actsLike)
-marioWall    = marioSolid && wall                     && isMarioStandable(actsLike)
+hitOnHead    = marioTileDispatch(low, ts, 0) === 'hit'         // F127 dir 0 = PlayerBlock_Top    → ceiling
+hitOnSides   = marioTileDispatch(low, ts, 1) === 'hit' || ...2 // F127 dir 1/2 = Right/Left       → wall
+hitOnFeet    = marioTileDispatch(low, ts, 3) === 'hit'         // F127 dir 3 = PlayerBlock_Bottom → floor
+marioFloor   = (marioSolid || hitOnFeet)  && (feetLanding === 'land') && isMarioStandable(actsLike)
+marioCeiling = (marioSolid || hitOnHead)  && ceiling                  && isMarioStandable(actsLike)
+marioWall    = (marioSolid || hitOnSides) && wall                     && isMarioStandable(actsLike)
 ```
+
+Each Mario field is the UNION of two collision sources: the physical-wall
+flag (F545) AND the block-action dispatch (F127), split by which Mario
+face touches the tile. F545 covers tiles that physically arrest Mario in
+the current frame. F127 covers tiles that trigger an interaction on
+contact (hidden blocks, ? blocks, note blocks) even when F545 says the
+tile is passable in its current form — e.g. invisible coin block `$021`
+has high byte `$00` so F545 returns non-solid, but F0A4[$10] = $08
+matches PlayerBlock_Top, so `hitOnHead` fires and `marioCeiling` reports
+true. The overlay needs this because Mario's head DOES bonk on the tile
+even though the block is invisible pre-reveal.
+
+Direction encoding comes from DATA_00F0EC (bank_00.asm:12772) mapped to
+PlayerBlockedDir bits (rammap.asm:632): dir 0 = $08 = Top, dir 1 = $01 =
+Right, dir 2 = $02 = Left, dir 3 = $04 = Bottom.
 
 `marioFloor` is **flat floors only** — it excludes slope tiles.
 `CODE_00EDF7` returns `'slope'` (not `'land'`) for low bytes in
@@ -158,6 +176,16 @@ a low byte in the solid range, the game WILL treat it as a wall or
 floor, and the overlay reports it as such.
 
 ## "Show surfaces" / "Show walls" overlays
+
+Both overlays are implemented — `drawSurfaces.ts` draws yellow lines
+along the top/bottom faces of Mario-floors / Mario-ceilings, and
+`drawWalls.ts` draws purple lines along the left/right faces of
+Mario-walls. The two colors are complementary on the color wheel and
+sit in palette regions that vanilla SMW barely uses, so both overlays
+remain legible against every tileset. The wall overlay applies the vertical-axis silhouette
+rule (suppress the shared face between two horizontally-adjacent wall
+cells) — vertically-adjacent wall cells do NOT merge, since walls are
+a horizontal-collision concept.
 
 Both overlays read the Mario-perspective fields (`marioFloor` /
 `marioCeiling` / `marioWall`) directly from `tile.collision`. Two
@@ -292,12 +320,12 @@ happens once in `TileFactory.classify`; everything else reads the boolean.
 
 ## Phase roadmap
 
-| Phase | Fields added | Fields removed | Toolbar toggle |
-|---|---|---|---|
-| Phase 1 | `floor`, `ceiling` | `topSolid`, `bottomSolid` | "Show surfaces" (`layout-panel-dock`) |
-| Phase 2 | `wall` | `sideSolid` | "Show walls" (`layout-sidebar-right-dock`) |
-| Phase 3 | `slope?: SlopeInfo` | `slopeTable` | (extends Phase 1 overlay) |
-| Phase 4 | — | `solidityFromL1` helper | — |
+| Phase | Fields added | Fields removed | Toolbar toggle | Status |
+|---|---|---|---|---|
+| Phase 1 | `floor`, `ceiling` | `topSolid`, `bottomSolid` | "Show surfaces" (`layout-panel-dock`) | shipped |
+| Phase 2 | `wall` | `sideSolid` | "Show walls" (`layout-sidebar-right-dock`) | shipped |
+| Phase 3 | `slope?: SlopeInfo` | `slopeTable` | (extends Phase 1 overlay) | pending |
+| Phase 4 | — | `solidityFromL1` helper | — | pending |
 
 Phase 4 migrates sprite-overlay consumers (KoopaWalk, CheepCheep,
 HopFlame, Thwomp, WingedSprite) to read `cell.collision.*` directly and
