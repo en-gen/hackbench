@@ -14,6 +14,7 @@ import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
+import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -138,6 +139,13 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
       airborne:      sp(a.airborne),
       airborneFlash: sp(a.airborneFlash),
       isAirborne:    a.isAirborne,
+    }
+  }
+  if (a instanceof VolcanoLotusAppearance) {
+    return {
+      kind: 'volcanoLotus',
+      headParts: a.headParts.map(partDescriptor),
+      flowerFrames: [a.flowerFrames[0].map(partDescriptor), a.flowerFrames[1].map(partDescriptor)],
     }
   }
   if (a instanceof PSwitchAppearance) {

@@ -14,6 +14,7 @@ import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { BanzaiBillAppearance } from './sprites/appearances/BanzaiBillAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
+import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppearance'
 import { CheepCheepAppearance } from './sprites/appearances/CheepCheepAppearance'
 import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearance'
 import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppearance'
@@ -321,6 +322,51 @@ export function buildSprites(
       out.push(new Sprite(
         s.spriteId, spritePx, s.y * 16,
         new StaticSpriteAppearance(parts),
+        behavior,
+      ))
+      continue
+    }
+
+    // Volcano Lotus ($99). VolcanoLotusGfx (bank_02.asm:12711) writes:
+    //   - 2× 16×16 head big-tiles (base $CE, OBJ palette 5 = CGRAM row 13):
+    //       left at (-8, -1), right at (+8, -1) flipX.
+    //   - 2× 8×8 flower chars from VolcanoLotusTiles (bank_02.asm:12708)
+    //     = {$8E, $9E, $E2} indexed by SpriteMisc1602; charHigh 1, OBJ palette 4
+    //     (CGRAM row 12) at idle. During idle state (CODE_02DFC9), $1602 toggles
+    //     0→1 every 8 ticks giving the closed flower a 2-frame blink animation
+    //     between $8E (closed) and $9E (closed-alt).
+    if (s.spriteId === 0x99) {
+      const OBJ_BASE = 0x400
+      const HEAD_PAL = 13    // attr $0B → OBJ palette 5
+      const FLOWER_PAL = 12  // attr $39 → OBJ palette 4
+      const c = (n: number) => chars.get(OBJ_BASE + (n & 0x1FF)) ?? placeholder
+      // SNES large-OBJ expansion: baseTile N → [N, N+1, N+$10, N+$11].
+      // charHigh 1 shifts all four chars into the $100-$1FF range.
+      const bigTile = (baseTile: number, bdx: number, bdy: number, flipX: boolean): SpritePart[] => {
+        const co = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
+        const dxo = [0, 8, 0, 8]
+        const dyo = [0, 0, 8, 8]
+        return co.map((off, i) => ({
+          char: c(0x100 + baseTile + off),
+          palette: HEAD_PAL, flipX, flipY: false,
+          dx: bdx + dxo[i], dy: bdy + dyo[i],
+        }))
+      }
+      const flowerPair = (baseTile: number): SpritePart[] => [
+        { char: c(0x100 + baseTile),     palette: FLOWER_PAL, flipX: false, flipY: false, dx: 0, dy: -1 },
+        { char: c(0x100 + baseTile + 1), palette: FLOWER_PAL, flipX: false, flipY: false, dx: 8, dy: -1 },
+      ]
+      const headParts: SpritePart[] = [
+        ...bigTile(0xCE, -8, -1, false),   // left head
+        ...bigTile(0xCE,  8, -1, true),    // right head (flipX)
+      ]
+      const flowerFrames: [SpritePart[], SpritePart[]] = [
+        flowerPair(0x8E),   // closed pose 0
+        flowerPair(0x9E),   // closed pose 1 (blink)
+      ]
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        new VolcanoLotusAppearance(headParts, flowerFrames),
         behavior,
       ))
       continue

@@ -16,6 +16,7 @@ import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
+import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppearance'
 import { CheepCheepAppearance } from './sprites/appearances/CheepCheepAppearance'
 import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppearance'
 import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearance'
@@ -205,6 +206,11 @@ function buildAppearance(
         desc.isAirborne,
       )
     }
+    case 'volcanoLotus':
+      return new VolcanoLotusAppearance(
+        buildParts(desc.headParts),
+        [buildParts(desc.flowerFrames[0]), buildParts(desc.flowerFrames[1])],
+      )
   }
 }
 
