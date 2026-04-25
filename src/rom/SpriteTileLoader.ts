@@ -41,13 +41,15 @@ export const SPR_TILEMAP_ADDR          = 0x019B83
 export const SPR_TILEMAP_OFFSET_ADDR   = 0x019C7F
 export const GENERAL_SPR_DISP_X_ADDR   = 0x019CD3
 export const GENERAL_SPR_DISP_Y_ADDR   = 0x019CD7
+export const GENERAL_SPR_GFX_PROP_ADDR = 0x019CDB
 export const SPRITE_166E_VALS_ADDR     = 0x07F3FE
 export const SPR_0_TO_13_PROP_ADDR     = 0x0188F0
 
-export const SPR_TILEMAP_OFFSET_COUNT  = 0x54   // sprites 0x00..0x53
-export const SPR_TILEMAP_LEN           = 0xFC   // 0x9C7F - 0x9B83
-export const SPRITE_166E_VALS_COUNT    = 0x100
-export const SPR_0_TO_13_PROP_COUNT    = 0x14   // sprites 0x00..0x13
+export const SPR_TILEMAP_OFFSET_COUNT   = 0x54   // sprites 0x00..0x53
+export const SPR_TILEMAP_LEN            = 0xFC   // 0x9C7F - 0x9B83
+export const GENERAL_SPR_GFX_PROP_COUNT = 24    // 6 groups × 4 corners
+export const SPRITE_166E_VALS_COUNT     = 0x100
+export const SPR_0_TO_13_PROP_COUNT     = 0x14   // sprites 0x00..0x13
 
 /** Raw sprite tile layout data read from ROM. */
 export interface SpriteTileTables {
@@ -59,6 +61,9 @@ export interface SpriteTileTables {
   dispX: number[]
   /** Corner Y offsets — same indexing as dispX. */
   dispY: number[]
+  /** GeneralSprGfxProp flip flags: 6 groups × 4 corners, bit6=flipX bit7=flipY.
+   *  Index as gfxProp[group * 4 + corner]. ROM address $01:9CDB (bank_01.asm:3848). */
+  gfxProp: number[]
   /** OAM attribute byte per sprite ID (vhoopppc): flip, priority, OBJ palette, tile high bit. */
   spriteAttr: Uint8Array
   /** Spr0to13 property byte per sprite ID (0x00..0x13).
@@ -67,13 +72,14 @@ export interface SpriteTileTables {
 }
 
 export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
-  const tilemap        = rom.readAt(SPR_TILEMAP_ADDR,        SPR_TILEMAP_LEN)
-  const tilemapOffset  = rom.readAt(SPR_TILEMAP_OFFSET_ADDR, SPR_TILEMAP_OFFSET_COUNT)
-  const dispXBuf       = rom.readAt(GENERAL_SPR_DISP_X_ADDR, 4)
-  const dispYBuf       = rom.readAt(GENERAL_SPR_DISP_Y_ADDR, 4)
-  const rawAttr        = rom.readAt(SPRITE_166E_VALS_ADDR,   SPRITE_166E_VALS_COUNT)
-  const spr0to13Prop   = rom.readAt(SPR_0_TO_13_PROP_ADDR,   SPR_0_TO_13_PROP_COUNT)
-  if (!tilemap || !tilemapOffset || !dispXBuf || !dispYBuf || !rawAttr || !spr0to13Prop) return null
+  const tilemap        = rom.readAt(SPR_TILEMAP_ADDR,          SPR_TILEMAP_LEN)
+  const tilemapOffset  = rom.readAt(SPR_TILEMAP_OFFSET_ADDR,  SPR_TILEMAP_OFFSET_COUNT)
+  const dispXBuf       = rom.readAt(GENERAL_SPR_DISP_X_ADDR,  4)
+  const dispYBuf       = rom.readAt(GENERAL_SPR_DISP_Y_ADDR,  4)
+  const gfxPropBuf     = rom.readAt(GENERAL_SPR_GFX_PROP_ADDR, GENERAL_SPR_GFX_PROP_COUNT)
+  const rawAttr        = rom.readAt(SPRITE_166E_VALS_ADDR,     SPRITE_166E_VALS_COUNT)
+  const spr0to13Prop   = rom.readAt(SPR_0_TO_13_PROP_ADDR,     SPR_0_TO_13_PROP_COUNT)
+  if (!tilemap || !tilemapOffset || !dispXBuf || !dispYBuf || !gfxPropBuf || !rawAttr || !spr0to13Prop) return null
   // Match LoadSpriteTables (bank_07.asm:978) — only the low nibble of
   // Sprite166EVals feeds SpriteOBJAttribute (palette + char-high bit).
   const spriteAttr = new Uint8Array(rawAttr.length)
@@ -83,6 +89,7 @@ export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
     tilemapOffset: new Uint8Array(tilemapOffset),
     dispX: Array.from(dispXBuf),
     dispY: Array.from(dispYBuf),
+    gfxProp: Array.from(gfxPropBuf),
     spriteAttr,
     spr0to13Prop: new Uint8Array(spr0to13Prop),
   }
@@ -433,6 +440,25 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
 }
 
 /**
+ * GeneralSprGfxProp group index (0-5) for sprites that call SubSprGfx0.
+ *
+ * SubSprGfx0Entry1 (bank_01.asm:3855) accepts A=_5, which selects row
+ * `_5 * 4` in GeneralSprGfxProp. Each row has 4 bytes, one per corner
+ * (TL/TR/BL/BR). Bit 6 = flipX, bit 7 = flipY.
+ *
+ * Verified from disassembly:
+ *   0x14 SpinyEgg:          LDA #$02; JSR SubSprGfx0Entry0 (bank_01.asm:1813)
+ *   0x2F Portable spring:   LDA #$02; JSR SubSprGfx0Entry1 (bank_01.asm:13884)
+ *
+ * Sprites absent from this table default to group 0 (no flips), which is
+ * correct for sprite IDs whose _5 value hasn't been confirmed yet.
+ */
+const SUB0_GFX_PROP_GROUP: Readonly<Record<number, number>> = {
+  0x14: 2,   // SpinyEgg — bank_01.asm:1813
+  0x2F: 2,   // Portable spring board — bank_01.asm:13884
+}
+
+/**
  * Sprites that route through Spr0to13Gfx (bank_01.asm:1762-1767) promote
  * to tall when Spr0to13Prop bit 6 is set. Direct callers of Spr0to13Start:
  * 0x04-0x07, 0x0C, 0x0F, 0x11, 0x13. Indirect callers that use their own
@@ -685,17 +711,20 @@ export function buildSpriteLayout(
     // SubSprGfx0 (bank_01.asm:3853) reads four INDEPENDENT 8x8 char bytes
     // from SprTilemap[offset + 0..3] and lays them out as TL, TR, BL, BR
     // per GeneralSprDispX/Y. Unlike SubSprGfx2 there's no large-size
-    // expansion — each corner picks its own char.
+    // expansion — each corner picks its own char. Flip flags come from
+    // GeneralSprGfxProp[propGroup*4 + corner] (bit6=flipX, bit7=flipY).
+    const propGroup = SUB0_GFX_PROP_GROUP[spriteId] ?? 0
     return {
       spriteId,
       height: 16,
       tiles: [0, 1, 2, 3].map(corner => {
         const tileByte = tables.tilemap[tilemapBase + corner] ?? 0
+        const gfxFlags = tables.gfxProp[propGroup * 4 + corner] ?? 0
         return {
           charNum: OBJ_CHAR_BASE + charHigh + (tileByte & 0x1FF),
           palette,
-          flipX: false,
-          flipY: false,
+          flipX: (gfxFlags & 0x40) !== 0,
+          flipY: (gfxFlags & 0x80) !== 0,
           dx: tables.dispX[corner] ?? 0,
           dy: tables.dispY[corner] ?? 0,
         }
