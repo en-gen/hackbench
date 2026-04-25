@@ -8,12 +8,21 @@ function makeTables(overrides: Partial<SpriteTileTables> = {}): SpriteTileTables
   const tilemapOffset = new Uint8Array(0x54)
   const spriteAttr = new Uint8Array(0x100)
   const spr0to13Prop = new Uint8Array(0x14)
-  // GeneralSprDispX/Y from bank_01.asm:3842-3846
+  // GeneralSprDispX/Y/GfxProp from bank_01.asm:3842-3851
+  const gfxProp = [
+    0x00, 0x00, 0x00, 0x00,  // group 0: no flips
+    0x00, 0x40, 0x00, 0x40,  // group 1: TR/BR flipX
+    0x00, 0x40, 0x80, 0xC0,  // group 2: TR flipX, BL flipY, BR both
+    0x40, 0x40, 0x00, 0x00,  // group 3: TL/TR flipX
+    0x40, 0x00, 0xC0, 0x80,  // group 4: TL flipX, BL both, BR flipY
+    0x40, 0x40, 0x40, 0x40,  // group 5: all flipX
+  ]
   return {
     tilemap,
     tilemapOffset,
     dispX: [0, 8, 0, 8],
     dispY: [0, 0, 8, 8],
+    gfxProp,
     spriteAttr,
     spr0to13Prop,
     ...overrides,
@@ -165,6 +174,24 @@ describe('buildSpriteLayout', () => {
     expect(layout.tiles.map(t => t.charNum)).toEqual([
       0x400 + 0x11, 0x400 + 0x22, 0x400 + 0x33, 0x400 + 0x44,
     ])
+  })
+
+  it('applies GeneralSprGfxProp flip flags for sub0 sprite $2F (spring)', () => {
+    // Spring uses propGroup 2 (LDA #$02; JSR SubSprGfx0Entry1, bank_01.asm:13884).
+    // Group 2 in GeneralSprGfxProp: TL=$00, TR=$40, BL=$80, BR=$C0 →
+    //   TL=no flip, TR=flipX, BL=flipY, BR=flipX+flipY.
+    const tilemap = new Uint8Array(0xFC)
+    const tilemapOffset = new Uint8Array(0x54)
+    tilemapOffset[0x2F] = 0x9A
+    for (let i = 0; i < 4; i++) tilemap[0x9A + i] = 0x28   // all same spring tile
+    const tables = makeTables({ tilemap, tilemapOffset })
+    const layout = buildSpriteLayout(tables, 0x2F)!
+    expect(layout.height).toBe(16)
+    expect(layout.tiles.map(t => t.charNum)).toEqual([
+      0x400 + 0x28, 0x400 + 0x28, 0x400 + 0x28, 0x400 + 0x28,
+    ])
+    expect(layout.tiles.map(t => t.flipX)).toEqual([false, true,  false, true ])
+    expect(layout.tiles.map(t => t.flipY)).toEqual([false, false, true,  true ])
   })
 
   it('maps shell sprite $DB to Koopa $05 and draws the stunned-shell tile', () => {
