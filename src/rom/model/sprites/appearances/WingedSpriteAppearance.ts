@@ -16,23 +16,25 @@ import { solidityFromL1 } from '../MovementBehavior'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
+import type { Char } from '../../chars/Char'
+import type { SpriteLayout } from '../../../SpriteTileLoader'
 
 /**
- * Sprite appearance for any sprite with animated wings driven by `ctx.animFrame`.
+ * Sprite appearance for any sprite with animated wings driven by ctx.animFrame.
  *
- * Wing frames are two arrays of SpritePart indexed by `animFrame % 2`:
- *   frame 0 — wings down (8×8 tile $5D)
- *   frame 1 — wings up   (16×16 tile $C6, expanded to four 8×8 parts)
+ * Wing frames are two arrays of SpritePart indexed by animFrame % 2:
+ *   frame 0 -- wings down (8x8 tile $5D)
+ *   frame 1 -- wings up   (16x16 tile $C6, expanded to four 8x8 parts)
  *
  * Wing offsets for ? blocks ($83/$84) come from CODE_019E95 (bank_01.asm:4083)
  * pre-adjustments. Para-koopa wing offsets ($0A/$0B/$0C) come from the raw
  * KoopaWingGfxRt tables (bank_01.asm:4006) with no pre-adjustment.
  *
- * `wingsInFront` controls draw order:
- *   false (default) — wings before body (wings behind, used for ? blocks)
- *   true            — body before wings  (wings in front, used for para-koopas)
+ * wingsInFront controls draw order:
+ *   false (default) -- wings before body (wings behind, used for ? blocks)
+ *   true            -- body before wings  (wings in front, used for para-koopas)
  *
- * The overlay is driven by the sprite's attached Behavior — no sprite-id
+ * The overlay is driven by the sprite's attached Behavior -- no sprite-id
  * switch. Each MovementBehavior subclass exposes the data its overlay
  * needs (patrol range, bounce arc, sine band, fade corridor) and this
  * appearance composes the visual from shared drawing primitives.
@@ -84,7 +86,6 @@ export class WingedSpriteAppearance implements SpriteAppearance {
     const { solidH, solidV } = solidityFromL1(getL1)
     ctx.save()
     if (behavior instanceof KoopaWalkBehavior) {
-      // Yellow Para-Koopa ($0C): horizontal corridor bounded by walls.
       const r = behavior.computePatrolRange(x, y, solidH, solidV, levelCols, levelRows)
       drawCorridor(
         ctx,
@@ -93,21 +94,127 @@ export class WingedSpriteAppearance implements SpriteAppearance {
         { solidLeft: r.leftIsWall, solidRight: r.rightIsWall },
       )
     } else if (behavior instanceof BouncingKoopaBehavior) {
-      // $09 Green Para-Koopa: parabolic bounce arcs + envelope.
       const env  = behavior.simulateArc(x, y, solidH, solidV, levelCols, levelRows)
       const path = behavior.computeBouncePath(x, y, solidH, solidV, levelCols, levelRows)
       drawBounceArc(ctx, env, path, COLORS.cyanKoopa)
       drawApexLine(ctx, env.minX, env.maxX, env.minY + 0.5, COLORS.cyanKoopa)
     } else if (behavior instanceof FlyingLeftKoopaBehavior) {
-      // $08 Green Para-Koopa: short fade-to-transparent corridor to the left.
       const c = behavior.computeFadeCorridor(x, y)
       drawFadeCorridor(ctx, c.originX, c.originY + 8, c.endX, c.heightPx, COLORS.cyanKoopa)
     } else if (behavior instanceof SinusoidalParaKoopaBehavior) {
-      // $0A / $0B Red Para-Koopa: sine band oscillating around spawn.
       const b = behavior.computeSineBounds()
       const centerX = x + 8, centerY = y + 8
       drawSineBand(ctx, centerX, centerY, b.axis, b.amplitudePx, COLORS.cyanKoopa)
     }
     ctx.restore()
+  }
+
+  private static layoutToBodyParts(
+    layout: SpriteLayout | null,
+    chars: Map<number, Char>,
+    placeholder: Char,
+  ): SpritePart[] {
+    return (layout?.tiles ?? []).map(t => ({
+      char: chars.get(t.charNum) ?? placeholder,
+      palette: t.palette, flipX: t.flipX, flipY: t.flipY, dx: t.dx, dy: t.dy,
+    }))
+  }
+
+  /**
+   * Para-koopa wing frames from KoopaWingGfxRt (bank_01.asm:4006).
+   * Shows right wing (SpriteMisc157C=1 -> right-facing body by default).
+   * Frame 0: 16x16 right wing open (tile $C6, table index 3).
+   * Frame 1: 8x8 right wing closed (tile $5D, table index 2).
+   */
+  private static buildKoopaWingFrames(
+    chars: Map<number, Char>,
+    placeholder: Char,
+  ): [SpritePart[], SpritePart[]] {
+    const WING_PAL = 11
+    const BASE = 0x400
+    const c = (n: number) => chars.get(BASE + n) ?? placeholder
+    const p = (n: number, dx: number, dy: number, flipX: boolean): SpritePart =>
+      ({ char: c(n), palette: WING_PAL, flipX, flipY: false, dx, dy })
+    const wf0: SpritePart[] = [
+      p(0xC6,  9, -12, false), p(0xC7, 17, -12, false),
+      p(0xD6,  9,  -4, false), p(0xD7, 17,  -4, false),
+    ]
+    const wf1: SpritePart[] = [p(0x5D, 9, -4, false)]
+    return [wf0, wf1]
+  }
+
+  /**
+   * $08/$09 (Green Para-Koopa) and $0A/$0B/$0C (Red/Yellow Para-Koopa).
+   * All share the Spr0to13Gfx -> KoopaWingGfxRt path with wingsInFront=true.
+   */
+  static fromParaKoopa(
+    chars: Map<number, Char>,
+    placeholder: Char,
+    layout: SpriteLayout | null,
+  ): WingedSpriteAppearance {
+    const bodyParts = WingedSpriteAppearance.layoutToBodyParts(layout, chars, placeholder)
+    const [wf0, wf1] = WingedSpriteAppearance.buildKoopaWingFrames(chars, placeholder)
+    return new WingedSpriteAppearance(bodyParts, [wf0, wf1], true)
+  }
+
+  /**
+   * $10 Para-Goomba. GoombaWingGfxRt (bank_01.asm:1934).
+   * Frame 0: 16x16 wings open ($C6), OBJ palette 3 (CGRAM row 11).
+   * Frame 1: 8x8 wings closed ($5D).
+   * wingsInFront=false (wings behind goomba body).
+   */
+  static fromParaGoomba(
+    chars: Map<number, Char>,
+    placeholder: Char,
+    layout: SpriteLayout | null,
+  ): WingedSpriteAppearance {
+    const gBody = WingedSpriteAppearance.layoutToBodyParts(layout, chars, placeholder)
+    const GPAL = 11
+    const GBASE = 0x400
+    const gc = (n: number) => chars.get(GBASE + n) ?? placeholder
+    const gp = (n: number, dx: number, dy: number, flipX: boolean): SpritePart =>
+      ({ char: gc(n), palette: GPAL, flipX, flipY: false, dx, dy })
+    const gwf0: SpritePart[] = [
+      gp(0xC6, -9, -9, false), gp(0xC7, -1, -9, false),
+      gp(0xD6, -9, -1, false), gp(0xD7, -1, -1, false),
+      gp(0xC7, 11, -9, true),  gp(0xC6, 19, -9, true),
+      gp(0xD7, 11, -1, true),  gp(0xD6, 19, -1, true),
+    ]
+    const gwf1: SpritePart[] = [
+      gp(0x5D, -3, 1, false),
+      gp(0x5D, 12, 1, true),
+    ]
+    return new WingedSpriteAppearance(gBody, [gwf0, gwf1])
+  }
+
+  /**
+   * $83/$84 (Left/Right Flying ? Block). Wing offsets from CODE_019E95
+   * (bank_01.asm:4083) pre-adjustment path; para-koopas skip that path.
+   * Frame 0: 8x8 tile $5D per wing (small).
+   * Frame 1: 16x16 tile $C6 per wing (large), split into four 8x8 parts.
+   * wingsInFront=false (wings behind block body).
+   */
+  static fromFlyingQBlock(
+    chars: Map<number, Char>,
+    placeholder: Char,
+    layout: SpriteLayout | null,
+  ): WingedSpriteAppearance {
+    const bodyParts = WingedSpriteAppearance.layoutToBodyParts(layout, chars, placeholder)
+    const WING_PAL = 11
+    const BASE = 0x400
+    const c = (n: number) => chars.get(BASE + n) ?? placeholder
+    const p = (n: number, dx: number, dy: number, flipX: boolean): SpritePart =>
+      ({ char: c(n), palette: WING_PAL, flipX, flipY: false, dx, dy })
+    const wf0: SpritePart[] = [
+      p(0x5D,  -3, -2, true),
+      p(0x5D,  11, -2, false),
+    ]
+    const wf1: SpritePart[] = [
+      p(0xC7, -11, -10, true),  p(0xC6,  -3, -10, true),
+      p(0xD7, -11,  -2, true),  p(0xD6,  -3,  -2, true),
+      p(0xC6,  11, -10, false), p(0xC7,  19, -10, false),
+      p(0xD6,  11,  -2, false), p(0xD7,  19,  -2, false),
+    ]
+    return new WingedSpriteAppearance(bodyParts, [wf0, wf1])
   }
 }

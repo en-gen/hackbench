@@ -2,12 +2,13 @@ import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
+import type { Char } from '../../chars/Char'
 
 /**
  * Precomputed 256-frame movement path for the $9C Hammer Bro Platform.
  *
  * Faithful to CODE_02DB5C (bank_02.asm:12149-12174):
- *   - Even frames: XSpeed += ±1 toward ±$20; YSpeed += ±2 toward ±$20,
+ *   - Even frames: XSpeed += +-1 toward +-$20; YSpeed += +-2 toward +-$20,
  *     with direction flipping when speed equals target.
  *   - Every frame: pos += speed (UpdateXPosNoGrvty / UpdateYPosNoGrvty).
  * Starting state is zeroed so the path begins at the spawn anchor.
@@ -56,31 +57,18 @@ const PLATFORM_BOUNDS = (() => {
  * a static platform body and an animated 2-frame wing pair:
  *
  *   Frame 0 (EffFrame bit 3 = 0):
- *     big-tile $40 at ( 0,   0)                     -- platform left
- *     big-tile $40 at (+16,  0)                     -- platform right
- *     big-tile $C6 at (-14, -10)  flipX             -- left wing
- *     big-tile $C6 at (+30, -10)                    -- right wing
+ *     big-tile $40 at ( 0,   0)  -- platform left
+ *     big-tile $40 at (+16,  0)  -- platform right
+ *     big-tile $C6 at (-14, -10)  flipX  -- left wing
+ *     big-tile $C6 at (+30, -10)         -- right wing
  *
  *   Frame 1 (EffFrame bit 3 = 1):
- *     big-tile $40 at ( 0,   0)                     -- platform left (same)
- *     big-tile $40 at (+16,  0)                     -- platform right (same)
- *     8×8 tile $5D at ( -6,  -2)  flipX             -- left wing
- *     8×8 tile $5D at (+30,  -2)                    -- right wing
+ *     big-tile $40 at ( 0,   0)  -- platform left (same)
+ *     big-tile $40 at (+16,  0)  -- platform right (same)
+ *     8x8 tile $5D at ( -6,  -2)  flipX  -- left wing
+ *     8x8 tile $5D at (+30,  -2)          -- right wing
  *
- * All tiles use OBJ palette 1 (attr $32 & $0F = $02 → CGRAM row 9),
- * charHigh 0.
- *
- * Wing animation selector matches `WingedSpriteAppearance`:
- * `ctx.animFrame.value % 2`. The store's animFrame is a tile-graphics
- * counter (level-data-driven cadence, ~133ms/tick by default) rather than
- * a 60Hz game clock — so the ASM's `EffFrame>>1 & 4` (flip-every-8-game-
- * frames ≈ 133ms) happens to line up closely. Exact fidelity would need a
- * separate 60Hz counter, but the visual result here reads as a flapping
- * wing pair at a natural rate.
- *
- * Platform parts render first (behind), wings render on top — matches
- * SNES OAM priority (lower OAM index = higher priority = drawn later in
- * our flat-painter loop).
+ * All tiles use OBJ palette 1 (attr $32 & $0F = $02 -> CGRAM row 9), charHigh 0.
  */
 export class HammerBroPlatformAppearance implements SpriteAppearance {
   readonly hitRect: HitRect
@@ -151,5 +139,42 @@ export class HammerBroPlatformAppearance implements SpriteAppearance {
       const row = ctx.palette.row(part.palette, ctx)
       target.blit8x8(pixels, { x: x + part.dx, y: y + part.dy }, row, part.flipX, part.flipY)
     }
+  }
+
+  /**
+   * Builds $9C's own visual parts (2 static turn-blocks + 2 animated wing
+   * frames) from FlyingPlatformGfx. Palette 9 / charHigh 0 come from
+   * hardcoded attr $32 -- independent of Sprite166EVals.
+   */
+  static fromTables(chars: Map<number, Char>, placeholder: Char): HammerBroPlatformAppearance {
+    const PAL = 9
+    const OBJ_BASE = 0x400
+    const c = (n: number) => chars.get(OBJ_BASE + (n & 0x1FF)) ?? placeholder
+    const bigTile = (baseTile: number, dx: number, dy: number, flipX = false): SpritePart[] => {
+      const co = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
+      const dxo = [0, 8, 0, 8]
+      const dyo = [0, 0, 8, 8]
+      return co.map((off, i) => ({
+        char: c(baseTile + off),
+        palette: PAL, flipX, flipY: false,
+        dx: dx + dxo[i], dy: dy + dyo[i],
+      }))
+    }
+    const smallTile = (tile: number, dx: number, dy: number, flipX = false): SpritePart => ({
+      char: c(tile), palette: PAL, flipX, flipY: false, dx, dy,
+    })
+    const platformParts: SpritePart[] = [
+      ...bigTile(0x40,  0, 0),
+      ...bigTile(0x40, 16, 0),
+    ]
+    const frame0: SpritePart[] = [
+      ...bigTile(0xC6, -14, -10, true),
+      ...bigTile(0xC6,  30, -10, false),
+    ]
+    const frame1: SpritePart[] = [
+      smallTile(0x5D, -6, -2, true),
+      smallTile(0x5D, 30, -2, false),
+    ]
+    return new HammerBroPlatformAppearance(platformParts, [frame0, frame1])
   }
 }
