@@ -260,7 +260,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0xC1: 0x40,   // Flying grey turnblocks
   0xC2: 0xEC,   // Blurp fish
   0xC3: 0x86,   // Porcu-Puffer fish
-  0xC4: 0x60,   // Grey platform that falls
+  // 0xC4 Grey Falling Platform — handled in SpriteFactory (4-tile 64×16; FallingPlatTiles bank_03.asm:525)
   0xC5: 0xC0,   // Big Boo Boss
   0xC8: 0x2A,   // Light switch block for dark room
 }
