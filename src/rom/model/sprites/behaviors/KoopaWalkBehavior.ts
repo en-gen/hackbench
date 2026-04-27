@@ -1,7 +1,8 @@
+import type { GetL1Tile } from '../../OverlayContext'
+import { buildSurfacePath, type SurfacePath, type SurfaceEntry } from '../../SurfacePath'
 import {
   MovementBehavior,
   type BehaviorMeta,
-  type HasGround,
   type SolidH,
   type SolidV,
 } from '../MovementBehavior'
@@ -24,15 +25,13 @@ import {
  *                           scan covers per Spr0to13Start:1649)
  *
  * Collision rules:
- *   - Walls:   `CODE_01928E` (bank_01.asm:2613) — acts-like `$11..$6D`.
+ *   - Walls:   `CODE_01928E` (bank_01.asm:2613) — `$11..$6D` range.
  *              Supplied by `solidH`.
- *   - Floors:  `CODE_01933B` (bank_01.asm:2705) — classifies anything
- *              with acts-like >= `$11` (including slopes `$6E..$D7`) as
- *              standable ground. Supplied by `hasGround`. Using `solidV`
- *              here would wrongly treat slopes as ledges because `solidV`
- *              is the narrower hard-solid range.
+ *   - Floors:  `CODE_01933B` (bank_01.asm:2705) — full landing path,
+ *              including hard floors AND slopes `$6E..$D7`.
+ *              Supplied by `solidV` (`collision.floor`).
  *
- * Priority-decorative tiles pass through in all three predicates
+ * Priority-decorative tiles pass through in both predicates
  * (filtered upstream in `SmwMap.renderSpriteOverlays`'s getL1 closure).
  */
 
@@ -144,56 +143,56 @@ export class KoopaWalkBehavior extends MovementBehavior {
     ax: number,
     ay: number,
     solidH: SolidH,
-    _solidV: SolidV,
+    solidV: SolidV,
     levelCols: number,
     levelRows: number,
-    hasGround?: HasGround,
+    getL1?: GetL1Tile,
   ): PatrolRange {
     const sprCol = Math.floor(ax / 16)
-    const floor  = hasGround ?? _solidV
 
     // Spawn rows — the sprite's initial placement in the level data.
     const rowBotSpawn   = Math.floor(ay / 16)
-    const floorRowSpawn = rowBotSpawn + 1
+    const spawnBodyBottomY = (rowBotSpawn + 1) * 16
 
-    // Scan DOWN from the spawn's floor row to find the first row at the
-    // spawn column that reads as walkable ground. Sprites placed in air
-    // fall to the first ground tile and patrol from there; the overlay
-    // should reflect that landing position, not the spawn row.
-    let floorRowEff = floorRowSpawn
-    while (floorRowEff < levelRows && !floor(sprCol, floorRowEff)) {
-      floorRowEff++
+    // Surface path is the unified floor-silhouette source — same data
+    // the "Show surfaces" overlay renders. When `getL1` is unavailable
+    // (ROM-less tests that still pass `solidV`), fall back to a row-
+    // granular scan that mimics the surface path's column-step semantics
+    // without slope geometry.
+    const path: SurfacePath | null = getL1
+      ? buildSurfacePath(getL1, levelCols, levelRows)
+      : null
+
+    // Spawn floor lookup — first surface in the spawn column whose
+    // mid-Y lies at or below the sprite's spawn body bottom. The koopa
+    // falls onto that surface before patrolling.
+    let startSurface: SurfaceEntry | null = null
+    if (path) {
+      for (const s of path.surfacesAt(sprCol)) {
+        if (s.yMid >= spawnBodyBottomY) { startSurface = s; break }
+      }
+    } else {
+      let r = rowBotSpawn + 1
+      while (r < levelRows && !solidV(sprCol, r)) r++
+      if (r < levelRows) {
+        const y = r * 16
+        startSurface = { yLeft: y, yRight: y, yMid: y, floorRow: r }
+      }
     }
-    // If no ground found within the level, the sprite falls offscreen —
-    // cap the effective floor at the last row so downstream geometry
-    // stays finite. The overlay's dotted drop line still extends to the
-    // bottom, signalling the fall-to-nowhere case.
-    if (floorRowEff >= levelRows) floorRowEff = levelRows
 
-    // Effective body — where the koopa stands AFTER landing. For a
-    // 2-tall sprite, body occupies rowTopEff..rowBotEff just above the
-    // ground row. For a 1-tall goomba, only rowBotEff matters.
+    // No ground within the level — sprite falls off-screen. Cap the
+    // effective floor at the world bottom so geometry stays finite; the
+    // dotted drop line still draws to bottom.
+    const startSurfaceY = startSurface?.yMid ?? levelRows * 16
+    const floorRowEff   = startSurface?.floorRow ?? levelRows
+
+    // Effective body — derived from floor row. For a 2-tall sprite,
+    // body occupies rowTopEff..rowBotEff just above the floor. For a
+    // 1-tall goomba, only rowBotEff matters.
     const rowBotEff = floorRowEff - 1
     const rowTopEff = this.tall ? rowBotEff - 1 : rowBotEff
     const topY      = rowTopEff * 16
     const bottomY   = floorRowEff * 16
-
-    const isWall = (c: number): boolean => {
-      for (let r = Math.max(0, rowTopEff); r <= Math.min(levelRows - 1, rowBotEff); r++) {
-        if (solidH(c, r)) return true
-      }
-      return false
-    }
-    // Ledge = floor ENDS. Uses `hasGround` (actsLike $11+, incl. slopes)
-    // rather than `solidV`'s narrower range so slopes don't register as
-    // ledges. Tolerance of +1 row below the effective floor catches
-    // priority-decorative grass overlays with solid dirt one row down.
-    const hasFloor = (c: number): boolean => {
-      if (floorRowEff >= levelRows) return false
-      if (floor(c, floorRowEff)) return true
-      if (floorRowEff + 1 >= levelRows) return false
-      return floor(c, floorRowEff + 1)
-    }
 
     // Patrol scan direction(s):
     //   - `turnsAtLedges=false` koopas ($04/$07/$0C) walk left and fall
@@ -204,9 +203,9 @@ export class KoopaWalkBehavior extends MovementBehavior {
     //     at walls AND at ledges (via `SpriteInAir` at bank_01.asm:1718),
     //     so they actually patrol between BOTH boundaries. Scan right too
     //     and draw a solid line on whichever side the koopa turns around.
-    const left = this.scanBoundary(-1, sprCol, isWall, hasFloor, levelCols)
+    const left = this.scanBoundary(-1, sprCol, startSurface, path, solidH, solidV, levelCols, levelRows)
     const right = this.turnsAtLedges
-      ? this.scanBoundary(+1, sprCol, isWall, hasFloor, levelCols)
+      ? this.scanBoundary(+1, sprCol, startSurface, path, solidH, solidV, levelCols, levelRows)
       : { x: (sprCol + 1) * BODY_W, kind: 'levelEdge' as BoundaryKind }
 
     // L-fall only fires for non-turning koopas (turnsAtLedges=false),
@@ -218,8 +217,7 @@ export class KoopaWalkBehavior extends MovementBehavior {
     // effective floor, the sprite falls before it starts walking. The
     // overlay uses this to draw a dotted vertical line from spawn down
     // to the patrol row.
-    const spawnBodyBottomY = (rowBotSpawn + 1) * 16
-    const spawnDropFromY = spawnBodyBottomY < bottomY ? spawnBodyBottomY : undefined
+    const spawnDropFromY = spawnBodyBottomY < startSurfaceY ? spawnBodyBottomY : undefined
 
     return {
       leftX:  left.x,
@@ -241,25 +239,95 @@ export class KoopaWalkBehavior extends MovementBehavior {
    * `x` is the pixel x of the corridor boundary — `(c+1)*16` for left,
    * `c*16` for right. For `levelEdge` the scan reached the world
    * boundary without finding an obstacle and x is `0` or `levelCols*16`.
+   *
+   * Surface continuity is decided by `path.nextSurface`, which matches
+   * the previous column's exit edge against each candidate's arrival
+   * edge in column `c`. This connects two adjacent slope tiles along
+   * the SAME continuous polyline drawn by "Show surfaces" — at slope
+   * corners where two slopes share a column, the matching tile is the
+   * one whose edge value continues the surface, not the one whose mid
+   * happens to be closer.
+   *
+   * Wall check is an AABB sweep across the column transition: a solid
+   * tile in column `c` blocks if it lies in the union of body rows at
+   * the previous surface Y and the new surface Y. This catches the
+   * "diagonal wall" case where a steep up-slope shifts the koopa's
+   * body rows by 1 between adjacent columns and a wall block sits at
+   * the destination row.
+   *
+   * Fallback (no `path`): row-granular search using `solidV` over a
+   * ±DEFAULT_EDGE_TOLERANCE / 16 = ±1 row window — equivalent to the
+   * old algorithm's window when slope geometry isn't available, but
+   * driven by surface-Y delta rather than fixed row offsets.
    */
   private scanBoundary(
-    dir:       -1 | 1,
-    sprCol:    number,
-    isWall:    (c: number) => boolean,
-    hasFloor:  (c: number) => boolean,
-    levelCols: number,
+    dir:           -1 | 1,
+    sprCol:        number,
+    startSurface:  SurfaceEntry | null,
+    path:          SurfacePath | null,
+    solidH:        SolidH,
+    solidV:        SolidV,
+    levelCols:     number,
+    levelRows:     number,
   ): { x: number; kind: BoundaryKind } {
+    if (!startSurface) {
+      return { x: dir > 0 ? levelCols * BODY_W : 0, kind: 'levelEdge' }
+    }
+    let prev: SurfaceEntry = startSurface
+
     const start = dir > 0 ? sprCol + 1 : sprCol - 1
     const end   = dir > 0 ? levelCols  : -1
     for (let c = start; dir > 0 ? c < end : c > end; c += dir) {
-      if (isWall(c)) {
-        return { x: dir > 0 ? c * BODY_W : (c + 1) * BODY_W, kind: 'wall' }
-      }
-      if (!hasFloor(c)) {
+      // Edge-matched surface lookup: walking right uses the previous
+      // cell's right edge as the arrival reference; walking left uses
+      // its left edge.
+      const prevExitY = dir > 0 ? prev.yRight : prev.yLeft
+      const next = path
+        ? path.nextSurface(c, prevExitY, dir)
+        : findNextRowGranular(c, prev.floorRow, solidV, levelRows)
+      if (next === null) {
         const kind: BoundaryKind = this.turnsAtLedges ? 'turnLedge' : 'fallLedge'
         return { x: dir > 0 ? c * BODY_W : (c + 1) * BODY_W, kind }
       }
+
+      // AABB-sweep wall check: any solid tile in column `c` within the
+      // union of body rows at `prev` and `next` blocks. The body rows
+      // are derived from each surface's floor row.
+      const rowBotPrev = prev.floorRow - 1
+      const rowBotNext = next.floorRow - 1
+      const rowTopPrev = this.tall ? rowBotPrev - 1 : rowBotPrev
+      const rowTopNext = this.tall ? rowBotNext - 1 : rowBotNext
+      const rTop = Math.max(0, Math.min(rowTopPrev, rowTopNext))
+      const rBot = Math.min(levelRows - 1, Math.max(rowBotPrev, rowBotNext))
+      for (let r = rTop; r <= rBot; r++) {
+        if (solidH(c, r)) {
+          return { x: dir > 0 ? c * BODY_W : (c + 1) * BODY_W, kind: 'wall' }
+        }
+      }
+      prev = next
     }
     return { x: dir > 0 ? levelCols * BODY_W : 0, kind: 'levelEdge' }
   }
+}
+
+/**
+ * Row-granular fallback for the no-`getL1` case: find the first row at
+ * column `c` whose `solidV` is true and whose row is within ±1 of the
+ * previous floor row (matches the surface-path tolerance of 16 px).
+ * Returns a synthesized flat-cell SurfaceEntry, or null on miss.
+ */
+function findNextRowGranular(
+  c:        number,
+  prevRow:  number,
+  solidV:   SolidV,
+  levelRows: number,
+): SurfaceEntry | null {
+  for (const r of [prevRow - 1, prevRow, prevRow + 1]) {
+    if (r < 0 || r >= levelRows) continue
+    if (solidV(c, r)) {
+      const y = r * 16
+      return { yLeft: y, yRight: y, yMid: y, floorRow: r }
+    }
+  }
+  return null
 }

@@ -142,6 +142,7 @@ export function isActsLikeVertSolid(actsLike: number, tileset: number = 1): bool
  * sprite land on this specific tile".
  */
 export function isActsLikeGround(actsLike: number): boolean {
+  if (actsLike < 0x100) return false
   return (actsLike & 0xFF) >= 0x11
 }
 

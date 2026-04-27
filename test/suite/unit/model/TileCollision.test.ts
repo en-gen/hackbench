@@ -9,7 +9,6 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  isBlockBehaviorWall,
   isMarioStandable,
   isSlopeTile,
 } from '../../../../src/rom/BlockBehaviorLoader'
@@ -24,15 +23,6 @@ import {
   resolveSlope,
   type SlopeTables,
 } from '../../../../src/rom/SlopeResolver'
-
-/** Vanilla SMW `DATA_00F05C` (bank_00.asm:12744). */
-const BLOCK_BEHAVIOR_TABLE = new Uint8Array([
-  0x01, 0x05, 0x01, 0x02, 0x01, 0x01, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x02, 0x02,
-  0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
-  0x02, 0x03, 0x03, 0x04, 0x02, 0x02, 0x02, 0x01,
-  0x01, 0x07, 0x11, 0x10,
-])
 
 /** Vanilla SMW `DATA_00EAC1` (bank_00.asm:11946). */
 const SLOPE_TABLE = new Uint8Array([
@@ -127,14 +117,18 @@ function classify(low: number, tileset: number = 1, high: number = 0): {
 } {
   const lo = low & 0xFF
   const hi = high & 0xFF
-  const bh = lo >= 0x11 && lo <= 0x34 ? BLOCK_BEHAVIOR_TABLE[lo - 0x11] : null
-  const bhBlocks = bh === null || isBlockBehaviorWall(bh)
+  const isPage0 = hi === 0
 
-  const wall = bhBlocks && lo >= 0x11 && lo <= 0x6D
+  // Sprite-side fields mirror CODE_01928E / CODE_0192C9 / CODE_01933B —
+  // page-0 high-byte BEQ skip, then a pure low-byte range check. The
+  // ROM does NOT consult DATA_00F05C (block-behavior table) for sprite
+  // collision; that table governs Mario's hit-from-below dispatch
+  // (CODE_00F17F) only.
   const inSolidRange    = lo >= 0x11 && lo <= 0x6D
   const inTilesetWindow = tileset !== 0 && tileset !== 7 && lo >= 0xC4 && lo <= 0xC9
-  const floor = bhBlocks && (lo <= 0x10 || inSolidRange || lo >= 0xD8)
-  const ceiling = bhBlocks && (inSolidRange || inTilesetWindow)
+  const wall    = !isPage0 && inSolidRange
+  const floor   = !isPage0 && (lo <= 0x10 || inSolidRange || lo >= 0xD8)
+  const ceiling = !isPage0 && (inSolidRange || inTilesetWindow)
   const slopeTable = isSlopeTile(lo, SLOPE_TABLE)
 
   const dispatch0 = marioTileDispatch(lo, tileset, 0, DISPATCH_TABLES)
@@ -172,24 +166,21 @@ function classify(low: number, tileset: number = 1, high: number = 0): {
 
 describe('TileCollision invariants', () => {
   it('sprite-perspective and Mario-perspective are decoupled', () => {
-    // `marioWall` / `marioCeiling` / `marioFloor` gate on CODE_00F545
-    // solidity, NOT on the sprite `bhBlocks` filter. They can report
-    // surfaces the sprite fields exclude (e.g. $11A item block: F05C
-    // empty → sprite fields false, but Mario can head-bump it).
-    // Likewise they exclude sprite-solid tiles that fail F545 (page-0
-    // $11-$6D pass-throughs). No subset relationship between them.
-    // This test ensures we don't re-introduce one accidentally.
+    // Sprite fields (CODE_01928E / CODE_0192C9 / CODE_01933B) are
+    // page-0 BEQ + low-byte range. Mario fields (F545 + F127 + standable)
+    // run a separate dispatch — they can fire on PAGE-0 tiles that
+    // sprites skip entirely (e.g. hidden $021 head-bump → marioCeiling
+    // true, sprite ceiling false because of the page-0 BEQ). Neither
+    // is a subset of the other; this test guards against a future
+    // refactor accidentally collapsing them.
     let anyMarioNotSprite = false
-    let anySpriteNotMario = false
     for (let lo = 0; lo < 0x100; lo++) {
       const page0 = classify(lo, 1, 0x00)
-      const page1 = classify(lo, 1, 0x01)
-      if (page0.marioWall && !page0.wall) anyMarioNotSprite = true
-      if (page1.marioCeiling && !page1.ceiling) anyMarioNotSprite = true
-      if (page0.wall && !page0.marioWall) anySpriteNotMario = true
+      // Page-0 hidden / head-bump tiles fire F127 dispatch → Mario
+      // marioCeiling true, sprite ceiling false (page-0 BEQ skip).
+      if (page0.marioCeiling && !page0.ceiling) anyMarioNotSprite = true
     }
-    expect(anyMarioNotSprite).toBe(true)   // at least one page-1 Mario-ceiling w/o sprite-ceiling (e.g. $11A)
-    expect(anySpriteNotMario).toBe(true)   // at least one page-0 sprite-wall w/o Mario-wall (e.g. checkpoint post)
+    expect(anyMarioNotSprite).toBe(true)
   })
 
   it('slope tiles are NOT marioFloor (slopes have diagonal surfaces, not flat tops)', () => {
@@ -207,18 +198,16 @@ describe('TileCollision invariants', () => {
 })
 
 describe('TileCollision — known tile IDs', () => {
-  it('?-block page-0 low $1F: F545 non-solid but F127 head-bump fires → marioCeiling via F127 union', () => {
-    // Low $1F with high=$00: F545 SBC #$EC = $33, BCS F592 → non-solid.
-    // So page-0 $01F is NOT F545-solid. BUT F0A4[$0E] = $08 (bit 3 =
-    // PlayerBlock_Top), so the F127 dispatch fires on head-bump (dir 0)
-    // — Mario triggers the ?-block action when jumping into the tile
-    // from below. marioCeiling unions the two, so it reports true.
-    // marioWall/marioFloor stay false: F0A4[$0E] has no side bits and
-    // no feet bit.
+  it('?-block page-0 low $1F: sprite-passthrough (page-0), Mario head-bump via F127', () => {
+    // Page-0 high byte → CODE_01928E / CODE_0192C9 BEQ skip — sprite
+    // collision is unconditionally off, so floor / wall / ceiling all
+    // false. Mario's path is independent: F545 SBC #$EC = $33, BCS
+    // F592 → non-solid, but F0A4[$0E] = $08 (bit 3 = PlayerBlock_Top)
+    // makes the F127 head-bump fire. marioCeiling unions the two.
     const c = classify(0x1F, 1, 0x00)
-    expect(c.floor).toBe(true)
-    expect(c.ceiling).toBe(true)
-    expect(c.wall).toBe(true)
+    expect(c.floor).toBe(false)
+    expect(c.ceiling).toBe(false)
+    expect(c.wall).toBe(false)
     expect(c.marioFloor).toBe(false)
     expect(c.marioCeiling).toBe(true)   // F127 head-bump fires
     expect(c.marioWall).toBe(false)
@@ -245,46 +234,72 @@ describe('TileCollision — known tile IDs', () => {
     expect(c.marioWall).toBe(true)
   })
 
-  it('midway tape page-0 low $38: Mario-non-solid (F545 pass-through)', () => {
+  it('midway tape page-0 low $38: page-0 sprite-passthrough, Mario-non-solid', () => {
     // F545: high=0, low=$38, SBC #$EC = $4C, BCS F592 → non-solid.
-    // The sprite floor/wall still report solid (per CODE_01928E range)
-    // but Mario walks through — F2C9 block-action fires separately.
+    // Sprite-side is also off because high=0 trips the page-0 BEQ in
+    // CODE_01928E / CODE_0192C9 — both perspectives walk through.
     const c = classify(0x38, 1, 0x00)
-    expect(c.floor).toBe(true)
-    expect(c.wall).toBe(true)
+    expect(c.floor).toBe(false)
+    expect(c.wall).toBe(false)
     expect(c.marioFloor).toBe(false)
     expect(c.marioWall).toBe(false)
   })
 
-  it('checkpoint post body page-0 low $32: Mario-non-solid (F545 pass-through)', () => {
+  it('checkpoint post body page-0 low $32: page-0 sprite-passthrough, Mario-non-solid', () => {
     const c = classify(0x32, 1, 0x00)
-    expect(c.wall).toBe(true)          // sprite-range says wall
+    expect(c.wall).toBe(false)         // page-0 → sprite skipped
     expect(c.marioWall).toBe(false)    // F545 says non-solid
     expect(c.marioFloor).toBe(false)
   })
 
   it('item block page-1 low $11A: marioCeiling=true (head-bumpable)', () => {
-    // F05C[$1A] = $00 → sprite bhBlocks = false → sprite ceiling = false.
-    // But Mario CAN head-bump ?-blocks. With F545 gate (high=$01 → solid)
-    // and the bhBlocks decoupling, marioCeiling is true.
+    // F05C[$1A] = $00 (BH_EMPTY). The sprite collision routines
+    // CODE_01928E / CODE_0192C9 (bank_01.asm:2613/2646) gate on
+    // page-0 high byte + low-byte range only — they do NOT consult
+    // F05C, so sprite-side floor/wall/ceiling are TRUE for any
+    // page-1+ tile in the $11-$6D range, regardless of block-behavior
+    // type. Mario's perspective uses F545 + F127 unioned with the
+    // hurt/standable filter — both report true here.
     const c = classify(0x1A, 1, 0x01)
-    expect(c.ceiling).toBe(false)      // sprite path excludes (F05C=$00)
+    expect(c.floor).toBe(true)
+    expect(c.ceiling).toBe(true)
+    expect(c.wall).toBe(true)
     expect(c.marioCeiling).toBe(true)  // Mario path includes
     expect(c.marioFloor).toBe(true)    // ?-blocks are also stand-on-able
   })
 
-  it('spike $02F: sprite-solid, Mario excluded via F127 hurt', () => {
-    const c = classify(0x02F, 1, 0x00)
+  it('wooden-plank page-1 low $11C: sprite floor/wall/ceiling all TRUE despite F05C=$00', () => {
+    // F05C[$1C] = $00 (BH_EMPTY) — historically gated sprite collision
+    // off, causing patrol overlays to fall through wood-plank /
+    // empty-block tiles like $11C. The ROM itself never gates on
+    // F05C for sprite collision (CODE_01928E/CODE_0192C9 — pure range
+    // check after the page-0 BEQ), and sprites visibly stand on
+    // these tiles in vanilla levels (e.g. red koopa $005 on $11C
+    // platforms in level $103). Lock the sprite-side TRUE so the
+    // patrol-overlay surface path agrees with what the editor's
+    // "Show surfaces" yellow line shows for the same tile.
+    const c = classify(0x1C, 1, 0x01)
     expect(c.floor).toBe(true)
     expect(c.wall).toBe(true)
+    expect(c.ceiling).toBe(true)
+    expect(c.marioFloor).toBe(true)
+  })
+
+  it('spike $02F: page-0 sprite-passthrough, Mario excluded via F127 hurt', () => {
+    // Spike is page-0 ($0xx) → sprite collision skipped per the high-
+    // byte BEQ in CODE_01928E. Mario excluded via the F127 hurt path
+    // (independent of sprite gating).
+    const c = classify(0x02F, 1, 0x00)
+    expect(c.floor).toBe(false)
+    expect(c.wall).toBe(false)
     expect(c.marioFloor).toBe(false)
     expect(c.marioWall).toBe(false)
   })
 
-  it('checkpoint decoration low $68 tileset 1: Mario excluded via F127 hurt', () => {
+  it('checkpoint decoration low $68 tileset 1: page-0 sprite-passthrough, Mario excluded via F127 hurt', () => {
     const c = classify(0x68, 1, 0x00)
-    expect(c.floor).toBe(true)
-    expect(c.wall).toBe(true)
+    expect(c.floor).toBe(false)
+    expect(c.wall).toBe(false)
     expect(c.marioFloor).toBe(false)
     expect(c.marioWall).toBe(false)
   })
