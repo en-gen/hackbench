@@ -15,15 +15,17 @@
  *
  *   floor       Top face is landable by sprites. `CODE_01933B`
  *               (bank_01.asm:2705) reached from landing path
- *               `CODE_0192C9` Y=2 via `CODE_019310`:
+ *               `CODE_0192C9` Y=2 via `CODE_019310`. Covers the FULL
+ *               CODE_01933B path — all four branches:
  *                 <$11    semi-solid via `CODE_0193B0` sub-pixel gate
- *                         (mushroom platforms, vines, ropes — sprite
- *                         lands on top when pixel-Y is near tile top).
+ *                         (mushroom platforms, vines, ropes).
  *                 $11-$6D full solid.
- *                 $6E-$D7 slope-angle table `CODE_00FA19` lookup
- *                         (exposed as `slopeTable` for consumers;
- *                         becomes `slope?: SlopeInfo` in Phase 3).
+ *                 $6E-$D7 slope-angle table `CODE_00FA19`, called
+ *                         unconditionally for the entire range (no
+ *                         DATA_00EAC1 gate — that table is buoyancy only).
  *                 >=$D8   solid.
+ *               `floor` alone is the authoritative "sprite-landable"
+ *               predicate; `slopeTable` is no longer needed for this.
  *
  *   ceiling     Bottom face is bonkable by sprites. `CODE_0192C9` Y=3
  *               (bank_01.asm:2659-2668):
@@ -65,10 +67,11 @@
  *
  *   slopeTable  `DATA_00EAC1` membership (bank_00.asm:11946) via
  *               `CODE_00F04D` (bank_00.asm:12730-12741). 26-entry
- *               lookup recognising slope tiles at the sprite-collision
- *               layer. Separate from `slope` below — this flag stays
- *               for sprite-side consumers (KoopaWalk patrol, etc.)
- *               until Phase 4 migrates them.
+ *               table used by the **sprite buoyancy check**
+ *               (`CODE_019211`, bank_01.asm:2555) — not the landing
+ *               path. The landing path (`CODE_01933B`) does not consult
+ *               this table. Field retained for reference; Phase 4 will
+ *               remove it once all consumers migrate to `floor`.
  *
  *   slope       Mario-side slope surface profile from
  *               `resolveSlope` in `src/rom/SlopeResolver.ts`. Present
@@ -100,7 +103,8 @@ export interface TileCollision {
   readonly marioCeiling: boolean
   readonly marioWall:    boolean
 
-  // Slope membership — sprite-side (DATA_00EAC1).
+  // DATA_00EAC1 membership — sprite buoyancy table (CODE_019211 water check),
+  // NOT the landing table. Kept for reference; use `floor` for landability.
   readonly slopeTable:   boolean
 
   // Mario-side slope surface profile (CODE_00ED86 / DATA_00E632).

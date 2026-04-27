@@ -7,8 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Koopa patrol overlay no longer teleports up to a parallel slope at
+  stair-step slope corners (visible regression at level $006 col 92 with
+  the blue koopa $006). The overlay scan now uses edge-matched surface
+  continuity from a new `SurfacePath` module instead of a `±1`-row
+  heuristic, so the patrol band tracks the same polyline the editor's
+  "Show surfaces" overlay draws.
+- Koopa / ground-walker patrol overlays now correctly walk on $11A item
+  blocks, $11C wood-plank platforms, and other page-1 tiles whose acts-
+  like low byte falls in `$17-$1C` (block-behavior table value $00).
+  The sprite-side floor / wall / ceiling classification was incorrectly
+  gating on `DATA_00F05C` (the block-behavior table), but the ROM's
+  sprite-collision routines (`CODE_01928E`, `CODE_0192C9`,
+  `CODE_01933B` at bank_01.asm:2613/2646/2705) only check the page-0
+  high-byte BEQ and a low-byte range. F05C governs Mario's
+  hit-from-below dispatch (`CODE_00F17F`), not collidability.
+
 ### Changed
 
+- "Show surfaces" editor overlay now consumes the shared `SurfacePath`
+  module — same source of truth as the sprite-patrol scan. Both views
+  agree on silhouette suppression, slope vs flat classification, and
+  priority-decorative passthrough; only the floor predicate differs
+  (Mario perspective for the overlay, sprite for the scan).
 - Project renamed from `smw-editor` to `hackbench`. Marketplace ID,
   command IDs, view IDs, and viewType IDs are now under the
   `hackbench.*` namespace. Virtual filesystem URI scheme (`smwrom://`)

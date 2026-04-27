@@ -19,13 +19,34 @@
  */
 
 import type { GetL1Tile, L1Cell } from '../../../../src/rom/model/OverlayContext'
-import type { HasGround, SolidH, SolidV } from '../../../../src/rom/model/sprites/MovementBehavior'
+import type { SolidH, SolidV } from '../../../../src/rom/model/sprites/MovementBehavior'
 import { solidityFromL1 } from '../../../../src/rom/model/sprites/MovementBehavior'
+import { NO_COLLISION } from '../../../../src/rom/model/tiles/TileCollision'
+import type { TileCollision } from '../../../../src/rom/model/tiles/TileCollision'
 
 export interface TileDef {
   actsLike: number
   /** When true, every subtile carries the priority bit → treated as decorative passthrough. */
   priority?: boolean
+}
+
+/**
+ * Compute sprite-side TileCollision booleans from an actsLike value using
+ * the same page-0 guard and range rules as TileFactory.classify.
+ * No block-behavior table or slope profile — fixture tiles represent
+ * idealized solid/passthrough cases.
+ */
+function classifyForFixture(actsLike: number): TileCollision {
+  const low  = actsLike & 0xFF
+  const high = (actsLike >> 8) & 0xFF
+  if (high === 0) return NO_COLLISION
+  const inSolidRange = low >= 0x11 && low <= 0x6D
+  const inSlopeRange = low >= 0x6E && low <= 0xD7
+  const wall       = inSolidRange
+  const floor      = low <= 0x10 || inSolidRange || inSlopeRange || low >= 0xD8
+  const ceiling    = inSolidRange
+  const slopeTable = inSlopeRange
+  return { wall, floor, ceiling, slopeTable, marioFloor: false, marioCeiling: false, marioWall: false }
 }
 
 export interface Solidity {
@@ -34,7 +55,6 @@ export interface Solidity {
   getL1: GetL1Tile
   solidH: SolidH
   solidV: SolidV
-  hasGround: HasGround
   /** Raw grid for tests that want to inspect tile ids directly. */
   grid: (number | null)[][]
 }
@@ -44,8 +64,8 @@ export interface Solidity {
  *
  * `defs` maps single characters to tile definitions. An entry with
  * `priority: true` means the tile should be treated as a priority-1
- * decorative cell — the fixture's `getL1` returns `null` for those,
- * matching `SmwMap.renderSpriteOverlays`'s closure.
+ * decorative cell — returned as a non-null cell with `isPriority: true`
+ * and `NO_COLLISION`, so predicates can apply the priority short-circuit.
  *
  * Default char '.' = air (no entry needed). All rows must be the same length.
  */
@@ -61,14 +81,13 @@ export function buildSolidity(
   let nextId = 0x100
   for (const [ch, def] of Object.entries(defs)) {
     if (def.priority) {
-      // Priority-decorative — tagged with `isPriority: true` so the
-      // per-predicate solidity logic can decide (passable for walls /
-      // hard floors, counts as ground for ledge detection). Matches the
-      // SmwMap.renderSpriteOverlays cell emit.
-      charToCell.set(ch, { id: nextId++, actsLike: def.actsLike, isPriority: true })
+      // Priority-decorative — tagged with `isPriority: true` so
+      // solidH/solidV short-circuit to false (passable) regardless of
+      // actsLike. Equivalent to SmwMap returning null for these tiles.
+      charToCell.set(ch, { id: nextId++, actsLike: def.actsLike, isPriority: true, collision: NO_COLLISION })
       continue
     }
-    charToCell.set(ch, { id: nextId++, actsLike: def.actsLike })
+    charToCell.set(ch, { id: nextId++, actsLike: def.actsLike, collision: classifyForFixture(def.actsLike) })
   }
   for (const row of rows) {
     grid.push([...row].map(ch => {
@@ -85,6 +104,6 @@ export function buildSolidity(
     const ch = rows[r][c]
     return charToCell.get(ch) ?? null
   }
-  const { solidH, solidV, hasGround } = solidityFromL1(getL1)
-  return { rows: rowsN, cols, getL1, solidH, solidV, hasGround, grid }
+  const { solidH, solidV } = solidityFromL1(getL1)
+  return { rows: rowsN, cols, getL1, solidH, solidV, grid }
 }

@@ -1,10 +1,7 @@
 import { readActsLikeTable } from '../../ActsLikeLoader'
 import {
-  blockBehaviorFor,
-  isBlockBehaviorWall,
   isMarioStandable,
   isSlopeTile,
-  readBlockBehaviorTable,
   readSlopeTable,
 } from '../../BlockBehaviorLoader'
 import {
@@ -107,7 +104,6 @@ export function buildTiles(
   const placeholder = makePlaceholderChar()
   const { tiles: baseTiles, pipeVariants } = loadMap16WithPipeVariants(rom, tileset)
   const actsLike = readActsLikeTable(rom)
-  const blockBehavior = readBlockBehaviorTable(rom)
   const slopeTable   = readSlopeTable(rom)
   const marioTables  = readMarioDispatchTables(rom)
   const slopeTables  = readSlopeTables(rom)
@@ -120,49 +116,63 @@ export function buildTiles(
    * with different ranges; they're tracked as separate flags.
    */
   const classify = (actsLikeId: number) => {
-    // SMW sprite-tile collision reads the LOW BYTE of the Map16 tile
-    // into the 8-bit RAM variable `Map16TileNumber` (rammap.asm:1745)
-    // via `CODE_019523` (bank_01.asm:2957-2968):
-    //   LDA.B [_5]               ; load low byte of Map16 tile
-    //   STA.W Map16TileNumber    ; 8-bit store
-    // The range tests in CODE_01928E / CODE_0192C9 then compare that
-    // single byte. There is NO page/high-byte check anywhere in the
-    // collision path — a tile's high byte only feeds the P-switch
-    // tile-swap routine (CODE_00F545). Therefore classify operates
-    // purely on the low byte, with no page-0 filtering.
-    const low = actsLikeId & 0xFF
+    const low  = actsLikeId & 0xFF
+    const high = (actsLikeId >> 8) & 0xFF
 
-    // Block-behavior filter — coin / vine / empty types bypass all
-    // collision via `CODE_00F17F` (bank_00.asm:12846) early returns.
-    // Tiles outside the table's range ($11-$34) get bhBlocks=true
-    // (no veto), matching how the ASM falls through the dispatch.
-    const bh = blockBehaviorFor(actsLikeId, blockBehavior)
-    const bhBlocks = bh === null || isBlockBehaviorWall(bh)
+    // Page-0 guard — sprite collision routines check the Map16 tile's
+    // HIGH BYTE before applying any range test:
+    //   CODE_01928E (bank_01.asm:2617-2618): JSR CODE_019441 → A = high
+    //     byte; STA SprMap16TouchHorizHigh / BEQ + — if high = 0, the
+    //     entire wall check is skipped.
+    //   CODE_0192C9 (bank_01.asm:2651-2657): same pattern — BEQ
+    //     Return01930F skips floor/ceiling detection for page-0 tiles.
+    // Page-0 tiles ($0xx actsLike) are therefore unconditionally
+    // passthrough for sprites regardless of their low byte.
+    const isPage0 = high === 0
 
     // CODE_01928E (bank_01.asm:2613-2635) — sprite horizontal wall.
+    //   SprMap16TouchHorizHigh BEQ skip  (page-0 → passthrough, see above)
     //   CMP #$11 / BCC +       (< $11 → not a wall)
     //   CMP #$6E / BCS +       (>= $6E → not a wall)
     //   → JSR CODE_019425       (sets SpriteBlockedDirs)
-    const wall = bhBlocks && low >= 0x11 && low <= 0x6D
+    //
+    // The ROM's sprite-collision routines (CODE_01928E for walls,
+    // CODE_0192C9 for vert collision, CODE_01933B for landing) do NOT
+    // consult `DATA_00F05C` (the block-behavior table). That table
+    // governs Mario's hit-from-below dispatch (`CODE_00F17F`,
+    // bank_00.asm:12846) — coin spawn, ?-block transform, vine grow —
+    // not whether the tile is collidable. Sprite-side floor / wall /
+    // ceiling are therefore PURE range checks after the page-0 gate.
+    // Filtering these by `bhBlocks` (BH_EMPTY → false) was a
+    // misapplication that excluded $11A item blocks, $11C wood planks,
+    // etc. from sprite collision even though the ROM treats them as
+    // solid.
+    const wall = !isPage0 && low >= 0x11 && low <= 0x6D
 
     // CODE_01933B (bank_01.asm:2705-2721) — LANDING path (reached from
-    // CODE_0192C9 Y=2 via CODE_019310). Broader than the bonking path:
+    // CODE_0192C9 Y=2 via CODE_019310). Gated by the page-0 check above.
     //   <$11     → CODE_0193B0 semi-solid (sub-pixel gate; approximated
     //              as "solid from above" for the static overlay).
     //   $11-$6D  → CODE_0193B8 solid.
-    //   $6E-$D7  → slope-angle table via CODE_00FA19 (we surface slope
-    //              membership via `slopeTable`; consumers OR the two).
+    //   $6E-$D7  → CODE_00FA19 slope-angle table, called unconditionally
+    //              for the entire range. DATA_00EAC1 is NOT consulted here;
+    //              it is a buoyancy table (CODE_019211). All slope-range
+    //              tiles are therefore landable; `floor` is the complete
+    //              "sprite-landable" predicate — `slopeTable` is separate.
     //   >=$D8    → CODE_019386 solid.
     const inSolidRange    = low >= 0x11 && low <= 0x6D
+    const inSlopeRange    = low >= 0x6E && low <= 0xD7
     const inTilesetWindow = tileset !== 0 && tileset !== 7 && low >= 0xC4 && low <= 0xC9
     const floor =
-      bhBlocks && (
+      !isPage0 && (
         low <= 0x10 ||            // CODE_0193B0 semi-solid platform range
         inSolidRange ||            // standard solid
+        inSlopeRange ||            // CODE_00FA19 slope-angle landing
         low >= 0xD8                // CODE_019386 upper solid range
       )
 
-    // CODE_0192C9 (bank_01.asm:2646-2668) — BONKING path (Y=3):
+    // CODE_0192C9 (bank_01.asm:2646-2668) — BONKING path (Y=3).
+    // Gated by the same page-0 check (BEQ Return01930F for Y=3 path too).
     //   CMP #$11 / BCC return    (< $11 → not solid)
     //   CMP #$6E / BCC +solid    ($11-$6D → solid)
     //   CMP SolidTileStart       (tileset window default $C4)
@@ -170,10 +180,11 @@ export function buildTiles(
     //   CMP SolidTileEnd         (tileset window default $CA)
     //     BCS return             (at/above window → not solid)
     //   → solid (in window range)
-    const ceiling = bhBlocks && (inSolidRange || inTilesetWindow)
+    const ceiling = !isPage0 && (inSolidRange || inTilesetWindow)
 
     // DATA_00EAC1 (bank_00.asm:11946) membership — slope recognition.
-    const slopeTableFlag = isSlopeTile(actsLikeId, slopeTable)
+    // Not reached for page-0 tiles (CODE_0192C9 never dispatches there).
+    const slopeTableFlag = !isPage0 && isSlopeTile(actsLikeId, slopeTable)
 
     // Mario perspective — tiles Mario comes to rest on. Uses the real
     // ASM dispatches ported in `src/rom/MarioTileDispatch.ts`:
@@ -242,17 +253,14 @@ export function buildTiles(
     // $11A/$11E, structural terrain. P-switch state is assumed
     // inactive at classify time; per-frame overlays can layer the
     // reactive state if needed.
-    const high = (actsLikeId >> 8) & 0xFF
     const marioSolid = marioTileSolidity(low, high, PSWITCH_INACTIVE)
     // Mario's ceiling/wall range check matches the sprite-range
     // $11-$6D / $C4-$C9 tileset window (CODE_00EC46 bank_00.asm:12161
-    // and CODE_00ECB1 bank_00.asm:12218), but NOT via the sprite
-    // `ceiling`/`wall` fields — those are gated through `bhBlocks`
-    // (F05C-empty bypass) which is a sprite-side convention that
-    // excludes tiles like $11A (F05C value $00 but a real head-bumpable
-    // item block). F545 is the physical-wall gate; F127 is the
-    // block-action gate. Mario fields OR the two, gated by the
-    // hurt/Mario-standable filters on top.
+    // and CODE_00ECB1 bank_00.asm:12218). Mario fields union the F545
+    // physical-wall gate with the F127 block-action gate, then apply
+    // the hurt / Mario-standable filter on top — so ?-blocks ($11A/$11F)
+    // and hidden coin blocks ($021) report `marioCeiling=true` from
+    // the F127 head-bump dispatch even when F545 says non-solid.
     const marioInSolidRange    = low >= 0x11 && low <= 0x6D
     const marioInCeilingWindow = tileset !== 0 && tileset !== 7 && low >= 0xC4 && low <= 0xC9
     // Slopes are NOT floors. `feetLanding` returns 'slope' (not 'land')

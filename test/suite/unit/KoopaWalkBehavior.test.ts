@@ -59,7 +59,7 @@ import { buildSolidity } from './fixtures/buildSolidity'
 // never L1 walls, even when their low byte would land in $11-$6D.
 const GROUND = { actsLike: 0x130 }
 const WALL   = { actsLike: 0x130 }
-const SLOPE  = { actsLike: 0x06E }           // page-0 slope (vanilla convention)
+const SLOPE  = { actsLike: 0x16E }           // page-1 slope (low byte $6E, slopeTable=true)
 const PASS   = { actsLike: 0x005 }           // page-0 passthrough (dragon-coin range)
 const GRASS  = { actsLike: 0x025, priority: true }
 const WALL_11 = { actsLike: 0x111 }
@@ -93,14 +93,14 @@ describe('KoopaWalkBehavior.computePatrolRange — wall scan', () => {
     // Ledge-turning koopas ($05/$06) patrol between BOTH boundaries;
     // both sides get scanned. In an empty corridor, neither direction
     // hits an obstacle, so both sides land on the level edge.
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.........',
       '....K....',
       '#########',
     ], { '#': GROUND, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftX).toBe(0)
     expect(r.rightX).toBe(cols * 16)
     expect(r.leftKind).toBe('levelEdge')
@@ -110,14 +110,14 @@ describe('KoopaWalkBehavior.computePatrolRange — wall scan', () => {
   it('empty corridor, turnsAtLedges=false: right clamps to sprite edge', () => {
     // Non-turning koopas ($04/$07/$0C) walk left only — right scan is
     // skipped and rightX clamps to the sprite's right edge.
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.........',
       '....K....',
       '#########',
     ], { '#': GROUND, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.rightX).toBe(5 * 16)
     expect(r.rightKind).toBe('levelEdge')
   })
@@ -126,28 +126,28 @@ describe('KoopaWalkBehavior.computePatrolRange — wall scan', () => {
     //    r0: . . W . . . . . .   (W at col 2, body-top row)
     //    r1: . . W . K . . . .   (sprite at col 4, body-bot row)
     //    r2: # # # # # # # # #
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '..W......',
       '..W.K....',
       '#########',
     ], { '#': GROUND, 'W': WALL, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     // Spawn col 4, wall at col 2. Scan stops at col 2 → leftX = 3*16 = 48.
     expect(r.leftX).toBe(3 * 16)
     expect(r.leftKind).toBe('wall')
   })
 
   it('spawn column never self-blocks', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '....W....',    // wall sits in body-top row at spawn column
       '....K....',
       '#########',
     ], { '#': GROUND, 'W': WALL, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     // Scan begins at col-1, so the wall at spawn col is never checked.
     expect(r.leftX).toBe(0)
   })
@@ -159,14 +159,14 @@ describe('KoopaWalkBehavior.computePatrolRange — wall scan', () => {
     [0x16E, false],    // page-1, above upper (slope)
   ])('body-row acts-like $%s → wall=%s', (actsLike, expectWall) => {
     const tile = { actsLike }
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '..T......',
       '..T.K....',
       '#########',
     ], { '#': GROUND, 'T': tile, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     if (expectWall) expect(r.leftX).toBe(3 * 16)  // col 2 + 1 = col 3 → 48px
     else            expect(r.leftX).toBe(0)
   })
@@ -174,48 +174,48 @@ describe('KoopaWalkBehavior.computePatrolRange — wall scan', () => {
   it('priority-1 decorative tile in body row: never blocks (walls passable)', () => {
     // Priority-deco grass in the body rows should NOT stop the scan —
     // the isPriority flag makes solidH return false regardless of actsLike.
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '..G...G..',
       '....K....',
       '#########',
     ], { '#': GROUND, 'G': GRASS, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftX).toBe(0)
   })
 
   it('acts-like $11 exact lower bound: wall', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '..T......',
       '..T.K....',
       '#########',
     ], { '#': GROUND, 'T': WALL_11, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    expect(beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround).leftX).toBe(3 * 16)
+    expect(beh.computePatrolRange(x, y, solidH, solidV, cols, rows).leftX).toBe(3 * 16)
   })
 
   it('acts-like $6D exact upper bound: wall', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '..T......',
       '..T.K....',
       '#########',
     ], { '#': GROUND, 'T': WALL_6D, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    expect(beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround).leftX).toBe(3 * 16)
+    expect(beh.computePatrolRange(x, y, solidH, solidV, cols, rows).leftX).toBe(3 * 16)
   })
 
   it('acts-like $6E slope: not a wall — scan passes through', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '..T......',
       '..T.K....',
       '#########',
     ], { '#': GROUND, 'T': SLOPE, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    expect(beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround).leftX).toBe(0)
+    expect(beh.computePatrolRange(x, y, solidH, solidV, cols, rows).leftX).toBe(0)
   })
 })
 
@@ -223,48 +223,49 @@ describe('KoopaWalkBehavior.computePatrolRange — ledge scan', () => {
   const at = (c: number, r: number) => ({ x: c * 16, y: r * 16 })
 
   it('turnsAtLedges=true + gap in floor (left): stops at missing-floor column', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.........',
       '.....K...',
       '####.####',      // gap at col 4
     ], { '#': GROUND, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(5, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     // Scan LEFT from col 4: col 4 has no floor → turnLedge → leftX = 5*16.
     expect(r.leftX).toBe(5 * 16)
     expect(r.leftKind).toBe('turnLedge')
   })
 
   it('turnsAtLedges=false + gap in floor (left): fallLedge emitted', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.........',
       '.....K...',
       '####.####',      // gap at col 4
     ], { '#': GROUND, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(5, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftX).toBe(5 * 16)
     expect(r.leftKind).toBe('fallLedge')
     expect(r.leftIsWall).toBe(false)
   })
 
-  it('priority-1 floor tile counts AS ground (sprite visually sits on it)', () => {
-    // Previous behavior treated priority-deco as non-floor → ledge. New
-    // behavior via the isPriority flag: hasGround returns true so the
-    // scan walks across it. Visually the sprite stands on the grass.
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+  it('priority-1 floor tile at floor row: treated as no-floor (turnLedge)', () => {
+    // Priority-deco has NO_COLLISION and isPriority=true. solidV returns
+    // false for priority tiles, so a floor row with only priority grass
+    // and no solid below reads as a ledge — matches how SmwMap filters
+    // these tiles (production getL1 returns null for all-priority cells).
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.....',
       '...K.',
-      '##G##',     // grass (priority-1) at col 2 on the koopa's path left
+      '##G##',     // grass (priority-1) at col 2 on the koopa's path left, no solid below
     ], { '#': GROUND, 'G': GRASS, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(3, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
-    // No ledge on the priority-grass column — scan reaches the level edge.
-    expect(r.leftX).toBe(0)
-    expect(r.leftKind).toBe('levelEdge')
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
+    // No solid floor at the grass column → turnLedge boundary at (col+1)*16 = 3*16 = 48.
+    expect(r.leftX).toBe(3 * 16)
+    expect(r.leftKind).toBe('turnLedge')
   })
 })
 
@@ -275,36 +276,36 @@ describe('KoopaWalkBehavior.computePatrolRange — tall vs single-row body', () 
     //    r0: . . W . . . . . .  ← top row has wall at col 2
     //    r1: . . . . K . . . .
     //    r2: # # # # # # # # #
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '..W......',
       '....K....',
       '#########',
     ], { '#': GROUND, 'W': WALL, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    expect(beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround).leftX).toBe(3 * 16)
+    expect(beh.computePatrolRange(x, y, solidH, solidV, cols, rows).leftX).toBe(3 * 16)
   })
 
   it('tall=false: top-row wall does NOT block (only scans bottom row)', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '..W......',
       '....K....',
       '#########',
     ], { '#': GROUND, 'W': WALL, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: false, walkSpeed: 0x08 })
     const { x, y } = at(4, 1)
-    expect(beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround).leftX).toBe(0)
+    expect(beh.computePatrolRange(x, y, solidH, solidV, cols, rows).leftX).toBe(0)
   })
 
   it('tall=true: wall only in bottom body row blocks (left)', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.........',
       '..W.K....',
       '#########',
     ], { '#': GROUND, 'W': WALL, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    expect(beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround).leftX).toBe(3 * 16)
+    expect(beh.computePatrolRange(x, y, solidH, solidV, cols, rows).leftX).toBe(3 * 16)
   })
 })
 
@@ -312,14 +313,14 @@ describe('KoopaWalkBehavior — integration', () => {
   const at = (c: number, r: number) => ({ x: c * 16, y: r * 16 })
 
   it('walls at both ends: patrol covers interior', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       'W.......W',
       'W...K...W',
       '#########',
     ], { '#': GROUND, 'W': WALL, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     // Left scan stops at wall; right is clamped to sprite's right edge.
     expect(r.leftX).toBe(1 * 16)
     expect(r.leftKind).toBe('wall')
@@ -334,14 +335,14 @@ describe('KoopaWalkBehavior — integration', () => {
   })
 
   it('spawn at column 0: left edge terminates at 0', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '...',
       'K..',
       '###',
     ], { '#': GROUND, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(0, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftX).toBe(0)
     expect(r.leftKind).toBe('levelEdge')
   })
@@ -359,14 +360,14 @@ describe('KoopaWalkBehavior — fallSide resolution', () => {
     //   r0: . . . . .
     //   r1: . . K . .
     //   r2: . . # # #     ledge at col 1 (leftward)
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.....',
       '..K..',
       '..###',
     ], { '#': GROUND, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(2, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftKind).toBe('fallLedge')
     expect(r.fallSide).toBe('left')
   })
@@ -375,54 +376,54 @@ describe('KoopaWalkBehavior — fallSide resolution', () => {
     // The overlay doesn't draw the right-bounce path. A left wall ends
     // the corridor on the left; the right side clips to the sprite edge
     // and emits no fall indicator regardless of what's past it.
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.......',
       'W.K....',
       'W####..',
     ], { '#': GROUND, 'W': WALL, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(2, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftKind).toBe('wall')
     expect(r.rightKind).toBe('levelEdge')
     expect(r.fallSide).toBeNull()
   })
 
   it('wall on left: fallSide=null (no L drawn)', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.........',
       'W...K...W',
       'W########',
     ], { '#': GROUND, 'W': WALL, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftKind).toBe('wall')
     expect(r.fallSide).toBeNull()
   })
 
   it('level edge on left (walks off-screen): fallSide=null', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '....',
       '..K.',
       '####',
     ], { '#': GROUND, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(2, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftKind).toBe('levelEdge')
     expect(r.fallSide).toBeNull()
   })
 
   it('turnsAtLedges=true: left ledge counts as turnLedge, fallSide=null', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.......',
       '...K...',
       '..###..',
     ], { '#': GROUND, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(3, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftKind).toBe('turnLedge')
     expect(r.fallSide).toBeNull()
   })
@@ -433,14 +434,14 @@ describe('KoopaWalkBehavior — fallSide resolution', () => {
     //   r0: . . . . . . . . .
     //   r1: . . . . K . . . .
     //   r2: . . . . # # # # #    floor gap at cols 0-2
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.........',
       '....K....',
       '....#####',
     ], { '#': GROUND, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftKind).toBe('fallLedge')
     expect(r.fallSide).toBe('left')
   })
@@ -452,45 +453,62 @@ describe('KoopaWalkBehavior — fallSide resolution', () => {
     // slope column would be mis-classified as a ledge and the overlay
     // would emit a spurious L-fall. This exact misclassification was
     // the visible bug on vanilla slopes.
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.......',
       '...K...',
       '#S#####',
     ], { '#': GROUND, 'S': SLOPE, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(3, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     // Scan walks over the slope to the level edge, no fall emitted.
     expect(r.leftX).toBe(0)
     expect(r.leftKind).toBe('levelEdge')
     expect(r.fallSide).toBeNull()
   })
 
-  it('priority-decorative grass at floor row + solid below: no ledge (tolerance)', () => {
+  it('priority-decorative grass at floor row + solid below: no ledge (terrain-follow)', () => {
     // Vanilla SMW grass-on-dirt layout: priority-1 grass sits at the
     // koopa's floorRow and is filtered to null by the getL1 closure
     // (it's foreground decoration). The actual solid tile is one row
-    // deeper. Without the +1 row tolerance, the scan sees null at
-    // floorRow and emits a spurious fallLedge on every column.
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    // deeper. The ±1 terrain-following window finds solid at floorRow+1.
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.......',
       '...K...',       // sprite at rowBot=1
-      'GGGGGGG',       // floorRow=2 — priority-1 grass (filtered)
-      '#######',       // actual solid ground — one row below
+      'GGGGGGG',       // floorRow=2 — priority-1 grass (filtered → floor=false)
+      '#######',       // actual solid ground — one row below at row 3
     ], { '#': GROUND, 'G': GRASS, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(3, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
-    // With tolerance, the scan finds solid ground at floorRow+1 → no ledge.
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
+    // Terrain-following scan finds solid ground at row 3 → no ledge.
     expect(r.leftKind).toBe('levelEdge')
     expect(r.fallSide).toBeNull()
+  })
+
+  it('genuine 2-row drop at floor row: ledge (beyond ±1 window)', () => {
+    // A drop of 2 rows cannot be traversed by the ±1 terrain-following scan —
+    // the koopa would be briefly airborne and SpriteInAir fires. The scan
+    // must stop when no floor exists within ±1 of the current floor row.
+    const { solidH, solidV, cols, rows } = buildSolidity([
+      '.......',
+      '...K...',       // sprite at rowBot=1
+      '####...',       // floorRow=2: solid cols 0-3, genuine air at 4-6
+    ], { '#': GROUND, 'K': PASS })
+    // No row 3 — gap at cols 4-6 has nothing within ±1 of floorRow=2.
+    const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
+    const { x, y } = at(3, 1)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
+    // col 4 has no floor within ±1 → turnLedge.
+    expect(r.rightKind).toBe('turnLedge')
+    expect(r.rightX).toBe(4 * 16)
   })
 
   it('sprite spawned airborne: patrol row = first ground below, spawnDropFromY set', () => {
     // Koopa placed 3 rows above the ground. The effective patrol floor
     // is row 5 (the first solid tile at the spawn column), not row 2
     // (one row below spawn). spawnDropFromY indicates the fall-to-floor.
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.......',    // r0
       '...K...',    // r1 — spawn (rowBot=1)
       '.......',    // r2 — spawn's floorRow, empty
@@ -500,7 +518,7 @@ describe('KoopaWalkBehavior — fallSide resolution', () => {
     ], { '#': GROUND, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(3, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     // floorRowEff = 5 → bottomY = 5*16 = 80. rowBotEff = 4, rowTopEff = 3
     // → topY = 3*16 = 48.
     expect(r.bottomY).toBe(5 * 16)
@@ -510,19 +528,19 @@ describe('KoopaWalkBehavior — fallSide resolution', () => {
   })
 
   it('sprite spawned on ground: spawnDropFromY is undefined', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.......',
       '...K...',
       '#######',
     ], { '#': GROUND, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(3, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.spawnDropFromY).toBeUndefined()
   })
 
   it('sprite spawned airborne with no ground below: spawnDropFromY still set, bottomY at level bottom', () => {
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.......',
       '...K...',
       '.......',
@@ -530,7 +548,7 @@ describe('KoopaWalkBehavior — fallSide resolution', () => {
     ], { '#': GROUND, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(3, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     // No ground found → floorRowEff = levelRows (4), bottomY = 64.
     expect(r.bottomY).toBe(rows * 16)
     expect(r.spawnDropFromY).toBe(2 * 16)
@@ -540,15 +558,85 @@ describe('KoopaWalkBehavior — fallSide resolution', () => {
     // Red koopa ($05, turnsAtLedges=true). Same regression guard as
     // above but via the turnLedge path — with the old narrow floor check
     // the corridor stopped at the slope column (spurious turnLedge).
-    const { solidH, solidV, hasGround, cols, rows } = buildSolidity([
+    const { solidH, solidV, cols, rows } = buildSolidity([
       '.......',
       '...K...',
       '#S#####',
     ], { '#': GROUND, 'S': SLOPE, 'K': PASS })
     const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(3, 1)
-    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, hasGround)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftX).toBe(0)
     expect(r.leftKind).toBe('levelEdge')
+  })
+})
+
+describe('KoopaWalkBehavior — patrol bounds with SurfacePath', () => {
+  // Integration check: a synthetic stair-step slope (modelled after the
+  // level-006 col 92-95 region) — koopa walks LEFT off a flat top onto
+  // a descending slope. Patrol bounds should reach the level edge with
+  // bottomY tracking the descending surface, not clip at any column.
+  //
+  // The harder algorithmic question — "do we pick the lower slope, not
+  // the upper, at a slope corner where both surfaces stack in the same
+  // column?" — is exercised in `SurfacePath.test.ts` against a known-
+  // wrong baseline (mid-pixel sampling). Here we only assert that the
+  // koopa scan plumbs the SurfacePath through and gets a complete walk.
+  const at = (c: number, r: number) => ({ x: c * 16, y: r * 16 })
+
+  type SyntheticTile = { actsLike: number; heights?: readonly number[] }
+  function makeGrid(grid: string[], defs: Record<string, SyntheticTile>) {
+    const rows = grid.length
+    const cols = grid[0].length
+    type Cell = { id: number; actsLike: number; collision: ReturnType<typeof classify> }
+    const cells = new Map<string, Cell | null>()
+    cells.set('.', null)
+    let nextId = 0x100
+    function classify(def: SyntheticTile) {
+      const low = def.actsLike & 0xFF
+      const inSolid = low >= 0x11 && low <= 0x6D
+      const inSlope = low >= 0x6E && low <= 0xD7
+      return {
+        wall:         inSolid,
+        floor:        low <= 0x10 ? false : (inSolid || inSlope || low >= 0xD8),
+        ceiling:      inSolid,
+        slopeTable:   inSlope,
+        marioFloor:   false,
+        marioCeiling: false,
+        marioWall:    false,
+        slope: def.heights
+          ? { slopeIndex: 0, heights: new Uint8Array(def.heights) }
+          : undefined,
+      }
+    }
+    for (const [ch, def] of Object.entries(defs)) {
+      cells.set(ch, { id: nextId++, actsLike: def.actsLike, collision: classify(def) })
+    }
+    const getL1 = (c: number, r: number) => {
+      if (c < 0 || c >= cols || r < 0 || r >= rows) return null
+      return cells.get(grid[r][c]) ?? null
+    }
+    const solidH: SolidH = (c, r) => getL1(c, r)?.collision.wall  ?? false
+    const solidV: SolidV = (c, r) => getL1(c, r)?.collision.floor ?? false
+    return { getL1, solidH, solidV, cols, rows }
+  }
+
+  it('koopa walks left across a 1-row flat step down, surface follows', () => {
+    // Higher floor at cols 4-7 row 2; lower floor at cols 0-7 row 3.
+    // Walking left, the koopa transitions from row 2 to row 3 at col 3
+    // — a 16-px drop, exactly at the SurfacePath edge tolerance.
+    const FLR = { actsLike: 0x130 }
+    const { getL1, solidH, solidV, cols, rows } = makeGrid([
+      '........',  // r0
+      '......K.',  // r1 sprite spawn col 6
+      '....####',  // r2 upper floor cols 4-7
+      '########',  // r3 lower floor cols 0-7
+    ], { '#': FLR })
+    const beh = new KoopaWalkBehavior({ turnsAtLedges: true, tall: false, walkSpeed: 0x0C })
+    const { x, y } = at(6, 1)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, getL1)
+    expect(r.bottomY).toBe(32)
+    expect(r.leftKind).toBe('levelEdge')
+    expect(r.leftX).toBe(0)
   })
 })

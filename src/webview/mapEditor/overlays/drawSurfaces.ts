@@ -1,4 +1,6 @@
+import type { GetL1Tile, L1Cell } from '../../../rom/model/OverlayContext'
 import type { SmwMap } from '../../../rom/model/SmwMap'
+import { buildSurfacePath, MARIO_HAS_FLOOR } from '../../../rom/model/SurfacePath'
 
 /**
  * Minimal Canvas2D subset needed by `drawSurfaces`. The union on
@@ -79,59 +81,81 @@ export function drawSurfaces(
   const rows = map.l1.length
   if (rows === 0) return
   const cols = map.l1[0].length
-  const marioFloorAt = (c: number, r: number): boolean => {
-    if (r < 0 || r >= rows || c < 0 || c >= cols) return false
+
+  // Adapter: SmwMap → GetL1Tile. SurfacePath only reads
+  // `cell.collision` and `cell.isPriority`, so the synthetic L1Cell
+  // doesn't need a real `actsLike` value (slot filled with 0).
+  const getL1: GetL1Tile = (c, r) => {
+    if (r < 0 || r >= rows || c < 0 || c >= cols) return null
     const id = map.l1[r]?.[c]
-    if (id === null || id === undefined) return false
+    if (id === null || id === undefined) return null
     const tile = map.l1Tiles.get(id)
-    if (!tile) return false
-    if (switchPalacePassable(tile.id, switchPalaceState)) return false
-    return tile.collision.marioFloor
+    if (!tile) return null
+    if (switchPalacePassable(tile.id, switchPalaceState)) return null
+    return { id: tile.id, actsLike: 0, collision: tile.collision } as L1Cell
   }
+
+  // Floor surfaces come from SurfacePath with the Mario predicate.
+  // This is the SAME source of truth `KoopaWalkBehavior.scanBoundary`
+  // consumes — silhouette suppression, slope-vs-flat classification,
+  // priority-decorative passthrough are all decided in one place.
+  const path = buildSurfacePath(getL1, cols, rows, { hasFloor: MARIO_HAS_FLOOR })
+
+  // Pre-index path-emitted floor surfaces by (col, row) so the
+  // row-major drawing loop below can decide silhouette inline without
+  // re-running surfacesAt per cell. Each entry maps `${c},${r}` → the
+  // SurfaceEntry, used to classify slope vs flat at draw time.
+  const floorAt = new Map<string, ReturnType<typeof path.surfacesAt>[number]>()
+  for (let c = 0; c < cols; c++) {
+    for (const s of path.surfacesAt(c)) {
+      floorAt.set(`${c},${s.floorRow}`, s)
+    }
+  }
+
+  // Ceiling silhouette: still computed inline. Mario-side ceilings are
+  // a symmetric concern (mirrored predicate, mirrored suppression rule)
+  // but SurfacePath models floors only; ceilings are exclusive to this
+  // overlay. Keeping the closure here avoids generalising SurfacePath
+  // for one consumer.
   const marioCeilingAt = (c: number, r: number): boolean => {
-    if (r < 0 || r >= rows || c < 0 || c >= cols) return false
-    const id = map.l1[r]?.[c]
-    if (id === null || id === undefined) return false
-    const tile = map.l1Tiles.get(id)
-    if (!tile) return false
-    if (switchPalacePassable(tile.id, switchPalaceState)) return false
-    return tile.collision.marioCeiling
+    const cell = getL1(c, r)
+    return cell?.collision?.marioCeiling ?? false
   }
+
   octx.save()
   octx.strokeStyle = SURFACE_COLOR
   octx.lineWidth   = LINE_WIDTH
   octx.beginPath()
   for (let r = 0; r < rows; r++) {
-    const row = map.l1[r]
     for (let c = 0; c < cols; c++) {
-      const id = row[c]
-      if (id === null || id === undefined) continue
-      const tile = map.l1Tiles.get(id)
-      if (!tile) continue
-      if (switchPalacePassable(tile.id, switchPalaceState)) continue
-      const { marioFloor, marioCeiling, slope } = tile.collision
-      if (!marioFloor && !marioCeiling && !slope) continue
+      const cell = getL1(c, r)
+      if (cell === null) continue
+      const slope = cell.collision?.slope
       const x = c * TILE_PX
       const y = r * TILE_PX
-      if (marioFloor && !marioFloorAt(c, r - 1)) {
-        octx.moveTo(x,            y)
-        octx.lineTo(x + TILE_PX,  y)
-      }
-      if (marioCeiling && !marioCeilingAt(c, r + 1)) {
-        octx.moveTo(x,            y + TILE_PX)
-        octx.lineTo(x + TILE_PX,  y + TILE_PX)
-      }
-      if (slope) {
-        // 16 sample points (one per pixel column) + a terminal lineTo
-        // at the right tile edge so the polyline closes cleanly against
-        // any horizontally-adjacent tile's collision.
-        // Heights are ROM-derived 0..15 for the $6E-$D7 range, but mask
-        // defensively in case hacked ROMs seed out-of-range values.
-        octx.moveTo(x, y + (slope.heights[0] & 0x0F))
-        for (let px = 1; px < TILE_PX; px++) {
-          octx.lineTo(x + px, y + (slope.heights[px] & 0x0F))
+      // Floor / slope: emit when SurfacePath identifies (c, r) as a
+      // surface-bearing cell. Slope cells render their per-pixel curve
+      // (heights[0..15]); flat cells render a horizontal silhouette top.
+      if (floorAt.has(`${c},${r}`)) {
+        if (slope) {
+          // 16 sample points (one per pixel column) + a terminal lineTo
+          // at the right tile edge so the polyline closes cleanly against
+          // any horizontally-adjacent tile's collision. Heights are
+          // ROM-derived 0..15 for the $6E-$D7 range; mask defensively
+          // in case hacked ROMs seed out-of-range values.
+          octx.moveTo(x, y + (slope.heights[0] & 0x0F))
+          for (let px = 1; px < TILE_PX; px++) {
+            octx.lineTo(x + px, y + (slope.heights[px] & 0x0F))
+          }
+          octx.lineTo(x + TILE_PX, y + (slope.heights[TILE_PX - 1] & 0x0F))
+        } else {
+          octx.moveTo(x,           y)
+          octx.lineTo(x + TILE_PX, y)
         }
-        octx.lineTo(x + TILE_PX, y + (slope.heights[TILE_PX - 1] & 0x0F))
+      }
+      if (cell.collision?.marioCeiling && !marioCeilingAt(c, r + 1)) {
+        octx.moveTo(x,           y + TILE_PX)
+        octx.lineTo(x + TILE_PX, y + TILE_PX)
       }
     }
   }
