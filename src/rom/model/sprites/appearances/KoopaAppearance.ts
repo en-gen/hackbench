@@ -1,7 +1,7 @@
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import {
-  COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH, FILL_ALPHA,
-  drawFallL, drawSpawnDrop, rgba, WALL_ALPHA, WALL_LINE_WIDTH,
+  COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH,
+  drawSpawnDrop, rgba, WALL_ALPHA, WALL_LINE_WIDTH,
 } from '../../overlays/primitives'
 import { buildSurfacePath, type SurfaceEntry } from '../../SurfacePath'
 import { KoopaWalkBehavior } from '../behaviors/KoopaWalkBehavior'
@@ -15,21 +15,21 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  * Beetle, $13 Spiny).
  *
  * Renders the sprite's pixel parts via `StaticSpriteAppearance` and adds
- * an overlay that shows the walk corridor. The corridor comes from the
- * attached `KoopaWalkBehavior.computePatrolRange` — walls in body rows
- * and (for ledge-turners $05/$06) missing floors bound the patrol
- * region.
+ * a movement overlay derived from `KoopaWalkBehavior.computePatrolRange`.
  *
- * Walls render as solid boundary lines. Non-turning koopas ($04/$07/$0C)
- * that actually reach a fallLedge (factoring in initial-LEFT direction
- * and wall bounces) get an L-shaped "falls off here" indicator on that
- * side — horizontal band extending past the ledge, then a vertical band
- * dropping down. Only one L ever appears; the first obstacle the koopa
- * reaches settles the outcome.
+ * Overlay vocabulary (shared across all patrol-style sprites):
+ *   - **Dashed centerline** at 50% sprite height tracks where the koopa
+ *     walks. The line follows terrain — slopes shift it column-by-column.
+ *   - **Solid vertical** at left/right boundary indicates the koopa
+ *     turns around there (wall or turnLedge — `solidLeft`/`solidRight`).
+ *   - **Dashed L-extension** past a fallLedge (only one side, decided by
+ *     `fallSide`) shows the koopa walks off and falls. The dashed line
+ *     turns 90° at the ledge and drops two tiles below the floor.
+ *   - **Spawn drop**: dotted vertical line if the sprite spawns airborne.
  *
- * On slope tiles the corridor polygon's bottom (and top) follow the
- * DATA_00E632 height profile — same sample data used by drawSurfaces —
- * so the band visually hugs the terrain instead of clipping through it.
+ * Color is `COLORS.patrolPath` — same lime accent every patrol-style
+ * sprite uses, so the visual vocabulary is consistent across koopas,
+ * super koopas, sinusoidal para-koopas, etc.
  */
 export class KoopaAppearance extends StaticSpriteAppearance {
   constructor(parts: SpritePart[]) {
@@ -49,8 +49,7 @@ export class KoopaAppearance extends StaticSpriteAppearance {
     if (!isActive || !(behavior instanceof KoopaWalkBehavior)) return
     const { solidH, solidV } = solidityFromL1(getL1)
     const r = behavior.computePatrolRange(x, y, solidH, solidV, levelCols, levelRows, getL1)
-    const solidLeft  = r.leftKind  === 'wall' || r.leftKind  === 'turnLedge'
-    const solidRight = r.rightKind === 'wall' || r.rightKind === 'turnLedge'
+    const { solidLeft, solidRight } = r
 
     // Build the bottom-edge profile from the same SurfacePath the patrol
     // scan uses. Walking outward from sprCol via `nextSurface` follows
@@ -111,39 +110,55 @@ export class KoopaAppearance extends StaticSpriteAppearance {
     }
     if (bottom.length < 2) return
 
-    const BODY_H = 32  // sprite body height — 2 tiles
-    const last   = bottom.length - 1
+    const BODY_H    = 32   // sprite body height — 2 tiles for koopas
+    const HALF_BODY = 16   // 50% sprite height — patrol line offset from floor
+    const FALL_HORIZ = 32  // dashed extension past a fall ledge
+    const FALL_VERT  = 32  // dashed drop length below the floor
+    const last  = bottom.length - 1
+    const color = COLORS.patrolPath
 
     ctx.save()
 
-    // Filled body: polygon whose bottom follows terrain and top is 32px above.
-    //   top-left → top-right (top profile) → bottom-right → bottom-left (bottom profile) → close
-    ctx.fillStyle = rgba(COLORS.greenGround, FILL_ALPHA)
-    ctx.beginPath()
-    ctx.moveTo(bottom[0][0], bottom[0][1] - BODY_H)
-    for (let i = 1; i <= last; i++) ctx.lineTo(bottom[i][0], bottom[i][1] - BODY_H)
-    ctx.lineTo(bottom[last][0], bottom[last][1])
-    for (let i = last - 1; i >= 0; i--) ctx.lineTo(bottom[i][0], bottom[i][1])
-    ctx.closePath()
-    ctx.fill()
-
-    // Dashed outline around the same polygon.
+    // Dashed patrol path — single polyline at sprite midline. Includes the
+    // L-fall extension on whichever side `fallSide` is set: the line bends
+    // 90° past the ledge and drops below the floor (open bottom — koopa
+    // keeps falling past the rendered drop zone).
     ctx.lineWidth   = DASH_LINE_WIDTH
-    ctx.strokeStyle = rgba(COLORS.greenGround, DASH_ALPHA)
+    ctx.strokeStyle = rgba(color, DASH_ALPHA)
     ctx.setLineDash([...DEFAULT_DASH])
     ctx.beginPath()
-    ctx.moveTo(bottom[0][0], bottom[0][1] - BODY_H)
-    for (let i = 1; i <= last; i++) ctx.lineTo(bottom[i][0], bottom[i][1] - BODY_H)
-    ctx.lineTo(bottom[last][0], bottom[last][1])
-    for (let i = last - 1; i >= 0; i--) ctx.lineTo(bottom[i][0], bottom[i][1])
-    ctx.closePath()
+
+    if (r.fallSide === 'left') {
+      const fallEndX = bottom[0][0] - FALL_HORIZ
+      const fallBotY = bottom[0][1] + FALL_VERT
+      const midY     = bottom[0][1] - HALF_BODY
+      ctx.moveTo(fallEndX, fallBotY)         // bottom of drop (open at this end)
+      ctx.lineTo(fallEndX, midY)             // up the far edge to midline
+      ctx.lineTo(bottom[0][0], midY)         // across to corridor start
+    } else {
+      ctx.moveTo(bottom[0][0], bottom[0][1] - HALF_BODY)
+    }
+
+    for (let i = 1; i <= last; i++) {
+      ctx.lineTo(bottom[i][0], bottom[i][1] - HALF_BODY)
+    }
+
+    if (r.fallSide === 'right') {
+      const fallEndX = bottom[last][0] + FALL_HORIZ
+      const fallBotY = bottom[last][1] + FALL_VERT
+      const midY     = bottom[last][1] - HALF_BODY
+      ctx.lineTo(fallEndX, midY)             // continue across past ledge
+      ctx.lineTo(fallEndX, fallBotY)         // drop down (open bottom)
+    }
+
     ctx.stroke()
     ctx.setLineDash([])
 
-    // Solid wall lines on bounded sides (wall or turnLedge).
+    // Solid vertical line at each turnaround boundary (wall or turnLedge).
+    // Drawn full body height so it reads as "sprite stops here".
     if (solidLeft || solidRight) {
       ctx.lineWidth   = WALL_LINE_WIDTH
-      ctx.strokeStyle = rgba(COLORS.greenGround, WALL_ALPHA)
+      ctx.strokeStyle = rgba(color, WALL_ALPHA)
       ctx.beginPath()
       if (solidLeft) {
         ctx.moveTo(bottom[0][0], bottom[0][1] - BODY_H)
@@ -156,14 +171,6 @@ export class KoopaAppearance extends StaticSpriteAppearance {
       ctx.stroke()
     }
 
-    const leftTopY  = bottom[0][1]    - BODY_H
-    const rightTopY = bottom[last][1] - BODY_H
-    if (r.fallSide === 'left') {
-      drawFallL(ctx, r.leftX,  leftTopY,  bottom[0][1],    -1, COLORS.greenGround)
-    } else if (r.fallSide === 'right') {
-      drawFallL(ctx, r.rightX, rightTopY, bottom[last][1], +1, COLORS.greenGround)
-    }
-
     if (r.spawnDropFromY !== undefined) {
       // Find the floor Y at the spawn column's centre pixel for the drop line.
       const spawnPx  = x + 8
@@ -172,7 +179,7 @@ export class KoopaAppearance extends StaticSpriteAppearance {
       const spawnFloorY = spawnSlope
         ? spawnFloorRow * 16 + (spawnSlope.heights[spawnPx - spawnCol * 16] & 0x0F)
         : r.bottomY
-      drawSpawnDrop(ctx, spawnPx, r.spawnDropFromY, spawnFloorY, COLORS.greenGround)
+      drawSpawnDrop(ctx, spawnPx, r.spawnDropFromY, spawnFloorY, color)
     }
 
     ctx.restore()

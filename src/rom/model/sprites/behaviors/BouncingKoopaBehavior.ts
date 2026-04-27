@@ -45,8 +45,8 @@ export interface BouncingEnvelope {
   readonly groundY: number
 }
 
-export const BOUNCE_TALL_VY  = -80   // $B0 signed — worst-case apex (misc160E=0)
-export const BOUNCE_SHORT_VY = -48   // $D0 signed — short bounce (misc160E≠0)
+export const BOUNCE_TALL_VY  = -80   // $B0 signed — bounceSeed=0   (tall)
+export const BOUNCE_SHORT_VY = -48   // $D0 signed — bounceSeed=$10 (short)
 export const BOUNCE_XSPEED   = 0x08  // Spr0to13SpeedX index 0 (not ASL'd)
 const GRAVITY     = 3
 const GRAVITY_MAX = 0x40
@@ -54,11 +54,38 @@ const DEC_Y_PER   = 1
 const BODY_W = 16
 const BODY_H = 16
 
+export type BounceMode = 'tall' | 'short'
+
+/**
+ * Derive the per-spawn bounce mode from a sprite's Y pixel position.
+ * Mirrors `InitGrnBounceKoopa` bank_01.asm:840:
+ *
+ *     LDA SpriteYPosLow,X
+ *     AND #$10
+ *     STA SpriteMisc160E,X
+ *
+ * The branch at bank_01.asm:1857-1862 then dispatches: misc160E=0 → vy=$B0
+ * (tall, ~100 px apex), misc160E=$10 → vy=$D0 (short, ~37 px apex).
+ * Spawn rows alternate by parity — even rows tall, odd rows short.
+ *
+ * Position-derived, so this is a *display* property, not an editable config:
+ * a sprite editor can show "bounce: short (Y bit 4 set)" but should not let
+ * the user override it without moving the sprite.
+ */
+export function bounceModeFromSpawnY(spawnY: number): BounceMode {
+  return (spawnY & 0x10) === 0 ? 'tall' : 'short'
+}
+
 export class BouncingKoopaBehavior extends MovementBehavior {
   readonly kind = 'bouncing_koopa'
 
   constructor(meta?: BehaviorMeta) {
     super(meta)
+  }
+
+  /** Display helper — same value the simulator uses internally. */
+  bounceModeAt(spawnY: number): BounceMode {
+    return bounceModeFromSpawnY(spawnY)
   }
 
   simulateArc(
@@ -69,8 +96,9 @@ export class BouncingKoopaBehavior extends MovementBehavior {
     levelCols: number,
     levelRows: number,
   ): BouncingEnvelope {
-    const right = simulateCycle(spawnX, spawnY, 0, solidH, solidV, levelCols, levelRows)
-    const left  = simulateCycle(spawnX, spawnY, 1, solidH, solidV, levelCols, levelRows)
+    const seed  = bounceModeFromSpawnY(spawnY) === 'short' ? 0x10 : 0
+    const right = simulateCycle(spawnX, spawnY, 0, seed, solidH, solidV, levelCols, levelRows)
+    const left  = simulateCycle(spawnX, spawnY, 1, seed, solidH, solidV, levelCols, levelRows)
     const groundY = Math.max(right.groundY, left.groundY)
     return {
       minX: Math.min(right.rect.minX, left.rect.minX),
@@ -92,9 +120,40 @@ export class BouncingKoopaBehavior extends MovementBehavior {
     levelCols: number,
     levelRows: number,
   ): { x: number; y: number }[] {
-    const r = simulateCycle(spawnX, spawnY, 0, solidH, solidV, levelCols, levelRows)
-    const l = simulateCycle(spawnX, spawnY, 1, solidH, solidV, levelCols, levelRows)
+    const seed = bounceModeFromSpawnY(spawnY) === 'short' ? 0x10 : 0
+    const r = simulateCycle(spawnX, spawnY, 0, seed, solidH, solidV, levelCols, levelRows)
+    const l = simulateCycle(spawnX, spawnY, 1, seed, solidH, solidV, levelCols, levelRows)
     return [...l.path, ...r.path]
+  }
+
+  /**
+   * Per-frame `(centerX, centerY)` polyline for the toward-Mario direction
+   * only. Densely sampled — every simulated frame contributes a point —
+   * so the renderer can stroke a smooth dashed arc through the trajectory
+   * the koopa actually follows in-game.
+   *
+   * Direction comes from `SubHorizPos` semantics (bank_01.asm:847-850 →
+   * `FaceMario` init for $09): the koopa walks TOWARD Mario's spawn X.
+   *   - Mario to the LEFT  of sprite (spawnX > marioSpawnX) → dir=1 (left)
+   *   - Mario to the RIGHT of sprite (spawnX <= marioSpawnX) → dir=0 (right)
+   *
+   * `marioSpawnX` defaults to 0 (level-edge fallback when the caller
+   * hasn't parsed Mario's spawn) — for typical horizontal levels Mario
+   * enters at the left, so this default still produces the correct
+   * "face left" behavior for any sprite past column 0.
+   */
+  computeBouncePolyline(
+    spawnX:       number,
+    spawnY:       number,
+    solidH:       SolidH,
+    solidV:       SolidV,
+    levelCols:    number,
+    levelRows:    number,
+    marioSpawnX:  number = 0,
+  ): { x: number; y: number }[] {
+    const seed = bounceModeFromSpawnY(spawnY) === 'short' ? 0x10 : 0
+    const dir  = spawnX > marioSpawnX ? 1 : 0
+    return simulateCyclePolyline(spawnX, spawnY, dir, seed, solidH, solidV, levelCols, levelRows)
   }
 }
 
@@ -109,6 +168,14 @@ export interface BouncingState {
   /** SpriteMisc160E — seeded from spawn-Y bit 4. Drives tall vs short bounce. */
   misc160E: number
   blocked: 'left' | 'right' | null
+  /**
+   * True once the sprite has stepped past the level edge (off-grid X or
+   * past the level bottom). Off-grid is not a wall — the sprite continues
+   * moving — but the simulator uses this flag to terminate the polyline
+   * sample loop, since the path becomes irrelevant once the koopa exits
+   * the playfield.
+   */
+  offgrid: boolean
 }
 
 /** Test-only state factory. Mirrors the `SimState` used by simulateCycle. */
@@ -128,6 +195,7 @@ export function makeFreshState(init: {
     ground: init.ground,
     misc160E: init.misc160E,
     blocked: null,
+    offgrid: false,
   }
 }
 
@@ -152,6 +220,7 @@ function simulateCycle(
   spawnX: number,
   spawnY: number,
   initialDir: number,
+  bounceSeed: 0 | 0x10,
   solidH: SolidH,
   solidV: SolidV,
   levelCols: number,
@@ -171,8 +240,9 @@ function simulateCycle(
     vx: 0, vy: 0,
     dir: initialDir,
     ground: true,
-    misc160E: 0,     // worst case: tall bounce
+    misc160E: bounceSeed,
     blocked: null,
+    offgrid: false,
   }
   const rect: Rect = {
     minX: spawnX, maxX: spawnX + BODY_W,
@@ -245,9 +315,17 @@ function applyXSpeed(s: BouncingState, solidH: SolidH, levelCols: number): void 
     const col = Math.floor(leadingX / 16)
     const rowTop = Math.floor(s.y / 16)
     const rowBot = Math.floor((s.y + BODY_H - 1) / 16)
+    // Off-grid columns are NOT walls — sprites that walk off the level edge
+    // continue moving (and eventually despawn). The simulator records the
+    // off-grid transition so the polyline loop can stop sampling, but it
+    // does NOT block or flip direction.
+    if (col < 0 || col >= levelCols) {
+      s.x = nextX
+      s.offgrid = true
+      return
+    }
     let hit = false
     for (let r = rowTop; r <= rowBot; r++) {
-      if (col < 0 || col >= levelCols) { hit = true; break }
       if (solidH(col, r)) { hit = true; break }
     }
     if (hit) { s.blocked = stepX > 0 ? 'right' : 'left'; return }
@@ -269,11 +347,19 @@ function applyYSpeed(s: BouncingState, solidV: SolidV, levelRows: number): void 
     const nextY = s.y + stepY
     const leadingY = stepY > 0 ? nextY + BODY_H - 1 : nextY
     const row = Math.floor(leadingY / 16)
+    // Off-grid Y is NOT a floor or ceiling — sprites that fall past the
+    // level bottom keep falling (and despawn). Set the offgrid flag and
+    // continue moving so the polyline shows the sprite leaving the
+    // playfield. The polyline simulator stops sampling once off-grid.
+    if (row < 0 || row >= levelRows) {
+      s.y = nextY
+      s.offgrid = true
+      return
+    }
     const colL = Math.floor(s.x / 16)
     const colR = Math.floor((s.x + BODY_W - 1) / 16)
     let hit = false
     for (let c = colL; c <= colR; c++) {
-      if (row < 0 || row >= levelRows) { hit = true; break }
       if (solidV(c, row)) { hit = true; break }
     }
     if (hit) {
@@ -290,6 +376,56 @@ function applyYSpeed(s: BouncingState, solidV: SolidV, levelRows: number): void 
     remaining--
   }
   s.ground = sittingOnFloor(s, solidV, levelRows)
+}
+
+/**
+ * Densely-sampled variant of simulateCycle: emits one body-center point
+ * per simulated frame. Stops when the bounce cycle closes (sprite has
+ * landed at least once and is back near the resting state) or when the
+ * `maxFrames` guard fires. Suitable for rendering an arc polyline.
+ */
+function simulateCyclePolyline(
+  spawnX:     number,
+  spawnY:     number,
+  initialDir: number,
+  bounceSeed: 0 | 0x10,
+  solidH:     SolidH,
+  solidV:     SolidV,
+  levelCols:  number,
+  levelRows:  number,
+): { x: number; y: number }[] {
+  const startCol = Math.floor((spawnX + 8) / 16)
+  let groundRow = Math.floor((spawnY + BODY_H) / 16)
+  for (let r = groundRow; r < levelRows; r++) {
+    if (solidV(startCol, r)) { groundRow = r; break }
+  }
+  const restingY = groundRow * 16 - BODY_H
+
+  const s: BouncingState = {
+    x: spawnX, y: restingY,
+    sx: 0, sy: 0,
+    vx: 0, vy: 0,
+    dir: initialDir,
+    ground: true,
+    misc160E: bounceSeed,
+    blocked: null,
+    offgrid: false,
+  }
+
+  const points: { x: number; y: number }[] = []
+  let landings = 0
+  const MAX_FRAMES = 512   // one full bounce cycle is ~50 frames; bound for safety
+
+  for (let frame = 0; frame < MAX_FRAMES; frame++) {
+    stepFrame(s, solidH, solidV, levelCols, levelRows)
+    points.push({ x: s.x + BODY_W / 2, y: s.y + BODY_H / 2 })
+    if (s.offgrid) break        // sprite walked/fell off the playfield
+    if (s.ground) {
+      landings++
+      if (landings >= 1) break  // one full bounce cycle is enough — pattern repeats
+    }
+  }
+  return points
 }
 
 function sittingOnFloor(s: BouncingState, solidV: SolidV, levelRows: number): boolean {

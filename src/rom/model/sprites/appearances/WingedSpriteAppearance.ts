@@ -1,10 +1,6 @@
 import { type GetL1Tile, type OverlayContext } from '../../OverlayContext'
 import {
-  COLORS,
-  drawApexLine,
-  drawBounceArc,
-  drawCorridor,
-  drawFadeCorridor,
+  COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH, rgba,
 } from '../../overlays/primitives'
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
 import { BouncingKoopaBehavior } from '../behaviors/BouncingKoopaBehavior'
@@ -39,6 +35,22 @@ import type { SpriteLayout } from '../../../SpriteTileLoader'
  * appearance composes the visual from shared drawing primitives.
  */
 
+function strokeDashedPolyline(
+  ctx:    OverlayContext,
+  points: readonly { x: number; y: number }[],
+  color:  { r: number; g: number; b: number },
+): void {
+  if (points.length < 2) return
+  ctx.lineWidth   = DASH_LINE_WIDTH
+  ctx.strokeStyle = rgba(color, DASH_ALPHA)
+  ctx.setLineDash([...DEFAULT_DASH])
+  ctx.beginPath()
+  ctx.moveTo(points[0].x, points[0].y)
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y)
+  ctx.stroke()
+  ctx.setLineDash([])
+}
+
 export class WingedSpriteAppearance implements SpriteAppearance {
   readonly hitRect: HitRect
   private frame = 0
@@ -72,55 +84,79 @@ export class WingedSpriteAppearance implements SpriteAppearance {
   }
 
   renderOverlay(
-    ctx:       OverlayContext,
-    x:         number,
-    y:         number,
-    isActive:  boolean,
-    getL1:     GetL1Tile,
-    levelCols: number,
-    levelRows: number,
-    behavior?: SpriteBehavior,
+    ctx:          OverlayContext,
+    x:            number,
+    y:            number,
+    isActive:     boolean,
+    getL1:        GetL1Tile,
+    levelCols:    number,
+    levelRows:    number,
+    behavior?:    SpriteBehavior,
+    marioSpawnX?: number,
   ): void {
     if (!isActive || !behavior) return
     const { solidH, solidV } = solidityFromL1(getL1)
+    const color = COLORS.patrolPath
+
     ctx.save()
-    if (behavior instanceof KoopaWalkBehavior) {
-      const r = behavior.computePatrolRange(x, y, solidH, solidV, levelCols, levelRows)
-      drawCorridor(
-        ctx,
-        r.leftX, r.rightX, r.topY, r.bottomY,
-        COLORS.purpleYellow,
-        { solidLeft: r.leftIsWall, solidRight: r.rightIsWall },
+
+    if (behavior instanceof BouncingKoopaBehavior) {
+      // Per-frame trajectory polyline — strokes as a smooth dashed arc.
+      // Only the toward-Mario direction is simulated (matches FaceMario init
+      // at bank_01.asm:847-850). marioSpawnX defaults to 0 inside the
+      // behavior when the level didn't parse Mario's spawn position.
+      const points = behavior.computeBouncePolyline(
+        x, y, solidH, solidV, levelCols, levelRows, marioSpawnX,
       )
-    } else if (behavior instanceof BouncingKoopaBehavior) {
-      const env  = behavior.simulateArc(x, y, solidH, solidV, levelCols, levelRows)
-      const path = behavior.computeBouncePath(x, y, solidH, solidV, levelCols, levelRows)
-      drawBounceArc(ctx, env, path, COLORS.cyanKoopa)
-      drawApexLine(ctx, env.minX, env.maxX, env.minY + 0.5, COLORS.cyanKoopa)
+      strokeDashedPolyline(ctx, points, color)
+
     } else if (behavior instanceof FlyingLeftKoopaBehavior) {
+      // Horizontal dashed line at body-center, fading off to the left.
       const c = behavior.computeFadeCorridor(x, y)
-      drawFadeCorridor(ctx, c.originX, c.originY + 8, c.endX, c.heightPx, COLORS.cyanKoopa)
+      const midY = c.originY + 8
+      ctx.lineWidth   = DASH_LINE_WIDTH
+      ctx.strokeStyle = rgba(color, DASH_ALPHA)
+      ctx.setLineDash([...DEFAULT_DASH])
+      ctx.beginPath()
+      ctx.moveTo(c.originX, midY)
+      ctx.lineTo(c.endX, midY)
+      ctx.stroke()
+      ctx.setLineDash([])
+
     } else if (behavior instanceof SinusoidalParaKoopaBehavior) {
+      // Center bar of the sine path — straight dashed line, with the
+      // amplitude expressed via short solid endcaps that mark the apex.
       const b = behavior.computeSineBounds()
       const centerX = x + 8, centerY = y + 8
+      ctx.lineWidth   = DASH_LINE_WIDTH
+      ctx.strokeStyle = rgba(color, DASH_ALPHA)
+      ctx.setLineDash([...DEFAULT_DASH])
+      ctx.beginPath()
       if (b.axis === 'vertical') {
-        drawCorridor(
-          ctx,
-          x, x + 16,
-          centerY - b.amplitudePx, centerY + b.amplitudePx,
-          COLORS.cyanKoopa,
-          { solidTop: true, solidBottom: true },
-        )
+        ctx.moveTo(centerX, centerY - b.amplitudePx)
+        ctx.lineTo(centerX, centerY + b.amplitudePx)
       } else {
-        drawCorridor(
-          ctx,
-          centerX - b.amplitudePx, centerX + b.amplitudePx,
-          y, y + 16,
-          COLORS.cyanKoopa,
-          { solidLeft: true, solidRight: true },
-        )
+        ctx.moveTo(centerX - b.amplitudePx, centerY)
+        ctx.lineTo(centerX + b.amplitudePx, centerY)
       }
+      ctx.stroke()
+      ctx.setLineDash([])
+
+    } else if (behavior instanceof KoopaWalkBehavior) {
+      // Super-koopa walking phase or other ground-walker on a winged body.
+      // Centerline dashed at body midpoint between leftX and rightX.
+      const r = behavior.computePatrolRange(x, y, solidH, solidV, levelCols, levelRows)
+      const midY = (r.topY + r.bottomY) / 2
+      ctx.lineWidth   = DASH_LINE_WIDTH
+      ctx.strokeStyle = rgba(color, DASH_ALPHA)
+      ctx.setLineDash([...DEFAULT_DASH])
+      ctx.beginPath()
+      ctx.moveTo(r.leftX, midY)
+      ctx.lineTo(r.rightX, midY)
+      ctx.stroke()
+      ctx.setLineDash([])
     }
+
     ctx.restore()
   }
 
