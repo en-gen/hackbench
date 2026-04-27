@@ -5,7 +5,6 @@ import {
   drawBounceArc,
   drawCorridor,
   drawFadeCorridor,
-  drawSineBand,
 } from '../../overlays/primitives'
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
 import { BouncingKoopaBehavior } from '../behaviors/BouncingKoopaBehavior'
@@ -104,7 +103,23 @@ export class WingedSpriteAppearance implements SpriteAppearance {
     } else if (behavior instanceof SinusoidalParaKoopaBehavior) {
       const b = behavior.computeSineBounds()
       const centerX = x + 8, centerY = y + 8
-      drawSineBand(ctx, centerX, centerY, b.axis, b.amplitudePx, COLORS.cyanKoopa)
+      if (b.axis === 'vertical') {
+        drawCorridor(
+          ctx,
+          x, x + 16,
+          centerY - b.amplitudePx, centerY + b.amplitudePx,
+          COLORS.cyanKoopa,
+          { solidTop: true, solidBottom: true },
+        )
+      } else {
+        drawCorridor(
+          ctx,
+          centerX - b.amplitudePx, centerX + b.amplitudePx,
+          y, y + 16,
+          COLORS.cyanKoopa,
+          { solidLeft: true, solidRight: true },
+        )
+      }
     }
     ctx.restore()
   }
