@@ -82,35 +82,19 @@ smwrom://<slug>/
 
 ### Webview layer (`src/webview/`)
 
-Webpack bundles each editor's `main.ts` into `dist/webview/<name>.js`. All communication is via `postMessage`.
+Webpack bundles each editor's `main.ts` into `dist/webview/<name>.js`. Communication is via `postMessage`: webview sends `{ type: 'ready' }`, extension replies `{ type: 'load', ...payload }` or `{ type: 'error', message }`. GFX viewer payload includes `rawBytes` + `defaultBpp` for client-side re-decode.
 
-**Standard protocol:**
-- Webview → Extension: `{ type: 'ready' }` on mount
-- Extension → Webview: `{ type: 'load', ...payload }` or `{ type: 'error', message }`
+## Knowledge Integration (External Disassembly)
 
-**GFX viewer payload** also includes `rawBytes` (decompressed tile data) and `defaultBpp` so the webview can re-decode client-side when the BPP selector changes.
+Domain library: `C:\Projects\SMWDisX`. SMW ROM constants, handler ports, and ASM-behavior questions are authoritative there - not in this file. This section is the router; `SMWDisX` is the store.
 
-### Adding a new editor
+**Global SNES rulebook** (addressing, BGR555, VRAM layout): `@C:\Projects\SMWDisX\.claude\rules\snes-global.md` - load this whenever any `src/rom/` task touches color math, LoROM offsets, or VRAM slot assignments.
 
-1. `package.json` → `contributes.customEditors`: add filename pattern
-2. `src/providers/MyEditorProvider.ts` - implement `CustomReadonlyEditorProvider`
-3. `src/webview/myEditor/main.ts` - webview entry
-4. `webpack.config.js` - add entry to the webview configs array
-5. `src/extension.ts` - register provider in `activate()`
+**Pillar 1 - Scoped Rules (`src/rom/`)**: Any work touching `src/rom/` requires cross-referencing the matching bank folder in `SMWDisX`. Do not port or assert ROM behavior without tracing to an ASM line there first.
 
-## GFX / graphics domain
+**Pillar 2 - Context Budgeting**: Load domain knowledge on demand using `@C:\Projects\SMWDisX\<bank_xx>\MEMO.md` syntax. Never read entire bank folders speculatively; load only the MEMO.md for the bank(s) directly relevant to the current task.
 
-- **50 GFX files** (GFX00–GFX31 hex = indices 0–49). Pointer tables at `$00B992` (lo), `$00B9C4` (hi), `$00B9F6` (bank).
-- **3BPP is the default format** for standard 3072-byte files (128 tiles, fills a VRAM slot exactly). Only files whose decompressed size divides by 32 but not by 24 are 4BPP. 2BPP is used for some BG Layer 2 files. Auto-detected in `GfxLoader.loadGfxFile()`.
-- **VRAM slots**: fg1=`$000`, fg2=`$080`, fg3=`$100`, an1=`$180`, an2=`$200`, bg1=`$280` (128 chars each).
-- **Palettes**: BGR555 - bit-replicate for accurate range: `(c5 << 3) | (c5 >> 2)`. 16 CGRAM rows: rows 0–1 BG, 2–3 FG terrain, 4–8 sprites, 13 player (Mario).
-
-## Key SNES/SMW domain facts
-
-- **LoROM**: SNES `$XXYYYY` → file offset `(bank & 0x7F) * 0x8000 + (addr & 0x7FFF)`. Banks `$7E–$7F` = WRAM (not in ROM file).
-- **Copier header**: 512 bytes prepended in some `.smc` files - detected by `fileSize % 1024 === 512`.
-- **Level pointers**: L1 (`$05E000`) and L2 (`$05E600`) use interleaved **3-byte** entries (lo, hi, bank) at `base + i*3`; `ptr = (bank<<16)|(hi<<8)|lo`. Sprites (`$05EC00`) use **2-byte** entries (lo, hi) at `base + i*2`; bank is always $07 implicit. L2 bank=$FF means a preset BG (65816 subroutine at bank $0D - not decodeable without CPU emulation).
-- **Map16**: 16×16 tile definitions at `$0D8000` (page 0) / `$0DC000` (page 1). Each entry = 4 words (TL, BL, TR, BR subtiles, column-major).
+**Pillar 3 - Memory Snapshot Protocol**: After resolving a complex SNES logic problem (multi-routine control flow, OAM layout, palette tricks), propose a Memory Snapshot: a concise summary for `SMWDisX/<bank_xx>/MEMO.md`. Include the address range covered, the behavior decoded, non-obvious invariants, and the PR that exercised it. Only propose a snapshot when the analysis is non-trivial - single-table lookups do not warrant one.
 
 ## Files never to commit
 
