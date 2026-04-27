@@ -14,7 +14,7 @@
  *   $05 = $42 → bit 1=1, bit 6=1 → turnsAtLedges=true,  tall=true
  *   $06 = $43 → bit 1=1, bit 6=1 → turnsAtLedges=true,  tall=true
  *   $07 = $45 → bit 1=0, bit 6=1 → turnsAtLedges=false, tall=true
- *   $0C = $5C → bit 1=0, bit 6=1 → turnsAtLedges=false, tall=true
+ *   $0C = $DD → bit 1=0, bit 6=1 → turnsAtLedges=false, tall=true
  *   $0F = $20 → bit 1=0, bit 6=0 → turnsAtLedges=false, tall=false (Goomba)
  *
  * Test tree:
@@ -83,10 +83,9 @@ describe('KoopaWalkBehavior.propsFromSpriteId', () => {
 })
 
 describe('KoopaWalkBehavior.computePatrolRange — wall scan', () => {
-  // The overlay visualises LEFTWARD patrol only — koopas spawn facing
-  // LEFT and this is the direction shown. Right scan is clipped to the
-  // sprite's right edge, so all wall/slope/acts-like tests place their
-  // probe tiles LEFT of the spawn column.
+  // Both sides are always scanned. Wall/slope/acts-like probe tiles are
+  // placed LEFT of the spawn column so the right scan reaches the level edge
+  // and doesn't interfere with the assertion under test.
   const at = (c: number, r: number) => ({ x: c * 16, y: r * 16 })
 
   it('empty corridor, turnsAtLedges=true: scans both directions, both reach level edge', () => {
@@ -107,9 +106,9 @@ describe('KoopaWalkBehavior.computePatrolRange — wall scan', () => {
     expect(r.rightKind).toBe('levelEdge')
   })
 
-  it('empty corridor, turnsAtLedges=false: right clamps to sprite edge', () => {
-    // Non-turning koopas ($04/$07/$0C) walk left only — right scan is
-    // skipped and rightX clamps to the sprite's right edge.
+  it('empty corridor, turnsAtLedges=false: right scans to level edge', () => {
+    // Non-turning koopas now scan both sides — right reaches the level edge
+    // when there is no obstacle.
     const { solidH, solidV, cols, rows } = buildSolidity([
       '.........',
       '....K....',
@@ -118,7 +117,7 @@ describe('KoopaWalkBehavior.computePatrolRange — wall scan', () => {
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
     const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
-    expect(r.rightX).toBe(5 * 16)
+    expect(r.rightX).toBe(cols * 16)
     expect(r.rightKind).toBe('levelEdge')
   })
 
@@ -247,7 +246,7 @@ describe('KoopaWalkBehavior.computePatrolRange — ledge scan', () => {
     const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftX).toBe(5 * 16)
     expect(r.leftKind).toBe('fallLedge')
-    expect(r.leftIsWall).toBe(false)
+    expect(r.solidLeft).toBe(false)
   })
 
   it('priority-1 floor tile at floor row: treated as no-floor (turnLedge)', () => {
@@ -312,7 +311,7 @@ describe('KoopaWalkBehavior.computePatrolRange — tall vs single-row body', () 
 describe('KoopaWalkBehavior — integration', () => {
   const at = (c: number, r: number) => ({ x: c * 16, y: r * 16 })
 
-  it('walls at both ends: patrol covers interior', () => {
+  it('walls at both ends: patrol covers full interior, fallSide=null', () => {
     const { solidH, solidV, cols, rows } = buildSolidity([
       'W.......W',
       'W...K...W',
@@ -321,10 +320,12 @@ describe('KoopaWalkBehavior — integration', () => {
     const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
     const { x, y } = at(4, 1)
     const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
-    // Left scan stops at wall; right is clamped to sprite's right edge.
+    // Both sides scan to their respective walls; neither is a fallLedge.
     expect(r.leftX).toBe(1 * 16)
     expect(r.leftKind).toBe('wall')
-    expect(r.rightX).toBe(5 * 16)
+    expect(r.rightX).toBe(8 * 16)
+    expect(r.rightKind).toBe('wall')
+    expect(r.fallSide).toBeNull()
   })
 
   it('exposes metadata for overlay rendering', () => {
@@ -372,10 +373,12 @@ describe('KoopaWalkBehavior — fallSide resolution', () => {
     expect(r.fallSide).toBe('left')
   })
 
-  it('wall LEFT: fallSide=null, right-scan is clipped (no bounce visualization)', () => {
-    // The overlay doesn't draw the right-bounce path. A left wall ends
-    // the corridor on the left; the right side clips to the sprite edge
-    // and emits no fall indicator regardless of what's past it.
+  it('wall LEFT + fallLedge RIGHT: koopa bounces and falls right, fallSide=right', () => {
+    // Non-turning koopa hits left wall, bounces rightward, and falls off the
+    // right ledge. The overlay must scan the right side and emit fallSide=right.
+    //   r0: . . . . . . .
+    //   r1: W . K . . . .   ← spawn at col 2; wall at col 0
+    //   r2: W # # # # . .   ← floor at cols 1-4; gap (ledge) at cols 5-6
     const { solidH, solidV, cols, rows } = buildSolidity([
       '.......',
       'W.K....',
@@ -385,11 +388,13 @@ describe('KoopaWalkBehavior — fallSide resolution', () => {
     const { x, y } = at(2, 1)
     const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftKind).toBe('wall')
-    expect(r.rightKind).toBe('levelEdge')
-    expect(r.fallSide).toBeNull()
+    expect(r.rightKind).toBe('fallLedge')
+    expect(r.fallSide).toBe('right')
   })
 
-  it('wall on left: fallSide=null (no L drawn)', () => {
+  it('walls on both sides: perpetual bounce, fallSide=null', () => {
+    // Koopa bounces between two walls indefinitely — no fall indicator.
+    // Right scan now runs and finds the right wall.
     const { solidH, solidV, cols, rows } = buildSolidity([
       '.........',
       'W...K...W',
@@ -399,6 +404,8 @@ describe('KoopaWalkBehavior — fallSide resolution', () => {
     const { x, y } = at(4, 1)
     const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows)
     expect(r.leftKind).toBe('wall')
+    expect(r.rightKind).toBe('wall')
+    expect(r.rightX).toBe(8 * 16)
     expect(r.fallSide).toBeNull()
   })
 
@@ -620,6 +627,29 @@ describe('KoopaWalkBehavior — patrol bounds with SurfacePath', () => {
     const solidV: SolidV = (c, r) => getL1(c, r)?.collision.floor ?? false
     return { getL1, solidH, solidV, cols, rows }
   }
+
+  it('top-to-bottom wall column (no floor surface): leftKind=wall, NOT fallLedge', () => {
+    // Regression for level $134: col 0 is wall ($14C) from row 0 to row 175.
+    // No floor surface exists AT col 0 — the wall is solid top-to-bottom — so
+    // `path.nextSurface(0, ...)` returns null. The wall check must still fire,
+    // classifying col 0 as a WALL rather than a fallLedge. Without this, the
+    // overlay shows a spurious fall indicator at the inside edge of any
+    // level-bounding wall (every vertical level, every screen-edge wall).
+    const W = { actsLike: 0x130 }     // page-1 wall
+    const F = { actsLike: 0x130 }     // page-1 floor (same range)
+    const { getL1, solidH, solidV, cols, rows } = makeGrid([
+      'W........',
+      'W........',
+      'W...K....',
+      'WFFFFFFFF',
+    ], { 'W': W, 'F': F })
+    const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: true, walkSpeed: 0x0C })
+    const { x, y } = at(4, 2)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, getL1)
+    expect(r.leftKind).toBe('wall')
+    expect(r.leftX).toBe(1 * 16)
+    expect(r.solidLeft).toBe(true)
+  })
 
   it('koopa walks left across a 1-row flat step down, surface follows', () => {
     // Higher floor at cols 4-7 row 2; lower floor at cols 0-7 row 3.

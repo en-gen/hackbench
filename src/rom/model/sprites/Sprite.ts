@@ -21,15 +21,18 @@ export class Sprite {
   }
 
   renderOverlay(
-    ctx:       OverlayContext,
-    x:         number,
-    y:         number,
-    isActive:  boolean,
-    getL1:     GetL1Tile,
-    levelCols: number,
-    levelRows: number,
+    ctx:          OverlayContext,
+    x:            number,
+    y:            number,
+    isActive:     boolean,
+    getL1:        GetL1Tile,
+    levelCols:    number,
+    levelRows:    number,
+    marioSpawnX?: number,
   ): void {
-    this.appearance.renderOverlay?.(ctx, x, y, isActive, getL1, levelCols, levelRows, this.behavior)
+    this.appearance.renderOverlay?.(
+      ctx, x, y, isActive, getL1, levelCols, levelRows, this.behavior, marioSpawnX,
+    )
   }
 
   /**

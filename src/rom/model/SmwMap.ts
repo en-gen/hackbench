@@ -163,10 +163,13 @@ export class SmwMap {
       const collision = tile?.collision
       return { id, actsLike: tile?.actsLike ?? id, isPriority, collision }
     }
+    const marioSpawnX = this.header.marioStartPx?.x
     for (const sprite of this.sprites) {
       if (!sprite.appearance.renderOverlay) continue
       const key    = `${sprite.id}:${sprite.x},${sprite.y}`
-      sprite.renderOverlay(ctx, sprite.x, sprite.y, activeKeys.has(key), getL1, cols, rows)
+      sprite.renderOverlay(
+        ctx, sprite.x, sprite.y, activeKeys.has(key), getL1, cols, rows, marioSpawnX,
+      )
     }
   }
 

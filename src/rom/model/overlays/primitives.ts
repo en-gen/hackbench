@@ -314,13 +314,20 @@ export function drawFallL(
     verticalWidth?:   number
     fillAlpha?:       number
     dashAlpha?:       number
+    /**
+     * Skip the "near side" vertical line of the L's horizontal arm — the
+     * edge that sits flush against an adjacent corridor outline. Set when
+     * the caller's corridor already strokes a vertical at this x; without
+     * skipping, the two strokes overlap and read as a doubled interior line.
+     * Caller is responsible for ensuring its outline connects to the L's
+     * top edge so the combined shape reads as one continuous polygon.
+     */
+    skipNearSide?:    boolean
   },
 ): void {
-  // Default horizontal = 3 tiles, vertical = 2 tiles wide. Vertical
-  // thickness matches the sprite body height (2 tiles tall = 2 tiles
-  // wide). Horizontal being wider gives an actual L with an inner
-  // corner of 1 tile on the near-side of the vertical band.
-  const horizW = (opts?.horizontalTiles ?? 3) * 16
+  // Default horizontal = 2 tiles, vertical = 2 tiles wide. Both match
+  // the sprite body width/height so the L has a square corner.
+  const horizW = (opts?.horizontalTiles ?? 2) * 16
   const vertH  = (opts?.verticalTiles   ?? 2) * 16
   const vertW  =  opts?.verticalWidth   ?? 32
   const fA = opts?.fillAlpha ?? FILL_ALPHA
@@ -369,11 +376,14 @@ export function drawFallL(
   ctx.beginPath()
   ctx.moveTo(hxL, topY + 0.5)
   ctx.lineTo(hxR, topY + 0.5)
+  const skipNearSide = opts?.skipNearSide ?? false
   if (direction > 0) {
     // Right fall — vertical drops from the far RIGHT end.
-    // Near side (LEFT of horizontal)
-    ctx.moveTo(hxL + 0.5, topY)
-    ctx.lineTo(hxL + 0.5, bottomY)
+    if (!skipNearSide) {
+      // Near side (LEFT of horizontal)
+      ctx.moveTo(hxL + 0.5, topY)
+      ctx.lineTo(hxL + 0.5, bottomY)
+    }
     // Visible horizontal bottom (left of inner corner)
     ctx.moveTo(hxL, bottomY - 0.5)
     ctx.lineTo(vxNear, bottomY - 0.5)
@@ -385,9 +395,11 @@ export function drawFallL(
     ctx.lineTo(hxR - 0.5, vyB)
   } else {
     // Left fall — vertical drops from the far LEFT end.
-    // Near side (RIGHT of horizontal)
-    ctx.moveTo(hxR - 0.5, topY)
-    ctx.lineTo(hxR - 0.5, bottomY)
+    if (!skipNearSide) {
+      // Near side (RIGHT of horizontal)
+      ctx.moveTo(hxR - 0.5, topY)
+      ctx.lineTo(hxR - 0.5, bottomY)
+    }
     // Visible horizontal bottom (right of inner corner)
     ctx.moveTo(vxNear, bottomY - 0.5)
     ctx.lineTo(hxR, bottomY - 0.5)
@@ -435,12 +447,22 @@ export function findSolidBoundary(
 
 /** Commonly used overlay colours, keeping visual vocabulary consistent. */
 export const COLORS = {
-  orangeHop:     { r: 255, g: 120, b:   0 } as RGBA,  // HopFlame envelope
-  orangeGround:  { r: 255, g: 150, b:   0 } as RGBA,  // ground band accent
-  cyanKoopa:     { r:   0, g: 200, b: 255 } as RGBA,  // para-koopa movement
-  purpleYellow:  { r: 180, g:  80, b: 255 } as RGBA,  // yellow para-koopa corridor
-  greenGround:   { r: 110, g: 220, b: 120 } as RGBA,  // ground koopa patrol
+  orangeHop:     { r: 255, g: 120, b:   0 } as RGBA,  // HopFlame envelope (legacy)
+  orangeGround:  { r: 255, g: 150, b:   0 } as RGBA,  // ground band accent (legacy)
+  cyanKoopa:     { r:   0, g: 200, b: 255 } as RGBA,  // para-koopa movement (legacy)
+  purpleYellow:  { r: 180, g:  80, b: 255 } as RGBA,  // yellow para-koopa corridor (legacy)
+  greenGround:   { r: 110, g: 220, b: 120 } as RGBA,  // ground koopa patrol (legacy)
   redWarning:    { r: 255, g:  80, b:  80 } as RGBA,  // hostile reach
-  tealSwim:      { r:   0, g: 200, b: 220 } as RGBA,  // swimming sprites (cheep-cheep / fish)
+  tealSwim:      { r:   0, g: 200, b: 220 } as RGBA,  // swimming sprites
   tealJump:      { r:   0, g: 200, b: 140 } as RGBA,  // jumping fish column
+  /**
+   * Unified patrol-path line color across ALL movement-overlay sprites.
+   * Hot pink stands out against SMW's mostly green/blue/brown backgrounds
+   * and against sprite-tile palettes (no SMW sprite occupies the saturated
+   * pink hue band). Distinct from the surface yellow `#FFEB3B` and wall
+   * purple `#D500F9` lines used by the structural editor overlays. One
+   * color = one visual vocabulary: "this is where the sprite walks /
+   * bounces / flies".
+   */
+  patrolPath:    { r: 255, g:  20, b: 147 } as RGBA,
 } as const

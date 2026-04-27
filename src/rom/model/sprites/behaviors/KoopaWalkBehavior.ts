@@ -70,9 +70,14 @@ export interface PatrolRange {
   bottomY: number
   leftKind:  BoundaryKind
   rightKind: BoundaryKind
-  /** True when the left/right boundary is a wall tile (legacy flag, still used by overlay). */
-  leftIsWall:  boolean
-  rightIsWall: boolean
+  /**
+   * True when the overlay should draw a solid boundary line on this side.
+   * Encodes wall || turnLedge — both are stopping boundaries that the koopa
+   * bounces off of. Computed here (where turnsAtLedges is known) so the
+   * appearance layer reads a plain boolean instead of comparing kind strings.
+   */
+  solidLeft:  boolean
+  solidRight: boolean
   /**
    * Which boundary the koopa actually falls off, or null. Factored in:
    *   - initial direction (koopas face left at spawn)
@@ -109,7 +114,7 @@ export function propsFromSpriteId(id: number): KoopaWalkConfig {
     case 0x05: return { turnsAtLedges: true,  tall: true,  walkSpeed: SLOW }  // prop $42
     case 0x06: return { turnsAtLedges: true,  tall: true,  walkSpeed: SLOW }  // prop $43
     case 0x07: return { turnsAtLedges: false, tall: true,  walkSpeed: SLOW }  // prop $45
-    case 0x0C: return { turnsAtLedges: false, tall: true,  walkSpeed: SLOW }  // prop $5C
+    case 0x0C: return { turnsAtLedges: false, tall: true,  walkSpeed: SLOW }  // prop $DD
     case 0x0F: return { turnsAtLedges: false, tall: false, walkSpeed: FAST }  // prop $20 — Goomba
     default:   return { turnsAtLedges: false, tall: true,  walkSpeed: SLOW }
   }
@@ -194,24 +199,26 @@ export class KoopaWalkBehavior extends MovementBehavior {
     const topY      = rowTopEff * 16
     const bottomY   = floorRowEff * 16
 
-    // Patrol scan direction(s):
-    //   - `turnsAtLedges=false` koopas ($04/$07/$0C) walk left and fall
-    //     off the first ledge — they never bounce back right, so the
-    //     overlay doesn't visualise a right boundary. Right side clamps
-    //     to the sprite's right edge.
-    //   - `turnsAtLedges=true` koopas ($05 red, $06 blue) flip direction
-    //     at walls AND at ledges (via `SpriteInAir` at bank_01.asm:1718),
-    //     so they actually patrol between BOTH boundaries. Scan right too
-    //     and draw a solid line on whichever side the koopa turns around.
-    const left = this.scanBoundary(-1, sprCol, startSurface, path, solidH, solidV, levelCols, levelRows)
-    const right = this.turnsAtLedges
-      ? this.scanBoundary(+1, sprCol, startSurface, path, solidH, solidV, levelCols, levelRows)
-      : { x: (sprCol + 1) * BODY_W, kind: 'levelEdge' as BoundaryKind }
+    // Always scan both sides. Non-turning koopas ($04/$07/$0C) spawn facing
+    // LEFT, but wall collision bounces them rightward (`CODE_01928E` flips
+    // direction regardless of prop bit 1). If the left boundary is a wall
+    // they walk the full right corridor before reaching a ledge or exit.
+    const left  = this.scanBoundary(-1, sprCol, startSurface, path, solidH, solidV, levelCols, levelRows)
+    const right = this.scanBoundary(+1, sprCol, startSurface, path, solidH, solidV, levelCols, levelRows)
 
-    // L-fall only fires for non-turning koopas (turnsAtLedges=false),
-    // and only on the LEFT — they never reach the right side.
-    const fallSide: 'left' | 'right' | null =
-      !this.turnsAtLedges && left.kind === 'fallLedge' ? 'left' : null
+    // Which side does the koopa actually fall off?
+    //   Turning koopas ($05/$06): bounce at walls AND ledges → perpetual patrol → null.
+    //   Non-turning ($04/$07/$0C): bounce at walls, fall at ledges.
+    //     Spawn facing LEFT, so left boundary is reached first:
+    //       left=fallLedge → falls left.
+    //       left=wall      → bounces right → right=fallLedge → falls right.
+    //       otherwise      → oscillates between walls or exits off-screen → null.
+    const fallSide: 'left' | 'right' | null = (() => {
+      if (this.turnsAtLedges) return null
+      if (left.kind === 'fallLedge') return 'left'
+      if (left.kind === 'wall' && right.kind === 'fallLedge') return 'right'
+      return null
+    })()
 
     // Spawn drop — if the sprite's initial body bottom is above the
     // effective floor, the sprite falls before it starts walking. The
@@ -226,8 +233,8 @@ export class KoopaWalkBehavior extends MovementBehavior {
       bottomY,
       leftKind:  left.kind,
       rightKind: right.kind,
-      leftIsWall:  left.kind === 'wall',
-      rightIsWall: right.kind === 'wall',
+      solidLeft:  left.kind  === 'wall' || left.kind  === 'turnLedge',
+      solidRight: right.kind === 'wall' || right.kind === 'turnLedge',
       fallSide,
       spawnDropFromY,
     }
@@ -285,16 +292,14 @@ export class KoopaWalkBehavior extends MovementBehavior {
       const next = path
         ? path.nextSurface(c, prevExitY, dir)
         : findNextRowGranular(c, prev.floorRow, solidV, levelRows)
-      if (next === null) {
-        const kind: BoundaryKind = this.turnsAtLedges ? 'turnLedge' : 'fallLedge'
-        return { x: dir > 0 ? c * BODY_W : (c + 1) * BODY_W, kind }
-      }
 
-      // AABB-sweep wall check: any solid tile in column `c` within the
-      // union of body rows at `prev` and `next` blocks. The body rows
-      // are derived from each surface's floor row.
+      // Wall check FIRST. A column that is solid top-to-bottom (a level-
+      // bounding wall) has no floor surface — `nextSurface` returns null —
+      // but the koopa still bounces off it. Wall classification must be
+      // independent of surface continuity at the destination column. Use
+      // `prev`'s body rows as the probe range when `next` is unknown.
       const rowBotPrev = prev.floorRow - 1
-      const rowBotNext = next.floorRow - 1
+      const rowBotNext = (next ?? prev).floorRow - 1
       const rowTopPrev = this.tall ? rowBotPrev - 1 : rowBotPrev
       const rowTopNext = this.tall ? rowBotNext - 1 : rowBotNext
       const rTop = Math.max(0, Math.min(rowTopPrev, rowTopNext))
@@ -304,6 +309,14 @@ export class KoopaWalkBehavior extends MovementBehavior {
           return { x: dir > 0 ? c * BODY_W : (c + 1) * BODY_W, kind: 'wall' }
         }
       }
+
+      // No wall at this column. If there's also no continuous surface, the
+      // koopa walks off the edge (fallLedge / turnLedge depending on prop bit 1).
+      if (next === null) {
+        const kind: BoundaryKind = this.turnsAtLedges ? 'turnLedge' : 'fallLedge'
+        return { x: dir > 0 ? c * BODY_W : (c + 1) * BODY_W, kind }
+      }
+
       prev = next
     }
     return { x: dir > 0 ? levelCols * BODY_W : 0, kind: 'levelEdge' }

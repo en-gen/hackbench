@@ -73,7 +73,7 @@ describe('BouncingKoopaBehavior — simulateArc', () => {
     expect(env.maxY).toBeLessThanOrEqual(4 * BODY)
   })
 
-  it('reaches a tall-bounce apex well above the ground row', () => {
+  it('reaches a tall-bounce apex well above the ground row (even-row spawn)', () => {
     // Need enough headroom (≥ 110 rows = 1760 px) so the apex doesn't clip
     // into the top ceiling. Tall-bounce worst-case apex ≈ 100 px above
     // spawn per the vy=-80 / gravity +2 physics.
@@ -82,13 +82,42 @@ describe('BouncingKoopaBehavior — simulateArc', () => {
     level.push('##########')
     const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND })
     const beh = new BouncingKoopaBehavior()
-    const { x, y } = at(5, 14)    // spawn one row above ground
-    const env = beh.simulateArc(x, y, solidH, solidV, cols, rows)
+    // Row 14 → spawnY=224 → bit 4 = 0 → bounceSeed=0 → tall ($B0=-80).
     // Tall bounce: vy=-80 sub-px/frame, gravity net +2/frame.
     // Peak sub-px displacement ≈ 80²/(2·2) = 1600 sub-px = 100 px above spawn.
     // Real trajectory with sub-pixel accumulator lands a little shy of that;
     // require at least 50 px clearance.
+    const { x, y } = at(5, 14)
+    const env = beh.simulateArc(x, y, solidH, solidV, cols, rows)
     expect(env.minY).toBeLessThanOrEqual(env.groundY - 50)
+  })
+
+  it('odd-row spawn produces a SHORTER apex (bounceSeed = $10 → vy = $D0)', () => {
+    // Regression for level $125 c29 r23 — row 23 has SpriteYPosLow bit 4 set,
+    // so InitGrnBounceKoopa (bank_01.asm:840) seeds misc160E=$10 and
+    // SetSomeYSpeed__ relaunches at vy=$D0 (-48). The simulator must mirror
+    // this; without the bit-4 check the overlay always shows tall-bounce
+    // height (~100 px) even when the actual sprite uses short-bounce (~37 px).
+    const level: string[] = []
+    for (let i = 0; i < 15; i++) level.push('..........')
+    level.push('##########')
+    const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND })
+    const beh = new BouncingKoopaBehavior()
+    // Row 13 → spawnY=208 → 208 & $10 = $10 → short bounce.
+    const { x, y } = at(5, 13)
+    const envShort = beh.simulateArc(x, y, solidH, solidV, cols, rows)
+    // Row 14 → tall (covered by the previous test).
+    const envTall  = beh.simulateArc(at(5, 14).x, at(5, 14).y, solidH, solidV, cols, rows)
+    // Short apex must be strictly less tall than tall apex, and bounded
+    // above by the analytic short-bounce ceiling (vy=-48, net+2/frame →
+    // peak ≈ 48²/(2·2) = 576 sub-px = 36 px). Allow some sub-pixel
+    // wobble; require it stays comfortably below 50 px and below the
+    // tall apex.
+    const shortApexHeight = envShort.groundY - envShort.minY
+    const tallApexHeight  = envTall.groundY  - envTall.minY
+    expect(shortApexHeight).toBeLessThan(tallApexHeight)
+    expect(shortApexHeight).toBeLessThanOrEqual(50)
+    expect(shortApexHeight).toBeGreaterThanOrEqual(20)
   })
 
   it('walled corridor bounds the horizontal envelope', () => {

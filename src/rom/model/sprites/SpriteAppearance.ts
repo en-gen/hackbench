@@ -50,15 +50,23 @@ export interface SpriteAppearance {
    *                  cells, or the Map16 id for a solid tile.
    * @param levelCols Total number of L1 tile columns in this level.
    * @param levelRows Total number of L1 tile rows in this level.
+   * @param behavior  Attached behavior for this sprite, if any.
+   * @param marioSpawnX Mario's level-entry pixel X. Sprites whose ASM init
+   *                  uses `FaceMario` (e.g. $09 bouncing koopa,
+   *                  bank_01.asm:847-850) read this to choose the
+   *                  toward-Mario simulation direction. Levels that haven't
+   *                  parsed Mario's spawn yet may pass undefined; consumers
+   *                  fall back to a sensible default (typically 0).
    */
   renderOverlay?(
-    ctx:       OverlayContext,
-    x:         number,
-    y:         number,
-    isActive:  boolean,
-    getL1:     GetL1Tile,
-    levelCols: number,
-    levelRows: number,
-    behavior?: SpriteBehavior,
+    ctx:          OverlayContext,
+    x:            number,
+    y:            number,
+    isActive:     boolean,
+    getL1:        GetL1Tile,
+    levelCols:    number,
+    levelRows:    number,
+    behavior?:    SpriteBehavior,
+    marioSpawnX?: number,
   ): void
 }
