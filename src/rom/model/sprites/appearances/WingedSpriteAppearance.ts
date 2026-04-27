@@ -158,9 +158,9 @@ export class WingedSpriteAppearance implements SpriteAppearance {
   }
 
   /**
-   * $10 Para-Goomba. GoombaWingGfxRt (bank_01.asm:1934).
-   * Frame 0: 16x16 wings open ($C6), OBJ palette 3 (CGRAM row 11).
-   * Frame 1: 8x8 wings closed ($5D).
+   * $10 Para-Goomba. GoombaWingGfxRt (bank_01.asm:2022).
+   * Frame 0: 16x16 wings open ($C6). Frame 1: 8x8 wings closed ($5D).
+   * Left wing is H-flipped; right wing is not (GoombaWingGfxProp $46/$06 + EOR $40).
    * wingsInFront=false (wings behind goomba body).
    */
   static fromParaGoomba(
@@ -174,15 +174,22 @@ export class WingedSpriteAppearance implements SpriteAppearance {
     const gc = (n: number) => chars.get(GBASE + n) ?? placeholder
     const gp = (n: number, dx: number, dy: number, flipX: boolean): SpritePart =>
       ({ char: gc(n), palette: GPAL, flipX, flipY: false, dx, dy })
+    // GoombaWingGfxRt (bank_01.asm:2022):
+    // iter=1 → GoombaWingGfxProp[1]=$06 EOR $40=$46 → left wing is H-flipped.
+    // iter=0 → GoombaWingGfxProp[0]=$46 EOR $40=$06 → right wing is not flipped.
+    // X offsets: DATA_018DC7 with _4=0 adds 8; left=index9=$F5=-11, right=index8=$0B=+11.
+    // Frame-1 X: left=index13=$FC=-4, right=index12=$0B=+11. Y always+1 (DATA_018DD7[4/5]).
     const gwf0: SpritePart[] = [
-      gp(0xC6, -9, -9, false), gp(0xC7, -1, -9, false),
-      gp(0xD6, -9, -1, false), gp(0xD7, -1, -1, false),
-      gp(0xC7, 11, -9, true),  gp(0xC6, 19, -9, true),
-      gp(0xD7, 11, -1, true),  gp(0xD6, 19, -1, true),
+      // Left wing: H-flipped 16x16 $C6 at (-11, -9) — col order swaps for H-flip
+      gp(0xC7, -11, -9, true),  gp(0xC6,  -3, -9, true),
+      gp(0xD7, -11,  -1, true), gp(0xD6,  -3,  -1, true),
+      // Right wing: no-flip 16x16 $C6 at (+11, -9)
+      gp(0xC6,  11, -9, false), gp(0xC7,  19, -9, false),
+      gp(0xD6,  11,  -1, false), gp(0xD7,  19,  -1, false),
     ]
     const gwf1: SpritePart[] = [
-      gp(0x5D, -3, 1, false),
-      gp(0x5D, 12, 1, true),
+      gp(0x5D, -4, 1, true),   // left wing: H-flipped, X=DATA_018DC7[13]=-4
+      gp(0x5D, 11, 1, false),  // right wing: no-flip, X=DATA_018DC7[12]=+11
     ]
     return new WingedSpriteAppearance(gBody, [gwf0, gwf1])
   }
