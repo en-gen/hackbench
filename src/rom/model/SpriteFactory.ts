@@ -325,6 +325,28 @@ export function buildSprites(
       continue
     }
 
+    // $0C4 (Grey Falling Platform) — CODE_038492 (bank_03.asm:528).
+    // FallingPlatTiles=$60/$61/$61/$62 at FallingPlatDispX=0/16/32/48 px.
+    // Sprite166EVals[$C4]=$F3 → &$0F=$03 → OBJ pal 1 (CGRAM row 9), charHigh=1 ($100).
+    if (s.spriteId === 0xC4) {
+      const OBJ_BASE = 0x400
+      const attr = tables.spriteAttr[s.spriteId] ?? 0
+      const palette = 8 + ((attr >> 1) & 0x07)
+      const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+      const tiles = [0x60, 0x61, 0x61, 0x62] as const
+      const parts: SpritePart[] = tiles.flatMap((t, col) => {
+        const dx = col * 16
+        return [
+          { char: chars.get(OBJ_BASE + charHigh + t)        ?? placeholder, palette, flipX: false, flipY: false, dx: dx,     dy: 0 },
+          { char: chars.get(OBJ_BASE + charHigh + t + 1)    ?? placeholder, palette, flipX: false, flipY: false, dx: dx + 8, dy: 0 },
+          { char: chars.get(OBJ_BASE + charHigh + t + 0x10) ?? placeholder, palette, flipX: false, flipY: false, dx: dx,     dy: 8 },
+          { char: chars.get(OBJ_BASE + charHigh + t + 0x11) ?? placeholder, palette, flipX: false, flipY: false, dx: dx + 8, dy: 8 },
+        ]
+      })
+      out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, new StaticSpriteAppearance(parts), behavior))
+      continue
+    }
+
     const layout = buildSpriteLayout(tables, s.spriteId)
     if (!layout) {
       const boxChar = chars.get(-2) ?? makeTransparentPlaceholderChar()
