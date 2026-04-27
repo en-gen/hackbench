@@ -158,7 +158,7 @@ const SPRITE_METADATA: Record<number, SpriteMetadata> = {
   0x92: { displayName: "Splittin' Chuck" },
   0x93: { displayName: "Bouncin' Chuck" },
   0x94: { displayName: "Whistlin' Chuck" },
-  0x95: { displayName: "Clapin' Chuck" },
+  0x95: { displayName: "Clappin' Chuck" },
   0x96: { displayName: "Chargin' Chuck (clone, unused)" },
   0x97: { displayName: "Puntin' Chuck" },
   0x98: { displayName: "Pitchin' Chuck" },

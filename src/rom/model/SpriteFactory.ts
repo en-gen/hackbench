@@ -25,6 +25,7 @@ import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import { DryBonesAppearance } from './sprites/appearances/DryBonesAppearance'
 import { CharginChuckAppearance } from './sprites/appearances/CharginChuckAppearance'
+import { ClappinChuckAppearance } from './sprites/appearances/ClappinChuckAppearance'
 import { KeyholeAppearance } from './sprites/appearances/KeyholeAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
@@ -279,6 +280,20 @@ export function buildSprites(
       out.push(new Sprite(
         s.spriteId, s.x * 16, s.y * 16,
         CharginChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight),
+        behavior,
+      ))
+      continue
+    }
+
+    // $95 (Clappin' Chuck).
+    if (s.spriteId === 0x95) {
+      const attr         = tables.spriteAttr[s.spriteId] ?? 0
+      const bodyPalette  = 8 + ((attr >> 1) & 0x07)
+      const bodyCharHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+      const faceRight    = marioStartPx.x >= s.x * 16
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        ClappinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight),
         behavior,
       ))
       continue

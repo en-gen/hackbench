@@ -215,7 +215,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x92: 0x06,   // Splittin' Chuck
   0x93: 0x06,   // Bouncin' Chuck
   0x94: 0x06,   // Whistlin' Chuck
-  0x95: 0x06,   // Clapin' Chuck
+  0x95: 0x06,   // Clappin' Chuck
   0x96: 0x06,   // Unused Chargin' Chuck clone
   0x97: 0x06,   // Puntin' Chuck
   // 0x98 Pitchin' Chuck — promoted to SPRITE_WIDE_OVERRIDES (release pose $19)
