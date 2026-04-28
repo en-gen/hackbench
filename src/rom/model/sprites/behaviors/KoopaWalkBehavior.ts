@@ -120,7 +120,7 @@ export function propsFromSpriteId(id: number): KoopaWalkConfig {
     case 0x05: return { turnsAtLedges: true,  tall: true,  walkSpeed: SLOW }  // prop $42
     case 0x06: return { turnsAtLedges: true,  tall: true,  walkSpeed: SLOW }  // prop $43
     case 0x07: return { turnsAtLedges: false, tall: true,  walkSpeed: SLOW }  // prop $45
-    case 0x0C: return { turnsAtLedges: false, tall: true,  walkSpeed: SLOW }  // prop $DD
+    case 0x0C: return { turnsAtLedges: true,  tall: true,  walkSpeed: SLOW }  // prop $DD — yellow koopa w/ wings; observed to turn at ledges in-game
     case 0x0F: return { turnsAtLedges: false, tall: false, walkSpeed: FAST }  // prop $20 — Goomba
     default:   return { turnsAtLedges: false, tall: true,  walkSpeed: SLOW }
   }

@@ -71,7 +71,7 @@ describe('KoopaWalkBehavior.propsFromSpriteId', () => {
     [0x05, { turnsAtLedges: true,  tall: true,  walkSpeed: 0x0C }],
     [0x06, { turnsAtLedges: true,  tall: true,  walkSpeed: 0x0C }],
     [0x07, { turnsAtLedges: false, tall: true,  walkSpeed: 0x0C }],
-    [0x0C, { turnsAtLedges: false, tall: true,  walkSpeed: 0x0C }],
+    [0x0C, { turnsAtLedges: true,  tall: true,  walkSpeed: 0x0C }],
     [0x0F, { turnsAtLedges: false, tall: false, walkSpeed: 0x08 }],  // Goomba — bit 6 clear, fast
   ])('spriteId $%s produces expected config', (id, expected) => {
     expect(propsFromSpriteId(id)).toEqual(expected)

@@ -1,6 +1,7 @@
 import { type GetL1Tile, type OverlayContext } from '../../OverlayContext'
 import {
-  COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH, drawArrowHead, rgba,
+  COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH,
+  drawArrowHead, rgba, WALL_ALPHA, WALL_LINE_WIDTH,
 } from '../../overlays/primitives'
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
 import { BouncingKoopaBehavior } from '../behaviors/BouncingKoopaBehavior'
@@ -147,10 +148,14 @@ export class WingedSpriteAppearance implements SpriteAppearance {
       drawArrowHead(ctx, c.endX, midY, c.originX, midY, color, DASH_ALPHA)
 
     } else if (behavior instanceof SinusoidalParaKoopaBehavior) {
-      // Center bar of the sine path — straight dashed line, with the
-      // amplitude expressed via short solid endcaps that mark the apex.
+      // Sinusoidal patrol — $0A vertical / $0B horizontal Para-Koopa.
+      // The dashed line marks the centerline of the back-and-forth path
+      // (length = 2·amplitude). Solid endcaps perpendicular to the path
+      // at each end signal the reversal points (same vocabulary as the
+      // walk-koopa wall lines: "the sprite turns around here").
       const b = behavior.computeSineBounds()
       const centerX = x + 8, centerY = y + 8
+      const ENDCAP_HALF = 8  // half body — endcap = sprite-sized stub
       ctx.lineWidth   = DASH_LINE_WIDTH
       ctx.strokeStyle = rgba(color, DASH_ALPHA)
       ctx.setLineDash([...DEFAULT_DASH])
@@ -164,6 +169,24 @@ export class WingedSpriteAppearance implements SpriteAppearance {
       }
       ctx.stroke()
       ctx.setLineDash([])
+
+      // Solid endcaps. Vertical patrol → horizontal stubs at top/bottom;
+      // horizontal patrol → vertical stubs at left/right.
+      ctx.lineWidth   = WALL_LINE_WIDTH
+      ctx.strokeStyle = rgba(color, WALL_ALPHA)
+      ctx.beginPath()
+      if (b.axis === 'vertical') {
+        const yTop = centerY - b.amplitudePx
+        const yBot = centerY + b.amplitudePx
+        ctx.moveTo(centerX - ENDCAP_HALF, yTop); ctx.lineTo(centerX + ENDCAP_HALF, yTop)
+        ctx.moveTo(centerX - ENDCAP_HALF, yBot); ctx.lineTo(centerX + ENDCAP_HALF, yBot)
+      } else {
+        const xLeft  = centerX - b.amplitudePx
+        const xRight = centerX + b.amplitudePx
+        ctx.moveTo(xLeft,  centerY - ENDCAP_HALF); ctx.lineTo(xLeft,  centerY + ENDCAP_HALF)
+        ctx.moveTo(xRight, centerY - ENDCAP_HALF); ctx.lineTo(xRight, centerY + ENDCAP_HALF)
+      }
+      ctx.stroke()
 
     } else if (behavior instanceof KoopaWalkBehavior) {
       // Super-koopa walking phase or other ground-walker on a winged body.
