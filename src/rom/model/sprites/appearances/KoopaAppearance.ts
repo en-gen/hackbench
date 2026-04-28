@@ -6,6 +6,7 @@ import {
 import { buildSurfacePath, type SurfaceEntry } from '../../SurfacePath'
 import { KoopaWalkBehavior } from '../behaviors/KoopaWalkBehavior'
 import { solidityFromL1 } from '../MovementBehavior'
+import { spriteCollisionFromL1 } from '../SpriteCollision'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
 
@@ -214,14 +215,9 @@ export class KoopaAppearance extends StaticSpriteAppearance {
       // Find the floor Y at the spawn column's centre pixel for the drop line.
       const spawnPx  = x + 8
       const spawnCol = Math.floor(spawnPx / 16)
-      // Priority-1 cells pass through sprite collision — they should not
-      // contribute slope-snap data to the spawn-drop line.
-      const spawnCell  = getL1(spawnCol, spawnFloorRow)
-      const spawnSlope = spawnCell && !spawnCell.isPriority
-        ? spawnCell.collision?.slope
-        : undefined
+      const spawnSlope  = spriteCollisionFromL1(getL1).slopeAt(spawnCol, spawnFloorRow)
       const spawnFloorY = spawnSlope
-        ? spawnFloorRow * 16 + (spawnSlope.heights[spawnPx - spawnCol * 16] & 0x0F)
+        ? spawnFloorRow * 16 + (spawnSlope.heights[spawnPx - spawnCol * 16]! & 0x0F)
         : r.bottomY
       drawSpawnDrop(ctx, spawnPx, r.spawnDropFromY, spawnFloorY, color)
     }

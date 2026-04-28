@@ -5,6 +5,7 @@ import {
   type SolidH,
   type SolidV,
 } from '../MovementBehavior'
+import { spriteCollisionFromL1, type SpriteCollision } from '../SpriteCollision'
 import { applyGravity, signed8, simulateUntilStable, unsigned8, type Rect } from './simulate'
 
 /**
@@ -231,16 +232,11 @@ function simulateCycle(
   levelRows:  number,
   getL1?:     GetL1Tile,
 ): CycleResult {
-  // Snap ground like HopFlame does.
-  const startCol = Math.floor((spawnX + 8) / 16)
-  let groundRow = Math.floor((spawnY + BODY_H) / 16)
-  for (let r = groundRow; r < levelRows; r++) {
-    if (solidV(startCol, r)) { groundRow = r; break }
-    if (getL1 && spriteSlope(getL1, startCol, r)) { groundRow = r; break }
-  }
-  const restingY = getL1
-    ? getSurfaceY(spawnX + BODY_W / 2, groundRow, getL1) - BODY_H
-    : groundRow * 16 - BODY_H
+  const collision = getL1 ? spriteCollisionFromL1(getL1) : undefined
+  const startCol  = Math.floor((spawnX + 8) / 16)
+  const startRow  = Math.floor((spawnY + BODY_H) / 16)
+  const groundRow = collision?.findFloorRowBelow(startCol, startRow, levelRows) ?? startRow
+  const restingY  = (collision?.surfaceYAt(spawnX + BODY_W / 2, groundRow) ?? groundRow * 16) - BODY_H
 
   const s: BouncingState = {
     x: spawnX, y: restingY,
@@ -308,30 +304,6 @@ function stepFrame(
   }
 }
 
-/**
- * Read the cell's slope info, but only if the cell is solid for sprites
- * (priority-1 decorative tiles render in front of sprites and pass
- * through collision — they must NOT contribute slope landing data).
- */
-function spriteSlope(getL1: GetL1Tile, col: number, row: number) {
-  const cell = getL1(col, row)
-  if (cell === null || cell.isPriority) return undefined
-  return cell.collision?.slope
-}
-
-/**
- * Return the actual surface pixel Y for a slope (or flat) tile at (col, row).
- * The pixel X within the tile is clamped to [0, 15].  For non-slope tiles
- * this equals `row * 16` (tile top).  For slope tiles it equals
- * `row * 16 + heights[px] & 0x0F`, matching the patrol-path surface polyline.
- */
-function getSurfaceY(centerX: number, row: number, getL1: GetL1Tile): number {
-  const col       = Math.floor(centerX / 16)
-  const pxInTile  = Math.max(0, Math.min(15, Math.floor(centerX) - col * 16))
-  const slope     = spriteSlope(getL1, col, row)
-  return slope ? row * 16 + (slope.heights[pxInTile] & 0x0F) : row * 16
-}
-
 export function applyXSpeed(s: BouncingState, solidH: SolidH, levelCols: number): void {
   s.blocked = null
   if (s.vx === 0) return
@@ -373,7 +345,8 @@ export function applyYSpeed(
   levelRows: number,
   getL1?:   GetL1Tile,
 ): void {
-  if (s.vy === 0) { s.ground = sittingOnFloor(s, solidV, levelRows, getL1); return }
+  const collision = getL1 ? spriteCollisionFromL1(getL1) : undefined
+  if (s.vy === 0) { s.ground = sittingOnFloor(s, solidV, levelRows, collision); return }
   const totalSub = s.vy * 16
   const newSy    = s.sy + totalSub
   const wholeDelta = Math.floor(newSy / 256)
@@ -404,7 +377,7 @@ export function applyYSpeed(
       for (let c = colL; c <= colR; c++) {
         if (solidV(c, row)) { hit = true; break }
       }
-    } else if (getL1) {
+    } else if (collision) {
       // Ascending: only `ceiling` tiles bonk the sprite. Slopes
       // ($6E-$D7) and the high-solid range ($D8+) have floor=true but
       // ceiling=false (per CODE_0192C9 Y=3, ROM ceiling range is
@@ -413,8 +386,7 @@ export function applyYSpeed(
       // dropping it into the void — the cause of the level $006
       // bouncing-Para-Goomba glitch.
       for (let c = colL; c <= colR; c++) {
-        const cell = getL1(c, row)
-        if (cell !== null && !cell.isPriority && cell.collision?.ceiling) { hit = true; break }
+        if (collision.ceilingV(c, row)) { hit = true; break }
       }
     } else {
       // Legacy fallback when getL1 isn't supplied (synthetic test grids
@@ -429,7 +401,7 @@ export function applyYSpeed(
       if (stepY > 0) {
         // Snap to slope surface at the sprite's center X so the bounce
         // arc touches the actual terrain profile instead of the flat tile top.
-        const surfaceY = getL1 ? getSurfaceY(s.x + BODY_W / 2, row, getL1) : row * 16
+        const surfaceY = collision ? collision.surfaceYAt(s.x + BODY_W / 2, row) : row * 16
         s.y = surfaceY - BODY_H
         s.vy = 0; s.sy = 0; s.ground = true
       } else {
@@ -441,7 +413,7 @@ export function applyYSpeed(
     s.y = nextY
     remaining--
   }
-  s.ground = sittingOnFloor(s, solidV, levelRows, getL1)
+  s.ground = sittingOnFloor(s, solidV, levelRows, collision)
 }
 
 /**
@@ -464,15 +436,11 @@ export function simulateCyclePolyline(
   levelRows:  number,
   getL1?:     GetL1Tile,
 ): { points: { x: number; y: number }[]; openEnd: boolean } {
-  const startCol = Math.floor((spawnX + 8) / 16)
-  let groundRow = Math.floor((spawnY + BODY_H) / 16)
-  for (let r = groundRow; r < levelRows; r++) {
-    if (solidV(startCol, r)) { groundRow = r; break }
-    if (getL1 && spriteSlope(getL1, startCol, r)) { groundRow = r; break }
-  }
-  const restingY = getL1
-    ? getSurfaceY(spawnX + BODY_W / 2, groundRow, getL1) - BODY_H
-    : groundRow * 16 - BODY_H
+  const collision = getL1 ? spriteCollisionFromL1(getL1) : undefined
+  const startCol  = Math.floor((spawnX + 8) / 16)
+  const startRow  = Math.floor((spawnY + BODY_H) / 16)
+  const groundRow = collision?.findFloorRowBelow(startCol, startRow, levelRows) ?? startRow
+  const restingY  = (collision?.surfaceYAt(spawnX + BODY_W / 2, groundRow) ?? groundRow * 16) - BODY_H
 
   const s: BouncingState = {
     x: spawnX, y: restingY,
@@ -502,10 +470,10 @@ export function simulateCyclePolyline(
 }
 
 function sittingOnFloor(
-  s:         BouncingState,
-  solidV:    SolidV,
-  levelRows: number,
-  getL1?:    GetL1Tile,
+  s:          BouncingState,
+  solidV:     SolidV,
+  levelRows:  number,
+  collision?: SpriteCollision,
 ): boolean {
   const row = Math.floor((s.y + BODY_H) / 16)
   if (row >= levelRows) return false
@@ -518,13 +486,13 @@ function sittingOnFloor(
   // floor predicate is being overridden). Filters priority cells the
   // same way solidV does — priority-1 decorations must never count as
   // ground.
-  if (getL1) {
+  if (collision) {
     const centerX  = s.x + BODY_W / 2
     const colC     = Math.floor(centerX / 16)
-    const slope    = spriteSlope(getL1, colC, row)
+    const slope    = collision.slopeAt(colC, row)
     if (slope) {
       const pxInTile = Math.max(0, Math.min(15, Math.floor(centerX) - colC * 16))
-      if ((s.y + BODY_H) >= row * 16 + (slope.heights[pxInTile] & 0x0F)) return true
+      if ((s.y + BODY_H) >= row * 16 + (slope.heights[pxInTile]! & 0x0F)) return true
     }
   }
   return false
