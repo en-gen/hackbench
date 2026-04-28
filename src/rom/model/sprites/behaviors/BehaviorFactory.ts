@@ -4,7 +4,9 @@ import { BouncingKoopaBehavior } from './BouncingKoopaBehavior'
 import { FlyingLeftKoopaBehavior } from './FlyingLeftKoopaBehavior'
 import { HopFlameBehavior } from './HopFlameBehavior'
 import { KoopaWalkBehavior, propsFromSpriteId } from './KoopaWalkBehavior'
+import { BlurpBehavior } from './BlurpBehavior'
 import { LineBrownPlatBehavior } from './LineBrownPlatBehavior'
+import { RipVanFishBehavior } from './RipVanFishBehavior'
 import { SinusoidalParaKoopaBehavior } from './SinusoidalParaKoopaBehavior'
 import { SuperKoopaBehavior } from './SuperKoopaBehavior'
 import { WingedGoombaBehavior } from './WingedGoombaBehavior'
@@ -56,6 +58,10 @@ export function buildMovementBehavior(
       return Object.assign(new SinusoidalParaKoopaBehavior({ axis: 'horizontal' }, meta), common)
     case 0x1D:
       return Object.assign(new HopFlameBehavior(meta), common)
+    case 0x3D:
+      return Object.assign(new RipVanFishBehavior(meta), common)
+    case 0xC2:
+      return Object.assign(new BlurpBehavior(meta), common)
     case 0x62:
       return Object.assign(new LineBrownPlatBehavior(meta), common)
     case 0x71: case 0x72: case 0x73:

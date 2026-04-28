@@ -10,6 +10,7 @@ import { Sprite } from './sprites/Sprite'
 import { CompositeSprite } from './sprites/CompositeSprite'
 import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
+import { RipVanFishAppearance } from './sprites/appearances/RipVanFishAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
@@ -113,6 +114,13 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
       bodyParts:      a.bodyParts.map(partDescriptor),
       alertFace:      a.alertFace.map(partDescriptor),
       aggressiveFace: a.aggressiveFace.map(partDescriptor),
+    }
+  }
+  if (a instanceof RipVanFishAppearance) {
+    return {
+      kind: 'ripVanFish',
+      idleParts:     a.idleParts.map(partDescriptor),
+      detectedParts: a.detectedParts.map(partDescriptor),
     }
   }
   if (a instanceof WingedSpriteAppearance) {

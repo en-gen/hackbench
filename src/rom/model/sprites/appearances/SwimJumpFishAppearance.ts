@@ -1,9 +1,7 @@
 import { type GetL1Tile, type OverlayContext } from '../../OverlayContext'
 import {
-  COLORS,
-  drawApexLine,
-  drawCorridor,
-  drawVertLane,
+  COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH,
+  rgba, WALL_ALPHA, WALL_LINE_WIDTH,
 } from '../../overlays/primitives'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
 
@@ -134,6 +132,12 @@ const FISH_PATH: readonly { x: number; y: number; state: 0 | 1 }[] = (() => {
 const FISH_BOUNDS = (() => {
   let minX = 0, maxX = 0, minY = 0, maxY = 0
   let swimMinX = 0, swimMaxX = 0
+  // jumpX = sprite X at the moment state transitions from swim (0) to jump
+  // (1). UpdateXPosNoGrvty zeroes XSpeed during jump (`CODE_02E788`), so the
+  // fish hangs at this X for the entire ascent — the vertical jump column
+  // belongs at this offset, not at the spawn X.
+  let jumpX: number | null = null
+  let prevState: 0 | 1 = 0
   for (const p of FISH_PATH) {
     if (p.x < minX) minX = p.x
     if (p.x > maxX) maxX = p.x
@@ -143,8 +147,10 @@ const FISH_BOUNDS = (() => {
       if (p.x < swimMinX) swimMinX = p.x
       if (p.x > swimMaxX) swimMaxX = p.x
     }
+    if (jumpX === null && prevState === 0 && p.state === 1) jumpX = p.x
+    prevState = p.state
   }
-  return { minX, maxX, minY, maxY, swimMinX, swimMaxX }
+  return { minX, maxX, minY, maxY, swimMinX, swimMaxX, jumpX: jumpX ?? 0 }
 })()
 
 export class SwimJumpFishAppearance extends StaticSpriteAppearance {
@@ -154,12 +160,15 @@ export class SwimJumpFishAppearance extends StaticSpriteAppearance {
 
   /**
    * $47 movement is an **upside-down T**:
-   *   - Horizontal "swim band" at the water-level row (swim state).
-   *   - Vertical "jump column" centered on spawn X rising to apex-Y
+   *   - Horizontal "swim line" at the water-level row (swim state).
+   *   - Vertical "jump line" centered on spawn X rising to apex-Y
    *     (jump state — the fish launches straight up, water drag keeps the
    *     horizontal excursion near zero during the jump state).
-   * The overlay renders those as two distinct primitives that meet at the
-   * spawn column, plus an apex line marking the peak height.
+   *
+   * Same vocabulary as the koopa-walk and Cheep-Cheep patrols: dashed
+   * centerline along each axis, solid endcap stubs perpendicular to the
+   * axis at each reversal/apex point. `COLORS.patrolPath` keeps the
+   * lime-green accent consistent across all back-and-forth overlays.
    */
   override renderOverlay(
     ctx:        OverlayContext,
@@ -172,42 +181,48 @@ export class SwimJumpFishAppearance extends StaticSpriteAppearance {
   ): void {
     if (!isActive) return
 
-    const { minY, swimMinX, swimMaxX } = FISH_BOUNDS
+    const { minY, swimMinX, swimMaxX, jumpX } = FISH_BOUNDS
+    const color        = COLORS.patrolPath
+    const ENDCAP_HALF  = 8
     const spawnCenterX = x + 8
-    const swimLeftX  = x + swimMinX
-    const swimRightX = x + swimMaxX
-    // Swim band is 2 tiles tall (spawn row + row below) so the lane reads
-    // clearly with the sprite body drawn on top of the spawn row.
-    const swimTopY    = y
-    const swimBottomY = y + 32
-    const jumpTopY    = y + minY        // minY is negative (apex above spawn)
-    // Jump column: sprite-body-wide (16 px), centered on spawn column.
-    const JUMP_HALFW = 8
+    const swimY        = y + 8                    // swim centerline (sprite midline)
+    // Per CODE_02E74E: misc157C starts 0 (no init touches it), so the very
+    // first frame nudges the fish RIGHT by +1.25 px (subX = +320), then it
+    // sweeps left for the rest of the cycle. That +1.25 stub sits right at
+    // the sprite's body and reads as the line "starting in front" of the
+    // fish in the editor; clamp it to the spawn center so the swim line
+    // visually starts AT the sprite and extends left into the corridor it
+    // actually patrols (-78.75 px from spawn).
+    const swimLeftX    = x + Math.min(swimMinX, 0)
+    const swimRightX   = spawnCenterX
+    // Vertical jump column at the X where the fish enters the jump state
+    // (XSpeed is zeroed for the duration of the ascent, so the column is a
+    // vertical line at exactly this offset, not at the spawn X).
+    const jumpColX     = spawnCenterX + jumpX
+    const jumpTopY     = y + minY                 // minY is negative (apex above spawn)
 
     ctx.save()
 
-    // Jump column (upside-down T's vertical stroke).
-    drawVertLane(ctx, spawnCenterX, jumpTopY, swimTopY, JUMP_HALFW, COLORS.tealJump)
+    // Dashed lines — swim centerline (horizontal) + jump centerline (vertical).
+    ctx.lineWidth   = DASH_LINE_WIDTH
+    ctx.strokeStyle = rgba(color, DASH_ALPHA)
+    ctx.setLineDash([...DEFAULT_DASH])
+    ctx.beginPath()
+    ctx.moveTo(swimLeftX, swimY); ctx.lineTo(swimRightX, swimY)
+    ctx.moveTo(jumpColX,  swimY); ctx.lineTo(jumpColX,   jumpTopY)
+    ctx.stroke()
+    ctx.setLineDash([])
 
-    // Swim band (upside-down T's horizontal stroke). Solid walls on left/
-    // right boundaries since those come from simulated movement extents,
-    // not L1 collision.
-    drawCorridor(
-      ctx,
-      swimLeftX, swimRightX,
-      swimTopY, swimBottomY,
-      COLORS.tealSwim,
-      { solidLeft: true, solidRight: true, solidBottom: true },
-    )
-
-    // Apex line across the jump column's width.
-    drawApexLine(
-      ctx,
-      spawnCenterX - JUMP_HALFW,
-      spawnCenterX + JUMP_HALFW,
-      jumpTopY + 0.5,
-      COLORS.tealJump,
-    )
+    // Solid endcap stubs at each reversal/apex point.
+    //   • Swim left/right ends: vertical stubs (perpendicular to swim).
+    //   • Jump apex: horizontal stub (perpendicular to jump).
+    ctx.lineWidth   = WALL_LINE_WIDTH
+    ctx.strokeStyle = rgba(color, WALL_ALPHA)
+    ctx.beginPath()
+    ctx.moveTo(swimLeftX,  swimY - ENDCAP_HALF); ctx.lineTo(swimLeftX,  swimY + ENDCAP_HALF)
+    ctx.moveTo(swimRightX, swimY - ENDCAP_HALF); ctx.lineTo(swimRightX, swimY + ENDCAP_HALF)
+    ctx.moveTo(jumpColX - ENDCAP_HALF, jumpTopY); ctx.lineTo(jumpColX + ENDCAP_HALF, jumpTopY)
+    ctx.stroke()
 
     ctx.restore()
   }

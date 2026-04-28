@@ -12,6 +12,7 @@ import {
   type SpritePart,
 } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
+import { RipVanFishAppearance } from './sprites/appearances/RipVanFishAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { ThwimpAppearance } from './sprites/appearances/ThwimpAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
@@ -21,6 +22,7 @@ import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppear
 import { CheepCheepAppearance } from './sprites/appearances/CheepCheepAppearance'
 import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppearance'
 import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearance'
+import { BlurpAppearance } from './sprites/appearances/BlurpAppearance'
 import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
 import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
@@ -174,6 +176,7 @@ function buildAppearance(
       if (spriteId === 0x47) return new SwimJumpFishAppearance(parts)
       if (spriteId === 0x1D) return new HopFlameAppearance(parts)
       if (spriteId === 0x27) return new ThwimpAppearance(parts)
+      if (spriteId === 0xC2) return new BlurpAppearance(parts)
       if (spriteId <= 0x07 || spriteId === 0x0F) return new KoopaAppearance(parts)
       return new StaticSpriteAppearance(parts)
     }
@@ -184,6 +187,11 @@ function buildAppearance(
         buildParts(desc.bodyParts),
         buildParts(desc.alertFace),
         buildParts(desc.aggressiveFace),
+      )
+    case 'ripVanFish':
+      return new RipVanFishAppearance(
+        buildParts(desc.idleParts),
+        buildParts(desc.detectedParts),
       )
     case 'wingedSprite':
       return new WingedSpriteAppearance(

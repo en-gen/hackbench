@@ -40,14 +40,24 @@ const SWITCH_PALACE_COLORS = 4 // yellow, green, red, blue
 /**
  * Blue-P-switch "hidden" tiles. Each entry maps a hidden tile ID to the
  * substitute tile whose Map16 definition supplies the revealed artwork,
- * plus an optional CGRAM-row palette override. Derived from legacy
- * `pSwitchReveal()` in the map-editor webview (bank_00.asm CODE_00F545,
- * lines 12111-12116 for door palette).
+ * plus an optional CGRAM-row palette override.
+ *
+ * $27/$28/$29 mirror `CODE_00F545` (bank_00.asm:13410) — the silver
+ * doors and the hidden ?-block, all of which transform during blue
+ * P-switch.
+ *
+ * $2A is an editor-UX inclusion, not a strict `CODE_00F545` port. The
+ * tile's native Map16 visual in many tilesets (e.g. tileset 9 used in
+ * level $00A) is transparent — vanilla level data uses $2A in
+ * "hidden coin" arrow patterns that designers want to see in the
+ * editor. Substituting the $2B coin artwork at 50% opacity when the
+ * blue P-switch is inactive (and 100% when toggled on) gives the
+ * preview the designer expects.
  *
  *   $27  silver door top     → chars of $1F, palette 4 (silver/blue)
  *   $28  silver door bottom  → chars of $20, palette 4
  *   $29  hidden ? block      → chars of $24 (same palette)
- *   $2A  hidden coin         → chars of $2B (same palette)
+ *   $2A  hidden coin (UX)    → chars of $2B (same palette)
  */
 interface PSwitchRevealEntry {
   readonly substitute: number
