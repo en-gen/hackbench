@@ -174,7 +174,7 @@ function buildAppearance(
       if (spriteId === 0x47) return new SwimJumpFishAppearance(parts)
       if (spriteId === 0x1D) return new HopFlameAppearance(parts)
       if (spriteId === 0x27) return new ThwimpAppearance(parts)
-      if (spriteId >= 0x04 && spriteId <= 0x07) return new KoopaAppearance(parts)
+      if (spriteId <= 0x07 || spriteId === 0x0F) return new KoopaAppearance(parts)
       return new StaticSpriteAppearance(parts)
     }
     case 'pSwitch':

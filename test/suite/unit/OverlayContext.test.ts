@@ -98,9 +98,16 @@ describe('isPriorityDecorative', () => {
     expect(isPriorityDecorative(tile)).toBe(true)
   })
 
-  it('returns false when any subtile lacks priority', () => {
-    const mixed = [priority(true), priority(true), priority(false), priority(true)]
-    expect(isPriorityDecorative({ behavior: { quad: mixed } })).toBe(false)
+  it('returns false when any subtile lacks priority (mixed quad)', () => {
+    // Mixed-priority tiles stay collision-bearing. A platform whose
+    // leftmost subtile blends decoratively with a trunk (one priority
+    // subtile, three solid) MUST register as floor — relaxing this caused
+    // SurfacePath to skip platforms and collapsed the koopa $05 patrol
+    // corridor in level $11E.
+    const oneOfFour = [priority(true), priority(false), priority(false), priority(false)]
+    expect(isPriorityDecorative({ behavior: { quad: oneOfFour } })).toBe(false)
+    const threeOfFour = [priority(true), priority(true), priority(false), priority(true)]
+    expect(isPriorityDecorative({ behavior: { quad: threeOfFour } })).toBe(false)
   })
 
   it('returns false for dynamic-behavior tiles (no stable quad)', () => {

@@ -159,18 +159,24 @@ interface QuadExposingBehavior {
 /**
  * True when this tile renders as a foreground-decorative (priority-1) cell
  * that does not participate in sprite collision. Priority-1 tiles draw in
- * front of sprites and are treated as passable by the game's sprite-tile
- * interaction routines (CODE_019140 and friends) — they're LM-style
- * foreground overlays like grass tufts, backdrop tubes, forest columns.
+ * front of sprites so the sprite visually passes behind them — the editor
+ * mirrors that by short-circuiting `solidV`/`solidH` to passable. SMW's
+ * actual sprite-tile collision routines (`CODE_01928E`, `CODE_0192C9`,
+ * `CODE_01933B`) key off the Map16 tile's `actsLike` low byte alone; the
+ * priority bit is a render-order flag, not a collision flag. The editor's
+ * heuristic exists only because designers reading an overlay expect the
+ * "draws on top" relationship to mean "passable".
  *
- * We only inspect the `quad` on `StaticQuadBehavior` tiles because they
- * expose a stable four-subtile quad without needing a render context.
- * Dynamic-behavior tiles (pipes, P-switch reveal) fall through as
- * non-decorative — their actsLike value alone decides solidity.
+ * Requires ALL FOUR subtiles to carry the priority bit. Mixed-priority
+ * tiles (e.g. a platform whose leftmost subtile blends decoratively with
+ * a forest trunk) stay collision-bearing — relaxing this to "any
+ * priority subtile" caused the level $11E red-koopa $05 patrol corridor
+ * to collapse, because `SurfacePath` then skipped the platform tile and
+ * the sprite saw a ledge right next to itself.
  *
- * All four subtiles must carry the priority bit; a mixed quad (e.g. a pipe
- * top with priority on the rim tiles only) is treated as a normal collision
- * tile.
+ * Returns false for tiles whose behavior doesn't expose a quad (pipes,
+ * P-switch reveals, etc.) — those tiles' solidity is decided by their
+ * actsLike directly.
  */
 export function isPriorityDecorative(tile: { behavior: unknown }): boolean {
   const b = tile.behavior as QuadExposingBehavior

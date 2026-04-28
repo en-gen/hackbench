@@ -383,7 +383,9 @@ export function buildSprites(
       appearance = new SwimJumpFishAppearance(parts)
     } else if (s.spriteId === 0x1D) {
       appearance = new HopFlameAppearance(parts)
-    } else if (s.spriteId >= 0x04 && s.spriteId <= 0x07) {
+    } else if (s.spriteId <= 0x07 || s.spriteId === 0x0F) {
+      // $00-$07 shelless + shelled koopas, $0F Goomba — all ground walkers
+      // with KoopaWalkBehavior; KoopaAppearance draws the patrol-path overlay.
       appearance = new KoopaAppearance(parts)
     } else {
       appearance = new StaticSpriteAppearance(parts)

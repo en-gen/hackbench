@@ -110,6 +110,12 @@ export function propsFromSpriteId(id: number): KoopaWalkConfig {
   // Slow speed = $0C (prop bit 6 set); fast = $08.
   const SLOW = 0x0C, FAST = 0x08
   switch (id) {
+    // Shelless Koopas ($00-$03) — Spr0to13Prop: $00,$02,$03,$0D (bank_01.asm:1393).
+    // Prop bit 1 = "stay on ledges" (turnsAtLedges). No shell → short body (tall=false).
+    case 0x00: return { turnsAtLedges: false, tall: false, walkSpeed: FAST }  // prop $00
+    case 0x01: return { turnsAtLedges: true,  tall: false, walkSpeed: FAST }  // prop $02 — bit 1 set
+    case 0x02: return { turnsAtLedges: true,  tall: false, walkSpeed: FAST }  // prop $03 — bit 1 set
+    case 0x03: return { turnsAtLedges: false, tall: false, walkSpeed: FAST }  // prop $0D — bit 1 clear
     case 0x04: return { turnsAtLedges: false, tall: true,  walkSpeed: SLOW }  // prop $40
     case 0x05: return { turnsAtLedges: true,  tall: true,  walkSpeed: SLOW }  // prop $42
     case 0x06: return { turnsAtLedges: true,  tall: true,  walkSpeed: SLOW }  // prop $43

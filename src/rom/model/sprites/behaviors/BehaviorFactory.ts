@@ -7,6 +7,7 @@ import { KoopaWalkBehavior, propsFromSpriteId } from './KoopaWalkBehavior'
 import { LineBrownPlatBehavior } from './LineBrownPlatBehavior'
 import { SinusoidalParaKoopaBehavior } from './SinusoidalParaKoopaBehavior'
 import { SuperKoopaBehavior } from './SuperKoopaBehavior'
+import { WingedGoombaBehavior } from './WingedGoombaBehavior'
 
 /**
  * Single dispatch site that builds the `SpriteBehavior` for a given sprite
@@ -37,11 +38,14 @@ export function buildMovementBehavior(
     reactRangeDy: meta.reactRangeDy,
   }
   switch (spriteId) {
+    case 0x00: case 0x01: case 0x02: case 0x03:
     case 0x04: case 0x05: case 0x06: case 0x07:
     case 0x0C: case 0x0F: {
       const behavior = new KoopaWalkBehavior(propsFromSpriteId(spriteId), meta)
       return Object.assign(behavior, common)
     }
+    case 0x10:
+      return Object.assign(new WingedGoombaBehavior(meta), common)
     case 0x08:
       return Object.assign(new FlyingLeftKoopaBehavior(meta), common)
     case 0x09:

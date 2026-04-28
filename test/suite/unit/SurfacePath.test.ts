@@ -117,7 +117,13 @@ describe('SurfacePath.surfacesAt — per-column compute', () => {
     expect(path.surfacesAt(2)[0].floorRow).toBe(0)
   })
 
-  it('priority-decorative grass at floor row + solid below: only the solid emits', () => {
+  it('priority-decorative grass with hasFloor stacked on solid: silhouette is on the grass', () => {
+    // SurfacePath emits surfaces purely from `hasFloor` (actsLike-driven),
+    // not from priority. SMW's collision routines key off actsLike alone;
+    // the priority bit is a render-order flag, not a collision flag.
+    // When a priority-decorative tile with hasFloor=true sits on a solid
+    // tile, the silhouette is on the priority tile (the topmost solid
+    // surface) and the cell below is silhouette-suppressed.
     const { getL1, cols, rows } = buildGrid([
       '.....',
       '..G..',
@@ -125,7 +131,7 @@ describe('SurfacePath.surfacesAt — per-column compute', () => {
     ], { 'G': GRASS, '#': FLAT })
     const path = buildSurfacePath(getL1, cols, rows)
     expect(path.surfacesAt(2)).toEqual([
-      { yLeft: 32, yRight: 32, yMid: 32, floorRow: 2 },
+      { yLeft: 16, yRight: 16, yMid: 16, floorRow: 1 },
     ])
   })
 

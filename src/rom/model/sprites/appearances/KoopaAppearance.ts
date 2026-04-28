@@ -1,7 +1,7 @@
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import {
   COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH,
-  drawSpawnDrop, rgba, WALL_ALPHA, WALL_LINE_WIDTH,
+  drawArrowHead, drawSpawnDrop, rgba, WALL_ALPHA, WALL_LINE_WIDTH,
 } from '../../overlays/primitives'
 import { buildSurfacePath, type SurfaceEntry } from '../../SurfacePath'
 import { KoopaWalkBehavior } from '../behaviors/KoopaWalkBehavior'
@@ -24,7 +24,10 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  *     turns around there (wall or turnLedge — `solidLeft`/`solidRight`).
  *   - **Dashed L-extension** past a fallLedge (only one side, decided by
  *     `fallSide`) shows the koopa walks off and falls. The dashed line
- *     turns 90° at the ledge and drops two tiles below the floor.
+ *     turns 90° at the ledge and drops one tile below the floor into the pit.
+ *   - **Toward-Mario clipping**: non-turning sprites (fall-off walkers like
+ *     $04, $07, $0F) show only the corridor arm from spawn toward Mario when
+ *     `marioSpawnX` is available. Both arms are shown for turning sprites.
  *   - **Spawn drop**: dotted vertical line if the sprite spawns airborne.
  *
  * Color is `COLORS.patrolPath` — same lime accent every patrol-style
@@ -37,14 +40,15 @@ export class KoopaAppearance extends StaticSpriteAppearance {
   }
 
   override renderOverlay(
-    ctx:       OverlayContext,
-    x:         number,
-    y:         number,
-    isActive:  boolean,
-    getL1:     GetL1Tile,
-    levelCols: number,
-    levelRows: number,
-    behavior?: SpriteBehavior,
+    ctx:          OverlayContext,
+    x:            number,
+    y:            number,
+    isActive:     boolean,
+    getL1:        GetL1Tile,
+    levelCols:    number,
+    levelRows:    number,
+    behavior?:    SpriteBehavior,
+    marioSpawnX?: number,
   ): void {
     if (!isActive || !(behavior instanceof KoopaWalkBehavior)) return
     const { solidH, solidV } = solidityFromL1(getL1)
@@ -110,61 +114,96 @@ export class KoopaAppearance extends StaticSpriteAppearance {
     }
     if (bottom.length < 2) return
 
-    const BODY_H    = 32   // sprite body height — 2 tiles for koopas
-    const HALF_BODY = 16   // 50% sprite height — patrol line offset from floor
-    const FALL_HORIZ = 32  // dashed extension past a fall ledge
-    const FALL_VERT  = 32  // dashed drop length below the floor
+    const BODY_H     = behavior.tall ? 32 : 16  // 2 tiles for koopas, 1 tile for goombas
+    const HALF_BODY  = BODY_H / 2              // patrol centerline offset from floor
+    const FALL_HORIZ = HALF_BODY               // L-arm horizontal = same as centerline height
+    const FALL_DEPTH = 16                      // extra drop below floor into the pit
     const last  = bottom.length - 1
     const color = COLORS.patrolPath
+
+    // Non-turning sprites (fall-off walkers) show only the toward-Mario arm
+    // of the patrol corridor when marioSpawnX is known AND the toward-Mario
+    // terminus is an open fall (no wall to bounce off). If the toward-Mario
+    // side ends at a wall the sprite will flip and patrol back the other way,
+    // so both arms are shown. Both arms are always shown for turning sprites
+    // (perpetual patrol) or when Mario's position is unavailable.
+    let startIdx = 0, endIdx = last
+    if (!behavior.turnsAtLedges && marioSpawnX !== undefined) {
+      const towardLeft = marioSpawnX < x + 8
+      const towardMarioWalled = towardLeft ? solidLeft : solidRight
+      if (!towardMarioWalled) {
+        const sprColPx = sprCol * 16
+        let pivotIdx = bottom.findIndex(([bx]) => bx >= sprColPx)
+        if (pivotIdx < 0) pivotIdx = last
+        if (towardLeft) endIdx   = pivotIdx
+        else            startIdx = pivotIdx
+      }
+    }
+
+    const showLeftFall  = r.fallSide === 'left'  && startIdx === 0
+    const showRightFall = r.fallSide === 'right' && endIdx   === last
 
     ctx.save()
 
     // Dashed patrol path — single polyline at sprite midline. Includes the
-    // L-fall extension on whichever side `fallSide` is set: the line bends
-    // 90° past the ledge and drops below the floor (open bottom — koopa
-    // keeps falling past the rendered drop zone).
+    // L-fall extension on whichever side `fallSide` is visible: the line
+    // bends 90° past the ledge and drops one tile below the floor level
+    // (open bottom — sprite keeps falling past the rendered drop zone).
     ctx.lineWidth   = DASH_LINE_WIDTH
     ctx.strokeStyle = rgba(color, DASH_ALPHA)
     ctx.setLineDash([...DEFAULT_DASH])
     ctx.beginPath()
 
-    if (r.fallSide === 'left') {
+    if (showLeftFall) {
       const fallEndX = bottom[0][0] - FALL_HORIZ
-      const fallBotY = bottom[0][1] + FALL_VERT
       const midY     = bottom[0][1] - HALF_BODY
-      ctx.moveTo(fallEndX, fallBotY)         // bottom of drop (open at this end)
-      ctx.lineTo(fallEndX, midY)             // up the far edge to midline
-      ctx.lineTo(bottom[0][0], midY)         // across to corridor start
+      const fallBotY = bottom[0][1] + FALL_DEPTH  // one tile below floor into the pit
+      ctx.moveTo(fallEndX, fallBotY)               // bottom of drop (open at this end)
+      ctx.lineTo(fallEndX, midY)                   // up the far edge to midline
+      ctx.lineTo(bottom[startIdx][0], midY)        // across to corridor start
     } else {
-      ctx.moveTo(bottom[0][0], bottom[0][1] - HALF_BODY)
+      ctx.moveTo(bottom[startIdx][0], bottom[startIdx][1] - HALF_BODY)
     }
 
-    for (let i = 1; i <= last; i++) {
+    for (let i = startIdx + 1; i <= endIdx; i++) {
       ctx.lineTo(bottom[i][0], bottom[i][1] - HALF_BODY)
     }
 
-    if (r.fallSide === 'right') {
+    if (showRightFall) {
       const fallEndX = bottom[last][0] + FALL_HORIZ
-      const fallBotY = bottom[last][1] + FALL_VERT
       const midY     = bottom[last][1] - HALF_BODY
-      ctx.lineTo(fallEndX, midY)             // continue across past ledge
-      ctx.lineTo(fallEndX, fallBotY)         // drop down (open bottom)
+      const fallBotY = bottom[last][1] + FALL_DEPTH  // one tile below floor into the pit
+      ctx.lineTo(fallEndX, midY)                      // continue across past ledge
+      ctx.lineTo(fallEndX, fallBotY)                  // drop down into the pit
     }
 
     ctx.stroke()
     ctx.setLineDash([])
 
-    // Solid vertical line at each turnaround boundary (wall or turnLedge).
+    // Downward arrowhead at the open bottom of each L-fall drop zone,
+    // indicating the koopa continues falling past the drawn range.
+    if (showLeftFall) {
+      const fallEndX = bottom[0][0] - FALL_HORIZ
+      const fallBotY = bottom[0][1] + FALL_DEPTH
+      drawArrowHead(ctx, fallEndX, fallBotY, fallEndX, fallBotY - FALL_DEPTH, color, DASH_ALPHA)
+    }
+    if (showRightFall) {
+      const fallEndX = bottom[last][0] + FALL_HORIZ
+      const fallBotY = bottom[last][1] + FALL_DEPTH
+      drawArrowHead(ctx, fallEndX, fallBotY, fallEndX, fallBotY - FALL_DEPTH, color, DASH_ALPHA)
+    }
+
+    // Solid vertical line at each visible turnaround boundary (wall or turnLedge).
     // Drawn full body height so it reads as "sprite stops here".
-    if (solidLeft || solidRight) {
+    if ((solidLeft && startIdx === 0) || (solidRight && endIdx === last)) {
       ctx.lineWidth   = WALL_LINE_WIDTH
       ctx.strokeStyle = rgba(color, WALL_ALPHA)
       ctx.beginPath()
-      if (solidLeft) {
+      if (solidLeft && startIdx === 0) {
         ctx.moveTo(bottom[0][0], bottom[0][1] - BODY_H)
         ctx.lineTo(bottom[0][0], bottom[0][1])
       }
-      if (solidRight) {
+      if (solidRight && endIdx === last) {
         ctx.moveTo(bottom[last][0], bottom[last][1] - BODY_H)
         ctx.lineTo(bottom[last][0], bottom[last][1])
       }
@@ -175,7 +214,12 @@ export class KoopaAppearance extends StaticSpriteAppearance {
       // Find the floor Y at the spawn column's centre pixel for the drop line.
       const spawnPx  = x + 8
       const spawnCol = Math.floor(spawnPx / 16)
-      const spawnSlope = getL1(spawnCol, spawnFloorRow)?.collision?.slope
+      // Priority-1 cells pass through sprite collision — they should not
+      // contribute slope-snap data to the spawn-drop line.
+      const spawnCell  = getL1(spawnCol, spawnFloorRow)
+      const spawnSlope = spawnCell && !spawnCell.isPriority
+        ? spawnCell.collision?.slope
+        : undefined
       const spawnFloorY = spawnSlope
         ? spawnFloorRow * 16 + (spawnSlope.heights[spawnPx - spawnCol * 16] & 0x0F)
         : r.bottomY
