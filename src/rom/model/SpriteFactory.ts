@@ -254,11 +254,18 @@ export function buildSprites(
     }
 
     // $71/$72/$73 (Super Koopa). airborne L1-probe stays in factory
-    // (one-line check; see CANNOT MIGRATE note above).
+    // (one-line check; see CANNOT MIGRATE note above). The cell directly
+    // below the sprite is "ground" only if its tile resolves to a solid
+    // floor (per TileFactory.classify) — page-0 decoration tiles like
+    // $02D/$02E/$0A3 (the foreground bushes / clouds in level $00D)
+    // sit visually behind the sprite and must NOT pin it to the grounded
+    // pose. Mirrors `CODE_01928E` page-0 BEQ-skip semantics.
     if (s.spriteId === 0x71 || s.spriteId === 0x72 || s.spriteId === 0x73) {
       const spritePx  = s.x * 16
       const faceRight = marioStartPx.x >= spritePx
-      const airborne  = l1[s.y + 1]?.[s.x] === null || l1[s.y + 1]?.[s.x] === undefined
+      const belowId   = l1[s.y + 1]?.[s.x] ?? null
+      const belowTile = belowId !== null ? l1Tiles.get(belowId) : undefined
+      const airborne  = !belowTile?.collision.floor
       out.push(new Sprite(
         s.spriteId, spritePx, s.y * 16,
         SuperKoopaAppearance.fromTables(
