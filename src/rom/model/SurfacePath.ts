@@ -142,7 +142,15 @@ export function buildSurfacePath(
     let aboveIsFloor = false  // tracks any-floor at (c, r-1) for silhouette suppression
     for (let r = 0; r < rows; r++) {
       const cell = getL1(c, r)
-      if (cell === null || cell.isPriority) {
+      // SurfacePath emits surfaces for ALL hasFloor cells, including
+      // priority-decorative ones. SMW's sprite-tile collision routines
+      // (CODE_01928E / CODE_0192C9 / CODE_01933B) and Mario's CODE_00F545
+      // key off the Map16 tile's actsLike low byte — the priority bit is
+      // a render-order flag, not a collision flag. Skipping priority cells
+      // here previously collapsed level $11E patrol corridors when the
+      // forest pillars (entirely priority columns) included the platform
+      // tile $10D in the trunk's column.
+      if (cell === null) {
         aboveIsFloor = false
         continue
       }

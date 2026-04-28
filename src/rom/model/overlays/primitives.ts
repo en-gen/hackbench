@@ -417,6 +417,44 @@ export function drawFallL(
 }
 
 /**
+ * Draw a small open-chevron arrowhead (→ / ↓ / ← / ↑) at `(tipX, tipY)`
+ * pointing in the direction from `(fromX, fromY)` to the tip. Used on
+ * open-ended dashed lines to signal "sprite continues past this point"
+ * (L-fall extension, fade corridors, bounce arcs that exit the playfield).
+ *
+ * The two legs of the chevron are `size` pixels long and meet at the tip
+ * at a 90° angle. Drawn solid (no dash) in the same colour and alpha as
+ * the dashed path so the arrowhead reads as part of the same indicator.
+ */
+export function drawArrowHead(
+  ctx:   OverlayContext,
+  tipX:  number,
+  tipY:  number,
+  fromX: number,
+  fromY: number,
+  color: RGBA,
+  alpha: number,
+  size:  number = 5,
+): void {
+  const dx = tipX - fromX
+  const dy = tipY - fromY
+  const len = Math.sqrt(dx * dx + dy * dy)
+  if (len < 0.5) return
+  const ux = dx / len, uy = dy / len   // unit toward tip
+  const px = -uy,      py = ux          // perpendicular
+  ctx.save()
+  ctx.strokeStyle = rgba(color, alpha)
+  ctx.lineWidth   = DASH_LINE_WIDTH
+  ctx.setLineDash([])
+  ctx.beginPath()
+  ctx.moveTo(tipX - ux * size + px * size, tipY - uy * size + py * size)
+  ctx.lineTo(tipX, tipY)
+  ctx.lineTo(tipX - ux * size - px * size, tipY - uy * size - py * size)
+  ctx.stroke()
+  ctx.restore()
+}
+
+/**
  * Scan columns of a grid in a direction (-1 left, +1 right) from `startCol`,
  * returning the pixel X at the nearest solid boundary. Used to derive patrol
  * corridor widths from the L1 acts-like grid. If no solid column is found

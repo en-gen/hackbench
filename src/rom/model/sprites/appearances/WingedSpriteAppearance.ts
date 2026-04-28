@@ -1,12 +1,13 @@
 import { type GetL1Tile, type OverlayContext } from '../../OverlayContext'
 import {
-  COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH, rgba,
+  COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH, drawArrowHead, rgba,
 } from '../../overlays/primitives'
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
 import { BouncingKoopaBehavior } from '../behaviors/BouncingKoopaBehavior'
 import { FlyingLeftKoopaBehavior } from '../behaviors/FlyingLeftKoopaBehavior'
 import { KoopaWalkBehavior } from '../behaviors/KoopaWalkBehavior'
 import { SinusoidalParaKoopaBehavior } from '../behaviors/SinusoidalParaKoopaBehavior'
+import { WingedGoombaBehavior } from '../behaviors/WingedGoombaBehavior'
 import { solidityFromL1 } from '../MovementBehavior'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
@@ -105,13 +106,34 @@ export class WingedSpriteAppearance implements SpriteAppearance {
       // Only the toward-Mario direction is simulated (matches FaceMario init
       // at bank_01.asm:847-850). marioSpawnX defaults to 0 inside the
       // behavior when the level didn't parse Mario's spawn position.
-      const points = behavior.computeBouncePolyline(
-        x, y, solidH, solidV, levelCols, levelRows, marioSpawnX,
+      // getL1 enables slope-aware landing so arcs touch slope surfaces.
+      const { points } = behavior.computeBouncePolyline(
+        x, y, solidH, solidV, levelCols, levelRows, marioSpawnX, getL1,
       )
       strokeDashedPolyline(ctx, points, color)
+      if (points.length >= 2) {
+        const tip  = points[points.length - 1]
+        const from = points[points.length - 2]
+        drawArrowHead(ctx, tip.x, tip.y, from.x, from.y, color, DASH_ALPHA)
+      }
+
+    } else if (behavior instanceof WingedGoombaBehavior) {
+      // $10 Para-Goomba bounce arc — full 4-bounce cycle (3 short + 1 tall),
+      // toward Mario's spawn X (FaceMario init, bank_01.asm:847-850).
+      // getL1 enables slope-aware landing so arcs touch slope surfaces.
+      const { points } = behavior.computeBouncePolyline(
+        x, y, solidH, solidV, levelCols, levelRows, marioSpawnX, getL1,
+      )
+      strokeDashedPolyline(ctx, points, color)
+      if (points.length >= 2) {
+        const tip  = points[points.length - 1]
+        const from = points[points.length - 2]
+        drawArrowHead(ctx, tip.x, tip.y, from.x, from.y, color, DASH_ALPHA)
+      }
 
     } else if (behavior instanceof FlyingLeftKoopaBehavior) {
       // Horizontal dashed line at body-center, fading off to the left.
+      // Arrow at the far end shows the koopa flies indefinitely in that direction.
       const c = behavior.computeFadeCorridor(x, y)
       const midY = c.originY + 8
       ctx.lineWidth   = DASH_LINE_WIDTH
@@ -122,6 +144,7 @@ export class WingedSpriteAppearance implements SpriteAppearance {
       ctx.lineTo(c.endX, midY)
       ctx.stroke()
       ctx.setLineDash([])
+      drawArrowHead(ctx, c.endX, midY, c.originX, midY, color, DASH_ALPHA)
 
     } else if (behavior instanceof SinusoidalParaKoopaBehavior) {
       // Center bar of the sine path — straight dashed line, with the
