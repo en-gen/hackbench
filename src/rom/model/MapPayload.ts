@@ -120,6 +120,11 @@ export type SpriteAppearanceDescriptor =
       aggressiveFace: readonly SpritePartDescriptor[]
     }
   | {
+      kind: 'ripVanFish'
+      idleParts:     readonly SpritePartDescriptor[]
+      detectedParts: readonly SpritePartDescriptor[]
+    }
+  | {
       kind: 'wingedSprite'
       bodyParts: readonly SpritePartDescriptor[]
       wingFrames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]

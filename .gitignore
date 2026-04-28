@@ -96,3 +96,4 @@ build/*
 # Python bytecode caches
 __pycache__/
 *.pyc
+.gitnexus

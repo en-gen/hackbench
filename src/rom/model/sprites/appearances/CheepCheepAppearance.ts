@@ -1,4 +1,9 @@
-import { isActsLikeHorizSolid, isActsLikeVertSolid, type GetL1Tile, type OverlayContext } from '../../OverlayContext'
+import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
+import { solidityFromL1 } from '../MovementBehavior'
+import {
+  COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH,
+  rgba, WALL_ALPHA, WALL_LINE_WIDTH,
+} from '../../overlays/primitives'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
 
 /**
@@ -10,9 +15,17 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  *   $16 — SpriteMisc151C=1 → X=0, Y speed ±8 sub-px/frame.
  *     Bounces on `SpriteBlockedDirs & $0C` (top/bottom walls).
  *
+ * Overlay vocabulary — same as the koopa-walk and sinusoidal-koopa
+ * patrols: dashed centerline along the swim axis, solid endcap stubs
+ * perpendicular to the axis at each reversal point. `COLORS.patrolPath`
+ * keeps the lime-green accent consistent across all back-and-forth
+ * patrol overlays.
+ *
  * Serializes transparently as `{kind:'static'}` — no extra payload needed
  * since the sprite ID in the descriptor drives class selection on rehydration.
  */
+const ENDCAP_HALF = 8  // half body — endcap = sprite-sized stub
+
 export class CheepCheepAppearance extends StaticSpriteAppearance {
   constructor(
     parts: SpritePart[],
@@ -32,15 +45,19 @@ export class CheepCheepAppearance extends StaticSpriteAppearance {
     levelRows: number,
   ): void {
     if (!isActive) return
-    ctx.save()
+    const color = COLORS.patrolPath
+    const centerX = x + 8, centerY = y + 8
+    // Use the canonical sprite-collision predicates (priority-filtered,
+    // ROM-port range checks via `cell.collision`) so the corridor stops at
+    // the same tiles the runtime collision routines treat as solid —
+    // including the `$D8+` "solid from above" walls used in underwater
+    // stages, which `isActsLikeVertSolid` doesn't recognise.
+    const { solidH, solidV } = solidityFromL1(getL1)
+
     if (!this.vertical) {
       // Horizontal: scan left and right at the fish's centre row.
-      const sprRow = Math.floor((y + 8) / 16)
-      const sprCol = Math.floor((x + 8) / 16)
-      const solidH = (c: number, r: number): boolean => {
-        const cell = getL1(c, r)
-        return cell !== null && !cell.isPriority && isActsLikeHorizSolid(cell.actsLike)
-      }
+      const sprRow = Math.floor(centerY / 16)
+      const sprCol = Math.floor(centerX / 16)
       let leftX  = 0
       for (let c = sprCol - 1; c >= 0; c--) {
         if (solidH(c, sprRow)) { leftX = (c + 1) * 16; break }
@@ -49,27 +66,27 @@ export class CheepCheepAppearance extends StaticSpriteAppearance {
       for (let c = sprCol + 1; c < levelCols; c++) {
         if (solidH(c, sprRow)) { rightX = c * 16; break }
       }
-      ctx.fillStyle = 'rgba(0,160,220,0.15)'
-      ctx.fillRect(leftX, y, rightX - leftX, 16)
-      ctx.lineWidth = 1
-      ctx.setLineDash([4, 3])
-      ctx.strokeStyle = 'rgba(0,180,240,0.55)'
-      ctx.strokeRect(leftX + 0.5, y + 0.5, rightX - leftX - 1, 15)
-      ctx.setLineDash([])
-      ctx.lineWidth = 2
-      ctx.strokeStyle = 'rgba(0,180,240,0.90)'
+      ctx.save()
+      ctx.lineWidth   = DASH_LINE_WIDTH
+      ctx.strokeStyle = rgba(color, DASH_ALPHA)
+      ctx.setLineDash([...DEFAULT_DASH])
       ctx.beginPath()
-      ctx.moveTo(leftX,  y); ctx.lineTo(leftX,  y + 16)
-      ctx.moveTo(rightX, y); ctx.lineTo(rightX, y + 16)
+      ctx.moveTo(leftX,  centerY)
+      ctx.lineTo(rightX, centerY)
       ctx.stroke()
+      ctx.setLineDash([])
+      // Vertical endcap stubs at the wall boundaries.
+      ctx.lineWidth   = WALL_LINE_WIDTH
+      ctx.strokeStyle = rgba(color, WALL_ALPHA)
+      ctx.beginPath()
+      ctx.moveTo(leftX,  centerY - ENDCAP_HALF); ctx.lineTo(leftX,  centerY + ENDCAP_HALF)
+      ctx.moveTo(rightX, centerY - ENDCAP_HALF); ctx.lineTo(rightX, centerY + ENDCAP_HALF)
+      ctx.stroke()
+      ctx.restore()
     } else {
       // Vertical: scan up and down at the fish's centre column.
-      const sprCol = Math.floor((x + 8) / 16)
-      const sprRow = Math.floor((y + 8) / 16)
-      const solidV = (c: number, r: number): boolean => {
-        const cell = getL1(c, r)
-        return cell !== null && !cell.isPriority && isActsLikeVertSolid(cell.actsLike)
-      }
+      const sprCol = Math.floor(centerX / 16)
+      const sprRow = Math.floor(centerY / 16)
       let topY    = 0
       for (let r = sprRow - 1; r >= 0; r--) {
         if (solidV(sprCol, r)) { topY = (r + 1) * 16; break }
@@ -78,20 +95,23 @@ export class CheepCheepAppearance extends StaticSpriteAppearance {
       for (let r = sprRow + 1; r < levelRows; r++) {
         if (solidV(sprCol, r)) { bottomY = r * 16; break }
       }
-      ctx.fillStyle = 'rgba(0,160,220,0.15)'
-      ctx.fillRect(x, topY, 16, bottomY - topY)
-      ctx.lineWidth = 1
-      ctx.setLineDash([4, 3])
-      ctx.strokeStyle = 'rgba(0,180,240,0.55)'
-      ctx.strokeRect(x + 0.5, topY + 0.5, 15, bottomY - topY - 1)
-      ctx.setLineDash([])
-      ctx.lineWidth = 2
-      ctx.strokeStyle = 'rgba(0,180,240,0.90)'
+      ctx.save()
+      ctx.lineWidth   = DASH_LINE_WIDTH
+      ctx.strokeStyle = rgba(color, DASH_ALPHA)
+      ctx.setLineDash([...DEFAULT_DASH])
       ctx.beginPath()
-      ctx.moveTo(x, topY);    ctx.lineTo(x + 16, topY)
-      ctx.moveTo(x, bottomY); ctx.lineTo(x + 16, bottomY)
+      ctx.moveTo(centerX, topY)
+      ctx.lineTo(centerX, bottomY)
       ctx.stroke()
+      ctx.setLineDash([])
+      // Horizontal endcap stubs at the wall boundaries.
+      ctx.lineWidth   = WALL_LINE_WIDTH
+      ctx.strokeStyle = rgba(color, WALL_ALPHA)
+      ctx.beginPath()
+      ctx.moveTo(centerX - ENDCAP_HALF, topY);    ctx.lineTo(centerX + ENDCAP_HALF, topY)
+      ctx.moveTo(centerX - ENDCAP_HALF, bottomY); ctx.lineTo(centerX + ENDCAP_HALF, bottomY)
+      ctx.stroke()
+      ctx.restore()
     }
-    ctx.restore()
   }
 }

@@ -10,6 +10,8 @@ import { Sprite } from './sprites/Sprite'
 import { CompositeSprite } from './sprites/CompositeSprite'
 import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
 import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
+import { BlurpAppearance } from './sprites/appearances/BlurpAppearance'
+import { RipVanFishAppearance } from './sprites/appearances/RipVanFishAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { ThwimpAppearance } from './sprites/appearances/ThwimpAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
@@ -118,6 +120,22 @@ export function buildSprites(
       out.push(new Sprite(
         s.spriteId, s.x * 16, s.y * 16,
         BanzaiBillAppearance.fromTables(chars, placeholder),
+        behavior,
+      ))
+      continue
+    }
+
+    // $3D (Rip Van Fish) — custom appearance with cursor-driven idle/detected
+    // pose swap and a 96×96 detection-zone overlay (per CODE_02C02E's
+    // |dx| < $30 && |dy| < $30 wake-up check). Pose tile bases come from
+    // SprTilemap[$E2..$E5] indexed by SpriteMisc1602 — see RipVanFishAppearance.
+    if (s.spriteId === 0x3D) {
+      const attr     = tables.spriteAttr[s.spriteId] ?? 0
+      const palette  = 8 + ((attr >> 1) & 0x07)
+      const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        RipVanFishAppearance.fromTables(chars, palette, charHigh, placeholder),
         behavior,
       ))
       continue
@@ -390,6 +408,8 @@ export function buildSprites(
       appearance = new SwimJumpFishAppearance(parts)
     } else if (s.spriteId === 0x1D) {
       appearance = new HopFlameAppearance(parts)
+    } else if (s.spriteId === 0xC2) {
+      appearance = new BlurpAppearance(parts)
     } else if (s.spriteId <= 0x07 || s.spriteId === 0x0F) {
       // $00-$07 shelless + shelled koopas, $0F Goomba — all ground walkers
       // with KoopaWalkBehavior; KoopaAppearance draws the patrol-path overlay.
