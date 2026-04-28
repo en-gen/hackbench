@@ -5,6 +5,7 @@ import {
   type SolidH,
   type SolidV,
 } from '../MovementBehavior'
+import { spriteCollisionFromL1 } from '../SpriteCollision'
 import {
   applyXSpeed,
   applyYSpeed,
@@ -83,31 +84,13 @@ export class WingedGoombaBehavior extends MovementBehavior {
     getL1?:         GetL1Tile,
     forecastFrames: number = DEFAULT_FORECAST_FRAMES,
   ): { points: { x: number; y: number }[]; openEnd: boolean } {
-    // Snap to nearest solid floor below spawn. Priority-1 decorative
-    // tiles render in front of sprites and pass through collision —
-    // they must NOT count as the resting floor here. `solidV` already
-    // filters them; the slope fallback uses `spriteSlope` (below) which
-    // applies the same filter so a priority-1 slope can't anchor the arc.
-    const startCol = Math.floor((spawnX + 8) / 16)
-    let groundRow = Math.floor((spawnY + BODY_H) / 16)
-    const slopeAt = (c: number, r: number) => {
-      const cell = getL1?.(c, r)
-      return !cell || cell.isPriority ? undefined : cell.collision?.slope
-    }
-    for (let r = groundRow; r < levelRows; r++) {
-      if (solidV(startCol, r)) { groundRow = r; break }
-      if (slopeAt(startCol, r)) { groundRow = r; break }
-    }
+    const collision = getL1 ? spriteCollisionFromL1(getL1) : undefined
+    const startCol  = Math.floor((spawnX + 8) / 16)
+    const startRow  = Math.floor((spawnY + BODY_H) / 16)
+    const groundRow = collision?.findFloorRowBelow(startCol, startRow, levelRows) ?? startRow
     // Slope-correct the initial resting Y so the first arc starts from the
     // actual slope surface rather than the flat tile top.
-    const restingY = getL1 ? (() => {
-      const col = startCol
-      const pxInTile = Math.max(0, Math.min(15, Math.floor(spawnX + BODY_W / 2) - col * 16))
-      const slope = slopeAt(col, groundRow)
-      return slope
-        ? groundRow * 16 + (slope.heights[pxInTile] & 0x0F) - BODY_H
-        : groundRow * 16 - BODY_H
-    })() : groundRow * 16 - BODY_H
+    const restingY  = (collision?.surfaceYAt(spawnX + BODY_W / 2, groundRow) ?? groundRow * 16) - BODY_H
 
     const dir = spawnX > marioSpawnX ? 1 : 0
     const s: BouncingState = {

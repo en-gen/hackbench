@@ -21,6 +21,8 @@
 import type { GetL1Tile, L1Cell } from '../../../../src/rom/model/OverlayContext'
 import type { SolidH, SolidV } from '../../../../src/rom/model/sprites/MovementBehavior'
 import { solidityFromL1 } from '../../../../src/rom/model/sprites/MovementBehavior'
+import type { SpriteCollision } from '../../../../src/rom/model/sprites/SpriteCollision'
+import { spriteCollisionFromL1 } from '../../../../src/rom/model/sprites/SpriteCollision'
 import { NO_COLLISION } from '../../../../src/rom/model/tiles/TileCollision'
 import type { TileCollision } from '../../../../src/rom/model/tiles/TileCollision'
 
@@ -55,6 +57,8 @@ export interface Solidity {
   getL1: GetL1Tile
   solidH: SolidH
   solidV: SolidV
+  /** Full SpriteCollision bundle — all six priority-filtered predicates. */
+  collision: SpriteCollision
   /** Raw grid for tests that want to inspect tile ids directly. */
   grid: (number | null)[][]
 }
@@ -105,5 +109,6 @@ export function buildSolidity(
     return charToCell.get(ch) ?? null
   }
   const { solidH, solidV } = solidityFromL1(getL1)
-  return { rows: rowsN, cols, getL1, solidH, solidV, grid }
+  const collision = spriteCollisionFromL1(getL1)
+  return { rows: rowsN, cols, getL1, solidH, solidV, collision, grid }
 }
