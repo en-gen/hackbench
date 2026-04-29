@@ -26,6 +26,13 @@ import { StaticPixelsBehavior } from '../chars/behaviors/StaticPixelsBehavior'
 import { SubTile } from './SubTile'
 import { Tile, type SubtileQuad } from './Tile'
 import { InvisibleBlockRevealBehavior } from './behaviors/InvisibleBlockRevealBehavior'
+import {
+  KeyCoinBalloonKoopaBlockBehavior,
+  KEY_CHAR_NUMS,
+  PARAKOOPA_CHAR_NUMS,
+  PBALLOON_CHAR_NUMS,
+  REDCOIN_CHAR_NUMS,
+} from './behaviors/KeyCoinBalloonKoopaBlockBehavior'
 import { StarOneUpVineBlockBehavior, ONEUP_CHAR_NUMS, STAR_CHAR_NUMS } from './behaviors/StarOneUpVineBlockBehavior'
 import { PipeVariantsBehavior } from './behaviors/PipeVariantsBehavior'
 import { PSwitchRevealBehavior } from './behaviors/PSwitchRevealBehavior'
@@ -321,8 +328,12 @@ export function buildTiles(
   const vineOverlayQuad = quads.get(0x006) ?? null
 
   // Item-block indicator chars from sprite OBJ VRAM.
-  const oneupChars = ONEUP_CHAR_NUMS.map(i => chars.get(i) ?? null)
-  const starChars  = STAR_CHAR_NUMS.map(i => chars.get(i) ?? null)
+  const oneupChars     = ONEUP_CHAR_NUMS.map(i => chars.get(i) ?? null)
+  const starChars      = STAR_CHAR_NUMS.map(i => chars.get(i) ?? null)
+  const keyChars       = KEY_CHAR_NUMS.map(i => chars.get(i) ?? null)
+  const redCoinChars   = REDCOIN_CHAR_NUMS.map(i => chars.get(i) ?? null)
+  const pballoonChars  = PBALLOON_CHAR_NUMS.map(i => chars.get(i) ?? null)
+  const paraKoopaChars = PARAKOOPA_CHAR_NUMS.map(i => chars.get(i) ?? null)
 
   for (const m16 of baseTiles) {
     if (isPipeTile(m16.id)) continue // handled below
@@ -342,6 +353,20 @@ export function buildTiles(
       tiles.set(m16.id, new Tile(m16.id, new StarOneUpVineBlockBehavior(
         quad, vineOverlayQuad, oneupChars, starChars,
       ), actsLikeId, classify(actsLikeId)))
+      continue
+    }
+
+    // Tile $25 (any page) — 4-state column-cycle item block
+    // (key/red-coin/p-balloon/para-koopa per col % 4). The block-hit
+    // dispatch (CODE_00F17F) routes here via DATA_00F080[$14]=$16 →
+    // _5=$0B → SpriteInBlock[$0B]=$7D (P-Balloon), then CODE_028972
+    // (bank_02.asm:1199-1212) overrides the sprite by the block's
+    // pixel-X bits [5:4] → DATA_0288D6.
+    if (lowByte === 0x25) {
+      tiles.set(m16.id, new Tile(m16.id,
+        new KeyCoinBalloonKoopaBlockBehavior(quad,
+          keyChars, redCoinChars, pballoonChars, paraKoopaChars),
+        actsLikeId, classify(actsLikeId)))
       continue
     }
 

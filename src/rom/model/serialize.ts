@@ -44,6 +44,7 @@ import { PipeVariantsBehavior } from './tiles/behaviors/PipeVariantsBehavior'
 import { PSwitchRevealBehavior } from './tiles/behaviors/PSwitchRevealBehavior'
 import { InvisibleBlockRevealBehavior } from './tiles/behaviors/InvisibleBlockRevealBehavior'
 import { StaticQuadBehavior } from './tiles/behaviors/StaticQuadBehavior'
+import { KeyCoinBalloonKoopaBlockBehavior } from './tiles/behaviors/KeyCoinBalloonKoopaBlockBehavior'
 import { StarOneUpVineBlockBehavior } from './tiles/behaviors/StarOneUpVineBlockBehavior'
 import { SwitchPalaceAlternateBehavior } from './tiles/behaviors/SwitchPalaceAlternateBehavior'
 import { VineSourceBehavior } from './tiles/behaviors/VineSourceBehavior'
@@ -251,6 +252,15 @@ function serializeTile(tile: Tile): TileDescriptor {
     vineOverlayQuad: b.vineOverlayQuad ? quadDesc(b.vineOverlayQuad) : null,
     oneupCharNums: b.oneupChars.map(c => c?.id ?? -1),
     starCharNums: b.starChars.map(c => c?.id ?? -1),
+    actsLike, collision,
+  }
+  if (b instanceof KeyCoinBalloonKoopaBlockBehavior) return {
+    kind: 'keyCoinBalloonKoopaBlock',
+    quad: quadDesc(b.quad),
+    keyCharNums:       b.keyChars.map(c => c?.id ?? -1),
+    redCoinCharNums:   b.redCoinChars.map(c => c?.id ?? -1),
+    pballoonCharNums:  b.pballoonChars.map(c => c?.id ?? -1),
+    paraKoopaCharNums: b.paraKoopaChars.map(c => c?.id ?? -1),
     actsLike, collision,
   }
   if (b instanceof PipeVariantsBehavior) return { kind: 'pipeVariants', variants: b.variants.map(quadDesc), actsLike, collision }

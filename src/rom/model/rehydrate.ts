@@ -54,6 +54,7 @@ import { SubTile } from './tiles/SubTile'
 import { Tile, type SubtileQuad } from './tiles/Tile'
 import { InvisibleBlockRevealBehavior } from './tiles/behaviors/InvisibleBlockRevealBehavior'
 import { PipeVariantsBehavior } from './tiles/behaviors/PipeVariantsBehavior'
+import { KeyCoinBalloonKoopaBlockBehavior } from './tiles/behaviors/KeyCoinBalloonKoopaBlockBehavior'
 import { PSwitchRevealBehavior } from './tiles/behaviors/PSwitchRevealBehavior'
 import { StaticQuadBehavior } from './tiles/behaviors/StaticQuadBehavior'
 import { SwitchPalaceAlternateBehavior } from './tiles/behaviors/SwitchPalaceAlternateBehavior'
@@ -310,6 +311,14 @@ function buildTileBehavior(
         desc.vineOverlayQuad ? buildQuad(desc.vineOverlayQuad, chars, placeholder) : null,
         desc.oneupCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
         desc.starCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
+      )
+    case 'keyCoinBalloonKoopaBlock':
+      return new KeyCoinBalloonKoopaBlockBehavior(
+        buildQuad(desc.quad, chars, placeholder),
+        desc.keyCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
+        desc.redCoinCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
+        desc.pballoonCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
+        desc.paraKoopaCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
       )
     case 'pipeVariants':
       return new PipeVariantsBehavior(desc.variants.map(q => buildQuad(q, chars, placeholder)))

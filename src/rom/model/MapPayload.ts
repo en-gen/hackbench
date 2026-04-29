@@ -66,6 +66,18 @@ export type TileDescriptor =
       /** OBJ chars for star sprite $76 (TL/TR/BL/BR), -1 when missing. */
       starCharNums: readonly number[]
     } & TileDescriptorBase)
+  | ({
+      kind: 'keyCoinBalloonKoopaBlock'
+      quad: SubtileQuadDescriptor
+      /** OBJ chars for Key sprite $80 (TL/TR/BL/BR), -1 when missing. */
+      keyCharNums:       readonly number[]
+      /** OBJ chars for Flying Red Coin sprite $7E (TL/TR/BL/BR), -1 when missing. */
+      redCoinCharNums:   readonly number[]
+      /** OBJ chars for P-Balloon sprite $7D (TL/TR/BL/BR), -1 when missing. */
+      pballoonCharNums:  readonly number[]
+      /** OBJ chars for Green Para-Koopa sprite $09 (TL/TR/BL/BR), -1 when missing. */
+      paraKoopaCharNums: readonly number[]
+    } & TileDescriptorBase)
   | ({ kind: 'pipeVariants'; variants: readonly SubtileQuadDescriptor[] } & TileDescriptorBase)
   | ({
       kind: 'switchPalaceAlternate'
