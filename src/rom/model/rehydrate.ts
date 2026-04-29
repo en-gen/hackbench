@@ -26,6 +26,8 @@ import { BlurpAppearance } from './sprites/appearances/BlurpAppearance'
 import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
 import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
+import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
+import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
@@ -225,6 +227,16 @@ function buildAppearance(
       )
     case 'lineBrownPlat':
       return new LineBrownPlatAppearance(buildParts(desc.platformParts), desc.direction)
+    case 'lineCheckerPlat':
+      return new LineCheckerPlatAppearance(buildParts(desc.platformParts), desc.xShift, desc.width)
+    case 'ropeMechanism':
+      return new RopeMechanismAppearance(
+        desc.motorFrames.map(buildParts),
+        buildParts(desc.bodyTemplate),
+        buildParts(desc.knotTemplate),
+        desc.smokePuffFrames.map(buildParts),
+        desc.segmentCount,
+      )
   }
 }
 
