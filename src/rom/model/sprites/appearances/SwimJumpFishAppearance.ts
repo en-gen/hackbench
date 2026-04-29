@@ -186,15 +186,11 @@ export class SwimJumpFishAppearance extends StaticSpriteAppearance {
     const ENDCAP_HALF  = 8
     const spawnCenterX = x + 8
     const swimY        = y + 8                    // swim centerline (sprite midline)
-    // Per CODE_02E74E: misc157C starts 0 (no init touches it), so the very
-    // first frame nudges the fish RIGHT by +1.25 px (subX = +320), then it
-    // sweeps left for the rest of the cycle. That +1.25 stub sits right at
-    // the sprite's body and reads as the line "starting in front" of the
-    // fish in the editor; clamp it to the spawn center so the swim line
-    // visually starts AT the sprite and extends left into the corridor it
-    // actually patrols (-78.75 px from spawn).
+    // The fish faces left and swims leftward from spawn; its trailing (right)
+    // edge is at x+16. The swim corridor ends there so the right endcap sits
+    // behind the sprite body rather than bisecting it.
     const swimLeftX    = x + Math.min(swimMinX, 0)
-    const swimRightX   = spawnCenterX
+    const swimRightX   = x + 16
     // Vertical jump column at the X where the fish enters the jump state
     // (XSpeed is zeroed for the duration of the ascent, so the column is a
     // vertical line at exactly this offset, not at the spawn X).
