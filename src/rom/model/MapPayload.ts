@@ -179,6 +179,7 @@ export type SpriteAppearanceDescriptor =
       smokePuffFrames: readonly (readonly SpritePartDescriptor[])[]
       segmentCount:    number
     }
+  | { kind: 'spikeTop'; parts0: readonly SpritePartDescriptor[]; parts1: readonly SpritePartDescriptor[] }
 
 export interface SpriteBehaviorDescriptor {
   kind: string

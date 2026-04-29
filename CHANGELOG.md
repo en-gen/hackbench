@@ -40,6 +40,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Spike Top ($2E) sprite rendering — 2-frame animated OBJ
+  (`EffFrame >> 3 & 1`, `WallFollowersMain` bank_02.asm:8079-8087) plus a
+  patrol-path overlay that simulates the wall-follower in tile space.
+  The trace supports both wall-following tracks: dirs 0-3 (right-hand
+  rule) when Mario is to the right, dirs 4-7 (left-hand rule) when Mario
+  is to the left, per `InitSpikeTop` → `CODE_01840E`
+  (bank_01.asm:602-626). The overlay terminates at level boundaries
+  (sprite despawn) and uses `cell.collision` for solidity so cave /
+  fortress walls (page-0 acts-like) register correctly.
 - `LICENSE` - MIT
 - `THIRD_PARTY_LICENSES.md` - LGPL-2.1 attribution for
   `@smwcentral/spc-player`

@@ -29,6 +29,7 @@ import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
 import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
 import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
+import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
@@ -239,6 +240,8 @@ function buildAppearance(
         desc.smokePuffFrames.map(buildParts),
         desc.segmentCount,
       )
+    case 'spikeTop':
+      return new SpikeTopAppearance(buildParts(desc.parts0), buildParts(desc.parts1))
   }
 }
 
