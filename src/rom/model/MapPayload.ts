@@ -165,6 +165,20 @@ export type SpriteAppearanceDescriptor =
       platformParts: readonly SpritePartDescriptor[]
       direction: 'forward' | 'reverse'
     }
+  | {
+      kind: 'lineCheckerPlat'
+      platformParts: readonly SpritePartDescriptor[]
+      xShift: number
+      width:  number
+    }
+  | {
+      kind: 'ropeMechanism'
+      motorFrames:     readonly (readonly SpritePartDescriptor[])[]
+      bodyTemplate:    readonly SpritePartDescriptor[]
+      knotTemplate:    readonly SpritePartDescriptor[]
+      smokePuffFrames: readonly (readonly SpritePartDescriptor[])[]
+      segmentCount:    number
+    }
 
 export interface SpriteBehaviorDescriptor {
   kind: string

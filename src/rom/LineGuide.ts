@@ -147,6 +147,37 @@ function applyInitLinePlat(spawnX: number, spawnY: number): InitResult {
 }
 
 /**
+ * Compute the pixel anchor for a line-guided sprite given the resolved
+ * attachment and the sprite's spawn tile.
+ *
+ * The anchor is the sprite's nominal pixel position — what gets passed to
+ * `new Sprite(id, anchorX, anchorY, ...)` and ultimately to
+ * `appearance.render(ctx, target, x, y)`. When the probe finds a track tile
+ * the anchor snaps to that tile's pixel origin; otherwise it falls back to
+ * the spawn tile's pixel origin. Either way the returned anchor equals the
+ * game's SpriteXPosLow / SpriteYPosLow at the moment the platform's draw
+ * routine runs.
+ *
+ * `drawOffsetX/Y` absorb any fixed pre-OAM shift that the sprite's draw
+ * routine applies but the Appearance's `render()` does NOT replicate:
+ *
+ *   $62/$63 — render() subtracts xShift and 8 itself  → drawOffset (0, 0)
+ *   $64     — StaticSpriteAppearance adds no offset    → drawOffset (−8, −8)
+ *             (CODE_01DC54 does _0=SpriteX−8, _1=SpriteY−8 before OAM)
+ */
+export function lineGuideAnchor(
+  lineGuide: LineGuideAttachment | null | undefined,
+  spawnCol:  number,
+  spawnRow:  number,
+  drawOffsetX = 0,
+  drawOffsetY = 0,
+): { anchorX: number; anchorY: number } {
+  const baseX = lineGuide?.trackTile ? lineGuide.trackTile.col * 16 : spawnCol * 16
+  const baseY = lineGuide?.trackTile ? lineGuide.trackTile.row * 16 : spawnRow * 16
+  return { anchorX: baseX + drawOffsetX, anchorY: baseY + drawOffsetY }
+}
+
+/**
  * Resolve where a line-tracked sprite attaches at level load and which
  * direction it will traverse. Returns null when the sprite ID does not
  * follow tracks, or when the probe finds no line-guide tile.

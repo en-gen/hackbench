@@ -1,5 +1,5 @@
 import type { LevelSprite } from '../LevelParser'
-import { LINE_TRACKED_SPRITE_IDS, resolveLineGuideAttachment } from '../LineGuide'
+import { LINE_TRACKED_SPRITE_IDS, lineGuideAnchor, resolveLineGuideAttachment } from '../LineGuide'
 import type { RomFile } from '../RomFile'
 import { buildSpriteLayout, readSpriteTileTables } from '../SpriteTileLoader'
 import type { Char } from './chars/Char'
@@ -23,6 +23,8 @@ import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearan
 import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppearance'
 import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
+import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
+import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
 import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import { DryBonesAppearance } from './sprites/appearances/DryBonesAppearance'
@@ -332,19 +334,51 @@ export function buildSprites(
       const palette  = 8 + ((attr >> 1) & 0x07)
       const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
       const dir = lineGuide?.direction ?? 'reverse'
-      // CODE_01DAA2 draws OAM at (anchor - xShift, anchor - 8). Set the anchor
-      // so the 48px platform is centered on the attached track tile:
-      //   center = anchor - xShift + 24 = trackCenterX  →  anchor = trackCenterX + (xShift - 24)
-      const xShift = dir === 'forward' ? 0x28 : 0x18
-      const anchorX = lineGuide?.trackTile
-        ? lineGuide.trackTile.col * 16 + 8 + (xShift - 24)
-        : s.x * 16
-      const anchorY = lineGuide?.trackTile
-        ? lineGuide.trackTile.row * 16 + 8
-        : s.y * 16
+      // Anchor = sprite's nominal position (track tile origin when probe succeeds,
+      // spawn tile origin otherwise). render() applies −xShift/−8 itself.
+      const { anchorX, anchorY } = lineGuideAnchor(lineGuide, s.x, s.y)
       out.push(new Sprite(
         s.spriteId, anchorX, anchorY,
         LineBrownPlatAppearance.fromTables(chars, palette, charHigh, placeholder, dir),
+        behavior,
+      ))
+      continue
+    }
+
+    // Sprite $63 (Checker Platform, line-guided).
+    // InitLinePlat (bank_01.asm:11774): SpriteMisc1602 = (SpriteXPosLow & 0x10) ^ 0x10.
+    // Even tile col → SpriteMisc1602≠0 → checker mode (80px, 5 tiles, xShift=40px).
+    // Odd tile col  → SpriteMisc1602=0  → brown mode  (48px, 3 tiles, xShift=24px).
+    // CODE_01DAA2 (bank_01.asm:12323) reads SpriteMisc1602 for xShift, same as $62, so the
+    // same $18/$28 values apply. Unlike $62, xShift is fixed at spawn — not from lineGuide.
+    if (s.spriteId === 0x63) {
+      const attr        = tables.spriteAttr[0x63] ?? 0x01
+      const palette     = 8 + ((attr >> 1) & 0x07)
+      const charHigh    = (attr & 0x01) !== 0 ? 0x100 : 0
+      const checkerMode = (s.x % 2 === 0)
+      // Anchor = sprite's nominal position. render() applies −xShift/−8 itself.
+      const { anchorX, anchorY } = lineGuideAnchor(lineGuide, s.x, s.y)
+      out.push(new Sprite(
+        s.spriteId, anchorX, anchorY,
+        LineCheckerPlatAppearance.fromTables(chars, palette, charHigh, placeholder, checkerMode),
+        behavior,
+      ))
+      continue
+    }
+
+    // Sprite $64 (Rope Mechanism, line-guided).
+    // RopeMechanismAppearance owns the segment layout and motor animation.
+    // See bank_01.asm:12557 (RopeMotorTiles), 12564 (CODE_01DC54), 12620 (knot overwrite).
+    // Offset: _0=spriteX−8, _1=spriteY−8 absorbed via lineGuideAnchor drawOffset.
+    if (s.spriteId === 0x64) {
+      const attr        = tables.spriteAttr[0x64] ?? 0
+      const charHigh    = (attr & 0x01) !== 0 ? 0x100 : 0
+      const motorPalette = 11  // ($37 >> 1) & 0x07 = 3 → CGRAM 8+3=11
+      const bodyPalette  = 8   // ($31 >> 1) & 0x07 = 0 → CGRAM 8+0=8
+      const { anchorX, anchorY } = lineGuideAnchor(lineGuide, s.x, s.y, -8, -8)
+      out.push(new Sprite(
+        s.spriteId, anchorX, anchorY,
+        RopeMechanismAppearance.fromTables(chars, motorPalette, bodyPalette, charHigh, placeholder),
         behavior,
       ))
       continue

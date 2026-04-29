@@ -17,6 +17,8 @@ import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlat
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppearance'
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
+import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
+import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -156,6 +158,24 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
       kind: 'volcanoLotus',
       headParts: a.headParts.map(partDescriptor),
       flowerFrames: [a.flowerFrames[0].map(partDescriptor), a.flowerFrames[1].map(partDescriptor)],
+    }
+  }
+  if (a instanceof RopeMechanismAppearance) {
+    return {
+      kind: 'ropeMechanism',
+      motorFrames:     a.motorFrames.map(frame => frame.map(partDescriptor)),
+      bodyTemplate:    a.bodyTemplate.map(partDescriptor),
+      knotTemplate:    a.knotTemplate.map(partDescriptor),
+      smokePuffFrames: a.smokePuffFrames.map(frame => frame.map(partDescriptor)),
+      segmentCount:    a.segmentCount,
+    }
+  }
+  if (a instanceof LineCheckerPlatAppearance) {
+    return {
+      kind: 'lineCheckerPlat',
+      platformParts: a.platformParts.map(partDescriptor),
+      xShift: a.xShift,
+      width:  a.width,
     }
   }
   if (a instanceof LineBrownPlatAppearance) {
