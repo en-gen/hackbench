@@ -1,8 +1,9 @@
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import {
   COLORS,
-  drawApexLine,
-  drawVertLane,
+  DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH,
+  rgba,
+  WALL_ALPHA, WALL_LINE_WIDTH,
 } from '../../overlays/primitives'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
 
@@ -19,8 +20,8 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  * Max apex for the overlay = Σ(−80+3i)/16 for i=0..26 ≈ 69 px (worst-case
  * state-3 jump). The overlay draws a 16-px-wide column with apex line.
  */
-const JUMP_H = 69   // Σ(-80+3i)/16 for i=0..26 ≈ 69 px (state-3 / $B0 jump)
-const HALF_W = 8    // 16 px body centred on spawn
+const JUMP_H      = 69  // Σ(-80+3i)/16 for i=0..26 ≈ 69 px (state-3 / $B0 jump)
+const ENDCAP_HALF = 8   // half the sprite body width; endcap spans full 16 px
 
 export class JumpingFishAppearance extends StaticSpriteAppearance {
   constructor(parts: SpritePart[]) {
@@ -38,12 +39,29 @@ export class JumpingFishAppearance extends StaticSpriteAppearance {
   ): void {
     if (!isActive) return
 
-    const centerX = x + HALF_W
+    const centerX = x + ENDCAP_HALF
     const jumpTop = y - JUMP_H
+    const color   = COLORS.tealJump
 
     ctx.save()
-    drawVertLane(ctx, centerX, jumpTop, y, HALF_W, COLORS.tealJump)
-    drawApexLine(ctx, x, x + 16, jumpTop, COLORS.tealJump)
+
+    // Dashed vertical centerline — same vocabulary as $47's jump column.
+    ctx.lineWidth   = DASH_LINE_WIDTH
+    ctx.strokeStyle = rgba(color, DASH_ALPHA)
+    ctx.setLineDash([...DEFAULT_DASH])
+    ctx.beginPath()
+    ctx.moveTo(centerX, y); ctx.lineTo(centerX, jumpTop)
+    ctx.stroke()
+    ctx.setLineDash([])
+
+    // Solid apex endcap spanning the full 16 px body width.
+    ctx.lineWidth   = WALL_LINE_WIDTH
+    ctx.strokeStyle = rgba(color, WALL_ALPHA)
+    ctx.beginPath()
+    ctx.moveTo(centerX - ENDCAP_HALF, jumpTop)
+    ctx.lineTo(centerX + ENDCAP_HALF, jumpTop)
+    ctx.stroke()
+
     ctx.restore()
   }
 }
