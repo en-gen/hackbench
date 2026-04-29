@@ -122,6 +122,10 @@ export function propsFromSpriteId(id: number): KoopaWalkConfig {
     case 0x07: return { turnsAtLedges: false, tall: true,  walkSpeed: SLOW }  // prop $45
     case 0x0C: return { turnsAtLedges: true,  tall: true,  walkSpeed: SLOW }  // prop $DD — yellow koopa w/ wings; observed to turn at ledges in-game
     case 0x0F: return { turnsAtLedges: false, tall: false, walkSpeed: FAST }  // prop $20 — Goomba
+    // bank_01.asm:13520 — DryBonesAndBeetle; DATA_01E41F[0]=$08 walk speed.
+    // $30 walks off ledges; $32 reverses at ledge edges (SpriteTableC2 air-to-ground flip).
+    case 0x30: return { turnsAtLedges: false, tall: true,  walkSpeed: FAST }
+    case 0x32: return { turnsAtLedges: true,  tall: true,  walkSpeed: FAST }
     default:   return { turnsAtLedges: false, tall: true,  walkSpeed: SLOW }
   }
 }
