@@ -9,6 +9,7 @@ import { LineBrownPlatBehavior } from './LineBrownPlatBehavior'
 import { RipVanFishBehavior } from './RipVanFishBehavior'
 import { SinusoidalParaKoopaBehavior } from './SinusoidalParaKoopaBehavior'
 import { SuperKoopaBehavior } from './SuperKoopaBehavior'
+import { ThwimpBounceBehavior } from './ThwimpBounceBehavior'
 import { WingedGoombaBehavior } from './WingedGoombaBehavior'
 
 /**
@@ -58,6 +59,8 @@ export function buildMovementBehavior(
       return Object.assign(new SinusoidalParaKoopaBehavior({ axis: 'horizontal' }, meta), common)
     case 0x1D:
       return Object.assign(new HopFlameBehavior(meta), common)
+    case 0x27:
+      return Object.assign(new ThwimpBounceBehavior(meta), common)
     case 0x3D:
       return Object.assign(new RipVanFishBehavior(meta), common)
     case 0xC2:
