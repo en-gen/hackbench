@@ -3,7 +3,7 @@ import { LINE_TRACKED_SPRITE_IDS, lineGuideAnchor, resolveLineGuideAttachment } 
 import type { RomFile } from '../RomFile'
 import { buildSpriteLayout, readSpriteTileTables } from '../SpriteTileLoader'
 import type { Char } from './chars/Char'
-import { isActsLikeVertSolid } from './OverlayContext'
+import { isPriorityDecorative } from './OverlayContext'
 import type { Tile } from './tiles/Tile'
 import { makeTransparentPlaceholderChar } from './tiles/TileFactory'
 import { Sprite } from './sprites/Sprite'
@@ -485,6 +485,12 @@ function thwompReactRangeDy(
   px: number,
   py: number,
 ): number {
+  // Mirrors ThwompAppearance.renderOverlay's blocker scan: skip
+  // priority-decorative tiles (which pass through sprite collision) and use
+  // the authoritative `tile.collision.floor` predicate, which covers all
+  // four CODE_01933B branches (incl. tiles like $100 whose acts-like is
+  // page-0 solid behavior, missed by `isActsLikeVertSolid`'s $11..$6D
+  // fast-path).
   const rows     = l1.length
   const colStart = Math.floor((px + 4) / 16)
   const colEnd   = Math.ceil((px + 28) / 16)
@@ -494,8 +500,9 @@ function thwompReactRangeDy(
     for (let c = colStart; c < colEnd; c++) {
       const id = l1[r]?.[c]
       if (id === null || id === undefined) continue
-      const actsLike = l1Tiles.get(id)?.actsLike ?? id
-      if (isActsLikeVertSolid(actsLike)) { blockerRow = r; break outer }
+      const tile = l1Tiles.get(id)
+      if (!tile || isPriorityDecorative(tile)) continue
+      if (tile.collision.floor) { blockerRow = r; break outer }
     }
   }
   const zoneBottom = blockerRow < rows ? (blockerRow + 1) * 16 : rows * 16
