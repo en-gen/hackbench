@@ -5,6 +5,7 @@ import {
 } from '../../overlays/primitives'
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
 import { BouncingKoopaBehavior } from '../behaviors/BouncingKoopaBehavior'
+import { FlyingBlockBehavior } from '../behaviors/FlyingBlockBehavior'
 import { FlyingLeftKoopaBehavior } from '../behaviors/FlyingLeftKoopaBehavior'
 import { KoopaWalkBehavior } from '../behaviors/KoopaWalkBehavior'
 import { SinusoidalParaKoopaBehavior } from '../behaviors/SinusoidalParaKoopaBehavior'
@@ -201,6 +202,19 @@ export class WingedSpriteAppearance implements SpriteAppearance {
       ctx.lineTo(r.rightX, midY)
       ctx.stroke()
       ctx.setLineDash([])
+
+    } else if (behavior instanceof FlyingBlockBehavior) {
+      // Both $83 and $84 drift left while oscillating in Y, producing a
+      // sinusoidal path. $83 moves at constant speed; $84 accelerates to
+      // its max speed over ~64 frames (wider horizontal spacing after that).
+      // Passes through walls — no collision call in Flying_Block.
+      const pts = behavior.computePath(x, y)
+      strokeDashedPolyline(ctx, pts, color)
+      if (pts.length >= 2) {
+        const tip  = pts[pts.length - 1]
+        const from = pts[pts.length - 2]
+        drawArrowHead(ctx, tip.x, tip.y, from.x, from.y, color, DASH_ALPHA)
+      }
     }
 
     ctx.restore()
