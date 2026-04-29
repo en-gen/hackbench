@@ -19,6 +19,7 @@ import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppear
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
 import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
 import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
+import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -180,6 +181,9 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
   }
   if (a instanceof LineBrownPlatAppearance) {
     return { kind: 'lineBrownPlat', platformParts: a.platformParts.map(partDescriptor), direction: a.direction }
+  }
+  if (a instanceof SpikeTopAppearance) {
+    return { kind: 'spikeTop', parts0: a.parts0.map(partDescriptor), parts1: a.parts1.map(partDescriptor) }
   }
   if (a instanceof PSwitchAppearance) {
     return { kind: 'pSwitch', parts: a.parts.map(partDescriptor) }

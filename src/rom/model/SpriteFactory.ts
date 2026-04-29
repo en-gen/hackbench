@@ -31,6 +31,7 @@ import { DryBonesAppearance } from './sprites/appearances/DryBonesAppearance'
 import { CharginChuckAppearance } from './sprites/appearances/CharginChuckAppearance'
 import { ClappinChuckAppearance } from './sprites/appearances/ClappinChuckAppearance'
 import { KeyholeAppearance } from './sprites/appearances/KeyholeAppearance'
+import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
@@ -403,6 +404,18 @@ export function buildSprites(
         ]
       })
       out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, new StaticSpriteAppearance(parts), behavior))
+      continue
+    }
+
+    // $2E (Spike Top) — 2-frame animation per WallFollowersMain bank_02.asm:8079-8091.
+    // Tiles at SprTilemap[tilemapBase+0/1] alternate every 8 ticks; direction defaults
+    // to 0 (DATA_02BCC7[0]=$00 → no flip).
+    if (s.spriteId === 0x2E) {
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        SpikeTopAppearance.fromTables(chars, tables, placeholder),
+        behavior,
+      ))
       continue
     }
 
