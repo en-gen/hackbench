@@ -1,5 +1,5 @@
 import type { Char } from '../../chars/Char'
-import { isActsLikeVertSolid, type GetL1Tile, type OverlayContext } from '../../OverlayContext'
+import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import type { RenderContext, RenderTarget } from '../../RenderTarget'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
@@ -155,6 +155,11 @@ export class ThwompAppearance implements SpriteAppearance {
     const anchorX = x + ANCHOR_DX
 
     // Walk down from below the body to find the first solid L1 blocker row.
+    // Use the authoritative `cell.collision.floor` predicate (covers all four
+    // CODE_01933B branches: <$11 semi-solid, $11..$6D solid, $6E..$D7 slope,
+    // >=$D8 solid) rather than `isActsLikeVertSolid` (which only matches the
+    // $11..$6D fast-path and misses tiles like $100 whose acts-like is page-0
+    // solid behavior).
     const colStart  = Math.floor((x + 4)  / 16)
     const colEnd    = Math.ceil ((x + 28) / 16)
     const startRow  = Math.ceil ((y + 32) / 16)
@@ -162,7 +167,8 @@ export class ThwompAppearance implements SpriteAppearance {
     outer: for (let r = startRow; r < levelRows; r++) {
       for (let c = colStart; c < colEnd; c++) {
         const cell = getL1(c, r)
-        if (cell !== null && !cell.isPriority && isActsLikeVertSolid(cell.actsLike)) { blockerRow = r; break outer }
+        if (cell === null || cell.isPriority) continue
+        if (cell.collision?.floor) { blockerRow = r; break outer }
       }
     }
 
