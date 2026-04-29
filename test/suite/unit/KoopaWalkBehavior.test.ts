@@ -4,6 +4,12 @@
  * handler at bank_01.asm:1659–1747, wall check `CODE_01928E` at 2613, floor
  * check `CODE_01933B` at 2705, ledge-turn check `SpriteInAir` at 1718.
  *
+ * Also covers Dry Bones $30/$32 — DryBonesAndBeetle handler at
+ * bank_01.asm:13520, which reuses the same wall check (FlipIfTouchingObj)
+ * and floor check (SpriteInAir) as Spr0to13Main. Walk speed DATA_01E41F[0]=$08
+ * (FAST). $30 walks off ledges; $32 reverses via SpriteTableC2 air-to-ground
+ * transition flip (same observable effect as turnsAtLedges=true in Koopa).
+ *
  * Spr0to13Prop (bank_01.asm:1393) bits we care about for overlay:
  *   bit 1 = 1 → stay on ledges (turnsAtLedges=true)
  *   bit 6 = 1 → tall 2-tile body (affects which L1 rows the wall check scans)
@@ -17,11 +23,17 @@
  *   $0C = $DD → bit 1=0, bit 6=1 → turnsAtLedges=false, tall=true
  *   $0F = $20 → bit 1=0, bit 6=0 → turnsAtLedges=false, tall=false (Goomba)
  *
+ * Dry Bones (bank_01.asm:13520, DATA_01E41F):
+ *   $30 → turnsAtLedges=false, tall=true, walkSpeed=$08 (falls off ledges)
+ *   $32 → turnsAtLedges=true,  tall=true, walkSpeed=$08 (stays on ledge)
+ *
  * Test tree:
  *
  *   propsFromSpriteId (factory helper) — bit extraction
  *     ├─ $04/$05/$06/$07/$0C produce expected (turnsAtLedges, tall) tuples
- *     └─ $0F Goomba: tall=false (one-row body)
+ *     ├─ $0F Goomba: tall=false (one-row body)
+ *     ├─ $30 Dry Bones (throws): turnsAtLedges=false, tall=true, walkSpeed=$08
+ *     └─ $32 Dry Bones (ledge): turnsAtLedges=true,  tall=true, walkSpeed=$08
  *
  *   computePatrolRange — corridor bounds from L1 acts-like grid
  *     ├─ empty level: leftX=0, rightX=levelCols*16
@@ -73,6 +85,9 @@ describe('KoopaWalkBehavior.propsFromSpriteId', () => {
     [0x07, { turnsAtLedges: false, tall: true,  walkSpeed: 0x0C }],
     [0x0C, { turnsAtLedges: true,  tall: true,  walkSpeed: 0x0C }],
     [0x0F, { turnsAtLedges: false, tall: false, walkSpeed: 0x08 }],  // Goomba — bit 6 clear, fast
+    // ASM: bank_01.asm:13520 — DryBonesAndBeetle; DATA_01E41F[0]=$08 walk speed.
+    [0x30, { turnsAtLedges: false, tall: true,  walkSpeed: 0x08 }],  // throws bones, falls off ledges
+    [0x32, { turnsAtLedges: true,  tall: true,  walkSpeed: 0x08 }],  // stays on ledge
   ])('spriteId $%s produces expected config', (id, expected) => {
     expect(propsFromSpriteId(id)).toEqual(expected)
   })
@@ -668,5 +683,93 @@ describe('KoopaWalkBehavior — patrol bounds with SurfacePath', () => {
     expect(r.bottomY).toBe(32)
     expect(r.leftKind).toBe('levelEdge')
     expect(r.leftX).toBe(0)
+  })
+})
+
+// ASM: bank_01.asm:13520 — DryBonesAndBeetle. Same wall check (FlipIfTouchingObj)
+// and ledge check (SpriteInAir) as Spr0to13Main. DATA_01E41F[0]=$08 walk speed.
+// $30 walks off ledges (turnsAtLedges=false); $32 reverses at ledge edges
+// via SpriteTableC2 air-to-ground transition (turnsAtLedges=true).
+describe('KoopaWalkBehavior — Dry Bones $30 (turnsAtLedges=false)', () => {
+  const at = (c: number, r: number) => ({ x: c * 16, y: r * 16 })
+  const behavior = new KoopaWalkBehavior(propsFromSpriteId(0x30))
+
+  it('open ledge to the left (initial direction): fallSide=left', () => {
+    // $30 spawns facing Mario. Walking left off an open ledge — fallSide=left,
+    // overlay draws L-arm into the pit. Matches bank_01.asm:13520 ledge path.
+    const { solidH, solidV, cols, rows } = buildSolidity([
+      '.......',
+      '..K....',
+      '..#####',    // floor starts at col 2; pit at cols 0-1
+    ], { '#': GROUND, 'K': PASS })
+    const r = behavior.computePatrolRange(at(2, 1).x, at(2, 1).y, solidH, solidV, cols, rows)
+    expect(r.leftKind).toBe('fallLedge')
+    expect(r.fallSide).toBe('left')
+    expect(r.solidLeft).toBe(false)
+  })
+
+  it('wall left + fallLedge right: bounces off wall, falls right, fallSide=right', () => {
+    // $30 hits left wall → bounces → walks right → falls off right ledge.
+    // Wall classification must be independent of surface lookup (CODE_01928E).
+    const { solidH, solidV, cols, rows } = buildSolidity([
+      '.......',
+      'W.K....',
+      'W####..',    // floor cols 1-4; pit cols 5-6
+    ], { '#': GROUND, 'W': WALL, 'K': PASS })
+    const r = behavior.computePatrolRange(at(2, 1).x, at(2, 1).y, solidH, solidV, cols, rows)
+    expect(r.leftKind).toBe('wall')
+    expect(r.solidLeft).toBe(true)
+    expect(r.rightKind).toBe('fallLedge')
+    expect(r.fallSide).toBe('right')
+  })
+
+  it('walls both sides: perpetual bounce, fallSide=null', () => {
+    const { solidH, solidV, cols, rows } = buildSolidity([
+      '.........',
+      'W...K...W',
+      'W#######W',
+    ], { '#': GROUND, 'W': WALL, 'K': PASS })
+    const r = behavior.computePatrolRange(at(4, 1).x, at(4, 1).y, solidH, solidV, cols, rows)
+    expect(r.leftKind).toBe('wall')
+    expect(r.rightKind).toBe('wall')
+    expect(r.solidLeft).toBe(true)
+    expect(r.solidRight).toBe(true)
+    expect(r.fallSide).toBeNull()
+  })
+})
+
+describe('KoopaWalkBehavior — Dry Bones $32 (turnsAtLedges=true)', () => {
+  const at = (c: number, r: number) => ({ x: c * 16, y: r * 16 })
+  const behavior = new KoopaWalkBehavior(propsFromSpriteId(0x32))
+
+  it('open ledge both sides: both turnLedge, fallSide=null, both boundaries solid', () => {
+    // $32 reverses at ledge edges on both sides — perpetual back-and-forth.
+    // solidLeft=solidRight=true because turnLedge is a stopping boundary.
+    const { solidH, solidV, cols, rows } = buildSolidity([
+      '.......',
+      '..K....',
+      '..###..',    // floor only under cols 2-4; pits at 0-1 and 5-6
+    ], { '#': GROUND, 'K': PASS })
+    const r = behavior.computePatrolRange(at(2, 1).x, at(2, 1).y, solidH, solidV, cols, rows)
+    expect(r.leftKind).toBe('turnLedge')
+    expect(r.rightKind).toBe('turnLedge')
+    expect(r.solidLeft).toBe(true)
+    expect(r.solidRight).toBe(true)
+    expect(r.fallSide).toBeNull()
+  })
+
+  it('left wall + right turnLedge: both stopping boundaries, fallSide=null', () => {
+    // Wall left, open pit right — $32 treats the pit as a turnaround.
+    const { solidH, solidV, cols, rows } = buildSolidity([
+      '.......',
+      'W.K....',
+      'W####..',    // pit at cols 5-6
+    ], { '#': GROUND, 'W': WALL, 'K': PASS })
+    const r = behavior.computePatrolRange(at(2, 1).x, at(2, 1).y, solidH, solidV, cols, rows)
+    expect(r.leftKind).toBe('wall')
+    expect(r.rightKind).toBe('turnLedge')
+    expect(r.solidLeft).toBe(true)
+    expect(r.solidRight).toBe(true)
+    expect(r.fallSide).toBeNull()
   })
 })
