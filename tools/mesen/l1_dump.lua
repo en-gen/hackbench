@@ -473,35 +473,40 @@ end
 local prevSublevelCount = nil   -- nil on first frame; set to live value
 local prevL1Key         = nil
 
--- Map-ID HUD line shown on every frame. "map" is the umbrella term for
--- both overworld-entered levels and pipe-entered sublevels. Green when we
--- have a file open; yellow when the translevel read returns nothing
--- (title screen / overworld with TL=0). L1Ptr is shown alongside so you
--- can eyeball pipe transitions — during pipes TL stays on the parent map
--- but L1Ptr changes, visible evidence we need separate sublevel detection.
-local function drawLevelHud()
-  local lvl  = currentLevel()
-  local tl   = r(0x7E13BF) + r(0x7E13C0) * 256
-  local l1lo = r(0x7E0065)
-  local l1hi = r(0x7E0066)
-  local l1bk = r(0x7E0067)
-  local sub    = r(0x7E141A)
-  local lln    = r(0x7E17BB)
-  local scrMode = r(0x7E005B)
-  local vert    = levelIsVertical()
-  local fileStatus = file and ("file: $" .. string.format("%03x", currentFileLevel) .. " open")
-                           or "file: <none>"
-  local lvlStr = lvl and ("$" .. string.format("%03x", lvl)) or "?"
-  local color  = lvl and 0x00FF88 or 0xFFFF00
-  local orient = vert and "VERT" or "HORIZ"
-  emu.drawString(8, 30, string.format("map=%s  TL=%02X  L1Ptr=%02X:%02X%02X  %s(scr=%02X)",
-    lvlStr, tl, l1bk, l1hi, l1lo, orient, scrMode), color, 0x000000)
-  emu.drawString(8, 40, fileStatus, color, 0x000000)
-  local snapStr = snapshotLevel
-    and string.format("$%03x", snapshotLevel)
-    or "nil"
-  emu.drawString(8, 50, string.format("SublevelCount=%02X  $17BB=%02X  snap=%s",
-    sub, lln, snapStr), color, 0x000000)
+-- Compact single-line HUD aligned with l2_dump.lua (row Y=20) and
+-- l3_dump.lua (row Y=30). Reserves row Y=10 for L1.
+--
+-- States:
+--   idle (gameMode != $14)         -- "[L1] idle (gameMode=XX)"
+--   level NORMAL                    -- "[L1] map $XXX -- normal (stable N)"
+--   level AUTO-SCROLL / NUDGE       -- "[L1] map $XXX -- auto-scroll col=C tick=T"
+--
+-- Detailed debug (game mode label, full L1Ptr, SublevelCount, snap, etc.)
+-- moved to emu.log edge events. Open Mesen's Script log window if you need
+-- to trace pipe / sub-area transitions.
+local COLOR_ON_L1     = 0x88FFAA  -- soft green = capturing (matches l2/l3)
+local COLOR_IDLE_L1   = 0x808080  -- grey
+local COLOR_AUTO_L1   = 0x66FFEE  -- cyan = auto-scrolling
+local HUD_ROW_L1      = 10
+
+local function drawL1Hud(state, extra)
+  local color, msg
+  if state == "idle" then
+    local gm = r(0x7E0100)
+    color = COLOR_IDLE_L1
+    msg = string.format("[L1] idle (gameMode=%02X)", gm)
+  else
+    local lvl    = currentLevel()
+    local lvlStr = lvl and string.format("%03x", lvl) or "----"
+    if state == "normal" then
+      color = COLOR_ON_L1
+      msg = string.format("[L1] map $%s -- normal %s", lvlStr, extra or "")
+    else  -- auto-scroll / nudge
+      color = COLOR_AUTO_L1
+      msg = string.format("[L1] map $%s -- %s %s", lvlStr, state, extra or "")
+    end
+  end
+  emu.drawString(8, HUD_ROW_L1, msg, color, 0x000000)
 end
 
 -- ── Main loop ─────────────────────────────────────────────────────────────
@@ -566,9 +571,7 @@ local function onFrame()
       snapshotLevel = nil
       emu.log("session reset: overworld, NORMAL mode restored")
     end
-    emu.drawString(8, 8, string.format("%s  (0x%02X)",
-      gameModeLabel(gameMode), gameMode), 0xFFFF00, 0x000000)
-    drawLevelHud()
+    drawL1Hud("idle")
     return
   end
 
@@ -635,16 +638,7 @@ local function onFrame()
     -- NORMAL mode: hands off Mario entirely. SMW physics + SNES controller
     -- (which keyboard arrows map to by default in Mesen) drive the game.
     -- Dumps still fire so manual playthroughs get captured.
-    emu.drawString(8, 8, string.format("NORMAL  STABLE %d  (tap Space for auto-scroll)",
-      stableFrames), 0xFFFFFF, 0x000000)
-    if vert then
-      emu.drawString(8, 18, string.format("col=%d  row=%d  marioY=0x%04x  tick=%d",
-        marioCol, marioRow, marioY(), tickNum), 0xFFFFFF, 0x000000)
-    else
-      emu.drawString(8, 18, string.format("col=%d  marioY=0x%04x  tick=%d",
-        marioCol, marioY(), tickNum), 0xFFFFFF, 0x000000)
-    end
-    drawLevelHud()
+    drawL1Hud("normal", string.format("(stable %d, Space=auto-scroll)", stableFrames))
     if frames % TICK_FRAMES == 0 then
       if vert then dumpAroundRow(marioRow) else dumpAroundCol(marioCol) end
     end
@@ -692,17 +686,14 @@ local function onFrame()
 
   local remaining = TICK_FRAMES - (frames % TICK_FRAMES)
   local secs = math.ceil(remaining / 60)
-  local status = nudged and "NUDGE" or "AUTO"
-  emu.drawString(8, 8,  string.format("%s  STABLE %d  DUMP IN %ds  (Space to stop)",
-    status, stableFrames, secs), 0x00FF00, 0x000000)
+  local status = nudged and "nudge" or "auto-scroll"
+  local extra
   if vert then
-    emu.drawString(8, 18, string.format("col=%d  row=%d  tick=%d  floatX=0x%02x",
-      marioCol, marioRow, tickNum, floatX), 0x00FF00, 0x000000)
+    extra = string.format("(col=%d row=%d dump in %ds, Space=stop)", marioCol, marioRow, secs)
   else
-    emu.drawString(8, 18, string.format("col=%d  tick=%d  floatY=0x%02x",
-      marioCol, tickNum, floatY), 0x00FF00, 0x000000)
+    extra = string.format("(col=%d dump in %ds, Space=stop)", marioCol, secs)
   end
-  drawLevelHud()
+  drawL1Hud(status, extra)
 
   if frames % TICK_FRAMES == 0 then
     if vert then dumpAroundRow(marioRow) else dumpAroundCol(marioCol) end

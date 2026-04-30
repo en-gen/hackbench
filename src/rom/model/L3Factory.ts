@@ -2,6 +2,7 @@ import type { RomFile } from '../RomFile'
 import {
   L3_TILEMAP_COLS, L3_TILEMAP_ROWS,
   applyInitialTimer, applyStaticStatusBar, loadL3Tilemap,
+  computeL3ScrollRange,
 } from '../L3Loader'
 import type { GfxSheet } from '../GfxLoader'
 import { L3TilemapLayer, type L3Layer } from './L3Layer'
@@ -38,7 +39,15 @@ export function buildL3(
 
   const load = loadL3Tilemap(rom, levelId, tileset, timeLimit)
   if (load) {
-    return new L3TilemapLayer(load.tilemap, l3Chars, load.initialYPx, levelPixelW, levelPixelH)
+    const scrollRange = computeL3ScrollRange({
+      tilemap:          load.tilemap,
+      initialYPx:       load.initialYPx,
+      initialCameraYPx: load.initialCameraYPx,
+      levelPixelW,
+      settingsByte:     load.settingsByte,
+      tileset,
+    })
+    return new L3TilemapLayer(load.tilemap, l3Chars, load.initialYPx, levelPixelW, levelPixelH, scrollRange)
   }
 
   // No L3 overlay for this level — still create an L3Layer populated with

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Stitch Map16 level dumps from tools/mesen/auto_walker.lua into a
+Stitch Map16 level dumps from tools/mesen/l1_dump.lua into a
 canonical fixture. Handles both horizontal and vertical levels — each
 `dumps.txt` is per-level-id, so orientation is uniform within a file
 (we detect it from the tick headers and fail if mixed).
@@ -33,7 +33,7 @@ Usage:
 Inputs and outputs typically live under
   C:/Users/engenb/OneDrive/hackbench-fixtures/maps/<hhh>/
   { dumps.txt, map16.txt }
-(see tools/mesen/auto_walker.lua DUMPS_DIR). ROM-derived data is kept out
+(see tools/mesen/l1_dump.lua DUMPS_DIR). ROM-derived data is kept out
 of the repo; each developer captures from their own legally owned ROM.
 """
 from __future__ import annotations

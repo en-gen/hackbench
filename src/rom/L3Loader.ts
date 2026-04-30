@@ -77,6 +77,16 @@ const DATA_05F000_ADDR = 0x05F000
 const DATA_05F200_ADDR = 0x05F200
 
 /**
+ * SNES address of DATA_05F400 — per-level Layer1/Layer2 startup Y-index byte.
+ * Bits 3:2 index DATA_05D708 for primary-entrance Layer1YPos init.
+ * Bits 1:0 index DATA_05D70C for primary-entrance Layer2YPos init.
+ * Distinct from DATA_05F200 (which holds Layer3Setting + entrance type +
+ * palettes) — confirmed via bank_05.asm:7323-7335 (LDA DATA_05F400,Y; STA _2;
+ * AND #$0C; LSR; LSR; TAX; LDA DATA_05D708,X; STA Layer1YPos).
+ */
+const DATA_05F400_ADDR = 0x05F400
+
+/**
  * Mario start Y lookup — low byte at $05D730, high byte at $05D740.
  * Indexed by low nibble of the entrance-Y byte (DATA_05F000 primary, DATA_05FA00 secondary).
  * bank_05.asm:7045-7049.
@@ -218,11 +228,18 @@ export function applyInitialTimer(
  * Return the initial Layer1YPos (camera Y) in pixels for a level, picking the
  * correct entrance based on level number.
  *
- * Primary entrances (levels $000-$0FF, bank_05.asm:7329-7335):
- *   Layer1YPos = DATA_05D708[bits 3:2 of DATA_05F200[level]]
+ * Primary entrances (levels $000-$0FF, bank_05.asm:7323-7335):
+ *   Layer1YPos = DATA_05D708[bits 3:2 of DATA_05F400[level]]
+ *
+ *   ↑ NOTE: bits come from DATA_05F400, NOT DATA_05F200. The ASM at lines
+ *     7309-7322 first loads $05F200 into _2 to extract entrance-type bits,
+ *     THEN at line 7324 reloads _2 from $05F400 before computing the camera
+ *     Y index. Earlier versions of this code read from $05F200 by mistake,
+ *     producing camera Y = $00 for levels that should start at $C0 — a
+ *     192-pixel L3 misposition for ~all L3-using vanilla levels.
  *
  * Secondary entrances (levels $100-$1FF and any level reached via pipe/door,
- *  bank_05.asm:7129-7136):
+ *  bank_05.asm:7120-7136):
  *   Layer1YPos = DATA_05D708[bits 5:4 of DATA_05FA00[entranceId]]
  *
  * Vertical levels (bank_05.asm:7386-7388): same low byte, plus the high byte
@@ -241,12 +258,14 @@ export function readInitialLayer1YPos(rom: RomFile, levelId: number, isVertical 
       const idx = (faByte >> 4) & 0x03
       loByte = rom.readByte(DATA_05D708_ADDR + idx) ?? 0
     } else {
-      const settings = rom.readByte(DATA_05F200_ADDR + levelId) ?? 0
+      // Primary fallback for sublevels with no targeting entrance — uses
+      // DATA_05F400 bits 3:2, same as the standard primary path.
+      const settings = rom.readByte(DATA_05F400_ADDR + levelId) ?? 0
       const idx = (settings >> 2) & 0x03
       loByte = rom.readByte(DATA_05D708_ADDR + idx) ?? 0
     }
   } else {
-    const settings = rom.readByte(DATA_05F200_ADDR + levelId) ?? 0
+    const settings = rom.readByte(DATA_05F400_ADDR + levelId) ?? 0
     const idx = (settings >> 2) & 0x03
     loByte = rom.readByte(DATA_05D708_ADDR + idx) ?? 0
   }
@@ -331,6 +350,177 @@ export function l3InitialYPx(settingsByte: number): number {
   if (settingsByte >= 0x80) return 0xD0  // cage bars, windows, crusher, fish
   // Tide: bit 0 distinguishes up-and-down ($01) from stationary ($00)
   return (settingsByte & 0x01) !== 0 ? 0x70 : 0x40
+}
+
+// ── Scroll-range derivation (editor overlay) ─────────────────────────────────
+
+/** Tide Layer3YPos sweep bounds (CODE_05C494, bank_05.asm:5576-5630). */
+export const L3_TIDE_YPOS_MIN = 0x30
+export const L3_TIDE_YPOS_MAX = 0xA0
+
+export interface L3ScrollRange {
+  /**
+   * Animation kind:
+   *   - tide:           Layer3YPos sweeps L3_TIDE_YPOS_MIN..MAX every frame.
+   *   - fixed:          Layer3YPos stays at initialYPx (no animation).
+   *   - camera-tracked: Layer3YPos = Layer1YPos every frame; cells sit at
+   *                     fixed level Y = row*8.
+   *   - none:           no L3 background or no gameplay-area content.
+   */
+  kind: 'tide' | 'fixed' | 'camera-tracked' | 'none'
+  /** Level pixel coordinates of the rectangle the L3 band can occupy. */
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
+  /**
+   * For `kind: 'tide'` — Y-coordinate of the wave-surface row (top of band)
+   * at the extremes of the BG3VOFS sweep. Designers see the wave-surface
+   * position at high tide (Layer3YPos = L3_TIDE_YPOS_MAX) and low tide
+   * (Layer3YPos = L3_TIDE_YPOS_MIN). Equal to yMin / (yMin + sweep) when
+   * the band-detection works perfectly; surfaced separately so the overlay
+   * can always draw explicit "HIGH" / "LOW" reference lines.
+   */
+  yHighTide?: number
+  yLowTide?:  number
+}
+
+export interface L3ScrollRangeInput {
+  tilemap:          Uint16Array
+  /** Initial Layer3YPos used by L3TilemapLayer's static render. */
+  initialYPx:       number
+  /** Initial Layer1YPos at level start. */
+  initialCameraYPx: number
+  /** Level pixel width (screens × 256). */
+  levelPixelW:      number
+  /** Raw byte from Layer3TilemapSettings ($009F88). */
+  settingsByte:     number
+  /** Object tileset (header byte 4 bits 3:0). */
+  tileset:          number
+}
+
+/**
+ * Find the first row >= L3_HUD_ROW_CUTOFF that contains any non-zero cell.
+ * Returns -1 if no gameplay-area cells exist.
+ */
+function findFirstDataRow(tilemap: Uint16Array): number {
+  for (let r = L3_HUD_ROW_CUTOFF; r < L3_TILEMAP_ROWS; r++) {
+    for (let c = 0; c < L3_TILEMAP_COLS; c++) {
+      if (tilemap[r * L3_TILEMAP_COLS + c] !== 0) return r
+    }
+  }
+  return -1
+}
+
+/**
+ * Tide stripe images write two identical row patterns (e.g. rows 32-47 then
+ * 48-63) for smooth animation. Detect the repeat boundary so the band-height
+ * isn't doubled. Mirrors L3TilemapLayer's repeat-detection.
+ */
+function findTideDataEndRow(tilemap: Uint16Array, firstDataRow: number): number {
+  for (let r = firstDataRow + 1; r < L3_TILEMAP_ROWS; r++) {
+    let match = true
+    for (let c = 0; c < L3_TILEMAP_COLS; c++) {
+      const a = tilemap[firstDataRow * L3_TILEMAP_COLS + c] ?? 0
+      const b = tilemap[r * L3_TILEMAP_COLS + c] ?? 0
+      const aChar = a & 0x3FF
+      const bChar = b & 0x3FF
+      const aEmpty = a === 0
+      const bEmpty = b === 0
+      if (aEmpty !== bEmpty || (!aEmpty && !bEmpty && aChar !== bChar)) {
+        match = false
+        break
+      }
+    }
+    if (match) return r
+  }
+  return L3_TILEMAP_ROWS
+}
+
+/** Find the last gameplay row <= dataEndRow-1 with any non-zero cell. */
+function findLastDataRow(tilemap: Uint16Array, dataEndRow: number): number {
+  for (let r = dataEndRow - 1; r >= L3_HUD_ROW_CUTOFF; r--) {
+    for (let c = 0; c < L3_TILEMAP_COLS; c++) {
+      if (tilemap[r * L3_TILEMAP_COLS + c] !== 0) return r
+    }
+  }
+  return -1
+}
+
+/**
+ * Compute the rectangle (in level pixel coordinates) that the L3 band can
+ * occupy as the game animates it. Used by the editor's scroll-range overlay
+ * so the designer can see where BG3 will be visible during play.
+ *
+ * Animation rules (from CODE_05C40C / CODE_05C494, bank_05.asm:5504-5630):
+ *   - Tide (settings byte < $80):
+ *       Layer3YPos oscillates [L3_TIDE_YPOS_MIN..MAX].
+ *       pixelY = row*8 - liveYPos + initialCamY for liveYPos ∈ [MIN..MAX].
+ *       So yMin = firstRow*8 - YPOS_MAX + initialCamY
+ *          yMax = (lastRow+1)*8 - YPOS_MIN + initialCamY
+ *   - Fixed (settings byte $80, or $81 with tileset 1/3):
+ *       pixelY = row*8 - initialYPx + initialCamY (no animation).
+ *   - Camera-tracked (settings byte $81 with tileset != 1, 3):
+ *       Layer3YPos = Layer1YPos every frame → pixelY = row*8 in level coords.
+ *   - None (settings byte $C0+, or no gameplay content): no overlay.
+ *
+ * X is full level width: tide scrolls 1:1 with camera (Layer3XPos +=
+ * Layer1DXPos, CODE_05C4EC), fixed/camera-tracked tile across the level.
+ */
+export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
+  const { tilemap, initialYPx, initialCameraYPx, levelPixelW, settingsByte, tileset } = input
+
+  if (settingsByte >= 0xC0) {
+    return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }
+  }
+
+  const firstDataRow = findFirstDataRow(tilemap)
+  if (firstDataRow < 0) {
+    return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }
+  }
+
+  const isTide = settingsByte < 0x80
+  const dataEndRow = isTide
+    ? findTideDataEndRow(tilemap, firstDataRow)
+    : L3_TILEMAP_ROWS
+  const lastDataRow = findLastDataRow(tilemap, dataEndRow)
+  if (lastDataRow < 0) {
+    return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }
+  }
+
+  const xMin = 0
+  const xMax = levelPixelW
+
+  if (isTide) {
+    return {
+      kind: 'tide',
+      xMin, xMax,
+      yMin: firstDataRow * 8 - L3_TIDE_YPOS_MAX + initialCameraYPx,
+      yMax: (lastDataRow + 1) * 8 - L3_TIDE_YPOS_MIN + initialCameraYPx,
+      // Wave-surface row position at the two BG3VOFS extremes. The renderer
+      // uses these for explicit "HIGH" / "LOW" tide reference lines.
+      yHighTide: firstDataRow * 8 - L3_TIDE_YPOS_MAX + initialCameraYPx,
+      yLowTide:  firstDataRow * 8 - L3_TIDE_YPOS_MIN + initialCameraYPx,
+    }
+  }
+
+  // settingsByte in [$80, $C0)
+  const isCameraTracked = settingsByte === 0x81 && tileset !== 1 && tileset !== 3
+  if (isCameraTracked) {
+    return {
+      kind: 'camera-tracked',
+      xMin, xMax,
+      yMin: firstDataRow * 8,
+      yMax: (lastDataRow + 1) * 8,
+    }
+  }
+
+  return {
+    kind: 'fixed',
+    xMin, xMax,
+    yMin: firstDataRow * 8 - initialYPx + initialCameraYPx,
+    yMax: (lastDataRow + 1) * 8 - initialYPx + initialCameraYPx,
+  }
 }
 
 // ── Layer3Ptr table ───────────────────────────────────────────────────────────
@@ -465,6 +655,8 @@ export interface L3TilemapLoad {
   initialCameraYPx: number
   /** SNES address the stripe-image data was read from. */
   dataAddr: number
+  /** Raw byte from Layer3TilemapSettings ($009F88). Drives scroll-range mode. */
+  settingsByte: number
 }
 
 /**
@@ -517,5 +709,6 @@ export function loadL3Tilemap(
     initialYPx,
     initialCameraYPx,
     dataAddr,
+    settingsByte,
   }
 }
