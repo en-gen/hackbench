@@ -1,4 +1,4 @@
-import { L3_HUD_ROW_CUTOFF, L3_TILEMAP_COLS, L3_TILEMAP_ROWS } from '../L3Loader'
+import { L3_HUD_ROW_CUTOFF, L3_TILEMAP_COLS, L3_TILEMAP_ROWS, type L3ScrollRange } from '../L3Loader'
 import type { GfxSheet } from '../GfxLoader'
 import type { RenderContext, RenderTarget } from './RenderTarget'
 
@@ -64,6 +64,12 @@ export class L3TilemapLayer extends L3Layer {
     readonly levelPixelW: number,
     /** Level pixel height (27 × 16 = 432 for horizontal levels). */
     readonly levelPixelH: number,
+    /**
+     * Pre-computed scroll-range rectangle for the editor's BG-coverage
+     * overlay. `kind: 'none'` for HUD-only L3 (no gameplay-area content).
+     * Computed in L3Factory.buildL3 from this layer's settings + tileset.
+     */
+    readonly scrollRange: L3ScrollRange = { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 },
   ) {
     super()
 

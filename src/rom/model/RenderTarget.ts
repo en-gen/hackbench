@@ -58,6 +58,12 @@ export interface LayerToggles {
    * `src/rom/model/tiles/COLLISION.md`.
    */
   walls: boolean
+  /**
+   * Show the L3 BG-coverage rectangle (toolbar btn-l3range). Reads
+   * `mapData.l3.scrollRange`; see `computeL3ScrollRange` in
+   * `src/rom/L3Loader.ts`.
+   */
+  l3Range: boolean
 }
 
 /**

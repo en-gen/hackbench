@@ -239,6 +239,24 @@ export interface LevelHeaderDescriptor {
 
 // ── Layer 3 ──────────────────────────────────────────────────────────
 
+/**
+ * Pre-computed L3 scroll-range rectangle (level pixel coords) for the
+ * editor's BG-coverage overlay. Mirrors `L3ScrollRange` in L3Loader.ts —
+ * duplicated here as a plain interface so the webview module doesn't have
+ * to import from the extension-side rom layer.
+ */
+export interface L3ScrollRangeDescriptor {
+  kind: 'tide' | 'fixed' | 'camera-tracked' | 'none'
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
+  /** Wave-surface row Y-position at high tide ($A0). Tide kinds only. */
+  yHighTide?: number
+  /** Wave-surface row Y-position at low tide ($30). Tide kinds only. */
+  yLowTide?:  number
+}
+
 export interface L3Descriptor {
   /** 4096-entry VRAM tilemap (index = row*64+col), as 16-bit unsigned values. */
   tilemap: readonly number[]
@@ -254,6 +272,12 @@ export interface L3Descriptor {
   levelPixelW: number
   /** Level pixel height (432 for horizontal, screens × 256 for vertical). */
   levelPixelH: number
+  /**
+   * Pre-computed L3 scroll-range rectangle. Drives the editor's "Show L3
+   * range" overlay so the designer can see where the BG will be visible
+   * during play. `kind: 'none'` when there's no gameplay-area content.
+   */
+  scrollRange?: L3ScrollRangeDescriptor
 }
 
 export type L2Descriptor =

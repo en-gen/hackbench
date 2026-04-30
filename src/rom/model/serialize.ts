@@ -224,6 +224,7 @@ function serializeL3(l3: import('./L3Layer').L3Layer | null): L3Descriptor | nul
     initialYPx: l3.initialYPx,
     levelPixelW: l3.levelPixelW,
     levelPixelH: l3.levelPixelH,
+    scrollRange: l3.scrollRange,
   }
 }
 

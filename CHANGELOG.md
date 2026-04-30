@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Layer 3 Y-position bug for most L3-using vanilla levels.
+  `readInitialLayer1YPos` now reads camera-Y idx from `DATA_05F400` bits
+  3:2 — the level-load path at bank_05.asm:7323-7335 reloads `_2` from
+  `$05F400` before extracting the idx. The previous `$05F200` read
+  produced camera Y = `$00` instead of the correct `$C0` for ~all L3-
+  using vanilla levels (\$009, \$002, \$127, etc.), shifting the rendered
+  L3 plane 192 px above where the game actually displays it. Verified
+  against live game runtime via Mesen Memory Viewer at `$7E:001C`.
 - Koopa patrol overlay no longer teleports up to a parallel slope at
   stair-step slope corners (visible regression at level $006 col 92 with
   the blue koopa $006). The overlay scan now uses edge-matched surface
@@ -40,6 +48,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- "Show L3 BG range" editor toolbar toggle (`btn-l3range`, codicon
+  `symbol-namespace`) that draws the Layer 3 scroll-range visualization
+  on the level canvas. For tide levels (Tide_UpAndDown / Tide_Stationary
+  in `Layer3TilemapSettings` at `$009F88`), bright magenta horizontal
+  lines mark the wave-surface position at the BG3VOFS sweep extremes
+  (`$30..$A0` per CODE_05C494, bank_05.asm:5576-5630), labeled "L3 Max"
+  (high BG3VOFS) and "L3 Min" (low BG3VOFS). For fixed and
+  camera-tracked L3 modes, a
+  translucent cyan rect marks the band the layer occupies. New
+  `computeL3ScrollRange()` helper in `src/rom/L3Loader.ts` derives the
+  range from the L3 tilemap + ASM-derived bounds.
+- Mesen 2 Lua capture scripts for per-frame layer-state recording:
+  `tools/mesen/l1_dump.lua` (renamed from `auto_walker.lua` for naming
+  symmetry; existing L1 Map16 sweep with a compacted single-line HUD),
+  `tools/mesen/l2_dump.lua`, and `tools/mesen/l3_dump.lua`. The new
+  scripts capture per-frame scroll registers, tide-state diagnostics
+  (Layer3TideSetting, Layer3TideTimer, Layer3ScrollX/YSpeed,
+  Layer1YPos), and write CSV + on-entry tilemap/VRAM snapshots into
+  the same `OneDrive maps/<id>/` folder as the L1 fixture pipeline. All
+  three scripts auto-trigger on game-mode `$14` (no hotkeys) and can run
+  simultaneously in Mesen since frame numbers are emulator-global.
 - Spike Top ($2E) sprite rendering — 2-frame animated OBJ
   (`EffFrame >> 3 & 1`, `WallFollowersMain` bank_02.asm:8079-8087) plus a
   patrol-path overlay that simulates the wall-follower in tile space.

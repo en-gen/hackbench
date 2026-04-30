@@ -231,6 +231,23 @@ describe.skipIf(!romPresent)('L3Loader (ROM-only)', () => {
     expect(pos.y).toBeGreaterThanOrEqual(0)
   })
 
+  it('primary-entrance camera Y reads from DATA_05F400 bits 3:2, not DATA_05F200', () => {
+    // bank_05.asm:7323-7335: the level-load path reloads `_2` from
+    // $05F400[level] before extracting bits 3:2 to index DATA_05D708. Earlier
+    // versions of this code mistakenly read $05F200 (which only matches
+    // $05F400 by coincidence on a few levels), causing a 192-pixel L3
+    // misposition on most L3-using vanilla levels.
+    //
+    // Concrete: $009 (cave BG, Underground1 tileset).
+    //   $05F200[$009] = $C0 → bits 3:2 = 0 → would yield camera Y $00 (WRONG)
+    //   $05F400[$009] = $0A → bits 3:2 = 2 → DATA_05D708[2] = $C0 (CORRECT,
+    //     verified against live game runtime via Mesen Memory Viewer at $7E:001C)
+    const rom = SmwRom.open(ROM_PATH)
+    expect(readInitialLayer1YPos(rom.rom, 0x009, false)).toBe(0xC0)
+    // $127 (water level, primary entrance, no secondary entrance targets it).
+    expect(readInitialLayer1YPos(rom.rom, 0x127, false)).toBe(0xC0)
+  })
+
   it('sublevels ($100+) use secondary-entrance camera Y, not primary entrance', () => {
     // Level $102 (Yoshi's Island 4) is a sublevel — only reachable via
     // secondary entrance $1BE (bank_05.asm:7129-7136).  The primary-entrance

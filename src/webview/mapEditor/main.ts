@@ -23,6 +23,7 @@ import { cellBoxOf, type RenderContext } from '../../rom/model/RenderTarget'
 import { CanvasRenderTarget } from './CanvasRenderTarget'
 import { drawSurfaces } from './overlays/drawSurfaces'
 import { drawWalls } from './overlays/drawWalls'
+import { drawL3Range } from './overlays/drawL3Range'
 import { useEditorStore } from './store'
 import { createRafTimer } from '../shared/animTimer'
 
@@ -141,6 +142,7 @@ function renderModelOverlay(map: SmwMap): void {
     if (toggles.screens || toggles.mapGrid) drawScreenAndGridOverlays(bctx, map, toggles.screens, toggles.mapGrid)
     if (toggles.surfaces) drawSurfaces(bctx, map, store.switchPalaceState)
     if (toggles.walls)    drawWalls(bctx,    map, store.switchPalaceState)
+    if (toggles.l3Range)  drawL3Range(bctx,  map)
     drawVinePaths(bctx, map)
     map.renderSpriteOverlays(bctx as unknown as OverlayContext, store.activeSpriteOverlays)
   }
@@ -909,6 +911,7 @@ app.innerHTML = `
     <!-- Overlay toggles -->
     <button id="btn-surfaces"    class="iconBtn"    title="Show surfaces"><span class="codicon codicon-layout-panel-dock"></span></button>
     <button id="btn-walls"       class="iconBtn"    title="Show walls"><span class="codicon codicon-layout-sidebar-right-dock"></span></button>
+    <button id="btn-l3range"     class="iconBtn"    title="Show L3 BG range"><span class="codicon codicon-symbol-namespace"></span></button>
     <button id="btn-block"       class="iconBtn"    title="Block view"><span class="codicon codicon-symbol-method"></span></button>
 
     <div class="tb-sep"></div>
@@ -974,6 +977,7 @@ app.innerHTML = `
     <input type="checkbox" id="chk-camera"          style="display:none">
     <input type="checkbox" id="chk-surfaces"        style="display:none">
     <input type="checkbox" id="chk-walls"           style="display:none">
+    <input type="checkbox" id="chk-l3range"         style="display:none">
   </div><!-- #main -->
 
   <!-- ── RIGHT PANEL ──────────────────────────────────────────────────────── -->
@@ -1176,6 +1180,7 @@ const chkL3Hud       = document.getElementById('chk-l3hud')       as HTMLInputEl
 const chkCamera      = document.getElementById('chk-camera')      as HTMLInputElement
 const chkSurfaces    = document.getElementById('chk-surfaces')    as HTMLInputElement
 const chkWalls       = document.getElementById('chk-walls')       as HTMLInputElement
+const chkL3Range     = document.getElementById('chk-l3range')     as HTMLInputElement
 
 // ── Camera viewport overlay ──────────────────────────────────────────────────
 // A draggable 16×14 tile rectangle representing the SNES FG screen window
@@ -1463,6 +1468,7 @@ wireLayerBtn('btn-l3',       'chk-l3')
 wireLayerBtn('btn-sprites',  'chk-sprites')
 wireLayerBtn('btn-surfaces', 'chk-surfaces')
 wireLayerBtn('btn-walls',    'chk-walls')
+wireLayerBtn('btn-l3range',  'chk-l3range')
 wireLayerBtn('btn-block',    'chk-block')
 wireLayerBtn('btn-screens',  'chk-screens')
 wireLayerBtn('btn-hud',      'chk-l3hud')
@@ -2756,6 +2762,7 @@ function syncLayerTogglesFromDom(): void {
     l3Hud:    chkL3Hud.checked,
     surfaces: chkSurfaces.checked,
     walls:    chkWalls.checked,
+    l3Range:  chkL3Range.checked,
   })
 }
 chkScreens.addEventListener('change',  syncLayerTogglesFromDom)
@@ -2767,6 +2774,7 @@ chkL3.addEventListener('change',       syncLayerTogglesFromDom)
 chkL3Hud.addEventListener('change',    syncLayerTogglesFromDom)
 chkSurfaces.addEventListener('change', syncLayerTogglesFromDom)
 chkWalls.addEventListener('change',    syncLayerTogglesFromDom)
+chkL3Range.addEventListener('change',  syncLayerTogglesFromDom)
 chkCamera.addEventListener('change',  () => {
   const on = chkCamera.checked
   store.setCameraOn(on)  // reactive — triggers renderModelOverlay

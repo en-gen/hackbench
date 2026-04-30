@@ -259,7 +259,9 @@ function buildL3(desc: L3Descriptor | null): L3Layer | null {
     }
     l3Chars.push(sheet)
   }
-  return new L3TilemapLayer(tilemap, l3Chars, desc.initialYPx, desc.levelPixelW, desc.levelPixelH)
+  return new L3TilemapLayer(
+    tilemap, l3Chars, desc.initialYPx, desc.levelPixelW, desc.levelPixelH, desc.scrollRange,
+  )
 }
 
 function buildL2(
