@@ -8,6 +8,8 @@ import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, getCharPixels, type VramStat
 import { loadAnimationData, ANIM_INTERVAL_MS, type AnimationData } from '../rom/AnimationLoader'
 import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
 import { readInitialLayer1YPos, readL3RoutineSummary, classifyL3Routine } from '../rom/L3Loader'
+import { getAllLevelBgmTracks, readLevelMusicTable } from '../rom/MusicData'
+import { buildSpc } from '../rom/SpcBuilder'
 import { expandMap } from '../rom/ObjectExpander'
 import { readL2Pointer, isPresetPtr, loadL2Preset, loadL2Objects, L2_TILEMAP_COLS, L2_TILEMAP_ROWS, L1_SCREEN_W, L1_SCREEN_H } from '../rom/L2Loader'
 import { buildMapPayload } from '../rom/model/MapBuilder'
@@ -78,6 +80,20 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
           layer3Setting:  msg.layer3Setting  as number | undefined,
           _initial:       false,
         })
+      } else if (msg.type === 'requestMusicSpc') {
+        const bgmCommand = msg.bgmCommand as number
+        try {
+          const raw = await vscode.workspace.fs.readFile(document.uri)
+          const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
+          const activeSession = getActiveRomSession()
+          const spcRom = (activeSession && activeSession.rom.rom.filePath === descriptor.romPath)
+            ? activeSession.rom
+            : resolveRom(descriptor.romPath as string)
+          const spc = buildSpc(spcRom.rom, bgmCommand, 'level')
+          panel.webview.postMessage({ type: 'musicSpc', bgmCommand, spcData: spc ? Array.from(spc) : null })
+        } catch {
+          panel.webview.postMessage({ type: 'musicSpc', bgmCommand, spcData: null })
+        }
       } else if (msg.type === 'edit') {
         // Future: apply edit to ROM buffer and mark dirty
       }
@@ -231,6 +247,17 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       // re-renders. Step 3 (real ROM writes) will turn these into byte-level
       // mutations of the L1 header.
       const musicEff          = overrides.music          ?? header.music
+      const allBgmTracks      = getAllLevelBgmTracks(rom.rom)
+      // After a rerender, overrides.music is already a bgmCommand (the webview
+      // sends the selected option value, which is a bgmCommand). On initial load
+      // (no override) look it up from the 3-bit header index via the level music table.
+      const currentBgmCommand = overrides.music !== undefined
+        ? overrides.music
+        : (readLevelMusicTable(rom.rom).find(e => e.index === musicEff)?.bgmCommand
+            ?? allBgmTracks[0]?.bgmCommand ?? 1)
+      const spcRaw  = buildSpc(rom.rom, currentBgmCommand, 'level')
+      const spcData = spcRaw ? Array.from(spcRaw) : null
+
       const timeLimitEff      = overrides.timeLimit      ?? header.timeLimit
       const levelModeEff      = overrides.levelMode      ?? header.levelMode
       const itemMemoryEff     = overrides.itemMemory     ?? header.itemMemory
@@ -243,7 +270,10 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       const palAnimSerialized = palAnimRaw ? serializePaletteAnimData(palAnimRaw) : null
       webview.postMessage({
         type: 'load',
-        _initial:       overrides._initial !== false,
+        _initial:          overrides._initial !== false,
+        allBgmTracks,
+        currentBgmCommand,
+        spcData,
         mapIndex:     index,
         screens,
         isVertical,
@@ -347,6 +377,12 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
     const codiconCssUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'codicon.css')
     )
+    const spcJsUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'spc.js')
+    )
+    const wasmUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'spc.wasm')
+    )
     const nonce = getNonce()
     return /* html */`<!DOCTYPE html>
 <html lang="en">
@@ -354,7 +390,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none';
-             script-src 'nonce-${nonce}';
+             script-src 'nonce-${nonce}' 'wasm-unsafe-eval' 'unsafe-eval';
              connect-src ${webview.cspSource};
              font-src ${webview.cspSource};
              style-src ${webview.cspSource} 'unsafe-inline';" />
@@ -368,6 +404,33 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
 </head>
 <body>
   <div id="app"></div>
+  <!-- Stub DOM: spc.js UI init accesses these elements. All hidden. -->
+  <div id="spc-player-interface" style="display:none;">
+    <div id="spc-player-header" class="header-button"></div>
+    <div class="title"></div><div class="subtitle"></div><div class="details"></div>
+    <button class="pause hidden"></button><button class="play"></button>
+    <button class="restart"></button><button class="stop"></button><button class="close"></button>
+    <input type="checkbox" id="spc-player-toggle"/>
+    <input type="checkbox" id="spc-player-loop"/>
+    <input type="range" id="volume-slider" class="volume-slider" min="0" max="1.5" step="0.01" value="1"/>
+    <div class="volume-fill"></div><div class="volume-level"></div><div class="volume-thumb"></div>
+    <div class="seek-container"><input type="range" class="seek-control" min="0" max="1"/><span class="seek-preview"></span></div>
+    <span class="track-time-elapsed"></span><span class="track-duration"></span>
+    <div id="track-list-container" class="hidden">
+      <div class="track-list-scrollbox"></div>
+      <div class="track-list"></div>
+      <div class="overflow-indicator top"></div><div class="overflow-indicator bottom"></div>
+    </div>
+    <div class="seek"></div>
+  </div>
+  <script nonce="${nonce}">
+    window.Module = { locateFile: function(path) {
+      if (path.endsWith('.wasm')) return '${wasmUri}';
+      return path;
+    }};
+    window.SMWCentral = { SPCPlayer: {} };
+  </script>
+  <script nonce="${nonce}" src="${spcJsUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`
