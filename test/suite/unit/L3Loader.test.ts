@@ -21,6 +21,8 @@ import {
   readInitialLayer1YPos,
   readMarioStartPos,
   findSecondaryEntranceForLevel,
+  classifyL3Routine,
+  readL3RoutineSummary,
 } from '../../../src/rom/L3Loader'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { buildMapWithGraph } from '../../../src/rom/model/MapBuilder'
@@ -169,8 +171,18 @@ describe('l3InitialYPx', () => {
     expect(l3InitialYPx(0x01)).toBe(0x70)
   })
 
-  it('returns $40 for stationary tide ($00)', () => {
-    expect(l3InitialYPx(0x00)).toBe(0x40)
+  it('returns $70 for byte $00 (LSR-then-Z=1 path branches to $70)', () => {
+    // bank_00.asm:4154-4161: LSR A; PHP; ...; LDA #$70; PLP; BEQ +; LDA #$40
+    // For byte $00: LSR → $00, Z=1, BEQ branches → init Y stays at $70.
+    // Vanilla never uses $00 in Layer3TilemapSettings, but this codifies the
+    // exact ASM behavior so the assertion is correct rather than just pragmatic.
+    expect(l3InitialYPx(0x00)).toBe(0x70)
+  })
+
+  it('returns $40 for stationary tide ($02 — canonical Tide_Stationary)', () => {
+    // rammap.asm:1512: !Tide_Stationary = 2. CODE_009FB8 LSR makes A=$01,
+    // Z=0, BEQ falls through to LDA #$40.
+    expect(l3InitialYPx(0x02)).toBe(0x40)
   })
 
   it('returns $D0 for non-tide overlay ($80)', () => {
@@ -184,6 +196,79 @@ describe('l3InitialYPx', () => {
   it('returns 0 for values >= $C0 (special / no BG)', () => {
     expect(l3InitialYPx(0xC0)).toBe(0)
     expect(l3InitialYPx(0xFF)).toBe(0)
+  })
+})
+
+// ── classifyL3Routine (pure) ─────────────────────────────────────────────────
+//
+// Mirrors the kind vocabulary used by computeL3ScrollRange, plus a 'disabled'
+// case that signals "Layer3Setting === 0, no L3 selected at all" (distinct
+// from 'none' which means "byte ≥ $C0, table entry exists but disables L3").
+// Branch citations all in L3Loader.ts header comment + bank_00.asm CODE_009FB8.
+
+describe('classifyL3Routine', () => {
+  it('returns disabled when layer3Setting is 0', () => {
+    expect(classifyL3Routine({ layer3Setting: 0, settingsByte: null, tileset: 0 }).kind).toBe('disabled')
+  })
+
+  it('returns tide ONLY for settingsByte === $01 (Tide_UpAndDown)', () => {
+    // Per CODE_05C494 (bank_05.asm:5576-5578): DEC A; BNE CODE_05C4EC means
+    // Y animation runs only when Layer3TideSetting === 1. Bytes $00 and
+    // $02..$7F take other paths and don't update Layer3YPos.
+    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x01, tileset: 0 }).kind).toBe('tide')
+  })
+
+  it('returns fixed for byte $00 (CODE_05C40C BEQ skips tide handler)', () => {
+    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x00, tileset: 0 }).kind).toBe('fixed')
+  })
+
+  it('returns fixed for byte $02 (Tide_Stationary — Y is static at $40)', () => {
+    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x02, tileset: 8 }).kind).toBe('fixed')
+  })
+
+  it('flags isTideUpAndDown only for byte $01', () => {
+    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x01, tileset: 0 }).isTideUpAndDown).toBe(true)
+    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x00, tileset: 0 }).isTideUpAndDown).toBe(false)
+    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x02, tileset: 8 }).isTideUpAndDown).toBe(false)
+  })
+
+  it('returns fixed for settingsByte $80', () => {
+    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x80, tileset: 1 }).kind).toBe('fixed')
+    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x80, tileset: 6 }).kind).toBe('fixed')
+  })
+
+  it('returns fixed for settingsByte $81 with tileset 1 (Castle1) or 3 (Underground1)', () => {
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 1 }).kind).toBe('fixed')
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 3 }).kind).toBe('fixed')
+  })
+
+  it('returns camera-tracked for settingsByte $81 with non-castle/non-underground tileset', () => {
+    // Same special-case as loadL3Tilemap: $81 + tileset != 1,3 takes the
+    // CODE_00A01F path where Layer3YPos = Layer1YPos every frame.
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 6 }).kind).toBe('camera-tracked')
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 0 }).kind).toBe('camera-tracked')
+  })
+
+  it('returns none for settingsByte >= $C0', () => {
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0xC0, tileset: 0 }).kind).toBe('none')
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0xFF, tileset: 0 }).kind).toBe('none')
+  })
+
+  it('exposes initialYPx that matches l3InitialYPx, except for camera-tracked', () => {
+    // Tide / fixed / none come straight from l3InitialYPx (post-fix: $00 = $70,
+    // $01 = $70, $02..$7F = $40 — see l3InitialYPx tests for ASM citation).
+    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x01, tileset: 0 }).initialYPx).toBe(0x70)
+    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x00, tileset: 0 }).initialYPx).toBe(0x70)
+    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x02, tileset: 8 }).initialYPx).toBe(0x40)
+    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x80, tileset: 1 }).initialYPx).toBe(0xD0)
+    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x81, tileset: 1 }).initialYPx).toBe(0xD0)
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0xC0, tileset: 0 }).initialYPx).toBe(0)
+    // camera-tracked has no static initial Y — it follows Layer1YPos every
+    // frame. Surface as null so consumers don't render a misleading static
+    // pixel value.
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 6 }).initialYPx).toBeNull()
+    // Disabled: no settings byte means no initial Y.
+    expect(classifyL3Routine({ layer3Setting: 0, settingsByte: null, tileset: 0 }).initialYPx).toBeNull()
   })
 })
 
@@ -304,6 +389,38 @@ describe.skipIf(!romPresent)('L3Loader (ROM-only)', () => {
     const load = loadL3Tilemap(rom.rom, 0x102, tileset)
     expect(load).not.toBeNull()
     expect(load!.initialYPx).toBe(0x40)  // Tide_Stationary → $40 = 64
+  })
+
+  it('readL3RoutineSummary level $102 (Yoshi\'s Island 4 sublevel) → fixed / Tide_Stationary', () => {
+    // $102 has tileset 8, layer3Setting 2, settings byte $02 (Tide_Stationary).
+    // Per the fix: only byte $01 animates Y, so $02 → kind:'fixed'. Init Y
+    // stays at $40 from l3InitialYPx (canonical Tide_Stationary value).
+    const rom = SmwRom.open(ROM_PATH)
+    const sum = readL3RoutineSummary(rom.rom, 0x102, 8)
+    expect(sum.layer3Setting).toBeGreaterThan(0)
+    expect(sum.kind).toBe('fixed')
+    expect(sum.isTideUpAndDown).toBe(false)
+    expect(sum.initialYPx).toBe(0x40)
+  })
+
+  it('readL3RoutineSummary returns disabled for a level with no L3', () => {
+    // Walk the ROM for a level with $05F200 bits 7:6 = 0. Most non-L3 levels
+    // qualify; pick one and assert kind='disabled' + null fields.
+    const rom = SmwRom.open(ROM_PATH)
+    let foundDisabled = false
+    for (let lvl = 0; lvl < 0x200; lvl++) {
+      const byte = rom.rom.readByte(0x05F200 + lvl) ?? 0
+      if (((byte & 0xC0) >> 6) === 0) {
+        const sum = readL3RoutineSummary(rom.rom, lvl, 0)
+        expect(sum.layer3Setting).toBe(0)
+        expect(sum.kind).toBe('disabled')
+        expect(sum.settingsByte).toBeNull()
+        expect(sum.initialYPx).toBeNull()
+        foundDisabled = true
+        break
+      }
+    }
+    expect(foundDisabled).toBe(true)
   })
 
   it('loadL3Tilemap produces non-zero tiles for a tide level', () => {

@@ -993,20 +993,29 @@ app.innerHTML = `
       <span id="props-ctx" style="color:#888;font-style:italic;">Click a tile, sprite, or object…</span>
     </div>
 
-    <!-- Context panes -->
-    <div id="pp-empty" style="flex:1;display:flex;align-items:center;justify-content:center;color:#444;font-size:11px;padding:16px;text-align:center;min-height:0;"></div>
-    <div id="pp-tile"   style="display:none;flex:1;padding:8px;overflow-y:auto;min-height:0;font-size:11px;color:#ccc;"></div>
-    <div id="pp-sprite" style="display:none;flex:1;padding:8px;overflow-y:auto;min-height:0;font-size:11px;color:#ccc;"></div>
-    <div id="pp-object" style="display:none;flex:1;padding:8px;overflow-y:auto;min-height:0;font-size:11px;color:#ccc;"></div>
+    <!-- ── TOP: inspector context panes ───────────────────────────────────
+         flex:1 here makes the inspector take all space NOT consumed by the
+         middle (tabs) and bottom (switches) regions, which are sized below. -->
+    <div id="pp-empty" style="flex:1 1 0;display:flex;align-items:center;justify-content:center;color:#444;font-size:11px;padding:16px;text-align:center;min-height:80px;"></div>
+    <div id="pp-tile"   style="display:none;flex:1 1 0;padding:8px;overflow-y:auto;min-height:80px;font-size:11px;color:#ccc;"></div>
+    <div id="pp-sprite" style="display:none;flex:1 1 0;padding:8px;overflow-y:auto;min-height:80px;font-size:11px;color:#ccc;"></div>
+    <div id="pp-object" style="display:none;flex:1 1 0;padding:8px;overflow-y:auto;min-height:80px;font-size:11px;color:#ccc;"></div>
 
-    <!-- Level Settings + Switch State in a scrollable wrapper so they're never
-         clipped by the panel's overflow:hidden when the context pane is tall -->
-    <div style="flex-shrink:1;overflow-y:auto;min-height:0;">
+    <!-- ── MIDDLE: level/map property tabs ────────────────────────────────
+         Tab strip is fixed-height; tab content area is bounded by max-height
+         and scrolls internally so the strip + content together never push
+         the bottom switches off-screen. -->
+    <div class="tab-strip" role="tablist">
+      <button class="tab-btn active" data-tab="general" role="tab">General</button>
+      <button class="tab-btn"        data-tab="layer2"  role="tab">Layer 2</button>
+      <button class="tab-btn"        data-tab="layer3"  role="tab">Layer 3</button>
+    </div>
+    <div class="tab-content-wrap">
 
-    <!-- Level Settings (collapsible) -->
-    <details class="prop-section" open>
-      <summary class="section-hdr" style="cursor:pointer;">LEVEL SETTINGS</summary>
-      <div style="padding:8px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;">
+      <!-- ── Tab: GENERAL ──
+           Level-wide settings + L1 / palette / tileset overrides.
+           Most fields here are already editable selects (existing behavior). -->
+      <div class="tab-pane" data-tab="general" style="padding:8px;display:flex;flex-direction:column;gap:8px;">
 
         <div>
           <div style="${propLabelStyle()}">BACK AREA COLOR</div>
@@ -1050,6 +1059,28 @@ app.innerHTML = `
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
           <div>
+            <div style="${propLabelStyle()}">MUSIC</div>
+            <select id="sel-music" style="${selStyle()}"></select>
+          </div>
+          <div>
+            <div style="${propLabelStyle()}">TIME LIMIT</div>
+            <select id="sel-time-limit" style="${selStyle()}"></select>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <div>
+            <div style="${propLabelStyle()}">LEVEL MODE</div>
+            <select id="sel-level-mode" style="${selStyle()}"></select>
+          </div>
+          <div>
+            <div style="${propLabelStyle()}">ITEM MEMORY</div>
+            <select id="sel-item-memory" style="${selStyle()}"></select>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <div>
             <div style="${propLabelStyle()}">SCREENS</div>
             <div id="info-screens" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
           </div>
@@ -1058,6 +1089,16 @@ app.innerHTML = `
             <div id="info-sprites" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
           </div>
         </div>
+
+      </div><!-- /tab-pane general -->
+
+      <!-- ── Tab: LAYER 2 ──
+           BG parallax rates derived from per-level scroll byte
+           ($05F000 → top-nibble → DATA_05D710 / DATA_05D720), plus the L1
+           vertical-scroll mode from header byte 4 bits 5:4. The latter is a
+           level-scope bit, not strictly L2, but it controls whether the
+           level scrolls vertically at all so it's surfaced here for now. -->
+      <div class="tab-pane" data-tab="layer2" style="padding:8px;display:none;flex-direction:column;gap:8px;">
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
           <div>
@@ -1070,13 +1111,58 @@ app.innerHTML = `
           </div>
         </div>
 
-      </div>
-    </details>
+        <div>
+          <div style="${propLabelStyle()}">L1 V-SCROLL MODE (HDR)</div>
+          <select id="sel-vscroll-hdr" style="${selStyle()}"></select>
+        </div>
 
-    <!-- Switch State (collapsible) -->
-    <details class="prop-section" open>
-      <summary class="section-hdr" style="cursor:pointer;">SWITCH STATE</summary>
+      </div><!-- /tab-pane layer2 -->
+
+      <!-- ── Tab: LAYER 3 ──
+           Routine summary from readL3RoutineSummary in L3Loader.ts plus the
+           L3 priority bit from header byte 2 bit 7. -->
+      <div class="tab-pane" data-tab="layer3" style="padding:8px;display:none;flex-direction:column;gap:8px;">
+
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="chk-l3-priority" />
+          <label for="chk-l3-priority" style="${propLabelStyle()};margin:0;cursor:pointer;">L3 PRIORITY (BG3 in front of sprites)</label>
+        </div>
+
+        <div>
+          <div style="${propLabelStyle()}">SETTING</div>
+          <select id="sel-l3-setting" style="${selStyle()}"></select>
+        </div>
+
+        <!-- Read-only derived values: $009F88 byte, kind, init Y. These come
+             from (tileset, layer3Setting) and so cannot be edited directly —
+             they're outputs of the routine summary, not inputs. -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <div>
+            <div style="${propLabelStyle()}">$009F88</div>
+            <div id="info-l3-byte" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+          </div>
+          <div>
+            <div style="${propLabelStyle()}">INIT Y</div>
+            <div id="info-l3-init-y" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+          </div>
+        </div>
+
+        <div>
+          <div style="${propLabelStyle()}">KIND</div>
+          <div id="info-l3-kind" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+        </div>
+
+      </div><!-- /tab-pane layer3 -->
+
+    </div><!-- /tab-content-wrap -->
+
+    <!-- ── BOTTOM: switch-state toggles, anchored ─────────────────────────
+         flex:0 0 auto so this region keeps its content height regardless of
+         how the inspector and tabs grow. Border-top separates it visually
+         from the tab-content area above. -->
+    <div class="switch-state-anchor">
       <div style="padding:8px;">
+        <div style="${propLabelStyle()};margin-bottom:4px;">SWITCH STATE</div>
         <div id="switch-toggles" style="display:flex;gap:6px;justify-content:space-between;">
           <button class="pswitch-toggle" data-pcolor="blue" title="Blue P-switch — swaps coins ↔ used blocks and reveals hidden doors / ? blocks">
             <canvas width="16" height="16"></canvas>
@@ -1095,9 +1181,7 @@ app.innerHTML = `
           </button>
         </div>
       </div>
-    </details>
-
-    </div><!-- scrollable wrapper -->
+    </div>
 
   </div><!-- #right-panel -->
 
@@ -1131,14 +1215,25 @@ app.innerHTML = `
   .tab-btn.active { color: #e0e0e0; border-bottom-color: #007acc; }
   .tab-btn:hover:not(.active) { color: #ccc; }
 
-  .section-hdr {
-    padding: 4px 8px 3px; font-size: 10px; font-weight: 700; letter-spacing: .08em;
-    color: var(--vscode-sideBarSectionHeader-foreground,#bbb);
-    background: var(--vscode-sideBarSectionHeader-background,#2d2d2d);
-    user-select: none; flex-shrink: 0;
+  /* Right-panel tab strip + content wrapper. .tab-btn (defined above) renders
+     correctly inside this 30px-tall flex strip. The content wrap caps its
+     own height with max-height so it shares space with the inspector above
+     and never pushes the bottom switch-state row off-screen. */
+  #right-panel .tab-strip {
+    display: flex; flex-shrink: 0; height: 30px; overflow: hidden;
+    border-top: 1px solid var(--vscode-panel-border, #3a3a3a);
+    border-bottom: 1px solid var(--vscode-panel-border, #3a3a3a);
   }
-  details.prop-section > summary { list-style: none; }
-  details.prop-section > summary::-webkit-details-marker { display: none; }
+  #right-panel .tab-strip .tab-btn { flex: 1 1 0; }
+  #right-panel .tab-content-wrap {
+    flex: 0 1 auto; min-height: 0; overflow-y: auto;
+    /* Cap so the inspector above keeps usable height in short windows. */
+    max-height: 50vh;
+  }
+  #right-panel .switch-state-anchor {
+    flex: 0 0 auto; flex-shrink: 0;
+    border-top: 1px solid var(--vscode-panel-border, #3a3a3a);
+  }
 
   .switch-toggle, .pswitch-toggle {
     width:36px;height:36px;padding:2px;border-radius:4px;cursor:pointer;
@@ -1446,6 +1541,32 @@ function switchTab(tab: typeof TAB_NAMES[number]): void {
 }
 for (const t of TAB_NAMES) {
   document.getElementById(`tab-${t}`)?.addEventListener('click', () => switchTab(t))
+}
+
+// ── Right-panel tab switching ────────────────────────────────────────────────
+// Scoped via the `.tab-strip` parent inside #right-panel so this is independent
+// of the left-panel tab JS above (which selects by ID, not by class).
+{
+  const rightTabStrip = document.querySelector<HTMLElement>('#right-panel .tab-strip')
+  const rightTabPanes = Array.from(
+    document.querySelectorAll<HTMLElement>('#right-panel .tab-content-wrap .tab-pane'),
+  )
+  if (rightTabStrip) {
+    const rightTabBtns = Array.from(rightTabStrip.querySelectorAll<HTMLButtonElement>('.tab-btn'))
+    const switchRightTab = (tabName: string): void => {
+      for (const btn of rightTabBtns) {
+        btn.classList.toggle('active', btn.dataset['tab'] === tabName)
+      }
+      for (const pane of rightTabPanes) {
+        // Active pane uses flex (grid rows inside); inactive panes hide.
+        pane.style.display = pane.dataset['tab'] === tabName ? 'flex' : 'none'
+      }
+    }
+    for (const btn of rightTabBtns) {
+      const tabName = btn.dataset['tab']
+      if (tabName) btn.addEventListener('click', () => switchRightTab(tabName))
+    }
+  }
 }
 
 // ── Layer icon button → hidden checkbox bridge ────────────────────────────────
@@ -1899,6 +2020,23 @@ const infoScreens    = document.getElementById('info-screens')!
 const infoSprites    = document.getElementById('info-sprites')!
 const infoBgVScroll  = document.getElementById('info-bg-vscroll')!
 const infoBgHScroll  = document.getElementById('info-bg-hscroll')!
+// New editable controls (Plan A: render overrides; no ROM write yet).
+// Music / level mode / item memory / L1 V-scroll-mode have no current render
+// path that honors the override — the controls echo back via the rerender
+// pipeline so the selected value sticks across re-renders, but the rendered
+// editor doesn't visibly change. Step 3 (ROM write-back) will wire actual
+// edits.
+const selMusic       = document.getElementById('sel-music')        as HTMLSelectElement
+const selTimeLimit   = document.getElementById('sel-time-limit')   as HTMLSelectElement
+const selLevelMode   = document.getElementById('sel-level-mode')   as HTMLSelectElement
+const selItemMemory  = document.getElementById('sel-item-memory')  as HTMLSelectElement
+const selVScrollHdr  = document.getElementById('sel-vscroll-hdr')  as HTMLSelectElement
+const chkL3Priority  = document.getElementById('chk-l3-priority')  as HTMLInputElement
+const selL3Setting   = document.getElementById('sel-l3-setting')   as HTMLSelectElement
+// Read-only L3 derived fields (driven by the routine summary).
+const infoL3Byte     = document.getElementById('info-l3-byte')!
+const infoL3Kind     = document.getElementById('info-l3-kind')!
+const infoL3InitY    = document.getElementById('info-l3-init-y')!
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -2010,6 +2148,24 @@ interface MapPayload {
     horizLayer2Setting: number
     /** Initial Layer1YPos (camera Y) in pixels — see LevelHeaderDescriptor. */
     initialCameraYPx?: number
+    // Read-only header bits surfaced for the LEVEL HEADER block in the
+    // right panel. Editable bits (palettes, tilesets, sprite set) live
+    // above as overrides; these are display-only.
+    levelLength?:    number
+    levelMode?:      number
+    timeLimit?:      number
+    itemMemory?:     number
+    verticalScroll?: number
+    layer3Priority?: boolean
+    isVertical?:     boolean
+  }
+  /** L3 routine summary (read-only). See readL3RoutineSummary in L3Loader.ts. */
+  l3Routine?: {
+    layer3Setting:   number
+    settingsByte:    number | null
+    kind:            'tide' | 'fixed' | 'camera-tracked' | 'none' | 'disabled'
+    initialYPx:      number | null
+    isTideUpAndDown: boolean
   }
 }
 
@@ -3246,6 +3402,17 @@ function postRerender(): void {
     tilesetId:      parseInt(selTileset.value),
     bgColorVariant: parseInt(selBgColor.value),
     marioVariant:   parseInt(selMarioPal.value),
+    // New header-bit overrides (Plan A — render overrides only). The provider
+    // echoes these into the header payload so the controls keep their selected
+    // value across re-renders. Render impact varies per field; see the field
+    // refs section above for which ones are visibly wired today.
+    music:          parseInt(selMusic.value),
+    timeLimit:      parseInt(selTimeLimit.value),
+    levelMode:      parseInt(selLevelMode.value),
+    itemMemory:     parseInt(selItemMemory.value),
+    verticalScroll: parseInt(selVScrollHdr.value),
+    layer3Priority: chkL3Priority.checked,
+    layer3Setting:  parseInt(selL3Setting.value),
   })
 }
 
@@ -3274,6 +3441,16 @@ selBgPalette.addEventListener('change',  postRerender)
 selSpritePal.addEventListener('change',  postRerender)
 selSpriteSet.addEventListener('change',  postRerender)
 selTileset.addEventListener('change',    postRerender)
+
+// New editable header-bit controls. Same rerender path as the existing
+// palette/tileset selects.
+selMusic.addEventListener('change',       postRerender)
+selTimeLimit.addEventListener('change',   postRerender)
+selLevelMode.addEventListener('change',   postRerender)
+selItemMemory.addEventListener('change',  postRerender)
+selVScrollHdr.addEventListener('change',  postRerender)
+chkL3Priority.addEventListener('change',  postRerender)
+selL3Setting.addEventListener('change',   postRerender)
 
 // Palette highlighting on focus — only highlight the cols controlled by each dropdown
 selBgPalette.addEventListener('focus',  () => setPaletteHighlight(highlightRowCols([0, 1], 2, 7)))
@@ -3347,6 +3524,23 @@ window.addEventListener('message', async (event) => {
         i => ['Mario', 'Luigi', 'Fire Mario', 'Fire Luigi'][i] ?? String(i))
       buildSelect(selTileset,   16, mapData.header.gfxTilesetId)
       buildSelect(selSpriteSet, 16, mapData.header.spriteSet)
+
+      // New editable controls. Music / level mode / item memory / V-scroll
+      // show raw values only (no verified decoded labels per CLAUDE.md's
+      // "every classification must cite an ASM line" rule). Time limit gets
+      // a TimerTable-derived label (cited in bank_05.asm:510). L3 setting
+      // labels distinguish "Disabled" from the three tileset slots.
+      buildSelect(selMusic,      8, mapData.header.music ?? 0)
+      buildSelect(selTimeLimit,  4, mapData.header.timeLimit ?? 0,
+        i => `${i} (${['none', '200', '300', '400'][i] ?? '?'})`)
+      // 5-bit field; 32 modes covered by the SMW level-mode jump table.
+      buildSelect(selLevelMode, 32, mapData.header.levelMode ?? 0,
+        i => `$${i.toString(16).toUpperCase().padStart(2, '0')}`)
+      buildSelect(selItemMemory, 4, mapData.header.itemMemory ?? 0)
+      buildSelect(selVScrollHdr, 4, mapData.header.verticalScroll ?? 0)
+      buildSelect(selL3Setting,  4, mapData.l3Routine?.layer3Setting ?? 0,
+        i => i === 0 ? 'Disabled' : `Slot ${i}`)
+      chkL3Priority.checked = !!(mapData.header.layer3Priority)
     }
 
     // Back area color swatch — use the selected variant from backAreaColors
@@ -3368,6 +3562,45 @@ window.addEventListener('message', async (event) => {
     const hLabel = ['locked', '1:1', '1:2', '?'   ][hSet] ?? '?'
     infoBgVScroll.textContent = vLabel
     infoBgHScroll.textContent = hLabel
+
+    // Sync editable controls on every load (initial OR rerender) so any
+    // overrides the user picked in this session persist visibly. _initial=true
+    // already populated the options via buildSelect; this just reapplies the
+    // .value in case the provider echoed a different value back.
+    const hdr = mapData.header
+    const hex2 = (n: number) => `$${n.toString(16).toUpperCase().padStart(2, '0')}`
+    selMusic.value      = String(hdr.music          ?? 0)
+    selTimeLimit.value  = String(hdr.timeLimit      ?? 0)
+    selLevelMode.value  = String(hdr.levelMode      ?? 0)
+    selItemMemory.value = String(hdr.itemMemory     ?? 0)
+    selVScrollHdr.value = String(hdr.verticalScroll ?? 0)
+    chkL3Priority.checked = !!hdr.layer3Priority
+
+    // L3 routine summary. Editable: layer3Setting (via selL3Setting). The
+    // $009F88 byte / kind / init Y are derived from (tileset, layer3Setting)
+    // and so stay read-only displays — they update when the provider re-emits
+    // l3Routine after applying the override.
+    const l3 = mapData.l3Routine
+    if (l3) {
+      selL3Setting.value = String(l3.layer3Setting ?? 0)
+      infoL3Byte.textContent  = l3.settingsByte === null || l3.settingsByte === undefined
+        ? '—'
+        : hex2(l3.settingsByte)
+      // Tide gets a sub-kind suffix; other kinds map directly.
+      let kindLabel: string = String(l3.kind ?? 'disabled')
+      if (l3.kind === 'tide') {
+        kindLabel = l3.isTideUpAndDown ? 'tide (up/down)' : 'tide (stationary)'
+      }
+      infoL3Kind.textContent  = kindLabel
+      infoL3InitY.textContent = l3.initialYPx === null || l3.initialYPx === undefined
+        ? '—'
+        : hex2(l3.initialYPx)
+    } else {
+      selL3Setting.value      = '0'
+      infoL3Byte.textContent    = '—'
+      infoL3Kind.textContent    = '—'
+      infoL3InitY.textContent   = '—'
+    }
 
     // Seed camera viewport Y from the ROM-derived Layer1YPos at level init
     // (bank_05.asm:7329-7335 for primary levels, 7129-7136 for sublevels via

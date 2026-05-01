@@ -7,8 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Level Settings panel scaffold in the map-editor right panel
+  (issue #248). The panel is now split into three regions: the
+  selection inspector (top, unchanged), three property tabs in the
+  middle (General / Layer 2 / Layer 3), and the switch-state toggles
+  anchored at the bottom. Each tab surfaces level-header bits and
+  L3 routine metadata read from `$05F200` bits 7:6 (`Layer3Setting`)
+  and `$009F88` (`Layer3TilemapSettings`).
+- Editable header-bit controls in the new tabs (music, time limit,
+  level mode, item memory, L1 V-scroll, L3 priority, L3 setting) wired
+  to the existing render-override pipeline. Note: changes are session-
+  scoped and not yet persisted to ROM — real ROM write-back lands in a
+  follow-up PR.
+- `readL3RoutineSummary(rom, levelId, tileset)` and `classifyL3Routine`
+  helpers in `src/rom/L3Loader.ts` that return the routine kind
+  (`tide` / `fixed` / `camera-tracked` / `none` / `disabled`) from
+  the `(layer3Setting, $009F88 byte, tileset)` triple.
+
 ### Fixed
 
+- L3 scroll-range overlay no longer draws Min/Max sweep lines for
+  Tide_Stationary levels (e.g. $102). Per CODE_05C494
+  (bank_05.asm:5576-5578), only byte `$01` (Tide_UpAndDown) actually
+  animates `Layer3YPos`; bytes `$00` and `$02..$7F` jump to
+  CODE_05C4EC which only updates `Layer3XPos`. `computeL3ScrollRange`
+  and `classifyL3Routine` now classify those bytes as `kind: 'fixed'`
+  (Y stays at `l3InitialYPx`).
+- `l3InitialYPx` returns `$70` for byte `$00` (was `$40`), matching
+  the LSR-then-Z=1 branch at bank_00.asm:4154-4161. Vanilla never
+  uses byte `$00` in the table so this is harmless in practice, but
+  the existing unit test asserted the wrong value.
 - Layer 3 Y-position bug for most L3-using vanilla levels.
   `readInitialLayer1YPos` now reads camera-Y idx from `DATA_05F400` bits
   3:2 — the level-load path at bank_05.asm:7323-7335 reloads `_2` from
