@@ -390,10 +390,19 @@ export function buildSprites(
       const charHigh    = (attr & 0x01) !== 0 ? 0x100 : 0
       const motorPalette = 11  // ($37 >> 1) & 0x07 = 3 → CGRAM 8+3=11
       const bodyPalette  = 8   // ($31 >> 1) & 0x07 = 0 → CGRAM 8+0=8
+      // Smoke palette is NOT inherited from the rope's body attr. CODE_029927
+      // (bank_02.asm:3351-3352) copies SpriteProperties (DP $64) directly into
+      // OAMTileAttr. SpriteProperties is the global priority byte set once at
+      // level init by bank_00.asm:2401-2402 (`LDA #!OBJ_Priority2 = $20`);
+      // no handler on the smoke path reloads it per-sprite, so the value at
+      // smoke-render time is always $20. The decoded row coincidentally equals
+      // bodyPalette, but it is derived independently here.
+      const SMOKE_SPRITE_PROPERTIES = 0x20
+      const smokePalette = 8 + ((SMOKE_SPRITE_PROPERTIES >> 1) & 0x07)
       const { anchorX, anchorY } = lineGuideAnchor(lineGuide, s.x, s.y, -8, -8)
       out.push(new Sprite(
         s.spriteId, anchorX, anchorY,
-        RopeMechanismAppearance.fromTables(chars, motorPalette, bodyPalette, charHigh, placeholder),
+        RopeMechanismAppearance.fromTables(chars, motorPalette, bodyPalette, smokePalette, charHigh, placeholder),
         behavior,
       ))
       continue

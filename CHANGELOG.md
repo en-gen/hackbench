@@ -28,6 +28,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Sprite $64 (Rope Mechanism) smoke puffs now animate correctly in the
+  editor preview (issue #235). Previously the smoke rendered as a static
+  3-puff cluster with palette inferred from the rope body's hardcoded
+  attr `$31`. Re-traced `CODE_029927` (bank_02.asm:3280-3339)
+  branch-by-branch: smoke OAM attr is sourced from `SpriteProperties`
+  (DP $64), set once per level at bank_00.asm:2401-2402 to
+  `!OBJ_Priority2 = $20` and never reloaded per-sprite. Replaced the
+  static cluster with an `animFrame`-driven 8-phase cohort lifecycle
+  matching the in-game tile/yRise/lifetime tables: tile by age (0..6
+  $62, 7..10 $64, 11..18 $66), yRise transitions at age 3 and 11 (DEC
+  SmokeSpriteYPos when pre-DEC timer & 7 == 0), 19-frame lifetime,
+  X parity flips per spawn cycle. Lifecycle math is exposed as a pure
+  `smokeCohortsAt(effFrame)`. Editor `tickAnimation` advances the
+  smoke frame at `GAME_FRAMES_PER_TICK = 3` so all 8 phases — including
+  the brief phase-7 state where the newest cohort renders as $64 — are
+  visited over each 8-tick cycle, matching the in-game time-share.
 - L3 scroll-range overlay no longer draws Min/Max sweep lines for
   Tide_Stationary levels (e.g. $102). Per CODE_05C494
   (bank_05.asm:5576-5578), only byte `$01` (Tide_UpAndDown) actually
