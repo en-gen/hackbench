@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Sprite $97 (Puntin' Chuck) renders the canonical kick wind-up pose
+  (`SpriteMisc1602 = $11` per `DATA_02C4B5` in bank_02.asm:9136) with the
+  spawned football composed at its `ChuckSprGenDispX` offset so the editor
+  view conveys "chuck just kicked the ball". Geometry verified directly
+  against a Mesen OAM dump on level $1F1.
 - Level Settings panel scaffold in the map-editor right panel
   (issue #248). The panel is now split into three regions: the
   selection inspector (top, unchanged), three property tabs in the

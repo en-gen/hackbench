@@ -31,6 +31,7 @@ import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance
 import { DryBonesAppearance } from './sprites/appearances/DryBonesAppearance'
 import { CharginChuckAppearance } from './sprites/appearances/CharginChuckAppearance'
 import { ClappinChuckAppearance } from './sprites/appearances/ClappinChuckAppearance'
+import { PuntinChuckAppearance } from './sprites/appearances/PuntinChuckAppearance'
 import { KeyholeAppearance } from './sprites/appearances/KeyholeAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { SumoBrotherAppearance } from './sprites/appearances/SumoBrotherAppearance'
@@ -311,6 +312,27 @@ export function buildSprites(
       out.push(new Sprite(
         s.spriteId, s.x * 16, s.y * 16,
         CharginChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight),
+        behavior,
+      ))
+      continue
+    }
+
+    // $97 (Puntin' Chuck) — kick wind-up pose $11. The football is sprite $1B,
+    // dynamically spawned in-game by CODE_03CBB3 (bank_03.asm:8769) at chuck_x
+    // +/- ChuckSprGenDispX[face]; we compose its tile $8A right into Puntin's
+    // appearance at the spawn offset so the editor view conveys the kick.
+    // Football palette/charHigh come from Sprite166EVals[$1B].
+    if (s.spriteId === 0x97) {
+      const chuckAttr    = tables.spriteAttr[s.spriteId] ?? 0
+      const bodyPalette  = 8 + ((chuckAttr >> 1) & 0x07)
+      const bodyCharHigh = (chuckAttr & 0x01) !== 0 ? 0x100 : 0
+      const ballAttr     = tables.spriteAttr[0x1B] ?? 0
+      const ballPalette  = 8 + ((ballAttr >> 1) & 0x07)
+      const ballCharHigh = (ballAttr & 0x01) !== 0 ? 0x100 : 0
+      const faceRight    = marioStartPx.x >= s.x * 16
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        PuntinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, ballPalette, ballCharHigh, faceRight),
         behavior,
       ))
       continue
