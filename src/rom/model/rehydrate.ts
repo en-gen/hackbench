@@ -26,6 +26,7 @@ import { BlurpAppearance } from './sprites/appearances/BlurpAppearance'
 import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
 import { DryBonesAppearance } from './sprites/appearances/DryBonesAppearance'
 import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
+import { SumoBrotherAppearance } from './sprites/appearances/SumoBrotherAppearance'
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
 import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
 import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
@@ -184,6 +185,7 @@ function buildAppearance(
       if (spriteId === 0xC2) return new BlurpAppearance(parts)
       if (spriteId <= 0x07 || spriteId === 0x0F) return new KoopaAppearance(parts)
       if (spriteId === 0x30 || spriteId === 0x32) return new DryBonesAppearance(parts)
+      if (spriteId === 0x9A) return new SumoBrotherAppearance(parts)
       return new StaticSpriteAppearance(parts)
     }
     case 'pSwitch':

@@ -12,6 +12,7 @@ import { SuperKoopaBehavior } from './SuperKoopaBehavior'
 import { FlyingBlockBehavior } from './FlyingBlockBehavior'
 import { ThwimpBounceBehavior } from './ThwimpBounceBehavior'
 import { WingedGoombaBehavior } from './WingedGoombaBehavior'
+import { SumoBrotherBehavior } from './SumoBrotherBehavior'
 
 /**
  * Single dispatch site that builds the `SpriteBehavior` for a given sprite
@@ -73,6 +74,8 @@ export function buildMovementBehavior(
       return Object.assign(new FlyingBlockBehavior(spriteId as 0x83 | 0x84, meta), common)
     case 0x71: case 0x72: case 0x73:
       return Object.assign(new SuperKoopaBehavior(spriteId), common)
+    case 0x9A:
+      return Object.assign(new SumoBrotherBehavior(meta), common)
     default:
       return common
   }
