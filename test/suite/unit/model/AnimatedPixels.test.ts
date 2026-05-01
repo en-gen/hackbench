@@ -1,50 +1,41 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { computed } from '@vue/reactivity'
 import { existsSync } from 'fs'
 import { loadAnimationData } from '../../../../src/rom/AnimationLoader'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { loadVram } from '../../../../src/rom/GfxLoader'
 import { SmwRom } from '../../../../src/rom/SmwRom'
-import { Char } from '../../../../src/rom/model/chars/Char'
 import { buildChars } from '../../../../src/rom/model/chars/CharFactory'
 import { AnimatedPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/AnimatedPixelsBehavior'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
-import { editorStore, resetEditorStore } from '../fixtures/stores'
+import { resetEditorStore } from '../fixtures/stores'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
 
 describe('AnimatedPixelsBehavior behavior', () => {
   beforeEach(resetEditorStore)
 
-  it('returns the frame at editorStore.animFrame (wraps modulo length)', () => {
+  it('starts on frame 0 and advances through the cycle on tickAnimation()', () => {
     const f0 = new Uint8Array(64).fill(1)
     const f1 = new Uint8Array(64).fill(2)
     const f2 = new Uint8Array(64).fill(3)
     const behavior = new AnimatedPixelsBehavior([f0, f1, f2])
-    editorStore.setAnimFrame(0)
     expect(behavior.getPixels()).toBe(f0)
-    editorStore.setAnimFrame(1)
+    behavior.tickAnimation()
     expect(behavior.getPixels()).toBe(f1)
-    editorStore.setAnimFrame(2)
+    behavior.tickAnimation()
     expect(behavior.getPixels()).toBe(f2)
-    editorStore.setAnimFrame(3)
+    behavior.tickAnimation()
     expect(behavior.getPixels()).toBe(f0) // wraps
   })
 
-  it('computed() wrapping an AnimatedPixelsBehavior char invalidates only on animFrame change', () => {
+  it('owns its frame state independently — separate instances do not share', () => {
     const f0 = new Uint8Array(64).fill(10)
     const f1 = new Uint8Array(64).fill(20)
-    const char = new Char(0x100, new AnimatedPixelsBehavior([f0, f1]))
-    editorStore.setAnimFrame(0)
-    const reactive = computed(() => char.getPixels())
-
-    expect(reactive.value).toBe(f0)
-
-    editorStore.setPalAnimFrame(7)
-    expect(reactive.value).toBe(f0) // still cached
-
-    editorStore.setAnimFrame(1)
-    expect(reactive.value).toBe(f1)
+    const a = new AnimatedPixelsBehavior([f0, f1])
+    const b = new AnimatedPixelsBehavior([f0, f1])
+    a.tickAnimation()
+    expect(a.getPixels()).toBe(f1)
+    expect(b.getPixels()).toBe(f0)
   })
 })
 

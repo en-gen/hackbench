@@ -36,7 +36,6 @@ describe('Reactivity integration', () => {
     expect(reactive.value).toEqual([255, 0, 0, 255])
 
     // Unrelated store change leaves cache intact
-    editorStore.setAnimFrame(5)
     editorStore.setPSwitch(true)
     expect(reactive.value).toEqual([255, 0, 0, 255])
 
@@ -61,7 +60,6 @@ describe('Reactivity integration', () => {
     expect(rgbaCalls).toBe(1)
 
     editorStore.setPalAnimFrame(7)
-    editorStore.setAnimFrame(3)
     expect(reactive.value).toEqual([10, 20, 30, 255])
     expect(rgbaCalls).toBe(1) // Never recomputed because no store reads
   })

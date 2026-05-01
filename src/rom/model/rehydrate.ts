@@ -16,6 +16,7 @@ import { RipVanFishAppearance } from './sprites/appearances/RipVanFishAppearance
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { ThwimpAppearance } from './sprites/appearances/ThwimpAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
+import { HammerBroAppearance } from './sprites/appearances/HammerBroAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppearance'
@@ -254,6 +255,8 @@ function buildAppearance(
       )
     case 'spikeTop':
       return new SpikeTopAppearance(buildParts(desc.parts0), buildParts(desc.parts1))
+    case 'hammerBro':
+      return new HammerBroAppearance(buildParts(desc.parts))
   }
 }
 

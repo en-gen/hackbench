@@ -180,6 +180,7 @@ export type SpriteAppearanceDescriptor =
       segmentCount:    number
     }
   | { kind: 'spikeTop'; parts0: readonly SpritePartDescriptor[]; parts1: readonly SpritePartDescriptor[] }
+  | { kind: 'hammerBro'; parts: readonly SpritePartDescriptor[] }
 
 export interface SpriteBehaviorDescriptor {
   kind: string

@@ -16,6 +16,7 @@ import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { ThwimpAppearance } from './sprites/appearances/ThwimpAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { BanzaiBillAppearance } from './sprites/appearances/BanzaiBillAppearance'
+import { HammerBroAppearance } from './sprites/appearances/HammerBroAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppearance'
 import { CheepCheepAppearance } from './sprites/appearances/CheepCheepAppearance'
@@ -180,8 +181,9 @@ export function buildSprites(
     }
 
     // Sprites $83/$84 (Left/Right Flying Question Block) draw a 16×16 ? block
-    // body plus two animated 8×8 wing tiles driven by ctx.animFrame, matching
-    // the in-game KoopaWingGfxRt/CODE_019E95 routine (bank_01.asm:4024/4083).
+    // body plus two animated 8×8 wing tiles advanced by the appearance's
+    // internal sprite-tick state, matching the in-game KoopaWingGfxRt /
+    // CODE_019E95 routine (bank_01.asm:4024/4083).
     if (s.spriteId === 0x83 || s.spriteId === 0x84) {
       out.push(new Sprite(
         s.spriteId, s.x * 16, s.y * 16,
@@ -240,7 +242,7 @@ export function buildSprites(
           broLevelSprite.spriteId,
           broLevelSprite.x * 16,
           broLevelSprite.y * 16 - 16,
-          new StaticSpriteAppearance(broParts),
+          new HammerBroAppearance(broParts),
           broBehavior,
         )
         spr = new CompositeSprite(s.spriteId, s.x * 16, s.y * 16, platformApp, behavior, broSprite)

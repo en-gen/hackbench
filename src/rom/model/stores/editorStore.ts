@@ -19,7 +19,6 @@ import { reactive } from '@vue/reactivity'
 import type { CameraState, LayerToggles } from '../RenderTarget'
 
 interface EditorStoreState {
-  animFrame: number
   palAnimFrame: number
   pSwitchActive: boolean
   switchPalaceState: readonly [boolean, boolean, boolean, boolean]
@@ -38,7 +37,6 @@ interface EditorStoreActions {
   setSwitchPalace(color: 0 | 1 | 2 | 3, on: boolean): void
   togglePSwitch(): void
   setPSwitch(on: boolean): void
-  setAnimFrame(frame: number): void
   setPalAnimFrame(frame: number): void
   setZoom(z: number): void
   setLayerToggle(layer: keyof LayerToggles, on: boolean): void
@@ -55,7 +53,6 @@ export type EditorStore = EditorStoreState & EditorStoreActions
 
 export function createEditorStore(): EditorStore {
   const s = reactive<EditorStoreState>({
-    animFrame: 1,
     palAnimFrame: 1,
     pSwitchActive: false,
     switchPalaceState: [false, false, false, false],
@@ -92,9 +89,6 @@ export function createEditorStore(): EditorStore {
     },
     setPSwitch(on) {
       if (s.pSwitchActive !== on) s.pSwitchActive = on
-    },
-    setAnimFrame(frame) {
-      if (s.animFrame !== frame) s.animFrame = frame
     },
     setPalAnimFrame(frame) {
       if (s.palAnimFrame !== frame) s.palAnimFrame = frame

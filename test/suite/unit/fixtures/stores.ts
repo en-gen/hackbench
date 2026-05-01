@@ -28,7 +28,6 @@ import {
 
 /** Reset the shared editor store to its construction defaults. */
 export function resetEditorStore(): void {
-  editorStore.setAnimFrame(1)
   editorStore.setPalAnimFrame(1)
   editorStore.setPSwitch(false)
   editorStore.setSwitchPalace(0, false)

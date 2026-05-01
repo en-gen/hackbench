@@ -68,7 +68,7 @@ describe('SwitchPalaceAlternateBehavior behavior', () => {
 
     expect(reactive.value).toBe(off)
 
-    editorStore.setAnimFrame(5)
+    editorStore.setPalAnimFrame(5)
     expect(reactive.value).toBe(off) // unrelated; cached
 
     editorStore.setSwitchPalace(0, true)

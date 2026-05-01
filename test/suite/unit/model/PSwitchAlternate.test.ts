@@ -43,15 +43,18 @@ describe('PSwitchAlternateBehavior behavior', () => {
       new StaticPixelsBehavior(usedBlock),
     )
 
-    // P-switch off: cycles through coin frames
+    // P-switch off: cycles through coin frames as tickAnimation advances.
     editorStore.setPSwitch(false)
-    editorStore.setAnimFrame(0); expect(behavior.getPixels()).toBe(coinFrames[0])
-    editorStore.setAnimFrame(1); expect(behavior.getPixels()).toBe(coinFrames[1])
-    editorStore.setAnimFrame(2); expect(behavior.getPixels()).toBe(coinFrames[2])
-    // P-switch on: used block, regardless of animFrame
+    expect(behavior.getPixels()).toBe(coinFrames[0])
+    behavior.tickAnimation()
+    expect(behavior.getPixels()).toBe(coinFrames[1])
+    behavior.tickAnimation()
+    expect(behavior.getPixels()).toBe(coinFrames[2])
+    // P-switch on: used block, regardless of internal coin frame.
     editorStore.setPSwitch(true)
-    editorStore.setAnimFrame(0); expect(behavior.getPixels()).toBe(usedBlock)
-    editorStore.setAnimFrame(1); expect(behavior.getPixels()).toBe(usedBlock)
+    expect(behavior.getPixels()).toBe(usedBlock)
+    behavior.tickAnimation()
+    expect(behavior.getPixels()).toBe(usedBlock)
   })
 
   it('CharFactory wraps chars whose anim slot carries altTiles in PSwitchAlternateBehavior', () => {
@@ -87,14 +90,14 @@ describe('PSwitchAlternateBehavior behavior', () => {
     expect(psa.alt).toBeInstanceOf(AnimatedPixelsBehavior)
 
     // Pixels come from altTiles when switch is active, tiles when not.
-    editorStore.setAnimFrame(0)
+    // AnimatedPixelsBehavior starts on frame 0 by default.
     editorStore.setPSwitch(false)
     expect(coin.getPixels()[0]).toBe(10) // frame 0 of normal
     editorStore.setPSwitch(true)
     expect(coin.getPixels()[0]).toBe(90)  // frame 0 of alt
   })
 
-  it('computed() tracks pSwitchActive + animFrame transitively', () => {
+  it('computed() invalidates when pSwitchActive changes (top-level branch)', () => {
     const coin = new Uint8Array(64).fill(7)
     const used = new Uint8Array(64).fill(8)
     const behavior = new PSwitchAlternateBehavior(
@@ -103,20 +106,21 @@ describe('PSwitchAlternateBehavior behavior', () => {
     )
     const char = new Char(0x100, behavior)
     editorStore.setPSwitch(false)
-    editorStore.setAnimFrame(0)
     const reactive = computed(() => char.getPixels())
 
     expect(reactive.value).toBe(coin)
 
-    // animFrame change invalidates (normal branch depends on it)
-    editorStore.setAnimFrame(1)
-    expect(reactive.value[0]).toBe(70)
+    // tickAnimation advances internal coin frame but is NOT a reactive read,
+    // so the computed cache stays warm. The render effect picks up these
+    // advances via the timer-bumped `mapTick` event source instead.
+    behavior.tickAnimation()
+    expect(reactive.value).toBe(coin) // cache unchanged
 
-    // pSwitch change invalidates (top-level branch)
+    // pSwitch change invalidates (top-level branch reads editorStore).
     editorStore.setPSwitch(true)
     expect(reactive.value).toBe(used)
 
-    // palAnimFrame doesn't affect either branch — cached
+    // palAnimFrame doesn't affect either branch — cached.
     editorStore.setPalAnimFrame(5)
     expect(reactive.value).toBe(used)
   })

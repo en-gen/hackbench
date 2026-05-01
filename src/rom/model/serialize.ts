@@ -13,6 +13,7 @@ import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { RipVanFishAppearance } from './sprites/appearances/RipVanFishAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
+import { HammerBroAppearance } from './sprites/appearances/HammerBroAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppearance'
@@ -184,6 +185,9 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
   }
   if (a instanceof SpikeTopAppearance) {
     return { kind: 'spikeTop', parts0: a.parts0.map(partDescriptor), parts1: a.parts1.map(partDescriptor) }
+  }
+  if (a instanceof HammerBroAppearance) {
+    return { kind: 'hammerBro', parts: a.parts.map(partDescriptor) }
   }
   if (a instanceof PSwitchAppearance) {
     return { kind: 'pSwitch', parts: a.parts.map(partDescriptor) }

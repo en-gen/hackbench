@@ -21,7 +21,8 @@ import type { Char } from '../../chars/Char'
 import type { SpriteLayout } from '../../../SpriteTileLoader'
 
 /**
- * Sprite appearance for any sprite with animated wings driven by ctx.animFrame.
+ * Sprite appearance for any sprite with 2-frame animated wings. Frame
+ * state is owned internally and advanced once per sprite-animation tick.
  *
  * Wing frames are two arrays of SpritePart indexed by animFrame % 2:
  *   frame 0 -- wings down (8x8 tile $5D)

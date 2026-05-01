@@ -24,4 +24,9 @@ export class PSwitchAlternateBehavior implements CharBehavior {
   getPixels(): Uint8Array {
     return editorStore.pSwitchActive ? this.alt.getPixels() : this.normal.getPixels()
   }
+
+  tickAnimation(): void {
+    this.normal.tickAnimation?.()
+    this.alt.tickAnimation?.()
+  }
 }

@@ -26,7 +26,6 @@ instance shared across the whole editor.
 |---|---|
 | `pSwitchActive` | `PSwitchRevealBehavior`, `PSwitchAlternateBehavior` |
 | `switchPalaceState` | `SwitchPalaceAlternateBehavior` |
-| `animFrame` | `AnimatedPixelsBehavior`, `SuperKoopaAppearance`, `RopeMechanismAppearance` |
 | `palAnimFrame` | `CyclingColorBehavior` |
 | `cursorPx` | `ThwompAppearance`, `RipVanFishAppearance`, `VineSourceBehavior`, item-block overlays |
 | `layerToggles` | `SmwMap.render`, webview side panels |
@@ -156,10 +155,11 @@ from the pixel `RenderTarget`.
 | `PSwitchAppearance` | $3E | Selects blue/silver palette from bit 4 of pixel X (matches `InitPSwitch`) |
 | `KoopaAppearance` | $04–$07/$0F | Static parts + patrol-corridor overlay using `mapStore.marioSpawnX` |
 | `WingedSpriteAppearance` | para-koopas, para-goombas, $83/$84 | Animated wings + behavior-specific overlay |
-| `SuperKoopaAppearance` | $71/$72/$73 | Per-frame flap from `editorStore.animFrame` + cape-flash flip |
+| `SuperKoopaAppearance` | $71/$72/$73 | Internal 2-frame flap toggle (sprite-tick) + cape-flash flip |
 | `ThwompAppearance` | $26 | Cursor-proximity face swap from `editorStore.cursorPx` |
 | `RipVanFishAppearance` | $3D | Idle/awake swap from cursor proximity |
 | `SpikeTopAppearance` | $2E | 2-frame animation + wall-following patrol path |
+| `HammerBroAppearance` | $9B | Static parts + periodic flipX (Misc1570 bit-5 emulation) |
 | `BlurpAppearance` | $C2 | Static body + dashed swim line in FaceMario direction |
 | `DryBonesAppearance` | $30/$32 | KoopaWalk patrol overlay |
 
