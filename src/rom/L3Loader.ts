@@ -340,16 +340,120 @@ export function readL3SettingsByte(
 /**
  * Derive the initial Layer3YPos (in pixels) from a Layer3TilemapSettings byte.
  *
- * Per CODE_009FB8 (bank_00.asm):
- *   byte < $80 → tide effect: $70 (up-and-down) or $40 (stationary tide)
- *   byte >= $80 and byte < $C0 → non-tide overlay → $D0
- *   byte >= $C0 → no L3 background written (crusherColors / special) → 0
+ * Per CODE_009FB8 (bank_00.asm:4154-4161):
+ *   LSR A; PHP; ...; LDA #$70; PLP; BEQ +; LDA #$40; + STA Layer3YPos
+ *
+ * The LSR-then-test-Z logic means:
+ *   byte $00 → A=$00 after LSR → Z=1 → BEQ branches → init Y = $70
+ *   byte $01 → A=$00 after LSR → Z=1 → BEQ branches → init Y = $70
+ *   byte $02..$7F → A≠0 after LSR → Z=0 → BEQ doesn't branch → init Y = $40
+ *   byte $80..$BF → BMI branch (CODE_009FEA) → $D0 fixed
+ *   byte $C0+ → no L3 background written → 0
  */
 export function l3InitialYPx(settingsByte: number): number {
   if (settingsByte >= 0xC0) return 0
   if (settingsByte >= 0x80) return 0xD0  // cage bars, windows, crusher, fish
-  // Tide: bit 0 distinguishes up-and-down ($01) from stationary ($00)
-  return (settingsByte & 0x01) !== 0 ? 0x70 : 0x40
+  // Tide range: bytes $00 and $01 both keep init Y at $70 (BEQ branches when
+  // LSR result is zero). Bytes $02..$7F fall through to LDA #$40.
+  return settingsByte <= 0x01 ? 0x70 : 0x40
+}
+
+// ── Routine classification (editor metadata) ────────────────────────────────
+
+/**
+ * Animation/static kind for a level's L3 routine. Mirrors the vocabulary used
+ * by computeL3ScrollRange, plus a 'disabled' state that signals "Layer3Setting
+ * is 0 — no L3 selected at all" (distinct from 'none' which means the table
+ * entry exists but the byte is in the $C0+ no-L3 range).
+ */
+export type L3RoutineKind = 'tide' | 'fixed' | 'camera-tracked' | 'none' | 'disabled'
+
+export interface L3RoutineSummary {
+  /** 0..3, from $05F200[levelId] bits 7:6. 0 means L3 disabled for this level. */
+  layer3Setting: number
+  /** Raw byte from $009F88[tileset*3 + (setting-1)], or null when layer3Setting is 0. */
+  settingsByte: number | null
+  /** Animation/static kind (see L3RoutineKind). */
+  kind: L3RoutineKind
+  /**
+   * Initial Layer3YPos in pixels, or null when there is no static initial Y
+   * (camera-tracked, none, or disabled). Tide and fixed routines have a
+   * concrete static initial value.
+   */
+  initialYPx: number | null
+  /** True when the byte is < $80 with bit 0 set (Tide_UpAndDown). */
+  isTideUpAndDown: boolean
+}
+
+export interface ClassifyL3Input {
+  /** 0..3, bits 7:6 of $05F200[levelId]. */
+  layer3Setting: number
+  /** Raw byte from $009F88, or null when layer3Setting is 0. */
+  settingsByte: number | null
+  /** Object tileset (header byte 4 bits 3:0) — needed for the $81 special case. */
+  tileset: number
+}
+
+/**
+ * Classify a Layer3Setting + $009F88 byte + tileset triple into a routine kind.
+ *
+ * Rules (verified against bank_00.asm:4139-4165 + bank_05.asm:5504-5630):
+ *   - layer3Setting === 0 → 'disabled' (no L3 lookup performed)
+ *   - byte === $01        → 'tide' (Tide_UpAndDown — only byte that animates Y;
+ *                            CODE_05C494 falls through when TideSetting-1 == 0)
+ *   - byte === $00        → 'fixed' (CODE_05C40C BEQ skips JMP CODE_05C494, so
+ *                            no animation; init Y = $70 per ASM)
+ *   - byte $02..$7F       → 'fixed' (Tide_Stationary; CODE_05C494 BNE jumps to
+ *                            CODE_05C4EC which only updates Layer3XPos, not Y)
+ *   - byte === $80        → 'fixed' (static at $D0)
+ *   - byte === $81 + tileset 1 (Castle1) or 3 (Underground1) → 'fixed' (static at $C0)
+ *   - byte === $81 + other tileset → 'camera-tracked' (Layer3YPos = Layer1YPos)
+ *   - byte ≥ $C0          → 'none'
+ *
+ * isTideUpAndDown is true only for byte $01 — the canonical Tide_UpAndDown
+ * value (rammap.asm:1511 `!Tide_UpAndDown = 1`).
+ */
+export function classifyL3Routine(input: ClassifyL3Input): L3RoutineSummary {
+  const { layer3Setting, settingsByte, tileset } = input
+  if (layer3Setting === 0 || settingsByte === null) {
+    return {
+      layer3Setting: 0,
+      settingsByte: null,
+      kind: 'disabled',
+      initialYPx: null,
+      isTideUpAndDown: false,
+    }
+  }
+  // Only byte $01 reaches the Y-animating path. Byte $00 short-circuits at
+  // CODE_05C40C; byte $02..$7F takes CODE_05C4EC which only scrolls X.
+  if (settingsByte === 0x01) {
+    return { layer3Setting, settingsByte, kind: 'tide', initialYPx: 0x70, isTideUpAndDown: true }
+  }
+  if (settingsByte < 0x80) {
+    // Byte $00 or $02..$7F — no Y animation. Treat as fixed.
+    return { layer3Setting, settingsByte, kind: 'fixed', initialYPx: l3InitialYPx(settingsByte), isTideUpAndDown: false }
+  }
+  if (settingsByte >= 0xC0) {
+    return { layer3Setting, settingsByte, kind: 'none', initialYPx: 0, isTideUpAndDown: false }
+  }
+  // $80..$BF
+  if (settingsByte === 0x81 && tileset !== 1 && tileset !== 3) {
+    // CODE_00A01F path: Layer3YPos = Layer1YPos every frame; no static value.
+    return { layer3Setting, settingsByte, kind: 'camera-tracked', initialYPx: null, isTideUpAndDown: false }
+  }
+  return { layer3Setting, settingsByte, kind: 'fixed', initialYPx: l3InitialYPx(settingsByte), isTideUpAndDown: false }
+}
+
+/**
+ * Read the L3 routine summary for a level. Pure metadata — does not parse
+ * the stripe image (use loadL3Tilemap when you need the actual tilemap).
+ *
+ * @param tileset Object tileset (header byte 4 bits 3:0) for the level.
+ */
+export function readL3RoutineSummary(rom: RomFile, levelId: number, tileset: number): L3RoutineSummary {
+  const layer3Setting = readLayer3Setting(rom, levelId)
+  const settingsByte = layer3Setting === 0 ? null : readL3SettingsByte(rom, tileset, layer3Setting)
+  return classifyL3Routine({ layer3Setting, settingsByte, tileset })
 }
 
 // ── Scroll-range derivation (editor overlay) ─────────────────────────────────
@@ -479,8 +583,11 @@ export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
     return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }
   }
 
-  const isTide = settingsByte < 0x80
-  const dataEndRow = isTide
+  // Y animation only happens for byte $01 (Tide_UpAndDown). Bytes $00 and
+  // $02..$7F look superficially "tide-like" (byte < $80) but don't update
+  // Layer3YPos at runtime — see classifyL3Routine for the ASM trace.
+  const isAnimatedTide = settingsByte === 0x01
+  const dataEndRow = isAnimatedTide
     ? findTideDataEndRow(tilemap, firstDataRow)
     : L3_TILEMAP_ROWS
   const lastDataRow = findLastDataRow(tilemap, dataEndRow)
@@ -491,7 +598,7 @@ export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
   const xMin = 0
   const xMax = levelPixelW
 
-  if (isTide) {
+  if (isAnimatedTide) {
     return {
       kind: 'tide',
       xMin, xMax,

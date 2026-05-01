@@ -141,30 +141,50 @@ describe('computeL3ScrollRange', () => {
     expect(r.yMax).toBe((lastRow + 1) * 8)
   })
 
-  it('returns kind=tide for settings byte $00/$01/$02 and expands by $30..$A0 sweep', () => {
-    // Tide: Layer3YPos oscillates between $30 and $A0 (CODE_05C494
-    // bank_05.asm:5576-5630).  Render formula: pixelY = row*8 - liveYPos + initialCamY.
-    //   yMin (highest content) = firstRow*8 - $A0 + initialCamY
-    //   yMax (lowest content)  = (lastRow+1)*8 - $30 + initialCamY
-    // Note: the static initialYPx ($40 or $70) is replaced by the live
-    // Layer3YPos at runtime, so it doesn't enter the range calculation.
+  it('returns kind=fixed (NOT tide) for settings byte $02 (Tide_Stationary)', () => {
+    // Per CODE_05C494 (bank_05.asm:5576-5578): DEC A; BNE CODE_05C4EC means
+    // only Layer3TideSetting === 1 takes the Y-animation path. Byte $02
+    // (Tide_Stationary) jumps to CODE_05C4EC which only updates Layer3XPos,
+    // so the L3 band is Y-static at the initial Layer3YPos ($40 from
+    // l3InitialYPx). Overlay should not draw Min/Max sweep lines.
     const firstRow = L3_HUD_ROW_CUTOFF
     const lastRow  = L3_HUD_ROW_CUTOFF + 15
     const initialCameraYPx = 0
     const r = computeL3ScrollRange({
       tilemap:          buildTilemap(firstRow, lastRow),
-      initialYPx:       0x40,   // tide-stationary initial value
+      initialYPx:       0x40,
       initialCameraYPx,
       levelPixelW:      LEVEL_PIXEL_W,
       settingsByte:     0x02,
       tileset:          8,
     })
 
-    expect(r.kind).toBe('tide')
-    expect(r.yMin).toBe(firstRow * 8 - 0xA0 + initialCameraYPx)
-    expect(r.yMax).toBe((lastRow + 1) * 8 - 0x30 + initialCameraYPx)
-    expect(r.xMin).toBe(0)
-    expect(r.xMax).toBe(LEVEL_PIXEL_W)
+    expect(r.kind).toBe('fixed')
+    expect(r.yMin).toBe(firstRow * 8 - 0x40 + initialCameraYPx)
+    expect(r.yMax).toBe((lastRow + 1) * 8 - 0x40 + initialCameraYPx)
+    // Tide-only fields should be absent.
+    expect(r.yHighTide).toBeUndefined()
+    expect(r.yLowTide).toBeUndefined()
+  })
+
+  it('returns kind=fixed for settings byte $00 (CODE_05C40C BEQ skips tide handler)', () => {
+    // Vanilla never uses byte $00 in Layer3TilemapSettings, but the ASM at
+    // CODE_05C40C (bank_05.asm:5504-5507) skips the JMP CODE_05C494 when
+    // Layer3TideSetting is 0, so the L3 stays static.
+    const firstRow = L3_HUD_ROW_CUTOFF
+    const lastRow  = L3_HUD_ROW_CUTOFF + 15
+    const initialCameraYPx = 0
+    const r = computeL3ScrollRange({
+      tilemap:          buildTilemap(firstRow, lastRow),
+      initialYPx:       0x70,
+      initialCameraYPx,
+      levelPixelW:      LEVEL_PIXEL_W,
+      settingsByte:     0x00,
+      tileset:          0,
+    })
+    expect(r.kind).toBe('fixed')
+    expect(r.yHighTide).toBeUndefined()
+    expect(r.yLowTide).toBeUndefined()
   })
 
   it('returns kind=tide for settings byte $01 (tide-up-and-down)', () => {
@@ -204,7 +224,9 @@ describe('computeL3ScrollRange', () => {
   it('detects the tide double-VRAM-copy and uses only the first copy for height', () => {
     // Tide stripe images write two identical row patterns (rows 32-47 + 48-63)
     // for smooth animation. computeL3ScrollRange must mirror L3TilemapLayer's
-    // dedupe so the band height isn't doubled.
+    // dedupe so the band height isn't doubled. Only byte $01 (Tide_UpAndDown)
+    // takes the animated path post-fix; byte $02 (Tide_Stationary) is treated
+    // as kind:'fixed' and shouldn't run the double-copy dedupe.
     const firstRow = 32
     const copyHeight = 16
     const tm = new Uint16Array(L3_TILEMAP_COLS * L3_TILEMAP_ROWS)
@@ -219,11 +241,11 @@ describe('computeL3ScrollRange', () => {
     }
     const range = computeL3ScrollRange({
       tilemap:          tm,
-      initialYPx:       0x40,
+      initialYPx:       0x70,
       initialCameraYPx: 0,
       levelPixelW:      LEVEL_PIXEL_W,
-      settingsByte:     0x02,
-      tileset:          8,
+      settingsByte:     0x01,
+      tileset:          0,
     })
     expect(range.kind).toBe('tide')
     // Should treat dataEndRow = firstRow + copyHeight (NOT 64), so the band

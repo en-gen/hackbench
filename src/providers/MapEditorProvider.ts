@@ -7,7 +7,7 @@ import { loadRomPalettes, loadBackAreaColors, buildLevelCgram } from '../rom/Pal
 import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, getCharPixels, type VramState, type GfxSheet } from '../rom/GfxLoader'
 import { loadAnimationData, ANIM_INTERVAL_MS, type AnimationData } from '../rom/AnimationLoader'
 import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
-import { readInitialLayer1YPos } from '../rom/L3Loader'
+import { readInitialLayer1YPos, readL3RoutineSummary, classifyL3Routine } from '../rom/L3Loader'
 import { expandMap } from '../rom/ObjectExpander'
 import { readL2Pointer, isPresetPtr, loadL2Preset, loadL2Objects, L2_TILEMAP_COLS, L2_TILEMAP_ROWS, L1_SCREEN_W, L1_SCREEN_H } from '../rom/L2Loader'
 import { buildMapPayload } from '../rom/model/MapBuilder'
@@ -64,6 +64,18 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
           tilesetId:      msg.tilesetId      as number,
           bgColorVariant: msg.bgColorVariant as number,
           marioVariant:   msg.marioVariant   as number,
+          // New header-bit overrides (Plan A — render overrides). Music /
+          // levelMode / itemMemory / verticalScroll have no current render
+          // path that honors the override; they're echoed back so the
+          // controls keep their selected value across re-renders. Step 3
+          // (real ROM writes) will wire visible effects + persistence.
+          music:          msg.music          as number | undefined,
+          timeLimit:      msg.timeLimit      as number | undefined,
+          levelMode:      msg.levelMode      as number | undefined,
+          itemMemory:     msg.itemMemory     as number | undefined,
+          verticalScroll: msg.verticalScroll as number | undefined,
+          layer3Priority: msg.layer3Priority as boolean | undefined,
+          layer3Setting:  msg.layer3Setting  as number | undefined,
           _initial:       false,
         })
       } else if (msg.type === 'edit') {
@@ -75,7 +87,16 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
   private async _sendLevelData(
     uri: vscode.Uri,
     webview: vscode.Webview,
-    overrides: { bgVariant?: number; fgVariant?: number; spriteSet?: number; spritePalette?: number; tilesetId?: number; bgColorVariant?: number; marioVariant?: number; _initial?: boolean },
+    overrides: {
+      bgVariant?: number; fgVariant?: number; spriteSet?: number;
+      spritePalette?: number; tilesetId?: number; bgColorVariant?: number;
+      marioVariant?: number;
+      // New header-bit overrides (Plan A — render overrides only).
+      music?: number; timeLimit?: number; levelMode?: number;
+      itemMemory?: number; verticalScroll?: number;
+      layer3Priority?: boolean; layer3Setting?: number;
+      _initial?: boolean;
+    },
   ): Promise<void> {
     try {
       const raw = await vscode.workspace.fs.readFile(uri)
@@ -191,6 +212,31 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       // the player's actual starting viewport.
       const initialCameraYPx = readInitialLayer1YPos(rom.rom, index, isVertical)
 
+      // L3 routine summary — pure metadata (no stripe parsing). Read against
+      // the live tileset override so the routine kind reflects what the
+      // editor is actually rendering, not just the header default. When
+      // layer3Setting is overridden, recompute via classifyL3Routine so the
+      // $009F88 byte / kind / init Y display values match the override.
+      let l3Routine = readL3RoutineSummary(rom.rom, index, objectTileset)
+      if (overrides.layer3Setting !== undefined && overrides.layer3Setting !== l3Routine.layer3Setting) {
+        const setting = overrides.layer3Setting
+        const settingsByte = setting === 0
+          ? null
+          : (rom.rom.readByte(0x009F88 + objectTileset * 3 + (setting - 1)) ?? null)
+        l3Routine = classifyL3Routine({ layer3Setting: setting, settingsByte, tileset: objectTileset })
+      }
+
+      // Header-bit overrides (Plan A — render overrides only). Echoed into
+      // the header payload so the controls keep their selected value across
+      // re-renders. Step 3 (real ROM writes) will turn these into byte-level
+      // mutations of the L1 header.
+      const musicEff          = overrides.music          ?? header.music
+      const timeLimitEff      = overrides.timeLimit      ?? header.timeLimit
+      const levelModeEff      = overrides.levelMode      ?? header.levelMode
+      const itemMemoryEff     = overrides.itemMemory     ?? header.itemMemory
+      const verticalScrollEff = overrides.verticalScroll ?? header.verticalScroll
+      const layer3PriorityEff = overrides.layer3Priority ?? header.layer3Priority
+
       // Palette-animation raw — the model owns the frame cycle; the
       // legacy load payload only needs the timer's frameCount / intervalMs.
       const palAnimRaw = session?.getPaletteAnim('level') ?? loadPaletteAnimData(rom.rom, 'level')
@@ -238,7 +284,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         backAreaColors: backAreaColors.map(c => [c[0], c[1], c[2], c[3]]),
         sprites:        sprites.map(s => ({ x: s.x, y: s.y, spriteId: s.spriteId })),
         header: {
-          music:          header.music,
+          music:          musicEff,
           spriteSet:      spriteTileset,
           bgPalette:      bgVariant,
           fgPalette:      fgVariant,
@@ -249,6 +295,24 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
           vertLayer2Setting,
           horizLayer2Setting,
           initialCameraYPx,
+          // Header-bit fields surfaced for the Level Settings panel. Each
+          // honors a render override from the rerender pipeline (Plan A); the
+          // override is purely UI-state today and gets persisted as a real
+          // ROM byte write when step 3 lands.
+          levelLength:    header.levelLength,
+          levelMode:      levelModeEff,
+          timeLimit:      timeLimitEff,
+          itemMemory:     itemMemoryEff,
+          verticalScroll: verticalScrollEff,
+          layer3Priority: layer3PriorityEff,
+          isVertical,
+        },
+        l3Routine: {
+          layer3Setting:   l3Routine.layer3Setting,
+          settingsByte:    l3Routine.settingsByte,
+          kind:            l3Routine.kind,
+          initialYPx:      l3Routine.initialYPx,
+          isTideUpAndDown: l3Routine.isTideUpAndDown,
         },
       })
       // Ship the self-rendering model payload alongside the legacy atlas
