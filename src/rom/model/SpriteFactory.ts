@@ -32,6 +32,7 @@ import { CharginChuckAppearance } from './sprites/appearances/CharginChuckAppear
 import { ClappinChuckAppearance } from './sprites/appearances/ClappinChuckAppearance'
 import { KeyholeAppearance } from './sprites/appearances/KeyholeAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
+import { SumoBrotherAppearance } from './sprites/appearances/SumoBrotherAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
@@ -322,6 +323,19 @@ export function buildSprites(
       out.push(new Sprite(
         s.spriteId, s.x * 16, s.y * 16,
         ClappinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight),
+        behavior,
+      ))
+      continue
+    }
+
+    // $9A (Sumo Brother) — custom 4-part OAM layout via SumoBroGfx
+    // (bank_02.asm:12456). Generic buildSpriteLayout returns only the head
+    // tile fallback ($98) since the sprite uses its own table-driven render
+    // path; build the full head-plus-body layout here.
+    if (s.spriteId === 0x9A) {
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        SumoBrotherAppearance.fromTables(chars, placeholder),
         behavior,
       ))
       continue
