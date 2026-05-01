@@ -2033,8 +2033,39 @@ function levelRows(): number {
 }
 // ── Zoom ─────────────────────────────────────────────────────────────────────
 
-function applyZoom(): void {
+function applyZoom(anchor?: { x: number; y: number }): void {
+  const oldZoom = zoom
+  const oldPadX = levelPadX
+  const oldPadY = levelPadY
+
+  const a = anchor ?? {
+    x: canvasWrap.clientWidth  / 2,
+    y: canvasWrap.clientHeight / 2,
+  }
+  const worldX = (canvasWrap.scrollLeft + a.x - oldPadX) / oldZoom
+  const worldY = (canvasWrap.scrollTop  + a.y - oldPadY) / oldZoom
+
   const z = ZOOM_STEPS[zoomIdx]
+
+  // Resize the spacer + pad synchronously before triggering the reactive
+  // render. If we let store.setZoom run first, the render path sees the new
+  // zoom but the old scroll, and the user gets one frame of wrong content.
+  if (fullLevelCanvas) {
+    const fw = fullLevelCanvas.width
+    const fh = fullLevelCanvas.height
+    levelPadX = isVert() ? Math.max(0, Math.floor((canvasWrap.clientWidth  - fw * z) / 2)) : 0
+    levelPadY = isVert() ? 0 : Math.max(0, Math.floor((canvasWrap.clientHeight - fh * z) / 2))
+    levelSpacer.style.width  = `${fw * z + levelPadX * 2}px`
+    levelSpacer.style.height = `${fh * z + levelPadY * 2}px`
+
+    const newScrollX = worldX * z + levelPadX - a.x
+    const newScrollY = worldY * z + levelPadY - a.y
+    const maxX = Math.max(0, canvasWrap.scrollWidth  - canvasWrap.clientWidth)
+    const maxY = Math.max(0, canvasWrap.scrollHeight - canvasWrap.clientHeight)
+    canvasWrap.scrollLeft = Math.max(0, Math.min(maxX, newScrollX))
+    canvasWrap.scrollTop  = Math.max(0, Math.min(maxY, newScrollY))
+  }
+
   zoom = z
   store.setZoom(z)  // reactive — triggers renderModelOverlay with the new zoom
   zoomLabel.textContent = `${z}×`
@@ -2050,7 +2081,11 @@ canvasWrap.addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return
   e.preventDefault()
   const next = zoomIdx + (e.deltaY < 0 ? 1 : -1)
-  if (next >= 0 && next < ZOOM_STEPS.length) { zoomIdx = next; applyZoom() }
+  if (next >= 0 && next < ZOOM_STEPS.length) {
+    zoomIdx = next
+    const r = canvasWrap.getBoundingClientRect()
+    applyZoom({ x: e.clientX - r.left, y: e.clientY - r.top })
+  }
 }, { passive: false })
 
 // ── Palette canvas ────────────────────────────────────────────────────────────
