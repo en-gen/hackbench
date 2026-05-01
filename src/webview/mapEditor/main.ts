@@ -11,7 +11,6 @@ declare function acquireVsCodeApi(): any
 const vscode = acquireVsCodeApi()
 
 import { effect } from '@vue/reactivity'
-import { storeToRefs } from 'pinia'
 import { buildGraph } from '../../rom/model/rehydrate'
 import { VineSourceBehavior } from '../../rom/model/tiles/behaviors/VineSourceBehavior'
 import { StarOneUpVineBlockBehavior } from '../../rom/model/tiles/behaviors/StarOneUpVineBlockBehavior'
@@ -19,21 +18,23 @@ import { L2ObjectStream, L2Preset } from '../../rom/model/L2Layer'
 import type { MapPayload as ModelMapPayload } from '../../rom/model/MapPayload'
 import type { SmwMap } from '../../rom/model/SmwMap'
 import type { OverlayContext } from '../../rom/model/OverlayContext'
-import { cellBoxOf, type RenderContext } from '../../rom/model/RenderTarget'
+import { cellBoxOf } from '../../rom/model/RenderTarget'
+import type { MapStore } from '../../rom/model/stores/mapStore'
 import { CanvasRenderTarget } from './CanvasRenderTarget'
 import { drawSurfaces } from './overlays/drawSurfaces'
 import { drawWalls } from './overlays/drawWalls'
 import { drawL3Range } from './overlays/drawL3Range'
-import { useEditorStore } from './store'
+import { editorStore as store } from './store'
 import { createRafTimer } from '../shared/animTimer'
 
 // FLUX: the store owns state; views dispatch actions; observers read refs.
-// `store.foo`      — read a value (auto-unwrapped by Pinia's proxy).
-// `storeRefs.foo`  — Ref<T> for passing into the render context so that
-//                    @vue/reactivity tracks `.value` reads inside behaviors.
-// `store.doThing()` — action (mutation). Never mutate refs from outside.
-const store     = useEditorStore()
-const storeRefs = storeToRefs(store)
+// `store.foo`         — direct read of the reactive proxy field. Reads inside
+//                       an active `effect()` register a dependency, so when
+//                       `store.setFoo(...)` mutates, the effect re-runs.
+// `store.doThing()`   — action (mutation). Never mutate fields from outside.
+//
+// Per-map ROM-derived data lives on `map.mapStore` (palette, level orientation,
+// pipe variants, mario spawn X). Reach it through the loaded SmwMap.
 
 // Self-rendering model graph. Populated from the `modelPayload` message
 // alongside the legacy `load`; exposed on window for dev inspection.
@@ -98,27 +99,13 @@ function renderModelOverlay(map: SmwMap): void {
   // tracked while a thwomp is actually rendered — if sprites are toggled
   // off at first paint, the dep never registers and cursor changes fall
   // on the floor. This line keeps the wiring unconditional.
-  void storeRefs.cursorPx.value
+  void store.cursorPx
 
-  // Level-wide state on ctx — tile behaviors (PipeVariantsBehavior) derive
-  // per-cell concerns from their own cell position + these fields,
-  // so the camera viewport / detail preview / Map16 panel can all
-  // reuse the same ctx without pre-computing per-cell variants.
-  const ctx: RenderContext = {
-    animFrame: storeRefs.animFrame,
-    palAnimFrame: storeRefs.palAnimFrame,
-    pSwitchActive: storeRefs.pSwitchActive,
-    switchPalaceState: storeRefs.switchPalaceState,
-    palette: map.palette,
-    camera: storeRefs.camera,
-    cameraOn: storeRefs.cameraOn,
-    cameraDragging: storeRefs.cameraDragging,
-    zoom: storeRefs.zoom,
-    layerToggles: storeRefs.layerToggles,
-    cursorPx: storeRefs.cursorPx,
-    levelOrientation: map.header.orientation,
-    screenPipeVariantIdx: map.screenPipeVariantIdx,
-  }
+  // Per-map ROM-derived data lives on `map.mapStore`. Behaviors that need it
+  // (PipeVariantsBehavior, KoopaAppearance overlay, etc.) receive it as a
+  // render arg so per-cell concerns derive from their own cell position +
+  // mapStore fields.
+  const mapStore = map.mapStore
 
   if (!dragging) {
     // ── Base render (expensive): tiles + non-camera overlays ──────────────
@@ -130,8 +117,8 @@ function renderModelOverlay(map: SmwMap): void {
       baseLevelCanvas.height = h
     }
     const baseTarget = new CanvasRenderTarget(baseLevelCanvas)
-    baseTarget.clear(map.palette.backAreaColor.rgba(ctx))
-    map.render(ctx, baseTarget)
+    baseTarget.clear(map.palette.backAreaColor.rgba())
+    map.render(baseTarget)
     baseTarget.flush()
 
     // Canvas 2D overlays that don't depend on camera position go on the
@@ -165,7 +152,7 @@ function renderModelOverlay(map: SmwMap): void {
   const cameraOn = store.cameraOn
   if (cameraOn) {
     const camTarget = new CanvasRenderTarget(fullLevelCanvas)
-    const strip = compositeCameraViewport(camTarget, ctx, map)
+    const strip = compositeCameraViewport(camTarget, mapStore, map)
     // Only overwrite the strip region on fullLevelCanvas — the rest of the
     // base render copied above is left intact.
     if (strip) camTarget.flushRegion(strip.sx, strip.sy, strip.sw, strip.sh)
@@ -335,7 +322,7 @@ function drawBlockViewLabels(
  */
 function compositeCameraViewport(
   target: CanvasRenderTarget,
-  ctx: RenderContext,
+  mapStore: MapStore,
   map: SmwMap,
 ): { sx: number; sy: number; sw: number; sh: number } | null {
   const rows = map.l1.length
@@ -362,7 +349,7 @@ function compositeCameraViewport(
 
   // Repaint the strip from scratch — wipe the existing render inside
   // so parallax BG can be re-sampled without double-painting.
-  target.fillRect({ x: sx, y: sy }, { w: sw, h: sh }, map.palette.backAreaColor.rgba(ctx))
+  target.fillRect({ x: sx, y: sy }, { w: sw, h: sh }, map.palette.backAreaColor.rgba())
 
   const toggles = store.layerToggles
 
@@ -409,8 +396,8 @@ function compositeCameraViewport(
             bl: { x: px,     y: py + 8 },
             br: { x: px + 8, y: py + 8 },
           }
-          tile.render(ctx, target, cell, 'nonPriority')
-          tile.render(ctx, target, cell, 'priority')
+          tile.render(target, cell, mapStore, 'nonPriority')
+          tile.render(target, cell, mapStore, 'priority')
         }
       }
       target.clearClip()
@@ -434,8 +421,8 @@ function compositeCameraViewport(
         const tile = map.l1Tiles.get(id)
         if (!tile) continue
         const cell = cellBoxOf(wx, wy)
-        tile.render(ctx, target, cell, 'nonPriority')
-        tile.render(ctx, target, cell, 'priority')
+        tile.render(target, cell, mapStore, 'nonPriority')
+        tile.render(target, cell, mapStore, 'priority')
       }
     }
   }
@@ -446,13 +433,7 @@ function compositeCameraViewport(
   // the strip, keeping drag-redraw responsive.
   if (toggles.l3 && map.l3) {
     target.setClip(sx, sy, sw, sh)
-    const levelCtx: RenderContext = {
-      ...ctx,
-      levelOrientation: map.header.orientation,
-      screenPipeVariantIdx: map.screenPipeVariantIdx,
-      initialCameraYPx: map.header.initialCameraYPx,
-    }
-    map.l3.render(levelCtx, target, { xMin: sx, xMax: sx + sw })
+    map.l3.render(target, mapStore, { xMin: sx, xMax: sx + sw })
     target.clearClip()
   }
   return { sx, sy, sw, sh }
@@ -1418,10 +1399,10 @@ function redrawDetail(): void {
 
 /**
  * Render the selected-tile preview through the model. Every read here
- * goes through `storeRefs.*.value` (via char.getPixels / tile.render /
- * palette.row), so when this function runs inside the reactive effect
- * it auto-retracks animation / pswitch / palette-cycle changes and
- * re-renders on each tick.
+ * goes through editorStore reads (via Char.getPixels / Tile.render /
+ * Palette.row) and the per-map mapStore, so when this function runs
+ * inside the reactive effect it auto-retracks animation / pswitch /
+ * palette-cycle changes and re-renders on each tick.
  */
 function redrawDetailFromModel(): void {
   if (!selectedDetail) return
@@ -1433,16 +1414,7 @@ function redrawDetailFromModel(): void {
 
   const dc   = document.getElementById('detail-canvas') as HTMLCanvasElement
   const info = document.getElementById('detail-info')!
-  const ctx: RenderContext = {
-    animFrame:         storeRefs.animFrame,
-    palAnimFrame:      storeRefs.palAnimFrame,
-    pSwitchActive:     storeRefs.pSwitchActive,
-    switchPalaceState: storeRefs.switchPalaceState,
-    palette:           map.palette,
-    camera:            storeRefs.camera,
-    zoom:              storeRefs.zoom,
-    layerToggles:      storeRefs.layerToggles,
-  }
+  const mapStore = map.mapStore
 
   if (selectedDetail.type === 'vram' && chars) {
     dc.width = 8
@@ -1459,11 +1431,11 @@ function redrawDetailFromModel(): void {
     info.innerHTML = `<b>8×8 char $${charNum.toString(16).padStart(3,'0')}</b><br>slot: ${slot}`
     const dctx = dc.getContext('2d')!
     if (!char) { dctx.clearRect(0, 0, 8, 8); return }
-    const pixels = char.getPixels(ctx)
+    const pixels = char.getPixels()
     // Palette-row convention matches VRAM viewer: $000-$17F → row 2
     // (FG terrain), $180-$2FF → row 6 (AN / sprite-slot), $300+ → row 8.
     const palRowIdx = charNum < 0x180 ? 2 : charNum < 0x300 ? 6 : 8
-    const paletteRow = map.palette.row(palRowIdx, ctx)
+    const paletteRow = map.palette.row(palRowIdx)
     const buf = new Uint8ClampedArray(8 * 8 * 4)
     for (let py = 0; py < 8; py++) {
       for (let px = 0; px < 8; px++) {
@@ -1496,8 +1468,8 @@ function redrawDetailFromModel(): void {
     const tile = tileSource.get(tileId)
     if (tile) {
       const cellBox = cellBoxOf(0, 0)
-      tile.render(ctx, target, cellBox, 'nonPriority')
-      tile.render(ctx, target, cellBox, 'priority')
+      tile.render(target, cellBox, mapStore, 'nonPriority')
+      tile.render(target, cellBox, mapStore, 'priority')
     }
     target.flush()
   }
@@ -1663,7 +1635,7 @@ function populateTileProps(tileId: number, def: Map16DefEntry | undefined): void
 // ── Animation ────────────────────────────────────────────────────────────────
 // Animation drives `store.animFrame` (tile-animation timer) and
 // `store.palAnimFrame` (palette-cycle timer). Every model behavior that
-// cares reads these through the RenderContext refs, so the reactive
+// cares reads these directly from `editorStore`, so the reactive
 // render effect re-runs only the cells whose input actually changed.
 //
 // Driven by requestAnimationFrame rather than setInterval so that hidden or
@@ -1800,16 +1772,6 @@ function renderVramPageFromModel(): void {
   }
 
   const palette = map.palette
-  const ctx: RenderContext = {
-    animFrame: storeRefs.animFrame,
-    palAnimFrame: storeRefs.palAnimFrame,
-    pSwitchActive: storeRefs.pSwitchActive,
-    switchPalaceState: storeRefs.switchPalaceState,
-    palette,
-    camera: storeRefs.camera,
-    zoom: storeRefs.zoom,
-    layerToggles: storeRefs.layerToggles,
-  }
 
   const sw = vc.width
   const sh = vc.height
@@ -1824,7 +1786,7 @@ function renderVramPageFromModel(): void {
     //   $180-$2FF → palette row 6 (AN / sprite-slot; FlashingColors writes here)
     //   $300+     → palette row 8 (sprite)
     const palRowIdx = charNum < 0x180 ? 2 : charNum < 0x300 ? 6 : 8
-    const paletteRow = palette.row(palRowIdx, ctx)
+    const paletteRow = palette.row(palRowIdx)
 
     const tileCol = ti % tilesPerRow
     const tileRow = Math.floor(ti / tilesPerRow)
@@ -1832,7 +1794,7 @@ function renderVramPageFromModel(): void {
     const dy0 = tileRow * 8
 
     if (!char) continue // unmapped slot → leave transparent
-    const pixels = char.getPixels(ctx)
+    const pixels = char.getPixels()
     if (!pixels) continue
     for (let py = 0; py < 8; py++) {
       for (let px = 0; px < 8; px++) {
@@ -1913,16 +1875,7 @@ function renderMap16PageFromModel(): void {
   mc.width = 256
   mc.height = 256
   const target = new CanvasRenderTarget(mc)
-  const ctx: RenderContext = {
-    animFrame: storeRefs.animFrame,
-    palAnimFrame: storeRefs.palAnimFrame,
-    pSwitchActive: storeRefs.pSwitchActive,
-    switchPalaceState: storeRefs.switchPalaceState,
-    palette: map.palette,
-    camera: storeRefs.camera,
-    zoom: storeRefs.zoom,
-    layerToggles: storeRefs.layerToggles,
-  }
+  const mapStore = map.mapStore
 
   target.clear()
 
@@ -1937,8 +1890,8 @@ function renderMap16PageFromModel(): void {
       const col = i % 16
       const row = Math.floor(i / 16)
       const cellBox = cellBoxOf(col, row)
-      tile.render(ctx, target, cellBox, 'nonPriority')
-      tile.render(ctx, target, cellBox, 'priority')
+      tile.render(target, cellBox, mapStore, 'nonPriority')
+      tile.render(target, cellBox, mapStore, 'priority')
     }
   }
 
@@ -2266,16 +2219,6 @@ function drawPaletteFromModel(): void {
     return
   }
   const palette = map.palette
-  const ctx: RenderContext = {
-    animFrame: storeRefs.animFrame,
-    palAnimFrame: storeRefs.palAnimFrame,
-    pSwitchActive: storeRefs.pSwitchActive,
-    switchPalaceState: storeRefs.switchPalaceState,
-    palette,
-    camera: storeRefs.camera,
-    zoom: storeRefs.zoom,
-    layerToggles: storeRefs.layerToggles,
-  }
 
   palCtx.clearRect(0, 0, 128, 128)
 
@@ -2283,7 +2226,7 @@ function drawPaletteFromModel(): void {
     for (let col = 0; col < 16; col++) {
       const cell = palette.cells[row]?.[col]
       if (!cell) continue
-      const c = cell.rgba(ctx)
+      const c = cell.rgba()
       const x = col * PAL_CELL
       const y = row * PAL_CELL
       if (c[3] < 255) {
@@ -2331,18 +2274,8 @@ palCanvas.addEventListener('mousemove', (e) => {
   const col = Math.floor((e.clientX - rect.left) * scaleX / PAL_CELL)
   const row = Math.floor((e.clientY - rect.top)  * scaleX / PAL_CELL)
   if (col < 0 || col > 15 || row < 0 || row > 15) return
-  const ctx: RenderContext = {
-    animFrame: storeRefs.animFrame,
-    palAnimFrame: storeRefs.palAnimFrame,
-    pSwitchActive: storeRefs.pSwitchActive,
-    switchPalaceState: storeRefs.switchPalaceState,
-    palette: map.palette,
-    camera: storeRefs.camera,
-    zoom: storeRefs.zoom,
-    layerToggles: storeRefs.layerToggles,
-  }
   const cell = map.palette.cells[row]?.[col]
-  const c = cell ? cell.rgba(ctx) : [0, 0, 0, 0]
+  const c = cell ? cell.rgba() : [0, 0, 0, 0]
   const hex = `#${c[0].toString(16).padStart(2,'0')}${c[1].toString(16).padStart(2,'0')}${c[2].toString(16).padStart(2,'0')}`
   palInspect.textContent = `row ${row}  col ${col}  ${hex}`
 })
@@ -3145,20 +3078,10 @@ function drawSwitchToggleThumb(colorIdx: number): void {
   tc.width = 16
   tc.height = 16
   const target = new CanvasRenderTarget(tc)
-  const ctx: RenderContext = {
-    animFrame: storeRefs.animFrame,
-    palAnimFrame: storeRefs.palAnimFrame,
-    pSwitchActive: storeRefs.pSwitchActive,
-    switchPalaceState: storeRefs.switchPalaceState,
-    palette: map.palette,
-    camera: storeRefs.camera,
-    zoom: storeRefs.zoom,
-    layerToggles: storeRefs.layerToggles,
-  }
   target.clear()
   const cellBox = cellBoxOf(0, 0)
-  tile.render(ctx, target, cellBox, 'nonPriority')
-  tile.render(ctx, target, cellBox, 'priority')
+  tile.render(target, cellBox, map.mapStore, 'nonPriority')
+  tile.render(target, cellBox, map.mapStore, 'priority')
   target.flush()
 }
 
@@ -3188,13 +3111,13 @@ for (let i = 0; i < 4; i++) {
 function blitCharIntoBuf(
   buf: Uint8ClampedArray, dstW: number,
   charNum: number, palRow: ReadonlyArray<readonly [number, number, number, number]>,
-  ctx: RenderContext, dstX: number, dstY: number, hFlip: boolean, vFlip = false,
+  dstX: number, dstY: number, hFlip: boolean, vFlip = false,
 ): void {
   const chars = window.__smwModelChars
   if (!chars) return
   const char = chars.get(charNum)
   if (!char) return
-  const pixels = char.getPixels(ctx)
+  const pixels = char.getPixels()
   for (let py = 0; py < 8; py++) {
     const sy = vFlip ? 7 - py : py
     for (let px = 0; px < 8; px++) {
@@ -3225,30 +3148,20 @@ function drawPSwitchToggleThumb(): void {
   c.clearRect(0, 0, 16, 16)
   const map = window.__smwModelMap
   if (!map) return
-  const ctx: RenderContext = {
-    animFrame: storeRefs.animFrame,
-    palAnimFrame: storeRefs.palAnimFrame,
-    pSwitchActive: storeRefs.pSwitchActive,
-    switchPalaceState: storeRefs.switchPalaceState,
-    palette: map.palette,
-    camera: storeRefs.camera,
-    zoom: storeRefs.zoom,
-    layerToggles: storeRefs.layerToggles,
-  }
-  const palRow = map.palette.row(0x0B, ctx) as ReadonlyArray<readonly [number, number, number, number]>
+  const palRow = map.palette.row(0x0B) as ReadonlyArray<readonly [number, number, number, number]>
   if (!palRow) return
   const buf = new Uint8ClampedArray(16 * 16 * 4)
   if (store.pSwitchActive) {
     // Pressed: the sprite is 16×8 (chars $4FE + $4FE h-flipped), with
     // the top half empty. Bottom-align so the button sits flush with
     // the "ground" — matches how the pressed P-switch sits in-game.
-    blitCharIntoBuf(buf, 16, 0x4FE, palRow, ctx, 0, 8, false)
-    blitCharIntoBuf(buf, 16, 0x4FE, palRow, ctx, 8, 8, true)
+    blitCharIntoBuf(buf, 16, 0x4FE, palRow, 0, 8, false)
+    blitCharIntoBuf(buf, 16, 0x4FE, palRow, 8, 8, true)
   } else {
-    blitCharIntoBuf(buf, 16, 0x442, palRow, ctx, 0, 0, false)
-    blitCharIntoBuf(buf, 16, 0x443, palRow, ctx, 8, 0, false)
-    blitCharIntoBuf(buf, 16, 0x452, palRow, ctx, 0, 8, false)
-    blitCharIntoBuf(buf, 16, 0x453, palRow, ctx, 8, 8, false)
+    blitCharIntoBuf(buf, 16, 0x442, palRow, 0, 0, false)
+    blitCharIntoBuf(buf, 16, 0x443, palRow, 8, 0, false)
+    blitCharIntoBuf(buf, 16, 0x452, palRow, 0, 8, false)
+    blitCharIntoBuf(buf, 16, 0x453, palRow, 8, 8, false)
   }
   c.putImageData(new ImageData(buf, 16, 16), 0, 0)
 }

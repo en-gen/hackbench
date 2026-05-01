@@ -1,6 +1,9 @@
+// Consumes: (none directly — palette via mapStore, char pixels via Char.getPixels)
+
 import type { Char } from '../../chars/Char'
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
-import type { RenderContext, RenderTarget } from '../../RenderTarget'
+import type { RenderTarget } from '../../RenderTarget'
+import type { MapStore } from '../../stores/mapStore'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
 
@@ -31,10 +34,10 @@ export class StaticSpriteAppearance implements SpriteAppearance {
     this.hitRect = partsHitRect(parts)
   }
 
-  render(ctx: RenderContext, target: RenderTarget, x: number, y: number): void {
+  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
     for (const part of this.parts) {
-      const pixels = part.char.getPixels(ctx)
-      const row = ctx.palette.row(part.palette, ctx)
+      const pixels = part.char.getPixels()
+      const row = mapStore.palette.row(part.palette)
       target.blit8x8(pixels, { x: x + part.dx, y: y + part.dy }, row, part.flipX, part.flipY)
     }
   }
@@ -49,8 +52,7 @@ export class StaticSpriteAppearance implements SpriteAppearance {
     getL1:     GetL1Tile,
     levelCols: number,
     levelRows: number,
-    behavior?: SpriteBehavior,
+    behavior:  SpriteBehavior | undefined,
+    mapStore:  MapStore,
   ): void
 }
-// `behavior` arg on SpriteAppearance.render is unused here — static sprites
-// draw the same parts regardless of behavioral state. TS lets us omit it.

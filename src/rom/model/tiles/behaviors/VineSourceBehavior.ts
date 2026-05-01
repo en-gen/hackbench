@@ -1,4 +1,8 @@
-import type { CellBox, RenderContext, RenderTarget } from '../../RenderTarget'
+// Consumes: editorStore.cursorPx
+
+import type { CellBox, RenderTarget } from '../../RenderTarget'
+import { editorStore } from '../../stores/editorStore'
+import type { MapStore } from '../../stores/mapStore'
 import type { SubtileQuad } from '../Tile'
 import type { TileBehavior } from '../TileBehavior'
 
@@ -22,14 +26,14 @@ export class VineSourceBehavior implements TileBehavior {
     readonly overlayQuad: SubtileQuad | null = null,
   ) {}
 
-  selectQuad(_ctx: RenderContext): SubtileQuad {
+  selectQuad(): SubtileQuad {
     return this.quad
   }
 
-  renderOverlay(ctx: RenderContext, target: RenderTarget, cell: CellBox): void {
+  renderOverlay(target: RenderTarget, cell: CellBox, mapStore: MapStore): void {
     if (!this.overlayQuad) return
-    const cursor = ctx.cursorPx?.value
-    const hovered = cursor !== null && cursor !== undefined
+    const cursor = editorStore.cursorPx
+    const hovered = cursor !== null
       && cursor.x >= cell.tl.x && cursor.x < cell.tl.x + 16
       && cursor.y >= cell.tl.y && cursor.y < cell.tl.y + 16
     const alpha = hovered ? 1.0 : 0.5
@@ -38,7 +42,7 @@ export class VineSourceBehavior implements TileBehavior {
       { dx: 0, dy:  0 }, { dx: 8, dy:  0 },
     ] as const
     for (let i = 0; i < 4; i++) {
-      this.overlayQuad[i].render(ctx, target, { x: cell.tl.x + offsets[i].dx, y: cell.tl.y + offsets[i].dy }, alpha)
+      this.overlayQuad[i].render(target, { x: cell.tl.x + offsets[i].dx, y: cell.tl.y + offsets[i].dy }, mapStore.palette, alpha)
     }
   }
 }

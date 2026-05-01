@@ -1,6 +1,10 @@
+// Consumes: (none directly — palette via mapStore)
+
 import type { Char } from '../../chars/Char'
-import type { RenderContext, RenderTarget } from '../../RenderTarget'
+import type { RenderTarget } from '../../RenderTarget'
+import type { MapStore } from '../../stores/mapStore'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
+import type { SpriteBehavior } from '../SpriteBehavior'
 import type { SpritePart } from './StaticSpriteAppearance'
 
 const OBJ_CHAR_BASE = 0x400
@@ -68,14 +72,15 @@ export class LineCheckerPlatAppearance implements SpriteAppearance {
   }
 
   render(
-    ctx:    RenderContext,
-    target: RenderTarget,
-    x:      number,
-    y:      number,
+    target:    RenderTarget,
+    x:         number,
+    y:         number,
+    _behavior: SpriteBehavior,
+    mapStore:  MapStore,
   ): void {
     for (const part of this.platformParts) {
-      const pixels = part.char.getPixels(ctx)
-      const row    = ctx.palette.row(part.palette, ctx)
+      const pixels = part.char.getPixels()
+      const row    = mapStore.palette.row(part.palette)
       target.blit8x8(
         pixels,
         { x: x + part.dx - this.xShift, y: y + part.dy - 8 },

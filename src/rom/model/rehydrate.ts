@@ -55,6 +55,7 @@ import type {
 } from './MapPayload'
 import { NO_COLLISION } from './tiles/TileCollision'
 import { SmwMap } from './SmwMap'
+import { createMapStore } from './stores/mapStore'
 import { SubTile } from './tiles/SubTile'
 import { Tile, type SubtileQuad } from './tiles/Tile'
 import { InvisibleBlockRevealBehavior } from './tiles/behaviors/InvisibleBlockRevealBehavior'
@@ -110,6 +111,14 @@ export function buildGraph(payload: MapPayload): {
   const l3 = buildL3(payload.l3 ?? null)
   const sprites = payload.sprites.map(s => buildSprite(s, chars, placeholderChar))
 
+  const screenPipeVariantIdx = [...payload.screenPipeVariantIdx]
+  const mapStore = createMapStore({
+    palette,
+    levelOrientation: payload.header.orientation,
+    screenPipeVariantIdx,
+    initialCameraYPx: payload.header.initialCameraYPx,
+    marioSpawnX: payload.header.marioStartPx?.x ?? 0,
+  })
   const map = new SmwMap(
     payload.levelId,
     payload.header,
@@ -120,9 +129,10 @@ export function buildGraph(payload: MapPayload): {
     palette,
     payload.tileset,
     payload.screenCount,
-    [...payload.screenPipeVariantIdx],
+    screenPipeVariantIdx,
     tiles,
     bgTiles,
+    mapStore,
   )
 
   return { map, chars, tiles, bgTiles }

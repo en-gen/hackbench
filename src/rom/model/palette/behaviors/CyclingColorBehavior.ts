@@ -1,10 +1,12 @@
+// Consumes: editorStore.palAnimFrame
+
 import type { RgbaColor } from '../../../GraphicsDecoder'
-import type { RenderContext } from '../../RenderTarget'
+import { editorStore } from '../../stores/editorStore'
 import type { ColorBehavior } from '../ColorBehavior'
 
 /**
  * A palette cell that cycles through a list of frames driven by
- * `ctx.palAnimFrame`. The cell's position is wherever the palette
+ * `editorStore.palAnimFrame`. The cell's position is wherever the palette
  * places it — the behavior only owns the frame sequence.
  *
  * SMW level mode: one CyclingColorBehavior at CGRAM $64 (row 6 col 4).
@@ -15,7 +17,7 @@ import type { ColorBehavior } from '../ColorBehavior'
 export class CyclingColorBehavior implements ColorBehavior {
   constructor(readonly frames: readonly RgbaColor[]) {}
 
-  rgba(ctx: RenderContext): RgbaColor {
-    return this.frames[ctx.palAnimFrame.value % this.frames.length]
+  rgba(): RgbaColor {
+    return this.frames[editorStore.palAnimFrame % this.frames.length]
   }
 }

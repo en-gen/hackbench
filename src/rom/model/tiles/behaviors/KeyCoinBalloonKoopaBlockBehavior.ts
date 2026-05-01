@@ -1,5 +1,9 @@
+// Consumes: editorStore.cursorPx
+
 import type { Char } from '../../chars/Char'
-import type { CellBox, RenderContext, RenderTarget } from '../../RenderTarget'
+import type { CellBox, RenderTarget } from '../../RenderTarget'
+import { editorStore } from '../../stores/editorStore'
+import type { MapStore } from '../../stores/mapStore'
 import type { SubtileQuad } from '../Tile'
 import type { TileBehavior } from '../TileBehavior'
 
@@ -85,17 +89,17 @@ export class KeyCoinBalloonKoopaBlockBehavior implements TileBehavior {
     readonly paraKoopaChars: readonly (Char | null)[],
   ) {}
 
-  selectQuad(_ctx: RenderContext): SubtileQuad { return this.quad }
+  selectQuad(): SubtileQuad { return this.quad }
 
   itemAtCol(col: number): Tile25Item {
     return tile25ItemAt(col)
   }
 
-  renderOverlay(ctx: RenderContext, target: RenderTarget, cell: CellBox): void {
+  renderOverlay(target: RenderTarget, cell: CellBox, mapStore: MapStore): void {
     const col = cell.tl.x / 16
     const item = tile25ItemAt(col)
-    const cursor = ctx.cursorPx?.value
-    const alpha = (cursor != null
+    const cursor = editorStore.cursorPx
+    const alpha = (cursor !== null
       && cursor.x >= cell.tl.x && cursor.x < cell.tl.x + 16
       && cursor.y >= cell.tl.y && cursor.y < cell.tl.y + 16) ? 1.0 : 0.5
 
@@ -108,12 +112,12 @@ export class KeyCoinBalloonKoopaBlockBehavior implements TileBehavior {
       case 'paraKoopa': chars = this.paraKoopaChars; row = PARAKOOPA_PALETTE_ROW; break
     }
 
-    const paletteRow = ctx.palette.row(row, ctx)
+    const paletteRow = mapStore.palette.row(row)
     for (let i = 0; i < 4; i++) {
       const ch = chars[i]
       if (!ch) continue
       const { dx, dy } = OVERLAY_OFFSETS[i]
-      target.blit8x8(ch.getPixels(ctx), { x: cell.tl.x + dx, y: cell.tl.y + dy }, paletteRow, false, false, alpha)
+      target.blit8x8(ch.getPixels(), { x: cell.tl.x + dx, y: cell.tl.y + dy }, paletteRow, false, false, alpha)
     }
   }
 }

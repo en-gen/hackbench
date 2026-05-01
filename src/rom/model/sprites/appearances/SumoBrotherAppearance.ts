@@ -1,3 +1,5 @@
+// Consumes: (none directly — overlay only)
+
 import type { Char } from '../../chars/Char'
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import {
@@ -10,6 +12,7 @@ import {
   WALL_ALPHA,
   WALL_LINE_WIDTH,
 } from '../../overlays/primitives'
+import type { MapStore } from '../../stores/mapStore'
 import { SumoBrotherBehavior } from '../behaviors/SumoBrotherBehavior'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
@@ -84,15 +87,15 @@ export class SumoBrotherAppearance extends StaticSpriteAppearance {
   }
 
   override renderOverlay(
-    ctx:           OverlayContext,
-    x:             number,
-    y:             number,
-    isActive:      boolean,
-    getL1:         GetL1Tile,
-    levelCols:     number,
-    levelRows:     number,
-    behavior?:     SpriteBehavior,
-    _marioSpawnX?: number,
+    ctx:        OverlayContext,
+    x:          number,
+    y:          number,
+    isActive:   boolean,
+    getL1:      GetL1Tile,
+    levelCols:  number,
+    levelRows:  number,
+    behavior:   SpriteBehavior | undefined,
+    _mapStore:  MapStore,
   ): void {
     if (!isActive || !(behavior instanceof SumoBrotherBehavior)) return
 

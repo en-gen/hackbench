@@ -12,8 +12,7 @@
  * pixel X, so the lookup wraps every 16 tiles = 1 screen.
  */
 
-import { describe, it, expect } from 'vitest'
-import { ref } from '@vue/reactivity'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { SubTile } from '../../../../src/rom/model/tiles/SubTile'
@@ -22,20 +21,7 @@ import {
   starOneUpVineItemAt,
   StarOneUpVineBlockBehavior,
 } from '../../../../src/rom/model/tiles/behaviors/StarOneUpVineBlockBehavior'
-import type { RenderContext } from '../../../../src/rom/model/RenderTarget'
-
-function mockCtx(): RenderContext {
-  return {
-    animFrame: ref(0),
-    palAnimFrame: ref(0),
-    pSwitchActive: ref(false),
-    switchPalaceState: ref<readonly [boolean, boolean, boolean, boolean]>([false, false, false, false]),
-    palette: null as never,
-    camera: ref({ tileX: 0, tileY: 0, focused: false }),
-    zoom: ref(1),
-    layerToggles: ref({ l1: true, l2: true, l3: true, sprites: true, screens: true, block: true, mapGrid: false, l3Hud: false, surfaces: false, walls: false }),
-  }
-}
+import { editorStore, resetEditorStore } from '../fixtures/stores'
 
 function makeChar(): Char {
   return new Char(0, new StaticPixelsBehavior(new Uint8Array(64)))
@@ -90,19 +76,20 @@ describe('starOneUpVineItemAt — column dispatch (CODE_00F1AE)', () => {
 })
 
 describe('StarOneUpVineBlockBehavior', () => {
+  beforeEach(resetEditorStore)
+
   it('selectQuad returns the stored quad reference unchanged', () => {
     const quad = makeQuad()
     const b = new StarOneUpVineBlockBehavior(quad, null, [], [])
-    expect(b.selectQuad(mockCtx())).toBe(quad)
+    expect(b.selectQuad()).toBe(quad)
   })
 
   it('selectQuad is invariant across animFrame changes', () => {
     const quad = makeQuad()
     const b = new StarOneUpVineBlockBehavior(quad, null, [], [])
-    const ctx = mockCtx()
-    const q1 = b.selectQuad(ctx)
-    ctx.animFrame.value = 99
-    const q2 = b.selectQuad(ctx)
+    const q1 = b.selectQuad()
+    editorStore.setAnimFrame(99)
+    const q2 = b.selectQuad()
     expect(q1).toBe(q2)
   })
 

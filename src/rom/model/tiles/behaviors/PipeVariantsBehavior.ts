@@ -1,4 +1,7 @@
-import type { CellBox, RenderContext } from '../../RenderTarget'
+// Consumes: mapStore.{screenPipeVariantIdx, levelOrientation}
+
+import type { CellBox } from '../../RenderTarget'
+import type { MapStore } from '../../stores/mapStore'
 import type { SubtileQuad } from '../Tile'
 import type { TileBehavior } from '../TileBehavior'
 
@@ -12,20 +15,20 @@ import type { TileBehavior } from '../TileBehavior'
  *   3 = blue    (palette 7)
  *
  * The per-screen variant table + level orientation come from the
- * reactive context; the cell's own position gives the screen index.
- * Falls back to variant 0 when either context field is missing so the
- * behavior still renders something sensible in isolated previews
- * (e.g. the Map16 viewer where "which screen" isn't meaningful).
+ * per-map store; the cell's own position gives the screen index.
+ * Falls back to variant 0 when the table is empty so the behavior still
+ * renders something sensible in isolated previews (e.g. the Map16 viewer
+ * where "which screen" isn't meaningful).
  */
 export class PipeVariantsBehavior implements TileBehavior {
   constructor(readonly variants: readonly SubtileQuad[]) {}
 
-  selectQuad(ctx: RenderContext, cell: CellBox): SubtileQuad {
-    const table = ctx.screenPipeVariantIdx
+  selectQuad(cell: CellBox, mapStore: MapStore): SubtileQuad {
+    const table = mapStore.screenPipeVariantIdx
     if (!table || table.length === 0) return this.variants[0]
     const tileCol = Math.floor(cell.tl.x / 16)
     const tileRow = Math.floor(cell.tl.y / 16)
-    const screenIdx = ctx.levelOrientation === 'vertical'
+    const screenIdx = mapStore.levelOrientation === 'vertical'
       ? Math.floor(tileRow / 16)
       : Math.floor(tileCol / 16)
     const variant = table[screenIdx] ?? 0

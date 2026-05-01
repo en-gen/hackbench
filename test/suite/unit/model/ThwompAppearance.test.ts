@@ -5,7 +5,7 @@
  * InitThwomp adds +8 to SpriteXPosLow at spawn. ThwompGfx then dispatches
  * on SpriteMisc1528: =2 → aggressive face, =1 → alert face, else → no face.
  *
- * In the editor we stand in for Mario with ctx.cursorPx. Detection logic:
+ * In the editor we stand in for Mario with editorStore.cursorPx. Detection logic:
  *   anchorX = x + 8  (the +8 is the InitThwomp shift)
  *   hdist   = |cursor.x - anchorX|
  *   inYRange = cursor.y ∈ [y, y + reactRangeDy)
@@ -19,35 +19,27 @@
  * ANCHOR_DX     = 8    (InitThwomp +8 shift)
  */
 
-import { describe, it, expect } from 'vitest'
-import { ref } from '@vue/reactivity'
+import { describe, it, expect, beforeEach } from 'vitest'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { ThwompAppearance } from '../../../../src/rom/model/sprites/appearances/ThwompAppearance'
 import { partsHitRect, type SpritePart } from '../../../../src/rom/model/sprites/appearances/StaticSpriteAppearance'
-import type { RenderContext, RenderTarget, PixelPos } from '../../../../src/rom/model/RenderTarget'
+import type { Palette } from '../../../../src/rom/model/palette/Palette'
+import type { RenderTarget, PixelPos } from '../../../../src/rom/model/RenderTarget'
 import type { SpriteBehavior } from '../../../../src/rom/model/sprites/SpriteBehavior'
+import { editorStore, makeTestMapStore, resetEditorStore } from '../fixtures/stores'
 
 const TRANSPARENT_ROW: RgbaColor[] = Array(16).fill([0, 0, 0, 0] as RgbaColor)
 
-function mockCtx(cursor: { x: number; y: number } | null = null): RenderContext {
-  return {
-    animFrame: ref(0),
-    palAnimFrame: ref(0),
-    pSwitchActive: ref(false),
-    switchPalaceState: ref<readonly [boolean, boolean, boolean, boolean]>([false, false, false, false]),
-    palette: {
-      row: () => TRANSPARENT_ROW,
-      color: () => [0, 0, 0, 0] as RgbaColor,
-      cells: [] as never,
-      backAreaColor: null as never,
-    } as never,
-    camera: ref({ tileX: 0, tileY: 0, focused: false }),
-    zoom: ref(1),
-    layerToggles: ref({ l1: true, l2: true, l3: true, sprites: true, screens: true, block: true, mapGrid: false, l3Hud: false, surfaces: false, walls: false }),
-    cursorPx: cursor !== null ? ref(cursor) : undefined,
-  }
+function stubMapStore() {
+  const palette = {
+    row: () => TRANSPARENT_ROW,
+    color: () => [0, 0, 0, 0] as RgbaColor,
+    cells: [] as never,
+    backAreaColor: null as never,
+  } as unknown as Palette
+  return makeTestMapStore({ palette })
 }
 
 function makePart(dx = 0, dy = 0): SpritePart {
@@ -85,17 +77,22 @@ function makeThwomp() {
 }
 
 describe('ThwompAppearance — no cursor (no cursorPx)', () => {
-  it('renders body parts only when cursorPx is absent', () => {
+  beforeEach(resetEditorStore)
+
+  it('renders body parts only when cursorPx is null', () => {
     const app = makeThwomp()
     const { target, blits } = capturingTarget()
+    editorStore.setCursorPx(null)
     // 1 body part, no face → 1 blit
-    app.render(mockCtx(null), target, 0, 0, makeBehavior(Infinity))
+    app.render(target, 0, 0, makeBehavior(Infinity), stubMapStore())
     expect(blits).toHaveLength(1)
     expect(blits[0]).toEqual({ x: 4, y: 0 }) // body part dx=4,dy=0
   })
 })
 
 describe('ThwompAppearance — face selection by hdist', () => {
+  beforeEach(resetEditorStore)
+
   // Sprite at x=0, y=0. anchorX = 0+8 = 8.
   // reactRangeDy = Infinity so any cursor.y ≥ 0 is in range.
 
@@ -103,85 +100,95 @@ describe('ThwompAppearance — face selection by hdist', () => {
     // cursor.x=8, anchorX=8 → hdist=0 ≤ 36
     const app = makeThwomp()
     const { target, blits } = capturingTarget()
-    app.render(mockCtx({ x: 8, y: 0 }), target, 0, 0, makeBehavior(Infinity))
+    editorStore.setCursorPx({ x: 8, y: 0 })
+    app.render(target, 0, 0, makeBehavior(Infinity), stubMapStore())
     // body (1) + aggressive face (1) = 2 blits
     expect(blits).toHaveLength(2)
   })
 
   it('hdist=36 (at aggressive boundary) → aggressive face', () => {
-    // cursor.x = 8+36=44, hdist=36 ≤ 36
     const app = makeThwomp()
     const { target, blits } = capturingTarget()
-    app.render(mockCtx({ x: 44, y: 0 }), target, 0, 0, makeBehavior(Infinity))
+    editorStore.setCursorPx({ x: 44, y: 0 })
+    app.render(target, 0, 0, makeBehavior(Infinity), stubMapStore())
     expect(blits).toHaveLength(2)
   })
 
   it('hdist=37 (just past aggressive) → alert face', () => {
-    // cursor.x = 8+37=45, hdist=37 > 36 but ≤ 64
     const app = makeThwomp()
     const { target, blits } = capturingTarget()
-    app.render(mockCtx({ x: 45, y: 0 }), target, 0, 0, makeBehavior(Infinity))
+    editorStore.setCursorPx({ x: 45, y: 0 })
+    app.render(target, 0, 0, makeBehavior(Infinity), stubMapStore())
     expect(blits).toHaveLength(2) // body + alert face
   })
 
   it('hdist=64 (at alert boundary) → alert face', () => {
     const app = makeThwomp()
     const { target, blits } = capturingTarget()
-    app.render(mockCtx({ x: 72, y: 0 }), target, 0, 0, makeBehavior(Infinity)) // 8+64=72
+    editorStore.setCursorPx({ x: 72, y: 0 })
+    app.render(target, 0, 0, makeBehavior(Infinity), stubMapStore())
     expect(blits).toHaveLength(2)
   })
 
   it('hdist=65 (just past alert) → no face, body only', () => {
     const app = makeThwomp()
     const { target, blits } = capturingTarget()
-    app.render(mockCtx({ x: 73, y: 0 }), target, 0, 0, makeBehavior(Infinity))
+    editorStore.setCursorPx({ x: 73, y: 0 })
+    app.render(target, 0, 0, makeBehavior(Infinity), stubMapStore())
     expect(blits).toHaveLength(1)
   })
 
   it('works symmetrically on the left side: hdist=36 left of anchor', () => {
-    // cursor.x = 8-36 = -28, hdist=36 ≤ 36 → aggressive
     const app = makeThwomp()
     const { target, blits } = capturingTarget()
-    app.render(mockCtx({ x: -28, y: 0 }), target, 0, 0, makeBehavior(Infinity))
+    editorStore.setCursorPx({ x: -28, y: 0 })
+    app.render(target, 0, 0, makeBehavior(Infinity), stubMapStore())
     expect(blits).toHaveLength(2)
   })
 })
 
 describe('ThwompAppearance — inYRange gating', () => {
+  beforeEach(resetEditorStore)
+
   // Sprite at x=0, y=100. reactRangeDy=32 → y ∈ [100, 132).
 
   it('cursor above sprite (y < spriteY) → no face even when hdist=0', () => {
     const app = makeThwomp()
     const { target, blits } = capturingTarget()
-    app.render(mockCtx({ x: 8, y: 99 }), target, 0, 100, makeBehavior(32))
+    editorStore.setCursorPx({ x: 8, y: 99 })
+    app.render(target, 0, 100, makeBehavior(32), stubMapStore())
     expect(blits).toHaveLength(1) // body only
   })
 
   it('cursor at spriteY (y = spriteY, top of range) → aggressive face', () => {
     const app = makeThwomp()
     const { target, blits } = capturingTarget()
-    app.render(mockCtx({ x: 8, y: 100 }), target, 0, 100, makeBehavior(32))
+    editorStore.setCursorPx({ x: 8, y: 100 })
+    app.render(target, 0, 100, makeBehavior(32), stubMapStore())
     expect(blits).toHaveLength(2)
   })
 
   it('cursor at y = spriteY + reactRangeDy - 1 (last valid row) → aggressive face', () => {
     const app = makeThwomp()
     const { target, blits } = capturingTarget()
-    app.render(mockCtx({ x: 8, y: 131 }), target, 0, 100, makeBehavior(32))
+    editorStore.setCursorPx({ x: 8, y: 131 })
+    app.render(target, 0, 100, makeBehavior(32), stubMapStore())
     expect(blits).toHaveLength(2)
   })
 
   it('cursor at y = spriteY + reactRangeDy (exclusive upper bound) → no face', () => {
     const app = makeThwomp()
     const { target, blits } = capturingTarget()
-    app.render(mockCtx({ x: 8, y: 132 }), target, 0, 100, makeBehavior(32))
+    editorStore.setCursorPx({ x: 8, y: 132 })
+    app.render(target, 0, 100, makeBehavior(32), stubMapStore())
     expect(blits).toHaveLength(1)
   })
 
   it('reactRangeDy=undefined treated as Infinity: any y below sprite is in range', () => {
     const app = makeThwomp()
     const { target, blits } = capturingTarget()
-    app.render(mockCtx({ x: 8, y: 999999 }), target, 0, 0, makeBehavior(undefined))
+    editorStore.setCursorPx({ x: 8, y: 999999 })
+    app.render(target, 0, 0, makeBehavior(undefined), stubMapStore())
     expect(blits).toHaveLength(2)
   })
 })

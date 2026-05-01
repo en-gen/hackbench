@@ -1,6 +1,8 @@
+// Consumes: editorStore.pSwitchActive
+
 import { Char } from '../../chars/Char'
 import { PSwitchAlternateBehavior } from '../../chars/behaviors/PSwitchAlternateBehavior'
-import type { RenderContext } from '../../RenderTarget'
+import { editorStore } from '../../stores/editorStore'
 import { SubTile } from '../SubTile'
 import type { SubtileQuad } from '../Tile'
 import type { TileBehavior } from '../TileBehavior'
@@ -54,12 +56,12 @@ export class PSwitchRevealBehavior implements TileBehavior {
         : [tl, tr, bl, br]
   }
 
-  selectQuad(_ctx: RenderContext): SubtileQuad {
+  selectQuad(): SubtileQuad {
     return this.revealedQuad
   }
 
-  selectAlpha(ctx: RenderContext): number {
-    return ctx.pSwitchActive.value ? 1 : this.offAlpha
+  selectAlpha(): number {
+    return editorStore.pSwitchActive ? 1 : this.offAlpha
   }
 }
 

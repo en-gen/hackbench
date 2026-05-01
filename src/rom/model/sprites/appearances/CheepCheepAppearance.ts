@@ -1,9 +1,13 @@
+// Consumes: (none directly — overlay only)
+
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import { solidityFromL1 } from '../MovementBehavior'
 import {
   COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH,
   rgba, WALL_ALPHA, WALL_LINE_WIDTH,
 } from '../../overlays/primitives'
+import type { MapStore } from '../../stores/mapStore'
+import type { SpriteBehavior } from '../SpriteBehavior'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
 
 /**
@@ -36,13 +40,15 @@ export class CheepCheepAppearance extends StaticSpriteAppearance {
   }
 
   override renderOverlay(
-    ctx:       OverlayContext,
-    x:         number,
-    y:         number,
-    isActive:  boolean,
-    getL1:     GetL1Tile,
-    levelCols: number,
-    levelRows: number,
+    ctx:        OverlayContext,
+    x:          number,
+    y:          number,
+    isActive:   boolean,
+    getL1:      GetL1Tile,
+    levelCols:  number,
+    levelRows:  number,
+    _behavior:  SpriteBehavior | undefined,
+    _mapStore:  MapStore,
   ): void {
     if (!isActive) return
     const color = COLORS.patrolPath

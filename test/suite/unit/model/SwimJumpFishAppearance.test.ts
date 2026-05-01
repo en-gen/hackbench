@@ -26,6 +26,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { SwimJumpFishAppearance } from '../../../../src/rom/model/sprites/appearances/SwimJumpFishAppearance'
+import { makeTestMapStore } from '../fixtures/stores'
 
 interface Segment { x1: number; y1: number; x2: number; y2: number }
 
@@ -70,7 +71,7 @@ describe('SwimJumpFishAppearance.renderOverlay — no-op when inactive', () => {
   it('does not stroke any segments when isActive=false', () => {
     const app = makeApp()
     const { ctx, segments } = makeMockCtx()
-    app.renderOverlay(ctx as never, 0, 0, false, () => null, 100, 100)
+    app.renderOverlay(ctx as never, 0, 0, false, () => null, 100, 100, undefined, makeTestMapStore())
     expect(segments).toHaveLength(0)
   })
 })
@@ -88,7 +89,7 @@ describe('SwimJumpFishAppearance.renderOverlay — geometry when active', () => 
   it('strokes at least one horizontal and one vertical segment when active', () => {
     const app = makeApp()
     const { ctx, segments } = makeMockCtx()
-    app.renderOverlay(ctx as never, 100, 200, true, () => null, 100, 100)
+    app.renderOverlay(ctx as never, 100, 200, true, () => null, 100, 100, undefined, makeTestMapStore())
     expect(segments.some(isHoriz), 'expected a horizontal segment').toBe(true)
     expect(segments.some(isVert),  'expected a vertical segment').toBe(true)
   })
@@ -96,7 +97,7 @@ describe('SwimJumpFishAppearance.renderOverlay — geometry when active', () => 
   it('swim centerline runs at y+8 (sprite midline)', () => {
     const app = makeApp()
     const { ctx, segments } = makeMockCtx()
-    app.renderOverlay(ctx as never, 100, 200, true, () => null, 100, 100)
+    app.renderOverlay(ctx as never, 100, 200, true, () => null, 100, 100, undefined, makeTestMapStore())
     const swimLine = segments.find(s => isHoriz(s) && Math.min(s.x1, s.x2) < 100 && Math.max(s.x1, s.x2) >= 100)
     expect(swimLine, 'expected a horizontal swim line spanning the spawn column').toBeDefined()
     expect(swimLine!.y1).toBe(208)
@@ -108,7 +109,7 @@ describe('SwimJumpFishAppearance.renderOverlay — geometry when active', () => 
     // (left of the spawn for the canonical ROM-derived path).
     const app = makeApp()
     const { ctx, segments } = makeMockCtx()
-    app.renderOverlay(ctx as never, 100, 200, true, () => null, 100, 100)
+    app.renderOverlay(ctx as never, 100, 200, true, () => null, 100, 100, undefined, makeTestMapStore())
     const jumpLine = segments.find(s => isVert(s) && Math.abs(s.y1 - s.y2) > 16)
     expect(jumpLine, 'expected a tall vertical jump line').toBeDefined()
     const topY = Math.min(jumpLine!.y1, jumpLine!.y2)
@@ -119,7 +120,7 @@ describe('SwimJumpFishAppearance.renderOverlay — geometry when active', () => 
   it('endcap stubs exist at the swim limits (vertical) and apex (horizontal)', () => {
     const app = makeApp()
     const { ctx, segments } = makeMockCtx()
-    app.renderOverlay(ctx as never, 100, 200, true, () => null, 100, 100)
+    app.renderOverlay(ctx as never, 100, 200, true, () => null, 100, 100, undefined, makeTestMapStore())
     // Endcap stubs are 16 px long (2 × ENDCAP_HALF). Vertical stubs at the
     // swim limits straddle y=208; horizontal stub at the apex straddles x=108.
     const swimEndcaps = segments.filter(s => isVert(s) && Math.abs(s.y1 - s.y2) === 16)
@@ -133,7 +134,7 @@ describe('SwimJumpFishAppearance — FISH_BOUNDS structural invariants (via over
   it('overlay at x=0 produces segments with negative x (swimMinX < 0)', () => {
     const app = makeApp()
     const { ctx, segments } = makeMockCtx()
-    app.renderOverlay(ctx as never, 0, 0, true, () => null, 100, 100)
+    app.renderOverlay(ctx as never, 0, 0, true, () => null, 100, 100, undefined, makeTestMapStore())
     const hasNegativeX = segments.some(s => Math.min(s.x1, s.x2) < 0)
     expect(hasNegativeX).toBe(true)
   })
@@ -141,7 +142,7 @@ describe('SwimJumpFishAppearance — FISH_BOUNDS structural invariants (via over
   it('jump column always reaches above spawn: overlay at y=500 produces a segment with y < 500', () => {
     const app = makeApp()
     const { ctx, segments } = makeMockCtx()
-    app.renderOverlay(ctx as never, 0, 500, true, () => null, 100, 100)
+    app.renderOverlay(ctx as never, 0, 500, true, () => null, 100, 100, undefined, makeTestMapStore())
     const hasAboveSpawn = segments.some(s => Math.min(s.y1, s.y2) < 500)
     expect(hasAboveSpawn).toBe(true)
   })

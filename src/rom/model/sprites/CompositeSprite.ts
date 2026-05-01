@@ -1,4 +1,5 @@
-import type { RenderContext, RenderTarget } from '../RenderTarget'
+import type { RenderTarget } from '../RenderTarget'
+import type { MapStore } from '../stores/mapStore'
 import type { SpriteAppearance } from './SpriteAppearance'
 import type { SpriteBehavior } from './SpriteBehavior'
 import { Sprite } from './Sprite'
@@ -31,9 +32,9 @@ export class CompositeSprite extends Sprite {
     super(id, x, y, appearance, behavior)
   }
 
-  override render(ctx: RenderContext, target: RenderTarget): void {
-    super.render(ctx, target)
-    this.secondary?.render(ctx, target)
+  override render(target: RenderTarget, mapStore: MapStore): void {
+    super.render(target, mapStore)
+    this.secondary?.render(target, mapStore)
   }
 
   override tickAnimation(): void {

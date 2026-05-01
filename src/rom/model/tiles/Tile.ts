@@ -1,5 +1,6 @@
 import { NO_COLLISION, type TileCollision } from './TileCollision'
-import type { CellBox, Phase, PixelPos, RenderContext, RenderTarget } from '../RenderTarget'
+import type { CellBox, Phase, PixelPos, RenderTarget } from '../RenderTarget'
+import type { MapStore } from '../stores/mapStore'
 import type { SubTile } from './SubTile'
 import type { TileBehavior } from './TileBehavior'
 
@@ -29,15 +30,15 @@ export class Tile {
     readonly collision: TileCollision = NO_COLLISION,
   ) {}
 
-  renderOverlay(ctx: RenderContext, target: RenderTarget, cell: CellBox): void {
-    this.behavior.renderOverlay?.(ctx, target, cell)
+  renderOverlay(target: RenderTarget, cell: CellBox, mapStore: MapStore): void {
+    this.behavior.renderOverlay?.(target, cell, mapStore)
   }
 
-  render(ctx: RenderContext, target: RenderTarget, cell: CellBox, phase: Phase): void {
+  render(target: RenderTarget, cell: CellBox, mapStore: MapStore, phase: Phase): void {
     // Pass `cell` through so behaviors can self-select per-cell state
     // (e.g. PipeVariantsBehavior resolves its own screen idx from cell.tl).
-    const quad = this.behavior.selectQuad(ctx, cell)
-    const alpha = this.behavior.selectAlpha?.(ctx, cell)
+    const quad = this.behavior.selectQuad(cell, mapStore)
+    const alpha = this.behavior.selectAlpha?.(cell, mapStore)
     const positions: readonly [SubTile, PixelPos][] = [
       [quad[0], cell.tl],
       [quad[1], cell.tr],
@@ -47,7 +48,7 @@ export class Tile {
     for (const [sub, pos] of positions) {
       const subPhase: Phase = sub.priority ? 'priority' : 'nonPriority'
       if (subPhase !== phase) continue
-      sub.render(ctx, target, pos, alpha)
+      sub.render(target, pos, mapStore.palette, alpha)
     }
   }
 }

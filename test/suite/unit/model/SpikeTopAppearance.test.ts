@@ -18,14 +18,18 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { ref } from '@vue/reactivity'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { SpikeTopAppearance, tracePatrolPath } from '../../../../src/rom/model/sprites/appearances/SpikeTopAppearance'
-import type { RenderContext, RenderTarget } from '../../../../src/rom/model/RenderTarget'
+import type { Palette } from '../../../../src/rom/model/palette/Palette'
+import type { RenderTarget } from '../../../../src/rom/model/RenderTarget'
+import type { SpriteBehavior } from '../../../../src/rom/model/sprites/SpriteBehavior'
 import type { SpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import type { GetL1Tile, L1Cell } from '../../../../src/rom/model/OverlayContext'
+import { makeTestMapStore, resetEditorStore } from '../fixtures/stores'
+
+const STUB_BEHAVIOR: SpriteBehavior = { displayName: 'stub', spawns: false } as never
 
 // ------------------------------------------------------------------ helpers
 
@@ -36,31 +40,24 @@ function namedChar(fill: number): Char {
   return new Char(0, new StaticPixelsBehavior(new Uint8Array(64).fill(fill)))
 }
 
-function mockCtx(): RenderContext {
-  return {
-    animFrame: ref(0),
-    palAnimFrame: ref(0),
-    pSwitchActive: ref(false),
-    switchPalaceState: ref<readonly [boolean, boolean, boolean, boolean]>([false, false, false, false]),
-    palette: {
-      row: () => [] as RgbaColor[],
-      color: () => [0, 0, 0, 0] as RgbaColor,
-      cells: [] as never,
-      backAreaColor: null as never,
-    } as never,
-    camera: ref({ tileX: 0, tileY: 0, focused: false }),
-    zoom: ref(1),
-    layerToggles: ref({ l1: true, l2: true, l3: true, sprites: true, screens: true, block: true, mapGrid: false, l3Hud: false, surfaces: false, walls: false }),
-  }
+function stubMapStore() {
+  const palette = {
+    row: () => [] as RgbaColor[],
+    color: () => [0, 0, 0, 0] as RgbaColor,
+    cells: [] as never,
+    backAreaColor: null as never,
+  } as unknown as Palette
+  return makeTestMapStore({ palette })
 }
 
 /** Capture all Uint8Array pixel buffers passed to blit8x8. */
-function spyTarget(): { blit8x8: RenderTarget['blit8x8']; blits: Uint8Array[] } {
+function spyTarget(): { blit8x8: RenderTarget['blit8x8']; fillRect: RenderTarget['fillRect']; blits: Uint8Array[] } {
   const blits: Uint8Array[] = []
   return {
     blits,
-    blit8x8(pixels) { blits.push(pixels as Uint8Array) },
-  } as unknown as { blit8x8: RenderTarget['blit8x8']; blits: Uint8Array[] }
+    blit8x8(pixels: Uint8Array) { blits.push(pixels) },
+    fillRect() {},
+  } as unknown as { blit8x8: RenderTarget['blit8x8']; fillRect: RenderTarget['fillRect']; blits: Uint8Array[] }
 }
 
 /**
@@ -125,7 +122,7 @@ function makeAppearance(): SpikeTopAppearance {
 /** Render and collect the pixel fills that were blit'd (first pixel of each Uint8Array). */
 function blitFills(app: SpikeTopAppearance): number[] {
   const spy = spyTarget()
-  app.render(mockCtx(), spy as unknown as RenderTarget, 0, 0)
+  app.render(spy as unknown as RenderTarget, 0, 0, STUB_BEHAVIOR, stubMapStore())
   return spy.blits.map(buf => buf[0])
 }
 
@@ -137,6 +134,8 @@ const FRAME1_FILLS = CORNER_OFFSETS.map(co => CHAR_FILL[OBJ_BASE + CHAR_HIGH + T
 // ------------------------------------------------------------------ tests
 
 describe('SpikeTopAppearance.fromTables — construction', () => {
+  beforeEach(resetEditorStore)
+
   it('hitRect covers a 16×16 box (one big-tile, corners at 0,0 to 16,16)', () => {
     const app = makeAppearance()
     expect(app.hitRect).toMatchObject({ dx: 0, dy: 0, w: 16, h: 16 })
@@ -145,9 +144,7 @@ describe('SpikeTopAppearance.fromTables — construction', () => {
   it('palette from Sprite166EVals[$2E] & $0F: attr=0x01 → charHigh=1 → CGRAM row 8', () => {
     // Verify via which charNums the appearance resolves: OBJ_BASE + 0x100 + TILE_A + corner
     // i.e. the chars in the CHAR_HIGH=0x100 range are used, not the 0x000 range
-    const spy = spyTarget()
     const app = makeAppearance()
-    app.render(mockCtx(), spy as unknown as RenderTarget, 0, 0)
     // All blits must be from frame-0 chars (fill 0x10..0x1x), NOT placeholder (0xFF)
     for (const fill of blitFills(app)) {
       expect(fill).not.toBe(0xFF)
@@ -158,7 +155,7 @@ describe('SpikeTopAppearance.fromTables — construction', () => {
 describe('SpikeTopAppearance — animation gating', () => {
   let app: SpikeTopAppearance
 
-  beforeEach(() => { app = makeAppearance() })
+  beforeEach(() => { resetEditorStore(); app = makeAppearance() })
 
   // ASM: bank_02.asm:8079-8083 — animBit stays 0 until EffFrame>>3 increments
   it('tick 0: renders frame 0 tiles (tilemap[base+0])', () => {

@@ -10,8 +10,7 @@
  * StaticSpriteAppearance.render() passes through to blit8x8 for each part.
  */
 
-import { describe, it, expect } from 'vitest'
-import { ref } from '@vue/reactivity'
+import { describe, it, expect, beforeEach } from 'vitest'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
@@ -20,26 +19,22 @@ import {
   StaticSpriteAppearance,
   type SpritePart,
 } from '../../../../src/rom/model/sprites/appearances/StaticSpriteAppearance'
-import type { RenderContext, RenderTarget, PixelPos } from '../../../../src/rom/model/RenderTarget'
+import type { Palette } from '../../../../src/rom/model/palette/Palette'
+import type { RenderTarget, PixelPos } from '../../../../src/rom/model/RenderTarget'
+import type { SpriteBehavior } from '../../../../src/rom/model/sprites/SpriteBehavior'
+import { makeTestMapStore, resetEditorStore } from '../fixtures/stores'
 
 const TRANSPARENT_ROW: RgbaColor[] = Array(16).fill([0, 0, 0, 0] as RgbaColor)
+const STUB_BEHAVIOR: SpriteBehavior = { displayName: 'stub', spawns: false } as never
 
-function mockCtx(): RenderContext {
-  return {
-    animFrame: ref(0),
-    palAnimFrame: ref(0),
-    pSwitchActive: ref(false),
-    switchPalaceState: ref<readonly [boolean, boolean, boolean, boolean]>([false, false, false, false]),
-    palette: {
-      row: () => TRANSPARENT_ROW,
-      color: () => [0, 0, 0, 0] as RgbaColor,
-      cells: [] as never,
-      backAreaColor: null as never,
-    } as never,
-    camera: ref({ tileX: 0, tileY: 0, focused: false }),
-    zoom: ref(1),
-    layerToggles: ref({ l1: true, l2: true, l3: true, sprites: true, screens: true, block: true, mapGrid: false, l3Hud: false, surfaces: false, walls: false }),
-  }
+function stubMapStore() {
+  const palette = {
+    row: () => TRANSPARENT_ROW,
+    color: () => [0, 0, 0, 0] as RgbaColor,
+    cells: [] as never,
+    backAreaColor: null as never,
+  } as unknown as Palette
+  return makeTestMapStore({ palette })
 }
 
 function makePart(dx: number, dy: number): SpritePart {
@@ -128,24 +123,26 @@ describe('StaticSpriteAppearance — hitRect via constructor', () => {
 })
 
 describe('StaticSpriteAppearance.render — blit calls', () => {
+  beforeEach(resetEditorStore)
+
   it('calls blit8x8 once per part', () => {
     const app = new StaticSpriteAppearance([makePart(0, 0), makePart(8, 0), makePart(0, 8)])
     const { target, calls } = capturingTarget()
-    app.render(mockCtx(), target, 0, 0)
+    app.render(target, 0, 0, STUB_BEHAVIOR, stubMapStore())
     expect(calls).toHaveLength(3)
   })
 
   it('translates sprite (x,y) + part (dx,dy) into the blit position', () => {
     const app = new StaticSpriteAppearance([makePart(4, 8)])
     const { target, calls } = capturingTarget()
-    app.render(mockCtx(), target, 100, 200)
+    app.render(target, 100, 200, STUB_BEHAVIOR, stubMapStore())
     expect(calls[0].pos).toEqual({ x: 104, y: 208 })
   })
 
   it('zero parts produces zero blit calls', () => {
     const app = new StaticSpriteAppearance([])
     const { target, calls } = capturingTarget()
-    app.render(mockCtx(), target, 0, 0)
+    app.render(target, 0, 0, STUB_BEHAVIOR, stubMapStore())
     expect(calls).toHaveLength(0)
   })
 })

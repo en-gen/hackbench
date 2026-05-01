@@ -1,5 +1,4 @@
-import { describe, it, expect } from 'vitest'
-import { ref } from '@vue/reactivity'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { existsSync } from 'fs'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { loadAnimationData } from '../../../../src/rom/AnimationLoader'
@@ -17,9 +16,9 @@ import { SwitchPalaceAlternateBehavior } from '../../../../src/rom/model/tiles/b
 import type {
   PixelPos,
   PixelSize,
-  RenderContext,
   RenderTarget,
 } from '../../../../src/rom/model/RenderTarget'
+import { resetEditorStore } from '../fixtures/stores'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
 
@@ -35,20 +34,9 @@ class CollectingTarget implements RenderTarget {
   fillRect(_p: PixelPos, _s: PixelSize, _c: RgbaColor): void {}
 }
 
-function makeCtx(palette: unknown): RenderContext {
-  return {
-    animFrame: ref(0),
-    palAnimFrame: ref(0),
-    pSwitchActive: ref(false),
-    switchPalaceState: ref<readonly [boolean, boolean, boolean, boolean]>([false, false, false, false]),
-    palette: palette as never,
-    camera: ref({ tileX: 0, tileY: 0, focused: false }),
-    zoom: ref(1),
-    layerToggles: ref({ l1: true, l2: true, sprites: true, screens: true, block: true, mapGrid: false }),
-  }
-}
-
 describe.skipIf(!existsSync(ROM_PATH))('MapPayload round-trip (vanilla ROM)', () => {
+  beforeEach(resetEditorStore)
+
   it('serializes a built map and rehydrates a structurally-equivalent graph', () => {
     const rom = SmwRom.open(ROM_PATH)
     const original = buildMap(rom, 0x105)
@@ -98,8 +86,8 @@ describe.skipIf(!existsSync(ROM_PATH))('MapPayload round-trip (vanilla ROM)', ()
 
     const t1 = new CollectingTarget()
     const t2 = new CollectingTarget()
-    original.render(makeCtx(original.palette), t1)
-    rehydrated.render(makeCtx(rehydrated.palette), t2)
+    original.render(t1)
+    rehydrated.render(t2)
 
     expect(t2.blits.length).toBe(t1.blits.length)
     // Every blit should share the same (x, y) positions across both renders

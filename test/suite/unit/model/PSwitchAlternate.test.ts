@@ -1,43 +1,34 @@
-import { describe, it, expect } from 'vitest'
-import { computed, ref } from '@vue/reactivity'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { computed } from '@vue/reactivity'
 import { existsSync } from 'fs'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { buildChars } from '../../../../src/rom/model/chars/CharFactory'
 import { AnimatedPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/AnimatedPixelsBehavior'
 import { PSwitchAlternateBehavior } from '../../../../src/rom/model/chars/behaviors/PSwitchAlternateBehavior'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
-import type { RenderContext } from '../../../../src/rom/model/RenderTarget'
 import type { VramState } from '../../../../src/rom/GfxLoader'
 import type { AnimationData, AnimFrameSlot } from '../../../../src/rom/AnimationLoader'
+import { editorStore, resetEditorStore } from '../fixtures/stores'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
 
-function mockCtx(pSwitchActive = false, animFrame = 0): RenderContext {
-  return {
-    animFrame: ref(animFrame),
-    palAnimFrame: ref(0),
-    pSwitchActive: ref(pSwitchActive),
-    switchPalaceState: ref<readonly [boolean, boolean, boolean, boolean]>([false, false, false, false]),
-    palette: null as never,
-    camera: ref({ tileX: 0, tileY: 0, focused: false }),
-    zoom: ref(1),
-    layerToggles: ref({ l1: true, l2: true, sprites: true, screens: true, block: true, mapGrid: false }),
-  }
-}
-
 describe('PSwitchAlternateBehavior behavior', () => {
+  beforeEach(resetEditorStore)
+
   it('returns the normal behavior when pSwitchActive is false', () => {
     const normal = new StaticPixelsBehavior(new Uint8Array(64).fill(1))
     const alt = new StaticPixelsBehavior(new Uint8Array(64).fill(2))
     const b = new PSwitchAlternateBehavior(normal, alt)
-    expect(b.getPixels(mockCtx(false))).toBe((normal as StaticPixelsBehavior).pixels)
+    editorStore.setPSwitch(false)
+    expect(b.getPixels()).toBe((normal as StaticPixelsBehavior).pixels)
   })
 
   it('returns the alt behavior when pSwitchActive is true', () => {
     const normal = new StaticPixelsBehavior(new Uint8Array(64).fill(1))
     const alt = new StaticPixelsBehavior(new Uint8Array(64).fill(2))
     const b = new PSwitchAlternateBehavior(normal, alt)
-    expect(b.getPixels(mockCtx(true))).toBe((alt as StaticPixelsBehavior).pixels)
+    editorStore.setPSwitch(true)
+    expect(b.getPixels()).toBe((alt as StaticPixelsBehavior).pixels)
   })
 
   it('composes with AnimatedPixelsBehavior — animated coin that responds to P-switch', () => {
@@ -53,12 +44,14 @@ describe('PSwitchAlternateBehavior behavior', () => {
     )
 
     // P-switch off: cycles through coin frames
-    expect(behavior.getPixels(mockCtx(false, 0))).toBe(coinFrames[0])
-    expect(behavior.getPixels(mockCtx(false, 1))).toBe(coinFrames[1])
-    expect(behavior.getPixels(mockCtx(false, 2))).toBe(coinFrames[2])
+    editorStore.setPSwitch(false)
+    editorStore.setAnimFrame(0); expect(behavior.getPixels()).toBe(coinFrames[0])
+    editorStore.setAnimFrame(1); expect(behavior.getPixels()).toBe(coinFrames[1])
+    editorStore.setAnimFrame(2); expect(behavior.getPixels()).toBe(coinFrames[2])
     // P-switch on: used block, regardless of animFrame
-    expect(behavior.getPixels(mockCtx(true, 0))).toBe(usedBlock)
-    expect(behavior.getPixels(mockCtx(true, 1))).toBe(usedBlock)
+    editorStore.setPSwitch(true)
+    editorStore.setAnimFrame(0); expect(behavior.getPixels()).toBe(usedBlock)
+    editorStore.setAnimFrame(1); expect(behavior.getPixels()).toBe(usedBlock)
   })
 
   it('CharFactory wraps chars whose anim slot carries altTiles in PSwitchAlternateBehavior', () => {
@@ -94,14 +87,14 @@ describe('PSwitchAlternateBehavior behavior', () => {
     expect(psa.alt).toBeInstanceOf(AnimatedPixelsBehavior)
 
     // Pixels come from altTiles when switch is active, tiles when not.
-    const ctxOff: RenderContext = { ...mockCtx(false) }
-    const ctxOn: RenderContext = { ...mockCtx(true) }
-    expect(coin.getPixels(ctxOff)[0]).toBe(10) // frame 0 of normal
-    expect(coin.getPixels(ctxOn)[0]).toBe(90)  // frame 0 of alt
+    editorStore.setAnimFrame(0)
+    editorStore.setPSwitch(false)
+    expect(coin.getPixels()[0]).toBe(10) // frame 0 of normal
+    editorStore.setPSwitch(true)
+    expect(coin.getPixels()[0]).toBe(90)  // frame 0 of alt
   })
 
   it('computed() tracks pSwitchActive + animFrame transitively', () => {
-    const ctx = mockCtx(false, 0)
     const coin = new Uint8Array(64).fill(7)
     const used = new Uint8Array(64).fill(8)
     const behavior = new PSwitchAlternateBehavior(
@@ -109,20 +102,22 @@ describe('PSwitchAlternateBehavior behavior', () => {
       new StaticPixelsBehavior(used),
     )
     const char = new Char(0x100, behavior)
-    const reactive = computed(() => char.getPixels(ctx))
+    editorStore.setPSwitch(false)
+    editorStore.setAnimFrame(0)
+    const reactive = computed(() => char.getPixels())
 
     expect(reactive.value).toBe(coin)
 
     // animFrame change invalidates (normal branch depends on it)
-    ctx.animFrame.value = 1
+    editorStore.setAnimFrame(1)
     expect(reactive.value[0]).toBe(70)
 
     // pSwitch change invalidates (top-level branch)
-    ctx.pSwitchActive.value = true
+    editorStore.setPSwitch(true)
     expect(reactive.value).toBe(used)
 
     // palAnimFrame doesn't affect either branch — cached
-    ctx.palAnimFrame.value = 5
+    editorStore.setPalAnimFrame(5)
     expect(reactive.value).toBe(used)
   })
 })

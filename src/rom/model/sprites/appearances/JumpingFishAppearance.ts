@@ -1,3 +1,5 @@
+// Consumes: (none directly — overlay only)
+
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import {
   COLORS,
@@ -5,6 +7,8 @@ import {
   rgba,
   WALL_ALPHA, WALL_LINE_WIDTH,
 } from '../../overlays/primitives'
+import type { MapStore } from '../../stores/mapStore'
+import type { SpriteBehavior } from '../SpriteBehavior'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
 
 /**
@@ -29,13 +33,15 @@ export class JumpingFishAppearance extends StaticSpriteAppearance {
   }
 
   override renderOverlay(
-    ctx:      OverlayContext,
-    x:        number,
-    y:        number,
-    isActive: boolean,
+    ctx:        OverlayContext,
+    x:          number,
+    y:          number,
+    isActive:   boolean,
     _getL1:     GetL1Tile,
     _levelCols: number,
     _levelRows: number,
+    _behavior:  SpriteBehavior | undefined,
+    _mapStore:  MapStore,
   ): void {
     if (!isActive) return
 

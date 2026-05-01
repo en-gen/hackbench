@@ -1,9 +1,10 @@
 import { cellBoxOf } from './RenderTarget'
-import type { RenderContext, RenderTarget } from './RenderTarget'
+import type { RenderTarget } from './RenderTarget'
+import type { MapStore } from './stores/mapStore'
 import type { Tile } from './tiles/Tile'
 
 export abstract class L2Layer {
-  abstract render(ctx: RenderContext, target: RenderTarget): void
+  abstract render(target: RenderTarget, mapStore: MapStore): void
 
   /**
    * 2D (row, col) resolved Tile grid. Callers (camera-viewport parallax,
@@ -42,7 +43,7 @@ export class L2Preset extends L2Layer {
     )
   }
 
-  render(ctx: RenderContext, target: RenderTarget): void {
+  render(target: RenderTarget, mapStore: MapStore): void {
     for (let y = 0; y < this.grid.length; y++) {
       const row = this.grid[y]
       for (let x = 0; x < row.length; x++) {
@@ -51,8 +52,8 @@ export class L2Preset extends L2Layer {
         const tile = this.bgTiles.get(id)
         if (!tile) continue
         const box = cellBoxOf(x, y)
-        tile.render(ctx, target, box, 'nonPriority')
-        tile.render(ctx, target, box, 'priority')
+        tile.render(target, box, mapStore, 'nonPriority')
+        tile.render(target, box, mapStore, 'priority')
       }
     }
   }
@@ -76,7 +77,7 @@ export class L2ObjectStream extends L2Layer {
     )
   }
 
-  render(ctx: RenderContext, target: RenderTarget): void {
+  render(target: RenderTarget, mapStore: MapStore): void {
     for (let y = 0; y < this.grid.length; y++) {
       const row = this.grid[y]
       for (let x = 0; x < row.length; x++) {
@@ -85,8 +86,8 @@ export class L2ObjectStream extends L2Layer {
         const tile = this.l1Tiles.get(id)
         if (!tile) continue
         const box = cellBoxOf(x, y)
-        tile.render(ctx, target, box, 'nonPriority')
-        tile.render(ctx, target, box, 'priority')
+        tile.render(target, box, mapStore, 'nonPriority')
+        tile.render(target, box, mapStore, 'priority')
       }
     }
   }

@@ -1,6 +1,9 @@
+// Consumes: mapStore.marioSpawnX (overlay only)
+
 import type { Char } from '../../chars/Char'
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import { drawPatrolPath } from '../../overlays/patrolPath'
+import type { MapStore } from '../../stores/mapStore'
 import { KoopaWalkBehavior } from '../behaviors/KoopaWalkBehavior'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
@@ -58,17 +61,17 @@ export class DryBonesAppearance extends StaticSpriteAppearance {
   }
 
   override renderOverlay(
-    ctx:          OverlayContext,
-    x:            number,
-    y:            number,
-    isActive:     boolean,
-    getL1:        GetL1Tile,
-    levelCols:    number,
-    levelRows:    number,
-    behavior?:    SpriteBehavior,
-    marioSpawnX?: number,
+    ctx:        OverlayContext,
+    x:          number,
+    y:          number,
+    isActive:   boolean,
+    getL1:      GetL1Tile,
+    levelCols:  number,
+    levelRows:  number,
+    behavior:   SpriteBehavior | undefined,
+    mapStore:   MapStore,
   ): void {
     if (!isActive || !(behavior instanceof KoopaWalkBehavior)) return
-    drawPatrolPath(ctx, behavior, x, y, getL1, levelCols, levelRows, marioSpawnX)
+    drawPatrolPath(ctx, behavior, x, y, getL1, levelCols, levelRows, mapStore.marioSpawnX)
   }
 }

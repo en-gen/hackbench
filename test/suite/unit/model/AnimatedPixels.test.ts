@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { computed, ref } from '@vue/reactivity'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { computed } from '@vue/reactivity'
 import { existsSync } from 'fs'
 import { loadAnimationData } from '../../../../src/rom/AnimationLoader'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
@@ -9,48 +9,41 @@ import { Char } from '../../../../src/rom/model/chars/Char'
 import { buildChars } from '../../../../src/rom/model/chars/CharFactory'
 import { AnimatedPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/AnimatedPixelsBehavior'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
-import type { RenderContext } from '../../../../src/rom/model/RenderTarget'
+import { editorStore, resetEditorStore } from '../fixtures/stores'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
 
-function mockCtx(animFrame = 0): RenderContext {
-  return {
-    animFrame: ref(animFrame),
-    palAnimFrame: ref(0),
-    pSwitchActive: ref(false),
-    switchPalaceState: ref<readonly [boolean, boolean, boolean, boolean]>([false, false, false, false]),
-    palette: null as never,
-    camera: ref({ tileX: 0, tileY: 0, focused: false }),
-    zoom: ref(1),
-    layerToggles: ref({ l1: true, l2: true, sprites: true, screens: true, block: true, mapGrid: false }),
-  }
-}
-
 describe('AnimatedPixelsBehavior behavior', () => {
-  it('returns the frame at ctx.animFrame.value (wraps modulo length)', () => {
+  beforeEach(resetEditorStore)
+
+  it('returns the frame at editorStore.animFrame (wraps modulo length)', () => {
     const f0 = new Uint8Array(64).fill(1)
     const f1 = new Uint8Array(64).fill(2)
     const f2 = new Uint8Array(64).fill(3)
     const behavior = new AnimatedPixelsBehavior([f0, f1, f2])
-    expect(behavior.getPixels(mockCtx(0))).toBe(f0)
-    expect(behavior.getPixels(mockCtx(1))).toBe(f1)
-    expect(behavior.getPixels(mockCtx(2))).toBe(f2)
-    expect(behavior.getPixels(mockCtx(3))).toBe(f0) // wraps
+    editorStore.setAnimFrame(0)
+    expect(behavior.getPixels()).toBe(f0)
+    editorStore.setAnimFrame(1)
+    expect(behavior.getPixels()).toBe(f1)
+    editorStore.setAnimFrame(2)
+    expect(behavior.getPixels()).toBe(f2)
+    editorStore.setAnimFrame(3)
+    expect(behavior.getPixels()).toBe(f0) // wraps
   })
 
   it('computed() wrapping an AnimatedPixelsBehavior char invalidates only on animFrame change', () => {
-    const ctx = mockCtx(0)
     const f0 = new Uint8Array(64).fill(10)
     const f1 = new Uint8Array(64).fill(20)
     const char = new Char(0x100, new AnimatedPixelsBehavior([f0, f1]))
-    const reactive = computed(() => char.getPixels(ctx))
+    editorStore.setAnimFrame(0)
+    const reactive = computed(() => char.getPixels())
 
     expect(reactive.value).toBe(f0)
 
-    ctx.palAnimFrame.value = 7
+    editorStore.setPalAnimFrame(7)
     expect(reactive.value).toBe(f0) // still cached
 
-    ctx.animFrame.value = 1
+    editorStore.setAnimFrame(1)
     expect(reactive.value).toBe(f1)
   })
 })

@@ -9,8 +9,7 @@
  * Tile.renderOverlay() delegates to behavior.renderOverlay?() if present.
  */
 
-import { describe, it, expect } from 'vitest'
-import { ref } from '@vue/reactivity'
+import { describe, it, expect, beforeEach } from 'vitest'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
@@ -18,27 +17,21 @@ import { SubTile } from '../../../../src/rom/model/tiles/SubTile'
 import { Tile, type SubtileQuad } from '../../../../src/rom/model/tiles/Tile'
 import { NO_COLLISION } from '../../../../src/rom/model/tiles/TileCollision'
 import { StaticQuadBehavior } from '../../../../src/rom/model/tiles/behaviors/StaticQuadBehavior'
-import { cellBoxOf, type CellBox, type RenderContext, type RenderTarget, type PixelPos } from '../../../../src/rom/model/RenderTarget'
+import { cellBoxOf, type CellBox, type RenderTarget, type PixelPos } from '../../../../src/rom/model/RenderTarget'
+import type { Palette } from '../../../../src/rom/model/palette/Palette'
 import type { TileBehavior } from '../../../../src/rom/model/tiles/TileBehavior'
+import { makeTestMapStore, resetEditorStore } from '../fixtures/stores'
 
 const TRANSPARENT_ROW: RgbaColor[] = Array(16).fill([0, 0, 0, 0] as RgbaColor)
 
-function mockCtx(): RenderContext {
-  return {
-    animFrame: ref(0),
-    palAnimFrame: ref(0),
-    pSwitchActive: ref(false),
-    switchPalaceState: ref<readonly [boolean, boolean, boolean, boolean]>([false, false, false, false]),
-    palette: {
-      row: () => TRANSPARENT_ROW,
-      color: () => [0, 0, 0, 0] as RgbaColor,
-      cells: [] as never,
-      backAreaColor: null as never,
-    } as never,
-    camera: ref({ tileX: 0, tileY: 0, focused: false }),
-    zoom: ref(1),
-    layerToggles: ref({ l1: true, l2: true, l3: true, sprites: true, screens: true, block: true, mapGrid: false, l3Hud: false, surfaces: false, walls: false }),
-  }
+function makeStubMapStore() {
+  const palette = {
+    row: () => TRANSPARENT_ROW,
+    color: () => [0, 0, 0, 0] as RgbaColor,
+    cells: [] as never,
+    backAreaColor: null as never,
+  } as unknown as Palette
+  return makeTestMapStore({ palette })
 }
 
 function makeChar(): Char {
@@ -74,6 +67,8 @@ describe('Tile — defaults', () => {
 })
 
 describe('Tile.render — phase routing', () => {
+  beforeEach(resetEditorStore)
+
   // Quad layout: TL=nonPriority, TR=nonPriority, BL=priority, BR=priority
   function makePhaseQuad(): SubtileQuad {
     return [
@@ -87,9 +82,8 @@ describe('Tile.render — phase routing', () => {
   it('nonPriority phase: only priority=false subtiles call blit8x8', () => {
     const quad = makePhaseQuad()
     const tile = new Tile(1, new StaticQuadBehavior(quad))
-    const ctx = mockCtx()
     const { target, calls } = capturingTarget()
-    tile.render(ctx, target, cellBoxOf(0, 0), 'nonPriority')
+    tile.render(target, cellBoxOf(0, 0), makeStubMapStore(), 'nonPriority')
     expect(calls).toHaveLength(2)
   })
 
@@ -98,7 +92,7 @@ describe('Tile.render — phase routing', () => {
     const tile = new Tile(1, new StaticQuadBehavior(quad))
     const cell = cellBoxOf(1, 2) // pixel (16, 32)
     const { target, calls } = capturingTarget()
-    tile.render(mockCtx(), target, cell, 'nonPriority')
+    tile.render(target, cell, makeStubMapStore(), 'nonPriority')
     expect(calls[0].pos).toEqual(cell.tl)
     expect(calls[1].pos).toEqual(cell.tr)
   })
@@ -107,7 +101,7 @@ describe('Tile.render — phase routing', () => {
     const quad = makePhaseQuad()
     const tile = new Tile(1, new StaticQuadBehavior(quad))
     const { target, calls } = capturingTarget()
-    tile.render(mockCtx(), target, cellBoxOf(0, 0), 'priority')
+    tile.render(target, cellBoxOf(0, 0), makeStubMapStore(), 'priority')
     expect(calls).toHaveLength(2)
   })
 
@@ -116,7 +110,7 @@ describe('Tile.render — phase routing', () => {
     const tile = new Tile(1, new StaticQuadBehavior(quad))
     const cell = cellBoxOf(1, 2)
     const { target, calls } = capturingTarget()
-    tile.render(mockCtx(), target, cell, 'priority')
+    tile.render(target, cell, makeStubMapStore(), 'priority')
     expect(calls[0].pos).toEqual(cell.bl)
     expect(calls[1].pos).toEqual(cell.br)
   })
@@ -125,7 +119,7 @@ describe('Tile.render — phase routing', () => {
     const allNonPriority: SubtileQuad = [makeSub(false), makeSub(false), makeSub(false), makeSub(false)]
     const tile = new Tile(1, new StaticQuadBehavior(allNonPriority))
     const { target, calls } = capturingTarget()
-    tile.render(mockCtx(), target, cellBoxOf(0, 0), 'priority')
+    tile.render(target, cellBoxOf(0, 0), makeStubMapStore(), 'priority')
     expect(calls).toHaveLength(0)
   })
 
@@ -133,12 +127,14 @@ describe('Tile.render — phase routing', () => {
     const allPriority: SubtileQuad = [makeSub(true), makeSub(true), makeSub(true), makeSub(true)]
     const tile = new Tile(1, new StaticQuadBehavior(allPriority))
     const { target, calls } = capturingTarget()
-    tile.render(mockCtx(), target, cellBoxOf(0, 0), 'nonPriority')
+    tile.render(target, cellBoxOf(0, 0), makeStubMapStore(), 'nonPriority')
     expect(calls).toHaveLength(0)
   })
 })
 
 describe('Tile.render — alpha forwarding', () => {
+  beforeEach(resetEditorStore)
+
   it('passes alpha from behavior.selectAlpha?() to every sub.render()', () => {
     const quad: SubtileQuad = [makeSub(false), makeSub(false), makeSub(false), makeSub(false)]
     const behavior: TileBehavior = {
@@ -147,7 +143,7 @@ describe('Tile.render — alpha forwarding', () => {
     }
     const tile = new Tile(1, behavior)
     const { target, calls } = capturingTarget()
-    tile.render(mockCtx(), target, cellBoxOf(0, 0), 'nonPriority')
+    tile.render(target, cellBoxOf(0, 0), makeStubMapStore(), 'nonPriority')
     expect(calls).toHaveLength(4)
     for (const call of calls) expect(call.alpha).toBeCloseTo(0.33)
   })
@@ -157,12 +153,14 @@ describe('Tile.render — alpha forwarding', () => {
     const behavior: TileBehavior = { selectQuad: () => quad }
     const tile = new Tile(1, behavior)
     const { target, calls } = capturingTarget()
-    tile.render(mockCtx(), target, cellBoxOf(0, 0), 'nonPriority')
+    tile.render(target, cellBoxOf(0, 0), makeStubMapStore(), 'nonPriority')
     for (const call of calls) expect(call.alpha).toBeUndefined()
   })
 })
 
 describe('Tile.renderOverlay — delegation', () => {
+  beforeEach(resetEditorStore)
+
   it('delegates to behavior.renderOverlay when present', () => {
     let overlayCallCount = 0
     const quad: SubtileQuad = [makeSub(false), makeSub(false), makeSub(false), makeSub(false)]
@@ -172,7 +170,7 @@ describe('Tile.renderOverlay — delegation', () => {
     }
     const tile = new Tile(1, behavior)
     const { target } = capturingTarget()
-    tile.renderOverlay(mockCtx(), target, cellBoxOf(0, 0))
+    tile.renderOverlay(target, cellBoxOf(0, 0), makeStubMapStore())
     expect(overlayCallCount).toBe(1)
   })
 
@@ -181,20 +179,20 @@ describe('Tile.renderOverlay — delegation', () => {
     const behavior: TileBehavior = { selectQuad: () => quad }
     const tile = new Tile(1, behavior)
     const { target } = capturingTarget()
-    expect(() => tile.renderOverlay(mockCtx(), target, cellBoxOf(0, 0))).not.toThrow()
+    expect(() => tile.renderOverlay(target, cellBoxOf(0, 0), makeStubMapStore())).not.toThrow()
   })
 
-  it('passes ctx, target, and cell to renderOverlay', () => {
+  it('passes target, cell, and mapStore to renderOverlay', () => {
     const quad: SubtileQuad = [makeSub(false), makeSub(false), makeSub(false), makeSub(false)]
     const cell = cellBoxOf(2, 3)
     let capturedCell: CellBox | undefined
     const behavior: TileBehavior = {
       selectQuad: () => quad,
-      renderOverlay: (_ctx, _target, c) => { capturedCell = c },
+      renderOverlay: (_target, c) => { capturedCell = c },
     }
     const tile = new Tile(1, behavior)
     const { target } = capturingTarget()
-    tile.renderOverlay(mockCtx(), target, cell)
+    tile.renderOverlay(target, cell, makeStubMapStore())
     expect(capturedCell).toEqual(cell)
   })
 })

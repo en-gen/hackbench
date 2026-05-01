@@ -1,5 +1,4 @@
-import { describe, it, expect } from 'vitest'
-import { ref } from '@vue/reactivity'
+import { describe, it, expect, beforeEach } from 'vitest'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { Color } from '../../../../src/rom/model/palette/Color'
 import { Palette } from '../../../../src/rom/model/palette/Palette'
@@ -12,13 +11,13 @@ import { StaticQuadBehavior } from '../../../../src/rom/model/tiles/behaviors/St
 import { L2ObjectStream } from '../../../../src/rom/model/L2Layer'
 import type { Sprite } from '../../../../src/rom/model/sprites/Sprite'
 import { SmwMap } from '../../../../src/rom/model/SmwMap'
+import type { MapStore } from '../../../../src/rom/model/stores/mapStore'
 import type {
-  CellBox,
   PixelPos,
   PixelSize,
-  RenderContext,
   RenderTarget,
 } from '../../../../src/rom/model/RenderTarget'
+import { editorStore, makeTestMapStore, resetEditorStore } from '../fixtures/stores'
 
 interface BlitCall {
   kind: 'blit'
@@ -78,45 +77,47 @@ function makeQuad(chars: [number, number, number, number], mock: MockRenderTarge
   ]
 }
 
-function makeCtx(): RenderContext {
+function makePalette(): Palette {
   const black: RgbaColor = [0, 0, 0, 255]
   const cells: Color[][] = Array.from({ length: 16 }, () =>
     Array.from({ length: 16 }, () => new Color(new StaticColorBehavior(black))),
   )
-  const palette = new Palette(cells, new Color(new StaticColorBehavior(black)))
-  return {
-    animFrame: ref(0),
-    palAnimFrame: ref(0),
-    pSwitchActive: ref(false),
-    switchPalaceState: ref<readonly [boolean, boolean, boolean, boolean]>([false, false, false, false]),
-    palette,
-    camera: ref({ tileX: 0, tileY: 0, focused: false }),
-    zoom: ref(1),
-    layerToggles: ref({ l1: true, l2: true, l3: true, sprites: true, screens: true, block: true, mapGrid: false, l3Hud: false }),
-  }
+  return new Palette(cells, new Color(new StaticColorBehavior(black)))
+}
+
+function makeMapStore(palette: Palette = makePalette()): MapStore {
+  return makeTestMapStore({ palette, levelOrientation: 'horizontal', screenPipeVariantIdx: [0] })
 }
 
 describe('SmwMap.render', () => {
+  beforeEach(resetEditorStore)
+
   it('draws tile subtiles at correct pixel positions', () => {
     const mock = new MockRenderTarget()
     const tile = makeStaticTile(0, makeQuad([10, 11, 12, 13], mock))
     const l1Tiles = new Map([[0, tile]])
+    const palette = makePalette()
+    const mapStore = makeMapStore(palette)
     const map = new SmwMap(
       0,
-      { mode: 0, music: 0, tileset: 0, orientation: 'horizontal' },
+      {
+        mode: 0, music: 0, tileset: 0, orientation: 'horizontal',
+        initialCameraYPx: 0, timeLimit: 0, marioStartPx: { x: 0, y: 0 },
+      },
       [[0]],
       null,
       null,
       [],
-      makeCtx().palette,
+      palette,
       0,
       1,
       [0],
       l1Tiles,
       new Map(),
+      mapStore,
     )
 
-    map.render(makeCtx(), mock)
+    map.render(mock)
 
     const blits = mock.calls.filter((c): c is BlitCall => c.kind === 'blit')
     // StaticTile has all non-priority subtiles -> all 4 blitted in non-priority phase
@@ -148,41 +149,56 @@ describe('SmwMap.render', () => {
 
     // Sprite with a stub appearance that blits a single char
     const spriteChar = makeCharWithPixels(40, mock)
-    const sprite: Sprite = {
+    interface StubSprite {
+      id: number
+      x: number
+      y: number
+      appearance: { render: (t: RenderTarget, x: number, y: number, b: unknown, ms: MapStore) => void }
+      behavior: { kind: string }
+      render: (t: RenderTarget, ms: MapStore) => void
+    }
+    const stubSprite: StubSprite = {
       id: 0,
       x: 0,
       y: 0,
       appearance: {
-        render: (ctx, t, x, y) => {
-          t.blit8x8(spriteChar.getPixels(ctx), { x, y }, ctx.palette.row(0), false, false)
+        render: (t, x, y, _b, ms) => {
+          t.blit8x8(spriteChar.getPixels(), { x, y }, ms.palette.row(0), false, false)
         },
       },
       behavior: { kind: 'stub' },
-      render(ctx, t) {
-        this.appearance.render(ctx, t, this.x, this.y)
+      render(t, ms) {
+        this.appearance.render(t, this.x, this.y, this.behavior, ms)
       },
-    } as unknown as Sprite
+    }
+    const sprite = stubSprite as unknown as Sprite
 
+    const palette = makePalette()
+    const mapStore = makeMapStore(palette)
     const map = new SmwMap(
       0,
-      { mode: 0, music: 0, tileset: 0, orientation: 'horizontal' },
+      {
+        mode: 0, music: 0, tileset: 0, orientation: 'horizontal',
+        initialCameraYPx: 0, timeLimit: 0, marioStartPx: { x: 0, y: 0 },
+      },
       [[0]],
       l2,
       null,
       [sprite],
-      makeCtx().palette,
+      palette,
       0,
       1,
       [0],
       l1Tiles,
       new Map(),
+      mapStore,
     )
-    map.render(makeCtx(), mock)
+    map.render(mock)
 
     const charIds = mock.calls.filter((c): c is BlitCall => c.kind === 'blit').map(c => c.charId)
 
     // Expected order:
-    // L2 non-priority + priority of L2 tile (both phases): [20, 21, 22, 23] (all non-priority)
+    // L2: [20, 21, 22, 23] (all non-priority)
     // L1 non-priority of l1Tile: [32, 33]
     // Sprite: [40]
     // L1 priority of l1Tile: [30, 31]
@@ -194,24 +210,32 @@ describe('SmwMap.render', () => {
     const l2Tile = makeStaticTile(100, makeQuad([20, 21, 22, 23], mock))
     const l1Tile = makeStaticTile(0, makeQuad([30, 31, 32, 33], mock))
     const l1Tiles = new Map<number, Tile>([[0, l1Tile], [100, l2Tile]])
+    const palette = makePalette()
+    const mapStore = makeMapStore(palette)
     const map = new SmwMap(
       0,
-      { mode: 0, music: 0, tileset: 0, orientation: 'horizontal' },
+      {
+        mode: 0, music: 0, tileset: 0, orientation: 'horizontal',
+        initialCameraYPx: 0, timeLimit: 0, marioStartPx: { x: 0, y: 0 },
+      },
       [[0]],
       new L2ObjectStream([[100]], l1Tiles),
       null,
       [],
-      makeCtx().palette,
+      palette,
       0,
       1,
       [0],
       l1Tiles,
       new Map(),
+      mapStore,
     )
 
-    const ctx = makeCtx()
-    ctx.layerToggles.value = { ...ctx.layerToggles.value, l1: false }
-    map.render(ctx, mock)
+    editorStore.setLayerToggles({
+      ...editorStore.layerToggles,
+      l1: false,
+    })
+    map.render(mock)
 
     const charIds = mock.calls.filter((c): c is BlitCall => c.kind === 'blit').map(c => c.charId)
     expect(charIds).toEqual([20, 21, 22, 23]) // only L2 drew

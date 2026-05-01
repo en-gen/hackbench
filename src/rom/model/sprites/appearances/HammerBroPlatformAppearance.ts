@@ -1,6 +1,10 @@
+// Consumes: (none directly — palette via mapStore)
+
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
-import type { RenderContext, RenderTarget } from '../../RenderTarget'
+import type { RenderTarget } from '../../RenderTarget'
+import type { MapStore } from '../../stores/mapStore'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
+import type { SpriteBehavior } from '../SpriteBehavior'
 import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
 import type { Char } from '../../chars/Char'
 
@@ -90,13 +94,15 @@ export class HammerBroPlatformAppearance implements SpriteAppearance {
   }
 
   renderOverlay(
-    ctx:      OverlayContext,
-    x:        number,
-    y:        number,
-    isActive: boolean,
+    ctx:        OverlayContext,
+    x:          number,
+    y:          number,
+    isActive:   boolean,
     _getL1:     GetL1Tile,
     _levelCols: number,
     _levelRows: number,
+    _behavior:  SpriteBehavior | undefined,
+    _mapStore:  MapStore,
   ): void {
     if (!isActive) return
     const { minX, maxX, minY, maxY } = PLATFORM_BOUNDS
@@ -128,15 +134,15 @@ export class HammerBroPlatformAppearance implements SpriteAppearance {
     ctx.restore()
   }
 
-  render(ctx: RenderContext, target: RenderTarget, x: number, y: number): void {
+  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
     for (const part of this.platformParts) {
-      const pixels = part.char.getPixels(ctx)
-      const row = ctx.palette.row(part.palette, ctx)
+      const pixels = part.char.getPixels()
+      const row = mapStore.palette.row(part.palette)
       target.blit8x8(pixels, { x: x + part.dx, y: y + part.dy }, row, part.flipX, part.flipY)
     }
     for (const part of this.wingFrames[this.frame]) {
-      const pixels = part.char.getPixels(ctx)
-      const row = ctx.palette.row(part.palette, ctx)
+      const pixels = part.char.getPixels()
+      const row = mapStore.palette.row(part.palette)
       target.blit8x8(pixels, { x: x + part.dx, y: y + part.dy }, row, part.flipX, part.flipY)
     }
   }

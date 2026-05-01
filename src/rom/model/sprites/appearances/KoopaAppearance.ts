@@ -1,5 +1,8 @@
+// Consumes: mapStore.marioSpawnX (overlay only)
+
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import { drawPatrolPath } from '../../overlays/patrolPath'
+import type { MapStore } from '../../stores/mapStore'
 import { KoopaWalkBehavior } from '../behaviors/KoopaWalkBehavior'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
@@ -22,7 +25,7 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  *     turns 90° at the ledge and drops one tile below the floor into the pit.
  *   - **Toward-Mario clipping**: non-turning sprites (fall-off walkers like
  *     $04, $07, $0F) show only the corridor arm from spawn toward Mario when
- *     `marioSpawnX` is available. Both arms are shown for turning sprites.
+ *     `mapStore.marioSpawnX` is available. Both arms are shown for turning sprites.
  *   - **Spawn drop**: dotted vertical line if the sprite spawns airborne.
  *
  * Color is `COLORS.patrolPath` — same lime accent every patrol-style
@@ -35,17 +38,17 @@ export class KoopaAppearance extends StaticSpriteAppearance {
   }
 
   override renderOverlay(
-    ctx:          OverlayContext,
-    x:            number,
-    y:            number,
-    isActive:     boolean,
-    getL1:        GetL1Tile,
-    levelCols:    number,
-    levelRows:    number,
-    behavior?:    SpriteBehavior,
-    marioSpawnX?: number,
+    ctx:        OverlayContext,
+    x:          number,
+    y:          number,
+    isActive:   boolean,
+    getL1:      GetL1Tile,
+    levelCols:  number,
+    levelRows:  number,
+    behavior:   SpriteBehavior | undefined,
+    mapStore:   MapStore,
   ): void {
     if (!isActive || !(behavior instanceof KoopaWalkBehavior)) return
-    drawPatrolPath(ctx, behavior, x, y, getL1, levelCols, levelRows, marioSpawnX)
+    drawPatrolPath(ctx, behavior, x, y, getL1, levelCols, levelRows, mapStore.marioSpawnX)
   }
 }

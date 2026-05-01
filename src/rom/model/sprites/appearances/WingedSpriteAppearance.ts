@@ -1,9 +1,12 @@
+// Consumes: mapStore.marioSpawnX (overlay only)
+
 import { type GetL1Tile, type OverlayContext } from '../../OverlayContext'
 import {
   COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH,
   drawArrowHead, rgba, WALL_ALPHA, WALL_LINE_WIDTH,
 } from '../../overlays/primitives'
-import type { RenderContext, RenderTarget } from '../../RenderTarget'
+import type { RenderTarget } from '../../RenderTarget'
+import type { MapStore } from '../../stores/mapStore'
 import { BouncingKoopaBehavior } from '../behaviors/BouncingKoopaBehavior'
 import { FlyingBlockBehavior } from '../behaviors/FlyingBlockBehavior'
 import { FlyingLeftKoopaBehavior } from '../behaviors/FlyingLeftKoopaBehavior'
@@ -70,11 +73,11 @@ export class WingedSpriteAppearance implements SpriteAppearance {
     this.frame = (this.frame + 1) % this.wingFrames.length
   }
 
-  render(_ctx: RenderContext, target: RenderTarget, x: number, y: number): void {
+  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
     const wingParts = this.wingFrames[this.frame]
     const blit = (part: SpritePart) => {
-      const pixels = part.char.getPixels(_ctx)
-      const row = _ctx.palette.row(part.palette, _ctx)
+      const pixels = part.char.getPixels()
+      const row = mapStore.palette.row(part.palette)
       target.blit8x8(pixels, { x: x + part.dx, y: y + part.dy }, row, part.flipX, part.flipY)
     }
     if (this.wingsInFront) {
@@ -87,19 +90,20 @@ export class WingedSpriteAppearance implements SpriteAppearance {
   }
 
   renderOverlay(
-    ctx:          OverlayContext,
-    x:            number,
-    y:            number,
-    isActive:     boolean,
-    getL1:        GetL1Tile,
-    levelCols:    number,
-    levelRows:    number,
-    behavior?:    SpriteBehavior,
-    marioSpawnX?: number,
+    ctx:        OverlayContext,
+    x:          number,
+    y:          number,
+    isActive:   boolean,
+    getL1:      GetL1Tile,
+    levelCols:  number,
+    levelRows:  number,
+    behavior:   SpriteBehavior | undefined,
+    mapStore:   MapStore,
   ): void {
     if (!isActive || !behavior) return
     const { solidH, solidV } = solidityFromL1(getL1)
     const color = COLORS.patrolPath
+    const marioSpawnX = mapStore.marioSpawnX
 
     ctx.save()
 

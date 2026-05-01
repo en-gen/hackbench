@@ -1,5 +1,6 @@
 import type { Char } from '../chars/Char'
-import type { PixelPos, RenderContext, RenderTarget } from '../RenderTarget'
+import type { Palette } from '../palette/Palette'
+import type { PixelPos, RenderTarget } from '../RenderTarget'
 
 export class SubTile {
   constructor(
@@ -10,9 +11,9 @@ export class SubTile {
     readonly priority: boolean,
   ) {}
 
-  render(ctx: RenderContext, target: RenderTarget, pos: PixelPos, alpha?: number): void {
-    const pixels = this.char.getPixels(ctx)
-    const row = ctx.palette.row(this.palette, ctx)
+  render(target: RenderTarget, pos: PixelPos, palette: Palette, alpha?: number): void {
+    const pixels = this.char.getPixels()
+    const row = palette.row(this.palette)
     target.blit8x8(pixels, pos, row, this.flipX, this.flipY, alpha)
   }
 }

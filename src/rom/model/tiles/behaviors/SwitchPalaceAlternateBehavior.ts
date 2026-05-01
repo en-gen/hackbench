@@ -1,10 +1,12 @@
-import type { RenderContext } from '../../RenderTarget'
+// Consumes: editorStore.switchPalaceState
+
+import { editorStore } from '../../stores/editorStore'
 import type { SubtileQuad } from '../Tile'
 import type { TileBehavior } from '../TileBehavior'
 
 /**
  * Switch-palace block: renders its uncleared variant when
- * `ctx.switchPalaceState.value[color]` is false, cleared variant when
+ * `editorStore.switchPalaceState[color]` is false, cleared variant when
  * true. SMW's mechanism is a Map16-pointer rewrite
  * ($06A-$06D ↔ $16A-$16D); the editor models the observable effect
  * directly by swapping subtile quads.
@@ -20,7 +22,7 @@ export class SwitchPalaceAlternateBehavior implements TileBehavior {
     readonly color: 0 | 1 | 2 | 3,
   ) {}
 
-  selectQuad(ctx: RenderContext): SubtileQuad {
-    return ctx.switchPalaceState.value[this.color] ? this.on : this.off
+  selectQuad(): SubtileQuad {
+    return editorStore.switchPalaceState[this.color] ? this.on : this.off
   }
 }
