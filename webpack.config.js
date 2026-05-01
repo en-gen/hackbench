@@ -155,11 +155,11 @@ const musicPlayerWebviewConfig = {
     new (require('copy-webpack-plugin'))({
       patterns: [
         {
-          from: path.resolve(__dirname, 'node_modules/@smwcentral/spc-player/dist/spc.wasm'),
+          from: require.resolve('@smwcentral/spc-player/dist/spc.wasm'),
           to: path.resolve(__dirname, 'dist/webview/spc.wasm')
         },
         {
-          from: path.resolve(__dirname, 'node_modules/@smwcentral/spc-player/dist/spc.js'),
+          from: require.resolve('@smwcentral/spc-player/dist/spc.js'),
           to: path.resolve(__dirname, 'dist/webview/spc.js')
         }
       ]

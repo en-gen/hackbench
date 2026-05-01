@@ -998,11 +998,17 @@ app.innerHTML = `
            Most fields here are already editable selects (existing behavior). -->
       <div class="tab-pane" data-tab="general" style="padding:8px;display:flex;flex-direction:column;gap:8px;">
 
-        <div>
-          <div style="${propLabelStyle()}">BACK AREA COLOR</div>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <div id="back-area-swatch" style="width:16px;height:16px;flex-shrink:0;border:1px solid #555;border-radius:2px;"></div>
-            <select id="sel-bg-color" style="${selStyle()}"></select>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <div>
+            <div style="${propLabelStyle()}">BACK AREA COLOR</div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div id="back-area-swatch" style="width:16px;height:16px;flex-shrink:0;border:1px solid #555;border-radius:2px;"></div>
+              <select id="sel-bg-color" style="${selStyle()}"></select>
+            </div>
+          </div>
+          <div>
+            <div style="${propLabelStyle()}">TIME LIMIT</div>
+            <select id="sel-time-limit" style="${selStyle()}"></select>
           </div>
         </div>
 
@@ -1028,24 +1034,39 @@ app.innerHTML = `
           </div>
         </div>
 
-        <div>
-          <div style="${propLabelStyle()}">TILESET (GFX)</div>
-          <select id="sel-tileset" style="${selStyle()}"></select>
-        </div>
-
-        <div>
-          <div style="${propLabelStyle()}">SPRITE SET</div>
-          <select id="sel-sprite-set" style="${selStyle()}"></select>
-        </div>
-
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
           <div>
-            <div style="${propLabelStyle()}">MUSIC</div>
-            <select id="sel-music" style="${selStyle()}"></select>
+            <div style="${propLabelStyle()}">TILESET (GFX)</div>
+            <select id="sel-tileset" style="${selStyle()}"></select>
           </div>
           <div>
-            <div style="${propLabelStyle()}">TIME LIMIT</div>
-            <select id="sel-time-limit" style="${selStyle()}"></select>
+            <div style="${propLabelStyle()}">SPRITE SET</div>
+            <select id="sel-sprite-set" style="${selStyle()}"></select>
+          </div>
+        </div>
+
+        <div>
+          <div style="${propLabelStyle()}">MUSIC</div>
+          <div style="display:flex;gap:3px;align-items:center;">
+            <button id="btn-music-prev" title="Previous track" style="${btnStyle()}">
+              <span class="codicon codicon-debug-reverse-continue"></span>
+            </button>
+            <div style="position:relative;flex-shrink:0;">
+              <button id="btn-music-vol" title="Volume" style="${btnStyle()}">
+                <span class="codicon codicon-unmute"></span>
+              </button>
+              <div id="music-vol-popup" style="display:none;position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:var(--vscode-editor-background,#1e1e1e);border:1px solid var(--vscode-widget-border,#454545);border-radius:4px;padding:6px 4px;z-index:100;">
+                <input id="slider-music-vol" type="range" min="0" max="1.5" step="0.01" value="1"
+                  style="writing-mode:vertical-lr;direction:rtl;width:22px;height:80px;cursor:pointer;accent-color:var(--vscode-focusBorder,#007acc);">
+              </div>
+            </div>
+            <select id="sel-music" style="${selStyle()};flex:1;min-width:0;"></select>
+            <button id="btn-music-play" title="Play music" style="${btnStyle()}">
+              <span class="codicon codicon-debug-start"></span>
+            </button>
+            <button id="btn-music-next" title="Next track" style="${btnStyle()}">
+              <span class="codicon codicon-debug-continue"></span>
+            </button>
           </div>
         </div>
 
@@ -1980,6 +2001,12 @@ const infoBgHScroll  = document.getElementById('info-bg-hscroll')!
 // editor doesn't visibly change. Step 3 (ROM write-back) will wire actual
 // edits.
 const selMusic       = document.getElementById('sel-music')        as HTMLSelectElement
+const btnMusicPrev   = document.getElementById('btn-music-prev')   as HTMLButtonElement
+const btnMusicVol    = document.getElementById('btn-music-vol')    as HTMLButtonElement
+const musicVolPopup  = document.getElementById('music-vol-popup')  as HTMLDivElement
+const sliderMusicVol = document.getElementById('slider-music-vol') as HTMLInputElement
+const btnMusicPlay   = document.getElementById('btn-music-play')   as HTMLButtonElement
+const btnMusicNext   = document.getElementById('btn-music-next')   as HTMLButtonElement
 const selTimeLimit   = document.getElementById('sel-time-limit')   as HTMLSelectElement
 const selLevelMode   = document.getElementById('sel-level-mode')   as HTMLSelectElement
 const selItemMemory  = document.getElementById('sel-item-memory')  as HTMLSelectElement
@@ -1996,6 +2023,75 @@ const infoL3InitY    = document.getElementById('info-l3-init-y')!
 let zoomIdx      = ZOOM_DEFAULT_IDX
 let mapData: MapPayload | null = null
 let l2TileGrid: number[][] | null = null
+
+// ── Music playback ───────────────────────────────────────────────────────────
+// SPC bytes keyed by bgmCommand; populated from the load payload.
+const musicSpcCache = new Map<number, number[]>()
+let musicIsPlaying = false
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let musicBackend: any = null
+
+// spc.js WASM compilation is async — poll until the Backend object appears.
+let _musicInitAttempts = 0
+const _musicInitInterval = setInterval(() => {
+  _musicInitAttempts++
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const b = (window as any).SMWCentral?.SPCPlayer?.Backend
+  if (b?.status !== undefined) {
+    clearInterval(_musicInitInterval)
+    musicBackend = b
+    if (musicBackend.status === 0) musicBackend.initialize()
+  } else if (_musicInitAttempts > 30) {
+    clearInterval(_musicInitInterval)
+  }
+}, 500)
+
+function _setMusicPlayButton(playing: boolean): void {
+  btnMusicPlay.innerHTML = playing
+    ? '<span class="codicon codicon-debug-stop"></span>'
+    : '<span class="codicon codicon-debug-start"></span>'
+  btnMusicPlay.title = playing ? 'Stop music' : 'Play music'
+  btnMusicPlay.disabled = false
+}
+
+// Must be called from a user gesture (click handler) — Chromium requires
+// AudioContext.resume() to be within the gesture call stack on first play.
+function _unlockAudioContext(): void {
+  if (!musicBackend?.context) return
+  musicBackend.locked = false
+  ;(musicBackend.context as AudioContext).resume().catch(() => { /* ignore */ })
+}
+
+function stopMusicPlayback(): void {
+  if (!musicIsPlaying) return
+  musicBackend?.stopSPC(false)
+  musicIsPlaying = false
+  _setMusicPlayButton(false)
+}
+
+function startMusicPlayback(bgmCommand: number): void {
+  if (!musicBackend) return
+  const cached = musicSpcCache.get(bgmCommand)
+  if (cached) {
+    // AudioContext was already unlocked + resumed in the click handler above.
+    try {
+      musicBackend.loadSPC(new Uint8Array(cached))
+      // spc.js UI init can leave the gain at 0; restore user's chosen volume
+      if (musicBackend.gainNode) musicBackend.gainNode.gain.value = parseFloat(sliderMusicVol.value)
+      musicIsPlaying = true
+      _setMusicPlayButton(true)
+    } catch (err) {
+      console.error('[mapEditor] loadSPC failed:', err)
+      _setMusicPlayButton(false)
+    }
+  } else {
+    // Non-current track — fetch SPC on demand. AudioContext was already
+    // unlocked in the click handler, so loadSPC will work when data arrives.
+    btnMusicPlay.innerHTML = '<span class="codicon codicon-loading codicon-modifier-spin"></span>'
+    btnMusicPlay.disabled = true
+    vscode.postMessage({ type: 'requestMusicSpc', bgmCommand })
+  }
+}
 
 // Legacy rendering state — re-introduced from pre-#62 stash. The model renderer
 // owns main display; these back the block-mode and camera-viewport overlays.
@@ -2030,8 +2126,11 @@ interface PaletteHighlight { row: number; colStart: number; colEnd: number }
 let paletteHighlightCells: PaletteHighlight[] | null = null
 
 interface MapPayload {
-  mapIndex:      number
-  screens:         number
+  mapIndex:         number
+  allBgmTracks?:    Array<{ bgmCommand: number }>
+  currentBgmCommand?: number
+  spcData?:         number[] | null
+  screens:          number
   /** True if Layer 1 is vertical (ScreenMode bit 0 via VerticalTable). */
   isVertical?:     boolean
   tileGrid:        number[][]
@@ -3357,7 +3456,52 @@ selTileset.addEventListener('change',    postRerender)
 
 // New editable header-bit controls. Same rerender path as the existing
 // palette/tileset selects.
-selMusic.addEventListener('change',       postRerender)
+selMusic.addEventListener('change', () => {
+  if (musicIsPlaying) {
+    _unlockAudioContext()
+    startMusicPlayback(parseInt(selMusic.value))
+  }
+  // No postRerender — music track does not affect map rendering.
+})
+function _updateVolIcon(): void {
+  const muted = parseFloat(sliderMusicVol.value) === 0
+  btnMusicVol.innerHTML = muted
+    ? '<span class="codicon codicon-mute"></span>'
+    : '<span class="codicon codicon-unmute"></span>'
+}
+
+btnMusicVol.addEventListener('click', (e) => {
+  e.stopPropagation()
+  musicVolPopup.style.display = musicVolPopup.style.display === 'none' ? 'block' : 'none'
+})
+sliderMusicVol.addEventListener('input', () => {
+  if (musicBackend?.gainNode) musicBackend.gainNode.gain.value = parseFloat(sliderMusicVol.value)
+  _updateVolIcon()
+})
+document.addEventListener('click', () => { musicVolPopup.style.display = 'none' })
+
+btnMusicPlay.addEventListener('click', () => {
+  if (musicIsPlaying) {
+    stopMusicPlayback()
+  } else {
+    _unlockAudioContext()
+    startMusicPlayback(parseInt(selMusic.value))
+  }
+})
+btnMusicPrev.addEventListener('click', () => {
+  const idx = selMusic.selectedIndex
+  selMusic.selectedIndex = idx > 0 ? idx - 1 : selMusic.options.length - 1
+  _unlockAudioContext()
+  if (musicIsPlaying) startMusicPlayback(parseInt(selMusic.value))
+  // No postRerender — music track does not affect map rendering.
+})
+btnMusicNext.addEventListener('click', () => {
+  const idx = selMusic.selectedIndex
+  selMusic.selectedIndex = idx < selMusic.options.length - 1 ? idx + 1 : 0
+  _unlockAudioContext()
+  if (musicIsPlaying) startMusicPlayback(parseInt(selMusic.value))
+  // No postRerender — music track does not affect map rendering.
+})
 selTimeLimit.addEventListener('change',   postRerender)
 selLevelMode.addEventListener('change',   postRerender)
 selItemMemory.addEventListener('change',  postRerender)
@@ -3413,9 +3557,29 @@ window.addEventListener('message', async (event) => {
     }
     return
   }
+  if (msg['type'] === 'musicSpc') {
+    const bgmCommand = msg['bgmCommand'] as number
+    const spcData    = msg['spcData']    as number[] | null
+    btnMusicPlay.disabled = false
+    if (spcData) {
+      musicSpcCache.set(bgmCommand, spcData)
+      if (parseInt(selMusic.value) === bgmCommand) startMusicPlayback(bgmCommand)
+    } else {
+      _setMusicPlayButton(false)
+    }
+    return
+  }
   if (msg['type'] === 'load') {
+    stopMusicPlayback()
+    musicSpcCache.clear()
+
     mapData  = msg as unknown as MapPayload
     l2TileGrid = mapData.l2TileGrid ?? null
+
+    // Cache SPC data that arrived with this load payload
+    if (mapData.spcData && mapData.currentBgmCommand !== undefined) {
+      musicSpcCache.set(mapData.currentBgmCommand, mapData.spcData)
+    }
 
     applyMinimapOrientation()
 
@@ -3423,9 +3587,8 @@ window.addEventListener('message', async (event) => {
     const screens = mapData.screens
     mapId.textContent   = `Map $${hex}`
     mapMeta.textContent = `${screens} screen${screens !== 1 ? 's' : ''}${mapData.isVertical ? ' · vertical' : ''}`
-    stInfo.textContent    =
-      `Music $${mapData.header.music.toString(16).toUpperCase()} · ` +
-      `Tileset ${mapData.header.gfxTilesetId}`
+    const bgmHex = (mapData.currentBgmCommand ?? mapData.header.music).toString(16).toUpperCase().padStart(2, '0')
+    stInfo.textContent  = `BGM $${bgmHex} · Tileset ${mapData.header.gfxTilesetId}`
 
     // Populate props panel selectors (only on initial load)
     if (msg['_initial'] !== false) {
@@ -3438,12 +3601,21 @@ window.addEventListener('message', async (event) => {
       buildSelect(selTileset,   16, mapData.header.gfxTilesetId)
       buildSelect(selSpriteSet, 16, mapData.header.spriteSet)
 
-      // New editable controls. Music / level mode / item memory / V-scroll
+      // Music: populate from ROM-derived full track list, not the 3-bit header index.
+      selMusic.innerHTML = ''
+      for (const track of mapData.allBgmTracks ?? []) {
+        const opt = document.createElement('option')
+        opt.value = String(track.bgmCommand)
+        opt.textContent = `BGM $${track.bgmCommand.toString(16).toUpperCase().padStart(2, '0')}`
+        opt.selected = track.bgmCommand === mapData.currentBgmCommand
+        selMusic.appendChild(opt)
+      }
+
+      // New editable controls. Level mode / item memory / V-scroll
       // show raw values only (no verified decoded labels per CLAUDE.md's
       // "every classification must cite an ASM line" rule). Time limit gets
       // a TimerTable-derived label (cited in bank_05.asm:510). L3 setting
       // labels distinguish "Disabled" from the three tileset slots.
-      buildSelect(selMusic,      8, mapData.header.music ?? 0)
       buildSelect(selTimeLimit,  4, mapData.header.timeLimit ?? 0,
         i => `${i} (${['none', '200', '300', '400'][i] ?? '?'})`)
       // 5-bit field; 32 modes covered by the SMW level-mode jump table.
@@ -3482,7 +3654,7 @@ window.addEventListener('message', async (event) => {
     // .value in case the provider echoed a different value back.
     const hdr = mapData.header
     const hex2 = (n: number) => `$${n.toString(16).toUpperCase().padStart(2, '0')}`
-    selMusic.value      = String(hdr.music          ?? 0)
+    selMusic.value      = String(mapData.currentBgmCommand ?? hdr.music ?? 0)
     selTimeLimit.value  = String(hdr.timeLimit      ?? 0)
     selLevelMode.value  = String(hdr.levelMode      ?? 0)
     selItemMemory.value = String(hdr.itemMemory     ?? 0)
