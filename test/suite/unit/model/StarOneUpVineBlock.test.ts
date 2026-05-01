@@ -84,15 +84,6 @@ describe('StarOneUpVineBlockBehavior', () => {
     expect(b.selectQuad()).toBe(quad)
   })
 
-  it('selectQuad is invariant across animFrame changes', () => {
-    const quad = makeQuad()
-    const b = new StarOneUpVineBlockBehavior(quad, null, [], [])
-    const q1 = b.selectQuad()
-    editorStore.setAnimFrame(99)
-    const q2 = b.selectQuad()
-    expect(q1).toBe(q2)
-  })
-
   it('itemAtCol matches starOneUpVineItemAt for all positions 0–18', () => {
     const b = new StarOneUpVineBlockBehavior(makeQuad(), null, [], [])
     for (let col = 0; col <= 18; col++) {

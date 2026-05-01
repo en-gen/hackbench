@@ -1,8 +1,5 @@
-// Consumes: editorStore.animFrame
-
 import type { Char } from '../../chars/Char'
 import type { RenderTarget } from '../../RenderTarget'
-import { editorStore } from '../../stores/editorStore'
 import type { MapStore } from '../../stores/mapStore'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
@@ -13,8 +10,8 @@ const OBJ_CHAR_BASE = 0x400
 /**
  * RopeMotorTiles (bank_01.asm:12557): db $C0,$C2,$E0,$C2 — 4-frame animation.
  * ROM frame index: ((slotIndex * 4) XOR effFrame) >> 3 & 3, where effFrame is
- * the raw game frame counter (not the tile-animation heartbeat). The editor maps
- * ctx.animFrame directly to the 4-frame cycle via % 4.
+ * the raw game frame counter. The editor advances a 4-frame internal cycle
+ * once per sprite-animation tick.
  */
 const MOTOR_TILES = [0xC0, 0xC2, 0xE0, 0xC2] as const
 const BODY_TILE   = 0xCE
@@ -48,9 +45,11 @@ const KNOT_TILE   = 0xDE
 const SMOKE_TILES = [0x62, 0x64, 0x66] as const
 
 /**
- * Editor rAF heartbeat (`animTimer`, mapEditor/main.ts:1559) ticks at ≈133 ms
- * — i.e. the map-tile animation rate, NOT a true 60 fps sprite rate (sprite
- * timer split is a separate, acknowledged issue).
+ * Editor sprite-animation heartbeat (`spriteAnimTimer`,
+ * mapEditor/main.ts) ticks at ≈125 ms — close to but distinct from the
+ * map-tile animation rate. Issue #174 split the sprite cadence off the
+ * level-tile cadence; this constant is retained because the smoke
+ * lifecycle math depends on a fixed advance per tick.
  *
  * In-game, an 8-frame spawn cycle has 5 distinct visual states across its
  * 8 phases:
@@ -162,13 +161,20 @@ export class RopeMechanismAppearance implements SpriteAppearance {
   readonly hitRect: HitRect
 
   /**
+   * Motor frame (4-state cycle indexing `MOTOR_TILES`). Advances once per
+   * sprite-animation tick. The visual cadence (~125 ms × 4 ≈ 500 ms full
+   * loop) is independent of the level-tile animation rate.
+   */
+  private motorFrame = 0
+
+  /**
    * In-game-frame approximation for the smoke lifecycle. `tickAnimation()`
-   * (called once per rAF tick, ≈133 ms) advances by `GAME_FRAMES_PER_TICK`
-   * so the cycle replays at game pace.
+   * advances by `GAME_FRAMES_PER_TICK` per sprite tick so the cycle
+   * replays at game pace.
    *
-   * Why an internal counter rather than `ctx.animFrame.value`: animFrame
-   * cycles only 0..animFrameCount−1 (typically 0..3), which is too narrow
-   * to traverse the 8-phase spawn cycle.
+   * Why an internal counter: the smoke 8-phase spawn cycle needs more
+   * range than a small frame index can carry, and its math is independent
+   * of the motor cycle.
    *
    * `_smokeFrame` is exposed via a getter for unit tests that need to
    * inspect or seed the lifecycle at a specific phase without going through
@@ -191,6 +197,7 @@ export class RopeMechanismAppearance implements SpriteAppearance {
   }
 
   tickAnimation(): void {
+    this.motorFrame = (this.motorFrame + 1) & 3
     this._smokeFrame = (this._smokeFrame + GAME_FRAMES_PER_TICK) & 0xFFFF
   }
 
@@ -215,11 +222,10 @@ export class RopeMechanismAppearance implements SpriteAppearance {
   }
 
   render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
-    const animFrame = editorStore.animFrame % 4
     for (let seg = 0; seg < this.segmentCount; seg++) {
       const isMotor = seg === 0
       const isKnot  = seg === this.segmentCount - 1 && !isMotor
-      const parts   = isMotor ? this.motorFrames[animFrame]
+      const parts   = isMotor ? this.motorFrames[this.motorFrame]
                     : isKnot  ? this.knotTemplate
                     :           this.bodyTemplate
       const segDy   = seg * 16
@@ -234,13 +240,11 @@ export class RopeMechanismAppearance implements SpriteAppearance {
     }
     // Smoke lifecycle — see `smokeCohortsAt` (module-level) for the
     // ASM-derived math. tickAnimation advances `_smokeFrame` by
-    // GAME_FRAMES_PER_TICK (3) per rAF tick — see the constant's docstring
-    // for the trade-off rationale.
+    // GAME_FRAMES_PER_TICK (3) per sprite tick — see the constant's
+    // docstring for the trade-off rationale.
     //
-    // Reactivity hook: `editorStore.animFrame` is read above for the motor
-    // frame, which subscribes this render to the rAF heartbeat. The smoke
-    // counter then advances visibly even though `_smokeFrame` itself isn't
-    // a reactive ref.
+    // Reactivity: redraw is triggered by the sprite-tick event in
+    // mapEditor/main.ts, not by any read inside this method.
     for (const { tileIdx, puffDx, yRise } of smokeCohortsAt(this._smokeFrame)) {
       for (const part of this.smokePuffFrames[tileIdx]) {
         target.blit8x8(

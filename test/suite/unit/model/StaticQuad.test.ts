@@ -37,13 +37,6 @@ describe('StaticQuadBehavior', () => {
     expect(q1).toBe(q2)
   })
 
-  it('is invariant when animFrame changes', () => {
-    const quad = makeQuad()
-    const b = new StaticQuadBehavior(quad)
-    editorStore.setAnimFrame(42)
-    expect(b.selectQuad()).toBe(quad)
-  })
-
   it('is invariant when pSwitchActive changes', () => {
     const quad = makeQuad()
     const b = new StaticQuadBehavior(quad)
@@ -75,7 +68,6 @@ describe('StaticQuadBehavior', () => {
 
     // Mutating any editorStore field should NOT cause a recompute because
     // StaticQuadBehavior reads nothing — the computed stays warm.
-    editorStore.setAnimFrame(5)
     editorStore.setPSwitch(true)
     editorStore.setPalAnimFrame(3)
     expect(reactive.value).toBe(quad)

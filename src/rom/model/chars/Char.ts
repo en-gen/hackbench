@@ -6,4 +6,8 @@ export class Char {
   getPixels(): Uint8Array {
     return this.behavior.getPixels()
   }
+
+  tickAnimation(): void {
+    this.behavior.tickAnimation?.()
+  }
 }

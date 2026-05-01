@@ -66,13 +66,6 @@ describe('VineSourceBehavior — selectQuad', () => {
     expect(b.selectQuad()).toBe(quad)
   })
 
-  it('is invariant across animFrame changes', () => {
-    const quad = makeQuad()
-    const b = new VineSourceBehavior(quad, null)
-    const q1 = b.selectQuad()
-    editorStore.setAnimFrame(7)
-    expect(b.selectQuad()).toBe(q1)
-  })
 })
 
 describe('VineSourceBehavior — renderOverlay with null overlayQuad', () => {

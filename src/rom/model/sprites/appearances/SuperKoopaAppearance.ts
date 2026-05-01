@@ -1,7 +1,4 @@
-// Consumes: editorStore.animFrame
-
 import type { RenderTarget } from '../../RenderTarget'
-import { editorStore } from '../../stores/editorStore'
 import type { MapStore } from '../../stores/mapStore'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
@@ -10,9 +7,9 @@ import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
 import type { Char } from '../../chars/Char'
 
 /**
- * A two-frame flap animation. flapA renders when animFrame is even,
- * flapB when odd. Grounded poses that do not visually animate use identical
- * parts for both.
+ * A two-frame flap animation. flapA renders when the internal flap toggle
+ * is 0, flapB when 1. Grounded poses that do not visually animate use
+ * identical parts for both.
  */
 export interface SuperKoopaPoseFrames {
   readonly flapA: readonly SpritePart[]
@@ -31,11 +28,12 @@ export interface SuperKoopaPoseFrames {
  * palette-override value between $10 (CGRAM row 8) and $0A (CGRAM row 13)
  * per CODE_02ED3B at bank_02.asm:14434.
  *
- * Flap index comes from ctx.animFrame.value & 1 -- the same shared reactive
- * counter tile animations already depend on.
+ * Flap toggle advances on each sprite-animation tick (`tickAnimation()`),
+ * matching the cadence of all other sprite-internal animations.
  */
 export class SuperKoopaAppearance implements SpriteAppearance {
   readonly hitRect: HitRect
+  private flap = 0
 
   constructor(
     readonly grounded:       SuperKoopaPoseFrames,
@@ -52,6 +50,10 @@ export class SuperKoopaAppearance implements SpriteAppearance {
     ])
   }
 
+  tickAnimation(): void {
+    this.flap ^= 1
+  }
+
   render(
     target:   RenderTarget,
     x:        number,
@@ -63,7 +65,7 @@ export class SuperKoopaAppearance implements SpriteAppearance {
     const pose = this.isAirborne
       ? (flashing ? this.airborneFlash : this.airborne)
       : (flashing ? this.groundedFlash : this.grounded)
-    const parts = (editorStore.animFrame & 1) === 0 ? pose.flapA : pose.flapB
+    const parts = this.flap === 0 ? pose.flapA : pose.flapB
     for (const part of parts) {
       const pixels = part.char.getPixels()
       const row = mapStore.palette.row(part.palette)

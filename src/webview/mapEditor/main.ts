@@ -10,7 +10,7 @@
 declare function acquireVsCodeApi(): any
 const vscode = acquireVsCodeApi()
 
-import { effect } from '@vue/reactivity'
+import { effect, shallowRef } from '@vue/reactivity'
 import { buildGraph } from '../../rom/model/rehydrate'
 import { VineSourceBehavior } from '../../rom/model/tiles/behaviors/VineSourceBehavior'
 import { StarOneUpVineBlockBehavior } from '../../rom/model/tiles/behaviors/StarOneUpVineBlockBehavior'
@@ -82,6 +82,11 @@ function ensureReactiveRender(map: SmwMap): void {
  * 1× natural pixels; legacy zoom/pan is independent for now.
  */
 function renderModelOverlay(map: SmwMap): void {
+  // Animation event subscriptions. The numeric values are irrelevant —
+  // each timer fires by mutating the ref, which retracks the effect so
+  // chars / sprites whose internal frame state advanced get redrawn.
+  void mapTick.value
+  void spriteTick.value
   const overlay = document.getElementById('model-canvas') as HTMLCanvasElement | null
   if (!overlay) return
   const rows = map.l1.length
@@ -1654,34 +1659,55 @@ function populateTileProps(tileId: number, def: Map16DefEntry | undefined): void
 }
 
 // ── Animation ────────────────────────────────────────────────────────────────
-// Animation drives `store.animFrame` (tile-animation timer) and
-// `store.palAnimFrame` (palette-cycle timer). Every model behavior that
-// cares reads these directly from `editorStore`, so the reactive
-// render effect re-runs only the cells whose input actually changed.
+// Three independent timers, each a pure event source:
+//   - mapAnimTimer   — ticks animated chars (tile-graphics). Cadence comes
+//                       from `mapData.animation.intervalMs` so per-level
+//                       tile-animation speed is configurable.
+//   - spriteAnimTimer — ticks sprite appearances. Cadence is fixed
+//                       (`SPRITE_ANIM_INTERVAL_MS`) so sprite cadence is
+//                       independent of any level data.
+//   - palAnimTimer   — increments `store.palAnimFrame` for CGRAM cycling.
+//
+// Tile chars and sprite appearances own their own frame state internally
+// and advance via `tickAnimation()`. The timers carry no counter — each
+// fire is just an event. To force the reactive render effect to re-run
+// after a tick, the timer bumps a `shallowRef` event source (`mapTick`
+// or `spriteTick`); the render effect reads both values to register a
+// dep. The carried number is irrelevant — only the mutation matters.
 //
 // Driven by requestAnimationFrame rather than setInterval so that hidden or
 // backgrounded webviews stop ticking automatically (Chromium throttles rAF to
 // 0 Hz in hidden iframes, but leaves setInterval running at ≥1 Hz — which
 // produced the main-thread contention the user saw when rapid preview-tab
 // cycling left zombie webviews alive).
-let animIntervalMs = 133
-let animFrameCount = 1
+let mapIntervalMs = 133
 let palAnimIntervalMs = 133
+let mapAnimEnabled = false  // true when the loaded map declares animated tiles
 
-function applyAnimFrame(f: number): void {
-  store.setAnimFrame(f)
-}
+const SPRITE_ANIM_INTERVAL_MS = 125  // ~8 Hz; preserves legacy sprite cadence
+
+const mapTick = shallowRef(0)
+const spriteTick = shallowRef(0)
 
 function applyPalAnimFrame(f: number): void {
   store.setPalAnimFrame(f)
 }
 
-const animTimer = createRafTimer(
-  () => animIntervalMs,
+const mapAnimTimer = createRafTimer(
+  () => mapIntervalMs,
+  () => {
+    const chars = window.__smwModelChars
+    if (chars) for (const ch of chars.values()) ch.tickAnimation()
+    mapTick.value++
+  },
+)
+
+const spriteAnimTimer = createRafTimer(
+  () => SPRITE_ANIM_INTERVAL_MS,
   () => {
     const map = window.__smwModelMap
     if (map) for (const spr of map.sprites) spr.tickAnimation()
-    applyAnimFrame((store.animFrame + 1) % animFrameCount)
+    spriteTick.value++
   },
 )
 
@@ -1720,17 +1746,17 @@ const animPlayBtns = [
 ]
 
 function syncAnimButtons(): void {
+  const running = spriteAnimTimer.running
   for (const btn of animPlayBtns) {
-    btn.innerHTML = animTimer.running ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
-    btn.title = animTimer.running ? 'Pause animation' : 'Play animation'
-    btn.classList.toggle('on', animTimer.running)
+    btn.innerHTML = running ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
+    btn.title = running ? 'Pause animation' : 'Play animation'
+    btn.classList.toggle('on', running)
   }
 }
 
 function toggleAnim(): void {
-  if (animFrameCount <= 1) return
-  if (animTimer.running) {
-    animTimer.stop()
+  if (spriteAnimTimer.running) {
+    stopAnimTimer()
     if (palAnimTimer.running) stopPalAnimTimer()
   } else {
     startAnimTimer()
@@ -1742,13 +1768,13 @@ function toggleAnim(): void {
 for (const btn of animPlayBtns) btn.addEventListener('click', toggleAnim)
 
 function startAnimTimer(): void {
-  applyAnimFrame(0)
-  animTimer.start()
+  spriteAnimTimer.start()
+  if (mapAnimEnabled) mapAnimTimer.start()
 }
 
 function stopAnimTimer(): void {
-  animTimer.stop()
-  applyAnimFrame(0)
+  spriteAnimTimer.stop()
+  mapAnimTimer.stop()
 }
 
 // ── Tile panel page navigation ───────────────────────────────────────────────
@@ -3699,20 +3725,19 @@ window.addEventListener('message', async (event) => {
     // panel from showing stale content before `modelPayload` lands.
     drawPaletteCanvas()
 
-    // Reset animation state. Tile-anim / palette-anim frames come from
-    // the store and are re-read by every model behavior on every effect
-    // tick, so there is no cache to invalidate here.
+    // Reset animation state. Animated chars and sprite appearances own
+    // their own frame state internally; the timers just fire ticks. Stop
+    // them here so reload starts paused.
     stopAnimTimer()
     stopPalAnimTimer()
     syncAnimButtons()
-    animFrameCount = 1
-    if (mapData.animation && mapData.animation.frameCount > 1) {
-      animFrameCount = mapData.animation.frameCount
-      animIntervalMs = mapData.animation.intervalMs
-      for (const b of animPlayBtns) b.style.display = ''
-    } else {
-      for (const b of animPlayBtns) b.style.display = 'none'
+    mapAnimEnabled = !!(mapData.animation && mapData.animation.frameCount > 1)
+    if (mapAnimEnabled && mapData.animation) {
+      mapIntervalMs = mapData.animation.intervalMs
     }
+    // Play button is always shown — sprite animation works on every level
+    // regardless of whether tile animation is configured.
+    for (const b of animPlayBtns) b.style.display = ''
 
     // Clamp zoom to what the freshly-loaded level can fit, then draw.
     applyZoom()
@@ -3839,7 +3864,8 @@ window.addEventListener('message', async (event) => {
 // (preview-tab replacement, close, reload) so nothing keeps firing in a
 // zombie context.
 window.addEventListener('pagehide', () => {
-  animTimer.stop()
+  mapAnimTimer.stop()
+  spriteAnimTimer.stop()
   palAnimTimer.stop()
 })
 
@@ -3850,10 +3876,12 @@ window.addEventListener('pagehide', () => {
 // the visible tab's main thread and drops its FPS.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
-    animTimer.suspend()
+    mapAnimTimer.suspend()
+    spriteAnimTimer.suspend()
     palAnimTimer.suspend()
   } else if (document.visibilityState === 'visible') {
-    animTimer.resume()
+    mapAnimTimer.resume()
+    spriteAnimTimer.resume()
     palAnimTimer.resume()
   }
 })
