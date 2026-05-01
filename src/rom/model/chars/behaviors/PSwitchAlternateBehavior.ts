@@ -1,4 +1,6 @@
-import type { RenderContext } from '../../RenderTarget'
+// Consumes: editorStore.pSwitchActive
+
+import { editorStore } from '../../stores/editorStore'
 import type { CharBehavior } from '../CharBehavior'
 
 /**
@@ -19,7 +21,7 @@ export class PSwitchAlternateBehavior implements CharBehavior {
     readonly alt: CharBehavior,
   ) {}
 
-  getPixels(ctx: RenderContext): Uint8Array {
-    return ctx.pSwitchActive.value ? this.alt.getPixels(ctx) : this.normal.getPixels(ctx)
+  getPixels(): Uint8Array {
+    return editorStore.pSwitchActive ? this.alt.getPixels() : this.normal.getPixels()
   }
 }

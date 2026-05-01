@@ -1,6 +1,9 @@
+// Consumes: mapStore.marioSpawnX
+
 import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
 import type { SpriteAppearance, HitRect } from '../SpriteAppearance'
-import type { RenderContext, RenderTarget } from '../../RenderTarget'
+import type { RenderTarget } from '../../RenderTarget'
+import type { MapStore } from '../../stores/mapStore'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import type { Char } from '../../chars/Char'
 import type { SpriteTileTables } from '../../../SpriteTileLoader'
@@ -157,12 +160,12 @@ export class SpikeTopAppearance implements SpriteAppearance {
     if (++this.tick >= ANIM_TICKS) { this.tick = 0; this.frame ^= 1 }
   }
 
-  render(ctx: RenderContext, target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior): void {
+  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
     for (const p of (this.frame === 0 ? this.parts0 : this.parts1)) {
       target.blit8x8(
-        p.char.getPixels(ctx),
+        p.char.getPixels(),
         { x: x + p.dx, y: y + p.dy },
-        ctx.palette.row(p.palette, ctx),
+        mapStore.palette.row(p.palette),
         p.flipX,
         p.flipY,
       )
@@ -170,15 +173,15 @@ export class SpikeTopAppearance implements SpriteAppearance {
   }
 
   renderOverlay(
-    ctx:          OverlayContext,
-    x:            number,
-    y:            number,
-    isActive:     boolean,
-    getL1:        GetL1Tile,
-    levelCols:    number,
-    levelRows:    number,
-    _behavior?:   SpriteBehavior,
-    marioSpawnX?: number,
+    ctx:        OverlayContext,
+    x:          number,
+    y:          number,
+    isActive:   boolean,
+    getL1:      GetL1Tile,
+    levelCols:  number,
+    levelRows:  number,
+    _behavior:  SpriteBehavior | undefined,
+    mapStore:   MapStore,
   ): void {
     if (!isActive) return
 
@@ -188,7 +191,7 @@ export class SpikeTopAppearance implements SpriteAppearance {
     // InitSpikeTop (bank_01.asm:602) → CODE_01840E (bank_01.asm:620-626):
     //   SubHorizPos: Mario.X < Sprite.X (Mario to left) → SpriteTableC2 = 4 (dir 4=LEFT, left-hand track)
     //   Mario.X ≥ Sprite.X (Mario to right or same)    → SpriteTableC2 = 0 (dir 0=RIGHT, right-hand track)
-    const startDir = (marioSpawnX !== undefined && marioSpawnX < x) ? 4 : 0
+    const startDir = mapStore.marioSpawnX < x ? 4 : 0
 
     const { points, closed } = tracePatrolPath(startCol, startRow, startDir, getL1, MAX_PATH_STEPS, levelCols, levelRows)
     if (points.length < 2) return

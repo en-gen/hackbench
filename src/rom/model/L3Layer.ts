@@ -1,6 +1,8 @@
 import { L3_HUD_ROW_CUTOFF, L3_TILEMAP_COLS, L3_TILEMAP_ROWS, type L3ScrollRange } from '../L3Loader'
 import type { GfxSheet } from '../GfxLoader'
-import type { RenderContext, RenderTarget } from './RenderTarget'
+import type { RenderTarget } from './RenderTarget'
+import { editorStore } from './stores/editorStore'
+import type { MapStore } from './stores/mapStore'
 
 /**
  * An L3 tile cell as decoded from the stripe-image VRAM buffer.
@@ -18,8 +20,8 @@ interface L3Cell {
 
 export abstract class L3Layer {
   abstract render(
-    ctx: RenderContext,
     target: RenderTarget,
+    mapStore: MapStore,
     clipRangeX?: { xMin: number; xMax: number },
   ): void
 }
@@ -132,27 +134,27 @@ export class L3TilemapLayer extends L3Layer {
    * pattern across the full level width when only the strip needs refilling.
    */
   render(
-    ctx: RenderContext,
     target: RenderTarget,
+    mapStore: MapStore,
     clipRangeX?: { xMin: number; xMax: number },
   ): void {
-    const toggles = ctx.layerToggles.value
+    const toggles = editorStore.layerToggles
     // HUD is only meaningful when the camera viewport is on (it's positioned
     // relative to the viewport). Gating on cameraOn here also prevents the
-    // main L3 render from establishing a reactive dependency on ctx.camera
+    // main L3 render from establishing a reactive dependency on editorStore.camera
     // when HUD is off, so dragging the viewport doesn't force full-level L3
     // re-renders.  Also skip HUD while actively dragging — the status bar
     // tiles snap to whole tiles, so a sub-tile-smooth drag looks jittery;
     // snap back on drag release.
-    const mayShowHud = toggles.l3Hud && (ctx.cameraOn?.value ?? false)
-    const showHud = mayShowHud && !(ctx.cameraDragging?.value ?? false)
-    const camera  = showHud ? ctx.camera.value : null
+    const mayShowHud = toggles.l3Hud && editorStore.cameraOn
+    const showHud = mayShowHud && !editorStore.cameraDragging
+    const camera  = showHud ? editorStore.camera : null
 
     // Pre-compute all 8 L3 2BPP sub-palettes.
     // For 2BPP BG3, palette P selects CGRAM colors P*4 to P*4+3:
     //   CGRAM row = P >> 2, column offset = (P & 3) * 4
     const subPalettes: import('../GraphicsDecoder').RgbaColor[][] = Array.from({ length: 8 }, (_, p) => {
-      const cgRow = ctx.palette.row(p >> 2, ctx)
+      const cgRow = mapStore.palette.row(p >> 2)
       const off   = (p & 3) * 4
       return [cgRow[off]!, cgRow[off + 1]!, cgRow[off + 2]!, cgRow[off + 3]!]
     })
@@ -177,7 +179,7 @@ export class L3TilemapLayer extends L3Layer {
       // Gameplay rows: BG3 tile at VRAM row R appears at screen scanline (R*8 - BG3VOFS),
       //   and in level coords: screen + cameraY. The level's initial camera Y is the
       //   ROM-derived Layer1YPos at level init (DATA_05D708 lookup, bank_05.asm:7329-7335).
-      const initialCamY = ctx.initialCameraYPx ?? 0
+      const initialCamY = mapStore.initialCameraYPx
       const pixelY = isHud
         ? (camera!.tileY * 16) + row * 8
         : row * 8 - this.initialYPx + initialCamY

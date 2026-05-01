@@ -1,4 +1,8 @@
-import type { CellBox, RenderContext, RenderTarget } from '../../RenderTarget'
+// Consumes: (none) — overlay alpha is constant; SubTile.render takes the
+// per-map palette so the reward indicator picks up CGRAM cycling.
+
+import type { CellBox, RenderTarget } from '../../RenderTarget'
+import type { MapStore } from '../../stores/mapStore'
 import type { SubtileQuad } from '../Tile'
 import type { TileBehavior } from '../TileBehavior'
 
@@ -39,19 +43,19 @@ export class InvisibleBlockRevealBehavior implements TileBehavior {
     readonly alpha: number = 0.5,
   ) {}
 
-  selectQuad(_ctx: RenderContext): SubtileQuad {
+  selectQuad(): SubtileQuad {
     return this.revealedQuad
   }
 
-  selectAlpha(_ctx: RenderContext): number {
+  selectAlpha(): number {
     return this.alpha
   }
 
-  renderOverlay(ctx: RenderContext, target: RenderTarget, cell: CellBox): void {
+  renderOverlay(target: RenderTarget, cell: CellBox, mapStore: MapStore): void {
     if (!this.rewardOverlayQuad) return
     for (let i = 0; i < 4; i++) {
       const { dx, dy } = OVERLAY_OFFSETS[i]
-      this.rewardOverlayQuad[i].render(ctx, target, { x: cell.tl.x + dx, y: cell.tl.y + dy }, 0.5)
+      this.rewardOverlayQuad[i].render(target, { x: cell.tl.x + dx, y: cell.tl.y + dy }, mapStore.palette, 0.5)
     }
   }
 }

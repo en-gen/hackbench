@@ -1,10 +1,12 @@
-import type { RenderContext } from '../../RenderTarget'
+// Consumes: editorStore.animFrame
+
+import { editorStore } from '../../stores/editorStore'
 import type { CharBehavior } from '../CharBehavior'
 
 /**
  * A VRAM char whose pixel data cycles through a list of frames driven
- * by `ctx.animFrame`. Matches the SMW NMI animation path that DMAs
- * new tile bytes into specific VRAM slots on a fixed cadence (~7.5
+ * by `editorStore.animFrame`. Matches the SMW NMI animation path that
+ * DMAs new tile bytes into specific VRAM slots on a fixed cadence (~7.5
  * frames per second). Frames come from
  * `AnimationLoader.loadAnimationData` — no hardcoded pixel data.
  *
@@ -14,7 +16,7 @@ import type { CharBehavior } from '../CharBehavior'
 export class AnimatedPixelsBehavior implements CharBehavior {
   constructor(readonly frames: readonly Uint8Array[]) {}
 
-  getPixels(ctx: RenderContext): Uint8Array {
-    return this.frames[ctx.animFrame.value % this.frames.length]
+  getPixels(): Uint8Array {
+    return this.frames[editorStore.animFrame % this.frames.length]
   }
 }

@@ -1,8 +1,12 @@
+// Consumes: (none directly — overlay only)
+
 import { type GetL1Tile, type OverlayContext } from '../../OverlayContext'
 import {
   COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH,
   rgba, WALL_ALPHA, WALL_LINE_WIDTH,
 } from '../../overlays/primitives'
+import type { MapStore } from '../../stores/mapStore'
+import type { SpriteBehavior } from '../SpriteBehavior'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
 
 /**
@@ -178,6 +182,8 @@ export class SwimJumpFishAppearance extends StaticSpriteAppearance {
     _getL1:     GetL1Tile,
     _levelCols: number,
     _levelRows: number,
+    _behavior:  SpriteBehavior | undefined,
+    _mapStore:  MapStore,
   ): void {
     if (!isActive) return
 

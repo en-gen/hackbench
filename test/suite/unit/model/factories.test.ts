@@ -23,7 +23,7 @@ describe.skipIf(!existsSync(ROM_PATH))('CharFactory / TileFactory (vanilla ROM)'
     const sample = chars.values().next().value as Char
     expect(sample).toBeInstanceOf(Char)
     expect(sample.behavior).toBeInstanceOf(StaticPixelsBehavior)
-    expect(sample.getPixels({} as never)).toHaveLength(64)
+    expect(sample.getPixels()).toHaveLength(64)
   })
 
   it('buildTiles wraps every Map16 entry as a Tile with StaticQuadBehavior', () => {

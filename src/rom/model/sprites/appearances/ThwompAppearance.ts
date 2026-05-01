@@ -1,6 +1,10 @@
+// Consumes: editorStore.cursorPx
+
 import type { Char } from '../../chars/Char'
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
-import type { RenderContext, RenderTarget } from '../../RenderTarget'
+import type { RenderTarget } from '../../RenderTarget'
+import { editorStore } from '../../stores/editorStore'
+import type { MapStore } from '../../stores/mapStore'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
@@ -114,16 +118,16 @@ export class ThwompAppearance implements SpriteAppearance {
   }
 
   render(
-    ctx: RenderContext,
     target: RenderTarget,
     x: number,
     y: number,
     behavior: SpriteBehavior,
+    mapStore: MapStore,
   ): void {
-    // Reading `.value` here is what wires cursor moves into this sprite's
+    // Reading editorStore.cursorPx here wires cursor moves into this sprite's
     // reactive re-render. The toplevel renderModelOverlay also reads
-    // ctx.cursorPx to register the dep unconditionally.
-    const cursor  = ctx.cursorPx?.value ?? null
+    // editorStore.cursorPx to register the dep unconditionally.
+    const cursor  = editorStore.cursorPx
     const anchorX = x + ANCHOR_DX
     const hdist   = cursor ? Math.abs(cursor.x - anchorX) : Infinity
     // Cursor must also fall within the thwomp's vertical reach — top of body
@@ -137,18 +141,20 @@ export class ThwompAppearance implements SpriteAppearance {
                     : inYRange && hdist <= ALERT_PX      ? this.alertFace
                     : null
 
-    for (const part of this.bodyParts) this.blitPart(ctx, target, x, y, part)
-    if (face) for (const part of face) this.blitPart(ctx, target, x, y, part)
+    for (const part of this.bodyParts) this.blitPart(target, x, y, part, mapStore)
+    if (face) for (const part of face) this.blitPart(target, x, y, part, mapStore)
   }
 
   renderOverlay(
-    ctx:       OverlayContext,
-    x:         number,
-    y:         number,
-    isActive:  boolean,
-    getL1:     GetL1Tile,
+    ctx:        OverlayContext,
+    x:          number,
+    y:          number,
+    isActive:   boolean,
+    getL1:      GetL1Tile,
     _levelCols: number,
-    levelRows: number,
+    levelRows:  number,
+    _behavior:  SpriteBehavior | undefined,
+    _mapStore:  MapStore,
   ): void {
     if (!isActive) return
     // Anchor shifted by InitThwomp's +8 X adjustment.
@@ -222,14 +228,14 @@ export class ThwompAppearance implements SpriteAppearance {
   }
 
   private blitPart(
-    ctx: RenderContext,
     target: RenderTarget,
     x: number,
     y: number,
     part: SpritePart,
+    mapStore: MapStore,
   ): void {
-    const pixels = part.char.getPixels(ctx)
-    const row    = ctx.palette.row(part.palette, ctx)
+    const pixels = part.char.getPixels()
+    const row    = mapStore.palette.row(part.palette)
     target.blit8x8(
       pixels,
       { x: x + part.dx, y: y + part.dy },

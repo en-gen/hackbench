@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { computed, ref } from '@vue/reactivity'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { computed } from '@vue/reactivity'
 import { existsSync } from 'fs'
 import { loadVram } from '../../../../src/rom/GfxLoader'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
@@ -11,22 +11,9 @@ import { SubTile } from '../../../../src/rom/model/tiles/SubTile'
 import { Tile, type SubtileQuad } from '../../../../src/rom/model/tiles/Tile'
 import { buildTiles } from '../../../../src/rom/model/tiles/TileFactory'
 import { PSwitchRevealBehavior } from '../../../../src/rom/model/tiles/behaviors/PSwitchRevealBehavior'
-import type { RenderContext } from '../../../../src/rom/model/RenderTarget'
+import { editorStore, resetEditorStore } from '../fixtures/stores'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
-
-function mockCtx(pSwitchActive = false): RenderContext {
-  return {
-    animFrame: ref(0),
-    palAnimFrame: ref(0),
-    pSwitchActive: ref(pSwitchActive),
-    switchPalaceState: ref([false, false, false, false] as const),
-    palette: null as never,
-    camera: ref({ tileX: 0, tileY: 0, focused: false }),
-    zoom: ref(1),
-    layerToggles: ref({ l1: true, l2: true, sprites: true, screens: true, block: true, mapGrid: false }),
-  }
-}
 
 function makeQuad(tag: number): SubtileQuad {
   const sub = () =>
@@ -41,37 +28,45 @@ function makeQuad(tag: number): SubtileQuad {
 }
 
 describe('PSwitchRevealBehavior behavior', () => {
+  beforeEach(resetEditorStore)
+
   it('returns the revealed quad regardless of P-switch state', () => {
     const quad = makeQuad(1)
     const b = new PSwitchRevealBehavior(quad)
-    expect(b.selectQuad(mockCtx(false))).toBe(quad)
-    expect(b.selectQuad(mockCtx(true))).toBe(quad)
+    editorStore.setPSwitch(false)
+    expect(b.selectQuad()).toBe(quad)
+    editorStore.setPSwitch(true)
+    expect(b.selectQuad()).toBe(quad)
   })
 
   it('selectAlpha returns offAlpha when P-switch inactive', () => {
     const b = new PSwitchRevealBehavior(makeQuad(1), 0.5)
-    expect(b.selectAlpha(mockCtx(false))).toBe(0.5)
+    editorStore.setPSwitch(false)
+    expect(b.selectAlpha()).toBe(0.5)
   })
 
   it('selectAlpha returns 1 when P-switch active', () => {
     const b = new PSwitchRevealBehavior(makeQuad(1), 0.5)
-    expect(b.selectAlpha(mockCtx(true))).toBe(1)
+    editorStore.setPSwitch(true)
+    expect(b.selectAlpha()).toBe(1)
   })
 
   it('respects a custom offAlpha override', () => {
     const b = new PSwitchRevealBehavior(makeQuad(1), 0.25)
-    expect(b.selectAlpha(mockCtx(false))).toBe(0.25)
-    expect(b.selectAlpha(mockCtx(true))).toBe(1)
+    editorStore.setPSwitch(false)
+    expect(b.selectAlpha()).toBe(0.25)
+    editorStore.setPSwitch(true)
+    expect(b.selectAlpha()).toBe(1)
   })
 
-  it('alpha is reactive to pSwitchActive ref changes', () => {
+  it('alpha is reactive to editorStore.pSwitchActive changes', () => {
     const b = new PSwitchRevealBehavior(makeQuad(1))
-    const ctx = mockCtx(false)
-    const a = computed(() => b.selectAlpha(ctx))
+    editorStore.setPSwitch(false)
+    const a = computed(() => b.selectAlpha())
     expect(a.value).toBe(0.5)
-    ctx.pSwitchActive.value = true
+    editorStore.setPSwitch(true)
     expect(a.value).toBe(1)
-    ctx.pSwitchActive.value = false
+    editorStore.setPSwitch(false)
     expect(a.value).toBe(0.5)
   })
 })

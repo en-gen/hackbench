@@ -13,35 +13,27 @@
  *   subtile 3: (tl.x + 8, tl.y + 0)
  */
 
-import { describe, it, expect } from 'vitest'
-import { ref } from '@vue/reactivity'
+import { describe, it, expect, beforeEach } from 'vitest'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { SubTile } from '../../../../src/rom/model/tiles/SubTile'
 import { type SubtileQuad } from '../../../../src/rom/model/tiles/Tile'
 import { VineSourceBehavior } from '../../../../src/rom/model/tiles/behaviors/VineSourceBehavior'
-import { cellBoxOf, type RenderContext, type RenderTarget, type PixelPos } from '../../../../src/rom/model/RenderTarget'
+import type { Palette } from '../../../../src/rom/model/palette/Palette'
+import { cellBoxOf, type RenderTarget, type PixelPos } from '../../../../src/rom/model/RenderTarget'
+import { editorStore, makeTestMapStore, resetEditorStore } from '../fixtures/stores'
 
 const TRANSPARENT_ROW: RgbaColor[] = Array(16).fill([0, 0, 0, 0] as RgbaColor)
 
-function mockCtx(cursorPx?: { x: number; y: number } | null): RenderContext {
-  return {
-    animFrame: ref(0),
-    palAnimFrame: ref(0),
-    pSwitchActive: ref(false),
-    switchPalaceState: ref<readonly [boolean, boolean, boolean, boolean]>([false, false, false, false]),
-    palette: {
-      row: () => TRANSPARENT_ROW,
-      color: () => [0, 0, 0, 0] as RgbaColor,
-      cells: [] as never,
-      backAreaColor: null as never,
-    } as never,
-    camera: ref({ tileX: 0, tileY: 0, focused: false }),
-    zoom: ref(1),
-    layerToggles: ref({ l1: true, l2: true, l3: true, sprites: true, screens: true, block: true, mapGrid: false, l3Hud: false, surfaces: false, walls: false }),
-    cursorPx: cursorPx !== undefined ? ref(cursorPx) : undefined,
-  }
+function stubMapStore() {
+  const palette = {
+    row: () => TRANSPARENT_ROW,
+    color: () => [0, 0, 0, 0] as RgbaColor,
+    cells: [] as never,
+    backAreaColor: null as never,
+  } as unknown as Palette
+  return makeTestMapStore({ palette })
 }
 
 function makeChar(): Char {
@@ -66,32 +58,37 @@ function capturingTarget() {
 }
 
 describe('VineSourceBehavior — selectQuad', () => {
+  beforeEach(resetEditorStore)
+
   it('returns the stored quad reference', () => {
     const quad = makeQuad()
     const b = new VineSourceBehavior(quad, null)
-    expect(b.selectQuad(mockCtx())).toBe(quad)
+    expect(b.selectQuad()).toBe(quad)
   })
 
   it('is invariant across animFrame changes', () => {
     const quad = makeQuad()
     const b = new VineSourceBehavior(quad, null)
-    const ctx = mockCtx()
-    const q1 = b.selectQuad(ctx)
-    ctx.animFrame.value = 7
-    expect(b.selectQuad(ctx)).toBe(q1)
+    const q1 = b.selectQuad()
+    editorStore.setAnimFrame(7)
+    expect(b.selectQuad()).toBe(q1)
   })
 })
 
 describe('VineSourceBehavior — renderOverlay with null overlayQuad', () => {
+  beforeEach(resetEditorStore)
+
   it('produces zero blit8x8 calls when overlayQuad is null', () => {
     const b = new VineSourceBehavior(makeQuad(), null)
     const { target, calls } = capturingTarget()
-    b.renderOverlay(mockCtx(), target, cellBoxOf(0, 0))
+    b.renderOverlay(target, cellBoxOf(0, 0), stubMapStore())
     expect(calls).toHaveLength(0)
   })
 })
 
 describe('VineSourceBehavior — renderOverlay with overlay quad', () => {
+  beforeEach(resetEditorStore)
+
   const CELL_TX = 3  // tile column 3 → pixel x = 48
   const CELL_TY = 5  // tile row 5   → pixel y = 80
   const cell = cellBoxOf(CELL_TX, CELL_TY)
@@ -105,23 +102,24 @@ describe('VineSourceBehavior — renderOverlay with overlay quad', () => {
   it('draws exactly 4 blit8x8 calls (one per overlay subtile)', () => {
     const b = new VineSourceBehavior(makeQuad(), makeQuad())
     const { target, calls } = capturingTarget()
-    b.renderOverlay(mockCtx(), target, cell)
+    b.renderOverlay(target, cell, stubMapStore())
     expect(calls).toHaveLength(4)
   })
 
   it('places overlay subtiles at the correct 4 pixel offsets from cell TL', () => {
     const b = new VineSourceBehavior(makeQuad(), makeQuad())
     const { target, calls } = capturingTarget()
-    b.renderOverlay(mockCtx(), target, cell)
+    b.renderOverlay(target, cell, stubMapStore())
     for (let i = 0; i < 4; i++) {
       expect(calls[i].pos).toEqual(expectedPositions[i])
     }
   })
 
-  it('alpha is 0.5 when cursorPx is undefined (no cursor)', () => {
+  it('alpha is 0.5 when cursorPx is null (no cursor)', () => {
     const b = new VineSourceBehavior(makeQuad(), makeQuad())
     const { target, calls } = capturingTarget()
-    b.renderOverlay(mockCtx(undefined), target, cell)
+    editorStore.setCursorPx(null)
+    b.renderOverlay(target, cell, stubMapStore())
     for (const call of calls) expect(call.alpha).toBe(0.5)
   })
 
@@ -129,31 +127,32 @@ describe('VineSourceBehavior — renderOverlay with overlay quad', () => {
     const b = new VineSourceBehavior(makeQuad(), makeQuad())
     const { target, calls } = capturingTarget()
     // cursor at (0, 0) — far from cell at tile (3,5) = pixel (48,80)
-    b.renderOverlay(mockCtx({ x: 0, y: 0 }), target, cell)
+    editorStore.setCursorPx({ x: 0, y: 0 })
+    b.renderOverlay(target, cell, stubMapStore())
     for (const call of calls) expect(call.alpha).toBe(0.5)
   })
 
   it('alpha is 0.5 when cursor is exactly at cell.tl.x + 16 (right edge, exclusive)', () => {
     const b = new VineSourceBehavior(makeQuad(), makeQuad())
     const { target, calls } = capturingTarget()
-    const outsideRight = { x: cell.tl.x + 16, y: cell.tl.y }
-    b.renderOverlay(mockCtx(outsideRight), target, cell)
+    editorStore.setCursorPx({ x: cell.tl.x + 16, y: cell.tl.y })
+    b.renderOverlay(target, cell, stubMapStore())
     for (const call of calls) expect(call.alpha).toBe(0.5)
   })
 
   it('alpha is 1.0 when cursor is inside the cell bounds', () => {
     const b = new VineSourceBehavior(makeQuad(), makeQuad())
     const { target, calls } = capturingTarget()
-    // cursor in the center of the cell
-    const inside = { x: cell.tl.x + 8, y: cell.tl.y + 8 }
-    b.renderOverlay(mockCtx(inside), target, cell)
+    editorStore.setCursorPx({ x: cell.tl.x + 8, y: cell.tl.y + 8 })
+    b.renderOverlay(target, cell, stubMapStore())
     for (const call of calls) expect(call.alpha).toBe(1.0)
   })
 
   it('alpha is 1.0 when cursor is at cell top-left corner (inclusive)', () => {
     const b = new VineSourceBehavior(makeQuad(), makeQuad())
     const { target, calls } = capturingTarget()
-    b.renderOverlay(mockCtx({ x: cell.tl.x, y: cell.tl.y }), target, cell)
+    editorStore.setCursorPx({ x: cell.tl.x, y: cell.tl.y })
+    b.renderOverlay(target, cell, stubMapStore())
     for (const call of calls) expect(call.alpha).toBe(1.0)
   })
 })

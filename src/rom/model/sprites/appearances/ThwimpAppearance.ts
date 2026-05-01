@@ -1,7 +1,10 @@
+// Consumes: (none directly — overlay only)
+
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import type { Char } from '../../chars/Char'
 import type { SpriteTileTables } from '../../../SpriteTileLoader'
 import { solidityFromL1 } from '../MovementBehavior'
+import type { MapStore } from '../../stores/mapStore'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import { ThwimpBounceBehavior } from '../behaviors/ThwimpBounceBehavior'
 import {
@@ -69,14 +72,15 @@ export class ThwimpAppearance extends StaticSpriteAppearance {
   }
 
   renderOverlay(
-    ctx:       OverlayContext,
-    x:         number,
-    y:         number,
-    isActive:  boolean,
-    getL1:     GetL1Tile,
-    levelCols: number,
-    levelRows: number,
-    behavior?: SpriteBehavior,
+    ctx:        OverlayContext,
+    x:          number,
+    y:          number,
+    isActive:   boolean,
+    getL1:      GetL1Tile,
+    levelCols:  number,
+    levelRows:  number,
+    behavior:   SpriteBehavior | undefined,
+    _mapStore:  MapStore,
   ): void {
     if (!isActive || !(behavior instanceof ThwimpBounceBehavior)) return
     const { solidV } = solidityFromL1(getL1)

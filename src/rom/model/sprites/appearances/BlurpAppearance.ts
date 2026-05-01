@@ -1,8 +1,12 @@
+// Consumes: mapStore.marioSpawnX (overlay only)
+
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import {
   COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH,
   drawArrowHead, rgba,
 } from '../../overlays/primitives'
+import type { MapStore } from '../../stores/mapStore'
+import type { SpriteBehavior } from '../SpriteBehavior'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
 import { BLURP_FADE_LENGTH_PX } from '../behaviors/BlurpBehavior'
 
@@ -26,25 +30,24 @@ export class BlurpAppearance extends StaticSpriteAppearance {
   }
 
   override renderOverlay(
-    ctx:          OverlayContext,
-    x:            number,
-    y:            number,
-    isActive:     boolean,
-    _getL1:       GetL1Tile,
-    _levelCols:   number,
-    _levelRows:   number,
-    _behavior?:   unknown,
-    marioSpawnX?: number,
+    ctx:        OverlayContext,
+    x:          number,
+    y:          number,
+    isActive:   boolean,
+    _getL1:     GetL1Tile,
+    _levelCols: number,
+    _levelRows: number,
+    _behavior:  SpriteBehavior | undefined,
+    mapStore:   MapStore,
   ): void {
     if (!isActive) return
     const color   = COLORS.patrolPath
     const centerX = x + 8
     const centerY = y + 8
     // Direction toward Mario at spawn (FaceMario init at bank_01.asm:847).
-    // marioSpawnX defaults to 0 — for typical horizontal levels Mario
-    // enters at the left, so any sprite past column 0 swims left.
-    const mx       = marioSpawnX ?? 0
-    const swimDir  = centerX > mx ? -1 : +1
+    // mapStore.marioSpawnX defaults to 0 — for typical horizontal levels
+    // Mario enters at the left, so any sprite past column 0 swims left.
+    const swimDir  = centerX > mapStore.marioSpawnX ? -1 : +1
     const farX     = centerX + swimDir * BLURP_FADE_LENGTH_PX
 
     ctx.save()

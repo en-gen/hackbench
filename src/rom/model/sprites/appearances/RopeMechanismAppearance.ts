@@ -1,6 +1,11 @@
+// Consumes: editorStore.animFrame
+
 import type { Char } from '../../chars/Char'
-import type { RenderContext, RenderTarget } from '../../RenderTarget'
+import type { RenderTarget } from '../../RenderTarget'
+import { editorStore } from '../../stores/editorStore'
+import type { MapStore } from '../../stores/mapStore'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
+import type { SpriteBehavior } from '../SpriteBehavior'
 import type { SpritePart } from './StaticSpriteAppearance'
 
 const OBJ_CHAR_BASE = 0x400
@@ -86,8 +91,8 @@ export class RopeMechanismAppearance implements SpriteAppearance {
     )
   }
 
-  render(ctx: RenderContext, target: RenderTarget, x: number, y: number): void {
-    const animFrame = ctx.animFrame.value % 4
+  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
+    const animFrame = editorStore.animFrame % 4
     for (let seg = 0; seg < this.segmentCount; seg++) {
       const isMotor = seg === 0
       const isKnot  = seg === this.segmentCount - 1 && !isMotor
@@ -97,9 +102,9 @@ export class RopeMechanismAppearance implements SpriteAppearance {
       const segDy   = seg * 16
       for (const part of parts) {
         target.blit8x8(
-          part.char.getPixels(ctx),
+          part.char.getPixels(),
           { x: x + part.dx, y: y + part.dy + segDy },
-          ctx.palette.row(part.palette, ctx),
+          mapStore.palette.row(part.palette),
           part.flipX, part.flipY,
         )
       }
@@ -114,9 +119,9 @@ export class RopeMechanismAppearance implements SpriteAppearance {
     const renderPuff = (frameIdx: number, puffDx: number, ageRise: number): void => {
       for (const part of this.smokePuffFrames[frameIdx]) {
         target.blit8x8(
-          part.char.getPixels(ctx),
+          part.char.getPixels(),
           { x: x + part.dx + puffDx, y: y + part.dy - 6 - ageRise },
-          ctx.palette.row(part.palette, ctx),
+          mapStore.palette.row(part.palette),
           part.flipX, part.flipY,
         )
       }

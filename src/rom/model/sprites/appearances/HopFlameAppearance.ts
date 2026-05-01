@@ -1,3 +1,5 @@
+// Consumes: (none directly — overlay only)
+
 import { HopFlameBehavior } from '../behaviors/HopFlameBehavior'
 import { solidityFromL1 } from '../MovementBehavior'
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
@@ -7,6 +9,7 @@ import {
   drawBounceArc,
   drawCorridor,
 } from '../../overlays/primitives'
+import type { MapStore } from '../../stores/mapStore'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
 
@@ -46,7 +49,8 @@ export class HopFlameAppearance extends StaticSpriteAppearance {
     getL1:      GetL1Tile,
     levelCols:  number,
     levelRows:  number,
-    behavior?:  SpriteBehavior,
+    behavior:   SpriteBehavior | undefined,
+    _mapStore:  MapStore,
   ): void {
     if (!isActive) return
     if (!(behavior instanceof HopFlameBehavior)) return

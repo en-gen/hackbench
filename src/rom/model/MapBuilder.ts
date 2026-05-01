@@ -19,6 +19,7 @@ import { buildPalette } from './palette/PaletteFactory'
 import { serialize } from './serialize'
 import { SmwMap } from './SmwMap'
 import { buildSprites } from './SpriteFactory'
+import { createMapStore } from './stores/mapStore'
 import type { Tile } from './tiles/Tile'
 import { buildTiles, makePlaceholderBoxChar } from './tiles/TileFactory'
 
@@ -136,6 +137,14 @@ export function buildMapWithGraph(
   // & $1F provides the page high byte. See bank_05.asm:7329-7335 and 7386-7388.
   const initialCameraYPx = readInitialLayer1YPos(rom.rom, levelId, isVertical)
 
+  const palette = buildPalette(rom.rom, header)
+  const mapStore = createMapStore({
+    palette,
+    levelOrientation: orientation,
+    screenPipeVariantIdx,
+    initialCameraYPx,
+    marioSpawnX: marioStartPx?.x ?? 0,
+  })
   const map = new SmwMap(
     levelId,
     {
@@ -154,12 +163,13 @@ export function buildMapWithGraph(
     l2,
     l3,
     sprites,
-    buildPalette(rom.rom, header),
+    palette,
     tileset,
     screens,
     screenPipeVariantIdx,
     tiles,
     bgTiles,
+    mapStore,
   )
 
   return { map, chars, tiles }

@@ -1,10 +1,12 @@
 import { isPriorityDecorative, type GetL1Tile, type OverlayContext } from './OverlayContext'
 import { cellBoxOf } from './RenderTarget'
-import type { Phase, RenderContext, RenderTarget } from './RenderTarget'
+import type { Phase, RenderTarget } from './RenderTarget'
 import type { L2Layer } from './L2Layer'
 import type { L3Layer } from './L3Layer'
 import type { Palette } from './palette/Palette'
 import type { Sprite } from './sprites/Sprite'
+import { editorStore } from './stores/editorStore'
+import type { MapStore } from './stores/mapStore'
 import type { Tile } from './tiles/Tile'
 
 export type LevelOrientation = 'horizontal' | 'vertical'
@@ -76,34 +78,32 @@ export class SmwMap {
      * palette.
      */
     readonly bgTiles: Map<number, Tile>,
+    /**
+     * Per-map reactive store. Holds palette + ROM-derived per-level data
+     * (orientation, screen pipe variants, initial camera Y, mario spawn X).
+     * Threaded through render() into every behavior so they can read
+     * level-wide ROM data without reaching into globals.
+     */
+    readonly mapStore: MapStore,
   ) {}
 
-  render(ctx: RenderContext, target: RenderTarget): void {
-    // Stamp level-wide state onto the ctx once per render pass so tile
-    // behaviors can self-select per-cell concerns (e.g. PipeVariantsBehavior
-    // derives its own screen idx from the cell it's drawing onto).
-    const levelCtx: RenderContext = {
-      ...ctx,
-      levelOrientation: this.header.orientation,
-      screenPipeVariantIdx: this.screenPipeVariantIdx,
-      initialCameraYPx: this.header.initialCameraYPx,
-    }
-    const toggles = levelCtx.layerToggles.value
+  render(target: RenderTarget): void {
+    const toggles = editorStore.layerToggles
     const l3Priority = this.header.layer3Priority ?? false
     // layer3Priority=false → L3 behind everything (before L2)
-    if (toggles.l3 && !l3Priority) this.l3?.render(levelCtx, target)
-    if (toggles.l2) this.l2?.render(levelCtx, target)
-    if (toggles.l1) this.renderL1Overlays(levelCtx, target)
-    if (toggles.l1) this.renderL1(levelCtx, target, 'nonPriority')
+    if (toggles.l3 && !l3Priority) this.l3?.render(target, this.mapStore)
+    if (toggles.l2) this.l2?.render(target, this.mapStore)
+    if (toggles.l1) this.renderL1Overlays(target)
+    if (toggles.l1) this.renderL1(target, 'nonPriority')
     if (toggles.sprites) {
-      for (const sprite of this.spritesInRenderOrder()) sprite.render(levelCtx, target)
+      for (const sprite of this.spritesInRenderOrder()) sprite.render(target, this.mapStore)
     }
-    if (toggles.l1) this.renderL1(levelCtx, target, 'priority')
+    if (toggles.l1) this.renderL1(target, 'priority')
     // layer3Priority=true → L3 in front of sprites, behind L1 priority
-    if (toggles.l3 && l3Priority) this.l3?.render(levelCtx, target)
+    if (toggles.l3 && l3Priority) this.l3?.render(target, this.mapStore)
   }
 
-  private renderL1Overlays(ctx: RenderContext, target: RenderTarget): void {
+  private renderL1Overlays(target: RenderTarget): void {
     for (let y = 0; y < this.l1.length; y++) {
       const row = this.l1[y]
       if (!row) continue
@@ -112,12 +112,12 @@ export class SmwMap {
         if (id === null) continue
         const tile = this.l1Tiles.get(id)
         if (!tile?.behavior.renderOverlay) continue
-        tile.renderOverlay(ctx, target, cellBoxOf(x, y))
+        tile.renderOverlay(target, cellBoxOf(x, y), this.mapStore)
       }
     }
   }
 
-  private renderL1(ctx: RenderContext, target: RenderTarget, phase: Phase): void {
+  private renderL1(target: RenderTarget, phase: Phase): void {
     for (let y = 0; y < this.l1.length; y++) {
       const row = this.l1[y]
       if (!row) continue
@@ -126,7 +126,7 @@ export class SmwMap {
         if (id === null) continue
         const tile = this.l1Tiles.get(id)
         if (!tile) continue
-        tile.render(ctx, target, cellBoxOf(x, y), phase)
+        tile.render(target, cellBoxOf(x, y), this.mapStore, phase)
       }
     }
   }
@@ -163,12 +163,11 @@ export class SmwMap {
       const collision = tile?.collision
       return { id, actsLike: tile?.actsLike ?? id, isPriority, collision }
     }
-    const marioSpawnX = this.header.marioStartPx?.x
     for (const sprite of this.sprites) {
       if (!sprite.appearance.renderOverlay) continue
       const key    = `${sprite.id}:${sprite.x},${sprite.y}`
       sprite.renderOverlay(
-        ctx, sprite.x, sprite.y, activeKeys.has(key), getL1, cols, rows, marioSpawnX,
+        ctx, sprite.x, sprite.y, activeKeys.has(key), getL1, cols, rows, this.mapStore,
       )
     }
   }

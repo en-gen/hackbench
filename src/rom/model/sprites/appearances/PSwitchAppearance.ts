@@ -1,5 +1,9 @@
-import type { RenderContext, RenderTarget } from '../../RenderTarget'
+// Consumes: (none directly — palette via mapStore)
+
+import type { RenderTarget } from '../../RenderTarget'
+import type { MapStore } from '../../stores/mapStore'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
+import type { SpriteBehavior } from '../SpriteBehavior'
 import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
 
 /**
@@ -24,13 +28,13 @@ export class PSwitchAppearance implements SpriteAppearance {
     this.hitRect = partsHitRect(parts)
   }
 
-  render(ctx: RenderContext, target: RenderTarget, x: number, y: number): void {
+  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
     const palette = ((x >> 4) & 1) === 0
       ? PSwitchAppearance.BLUE_PALETTE
       : PSwitchAppearance.SILVER_PALETTE
     for (const part of this.parts) {
-      const pixels = part.char.getPixels(ctx)
-      const row = ctx.palette.row(palette, ctx)
+      const pixels = part.char.getPixels()
+      const row = mapStore.palette.row(palette)
       target.blit8x8(pixels, { x: x + part.dx, y: y + part.dy }, row, part.flipX, part.flipY)
     }
   }

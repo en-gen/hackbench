@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { computed, ref } from '@vue/reactivity'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { computed } from '@vue/reactivity'
 import { existsSync } from 'fs'
 import { loadVram } from '../../../../src/rom/GfxLoader'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
@@ -11,21 +11,12 @@ import { SubTile } from '../../../../src/rom/model/tiles/SubTile'
 import { Tile, type SubtileQuad } from '../../../../src/rom/model/tiles/Tile'
 import { buildTiles } from '../../../../src/rom/model/tiles/TileFactory'
 import { SwitchPalaceAlternateBehavior } from '../../../../src/rom/model/tiles/behaviors/SwitchPalaceAlternateBehavior'
-import type { RenderContext } from '../../../../src/rom/model/RenderTarget'
+import { editorStore, resetEditorStore } from '../fixtures/stores'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
 
-function mockCtx(switchPalaceState: readonly [boolean, boolean, boolean, boolean] = [false, false, false, false]): RenderContext {
-  return {
-    animFrame: ref(0),
-    palAnimFrame: ref(0),
-    pSwitchActive: ref(false),
-    switchPalaceState: ref(switchPalaceState),
-    palette: null as never,
-    camera: ref({ tileX: 0, tileY: 0, focused: false }),
-    zoom: ref(1),
-    layerToggles: ref({ l1: true, l2: true, sprites: true, screens: true, block: true, mapGrid: false }),
-  }
+function setSwitches(state: readonly [boolean, boolean, boolean, boolean]): void {
+  for (let c = 0; c < 4; c++) editorStore.setSwitchPalace(c as 0 | 1 | 2 | 3, state[c])
 }
 
 function makeQuad(tag: number): SubtileQuad {
@@ -41,18 +32,22 @@ function makeQuad(tag: number): SubtileQuad {
 }
 
 describe('SwitchPalaceAlternateBehavior behavior', () => {
+  beforeEach(resetEditorStore)
+
   it('returns the off quad when the color slot is false', () => {
     const off = makeQuad(1)
     const on = makeQuad(2)
     const b = new SwitchPalaceAlternateBehavior(off, on, 0)
-    expect(b.selectQuad(mockCtx([false, false, false, false]))).toBe(off)
+    setSwitches([false, false, false, false])
+    expect(b.selectQuad()).toBe(off)
   })
 
   it('returns the on quad when the color slot is true', () => {
     const off = makeQuad(1)
     const on = makeQuad(2)
     const b = new SwitchPalaceAlternateBehavior(off, on, 2)
-    expect(b.selectQuad(mockCtx([false, false, true, false]))).toBe(on)
+    setSwitches([false, false, true, false])
+    expect(b.selectQuad()).toBe(on)
   })
 
   it('reads only the specific color slot, not others', () => {
@@ -60,27 +55,30 @@ describe('SwitchPalaceAlternateBehavior behavior', () => {
     const on = makeQuad(2)
     const b = new SwitchPalaceAlternateBehavior(off, on, 1) // green
     // yellow + red + blue on, green off → still returns off
-    expect(b.selectQuad(mockCtx([true, false, true, true]))).toBe(off)
+    setSwitches([true, false, true, true])
+    expect(b.selectQuad()).toBe(off)
   })
 
-  it('computed() invalidates only when switchPalaceState ref changes', () => {
+  it('computed() invalidates only when switchPalaceState changes', () => {
     const off = makeQuad(1)
     const on = makeQuad(2)
     const b = new SwitchPalaceAlternateBehavior(off, on, 0)
-    const ctx = mockCtx([false, false, false, false])
-    const reactive = computed(() => b.selectQuad(ctx))
+    setSwitches([false, false, false, false])
+    const reactive = computed(() => b.selectQuad())
 
     expect(reactive.value).toBe(off)
 
-    ctx.animFrame.value = 5
+    editorStore.setAnimFrame(5)
     expect(reactive.value).toBe(off) // unrelated; cached
 
-    ctx.switchPalaceState.value = [true, false, false, false]
+    editorStore.setSwitchPalace(0, true)
     expect(reactive.value).toBe(on)
   })
 })
 
 describe.skipIf(!existsSync(ROM_PATH))('TileFactory switch-palace wiring (vanilla ROM)', () => {
+  beforeEach(resetEditorStore)
+
   it('$06A-$06D and $16A-$16D all wear SwitchPalaceAlternateBehavior', () => {
     const rom = SmwRom.open(ROM_PATH)
     const raw = rom.getLevelRawData(0x105)!
@@ -99,12 +97,12 @@ describe.skipIf(!existsSync(ROM_PATH))('TileFactory switch-palace wiring (vanill
     }
 
     // With color 0 set, $06A and $16A both select the "on" quad
-    const ctx = mockCtx([true, false, false, false])
+    setSwitches([true, false, false, false])
     const off06A = tiles.get(0x06A)!
     const on16A = tiles.get(0x16A)!
     const q1 = off06A.behavior as SwitchPalaceAlternateBehavior
     const q2 = on16A.behavior as SwitchPalaceAlternateBehavior
-    expect(q1.selectQuad(ctx)).toBe((q1 as SwitchPalaceAlternateBehavior).on)
-    expect(q2.selectQuad(ctx)).toBe((q2 as SwitchPalaceAlternateBehavior).on)
+    expect(q1.selectQuad()).toBe(q1.on)
+    expect(q2.selectQuad()).toBe(q2.on)
   })
 })

@@ -1,11 +1,12 @@
-import type { RenderContext } from '../../RenderTarget'
+// Consumes: (none)
+
 import type { SubtileQuad } from '../Tile'
 import type { TileBehavior } from '../TileBehavior'
 
 export class StaticQuadBehavior implements TileBehavior {
   constructor(readonly quad: SubtileQuad) {}
 
-  selectQuad(_ctx: RenderContext): SubtileQuad {
+  selectQuad(): SubtileQuad {
     return this.quad
   }
 }

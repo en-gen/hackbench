@@ -1,5 +1,6 @@
 import type { GetL1Tile, OverlayContext } from '../OverlayContext'
-import type { RenderContext, RenderTarget } from '../RenderTarget'
+import type { RenderTarget } from '../RenderTarget'
+import type { MapStore } from '../stores/mapStore'
 import type { SpriteAppearance } from './SpriteAppearance'
 import type { SpriteBehavior } from './SpriteBehavior'
 
@@ -12,8 +13,8 @@ export class Sprite {
     readonly behavior: SpriteBehavior,
   ) {}
 
-  render(ctx: RenderContext, target: RenderTarget): void {
-    this.appearance.render(ctx, target, this.x, this.y, this.behavior)
+  render(target: RenderTarget, mapStore: MapStore): void {
+    this.appearance.render(target, this.x, this.y, this.behavior, mapStore)
   }
 
   tickAnimation(): void {
@@ -21,17 +22,17 @@ export class Sprite {
   }
 
   renderOverlay(
-    ctx:          OverlayContext,
-    x:            number,
-    y:            number,
-    isActive:     boolean,
-    getL1:        GetL1Tile,
-    levelCols:    number,
-    levelRows:    number,
-    marioSpawnX?: number,
+    ctx:        OverlayContext,
+    x:          number,
+    y:          number,
+    isActive:   boolean,
+    getL1:      GetL1Tile,
+    levelCols:  number,
+    levelRows:  number,
+    mapStore:   MapStore,
   ): void {
     this.appearance.renderOverlay?.(
-      ctx, x, y, isActive, getL1, levelCols, levelRows, this.behavior, marioSpawnX,
+      ctx, x, y, isActive, getL1, levelCols, levelRows, this.behavior, mapStore,
     )
   }
 
