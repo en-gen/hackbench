@@ -1,5 +1,6 @@
 import type { Char } from '../../chars/Char'
-import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
+import { ChuckAppearance } from './ChuckAppearance'
+import type { SpritePart } from './StaticSpriteAppearance'
 
 /**
  * Sprite $95 (Clappin' Chuck), rendered in clapping pose frame $06.
@@ -43,7 +44,7 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  * Extends StaticSpriteAppearance → serializes as { kind:'static' }, no
  * changes to serialize.ts / rehydrate.ts needed.
  */
-export class ClappinChuckAppearance extends StaticSpriteAppearance {
+export class ClappinChuckAppearance extends ChuckAppearance {
   /**
    * @param bodyPalette   8 + ((Sprite166EVals[$95] >> 1) & 0x07)
    * @param bodyCharHigh  0x100 when Sprite166EVals[$95] & 0x01, else 0
@@ -56,19 +57,7 @@ export class ClappinChuckAppearance extends StaticSpriteAppearance {
     bodyCharHigh: number,
     faceRight: boolean,
   ): ClappinChuckAppearance {
-    const OBJ_BASE = 0x400
-    const bigTile = (baseTile: number, bdx: number, bdy: number, flipX: boolean, pal: number, cHigh: number): SpritePart[] => {
-      const co = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
-      return co.map((off, i) => ({
-        char: chars.get(OBJ_BASE + cHigh + ((baseTile + off) & 0x1FF)) ?? placeholder,
-        palette: pal, flipX, flipY: false,
-        dx: bdx + [0, 8, 0, 8][i], dy: bdy + [0, 0, 8, 8][i],
-      }))
-    }
-    const smallTile = (tile: number, dx: number, dy: number, flipX: boolean, pal: number, cHigh: number): SpritePart => ({
-      char: chars.get(OBJ_BASE + cHigh + (tile & 0x1FF)) ?? placeholder,
-      palette: pal, flipX, flipY: false, dx, dy,
-    })
+    const { bigTile, smallTile } = ChuckAppearance.builders(chars, placeholder)
 
     const parts: SpritePart[] = [
       // head: tile $06, centered (X=0), Y=−12 (DATA_02C84A[6]=$F4)

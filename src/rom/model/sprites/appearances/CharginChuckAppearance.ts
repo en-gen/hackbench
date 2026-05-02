@@ -1,5 +1,6 @@
 import type { Char } from '../../chars/Char'
-import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
+import { ChuckAppearance } from './ChuckAppearance'
+import type { SpritePart } from './StaticSpriteAppearance'
 
 /**
  * Sprite $91 (Chargin' Chuck), rendered in charging pose $13.
@@ -20,7 +21,7 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  * Extends StaticSpriteAppearance → serializes as { kind:'static' }, no
  * changes to serialize.ts / rehydrate.ts needed.
  */
-export class CharginChuckAppearance extends StaticSpriteAppearance {
+export class CharginChuckAppearance extends ChuckAppearance {
   /**
    * @param bodyPalette   8 + ((Sprite166EVals[$91] >> 1) & 0x07)
    * @param bodyCharHigh  0x100 when Sprite166EVals[$91] & 0x01, else 0
@@ -39,19 +40,7 @@ export class CharginChuckAppearance extends StaticSpriteAppearance {
     const ballPalette  = 8 + ((BALL_ATTR >> 1) & 0x07)
     const ballCharHigh = (BALL_ATTR & 0x01) !== 0 ? 0x100 : 0
 
-    const OBJ_BASE = 0x400
-    const bigTile = (baseTile: number, bdx: number, bdy: number, flipX: boolean, pal: number, cHigh: number): SpritePart[] => {
-      const co = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
-      return co.map((off, i) => ({
-        char: chars.get(OBJ_BASE + cHigh + ((baseTile + off) & 0x1FF)) ?? placeholder,
-        palette: pal, flipX, flipY: false,
-        dx: bdx + [0, 8, 0, 8][i], dy: bdy + [0, 0, 8, 8][i],
-      }))
-    }
-    const smallTile = (tile: number, dx: number, dy: number, flipX: boolean, pal: number, cHigh: number): SpritePart => ({
-      char: chars.get(OBJ_BASE + cHigh + (tile & 0x1FF)) ?? placeholder,
-      palette: pal, flipX, flipY: false, dx, dy,
-    })
+    const { bigTile, smallTile } = ChuckAppearance.builders(chars, placeholder)
 
     // Draw order matches SMW OAM: head first (behind), body2, body1; football on top.
     const parts: SpritePart[] = faceRight

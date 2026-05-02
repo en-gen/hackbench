@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Sprite $93 (Bouncin' Chuck) renders the canonical arms-up bounce pose
+  (`SpriteMisc1602 = $06` written by `CODE_02C53C` in bank_02.asm:9204 once
+  `SpriteTableC2` advances to $06 after the chuck triggers). Body uses
+  symmetric `$40` halves with the asymmetric `$0C` arm pair the in-game OAM
+  emits — geometry verified directly against a Mesen capture on level $010.
 - Sprite $97 (Puntin' Chuck) renders the canonical kick wind-up pose
   (`SpriteMisc1602 = $11` per `DATA_02C4B5` in bank_02.asm:9136) with the
   spawned football composed at its `ChuckSprGenDispX` offset so the editor

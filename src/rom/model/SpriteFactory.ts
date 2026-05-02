@@ -29,7 +29,9 @@ import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppe
 import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import { DryBonesAppearance } from './sprites/appearances/DryBonesAppearance'
+import { BouncinChuckAppearance } from './sprites/appearances/BouncinChuckAppearance'
 import { CharginChuckAppearance } from './sprites/appearances/CharginChuckAppearance'
+import { ChuckAppearance } from './sprites/appearances/ChuckAppearance'
 import { ClappinChuckAppearance } from './sprites/appearances/ClappinChuckAppearance'
 import { PuntinChuckAppearance } from './sprites/appearances/PuntinChuckAppearance'
 import { KeyholeAppearance } from './sprites/appearances/KeyholeAppearance'
@@ -303,52 +305,39 @@ export function buildSprites(
       continue
     }
 
-    // $91 (Chargin' Chuck).
-    if (s.spriteId === 0x91) {
-      const attr         = tables.spriteAttr[s.spriteId] ?? 0
-      const bodyPalette  = 8 + ((attr >> 1) & 0x07)
-      const bodyCharHigh = (attr & 0x01) !== 0 ? 0x100 : 0
-      const faceRight    = marioStartPx.x >= s.x * 16
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        CharginChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight),
-        behavior,
-      ))
-      continue
-    }
-
-    // $97 (Puntin' Chuck) — kick wind-up pose $11. The football is sprite $1B,
-    // dynamically spawned in-game by CODE_03CBB3 (bank_03.asm:8769) at chuck_x
-    // +/- ChuckSprGenDispX[face]; we compose its tile $8A right into Puntin's
-    // appearance at the spawn offset so the editor view conveys the kick.
-    // Football palette/charHigh come from Sprite166EVals[$1B].
-    if (s.spriteId === 0x97) {
-      const chuckAttr    = tables.spriteAttr[s.spriteId] ?? 0
-      const bodyPalette  = 8 + ((chuckAttr >> 1) & 0x07)
-      const bodyCharHigh = (chuckAttr & 0x01) !== 0 ? 0x100 : 0
-      const ballAttr     = tables.spriteAttr[0x1B] ?? 0
-      const ballPalette  = 8 + ((ballAttr >> 1) & 0x07)
-      const ballCharHigh = (ballAttr & 0x01) !== 0 ? 0x100 : 0
-      const faceRight    = marioStartPx.x >= s.x * 16
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        PuntinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, ballPalette, ballCharHigh, faceRight),
-        behavior,
-      ))
-      continue
-    }
-
-    // $95 (Clappin' Chuck).
-    if (s.spriteId === 0x95) {
-      const attr         = tables.spriteAttr[s.spriteId] ?? 0
-      const bodyPalette  = 8 + ((attr >> 1) & 0x07)
-      const bodyCharHigh = (attr & 0x01) !== 0 ? 0x100 : 0
-      const faceRight    = marioStartPx.x >= s.x * 16
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        ClappinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight),
-        behavior,
-      ))
+    // Chuck-family sprites ($91 Chargin', $93 Bouncin', $95 Clappin', $97 Puntin').
+    // All four resolve their body palette / charHigh from Sprite166EVals via
+    // ChuckAppearance.bodyAttrs and their face direction from FaceMario via
+    // ChuckAppearance.facesMario — see ChuckAppearance.ts for the full asm
+    // grounding. Per-chuck dispatch differs only in which appearance class is
+    // built and (for Puntin') the extra ball palette derived from sprite $1B.
+    if (s.spriteId === 0x91 || s.spriteId === 0x93 || s.spriteId === 0x95 || s.spriteId === 0x97) {
+      const { palette: bodyPalette, charHigh: bodyCharHigh } =
+        ChuckAppearance.bodyAttrs(tables.spriteAttr[s.spriteId] ?? 0)
+      const faceRight = ChuckAppearance.facesMario(s.x * 16, marioStartPx.x)
+      let appearance: ChuckAppearance
+      switch (s.spriteId) {
+        case 0x91:
+          appearance = CharginChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight)
+          break
+        case 0x93:
+          appearance = BouncinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight)
+          break
+        case 0x95:
+          appearance = ClappinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight)
+          break
+        case 0x97: {
+          // Puntin' Chuck composes sprite $1B (Football) at its spawn offset
+          // (CODE_03CBB3 bank_03.asm:8769); its palette comes from $1B's attr.
+          const { palette: ballPalette, charHigh: ballCharHigh } =
+            ChuckAppearance.bodyAttrs(tables.spriteAttr[0x1B] ?? 0)
+          appearance = PuntinChuckAppearance.fromTables(
+            chars, placeholder, bodyPalette, bodyCharHigh, ballPalette, ballCharHigh, faceRight,
+          )
+          break
+        }
+      }
+      out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, appearance, behavior))
       continue
     }
 
