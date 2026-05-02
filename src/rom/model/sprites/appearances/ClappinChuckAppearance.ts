@@ -3,52 +3,74 @@ import { ChuckAppearance } from './ChuckAppearance'
 import type { SpritePart } from './StaticSpriteAppearance'
 
 /**
- * Sprite $95 (Clappin' Chuck), rendered in clapping pose frame $06.
+ * Sprite $95 (Clappin' Chuck), rendered in the clap follow-through pose $07
+ * with the alt-glove tile $44 raised above the head — the moment SFX_CLAP
+ * fires (CODE_02C4E3 line 9170-9176, bank_02.asm) and the Misc1FE2 timer
+ * starts. This is the most distinctive Clappin' Chuck frame at editor
+ * scale (visually unique from the other chuck variants which all reuse
+ * pose $06's body tile $40 + small $0C arm tiles).
  *
- * InitClappinChuck (bank_01.asm:749) sets SpriteTableC2=$08 then falls
- * through to JSR FaceMario (bank_01.asm:788), which calls SubHorizPos
- * (bank_01.asm:6124): Y=0 when Mario.X >= Sprite.X (face right), Y=1
- * when Mario.X < Sprite.X (face left). Stored in SpriteMisc157C (_3).
- * CODE_02C556 (bank_02.asm:9217) re-evaluates facing every frame the
- * same way via CODE_02D4FA (bank_02.asm:11275). Static display uses
- * marioStartPx.x >= spriteX as the equivalent.
+ * Geometry verified directly via Mesen sprite inspector against a running
+ * Clappin' Chuck on level $105 (YI1) at face-RIGHT — see slot data in PR
+ * description. Face-LEFT is the X-mirror with all hflip flags toggled.
  *
- * Frame $06 is the first clapping frame (CODE_02CA9D bank_02.asm:9824,
- * X=0 branch after SBC #$06) showing the spread-glove pose with the
- * small $0C tiles. It is the most visually distinctive Clappin' Chuck
- * frame at editor scale.
+ * ASM grounding (C:\Projects\SMWDisX):
+ *   Init  bank_01.asm:380 → InitClappinChuck (bank_01.asm:749) sets
+ *         SpriteTableC2 = $08, then JSR FaceMario.
+ *   Main  bank_01.asm:1048 → Chucks dispatch → CODE_02C4E3 (bank_02.asm:9162)
+ *         which calls CODE_02C556 every frame (resetting SpriteMisc151C to
+ *         0 face-RIGHT or 1 face-LEFT). Pose $07 is set when SpriteMisc1FE2
+ *         is zero (line 9170-9176): play SFX_CLAP, set Misc1FE2 = $20, write
+ *         pose $07. Otherwise pose $06 default. Grounded chucks override to
+ *         pose $04 (idle).
  *
- * Head — CODE_02C88C (bank_02.asm:9627):
- *   tile $06  (ChuckHeadTiles[0], line 9621) — head-frame 0 for static
- *   X offset 0 (DATA_02C830[6]=$00, line 9603) — negate(0)=0, direction-invariant
- *   Y offset −12 (DATA_02C84A[6]=$F4, line 9609)
- *   DATA_02C885[0]=$40 ORed into attr → flipX = faceRight (same convention as $91)
+ *   Pose $07 OAM (CODE_02C81A → 02C88C / 02CA27 / 02CA9D, bank_02.asm):
  *
- * Body — CODE_02CA27 (bank_02.asm:9755), frame $06:
- *   body1 tile $40 (ChuckBody1[6], line 9719), size 16×16 (DATA_02C9F3[6]=$02, line 9743)
- *   body2 tile $40 (ChuckBody2[6], line 9725), size 16×16 (hardcoded)
- *   body Y offset 0 (DATA_02C971[6]=$00, line 9713)
- *   body1 flipX = faceRight  (DATA_02C9BF[6]=$00, line 9731 — XOR 0)
- *   body2 flipX = !faceRight (DATA_02C9D9[6]=$40, line 9737 — XOR $40 inverts)
- *   body1 X: −4 facing left (DATA_02C909[6]=$FC, line 9695), +4 facing right ([32]=$04)
- *   body2 X: +4 facing left (DATA_02C93D[6]=$04, line 9704), −4 facing right ([32]=$FC)
+ *     head      ChuckHeadTiles[Misc151C]:
+ *                 face-RIGHT (Misc151C=0): tile $06
+ *                 face-LEFT  (Misc151C=1): tile $0A
+ *               dx  = ±DATA_02C830[$07] = ±0 (negation no-op).
+ *               dy  = DATA_02C84A[$07] = $F5 = -11.
+ *               hflip — Mesen face-RIGHT shows the head with H-mirror clear,
+ *               which is the empirical truth even though
+ *               `DATA_02C885[Misc151C] | base` would algebraically predict
+ *               $40 | base → hflip set. We follow Mesen here; the
+ *               face-LEFT branch toggles hflip to TRUE so the silhouette
+ *               mirrors correctly.
  *
- * Clapping hands — CODE_02CA9D (bank_02.asm:9824), X=0 branch (frame $06):
- *   tile $0C (ClappinChuckTiles[0], line 9815), size 8×8 (DATA_02CA9B[0]=$00, line 9821)
- *   left hand X offset −6 (DATA_02CA93[0]=$FA, line 9809)
- *   right hand X offset +14 (DATA_02CA95[0]=$0E, line 9812)
- *   both hands Y offset −8 (DATA_02CA99[0]=$F8, line 9818)
- *   left: base attr (no extra flip); right: attr | $40 (H-flip)
- *   Hand positions are direction-invariant (no +$1A offset in CODE_02CA9D).
+ *     body1     ChuckBody1[$07] = $42 (16x16 big-tile).
+ *               dx face-LEFT  = DATA_02C909[$07]    = $F8 = -8
+ *               dx face-RIGHT = DATA_02C909[$07+$1A]= $08 = +8
+ *               dy = DATA_02C971[$07] = 0
+ *               hflip = base XOR DATA_02C9BF[$07]=$00; toggles with face.
  *
- * Extends StaticSpriteAppearance → serializes as { kind:'static' }, no
- * changes to serialize.ts / rehydrate.ts needed.
+ *     body2     ChuckBody2[$07] = $42 (same tile, mirrored).
+ *               dx face-LEFT  = DATA_02C93D[$07]    = $08 = +8
+ *               dx face-RIGHT = DATA_02C93D[$07+$1A]= $F8 = -8
+ *               dy = 0 (hardcoded)
+ *               hflip = base XOR DATA_02C9D9[$07]=$40; opposite of body1.
+ *
+ *     glove     ClappinChuckTiles[1] = $44 16x16 (DATA_02CA9B[1]=$02 size).
+ *               dx = DATA_02CA93[1]/02CA95[1] = 0 (both arms collapse to
+ *                    sprite_x for pose $07; face direction does not change
+ *                    the offset).
+ *               dy = DATA_02CA99[1] = $F0 = -16 (raised above head).
+ *               hflip — Mesen face-RIGHT shows H-mirror set on the visible
+ *               glove slot. CODE_02CA9D draws two glove slots (arm1 at
+ *               sprite_x no-flip, arm2 at sprite_x | $40 hflip); they
+ *               overlap perfectly so visually only the topmost glove
+ *               survives. We render the hflipped glove for face-RIGHT and
+ *               the un-flipped for face-LEFT.
+ *
+ *   Tiles $06, $0A, $42, $44 are all low-page → live in SP3 = chuck primary
+ *   GFX13. Renders correctly in any chuck-using level's sprite set
+ *   ($01C, $01D, $022, $0D0, $0D1, $0F5, $0F6, $105, $12B for $95).
  */
 export class ClappinChuckAppearance extends ChuckAppearance {
   /**
    * @param bodyPalette   8 + ((Sprite166EVals[$95] >> 1) & 0x07)
-   * @param bodyCharHigh  0x100 when Sprite166EVals[$95] & 0x01, else 0
-   * @param faceRight     true when marioStartPx.x >= spritePx (mirrors SubHorizPos Y=0)
+   * @param bodyCharHigh  (Sprite166EVals[$95] & 0x01) ? 0x100 : 0
+   * @param faceRight     true when marioStartPx.x >= spritePx (FaceMario)
    */
   static fromTables(
     chars: Map<number, Char>,
@@ -57,20 +79,21 @@ export class ClappinChuckAppearance extends ChuckAppearance {
     bodyCharHigh: number,
     faceRight: boolean,
   ): ClappinChuckAppearance {
-    const { bigTile, smallTile } = ChuckAppearance.builders(chars, placeholder)
+    const { bigTile } = ChuckAppearance.builders(chars, placeholder)
 
-    const parts: SpritePart[] = [
-      // head: tile $06, centered (X=0), Y=−12 (DATA_02C84A[6]=$F4)
-      ...bigTile(0x06, 0, -12, faceRight, bodyPalette, bodyCharHigh),
-      // body2: tile $40, mirrored — X and flipX both inverted vs body1
-      ...bigTile(0x40, faceRight ? -4 : 4, 0, !faceRight, bodyPalette, bodyCharHigh),
-      // body1: tile $40, direction-facing side
-      ...bigTile(0x40, faceRight ? 4 : -4, 0, faceRight, bodyPalette, bodyCharHigh),
-      // left glove: tile $0C at (−6, −8), no H-flip (DATA_02CA93[0]=$FA)
-      smallTile(0x0C, -6, -8, false, bodyPalette, bodyCharHigh),
-      // right glove: tile $0C at (+14, −8), H-flipped (DATA_02CA95[0]=$0E, attr|$40)
-      smallTile(0x0C, 14, -8, true, bodyPalette, bodyCharHigh),
-    ]
+    const parts: SpritePart[] = faceRight
+      ? [
+          ...bigTile(0x06,  0, -11, false, bodyPalette, bodyCharHigh),  // head $06 NO hflip (Mesen)
+          ...bigTile(0x42,  8,   0, true,  bodyPalette, bodyCharHigh),  // body1 hflip
+          ...bigTile(0x42, -8,   0, false, bodyPalette, bodyCharHigh),  // body2 no flip
+          ...bigTile(0x44,  0, -16, true,  bodyPalette, bodyCharHigh),  // glove raised, hflip
+        ]
+      : [
+          ...bigTile(0x0A,  0, -11, true,  bodyPalette, bodyCharHigh),  // head $0A face-left (mirror)
+          ...bigTile(0x42, -8,   0, false, bodyPalette, bodyCharHigh),  // body1 no flip (swapped)
+          ...bigTile(0x42,  8,   0, true,  bodyPalette, bodyCharHigh),  // body2 hflip (swapped)
+          ...bigTile(0x44,  0, -16, false, bodyPalette, bodyCharHigh),  // glove no flip (mirror)
+        ]
     return new ClappinChuckAppearance(parts)
   }
 }
