@@ -1,5 +1,6 @@
 import type { Char } from '../../chars/Char'
-import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
+import { ChuckAppearance } from './ChuckAppearance'
+import type { SpritePart } from './StaticSpriteAppearance'
 
 /**
  * Sprite $97 (Puntin' Chuck), rendered in canonical kick wind-up pose $11
@@ -40,7 +41,7 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  *   Football flip semantics swap (face-left chuck = football moving left =
  *   hflipped tile; face-right chuck = football moving right = unflipped).
  */
-export class PuntinChuckAppearance extends StaticSpriteAppearance {
+export class PuntinChuckAppearance extends ChuckAppearance {
   /**
    * @param bodyPalette   8 + ((Sprite166EVals[$97] >> 1) & 0x07) = 13
    * @param bodyCharHigh  (Sprite166EVals[$97] & 0x01) ? 0x100 : 0 = 0x100
@@ -55,19 +56,7 @@ export class PuntinChuckAppearance extends StaticSpriteAppearance {
     ballCharHigh: number,
     faceRight: boolean,
   ): PuntinChuckAppearance {
-    const OBJ_BASE = 0x400
-    const bigTile = (baseTile: number, bdx: number, bdy: number, flipX: boolean, pal: number, cHigh: number): SpritePart[] => {
-      const co = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
-      return co.map((off, i) => ({
-        char: chars.get(OBJ_BASE + cHigh + ((baseTile + off) & 0x1FF)) ?? placeholder,
-        palette: pal, flipX, flipY: false,
-        dx: bdx + [0, 8, 0, 8][i], dy: bdy + [0, 0, 8, 8][i],
-      }))
-    }
-    const smallTile = (tile: number, dx: number, dy: number, flipX: boolean, pal: number, cHigh: number): SpritePart => ({
-      char: chars.get(OBJ_BASE + cHigh + (tile & 0x1FF)) ?? placeholder,
-      palette: pal, flipX, flipY: false, dx, dy,
-    })
+    const { bigTile, smallTile } = ChuckAppearance.builders(chars, placeholder)
 
     // Face-left geometry comes directly from a Mesen OAM dump on level $1F1.
     // Face-right mirrors X offsets, toggles hflip per part, and swaps the
