@@ -38,6 +38,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Sprite $0A (Red Vertical Para-Koopa) and $0B (Red Horizontal Para-Koopa)
+  patrol overlay no longer renders as a symmetric `±amplitudePx` band. Per
+  `RedVertParaKoopa` (bank_01.asm:1881), `SpriteXSpeed` and `SpriteMisc151C`
+  both init to 0, so `STEP[0]=-1` drives the very first speed update — the
+  sprite always moves in the negative direction first (left for $0B, up for
+  $0A) and oscillates back toward spawn without ever crossing past it
+  (8K-frame simulation confirms `pos ∈ [-112, 0]`). `simulateAmplitude` →
+  `simulateRange`, returning `{minPos, maxPos}`; `WingedSpriteAppearance`
+  draws a single one-sided dashed segment with solid endcaps at both
+  reversal points, body-edge offset so the near cap stays visible
+  immediately past the sprite body.
 - Sprite $97 (Puntin' Chuck) face-right body1 (kick foot tile `$CB`)
   now renders at `dx=+16` instead of `+8`. The original PR #262 derived
   face-right offsets by simple negation from a face-left Mesen capture,
