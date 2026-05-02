@@ -12,7 +12,9 @@
  *     - body1 $CB 8x8 single at (-8, +3), bodyPalette / bodyCharHigh, no flip
  *     - football $8A 16x16 at (-20, 0), ballPalette / ballCharHigh, hflip=TRUE
  *   face-right (Mario to chuck's right)
- *     - X offsets negate (head +7, body1 +8, football +20; body2 stays at 0)
+ *     - head +7 and football +20 are simple negations of face-left
+ *     - body1 +16 is NOT a negation — sourced from face-doubled DATA_02C909[$2B] = $10
+ *     - body2 stays at 0 (DATA_02C93D[$2B] = $00; coincidentally symmetric)
  *     - chuck parts gain hflip=true
  *     - football hflip=false (ball travels right; default tile already faces right)
  *   palette propagation
@@ -135,9 +137,9 @@ describe('PuntinChuckAppearance.fromTables', () => {
       ])
     })
 
-    it('body1 mirrors to (+8, +3) with hflip', () => {
+    it('body1 face-right dx=+16 (not simple mirror) — DATA_02C909[$2B] = $10', () => {
       expect(parts[8]).toEqual(
-        shape(OBJ_BASE + BODY_HIGH + 0xCB, BODY_PAL, true, 8, 3),
+        shape(OBJ_BASE + BODY_HIGH + 0xCB, BODY_PAL, true, 16, 3),
       )
     })
 
