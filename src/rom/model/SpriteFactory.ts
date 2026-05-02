@@ -35,6 +35,7 @@ import { ChuckAppearance } from './sprites/appearances/ChuckAppearance'
 import { ClappinChuckAppearance } from './sprites/appearances/ClappinChuckAppearance'
 import { PitchinChuckAppearance } from './sprites/appearances/PitchinChuckAppearance'
 import { PuntinChuckAppearance } from './sprites/appearances/PuntinChuckAppearance'
+import { SplittinChuckAppearance } from './sprites/appearances/SplittinChuckAppearance'
 import { KeyholeAppearance } from './sprites/appearances/KeyholeAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { SumoBrotherAppearance } from './sprites/appearances/SumoBrotherAppearance'
@@ -306,16 +307,16 @@ export function buildSprites(
       continue
     }
 
-    // Chuck-family sprites ($91 Chargin', $93 Bouncin', $95 Clappin',
-    // $97 Puntin', $98 Pitchin'). All resolve their body palette / charHigh
-    // from Sprite166EVals via ChuckAppearance.bodyAttrs and their face
-    // direction from FaceMario via ChuckAppearance.facesMario — see
-    // ChuckAppearance.ts for the full asm grounding. Per-chuck dispatch
-    // differs only in which appearance class is built and (for Puntin')
-    // the extra ball palette derived from sprite $1B.
+    // Chuck-family sprites ($91 Chargin', $92 Splittin', $93 Bouncin',
+    // $95 Clappin', $97 Puntin', $98 Pitchin'). All resolve their body
+    // palette / charHigh from Sprite166EVals via ChuckAppearance.bodyAttrs
+    // and their face direction from FaceMario via ChuckAppearance.facesMario
+    // — see ChuckAppearance.ts for the full asm grounding. Per-chuck
+    // dispatch differs only in which appearance class is built and (for
+    // Puntin') the extra ball palette derived from sprite $1B.
     if (
-      s.spriteId === 0x91 || s.spriteId === 0x93 || s.spriteId === 0x95
-   || s.spriteId === 0x97 || s.spriteId === 0x98
+      s.spriteId === 0x91 || s.spriteId === 0x92 || s.spriteId === 0x93
+   || s.spriteId === 0x95 || s.spriteId === 0x97 || s.spriteId === 0x98
     ) {
       const { palette: bodyPalette, charHigh: bodyCharHigh } =
         ChuckAppearance.bodyAttrs(tables.spriteAttr[s.spriteId] ?? 0)
@@ -324,6 +325,9 @@ export function buildSprites(
       switch (s.spriteId) {
         case 0x91:
           appearance = CharginChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight)
+          break
+        case 0x92:
+          appearance = SplittinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight)
           break
         case 0x93:
           appearance = BouncinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight)
