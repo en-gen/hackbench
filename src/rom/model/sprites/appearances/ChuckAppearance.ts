@@ -31,12 +31,15 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  * subclasses:
  *
  *   - `CharginChuckAppearance`   sprite $91
+ *   - `SplittinChuckAppearance`  sprite $92
  *   - `BouncinChuckAppearance`   sprite $93
+ *   - `WhistlinChuckAppearance`  sprite $94
  *   - `ClappinChuckAppearance`   sprite $95
  *   - `PuntinChuckAppearance`    sprite $97
+ *   - `PitchinChuckAppearance`   sprite $98
  *
- * When adding a new chuck variant ($92 Splittin', $94 Whistlin', $98 Pitchin',
- * etc.), register it under the same `<Variant>ChuckAppearance` shape.
+ * If new chuck variants surface (e.g. the unused $96 Chargin' Chuck clone),
+ * register them under the same `<Variant>ChuckAppearance` shape.
  */
 export abstract class ChuckAppearance extends StaticSpriteAppearance {
   /** SMW OAM char-base offset for sprite tiles. */
