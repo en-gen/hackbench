@@ -155,42 +155,53 @@ export class WingedSpriteAppearance implements SpriteAppearance {
 
     } else if (behavior instanceof SinusoidalParaKoopaBehavior) {
       // Sinusoidal patrol — $0A vertical / $0B horizontal Para-Koopa.
-      // The dashed line marks the centerline of the back-and-forth path
-      // (length = 2·amplitude). Solid endcaps perpendicular to the path
-      // at each end signal the reversal points (same vocabulary as the
-      // walk-koopa wall lines: "the sprite turns around here").
+      // Per RedVertParaKoopa (bank_01.asm:1881), `SpriteXSpeed` and
+      // `SpriteMisc151C` both init to 0, so `STEP[0]=-1` drives the very
+      // first speed update — the sprite always moves in the negative
+      // direction first (left for $0B, up for $0A) and oscillates between
+      // the negative extreme and spawn without ever crossing past it.
+      // The overlay is a one-sided dashed segment with solid endcaps at
+      // BOTH reversal points: the far extreme (minPos) and the spawn
+      // anchor (maxPos = 0), since the sprite turns around at each.
       const b = behavior.computeSineBounds()
       const centerX = x + 8, centerY = y + 8
-      const ENDCAP_HALF = 8  // half body — endcap = sprite-sized stub
+      const ENDCAP_HALF = 8
+      const HALF_BODY   = 8
+      // Body-edge offset: caps mark where the sprite's body edge reaches at
+      // each reversal extreme — far edge at minPos - HALF_BODY, near edge at
+      // maxPos + HALF_BODY. This keeps the near cap visible immediately past
+      // the sprite body (not occluded behind it). Dashed line spans cap to
+      // cap so the corridor stays visually continuous.
+      const farOffset  = b.minPos - HALF_BODY
+      const nearOffset = b.maxPos + HALF_BODY
       ctx.lineWidth   = DASH_LINE_WIDTH
       ctx.strokeStyle = rgba(color, DASH_ALPHA)
       ctx.setLineDash([...DEFAULT_DASH])
       ctx.beginPath()
       if (b.axis === 'vertical') {
-        ctx.moveTo(centerX, centerY - b.amplitudePx)
-        ctx.lineTo(centerX, centerY + b.amplitudePx)
+        ctx.moveTo(centerX, centerY + farOffset)
+        ctx.lineTo(centerX, centerY + nearOffset)
       } else {
-        ctx.moveTo(centerX - b.amplitudePx, centerY)
-        ctx.lineTo(centerX + b.amplitudePx, centerY)
+        ctx.moveTo(centerX + farOffset, centerY)
+        ctx.lineTo(centerX + nearOffset, centerY)
       }
       ctx.stroke()
       ctx.setLineDash([])
 
-      // Solid endcaps. Vertical patrol → horizontal stubs at top/bottom;
-      // horizontal patrol → vertical stubs at left/right.
+      // Solid endcaps at both body-edge extents.
       ctx.lineWidth   = WALL_LINE_WIDTH
       ctx.strokeStyle = rgba(color, WALL_ALPHA)
       ctx.beginPath()
       if (b.axis === 'vertical') {
-        const yTop = centerY - b.amplitudePx
-        const yBot = centerY + b.amplitudePx
-        ctx.moveTo(centerX - ENDCAP_HALF, yTop); ctx.lineTo(centerX + ENDCAP_HALF, yTop)
-        ctx.moveTo(centerX - ENDCAP_HALF, yBot); ctx.lineTo(centerX + ENDCAP_HALF, yBot)
+        const yFar  = centerY + farOffset
+        const yNear = centerY + nearOffset
+        ctx.moveTo(centerX - ENDCAP_HALF, yFar);  ctx.lineTo(centerX + ENDCAP_HALF, yFar)
+        ctx.moveTo(centerX - ENDCAP_HALF, yNear); ctx.lineTo(centerX + ENDCAP_HALF, yNear)
       } else {
-        const xLeft  = centerX - b.amplitudePx
-        const xRight = centerX + b.amplitudePx
-        ctx.moveTo(xLeft,  centerY - ENDCAP_HALF); ctx.lineTo(xLeft,  centerY + ENDCAP_HALF)
-        ctx.moveTo(xRight, centerY - ENDCAP_HALF); ctx.lineTo(xRight, centerY + ENDCAP_HALF)
+        const xFar  = centerX + farOffset
+        const xNear = centerX + nearOffset
+        ctx.moveTo(xFar,  centerY - ENDCAP_HALF); ctx.lineTo(xFar,  centerY + ENDCAP_HALF)
+        ctx.moveTo(xNear, centerY - ENDCAP_HALF); ctx.lineTo(xNear, centerY + ENDCAP_HALF)
       }
       ctx.stroke()
 

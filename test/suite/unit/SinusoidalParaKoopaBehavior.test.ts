@@ -32,10 +32,11 @@
  *     └─ misc1540 > 0 → no speed change
  *
  *   computeSineBounds
- *     ├─ $0A vertical: axis='vertical', amplitude ≥ 30 px
- *     ├─ $0B horizontal: axis='horizontal', amplitude ≥ 30 px
- *     ├─ $0A: Y bound > 0, X amplitude = 0 (frozen X)
- *     ├─ $0B: X amplitude > 0, Y bob is small (≤ 8 px)
+ *     ├─ $0A vertical: axis='vertical', minPos < 0 (always-up first)
+ *     ├─ $0B horizontal: axis='horizontal', minPos < 0 (always-left first)
+ *     ├─ maxPos = 0: speed init=0, STEP[0]=-1, sprite never crosses spawn
+ *     │           to the positive side regardless of Mario position
+ *     ├─ |minPos| consistent for both axes (same integrator)
  *     └─ deterministic across repeat calls
  */
 
@@ -64,12 +65,15 @@ describe('SinusoidalParaKoopaBehavior — ASM constants', () => {
 })
 
 describe('SinusoidalParaKoopaBehavior — computeSineBounds (vertical, $0A)', () => {
-  it('exposes vertical axis and non-trivial amplitude', () => {
+  it('exposes vertical axis and one-sided range', () => {
     const beh = new SinusoidalParaKoopaBehavior({ axis: 'vertical' })
     const b = beh.computeSineBounds()
     expect(b.axis).toBe('vertical')
-    expect(b.amplitudePx).toBeGreaterThanOrEqual(30)
-    expect(b.amplitudePx).toBeLessThanOrEqual(128)
+    // STEP[0]=-1 drives the first speed update, so pos descends below
+    // spawn but never rises above it.
+    expect(b.minPos).toBeLessThanOrEqual(-30)
+    expect(b.minPos).toBeGreaterThanOrEqual(-128)
+    expect(b.maxPos).toBe(0)
   })
 
   it('kind tag identifies the sprite family', () => {
@@ -84,17 +88,19 @@ describe('SinusoidalParaKoopaBehavior — computeSineBounds (vertical, $0A)', ()
 })
 
 describe('SinusoidalParaKoopaBehavior — computeSineBounds (horizontal, $0B)', () => {
-  it('exposes horizontal axis and non-trivial amplitude', () => {
+  it('exposes horizontal axis and one-sided range', () => {
     const beh = new SinusoidalParaKoopaBehavior({ axis: 'horizontal' })
     const b = beh.computeSineBounds()
     expect(b.axis).toBe('horizontal')
-    expect(b.amplitudePx).toBeGreaterThanOrEqual(30)
-    expect(b.amplitudePx).toBeLessThanOrEqual(128)
+    expect(b.minPos).toBeLessThanOrEqual(-30)
+    expect(b.minPos).toBeGreaterThanOrEqual(-128)
+    expect(b.maxPos).toBe(0)
   })
 
-  it('horizontal ≡ vertical amplitude (same table-driven integration)', () => {
+  it('horizontal ≡ vertical range (same table-driven integration)', () => {
     const v = new SinusoidalParaKoopaBehavior({ axis: 'vertical' }).computeSineBounds()
     const h = new SinusoidalParaKoopaBehavior({ axis: 'horizontal' }).computeSineBounds()
-    expect(v.amplitudePx).toBe(h.amplitudePx)
+    expect(v.minPos).toBe(h.minPos)
+    expect(v.maxPos).toBe(h.maxPos)
   })
 })
