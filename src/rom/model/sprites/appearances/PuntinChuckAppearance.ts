@@ -37,9 +37,14 @@ import type { SpritePart } from './StaticSpriteAppearance'
  *   with chuck's facing so the football graphic always points the way it's
  *   travelling.
  *
- *   Face-right is the mirror: X offsets negated, hflip toggled per part.
- *   Football flip semantics swap (face-left chuck = football moving left =
- *   hflipped tile; face-right chuck = football moving right = unflipped).
+ *   Face-right composition: head and football X mirror face-left (head from
+ *   DATA_02C830 negation; football from ChuckSprGenDispX = db $14,$EC = ±20).
+ *   Body1 X is NOT a mirror — the chuck X tables DATA_02C909/DATA_02C93D are
+ *   face-doubled (52 entries; face-LEFT 0..25, face-RIGHT 26..51), and
+ *   CODE_02CA27 (bank_02.asm:9755) reads body1 from DATA_02C909[pose+$1A]
+ *   for face-right. For pose $11 that is DATA_02C909[$2B] = $10 = +16 (vs
+ *   face-left $F8 = -8). hflip toggles per chuck part; football hflip swaps
+ *   so the ball always points its travel direction.
  */
 export class PuntinChuckAppearance extends ChuckAppearance {
   /**
@@ -59,13 +64,15 @@ export class PuntinChuckAppearance extends ChuckAppearance {
     const { bigTile, smallTile } = ChuckAppearance.builders(chars, placeholder)
 
     // Face-left geometry comes directly from a Mesen OAM dump on level $1F1.
-    // Face-right mirrors X offsets, toggles hflip per part, and swaps the
-    // football's hflip (so the ball always points its travel direction).
+    // Face-right: head/football X mirror face-left, but body1 X is read
+    // straight from DATA_02C909[$11+$1A] = $10 = +16 (chuck X tables are
+    // face-doubled; see top-of-file note). hflip toggles per chuck part;
+    // football hflip swaps so the ball points its travel direction.
     const parts: SpritePart[] = faceRight
       ? [
           ...bigTile(0x06,   7, -10, true,  bodyPalette, bodyCharHigh),  // head
-          ...bigTile(0xCC,   0,   0, true,  bodyPalette, bodyCharHigh),  // body2 16x16
-          smallTile(0xCB,    8,   3, true,  bodyPalette, bodyCharHigh),  // body1 8x8 kick foot
+          ...bigTile(0xCC,   0,   0, true,  bodyPalette, bodyCharHigh),  // body2 16x16  (DATA_02C93D[$2B] = $00)
+          smallTile(0xCB,   16,   3, true,  bodyPalette, bodyCharHigh),  // body1 8x8 kick foot  (DATA_02C909[$2B] = $10)
           ...bigTile(0x8A,  20,   0, false, ballPalette, ballCharHigh),  // football 16x16, no flip
         ]
       : [

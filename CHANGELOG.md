@@ -38,6 +38,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Sprite $97 (Puntin' Chuck) face-right body1 (kick foot tile `$CB`)
+  now renders at `dx=+16` instead of `+8`. The original PR #262 derived
+  face-right offsets by simple negation from a face-left Mesen capture,
+  but the chuck X-offset tables in bank_02 are face-doubled
+  (`DATA_02C909` / `DATA_02C93D` carry 52 entries; face-LEFT 0..25,
+  face-RIGHT 26..51) and `CODE_02CA27` (bank_02.asm:9755) reads body1
+  from `DATA_02C909[pose+$1A]` for face-right. For pose `$11` that is
+  `DATA_02C909[$2B] = $10 = +16` (vs face-left `$F8 = -8`), not the
+  simple negation. Body2 (`DATA_02C93D[$2B] = $00`) is unchanged because
+  that entry coincides with its face-left value.
 - Sprite $64 (Rope Mechanism) smoke puffs now animate correctly in the
   editor preview (issue #235). Previously the smoke rendered as a static
   3-puff cluster with palette inferred from the rope body's hardcoded
