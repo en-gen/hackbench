@@ -33,6 +33,7 @@ import { BouncinChuckAppearance } from './sprites/appearances/BouncinChuckAppear
 import { CharginChuckAppearance } from './sprites/appearances/CharginChuckAppearance'
 import { ChuckAppearance } from './sprites/appearances/ChuckAppearance'
 import { ClappinChuckAppearance } from './sprites/appearances/ClappinChuckAppearance'
+import { PitchinChuckAppearance } from './sprites/appearances/PitchinChuckAppearance'
 import { PuntinChuckAppearance } from './sprites/appearances/PuntinChuckAppearance'
 import { KeyholeAppearance } from './sprites/appearances/KeyholeAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
@@ -305,13 +306,17 @@ export function buildSprites(
       continue
     }
 
-    // Chuck-family sprites ($91 Chargin', $93 Bouncin', $95 Clappin', $97 Puntin').
-    // All four resolve their body palette / charHigh from Sprite166EVals via
-    // ChuckAppearance.bodyAttrs and their face direction from FaceMario via
-    // ChuckAppearance.facesMario — see ChuckAppearance.ts for the full asm
-    // grounding. Per-chuck dispatch differs only in which appearance class is
-    // built and (for Puntin') the extra ball palette derived from sprite $1B.
-    if (s.spriteId === 0x91 || s.spriteId === 0x93 || s.spriteId === 0x95 || s.spriteId === 0x97) {
+    // Chuck-family sprites ($91 Chargin', $93 Bouncin', $95 Clappin',
+    // $97 Puntin', $98 Pitchin'). All resolve their body palette / charHigh
+    // from Sprite166EVals via ChuckAppearance.bodyAttrs and their face
+    // direction from FaceMario via ChuckAppearance.facesMario — see
+    // ChuckAppearance.ts for the full asm grounding. Per-chuck dispatch
+    // differs only in which appearance class is built and (for Puntin')
+    // the extra ball palette derived from sprite $1B.
+    if (
+      s.spriteId === 0x91 || s.spriteId === 0x93 || s.spriteId === 0x95
+   || s.spriteId === 0x97 || s.spriteId === 0x98
+    ) {
       const { palette: bodyPalette, charHigh: bodyCharHigh } =
         ChuckAppearance.bodyAttrs(tables.spriteAttr[s.spriteId] ?? 0)
       const faceRight = ChuckAppearance.facesMario(s.x * 16, marioStartPx.x)
@@ -336,6 +341,9 @@ export function buildSprites(
           )
           break
         }
+        case 0x98:
+          appearance = PitchinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight)
+          break
       }
       out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, appearance, behavior))
       continue
