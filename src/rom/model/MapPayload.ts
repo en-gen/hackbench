@@ -133,8 +133,9 @@ export type SpriteAppearanceDescriptor =
     }
   | {
       kind: 'ripVanFish'
-      idleParts:     readonly SpritePartDescriptor[]
-      detectedParts: readonly SpritePartDescriptor[]
+      sleepFrames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
+      awakeFrames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
+      zParts:      readonly SpritePartDescriptor[]
     }
   | {
       kind: 'wingedSprite'

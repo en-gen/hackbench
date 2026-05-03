@@ -124,8 +124,9 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
   if (a instanceof RipVanFishAppearance) {
     return {
       kind: 'ripVanFish',
-      idleParts:     a.idleParts.map(partDescriptor),
-      detectedParts: a.detectedParts.map(partDescriptor),
+      sleepFrames: [a.sleepFrames[0].map(partDescriptor), a.sleepFrames[1].map(partDescriptor)],
+      awakeFrames: [a.awakeFrames[0].map(partDescriptor), a.awakeFrames[1].map(partDescriptor)],
+      zParts:      a.zParts.map(partDescriptor),
     }
   }
   if (a instanceof WingedSpriteAppearance) {
