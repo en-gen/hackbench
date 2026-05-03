@@ -209,8 +209,9 @@ function buildAppearance(
       )
     case 'ripVanFish':
       return new RipVanFishAppearance(
-        buildParts(desc.idleParts),
-        buildParts(desc.detectedParts),
+        [buildParts(desc.sleepFrames[0]), buildParts(desc.sleepFrames[1])],
+        [buildParts(desc.awakeFrames[0]), buildParts(desc.awakeFrames[1])],
+        buildParts(desc.zParts),
       )
     case 'wingedSprite':
       return new WingedSpriteAppearance(
