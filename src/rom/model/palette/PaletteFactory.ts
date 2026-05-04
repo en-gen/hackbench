@@ -24,7 +24,7 @@ export function buildPalette(rom: RomFile, header: LevelHeader): Palette {
     romPalettes,
     header.bgPalette,
     header.fgPalette,
-    header.spriteSet,
+    header.spritePalette,
   )
 
   const animByCgramIdx = collectPaletteAnimFrames(rom)

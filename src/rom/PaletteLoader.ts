@@ -260,6 +260,21 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
     spriteSecondaryCols.push(readEntry(rom, addr, SPRITE_SEC_COLS_COUNT, SPRITE_SEC_COL_START))
   }
 
+  // SpriteColors pair variants (8 variants × 24 bytes) — rows 14-15 cols 2-7
+  // LoadPalette bank_00.asm:5646-5653: SpriteColors[SpritePalette] → CGRAM rows 14-15
+  const spriteColorVariants: PaletteVariant[] = []
+  for (let v = 0; v < 8; v++) {
+    const pairAddr = ADDR_SPRITE_COLORS + VARIANT_OFFSETS[v]
+    spriteColorVariants.push({
+      label: `Palette ${v}`,
+      rows: [
+        readEntry(rom, pairAddr,                          PALETTE_ROW_COLORS),  // row 14 cols 2-7
+        readEntry(rom, pairAddr + PALETTE_ROW_COLORS * 2, PALETTE_ROW_COLORS),  // row 15 cols 2-7
+      ],
+      romAddr: pairAddr,
+    })
+  }
+
   const groups: PaletteGroup[] = [
     {
       id: 'bg', label: 'Layer 2 Background (Rows 0-1)', cgRamRow: 0,
@@ -287,14 +302,9 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
       ],
     },
     {
-      id: 'sp_e', label: 'Sprite Palette E', cgRamRow: 14,
-      description: 'CGRAM row 14. SpriteColors at $B318.',
-      variants: [singleVariant('Palette E', ADDR_SPRITE_COLORS, rom, PALETTE_ROW_COLORS)],
-    },
-    {
-      id: 'sp_f', label: 'Sprite Palette F', cgRamRow: 15,
-      description: 'CGRAM row 15. SpriteColors+12 at $B324.',
-      variants: [singleVariant('Palette F', ADDR_SPRITE_COLORS + 12, rom, PALETTE_ROW_COLORS)],
+      id: 'sp_ef', label: 'Sprite Palette E/F (Rows 14-15)', cgRamRow: 14,
+      description: 'CGRAM rows 14-15 cols 2-7. SpriteColors at $B318, variant from SpritePalette header field.',
+      variants: spriteColorVariants,
     },
   ]
 
@@ -308,7 +318,7 @@ export interface ActiveLevelPalette {
   rows: RgbaRow[]
   bgVariantIndex: number
   fgVariantIndex: number
-  spriteSetIndex: number
+  spritePaletteIndex: number
 }
 
 /**
@@ -328,7 +338,7 @@ export function buildLevelCgram(
   palettes: RomPalettes,
   bgVariant: number,
   fgVariant: number,
-  _spriteSet: number,
+  spritePalette: number,
   marioVariant = 0,
 ): ActiveLevelPalette {
   const rows: RgbaRow[] = Array.from({ length: 16 }, emptyRow)
@@ -337,8 +347,8 @@ export function buildLevelCgram(
   const fg = palettes.groups.find(g => g.id === 'fg')
   const sp = palettes.groups.find(g => g.id === 'sprite_sets')
   const pl = palettes.groups.find(g => g.id === 'player')
-  const se = palettes.groups.find(g => g.id === 'sp_e')
-  const sf = palettes.groups.find(g => g.id === 'sp_f')
+  const spef = palettes.groups.find(g => g.id === 'sp_ef')
+  const spefIdx = spef ? Math.min(spritePalette, spef.variants.length - 1) : 0
 
   const bgIdx = bg ? Math.min(bgVariant, bg.variants.length - 1) : 0
   const fgIdx = fg ? Math.min(fgVariant, fg.variants.length - 1) : 0
@@ -413,9 +423,14 @@ export function buildLevelCgram(
     }
   }
 
-  // SP_E/F rows 14-15, cols 2-7
-  if (se) rows[14] = se.variants[0]?.rows[0] ?? emptyRow()
-  if (sf) rows[15] = sf.variants[0]?.rows[0] ?? emptyRow()
+  // SP_E/F rows 14-15, cols 2-7 — variant selected by SpritePalette header field
+  if (spef) {
+    const v = spef.variants[spefIdx]
+    if (v) {
+      rows[14] = v.rows[0] ?? emptyRow()
+      rows[15] = v.rows[1] ?? emptyRow()
+    }
+  }
 
   // Color 1: $7FDD for BG rows 0-7, $7FFF for OBJ rows 8-15
   // LoadPalette lines 5597-5604: LoadCol8Pal
@@ -429,7 +444,7 @@ export function buildLevelCgram(
     rows,
     bgVariantIndex: bgVariant,
     fgVariantIndex: fgVariant,
-    spriteSetIndex: _spriteSet,
+    spritePaletteIndex: spritePalette,
   }
 }
 
