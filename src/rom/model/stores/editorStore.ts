@@ -30,6 +30,30 @@ interface EditorStoreState {
   activeVineSources: ReadonlySet<string>
   activeSpriteOverlays: ReadonlySet<string>
   cursorPx: { x: number; y: number } | null
+  /**
+   * Override Layer2YPos used by `L2ObjectStream.render`. null = use the
+   * level's initialLayer2YPx from the ROM. Legacy field — superseded by
+   * `scrollFrame` for levels with a scrollSimulator attached, but kept
+   * as fallback for static levels without one.
+   */
+  l2YOverride: number | null
+  /**
+   * L2 viewport-progress slider value in [0, 255]. Mapped to
+   * `t = scrollProgress / 255 ∈ [0, 1]` and used by
+   * `L2ObjectStream.render` to lerp each L2 column's
+   * `dy = lerp(columnDyRanges[col].min, .max, t)`. Default 0 = each
+   * column at its lowest dy (entered viewport state).
+   */
+  scrollProgress: number
+  /**
+   * Index into the level's `scrollPath` sample array driving the
+   * auto-scroll playback overlay. The Scroll tab's Play button advances
+   * this at game speed × the playback-speed multiplier; the moving
+   * camera-viewport bounding box reads from
+   * `mapData.header.scrollPath[scrollPlaybackFrame]`. -1 = not
+   * playing / no overlay rect drawn.
+   */
+  scrollPlaybackFrame: number
 }
 
 interface EditorStoreActions {
@@ -47,6 +71,9 @@ interface EditorStoreActions {
   toggleVineSource(key: string): void
   toggleSpriteOverlay(key: string): void
   setCursorPx(pos: { x: number; y: number } | null): void
+  setL2YOverride(y: number | null): void
+  setScrollProgress(p: number): void
+  setScrollPlaybackFrame(idx: number): void
 }
 
 export type EditorStore = EditorStoreState & EditorStoreActions
@@ -63,11 +90,15 @@ export function createEditorStore(): EditorStore {
     layerToggles: {
       l1: true, l2: true, l3: true, sprites: true, screens: false,
       block: false, mapGrid: false, l3Hud: false, surfaces: false,
-      walls: false, l3Range: false,
+      walls: false, l3Range: false, l2Range: false, scrollPath: false,
+      scrollPlayback: false,
     },
     activeVineSources: new Set(),
     activeSpriteOverlays: new Set(),
     cursorPx: null,
+    l2YOverride: null,
+    scrollProgress: 0,
+    scrollPlaybackFrame: -1,
   })
 
   const actions: EditorStoreActions = {
@@ -104,17 +135,20 @@ export function createEditorStore(): EditorStore {
     setLayerToggles(next) {
       const cur = s.layerToggles
       if (
-        cur.l1       === next.l1       &&
-        cur.l2       === next.l2       &&
-        cur.l3       === next.l3       &&
-        cur.sprites  === next.sprites  &&
-        cur.screens  === next.screens  &&
-        cur.block    === next.block    &&
-        cur.mapGrid  === next.mapGrid  &&
-        cur.l3Hud    === next.l3Hud    &&
-        cur.surfaces === next.surfaces &&
-        cur.walls    === next.walls    &&
-        cur.l3Range  === next.l3Range
+        cur.l1             === next.l1             &&
+        cur.l2             === next.l2             &&
+        cur.l3             === next.l3             &&
+        cur.sprites        === next.sprites        &&
+        cur.screens        === next.screens        &&
+        cur.block          === next.block          &&
+        cur.mapGrid        === next.mapGrid        &&
+        cur.l3Hud          === next.l3Hud          &&
+        cur.surfaces       === next.surfaces       &&
+        cur.walls          === next.walls          &&
+        cur.l3Range        === next.l3Range        &&
+        cur.l2Range        === next.l2Range        &&
+        cur.scrollPath     === next.scrollPath     &&
+        cur.scrollPlayback === next.scrollPlayback
       ) return
       s.layerToggles = { ...next }
     },
@@ -145,6 +179,18 @@ export function createEditorStore(): EditorStore {
       const nx = Math.round(pos.x), ny = Math.round(pos.y)
       if (cur && cur.x === nx && cur.y === ny) return
       s.cursorPx = { x: nx, y: ny }
+    },
+    setL2YOverride(y) {
+      const next = y === null ? null : Math.max(0, Math.min(0xFF, y | 0))
+      if (s.l2YOverride !== next) s.l2YOverride = next
+    },
+    setScrollProgress(p) {
+      const next = Math.max(0, Math.min(0xFF, p | 0))
+      if (s.scrollProgress !== next) s.scrollProgress = next
+    },
+    setScrollPlaybackFrame(idx) {
+      const next = idx | 0
+      if (s.scrollPlaybackFrame !== next) s.scrollPlaybackFrame = next
     },
   }
 

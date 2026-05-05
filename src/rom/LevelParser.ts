@@ -356,7 +356,13 @@ export function parseL2Objects(
   data: Buffer | Uint8Array, _screens: number, isVertical = false,
 ): LevelObject[] {
   const objects: LevelObject[] = []
-  let pos = 0   // No header for L2
+  // bank_05.asm:462-470 copies Layer2DataPtr+5 into Layer1DataPtr before
+  // re-running LoadLevelData with LayerProcessing=1, so the object parser
+  // starts 5 bytes past the L2 stream's start. The first 5 bytes are the
+  // L2 "header" (the game discards them whether they're meaningful or not).
+  // Earlier versions used `pos = 0` which read those 5 bytes as objects,
+  // throwing the entire stream out of alignment.
+  let pos = HEADER_SIZE
   let screen = 0
 
   while (pos < data.length) {
@@ -382,8 +388,13 @@ export function parseL2Objects(
       xAbs = (b0 & 0x0F) + (highCoord ? 16 : 0)
       yAbs = screen * 16 + (b1 & 0x0F)
     } else {
+      // Horizontal: highCoord (b0 bit 4) extends Y past row 15 into rows
+      // 16-26 of the 27-row screen — matches parseLevelObjects line 285,
+      // which mirrors bank_05.asm:778-782 ("INC Map16LowPtr+1 → +16 rows").
+      // Missing this shifted half of $009's L2 structures (and others) up
+      // by 256 px in the editor.
       xAbs = screen * SCREEN_W + (b1 & 0x0F)
-      yAbs = b0 & 0x0F
+      yAbs = (b0 & 0x0F) + (highCoord ? 16 : 0)
     }
 
     const isExtended = objectNumber === 0

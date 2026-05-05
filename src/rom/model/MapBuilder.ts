@@ -11,6 +11,9 @@ import { TILE_EMPTY, expandMap } from '../ObjectExpander'
 import type { SmwRom } from '../SmwRom'
 import type { Char } from './chars/Char'
 import { buildChars } from './chars/CharFactory'
+import { findLevelScrollSprite, findLevelScrollSpriteFull, readInitialLayer2YPos } from '../L2Loader'
+import { simulateScrollSetup } from '../scrollDispatch'
+import { buildScrollSimulator } from '../scrollSim'
 import { buildBgTiles, buildL2 } from './L2Factory'
 import { buildL3 } from './L3Factory'
 import { readInitialLayer1YPos, readMarioStartPos } from '../L3Loader'
@@ -108,19 +111,27 @@ export function buildMapWithGraph(
   // the grey/green/yellow/blue palette of tiles $133-$13A on each screen.
   const screenPipeVariantIdx = Array.from({ length: screens }, (_, s) => s & 0x03)
 
-  const l2 = buildL2(rom.rom, levelId, header, screens, isVertical, chars, tiles, bgTiles)
-  const l3 = buildL3(rom.rom, levelId, tileset, l3Chars, screens, isVertical, rawHeader.timeLimit)
-
   // Sprites live in a separate pointer table from L1; empty list if the level
   // has no sprite data (e.g., title screens, OW sub-maps without spawns).
+  // Parsed early so buildL2 can scan for the level's scroll sprite.
   const sprPtr = rom.getLevelSpritePointer(levelId)
   let levelSprites: ReturnType<typeof parseLevelSprites> = []
   if (sprPtr) {
     const sprData = rom.rom.readAt(sprPtr, 0x200)
     if (sprData) levelSprites = parseLevelSprites(sprData, isVertical)
   }
+  // Scroll-sprite spawn writes Layer1ScrollCmd at bank_02.asm:5290-5300
+  // (NOT Layer2ScrollCmd — that byte stays 0 in gameplay). Recorded on the
+  // L2 layer purely for diagnostic labelling on the scroll-range overlay.
+  const layer1ScrollCmd = findLevelScrollSprite(levelSprites)
+
+  // Initial Layer1YPos (camera Y) used by L2/L3 render-time offset math.
+  // Hoisted above buildL2 so it can flow into computeL2ScrollRange.
+  const initialCameraYPx = readInitialLayer1YPos(rom.rom, levelId, isVertical)
+
+  // Mario spawn — needed by the scroll simulator's seed AND by sprite
+  // appearances that read `mapStore.marioSpawnX`. Hoisted above buildL2.
   const marioStartPx = readMarioStartPos(rom.rom, levelId)
-  const sprites = buildSprites(rom.rom, levelSprites, chars, l1, marioStartPx, tiles)
 
   // Layer-2 scroll/parallax settings. CODE_05D26E (bank_05.asm:7268-7277)
   // reads $05F000+idx, takes the top nibble, and looks up per-axis rate
@@ -132,18 +143,53 @@ export function buildMapWithGraph(
   const vertLayer2Setting  = rom.rom.readByte(0x05D710 + scrollIndex) ?? 0
   const horizLayer2Setting = rom.rom.readByte(0x05D720 + scrollIndex) ?? 0
 
-  // Initial camera Y (Layer1YPos): bits 3:2 of DATA_05F200[level] index into
-  // DATA_05D708 ($00, $60, $C0, $00). For vertical levels, DATA_05F600[level]
-  // & $1F provides the page high byte. See bank_05.asm:7329-7335 and 7386-7388.
-  const initialCameraYPx = readInitialLayer1YPos(rom.rom, levelId, isVertical)
+  // Build the per-level frame-accurate scroll simulator. We need the
+  // scroll-sprite's full byte 0 (not just the cmd) plus the resolved
+  // post-setup cmds + bits from `simulateScrollSetup`. When the level
+  // has no scroll sprite the simulator is null and `L2ObjectStream`
+  // falls back to the static initial offset.
+  //
+  // The simulator's seed represents the PRE-tick state — same shape
+  // as the Mesen capture's row 1 (post-`CODE_05BD36` setup, pre-first-
+  // parallax-call). `buildScrollSimulator` runs the cmd setup
+  // internally so callers don't need to.
+  const scrollSpriteFull = findLevelScrollSpriteFull(levelSprites)
+  const setupState = scrollSpriteFull
+    ? simulateScrollSetup(rom.rom, scrollSpriteFull.spriteId, scrollSpriteFull.b0)
+    : null
+  const initialLayer2YPx = readInitialLayer2YPos(rom.rom, levelId, isVertical)
+  const scrollSimulator = setupState
+    ? buildScrollSimulator(rom.rom, {
+        layer1XPos: 0,                                  // horizontal levels start at 0
+        layer1YPos: initialCameraYPx,                   // DATA_05D708 init
+        layer2XPos: 0,
+        layer2YPos: initialLayer2YPx,                   // DATA_05D70C init
+        layer1ScrollCmd:  setupState.layer1ScrollCmd,
+        layer2ScrollCmd:  setupState.layer2ScrollCmd,
+        layer1ScrollBits: setupState.layer1ScrollBits,
+        layer2ScrollBits: setupState.layer2ScrollBits,
+        horizLayer2Setting,
+        vertLayer2Setting,
+        marioSpawnX: marioStartPx?.x ?? 0,
+        marioSpawnY: marioStartPx?.y ?? 0,
+        screenMode:  header.levelMode,
+      })
+    : null
+
+  const l2 = buildL2(rom.rom, levelId, header, screens, isVertical, chars, tiles, bgTiles, layer1ScrollCmd, initialCameraYPx, scrollSimulator)
+  const l3 = buildL3(rom.rom, levelId, tileset, l3Chars, screens, isVertical, rawHeader.timeLimit)
+
+  const sprites = buildSprites(rom.rom, levelSprites, chars, l1, marioStartPx, tiles)
 
   const palette = buildPalette(rom.rom, header)
+
   const mapStore = createMapStore({
     palette,
     levelOrientation: orientation,
     screenPipeVariantIdx,
     initialCameraYPx,
     marioSpawnX: marioStartPx?.x ?? 0,
+    scrollSimulator,
   })
   const map = new SmwMap(
     levelId,

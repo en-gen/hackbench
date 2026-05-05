@@ -24,6 +24,9 @@ import { CanvasRenderTarget } from './CanvasRenderTarget'
 import { drawSurfaces } from './overlays/drawSurfaces'
 import { drawWalls } from './overlays/drawWalls'
 import { drawL3Range } from './overlays/drawL3Range'
+import { drawL2Range } from './overlays/drawL2Range'
+import { drawScrollPath } from './overlays/drawScrollPath'
+import { drawScrollPlayback } from './overlays/drawScrollPlayback'
 import { editorStore as store } from './store'
 import { createRafTimer } from '../shared/animTimer'
 import { tileBlockColor } from '../shared/blockView'
@@ -136,6 +139,17 @@ function renderModelOverlay(map: SmwMap): void {
     if (toggles.surfaces) drawSurfaces(bctx, map, store.switchPalaceState)
     if (toggles.walls)    drawWalls(bctx,    map, store.switchPalaceState)
     if (toggles.l3Range)  drawL3Range(bctx,  map)
+    if (toggles.l2Range)  drawL2Range(bctx,  map)
+    if (toggles.scrollPath && mapData?.header?.scrollPath) {
+      drawScrollPath(bctx, mapData.header.scrollPath)
+    }
+    // Scroll-playback rect: tracks `editorStore.scrollPlaybackFrame`
+    // so a re-render fires whenever it advances. The Scroll panel's
+    // Play button drives the advance.
+    const playbackFrame = store.scrollPlaybackFrame
+    if (playbackFrame >= 0 && mapData?.header?.scrollPath) {
+      drawScrollPlayback(bctx, mapData.header.scrollPath, playbackFrame)
+    }
     drawVinePaths(bctx, map)
     map.renderSpriteOverlays(bctx as unknown as OverlayContext, store.activeSpriteOverlays)
   }
@@ -898,8 +912,8 @@ app.innerHTML = `
     <!-- Overlay toggles -->
     <button id="btn-surfaces"    class="iconBtn"    title="Show surfaces"><span class="codicon codicon-layout-panel-dock"></span></button>
     <button id="btn-walls"       class="iconBtn"    title="Show walls"><span class="codicon codicon-layout-sidebar-right-dock"></span></button>
-    <button id="btn-l3range"     class="iconBtn"    title="Show L3 BG range"><span class="codicon codicon-symbol-namespace"></span></button>
     <button id="btn-block"       class="iconBtn"    title="Block view"><span class="codicon codicon-symbol-method"></span></button>
+    <button id="btn-scrollpath"  class="iconBtn"    title="Show scroll-viewport paths (L1 / L2)"><span class="codicon codicon-graph-line"></span></button>
 
     <div class="tb-sep"></div>
 
@@ -964,7 +978,7 @@ app.innerHTML = `
     <input type="checkbox" id="chk-camera"          style="display:none">
     <input type="checkbox" id="chk-surfaces"        style="display:none">
     <input type="checkbox" id="chk-walls"           style="display:none">
-    <input type="checkbox" id="chk-l3range"         style="display:none">
+    <input type="checkbox" id="chk-scrollpath"      style="display:none">
   </div><!-- #main -->
 
   <!-- ── RIGHT PANEL ──────────────────────────────────────────────────────── -->
@@ -996,6 +1010,7 @@ app.innerHTML = `
       <button class="tab-btn active" data-tab="general" role="tab">General</button>
       <button class="tab-btn"        data-tab="layer2"  role="tab">Layer 2</button>
       <button class="tab-btn"        data-tab="layer3"  role="tab">Layer 3</button>
+      <button class="tab-btn"        data-tab="scroll"  role="tab" id="tab-btn-scroll" style="display:none;">Scroll</button>
     </div>
     <div class="tab-content-wrap">
 
@@ -1023,11 +1038,18 @@ app.innerHTML = `
             <div style="${propLabelStyle()}">FG PALETTE</div>
             <select id="sel-fg-palette" style="${selStyle()}"></select>
           </div>
+          <!-- BG PALETTE: header.bgPalette (3-bit field, byte 0 bits 7-5).
+               Selects 1 of 8 BackgroundPalettes variants → fills CGRAM rows
+               0-1 cols 2-7. Affects ANY tile (L1, L2, L3) whose subtile
+               palette index is 0 or 1. NOT an L2-specific knob — many levels
+               have L2 tiles encoded with palette indices in the StandardColors
+               range (4-7), which no header field controls. -->
           <div>
             <div style="${propLabelStyle()}">BG PALETTE</div>
             <select id="sel-bg-palette" style="${selStyle()}"></select>
           </div>
         </div>
+
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
           <div>
@@ -1124,6 +1146,28 @@ app.innerHTML = `
           <select id="sel-vscroll-hdr" style="${selStyle()}"></select>
         </div>
 
+        <!-- Layer 2 Y scrubber. Only meaningful for object-stream L2; the
+             slider drives editorStore.l2YOverride which L2ObjectStream.render
+             consumes.
+             Play button (only enabled in scroll-progress mode) animates
+             the slider at game speed by reading the simulator's per-frame
+             (L1Y − L2Y) curve from header.scrollPath and mapping each
+             dy to its position in the global dy range. The non-linear
+             ease-in/ease-out comes for free from the parallax routine's
+             actual frame-by-frame output. -->
+        <div id="l2y-scrubber-block" style="display:none;flex-direction:column;gap:4px;">
+          <div style="${propLabelStyle()}">LAYER 2 Y POS</div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <input id="rng-l2y" type="range" min="0" max="255" step="1"
+              style="flex:1;" />
+            <span id="lbl-l2y" style="font-family:monospace;font-size:12px;color:#ccc;min-width:48px;text-align:right;">$—</span>
+            <button id="btn-l2y-play" disabled title="Play L2 oscillation at game speed"
+              style="font-size:10px;padding:2px 6px;background:transparent;color:var(--vscode-foreground);border:1px solid var(--vscode-panel-border,#3a3a3a);cursor:pointer;display:inline-flex;align-items:center;gap:3px;">
+              <span class="codicon codicon-play"></span>
+            </button>
+          </div>
+        </div>
+
       </div><!-- /tab-pane layer2 -->
 
       <!-- ── Tab: LAYER 3 ──
@@ -1161,6 +1205,50 @@ app.innerHTML = `
         </div>
 
       </div><!-- /tab-pane layer3 -->
+
+      <!-- ── Tab: SCROLL ──
+           Visible only for levels with a scroll sprite ($E7..$F5).
+           Drives the auto-scroll viewport playback overlay so the
+           designer can see how the camera traverses the level at
+           game speed without loading into an emulator. -->
+      <div class="tab-pane" data-tab="scroll" style="padding:8px;display:none;flex-direction:column;gap:10px;">
+
+        <div style="${propLabelStyle()}">SCROLL SPRITE</div>
+        <div id="info-scroll-sprite" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="chk-scrollpath-panel" />
+          <label for="chk-scrollpath-panel" style="${propLabelStyle()};margin:0;cursor:pointer;">SHOW VIEWPORT PATH</label>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <div style="${propLabelStyle()}">PLAYBACK</div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <button id="btn-scroll-play"
+              style="font-size:11px;padding:3px 10px;background:transparent;color:var(--vscode-foreground);border:1px solid var(--vscode-panel-border,#3a3a3a);cursor:pointer;min-width:60px;">
+              <span class="codicon codicon-play"></span> Play
+            </button>
+            <button id="btn-scroll-stop"
+              style="font-size:11px;padding:3px 10px;background:transparent;color:var(--vscode-foreground);border:1px solid var(--vscode-panel-border,#3a3a3a);cursor:pointer;">
+              <span class="codicon codicon-debug-stop"></span>
+            </button>
+            <select id="sel-scroll-speed" style="${selStyle()};max-width:80px;">
+              <option value="1">1x</option>
+              <option value="2">2x</option>
+              <option value="3">3x</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <div style="${propLabelStyle()}">FRAME</div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <input id="rng-scroll-frame" type="range" min="0" max="1000" step="1" value="0" style="flex:1;" />
+            <span id="lbl-scroll-frame" style="font-family:monospace;font-size:12px;color:#ccc;min-width:80px;text-align:right;">f 0 / —</span>
+          </div>
+        </div>
+
+      </div><!-- /tab-pane scroll -->
 
     </div><!-- /tab-content-wrap -->
 
@@ -1283,7 +1371,7 @@ const chkL3Hud       = document.getElementById('chk-l3hud')       as HTMLInputEl
 const chkCamera      = document.getElementById('chk-camera')      as HTMLInputElement
 const chkSurfaces    = document.getElementById('chk-surfaces')    as HTMLInputElement
 const chkWalls       = document.getElementById('chk-walls')       as HTMLInputElement
-const chkL3Range     = document.getElementById('chk-l3range')     as HTMLInputElement
+const chkScrollPath  = document.getElementById('chk-scrollpath')  as HTMLInputElement
 
 // ── Camera viewport overlay ──────────────────────────────────────────────────
 // A draggable 16×14 tile rectangle representing the SNES FG screen window
@@ -1588,8 +1676,8 @@ wireLayerBtn('btn-l3',       'chk-l3')
 wireLayerBtn('btn-sprites',  'chk-sprites')
 wireLayerBtn('btn-surfaces', 'chk-surfaces')
 wireLayerBtn('btn-walls',    'chk-walls')
-wireLayerBtn('btn-l3range',  'chk-l3range')
 wireLayerBtn('btn-block',    'chk-block')
+wireLayerBtn('btn-scrollpath','chk-scrollpath')
 wireLayerBtn('btn-screens',  'chk-screens')
 wireLayerBtn('btn-hud',      'chk-l3hud')
 
@@ -2038,6 +2126,18 @@ const selTimeLimit   = document.getElementById('sel-time-limit')   as HTMLSelect
 const selLevelMode   = document.getElementById('sel-level-mode')   as HTMLSelectElement
 const selItemMemory  = document.getElementById('sel-item-memory')  as HTMLSelectElement
 const selVScrollHdr  = document.getElementById('sel-vscroll-hdr')  as HTMLSelectElement
+const l2yScrubberBlock = document.getElementById('l2y-scrubber-block') as HTMLDivElement
+const rngL2y         = document.getElementById('rng-l2y')         as HTMLInputElement
+const lblL2y         = document.getElementById('lbl-l2y')         as HTMLSpanElement
+const btnL2yPlay     = document.getElementById('btn-l2y-play')    as HTMLButtonElement
+const tabBtnScroll       = document.getElementById('tab-btn-scroll')       as HTMLButtonElement
+const infoScrollSprite   = document.getElementById('info-scroll-sprite')   as HTMLDivElement
+const chkScrollPathPanel = document.getElementById('chk-scrollpath-panel') as HTMLInputElement
+const btnScrollPlay      = document.getElementById('btn-scroll-play')      as HTMLButtonElement
+const btnScrollStop      = document.getElementById('btn-scroll-stop')      as HTMLButtonElement
+const selScrollSpeed     = document.getElementById('sel-scroll-speed')     as HTMLSelectElement
+const rngScrollFrame     = document.getElementById('rng-scroll-frame')     as HTMLInputElement
+const lblScrollFrame     = document.getElementById('lbl-scroll-frame')     as HTMLSpanElement
 const chkL3Priority  = document.getElementById('chk-l3-priority')  as HTMLInputElement
 const selL3Setting   = document.getElementById('sel-l3-setting')   as HTMLSelectElement
 // Read-only L3 derived fields (driven by the routine summary).
@@ -2162,6 +2262,12 @@ interface MapPayload {
   isVertical?:     boolean
   tileGrid:        number[][]
   l2TileGrid?:     number[][] | null
+  /** Truthy when the model payload includes a scroll-simulator seed —
+   *  the slider scrubs scroll FRAME instead of raw Layer2YPos. Only
+   *  passed for legacy payload diffing; the actual seed lives on
+   *  `modelMapPayload.scrollSim` and rebuilds the simulator on
+   *  rehydrate. The webview reads this boolean to switch slider modes. */
+  scrollSim?: unknown
   sprites:         Array<{ x: number; y: number; spriteId: number }>
   backAreaColor:   [number, number, number, number]
   backAreaColors:  number[][]   // 8 variants × [r,g,b,a]
@@ -2227,6 +2333,55 @@ interface MapPayload {
     horizLayer2Setting: number
     /** Initial Layer1YPos (camera Y) in pixels — see LevelHeaderDescriptor. */
     initialCameraYPx?: number
+    /**
+     * Initial Layer2YPos (BG2VOFS) byte from the L2 object-stream descriptor,
+     * mirrored onto the header for convenient slider population. Optional —
+     * only populated when L2 is object-stream.
+     */
+    initialLayer2YPx?: number
+    /**
+     * L1 scroll-sprite cmd byte (spriteId - $E7), or null when no scroll
+     * sprite is present.
+     */
+    layer1ScrollCmd?: number | null
+    /**
+     * Post-setup Layer2ScrollCmd (computed via simulateScrollSetup from
+     * the L1 sprite cmd + b0). Different from layer1ScrollCmd for cmds
+     * that 16-bit-STA-remap during L1 setup. Drives the slider's bounds
+     * lookup. null when no scroll sprite or the dispatch produces no L2
+     * motion.
+     */
+    layer2ScrollCmd?: number | null
+    /**
+     * Layer 2 Y travel bounds, read from the ROM table the post-setup
+     * Layer2ScrollCmd's per-frame routine compares against (e.g.
+     * DATA_05C71B for cmd $0B). null when the cmd's bounds source isn't
+     * decoded yet OR there's no L2 motion — slider locks to initialY.
+     */
+    layer2ScrollBounds?: { min: number; max: number } | null
+    /**
+     * Slider clamp range derived from the per-frame scroll simulator
+     * (`computeLayer2YRange`). Authoritative for cmds we've ported
+     * (currently $00, $01); falls through to `layer2ScrollBounds` for
+     * cmd $0B; null when no scroll sprite or unported cmd produced
+     * no Y motion.
+     */
+    layer2YRange?: { min: number; max: number } | null
+    /**
+     * Per-column experienced `(L1Y − L2Y)` delta ranges (one entry per
+     * 16-px column across the level). When present, the slider switches
+     * to viewport-progress mode (0..255 = 0..1 lerp factor) instead of
+     * raw-Layer2YPos mode. Renderer (`L2ObjectStream.render`) lerps
+     * each column independently within its own range.
+     */
+    columnDyRanges?: readonly { min: number; max: number }[] | null
+    /**
+     * Sampled camera-viewport trajectory (host-side, one sample per 8
+     * simulator frames). Each sample carries `(L1X, L1Y)` and
+     * `(L2X, L2Y)` so the editor can draw scroll-path overlays for
+     * both layers. `null` when no scroll sprite.
+     */
+    scrollPath?: readonly { f: number; l1x: number; l1y: number; l2x: number; l2y: number }[] | null
     // Read-only header bits surfaced for the LEVEL HEADER block in the
     // right panel. Editable bits (palettes, tilesets, sprite set) live
     // above as overrides; these are display-only.
@@ -3005,7 +3160,10 @@ function syncLayerTogglesFromDom(): void {
     l3Hud:    chkL3Hud.checked,
     surfaces: chkSurfaces.checked,
     walls:    chkWalls.checked,
-    l3Range:  chkL3Range.checked,
+    l3Range:  false,
+    l2Range:  false,
+    scrollPath: chkScrollPath.checked,
+    scrollPlayback: false,  // driven by editorStore.scrollPlaybackFrame, not a checkbox
   })
 }
 chkScreens.addEventListener('change',  syncLayerTogglesFromDom)
@@ -3017,7 +3175,7 @@ chkL3.addEventListener('change',       syncLayerTogglesFromDom)
 chkL3Hud.addEventListener('change',    syncLayerTogglesFromDom)
 chkSurfaces.addEventListener('change', syncLayerTogglesFromDom)
 chkWalls.addEventListener('change',    syncLayerTogglesFromDom)
-chkL3Range.addEventListener('change',  syncLayerTogglesFromDom)
+chkScrollPath.addEventListener('change', syncLayerTogglesFromDom)
 chkCamera.addEventListener('change',  () => {
   const on = chkCamera.checked
   store.setCameraOn(on)  // reactive — triggers renderModelOverlay
@@ -3544,6 +3702,205 @@ selMarioPal.addEventListener('change',  postRerender)
 selMarioPal.addEventListener('focus',   () => setPaletteHighlight(highlightRowCols([8], 6, 15)))
 selMarioPal.addEventListener('blur',    () => setPaletteHighlight(null))
 
+// ── Layer 2 viewport-progress scrubber ───────────────────────────────────────
+// For levels with a scroll simulator (auto-scroll sprites $E7..$F5):
+// slider drives `editorStore.scrollProgress` ∈ [0, 255]. Each L2 column
+// renders at `dy = lerp(columnDyRanges[col].min, .max, scrollProgress/255)`,
+// where the per-column dy ranges were captured by walking the simulator
+// and recording, for every frame, which level-X columns were inside the
+// camera viewport at that frame's `(L1Y, L2Y)` pair. As the slider
+// scrubs, every column animates within its OWN experienced
+// `(L1Y − L2Y)` range — no column ever renders at an offset it never
+// occupied in real gameplay.
+//
+// For levels without a simulator: slider falls back to the legacy
+// raw-Layer2YPos scrubbing via `editorStore.l2YOverride`, $00..$FF.
+rngL2y.addEventListener('input', () => {
+  // Manual scrub aborts any running L2-oscillation playback so the user
+  // sees their own slider input, not the auto-driven value.
+  stopL2Play()
+  const v = parseInt(rngL2y.value, 10) | 0
+  if (mapData?.header?.columnDyRanges) {
+    store.setScrollProgress(v)
+    lblL2y.textContent = ''
+  } else {
+    store.setL2YOverride(v)
+    lblL2y.textContent = `$${v.toString(16).toUpperCase().padStart(2, '0')}`
+  }
+})
+// ── Layer 2 oscillation playback ─────────────────────────────────────────────
+// "Play" on the Layer-2 panel animates the slider at game speed by walking
+// the simulator's per-frame `(L1Y − L2Y)` curve.
+//
+// Why use the dy curve directly instead of advancing the slider linearly:
+// the L2 motion is non-linear — the parallax routine (`CODE_05C04D`) uses
+// table-driven divides plus signed sign-bit checks plus fractional position
+// accumulators, producing the ease-in / ease-out the user observed in-game.
+// Reading the actual `(L1Y − L2Y)` per frame and mapping that to the
+// slider's `t` reproduces the easing exactly.
+//
+// `header.scrollPath` is sampled every 8 simulator frames (`f`, `l1y`,
+// `l2y` per entry). RAF runs at ~60 Hz to match the SNES's 60 simulator
+// frames/sec. We advance `l2PlaySimFrame` by 1 per RAF and lerp between
+// the two bracketing samples for true game-speed playback.
+//
+// The slider mapping uses the global `(min, max)` of dy across the whole
+// scrollPath. For a single-region L2 layout (e.g. `$009`'s yellow box),
+// every column's run range matches this global, so the lerp inside
+// `L2ObjectStream.render` reproduces the on-screen motion exactly.
+let l2PlayRaf: number | null = null
+let l2PlaySimFrame = 0
+let l2PlayDyMin = 0
+let l2PlayDyMax = 0
+const recomputeL2DyRange = (): void => {
+  const path = mapData?.header?.scrollPath
+  if (!path || path.length === 0) {
+    l2PlayDyMin = 0
+    l2PlayDyMax = 0
+    return
+  }
+  let m = Number.POSITIVE_INFINITY
+  let M = Number.NEGATIVE_INFINITY
+  for (const s of path) {
+    const d = ((s.l1y - s.l2y + 0x8000) & 0xFFFF) - 0x8000
+    if (d < m) m = d
+    if (d > M) M = d
+  }
+  l2PlayDyMin = m === Number.POSITIVE_INFINITY ? 0 : m
+  l2PlayDyMax = M === Number.NEGATIVE_INFINITY ? 0 : M
+}
+function stopL2Play(): void {
+  if (l2PlayRaf !== null) {
+    cancelAnimationFrame(l2PlayRaf)
+    l2PlayRaf = null
+  }
+  btnL2yPlay.innerHTML = '<span class="codicon codicon-play"></span>'
+}
+const tickL2Play = (): void => {
+  const path = mapData?.header?.scrollPath
+  if (!path || path.length < 2) { stopL2Play(); return }
+  const lastF = path[path.length - 1].f
+  l2PlaySimFrame++
+  if (l2PlaySimFrame > lastF) l2PlaySimFrame = 0   // loop the oscillation
+  // Bracketing samples. scrollPath strides by step=8 sim frames in
+  // MapEditorProvider; we read the actual stride from the path itself
+  // so this stays correct if the host changes the stride later.
+  const step = Math.max(1, path[1].f - path[0].f)
+  const idx  = Math.min(path.length - 2, Math.floor(l2PlaySimFrame / step))
+  const sCur  = path[idx]
+  const sNext = path[idx + 1]
+  const span  = Math.max(1, sNext.f - sCur.f)
+  const u     = (l2PlaySimFrame - sCur.f) / span
+  const dyCur  = ((sCur.l1y  - sCur.l2y  + 0x8000) & 0xFFFF) - 0x8000
+  const dyNext = ((sNext.l1y - sNext.l2y + 0x8000) & 0xFFFF) - 0x8000
+  const dy = dyCur + (dyNext - dyCur) * u
+  // Map dy → slider t via global normalization. For single-region L2
+  // levels this matches each column's own (run.min, run.max), so the
+  // editor renders the exact dy the simulator produced. For multi-
+  // region levels each region lerps within its own run range at the
+  // same t, so different regions oscillate proportionally.
+  const range = l2PlayDyMax - l2PlayDyMin
+  const t = range > 0 ? (dy - l2PlayDyMin) / range : 0
+  const v = Math.round(Math.max(0, Math.min(1, t)) * 255)
+  store.setScrollProgress(v)
+  rngL2y.value = String(v)
+  lblL2y.textContent = ''
+  l2PlayRaf = requestAnimationFrame(tickL2Play)
+}
+btnL2yPlay.addEventListener('click', () => {
+  if (!mapData?.header?.columnDyRanges || !mapData?.header?.scrollPath) return
+  if (l2PlayRaf !== null) {
+    stopL2Play()
+    return
+  }
+  recomputeL2DyRange()
+  if (l2PlayDyMax <= l2PlayDyMin) return  // no oscillation to play
+  const path = mapData.header.scrollPath
+  if (l2PlaySimFrame >= path[path.length - 1].f) l2PlaySimFrame = 0
+  btnL2yPlay.innerHTML = '<span class="codicon codicon-debug-pause"></span>'
+  l2PlayRaf = requestAnimationFrame(tickL2Play)
+})
+
+// ── Scroll panel: playback engine ────────────────────────────────────────────
+// `scrollPath` is a host-sampled array of viewport snapshots taken every 8
+// simulator frames. The Play button advances `editorStore.scrollPlaybackFrame`
+// (the array index, NOT the underlying simulator frame) on a requestAnimation-
+// Frame loop, with a speed multiplier (1x / 2x / 3x) advancing the index by
+// 1 / 2 / 3 per RAF. The render-overlay effect picks up the change via the
+// reactive store and redraws the moving viewport rect.
+//
+// We tick on RAF (~60 Hz) rather than the simulator frame (60 fps NES). 1x
+// thus matches in-game playback speed; 2x / 3x speed up the preview without
+// asking the user to load an emulator.
+let scrollPlaybackRaf: number | null = null
+const stopScrollPlayback = () => {
+  if (scrollPlaybackRaf !== null) {
+    cancelAnimationFrame(scrollPlaybackRaf)
+    scrollPlaybackRaf = null
+  }
+  btnScrollPlay.innerHTML = '<span class="codicon codicon-play"></span> Play'
+}
+const tickScrollPlayback = () => {
+  const path = mapData?.header?.scrollPath
+  if (!path || path.length === 0) { stopScrollPlayback(); return }
+  const speed = Math.max(1, parseInt(selScrollSpeed.value, 10) || 1)
+  const cur = store.scrollPlaybackFrame
+  const next = (cur < 0 ? 0 : cur) + speed
+  if (next >= path.length) {
+    // End of path — stop and pin to last frame so the rect stays visible
+    // at its final position.
+    store.setScrollPlaybackFrame(path.length - 1)
+    rngScrollFrame.value = String(path.length - 1)
+    lblScrollFrame.textContent = `f ${path[path.length - 1].f} / ${path[path.length - 1].f}`
+    stopScrollPlayback()
+    return
+  }
+  store.setScrollPlaybackFrame(next)
+  rngScrollFrame.value = String(next)
+  lblScrollFrame.textContent = `f ${path[next].f} / ${path[path.length - 1].f}`
+  scrollPlaybackRaf = requestAnimationFrame(tickScrollPlayback)
+}
+btnScrollPlay.addEventListener('click', () => {
+  const path = mapData?.header?.scrollPath
+  if (!path || path.length === 0) return
+  if (scrollPlaybackRaf !== null) {
+    // Pause
+    stopScrollPlayback()
+    return
+  }
+  // Restart from beginning if at end
+  if (store.scrollPlaybackFrame >= path.length - 1 || store.scrollPlaybackFrame < 0) {
+    store.setScrollPlaybackFrame(0)
+    rngScrollFrame.value = '0'
+    lblScrollFrame.textContent = `f ${path[0].f} / ${path[path.length - 1].f}`
+  }
+  btnScrollPlay.innerHTML = '<span class="codicon codicon-debug-pause"></span> Pause'
+  scrollPlaybackRaf = requestAnimationFrame(tickScrollPlayback)
+})
+btnScrollStop.addEventListener('click', () => {
+  stopScrollPlayback()
+  store.setScrollPlaybackFrame(-1)
+  rngScrollFrame.value = '0'
+  const path = mapData?.header?.scrollPath
+  lblScrollFrame.textContent = path && path.length > 0
+    ? `f 0 / ${path[path.length - 1].f}`
+    : `f 0 / —`
+})
+rngScrollFrame.addEventListener('input', () => {
+  // Manual scrub: pause playback and snap to slider position.
+  stopScrollPlayback()
+  const path = mapData?.header?.scrollPath
+  if (!path || path.length === 0) return
+  const idx = Math.max(0, Math.min(path.length - 1, parseInt(rngScrollFrame.value, 10) | 0))
+  store.setScrollPlaybackFrame(idx)
+  lblScrollFrame.textContent = `f ${path[idx].f} / ${path[path.length - 1].f}`
+})
+// Mirror chk-scrollpath-panel into the same toggle the toolbar button uses.
+chkScrollPathPanel.addEventListener('change', () => {
+  chkScrollPath.checked = chkScrollPathPanel.checked
+  syncLayerTogglesFromDom()
+})
+
 // ── Message handler ───────────────────────────────────────────────────────────
 
 window.addEventListener('message', async (event) => {
@@ -3680,6 +4037,78 @@ window.addEventListener('message', async (event) => {
     selItemMemory.value = String(hdr.itemMemory     ?? 0)
     selVScrollHdr.value = String(hdr.verticalScroll ?? 0)
     chkL3Priority.checked = !!hdr.layer3Priority
+
+    // Layer 2 scrubber: visible for object-stream L2 only.
+    //
+    // With per-column dy ranges (auto-scroll levels): slider scrubs
+    // viewport progress 0..255 (= 0.00..1.00 of each column's
+    // experienced range). Each column renders at its own lerped dy
+    // so no cell appears at an offset it never had in gameplay.
+    //
+    // Without (no scroll sprite): legacy raw-Layer2YPos scrub 0..255.
+    const isObjectStreamL2 = mapData.l2TileGrid != null && !mapData.l2UsesBgAtlas
+    const initialY = mapData.header.initialLayer2YPx ?? 0
+    if (isObjectStreamL2) {
+      l2yScrubberBlock.style.display = 'flex'
+      rngL2y.disabled = false
+      const hasScrollPath = !!mapData.header.scrollPath && mapData.header.scrollPath.length > 1
+      // L2 Play needs both per-column dy ranges (= scroll-progress slider
+      // mode) AND a scrollPath to walk for the per-frame dy curve.
+      btnL2yPlay.disabled = !mapData.header.columnDyRanges || !hasScrollPath
+      if (mapData.header.columnDyRanges) {
+        rngL2y.min = '0'
+        rngL2y.max = '255'
+        const v = store.scrollProgress
+        rngL2y.value = String(v)
+        lblL2y.textContent = ''
+      } else {
+        rngL2y.min = '0'
+        rngL2y.max = '255'
+        const liveY = store.l2YOverride ?? initialY
+        rngL2y.value = String(liveY)
+        lblL2y.textContent = `$${liveY.toString(16).toUpperCase().padStart(2, '0')}`
+      }
+    } else {
+      l2yScrubberBlock.style.display = 'none'
+      stopL2Play()
+    }
+
+    // Scroll panel + tab visibility. Tab + button row appear only for
+    // levels that have a scroll sprite (i.e. `scrollPath` was shipped).
+    // For other levels the tab stays hidden so the user isn't shown
+    // controls that wouldn't do anything.
+    const scrollPath = mapData.header.scrollPath
+    if (scrollPath && scrollPath.length > 0) {
+      tabBtnScroll.style.display = 'inline-block'
+      const cmd = mapData.header.layer1ScrollCmd
+      const cmdHex = cmd !== null && cmd !== undefined
+        ? `$${cmd.toString(16).toUpperCase().padStart(2, '0')}`
+        : '—'
+      const spriteId = cmd !== null && cmd !== undefined ? 0xE7 + cmd : null
+      const spriteHex = spriteId !== null
+        ? `$${spriteId.toString(16).toUpperCase().padStart(2, '0')}`
+        : '—'
+      infoScrollSprite.textContent = `sprite ${spriteHex} / cmd ${cmdHex} (${scrollPath.length} samples, ${scrollPath[scrollPath.length - 1].f} frames)`
+      rngScrollFrame.min = '0'
+      rngScrollFrame.max = String(scrollPath.length - 1)
+      // Reset playback frame on level change
+      store.setScrollPlaybackFrame(-1)
+      rngScrollFrame.value = '0'
+      lblScrollFrame.textContent = `f 0 / ${scrollPath[scrollPath.length - 1].f}`
+      stopScrollPlayback()
+      // Sync the panel checkbox with the (toolbar-driven) toggle state
+      chkScrollPathPanel.checked = chkScrollPath.checked
+    } else {
+      tabBtnScroll.style.display = 'none'
+      // If the user was on the Scroll tab when a non-scroll level loads,
+      // bounce them back to General so the now-hidden tab isn't active.
+      if (tabBtnScroll.classList.contains('active')) {
+        const generalTab = document.querySelector<HTMLElement>('.tab-btn[data-tab="general"]')
+        generalTab?.click()
+      }
+      stopScrollPlayback()
+      store.setScrollPlaybackFrame(-1)
+    }
 
     // L3 routine summary. Editable: layer3Setting (via selL3Setting). The
     // $009F88 byte / kind / init Y are derived from (tileset, layer3Setting)

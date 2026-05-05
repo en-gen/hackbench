@@ -41,7 +41,7 @@ export function resetEditorStore(): void {
   editorStore.setLayerToggles({
     l1: true, l2: true, l3: true, sprites: true, screens: false,
     block: false, mapGrid: false, l3Hud: false, surfaces: false,
-    walls: false, l3Range: false,
+    walls: false, l3Range: false, l2Range: false,
   })
   editorStore.setCursorPx(null)
 }

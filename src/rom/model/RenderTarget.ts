@@ -62,6 +62,27 @@ export interface LayerToggles {
    * `src/rom/L3Loader.ts`.
    */
   l3Range: boolean
+  /**
+   * Show the L2 plane bounding rectangle (toolbar btn-l2range), object-stream
+   * L2 only. Reads `mapData.l2.scrollRange`; see `computeL2ScrollRange` in
+   * `src/rom/L2Loader.ts`.
+   */
+  l2Range: boolean
+  /**
+   * Show the camera-viewport scroll-path overlay (toolbar btn-scrollpath):
+   * polylines tracing where the L1 camera and L2 scroll area travel through
+   * their respective planes over the level's auto-scroll lifetime. Reads
+   * `mapData.header.scrollPath`; the data comes from
+   * `sampleViewportPath(scrollSimulator, levelPixelW, 8)`.
+   */
+  scrollPath: boolean
+  /**
+   * Show the moving camera-viewport bounding box driven by the Scroll
+   * panel's Play button. Reads `editorStore.scrollPlaybackFrame` to
+   * pick which sample of `mapData.header.scrollPath` to draw a
+   * 256x224 rect at. -1 = not playing.
+   */
+  scrollPlayback: boolean
 }
 
 export interface RenderTarget {
@@ -85,6 +106,22 @@ export interface RenderTarget {
 export function cellBoxOf(tileX: number, tileY: number): CellBox {
   const px = tileX * 16
   const py = tileY * 16
+  return {
+    tl: { x: px, y: py },
+    tr: { x: px + 8, y: py },
+    bl: { x: px, y: py + 8 },
+    br: { x: px + 8, y: py + 8 },
+  }
+}
+
+/**
+ * Variant of `cellBoxOf` with a per-render Y delta. Used by `L2ObjectStream`
+ * to apply the per-level `Layer2YPos` (BG2VOFS) offset, which positions L2
+ * relative to the camera independently of L1's row coordinates.
+ */
+export function cellBoxAt(tileX: number, tileY: number, dy: number): CellBox {
+  const px = tileX * 16
+  const py = tileY * 16 + dy
   return {
     tl: { x: px, y: py },
     tr: { x: px + 8, y: py },

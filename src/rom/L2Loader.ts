@@ -28,8 +28,9 @@
 
 import { RomFile } from './RomFile'
 import { decompressRle1 } from './LcRle1'
-import { parseL2Objects, SCREEN_W, SCREEN_H } from './LevelParser'
+import { parseL2Objects, SCREEN_W, SCREEN_H, type LevelSprite } from './LevelParser'
 import { expandObject, createGrid } from './ObjectExpander'
+import { findSecondaryEntranceForLevel } from './L3Loader'
 
 /** L2 pointer table base. 3 bytes per level: lo, hi, bank. */
 export const L2_POINTER_TABLE = 0x05E600
@@ -179,9 +180,10 @@ export function loadL2Objects(
   const raw = rom.readAt(snesAddr, 0x2000)
   if (!raw) return null
 
-  // L2 has no header; skip straight to object parsing. The vertical flag
+  // parseL2Objects skips the same 5-byte preamble the game does
+  // (bank_05.asm:462-470 copies Layer2DataPtr+5 into Layer1DataPtr before
+  // re-running LoadLevelData with LayerProcessing=1). The vertical flag
   // mirrors L1's — in vanilla SMW, L2 verticality tracks L1 closely.
-  // parseL2Objects applies the same XY-swap rules as parseLevelObjects.
   const objects = parseL2Objects(raw, screens, isVertical)
   const grid = createGrid(screens, isVertical)
   for (const obj of objects) {
@@ -193,6 +195,82 @@ export function loadL2Objects(
 // Re-export for callers that want the canonical grid dimensions without
 // reaching into LevelParser directly.
 export { SCREEN_W as L1_SCREEN_W, SCREEN_H as L1_SCREEN_H }
+
+// ── Initial Layer2YPos (BG2VOFS) ──────────────────────────────────────────────
+
+/**
+ * SNES address of DATA_05F400 — per-level Layer1/Layer2 startup Y-index byte.
+ * - Bits 1:0 index DATA_05D70C for primary-entrance Layer2YPos init.
+ * - Bits 3:2 index DATA_05D708 for primary-entrance Layer1YPos init (L1 path).
+ * Confirmed at bank_05.asm:7323-7328.
+ */
+const DATA_05F400_ADDR = 0x05F400
+
+/**
+ * SNES address of DATA_05FA00 — secondary-entrance settings byte.
+ * - Bits 7:6 index DATA_05D70C for secondary-entrance Layer2YPos init
+ *   (bank_05.asm:7137-7146 — top 2 bits, distinct from L1's bits 5:4).
+ */
+const DATA_05FA00_ADDR = 0x05FA00
+
+/**
+ * SNES address of DATA_05F600 — first level-data byte per level. For vertical
+ * levels, low 5 bits hold the high byte of the initial Y position used for
+ * both Layer1YPos+1 and Layer2YPos+1 (bank_05.asm:7386-7393).
+ */
+const DATA_05F600_ADDR = 0x05F600
+
+/**
+ * SNES address of DATA_05D70C — initial Layer2YPos low-byte table.
+ * Verified contents: $60, $90, $C0, $00 (bank_05.asm:7035-7036).
+ */
+const DATA_05D70C_ADDR = 0x05D70C
+
+/**
+ * Read the initial `Layer2YPos` (BG2VOFS) byte for a level, picking the
+ * primary entrance for main levels ($000-$0FF) and the secondary entrance
+ * that targets the level for sublevels ($100-$1FF).
+ *
+ * Primary path (bank_05.asm:7323-7328):
+ *   Layer2YPos = DATA_05D70C[DATA_05F400[level] & $03]
+ *
+ * Secondary path (bank_05.asm:7137-7146; reached via pipe/door entrance):
+ *   Layer2YPos = DATA_05D70C[(DATA_05FA00[entranceId] >> 6) & $03]
+ *
+ * Vertical levels (bank_05.asm:7386-7393): same low byte, plus the high byte
+ *   from `DATA_05F600[level] & $1F` written to Layer2YPos+1 (only when
+ *   VertLayer2Setting != 3 at runtime; the helper combines unconditionally
+ *   for symmetry with `readInitialLayer1YPos`).
+ *
+ * Bit positions differ from the L1 sibling: L2 uses bits 1:0 of F400 / bits
+ * 7:6 of FA00, where L1 uses bits 3:2 / bits 5:4 of the same bytes.
+ */
+export function readInitialLayer2YPos(rom: RomFile, levelId: number, isVertical = false): number {
+  let loByte: number
+  if (levelId >= 0x100) {
+    const entrance = findSecondaryEntranceForLevel(rom, levelId)
+    if (entrance !== null) {
+      const faByte = rom.readByte(DATA_05FA00_ADDR + entrance) ?? 0
+      const idx = (faByte >> 6) & 0x03
+      loByte = rom.readByte(DATA_05D70C_ADDR + idx) ?? 0
+    } else {
+      // Primary fallback for sublevels with no targeting entrance — same path
+      // as the standard primary load. Mirrors readInitialLayer1YPos's fallback
+      // at L3Loader.ts:260-266.
+      const settings = rom.readByte(DATA_05F400_ADDR + levelId) ?? 0
+      const idx = settings & 0x03
+      loByte = rom.readByte(DATA_05D70C_ADDR + idx) ?? 0
+    }
+  } else {
+    const settings = rom.readByte(DATA_05F400_ADDR + levelId) ?? 0
+    const idx = settings & 0x03
+    loByte = rom.readByte(DATA_05D70C_ADDR + idx) ?? 0
+  }
+
+  if (!isVertical) return loByte
+  const hiByte = (rom.readByte(DATA_05F600_ADDR + levelId) ?? 0) & 0x1F
+  return (hiByte << 8) | loByte
+}
 
 /**
  * Enumerate every unique preset pointer used by any level in the L2 table.
@@ -216,4 +294,174 @@ export function enumerateL2Presets(
   return [...byPtr.entries()]
     .map(([ptr, levels]) => ({ ptr, levels }))
     .sort((a, b) => (a.ptr & 0xFFFF) - (b.ptr & 0xFFFF))
+}
+
+// ── Scroll-range derivation (#246) ───────────────────────────────────────────
+
+/**
+ * Sprite-id base for scroll-sprite spawn. Sprite ids `>= $E7` in the L1 sprite
+ * stream trigger an auto-scroll/sink-rise/etc. setup at level entry: the cmd
+ * byte = `spriteId - $E7` is written to **`Layer1ScrollCmd`** at bank_02.asm
+ * lines 5290-5300 and dispatched to the L1 setup table at bank_05.asm:4583+.
+ *
+ * Note: this is the L1 cmd, not the L2 cmd. `Layer2ScrollCmd` is never set
+ * during gameplay levels (every CPU write to it lives in bank_0C cutscene/
+ * credits code), so the L2 per-frame dispatch at bank_05.asm:4544 never fires.
+ * L2 motion in normal gameplay comes from parallax (HorizLayer2Setting /
+ * VertLayer2Setting tables) and event-driven sources (screen shake, sink/rise
+ * timers set up by L1 cmds like $0E).
+ */
+export const SCROLL_SPRITE_BASE = 0xE7
+
+/**
+ * First scroll sprite in a level's sprite stream, returned as the
+ * **Layer1ScrollCmd** dispatch index (`spriteId - $E7`). bank_02.asm:5294
+ * short-circuits via `BNE +` once any cmd is set, so the FIRST scroll sprite
+ * wins; later ones in the stream are ignored.
+ *
+ * Returns null when no scroll sprite is present — typical of non-auto-scroll
+ * levels.
+ */
+export function findLevelScrollSprite(sprites: readonly LevelSprite[]): number | null {
+  for (const s of sprites) {
+    if (s.spriteId >= SCROLL_SPRITE_BASE) {
+      return s.spriteId - SCROLL_SPRITE_BASE
+    }
+  }
+  return null
+}
+
+/**
+ * Same as `findLevelScrollSprite` but returns the raw sprite-stream byte 0
+ * alongside the cmd, since `simulateScrollSetup` needs it (the L1 setup
+ * routine reads `Layer1ScrollBits = b0 >> 2` from this byte).
+ */
+export function findLevelScrollSpriteFull(
+  sprites: readonly LevelSprite[],
+): { spriteId: number; b0: number } | null {
+  for (const s of sprites) {
+    if (s.spriteId >= SCROLL_SPRITE_BASE) {
+      return { spriteId: s.spriteId, b0: s.raw[0] ?? 0 }
+    }
+  }
+  return null
+}
+
+/**
+ * Per-`Layer2ScrollCmd` motion bounds, read directly from the ROM tables
+ * the cmd's per-frame routine compares against. The argument is the
+ * **post-setup** Layer2ScrollCmd (computed via `simulateScrollSetup`),
+ * NOT the raw scroll-sprite cmd byte — those differ for cmds where the
+ * L1 setup routine remaps via 16-bit STA tricks (e.g. L1 cmd $0C → L2
+ * cmd $00, no L2 motion).
+ *
+ * Returns `null` for cmds whose bounds source we haven't decoded yet —
+ * caller falls back to `(initialLayer2YPx, initialLayer2YPx)` (no motion).
+ *
+ * Currently mapped:
+ *   - cmd $0B (CODE_05C727 "On/Off Switch controlled"): targets read from
+ *     `DATA_05C71B` at `$05C71B`. Two 16-bit `NextLayer2YPos` values the
+ *     routine drifts toward. Vanilla: `$0020` and `$00C1`.
+ *
+ * Other cmds (e.g. $0E sink/rise CODE_05C81C) pending decoding.
+ */
+const DATA_05C71B_ADDR = 0x05C71B
+
+export function readL2ScrollBounds(
+  rom: RomFile, layer2ScrollCmd: number | null,
+): { min: number; max: number } | null {
+  if (layer2ScrollCmd === 0x0B) {
+    const a = rom.readByte(DATA_05C71B_ADDR + 0) ?? 0   // target 0 low
+    // hi bytes (DATA_05C71B + 1, +3) are zero in vanilla; treating Y as 8-bit
+    const b = rom.readByte(DATA_05C71B_ADDR + 2) ?? 0   // target 1 low
+    const min = Math.min(a, b)
+    const max = Math.max(a, b)
+    if (max > min) return { min, max }
+  }
+  return null
+}
+
+export interface L2ScrollRange {
+  /**
+   * Plane visualization kind. Currently only static rects:
+   *   - none:  empty grid (no L2 content to bound).
+   *   - fixed: object-stream L2 content. yMin/yMax are the grid extents
+   *            shifted by `dy = initialCameraYPx - initialLayer2YPx`.
+   *
+   * A per-frame Y animation source (screen-shake / cmd-$0E sink-rise /
+   * boss-specific routines) would warrant a future `'animated'` kind with
+   * captured sweep extremes. Not yet decoded — see issue #246.
+   */
+  kind: 'none' | 'fixed'
+  /** Level pixel rectangle bounds. */
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
+  /**
+   * The cmd byte from `findLevelScrollSprite`, recorded for diagnostic /
+   * label purposes. This is **`Layer1ScrollCmd`**, not `Layer2ScrollCmd`.
+   */
+  layer1ScrollCmd?: number
+}
+
+export interface L2ScrollRangeInput {
+  /** Object-stream grid (null cells are empty). row-major. */
+  grid:             readonly (readonly (number | null)[])[]
+  initialLayer2YPx: number
+  initialCameraYPx: number
+  /** Level pixel width (screens × 256). */
+  levelPixelW:      number
+  /** L1 cmd from `findLevelScrollSprite`, or null when no scroll sprite. */
+  layer1ScrollCmd:  number | null
+}
+
+/**
+ * First/last grid rows containing any non-null cell. Returns `[-1, -1]` for
+ * empty grids. Mirrors `findFirstDataRow` / `findLastDataRow` in L3Loader.
+ */
+function findGridDataRows(grid: readonly (readonly (number | null)[])[]): [number, number] {
+  let first = -1
+  let last  = -1
+  for (let r = 0; r < grid.length; r++) {
+    const row = grid[r] ?? []
+    for (let c = 0; c < row.length; c++) {
+      if (row[c] !== null) {
+        if (first === -1) first = r
+        last = r
+        break
+      }
+    }
+  }
+  return [first, last]
+}
+
+/**
+ * Bounding rectangle (level pixels) for the L2 plane the editor should
+ * visualize. Mirrors the shape of `computeL3ScrollRange`.
+ *
+ * Returns `kind: 'fixed'` whenever the grid has any data — gameplay-L2 has
+ * no per-frame Y animation we've decoded yet (Layer2ScrollCmd is always 0
+ * in vanilla play; cmd-$0E sink-rise needs separate verification). The
+ * rect is at `firstRow*16 + dy` to `(lastRow+1)*16 + dy` where `dy =
+ * initialCameraYPx - initialLayer2YPx`, matching the L2ObjectStream.render
+ * formula.
+ */
+export function computeL2ScrollRange(input: L2ScrollRangeInput): L2ScrollRange {
+  const { grid, initialLayer2YPx, initialCameraYPx, levelPixelW, layer1ScrollCmd } = input
+
+  const [firstRow, lastRow] = findGridDataRows(grid)
+  if (firstRow < 0) {
+    return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }
+  }
+
+  const dy   = -initialLayer2YPx + initialCameraYPx
+  return {
+    kind: 'fixed',
+    xMin: 0,
+    xMax: levelPixelW,
+    yMin: firstRow * 16 + dy,
+    yMax: (lastRow + 1) * 16 + dy,
+    layer1ScrollCmd: layer1ScrollCmd ?? undefined,
+  }
 }

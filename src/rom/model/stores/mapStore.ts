@@ -19,6 +19,7 @@
  */
 
 import { markRaw, reactive } from '@vue/reactivity'
+import type { ScrollSimulator } from '../../scrollSim'
 import type { Palette } from '../palette/Palette'
 import type { LevelOrientation } from '../SmwMap'
 
@@ -36,6 +37,13 @@ export interface MapStoreState {
    *  (e.g. Chargin' Chuck, Dry Bones, Super Koopa) read this to choose
    *  the toward-Mario simulation direction. */
   marioSpawnX: number
+  /** Frame-accurate scroll-position simulator built from the level's
+   *  scroll-sprite + parallax setup. `L2ObjectStream.render` reads
+   *  `simulator.stateAtFrame(editorStore.scrollFrame)` to compute the
+   *  correct (Layer1YPos − Layer2YPos) viewport delta for the current
+   *  scrub position. `null` when no scroll sprite was found in the
+   *  level — render falls back to the static initial offset. */
+  scrollSimulator: ScrollSimulator | null
 }
 
 export type MapStore = MapStoreState
@@ -52,6 +60,7 @@ const DEFAULTS: MapStoreState = {
   screenPipeVariantIdx: [],
   initialCameraYPx: 0,
   marioSpawnX: 0,
+  scrollSimulator: null,
 }
 
 export function createMapStore(init: MapStoreInit = {}): MapStore {
@@ -60,5 +69,9 @@ export function createMapStore(init: MapStoreInit = {}): MapStore {
   // hot path). markRaw keeps reactive() out of Palette internals.
   const merged: MapStoreState = { ...DEFAULTS, ...init }
   if (merged.palette) merged.palette = markRaw(merged.palette)
+  // Simulator carries non-reactive caches (memoized state per frame);
+  // markRaw skips reactive proxying so the per-frame mutations don't
+  // trigger spurious re-renders.
+  if (merged.scrollSimulator) merged.scrollSimulator = markRaw(merged.scrollSimulator)
   return reactive(merged) as MapStore
 }
