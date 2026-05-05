@@ -40,6 +40,7 @@ import { SplittinChuckAppearance } from './sprites/appearances/SplittinChuckAppe
 import { KeyholeAppearance } from './sprites/appearances/KeyholeAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { SumoBrotherAppearance } from './sprites/appearances/SumoBrotherAppearance'
+import { CarrotTopLiftAppearance } from './sprites/appearances/CarrotTopLiftAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
@@ -511,6 +512,8 @@ export function buildSprites(
       appearance = new HopFlameAppearance(parts)
     } else if (s.spriteId === 0xC2) {
       appearance = new BlurpAppearance(parts)
+    } else if (s.spriteId === 0xB7 || s.spriteId === 0xB8) {
+      appearance = new CarrotTopLiftAppearance(parts, s.spriteId as 0xB7 | 0xB8)
     } else if (s.spriteId <= 0x07 || s.spriteId === 0x0F) {
       // $00-$07 shelless + shelled koopas, $0F Goomba — all ground walkers
       // with KoopaWalkBehavior; KoopaAppearance draws the patrol-path overlay.
