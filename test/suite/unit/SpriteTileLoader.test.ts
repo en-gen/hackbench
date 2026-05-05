@@ -346,6 +346,22 @@ describe('buildSpriteLayout', () => {
     expect(body.map(t => t.flipX)).toEqual([false, true, false, true])
   })
 
+  it('renders 1-Up mushroom ($78) with base tile $24, palette 13, charHigh 0', () => {
+    // PowerUpGfxRt (bank_01.asm:9632-9636): SpriteNumber - $74 = $78 - $74 = 4;
+    // PowerUpTiles[4] = $24.  Sprite166EVals[$78] = $0A → attr $0A → palette = 8+(5)=13, charHigh=0.
+    const spriteAttr = new Uint8Array(0x100)
+    spriteAttr[0x78] = 0x0A   // Sprite166EVals[$78] & $0F
+    const tables = makeTables({ spriteAttr })
+    const layout = buildSpriteLayout(tables, 0x78)!
+    expect(layout.height).toBe(16)
+    expect(layout.tiles).toHaveLength(4)
+    expect(layout.tiles.map(t => t.charNum)).toEqual([
+      0x400 + 0x24, 0x400 + 0x25, 0x400 + 0x34, 0x400 + 0x35,
+    ])
+    expect(layout.tiles.every(t => t.palette === 13)).toBe(true)
+    expect(layout.tiles.every(t => !t.flipX && !t.flipY)).toBe(true)
+  })
+
   // IDs 0xC9-0xFF (beyond the dispatch table) have no visual tile — they
   // render as placeholder boxes via SpriteFactory. Confirm null here so the
   // two paths stay in sync: any change to the table boundary is caught.
