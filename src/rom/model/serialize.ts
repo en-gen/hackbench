@@ -21,6 +21,7 @@ import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppe
 import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
 import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
+import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { Color } from './palette/Color'
 import type { ColorBehavior } from './palette/ColorBehavior'
@@ -196,6 +197,9 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
   }
   if (a instanceof PSwitchAppearance) {
     return { kind: 'pSwitch', parts: a.parts.map(partDescriptor) }
+  }
+  if (a instanceof WoodSpikeAppearance) {
+    return { kind: 'woodSpike', spriteId: a.spriteId, spriteMisc151C: a.spriteMisc151C }
   }
   if (a instanceof StaticSpriteAppearance) {
     return { kind: 'static', parts: a.parts.map(partDescriptor) }

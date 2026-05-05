@@ -42,8 +42,10 @@ export class StaticSpriteAppearance implements SpriteAppearance {
     }
   }
 
-  // Declared so subclasses that add overlay logic can use the `override`
-  // modifier and get a compile-time check that the signature matches.
+  // Declared so subclasses that add animation or overlay logic can use the
+  // `override` modifier and get a compile-time check that the signature matches.
+  tickAnimation?(): void
+
   renderOverlay?(
     ctx:       OverlayContext,
     x:         number,

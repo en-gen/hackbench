@@ -35,6 +35,7 @@ import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppe
 import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
 import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
+import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
@@ -270,6 +271,8 @@ function buildAppearance(
       return new SpikeTopAppearance(buildParts(desc.parts0), buildParts(desc.parts1))
     case 'hammerBro':
       return new HammerBroAppearance(buildParts(desc.parts))
+    case 'woodSpike':
+      return WoodSpikeAppearance.fromTables(chars, desc.spriteId, placeholder, desc.spriteMisc151C)
   }
 }
 

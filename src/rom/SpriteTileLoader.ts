@@ -237,8 +237,8 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0xA8: 0xA0,   // Blargg
   0xA9: 0x40,   // Reznor — ReznorTiles[0], bank_03.asm
   0xAA: 0xA8,   // Fishbone
-  0xAC: 0x6A,   // Wooden Spike, moving down and up
-  0xAD: 0x6A,   // Wooden Spike, moving up/down first
+  // 0xAC / 0xAD (Wooden Spike) — handled by WoodSpikeAppearance in SpriteFactory;
+  // WoodSpikeGfx uses hardcoded tile tables, not SprTilemap.
   0xAE: 0xCC,   // Fishin' Boo
   0xAF: 0x8C,   // Boo Block
   0xB0: 0x88,   // Reflecting stream of Boo Buddies
