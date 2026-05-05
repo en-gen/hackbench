@@ -187,7 +187,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x74: 0x24,   // Mushroom — PowerUpTiles[0], bank_01.asm:9528
   0x75: 0x26,   // Fire Flower — PowerUpTiles[1]
   0x76: 0x48,   // Star — PowerUpTiles[2]
-  0x77: 0x44,   // Feather — (feather sprite uses char $44 in SP2)
+  0x77: 0x0E,   // Feather — PowerUpTiles[3] ($77 - $74 = 3)
   0x78: 0x24,   // 1-Up — PowerUpTiles[4] ($78 - $74 = 4)
   0x79: 0xAE,   // Growing Vine
   0x7A: 0xAE,   // Firework — Bank3SprHandler, uses same particle tile range as vine

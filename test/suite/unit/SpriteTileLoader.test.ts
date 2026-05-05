@@ -346,6 +346,22 @@ describe('buildSpriteLayout', () => {
     expect(body.map(t => t.flipX)).toEqual([false, true, false, true])
   })
 
+  it('renders Feather ($77) with base tile $0E, palette 10, charHigh 0', () => {
+    // PowerUpGfxRt (bank_01.asm:9632-9636): SpriteNumber - $74 = $77 - $74 = 3;
+    // PowerUpTiles[3] = $0E.  Sprite166EVals[$77] = $24 → attr $04 → palette = 8+(2)=10, charHigh=0.
+    const spriteAttr = new Uint8Array(0x100)
+    spriteAttr[0x77] = 0x04   // Sprite166EVals[$77] ($24) & $0F
+    const tables = makeTables({ spriteAttr })
+    const layout = buildSpriteLayout(tables, 0x77)!
+    expect(layout.height).toBe(16)
+    expect(layout.tiles).toHaveLength(4)
+    expect(layout.tiles.map(t => t.charNum)).toEqual([
+      0x400 + 0x0E, 0x400 + 0x0F, 0x400 + 0x1E, 0x400 + 0x1F,
+    ])
+    expect(layout.tiles.every(t => t.palette === 10)).toBe(true)
+    expect(layout.tiles.every(t => !t.flipX && !t.flipY)).toBe(true)
+  })
+
   it('renders 1-Up mushroom ($78) with base tile $24, palette 13, charHigh 0', () => {
     // PowerUpGfxRt (bank_01.asm:9632-9636): SpriteNumber - $74 = $78 - $74 = 4;
     // PowerUpTiles[4] = $24.  Sprite166EVals[$78] = $0A → attr $0A → palette = 8+(5)=13, charHigh=0.
