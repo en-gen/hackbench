@@ -26,6 +26,7 @@ import { drawWalls } from './overlays/drawWalls'
 import { drawL3Range } from './overlays/drawL3Range'
 import { editorStore as store } from './store'
 import { createRafTimer } from '../shared/animTimer'
+import { tileBlockColor } from '../shared/blockView'
 
 // FLUX: the store owns state; views dispatch actions; observers read refs.
 // `store.foo`         — direct read of the reactive proxy field. Reads inside
@@ -2415,13 +2416,6 @@ function screenX(s: number, px: number): number {
 }
 function screenY(s: number, px: number): number {
   return isVert() ? Math.round(s * SCREEN_H_VERT * px) : 0
-}
-
-function tileBlockColor(tileId: number): string {
-  const r = (tileId & 0x1F) << 3
-  const g = ((tileId >> 5) & 0xF) << 4
-  const b = Math.round((tileId / 0x1FF) * 180) + 40
-  return `rgb(${r},${g},${b})`
 }
 
 function drawBlockGrid(grid: number[][], cols: number, rows: number, px: number, alpha: number): void {

@@ -306,8 +306,75 @@ export function readGfxAssignment(
   }
 }
 
+// ── FilterSomeRAM upload variant (bank_00.asm:5480) ─────────────────────────
+//
+// `UploadGFXFile` (bank_00.asm:5401-5478) is the standard GFX upload path:
+// it reads 24 bytes per tile (3bpp source) and writes 32 bytes per tile to
+// VRAM (4bpp destination). For most files the 4th bitplane is forced to
+// zero (per-tile mask `_A = $0000`), so non-zero pixel values stay in the
+// 1..7 range.
+//
+// For specific file indices, `UploadGFXFile` jumps to `FilterSomeRAM`
+// (bank_00.asm:5480-5513) instead. FilterSomeRAM is the same 3→4bpp loop
+// but writes plane 3 = `plane0_byte | plane1_byte | plane2_byte` per row
+// (the first half of the loop builds the OR into `GfxBppConvertBuffer`,
+// the second half OR's it into the plane-3 byte). Per-pixel that's:
+//
+//     plane3 bit = plane0 bit | plane1 bit | plane2 bit
+//     pixel value 0  → 0
+//     pixel value V  → V | 8     (for V in 1..7)
+//
+// Trigger conditions in `UploadGFXFile` (bank_00.asm:5412-5422):
+//   - `Y = $1E`                      → FilterSomeRAM (always)
+//   - `Y = $08` AND ObjectTileset≥$11 → FilterSomeRAM (overworld tilesets)
+//
+// In vanilla SMW the trigger never fires for level loads (level
+// ObjectTileset is 0..15) and always fires for the AN1 slot in OW (file
+// `$1E`) and the FG3 slot in OW (file `$08`, since OW ObjectTileset is
+// `$11`-`$17`). A hack that swaps either file index into a level slot or
+// promotes a level tileset to ≥$11 would re-trigger the path on hardware
+// — and this emulation flows through automatically because we read the
+// file index out of `OBJECTGFXLIST` and the tileset out of the level
+// header / `DATA_04DC02`.
+
+/**
+ * Does this `(fileIndex, objectTileset)` pair take the FilterSomeRAM
+ * upload path on hardware? See the block comment above for the asm
+ * trigger conditions.
+ */
+export function isFilterSomeRamFile(fileIndex: number, objectTileset: number): boolean {
+  if (fileIndex === 0x1E) return true
+  if (fileIndex === 0x08 && objectTileset >= 0x11) return true
+  return false
+}
+
+/**
+ * Apply the FilterSomeRAM plane-3 OR transform to a decoded GFX sheet:
+ * non-zero pixels gain plane 3 = 1, zero pixels stay zero. This
+ * reproduces the VRAM state the upload routine actually writes, so a
+ * 4bpp-mode renderer (matching what Mesen reads from VRAM) sees pixel
+ * values 0/9-15 instead of the 0-7 range our raw 3bpp decode produces.
+ */
+export function applyFilterSomeRamTransform(sheet: GfxSheet): GfxSheet {
+  return sheet.map(tile => {
+    const out = new Uint8Array(tile.length)
+    for (let i = 0; i < tile.length; i++) {
+      out[i] = tile[i] === 0 ? 0 : tile[i] | 0x08
+    }
+    return out
+  })
+}
+
 /**
  * Load all GFX sheets for the given tileset and sprite set into a VramState.
+ *
+ * Files that take the `FilterSomeRAM` upload path on hardware (see
+ * {@link isFilterSomeRamFile}) get the plane-3 OR transform applied
+ * after decode so the in-memory pixel values match what the SNES sees
+ * in VRAM. Both level loads and the overworld viewer share this
+ * loader, so the level path is automatically protected if a hack
+ * routes a FilterSomeRAM file (`$08`/`$1E`) into a level slot or
+ * promotes a level tileset to `$11+`.
  *
  * Static tileset: GFX20 → AN2 (chars $200-$27F), GFX21 → BG1 (chars $280-$2FF)
  * (bank_00.asm lines 6247-6248: GFX33 then GFX32 loaded at CODE_00B888)
@@ -318,7 +385,11 @@ export function loadVram(rom: RomFile, tilesetId: number, spriteSet = 0): VramSt
   for (const slot of VRAM_SLOT_NAMES) {
     const fileIndex = assignment[slot]
     if (fileIndex !== undefined && fileIndex < GFX_FILE_COUNT) {
-      vram[slot] = loadGfxFile(rom, fileIndex)
+      let sheet = loadGfxFile(rom, fileIndex)
+      if (isFilterSomeRamFile(fileIndex, tilesetId)) {
+        sheet = applyFilterSomeRamTransform(sheet)
+      }
+      vram[slot] = sheet
     }
   }
   // GFX32 (Mario) and GFX33 (animated base) are loaded into OBJ VRAM $6000+
