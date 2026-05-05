@@ -248,8 +248,6 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0xB4: 0x18,   // Grinder, non-line-guided
   0xB5: 0x2A,   // Sinking fireball used in boss battles
   0xB6: 0xAC,   // Reflecting fireball
-  0xB7: 0xE4,   // Carrot Top lift, upper right
-  0xB8: 0xE4,   // Carrot Top lift, upper left
   0xB9: 0xC0,   // Info Box
   0xBA: 0xC4,   // Timed lift
   0xBB: 0xCC,   // Grey moving castle block
@@ -397,6 +395,22 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
     { baseTile: 0xC8, baseDx: 16, baseDy: -16 },  // top-right
     { baseTile: 0xE6, baseDx:  0, baseDy:   0 },  // bottom-left
     { baseTile: 0xE8, baseDx: 16, baseDy:   0 },  // bottom-right
+  ]},
+  // Carrot Top lift ($B7) — CarrotTopLiftGfx (bank_03.asm:1661).
+  // DiagPlatTiles2[0..2]=$E4,$E0,$E2; DiagPlatDispX[0..2]=$10,$00,$10;
+  // DiagPlatDispY[0..2]=$00,$10,$10; DiagPlatGfxProp[0..2]=$0B (no flip).
+  // Upper-left quadrant is empty — the platform is an upward-left L-shape.
+  0xB7: { quadrants: [
+    { baseTile: 0xE4, baseDx: 16, baseDy:  0 },  // upper-right
+    { baseTile: 0xE0, baseDx:  0, baseDy: 16 },  // lower-left
+    { baseTile: 0xE2, baseDx: 16, baseDy: 16 },  // lower-right
+  ]},
+  // Carrot Top lift ($B8) — same tables, indices 3..5; all flipX ($4B).
+  // Upper-right quadrant is empty — mirrors $B7 horizontally.
+  0xB8: { quadrants: [
+    { baseTile: 0xE4, baseDx:  0, baseDy:  0, flipX: true },  // upper-left
+    { baseTile: 0xE2, baseDx:  0, baseDy: 16, flipX: true },  // lower-left
+    { baseTile: 0xE0, baseDx: 16, baseDy: 16, flipX: true },  // lower-right
   ]},
   // Grinder line-guided ($67): CODE_01DC0B (bank_01.asm:12521) draws 4 big-tiles
   // all sharing base char $6C (animated to $6C/$6E via EffFrame bit 1), with
