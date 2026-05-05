@@ -41,6 +41,7 @@ import { KeyholeAppearance } from './sprites/appearances/KeyholeAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { SumoBrotherAppearance } from './sprites/appearances/SumoBrotherAppearance'
 import { CarrotTopLiftAppearance } from './sprites/appearances/CarrotTopLiftAppearance'
+import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
@@ -459,6 +460,25 @@ export function buildSprites(
         ]
       })
       out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, new StaticSpriteAppearance(parts), behavior))
+      continue
+    }
+
+    // $AC/$AD (Wooden Spike) — WoodSpikeGfx (bank_03.asm:2669).
+    // 5 stacked 16×16 tiles from hardcoded WoodSpikeTiles/WoodSpikeGfxProp.
+    // $AC: InitWoodSpike (bank_01.asm:488) subtracts $40 from Y → tip at spawn,
+    //   body 64 px above; all V-flip (prop $81).
+    // $AD: InitMontyMole (bank_01.asm:730) leaves Y unchanged → tip at spawn,
+    //   body 64 px below; no flip (prop $01).
+    if (s.spriteId === 0xAC || s.spriteId === 0xAD) {
+      // spriteMisc151C = SpriteXPosLow & $10 (CODE_039475): non-zero negates Y speed.
+      // For $AC, SpriteMisc151C is always 0 (InitWoodSpike never sets it).
+      // For $AD, InitMontyMole sets it from (SpriteXPosLow & $10): bit 4 of pixel X.
+      const spriteMisc151C = s.spriteId === 0xAD ? (s.x * 16) & 0x10 : 0
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        WoodSpikeAppearance.fromTables(chars, s.spriteId as 0xAC | 0xAD, placeholder, spriteMisc151C),
+        behavior,
+      ))
       continue
     }
 
