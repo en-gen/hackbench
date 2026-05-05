@@ -12,6 +12,8 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    allow:
+      - dependency-type: production
     groups:
       minor-and-patch:
         update-types:
