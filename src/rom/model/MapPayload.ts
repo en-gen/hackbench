@@ -1,4 +1,5 @@
 import type { RgbaColor } from '../GraphicsDecoder'
+import type { L2ScrollRange } from '../L2Loader'
 import type { TileCollision } from './tiles/TileCollision'
 
 /**
@@ -293,7 +294,62 @@ export type L2Descriptor =
       kind: 'objectStream'
       /** Regular Map16 tile ids from the existing `tiles` table. */
       layout: readonly (readonly (number | null)[])[]
+      /**
+       * Initial `Layer2YPos` (BG2VOFS) byte read from `DATA_05D70C` per
+       * `readInitialLayer2YPos`. Render shifts each cell by
+       * `initialCameraYPx - initialLayer2YPx`.
+       */
+      initialLayer2YPx: number
+      /** Bounding rect for the editor's L2 scroll-range overlay (#246). */
+      scrollRange: L2ScrollRange
+      /**
+       * Palette OR mask applied to every L2 subtile when rebuilding the L2
+       * tile collection on the webview side. Mirrors SMW's L2 strip-render
+       * `ORA #$1000` at bank_05.asm:1463-1480 — set to `4` for tileset 3,
+       * `0` otherwise. See `l2PaletteOrForTileset`.
+       */
+      paletteOrMask: number
+      /**
+       * `Layer2YPos` extremes derived from the level's scroll simulator
+       * (computed once via `computeLayer2YRange`). The slider clamps to
+       * this range so the user can only scrub through Y positions
+       * actually reached in gameplay. `null` for levels without a
+       * scroll sprite.
+       */
+      layer2YRange: { min: number; max: number } | null
+      /**
+       * Per-tile `(L1Y − L2Y)` delta ranges, indexed `[row][col]`.
+       * Each non-null entry is the (min, max) of the 2D connected
+       * component the tile belongs to (BFS flood-fill; component range
+       * = union of constituent columns' raw experienced ranges). Render
+       * lerps the range by `scrollProgress` so each contiguous L2
+       * region moves as a rigid unit. `null` entry = no tile / camera
+       * never reached that component. `null` outer = no scroll sprite.
+       */
+      tileDyRanges: readonly (readonly ({ min: number; max: number } | null)[])[] | null
     }
+
+/**
+ * Pure-data seed for `buildScrollSimulator` shipped across the
+ * postMessage boundary. The webview's rehydrator rebuilds an identical
+ * simulator from this — `scrollSim.ts` has no DOM / VS Code deps so
+ * both sides import it directly.
+ */
+export interface ScrollSimSeedDescriptor {
+  layer1XPos: number
+  layer1YPos: number
+  layer2XPos: number
+  layer2YPos: number
+  layer1ScrollCmd:  number
+  layer2ScrollCmd:  number
+  layer1ScrollBits: number
+  layer2ScrollBits: number
+  horizLayer2Setting: number
+  vertLayer2Setting:  number
+  marioSpawnX: number
+  marioSpawnY: number
+  screenMode: number
+}
 
 export interface MapPayload {
   levelId: number
@@ -314,4 +370,7 @@ export interface MapPayload {
   tileset: number
   screenCount: number
   screenPipeVariantIdx: readonly number[]
+  /** Frame-accurate scroll simulator seed. null when the level has no
+   *  scroll sprite — webview falls back to the static initial offset. */
+  scrollSim: ScrollSimSeedDescriptor | null
 }

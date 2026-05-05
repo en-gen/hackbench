@@ -113,13 +113,84 @@ local GM_LEVEL      = 0x14
 -- ── Helpers ──────────────────────────────────────────────────────────────
 local function readWord(loAddr) return r(loAddr) + r(loAddr + 1) * 256 end
 
-local function currentMapId()
-  local tl = readWord(TRANSLEVEL_LO)
-  if tl ~= 0 then
-    if tl >= 0x25 then return (tl - 0x24) + 0x100 end
-    return tl
+-- ── Sublevel-aware level-id detection (ported from l1_dump.lua) ─────────
+-- See l2_dump.lua's matching block for the full rationale. Three layers:
+--   1. SNAPSHOT of $7E:000F writes during load modes (after-the-fact).
+--   2. L1PTR REVERSE-LOOKUP CACHE built once at script start (works the
+--      moment the script loads, even when already in a sublevel).
+--   3. TranslevelNo fallback (overworld only).
+local snapshotLevel = nil
+
+local LEVEL_COUNT = 0x200
+local L1_PTR_TABLE = 0x05E000
+local L2_PTR_TABLE = 0x05E600
+local mapCache = nil
+local mapCacheBuilt = false
+
+local function walkObjStreamEnd(startAddr)
+  local p = startAddr + 5
+  for _ = 1, 2048 do
+    local b0 = r(p)
+    if b0 == nil then return nil end
+    if b0 == 0xFF then return p end
+    local b1 = r(p + 1)
+    local b2 = r(p + 2)
+    if b1 == nil or b2 == nil then return nil end
+    p = p + 3
+    local objNumHigh = math.floor((b0 % 128) / 32) * 16
+    local objNumLow  = math.floor(b1 / 16) % 16
+    local objectNumber = objNumHigh + objNumLow
+    if objectNumber == 0 and b2 == 0 then p = p + 1 end
   end
-  return r(L1PTR_BK) * 0x10000 + r(L1PTR_HI) * 0x100 + r(L1PTR_LO)
+  return nil
+end
+
+local function readPtr(tableBase, i)
+  local lo   = r(tableBase + i * 3)     or 0
+  local hi   = r(tableBase + i * 3 + 1) or 0
+  local bank = r(tableBase + i * 3 + 2) or 0
+  return bank * 0x10000 + hi * 0x100 + lo, bank
+end
+
+local function buildMapCache()
+  mapCacheBuilt = true
+  mapCache = {}
+  for i = 0, LEVEL_COUNT - 1 do
+    local l1Start, _      = readPtr(L1_PTR_TABLE, i)
+    local l2Start, l2Bank = readPtr(L2_PTR_TABLE, i)
+    local endAddr
+    if l2Bank == 0xFF or l2Bank == 0 then
+      endAddr = walkObjStreamEnd(l1Start)
+    else
+      endAddr = walkObjStreamEnd(l2Start)
+    end
+    if endAddr ~= nil and mapCache[endAddr] == nil then
+      mapCache[endAddr] = i
+    end
+  end
+end
+
+local function currentLevelByL1Ptr()
+  if not mapCacheBuilt then buildMapCache() end
+  local lo   = r(L1PTR_LO)
+  local hi   = r(L1PTR_HI)
+  local bank = r(L1PTR_BK)
+  local key  = bank * 0x10000 + hi * 0x100 + lo
+  return mapCache[key]
+end
+
+local function currentLevelByTranslevel()
+  local tl = readWord(TRANSLEVEL_LO)
+  if tl == 0 then return nil end
+  if tl >= 0x25 then return (tl - 0x24) + 0x100 end
+  return tl
+end
+
+local function currentMapId()
+  return snapshotLevel
+      or currentLevelByL1Ptr()
+      or currentLevelByTranslevel()
+      or (r(L1PTR_BK) * 0x10000 + r(L1PTR_HI) * 0x100 + r(L1PTR_LO))
 end
 
 local function mapIdStr(id)
@@ -239,9 +310,17 @@ local function onFrame()
   local gm = r(GAME_MODE)
 
   if gm == GM_LEVEL then
-    local id = currentMapId()
+    -- Cache-first resolution. See l2_dump.lua's onFrame for the rationale:
+    -- block hits clobber Layer1DataPtr for ~1 frame, so we only switch
+    -- files when the live cache resolves. Transient miss leaves the
+    -- previously open file untouched.
+    local cache = currentLevelByL1Ptr()
+    local snap  = snapshotLevel
+    local tl    = currentLevelByTranslevel()
+    local id    = cache or snap or tl
+        or (r(L1PTR_BK) * 0x10000 + r(L1PTR_HI) * 0x100 + r(L1PTR_LO))
     local entered = (csvFile == nil) or (id ~= currentMap)
-    if entered then
+    if entered and (cache ~= nil or csvFile == nil) then
       currentMap = id
       openCsv(id)
       -- Snapshot VRAM once on level-entry. The game's L3 setup runs during
@@ -312,7 +391,25 @@ for _, t in ipairs(writeCallbackTypes) do
   end
 end
 
-emu.log(string.format("[l3_dump] ready -- HUD row 30 -- auto-snapshot on level entry -- vramMem=%s wramMem=%s writeTrace=%s",
+-- ── Sublevel snapshot via $7E:000F write trace ──────────────────────────
+-- Direct registration with emu.callbackType.write (matching l1_dump). The
+-- pcall-loop pattern used elsewhere in this file was silently failing to
+-- register; this works.
+local function onFWrite(_addr, value)
+  if value > 1 then return end
+  local gm = r(0x7E0100)
+  if gm ~= 0x0F and gm ~= 0x11 and gm ~= 0x12 and gm ~= 0x13 then return end
+  local low = r(0x7E17BB)
+  local candidate = value * 0x100 + low
+  if candidate ~= snapshotLevel then
+    emu.log(string.format("[l3_dump] LOAD_SNAP gameMode=%02X $000F:=%d $17BB=%02X -> $%03x",
+      gm, value, low, candidate))
+    snapshotLevel = candidate
+  end
+end
+emu.addMemoryCallback(onFWrite, emu.callbackType.write, 0x7E000F)
+
+emu.log(string.format("[l3_dump] ready -- HUD row 30 -- auto-snapshot on level entry -- vramMem=%s wramMem=%s writeTrace=%s sublevelSnap=ON",
   VRAM_MEM == nil and "<UNRESOLVED>" or tostring(VRAM_MEM),
   WRAM_MEM == nil and "<UNRESOLVED>" or tostring(WRAM_MEM),
   writeCallbackOk and "ON" or "<UNAVAILABLE>"))

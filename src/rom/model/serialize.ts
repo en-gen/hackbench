@@ -90,6 +90,10 @@ export function serialize(map: SmwMap, chars: Map<number, Char>, tiles: Map<numb
     tileset: map.tileset,
     screenCount: map.screenCount,
     screenPipeVariantIdx: map.screenPipeVariantIdx,
+    // Frame-accurate scroll-position simulator seed. Pure data —
+    // webview rebuilds the simulator from this. null when no scroll
+    // sprite was present in the level.
+    scrollSim: map.mapStore.scrollSimulator?.seed ?? null,
   }
 }
 
@@ -246,7 +250,15 @@ function serializeL2(l2: L2Layer | null): L2Descriptor | null {
     // Object-stream L2 stores ids that look up against the shared L1
     // Map16 table — pass through too.
     const layout: (number | null)[][] = l2.grid.map(row => row.map(id => id))
-    return { kind: 'objectStream', layout }
+    return {
+      kind: 'objectStream',
+      layout,
+      initialLayer2YPx: l2.initialLayer2YPx,
+      scrollRange: l2.scrollRange,
+      paletteOrMask: l2.paletteOrMask,
+      layer2YRange: l2.layer2YRange,
+      tileDyRanges: l2.tileDyRanges,
+    }
   }
 
   throw new Error(`Unknown L2Layer kind: ${(l2 as object).constructor.name}`)

@@ -3,7 +3,9 @@ import type { CharBehavior } from './chars/CharBehavior'
 import { AnimatedPixelsBehavior } from './chars/behaviors/AnimatedPixelsBehavior'
 import { PSwitchAlternateBehavior } from './chars/behaviors/PSwitchAlternateBehavior'
 import { StaticPixelsBehavior } from './chars/behaviors/StaticPixelsBehavior'
+import { buildL2Tiles } from './L2Factory'
 import { L2ObjectStream, L2Preset, type L2Layer } from './L2Layer'
+import { buildScrollSimulator } from '../scrollSim'
 import { L3TilemapLayer, type L3Layer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
 import { CompositeSprite } from './sprites/CompositeSprite'
@@ -113,12 +115,20 @@ export function buildGraph(payload: MapPayload): {
   const sprites = payload.sprites.map(s => buildSprite(s, chars, placeholderChar))
 
   const screenPipeVariantIdx = [...payload.screenPipeVariantIdx]
+  // Rebuild the scroll simulator from the seed shipped in the payload.
+  // Same `buildScrollSimulator` both sides of the postMessage boundary,
+  // same `scrollData.ts` constants — output is deterministic and
+  // bit-for-bit identical to the extension-host instance.
+  const scrollSimulator = payload.scrollSim
+    ? buildScrollSimulator(null as never, payload.scrollSim)
+    : null
   const mapStore = createMapStore({
     palette,
     levelOrientation: payload.header.orientation,
     screenPipeVariantIdx,
     initialCameraYPx: payload.header.initialCameraYPx,
     marioSpawnX: payload.header.marioStartPx?.x ?? 0,
+    scrollSimulator,
   })
   const map = new SmwMap(
     payload.levelId,
@@ -292,11 +302,21 @@ function buildL2(
     )
     return new L2Preset(desc.page, grid, bgTiles)
   }
-  // Object-stream L2 shares the L1 Map16 table — same id lookup.
+  // Object-stream L2 shares the L1 Map16 table — same id lookup. For
+  // tileset-3 levels, wrap each tile's behavior in PaletteOrBehavior(4)
+  // to mirror the runtime ORA #$1000 SMW applies during L2 BG2 strip
+  // upload (bank_05.asm:1463-1480). `paletteOrMask = 0` is a no-op so
+  // other tilesets just reuse l1Tiles.
   const grid: (number | null)[][] = desc.layout.map(row =>
     row.map(id => id),
   )
-  return new L2ObjectStream(grid, l1Tiles)
+  const l2Tiles = buildL2Tiles(l1Tiles, desc.paletteOrMask ?? 0)
+  return new L2ObjectStream(
+    grid, l2Tiles, desc.initialLayer2YPx, desc.scrollRange,
+    desc.paletteOrMask ?? 0,
+    desc.layer2YRange ?? null,
+    desc.tileDyRanges ?? null,
+  )
 }
 
 function buildCharBehavior(desc: CharDescriptor): CharBehavior {

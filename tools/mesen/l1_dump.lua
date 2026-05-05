@@ -256,9 +256,13 @@ end
 --      pipe-entered sub-areas, but can false-positive on cache collisions.
 --   3. translevel — main overworld only; always stays on the parent map
 --      across pipes, so use only as last resort.
+-- Cache-first ordering matches the onFrame resolver. The L1Ptr cache
+-- reflects live RAM and is the most authoritative signal when it hits;
+-- the snapshot can be stale across pipe transitions whose level-load
+-- $7E:000F write happens at a gameMode our filter rejects.
 local function currentLevel()
-  return currentLevelBySnapshot()
-      or currentLevelByL1Ptr()
+  return currentLevelByL1Ptr()
+      or currentLevelBySnapshot()
       or currentLevelByTranslevel()
 end
 
@@ -496,7 +500,10 @@ local function drawL1Hud(state, extra)
     color = COLOR_IDLE_L1
     msg = string.format("[L1] idle (gameMode=%02X)", gm)
   else
-    local lvl    = currentLevel()
+    -- Prefer the file-locked level: it's stable across transient cache
+    -- misses (block hits clobber Layer1DataPtr for ~1 frame), so the HUD
+    -- doesn't flicker to the parent OW level when the player hits a block.
+    local lvl    = (currentFileLevel ~= -1 and currentFileLevel) or currentLevel()
     local lvlStr = lvl and string.format("%03x", lvl) or "----"
     if state == "normal" then
       color = COLOR_ON_L1
@@ -592,22 +599,42 @@ local function onFrame()
   -- to open or switch files. A TL-only answer is allowed only for the very
   -- first file-open (currentFileLevel == -1) so overworld entry still works
   -- if the L1Ptr cache hasn't built yet.
-  local snapLevel = currentLevelBySnapshot()
+  --
+  -- Cache-first ordering: live $7E:0065-67 reverse-lookup is the primary
+  -- signal because the snapshot can be stale (callback's gameMode filter
+  -- can miss writes during pipe transitions, leaving snap pinned to the
+  -- previous level). When the cache hits, it agrees with reality;
+  -- snapshot is only consulted when cache misses transiently. File
+  -- switches require cache hit -- block-hit Layer1DataPtr clobber
+  -- (GenerateTile, bank_00.asm:7179) leaves the existing file untouched.
   local l1Level   = currentLevelByL1Ptr()
+  local snapLevel = currentLevelBySnapshot()
   local tlLevel   = currentLevelByTranslevel()
-  local nowLevel  = snapLevel or l1Level or tlLevel
-  local highConfidence = (snapLevel ~= nil) or (l1Level ~= nil)
+  local nowLevel  = l1Level or snapLevel or tlLevel
+  local highConfidence = l1Level ~= nil
   local justEntered = not wasInLevel
   wasInLevel = true
   stableFrames = stableFrames + 1
   if justEntered then
     -- Edge log: transition just finished. Record which signal resolved
-    -- the level-id (snapshot > L1Ptr cache > translevel fallback).
+    -- the level-id (L1Ptr cache > snapshot > translevel fallback).
     emu.log(string.format(
       "[STABLE_EDGE] transition->stable  gameMode=14 Level  resolved=%s (conf=%s)  prevFile=%s",
       nowLevel and string.format("$%03x", nowLevel) or "nil",
       highConfidence and "high" or "low",
       currentFileLevel == -1 and "<none>" or string.format("$%03x", currentFileLevel)))
+    -- Scroll-cmd snapshot. The L1 sprite stream's scroll sprite ($E7..$F5)
+    -- runs through CODE_05BCD6 → CODE_05BCE9 → L1 setup routine, which
+    -- typically 16-bit-STAs Layer1ScrollCmd at $143E, also setting
+    -- Layer2ScrollCmd at $143F via the high byte. This logs the post-
+    -- dispatch state for verifying L2 motion porting work (#246).
+    --   Layer1ScrollCmd  = $7E:143E   (rammap.asm:1566 / SMW_U.sym)
+    --   Layer2ScrollCmd  = $7E:143F   (rammap.asm:1567)
+    --   Layer1ScrollBits = $7E:1440   (rammap.asm:1568)
+    --   Layer2ScrollBits = $7E:1441   (rammap.asm:1569)
+    emu.log(string.format(
+      "[SCROLL_SNAP] L1Cmd=$%02X L2Cmd=$%02X L1Bits=$%02X L2Bits=$%02X",
+      r(0x7E143E), r(0x7E143F), r(0x7E1440), r(0x7E1441)))
     stableFrames = 1
   end
   if nowLevel ~= nil and (justEntered or nowLevel ~= currentFileLevel) then

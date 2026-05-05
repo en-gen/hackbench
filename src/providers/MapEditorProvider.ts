@@ -11,7 +11,9 @@ import { readInitialLayer1YPos, readL3RoutineSummary, classifyL3Routine } from '
 import { getAllLevelBgmTracks, readLevelMusicTable } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
 import { expandMap } from '../rom/ObjectExpander'
-import { readL2Pointer, isPresetPtr, loadL2Preset, loadL2Objects, L2_TILEMAP_COLS, L2_TILEMAP_ROWS, L1_SCREEN_W, L1_SCREEN_H } from '../rom/L2Loader'
+import { readL2Pointer, isPresetPtr, loadL2Preset, loadL2Objects, readInitialLayer2YPos, findLevelScrollSprite, findLevelScrollSpriteFull, readL2ScrollBounds, L2_TILEMAP_COLS, L2_TILEMAP_ROWS, L1_SCREEN_W, L1_SCREEN_H } from '../rom/L2Loader'
+import { simulateScrollSetup } from '../rom/scrollDispatch'
+import { buildScrollSimulator, computeColumnDyRanges, computeLayer2YRange, sampleViewportPath, type ViewportSample } from '../rom/scrollSim'
 import { buildMapPayload } from '../rom/model/MapBuilder'
 
 /**
@@ -227,6 +229,83 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       // the camera viewport so sublevels (accessed only via pipes/doors) show
       // the player's actual starting viewport.
       const initialCameraYPx = readInitialLayer1YPos(rom.rom, index, isVertical)
+      // Initial Layer2YPos (BG2VOFS). Populated for ALL levels — the
+      // Layer 2 tab's Y-scrubber slider seeds from this. Only meaningful
+      // for object-stream L2; preset-BG levels won't show the slider.
+      const initialLayer2YPx = readInitialLayer2YPos(rom.rom, index, false) & 0xFF
+      // L1 scroll-sprite cmd byte (spriteId - $E7), or null when no scroll
+      // sprite. Drives the Layer 2 Y-scrubber slider's min/max so the user
+      // can only drag through the Y range that's actually reachable for this
+      // cmd's motion. See findLevelScrollSprite in L2Loader.ts.
+      const layer1ScrollCmd = findLevelScrollSprite(sprites)
+      // Compute the post-setup Layer2ScrollCmd by simulating the bank_05
+      // L1 setup dispatch (CODE_05BCD6). The L1 setup routine for many
+      // cmds 16-bit-STAs Layer1ScrollCmd, which writes the cmd's high byte
+      // to Layer2ScrollCmd at $143F. Without this simulation we'd derive
+      // bounds from L1's cmd, which is wrong for cmds like $0C (L1 $0C
+      // → L2 $00, no motion despite a scroll sprite being present).
+      let layer2ScrollCmd: number | null = null
+      const scrollSpriteFull = findLevelScrollSpriteFull(sprites)
+      if (scrollSpriteFull) {
+        const setupState = simulateScrollSetup(rom.rom, scrollSpriteFull.spriteId, scrollSpriteFull.b0)
+        if (setupState) layer2ScrollCmd = setupState.layer2ScrollCmd
+      }
+      // Bounds for the Layer 2 Y slider, read from the ROM tables the
+      // post-setup L2 cmd's per-frame routine compares against. null when
+      // the cmd has no Y motion or its bounds source is undecoded —
+      // webview falls back to a zero-range slider locked at initialLayer2YPx.
+      const layer2ScrollBounds = readL2ScrollBounds(rom.rom, layer2ScrollCmd)
+
+      // Walk the per-frame scroll simulator (when the level has a scroll
+      // sprite) to derive the actual `Layer2YPos` extremes the cmd's
+      // parallax handlers reach. This is the AUTHORITATIVE slider range
+      // — readL2ScrollBounds above only covers cmd $0B, while the
+      // simulator covers any cmd we've ported (currently $00, $01).
+      // Falls back to null for unported cmds; webview re-fetches via
+      // the model payload's `l2.layer2YRange` field for those.
+      let layer2YRange:   { min: number; max: number } | null = null
+      let columnDyRanges: { min: number; max: number }[] | null = null
+      let scrollPath:     ViewportSample[] | null = null
+      if (scrollSpriteFull) {
+        const setupState = simulateScrollSetup(rom.rom, scrollSpriteFull.spriteId, scrollSpriteFull.b0)
+        if (setupState) {
+          const cols = isVertical ? 1 : (header.levelLength)
+          const levelPixelW = cols * 16 * 16   // 16 cols/screen × 16 px/col
+          const sim = buildScrollSimulator(rom.rom, {
+            layer1XPos: 0,
+            layer1YPos: initialCameraYPx,
+            layer2XPos: 0,
+            layer2YPos: initialLayer2YPx,
+            layer1ScrollCmd:  setupState.layer1ScrollCmd,
+            layer2ScrollCmd:  setupState.layer2ScrollCmd,
+            layer1ScrollBits: setupState.layer1ScrollBits,
+            layer2ScrollBits: setupState.layer2ScrollBits,
+            horizLayer2Setting: rom.rom.readByte(0x05D710 + ((rom.rom.readByte(0x05F000 + index) ?? 0) >> 4 & 0x0F)) ?? 0,
+            vertLayer2Setting:  rom.rom.readByte(0x05D720 + ((rom.rom.readByte(0x05F000 + index) ?? 0) >> 4 & 0x0F)) ?? 0,
+            marioSpawnX: 0,
+            marioSpawnY: 0,
+            screenMode:  header.levelMode,
+          })
+          const r = computeLayer2YRange(sim, levelPixelW)
+          if (r.max > r.min) layer2YRange = r
+          // Per-column dy ranges drive the slider's viewport-progress
+          // semantics. Each column's range is the (L1Y − L2Y) extremes
+          // experienced WHILE that column was inside the camera
+          // viewport during gameplay.
+          const cdr = computeColumnDyRanges(sim, levelPixelW)
+          // Only ship if at least one column has a non-zero range —
+          // otherwise the simulator is producing no motion and the
+          // slider should fall back to the legacy raw-Layer2YPos mode.
+          // Never-visited columns (null) are mapped to {0,0} for the
+          // overlay — they carry no motion data.
+          if (cdr.some(c => c !== null && c.max > c.min))
+            columnDyRanges = cdr.map(c => c ?? { min: 0, max: 0 })
+          // Sample the camera viewport trajectory every 8 frames for
+          // the "Scroll path" overlay. 8 px-of-progress per sample
+          // gives a smooth polyline without bloating the payload.
+          scrollPath = sampleViewportPath(sim, levelPixelW, 8)
+        }
+      }
 
       // L3 routine summary — pure metadata (no stripe parsing). Read against
       // the live tileset override so the routine kind reflects what the
@@ -313,6 +392,11 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         backAreaColor:  romPalettes.backAreaColor,
         backAreaColors: backAreaColors.map(c => [c[0], c[1], c[2], c[3]]),
         sprites:        sprites.map(s => ({ x: s.x, y: s.y, spriteId: s.spriteId })),
+        // Truthy when the level has a scroll sprite — the webview's
+        // Layer 2 slider switches from raw `Layer2YPos` scrubbing to
+        // SCROLL FRAME scrubbing (the model rebuilds a `ScrollSimulator`
+        // and `L2ObjectStream.render` reads `mapStore.scrollSimulator`).
+        scrollSim: layer1ScrollCmd !== null ? true : null,
         header: {
           music:          musicEff,
           spriteSet:      spriteTileset,
@@ -325,6 +409,13 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
           vertLayer2Setting,
           horizLayer2Setting,
           initialCameraYPx,
+          initialLayer2YPx,
+          layer1ScrollCmd,
+          layer2ScrollCmd,
+          layer2ScrollBounds,
+          layer2YRange,
+          columnDyRanges,
+          scrollPath,
           // Header-bit fields surfaced for the Level Settings panel. Each
           // honors a render override from the rerender pipeline (Plan A); the
           // override is purely UI-state today and gets persisted as a real
