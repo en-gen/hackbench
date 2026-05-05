@@ -3,10 +3,11 @@ import { RomSession } from '../RomSession'
 import { GFX_FILE_COUNT } from '../rom/GfxLoader'
 import { loadRomPalettes } from '../rom/PaletteLoader'
 import { buildTransitiveLevelMap } from '../rom/LevelTree'
+import { loadOverworldAreas, OwArea } from '../rom/OverworldLoader'
 
 // ── Shared tree item types ─────────────────────────────────────────────────────
 
-type MapsTreeItem = RomInfoItem | LevelFolder | RoomItem
+type MapsTreeItem = RomInfoItem | LevelFolder | RoomItem | OverworldFolder | OverworldAreaItem
 type ResourcesTreeItem = StatsItem | GraphItem | TileCompItem | RomMapItem | SectionFolder | RoomItem | PaletteGroupItem | GfxFileItem | PlaceholderItem
 
 /** Collapsible header item showing ROM identity; levels nest under it. */
@@ -120,6 +121,33 @@ class GfxFileItem extends vscode.TreeItem {
   }
 }
 
+/** Top-level Overworld folder under the ROM-info root in the Maps tree.
+ *  Always placed first, before per-level entries. */
+class OverworldFolder extends vscode.TreeItem {
+  constructor(public readonly slug: string) {
+    super('Overworld', vscode.TreeItemCollapsibleState.Collapsed)
+    this.iconPath = new vscode.ThemeIcon('globe')
+    this.contextValue = 'smwOverworldFolder'
+  }
+}
+
+/** A single overworld area entry, generically named (no submap names). */
+class OverworldAreaItem extends vscode.TreeItem {
+  constructor(slug: string, area: OwArea) {
+    super(`Area ${area.index} (${area.widthTiles}×${area.heightTiles})`,
+          vscode.TreeItemCollapsibleState.None)
+    this.iconPath = new vscode.ThemeIcon('map')
+    this.command = {
+      command: 'vscode.open',
+      title: 'Open Overworld Area',
+      arguments: [vscode.Uri.parse(
+        `smwrom:/${slug}/overworld/${area.index}-${area.widthTiles}x${area.heightTiles}.smwoverworld`,
+      )],
+    }
+    this.contextValue = 'smwOverworldArea'
+  }
+}
+
 /** ROM statistics dashboard opener. */
 class StatsItem extends vscode.TreeItem {
   constructor(slug: string) {
@@ -217,7 +245,7 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
     }
 
     if (element instanceof RomInfoItem) {
-      // Under ROM: one LevelFolder per overworld level
+      // Under ROM: Overworld folder first, then one LevelFolder per overworld level.
       const { overworld } = rom.classifyLevels()
       const exitGraph  = rom.buildLevelExitGraph()
       const transitive = buildTransitiveLevelMap(overworld, exitGraph)
@@ -227,7 +255,11 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
         transitive.get(index) ?? [],
         rom.getLevelName(index) ?? undefined,
       ))
-      return folders
+      return [new OverworldFolder(slug), ...folders]
+    }
+
+    if (element instanceof OverworldFolder) {
+      return loadOverworldAreas(rom.rom).map(a => new OverworldAreaItem(slug, a))
     }
 
     if (element instanceof LevelFolder) {

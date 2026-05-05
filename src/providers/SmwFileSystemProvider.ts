@@ -3,6 +3,7 @@ import { RomSession } from '../RomSession'
 import { LEVEL_COUNT } from '../rom/SmwRom'
 import { GFX_FILE_COUNT } from '../rom/GfxLoader'
 import { loadRomPalettes } from '../rom/PaletteLoader'
+import { OW_AREA_COUNT, loadOverworldAreas, OwArea } from '../rom/OverworldLoader'
 
 /**
  * Virtual filesystem provider for smwrom:// URIs.
@@ -49,7 +50,7 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
     if (parts.length === 0) return dir(now)
 
     if (parts.length === 1) {
-      if (parts[0] === 'maps' || parts[0] === 'palettes' || parts[0] === 'gfx' || parts[0] === 'music') return dir(now)
+      if (parts[0] === 'maps' || parts[0] === 'palettes' || parts[0] === 'gfx' || parts[0] === 'music' || parts[0] === 'overworld') return dir(now)
     }
 
     if (parts.length === 1 && parts[0] === 'info.smwinfo')
@@ -75,6 +76,9 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
 
       if (parts[0] === 'gfx' && parts[1].endsWith('.smwgfx'))
         return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
+
+      if (parts[0] === 'overworld' && parts[1].endsWith('.smwoverworld'))
+        return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
     }
 
     throw vscode.FileSystemError.FileNotFound(uri)
@@ -86,10 +90,19 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
 
     if (parts.length === 0) {
       return [
-        ['maps',     vscode.FileType.Directory],
-        ['palettes', vscode.FileType.Directory],
-        ['gfx',      vscode.FileType.Directory],
+        ['maps',      vscode.FileType.Directory],
+        ['overworld', vscode.FileType.Directory],
+        ['palettes',  vscode.FileType.Directory],
+        ['gfx',       vscode.FileType.Directory],
       ]
+    }
+
+    if (parts.length === 1 && parts[0] === 'overworld') {
+      const session = this.sessions.get(slug)!
+      const areas = loadOverworldAreas(session.rom.rom)
+      return areas.map((a): [string, vscode.FileType] =>
+        [areaFilename(a), vscode.FileType.File]
+      )
     }
 
     if (parts.length === 1 && parts[0] === 'maps') {
@@ -158,6 +171,18 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
       }), 'utf8')
     }
 
+    if (parts.length === 2 && parts[0] === 'overworld' && parts[1].endsWith('.smwoverworld')) {
+      const areaIndex = filenameToAreaIndex(parts[1])
+      if (areaIndex < 0 || areaIndex >= OW_AREA_COUNT) {
+        throw vscode.FileSystemError.FileNotFound(uri)
+      }
+      return Buffer.from(JSON.stringify({
+        type: 'smwoverworld', version: 1,
+        romPath: session.rom.rom.filePath,
+        areaIndex,
+      }), 'utf8')
+    }
+
     if (parts.length === 2 && parts[0] === 'music' && parts[1].endsWith('.smwmusic')) {
       return Buffer.from(JSON.stringify({
         type: 'smwmusic', version: 1,
@@ -218,4 +243,14 @@ function indexToFilename(index: number): string {
 
 function filenameToIndex(filename: string): number {
   return parseInt(filename.replace('.smwmap', ''), 16)
+}
+
+/** "0-64x64.smwoverworld", "1-32x32.smwoverworld", … — generic, dimensions only. */
+function areaFilename(area: OwArea): string {
+  return `${area.index}-${area.widthTiles}x${area.heightTiles}.smwoverworld`
+}
+
+function filenameToAreaIndex(filename: string): number {
+  const m = /^(\d+)-/.exec(filename)
+  return m ? parseInt(m[1], 10) : -1
 }

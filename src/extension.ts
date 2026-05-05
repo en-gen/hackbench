@@ -9,6 +9,7 @@ import { RomStatsProvider } from './providers/RomStatsProvider'
 import { LevelGraphProvider } from './providers/LevelGraphProvider'
 import { TilesetCompareProvider } from './providers/TilesetCompareProvider'
 import { RomMapProvider } from './providers/RomMapProvider'
+import { OverworldViewerProvider } from './providers/OverworldViewerProvider'
 import { SmwFileSystemProvider } from './providers/SmwFileSystemProvider'
 
 let session: RomSession | undefined
@@ -25,6 +26,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const levelGraphProvider = new LevelGraphProvider(context)
   const tilesetCompareProvider = new TilesetCompareProvider(context)
   const romMapProvider = new RomMapProvider(context)
+  const overworldViewerProvider = new OverworldViewerProvider(context)
 
   // Register the virtual filesystem for smwrom:// URIs
   context.subscriptions.push(
@@ -115,6 +117,15 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerCustomEditorProvider(
       'hackbench.romMap',
       romMapProvider,
+      { webviewOptions: { retainContextWhenHidden: false } }
+    )
+  )
+
+  // Register the overworld viewer
+  context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      'hackbench.overworldViewer',
+      overworldViewerProvider,
       { webviewOptions: { retainContextWhenHidden: false } }
     )
   )

@@ -136,6 +136,16 @@
           }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "hackbench.overworldViewer",
+        "displayName": "HackBench Overworld Viewer",
+        "selector": [
+          {
+            "filenamePattern": "**/*.smwoverworld"
+          }
+        ],
+        "priority": "default"
       }
     ],
     "viewsContainers": {
