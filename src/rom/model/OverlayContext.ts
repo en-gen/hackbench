@@ -30,6 +30,12 @@ export interface OverlayContext {
     rotation: number,
     startAngle: number, endAngle: number,
   ): void
+  arc(
+    cx: number, cy: number,
+    r: number,
+    startAngle: number, endAngle: number,
+    anticlockwise?: boolean,
+  ): void
   createLinearGradient(x0: number, y0: number, x1: number, y1: number): OverlayGradient
 }
 
