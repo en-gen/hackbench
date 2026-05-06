@@ -20,6 +20,7 @@ import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppear
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
 import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
 import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
+import { ChainsawAppearance } from './sprites/appearances/ChainsawAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
 import { WigglerAppearance } from './sprites/appearances/WigglerAppearance'
@@ -201,6 +202,13 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
   }
   if (a instanceof WoodSpikeAppearance) {
     return { kind: 'woodSpike', spriteId: a.spriteId, spriteMisc151C: a.spriteMisc151C }
+  }
+  if (a instanceof ChainsawAppearance) {
+    return {
+      kind: 'chainsaw',
+      motorFrames: a.motorFrames.map(frame => frame.map(partDescriptor)),
+      chainParts:  a.chainParts.map(partDescriptor),
+    }
   }
   if (a instanceof WigglerAppearance) {
     return { kind: 'wiggler', palette: a.palette, charHigh: a.charHigh, faceLeft: a.faceLeft }

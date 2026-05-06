@@ -35,6 +35,7 @@ import { CarrotTopLiftAppearance } from './sprites/appearances/CarrotTopLiftAppe
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
 import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
 import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
+import { ChainsawAppearance } from './sprites/appearances/ChainsawAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
 import { WigglerAppearance } from './sprites/appearances/WigglerAppearance'
@@ -262,6 +263,11 @@ function buildAppearance(
       return new LineBrownPlatAppearance(buildParts(desc.platformParts), desc.direction)
     case 'lineCheckerPlat':
       return new LineCheckerPlatAppearance(buildParts(desc.platformParts), desc.xShift, desc.width)
+    case 'chainsaw':
+      return new ChainsawAppearance(
+        desc.motorFrames.map(buildParts),
+        buildParts(desc.chainParts),
+      )
     case 'ropeMechanism':
       return new RopeMechanismAppearance(
         desc.motorFrames.map(buildParts),

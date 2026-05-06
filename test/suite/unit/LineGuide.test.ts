@@ -68,18 +68,26 @@ describe('probeTrackTile', () => {
   })
 
   it('gates $94 on switch ON and $95 on switch OFF', () => {
+    // CODE_01D851: LDA OnOffSwitch / BNE CODE_01D861
+    // BNE rejects $94 when OnOffSwitch ≠ 0 (YES). Initial state is OnOffSwitch=0 (NO),
+    // so $94 is ACCEPTED at initial state and blocked only after the switch is hit.
     const l1a = makeL1(30, 40, { '21,25': 0x94 })
-    expect(probeTrackTile(400, 336, l1a, NO)).toBeNull()
-    expect(probeTrackTile(400, 336, l1a, YES)).toEqual({ col: 25, row: 21 })
+    expect(probeTrackTile(400, 336, l1a, NO)).toEqual({ col: 25, row: 21 })
+    expect(probeTrackTile(400, 336, l1a, YES)).toBeNull()
 
+    // CODE_01D856: BEQ CODE_01D861
+    // BEQ rejects $95 when OnOffSwitch = 0 (NO = initial). $95 is blocked at initial state.
     const l1b = makeL1(30, 40, { '21,25': 0x95 })
-    expect(probeTrackTile(400, 336, l1b, YES)).toBeNull()
-    expect(probeTrackTile(400, 336, l1b, NO)).toEqual({ col: 25, row: 21 })
+    expect(probeTrackTile(400, 336, l1b, YES)).toEqual({ col: 25, row: 21 })
+    expect(probeTrackTile(400, 336, l1b, NO)).toBeNull()
   })
 
-  it('matches by low byte only (page 1 tile $195 registers as line-guide)', () => {
+  it('matches by low byte only (page 1 tile $192 registers as line-guide)', () => {
     // The ROM CMP #$76/#$9A checks Map16TileNumber (low byte only) — we mirror that.
-    const l1 = makeL1(30, 40, { '21,25': 0x195 })
+    // $192 → low byte $92 (in range, no ON/OFF gate). $195 is unsuitable: low byte
+    // $95 = ON_OFF_TILE_B, correctly blocked at initial state (NO=false) after the
+    // polarity fix.
+    const l1 = makeL1(30, 40, { '21,25': 0x192 })
     expect(probeTrackTile(400, 336, l1, NO)).toEqual({ col: 25, row: 21 })
   })
 
