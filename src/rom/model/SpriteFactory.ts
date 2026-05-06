@@ -42,6 +42,7 @@ import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { SumoBrotherAppearance } from './sprites/appearances/SumoBrotherAppearance'
 import { CarrotTopLiftAppearance } from './sprites/appearances/CarrotTopLiftAppearance'
 import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
+import { WigglerAppearance } from './sprites/appearances/WigglerAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
@@ -477,6 +478,23 @@ export function buildSprites(
       out.push(new Sprite(
         s.spriteId, s.x * 16, s.y * 16,
         WoodSpikeAppearance.fromTables(chars, s.spriteId as 0xAC | 0xAD, placeholder, spriteMisc151C),
+        behavior,
+      ))
+      continue
+    }
+
+    // $86 (Wiggler) — multi-segment chain per WigglerGfx (bank_02.asm:14987).
+    // Head + 4 body big-tiles plus an 8×8 eye. H-flip is direction-dependent
+    // via SpriteTableC2 shift register (face-right → H-flip on, face-left →
+    // no flip). faceLeft mirrors FaceMario at spawn (CODE_02D4FA).
+    if (s.spriteId === 0x86) {
+      const attr     = tables.spriteAttr[s.spriteId] ?? 0
+      const palette  = 8 + ((attr >> 1) & 0x07)
+      const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+      const faceLeft = marioStartPx.x < s.x * 16
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        WigglerAppearance.fromTables(chars, palette, charHigh, faceLeft, placeholder),
         behavior,
       ))
       continue

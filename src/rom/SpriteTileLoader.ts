@@ -202,7 +202,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x83: 0x2A,   // Left flying question block (initial/unhit state; $2E after hit)
   0x84: 0x2A,   // Flying question block (initial/unhit state; $2E after hit)
   0x85: 0x2A,   // Unused sprite — per-frame InitFlying_Block; shares tile with 0x83/0x84
-  0x86: 0xC4,   // Wiggler — WigglerTiles first byte, bank_02.asm:14984
+  // 0x86 Wiggler — handled by WigglerAppearance in SpriteFactory (multi-segment chain + eye).
   0x87: 0x60,   // Lakitu's cloud
   0x88: 0xC6,   // Winged cage (unused) — ADDR_02CCB9: BCC→$C6, bank_02.asm:10161
   0x8A: 0xD2,   // Bird from Yoshi's house — BirdsTilemap[0], bank_02.asm:15379

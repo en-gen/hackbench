@@ -184,6 +184,7 @@ export type SpriteAppearanceDescriptor =
   | { kind: 'spikeTop'; parts0: readonly SpritePartDescriptor[]; parts1: readonly SpritePartDescriptor[] }
   | { kind: 'hammerBro'; parts: readonly SpritePartDescriptor[] }
   | { kind: 'woodSpike'; spriteId: 0xAC | 0xAD; spriteMisc151C: number }
+  | { kind: 'wiggler'; palette: number; charHigh: number; faceLeft: boolean }
 
 export interface SpriteBehaviorDescriptor {
   kind: string
