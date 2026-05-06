@@ -36,6 +36,7 @@ import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlat
 import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
+import { WigglerAppearance } from './sprites/appearances/WigglerAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
@@ -273,6 +274,8 @@ function buildAppearance(
       return new HammerBroAppearance(buildParts(desc.parts))
     case 'woodSpike':
       return WoodSpikeAppearance.fromTables(chars, desc.spriteId, placeholder, desc.spriteMisc151C)
+    case 'wiggler':
+      return WigglerAppearance.fromTables(chars, desc.palette, desc.charHigh, desc.faceLeft, placeholder)
   }
 }
 
