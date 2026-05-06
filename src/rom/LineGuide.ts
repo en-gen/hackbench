@@ -81,8 +81,8 @@ export function probeTrackTile(
     // low byte will also register, matching the game's behavior exactly.
     const id = tile & 0xFF
     if (id < LINE_GUIDE_TILE_MIN || id > LINE_GUIDE_TILE_MAX) continue
-    if (id === ON_OFF_TILE_A && !onOffSwitchInitial) continue
-    if (id === ON_OFF_TILE_B &&  onOffSwitchInitial) continue
+    if (id === ON_OFF_TILE_A &&  onOffSwitchInitial) continue
+    if (id === ON_OFF_TILE_B && !onOffSwitchInitial) continue
     return { col, row }
   }
   return null
@@ -164,6 +164,9 @@ function applyInitLinePlat(spawnX: number, spawnY: number): InitResult {
  *   $62/$63 — render() subtracts xShift and 8 itself  → drawOffset (0, 0)
  *   $64     — StaticSpriteAppearance adds no offset    → drawOffset (−8, −8)
  *             (CODE_01DC54 does _0=SpriteX−8, _1=SpriteY−8 before OAM)
+ *   $65/$66 — ChainsawGfx OAM at SprX−8, SprY−8      → drawOffset (−8, −8)
+ *   $67     — 32×32 body centred at SprX; +8 straddles the 16×16 track tile → drawOffset (+8, +8)
+ *   $68     — OAM at SprX−8; dispX=[0,8,0,8] → anchor≈col*16 matches game → drawOffset (0, 0)
  */
 export function lineGuideAnchor(
   lineGuide: LineGuideAttachment | null | undefined,

@@ -181,6 +181,11 @@ export type SpriteAppearanceDescriptor =
       smokePuffFrames: readonly (readonly SpritePartDescriptor[])[]
       segmentCount:    number
     }
+  | {
+      kind: 'chainsaw'
+      motorFrames: readonly (readonly SpritePartDescriptor[])[]
+      chainParts:  readonly SpritePartDescriptor[]
+    }
   | { kind: 'spikeTop'; parts0: readonly SpritePartDescriptor[]; parts1: readonly SpritePartDescriptor[] }
   | { kind: 'hammerBro'; parts: readonly SpritePartDescriptor[] }
   | { kind: 'woodSpike'; spriteId: 0xAC | 0xAD; spriteMisc151C: number }

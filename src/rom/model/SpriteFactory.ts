@@ -27,6 +27,7 @@ import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
 import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
 import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
+import { ChainsawAppearance } from './sprites/appearances/ChainsawAppearance'
 import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import { DryBonesAppearance } from './sprites/appearances/DryBonesAppearance'
@@ -452,6 +453,51 @@ export function buildSprites(
         RopeMechanismAppearance.fromTables(chars, motorPalette, bodyPalette, smokePalette, charHigh, placeholder),
         behavior,
       ))
+      continue
+    }
+
+    // Sprite $65/$66 (Chainsaw / Upside-down Chainsaw, line-guided).
+    // ChainsawGfx (bank_03.asm:7639) places OAM at (SprX−8, SprY−8); the
+    // −8/−8 draw offset is absorbed here via lineGuideAnchor so the Appearance
+    // renders motor + chain segments at (0,0) and (0, chainDy) relative to anchor.
+    // Chain direction: DATA_03C25F[id−$65]=$F2=−14 ($65 above), $0E=+14 ($66 below).
+    if (s.spriteId === 0x65 || s.spriteId === 0x66) {
+      const { anchorX, anchorY } = lineGuideAnchor(lineGuide, s.x, s.y, -8, -8)
+      out.push(new Sprite(
+        s.spriteId, anchorX, anchorY,
+        ChainsawAppearance.fromTables(chars, s.spriteId === 0x66, placeholder),
+        behavior,
+      ))
+      continue
+    }
+
+    // $67 (Grinder): CODE_01DC0B draws 4 big-tiles via DATA_01DC3B/3F
+    // X offsets $F0,$00,$F0,$00 and Y offsets $F0,$F0,$00,$00 — 32×32 sprite
+    // with OAM anchor at SprX/SprY and visual centre at SprX−0.5.
+    // lineGuideAnchor snaps to the track tile's pixel origin (col*16); +8 offsets
+    // the anchor to the tile centre so the 32×32 body straddles it symmetrically.
+    // $68 (Fuzz Ball): CODE_01DBD4 calls SubSprGfx2Entry1 after SBC #$08 so OAM
+    // sits at (SprX−8, SprY−8) → 16×16 tile spans [SprX−8, SprX+7].
+    // dispX=[0,8,0,8] means StaticSpriteAppearance renders at [anchor, anchor+15].
+    // SprX ≈ col*16 + 4..11 → anchor = SprX−8 ≈ col*16 + 0 → drawOffset (0, 0).
+    // Appearance is built inline (StaticSpriteAppearance for both) to avoid a
+    // forward reference to the `let appearance` declared later in this loop body.
+    if (s.spriteId === 0x67 || s.spriteId === 0x68) {
+      const grLayout = buildSpriteLayout(tables, s.spriteId)
+      if (grLayout) {
+        const grParts: SpritePart[] = grLayout.tiles.map(t => ({
+          char: chars.get(t.charNum) ?? placeholder,
+          palette: t.palette,
+          flipX: t.flipX,
+          flipY: t.flipY,
+          dx: t.dx,
+          dy: t.dy,
+        }))
+        const dx = s.spriteId === 0x67 ? 8 : 0
+        const dy = s.spriteId === 0x67 ? 8 : 0
+        const { anchorX, anchorY } = lineGuideAnchor(lineGuide, s.x, s.y, dx, dy)
+        out.push(new Sprite(s.spriteId, anchorX, anchorY, new StaticSpriteAppearance(grParts), behavior))
+      }
       continue
     }
 
