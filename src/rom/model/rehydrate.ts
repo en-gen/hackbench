@@ -30,6 +30,7 @@ import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
 import { DryBonesAppearance } from './sprites/appearances/DryBonesAppearance'
 import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
 import { SumoBrotherAppearance } from './sprites/appearances/SumoBrotherAppearance'
+import { BallAndChainAppearance } from './sprites/appearances/BallAndChainAppearance'
 import { CarrotTopLiftAppearance } from './sprites/appearances/CarrotTopLiftAppearance'
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
 import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
@@ -211,6 +212,7 @@ function buildAppearance(
       if (spriteId <= 0x07 || spriteId === 0x0F) return new KoopaAppearance(parts)
       if (spriteId === 0x30 || spriteId === 0x32) return new DryBonesAppearance(parts)
       if (spriteId === 0x9A) return new SumoBrotherAppearance(parts)
+      if (spriteId === 0x9E) return BallAndChainAppearance.fromParts(parts)
       return new StaticSpriteAppearance(parts)
     }
     case 'pSwitch':

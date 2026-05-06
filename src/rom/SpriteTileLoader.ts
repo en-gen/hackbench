@@ -224,7 +224,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x9B: 0x46,   // Hammer Brother — HammerBroTiles[2] (left body big-tile), bank_02.asm:12040
   0x9C: 0x40,   // Flying blocks for Hammer Brother
   0x9D: 0xAA,   // Bubble with sprite
-  0x9E: 0xA2,   // Ball and Chain — sphere at start of BanzaiBnCGrayPlat
+  // 0x9E Ball and Chain — handled by BallAndChainAppearance in SpriteFactory
   0x9F: 0x80,   // Banzai Bill — top-left char of BanzaiBillTiles (bank_02.asm:11331)
   0xA0: 0xE3,   // Activates Bowser scene
   0xA1: 0x45,   // Bowser's bowling ball

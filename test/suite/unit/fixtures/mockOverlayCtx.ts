@@ -21,6 +21,7 @@ export type CanvasOp =
   | { op: 'fillRect';       x: number; y: number; w: number; h: number; fillStyle: string }
   | { op: 'strokeRect';     x: number; y: number; w: number; h: number; strokeStyle: string; lineWidth: number; dash: number[] }
   | { op: 'ellipse';        cx: number; cy: number; rx: number; ry: number }
+  | { op: 'arc';            cx: number; cy: number; r: number; startAngle: number; endAngle: number; anticlockwise: boolean }
   | { op: 'createLinearGradient'; id: number; x0: number; y0: number; x1: number; y1: number }
   | { op: 'addColorStop';   id: number; offset: number; color: string }
 
@@ -79,6 +80,9 @@ export function makeMockCtx(): MockCtx {
     },
     ellipse(cx, cy, rx, ry) {
       events.push({ op: 'ellipse', cx, cy, rx, ry })
+    },
+    arc(cx, cy, r, startAngle, endAngle, anticlockwise = false) {
+      events.push({ op: 'arc', cx, cy, r, startAngle, endAngle, anticlockwise })
     },
     createLinearGradient(x0, y0, x1, y1): OverlayGradient {
       const id = ++gradientId

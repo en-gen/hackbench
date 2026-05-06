@@ -15,6 +15,7 @@ import { RipVanFishAppearance } from './sprites/appearances/RipVanFishAppearance
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { ThwimpAppearance } from './sprites/appearances/ThwimpAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
+import { BallAndChainAppearance } from './sprites/appearances/BallAndChainAppearance'
 import { BanzaiBillAppearance } from './sprites/appearances/BanzaiBillAppearance'
 import { HammerBroAppearance } from './sprites/appearances/HammerBroAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
@@ -128,6 +129,18 @@ export function buildSprites(
       buildMovementBehavior(s.spriteId, meta),
       lineGuide !== undefined ? { lineGuide } : {},
     )
+
+    // $9E (Ball and Chain) -- sphere (4× 8×8 tile $EA) + 2 chain links (tile $E8)
+    // from CODE_02D813 (sphere) and CODE_02D62A (chain loop).
+    // Rest pose: theta=0 (InitBallNChain default) → sphere 56 px below pivot.
+    if (s.spriteId === 0x9E) {
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        BallAndChainAppearance.fromTables(chars, placeholder),
+        behavior,
+      ))
+      continue
+    }
 
     // $9F (Banzai Bill) -- 4x4 grid of 16x16 big-tiles from CODE_02D5E4.
     if (s.spriteId === 0x9F) {
