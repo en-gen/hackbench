@@ -187,7 +187,7 @@ export class SwimJumpFishAppearance extends StaticSpriteAppearance {
   ): void {
     if (!isActive) return
 
-    const { minY, swimMinX, swimMaxX, jumpX } = FISH_BOUNDS
+    const { minY, swimMinX, jumpX } = FISH_BOUNDS
     const color        = COLORS.patrolPath
     const ENDCAP_HALF  = 8
     const spawnCenterX = x + 8
