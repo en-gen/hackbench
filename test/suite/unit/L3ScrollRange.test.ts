@@ -121,7 +121,6 @@ describe('computeL3ScrollRange', () => {
     // frame, so cells sit at fixed level Y = row*8 (overlay shows level rows).
     const firstRow = L3_HUD_ROW_CUTOFF
     const lastRow  = L3_HUD_ROW_CUTOFF + 7
-    const initialYPx       = 0   // caller passed initialCameraYPx already collapsed
     const initialCameraYPx = 0x60
     // Pre-collapse: when settingsByte=$81 and tileset != 1,3, the loader sets
     // initialYPx = initialCameraYPx so pixelY = row*8 - initialYPx + initialCamY
