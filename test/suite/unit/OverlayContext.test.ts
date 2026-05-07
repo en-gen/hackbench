@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isActsLikeHorizSolid,
   isActsLikeVertSolid,
+  isActsLikeGround,
   isPriorityDecorative,
 } from '../../../src/rom/model/OverlayContext'
 
@@ -124,5 +125,18 @@ describe('isPriorityDecorative', () => {
   it('returns false when all four subtiles are non-priority', () => {
     const nonPriority = [priority(false), priority(false), priority(false), priority(false)]
     expect(isPriorityDecorative({ behavior: { quad: nonPriority } })).toBe(false)
+  })
+})
+
+describe('isActsLikeGround', () => {
+  // CODE_01933B (bank_01.asm:2705): actsLike < 0x100 → passable; >= $11 and page-1+ → ground.
+  it('returns false for page-0 tile (actsLike < 0x100)', () => {
+    // Low byte $30 but page 0 — decorative / slope / foreground-animated; never ground.
+    expect(isActsLikeGround(0x030)).toBe(false)
+  })
+
+  it('returns true for page-1 tile with low byte >= 0x11', () => {
+    // Standard solid ground tile used by most tilesets.
+    expect(isActsLikeGround(0x130)).toBe(true)
   })
 })

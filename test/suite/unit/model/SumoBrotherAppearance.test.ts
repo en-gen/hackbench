@@ -195,4 +195,21 @@ describe('SumoBrotherAppearance.renderOverlay — fire footprints', () => {
     const moveTos = ctx.events.filter(e => e.op === 'moveTo') as { op: 'moveTo'; x: number; y: number }[]
     expect(moveTos.some(m => m.y === 200)).toBe(true)
   })
+
+  it('surfacePoints with x1 === x0: degenerate segment → t=0, returns y0 (x1===x0 TRUE branch)', () => {
+    // Two adjacent points at the same x: x0=x1=40. targetX=40 satisfies x0<=40<=x1.
+    // `x1 - x0 = 0 <= 16`, so the segment passes the guard.
+    // Then `t = x1===x0 ? 0 : ...` → TRUE branch fires, t=0 → returns y0=180.
+    // fireX=32 → cx = 32+8 = 40 = x0 = x1. surfY = 180 (not groundY=200).
+    const ctx = makeMockCtx()
+    simpleAppearance().renderOverlay(ctx, 0, 0, true, NOOP_L1, COLS, ROWS,
+      makeBehavior({
+        fall: { ...baseFall, surfacePoints: [[40, 180], [40, 190]], groundY: 200 },
+        fireXs: [32],  // cx = 32+8 = 40 = x0 = x1
+      }),
+      mapStore)
+    const moveTos = ctx.events.filter(e => e.op === 'moveTo') as { op: 'moveTo'; x: number; y: number }[]
+    // surfY = 180 (not groundY=200) because t=0 → y0 = 180
+    expect(moveTos.some(m => m.y === 180)).toBe(true)
+  })
 })

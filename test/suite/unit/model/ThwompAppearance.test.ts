@@ -29,6 +29,9 @@ import type { Palette } from '../../../../src/rom/model/palette/Palette'
 import type { RenderTarget, PixelPos } from '../../../../src/rom/model/RenderTarget'
 import type { SpriteBehavior } from '../../../../src/rom/model/sprites/SpriteBehavior'
 import { editorStore, makeTestMapStore, resetEditorStore } from '../fixtures/stores'
+import { makeMockCtx } from '../fixtures/mockOverlayCtx'
+import type { GetL1Tile, L1Cell } from '../../../../src/rom/model/OverlayContext'
+import { NO_COLLISION } from '../../../../src/rom/model/tiles/TileCollision'
 
 const TRANSPARENT_ROW: RgbaColor[] = Array(16).fill([0, 0, 0, 0] as RgbaColor)
 
@@ -201,5 +204,92 @@ describe('ThwompAppearance — hitRect', () => {
     const aggr  = [makePart(8, 8)]
     const app = new ThwompAppearance(body, alert, aggr)
     expect(app.hitRect).toEqual(partsHitRect([...body, ...alert]))
+  })
+})
+
+// ---- renderOverlay ----------------------------------------------------------
+// x=0,y=0: colStart=0, colEnd=2, startRow=2. Stop-line strokeRect = x=5, y=blockerRow*16+1.
+
+describe('ThwompAppearance.renderOverlay — guard', () => {
+  beforeEach(resetEditorStore)
+
+  it('!isActive → no fillRect or strokeRect emitted', () => {
+    const ctx = makeMockCtx()
+    makeThwomp().renderOverlay(ctx, 0, 0, false, () => null, 10, 10, undefined as never, makeTestMapStore({}))
+    expect(ctx.events.every(e => e.op === 'save' || e.op === 'restore')).toBe(true)
+  })
+})
+
+describe('ThwompAppearance.renderOverlay — blockerRow branches', () => {
+  beforeEach(resetEditorStore)
+
+  it('floor cell found → blockerRow < levelRows → stop-line strokeRect at x=5', () => {
+    // cell at col=0, row=2 has collision.floor=true → blockerRow=2 < levelRows=10
+    const FLOOR: L1Cell = { id: 0x300, actsLike: 0, collision: { ...NO_COLLISION, floor: true } }
+    const getL1: GetL1Tile = (col, row) => (col === 0 && row === 2) ? FLOOR : null
+    const ctx = makeMockCtx()
+    makeThwomp().renderOverlay(ctx, 0, 0, true, getL1, 10, 10, undefined as never, makeTestMapStore({}))
+    // Stop-line strokeRect: x+4+1=5, blockerRow*16+1=33
+    expect(ctx.events.some(e => e.op === 'strokeRect' && (e as { x: number }).x === 5)).toBe(true)
+  })
+
+  it('no floor cell → blockerRow = levelRows → no stop-line strokeRect', () => {
+    // All cells have collision but floor=false → no blocker row found
+    const NO_FLOOR: L1Cell = { id: 0x300, actsLike: 0, collision: { ...NO_COLLISION, floor: false } }
+    const getL1: GetL1Tile = () => NO_FLOOR
+    const ctx = makeMockCtx()
+    makeThwomp().renderOverlay(ctx, 0, 0, true, getL1, 10, 3, undefined as never, makeTestMapStore({}))
+    // Alert/aggr zone strokeRects have fractional x (−55.5, 28.5, etc.); stop-line x=5 absent
+    expect(ctx.events.some(e => e.op === 'strokeRect' && (e as { x: number }).x === 5)).toBe(false)
+  })
+
+  it('isPriority cell → skipped → not counted as blocker', () => {
+    const PRIORITY: L1Cell = { id: 0x200, actsLike: 0x125, isPriority: true }
+    const getL1: GetL1Tile = (_, row) => row >= 2 ? PRIORITY : null
+    const ctx = makeMockCtx()
+    makeThwomp().renderOverlay(ctx, 0, 0, true, getL1, 10, 3, undefined as never, makeTestMapStore({}))
+    expect(ctx.events.some(e => e.op === 'strokeRect' && (e as { x: number }).x === 5)).toBe(false)
+  })
+
+  it('cell with no collision property → optional chain → undefined → not a blocker', () => {
+    // L1Cell without collision field: actsLike-based check is NOT used in ThwompAppearance
+    const NO_COL_PROP: L1Cell = { id: 0x300, actsLike: 0x125 }
+    const getL1: GetL1Tile = (_, row) => row >= 2 ? NO_COL_PROP : null
+    const ctx = makeMockCtx()
+    makeThwomp().renderOverlay(ctx, 0, 0, true, getL1, 10, 3, undefined as never, makeTestMapStore({}))
+    expect(ctx.events.some(e => e.op === 'strokeRect' && (e as { x: number }).x === 5)).toBe(false)
+  })
+})
+
+// ---- fromTables + bigTileParts hFlip ----------------------------------------
+
+describe('ThwompAppearance.fromTables — construction', () => {
+  function makePlaceholder(): Char {
+    return new Char(0, new StaticPixelsBehavior(new Uint8Array(64)))
+  }
+
+  it('empty chars → all parts use placeholder', () => {
+    const ph = makePlaceholder()
+    const app = ThwompAppearance.fromTables(new Map(), 8, 0, ph)
+    const allParts = [...app.bodyParts, ...app.alertFace, ...app.aggressiveFace]
+    expect(allParts.every(p => p.char === ph)).toBe(true)
+  })
+
+  it('right-column body entries (hFlip=true) produce flipX=true parts', () => {
+    const ph = makePlaceholder()
+    const app = ThwompAppearance.fromTables(new Map(), 8, 0, ph)
+    const body = [...app.bodyParts]
+    // bodyEntries: [left-top, right-top, left-bottom, right-bottom]; each → 4 parts
+    // right-top (parts 4-7) and right-bottom (parts 12-15) have hFlip=true
+    expect(body.slice(0,  4).every(p => p.flipX === false)).toBe(true)  // left-top
+    expect(body.slice(4,  8).every(p => p.flipX === true)).toBe(true)   // right-top
+    expect(body.slice(8, 12).every(p => p.flipX === false)).toBe(true)  // left-bottom
+    expect(body.slice(12, 16).every(p => p.flipX === true)).toBe(true)  // right-bottom
+  })
+
+  it('face parts are never H-flipped', () => {
+    const ph = makePlaceholder()
+    const app = ThwompAppearance.fromTables(new Map(), 8, 0, ph)
+    expect([...app.alertFace, ...app.aggressiveFace].every(p => p.flipX === false)).toBe(true)
   })
 })

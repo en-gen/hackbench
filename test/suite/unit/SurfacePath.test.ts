@@ -34,6 +34,8 @@ import type { GetL1Tile, L1Cell } from '../../../src/rom/model/OverlayContext'
 import {
   buildSurfacePath,
   DEFAULT_EDGE_TOLERANCE,
+  MARIO_HAS_FLOOR,
+  SPRITE_HAS_FLOOR,
   type SurfaceEntry,
 } from '../../../src/rom/model/SurfacePath'
 
@@ -91,6 +93,17 @@ describe('SurfacePath.surfacesAt — per-column compute', () => {
     const { getL1, cols, rows } = buildGrid(['.....', '.....', '.....'], {})
     const path = buildSurfacePath(getL1, cols, rows)
     expect(path.surfacesAt(2)).toEqual([])
+  })
+
+  it('c < 0 → early return empty array (if (c < 0 || c >= cols) true branch)', () => {
+    // Covers the TRUE path of `if (c < 0 || c >= cols) return []` in SurfacePath.ts
+    const { getL1, cols, rows } = buildGrid([
+      '.....',
+      '#####',
+    ], { '#': FLAT })
+    const path = buildSurfacePath(getL1, cols, rows)
+    expect(path.surfacesAt(-1)).toEqual([])
+    expect(path.surfacesAt(cols)).toEqual([])  // c >= cols path
   })
 
   it('single flat floor row emits one entry at silhouette top', () => {
@@ -253,5 +266,49 @@ describe('SurfacePath.nextSurface — edge-matched continuity', () => {
     ], { '#': FLAT })
     const next = path.nextSurface(2, 0, +1, DEFAULT_EDGE_TOLERANCE)
     expect(next).toBeNull()
+  })
+})
+
+// ── SPRITE_HAS_FLOOR / MARIO_HAS_FLOOR — ?? false right-side branches ─────────
+// These exported constants use `cell.collision?.floor ?? false` and
+// `cell.collision?.marioFloor ?? false`.  When `collision` is undefined (cells
+// built without a classification pass), the ?. short-circuits to `undefined` and
+// the `?? false` fallback fires.  The buildGrid helper above always adds a
+// collision object, so we strip it here to exercise the right-side branches.
+
+describe('SPRITE_HAS_FLOOR with undefined collision — ?? false right side', () => {
+  it('cell without collision property: ??.floor is undefined → ?? false fires, cell not a surface', () => {
+    const { getL1: classified, cols, rows } = buildGrid([
+      '.....',
+      '.....',
+      '#####',
+    ], { '#': FLAT })
+    // Strip the collision object so cell.collision is undefined
+    const getL1Raw: GetL1Tile = (c, r) => {
+      const cell = classified(c, r)
+      if (cell === null) return null
+      return { id: cell.id, actsLike: cell.actsLike }   // no collision field
+    }
+    // SPRITE_HAS_FLOOR(rawCell) → rawCell.collision?.floor ?? false → false
+    // → hasFloor returns false → no surface emitted for the floor row
+    const path = buildSurfacePath(getL1Raw, cols, rows)
+    expect(path.surfacesAt(2)).toHaveLength(0)
+  })
+})
+
+describe('MARIO_HAS_FLOOR with undefined collision — ?? false right side', () => {
+  it('cell without collision: ??.marioFloor is undefined → ?? false fires, cell not a surface', () => {
+    const { getL1: classified, cols, rows } = buildGrid([
+      '.....',
+      '#####',
+    ], { '#': FLAT })
+    const getL1Raw: GetL1Tile = (c, r) => {
+      const cell = classified(c, r)
+      if (cell === null) return null
+      return { id: cell.id, actsLike: cell.actsLike }   // no collision field
+    }
+    // MARIO_HAS_FLOOR(rawCell) → rawCell.collision?.marioFloor ?? false → false
+    const path = buildSurfacePath(getL1Raw, cols, rows, { hasFloor: MARIO_HAS_FLOOR })
+    expect(path.surfacesAt(2)).toHaveLength(0)
   })
 })

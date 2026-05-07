@@ -684,6 +684,27 @@ describe('KoopaWalkBehavior — patrol bounds with SurfacePath', () => {
     expect(r.leftKind).toBe('levelEdge')
     expect(r.leftX).toBe(0)
   })
+
+  it('surface above spawn bottom: s.yMid < spawnBodyBottomY → loop exits without match → null fallback', () => {
+    // Sprite at row 2 (y=32). spawnBodyBottomY = (2+1)*16 = 48.
+    // Floor at row 1 → surface yMid=16. `16 >= 48` is false → the if inside the
+    // for-loop is never taken (covers the FALSE branch of `if (s.yMid >= spawnBodyBottomY)`).
+    // startSurface stays null → fallback to levelRows*16.
+    const FLR = { actsLike: 0x130 }
+    const { getL1, solidH, solidV, cols, rows } = makeGrid([
+      '....',  // r0
+      '####',  // r1: floor above sprite (yMid=16)
+      '..K.',  // r2: sprite spawn (y=32)
+      '....',  // r3: empty — no floor below
+    ], { '#': FLR })
+    const beh = new KoopaWalkBehavior({ turnsAtLedges: false, tall: false, walkSpeed: 0x0C })
+    const { x, y } = at(2, 2)
+    const r = beh.computePatrolRange(x, y, solidH, solidV, cols, rows, getL1)
+    // No ground below spawn → bottomY = levelRows*16 = 64
+    expect(r.bottomY).toBe(rows * 16)
+    // Spawn below floor, body above nothing → spawnDropFromY is set
+    expect(r.spawnDropFromY).toBeDefined()
+  })
 })
 
 // ASM: bank_01.asm:13520 — DryBonesAndBeetle. Same wall check (FlipIfTouchingObj)

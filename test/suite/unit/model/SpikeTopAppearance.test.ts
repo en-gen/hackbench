@@ -28,6 +28,8 @@ import type { SpriteBehavior } from '../../../../src/rom/model/sprites/SpriteBeh
 import type { SpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import type { GetL1Tile, L1Cell } from '../../../../src/rom/model/OverlayContext'
 import { makeTestMapStore, resetEditorStore } from '../fixtures/stores'
+import { makeMockCtx } from '../fixtures/mockOverlayCtx'
+import { NO_COLLISION } from '../../../../src/rom/model/tiles/TileCollision'
 
 const STUB_BEHAVIOR: SpriteBehavior = { displayName: 'stub', spawns: false } as never
 
@@ -357,5 +359,164 @@ describe('tracePatrolPath — dir=4 (left-hand track, Mario to left)', () => {
     expect(closed).toBe(true)
     expect(points).toHaveLength(12)
     expect(points[0]).toEqual({ col: 4, row: 1 })
+  })
+})
+
+// ---- solidForWallFollow — isActsLikeVertSolid fallback (|| right-side branch) --
+
+describe('solidForWallFollow — isActsLikeVertSolid fallback (|| right-side branch)', () => {
+  it('cell with no collision, actsLike=0x1C4: horiz=false but vert=true → solid', () => {
+    // actsLike 0x1C4: page 1, low byte 0xC4.
+    //   isActsLikeHorizSolid(0x1C4) → 0xC4 not in [0x11,0x6D] → false  (left side, false)
+    //   isActsLikeVertSolid(0x1C4)  → 0xC4 in [0xC4,0xC9] → true  (right side decides)
+    // No collision property → falls through to the isActsLike* fallback.
+    // Result: solidForWallFollow returns true → the cell is treated as solid,
+    // causing a normal step instead of an outer corner.
+    const VERT_ONLY: L1Cell = { id: 0x200, actsLike: 0x1C4 }   // no collision
+    // dir=0: probe at (1,1)=VERT_ONLY (solid via vert fallback); forward (1,0)=null → normal step
+    const getL1: GetL1Tile = (col, row) => (col === 1 && row === 1) ? VERT_ONLY : null
+    const { points } = tracePatrolPath(0, 0, 0, getL1, 2)
+    // Normal step: advance to forward tile (1,0)
+    expect(points[1]).toEqual({ col: 1, row: 0 })
+  })
+})
+
+// ---- solidForWallFollow — isPriority branch ----------------------------------
+
+describe('solidForWallFollow — isPriority cell treated as non-solid', () => {
+  it('isPriority=true at probe → outer corner taken (same as empty)', () => {
+    const PRIORITY_CELL: L1Cell = { id: 0x200, actsLike: 0x125, isPriority: true }
+    // dir=0: probe at (1,1) → priority → non-solid → outer corner: advance to (1,0)
+    const getL1: GetL1Tile = (col, row) => (col === 1 && row === 1) ? PRIORITY_CELL : null
+    const { points } = tracePatrolPath(0, 0, 0, getL1, 2)
+    expect(points[1]).toEqual({ col: 1, row: 0 })
+  })
+})
+
+// ---- solidForWallFollow — collision flags branch ----------------------------
+
+describe('solidForWallFollow — collision property used when present', () => {
+  it('cell.collision.floor=true → solid (normal step taken when forward is empty)', () => {
+    const FLOOR_CELL: L1Cell = { id: 0x300, actsLike: 0, collision: { ...NO_COLLISION, floor: true } }
+    // probe(1,1) has floor collision → solid; forward(1,0) is null → normal step
+    const getL1: GetL1Tile = (col, row) => (col === 1 && row === 1) ? FLOOR_CELL : null
+    const { points } = tracePatrolPath(0, 0, 0, getL1, 2)
+    expect(points[1]).toEqual({ col: 1, row: 0 })
+  })
+
+  it('cell.collision.ceiling=true → solid (inner corner when forward also solid)', () => {
+    const CEIL_CELL: L1Cell = { id: 0x301, actsLike: 0, collision: { ...NO_COLLISION, ceiling: true } }
+    // probe(1,1) solid AND forward(1,0) solid → inner corner: no advance
+    const getL1: GetL1Tile = (col, row) =>
+      (col === 1 && (row === 0 || row === 1)) ? CEIL_CELL : null
+    const { points } = tracePatrolPath(0, 0, 0, getL1, 2)
+    expect(points[1]).toEqual({ col: 0, row: 0 })
+  })
+
+  it('cell.collision.wall=true → solid (normal step when forward empty)', () => {
+    const WALL_CELL: L1Cell = { id: 0x302, actsLike: 0, collision: { ...NO_COLLISION, wall: true } }
+    const getL1: GetL1Tile = (col, row) => (col === 1 && row === 1) ? WALL_CELL : null
+    const { points } = tracePatrolPath(0, 0, 0, getL1, 2)
+    expect(points[1]).toEqual({ col: 1, row: 0 })
+  })
+})
+
+// ---- tracePatrolPath — negative and row boundary exits ---------------------
+
+describe('tracePatrolPath — row/col negative boundary exits', () => {
+  it('col < 0 exits (dir=2 LEFT from col=0)', () => {
+    // dir=2: FWD_COL=-1. Probe(-1,-1)=null → outer corner: advance to (-1,0) → col<0 → exit
+    const { closed } = tracePatrolPath(0, 0, 2, () => null, 100, 10, 5)
+    expect(closed).toBe(false)
+  })
+
+  it('row < 0 exits (dir=3 UP from row=0)', () => {
+    // dir=3: FWD_ROW=-1. Probe(1,-1)=null → outer corner: advance to (0,-1) → row<0 → exit
+    const { closed } = tracePatrolPath(0, 0, 3, () => null, 100, 10, 5)
+    expect(closed).toBe(false)
+  })
+
+  it('row >= levelRows exits (dir=1 DOWN from row=levelRows-1)', () => {
+    // dir=1: FWD_ROW=+1. Probe(-1,1)=null → outer corner: advance to (0,1) → row>=1 → exit
+    const { points, closed } = tracePatrolPath(0, 0, 1, () => null, 100, 10, 1)
+    expect(closed).toBe(false)
+    expect(points.every(p => p.row < 1)).toBe(true)
+  })
+})
+
+// ---- renderOverlay — guard branches -----------------------------------------
+
+describe('SpikeTopAppearance.renderOverlay — guards', () => {
+  it('!isActive → no draw ops emitted', () => {
+    const ctx = makeMockCtx()
+    makeAppearance().renderOverlay(ctx, 0, 0, false, () => null, 10, 10, undefined as never, makeTestMapStore({}))
+    expect(ctx.events.every(e => e.op === 'save' || e.op === 'restore')).toBe(true)
+  })
+
+  it('points.length < 2 (first step exits boundary) → no stroke emitted', () => {
+    // levelCols=1: outer-corner advance from col=0 gives col=1 >= 1 → 1 point only
+    const ctx = makeMockCtx()
+    makeAppearance().renderOverlay(ctx, 0, 0, true, () => null, 1, 100, undefined as never, makeTestMapStore({}))
+    expect(ctx.events.some(e => e.op === 'stroke')).toBe(false)
+  })
+})
+
+// ---- renderOverlay — closed vs open path ------------------------------------
+
+describe('SpikeTopAppearance.renderOverlay — closed path → closePath()', () => {
+  const BLOCK_GRID = [
+    '......',
+    '......',
+    '..##..',
+    '..##..',
+    '......',
+  ]
+
+  it('closed loop → closePath() called', () => {
+    const ctx = makeMockCtx()
+    // x=16,y=16 → startCol=1, startRow=1; marioSpawnX=0 < 16 → dir=4 → closed 12-point loop
+    makeAppearance().renderOverlay(ctx, 16, 16, true, gridGetL1(BLOCK_GRID), 6, 5, undefined as never, makeTestMapStore({}))
+    expect(ctx.events.some(e => e.op === 'closePath')).toBe(true)
+  })
+
+  it('open path → no closePath() called', () => {
+    const ctx = makeMockCtx()
+    // Infinite floor; sprite walks right forever without closing
+    const getL1: GetL1Tile = (_col, row) => row === 1 ? SOLID : null
+    makeAppearance().renderOverlay(ctx, 0, 0, true, getL1, 1000, 1000, undefined as never, makeTestMapStore({}))
+    expect(ctx.events.some(e => e.op === 'closePath')).toBe(false)
+  })
+})
+
+// ---- fromTables — ?? fallback branches --------------------------------------
+
+describe('SpikeTopAppearance.fromTables — ?? fallback branches', () => {
+  it('short spriteAttr/tilemapOffset/tilemap → ?? 0 defaults; palette=8, charHigh=0', () => {
+    const tables: SpriteTileTables = {
+      tilemap:       new Uint8Array(0),
+      tilemapOffset: new Uint8Array(0),
+      spriteAttr:    new Uint8Array(0),
+      dispX: [],
+      dispY: [],
+      gfxProp: [],
+      spr0to13Prop:  new Uint8Array(0),
+    }
+    const placeholder = namedChar(0xFF)
+    const app = SpikeTopAppearance.fromTables(new Map(), tables, placeholder)
+    expect(app.parts0.every(p => p.char === placeholder)).toBe(true)
+    expect(app.parts0[0].palette).toBe(8)
+  })
+
+  it('chars missing key → ?? placeholder for all parts in both frames', () => {
+    const placeholder = namedChar(0xFF)
+    const app = SpikeTopAppearance.fromTables(new Map(), makeTables(), placeholder)
+    expect(app.parts0.every(p => p.char.getPixels()[0] === 0xFF)).toBe(true)
+    expect(app.parts1.every(p => p.char.getPixels()[0] === 0xFF)).toBe(true)
+  })
+
+  it('empty dispX/dispY → ?? 0 for all dx/dy', () => {
+    const tables: SpriteTileTables = { ...makeTables(), dispX: [], dispY: [] }
+    const app = SpikeTopAppearance.fromTables(makeChars(), tables, namedChar(0xFF))
+    expect(app.parts0.every(p => p.dx === 0 && p.dy === 0)).toBe(true)
   })
 })

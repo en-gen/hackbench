@@ -42,6 +42,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   BouncingKoopaBehavior,
+  applyXSpeed,
+  applyYSpeed,
   stepFrameForTest,
   makeFreshState,
   BOUNCE_TALL_VY,
@@ -49,6 +51,8 @@ import {
   BOUNCE_XSPEED,
 } from '../../../src/rom/model/sprites/behaviors/BouncingKoopaBehavior'
 import { buildSolidity } from './fixtures/buildSolidity'
+import type { GetL1Tile, L1Cell } from '../../../src/rom/model/OverlayContext'
+import type { SolidV } from '../../../src/rom/model/sprites/MovementBehavior'
 
 const GROUND = { actsLike: 0x130 }   // page-1 low byte $30
 const WALL   = { actsLike: 0x130 }
@@ -163,6 +167,28 @@ describe('BouncingKoopaBehavior — simulateArc', () => {
     const beh = new BouncingKoopaBehavior()
     expect(beh.kind).toBe('bouncing_koopa')
   })
+
+  it('bounceModeAt: spawnY with bit 4 clear → tall', () => {
+    // spawnY=32: 32 & 0x10 = 0 → 'tall'
+    expect(new BouncingKoopaBehavior().bounceModeAt(32)).toBe('tall')
+  })
+
+  it('bounceModeAt: spawnY with bit 4 set → short', () => {
+    // spawnY=16: 16 & 0x10 = 16 → 'short'
+    expect(new BouncingKoopaBehavior().bounceModeAt(16)).toBe('short')
+  })
+
+  it('computeBouncePath: tall-mode spawnY (seed=0) returns path', () => {
+    // spawnY=32: (32 & 0x10) === 0 → 'tall' → seed=0 (covers the false arm of the ternary)
+    const { solidH, solidV, cols, rows } = buildSolidity([
+      '..........',
+      '..........',
+      '##########',
+    ], { '#': GROUND })
+    const beh = new BouncingKoopaBehavior()
+    const path = beh.computeBouncePath(5 * BODY, 2 * BODY, solidH, solidV, cols, rows)
+    expect(path.length).toBeGreaterThanOrEqual(2)
+  })
 })
 
 describe('BouncingKoopaBehavior — per-frame physics (stepFrameForTest)', () => {
@@ -261,5 +287,254 @@ describe('BouncingKoopaBehavior — per-frame physics (stepFrameForTest)', () =>
       if (s.dir === 1) { flipped = true; break }
     }
     expect(flipped).toBe(true)
+  })
+})
+
+// ── applyXSpeed / applyYSpeed branch coverage ─────────────────────────────────
+
+describe('BouncingKoopaBehavior — applyXSpeed off-grid branches', () => {
+  it('vx=0 early return leaves state unchanged', () => {
+    const { solidH, cols } = buildSolidity(['..'], {})
+    const s = makeFreshState({ x: 0, y: 0, ground: false, misc160E: 0, vx: 0 })
+    applyXSpeed(s, solidH, cols)
+    expect(s.x).toBe(0)
+    expect(s.offgrid).toBe(false)
+  })
+
+  it('col < 0 (walk off left edge) sets offgrid', () => {
+    // 2-col level; sprite at x=0 walks left — leading col becomes -1.
+    const { solidH, cols } = buildSolidity(['..', '..'], {})
+    const s = makeFreshState({ x: 0, y: 0, ground: false, misc160E: 0, vx: -8 })
+    // vx=-8 → totalSub=-128 → wholeDelta=-1 → one pixel step left
+    applyXSpeed(s, solidH, cols)
+    expect(s.offgrid).toBe(true)
+  })
+
+  it('col >= levelCols (walk off right edge) sets offgrid', () => {
+    // 1-col level (col 0 only); sprite at x=0 walks right.
+    const { solidH, cols } = buildSolidity(['.'], {})
+    const s = makeFreshState({ x: 0, y: 0, ground: false, misc160E: 0, vx: 16 })
+    // vx=16 → totalSub=256 → wholeDelta=1 → nextX=1 → leadingX=16 → col=1 >= 1
+    applyXSpeed(s, solidH, cols)
+    expect(s.offgrid).toBe(true)
+  })
+})
+
+describe('BouncingKoopaBehavior — applyYSpeed branch coverage', () => {
+  it('ascending past row 0 sets offgrid', () => {
+    const { solidV, rows } = buildSolidity(['.'], {})
+    // y=0, vy=-16 → wholeDelta=-1 → nextY=-1 → row=-1 < 0
+    const s = makeFreshState({ x: 0, y: 0, ground: false, misc160E: 0, vy: -16 })
+    applyYSpeed(s, solidV, rows)
+    expect(s.offgrid).toBe(true)
+  })
+
+  it('falling past last row sets offgrid', () => {
+    // 1-row level (no floor); sprite near bottom, vy=16 → falls off
+    const { solidV, rows } = buildSolidity(['.'], {})
+    // y=14, vy=16 → totalSub=256 → wholeDelta=1 → nextY=15 → leadingY=30 → row=1 >= 1
+    const s = makeFreshState({ x: 0, y: 14, ground: false, misc160E: 0, vy: 16 })
+    applyYSpeed(s, solidV, rows)
+    expect(s.offgrid).toBe(true)
+  })
+
+  it('vy=0 with sprite bottom past levelRows → ground=false (sittingOnFloor row>=rows)', () => {
+    // 1-row empty level; sprite at y=0 → foot row = floor(16/16) = 1 >= rows(1)
+    const { solidV, rows } = buildSolidity(['.'], {})
+    const s = makeFreshState({ x: 0, y: 0, ground: true, misc160E: 0, vy: 0 })
+    applyYSpeed(s, solidV, rows)
+    expect(s.ground).toBe(false)
+  })
+
+  it('falling hit without getL1 snaps to row*16 surface', () => {
+    // Air row 0, GROUND row 1. Sprite at y=8, vy=16 → hits row 1.
+    const { solidV, rows } = buildSolidity(['..', '##'], { '#': GROUND })
+    const s = makeFreshState({ x: 0, y: 8, ground: false, misc160E: 0, vy: 16 })
+    // totalSub=256, wholeDelta=1, nextY=9, leadingY=24, row=1 → hit
+    // surfaceY = row * 16 = 16 (no collision); s.y = 16 - BODY_H = 0
+    applyYSpeed(s, solidV, rows)
+    expect(s.y).toBe(0)
+    expect(s.ground).toBe(true)
+    expect(s.vy).toBe(0)
+  })
+
+  it('falling hit with getL1 uses collision.surfaceYAt', () => {
+    // Same layout but with getL1 — exercises the collision-truthy surfaceYAt path.
+    const { solidV, getL1, rows } = buildSolidity(['..', '##'], { '#': GROUND })
+    const s = makeFreshState({ x: 0, y: 8, ground: false, misc160E: 0, vy: 16 })
+    applyYSpeed(s, solidV, rows, getL1)
+    // collision.surfaceYAt for flat GROUND at row 1 still returns 16; result is same
+    expect(s.y).toBe(0)
+    expect(s.ground).toBe(true)
+  })
+
+  it('ascending legacy (no getL1) ceiling hit snaps to (row+1)*16', () => {
+    // GROUND at row 0, air at row 1. Sprite at y=16, vy=-16 → hits ceiling at row 0.
+    const { solidV, rows } = buildSolidity(['##', '..'], { '#': GROUND })
+    const s = makeFreshState({ x: 0, y: 16, ground: false, misc160E: 0, vy: -16 })
+    // totalSub=-256, wholeDelta=-1 → nextY=15, leadingY=15, row=0 → solidV true → hit
+    // no collision (no getL1) → else branch → s.y = (0+1)*16 = 16
+    applyYSpeed(s, solidV, rows)
+    expect(s.y).toBe(16)
+    expect(s.vy).toBe(0)
+  })
+
+  it('ascending with collision uses ceilingV (else if branch)', () => {
+    // GROUND at row 0 has ceiling=true. With getL1, uses collision.ceilingV path.
+    const { solidV, getL1, rows } = buildSolidity(['##', '..'], { '#': GROUND })
+    const s = makeFreshState({ x: 0, y: 16, ground: false, misc160E: 0, vy: -16 })
+    applyYSpeed(s, solidV, rows, getL1)
+    // else if (collision) path: collision.ceilingV(0,0) = true → hit → snap
+    expect(s.y).toBe(16)
+    expect(s.vy).toBe(0)
+  })
+})
+
+// ── computeBouncePolyline (simulateCyclePolyline) branch coverage ─────────────
+
+describe('BouncingKoopaBehavior — computeBouncePolyline', () => {
+  it('returns 512 points and openEnd:false in walled corridor (max-frames path)', () => {
+    // simulateCyclePolyline returns openEnd:false only after MAX_FRAMES=512 —
+    // the `if (s.ground)` landing check is unreachable because stepFrame
+    // immediately clears s.ground via the IsOnGround relaunch.  Walls prevent
+    // horizontal exit so the sprite stays in bounds for all 512 frames.
+    // 15 air rows + 1 ground = 256 px tall; tall bounce apex ≈ y=121 (row 7) — safe.
+    const level = Array(15).fill('W........W').concat(['##########'])
+    const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND, 'W': WALL })
+    const beh = new BouncingKoopaBehavior()
+    // spawnX=5*BODY=80 > marioSpawnX=0 → dir=1 (left); spawnY=row14=224
+    const result = beh.computeBouncePolyline(5 * BODY, 14 * BODY, solidH, solidV, cols, rows, 0)
+    expect(result.points).toHaveLength(512)
+    expect(result.openEnd).toBe(false)
+  })
+
+  it('dir=0 path: marioSpawnX > spawnX produces rightward trajectory', () => {
+    const level = Array(15).fill('W........W').concat(['##########'])
+    const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND, 'W': WALL })
+    const beh = new BouncingKoopaBehavior()
+    // spawnX=1*BODY=16 <= marioSpawnX=5*BODY=80 → dir=0 (right) — false branch
+    const result = beh.computeBouncePolyline(1 * BODY, 14 * BODY, solidH, solidV, cols, rows, 5 * BODY)
+    expect(result.points.length).toBeGreaterThan(0)
+  })
+
+  it('returns openEnd:true when sprite walks off the right edge', () => {
+    // 1-col level (col 0 only); sprite launches right and exits immediately
+    const level = ['.', '#']
+    const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND })
+    const beh = new BouncingKoopaBehavior()
+    // spawnX=0 <= marioSpawnX=2*BODY → dir=0 (right) → exits right edge
+    const result = beh.computeBouncePolyline(0, 0, solidH, solidV, cols, rows, 2 * BODY)
+    expect(result.openEnd).toBe(true)
+  })
+
+  it('short-bounce spawnY: seed=0x10 branch fires in computeBouncePolyline', () => {
+    // spawnY = 1*BODY = 16. 16 & 0x10 = 16 → bounceModeFromSpawnY returns 'short'.
+    // → seed = 0x10 (the true branch at bank_01.asm:1860 vy=$D0 path).
+    // All other computeBouncePolyline tests use even-row spawnY (tall bounce);
+    // this test exercises the 0x10 branch specifically.
+    const level = Array(5).fill('..........').concat(['##########'])
+    const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND })
+    const beh = new BouncingKoopaBehavior()
+    // spawnY=1*BODY=16 → bit4=1 → short; spawnX > marioSpawnX → dir=1 (left)
+    const result = beh.computeBouncePolyline(5 * BODY, 1 * BODY, solidH, solidV, cols, rows, 0)
+    expect(result.points.length).toBeGreaterThan(0)
+  })
+
+  it('marioSpawnX default parameter: omitting arg 7 uses default 0 (default-param TRUE branch)', () => {
+    // Calling with only 6 arguments leaves marioSpawnX at its default of 0.
+    // This covers the TypeScript-compiled default-parameter branch
+    // (`marioSpawnX === undefined → use 0`).
+    const level = Array(5).fill('..........').concat(['##########'])
+    const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND })
+    const beh = new BouncingKoopaBehavior()
+    // No marioSpawnX argument → default 0 → spawnX=5*BODY=80 > 0 → dir=1 (left)
+    const result = beh.computeBouncePolyline(5 * BODY, 4 * BODY, solidH, solidV, cols, rows)
+    expect(result.points.length).toBeGreaterThan(0)
+  })
+})
+
+// ── getL1 / collision path (simulateCycle + simulateCyclePolyline branches) ──
+
+describe('BouncingKoopaBehavior — getL1 collision-path branches', () => {
+  it('simulateArc with getL1: collision object used for floor snap and surface-Y (simulateCycle branches)', () => {
+    // Covers in simulateCycle:
+    //   const collision = getL1 ? spriteCollisionFromL1(getL1) : undefined  → true
+    //   collision?.findFloorRowBelow(...)  → defined branch
+    //   collision?.surfaceYAt(...)         → defined branch
+    // Covers in applyYSpeed (via stepFrame):
+    //   const collision = getL1 ? ...  → true branch
+    //   const surfaceY = collision ? collision.surfaceYAt(...) : row*16  → true branch
+    // Covers in sittingOnFloor:
+    //   if (collision)  → true branch (vy=0 check on next frame after landing)
+    const { solidH, solidV, getL1, cols, rows } = buildSolidity([
+      '.........',
+      '.........',
+      '.........',
+      '#########',
+    ], { '#': GROUND })
+    const beh = new BouncingKoopaBehavior()
+    const env = beh.simulateArc(4 * BODY, 2 * BODY, solidH, solidV, cols, rows, getL1)
+    expect(env.groundY).toBeLessThan(rows * BODY)
+    expect(env.minY).toBeLessThan(env.groundY)
+  })
+
+  it('computeBouncePolyline with getL1: simulateCyclePolyline collision-path branches', () => {
+    // Covers in simulateCyclePolyline:
+    //   const collision = getL1 ? ...  → true branch
+    //   collision?.findFloorRowBelow(...)  → defined branch
+    //   collision?.surfaceYAt(...)         → defined branch
+    // Also covers: ascending with collision → else if (collision) ceilingV path
+    const { solidH, solidV, getL1, cols, rows } = buildSolidity([
+      '.........',
+      '.........',
+      '.........',
+      '#########',
+    ], { '#': GROUND })
+    const beh = new BouncingKoopaBehavior()
+    const result = beh.computeBouncePolyline(4 * BODY, 2 * BODY, solidH, solidV, cols, rows, 0, getL1)
+    expect(result.points.length).toBeGreaterThan(0)
+    // openEnd may be true if the koopa bounces offgrid in the small test arena; we only
+    // care that the collision path (getL1 branch) was exercised, not the final state.
+  })
+})
+
+// ── sittingOnFloor — slope detection path ─────────────────────────────────────
+
+describe('BouncingKoopaBehavior — sittingOnFloor slope branch', () => {
+  // A slope cell with floor=false so solidV misses it, but collision.slopeAt returns a profile.
+  const SLOPE_HEIGHTS_ZERO = new Uint8Array(16).fill(0)   // surface at tile-top: surfaceY = row*16
+  const SLOPE_HEIGHTS_HIGH = new Uint8Array(16).fill(15)  // surface at tile-bottom: surfaceY = row*16+15
+
+  function makeSlopeGetL1(row: number, heights: Uint8Array): GetL1Tile {
+    const slopeCell: L1Cell = {
+      id: 1, actsLike: 0x170,
+      collision: {
+        floor: false, ceiling: false, wall: false,
+        slopeTable: true, marioFloor: false, marioCeiling: false, marioWall: false,
+        slope: { slopeIndex: 0, heights },
+      },
+    }
+    return (c, r) => r === row ? slopeCell : null
+  }
+
+  it('slope at row 1, sprite bottom at surface top (16 >= 16): sittingOnFloor → true', () => {
+    // ASM: sittingOnFloor → solidV misses, slopeAt finds profile, height check passes.
+    // Covers: if (collision) true, if (slope) true, if (s.y+BODY_H >= surfaceY) true
+    const getL1 = makeSlopeGetL1(1, SLOPE_HEIGHTS_ZERO)
+    const solidV: SolidV = () => false
+    const s = makeFreshState({ x: 0, y: 0, ground: false, misc160E: 0, vy: 0 })
+    // s.y + BODY_H = 16; row = floor(16/16) = 1; surfaceY = 1*16 + (0 & 0x0F) = 16; 16 >= 16 → true
+    applyYSpeed(s, solidV, 5, getL1)
+    expect(s.ground).toBe(true)
+  })
+
+  it('slope at row 1, sprite bottom above surface (16 < 31): sittingOnFloor → false', () => {
+    // Covers: if (slope) true, if (s.y+BODY_H >= surfaceY) false branch
+    const getL1 = makeSlopeGetL1(1, SLOPE_HEIGHTS_HIGH)
+    const solidV: SolidV = () => false
+    const s = makeFreshState({ x: 0, y: 0, ground: false, misc160E: 0, vy: 0 })
+    // s.y+BODY_H = 16; row=floor(16/16)=1; surfaceY=1*16+(15&0x0F)=31; 16 >= 31 → false
+    applyYSpeed(s, solidV, 5, getL1)
+    expect(s.ground).toBe(false)
   })
 })

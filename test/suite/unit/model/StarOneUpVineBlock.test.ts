@@ -13,15 +13,18 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
+import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { SubTile } from '../../../../src/rom/model/tiles/SubTile'
 import { type SubtileQuad } from '../../../../src/rom/model/tiles/Tile'
+import type { Palette } from '../../../../src/rom/model/palette/Palette'
+import type { CellBox, RenderTarget } from '../../../../src/rom/model/RenderTarget'
 import {
   starOneUpVineItemAt,
   StarOneUpVineBlockBehavior,
 } from '../../../../src/rom/model/tiles/behaviors/StarOneUpVineBlockBehavior'
-import { editorStore, resetEditorStore } from '../fixtures/stores'
+import { editorStore, resetEditorStore, makeTestMapStore } from '../fixtures/stores'
 
 function makeChar(): Char {
   return new Char(0, new StaticPixelsBehavior(new Uint8Array(64)))
@@ -89,5 +92,120 @@ describe('StarOneUpVineBlockBehavior', () => {
     for (let col = 0; col <= 18; col++) {
       expect(b.itemAtCol(col)).toBe(starOneUpVineItemAt(col))
     }
+  })
+})
+
+// ── renderOverlay ────────────────────────────────────────────────────────────
+
+const TRANSPARENT_ROW: RgbaColor[] = Array(16).fill([0, 0, 0, 0] as RgbaColor)
+
+function stubMapStore() {
+  const palette = {
+    row: () => TRANSPARENT_ROW,
+    color: () => [0, 0, 0, 0] as RgbaColor,
+    cells: [] as never,
+    backAreaColor: null as never,
+  } as unknown as Palette
+  return makeTestMapStore({ palette })
+}
+
+/** Cell at tileX (each tile is 16 px wide). y=0. */
+function makeCell(tileX: number): CellBox {
+  const x = tileX * 16
+  return { tl: { x, y: 0 }, tr: { x: x + 16, y: 0 }, bl: { x, y: 16 }, br: { x: x + 16, y: 16 } }
+}
+
+function makeBlitTarget() {
+  const blits: Array<{ alpha: number | undefined }> = []
+  const target: RenderTarget = {
+    blit8x8(_p: Uint8Array, _pos: any, _row: any, _fx: boolean, _fy: boolean, alpha?: number) {
+      blits.push({ alpha })
+    },
+    fillRect() {},
+  }
+  return { target, blits }
+}
+
+describe('StarOneUpVineBlockBehavior.renderOverlay — item dispatch', () => {
+  beforeEach(resetEditorStore)
+
+  it('col=2 (vine) with vineOverlayQuad → 4 blits (quad rendered)', () => {
+    const b = new StarOneUpVineBlockBehavior(makeQuad(), makeQuad(), [], [])
+    const { target, blits } = makeBlitTarget()
+    b.renderOverlay(target, makeCell(2), stubMapStore())
+    expect(blits).toHaveLength(4)
+  })
+
+  it('col=2 (vine) with vineOverlayQuad=null → 0 blits (skipped)', () => {
+    const b = new StarOneUpVineBlockBehavior(makeQuad(), null, [], [])
+    const { target, blits } = makeBlitTarget()
+    b.renderOverlay(target, makeCell(2), stubMapStore())
+    expect(blits).toHaveLength(0)
+  })
+
+  it('col=1 (1up) → drawCharsOverlay with oneupChars (4 blits)', () => {
+    const ch = makeChar()
+    const b = new StarOneUpVineBlockBehavior(makeQuad(), null, [ch, ch, ch, ch], [])
+    const { target, blits } = makeBlitTarget()
+    b.renderOverlay(target, makeCell(1), stubMapStore())
+    expect(blits).toHaveLength(4)
+  })
+
+  it('col=0 (star) → drawCharsOverlay with starChars (4 blits)', () => {
+    const ch = makeChar()
+    const b = new StarOneUpVineBlockBehavior(makeQuad(), null, [], [ch, ch, ch, ch])
+    const { target, blits } = makeBlitTarget()
+    b.renderOverlay(target, makeCell(0), stubMapStore())
+    expect(blits).toHaveLength(4)
+  })
+
+  it('null char in array → skip blit for that slot', () => {
+    const ch = makeChar()
+    const b = new StarOneUpVineBlockBehavior(makeQuad(), null, [ch, null, ch, ch], [])
+    const { target, blits } = makeBlitTarget()
+    b.renderOverlay(target, makeCell(1), stubMapStore())
+    expect(blits).toHaveLength(3)
+  })
+})
+
+describe('StarOneUpVineBlockBehavior.renderOverlay — indicatorAlpha', () => {
+  beforeEach(resetEditorStore)
+
+  // col=0 (star), cell at tl={x:0,y:0}, covers x=[0,16) y=[0,16)
+
+  it('cursor null → alpha=0.5', () => {
+    const ch = makeChar()
+    const b = new StarOneUpVineBlockBehavior(makeQuad(), null, [], [ch, ch, ch, ch])
+    const { target, blits } = makeBlitTarget()
+    editorStore.setCursorPx(null)
+    b.renderOverlay(target, makeCell(0), stubMapStore())
+    expect(blits.every(bl => bl.alpha === 0.5)).toBe(true)
+  })
+
+  it('cursor inside cell → alpha=1.0', () => {
+    const ch = makeChar()
+    const b = new StarOneUpVineBlockBehavior(makeQuad(), null, [], [ch, ch, ch, ch])
+    const { target, blits } = makeBlitTarget()
+    editorStore.setCursorPx({ x: 8, y: 8 })  // inside [0,16)×[0,16)
+    b.renderOverlay(target, makeCell(0), stubMapStore())
+    expect(blits.every(bl => bl.alpha === 1.0)).toBe(true)
+  })
+
+  it('cursor outside cell (x) → alpha=0.5', () => {
+    const ch = makeChar()
+    const b = new StarOneUpVineBlockBehavior(makeQuad(), null, [], [ch, ch, ch, ch])
+    const { target, blits } = makeBlitTarget()
+    editorStore.setCursorPx({ x: 100, y: 8 })  // x outside [0,16)
+    b.renderOverlay(target, makeCell(0), stubMapStore())
+    expect(blits.every(bl => bl.alpha === 0.5)).toBe(true)
+  })
+
+  it('cursor outside cell (y) → alpha=0.5', () => {
+    const ch = makeChar()
+    const b = new StarOneUpVineBlockBehavior(makeQuad(), null, [], [ch, ch, ch, ch])
+    const { target, blits } = makeBlitTarget()
+    editorStore.setCursorPx({ x: 8, y: 100 })  // y outside [0,16)
+    b.renderOverlay(target, makeCell(0), stubMapStore())
+    expect(blits.every(bl => bl.alpha === 0.5)).toBe(true)
   })
 })

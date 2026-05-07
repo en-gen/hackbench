@@ -27,6 +27,7 @@
 
 import { describe, it, expect } from 'vitest'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
+import type { SpriteLayout } from '../../../../src/rom/SpriteTileLoader'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { WingedSpriteAppearance } from '../../../../src/rom/model/sprites/appearances/WingedSpriteAppearance'
@@ -37,6 +38,7 @@ import { FlyingLeftKoopaBehavior }      from '../../../../src/rom/model/sprites/
 import { SinusoidalParaKoopaBehavior }  from '../../../../src/rom/model/sprites/behaviors/SinusoidalParaKoopaBehavior'
 import { KoopaWalkBehavior }            from '../../../../src/rom/model/sprites/behaviors/KoopaWalkBehavior'
 import { FlyingBlockBehavior }          from '../../../../src/rom/model/sprites/behaviors/FlyingBlockBehavior'
+import { ThwimpBounceBehavior }          from '../../../../src/rom/model/sprites/behaviors/ThwimpBounceBehavior'
 import type { RenderTarget, PixelPos }  from '../../../../src/rom/model/RenderTarget'
 import type { Palette }                 from '../../../../src/rom/model/palette/Palette'
 import { makeTestMapStore }             from '../fixtures/stores'
@@ -289,6 +291,59 @@ describe('WingedSpriteAppearance.fromFlyingQBlock — layout=null', () => {
     expect(app.bodyParts).toHaveLength(0)
     // Frame 0: 2 small wing parts
     expect(app.wingFrames[0]).toHaveLength(2)
+  })
+})
+
+// ── WingedGoombaBehavior points.length < 2 ───────────────────────────────────
+
+describe('WingedSpriteAppearance.renderOverlay — WingedGoombaBehavior < 2 points', () => {
+  it('points.length < 2 → no stroke, no arrowhead', () => {
+    // Covers: if (points.length >= 2) false branch for WingedGoombaBehavior
+    const b = Object.create(WingedGoombaBehavior.prototype) as WingedGoombaBehavior
+    b.computeBouncePolyline = () => ({ points: [{x:0, y:0}] } as never)
+    const ctx = makeMockCtx()
+    makeAppearance().renderOverlay(ctx, 0, 0, true, NOOP_L1, COLS, ROWS, b, mapStore)
+    expect(ctx.events.some(e => e.op === 'stroke')).toBe(false)
+  })
+})
+
+// ── layoutToBodyParts — non-null layout ───────────────────────────────────────
+
+describe('WingedSpriteAppearance.fromParaKoopa — layout with tiles', () => {
+  it('non-null layout: layout?.tiles defined branch + both chars.get ?? placeholder branches', () => {
+    // Tile 0: charNum=0x460 present in chars → chars.get ?? found (left branch)
+    // Tile 1: charNum=0x999 NOT in chars → chars.get ?? placeholder (right branch)
+    const placeholder = new Char(0xFFFF, new StaticPixelsBehavior(new Uint8Array(64)))
+    const knownChar   = new Char(0x460, new StaticPixelsBehavior(new Uint8Array(64)))
+    const chars = new Map<number, Char>([[0x460, knownChar]])
+    const layout: SpriteLayout = {
+      spriteId: 0x09,
+      height: 16,
+      tiles: [
+        { charNum: 0x460, palette: 8, flipX: false, flipY: false, dx: 0,  dy: 0 },
+        { charNum: 0x999, palette: 8, flipX: false, flipY: false, dx: 8,  dy: 0 },
+      ],
+    }
+    const app = WingedSpriteAppearance.fromParaKoopa(chars, placeholder, layout)
+    // Body should have 2 parts (one per tile).
+    expect(app.bodyParts).toHaveLength(2)
+    // First tile found in chars, second falls back to placeholder.
+    expect(app.bodyParts[0].char).toBe(knownChar)
+    expect(app.bodyParts[1].char).toBe(placeholder)
+  })
+})
+
+// ── renderOverlay — unrecognized behavior (else if FlyingBlock FALSE path) ────
+
+describe('WingedSpriteAppearance.renderOverlay — unrecognized behavior type', () => {
+  it('behavior instanceof none of the 6 known types → no draw ops (final else-if FALSE branch)', () => {
+    // ThwimpBounceBehavior is not Bouncing/WingedGoomba/FlyingLeft/Sinusoidal/
+    // KoopaWalk/FlyingBlock, so every else-if condition evaluates to false.
+    // This covers the FALSE path of the last `else if (behavior instanceof FlyingBlockBehavior)`.
+    const b = Object.create(ThwimpBounceBehavior.prototype) as ThwimpBounceBehavior
+    const ctx = makeMockCtx()
+    makeAppearance().renderOverlay(ctx, 0, 0, true, NOOP_L1, COLS, ROWS, b, mapStore)
+    expect(ctx.events.some(e => e.op === 'stroke')).toBe(false)
   })
 })
 
