@@ -1830,6 +1830,9 @@ function togglePalAnim(): void {
   else startPalAnimTimer()
 }
 
+const palPlayBtn = document.getElementById('btn-pal-play')
+if (palPlayBtn) palPlayBtn.addEventListener('click', togglePalAnim)
+
 const animPlayBtns = [
   document.getElementById('btn-play')!,
 ]
