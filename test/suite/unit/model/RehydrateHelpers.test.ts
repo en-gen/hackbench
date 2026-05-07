@@ -329,6 +329,14 @@ describe("buildSprite appearance kind='static' — spriteId sub-dispatch", () =>
     expect(buildSprite(sd(0x1D, APP), EMPTY_CHARS, PLACEHOLDER)).toBeInstanceOf(Sprite)
   })
 
+  it('id=0x4D → MontyMoleAppearance (ground Monty Mole)', () => {
+    expect(buildSprite(sd(0x4D, APP), EMPTY_CHARS, PLACEHOLDER)).toBeInstanceOf(Sprite)
+  })
+
+  it('id=0x4E → MontyMoleAppearance (ledge Monty Mole)', () => {
+    expect(buildSprite(sd(0x4E, APP), EMPTY_CHARS, PLACEHOLDER)).toBeInstanceOf(Sprite)
+  })
+
   it('id=0x27 → ThwimpAppearance (static dispatch, not ThwompAppearance)', () => {
     expect(buildSprite(sd(0x27, APP), EMPTY_CHARS, PLACEHOLDER)).toBeInstanceOf(Sprite)
   })
