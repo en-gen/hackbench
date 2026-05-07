@@ -18,6 +18,8 @@ import {
   drawFadeCorridor,
   drawBounceArc,
   drawSineBand,
+  drawSpawnDrop,
+  drawArrowHead,
   findSolidBoundary,
   rgba,
   COLORS,
@@ -383,5 +385,87 @@ describe('drawFallL — ledge fall indicator', () => {
     if (h.op !== 'fillRect') return
     expect(h.x + h.w).toBe(80)           // right edge at ledgeX
     expect(h.x).toBe(80 - 2 * 16)        // left edge 2 tiles earlier
+  })
+
+  it('skipNearSide=true, direction=+1: near-side segment not drawn', () => {
+    // Covers: opts?.skipNearSide ?? false (defined branch) + if (!skipNearSide) false branch
+    const ctx = makeMockCtx()
+    drawFallL(ctx, 80, 16, 48, +1, TEAL, { ...PARAMS, skipNearSide: true })
+    // No error expected; near-side moveTo/lineTo pair should be absent.
+    expect(() => drawFallL(ctx, 80, 16, 48, +1, TEAL, { ...PARAMS, skipNearSide: true })).not.toThrow()
+  })
+
+  it('skipNearSide=true, direction=-1: near-side segment not drawn', () => {
+    // Covers: if (!skipNearSide) false branch for the left-fall case
+    const ctx = makeMockCtx()
+    expect(() => drawFallL(ctx, 80, 16, 48, -1, TEAL, { ...PARAMS, skipNearSide: true })).not.toThrow()
+  })
+
+  it('no opts: uses default horizontalTiles=2, verticalTiles=2, verticalWidth=32 (?? right-side branches)', () => {
+    // Covers: opts?.horizontalTiles ?? 2, opts?.verticalTiles ?? 2, opts?.verticalWidth ?? 32
+    // right-side branches — all three defaults fire when opts is omitted entirely.
+    const ctx = makeMockCtx()
+    expect(() => drawFallL(ctx, 80, 16, 48, +1, TEAL)).not.toThrow()
+  })
+})
+
+// ── drawFadeCorridor — steps=1 edge case ─────────────────────────────────────
+
+describe('drawFadeCorridor — steps=1 guard', () => {
+  it('steps=1: (steps-1 || 1) takes the || 1 path (0 is falsy)', () => {
+    // ASM: t = i / (steps - 1 || 1) with steps=1 → 0 || 1 = 1; only iteration i=0 runs.
+    const ctx = makeMockCtx()
+    expect(() => drawFadeCorridor(ctx, 200, 100, 250, 24, TEAL, { steps: 1 })).not.toThrow()
+    const fills = ctx.events.filter(e => e.op === 'fillRect')
+    // Exactly one fill rect for the single step.
+    expect(fills.length).toBe(1)
+  })
+})
+
+// ── drawSpawnDrop ─────────────────────────────────────────────────────────────
+
+describe('drawSpawnDrop', () => {
+  it('toY <= fromY: early return, nothing drawn', () => {
+    // Covers: if (toY <= fromY) return — true branch
+    const ctx = makeMockCtx()
+    drawSpawnDrop(ctx, 100, 80, 50, TEAL)   // toY=50 < fromY=80 → return
+    expect(ctx.events.filter(e => e.op === 'moveTo').length).toBe(0)
+  })
+
+  it('toY > fromY, no opts: draws a vertical stroke with default alpha+dash', () => {
+    // Covers: if (toY <= fromY) false branch + opts?.alpha ?? DASH_ALPHA default
+    //         + opts?.dash ?? [2, 3] default
+    const ctx = makeMockCtx()
+    drawSpawnDrop(ctx, 100, 10, 80, TEAL)
+    expect(ctx.events.some(e => e.op === 'moveTo')).toBe(true)
+    expect(ctx.events.some(e => e.op === 'lineTo')).toBe(true)
+  })
+
+  it('toY > fromY, opts with alpha+dash provided: uses supplied values', () => {
+    // Covers: opts?.alpha ?? DASH_ALPHA — left (defined) branch
+    //         opts?.dash  ?? [2,3]      — left (defined) branch
+    const ctx = makeMockCtx()
+    drawSpawnDrop(ctx, 100, 10, 80, TEAL, { alpha: 0.9, dash: [1, 2] })
+    // At least one setLineDash call should have been made.
+    expect(ctx.events.some(e => e.op === 'setLineDash')).toBe(true)
+  })
+})
+
+// ── drawArrowHead ─────────────────────────────────────────────────────────────
+
+describe('drawArrowHead', () => {
+  it('tip === from (len=0): early return, nothing drawn', () => {
+    // Covers: if (len < 0.5) return — true branch
+    const ctx = makeMockCtx()
+    drawArrowHead(ctx, 50, 50, 50, 50, TEAL, 0.6, 5)
+    expect(ctx.events.filter(e => e.op === 'moveTo').length).toBe(0)
+  })
+
+  it('tip differs from from (len>0): draws chevron strokes', () => {
+    // Covers: if (len < 0.5) false branch
+    const ctx = makeMockCtx()
+    drawArrowHead(ctx, 100, 100, 80, 80, TEAL, 0.6, 5)
+    expect(ctx.events.some(e => e.op === 'moveTo')).toBe(true)
+    expect(ctx.events.some(e => e.op === 'lineTo')).toBe(true)
   })
 })

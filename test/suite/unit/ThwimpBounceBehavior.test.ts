@@ -178,6 +178,26 @@ describe('ThwimpBounceBehavior.computeBouncePath', () => {
         expect(p.x).toBeGreaterThanOrEqual(0)
       }
     })
+
+    it('spawnX=0 — moveX edge guard fires immediately on frame 1 (nextX < 0 TRUE branch)', () => {
+      // Thwimp at x=0. First hop: vx=-16 → wholeDelta=-1 → stepX=-1 → nextX=-1.
+      // `nextX < 0` is TRUE → the level-edge break in moveX fires on the very
+      // first pixel step. Thwimp stays at x=0 for this frame, then lands.
+      // This covers the `nextX < 0 || nextX + BODY_W > levelCols * 16` TRUE branch.
+      const { solidV, cols, rows } = buildSolidity([
+        '............',
+        '............',
+        '############',
+      ], { '#': GROUND })
+      const beh = new ThwimpBounceBehavior()
+      const path = beh.computeBouncePath(0, 1 * BODY, solidV, cols, rows)
+      // Path should contain entries, all with x >= 0 (never went negative)
+      expect(path.length).toBeGreaterThan(0)
+      for (const p of path) {
+        expect(p.x).toBeGreaterThanOrEqual(0)
+        expect(Number.isFinite(p.x)).toBe(true)
+      }
+    })
   })
 
   describe('no-floor degenerate case', () => {

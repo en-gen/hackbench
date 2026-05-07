@@ -111,6 +111,25 @@ describe('drawPatrolPath — wall caps', () => {
     const strokes = ctx.events.filter(e => e.op === 'stroke')
     expect(strokes).toHaveLength(1)
   })
+
+  it('solidLeft=false, solidRight=true → wall-cap stroke drawn (|| right-side branch)', () => {
+    // Covers: (solidLeft && startIdx===0) || (solidRight && endIdx===last)
+    // Left side is false; right side (solidRight && endIdx===last) is the deciding factor.
+    const ctx = makeMockCtx()
+    drawPatrolPath(ctx, makeBehavior({ solidLeft: false, solidRight: true }), X, Y, FLAT.getL1, FLAT.cols, FLAT.rows)
+    const strokes = ctx.events.filter(e => e.op === 'stroke')
+    expect(strokes.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('solidLeft=true, solidRight=false → wall-cap stroke drawn; if(solidRight && endIdx===last) false branch', () => {
+    // Outer if at line 151: (solidLeft && 0===0) is true → enter wall-cap block.
+    // Inner if at line 159: solidRight=false → false branch hit.
+    // Only the left cap moveTo/lineTo pair is drawn; no right cap.
+    const ctx = makeMockCtx()
+    drawPatrolPath(ctx, makeBehavior({ solidLeft: true, solidRight: false }), X, Y, FLAT.getL1, FLAT.cols, FLAT.rows)
+    const strokes = ctx.events.filter(e => e.op === 'stroke')
+    expect(strokes.length).toBeGreaterThanOrEqual(2)
+  })
 })
 
 // ── turnsAtLedges=false + marioSpawnX ────────────────────────────────────
@@ -233,6 +252,56 @@ describe('drawPatrolPath — slope tile in floor', () => {
     // With one slope tile (17 pts) + remaining flat tiles (2 pts each)
     // total lineTo count is greater than if all were flat
     expect(lineTos.length).toBeGreaterThan(2)
+  })
+})
+
+// ── spawnSurf fallback when no surface yMid >= bottomY ───────────────────────
+
+describe('drawPatrolPath — no surface yMid >= bottomY → spawnSurf fallback', () => {
+  it('bottomY=64 > floor yMid=48: loop condition never true → synthetic fallback used', () => {
+    // FLAT grid has floor at row 3 (yMid=48). With bottomY=64, `s.yMid >= r.bottomY`
+    // → `48 >= 64` is false for every surface. The loop completes without setting
+    // spawnSurf, and the fallback `{ yLeft: r.bottomY, ... }` fires.
+    const ctx = makeMockCtx()
+    const b = makeBehavior({ bottomY: 64 })
+    drawPatrolPath(ctx, b, X, Y, FLAT.getL1, FLAT.cols, FLAT.rows)
+    // The function still runs (draws something) rather than crashing.
+    expect(ctx.events.some(e => e.op === 'stroke')).toBe(true)
+  })
+})
+
+// ── spawnDropFromY with slope at spawn column ─────────────────────────────
+
+describe('drawPatrolPath — spawnDropFromY with slope tile at spawn column', () => {
+  it('spawnSlope truthy: spawnFloorY sampled from slope heights (ternary true branch)', () => {
+    // Sprite at x=48 (X const), bottomY=48, spawnFloorRow=3, spawnPx=56, spawnCol=3.
+    // getL1(3,3) has collision.slope → slopeAt(3,3) is defined (truthy)
+    // → spawnFloorY = 3*16 + (heights[56-3*16] & 0x0F) = 48 + (heights[8] & 0x0F) = 48 + 4 = 52.
+    const heights = new Uint8Array(16).fill(4)   // flat slope at 4px depth
+    const slopeGetL1 = (c: number, r: number): L1Cell | null => {
+      if (r !== 3) return null
+      if (c === 3) {
+        return {
+          id: 0x180, actsLike: 0x180,
+          collision: {
+            wall: false, floor: true, ceiling: false, slopeTable: true,
+            marioFloor: true, marioCeiling: false, marioWall: false,
+            slope: { heights },
+          },
+        }
+      }
+      return {
+        id: 0x130, actsLike: 0x130,
+        collision: { wall: true, floor: true, ceiling: true, slopeTable: false,
+          marioFloor: false, marioCeiling: false, marioWall: false },
+      }
+    }
+    const ctx = makeMockCtx()
+    const b = makeBehavior({ leftX: 16, rightX: 96, bottomY: 48, spawnDropFromY: 16 })
+    drawPatrolPath(ctx, b, X, Y, slopeGetL1, 7, 4)
+    // spawnDropFromY is defined + spawnSlope is truthy → spawn-drop stroke drawn
+    const strokes = ctx.events.filter(e => e.op === 'stroke')
+    expect(strokes.length).toBeGreaterThanOrEqual(2)
   })
 })
 
