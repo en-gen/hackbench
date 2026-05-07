@@ -222,6 +222,26 @@ describe('buildSpriteLayout', () => {
     expect(layout.tiles.every(t => t.palette === 8 + 4)).toBe(true)
   })
 
+  it('renders Goal Tape ($7B) as three 8x8 tiles at dx=-8/0/+8, dy=+8, CGRAM row 9', () => {
+    // CODE_01C12D (bank_01.asm:8865-8896): three extra-OAM 8×8 entries, not a 16×16
+    // big-tile. X offsets −8/0/+8 from anchor; Y offset +8. Tiles $D4 (left cap),
+    // $D5 (middle), $D5 (right). Attr $32 hardcoded → low nibble $02 → ppp=001 →
+    // CGRAM row 9, charHigh=0. No Sprite166EVals involvement.
+    const tables = makeTables()
+    const layout = buildSpriteLayout(tables, 0x7B)!
+    expect(layout).not.toBeNull()
+    expect(layout.tiles).toHaveLength(3)
+    expect(layout.tiles.map(t => t.charNum)).toEqual([
+      0x400 + 0xD4,  // left cap
+      0x400 + 0xD5,  // middle
+      0x400 + 0xD5,  // right
+    ])
+    expect(layout.tiles.map(t => t.dx)).toEqual([-8, 0, 8])
+    expect(layout.tiles.map(t => t.dy)).toEqual([8, 8, 8])
+    expect(layout.tiles.every(t => t.palette === 9)).toBe(true)
+    expect(layout.tiles.every(t => !t.flipX && !t.flipY)).toBe(true)
+  })
+
   it('renders Thwomp ($26) as a 32x32 wide sprite with 4 big-tiles', () => {
     const tables = makeTables()
     const layout = buildSpriteLayout(tables, 0x26)!
