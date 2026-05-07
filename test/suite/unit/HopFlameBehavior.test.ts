@@ -31,7 +31,6 @@
 
 import { describe, expect, it } from 'vitest'
 import { HopFlameBehavior } from '../../../src/rom/model/sprites/behaviors/HopFlameBehavior'
-import { solidityFromL1 } from '../../../src/rom/model/sprites/MovementBehavior'
 import { isActsLikeHorizSolid, isActsLikeVertSolid } from '../../../src/rom/model/OverlayContext'
 import { buildSolidity } from './fixtures/buildSolidity'
 
