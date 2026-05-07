@@ -191,7 +191,7 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x78: 0x24,   // 1-Up — PowerUpTiles[4] ($78 - $74 = 4)
   0x79: 0xAE,   // Growing Vine
   0x7A: 0xAE,   // Firework — Bank3SprHandler, uses same particle tile range as vine
-  0x7B: 0xD4,   // Goal Point
+  // 0x7B Goal Tape — moved to SPRITE_WIDE_OVERRIDES (three 8×8 parts, not 16×16 big-tile)
   0x7C: 0x6E,   // Princess Peach
   0x7D: 0x5D,   // Balloon
   0x7E: 0x5D,   // Flying Red coin
@@ -411,6 +411,17 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
     { baseTile: 0xE4, baseDx:  0, baseDy:  0, flipX: true },  // upper-left
     { baseTile: 0xE2, baseDx:  0, baseDy: 16, flipX: true },  // lower-left
     { baseTile: 0xE0, baseDx: 16, baseDy: 16, flipX: true },  // lower-right
+  ]},
+  // Goal Tape ($7B) — CODE_01C12D (bank_01.asm:8865).
+  // Three 8×8 extra-OAM tiles; no 16×16 big-tile is written.
+  // X offsets: −8, 0, +8 from GetDrawInfoBnk1 anchor. Y offset: +8 (bank_01.asm:8882).
+  // Tile $D4 (left cap), $D5 (middle), $D5 (right), all at OAMTileAttr=$32.
+  // Attr $32: bits 3:1 = (0x32>>1)&7 = 1 → OBJ pal 1 → CGRAM row 9; charHigh = 0.
+  // Low nibble 0x32 & 0x0F = 0x02 overrides Sprite166EVals[$7B].
+  0x7B: { attr: 0x02, quadrants: [], parts: [
+    { tile: 0xD4, dx: -8, dy: 8 },  // left cap
+    { tile: 0xD5, dx:  0, dy: 8 },  // middle
+    { tile: 0xD5, dx:  8, dy: 8 },  // right
   ]},
   // Grinder line-guided ($67): CODE_01DC0B (bank_01.asm:12521) draws 4 big-tiles
   // all sharing base char $6C (animated to $6C/$6E via EffFrame bit 1), with
