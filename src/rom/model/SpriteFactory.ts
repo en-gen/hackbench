@@ -22,6 +22,7 @@ import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlat
 import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppearance'
 import { CheepCheepAppearance } from './sprites/appearances/CheepCheepAppearance'
 import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearance'
+import { JumpingPiranhaAppearance } from './sprites/appearances/JumpingPiranhaAppearance'
 import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppearance'
 import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
@@ -603,6 +604,8 @@ export function buildSprites(
       appearance = new CheepCheepAppearance(parts, true)
     } else if (s.spriteId === 0x18) {
       appearance = new JumpingFishAppearance(parts)
+    } else if (s.spriteId === 0x4F) {
+      appearance = new JumpingPiranhaAppearance(parts)
     } else if (s.spriteId === 0x47) {
       appearance = new SwimJumpFishAppearance(parts)
     } else if (s.spriteId === 0x1D) {

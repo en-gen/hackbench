@@ -5,6 +5,8 @@
  * Appearances tested:
  *   BlurpAppearance          — !isActive guard, swimDir ternary
  *   JumpingFishAppearance    — !isActive guard
+ *   JumpingPiranhaAppearance — !isActive guard
+ *   MontyMoleAppearance      — !isActive guard, detection-zone rect drawn
  *   CarrotTopLiftAppearance  — !isActive guard, spriteId 0xB7 vs 0xB8 branch
  *   CheepCheepAppearance     — !isActive guard, !this.vertical branch
  *   HopFlameAppearance       — !isActive guard, !(behavior instanceof HopFlameBehavior) guard
@@ -18,6 +20,8 @@ import { describe, it, expect } from 'vitest'
 import type { SpritePart } from '../../../../src/rom/model/sprites/appearances/StaticSpriteAppearance'
 import { BlurpAppearance }           from '../../../../src/rom/model/sprites/appearances/BlurpAppearance'
 import { JumpingFishAppearance }     from '../../../../src/rom/model/sprites/appearances/JumpingFishAppearance'
+import { JumpingPiranhaAppearance }  from '../../../../src/rom/model/sprites/appearances/JumpingPiranhaAppearance'
+import { MontyMoleAppearance }       from '../../../../src/rom/model/sprites/appearances/MontyMoleAppearance'
 import { CarrotTopLiftAppearance }   from '../../../../src/rom/model/sprites/appearances/CarrotTopLiftAppearance'
 import { CheepCheepAppearance }      from '../../../../src/rom/model/sprites/appearances/CheepCheepAppearance'
 import { HopFlameAppearance }        from '../../../../src/rom/model/sprites/appearances/HopFlameAppearance'
@@ -97,6 +101,42 @@ describe('JumpingFishAppearance.renderOverlay — isActive guard', () => {
   it('isActive=true → vertical jump-zone lines drawn', () => {
     const ctx = makeMockCtx()
     app.renderOverlay(ctx, 48, 64, true, NOOP_L1, COLS, ROWS, undefined, makeTestMapStore())
+    expect(hasStroke(ctx)).toBe(true)
+  })
+})
+
+// ── JumpingPiranhaAppearance ──────────────────────────────────────────────────
+
+describe('JumpingPiranhaAppearance.renderOverlay — isActive guard', () => {
+  const app = new JumpingPiranhaAppearance(NO_PARTS)
+
+  it('isActive=false → no stroke emitted', () => {
+    const ctx = makeMockCtx()
+    app.renderOverlay(ctx, 48, 128, false, NOOP_L1, COLS, ROWS, undefined, makeTestMapStore())
+    expect(hasStroke(ctx)).toBe(false)
+  })
+
+  it('isActive=true → vertical jump-zone lines drawn (CODE_02E159 bank_02.asm:12882)', () => {
+    const ctx = makeMockCtx()
+    app.renderOverlay(ctx, 48, 128, true, NOOP_L1, COLS, ROWS, undefined, makeTestMapStore())
+    expect(hasStroke(ctx)).toBe(true)
+  })
+})
+
+// ── MontyMoleAppearance ───────────────────────────────────────────────────────
+
+describe('MontyMoleAppearance.renderOverlay — isActive guard', () => {
+  const app = new MontyMoleAppearance(NO_PARTS)
+
+  it('isActive=false → no stroke emitted', () => {
+    const ctx = makeMockCtx()
+    app.renderOverlay(ctx, 48, 128, false, NOOP_L1, COLS, ROWS, undefined, makeTestMapStore())
+    expect(hasStroke(ctx)).toBe(false)
+  })
+
+  it('isActive=true → detection-zone rect drawn (CODE_01E2E0 bank_01.asm:13340)', () => {
+    const ctx = makeMockCtx()
+    app.renderOverlay(ctx, 48, 128, true, NOOP_L1, COLS, ROWS, undefined, makeTestMapStore())
     expect(hasStroke(ctx)).toBe(true)
   })
 })

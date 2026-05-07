@@ -25,6 +25,8 @@ import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppear
 import { CheepCheepAppearance } from './sprites/appearances/CheepCheepAppearance'
 import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppearance'
 import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearance'
+import { JumpingPiranhaAppearance } from './sprites/appearances/JumpingPiranhaAppearance'
+import { MontyMoleAppearance } from './sprites/appearances/MontyMoleAppearance'
 import { BlurpAppearance } from './sprites/appearances/BlurpAppearance'
 import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
 import { DryBonesAppearance } from './sprites/appearances/DryBonesAppearance'
@@ -205,6 +207,8 @@ function buildAppearance(
       if (spriteId === 0x15) return new CheepCheepAppearance(parts, false)
       if (spriteId === 0x16) return new CheepCheepAppearance(parts, true)
       if (spriteId === 0x18) return new JumpingFishAppearance(parts)
+      if (spriteId === 0x4D || spriteId === 0x4E) return new MontyMoleAppearance(parts)
+      if (spriteId === 0x4F) return new JumpingPiranhaAppearance(parts)
       if (spriteId === 0x47) return new SwimJumpFishAppearance(parts)
       if (spriteId === 0x1D) return new HopFlameAppearance(parts)
       if (spriteId === 0x27) return new ThwimpAppearance(parts)

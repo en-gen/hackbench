@@ -463,6 +463,10 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
     { tile: 0x5D, dx:  1, dy:  -8 },
   ]},
   // Jumping Piranha Plant ($4F) — CODE_02E0CD (bank_02.asm:12812).
+  // InitPiranha (bank_01.asm:880): SpriteXPosLow += 8 — centers the 16px-wide
+  // head within the 32px pipe. All dx values are shifted +8 relative to the
+  // spawn tile to match. GenericSprGfxRt0/2 are bare bank-switching wrappers
+  // (bank_01.asm:61/2393) — no additional X offset.
   // OAM priority: head goes to OAM index 0 (drawn IN FRONT), body to indices 4-7
   // (BEHIND). To match this, body parts come FIRST in the array and the head's
   // 4 expanded 8×8 tiles come LAST so the head overlays the body's upper row.
@@ -471,18 +475,18 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
   //   ORed in at runtime (priority bit only). Large 16×16 expands to $AE,$AF,$BE,$BF.
   // Body: GenericSprGfxRt0 with SpriteOBJAttribute=$0A (charHigh=0, pal 13) at Y+8;
   //   SpriteMisc1602=1 → SprTilemap[0x3E..0x41] = [$83,$83,$C4,$C4].
-  //   GeneralSprGfxProp[groupSet=1]: tiles 1 and 3 (TR, BR) have X-flip ($40).
+  //   GeneralSprGfxProp[A=1, group 1]: tiles 1 and 3 (TR, BR) have X-flip ($40).
   0x4F: { attr: 0x08, quadrants: [], parts: [
     // Body (drawn first, BEHIND head)
-    { tile: 0x83, dx:  0, dy:  8, palette: 13 },               // neck-TL
-    { tile: 0x83, dx:  8, dy:  8, flipX: true, palette: 13 },  // neck-TR
-    { tile: 0xC4, dx:  0, dy: 16, palette: 13 },               // stem-BL
-    { tile: 0xC4, dx:  8, dy: 16, flipX: true, palette: 13 },  // stem-BR
+    { tile: 0x83, dx:  8, dy:  8, palette: 13 },               // neck-TL
+    { tile: 0x83, dx: 16, dy:  8, flipX: true, palette: 13 },  // neck-TR
+    { tile: 0xC4, dx:  8, dy: 16, palette: 13 },               // stem-BL
+    { tile: 0xC4, dx: 16, dy: 16, flipX: true, palette: 13 },  // stem-BR
     // Head 16×16 large-tile expansion (drawn last, IN FRONT)
-    { tile: 0xAE, dx: 0, dy: 0 },
-    { tile: 0xAF, dx: 8, dy: 0 },
-    { tile: 0xBE, dx: 0, dy: 8 },
-    { tile: 0xBF, dx: 8, dy: 8 },
+    { tile: 0xAE, dx:  8, dy: 0 },
+    { tile: 0xAF, dx: 16, dy: 0 },
+    { tile: 0xBE, dx:  8, dy: 8 },
+    { tile: 0xBF, dx: 16, dy: 8 },
   ]},
 }
 

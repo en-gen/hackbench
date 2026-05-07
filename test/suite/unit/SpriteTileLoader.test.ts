@@ -222,6 +222,19 @@ describe('buildSpriteLayout', () => {
     expect(layout.tiles.every(t => t.palette === 8 + 4)).toBe(true)
   })
 
+  it('centers $4F Jumping Piranha on its pipe: all parts at dx 8 or 16 (InitPiranha bank_01.asm:880)', () => {
+    // InitPiranha: SpriteXPosLow += 8. Both GenericSprGfxRt0/2 are bare wrappers with
+    // no extra X offset (bank_01.asm:61/2393). Head is a 16×16 big-tile at SpriteX;
+    // body 4 independent 8×8 at same SpriteX. With spawn anchor at s.x*16, all parts
+    // must start at dx=8 so the 16px-wide head centers within the 32px pipe
+    // (head left=s.x*16+8, right=s.x*16+24, center=s.x*16+16 = pipe center).
+    const tables = makeTables()
+    const layout = buildSpriteLayout(tables, 0x4F)!
+    expect(layout).not.toBeNull()
+    expect(layout.tiles).toHaveLength(8)
+    // body parts (0..3) and head parts (4..7) — every left-edge at dx 8 or 16
+    expect(layout.tiles.map(t => t.dx)).toEqual([8, 16, 8, 16, 8, 16, 8, 16])
+  })
   it('renders Goal Tape ($7B) as three 8x8 tiles at dx=-8/0/+8, dy=+8, CGRAM row 9', () => {
     // CODE_01C12D (bank_01.asm:8865-8896): three extra-OAM 8×8 entries, not a 16×16
     // big-tile. X offsets −8/0/+8 from anchor; Y offset +8. Tiles $D4 (left cap),
