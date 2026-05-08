@@ -77,8 +77,10 @@ interface OwBufferRegion {
 }
 
 interface OwL3Mask {
-  topRows: number
+  topRows:    number
   bottomRows: number
+  colLeft:    number
+  colRight:   number
 }
 
 /** Mirrors `SerializedPaletteAnimData` from `PaletteAnimationLoader.ts`. */
@@ -106,8 +108,8 @@ interface OwPayload {
   luigiStart:     OwPosition | null
   l2LayoutBytes:  number
   l2ScreenBytes:  number
-  /** Row mask for sub-areas (top + bottom rows hidden by L3 frame).
-   *  null for the Main map (Area 0). Columns are never masked. */
+  /** Mask for sub-areas: top/bottom rows + left/right cols hidden by the L3 border frame.
+   *  null for the Main map (Area 0). Masked cells always show the checker pattern. */
   l3Mask:         OwL3Mask | null
 }
 
@@ -606,7 +608,6 @@ function blitChar(
 
 function isMaskedRow(localRow: number): boolean {
   if (!payload?.l3Mask) return false
-  if (!toggle.l3)       return false   // L3 toggle off → reveal masked rows
   const m = payload.l3Mask
   const h = payload.region.heightTiles
   return localRow < m.topRows || localRow >= h - m.bottomRows
@@ -661,11 +662,13 @@ function renderArea(): void {
     imgData.data[i + 3] = 255
   }
 
-  // L3 row-mask: paint the top-N and bottom-M rows of a sub-area's
-  // viewport as the transparency checker. Those rows hold spillover
-  // BG content from neighboring sub-areas which the L3 sprite frame
-  // hides at runtime.
-  if (payload.l3Mask) {
+  // Overlap row mask: the top-N and bottom-M rows contain spillover BG
+  // content from neighboring sub-areas. When L3 is off, replace them with
+  // the transparency checker. When L3 is on, the actual L3 overlay renders
+  // there instead. Border columns (colLeft/colRight) are NOT masked here —
+  // L1/L2 renders normally in those columns; isMaskedCol is reserved for
+  // the future L3 overlay pass.
+  if (payload.l3Mask && !toggle.l3) {
     for (let row = 0; row < heightTiles; row++) {
       if (!isMaskedRow(row)) continue
       for (let col = 0; col < widthTiles; col++) {
@@ -695,7 +698,7 @@ function renderArea(): void {
         const bgCol = colOffset + col
         const mrow = bgRow >> 1
         const mcol = bgCol >> 1
-        const idx = readL1Map16Index(layout, mrow, mcol)
+        const idx = readL1Map16Index(layout,mrow, mcol)
         if (idx === 0) continue
         const subtileSlot = ((bgCol & 1) << 1) | (bgRow & 1) // 0..3
         const charBytePair = idx * 8 + subtileSlot * 2
@@ -708,7 +711,8 @@ function renderArea(): void {
     }
   }
 
-  // L3 (border / status bar) — wiring is stubbed; toggle is visible but inert.
+  // L3 overlay — wiring is stubbed; toggle is visible but inert until
+  // actual L3 tile rendering is implemented.
   void toggle.l3
 
   offCtx.putImageData(imgData, 0, 0)
@@ -779,7 +783,7 @@ function renderBlockView(
     for (let col = 0; col < widthTiles; col += MAP16_SNES) {
       const bgRow = rowOffset + row
       const bgCol = colOffset + col
-      const idx   = readL1Map16Index(layout, bgRow >> 1, bgCol >> 1)
+      const idx   = readL1Map16Index(layout,bgRow >> 1, bgCol >> 1)
       if (idx === 0) continue
       paintBlockFill(ctx, col * tilePx, row * tilePx, map16Px, idx)
     }
@@ -799,14 +803,14 @@ function renderBlockView(
         const bgCol = colOffset + col
         const isMap16TopLeft = (row & 1) === 0 && (col & 1) === 0
         if (isMap16TopLeft) {
-          const m16 = readL1Map16Index(layout, bgRow >> 1, bgCol >> 1)
+          const m16 = readL1Map16Index(layout,bgRow >> 1, bgCol >> 1)
           if (m16 !== 0) {
             paintBlockLabel(ctx, col * tilePx, row * tilePx, map16Px, m16, 3)
             continue
           }
         }
         // L2 fallback at 8×8 — only if no L1 Map16 covers this cell.
-        const m16Cover = readL1Map16Index(layout, bgRow >> 1, bgCol >> 1)
+        const m16Cover = readL1Map16Index(layout,bgRow >> 1, bgCol >> 1)
         if (m16Cover !== 0) continue
         const word = readL2Word(layout, bgRow, bgCol)
         if (!word) continue
@@ -1167,7 +1171,7 @@ function readL1Word(layout: 0 | 1, bgRow: number, bgCol: number): { word: Tilema
   if (!payload) return null
   const mrow = bgRow >> 1
   const mcol = bgCol >> 1
-  const m16 = readL1Map16Index(layout, mrow, mcol)
+  const m16 = readL1Map16Index(layout,mrow, mcol)
   if (m16 === 0) return null
   const subtileSlot = ((bgCol & 1) << 1) | (bgRow & 1) // 0..3
   const charBytePair = m16 * 8 + subtileSlot * 2

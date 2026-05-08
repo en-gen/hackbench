@@ -574,11 +574,13 @@ export const OW_SUBAREA_TILES_H = 28
  *     middle/bot : 5 + 21 + 2 = 28
  */
 export interface OwL3Mask {
-  topRows: number
+  topRows:    number
   bottomRows: number
+  colLeft:    number
+  colRight:   number
 }
 
-/** Compute the per-area L3 row mask. Returns `null` for the Main map
+/** Compute the per-area L3 mask. Returns `null` for the Main map
  *  (Area 0), which renders the full 64×64 BG without any L3 frame. */
 export function l3MaskForArea(area: OwArea): OwL3Mask | null {
   if (area.index === 0) return null
@@ -587,7 +589,7 @@ export function l3MaskForArea(area: OwArea): OwL3Mask | null {
   // top instead of 5. cameraY is already sign-extended in OwArea, so
   // a simple `< 0` check is reliable.
   const isTopRow = area.cameraY < 0
-  return { topRows: isTopRow ? 4 : 5, bottomRows: 2 }
+  return { topRows: isTopRow ? 4 : 5, bottomRows: 2, colLeft: 2, colRight: 2 }
 }
 
 export function isL3MaskedRow(
@@ -596,6 +598,14 @@ export function isL3MaskedRow(
   height: number = OW_SUBAREA_TILES_H,
 ): boolean {
   return localRow < mask.topRows || localRow >= height - mask.bottomRows
+}
+
+export function isL3MaskedCol(
+  localCol: number,
+  mask: OwL3Mask,
+  width: number = OW_SUBAREA_TILES_W,
+): boolean {
+  return localCol < mask.colLeft || localCol >= width - mask.colRight
 }
 
 export function areaBufferRegion(area: OwArea): OwBufferRegion {

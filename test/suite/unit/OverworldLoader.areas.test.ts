@@ -337,16 +337,16 @@ describe('l3MaskForArea', () => {
   })
 
   it('Top-row sub-area (negative cameraY) masks 4 top rows', () => {
-    expect(l3MaskForArea(area(1, -40))).toEqual({ topRows: 4, bottomRows: 2 })
+    expect(l3MaskForArea(area(1, -40))).toEqual({ topRows: 4, bottomRows: 2, colLeft: 2, colRight: 2 })
   })
 
   it('Mid/bottom sub-area (cameraY >= 0) masks 5 top rows', () => {
-    expect(l3MaskForArea(area(2, 168))).toEqual({ topRows: 5, bottomRows: 2 })
+    expect(l3MaskForArea(area(2, 168))).toEqual({ topRows: 5, bottomRows: 2, colLeft: 2, colRight: 2 })
   })
 })
 
 describe('isL3MaskedRow', () => {
-  const mask = { topRows: 4, bottomRows: 2 }
+  const mask = { topRows: 4, bottomRows: 2, colLeft: 2, colRight: 2 }
 
   it('rows below topRows are masked', () => {
     expect(isL3MaskedRow(0, mask)).toBe(true)
