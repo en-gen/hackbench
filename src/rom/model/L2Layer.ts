@@ -1,5 +1,5 @@
-// Consumes: editorStore.{l2YOverride, scrollProgress}
-import { cellBoxAt, cellBoxOf } from './RenderTarget'
+// Consumes: editorStore.{l2YOverride, scrollProgress, frameL2}, mapStore.scrollSimulator
+import { cellBoxAt, cellBoxAtXY, cellBoxOf } from './RenderTarget'
 import type { RenderTarget } from './RenderTarget'
 import type { L2ScrollRange } from '../L2Loader'
 import { editorStore } from './stores/editorStore'
@@ -122,13 +122,77 @@ export class L2ObjectStream extends L2Layer {
   }
 
   render(target: RenderTarget, mapStore: MapStore): void {
-    // Per-tile dy lerped by `editorStore.scrollProgress` (0..255 → 0..1).
-    // Each tile looks up its 2D-connected-component range in `tileDyRanges`
-    // (indexed [row][col]). All tiles in the same region share one range,
-    // so the slider moves each contiguous L2 region as a rigid unit.
+    // Three render modes, in priority order:
     //
-    // Levels without a simulator fall back to a global dy from the legacy
-    // `l2YOverride` slider semantics (`initialCameraYPx − liveLayer2YPx`).
+    //   1. **Frame-accurate mode** (auto-scroll level: `mapStore
+    //      .scrollSimulator` exists AND `editorStore.frameL2 >= 0`).
+    //      `L2ObjectStream.render` queries the simulator for the L2
+    //      frame state and shifts every tile by
+    //      `(layer1{X,Y}Pos − layer2{X,Y}Pos)` at that frame. Using
+    //      ONLY `frameL2` (not `frameL1`) means the L2 plane reflects
+    //      the SNES viewport offset at L2's chosen point in time —
+    //      which is the natural mental model for the scrub: scrolling
+    //      L2 alone moves L2; scrolling L1 alone moves the L1 path
+    //      overlay but leaves L2 untouched.
+    //
+    //   2. **Per-tile dy-range lerp** (`tileDyRanges` non-null and
+    //      frame mode inactive). Each tile picks up its 2D-connected-
+    //      component range from `tileDyRanges` and lerps within it by
+    //      `editorStore.scrollProgress` (0..255 → 0..1). Legacy path
+    //      for clients that don't drive `frameL2`.
+    //
+    //   3. **Static fallback** (no `tileDyRanges`). Global `dy =
+    //      initialCameraYPx − l2YOverride` for non-auto-scroll levels.
+    const sim = mapStore.scrollSimulator
+    const frameL2 = editorStore.frameL2
+    if (sim !== null && frameL2 >= 0) {
+      const s = sim.stateAtFrame(frameL2)
+      // Signed (l1Pos − l2Pos) deltas in pixels. Both fields are 16-bit
+      // unsigned in WRAM; reinterpret as signed for the display shift.
+      const dxRaw = (s.layer1XPos - s.layer2XPos) | 0
+      const dyRaw = (s.layer1YPos - s.layer2YPos) | 0
+      let dx = ((dxRaw + 0x8000) & 0xFFFF) - 0x8000
+      let dy = ((dyRaw + 0x8000) & 0xFFFF) - 0x8000
+      // SNES BG2 plane wraparound. Cmd $09 / $0D Fast-BG-scroll levels
+      // ($0C8, $122) push `l2x` arbitrarily far past `l1x`, so the
+      // raw delta `(l1x − l2x)` saturates at large negative values
+      // and the L2 grid renders entirely off the left of the canvas.
+      // The actual SNES BG plane is a fixed-size tilemap (32×32
+      // 16x16-tiles = 512×512 px in standard SMW BG2 mode) that
+      // tiles infinitely as the camera scrolls — same Map16 strips
+      // cycle through.
+      //
+      // For our editor we model this by wrapping the offset modulo
+      // the L2 grid pixel size: each tile renders once at a
+      // canonical wrapped position. Levels where the grid is wider
+      // than the visible canvas show one wrapped copy; smaller
+      // grids would need multi-copy tiling (follow-up if any vanilla
+      // level needs it).
+      const gridPxW = (this.grid[0]?.length ?? 0) * 16
+      const gridPxH = this.grid.length * 16
+      if (gridPxW > 0) dx = (((dx % gridPxW) + gridPxW) % gridPxW)
+      if (gridPxH > 0) dy = (((dy % gridPxH) + gridPxH) % gridPxH)
+      // Pick the wrapped value closest to 0 so a small forward dx
+      // shifts the grid right (intuitive) rather than wrapping all
+      // the way to the right edge. Only the magnitude matters for
+      // visibility — the modular reduction was the actual fix.
+      if (gridPxW > 0 && dx > gridPxW / 2) dx -= gridPxW
+      if (gridPxH > 0 && dy > gridPxH / 2) dy -= gridPxH
+      for (let y = 0; y < this.grid.length; y++) {
+        const row = this.grid[y]
+        for (let x = 0; x < row.length; x++) {
+          const id = row[x]
+          if (id === null) continue
+          const tile = this.l1Tiles.get(id)
+          if (!tile) continue
+          const box = dx === 0 && dy === 0 ? cellBoxOf(x, y) : cellBoxAtXY(x, y, dx, dy)
+          tile.render(target, box, mapStore, 'nonPriority')
+          tile.render(target, box, mapStore, 'priority')
+        }
+      }
+      return
+    }
+
     const ranges = this.tileDyRanges
     const useRanges = ranges !== null
     const t = (editorStore.scrollProgress | 0) / 255
@@ -142,15 +206,15 @@ export class L2ObjectStream extends L2Layer {
         if (id === null) continue
         const tile = this.l1Tiles.get(id)
         if (!tile) continue
-        let dy: number
+        let cellDy: number
         if (useRanges) {
           const r = tileRow?.[x] ?? null
           if (!r) continue  // null = empty cell, or component camera never reached
-          dy = Math.round(r.min + (r.max - r.min) * t)
+          cellDy = Math.round(r.min + (r.max - r.min) * t)
         } else {
-          dy = fallbackDy
+          cellDy = fallbackDy
         }
-        const box = dy === 0 ? cellBoxOf(x, y) : cellBoxAt(x, y, dy)
+        const box = cellDy === 0 ? cellBoxOf(x, y) : cellBoxAt(x, y, cellDy)
         tile.render(target, box, mapStore, 'nonPriority')
         tile.render(target, box, mapStore, 'priority')
       }

@@ -12,6 +12,13 @@ const vscode = acquireVsCodeApi()
 
 import { effect, shallowRef } from '@vue/reactivity'
 import { buildGraph } from '../../rom/model/rehydrate'
+import { RomFile } from '../../rom/RomFile'
+import {
+  buildScrollSimulator,
+  computeColumnDyRanges,
+  computeLayer2YRange,
+  sampleViewportPath,
+} from '../../rom/scrollSim'
 import { VineSourceBehavior } from '../../rom/model/tiles/behaviors/VineSourceBehavior'
 import { StarOneUpVineBlockBehavior } from '../../rom/model/tiles/behaviors/StarOneUpVineBlockBehavior'
 import { L2ObjectStream, L2Preset } from '../../rom/model/L2Layer'
@@ -140,15 +147,43 @@ function renderModelOverlay(map: SmwMap): void {
     if (toggles.walls)    drawWalls(bctx,    map, store.switchPalaceState)
     if (toggles.l3Range)  drawL3Range(bctx,  map)
     if (toggles.l2Range)  drawL2Range(bctx,  map)
-    if (toggles.scrollPath && mapData?.header?.scrollPath) {
+    // L1 path + viewport rect are only meaningful when the active
+    // scroll cmd actually drives Layer 1. cmd $03 / $08 / $0B / $0E
+    // (L2-only) leave Layer 1 stationary — drawing a "playback rect"
+    // for those is misleading.
+    const l1cmd = mapData?.header?.layer1ScrollCmd
+    const l2cmd = mapData?.header?.layer2ScrollCmd
+    const showL1Path = toggles.scrollPath && cmdAffectsL1(l1cmd, l2cmd)
+    if (showL1Path && mapData?.header?.scrollPath) {
       drawScrollPath(bctx, mapData.header.scrollPath)
     }
-    // Scroll-playback rect: tracks `editorStore.scrollPlaybackFrame`
-    // so a re-render fires whenever it advances. The Scroll panel's
-    // Play button drives the advance.
-    const playbackFrame = store.scrollPlaybackFrame
-    if (playbackFrame >= 0 && mapData?.header?.scrollPath) {
-      drawScrollPlayback(bctx, mapData.header.scrollPath, playbackFrame)
+    // Scroll-playback rect: tracks `editorStore.frameL1` (the L1
+    // viewport's frame in sim-frame units). Gated on the scroll-path
+    // toggle AND on the cmd actually affecting L1 — see above.
+    //
+    // We query the simulator directly for per-frame `(l1x, l1y)`
+    // rather than indexing into the strided `scrollPath` (which only
+    // has samples every 8 sim frames). Using `stateAtFrame(N)` gives
+    // pixel-accurate rect motion at every frame; the path-array
+    // conversion would jump in 8-frame chunks and look stuttery.
+    const playbackFrame = store.frameL1
+    if (showL1Path && playbackFrame >= 0 && mapData?.header?.scrollPath) {
+      const sim = mapStore.scrollSimulator
+      if (sim !== null) {
+        const s = sim.stateAtFrame(playbackFrame)
+        // Synthesize a single-element samples array with the live
+        // per-frame state so `drawScrollPlayback` can stay agnostic
+        // to whether we're using the strided path or the simulator.
+        drawScrollPlayback(bctx, [{
+          f: playbackFrame,
+          l1x: s.layer1XPos, l1y: s.layer1YPos,
+          l2x: s.layer2XPos, l2y: s.layer2YPos,
+        }], 0)
+      } else {
+        // No simulator (level had no scroll sprite but somehow has
+        // a path? Shouldn't happen, but fall back to the array.)
+        drawScrollPlayback(bctx, mapData.header.scrollPath, pathIndexForSimFrame(playbackFrame))
+      }
     }
     drawVinePaths(bctx, map)
     map.renderSpriteOverlays(bctx as unknown as OverlayContext, store.activeSpriteOverlays)
@@ -913,7 +948,6 @@ app.innerHTML = `
     <button id="btn-surfaces"    class="iconBtn"    title="Show surfaces"><span class="codicon codicon-layout-panel-dock"></span></button>
     <button id="btn-walls"       class="iconBtn"    title="Show walls"><span class="codicon codicon-layout-sidebar-right-dock"></span></button>
     <button id="btn-block"       class="iconBtn"    title="Block view"><span class="codicon codicon-symbol-method"></span></button>
-    <button id="btn-scrollpath"  class="iconBtn"    title="Show scroll-viewport paths (L1 / L2)"><span class="codicon codicon-graph-line"></span></button>
 
     <div class="tb-sep"></div>
 
@@ -1010,7 +1044,7 @@ app.innerHTML = `
       <button class="tab-btn active" data-tab="general" role="tab">General</button>
       <button class="tab-btn"        data-tab="layer2"  role="tab">Layer 2</button>
       <button class="tab-btn"        data-tab="layer3"  role="tab">Layer 3</button>
-      <button class="tab-btn"        data-tab="scroll"  role="tab" id="tab-btn-scroll" style="display:none;">Scroll</button>
+      <button class="tab-btn"        data-tab="scroll"  role="tab" id="tab-btn-scroll">Scroll</button>
     </div>
     <div class="tab-content-wrap">
 
@@ -1123,51 +1157,11 @@ app.innerHTML = `
       </div><!-- /tab-pane general -->
 
       <!-- ── Tab: LAYER 2 ──
-           BG parallax rates derived from per-level scroll byte
-           ($05F000 → top-nibble → DATA_05D710 / DATA_05D720), plus the L1
-           vertical-scroll mode from header byte 4 bits 5:4. The latter is a
-           level-scope bit, not strictly L2, but it controls whether the
-           level scrolls vertically at all so it's surfaced here for now. -->
+           Currently empty placeholder — reserved for future L2-only
+           knobs (palette OR mask, atlas override, etc.). All L2
+           SCROLL controls live on the Scroll tab. -->
       <div class="tab-pane" data-tab="layer2" style="padding:8px;display:none;flex-direction:column;gap:8px;">
-
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-          <div>
-            <div style="${propLabelStyle()}">BG V-SCROLL</div>
-            <div id="info-bg-vscroll" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
-          </div>
-          <div>
-            <div style="${propLabelStyle()}">BG H-SCROLL</div>
-            <div id="info-bg-hscroll" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
-          </div>
-        </div>
-
-        <div>
-          <div style="${propLabelStyle()}">L1 V-SCROLL MODE (HDR)</div>
-          <select id="sel-vscroll-hdr" style="${selStyle()}"></select>
-        </div>
-
-        <!-- Layer 2 Y scrubber. Only meaningful for object-stream L2; the
-             slider drives editorStore.l2YOverride which L2ObjectStream.render
-             consumes.
-             Play button (only enabled in scroll-progress mode) animates
-             the slider at game speed by reading the simulator's per-frame
-             (L1Y − L2Y) curve from header.scrollPath and mapping each
-             dy to its position in the global dy range. The non-linear
-             ease-in/ease-out comes for free from the parallax routine's
-             actual frame-by-frame output. -->
-        <div id="l2y-scrubber-block" style="display:none;flex-direction:column;gap:4px;">
-          <div style="${propLabelStyle()}">LAYER 2 Y POS</div>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <input id="rng-l2y" type="range" min="0" max="255" step="1"
-              style="flex:1;" />
-            <span id="lbl-l2y" style="font-family:monospace;font-size:12px;color:#ccc;min-width:48px;text-align:right;">$—</span>
-            <button id="btn-l2y-play" disabled title="Play L2 oscillation at game speed"
-              style="font-size:10px;padding:2px 6px;background:transparent;color:var(--vscode-foreground);border:1px solid var(--vscode-panel-border,#3a3a3a);cursor:pointer;display:inline-flex;align-items:center;gap:3px;">
-              <span class="codicon codicon-play"></span>
-            </button>
-          </div>
-        </div>
-
+        <div style="${propLabelStyle()};color:#888;">No Layer 2 controls available for this level.</div>
       </div><!-- /tab-pane layer2 -->
 
       <!-- ── Tab: LAYER 3 ──
@@ -1207,44 +1201,126 @@ app.innerHTML = `
       </div><!-- /tab-pane layer3 -->
 
       <!-- ── Tab: SCROLL ──
-           Visible only for levels with a scroll sprite ($E7..$F5).
-           Drives the auto-scroll viewport playback overlay so the
-           designer can see how the camera traverses the level at
-           game speed without loading into an emulator. -->
-      <div class="tab-pane" data-tab="scroll" style="padding:8px;display:none;flex-direction:column;gap:10px;">
+           Always visible. Top section (BG parallax rates + L1 V-scroll
+           mode) renders for every level. The auto-scroll subsections
+           below show only when the level has a scroll sprite (path data
+           was shipped); the L2 slider shows for any object-stream L2.
 
-        <div style="${propLabelStyle()}">SCROLL SPRITE</div>
-        <div id="info-scroll-sprite" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+           Render modes for the L2 slider:
+             - Auto-scroll level: slider value = scrollPath frame index.
+               L2ObjectStream.render shifts the entire L2 plane by
+               (Layer1Pos − Layer2Pos) at the chosen frame.
+             - Object-stream L2 only (no scroll sprite): slider value =
+               raw Layer2YPos override 0..255 (legacy fallback).
 
-        <div style="display:flex;align-items:center;gap:6px;">
-          <input type="checkbox" id="chk-scrollpath-panel" />
-          <label for="chk-scrollpath-panel" style="${propLabelStyle()};margin:0;cursor:pointer;">SHOW VIEWPORT PATH</label>
-        </div>
+           The Link button (when both L1 + L2 sliders are present) ties
+           the two slider values together so a single scrub moves both
+           viewports in lock-step. Default ON. The Loop button toggles
+           wrap-around playback at the path end. -->
+      <div class="tab-pane" data-tab="scroll" style="padding:8px;display:flex;flex-direction:column;gap:10px;">
 
-        <div style="display:flex;flex-direction:column;gap:4px;">
-          <div style="${propLabelStyle()}">PLAYBACK</div>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <button id="btn-scroll-play"
-              style="font-size:11px;padding:3px 10px;background:transparent;color:var(--vscode-foreground);border:1px solid var(--vscode-panel-border,#3a3a3a);cursor:pointer;min-width:60px;">
-              <span class="codicon codicon-play"></span> Play
-            </button>
-            <button id="btn-scroll-stop"
-              style="font-size:11px;padding:3px 10px;background:transparent;color:var(--vscode-foreground);border:1px solid var(--vscode-panel-border,#3a3a3a);cursor:pointer;">
-              <span class="codicon codicon-debug-stop"></span>
-            </button>
-            <select id="sel-scroll-speed" style="${selStyle()};max-width:80px;">
-              <option value="1">1x</option>
-              <option value="2">2x</option>
-              <option value="3">3x</option>
-            </select>
+        <!-- Always-visible header values: per-level parallax rates +
+             L1 V-scroll mode override. -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <div>
+            <div style="${propLabelStyle()}">BG V-SCROLL</div>
+            <div id="info-bg-vscroll" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+          </div>
+          <div>
+            <div style="${propLabelStyle()}">BG H-SCROLL</div>
+            <div id="info-bg-hscroll" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
           </div>
         </div>
 
-        <div style="display:flex;flex-direction:column;gap:4px;">
-          <div style="${propLabelStyle()}">FRAME</div>
+        <div>
+          <div style="${propLabelStyle()}">L1 V-SCROLL MODE (HDR)</div>
+          <select id="sel-vscroll-hdr" style="${selStyle()}"></select>
+        </div>
+
+        <!-- Auto-scroll level header: scroll sprite + path-overlay toggle.
+             Hidden on levels without a scroll sprite. -->
+        <div id="scroll-autoscroll-section" style="display:none;flex-direction:column;gap:8px;">
+
+          <div>
+            <div style="${propLabelStyle()}">SCROLL SPRITE</div>
+            <div id="info-scroll-sprite" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+          </div>
+
           <div style="display:flex;align-items:center;gap:6px;">
-            <input id="rng-scroll-frame" type="range" min="0" max="1000" step="1" value="0" style="flex:1;" />
-            <span id="lbl-scroll-frame" style="font-family:monospace;font-size:12px;color:#ccc;min-width:80px;text-align:right;">f 0 / —</span>
+            <input type="checkbox" id="chk-scrollpath-panel" />
+            <label for="chk-scrollpath-panel" style="${propLabelStyle()};margin:0;cursor:pointer;">SHOW VIEWPORT PATH</label>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="chk-follow-scroll" checked />
+            <label for="chk-follow-scroll" style="${propLabelStyle()};margin:0;cursor:pointer;">follow viewport path</label>
+          </div>
+          <!-- Cmd-specific gameplay-state inputs. Each is shown only
+               when the active scroll cmd reads that state - see
+               refreshScrollSliderVisibility. Toggling rebuilds the
+               simulator with the new seed so playback / scrubbing
+               reflects the new dynamics immediately. -->
+          <div id="row-onoff-switch" style="display:none;align-items:center;gap:6px;">
+            <input type="checkbox" id="chk-onoff-switch" />
+            <label for="chk-onoff-switch" style="${propLabelStyle()};margin:0;cursor:pointer;">ON/OFF SWITCH (cmd $0B)</label>
+          </div>
+          <div id="row-layer2-touched" style="display:none;align-items:center;gap:6px;">
+            <input type="checkbox" id="chk-layer2-touched" />
+            <label for="chk-layer2-touched" style="${propLabelStyle()};margin:0;cursor:pointer;">MARIO TOUCHING L2 (cmd $0E)</label>
+          </div>
+
+          <!-- Playback row. Play / Stop / Loop / Link share the
+               .btn-action class for consistent border + #ccc text
+               (same visual as the toolbar music buttons via
+               btnStyle()). Toggle state is signaled via the .active
+               modifier (color + border-color shift to #5b9cf6) which
+               the JS adds/removes on click. -->
+          <div style="display:flex;align-items:center;gap:6px;">
+            <button id="btn-scroll-play" class="btn-action" title="Play scroll routine">
+              <span class="codicon codicon-play"></span>
+            </button>
+            <button id="btn-scroll-stop" class="btn-action" title="Stop scroll routine">
+              <span class="codicon codicon-debug-stop"></span>
+            </button>
+            <button id="btn-scroll-loop" class="btn-action" title="Loop playback at end of scroll path">
+              <span class="codicon codicon-debug-restart"></span>
+            </button>
+            <select id="sel-scroll-speed" class="sel-action" style="max-width:80px;">
+              <option value="1">1x</option>
+              <option value="2">2x</option>
+              <option value="4">4x</option>
+              <option value="8">8x</option>
+            </select>
+          </div>
+
+        </div><!-- /scroll-autoscroll-section -->
+
+        <!-- Single FRAME counter label — shown only for auto-scroll
+             levels. Format: "FRAME 12 / 7800". Positioned above the
+             slider stack so the user reads the active frame above the
+             slider that scrubs it. -->
+        <div id="scroll-frame-counter" style="display:none;align-items:center;">
+          <span id="lbl-scroll-frame" style="${propLabelStyle()}">FRAME 0 / —</span>
+        </div>
+
+        <!-- Slider stack: L1 row (auto-scroll only) + L2 row
+             (object-stream L2). Link button to the LEFT of the
+             stack, vertically centered between the two rows. The
+             whole block is hidden when neither slider would be
+             meaningful. -->
+        <div id="scroll-sliders-section" style="display:none;flex-direction:row;align-items:center;gap:8px;">
+          <button id="btn-scroll-link" class="btn-action" title="Link L1/L2 sliders"
+            style="display:none;align-self:center;min-height:48px;">
+            <span class="codicon codicon-link"></span>
+          </button>
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0;">
+            <div id="row-rng-l1" style="display:none;align-items:center;gap:6px;">
+              <span style="${propLabelStyle()};margin:0;width:18px;flex-shrink:0;">L1</span>
+              <input id="rng-scroll-frame" type="range" min="0" max="1000" step="1" value="0" style="flex:1;min-width:0;" />
+            </div>
+            <div id="row-rng-l2" style="display:none;align-items:center;gap:6px;">
+              <span style="${propLabelStyle()};margin:0;width:18px;flex-shrink:0;">L2</span>
+              <input id="rng-l2y" type="range" min="0" max="255" step="1" value="0" style="flex:1;min-width:0;" />
+            </div>
           </div>
         </div>
 
@@ -1293,6 +1369,30 @@ app.innerHTML = `
   .iconBtn:hover:not(:disabled) { background: rgba(255,255,255,0.08); }
   .iconBtn.on { color: #5b9cf6; }
   .iconBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* Bordered icon-only action buttons (Play / Stop / Loop / Link in
+     the Scroll tab playback row). Same visual language as btnStyle()
+     but exposed as a CSS class so toggle-active styling can use a
+     classList swap instead of inline style.borderColor mutation. */
+  .btn-action {
+    background: transparent; border: 1px solid #555; color: #ccc;
+    border-radius: 3px; cursor: pointer; padding: 3px 10px;
+    font-size: 11px; line-height: 1; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 32px; min-height: 22px;
+  }
+  .btn-action:hover:not(:disabled) { background: rgba(255,255,255,0.08); border-color: #777; }
+  .btn-action.active { color: #5b9cf6; border-color: #5b9cf6; }
+  .btn-action:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* Scroll-tab dropdown for playback speed. Matches selStyle() so
+     the speed picker visually pairs with the action buttons. */
+  .sel-action {
+    background: var(--vscode-dropdown-background,#3c3c3c);
+    color: var(--vscode-dropdown-foreground,#ccc);
+    border: 1px solid #555; border-radius: 3px;
+    height: 22px; font-size: 11px; cursor: pointer;
+  }
 
   .layerBtn { transition: opacity 0.15s; }
   .layerBtn:not(.on) { opacity: 0.4; }
@@ -1677,7 +1777,6 @@ wireLayerBtn('btn-sprites',  'chk-sprites')
 wireLayerBtn('btn-surfaces', 'chk-surfaces')
 wireLayerBtn('btn-walls',    'chk-walls')
 wireLayerBtn('btn-block',    'chk-block')
-wireLayerBtn('btn-scrollpath','chk-scrollpath')
 wireLayerBtn('btn-screens',  'chk-screens')
 wireLayerBtn('btn-hud',      'chk-l3hud')
 
@@ -2129,18 +2228,29 @@ const selTimeLimit   = document.getElementById('sel-time-limit')   as HTMLSelect
 const selLevelMode   = document.getElementById('sel-level-mode')   as HTMLSelectElement
 const selItemMemory  = document.getElementById('sel-item-memory')  as HTMLSelectElement
 const selVScrollHdr  = document.getElementById('sel-vscroll-hdr')  as HTMLSelectElement
-const l2yScrubberBlock = document.getElementById('l2y-scrubber-block') as HTMLDivElement
 const rngL2y         = document.getElementById('rng-l2y')         as HTMLInputElement
-const lblL2y         = document.getElementById('lbl-l2y')         as HTMLSpanElement
-const btnL2yPlay     = document.getElementById('btn-l2y-play')    as HTMLButtonElement
-const tabBtnScroll       = document.getElementById('tab-btn-scroll')       as HTMLButtonElement
 const infoScrollSprite   = document.getElementById('info-scroll-sprite')   as HTMLDivElement
-const chkScrollPathPanel = document.getElementById('chk-scrollpath-panel') as HTMLInputElement
+const chkScrollPathPanel  = document.getElementById('chk-scrollpath-panel')  as HTMLInputElement
+const chkFollowScroll     = document.getElementById('chk-follow-scroll')      as HTMLInputElement
+const chkOnOffSwitch      = document.getElementById('chk-onoff-switch')       as HTMLInputElement
+const rowOnOffSwitch      = document.getElementById('row-onoff-switch')       as HTMLDivElement
+const chkLayer2Touched    = document.getElementById('chk-layer2-touched')     as HTMLInputElement
+const rowLayer2Touched    = document.getElementById('row-layer2-touched')     as HTMLDivElement
 const btnScrollPlay      = document.getElementById('btn-scroll-play')      as HTMLButtonElement
 const btnScrollStop      = document.getElementById('btn-scroll-stop')      as HTMLButtonElement
+const btnScrollLoop      = document.getElementById('btn-scroll-loop')      as HTMLButtonElement
+const btnScrollLink      = document.getElementById('btn-scroll-link')      as HTMLButtonElement
 const selScrollSpeed     = document.getElementById('sel-scroll-speed')     as HTMLSelectElement
 const rngScrollFrame     = document.getElementById('rng-scroll-frame')     as HTMLInputElement
 const lblScrollFrame     = document.getElementById('lbl-scroll-frame')     as HTMLSpanElement
+const scrollAutoscrollSection = document.getElementById('scroll-autoscroll-section') as HTMLDivElement
+const scrollSlidersSection = document.getElementById('scroll-sliders-section') as HTMLDivElement
+const rowRngL1           = document.getElementById('row-rng-l1')           as HTMLDivElement
+const rowRngL2           = document.getElementById('row-rng-l2')           as HTMLDivElement
+const scrollFrameCounter = document.getElementById('scroll-frame-counter') as HTMLDivElement
+const tabBtnScroll       = document.getElementById('tab-btn-scroll')       as HTMLButtonElement
+const tabPaneScroll      = document.querySelector<HTMLDivElement>('.tab-pane[data-tab="scroll"]')!
+const tabPaneGeneral     = document.querySelector<HTMLDivElement>('.tab-pane[data-tab="general"]')!
 const chkL3Priority  = document.getElementById('chk-l3-priority')  as HTMLInputElement
 const selL3Setting   = document.getElementById('sel-l3-setting')   as HTMLSelectElement
 // Read-only L3 derived fields (driven by the routine summary).
@@ -2153,6 +2263,14 @@ const infoL3InitY    = document.getElementById('info-l3-init-y')!
 let zoomIdx      = ZOOM_DEFAULT_IDX
 let mapData: MapPayload | null = null
 let l2TileGrid: number[][] | null = null
+
+// Cached ROM bytes + scroll-sim seed from the most recent modelPayload.
+// Used by the gameplay-state checkboxes (`chk-onoff-switch`,
+// `chk-layer2-touched`) so toggling them can rebuild the simulator
+// with a different `onOffSwitch` / `layer2Touched` seed value
+// without round-tripping back to the host.
+let cachedRom: import('../../rom/RomFile').RomFile | null = null
+let cachedScrollSeed: import('../../rom/scrollSim').ScrollSimSeed | null = null
 
 // ── Music playback ───────────────────────────────────────────────────────────
 // SPC bytes keyed by bgmCommand; populated from the load payload.
@@ -2953,6 +3071,37 @@ function hitCameraRect(canvasX: number, canvasY: number): boolean {
   return canvasX >= rx && canvasX < rx + rw && canvasY >= ry && canvasY < ry + rh
 }
 
+/** Scroll the map container so the L1 auto-scroll viewport (pixel
+ *  position from the simulator) stays centered. Called during scroll
+ *  playback / L1 slider scrub when the path overlay is enabled, so the
+ *  rect tracks under the user's eye instead of running off-screen. */
+function scrollContainerToL1Viewport(l1x: number, l1y: number): void {
+  const z = store.zoom
+  const VIEWPORT_W_PX = 256
+  const VIEWPORT_H_PX = 224
+  const rx = l1x * z
+  const ry = l1y * z
+  const rw = VIEWPORT_W_PX * z
+  const rh = VIEWPORT_H_PX * z
+  const marginX = Math.max(0, (canvasWrap.clientWidth  - rw) / 2)
+  const marginY = Math.max(0, (canvasWrap.clientHeight - rh) / 2)
+  canvasWrap.scrollLeft = Math.max(0, rx + levelPadX - marginX)
+  canvasWrap.scrollTop  = Math.max(0, ry + levelPadY - marginY)
+}
+
+/** Look up `(l1x, l1y)` for a sim frame from the level's
+ *  `mapStore.scrollSimulator`, then center the canvas on it. No-op
+ *  when the path overlay is hidden, no simulator, or no scroll path. */
+function autoScrollToFrame(simFrame: number): void {
+  if (!chkScrollPath.checked) return
+  if (!chkFollowScroll.checked) return
+  if (simFrame < 0) return
+  const sim = window.__smwModelMap?.mapStore.scrollSimulator
+  if (!sim) return
+  const s = sim.stateAtFrame(simFrame)
+  scrollContainerToL1Viewport(s.layer1XPos, s.layer1YPos)
+}
+
 /** Scroll the map container so the camera rect stays fully visible. */
 function scrollContainerToCamera(center = false): void {
   const px = TILE_PX * store.zoom
@@ -3166,7 +3315,7 @@ function syncLayerTogglesFromDom(): void {
     l3Range:  false,
     l2Range:  false,
     scrollPath: chkScrollPath.checked,
-    scrollPlayback: false,  // driven by editorStore.scrollPlaybackFrame, not a checkbox
+    scrollPlayback: false,  // driven by editorStore.frameL1, not a checkbox
   })
 }
 chkScreens.addEventListener('change',  syncLayerTogglesFromDom)
@@ -3178,7 +3327,117 @@ chkL3.addEventListener('change',       syncLayerTogglesFromDom)
 chkL3Hud.addEventListener('change',    syncLayerTogglesFromDom)
 chkSurfaces.addEventListener('change', syncLayerTogglesFromDom)
 chkWalls.addEventListener('change',    syncLayerTogglesFromDom)
-chkScrollPath.addEventListener('change', syncLayerTogglesFromDom)
+chkScrollPath.addEventListener('change', () => {
+  syncLayerTogglesFromDom()
+  // Path toggle gates L1 slider + Link button visibility, and the
+  // frame label's "which layer's frame to show" logic depends on it.
+  refreshScrollSliderVisibility()
+  updateFrameLabel()
+  // When the user turns the overlay ON, recenter on the current
+  // frame so the rect is immediately in view.
+  if (chkScrollPath.checked) autoScrollToFrame(store.frameL1)
+  // Mirror state to the Scroll-tab panel checkbox so both sources of
+  // truth stay aligned.
+  chkScrollPathPanel.checked = chkScrollPath.checked
+})
+// "follow viewport path" change handler — when the user toggles it
+// on (and SHOW VIEWPORT PATH is also on), immediately re-center the
+// canvas on the current L1 frame so the user sees the viewport
+// without having to nudge the slider first.
+chkFollowScroll.addEventListener('change', () => {
+  if (chkFollowScroll.checked) autoScrollToFrame(store.frameL1)
+})
+
+/**
+ * Compute scrollPath / layer2YRange / columnDyRanges from the cached
+ * ROM + scroll-sim seed, attaching the results to mapData.header.
+ *
+ * The host now ships only the identifying data (sprite + b0 →
+ * post-remap seed); the visualization-derived arrays live here so
+ * the webview owns the "what does each cmd do visually" half of
+ * the pipeline.
+ *
+ * No-op when no scroll sprite is present or the ROM is missing
+ * (e.g. test mocks). Re-runs on every load message and on the
+ * gameplay-state checkbox rebuild paths.
+ */
+function deriveScrollData(): void {
+  if (!mapData) return
+  const seed = cachedScrollSeed
+  const rom = cachedRom
+  if (!seed || !rom) {
+    if (mapData.header) {
+      ;(mapData.header as { scrollPath?: unknown }).scrollPath = null
+      ;(mapData.header as { layer2YRange?: unknown }).layer2YRange = null
+      ;(mapData.header as { columnDyRanges?: unknown }).columnDyRanges = null
+    }
+    return
+  }
+  const screens = mapData.screens ?? 1
+  const isVertical = !!mapData.isVertical
+  const cols = isVertical ? 1 : screens
+  const levelPixelW = cols * 16 * 16   // 16 cols/screen × 16 px/col
+  // Use the seed as-is — fresh load defaults checkbox flags to 0.
+  // `rebuildScrollSimulator` (the toggle change handler) overlays
+  // the live checkbox values when the user flips them mid-session.
+  const sim = buildScrollSimulator(rom, seed)
+  const r = computeLayer2YRange(sim, levelPixelW)
+  const layer2YRange = r.max > r.min ? r : null
+  const cdr = computeColumnDyRanges(sim, levelPixelW)
+  const columnDyRanges = cdr.some(c => c !== null && c.max > c.min)
+    ? cdr.map(c => c ?? { min: 0, max: 0 })
+    : null
+  const scrollPath = sampleViewportPath(sim, levelPixelW, 8)
+  const h = mapData.header as {
+    scrollPath?: unknown; layer2YRange?: unknown; columnDyRanges?: unknown
+  }
+  h.scrollPath = scrollPath
+  h.layer2YRange = layer2YRange
+  h.columnDyRanges = columnDyRanges
+}
+
+/**
+ * Rebuild `mapStore.scrollSimulator` from the cached seed + ROM,
+ * overlaying the gameplay-state checkbox values into the seed. Used
+ * when the user toggles the On/Off Switch or Layer2Touched checkbox
+ * — both feed into the cmd $0B / $0E handlers as initial state, so
+ * a new simulator is the simplest way to re-tick from frame 0.
+ *
+ * Resets per-layer frames to 0 so the slider doesn't point past the
+ * possibly-changed effective range, and re-runs the L1 path overlay
+ * recompute since the L1 path is invariant under L2-only toggles
+ * but the L2 plane motion is now different.
+ */
+function rebuildScrollSimulator(): void {
+  const map = window.__smwModelMap
+  if (!map || !cachedRom || !cachedScrollSeed) return
+  const seed = {
+    ...cachedScrollSeed,
+    onOffSwitch:   chkOnOffSwitch.checked   ? 1 : 0,
+    layer2Touched: chkLayer2Touched.checked ? 1 : 0,
+  }
+  const newSim = buildScrollSimulator(cachedRom, seed)
+  // markRaw was already applied to the original on creation; reactive()
+  // wrapping skips the simulator's internal cache mutations. Direct
+  // assignment is reactive enough for L2Layer.render to pick up next tick.
+  map.mapStore.scrollSimulator = newSim
+  // Re-derive scrollPath / layer2YRange / columnDyRanges from the
+  // new simulator. Toggling the gameplay-state checkboxes can change
+  // L2 motion enough that the L2 slider's clamp range and the per-
+  // column dy ranges are now different.
+  deriveScrollData()
+  refreshScrollSliderVisibility()
+  // Reset frames so the slider value doesn't reference a stale cache.
+  store.setAllFrames(0)
+  rngScrollFrame.value = '0'
+  rngL2y.value = '0'
+  updateFrameLabel()
+  autoScrollToFrame(0)
+}
+
+chkOnOffSwitch.addEventListener('change', rebuildScrollSimulator)
+chkLayer2Touched.addEventListener('change', rebuildScrollSimulator)
+
 chkCamera.addEventListener('change',  () => {
   const on = chkCamera.checked
   store.setCameraOn(on)  // reactive — triggers renderModelOverlay
@@ -3705,203 +3964,425 @@ selMarioPal.addEventListener('change',  postRerender)
 selMarioPal.addEventListener('focus',   () => setPaletteHighlight(highlightRowCols([8], 6, 15)))
 selMarioPal.addEventListener('blur',    () => setPaletteHighlight(null))
 
-// ── Layer 2 viewport-progress scrubber ───────────────────────────────────────
-// For levels with a scroll simulator (auto-scroll sprites $E7..$F5):
-// slider drives `editorStore.scrollProgress` ∈ [0, 255]. Each L2 column
-// renders at `dy = lerp(columnDyRanges[col].min, .max, scrollProgress/255)`,
-// where the per-column dy ranges were captured by walking the simulator
-// and recording, for every frame, which level-X columns were inside the
-// camera viewport at that frame's `(L1Y, L2Y)` pair. As the slider
-// scrubs, every column animates within its OWN experienced
-// `(L1Y − L2Y)` range — no column ever renders at an offset it never
-// occupied in real gameplay.
+// ── Scroll panel: state ──────────────────────────────────────────────────────
 //
-// For levels without a simulator: slider falls back to the legacy
-// raw-Layer2YPos scrubbing via `editorStore.l2YOverride`, $00..$FF.
-rngL2y.addEventListener('input', () => {
-  // Manual scrub aborts any running L2-oscillation playback so the user
-  // sees their own slider input, not the auto-driven value.
-  stopL2Play()
-  const v = parseInt(rngL2y.value, 10) | 0
-  if (mapData?.header?.columnDyRanges) {
-    store.setScrollProgress(v)
-    lblL2y.textContent = ''
-  } else {
-    store.setL2YOverride(v)
-    lblL2y.textContent = `$${v.toString(16).toUpperCase().padStart(2, '0')}`
+// The Scroll tab has three operating modes for the L2 slider:
+//
+//   - **'frame'**: auto-scroll level (level has a `scrollPath`). L1 and
+//     L2 sliders both range 0..pathLen−1 and the slider value is the
+//     per-layer frame index. `editorStore.frameL{1,2,3}` is the
+//     authoritative state; `L2ObjectStream.render` reads `frameL2` and
+//     calls `mapStore.scrollSimulator.stateAtFrame(frameL2)` to compute
+//     the L2 plane shift `(layer1{X,Y}Pos − layer2{X,Y}Pos)`. Using
+//     ONLY frameL2 means scrubbing L1 alone DOES NOT move L2 — the L2
+//     plane reflects the SNES viewport at L2's chosen point in time.
+//
+//   - **'rawY'**: object-stream L2 with no scroll sprite. L1 slider is
+//     hidden; L2 slider is a raw `Layer2YPos` override 0..255 that the
+//     legacy `editorStore.l2YOverride` consumes.
+//
+//   - **'none'**: no scrubbing controls visible (preset L2 / non-L2 levels).
+type ScrollMode = 'frame' | 'rawY' | 'none'
+let scrollMode: ScrollMode = 'none'
+
+// Loop button: when ON, `tickScrollPlayback` wraps to frame 0 instead of
+// stopping at the path end. Default OFF; persists across loads in this
+// session so a user who turned it on stays in loop mode. Visible only
+// for scroll sprites that don't drive Layer 1 — for L1-affected scrolls
+// the path naturally ends at LastScreenHoriz and looping isn't useful.
+let scrollLooping = false
+
+/**
+ * Cmd → affected-layer dispatch helpers. Mirrors the per-frame routing
+ * tables in `bank_05.asm:4518-4566`:
+ *
+ *   - L1 dispatch BEQs out at cmd $00. cmd $01 = parallax tick on L1.
+ *     cmd $0C = auto-scroll level X. cmd $07 = nullroutine. Everything
+ *     else has no L1 entry → no L1 effect.
+ *   - L2 dispatch BEQs out at cmd $00. cmd $07 = nullroutine. Everything
+ *     else (cmd $01..$0E except 5/6/7/A/F) updates L2 state.
+ *   - L2 cmd $01 (`CODE_05C198`) mirrors NextLayer2XPos into
+ *     NextLayer1XPos at the tail — so an L2 cmd $01 also drives L1.
+ *
+ * All inputs are post-remap cmd bytes (the `simulateScrollSetup` output
+ * shipped on `mapData.header.layer{1,2}ScrollCmd`).
+ */
+function cmdAffectsL1(l1cmd: number | null | undefined, l2cmd: number | null | undefined): boolean {
+  if (l1cmd === 0x01 || l1cmd === 0x0C) return true
+  if (l2cmd === 0x01) return true   // cmd $01 L2 mirrors X into nl1x
+  return false
+}
+function cmdAffectsL2(l1cmd: number | null | undefined, l2cmd: number | null | undefined): boolean {
+  // L2 dispatch BEQs out only when l2cmd is 0; cmd 7 is also a nullroutine.
+  if (l2cmd === null || l2cmd === undefined) return false
+  if (l2cmd === 0x00 || l2cmd === 0x07) return false
+  return true
+}
+function cmdAffectsL3(_l1cmd: number | null | undefined, _l2cmd: number | null | undefined): boolean {
+  // No vanilla scroll sprite cmd drives Layer 3 — L3 motion comes from
+  // hardcoded HDMA tables, not the scroll-cmd dispatch. Kept symmetric
+  // with the other two helpers so the visibility rule reads uniformly.
+  return false
+}
+function hasScrollSprite(l1cmd: number | null | undefined, l2cmd: number | null | undefined): boolean {
+  return cmdAffectsL1(l1cmd, l2cmd) || cmdAffectsL2(l1cmd, l2cmd) || cmdAffectsL3(l1cmd, l2cmd)
+}
+
+/** Apply visual "active" styling to a toggle button via the
+ *  `.active` class on `.btn-action` — see the CSS block above. */
+function applyToggleClass(btn: HTMLButtonElement, on: boolean): void {
+  btn.classList.toggle('active', on)
+}
+function refreshLinkButton(): void { applyToggleClass(btnScrollLink, store.scrollFramesLinked) }
+function refreshLoopButton(): void { applyToggleClass(btnScrollLoop, scrollLooping) }
+
+/**
+ * Resolve which slider rows + Link button + Loop button should be
+ * visible. Per-layer slider visibility tracks the cmd dispatch (only
+ * show what the active scroll sprite cmd actually drives):
+ *
+ *   - L1 slider visible iff cmd affects L1 AND SHOW VIEWPORT PATH on
+ *   - L2 slider visible iff cmd affects L2
+ *   - L3 slider — currently no UI; reserved (no vanilla L3 scroll cmd)
+ *   - Link button visible iff both L1 + L2 sliders are showing
+ *   - Frame counter visible iff cmd affects any layer (= scroll sprite
+ *     present), independent of the path toggle
+ *   - Loop toggle visible iff scroll sprite exists AND cmd does NOT
+ *     affect L1 — for L1 auto-scroll the natural end is the level edge
+ *     and looping isn't useful; for L2-only oscillating cmds it is
+ *
+ * Called from the load handler and the chk-scrollpath change handlers
+ * (toolbar + Scroll-tab mirror) so visibility tracks the toggle live.
+ */
+function refreshScrollTabVisibility(): void {
+  const l1cmd = mapData?.header?.layer1ScrollCmd
+  const l2cmd = mapData?.header?.layer2ScrollCmd
+  const hasSprite = hasScrollSprite(l1cmd, l2cmd)
+  tabBtnScroll.style.display = hasSprite ? '' : 'none'
+  // If the active tab disappears, switch back to General so the user
+  // doesn't see an empty content area.
+  if (!hasSprite && tabBtnScroll.classList.contains('active')) {
+    tabBtnScroll.classList.remove('active')
+    tabPaneScroll.style.display = 'none'
+    document.querySelector<HTMLButtonElement>('.tab-btn[data-tab="general"]')?.classList.add('active')
+    tabPaneGeneral.style.display = 'flex'
   }
-})
-// ── Layer 2 oscillation playback ─────────────────────────────────────────────
-// "Play" on the Layer-2 panel animates the slider at game speed by walking
-// the simulator's per-frame `(L1Y − L2Y)` curve.
-//
-// Why use the dy curve directly instead of advancing the slider linearly:
-// the L2 motion is non-linear — the parallax routine (`CODE_05C04D`) uses
-// table-driven divides plus signed sign-bit checks plus fractional position
-// accumulators, producing the ease-in / ease-out the user observed in-game.
-// Reading the actual `(L1Y − L2Y)` per frame and mapping that to the
-// slider's `t` reproduces the easing exactly.
-//
-// `header.scrollPath` is sampled every 8 simulator frames (`f`, `l1y`,
-// `l2y` per entry). RAF runs at ~60 Hz to match the SNES's 60 simulator
-// frames/sec. We advance `l2PlaySimFrame` by 1 per RAF and lerp between
-// the two bracketing samples for true game-speed playback.
-//
-// The slider mapping uses the global `(min, max)` of dy across the whole
-// scrollPath. For a single-region L2 layout (e.g. `$009`'s yellow box),
-// every column's run range matches this global, so the lerp inside
-// `L2ObjectStream.render` reproduces the on-screen motion exactly.
-let l2PlayRaf: number | null = null
-let l2PlaySimFrame = 0
-let l2PlayDyMin = 0
-let l2PlayDyMax = 0
-const recomputeL2DyRange = (): void => {
+}
+
+function refreshScrollSliderVisibility(): void {
+  const l1cmd = mapData?.header?.layer1ScrollCmd
+  const l2cmd = mapData?.header?.layer2ScrollCmd
+  const affectsL1 = cmdAffectsL1(l1cmd, l2cmd)
+  const affectsL2 = cmdAffectsL2(l1cmd, l2cmd)
+  const hasSprite = hasScrollSprite(l1cmd, l2cmd)
+  const pathOn = chkScrollPath.checked
+  const showL1 = affectsL1 && pathOn
+  const showL2 = affectsL2
+  const showLink = showL1 && showL2 && scrollMode === 'frame'
+  rowRngL1.style.display = showL1 ? 'flex' : 'none'
+  rowRngL2.style.display = showL2 ? 'flex' : 'none'
+  btnScrollLink.style.display = showLink ? 'inline-flex' : 'none'
+  scrollFrameCounter.style.display = hasSprite ? 'flex' : 'none'
+  scrollSlidersSection.style.display = (showL1 || showL2) ? 'flex' : 'none'
+  btnScrollLoop.style.display = (hasSprite && !affectsL1) ? 'inline-flex' : 'none'
+  // Cmd-specific gameplay-state toggles. Each row is shown only when
+  // the active scroll cmd actually reads that state.
+  rowOnOffSwitch.style.display   = (l2cmd === 0x0B) ? 'flex' : 'none'
+  rowLayer2Touched.style.display = (l2cmd === 0x0E) ? 'flex' : 'none'
+}
+
+function updateFrameLabel(): void {
   const path = mapData?.header?.scrollPath
   if (!path || path.length === 0) {
-    l2PlayDyMin = 0
-    l2PlayDyMax = 0
+    lblScrollFrame.textContent = 'FRAME 0 / —'
     return
   }
-  let m = Number.POSITIVE_INFINITY
-  let M = Number.NEGATIVE_INFINITY
-  for (const s of path) {
-    const d = ((s.l1y - s.l2y + 0x8000) & 0xFFFF) - 0x8000
-    if (d < m) m = d
-    if (d > M) M = d
-  }
-  l2PlayDyMin = m === Number.POSITIVE_INFINITY ? 0 : m
-  l2PlayDyMax = M === Number.NEGATIVE_INFINITY ? 0 : M
-}
-function stopL2Play(): void {
-  if (l2PlayRaf !== null) {
-    cancelAnimationFrame(l2PlayRaf)
-    l2PlayRaf = null
-  }
-  btnL2yPlay.innerHTML = '<span class="codicon codicon-play"></span>'
-}
-const tickL2Play = (): void => {
-  const path = mapData?.header?.scrollPath
-  if (!path || path.length < 2) { stopL2Play(); return }
+  // Show the "active" layer's frame. With both sliders or L1-only,
+  // that's frameL1 (the playback / path-overlay frame). When the L1
+  // slider is hidden (path toggle off, L2-only scrubbing), show
+  // frameL2 instead so the counter tracks what the user is actually
+  // moving. `updateFrameLabel` is called from every slider input +
+  // playback tick so this stays live.
   const lastF = path[path.length - 1].f
-  l2PlaySimFrame++
-  if (l2PlaySimFrame > lastF) l2PlaySimFrame = 0   // loop the oscillation
-  // Bracketing samples. scrollPath strides by step=8 sim frames in
-  // MapEditorProvider; we read the actual stride from the path itself
-  // so this stays correct if the host changes the stride later.
-  const step = Math.max(1, path[1].f - path[0].f)
-  const idx  = Math.min(path.length - 2, Math.floor(l2PlaySimFrame / step))
-  const sCur  = path[idx]
-  const sNext = path[idx + 1]
-  const span  = Math.max(1, sNext.f - sCur.f)
-  const u     = (l2PlaySimFrame - sCur.f) / span
-  const dyCur  = ((sCur.l1y  - sCur.l2y  + 0x8000) & 0xFFFF) - 0x8000
-  const dyNext = ((sNext.l1y - sNext.l2y + 0x8000) & 0xFFFF) - 0x8000
-  const dy = dyCur + (dyNext - dyCur) * u
-  // Map dy → slider t via global normalization. For single-region L2
-  // levels this matches each column's own (run.min, run.max), so the
-  // editor renders the exact dy the simulator produced. For multi-
-  // region levels each region lerps within its own run range at the
-  // same t, so different regions oscillate proportionally.
-  const range = l2PlayDyMax - l2PlayDyMin
-  const t = range > 0 ? (dy - l2PlayDyMin) / range : 0
-  const v = Math.round(Math.max(0, Math.min(1, t)) * 255)
-  store.setScrollProgress(v)
-  rngL2y.value = String(v)
-  lblL2y.textContent = ''
-  l2PlayRaf = requestAnimationFrame(tickL2Play)
+  const useL2 = !chkScrollPath.checked
+  const raw = useL2 ? store.frameL2 : store.frameL1
+  const f = Math.max(0, Math.min(lastF, raw < 0 ? 0 : raw))
+  lblScrollFrame.textContent = `FRAME ${f} / ${lastF}`
 }
-btnL2yPlay.addEventListener('click', () => {
-  if (!mapData?.header?.columnDyRanges || !mapData?.header?.scrollPath) return
-  if (l2PlayRaf !== null) {
-    stopL2Play()
-    return
-  }
-  recomputeL2DyRange()
-  if (l2PlayDyMax <= l2PlayDyMin) return  // no oscillation to play
-  const path = mapData.header.scrollPath
-  if (l2PlaySimFrame >= path[path.length - 1].f) l2PlaySimFrame = 0
-  btnL2yPlay.innerHTML = '<span class="codicon codicon-debug-pause"></span>'
-  l2PlayRaf = requestAnimationFrame(tickL2Play)
-})
 
-// ── Scroll panel: playback engine ────────────────────────────────────────────
-// `scrollPath` is a host-sampled array of viewport snapshots taken every 8
-// simulator frames. The Play button advances `editorStore.scrollPlaybackFrame`
-// (the array index, NOT the underlying simulator frame) on a requestAnimation-
-// Frame loop, with a speed multiplier (1x / 2x / 3x) advancing the index by
-// 1 / 2 / 3 per RAF. The render-overlay effect picks up the change via the
-// reactive store and redraws the moving viewport rect.
+/** Convert a sim frame to the closest scrollPath sample index for
+ *  overlays (e.g. `drawScrollPlayback`) that need a path-indexed
+ *  bracket. The path is uniformly strided so this is exact for
+ *  multiples of the stride and a clamp-to-last-sample otherwise. */
+function pathIndexForSimFrame(simFrame: number): number {
+  const path = mapData?.header?.scrollPath
+  if (!path || path.length === 0) return 0
+  // Stride detection: path[1].f − path[0].f = stride (typically 8).
+  // Falls back to length scan when only one sample.
+  if (path.length < 2) return 0
+  const stride = Math.max(1, path[1].f - path[0].f)
+  const idx = Math.max(0, Math.min(path.length - 1, Math.round(simFrame / stride)))
+  return idx
+}
+
+// ── Playback engine ──────────────────────────────────────────────────────────
 //
-// We tick on RAF (~60 Hz) rather than the simulator frame (60 fps NES). 1x
-// thus matches in-game playback speed; 2x / 3x speed up the preview without
-// asking the user to load an emulator.
+// `scrollPath` is a host-sampled array of viewport snapshots taken every
+// 8 simulator frames. Play advances each layer's frame index in
+// **real time** (NOT by RAF count) so the playback runs at NES
+// game speed (60 sim frames/sec at 1x) regardless of how long
+// rendering takes. When the renderer can't keep up (large level,
+// L2 plane shift forces a full re-paint), the frame counter jumps
+// multiple frames per RAF instead of running visibly slow.
+//
+// Without this real-time pacing, a slow render (e.g. 100ms per
+// frame for a busy level) drags the playback rate down to ~10 Hz
+// because tickScrollPlayback effectively runs once per render.
+// User-perceived "the playback is SO SLOW" was this exact symptom.
+//
+// When `scrollFramesLinked` is ON, all three layer frames advance
+// together via `setAllFrames`. When OFF, only `frameL1` advances —
+// L2's plane stays at whatever frame the L2 slider was last left at.
+//
+// At the path end the loop either wraps to 0 (Loop ON) or pins to the
+// last frame and stops (Loop OFF).
 let scrollPlaybackRaf: number | null = null
-const stopScrollPlayback = () => {
+/** Wall-clock time at the last `tickScrollPlayback` invocation. Used
+ *  to compute elapsed real time so the frame advance matches NES
+ *  speed independent of render cost. Reset to 0 on stop/start. */
+let scrollPlaybackLastTimeMs = 0
+/** Fractional accumulator of "frames owed" (in NES frames). Lets us
+ *  carry the < 1-frame remainder across ticks when render time
+ *  doesn't divide evenly by 1/60s. */
+let scrollPlaybackFrameAcc = 0
+/** Playback direction: +1 = forward, -1 = reverse. Used by the
+ *  boomerang loop mode for L2-only oscillating cmds (cmd $03 / $08 /
+ *  $0B / $0E) so playback bounces between 0 and lastF instead of
+ *  wrapping to 0. Always +1 for cmds that affect L1 (auto-scroll
+ *  levels) — they wrap on Loop. */
+let scrollPlaybackDirection: 1 | -1 = 1
+
+function stopScrollPlayback(): void {
   if (scrollPlaybackRaf !== null) {
     cancelAnimationFrame(scrollPlaybackRaf)
     scrollPlaybackRaf = null
   }
-  btnScrollPlay.innerHTML = '<span class="codicon codicon-play"></span> Play'
+  scrollPlaybackLastTimeMs = 0
+  scrollPlaybackFrameAcc = 0
+  scrollPlaybackDirection = 1
+  btnScrollPlay.innerHTML = '<span class="codicon codicon-play"></span>'
+  btnScrollPlay.title = 'Play scroll routine'
 }
-const tickScrollPlayback = () => {
+
+/** Set the per-layer frames from a new L1 frame index, mirroring to L2/L3
+ *  if linked. Also reflects the value into the slider DOM. */
+function applyL1Frame(idx: number): void {
+  if (store.scrollFramesLinked) {
+    store.setAllFrames(idx)
+    rngScrollFrame.value = String(idx)
+    if (scrollMode === 'frame') rngL2y.value = String(idx)
+  } else {
+    store.setFrameL1(idx)
+    rngScrollFrame.value = String(idx)
+  }
+}
+
+/** Set L2 frame from slider input, mirroring to L1/L3 if linked. */
+function applyL2Frame(idx: number): void {
+  if (store.scrollFramesLinked) {
+    store.setAllFrames(idx)
+    rngScrollFrame.value = String(idx)
+    rngL2y.value = String(idx)
+  } else {
+    store.setFrameL2(idx)
+    rngL2y.value = String(idx)
+  }
+}
+
+/** NES frame rate. Used to convert wall-clock elapsed milliseconds to
+ *  simulator frames so playback runs at game speed regardless of how
+ *  fast the editor's RAF can fire. */
+const NES_FPS = 60
+
+function tickScrollPlayback(): void {
   const path = mapData?.header?.scrollPath
   if (!path || path.length === 0) { stopScrollPlayback(); return }
   const speed = Math.max(1, parseInt(selScrollSpeed.value, 10) || 1)
-  const cur = store.scrollPlaybackFrame
-  const next = (cur < 0 ? 0 : cur) + speed
-  if (next >= path.length) {
-    // End of path — stop and pin to last frame so the rect stays visible
-    // at its final position.
-    store.setScrollPlaybackFrame(path.length - 1)
-    rngScrollFrame.value = String(path.length - 1)
-    lblScrollFrame.textContent = `f ${path[path.length - 1].f} / ${path[path.length - 1].f}`
-    stopScrollPlayback()
-    return
+  const lastF = path[path.length - 1].f
+  const cur = store.frameL1
+
+  // Real-time advancement: use elapsed wall-clock between ticks to
+  // compute how many NES frames should have elapsed, then advance.
+  // First tick (lastTimeMs===0) seeds the timer without advancing.
+  const now = performance.now()
+  let advance: number
+  if (scrollPlaybackLastTimeMs === 0) {
+    advance = 0
+  } else {
+    const dtMs = now - scrollPlaybackLastTimeMs
+    // (dtMs / 1000) * NES_FPS = elapsed sim frames, scaled by speed
+    // multiplier. Carry sub-frame remainder across ticks via the
+    // accumulator so long-term rate stays exact.
+    const framesOwed = (dtMs / 1000) * NES_FPS * speed + scrollPlaybackFrameAcc
+    advance = Math.floor(framesOwed)
+    scrollPlaybackFrameAcc = framesOwed - advance
   }
-  store.setScrollPlaybackFrame(next)
-  rngScrollFrame.value = String(next)
-  lblScrollFrame.textContent = `f ${path[next].f} / ${path[path.length - 1].f}`
+  scrollPlaybackLastTimeMs = now
+
+  // Direction-aware advance. For cmds that affect L1 (auto-scroll
+  // levels) the playback always moves forward — wrap-to-0 on Loop is
+  // the natural behavior, since the level itself doesn't run
+  // backwards. For L2-only cmds (cmd $03 / $08 / $0B / $0E) the
+  // motion is OSCILLATING — wrapping back to 0 produces a visible
+  // jump, so Loop instead "boomerangs" by reversing direction at
+  // each endpoint.
+  const l1cmd = mapData?.header?.layer1ScrollCmd
+  const l2cmd = mapData?.header?.layer2ScrollCmd
+  const isOscillating = !cmdAffectsL1(l1cmd, l2cmd)
+  const start = cur < 0 ? 0 : cur
+  let next = start + scrollPlaybackDirection * advance
+  if (next >= lastF) {
+    if (scrollLooping) {
+      if (isOscillating) {
+        // Boomerang: reflect off the upper bound and start moving back.
+        next = lastF - (next - lastF)
+        if (next < 0) next = 0
+        scrollPlaybackDirection = -1
+      } else {
+        // Wrap to 0; keep accumulator (so the wrap doesn't reset pacing).
+        next = 0
+      }
+    } else {
+      // Pin to last frame and stop — keeps the moving overlay visible
+      // at its final position so the user can inspect end-of-level state.
+      next = lastF
+      applyL1Frame(next)
+      updateFrameLabel()
+      stopScrollPlayback()
+      return
+    }
+  } else if (next < 0) {
+    // Boomerang at the lower bound (only reachable when scrollLooping
+    // is on and we previously reflected). Reverse direction back to
+    // forward.
+    if (scrollLooping && isOscillating) {
+      next = -next
+      if (next > lastF) next = lastF
+      scrollPlaybackDirection = 1
+    } else {
+      stopScrollPlayback()
+      return
+    }
+  }
+  applyL1Frame(next)
+  updateFrameLabel()
+  autoScrollToFrame(next)
   scrollPlaybackRaf = requestAnimationFrame(tickScrollPlayback)
 }
+
+// ── L1 frame slider input ────────────────────────────────────────────────────
+rngScrollFrame.addEventListener('input', () => {
+  // Manual scrub aborts running playback so the user sees their value.
+  stopScrollPlayback()
+  const path = mapData?.header?.scrollPath
+  if (!path || path.length === 0) return
+  const lastF = path[path.length - 1].f
+  // Slider value is a sim frame; clamp and pass straight through.
+  const idx = Math.max(0, Math.min(lastF, parseInt(rngScrollFrame.value, 10) | 0))
+  applyL1Frame(idx)
+  updateFrameLabel()
+  autoScrollToFrame(idx)
+})
+
+// ── L2 slider input ──────────────────────────────────────────────────────────
+//
+// In 'frame' mode the slider is the L2 frame index (0..pathLen−1); the
+// link button decides whether L1/L3 mirror. In 'rawY' mode it's a raw
+// `Layer2YPos` override (0..255).
+rngL2y.addEventListener('input', () => {
+  stopScrollPlayback()
+  const v = parseInt(rngL2y.value, 10) | 0
+  if (scrollMode === 'frame') {
+    applyL2Frame(v)
+    updateFrameLabel()
+    // When linked, L2 scrub advances L1's frame too, so re-center
+    // the canvas on the new L1 viewport position. Unlinked scrub
+    // doesn't move L1 — no-op.
+    if (store.scrollFramesLinked) autoScrollToFrame(store.frameL1)
+  } else if (scrollMode === 'rawY') {
+    store.setL2YOverride(v)
+  }
+})
+
+// ── Buttons ──────────────────────────────────────────────────────────────────
 btnScrollPlay.addEventListener('click', () => {
   const path = mapData?.header?.scrollPath
   if (!path || path.length === 0) return
   if (scrollPlaybackRaf !== null) {
-    // Pause
     stopScrollPlayback()
     return
   }
-  // Restart from beginning if at end
-  if (store.scrollPlaybackFrame >= path.length - 1 || store.scrollPlaybackFrame < 0) {
-    store.setScrollPlaybackFrame(0)
-    rngScrollFrame.value = '0'
-    lblScrollFrame.textContent = `f ${path[0].f} / ${path[path.length - 1].f}`
+  // Pressing Play forces linked mode: all three layer frames advance
+  // in lockstep so the L2 plane shifts visibly alongside the L1 path
+  // overlay. The Link button picks up the new state via
+  // `refreshLinkButton`.
+  if (!store.scrollFramesLinked) {
+    store.setScrollFramesLinked(true)
+    refreshLinkButton()
+    refreshScrollSliderVisibility()
   }
-  btnScrollPlay.innerHTML = '<span class="codicon codicon-debug-pause"></span> Pause'
+  // Restart from 0 if at end and not looping. (If looping, we'd just
+  // wrap on the next tick anyway.) `frameL1` is a sim frame so we
+  // compare against the last sampled sim frame, not the array length.
+  const lastF = path[path.length - 1].f
+  if (!scrollLooping && (store.frameL1 >= lastF || store.frameL1 < 0)) {
+    applyL1Frame(0)
+    updateFrameLabel()
+  }
+  btnScrollPlay.innerHTML = '<span class="codicon codicon-debug-pause"></span>'
+  btnScrollPlay.title = 'Pause scroll routine'
   scrollPlaybackRaf = requestAnimationFrame(tickScrollPlayback)
 })
+
 btnScrollStop.addEventListener('click', () => {
   stopScrollPlayback()
-  store.setScrollPlaybackFrame(-1)
-  rngScrollFrame.value = '0'
-  const path = mapData?.header?.scrollPath
-  lblScrollFrame.textContent = path && path.length > 0
-    ? `f 0 / ${path[path.length - 1].f}`
-    : `f 0 / —`
+  // Stop resets L1 to 0 always; L2 only if linked (so an unlinked L2
+  // slider keeps its last position when the user stops L1 playback).
+  if (store.scrollFramesLinked) {
+    store.setAllFrames(0)
+    rngScrollFrame.value = '0'
+    rngL2y.value = '0'
+  } else {
+    store.setFrameL1(0)
+    rngScrollFrame.value = '0'
+  }
+  updateFrameLabel()
 })
-rngScrollFrame.addEventListener('input', () => {
-  // Manual scrub: pause playback and snap to slider position.
-  stopScrollPlayback()
-  const path = mapData?.header?.scrollPath
-  if (!path || path.length === 0) return
-  const idx = Math.max(0, Math.min(path.length - 1, parseInt(rngScrollFrame.value, 10) | 0))
-  store.setScrollPlaybackFrame(idx)
-  lblScrollFrame.textContent = `f ${path[idx].f} / ${path[path.length - 1].f}`
+
+btnScrollLink.addEventListener('click', () => {
+  const newLinked = !store.scrollFramesLinked
+  store.setScrollFramesLinked(newLinked)
+  refreshLinkButton()
+  if (newLinked && scrollMode === 'frame') {
+    // Snap L2/L3 to L1 on enable so all three are coupled going forward.
+    store.setAllFrames(store.frameL1)
+    rngL2y.value = rngScrollFrame.value
+  }
 })
-// Mirror chk-scrollpath-panel into the same toggle the toolbar button uses.
+
+btnScrollLoop.addEventListener('click', () => {
+  scrollLooping = !scrollLooping
+  refreshLoopButton()
+})
+
+// Mirror chk-scrollpath-panel into the toolbar toggle. Also refresh
+// the L1 slider visibility + frame label since the panel checkbox
+// can be the trigger that turns the path on.
 chkScrollPathPanel.addEventListener('change', () => {
   chkScrollPath.checked = chkScrollPathPanel.checked
   syncLayerTogglesFromDom()
+  refreshScrollSliderVisibility()
+  updateFrameLabel()
 })
 
 // ── Message handler ───────────────────────────────────────────────────────────
@@ -3911,7 +4392,17 @@ window.addEventListener('message', async (event) => {
   if (msg['type'] === 'modelPayload') {
     try {
       const payload = msg['payload'] as ModelMapPayload
-      const { map, chars, tiles, bgTiles } = buildGraph(payload)
+      // ROM bytes are shipped in the 'load' message and cached in
+      // `cachedRom` — modelPayload reuses that reference rather than
+      // a second Uint8Array transfer. Falls back to null in test
+      // contexts where 'load' didn't arrive first.
+      const rom = cachedRom
+      // Refresh the cached scroll seed from the model payload so
+      // gameplay-state-toggle rebuilds operate on the model's seed
+      // (which carries any host-side overrides applied via override
+      // re-renders) rather than the original 'load' seed.
+      if (payload.scrollSim) cachedScrollSeed = payload.scrollSim
+      const { map, chars, tiles, bgTiles } = buildGraph(payload, rom)
       window.__smwModelMap = map
       window.__smwModelChars = chars
       window.__smwModelTiles = tiles
@@ -3955,6 +4446,17 @@ window.addEventListener('message', async (event) => {
 
     mapData  = msg as unknown as MapPayload
     l2TileGrid = mapData.l2TileGrid ?? null
+
+    // ROM bytes arrive once per load message. Cache the RomFile so:
+    //  (a) `deriveScrollData` (below) can build a sim + sample paths
+    //  (b) `modelPayload`'s rehydrate path can reuse this rom without
+    //      a second Uint8Array transfer
+    //  (c) the gameplay-state checkboxes (cmd $0B / $0E) can rebuild
+    //      the simulator with toggled flags.
+    const romBytesLoad = msg['romBytes'] as Uint8Array | undefined
+    if (romBytesLoad) cachedRom = RomFile.fromBytes('webview-rom', romBytesLoad)
+    cachedScrollSeed = (msg['scrollSim'] as import('../../rom/scrollSim').ScrollSimSeed | null) ?? null
+    deriveScrollData()
 
     // Cache SPC data that arrived with this load payload
     if (mapData.spcData && mapData.currentBgmCommand !== undefined) {
@@ -4041,48 +4543,28 @@ window.addEventListener('message', async (event) => {
     selVScrollHdr.value = String(hdr.verticalScroll ?? 0)
     chkL3Priority.checked = !!hdr.layer3Priority
 
-    // Layer 2 scrubber: visible for object-stream L2 only.
+    // Scroll-tab section visibility + slider mode selection.
     //
-    // With per-column dy ranges (auto-scroll levels): slider scrubs
-    // viewport progress 0..255 (= 0.00..1.00 of each column's
-    // experienced range). Each column renders at its own lerped dy
-    // so no cell appears at an offset it never had in gameplay.
-    //
-    // Without (no scroll sprite): legacy raw-Layer2YPos scrub 0..255.
+    // Sections (independently shown/hidden based on level features):
+    //   - Always: BG V/H-SCROLL + L1 V-SCROLL MODE (top of Scroll tab)
+    //   - hasScrollPath  → scroll-autoscroll-section (sprite info + path
+    //                       chk + playback row), L1 slider row, frame
+    //                       counter
+    //   - isObjectStreamL2 → L2 slider row (mode = 'frame' if also
+    //                         hasScrollPath, else 'rawY')
+    //   - hasScrollPath ∧ isObjectStreamL2 → Link button + linked default
     const isObjectStreamL2 = mapData.l2TileGrid != null && !mapData.l2UsesBgAtlas
-    const initialY = mapData.header.initialLayer2YPx ?? 0
-    if (isObjectStreamL2) {
-      l2yScrubberBlock.style.display = 'flex'
-      rngL2y.disabled = false
-      const hasScrollPath = !!mapData.header.scrollPath && mapData.header.scrollPath.length > 1
-      // L2 Play needs both per-column dy ranges (= scroll-progress slider
-      // mode) AND a scrollPath to walk for the per-frame dy curve.
-      btnL2yPlay.disabled = !mapData.header.columnDyRanges || !hasScrollPath
-      if (mapData.header.columnDyRanges) {
-        rngL2y.min = '0'
-        rngL2y.max = '255'
-        const v = store.scrollProgress
-        rngL2y.value = String(v)
-        lblL2y.textContent = ''
-      } else {
-        rngL2y.min = '0'
-        rngL2y.max = '255'
-        const liveY = store.l2YOverride ?? initialY
-        rngL2y.value = String(liveY)
-        lblL2y.textContent = `$${liveY.toString(16).toUpperCase().padStart(2, '0')}`
-      }
-    } else {
-      l2yScrubberBlock.style.display = 'none'
-      stopL2Play()
-    }
-
-    // Scroll panel + tab visibility. Tab + button row appear only for
-    // levels that have a scroll sprite (i.e. `scrollPath` was shipped).
-    // For other levels the tab stays hidden so the user isn't shown
-    // controls that wouldn't do anything.
     const scrollPath = mapData.header.scrollPath
-    if (scrollPath && scrollPath.length > 0) {
-      tabBtnScroll.style.display = 'inline-block'
+    const hasScrollPath = !!scrollPath && scrollPath.length > 0
+    const initialY = mapData.header.initialLayer2YPx ?? 0
+
+    // Stop any running playback before rewiring slider semantics.
+    stopScrollPlayback()
+    store.setAllFrames(-1)
+
+    // Top auto-scroll header (sprite info + path chk + playback row).
+    if (hasScrollPath) {
+      scrollAutoscrollSection.style.display = 'flex'
       const cmd = mapData.header.layer1ScrollCmd
       const cmdHex = cmd !== null && cmd !== undefined
         ? `$${cmd.toString(16).toUpperCase().padStart(2, '0')}`
@@ -4091,27 +4573,81 @@ window.addEventListener('message', async (event) => {
       const spriteHex = spriteId !== null
         ? `$${spriteId.toString(16).toUpperCase().padStart(2, '0')}`
         : '—'
-      infoScrollSprite.textContent = `sprite ${spriteHex} / cmd ${cmdHex} (${scrollPath.length} samples, ${scrollPath[scrollPath.length - 1].f} frames)`
-      rngScrollFrame.min = '0'
-      rngScrollFrame.max = String(scrollPath.length - 1)
-      // Reset playback frame on level change
-      store.setScrollPlaybackFrame(-1)
-      rngScrollFrame.value = '0'
-      lblScrollFrame.textContent = `f 0 / ${scrollPath[scrollPath.length - 1].f}`
-      stopScrollPlayback()
-      // Sync the panel checkbox with the (toolbar-driven) toggle state
+      infoScrollSprite.textContent = `sprite ${spriteHex} / cmd ${cmdHex}`
+      // Sync the panel checkbox with the (toolbar-driven) toggle state.
       chkScrollPathPanel.checked = chkScrollPath.checked
+      chkFollowScroll.checked = true
+      // Reset cmd-specific gameplay-state toggles on each load —
+      // they're per-level state, not session state.
+      chkOnOffSwitch.checked = false
+      chkLayer2Touched.checked = false
     } else {
-      tabBtnScroll.style.display = 'none'
-      // If the user was on the Scroll tab when a non-scroll level loads,
-      // bounce them back to General so the now-hidden tab isn't active.
-      if (tabBtnScroll.classList.contains('active')) {
-        const generalTab = document.querySelector<HTMLElement>('.tab-btn[data-tab="general"]')
-        generalTab?.click()
-      }
-      stopScrollPlayback()
-      store.setScrollPlaybackFrame(-1)
+      scrollAutoscrollSection.style.display = 'none'
     }
+
+    // Slider rows. Mode + ranges + default values.
+    //
+    // Slider VALUES are in **simulator frames** (NOT path-array
+    // indices). The path is sampled every 8 sim frames (stride from
+    // `MapEditorProvider._sendLevelData`); the slider's max is the
+    // last sampled frame's `.f`. `editorStore.frameL{1,2,3}` stores
+    // the sim frame directly, so `mapStore.scrollSimulator
+    // .stateAtFrame(frameL2)` from `L2ObjectStream.render` reads the
+    // exact per-frame state the SNES would compute.
+    //
+    // The L1 slider + Link button are gated on the SHOW VIEWPORT PATH
+    // toggle — they're part of the L1-viewport visualization and only
+    // make sense when the user has explicitly opted into path
+    // controls. The L2 slider stays visible for any object-stream L2
+    // because L2-plane scrubbing is independently useful. See
+    // `refreshScrollSliderVisibility` for the live update path when
+    // the toggle changes.
+    const lastSimFrame = hasScrollPath ? scrollPath![scrollPath!.length - 1].f : 0
+    if (hasScrollPath && isObjectStreamL2) {
+      scrollMode = 'frame'
+      // L1 slider: sim frame 0..lastSimFrame.
+      rngScrollFrame.min = '0'
+      rngScrollFrame.max = String(lastSimFrame)
+      rngScrollFrame.value = '0'
+      // L2 slider: same range as L1 in frame mode.
+      rngL2y.min = '0'
+      rngL2y.max = String(lastSimFrame)
+      rngL2y.value = '0'
+      rngL2y.disabled = false
+      // Default linked. Visibility resolved by refreshScrollSliderVisibility.
+      store.setScrollFramesLinked(true)
+      refreshLinkButton()
+      // Initialize all three frames to 0 so L2.render picks up
+      // frame-accurate state immediately (sim.stateAtFrame(0)).
+      store.setAllFrames(0)
+    } else if (isObjectStreamL2) {
+      // Object-stream L2 with no scroll sprite: raw Y override mode,
+      // L2 slider only.
+      scrollMode = 'rawY'
+      rngL2y.min = '0'
+      rngL2y.max = '255'
+      const liveY = store.l2YOverride ?? initialY
+      rngL2y.value = String(liveY)
+      rngL2y.disabled = false
+      store.setAllFrames(-1)
+      store.setL2YOverride(liveY)
+    } else if (hasScrollPath) {
+      // Auto-scroll level without object-stream L2 (preset L2 / no L2):
+      // L1 slider only — still useful for path-overlay previewing.
+      scrollMode = 'frame'
+      rngScrollFrame.min = '0'
+      rngScrollFrame.max = String(lastSimFrame)
+      rngScrollFrame.value = '0'
+      store.setAllFrames(0)
+    } else {
+      // Neither auto-scroll nor object-stream L2.
+      scrollMode = 'none'
+      store.setAllFrames(-1)
+    }
+    refreshLoopButton()
+    refreshScrollTabVisibility()
+    refreshScrollSliderVisibility()
+    updateFrameLabel()
 
     // L3 routine summary. Editable: layer3Setting (via selL3Setting). The
     // $009F88 byte / kind / init Y are derived from (tileset, layer3Setting)

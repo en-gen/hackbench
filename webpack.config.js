@@ -26,7 +26,8 @@ const extensionConfig = {
     vscode: 'commonjs vscode'
   },
   resolve: {
-    extensions: ['.ts', '.js']
+    extensions: ['.ts', '.js'],
+    fallback: { fs: false }
   },
   module: {
     rules: [
@@ -51,7 +52,8 @@ const mapEditorWebviewConfig = {
     filename: 'mapEditor.js'
   },
   resolve: {
-    extensions: ['.ts', '.js']
+    extensions: ['.ts', '.js'],
+    fallback: { fs: false }
   },
   module: {
     rules: [
@@ -96,7 +98,7 @@ const paletteEditorWebviewConfig = {
     path: path.resolve(__dirname, 'dist/webview'),
     filename: 'paletteEditor.js'
   },
-  resolve: { extensions: ['.ts', '.js'] },
+  resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
     rules: [
       {
@@ -118,7 +120,7 @@ const gfxViewerWebviewConfig = {
     path: path.resolve(__dirname, 'dist/webview'),
     filename: 'gfxViewer.js'
   },
-  resolve: { extensions: ['.ts', '.js'] },
+  resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
     rules: [
       {
@@ -140,7 +142,7 @@ const musicPlayerWebviewConfig = {
     path: path.resolve(__dirname, 'dist/webview'),
     filename: 'musicPlayer.js'
   },
-  resolve: { extensions: ['.ts', '.js'] },
+  resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
     rules: [
       {
@@ -177,7 +179,7 @@ const levelGraphWebviewConfig = {
     path: path.resolve(__dirname, 'dist/webview'),
     filename: 'levelGraph.js'
   },
-  resolve: { extensions: ['.ts', '.js'] },
+  resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
     rules: [
       {
@@ -199,7 +201,7 @@ const tilesetCompareWebviewConfig = {
     path: path.resolve(__dirname, 'dist/webview'),
     filename: 'tilesetCompare.js'
   },
-  resolve: { extensions: ['.ts', '.js'] },
+  resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
     rules: [
       {
@@ -221,7 +223,7 @@ const romMapWebviewConfig = {
     path: path.resolve(__dirname, 'dist/webview'),
     filename: 'romMap.js'
   },
-  resolve: { extensions: ['.ts', '.js'] },
+  resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
     rules: [
       {
@@ -243,7 +245,7 @@ const overworldViewerWebviewConfig = {
     path: path.resolve(__dirname, 'dist/webview'),
     filename: 'overworldViewer.js'
   },
-  resolve: { extensions: ['.ts', '.js'] },
+  resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
     rules: [
       {

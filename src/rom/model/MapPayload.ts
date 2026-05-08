@@ -125,7 +125,6 @@ export interface SpritePartDescriptor {
 
 export type SpriteAppearanceDescriptor =
   | { kind: 'static'; parts: readonly SpritePartDescriptor[] }
-  | { kind: 'pSwitch'; parts: readonly SpritePartDescriptor[] }
   | {
       kind: 'thwomp'
       bodyParts: readonly SpritePartDescriptor[]

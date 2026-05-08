@@ -31,6 +31,7 @@ import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/
 import { NO_COLLISION } from '../../../../src/rom/model/tiles/TileCollision'
 import { createMapStore } from '../../../../src/rom/model/stores/mapStore'
 import { buildScrollSimulator } from '../../../../src/rom/scrollSim'
+import { loadVanillaRom , vanillaRomPresent } from '../scrollSim_capture'
 import type { ScrollSimSeed } from '../../../../src/rom/scrollSim'
 import type { SubtileQuad } from '../../../../src/rom/model/tiles/Tile'
 import type { GfxSheet } from '../../../../src/rom/GfxLoader'
@@ -80,7 +81,7 @@ function makeMap(opts: {
   withScrollSim?: boolean
 }): SmwMap {
   const scrollSimulator = opts.withScrollSim
-    ? buildScrollSimulator(null as never, SCROLL_SEED)
+    ? buildScrollSimulator(loadVanillaRom(), SCROLL_SEED)
     : null
   const mapStore = createMapStore({ scrollSimulator })
   return new SmwMap(
@@ -102,7 +103,7 @@ function makeMap(opts: {
 
 // ── serializeL2 ───────────────────────────────────────────────────────────────
 
-describe('serialize — l2 null', () => {
+describe.skipIf(!vanillaRomPresent)('serialize — l2 null', () => {
   it('emits payload.l2 = null when map has no L2 layer', () => {
     // Covers: serializeL2 if (l2 === null) return null — true branch
     const payload = serialize(makeMap({ l2: null }), CHARS, L1_TILES)
@@ -110,7 +111,7 @@ describe('serialize — l2 null', () => {
   })
 })
 
-describe('serialize — L2Preset', () => {
+describe.skipIf(!vanillaRomPresent)('serialize — L2Preset', () => {
   it("emits kind='preset' when map.l2 is an L2Preset", () => {
     // Covers: serializeL2 if (l2 instanceof L2Preset) — true branch
     const preset = new L2Preset(0, [[0, null]], BG_TILES)
@@ -119,7 +120,7 @@ describe('serialize — L2Preset', () => {
   })
 })
 
-describe('serialize — L2ObjectStream', () => {
+describe.skipIf(!vanillaRomPresent)('serialize — L2ObjectStream', () => {
   it("emits kind='objectStream' when map.l2 is an L2ObjectStream", () => {
     // Covers: serializeL2 if (l2 instanceof L2ObjectStream) — true branch
     const stream = new L2ObjectStream([[0, null]], L1_TILES)
@@ -130,7 +131,7 @@ describe('serialize — L2ObjectStream', () => {
 
 // ── serializeL3 ───────────────────────────────────────────────────────────────
 
-describe('serialize — l3 null', () => {
+describe.skipIf(!vanillaRomPresent)('serialize — l3 null', () => {
   it('emits payload.l3 = null when map has no L3 layer', () => {
     // Covers: serializeL3 if (l3 === null) return null — true branch
     const payload = serialize(makeMap({ l3: null }), CHARS, L1_TILES)
@@ -138,7 +139,7 @@ describe('serialize — l3 null', () => {
   })
 })
 
-describe('serialize — L3TilemapLayer', () => {
+describe.skipIf(!vanillaRomPresent)('serialize — L3TilemapLayer', () => {
   it('serializes L3TilemapLayer into tilemap + chars arrays', () => {
     // Covers: serializeL3 if (!(l3 instanceof L3TilemapLayer)) — false branch
     //         + the for-of sheet loop
@@ -154,7 +155,7 @@ describe('serialize — L3TilemapLayer', () => {
 
 // ── scrollSimulator?.seed ?? null ─────────────────────────────────────────────
 
-describe('serialize — no scrollSimulator', () => {
+describe.skipIf(!vanillaRomPresent)('serialize — no scrollSimulator', () => {
   it('emits payload.scrollSim = null when mapStore has no simulator', () => {
     // Covers: map.mapStore.scrollSimulator?.seed ?? null
     //   — ?.seed path when scrollSimulator is null → undefined → ?? fires → null
@@ -163,7 +164,7 @@ describe('serialize — no scrollSimulator', () => {
   })
 })
 
-describe('serialize — with scrollSimulator', () => {
+describe.skipIf(!vanillaRomPresent)('serialize — with scrollSimulator', () => {
   it('emits payload.scrollSim as the seed when simulator is present', () => {
     // Covers: map.mapStore.scrollSimulator?.seed ?? null
     //   — ?.seed path when scrollSimulator is defined → seed object → ?? skipped

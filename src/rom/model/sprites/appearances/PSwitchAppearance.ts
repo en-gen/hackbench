@@ -2,9 +2,8 @@
 
 import type { RenderTarget } from '../../RenderTarget'
 import type { MapStore } from '../../stores/mapStore'
-import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
-import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
+import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
 
 /**
  * P-Switch (sprite $3E): selects blue or silver OBJ palette at render time
@@ -18,14 +17,12 @@ import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
  * The `palette` field on each SpritePart is ignored; color is entirely
  * determined here from the `x` coordinate passed by the renderer.
  */
-export class PSwitchAppearance implements SpriteAppearance {
+export class PSwitchAppearance extends StaticSpriteAppearance {
   static readonly BLUE_PALETTE   = 8 + ((0x06 >> 1) & 0x07)  // 11
   static readonly SILVER_PALETTE = 8 + ((0x02 >> 1) & 0x07)  // 9
 
-  readonly hitRect: HitRect
-
-  constructor(readonly parts: readonly SpritePart[]) {
-    this.hitRect = partsHitRect(parts)
+  constructor(parts: readonly SpritePart[]) {
+    super(parts)
   }
 
   render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {

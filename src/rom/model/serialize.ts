@@ -9,7 +9,6 @@ import { L3TilemapLayer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
 import { CompositeSprite } from './sprites/CompositeSprite'
 import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
-import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
 import { RipVanFishAppearance } from './sprites/appearances/RipVanFishAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
@@ -197,9 +196,11 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
   if (a instanceof HammerBroAppearance) {
     return { kind: 'hammerBro', parts: a.parts.map(partDescriptor) }
   }
-  if (a instanceof PSwitchAppearance) {
-    return { kind: 'pSwitch', parts: a.parts.map(partDescriptor) }
-  }
+  // PSwitchAppearance, CheepCheepAppearance, KoopaAppearance, etc. all
+  // extend StaticSpriteAppearance and carry no extra serialized state —
+  // they fall through to the `static` branch below. The webview's
+  // `buildSpriteAppearance(spriteId, parts)` reconstructs the right
+  // subclass from spriteId alone (issue #293).
   if (a instanceof WoodSpikeAppearance) {
     return { kind: 'woodSpike', spriteId: a.spriteId, spriteMisc151C: a.spriteMisc151C }
   }

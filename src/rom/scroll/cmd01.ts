@@ -33,21 +33,22 @@
  * `scrollLayerIndex` themselves.
  */
 
+import type { RomFile } from '../RomFile'
 import type { ScrollState } from '../scrollSim'
 import { wrap16 } from '../scrollSim'
 import { parallaxTick } from './parallaxCore'
 
 /** L1 cmd $01: bare parallax tick on layer 1. */
-export function cmd01L1(s: ScrollState, screenMode: number): ScrollState {
-  return parallaxTick(s, 'l1', screenMode)
+export function cmd01L1(s: ScrollState, rom: RomFile, screenMode: number): ScrollState {
+  return parallaxTick(s, rom, 'l1', screenMode)
 }
 
 /**
  * L2 cmd $01: parallax tick on layer 2, then mirror `NextLayer2XPos`
  * into `NextLayer1XPos`, then add `screenShakeYOffset` to `Layer2YPos`.
  */
-export function cmd01L2(s: ScrollState, screenMode: number): ScrollState {
-  let s2 = parallaxTick(s, 'l2', screenMode)
+export function cmd01L2(s: ScrollState, rom: RomFile, screenMode: number): ScrollState {
+  let s2 = parallaxTick(s, rom, 'l2', screenMode)
   s2 = { ...s2, nextLayer1XPos: s2.nextLayer2XPos }
   s2 = { ...s2, layer2YPos: wrap16(s2.layer2YPos + s2.screenShakeYOffset) }
   return s2

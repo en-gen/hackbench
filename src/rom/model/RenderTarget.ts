@@ -129,3 +129,21 @@ export function cellBoxAt(tileX: number, tileY: number, dy: number): CellBox {
     br: { x: px + 8, y: py + 8 },
   }
 }
+
+/**
+ * Variant of `cellBoxAt` with both X and Y deltas. Used by
+ * `L2ObjectStream.render` in frame-accurate scroll mode to shift the
+ * L2 plane by `(Layer1Pos − Layer2Pos)` at the currently-scrubbed
+ * `scrollPath` frame, mirroring the BG1 vs. BG2 viewport offset that
+ * the SNES PPU shows in-game.
+ */
+export function cellBoxAtXY(tileX: number, tileY: number, dx: number, dy: number): CellBox {
+  const px = tileX * 16 + dx
+  const py = tileY * 16 + dy
+  return {
+    tl: { x: px, y: py },
+    tr: { x: px + 8, y: py },
+    bl: { x: px, y: py + 8 },
+    br: { x: px + 8, y: py + 8 },
+  }
+}

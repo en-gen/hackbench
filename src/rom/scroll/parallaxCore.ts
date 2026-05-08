@@ -56,11 +56,13 @@
  */
 
 import {
-  X_TARGETS,
-  Y_TARGETS,
-  DATA_05CB0F,
-  DATA_05CB5F,
+  ADDR_X_TARGETS,
+  ADDR_Y_TARGETS,
+  ADDR_DATA_05CB0F,
+  ADDR_DATA_05CB5F,
+  readByte,
 } from '../scrollData'
+import type { RomFile } from '../RomFile'
 import { wrap16, type ScrollState } from '../scrollSim'
 
 // ── Per-axis-per-layer field map ─────────────────────────────────────────
@@ -69,8 +71,8 @@ import { wrap16, type ScrollState } from '../scrollSim'
 // of 0/4 (layer offset) plus 0/2 (axis offset within layer). TS doesn't have
 // pointer arithmetic, so we expose the same access pattern via this map.
 
-type Layer = 'l1' | 'l2'
-type Axis  = 'x' | 'y'
+export type Layer = 'l1' | 'l2'
+export type Axis  = 'x' | 'y'
 
 interface AxisFields {
   type:    'layer1ScrollType'    | 'layer2ScrollType'
@@ -127,6 +129,31 @@ function applySpeed(
   speed: number,
   flag8: number,
 ): { state: ScrollState; flag8: number } {
+  return {
+    state: applyC4F9(s, layer, axis, speed),
+    flag8: wrap16(negI16(flag8)),    // EOR #$FFFF / INC A
+  }
+}
+
+/**
+ * Bare CODE_05C4F9 speed-carry, callable from cmd $03/$08/$09 handlers
+ * which don't need the `_8` flag plumbing. Pure function over
+ * `(layer, axis, speed)` — reads `PosUpd[layer][axis]`, writes back
+ * the new accumulator, and carries the sign-extended high byte into
+ * `NextLayer{N}{Axis}Pos`.
+ *
+ * The cmd $03 setup body uses `INX;INX` to set X=ScrollLayerIndex+2,
+ * which means CODE_05C4F9 operates on the Y axis. cmd $08 leaves X=
+ * ScrollLayerIndex (X axis). cmd $09 sets X=$04 explicitly (L2 X).
+ * Our wrapper takes `axis` as a string so each caller picks the right
+ * axis directly.
+ */
+export function applyC4F9(
+  s: ScrollState,
+  layer: Layer,
+  axis: Axis,
+  speed: number,
+): ScrollState {
   const f = FIELDS[layer][axis]
   // _4 = (PosUpd & $FF) + speed     ; mix old fractional low byte with speed
   const oldUpd = s[f.posUpd]
@@ -143,10 +170,7 @@ function applySpeed(
     ? wrap16((highByte >>> 8) | 0xFF00)   // negative carry, sign-extended
     : (highByte >>> 8) & 0x00FF
   const newNext = wrap16(s[f.nextPos] + carry)
-  return {
-    state: { ...s, [f.posUpd]: newUpd, [f.nextPos]: newNext } as ScrollState,
-    flag8: wrap16(negI16(flag8)),    // EOR #$FFFF / INC A
-  }
+  return { ...s, [f.posUpd]: newUpd, [f.nextPos]: newNext } as ScrollState
 }
 
 // ── CODE_05C04D — main entry ─────────────────────────────────────────────
@@ -163,7 +187,7 @@ const RECURSION_GUARD = 256
  * Y-axis distance sign feeds `Layer1ScrollDir` — for horizontal levels
  * (bit 0 = 0) the X-axis sign wins.
  */
-export function parallaxTick(input: ScrollState, layer: Layer, screenMode: number): ScrollState {
+export function parallaxTick(input: ScrollState, rom: RomFile, layer: Layer, screenMode: number): ScrollState {
   let s = input
   for (let depth = 0; depth < RECURSION_GUARD; depth++) {
     const lf = FIELDS[layer]
@@ -183,10 +207,10 @@ export function parallaxTick(input: ScrollState, layer: Layer, screenMode: numbe
     // frame. ASM equivalent: `LDA.W DATA_05CA6E,Y` reads `prev`,
     // `LDA.W DATA_05CA6F,Y` reads `cur`, both with the same Y; the two
     // labels are consecutive bytes in ROM.
-    let _4 = (X_TARGETS[type]     ?? 0) & 0xFF      // prev X target
-    let _6 = (Y_TARGETS[type]     ?? 0) & 0xFF      // prev Y target
-    const xCur = (X_TARGETS[type + 1] ?? 0) & 0xFF
-    const yCur = (Y_TARGETS[type + 1] ?? 0) & 0xFF
+    let _4 = readByte(rom, ADDR_X_TARGETS, type) & 0xFF      // prev X target
+    let _6 = readByte(rom, ADDR_Y_TARGETS, type) & 0xFF      // prev Y target
+    const xCur = readByte(rom, ADDR_X_TARGETS, type + 1) & 0xFF
+    const yCur = readByte(rom, ADDR_Y_TARGETS, type + 1) & 0xFF
 
     // Current Next{Axis}Pos as 16-bit unsigned.
     let _0 = s[lf.x.nextPos]   // X
@@ -247,7 +271,7 @@ export function parallaxTick(input: ScrollState, layer: Layer, screenMode: numbe
     }
 
     // 16/8 hardware divide: _A / DATA_05CB0F[type] (line 5092-5103).
-    const divisor = (DATA_05CB0F[type] ?? 1) & 0xFF
+    const divisor = readByte(rom, ADDR_DATA_05CB0F, type) & 0xFF
     if (divisor === 0) return s   // safety; vanilla never hits this
     const quotient = (_A / divisor) | 0      // truncated 16-bit divide
 
@@ -286,7 +310,7 @@ export function parallaxTick(input: ScrollState, layer: Layer, screenMode: numbe
     }
 
     // Compute scaled big-axis speed: _A = DATA_05CB0F[type] * 16 (lines 5141-5147).
-    _A = wrap16(((DATA_05CB0F[s[lf.type]] ?? 1) & 0xFF) << 4)
+    _A = wrap16((readByte(rom, ADDR_DATA_05CB0F, s[lf.type]) & 0xFF) << 4)
 
     // Per-axis pass: ASM `LDX #$02` then iterates X=2, X=0. The X
     // register names the axis offset within per-layer state (0=X axis,
@@ -323,8 +347,8 @@ export function parallaxTick(input: ScrollState, layer: Layer, screenMode: numbe
       let bias  = 0
       if (speed !== cur) {
         const yIdx = (asI16(speed) < asI16(cur)) ? 2 : 0
-        const lo = (DATA_05CB5F[yIdx]     ?? 0) & 0xFF
-        const hi = (DATA_05CB5F[yIdx + 1] ?? 0) & 0xFF
+        const lo = readByte(rom, ADDR_DATA_05CB5F, yIdx) & 0xFF
+        const hi = readByte(rom, ADDR_DATA_05CB5F, yIdx + 1) & 0xFF
         bias = (hi << 8) | lo
       }
       const newSpeed = wrap16(cur + bias)

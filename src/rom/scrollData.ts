@@ -1,112 +1,143 @@
 /**
- * scrollData.ts — ROM data tables consumed by the scroll simulator.
+ * scrollData.ts — SNES address constants for ROM data tables consumed by
+ * the scroll simulator, plus thin byte/word readers.
  *
- * Lifted verbatim from `bank_05.asm` (vanilla US ROM). Indexes match
- * the ASM. All values are bytes unless otherwise noted.
+ * Hackbench is a ROM editor: every value the simulator uses must come
+ * from the open ROM. Hardcoded JS constants would silently mask any
+ * hack that modifies these tables (or, worse, prevent us from offering
+ * an "edit auto-scroll behavior" feature). All scroll handlers take a
+ * `RomFile` and read tables via `readByte` / `readWord` against the
+ * SNES addresses below.
  *
- * Prefer compile-time constants over `RomFile.readByte` at tick time:
- * the simulator runs at frame-grain (60 Hz × seconds = 1000s of calls),
- * so avoiding I/O makes a measurable difference.
- *
- * If a hack ever modifies these tables, swap to ROM-derived loaders —
- * but vanilla SMW captures these as pure ROM constants and we'd rather
- * have one source of truth than two.
+ * The labels match those in `C:\Projects\SMWDisX\bank_05.asm`. When the
+ * disassembly labels only N bytes but the ASM reads past the label
+ * (e.g. `LDA.W DATA_05CA68,Y` with Y=6 spilling into `DATA_05CA6E`),
+ * ROM reads naturally produce the right value because the bytes are
+ * consecutive in ROM — no extension table needed.
  */
 
-/**
- * X target table — 81 bytes consisting of `DATA_05CA6E` (1 byte = $09,
- * the "no-motion sentinel" at `bank_05.asm:6261`) immediately followed
- * by `DATA_05CA6F` (80 X targets at `bank_05.asm:6264`). The ASM uses
- * `LDA.W DATA_05CA6E,Y` to read the sentinel-or-prior-target and
- * `LDA.W DATA_05CA6F,Y` to read the current target — both indexed by
- * the same `Layer{N}ScrollType`. The two labels are consecutive bytes
- * in ROM: reading `DATA_05CA6F[Y]` is equivalent to reading
- * `DATA_05CA6E[Y + 1]`.
- *
- * The simulator's parallax core consumes the combined view: at type T,
- * `xPrev = X_TARGETS[T]` (from `DATA_05CA6E`-relative reads) and
- * `xCur = X_TARGETS[T + 1]` (from `DATA_05CA6F`-relative reads). When
- * the two are equal, the X-axis is held still for the frame.
- */
-export const X_TARGETS: readonly number[] = [
-  0x09, // DATA_05CA6E (sentinel / "previous" target at type 0)
-  0x00, 0x09, 0x14, 0x1C, 0x24, 0x28, 0x33, 0x3C, // DATA_05CA6F[0..7]
-  0x43, 0x4B, 0x54, 0x60, 0x67, 0x74, 0x77, 0x7B,
-  0x83, 0x8A, 0x8D, 0x90, 0x99, 0xA0, 0xB0, 0x00,
-  0x09, 0x14, 0x2C, 0x3C, 0xB0, 0x00, 0x09, 0x11,
-  0x1D, 0x2C, 0x32, 0x41, 0x48, 0x63, 0x6B, 0x70,
-  0x00, 0x27, 0x37, 0x70, 0x00, 0x07, 0x12, 0x27,
-  0x32, 0x48, 0x5B, 0x70, 0x00, 0x20, 0x28, 0x3A,
-  0x40, 0x5F, 0x66, 0x6B, 0x6B, 0x80, 0x80, 0x89,
-  0x92, 0x96, 0x9A, 0x9E, 0xA0, 0xB0, 0x00, 0x10,
-  0x1A, 0x20, 0x2B, 0x30, 0x3B, 0x40, 0x4B,
-]
+import type { RomFile } from './RomFile'
 
-/**
- * Y target table — `DATA_05CABE` (1 byte = $50, sentinel at
- * `bank_05.asm:6276`) followed by `DATA_05CABF` (80 Y targets at
- * `bank_05.asm:6279`). Same combined-table semantics as `X_TARGETS`:
- * `yPrev = Y_TARGETS[T]`, `yCur = Y_TARGETS[T + 1]`. Equality holds
- * the Y-axis still for the frame.
- */
-export const Y_TARGETS: readonly number[] = [
-  0x50, // DATA_05CABE (sentinel)
-  0x0C, 0x0C, 0x06, 0x0B, 0x08, 0x0C, 0x03, 0x02, // DATA_05CABF[0..7]
-  0x09, 0x03, 0x09, 0x02, 0x06, 0x06, 0x07, 0x05,
-  0x08, 0x05, 0x0A, 0x04, 0x08, 0x04, 0x04, 0x0C,
-  0x0C, 0x07, 0x07, 0x05, 0x05, 0x0C, 0x0C, 0x08,
-  0x0C, 0x0C, 0x07, 0x07, 0x0A, 0x0A, 0x0C, 0x0C,
-  0x00, 0x00, 0x0A, 0x0A, 0x00, 0x00, 0x09, 0x09,
-  0x03, 0x03, 0x0C, 0x0C, 0x0C, 0x0C, 0x08, 0x08,
-  0x05, 0x05, 0x02, 0x02, 0x09, 0x09, 0x01, 0x01,
-  0x01, 0x02, 0x03, 0x07, 0x08, 0x08, 0x0C, 0x0C,
-  0x02, 0x02, 0x0A, 0x0A, 0x02, 0x02, 0x0A, 0x0A,
-]
+// ── Generic readers ─────────────────────────────────────────────────────
 
-/**
- * `DATA_05CB0F` (bank_05.asm:6290) — 80-byte divisor table indexed by
- * `Layer1ScrollType`. Used as the divisor for the SNES hardware divider
- * at line 5094 (`HW_WRDIV+2`) and again as the multiplier base at line
- * 5141. Most entries are `$07` or `$08`; a few are `$10`, `$40`, or `$04`.
- */
-export const DATA_05CB0F: readonly number[] = [
-  0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
-  0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
-  0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
-  0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
-  0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
-  0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
-  0x07, 0x07, 0x07, 0x07, 0x08, 0x08, 0x08, 0x08,
-  0x08, 0x08, 0x10, 0x08, 0x40, 0x08, 0x04, 0x08,
-  0x10, 0x08, 0x08, 0x10, 0x10, 0x08, 0x08, 0x08,
-  0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
-]
+/** Read one byte from ROM at `(snesAddr + index)`. Returns 0 for OOB. */
+export function readByte(rom: RomFile, snesAddr: number, index: number = 0): number {
+  return rom.readByte(snesAddr + index) ?? 0
+}
 
-/**
- * `DATA_05CB5F` (bank_05.asm:6301) — 28-byte per-frame speed-delta
- * pattern indexed by `(Layer1ScrollType + dirOffset)`. Cycles
- * `+1, 0, -1, -1` (signed). Read at line 5175 to bias the per-frame
- * speed accumulator.
- */
-export const DATA_05CB5F: readonly number[] = [
-  0x01, 0x00, 0xFF, 0xFF, 0x01, 0x00, 0xFF, 0xFF,
-  0x01, 0x00, 0xFF, 0xFF, 0x01, 0x00, 0xFF, 0xFF,
-  0x01, 0x00, 0xFF, 0xFF, 0x01, 0x00, 0xFF, 0xFF,
-  0x01, 0x00, 0xFF, 0xFF,
-]
+/** Read a 16-bit little-endian word from ROM at `(snesAddr + index)`. */
+export function readWord(rom: RomFile, snesAddr: number, index: number = 0): number {
+  return rom.readWord(snesAddr + index) ?? 0
+}
 
-/**
- * `DATA_05CA61` (bank_05.asm:6255) — initial ScrollType for cmd $00/$01
- * setup (CODE_05BD36 line 4649). Indexed by Scroll{1,2}Bits.
- */
-export const DATA_05CA61: readonly number[] = [
-  0x01, 0x18, 0x1E, 0x29, 0x2D, 0x35, 0x47,
-]
+// ── Parallax / scroll-cmd table addresses (bank_05) ─────────────────────
 
-/**
- * `DATA_05CA68` (bank_05.asm:6258) — initial ScrollTimer for cmd $00/$01
- * setup (CODE_05BD36 line 4651). Indexed by Scroll{1,2}Bits.
- */
-export const DATA_05CA68: readonly number[] = [
-  0x16, 0x05, 0x0A, 0x03, 0x07, 0x11,
-]
+/** X-target table. The byte at `DATA_05CA6E` is the "previous" sentinel
+ *  ($09); subsequent bytes are the actual targets at `DATA_05CA6F`.
+ *  Read as a single combined table indexed by `Layer{N}ScrollType`. */
+export const ADDR_X_TARGETS = 0x05CA6E
+
+/** Y-target table. Sentinel byte at `DATA_05CABE` ($50) followed by
+ *  `DATA_05CABF` (80 Y targets). */
+export const ADDR_Y_TARGETS = 0x05CABE
+
+/** 80-byte divisor table indexed by `Layer{N}ScrollType` (CODE_05C04D). */
+export const ADDR_DATA_05CB0F = 0x05CB0F
+
+/** 28-byte (14 × 16-bit) speed-delta bias table for parallax tick. */
+export const ADDR_DATA_05CB5F = 0x05CB5F
+
+/** Initial ScrollType for cmd $00/$01 setup, indexed by Scroll{1,2}Bits. */
+export const ADDR_DATA_05CA61 = 0x05CA61
+
+/** Initial ScrollTimer for cmd $00/$01 setup, indexed by Scroll{1,2}Bits.
+ *  Reads with Y=6 spill into `DATA_05CA6E` ($09) — ROM reads handle
+ *  this automatically. */
+export const ADDR_DATA_05CA68 = 0x05CA68
+
+/** Initial ScrollType for cmd $08 setup. */
+export const ADDR_DATA_05CA46 = 0x05CA46
+
+/** Initial ScrollType for cmd $03 setup. */
+export const ADDR_DATA_05CA5C = 0x05CA5C
+
+/** Combined cmd $08 setup-step + per-frame-step table.
+ *  Word read at offset Y=bits*2 returns the step. */
+export const ADDR_DATA_05CBED = 0x05CBED
+
+/** Per-frame step for cmd $08 (= DATA_05CBED + 1). */
+export const ADDR_DATA_05CBEE = 0x05CBEE
+
+/** Speed-bias target for cmd $08/$03, indexed by Layer{N}ScrollType. */
+export const ADDR_DATA_05CBF1 = 0x05CBF1
+
+/** Speed-bias delta words for cmd $08/$03 (Y=0 → +1, Y=2 → -1). */
+export const ADDR_DATA_05CBC3 = 0x05CBC3
+
+/** Combined cmd $03 setup-step + per-frame-step table. */
+export const ADDR_DATA_05CBF5 = 0x05CBF5
+
+/** Per-frame step for cmd $03 (= DATA_05CBF5 + 1). */
+export const ADDR_DATA_05CBF6 = 0x05CBF6
+
+// ── Cmd $0C (auto-scroll level) ─────────────────────────────────────────
+
+/** Cmd $0C speed cap, indexed by `Layer1ScrollBits * 2` as a word. */
+export const ADDR_DATA_05C001 = 0x05C001
+
+// ── Cmd $0E (Layer 2 sink/rise) setup + per-frame ───────────────────────
+
+/** Cmd $0E setup: initial Layer1ScrollTimer, indexed by Layer1ScrollBits. */
+export const ADDR_DATA_05C808 = 0x05C808
+
+/** Cmd $0E setup: initial Layer2ScrollTimer, indexed by Layer1ScrollBits. */
+export const ADDR_DATA_05C80B = 0x05C80B
+
+/** Cmd $0E zone X-min table (6 × 16-bit). */
+export const ADDR_DATA_05C7F0 = 0x05C7F0
+
+/** Cmd $0E zone X-max table (6 × 16-bit). */
+export const ADDR_DATA_05C7FC = 0x05C7FC
+
+/** Cmd $0E sink/anchor Y target. Word reads at offset 0/2 spill into
+ *  the start of `DATA_05C810` — ROM reads handle this naturally. */
+export const ADDR_DATA_05C80E = 0x05C80E
+
+/** Cmd $0E speed-update target Y, indexed by Y. */
+export const ADDR_DATA_05C810 = 0x05C810
+
+/** Cmd $0E speed cap, indexed by Y. */
+export const ADDR_DATA_05C814 = 0x05C814
+
+/** Cmd $0E per-frame speed step (NTSC), indexed by Y. */
+export const ADDR_DATA_05C818 = 0x05C818
+
+// ── Cmd $0B (L2 On/Off Switch Y) ────────────────────────────────────────
+
+/** Y target positions indexed by On/Off switch state (X=0 or 2). */
+export const ADDR_DATA_05C71B = 0x05C71B
+
+/** Speed cap (signed magnitude) indexed by switch state. */
+export const ADDR_DATA_05C71F = 0x05C71F
+
+/** Per-frame speed step indexed by switch state. */
+export const ADDR_DATA_05C723 = 0x05C723
+
+// ── Cmd $02 (Layer 2 Smash) ─────────────────────────────────────────────
+
+/** Smash-zone X minimum bounds. 36 bytes = 18 × 16-bit zone-min words. */
+export const ADDR_DATA_05C880 = 0x05C880
+
+/** Smash-zone X maximum bounds. 36 bytes = 18 × 16-bit zone-max words. */
+export const ADDR_DATA_05C8A4 = 0x05C8A4
+
+/** Smash Y-target table. Word read indexed by `(l1type + l2type)`. */
+export const ADDR_DATA_05C8C8 = 0x05C8C8
+
+/** Smash Y-EOR mask. Word read indexed by `(l1type + l2type)`. */
+export const ADDR_DATA_05C8FE = 0x05C8FE
+
+/** Smash timer-reset table (NTSC). Byte read indexed by
+ *  `(l1type + l2type) >> 1`. PAL has different values at the address
+ *  in PAL ROMs, so this points at whatever the open ROM has there. */
+export const ADDR_DATA_05C934 = 0x05C934

@@ -9,31 +9,15 @@ import { buildScrollSimulator } from '../scrollSim'
 import { L3TilemapLayer, type L3Layer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
 import { CompositeSprite } from './sprites/CompositeSprite'
-import {
-  StaticSpriteAppearance,
-  type SpritePart,
-} from './sprites/appearances/StaticSpriteAppearance'
-import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
+import { type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
+import { buildSpriteAppearance } from './sprites/appearances/AppearanceFactory'
 import { RipVanFishAppearance } from './sprites/appearances/RipVanFishAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
-import { ThwimpAppearance } from './sprites/appearances/ThwimpAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
 import { HammerBroAppearance } from './sprites/appearances/HammerBroAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppearance'
-import { CheepCheepAppearance } from './sprites/appearances/CheepCheepAppearance'
-import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppearance'
-import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearance'
-import { JumpingPiranhaAppearance } from './sprites/appearances/JumpingPiranhaAppearance'
-import { MontyMoleAppearance } from './sprites/appearances/MontyMoleAppearance'
-import { BlurpAppearance } from './sprites/appearances/BlurpAppearance'
-import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
-import { DryBonesAppearance } from './sprites/appearances/DryBonesAppearance'
-import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
-import { SumoBrotherAppearance } from './sprites/appearances/SumoBrotherAppearance'
-import { BallAndChainAppearance } from './sprites/appearances/BallAndChainAppearance'
-import { CarrotTopLiftAppearance } from './sprites/appearances/CarrotTopLiftAppearance'
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
 import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
 import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
@@ -82,7 +66,7 @@ import { VineSourceBehavior } from './tiles/behaviors/VineSourceBehavior'
  * `kind`-switch site in the webview: past the rehydrator, everything
  * is polymorphic `Char` / `Tile` / `Color` / `Palette` / `SmwMap`.
  */
-export function buildGraph(payload: MapPayload): {
+export function buildGraph(payload: MapPayload, rom: import('../RomFile').RomFile | null = null): {
   map: SmwMap
   chars: Map<number, Char>
   tiles: Map<number, Tile>
@@ -122,12 +106,18 @@ export function buildGraph(payload: MapPayload): {
   const sprites = payload.sprites.map(s => buildSprite(s, chars, placeholderChar))
 
   const screenPipeVariantIdx = [...payload.screenPipeVariantIdx]
-  // Rebuild the scroll simulator from the seed shipped in the payload.
-  // Same `buildScrollSimulator` both sides of the postMessage boundary,
-  // same `scrollData.ts` constants — output is deterministic and
-  // bit-for-bit identical to the extension-host instance.
-  const scrollSimulator = payload.scrollSim
-    ? buildScrollSimulator(null as never, payload.scrollSim)
+  // Scroll simulator: rebuilt from the seed shipped in the payload.
+  // Every scroll handler reads data tables from the open ROM (no
+  // hardcoded JS constants — issue: ROM-editor invariant), so this
+  // requires a `RomFile` to be reachable on whichever side we're on:
+  //   - Host (MapBuilder): passes the live `RomFile` directly.
+  //   - Webview (this path): the host posts the ROM bytes alongside
+  //     `modelPayload`; the message handler builds a `RomFile` from
+  //     them and passes it here.
+  // When `rom` is null and a seed is present (legacy callers / tests),
+  // skip the simulator — the L2 layer falls back to its static path.
+  const scrollSimulator = (rom !== null && payload.scrollSim)
+    ? buildScrollSimulator(rom, payload.scrollSim)
     : null
   const mapStore = createMapStore({
     palette,
@@ -201,27 +191,12 @@ function buildAppearance(
     }))
 
   switch (desc.kind) {
-    case 'static': {
-      const parts = buildParts(desc.parts)
-      // Dispatch to overlay-capable subclasses based on sprite id.
-      if (spriteId === 0x15) return new CheepCheepAppearance(parts, false)
-      if (spriteId === 0x16) return new CheepCheepAppearance(parts, true)
-      if (spriteId === 0x18) return new JumpingFishAppearance(parts)
-      if (spriteId === 0x4D || spriteId === 0x4E) return new MontyMoleAppearance(parts)
-      if (spriteId === 0x4F) return new JumpingPiranhaAppearance(parts)
-      if (spriteId === 0x47) return new SwimJumpFishAppearance(parts)
-      if (spriteId === 0x1D) return new HopFlameAppearance(parts)
-      if (spriteId === 0x27) return new ThwimpAppearance(parts)
-      if (spriteId === 0xC2) return new BlurpAppearance(parts)
-      if (spriteId === 0xB7 || spriteId === 0xB8) return new CarrotTopLiftAppearance(parts, spriteId as 0xB7 | 0xB8)
-      if (spriteId <= 0x07 || spriteId === 0x0F) return new KoopaAppearance(parts)
-      if (spriteId === 0x30 || spriteId === 0x32) return new DryBonesAppearance(parts)
-      if (spriteId === 0x9A) return new SumoBrotherAppearance(parts)
-      if (spriteId === 0x9E) return BallAndChainAppearance.fromParts(parts)
-      return new StaticSpriteAppearance(parts)
-    }
-    case 'pSwitch':
-      return new PSwitchAppearance(buildParts(desc.parts))
+    case 'static':
+      // All "pure-parts" appearances (incl. PSwitch, CheepCheep variants,
+      // KoopaAppearance, etc.) come back through `buildSpriteAppearance`
+      // — the single source of truth for spriteId → subclass mapping
+      // shared by SpriteFactory (host) and rehydrate (webview).
+      return buildSpriteAppearance(spriteId, buildParts(desc.parts))
     case 'thwomp':
       return new ThwompAppearance(
         buildParts(desc.bodyParts),

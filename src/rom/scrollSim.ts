@@ -37,7 +37,14 @@
 import type { RomFile } from './RomFile'
 import { applyNext } from './scroll/applyNext'
 import { cmd01L1, cmd01L2 } from './scroll/cmd01'
-import { parallaxTick } from './scroll/parallaxCore'
+import { cmd02L2 } from './scroll/cmd02'
+import { cmd03 } from './scroll/cmd03'
+import { cmd08 } from './scroll/cmd08'
+import { cmd09L2 } from './scroll/cmd09'
+import { cmd0bL2 } from './scroll/cmd0b'
+import { cmd0cL1 } from './scroll/cmd0c'
+import { cmd0eL2 } from './scroll/cmd0e'
+import { applyParallaxDerivation, computeBackgroundVertOffset } from './scroll/parallaxDerivation'
 import { applyCmdSetup } from './scroll/setup'
 
 // ── ScrollState ──────────────────────────────────────────────────────────
@@ -109,6 +116,41 @@ export interface ScrollState {
   // full state without needing a separate per-level descriptor.
   horizLayer2Setting: number
   vertLayer2Setting:  number
+
+  /**
+   * `BackgroundVertOffset` ($7E:1A). Calibrated ONCE at level entry
+   * (`bank_00.asm:5095-5112`) so the per-frame parallax derivation
+   * reproduces the seeded `Layer2YPos` from the seeded `Layer1YPos`.
+   * Constant across frames for a given level. Stored signed-by-wrap16.
+   */
+  backgroundVertOffset: number
+
+  /**
+   * `OnOffSwitch` ($7E:14B8). CMD $0B (CODE_05C727) reads this to pick
+   * the scroll direction: 0 → moving toward DATA_05C71B[0] (Y=$0020),
+   * non-zero → moving toward DATA_05C71B[2] (Y=$00C1). Set to 0 when
+   * the "off" target is reached; toggled by On/Off switch blocks in
+   * the level. The webview surfaces a checkbox so users can simulate
+   * the toggle.
+   */
+  onOffSwitch: number
+
+  /**
+   * `Layer2Touched` ($7E:1471). CMD $0E (CODE_05C81C) gates its
+   * speed/move path on `Layer1ScrollType OR Layer2Touched`. Set when
+   * Mario stands on a Layer 2 platform tile. The webview surfaces a
+   * checkbox so users can simulate the touch.
+   */
+  layer2Touched: number
+
+  /**
+   * `LastScreenHoriz` ($7E:0117). Per-level constant set at level entry
+   * from the level header. Cmd $0C (CODE_05C787, auto-scroll level)
+   * compares NextLayer1XPos to `(LastScreenHoriz - 1) << 8` to detect
+   * the camera reaching the last screen, at which point the auto-scroll
+   * speed is forced to 0.
+   */
+  lastScreenHoriz: number
 }
 
 /** A simulator built for one level. Pure / deterministic. */
@@ -156,6 +198,22 @@ export interface ScrollSimSeed {
    *  for the level once loaded; passed through to `parallaxTick` to
    *  decide which axis's sign feeds `Layer1ScrollDir`. */
   screenMode: number
+  /** Optional: `LastScreenHoriz` ($7E:0117) for cmd $0C auto-scroll
+   *  end-of-level stop. Default high value ($1F) means cmd $0C never
+   *  triggers the stop in levels that don't carry this in their seed. */
+  lastScreenHoriz?: number
+  /** Optional: initial `OnOffSwitch` ($7E:14B8) state. Defaults to 0
+   *  (switch "off"). cmd $0B (L2 On/Off Switch Y-scroll) reads this
+   *  to pick the active scroll target — Y=$20 when 0, Y=$C1 when 2.
+   *  The webview surfaces a checkbox for this so users can simulate
+   *  Mario hitting an On/Off switch block in-game. */
+  onOffSwitch?: number
+  /** Optional: initial `Layer2Touched` ($7E:1471) state. Defaults to
+   *  0 (Mario not on L2). cmd $0E (L2 sink/rise) gates its speed/move
+   *  path on `Layer1ScrollType OR Layer2Touched`. The webview
+   *  surfaces a checkbox for this so users can simulate Mario
+   *  standing on an L2 platform. */
+  layer2Touched?: number
 }
 
 function makeInitialState(seed: ScrollSimSeed): ScrollState {
@@ -194,6 +252,14 @@ function makeInitialState(seed: ScrollSimSeed): ScrollState {
     screenShakeYOffset: 0,
     horizLayer2Setting: wrap8(seed.horizLayer2Setting),
     vertLayer2Setting:  wrap8(seed.vertLayer2Setting),
+    onOffSwitch:   wrap8(seed.onOffSwitch ?? 0),
+    layer2Touched: wrap8(seed.layer2Touched ?? 0),
+    lastScreenHoriz: wrap8(seed.lastScreenHoriz ?? 0x1F),
+    backgroundVertOffset: computeBackgroundVertOffset(
+      wrap16(seed.layer1YPos),
+      wrap16(seed.layer2YPos),
+      wrap8(seed.vertLayer2Setting),
+    ),
   }
 }
 
@@ -209,11 +275,14 @@ function makeInitialState(seed: ScrollSimSeed): ScrollState {
 
 type CmdStrategy = (s: ScrollState, rom: RomFile, screenMode: number) => ScrollState
 
-/** Cmd $00: direct parallax tick on the strategy's layer. */
-const cmd00L1: CmdStrategy = (s, _r, sm) => parallaxTick(s, 'l1', sm)
-const cmd00L2: CmdStrategy = (s, _r, sm) => parallaxTick(s, 'l2', sm)
+/**
+ * Per-frame strategy for each Layer/Cmd combination. The dispatcher
+ * (`scrollSim.tick`) sets `scrollLayerIndex` to 0 (L1) or 4 (L2) before
+ * invoking, and the BEQ guards mirror `CODE_05BC76` line 4523 (L1) and
+ * `CODE_05BCA5` line 4546 (L2): a cmd of zero never reaches dispatch.
+ */
 
-/** Cmd $07 / $09 — explicit no-op routines (Return05BD35 / Return05BC49). */
+/** Cmd $07 — explicit no-op routine (`Return05BFF5`). */
 const cmdNoop: CmdStrategy = (s) => s
 
 /** Fallback for cmds we haven't decoded yet. Returns state unchanged so
@@ -233,23 +302,41 @@ const cmdHold: CmdStrategy = (s) => {
 const loggedHold = new Set<number>()
 
 /**
- * L1 cmd → strategy. Indexed by `layer1ScrollCmd`. Phase 2 covers the
- * cmds exercised by `$009` (cmd $01 = sprite $E8). Other cmds fall
- * through to `cmdHold` until ported.
+ * L1 cmd → strategy. Indexed by `layer1ScrollCmd`. cmd $00 is OMITTED:
+ * the SNES `BEQ Return05BC49` guard at `CODE_05BC76:4523` ensures cmd
+ * $00 never dispatches per-frame, so an L1 strategy for cmd $00 would
+ * be unreachable (and was actively wrong before — calling parallaxTick
+ * on a layer with timer=0 is a no-op only by accident).
  */
 const L1_STRATEGIES: Record<number, CmdStrategy> = {
-  0x00: cmd00L1,
-  0x01: (s, _r, sm) => cmd01L1(s, sm),
+  0x01: (s, r, sm) => cmd01L1(s, r, sm),
   0x07: cmdNoop,
-  0x09: cmdNoop,
+  0x08: (s, r, sm) => cmd08(s, r, 'l1', sm),
+  0x0C: (s, r) => cmd0cL1(s, r),
 }
 
-/** L2 cmd → strategy. Same shape as L1. */
+/**
+ * L2 cmd → strategy. Same shape as L1. cmd $00 is omitted for the same
+ * BEQ-guard reason (`CODE_05BCA5:4546`). cmd $05 dispatches to
+ * `Return05BC49` (no-op) per the ASM table at line 4556.
+ *
+ * cmd $0D dispatches to `CODE_05C7BC` which is `LDA BGFastScrollActive
+ * / BEQ skip` then falls into `CODE_05C7C1` (cmd $09). We treat
+ * `BGFastScrollActive` as always set, so cmd $0D becomes a thin
+ * wrapper around `cmd09L2`. Levels that toggle the flag dynamically
+ * may diverge.
+ */
 const L2_STRATEGIES: Record<number, CmdStrategy> = {
-  0x00: cmd00L2,
-  0x01: (s, _r, sm) => cmd01L2(s, sm),
+  0x01: (s, r, sm) => cmd01L2(s, r, sm),
+  0x02: (s, r) => cmd02L2(s, r),
+  0x03: (s, r, sm) => cmd03(s, r, 'l2', sm),
+  0x05: cmdNoop,
   0x07: cmdNoop,
-  0x09: cmdNoop,
+  0x08: (s, r, sm) => cmd08(s, r, 'l2', sm),
+  0x09: (s) => cmd09L2(s),
+  0x0B: (s, r) => cmd0bL2(s, r),
+  0x0D: (s) => cmd09L2(s),
+  0x0E: (s, r) => cmd0eL2(s, r),
 }
 
 // ── Simulator factory ────────────────────────────────────────────────────
@@ -270,7 +357,7 @@ export function buildScrollSimulator(
   // Run the cmd setup routine once at level entry. Mirrors the
   // sprite-$E7..$F5 spawn → CODE_05BCE9 → cmd-specific setup chain.
   // For cmds we haven't ported a setup for, this is a pass-through.
-  const initial = applyCmdSetup(makeInitialState(seed))
+  const initial = applyCmdSetup(makeInitialState(seed), rom)
   const cache: ScrollState[] = [initial]
 
   const screenMode = seed.screenMode
@@ -295,16 +382,47 @@ export function buildScrollSimulator(
    * That's how the capture rows decode.
    */
   const tick: ScrollSimulator['tick'] = (s) => {
-    // 1. Commit previous frame's Next* targets to current Layer*.
+    // 1. Implicit PPU commit: previous frame's Next* → Layer*. Models
+    //    the BG{1,2}{H,V}OFS register transfer that happens between
+    //    frames before bank_00 / bank_05 logic runs.
     let s2 = applyNext(s)
-    // 2. ProcScreenScrollCmds: L1 first, L2 second. ScrollLayerIndex
-    //    is observable but not consumed by the cmd $00/$01 handlers
-    //    (they pass `layer` explicitly to parallaxTick), so we set it
-    //    purely for accurate state shape.
+    // 2. bank_00 `UpdateScreenPosition` parallax derivation +
+    //    8-byte Layer→Next copy (CODE_00F79D / CODE_00F7AA, see
+    //    `parallaxDerivation.ts`). Re-derives Layer2*Pos from
+    //    Layer1*Pos based on the level's parallax-rate bytes, then
+    //    propagates Layer* → Next*. This is what makes the L2 plane
+    //    scroll at the per-level rate even when its cmd handler is
+    //    BEQ'd out (l2cmd=0).
+    s2 = applyParallaxDerivation(s2)
+    // 2b. Approximate Mario-X camera advancement for cmds whose
+    //     per-frame logic is conditional on `NextLayer2XPos` (cmd $02
+    //     Layer 2 Smash zone-detection loop). Vanilla SMW advances
+    //     the camera via bank_00's UpdateScreenPosition Mario-tracking
+    //     branch (lines 13658-13691: CameraMoveTrigger / CameraLeft-
+    //     /RightBuffer / CODE_00F8AB direction-aware adjustment). A
+    //     full port needs Mario's gameplay-driven `PlayerXPosNext` +
+    //     subpixel speed model. As an editor-grade approximation we
+    //     advance NextLayer1XPos at +1 px/frame (Mario's nominal walk
+    //     speed) only for cmds that read camera-X — currently just
+    //     cmd $02. Result: smash zones in `DATA_05C880`/`05C8A4` fire
+    //     in their natural sequence as the camera marches forward,
+    //     so `$111` / `$01A` / `$1CF` show progressive smash behavior
+    //     past the intro frame instead of locking at spawn.
+    if (s2.layer2ScrollCmd === 0x02) {
+      s2 = { ...s2, nextLayer1XPos: wrap16(s2.nextLayer1XPos + 1) }
+    }
+    // 3. ProcScreenScrollCmds (CODE_05BC76 + CODE_05BCA5). Each
+    //    dispatch has a BEQ guard for cmd=0 so unhandled layers get
+    //    skipped entirely (their Next* stays at the parallax-derived
+    //    value from step 2).
     s2 = { ...s2, scrollLayerIndex: 0 }
-    s2 = (L1_STRATEGIES[s2.layer1ScrollCmd] ?? cmdHold)(s2, rom, screenMode)
+    if (s2.layer1ScrollCmd !== 0) {
+      s2 = (L1_STRATEGIES[s2.layer1ScrollCmd] ?? cmdHold)(s2, rom, screenMode)
+    }
     s2 = { ...s2, scrollLayerIndex: 4 }
-    s2 = (L2_STRATEGIES[s2.layer2ScrollCmd] ?? cmdHold)(s2, rom, screenMode)
+    if (s2.layer2ScrollCmd !== 0) {
+      s2 = (L2_STRATEGIES[s2.layer2ScrollCmd] ?? cmdHold)(s2, rom, screenMode)
+    }
     return { ...s2, frame: s.frame + 1 }
   }
 

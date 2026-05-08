@@ -27,6 +27,7 @@
 import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
 import { buildScrollSimulator, type ScrollState } from '../../../src/rom/scrollSim'
+import { loadVanillaRom , vanillaRomPresent } from './scrollSim_capture'
 
 const CSV = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps/009/l2_scroll.csv'
 
@@ -105,7 +106,7 @@ function firstMismatch(s: ScrollState, r: CaptureRow): string | null {
   return null
 }
 
-describe('scrollSim — $009 capture validation (cmd $01 sprite $E8)', () => {
+describe.skipIf(!vanillaRomPresent)('scrollSim — $009 capture validation (cmd $01 sprite $E8)', () => {
   it('frame 1 matches the capture after one tick', () => {
     if (!fs.existsSync(CSV)) {
       console.warn(`[skip] ${CSV} not found — run l2_dump.lua against $009 first`)
@@ -119,7 +120,7 @@ describe('scrollSim — $009 capture validation (cmd $01 sprite $E8)', () => {
     //   - table init: l1y=l2y=$C0 (DATA_05D708/D70C[2])
     //   - x positions: 0
     //   - l1type/timer / l2type/timer: 0 (cleared by cmd $01 setup)
-    const sim = buildScrollSimulator(null as never, {
+    const sim = buildScrollSimulator(loadVanillaRom(), {
       layer1XPos: 0, layer1YPos: 0xC0,
       layer2XPos: 0, layer2YPos: 0xC0,
       layer1ScrollCmd: 0x01, layer2ScrollCmd: 0x01,
@@ -151,7 +152,7 @@ describe('scrollSim — $009 capture validation (cmd $01 sprite $E8)', () => {
     // refactor that breaks frame-perfect parity will fail this test.
     if (!fs.existsSync(CSV)) return
     const cap = loadCapture()
-    const sim = buildScrollSimulator(null as never, {
+    const sim = buildScrollSimulator(loadVanillaRom(), {
       layer1XPos: 0, layer1YPos: 0xC0,
       layer2XPos: 0, layer2YPos: 0xC0,
       layer1ScrollCmd: 0x01, layer2ScrollCmd: 0x01,
