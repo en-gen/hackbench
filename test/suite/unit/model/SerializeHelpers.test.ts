@@ -315,11 +315,16 @@ describe('serializeAppearance — HammerBroAppearance → kind=hammerBro', () =>
   })
 })
 
-describe('serializeAppearance — PSwitchAppearance → kind=pSwitch', () => {
-  it('serializes correctly', () => {
+describe('serializeAppearance — PSwitchAppearance → kind=static (issue #293)', () => {
+  it('serializes through the StaticSpriteAppearance branch', () => {
+    // PSwitchAppearance now extends StaticSpriteAppearance; the payload
+    // ships `{kind: 'static', parts}` and the webview's
+    // `buildSpriteAppearance(spriteId=0x3E, parts)` reconstructs the
+    // PSwitchAppearance class. Single-registration replaces the old
+    // `pSwitch` kind branch.
     const app = new PSwitchAppearance(NO_PARTS)
     const d = serializeSprite(makeSprite(app))
-    expect(d.appearance.kind).toBe('pSwitch')
+    expect(d.appearance.kind).toBe('static')
   })
 })
 

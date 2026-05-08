@@ -382,8 +382,8 @@ describe("buildSprite appearance kind='static' — spriteId sub-dispatch", () =>
 // ── buildSprite — named appearance kinds ──────────────────────────────────────
 
 describe('buildSprite — named appearance kinds', () => {
-  it("'pSwitch' → PSwitchAppearance", () => {
-    const app = { kind: 'pSwitch', parts: PARTS }
+  it("'static' + spriteId=$3E → PSwitchAppearance via AppearanceFactory (issue #293)", () => {
+    const app = { kind: 'static', parts: PARTS }
     expect(buildSprite(sd(0x3E, app), EMPTY_CHARS, PLACEHOLDER)).toBeInstanceOf(Sprite)
   })
 

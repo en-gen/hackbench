@@ -307,18 +307,46 @@ describe('editorStore.setScrollProgress', () => {
   })
 })
 
-// ── setScrollPlaybackFrame ────────────────────────────────────────────────────
+// ── per-layer scroll frames ────────────────────────────────────────────────
 
-describe('editorStore.setScrollPlaybackFrame', () => {
-  it('no-change: already -1 (default) → no mutation', () => {
+describe('editorStore.setFrameL{1,2,3} + setAllFrames + scrollFramesLinked', () => {
+  it('default: all frames at -1 (no playback) and frames linked', () => {
     const s = createEditorStore()
-    s.setScrollPlaybackFrame(-1)
-    expect(s.scrollPlaybackFrame).toBe(-1)
+    expect(s.frameL1).toBe(-1)
+    expect(s.frameL2).toBe(-1)
+    expect(s.frameL3).toBe(-1)
+    expect(s.scrollFramesLinked).toBe(true)
   })
 
-  it('change: -1 → 10', () => {
+  it('setFrameL1 only mutates L1 (independent in unlinked use)', () => {
     const s = createEditorStore()
-    s.setScrollPlaybackFrame(10)
-    expect(s.scrollPlaybackFrame).toBe(10)
+    s.setFrameL1(10)
+    expect(s.frameL1).toBe(10)
+    expect(s.frameL2).toBe(-1)
+    expect(s.frameL3).toBe(-1)
+  })
+
+  it('setFrameL2 only mutates L2 (independent in unlinked use)', () => {
+    const s = createEditorStore()
+    s.setFrameL2(20)
+    expect(s.frameL2).toBe(20)
+    expect(s.frameL1).toBe(-1)
+    expect(s.frameL3).toBe(-1)
+  })
+
+  it('setAllFrames mirrors to all three (linked playback / link toggle on)', () => {
+    const s = createEditorStore()
+    s.setAllFrames(42)
+    expect(s.frameL1).toBe(42)
+    expect(s.frameL2).toBe(42)
+    expect(s.frameL3).toBe(42)
+  })
+
+  it('setScrollFramesLinked toggles flag', () => {
+    const s = createEditorStore()
+    s.setScrollFramesLinked(false)
+    expect(s.scrollFramesLinked).toBe(false)
+    s.setScrollFramesLinked(true)
+    expect(s.scrollFramesLinked).toBe(true)
   })
 })

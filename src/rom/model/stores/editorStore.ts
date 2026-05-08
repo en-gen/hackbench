@@ -46,14 +46,29 @@ interface EditorStoreState {
    */
   scrollProgress: number
   /**
-   * Index into the level's `scrollPath` sample array driving the
-   * auto-scroll playback overlay. The Scroll tab's Play button advances
-   * this at game speed × the playback-speed multiplier; the moving
-   * camera-viewport bounding box reads from
-   * `mapData.header.scrollPath[scrollPlaybackFrame]`. -1 = not
-   * playing / no overlay rect drawn.
+   * Per-layer scroll-path frame index. Each layer (L1, L2, L3) has its
+   * own slider/playback frame; layer rendering uses its OWN frame to
+   * compute the layer's viewport offset via
+   * `mapStore.scrollSimulator.stateAtFrame(frameLN)`. -1 = no path /
+   * not playing (layer renders at its level-entry default).
+   *
+   * For the editor's L2 plane shift, `L2ObjectStream.render` reads
+   * `frameL2` and computes `(dx, dy) = layer1{X,Y}Pos − layer2{X,Y}Pos`
+   * at that frame — so scrubbing the L2 slider alone moves L2
+   * independently of L1 (and vice versa). The Link button keeps all
+   * three frames in lock-step when ON.
    */
-  scrollPlaybackFrame: number
+  frameL1: number
+  frameL2: number
+  frameL3: number
+  /**
+   * Link toggle for the three layer frame sliders. When ON, setting
+   * any one frame mirrors to the other two so all three layers
+   * advance together (the natural view of the SNES at a single point
+   * in time). Default ON. Webview slider input handlers consult this
+   * to decide whether to mirror or update only the scrubbed layer.
+   */
+  scrollFramesLinked: boolean
 }
 
 interface EditorStoreActions {
@@ -73,7 +88,13 @@ interface EditorStoreActions {
   setCursorPx(pos: { x: number; y: number } | null): void
   setL2YOverride(y: number | null): void
   setScrollProgress(p: number): void
-  setScrollPlaybackFrame(idx: number): void
+  setFrameL1(idx: number): void
+  setFrameL2(idx: number): void
+  setFrameL3(idx: number): void
+  /** Set all three frames at once — used by the playback engine and
+   *  by the Link-on-mirroring slider input handlers. */
+  setAllFrames(idx: number): void
+  setScrollFramesLinked(on: boolean): void
 }
 
 export type EditorStore = EditorStoreState & EditorStoreActions
@@ -98,7 +119,10 @@ export function createEditorStore(): EditorStore {
     cursorPx: null,
     l2YOverride: null,
     scrollProgress: 0,
-    scrollPlaybackFrame: -1,
+    frameL1: -1,
+    frameL2: -1,
+    frameL3: -1,
+    scrollFramesLinked: true,
   })
 
   const actions: EditorStoreActions = {
@@ -188,9 +212,26 @@ export function createEditorStore(): EditorStore {
       const next = Math.max(0, Math.min(0xFF, p | 0))
       if (s.scrollProgress !== next) s.scrollProgress = next
     },
-    setScrollPlaybackFrame(idx) {
+    setFrameL1(idx) {
       const next = idx | 0
-      if (s.scrollPlaybackFrame !== next) s.scrollPlaybackFrame = next
+      if (s.frameL1 !== next) s.frameL1 = next
+    },
+    setFrameL2(idx) {
+      const next = idx | 0
+      if (s.frameL2 !== next) s.frameL2 = next
+    },
+    setFrameL3(idx) {
+      const next = idx | 0
+      if (s.frameL3 !== next) s.frameL3 = next
+    },
+    setAllFrames(idx) {
+      const next = idx | 0
+      if (s.frameL1 !== next) s.frameL1 = next
+      if (s.frameL2 !== next) s.frameL2 = next
+      if (s.frameL3 !== next) s.frameL3 = next
+    },
+    setScrollFramesLinked(on) {
+      if (s.scrollFramesLinked !== on) s.scrollFramesLinked = on
     },
   }
 

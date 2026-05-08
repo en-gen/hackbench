@@ -13,7 +13,6 @@ import { buildSpc } from '../rom/SpcBuilder'
 import { expandMap } from '../rom/ObjectExpander'
 import { readL2Pointer, isPresetPtr, loadL2Preset, loadL2Objects, readInitialLayer2YPos, findLevelScrollSprite, findLevelScrollSpriteFull, readL2ScrollBounds, L2_TILEMAP_COLS, L2_TILEMAP_ROWS, L1_SCREEN_W, L1_SCREEN_H } from '../rom/L2Loader'
 import { simulateScrollSetup } from '../rom/scrollDispatch'
-import { buildScrollSimulator, computeColumnDyRanges, computeLayer2YRange, sampleViewportPath, type ViewportSample } from '../rom/scrollSim'
 import { buildMapPayload } from '../rom/model/MapBuilder'
 
 /**
@@ -257,21 +256,17 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       const layer2ScrollBounds = readL2ScrollBounds(rom.rom, layer2ScrollCmd)
 
       // Walk the per-frame scroll simulator (when the level has a scroll
-      // sprite) to derive the actual `Layer2YPos` extremes the cmd's
-      // parallax handlers reach. This is the AUTHORITATIVE slider range
-      // — readL2ScrollBounds above only covers cmd $0B, while the
-      // simulator covers any cmd we've ported (currently $00, $01).
-      // Falls back to null for unported cmds; webview re-fetches via
-      // the model payload's `l2.layer2YRange` field for those.
-      let layer2YRange:   { min: number; max: number } | null = null
-      let columnDyRanges: { min: number; max: number }[] | null = null
-      let scrollPath:     ViewportSample[] | null = null
+      // Scroll-sim seed: the host's job is to *identify* the scroll
+      // sprite + run the cmd-byte remap. Computing the per-frame
+      // scroll path / layer2YRange / column-dy ranges is the
+      // webview's job now (it has the same simulator + ROM bytes
+      // from the message). Keeps host work to "pure data" and
+      // moves visualization-derived state to the rendering layer.
+      let scrollSimSeed: import('../rom/scrollSim').ScrollSimSeed | null = null
       if (scrollSpriteFull) {
         const setupState = simulateScrollSetup(rom.rom, scrollSpriteFull.spriteId, scrollSpriteFull.b0)
         if (setupState) {
-          const cols = isVertical ? 1 : (header.levelLength)
-          const levelPixelW = cols * 16 * 16   // 16 cols/screen × 16 px/col
-          const sim = buildScrollSimulator(rom.rom, {
+          scrollSimSeed = {
             layer1XPos: 0,
             layer1YPos: initialCameraYPx,
             layer2XPos: 0,
@@ -280,30 +275,15 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
             layer2ScrollCmd:  setupState.layer2ScrollCmd,
             layer1ScrollBits: setupState.layer1ScrollBits,
             layer2ScrollBits: setupState.layer2ScrollBits,
-            horizLayer2Setting: rom.rom.readByte(0x05D710 + ((rom.rom.readByte(0x05F000 + index) ?? 0) >> 4 & 0x0F)) ?? 0,
-            vertLayer2Setting:  rom.rom.readByte(0x05D720 + ((rom.rom.readByte(0x05F000 + index) ?? 0) >> 4 & 0x0F)) ?? 0,
+            horizLayer2Setting,
+            vertLayer2Setting,
+            // Mario spawn isn't read at this code site (legacy load
+            // payload). The model payload's MapBuilder seeds it from
+            // the parsed L1 header — webview overrides if needed.
             marioSpawnX: 0,
             marioSpawnY: 0,
             screenMode:  header.levelMode,
-          })
-          const r = computeLayer2YRange(sim, levelPixelW)
-          if (r.max > r.min) layer2YRange = r
-          // Per-column dy ranges drive the slider's viewport-progress
-          // semantics. Each column's range is the (L1Y − L2Y) extremes
-          // experienced WHILE that column was inside the camera
-          // viewport during gameplay.
-          const cdr = computeColumnDyRanges(sim, levelPixelW)
-          // Only ship if at least one column has a non-zero range —
-          // otherwise the simulator is producing no motion and the
-          // slider should fall back to the legacy raw-Layer2YPos mode.
-          // Never-visited columns (null) are mapped to {0,0} for the
-          // overlay — they carry no motion data.
-          if (cdr.some(c => c !== null && c.max > c.min))
-            columnDyRanges = cdr.map(c => c ?? { min: 0, max: 0 })
-          // Sample the camera viewport trajectory every 8 frames for
-          // the "Scroll path" overlay. 8 px-of-progress per sample
-          // gives a smooth polyline without bloating the payload.
-          scrollPath = sampleViewportPath(sim, levelPixelW, 8)
+          }
         }
       }
 
@@ -347,8 +327,16 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       // legacy load payload only needs the timer's frameCount / intervalMs.
       const palAnimRaw = session?.getPaletteAnim('level') ?? loadPaletteAnimData(rom.rom, 'level')
       const palAnimSerialized = palAnimRaw ? serializePaletteAnimData(palAnimRaw) : null
+      // ROM bytes: shipped once per load message so the webview can
+      // (a) reconstruct a `RomFile` for `buildScrollSimulator` (every
+      // scroll handler reads data tables directly from ROM), and
+      // (b) derive scrollPath / layer2YRange / columnDyRanges from
+      // its own simulator. Single transfer; the modelPayload reuses
+      // it via the cached webview-side rom rather than re-shipping.
+      const romBytesForWebview = new Uint8Array(rom.rom.buffer)
       webview.postMessage({
         type: 'load',
+        romBytes: romBytesForWebview,
         _initial:          overrides._initial !== false,
         allBgmTracks,
         currentBgmCommand,
@@ -396,7 +384,11 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         // Layer 2 slider switches from raw `Layer2YPos` scrubbing to
         // SCROLL FRAME scrubbing (the model rebuilds a `ScrollSimulator`
         // and `L2ObjectStream.render` reads `mapStore.scrollSimulator`).
-        scrollSim: layer1ScrollCmd !== null ? true : null,
+        // Scroll-sim seed (when a scroll sprite is present on this
+        // level). Webview rebuilds the simulator from this + the ROM
+        // bytes shipped below, then derives layer2YRange / scrollPath
+        // / columnDyRanges itself. `null` for non-scroll-sprite levels.
+        scrollSim: scrollSimSeed,
         header: {
           music:          musicEff,
           spriteSet:      spriteTileset,
@@ -413,9 +405,11 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
           layer1ScrollCmd,
           layer2ScrollCmd,
           layer2ScrollBounds,
-          layer2YRange,
-          columnDyRanges,
-          scrollPath,
+          // layer2YRange / columnDyRanges / scrollPath used to be
+          // pre-computed here. Moved to webview load handler — see
+          // `deriveScrollData()`. Host now ships only the seed, and
+          // the visualization layer derives from the simulator it
+          // already owns. Issue: "host = data, webview = view".
           // Header-bit fields surfaced for the Level Settings panel. Each
           // honors a render override from the rerender pipeline (Plan A); the
           // override is purely UI-state today and gets persisted as a real
@@ -451,6 +445,10 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
           objectTileset,
           marioVariant,
         })
+        // ROM bytes for the modelPayload's simulator are shipped in
+        // the 'load' message above (one transfer per level load).
+        // The webview caches them in `cachedRom` and pulls from
+        // there during rehydrate.
         webview.postMessage({ type: 'modelPayload', payload: modelPayload })
       } catch (modelErr) {
         // Non-fatal: legacy render keeps working if the model build trips.

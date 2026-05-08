@@ -9,8 +9,7 @@ import { makeTransparentPlaceholderChar } from './tiles/TileFactory'
 import { Sprite } from './sprites/Sprite'
 import { CompositeSprite } from './sprites/CompositeSprite'
 import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
-import { PSwitchAppearance } from './sprites/appearances/PSwitchAppearance'
-import { BlurpAppearance } from './sprites/appearances/BlurpAppearance'
+import { buildSpriteAppearance } from './sprites/appearances/AppearanceFactory'
 import { RipVanFishAppearance } from './sprites/appearances/RipVanFishAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { ThwimpAppearance } from './sprites/appearances/ThwimpAppearance'
@@ -20,16 +19,10 @@ import { BanzaiBillAppearance } from './sprites/appearances/BanzaiBillAppearance
 import { HammerBroAppearance } from './sprites/appearances/HammerBroAppearance'
 import { HammerBroPlatformAppearance } from './sprites/appearances/HammerBroPlatformAppearance'
 import { VolcanoLotusAppearance } from './sprites/appearances/VolcanoLotusAppearance'
-import { CheepCheepAppearance } from './sprites/appearances/CheepCheepAppearance'
-import { JumpingFishAppearance } from './sprites/appearances/JumpingFishAppearance'
-import { JumpingPiranhaAppearance } from './sprites/appearances/JumpingPiranhaAppearance'
-import { SwimJumpFishAppearance } from './sprites/appearances/SwimJumpFishAppearance'
-import { HopFlameAppearance } from './sprites/appearances/HopFlameAppearance'
 import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppearance'
 import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
 import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
 import { ChainsawAppearance } from './sprites/appearances/ChainsawAppearance'
-import { KoopaAppearance } from './sprites/appearances/KoopaAppearance'
 import { SuperKoopaAppearance } from './sprites/appearances/SuperKoopaAppearance'
 import { DryBonesAppearance } from './sprites/appearances/DryBonesAppearance'
 import { BouncinChuckAppearance } from './sprites/appearances/BouncinChuckAppearance'
@@ -43,7 +36,6 @@ import { SplittinChuckAppearance } from './sprites/appearances/SplittinChuckAppe
 import { KeyholeAppearance } from './sprites/appearances/KeyholeAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { SumoBrotherAppearance } from './sprites/appearances/SumoBrotherAppearance'
-import { CarrotTopLiftAppearance } from './sprites/appearances/CarrotTopLiftAppearance'
 import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
 import { WigglerAppearance } from './sprites/appearances/WigglerAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
@@ -595,32 +587,12 @@ export function buildSprites(
       dy: t.dy,
     }))
 
-    let appearance: SpriteAppearance
-    if (s.spriteId === 0x3E) {
-      appearance = new PSwitchAppearance(parts)
-    } else if (s.spriteId === 0x15) {
-      appearance = new CheepCheepAppearance(parts, false)
-    } else if (s.spriteId === 0x16) {
-      appearance = new CheepCheepAppearance(parts, true)
-    } else if (s.spriteId === 0x18) {
-      appearance = new JumpingFishAppearance(parts)
-    } else if (s.spriteId === 0x4F) {
-      appearance = new JumpingPiranhaAppearance(parts)
-    } else if (s.spriteId === 0x47) {
-      appearance = new SwimJumpFishAppearance(parts)
-    } else if (s.spriteId === 0x1D) {
-      appearance = new HopFlameAppearance(parts)
-    } else if (s.spriteId === 0xC2) {
-      appearance = new BlurpAppearance(parts)
-    } else if (s.spriteId === 0xB7 || s.spriteId === 0xB8) {
-      appearance = new CarrotTopLiftAppearance(parts, s.spriteId as 0xB7 | 0xB8)
-    } else if (s.spriteId <= 0x07 || s.spriteId === 0x0F) {
-      // $00-$07 shelless + shelled koopas, $0F Goomba — all ground walkers
-      // with KoopaWalkBehavior; KoopaAppearance draws the patrol-path overlay.
-      appearance = new KoopaAppearance(parts)
-    } else {
-      appearance = new StaticSpriteAppearance(parts)
-    }
+    // spriteId → "pure-parts" appearance subclass dispatch lives in
+    // `buildSpriteAppearance` so the host and the webview rehydrate
+    // path stay in sync (issue #293). Sprites with extra-data
+    // appearances (Thwomp, RipVanFish, WingedSprite, etc.) are
+    // constructed in their own branches above.
+    const appearance: SpriteAppearance = buildSpriteAppearance(s.spriteId, parts)
     out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, appearance, behavior))
   }
   return out

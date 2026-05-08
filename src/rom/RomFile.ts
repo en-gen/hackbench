@@ -20,14 +20,23 @@ export type RomMapMode = 'lorom' | 'hirom' | 'unknown'
  */
 export class RomFile {
   readonly filePath: string
+  /**
+   * Backing bytes. Type-asserted as `Buffer` for the host-side TS
+   * callers (PaletteLoader, SmwRom, etc.) that want Buffer-only methods
+   * like `readUInt16LE` and `toString('ascii')`. At runtime the value
+   * may actually be a plain `Uint8Array` when constructed by the
+   * webview from `postMessage`-delivered ROM bytes — that's safe
+   * because the webview side only calls `readByte` / `readWord` (both
+   * refactored to byte-indexed access that works on either type).
+   */
   readonly buffer: Buffer
   readonly hasHeader: boolean
   readonly romSize: number
   readonly mapMode: RomMapMode
 
-  constructor(filePath: string, buffer: Buffer) {
+  constructor(filePath: string, buffer: Buffer | Uint8Array) {
     this.filePath = filePath
-    this.buffer = buffer
+    this.buffer = buffer as Buffer
     this.hasHeader = hasCopierHeader(buffer.length)
     this.romSize = buffer.length - (this.hasHeader ? COPIER_HEADER_SIZE : 0)
     this.mapMode = this._detectMapMode()
@@ -35,6 +44,13 @@ export class RomFile {
 
   static load(filePath: string): RomFile {
     return new RomFile(filePath, fs.readFileSync(filePath))
+  }
+
+  /** Construct a RomFile from raw bytes. Used by the webview to
+   *  reconstruct a reader from the `Uint8Array` shipped in the
+   *  modelPayload. */
+  static fromBytes(filePath: string, bytes: Uint8Array): RomFile {
+    return new RomFile(filePath, bytes)
   }
 
   private _detectMapMode(): RomMapMode {
@@ -64,7 +80,7 @@ export class RomFile {
   readAtFileOffset(fileOffset: number, length: number): Buffer | null {
     const actualOffset = (this.hasHeader ? COPIER_HEADER_SIZE : 0) + fileOffset
     if (actualOffset < 0 || actualOffset + length > this.buffer.length) return null
-    return this.buffer.slice(actualOffset, actualOffset + length)
+    return this.buffer.slice(actualOffset, actualOffset + length) as Buffer
   }
 
   readAt(snesAddr: number, length: number): Buffer | null {
@@ -72,25 +88,37 @@ export class RomFile {
       ? hiromToOffset(snesAddr, this.hasHeader)
       : loromToOffset(snesAddr, this.hasHeader)
     if (offset === null || offset + length > this.buffer.length) return null
-    return this.buffer.slice(offset, offset + length)
+    return this.buffer.slice(offset, offset + length) as Buffer
   }
 
   readByte(snesAddr: number): number | null {
     const buf = this.readAt(snesAddr, 1)
-    return buf ? buf[0] : null
+    return buf ? (buf[0] ?? null) : null
   }
 
   readWord(snesAddr: number): number | null {
+    // Manual two-byte composition rather than `Buffer.readUInt16LE` so
+    // RomFile can be backed by either a Node `Buffer` or a plain
+    // `Uint8Array` — the webview gets the ROM bytes as a Uint8Array
+    // across the postMessage boundary and constructs a RomFile from it.
     const buf = this.readAt(snesAddr, 2)
-    return buf ? buf.readUInt16LE(0) : null
+    if (!buf) return null
+    const lo = buf[0] ?? 0
+    const hi = buf[1] ?? 0
+    return (hi << 8) | lo
   }
 
   readString(snesAddr: number, length: number): string {
+    // Host-only: depends on Node's Buffer.toString. Webview RomFiles
+    // are read-only and don't hit this path.
     const buf = this.readAt(snesAddr, length)
     return buf ? buf.toString('ascii').replace(/\0/g, ' ').trimEnd() : ''
   }
 
   writeAt(snesAddr: number, data: Buffer | number[]): void {
+    // Host-only: file-backed write needs Node's Buffer.copy. Webview
+    // RomFiles never write back to ROM (the writeback path is the
+    // extension host's responsibility).
     const offset = this.mapMode === 'hirom'
       ? hiromToOffset(snesAddr, this.hasHeader)
       : loromToOffset(snesAddr, this.hasHeader)
