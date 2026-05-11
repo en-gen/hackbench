@@ -1,3 +1,5 @@
+import { hexN } from '../shared/hex'
+
 /**
  * SMW ROM Map - webview entry point.
  *
@@ -182,8 +184,6 @@ function cellIndex(fileOffset: number): number {
   return Math.floor(fileOffset / CELL_BYTES)
 }
 
-const toHex = (n: number, pad: number): string =>
-  n.toString(16).toUpperCase().padStart(pad, '0')
 
 function shadeColor(hex: string, amount: number): string {
   const r = parseInt(hex.slice(1, 3), 16)
@@ -539,11 +539,11 @@ const SCHEMA_RENDERERS: Record<string, SchemaRenderer> = {
       blocksSection = `<p><em>No level pointer lands inside this cell (likely padding between blocks).</em></p>`
     } else {
       const rows = blocks.map(b => {
-        const ids = b.indices.map(i => '$' + toHex(i, 3)).join(', ')
+        const ids = b.indices.map(i => '$' + hexN(i, 3)).join(', ')
         return `<div class="level-entry">
           <span class="kind">${b.kind}</span>
           <span class="ids">L ${ids}</span>
-          <span class="addr">$${toHex(b.snes, 6)} &middot; file $${toHex(b.fileStart, 5)}-$${toHex(b.fileEnd - 1, 5)}</span>
+          <span class="addr">$${hexN(b.snes, 6)} &middot; file $${hexN(b.fileStart, 5)}-$${hexN(b.fileEnd - 1, 5)}</span>
           <span class="size">${b.size}&nbsp;B</span>
         </div>`
       }).join('')
@@ -697,14 +697,14 @@ function buildGrid(): void {
   const colLabels = document.getElementById('col-labels')!
   for (let c = 0; c < COLS; c++) {
     const span = document.createElement('span')
-    span.textContent = toHex(c, 1)
+    span.textContent = hexN(c, 1)
     colLabels.appendChild(span)
   }
 
   const rowLabels = document.getElementById('row-labels')!
   for (let r = 0; r < ROWS; r++) {
     const span = document.createElement('span')
-    span.textContent = '$' + toHex(r, 2)
+    span.textContent = '$' + hexN(r, 2)
     rowLabels.appendChild(span)
   }
 
@@ -795,9 +795,9 @@ function showDetail(cell: Cell): void {
   detailBody.classList.remove('no-rom')
   detailTitle.textContent = REGIONS[cell.regionId].label
   detailRange.innerHTML =
-    'row $' + toHex(cell.row, 2) + ' col $' + toHex(cell.col, 1) + '<br>' +
-    'SNES $' + toHex(cell.snesStart, 6) + ' &ndash; $' + toHex(cell.snesEnd, 6) + '<br>' +
-    'file $' + toHex(cell.fileStart, 5) + ' &ndash; $' + toHex(cell.fileEnd, 5)
+    'row $' + hexN(cell.row, 2) + ' col $' + hexN(cell.col, 1) + '<br>' +
+    'SNES $' + hexN(cell.snesStart, 6) + ' &ndash; $' + hexN(cell.snesEnd, 6) + '<br>' +
+    'file $' + hexN(cell.fileStart, 5) + ' &ndash; $' + hexN(cell.fileEnd, 5)
   renderSubgrid(cell)
   renderSchema(cell)
   detailPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -822,18 +822,18 @@ function positionTooltip(ev: MouseEvent): void {
 
 function renderCellTooltip(c: Cell): void {
   const region = REGIONS[c.regionId]
-  const rangeFile = '$' + toHex(c.fileStart, 5) + '-$' + toHex(c.fileEnd, 5)
-  const rangeSnes = '$' + toHex(c.snesStart, 6) + '-$' + toHex(c.snesEnd, 6)
+  const rangeFile = '$' + hexN(c.fileStart, 5) + '-$' + hexN(c.fileEnd, 5)
+  const rangeSnes = '$' + hexN(c.snesStart, 6) + '-$' + hexN(c.snesEnd, 6)
   let html = '<div class="tt-title">' + region.label + '</div>'
   html += '<div class="tt-range">'
-  html += 'row $' + toHex(c.row, 2) + ' col $' + toHex(c.col, 1)
+  html += 'row $' + hexN(c.row, 2) + ' col $' + hexN(c.col, 1)
   html += ' &middot; ' + rangeSnes
   html += '<br>file ' + rangeFile + ' (2 KB)'
   html += '</div>'
   if (c.starts.length > 0) {
     html += '<div class="tt-starts">'
     for (const s of c.starts) {
-      html += '<div class="tt-start"><b>$' + toHex(s.snes, 6) + '</b> '
+      html += '<div class="tt-start"><b>$' + hexN(s.snes, 6) + '</b> '
       html += (s.size >= 1024 ? (s.size / 1024).toFixed(s.size % 1024 === 0 ? 0 : 1) + ' KB' : s.size + ' B')
       html += ' &middot; ' + s.name + '</div>'
     }
@@ -876,13 +876,13 @@ function attachHandlers(): void {
     const snesEnd = fileToSnes(info.fileEnd)
     let html =
       '<div class="tt-title">' + REGIONS[info.sub.regionId].label + '</div>' +
-      '<div class="tt-range">$' + toHex(info.snesStart, 6) + ' &ndash; $' + toHex(snesEnd, 6) +
-      '<br>file $' + toHex(info.fileStart, 5) + ' &ndash; $' + toHex(info.fileEnd, 5) + ' (16 B)</div>'
+      '<div class="tt-range">$' + hexN(info.snesStart, 6) + ' &ndash; $' + hexN(snesEnd, 6) +
+      '<br>file $' + hexN(info.fileStart, 5) + ' &ndash; $' + hexN(info.fileEnd, 5) + ' (16 B)</div>'
     if (info.block) {
-      const ids = info.block.indices.map(i => '$' + toHex(i, 3)).join(', ')
+      const ids = info.block.indices.map(i => '$' + hexN(i, 3)).join(', ')
       html +=
         '<div class="tt-starts"><div class="tt-start"><b>' + info.block.kind + '</b> Level ' + ids + '<br>' +
-        'Block $' + toHex(info.block.snes, 6) + ' &middot; ' + info.block.size + ' B' +
+        'Block $' + hexN(info.block.snes, 6) + ' &middot; ' + info.block.size + ' B' +
         '</div></div>'
     } else {
       html += '<div class="tt-starts"><div class="tt-start">' + info.sub.name + '</div></div>'

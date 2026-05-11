@@ -4,6 +4,7 @@ import { GFX_FILE_COUNT } from '../rom/GfxLoader'
 import { loadRomPalettes } from '../rom/PaletteLoader'
 import { buildTransitiveLevelMap } from '../rom/LevelTree'
 import { loadOverworldAreas, OwArea } from '../rom/OverworldLoader'
+import { hex2, hex3 } from '../rom/hex'
 
 // ── Shared tree item types ─────────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ class LevelFolder extends vscode.TreeItem {
     public readonly subIndices: number[],
     displayName?: string,
   ) {
-    const hex = index.toString(16).toUpperCase().padStart(3, '0')
+    const hex = hex3(index)
     super(
       displayName ?? `$${hex}`,
       vscode.TreeItemCollapsibleState.Collapsed,
@@ -74,7 +75,7 @@ class RoomItem extends vscode.TreeItem {
     name: string | null,
     role: 'entrance' | 'sub' | 'resource',
   ) {
-    const hex = index.toString(16).toUpperCase().padStart(3, '0')
+    const hex = hex3(index)
     super(name ?? `$${hex}`, vscode.TreeItemCollapsibleState.None)
     this.description = name ? `$${hex}` : undefined
     this.iconPath = new vscode.ThemeIcon(
@@ -108,7 +109,7 @@ class PaletteGroupItem extends vscode.TreeItem {
 
 class GfxFileItem extends vscode.TreeItem {
   constructor(index: number, slug: string) {
-    const hex = index.toString(16).toUpperCase().padStart(2, '0')
+    const hex = hex2(index)
     super(`GFX ${hex}`, vscode.TreeItemCollapsibleState.None)
     this.description = `File ${index}`
     this.iconPath = new vscode.ThemeIcon('file-media')

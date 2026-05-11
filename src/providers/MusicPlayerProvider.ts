@@ -18,6 +18,8 @@ import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
 import { getAllLevelBgmTracks, readLevelMusicTable } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
+import { getNonce, getWebviewUri, readDescriptor, postWebviewError, SPC_PLAYER_STUB_DOM, buildSpcInitScript } from './webviewUtils'
+import { hex2 } from '../rom/hex'
 
 export class MusicPlayerProvider implements vscode.CustomReadonlyEditorProvider {
   constructor(private readonly context: vscode.ExtensionContext) {}
@@ -54,9 +56,8 @@ export class MusicPlayerProvider implements vscode.CustomReadonlyEditorProvider 
 
   private async _sendMusicData(uri: vscode.Uri, webview: vscode.Webview): Promise<void> {
     try {
-      const raw = await vscode.workspace.fs.readFile(uri)
-      const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
-      const rom = resolveRom(descriptor.romPath as string)
+      const descriptor = await readDescriptor<{ romPath: string }>(uri)
+      const rom = resolveRom(descriptor.romPath)
 
       // Get all track info
       const allTracks = getAllLevelBgmTracks(rom.rom)
@@ -75,7 +76,7 @@ export class MusicPlayerProvider implements vscode.CustomReadonlyEditorProvider 
         type: 'load',
         tracks: allTracks.map(t => ({
           bgmCommand: t.bgmCommand,
-          bgmHex: t.bgmCommand.toString(16).toUpperCase().padStart(2, '0'),
+          bgmHex: hex2(t.bgmCommand),
           // Which level music indices map to this track
           levelIndices: levelTable
             .filter(e => e.bgmCommand === t.bgmCommand)
@@ -84,21 +85,16 @@ export class MusicPlayerProvider implements vscode.CustomReadonlyEditorProvider 
         spcFiles,
       })
     } catch (err) {
-      webview.postMessage({ type: 'error', message: (err as Error).message })
+      postWebviewError(webview, err)
     }
   }
 
   private _buildHtml(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'musicPlayer.js')
-    )
-    const spcJsUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'spc.js')
-    )
-    const wasmUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'spc.wasm')
-    )
-    const nonce = getNonce()
+    const ext       = this.context.extensionUri
+    const scriptUri = getWebviewUri(webview, ext, 'musicPlayer.js')
+    const spcJsUri  = getWebviewUri(webview, ext, 'spc.js')
+    const wasmUri   = getWebviewUri(webview, ext, 'spc.wasm')
+    const nonce     = getNonce()
     return /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -110,44 +106,15 @@ export class MusicPlayerProvider implements vscode.CustomReadonlyEditorProvider 
              style-src ${webview.cspSource} 'unsafe-inline';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SMW Music Player</title>
-  <style>html, body { height:100%; margin:0; padding:0; overflow:hidden; } #app { height:100%; }</style>
+  <style>html,body{height:100%;margin:0;padding:0;overflow:hidden;}#app{height:100%;}</style>
 </head>
 <body>
-  <!-- Stub DOM: spc.js UI init accesses these elements. All hidden. -->
-  <div id="spc-player-interface" style="display:none;">
-    <div id="spc-player-header" class="header-button"></div>
-    <div class="title"></div><div class="subtitle"></div><div class="details"></div>
-    <button class="pause hidden"></button><button class="play"></button>
-    <button class="restart"></button><button class="stop"></button><button class="close"></button>
-    <input type="checkbox" id="spc-player-toggle"/>
-    <input type="checkbox" id="spc-player-loop"/>
-    <input type="range" id="volume-slider" class="volume-slider" min="0" max="1.5" step="0.01" value="1"/>
-    <div class="volume-fill"></div><div class="volume-level"></div><div class="volume-thumb"></div>
-    <div class="seek-container"><input type="range" class="seek-control" min="0" max="1"/><span class="seek-preview"></span></div>
-    <span class="track-time-elapsed"></span><span class="track-duration"></span>
-    <div id="track-list-container" class="hidden">
-      <div class="track-list-scrollbox"></div>
-      <div class="track-list"></div>
-      <div class="overflow-indicator top"></div><div class="overflow-indicator bottom"></div>
-    </div>
-    <div class="seek"></div>
-  </div>
+${SPC_PLAYER_STUB_DOM}
   <div id="app"></div>
-  <script nonce="${nonce}">
-    window.Module = { locateFile: function(path) {
-      if (path.endsWith('.wasm')) return '${wasmUri}';
-      return path;
-    }};
-    window.SMWCentral = { SPCPlayer: {} };
-  </script>
+${buildSpcInitScript(nonce, wasmUri)}
   <script nonce="${nonce}" src="${spcJsUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`
   }
-}
-
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }

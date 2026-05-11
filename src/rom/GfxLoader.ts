@@ -25,6 +25,7 @@ import * as path from 'path'
 import { RomFile } from './RomFile'
 import { decode4bpp, decode3bpp, decode2bpp, PIXELS_PER_TILE } from './GraphicsDecoder'
 import { decompress } from './LcLz2'
+import { hex2 } from './hex'
 
 // ── GFX pointer tables (bank_00.asm lines 6415-6569) ──────────────────────────
 // Split lo/hi/bank byte tables, one byte per GFX file.
@@ -153,8 +154,7 @@ export function getGfxBinDir(rom: RomFile): string | null {
 }
 
 export function gfxBinPath(binDir: string, fileIndex: number): string {
-  const hex = fileIndex.toString(16).toUpperCase().padStart(2, '0')
-  return path.join(binDir, `GFX${hex}.bin`)
+  return path.join(binDir, `GFX${hex2(fileIndex)}.bin`)
 }
 
 export function loadGfxFileBin(binDir: string, fileIndex: number): GfxSheet | null {

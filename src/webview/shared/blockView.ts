@@ -7,6 +7,8 @@
  * any GFX rendering.
  */
 
+import { hexN } from './hex'
+
 /**
  * Deterministic color hash for a tile ID. Same ID → same color across
  * editors so visual identification is consistent. Compatible with both
@@ -66,7 +68,7 @@ export function paintBlockLabel(
   ctx.fillStyle = '#fff'
   const cx = px + cellPx / 2
   const cy = py + cellPx / 2
-  const label = `$${tileId.toString(16).toUpperCase().padStart(hexDigits, '0')}`
+  const label = `$${hexN(tileId, hexDigits)}`
   ctx.strokeText(label, cx, cy)
   ctx.fillText(label, cx, cy)
   ctx.restore()

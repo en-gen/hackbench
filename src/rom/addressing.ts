@@ -19,6 +19,8 @@
  * Formulas verified against Mesen2 source (SnesMemoryManager / MemoryMappings).
  */
 
+import { hex6 } from './hex'
+
 export const LOROM_BANK_SIZE  = 0x8000
 export const HIROM_BANK_SIZE  = 0x10000
 export const COPIER_HEADER_SIZE = 512
@@ -78,5 +80,5 @@ export function hiromToOffset(snesAddr: number, headerOffset = false): number | 
 
 /** Format a SNES address as "$05E000". */
 export function formatAddr(addr: number): string {
-  return '$' + addr.toString(16).toUpperCase().padStart(6, '0')
+  return '$' + hex6(addr)
 }

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import { getActiveRomSession, resolveRom, type RomSession } from '../RomSession'
+import { getNonce, getWebviewUri, readDescriptor, postWebviewError, SPC_PLAYER_STUB_DOM, buildSpcInitScript } from './webviewUtils'
 import { parseLevelObjects, parseLevelSprites } from '../rom/LevelParser'
 import { loadAllMap16BG, loadMap16WithPipeVariants, type Map16Tile } from '../rom/Map16'
 import { pSwitchSubstitute } from '../rom/PSwitchRules'
@@ -84,12 +85,11 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       } else if (msg.type === 'requestMusicSpc') {
         const bgmCommand = msg.bgmCommand as number
         try {
-          const raw = await vscode.workspace.fs.readFile(document.uri)
-          const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
+          const descriptor = await readDescriptor<{ romPath: string }>(document.uri)
           const activeSession = getActiveRomSession()
           const spcRom = (activeSession && activeSession.rom.rom.filePath === descriptor.romPath)
             ? activeSession.rom
-            : resolveRom(descriptor.romPath as string)
+            : resolveRom(descriptor.romPath)
           const spc = buildSpc(spcRom.rom, bgmCommand, 'level')
           panel.webview.postMessage({ type: 'musicSpc', bgmCommand, spcData: spc ? Array.from(spc) : null })
         } catch {
@@ -116,15 +116,13 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
     },
   ): Promise<void> {
     try {
-      const raw = await vscode.workspace.fs.readFile(uri)
-      const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
-
-      const romPath = descriptor.romPath as string
+      const descriptor = await readDescriptor<{ romPath: string; mapIndex: number }>(uri)
+      const romPath = descriptor.romPath
       const activeSession = getActiveRomSession()
       const session: RomSession | null =
         activeSession && activeSession.rom.rom.filePath === romPath ? activeSession : null
       const rom   = session?.rom ?? resolveRom(romPath)
-      const index = descriptor.mapIndex as number
+      const index = descriptor.mapIndex
 
       // ── Parse level ───────────────────────────────────────────────────────
       const rawL1 = rom.getLevelRawData(index)
@@ -455,24 +453,17 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         console.error('[MapEditorProvider] model payload build failed:', modelErr)
       }
     } catch (err) {
-      webview.postMessage({ type: 'error', message: (err as Error).message })
+      postWebviewError(webview, err)
     }
   }
 
   private _buildHtml(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'mapEditor.js')
-    )
-    const codiconCssUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'codicon.css')
-    )
-    const spcJsUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'spc.js')
-    )
-    const wasmUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'spc.wasm')
-    )
-    const nonce = getNonce()
+    const ext       = this.context.extensionUri
+    const scriptUri = getWebviewUri(webview, ext, 'mapEditor.js')
+    const codiconUri = getWebviewUri(webview, ext, 'codicon.css')
+    const spcJsUri  = getWebviewUri(webview, ext, 'spc.js')
+    const wasmUri   = getWebviewUri(webview, ext, 'spc.wasm')
+    const nonce     = getNonce()
     return /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -485,48 +476,16 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
              style-src ${webview.cspSource} 'unsafe-inline';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SMW Map Editor</title>
-  <link rel="stylesheet" href="${codiconCssUri}" />
-  <style>
-    html, body { height:100%; margin:0; padding:0; overflow:hidden; }
-    #app { height:100%; }
-  </style>
+  <link rel="stylesheet" href="${codiconUri}" />
+  <style>html,body{height:100%;margin:0;padding:0;overflow:hidden;}#app{height:100%;}</style>
 </head>
 <body>
   <div id="app"></div>
-  <!-- Stub DOM: spc.js UI init accesses these elements. All hidden. -->
-  <div id="spc-player-interface" style="display:none;">
-    <div id="spc-player-header" class="header-button"></div>
-    <div class="title"></div><div class="subtitle"></div><div class="details"></div>
-    <button class="pause hidden"></button><button class="play"></button>
-    <button class="restart"></button><button class="stop"></button><button class="close"></button>
-    <input type="checkbox" id="spc-player-toggle"/>
-    <input type="checkbox" id="spc-player-loop"/>
-    <input type="range" id="volume-slider" class="volume-slider" min="0" max="1.5" step="0.01" value="1"/>
-    <div class="volume-fill"></div><div class="volume-level"></div><div class="volume-thumb"></div>
-    <div class="seek-container"><input type="range" class="seek-control" min="0" max="1"/><span class="seek-preview"></span></div>
-    <span class="track-time-elapsed"></span><span class="track-duration"></span>
-    <div id="track-list-container" class="hidden">
-      <div class="track-list-scrollbox"></div>
-      <div class="track-list"></div>
-      <div class="overflow-indicator top"></div><div class="overflow-indicator bottom"></div>
-    </div>
-    <div class="seek"></div>
-  </div>
-  <script nonce="${nonce}">
-    window.Module = { locateFile: function(path) {
-      if (path.endsWith('.wasm')) return '${wasmUri}';
-      return path;
-    }};
-    window.SMWCentral = { SPCPlayer: {} };
-  </script>
+${SPC_PLAYER_STUB_DOM}
+${buildSpcInitScript(nonce, wasmUri)}
   <script nonce="${nonce}" src="${spcJsUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`
   }
-}
-
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }

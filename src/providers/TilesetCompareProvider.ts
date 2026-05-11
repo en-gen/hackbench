@@ -22,6 +22,7 @@
 
 import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
+import { getNonce, getWebviewUri, readDescriptor, postWebviewError, buildWebviewHtml } from './webviewUtils'
 import { loadAllMap16, TILESET_COUNT, type Map16Tile } from '../rom/Map16'
 import { loadVram, VRAM_CHAR_BASE, VRAM_SLOT_NAMES, type VramState } from '../rom/GfxLoader'
 import { loadRomPalettes, buildLevelCgram } from '../rom/PaletteLoader'
@@ -95,9 +96,8 @@ export class TilesetCompareProvider implements vscode.CustomReadonlyEditorProvid
     panel.webview.onDidReceiveMessage(async (msg) => {
       if (msg.type === 'ready') {
         try {
-          const raw = await vscode.workspace.fs.readFile(document.uri)
-          const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
-          romPath = descriptor.romPath as string
+          const descriptor = await readDescriptor<{ romPath: string }>(document.uri)
+          romPath = descriptor.romPath
           const a = Math.max(0, Math.min(TILESET_COUNT - 1, Number(msg.tilesetA) || 0))
           const b = Math.max(0, Math.min(TILESET_COUNT - 1, Number(msg.tilesetB) || 0))
           currentTilesetA = a
@@ -106,7 +106,7 @@ export class TilesetCompareProvider implements vscode.CustomReadonlyEditorProvid
           cachedTilesA = result.tilesA
           cachedTilesB = result.tilesB
         } catch (err) {
-          panel.webview.postMessage({ type: 'error', message: (err as Error).message })
+          postWebviewError(panel.webview, err)
         }
       }
       if (msg.type === 'compare' && romPath) {
@@ -188,7 +188,7 @@ export class TilesetCompareProvider implements vscode.CustomReadonlyEditorProvid
       webview.postMessage({ type: 'load', tilesetA, tilesetB, tiles })
       return { tilesA, tilesB }
     } catch (err) {
-      webview.postMessage({ type: 'error', message: (err as Error).message })
+      postWebviewError(webview, err)
       return { tilesA: [], tilesB: [] }
     }
   }
@@ -232,31 +232,12 @@ export class TilesetCompareProvider implements vscode.CustomReadonlyEditorProvid
   }
 
   private _buildHtml(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'tilesetCompare.js')
-    )
-    const nonce = getNonce()
-    return /* html */`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none';
-             script-src 'nonce-${nonce}';
-             style-src ${webview.cspSource} 'unsafe-inline';" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tileset Compare</title>
-  <style>html, body { margin:0; padding:0; background:var(--vscode-editor-background,#1e1e1e); overflow-y:auto; } #app { padding: 12px 16px; }</style>
-</head>
-<body>
-  <div id="app"></div>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`
+    return buildWebviewHtml({
+      title: 'Tileset Compare',
+      nonce: getNonce(),
+      scriptUri: getWebviewUri(webview, this.context.extensionUri, 'tilesetCompare.js'),
+      cspSource: webview.cspSource,
+      styles: 'html,body{margin:0;padding:0;background:var(--vscode-editor-background,#1e1e1e);overflow-y:auto;}#app{padding:12px 16px;}',
+    })
   }
-}
-
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }

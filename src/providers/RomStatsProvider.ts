@@ -13,6 +13,8 @@
 import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
 import { parseLevelHeader } from '../rom/LevelParser'
+import { readDescriptor } from './webviewUtils'
+import { hex2 } from '../rom/hex'
 
 export class RomStatsProvider implements vscode.CustomReadonlyEditorProvider {
   async openCustomDocument(uri: vscode.Uri): Promise<vscode.CustomDocument> {
@@ -26,9 +28,8 @@ export class RomStatsProvider implements vscode.CustomReadonlyEditorProvider {
     panel.webview.options = { enableScripts: false }
 
     try {
-      const raw = await vscode.workspace.fs.readFile(document.uri)
-      const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
-      const rom = resolveRom(descriptor.romPath as string)
+      const descriptor = await readDescriptor<{ romPath: string }>(document.uri)
+      const rom = resolveRom(descriptor.romPath)
 
       const stats = gatherStats(rom)
       panel.webview.html = renderHtml(stats)
@@ -88,7 +89,7 @@ function renderHtml(stats: RomStats): string {
   const mod = stats.isVanilla ? 'Unmodified (vanilla)' : 'Modified'
 
   const tilesetRows = stats.tilesetDist.map(row =>
-    `<tr><td>Tileset ${row.id.toString(16).toUpperCase().padStart(2, '0')} (${row.id})</td><td>${row.count}</td></tr>`
+    `<tr><td>Tileset ${hex2(row.id)} (${row.id})</td><td>${row.count}</td></tr>`
   ).join('\n')
 
   return /* html */`<!DOCTYPE html>

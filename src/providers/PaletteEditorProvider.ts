@@ -2,6 +2,7 @@ import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
 import { loadRomPalettes } from '../rom/PaletteLoader'
 import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
+import { getNonce, getWebviewUri, readDescriptor, postWebviewError, buildWebviewHtml } from './webviewUtils'
 
 /**
  * Custom editor for .smwpalette virtual files.
@@ -44,13 +45,12 @@ export class PaletteEditorProvider implements vscode.CustomReadonlyEditorProvide
 
   private async _sendPaletteData(uri: vscode.Uri, webview: vscode.Webview): Promise<void> {
     try {
-      const raw = await vscode.workspace.fs.readFile(uri)
-      const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
-      const rom = resolveRom(descriptor.romPath as string)
+      const descriptor = await readDescriptor<{ romPath: string; groupId: string | null }>(uri)
+      const rom = resolveRom(descriptor.romPath)
       const palettes = loadRomPalettes(rom.rom)
 
       // If a specific groupId is requested, filter to just that group
-      const requestedGroupId = descriptor.groupId as string | null
+      const requestedGroupId = descriptor.groupId
       const sourceGroups = requestedGroupId
         ? palettes.groups.filter(g => g.id === requestedGroupId)
         : palettes.groups
@@ -79,44 +79,19 @@ export class PaletteEditorProvider implements vscode.CustomReadonlyEditorProvide
         paletteAnimation: palAnimRaw ? serializePaletteAnimData(palAnimRaw) : null,
       })
     } catch (err) {
-      webview.postMessage({ type: 'error', message: (err as Error).message })
+      postWebviewError(webview, err)
     }
   }
 
   private _buildHtml(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'paletteEditor.js')
-    )
-    const codiconCssUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'codicon.css')
-    )
-    const nonce = getNonce()
-    return /* html */`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none';
-             script-src 'nonce-${nonce}';
-             font-src ${webview.cspSource};
-             style-src ${webview.cspSource} 'unsafe-inline';" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SMW Palette Editor</title>
-  <link rel="stylesheet" href="${codiconCssUri}" />
-  <style>
-    html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
-    #app { height: 100%; }
-  </style>
-</head>
-<body>
-  <div id="app"></div>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`
+    const ext = this.context.extensionUri
+    return buildWebviewHtml({
+      title: 'SMW Palette Editor',
+      nonce: getNonce(),
+      scriptUri: getWebviewUri(webview, ext, 'paletteEditor.js'),
+      cspSource: webview.cspSource,
+      cssLinks: [getWebviewUri(webview, ext, 'codicon.css')],
+      extraCsp: `font-src ${webview.cspSource};`,
+    })
   }
-}
-
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }

@@ -27,6 +27,7 @@
 import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
 import { LEVEL_COUNT } from '../rom/SmwRom'
+import { getNonce, getWebviewUri, readDescriptor, postWebviewError, buildWebviewHtml } from './webviewUtils'
 import { COPIER_HEADER_SIZE, loromToOffset } from '../rom/addressing'
 import { RomFile } from '../rom/RomFile'
 import { getObjectStreamLength, getSpriteStreamLength } from '../rom/LevelParser'
@@ -71,9 +72,8 @@ export class RomMapProvider implements vscode.CustomReadonlyEditorProvider {
 
   private async _sendData(uri: vscode.Uri, webview: vscode.Webview): Promise<void> {
     try {
-      const raw = await vscode.workspace.fs.readFile(uri)
-      const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
-      const smwRom = resolveRom(descriptor.romPath as string)
+      const descriptor = await readDescriptor<{ romPath: string }>(uri)
+      const smwRom = resolveRom(descriptor.romPath)
 
       const blocks = computeBlocks(smwRom.rom, smwRom)
       webview.postMessage({
@@ -83,32 +83,18 @@ export class RomMapProvider implements vscode.CustomReadonlyEditorProvider {
         blocks,
       })
     } catch (err) {
-      webview.postMessage({ type: 'error', message: (err as Error).message })
+      postWebviewError(webview, err)
     }
   }
 
   private _buildHtml(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'romMap.js'),
-    )
-    const nonce = getNonce()
-    return /* html */`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none';
-             script-src 'nonce-${nonce}';
-             style-src ${webview.cspSource} 'unsafe-inline';" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SMW ROM Map</title>
-  <style>html, body { height: 100%; margin: 0; padding: 0; overflow: auto; } #app { min-height: 100%; }</style>
-</head>
-<body>
-  <div id="app"></div>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`
+    return buildWebviewHtml({
+      title: 'SMW ROM Map',
+      nonce: getNonce(),
+      scriptUri: getWebviewUri(webview, this.context.extensionUri, 'romMap.js'),
+      cspSource: webview.cspSource,
+      styles: 'html,body{height:100%;margin:0;padding:0;overflow:auto;}#app{min-height:100%;}',
+    })
   }
 }
 
@@ -176,9 +162,4 @@ function computeBlocks(rom: RomFile, smwRom: { getLevelL1Pointer: (i: number) =>
   }
 
   return [...byKey.values()].sort((a, b) => a.fileStart - b.fileStart)
-}
-
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }

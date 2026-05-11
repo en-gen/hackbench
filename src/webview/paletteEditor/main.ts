@@ -7,6 +7,8 @@
  * Groups with unverified addresses show grey swatches marked ⚠.
  */
 
+import { hex4, hex6 } from '../shared/hex'
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare function acquireVsCodeApi(): any
 const vscode = acquireVsCodeApi()
@@ -347,7 +349,7 @@ function renderVariant(group: PaletteGroup): void {
   swatchRows.innerHTML = ''
 
   const addrText = variant.romAddr !== null
-    ? `ROM: $${variant.romAddr.toString(16).toUpperCase().padStart(6,'0')}`
+    ? `ROM: $${hex6(variant.romAddr)}`
     : '⚠ ROM address unverified'
 
   // Meta header
@@ -365,7 +367,7 @@ function renderVariant(group: PaletteGroup): void {
     label.className = 'row-label'
     label.textContent = cgRamRowNum !== null
       ? `CGRAM row ${cgRamRowNum}  ·  ${variant.romAddr !== null
-          ? '$' + (variant.romAddr + rowIdx * 24).toString(16).toUpperCase().padStart(6,'0')
+          ? '$' + hex6(variant.romAddr + rowIdx * 24)
           : '⚠'}`
       : `Row ${rowIdx}`
     swatchRows.appendChild(label)
@@ -428,7 +430,7 @@ function selectColor(rowIdx: number, col: number, variant: PaletteVariant, group
     detailValues.textContent = 'Transparent (SNES color index 0 is always transparent)'
   } else {
     detailValues.textContent =
-      `RGB: ${c.r}, ${c.g}, ${c.b}  ·  ${toHex(c).toUpperCase()}  ·  BGR555: $${toBgr555(c).toString(16).toUpperCase().padStart(4,'0')}`
+      `RGB: ${c.r}, ${c.g}, ${c.b}  ·  ${toHex(c).toUpperCase()}  ·  BGR555: $${hex4(toBgr555(c))}`
   }
 }
 

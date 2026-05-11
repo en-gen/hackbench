@@ -15,6 +15,7 @@
  */
 
 import { decodeTilesBatch } from '../../rom/GraphicsDecoder'
+import { hex2, hex3, hex4 } from '../shared/hex'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare function acquireVsCodeApi(): any
@@ -374,8 +375,8 @@ canvas.addEventListener('mousemove', (e) => {
   const charNum = payload.gfxIndex * 128 + tileIdx
   const vramWord = charNum * 16  // each 4bpp tile = 32 bytes = 16 VRAM words
 
-  stTile.textContent  = `Tile $${tileIdx.toString(16).toUpperCase().padStart(2,'0')}`
-  stVram.textContent  = `char $${charNum.toString(16).toUpperCase().padStart(3,'0')}  VRAM $${vramWord.toString(16).toUpperCase().padStart(4,'0')}.w`
+  stTile.textContent  = `Tile $${hex2(tileIdx)}`
+  stVram.textContent  = `char $${hex3(charNum)}  VRAM $${hex4(vramWord)}.w`
   stColor.textContent = `color ${colorIdx} (${activeBpp}bpp)`
 })
 
