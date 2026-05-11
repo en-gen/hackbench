@@ -16,6 +16,8 @@
 
 import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
+import { getNonce, getWebviewUri, readDescriptor, postWebviewError, buildWebviewHtml } from './webviewUtils'
+import { hex3 } from '../rom/hex'
 
 export class LevelGraphProvider implements vscode.CustomReadonlyEditorProvider {
   constructor(private readonly context: vscode.ExtensionContext) {}
@@ -41,7 +43,7 @@ export class LevelGraphProvider implements vscode.CustomReadonlyEditorProvider {
         await this._sendGraphData(document.uri, panel.webview)
       }
       if (msg.type === 'openLevel') {
-        const hex = (msg.levelIndex as number).toString(16).toUpperCase().padStart(3, '0')
+        const hex = hex3(msg.levelIndex as number)
         const uri = vscode.Uri.parse(`smwrom:/${msg.slug}/maps/${hex}.smwmap`)
         await vscode.commands.executeCommand('vscode.open', uri)
       }
@@ -50,10 +52,9 @@ export class LevelGraphProvider implements vscode.CustomReadonlyEditorProvider {
 
   private async _sendGraphData(uri: vscode.Uri, webview: vscode.Webview): Promise<void> {
     try {
-      const raw = await vscode.workspace.fs.readFile(uri)
-      const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
-      const rom  = resolveRom(descriptor.romPath as string)
-      const slug = descriptor.slug as string
+      const descriptor = await readDescriptor<{ romPath: string; slug: string }>(uri)
+      const rom  = resolveRom(descriptor.romPath)
+      const slug = descriptor.slug
 
       const exitGraph = rom.buildLevelExitGraph()
 
@@ -73,7 +74,7 @@ export class LevelGraphProvider implements vscode.CustomReadonlyEditorProvider {
 
       const nodes = Array.from(referenced).map(id => ({
         id,
-        hex: id.toString(16).toUpperCase().padStart(3, '0'),
+        hex: hex3(id),
         name: rom.getLevelName(id),
         isOverworld: overworldSet.has(id),
       }))
@@ -88,40 +89,17 @@ export class LevelGraphProvider implements vscode.CustomReadonlyEditorProvider {
 
       webview.postMessage({ type: 'load', nodes, edges, slug })
     } catch (err) {
-      webview.postMessage({ type: 'error', message: (err as Error).message })
+      postWebviewError(webview, err)
     }
   }
 
   private _buildHtml(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'levelGraph.js')
-    )
-    const nonce = getNonce()
-    return /* html */`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none';
-             script-src 'nonce-${nonce}';
-             style-src ${webview.cspSource} 'unsafe-inline';" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Level Graph</title>
-  <style>
-    html, body { height:100%; margin:0; padding:0; overflow:hidden; background:var(--vscode-editor-background,#1e1e1e); }
-    #app { width:100%; height:100%; overflow:hidden; position:relative; }
-    #app svg { position:absolute; top:0; left:0; }
-  </style>
-</head>
-<body>
-  <div id="app"></div>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`
+    return buildWebviewHtml({
+      title: 'Level Graph',
+      nonce: getNonce(),
+      scriptUri: getWebviewUri(webview, this.context.extensionUri, 'levelGraph.js'),
+      cspSource: webview.cspSource,
+      styles: 'html,body{height:100%;margin:0;padding:0;overflow:hidden;background:var(--vscode-editor-background,#1e1e1e);}#app{width:100%;height:100%;overflow:hidden;position:relative;}#app svg{position:absolute;top:0;left:0;}',
+    })
   }
-}
-
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }

@@ -19,6 +19,7 @@
 
 import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
+import { getNonce, getWebviewUri, readDescriptor, postWebviewError, buildWebviewHtml } from './webviewUtils'
 import {
   loadOverworld,
   loadOverworldAreas,
@@ -90,12 +91,7 @@ export class OverworldViewerProvider implements vscode.CustomReadonlyEditorProvi
 
   private async _send(uri: vscode.Uri, webview: vscode.Webview): Promise<void> {
     try {
-      const raw = await vscode.workspace.fs.readFile(uri)
-      const descriptor = JSON.parse(Buffer.from(raw).toString('utf8')) as {
-        romPath: string
-        areaIndex: number
-      }
-
+      const descriptor = await readDescriptor<{ romPath: string; areaIndex: number }>(uri)
       const session = resolveRom(descriptor.romPath)
       const rom = session.rom
       const overworld = loadOverworld(rom)
@@ -218,49 +214,19 @@ export class OverworldViewerProvider implements vscode.CustomReadonlyEditorProvi
         luigiStart: area.luigiStart as OwPosition | null,
       })
     } catch (err) {
-      webview.postMessage({ type: 'error', message: (err as Error).message })
+      postWebviewError(webview, err)
     }
   }
 
   private _buildHtml(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(
-        this.context.extensionUri, 'dist', 'webview', 'overworldViewer.js',
-      ),
-    )
-    const codiconCssUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'codicon.css'),
-    )
-    const nonce = getNonce()
-    return /* html */`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none';
-             script-src 'nonce-${nonce}';
-             font-src ${webview.cspSource};
-             style-src ${webview.cspSource} 'unsafe-inline';" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SMW Overworld Viewer</title>
-  <link rel="stylesheet" href="${codiconCssUri}" />
-  <style>
-    html, body { height:100%; margin:0; padding:0; overflow:hidden; }
-    #app { height:100%; }
-  </style>
-</head>
-<body>
-  <div id="app"></div>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`
+    const ext = this.context.extensionUri
+    return buildWebviewHtml({
+      title: 'SMW Overworld Viewer',
+      nonce: getNonce(),
+      scriptUri: getWebviewUri(webview, ext, 'overworldViewer.js'),
+      cspSource: webview.cspSource,
+      cssLinks: [getWebviewUri(webview, ext, 'codicon.css')],
+      extraCsp: `font-src ${webview.cspSource};`,
+    })
   }
-}
-
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  return Array.from(
-    { length: 32 },
-    () => chars[Math.floor(Math.random() * chars.length)],
-  ).join('')
 }

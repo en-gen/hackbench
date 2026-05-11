@@ -17,6 +17,8 @@ import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
 import { GFX_FILE_COUNT, GFX_MARIO_3BPP_INDEX, loadGfxFile, loadGfxRaw, getLayer3GfxRange } from '../rom/GfxLoader'
 import { loadRomPalettes, buildLevelCgram, loadCustomLevelPalette, RgbaRow } from '../rom/PaletteLoader'
+import { getNonce, getWebviewUri, readDescriptor, postWebviewError, buildWebviewHtml } from './webviewUtils'
+import { hex2 } from '../rom/hex'
 
 /**
  * Guess the most useful palette row to display for a given GFX file index.
@@ -84,11 +86,9 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
 
   private async _sendGfxData(uri: vscode.Uri, webview: vscode.Webview): Promise<void> {
     try {
-      const raw = await vscode.workspace.fs.readFile(uri)
-      const descriptor = JSON.parse(Buffer.from(raw).toString('utf8'))
-
-      const rom = resolveRom(descriptor.romPath as string)
-      const gfxIndex = descriptor.gfxIndex as number
+      const descriptor = await readDescriptor<{ romPath: string; gfxIndex: number }>(uri)
+      const rom = resolveRom(descriptor.romPath)
+      const gfxIndex = descriptor.gfxIndex
 
       if (gfxIndex < 0 || gfxIndex >= GFX_FILE_COUNT) {
         webview.postMessage({ type: 'error', message: `Invalid GFX index: ${gfxIndex}` })
@@ -130,7 +130,7 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
       webview.postMessage({
         type: 'load',
         gfxIndex,
-        gfxHex:           gfxIndex.toString(16).toUpperCase().padStart(2, '0'),
+        gfxHex:           hex2(gfxIndex),
         tilePixels,
         tileCount:        tilePixels.length,
         paletteRows,
@@ -151,36 +151,16 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
         })() as 2 | 3 | 4,
       })
     } catch (err) {
-      webview.postMessage({ type: 'error', message: (err as Error).message })
+      postWebviewError(webview, err)
     }
   }
 
   private _buildHtml(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'gfxViewer.js')
-    )
-    const nonce = getNonce()
-    return /* html */`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none';
-             script-src 'nonce-${nonce}';
-             style-src ${webview.cspSource} 'unsafe-inline';" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SMW GFX Viewer</title>
-  <style>html, body { height:100%; margin:0; padding:0; overflow:hidden; } #app { height:100%; }</style>
-</head>
-<body>
-  <div id="app"></div>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`
+    return buildWebviewHtml({
+      title: 'SMW GFX Viewer',
+      nonce: getNonce(),
+      scriptUri: getWebviewUri(webview, this.context.extensionUri, 'gfxViewer.js'),
+      cspSource: webview.cspSource,
+    })
   }
-}
-
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }

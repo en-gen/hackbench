@@ -36,37 +36,20 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   )
 
-  // Register the map custom editor.
   // retainContextWhenHidden:false — each map webview copies VRAM frames +
   // animation frames + an AudioContext (postMessage is a structured clone,
   // not a reference). Keeping 100 hidden tabs alive would pile up hundreds
   // of MB. With the ROM buffer shared via RomSession.resolveRom(), rebuild
   // on re-show is all in-memory compute, no disk I/O.
-  context.subscriptions.push(
-    vscode.window.registerCustomEditorProvider(
-      'hackbench.mapEditor',
-      mapEditorProvider,
-      { webviewOptions: { retainContextWhenHidden: false } }
+  const registerEditor = (viewType: string, provider: vscode.CustomReadonlyEditorProvider): void => {
+    context.subscriptions.push(
+      vscode.window.registerCustomEditorProvider(viewType, provider, { webviewOptions: { retainContextWhenHidden: false } })
     )
-  )
+  }
 
-  // Register the palette editor
-  context.subscriptions.push(
-    vscode.window.registerCustomEditorProvider(
-      'hackbench.paletteEditor',
-      paletteEditorProvider,
-      { webviewOptions: { retainContextWhenHidden: false } }
-    )
-  )
-
-  // Register the GFX tile sheet viewer
-  context.subscriptions.push(
-    vscode.window.registerCustomEditorProvider(
-      'hackbench.gfxViewer',
-      gfxViewerProvider,
-      { webviewOptions: { retainContextWhenHidden: false } }
-    )
-  )
+  registerEditor('hackbench.mapEditor',        mapEditorProvider)
+  registerEditor('hackbench.paletteEditor',    paletteEditorProvider)
+  registerEditor('hackbench.gfxViewer',        gfxViewerProvider)
 
   // Register the two explorer tree views. `createTreeView` (rather than
   // `registerTreeDataProvider`) is used so `showCollapseAll` renders the
@@ -76,59 +59,12 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.createTreeView('hackbench.resourcesExplorer', { treeDataProvider: resourcesProvider, showCollapseAll: true }),
   )
 
-  // Register the music player custom editor
-  context.subscriptions.push(
-    vscode.window.registerCustomEditorProvider(
-      'hackbench.musicPlayer',
-      musicPlayerProvider,
-      { webviewOptions: { retainContextWhenHidden: false } }
-    )
-  )
-
-  // Register the ROM stats dashboard
-  context.subscriptions.push(
-    vscode.window.registerCustomEditorProvider(
-      'hackbench.romStats',
-      romStatsProvider,
-      { webviewOptions: { retainContextWhenHidden: false } }
-    )
-  )
-
-  // Register the level interconnection graph
-  context.subscriptions.push(
-    vscode.window.registerCustomEditorProvider(
-      'hackbench.levelGraph',
-      levelGraphProvider,
-      { webviewOptions: { retainContextWhenHidden: false } }
-    )
-  )
-
-  // Register the tileset comparison view
-  context.subscriptions.push(
-    vscode.window.registerCustomEditorProvider(
-      'hackbench.tilesetCompare',
-      tilesetCompareProvider,
-      { webviewOptions: { retainContextWhenHidden: false } }
-    )
-  )
-
-  // Register the ROM memory-map viewer
-  context.subscriptions.push(
-    vscode.window.registerCustomEditorProvider(
-      'hackbench.romMap',
-      romMapProvider,
-      { webviewOptions: { retainContextWhenHidden: false } }
-    )
-  )
-
-  // Register the overworld viewer
-  context.subscriptions.push(
-    vscode.window.registerCustomEditorProvider(
-      'hackbench.overworldViewer',
-      overworldViewerProvider,
-      { webviewOptions: { retainContextWhenHidden: false } }
-    )
-  )
+  registerEditor('hackbench.musicPlayer',      musicPlayerProvider)
+  registerEditor('hackbench.romStats',         romStatsProvider)
+  registerEditor('hackbench.levelGraph',       levelGraphProvider)
+  registerEditor('hackbench.tilesetCompare',   tilesetCompareProvider)
+  registerEditor('hackbench.romMap',           romMapProvider)
+  registerEditor('hackbench.overworldViewer',  overworldViewerProvider)
 
   // Commands
   context.subscriptions.push(

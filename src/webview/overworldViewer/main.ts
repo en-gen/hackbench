@@ -32,6 +32,7 @@ import {
   BLOCK_LABEL_MIN_PX,
 } from '../shared/blockView'
 import { createRafTimer } from '../shared/animTimer'
+import { hex2, hex3, hex4, hex6 } from '../shared/hex'
 
 // ── Constants (mirror OverworldLoader.ts so the webview is self-contained) ──
 
@@ -978,7 +979,7 @@ function renderWarpsPanel(): void {
     return
   }
   warpList.innerHTML = m.map((p, i) =>
-    `<div>#${i}: x=$${p.x.toString(16).toUpperCase().padStart(4,'0')} y=$${p.y.toString(16).toUpperCase().padStart(4,'0')}</div>`,
+    `<div>#${i}: x=$${hex4(p.x)} y=$${hex4(p.y)}</div>`,
   ).join('')
 }
 
@@ -988,11 +989,11 @@ function renderInspector(): void {
   const r = payload.region
   propsCtx.textContent = `Area ${a.index} (${a.widthTiles}×${a.heightTiles})`
 
-  infoArea.textContent    = `$${a.index.toString(16).toUpperCase()}`
+  infoArea.textContent    = `$${hex2(a.index)}`
   infoSize.textContent    = `${a.widthTiles}×${a.heightTiles}`
-  infoTileset.textContent = `$${a.objectTileset.toString(16).toUpperCase().padStart(2, '0')}`
-  infoPalIx.textContent   = `$${a.paletteIndex.toString(16).toUpperCase()}`
-  infoPAddr.textContent   = `$${a.paletteAddrNormal.toString(16).toUpperCase().padStart(6, '0')}`
+  infoTileset.textContent = `$${hex2(a.objectTileset)}`
+  infoPalIx.textContent   = `$${hex2(a.paletteIndex)}`
+  infoPAddr.textContent   = `$${hex6(a.paletteAddrNormal)}`
 
   infoCamX.textContent = `${a.cameraX} (signed)`
   infoCamY.textContent = `${a.cameraY} (signed)`
@@ -1108,7 +1109,7 @@ map16Canvas.addEventListener('mousemove', (ev) => {
   const row = Math.floor((ev.clientY - rect.top)  * sy / MAP16_PX)
   const idx = row * 16 + col
   if (idx >= 0 && idx < 512) {
-    map16Inspect.textContent = `Map16 #$${idx.toString(16).toUpperCase().padStart(3, '0')}`
+    map16Inspect.textContent = `Map16 #$${hex3(idx)}`
   }
 })
 
@@ -1126,7 +1127,7 @@ tilesCanvas.addEventListener('mousemove', (ev) => {
   const idx = row * 16 + col
   const charNum = filled[idx]
   if (charNum !== undefined) {
-    tilesInspect.textContent = `char $${charNum.toString(16).toUpperCase().padStart(3, '0')}`
+    tilesInspect.textContent = `char $${hex3(charNum)}`
   }
 })
 
@@ -1144,10 +1145,10 @@ palCanvas.addEventListener('mousemove', (ev) => {
                | (Math.round(c[0] * 31 / 255))
   const idx = row * 16 + col
   palInspect.textContent =
-    `$${idx.toString(16).toUpperCase().padStart(2, '0')} ` +
-    `R${row.toString(16).toUpperCase()}C${col.toString(16).toUpperCase()} ` +
+    `$${hex2(idx)} ` +
+    `R${hex2(row)}C${hex2(col)} ` +
     `RGB(${c[0]},${c[1]},${c[2]}) ` +
-    `BGR=$${bgr555.toString(16).toUpperCase().padStart(4, '0')}`
+    `BGR=$${hex4(bgr555)}`
 })
 
 palCanvas.addEventListener('click', (ev) => {
@@ -1209,8 +1210,8 @@ canvas.addEventListener('mousemove', (ev) => {
 
   stPos.textContent = `(${cx},${cy}) tile (${tileCol},${tileRow})`
   if (inspect) {
-    const m16Str = l1 ? ` | L1 #$${l1.m16.toString(16).toUpperCase().padStart(2, '0')}` : ''
-    stTile.textContent = `${inspect.layer} $${inspect.word.charNum.toString(16).toUpperCase().padStart(3, '0')} pal ${inspect.word.palette}${m16Str}`
+    const m16Str = l1 ? ` | L1 #$${hex2(l1.m16)}` : ''
+    stTile.textContent = `${inspect.layer} $${hex3(inspect.word.charNum)} pal ${inspect.word.palette}${m16Str}`
   } else {
     stTile.textContent = '—'
   }
@@ -1222,14 +1223,14 @@ canvas.addEventListener('mousemove', (ev) => {
     ppTile.innerHTML = `
       <div style="${propLabelStyle()}">${inspect.layer} TILE</div>
       <div style="font-family:monospace;font-size:11px;line-height:1.6;color:#bbb;">
-        char    $${inspect.word.charNum.toString(16).toUpperCase().padStart(3, '0')}<br>
+        char    $${hex3(inspect.word.charNum)}<br>
         palette ${inspect.word.palette} (CGRAM row ${inspect.word.palette})<br>
         flipX   ${inspect.word.flipX ? 'yes' : '—'}<br>
         flipY   ${inspect.word.flipY ? 'yes' : '—'}
       </div>
       ${l1 ? `<div style="${propLabelStyle()};margin-top:8px;">L1 MAP16</div>
       <div style="font-family:monospace;font-size:11px;color:#bbb;">
-        index #$${l1.m16.toString(16).toUpperCase().padStart(2, '0')}
+        index #$${hex2(l1.m16)}
       </div>` : ''}
       <div style="${propLabelStyle()};margin-top:8px;">BG POSITION</div>
       <div style="font-family:monospace;font-size:11px;color:#bbb;">
@@ -1277,7 +1278,7 @@ function drawDetail(word: TilemapWord): void {
   }
   dctx.putImageData(img, 0, 0)
   detailInfo.innerHTML = `
-    char $${word.charNum.toString(16).toUpperCase().padStart(3, '0')}<br>
+    char $${hex3(word.charNum)}<br>
     pal  ${word.palette}<br>
     flip ${word.flipX ? 'X' : '—'}${word.flipY ? 'Y' : ''}
   `

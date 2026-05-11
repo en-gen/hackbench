@@ -37,6 +37,7 @@ import { drawScrollPlayback } from './overlays/drawScrollPlayback'
 import { editorStore as store } from './store'
 import { createRafTimer } from '../shared/animTimer'
 import { tileBlockColor } from '../shared/blockView'
+import { hex2, hex3 } from '../shared/hex'
 
 // FLUX: the store owns state; views dispatch actions; observers read refs.
 // `store.foo`         — direct read of the reactive proxy field. Reads inside
@@ -358,7 +359,7 @@ function drawBlockViewLabels(
       if (id === null || id === undefined) continue
       const cx = (c * TILE + TILE / 2 - srcX) * z + dstX
       const cy = (r * TILE + TILE / 2 - srcY) * z + dstY
-      const label = `$${id.toString(16).toUpperCase().padStart(3, '0')}`
+      const label = `$${hex3(id)}`
       octx.strokeText(label, cx, cy)
       octx.fillText(label, cx, cy)
     }
@@ -735,7 +736,7 @@ function drawScreenAndGridOverlays(
     for (let s = 0; s < screenCount; s++) {
       const chipX = (isVert ? 0 : s * SCREEN_W_TILES * 16) + 3
       const chipY = (isVert ? s * SCREEN_H_TILES * 16 : 0) + 3
-      const label = s.toString(16).toUpperCase().padStart(2, '0')
+      const label = hex2(s)
       const textW = octx.measureText(label).width
       octx.fillStyle = 'rgba(0,0,0,0.72)'
       octx.fillRect(chipX, chipY, textW + padX * 2, fontSize + padY * 2)
@@ -2714,7 +2715,7 @@ function drawBlockGrid(grid: number[][], cols: number, rows: number, px: number,
       for (let col = 0; col < cols; col++) {
         const tileId = grid[row]?.[col] ?? 0
         if (tileId === 0) continue
-        ctx.fillText(`$${tileId.toString(16).toUpperCase().padStart(3,'0')}`,
+        ctx.fillText(`$${hex3(tileId)}`,
           Math.round(col * px) + Math.round(px / 2),
           Math.round(row * px) + Math.round(px / 2))
       }
@@ -2846,7 +2847,7 @@ function redraw(): void {
     for (let s = 0; s < screens; s++) {
       const chipX = screenX(s, px) + 3
       const chipY = screenY(s, px) + 3
-      const label = s.toString(16).toUpperCase().padStart(2, '0')
+      const label = hex2(s)
       const textW = ctx.measureText(label).width
       ctx.fillStyle = 'rgba(0,0,0,0.72)'
       ctx.fillRect(chipX, chipY, textW + padX * 2, fontSize + padY * 2)
@@ -2881,7 +2882,7 @@ function redraw(): void {
       if (px >= 14) {
         ctx.fillStyle = '#fff'
         ctx.font = `bold ${Math.max(7, Math.round(px * 0.44))}px monospace`
-        ctx.fillText(spr.spriteId.toString(16).toUpperCase().padStart(2,'0'), sx + 2, sy + Math.round(px) - 3)
+        ctx.fillText(hex2(spr.spriteId), sx + 2, sy + Math.round(px) - 3)
       }
     }
   }
@@ -3765,11 +3766,11 @@ function updateHoverStatus(levelPx: number | null, levelPy: number | null): void
     stTile.textContent = ''
     stPos.textContent = `col ${col}  row ${row}`
   } else if (pick.kind === 'sprite') {
-    const hex = `$${pick.id.toString(16).toUpperCase().padStart(2,'0')}`
+    const hex = `$${hex2(pick.id)}`
     stTile.textContent = pick.displayName ?? hex
     stPos.textContent = `${pick.displayName ? hex + '  ' : ''}col ${col}  row ${row}`
   } else {
-    stTile.textContent = `${pick.layer.toUpperCase()} $${pick.tileId.toString(16).toUpperCase().padStart(3,'0')}`
+    stTile.textContent = `${pick.layer.toUpperCase()} $${hex3(pick.tileId)}`
     stPos.textContent = `col ${col}  row ${row}`
   }
 }
@@ -4465,11 +4466,11 @@ window.addEventListener('message', async (event) => {
 
     applyMinimapOrientation()
 
-    const hex     = mapData.mapIndex.toString(16).toUpperCase().padStart(3, '0')
+    const hex     = hex3(mapData.mapIndex)
     const screens = mapData.screens
     mapId.textContent   = `Map $${hex}`
     mapMeta.textContent = `${screens} screen${screens !== 1 ? 's' : ''}${mapData.isVertical ? ' · vertical' : ''}`
-    const bgmHex = (mapData.currentBgmCommand ?? mapData.header.music).toString(16).toUpperCase().padStart(2, '0')
+    const bgmHex = hex2(mapData.currentBgmCommand ?? mapData.header.music)
     stInfo.textContent  = `BGM $${bgmHex} · Tileset ${mapData.header.gfxTilesetId}`
 
     // Populate props panel selectors (only on initial load)
@@ -4488,7 +4489,7 @@ window.addEventListener('message', async (event) => {
       for (const track of mapData.allBgmTracks ?? []) {
         const opt = document.createElement('option')
         opt.value = String(track.bgmCommand)
-        opt.textContent = `BGM $${track.bgmCommand.toString(16).toUpperCase().padStart(2, '0')}`
+        opt.textContent = `BGM $${hex2(track.bgmCommand)}`
         opt.selected = track.bgmCommand === mapData.currentBgmCommand
         selMusic.appendChild(opt)
       }
@@ -4502,7 +4503,7 @@ window.addEventListener('message', async (event) => {
         i => `${i} (${['none', '200', '300', '400'][i] ?? '?'})`)
       // 5-bit field; 32 modes covered by the SMW level-mode jump table.
       buildSelect(selLevelMode, 32, mapData.header.levelMode ?? 0,
-        i => `$${i.toString(16).toUpperCase().padStart(2, '0')}`)
+        i => `$${hex2(i)}`)
       buildSelect(selItemMemory, 4, mapData.header.itemMemory ?? 0)
       buildSelect(selVScrollHdr, 4, mapData.header.verticalScroll ?? 0)
       buildSelect(selL3Setting,  4, mapData.l3Routine?.layer3Setting ?? 0,
@@ -4535,7 +4536,6 @@ window.addEventListener('message', async (event) => {
     // already populated the options via buildSelect; this just reapplies the
     // .value in case the provider echoed a different value back.
     const hdr = mapData.header
-    const hex2 = (n: number) => `$${n.toString(16).toUpperCase().padStart(2, '0')}`
     selMusic.value      = String(mapData.currentBgmCommand ?? hdr.music ?? 0)
     selTimeLimit.value  = String(hdr.timeLimit      ?? 0)
     selLevelMode.value  = String(hdr.levelMode      ?? 0)
@@ -4567,11 +4567,11 @@ window.addEventListener('message', async (event) => {
       scrollAutoscrollSection.style.display = 'flex'
       const cmd = mapData.header.layer1ScrollCmd
       const cmdHex = cmd !== null && cmd !== undefined
-        ? `$${cmd.toString(16).toUpperCase().padStart(2, '0')}`
+        ? `$${hex2(cmd)}`
         : '—'
       const spriteId = cmd !== null && cmd !== undefined ? 0xE7 + cmd : null
       const spriteHex = spriteId !== null
-        ? `$${spriteId.toString(16).toUpperCase().padStart(2, '0')}`
+        ? `$${hex2(spriteId)}`
         : '—'
       infoScrollSprite.textContent = `sprite ${spriteHex} / cmd ${cmdHex}`
       // Sync the panel checkbox with the (toolbar-driven) toggle state.
@@ -4658,7 +4658,7 @@ window.addEventListener('message', async (event) => {
       selL3Setting.value = String(l3.layer3Setting ?? 0)
       infoL3Byte.textContent  = l3.settingsByte === null || l3.settingsByte === undefined
         ? '—'
-        : hex2(l3.settingsByte)
+        : `$${hex2(l3.settingsByte)}`
       // Tide gets a sub-kind suffix; other kinds map directly.
       let kindLabel: string = String(l3.kind ?? 'disabled')
       if (l3.kind === 'tide') {
@@ -4667,7 +4667,7 @@ window.addEventListener('message', async (event) => {
       infoL3Kind.textContent  = kindLabel
       infoL3InitY.textContent = l3.initialYPx === null || l3.initialYPx === undefined
         ? '—'
-        : hex2(l3.initialYPx)
+        : `$${hex2(l3.initialYPx)}`
     } else {
       selL3Setting.value      = '0'
       infoL3Byte.textContent    = '—'
@@ -4776,7 +4776,7 @@ window.addEventListener('message', async (event) => {
         const row = Math.floor((e.clientY - rect.top) * sy / 16)
         const entry = map16Pages[map16PageIdx]
         const tileWithinPage = row * 16 + col
-        const tileId = (entry.pageNum * 256 + tileWithinPage).toString(16).toUpperCase().padStart(3, '0')
+        const tileId = hex3(entry.pageNum * 256 + tileWithinPage)
         m16Inspect.textContent = `tile ${tileWithinPage}  $${tileId}  (${entry.label})`
         map16HoverTile = { col, row }
         renderMap16Page()

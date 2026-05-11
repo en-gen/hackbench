@@ -1,5 +1,6 @@
 import type { SmwMap } from '../../../rom/model/SmwMap'
 import { L2ObjectStream } from '../../../rom/model/L2Layer'
+import { hex2 } from '../../shared/hex'
 
 /**
  * Minimal Canvas2D subset needed by `drawL2Range`. Mirrors the shape of
@@ -64,7 +65,7 @@ export function drawL2Range(ctx: L2RangeDrawCtx, map: SmwMap): void {
   ctx.font = LABEL_FONT
   ctx.fillStyle = LABEL_COLOR
   const cmdSuffix = range.layer1ScrollCmd !== undefined
-    ? ` (L1 cmd $${range.layer1ScrollCmd.toString(16).toUpperCase().padStart(2, '0')})`
+    ? ` (L1 cmd $${hex2(range.layer1ScrollCmd)})`
     : ''
   ctx.fillText(`L2 range${cmdSuffix}`, range.xMin + LABEL_PAD_X, range.yMin + LABEL_PAD_Y)
 

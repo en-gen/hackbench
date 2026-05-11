@@ -4,6 +4,9 @@ import { LEVEL_COUNT } from '../rom/SmwRom'
 import { GFX_FILE_COUNT } from '../rom/GfxLoader'
 import { loadRomPalettes } from '../rom/PaletteLoader'
 import { OW_AREA_COUNT, loadOverworldAreas, OwArea } from '../rom/OverworldLoader'
+import { hex2, hex3 } from '../rom/hex'
+
+const VIRTUAL_DIRS = new Set(['maps', 'palettes', 'gfx', 'music', 'overworld'])
 
 /**
  * Virtual filesystem provider for smwrom:// URIs.
@@ -49,9 +52,7 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
 
     if (parts.length === 0) return dir(now)
 
-    if (parts.length === 1) {
-      if (parts[0] === 'maps' || parts[0] === 'palettes' || parts[0] === 'gfx' || parts[0] === 'music' || parts[0] === 'overworld') return dir(now)
-    }
+    if (parts.length === 1 && VIRTUAL_DIRS.has(parts[0])) return dir(now)
 
     if (parts.length === 1 && parts[0] === 'info.smwinfo')
       return { type: vscode.FileType.File, ctime: now, mtime: now, size: 128 }
@@ -125,7 +126,7 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
 
     if (parts.length === 1 && parts[0] === 'gfx') {
       return Array.from({ length: GFX_FILE_COUNT }, (_, i): [string, vscode.FileType] =>
-        [`GFX${i.toString(16).toUpperCase().padStart(2, '0')}.smwgfx`, vscode.FileType.File]
+        [`GFX${hex2(i)}.smwgfx`, vscode.FileType.File]
       )
     }
 
@@ -141,83 +142,49 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
     const session = this.sessions.get(slug)
     if (!session) throw vscode.FileSystemError.FileNotFound(uri)
 
+    const romPath = session.rom.rom.filePath
+    const encode = (type: string, extra: Record<string, unknown> = {}): Uint8Array =>
+      Buffer.from(JSON.stringify({ type, version: 1, romPath, ...extra }), 'utf8')
+
     if (parts.length === 2 && parts[0] === 'maps' && parts[1].endsWith('.smwmap')) {
       const index = filenameToIndex(parts[1])
       if (index < 0 || index >= LEVEL_COUNT) throw vscode.FileSystemError.FileNotFound(uri)
-      return Buffer.from(JSON.stringify({
-        type: 'smwmap', version: 1,
-        romPath: session.rom.rom.filePath,
-        mapIndex: index,
-      }), 'utf8')
+      return encode('smwmap', { mapIndex: index })
     }
 
     if (parts.length === 2 && parts[0] === 'palettes' && parts[1].endsWith('.smwpalette')) {
       const groupId = parts[1].replace('.smwpalette', '')
-      return Buffer.from(JSON.stringify({
-        type: 'smwpalette', version: 1,
-        romPath: session.rom.rom.filePath,
+      return encode('smwpalette', {
         groupId: groupId === 'global' ? null : groupId,
         name: groupId === 'global' ? 'Global Palette' : groupId,
-      }), 'utf8')
+      })
     }
 
     if (parts.length === 2 && parts[0] === 'gfx' && parts[1].endsWith('.smwgfx')) {
-      const hex = parts[1].replace('.smwgfx', '').replace('GFX', '')
-      const gfxIndex = parseInt(hex, 16)
-      return Buffer.from(JSON.stringify({
-        type: 'smwgfx', version: 1,
-        romPath: session.rom.rom.filePath,
-        gfxIndex,
-      }), 'utf8')
+      const gfxIndex = parseInt(parts[1].replace('.smwgfx', '').replace('GFX', ''), 16)
+      return encode('smwgfx', { gfxIndex })
     }
 
     if (parts.length === 2 && parts[0] === 'overworld' && parts[1].endsWith('.smwoverworld')) {
       const areaIndex = filenameToAreaIndex(parts[1])
-      if (areaIndex < 0 || areaIndex >= OW_AREA_COUNT) {
-        throw vscode.FileSystemError.FileNotFound(uri)
-      }
-      return Buffer.from(JSON.stringify({
-        type: 'smwoverworld', version: 1,
-        romPath: session.rom.rom.filePath,
-        areaIndex,
-      }), 'utf8')
+      if (areaIndex < 0 || areaIndex >= OW_AREA_COUNT) throw vscode.FileSystemError.FileNotFound(uri)
+      return encode('smwoverworld', { areaIndex })
     }
 
-    if (parts.length === 2 && parts[0] === 'music' && parts[1].endsWith('.smwmusic')) {
-      return Buffer.from(JSON.stringify({
-        type: 'smwmusic', version: 1,
-        romPath: session.rom.rom.filePath,
-      }), 'utf8')
-    }
+    if (parts.length === 2 && parts[0] === 'music' && parts[1].endsWith('.smwmusic'))
+      return encode('smwmusic')
 
-    if (parts.length === 1 && parts[0] === 'info.smwinfo') {
-      return Buffer.from(JSON.stringify({
-        type: 'smwinfo', version: 1,
-        romPath: session.rom.rom.filePath,
-      }), 'utf8')
-    }
+    if (parts.length === 1 && parts[0] === 'info.smwinfo')
+      return encode('smwinfo')
 
-    if (parts.length === 1 && parts[0] === 'graph.smwgraph') {
-      return Buffer.from(JSON.stringify({
-        type: 'smwgraph', version: 1,
-        romPath: session.rom.rom.filePath,
-        slug,
-      }), 'utf8')
-    }
+    if (parts.length === 1 && parts[0] === 'graph.smwgraph')
+      return encode('smwgraph', { slug })
 
-    if (parts.length === 1 && parts[0] === 'compare.smwtilecomp') {
-      return Buffer.from(JSON.stringify({
-        type: 'smwtilecomp', version: 1,
-        romPath: session.rom.rom.filePath,
-      }), 'utf8')
-    }
+    if (parts.length === 1 && parts[0] === 'compare.smwtilecomp')
+      return encode('smwtilecomp')
 
-    if (parts.length === 1 && parts[0] === 'rom.smwrommap') {
-      return Buffer.from(JSON.stringify({
-        type: 'smwrommap', version: 1,
-        romPath: session.rom.rom.filePath,
-      }), 'utf8')
-    }
+    if (parts.length === 1 && parts[0] === 'rom.smwrommap')
+      return encode('smwrommap')
 
     throw vscode.FileSystemError.FileNotFound(uri)
   }
@@ -238,7 +205,7 @@ function dir(now: number): vscode.FileStat {
 }
 
 function indexToFilename(index: number): string {
-  return index.toString(16).toUpperCase().padStart(3, '0') + '.smwmap'
+  return hex3(index) + '.smwmap'
 }
 
 function filenameToIndex(filename: string): number {

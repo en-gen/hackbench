@@ -20,6 +20,7 @@
  */
 
 import { createRafTimer } from '../shared/animTimer'
+import { hex3 } from '../shared/hex'
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void }
 export {}
@@ -93,7 +94,7 @@ let selectedSide:   'a' | 'b' | null = null
 function subtileHtml(st: SubTileData): string {
   const flip = [st.flipX ? 'X' : '', st.flipY ? 'Y' : ''].filter(Boolean).join('')
   const parts = [
-    `Char: $${st.charNum.toString(16).toUpperCase().padStart(3, '0')}`,
+    `Char: $${hex3(st.charNum)}`,
     `Pal: ${st.palette}`,
     flip ? `Flip: ${flip}` : '',
     st.priority ? 'Pri' : '',
@@ -104,7 +105,7 @@ function subtileHtml(st: SubTileData): string {
 function tileTooltip(entry: TileCompEntry, ab: 'a' | 'b'): string {
   const d = entry[ab]
   return [
-    `Tile $${entry.id.toString(16).toUpperCase().padStart(3, '0')}`,
+    `Tile $${hex3(entry.id)}`,
     `TL: ${subtileHtml(d.tl)}`,
     `BL: ${subtileHtml(d.bl)}`,
     `TR: ${subtileHtml(d.tr)}`,
@@ -246,7 +247,7 @@ function renderPreview(
 
   const header = document.createElement('div')
   header.style.cssText = 'font-weight:600;margin-bottom:10px;font-size:0.9em'
-  header.textContent = `Tile $${tileId.toString(16).toUpperCase().padStart(3, '0')} — ${tilesetLabel} (Side ${side.toUpperCase()})`
+  header.textContent = `Tile $${hex3(tileId)} — ${tilesetLabel} (Side ${side.toUpperCase()})`
   container.appendChild(header)
 
   const swatchRow = document.createElement('div')
