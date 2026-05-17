@@ -11,7 +11,7 @@ import {
   readInitialLayer2YPos,
   readL2Pointer,
 } from '../L2Loader'
-import { computeColumnDyRanges, computeLayer2YRange, type ColumnDyRange, type ScrollSimulator } from '../scrollSim'
+import { type ColumnDyRange } from '../scrollSim'
 import {
   SCREEN_H,
   SCREEN_H_VERT,
@@ -96,12 +96,6 @@ export function buildL2(
   layer1ScrollCmd: number | null,
   /** Initial Layer1YPos at level start — needed for scroll-range pixel math. */
   initialCameraYPx: number,
-  /**
-   * Frame-accurate scroll simulator for the level. When present,
-   * `computeLayer2YRange` walks it to derive the Layer-2 slider's
-   * clamp range. `null` for levels with no scroll sprite.
-   */
-  scrollSim: ScrollSimulator | null,
 ): L2Layer | null {
   const ptr = readL2Pointer(rom, levelId) ?? 0
   if (ptr === 0) return null
@@ -161,21 +155,11 @@ export function buildL2(
     layer1ScrollCmd,
   })
 
-  // Layer-2 motion data from the simulator:
-  //   - `layer2YRange` (diagnostic — raw Layer2YPos extremes).
-  //   - `tileDyRanges` (THE rendering driver) — 2D array [row][col],
-  //     each non-null entry is the `(L1Y − L2Y)` range of the 2D
-  //     connected component that tile belongs to. The render lerps
-  //     that range by `scrollProgress` so each contiguous L2 region
-  //     moves as a rigid unit with no per-tile seams.
-  const layer2YRange = scrollSim ? computeLayer2YRange(scrollSim, levelPixelW) : null
-  const rawRanges    = scrollSim ? computeColumnDyRanges(scrollSim, levelPixelW) : null
-  const staticDy     = initialCameraYPx - initialLayer2YPx
-  const tileDyRanges = rawRanges ? buildTileDyRanges(rawRanges, grid, cols, staticDy) : null
-
+  // layer2YRange and tileDyRanges are derived in the webview's
+  // rehydrate.buildL2 from the scrollSimulator, not on the host.
   return new L2ObjectStream(
     grid, l2Tiles, initialLayer2YPx, scrollRange, paletteOrMask,
-    layer2YRange, tileDyRanges,
+    null, null,
   )
 }
 
@@ -190,7 +174,7 @@ export function buildL2(
  * are distinct components and each gets its own, narrower range rather
  * than the union of the whole column run.
  */
-function buildTileDyRanges(
+export function buildTileDyRanges(
   rawRanges: (ColumnDyRange | null)[],
   grid: readonly (readonly (number | null)[])[],
   cols: number,

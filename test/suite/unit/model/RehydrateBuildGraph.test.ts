@@ -14,8 +14,7 @@
  *   buildL2
  *     - null descriptor → L2Layer is null
  *     - kind='preset' → L2Preset created
- *     - kind='objectStream' (layer2YRange=null, tileDyRanges=null) → ??-right branches
- *     - kind='objectStream' (layer2YRange defined, tileDyRanges defined) → ??-left branches
+ *     - kind='objectStream' → L2ObjectStream created; ranges derived from scrollSim in buildGraph
  *   buildL3
  *     - absent / null → L3Layer is null
  *     - descriptor with all chars populated → pixels truthy branch (new Uint8Array(pixels))
@@ -203,39 +202,16 @@ describe('buildGraph — l2 kind=preset', () => {
   })
 })
 
-describe('buildGraph — l2 kind=objectStream (layer2YRange=null, tileDyRanges=null)', () => {
-  it('builds L2ObjectStream with null ranges (??-right branches fire)', () => {
-    // Covers: buildL2 objectStream path
+describe('buildGraph — l2 kind=objectStream', () => {
+  it('builds L2ObjectStream from object-stream descriptor', () => {
+    // Covers: buildL2 objectStream path with paletteOrMask present
     //   desc.paletteOrMask ?? 0 — left side (0 is not null/undefined)
-    //   desc.layer2YRange ?? null — right side (null fires ??)
-    //   desc.tileDyRanges ?? null — right side (null fires ??)
     const l2: L2Descriptor = {
       kind: 'objectStream',
       layout: [[0, null]],
       initialLayer2YPx: 0,
       scrollRange: { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 },
       paletteOrMask: 0,
-      layer2YRange: null,
-      tileDyRanges: null,
-    }
-    const { map } = buildGraph(makeBasePayload({ l2 }))
-    expect(map).toBeDefined()
-  })
-})
-
-describe('buildGraph — l2 kind=objectStream (layer2YRange defined, tileDyRanges defined)', () => {
-  it('builds L2ObjectStream with defined ranges (??-left branches skip)', () => {
-    // Covers:
-    //   desc.layer2YRange ?? null — left side (defined, ?? skipped)
-    //   desc.tileDyRanges ?? null — left side (defined, ?? skipped)
-    const l2: L2Descriptor = {
-      kind: 'objectStream',
-      layout: [[null]],
-      initialLayer2YPx: 0,
-      scrollRange: { kind: 'fixed', xMin: 0, xMax: 256, yMin: 0, yMax: 432 },
-      paletteOrMask: 0,
-      layer2YRange: { min: -10, max: 10 },
-      tileDyRanges: [[{ min: -5, max: 5 }]],
     }
     const { map } = buildGraph(makeBasePayload({ l2 }))
     expect(map).toBeDefined()
@@ -337,8 +313,6 @@ describe('buildGraph — l2 objectStream with paletteOrMask absent', () => {
       initialLayer2YPx: 0,
       scrollRange: { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 },
       // paletteOrMask intentionally absent
-      layer2YRange: null,
-      tileDyRanges: null,
     } as any
     const { map } = buildGraph(makeBasePayload({ l2 }))
     expect(map).toBeDefined()

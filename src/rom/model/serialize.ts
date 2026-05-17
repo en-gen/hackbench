@@ -273,8 +273,6 @@ function serializeL2(l2: L2Layer | null): L2Descriptor | null {
       initialLayer2YPx: l2.initialLayer2YPx,
       scrollRange: l2.scrollRange,
       paletteOrMask: l2.paletteOrMask,
-      layer2YRange: l2.layer2YRange,
-      tileDyRanges: l2.tileDyRanges,
     }
   }
 

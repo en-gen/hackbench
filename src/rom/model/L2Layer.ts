@@ -178,16 +178,26 @@ export class L2ObjectStream extends L2Layer {
       // visibility — the modular reduction was the actual fix.
       if (gridPxW > 0 && dx > gridPxW / 2) dx -= gridPxW
       if (gridPxH > 0 && dy > gridPxH / 2) dy -= gridPxH
-      for (let y = 0; y < this.grid.length; y++) {
-        const row = this.grid[y]
-        for (let x = 0; x < row.length; x++) {
-          const id = row[x]
-          if (id === null) continue
-          const tile = this.l1Tiles.get(id)
-          if (!tile) continue
-          const box = dx === 0 && dy === 0 ? cellBoxOf(x, y) : cellBoxAtXY(x, y, dx, dy)
-          tile.render(target, box, mapStore, 'nonPriority')
-          tile.render(target, box, mapStore, 'priority')
+      // SNES BG2 tiles infinitely. For small grids (cmd $09/$0D levels
+      // with a one-screen-wide plane) the primary wrapped copy leaves
+      // canvas to either side empty. Render up to 3×3 copies offset by
+      // integer multiples of (gridPxW, gridPxH) to fill the visible area.
+      for (let cy = -1; cy <= 1; cy++) {
+        for (let cx = -1; cx <= 1; cx++) {
+          const tdx = dx + cx * gridPxW
+          const tdy = dy + cy * gridPxH
+          for (let y = 0; y < this.grid.length; y++) {
+            const row = this.grid[y]
+            for (let x = 0; x < row.length; x++) {
+              const id = row[x]
+              if (id === null) continue
+              const tile = this.l1Tiles.get(id)
+              if (!tile) continue
+              const box = tdx === 0 && tdy === 0 ? cellBoxOf(x, y) : cellBoxAtXY(x, y, tdx, tdy)
+              tile.render(target, box, mapStore, 'nonPriority')
+              tile.render(target, box, mapStore, 'priority')
+            }
+          }
         }
       }
       return

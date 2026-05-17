@@ -44,6 +44,7 @@ import { cmd09L2 } from './scroll/cmd09'
 import { cmd0bL2 } from './scroll/cmd0b'
 import { cmd0cL1 } from './scroll/cmd0c'
 import { cmd0eL2 } from './scroll/cmd0e'
+import { applyCameraHorizX } from './scroll/cameraMarioX'
 import { applyParallaxDerivation, computeBackgroundVertOffset } from './scroll/parallaxDerivation'
 import { applyCmdSetup } from './scroll/setup'
 
@@ -151,6 +152,47 @@ export interface ScrollState {
    * speed is forced to 0.
    */
   lastScreenHoriz: number
+
+  /**
+   * `CameraMoveTrigger` ($7E:142A). Initialized to $0080 at level entry
+   * (bank_00.asm:5115). Controls the left/right dead-zone offsets used by
+   * `UpdateScreenPosition` horizontal camera tracking (lines 13636-13642:
+   * `CameraLeftBuffer = trigger − $C`, `CameraRightBuffer = trigger + $C`).
+   * In normal gameplay (no L/R button presses) this stays at $0080 for the
+   * full level. L/R-button scrolling (CODE_00CDF6 → CODE_00CE4C) can
+   * increment/decrement it by $0001 per frame, but that path is not
+   * modelled here.
+   */
+  cameraMoveTrigger: number
+
+  /**
+   * Mario's horizontal walk speed in pixels/frame added to
+   * `playerXPosNext` each tick. Approximates Mario walking right at a
+   * constant rate for editor-mode playback (no actual physics). Set to 0
+   * when the simulator is driven from a Mesen capture (the test injects
+   * the exact `marioX` from the CSV each frame). Default 1 for editor
+   * simulation.
+   */
+  playerXSpeed: number
+
+  /**
+   * `ScrMode` byte ($7E:0100). Bit 0 = vertical level. Carried in
+   * `ScrollState` so camera-tracking helpers (`cameraMarioX.ts`) can
+   * skip the horizontal path without needing the closure `screenMode`.
+   * Same value as `ScrollSimSeed.screenMode`.
+   */
+  screenMode: number
+
+  /**
+   * `HorizLayer1Setting` ($7E:1411). Non-zero means camera tracks Mario
+   * horizontally (`UpdateScreenPosition` lines 13658-13691). Zero means
+   * Layer1XPos is not camera-driven (special levels, title screens). In
+   * the editor this should always be 1 for standard horizontal levels.
+   * Capture-validation tests that don't inject per-frame `marioX` set
+   * this to 0 so the camera tracking is a no-op and pre-existing test
+   * assertions on `l1x` / `nl1x` continue to hold.
+   */
+  horizLayer1Setting: number
 }
 
 /** A simulator built for one level. Pure / deterministic. */
@@ -214,6 +256,17 @@ export interface ScrollSimSeed {
    *  surfaces a checkbox for this so users can simulate Mario
    *  standing on an L2 platform. */
   layer2Touched?: number
+  /** Optional: horizontal walk rate added to `playerXPosNext` each
+   *  tick (pixels/frame). Approximates Mario advancing right for
+   *  editor-mode playback. Default 1. Pass 0 when driving the
+   *  simulator from a Mesen capture (tests inject exact marioX). */
+  marioWalkRate?: number
+  /** Optional: `HorizLayer1Setting` ($7E:1411). Non-zero enables
+   *  horizontal camera tracking in `UpdateScreenPosition`. Default 1
+   *  (standard horizontal levels). Capture-validation tests that don't
+   *  inject per-frame `marioX` should pass 0 so that pre-existing
+   *  `l1x`/`nl1x` assertions are not disturbed. */
+  horizLayer1Setting?: number
 }
 
 function makeInitialState(seed: ScrollSimSeed): ScrollState {
@@ -255,6 +308,10 @@ function makeInitialState(seed: ScrollSimSeed): ScrollState {
     onOffSwitch:   wrap8(seed.onOffSwitch ?? 0),
     layer2Touched: wrap8(seed.layer2Touched ?? 0),
     lastScreenHoriz: wrap8(seed.lastScreenHoriz ?? 0x1F),
+    screenMode: wrap8(seed.screenMode),
+    cameraMoveTrigger: 0x0080,
+    playerXSpeed: wrap16(seed.marioWalkRate ?? 1),
+    horizLayer1Setting: seed.horizLayer1Setting ?? 0,
     backgroundVertOffset: computeBackgroundVertOffset(
       wrap16(seed.layer1YPos),
       wrap16(seed.layer2YPos),
@@ -386,31 +443,18 @@ export function buildScrollSimulator(
     //    the BG{1,2}{H,V}OFS register transfer that happens between
     //    frames before bank_00 / bank_05 logic runs.
     let s2 = applyNext(s)
-    // 2. bank_00 `UpdateScreenPosition` parallax derivation +
-    //    8-byte Layer→Next copy (CODE_00F79D / CODE_00F7AA, see
-    //    `parallaxDerivation.ts`). Re-derives Layer2*Pos from
-    //    Layer1*Pos based on the level's parallax-rate bytes, then
-    //    propagates Layer* → Next*. This is what makes the L2 plane
-    //    scroll at the per-level rate even when its cmd handler is
-    //    BEQ'd out (l2cmd=0).
+    // 2. bank_00 `UpdateScreenPosition` (13631-13835):
+    //    a. Horizontal camera X tracking (13658-13691 + CODE_00F8AB):
+    //       advances Layer1XPos to follow Mario within the dead zone
+    //       (CameraMoveTrigger ± $000C). Must run BEFORE the parallax
+    //       derivation so the adjusted Layer1XPos flows into NextLayer1XPos
+    //       through the 8-byte Layer→Next block copy at the end of step b.
+    //    b. L2 parallax derivation + 8-byte Layer→Next copy (CODE_00F79D /
+    //       CODE_00F7AA). Re-derives Layer2*Pos from Layer1*Pos, then
+    //       propagates all Layer* → Next*. Makes L2 scroll at the per-level
+    //       parallax rate even when its cmd handler is BEQ'd out (l2cmd=0).
+    s2 = applyCameraHorizX(s2)
     s2 = applyParallaxDerivation(s2)
-    // 2b. Approximate Mario-X camera advancement for cmds whose
-    //     per-frame logic is conditional on `NextLayer2XPos` (cmd $02
-    //     Layer 2 Smash zone-detection loop). Vanilla SMW advances
-    //     the camera via bank_00's UpdateScreenPosition Mario-tracking
-    //     branch (lines 13658-13691: CameraMoveTrigger / CameraLeft-
-    //     /RightBuffer / CODE_00F8AB direction-aware adjustment). A
-    //     full port needs Mario's gameplay-driven `PlayerXPosNext` +
-    //     subpixel speed model. As an editor-grade approximation we
-    //     advance NextLayer1XPos at +1 px/frame (Mario's nominal walk
-    //     speed) only for cmds that read camera-X — currently just
-    //     cmd $02. Result: smash zones in `DATA_05C880`/`05C8A4` fire
-    //     in their natural sequence as the camera marches forward,
-    //     so `$111` / `$01A` / `$1CF` show progressive smash behavior
-    //     past the intro frame instead of locking at spawn.
-    if (s2.layer2ScrollCmd === 0x02) {
-      s2 = { ...s2, nextLayer1XPos: wrap16(s2.nextLayer1XPos + 1) }
-    }
     // 3. ProcScreenScrollCmds (CODE_05BC76 + CODE_05BCA5). Each
     //    dispatch has a BEQ guard for cmd=0 so unhandled layers get
     //    skipped entirely (their Next* stays at the parallax-derived
@@ -423,6 +467,12 @@ export function buildScrollSimulator(
     if (s2.layer2ScrollCmd !== 0) {
       s2 = (L2_STRATEGIES[s2.layer2ScrollCmd] ?? cmdHold)(s2, rom, screenMode)
     }
+    // Advance Mario's projected X position by the editor walk rate. This
+    // approximates Mario walking right at a constant speed for levels where
+    // no Mesen capture is available. Tests that replay a capture inject the
+    // exact `marioX` from each CSV row into `playerXPosNext` before calling
+    // tick, and seed the sim with `marioWalkRate: 0` so this is a no-op.
+    s2 = { ...s2, playerXPosNext: wrap16(s2.playerXPosNext + s2.playerXSpeed) }
     return { ...s2, frame: s.frame + 1 }
   }
 

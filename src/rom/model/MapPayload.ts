@@ -315,24 +315,6 @@ export type L2Descriptor =
        * `0` otherwise. See `l2PaletteOrForTileset`.
        */
       paletteOrMask: number
-      /**
-       * `Layer2YPos` extremes derived from the level's scroll simulator
-       * (computed once via `computeLayer2YRange`). The slider clamps to
-       * this range so the user can only scrub through Y positions
-       * actually reached in gameplay. `null` for levels without a
-       * scroll sprite.
-       */
-      layer2YRange: { min: number; max: number } | null
-      /**
-       * Per-tile `(L1Y − L2Y)` delta ranges, indexed `[row][col]`.
-       * Each non-null entry is the (min, max) of the 2D connected
-       * component the tile belongs to (BFS flood-fill; component range
-       * = union of constituent columns' raw experienced ranges). Render
-       * lerps the range by `scrollProgress` so each contiguous L2
-       * region moves as a rigid unit. `null` entry = no tile / camera
-       * never reached that component. `null` outer = no scroll sprite.
-       */
-      tileDyRanges: readonly (readonly ({ min: number; max: number } | null)[])[] | null
     }
 
 /**

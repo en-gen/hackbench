@@ -3,9 +3,9 @@ import type { CharBehavior } from './chars/CharBehavior'
 import { AnimatedPixelsBehavior } from './chars/behaviors/AnimatedPixelsBehavior'
 import { PSwitchAlternateBehavior } from './chars/behaviors/PSwitchAlternateBehavior'
 import { StaticPixelsBehavior } from './chars/behaviors/StaticPixelsBehavior'
-import { buildL2Tiles } from './L2Factory'
+import { buildL2Tiles, buildTileDyRanges } from './L2Factory'
 import { L2ObjectStream, L2Preset, type L2Layer } from './L2Layer'
-import { buildScrollSimulator } from '../scrollSim'
+import { buildScrollSimulator, computeLayer2YRange, computeColumnDyRanges, type ScrollSimulator } from '../scrollSim'
 import { L3TilemapLayer, type L3Layer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
 import { CompositeSprite } from './sprites/CompositeSprite'
@@ -101,7 +101,6 @@ export function buildGraph(payload: MapPayload, rom: import('../RomFile').RomFil
     row.map(id => (id === null ? null : id)),
   )
 
-  const l2 = buildL2(payload.l2, tiles, bgTiles)
   const l3 = buildL3(payload.l3 ?? null)
   const sprites = payload.sprites.map(s => buildSprite(s, chars, placeholderChar))
 
@@ -119,6 +118,7 @@ export function buildGraph(payload: MapPayload, rom: import('../RomFile').RomFil
   const scrollSimulator = (rom !== null && payload.scrollSim)
     ? buildScrollSimulator(rom, payload.scrollSim)
     : null
+  const l2 = buildL2(payload.l2, tiles, bgTiles, scrollSimulator, payload.header.initialCameraYPx)
   const mapStore = createMapStore({
     palette,
     levelOrientation: payload.header.orientation,
@@ -289,6 +289,8 @@ function buildL2(
   desc: L2Descriptor | null,
   l1Tiles: Map<number, Tile>,
   bgTiles: Map<number, Tile>,
+  scrollSim: ScrollSimulator | null,
+  initialCameraYPx: number,
 ): L2Layer | null {
   if (!desc) return null
   if (desc.kind === 'preset') {
@@ -306,11 +308,17 @@ function buildL2(
     row.map(id => id),
   )
   const l2Tiles = buildL2Tiles(l1Tiles, desc.paletteOrMask ?? 0)
+  const cols = grid[0]?.length ?? 0
+  const levelPixelW = cols * 16
+  const layer2YRange = scrollSim ? computeLayer2YRange(scrollSim, levelPixelW) : null
+  const rawRanges = scrollSim ? computeColumnDyRanges(scrollSim, levelPixelW) : null
+  const staticDy = initialCameraYPx - desc.initialLayer2YPx
+  const tileDyRanges = rawRanges ? buildTileDyRanges(rawRanges, grid, cols, staticDy) : null
   return new L2ObjectStream(
     grid, l2Tiles, desc.initialLayer2YPx, desc.scrollRange,
     desc.paletteOrMask ?? 0,
-    desc.layer2YRange ?? null,
-    desc.tileDyRanges ?? null,
+    layer2YRange,
+    tileDyRanges,
   )
 }
 
