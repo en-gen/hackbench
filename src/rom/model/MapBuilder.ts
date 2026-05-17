@@ -173,10 +173,11 @@ export function buildMapWithGraph(
         marioSpawnX: marioStartPx?.x ?? 0,
         marioSpawnY: marioStartPx?.y ?? 0,
         screenMode:  header.levelMode,
+        horizLayer1Setting: isVertical ? 0 : 1,
       })
     : null
 
-  const l2 = buildL2(rom.rom, levelId, header, screens, isVertical, chars, tiles, bgTiles, layer1ScrollCmd, initialCameraYPx, scrollSimulator)
+  const l2 = buildL2(rom.rom, levelId, header, screens, isVertical, chars, tiles, bgTiles, layer1ScrollCmd, initialCameraYPx)
   const l3 = buildL3(rom.rom, levelId, tileset, l3Chars, screens, isVertical, rawHeader.timeLimit)
 
   const sprites = buildSprites(rom.rom, levelSprites, chars, l1, marioStartPx, tiles)

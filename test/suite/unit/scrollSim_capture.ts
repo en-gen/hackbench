@@ -147,7 +147,10 @@ export function firstMismatch(
  * the Mesen capture (e.g. `lastScreenHoriz` for cmd $0C, sourced from
  * the level header in production).
  */
-export function simFromCapture(r0: CaptureRow, extra: { lastScreenHoriz?: number } = {}) {
+export function simFromCapture(
+  r0: CaptureRow,
+  extra: { lastScreenHoriz?: number; horizLayer1Setting?: number } = {},
+) {
   const rom = loadVanillaRom()
   return buildScrollSimulator(rom, {
     layer1XPos: r0.l1x, layer1YPos: r0.l1y,
@@ -158,6 +161,8 @@ export function simFromCapture(r0: CaptureRow, extra: { lastScreenHoriz?: number
     marioSpawnX: r0.marioX, marioSpawnY: r0.marioY,
     screenMode: 0,
     lastScreenHoriz: extra.lastScreenHoriz,
+    marioWalkRate: 0,              // tests inject exact marioX; no auto-advance
+    horizLayer1Setting: extra.horizLayer1Setting ?? 0,  // disabled unless test opts in
   })
 }
 
