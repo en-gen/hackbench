@@ -39,10 +39,11 @@ tools/*
 !tools/vendor/**
 # tools/mesen: unignore the directory first (git cannot re-include files
 # when a parent directory remains excluded), then re-ignore everything
-# inside except the *.lua scripts.
+# inside except the *.lua scripts and this README.
 !tools/mesen/
 tools/mesen/*
 !tools/mesen/*.lua
+!tools/mesen/README.md
 
 # Large binary reference docs (PDFs, scanned pages, OCR intermediates)
 docs/*.pdf
