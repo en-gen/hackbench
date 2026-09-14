@@ -18,6 +18,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Full history so the content-policy check can diff against the PR base.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -26,6 +29,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Content policy (no ROM-derived bytes)
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          [ -z "$BASE" ] && BASE=$(git rev-parse HEAD~1 || git rev-parse HEAD)
+          bash tools/scripts/check-staged-content.sh range "$BASE" "${{ github.sha }}"
 
       - name: Lint
         run: npm run lint

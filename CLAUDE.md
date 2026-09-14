@@ -101,9 +101,50 @@ Domain library: `C:\Projects\SMWDisX`. SMW ROM constants, handler ports, and ASM
 `*.smc`, `*.sfc`, `*.rom`, `*.ips`, `*.bps`, `test/roms/`, `test/magic/` are gitignored.
 
 <!-- gitnexus:start -->
+# Quality gates
+
+These exist because each one corresponds to a defect that actually reached review in this repo. They are not generic best practice.
+
+## Enforced mechanically
+
+Enable the hooks once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`tools/scripts/check-staged-content.sh` runs on pre-commit and in CI. It blocks ROM-derived bytes (the copyright rule in `docs/testing.md`, previously guarded only by `.gitignore`, which `git add -f` silently defeats) and em-dashes in newly added lines. Override with `git commit --no-verify` only with a stated reason in the PR.
+
+## Claim discipline
+
+State the evidence scope with every claim, in comments, docs and commit messages. Not "deterministic" but "byte-identical across 6 cold runs, one machine, Mesen 2.x". Two separate claims in this repo were asserted far past their evidence and nearly shipped: "memory callbacks do not fire under `--testrunner`" (false: only `$7E`-prefixed absolute addresses fail) and a determinism result generalised from three title-screen frames.
+
+Cite ROM behaviour to `SMWDisX file:line`. Trace it; do not copy the assembly into our source. Copies rot when the disassembly is regenerated.
+
+## Oracles must be proven able to fail
+
+Any check, harness or test that reports a verdict needs a committed test proving it goes red on a planted defect. Verdicts that cannot fail are worse than no verdict. Real examples from this repo: a determinism check that printed "all artifacts byte-identical across 5 runs" having compared zero files, and a wrapper that exited 0 on run codes `14,14,14,14,0`.
+
+Never accept a single-case acceptance test. A debounce tuned to level `$105` false-failed 22% of levels with a factually wrong diagnosis. Sweep the range.
+
+## Size budgets
+
+State an expected size in every implementation brief, and stop and ask if the work is heading past it. A Phase 1 task scoped at roughly 150 lines of mechanism returned 813 lines, most of it narration.
+
+Comment-to-code ratio is the house signal: `tools/mesen/l1_dump.lua` sits near 0.60. Much above that means the code is being explained rather than written. Comments should say WHY, not restate WHAT.
+
+Do not build scaffolding for phases that have not been approved.
+
+## Agent workflow
+
+- One agent per worktree. Two agents in one worktree produced a review whose findings referenced files another agent was editing underneath it.
+- Worktrees go in `C:/Projects/.worktrees/<repo>/<task>`, never inside the repo and never as a sibling.
+- The implementer never certifies its own work. Every non-trivial change gets two fresh-agent reviews against the diff, adversarial and simplification, and the orchestrator independently builds and runs before accepting.
+- Never use a small model for the adversarial gate.
+
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hackbench** (9461 symbols, 19210 relationships, 281 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hackbench**. Use the GitNexus MCP tools to understand code, assess impact, and navigate safely. Symbol and relationship counts drift as the code changes; check `gitnexus://repo/hackbench/context` for current figures rather than trusting a number written here.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
