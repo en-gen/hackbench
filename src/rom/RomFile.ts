@@ -86,7 +86,7 @@ export class RomFile {
   readAt(snesAddr: number, length: number): Buffer | null {
     const offset = this.mapMode === 'hirom'
       ? hiromToOffset(snesAddr, this.hasHeader)
-      : loromToOffset(snesAddr, this.hasHeader)
+      : loromToOffset(snesAddr, this.romSize, this.hasHeader)
     if (offset === null || offset + length > this.buffer.length) return null
     return this.buffer.slice(offset, offset + length) as Buffer
   }
@@ -121,7 +121,7 @@ export class RomFile {
     // extension host's responsibility).
     const offset = this.mapMode === 'hirom'
       ? hiromToOffset(snesAddr, this.hasHeader)
-      : loromToOffset(snesAddr, this.hasHeader)
+      : loromToOffset(snesAddr, this.romSize, this.hasHeader)
     if (offset === null) throw new Error(`Address ${snesAddr.toString(16)} is not writable (not ROM)`)
     const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data)
     bytes.copy(this.buffer, offset)

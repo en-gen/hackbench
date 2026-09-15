@@ -41,7 +41,6 @@ interface Block {
   indices: number[]
 }
 
-const ROM_VIRTUAL_END = 0x80000   // 512 KB; vanilla LoROM image size
 const MAX_BLOCK_SCAN = 0x10000    // 64 KB cap per block walk; real levels are far smaller
 
 export class RomMapProvider implements vscode.CustomReadonlyEditorProvider {
@@ -133,8 +132,8 @@ function computeBlocks(rom: RomFile, smwRom: { getLevelL1Pointer: (i: number) =>
     // L1: 3-byte pointer, 5-byte header + object stream + $FF
     const p1 = smwRom.getLevelL1Pointer(i)
     if (p1 !== null && (p1 >>> 16) !== 0xFF) {
-      const fs = loromToOffset(p1, false)
-      if (fs !== null && fs >= 0 && fs < ROM_VIRTUAL_END) {
+      const fs = loromToOffset(p1, rom.romSize, false)
+      if (fs !== null && fs < rom.romSize) {
         const data = sliceAt(fs)
         if (data) register('L1', p1, fs, fs + getObjectStreamLength(data, true), i)
       }
@@ -143,8 +142,8 @@ function computeBlocks(rom: RomFile, smwRom: { getLevelL1Pointer: (i: number) =>
     // L2: 3-byte pointer, no header; bank $FF = preset BG (skip).
     const p2 = smwRom.getLevelL2Pointer(i)
     if (p2 !== null && (p2 >>> 16) !== 0xFF) {
-      const fs = loromToOffset(p2, false)
-      if (fs !== null && fs >= 0 && fs < ROM_VIRTUAL_END) {
+      const fs = loromToOffset(p2, rom.romSize, false)
+      if (fs !== null && fs < rom.romSize) {
         const data = sliceAt(fs)
         if (data) register('L2', p2, fs, fs + getObjectStreamLength(data, false), i)
       }
@@ -153,8 +152,8 @@ function computeBlocks(rom: RomFile, smwRom: { getLevelL1Pointer: (i: number) =>
     // Sprite: 2-byte pointer (bank $07 implicit), 1-byte header + 3-byte sprites + $FF.
     const ps = smwRom.getLevelSpritePointer(i)
     if (ps !== null) {
-      const fs = loromToOffset(ps, false)
-      if (fs !== null && fs >= 0 && fs < ROM_VIRTUAL_END) {
+      const fs = loromToOffset(ps, rom.romSize, false)
+      if (fs !== null && fs < rom.romSize) {
         const data = sliceAt(fs)
         if (data) register('Sprite', ps, fs, fs + getSpriteStreamLength(data), i)
       }

@@ -74,7 +74,7 @@ $00–$3F $4000–$40FF     Old-style joypad (manual read)
 $00–$3F $4100–$41FF     Unused
 $00–$3F $4200–$44FF     CPU registers (DMA, HDMA, IRQ, NMI, math)
 $00–$3F $8000–$FFFF     LoROM cartridge ROM (32 KB per bank)
-$40–$6F $0000–$7FFF     LoROM cartridge ROM (continued, some mappers)
+$40–$7D $0000–$FFFF     LoROM cartridge ROM (A15 ignored: $0000-$7FFF mirrors $8000-$FFFF of the same bank when no SRAM is present; "expand ROM" hacks use the full range, up to the 4 MB ceiling)
 $7E      $0000–$1FFF    WRAM (first 8 KB, same as mirrors above)
 $7E      $2000–$FFFF    WRAM (remaining ~120 KB of first 64 KB)
 $7F      $0000–$FFFF    WRAM (second 64 KB, total = 128 KB)
@@ -140,8 +140,9 @@ Both are **cartridge memory mapping schemes** that describe how ROM banks are ex
 - **128 banks** available → theoretical maximum **4 MB** of ROM (128 × 32 KB).
 - Mirroring: Bank `$00` offset `$8000` = Bank `$80` offset `$8000` (same ROM data; `$80+` are FastROM-capable).
 - ROM is accessed **one half-bank at a time**, leaving the lower `$0000–$7FFF` for registers and WRAM mirrors.
-- SRAM typically at banks `$70–$7D`, offset `$0000–$7FFF`.
-- **ExLoROM**: Uses otherwise-mirrored banks `$40–$6F` for ROM, enabling ~6 MB+ capacities.
+- SRAM typically at banks `$70–$7D`, offset `$0000–$7FFF`, on boards that carry SRAM; on boards without it, "expand ROM" hacks reuse the same address range as ROM data instead (see the System Map table above).
+- **4 MB ceiling, no "ExLoROM"**: a board that ignored only A15 (not A23) beyond the plain per-bank formula - sometimes called "ExLoROM" - does not exist. The nesdev.org forum thread "CPU->Cart Address Mapping for ExLoROM/ExHiROM" (forums.nesdev.org/viewtopic.php?t=14808) concludes as much, and notes that a board which *did* ignore only A15 would make A23 a ROM address bit instead, mapping banks `$00–$3F` to `+0x400000` and `$40–$7F` to `+0x600000` (snes9x's `Map_JumboLoROMMap`). Applying the plain per-bank formula past 4 MB reads every low bank as the wrong 4 MB half - measured on an 8 MB image, where every bank in `$00–$3F` returned the far half's data instead of the near half's. Practical ceiling for the formula above: **4 MB** (128 banks × 32 KB). Mitigation: a ROM editor should reject non-LoROM map-mode bytes at open time rather than silently misreading an incompatible board.
+- **WRAM select and the `$FE`/`$FF` mirror**: `/WRAMSEL` (SNESdev's WRAM_pinout: "/CS3 connected to /WRAMSEL to map S-WRAM to ... $7E-7F:0000-FFFF") decodes only the literal banks `$7E`/`$7F`, not A23 - so their `$FE`/`$FF` mirror is real cartridge ROM, not WRAM. An address converter must test the raw bank for the WRAM exclusion before folding `$80–$FF` down to `$00–$7F`, or it wrongly rejects an expanded ROM's top bank.
 
 ### HiROM
 
