@@ -8,7 +8,7 @@ import { assertCatalogAcceptance, buildBrokenCatalogVariants } from '../support/
 // Size chosen so (size % 1024) !== 512, so RomFile never treats this as
 // copier-headered -- keeps pointer math free of the +512 header offset.
 const BUF_SIZE = 0x40000
-const L1_TABLE_OFFSET = loromToOffset(ADDR.LEVEL_L1_PTR, false)!
+const L1_TABLE_OFFSET = loromToOffset(ADDR.LEVEL_L1_PTR, BUF_SIZE)!
 
 /** Builds a synthetic LoROM image with a hand-picked L1 pointer per slot. */
 function buildFakeRom(pointerOf: (index: number) => number, readable: Set<number> = new Set()): SmwRom {
@@ -21,7 +21,7 @@ function buildFakeRom(pointerOf: (index: number) => number, readable: Set<number
     buf[base + 1] = (ptr >> 8) & 0xFF
     buf[base + 2] = (ptr >> 16) & 0xFF
     if (readable.has(ptr)) {
-      const off = loromToOffset(ptr, false)
+      const off = loromToOffset(ptr, BUF_SIZE)
       if (off !== null) buf[off + 5] = 0xFF // 5-byte header + immediate terminator
     }
   }

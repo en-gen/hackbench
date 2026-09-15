@@ -91,14 +91,19 @@ Measured across the corpus:
 | magic (copier header) | 194 | 277 | 235 | 235 |
 | Seven Vanilla Levels | 214 | 261 | 251 | 251 |
 | GrandPooWorld 1.2 | 199 | 277 | 235 | 235 |
-| Grand Poo World 2 | 264 | 221 | 291 | 197 |
-| Invictus 1.0 | 320 | 158 | 354 | 192 |
+| Grand Poo World 2 | 264 | 221 | 291 | 291 |
+| Invictus 1.0 | 320 | 158 | 354 | 354 |
 
-The two 4 MB ROMs parse only part of their catalog. The likely cause is
-expanded-ROM addressing: bank bytes at or above `$80` are LoROM mirrors in a
-512 KB ROM but real banks in a 2 MB or 4 MB one. That is a separate fix and it
-is tracked as such; the catalog tier should report what it can parse and what it
-cannot, rather than silently dropping slots.
+The two 4 MB ROMs originally parsed only part of their catalog: 197 of 291 and
+192 of 354. The suspected cause was expanded-ROM addressing, where bank bytes
+at or above `$80` are LoROM mirrors in a 512 KB ROM but real banks in a 2 MB or
+4 MB one. That fix landed separately and closed both gaps exactly, so every ROM
+in the corpus now parses in full. The hypothesis is confirmed, not merely
+plausible.
+
+The tier still reports what it can and cannot parse rather than silently
+dropping slots, because that property is what made the gap visible in the first
+place.
 
 ### What Tier 1 replaces
 
@@ -148,8 +153,10 @@ is fixed.
 
 ## Open questions
 
-1. Expanded-ROM addressing: what is the correct SNES-to-file mapping for 2 MB
-   and 4 MB ROMs, and does it explain the parse failures above?
+1. ~~Expanded-ROM addressing: what is the correct SNES-to-file mapping for 2 MB
+   and 4 MB ROMs, and does it explain the parse failures above?~~ Resolved: yes.
+   One LoROM formula with exclusions for WRAM and the register window; both
+   4 MB ROMs went to a full parse.
 2. Should Extras be sub-divided further, for example levels reachable only from
    another Extra?
 3. When the overworld is unreadable, should Maps be empty or absent? Empty

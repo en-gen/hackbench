@@ -89,6 +89,13 @@ describe('SmwRom.classifyLevels', () => {
 
 // ── buildLevelExitGraph ──────────────────────────────────────────────────────
 
+// A screen-exit ext object: b0=$00, b1 encodes secondary (bit1) -- the dead
+// ExitTableHigh bit (bit0) is accepted for realism but ignored by SmwRom --
+// b2=$00, followed by one raw extra byte. See LevelParser.ts lines 293-308.
+function exitObj(rawByte: number, secondary: boolean): number[] {
+  return [0x00, secondary ? 0x02 : 0x01, 0x00, rawByte]
+}
+
 describe('SmwRom.buildLevelExitGraph', () => {
   it('returns an empty Map when sec-exit tables cannot be read (tiny ROM)', () => {
     const buf = Buffer.alloc(0x60000)
@@ -105,77 +112,116 @@ describe('SmwRom.buildLevelExitGraph', () => {
     expect(smw.buildLevelExitGraph().size).toBe(0)
   })
 
-  it('records a primary exit destination when the trigger screen has a pipe tile', () => {
+  it('resolves a primary exit from a main-map root (submap flag 0)', () => {
     const rom = make4MbRom()
-    // Sub-area 0x150 contains a pipe tile so the exit stays.
-    // Source level 0x010 with one ext-exit pointing at sub-area 0x150.
-    setL1Ptr(rom, 0x010, 0x068000)
-    setLevelData(rom, 0x068000, [
-      0, 0, 0, 0, 0,
-      // Object that draws a 1×1 ledge with tile $0A (pipe-body) at (0,0):
-      // Use std object 1 size=0 — but that depends on tileset 0 handler. To
-      // keep things simple, write a "raw" tile manually via an extended object
-      // is harder; instead, rely on the pit-as-trigger detection: bottom row
-      // is empty by default, so screenHasExitTrigger returns true.
-      // Ext-exit object: objNo=0 (b1[7:4]=0, b0 bits 6:5=0), settings=0,
-      // followed by 1 extra byte = destination $50 → resolves with hi from b1.
-      0x00, 0x01, 0x00, 0x50,  // b1=0x01 → destHigh=1, secondary=0; dest = $150
-      0xFF,
-    ])
-    setL1Ptr(rom, 0x150, 0x06A000)
-    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, 0x42, 0xFF])  // valid sub-area
+    setL1Ptr(rom, 0x010, 0x068000)                       // root, $000-$024 -> flag 0
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xFF])
+    setL1Ptr(rom, 0x050, 0x06A000)
+    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, 0x42, 0xFF])   // real sub-area
     const smw = new SmwRom(rom)
-    const graph = smw.buildLevelExitGraph()
-    expect(graph.get(0x010)).toEqual([0x150])
+    expect(smw.buildLevelExitGraph().get(0x010)).toEqual([0x050])
   })
 
-  it('resolves secondary exits via the entrance table at $05F800', () => {
+  it('resolves a primary exit from a submap root to a submap destination ($113 -> $1BB shape)', () => {
+    // Same shape as the vanilla defect: root is in the submap pointer range
+    // ($101-$13B) and must produce a dest in that same high range, not the
+    // main-map range the old ExitTableHigh-derived bit produced.
     const rom = make4MbRom()
-    setL1Ptr(rom, 0x010, 0x068000)
-    // ext-exit with secondary flag set (b1 bit 1 = 1), pointing at entrance index $20
+    setL1Ptr(rom, 0x113, 0x068000)                       // root, $101-$13B -> flag 1
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0xBB, false), 0xFF])
+    setL1Ptr(rom, 0x1BB, 0x06A000)
+    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, 0x42, 0xFF])
+    const smw = new SmwRom(rom)
+    expect(smw.buildLevelExitGraph().get(0x113)).toEqual([0x1BB])
+  })
+
+  it('resolves secondary exits via the submap-selected half of DATA_05F800', () => {
+    const rom = make4MbRom()
+    setL1Ptr(rom, 0x105, 0x068000)                       // root, flag 1
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x10, true), 0xFF])
+    setL1Ptr(rom, 0x177, 0x06A000)                       // correct dest (high half)
+    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, 0x42, 0xFF])
+    setL1Ptr(rom, 0x188, 0x06B000)                       // decoy: what a low-byte-only
+    setLevelData(rom, 0x06B000, [0, 0, 0, 0, 0, 0x42, 0xFF])  // index would produce
+    // High half: index (1<<8)|$10 = $110 -> $77 (dest $177).
+    // Low half (bug): index $10 alone -> $88 (dest $188, wrong).
+    rom.writeAt(ADDR.SEC_EXIT_DEST + 0x110, [0x77])
+    rom.writeAt(ADDR.SEC_EXIT_DEST + 0x10,  [0x88])
+    const smw = new SmwRom(rom)
+    expect(smw.buildLevelExitGraph().get(0x105)).toEqual([0x177])
+  })
+
+  it('rejects a destination sharing the filler L1 pointer even if classifyLevels lists it', () => {
+    const rom = make4MbRom()
+    setL1Ptr(rom, 0x106, 0x068000)                       // root, flag 1
     setLevelData(rom, 0x068000, [
       0, 0, 0, 0, 0,
-      0x00, 0x02, 0x00, 0x20,  // b1=0x02 → secondary=1; extra=$20 → entrance
+      ...exitObj(0x40, false),   // -> $140, filler
+      ...exitObj(0x41, false),   // -> $141, real
       0xFF,
     ])
-    setL1Ptr(rom, 0x150, 0x06A000)
+    // Ten subarea-range slots share one pointer -- classifyLevels keeps only
+    // the first ($140) after dedup, exactly like $027 on the Invictus ROM.
+    // ($141 is deliberately skipped here -- it gets its own distinct pointer below.)
+    for (const idx of [0x140, 0x142, 0x143, 0x144, 0x145, 0x146, 0x147, 0x148, 0x149, 0x14A]) {
+      setL1Ptr(rom, idx, 0x06A000)
+    }
     setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, 0x42, 0xFF])
-    // Entrance table: DATA_05F800[$20] = $50 (lo), DATA_05FE00[$20] flags = 0x08
-    // → high bit (flags>>3 & 1) = 1 → dest = $150
-    rom.writeAt(ADDR.SEC_EXIT_DEST + 0x20, [0x50])
-    rom.writeAt(ADDR.SEC_EXIT_FLAGS + 0x20, [0x08])
+    setL1Ptr(rom, 0x141, 0x06B000)                       // distinct real sub-area
+    setLevelData(rom, 0x06B000, [0, 0, 0, 0, 0, 0x42, 0xFF])
     const smw = new SmwRom(rom)
-    const graph = smw.buildLevelExitGraph()
-    expect(graph.get(0x010)).toEqual([0x150])
+    expect(smw.buildLevelExitGraph().get(0x106)).toEqual([0x141])
   })
 
   it('drops exits whose resolved destination is not in the subarea set', () => {
     const rom = make4MbRom()
     setL1Ptr(rom, 0x010, 0x068000)
-    // Secondary exit pointing at entrance $20 → dest $050 (an overworld level
-    // index, not a sub-area). The exit-graph should therefore drop it.
-    setLevelData(rom, 0x068000, [
-      0, 0, 0, 0, 0,
-      0x00, 0x02, 0x00, 0x20,
-      0xFF,
-    ])
-    rom.writeAt(ADDR.SEC_EXIT_DEST + 0x20, [0x50])
-    rom.writeAt(ADDR.SEC_EXIT_FLAGS + 0x20, [0x00])  // dest = $050 (overworld)
+    // Secondary exit -> entrance $20 -> DATA_05F800[$20] = $05 -> dest $005,
+    // which is in the main-map overworld range, not a sub-area.
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x20, true), 0xFF])
+    rom.writeAt(ADDR.SEC_EXIT_DEST + 0x20, [0x05])
     const smw = new SmwRom(rom)
     expect(smw.buildLevelExitGraph().has(0x010)).toBe(false)
   })
 
-  it('drops exits whose destination is the source level itself (self-loops)', () => {
+  it('drops a self-loop but keeps the root edge that reached it', () => {
+    // Root is main-map (flag 0), so its rawByte-$50 exit resolves to $050,
+    // not $150 -- the destination's high byte always matches the root's range.
     const rom = make4MbRom()
-    setL1Ptr(rom, 0x150, 0x068000)
-    // Sub-area 0x150 with a primary exit back to itself.
-    setLevelData(rom, 0x068000, [
-      0, 0, 0, 0, 0,
-      0x00, 0x01, 0x00, 0x50,  // dest = $150 = self
-      0xFF,
-    ])
+    setL1Ptr(rom, 0x010, 0x068000)
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xFF])
+    setL1Ptr(rom, 0x050, 0x06A000)
+    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xFF])  // -> self
     const smw = new SmwRom(rom)
-    expect(smw.buildLevelExitGraph().has(0x150)).toBe(false)
+    const graph = smw.buildLevelExitGraph()
+    expect(graph.get(0x010)).toEqual([0x050])
+    expect(graph.has(0x050)).toBe(false)
+  })
+
+  it('terminates and records both edges of a two-node cycle between sub-areas', () => {
+    const rom = make4MbRom()
+    setL1Ptr(rom, 0x010, 0x068000)
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xFF])
+    setL1Ptr(rom, 0x050, 0x06A000)
+    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, ...exitObj(0x60, false), 0xFF])
+    setL1Ptr(rom, 0x060, 0x06B000)
+    setLevelData(rom, 0x06B000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xFF])  // back to $050
+    const smw = new SmwRom(rom)
+    const graph = smw.buildLevelExitGraph()
+    expect(graph.get(0x050)).toEqual([0x060])
+    expect(graph.get(0x060)).toEqual([0x050])
+  })
+
+  it('leaves a level with no path from any overworld root unresolved', () => {
+    const rom = make4MbRom()
+    // $170 has an exit but nothing reaches it from an overworld root, so its
+    // submap flag is never known and its own exits cannot be resolved.
+    setL1Ptr(rom, 0x170, 0x068000)
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x80, false), 0xFF])
+    setL1Ptr(rom, 0x080, 0x06A000)
+    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, 0x42, 0xFF])
+    const smw = new SmwRom(rom)
+    expect(smw.buildLevelExitGraph().has(0x170)).toBe(false)
   })
 })
 
