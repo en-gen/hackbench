@@ -9,133 +9,16 @@
  * Navigation: mouse-wheel to zoom, drag to pan.
  */
 
+import { buildLayout, type GraphNode, type GraphEdge, type LayoutNode, NODE_W, NODE_H } from './layout'
+
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void
 }
 export {}
 
-interface GraphNode {
-  id: number
-  hex: string
-  name: string | null
-  isOverworld: boolean
-}
-
-interface GraphEdge {
-  source: number
-  target: number
-}
-
-interface LayoutNode extends GraphNode {
-  x: number
-  y: number
-}
-
 const vscode = acquireVsCodeApi()
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
-const NODE_W = 210
-const NODE_H = 24
-const COL_GAP = 160
-const ROW_GAP = 30
-const MARGIN = 20
-
-// ── Layout ────────────────────────────────────────────────────────────────────
-
-function buildLayout(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
-): { nodes: LayoutNode[]; width: number; height: number } {
-  const nodeMap = new Map<number, GraphNode>(nodes.map(n => [n.id, n]))
-
-  // Build adjacency list (outgoing edges)
-  const adj = new Map<number, number[]>()
-  for (const e of edges) {
-    if (!adj.has(e.source)) adj.set(e.source, [])
-    adj.get(e.source)!.push(e.target)
-  }
-
-  // Collect all node IDs referenced by at least one edge
-  const referenced = new Set<number>()
-  for (const e of edges) {
-    referenced.add(e.source)
-    referenced.add(e.target)
-  }
-
-  // BFS depth from overworld roots
-  const depth = new Map<number, number>()
-  const queue: number[] = []
-  for (const n of nodes) {
-    if (n.isOverworld && referenced.has(n.id)) {
-      depth.set(n.id, 0)
-      queue.push(n.id)
-    }
-  }
-  let qi = 0
-  while (qi < queue.length) {
-    const id = queue[qi++]
-    const d = depth.get(id)!
-    for (const nb of (adj.get(id) ?? [])) {
-      if (!depth.has(nb)) {
-        depth.set(nb, d + 1)
-        queue.push(nb)
-      }
-    }
-  }
-  // Unreachable but referenced nodes get depth = max+1
-  {
-    const maxDepth = Math.max(0, ...depth.values())
-    for (const id of referenced) {
-      if (!depth.has(id)) depth.set(id, maxDepth + 1)
-    }
-  }
-
-  // Forward-push pass: for every edge A→B where depth[A] >= depth[B],
-  // push B to depth[A]+1. Repeat until stable (capped at node-count
-  // iterations to handle cycles — any remaining back-edges get filtered
-  // during rendering instead of looping forever).
-  for (let pass = 0; pass < depth.size; pass++) {
-    let changed = false
-    for (const e of edges) {
-      const da = depth.get(e.source)
-      const db = depth.get(e.target)
-      if (da === undefined || db === undefined) continue
-      if (da >= db) {
-        depth.set(e.target, da + 1)
-        changed = true
-      }
-    }
-    if (!changed) break
-  }
-
-  // Group nodes by depth
-  const byDepth = new Map<number, number[]>()
-  for (const [id, d] of depth) {
-    if (!byDepth.has(d)) byDepth.set(d, [])
-    byDepth.get(d)!.push(id)
-  }
-
-  // Assign positions
-  const layout: LayoutNode[] = []
-  const allDepths = Array.from(byDepth.keys()).sort((a, b) => a - b)
-  let totalHeight = 0
-
-  for (const d of allDepths) {
-    const group = byDepth.get(d)!.sort((a, b) => a - b)
-    const colHeight = group.length * ROW_GAP
-    if (colHeight > totalHeight) totalHeight = colHeight
-    const x = MARGIN + d * (NODE_W + COL_GAP)
-    for (let i = 0; i < group.length; i++) {
-      const id = group[i]
-      const base = nodeMap.get(id)!
-      layout.push({ ...base, x, y: MARGIN + i * ROW_GAP })
-    }
-  }
-
-  const width  = MARGIN * 2 + (allDepths.length) * (NODE_W + COL_GAP)
-  const height = MARGIN * 2 + totalHeight
-  return { nodes: layout, width, height }
-}
 
 // ── SVG rendering ─────────────────────────────────────────────────────────────
 
@@ -149,6 +32,7 @@ function renderGraph(
   container: HTMLElement,
   nodes: LayoutNode[],
   edges: GraphEdge[],
+  backEdges: Set<string>,
   svgW: number,
   svgH: number,
   slug: string,
@@ -183,8 +67,13 @@ function renderGraph(
     const src = posMap.get(e.source)
     const tgt = posMap.get(e.target)
     if (!src || !tgt) continue
-    // Skip back-edges that survive the forward-push cap (cycles)
-    if (src.x >= tgt.x) continue
+    // Skip cycle-closing edges, using buildLayout's own DFS back-edge set.
+    // The previous `src.x >= tgt.x` test selects exactly the same edges --
+    // relaxation makes depth strictly increase along every non-back edge, and
+    // a back edge's target is always an ancestor of its source -- but it says
+    // so only via that argument. Asking the layout which edges close cycles
+    // states the rule directly and survives changes to the depth pass.
+    if (backEdges.has(`${e.source}->${e.target}`)) continue
     const x1 = src.x + NODE_W
     const y1 = src.y + NODE_H / 2
     const x2 = tgt.x - 8   // leave room for arrowhead
@@ -361,7 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return
       }
       const layout = buildLayout(nodes, edges)
-      renderGraph(app, layout.nodes, edges, layout.width, layout.height, slug)
+      renderGraph(app, layout.nodes, edges, layout.backEdges, layout.width, layout.height, slug)
     }
   })
 

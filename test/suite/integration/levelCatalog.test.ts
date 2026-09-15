@@ -6,15 +6,18 @@ import { buildLevelCatalog, type LevelCatalog } from '../../../src/rom/LevelCata
 import { assertCatalogAcceptance, buildBrokenCatalogVariants } from '../support/catalogAcceptance'
 
 // Measured baseline -- see docs/ideas/level-classification.md Tier 1.
-// The two 4 MB ROMs parse only part of their catalog (expanded-ROM
-// addressing, out of scope here); everything else parses in full.
+// Every ROM in the corpus now parses its catalog in full (parseable == real).
+// The two 4 MB ROMs did not when this table was first written: they sat at
+// 197/291 and 192/354, which the Tier 1 write-up attributed to expanded-ROM
+// addressing. The addressing fix landed separately and closed both gaps
+// exactly, which is the confirmation that hypothesis was waiting on.
 const CORPUS: Array<{ file: string; real: number; parseable: number }> = [
   { file: 'Super Mario World (USA).vanilla.sfc', real: 235, parseable: 235 },
   { file: 'Super Mario World (USA).magic.sfc',   real: 235, parseable: 235 },
   { file: 'Seven_Vanilla_Levels.sfc',             real: 251, parseable: 251 },
   { file: 'GrandPooWorld_V1.2.sfc',               real: 235, parseable: 235 },
-  { file: 'Grand Poo World 2 1.1.sfc',            real: 291, parseable: 197 },
-  { file: 'Invictus 1.0.sfc',                     real: 354, parseable: 192 },
+  { file: 'Grand Poo World 2 1.1.sfc',            real: 291, parseable: 291 },
+  { file: 'Invictus 1.0.sfc',                     real: 354, parseable: 354 },
 ]
 
 for (const { file, real, parseable } of CORPUS) {

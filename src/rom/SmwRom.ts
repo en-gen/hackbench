@@ -15,69 +15,19 @@
  * Translevel conversion (CODE_05D8A2, line 7217-7222):
  *   If translevel >= $25, subtract $24 to get the level index.
  *   Combined with submap flag to form the full 9-bit level number.
+ *
+ * Screen-exit destination (CODE_05D796, bank_05.asm lines 7100-7162):
+ *   The destination's high byte comes from OWPlayerSubmap (RAM, "is the
+ *   player's overworld position on a submap"), never from ExitTableHigh
+ *   (declared rammap.asm:1970, written once at bank_0D.asm:1435, read
+ *   nowhere) and never from DATA_05FE00 bit 3 (bank_05.asm:7159-7161 reads
+ *   only bits 0-2, into LevelEntranceType). See buildLevelExitGraph for the
+ *   static equivalent of this runtime flag.
  */
 
 import { RomFile } from './RomFile'
-import {
-  parseLevelHeader, parseLevelObjects, isLevelModeVertical,
-  SCREEN_W, SCREEN_H, SCREEN_W_VERT, SCREEN_H_VERT,
-} from './LevelParser'
-import { expandMap, type TileGrid, TILE_EMPTY } from './ObjectExpander'
+import { parseLevelObjects } from './LevelParser'
 import { getLevelNameByIndex } from './SmwLevelNames'
-
-// ── Exit-trigger detection ─────────────────────────────────────────────────────
-
-// Standard vertical-pipe body/top/bottom tiles on Map16 page 0.
-// Sources: DATA_0DB49C body bytes ($0A, $0C); context-merge tables at
-// CODE_0DB4D9 / CODE_0DB4FE produce $08/$0E triggers and $09/$0B/$0D/$0F
-// merged ends; fused adjacent-pipe corners are $19-$1C.
-const PIPE_TILES_P0 = new Set([
-  0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
-  0x19, 0x1A, 0x1B, 0x1C,
-])
-
-// Page-1 pipe range: pipe-dispatcher variants 0-9 (object $18, bank_0D line
-// 2278) write page-1 lip/body tiles. Vanilla SMW keeps all of them in $180-$1FF.
-const PIPE_PAGE1_MIN = 0x180
-const PIPE_PAGE1_MAX = 0x1FF
-
-// Ghost-house door/window tiles on Map16 page 0 written by ext objects $4D-$50
-// (CODE_0DCE67, bank_0D line 5500). Data table tiles: $7A-$85.
-const DOOR_TILES_P0 = new Set([
-  0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85,
-])
-
-/**
- * Returns true if screen `screenIndex` in `grid` contains at least one tile
- * that can trigger a level exit: a pipe body/entrance, a ghost-house door, or
- * an open-bottom column (pit). Used by buildLevelExitGraph to suppress
- * vestigial exit entries on screens that have no reachable exit mechanism
- * (e.g. Valley Fortress screen 14 — the sealed Reznor arena).
- */
-export function screenHasExitTrigger(
-  grid: TileGrid,
-  screenIndex: number,
-  isVertical: boolean,
-): boolean {
-  const colStart = isVertical ? 0              : screenIndex * SCREEN_W
-  const colEnd   = isVertical ? SCREEN_W_VERT  : colStart + SCREEN_W
-  const rowStart = isVertical ? screenIndex * SCREEN_H_VERT : 0
-  const rowEnd   = isVertical ? rowStart + SCREEN_H_VERT    : SCREEN_H
-  const lastRow  = rowEnd - 1
-
-  for (let col = colStart; col < colEnd; col++) {
-    const bottomTile = grid[lastRow]?.[col] ?? TILE_EMPTY
-    if (bottomTile === TILE_EMPTY) return true   // open bottom = pit
-
-    for (let row = rowStart; row < rowEnd; row++) {
-      const tile = grid[row]?.[col] ?? TILE_EMPTY
-      if (PIPE_TILES_P0.has(tile)) return true
-      if (tile >= PIPE_PAGE1_MIN && tile <= PIPE_PAGE1_MAX) return true
-      if (DOOR_TILES_P0.has(tile)) return true
-    }
-  }
-  return false
-}
 
 /** SNES addresses for SMW ROM structures. */
 export const ADDR = {
@@ -109,11 +59,13 @@ export const ADDR = {
   // bank_05.asm: referenced in the game's sprite tileset loading
   TILESETID_TABLE:  0x05D760,
 
-  // Secondary entrance tables (bank_05.asm CODE_05D796 lines 7117-7161)
+  // Secondary entrance tables (bank_05.asm CODE_05D796 lines 7113-7161).
+  // DATA_05F800 is two 256-entry halves: index = (submap flag << 8) | byte
+  // (line 7116: `LDY.B _E` is a 16-bit load of the _E/_F zero-page pair).
   SEC_EXIT_DEST:    0x05F800,   // DATA_05F800: lo byte of destination
   SEC_EXIT_LO:      0x05FA00,   // DATA_05FA00: BG/FG/Mario Y pos info
   SEC_EXIT_SCREEN:  0x05FC00,   // DATA_05FC00: Mario X pos + screen
-  SEC_EXIT_FLAGS:   0x05FE00,   // DATA_05FE00: flags (action, slippery, dest hi bit)
+  SEC_EXIT_FLAGS:   0x05FE00,   // DATA_05FE00: entrance action (bits 0-2 only; bit 3 unread, see header)
 
   SEC_ENTRANCE_COUNT: 512,
 
@@ -242,25 +194,11 @@ export class SmwRom {
 
   /**
    * Read enough of a level's Layer-1 stream to cover the object data AND
-   * the Lunar Magic per-screen exit table that follows the $FF terminator.
-   *
-   * Why not a fixed 512 bytes (the original behavior)?
-   *   Vanilla levels are tiny, but LM-extended L1 streams can exceed 512 bytes
-   *   (confirmed: sublevel $103 is ~655 bytes of object data alone). Truncating
-   *   at 512 drops tail objects and silently breaks rendering.
-   *
-   * Strategy:
-   *   Read a generous ceiling (0x2000 = 8 KB) and let callers stop at the first
-   *   $FF in the object stream. Vanilla max L1 is well under 1 KB; even
-   *   heavily-expanded LM levels fit in a few KB. We also fall back to
-   *   progressively smaller reads if the level's pointer lands near the end
-   *   of the ROM buffer (RomFile.readAt returns null when the read would
-   *   exceed file length).
-   *
-   *   This is the smallest safe change: parseLevelObjects and
-   *   parseLevelScreenExits both terminate on $FF, so over-reading is
-   *   harmless. The alternative (walk-and-measure) gives an exactly-sized
-   *   buffer but adds complexity for no caller benefit.
+   * the LM per-screen exit table after the $FF terminator. LM-extended
+   * streams can exceed a fixed 512 bytes (sublevel $103 is ~655 bytes of
+   * objects alone), so read a generous ceiling and fall back smaller near
+   * EOF; parseLevelObjects/parseLevelScreenExits both stop at the first
+   * $FF regardless, so over-reading is harmless.
    */
   getLevelRawData(index: number): Buffer | null {
     const ptr = this.getLevelL1Pointer(index)
@@ -336,90 +274,144 @@ export class SmwRom {
   }
 
   /**
+   * Detects the shared placeholder Layer-1 pointer that unused pointer-table
+   * slots fall back to (measured on vanilla: SNES $068000, shared by 277 of
+   * 512 slots, including both $012 and $112). levelHasObjects() cannot spot
+   * this -- the filler room contains real, well-formed object data -- only
+   * pointer identity distinguishes a filler slot from a real room. Measured
+   * across the six-ROM corpus: filler repeats 158-277 times, the runner-up
+   * pointer repeats 8 times on every ROM -- the gate below sits two above
+   * that observed ceiling, not at some ratio of it.
+   */
+  private _findFillerL1Pointer(): number | null {
+    const FILLER_MIN_REPEATS = 10
+    const counts = new Map<number, number>()
+    for (let i = 0; i < LEVEL_COUNT; i++) {
+      const ptr = this.getLevelL1Pointer(i)
+      // Falsy check (not just null), matching classifyLevels: a literal $000000
+      // pointer is never a real level (it would land in the ROM header/reset
+      // vectors), and it's what an all-zero pointer-table slot reads as.
+      if (!ptr) continue
+      counts.set(ptr, (counts.get(ptr) ?? 0) + 1)
+    }
+    let fillerPtr: number | null = null
+    let fillerCount = 0
+    for (const [ptr, count] of counts) {
+      if (count > fillerCount) { fillerPtr = ptr; fillerCount = count }
+    }
+    return fillerCount >= FILLER_MIN_REPEATS ? fillerPtr : null
+  }
+
+  /**
    * Build exit graph: sourceLevelIndex → [destLevelIndex].
    *
-   * For each level, parse its L1 data to find screen exit entrance indices,
-   * then look up destinations in the secondary entrance table at $05F800.
+   * Destination high byte (the "submap flag"): CODE_05D796 derives it at
+   * runtime from OWPlayerSubmap (bank_05.asm 7103-7110, 7206-7226), never
+   * from ExitTableHigh or DATA_05FE00 bit 3 (see header). Static
+   * equivalent: every level reached from overworld root R inherits R's
+   * flag -- 1 if R is in the submap range ($101-$13B), 0 in main-map range
+   * ($000-$024).
    *
-   * Screen exits in vanilla SMW are encoded in the level's object stream.
-   * The game stores per-screen exit data when loading a level. We parse
-   * the level data to find which secondary entrance indices each level uses,
-   * then resolve destinations via DATA_05F800.
+   * The flag can never collide across roots: every propagated destination
+   * is (flag<<8)|destLow with destLow in [0,255], so flag-0 nodes live
+   * entirely in $000-$0FF and flag-1 entirely in $100-$1FF -- disjoint by
+   * construction, so a sub-area shared by two roots always sees the same
+   * flag from both. The BFS's real job is a reachability gate, not flag
+   * propagation (the flag is recoverable from the destination range
+   * alone): a level's exits are resolved only once BFS reaches it from an
+   * overworld root, so an orphaned level's exit data never contributes an
+   * edge, and a level never reached gets no flag and no resolved exits.
    *
-   * Additionally, the level header's L2 pointer with bank=$FF indicates
-   * a secondary entrance destination (the lo/hi bytes form the dest level).
+   * Secondary-exit low byte: DATA_05F800 is two 256-entry halves selected
+   * by the same flag (bank_05.asm 7113-7118, `LDY.B _E` reads the _E/_F
+   * zero-page pair as one 16-bit index). Primary-exit low byte: when
+   * UseSecondaryExit is clear, the object's extra byte IS the destination
+   * low byte (lines 7111-7112, 7162). Filler rejection: see
+   * _findFillerL1Pointer().
+   *
+   * Scope limit on edited ROMs: every ASM site above is patched out on some
+   * hacked ROMs. Stock, SNES address $05D8B1 is the `BEQ +` opcode $F0 that
+   * selects the destination high byte (bank_05.asm:7224; counting bytes from
+   * CODE_05D8A2 lands exactly on the CODE_05D8B7 label, which confirms the
+   * address). The patched value is an empirical corpus observation, not ASM:
+   * of this repo's 6 local ROMs, the 2 stock ones hold $F0 there and the 4
+   * edited ones hold $22 (JSL). Not a regression: the pre-fix code was equally
+   * blind to this and additionally wrong on vanilla. The resulting
+   * under-count on patched ROMs is the fail-closed behavior this repo
+   * prefers over a confidently wrong graph.
    */
   buildLevelExitGraph(): Map<number, number[]> {
-    const { subarea } = this.classifyLevels()
-    const validDestinations = new Set<number>(subarea)
+    const { overworld, subarea } = this.classifyLevels()
+    const fillerPtr = this._findFillerL1Pointer()
+    const validDestinations = new Set(
+      subarea.filter(idx => this.getLevelL1Pointer(idx) !== fillerPtr)
+    )
 
-    // Read the secondary entrance destination table
-    const destTable  = this.rom.readAt(ADDR.SEC_EXIT_DEST,  ADDR.SEC_ENTRANCE_COUNT)
-    const flagsTable = this.rom.readAt(ADDR.SEC_EXIT_FLAGS, ADDR.SEC_ENTRANCE_COUNT)
-    if (!destTable || !flagsTable) return new Map()
+    const destTable = this.rom.readAt(ADDR.SEC_EXIT_DEST, ADDR.SEC_ENTRANCE_COUNT)
+    if (!destTable) return new Map()
 
-    // Build entranceIdx → destLevel lookup
-    const entranceToDest = new Map<number, number>()
-    const n = Math.min(destTable.length, flagsTable.length)
-    for (let i = 0; i < n; i++) {
-      const flags  = flagsTable[i]
-      const destLo = destTable[i]
-      if (flags === undefined || destLo === undefined) continue
-      const dest = (((flags >> 3) & 1) << 8) | destLo
-      if (validDestinations.has(dest)) {
-        entranceToDest.set(i, dest)
-      }
-    }
-
-    const graph = new Map<number, number[]>()
-
-    // For each level with data, find screen exit objects in the L1 stream.
-    // Screen exits are extended objects (objectNumber=0, settings=0) that
-    // have an extra byte: the secondary entrance index.
+    // Parse every level's screen-exit objects once. Resolution is deferred
+    // to the BFS below because it needs each level's submap flag, which is
+    // only known once the BFS actually reaches that level.
+    const exitsByLevel = new Map<number, Array<{ isSecondary: boolean; rawByte: number }>>()
     for (let levelIdx = 0; levelIdx < LEVEL_COUNT; levelIdx++) {
       const rawL1 = this.getLevelRawData(levelIdx)
       if (!rawL1 || rawL1.length < 6) continue
-
       let parsed
       try { parsed = parseLevelObjects(rawL1) } catch { continue }
+      const specs = parsed.objects
+        .filter(o => o.screenExitDest !== undefined)
+        .map(o => ({
+          isSecondary: o.screenExitIsSecondary === true,
+          // LevelParser folds a dead ExitTableHigh-derived bit into bit 8 of
+          // screenExitDest (see LevelParser.ts); mask it back off to recover
+          // the object's raw extra byte.
+          rawByte: o.screenExitDest! & 0xFF,
+        }))
+      if (specs.length > 0) exitsByLevel.set(levelIdx, specs)
+    }
 
-      const exitObjs = parsed.objects.filter(o => o.screenExitDest !== undefined)
-      if (exitObjs.length === 0) continue
+    // BFS from every overworld root, propagating its submap flag to every
+    // level reachable through its exits. `submapFlag` doubles as the
+    // visited set, so cycles (vanilla has pipe loops) terminate naturally.
+    // The flag is bit 8 of the pointer-table index itself -- root >> 8.
+    const submapFlag = new Map<number, 0 | 1>()
+    const queue: number[] = []
+    for (const root of overworld) {
+      if (submapFlag.has(root)) continue
+      // Bit 8 of the pointer-table index. Written as a ternary rather than
+      // `(root >> 8) as 0 | 1`: that cast asserts a range nothing here
+      // enforces, so a root >= $200 would silently yield a flag of 2 or more.
+      submapFlag.set(root, root >= 0x100 ? 1 : 0)
+      queue.push(root)
+    }
 
-      // Expand Map16 grid to suppress vestigial exits (screens with no pipe/door/pit).
-      const header = parseLevelHeader(rawL1)
-      const isVertical = isLevelModeVertical(header.levelMode)
-      let grid: TileGrid | undefined
-      try {
-        grid = expandMap(
-          parsed.objects, header.levelLength, this.rom,
-          header.objectTileset, isVertical, header.levelMode, levelIdx,
-        )
-      } catch { /* leave grid undefined — skip trigger filter on error */ }
+    // Index-pointer dequeue rather than Array.shift(), which is O(n) per call
+    // and would make this BFS O(n^2) over the 512-slot table.
+    const graph = new Map<number, number[]>()
+    let qi = 0
+    while (qi < queue.length) {
+      const cur = queue[qi++]!
+      const flag = submapFlag.get(cur)!
+      const specs = exitsByLevel.get(cur)
+      if (!specs) continue
 
       const dests: number[] = []
-      for (const obj of exitObjs) {
-        // Skip exits on screens that contain no pipe, door, or pit.
-        if (grid && !screenHasExitTrigger(grid, obj.screen, isVertical)) continue
+      for (const spec of specs) {
+        const destLow = spec.isSecondary
+          ? destTable[(flag << 8) | spec.rawByte]
+          : spec.rawByte
+        if (destLow === undefined) continue
+        const dest = (flag << 8) | destLow
+        if (dest === cur || !validDestinations.has(dest)) continue
 
-        let dest: number
-        if (obj.screenExitIsSecondary) {
-          // Secondary exit: look up destination in DATA_05F800 table
-          const resolved = entranceToDest.get(obj.screenExitDest!)
-          if (resolved === undefined) continue
-          dest = resolved
-        } else {
-          // Primary exit: value IS the destination level directly
-          dest = obj.screenExitDest!
-        }
-        if (dest !== levelIdx && !dests.includes(dest)) {
-          dests.push(dest)
+        if (!dests.includes(dest)) dests.push(dest)
+        if (!submapFlag.has(dest)) {
+          submapFlag.set(dest, flag)
+          queue.push(dest)
         }
       }
-
-      if (dests.length > 0) {
-        graph.set(levelIdx, dests)
-      }
+      if (dests.length > 0) graph.set(cur, dests)
     }
 
     return graph

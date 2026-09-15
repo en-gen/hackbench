@@ -1,6 +1,6 @@
 /**
  * SmwRom — synthetic-ROM tests for header validation, level-pointer reads,
- * tileset lookup, exit-graph building, and screen-trigger detection.
+ * tileset lookup, and exit-graph building.
  *
  * Most production behavior here is exercised only via the integration test
  * (real ROM), which skips when the ROM file is absent. These tests pin down
@@ -14,10 +14,7 @@ import {
   ADDR,
   LEVEL_COUNT,
   isOverworldLevel,
-  screenHasExitTrigger,
 } from '../../../src/rom/SmwRom'
-import { TILE_EMPTY } from '../../../src/rom/ObjectExpander'
-import { SCREEN_W, SCREEN_H } from '../../../src/rom/LevelParser'
 
 function make4MbRom(): RomFile {
   const buf = Buffer.alloc(0x400000, 0x00)
@@ -209,60 +206,5 @@ describe('levelHasObjects', () => {
     const rom = make4MbRom()
     const smw = setupLevel(rom, [0x00, 0x00, 0x00, 0x00, 0x00, 0x42, 0xFF])
     expect(smw.levelHasObjects(0)).toBe(true)
-  })
-})
-
-// ── screenHasExitTrigger ─────────────────────────────────────────────────────
-
-describe('screenHasExitTrigger', () => {
-  function emptyHorizontalGrid(): number[][] {
-    // Wide enough for at least 2 screens.
-    return Array.from({ length: SCREEN_H }, () =>
-      new Array(SCREEN_W * 2).fill(0x100),  // arbitrary non-trigger filler tile
-    )
-  }
-
-  it('open bottom row signals a pit (trigger)', () => {
-    const grid = emptyHorizontalGrid()
-    grid[SCREEN_H - 1][3] = TILE_EMPTY
-    expect(screenHasExitTrigger(grid, 0, false)).toBe(true)
-  })
-
-  it('pipe body tile $0A counts as a trigger', () => {
-    const grid = emptyHorizontalGrid()
-    // Seal the bottom row so the pit-detector doesn't fire.
-    for (let c = 0; c < SCREEN_W; c++) grid[SCREEN_H - 1][c] = 0x100
-    grid[5][7] = 0x0A
-    expect(screenHasExitTrigger(grid, 0, false)).toBe(true)
-  })
-
-  it('page-1 pipe range $180-$1FF triggers', () => {
-    const grid = emptyHorizontalGrid()
-    for (let c = 0; c < SCREEN_W; c++) grid[SCREEN_H - 1][c] = 0x100
-    grid[5][7] = 0x180
-    expect(screenHasExitTrigger(grid, 0, false)).toBe(true)
-    grid[5][7] = 0x1FF
-    expect(screenHasExitTrigger(grid, 0, false)).toBe(true)
-  })
-
-  it('door tile $7C triggers', () => {
-    const grid = emptyHorizontalGrid()
-    for (let c = 0; c < SCREEN_W; c++) grid[SCREEN_H - 1][c] = 0x100
-    grid[3][2] = 0x7C
-    expect(screenHasExitTrigger(grid, 0, false)).toBe(true)
-  })
-
-  it('returns false when screen has none of pipe/door/pit', () => {
-    const grid = emptyHorizontalGrid()
-    for (let c = 0; c < SCREEN_W; c++) grid[SCREEN_H - 1][c] = 0x100
-    expect(screenHasExitTrigger(grid, 0, false)).toBe(false)
-  })
-
-  it('honors screenIndex offset: trigger on screen 1 not seen by screen 0 query', () => {
-    const grid = emptyHorizontalGrid()
-    for (let c = 0; c < SCREEN_W * 2; c++) grid[SCREEN_H - 1][c] = 0x100
-    grid[3][SCREEN_W + 5] = 0x0A  // screen 1 has the pipe
-    expect(screenHasExitTrigger(grid, 0, false)).toBe(false)
-    expect(screenHasExitTrigger(grid, 1, false)).toBe(true)
   })
 })
