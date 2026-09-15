@@ -13,6 +13,7 @@
 import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
 import { parseLevelHeader } from '../rom/LevelParser'
+import { buildLevelCatalog } from '../rom/LevelCatalog'
 import { readDescriptor } from './webviewUtils'
 import { hex2 } from '../rom/hex'
 
@@ -50,12 +51,16 @@ interface RomStats {
   totalLevelsWithData: number
   overworldCount: number
   subareaCount: number
+  catalogRealCount: number
+  catalogParseableCount: number
+  catalogNotes: string[]
   tilesetDist: TilesetRow[]
 }
 
 function gatherStats(rom: ReturnType<typeof resolveRom>): RomStats {
   const summary = rom.getSummary()
   const { overworld, subarea } = rom.classifyLevels()
+  const catalog = buildLevelCatalog(rom)
   const allSlots = rom.enumerateAllLevels()
   const validSlots = allSlots.filter(s => s.hasData)
 
@@ -79,6 +84,9 @@ function gatherStats(rom: ReturnType<typeof resolveRom>): RomStats {
     totalLevelsWithData: validSlots.length,
     overworldCount: overworld.length,
     subareaCount: subarea.length,
+    catalogRealCount: catalog.realCount,
+    catalogParseableCount: catalog.parseableCount,
+    catalogNotes: catalog.notes,
     tilesetDist,
   }
 }
@@ -91,6 +99,10 @@ function renderHtml(stats: RomStats): string {
   const tilesetRows = stats.tilesetDist.map(row =>
     `<tr><td>Tileset ${hex2(row.id)} (${row.id})</td><td>${row.count}</td></tr>`
   ).join('\n')
+
+  const catalogNotesHtml = stats.catalogNotes.length
+    ? `<h2>Catalog Notes</h2><ul>${stats.catalogNotes.map(n => `<li>${esc(n)}</li>`).join('\n')}</ul>`
+    : ''
 
   return /* html */`<!DOCTYPE html>
 <html lang="en">
@@ -125,7 +137,11 @@ function renderHtml(stats: RomStats): string {
     <tr><td>Total with data</td><td>${stats.totalLevelsWithData}</td></tr>
     <tr><td>Overworld-linked</td><td>${stats.overworldCount}</td></tr>
     <tr><td>Sub-areas</td><td>${stats.subareaCount}</td></tr>
+    <tr><td>Catalog: real slots</td><td>${stats.catalogRealCount}</td></tr>
+    <tr><td>Catalog: parseable</td><td>${stats.catalogParseableCount}</td></tr>
   </table>
+
+  ${catalogNotesHtml}
 
   <h2>Object Tileset Distribution</h2>
   <table>
