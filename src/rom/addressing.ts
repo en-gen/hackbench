@@ -1,22 +1,12 @@
 /**
  * SNES address mapping for LoROM and HiROM cartridges.
  *
- * ── LoROM layout ─────────────────────────────────────────────────────────────
- *   Banks $00–$3F, addr $8000–$FFFF → ROM (32KB per bank)
- *   Banks $40–$6F, addr $0000–$7FFF → ROM extended (uncommon)
- *   Banks $70–$7D                   → SRAM (not in ROM file)
- *   Banks $7E–$7F                   → WRAM (not in ROM file)
- *   Banks $80–$FF                   → mirrors of $00–$7F
- *
- * ── HiROM layout ─────────────────────────────────────────────────────────────
- *   Banks $00–$3F, addr $8000–$FFFF → ROM upper half (64KB per bank)
- *   Banks $40–$6F, addr $0000–$FFFF → ROM full (64KB pages, same data)
- *   Banks $70–$7D                   → SRAM
- *   Banks $7E–$7F                   → WRAM
- *   Banks $80–$BF, addr $8000–$FFFF → ROM mirrors of $00–$3F upper
- *   Banks $C0–$FF, addr $0000–$FFFF → ROM full (64KB pages)
- *
- * Formulas verified against Mesen2 source (SnesMemoryManager / MemoryMappings).
+ * LoROM: `(bank & 0x7F) * 0x8000 + (addr & 0x7FFF)`, valid for banks
+ * $00-$7D/$80-$FF. Excludes banks $00-$3F/$80-$BF at addr < $8000
+ * (registers/WRAM mirror) and banks $7E-$7F (WRAM; A23 does not gate
+ * /WRAMSEL, so their $FE/$FF mirror is real ROM). Ceiling: 4MB (128
+ * banks x 32KB) - see docs/snes-hardware-reference.md, sections 2-3, for
+ * the hardware citations, the WRAM-pinout detail, and the 4MB limitation.
  */
 
 import { hex6 } from './hex'
@@ -32,30 +22,41 @@ export function hasCopierHeader(fileSize: number): boolean {
 
 /**
  * Convert a 24-bit SNES LoROM address to a ROM file byte offset.
- * Returns null for addresses not backed by ROM (WRAM, SRAM, low-page system area).
+ *
+ * @param snesAddr    24-bit SNES address (bank << 16 | addr).
+ * @param romSize     Actual ROM data length in bytes (header-stripped, i.e.
+ *                    `RomFile.romSize`). Required: banks $40-$7D are ROM on
+ *                    expanded carts but SRAM/unmapped on small ones, and the
+ *                    only way to tell them apart is against the real size.
+ * @param headerOffset  Add the 512-byte copier header to the returned offset.
+ * @returns File offset, or null for WRAM ($7E-$7F, always) or any address
+ *          that maps past the end of the actual ROM data.
  */
-export function loromToOffset(snesAddr: number, headerOffset = false): number | null {
+export function loromToOffset(snesAddr: number, romSize: number, headerOffset = false): number | null {
   const bank = (snesAddr >>> 16) & 0xFF
   const addr = snesAddr & 0xFFFF
-  const effectiveBank = bank & 0x7F
 
-  let offset: number
+  // Check the raw bank BEFORE the & 0x7F mirror fold below - /WRAMSEL
+  // decodes only the literal banks $7E/$7F, not A23, so folding first would
+  // wrongly reject the $FE/$FF ROM mirror.
+  if (bank === 0x7E || bank === 0x7F) return null
 
-  if (effectiveBank <= 0x3F) {
-    if (addr < 0x8000) return null
-    offset = effectiveBank * LOROM_BANK_SIZE + (addr - 0x8000)
-  } else if (effectiveBank <= 0x6F) {
-    offset = (effectiveBank - 0x40) * LOROM_BANK_SIZE * 2 + addr
-  } else {
-    return null // SRAM ($70–$7D) or WRAM ($7E–$7F)
-  }
+  const effectiveBank = bank & 0x7F // $80-$FF mirror $00-$7F
+  if (effectiveBank <= 0x3F && addr < 0x8000) return null // registers / WRAM mirror
 
-  return offset + (headerOffset ? COPIER_HEADER_SIZE : 0)
+  const dataOffset = effectiveBank * LOROM_BANK_SIZE + (addr & 0x7FFF)
+  if (!(dataOffset < romSize)) return null // beyond real data (also rejects NaN/undefined romSize)
+
+  return dataOffset + (headerOffset ? COPIER_HEADER_SIZE : 0)
 }
 
 /**
  * Convert a 24-bit SNES HiROM address to a ROM file byte offset.
  * Returns null for addresses not backed by ROM (WRAM, SRAM, low-page system area).
+ * Unused by any SMW pointer path (SMW ships LoROM only) and kept only for
+ * completeness: its $40-$6F branch collapses to the same offsets as
+ * $00-$3F rather than the "distinct 64KB pages" a real HiROM board has,
+ * but nothing in this codebase exercises that branch.
  */
 export function hiromToOffset(snesAddr: number, headerOffset = false): number | null {
   const bank = (snesAddr >>> 16) & 0xFF
