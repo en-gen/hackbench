@@ -308,6 +308,9 @@ export class SmwRom {
 
   /**
    * Classify all levels into overworld-accessible and sub-area groups.
+   *
+   * For the lower-level question of which of the 512 pointer-table slots
+   * hold real (non-filler) data at all, see buildLevelCatalog in LevelCatalog.ts.
    */
   classifyLevels(): { overworld: number[]; subarea: number[] } {
     const overworld: number[] = []
