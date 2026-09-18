@@ -65,10 +65,14 @@ Opening a ROM mounts `smwrom://<slug>/`. Each virtual file is a small JSON descr
 
 ```
 smwrom://<slug>/
-  levels/000.smwlevel     ← { romPath, levelIndex }
+  maps/000.smwmap         ← { romPath, levelIndex }
   palettes/global.smwpalette
   gfx/GFX00.smwgfx        ← { romPath, gfxIndex }
 ```
+
+Domain terms (slot, map, level, entry map, sub area, launch tile, submap) are
+defined in [docs/glossary.md](docs/glossary.md). They are not interchangeable;
+using them loosely is how this project produced five different level counts.
 
 ### Providers (`src/providers/`)
 
@@ -76,7 +80,7 @@ smwrom://<slug>/
 |----------|-------------|--------|
 | `SmwFileSystemProvider` | - | Implements `vscode.FileSystemProvider` for `smwrom://` |
 | `RomExplorerProvider` | - | TreeDataProvider sidebar |
-| `LevelEditorProvider` | `.smwlevel` | Level tile grid + object/sprite overlay |
+| `MapEditorProvider` | `.smwmap` | Map tile grid + object/sprite overlay |
 | `PaletteEditorProvider` | `.smwpalette` | Palette group browser |
 | `GfxViewerProvider` | `.smwgfx` | Tile sheet viewer |
 
