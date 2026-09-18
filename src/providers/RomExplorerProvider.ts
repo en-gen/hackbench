@@ -2,7 +2,8 @@ import * as vscode from 'vscode'
 import { RomSession } from '../RomSession'
 import { GFX_FILE_COUNT } from '../rom/GfxLoader'
 import { loadRomPalettes } from '../rom/PaletteLoader'
-import { buildTransitiveLevelMap } from '../rom/LevelTree'
+import { buildLevelSubtree, LevelTreeNode } from '../rom/LevelTree'
+import { roomRow, roomRowForNode, RoomRow } from './levelTreeRows'
 import { loadOverworldAreas, OwArea } from '../rom/OverworldLoader'
 import { hex2, hex3 } from '../rom/hex'
 
@@ -43,16 +44,17 @@ class SectionFolder extends vscode.TreeItem {
 }
 
 /**
- * A named Level: the overworld-linked entrance room plus all rooms
- * transitively reachable via screen exits.  Rooms may appear in multiple
- * LevelFolders — they are references to the same underlying virtual file.
+ * A named Level: the overworld-linked entrance room plus the rooms reachable
+ * from it via screen exits, nested the way they are entered.  A room reachable
+ * by two routes is rendered under both; each row is a reference to the same
+ * underlying virtual file.
  */
 class LevelFolder extends vscode.TreeItem {
   constructor(
     public readonly index: number,
     public readonly slug: string,
-    /** All transitively reachable sub-rooms (not including the entrance itself). */
-    public readonly subIndices: number[],
+    /** The entrance room's expansion; its `children` are the first-tier sub-rooms. */
+    public readonly subtree: LevelTreeNode,
     displayName?: string,
   ) {
     const hex = hex3(index)
@@ -66,29 +68,26 @@ class LevelFolder extends vscode.TreeItem {
   }
 }
 
-/** A single map/room — leaf node inside a LevelFolder or a Resources section. */
+/** A single map/room inside a LevelFolder or a Resources section. */
 class RoomItem extends vscode.TreeItem {
   constructor(
-    index: number,
-    slug: string,
-    /** Named rooms show name + $hex description. Unnamed rooms show only $hex as label. */
-    name: string | null,
-    role: 'entrance' | 'sub' | 'resource',
+    row: RoomRow,
+    public readonly slug: string,
+    /** Sub-rooms entered from this one. Empty for leaves, markers and Resources rows. */
+    public readonly subNodes: LevelTreeNode[] = [],
   ) {
-    const hex = hex3(index)
-    super(name ?? `$${hex}`, vscode.TreeItemCollapsibleState.None)
-    this.description = name ? `$${hex}` : undefined
-    this.iconPath = new vscode.ThemeIcon(
-      role === 'entrance' ? 'home'
-      : role === 'sub'    ? 'group-by-ref-type'
-      :                     'file-code'
-    )
+    super(row.label, row.collapsible
+      ? vscode.TreeItemCollapsibleState.Collapsed
+      : vscode.TreeItemCollapsibleState.None)
+    this.description  = row.description
+    this.tooltip      = row.tooltip
+    this.iconPath     = new vscode.ThemeIcon(row.icon)
+    this.contextValue = row.contextValue
     this.command = {
       command: 'vscode.open',
       title:   'Open Room',
-      arguments: [vscode.Uri.parse(`smwrom:/${slug}/maps/${hex}.smwmap`)]
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/${row.resourcePath}`)]
     }
-    this.contextValue = `smwRoom_${role}`
   }
 }
 
@@ -218,9 +217,10 @@ class PlaceholderItem extends vscode.TreeItem {
 
 /**
  * Top tree view: one LevelFolder per overworld-accessible room.
- * Expands to show the entrance map + all transitively reachable sub-maps.
- * Maps that are shared across levels appear under each level independently
- * but open the same virtual file.
+ * Expands to show the entrance map plus the sub-maps reachable from it, nested
+ * under whichever room leads into them.  A sub-map reachable by more than one
+ * route appears on every route; a route that loops back onto itself ends in a
+ * non-expandable loop marker.  Every row opens the same virtual file.
  *
  * Level names are decoded from ROM data (no hardcoded lookup table).
  */
@@ -248,12 +248,11 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
     if (element instanceof RomInfoItem) {
       // Under ROM: Overworld folder first, then one LevelFolder per overworld level.
       const { overworld } = rom.classifyLevels()
-      const exitGraph  = rom.buildLevelExitGraph()
-      const transitive = buildTransitiveLevelMap(overworld, exitGraph)
+      const exitGraph = rom.buildLevelExitGraph()
 
       const folders = overworld.map(index => new LevelFolder(
         index, slug,
-        transitive.get(index) ?? [],
+        buildLevelSubtree(index, exitGraph),
         rom.getLevelName(index) ?? undefined,
       ))
       return [new OverworldFolder(slug), ...folders]
@@ -264,18 +263,27 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
     }
 
     if (element instanceof LevelFolder) {
+      // The folder already stands for the entrance room, so the entrance row is
+      // just its opener and the first-tier sub-rooms sit alongside it.
       const entrance = new RoomItem(
-        element.index, element.slug,
-        rom.getLevelName(element.index),
-        'entrance',
+        roomRow(element.index, rom.getLevelName(element.index), 'entrance', 0),
+        element.slug,
       )
-      const subs = element.subIndices.map(ci =>
-        new RoomItem(ci, element.slug, rom.getLevelName(ci), 'sub')
-      )
-      return [entrance, ...subs]
+      return [entrance, ...this.roomsFor(element.subtree.children, element.slug)]
+    }
+
+    if (element instanceof RoomItem) {
+      return this.roomsFor(element.subNodes, element.slug)
     }
 
     return []
+  }
+
+  private roomsFor(nodes: LevelTreeNode[], slug: string): RoomItem[] {
+    const rom = this.session!.rom
+    return nodes.map(n => new RoomItem(
+      roomRowForNode(n, rom.getLevelName(n.index)), slug, n.children,
+    ))
   }
 }
 
@@ -308,7 +316,7 @@ export class ResourcesProvider implements vscode.TreeDataProvider<ResourcesTreeI
       const validRooms = allSlots.filter(s => s.hasData)
 
       const roomItems: RoomItem[] = validRooms.map(s =>
-        new RoomItem(s.index, slug, s.name, 'resource')
+        new RoomItem(roomRow(s.index, s.name, 'resource', 0), slug)
       )
 
       const roomsSection = new SectionFolder(
