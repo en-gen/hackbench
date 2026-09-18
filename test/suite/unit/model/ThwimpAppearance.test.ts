@@ -130,7 +130,7 @@ function makeTables(opts: {
   if (opts.attrByte !== undefined)    spriteAttr[0x27]     = opts.attrByte
   if (opts.tilemapOffset !== undefined) tilemapOffsets[0x27] = opts.tilemapOffset
   if (opts.tilemap) opts.tilemap.forEach((b, i) => { tilemap[(opts.tilemapOffset ?? 0) + i] = b })
-  return { tilemap, tilemapOffset: tilemapOffsets, spriteAttr, dispX: [], dispY: [], gfxProp: [], spr0to13Prop: new Uint8Array(0) }
+  return { tilemap, tilemapOffset: tilemapOffsets, spriteAttr, dispX: [], dispY: [], gfxProp: [], spr0to13Prop: new Uint8Array(0), yoshiPal: new Uint8Array(4) }
 }
 
 describe('ThwimpAppearance.fromTables() — charHigh and palette', () => {
@@ -163,7 +163,7 @@ describe('ThwimpAppearance.fromTables() — ?? fallback branches', () => {
       tilemap:       new Uint8Array(0),
       tilemapOffset: new Uint8Array(0),
       spriteAttr:    new Uint8Array(0),
-      dispX: [], dispY: [], gfxProp: [], spr0to13Prop: new Uint8Array(0),
+      dispX: [], dispY: [], gfxProp: [], spr0to13Prop: new Uint8Array(0), yoshiPal: new Uint8Array(0),
     }
     const placeholder = makeChar(0xFFFF)
     const app = ThwimpAppearance.fromTables(new Map(), tables, placeholder)

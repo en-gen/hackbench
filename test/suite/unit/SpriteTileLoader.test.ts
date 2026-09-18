@@ -25,6 +25,7 @@ function makeTables(overrides: Partial<SpriteTileTables> = {}): SpriteTileTables
     gfxProp,
     spriteAttr,
     spr0to13Prop,
+    yoshiPal: new Uint8Array(4),
     ...overrides,
   }
 }

@@ -29,6 +29,7 @@
  *   $01:9CD3 GeneralSprDispX    (4 bytes)
  *   $01:9CD7 GeneralSprDispY    (4 bytes)
  *   $07:F3FE Sprite166EVals     (~257 bytes; low nibble = default OAM attr)
+ *   $01:8335 YoshiPal           (4 bytes; Yoshi Egg per-position OAM attr)
  *
  * Sprite IDs beyond 0x53 use custom per-sprite draw routines (SubSprGfx1,
  * handwritten routines) that this loader does not model. Callers should
@@ -44,12 +45,14 @@ export const GENERAL_SPR_DISP_Y_ADDR   = 0x019CD7
 export const GENERAL_SPR_GFX_PROP_ADDR = 0x019CDB
 export const SPRITE_166E_VALS_ADDR     = 0x07F3FE
 export const SPR_0_TO_13_PROP_ADDR     = 0x0188F0
+export const YOSHI_PAL_ADDR            = 0x018335
 
 export const SPR_TILEMAP_OFFSET_COUNT   = 0x54   // sprites 0x00..0x53
 export const SPR_TILEMAP_LEN            = 0xFC   // 0x9C7F - 0x9B83
 export const GENERAL_SPR_GFX_PROP_COUNT = 24    // 6 groups × 4 corners
 export const SPRITE_166E_VALS_COUNT     = 0x100
 export const SPR_0_TO_13_PROP_COUNT     = 0x14   // sprites 0x00..0x13
+export const YOSHI_PAL_COUNT            = 4
 
 /** Raw sprite tile layout data read from ROM. */
 export interface SpriteTileTables {
@@ -69,6 +72,10 @@ export interface SpriteTileTables {
   /** Spr0to13 property byte per sprite ID (0x00..0x13).
    *  Bit 6 set = sprite is drawn 16x32 (two stacked big-tiles) via SubSprGfx1. */
   spr0to13Prop: Uint8Array
+  /** YoshiPal (bank_01.asm:461) - four OAM attribute bytes. InitYoshiEgg
+   *  (bank_01.asm:463) overwrites SpriteOBJAttribute with the entry chosen by
+   *  (SpriteXPosLow >> 4) & 3, so Sprite166EVals[$2C] never reaches the screen. */
+  yoshiPal: Uint8Array
 }
 
 export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
@@ -79,7 +86,8 @@ export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
   const gfxPropBuf     = rom.readAt(GENERAL_SPR_GFX_PROP_ADDR, GENERAL_SPR_GFX_PROP_COUNT)
   const rawAttr        = rom.readAt(SPRITE_166E_VALS_ADDR,     SPRITE_166E_VALS_COUNT)
   const spr0to13Prop   = rom.readAt(SPR_0_TO_13_PROP_ADDR,     SPR_0_TO_13_PROP_COUNT)
-  if (!tilemap || !tilemapOffset || !dispXBuf || !dispYBuf || !gfxPropBuf || !rawAttr || !spr0to13Prop) return null
+  const yoshiPal       = rom.readAt(YOSHI_PAL_ADDR,            YOSHI_PAL_COUNT)
+  if (!tilemap || !tilemapOffset || !dispXBuf || !dispYBuf || !gfxPropBuf || !rawAttr || !spr0to13Prop || !yoshiPal) return null
   // Match LoadSpriteTables (bank_07.asm:978) — only the low nibble of
   // Sprite166EVals feeds SpriteOBJAttribute (palette + char-high bit).
   const spriteAttr = new Uint8Array(rawAttr.length)
@@ -92,6 +100,7 @@ export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
     gfxProp: Array.from(gfxPropBuf),
     spriteAttr,
     spr0to13Prop: new Uint8Array(spr0to13Prop),
+    yoshiPal: new Uint8Array(yoshiPal),
   }
 }
 
@@ -562,6 +571,80 @@ function resolveShellAlias(spriteId: number): { targetId: number; shellOnly: boo
   return { targetId: spriteId, shellOnly: false }
 }
 
+/**
+ * SNES large-OBJ expansion of base char N → [N, N+1, N+$10, N+$11] at corners
+ * [TL, TR, BL, BR]. flipX swaps the columns AND mirrors each 8×8; flipY swaps
+ * the rows AND flips each 8×8; both does both.
+ */
+const CORNER_OFFSETS = {
+  none:  [0x00, 0x01, 0x10, 0x11],
+  flipX: [0x01, 0x00, 0x11, 0x10],
+  flipY: [0x10, 0x11, 0x00, 0x01],
+  both:  [0x11, 0x10, 0x01, 0x00],
+} as const
+
+/** Pick the corner order for a flip combination. */
+function cornerOffsetsFor(flipX: boolean, flipY: boolean): readonly number[] {
+  return flipX && flipY ? CORNER_OFFSETS.both
+       : flipX          ? CORNER_OFFSETS.flipX
+       : flipY          ? CORNER_OFFSETS.flipY
+       :                  CORNER_OFFSETS.none
+}
+
+/** Sprite ID of the Yoshi Egg. */
+export const YOSHI_EGG_ID = 0x2C
+
+/**
+ * Resting layout for the Yoshi Egg ($2C): char $00, an X-position-dependent
+ * palette, and a mirrored big-tile. The generic SprTilemap path gets the last
+ * two wrong. Full trace: docs/smw-sprite-2c-yoshi-egg.md
+ *
+ * CODE_01F78D (bank_01.asm:16057) stamps the immediate $00 over OAMTileNo
+ * after SubSprGfx2Entry1 (bank_01.asm:4148) returns, so SprTilemap is dead
+ * here. InitYoshiEgg (bank_01.asm:463) stores a YoshiPal byte
+ * (bank_01.asm:461) into SpriteOBJAttribute UNMASKED, unlike LoadSpriteTables
+ * (bank_07.asm:978), so its flip bits are live. SubSprGfx2Entry1 then EORs
+ * OBJ_XFlip into the attribute because ZeroSpriteTables (bank_07.asm:940)
+ * leaves SpriteMisc157C at 0.
+ *
+ * OAM priority (attribute bits 5-4) is not modelled: SpriteSubtile has no
+ * priority field and no other layout in this module models one.
+ *
+ * Evidence scope: SMWDisX line numbers plus the twelve opcode bytes at LoROM
+ * $01:F78D read back from the vanilla US 1.0 ROM. No other region checked.
+ *
+ * @param spritePixelX  Sprite pixel X. Only bits 5-4 reach the YoshiPal index,
+ *   so masking to SpriteXPosLow first would not change the result.
+ */
+export function buildYoshiEggLayout(
+  tables: SpriteTileTables,
+  spritePixelX: number,
+): SpriteLayout {
+  const attr     = tables.yoshiPal[(spritePixelX >> 4) & 0x03] ?? 0
+  const palette  = 8 + ((attr >> 1) & 0x07)
+  const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+  // EOR, not ORA: an attribute that already has bit 6 set comes out unmirrored.
+  const flipX    = ((attr ^ 0x40) & 0x40) !== 0
+  const flipY    = (attr & 0x80) !== 0
+
+  const YOSHI_EGG_CHAR = 0x00   // CODE_01F78D: LDA #$00 / STA OAMTileNo+$100,Y
+  const OBJ_CHAR_BASE  = 0x400
+  const offsets = cornerOffsetsFor(flipX, flipY)
+
+  return {
+    spriteId: YOSHI_EGG_ID,
+    height: 16,
+    tiles: [0, 1, 2, 3].map(corner => ({
+      charNum: OBJ_CHAR_BASE + charHigh + ((YOSHI_EGG_CHAR + offsets[corner]) & 0x1FF),
+      palette,
+      flipX,
+      flipY,
+      dx: tables.dispX[corner] ?? 0,
+      dy: tables.dispY[corner] ?? 0,
+    })),
+  }
+}
+
 export function buildSpriteLayout(
   tables: SpriteTileTables,
   spriteId: number,
@@ -596,20 +679,8 @@ export function buildSpriteLayout(
     const wPalette = 8 + ((wAttr >> 1) & 0x07)
     const wCharHigh = (wAttr & 0x01) !== 0 ? 0x100 : 0
     const W_OBJ_BASE = 0x400
-    // SNES large-OBJ expansion of base char N → [N, N+1, N+$10, N+$11]
-    // at corners [TL, TR, BL, BR]. flipX swaps columns AND flips each 8×8;
-    // flipY swaps rows AND flips each 8×8; both swaps both and flips both.
-    const CORNER_OFFSETS = {
-      none:  [0x00, 0x01, 0x10, 0x11],
-      flipX: [0x01, 0x00, 0x11, 0x10],
-      flipY: [0x10, 0x11, 0x00, 0x01],
-      both:  [0x11, 0x10, 0x01, 0x00],
-    } as const
     const wideCorners = (baseTile: number, baseDx: number, baseDy: number, flipX = false, flipY = false): SpriteSubtile[] => {
-      const offsets = flipX && flipY ? CORNER_OFFSETS.both
-                    : flipX          ? CORNER_OFFSETS.flipX
-                    : flipY          ? CORNER_OFFSETS.flipY
-                    :                   CORNER_OFFSETS.none
+      const offsets = cornerOffsetsFor(flipX, flipY)
       return [0, 1, 2, 3].map(corner => ({
         charNum: W_OBJ_BASE + wCharHigh + ((baseTile + offsets[corner]) & 0x1FF),
         palette: wPalette,

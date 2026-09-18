@@ -1,7 +1,7 @@
 import type { LevelSprite } from '../LevelParser'
 import { LINE_TRACKED_SPRITE_IDS, lineGuideAnchor, resolveLineGuideAttachment } from '../LineGuide'
 import type { RomFile } from '../RomFile'
-import { buildSpriteLayout, readSpriteTileTables } from '../SpriteTileLoader'
+import { buildSpriteLayout, buildYoshiEggLayout, readSpriteTileTables, YOSHI_EGG_ID } from '../SpriteTileLoader'
 import type { Char } from './chars/Char'
 import { isPriorityDecorative } from './OverlayContext'
 import type { Tile } from './tiles/Tile'
@@ -585,6 +585,22 @@ export function buildSprites(
         SpikeTopAppearance.fromTables(chars, tables, placeholder),
         behavior,
       ))
+      continue
+    }
+
+    // $2C (Yoshi Egg) - resting state, no idle animation; its palette depends
+    // on the sprite's X position. See buildYoshiEggLayout for the ROM trace.
+    if (s.spriteId === YOSHI_EGG_ID) {
+      const eggLayout = buildYoshiEggLayout(tables, s.x * 16)
+      const eggParts: SpritePart[] = eggLayout.tiles.map(t => ({
+        char: chars.get(t.charNum) ?? placeholder,
+        palette: t.palette,
+        flipX: t.flipX,
+        flipY: t.flipY,
+        dx: t.dx,
+        dy: t.dy,
+      }))
+      out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, new StaticSpriteAppearance(eggParts), behavior))
       continue
     }
 

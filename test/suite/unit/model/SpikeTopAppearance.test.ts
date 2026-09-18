@@ -112,6 +112,7 @@ function makeTables(): SpriteTileTables {
     gfxProp: new Array(24).fill(0),
     spriteAttr,
     spr0to13Prop: new Uint8Array(0x14),
+    yoshiPal: new Uint8Array(4),
   }
 }
 
@@ -500,6 +501,7 @@ describe('SpikeTopAppearance.fromTables — ?? fallback branches', () => {
       dispY: [],
       gfxProp: [],
       spr0to13Prop:  new Uint8Array(0),
+      yoshiPal:      new Uint8Array(0),
     }
     const placeholder = namedChar(0xFF)
     const app = SpikeTopAppearance.fromTables(new Map(), tables, placeholder)

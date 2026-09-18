@@ -30,6 +30,7 @@
  *     0x63  LineCheckerPlatAppearance (checkerMode both sides)
  *     0x64  RopeMechanismAppearance
  *     0xC4  Grey Falling Platform (StaticSpriteAppearance special)
+ *     0x2C  Yoshi Egg (buildYoshiEggLayout → StaticSpriteAppearance)
  *     0x2E  SpikeTopAppearance
  *     0x3E  PSwitchAppearance
  *     0x15  CheepCheepAppearance(false)
@@ -49,6 +50,7 @@
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { buildSprites } from '../../../../src/rom/model/SpriteFactory'
+import { StaticSpriteAppearance } from '../../../../src/rom/model/sprites/appearances/StaticSpriteAppearance'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import type { Char } from '../../../../src/rom/model/chars/Char'
 import type { Tile } from '../../../../src/rom/model/tiles/Tile'
@@ -321,6 +323,16 @@ describe('buildSprites — all dispatch branches via synthetic ROM', () => {
     const r = buildSprites(rom, [sprite(0xC4)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
     expect(r[0].id).toBe(0xC4)
+  })
+
+  it('0x2C Yoshi Egg (buildYoshiEggLayout branch)', () => {
+    // All-zero synthetic tables: YoshiPal = 0 → palette 8, charHigh 0, base char 0.
+    // Only the mirrored corner order and the H-flip survive.
+    const r = buildSprites(rom, [sprite(0x2C)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    expect(r).toHaveLength(1)
+    const parts = (r[0].appearance as StaticSpriteAppearance).parts
+    expect(parts.map(p => p.flipX)).toEqual([true, true, true, true])
+    expect(parts.map(p => p.dx)).toEqual([0, 0, 0, 0])
   })
 
   it('0x2E SpikeTopAppearance', () => {
