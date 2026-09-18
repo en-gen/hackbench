@@ -136,6 +136,43 @@ Domain library: `C:\Projects\SMWDisX`. SMW ROM constants, handler ports, and ASM
 
 **Pillar 1 - Scoped Rules (`src/rom/`)**: Any work touching `src/rom/` requires cross-referencing the matching bank folder in `SMWDisX`. Do not port or assert ROM behavior without tracing to an ASM line there first.
 
+**Pillar 1a - ASM is REFERENCE, not a source to hardcode from**: Use the
+disassembly to trace which lookups happen, in what order, and how graphics are
+composed and presented. Do NOT derive logic from the ROM and then hardcode it.
+This tool targets romhacks, and the ROM's code can be manipulated in ways that
+invalidate any such derivation. A hardcoded derivation does not merely go
+stale: it renders confidently wrong on the user's own cart with every test
+still green.
+
+In practice:
+
+- Sprite identity comes from the MAP's sprite stream. Everything about that
+  sprite is then looked up from ROM tables: one hardcoded address per SHARED
+  table, indexed by the id. `SprTilemapOffset[id]`, `Sprite166EVals[id]`, the
+  handler pointer at `$01:85CC + id*2`. Values always read from the cart.
+- Where a value lives inside one sprite's own handler rather than a shared
+  table, anchor it as an OFFSET FROM THE ROM-RESOLVED HANDLER POINTER, not as
+  an absolute address, so a relocated handler still resolves.
+- **If HackBench can interpret the ROM directly to produce graphics or
+  animation, it MUST. It must go no further.** Opcodes are readable bytes, so
+  reading them is interpretation, not assumption. Do not stop at data tables
+  and hardcode the rest.
+- Worked examples, all verified readable on the vanilla cart. A shift count is
+  the number of consecutive `$4A` (`LSR A`) bytes at an address: `$01:BE96`
+  reads 6 and the OR-bit slice reads 3, which a descriptor should COUNT rather
+  than hardcode. A displacement can be the opcode itself: `$FE` at `$01:BEC3`
+  is `INC abs,X` on `$0301`, so the 1 px top-tile nudge is +1 on
+  `OAMTileYPos+$100`, and a hack that changed it to `$DE` would correctly read
+  as -1. Comparison thresholds are plain immediates.
+- The line is at ASSUMPTION, not at opcodes. Simulating execution to discover
+  WHICH code runs is out of scope; reading a byte at a known offset to learn
+  WHAT it does is in scope and required.
+- A derivation that truly cannot be read must be NAMED as a hack-fragility
+  point and paired with honest degradation: compare the handler against its
+  vanilla bytes and DECLINE TO ASSERT when it diverges, rather than rendering
+  vanilla with confidence. Reach for this only after establishing the value is
+  genuinely unreadable, which is rarer than it first appears.
+
 **Pillar 2 - Context Budgeting**: Load domain knowledge on demand using `@C:\Projects\SMWDisX\<bank_xx>\MEMO.md` syntax. Never read entire bank folders speculatively; load only the MEMO.md for the bank(s) directly relevant to the current task.
 
 **Pillar 3 - Memory Snapshot Protocol**: After resolving a complex SNES logic problem (multi-routine control flow, OAM layout, palette tricks), propose a Memory Snapshot: a concise summary for `SMWDisX/<bank_xx>/MEMO.md`. Include the address range covered, the behavior decoded, non-obvious invariants, and the PR that exercised it. Only propose a snapshot when the analysis is non-trivial - single-table lookups do not warrant one.
