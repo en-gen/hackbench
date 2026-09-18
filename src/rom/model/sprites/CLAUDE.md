@@ -29,6 +29,40 @@ The renderer is still dumb: `SmwMap` walks the sprite list and calls
 `sprite.render()` / `sprite.renderOverlay()`. No per-sprite-id switches
 in the map, factory, or webview.
 
+### The third pass: `renderAboveL1`
+
+`SpriteAppearance.renderAboveL1?(target, x, y, behavior, mapStore)` is an
+optional SECOND pixel pass. `SmwMap.render` runs it after the layer-1
+priority tiles and before layer 3, so what it draws cannot be buried by
+terrain. It is a `RenderTarget` pass, not a Canvas2D one, so it can blit
+real tile pixels.
+
+It is the seam for **editor annotations**: extra artwork whose job is to
+tell the user what a sprite IS when its authored pose does not. $4D Monty
+Mole rests as a pile of rubble, so the editor ghosts its emerged pose
+above the mound.
+
+It is **not** a fix for buried sprites. That was the original stated
+motivation and it is false: 176 `$4D`/`$4E` instances across four ROMs
+were checked and none is occluded by an L1 priority subtile
+(`docs/sprite-4d-monty-mole.md`). The pass earns its keep by making an
+annotation's legibility independent of the cell contents, not by
+rescuing anything shipped.
+
+Rules:
+
+- Never a second animation timer. Draw something static, or drive it from
+  the same state `render` reads - but do not run a clock of your own.
+- Signal that it is an annotation, not a second sprite: pass an `alpha`
+  to `blit8x8` (0.5 is the house ghost value, same as
+  `InvisibleBlockRevealBehavior`).
+- Put the annotation INSIDE `hitRect` when it is the recognisable
+  artwork. A user who clicks what they can see must get the sprite, not
+  a fall-through to the L1 tile behind it. It stays an annotation because
+  it has no identity of its own - `Sprite.pickAt` returns the one sprite.
+- It does not replace `render`. The in-place pose stays correct and
+  authoritative.
+
 ## When to add a new sprite family
 
 1. Read the handler in the SMW disassembly (`C:\Projects\SMWDisX`).

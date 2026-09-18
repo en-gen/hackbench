@@ -27,6 +27,7 @@ import type { SmwMap } from '../../rom/model/SmwMap'
 import type { Sprite } from '../../rom/model/sprites/Sprite'
 import type { OverlayContext } from '../../rom/model/OverlayContext'
 import { cellBoxOf } from '../../rom/model/RenderTarget'
+import { SPRITE_ANIM_INTERVAL_MS } from '../../rom/model/sprites/animCadence'
 import type { MapStore } from '../../rom/model/stores/mapStore'
 import { CanvasRenderTarget } from './CanvasRenderTarget'
 import { drawSurfaces } from './overlays/drawSurfaces'
@@ -1899,7 +1900,9 @@ let mapIntervalMs = 133
 let palAnimIntervalMs = 133
 let mapAnimEnabled = false  // true when the loaded map declares animated tiles
 
-const SPRITE_ANIM_INTERVAL_MS = 125  // ~8 Hz; preserves legacy sprite cadence
+// SPRITE_ANIM_INTERVAL_MS is imported from the model side so the editor
+// cadence and the appearances that convert ticks to game frames cannot be
+// retuned apart. See src/rom/model/sprites/animCadence.ts.
 
 const mapTick = shallowRef(0)
 const spriteTick = shallowRef(0)

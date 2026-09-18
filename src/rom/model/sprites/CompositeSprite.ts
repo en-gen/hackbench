@@ -37,6 +37,11 @@ export class CompositeSprite extends Sprite {
     this.secondary?.render(target, mapStore)
   }
 
+  override renderAboveL1(target: RenderTarget, mapStore: MapStore): void {
+    super.renderAboveL1(target, mapStore)
+    this.secondary?.renderAboveL1(target, mapStore)
+  }
+
   override tickAnimation(): void {
     super.tickAnimation()
     this.secondary?.tickAnimation()

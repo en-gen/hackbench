@@ -95,10 +95,20 @@ export class SmwMap {
     if (toggles.l2) this.l2?.render(target, this.mapStore)
     if (toggles.l1) this.renderL1Overlays(target)
     if (toggles.l1) this.renderL1(target, 'nonPriority')
-    if (toggles.sprites) {
-      for (const sprite of this.spritesInRenderOrder()) sprite.render(target, this.mapStore)
+    const ordered = toggles.sprites ? this.spritesInRenderOrder() : null
+    if (ordered) {
+      for (const sprite of ordered) sprite.render(target, this.mapStore)
     }
     if (toggles.l1) this.renderL1(target, 'priority')
+    // Second sprite pixel pass, above the L1 priority tiles. This is the
+    // EDITOR ANNOTATION seam ($4D Monty Mole ghosts its emerged pose over
+    // its anonymous mound), not a rescue for buried sprites - see
+    // SpriteAppearance.renderAboveL1 and docs/sprite-4d-monty-mole.md.
+    // Deliberately BEFORE the L3 priority pass: an annotation goes over
+    // layer 1 only, it is not promoted over the foreground BG.
+    if (ordered) {
+      for (const sprite of ordered) sprite.renderAboveL1(target, this.mapStore)
+    }
     // layer3Priority=true → L3 in front of sprites, behind L1 priority
     if (toggles.l3 && l3Priority) this.l3?.render(target, this.mapStore)
   }

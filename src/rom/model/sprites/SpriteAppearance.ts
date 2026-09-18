@@ -27,6 +27,37 @@ export interface SpriteAppearance {
     mapStore: MapStore,
   ): void
 
+  /**
+   * Optional SECOND pixel pass, drawn after the layer-1 priority tiles in
+   * `SmwMap.render` (and before layer 3, so the foreground BG keeps its
+   * existing top-most role).
+   *
+   * It is the seam for EDITOR ANNOTATIONS: extra artwork drawn to tell the
+   * user what a sprite is when its authored pose does not ($4D Monty Mole
+   * rests as a pile of rubble, so the editor ghosts its emerged pose above
+   * the mound). Running after layer 1 keeps that legibility independent of
+   * whatever the author put in the cell.
+   *
+   * It is NOT a fix for buried sprites. An earlier version of this comment
+   * claimed moles are hidden under terrain; that was measured and is false
+   * - 176 $4D/$4E instances across four ROMs, none occluded by an L1
+   * priority subtile (docs/sprite-4d-monty-mole.md).
+   *
+   * Rule: never introduce a second animation timer. An implementation may
+   * draw something static, or drive itself from the same state `render`
+   * reads, but it must not run a clock of its own.
+   *
+   * Appearances that do not implement it cost nothing: `Sprite.renderAboveL1`
+   * is an optional-chained no-op.
+   */
+  renderAboveL1?(
+    target:   RenderTarget,
+    x:        number,
+    y:        number,
+    behavior: SpriteBehavior,
+    mapStore: MapStore,
+  ): void
+
   /** Pixel-space bounding rect relative to the sprite origin. Used for cursor hit-testing. */
   readonly hitRect: HitRect
 

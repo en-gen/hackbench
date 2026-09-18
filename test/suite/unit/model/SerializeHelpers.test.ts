@@ -50,6 +50,7 @@ import { RopeMechanismAppearance }from '../../../../src/rom/model/sprites/appear
 import { LineCheckerPlatAppearance } from '../../../../src/rom/model/sprites/appearances/LineCheckerPlatAppearance'
 import { LineBrownPlatAppearance }from '../../../../src/rom/model/sprites/appearances/LineBrownPlatAppearance'
 import { SpikeTopAppearance }     from '../../../../src/rom/model/sprites/appearances/SpikeTopAppearance'
+import { MontyMoleAppearance }    from '../../../../src/rom/model/sprites/appearances/MontyMoleAppearance'
 import { HammerBroAppearance }    from '../../../../src/rom/model/sprites/appearances/HammerBroAppearance'
 import { PSwitchAppearance }      from '../../../../src/rom/model/sprites/appearances/PSwitchAppearance'
 
@@ -66,7 +67,8 @@ const MOCK_BEH = { kind: 'mock' }
 function makeSprite(appearance: StaticSpriteAppearance | ThwompAppearance | RipVanFishAppearance
   | WingedSpriteAppearance | HammerBroPlatformAppearance | SuperKoopaAppearance
   | VolcanoLotusAppearance | RopeMechanismAppearance | LineCheckerPlatAppearance
-  | LineBrownPlatAppearance | SpikeTopAppearance | HammerBroAppearance | PSwitchAppearance) {
+  | LineBrownPlatAppearance | SpikeTopAppearance | HammerBroAppearance | PSwitchAppearance
+  | MontyMoleAppearance) {
   return new Sprite(0x04, 32, 32, appearance, MOCK_BEH)
 }
 
@@ -304,6 +306,33 @@ describe('serializeAppearance — SpikeTopAppearance → kind=spikeTop', () => {
     const app = new SpikeTopAppearance(NO_PARTS, NO_PARTS)
     const d = serializeSprite(makeSprite(app))
     expect(d.appearance.kind).toBe('spikeTop')
+  })
+})
+
+describe('serializeAppearance - MontyMoleAppearance → kind=montyMole', () => {
+  it('serializes both SubSprGfx0 frames, not the StaticSpriteAppearance fallback', () => {
+    const app = MontyMoleAppearance.fromParts(NO_PARTS)
+    const d = serializeSprite(makeSprite(app))
+    expect(d.appearance.kind).toBe('montyMole')
+  })
+
+  it('carries the emerged annotation across the payload boundary', () => {
+    // The annotation is constructor state; without this field the webview
+    // rehydrates a mole with no ghost and nothing else goes red.
+    const emerged = [
+      { char: MOCK_CHAR, palette: 8, flipX: false, flipY: false, dx: 0, dy: 0 },
+      { char: MOCK_CHAR, palette: 8, flipX: false, flipY: false, dx: 8, dy: 0 },
+    ]
+    const app = new MontyMoleAppearance(NO_PARTS, NO_PARTS, emerged)
+    const d = serializeSprite(makeSprite(app))
+    expect(d.appearance.kind).toBe('montyMole')
+    const desc = d.appearance as { kind: 'montyMole'; emerged: readonly unknown[] }
+    expect(desc.emerged).toHaveLength(2)
+  })
+
+  it('$4E (fromParts) serializes an empty emerged list', () => {
+    const d = serializeSprite(makeSprite(MontyMoleAppearance.fromParts(NO_PARTS)))
+    expect((d.appearance as { emerged: readonly unknown[] }).emerged).toEqual([])
   })
 })
 

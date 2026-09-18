@@ -341,9 +341,20 @@ const SPRITE_GFX_OVERRIDES: Readonly<Record<number, 'sub0' | 'sub1'>> = {
   0x27: 'sub0',   // Thwimp
   0x2B: 'sub0',   // Sumo Brother's fire lightning
   0x2F: 'sub0',   // Portable spring board
-  0x4D: 'sub0',   // Ground-dwelling Monty Mole
-  0x4E: 'sub0',   // Ledge-dwelling Monty Mole
+  0x4D: 'sub0',   // Ground-dwelling Monty Mole - see MontyMoleAppearance
+  0x4E: 'sub0',   // Ledge-dwelling Monty Mole - see caveat below
 }
+
+/**
+ * Known-wrong entry: $4E does NOT use SubSprGfx0. CODE_01E343
+ * (bank_01.asm:13388) branches `CMP #$4D / BNE +`, so $4E takes the `+` path
+ * at bank_01.asm:13416-13424 - `LDA #$03 : STA SpriteMisc1602 : JSR
+ * SubSprGfx2Entry1`, a single 16x16 big-tile from SprTilemap[offset+3], with
+ * SpriteOBJAttribute overridden to ((EffFrame << 2) & $C0) | $31 (a 4-phase
+ * flip cycle, OBJ palette 0, char-high 1). Correcting it needs a per-sprite
+ * attribute override and a 4-frame animation, so it is left on the sub0 path
+ * here rather than half-fixed.
+ */
 
 /**
  * Wide (32×32) sprites whose handler writes 4 big-tiles in a 2×2 arrangement
@@ -842,6 +853,15 @@ export function buildSpriteLayout(
     // per GeneralSprDispX/Y. Unlike SubSprGfx2 there's no large-size
     // expansion — each corner picks its own char. Flip flags come from
     // GeneralSprGfxProp[propGroup*4 + corner] (bit6=flipX, bit7=flipY).
+    //
+    // NOT modelled here: the routine's first selector. bank_01.asm:3865-3869
+    // computes `_2 = (SpriteMisc1602 << 2) + SprTilemapOffset[id]`, so each
+    // animation frame owns its own 4-byte quad (walked through in
+    // docs/sprite-4d-monty-mole.md). This builder returns one
+    // static layout and therefore pins SpriteMisc1602 = 0. Sprites whose
+    // drawing state sets a non-zero SpriteMisc1602 ($4D ground Monty Mole)
+    // or that animate across quads ($14 Spiny egg, via SetAnimationFrame)
+    // need a dedicated multi-frame SpriteAppearance, not an entry here.
     const propGroup = SUB0_GFX_PROP_GROUP[spriteId] ?? 0
     return {
       spriteId,

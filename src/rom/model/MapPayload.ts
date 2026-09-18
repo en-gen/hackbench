@@ -187,6 +187,16 @@ export type SpriteAppearanceDescriptor =
     }
   | { kind: 'spikeTop'; parts0: readonly SpritePartDescriptor[]; parts1: readonly SpritePartDescriptor[] }
   | {
+      kind:    'montyMole'
+      parts0:  readonly SpritePartDescriptor[]
+      parts1:  readonly SpritePartDescriptor[]
+      /**
+       * Emerged-pose ghost annotation. Empty for $4E, which shares the
+       * class but not the annotation - see `MontyMoleAppearance.fromParts`.
+       */
+      emerged: readonly SpritePartDescriptor[]
+    }
+  | {
       kind: 'magikoopa'
       frames: readonly (readonly SpritePartDescriptor[])[]
       /** MagiKoopaPals resting entry as raw BGR555 words; see DynSpritePalette. */

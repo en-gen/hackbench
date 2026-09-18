@@ -57,7 +57,7 @@ export function buildSpriteAppearance(
   if (spriteId === 0x15) return new CheepCheepAppearance(parts, false)
   if (spriteId === 0x16) return new CheepCheepAppearance(parts, true)
   if (spriteId === 0x18) return new JumpingFishAppearance(parts)
-  if (spriteId === 0x4D || spriteId === 0x4E) return new MontyMoleAppearance(parts)
+  if (spriteId === 0x4D || spriteId === 0x4E) return MontyMoleAppearance.fromParts(parts)
   if (spriteId === 0x4F) return new JumpingPiranhaAppearance(parts)
   if (spriteId === 0x47) return new SwimJumpFishAppearance(parts)
   if (spriteId === 0x1D) return new HopFlameAppearance(parts)
