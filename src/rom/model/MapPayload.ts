@@ -186,6 +186,12 @@ export type SpriteAppearanceDescriptor =
       chainParts:  readonly SpritePartDescriptor[]
     }
   | { kind: 'spikeTop'; parts0: readonly SpritePartDescriptor[]; parts1: readonly SpritePartDescriptor[] }
+  | {
+      kind: 'magikoopa'
+      frames: readonly (readonly SpritePartDescriptor[])[]
+      /** MagiKoopaPals resting entry as raw BGR555 words; see DynSpritePalette. */
+      dynColors: readonly number[]
+    }
   | { kind: 'hammerBro'; parts: readonly SpritePartDescriptor[] }
   | { kind: 'woodSpike'; spriteId: 0xAC | 0xAD; spriteMisc151C: number }
   | { kind: 'wiggler'; palette: number; charHigh: number; faceLeft: boolean }
