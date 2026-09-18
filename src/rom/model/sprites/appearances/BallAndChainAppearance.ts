@@ -1,9 +1,5 @@
 import type { Char } from '../../chars/Char'
-import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
-import { COLORS, DASH_ALPHA, DEFAULT_DASH, WALL_ALPHA, drawArrowHead, rgba } from '../../overlays/primitives'
-import type { MapStore } from '../../stores/mapStore'
 import type { HitRect } from '../SpriteAppearance'
-import type { SpriteBehavior } from '../SpriteBehavior'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
 
 /**
@@ -35,18 +31,8 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  *     entry 2: (−8, +8) → TL at (−8, +64)   attr $B3 Y-flip
  *     entry 3: (+8, +8) → TL at (+8, +64)    attr $F3 XY-flip
  *   → 16 SpriteParts total.
- *
- * Overlay: dashed orbit circle radius 56 px centred on pivot tile centre
- * (x+8, y+8), plus a solid arc-with-arrowhead showing rotation direction.
- * Direction: bit 4 of SpriteXPosLow (= bit 0 of tile-column):
- *   bit SET (odd column)  → delta=+2 → CCW on screen (sphere moves right first)
- *   bit CLEAR (even column) → delta=−2 → CW on screen (sphere moves left first)
- * SpriteXPosLow = x & 0xFF in hackbench (x is the pixel column × 16).
  */
 export class BallAndChainAppearance extends StaticSpriteAppearance {
-  // InitBallNChain: LDA #$38 → STA SpriteMisc187B,X (bank_01.asm:531)
-  private static readonly RADIUS_PX = 0x38  // 56
-
   // All parts start at dy≥16 (first chain link), so partsHitRect gives dy=16
   // and misses the anchor/pivot tile at dy=0..16. Redeclare hitRect here to
   // force dy=0, keeping the same lateral extent from the parts AABB.
@@ -119,55 +105,5 @@ export class BallAndChainAppearance extends StaticSpriteAppearance {
       ...bigTile(SPHERE, +8, +64, true,  true),  // Q3 DATA_02D80F[3]=$F3 XY-flip
     ]
     return new BallAndChainAppearance(parts)
-  }
-
-  override renderOverlay(
-    ctx:        OverlayContext,
-    x:          number,
-    y:          number,
-    isActive:   boolean,
-    _getL1:     GetL1Tile,
-    _levelCols: number,
-    _levelRows: number,
-    _behavior:  SpriteBehavior | undefined,
-    _mapStore:  MapStore,
-  ): void {
-    if (!isActive) return
-
-    // Pivot centre = mid-point of the 16×16 sprite cell
-    const cx = x + 8
-    const cy = y + 8
-    // Outer edge radius: orbit centre (56 px) + sphere half-size (8 px) = 64 px.
-    // Traces the outermost extent of the sphere as it sweeps the full circle.
-    const r  = BallAndChainAppearance.RADIUS_PX + 8  // 64
-
-    // CODE_02D62A: bit 4 of SpriteXPosLow SET (odd column) → delta=+2 → CCW on screen.
-    const ccw   = (x & 0x10) !== 0
-    const tSign = ccw ? 1 : -1  // +1 = CCW tangent, −1 = CW tangent
-
-    ctx.save()
-
-    // ── Dashed orbit circle ──────────────────────────────────────────────────
-    ctx.lineWidth   = 1
-    ctx.strokeStyle = rgba(COLORS.patrolPath, DASH_ALPHA)
-    ctx.setLineDash([...DEFAULT_DASH])
-    ctx.beginPath()
-    ctx.ellipse(cx, cy, r, r, 0, 0, Math.PI * 2)
-    ctx.stroke()
-    ctx.setLineDash([])
-
-    // ── Directional arrows at 45° / 135° / 225° / 315° ──────────────────────
-    // Diagonal positions keep the arrows off the cardinal axes so they don't
-    // overlap with level geometry markers. Tangent formula same as before:
-    //   from = tip − tSign*(sin θ, −cos θ)*5
-    for (const θ of [Math.PI / 4, 3 * Math.PI / 4, 5 * Math.PI / 4, 7 * Math.PI / 4]) {
-      const tipX  = cx + r * Math.cos(θ)
-      const tipY  = cy + r * Math.sin(θ)
-      const fromX = tipX - tSign * Math.sin(θ) * 5
-      const fromY = tipY + tSign * Math.cos(θ) * 5
-      drawArrowHead(ctx, tipX, tipY, fromX, fromY, COLORS.patrolPath, WALL_ALPHA, 5)
-    }
-
-    ctx.restore()
   }
 }

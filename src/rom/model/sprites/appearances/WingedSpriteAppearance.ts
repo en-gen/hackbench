@@ -1,19 +1,7 @@
-// Consumes: mapStore.marioSpawnX (overlay only)
+// Consumes: (none)
 
-import { type GetL1Tile, type OverlayContext } from '../../OverlayContext'
-import {
-  COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH,
-  drawArrowHead, rgba, WALL_ALPHA, WALL_LINE_WIDTH,
-} from '../../overlays/primitives'
 import type { RenderTarget } from '../../RenderTarget'
 import type { MapStore } from '../../stores/mapStore'
-import { BouncingKoopaBehavior } from '../behaviors/BouncingKoopaBehavior'
-import { FlyingBlockBehavior } from '../behaviors/FlyingBlockBehavior'
-import { FlyingLeftKoopaBehavior } from '../behaviors/FlyingLeftKoopaBehavior'
-import { KoopaWalkBehavior } from '../behaviors/KoopaWalkBehavior'
-import { SinusoidalParaKoopaBehavior } from '../behaviors/SinusoidalParaKoopaBehavior'
-import { WingedGoombaBehavior } from '../behaviors/WingedGoombaBehavior'
-import { solidityFromL1 } from '../MovementBehavior'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
@@ -36,27 +24,9 @@ import type { SpriteLayout } from '../../../SpriteTileLoader'
  *   false (default) -- wings before body (wings behind, used for ? blocks)
  *   true            -- body before wings  (wings in front, used for para-koopas)
  *
- * The overlay is driven by the sprite's attached Behavior -- no sprite-id
- * switch. Each MovementBehavior subclass exposes the data its overlay
- * needs (patrol range, bounce arc, sine band, fade corridor) and this
- * appearance composes the visual from shared drawing primitives.
+ * The behavior-driven movement annotation this class used to draw was
+ * removed; see docs/sprite-overlay-removal.md.
  */
-
-function strokeDashedPolyline(
-  ctx:    OverlayContext,
-  points: readonly { x: number; y: number }[],
-  color:  { r: number; g: number; b: number },
-): void {
-  if (points.length < 2) return
-  ctx.lineWidth   = DASH_LINE_WIDTH
-  ctx.strokeStyle = rgba(color, DASH_ALPHA)
-  ctx.setLineDash([...DEFAULT_DASH])
-  ctx.beginPath()
-  ctx.moveTo(points[0].x, points[0].y)
-  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y)
-  ctx.stroke()
-  ctx.setLineDash([])
-}
 
 export class WingedSpriteAppearance implements SpriteAppearance {
   readonly hitRect: HitRect
@@ -88,152 +58,6 @@ export class WingedSpriteAppearance implements SpriteAppearance {
       for (const part of wingParts) blit(part)
       for (const part of this.bodyParts) blit(part)
     }
-  }
-
-  renderOverlay(
-    ctx:        OverlayContext,
-    x:          number,
-    y:          number,
-    isActive:   boolean,
-    getL1:      GetL1Tile,
-    levelCols:  number,
-    levelRows:  number,
-    behavior:   SpriteBehavior | undefined,
-    mapStore:   MapStore,
-  ): void {
-    if (!isActive || !behavior) return
-    const { solidH, solidV } = solidityFromL1(getL1)
-    const color = COLORS.patrolPath
-    const marioSpawnX = mapStore.marioSpawnX
-
-    ctx.save()
-
-    if (behavior instanceof BouncingKoopaBehavior) {
-      // Per-frame trajectory polyline — strokes as a smooth dashed arc.
-      // Only the toward-Mario direction is simulated (matches FaceMario init
-      // at bank_01.asm:847-850). marioSpawnX defaults to 0 inside the
-      // behavior when the level didn't parse Mario's spawn position.
-      // getL1 enables slope-aware landing so arcs touch slope surfaces.
-      const { points } = behavior.computeBouncePolyline(
-        x, y, solidH, solidV, levelCols, levelRows, marioSpawnX, getL1,
-      )
-      strokeDashedPolyline(ctx, points, color)
-      if (points.length >= 2) {
-        const tip  = points[points.length - 1]
-        const from = points[points.length - 2]
-        drawArrowHead(ctx, tip.x, tip.y, from.x, from.y, color, DASH_ALPHA)
-      }
-
-    } else if (behavior instanceof WingedGoombaBehavior) {
-      // $10 Para-Goomba bounce arc — full 4-bounce cycle (3 short + 1 tall),
-      // toward Mario's spawn X (FaceMario init, bank_01.asm:847-850).
-      // getL1 enables slope-aware landing so arcs touch slope surfaces.
-      const { points } = behavior.computeBouncePolyline(
-        x, y, solidH, solidV, levelCols, levelRows, marioSpawnX, getL1,
-      )
-      strokeDashedPolyline(ctx, points, color)
-      if (points.length >= 2) {
-        const tip  = points[points.length - 1]
-        const from = points[points.length - 2]
-        drawArrowHead(ctx, tip.x, tip.y, from.x, from.y, color, DASH_ALPHA)
-      }
-
-    } else if (behavior instanceof FlyingLeftKoopaBehavior) {
-      // Horizontal dashed line at body-center, fading off to the left.
-      // Arrow at the far end shows the koopa flies indefinitely in that direction.
-      const c = behavior.computeFadeCorridor(x, y)
-      const midY = c.originY + 8
-      ctx.lineWidth   = DASH_LINE_WIDTH
-      ctx.strokeStyle = rgba(color, DASH_ALPHA)
-      ctx.setLineDash([...DEFAULT_DASH])
-      ctx.beginPath()
-      ctx.moveTo(c.originX, midY)
-      ctx.lineTo(c.endX, midY)
-      ctx.stroke()
-      ctx.setLineDash([])
-      drawArrowHead(ctx, c.endX, midY, c.originX, midY, color, DASH_ALPHA)
-
-    } else if (behavior instanceof SinusoidalParaKoopaBehavior) {
-      // Sinusoidal patrol — $0A vertical / $0B horizontal Para-Koopa.
-      // Per RedVertParaKoopa (bank_01.asm:1881), `SpriteXSpeed` and
-      // `SpriteMisc151C` both init to 0, so `STEP[0]=-1` drives the very
-      // first speed update — the sprite always moves in the negative
-      // direction first (left for $0B, up for $0A) and oscillates between
-      // the negative extreme and spawn without ever crossing past it.
-      // The overlay is a one-sided dashed segment with solid endcaps at
-      // BOTH reversal points: the far extreme (minPos) and the spawn
-      // anchor (maxPos = 0), since the sprite turns around at each.
-      const b = behavior.computeSineBounds()
-      const centerX = x + 8, centerY = y + 8
-      const ENDCAP_HALF = 8
-      const HALF_BODY   = 8
-      // Body-edge offset: caps mark where the sprite's body edge reaches at
-      // each reversal extreme — far edge at minPos - HALF_BODY, near edge at
-      // maxPos + HALF_BODY. This keeps the near cap visible immediately past
-      // the sprite body (not occluded behind it). Dashed line spans cap to
-      // cap so the corridor stays visually continuous.
-      const farOffset  = b.minPos - HALF_BODY
-      const nearOffset = b.maxPos + HALF_BODY
-      ctx.lineWidth   = DASH_LINE_WIDTH
-      ctx.strokeStyle = rgba(color, DASH_ALPHA)
-      ctx.setLineDash([...DEFAULT_DASH])
-      ctx.beginPath()
-      if (b.axis === 'vertical') {
-        ctx.moveTo(centerX, centerY + farOffset)
-        ctx.lineTo(centerX, centerY + nearOffset)
-      } else {
-        ctx.moveTo(centerX + farOffset, centerY)
-        ctx.lineTo(centerX + nearOffset, centerY)
-      }
-      ctx.stroke()
-      ctx.setLineDash([])
-
-      // Solid endcaps at both body-edge extents.
-      ctx.lineWidth   = WALL_LINE_WIDTH
-      ctx.strokeStyle = rgba(color, WALL_ALPHA)
-      ctx.beginPath()
-      if (b.axis === 'vertical') {
-        const yFar  = centerY + farOffset
-        const yNear = centerY + nearOffset
-        ctx.moveTo(centerX - ENDCAP_HALF, yFar);  ctx.lineTo(centerX + ENDCAP_HALF, yFar)
-        ctx.moveTo(centerX - ENDCAP_HALF, yNear); ctx.lineTo(centerX + ENDCAP_HALF, yNear)
-      } else {
-        const xFar  = centerX + farOffset
-        const xNear = centerX + nearOffset
-        ctx.moveTo(xFar,  centerY - ENDCAP_HALF); ctx.lineTo(xFar,  centerY + ENDCAP_HALF)
-        ctx.moveTo(xNear, centerY - ENDCAP_HALF); ctx.lineTo(xNear, centerY + ENDCAP_HALF)
-      }
-      ctx.stroke()
-
-    } else if (behavior instanceof KoopaWalkBehavior) {
-      // Super-koopa walking phase or other ground-walker on a winged body.
-      // Centerline dashed at body midpoint between leftX and rightX.
-      const r = behavior.computePatrolRange(x, y, solidH, solidV, levelCols, levelRows)
-      const midY = (r.topY + r.bottomY) / 2
-      ctx.lineWidth   = DASH_LINE_WIDTH
-      ctx.strokeStyle = rgba(color, DASH_ALPHA)
-      ctx.setLineDash([...DEFAULT_DASH])
-      ctx.beginPath()
-      ctx.moveTo(r.leftX, midY)
-      ctx.lineTo(r.rightX, midY)
-      ctx.stroke()
-      ctx.setLineDash([])
-
-    } else if (behavior instanceof FlyingBlockBehavior) {
-      // Both $83 and $84 drift left while oscillating in Y, producing a
-      // sinusoidal path. $83 moves at constant speed; $84 accelerates to
-      // its max speed over ~64 frames (wider horizontal spacing after that).
-      // Passes through walls — no collision call in Flying_Block.
-      const pts = behavior.computePath(x, y)
-      strokeDashedPolyline(ctx, pts, color)
-      if (pts.length >= 2) {
-        const tip  = pts[pts.length - 1]
-        const from = pts[pts.length - 2]
-        drawArrowHead(ctx, tip.x, tip.y, from.x, from.y, color, DASH_ALPHA)
-      }
-    }
-
-    ctx.restore()
   }
 
   private static layoutToBodyParts(

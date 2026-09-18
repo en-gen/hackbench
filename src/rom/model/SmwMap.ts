@@ -4,7 +4,7 @@ import type { Phase, RenderTarget } from './RenderTarget'
 import type { L2Layer } from './L2Layer'
 import type { L3Layer } from './L3Layer'
 import type { Palette } from './palette/Palette'
-import type { Sprite } from './sprites/Sprite'
+import { spriteOverlayKey, type Sprite } from './sprites/Sprite'
 import { editorStore } from './stores/editorStore'
 import type { MapStore } from './stores/mapStore'
 import type { Tile } from './tiles/Tile'
@@ -138,8 +138,8 @@ export class SmwMap {
    * regions automatically.
    *
    * @param ctx        CanvasRenderingContext2D cast as OverlayContext.
-   * @param activeKeys Set of `"id:x,y"` keys for sprites whose overlay is
-   *                   currently toggled on by the user.
+   * @param activeKeys Set of `spriteOverlayKey` strings for sprites whose
+   *                   annotation is currently toggled on by the user.
    */
   renderSpriteOverlays(ctx: OverlayContext, activeKeys: ReadonlySet<string>): void {
     const rows     = this.l1.length
@@ -165,7 +165,7 @@ export class SmwMap {
     }
     for (const sprite of this.sprites) {
       if (!sprite.appearance.renderOverlay) continue
-      const key    = `${sprite.id}:${sprite.x},${sprite.y}`
+      const key    = spriteOverlayKey(sprite)
       sprite.renderOverlay(
         ctx, sprite.x, sprite.y, activeKeys.has(key), getL1, cols, rows, this.mapStore,
       )

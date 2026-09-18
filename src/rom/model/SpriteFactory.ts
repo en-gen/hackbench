@@ -576,9 +576,10 @@ export function buildSprites(
       continue
     }
 
-    // $2E (Spike Top) — 2-frame animation per WallFollowersMain bank_02.asm:8079-8091.
-    // Tiles at SprTilemap[tilemapBase+0/1] alternate every 8 ticks; direction defaults
-    // to 0 (DATA_02BCC7[0]=$00 → no flip).
+    // $2E (Spike Top) - 2-frame animation per WallFollowersMain bank_02.asm:8079-8091.
+    // Tiles at SprTilemap[tilemapBase+0/1] alternate every 8 ticks; direction is
+    // hardcoded to 0 (DATA_02BCC7[0]=$00, no flip), which is wrong when Mario spawns
+    // left of the sprite. See SpikeTopAppearance.fromTables.
     if (s.spriteId === 0x2E) {
       out.push(new Sprite(
         s.spriteId, s.x * 16, s.y * 16,
@@ -654,8 +655,8 @@ function thwompReactRangeDy(
   px: number,
   py: number,
 ): number {
-  // Mirrors ThwompAppearance.renderOverlay's blocker scan: skip
-  // priority-decorative tiles (which pass through sprite collision) and use
+  // Skip priority-decorative tiles (which pass through sprite collision)
+  // and use
   // the authoritative `tile.collision.floor` predicate, which covers all
   // four CODE_01933B branches (incl. tiles like $100 whose acts-like is
   // page-0 solid behavior, missed by `isActsLikeVertSolid`'s $11..$6D

@@ -29,15 +29,12 @@ import { MovementBehavior, type BehaviorMeta } from '../MovementBehavior'
  * sprite, but visible at the editor's display scale.
  *
  * X-direction is set at spawn from FaceMario and never flips during
- * normal play — the fish swims off-screen in one direction. The
- * overlay renders the swim path as a horizontal corridor with a
- * fade-out at the far end (same vocabulary as FlyingLeftKoopa $08).
+ * normal play: the fish swims off-screen in one direction.
  */
 
 export const BLURP_X_SPEED_SUBPX     = 0x08   // BlurpSpeedX[0]; ±0.5 px/frame avg
 export const BLURP_Y_AMPLITUDE_PX    = 4      // integrated peak from Y triangle wave
 export const BLURP_Y_CYCLE_FRAMES    = 64
-export const BLURP_FADE_LENGTH_PX    = 96     // editor preview reach (~6 tiles)
 
 export class BlurpBehavior extends MovementBehavior {
   readonly kind = 'blurp'

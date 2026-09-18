@@ -129,8 +129,10 @@ export function buildMapWithGraph(
   // Hoisted above buildL2 so it can flow into computeL2ScrollRange.
   const initialCameraYPx = readInitialLayer1YPos(rom.rom, levelId, isVertical)
 
-  // Mario spawn — needed by the scroll simulator's seed AND by sprite
-  // appearances that read `mapStore.marioSpawnX`. Hoisted above buildL2.
+  // Mario spawn - needed by the scroll simulator's seed and by the
+  // `faceRight` resolution in buildSprites. Nothing reads the
+  // `mapStore.marioSpawnX` copy below any more; see src/rom/model/CLAUDE.md.
+  // Hoisted above buildL2.
   const marioStartPx = readMarioStartPos(rom.rom, levelId)
 
   // Layer-2 scroll/parallax settings. CODE_05D26E (bank_05.asm:7268-7277)

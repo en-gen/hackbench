@@ -66,3 +66,16 @@ export class Sprite {
     return null
   }
 }
+
+/**
+ * Overlay toggle key for a sprite: `"id:x,y"`.
+ *
+ * `SmwMap.renderSpriteOverlays` (which decides whether an annotation is
+ * active) and the webview hit test (which decides what a click toggles)
+ * must agree on this string exactly, or clicking a sprite silently sets a
+ * key nothing reads. Nothing in the type system enforces that agreement,
+ * so both sides call this one function instead of building the string.
+ */
+export function spriteOverlayKey(sprite: Pick<Sprite, 'id' | 'x' | 'y'>): string {
+  return `${sprite.id}:${sprite.x},${sprite.y}`
+}

@@ -3,11 +3,18 @@
  * disassembly. Exposes BOTH sprite-perspective and Mario-perspective
  * fields so consumers can pick the view that matches their query:
  *
- *   - Sprite overlays (KoopaWalk patrol, HopFlame bounce, CheepCheep
- *     arc) read the sprite fields — they need to match `CODE_01928E` /
- *     `CODE_0192C9` behavior at runtime.
+ *   - Sprite-perspective consumers read the sprite fields: they need to
+ *     match `CODE_01928E` / `CODE_0192C9` behavior at runtime. Today that
+ *     is the `sprites/behaviors/` simulators (via `solidityFromL1`) and
+ *     `SmwMap.renderSpriteOverlays`'s `getL1` closure. The sprite overlays
+ *     that used to be the visible consumer (KoopaWalk patrol, HopFlame
+ *     bounce, CheepCheep arc) were removed; see
+ *     `docs/sprite-overlay-removal.md`.
  *   - Editor overlays ("Show surfaces", "Show walls") read the Mario
  *     fields — the designer wants to see what the player experiences.
+ *
+ * Both perspectives are still needed: dropping the sprite fields would
+ * make the behavior simulators wrong, not just less decorated.
  *
  * ------------------------------------------------------------------
  * Sprite-perspective fields

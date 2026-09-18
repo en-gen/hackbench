@@ -1,7 +1,6 @@
 // Consumes: editorStore.cursorPx
 
 import type { Char } from '../../chars/Char'
-import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import type { RenderTarget } from '../../RenderTarget'
 import { editorStore } from '../../stores/editorStore'
 import type { MapStore } from '../../stores/mapStore'
@@ -143,88 +142,6 @@ export class ThwompAppearance implements SpriteAppearance {
 
     for (const part of this.bodyParts) this.blitPart(target, x, y, part, mapStore)
     if (face) for (const part of face) this.blitPart(target, x, y, part, mapStore)
-  }
-
-  renderOverlay(
-    ctx:        OverlayContext,
-    x:          number,
-    y:          number,
-    isActive:   boolean,
-    getL1:      GetL1Tile,
-    _levelCols: number,
-    levelRows:  number,
-    _behavior:  SpriteBehavior | undefined,
-    _mapStore:  MapStore,
-  ): void {
-    if (!isActive) return
-    // Anchor shifted by InitThwomp's +8 X adjustment.
-    const anchorX = x + ANCHOR_DX
-
-    // Walk down from below the body to find the first solid L1 blocker row.
-    // Use the authoritative `cell.collision.floor` predicate (covers all four
-    // CODE_01933B branches: <$11 semi-solid, $11..$6D solid, $6E..$D7 slope,
-    // >=$D8 solid) rather than `isActsLikeVertSolid` (which only matches the
-    // $11..$6D fast-path and misses tiles like $100 whose acts-like is page-0
-    // solid behavior).
-    const colStart  = Math.floor((x + 4)  / 16)
-    const colEnd    = Math.ceil ((x + 28) / 16)
-    const startRow  = Math.ceil ((y + 32) / 16)
-    let   blockerRow = levelRows
-    outer: for (let r = startRow; r < levelRows; r++) {
-      for (let c = colStart; c < colEnd; c++) {
-        const cell = getL1(c, r)
-        if (cell === null || cell.isPriority) continue
-        if (cell.collision?.floor) { blockerRow = r; break outer }
-      }
-    }
-
-    const zoneTop    = y
-    const zoneBottom = blockerRow < levelRows ? (blockerRow + 1) * 16 : levelRows * 16
-    const zoneH      = zoneBottom - zoneTop
-    const bodyL      = x + 4
-    const bodyR      = x + 28
-
-    ctx.save()
-
-    // Alert zone ±64 px — amber columns flanking the body.
-    const alertFarL = anchorX - 64
-    const alertFarR = anchorX + 64
-    ctx.fillStyle = 'rgba(255,160,0,0.15)'
-    ctx.fillRect(alertFarL, zoneTop, bodyL - alertFarL, zoneH)
-    ctx.fillRect(bodyR,     zoneTop, alertFarR - bodyR, zoneH)
-    ctx.lineWidth = 1
-    ctx.setLineDash([4, 3])
-    ctx.strokeStyle = 'rgba(255,160,0,0.50)'
-    ctx.strokeRect(alertFarL + 0.5, zoneTop + 0.5, bodyL - alertFarL - 1, zoneH - 1)
-    ctx.strokeRect(bodyR     + 0.5, zoneTop + 0.5, alertFarR - bodyR - 1, zoneH - 1)
-
-    // Aggressive zone ±36 px — brighter orange.
-    const aggFarL = anchorX - 36
-    const aggFarR = anchorX + 36
-    ctx.fillStyle = 'rgba(255,100,0,0.20)'
-    ctx.fillRect(aggFarL, zoneTop, bodyL - aggFarL, zoneH)
-    ctx.fillRect(bodyR,   zoneTop, aggFarR - bodyR, zoneH)
-    ctx.setLineDash([2, 2])
-    ctx.strokeStyle = 'rgba(255,100,0,0.75)'
-    ctx.strokeRect(aggFarL + 0.5, zoneTop + 0.5, bodyL - aggFarL - 1, zoneH - 1)
-    ctx.strokeRect(bodyR   + 0.5, zoneTop + 0.5, aggFarR - bodyR - 1, zoneH - 1)
-
-    // Fall path — red column from below body to blocker.
-    ctx.setLineDash([])
-    ctx.fillStyle = 'rgba(240,60,60,0.30)'
-    ctx.fillRect(x + 4, startRow * 16, 24, (blockerRow - startRow) * 16)
-    if (blockerRow < levelRows) {
-      ctx.lineWidth = 2
-      ctx.strokeStyle = 'rgba(240,60,60,0.85)'
-      ctx.strokeRect(x + 4 + 1, blockerRow * 16 + 1, 22, 14)
-    }
-
-    // Body outline — red, outside the 24×32 body rect.
-    ctx.lineWidth = 2
-    ctx.strokeStyle = 'rgba(240,60,60,0.85)'
-    ctx.strokeRect(x + 4 - 1, y - 1, 26, 34)
-
-    ctx.restore()
   }
 
   private blitPart(

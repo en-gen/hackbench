@@ -7,10 +7,15 @@ export type SolidH = (col: number, row: number) => boolean
 export type SolidV = (col: number, row: number) => boolean
 
 /**
- * Sim context passed to movement behaviors. Produced by `SmwMap.renderSpriteOverlays`
- * from the L1 grid (after priority-decorative filtering) and forwarded by the
- * Appearance into any `MovementBehavior` method that needs to query tile
- * solidity — e.g. `computePatrolRange`, `simulateBounds`, `computeBounceArc`.
+ * Sim context for movement behaviors: the L1 grid after priority-decorative
+ * filtering, plus the spawn and level bounds, for any `MovementBehavior`
+ * method that queries tile solidity.
+ *
+ * `SmwMap.renderSpriteOverlays` builds the `getL1` closure these callbacks
+ * come from, and an Appearance used to forward it into the behavior. No
+ * Appearance does today: every sprite overlay was removed
+ * (`docs/sprite-overlay-removal.md`), so the solidity-taking methods are
+ * reached only from their tests. They are kept for issue #321.
  */
 export interface BehaviorSimContext {
   spawnX:    number
@@ -61,8 +66,7 @@ export interface BehaviorMeta {
 
 /**
  * Convenience adapter: wrap a `GetL1Tile`-style accessor into the pair
- * of solidity callbacks behaviors consume. Appearances call this in
- * `renderOverlay` to produce the callbacks their Behavior needs.
+ * of solidity callbacks behaviors consume.
  *
  *   `solidH(c, r)` → does this tile block horizontal motion? (wall)
  *                    Reads `tile.collision.wall` — CODE_01928E port
