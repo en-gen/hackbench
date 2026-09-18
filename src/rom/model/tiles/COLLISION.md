@@ -10,9 +10,14 @@ No folklore. No approximation. Every field cites an ASM line.
 `TileCollision` exposes BOTH sprite-perspective and Mario-perspective
 fields so consumers can pick the view that matches their query:
 
-- **Sprite overlays** (KoopaWalk patrol, HopFlame bounce, CheepCheep
-  arc) read `floor` / `ceiling` / `wall` — they need to match
-  `CODE_01928E` / `CODE_0192C9` runtime behavior.
+- **Sprite-perspective consumers** read `floor` / `ceiling` / `wall`:
+  they need to match `CODE_01928E` / `CODE_0192C9` runtime behavior.
+  Today those are the `sprites/behaviors/` simulators (through
+  `solidityFromL1`) and the `getL1` closure `SmwMap.renderSpriteOverlays`
+  hands to sprite annotations. The sprite overlays that used to be the
+  visible consumer (KoopaWalk patrol, HopFlame bounce, CheepCheep arc)
+  were removed; see `docs/sprite-overlay-removal.md`. The sprite fields
+  are not dead with them: the simulators still read them.
 - **Editor overlays** ("Show surfaces", "Show walls") read
   `marioFloor` / `marioCeiling` / `marioWall` — the designer wants
   to see what the player experiences.

@@ -206,18 +206,24 @@ describe('editorStore.toggleVineSource', () => {
 
 // ── toggleSpriteOverlay ───────────────────────────────────────────────────────
 
+// The store treats the key as an opaque string, so these cases would pass
+// with any shape. The real `"id:x,y"` key is used anyway so nobody reads
+// this file and infers a format from it; SmwMapSpriteOverlays.test.ts is
+// what actually locks the format against `spriteOverlayKey`.
+const KEY = '77:32,48'
+
 describe('editorStore.toggleSpriteOverlay', () => {
   it('add: key not present → added', () => {
     const s = createEditorStore()
-    s.toggleSpriteOverlay('spr_32_48')
-    expect(s.activeSpriteOverlays.has('spr_32_48')).toBe(true)
+    s.toggleSpriteOverlay(KEY)
+    expect(s.activeSpriteOverlays.has(KEY)).toBe(true)
   })
 
   it('remove: key present → deleted', () => {
     const s = createEditorStore()
-    s.toggleSpriteOverlay('spr_32_48')
-    s.toggleSpriteOverlay('spr_32_48')
-    expect(s.activeSpriteOverlays.has('spr_32_48')).toBe(false)
+    s.toggleSpriteOverlay(KEY)
+    s.toggleSpriteOverlay(KEY)
+    expect(s.activeSpriteOverlays.has(KEY)).toBe(false)
   })
 })
 

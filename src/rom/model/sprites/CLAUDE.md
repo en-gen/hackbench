@@ -5,15 +5,25 @@
 A `Sprite` is `id + (x, y) + Appearance + Behavior`:
 
 - **Appearance** owns **what the sprite looks like**. Pixel rendering
-  (`render(ctx, target, x, y, behavior)`) and overlay rendering
-  (`renderOverlay?(ctx, x, y, isActive, getL1, cols, rows, behavior)`)
-  both live here. Appearances are free to compose whatever drawing makes
-  sense for their sprite — there is no one-size-fits-all overlay schema.
-- **Behavior** owns **how the sprite moves + the data its overlay needs**.
-  It never draws. It exposes *typed methods* the Appearance calls
+  (`render(ctx, target, x, y, behavior)`) lives here, as does the
+  optional annotation hook
+  (`renderOverlay?(ctx, x, y, isActive, getL1, cols, rows, behavior)`).
+  Appearances are free to compose whatever drawing makes sense for their
+  sprite; there is no one-size-fits-all annotation schema.
+- **Behavior** owns **how the sprite moves**.
+  It never draws. It exposes *typed methods* an Appearance may call
   (`computePatrolRange`, `simulateBounds`, `computeBouncePath`,
   `computeFadeCorridor`, `computeSineBounds`, etc.). The behavior is the
   single source of truth for any ASM-derived physics.
+
+  **No Appearance calls any of them today.** Those eleven methods had
+  their only non-behavior callers inside the removed sprite overlays, so
+  they are now reached only from their own tests. Doc comments across
+  `behaviors/` still describe "the overlay" as their live consumer; read
+  those as "the consumer this was built for, currently absent". The
+  methods and their tests are deliberately untouched - they are issue
+  #321's scope, not this layer's. Inventory in
+  `docs/sprite-overlay-removal.md`.
 
 The renderer is still dumb: `SmwMap` walks the sprite list and calls
 `sprite.render()` / `sprite.renderOverlay()`. No per-sprite-id switches
@@ -33,43 +43,40 @@ in the map, factory, or webview.
    Share `simulate.ts` primitives (`signed8`, `applyGravity`,
    `simulateUntilStable`) and solidity callbacks from
    `MovementBehavior.ts`.
-4. If the sprite needs a new visual (new overlay shape, new animation
-   frame dispatch), either:
-   - Add an `instanceof` branch to an existing Appearance when the
-     drawing fits a shared pattern (winged sprites, ground walkers), or
-   - Write a new `Appearance` subclass (`HopFlameAppearance`-style)
-     that uses the shared primitives from `overlays/primitives.ts`.
+4. If the sprite needs a new visual (new animation frame dispatch,
+   a new identity annotation), either add a branch to an existing
+   Appearance or write a new `Appearance` subclass.
 5. Register the sprite id in `behaviors/BehaviorFactory.ts`'s
    `buildMovementBehavior` dispatch and in `SpriteFactory` /
    `rehydrate` for the Appearance.
 
-## Overlay drawing vocabulary
+## Sprite annotations
 
-All overlays share the primitives in `src/rom/model/overlays/primitives.ts`:
+`renderOverlay` is the Canvas2D annotation hook on `SpriteAppearance`.
+It has **no implementations on `develop` today**: every path, movement,
+trajectory, patrol, orbit and detection-zone annotation was removed,
+along with the shared `overlays/primitives.ts` drawing vocabulary they
+used. See `docs/sprite-overlay-removal.md` for the inventory and the
+restore procedure.
 
-| Primitive          | Use for                                                              |
-| ------------------ | -------------------------------------------------------------------- |
-| `drawOverlayRect`  | basic tinted + dashed rect                                           |
-| `drawCorridor`     | bounded horizontal/vertical movement band (walls optional)           |
-| `drawVertLane`     | narrow column (jumping fish, vertical traversal)                     |
-| `drawFadeCorridor` | endless movement in one direction (e.g. $08 flies left forever)      |
-| `drawBounceArc`    | parabolic hop/jump — envelope + sampled bounce polyline              |
-| `drawSineBand`     | oscillating sprites ($0A/$0B Red Para-Koopa)                         |
-| `drawApexLine`     | horizontal marker at the extreme edge of an envelope                 |
-| `findSolidBoundary`| scan L1 columns for the nearest wall in a direction                  |
+The hook is kept deliberately. It is the extension point for **identity
+annotations**: drawings that tell the user what a sprite IS when its
+static appearance does not say so. Do not delete it as dead code.
 
-Palette constants live in `COLORS` — use them (`tealSwim`, `orangeHop`,
-`cyanKoopa`, etc.) so visual vocabulary stays consistent.
+The distinction that decides whether a new annotation belongs here:
 
-**Rule**: overlays are *bespoke per sprite*. The Thwomp detect zone, the
-Rip Van Fish detection radius, and the Chargin' Chuck reaction band all
-look different; don't shoehorn them into one discriminated-union shape.
-Compose the primitives that fit and call it a day.
+- **Motion annotations** depict movement the editor cannot really
+  simulate (patrol corridors, jump arcs, orbit circles, fall paths).
+  These were removed and should not come back through the side door.
+- **Identity annotations** disambiguate an ambiguous resting pose.
+  These are wanted.
 
 ## L1 collision semantics
 
-Every overlay consumes `getL1(col, row)` which returns either `null` or
-`{id, actsLike}`. `SmwMap.renderSpriteOverlays` filters the closure:
+An annotation consumes `getL1(col, row)`, which returns either `null` or
+`{id, actsLike, isPriority, collision}`. `SmwMap.renderSpriteOverlays`
+filters the closure (locked by
+`test/suite/unit/model/SmwMapSpriteOverlays.test.ts`):
 
 - Priority-1 decorative tiles (all four subtiles `priority=true`)
   return `null` — foreground grass, backdrop tubes, forest columns are
@@ -116,9 +123,9 @@ Don't duplicate the dispatch in both SpriteFactory and rehydrate.
 - Canvas2D calls. Behaviors never draw.
 - Sprite-specific visual data (part offsets, palette rows, char nums).
   That's the Appearance's job.
-- Randomness. Simulators run in worst-case mode by default so overlays
+- Randomness. Simulators run in worst-case mode by default so results
   are deterministic; if a sprite has per-instance randomness, expose it
-  as a config on the Behavior and pick the worst case in the overlay.
+  as a config on the Behavior and pick the worst case at the call site.
 
 ## What NOT to put in an Appearance
 

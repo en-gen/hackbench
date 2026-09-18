@@ -1,20 +1,7 @@
-// Consumes: (none directly — overlay only)
+// Consumes: (none)
 
-import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import type { Char } from '../../chars/Char'
 import type { SpriteTileTables } from '../../../SpriteTileLoader'
-import { solidityFromL1 } from '../MovementBehavior'
-import type { MapStore } from '../../stores/mapStore'
-import type { SpriteBehavior } from '../SpriteBehavior'
-import { ThwimpBounceBehavior } from '../behaviors/ThwimpBounceBehavior'
-import {
-  COLORS,
-  DASH_ALPHA,
-  DASH_LINE_WIDTH,
-  DEFAULT_DASH,
-  drawSpawnDrop,
-  rgba,
-} from '../../overlays/primitives'
 import {
   StaticSpriteAppearance,
   type SpritePart,
@@ -69,44 +56,5 @@ export class ThwimpAppearance extends StaticSpriteAppearance {
       }
     })
     return new ThwimpAppearance(parts)
-  }
-
-  renderOverlay(
-    ctx:        OverlayContext,
-    x:          number,
-    y:          number,
-    isActive:   boolean,
-    getL1:      GetL1Tile,
-    levelCols:  number,
-    levelRows:  number,
-    behavior:   SpriteBehavior | undefined,
-    _mapStore:  MapStore,
-  ): void {
-    if (!isActive || !(behavior instanceof ThwimpBounceBehavior)) return
-    const { solidV } = solidityFromL1(getL1)
-    const path = behavior.computeBouncePath(x, y, solidV, levelCols, levelRows)
-    if (path.length < 2) return
-
-    const color       = COLORS.patrolPath
-    const centerX     = x + 8
-    const spawnBottom = y + 16
-
-    // Spawn drop: sprite placed mid-air falls to the resting row first.
-    // path[0].y is body-bottom at the resting ground level.
-    if (spawnBottom < path[0].y - 1) {
-      drawSpawnDrop(ctx, centerX, spawnBottom, path[0].y, color)
-    }
-
-    // First-hop arc — dashed polyline only, no envelope.
-    ctx.save()
-    ctx.lineWidth   = DASH_LINE_WIDTH
-    ctx.strokeStyle = rgba(color, DASH_ALPHA)
-    ctx.setLineDash([...DEFAULT_DASH])
-    ctx.beginPath()
-    ctx.moveTo(path[0].x, path[0].y)
-    for (let i = 1; i < path.length; i++) ctx.lineTo(path[i].x, path[i].y)
-    ctx.stroke()
-    ctx.setLineDash([])
-    ctx.restore()
   }
 }

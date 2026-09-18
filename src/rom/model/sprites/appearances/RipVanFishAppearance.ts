@@ -1,14 +1,12 @@
 // Consumes: editorStore.cursorPx
 
 import type { Char } from '../../chars/Char'
-import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import type { RenderTarget } from '../../RenderTarget'
 import { editorStore } from '../../stores/editorStore'
 import type { MapStore } from '../../stores/mapStore'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
-import { COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH, rgba } from '../../overlays/primitives'
 import { RIP_VAN_FISH_DETECT_HALF_PX } from '../behaviors/RipVanFishBehavior'
 
 /**
@@ -41,10 +39,10 @@ import { RIP_VAN_FISH_DETECT_HALF_PX } from '../behaviors/RipVanFishBehavior'
  * Each frame is a single 16×16 SubSprGfx2 big-tile expanded to four
  * 8×8 chars at TL/TR/BL/BR = base, base+1, base+$10, base+$11.
  *
- * Detection-zone overlay: a 96×96 square (±$30 each axis) centered on
- * the spawn — the static `(|dx| < $30) && (|dy| < $30)` check inside
- * CODE_02C02E. Dashed border + faint fill, lime-green to match the
- * patrol-overlay vocabulary for back-and-forth movement sprites.
+ * Wake zone: CODE_02C02E's static `(|dx| < $30) && (|dy| < $30)` check,
+ * a 96x96 square centered on the spawn. The editor substitutes the cursor
+ * for Mario and uses it to pick the sleeping or chasing pose, so the
+ * constant is appearance data, not movement simulation.
  *
  * Z snore trail (sleeping only):
  *
@@ -330,39 +328,5 @@ export class RipVanFishAppearance implements SpriteAppearance {
         target.blit8x8(pixels, { x: x + frame.dx, y: y + frame.dy }, row, part.flipX, part.flipY)
       }
     }
-  }
-
-  renderOverlay(
-    ctx:        OverlayContext,
-    x:          number,
-    y:          number,
-    isActive:   boolean,
-    _getL1:     GetL1Tile,
-    _levelCols: number,
-    _levelRows: number,
-    _behavior:  SpriteBehavior | undefined,
-    _mapStore:  MapStore,
-  ): void {
-    if (!isActive) return
-    const cx = x + 8
-    const cy = y + 8
-    const half = RIP_VAN_FISH_DETECT_HALF_PX
-    const left = cx - half
-    const top  = cy - half
-    const w    = half * 2
-    const h    = half * 2
-    const color = COLORS.patrolPath
-
-    ctx.save()
-    // Faint fill so the zone reads at a glance.
-    ctx.fillStyle = rgba(color, 0.10)
-    ctx.fillRect(left, top, w, h)
-    // Dashed border, same vocabulary as the patrol-line overlays.
-    ctx.lineWidth   = DASH_LINE_WIDTH
-    ctx.strokeStyle = rgba(color, DASH_ALPHA)
-    ctx.setLineDash([...DEFAULT_DASH])
-    ctx.strokeRect(left + 0.5, top + 0.5, w - 1, h - 1)
-    ctx.setLineDash([])
-    ctx.restore()
   }
 }

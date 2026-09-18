@@ -52,7 +52,16 @@ state.
 | `levelOrientation` | `PipeVariantsBehavior` |
 | `screenPipeVariantIdx` | `PipeVariantsBehavior` |
 | `initialCameraYPx` | `L3TilemapLayer.render` |
-| `marioSpawnX` | `BlurpAppearance`, `DryBonesAppearance`, `KoopaAppearance` overlay, `SpikeTopAppearance`, `WingedSpriteAppearance` overlay |
+| `marioSpawnX` | Nothing, currently. See below. |
+
+`marioSpawnX` is still written (`MapBuilder`, `rehydrate`, the Map16
+viewer's default store) but has **zero readers in `src/`**. All five were
+sprite overlays and went with them; see `docs/sprite-overlay-removal.md`.
+The facing decisions that survive - `ChuckAppearance.facesMario`,
+`DryBonesAppearance.fromTables` - read `marioStartPx`, the parse-time
+argument `SpriteFactory` receives, not this reactive field. The field is
+kept because a re-added identity annotation that depends on Mario's spawn
+side would need it live, and because `MapPayload` serialises it.
 
 Behaviors receive `mapStore` as a render argument. The Map16 viewer panel
 constructs a default `mapStore` (empty pipe-variant table, marioSpawnX=0)
@@ -65,7 +74,7 @@ Every behavior file starts with a comment listing the store fields it
 reads:
 
 ```ts
-// Consumes: editorStore.{pSwitchActive, animFrame}, mapStore.marioSpawnX
+// Consumes: editorStore.{pSwitchActive, animFrame}, mapStore.palette
 ```
 
 This replaces what prop drilling used to make obvious. Grep for `Consumes:
@@ -143,9 +152,15 @@ Sprites don't use a `selectQuad` indirection like tiles — they call `blit8x8`
 directly in `render`. This lets appearances control per-part palette, flip,
 and offset in one pass without an intermediate struct.
 
-`renderOverlay` is the canvas2D pre-pass for movement/zone overlays. It
-runs against `OverlayContext` (a CanvasRenderingContext2D cast), separate
-from the pixel `RenderTarget`.
+`renderOverlay` is the canvas2D pre-pass for sprite annotations. It runs
+against `OverlayContext` (a CanvasRenderingContext2D cast), separate from
+the pixel `RenderTarget`.
+
+It currently has **zero implementations**: the path and movement
+annotations that used it were removed (see
+`docs/sprite-overlay-removal.md`). The hook, the `SmwMap` pre-pass and
+the webview click-to-toggle plumbing are kept on purpose as the
+extension point for identity annotations. Do not clean them up.
 
 ### Existing sprite appearances
 
@@ -153,15 +168,15 @@ from the pixel `RenderTarget`.
 |---|---|---|
 | `StaticSpriteAppearance` | most sprites | Renders a fixed list of `SpritePart`s |
 | `PSwitchAppearance` | $3E | Selects blue/silver palette from bit 4 of pixel X (matches `InitPSwitch`) |
-| `KoopaAppearance` | $04–$07/$0F | Static parts + patrol-corridor overlay using `mapStore.marioSpawnX` |
-| `WingedSpriteAppearance` | para-koopas, para-goombas, $83/$84 | Animated wings + behavior-specific overlay |
+| `KoopaAppearance` | $04–$07/$0F | Static parts (a bare `StaticSpriteAppearance` subclass) |
+| `WingedSpriteAppearance` | para-koopas, para-goombas, $83/$84 | Animated 2-frame wings, configurable draw order |
 | `SuperKoopaAppearance` | $71/$72/$73 | Internal 2-frame flap toggle (sprite-tick) + cape-flash flip |
 | `ThwompAppearance` | $26 | Cursor-proximity face swap from `editorStore.cursorPx` |
 | `RipVanFishAppearance` | $3D | Idle/awake swap from cursor proximity |
-| `SpikeTopAppearance` | $2E | 2-frame animation + wall-following patrol path |
+| `SpikeTopAppearance` | $2E | 2-frame animation |
 | `HammerBroAppearance` | $9B | Static parts + periodic flipX (Misc1570 bit-5 emulation) |
-| `BlurpAppearance` | $C2 | Static body + dashed swim line in FaceMario direction |
-| `DryBonesAppearance` | $30/$32 | KoopaWalk patrol overlay |
+| `BlurpAppearance` | $C2 | Static body (a bare `StaticSpriteAppearance` subclass) |
+| `DryBonesAppearance` | $30/$32 | FaceMario-shifted two-big-tile body |
 
 ### Factory wiring
 

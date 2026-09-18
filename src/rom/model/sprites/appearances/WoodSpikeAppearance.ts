@@ -1,12 +1,10 @@
 // Consumes: (none)
 
 import type { Char } from '../../chars/Char'
-import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
 import type { RenderTarget } from '../../RenderTarget'
 import type { MapStore } from '../../stores/mapStore'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
-import { COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH, drawApexLine, rgba } from '../../overlays/primitives'
 
 // ASM source: WoodSpikeGfx (bank_03.asm:2669)
 //   WoodSpikeTiles:   db $6A,$6A,$6A,$6A,$4A,$6A,$6A,$6A,$6A,$4A
@@ -35,6 +33,11 @@ import { COLORS, DASH_ALPHA, DASH_LINE_WIDTH, DEFAULT_DASH, drawApexLine, rgba }
 //   ticks  9-14: hold extended   (dyMove = 48)
 //   ticks 15-20: retract         (dyMove = 40, 32, 24, 16, 8, 0)
 // extendDir: +1 = DOWN ($AC ceiling / $AD even-col underground), -1 = UP ($AD odd-col floor spike).
+//
+// Where the sharp point sits inside the 16x16 tip tile is recorded in
+// docs/sprite-overlay-removal.md, "ROM evidence that went with the overlays":
+// $AC is V-flipped so its point is at the BOTTOM of the tip tile (y+16);
+// $AD is unflipped so its point is at the TOP (y).
 
 const OBJ_BASE = 0x400
 
@@ -128,38 +131,6 @@ export class WoodSpikeAppearance extends StaticSpriteAppearance {
   override tickAnimation(): void {
     this.cycleTick = (this.cycleTick + 1) % CYCLE_TICKS
     this.dyMove    = dyMoveAt(this.cycleTick)
-  }
-
-  override renderOverlay(
-    ctx:        OverlayContext,
-    x:          number,
-    y:          number,
-    isActive:   boolean,
-    _getL1:     GetL1Tile,
-    _levelCols: number,
-    _levelRows: number,
-    _behavior:  SpriteBehavior | undefined,
-    _mapStore:  MapStore,
-  ): void {
-    if (!isActive) return
-    const color   = COLORS.patrolPath
-    const centerX = x + 8
-    // $AC uses V-flip: the sharp tip faces DOWN and sits at the bottom of the
-    // 16×16 tip tile (y+16). $AD has no flip: sharp tip faces UP at the top (y).
-    const anchorY = this.spriteId === 0xAC ? y + 16 : y
-    const extY    = anchorY + WOOD_SPIKE_EXTEND_PX * this.extendDir
-
-    ctx.save()
-    ctx.lineWidth   = DASH_LINE_WIDTH
-    ctx.strokeStyle = rgba(color, DASH_ALPHA)
-    ctx.setLineDash([...DEFAULT_DASH])
-    ctx.beginPath()
-    ctx.moveTo(centerX, anchorY)
-    ctx.lineTo(centerX, extY)
-    ctx.stroke()
-    ctx.setLineDash([])
-    drawApexLine(ctx, x, x + 16, extY, color)
-    ctx.restore()
   }
 
   /**

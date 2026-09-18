@@ -3,9 +3,6 @@
  * (src/rom/model/sprites/appearances/HammerBroPlatformAppearance.ts)
  *
  * Test tree:
- *   renderOverlay()
- *     - !isActive → no draw
- *     - isActive  → ellipse + stroke emitted
  *   render()
  *     - frame 0 → wingFrames[0] rendered
  *     - frame 1 → wingFrames[1] rendered (after tickAnimation)
@@ -25,7 +22,6 @@ import type { Palette } from '../../../../src/rom/model/palette/Palette'
 import type { RenderTarget } from '../../../../src/rom/model/RenderTarget'
 import type { SpriteBehavior } from '../../../../src/rom/model/sprites/SpriteBehavior'
 import { makeTestMapStore } from '../fixtures/stores'
-import { makeMockCtx } from '../fixtures/mockOverlayCtx'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -69,23 +65,6 @@ function renderFills(app: HammerBroPlatformAppearance): number[] {
 }
 
 // ── renderOverlay ─────────────────────────────────────────────────────────────
-
-describe('HammerBroPlatformAppearance.renderOverlay', () => {
-  it('!isActive → no draw ops', () => {
-    const ctx = makeMockCtx()
-    makeAppearance().renderOverlay(ctx, 0, 0, false, () => null, 10, 10, undefined as never, makeTestMapStore({}))
-    expect(ctx.events.every(e => e.op === 'save' || e.op === 'restore')).toBe(true)
-  })
-
-  it('isActive → ellipse path and stroke emitted', () => {
-    const ctx = makeMockCtx()
-    makeAppearance().renderOverlay(ctx, 0, 0, true, () => null, 10, 10, undefined as never, makeTestMapStore({}))
-    expect(ctx.events.some(e => e.op === 'ellipse')).toBe(true)
-    expect(ctx.events.some(e => e.op === 'stroke')).toBe(true)
-  })
-})
-
-// ── render + tickAnimation ────────────────────────────────────────────────────
 
 describe('HammerBroPlatformAppearance.render', () => {
   it('frame 0 → wing frame 0 parts rendered (fill=0xA0)', () => {

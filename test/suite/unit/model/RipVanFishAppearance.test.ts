@@ -11,9 +11,6 @@
  *     - sleep: (romFrame & $30) === 0 → sleepB (blink); non-zero → sleepA
  *     - !inZone → Z trail rendered; inZone → Z trail hidden
  *     - Z slot age >= Z_LIFETIME_FRAMES → skipped (dead slot)
- *   renderOverlay()
- *     - !isActive → no draw
- *     - isActive → fillRect + strokeRect emitted
  *   fromTables()
  *     - chars missing → placeholder used for all parts
  */
@@ -26,10 +23,9 @@ import {
   RipVanFishAppearance,
 } from '../../../../src/rom/model/sprites/appearances/RipVanFishAppearance'
 import type { Palette } from '../../../../src/rom/model/palette/Palette'
-import type { RenderTarget, PixelPos } from '../../../../src/rom/model/RenderTarget'
+import type { RenderTarget } from '../../../../src/rom/model/RenderTarget'
 import type { SpriteBehavior } from '../../../../src/rom/model/sprites/SpriteBehavior'
 import { editorStore, makeTestMapStore, resetEditorStore } from '../fixtures/stores'
-import { makeMockCtx } from '../fixtures/mockOverlayCtx'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -181,25 +177,6 @@ describe('RipVanFishAppearance.render — Z trail', () => {
 })
 
 // ── renderOverlay ─────────────────────────────────────────────────────────────
-
-describe('RipVanFishAppearance.renderOverlay', () => {
-  beforeEach(resetEditorStore)
-
-  it('!isActive → no draw ops', () => {
-    const ctx = makeMockCtx()
-    makeAppearance().renderOverlay(ctx, 0, 0, false, () => null, 10, 10, undefined as never, makeTestMapStore({}))
-    expect(ctx.events.every(e => e.op === 'save' || e.op === 'restore')).toBe(true)
-  })
-
-  it('isActive → fillRect and strokeRect emitted', () => {
-    const ctx = makeMockCtx()
-    makeAppearance().renderOverlay(ctx, 0, 0, true, () => null, 10, 10, undefined as never, makeTestMapStore({}))
-    expect(ctx.events.some(e => e.op === 'fillRect')).toBe(true)
-    expect(ctx.events.some(e => e.op === 'strokeRect')).toBe(true)
-  })
-})
-
-// ── fromTables ────────────────────────────────────────────────────────────────
 
 describe('RipVanFishAppearance.fromTables', () => {
   it('empty chars → all parts use placeholder', () => {

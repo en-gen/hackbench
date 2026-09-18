@@ -1,5 +1,5 @@
 /**
- * BallAndChainAppearance.test.ts — sprite $9E part layout + overlay coverage.
+ * BallAndChainAppearance.test.ts: sprite $9E part layout coverage.
  *
  * Test tree:
  *   fromTables() — part count
@@ -20,21 +20,12 @@
  *   fromTables() — missing chars → placeholder for all parts
  *   hitRect — includes anchor tile (dy=0) and full sphere extent
  *     - dx=−8 (sphere Q0/Q2 leftmost), dy=0 (anchor tile), w=32, h=80
- *   renderOverlay() — isActive=false → no draw ops
- *   renderOverlay() — isActive=true → save/restore + ellipse + stroke
- *   renderOverlay() — ellipse centred at (x+8, y+8) with outer radius 64 (orbit 56 + sphere half 8)
- *   renderOverlay() — dashed stroke
- *   renderOverlay() — 4 directional arrowheads at 45°/135°/225°/315°
- *   renderOverlay() — even column (x=0, CW) → arrowhead chevron above tangent point at 45°
- *   renderOverlay() — odd column (x=16, CCW) → arrowhead chevron below tangent point at 45°
  */
 
 import { describe, it, expect } from 'vitest'
 import { BallAndChainAppearance } from '../../../../src/rom/model/sprites/appearances/BallAndChainAppearance'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
-import { makeMockCtx } from '../fixtures/mockOverlayCtx'
-import { makeTestMapStore } from '../fixtures/stores'
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -60,8 +51,6 @@ function makeChars(): Map<number, Char> {
 }
 
 const placeholder = makeChar(0)
-const mapStore    = makeTestMapStore({})
-const NOOP_L1     = () => null
 
 // ── fromTables — part count and palette ──────────────────────────────────────
 
@@ -280,94 +269,3 @@ describe('BallAndChainAppearance.hitRect — anchor tile coverage', () => {
 
 // ── renderOverlay — guard ─────────────────────────────────────────────────────
 
-describe('BallAndChainAppearance.renderOverlay — guard', () => {
-  it('isActive=false → no draw ops', () => {
-    const ctx = makeMockCtx()
-    const app = BallAndChainAppearance.fromTables(makeChars(), placeholder)
-    app.renderOverlay(ctx, 0, 0, false, NOOP_L1, 20, 15, undefined, mapStore)
-    expect(ctx.events.some(e => e.op === 'stroke')).toBe(false)
-    expect(ctx.events.some(e => e.op === 'ellipse')).toBe(false)
-  })
-})
-
-// ── renderOverlay — orbit circle ──────────────────────────────────────────────
-
-describe('BallAndChainAppearance.renderOverlay — orbit circle', () => {
-  it('isActive=true → emits ellipse + stroke inside save/restore', () => {
-    const ctx = makeMockCtx()
-    const app = BallAndChainAppearance.fromTables(makeChars(), placeholder)
-    app.renderOverlay(ctx, 0, 0, true, NOOP_L1, 20, 15, undefined, mapStore)
-    expect(ctx.events.some(e => e.op === 'save')).toBe(true)
-    expect(ctx.events.some(e => e.op === 'ellipse')).toBe(true)
-    expect(ctx.events.some(e => e.op === 'stroke')).toBe(true)
-    expect(ctx.events.some(e => e.op === 'restore')).toBe(true)
-  })
-
-  it('ellipse centred at (x+8, y+8) with outer radius 64 (orbit 56 + sphere half 8)', () => {
-    // Orbit radius $38=56; sphere is 16×16 so extends 8 px from centre; outer edge = 64
-    const ctx = makeMockCtx()
-    const app = BallAndChainAppearance.fromTables(makeChars(), placeholder)
-    app.renderOverlay(ctx, 32, 48, true, NOOP_L1, 20, 15, undefined, mapStore)
-    const el = ctx.events.find(e => e.op === 'ellipse') as
-      { op: 'ellipse'; cx: number; cy: number; rx: number; ry: number } | undefined
-    expect(el).toBeDefined()
-    expect(el!.cx).toBe(32 + 8)   // x + 8
-    expect(el!.cy).toBe(48 + 8)   // y + 8
-    expect(el!.rx).toBe(64)        // RADIUS_PX(56) + sphere half(8)
-    expect(el!.ry).toBe(64)
-  })
-
-  it('uses dashed stroke (setLineDash called with non-empty segments)', () => {
-    const ctx = makeMockCtx()
-    const app = BallAndChainAppearance.fromTables(makeChars(), placeholder)
-    app.renderOverlay(ctx, 0, 0, true, NOOP_L1, 20, 15, undefined, mapStore)
-    const dashSet = ctx.events.find(
-      e => e.op === 'setLineDash' && (e as { segs: number[] }).segs.length > 0,
-    )
-    expect(dashSet).toBeDefined()
-  })
-})
-
-// ── renderOverlay — directional arrows ───────────────────────────────────────
-
-describe('BallAndChainAppearance.renderOverlay — directional arrows', () => {
-  it('isActive=true → emits 4 arrowhead chevrons at 45°/135°/225°/315°', () => {
-    // drawArrowHead emits one moveTo per chevron
-    const ctx = makeMockCtx()
-    const app = BallAndChainAppearance.fromTables(makeChars(), placeholder)
-    app.renderOverlay(ctx, 0, 0, true, NOOP_L1, 20, 15, undefined, mapStore)
-    expect(ctx.events.filter(e => e.op === 'moveTo').length).toBe(4)
-  })
-
-  it('isActive=false → no arrowhead chevrons', () => {
-    const ctx = makeMockCtx()
-    const app = BallAndChainAppearance.fromTables(makeChars(), placeholder)
-    app.renderOverlay(ctx, 0, 0, false, NOOP_L1, 20, 15, undefined, mapStore)
-    expect(ctx.events.some(e => e.op === 'moveTo')).toBe(false)
-  })
-
-  it('even column (x=0, CW) → chevron at 45° sits above the tangent point', () => {
-    // At θ=π/4 (45°), CW sphere moves toward 9-o'clock (upper-left tangent).
-    // The "from" point is below the tip → drawArrowHead left-wing moveTo.y < tipY.
-    // tipY = cy + r*sin(π/4) = 8 + 64*(√2/2) ≈ 53.25
-    const ctx = makeMockCtx()
-    const app = BallAndChainAppearance.fromTables(makeChars(), placeholder)
-    app.renderOverlay(ctx, 0, 0, true, NOOP_L1, 20, 15, undefined, mapStore)
-    const tipY = 8 + 64 * Math.sin(Math.PI / 4)
-    const firstMoveTo = ctx.events.find(e => e.op === 'moveTo') as
-      { op: 'moveTo'; x: number; y: number } | undefined
-    expect(firstMoveTo!.y).toBeLessThan(tipY)
-  })
-
-  it('odd column (x=16, CCW) → chevron at 45° sits below the tangent point', () => {
-    // CCW sphere moves toward 3-o'clock (lower-right tangent at 45°).
-    // The "from" point is above tip → drawArrowHead left-wing moveTo.y > tipY.
-    const ctx = makeMockCtx()
-    const app = BallAndChainAppearance.fromTables(makeChars(), placeholder)
-    app.renderOverlay(ctx, 16, 0, true, NOOP_L1, 20, 15, undefined, mapStore)
-    const tipY = 8 + 64 * Math.sin(Math.PI / 4)
-    const firstMoveTo = ctx.events.find(e => e.op === 'moveTo') as
-      { op: 'moveTo'; x: number; y: number } | undefined
-    expect(firstMoveTo!.y).toBeGreaterThan(tipY)
-  })
-})
