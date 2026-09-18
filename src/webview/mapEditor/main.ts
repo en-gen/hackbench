@@ -117,6 +117,11 @@ function renderModelOverlay(map: SmwMap): void {
   // off at first paint, the dep never registers and cursor changes fall
   // on the floor. This line keeps the wiring unconditional.
   void store.cursorPx
+  // Same reasoning for the sprite-engine scaffolding toggles: `Sprite.render`
+  // reads them, but that read never happens on a pass with sprites toggled
+  // off, so register them unconditionally here.
+  void store.spriteEngine
+  void store.spriteEngineMarkers
 
   // Per-map ROM-derived data lives on `map.mapStore`. Behaviors that need it
   // (PipeVariantsBehavior, KoopaAppearance overlay, etc.) receive it as a
@@ -953,6 +958,11 @@ app.innerHTML = `
     <div class="tb-sep"></div>
 
     <button id="btn-play"        class="iconBtn"    title="Play animation"><span class="codicon codicon-play"></span></button>
+    <!-- Scaffolding: temporary A/B control for the table-driven sprite draw
+         engine. Not a preference, not persisted, deletes with the old render
+         path. See docs/sprite-engine-wiring.md. -->
+    <button id="btn-sprite-engine"      class="iconBtn" title="Sprite engine (comparison, off)"><span class="codicon codicon-beaker"></span></button>
+    <button id="btn-sprite-engine-mark" class="iconBtn on" title="Mark engine-rendered sprites" style="display:none;"><span class="codicon codicon-primitive-square"></span></button>
     <button id="btn-camera"      class="iconBtn"    title="Camera viewport"><span class="codicon codicon-device-camera-video"></span></button>
     <button id="btn-hud"         class="iconBtn"    title="HUD in camera"><span class="codicon codicon-window"></span></button>
 
@@ -1958,6 +1968,31 @@ function toggleAnim(): void {
 }
 
 for (const btn of animPlayBtns) btn.addEventListener('click', toggleAnim)
+
+// ── Sprite engine A/B toggle (scaffolding) ───────────────────────────────────
+// Flipping either button mutates the reactive store; `Sprite.render` reads
+// `spriteEngine` inside the render effect, so the map redraws on the spot:
+// no ROM reload, no map reopen, no host round trip.
+const spriteEngineBtn = document.getElementById('btn-sprite-engine')!
+const spriteEngineMarkBtn = document.getElementById('btn-sprite-engine-mark')!
+
+function syncSpriteEngineButtons(): void {
+  const on = store.spriteEngine
+  spriteEngineBtn.classList.toggle('on', on)
+  spriteEngineBtn.title = on ? 'Sprite engine (comparison, ON)' : 'Sprite engine (comparison, off)'
+  spriteEngineMarkBtn.style.display = on ? '' : 'none'
+  spriteEngineMarkBtn.classList.toggle('on', store.spriteEngineMarkers)
+}
+
+spriteEngineBtn.addEventListener('click', () => {
+  store.setSpriteEngine(!store.spriteEngine)
+  syncSpriteEngineButtons()
+})
+spriteEngineMarkBtn.addEventListener('click', () => {
+  store.setSpriteEngineMarkers(!store.spriteEngineMarkers)
+  syncSpriteEngineButtons()
+})
+syncSpriteEngineButtons()
 
 function startAnimTimer(): void {
   spriteAnimTimer.start()
