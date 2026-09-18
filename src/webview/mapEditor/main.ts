@@ -24,6 +24,7 @@ import { StarOneUpVineBlockBehavior } from '../../rom/model/tiles/behaviors/Star
 import { L2ObjectStream, L2Preset } from '../../rom/model/L2Layer'
 import type { MapPayload as ModelMapPayload } from '../../rom/model/MapPayload'
 import type { SmwMap } from '../../rom/model/SmwMap'
+import type { Sprite } from '../../rom/model/sprites/Sprite'
 import type { OverlayContext } from '../../rom/model/OverlayContext'
 import { cellBoxOf } from '../../rom/model/RenderTarget'
 import type { MapStore } from '../../rom/model/stores/mapStore'
@@ -34,6 +35,9 @@ import { drawL3Range } from './overlays/drawL3Range'
 import { drawL2Range } from './overlays/drawL2Range'
 import { drawScrollPath } from './overlays/drawScrollPath'
 import { drawScrollPlayback } from './overlays/drawScrollPlayback'
+import { drawSpriteSelection } from './overlays/drawSpriteSelection'
+import { spriteSelectionKey } from './spriteProps'
+import { setPropContext as paneSetPropContext, showSpriteProps, type PropContext } from './propsPane'
 import { editorStore as store } from './store'
 import { createRafTimer } from '../shared/animTimer'
 import { tileBlockColor } from '../shared/blockView'
@@ -219,6 +223,11 @@ function renderModelOverlay(map: SmwMap): void {
     if (strip) camTarget.flushRegion(strip.sx, strip.sy, strip.sw, strip.sh)
     drawCameraRectOverlay(foctx, map)
   }
+
+  // Selection mark last so it is never buried by an annotation or the
+  // camera rect. Reading the store key here is what registers the
+  // reactive dep that makes select/deselect repaint.
+  drawSpriteSelection(foctx, store.selectedSpriteKey ? selectedSprite : null)
 
   // Spacer drives the native scrollbar. Padding centers the level when it
   // fits within the viewport (horizontal levels vertically, vertical horizontally).
@@ -612,7 +621,7 @@ function spriteOverlayKeyAt(lx: number, ly: number): string | null {
   const natY = ly / z
   for (const sprite of map.sprites) {
     if (!sprite.appearance.renderOverlay) continue
-    if (sprite.pickAt(natX, natY)) return `${sprite.id}:${sprite.x},${sprite.y}`
+    if (sprite.pickAt(natX, natY)) return spriteSelectionKey(sprite)
   }
   return null
 }
@@ -1805,22 +1814,29 @@ wireLayerBtn('btn-hud',      'chk-l3hud')
 }
 
 // ── Dynamic properties panel ──────────────────────────────────────────────────
-const PROP_CTX_LABELS: Record<string, string> = {
-  tile:   '',  // filled in when a tile is selected
-  sprite: '',
-  object: '',
-  empty:  '',
+// Pane switching and the sprite pane body live in ./propsPane so they can
+// be exercised without a DOM implementation; this wrapper just binds the
+// browser document.
+function setPropContext(type: PropContext, label = ''): void {
+  paneSetPropContext(document, type, label)
 }
-function setPropContext(type: 'tile' | 'sprite' | 'object' | 'empty', label = ''): void {
-  const ctx = document.getElementById('props-ctx')
-  if (ctx) ctx.textContent = label || PROP_CTX_LABELS[type] || ''
-  ctx?.setAttribute('style', label
-    ? 'color:#ccc;font-style:normal;'
-    : 'color:#888;font-style:italic;')
-  for (const t of ['tile', 'sprite', 'object', 'empty'] as const) {
-    const el = document.getElementById(`pp-${t}`)
-    if (el) el.style.display = t === type ? (t === 'empty' ? 'flex' : 'block') : 'none'
-  }
+
+// ── Sprite properties panel ──────────────────────────────────────────────────
+// The store holds only the `id:x,y` key (it drives the reactive repaint);
+// the Sprite itself is kept here because the store must stay free of model
+// classes. The two are only ever written together, by these two functions.
+let selectedSprite: Sprite | null = null
+
+function selectSprite(sprite: Sprite): void {
+  selectedSprite = sprite
+  store.setSelectedSprite(spriteSelectionKey(sprite))
+  showSpriteProps(document, sprite, mapData?.paletteRows ?? [])
+}
+
+/** Drop the sprite selection. Any other pick context replaces it. */
+function clearSpriteSelection(): void {
+  selectedSprite = null
+  store.setSelectedSprite(null)
 }
 
 // ── Tile properties panel ────────────────────────────────────────────────────
@@ -3502,9 +3518,22 @@ modelCanvas.addEventListener('pointerdown', (e) => {
   // Vine block click: toggle vine path for this source (runs regardless of camera mode).
   const vk = vineSourceKeyAt(lx, ly)
   if (vk) {
+    clearSpriteSelection()
     store.toggleVineSource(vk)
     e.stopPropagation()
     return
+  }
+
+  // Sprite click: the topmost sprite claims the click for the inspector,
+  // ahead of the tile behind it. `pickAt` is the same z-ordered hit test
+  // the hover status bar uses, so what the panel shows is what the status
+  // bar named.
+  const pick = pickAt(lx / store.zoom, ly / store.zoom)
+  if (pick?.kind === 'sprite') {
+    selectSprite(pick.sprite)
+  } else {
+    clearSpriteSelection()
+    setPropContext('empty')
   }
 
   // Sprite overlay click: any sprite whose appearance owns a renderOverlay
@@ -3755,7 +3784,7 @@ function drawPSwitchToggleThumb(): void {
 // ── Mouse / edit interactions ─────────────────────────────────────────────────
 
 type PickResult =
-  | { kind: 'sprite'; id: number; displayName?: string }
+  | { kind: 'sprite'; sprite: Sprite }
   | { kind: 'tile';   layer: 'l1' | 'l2'; tileId: number }
 
 /**
@@ -3773,7 +3802,7 @@ function pickAt(levelPx: number, levelPy: number): PickResult | null {
     for (let i = ordered.length - 1; i >= 0; i--) {
       const hit = ordered[i].pickAt(levelPx, levelPy)
       if (hit) {
-        return { kind: 'sprite', id: hit.id, displayName: hit.behavior.displayName }
+        return { kind: 'sprite', sprite: hit }
       }
     }
   }
@@ -3801,9 +3830,10 @@ function updateHoverStatus(levelPx: number | null, levelPy: number | null): void
     stTile.textContent = ''
     stPos.textContent = `col ${col}  row ${row}`
   } else if (pick.kind === 'sprite') {
-    const hex = `$${hex2(pick.id)}`
-    stTile.textContent = pick.displayName ?? hex
-    stPos.textContent = `${pick.displayName ? hex + '  ' : ''}col ${col}  row ${row}`
+    const name = pick.sprite.behavior.displayName
+    const hex = `$${hex2(pick.sprite.id)}`
+    stTile.textContent = name ?? hex
+    stPos.textContent = `${name ? hex + '  ' : ''}col ${col}  row ${row}`
   } else {
     stTile.textContent = `${pick.layer.toUpperCase()} $${hex3(pick.tileId)}`
     stPos.textContent = `col ${col}  row ${row}`
@@ -4479,6 +4509,10 @@ window.addEventListener('message', async (event) => {
   if (msg['type'] === 'load') {
     stopMusicPlayback()
     musicSpcCache.clear()
+    // A selection names a Sprite in the outgoing map's graph; carrying it
+    // into the next map would mark a sprite that is no longer there.
+    clearSpriteSelection()
+    setPropContext('empty')
 
     mapData  = msg as unknown as MapPayload
     l2TileGrid = mapData.l2TileGrid ?? null
@@ -4779,6 +4813,7 @@ window.addEventListener('message', async (event) => {
         redrawDetail()
         renderVramPage()
         const charNum = vramPage * VRAM_TILES_PER_PAGE + row * 16 + col
+        clearSpriteSelection()
         setPropContext('empty', `8×8 char $${charNum.toString(16).padStart(3, '0').toUpperCase()}`)
       }
     }
@@ -4837,6 +4872,7 @@ window.addEventListener('message', async (event) => {
         const label = `Map16 $${globalId.toString(16).padStart(3, '0').toUpperCase()} — Tile`
         const isL1 = entry.label.startsWith('L1')
         const def = isL1 ? mapData?.map16Defs?.[tileId] : mapData?.map16BgDefs?.[tileId]
+        clearSpriteSelection()
         setPropContext('tile', label)
         populateTileProps(tileId, def)
       }

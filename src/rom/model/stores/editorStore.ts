@@ -29,6 +29,13 @@ interface EditorStoreState {
   layerToggles: LayerToggles
   activeVineSources: ReadonlySet<string>
   activeSpriteOverlays: ReadonlySet<string>
+  /**
+   * The sprite the inspector is showing, as the same `id:x,y` key the
+   * annotation toggle set uses, or null when nothing is selected. Held
+   * as a key rather than a Sprite so the store stays free of model
+   * classes and the reactive proxy never wraps a render graph node.
+   */
+  selectedSpriteKey: string | null
   cursorPx: { x: number; y: number } | null
   /**
    * Override Layer2YPos used by `L2ObjectStream.render`. null = use the
@@ -96,6 +103,7 @@ interface EditorStoreActions {
   setCameraDragging(on: boolean): void
   toggleVineSource(key: string): void
   toggleSpriteOverlay(key: string): void
+  setSelectedSprite(key: string | null): void
   setCursorPx(pos: { x: number; y: number } | null): void
   setL2YOverride(y: number | null): void
   setScrollProgress(p: number): void
@@ -129,6 +137,7 @@ export function createEditorStore(): EditorStore {
     },
     activeVineSources: new Set(),
     activeSpriteOverlays: new Set(),
+    selectedSpriteKey: null,
     cursorPx: null,
     l2YOverride: null,
     scrollProgress: 0,
@@ -211,6 +220,9 @@ export function createEditorStore(): EditorStore {
       const next = new Set(s.activeSpriteOverlays)
       if (next.has(key)) next.delete(key); else next.add(key)
       s.activeSpriteOverlays = next
+    },
+    setSelectedSprite(key) {
+      if (s.selectedSpriteKey !== key) s.selectedSpriteKey = key
     },
     setCursorPx(pos) {
       const cur = s.cursorPx
