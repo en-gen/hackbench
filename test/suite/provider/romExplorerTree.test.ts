@@ -149,24 +149,27 @@ describe('MapsProvider tree wiring (synthetic ROM)', () => {
     expect(under[1].collapsibleState).toBe(vscode.TreeItemCollapsibleState.Collapsed)
   })
 
-  it('opens a Level folder with its entrance row, then its first-tier sub-rooms', () => {
+  it('opens a Level folder straight to its first-tier sub-rooms', () => {
+    // No entrance row. The folder IS the entrance and carries the open
+    // command itself (#324), so a child repeating it would be a duplicate
+    // row that opens the same map.
     expect(descend('005').map(row)).toEqual([
-      {
-        uri: mapUri('005'),
-        command: 'vscode.open',
-        state: vscode.TreeItemCollapsibleState.None,
-        context: 'smwRoom_entrance',
-        icon: 'home',
-        description: undefined,
-      },
       subRow('030', true),
       subRow('031', true),
       subRow('034', true),
     ])
   })
 
+  it('carries the entrance map open command on the Level folder itself', () => {
+    const folder = levelFolders().find(f => f.label === '$005')!
+    expect(folder.command?.command).toBe('vscode.open')
+    const target = folder.command?.arguments?.[0] as vscode.Uri
+    expect(target.toString()).toBe(mapUri('005'))
+  })
+
   it('addresses a room by the single-slash smwrom URI the filesystem is mounted at', () => {
-    const target = descend('005')[0].command?.arguments?.[0] as vscode.Uri
+    const folder = levelFolders().find(f => f.label === '$005')!
+    const target = folder.command?.arguments?.[0] as vscode.Uri
     // `smwrom://synthetic/...` would parse to authority 'synthetic' and path
     // '/maps/005.smwmap', which resolves to no file. Both halves are asserted
     // because either alone lets that rewrite through.
@@ -201,7 +204,8 @@ describe('MapsProvider tree wiring (synthetic ROM)', () => {
   })
 
   it('keeps a submap root in its own $1xx range', () => {
-    expect(urisOf(descend('110'))).toEqual([mapUri('110'), mapUri('1C0')])
+    // $110 itself is the folder's own command target, not a child row.
+    expect(urisOf(descend('110'))).toEqual([mapUri('1C0')])
     expect(descend('110', '1C0')).toEqual([])
   })
 })
