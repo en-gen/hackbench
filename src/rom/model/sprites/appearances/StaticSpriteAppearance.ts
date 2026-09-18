@@ -48,6 +48,14 @@ export class StaticSpriteAppearance implements SpriteAppearance {
   // the note on `SpriteAppearance.renderOverlay`.
   tickAnimation?(): void
 
+  renderAboveL1?(
+    target:   RenderTarget,
+    x:        number,
+    y:        number,
+    behavior: SpriteBehavior,
+    mapStore: MapStore,
+  ): void
+
   renderOverlay?(
     ctx:       OverlayContext,
     x:         number,

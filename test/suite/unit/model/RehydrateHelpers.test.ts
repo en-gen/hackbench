@@ -38,6 +38,7 @@ import { PipeVariantsBehavior }              from '../../../../src/rom/model/til
 import { SwitchPalaceAlternateBehavior }     from '../../../../src/rom/model/tiles/behaviors/SwitchPalaceAlternateBehavior'
 import { PSwitchRevealBehavior }             from '../../../../src/rom/model/tiles/behaviors/PSwitchRevealBehavior'
 import { InvisibleBlockRevealBehavior }      from '../../../../src/rom/model/tiles/behaviors/InvisibleBlockRevealBehavior'
+import { MontyMoleAppearance } from '../../../../src/rom/model/sprites/appearances/MontyMoleAppearance'
 import { Sprite }           from '../../../../src/rom/model/sprites/Sprite'
 import { CompositeSprite }  from '../../../../src/rom/model/sprites/CompositeSprite'
 
@@ -455,6 +456,37 @@ describe('buildSprite — named appearance kinds', () => {
   it("'spikeTop' → SpikeTopAppearance (parts0, parts1)", () => {
     const app = { kind: 'spikeTop', parts0: PARTS, parts1: PARTS }
     expect(buildSprite(sd(0x2E, app), EMPTY_CHARS, PLACEHOLDER)).toBeInstanceOf(Sprite)
+  })
+
+  // Three DISTINCT lists, of distinct lengths. Passing PARTS for all
+  // three left any permutation of the three constructor arguments green.
+  const MOLE_DESC = {
+    kind:    'montyMole',
+    parts0:  [{ ...PART, charNum: 0x11 }],
+    parts1:  [{ ...PART, charNum: 0x22 }, { ...PART, charNum: 0x23 }],
+    emerged: [{ ...PART, charNum: 0x31 }, { ...PART, charNum: 0x32 }, { ...PART, charNum: 0x33 }],
+  }
+
+  it("'montyMole' → MontyMoleAppearance (parts0, parts1, emerged)", () => {
+    expect(buildSprite(sd(0x4D, MOLE_DESC), EMPTY_CHARS, PLACEHOLDER)).toBeInstanceOf(Sprite)
+  })
+
+  it("'montyMole' rebuilds all three part lists into the right slots", () => {
+    // Without the rehydrate branch reading `emerged`, the webview silently
+    // gets a mole with no annotation and nothing else fails. Distinct
+    // lengths mean a swapped pair goes red too.
+    const sprite = buildSprite(sd(0x4D, MOLE_DESC), EMPTY_CHARS, PLACEHOLDER)
+    const appearance = sprite.appearance as MontyMoleAppearance
+    expect(appearance).toBeInstanceOf(MontyMoleAppearance)
+    expect(appearance.parts0).toHaveLength(1)
+    expect(appearance.parts1).toHaveLength(2)
+    expect(appearance.emergedParts).toHaveLength(3)
+  })
+
+  it("'montyMole' with an empty emerged list rebuilds with no annotation ($4E)", () => {
+    const app = { ...MOLE_DESC, emerged: [] }
+    const sprite = buildSprite(sd(0x4E, app), EMPTY_CHARS, PLACEHOLDER)
+    expect((sprite.appearance as MontyMoleAppearance).emergedParts).toEqual([])
   })
 
   it("'magikoopa' → MagikoopaAppearance (frames, dynColors)", () => {

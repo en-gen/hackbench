@@ -24,6 +24,7 @@ import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppe
 import { ChainsawAppearance } from './sprites/appearances/ChainsawAppearance'
 import { MagikoopaAppearance } from './sprites/appearances/MagikoopaAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
+import { MontyMoleAppearance } from './sprites/appearances/MontyMoleAppearance'
 import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
 import { WigglerAppearance } from './sprites/appearances/WigglerAppearance'
 import { attachEngineAppearances } from './sprites/generic/EngineSpriteAppearance'
@@ -264,6 +265,12 @@ function buildAppearance(
       )
     case 'spikeTop':
       return new SpikeTopAppearance(buildParts(desc.parts0), buildParts(desc.parts1))
+    case 'montyMole':
+      return new MontyMoleAppearance(
+        buildParts(desc.parts0),
+        buildParts(desc.parts1),
+        buildParts(desc.emerged),
+      )
     case 'magikoopa':
       return new MagikoopaAppearance(desc.frames.map(buildParts), desc.dynColors)
     case 'hammerBro':

@@ -22,6 +22,7 @@ import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppe
 import { ChainsawAppearance } from './sprites/appearances/ChainsawAppearance'
 import { MagikoopaAppearance } from './sprites/appearances/MagikoopaAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
+import { MontyMoleAppearance } from './sprites/appearances/MontyMoleAppearance'
 import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
 import { WigglerAppearance } from './sprites/appearances/WigglerAppearance'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
@@ -193,6 +194,14 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
   }
   if (a instanceof SpikeTopAppearance) {
     return { kind: 'spikeTop', parts0: a.parts0.map(partDescriptor), parts1: a.parts1.map(partDescriptor) }
+  }
+  if (a instanceof MontyMoleAppearance) {
+    return {
+      kind:    'montyMole',
+      parts0:  a.parts0.map(partDescriptor),
+      parts1:  a.parts1.map(partDescriptor),
+      emerged: a.emergedParts.map(partDescriptor),
+    }
   }
   if (a instanceof MagikoopaAppearance) {
     return {

@@ -38,6 +38,14 @@ export class Sprite {
     this.engineAppearance?.tickAnimation?.()
   }
 
+  /**
+   * Second pixel pass, run after the layer-1 priority tiles. No-op unless
+   * the appearance opts in - see `SpriteAppearance.renderAboveL1`.
+   */
+  renderAboveL1(target: RenderTarget, mapStore: MapStore): void {
+    this.appearance.renderAboveL1?.(target, this.x, this.y, this.behavior, mapStore)
+  }
+
   renderOverlay(
     ctx:        OverlayContext,
     x:          number,

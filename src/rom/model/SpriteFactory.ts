@@ -37,6 +37,7 @@ import { KeyholeAppearance } from './sprites/appearances/KeyholeAppearance'
 import { MagikoopaAppearance } from './sprites/appearances/MagikoopaAppearance'
 import { MAGIKOOPA_PALS, readDynPalEntry, resolveRestingEntry } from './palette/DynSpritePalette'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
+import { MontyMoleAppearance } from './sprites/appearances/MontyMoleAppearance'
 import { SumoBrotherAppearance } from './sprites/appearances/SumoBrotherAppearance'
 import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
 import { WigglerAppearance } from './sprites/appearances/WigglerAppearance'
@@ -555,6 +556,21 @@ export function buildSprites(
       out.push(new Sprite(
         s.spriteId, s.x * 16, s.y * 16,
         WigglerAppearance.fromTables(chars, palette, charHigh, faceLeft, placeholder),
+        behavior,
+      ))
+      continue
+    }
+
+    // $4D (ground Monty Mole) - 2-frame SubSprGfx0 pose, state 1 of the
+    // SpriteTableC2 jump table (CODE_01E343, bank_01.asm:13388-13414).
+    // DATA_01E35F selects the SpriteMisc1602 tile quad ($01/$02) and
+    // DATA_01E361 the GeneralSprGfxProp flip quad ($00/$05); the generic
+    // sub0 path in buildSpriteLayout hardcodes SpriteMisc1602 = 0 and so
+    // reads the sprite's SubSprGfx2 frame list instead of either quad.
+    if (s.spriteId === 0x4D) {
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        MontyMoleAppearance.fromTables(chars, tables, placeholder),
         behavior,
       ))
       continue
