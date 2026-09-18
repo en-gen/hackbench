@@ -58,13 +58,23 @@ class LevelFolder extends vscode.TreeItem {
     displayName?: string,
   ) {
     const hex = hex3(index)
+    // The folder IS the entrance room, so it opens on click rather than making
+    // the user expand it and click a duplicate row. VS Code fires `command` on
+    // select and toggles expansion independently, so one click does both.
     super(
       displayName ?? `$${hex}`,
-      vscode.TreeItemCollapsibleState.Collapsed,
+      subtree.children.length > 0
+        ? vscode.TreeItemCollapsibleState.Collapsed
+        : vscode.TreeItemCollapsibleState.None,
     )
     this.description  = displayName ? `$${hex}` : undefined
     this.iconPath     = new vscode.ThemeIcon('symbol-method')
     this.contextValue = 'smwLevelFolder'
+    this.command = {
+      command: 'vscode.open',
+      title:   'Open Map',
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/maps/${hex}.smwmap`)],
+    }
   }
 }
 
@@ -263,13 +273,9 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
     }
 
     if (element instanceof LevelFolder) {
-      // The folder already stands for the entrance room, so the entrance row is
-      // just its opener and the first-tier sub-rooms sit alongside it.
-      const entrance = new RoomItem(
-        roomRow(element.index, rom.getLevelName(element.index), 'entrance', 0),
-        element.slug,
-      )
-      return [entrance, ...this.roomsFor(element.subtree.children, element.slug)]
+      // No entrance row: the folder opens the entrance itself, so a duplicate
+      // child would just be a second way to click the same map.
+      return this.roomsFor(element.subtree.children, element.slug)
     }
 
     if (element instanceof RoomItem) {

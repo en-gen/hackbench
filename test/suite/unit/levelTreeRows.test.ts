@@ -51,13 +51,12 @@ describe('roomRow', () => {
   })
 
   it('leaves plain rows without a tooltip', () => {
-    for (const role of ['entrance', 'sub', 'resource'] as const) {
+    for (const role of ['sub', 'resource'] as const) {
       expect(roomRow(0x0E7, null, role, 0).tooltip).toBeUndefined()
     }
   })
 
   it.each([
-    { role: 'entrance' as const, icon: 'home' },
     { role: 'sub' as const,      icon: 'group-by-ref-type' },
     { role: 'resource' as const, icon: 'file-code' },
   ])('gives a $role row the $icon icon and its own contextValue', ({ role, icon }) => {
@@ -67,7 +66,7 @@ describe('roomRow', () => {
   })
 
   it('opens the same virtual file whatever the role', () => {
-    for (const role of ['entrance', 'sub', 'loop', 'truncated', 'resource'] as const) {
+    for (const role of ['sub', 'loop', 'truncated', 'resource'] as const) {
       expect(roomRow(0x0E7, null, role, 0).resourcePath).toBe('maps/0E7.smwmap')
     }
   })
