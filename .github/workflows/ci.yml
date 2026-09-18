@@ -42,6 +42,12 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
 
+      # The test tree is not covered by tsconfig.json. Without this the stub's
+      # `import type * as vscode` is decoration: it would drift from the real
+      # API and nothing would say so until a reader noticed.
+      - name: Type-check test stub and provider tests
+        run: npx tsc -p tsconfig.test.json
+
       - name: Compile extension
         run: npm run compile
 

@@ -305,9 +305,9 @@ scrapped rather than patched.
 - Replacing the Tier 1 fixtures. They work.
 - Testing webview UI interaction. Separate question, would need
   `@vscode/test-cli` or Playwright.
-- Reviving the dead `npm test` script, which references
-  `dist-test/test/runTests.js` built from a `test/runTests.ts` that does not
-  exist. Worth fixing, unrelated to this design.
+- Reviving the dead `npm test` script. Fixed separately: the Electron harness
+  it pointed at is gone, and `npm test` now type-checks the provider tests and
+  runs vitest.
 
 ## Open questions
 
