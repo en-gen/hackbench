@@ -1,7 +1,7 @@
 import { hex3 } from '../rom/hex'
 import { LevelTreeNode, MAX_SUBTREE_NODES, MAX_SUBTREE_DEPTH } from '../rom/LevelTree'
 
-export type RoomRole = 'entrance' | 'sub' | 'resource' | 'loop' | 'truncated'
+export type RoomRole = 'sub' | 'resource' | 'loop' | 'truncated'
 
 /** Everything a room row renders, decided from plain data so it can be tested. */
 export interface RoomRow {
@@ -17,7 +17,6 @@ export interface RoomRow {
 }
 
 const ICONS: Record<RoomRole, string> = {
-  entrance: 'home',
   sub: 'group-by-ref-type',
   resource: 'file-code',
   loop: 'issue-reopened',
