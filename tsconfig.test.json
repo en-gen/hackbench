@@ -1,8 +1,17 @@
+// Type-checks the provider tests and the `vscode` stub they run against.
+//
+// The repo-wide `tsc --noEmit` covers src/ only, and the wider test tree still
+// carries the type errors tracked as issue #316, so a whole-tree check would be
+// red on arrival. Scoped here, the stub's `import type * as vscode` earns its
+// keep: an @types/vscode signature change breaks this build instead of leaving
+// the tests asserting a shape VS Code no longer has.
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "outDir": "./dist-test",
-    "rootDir": "."
+    "noEmit": true,
+    "rootDir": ".",
+    "declaration": false,
+    "types": ["node", "vscode"]
   },
-  "include": ["src/**/*", "test/**/*"]
+  "include": ["test/suite/provider/**/*.ts", "test/suite/support/vscodeStub.ts"]
 }
