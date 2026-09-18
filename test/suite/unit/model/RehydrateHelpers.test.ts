@@ -457,6 +457,11 @@ describe('buildSprite — named appearance kinds', () => {
     expect(buildSprite(sd(0x2E, app), EMPTY_CHARS, PLACEHOLDER)).toBeInstanceOf(Sprite)
   })
 
+  it("'magikoopa' → MagikoopaAppearance (frames, dynColors)", () => {
+    const app = { kind: 'magikoopa', frames: [PARTS, PARTS, PARTS, PARTS], dynColors: [0x7FFF, 0x0000] }
+    expect(buildSprite(sd(0x1F, app), EMPTY_CHARS, PLACEHOLDER)).toBeInstanceOf(Sprite)
+  })
+
   it("'hammerBro' → HammerBroAppearance (parts)", () => {
     const app = { kind: 'hammerBro', parts: PARTS }
     expect(buildSprite(sd(0x9B, app), EMPTY_CHARS, PLACEHOLDER)).toBeInstanceOf(Sprite)

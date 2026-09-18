@@ -20,6 +20,7 @@ import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppe
 import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
 import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
 import { ChainsawAppearance } from './sprites/appearances/ChainsawAppearance'
+import { MagikoopaAppearance } from './sprites/appearances/MagikoopaAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
 import { WigglerAppearance } from './sprites/appearances/WigglerAppearance'
@@ -192,6 +193,13 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
   }
   if (a instanceof SpikeTopAppearance) {
     return { kind: 'spikeTop', parts0: a.parts0.map(partDescriptor), parts1: a.parts1.map(partDescriptor) }
+  }
+  if (a instanceof MagikoopaAppearance) {
+    return {
+      kind: 'magikoopa',
+      frames: a.frames.map(frame => frame.map(partDescriptor)),
+      dynColors: [...a.dynColors],
+    }
   }
   if (a instanceof HammerBroAppearance) {
     return { kind: 'hammerBro', parts: a.parts.map(partDescriptor) }

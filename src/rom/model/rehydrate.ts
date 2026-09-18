@@ -22,6 +22,7 @@ import { LineBrownPlatAppearance } from './sprites/appearances/LineBrownPlatAppe
 import { LineCheckerPlatAppearance } from './sprites/appearances/LineCheckerPlatAppearance'
 import { RopeMechanismAppearance } from './sprites/appearances/RopeMechanismAppearance'
 import { ChainsawAppearance } from './sprites/appearances/ChainsawAppearance'
+import { MagikoopaAppearance } from './sprites/appearances/MagikoopaAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
 import { WigglerAppearance } from './sprites/appearances/WigglerAppearance'
@@ -263,6 +264,8 @@ function buildAppearance(
       )
     case 'spikeTop':
       return new SpikeTopAppearance(buildParts(desc.parts0), buildParts(desc.parts1))
+    case 'magikoopa':
+      return new MagikoopaAppearance(desc.frames.map(buildParts), desc.dynColors)
     case 'hammerBro':
       return new HammerBroAppearance(buildParts(desc.parts))
     case 'woodSpike':

@@ -34,6 +34,8 @@ import { WhistlinChuckAppearance } from './sprites/appearances/WhistlinChuckAppe
 import { PuntinChuckAppearance } from './sprites/appearances/PuntinChuckAppearance'
 import { SplittinChuckAppearance } from './sprites/appearances/SplittinChuckAppearance'
 import { KeyholeAppearance } from './sprites/appearances/KeyholeAppearance'
+import { MagikoopaAppearance } from './sprites/appearances/MagikoopaAppearance'
+import { MAGIKOOPA_PALS, readDynPalEntry, resolveRestingEntry } from './palette/DynSpritePalette'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { SumoBrotherAppearance } from './sprites/appearances/SumoBrotherAppearance'
 import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
@@ -92,6 +94,12 @@ export function buildSprites(
   if (!tables) return []
 
   const placeholder = makeTransparentPlaceholderChar()
+
+  // $1F's on-screen colours are uploaded to CGRAM by its teleport fade
+  // (CODE_01C028, bank_01.asm:8733), not supplied by the level palette. Which
+  // rung the fade rests on is re-read from this cart, not assumed.
+  const magikoopaPal =
+    readDynPalEntry(rom, MAGIKOOPA_PALS, resolveRestingEntry(rom, MAGIKOOPA_PALS)) ?? []
 
   // Pre-scan: $9C (Hammer Bro Platform) absorbs a co-located $9B into a
   // CompositeSprite. Cannot migrate: requires multi-sprite scan before any
@@ -547,6 +555,22 @@ export function buildSprites(
       out.push(new Sprite(
         s.spriteId, s.x * 16, s.y * 16,
         WigglerAppearance.fromTables(chars, palette, charHigh, faceLeft, placeholder),
+        behavior,
+      ))
+      continue
+    }
+
+    // $1F (Magikoopa) - SubSprGfx1 16x32 body + 8x8 wand, 4-frame state-2 cast
+    // cycle. `Magikoopa` (bank_01.asm:8413) dispatches through SpriteTableC2 & 3;
+    // only state 2 (CODE_01BE6E, bank_01.asm:8493) is a steady visible pose.
+    // Facing is SubHorizPos, recomputed live in-game (bank_01.asm:8496-8498) and
+    // pinned here to Mario's spawn side, as $30/$91 already do. Palette: the
+    // resting MagiKoopaPals entry spliced over CGRAM row 15 columns 0-7.
+    // See docs/sprite-1f-magikoopa.md.
+    if (s.spriteId === 0x1F) {
+      out.push(new Sprite(
+        s.spriteId, s.x * 16, s.y * 16,
+        MagikoopaAppearance.fromTables(chars, tables, placeholder, marioStartPx.x >= s.x * 16, magikoopaPal),
         behavior,
       ))
       continue

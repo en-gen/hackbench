@@ -318,7 +318,7 @@ const SPRITE_GFX_OVERRIDES: Readonly<Record<number, 'sub0' | 'sub1'>> = {
   // SubSprGfx1 (16x32) — 11 sprites
   0x1A: 'sub1',   // Classic Piranha Plant
   0x1E: 'sub1',   // Lakitu
-  0x1F: 'sub1',   // Magikoopa
+  0x1F: 'sub1',   // Magikoopa - unused: SpriteFactory intercepts $1F before buildSpriteLayout
   0x22: 'sub1',   // Green vertical net Koopa
   0x23: 'sub1',   // Red vertical net Koopa
   0x24: 'sub1',   // Green horizontal net Koopa
@@ -742,10 +742,17 @@ export function buildSpriteLayout(
 
   if (routine === 'sub1') {
     // SubSprGfx1 (bank_01.asm:3920) reads two tiles from SprTilemap at
-    // [offset + anim*2] (top) and [offset + anim*2 + 1] (bottom). Callers
-    // typically adjust Y up by ~$10 before drawing so the bottom tile sits
-    // on the anchor row — we mirror that with dy=-16..-1 for the top and
-    // dy=0..15 for the bottom.
+    // [offset + anim*2] (top) and [offset + anim*2 + 1] (bottom) and draws
+    // them at (_0, _1) and (_0, _1 + $10).
+    //
+    // The -16/0 anchoring below is the Spr0to13Gfx case, where the caller
+    // subtracts $0F/$00 from SpriteYPos/High before the JSR (CODE_018BEC,
+    // bank_01.asm:1772-1774). Callers that do NOT pre-shift Y need 0/+16
+    // instead; verified for $1F, whose state-2 `JSR SubSprGfx1`
+    // (bank_01.asm:8529) has no such wrapper, which is why it has its own
+    // appearance. The remaining sub1 IDs ($1A, $1E, $22-$25, $2A, $41-$43)
+    // have not been traced to their callers and may share that 16px offset
+    // error. Tracked in docs/sprite-1f-magikoopa.md section 2.
     const topTile    = tables.tilemap[tilemapBase]     ?? 0
     const bottomTile = tables.tilemap[tilemapBase + 1] ?? 0
     return {
