@@ -25,6 +25,7 @@ import { ChainsawAppearance } from './sprites/appearances/ChainsawAppearance'
 import { SpikeTopAppearance } from './sprites/appearances/SpikeTopAppearance'
 import { WoodSpikeAppearance } from './sprites/appearances/WoodSpikeAppearance'
 import { WigglerAppearance } from './sprites/appearances/WigglerAppearance'
+import { attachEngineAppearances } from './sprites/generic/EngineSpriteAppearance'
 import { buildMovementBehavior } from './sprites/behaviors/BehaviorFactory'
 import type { SpriteBehavior } from './sprites/SpriteBehavior'
 import type { SpriteAppearance } from './sprites/SpriteAppearance'
@@ -103,6 +104,11 @@ export function buildGraph(payload: MapPayload, rom: import('../RomFile').RomFil
 
   const l3 = buildL3(payload.l3 ?? null)
   const sprites = payload.sprites.map(s => buildSprite(s, chars, placeholderChar))
+  // Engine render path (scaffolding, toggle default OFF). Attached HERE, on
+  // the webview side of the boundary, because this is where the map the user
+  // looks at is built. `test/suite/unit/sprites/SpriteEngineWiring.test.ts`
+  // fails if this line stops attaching anything.
+  attachEngineAppearances(sprites, rom, chars, placeholderChar)
 
   const screenPipeVariantIdx = [...payload.screenPipeVariantIdx]
   // Scroll simulator: rebuilt from the seed shipped in the payload.

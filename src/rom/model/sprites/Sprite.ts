@@ -1,4 +1,5 @@
 import type { GetL1Tile, OverlayContext } from '../OverlayContext'
+import { editorStore } from '../stores/editorStore'
 import type { RenderTarget } from '../RenderTarget'
 import type { MapStore } from '../stores/mapStore'
 import type { SpriteAppearance } from './SpriteAppearance'
@@ -13,12 +14,28 @@ export class Sprite {
     readonly behavior: SpriteBehavior,
   ) {}
 
+  /**
+   * SCAFFOLDING. Alternate render path for the table-driven draw engine,
+   * attached by `attachEngineAppearances` only for sprites with a traced
+   * descriptor. Selected by the `spriteEngine` toolbar toggle, which is a
+   * temporary comparison control; this field deletes with it. See
+   * `docs/sprite-engine-wiring.md`.
+   */
+  engineAppearance?: SpriteAppearance
+
   render(target: RenderTarget, mapStore: MapStore): void {
-    this.appearance.render(target, this.x, this.y, this.behavior, mapStore)
+    // Read unconditionally so the reactive render effect tracks the toggle
+    // even on a pass where no engine appearance is attached.
+    const useEngine = editorStore.spriteEngine
+    const chosen = useEngine && this.engineAppearance ? this.engineAppearance : this.appearance
+    chosen.render(target, this.x, this.y, this.behavior, mapStore)
   }
 
   tickAnimation(): void {
+    // Both paths advance on the SAME timer tick. The engine appearance does
+    // not tick its fallback, so nothing is double-advanced.
     this.appearance.tickAnimation?.()
+    this.engineAppearance?.tickAnimation?.()
   }
 
   renderOverlay(

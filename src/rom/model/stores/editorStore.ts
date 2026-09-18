@@ -69,6 +69,17 @@ interface EditorStoreState {
    * to decide whether to mirror or update only the scrubbed layer.
    */
   scrollFramesLinked: boolean
+  /**
+   * SCAFFOLDING, default OFF. Route sprites that have a traced descriptor
+   * through `SpriteDrawEngine` instead of their shipped appearance class, so
+   * the two can be compared by clicking back and forth on one map. A
+   * temporary comparison control, not a preference: nothing persists it and
+   * it deletes with the old render path. See `docs/sprite-engine-wiring.md`.
+   */
+  spriteEngine: boolean
+  /** Draw the corner ticks that identify which sprites the engine drew.
+   *  Separate so colour can be compared with nothing overlaid. */
+  spriteEngineMarkers: boolean
 }
 
 interface EditorStoreActions {
@@ -95,6 +106,8 @@ interface EditorStoreActions {
    *  by the Link-on-mirroring slider input handlers. */
   setAllFrames(idx: number): void
   setScrollFramesLinked(on: boolean): void
+  setSpriteEngine(on: boolean): void
+  setSpriteEngineMarkers(on: boolean): void
 }
 
 export type EditorStore = EditorStoreState & EditorStoreActions
@@ -123,6 +136,8 @@ export function createEditorStore(): EditorStore {
     frameL2: -1,
     frameL3: -1,
     scrollFramesLinked: true,
+    spriteEngine: false,
+    spriteEngineMarkers: true,
   })
 
   const actions: EditorStoreActions = {
@@ -232,6 +247,12 @@ export function createEditorStore(): EditorStore {
     },
     setScrollFramesLinked(on) {
       if (s.scrollFramesLinked !== on) s.scrollFramesLinked = on
+    },
+    setSpriteEngine(on) {
+      if (s.spriteEngine !== on) s.spriteEngine = on
+    },
+    setSpriteEngineMarkers(on) {
+      if (s.spriteEngineMarkers !== on) s.spriteEngineMarkers = on
     },
   }
 
