@@ -88,6 +88,46 @@ using them loosely is how this project produced five different level counts.
 
 Webpack bundles each editor's `main.ts` into `dist/webview/<name>.js`. Communication is via `postMessage`: webview sends `{ type: 'ready' }`, extension replies `{ type: 'load', ...payload }` or `{ type: 'error', message }`. GFX viewer payload includes `rawBytes` + `defaultBpp` for client-side re-decode.
 
+## The ROM is a collection of lookup tables
+
+Read the tables. Do not model the behaviour.
+
+SMW stores what it needs in tables, and a romhack still has to run on a stock
+SNES, so those tables stay where the hardware expects them. Almost every
+question this project asks ("which levels exist", "what does this exit lead
+to", "what is this level called") is answered by finding the right table and
+the right index into it. We are not building an ASM interpreter.
+
+**The table is never the hard part. The index is.** Reading 512 three-byte
+entries is trivial. The work is knowing what indexes them. The exit-graph bug
+took a day and the answer was that `DATA_05F800` is indexed
+`(submapFlag << 8) | rawByte`, with the high byte coming from `OWPlayerSubmap`
+and NOT from the translevel: two independent gates in one routine
+(`bank_05.asm:7217-7226`). Trace the ASM to learn the index, then read the
+table. Do not port the routine.
+
+**If you are describing behaviour, you have lost the thread.** Every defect
+this project has shipped came from modelling instead of reading:
+
+| Defect | What it did | What it should have done |
+|---|---|---|
+| `screenHasExitTrigger` | invented Map16 tile scanning, cited an address with zero hits in the disassembly | read `DATA_05F800` |
+| `levelHasObjects()` | invented a "modes 0-20 valid" rule with a fabricated line citation | compare the L1 pointer against the filler |
+| exit-graph high byte | derived it from `ExitTableHigh` bit 3, which the game never reads for this | take it from the submap flag |
+
+Both fabricated citations are tracked in issue #311. Neither was caught by
+tests; both were caught by someone re-reading the disassembly.
+
+**The one case where table-reading is not enough.** Lunar Magic replaces
+routines, not just data. `$05D8B1` holds the `BEQ` opcode `$F0` in a stock ROM
+(`bank_05.asm:7224`); in this repo's 6-ROM corpus the 2 stock ROMs hold `$F0`
+and the 4 edited ones hold `$22` (a JSL), which is an empirical observation of
+ROM bytes, not an ASM claim. On such a ROM the stock table may be bypassed
+entirely in favour of a precomputed one. So: read the table, but check that
+the routine which reads it still exists. When it does not, fail closed and say
+the tier is unavailable. Emitting vanilla-shaped output for a patched ROM is
+the worst outcome available, because it is confidently wrong and looks right.
+
 ## Knowledge Integration (External Disassembly)
 
 Domain library: `C:\Projects\SMWDisX`. SMW ROM constants, handler ports, and ASM-behavior questions are authoritative there - not in this file. This section is the router; `SMWDisX` is the store.
