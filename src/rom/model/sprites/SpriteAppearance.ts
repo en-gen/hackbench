@@ -2,6 +2,7 @@ import type { OverlayContext, GetL1Tile } from '../OverlayContext'
 import type { RenderTarget } from '../RenderTarget'
 import type { MapStore } from '../stores/mapStore'
 import type { SpriteBehavior } from './SpriteBehavior'
+import type { SpritePart } from './appearances/StaticSpriteAppearance'
 
 /** Axis-aligned hit rectangle in sprite-local pixel space. */
 export interface HitRect {
@@ -28,6 +29,14 @@ export interface SpriteAppearance {
 
   /** Pixel-space bounding rect relative to the sprite origin. Used for cursor hit-testing. */
   readonly hitRect: HitRect
+
+  /**
+   * The 8x8 parts this appearance draws, when it keeps them as a single
+   * flat list. Declared optional because appearances that hold one list
+   * per animation frame (SpikeTop, Wiggler) have no single answer. Read
+   * only by the inspector; the render path uses each class's own field.
+   */
+  readonly parts?: readonly SpritePart[]
 
   /**
    * Advance this appearance's internal animation state by one frame.
