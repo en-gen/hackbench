@@ -77,6 +77,7 @@ or burning a full run first.
 | 13 | LEVEL_LOAD_TIMEOUT | The level force-load was triggered but `GameMode` never reached `$14` within `CONFIG.LEVEL_LOAD_FRAME_BUDGET` frames after the trigger. |
 | 14 | WRONG_LEVEL_LOADED | `GameMode` reached `$14`, but the live `Layer1DataPtr` does not match the ROM's own `Layer1Ptrs` table entry for `CONFIG.LEVEL_ID`. The route drifted -- some other level loaded instead. Nothing is captured. |
 | 15 | SAMPLE_STALL | A configured sample frame was missed by more than 60 frames (or a screenshot/WRAM write failed). Should be unreachable given `disableframeskipping=true` and no injected input; indicates a genuinely stuck emulator or disk write failure. |
+| 16 | CGRAM_UNAVAILABLE | No CGRAM `memType` could be resolved from `emu.memType` (tried `snesCgRam`, `snesCgram`, `cgRam`, `cgram`). Checked before any frame runs -- the route aborts rather than producing a capture silently missing `frame_*_cgram.bin`. |
 
 `debug.log` in the output directory mirrors every log line to a plain file.
 This is necessary, not cosmetic: `emu.log`'s destination is not visible from
@@ -181,8 +182,10 @@ oracle can still pass. Skips with exit 77 if Mesen or the ROM is absent.
   See "Open questions" in the design doc.
 - `disableframeskipping`'s effect has no direct WRAM-readable proof; it is
   verified only functionally (the determinism check above).
-- Sample artifacts are screenshot + 8KB WRAM ($7E0000-$7E1FFF) only, per the
-  Phase 1 scope in the design doc. VRAM/CGRAM/OAM capture is Phase 3.
+- Sample artifacts are screenshot + 8KB WRAM ($7E0000-$7E1FFF) + 512 bytes of
+  PPU CGRAM (`frame_NNNN_cgram.bin`, consumed by
+  `../scripts/check_cgram.ts` -- see [docs/cgram-oracle.md](../../docs/cgram-oracle.md)).
+  VRAM and OAM capture are still not implemented.
 - **The captured WRAM state is not equivalent to entering the level from the
   overworld normally -- it is qualified, not a full simulation of a real
   playthrough.** The override path (`CODE_05D8A2` at `bank_05.asm:7216`)

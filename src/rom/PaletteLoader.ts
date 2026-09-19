@@ -22,6 +22,12 @@
  *   Row 8:      Player variant overlaid at cols 6-15 (PlayerColors)
  *   Rows 14-15: Sprite palette E/F (SpriteColors variant-selected)
  *
+ * CGRAM rows 5-7 cols 9-15 are deliberately left at the row default: no
+ * LoadPalette step writes them (bank_00.asm:5595-5699), confirmed against
+ * captured PPU CGRAM on 12 levels. An earlier version filled them from
+ * $00B552, which is inside OWStdColors (SMW_U.sym:10998) -- overworld data
+ * with no level-load path to CGRAM.
+ *
  * Color 0 of each row = transparent (SNES hardware).
  * Color 1 = back area white ($7FDD for BG rows 0-7, $7FFF for OBJ rows 8-15)
  *   (LoadPalette lines 5597-5604: LoadCol8Pal with $7FDD/$7FFF)
@@ -96,12 +102,6 @@ export const BERRY_ROW_COUNT = 3
 export const BERRY_ROWS_A_START = 2
 export const BERRY_ROWS_B_START = 9
 
-// Sprite secondary (rows 5-7 cols 9-15 from SpriteColors variant)
-export const SPRITE_SEC_COLS_COUNT = 7
-export const SPRITE_SEC_COL_START = 9
-export const SPRITE_SEC_ROW_COUNT = 3
-export const SPRITE_SEC_FIRST_ROW = 5
-
 // Legacy aliases for compatibility
 export const ADDR_SPRITE_SETS = ADDR_SHARED_SPRITES
 export const SPRITE_SET_COUNT = 1
@@ -109,7 +109,6 @@ export const SPRITE_SET_ROWS = SHARED_SPRITE_ROWS
 export const SPRITE_SET_BYTES = SHARED_SPRITE_ROWS * SHARED_SPRITE_COLS * 2
 export const ADDR_SP_E = ADDR_SPRITE_COLORS
 export const ADDR_SP_F = ADDR_SPRITE_COLORS + 12
-export const ADDR_SPRITE_SECONDARY = 0x00B552
 export const ADDR_BG0 = ADDR_BG_PAIR
 export const ADDR_BG1 = ADDR_BG_PAIR + 12
 export const ADDR_FG0 = ADDR_FG_PAIR
@@ -146,7 +145,6 @@ export interface RomPalettes {
   sharedSpriteRows: RgbaRow[]
   bgSecondaryCols: RgbaRow[]
   berryCols: RgbaRow[]
-  spriteSecondaryCols: RgbaRow[]
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -253,13 +251,6 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
     berryCols.push(readEntry(rom, addr, BERRY_COLS_COUNT, BERRY_COL_START))
   }
 
-  // Sprite secondary colors (rows 5-7, cols 9-15)
-  const spriteSecondaryCols: RgbaRow[] = []
-  for (let row = 0; row < SPRITE_SEC_ROW_COUNT; row++) {
-    const addr = ADDR_SPRITE_SECONDARY + row * SPRITE_SEC_COLS_COUNT * 2
-    spriteSecondaryCols.push(readEntry(rom, addr, SPRITE_SEC_COLS_COUNT, SPRITE_SEC_COL_START))
-  }
-
   // SpriteColors pair variants (8 variants × 24 bytes) — rows 14-15 cols 2-7
   // LoadPalette bank_00.asm:5646-5653: SpriteColors[SpritePalette] → CGRAM rows 14-15
   const spriteColorVariants: PaletteVariant[] = []
@@ -308,7 +299,7 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
     },
   ]
 
-  return { groups, backAreaColor, sharedSpriteRows, bgSecondaryCols, berryCols, spriteSecondaryCols }
+  return { groups, backAreaColor, sharedSpriteRows, bgSecondaryCols, berryCols }
 }
 
 // ── Level CGRAM assembly ──────────────────────────────────────────────────────
@@ -399,16 +390,6 @@ export function buildLevelCgram(
       for (let c = BERRY_COL_START; c < BERRY_COL_START + BERRY_COLS_COUNT; c++) {
         if (src[c]) rows[BERRY_ROWS_A_START + i][c] = src[c]
         if (src[c]) rows[BERRY_ROWS_B_START + i][c] = src[c]
-      }
-    }
-  }
-
-  // Sprite rows 5-7, cols 9-15
-  for (let i = 0; i < SPRITE_SEC_ROW_COUNT; i++) {
-    const src = palettes.spriteSecondaryCols[i]
-    if (src) {
-      for (let c = SPRITE_SEC_COL_START; c < SPRITE_SEC_COL_START + SPRITE_SEC_COLS_COUNT; c++) {
-        if (src[c]) rows[SPRITE_SEC_FIRST_ROW + i][c] = src[c]
       }
     }
   }
