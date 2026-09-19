@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildSpriteLayout, type SpriteTileTables } from '../../../src/rom/SpriteTileLoader'
+import type { GfxRoutine, GfxRoutineReading } from '../../../src/rom/dispatch/GfxRoutineReader'
 import { makePlaceholderBoxChar } from '../../../src/rom/model/tiles/TileFactory'
 import { StaticPixelsBehavior } from '../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 
@@ -28,6 +29,14 @@ function makeTables(overrides: Partial<SpriteTileTables> = {}): SpriteTileTables
     yoshiPal: new Uint8Array(4),
     ...overrides,
   }
+}
+
+/** Stand-in for what `readSpriteTileTables` attaches from a real cart, so a
+ *  hand-built table can exercise the live path rather than the residue. */
+function liveRoutines(entries: Record<number, GfxRoutine>): ReadonlyMap<number, GfxRoutineReading> {
+  return new Map(Object.entries(entries).map(([id, routine]) => [Number(id), {
+    kind: 'read', routine, callAt: 0, site: { at: 0, via: 'direct' },
+  } as GfxRoutineReading]))
 }
 
 describe('buildSpriteLayout', () => {
@@ -158,7 +167,8 @@ describe('buildSpriteLayout', () => {
   })
 
   it('uses SubSprGfx0 (4 independent chars) for sprite $4D (Monty Mole)', () => {
-    // Monty Mole is in the SPRITE_GFX_OVERRIDES table with routine 'sub0'.
+    // Monty Mole stays in SPRITE_GFX_OVERRIDES: its draw call is behind a
+    // JSL ExecutePtr, so no reading is attached and the residue answers.
     // Each of its 4 corners picks its own char from SprTilemap[offset+0..3],
     // not a base-char expansion like SubSprGfx2.
     const tilemap = new Uint8Array(0xFC)
@@ -177,15 +187,84 @@ describe('buildSpriteLayout', () => {
     ])
   })
 
+  it('keeps a frozen floor for every id, so a broken walk degrades', () => {
+    // Removing an id from SPRITE_GFX_OVERRIDES once a cart resolves it
+    // live costs nothing until the walk fails on that cart, and then costs
+    // the whole layout. $1A is sub1: 32px and 8 tiles, not 16 and 4.
+    const tilemap = new Uint8Array(0xFC)
+    const tilemapOffset = new Uint8Array(0x54)
+    tilemapOffset[0x1A] = 0x30
+    tilemap[0x30] = 0x40
+    tilemap[0x31] = 0x60
+    // No gfxRoutines at all is what a cart the walk cannot read looks like.
+    const layout = buildSpriteLayout(makeTables({ tilemap, tilemapOffset }), 0x1A)!
+    expect(layout.height).toBe(32)
+    expect(layout.tiles).toHaveLength(8)
+  })
+
+  /** `SPRITE_GFX_OVERRIDES` in full. Dropping any one row costs that
+   *  sprite its whole layout on any cart the walk cannot read, and only
+   *  $1A and $4D were pinned before, so fifteen of the seventeen could be
+   *  deleted without a test noticing. */
+  const FROZEN_FLOOR: ReadonlyArray<readonly [number, GfxRoutine]> = [
+    [0x1A, 'sub1'], [0x1E, 'sub1'], [0x1F, 'sub1'], [0x22, 'sub1'], [0x23, 'sub1'],
+    [0x24, 'sub1'], [0x25, 'sub1'], [0x2A, 'sub1'], [0x41, 'sub1'], [0x42, 'sub1'],
+    [0x43, 'sub1'],
+    [0x14, 'sub0'], [0x27, 'sub0'], [0x2B, 'sub0'], [0x2F, 'sub0'], [0x4D, 'sub0'],
+    [0x4E, 'sub0'],
+  ]
+
+  it('has a frozen floor entry for all seventeen ids, each with its routine', () => {
+    expect(FROZEN_FLOOR).toHaveLength(17)
+    const wrong: string[] = []
+    for (const [id, routine] of FROZEN_FLOOR) {
+      const tilemap = new Uint8Array(0xFC)
+      const tilemapOffset = new Uint8Array(0x54)
+      tilemapOffset[id] = 0x30
+      // sub0 takes four independent chars; sub2 expands one base char into
+      // [N, N+1, N+$10, N+$11]; sub1 stacks two big tiles into 32px.
+      tilemap[0x30] = 0x11
+      tilemap[0x31] = 0x22
+      tilemap[0x32] = 0x33
+      tilemap[0x33] = 0x44
+      // No gfxRoutines: what a cart the walk cannot read looks like.
+      const l = buildSpriteLayout(makeTables({ tilemap, tilemapOffset }), id)!
+      const chars = l.tiles.map(t => t.charNum - 0x400)
+      const got = l.height === 32 ? 'sub1'
+        : chars.join(',') === '17,34,51,68' ? 'sub0'
+        : 'sub2'
+      if (got !== routine) wrong.push(`$${id.toString(16)} floor=${routine} built=${got}`)
+    }
+    expect(wrong).toEqual([])
+  })
+
+  it('lets the cart override an id that is still in the frozen residue', () => {
+    // $4D is one of the four ids the walk cannot reach, so it keeps a
+    // frozen 'sub0'. A cart that DOES resolve it must still win: the order
+    // of those two lookups is the whole point of keeping the residue small.
+    const tilemap = new Uint8Array(0xFC)
+    const tilemapOffset = new Uint8Array(0x54)
+    tilemapOffset[0x4D] = 0x20
+    tilemap[0x20] = 0x11
+    tilemap[0x21] = 0x22
+    const frozen = buildSpriteLayout(makeTables({ tilemap, tilemapOffset }), 0x4D)!
+    expect(frozen.height).toBe(16)                       // sub0, four 8x8 chars
+    const live = buildSpriteLayout(
+      makeTables({ tilemap, tilemapOffset, gfxRoutines: liveRoutines({ 0x4D: 'sub1' }) }), 0x4D)!
+    expect(live.height).toBe(32)                         // sub1, two stacked big-tiles
+  })
+
   it('applies GeneralSprGfxProp flip flags for sub0 sprite $2F (spring)', () => {
-    // Spring uses propGroup 2 (LDA #$02; JSR SubSprGfx0Entry1, bank_01.asm:13884).
+    // Spring reaches SubSprGfx0 on the cart, so the reading is supplied here
+    // rather than coming from the frozen residue, which no longer lists $2F.
+    // propGroup 2 (LDA #$02; JSR SubSprGfx0Entry1, bank_01.asm:13884).
     // Group 2 in GeneralSprGfxProp: TL=$00, TR=$40, BL=$80, BR=$C0 →
     //   TL=no flip, TR=flipX, BL=flipY, BR=flipX+flipY.
     const tilemap = new Uint8Array(0xFC)
     const tilemapOffset = new Uint8Array(0x54)
     tilemapOffset[0x2F] = 0x9A
     for (let i = 0; i < 4; i++) tilemap[0x9A + i] = 0x28   // all same spring tile
-    const tables = makeTables({ tilemap, tilemapOffset })
+    const tables = makeTables({ tilemap, tilemapOffset, gfxRoutines: liveRoutines({ 0x2F: 'sub0' }) })
     const layout = buildSpriteLayout(tables, 0x2F)!
     expect(layout.height).toBe(16)
     expect(layout.tiles.map(t => t.charNum)).toEqual([
