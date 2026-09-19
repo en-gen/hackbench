@@ -98,3 +98,7 @@ build/*
 __pycache__/
 *.pyc
 .gitnexus
+
+# Playwright e2e output
+/test-results/
+/playwright-report/

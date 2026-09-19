@@ -52,6 +52,19 @@ export class TreeItem {
   }
 }
 
+/**
+ * Tab inputs, as far as `staleRomTabs` needs them. It narrows with
+ * `instanceof` rather than duck-typing on a `uri` property, so the stub has
+ * to supply real classes for the narrowing to land on.
+ */
+export class TabInputText {
+  constructor(readonly uri: URI) {}
+}
+
+export class TabInputCustom {
+  constructor(readonly uri: URI, readonly viewType: string) {}
+}
+
 export class EventEmitter<T> {
   private readonly listeners = new Set<(e: T) => unknown>()
 
@@ -71,10 +84,10 @@ export class EventEmitter<T> {
 }
 
 /**
- * Pins the stub to the real API. If `@types/vscode` changes one of these six
+ * Pins the stub to the real API. If `@types/vscode` changes one of these
  * signatures the build breaks here, rather than the tests quietly going on
  * asserting against a shape VS Code no longer has. Narrowed to the members the
- * providers call: the stub deliberately omits statics such as `ThemeIcon.File`
+ * providers and commands call: the stub deliberately omits statics such as `ThemeIcon.File`
  * and `Uri.joinPath`, so asserting whole `typeof` shapes would be a lie.
  */
 export const conformsToVsCodeApi: {
@@ -84,4 +97,6 @@ export const conformsToVsCodeApi: {
   ThemeIcon: new (id: string, color?: vscode.ThemeColor) => vscode.ThemeIcon
   EventEmitter: new <T>() => vscode.EventEmitter<T>
   Uri: { parse(value: string, strict?: boolean): vscode.Uri }
-} = { TreeItem, TreeItemCollapsibleState, ThemeColor, ThemeIcon, EventEmitter, Uri }
+  TabInputText: new (uri: vscode.Uri) => vscode.TabInputText
+  TabInputCustom: new (uri: vscode.Uri, viewType: string) => vscode.TabInputCustom
+} = { TreeItem, TreeItemCollapsibleState, ThemeColor, ThemeIcon, EventEmitter, Uri, TabInputText, TabInputCustom }
