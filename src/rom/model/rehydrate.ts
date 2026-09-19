@@ -157,11 +157,15 @@ export function buildGraph(payload: MapPayload, rom: import('../RomFile').RomFil
 function buildSprite(desc: SpriteDescriptor, chars: Map<number, Char>, placeholder: Char): Sprite {
   const appearance = buildAppearance(desc.appearance, chars, placeholder, desc.id)
   const behavior = buildBehavior(desc)
-  if (desc.secondary) {
-    const child = buildSprite(desc.secondary, chars, placeholder)
-    return new CompositeSprite(desc.id, desc.x, desc.y, appearance, behavior, child)
-  }
-  return new Sprite(desc.id, desc.x, desc.y, appearance, behavior)
+  const sprite = desc.secondary
+    ? new CompositeSprite(
+        desc.id, desc.x, desc.y, appearance, behavior,
+        buildSprite(desc.secondary, chars, placeholder),
+      )
+    : new Sprite(desc.id, desc.x, desc.y, appearance, behavior)
+  // The host already read this off the cart; the webview has no ROM.
+  if (desc.priority) sprite.priority = desc.priority
+  return sprite
 }
 
 /**

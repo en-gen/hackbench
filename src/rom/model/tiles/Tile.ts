@@ -34,10 +34,15 @@ export class Tile {
     this.behavior.renderOverlay?.(target, cell, mapStore)
   }
 
+  /** The four subtiles this tile draws at `cell`, after behavior selection. */
+  quadAt(cell: CellBox, mapStore: MapStore): SubtileQuad {
+    return this.behavior.selectQuad(cell, mapStore)
+  }
+
   render(target: RenderTarget, cell: CellBox, mapStore: MapStore, phase: Phase): void {
     // Pass `cell` through so behaviors can self-select per-cell state
     // (e.g. PipeVariantsBehavior resolves its own screen idx from cell.tl).
-    const quad = this.behavior.selectQuad(cell, mapStore)
+    const quad = this.quadAt(cell, mapStore)
     const alpha = this.behavior.selectAlpha?.(cell, mapStore)
     const positions: readonly [SubTile, PixelPos][] = [
       [quad[0], cell.tl],

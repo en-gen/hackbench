@@ -2,6 +2,7 @@ import type { LevelSprite } from '../LevelParser'
 import { LINE_TRACKED_SPRITE_IDS, lineGuideAnchor, resolveLineGuideAttachment } from '../LineGuide'
 import type { RomFile } from '../RomFile'
 import { buildSpriteLayout, buildYoshiEggLayout, readSpriteTileTables, YOSHI_EGG_ID } from '../SpriteTileLoader'
+import { DEFAULT_OBJ_PRIORITY, readSpriteObjPriority } from '../SpritePriorityLoader'
 import type { Char } from './chars/Char'
 import { isPriorityDecorative } from './OverlayContext'
 import type { Tile } from './tiles/Tile'
@@ -90,6 +91,8 @@ export function buildSprites(
   l1: readonly (number | null)[][],
   marioStartPx: { x: number; y: number },
   l1Tiles: Map<number, Tile>,
+  /** `LevXYPPCCCTtbl[levelMode]` priority bits for the level these sit in. */
+  levelObjPriority: number = DEFAULT_OBJ_PRIORITY,
 ): Sprite[] {
   // Before reading the tables: that read walks 84 sprite handlers, and a
   // level with no sprites has nothing to spend it on.
@@ -446,11 +449,11 @@ export function buildSprites(
       const bodyPalette  = 8   // ($31 >> 1) & 0x07 = 0 → CGRAM 8+0=8
       // Smoke palette is NOT inherited from the rope's body attr. CODE_029927
       // (bank_02.asm:3351-3352) copies SpriteProperties (DP $64) directly into
-      // OAMTileAttr. SpriteProperties is the global priority byte set once at
-      // level init by bank_00.asm:2401-2402 (`LDA #!OBJ_Priority2 = $20`);
-      // no handler on the smoke path reloads it per-sprite, so the value at
-      // smoke-render time is always $20. The decoded row coincidentally equals
-      // bodyPalette, but it is derived independently here.
+      // OAMTileAttr. SpriteProperties is the per-level XYPPCCCT byte set at
+      // header parse from LevXYPPCCCTtbl[levelMode] (bank_05.asm:542-543);
+      // vanilla holds $20 or $30 there and both decode to palette row 0, so
+      // the smoke palette is the same either way. bank_00.asm:2401-2402 is
+      // NOT the level-load write -- that line is inside LoadCastleCutscene.
       const SMOKE_SPRITE_PROPERTIES = 0x20
       const smokePalette = 8 + ((SMOKE_SPRITE_PROPERTIES >> 1) & 0x07)
       const { anchorX, anchorY } = lineGuideAnchor(lineGuide, s.x, s.y, -8, -8)
@@ -655,6 +658,12 @@ export function buildSprites(
     // constructed in their own branches above.
     const appearance: SpriteAppearance = buildSpriteAppearance(s.spriteId, parts)
     out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, appearance, behavior))
+  }
+  // OBJ priority is a per-sprite output facet, not a global. Assigned here
+  // rather than through every `new Sprite` call site above, none of which
+  // otherwise touch the priority tables.
+  for (const sprite of out) {
+    sprite.priority = readSpriteObjPriority(rom, sprite.id, levelObjPriority)
   }
   return out
 }

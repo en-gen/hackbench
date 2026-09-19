@@ -1,13 +1,21 @@
 // Consumes: editorStore.{l2YOverride, scrollProgress, frameL2}, mapStore.scrollSimulator
 import { cellBoxAt, cellBoxAtXY, cellBoxOf } from './RenderTarget'
-import type { RenderTarget } from './RenderTarget'
+import type { Phase, RenderTarget } from './RenderTarget'
 import type { L2ScrollRange } from '../L2Loader'
 import { editorStore } from './stores/editorStore'
 import type { MapStore } from './stores/mapStore'
 import type { Tile } from './tiles/Tile'
 
 export abstract class L2Layer {
-  abstract render(target: RenderTarget, mapStore: MapStore): void
+  /**
+   * Draw only the cells whose Map16 subtiles carry `phase`. Layer 2 has a
+   * genuine priority split on the PPU (BG2.1 sits above OBJ.2, BG2.0 below
+   * it), so the compositor drives the two separately.
+   */
+  abstract render(target: RenderTarget, mapStore: MapStore, phase: Phase): void
+
+  /** Which tile-priority phases this layer has content for. */
+  abstract phases(mapStore: MapStore): Set<Phase>
 
   /**
    * 2D (row, col) resolved Tile grid. Callers (camera-viewport parallax,
@@ -46,7 +54,7 @@ export class L2Preset extends L2Layer {
     )
   }
 
-  render(target: RenderTarget, mapStore: MapStore): void {
+  render(target: RenderTarget, mapStore: MapStore, phase: Phase): void {
     for (let y = 0; y < this.grid.length; y++) {
       const row = this.grid[y]
       for (let x = 0; x < row.length; x++) {
@@ -54,11 +62,13 @@ export class L2Preset extends L2Layer {
         if (id === null) continue
         const tile = this.bgTiles.get(id)
         if (!tile) continue
-        const box = cellBoxOf(x, y)
-        tile.render(target, box, mapStore, 'nonPriority')
-        tile.render(target, box, mapStore, 'priority')
+        tile.render(target, cellBoxOf(x, y), mapStore, phase)
       }
     }
+  }
+
+  phases(mapStore: MapStore): Set<Phase> {
+    return gridPhases(this.grid, this.bgTiles, mapStore)
   }
 }
 
@@ -121,7 +131,7 @@ export class L2ObjectStream extends L2Layer {
     )
   }
 
-  render(target: RenderTarget, mapStore: MapStore): void {
+  render(target: RenderTarget, mapStore: MapStore, phase: Phase): void {
     // Three render modes, in priority order:
     //
     //   1. **Frame-accurate mode** (auto-scroll level: `mapStore
@@ -194,8 +204,7 @@ export class L2ObjectStream extends L2Layer {
               const tile = this.l1Tiles.get(id)
               if (!tile) continue
               const box = tdx === 0 && tdy === 0 ? cellBoxOf(x, y) : cellBoxAtXY(x, y, tdx, tdy)
-              tile.render(target, box, mapStore, 'nonPriority')
-              tile.render(target, box, mapStore, 'priority')
+              tile.render(target, box, mapStore, phase)
             }
           }
         }
@@ -225,9 +234,40 @@ export class L2ObjectStream extends L2Layer {
           cellDy = fallbackDy
         }
         const box = cellDy === 0 ? cellBoxOf(x, y) : cellBoxAt(x, y, cellDy)
-        tile.render(target, box, mapStore, 'nonPriority')
-        tile.render(target, box, mapStore, 'priority')
+        tile.render(target, box, mapStore, phase)
       }
     }
   }
+
+  phases(mapStore: MapStore): Set<Phase> {
+    return gridPhases(this.grid, this.l1Tiles, mapStore)
+  }
+}
+
+/**
+ * Phases a Map16 id grid occupies, sampled from each distinct id's subtile
+ * quad. Evidence scope: the quad is the tile's static Map16 definition, so
+ * a behavior that swaps quads per cell (pipe screen variants) is read at
+ * whichever cell the id first appears on.
+ */
+function gridPhases(
+  grid: (number | null)[][],
+  tiles: Map<number, Tile>,
+  mapStore: MapStore,
+): Set<Phase> {
+  const out = new Set<Phase>()
+  const seen = new Set<number>()
+  for (let y = 0; y < grid.length && out.size < 2; y++) {
+    const row = grid[y]
+    if (!row) continue
+    for (let x = 0; x < row.length && out.size < 2; x++) {
+      const id = row[x]
+      if (id === null || seen.has(id)) continue
+      seen.add(id)
+      for (const sub of tiles.get(id)?.quadAt(cellBoxOf(x, y), mapStore) ?? []) {
+        out.add(sub.priority ? 'priority' : 'nonPriority')
+      }
+    }
+  }
+  return out
 }

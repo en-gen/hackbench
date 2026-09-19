@@ -1,6 +1,6 @@
 import { L3_HUD_ROW_CUTOFF, L3_TILEMAP_COLS, L3_TILEMAP_ROWS, type L3ScrollRange } from '../L3Loader'
 import type { GfxSheet } from '../GfxLoader'
-import type { RenderTarget } from './RenderTarget'
+import type { Phase, RenderTarget } from './RenderTarget'
 import { editorStore } from './stores/editorStore'
 import type { MapStore } from './stores/mapStore'
 
@@ -19,11 +19,21 @@ interface L3Cell {
 }
 
 export abstract class L3Layer {
+  /**
+   * Draw only the cells whose tile word carries `phase`. BG3 splits on the
+   * PPU exactly like BG1 and BG2: with the header's BG3-priority bit set
+   * BG3.1 is the frontmost thing on screen while BG3.0 stays behind
+   * everything, so one undifferentiated pass cannot place both.
+   */
   abstract render(
     target: RenderTarget,
     mapStore: MapStore,
+    phase: Phase,
     clipRangeX?: { xMin: number; xMax: number },
   ): void
+
+  /** Which tile-priority phases this layer has content for. */
+  abstract phases(): Set<Phase>
 }
 
 /**
@@ -133,9 +143,27 @@ export class L3TilemapLayer extends L3Layer {
    * composite uses this to avoid iterating every repeat of the 256px tide
    * pattern across the full level width when only the strip needs refilling.
    */
+  /**
+   * Gameplay rows only, mirroring `render`'s row filter. The HUD rows are
+   * an editor diagnostic behind `l3Hud`, and the status bar is a
+   * scanline-region rule the pass model does not try to express
+   * (docs/obj-priority.md section 4); counting them would put every level
+   * in a BG3.1 pass it never draws.
+   */
+  phases(): Set<Phase> {
+    const out = new Set<Phase>()
+    for (let row = L3_HUD_ROW_CUTOFF; row < this.dataEndRow && out.size < 2; row++) {
+      for (const cell of this.cells[row]!) {
+        if (cell) out.add(cell.priority ? 'priority' : 'nonPriority')
+      }
+    }
+    return out
+  }
+
   render(
     target: RenderTarget,
     mapStore: MapStore,
+    phase: Phase,
     clipRangeX?: { xMin: number; xMax: number },
   ): void {
     const toggles = editorStore.layerToggles
@@ -196,6 +224,7 @@ export class L3TilemapLayer extends L3Layer {
       for (let col = 0; col < rowColLimit; col++) {
         const cell = rowCells[col]
         if (!cell) continue
+        if ((cell.priority ? 'priority' : 'nonPriority') !== phase) continue
 
         const pixels = this._charPixels(cell.charIdx)
         if (!pixels) continue

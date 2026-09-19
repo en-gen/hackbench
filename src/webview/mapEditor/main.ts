@@ -504,7 +504,11 @@ function compositeCameraViewport(
   // the strip, keeping drag-redraw responsive.
   if (toggles.l3 && map.l3) {
     target.setClip(sx, sy, sw, sh)
-    map.l3.render(target, mapStore, { xMin: sx, xMax: sx + sw })
+    // Both BG3 phases, back to front: this strip repaint sits on top of the
+    // wiped region, so it reproduces what the main pass list already drew
+    // rather than re-deciding L3's position in the stack.
+    map.l3.render(target, mapStore, 'nonPriority', { xMin: sx, xMax: sx + sw })
+    map.l3.render(target, mapStore, 'priority', { xMin: sx, xMax: sx + sw })
     target.clearClip()
   }
   return { sx, sy, sw, sh }

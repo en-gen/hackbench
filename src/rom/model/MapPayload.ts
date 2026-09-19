@@ -1,3 +1,4 @@
+import type { SpriteObjPriority } from '../SpritePriorityLoader'
 import type { RgbaColor } from '../GraphicsDecoder'
 import type { L2ScrollRange } from '../L2Loader'
 import type { TileCollision } from './tiles/TileCollision'
@@ -223,6 +224,8 @@ export interface SpriteDescriptor {
   /** Nested child sprite for CompositeSprite (e.g. Hammer Bro on Platform).
    *  Absolute-positioned; recursion is intentional so composites can nest. */
   secondary?: SpriteDescriptor
+  /** OBJ priority facet, resolved host-side. See `SpritePriorityLoader`. */
+  priority?: SpriteObjPriority
 }
 
 // ── Level header / map ───────────────────────────────────────────────
