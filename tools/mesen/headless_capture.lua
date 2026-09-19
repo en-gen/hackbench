@@ -84,6 +84,20 @@ local MEM = emu.memType.snesMemory
 local function r(addr)      return emu.read(addr, MEM) end
 local function w(addr, val) emu.write(addr, val, MEM) end
 
+-- PPU CGRAM: 512 bytes = 256 BGR555 words, the palette the PPU actually held
+-- at the sampled frame. This is hardware state, NOT the ROM tables our
+-- PaletteLoader derives from and NOT MainPalette ($7E0703, rammap.asm:1175,
+-- the game's own WRAM staging buffer), so comparing our derivation against it
+-- is not circular. Mesen 2 has renamed memType members across builds, so
+-- resolve defensively the same way l3_dump.lua resolves VRAM.
+local CGRAM_MEM = nil
+local CGRAM_MEM_NAME = nil
+for _, name in ipairs({ "snesCgRam", "snesCgram", "cgRam", "cgram" }) do
+  local v = emu.memType[name]
+  if v ~= nil then CGRAM_MEM = v; CGRAM_MEM_NAME = name; break end
+end
+local CGRAM_BYTES = 512
+
 -- ── CONFIG: the one place to edit ───────────────────────────────────────────
 local CONFIG = {
   -- Target level index, 0-0x1FF, in the same space as Layer1Ptrs/Layer2Ptrs/
@@ -124,6 +138,7 @@ local EXIT_TITLE_SCREEN_TIMEOUT      = 12
 local EXIT_LEVEL_LOAD_TIMEOUT        = 13
 local EXIT_WRONG_LEVEL_LOADED        = 14
 local EXIT_SAMPLE_STALL              = 15
+local EXIT_CGRAM_UNAVAILABLE         = 16
 
 -- ── Traced RAM addresses (every one cited above or inline) ──────────────────
 local GAME_MODE           = 0x7E0100  -- rammap.asm:977-980
@@ -211,6 +226,15 @@ if overrideByte == nil then
   return
 end
 
+-- An oracle that silently skips a check it advertises is worse than no
+-- check. If CGRAM is not readable from this Mesen build, abort before
+-- running a frame rather than producing a capture with no cgram.bin in it.
+if CGRAM_MEM == nil then
+  dlog("[CGRAM] no CGRAM memType resolved from emu.memType (tried snesCgRam/snesCgram/cgRam/cgram). Aborting.")
+  emu.stop(EXIT_CGRAM_UNAVAILABLE)
+  return
+end
+
 -- ── State ────────────────────────────────────────────────────────────────
 local frame = 0
 local phase = "poweron_check"   -- poweron_check -> wait_title -> wait_level -> sampling -> done
@@ -234,6 +258,14 @@ local function dumpWram8k(path)
   local chunks = {}
   for addr = 0x7E0000, 0x7E1FFF do
     chunks[#chunks + 1] = string.char(r(addr))
+  end
+  return writeBinary(path, table.concat(chunks))
+end
+
+local function dumpCgram(path)
+  local chunks = {}
+  for i = 0, CGRAM_BYTES - 1 do
+    chunks[#chunks + 1] = string.char(emu.read(i, CGRAM_MEM))
   end
   return writeBinary(path, table.concat(chunks))
 end
@@ -464,9 +496,10 @@ local function onFrame()
       local tag = string.format("%s/frame_%04d", CONFIG.OUTPUT_DIR, CONFIG.SAMPLE_FRAMES[sampleIdx])
       local okPng = dumpScreenshot(tag .. ".png")
       local okWram = dumpWram8k(tag .. "_wram.bin")
-      dlog(string.format("[SAMPLE] frame=%d  offset=+%d  png=%s wram=%s",
-        frame, CONFIG.SAMPLE_FRAMES[sampleIdx], tostring(okPng), tostring(okWram)))
-      if not (okPng and okWram) then
+      local okCg = dumpCgram(tag .. "_cgram.bin")
+      dlog(string.format("[SAMPLE] frame=%d  offset=+%d  png=%s wram=%s cgram=%s",
+        frame, CONFIG.SAMPLE_FRAMES[sampleIdx], tostring(okPng), tostring(okWram), tostring(okCg)))
+      if not (okPng and okWram and okCg) then
         emu.stop(EXIT_SAMPLE_STALL)
         return
       end
@@ -490,5 +523,5 @@ local function onFrame()
 end
 
 emu.addEventCallback(onFrame, emu.eventType.endFrame)
-dlog(string.format("headless_capture.lua loaded: target level $%03x (override=$%02X submap=%d), output=%s",
-  CONFIG.LEVEL_ID, overrideByte, submapFlag, CONFIG.OUTPUT_DIR))
+dlog(string.format("headless_capture.lua loaded: target level $%03x (override=$%02X submap=%d), output=%s, cgramMem=%s",
+  CONFIG.LEVEL_ID, overrideByte, submapFlag, CONFIG.OUTPUT_DIR, tostring(CGRAM_MEM_NAME)))
