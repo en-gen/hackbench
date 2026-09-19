@@ -19,7 +19,7 @@
  *     { type:'error', message }
  */
 
-import { createRafTimer } from '../shared/animTimer'
+import { frameClock } from '../shared/frameClock'
 import { hex3 } from '../shared/hex'
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void }
@@ -54,7 +54,9 @@ const TILES_PER_ROW = 16
 const PAGE0_TILES   = 256
 const CELL_SIZE     = 22
 const PREVIEW_SCALE = 5   // 16 × 5 = 80px per palette-row swatch
-const ANIM_INTERVAL_MS = 133  // ~7.5 fps, matching SNES animation cadence
+/** Tile animation advances every 8 game frames
+ *  (bits 3-4 of `EffFrame`, `SMWDisX bank_05.asm:4396-4398`). */
+const ANIM_INTERVAL_FRAMES = 8
 
 // ── Animation state ───────────────────────────────────────────────────────────
 
@@ -69,8 +71,8 @@ function b64ToImageData(b64: string): ImageData {
   return new ImageData(bytes, 16, 16)
 }
 
-const animTimer = createRafTimer(
-  () => ANIM_INTERVAL_MS,
+const animTimer = frameClock.every(
+  () => ANIM_INTERVAL_FRAMES,
   () => {
     currentAnimFrame = (currentAnimFrame + 1) % 4
     for (const { ctx, frames } of animCells) {

@@ -58,6 +58,7 @@
 import { RomFile } from './RomFile'
 import { decompress } from './LcLz2'
 import { PIXELS_PER_TILE } from './GraphicsDecoder'
+import { framesToMs } from './timing'
 
 // ── ROM addresses ────────────────────────────────────────────────────────────
 
@@ -116,8 +117,8 @@ const TILES_PER_TRANSFER = 4
  * - At 60 FPS: 8/60 ≈ 133ms per animation frame change
  * - Full 4-frame cycle = 4 × 133ms ≈ 533ms
  */
-export const SNES_NTSC_FPS = 60.098
-export const ANIM_INTERVAL_MS = Math.round((8 / SNES_NTSC_FPS) * 1000)  // ~133ms per animation frame
+export const ANIM_FRAME_STRIDE = 8
+export const ANIM_INTERVAL_MS = Math.round(framesToMs(ANIM_FRAME_STRIDE))  // ~133ms per animation frame
 
 /**
  * RAM layout after CODE_00B888 (bank_00.asm lines 6250-6302):

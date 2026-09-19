@@ -64,10 +64,7 @@ import {
   MontyMoleAppearance,
   ROM_FRAMES_PER_TICK,
 } from '../../../../src/rom/model/sprites/appearances/MontyMoleAppearance'
-import {
-  GAME_FPS,
-  SPRITE_ANIM_INTERVAL_MS,
-} from '../../../../src/rom/model/sprites/animCadence'
+import { SPRITE_ANIM_FRAME_STRIDE } from '../../../../src/rom/timing'
 import { Sprite } from '../../../../src/rom/model/sprites/Sprite'
 import type { SpriteBehavior } from '../../../../src/rom/model/sprites/SpriteBehavior'
 import type { SpritePart } from '../../../../src/rom/model/sprites/appearances/StaticSpriteAppearance'
@@ -151,20 +148,22 @@ describe('MontyMoleAppearance - ROM-derived constants', () => {
     expect(ANIM_CYCLE_ROM_FRAMES).toBe(32)
   })
 
-  it('ROM_FRAMES_PER_TICK tracks the shared editor cadence, it is not a loose 7.5', () => {
-    // The point is the COUPLING: retuning SPRITE_ANIM_INTERVAL_MS must
-    // move this constant, or the mole animates at the old rate with every
-    // test green. Asserting `toBe(7.5)` only restated the literal.
-    expect(ROM_FRAMES_PER_TICK).toBe((SPRITE_ANIM_INTERVAL_MS * GAME_FPS) / 1000)
-    // ...and the nominal cadence itself is pinned, so a retune is a
-    // deliberate edit to a test, not a silent one.
-    expect(SPRITE_ANIM_INTERVAL_MS).toBe(125)
-    expect(GAME_FPS).toBe(60)
+  it('ROM_FRAMES_PER_TICK tracks the shared editor cadence, it is not a loose 8', () => {
+    // The point is the COUPLING: retuning the stride must move this
+    // constant, or the mole animates at the old rate with every test
+    // green. Asserting `toBe(8)` alone would only restate the literal.
+    expect(ROM_FRAMES_PER_TICK).toBe(SPRITE_ANIM_FRAME_STRIDE)
+    // ...and the stride itself is pinned, so a retune is a deliberate
+    // edit to a test, not a silent one. 8 frames is SetAnimationFrame's
+    // per-frame counter, SMWDisX bank_01.asm:2089-2096.
+    expect(SPRITE_ANIM_FRAME_STRIDE).toBe(8)
   })
 
-  it('is an exact multiple of 0.5, which the accumulator wrap relies on', () => {
-    // `125 / (1000 / 60)` is 7.499999999999999 and would not satisfy this.
-    expect(ROM_FRAMES_PER_TICK * 2).toBe(Math.round(ROM_FRAMES_PER_TICK * 2))
+  it('is a whole number of game frames, so the accumulator cannot drift', () => {
+    // Was 7.5, back-derived from an uncited 125 ms editor interval, with a
+    // sibling spelling that evaluated to 7.499999999999999. A whole stride
+    // removes that problem rather than bounding it.
+    expect(Number.isInteger(ROM_FRAMES_PER_TICK)).toBe(true)
   })
 })
 
@@ -264,25 +263,25 @@ describe('MontyMoleAppearance.tickAnimation - cadence', () => {
     return MontyMoleAppearance.fromTables(chars, identityTables(0x20), placeholder)
   }
 
-  it('flips on the 3rd tick, not the 16th - a tick is 7.5 game frames', () => {
-    // 16 game frames / 7.5 game frames per tick = 2.13 ticks, so the 3rd
-    // tick is the first that crosses the EffFrame bit-4 boundary. Counting
-    // raw ticks against 16 (the pre-fix bug) would hold frame 0 until the
-    // 16th tick = 2.0 s.
+  it('flips on the 2nd tick, not the 16th - a tick is 8 game frames', () => {
+    // 16 game frames / 8 game frames per tick = exactly 2 ticks, so the
+    // 2nd tick is the first that crosses the EffFrame bit-4 boundary.
+    // Counting raw ticks against 16 (the pre-fix bug) would hold frame 0
+    // until the 16th tick. At the old 7.5 it was the 3rd tick.
     const a = newMole()
     expect(activeFrame(a)).toBe(0)
-    a.tickAnimation(); expect(activeFrame(a)).toBe(0)   // 7.5 game frames
-    a.tickAnimation(); expect(activeFrame(a)).toBe(0)   // 15.0
-    a.tickAnimation(); expect(activeFrame(a)).toBe(1)   // 22.5 → bit 4 set
+    a.tickAnimation(); expect(activeFrame(a)).toBe(0)   // 8 game frames
+    a.tickAnimation(); expect(activeFrame(a)).toBe(1)   // 16 → bit 4 set
+    a.tickAnimation(); expect(activeFrame(a)).toBe(1)   // 24
   })
 
-  it('toggles at the wall-clock rate the ROM does over 30 s of editor time', () => {
-    // Externals, not internals: the editor ticks every
-    // SPRITE_ANIM_INTERVAL_MS = 125 ms and the SNES runs at 60 Hz, so the
-    // ROM's 16-game-frame hold is 266.7 ms. Over 30 s that is
-    // 30000 / 266.7 = 112.5 toggles; an 8 Hz sampler can only land on 112
-    // or 113 of them. The pre-fix code managed 240/16 = 15.
-    const TICKS = 240                       // 240 * 125 ms = 30 s
+  it('toggles at exactly the wall-clock rate the ROM does', () => {
+    // Externals, not internals. The ROM holds each pose 16 game frames;
+    // the editor tick is 8, so a toggle every 2 ticks, and 2 ticks is
+    // 16/60.098 = 266.2 ms, the ROM's own hold. The rate is now equal
+    // rather than approximated, so this is an equality, not a window.
+    // The pre-fix code managed 240/16 = 15 toggles.
+    const TICKS = 240
     const a = newMole()
     let prev   = activeFrame(a)
     let toggles = 0
@@ -291,19 +290,19 @@ describe('MontyMoleAppearance.tickAnimation - cadence', () => {
       const cur = activeFrame(a)
       if (cur !== prev) { toggles++; prev = cur }
     }
-    expect(toggles).toBeGreaterThanOrEqual(111)
-    expect(toggles).toBeLessThanOrEqual(114)
+    expect(toggles).toBe(TICKS / 2)
   })
 
-  it('never drifts off the half-frame grid - pinned pose sequence', () => {
+  it('holds a pinned pose sequence, period 4 ticks', () => {
     // A LITERAL sequence, because the obvious formulations do not
-    // discriminate. Comparing ticks 0-63 against 64-127 passes for any
-    // step whose period divides 64, and both 7.5 and the float-lossy
-    // `125 / (1000 / 60)` = 7.499999999999999 are periodic over 64 and
-    // both produce 112 toggles over 240 ticks. They first disagree at
-    // tick 32, where the exact form has romFrame 16.0 (pose 1) and the
-    // lossy form 15.999999999999993 (pose 0) - index 31 below.
-    const EXPECTED = '0011001100110011100110011001100111001100'
+    // discriminate: comparing ticks 0-63 against 64-127 passes for any
+    // step whose period divides 64. romFrame is (romFrame + 8) % 32 and
+    // the pose is bit 4, so ticks 1.. run 0,1,1,0 and repeat.
+    //
+    // This sequence IS cadence-sensitive: at the old 7.5 it was
+    // '0011001100110011100110011001100111001100', and a stride of 4 or
+    // 16 gives a different period again.
+    const EXPECTED = '0110'.repeat(10)
     const a = newMole()
     let got = ''
     for (let i = 0; i < EXPECTED.length; i++) { a.tickAnimation(); got += activeFrame(a) }

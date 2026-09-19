@@ -31,7 +31,8 @@ import {
   paintBlockLabel,
   BLOCK_LABEL_MIN_PX,
 } from '../shared/blockView'
-import { createRafTimer } from '../shared/animTimer'
+import { frameClock } from '../shared/frameClock'
+import { msToFrames } from '../../rom/timing'
 import { hex2, hex3, hex4, hex6 } from '../shared/hex'
 
 // ── Constants (mirror OverworldLoader.ts so the webview is self-contained) ──
@@ -524,8 +525,8 @@ function applyPalAnimFrame(): void {
   }
 }
 
-const palAnimTimer = createRafTimer(
-  () => payload?.paletteAnimation?.intervalMs ?? 67,
+const palAnimTimer = frameClock.every(
+  () => msToFrames(payload?.paletteAnimation?.intervalMs ?? 67),
   () => {
     if (!payload?.paletteAnimation) return
     palAnimFrame = (palAnimFrame + 1) % payload.paletteAnimation.frameCount
@@ -536,9 +537,15 @@ const palAnimTimer = createRafTimer(
 )
 
 let animationFrameIdx = 0
-const ANIM_TICK_MS = 16 * 8       // ~7.5 Hz, matches the SMW frame stride
-const animationTimer = createRafTimer(
-  () => ANIM_TICK_MS,
+/** The tile-animation frame advances every 8 game frames: bits 3-4 of
+ *  `EffFrame` select it (`SMWDisX bank_05.asm:4396-4398`). NOT
+ *  `CODE_00A5F9`, which is an 8-iteration pre-run called only from two
+ *  load paths (`bank_00.asm:2527`, `:4871`); the per-frame work is the
+ *  NMI call at `bank_00.asm:271`. Whether the overworld uses this same
+ *  stride is untraced: these are level-mode routines. */
+const ANIM_TICK_FRAMES = 8
+const animationTimer = frameClock.every(
+  () => ANIM_TICK_FRAMES,
   () => {
     if (!payload) return
     animationFrameIdx = (animationFrameIdx + 1)

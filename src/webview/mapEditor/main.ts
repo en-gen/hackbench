@@ -27,7 +27,6 @@ import type { SmwMap } from '../../rom/model/SmwMap'
 import type { Sprite } from '../../rom/model/sprites/Sprite'
 import type { OverlayContext } from '../../rom/model/OverlayContext'
 import { cellBoxOf } from '../../rom/model/RenderTarget'
-import { SPRITE_ANIM_INTERVAL_MS } from '../../rom/model/sprites/animCadence'
 import type { MapStore } from '../../rom/model/stores/mapStore'
 import { CanvasRenderTarget } from './CanvasRenderTarget'
 import { drawSurfaces } from './overlays/drawSurfaces'
@@ -40,7 +39,8 @@ import { drawSpriteSelection } from './overlays/drawSpriteSelection'
 import { spriteSelectionKey } from './spriteProps'
 import { setPropContext as paneSetPropContext, showSpriteProps, type PropContext } from './propsPane'
 import { editorStore as store } from './store'
-import { createRafTimer } from '../shared/animTimer'
+import { frameClock } from '../shared/frameClock'
+import { SNES_NTSC_FPS, msToFrames, SPRITE_ANIM_FRAME_STRIDE } from '../../rom/timing'
 import { tileBlockColor } from '../shared/blockView'
 import { hex2, hex3 } from '../shared/hex'
 
@@ -1875,12 +1875,14 @@ function populateTileProps(tileId: number, def: Map16DefEntry | undefined): void
 }
 
 // ── Animation ────────────────────────────────────────────────────────────────
-// Three independent timers, each a pure event source:
+// Three subscriptions on the one shared frame clock, each a pure event
+// source. Sharing the clock is what holds tile animation and palette
+// cycling in phase, as they are in game (both derive from `EffFrame`).
 //   - mapAnimTimer   — ticks animated chars (tile-graphics). Cadence comes
 //                       from `mapData.animation.intervalMs` so per-level
 //                       tile-animation speed is configurable.
 //   - spriteAnimTimer — ticks sprite appearances. Cadence is fixed
-//                       (`SPRITE_ANIM_INTERVAL_MS`) so sprite cadence is
+//                       (`SPRITE_ANIM_FRAMES`) so sprite cadence is
 //                       independent of any level data.
 //   - palAnimTimer   — increments `store.palAnimFrame` for CGRAM cycling.
 //
@@ -1890,19 +1892,13 @@ function populateTileProps(tileId: number, def: Map16DefEntry | undefined): void
 // after a tick, the timer bumps a `shallowRef` event source (`mapTick`
 // or `spriteTick`); the render effect reads both values to register a
 // dep. The carried number is irrelevant — only the mutation matters.
-//
-// Driven by requestAnimationFrame rather than setInterval so that hidden or
-// backgrounded webviews stop ticking automatically (Chromium throttles rAF to
-// 0 Hz in hidden iframes, but leaves setInterval running at ≥1 Hz — which
-// produced the main-thread contention the user saw when rapid preview-tab
-// cycling left zombie webviews alive).
 let mapIntervalMs = 133
 let palAnimIntervalMs = 133
 let mapAnimEnabled = false  // true when the loaded map declares animated tiles
 
-// SPRITE_ANIM_INTERVAL_MS is imported from the model side so the editor
-// cadence and the appearances that convert ticks to game frames cannot be
-// retuned apart. See src/rom/model/sprites/animCadence.ts.
+/** Shared with the draw engine's ROM_FRAMES_PER_TICK, so a tick means the
+ *  same number of game frames on both sides. Replaces an uncited 125 ms. */
+const SPRITE_ANIM_FRAMES = SPRITE_ANIM_FRAME_STRIDE
 
 const mapTick = shallowRef(0)
 const spriteTick = shallowRef(0)
@@ -1911,8 +1907,8 @@ function applyPalAnimFrame(f: number): void {
   store.setPalAnimFrame(f)
 }
 
-const mapAnimTimer = createRafTimer(
-  () => mapIntervalMs,
+const mapAnimTimer = frameClock.every(
+  () => msToFrames(mapIntervalMs),
   () => {
     const chars = window.__smwModelChars
     if (chars) for (const ch of chars.values()) ch.tickAnimation()
@@ -1920,8 +1916,8 @@ const mapAnimTimer = createRafTimer(
   },
 )
 
-const spriteAnimTimer = createRafTimer(
-  () => SPRITE_ANIM_INTERVAL_MS,
+const spriteAnimTimer = frameClock.every(
+  () => SPRITE_ANIM_FRAMES,
   () => {
     const map = window.__smwModelMap
     if (map) for (const spr of map.sprites) spr.tickAnimation()
@@ -1929,8 +1925,8 @@ const spriteAnimTimer = createRafTimer(
   },
 )
 
-const palAnimTimer = createRafTimer(
-  () => palAnimIntervalMs,
+const palAnimTimer = frameClock.every(
+  () => msToFrames(palAnimIntervalMs),
   () => {
     const frameCount = mapData?.paletteAnimation?.frameCount ?? 8
     applyPalAnimFrame((store.palAnimFrame + 1) % frameCount)
@@ -4268,11 +4264,6 @@ function applyL2Frame(idx: number): void {
   }
 }
 
-/** NES frame rate. Used to convert wall-clock elapsed milliseconds to
- *  simulator frames so playback runs at game speed regardless of how
- *  fast the editor's RAF can fire. */
-const NES_FPS = 60
-
 function tickScrollPlayback(): void {
   const path = mapData?.header?.scrollPath
   if (!path || path.length === 0) { stopScrollPlayback(); return }
@@ -4289,10 +4280,10 @@ function tickScrollPlayback(): void {
     advance = 0
   } else {
     const dtMs = now - scrollPlaybackLastTimeMs
-    // (dtMs / 1000) * NES_FPS = elapsed sim frames, scaled by speed
+    // Elapsed sim frames at the SNES NTSC rate, scaled by speed
     // multiplier. Carry sub-frame remainder across ticks via the
     // accumulator so long-term rate stays exact.
-    const framesOwed = (dtMs / 1000) * NES_FPS * speed + scrollPlaybackFrameAcc
+    const framesOwed = ((dtMs * SNES_NTSC_FPS) / 1000) * speed + scrollPlaybackFrameAcc
     advance = Math.floor(framesOwed)
     scrollPlaybackFrameAcc = framesOwed - advance
   }

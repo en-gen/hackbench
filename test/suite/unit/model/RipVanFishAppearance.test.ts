@@ -134,7 +134,7 @@ describe('RipVanFishAppearance.render — pose selection', () => {
     const app = makeAppearance()
     editorStore.setCursorPx(null)
     // Tick enough times to get romFrame past 16 (where bit 4 is set)
-    // ROM_FRAMES_PER_TICK = 7.5; after 3 ticks romFrame ≈ 22.5 → floor=22; 22 & 0x30 = 16 ≠ 0
+    // ROM_FRAMES_PER_TICK = 8; after 3 ticks romFrame = 24; 24 & 0x30 = 16 ≠ 0
     for (let i = 0; i < 3; i++) app.tickAnimation()
     expect(renderFills(app)).toContain(0x10)  // sleepB
   })

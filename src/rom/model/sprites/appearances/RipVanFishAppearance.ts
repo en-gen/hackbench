@@ -3,6 +3,7 @@
 import type { Char } from '../../chars/Char'
 import type { RenderTarget } from '../../RenderTarget'
 import { editorStore } from '../../stores/editorStore'
+import { SPRITE_ANIM_FRAME_STRIDE } from '../../../timing'
 import type { MapStore } from '../../stores/mapStore'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
@@ -130,9 +131,8 @@ export const RIP_VAN_FISH_FRAMES = {
  *                 carry     = subpixel overflow
  *                 dx       += sign-extended (xSpeed >> 4) + carry
  *
- *   ROM_FRAMES_PER_TICK 125 ms / (1000/60) = 7.5 — sprite-anim cadence
- *   (`SPRITE_ANIM_INTERVAL_MS` in webview/mapEditor/main.ts) at 8 Hz vs
- *   the SNES PPU at 60 Hz.
+ *   ROM_FRAMES_PER_TICK = 8 game frames, the shared sprite-anim cadence
+ *   (`SetAnimationFrame`, SMWDisX bank_01.asm:2089-2096).
  *
  *   TILES order  $E0 → $E1 → $F0 → $F1 over a particle's lifetime, which
  *   is what `RipVanFishZsTiles[(timer >> 5) & 3]` produces over the
@@ -151,7 +151,7 @@ const Z_MAX_SLOTS         = 3
 const Z_TOTAL_PERIOD      = Z_SPAWN_PERIOD * Z_MAX_SLOTS  // 120-frame cycle
 const Z_SPAWN_DX          = 0x06
 const Z_SPAWN_DY          = 0x00
-const ROM_FRAMES_PER_TICK = 125 / (1000 / 60)              // 7.5
+const ROM_FRAMES_PER_TICK = SPRITE_ANIM_FRAME_STRIDE        // 8 game frames
 export const Z_TILES      = [0xE0, 0xE1, 0xF0, 0xF1] as const
 
 /**

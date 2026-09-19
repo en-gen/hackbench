@@ -26,6 +26,7 @@
  */
 
 import type { RomFile } from '../../../RomFile'
+import { SPRITE_ANIM_FRAME_STRIDE } from '../../../timing'
 import type { SpriteTileTables } from '../../../SpriteTileLoader'
 import {
   SPRITE_INIT_PTR_TABLE, SPRITE_MAIN_PTR_TABLE, SPRITE_PTR_TABLE_COUNT,
@@ -95,18 +96,16 @@ const SPRITE_OAM_FIRST_Y = 0x0301
 /**
  * Editor animation cadence, converted ONCE, centrally.
  *
- * `SPRITE_ANIM_INTERVAL_MS` in `src/webview/mapEditor/main.ts` is 125 ms, so
- * one editor tick is 7.5 GAME FRAMES, not one. Every animation in this engine
+ * One editor tick is 8 GAME FRAMES, not one. Every animation in this engine
  * is expressed in game frames and converted here. Counting an animation in
- * ticks, as `SpikeTopAppearance` does, runs it about 7.5x too slow.
+ * ticks, as `SpikeTopAppearance` does, runs it 8x too slow.
  *
- * Multiply before dividing. `125 / (1000 / 60)` is 7.499999999999999, and
- * `tickAnimation` ACCUMULATES the constant while `frameIndexAt` floors the
- * total, so the drift reaches the render: measured against this form, the
- * two disagree on 100 of the first 200 ticks and on $4D's rendered frame
- * index 62 times in 2000.
+ * This was 7.5, back-derived from an uncited 125 ms editor interval. The
+ * cadence is now the cited 8 frames (`SPRITE_ANIM_FRAME_STRIDE`), which the
+ * shared frame clock realises exactly, so the accumulate-then-floor drift
+ * that number carried is gone rather than bounded.
  */
-export const ROM_FRAMES_PER_TICK = 125 * 60 / 1000
+export const ROM_FRAMES_PER_TICK = SPRITE_ANIM_FRAME_STRIDE
 
 // ── Render context ──────────────────────────────────────────────────────────
 

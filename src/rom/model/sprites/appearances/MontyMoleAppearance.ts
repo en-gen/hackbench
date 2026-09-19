@@ -1,7 +1,7 @@
 // Consumes: (none directly - palette via mapStore, char pixels via Char.getPixels)
 
 import type { SpriteTileTables } from '../../../SpriteTileLoader'
-import { ROM_FRAMES_PER_TICK as TICK_ROM_FRAMES } from './frameCadence'
+import { SPRITE_ANIM_FRAME_STRIDE as TICK_ROM_FRAMES } from '../../../timing'
 import type { Char } from '../../chars/Char'
 import type { RenderTarget } from '../../RenderTarget'
 import type { MapStore } from '../../stores/mapStore'
@@ -90,13 +90,13 @@ export const ANIM_ROM_FRAMES       = 16
 export const ANIM_CYCLE_ROM_FRAMES = ANIM_ROM_FRAMES * 2
 
 /**
- * Game frames per editor tick. Derived from the shared nominal cadence so
- * retuning the editor interval cannot leave this stale.
+ * Game frames per editor tick, from the one shared stride so retuning the
+ * cadence cannot leave this stale.
  *
- * 7.5 converts the interval the editor ASKS for. The interval the timer
- * REALIZES is display-dependent - 8.0 game frames at 60 Hz, 7.5 at
- * 120/144 Hz - because `createRafTimer` re-bases on the frame it fires
- * instead of accumulating. Worked through in docs/sprite-4d-monty-mole.md.
+ * Was 7.5, which converted the interval the editor ASKED for while the
+ * interval it REALIZED was display-dependent. The shared frame clock
+ * realizes 8 game frames exactly on any display, so the two agree.
+ * docs/sprite-4d-monty-mole.md predates the clock on this point.
  */
 export const ROM_FRAMES_PER_TICK = TICK_ROM_FRAMES
 
