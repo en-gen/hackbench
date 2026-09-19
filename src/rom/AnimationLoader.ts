@@ -260,16 +260,12 @@ function loadAnimatedTileBuffer(rom: RomFile): Uint8Array | null {
   const gfx33Decompressed = decompress(gfx33Compressed)
   if (gfx33Decompressed.length === 0) return null
 
-  console.log(`[ANIM-BUF] GFX33 ptr=$${gfx33Ptr.toString(16)} decompressed=${gfx33Decompressed.length} bytes ($${gfx33Decompressed.length.toString(16)})`)
-  console.log(`[ANIM-BUF] GFX33 fills RAM $2000-$${(0x2000 + gfx33Decompressed.length - 1).toString(16)}`)
-
   // Expand ALL decompressed bytes from 3bpp → 4bpp.
   // CODE_00B888 starts LDX at #$23FF and processes source bytes from X down to 0.
   // The destination starts at $ACFE and writes downward. Mesen confirms the expansion
   // writes well below $7D00 (e.g., $6D80 for berry data), meaning the full expanded
   // output is larger than just the AnimatedTiles region.
   const gfx33Expanded = expand3bppTo4bpp(gfx33Decompressed)
-  console.log(`[ANIM-BUF] Expansion: ${gfx33Decompressed.length} bytes 3bpp → ${gfx33Expanded.length} bytes 4bpp`)
 
   // Decompress GFX32 (Mario sprites) — CODE_00B8D7 continues decompression
   // from the same bank as GFX33 at offset $8000. This is a LARGE version of GFX32
@@ -288,25 +284,12 @@ function loadAnimatedTileBuffer(rom: RomFile): Uint8Array | null {
   if (gfx32Compressed) {
     gfx32Decompressed = decompress(gfx32Compressed, 0, preFilled)
   }
-  console.log(`[ANIM-BUF] GFX32 ptr=$${gfx32Ptr.toString(16)} decompressed=${gfx32Decompressed.length} bytes`)
 
   // The decompressed GFX32 output already includes the pre-filled GFX33 expanded data.
   // It's the full MarioGraphics buffer matching the game's RAM layout:
   //   buffer[0..$5CFF]: GFX32 4bpp data (from decompression)
   //   buffer[$5D00+]: GFX33 expanded 4bpp data (from pre-fill, preserved by GFX32 decompression)
   const buffer = gfx32Decompressed instanceof Uint8Array ? gfx32Decompressed : new Uint8Array(gfx32Decompressed)
-
-  console.log(`[ANIM-BUF] Buffer: ${buffer.length} bytes`)
-
-  // Log berry-relevant region
-  const berryOffset = 0x6D80 - MARIO_GRAPHICS_RAM_BASE
-  const berryInRange = berryOffset >= 0 && berryOffset + 128 <= buffer.length
-  console.log(`[ANIM-BUF] Berry offset=$${berryOffset.toString(16)} inRange=${berryInRange}`)
-  if (berryInRange) {
-    const nonZero = buffer.slice(berryOffset, berryOffset + 128).filter(b => b !== 0).length
-    console.log(`[ANIM-BUF] Berry region: ${nonZero}/128 non-zero bytes`)
-    console.log(`[ANIM-BUF] Berry first 16 bytes: ${Array.from(buffer.slice(berryOffset, berryOffset + 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`)
-  }
 
   return buffer
 }
@@ -457,14 +440,7 @@ export function loadAnimationData(
         const bufferOffset = readAnimatedTileDataEntry(rom, dataTableIdx)
 
         if (bufferOffset < 0 || bufferOffset + TILES_PER_TRANSFER * 32 > buffer.length) {
-          if (frame === 0) {
-            console.log(`[ANIM-SKIP] group=${group} sub=${sub} tileIdx=${tileIdx} adj=${adjustedIdx} behavior=${behavior} dataIdx=$${dataTableIdx.toString(16)} bufOff=$${bufferOffset.toString(16)} (${bufferOffset}) bufLen=${buffer.length} → SKIPPED (out of range)`)
-          }
           continue
-        }
-        if (frame === 0) {
-          const charBase = vramAddrToChar(vramDest)
-          console.log(`[ANIM-SLOT] group=${group} sub=${sub} tileIdx=${tileIdx} adj=${adjustedIdx} behavior=${behavior} → char=$${charBase.toString(16).padStart(3,'0')} bufOff=$${bufferOffset.toString(16)}`)
         }
 
         const charBase = vramAddrToChar(vramDest)
