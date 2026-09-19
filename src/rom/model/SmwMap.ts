@@ -1,6 +1,7 @@
 import { isPriorityDecorative, type GetL1Tile, type OverlayContext } from './OverlayContext'
 import { cellBoxOf } from './RenderTarget'
 import type { Phase, RenderTarget } from './RenderTarget'
+import { livePasses, ppuDrawOrder, type PassOccupancy, type RenderPass } from './RenderPass'
 import type { L2Layer } from './L2Layer'
 import type { L3Layer } from './L3Layer'
 import type { Palette } from './palette/Palette'
@@ -87,30 +88,91 @@ export class SmwMap {
     readonly mapStore: MapStore,
   ) {}
 
+  /**
+   * The mode-1 passes this level actually occupies, back to front. The
+   * order is the PPU's (see `RenderPass.ts`); the filtering is this level's
+   * own content, so the list is data per level rather than a fixed array.
+   * A later stage gives each entry its own canvas.
+   */
+  passes(): RenderPass[] {
+    const bgPhases = (phases: Set<Phase>): Set<number> => {
+      const out = new Set<number>()
+      if (phases.has('nonPriority')) out.add(0)
+      if (phases.has('priority')) out.add(1)
+      return out
+    }
+    const occupancy: PassOccupancy = {
+      l1:      bgPhases(this.l1Phases()),
+      l2:      bgPhases(this.l2?.phases(this.mapStore) ?? new Set()),
+      l3:      bgPhases(this.l3?.phases() ?? new Set()),
+      sprites: new Set(this.sprites.map(s => s.priority.value)),
+    }
+    return livePasses(this.header.layer3Priority ?? false, occupancy)
+  }
+
   render(target: RenderTarget): void {
     const toggles = editorStore.layerToggles
-    const l3Priority = this.header.layer3Priority ?? false
-    // layer3Priority=false → L3 behind everything (before L2)
-    if (toggles.l3 && !l3Priority) this.l3?.render(target, this.mapStore)
-    if (toggles.l2) this.l2?.render(target, this.mapStore)
+    // Overlays are a pre-pass: tiles drawn afterwards cover the lower part
+    // of any overlay reaching into their own cell, which is the effect the
+    // vine/1-up indicators rely on.
     if (toggles.l1) this.renderL1Overlays(target)
-    if (toggles.l1) this.renderL1(target, 'nonPriority')
-    const ordered = toggles.sprites ? this.spritesInRenderOrder() : null
-    if (ordered) {
-      for (const sprite of ordered) sprite.render(target, this.mapStore)
-    }
-    if (toggles.l1) this.renderL1(target, 'priority')
-    // Second sprite pixel pass, above the L1 priority tiles. This is the
-    // EDITOR ANNOTATION seam ($4D Monty Mole ghosts its emerged pose over
-    // its anonymous mound), not a rescue for buried sprites - see
+    const sprites = toggles.sprites ? this.spritesInRenderOrder() : []
+
+    // The editor annotation seam ($4D Monty Mole ghosts its emerged pose
+    // over its anonymous mound) is NOT a hardware pass, so it is not in
+    // `ppuDrawOrder`. It belongs directly above the Layer 1 priority tiles
+    // and deliberately BELOW any Layer 3 priority pass: an annotation goes
+    // over layer 1 only, it is not promoted over the foreground BG. See
     // SpriteAppearance.renderAboveL1 and docs/sprite-4d-monty-mole.md.
-    // Deliberately BEFORE the L3 priority pass: an annotation goes over
-    // layer 1 only, it is not promoted over the foreground BG.
-    if (ordered) {
-      for (const sprite of ordered) sprite.renderAboveL1(target, this.mapStore)
+    //
+    // Anchored to L1.1's slot in the FULL mode-1 order, not to the live
+    // pass list, because 75 percent of levels have no L1 priority content
+    // and the annotation still has to draw on them.
+    const order = ppuDrawOrder(this.header.layer3Priority ?? false)
+    const rank = (q: RenderPass): number =>
+      order.findIndex(o => o.layer === q.layer && o.priority === q.priority)
+    const annotateAfter = order.findIndex(o => o.layer === 'l1' && o.priority === 1)
+    let annotated = false
+    const annotate = (): void => {
+      if (annotated) return
+      annotated = true
+      for (const sprite of sprites) sprite.renderAboveL1(target, this.mapStore)
     }
-    // layer3Priority=true → L3 in front of sprites, behind L1 priority
-    if (toggles.l3 && l3Priority) this.l3?.render(target, this.mapStore)
+
+    for (const pass of this.passes()) {
+      if (rank(pass) > annotateAfter) annotate()
+      const phase: Phase = pass.priority === 1 ? 'priority' : 'nonPriority'
+      switch (pass.layer) {
+        case 'l1': if (toggles.l1) this.renderL1(target, phase); break
+        case 'l2': if (toggles.l2) this.l2?.render(target, this.mapStore, phase); break
+        case 'l3': if (toggles.l3) this.l3?.render(target, this.mapStore, phase); break
+        case 'sprites':
+          for (const sprite of sprites) {
+            if (sprite.priority.value === pass.priority) sprite.render(target, this.mapStore)
+          }
+          break
+      }
+    }
+    annotate()
+  }
+
+  /** Tile-priority phases the Layer-1 grid occupies. */
+  private l1Phases(): Set<Phase> {
+    const out = new Set<Phase>()
+    const seen = new Set<number>()
+    for (let y = 0; y < this.l1.length && out.size < 2; y++) {
+      const row = this.l1[y]
+      if (!row) continue
+      for (let x = 0; x < row.length && out.size < 2; x++) {
+        const id = row[x]
+        if (id === null || seen.has(id)) continue
+        seen.add(id)
+        for (const sub of this.l1Tiles.get(id)?.quadAt(cellBoxOf(x, y), this.mapStore) ?? []) {
+          out.add(sub.priority ? 'priority' : 'nonPriority')
+        }
+      }
+    }
+    return out
   }
 
   private renderL1Overlays(target: RenderTarget): void {

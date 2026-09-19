@@ -4,8 +4,19 @@ import type { RenderTarget } from '../RenderTarget'
 import type { MapStore } from '../stores/mapStore'
 import type { SpriteAppearance } from './SpriteAppearance'
 import type { SpriteBehavior } from './SpriteBehavior'
+import { DEFAULT_OBJ_PRIORITY, type SpriteObjPriority } from '../../SpritePriorityLoader'
 
 export class Sprite {
+  /**
+   * OBJ priority facet: which sprite pass this sprite composites in, plus
+   * where the value came from. Assigned once after construction by the
+   * factory (extension host) or `rehydrate` (webview) -- not a constructor
+   * argument, because every `new Sprite` site would otherwise have to
+   * thread a ROM read it has no other use for. Defaults to OBJ.2 so a
+   * sprite built by a test fixture still composites somewhere sensible.
+   */
+  priority: SpriteObjPriority = { value: DEFAULT_OBJ_PRIORITY, source: 'level' }
+
   constructor(
     readonly id: number,
     readonly x: number,

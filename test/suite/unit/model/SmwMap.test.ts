@@ -99,6 +99,8 @@ interface StubSprite {
     renderAboveL1?: (t: RenderTarget, x: number, y: number, b: unknown, ms: MapStore) => void
   }
   behavior: { kind: string }
+  /** The pass this sprite composites in. See SpritePriorityLoader. */
+  priority: { value: number; source: 'level' }
   render: (t: RenderTarget, ms: MapStore) => void
   renderAboveL1: (t: RenderTarget, ms: MapStore) => void
 }
@@ -113,6 +115,7 @@ function makeStubSprite(bodyChar: Char, aboveChar?: Char): Sprite {
     id: 0,
     x: 0,
     y: 0,
+    priority: { value: 2, source: 'level' },   // OBJ.2, the common case
     appearance: {
       render: (t, x, y, _b, ms) => {
         t.blit8x8(bodyChar.getPixels(), { x, y }, ms.palette.row(0), false, false)
@@ -140,6 +143,11 @@ function makeStubL3(char: Char): L3Layer {
     render(t: RenderTarget, ms: MapStore): void {
       t.blit8x8(char.getPixels(), { x: 0, y: 0 }, ms.palette.row(0), false, false)
     }
+    // Priority only. Both call sites exercise where the L3 PRIORITY pass
+    // sits relative to the above-L1 annotation pass; claiming nonPriority
+    // too would put a second L3 draw at the back of the order and change
+    // what those tests are measuring.
+    phases(): Set<Phase> { return new Set<Phase>(['priority']) }
   }()
 }
 

@@ -21,6 +21,7 @@ import type { MapPayload } from './MapPayload'
 import { buildPalette } from './palette/PaletteFactory'
 import { serialize } from './serialize'
 import { SmwMap } from './SmwMap'
+import { DEFAULT_OBJ_PRIORITY, readLevelObjPriority } from '../SpritePriorityLoader'
 import { buildSprites } from './SpriteFactory'
 import { createMapStore } from './stores/mapStore'
 import type { Tile } from './tiles/Tile'
@@ -182,7 +183,14 @@ export function buildMapWithGraph(
   const l2 = buildL2(rom.rom, levelId, header, screens, isVertical, chars, tiles, bgTiles, layer1ScrollCmd, initialCameraYPx)
   const l3 = buildL3(rom.rom, levelId, tileset, l3Chars, screens, isVertical, rawHeader.timeLimit)
 
-  const sprites = buildSprites(rom.rom, levelSprites, chars, l1, marioStartPx, tiles)
+  // Per-level default OBJ priority: LevXYPPCCCTtbl[levelMode] (bank_05.asm:505-509,
+  // stored to SpriteProperties at :542-543). Null means the table read failed;
+  // buildSprites then falls back to its own documented default.
+  const levelObjPriority = readLevelObjPriority(rom.rom, header.levelMode)
+  const sprites = buildSprites(
+    rom.rom, levelSprites, chars, l1, marioStartPx, tiles,
+    levelObjPriority ?? DEFAULT_OBJ_PRIORITY,
+  )
 
   const palette = buildPalette(rom.rom, header)
 

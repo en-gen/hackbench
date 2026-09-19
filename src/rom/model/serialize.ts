@@ -113,6 +113,7 @@ function serializeSprite(s: Sprite): SpriteDescriptor {
     y: s.y,
     appearance: serializeAppearance(s.appearance),
     behavior,
+    priority: s.priority,
   }
   if (s instanceof CompositeSprite && s.secondary) {
     desc.secondary = serializeSprite(s.secondary)
