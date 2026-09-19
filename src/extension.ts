@@ -11,10 +11,20 @@ import { TilesetCompareProvider } from './providers/TilesetCompareProvider'
 import { RomMapProvider } from './providers/RomMapProvider'
 import { OverworldViewerProvider } from './providers/OverworldViewerProvider'
 import { SmwFileSystemProvider } from './providers/SmwFileSystemProvider'
+import { romPathFromCommandArg } from './romPathFromCommandArg'
+import { staleRomTabs } from './romTabs'
 
 let session: RomSession | undefined
 
 export function activate(context: vscode.ExtensionContext): void {
+  // VS Code restored any smwrom:// tabs that were open when it last closed,
+  // but not the ROM session behind them, and it offers no way to opt an
+  // editor out of that. Close them before the custom editor providers are
+  // registered, so nothing tries to resolve a descriptor from a filesystem
+  // that is not mounted. Fire and forget: activation must not wait on it,
+  // and a failure here is not worth blocking the extension over.
+  void closeRestoredRomTabs()
+
   const fsProvider = new SmwFileSystemProvider()
   const mapsProvider = new MapsProvider()
   const resourcesProvider = new ResourcesProvider()
@@ -68,8 +78,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Commands
   context.subscriptions.push(
-    vscode.commands.registerCommand('hackbench.openRom', () =>
-      openRomCommand(context, fsProvider, mapsProvider, resourcesProvider)
+    // The Explorer context menu invokes this with the URI that was
+    // right-clicked; the palette and the welcome-view link invoke it bare.
+    vscode.commands.registerCommand('hackbench.openRom', (arg?: unknown) =>
+      openRomCommand(context, fsProvider, mapsProvider, resourcesProvider,
+        romPathFromCommandArg(arg))
     ),
     vscode.commands.registerCommand('hackbench.closeRom', () =>
       closeRomCommand(context, fsProvider, mapsProvider, resourcesProvider)
@@ -81,6 +94,16 @@ export function deactivate(): void {
   session?.dispose()
 }
 
+async function closeRestoredRomTabs(): Promise<void> {
+  const stale = staleRomTabs(vscode.window.tabGroups.all)
+  if (stale.length === 0) return
+  try {
+    await vscode.window.tabGroups.close(stale, /* preserveFocus */ true)
+  } catch (err) {
+    console.warn('[hackbench] could not close restored ROM tabs:', err)
+  }
+}
+
 // ── ROM commands ─────────────────────────────────────────────────────────────
 
 async function openRomCommand(
@@ -88,15 +111,18 @@ async function openRomCommand(
   fsProvider: SmwFileSystemProvider,
   mapsProvider: MapsProvider,
   resourcesProvider: ResourcesProvider,
+  knownRomPath?: string,
 ): Promise<void> {
-  const uris = await vscode.window.showOpenDialog({
-    title: 'Open Super Mario World ROM',
-    filters: { 'SNES ROM': ['sfc', 'smc', 'rom'] },
-    canSelectMany: false,
-  })
-  if (!uris?.length) return
-
-  const romPath = uris[0].fsPath
+  let romPath = knownRomPath
+  if (!romPath) {
+    const uris = await vscode.window.showOpenDialog({
+      title: 'Open Super Mario World ROM',
+      filters: { 'SNES ROM': ['sfc', 'smc', 'rom'] },
+      canSelectMany: false,
+    })
+    if (!uris?.length) return
+    romPath = uris[0].fsPath
+  }
 
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Loading ROM…' },
