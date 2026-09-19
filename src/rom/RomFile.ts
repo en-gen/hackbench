@@ -21,7 +21,11 @@ export type RomMapMode = 'lorom' | 'hirom' | 'unknown'
 export class RomFile {
   readonly filePath: string
   /**
-   * Backing bytes. Type-asserted as `Buffer` for the host-side TS
+   * Backing bytes, and the one mutation path `version` does not see. Left
+   * public because three callers want the whole ROM at once; nothing writes
+   * an element through it, so `writeAt` is the only way the bytes move.
+   *
+   * Type-asserted as `Buffer` for the host-side TS
    * callers (PaletteLoader, SmwRom, etc.) that want Buffer-only methods
    * like `readUInt16LE` and `toString('ascii')`. At runtime the value
    * may actually be a plain `Uint8Array` when constructed by the
@@ -80,7 +84,7 @@ export class RomFile {
   readAtFileOffset(fileOffset: number, length: number): Buffer | null {
     const actualOffset = (this.hasHeader ? COPIER_HEADER_SIZE : 0) + fileOffset
     if (actualOffset < 0 || actualOffset + length > this.buffer.length) return null
-    return this.buffer.slice(actualOffset, actualOffset + length) as Buffer
+    return this._copy(actualOffset, length)
   }
 
   readAt(snesAddr: number, length: number): Buffer | null {
@@ -88,7 +92,22 @@ export class RomFile {
       ? hiromToOffset(snesAddr, this.hasHeader)
       : loromToOffset(snesAddr, this.romSize, this.hasHeader)
     if (offset === null || offset + length > this.buffer.length) return null
-    return this.buffer.slice(offset, offset + length) as Buffer
+    return this._copy(offset, length)
+  }
+
+  /**
+   * A detached copy of a byte range, never a view onto `buffer`.
+   *
+   * `Buffer.prototype.slice` is `subarray`, so a `Buffer`-backed cart used
+   * to hand readers a live window and a write through one moved no
+   * `version`; `Uint8Array.prototype.slice` already copied, so it depended
+   * on how the RomFile was built. Latent, not live: all 102 `readAt` sites
+   * checked. Called through `Uint8Array.prototype.slice` and not
+   * `Buffer.from` because the webview bundle has no `Buffer`; species
+   * dispatch keeps a `Buffer` backing's result a `Buffer`.
+   */
+  private _copy(offset: number, length: number): Buffer {
+    return Uint8Array.prototype.slice.call(this.buffer, offset, offset + length) as Buffer
   }
 
   readByte(snesAddr: number): number | null {
@@ -115,6 +134,12 @@ export class RomFile {
     return buf ? buf.toString('ascii').replace(/\0/g, ' ').trimEnd() : ''
   }
 
+  /** Bumped by every `writeAt`. Lets a cache keyed on this `RomFile`
+   *  notice that the bytes underneath it changed, which tests that plant
+   *  bytes rely on. Not persisted and not part of the ROM. */
+  private _version = 0
+  get version(): number { return this._version }
+
   writeAt(snesAddr: number, data: Buffer | number[]): void {
     // Host-only: file-backed write needs Node's Buffer.copy. Webview
     // RomFiles never write back to ROM (the writeback path is the
@@ -125,6 +150,7 @@ export class RomFile {
     if (offset === null) throw new Error(`Address ${snesAddr.toString(16)} is not writable (not ROM)`)
     const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data)
     bytes.copy(this.buffer, offset)
+    this._version++
   }
 
   save(): void { fs.writeFileSync(this.filePath, this.buffer) }

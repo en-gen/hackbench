@@ -91,6 +91,10 @@ export function buildSprites(
   marioStartPx: { x: number; y: number },
   l1Tiles: Map<number, Tile>,
 ): Sprite[] {
+  // Before reading the tables: that read walks 84 sprite handlers, and a
+  // level with no sprites has nothing to spend it on.
+  if (levelSprites.length === 0) return []
+
   const tables = readSpriteTileTables(rom)
   if (!tables) return []
 

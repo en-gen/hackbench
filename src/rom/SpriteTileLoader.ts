@@ -13,9 +13,10 @@
  * base char N, and buildSpriteLayout returns the four implicit 8x8 corners.
  *
  * SubSprGfx0 (four independent 8x8 chars) and SubSprGfx1 (two stacked
- * 16x16 big-tiles, 16x32 total) are used by minority paths that this
- * loader doesn't model yet — those sprites will render using the wrong
- * layout until we differentiate per sprite ID.
+ * 16x16 big-tiles, 16x32 total) are modelled too. Which of the three a
+ * sprite uses is read off the open cart by `dispatch/GfxRoutineReader`,
+ * which walks the sprite's handler; the frozen residue below covers only
+ * the ids that walk cannot reach.
  *
  * Sprite166EVals (bank_07.asm:792) is the spawn-time source for
  * SpriteOBJAttribute — LoadSpriteTables in bank_07.asm:977 reads this byte,
@@ -37,6 +38,9 @@
  */
 
 import { RomFile } from './RomFile'
+import {
+  decidedPropGroup, decidedRoutine, readGfxRoutines, type GfxRoutine, type GfxRoutineReading,
+} from './dispatch/GfxRoutineReader'
 
 export const SPR_TILEMAP_ADDR          = 0x019B83
 export const SPR_TILEMAP_OFFSET_ADDR   = 0x019C7F
@@ -76,6 +80,10 @@ export interface SpriteTileTables {
    *  (bank_01.asm:463) overwrites SpriteOBJAttribute with the entry chosen by
    *  (SpriteXPosLow >> 4) & 3, so Sprite166EVals[$2C] never reaches the screen. */
   yoshiPal: Uint8Array
+  /** Which shared draw routine each sprite's handler reaches on THIS cart,
+   *  read by `GfxRoutineReader`. Absent on synthetically built tables, which
+   *  then fall back to the frozen overrides below. */
+  gfxRoutines?: ReadonlyMap<number, GfxRoutineReading>
 }
 
 export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
@@ -101,6 +109,11 @@ export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
     spriteAttr,
     spr0to13Prop: new Uint8Array(spr0to13Prop),
     yoshiPal: new Uint8Array(yoshiPal),
+    // 84 handler walks, about 22 ms on vanilla cold. `readGfxRoutines`
+    // caches per cart on `RomFile.version`, which matters because a map
+    // build reruns on every toolbar change and this was the largest single
+    // term in it.
+    gfxRoutines: readGfxRoutines(rom, SPR_TILEMAP_OFFSET_COUNT),
   }
 }
 
@@ -140,26 +153,37 @@ export interface SpriteLayout {
 /**
  * Per-sprite-ID OBJ base-tile override for sprite IDs 0x54-0xC8.
  *
- * Sprites below 0x54 have entries in the ROM's SprTilemapOffset table and
- * render through the shared SubSprGfx0/1/2 code, which this loader already
- * handles. Sprites in 0x54..0xC8 use handwritten OAM construction inside
- * their own handlers — there's no single SMW data table covering them. This
- * map was auto-extracted from CallSpriteMain (bank_01.asm:898-1098) plus
- * Bnk3CallSprMain's dispatch chain (bank_03.asm:4305+), by following each
- * handler up to depth 3 and capturing the first `LDA ... STA OAMTileNo`
- * pair — either an immediate like `LDA #$CA` or an indexed load like
- * `LDA PokeyTiles,X` whose first data byte is taken as the base char.
+ * FROZEN DERIVATION. These 98 values were traced by hand against vanilla
+ * and do not track the cart. A hack that repoints any of these handlers, or
+ * that changes the tile a handler writes, renders here with the vanilla
+ * tile and no warning at all. That is the whole risk, stated plainly.
+ *
+ * The comment this replaces claimed the table was auto-extracted by
+ * following each handler to its first `LDA ... STA OAMTileNo` pair, taking
+ * an immediate's operand or an indexed load's first table byte. That claim
+ * is false. Applying exactly that rule with `HandlerWalk` reproduces 35 of
+ * the 98 values; 58 differ and 5 find no store at all, identically on all
+ * six carts in `test/roms/`. The table is curated, not extracted.
+ *
+ * Why it cannot be read live, in one line each, with the measurements and
+ * the worked examples in `docs/sprite-gfx-routine-reading.md` section 6:
+ * the first store a handler reaches is usually a shared OAM preamble and
+ * not the sprite's own; a table-sourced tile needs an animation index that
+ * lives in RAM; and which of several stores is the representative pose is
+ * a human choice. Picking only the ones that agree with this table would
+ * be calibration against the table itself.
  *
  * The base char drives a 16x16 SubSprGfx2-style layout (hardware large-tile
- * expansion to chars [N, N+1, N+$10, N+$11]). This is a faithful preview
- * for most sprites, but several have visually distinct layouts the loader
- * can't model without a full per-handler port — e.g. Banzai Bill (32x32),
- * Wiggler (multi-segment), Pokey (vertical stack). Those still appear as
- * a single 16x16 tile that matches one part of their full body.
+ * expansion to chars [N, N+1, N+$10, N+$11]). Several sprites have layouts
+ * this cannot model even on vanilla: Banzai Bill (32x32), Wiggler
+ * (multi-segment), Pokey (vertical stack) appear as one 16x16 tile matching
+ * part of their body.
  *
- * IDs 0xDA-0xDD are shell aliases (resolveShellAlias).
- * IDs in (0x54..0xC8) not listed here — and 0xC9..0xE7 (generators, scroll
- * sprites) — fall through to the anchor marker.
+ * IDs 0xDA-0xDD are shell aliases (resolveShellAlias). IDs in 0x54..0xC8
+ * not listed here, and 0xC9..0xE7 (generators, scroll sprites), fall
+ * through to the anchor marker.
+ *
+ * Method and the full per-id measurement: `docs/sprite-gfx-routine-reading.md`.
  */
 const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x54: 0x08,   // Climbing net door
@@ -274,9 +298,13 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
 
 /**
  * Override-table patches for sprites in the 0x00-0x53 range where the
- * SprTilemap default picks the wrong base tile (usually because the sprite
- * writes its own OAM after the generic draw). Rare — most sprites in this
- * range work fine via SprTilemap.
+ * SprTilemap default picks the wrong base tile, because the sprite writes
+ * its own OAM after the generic draw.
+ *
+ * FROZEN DERIVATION, one entry, for the same reason the 0x54-0xC8 table is
+ * frozen: the handler stores two immediates and choosing between them is a
+ * judgement about which pose to show. A hack that changes TorpedoGfxRt
+ * renders with $80 regardless.
  */
 const SPRITE_LOW_RANGE_OVERRIDES: Readonly<Record<number, number>> = {
   0x44: 0x80,   // Torpedo Ted — TorpedoGfxRt LDA #$80/#$82, bank_02.asm:7544
@@ -286,45 +314,59 @@ export const MAX_SPRITE_ID_WITH_LAYOUT = 0xC8
 
 /**
  * Tall (16x32) overrides for sprites whose handler builds OAM with exactly
- * two stacked 16×16 big-tiles (one column, two rows). Values derived from
- * the sprite's tile table in bank_02/bank_03.
+ * two stacked 16x16 big-tiles.
  *
- * Sprites removed because they are 2×2 WIDE (4 OBJ entries):
- *   $6E Dino Rhino  → SPRITE_WIDE_OVERRIDES (DinoRhinoTiles: $C0,$C2,$E4,$E6)
- *   $BF Mega Mole   → SPRITE_WIDE_OVERRIDES (MegaMoleTiles:  $C6,$C8,$E6,$E8)
+ * FROZEN DERIVATION, one entry. `RexGfxRt` (bank_03.asm:2884) uses none of
+ * the three shared draw routines, so the routine reader reports $AB as
+ * unreached and has nothing to contribute; the two tile numbers come from
+ * `RexTiles` (bank_03.asm:2877) read by hand at frame 0. A hack that
+ * changes Rex's tiles renders the vanilla ones.
+ *
+ * Sprites removed because they are 2x2 WIDE (4 OBJ entries):
+ *   $6E Dino Rhino  -> SPRITE_WIDE_OVERRIDES (DinoRhinoTiles: $C0,$C2,$E4,$E6)
+ *   $BF Mega Mole   -> SPRITE_WIDE_OVERRIDES (MegaMoleTiles:  $C6,$C8,$E6,$E8)
  *
  * Sprites removed because they use custom mixed-size OAM (base tile fallback):
- *   $6F Dino Torch   — 1 body + flame particles; BASE=$EA
- *   $71/$72/$73 Super Koopa — per-entry charHigh + vflip + FaceMario, handled in SpriteFactory
- *   $99 Volcano Lotus — handled in SpriteFactory (VolcanoLotusAppearance)
- *   $9A Sumo Brother  — 8×8 head + 16×16 body pairs; BASE=$98
- *   $9B Hammer Brother — mixed 8×8/16×16; BASE=$5A
+ *   $6F Dino Torch   - 1 body + flame particles; BASE=$EA
+ *   $71/$72/$73 Super Koopa - per-entry charHigh + vflip + FaceMario, handled in SpriteFactory
+ *   $99 Volcano Lotus - handled in SpriteFactory (VolcanoLotusAppearance)
+ *   $9A Sumo Brother  - 8x8 head + 16x16 body pairs; BASE=$98
+ *   $9B Hammer Brother - mixed 8x8/16x16; BASE=$5A
  */
 const SPRITE_TALL_OVERRIDES: Readonly<Record<number, { top: number; bottom: number }>> = {
   0xAB: { top: 0x8A, bottom: 0xAA },   // Rex — RexTiles bank_03.asm:2877
 }
 
 /**
- * Per-sprite-ID GFX-routine classification, derived from a static scan of
- * CallSpriteMain (bank_01.asm:898-1098) that follows each handler one level
- * into JSR targets to locate the first SubSprGfx call. The dominant routine
- * (SubSprGfx2, 16x16 big-tile) is the default, so only sprites that DIFFER
- * from it are listed here:
+ * Degradation floor for the GFX-routine classification.
  *
- *   'sub1'  SubSprGfx1  — 16x32, two stacked big-tiles (feet on anchor)
- *   'sub0'  SubSprGfx0  — four independent 8x8 chars in a 2x2 16x16 layout
+ * FROZEN DERIVATION, and deliberately kept at its full original size.
+ * `GfxRoutineReader` resolves 57 of the 84 ids below $54 from the open
+ * cart, and where it does the live answer wins. Where it does not, an id
+ * with no entry here silently becomes `sub2`, which is a 16x16 sprite
+ * where a 16x32 one belongs. Planting a `JMP (abs)` at $1A's handler entry
+ * on vanilla turns its layout from 32px and 8 tiles into 16px and 4, which
+ * is what removing an entry from this table buys.
  *
- * Sprites not listed fall through to the SubSprGfx2 default, which is
- * correct for Koopas, Goombas, Bob-omb, fish, power-ups, most Bank3
- * handlers via their shared `GenericSprGfxRt2` stub, and similar.
+ * So: live beats frozen when live has an answer, frozen beats nothing when
+ * it does not. Four of these are never reached live on any of the six
+ * carts in `test/roms/` and would be load-bearing today:
  *
- * Handlers that dispatch to bank_03 (Bnk3CallSprMain — 37 sprites, e.g.
- * Rex, Mega Mole, Blargg, Reznor) generally also end in SubSprGfx2 via
- * their bank_03 main routines, so leaving them as default reproduces the
- * correct 16x16 layout for most of them.
+ *   $1F Magikoopa, $4D and $4E Monty Mole - the handler calls through
+ *       `ExecutePtr` (bank_00.asm:847), which never returns, so the bytes
+ *       after the call are its argument table and the walk stops there
+ *   $27 Thwimp - no shared call found; the walk records a callDepth stop,
+ *       but depth 8 does not find one either
+ *
+ * The other 13 are reached live on all six carts and agree with the value
+ * here on all six, so they are dead weight until a cart breaks the walk.
+ * That is exactly when they matter.
+ *
+ * None of this tracks a cart. A hack that changes which routine one of the
+ * unresolved handlers calls renders with the vanilla layout and no warning.
  */
-const SPRITE_GFX_OVERRIDES: Readonly<Record<number, 'sub0' | 'sub1'>> = {
-  // SubSprGfx1 (16x32) — 11 sprites
+const SPRITE_GFX_OVERRIDES: Readonly<Record<number, GfxRoutine>> = {
+  // SubSprGfx1 (16x32)
   0x1A: 'sub1',   // Classic Piranha Plant
   0x1E: 'sub1',   // Lakitu
   0x1F: 'sub1',   // Magikoopa - unused: SpriteFactory intercepts $1F before buildSpriteLayout
@@ -336,7 +378,7 @@ const SPRITE_GFX_OVERRIDES: Readonly<Record<number, 'sub0' | 'sub1'>> = {
   0x41: 'sub1',   // Dolphin, horizontal
   0x42: 'sub1',   // Dolphin 2, horizontal
   0x43: 'sub1',   // Dolphin, vertical
-  // SubSprGfx0 (4 independent 8x8) — 6 sprites
+  // SubSprGfx0 (4 independent 8x8)
   0x14: 'sub0',   // Spiny, falling
   0x27: 'sub0',   // Thwimp
   0x2B: 'sub0',   // Sumo Brother's fire lightning
@@ -357,12 +399,24 @@ const SPRITE_GFX_OVERRIDES: Readonly<Record<number, 'sub0' | 'sub1'>> = {
  */
 
 /**
- * Wide (32×32) sprites whose handler writes 4 big-tiles in a 2×2 arrangement
- * rather than calling SubSprGfx. Each entry lists the 4 quadrant big-tiles:
- * baseTile=base OBJ char N (expands to [N, N+1, N+$10, N+$11]);
- * baseDx/baseDy=pixel offset of the quadrant's top-left corner in the atlas;
- * flipX=true means the SNES mirrors this quadrant horizontally (both the
- * corner order and each 8×8 tile are flipped).
+ * Wide (32x32) sprites whose handler writes 4 big-tiles in a 2x2
+ * arrangement rather than calling SubSprGfx. Each entry lists the 4
+ * quadrant big-tiles: baseTile=base OBJ char N (expands to
+ * [N, N+1, N+$10, N+$11]); baseDx/baseDy=pixel offset of the quadrant's
+ * top-left corner in the atlas; flipX=true means the SNES mirrors this
+ * quadrant horizontally (both the corner order and each 8x8 tile).
+ *
+ * FROZEN DERIVATION throughout. Every quadrant, offset and flip below was
+ * read by hand out of a per-sprite tile table and its displacement and
+ * property tables. Nothing here tracks the cart: a hack that edits any of
+ * those tables, or repoints the handler, renders the vanilla shape.
+ *
+ * It is frozen for a stronger reason than the base-tile table. The layout
+ * is spread across three or four parallel tables plus a loop whose trip
+ * count is in the code, so reading it live means an interpreter, not a
+ * walk. Most of these handlers also call no shared routine at all, though
+ * not all: $4F reaches both sub0 and sub2, which is why the routine reader
+ * lists it as ambiguous rather than unreached.
  *
  * Derived from ThwompGfx (bank_01.asm:6422):
  *   ThwompTiles:    db $8E,$8E,$AE,$AE
@@ -511,18 +565,20 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
 }
 
 /**
- * GeneralSprGfxProp group index (0-5) for sprites that call SubSprGfx0.
+ * Degradation floor for the `GeneralSprGfxProp` group index.
  *
- * SubSprGfx0Entry1 (bank_01.asm:3855) accepts A=_5, which selects row
- * `_5 * 4` in GeneralSprGfxProp. Each row has 4 bytes, one per corner
- * (TL/TR/BL/BR). Bit 6 = flipX, bit 7 = flipY.
+ * `SubSprGfx0Entry1` (bank_01.asm:3855) reads the accumulator as `_5` and
+ * selects row `_5 * 4` in `GeneralSprGfxProp`, four bytes, one per corner,
+ * bit 6 flipX and bit 7 flipY. Where the walk resolves a sprite to `sub0`
+ * it now also reads the `LDA #imm` immediately in front of the call, so
+ * the group comes off the cart.
  *
- * Verified from disassembly:
- *   0x14 SpinyEgg:          LDA #$02; JSR SubSprGfx0Entry0 (bank_01.asm:1813)
- *   0x2F Portable spring:   LDA #$02; JSR SubSprGfx0Entry1 (bank_01.asm:13884)
- *
- * Sprites absent from this table default to group 0 (no flips), which is
- * correct for sprite IDs whose _5 value hasn't been confirmed yet.
+ * FROZEN DERIVATION below, kept for the same reason as the routine floor:
+ * a cart the walk cannot read gets 0, which is "no flips" and wrong for a
+ * sprite that wanted 2. Measured on the five distinct carts in
+ * `test/roms/`, the live read gives $14 = 2, $2B = 0 and $2F = 2, which is
+ * exactly what this table plus the default already produced, so nothing
+ * renders differently today.
  */
 const SUB0_GFX_PROP_GROUP: Readonly<Record<number, number>> = {
   0x14: 2,   // SpinyEgg — bank_01.asm:1813
@@ -530,12 +586,15 @@ const SUB0_GFX_PROP_GROUP: Readonly<Record<number, number>> = {
 }
 
 /**
- * Sprites that route through Spr0to13Gfx (bank_01.asm:1762-1767) promote
- * to tall when Spr0to13Prop bit 6 is set. Direct callers of Spr0to13Start:
- * 0x04-0x07, 0x0C, 0x0F, 0x11, 0x13. Indirect callers that use their own
- * handlers then JMP Spr0to13Gfx: 0x08-0x09 (GreenParaKoopa), 0x0A-0x0B
- * (RedVertParaKoopa/RedHorzParaKoopa). Sprites 0x00-0x03 share the prop
- * table but use a different handler and stay 16x16.
+ * Fallback for the `Spr0to13Gfx` family when no cart was read.
+ *
+ * FROZEN DERIVATION, used only for synthetically built `SpriteTileTables`.
+ * When `tables.gfxRoutines` is present, `GfxRoutineReader` reads the same
+ * decision off the cart instead: it finds the `LDA Spr0to13Prop,Y : AND #$40
+ * : BNE` at bank_01.asm:1762-1765 and takes the table address, the mask and
+ * the branch polarity from the bytes, so a hack that moves the table or
+ * changes the bit is followed. The id list below is not; it was traced by
+ * hand and covers only ids seen calling into the family in vanilla.
  */
 function isSpr0to13TallSprite(tables: SpriteTileTables, spriteId: number): boolean {
   if (spriteId >= tables.spr0to13Prop.length) return false
@@ -544,10 +603,17 @@ function isSpr0to13TallSprite(tables: SpriteTileTables, spriteId: number): boole
   return (tables.spr0to13Prop[spriteId] & 0x40) !== 0
 }
 
-function spriteGfxRoutine(
-  tables: SpriteTileTables,
-  spriteId: number,
-): 'sub0' | 'sub1' | 'sub2' {
+/**
+ * The cart's answer first, the frozen residue second.
+ *
+ * Live beats frozen deliberately: where the two disagree the cart is right
+ * and the table is stale. They do not disagree on any of the six carts in
+ * `test/roms/`, which is what makes the swap safe to make now rather than a
+ * behaviour change dressed as a refactor.
+ */
+function spriteGfxRoutine(tables: SpriteTileTables, spriteId: number): GfxRoutine {
+  const live = decidedRoutine(tables.gfxRoutines?.get(spriteId))
+  if (live) return live
   const override = SPRITE_GFX_OVERRIDES[spriteId]
   if (override) return override
   if (isSpr0to13TallSprite(tables, spriteId)) return 'sub1'
@@ -862,7 +928,8 @@ export function buildSpriteLayout(
     // drawing state sets a non-zero SpriteMisc1602 ($4D ground Monty Mole)
     // or that animate across quads ($14 Spiny egg, via SetAnimationFrame)
     // need a dedicated multi-frame SpriteAppearance, not an entry here.
-    const propGroup = SUB0_GFX_PROP_GROUP[spriteId] ?? 0
+    const propGroup = decidedPropGroup(tables.gfxRoutines?.get(spriteId))
+      ?? SUB0_GFX_PROP_GROUP[spriteId] ?? 0
     return {
       spriteId,
       height: 16,

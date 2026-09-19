@@ -416,7 +416,16 @@ describe.skipIf(!romsPresent)('$1F Magikoopa, extra part and state-timer pose cy
  * and the $1F defect shipped with a green suite.
  */
 describe.skipIf(!romsPresent)('planted defects make the $1F oracles fail', () => {
-  const rom = () => RomFile.load(romPaths[0])
+  // One cart for the whole block, loaded LAZILY. `readAt` returns a copy
+  // rather than a window onto the buffer, so nothing here can mutate it for
+  // the next test, and reloading a 512 KB file per loop iteration made the
+  // countdown-length oracles time out.
+  //
+  // Lazy because `describe.skipIf` still runs this body when it skips the
+  // tests, so loading eagerly threw ENOENT at collection time on a runner
+  // with no cart.
+  let sharedRom: RomFile | null = null
+  const rom = (): RomFile => (sharedRom ??= RomFile.load(romPaths[0]))
   const FACING_LEFT = 0
   const wandOf = (d: SpriteDrawDescriptor, frame = 0) =>
     outside(drawAt(rom(), d, frame, FACING_LEFT).parts)[0]

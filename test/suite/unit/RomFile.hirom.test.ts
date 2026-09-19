@@ -201,3 +201,65 @@ describe('RomFile.readAtFileOffset', () => {
     expect(new RomFile('lo.smc', Buffer.alloc(8)).readAtFileOffset(4, 100)).toBeNull()
   })
 })
+
+/**
+ * A read must not hand back a window onto the ROM.
+ *
+ * `Buffer.prototype.slice` is `subarray`, so a `Buffer`-backed RomFile used
+ * to return a live view: writing through a read result changed the cart
+ * without moving `version`, and `readGfxRoutines` invalidates its per-cart
+ * cache on `version` alone. No caller does that, so these pin a latent hole
+ * shut rather than fixing a live bug. They also pin the two backings to the
+ * same behaviour: `Uint8Array.prototype.slice` already copied, so whether a
+ * read aliased depended on how the RomFile had been constructed.
+ */
+describe('RomFile reads are detached copies', () => {
+  const loromBuffer = () => {
+    const buf = Buffer.alloc(0x10000)
+    buf[0x7FD5] = 0x20
+    buf[0x0000] = 0x11
+    return buf
+  }
+
+  it('readAt does not alias a Buffer-backed cart', () => {
+    const buf = loromBuffer()
+    const rom = new RomFile('lo.smc', buf)
+    const read = rom.readAt(0x008000, 4)!
+    read[0] = 0x99
+    expect(rom.readByte(0x008000)).toBe(0x11)
+    expect(buf[0]).toBe(0x11)
+  })
+
+  it('readAt does not alias a Uint8Array-backed cart either', () => {
+    const bytes = new Uint8Array(loromBuffer())
+    const rom = RomFile.fromBytes('lo.smc', bytes)
+    const read = rom.readAt(0x008000, 4)!
+    read[0] = 0x99
+    expect(rom.readByte(0x008000)).toBe(0x11)
+  })
+
+  it('readAtFileOffset does not alias either', () => {
+    const buf = loromBuffer()
+    const rom = new RomFile('lo.smc', buf)
+    rom.readAtFileOffset(0, 4)![0] = 0x99
+    expect(buf[0]).toBe(0x11)
+  })
+
+  it('keeps a Buffer-backed read a Buffer, so readString still works', () => {
+    const buf = loromBuffer()
+    buf.write('HB', 0x10)
+    const rom = new RomFile('lo.smc', buf)
+    expect(Buffer.isBuffer(rom.readAt(0x008010, 2))).toBe(true)
+    expect(rom.readString(0x008010, 2)).toBe('HB')
+  })
+
+  it('leaves writeAt as the only versioned way to change the bytes', () => {
+    const rom = new RomFile('lo.smc', loromBuffer())
+    const before = rom.version
+    rom.readAt(0x008000, 4)![0] = 0x99
+    expect(rom.version).toBe(before)
+    rom.writeAt(0x008000, [0x22])
+    expect(rom.version).toBe(before + 1)
+    expect(rom.readByte(0x008000)).toBe(0x22)
+  })
+})
