@@ -97,15 +97,15 @@ function draw(d: Partial<SpriteDrawDescriptor>, opts: { spriteX?: number; romFra
 // ── Cadence ─────────────────────────────────────────────────────────────────
 
 describe('animation cadence is expressed in GAME frames', () => {
-  it('one editor tick is 7.5 game frames, not one', () => {
-    // SPRITE_ANIM_INTERVAL_MS = 125 in webview/mapEditor/main.ts, 60 fps.
+  it('one editor tick is 8 game frames, not one', () => {
+    // SetAnimationFrame's per-frame counter, SMWDisX bank_01.asm:2089-2096.
     // SpikeTopAppearance counts ANIM_TICKS = 8 in TICKS, which is this factor
     // too slow. The conversion must live in exactly one place.
-    // EXACTLY 7.5, not close to it. `toBeCloseTo(7.5, 10)` passed for the
-    // `125 / (1000 / 60)` form, which is 7.499999999999999, and that form's
-    // accumulated floor differs from this one's on 100 of the first 200 ticks.
-    // A tolerance here is a tolerance for the drift.
-    expect(ROM_FRAMES_PER_TICK).toBe(7.5)
+    // This was 7.5, back-derived from an uncited 125 ms editor interval;
+    // `tickAnimation` accumulated it while `frameIndexAt` floored the total,
+    // so the fraction drifted into the render. A whole number cannot.
+    expect(ROM_FRAMES_PER_TICK).toBe(8)
+    expect(Number.isInteger(ROM_FRAMES_PER_TICK)).toBe(true)
   })
 
   it('effFrame frame index is (romFrame >> shift) & mask', () => {
@@ -125,13 +125,13 @@ describe('animation cadence is expressed in GAME frames', () => {
     expect(animPeriodFrames({ kind: 'static' })).toBe(0)
   })
 
-  it('a 2-frame 32-frame-period animation advances in about 2 editor ticks', () => {
-    // Guards the tick/frame confusion directly: at 7.5 frames per tick, a
-    // shift-4 animation must change frame between tick 2 and tick 3, not
-    // after 8 ticks.
+  it('a 2-frame 32-frame-period animation advances in 2 editor ticks', () => {
+    // Guards the tick/frame confusion directly: at 8 frames per tick, a
+    // shift-4 animation must change frame on tick 2, not after 8 ticks.
     const anim = { kind: 'effFrame', shift: 4, mask: 1 } as const
-    expect(frameIndexAt(anim, 2 * ROM_FRAMES_PER_TICK)).toBe(0)   // 15.0
-    expect(frameIndexAt(anim, 3 * ROM_FRAMES_PER_TICK)).toBe(1)   // 22.5
+    expect(frameIndexAt(anim, 1 * ROM_FRAMES_PER_TICK)).toBe(0)   // 8
+    expect(frameIndexAt(anim, 2 * ROM_FRAMES_PER_TICK)).toBe(1)   // 16
+    expect(frameIndexAt(anim, 4 * ROM_FRAMES_PER_TICK)).toBe(0)   // 32, wraps
   })
 })
 

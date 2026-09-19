@@ -32,7 +32,7 @@ import {
   STATE2_MISC1602_VALUES,
   STATE2_TIMER_START,
 } from '../../../../src/rom/model/sprites/appearances/MagikoopaAppearance'
-import { ROM_FRAMES_PER_TICK } from '../../../../src/rom/model/sprites/appearances/frameCadence'
+import { SPRITE_ANIM_FRAME_STRIDE as ROM_FRAMES_PER_TICK } from '../../../../src/rom/timing'
 import type { Palette } from '../../../../src/rom/model/palette/Palette'
 import type { RenderTarget } from '../../../../src/rom/model/RenderTarget'
 import type { SpriteBehavior } from '../../../../src/rom/model/sprites/SpriteBehavior'
@@ -305,20 +305,23 @@ describe('MagikoopaAppearance animation', () => {
     expect([...counts].sort()).toEqual([8, 9])
   })
 
-  it('advances the ROM timer by exactly 7.5 game frames per tick', () => {
-    // 125 ms tick against the 60 Hz PPU. Asserted as an equality, not a
-    // tolerance: `125 / (1000 / 60)` evaluates to 7.499999999999999, which
-    // floors to a different ROM frame on half of all ticks.
-    expect(ROM_FRAMES_PER_TICK).toBe(7.5)
+  it('advances the ROM timer by exactly 8 game frames per tick', () => {
+    // SetAnimationFrame's per-frame counter, SMWDisX bank_01.asm:2089-2096.
+    // Was 7.5, back-derived from an uncited 125 ms editor interval; the
+    // shared frame clock realises 8 frames exactly at any refresh rate.
+    expect(ROM_FRAMES_PER_TICK).toBe(8)
   })
 
   it('walks the $70 countdown pose by pose, tick by tick', () => {
-    // floor(SpriteMisc1540) after k ticks from STATE2_TIMER_START, spelled
-    // out rather than recomputed from the cadence, so any other cadence
-    // fails here:
-    //   112, 104.5, 97, 89.5, 82, 74.5, 67, 59.5, 52, 44.5, 37, 29.5, 22,
-    //   14.5, 7, then -0.5 wraps by +$71 to 112.5.
-    const TIMERS   = [112, 104, 97, 89, 82, 74, 67, 59, 52, 44, 37, 29, 22, 14, 7, 112]
+    // floor(SpriteMisc1540) after k ticks from STATE2_TIMER_START at 8 per
+    // tick: 112 down to 0, then -8 wraps by +$71 to 105.
+    //
+    // NOTE: this list is pose-sensitive, not timer-sensitive. It passed
+    // unchanged when the cadence moved from 7.5 to 8, because
+    // misc1602ForTimer reads only two bits of the timer. The comment it
+    // replaced claimed "any other cadence fails here", which is false.
+    // Making it actually cadence-sensitive belongs with #327, not here.
+    const TIMERS   = [112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8, 0, 105]
     const EXPECTED = TIMERS.map(t => SIGNATURE[misc1602ForTimer(t)])
 
     const app   = build(false)
@@ -337,8 +340,8 @@ describe('MagikoopaAppearance animation', () => {
   })
 
   it('reaches the first cast pose on the 8th rendered frame', () => {
-    // `timer >> 6` drops from 1 to 0 at $3F; from $70 at 7.5 per tick that
-    // is tick 7 (59.5). A doubled cadence would reach it at tick 4.
+    // `timer >> 6` drops from 1 to 0 at $3F; from $70 at 8 per tick that is
+    // tick 7 (56). A doubled cadence would reach it at tick 3.
     const app   = build(false)
     const store = stubMapStore()
     let firstCast = -1

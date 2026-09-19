@@ -8,7 +8,7 @@ import type { SpriteTileTables } from '../../../SpriteTileLoader'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
-import { ROM_FRAMES_PER_TICK } from './frameCadence'
+import { SPRITE_ANIM_FRAME_STRIDE as ROM_FRAMES_PER_TICK } from '../../../timing'
 import {
   MAGIKOOPA_PALS,
   compositeDynPalRow,

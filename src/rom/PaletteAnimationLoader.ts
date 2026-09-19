@@ -26,6 +26,7 @@
 
 import { RomFile } from './RomFile'
 import { bgr555ToRgba } from './GraphicsDecoder'
+import { framesToMs } from './timing'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -35,7 +36,8 @@ export const PAL_ANIM_FRAME_COUNT = 8
  * Milliseconds per palette animation phase.
  * EffFrame bits 2-4 change every 4 game frames → 4 / 60.098 ≈ 66 ms.
  */
-export const PAL_ANIM_INTERVAL_MS = Math.round((4 / 60.098) * 1000)
+export const PAL_ANIM_FRAME_STRIDE = 4
+export const PAL_ANIM_INTERVAL_MS = Math.round(framesToMs(PAL_ANIM_FRAME_STRIDE))
 
 /**
  * Level NMI: CGRAM $64 = row 6 col 4 (StandardColors row 2, col 4).
