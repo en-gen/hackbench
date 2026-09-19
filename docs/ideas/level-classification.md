@@ -134,6 +134,75 @@ are 4 MB and need the expanded addressing fix first.
 Detection is a single byte: `$05D8B1` holds `$22` (JSL) in a patched ROM and
 `$F0` (BEQ) in a stock one.
 
+### Resolved: does Map16 tile `$5A` ever start a map?
+
+No. The count is 77 entry maps, not 79, and slots `$016` and `$108` are
+correctly excluded. This decided a dispute that ran two review rounds, so the
+evidence is recorded here rather than left in a code comment.
+
+All figures below are read from `Super Mario World (USA).vanilla.sfc`, one
+cart, this revision, plus the identical headered copy. The four carts with a
+rebuilt overworld fail closed before any of this runs and are not oracles for
+it; their swap tables were read anyway and all four still pair `$5A -> $5F`.
+
+Every pristine `$5A` tile, its buffer index in `OWL1TileData`, and the two
+independent per-position tables that both call it a star-warp node:
+
+| buf | half | (x,y) | translevel | slot | `DATA_04D85D` event(s) | warp SRC | warp DST | slot L1 is real |
+|-----|------|-------|-----------|------|------------------------|----------|----------|-----------------|
+| `$1F0` | 0 | (16,15) | `$12` | `$012` | 96 | 16 | 17 | no, filler |
+| `$227` | 0 | (7,18) | `$16` | `$016` | 19 | 6 | 13 | yes, shared with `$015`/`$017` |
+| `$304` | 0 | (20,16) | `$1E` | `$01E` | 53 | 18 | 19 | no, filler |
+| `$4E0` | 1 | (0,14) | `$2C` | `$108` | 30, 81, 82 | 14 | 15 | yes, unique pointer |
+| `$534` | 1 | (20,3) | `$30` | `$10C` | 63, 90, 91 | 25 | 21 | no, filler |
+| `$711` | 1 | (17,17) | `$48` | `$124` | 108 | 24 | none | no, filler |
+| `$787` | 1 | (23,24) | `$55` | `$131` | 94 | 22 | 23 | no, filler |
+
+"warp SRC" is the index into `DATA_048431` / `DATA_048467` (`bank_04.asm:491`,
+`:500`) whose submap and tile position equal this tile's. Those are the tables
+`CODE_048509` (`bank_04.asm:527`) searches, and it is only called from the
+`$5F` branch and the `$82`/`$5B` branch of `OWPU_ABXY` (`bank_04.asm:1756`,
+`:1773`). "warp DST" is the index into `DATA_04849D` / `DATA_0484D3`
+(`bank_04.asm:509`, `:518`) that lands on this tile, decoded per
+`CODE_04853B` (`bank_04.asm:554-581`).
+
+The `$711` gap in the DST column is the whole reason an earlier review read
+this as "six of seven". It is not a seventh tile that behaves differently.
+All 27 warp entries account for exactly:
+
+- 12 entries on `$82` pipe tiles, in 6 reciprocal pairs;
+- 13 entries on the 7 `$5A` and 6 `$5F` tiles, in 6 reciprocal pairs plus
+  entry 24, whose reciprocal is entry 26;
+- entries 20 and 26, whose source positions hold tiles `$00` and `$56`. Those
+  are the two tiles the disabled debug warp at `bank_04.asm:1732-1735` tested
+  for, which the `BRA +` at `:1730` skips. Entry 26 is therefore dead, which
+  is what leaves entry 24 one-way and `$711` with no live destination.
+
+So the source table covers 7 of 7, not 6 of 7, and the destination table is
+the weaker oracle: `OWPU_ABXY` never consults it.
+
+What the cart does not settle: whether every one of those events is actually
+triggered in normal play. Event activation lives in save state, not in ROM, so
+a static read cannot prove a `$5A` is always swapped before a player reaches
+it. The answer does not depend on that, because 5 of the 7 slots a `$5A` tile
+would name hold this cart's filler L1 pointer, against 2 of the 79 tiles that
+do start a map. A cart does not put 5 of 7 level entrances on empty slots.
+
+The two slots that would flip the count if the rule were wrong:
+
+- `$016` is byte-identical to `$015` on all three pointers: L1 `$0691E5`, L2
+  `$FFDE54`, sprite `$C6D5`. Checked on all three deliberately, because the
+  Tier 1 notes above warn that L1-only dedup merges slots that really differ
+  (`$017` shares the same L1 and sprite pointers but has its own L2). `$016`
+  holds no distinct level data.
+- `$108` does hold a unique L1 pointer and is an orphaned map under this rule.
+  `buildLevelExitGraph` reports no screen exit reaching it, but that graph is
+  the broken one described under Tier 3, so treat that as weak.
+
+Both are endpoints of fully reciprocal star-warp pairs (6 with 13, and 14 with
+15), which makes them the two least likely `$5A` tiles to be level entrances,
+not the most likely.
+
 ## Tier 3: Sub-areas
 
 Requires the exit graph, which is currently broken: `buildLevelExitGraph`
