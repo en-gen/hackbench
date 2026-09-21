@@ -9,6 +9,7 @@
  *   - UploadGFXFile: lines 5401-5478 (per-file upload with 3bpp->4bpp conversion)
  *   - PrepareGraphicsFile: lines 6571-6591 (LC_LZ2 decompression)
  *   - CODE_00A993: lines 5287-5317 (Layer 3 GFX, 2bpp format)
+ *   - LoadCredits: lines 2463-2479 (credits letters, 2bpp format)
  *   - GfxBppConvertFlag: line 5431 (controls 3bpp->4bpp conversion for GFX01/GFX17)
  *   - DATA_00A9D2/DATA_00A9D6: lines 5320-5323 (VRAM upload addresses)
  *
@@ -17,13 +18,14 @@
  *   For our purposes, we infer from decompressed data size:
  *     - 3bpp = 24 bytes/tile (standard ROM format for all vanilla GFX)
  *     - 4bpp = 32 bytes/tile (Lunar Magic export format)
- *     - 2bpp = 16 bytes/tile (Layer 3 GFX: GFX28-GFX2B)
+ *     - 2bpp = 16 bytes/tile (Layer 3 GFX, and the credits letters)
  */
 
 import * as fs from 'fs'
 import * as path from 'path'
 import { RomFile } from './RomFile'
-import { decode4bpp, decode3bpp, decode2bpp, PIXELS_PER_TILE } from './GraphicsDecoder'
+import { COPIER_HEADER_SIZE } from './addressing'
+import { decodeTilesBatch, PIXELS_PER_TILE } from './GraphicsDecoder'
 import { decompress } from './LcLz2'
 import { hex2 } from './hex'
 
@@ -62,6 +64,158 @@ export function getLayer3GfxRange(rom: RomFile): { start: number; end: number } 
 // bank_00.asm line 5407: LDY #$31 (special world variant)
 // bank_00.asm lines 5426-5431: GfxBppConvertFlag set for Y=$01 or Y=$17
 export const GFX_MARIO_3BPP_INDEX = 32 // 0x20 hex
+
+// ── Credits-letters GFX (2BPP) - LoadCredits (bank_00.asm lines 2463-2479) ──
+// LoadCredits decompresses one GFX file and copies it word-for-word into BG3
+// character space with no 3→4bpp expansion, the same shape as CODE_00A993.
+// BG3 characters are 2BPP, so that file is 2BPP - size inference alone calls
+// the vanilla $400 bytes 4BPP because they divide evenly by 32.
+//
+// Matched as a byte pattern so a relocated routine still resolves, with the
+// file index, VRAM destination and word count read from their operands. Two
+// matches, a missing BG3 base, or a destination outside BG3 character space
+// all mean we cannot say which file is 2BPP, and we say nothing rather than
+// fall back to the vanilla $2F. The pattern pins the copy loop and its branch
+// displacement, so a hack that rewrites LoadCredits to mean the same thing by
+// other instructions scores zero matches and turns the 2BPP reading off. That
+// is the intended direction to fail in: the file then renders under size
+// inference, as it did before this resolver existed.
+const WILD = -1
+
+const LOAD_CREDITS_PATTERN = [
+  0xa0,
+  WILD, // LDY #fileIndex
+  0x22,
+  WILD,
+  WILD,
+  WILD, // JSL PrepareGraphicsFile
+  0xa9,
+  0x80,
+  0x8d,
+  0x15,
+  0x21, // LDA #$80 / STA HW_VMAINC
+  0xc2,
+  0x30, // REP #$30
+  0xa9,
+  WILD,
+  WILD, // LDA #VRam_CreditsLetters
+  0x8d,
+  0x16,
+  0x21, // STA HW_VMADD
+  0xa2,
+  WILD,
+  WILD, // LDX #decompressedSize/2
+  0xa7,
+  0x00, // LDA [GraphicsCompPtr]
+  0x8d,
+  0x18,
+  0x21, // STA HW_VMDATA
+  0xe6,
+  0x00,
+  0xe6,
+  0x00, // INC / INC
+  0xca,
+  0xd0,
+  0xf4, // DEX / BNE -
+]
+const CREDITS_FILE_INDEX_OFF = 1
+const CREDITS_VRAM_DEST_OFF = 14
+const CREDITS_WORD_COUNT_OFF = 20
+
+// HW_BG34NBA ($00210C) bits 0-3 hold the BG3 character base in $1000-word
+// steps (hardware_registers.asm lines 155-163). SMW writes it as an immediate
+// (bank_00.asm lines 1276-1277); $04 puts BG3 characters at word $4000.
+const BG34NBA_PATTERN = [0xa9, WILD, 0x8d, 0x0c, 0x21]
+const BG3_CHAR_BASE_STEP = 0x1000 // words per nibble step
+const BG3_CHAR_WINDOW = 0x2000 // words: 1024 characters x 8 words
+const WORDS_PER_2BPP_CHAR = 8
+
+const BYTES_PER_2BPP_TILE = 16
+const BYTES_PER_3BPP_TILE = 24
+const BYTES_PER_4BPP_TILE = 32
+
+/** Where LoadCredits sends one GFX file, as read from its operands. */
+export interface CreditsGfxFile {
+  /** GFX file index from the LDY immediate. */
+  fileIndex: number
+  /** Decompressed length: the LDX word count x 2. Kept as the self-check
+   *  that the copy is a whole number of 2BPP characters. */
+  byteLength: number
+}
+
+// Two full-buffer scans per call, and loadVram resolves eight slots per level
+// load. Keyed on RomFile.version, which every writeAt bumps - a write made
+// directly through RomFile.buffer would not (see RomFile.ts), so patch paths
+// must build a new RomFile rather than mutate one in place, which is what
+// MapEditorProvider and EditSession already do.
+const _creditsCache = new WeakMap<RomFile, { version: number; result: CreditsGfxFile | null }>()
+
+/** File offsets of every match for `pattern`; WILD matches any byte. */
+function scanPattern(rom: RomFile, pattern: number[]): number[] {
+  const buf = rom.buffer
+  const start = rom.hasHeader ? COPIER_HEADER_SIZE : 0
+  const last = start + rom.romSize - pattern.length
+  const hits: number[] = []
+  for (let i = start; i <= last; i++) {
+    if (buf[i] !== pattern[0]) continue
+    let ok = true
+    for (let j = 1; j < pattern.length; j++) {
+      if (pattern[j] !== WILD && buf[i + j] !== pattern[j]) {
+        ok = false
+        break
+      }
+    }
+    if (ok) hits.push(i)
+  }
+  return hits
+}
+
+/** BG3 character base in VRAM words, or null if the $210C writes are absent
+ *  or disagree - either way we cannot place the credits copy. */
+function readBg3CharBase(rom: RomFile): number | null {
+  const hits = scanPattern(rom, BG34NBA_PATTERN)
+  if (hits.length === 0) return null
+  const nibble = rom.buffer[hits[0] + 1] & 0x0f
+  for (const at of hits) {
+    if ((rom.buffer[at + 1] & 0x0f) !== nibble) return null
+  }
+  return nibble * BG3_CHAR_BASE_STEP
+}
+
+/** Resolve the credits-letters GFX file, or null when the ROM does not say. */
+export function findCreditsGfxFile(rom: RomFile): CreditsGfxFile | null {
+  const cached = _creditsCache.get(rom)
+  if (cached && cached.version === rom.version) return cached.result
+  const result = _findCreditsGfxFile(rom)
+  _creditsCache.set(rom, { version: rom.version, result })
+  return result
+}
+
+function _findCreditsGfxFile(rom: RomFile): CreditsGfxFile | null {
+  const hits = scanPattern(rom, LOAD_CREDITS_PATTERN)
+  if (hits.length !== 1) return null // 0 = replaced, >1 = which one runs?
+
+  const buf = rom.buffer
+  const at = hits[0]
+  const read16 = (off: number): number => buf[at + off] | (buf[at + off + 1] << 8)
+  const fileIndex = buf[at + CREDITS_FILE_INDEX_OFF]
+  const vramDest = read16(CREDITS_VRAM_DEST_OFF)
+  const byteLength = read16(CREDITS_WORD_COUNT_OFF) * 2
+
+  const bg3Base = readBg3CharBase(rom)
+  if (bg3Base === null) return null
+
+  // Outside BG3 character space the copy is not BG3 characters at all, and
+  // a destination that lands mid-character means the routine is doing
+  // something other than what we read it as. Either way, refuse.
+  const offsetWords = vramDest - bg3Base
+  if (offsetWords < 0 || offsetWords >= BG3_CHAR_WINDOW) return null
+  if (offsetWords % WORDS_PER_2BPP_CHAR !== 0) return null
+  if (byteLength === 0 || byteLength % BYTES_PER_2BPP_TILE !== 0) return null
+  if (fileIndex >= GFX_FILE_COUNT) return null
+
+  return { fileIndex, byteLength }
+}
 
 // GFX20/GFX21 are static, always loaded into AN2/BG1
 // bank_00.asm line 6247-6248: dl GFX33&$7FFFFF / dl GFX32&$7FFFFF
@@ -163,13 +317,8 @@ export function loadGfxFileBin(binDir: string, fileIndex: number): GfxSheet | nu
   } catch {
     return null
   }
-  if (data.length === 0 || data.length % 32 !== 0) return null
-  const count = data.length / 32
-  const sheet: GfxSheet = []
-  for (let t = 0; t < count; t++) {
-    sheet.push(decode4bpp(data, t * 32))
-  }
-  return sheet
+  if (data.length === 0 || data.length % BYTES_PER_4BPP_TILE !== 0) return null
+  return decodeTilesBatch(data, 4)
 }
 
 // ── Core loader ──────────────────────────────────────────────────────────────
@@ -201,59 +350,39 @@ export function loadGfxRaw(rom: RomFile, fileIndex: number): Uint8Array {
 }
 
 /**
- * Load and decode a single GFX file by index.
+ * BPP for one GFX file.
  *
- * BPP inference from decompressed size:
- *   - Check 3bpp first (24 bytes/tile): standard ROM format
- *     3072 bytes = 128 tiles x 24 = 3bpp (would wrongly match 32 since 3072/32=96)
- *   - Then 2bpp (16 bytes/tile): Layer 3 GFX (GFX28-GFX2B)
- *     2048 bytes = 128 tiles x 16 = 2bpp
- *   - Then 4bpp (32 bytes/tile): LM exports or hacks
+ * The game picks BPP by calling context, so we resolve the two routines that
+ * upload a file verbatim - CODE_00A993 for Layer 3 and LoadCredits for the
+ * credits letters - and treat everything else the way UploadGFXFile does,
+ * as 3BPP, falling back to 4BPP for the LM export format. Size alone cannot
+ * separate 2BPP from 4BPP: both divide 1024.
  *
- * The game uses calling context to determine BPP:
- *   - CODE_00A993: Layer 3 files → 2BPP (file range read from ROM)
- *   - UploadGFXFile: all others → 3BPP (with 3→4 conversion to VRAM)
- * We read the L3 file range from CODE_00A993 operands, then fall back
- * to size-based inference for non-L3 files.
+ * Returns null when the length fits no tile size.
  */
+export function inferGfxBpp(rom: RomFile, fileIndex: number, byteLength: number): 2 | 3 | 4 | null {
+  if (byteLength === 0) return null
+
+  const l3 = getLayer3GfxRange(rom)
+  const credits = findCreditsGfxFile(rom)
+  const isRawUpload =
+    (fileIndex >= l3.start && fileIndex <= l3.end) || credits?.fileIndex === fileIndex
+  if (isRawUpload && byteLength % BYTES_PER_2BPP_TILE === 0) return 2
+
+  // 3BPP first: 3072 divides by 32 as well, and ROM data is 3BPP.
+  if (byteLength % BYTES_PER_3BPP_TILE === 0) return 3
+  if (byteLength % BYTES_PER_4BPP_TILE === 0) return 4
+  return null
+}
+
+/** Load and decode a single GFX file by index. */
 export function loadGfxFile(rom: RomFile, fileIndex: number): GfxSheet {
   if (fileIndex >= GFX_FILE_COUNT) return _emptySheet(GFX_TILES)
 
   const data = loadGfxRaw(rom, fileIndex)
-  if (data.length === 0) return _emptySheet(GFX_TILES)
-
-  // Layer 3 files are always 2BPP - range read from CODE_00A993 operands
-  const l3 = getLayer3GfxRange(rom)
-  if (fileIndex >= l3.start && fileIndex <= l3.end && data.length % 16 === 0) {
-    const count = data.length / 16
-    const sheet: GfxSheet = []
-    for (let t = 0; t < count; t++) sheet.push(decode2bpp(data, t * 16))
-    return sheet
-  }
-
-  // Check 3bpp BEFORE 4bpp (3072 is divisible by both 24 and 32)
-  if (data.length % 24 === 0 && data.length % 32 !== 0) {
-    const count = data.length / 24
-    const sheet: GfxSheet = []
-    for (let t = 0; t < count; t++) sheet.push(decode3bpp(data, t * 24))
-    return sheet
-  }
-  // Standard: could be either 3bpp or 4bpp when divisible by both
-  if (data.length % 24 === 0) {
-    // Prefer 3bpp for ROM data (all vanilla SMW GFX are 3bpp in ROM)
-    const count = data.length / 24
-    const sheet: GfxSheet = []
-    for (let t = 0; t < count; t++) sheet.push(decode3bpp(data, t * 24))
-    return sheet
-  }
-  if (data.length % 32 === 0) {
-    const count = data.length / 32
-    const sheet: GfxSheet = []
-    for (let t = 0; t < count; t++) sheet.push(decode4bpp(data, t * 32))
-    return sheet
-  }
-
-  return _emptySheet(GFX_TILES)
+  const bpp = inferGfxBpp(rom, fileIndex, data.length)
+  if (bpp === null) return _emptySheet(GFX_TILES)
+  return decodeTilesBatch(data, bpp)
 }
 
 function _emptySheet(tileCount: number): GfxSheet {
