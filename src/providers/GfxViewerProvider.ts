@@ -20,7 +20,7 @@ import {
   GFX_MARIO_3BPP_INDEX,
   loadGfxFile,
   loadGfxRaw,
-  getLayer3GfxRange,
+  inferGfxBpp,
 } from '../rom/GfxLoader'
 import {
   loadRomPalettes,
@@ -154,16 +154,12 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
         // Raw decompressed bytes - sent so the webview can re-decode client-side
         // when the user toggles the 3bpp / 4bpp selector.
         rawBytes: Array.from(rawBytes),
-        // Determine BPP: Layer 3 files (from CODE_00A993) are always 2BPP,
-        // others use size-based inference (3BPP preferred for vanilla ROM).
-        defaultBpp: (() => {
-          const l3 = getLayer3GfxRange(rom.rom)
-          if (gfxIndex >= l3.start && gfxIndex <= l3.end) return 2
-          const n = rawBytes.length
-          if (n % 24 === 0) return 3
-          if (n % 32 === 0) return 4
-          return 3
-        })() as 2 | 3 | 4,
+        // Same resolution loadGfxFile used for tilePixels above, so the
+        // selector opens on the format the sheet was decoded with. The one
+        // exception is a length that fits no tile size: loadGfxFile returns an
+        // empty sheet and this falls back to 3, so the webview's client-side
+        // re-decode of rawBytes is what the user actually sees.
+        defaultBpp: inferGfxBpp(rom.rom, gfxIndex, rawBytes.length) ?? 3,
       })
     } catch (err) {
       postWebviewError(webview, err)

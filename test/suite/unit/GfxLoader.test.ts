@@ -17,6 +17,7 @@ import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   loadGfxRaw,
   loadGfxFile,
+  findCreditsGfxFile,
   readGfxAssignment,
   GFX_FILE_COUNT,
 } from '../../../src/rom/GfxLoader'
@@ -47,6 +48,16 @@ describe.skipIf(!romPresent)('GfxLoader (ROM-only)', () => {
     for (const tile of sheet) {
       expect(tile.length).toBe(64)
     }
+  })
+
+  it('resolves the credits letters to GFX $2F, $400 bytes = 64 2BPP chars', () => {
+    const rom = SmwRom.open(ROM_PATH)
+    expect(findCreditsGfxFile(rom.rom)).toEqual({ fileIndex: 0x2f, byteLength: 0x400 })
+  })
+
+  it('decodes GFX $2F as 64 2BPP tiles, not 32 4BPP tiles', () => {
+    const rom = SmwRom.open(ROM_PATH)
+    expect(loadGfxFile(rom.rom, 0x2f).length).toBe(64)
   })
 
   it('readGfxAssignment returns valid file indices for level $104', () => {

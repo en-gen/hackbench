@@ -24,6 +24,8 @@ import {
   isFilterSomeRamFile,
   applyFilterSomeRamTransform,
   getLayer3GfxRange,
+  findCreditsGfxFile,
+  inferGfxBpp,
   loadL3Chars,
   gfxBinPath,
 } from '../../../src/rom/GfxLoader'
@@ -107,6 +109,221 @@ describe('loadGfxRaw', () => {
   })
 })
 
+/**
+ * The bytes of a LoadCredits-shaped routine (bank_00.asm:2463-2479):
+ *
+ *   LDY #fileIndex / JSL PrepareGraphicsFile
+ *   LDA #$80 / STA $2115 / REP #$30
+ *   LDA #vramDest / STA $2116 / LDX #words
+ * - LDA [_0] / STA $2118 / INC _0 / INC _0 / DEX / BNE -
+ *
+ * Every operand is a parameter so the tests can prove the loader reads them
+ * instead of hardcoding the vanilla values.
+ */
+function creditsBytes(
+  opts: { fileIndex?: number; vramDest?: number; words?: number } = {},
+): number[] {
+  const { fileIndex = 0x2f, vramDest = 0x4600, words = 0x200 } = opts
+  const lo = (w: number): number => w & 0xff
+  const hi = (w: number): number => (w >> 8) & 0xff
+  return [
+    0xa0,
+    fileIndex,
+    0x22,
+    0x28,
+    0xba,
+    0x00,
+    0xa9,
+    0x80,
+    0x8d,
+    0x15,
+    0x21,
+    0xc2,
+    0x30,
+    0xa9,
+    lo(vramDest),
+    hi(vramDest),
+    0x8d,
+    0x16,
+    0x21,
+    0xa2,
+    lo(words),
+    hi(words),
+    0xa7,
+    0x00,
+    0x8d,
+    0x18,
+    0x21,
+    0xe6,
+    0x00,
+    0xe6,
+    0x00,
+    0xca,
+    0xd0,
+    0xf4,
+  ]
+}
+
+function writeLoadCredits(
+  rom: RomFile,
+  snesAddr: number,
+  opts: { fileIndex?: number; vramDest?: number; words?: number } = {},
+): void {
+  rom.writeAt(snesAddr, creditsBytes(opts))
+}
+
+/** LDA #imm / STA HW_BG34NBA ($210C) - bank_00.asm:1276-1277. */
+function writeBg34Nba(rom: RomFile, snesAddr: number, imm = 0x04): void {
+  rom.writeAt(snesAddr, [0xa9, imm, 0x8d, 0x0c, 0x21])
+}
+
+/** A 4MB ROM carrying the vanilla credits-load shape at its vanilla address. */
+function makeCreditsRom(): RomFile {
+  const rom = make4MbRom()
+  writeBg34Nba(rom, 0x008a93)
+  writeLoadCredits(rom, 0x00955e)
+  return rom
+}
+
+// ── findCreditsGfxFile ────────────────────────────────────────────────────
+
+describe('findCreditsGfxFile', () => {
+  it('reads the file index, byte length and BG3 char from the operands', () => {
+    expect(findCreditsGfxFile(makeCreditsRom())).toEqual({
+      fileIndex: 0x2f,
+      byteLength: 0x400, // $4600 is BG3 char $C0; $400 bytes is 64 of them
+    })
+  })
+
+  it('reads a file index other than the vanilla $2F', () => {
+    const rom = make4MbRom()
+    writeBg34Nba(rom, 0x008a93)
+    writeLoadCredits(rom, 0x00955e, { fileIndex: 0x1a })
+    expect(findCreditsGfxFile(rom)?.fileIndex).toBe(0x1a)
+  })
+
+  it('returns null when the file index is past the pointer table', () => {
+    const rom = make4MbRom()
+    writeBg34Nba(rom, 0x008a93)
+    writeLoadCredits(rom, 0x00955e, { fileIndex: GFX_FILE_COUNT })
+    expect(findCreditsGfxFile(rom)).toBeNull()
+  })
+
+  it('finds the routine after it has been relocated', () => {
+    const rom = make4MbRom()
+    writeBg34Nba(rom, 0x008a93)
+    writeLoadCredits(rom, 0x1f8000, { fileIndex: 0x30, words: 0x100 })
+    expect(findCreditsGfxFile(rom)).toEqual({ fileIndex: 0x30, byteLength: 0x200 })
+  })
+
+  it('returns null when the routine is absent', () => {
+    const rom = make4MbRom()
+    writeBg34Nba(rom, 0x008a93)
+    expect(findCreditsGfxFile(rom)).toBeNull()
+  })
+
+  it('returns null when two copies match - which one runs is unknowable', () => {
+    const rom = makeCreditsRom()
+    writeLoadCredits(rom, 0x1f8000, { fileIndex: 0x31 })
+    expect(findCreditsGfxFile(rom)).toBeNull()
+  })
+
+  it('returns null when no BG34NBA write is found', () => {
+    const rom = make4MbRom()
+    writeLoadCredits(rom, 0x00955e)
+    expect(findCreditsGfxFile(rom)).toBeNull()
+  })
+
+  it('accepts several BG34NBA writes that agree on the BG3 base', () => {
+    const rom = makeCreditsRom()
+    writeBg34Nba(rom, 0x1fa464, 0x04) // patch bank rewrites the same value
+    expect(findCreditsGfxFile(rom)?.fileIndex).toBe(0x2f)
+  })
+
+  it('ignores the BG4 nibble in the BG34NBA immediate', () => {
+    const rom = makeCreditsRom()
+    rom.writeAt(0x008a93, [0xa9, 0x44, 0x8d, 0x0c, 0x21]) // BG4=$4, BG3=$4
+    expect(findCreditsGfxFile(rom)?.fileIndex).toBe(0x2f)
+  })
+
+  it('returns null when BG34NBA writes disagree on the BG3 base', () => {
+    const rom = makeCreditsRom()
+    writeBg34Nba(rom, 0x1fa464, 0x06)
+    expect(findCreditsGfxFile(rom)).toBeNull()
+  })
+
+  it('returns null when the copy lands outside BG3 char space', () => {
+    const rom = make4MbRom()
+    writeBg34Nba(rom, 0x008a93) // BG3 chars at word $4000-$5FFF
+    writeLoadCredits(rom, 0x00955e, { vramDest: 0x1000 })
+    expect(findCreditsGfxFile(rom)).toBeNull()
+  })
+
+  it('returns null when the copy lands past the end of BG3 char space', () => {
+    const rom = make4MbRom()
+    writeBg34Nba(rom, 0x008a93) // BG3 chars span words $4000-$5FFF
+    writeLoadCredits(rom, 0x00955e, { vramDest: 0x7000 })
+    expect(findCreditsGfxFile(rom)).toBeNull()
+  })
+
+  it('returns null when the copy lands mid-char', () => {
+    const rom = make4MbRom()
+    writeBg34Nba(rom, 0x008a93)
+    writeLoadCredits(rom, 0x00955e, { vramDest: 0x4604 }) // not 8-word aligned
+    expect(findCreditsGfxFile(rom)).toBeNull()
+  })
+
+  it('returns null when the copy length is zero', () => {
+    const rom = make4MbRom()
+    writeBg34Nba(rom, 0x008a93)
+    writeLoadCredits(rom, 0x00955e, { words: 0 })
+    expect(findCreditsGfxFile(rom)).toBeNull()
+  })
+
+  it('returns null when the byte length is not a whole number of 2BPP chars', () => {
+    const rom = make4MbRom()
+    writeBg34Nba(rom, 0x008a93)
+    writeLoadCredits(rom, 0x00955e, { words: 0x201 }) // 1026 bytes
+    expect(findCreditsGfxFile(rom)).toBeNull()
+  })
+})
+
+describe('findCreditsGfxFile - scan bounds', () => {
+  it('does not scan the copier header', () => {
+    const data = Buffer.alloc(0x400000, 0x00)
+    data[0x7fd5] = 0x20
+    const rom = new RomFile('headered.smc', Buffer.concat([Buffer.alloc(512, 0xff), data]))
+    expect(rom.hasHeader).toBe(true)
+    writeBg34Nba(rom, 0x008a93)
+    writeLoadCredits(rom, 0x00955e)
+    // The 512-byte header is copier metadata, not code. A matching run of
+    // bytes inside it would look like a second copy of the routine and turn
+    // the resolver off, so the scan has to start past it.
+    rom.buffer.set(creditsBytes({ fileIndex: 0x10 }), 0x40)
+    expect(findCreditsGfxFile(rom)).toEqual({ fileIndex: 0x2f, byteLength: 0x400 })
+  })
+
+  it('matches a pattern that ends on the very last ROM byte', () => {
+    const rom = make4MbRom()
+    writeBg34Nba(rom, 0x008a93)
+    // File offset $3FFFDE is the last start that still fits the 34-byte
+    // pattern, reached through the $80-$FF mirror because bank $7F is WRAM.
+    // An off-by-one scan bound misses it silently.
+    writeLoadCredits(rom, 0xffffde)
+    expect(findCreditsGfxFile(rom)?.fileIndex).toBe(0x2f)
+  })
+})
+
+// ── inferGfxBpp ───────────────────────────────────────────────────────────
+
+describe('inferGfxBpp', () => {
+  it('reports 2BPP for the credits file instead of 4BPP', () => {
+    // 1024 bytes is divisible by 32, so size alone infers 4BPP (32 tiles).
+    expect(inferGfxBpp(makeCreditsRom(), 0x2f, 0x400)).toBe(2)
+    expect(inferGfxBpp(make4MbRom(), 0x2f, 0x400)).toBe(4)
+  })
+})
+
 // ── loadGfxFile BPP inference ────────────────────────────────────────────────
 
 describe('loadGfxFile - BPP inference', () => {
@@ -162,6 +379,12 @@ describe('loadGfxFile - BPP inference', () => {
     setupGfx(rom, 1, lz2ByteFill(32, 0x33))
     const sheet = loadGfxFile(rom, 1)
     expect(sheet.length).toBe(1)
+  })
+
+  it('decodes the credits GFX file as 2BPP (64 tiles), not 4BPP (32 tiles)', () => {
+    const rom = makeCreditsRom()
+    setupGfx(rom, 0x2f, lz2ByteFill(0x400, 0x5a))
+    expect(loadGfxFile(rom, 0x2f).length).toBe(64)
   })
 
   it('returns empty sheet when length is divisible by neither 24 nor 32', () => {
