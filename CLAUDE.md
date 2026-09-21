@@ -8,8 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Branch strategy
 
-- `main` - do not commit here directly
-- `develop` - integration base; all PRs target here
+- `main` - reserved for releases. Sits at the repo's initial commit
+  `afbc580` and has received nothing since. Never commit or PR here;
+  it moves only when a release is cut from `develop`.
+- `develop` - default branch and integration base; all PRs target here
 - `feature/*` - branch off `develop`, one concern per branch
 - After merging a PR: `git checkout develop && git pull origin develop && git checkout -b feature/<next>`
 

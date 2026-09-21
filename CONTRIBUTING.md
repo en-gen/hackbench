@@ -49,8 +49,10 @@ npx vitest run test/suite/unit/GraphicsDecoder.test.ts
 
 ## Branch strategy
 
-- `main` - do not commit directly.
-- `develop` - integration base. **All PRs target `develop`.**
+- `main` - reserved for releases, and empty until the first one. Do not
+  commit or open PRs against it.
+- `develop` - default branch and integration base. **All PRs target
+  `develop`.**
 - `feature/<short-slug>` - one concern per branch, off `develop`.
 
 After your PR merges:
