@@ -77,16 +77,17 @@ are especially welcome - see
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) - extension host, providers,
-  webviews, message protocol
 - [ROM format reference](docs/smw-rom-format.md) - LoROM addressing,
   pointer tables, Map16, GFX files
-- [Roadmap](docs/roadmap.md) - planned features and milestones
+- [Roadmap](https://github.com/en-gen/hackbench/milestones) - planned
+  features, tracked as GitHub milestones
 - [Testing guide](docs/testing.md) - test layout, ROM-legality policy,
   how to run richer local tests with your own ROM
 - [Contributing](CONTRIBUTING.md) - dev setup, branch strategy, PR
   checklist
 - [Code of conduct](CODE_OF_CONDUCT.md)
+- [External references](docs/references.md) - published SNES and SMW
+  documentation this project relies on
 - [Security policy](SECURITY.md)
 
 ## License

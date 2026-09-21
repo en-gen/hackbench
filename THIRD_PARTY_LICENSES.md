@@ -49,3 +49,15 @@ All development dependencies listed in `package.json` under
 consumed only at build time and are not redistributed as part of the
 packaged extension. Their licenses are available under their respective
 entries in `node_modules/`.
+
+---
+
+## Documentation sources
+
+HackBench's `docs/` folder contains HackBench's own writing: derivations
+traced against the cart, design proposals, and records of what the code
+does. It does not reproduce third-party documentation.
+
+The published SNES and SMW references this project relies on are listed,
+with links, in [docs/references.md](./docs/references.md). Those works
+remain under their authors' terms and are not redistributed here.

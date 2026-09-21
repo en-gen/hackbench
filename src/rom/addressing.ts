@@ -5,8 +5,10 @@
  * $00-$7D/$80-$FF. Excludes banks $00-$3F/$80-$BF at addr < $8000
  * (registers/WRAM mirror) and banks $7E-$7F (WRAM; A23 does not gate
  * /WRAMSEL, so their $FE/$FF mirror is real ROM). Ceiling: 4MB (128
- * banks x 32KB) - see docs/snes-hardware-reference.md, sections 2-3, for
- * the hardware citations, the WRAM-pinout detail, and the 4MB limitation.
+ * banks x 32KB). For the hardware citations, the WRAM-pinout detail
+ * and the 4MB limitation see Copetti, Super Nintendo Architecture
+ * (copetti.org/writings/consoles/super-nintendo/), indexed in
+ * docs/references.md.
  */
 
 import { hex6 } from './hex'
