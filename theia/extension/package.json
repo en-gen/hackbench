@@ -1,0 +1,35 @@
+{
+  "name": "hackbench-theia-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HackBench as a Theia extension: the SMW editor shell.",
+  "dependencies": {
+    "@theia/core": "1.75.0",
+    "@theia/filesystem": "1.75.0",
+    "@theia/workspace": "1.75.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.4.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0"
+  },
+  "main": "lib/theia/extension/src/common/index.js",
+  "files": [
+    "lib",
+    "src"
+  ],
+  "scripts": {
+    "prepare": "yarn build",
+    "build": "tsc -p .",
+    "watch": "tsc -w -p ."
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/theia/extension/src/browser/hackbench-frontend-module",
+      "backend": "lib/theia/extension/src/node/hackbench-backend-module"
+    }
+  ],
+  "keywords": [
+    "theia-extension"
+  ]
+}

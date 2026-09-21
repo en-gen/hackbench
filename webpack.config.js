@@ -258,4 +258,26 @@ const overworldViewerWebviewConfig = {
   devtool: 'nosources-source-map'
 }
 
-module.exports = [extensionConfig, mapEditorWebviewConfig, paletteEditorWebviewConfig, gfxViewerWebviewConfig, musicPlayerWebviewConfig, levelGraphWebviewConfig, tilesetCompareWebviewConfig, romMapWebviewConfig, overworldViewerWebviewConfig]
+/** @type {import('webpack').Configuration} */
+const emulatorPreviewWebviewConfig = {
+  target: 'web',
+  mode: 'none',
+  entry: './src/webview/emulatorPreview/main.ts',
+  output: {
+    path: path.resolve(__dirname, 'dist/webview'),
+    filename: 'emulatorPreview.js'
+  },
+  resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        exclude: /node_modules/,
+        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } }
+      }
+    ]
+  },
+  devtool: 'nosources-source-map'
+}
+
+module.exports = [extensionConfig, mapEditorWebviewConfig, paletteEditorWebviewConfig, gfxViewerWebviewConfig, musicPlayerWebviewConfig, levelGraphWebviewConfig, tilesetCompareWebviewConfig, romMapWebviewConfig, overworldViewerWebviewConfig, emulatorPreviewWebviewConfig]

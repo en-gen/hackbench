@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Map16 palette</title>
+<style>
+  :root{--bg:#1e1e1e;--panel:#252526;--line:#3c3c3c;--fg:#ccc;--muted:#888;
+        --pri:#e0443e;--sec:#4ea1ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:13px system-ui,sans-serif}
+  header{padding:8px 12px;border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  .pill{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:3px 8px}
+  button{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:4px 10px;cursor:pointer}
+  button:hover{border-color:#666}
+  button.tool.on{background:#37373d;color:#fff}
+  main{display:flex;gap:12px;padding:12px;align-items:flex-start;flex-wrap:wrap}
+  .col{display:flex;flex-direction:column;gap:6px}
+  .label{color:var(--muted);font-size:12px}
+  canvas{image-rendering:pixelated;display:block}
+  #pal,#map{background:#000;border:1px solid var(--line);cursor:crosshair}
+  .scroll{max-height:420px;overflow:auto;border:1px solid var(--line)}
+  .swatches{display:flex;align-items:center;gap:10px}
+  .stack{position:relative;width:62px;height:62px}
+  .chip{position:absolute;width:40px;height:40px;background:#000;border:2px solid var(--line)}
+  .chip canvas{width:36px;height:36px}
+  #chipSec{right:0;bottom:0;border-color:var(--sec)}
+  #chipPri{left:0;top:0;border-color:var(--pri);z-index:2}
+  .legend{display:flex;flex-direction:column;gap:2px;font-size:12px}
+  .key{display:inline-block;width:8px;height:8px;margin-right:6px;vertical-align:1px}
+</style></head><body>
+<header>
+  <strong>Map16 palette</strong>
+  <span class="pill" id="lvl">level</span>
+  <span class="pill">graphics from emulator VRAM + CGRAM</span>
+  <button id="swap">swap (x)</button>
+  <button id="clear">clear map</button>
+  <span class="label" id="help">click paints primary, shift secondary, alt picks (alt on an empty cell loads empty). drag a tile edge to repeat along that row or column. ctrl+drag selects; then drag the selection to move it or its edges to resize the group, delete clears, esc drops.</span>
+</header>
+<main>
+  <div class="col">
+    <div class="swatches">
+      <div class="stack">
+        <div class="chip" id="chipSec"><canvas id="cSec" width="16" height="16"></canvas></div>
+        <div class="chip" id="chipPri"><canvas id="cPri" width="16" height="16"></canvas></div>
+      </div>
+      <div class="legend">
+        <span><i class="key" style="background:var(--pri)"></i>primary <b id="pid">$000</b></span>
+        <span><i class="key" style="background:var(--sec)"></i>secondary <b id="sid">empty</b></span>
+      </div>
+      <div class="col" style="gap:3px">
+        <canvas id="cEmpty" width="16" height="16" title="click for primary, shift+click for secondary"
+                style="width:28px;height:28px;border:1px solid var(--line);cursor:pointer"></canvas>
+        <span class="label" style="font-size:11px">empty</span>
+      </div>
+    </div>
+    <div class="label">tiles, click sets primary, shift+click sets secondary</div>
+    <div class="scroll"><canvas id="pal" width="256" height="512"></canvas></div>
+  </div>
+  <div class="col">
+    <div class="label">map</div>
+    <canvas id="map" width="512" height="448"></canvas>
+    <div class="label" id="hint">&nbsp;</div>
+  </div>
+</main>
+<script>
+const SHEET_COLS = 16, TILE = 16, PZ = 1, MZ = 2;
+const MAP_COLS = 16, MAP_ROWS = 14;
+const EMPTY = -1;
+
+const img = new Image();
+img.src = "data:image/png;base64,__B64__";
+
+const pal = document.getElementById('pal'), pctx = pal.getContext('2d');
+const map = document.getElementById('map'), mctx = map.getContext('2d');
+const cPri = document.getElementById('cPri').getContext('2d');
+const cSec = document.getElementById('cSec').getContext('2d');
+const emptySwatch = document.getElementById('cEmpty');
+const pidOut = document.getElementById('pid'), sidOut = document.getElementById('sid');
+const hint = document.getElementById('hint');
+
+let primary = 0, secondary = EMPTY, painting = 0;
+let selection = null;      // { x0, x1, y0, y1 } in cells, or null
+let marquee = null;        // { ax, ay } while dragging one out
+let selDrag = null;        // { snapshot, ax, ay, sel } while moving a selection
+const grid = new Int16Array(MAP_COLS * MAP_ROWS).fill(EMPTY);
+
+const srcOf = id => [(id % SHEET_COLS) * TILE, Math.floor(id / SHEET_COLS) * TILE];
+const hex3 = n => n === EMPTY ? 'empty' : '$' + n.toString(16).toUpperCase().padStart(3,'0');
+
+function drawChip(ctx, id){
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0,0,TILE,TILE);
+  if(id === EMPTY){
+    ctx.fillStyle = '#111'; ctx.fillRect(0,0,TILE,TILE);
+    ctx.strokeStyle = '#555'; ctx.beginPath();
+    ctx.moveTo(2,2); ctx.lineTo(TILE-2,TILE-2); ctx.moveTo(TILE-2,2); ctx.lineTo(2,TILE-2); ctx.stroke();
+    return;
+  }
+  const [sx,sy] = srcOf(id);
+  ctx.drawImage(img, sx, sy, TILE, TILE, 0, 0, TILE, TILE);
+}
+
+function outline(ctx, id, colour, zoom){
+  if(id === EMPTY) return;
+  const [sx,sy] = srcOf(id);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#000';
+  ctx.strokeRect(sx*zoom - 1, sy*zoom - 1, TILE*zoom + 2, TILE*zoom + 2);
+  ctx.strokeStyle = colour;
+  ctx.strokeRect(sx*zoom + 1, sy*zoom + 1, TILE*zoom - 2, TILE*zoom - 2);
+  ctx.lineWidth = 1;
+}
+
+function drawPalette(){
+  pctx.imageSmoothingEnabled = false;
+  pctx.clearRect(0,0,pal.width,pal.height);
+  pctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, img.width*PZ, img.height*PZ);
+  pctx.strokeStyle = 'rgba(255,255,255,.08)';
+  for(let x=0;x<=SHEET_COLS;x++){ pctx.beginPath(); pctx.moveTo(x*TILE*PZ+.5,0); pctx.lineTo(x*TILE*PZ+.5,pal.height); pctx.stroke(); }
+  const rows = img.height / TILE;
+  for(let y=0;y<=rows;y++){ pctx.beginPath(); pctx.moveTo(0,y*TILE*PZ+.5); pctx.lineTo(pal.width,y*TILE*PZ+.5); pctx.stroke(); }
+  outline(pctx, secondary, getComputedStyle(document.documentElement).getPropertyValue('--sec').trim(), PZ);
+  outline(pctx, primary, getComputedStyle(document.documentElement).getPropertyValue('--pri').trim(), PZ);
+}
+
+function drawMap(){
+  mctx.imageSmoothingEnabled = false;
+  mctx.fillStyle = '#000'; mctx.fillRect(0,0,map.width,map.height);
+  for(let i=0;i<grid.length;i++){
+    const id = grid[i]; if(id === EMPTY) continue;
+    const [sx,sy] = srcOf(id);
+    mctx.drawImage(img, sx, sy, TILE, TILE,
+      (i % MAP_COLS)*TILE*MZ, Math.floor(i / MAP_COLS)*TILE*MZ, TILE*MZ, TILE*MZ);
+  }
+  mctx.strokeStyle = 'rgba(255,255,255,.07)';
+  for(let x=0;x<=MAP_COLS;x++){ mctx.beginPath(); mctx.moveTo(x*TILE*MZ+.5,0); mctx.lineTo(x*TILE*MZ+.5,map.height); mctx.stroke(); }
+  for(let y=0;y<=MAP_ROWS;y++){ mctx.beginPath(); mctx.moveTo(0,y*TILE*MZ+.5); mctx.lineTo(map.width,y*TILE*MZ+.5); mctx.stroke(); }
+  if(selection){
+    const { x0,x1,y0,y1 } = selection;
+    const X = x0*TILE*MZ, Y = y0*TILE*MZ;
+    const W = (x1-x0+1)*TILE*MZ, H = (y1-y0+1)*TILE*MZ;
+    mctx.save();
+    mctx.setLineDash([5,4]);
+    mctx.strokeStyle = '#000'; mctx.lineWidth = 3; mctx.strokeRect(X+.5, Y+.5, W-1, H-1);
+    mctx.strokeStyle = '#fff'; mctx.lineWidth = 1; mctx.strokeRect(X+.5, Y+.5, W-1, H-1);
+    mctx.restore();
+  }
+}
+
+/**
+ * An explicit way back to "empty".
+ *
+ * Both slots start able to hold EMPTY, but once a real tile is loaded into
+ * one there was no gesture that could put EMPTY back, so erasing became
+ * impossible after the first secondary pick. Empty is treated as just another
+ * swatch, which keeps one mechanic instead of adding an eraser mode.
+ */
+emptySwatch.addEventListener('click', e => {
+  if(e.shiftKey) secondary = EMPTY; else primary = EMPTY;
+  refresh();
+});
+
+function refresh(){
+  pidOut.textContent = hex3(primary);
+  sidOut.textContent = hex3(secondary);
+  drawChip(cPri, primary); drawChip(cSec, secondary);
+  drawChip(emptySwatch.getContext('2d'), EMPTY);
+  drawPalette();
+}
+
+function palPick(e){
+  const r = pal.getBoundingClientRect();
+  const cx = Math.floor((e.clientX - r.left) / (TILE*PZ));
+  const cy = Math.floor((e.clientY - r.top) / (TILE*PZ));
+  const id = cy * SHEET_COLS + cx;
+  if(id < 0 || id >= (img.height/TILE) * SHEET_COLS) return;
+  // Right click is deliberately NOT bound. It is reserved for a context menu
+  // (tile properties, acts-like, jump to the Map16 editor), which a level
+  // editor needs and MS Paint never did. Shift carries secondary instead.
+  if(e.button !== 0) return;
+  if(e.shiftKey) secondary = id; else primary = id;
+  refresh();
+}
+pal.addEventListener('mousedown', palPick);
+
+function cellAt(e){
+  const r = map.getBoundingClientRect();
+  const cx = Math.floor((e.clientX - r.left) / (TILE*MZ));
+  const cy = Math.floor((e.clientY - r.top) / (TILE*MZ));
+  if(cx < 0 || cy < 0 || cx >= MAP_COLS || cy >= MAP_ROWS) return null;
+  return { cx, cy, i: cy*MAP_COLS + cx, px: e.clientX - r.left, py: e.clientY - r.top };
+}
+
+const at = (x,y) => grid[y*MAP_COLS + x];
+const clamp = (v,lo,hi) => v < lo ? lo : v > hi ? hi : v;
+
+const EDGE_PX = 7;    // how close to a cell boundary counts as a handle
+const CORNER_PX = 4;  // tighter, so a corner has to be a real corner
+
+/** Handle for one specific cell, or null if the point is not near its edges. */
+function handleOfCell(cx, cy, px, py){
+  if(cx < 0 || cy < 0 || cx >= MAP_COLS || cy >= MAP_ROWS) return null;
+  if(at(cx, cy) === EMPTY) return null;
+  const L = cx*TILE*MZ, R = (cx+1)*TILE*MZ, T = cy*TILE*MZ, B = (cy+1)*TILE*MZ;
+  // INSIDE the cell only. An outward band means the empty cell next to a
+  // painted one is covered by that tile's handle, so clicking to paint
+  // alongside something grabs its edge instead. Painting has to win on empty
+  // ground; a handle is something you reach into a tile for.
+  if(px < L || px > R || py < T || py > B) return null;
+  const dT = Math.abs(py - T), dB = Math.abs(py - B);
+  const dL = Math.abs(px - L), dR = Math.abs(px - R);
+  const dv = Math.min(dT, dB), dh = Math.min(dL, dR);
+  const v = dv > EDGE_PX ? '' : (dT <= dB ? 'n' : 's');
+  const h = dh > EDGE_PX ? '' : (dL <= dR ? 'w' : 'e');
+  if(v && h){
+    if(dv <= CORNER_PX && dh <= CORNER_PX) return v + h;
+    return dv < dh ? v : h;
+  }
+  // A cell's INTERIOR is not a handle. It used to report 'move', which since
+  // ctrl stopped gating it meant every click on a painted tile started a drag
+  // instead of painting over it. Moving is a selection operation now.
+  return v || h || null;
+}
+
+/**
+ * Which handle the cursor is over, and which cell it is anchored to.
+ *
+ * The band is inward-only (see handleOfCell), so the cell under the cursor is
+ * the only candidate: a point can no longer be in a neighbour's band.
+ *
+ * Note what this does NOT do: it does not look for a group. Grouping comes
+ * from a selection the user drew, in the select tool. Growing a rectangle
+ * outwards while tile ids match would merge two ledges that happen to touch,
+ * cannot describe an L shape, and gives a different answer depending on which
+ * cell you approach from.
+ */
+function handleAt(c){
+  const h = handleOfCell(c.cx, c.cy, c.px, c.py);
+  return h ? { handle: h, ax: c.cx, ay: c.cy } : null;
+}
+
+const CURSOR = { n:'ns-resize', s:'ns-resize', e:'ew-resize', w:'ew-resize',
+                 nw:'nwse-resize', se:'nwse-resize', ne:'nesw-resize', sw:'nesw-resize' };
+
+let drag = null;   // { id, handle, snapshot, ax, ay }
+
+function fillRect(id, x0, x1, y0, y1){
+  for(let y = clamp(y0,0,MAP_ROWS-1); y <= clamp(y1,0,MAP_ROWS-1); y++)
+    for(let x = clamp(x0,0,MAP_COLS-1); x <= clamp(x1,0,MAP_COLS-1); x++)
+      grid[y*MAP_COLS + x] = id;
+}
+
+/**
+ * Extend the anchored tile along the dragged axis.
+ *
+ * An edge handle spans ONE row or ONE column from the anchor. A corner spans
+ * both, which is the one that turns a platform into a single gesture. Dragging
+ * back past the anchor collapses the span rather than painting backwards.
+ *
+ * Each frame is applied to a SNAPSHOT taken at mousedown, never to the
+ * previous frame, or dragging inwards would leave a trail of the tile behind.
+ */
+function applyDrag(c){
+  grid.set(drag.snapshot);
+  const { id, handle: h, ax, ay } = drag;   // h is always an edge or corner
+
+  const horiz = h.includes('e') || h.includes('w');
+  const vert  = h.includes('n') || h.includes('s');
+  const x0 = horiz ? Math.min(ax, c.cx) : ax;
+  const x1 = horiz ? Math.max(ax, c.cx) : ax;
+  const y0 = vert  ? Math.min(ay, c.cy) : ay;
+  const y1 = vert  ? Math.max(ay, c.cy) : ay;
+  fillRect(id, x0, x1, y0, y1);
+  hint.textContent = (x1-x0+1) + ' x ' + (y1-y0+1) + '  ' + hex3(id);
+  drawMap();
+}
+
+function paintAt(e, useSecondary){
+  const c = cellAt(e);
+  if(!c) return;
+  grid[c.i] = useSecondary ? secondary : primary;
+  drawMap();
+  hint.textContent = 'col ' + c.cx + ', row ' + c.cy + '  ' + hex3(grid[c.i]);
+}
+
+/** Alt+click lifts the tile under the cursor into primary, as paint apps do. */
+function pickAt(e){
+  const c = cellAt(e);
+  if(!c) return;
+  // Picks EMPTY too, which is a second route back to the eraser.
+  primary = grid[c.i];
+  refresh();
+  hint.textContent = 'picked ' + hex3(primary);
+}
+
+const inSel = (cx,cy) => selection && cx>=selection.x0 && cx<=selection.x1
+                                  && cy>=selection.y0 && cy<=selection.y1;
+
+function rectOf(ax, ay, bx, by){
+  return { x0: Math.min(ax,bx), x1: Math.max(ax,bx),
+           y0: Math.min(ay,by), y1: Math.max(ay,by) };
+}
+
+/** Clear every cell inside the selection. */
+function deleteSelection(){
+  if(!selection) return;
+  fillRect(EMPTY, selection.x0, selection.x1, selection.y0, selection.y1);
+  drawMap();
+  hint.textContent = 'deleted ' + ((selection.x1-selection.x0+1)*(selection.y1-selection.y0+1)) + ' tiles';
+}
+
+/** Move the selected block, applied to a snapshot so it leaves no trail. */
+function moveSelection(c){
+  grid.set(selDrag.snapshot);
+  const s0 = selDrag.sel;
+  const dx = c.cx - selDrag.ax, dy = c.cy - selDrag.ay;
+  const lifted = [];
+  for(let y=s0.y0; y<=s0.y1; y++) for(let x=s0.x0; x<=s0.x1; x++)
+    lifted.push([x-s0.x0, y-s0.y0, grid[y*MAP_COLS+x]]);
+  fillRect(EMPTY, s0.x0, s0.x1, s0.y0, s0.y1);
+  for(const [ox,oy,id] of lifted){
+    const nx = s0.x0+dx+ox, ny = s0.y0+dy+oy;
+    if(nx<0||ny<0||nx>=MAP_COLS||ny>=MAP_ROWS) continue;
+    grid[ny*MAP_COLS+nx] = id;
+  }
+  selection = { x0:s0.x0+dx, x1:s0.x1+dx, y0:s0.y0+dy, y1:s0.y1+dy };
+  drawMap();
+}
+
+/** Handle on the SELECTION's bounds, using the same thresholds as a cell. */
+function selHandleAt(c){
+  if(!selection) return null;
+  const L = selection.x0*TILE*MZ, R = (selection.x1+1)*TILE*MZ;
+  const T = selection.y0*TILE*MZ, B = (selection.y1+1)*TILE*MZ;
+  // Inside the selection only, so a click just outside starts a new marquee
+  // rather than resizing the old selection.
+  if(c.px < L || c.px > R || c.py < T || c.py > B) return null;
+  const dT = Math.abs(c.py-T), dB = Math.abs(c.py-B), dL = Math.abs(c.px-L), dR = Math.abs(c.px-R);
+  const dv = Math.min(dT,dB), dh = Math.min(dL,dR);
+  const v = dv > EDGE_PX ? '' : (dT <= dB ? 'n' : 's');
+  const h = dh > EDGE_PX ? '' : (dL <= dR ? 'w' : 'e');
+  if(v && h){
+    if(dv <= CORNER_PX && dh <= CORNER_PX) return v + h;
+    return dv < dh ? v : h;
+  }
+  return v || h || null;   // interior is move, handled by the caller
+}
+
+let selResize = null;  // { snapshot, handle, sel, pattern, pw, ph }
+
+/**
+ * Resize a SELECTION, tiling its contents to fill.
+ *
+ * This is the grouping the earlier region-inference was reaching for, except
+ * the group is one the user drew rather than one guessed from tile adjacency.
+ * Because the extent is known, shrinking works too: the removed area is
+ * cleared rather than left behind.
+ *
+ * The pattern is phase-locked to the ORIGINAL selection's top-left, so growing
+ * in any direction continues the pattern instead of re-aligning it, and tiles
+ * already on screen do not shift under the cursor.
+ */
+function resizeSelection(c){
+  grid.set(selResize.snapshot);
+  const { handle: h, sel: s0, pattern, pw, ph } = selResize;
+  let { x0, x1, y0, y1 } = s0;
+  if(h.includes('e')) x1 = clamp(c.cx, x0, MAP_COLS-1);
+  if(h.includes('w')) x0 = clamp(c.cx, 0, x1);
+  if(h.includes('s')) y1 = clamp(c.cy, y0, MAP_ROWS-1);
+  if(h.includes('n')) y0 = clamp(c.cy, 0, y1);
+
+  fillRect(EMPTY, s0.x0, s0.x1, s0.y0, s0.y1);
+  for(let y = y0; y <= y1; y++){
+    for(let x = x0; x <= x1; x++){
+      const px = (((x - s0.x0) % pw) + pw) % pw;
+      const py = (((y - s0.y0) % ph) + ph) % ph;
+      grid[y*MAP_COLS + x] = pattern[py*pw + px];
+    }
+  }
+  selection = { x0, x1, y0, y1 };
+  hint.textContent = (x1-x0+1) + ' x ' + (y1-y0+1) + '  tiled from ' + pw + ' x ' + ph;
+  drawMap();
+}
+
+/** The cursor for a given cell. */
+function cursorFor(c){
+  if(!c) return 'crosshair';
+  if(selection){
+    const sh = selHandleAt(c);
+    if(sh) return CURSOR[sh];
+    if(inSel(c.cx, c.cy)) return 'move';
+  }
+  const hit = handleAt(c);
+  return hit ? CURSOR[hit.handle] : 'crosshair';
+}
+
+map.addEventListener('mousemove', e => {
+  const c = cellAt(e);
+  if(!c){ map.style.cursor = 'crosshair'; return; }
+
+  if(selResize){ resizeSelection(c); return; }
+  if(selDrag){ moveSelection(c); return; }
+  if(marquee){
+    selection = rectOf(marquee.ax, marquee.ay, c.cx, c.cy);
+    hint.textContent = (selection.x1-selection.x0+1)+' x '+(selection.y1-selection.y0+1)+' selected';
+    drawMap();
+    return;
+  }
+  if(drag){ applyDrag(c); return; }
+  if(painting){ paintAt(e, painting === 2); return; }
+
+  if(e.ctrlKey){ map.style.cursor = 'crosshair'; return; }
+  map.style.cursor = cursorFor(c);
+});
+
+map.addEventListener('mousedown', e => {
+  if(e.button !== 0) return;          // right click stays free for a menu
+  const c = cellAt(e);
+  if(!c) return;
+
+  // Ctrl starts a selection, which is the one gesture that has no other
+  // meaning on a paint canvas. It replaces the tool mode this had before.
+  if(e.ctrlKey){
+    e.preventDefault();
+    marquee = { ax: c.cx, ay: c.cy };
+    selection = rectOf(c.cx, c.cy, c.cx, c.cy);
+    drawMap();
+    return;
+  }
+
+  // A live selection owns its own bounds: edges resize the group, the inside
+  // moves it. Anywhere else drops it and goes back to painting.
+  if(e.altKey){ e.preventDefault(); pickAt(e); return; }
+
+  if(selection){
+    const sh = selHandleAt(c);
+    if(sh){
+      e.preventDefault();
+      const pw = selection.x1-selection.x0+1, ph = selection.y1-selection.y0+1;
+      const pattern = new Int16Array(pw*ph);
+      for(let y=0;y<ph;y++) for(let x=0;x<pw;x++)
+        pattern[y*pw+x] = grid[(selection.y0+y)*MAP_COLS + selection.x0+x];
+      selResize = { snapshot: Int16Array.from(grid), handle: sh,
+                    sel: { ...selection }, pattern, pw, ph };
+      return;
+    }
+    if(inSel(c.cx, c.cy)){
+      e.preventDefault();
+      selDrag = { snapshot: Int16Array.from(grid), ax: c.cx, ay: c.cy, sel: { ...selection } };
+      return;
+    }
+    selection = null;
+    drawMap();
+  }
+
+  const hit = handleAt(c);
+  if(hit && !e.altKey){
+    e.preventDefault();
+    drag = { id: at(hit.ax, hit.ay), handle: hit.handle,
+             snapshot: Int16Array.from(grid), ax: hit.ax, ay: hit.ay };
+    return;
+  }
+  painting = e.shiftKey ? 2 : 1;
+  paintAt(e, e.shiftKey);
+});
+
+window.addEventListener('mouseup', () => { painting = 0; drag = null; marquee = null; selDrag = null; selResize = null; });
+
+document.getElementById('swap').addEventListener('click', () => {
+  const t = primary; primary = secondary; secondary = t; refresh();
+});
+document.getElementById('clear').addEventListener('click', () => { grid.fill(EMPTY); drawMap(); });
+window.addEventListener('keydown', e => {
+  if(e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if(k === 'x'){ const t = primary; primary = secondary; secondary = t; refresh(); return; }
+  if(k === 'escape'){ selection = null; drawMap(); return; }
+  if((e.key === 'Delete' || e.key === 'Backspace') && selection){
+    e.preventDefault(); deleteSelection(); return;
+  }
+});
+
+window.__t = { grid, get primary(){ return primary; }, get secondary(){ return secondary; },
+               get selection(){ return selection; },
+               handleAt, selHandleAt, cellAt, deleteSelection };
+
+img.onload = () => {
+  pal.width = SHEET_COLS*TILE*PZ; pal.height = img.height*PZ;
+  refresh(); drawMap();
+};
+</script></body></html>

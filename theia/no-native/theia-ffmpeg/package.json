@@ -1,0 +1,7 @@
+{
+  "name": "@theia/ffmpeg",
+  "version": "1.75.0",
+  "description": "Replacement for @theia/ffmpeg. See ../README.md.",
+  "main": "index.js",
+  "license": "EPL-2.0"
+}

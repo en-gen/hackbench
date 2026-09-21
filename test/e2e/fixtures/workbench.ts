@@ -35,6 +35,8 @@ const VSCODE_CACHE = path.join(REPO_ROOT, '.vscode-test')
 export interface Workbench {
   app: ElectronApplication
   win: Page
+  /** The temp dirs backing this launch -- e.g. so a test can drop a file next to the ROM. */
+  dirs: { userDataDir: string, extensionsDir: string, workspaceDir: string }
 }
 
 /** The map editor's document, two frames below the workbench. */
@@ -128,7 +130,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
     if (ROM_PATH) await openRom(win)
 
-    await use({ app, win })
+    await use({ app, win, dirs })
 
     await app.close()
     removeWorkspace(dirs)
@@ -184,6 +186,11 @@ export async function openRom(win: Page): Promise<void> {
   // and "Open ROM…" is simply absent. Asserting the item is there before
   // clicking turns that into a retry instead of a 20-second timeout.
   await expect(async () => {
+    // Clear any overlay left behind by a previous attempt. Without this a
+    // single stuck context menu makes every retry fail identically, since its
+    // context-view-block swallows the clicks below -- the retry loop then just
+    // reproduces the same failure until the outer timeout.
+    await win.keyboard.press('Escape')
     await romRow.click()
     await romRow.click({ button: 'right' })
     // Click the menu item, not the label span inside it: VS Code binds
@@ -192,6 +199,14 @@ export async function openRom(win: Page): Promise<void> {
     const item = win.getByRole('menuitem', { name: /Open ROM/i }).first()
     await item.waitFor({ state: 'visible', timeout: 10_000 })
     await item.click({ timeout: 10_000 })
+
+    // The menu's context-view overlay can outlive the click that activated it,
+    // and while it is up its context-view-block swallows every later click --
+    // including the activity-bar one below, which is where this used to hang
+    // until the outer timeout. Wait for it to go, and push it if it lingers.
+    await win.locator('.context-view').first()
+      .waitFor({ state: 'hidden', timeout: 5_000 })
+      .catch(async () => { await win.keyboard.press('Escape') })
 
     // Reveal the view by clicking its activity-bar entry, not through the
     // palette, which does not reliably take focus after a menu dismissal.

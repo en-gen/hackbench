@@ -2,7 +2,11 @@
   "compilerOptions": {
     "module": "commonjs",
     "target": "ES2020",
-    "lib": ["ES2020"],
+    // lib is ES2022 while target stays ES2020: the only thing needed from
+    // ES2022 is the Error `cause` option, which is a runtime API rather than
+    // syntax, so this changes what TypeScript knows exists and not a byte of
+    // the emitted output. VS Code 1.85 runs Node 18, which has it.
+    "lib": ["ES2022"],
     "types": ["node", "vscode"],
     "outDir": "./dist",
     "rootDir": "./src",
