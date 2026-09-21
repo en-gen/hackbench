@@ -62,6 +62,14 @@ while IFS= read -r f; do
       fail=1
       ;;
     build/icons/*) ;;
+    # Stubs that stand in for native modules Theia would otherwise build.
+    theia/no-native/*) ;;
+    *.wasm|*.dll|*.so|*.so.*|*.dylib)
+      echo "BLOCKED (emulator core or native binary): $f"
+      echo "  Cores are supplied by the user at runtime and belong in vendor/cores/,"
+      echo "  which is gitignored. Do not vendor a core into the repository."
+      fail=1
+      ;;
     *.png|*.bmp|*.gif|*.bin|*.dmp|*.raw)
       echo "BLOCKED (binary asset outside build/icons/): $f"
       echo "  If this is genuinely not ROM-derived, add an explicit allow-list entry."

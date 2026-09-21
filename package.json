@@ -199,7 +199,8 @@
     "gitnexus": "bash tools/scripts/gitnexus-refresh.sh",
     "test": "tsc -p tsconfig.test.json && vitest run",
     "test:unit": "vitest run",
-    "test:unit:watch": "vitest"
+    "test:unit:watch": "vitest",
+    "typecheck:theia": "yarn --cwd theia/extension typecheck"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

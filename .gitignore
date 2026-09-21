@@ -122,7 +122,6 @@ theia/*/lib/
 theia/*/src-gen/
 theia/*/gen-webpack*.js
 theia/browser-app/test-results/
-theia/yarn.lock
 theia/*/esbuild.mjs
 theia/*/gen-esbuild.*.mjs
 

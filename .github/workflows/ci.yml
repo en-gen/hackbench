@@ -1,8 +1,13 @@
 name: CI
 
 on:
+  # feature/** matters as much as develop: work here stacks onto an
+  # integration branch and merges to develop in one umbrella PR, so a filter
+  # of [develop, main] means every stacked PR runs no CI at all until the
+  # umbrella lands. A broken Playwright spec sat on an integration branch
+  # for days that way.
   pull_request:
-    branches: [develop, main]
+    branches: [develop, main, 'feature/**']
   push:
     branches: [develop]
   workflow_dispatch:
@@ -63,3 +68,48 @@ jobs:
           name: coverage
           path: coverage/
           retention-days: 14
+
+  # Split out because it needs the Theia workspace installed (~780MB, 734
+  # packages) while everything above needs only the root install. Lint and
+  # format already cover theia/ from the root job and need no Theia types,
+  # so only the TYPE-check is here.
+  #
+  # The Playwright suite under theia/browser-app/test is deliberately NOT run
+  # here. Every spec opens a project from a real cartridge, and a ROM cannot
+  # be committed. A job that ran them would skip every assertion and report
+  # green, which is the oracle-that-cannot-fail defect. They stay local until
+  # CI has a lawful ROM.
+  theia-typecheck:
+    name: Theia type-check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # 22, not the 20 the job above uses: Theia 1.75 pins Electron 42.8.1,
+      # whose engines field requires >= 22.12. Matching it rather than
+      # passing --ignore-engines, so a future bump is a visible failure here
+      # instead of a suppressed one.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'yarn'
+          cache-dependency-path: theia/yarn.lock
+
+      # --ignore-scripts skips the lerna prepare build and Electron's binary
+      # download. Type-checking reads .d.ts files from the tarballs and needs
+      # neither.
+      - name: Install Theia workspace
+        run: yarn --cwd theia install --frozen-lockfile --ignore-scripts
+
+      # The extension's tsconfig includes ../../src/rom, which imports
+      # @vue/reactivity from the ROOT package. Node resolution walks up to the
+      # root node_modules, so type-checking the extension needs both installs.
+      - name: Install root dependencies
+        run: npm ci
+
+      # Uses the extension's own pinned TypeScript. The root compiler is a
+      # later major and rejects the moduleResolution Theia 1.75 requires, so
+      # checking with it would be checking the wrong compiler.
+      - name: Type-check extension
+        run: yarn --cwd theia/extension typecheck
