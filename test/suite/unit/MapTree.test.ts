@@ -18,6 +18,7 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
 import { buildMapTree, MapNode, MapTree } from '../../../src/rom/MapTree'
+import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
 
 const ROM_DIR = path.join(__dirname, '../../roms')
 
@@ -185,6 +186,53 @@ withVanilla('buildMapTree, on the vanilla cart', () => {
  * flat list would satisfy every count check above, and so would one that
  * dropped maps if the expectation were computed from the tree itself.
  */
+withVanilla('group counts', () => {
+  /**
+   * An entrance is a launch tile the overworld grants a translevel, which is
+   * what a hacker means by the word. Traced in OverworldEntrances, not counted
+   * from the tree's own rows.
+   */
+  it('counts entrances from the overworld, not from the tree', () => {
+    const rom = load(vanilla!)
+    const tree = buildMapTree(rom)
+    const derived = deriveOverworldEntrances(rom)
+
+    expect(tree.counts.entrances).toBe(derived.entrances.length)
+    // The documented vanilla figure, docs/glossary.md: 92 launch tiles
+    // carrying a translevel.
+    expect(tree.counts.entrances).toBe(92)
+  })
+
+  it('counts unassigned maps as the rows it actually shows', () => {
+    const tree = buildMapTree(load(vanilla!))
+    expect(tree.counts.unassigned).toBe(tree.unassigned.length)
+  })
+})
+
+/**
+ * Unknown is not zero.
+ *
+ * deriveOverworldEntrances refuses to guess on a ROM whose overworld another
+ * editor rebuilt. A count of 0 there would read as "this hack has no
+ * entrances", which is a confident false statement about someone's work.
+ */
+withRoms('group counts on a rebuilt overworld', () => {
+  for (const file of romFiles) {
+    it(`${file}: reports null rather than zero when the overworld is unreadable`, () => {
+      const rom = load(file)
+      const tree = buildMapTree(rom)
+      const derived = deriveOverworldEntrances(rom)
+
+      if (derived.overworldReadable) {
+        expect(tree.counts.entrances).toBe(derived.entrances.length)
+      } else {
+        expect(tree.counts.entrances).toBeNull()
+        expect(tree.notes.join(' ')).toMatch(/overworld/i)
+      }
+    })
+  }
+})
+
 withVanilla('special maps', () => {
   /**
    * The title screen and the new-game intro are ordinary maps in ordinary

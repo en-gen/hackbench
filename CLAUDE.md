@@ -98,7 +98,9 @@ SMW stores what it needs in tables, and a romhack still has to run on a stock
 SNES, so those tables stay where the hardware expects them. Almost every
 question this project asks ("which levels exist", "what does this exit lead
 to", "what is this level called") is answered by finding the right table and
-the right index into it. We are not building an ASM interpreter.
+the right index into it. We are not building an emulator. Where a table is
+enough, reading the table IS the answer; reach for code only when the table
+alone cannot tell you whether it is still the one the cart uses.
 
 **The table is never the hard part. The index is.** Reading 512 three-byte
 entries is trivial. The work is knowing what indexes them. The exit-graph bug
@@ -129,6 +131,48 @@ entirely in favour of a precomputed one. So: read the table, but check that
 the routine which reads it still exists. When it does not, fail closed and say
 the tier is unavailable. Emitting vanilla-shaped output for a patched ROM is
 the worst outcome available, because it is confidently wrong and looks right.
+
+**Relocation is rarer than override. Measure before assuming either.** Palettes
+were measured across the 6-cart corpus: all eight stock tables sit at their
+vanilla addresses on 6 of 6, and the variant-offset table at `$00ABD3` plus the
+two `LDA #imm` sites feeding CGRAM column 1 are byte-identical on 6 of 6. The
+data does not move. What changes is the CONTENT in place - GPW2 edits 4 of the
+8 tables, Invictus 2 - and, separately, Lunar Magic writes per-level override
+blocks through `$0EF600`: 157 levels on GPW2, 161 on Invictus, 53 on GPW 1.2,
+0 on the three unedited carts. So for palettes a fixed address is safe and
+reading the override table is mandatory, which is the opposite shape to music,
+where AddmusicK moves the data and deletes the call. Do not generalise one
+subsystem's answer to another; both cost one probe to check.
+
+**Existing is not the same as reached.** A patch that leaves a routine
+byte-identical and diverts control before it passes every existence check.
+Poking `$00A418` to `RTS`, or the NMI vector at `$00FFEA` to anywhere, leaves
+`$00A41A..$00A435` pristine while the cart animates nothing; a detector
+anchored only on the callee reports vanilla with full confidence. Hijacking an
+entry point is the commonest patch shape there is, so verify the PATH as well
+as the destination: the vector, the branch displacement, the call site. Those
+are a handful of readable bytes.
+
+**The recipe, when a value lives in code rather than a table.** Six separate
+features got this wrong before review caught them, so it is written out:
+
+1. Read the operand where it sits. `LDA #imm`, `LDA abs,Y`, an `AND` mask, a
+   run of `LSR`, a branch displacement. These are readable bytes and reading
+   them is interpretation, not assumption.
+2. Gate on the opcode first. Confirm the instruction is still the one you
+   think you are reading, at the offset you think it is. A fixed offset into a
+   replaced routine lands mid-instruction and yields a plausible wrong answer:
+   `$008148` reads `$20`, the operand of a `SEP`, and the derived music bank
+   address comes out `$0EAE60` against a true `$0EAED6`.
+3. Prefer a byte PATTERN over a fixed address, so a relocated but intact
+   routine is still found. More than one match means you cannot say which one
+   runs, which is unavailable, not a guess.
+4. Never fall back to the vanilla value. Report unavailable with a reason.
+   Keeping the stock constants as a documented cross-check is fine; reading
+   one as a default is the defect.
+5. Validate the result independently where you can. A derived bank address
+   whose header holds a sane `blockSize` and whose pointer table terminates is
+   evidence; one that lands on filler is not.
 
 ## Knowledge Integration (External Disassembly)
 
@@ -166,9 +210,19 @@ In practice:
   is `INC abs,X` on `$0301`, so the 1 px top-tile nudge is +1 on
   `OAMTileYPos+$100`, and a hack that changed it to `$DE` would correctly read
   as -1. Comparison thresholds are plain immediates.
-- The line is at ASSUMPTION, not at opcodes. Simulating execution to discover
-  WHICH code runs is out of scope; reading a byte at a known offset to learn
-  WHAT it does is in scope and required.
+- The line is at ASSUMPTION, not at opcodes. **We are not building an
+  emulator, but content we load for editing must be INTERPRETED, not assumed
+  from the ROM.** Running the cart to see what happens is out of scope.
+  Reading bytes - including opcodes - to determine what the cart does with
+  the content we are about to show the user is in scope and required.
+- Static control-flow reading is on the required side of that line. Walking
+  instructions from a known entry to find which write is REACHED is reading,
+  because it evaluates no condition and holds no machine state; it follows
+  determinate transfers and refuses everything else. The palette-animation
+  detector does this to resolve a relocated routine, and it exists because
+  the byte scan it replaced reported a cart as animating a slot the hack had
+  disabled. A walk that refuses conditional branches fails closed; a scan
+  that takes the first plausible match fails confident.
 - A derivation that truly cannot be read must be NAMED as a hack-fragility
   point and paired with honest degradation: compare the handler against its
   vanilla bytes and DECLINE TO ASSERT when it diverges, rather than rendering
@@ -217,6 +271,28 @@ Cite ROM behaviour to `SMWDisX file:line`. Trace it; do not copy the assembly in
 Any check, harness or test that reports a verdict needs a committed test proving it goes red on a planted defect. Verdicts that cannot fail are worse than no verdict. Real examples from this repo: a determinism check that printed "all artifacts byte-identical across 5 runs" having compared zero files, and a wrapper that exited 0 on run codes `14,14,14,14,0`.
 
 Never accept a single-case acceptance test. A debounce tuned to level `$105` false-failed 22% of levels with a factually wrong diagnosis. Sweep the range.
+
+**CI has no cartridge, so every safeguard needs a test that runs without one.**
+`test/roms/` is gitignored and cannot be committed, so CI is permanently the
+corpus-absent case. A safeguard proven only by corpus tests is unproven where
+it actually runs. Measured on the music branch: with the corpus removed,
+deleting the opcode gate outright, shifting an operand offset by one, and
+falling back to the vanilla address when the gate fails all passed 5 of 5
+green. That last one is the defect the gate exists to prevent.
+
+Two rules follow, and the second is the subtle one:
+
+- Every gate, refusal or bounds check gets at least one SYNTHETIC fixture
+  exercising it. Build the bytes in the test; do not reach for a cart.
+- Gate with `describe.skipIf`, never by generating cases from a corpus
+  listing. `for (const file of romFiles)` over an empty array registers
+  nothing, so the cases do not skip, they cease to exist: the run is green,
+  the skip count reads zero, and 45 of 50 cases silently vanished. The 91
+  `describe.skipIf` uses already in the suite do this correctly.
+
+Report skipped counts both ways when you report a suite. A count that is
+identical with and without the corpus means either the tests need no cart, or
+they are not registering at all, and those look the same from the outside.
 
 ## Every feature ships with a Playwright test
 

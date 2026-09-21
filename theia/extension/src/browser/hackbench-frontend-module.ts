@@ -9,6 +9,7 @@ import {
   FrontendApplicationContribution,
   WidgetFactory,
 } from '@theia/core/lib/browser'
+import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar'
 import {
   RemoteConnectionProvider,
   ServiceConnectionProvider,
@@ -21,6 +22,7 @@ import { ProjectContext } from './project-context'
 import { BrandContribution } from './brand-contribution'
 import { MapExplorerContribution } from './map-explorer-contribution'
 import { createMapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
+import { MapViewWidget, MAP_VIEW_ID } from './map-view-widget'
 
 export default new ContainerModule(bind => {
   // The frontend cannot touch the filesystem, so project creation is a proxy
@@ -53,6 +55,17 @@ export default new ContainerModule(bind => {
   bind(BrandContribution).toSelf().inSingletonScope()
   bind(FrontendApplicationContribution).toService(BrandContribution)
 
+  // One widget per map, keyed by slot, so reopening a map focuses the one
+  // already on screen instead of stacking duplicates.
+  bind(MapViewWidget).toSelf()
+  bind(WidgetFactory)
+    .toDynamicValue(ctx => ({
+      id: MAP_VIEW_ID,
+      createWidget: () => ctx.container.get(MapViewWidget),
+    }))
+    .inSingletonScope()
+
   bindViewContribution(bind, MapExplorerContribution)
   bind(FrontendApplicationContribution).toService(MapExplorerContribution)
+  bind(TabBarToolbarContribution).toService(MapExplorerContribution)
 })

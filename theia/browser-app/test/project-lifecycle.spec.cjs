@@ -108,7 +108,14 @@ test('workspace and loose-file entries are gone from the File menu', async ({ pa
   // Ours are there, and so is Preferences, which is where the colour theme is.
   expect(ids).toContain('hackbench.project.new')
   expect(ids).toContain('hackbench.project.open')
-  expect(ids).toContain('hackbench.project.openRecent')
+  // Open Recent is a SUBMENU now, matching VS Code: the entries are
+  // generated per remembered project, so the stable things to assert are the
+  // submenu itself and that it actually holds entries.
+  expect(ids).toContain('recent')
+  expect(
+    ids.filter(id => id.startsWith('hackbench.project.openRecent.')).length,
+    'the recent submenu should list the project this run created',
+  ).toBeGreaterThan(0)
   expect(ids).toContain('hackbench.project.properties')
   expect(ids).toContain('1_settings_submenu')
 })

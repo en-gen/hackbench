@@ -17,11 +17,13 @@ import { RecentProjects } from '../../../../src/project/RecentProjects'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMapTree } from '../../../../src/rom/MapTree'
+import { parseLevelObjects, parseLevelSprites } from '../../../../src/rom/LevelParser'
 import * as fs from 'fs'
 import {
   CreateProjectRequest,
   HackMetadataDto,
   LoadMapsResult,
+  MapDetailsDto,
   ProjectDto,
   ProjectService,
   RecentProjectDto,
@@ -53,6 +55,80 @@ export class ProjectServiceImpl implements ProjectService {
 
   async recentProjects(): Promise<RecentProjectDto[]> {
     return this.recent.list()
+  }
+
+  async clearRecentProjects(): Promise<void> {
+    this.recent.clear()
+  }
+
+  async mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto> {
+    const rom = this.romFor(manifestPath)
+    const raw = rom.getLevelRawData(index)
+    if (!raw) {
+      throw new Error(`No readable level data at slot $${index.toString(16).toUpperCase()}`)
+    }
+
+    const parsed = parseLevelObjects(raw)
+    const h = parsed.header
+    // Sprites live behind their own pointer, read the same way
+    // MapEditorProvider does. A stream that will not parse is not a reason to
+    // refuse the rest of the map, so the count degrades to 0 on its own.
+    let spriteCount = 0
+    const spritePtr = rom.getLevelSpritePointer(index)
+    if (spritePtr !== null) {
+      const spriteData = rom.rom.readAt(spritePtr, 0x200)
+      if (spriteData) {
+        try {
+          spriteCount = parseLevelSprites(spriteData, parsed.isVertical).length
+        } catch {
+          spriteCount = 0
+        }
+      }
+    }
+
+    const hex = (n: number, w = 2): string => `$${n.toString(16).toUpperCase().padStart(w, '0')}`
+
+    return {
+      index,
+      name: rom.getLevelName(index),
+      headerBytes: h.raw,
+      screens: parsed.screens,
+      isVertical: parsed.isVertical,
+      objectCount: parsed.objects.length,
+      spriteCount,
+      // Labels match LevelParser's own field names so a reader can follow
+      // each one back to its ASM citation.
+      header: [
+        { label: 'Screens', value: String(h.levelLength) },
+        { label: 'Level mode', value: hex(h.levelMode) },
+        { label: 'Object tileset', value: hex(h.objectTileset) },
+        { label: 'Sprite tileset', value: hex(h.spriteSet) },
+        { label: 'FG palette', value: hex(h.fgPalette) },
+        { label: 'BG palette', value: hex(h.bgPalette) },
+        { label: 'Sprite palette', value: hex(h.spritePalette) },
+        { label: 'Back area colour', value: hex(h.bgColor) },
+        { label: 'Music', value: hex(h.music) },
+        { label: 'Time limit', value: hex(h.timeLimit) },
+        { label: 'Item memory', value: hex(h.itemMemory) },
+        { label: 'Vertical scroll', value: hex(h.verticalScroll) },
+        { label: 'Layer 3 priority', value: h.layer3Priority ? 'yes' : 'no' },
+      ],
+    }
+  }
+
+  /**
+   * The cartridge behind a project, or a refusal.
+   *
+   * Opened per call rather than cached: the registry re-verifies the hash, and
+   * a cart the user swapped under us must not keep resolving to the old one.
+   */
+  private romFor(manifestPath: string): SmwRom {
+    const project = openProject(manifestPath)
+    const romPath = this.registry.resolve(project.baseRom.sha256)
+    if (!romPath) {
+      throw new Error(`The base cartridge for ${project.name} is not on this machine`)
+    }
+    return new SmwRom(RomFile.load(romPath))
   }
 
   async updateProject(

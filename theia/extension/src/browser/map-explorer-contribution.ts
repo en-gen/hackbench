@@ -7,7 +7,11 @@
  */
 import { injectable } from '@theia/core/shared/inversify'
 import { AbstractViewContribution } from '@theia/core/lib/browser'
-import { Command } from '@theia/core/lib/common'
+import {
+  TabBarToolbarContribution,
+  TabBarToolbarRegistry,
+} from '@theia/core/lib/browser/shell/tab-bar-toolbar'
+import { Command, CommandRegistry } from '@theia/core/lib/common'
 import { MapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
 
 export const ShowMapExplorerCommand: Command = {
@@ -23,8 +27,25 @@ export const ShowMapExplorerCommand: Command = {
  */
 const DEFAULT_SIDEBAR_WIDTH = 280
 
+export const ExpandAllMapsCommand: Command = {
+  id: 'hackbench.maps.expandAll',
+  label: 'Expand All',
+  category: 'HackBench',
+  iconClass: 'codicon codicon-expand-all',
+}
+
+export const CollapseAllMapsCommand: Command = {
+  id: 'hackbench.maps.collapseAll',
+  label: 'Collapse All',
+  category: 'HackBench',
+  iconClass: 'codicon codicon-collapse-all',
+}
+
 @injectable()
-export class MapExplorerContribution extends AbstractViewContribution<MapExplorerWidget> {
+export class MapExplorerContribution
+  extends AbstractViewContribution<MapExplorerWidget>
+  implements TabBarToolbarContribution
+{
   constructor() {
     super({
       widgetId: MAP_EXPLORER_ID,
@@ -32,6 +53,44 @@ export class MapExplorerContribution extends AbstractViewContribution<MapExplore
       defaultWidgetOptions: { area: 'left', rank: 100 },
       toggleCommandId: ShowMapExplorerCommand.id,
     })
+  }
+
+  override registerCommands(commands: CommandRegistry): void {
+    super.registerCommands(commands)
+
+    for (const [command, run] of [
+      [ExpandAllMapsCommand, (w: MapExplorerWidget) => w.expandAll()],
+      [CollapseAllMapsCommand, (w: MapExplorerWidget) => w.collapseAll()],
+    ] as const) {
+      commands.registerCommand(command, {
+        execute: () => this.withWidget(w => run(w)),
+        // isVisible scopes the toolbar button to this view. isEnabled also has
+        // to answer for the command palette and keybindings, which pass no
+        // widget at all, so it falls back to whether the view exists.
+        isEnabled: w => (w ? w instanceof MapExplorerWidget : !!this.tryGetWidget()),
+        isVisible: w => w instanceof MapExplorerWidget,
+      })
+    }
+  }
+
+  registerToolbarItems(registry: TabBarToolbarRegistry): void {
+    registry.registerItem({
+      id: ExpandAllMapsCommand.id,
+      command: ExpandAllMapsCommand.id,
+      tooltip: ExpandAllMapsCommand.label,
+      priority: 0,
+    })
+    registry.registerItem({
+      id: CollapseAllMapsCommand.id,
+      command: CollapseAllMapsCommand.id,
+      tooltip: CollapseAllMapsCommand.label,
+      priority: 1,
+    })
+  }
+
+  protected async withWidget(run: (widget: MapExplorerWidget) => Promise<void>): Promise<void> {
+    const widget = this.tryGetWidget()
+    if (widget) await run(widget)
   }
 
   /**
