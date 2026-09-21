@@ -119,8 +119,7 @@ export class NewProjectDialog extends AbstractDialog<CreateProjectRequest | unde
     this.romInfo.textContent = 'Reading...'
     try {
       const id = await this.projects.identifyRom(this.romField.value)
-      this.romInfo.textContent =
-        `${id.title || 'unrecognised title'} - ${id.size} bytes - sha256 ${id.sha256.slice(0, 12)}...`
+      this.romInfo.textContent = `${id.title || 'unrecognised title'} - ${id.size} bytes - sha256 ${id.sha256.slice(0, 12)}...`
       if (!this.nameField.value) this.nameField.value = 'MyHack'
       this.updatePreview()
     } catch (err) {
@@ -143,9 +142,8 @@ export class NewProjectDialog extends AbstractDialog<CreateProjectRequest | unde
   protected updatePreview(): void {
     const name = this.nameField.value.trim()
     const parent = this.dirField.value.trim()
-    this.pathPreview.textContent = name && parent
-      ? `Creates ${parent}\${name}\${name}${PROJECT_EXT}`
-      : ''
+    this.pathPreview.textContent =
+      name && parent ? `Creates ${parent}\${name}\${name}${PROJECT_EXT}` : ''
   }
 
   get value(): CreateProjectRequest | undefined {

@@ -125,9 +125,7 @@ export interface ProjectService {
    * Metadata only. The base ROM identity and the creation date are facts
    * about the project rather than opinions, and are not editable.
    */
-  updateProject(
-    manifestPath: string, changes: Partial<HackMetadataDto>,
-  ): Promise<ProjectDto>
+  updateProject(manifestPath: string, changes: Partial<HackMetadataDto>): Promise<ProjectDto>
 
   /**
    * Projects this user has opened, most recent first.

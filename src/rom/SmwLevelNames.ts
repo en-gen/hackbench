@@ -4,7 +4,7 @@
  * Decodes level names directly from ROM data using the same tables and
  * algorithm the SNES game engine uses (bank_04 CODE_049D07).
  *
- * No hardcoded name lookup — all data is read from the ROM at runtime,
+ * No hardcoded name lookup - all data is read from the ROM at runtime,
  * so edited ROMs with modified names decode correctly.
  *
  * ── ROM data layout (US version) ──────────────────────────────────────
@@ -13,15 +13,15 @@
  *   of tile-index bytes; the last byte has bit 7 set as a terminator.
  *
  * DATA_049C91: Word table of offsets into LevelNameStrings.
- *   Indexed by (nameByte1 & 0x7F) — selects the area prefix
+ *   Indexed by (nameByte1 & 0x7F) - selects the area prefix
  *   (e.g. "YOSHI'S ", "DONUT ", "VANILLA ").
  *
  * DATA_049CCF: Word table of offsets into LevelNameStrings.
- *   Indexed by ((nameByte0 & 0xF0) >> 3) — selects the area type
+ *   Indexed by ((nameByte0 & 0xF0) >> 3) - selects the area type
  *   (e.g. "ISLAND ", "PLAINS ", "GHOST HOUSE ").
  *
  * DATA_049CED: Word table of offsets into LevelNameStrings.
- *   Indexed by ((nameByte0 & 0x0F) << 1) — selects the number suffix
+ *   Indexed by ((nameByte0 & 0x0F) << 1) - selects the number suffix
  *   (e.g. "1", "2", " ").
  *
  * LevelNames ($04A0FC): 96 entries × 2 bytes (little-endian word).
@@ -38,19 +38,19 @@ import { RomFile } from './RomFile'
 // ── Fixed ROM addresses (same in all vanilla/LM-edited US ROMs) ───────────
 
 /** Packed name substrings (area names, types, numbers). */
-const ADDR_LEVEL_NAME_STRINGS = 0x049AC5
+const ADDR_LEVEL_NAME_STRINGS = 0x049ac5
 
 /** Word table: prefix offsets (28 entries for US). Indexed by (byte1 & 0x7F). */
-const ADDR_PREFIX_TABLE       = 0x049C91
+const ADDR_PREFIX_TABLE = 0x049c91
 
 /** Word table: type offsets (15 entries for US). Indexed by (byte0 & 0xF0) >> 3. */
-const ADDR_TYPE_TABLE         = 0x049CCF
+const ADDR_TYPE_TABLE = 0x049ccf
 
 /** Word table: suffix offsets (13 entries for US). Indexed by (byte0 & 0x0F) << 1. */
-const ADDR_SUFFIX_TABLE       = 0x049CED
+const ADDR_SUFFIX_TABLE = 0x049ced
 
 /** 96 × 2-byte entries: packed name descriptor per translevel. */
-const ADDR_LEVEL_NAMES        = 0x04A0FC
+const ADDR_LEVEL_NAMES = 0x04a0fc
 
 /** Number of translevel entries in the LevelNames table. */
 const TRANSLEVEL_COUNT = 96
@@ -68,7 +68,7 @@ const TRANSLEVEL_COUNT = 96
 // After AND $7F:
 //   $00–$19 → A–Z (26 standard letter tiles)
 //   $1C     → '-' (hyphen, e.g. "CHOCO-GHOST HOUSE")
-//   $1F     → ' ' (space — raw byte $9F, masked to $1F)
+//   $1F     → ' ' (space - raw byte $9F, masked to $1F)
 //   $32–$37 → graphical tiles spelling "ILLUSI" (completing "OF ILLUSION")
 //   $38–$3C → graphical tiles spelling "YELLO" (completing "YELLOW")
 //   $5A     → '#' (castle number prefix graphic tile)
@@ -81,34 +81,57 @@ function tileToChar(tile: number): string {
     return String.fromCharCode(0x41 + tile)
   }
   switch (tile) {
-    case 0x1C: return '-'   // hyphen
-    case 0x1F: return ' '   // space (raw $9F after AND $7F)
-    // "OF ILLUSION" graphical tiles — 6 tiles between "OF" and "ON"
-    case 0x32: return ' I'  // leading space to separate from preceding "OF"
-    case 0x33: return 'L'
-    case 0x34: return 'L'
-    case 0x35: return 'U'
-    case 0x36: return 'S'
-    case 0x37: return 'I'
-    // "YELLOW" graphical tiles — 5 tiles forming 6-letter word
-    case 0x38: return 'Y'
-    case 0x39: return 'E'
-    case 0x3A: return 'L'
-    case 0x3B: return 'L'
-    case 0x3C: return 'OW'
+    case 0x1c:
+      return '-' // hyphen
+    case 0x1f:
+      return ' ' // space (raw $9F after AND $7F)
+    // "OF ILLUSION" graphical tiles - 6 tiles between "OF" and "ON"
+    case 0x32:
+      return ' I' // leading space to separate from preceding "OF"
+    case 0x33:
+      return 'L'
+    case 0x34:
+      return 'L'
+    case 0x35:
+      return 'U'
+    case 0x36:
+      return 'S'
+    case 0x37:
+      return 'I'
+    // "YELLOW" graphical tiles - 5 tiles forming 6-letter word
+    case 0x38:
+      return 'Y'
+    case 0x39:
+      return 'E'
+    case 0x3a:
+      return 'L'
+    case 0x3b:
+      return 'L'
+    case 0x3c:
+      return 'OW'
     // Castle number prefix
-    case 0x5A: return '#'
+    case 0x5a:
+      return '#'
     // Apostrophe
-    case 0x5D: return "'"
+    case 0x5d:
+      return "'"
     // Number digit tiles 1–7
-    case 0x64: return '1'
-    case 0x65: return '2'
-    case 0x66: return '3'
-    case 0x67: return '4'
-    case 0x68: return '5'
-    case 0x69: return '6'
-    case 0x6A: return '7'
-    default:   return ''    // unknown/graphic tiles → omit
+    case 0x64:
+      return '1'
+    case 0x65:
+      return '2'
+    case 0x66:
+      return '3'
+    case 0x67:
+      return '4'
+    case 0x68:
+      return '5'
+    case 0x69:
+      return '6'
+    case 0x6a:
+      return '7'
+    default:
+      return '' // unknown/graphic tiles → omit
   }
 }
 
@@ -127,13 +150,14 @@ const MAX_DISPLAY_TILES = 19
 function decodeSubstring(rom: RomFile, offset: number): { text: string; tiles: number } {
   let text = ''
   let tiles = 0
-  for (let i = 0; i < 32; i++) {  // safety limit
+  for (let i = 0; i < 32; i++) {
+    // safety limit
     const byte = rom.readByte(ADDR_LEVEL_NAME_STRINGS + offset + i)
     if (byte === null) break
-    const tile = byte & 0x7F
+    const tile = byte & 0x7f
     text += tileToChar(tile)
     tiles++
-    if (byte & 0x80) break  // bit 7 = last byte of substring
+    if (byte & 0x80) break // bit 7 = last byte of substring
   }
   return { text, tiles }
 }
@@ -163,19 +187,19 @@ export function decodeLevelName(rom: RomFile, translevel: number): string | null
   if (translevel < 0 || translevel >= TRANSLEVEL_COUNT) return null
 
   const packed = rom.readWord(ADDR_LEVEL_NAMES + translevel * 2)
-  if (packed === null || packed === 0 || packed === 0xFFFF) return null
+  if (packed === null || packed === 0 || packed === 0xffff) return null
 
-  const byte0 = packed & 0xFF        // low byte — type + suffix
-  const byte1 = (packed >> 8) & 0xFF // high byte — prefix
+  const byte0 = packed & 0xff // low byte - type + suffix
+  const byte1 = (packed >> 8) & 0xff // high byte - prefix
 
   let name = ''
   let tilesUsed = 0
 
   // Part 1: Prefix (area name)
-  const prefixIndex = (byte1 & 0x7F) * 2
+  const prefixIndex = (byte1 & 0x7f) * 2
   const prefixOffset = readTableOffset(rom, ADDR_PREFIX_TABLE, prefixIndex)
   if (prefixOffset !== null) {
-    // Check if first byte of the substring has bit 7 set — if so, skip prefix
+    // Check if first byte of the substring has bit 7 set - if so, skip prefix
     const firstByte = rom.readByte(ADDR_LEVEL_NAME_STRINGS + prefixOffset)
     if (firstByte !== null && !(firstByte & 0x80)) {
       const { text, tiles } = decodeSubstring(rom, prefixOffset)
@@ -185,13 +209,13 @@ export function decodeLevelName(rom: RomFile, translevel: number): string | null
   }
 
   // Part 2: Type (area descriptor)
-  const typeIndex = (byte0 & 0xF0) >> 3  // >>4 then <<1 = >>3
+  const typeIndex = (byte0 & 0xf0) >> 3 // >>4 then <<1 = >>3
   const typeOffset = readTableOffset(rom, ADDR_TYPE_TABLE, typeIndex)
   if (typeOffset !== null) {
-    // Skip if first byte is $9F (space) — means no type component.
+    // Skip if first byte is $9F (space) - means no type component.
     // The SNES code checks the raw byte against $9F before AND $7F.
     const firstByte = rom.readByte(ADDR_LEVEL_NAME_STRINGS + typeOffset)
-    if (firstByte !== null && firstByte !== 0x9F) {
+    if (firstByte !== null && firstByte !== 0x9f) {
       const { text, tiles } = decodeSubstring(rom, typeOffset)
       name += text
       tilesUsed += tiles
@@ -202,7 +226,7 @@ export function decodeLevelName(rom: RomFile, translevel: number): string | null
   // Only append if there's room in the 19-tile display budget.
   // The SNES engine clips overflow, so names that would exceed the
   // display width have their suffix invisibly truncated.
-  const suffixIndex = (byte0 & 0x0F) * 2
+  const suffixIndex = (byte0 & 0x0f) * 2
   const suffixOffset = readTableOffset(rom, ADDR_SUFFIX_TABLE, suffixIndex)
   if (suffixOffset !== null) {
     const { text, tiles } = decodeSubstring(rom, suffixOffset)
@@ -246,7 +270,7 @@ export function getAllLevelNames(rom: RomFile): Map<number, string> {
  */
 export function translevelToPointerIndex(translevel: number): number {
   if (translevel <= 0x24) return translevel
-  return (translevel - 0x24) + 0x100
+  return translevel - 0x24 + 0x100
 }
 
 /**
@@ -255,7 +279,7 @@ export function translevelToPointerIndex(translevel: number): number {
  */
 export function pointerIndexToTranslevel(index: number): number | null {
   if (index >= 0x000 && index <= 0x024) return index
-  if (index >= 0x101 && index <= 0x13B) return (index - 0x100) + 0x24
+  if (index >= 0x101 && index <= 0x13b) return index - 0x100 + 0x24
   return null
 }
 

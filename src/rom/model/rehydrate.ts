@@ -5,7 +5,12 @@ import { PSwitchAlternateBehavior } from './chars/behaviors/PSwitchAlternateBeha
 import { StaticPixelsBehavior } from './chars/behaviors/StaticPixelsBehavior'
 import { buildL2Tiles, buildTileDyRanges } from './L2Factory'
 import { L2ObjectStream, L2Preset, type L2Layer } from './L2Layer'
-import { buildScrollSimulator, computeLayer2YRange, computeColumnDyRanges, type ScrollSimulator } from '../scrollSim'
+import {
+  buildScrollSimulator,
+  computeLayer2YRange,
+  computeColumnDyRanges,
+  type ScrollSimulator,
+} from '../scrollSim'
 import { L3TilemapLayer, type L3Layer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
 import { CompositeSprite } from './sprites/CompositeSprite'
@@ -69,7 +74,10 @@ import { VineSourceBehavior } from './tiles/behaviors/VineSourceBehavior'
  * `kind`-switch site in the webview: past the rehydrator, everything
  * is polymorphic `Char` / `Tile` / `Color` / `Palette` / `SmwMap`.
  */
-export function buildGraph(payload: MapPayload, rom: import('../RomFile').RomFile | null = null): {
+export function buildGraph(
+  payload: MapPayload,
+  rom: import('../RomFile').RomFile | null = null,
+): {
   map: SmwMap
   chars: Map<number, Char>
   tiles: Map<number, Tile>
@@ -85,21 +93,37 @@ export function buildGraph(payload: MapPayload, rom: import('../RomFile').RomFil
   const tiles = new Map<number, Tile>()
   for (const [idStr, desc] of Object.entries(payload.tiles)) {
     const id = Number(idStr)
-    tiles.set(id, new Tile(id, buildTileBehavior(desc, chars, placeholderChar), desc.actsLike ?? id, desc.collision ?? NO_COLLISION))
+    tiles.set(
+      id,
+      new Tile(
+        id,
+        buildTileBehavior(desc, chars, placeholderChar),
+        desc.actsLike ?? id,
+        desc.collision ?? NO_COLLISION,
+      ),
+    )
   }
 
-  // BG tiles (for L2 preset Map16 viewer) — built separately from the L2
+  // BG tiles (for L2 preset Map16 viewer) - built separately from the L2
   // grid's internal copy so the viewer can render all available BG tiles.
   const bgTiles = new Map<number, Tile>()
   if (payload.bgTiles) {
     for (const [idStr, td] of Object.entries(payload.bgTiles)) {
       const id = Number(idStr)
-      bgTiles.set(id, new Tile(id, buildTileBehavior(td, chars, placeholderChar), td.actsLike ?? id, td.collision ?? NO_COLLISION))
+      bgTiles.set(
+        id,
+        new Tile(
+          id,
+          buildTileBehavior(td, chars, placeholderChar),
+          td.actsLike ?? id,
+          td.collision ?? NO_COLLISION,
+        ),
+      )
     }
   }
 
   const palette = buildPalette(payload.palette)
-  // L1 grid stays as ids — resolve against `tiles` (l1Tiles) at render.
+  // L1 grid stays as ids - resolve against `tiles` (l1Tiles) at render.
   const l1: (number | null)[][] = payload.layout.map(row =>
     row.map(id => (id === null ? null : id)),
   )
@@ -115,17 +139,16 @@ export function buildGraph(payload: MapPayload, rom: import('../RomFile').RomFil
   const screenPipeVariantIdx = [...payload.screenPipeVariantIdx]
   // Scroll simulator: rebuilt from the seed shipped in the payload.
   // Every scroll handler reads data tables from the open ROM (no
-  // hardcoded JS constants — issue: ROM-editor invariant), so this
+  // hardcoded JS constants - issue: ROM-editor invariant), so this
   // requires a `RomFile` to be reachable on whichever side we're on:
   //   - Host (MapBuilder): passes the live `RomFile` directly.
   //   - Webview (this path): the host posts the ROM bytes alongside
   //     `modelPayload`; the message handler builds a `RomFile` from
   //     them and passes it here.
   // When `rom` is null and a seed is present (legacy callers / tests),
-  // skip the simulator — the L2 layer falls back to its static path.
-  const scrollSimulator = (rom !== null && payload.scrollSim)
-    ? buildScrollSimulator(rom, payload.scrollSim)
-    : null
+  // skip the simulator - the L2 layer falls back to its static path.
+  const scrollSimulator =
+    rom !== null && payload.scrollSim ? buildScrollSimulator(rom, payload.scrollSim) : null
   const l2 = buildL2(payload.l2, tiles, bgTiles, scrollSimulator, payload.header.initialCameraYPx)
   const mapStore = createMapStore({
     palette,
@@ -159,7 +182,11 @@ function buildSprite(desc: SpriteDescriptor, chars: Map<number, Char>, placehold
   const behavior = buildBehavior(desc)
   const sprite = desc.secondary
     ? new CompositeSprite(
-        desc.id, desc.x, desc.y, appearance, behavior,
+        desc.id,
+        desc.x,
+        desc.y,
+        appearance,
+        behavior,
         buildSprite(desc.secondary, chars, placeholder),
       )
     : new Sprite(desc.id, desc.x, desc.y, appearance, behavior)
@@ -170,17 +197,17 @@ function buildSprite(desc: SpriteDescriptor, chars: Map<number, Char>, placehold
 
 /**
  * Reconstruct the sprite's `SpriteBehavior` from its descriptor. Delegates
- * to the single `buildMovementBehavior` dispatch — the same factory used on
- * the extension host — so class instances exist identically on both sides
+ * to the single `buildMovementBehavior` dispatch - the same factory used on
+ * the extension host - so class instances exist identically on both sides
  * without any prototype-reattach dance. The descriptor's `kind` is then
  * layered back on in case the serialized value differed from what the id
  * alone would derive.
  */
 function buildBehavior(desc: SpriteDescriptor): SpriteBehavior {
   const b = buildMovementBehavior(desc.id, {
-    displayName:  desc.behavior.displayName,
-    spawns:       desc.behavior.spawns,
-    isGenerator:  desc.behavior.isGenerator,
+    displayName: desc.behavior.displayName,
+    spawns: desc.behavior.spawns,
+    isGenerator: desc.behavior.isGenerator,
     reactRangeDy: desc.behavior.reactRangeDy,
   })
   return Object.assign(b, { kind: desc.behavior.kind })
@@ -206,7 +233,7 @@ function buildAppearance(
     case 'static':
       // All "pure-parts" appearances (incl. PSwitch, CheepCheep variants,
       // KoopaAppearance, etc.) come back through `buildSpriteAppearance`
-      // — the single source of truth for spriteId → subclass mapping
+      // - the single source of truth for spriteId → subclass mapping
       // shared by SpriteFactory (host) and rehydrate (webview).
       return buildSpriteAppearance(spriteId, buildParts(desc.parts))
     case 'thwomp':
@@ -228,12 +255,14 @@ function buildAppearance(
         desc.wingsInFront,
       )
     case 'hammerBroPlatform':
-      return new HammerBroPlatformAppearance(
-        buildParts(desc.platformParts),
-        [buildParts(desc.wingFrames[0]), buildParts(desc.wingFrames[1])],
-      )
+      return new HammerBroPlatformAppearance(buildParts(desc.platformParts), [
+        buildParts(desc.wingFrames[0]),
+        buildParts(desc.wingFrames[1]),
+      ])
     case 'superKoopa': {
-      const rp = (frames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]) => ({
+      const rp = (
+        frames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]],
+      ) => ({
         flapA: buildParts(frames[0]),
         flapB: buildParts(frames[1]),
       })
@@ -246,19 +275,16 @@ function buildAppearance(
       )
     }
     case 'volcanoLotus':
-      return new VolcanoLotusAppearance(
-        buildParts(desc.headParts),
-        [buildParts(desc.flowerFrames[0]), buildParts(desc.flowerFrames[1])],
-      )
+      return new VolcanoLotusAppearance(buildParts(desc.headParts), [
+        buildParts(desc.flowerFrames[0]),
+        buildParts(desc.flowerFrames[1]),
+      ])
     case 'lineBrownPlat':
       return new LineBrownPlatAppearance(buildParts(desc.platformParts), desc.direction)
     case 'lineCheckerPlat':
       return new LineCheckerPlatAppearance(buildParts(desc.platformParts), desc.xShift, desc.width)
     case 'chainsaw':
-      return new ChainsawAppearance(
-        desc.motorFrames.map(buildParts),
-        buildParts(desc.chainParts),
-      )
+      return new ChainsawAppearance(desc.motorFrames.map(buildParts), buildParts(desc.chainParts))
     case 'ropeMechanism':
       return new RopeMechanismAppearance(
         desc.motorFrames.map(buildParts),
@@ -282,7 +308,13 @@ function buildAppearance(
     case 'woodSpike':
       return WoodSpikeAppearance.fromTables(chars, desc.spriteId, placeholder, desc.spriteMisc151C)
     case 'wiggler':
-      return WigglerAppearance.fromTables(chars, desc.palette, desc.charHigh, desc.faceLeft, placeholder)
+      return WigglerAppearance.fromTables(
+        chars,
+        desc.palette,
+        desc.charHigh,
+        desc.faceLeft,
+        placeholder,
+      )
   }
 }
 
@@ -301,7 +333,12 @@ function buildL3(desc: L3Descriptor | null): L3Layer | null {
     l3Chars.push(sheet)
   }
   return new L3TilemapLayer(
-    tilemap, l3Chars, desc.initialYPx, desc.levelPixelW, desc.levelPixelH, desc.scrollRange,
+    tilemap,
+    l3Chars,
+    desc.initialYPx,
+    desc.levelPixelW,
+    desc.levelPixelH,
+    desc.scrollRange,
   )
 }
 
@@ -314,19 +351,15 @@ function buildL2(
 ): L2Layer | null {
   if (!desc) return null
   if (desc.kind === 'preset') {
-    const grid: (number | null)[][] = desc.layout.map(row =>
-      row.map(id => id),
-    )
+    const grid: (number | null)[][] = desc.layout.map(row => row.map(id => id))
     return new L2Preset(desc.page, grid, bgTiles)
   }
-  // Object-stream L2 shares the L1 Map16 table — same id lookup. For
+  // Object-stream L2 shares the L1 Map16 table - same id lookup. For
   // tileset-3 levels, wrap each tile's behavior in PaletteOrBehavior(4)
   // to mirror the runtime ORA #$1000 SMW applies during L2 BG2 strip
   // upload (bank_05.asm:1463-1480). `paletteOrMask = 0` is a no-op so
   // other tilesets just reuse l1Tiles.
-  const grid: (number | null)[][] = desc.layout.map(row =>
-    row.map(id => id),
-  )
+  const grid: (number | null)[][] = desc.layout.map(row => row.map(id => id))
   const l2Tiles = buildL2Tiles(l1Tiles, desc.paletteOrMask ?? 0)
   const cols = grid[0]?.length ?? 0
   const levelPixelW = cols * 16
@@ -335,7 +368,10 @@ function buildL2(
   const staticDy = initialCameraYPx - desc.initialLayer2YPx
   const tileDyRanges = rawRanges ? buildTileDyRanges(rawRanges, grid, cols, staticDy) : null
   return new L2ObjectStream(
-    grid, l2Tiles, desc.initialLayer2YPx, desc.scrollRange,
+    grid,
+    l2Tiles,
+    desc.initialLayer2YPx,
+    desc.scrollRange,
     desc.paletteOrMask ?? 0,
     layer2YRange,
     tileDyRanges,
@@ -345,15 +381,24 @@ function buildL2(
 function buildCharBehavior(desc: CharDescriptor): CharBehavior {
   switch (desc.kind) {
     case 'static': {
-      const pixels = Array.isArray(desc.pixels) ? desc.pixels : Array.from(desc.pixels as ArrayLike<number>)
+      const pixels = Array.isArray(desc.pixels)
+        ? desc.pixels
+        : Array.from(desc.pixels as ArrayLike<number>)
       if (!pixels || pixels.length !== 64) {
-        console.warn('[rehydrate] StaticPixelsBehavior desc has bad pixel length:', pixels?.length ?? 'undefined')
+        console.warn(
+          '[rehydrate] StaticPixelsBehavior desc has bad pixel length:',
+          pixels?.length ?? 'undefined',
+        )
         return new StaticPixelsBehavior(new Uint8Array(64))
       }
       return new StaticPixelsBehavior(new Uint8Array(pixels))
     }
     case 'animated': {
-      if (!desc.frames || desc.frames.length === 0 || desc.frames.some(f => !f || f.length !== 64)) {
+      if (
+        !desc.frames ||
+        desc.frames.length === 0 ||
+        desc.frames.some(f => !f || f.length !== 64)
+      ) {
         console.warn('[rehydrate] AnimatedPixelsBehavior desc has bad frames:', {
           frameCount: desc.frames?.length,
           frameLengths: desc.frames?.map(f => f?.length),
@@ -370,11 +415,7 @@ function buildCharBehavior(desc: CharDescriptor): CharBehavior {
   }
 }
 
-function buildTileBehavior(
-  desc: TileDescriptor,
-  chars: Map<number, Char>,
-  placeholder: Char,
-) {
+function buildTileBehavior(desc: TileDescriptor, chars: Map<number, Char>, placeholder: Char) {
   switch (desc.kind) {
     case 'static':
       return new StaticQuadBehavior(buildQuad(desc.quad, chars, placeholder))
@@ -387,16 +428,16 @@ function buildTileBehavior(
       return new StarOneUpVineBlockBehavior(
         buildQuad(desc.quad, chars, placeholder),
         desc.vineOverlayQuad ? buildQuad(desc.vineOverlayQuad, chars, placeholder) : null,
-        desc.oneupCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
-        desc.starCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
+        desc.oneupCharNums.map((n: number) => (n >= 0 ? (chars.get(n) ?? null) : null)),
+        desc.starCharNums.map((n: number) => (n >= 0 ? (chars.get(n) ?? null) : null)),
       )
     case 'keyCoinBalloonKoopaBlock':
       return new KeyCoinBalloonKoopaBlockBehavior(
         buildQuad(desc.quad, chars, placeholder),
-        desc.keyCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
-        desc.redCoinCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
-        desc.pballoonCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
-        desc.paraKoopaCharNums.map((n: number) => n >= 0 ? (chars.get(n) ?? null) : null),
+        desc.keyCharNums.map((n: number) => (n >= 0 ? (chars.get(n) ?? null) : null)),
+        desc.redCoinCharNums.map((n: number) => (n >= 0 ? (chars.get(n) ?? null) : null)),
+        desc.pballoonCharNums.map((n: number) => (n >= 0 ? (chars.get(n) ?? null) : null)),
+        desc.paraKoopaCharNums.map((n: number) => (n >= 0 ? (chars.get(n) ?? null) : null)),
       )
     case 'pipeVariants':
       return new PipeVariantsBehavior(desc.variants.map(q => buildQuad(q, chars, placeholder)))
@@ -433,7 +474,11 @@ function buildQuad(
   ]
 }
 
-function buildSubTile(desc: SubTileDescriptor, chars: Map<number, Char>, placeholder: Char): SubTile {
+function buildSubTile(
+  desc: SubTileDescriptor,
+  chars: Map<number, Char>,
+  placeholder: Char,
+): SubTile {
   const char = chars.get(desc.charNum) ?? placeholder
   return new SubTile(char, desc.palette, desc.flipX, desc.flipY, desc.priority)
 }

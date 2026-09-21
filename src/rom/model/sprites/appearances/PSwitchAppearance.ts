@@ -1,4 +1,4 @@
-// Consumes: (none directly — palette via mapStore)
+// Consumes: (none directly - palette via mapStore)
 
 import type { RenderTarget } from '../../RenderTarget'
 import type { MapStore } from '../../stores/mapStore'
@@ -18,17 +18,22 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  * determined here from the `x` coordinate passed by the renderer.
  */
 export class PSwitchAppearance extends StaticSpriteAppearance {
-  static readonly BLUE_PALETTE   = 8 + ((0x06 >> 1) & 0x07)  // 11
-  static readonly SILVER_PALETTE = 8 + ((0x02 >> 1) & 0x07)  // 9
+  static readonly BLUE_PALETTE = 8 + ((0x06 >> 1) & 0x07) // 11
+  static readonly SILVER_PALETTE = 8 + ((0x02 >> 1) & 0x07) // 9
 
   constructor(parts: readonly SpritePart[]) {
     super(parts)
   }
 
-  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
-    const palette = ((x >> 4) & 1) === 0
-      ? PSwitchAppearance.BLUE_PALETTE
-      : PSwitchAppearance.SILVER_PALETTE
+  render(
+    target: RenderTarget,
+    x: number,
+    y: number,
+    _behavior: SpriteBehavior,
+    mapStore: MapStore,
+  ): void {
+    const palette =
+      ((x >> 4) & 1) === 0 ? PSwitchAppearance.BLUE_PALETTE : PSwitchAppearance.SILVER_PALETTE
     for (const part of this.parts) {
       const pixels = part.char.getPixels()
       const row = mapStore.palette.row(palette)

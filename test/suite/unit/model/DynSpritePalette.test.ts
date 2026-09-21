@@ -36,10 +36,10 @@ import {
 describe('dynPalRow / dynPalFirstCol', () => {
   it('splits the header CGRAM word address into a 16-colour row and column', () => {
     // CGRAM is 256 colours = 16 rows of 16; $2121 takes the colour index.
-    expect(dynPalRow({ ...MAGIKOOPA_PALS, cgramStart: 0xF0 })).toBe(15)
-    expect(dynPalFirstCol({ ...MAGIKOOPA_PALS, cgramStart: 0xF0 })).toBe(0)
-    expect(dynPalRow({ ...MAGIKOOPA_PALS, cgramStart: 0x8A })).toBe(8)
-    expect(dynPalFirstCol({ ...MAGIKOOPA_PALS, cgramStart: 0x8A })).toBe(10)
+    expect(dynPalRow({ ...MAGIKOOPA_PALS, cgramStart: 0xf0 })).toBe(15)
+    expect(dynPalFirstCol({ ...MAGIKOOPA_PALS, cgramStart: 0xf0 })).toBe(0)
+    expect(dynPalRow({ ...MAGIKOOPA_PALS, cgramStart: 0x8a })).toBe(8)
+    expect(dynPalFirstCol({ ...MAGIKOOPA_PALS, cgramStart: 0x8a })).toBe(10)
   })
 
   it('MagiKoopaPals lands on CGRAM row 15 column 0, which is OBJ palette 7', () => {
@@ -60,7 +60,7 @@ describe('dynPalRow / dynPalFirstCol', () => {
 /** A synthetic LoROM cart with a recognisable ramp at MAGIKOOPA_PALS.addr. */
 function syntheticRom(): RomFile {
   const buf = Buffer.alloc(0x80000)
-  const base = ((MAGIKOOPA_PALS.addr >>> 16) & 0x7F) * 0x8000 + (MAGIKOOPA_PALS.addr & 0x7FFF)
+  const base = ((MAGIKOOPA_PALS.addr >>> 16) & 0x7f) * 0x8000 + (MAGIKOOPA_PALS.addr & 0x7fff)
   for (let e = 0; e < MAGIKOOPA_PALS.entryCount; e++) {
     for (let c = 0; c < MAGIKOOPA_PALS.colorsPerEntry; c++) {
       buf.writeUInt16LE((e << 8) | c, base + e * MAGIKOOPA_PALS.colorsPerEntry * 2 + c * 2)
@@ -80,8 +80,9 @@ describe('readDynPalEntry', () => {
   })
 
   it('returns exactly colorsPerEntry words', () => {
-    expect(readDynPalEntry(syntheticRom(), MAGIKOOPA_PALS, 0))
-      .toHaveLength(MAGIKOOPA_PALS.colorsPerEntry)
+    expect(readDynPalEntry(syntheticRom(), MAGIKOOPA_PALS, 0)).toHaveLength(
+      MAGIKOOPA_PALS.colorsPerEntry,
+    )
   })
 
   it('refuses entries outside the table', () => {
@@ -98,8 +99,9 @@ describe('readDynPalEntry', () => {
     const host = syntheticRom()
     const view = new RomFile('webview.sfc', new Uint8Array(host.buffer))
     for (let e = 0; e < MAGIKOOPA_PALS.entryCount; e++) {
-      expect(readDynPalEntry(view, MAGIKOOPA_PALS, e))
-        .toEqual(readDynPalEntry(host, MAGIKOOPA_PALS, e))
+      expect(readDynPalEntry(view, MAGIKOOPA_PALS, e)).toEqual(
+        readDynPalEntry(host, MAGIKOOPA_PALS, e),
+      )
     }
     expect(readDynPalEntry(view, MAGIKOOPA_PALS, 0)).not.toBeNull()
   })
@@ -111,7 +113,7 @@ describe('readDynPalEntry', () => {
 function romWithTerminalCmp(opcode: number, imm: number): RomFile {
   const buf = Buffer.alloc(0x80000)
   const addr = MAGIKOOPA_PALS.restingEntryCmpAddr!
-  const off = ((addr >>> 16) & 0x7F) * 0x8000 + (addr & 0x7FFF)
+  const off = ((addr >>> 16) & 0x7f) * 0x8000 + (addr & 0x7fff)
   buf[off] = opcode
   buf[off + 1] = imm
   return new RomFile('synthetic.sfc', buf)
@@ -122,15 +124,16 @@ describe('resolveRestingEntry', () => {
     // The fade increments SpriteMisc1570, then uploads entry 1570-1, until
     // 1570 hits the immediate and it branches past the upload instead. So the
     // last entry left in CGRAM is imm - 2. bank_01.asm:8715-8731.
-    expect(resolveRestingEntry(romWithTerminalCmp(0xC9, 0x09), MAGIKOOPA_PALS)).toBe(7)
+    expect(resolveRestingEntry(romWithTerminalCmp(0xc9, 0x09), MAGIKOOPA_PALS)).toBe(7)
   })
 
   it('follows a hack that shortens the fade', () => {
     // A cart with `CMP #$05` rests three rungs darker, and the editor must
     // follow rather than keep showing rung 7.
-    expect(resolveRestingEntry(romWithTerminalCmp(0xC9, 0x05), MAGIKOOPA_PALS)).toBe(3)
-    expect(resolveRestingEntry(romWithTerminalCmp(0xC9, 0x05), MAGIKOOPA_PALS))
-      .not.toBe(MAGIKOOPA_PALS.restingEntry)
+    expect(resolveRestingEntry(romWithTerminalCmp(0xc9, 0x05), MAGIKOOPA_PALS)).toBe(3)
+    expect(resolveRestingEntry(romWithTerminalCmp(0xc9, 0x05), MAGIKOOPA_PALS)).not.toBe(
+      MAGIKOOPA_PALS.restingEntry,
+    )
   })
 
   it('falls back to the descriptor when the routine is not a CMP immediate', () => {
@@ -139,22 +142,24 @@ describe('resolveRestingEntry', () => {
     // routine and the traced literal is the safer answer. The operand byte
     // is deliberately NOT $09 here, so a build that skipped the opcode check
     // would return 3 and fail.
-    for (const opcode of [0xC5, 0xCD]) {
-      expect(resolveRestingEntry(romWithTerminalCmp(opcode, 0x05), MAGIKOOPA_PALS))
-        .toBe(MAGIKOOPA_PALS.restingEntry)
+    for (const opcode of [0xc5, 0xcd]) {
+      expect(resolveRestingEntry(romWithTerminalCmp(opcode, 0x05), MAGIKOOPA_PALS)).toBe(
+        MAGIKOOPA_PALS.restingEntry,
+      )
     }
   })
 
   it('falls back when the immediate would index outside the table', () => {
-    for (const imm of [0x00, 0x01, 0xFF]) {
-      expect(resolveRestingEntry(romWithTerminalCmp(0xC9, imm), MAGIKOOPA_PALS))
-        .toBe(MAGIKOOPA_PALS.restingEntry)
+    for (const imm of [0x00, 0x01, 0xff]) {
+      expect(resolveRestingEntry(romWithTerminalCmp(0xc9, imm), MAGIKOOPA_PALS)).toBe(
+        MAGIKOOPA_PALS.restingEntry,
+      )
     }
   })
 
   it('falls back when the descriptor names no address', () => {
     const noAddr = { ...MAGIKOOPA_PALS, restingEntryCmpAddr: undefined, restingEntry: 4 }
-    expect(resolveRestingEntry(romWithTerminalCmp(0xC9, 0x09), noAddr)).toBe(4)
+    expect(resolveRestingEntry(romWithTerminalCmp(0xc9, 0x09), noAddr)).toBe(4)
   })
 })
 
@@ -164,7 +169,7 @@ const rgba = (n: number): RgbaColor => [n, n, n, 255]
 
 describe('compositeDynPalRow', () => {
   const base = Array.from({ length: 16 }, (_, i) => rgba(i))
-  const dyn  = Array.from({ length: 8 }, (_, i) => rgba(0x80 + i))
+  const dyn = Array.from({ length: 8 }, (_, i) => rgba(0x80 + i))
 
   it('replaces only [firstCol, firstCol + colors) and keeps the rest of the row', () => {
     const out = compositeDynPalRow(base, dyn, 0, [])
@@ -200,11 +205,11 @@ describe('compositeDynPalRow', () => {
 
 describe('dynPalToRgba - BGR555 channel order', () => {
   it.each([
-    ['red   $001F', 0x001F, [255, 0, 0, 255]],
-    ['green $03E0', 0x03E0, [0, 255, 0, 255]],
-    ['blue  $7C00', 0x7C00, [0, 0, 255, 255]],
+    ['red   $001F', 0x001f, [255, 0, 0, 255]],
+    ['green $03E0', 0x03e0, [0, 255, 0, 255]],
+    ['blue  $7C00', 0x7c00, [0, 0, 255, 255]],
     ['black $0000', 0x0000, [0, 0, 0, 255]],
-    ['white $7FFF', 0x7FFF, [255, 255, 255, 255]],
+    ['white $7FFF', 0x7fff, [255, 255, 255, 255]],
   ])('%s', (_name, word, expected) => {
     expect(dynPalToRgba([word as number])[0]).toEqual(expected)
   })
@@ -212,17 +217,17 @@ describe('dynPalToRgba - BGR555 channel order', () => {
   it('bit-replicates 5-bit channels instead of shifting', () => {
     // c5 = 1 -> 8, c5 = 31 -> 255. A plain << 3 would give 248 for 31.
     expect(dynPalToRgba([0x0001])[0][0]).toBe(8)
-    expect(dynPalToRgba([0x001F])[0][0]).toBe(255)
+    expect(dynPalToRgba([0x001f])[0][0]).toBe(255)
   })
 })
 
 // -- ROM anchor -------------------------------------------------------------
 
-const ROM_PATH   = resolve(__dirname, '../../../roms/Super Mario World (USA).vanilla.sfc')
+const ROM_PATH = resolve(__dirname, '../../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent = existsSync(ROM_PATH)
 
 /** LoROM SNES address -> file offset, for a header-free 512KB cart. */
-const lorom = (a: number) => ((a >>> 16) & 0x7F) * 0x8000 + (a & 0x7FFF)
+const lorom = (a: number) => ((a >>> 16) & 0x7f) * 0x8000 + (a & 0x7fff)
 
 describe.skipIf(!romPresent)('MAGIKOOPA_PALS ROM anchor (ROM-only)', () => {
   const rom = () => readFileSync(ROM_PATH)
@@ -230,8 +235,8 @@ describe.skipIf(!romPresent)('MAGIKOOPA_PALS ROM anchor (ROM-only)', () => {
   it('addr is the operand of the LDA.L that reads the table (ROM $01:C036)', () => {
     // CODE_01C028, bank_01.asm:8743. `BF lo hi bank` = LDA.L abs,X.
     const b = rom()
-    const at = lorom(0x01C036)
-    expect(b[at]).toBe(0xBF)
+    const at = lorom(0x01c036)
+    expect(b[at]).toBe(0xbf)
     expect(b[at + 1] | (b[at + 2] << 8) | (b[at + 3] << 16)).toBe(MAGIKOOPA_PALS.addr)
   })
 
@@ -239,8 +244,9 @@ describe.skipIf(!romPresent)('MAGIKOOPA_PALS ROM anchor (ROM-only)', () => {
     // bank_01.asm:8735-8740: `DEC A : ASL A x4 : TAX` scales SpriteMisc1570-1
     // by 1 << 4 = 16 bytes, so an entry is 8 BGR555 colours.
     const b = rom()
-    expect([...b.subarray(lorom(0x01C02C), lorom(0x01C02C) + 5)])
-      .toEqual([0x0A, 0x0A, 0x0A, 0x0A, 0xAA])
+    expect([...b.subarray(lorom(0x01c02c), lorom(0x01c02c) + 5)]).toEqual([
+      0x0a, 0x0a, 0x0a, 0x0a, 0xaa,
+    ])
     expect(MAGIKOOPA_PALS.colorsPerEntry * 2).toBe(1 << 4)
   })
 
@@ -248,18 +254,24 @@ describe.skipIf(!romPresent)('MAGIKOOPA_PALS ROM anchor (ROM-only)', () => {
     // `CMP #$10` ends the copy; `LDA #$10 : STA DynPaletteTable,X` is the
     // entry length header. bank_01.asm:8749, 8752.
     const b = rom()
-    expect([...b.subarray(lorom(0x01C043), lorom(0x01C043) + 2)])
-      .toEqual([0xC9, MAGIKOOPA_PALS.colorsPerEntry * 2])
-    expect([...b.subarray(lorom(0x01C04A), lorom(0x01C04A) + 2)])
-      .toEqual([0xA9, MAGIKOOPA_PALS.colorsPerEntry * 2])
+    expect([...b.subarray(lorom(0x01c043), lorom(0x01c043) + 2)]).toEqual([
+      0xc9,
+      MAGIKOOPA_PALS.colorsPerEntry * 2,
+    ])
+    expect([...b.subarray(lorom(0x01c04a), lorom(0x01c04a) + 2)]).toEqual([
+      0xa9,
+      MAGIKOOPA_PALS.colorsPerEntry * 2,
+    ])
   })
 
   it('cgramStart is the header CGRAM address immediate (ROM $01:C04F)', () => {
     // `LDA #$F0 : STA DynPaletteTable+1,X`, bank_01.asm:8754. CODE_00A488
     // pushes that byte straight into $2121 at bank_00.asm:4735.
     const b = rom()
-    expect([...b.subarray(lorom(0x01C04F), lorom(0x01C04F) + 2)])
-      .toEqual([0xA9, MAGIKOOPA_PALS.cgramStart])
+    expect([...b.subarray(lorom(0x01c04f), lorom(0x01c04f) + 2)]).toEqual([
+      0xa9,
+      MAGIKOOPA_PALS.cgramStart,
+    ])
   })
 
   it('entryCount fills exactly the gap up to BooBossPals', () => {
@@ -267,11 +279,12 @@ describe.skipIf(!romPresent)('MAGIKOOPA_PALS ROM anchor (ROM-only)', () => {
     // operand of the LDA.L in CODE_038239 at ROM $03:8254 (bank_03.asm:327).
     const b = rom()
     const at = lorom(0x038254)
-    expect(b[at]).toBe(0xBF)
+    expect(b[at]).toBe(0xbf)
     const booBoss = b[at + 1] | (b[at + 2] << 8) | (b[at + 3] << 16)
     expect(booBoss).toBeGreaterThan(MAGIKOOPA_PALS.addr)
-    expect((booBoss - MAGIKOOPA_PALS.addr) / (MAGIKOOPA_PALS.colorsPerEntry * 2))
-      .toBe(MAGIKOOPA_PALS.entryCount)
+    expect((booBoss - MAGIKOOPA_PALS.addr) / (MAGIKOOPA_PALS.colorsPerEntry * 2)).toBe(
+      MAGIKOOPA_PALS.entryCount,
+    )
   })
 
   it('restingEntryCmpAddr is the CMP whose branch skips the upload', () => {
@@ -282,30 +295,31 @@ describe.skipIf(!romPresent)('MAGIKOOPA_PALS ROM anchor (ROM-only)', () => {
     const b = rom()
     const bneTarget = (cmpAddr: number) => {
       const at = lorom(cmpAddr)
-      expect(b[at]).toBe(0xC9)        // CMP #imm
-      expect(b[at + 2]).toBe(0xD0)    // BNE rel8
-      return cmpAddr + 4 + ((b[at + 3] << 24) >> 24)   // PC after BNE + signed rel
+      expect(b[at]).toBe(0xc9) // CMP #imm
+      expect(b[at + 2]).toBe(0xd0) // BNE rel8
+      return cmpAddr + 4 + ((b[at + 3] << 24) >> 24) // PC after BNE + signed rel
     }
     // $01:C014 branches over `LDY #$24 : STY ColorSettings` only
     // (bank_01.asm:8722-8725) and rejoins at the second CMP.
-    expect(bneTarget(0x01C014)).toBe(0x01C01C)
+    expect(bneTarget(0x01c014)).toBe(0x01c01c)
     // $01:C01C branches to CODE_01C028 (bank_01.asm:8726-8727), i.e. past
     // the palette upload, which is what fixes the resting entry.
-    expect(bneTarget(MAGIKOOPA_PALS.restingEntryCmpAddr!)).toBe(0x01C028)
+    expect(bneTarget(MAGIKOOPA_PALS.restingEntryCmpAddr!)).toBe(0x01c028)
     // ...and $01:C028 really is the upload: its LDA.L is 14 bytes in.
-    expect(b[lorom(0x01C036)]).toBe(0xBF)
+    expect(b[lorom(0x01c036)]).toBe(0xbf)
   })
 
   it('restingEntry is the last index the fade-in uploads before state 2', () => {
     const b = rom()
     const at = lorom(MAGIKOOPA_PALS.restingEntryCmpAddr!)
-    expect(b[at]).toBe(0xC9)
+    expect(b[at]).toBe(0xc9)
     expect(b[at + 1] - 2).toBe(MAGIKOOPA_PALS.restingEntry)
   })
 
   it('resolveRestingEntry on the real cart agrees with the literal', () => {
-    expect(resolveRestingEntry(new RomFile(ROM_PATH, rom()), MAGIKOOPA_PALS))
-      .toBe(MAGIKOOPA_PALS.restingEntry)
+    expect(resolveRestingEntry(new RomFile(ROM_PATH, rom()), MAGIKOOPA_PALS)).toBe(
+      MAGIKOOPA_PALS.restingEntry,
+    )
   })
 
   it('restingEntry is the brightest rung, and the fade rises monotonically', () => {
@@ -313,8 +327,10 @@ describe.skipIf(!romPresent)('MAGIKOOPA_PALS ROM anchor (ROM-only)', () => {
     // so the entry left in CGRAM for the visible state must be its bright end.
     const romFile = new RomFile(ROM_PATH, rom())
     const lum = (entry: number) =>
-      (readDynPalEntry(romFile, MAGIKOOPA_PALS, entry) ?? [])
-        .reduce((t, w) => t + (w & 0x1F) + ((w >> 5) & 0x1F) + ((w >> 10) & 0x1F), 0)
+      (readDynPalEntry(romFile, MAGIKOOPA_PALS, entry) ?? []).reduce(
+        (t, w) => t + (w & 0x1f) + ((w >> 5) & 0x1f) + ((w >> 10) & 0x1f),
+        0,
+      )
     const ramp = Array.from({ length: MAGIKOOPA_PALS.entryCount }, (_, e) => lum(e))
     for (let e = 1; e < ramp.length; e++) expect(ramp[e]).toBeGreaterThan(ramp[e - 1])
     expect(ramp.indexOf(Math.max(...ramp))).toBe(MAGIKOOPA_PALS.restingEntry)
@@ -322,7 +338,8 @@ describe.skipIf(!romPresent)('MAGIKOOPA_PALS ROM anchor (ROM-only)', () => {
 
   it('the resting entry really differs from its neighbour, so picking wrong is visible', () => {
     const romFile = new RomFile(ROM_PATH, rom())
-    expect(readDynPalEntry(romFile, MAGIKOOPA_PALS, MAGIKOOPA_PALS.restingEntry))
-      .not.toEqual(readDynPalEntry(romFile, MAGIKOOPA_PALS, MAGIKOOPA_PALS.restingEntry - 1))
+    expect(readDynPalEntry(romFile, MAGIKOOPA_PALS, MAGIKOOPA_PALS.restingEntry)).not.toEqual(
+      readDynPalEntry(romFile, MAGIKOOPA_PALS, MAGIKOOPA_PALS.restingEntry - 1),
+    )
   })
 })

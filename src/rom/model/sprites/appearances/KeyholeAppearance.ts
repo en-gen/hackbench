@@ -20,8 +20,22 @@ export class KeyholeAppearance extends StaticSpriteAppearance {
     const OBJ_BASE = 0x400
     const KEYHOLE_PAL = 8
     const parts: SpritePart[] = [
-      { char: chars.get(OBJ_BASE + 0xEB) ?? placeholder, palette: KEYHOLE_PAL, flipX: false, flipY: false, dx: 8, dy: 0 },
-      { char: chars.get(OBJ_BASE + 0xFB) ?? placeholder, palette: KEYHOLE_PAL, flipX: false, flipY: false, dx: 8, dy: 8 },
+      {
+        char: chars.get(OBJ_BASE + 0xeb) ?? placeholder,
+        palette: KEYHOLE_PAL,
+        flipX: false,
+        flipY: false,
+        dx: 8,
+        dy: 0,
+      },
+      {
+        char: chars.get(OBJ_BASE + 0xfb) ?? placeholder,
+        palette: KEYHOLE_PAL,
+        flipX: false,
+        flipY: false,
+        dx: 8,
+        dy: 8,
+      },
     ]
     return new KeyholeAppearance(parts)
   }

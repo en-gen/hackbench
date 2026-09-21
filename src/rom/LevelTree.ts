@@ -27,10 +27,7 @@ export const MAX_SUBTREE_DEPTH = 24
  * nothing vanishes silently either: each child left unexpanded is emitted as a
  * 'truncated' marker at every level of the unwind.
  */
-export function buildLevelSubtree(
-  root: number,
-  exitGraph: Map<number, number[]>,
-): LevelTreeNode {
+export function buildLevelSubtree(root: number, exitGraph: Map<number, number[]>): LevelTreeNode {
   const path = new Set<number>([root])
   let nodes = 1
 

@@ -11,7 +11,11 @@ import { TILE_EMPTY, expandMap } from '../ObjectExpander'
 import type { SmwRom } from '../SmwRom'
 import type { Char } from './chars/Char'
 import { buildChars } from './chars/CharFactory'
-import { findLevelScrollSprite, findLevelScrollSpriteFull, readInitialLayer2YPos } from '../L2Loader'
+import {
+  findLevelScrollSprite,
+  findLevelScrollSpriteFull,
+  readInitialLayer2YPos,
+} from '../L2Loader'
 import { simulateScrollSetup } from '../scrollDispatch'
 import { buildScrollSimulator } from '../scrollSim'
 import { buildBgTiles, buildL2 } from './L2Factory'
@@ -34,7 +38,7 @@ export interface BuiltMap {
 }
 
 /**
- * Per-level property overrides. Match the toolbar dropdowns — any field
+ * Per-level property overrides. Match the toolbar dropdowns - any field
  * left undefined falls through to the ROM level-header default.
  *
  * These feed VRAM / palette / tile-atlas builders so changing BG palette
@@ -42,13 +46,13 @@ export interface BuiltMap {
  * selection in one shot (no shadowed legacy state).
  */
 export interface MapBuildOverrides {
-  bgPalette?:     number
-  fgPalette?:     number
-  bgColor?:       number
+  bgPalette?: number
+  fgPalette?: number
+  bgColor?: number
   spritePalette?: number
-  spriteSet?:     number
+  spriteSet?: number
   objectTileset?: number
-  marioVariant?:  number
+  marioVariant?: number
 }
 
 /**
@@ -75,21 +79,22 @@ export function buildMapWithGraph(
   // reads from this effective header rather than the raw one.
   const header = {
     ...rawHeader,
-    bgPalette:      overrides.bgPalette     ?? rawHeader.bgPalette,
-    fgPalette:      overrides.fgPalette     ?? rawHeader.fgPalette,
-    bgColor:        overrides.bgColor       ?? rawHeader.bgColor,
-    spritePalette:  overrides.spritePalette ?? rawHeader.spritePalette,
-    spriteSet:      overrides.spriteSet     ?? rawHeader.spriteSet,
-    objectTileset:  overrides.objectTileset ?? rawHeader.objectTileset,
+    bgPalette: overrides.bgPalette ?? rawHeader.bgPalette,
+    fgPalette: overrides.fgPalette ?? rawHeader.fgPalette,
+    bgColor: overrides.bgColor ?? rawHeader.bgColor,
+    spritePalette: overrides.spritePalette ?? rawHeader.spritePalette,
+    spriteSet: overrides.spriteSet ?? rawHeader.spriteSet,
+    objectTileset: overrides.objectTileset ?? rawHeader.objectTileset,
   }
   const tileset = header.objectTileset
 
   const vram = loadVram(rom.rom, tileset, header.spriteSet)
   const vanillaAnimData = loadAnimationData(rom.rom, tileset) ?? undefined
   const exAnimData = loadExAnimData(rom.rom, levelId) ?? undefined
-  const animData = vanillaAnimData && exAnimData
-    ? mergeAnimationData(vanillaAnimData, exAnimData)
-    : vanillaAnimData ?? exAnimData
+  const animData =
+    vanillaAnimData && exAnimData
+      ? mergeAnimationData(vanillaAnimData, exAnimData)
+      : (vanillaAnimData ?? exAnimData)
   const chars = buildChars(vram, animData)
   chars.set(-2, makePlaceholderBoxChar())
   const tiles = buildTiles(rom.rom, tileset, chars)
@@ -101,11 +106,9 @@ export function buildMapWithGraph(
   const bgTiles = buildBgTiles(rom.rom, chars)
 
   const grid = expandMap(parsed.objects, screens, rom.rom, tileset, isVertical, rawHeader.levelMode)
-  // L1 tilemap as ids — resolve against `tiles` (aka l1Tiles) at render
+  // L1 tilemap as ids - resolve against `tiles` (aka l1Tiles) at render
   // time. Empty cells survive as null.
-  const l1: (number | null)[][] = grid.map(row =>
-    row.map(id => (id === TILE_EMPTY ? null : id)),
-  )
+  const l1: (number | null)[][] = grid.map(row => row.map(id => (id === TILE_EMPTY ? null : id)))
 
   // Per-screen pipe variant: SMW cycles variants 0→1→2→3 across screens
   // (MapEditorProvider uses `s & 0x03` for the legacy path). This drives
@@ -122,7 +125,7 @@ export function buildMapWithGraph(
     if (sprData) levelSprites = parseLevelSprites(sprData, isVertical)
   }
   // Scroll-sprite spawn writes Layer1ScrollCmd at bank_02.asm:5290-5300
-  // (NOT Layer2ScrollCmd — that byte stays 0 in gameplay). Recorded on the
+  // (NOT Layer2ScrollCmd - that byte stays 0 in gameplay). Recorded on the
   // L2 layer purely for diagnostic labelling on the scroll-range overlay.
   const layer1ScrollCmd = findLevelScrollSprite(levelSprites)
 
@@ -141,10 +144,10 @@ export function buildMapWithGraph(
   // bytes in VertLayer2Setting / HorizLayer2Setting. The webview camera
   // viewport uses these to re-composite BG at the parallax-shifted
   // position inside the preview rect.
-  const scrollByte  = rom.rom.readByte(0x05F000 + levelId) ?? 0
-  const scrollIndex = (scrollByte >> 4) & 0x0F
-  const vertLayer2Setting  = rom.rom.readByte(0x05D710 + scrollIndex) ?? 0
-  const horizLayer2Setting = rom.rom.readByte(0x05D720 + scrollIndex) ?? 0
+  const scrollByte = rom.rom.readByte(0x05f000 + levelId) ?? 0
+  const scrollIndex = (scrollByte >> 4) & 0x0f
+  const vertLayer2Setting = rom.rom.readByte(0x05d710 + scrollIndex) ?? 0
+  const horizLayer2Setting = rom.rom.readByte(0x05d720 + scrollIndex) ?? 0
 
   // Build the per-level frame-accurate scroll simulator. We need the
   // scroll-sprite's full byte 0 (not just the cmd) plus the resolved
@@ -152,7 +155,7 @@ export function buildMapWithGraph(
   // has no scroll sprite the simulator is null and `L2ObjectStream`
   // falls back to the static initial offset.
   //
-  // The simulator's seed represents the PRE-tick state — same shape
+  // The simulator's seed represents the PRE-tick state - same shape
   // as the Mesen capture's row 1 (post-`CODE_05BD36` setup, pre-first-
   // parallax-call). `buildScrollSimulator` runs the cmd setup
   // internally so callers don't need to.
@@ -163,24 +166,35 @@ export function buildMapWithGraph(
   const initialLayer2YPx = readInitialLayer2YPos(rom.rom, levelId, isVertical)
   const scrollSimulator = setupState
     ? buildScrollSimulator(rom.rom, {
-        layer1XPos: 0,                                  // horizontal levels start at 0
-        layer1YPos: initialCameraYPx,                   // DATA_05D708 init
+        layer1XPos: 0, // horizontal levels start at 0
+        layer1YPos: initialCameraYPx, // DATA_05D708 init
         layer2XPos: 0,
-        layer2YPos: initialLayer2YPx,                   // DATA_05D70C init
-        layer1ScrollCmd:  setupState.layer1ScrollCmd,
-        layer2ScrollCmd:  setupState.layer2ScrollCmd,
+        layer2YPos: initialLayer2YPx, // DATA_05D70C init
+        layer1ScrollCmd: setupState.layer1ScrollCmd,
+        layer2ScrollCmd: setupState.layer2ScrollCmd,
         layer1ScrollBits: setupState.layer1ScrollBits,
         layer2ScrollBits: setupState.layer2ScrollBits,
         horizLayer2Setting,
         vertLayer2Setting,
         marioSpawnX: marioStartPx?.x ?? 0,
         marioSpawnY: marioStartPx?.y ?? 0,
-        screenMode:  header.levelMode,
+        screenMode: header.levelMode,
         horizLayer1Setting: isVertical ? 0 : 1,
       })
     : null
 
-  const l2 = buildL2(rom.rom, levelId, header, screens, isVertical, chars, tiles, bgTiles, layer1ScrollCmd, initialCameraYPx)
+  const l2 = buildL2(
+    rom.rom,
+    levelId,
+    header,
+    screens,
+    isVertical,
+    chars,
+    tiles,
+    bgTiles,
+    layer1ScrollCmd,
+    initialCameraYPx,
+  )
   const l3 = buildL3(rom.rom, levelId, tileset, l3Chars, screens, isVertical, rawHeader.timeLimit)
 
   // Per-level default OBJ priority: LevXYPPCCCTtbl[levelMode] (bank_05.asm:505-509,
@@ -188,7 +202,12 @@ export function buildMapWithGraph(
   // buildSprites then falls back to its own documented default.
   const levelObjPriority = readLevelObjPriority(rom.rom, header.levelMode)
   const sprites = buildSprites(
-    rom.rom, levelSprites, chars, l1, marioStartPx, tiles,
+    rom.rom,
+    levelSprites,
+    chars,
+    l1,
+    marioStartPx,
+    tiles,
     levelObjPriority ?? DEFAULT_OBJ_PRIORITY,
   )
 
@@ -236,11 +255,7 @@ export function buildMapWithGraph(
  * Build a fully-wired SmwMap for one level. Convenience wrapper around
  * `buildMapWithGraph` for callers that only want the map.
  */
-export function buildMap(
-  rom: SmwRom,
-  levelId: number,
-  overrides: MapBuildOverrides = {},
-): SmwMap {
+export function buildMap(rom: SmwRom, levelId: number, overrides: MapBuildOverrides = {}): SmwMap {
   return buildMapWithGraph(rom, levelId, overrides).map
 }
 

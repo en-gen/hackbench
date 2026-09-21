@@ -6,11 +6,18 @@
  */
 import { inject, injectable } from '@theia/core/shared/inversify'
 import {
-  Command, CommandContribution, CommandRegistry,
-  MenuContribution, MenuModelRegistry, MessageService,
+  Command,
+  CommandContribution,
+  CommandRegistry,
+  MenuContribution,
+  MenuModelRegistry,
+  MessageService,
 } from '@theia/core/lib/common'
 import {
-  ApplicationShell, CommonMenus, QuickInputService, WidgetManager,
+  ApplicationShell,
+  CommonMenus,
+  QuickInputService,
+  WidgetManager,
 } from '@theia/core/lib/browser'
 import { ProjectDto, ProjectService } from '../common/project-protocol'
 import { NewProjectDialog } from './new-project-dialog'
@@ -145,8 +152,8 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
       // Name the cart back to the user: it is how they confirm they picked
       // the ROM they meant, and the title comes from the cart's own header.
       this.messages.info(
-        `Created ${project.name} against ${project.baseRom.title || 'an SNES cart'} `
-        + `(${project.baseRom.size} bytes)`,
+        `Created ${project.name} against ${project.baseRom.title || 'an SNES cart'} ` +
+          `(${project.baseRom.size} bytes)`,
       )
 
       await this.show(project)

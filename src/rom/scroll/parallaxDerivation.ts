@@ -1,5 +1,5 @@
 /**
- * parallaxDerivation.ts — port of the bank_00 `UpdateScreenPosition`
+ * parallaxDerivation.ts - port of the bank_00 `UpdateScreenPosition`
  * L2 parallax derivation + 8-byte `Layer→Next` block copy
  * (`CODE_00F79D` / `CODE_00F7AA`, bank_00.asm:13727-13772).
  *
@@ -8,7 +8,7 @@
  * parallax-rate bytes, then copies all four `Layer*Pos` fields into
  * `NextLayer*Pos`. The bank_05 cmd handlers may then OVERWRITE
  * `Next*Pos` for the layer they animate. For levels where l2cmd=0
- * (e.g. $00C), the L2 dispatch BEQs out with no per-frame handler — so
+ * (e.g. $00C), the L2 dispatch BEQs out with no per-frame handler - so
  * `Next2*Pos` is whatever this routine just wrote, which is what makes
  * the L2 plane scroll at the per-level parallax rate even when its cmd
  * handler is a no-op.
@@ -44,13 +44,15 @@ import { wrap16 } from '../scrollSim'
  * setting=0 to keep the state field deterministic.
  */
 export function computeBackgroundVertOffset(
-  layer1YPos: number, layer2YPos: number, vertSetting: number,
+  layer1YPos: number,
+  layer2YPos: number,
+  vertSetting: number,
 ): number {
   if (vertSetting === 0) return 0
   let base: number
-  if (vertSetting === 1)      base = layer1YPos
+  if (vertSetting === 1) base = layer1YPos
   else if (vertSetting === 2) base = layer1YPos >>> 1
-  else                        base = layer1YPos >>> 5
+  else base = layer1YPos >>> 5
   return wrap16(layer2YPos - base)
 }
 
@@ -79,17 +81,17 @@ export function applyParallaxDerivation(s: ScrollState): ScrollState {
     // Held.
   } else {
     let base: number
-    if (s.vertLayer2Setting === 1)      base = s.layer1YPos
+    if (s.vertLayer2Setting === 1) base = s.layer1YPos
     else if (s.vertLayer2Setting === 2) base = s.layer1YPos >>> 1
-    else                                base = s.layer1YPos >>> 5
+    else base = s.layer1YPos >>> 5
     l2y = wrap16(base + s.backgroundVertOffset)
   }
 
   // 8-byte Layer→Next copy.
   return {
     ...s,
-    layer2XPos:     wrap16(l2x),
-    layer2YPos:     wrap16(l2y),
+    layer2XPos: wrap16(l2x),
+    layer2YPos: wrap16(l2y),
     nextLayer1XPos: s.layer1XPos,
     nextLayer1YPos: s.layer1YPos,
     nextLayer2XPos: wrap16(l2x),

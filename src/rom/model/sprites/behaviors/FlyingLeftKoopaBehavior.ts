@@ -1,7 +1,7 @@
 import { MovementBehavior, type BehaviorMeta } from '../MovementBehavior'
 
 /**
- * $08 Green Para-Koopa (horizontal flier) — GreenParaKoopa handler at
+ * $08 Green Para-Koopa (horizontal flier) - GreenParaKoopa handler at
  * bank_01.asm:1817, $08 branch at line 1835.
  *
  * Physics:
@@ -13,7 +13,7 @@ import { MovementBehavior, type BehaviorMeta } from '../MovementBehavior'
  *   - vy alternates between $FC (-4 sub-px) and +$04 based on
  *     `SpriteMisc1570 & $20`. Bit 5 of the 1570 counter flips every 32
  *     frames, giving a 64-frame vertical bob period.
- *   - Handler calls `SubSprXPosNoGrvty` + `SubSprYPosNoGrvty` only —
+ *   - Handler calls `SubSprXPosNoGrvty` + `SubSprYPosNoGrvty` only -
  *     `CODE_019140` (full collision) is NOT called. `SpriteBlockedDirs` is
  *     never set. The sprite passes through walls until it despawns
  *     offscreen via the sprite offscreen bookkeeping.
@@ -21,17 +21,17 @@ import { MovementBehavior, type BehaviorMeta } from '../MovementBehavior'
  * Overlay strategy:
  *   A short fade-to-transparent corridor (6 tiles = 96 px) to the left of
  *   spawn conveys "flies this direction, forever". Extending it further
- *   would clutter the level view and isn't necessary — the fade itself is
+ *   would clutter the level view and isn't necessary - the fade itself is
  *   the signal. Walls visible in that span do NOT block the sprite.
  */
 
 /** vx from Spr0to13SpeedX[1] = $F8 (signed -8). */
 export const FLY_XSPEED = -8
 
-/** Y-bob lower bound — $FC (signed -4). */
+/** Y-bob lower bound - $FC (signed -4). */
 export const FLY_Y_BOB_LOW = -4
 
-/** Y-bob upper bound — +4 (signed +$04). */
+/** Y-bob upper bound - +4 (signed +$04). */
 export const FLY_Y_BOB_HIGH = +4
 
 /** Fade corridor length in pixels (6 tiles). Long enough to read direction
@@ -42,9 +42,9 @@ export const FADE_LENGTH_PX = 96
 export const FADE_HEIGHT_PX = 24
 
 export interface FadeCorridor {
-  originX:  number
-  originY:  number
-  endX:     number
+  originX: number
+  originY: number
+  endX: number
   heightPx: number
 }
 
@@ -56,14 +56,14 @@ export class FlyingLeftKoopaBehavior extends MovementBehavior {
   }
 
   /**
-   * The fade corridor drawn by the overlay. Purely geometric — doesn't
+   * The fade corridor drawn by the overlay. Purely geometric - doesn't
    * depend on L1 solidity because the sprite passes through walls.
    */
   computeFadeCorridor(spawnX: number, spawnY: number): FadeCorridor {
     return {
-      originX:  spawnX,
-      originY:  spawnY,
-      endX:     spawnX - FADE_LENGTH_PX,
+      originX: spawnX,
+      originY: spawnY,
+      endX: spawnX - FADE_LENGTH_PX,
       heightPx: FADE_HEIGHT_PX,
     }
   }
@@ -81,8 +81,10 @@ export class FlyingLeftKoopaBehavior extends MovementBehavior {
    * Implementation runs the full sub-pixel sim so it's faithful to ASM.
    */
   computeFlightPosition(spawnX: number, spawnY: number, frame: number): { x: number; y: number } {
-    let x = spawnX, y = spawnY
-    let sx = 0, sy = 0
+    let x = spawnX,
+      y = spawnY
+    let sx = 0,
+      sy = 0
     for (let f = 0; f < frame; f++) {
       // X sub-pixel step: vx = -8 sub-px → -8 × 16 = -128 per frame total.
       const dxSub = FLY_XSPEED * 16

@@ -13,7 +13,7 @@ let activeSession: RomSession | undefined
 /**
  * Returns the currently open session, or undefined if no ROM is loaded.
  * Providers call this to reuse the in-memory ROM buffer instead of
- * re-reading the file from disk on every descriptor load — critical
+ * re-reading the file from disk on every descriptor load - critical
  * for fast switching between maps/palettes/gfx files.
  */
 export function getActiveRomSession(): RomSession | undefined {
@@ -69,7 +69,8 @@ export class RomSession {
   constructor(romPath: string) {
     this.rom = SmwRom.open(romPath)
     this.summary = this.rom.getSummary()
-    this.slug = path.basename(romPath, path.extname(romPath))
+    this.slug = path
+      .basename(romPath, path.extname(romPath))
       .replace(/[^a-zA-Z0-9_-]/g, '_')
       .toLowerCase()
     setActiveRomSession(this)

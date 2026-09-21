@@ -1,12 +1,12 @@
 /**
- * RipVanFishAppearance — locks the Z snore trail wiring for sprite $3D.
+ * RipVanFishAppearance - locks the Z snore trail wiring for sprite $3D.
  *
  * The Zs are minor extended sprites of type $06 spawned by CODE_02C0D9
  * (bank_02.asm:8604) only from the sleeping branch CODE_02C044
  * (bank_02.asm:8530). Per-particle update CODE_028DDB (bank_02.asm:1784)
  * picks a tile from `RipVanFishZsTiles` (`db $F1,$F0,$E1,$E0`,
  * bank_02.asm:1781) indexed by `(timer >> 5) & 3` over the timer's
- * $7F → $00 countdown — yielding cycle $E0 → $E1 → $F0 → $F1.
+ * $7F → $00 countdown - yielding cycle $E0 → $E1 → $F0 → $F1.
  *
  * The editor exposes that cycle as `Z_TILES` and resolves the four
  * 8x8 chars in `fromTables`. Pose chars (sleep/awake) are tested
@@ -45,15 +45,13 @@ function buildChars(): Map<number, Char> {
 
 describe('RipVanFishAppearance Z snore trail', () => {
   it('Z_TILES matches the ROM cycle $E0 → $E1 → $F0 → $F1', () => {
-    expect([...Z_TILES]).toEqual([0xE0, 0xE1, 0xF0, 0xF1])
+    expect([...Z_TILES]).toEqual([0xe0, 0xe1, 0xf0, 0xf1])
   })
 
   it('fromTables builds 4 zParts from the OBJ char window', () => {
-    const palette  = 9
+    const palette = 9
     const charHigh = 0x000
-    const a = RipVanFishAppearance.fromTables(
-      buildChars(), palette, charHigh, placeholder,
-    )
+    const a = RipVanFishAppearance.fromTables(buildChars(), palette, charHigh, placeholder)
 
     expect(a.zParts).toHaveLength(4)
     for (let i = 0; i < 4; i++) {
@@ -68,40 +66,34 @@ describe('RipVanFishAppearance Z snore trail', () => {
   })
 
   it('charHigh routes Z chars to the upper VRAM page', () => {
-    const a = RipVanFishAppearance.fromTables(
-      buildChars(), 9, 0x100, placeholder,
-    )
+    const a = RipVanFishAppearance.fromTables(buildChars(), 9, 0x100, placeholder)
     expect(a.zParts.map(p => p.char.id)).toEqual([
-      OBJ_BASE + 0x100 + 0xE0,
-      OBJ_BASE + 0x100 + 0xE1,
-      OBJ_BASE + 0x100 + 0xF0,
-      OBJ_BASE + 0x100 + 0xF1,
+      OBJ_BASE + 0x100 + 0xe0,
+      OBJ_BASE + 0x100 + 0xe1,
+      OBJ_BASE + 0x100 + 0xf0,
+      OBJ_BASE + 0x100 + 0xf1,
     ])
   })
 
   it('falls back to the placeholder when a Z char is missing from the map', () => {
     const sparseChars = new Map<number, Char>()
-    sparseChars.set(OBJ_BASE + 0xE0, syntheticChar(OBJ_BASE + 0xE0))
-    // Pose chars (8C/AC) also missing — fromTables will fall back for those
+    sparseChars.set(OBJ_BASE + 0xe0, syntheticChar(OBJ_BASE + 0xe0))
+    // Pose chars (8C/AC) also missing - fromTables will fall back for those
     // too; we only assert the trail behavior here.
-    const a = RipVanFishAppearance.fromTables(
-      sparseChars, 9, 0x000, placeholder,
-    )
-    expect(a.zParts[0].char.id).toBe(OBJ_BASE + 0xE0)
+    const a = RipVanFishAppearance.fromTables(sparseChars, 9, 0x000, placeholder)
+    expect(a.zParts[0].char.id).toBe(OBJ_BASE + 0xe0)
     expect(a.zParts[1].char).toBe(placeholder)
     expect(a.zParts[2].char).toBe(placeholder)
     expect(a.zParts[3].char).toBe(placeholder)
   })
 
   it('tickAnimation advances without throwing (drives the trail forward)', () => {
-    const a = RipVanFishAppearance.fromTables(
-      buildChars(), 9, 0x000, placeholder,
-    )
+    const a = RipVanFishAppearance.fromTables(buildChars(), 9, 0x000, placeholder)
     // Just smoke-test: the timer must accept many ticks without growing
     // unboundedly (it's wrapped mod the spawn cycle). A handful of ticks
     // exceeds the wrap point (120 / 7.5 = 16 ticks per full cycle).
     for (let i = 0; i < 100; i++) a.tickAnimation()
-    // No assertion on internal state — that's an implementation detail.
+    // No assertion on internal state - that's an implementation detail.
     // The contract is "doesn't throw, doesn't drift to NaN".
     expect(a.zParts).toHaveLength(4)
   })
@@ -109,7 +101,7 @@ describe('RipVanFishAppearance Z snore trail', () => {
 
 describe('RipVanFishAppearance Z trajectory (ROM physics simulation)', () => {
   it('lifetime matches the ROM kill-check at timer $14', () => {
-    // CODE_028DDB:1834 — slot is killed when decremented timer == $14,
+    // CODE_028DDB:1834 - slot is killed when decremented timer == $14,
     // so visible frames are timer values $7E..$15 = 106 frames.
     expect(Z_LIFETIME_FRAMES).toBe(106)
     expect(Z_TRAJECTORY).toHaveLength(106)
@@ -143,7 +135,7 @@ describe('RipVanFishAppearance Z trajectory (ROM physics simulation)', () => {
     expect(Z_TRAJECTORY.findIndex(f => f.tileIdx === 1)).toBe(31)
     expect(Z_TRAJECTORY.findIndex(f => f.tileIdx === 2)).toBe(63)
     expect(Z_TRAJECTORY.findIndex(f => f.tileIdx === 3)).toBe(95)
-    expect(Z_TILES[3]).toBe(0xF1)
+    expect(Z_TILES[3]).toBe(0xf1)
   })
 
   it('drift forms a near-vertical column (matching the Mesen reference)', () => {
@@ -152,7 +144,7 @@ describe('RipVanFishAppearance Z trajectory (ROM physics simulation)', () => {
     // 4 frames, drifting up the full lifetime.
     const dxs = Z_TRAJECTORY.map(f => f.dx)
     const dys = Z_TRAJECTORY.map(f => f.dy)
-    // X stays within a tight band — no runaway leftward linear drift.
+    // X stays within a tight band - no runaway leftward linear drift.
     expect(Math.min(...dxs)).toBeGreaterThanOrEqual(0)
     expect(Math.max(...dxs)).toBeLessThanOrEqual(20)
     expect(Math.max(...dxs) - Math.min(...dxs)).toBeLessThanOrEqual(15)
@@ -167,8 +159,8 @@ describe('RipVanFishAppearance Z trajectory (ROM physics simulation)', () => {
 })
 
 describe('RipVanFishAppearance body-frame animation', () => {
-  const palette  = 9
-  const charHigh = 0x100   // matches the in-game spriteAttr & 1 routing
+  const palette = 9
+  const charHigh = 0x100 // matches the in-game spriteAttr & 1 routing
 
   it('exposes a 2-frame pair for both sleep and awake states', () => {
     const a = RipVanFishAppearance.fromTables(buildChars(), palette, charHigh, placeholder)
@@ -185,29 +177,32 @@ describe('RipVanFishAppearance body-frame animation', () => {
     // fromTables puts sleepB first so $8C (eyes-blink frame) is the initial
     // display at romFrame=0 (the `(romFrame & $30) == 0` branch picks index 1).
     // misc1602 dispatch (CODE_02C07B): 2 → $8C, 3 → $8E.
-    expect(RIP_VAN_FISH_FRAMES.sleepA).toBe(0x8C)
-    expect(RIP_VAN_FISH_FRAMES.sleepB).toBe(0x8E)
+    expect(RIP_VAN_FISH_FRAMES.sleepA).toBe(0x8c)
+    expect(RIP_VAN_FISH_FRAMES.sleepB).toBe(0x8e)
     const a = RipVanFishAppearance.fromTables(buildChars(), palette, charHigh, placeholder)
-    expect(a.sleepFrames[0][0].char.id).toBe(OBJ_BASE + charHigh + 0x8E)
-    expect(a.sleepFrames[1][0].char.id).toBe(OBJ_BASE + charHigh + 0x8C)
+    expect(a.sleepFrames[0][0].char.id).toBe(OBJ_BASE + charHigh + 0x8e)
+    expect(a.sleepFrames[1][0].char.id).toBe(OBJ_BASE + charHigh + 0x8c)
   })
 
   it('awake[0] = awakeA ($AE), awake[1] = awakeB ($AC)', () => {
     // misc1602 dispatch (CODE_02C0BB): 0 → $AE, 1 → $AC.
-    expect(RIP_VAN_FISH_FRAMES.awakeA).toBe(0xAE)
-    expect(RIP_VAN_FISH_FRAMES.awakeB).toBe(0xAC)
+    expect(RIP_VAN_FISH_FRAMES.awakeA).toBe(0xae)
+    expect(RIP_VAN_FISH_FRAMES.awakeB).toBe(0xac)
     const a = RipVanFishAppearance.fromTables(buildChars(), palette, charHigh, placeholder)
-    expect(a.awakeFrames[0][0].char.id).toBe(OBJ_BASE + charHigh + 0xAE)
-    expect(a.awakeFrames[1][0].char.id).toBe(OBJ_BASE + charHigh + 0xAC)
+    expect(a.awakeFrames[0][0].char.id).toBe(OBJ_BASE + charHigh + 0xae)
+    expect(a.awakeFrames[1][0].char.id).toBe(OBJ_BASE + charHigh + 0xac)
   })
 
   it('big-tile expansion places corners at base, base+1, base+$10, base+$11', () => {
     const a = RipVanFishAppearance.fromTables(buildChars(), palette, charHigh, placeholder)
     // sleepB = $8E (index 0) → corners $8E, $8F, $9E, $9F at TL/TR/BL/BR.
     const sleepB = a.sleepFrames[0]
-    expect(sleepB.map(p => p.char.id - OBJ_BASE - charHigh)).toEqual([0x8E, 0x8F, 0x9E, 0x9F])
+    expect(sleepB.map(p => p.char.id - OBJ_BASE - charHigh)).toEqual([0x8e, 0x8f, 0x9e, 0x9f])
     expect(sleepB.map(p => ({ dx: p.dx, dy: p.dy }))).toEqual([
-      { dx: 0, dy: 0 }, { dx: 8, dy: 0 }, { dx: 0, dy: 8 }, { dx: 8, dy: 8 },
+      { dx: 0, dy: 0 },
+      { dx: 8, dy: 0 },
+      { dx: 0, dy: 8 },
+      { dx: 8, dy: 8 },
     ])
   })
 })

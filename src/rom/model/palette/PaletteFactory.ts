@@ -45,7 +45,7 @@ export function buildPalette(rom: RomFile, header: LevelHeader): Palette {
 /**
  * Transpose level-mode palette animation data (per-frame patch list)
  * into per-cell frame lists. Only cells with all frames populated are
- * returned — partial entries fall back to static rendering.
+ * returned - partial entries fall back to static rendering.
  */
 function collectPaletteAnimFrames(rom: RomFile): Map<number, RgbaColor[]> {
   const out = new Map<number, RgbaColor[]>()

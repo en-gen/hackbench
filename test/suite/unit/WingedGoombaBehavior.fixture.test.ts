@@ -14,12 +14,12 @@
  *   r21  c222 = 1af   ← directly left of platform's left edge
  *
  * The tall (4th) bounce launches the goomba upward through the slope's
- * row — the regression target.
+ * row - the regression target.
  *
  * The fixture itself is NOT in this repo (Mesen captures of game ROM
  * data aren't redistributable). Set `HACKBENCH_FIXTURES_DIR` to the
  * directory containing per-level subdirs (e.g. `<dir>/006/map16.txt`)
- * to enable this test locally — it skips silently otherwise.
+ * to enable this test locally - it skips silently otherwise.
  */
 import { describe, expect, it } from 'vitest'
 import { existsSync } from 'node:fs'
@@ -32,10 +32,10 @@ const FIXTURE = FIXTURES_DIR ? join(FIXTURES_DIR, '006', 'map16.txt') : null
 const TILE = 16
 const skipIfNoFixture = FIXTURE && existsSync(FIXTURE) ? describe : describe.skip
 
-skipIfNoFixture('WingedGoombaBehavior — level $006 fixture', () => {
+skipIfNoFixture('WingedGoombaBehavior - level $006 fixture', () => {
   const fix = FIXTURE && existsSync(FIXTURE) ? loadMesenFixture(FIXTURE) : null
   // Mario spawns at the left edge of horizontal levels; precise X
-  // doesn't matter — anything < goomba.x produces dir=1 (face left).
+  // doesn't matter - anything < goomba.x produces dir=1 (face left).
   const marioSpawnX = 0
 
   it('parses the fixture and finds the platform under the goomba', () => {
@@ -43,11 +43,11 @@ skipIfNoFixture('WingedGoombaBehavior — level $006 fixture', () => {
     // Sanity: c225 r22 should be a solid tile (the platform), and c225 r21
     // should be air-or-decorative (the goomba's body row).
     const platform = fix.grid[22]?.[225]
-    const headRow  = fix.grid[21]?.[225]
+    const headRow = fix.grid[21]?.[225]
     expect(platform, 'c225 r22 should be a solid floor tile').not.toBe(null)
     expect(fix.solidV(225, 22)).toBe(true)
     // c225 r21 holds the green-tuft decoration ($074, page-0). Page-0
-    // tiles are passthrough for sprites — the goomba's body is in air.
+    // tiles are passthrough for sprites - the goomba's body is in air.
     if (headRow !== null && headRow !== undefined) {
       expect(fix.solidV(225, 21)).toBe(false)
     }
@@ -59,7 +59,14 @@ skipIfNoFixture('WingedGoombaBehavior — level $006 fixture', () => {
     const spawnX = 225 * TILE
     const spawnY = 21 * TILE
     const { points, openEnd } = beh.computeBouncePolyline(
-      spawnX, spawnY, fix.solidH, fix.solidV, fix.cols, fix.rows, marioSpawnX, fix.getL1,
+      spawnX,
+      spawnY,
+      fix.solidH,
+      fix.solidV,
+      fix.cols,
+      fix.rows,
+      marioSpawnX,
+      fix.getL1,
     )
     expect(points.length).toBeGreaterThan(8)
 
@@ -78,7 +85,7 @@ skipIfNoFixture('WingedGoombaBehavior — level $006 fixture', () => {
           break
         }
       }
-      if (floorRow < 0) continue  // no floor in this column — open pit, OK to fall
+      if (floorRow < 0) continue // no floor in this column - open pit, OK to fall
       // Center-Y of a sprite resting on row `floorRow` is `floorRow*TILE - TILE/2`.
       // Allow a half-tile tolerance for sub-pixel accumulation.
       const restCenterY = floorRow * TILE - TILE / 2
@@ -89,29 +96,39 @@ skipIfNoFixture('WingedGoombaBehavior — level $006 fixture', () => {
     // The polyline should track the bounce arc without dipping below any
     // column's floor. `openEnd` is `true` whenever the trajectory has more
     // to come (frame budget exhausted OR sprite left the playfield); both
-    // are valid here — what matters is that no point fell through terrain.
+    // are valid here - what matters is that no point fell through terrain.
     expect(tooLow, 'path points fell below the floor in their columns').toEqual([])
     expect(openEnd).toBe(true)
   })
 
   it('ascending arc passes through a rising slope (no ceiling-snap)', () => {
     if (!fix) return
-    // Verify the slope is where we expect it — defensive sanity so a
+    // Verify the slope is where we expect it - defensive sanity so a
     // fixture re-record doesn't silently invalidate the test.
     const slopeId = fix.grid[21]?.[222]
-    expect(slopeId, 'c222 r21 should be a slope tile').toBe(0x1AF)
-    expect(fix.getL1(222, 21)?.collision?.slope, 'c222 r21 should resolve to slope info').toBeDefined()
+    expect(slopeId, 'c222 r21 should be a slope tile').toBe(0x1af)
+    expect(
+      fix.getL1(222, 21)?.collision?.slope,
+      'c222 r21 should resolve to slope info',
+    ).toBeDefined()
     expect(fix.getL1(222, 21)?.collision?.ceiling, 'slopes are NOT ceilings').toBe(false)
 
     const beh = new WingedGoombaBehavior()
     const spawnX = 225 * TILE
     const spawnY = 21 * TILE
     const { points } = beh.computeBouncePolyline(
-      spawnX, spawnY, fix.solidH, fix.solidV, fix.cols, fix.rows, marioSpawnX, fix.getL1,
+      spawnX,
+      spawnY,
+      fix.solidH,
+      fix.solidV,
+      fix.cols,
+      fix.rows,
+      marioSpawnX,
+      fix.getL1,
     )
     // The tall bounce apex must reach above row 21's top (y < 21*16). If
     // the ceiling-snap bug is present, the sprite gets stopped at the top
-    // of row 21 and never ascends further — the apex stays at y >= 21*16.
+    // of row 21 and never ascends further - the apex stays at y >= 21*16.
     const apexY = Math.min(...points.map(p => p.y))
     expect(apexY, 'tall bounce should ascend above the platform row').toBeLessThan(21 * TILE)
   })

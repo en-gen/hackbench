@@ -70,7 +70,10 @@ describe('moveObjectX refuses what a byte patch cannot express', () => {
 })
 
 describe('an edit is undoable as a layer', () => {
-  const data = l1(0, [[0x00, 0x35, 0x01], [0x00, 0x48, 0x02]])
+  const data = l1(0, [
+    [0x00, 0x35, 0x01],
+    [0x00, 0x48, 0x02],
+  ])
 
   it('drops back to the original bytes when inverted', () => {
     const rom = romWith(data)
@@ -105,7 +108,10 @@ describe('the oracle can fail', () => {
     // A screen exit is an extended object (objectNumber 0) with settings 0,
     // and it consumes a FOURTH byte (bank_0D.asm:1416). An index-times-three
     // guess puts the next object's patch one byte early.
-    const data = l1(0, [[0x00, 0x00, 0x00, 0x05], [0x00, 0x35, 0x01]])
+    const data = l1(0, [
+      [0x00, 0x00, 0x00, 0x05],
+      [0x00, 0x35, 0x01],
+    ])
     const { objects } = parseLevelObjects(data)
     expect(objects[1].streamOffset).toBe(5 + 4)
     expect(objects[1].streamOffset).not.toBe(5 + 3)
@@ -129,7 +135,11 @@ function romWithSprites(data: Uint8Array): Uint8Array {
 
 describe('deleteSprite', () => {
   // three sprites, ids $0A $0B $0C, all on screen 0 at x 1, 2, 3
-  const data = spriteStream([[0x00, 0x10, 0x0a], [0x00, 0x20, 0x0b], [0x00, 0x30, 0x0c]])
+  const data = spriteStream([
+    [0x00, 0x10, 0x0a],
+    [0x00, 0x20, 0x0b],
+    [0x00, 0x30, 0x0c],
+  ])
 
   it('removes the named sprite and keeps the rest in order', () => {
     const out = applyPatches(romWithSprites(data), deleteSprite(data, SPR_AT, 1).patches)
@@ -146,8 +156,9 @@ describe('deleteSprite', () => {
 
   it('deleting the last one leaves the others untouched', () => {
     const out = applyPatches(romWithSprites(data), deleteSprite(data, SPR_AT, 2).patches)
-    expect(parseLevelSprites(out.subarray(SPR_AT, SPR_AT + data.length)).map(s => s.spriteId))
-      .toEqual([0x0a, 0x0b])
+    expect(
+      parseLevelSprites(out.subarray(SPR_AT, SPR_AT + data.length)).map(s => s.spriteId),
+    ).toEqual([0x0a, 0x0b])
   })
 
   it('deleting the only sprite leaves an empty stream', () => {
@@ -173,7 +184,7 @@ describe('deleteSprite', () => {
     const wrong = [{ offset: SPR_AT + 1 + 3, value: 0xff }]
     const out = applyPatches(romWithSprites(data), wrong)
     const left = parseLevelSprites(out.subarray(SPR_AT, SPR_AT + data.length))
-    expect(left.map(s => s.spriteId)).toEqual([0x0a])       // $0C lost
+    expect(left.map(s => s.spriteId)).toEqual([0x0a]) // $0C lost
     expect(left.map(s => s.spriteId)).not.toEqual([0x0a, 0x0c])
   })
 })

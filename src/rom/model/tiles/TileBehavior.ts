@@ -22,7 +22,7 @@ export interface TileBehavior {
   /**
    * Optional editor overlay drawn in a pre-pass BEFORE the tile's own pixels.
    * Since tiles render afterward, they naturally cover the lower portion of
-   * any overlay that extends into the tile's own cell — achieving a
+   * any overlay that extends into the tile's own cell - achieving a
    * "peek out from behind" effect without explicit clipping.
    *
    * Used for vine/1-up indicator icons drawn above vine-source blocks.

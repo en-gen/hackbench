@@ -50,15 +50,15 @@ import { makeMockCtx } from '../fixtures/mockOverlayCtx'
 import { makeTestMapStore } from '../fixtures/stores'
 
 interface OverlayCall {
-  ctx:       OverlayContext
-  x:         number
-  y:         number
-  isActive:  boolean
-  getL1:     GetL1Tile
+  ctx: OverlayContext
+  x: number
+  y: number
+  isActive: boolean
+  getL1: GetL1Tile
   levelCols: number
   levelRows: number
-  behavior:  SpriteBehavior | undefined
-  mapStore:  MapStore
+  behavior: SpriteBehavior | undefined
+  mapStore: MapStore
 }
 
 /** Records the pre-pass arguments. Draws nothing - the hook's contract is the arguments. */
@@ -66,12 +66,20 @@ class RecordingAppearance implements SpriteAppearance {
   readonly hitRect: HitRect = { dx: 0, dy: 0, w: 16, h: 16 }
   readonly calls: OverlayCall[] = []
 
-  render(): void { /* pixels are not what this file is about */ }
+  render(): void {
+    /* pixels are not what this file is about */
+  }
 
   renderOverlay(
-    ctx: OverlayContext, x: number, y: number, isActive: boolean,
-    getL1: GetL1Tile, levelCols: number, levelRows: number,
-    behavior: SpriteBehavior | undefined, mapStore: MapStore,
+    ctx: OverlayContext,
+    x: number,
+    y: number,
+    isActive: boolean,
+    getL1: GetL1Tile,
+    levelCols: number,
+    levelRows: number,
+    behavior: SpriteBehavior | undefined,
+    mapStore: MapStore,
   ): void {
     this.calls.push({ ctx, x, y, isActive, getL1, levelCols, levelRows, behavior, mapStore })
   }
@@ -80,7 +88,9 @@ class RecordingAppearance implements SpriteAppearance {
 /** No `renderOverlay` at all - the pre-pass must skip this one. */
 class PlainAppearance implements SpriteAppearance {
   readonly hitRect: HitRect = { dx: 0, dy: 0, w: 16, h: 16 }
-  render(_t: RenderTarget): void { /* no-op */ }
+  render(_t: RenderTarget): void {
+    /* no-op */
+  }
 }
 
 function makeChar(id: number): Char {
@@ -100,8 +110,8 @@ function makeQuad(priority: boolean | [boolean, boolean, boolean, boolean]): Sub
 function makeTile(
   id: number,
   opts: {
-    priority?:  boolean | [boolean, boolean, boolean, boolean]
-    actsLike?:  number
+    priority?: boolean | [boolean, boolean, boolean, boolean]
+    actsLike?: number
     collision?: TileCollision
   } = {},
 ): Tile {
@@ -122,8 +132,13 @@ function makePalette(): Palette {
 }
 
 const HEADER: LevelHeader = {
-  mode: 0, music: 0, tileset: 0, orientation: 'horizontal',
-  initialCameraYPx: 0, timeLimit: 0, marioStartPx: { x: 0, y: 0 },
+  mode: 0,
+  music: 0,
+  tileset: 0,
+  orientation: 'horizontal',
+  initialCameraYPx: 0,
+  timeLimit: 0,
+  marioStartPx: { x: 0, y: 0 },
 }
 
 function makeMap(
@@ -133,8 +148,19 @@ function makeMap(
   mapStore: MapStore = makeTestMapStore({ palette: makePalette() }),
 ): SmwMap {
   return new SmwMap(
-    0, HEADER, l1, null, null, sprites,
-    mapStore.palette, 0, 1, [0], l1Tiles, new Map(), mapStore,
+    0,
+    HEADER,
+    l1,
+    null,
+    null,
+    sprites,
+    mapStore.palette,
+    0,
+    1,
+    [0],
+    l1Tiles,
+    new Map(),
+    mapStore,
   )
 }
 
@@ -146,7 +172,7 @@ describe('SmwMap.renderSpriteOverlays - dispatch', () => {
     const b = new RecordingAppearance()
     const map = makeMap(
       [[null]],
-      [new Sprite(0x04, 16, 32, a, STUB_BEHAVIOR), new Sprite(0x1D, 48, 64, b, STUB_BEHAVIOR)],
+      [new Sprite(0x04, 16, 32, a, STUB_BEHAVIOR), new Sprite(0x1d, 48, 64, b, STUB_BEHAVIOR)],
     )
 
     map.renderSpriteOverlays(makeMockCtx(), new Set())
@@ -160,7 +186,7 @@ describe('SmwMap.renderSpriteOverlays - dispatch', () => {
     const map = makeMap(
       [[null]],
       [
-        new Sprite(0x0C, 0, 0, new PlainAppearance(), STUB_BEHAVIOR),
+        new Sprite(0x0c, 0, 0, new PlainAppearance(), STUB_BEHAVIOR),
         new Sprite(0x04, 16, 32, withHook, STUB_BEHAVIOR),
       ],
     )
@@ -207,9 +233,9 @@ describe('SmwMap.renderSpriteOverlays - dispatch', () => {
 
 describe('SmwMap.renderSpriteOverlays - isActive and the toggle key', () => {
   it('sets isActive only for the sprite whose key is in the active set', () => {
-    const on  = new RecordingAppearance()
+    const on = new RecordingAppearance()
     const off = new RecordingAppearance()
-    const onSprite  = new Sprite(0x04, 32, 48, on,  STUB_BEHAVIOR)
+    const onSprite = new Sprite(0x04, 32, 48, on, STUB_BEHAVIOR)
     const offSprite = new Sprite(0x04, 32, 64, off, STUB_BEHAVIOR)
     const map = makeMap([[null]], [onSprite, offSprite])
 
@@ -224,12 +250,13 @@ describe('SmwMap.renderSpriteOverlays - isActive and the toggle key', () => {
     // (SmwMap.renderSpriteOverlays and main.ts's spriteOverlayKeyAt both
     // call it). Pinning the literal here means a change to the format is a
     // deliberate act with a red test, not a silent drift.
-    expect(spriteOverlayKey(new Sprite(0x4D, 32, 48, new PlainAppearance(), STUB_BEHAVIOR)))
-      .toBe('77:32,48')
+    expect(spriteOverlayKey(new Sprite(0x4d, 32, 48, new PlainAppearance(), STUB_BEHAVIOR))).toBe(
+      '77:32,48',
+    )
 
     // And the pre-pass really keys off that string, not something adjacent.
     const app = new RecordingAppearance()
-    const map = makeMap([[null]], [new Sprite(0x4D, 32, 48, app, STUB_BEHAVIOR)])
+    const map = makeMap([[null]], [new Sprite(0x4d, 32, 48, app, STUB_BEHAVIOR)])
     map.renderSpriteOverlays(makeMockCtx(), new Set(['77:32,48']))
     expect(app.calls[0].isActive).toBe(true)
   })
@@ -238,7 +265,7 @@ describe('SmwMap.renderSpriteOverlays - isActive and the toggle key', () => {
     // The shape EditorStoreActions.test.ts used to use. The store accepts
     // any string, so only this side can catch a mismatch.
     const app = new RecordingAppearance()
-    const map = makeMap([[null]], [new Sprite(0x4D, 32, 48, app, STUB_BEHAVIOR)])
+    const map = makeMap([[null]], [new Sprite(0x4d, 32, 48, app, STUB_BEHAVIOR)])
 
     map.renderSpriteOverlays(makeMockCtx(), new Set(['spr_32_48']))
 
@@ -260,19 +287,19 @@ describe('SmwMap.renderSpriteOverlays - the getL1 closure', () => {
   it('returns null off the grid and for an empty cell', () => {
     const getL1 = captureGetL1([[null, 0x100]], new Map([[0x100, makeTile(0x100)]]))
 
-    expect(getL1(0, 0)).toBeNull()    // empty cell
-    expect(getL1(5, 0)).toBeNull()    // past the last column
-    expect(getL1(0, 3)).toBeNull()    // past the last row
-    expect(getL1(-1, -1)).toBeNull()  // negative
+    expect(getL1(0, 0)).toBeNull() // empty cell
+    expect(getL1(5, 0)).toBeNull() // past the last column
+    expect(getL1(0, 3)).toBeNull() // past the last row
+    expect(getL1(-1, -1)).toBeNull() // negative
   })
 
   it('reports the Tile acts-like value, falling back to the id when the Tile is unknown', () => {
     const l1Tiles = new Map([[0x100, makeTile(0x100, { actsLike: 0x130 })]])
     // 0x1FF has no Tile in the map at all.
-    const getL1 = captureGetL1([[0x100, 0x1FF]], l1Tiles)
+    const getL1 = captureGetL1([[0x100, 0x1ff]], l1Tiles)
 
     expect(getL1(0, 0)).toMatchObject({ id: 0x100, actsLike: 0x130 })
-    expect(getL1(1, 0)).toMatchObject({ id: 0x1FF, actsLike: 0x1FF })
+    expect(getL1(1, 0)).toMatchObject({ id: 0x1ff, actsLike: 0x1ff })
   })
 
   it('flags a cell as priority only when all four subtiles are priority', () => {
@@ -281,7 +308,7 @@ describe('SmwMap.renderSpriteOverlays - the getL1 closure', () => {
       [0x101, makeTile(0x101, { priority: [true, true, true, false] })],
       [0x102, makeTile(0x102, { priority: false })],
     ])
-    const getL1 = captureGetL1([[0x100, 0x101, 0x102, 0x1FF]], l1Tiles)
+    const getL1 = captureGetL1([[0x100, 0x101, 0x102, 0x1ff]], l1Tiles)
 
     expect(getL1(0, 0)?.isPriority).toBe(true)
     expect(getL1(1, 0)?.isPriority).toBe(false)

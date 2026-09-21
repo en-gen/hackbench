@@ -1,24 +1,24 @@
 /**
- * BlockBehaviorLoader.ts — the per-tile block-behavior table from vanilla SMW.
+ * BlockBehaviorLoader.ts - the per-tile block-behavior table from vanilla SMW.
  *
  * `DATA_00F05C` (bank_00.asm:12744) is a 36-byte table indexed by
  * `Map16TileNumber - $11`. It classifies tiles with low bytes $11-$34 into
  * block-hit handler types (see `CODE_00F17F` at bank_00.asm:12846).
  *
- * The values aren't documented in the disassembly with labels — these are
+ * The values aren't documented in the disassembly with labels - these are
  * derived empirically from vanilla SMW and dispatching in CODE_00F17F:
  *
- *   $00  empty         — no block-hit handler; tile has no interactive block
+ *   $00  empty         - no block-hit handler; tile has no interactive block
  *                        behavior (often used for passthrough / decorative).
- *   $01  turn block    — brown "!" block; solid, turns on P-switch.
- *   $02  coin          — collectible coin; sprites pass through (incl. the
+ *   $01  turn block    - brown "!" block; solid, turns on P-switch.
+ *   $02  coin          - collectible coin; sprites pass through (incl. the
  *                        "dragon coin" tiles $02C..$02F in page 0).
- *   $03  vine          — vine source; sprites pass through to reach.
- *   $04  invisible     — coin variant / invisible coin block.
- *   $05  brown block   — solid "used" block.
- *   $06  "!" block     — green "!" block.
- *   $07  P-switch      — P-switch reveal hidden under blue/silver block.
- *   $10  note block    — bouncy note block; solid wall horizontally.
+ *   $03  vine          - vine source; sprites pass through to reach.
+ *   $04  invisible     - coin variant / invisible coin block.
+ *   $05  brown block   - solid "used" block.
+ *   $06  "!" block     - green "!" block.
+ *   $07  P-switch      - P-switch reveal hidden under blue/silver block.
+ *   $10  note block    - bouncy note block; solid wall horizontally.
  *   $11  shellless koopa? (rare; single occurrence at tile $32)
  *
  * For overlay / patrol-path purposes, the relevant distinction is "is this
@@ -31,17 +31,17 @@ import type { RomFile } from './RomFile'
 /** Lowest tile low-byte covered by the block-behavior table. */
 export const BLOCK_BEHAVIOR_BASE = 0x11
 /** Number of entries in `DATA_00F05C`. */
-export const BLOCK_BEHAVIOR_LEN  = 0x24  // 36
+export const BLOCK_BEHAVIOR_LEN = 0x24 // 36
 
 /** Block-behavior type indices from `DATA_00F05C`. */
-export const BH_EMPTY       = 0x00
-export const BH_TURN_BLOCK  = 0x01
-export const BH_COIN        = 0x02
-export const BH_VINE        = 0x03
-export const BH_INVIS_COIN  = 0x04
+export const BH_EMPTY = 0x00
+export const BH_TURN_BLOCK = 0x01
+export const BH_COIN = 0x02
+export const BH_VINE = 0x03
+export const BH_INVIS_COIN = 0x04
 export const BH_BROWN_BLOCK = 0x05
-export const BH_EXCL_BLOCK  = 0x06
-export const BH_PSWITCH     = 0x07
+export const BH_EXCL_BLOCK = 0x06
+export const BH_PSWITCH = 0x07
 
 /**
  * Read the block-behavior table from `DATA_00F05C`. Returns 36 bytes; index
@@ -51,7 +51,7 @@ export function readBlockBehaviorTable(rom: RomFile): Uint8Array {
   // LoROM $00F05C → file offset via RomFile's accessor.
   const out = new Uint8Array(BLOCK_BEHAVIOR_LEN)
   for (let i = 0; i < BLOCK_BEHAVIOR_LEN; i++) {
-    out[i] = rom.readByte(0x00F05C + i) ?? 0
+    out[i] = rom.readByte(0x00f05c + i) ?? 0
   }
   return out
 }
@@ -60,7 +60,7 @@ export function readBlockBehaviorTable(rom: RomFile): Uint8Array {
  * Slope-tile table `DATA_00EAC1` (bank_00.asm:11946). 26-entry list of
  * Map16 low bytes that `CODE_00F04D` (bank_00.asm:12730) recognises as
  * slope tiles. A sprite touching a slope tile goes through the slope-angle
- * logic at `CODE_019211` (bank_01.asm:2544) — per-tile diagonal collision
+ * logic at `CODE_019211` (bank_01.asm:2544) - per-tile diagonal collision
  * via the tile's position in this table, not the uniform solid check.
  *
  * Vanilla contents: $71 $72 $76 $77 $7B $7C $81 $86 $8A $8B $8F $90
@@ -68,11 +68,11 @@ export function readBlockBehaviorTable(rom: RomFile): Uint8Array {
  */
 export const SLOPE_TABLE_LEN = 26
 
-/** Read DATA_00EAC1 from ROM — the slope-tile membership table. */
+/** Read DATA_00EAC1 from ROM - the slope-tile membership table. */
 export function readSlopeTable(rom: RomFile): Uint8Array {
   const out = new Uint8Array(SLOPE_TABLE_LEN)
   for (let i = 0; i < SLOPE_TABLE_LEN; i++) {
-    out[i] = rom.readByte(0x00EAC1 + i) ?? 0
+    out[i] = rom.readByte(0x00eac1 + i) ?? 0
   }
   return out
 }
@@ -83,10 +83,10 @@ export function readSlopeTable(rom: RomFile): Uint8Array {
  * only when the tile's low byte is in `$6E..$D7` (the `CPY #$6E BCC` /
  * `CPY #$D8 BCS` guards at bank_00.asm:12327-12330). The two pointer
  * targets `DATA_00E55E` / `DATA_00E5C8` each contain exactly 106 bytes
- * covering that range — anything outside it has no defined slope data.
+ * covering that range - anything outside it has no defined slope data.
  */
-export const SLOPE_LOW_BASE = 0x6E
-export const SLOPE_LOW_END  = 0xD7
+export const SLOPE_LOW_BASE = 0x6e
+export const SLOPE_LOW_END = 0xd7
 
 /**
  * `DATA_00E632` slope-height LUT (bank_00.asm:11604). 510 bytes, indexed
@@ -100,13 +100,13 @@ export const DATA_E632_LEN = 510
 export function readSlopeHeightTable(rom: RomFile): Uint8Array {
   const out = new Uint8Array(DATA_E632_LEN)
   for (let i = 0; i < DATA_E632_LEN; i++) {
-    out[i] = rom.readByte(0x00E632 + i) ?? 0
+    out[i] = rom.readByte(0x00e632 + i) ?? 0
   }
   return out
 }
 
 /**
- * `DATA_00E55E` — default per-tile slope-index map. 106 bytes covering
+ * `DATA_00E55E` - default per-tile slope-index map. 106 bytes covering
  * low bytes `$6E..$D7`. `map[low - $6E]` gives the slope index fed into
  * `DATA_00E632`. This is the pointer target set for every non-overworld
  * tileset at `bank_05.asm:260-268` (`STA.B SlopesPtr+2` and
@@ -117,13 +117,13 @@ export const DATA_E55E_LEN = 106
 export function readSlopeIndexMapDefault(rom: RomFile): Uint8Array {
   const out = new Uint8Array(DATA_E55E_LEN)
   for (let i = 0; i < DATA_E55E_LEN; i++) {
-    out[i] = rom.readByte(0x00E55E + i) ?? 0
+    out[i] = rom.readByte(0x00e55e + i) ?? 0
   }
   return out
 }
 
 /**
- * `DATA_00E5C8` — overworld/cave slope-index map. Same 106-byte shape as
+ * `DATA_00E5C8` - overworld/cave slope-index map. Same 106-byte shape as
  * `DATA_00E55E`, used when `ObjectTileset == 0 || ObjectTileset == 7`
  * per the `CODE_058281` branch at `bank_05.asm:317-327`
  * (`STA.B SlopesPtr` with the `DATA_00E5C8` address).
@@ -133,7 +133,7 @@ export const DATA_E5C8_LEN = 106
 export function readSlopeIndexMapOverworld(rom: RomFile): Uint8Array {
   const out = new Uint8Array(DATA_E5C8_LEN)
   for (let i = 0; i < DATA_E5C8_LEN; i++) {
-    out[i] = rom.readByte(0x00E5C8 + i) ?? 0
+    out[i] = rom.readByte(0x00e5c8 + i) ?? 0
   }
   return out
 }
@@ -158,7 +158,7 @@ export const DATA_A625_LEN = 16
 export function readDataA625(rom: RomFile): Uint8Array {
   const out = new Uint8Array(DATA_A625_LEN)
   for (let i = 0; i < DATA_A625_LEN; i++) {
-    out[i] = rom.readByte(0x00A625 + i) ?? 0
+    out[i] = rom.readByte(0x00a625 + i) ?? 0
   }
   return out
 }
@@ -175,7 +175,7 @@ export const DATA_F0A4_LEN = 36
 export function readDataF0A4(rom: RomFile): Uint8Array {
   const out = new Uint8Array(DATA_F0A4_LEN)
   for (let i = 0; i < DATA_F0A4_LEN; i++) {
-    out[i] = rom.readByte(0x00F0A4 + i) ?? 0
+    out[i] = rom.readByte(0x00f0a4 + i) ?? 0
   }
   return out
 }
@@ -185,10 +185,10 @@ export function readDataF0A4(rom: RomFile): Uint8Array {
  * 12 bytes indexed by direction (AND $03 → 0-3) or other dispatch
  * codes. First 4 entries are direction-indexed (one bit per direction):
  *
- *   dir 0 ($08 = bit 3)   — "Mario from above" / landing
- *   dir 1 ($01 = bit 0)   — side
- *   dir 2 ($02 = bit 1)   — side
- *   dir 3 ($04 = bit 2)   — "Mario from below" / head bump
+ *   dir 0 ($08 = bit 3)   - "Mario from above" / landing
+ *   dir 1 ($01 = bit 0)   - side
+ *   dir 2 ($02 = bit 1)   - side
+ *   dir 3 ($04 = bit 2)   - "Mario from below" / head bump
  *
  * Entries 4-11 are used by other dispatch paths inside the
  * `CODE_00F1xx` block-action code (power-up spawn variants etc.). The
@@ -199,7 +199,7 @@ export const DATA_F0EC_LEN = 12
 export function readDataF0EC(rom: RomFile): Uint8Array {
   const out = new Uint8Array(DATA_F0EC_LEN)
   for (let i = 0; i < DATA_F0EC_LEN; i++) {
-    out[i] = rom.readByte(0x00F0EC + i) ?? 0
+    out[i] = rom.readByte(0x00f0ec + i) ?? 0
   }
   return out
 }
@@ -210,7 +210,7 @@ export function readDataF0EC(rom: RomFile): Uint8Array {
  * CMP DATA_00EAC1,X, DEX / BPL.
  */
 export function isSlopeTile(actsLike: number, table: Uint8Array): boolean {
-  const low = actsLike & 0xFF
+  const low = actsLike & 0xff
   for (let i = 0; i < table.length; i++) {
     if (table[i] === low) return true
   }
@@ -220,14 +220,11 @@ export function isSlopeTile(actsLike: number, table: Uint8Array): boolean {
 /**
  * Look up the block-behavior type for a tile's acts-like low byte. Returns
  * `null` when outside the table's range (low byte < $11 or > $34), meaning
- * the tile is not classified by the table — defer to the low-byte range
+ * the tile is not classified by the table - defer to the low-byte range
  * check in `isActsLikeHorizSolid`.
  */
-export function blockBehaviorFor(
-  actsLike: number,
-  table: Uint8Array,
-): number | null {
-  const low = actsLike & 0xFF
+export function blockBehaviorFor(actsLike: number, table: Uint8Array): number | null {
+  const low = actsLike & 0xff
   if (low < BLOCK_BEHAVIOR_BASE || low >= BLOCK_BEHAVIOR_BASE + BLOCK_BEHAVIOR_LEN) {
     return null
   }
@@ -238,12 +235,12 @@ export function blockBehaviorFor(
  * True when a tile with this block-behavior type blocks Mario / sprite
  * horizontal motion (i.e., is a wall / floor / ceiling at the classify
  * layer). The block-behavior table describes what HAPPENS when the
- * block is hit from below (`CODE_00F17F`, bank_00.asm:12846) —
+ * block is hit from below (`CODE_00F17F`, bank_00.asm:12846) -
  * generate a coin, grow a vine, reveal a P-switch, etc. It does NOT
  * determine whether the block itself is solid for standing / bumping
  * collision; that's the range check in `CODE_01928E` / `CODE_0192C9`.
  *
- * Consequently only `$00` (empty — no hit handler at all) should
+ * Consequently only `$00` (empty - no hit handler at all) should
  * exclude a tile from wall classification. `?`-blocks at low `$1F`
  * have behavior `$02` (coin-generator) and are absolutely solid for
  * Mario to stand on. Mario-path passthroughs for genuine pass-through
@@ -266,19 +263,19 @@ export function isBlockBehaviorWall(behaviorType: number): boolean {
  *            (bank_00.asm:12811). `HurtMario` in tileset 1, tileset-dep
  *            pass-through elsewhere. Not a reliable surface.
  *
- * Climbables `$06-$1C` are NOT excluded — `CODE_00F2C9` sets
+ * Climbables `$06-$1C` are NOT excluded - `CODE_00F2C9` sets
  * `InteractionPtsClimbable` for body-overlap grab logic (UP-press),
  * but the feet-level dispatch (`CODE_00EDF7`) still lands Mario on
  * `$11-$2D` regardless.
  *
  * Spike `$2F` and other tileset-specific hazards are NOT excluded
- * here — they're filtered via the `CODE_00F127` port's `hurt` outcome
+ * here - they're filtered via the `CODE_00F127` port's `hurt` outcome
  * (see `MarioTileDispatch.ts`). Caller in `TileFactory.classify`
  * layers both filters.
  */
 export function isMarioStandable(actsLikeId: number): boolean {
-  const low = actsLikeId & 0xFF
-  if (low >= 0x2A && low <= 0x2E) return false  // coin / dragon coin
-  if (low >= 0x66 && low <= 0x69) return false  // checkpoint decoration
+  const low = actsLikeId & 0xff
+  if (low >= 0x2a && low <= 0x2e) return false // coin / dragon coin
+  if (low >= 0x66 && low <= 0x69) return false // checkpoint decoration
   return true
 }

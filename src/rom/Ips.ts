@@ -23,21 +23,25 @@
 import { Patch } from './PatchLayer'
 
 const MAGIC = [0x50, 0x41, 0x54, 0x43, 0x48] // "PATCH"
-const EOF_MARKER = [0x45, 0x4f, 0x46]        // "EOF"
+const EOF_MARKER = [0x45, 0x4f, 0x46] // "EOF"
 const EOF_AS_OFFSET = 0x454f46
 const MAX_OFFSET = 0xffffff
 const MAX_RECORD = 0xffff
 
 /** Consecutive patches collapse into one record; this is where that happens. */
-function toRuns(patches: readonly Patch[]): { offset: number, bytes: number[] }[] {
+function toRuns(patches: readonly Patch[]): { offset: number; bytes: number[] }[] {
   const sorted = [...patches].sort((a, b) => a.offset - b.offset)
-  const runs: { offset: number, bytes: number[] }[] = []
+  const runs: { offset: number; bytes: number[] }[] = []
   for (const p of sorted) {
     const last = runs[runs.length - 1]
     // Later duplicates of the same offset win, matching flatten().
     if (last && p.offset === last.offset + last.bytes.length - 1) {
       last.bytes[last.bytes.length - 1] = p.value
-    } else if (last && p.offset === last.offset + last.bytes.length && last.bytes.length < MAX_RECORD) {
+    } else if (
+      last &&
+      p.offset === last.offset + last.bytes.length &&
+      last.bytes.length < MAX_RECORD
+    ) {
       last.bytes.push(p.value)
     } else {
       runs.push({ offset: p.offset, bytes: [p.value] })
@@ -55,7 +59,9 @@ export function encodeIps(patches: readonly Patch[]): Uint8Array {
     if (run.offset === EOF_AS_OFFSET) {
       // Writable in principle by splitting the run, but a patch that lands
       // here at all is so surprising that guessing is worse than refusing.
-      throw new RangeError('IPS cannot start a record at offset $454F46; it reads as the EOF marker')
+      throw new RangeError(
+        'IPS cannot start a record at offset $454F46; it reads as the EOF marker',
+      )
     }
     out.push((run.offset >> 16) & 0xff, (run.offset >> 8) & 0xff, run.offset & 0xff)
     out.push((run.bytes.length >> 8) & 0xff, run.bytes.length & 0xff)

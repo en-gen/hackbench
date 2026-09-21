@@ -1,4 +1,4 @@
-// Consumes: (none directly — palette via mapStore)
+// Consumes: (none directly - palette via mapStore)
 
 import type { RenderTarget } from '../../RenderTarget'
 import type { MapStore } from '../../stores/mapStore'
@@ -40,18 +40,20 @@ export class VolcanoLotusAppearance implements SpriteAppearance {
     readonly headParts: readonly SpritePart[],
     readonly flowerFrames: readonly [readonly SpritePart[], readonly SpritePart[]],
   ) {
-    this.hitRect = partsHitRect([
-      ...headParts,
-      ...flowerFrames[0],
-      ...flowerFrames[1],
-    ])
+    this.hitRect = partsHitRect([...headParts, ...flowerFrames[0], ...flowerFrames[1]])
   }
 
   tickAnimation(): void {
     this.frame = (this.frame + 1) % this.flowerFrames.length
   }
 
-  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
+  render(
+    target: RenderTarget,
+    x: number,
+    y: number,
+    _behavior: SpriteBehavior,
+    mapStore: MapStore,
+  ): void {
     const blit = (part: SpritePart) => {
       const pixels = part.char.getPixels()
       const row = mapStore.palette.row(part.palette)
@@ -66,33 +68,36 @@ export class VolcanoLotusAppearance implements SpriteAppearance {
    * Flower: 2-frame blink between $8E and $9E (charHigh 1, OBJ palette 4 = row 12).
    */
   static fromTables(chars: Map<number, Char>, placeholder: Char): VolcanoLotusAppearance {
-    const OBJ_BASE   = 0x400
-    const HEAD_PAL   = 13
+    const OBJ_BASE = 0x400
+    const HEAD_PAL = 13
     const FLOWER_PAL = 12
-    const c = (n: number) => chars.get(OBJ_BASE + (n & 0x1FF)) ?? placeholder
+    const c = (n: number) => chars.get(OBJ_BASE + (n & 0x1ff)) ?? placeholder
     const bigTile = (baseTile: number, bdx: number, bdy: number, flipX: boolean): SpritePart[] => {
-      const co  = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
+      const co = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
       const dxo = [0, 8, 0, 8]
       const dyo = [0, 0, 8, 8]
       return co.map((off, i) => ({
         char: c(0x100 + baseTile + off),
-        palette: HEAD_PAL, flipX, flipY: false,
-        dx: bdx + dxo[i], dy: bdy + dyo[i],
+        palette: HEAD_PAL,
+        flipX,
+        flipY: false,
+        dx: bdx + dxo[i],
+        dy: bdy + dyo[i],
       }))
     }
     const flowerPair = (baseTile: number): SpritePart[] => [
-      { char: c(0x100 + baseTile),     palette: FLOWER_PAL, flipX: false, flipY: false, dx: 0, dy: -1 },
-      { char: c(0x100 + baseTile + 1), palette: FLOWER_PAL, flipX: false, flipY: false, dx: 8, dy: -1 },
+      { char: c(0x100 + baseTile), palette: FLOWER_PAL, flipX: false, flipY: false, dx: 0, dy: -1 },
+      {
+        char: c(0x100 + baseTile + 1),
+        palette: FLOWER_PAL,
+        flipX: false,
+        flipY: false,
+        dx: 8,
+        dy: -1,
+      },
     ]
-    const headParts: SpritePart[] = [
-      ...bigTile(0xCE, -8, -1, false),
-      ...bigTile(0xCE,  8, -1, true),
-    ]
-    const flowerFrames: [SpritePart[], SpritePart[]] = [
-      flowerPair(0x8E),
-      flowerPair(0x9E),
-    ]
+    const headParts: SpritePart[] = [...bigTile(0xce, -8, -1, false), ...bigTile(0xce, 8, -1, true)]
+    const flowerFrames: [SpritePart[], SpritePart[]] = [flowerPair(0x8e), flowerPair(0x9e)]
     return new VolcanoLotusAppearance(headParts, flowerFrames)
-
   }
 }

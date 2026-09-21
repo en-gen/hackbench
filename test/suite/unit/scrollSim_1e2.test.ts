@@ -1,5 +1,5 @@
 /**
- * scrollSim_1e2.test.ts — partial validation of L2 cmd $0E (sink/rise)
+ * scrollSim_1e2.test.ts - partial validation of L2 cmd $0E (sink/rise)
  * against the Mesen capture for level $1E2.
  *
  * Capture: `C:/Users/engenb/OneDrive/hackbench-fixtures/maps/1e2/l2_scroll.csv`
@@ -24,85 +24,104 @@
 
 import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
-import { loadCapture, firstMismatch, simFromCapture, detectActiveFrames, type FieldKey, vanillaRomPresent } from './scrollSim_capture'
+import {
+  loadCapture,
+  firstMismatch,
+  simFromCapture,
+  detectActiveFrames,
+  type FieldKey,
+  vanillaRomPresent,
+} from './scrollSim_capture'
 
 const CSV = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps/1e2/l2_scroll.csv'
 
 const CHECK_FIELDS: readonly FieldKey[] = [
-  'l1y', 'l2y',
-  'l2type', 'l2timer',
-  'l2yspd', 'l2yupd',
+  'l1y',
+  'l2y',
+  'l2type',
+  'l2timer',
+  'l2yspd',
+  'l2yupd',
   'nl2y',
 ]
 
-describe.skipIf(!vanillaRomPresent)('scrollSim — $1E2 capture validation (L2 cmd $0E, sink/rise)', () => {
-  it('post-setup state matches capture row 1', () => {
-    if (!fs.existsSync(CSV)) {
-      console.warn(`[skip] ${CSV} not found`)
-      return
-    }
-    const cap = loadCapture(CSV)
-    const sim = simFromCapture(cap[0])
-    const m = firstMismatch(sim.stateAtFrame(0), cap[0], CHECK_FIELDS)
-    expect(m).toBe(null)
-  })
-
-  it('static zone-miss path matches all frames before Mario touches L2', () => {
-    if (!fs.existsSync(CSV)) return
-    const cap = loadCapture(CSV)
-    const sim = simFromCapture(cap[0])
-
-    // Stop at the first frame where l2yspd becomes non-zero — that's
-    // when Layer2Touched fires in-game and the speed/move path diverges.
-    let activeFrames = 0
-    for (let r = 1; r < cap.length; r++) {
-      if (cap[r].l2yspd !== 0) { activeFrames = r - 1; break }
-      activeFrames = r
-    }
-
-    for (let r = 0; r <= activeFrames; r++) {
-      const m = firstMismatch(sim.stateAtFrame(r), cap[r], CHECK_FIELDS)
-      if (m !== null) {
-        throw new Error(`Mismatch at capture row ${r + 1}/${activeFrames + 1}: ${m}`)
+describe.skipIf(!vanillaRomPresent)(
+  'scrollSim - $1E2 capture validation (L2 cmd $0E, sink/rise)',
+  () => {
+    it('post-setup state matches capture row 1', () => {
+      if (!fs.existsSync(CSV)) {
+        console.warn(`[skip] ${CSV} not found`)
+        return
       }
-    }
-  })
+      const cap = loadCapture(CSV)
+      const sim = simFromCapture(cap[0])
+      const m = firstMismatch(sim.stateAtFrame(0), cap[0], CHECK_FIELDS)
+      expect(m).toBe(null)
+    })
 
-  it('post-touch speed/move path matches capture after Mario lands on L2', () => {
-    // Validate cmd $0E Part B (bank_05.asm:6057-6079, CODE_05C857):
-    // speed ramps toward DATA_05C814[yIdx] in steps of DATA_05C818[yIdx],
-    // integrated by CODE_05C4F9.
-    //
-    // Layer2Touched ($7E:1471) is not in the CSV. We inject it into the
-    // state one frame before the first non-zero l2yspd, then drive
-    // sim.tick() forward directly. The tick carries layer2Touched through
-    // state unchanged, so Part B fires for the rest of the run.
-    if (!fs.existsSync(CSV)) return
-    const cap = loadCapture(CSV)
-    const sim = simFromCapture(cap[0])
+    it('static zone-miss path matches all frames before Mario touches L2', () => {
+      if (!fs.existsSync(CSV)) return
+      const cap = loadCapture(CSV)
+      const sim = simFromCapture(cap[0])
 
-    let touchIdx = -1
-    for (let r = 1; r < cap.length; r++) {
-      if (cap[r].l2yspd !== 0) { touchIdx = r; break }
-    }
-    if (touchIdx < 0) {
-      console.warn('[skip] no post-touch frames found in capture')
-      return
-    }
-
-    const lastActive = detectActiveFrames(cap)
-
-    // Seed from the last clean frame, inject Layer2Touched=1. sim.tick()
-    // preserves it across frames, so Part B of cmd0eL2 fires every tick.
-    let s = { ...sim.stateAtFrame(touchIdx - 1), layer2Touched: 1 }
-    for (let r = touchIdx; r <= lastActive; r++) {
-      s = sim.tick(s)
-      const m = firstMismatch(s, cap[r], CHECK_FIELDS)
-      if (m !== null) {
-        throw new Error(
-          `Post-touch mismatch at frame ${cap[r].frame} (capture row ${r + 1}): ${m}`,
-        )
+      // Stop at the first frame where l2yspd becomes non-zero - that's
+      // when Layer2Touched fires in-game and the speed/move path diverges.
+      let activeFrames = 0
+      for (let r = 1; r < cap.length; r++) {
+        if (cap[r].l2yspd !== 0) {
+          activeFrames = r - 1
+          break
+        }
+        activeFrames = r
       }
-    }
-  })
-})
+
+      for (let r = 0; r <= activeFrames; r++) {
+        const m = firstMismatch(sim.stateAtFrame(r), cap[r], CHECK_FIELDS)
+        if (m !== null) {
+          throw new Error(`Mismatch at capture row ${r + 1}/${activeFrames + 1}: ${m}`)
+        }
+      }
+    })
+
+    it('post-touch speed/move path matches capture after Mario lands on L2', () => {
+      // Validate cmd $0E Part B (bank_05.asm:6057-6079, CODE_05C857):
+      // speed ramps toward DATA_05C814[yIdx] in steps of DATA_05C818[yIdx],
+      // integrated by CODE_05C4F9.
+      //
+      // Layer2Touched ($7E:1471) is not in the CSV. We inject it into the
+      // state one frame before the first non-zero l2yspd, then drive
+      // sim.tick() forward directly. The tick carries layer2Touched through
+      // state unchanged, so Part B fires for the rest of the run.
+      if (!fs.existsSync(CSV)) return
+      const cap = loadCapture(CSV)
+      const sim = simFromCapture(cap[0])
+
+      let touchIdx = -1
+      for (let r = 1; r < cap.length; r++) {
+        if (cap[r].l2yspd !== 0) {
+          touchIdx = r
+          break
+        }
+      }
+      if (touchIdx < 0) {
+        console.warn('[skip] no post-touch frames found in capture')
+        return
+      }
+
+      const lastActive = detectActiveFrames(cap)
+
+      // Seed from the last clean frame, inject Layer2Touched=1. sim.tick()
+      // preserves it across frames, so Part B of cmd0eL2 fires every tick.
+      let s = { ...sim.stateAtFrame(touchIdx - 1), layer2Touched: 1 }
+      for (let r = touchIdx; r <= lastActive; r++) {
+        s = sim.tick(s)
+        const m = firstMismatch(s, cap[r], CHECK_FIELDS)
+        if (m !== null) {
+          throw new Error(
+            `Post-touch mismatch at frame ${cap[r].frame} (capture row ${r + 1}): ${m}`,
+          )
+        }
+      }
+    })
+  },
+)

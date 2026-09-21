@@ -1,12 +1,11 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 'use strict'
 
 const path = require('path')
 
 /**
  * Two webpack targets:
- *  1. extension  — the extension host code (Node.js, externalises vscode)
- *  2. mapEditor — the map editor webview (browser)
+ *  1. extension  - the extension host code (Node.js, externalises vscode)
+ *  2. mapEditor - the map editor webview (browser)
  *
  * Run `npm run compile` to build both.
  * Run `npm run watch` during development.
@@ -20,26 +19,26 @@ const extensionConfig = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'extension.js',
-    libraryTarget: 'commonjs2'
+    libraryTarget: 'commonjs2',
   },
   externals: {
-    vscode: 'commonjs vscode'
+    vscode: 'commonjs vscode',
   },
   resolve: {
     extensions: ['.ts', '.js'],
-    fallback: { fs: false }
+    fallback: { fs: false },
   },
   module: {
     rules: [
       {
         test: /\.ts$/,
         exclude: /node_modules/,
-        use: 'ts-loader'
-      }
-    ]
+        use: 'ts-loader',
+      },
+    ],
   },
   devtool: 'nosources-source-map',
-  infrastructureLogging: { level: 'log' }
+  infrastructureLogging: { level: 'log' },
 }
 
 /** @type {import('webpack').Configuration} */
@@ -49,11 +48,11 @@ const mapEditorWebviewConfig = {
   entry: './src/webview/mapEditor/main.ts',
   output: {
     path: path.resolve(__dirname, 'dist/webview'),
-    filename: 'mapEditor.js'
+    filename: 'mapEditor.js',
   },
   resolve: {
     extensions: ['.ts', '.js'],
-    fallback: { fs: false }
+    fallback: { fs: false },
   },
   module: {
     rules: [
@@ -62,14 +61,14 @@ const mapEditorWebviewConfig = {
         exclude: /node_modules/,
         use: {
           loader: 'ts-loader',
-          options: { configFile: 'tsconfig.webview.json' }
-        }
+          options: { configFile: 'tsconfig.webview.json' },
+        },
       },
       {
         test: /\.css$/,
-        use: ['style-loader', 'css-loader']
-      }
-    ]
+        use: ['style-loader', 'css-loader'],
+      },
+    ],
   },
   plugins: [
     // VS Code codicon font + stylesheet, referenced via <link> in the webview HTML.
@@ -77,16 +76,16 @@ const mapEditorWebviewConfig = {
       patterns: [
         {
           from: require.resolve('@vscode/codicons/dist/codicon.css'),
-          to: path.resolve(__dirname, 'dist/webview/codicon.css')
+          to: path.resolve(__dirname, 'dist/webview/codicon.css'),
         },
         {
           from: require.resolve('@vscode/codicons/dist/codicon.ttf'),
-          to: path.resolve(__dirname, 'dist/webview/codicon.ttf')
-        }
-      ]
-    })
+          to: path.resolve(__dirname, 'dist/webview/codicon.ttf'),
+        },
+      ],
+    }),
   ],
-  devtool: 'nosources-source-map'
+  devtool: 'nosources-source-map',
 }
 
 /** @type {import('webpack').Configuration} */
@@ -96,7 +95,7 @@ const paletteEditorWebviewConfig = {
   entry: './src/webview/paletteEditor/main.ts',
   output: {
     path: path.resolve(__dirname, 'dist/webview'),
-    filename: 'paletteEditor.js'
+    filename: 'paletteEditor.js',
   },
   resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
@@ -104,11 +103,11 @@ const paletteEditorWebviewConfig = {
       {
         test: /\.ts$/,
         exclude: /node_modules/,
-        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } }
-      }
-    ]
+        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } },
+      },
+    ],
   },
-  devtool: 'nosources-source-map'
+  devtool: 'nosources-source-map',
 }
 
 /** @type {import('webpack').Configuration} */
@@ -118,7 +117,7 @@ const gfxViewerWebviewConfig = {
   entry: './src/webview/gfxViewer/main.ts',
   output: {
     path: path.resolve(__dirname, 'dist/webview'),
-    filename: 'gfxViewer.js'
+    filename: 'gfxViewer.js',
   },
   resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
@@ -126,11 +125,11 @@ const gfxViewerWebviewConfig = {
       {
         test: /\.ts$/,
         exclude: /node_modules/,
-        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } }
-      }
-    ]
+        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } },
+      },
+    ],
   },
-  devtool: 'nosources-source-map'
+  devtool: 'nosources-source-map',
 }
 
 /** @type {import('webpack').Configuration} */
@@ -140,7 +139,7 @@ const musicPlayerWebviewConfig = {
   entry: './src/webview/musicPlayer/main.ts',
   output: {
     path: path.resolve(__dirname, 'dist/webview'),
-    filename: 'musicPlayer.js'
+    filename: 'musicPlayer.js',
   },
   resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
@@ -148,9 +147,9 @@ const musicPlayerWebviewConfig = {
       {
         test: /\.ts$/,
         exclude: /node_modules/,
-        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } }
-      }
-    ]
+        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } },
+      },
+    ],
   },
   plugins: [
     // Copy spc.js + spc.wasm from @smwcentral/spc-player to dist/webview
@@ -158,16 +157,16 @@ const musicPlayerWebviewConfig = {
       patterns: [
         {
           from: require.resolve('@smwcentral/spc-player/dist/spc.wasm'),
-          to: path.resolve(__dirname, 'dist/webview/spc.wasm')
+          to: path.resolve(__dirname, 'dist/webview/spc.wasm'),
         },
         {
           from: require.resolve('@smwcentral/spc-player/dist/spc.js'),
-          to: path.resolve(__dirname, 'dist/webview/spc.js')
-        }
-      ]
-    })
+          to: path.resolve(__dirname, 'dist/webview/spc.js'),
+        },
+      ],
+    }),
   ],
-  devtool: 'nosources-source-map'
+  devtool: 'nosources-source-map',
 }
 
 /** @type {import('webpack').Configuration} */
@@ -177,7 +176,7 @@ const levelGraphWebviewConfig = {
   entry: './src/webview/levelGraph/main.ts',
   output: {
     path: path.resolve(__dirname, 'dist/webview'),
-    filename: 'levelGraph.js'
+    filename: 'levelGraph.js',
   },
   resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
@@ -185,11 +184,11 @@ const levelGraphWebviewConfig = {
       {
         test: /\.ts$/,
         exclude: /node_modules/,
-        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } }
-      }
-    ]
+        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } },
+      },
+    ],
   },
-  devtool: 'nosources-source-map'
+  devtool: 'nosources-source-map',
 }
 
 /** @type {import('webpack').Configuration} */
@@ -199,7 +198,7 @@ const tilesetCompareWebviewConfig = {
   entry: './src/webview/tilesetCompare/main.ts',
   output: {
     path: path.resolve(__dirname, 'dist/webview'),
-    filename: 'tilesetCompare.js'
+    filename: 'tilesetCompare.js',
   },
   resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
@@ -207,11 +206,11 @@ const tilesetCompareWebviewConfig = {
       {
         test: /\.ts$/,
         exclude: /node_modules/,
-        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } }
-      }
-    ]
+        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } },
+      },
+    ],
   },
-  devtool: 'nosources-source-map'
+  devtool: 'nosources-source-map',
 }
 
 /** @type {import('webpack').Configuration} */
@@ -221,7 +220,7 @@ const romMapWebviewConfig = {
   entry: './src/webview/romMap/main.ts',
   output: {
     path: path.resolve(__dirname, 'dist/webview'),
-    filename: 'romMap.js'
+    filename: 'romMap.js',
   },
   resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
@@ -229,11 +228,11 @@ const romMapWebviewConfig = {
       {
         test: /\.ts$/,
         exclude: /node_modules/,
-        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } }
-      }
-    ]
+        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } },
+      },
+    ],
   },
-  devtool: 'nosources-source-map'
+  devtool: 'nosources-source-map',
 }
 
 /** @type {import('webpack').Configuration} */
@@ -243,7 +242,7 @@ const overworldViewerWebviewConfig = {
   entry: './src/webview/overworldViewer/main.ts',
   output: {
     path: path.resolve(__dirname, 'dist/webview'),
-    filename: 'overworldViewer.js'
+    filename: 'overworldViewer.js',
   },
   resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
@@ -251,11 +250,11 @@ const overworldViewerWebviewConfig = {
       {
         test: /\.ts$/,
         exclude: /node_modules/,
-        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } }
-      }
-    ]
+        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } },
+      },
+    ],
   },
-  devtool: 'nosources-source-map'
+  devtool: 'nosources-source-map',
 }
 
 /** @type {import('webpack').Configuration} */
@@ -265,7 +264,7 @@ const emulatorPreviewWebviewConfig = {
   entry: './src/webview/emulatorPreview/main.ts',
   output: {
     path: path.resolve(__dirname, 'dist/webview'),
-    filename: 'emulatorPreview.js'
+    filename: 'emulatorPreview.js',
   },
   resolve: { extensions: ['.ts', '.js'], fallback: { fs: false } },
   module: {
@@ -273,11 +272,22 @@ const emulatorPreviewWebviewConfig = {
       {
         test: /\.ts$/,
         exclude: /node_modules/,
-        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } }
-      }
-    ]
+        use: { loader: 'ts-loader', options: { configFile: 'tsconfig.webview.json' } },
+      },
+    ],
   },
-  devtool: 'nosources-source-map'
+  devtool: 'nosources-source-map',
 }
 
-module.exports = [extensionConfig, mapEditorWebviewConfig, paletteEditorWebviewConfig, gfxViewerWebviewConfig, musicPlayerWebviewConfig, levelGraphWebviewConfig, tilesetCompareWebviewConfig, romMapWebviewConfig, overworldViewerWebviewConfig, emulatorPreviewWebviewConfig]
+module.exports = [
+  extensionConfig,
+  mapEditorWebviewConfig,
+  paletteEditorWebviewConfig,
+  gfxViewerWebviewConfig,
+  musicPlayerWebviewConfig,
+  levelGraphWebviewConfig,
+  tilesetCompareWebviewConfig,
+  romMapWebviewConfig,
+  overworldViewerWebviewConfig,
+  emulatorPreviewWebviewConfig,
+]

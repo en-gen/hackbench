@@ -39,7 +39,7 @@
  * character numbers: charNum = vramAddr / 16 (since each 4bpp tile is 16 words).
  * Example: VRAM $0600 → char $060 (in FG1 slot $000–$07F).
  *
- * The animated tiles replace chars in multiple VRAM slots — not just AN1.
+ * The animated tiles replace chars in multiple VRAM slots - not just AN1.
  * Different tile groups target different char ranges depending on the
  * animation type (coins, question blocks, water, lava, etc.).
  *
@@ -63,27 +63,27 @@ import { framesToMs } from './timing'
 // ── ROM addresses ────────────────────────────────────────────────────────────
 
 /** 3-byte LE pointer to the compressed GFX33 data in ROM ($00B882). */
-const GFX33_PTR_ADDR = 0x00B882
+const GFX33_PTR_ADDR = 0x00b882
 
 /** Maximum compressed size to read for GFX33 decompression. */
 const GFX33_MAX_COMPRESSED = 0x4000
 
-/** AnimatedTileData table in bank_05 — 2-byte pointers into AnimatedTiles RAM. */
-const ANIMATED_TILE_DATA_ADDR = 0x05B999
+/** AnimatedTileData table in bank_05 - 2-byte pointers into AnimatedTiles RAM. */
+const ANIMATED_TILE_DATA_ADDR = 0x05b999
 
 /** VRAM destination address tables (each entry is 2 bytes LE). */
-const VRAM_DEST_TABLE_C = 0x05B93B
-const VRAM_DEST_TABLE_B = 0x05B93D
-const VRAM_DEST_TABLE_A = 0x05B93F
+const VRAM_DEST_TABLE_C = 0x05b93b
+const VRAM_DEST_TABLE_B = 0x05b93d
+const VRAM_DEST_TABLE_A = 0x05b93f
 
-/** Tile behavior type table — one byte per tile index (18 entries). */
-const TILE_BEHAVIOR_TABLE = 0x05B96B
+/** Tile behavior type table - one byte per tile index (18 entries). */
+const TILE_BEHAVIOR_TABLE = 0x05b96b
 
 /** Per-slot P-switch/ON-OFF selector for behavior=1 slots (0=blue, 1=silver, 2=ON/OFF). */
-const PSWITCH_SELECTOR_TABLE = 0x05B97D
+const PSWITCH_SELECTOR_TABLE = 0x05b97d
 
 /** Per-tileset offset into AnimatedTileData for behavior type 2. */
-const TILESET_OFFSET_TABLE = 0x05B98B
+const TILESET_OFFSET_TABLE = 0x05b98b
 
 /**
  * Slot-index shift applied by the animation routine when a P-switch/ON-OFF is
@@ -118,20 +118,20 @@ const TILES_PER_TRANSFER = 4
  * - Full 4-frame cycle = 4 × 133ms ≈ 533ms
  */
 export const ANIM_FRAME_STRIDE = 8
-export const ANIM_INTERVAL_MS = Math.round(framesToMs(ANIM_FRAME_STRIDE))  // ~133ms per animation frame
+export const ANIM_INTERVAL_MS = Math.round(framesToMs(ANIM_FRAME_STRIDE)) // ~133ms per animation frame
 
 /**
  * RAM layout after CODE_00B888 (bank_00.asm lines 6250-6302):
  *
- *   $7E:2000 — MarioGraphics start. GFX33 decompresses here (3bpp), then gets
+ *   $7E:2000 - MarioGraphics start. GFX33 decompresses here (3bpp), then gets
  *              expanded to 4bpp at $7D00-$ACFE. Then GFX32 decompresses into
  *              $2000+ (overwriting the original GFX33 3bpp data).
  *
- *   $7E:2000-$7CFF — GFX32 decompressed 3bpp data (Mario sprites). Berry
+ *   $7E:2000-$7CFF - GFX32 decompressed 3bpp data (Mario sprites). Berry
  *                     animation frames reference addresses in this region
  *                     (e.g., $6D80 = MarioGraphics + $4D80).
  *
- *   $7E:7D00-$ACFE — GFX33 expanded 4bpp data (AnimatedTiles). Most animation
+ *   $7E:7D00-$ACFE - GFX33 expanded 4bpp data (AnimatedTiles). Most animation
  *                     frames reference addresses here.
  *
  * The AnimatedTileData table stores 16-bit WRAM pointers. We use
@@ -139,7 +139,7 @@ export const ANIM_INTERVAL_MS = Math.round(framesToMs(ANIM_FRAME_STRIDE))  // ~1
  * regions can be addressed with positive offsets.
  */
 const MARIO_GRAPHICS_RAM_BASE = 0x2000
-const ANIMATED_TILES_RAM_BASE = 0x7D00
+const ANIMATED_TILES_RAM_BASE = 0x7d00
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -204,7 +204,7 @@ function expand3bppTo4bpp(data3bpp: Uint8Array): Uint8Array {
     // Expand bitplane 2 (8 bytes) → bitplanes 2+3 (16 bytes, bp3=0)
     for (let row = 0; row < 8; row++) {
       out[dst + 16 + row * 2] = data3bpp[src + 16 + row]
-      out[dst + 16 + row * 2 + 1] = 0  // bitplane 3 = zero
+      out[dst + 16 + row * 2 + 1] = 0 // bitplane 3 = zero
     }
   }
 
@@ -242,11 +242,11 @@ function loadAnimatedTileBuffer(rom: RomFile): Uint8Array | null {
   //
   // Step 1: Decompress GFX33 from $00B882 pointer into MarioGraphics ($2000).
   //         This is a SPECIAL oversized GFX33 (not the same as the pointer table entry).
-  //         Decompresses to much more than 9216 bytes — fills $2000 to ~$7B00+.
+  //         Decompresses to much more than 9216 bytes - fills $2000 to ~$7B00+.
   //
   // Step 2: Expand first $2400 bytes (384 tiles) from 3bpp→4bpp,
   //         writing from $ACFE downward to $7D00 (the AnimatedTiles region).
-  //         Data past $4400 in the decompressed output is NOT expanded — it stays
+  //         Data past $4400 in the decompressed output is NOT expanded - it stays
   //         as raw 3bpp. Berry animation frames reference this region.
   //
   // Step 3: Decompress GFX32 into $2000, overwriting the first ~$C00 bytes.
@@ -267,17 +267,17 @@ function loadAnimatedTileBuffer(rom: RomFile): Uint8Array | null {
   // output is larger than just the AnimatedTiles region.
   const gfx33Expanded = expand3bppTo4bpp(gfx33Decompressed)
 
-  // Decompress GFX32 (Mario sprites) — CODE_00B8D7 continues decompression
+  // Decompress GFX32 (Mario sprites) - CODE_00B8D7 continues decompression
   // from the same bank as GFX33 at offset $8000. This is a LARGE version of GFX32
   // (23,808 bytes), NOT the same as the GFX pointer table entry (3,072 bytes).
   // It overwrites $2000+ with the full Mario sprite tileset including berry data.
-  const gfx33Bank = (gfx33Ptr >> 16) & 0xFF
-  const gfx32Ptr = (gfx33Bank << 16) | 0x8000  // CODE_00B8D7: LDA #$8000; STA GraphicsCompPtr
+  const gfx33Bank = (gfx33Ptr >> 16) & 0xff
+  const gfx32Ptr = (gfx33Bank << 16) | 0x8000 // CODE_00B8D7: LDA #$8000; STA GraphicsCompPtr
   const gfx32Compressed = rom.readAt(gfx32Ptr, GFX33_MAX_COMPRESSED)
   // Pre-fill the output buffer with the expanded GFX33 data at the correct offset.
   // The game decompresses GFX32 into RAM that already contains GFX33 expanded data
   // at $7D00+ ($5D00+ in our buffer). Backreferences in GFX32 can read from this data.
-  const ANIM_TILES_BUF_OFFSET = ANIMATED_TILES_RAM_BASE - MARIO_GRAPHICS_RAM_BASE  // $5D00
+  const ANIM_TILES_BUF_OFFSET = ANIMATED_TILES_RAM_BASE - MARIO_GRAPHICS_RAM_BASE // $5D00
   const preFilled = new Uint8Array(ANIM_TILES_BUF_OFFSET + gfx33Expanded.length)
   preFilled.set(gfx33Expanded, ANIM_TILES_BUF_OFFSET)
   let gfx32Decompressed: Uint8Array = preFilled
@@ -289,14 +289,15 @@ function loadAnimatedTileBuffer(rom: RomFile): Uint8Array | null {
   // It's the full MarioGraphics buffer matching the game's RAM layout:
   //   buffer[0..$5CFF]: GFX32 4bpp data (from decompression)
   //   buffer[$5D00+]: GFX33 expanded 4bpp data (from pre-fill, preserved by GFX32 decompression)
-  const buffer = gfx32Decompressed instanceof Uint8Array ? gfx32Decompressed : new Uint8Array(gfx32Decompressed)
+  const buffer =
+    gfx32Decompressed instanceof Uint8Array ? gfx32Decompressed : new Uint8Array(gfx32Decompressed)
 
   return buffer
 }
 
 /**
  * Read a 16-bit LE word from the AnimatedTileData table at $05B999.
- * @param byteOffset — byte offset into the table (already accounts for 2-byte entries)
+ * @param byteOffset - byte offset into the table (already accounts for 2-byte entries)
  * The table stores WRAM addresses; we subtract AnimatedTiles base to get buffer offsets.
  */
 function readAnimatedTileDataEntry(rom: RomFile, byteOffset: number): number {
@@ -320,7 +321,7 @@ function vramAddrToChar(vramAddr: number): number {
 
 /**
  * Read a 16-bit LE VRAM destination address from the given table base.
- * @param byteOffset — byte offset into the table (X register value in the disassembly)
+ * @param byteOffset - byte offset into the table (X register value in the disassembly)
  */
 function readVramDest(rom: RomFile, tableAddr: number, byteOffset: number): number {
   const buf = rom.readAt(tableAddr + byteOffset, 2)
@@ -370,14 +371,11 @@ function decodeTilesAt(buffer: Uint8Array, offset: number): Uint8Array[] {
  * Replicates the logic of CODE_05BB39 to determine which tiles are animated
  * and what graphics data to use for each of the 4 animation frames.
  *
- * @param rom        — ROM file to read from
- * @param tilesetId  — object tileset index (0–15) from the level header
+ * @param rom        - ROM file to read from
+ * @param tilesetId  - object tileset index (0–15) from the level header
  * @returns AnimationData with frame replacements, or null if GFX33 can't be loaded
  */
-export function loadAnimationData(
-  rom: RomFile,
-  tilesetId: number,
-): AnimationData | null {
+export function loadAnimationData(rom: RomFile, tilesetId: number): AnimationData | null {
   const buffer = loadAnimatedTileBuffer(rom)
   if (!buffer) return null
 
@@ -427,16 +425,16 @@ export function loadAnimationData(
         const behavior = behaviorBuf[tileIdx] ?? 0
 
         if (behavior === 1) {
-          // P-switch/ON-OFF dependent — use default state (no P-switch active)
+          // P-switch/ON-OFF dependent - use default state (no P-switch active)
         } else if (behavior === 2) {
-          // Tileset-dependent — add tileset offset
+          // Tileset-dependent - add tileset offset
           const offset = tilesetId < 16 ? tilesetOffsetBuf[tilesetId] : 0
           adjustedIdx = tileIdx + offset
         }
 
         // Compute AnimatedTileData table index:
         // index = ((adjustedIdx & 0xFF) << 3) | tileDataIndexPart
-        const dataTableIdx = ((adjustedIdx & 0xFF) << 3) | tileDataIndexPart
+        const dataTableIdx = ((adjustedIdx & 0xff) << 3) | tileDataIndexPart
         const bufferOffset = readAnimatedTileDataEntry(rom, dataTableIdx)
 
         if (bufferOffset < 0 || bufferOffset + TILES_PER_TRANSFER * 32 > buffer.length) {
@@ -453,7 +451,7 @@ export function loadAnimationData(
         // currently only toggles blue.
         let altTiles: Uint8Array[] | undefined
         if (behavior === 1 && pSwitchSelectorBuf[tileIdx] === PSWITCH_SELECTOR_BLUE) {
-          const altIdx = (tileIdx + PSWITCH_SLOT_SHIFT) & 0xFF
+          const altIdx = (tileIdx + PSWITCH_SLOT_SHIFT) & 0xff
           const altDataTableIdx = (altIdx << 3) | tileDataIndexPart
           const altBufferOffset = readAnimatedTileDataEntry(rom, altDataTableIdx)
           if (altBufferOffset >= 0 && altBufferOffset + TILES_PER_TRANSFER * 32 <= buffer.length) {
@@ -461,7 +459,7 @@ export function loadAnimationData(
           }
         }
 
-        // Special case: VRAM dest $0800 (berry tiles) — the DMA at CODE_00A3F0
+        // Special case: VRAM dest $0800 (berry tiles) - the DMA at CODE_00A3F0
         // (bank_00.asm line ~4649) splits the 128-byte transfer into two 64-byte
         // halves: first 2 tiles → VRAM $0800, next 2 tiles → VRAM $0900.
         // This places the berry's TL/BL at chars $080-$081 and TR/BR at $090-$091,
@@ -516,10 +514,12 @@ export function getAnimatedChars(animData: AnimationData): Set<number> {
 export function serializeAnimationData(animData: AnimationData): {
   frameCount: number
   intervalMs: number
-  frames: Array<Array<{
-    charBase: number
-    tiles: number[][]  // 4 tiles, each PIXELS_PER_TILE palette indices
-  }>>
+  frames: Array<
+    Array<{
+      charBase: number
+      tiles: number[][] // 4 tiles, each PIXELS_PER_TILE palette indices
+    }>
+  >
 } {
   return {
     frameCount: animData.frameCount,
@@ -528,7 +528,7 @@ export function serializeAnimationData(animData: AnimationData): {
       frameSlots.map(slot => ({
         charBase: slot.charBase,
         tiles: slot.tiles.map(t => Array.from(t)),
-      }))
+      })),
     ),
   }
 }

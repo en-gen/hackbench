@@ -1,5 +1,5 @@
 /**
- * LC_LZ2 decompressor — synthetic byte-vector tests.
+ * LC_LZ2 decompressor - synthetic byte-vector tests.
  *
  * These vectors are hand-crafted from the LC_LZ2 header encoding
  * (see src/rom/LcLz2.ts) to exercise every command type and several
@@ -9,8 +9,8 @@
  * copyrighted material.
  *
  * Header byte format (recap):
- *   CCCLLLLL                  — cmd in bits 7–5, (len-1) in bits 4–0
- *   111CC LLL + 8 bits        — extended header: real cmd in bits 4–2,
+ *   CCCLLLLL                  - cmd in bits 7–5, (len-1) in bits 4–0
+ *   111CC LLL + 8 bits        - extended header: real cmd in bits 4–2,
  *                               real (len-1) in bits 1–0 + next byte (10-bit length)
  *
  * Commands in SMW:
@@ -29,36 +29,36 @@ import { decompress } from '../../../src/rom/LcLz2'
 
 // Helper: build a command header byte for non-extended commands.
 //   cmd in 0..6, lenMinusOne in 0..31
-const hdr = (cmd: number, lenMinusOne: number): number => ((cmd & 7) << 5) | (lenMinusOne & 0x1F)
+const hdr = (cmd: number, lenMinusOne: number): number => ((cmd & 7) << 5) | (lenMinusOne & 0x1f)
 
 // Helper: build a two-byte extended header for a real command and length.
 //   realCmd in 0..6, length in 1..1024
 const hdrExt = (realCmd: number, length: number): [number, number] => {
-  const lm1 = (length - 1) & 0x3FF
+  const lm1 = (length - 1) & 0x3ff
   const byte0 = 0b1110_0000 | ((realCmd & 7) << 2) | ((lm1 >> 8) & 3)
-  const byte1 = lm1 & 0xFF
+  const byte1 = lm1 & 0xff
   return [byte0, byte1]
 }
 
-const FF = 0xFF
+const FF = 0xff
 
 const toBytes = (arr: number[]): Uint8Array => Uint8Array.from(arr)
-const toArr   = (u: Uint8Array): number[] => Array.from(u)
+const toArr = (u: Uint8Array): number[] => Array.from(u)
 
-describe('LC_LZ2 decompress — synthetic vectors', () => {
+describe('LC_LZ2 decompress - synthetic vectors', () => {
   it('empty stream (immediate terminator) produces empty output', () => {
     expect(toArr(decompress(toBytes([FF])))).toEqual([])
   })
 
   it('cmd 0 (direct copy): 3 literals', () => {
     // hdr(0, 2) = length 3; literals 0xAA 0xBB 0xCC; terminator
-    const input = toBytes([hdr(0, 2), 0xAA, 0xBB, 0xCC, FF])
-    expect(toArr(decompress(input))).toEqual([0xAA, 0xBB, 0xCC])
+    const input = toBytes([hdr(0, 2), 0xaa, 0xbb, 0xcc, FF])
+    expect(toArr(decompress(input))).toEqual([0xaa, 0xbb, 0xcc])
   })
 
   it('cmd 1 (byte fill): 5 copies of 0x7F', () => {
-    const input = toBytes([hdr(1, 4), 0x7F, FF])
-    expect(toArr(decompress(input))).toEqual([0x7F, 0x7F, 0x7F, 0x7F, 0x7F])
+    const input = toBytes([hdr(1, 4), 0x7f, FF])
+    expect(toArr(decompress(input))).toEqual([0x7f, 0x7f, 0x7f, 0x7f, 0x7f])
   })
 
   it('cmd 2 (word fill): 6 bytes alternating 0x12 0x34', () => {
@@ -68,8 +68,8 @@ describe('LC_LZ2 decompress — synthetic vectors', () => {
 
   it('cmd 2 (word fill): odd length stops mid-pair cleanly', () => {
     // length 5: write [b0, b1, b0, b1, b0]
-    const input = toBytes([hdr(2, 4), 0xAB, 0xCD, FF])
-    expect(toArr(decompress(input))).toEqual([0xAB, 0xCD, 0xAB, 0xCD, 0xAB])
+    const input = toBytes([hdr(2, 4), 0xab, 0xcd, FF])
+    expect(toArr(decompress(input))).toEqual([0xab, 0xcd, 0xab, 0xcd, 0xab])
   })
 
   it('cmd 3 (increasing fill): 4 bytes starting at 0x10', () => {
@@ -79,39 +79,40 @@ describe('LC_LZ2 decompress — synthetic vectors', () => {
 
   it('cmd 3 wraps around at byte boundary', () => {
     // start at 0xFE, length 4 → [0xFE, 0xFF, 0x00, 0x01]
-    const input = toBytes([hdr(3, 3), 0xFE, FF])
-    expect(toArr(decompress(input))).toEqual([0xFE, 0xFF, 0x00, 0x01])
+    const input = toBytes([hdr(3, 3), 0xfe, FF])
+    expect(toArr(decompress(input))).toEqual([0xfe, 0xff, 0x00, 0x01])
   })
 
   it('cmd 4 (back-reference): copy earlier bytes using 2-byte big-endian index', () => {
     // First write 4 literal bytes, then copy 3 bytes starting at output position 1.
     // Layout: [cmd0 len4][A B C D] then [cmd4 len3][hi=0x00, lo=0x01] → copies B,C,D
-    const input = toBytes([
-      hdr(0, 3), 0xA1, 0xA2, 0xA3, 0xA4,
-      hdr(4, 2), 0x00, 0x01,
-      FF,
-    ])
-    expect(toArr(decompress(input))).toEqual([0xA1, 0xA2, 0xA3, 0xA4, 0xA2, 0xA3, 0xA4])
+    const input = toBytes([hdr(0, 3), 0xa1, 0xa2, 0xa3, 0xa4, hdr(4, 2), 0x00, 0x01, FF])
+    expect(toArr(decompress(input))).toEqual([0xa1, 0xa2, 0xa3, 0xa4, 0xa2, 0xa3, 0xa4])
   })
 
   it('cmd 4 referencing position 0 behaves like a forward copy of the first bytes', () => {
     const input = toBytes([
-      hdr(0, 2), 0xDE, 0xAD, 0xBE,
-      hdr(4, 2), 0x00, 0x00,        // copy 3 bytes starting at output index 0
+      hdr(0, 2),
+      0xde,
+      0xad,
+      0xbe,
+      hdr(4, 2),
+      0x00,
+      0x00, // copy 3 bytes starting at output index 0
       FF,
     ])
-    expect(toArr(decompress(input))).toEqual([0xDE, 0xAD, 0xBE, 0xDE, 0xAD, 0xBE])
+    expect(toArr(decompress(input))).toEqual([0xde, 0xad, 0xbe, 0xde, 0xad, 0xbe])
   })
 
   it('extended header: cmd 0 with length > 32 (literals, length 100)', () => {
-    const literals = Array.from({ length: 100 }, (_, k) => k & 0xFF)
+    const literals = Array.from({ length: 100 }, (_, k) => k & 0xff)
     const input = toBytes([...hdrExt(0, 100), ...literals, FF])
     expect(toArr(decompress(input))).toEqual(literals)
   })
 
   it('extended header: cmd 1 byte-fill for length 500', () => {
     const input = toBytes([...hdrExt(1, 500), 0x42, FF])
-    const out   = decompress(input)
+    const out = decompress(input)
     expect(out.length).toBe(500)
     expect(out.every(b => b === 0x42)).toBe(true)
   })
@@ -133,14 +134,21 @@ describe('LC_LZ2 decompress — synthetic vectors', () => {
   it('mixed stream: literals → byte fill → word fill → back-reference', () => {
     // out = [0xAA, 0xBB, 0x55, 0x55, 0x55, 0xC0, 0xD0, 0xC0, 0xD0, 0xAA, 0xBB]
     const input = toBytes([
-      hdr(0, 1), 0xAA, 0xBB,              // literals → [AA BB]
-      hdr(1, 2), 0x55,                    // 3 × 0x55 → [AA BB 55 55 55]
-      hdr(2, 3), 0xC0, 0xD0,              // 4 alternating → [AA BB 55 55 55 C0 D0 C0 D0]
-      hdr(4, 1), 0x00, 0x00,              // copy 2 starting at idx 0 → [...AA BB]
+      hdr(0, 1),
+      0xaa,
+      0xbb, // literals → [AA BB]
+      hdr(1, 2),
+      0x55, // 3 × 0x55 → [AA BB 55 55 55]
+      hdr(2, 3),
+      0xc0,
+      0xd0, // 4 alternating → [AA BB 55 55 55 C0 D0 C0 D0]
+      hdr(4, 1),
+      0x00,
+      0x00, // copy 2 starting at idx 0 → [...AA BB]
       FF,
     ])
     expect(toArr(decompress(input))).toEqual([
-      0xAA, 0xBB, 0x55, 0x55, 0x55, 0xC0, 0xD0, 0xC0, 0xD0, 0xAA, 0xBB,
+      0xaa, 0xbb, 0x55, 0x55, 0x55, 0xc0, 0xd0, 0xc0, 0xd0, 0xaa, 0xbb,
     ])
   })
 
@@ -151,50 +159,50 @@ describe('LC_LZ2 decompress — synthetic vectors', () => {
 
   it('terminator byte can appear as payload data without ending the stream', () => {
     // A literal run writing 0xFF-valued bytes must NOT terminate early.
-    const input = toBytes([hdr(1, 2), 0xFF, FF])   // 3 × 0xFF, then terminator
-    expect(toArr(decompress(input))).toEqual([0xFF, 0xFF, 0xFF])
+    const input = toBytes([hdr(1, 2), 0xff, FF]) // 3 × 0xFF, then terminator
+    expect(toArr(decompress(input))).toEqual([0xff, 0xff, 0xff])
   })
 })
 
-describe('LC_LZ2 decompress — unused commands and edge cases', () => {
+describe('LC_LZ2 decompress - unused commands and edge cases', () => {
   // Commands 5 and 6 are not used by SMW. The decoder hits the
   // `default: break` branch and produces no output for that command.
 
-  it('command 5 (0xA0 header) is silently skipped — no output, no throw', () => {
+  it('command 5 (0xA0 header) is silently skipped - no output, no throw', () => {
     // 0xA0 → cmd=(0xA0>>5)&7=5, len=(0xA0&0x1F)+1=1; default: break; 0xFF terminates
-    expect(() => decompress(toBytes([0xA0, FF]))).not.toThrow()
-    expect(toArr(decompress(toBytes([0xA0, FF])))).toEqual([])
+    expect(() => decompress(toBytes([0xa0, FF]))).not.toThrow()
+    expect(toArr(decompress(toBytes([0xa0, FF])))).toEqual([])
   })
 
-  it('command 6 (0xC0 header) is silently skipped — no output, no throw', () => {
+  it('command 6 (0xC0 header) is silently skipped - no output, no throw', () => {
     // 0xC0 → cmd=6, len=1; default: break
-    expect(() => decompress(toBytes([0xC0, FF]))).not.toThrow()
-    expect(toArr(decompress(toBytes([0xC0, FF])))).toEqual([])
+    expect(() => decompress(toBytes([0xc0, FF]))).not.toThrow()
+    expect(toArr(decompress(toBytes([0xc0, FF])))).toEqual([])
   })
 
   it('command 5 followed by a real command: real command still executes', () => {
     // cmd 5 (no-op), then cmd 1 byte-fill 2 × 0xAA
-    const input = toBytes([0xA0, hdr(1, 1), 0xAA, FF])
-    expect(toArr(decompress(input))).toEqual([0xAA, 0xAA])
+    const input = toBytes([0xa0, hdr(1, 1), 0xaa, FF])
+    expect(toArr(decompress(input))).toEqual([0xaa, 0xaa])
   })
 
   it('extended header (cmd 7) with no ext byte terminates gracefully', () => {
     // 0xE0 → cmd=7; i advances past header but ext byte is missing → break
-    expect(() => decompress(toBytes([0xE0]))).not.toThrow()
-    expect(toArr(decompress(toBytes([0xE0])))).toEqual([])
+    expect(() => decompress(toBytes([0xe0]))).not.toThrow()
+    expect(toArr(decompress(toBytes([0xe0])))).toEqual([])
   })
 
   it('word fill (cmd 2) with only one fill byte available is skipped', () => {
     // 0x40 → cmd=2, len=1; needs 2 fill bytes but only 1 remains → break
-    expect(toArr(decompress(toBytes([0x40, 0xAA])))).toEqual([])
+    expect(toArr(decompress(toBytes([0x40, 0xaa])))).toEqual([])
   })
 
   it('back-reference beyond current write position produces zeros', () => {
     // Write 1 byte (0xAA) via byte-fill, then back-ref addr=5 (beyond) len=2 → zeros
     // hdr(1,0) = cmd1 len1; 0x81 = cmd4 len2
-    const input = toBytes([hdr(1, 0), 0xAA, 0x81, 0x00, 0x05, FF])
+    const input = toBytes([hdr(1, 0), 0xaa, 0x81, 0x00, 0x05, FF])
     const result = toArr(decompress(input))
-    expect(result[0]).toBe(0xAA)
+    expect(result[0]).toBe(0xaa)
     expect(result[1]).toBe(0)
     expect(result[2]).toBe(0)
   })
@@ -203,10 +211,10 @@ describe('LC_LZ2 decompress — unused commands and edge cases', () => {
     // No bytes written yet (wp=0). initialBuffer=[0xAA, 0xBB].
     // back-ref addr=0 len=2 → reads initialBuffer[0] and [1].
     // 0x81 → cmd=(0x81>>5)&7=4, len=(0x81&0x1F)+1=2
-    const init = new Uint8Array([0xAA, 0xBB])
+    const init = new Uint8Array([0xaa, 0xbb])
     const result = toArr(decompress(toBytes([0x81, 0x00, 0x00, FF]), 0, init))
-    expect(result[0]).toBe(0xAA)
-    expect(result[1]).toBe(0xBB)
+    expect(result[0]).toBe(0xaa)
+    expect(result[1]).toBe(0xbb)
   })
 
   it('initialBuffer: data beyond initialBuffer length still produces zeros', () => {

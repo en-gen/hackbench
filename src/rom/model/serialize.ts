@@ -8,7 +8,10 @@ import { L2ObjectStream, L2Preset, type L2Layer } from './L2Layer'
 import { L3TilemapLayer } from './L3Layer'
 import { Sprite } from './sprites/Sprite'
 import { CompositeSprite } from './sprites/CompositeSprite'
-import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
+import {
+  StaticSpriteAppearance,
+  type SpritePart,
+} from './sprites/appearances/StaticSpriteAppearance'
 import { RipVanFishAppearance } from './sprites/appearances/RipVanFishAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
 import { WingedSpriteAppearance } from './sprites/appearances/WingedSpriteAppearance'
@@ -61,10 +64,14 @@ import { VineSourceBehavior } from './tiles/behaviors/VineSourceBehavior'
  * Walk an `SmwMap` and emit a `MapPayload` that can cross `postMessage`.
  *
  * The `kind` tag on each descriptor records which concrete behavior
- * produced the entry — the rehydrator in `buildGraph` reads that tag
+ * produced the entry - the rehydrator in `buildGraph` reads that tag
  * and instantiates the matching behavior class.
  */
-export function serialize(map: SmwMap, chars: Map<number, Char>, tiles: Map<number, Tile>): MapPayload {
+export function serialize(
+  map: SmwMap,
+  chars: Map<number, Char>,
+  tiles: Map<number, Tile>,
+): MapPayload {
   const charsOut: Record<number, CharDescriptor> = {}
   for (const [id, char] of chars) charsOut[id] = serializeCharBehavior(char.behavior)
 
@@ -94,7 +101,7 @@ export function serialize(map: SmwMap, chars: Map<number, Char>, tiles: Map<numb
     tileset: map.tileset,
     screenCount: map.screenCount,
     screenPipeVariantIdx: map.screenPipeVariantIdx,
-    // Frame-accurate scroll-position simulator seed. Pure data —
+    // Frame-accurate scroll-position simulator seed. Pure data -
     // webview rebuilds the simulator from this. null when no scroll
     // sprite was present in the level.
     scrollSim: map.mapStore.scrollSimulator?.seed ?? null,
@@ -125,8 +132,8 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
   if (a instanceof ThwompAppearance) {
     return {
       kind: 'thwomp',
-      bodyParts:      a.bodyParts.map(partDescriptor),
-      alertFace:      a.alertFace.map(partDescriptor),
+      bodyParts: a.bodyParts.map(partDescriptor),
+      alertFace: a.alertFace.map(partDescriptor),
       aggressiveFace: a.aggressiveFace.map(partDescriptor),
     }
   }
@@ -135,14 +142,14 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
       kind: 'ripVanFish',
       sleepFrames: [a.sleepFrames[0].map(partDescriptor), a.sleepFrames[1].map(partDescriptor)],
       awakeFrames: [a.awakeFrames[0].map(partDescriptor), a.awakeFrames[1].map(partDescriptor)],
-      zParts:      a.zParts.map(partDescriptor),
+      zParts: a.zParts.map(partDescriptor),
     }
   }
   if (a instanceof WingedSpriteAppearance) {
     return {
       kind: 'wingedSprite',
-      bodyParts:   a.bodyParts.map(partDescriptor),
-      wingFrames:  [a.wingFrames[0].map(partDescriptor), a.wingFrames[1].map(partDescriptor)],
+      bodyParts: a.bodyParts.map(partDescriptor),
+      wingFrames: [a.wingFrames[0].map(partDescriptor), a.wingFrames[1].map(partDescriptor)],
       wingsInFront: a.wingsInFront,
     }
   }
@@ -158,11 +165,11 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
       [frames.flapA.map(partDescriptor), frames.flapB.map(partDescriptor)] as const
     return {
       kind: 'superKoopa',
-      grounded:      sp(a.grounded),
+      grounded: sp(a.grounded),
       groundedFlash: sp(a.groundedFlash),
-      airborne:      sp(a.airborne),
+      airborne: sp(a.airborne),
       airborneFlash: sp(a.airborneFlash),
-      isAirborne:    a.isAirborne,
+      isAirborne: a.isAirborne,
     }
   }
   if (a instanceof VolcanoLotusAppearance) {
@@ -175,11 +182,11 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
   if (a instanceof RopeMechanismAppearance) {
     return {
       kind: 'ropeMechanism',
-      motorFrames:     a.motorFrames.map(frame => frame.map(partDescriptor)),
-      bodyTemplate:    a.bodyTemplate.map(partDescriptor),
-      knotTemplate:    a.knotTemplate.map(partDescriptor),
+      motorFrames: a.motorFrames.map(frame => frame.map(partDescriptor)),
+      bodyTemplate: a.bodyTemplate.map(partDescriptor),
+      knotTemplate: a.knotTemplate.map(partDescriptor),
       smokePuffFrames: a.smokePuffFrames.map(frame => frame.map(partDescriptor)),
-      segmentCount:    a.segmentCount,
+      segmentCount: a.segmentCount,
     }
   }
   if (a instanceof LineCheckerPlatAppearance) {
@@ -187,20 +194,28 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
       kind: 'lineCheckerPlat',
       platformParts: a.platformParts.map(partDescriptor),
       xShift: a.xShift,
-      width:  a.width,
+      width: a.width,
     }
   }
   if (a instanceof LineBrownPlatAppearance) {
-    return { kind: 'lineBrownPlat', platformParts: a.platformParts.map(partDescriptor), direction: a.direction }
+    return {
+      kind: 'lineBrownPlat',
+      platformParts: a.platformParts.map(partDescriptor),
+      direction: a.direction,
+    }
   }
   if (a instanceof SpikeTopAppearance) {
-    return { kind: 'spikeTop', parts0: a.parts0.map(partDescriptor), parts1: a.parts1.map(partDescriptor) }
+    return {
+      kind: 'spikeTop',
+      parts0: a.parts0.map(partDescriptor),
+      parts1: a.parts1.map(partDescriptor),
+    }
   }
   if (a instanceof MontyMoleAppearance) {
     return {
-      kind:    'montyMole',
-      parts0:  a.parts0.map(partDescriptor),
-      parts1:  a.parts1.map(partDescriptor),
+      kind: 'montyMole',
+      parts0: a.parts0.map(partDescriptor),
+      parts1: a.parts1.map(partDescriptor),
       emerged: a.emergedParts.map(partDescriptor),
     }
   }
@@ -215,7 +230,7 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
     return { kind: 'hammerBro', parts: a.parts.map(partDescriptor) }
   }
   // PSwitchAppearance, CheepCheepAppearance, KoopaAppearance, etc. all
-  // extend StaticSpriteAppearance and carry no extra serialized state —
+  // extend StaticSpriteAppearance and carry no extra serialized state -
   // they fall through to the `static` branch below. The webview's
   // `buildSpriteAppearance(spriteId, parts)` reconstructs the right
   // subclass from spriteId alone (issue #293).
@@ -226,7 +241,7 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
     return {
       kind: 'chainsaw',
       motorFrames: a.motorFrames.map(frame => frame.map(partDescriptor)),
-      chainParts:  a.chainParts.map(partDescriptor),
+      chainParts: a.chainParts.map(partDescriptor),
     }
   }
   if (a instanceof WigglerAppearance) {
@@ -239,7 +254,12 @@ function serializeAppearance(a: SpriteAppearance): SpriteAppearanceDescriptor {
 }
 
 function partDescriptor(p: SpritePart): {
-  charNum: number; palette: number; flipX: boolean; flipY: boolean; dx: number; dy: number
+  charNum: number
+  palette: number
+  flipX: boolean
+  flipY: boolean
+  dx: number
+  dy: number
 } {
   return {
     charNum: p.char.id,
@@ -276,14 +296,14 @@ function serializeL2(l2: L2Layer | null): L2Descriptor | null {
   if (l2 === null) return null
 
   if (l2 instanceof L2Preset) {
-    // Grid is already a 2D id table — pass through.
+    // Grid is already a 2D id table - pass through.
     const layout: (number | null)[][] = l2.grid.map(row => row.map(id => id))
     return { kind: 'preset', page: l2.page, layout }
   }
 
   if (l2 instanceof L2ObjectStream) {
     // Object-stream L2 stores ids that look up against the shared L1
-    // Map16 table — pass through too.
+    // Map16 table - pass through too.
     const layout: (number | null)[][] = l2.grid.map(row => row.map(id => id))
     return {
       kind: 'objectStream',
@@ -299,7 +319,8 @@ function serializeL2(l2: L2Layer | null): L2Descriptor | null {
 
 function serializeCharBehavior(b: CharBehavior): CharDescriptor {
   if (b instanceof StaticPixelsBehavior) return { kind: 'static', pixels: Array.from(b.pixels) }
-  if (b instanceof AnimatedPixelsBehavior) return { kind: 'animated', frames: b.frames.map(f => Array.from(f)) }
+  if (b instanceof AnimatedPixelsBehavior)
+    return { kind: 'animated', frames: b.frames.map(f => Array.from(f)) }
   if (b instanceof PSwitchAlternateBehavior) {
     return {
       kind: 'pSwitchAlt',
@@ -314,36 +335,57 @@ function serializeTile(tile: Tile): TileDescriptor {
   const actsLike = tile.actsLike
   const collision = tile.collision
   const b = tile.behavior
-  if (b instanceof StaticQuadBehavior) return { kind: 'static', quad: quadDesc(b.quad), actsLike, collision }
-  if (b instanceof VineSourceBehavior) return {
-    kind: 'vineSource',
-    quad: quadDesc(b.quad),
-    overlayQuad: b.overlayQuad ? quadDesc(b.overlayQuad) : null,
-    actsLike, collision,
-  }
-  if (b instanceof StarOneUpVineBlockBehavior) return {
-    kind: 'starOneUpVineBlock',
-    quad: quadDesc(b.quad),
-    vineOverlayQuad: b.vineOverlayQuad ? quadDesc(b.vineOverlayQuad) : null,
-    oneupCharNums: b.oneupChars.map(c => c?.id ?? -1),
-    starCharNums: b.starChars.map(c => c?.id ?? -1),
-    actsLike, collision,
-  }
-  if (b instanceof KeyCoinBalloonKoopaBlockBehavior) return {
-    kind: 'keyCoinBalloonKoopaBlock',
-    quad: quadDesc(b.quad),
-    keyCharNums:       b.keyChars.map(c => c?.id ?? -1),
-    redCoinCharNums:   b.redCoinChars.map(c => c?.id ?? -1),
-    pballoonCharNums:  b.pballoonChars.map(c => c?.id ?? -1),
-    paraKoopaCharNums: b.paraKoopaChars.map(c => c?.id ?? -1),
-    actsLike, collision,
-  }
-  if (b instanceof PipeVariantsBehavior) return { kind: 'pipeVariants', variants: b.variants.map(quadDesc), actsLike, collision }
+  if (b instanceof StaticQuadBehavior)
+    return { kind: 'static', quad: quadDesc(b.quad), actsLike, collision }
+  if (b instanceof VineSourceBehavior)
+    return {
+      kind: 'vineSource',
+      quad: quadDesc(b.quad),
+      overlayQuad: b.overlayQuad ? quadDesc(b.overlayQuad) : null,
+      actsLike,
+      collision,
+    }
+  if (b instanceof StarOneUpVineBlockBehavior)
+    return {
+      kind: 'starOneUpVineBlock',
+      quad: quadDesc(b.quad),
+      vineOverlayQuad: b.vineOverlayQuad ? quadDesc(b.vineOverlayQuad) : null,
+      oneupCharNums: b.oneupChars.map(c => c?.id ?? -1),
+      starCharNums: b.starChars.map(c => c?.id ?? -1),
+      actsLike,
+      collision,
+    }
+  if (b instanceof KeyCoinBalloonKoopaBlockBehavior)
+    return {
+      kind: 'keyCoinBalloonKoopaBlock',
+      quad: quadDesc(b.quad),
+      keyCharNums: b.keyChars.map(c => c?.id ?? -1),
+      redCoinCharNums: b.redCoinChars.map(c => c?.id ?? -1),
+      pballoonCharNums: b.pballoonChars.map(c => c?.id ?? -1),
+      paraKoopaCharNums: b.paraKoopaChars.map(c => c?.id ?? -1),
+      actsLike,
+      collision,
+    }
+  if (b instanceof PipeVariantsBehavior)
+    return { kind: 'pipeVariants', variants: b.variants.map(quadDesc), actsLike, collision }
   if (b instanceof SwitchPalaceAlternateBehavior) {
-    return { kind: 'switchPalaceAlternate', off: quadDesc(b.off), on: quadDesc(b.on), color: b.color, actsLike, collision }
+    return {
+      kind: 'switchPalaceAlternate',
+      off: quadDesc(b.off),
+      on: quadDesc(b.on),
+      color: b.color,
+      actsLike,
+      collision,
+    }
   }
   if (b instanceof PSwitchRevealBehavior) {
-    return { kind: 'pSwitchReveal', revealedQuad: quadDesc(b.revealedQuad), offAlpha: b.offAlpha, actsLike, collision }
+    return {
+      kind: 'pSwitchReveal',
+      revealedQuad: quadDesc(b.revealedQuad),
+      offAlpha: b.offAlpha,
+      actsLike,
+      collision,
+    }
   }
   if (b instanceof InvisibleBlockRevealBehavior) {
     return {
@@ -351,14 +393,15 @@ function serializeTile(tile: Tile): TileDescriptor {
       revealedQuad: quadDesc(b.revealedQuad),
       rewardOverlayQuad: b.rewardOverlayQuad ? quadDesc(b.rewardOverlayQuad) : null,
       alpha: b.alpha,
-      actsLike, collision,
+      actsLike,
+      collision,
     }
   }
   throw new Error(`Unknown TileBehavior: ${(b as object).constructor.name}`)
 }
 
 function serializeTileBehavior(b: TileBehavior): TileDescriptor {
-  // Kept for existing test imports — constructs a descriptor with actsLike
+  // Kept for existing test imports - constructs a descriptor with actsLike
   // unknown (0). Use `serializeTile` for the real serialization path.
   return serializeTile(new Tile(0, b, 0))
 }
@@ -390,7 +433,8 @@ function serializeColor(color: Color): ColorDescriptor {
 
 function serializeColorBehavior(b: ColorBehavior): ColorDescriptor {
   if (b instanceof StaticColorBehavior) return { kind: 'static', value: b.value }
-  if (b instanceof CyclingColorBehavior) return { kind: 'cycling', frames: b.frames as readonly RgbaColor[] }
+  if (b instanceof CyclingColorBehavior)
+    return { kind: 'cycling', frames: b.frames as readonly RgbaColor[] }
   throw new Error(`Unknown ColorBehavior: ${(b as object).constructor.name}`)
 }
 

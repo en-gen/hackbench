@@ -21,8 +21,10 @@ Do not add `Co-Authored-By: Claude` lines to commits. Do not add "Generated with
 npm run compile        # webpack dev build - extension + all four webview bundles
 npm run watch          # rebuild on save
 npm run package        # production build (minified, hidden source maps)
-npm run lint           # ESLint src/ (.ts files)
+npm run lint           # ESLint src, test, tools, theia, root config; --max-warnings 0
 npm run lint:fix       # auto-fix
+npm run format         # Prettier over JS/TS/CSS
+npm run format:check   # Prettier check mode, as CI runs it
 npm run test:unit      # Vitest unit tests (single run)
 npm run test:unit:watch
 ```
@@ -193,6 +195,15 @@ Enable the hooks once per clone:
 git config core.hooksPath .githooks
 ```
 
+Two scripts run on pre-commit and in CI.
+
+`tools/scripts/check-staged-style.sh` runs ESLint at `--max-warnings 0` and
+Prettier in check mode over the staged JS/TS/CSS. Warnings are fatal: the
+gate previously exited 0 while reporting 14 of them, and `src/` was the only
+tree it looked at. `test/suite/gates/lintGate.test.ts` plants a defect per
+rule and proves both halves go red, and asserts the package.json scripts
+still carry the flags that make them able to fail.
+
 `tools/scripts/check-staged-content.sh` runs on pre-commit and in CI. It blocks ROM-derived bytes (the copyright rule in `docs/testing.md`, previously guarded only by `.gitignore`, which `git add -f` silently defeats) and em-dashes in newly added lines. Override with `git commit --no-verify` only with a stated reason in the PR.
 
 ## Claim discipline
@@ -259,7 +270,7 @@ Do not build scaffolding for phases that have not been approved.
 <!-- gitnexus:start -->
 # GitNexus - Code Intelligence
 
-This project is indexed by GitNexus as **hackbench** (8676 symbols, 21277 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hackbench** (8729 symbols, 21461 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root - it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

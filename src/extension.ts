@@ -44,55 +44,71 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.registerFileSystemProvider('smwrom', fsProvider, {
       isCaseSensitive: false,
       isReadonly: false,
-    })
+    }),
   )
 
-  // retainContextWhenHidden:false — each map webview copies VRAM frames +
+  // retainContextWhenHidden:false - each map webview copies VRAM frames +
   // animation frames + an AudioContext (postMessage is a structured clone,
   // not a reference). Keeping 100 hidden tabs alive would pile up hundreds
   // of MB. With the ROM buffer shared via RomSession.resolveRom(), rebuild
   // on re-show is all in-memory compute, no disk I/O.
-  const registerEditor = (viewType: string, provider: vscode.CustomReadonlyEditorProvider): void => {
+  const registerEditor = (
+    viewType: string,
+    provider: vscode.CustomReadonlyEditorProvider,
+  ): void => {
     context.subscriptions.push(
-      vscode.window.registerCustomEditorProvider(viewType, provider, { webviewOptions: { retainContextWhenHidden: false } })
+      vscode.window.registerCustomEditorProvider(viewType, provider, {
+        webviewOptions: { retainContextWhenHidden: false },
+      }),
     )
   }
 
-  registerEditor('hackbench.mapEditor',        mapEditorProvider)
-  registerEditor('hackbench.paletteEditor',    paletteEditorProvider)
-  registerEditor('hackbench.gfxViewer',        gfxViewerProvider)
+  registerEditor('hackbench.mapEditor', mapEditorProvider)
+  registerEditor('hackbench.paletteEditor', paletteEditorProvider)
+  registerEditor('hackbench.gfxViewer', gfxViewerProvider)
 
   // Register the two explorer tree views. `createTreeView` (rather than
   // `registerTreeDataProvider`) is used so `showCollapseAll` renders the
   // native collapse-all button in the view title bar.
   context.subscriptions.push(
-    vscode.window.createTreeView('hackbench.mapsExplorer',      { treeDataProvider: mapsProvider,      showCollapseAll: true }),
-    vscode.window.createTreeView('hackbench.resourcesExplorer', { treeDataProvider: resourcesProvider, showCollapseAll: true }),
+    vscode.window.createTreeView('hackbench.mapsExplorer', {
+      treeDataProvider: mapsProvider,
+      showCollapseAll: true,
+    }),
+    vscode.window.createTreeView('hackbench.resourcesExplorer', {
+      treeDataProvider: resourcesProvider,
+      showCollapseAll: true,
+    }),
   )
 
-  registerEditor('hackbench.musicPlayer',      musicPlayerProvider)
-  registerEditor('hackbench.romStats',         romStatsProvider)
-  registerEditor('hackbench.levelGraph',       levelGraphProvider)
-  registerEditor('hackbench.tilesetCompare',   tilesetCompareProvider)
-  registerEditor('hackbench.romMap',           romMapProvider)
-  registerEditor('hackbench.overworldViewer',  overworldViewerProvider)
+  registerEditor('hackbench.musicPlayer', musicPlayerProvider)
+  registerEditor('hackbench.romStats', romStatsProvider)
+  registerEditor('hackbench.levelGraph', levelGraphProvider)
+  registerEditor('hackbench.tilesetCompare', tilesetCompareProvider)
+  registerEditor('hackbench.romMap', romMapProvider)
+  registerEditor('hackbench.overworldViewer', overworldViewerProvider)
 
   // Commands
   context.subscriptions.push(
     // The Explorer context menu invokes this with the URI that was
     // right-clicked; the palette and the welcome-view link invoke it bare.
     vscode.commands.registerCommand('hackbench.openRom', (arg?: unknown) =>
-      openRomCommand(context, fsProvider, mapsProvider, resourcesProvider,
-        romPathFromCommandArg(arg))
+      openRomCommand(
+        context,
+        fsProvider,
+        mapsProvider,
+        resourcesProvider,
+        romPathFromCommandArg(arg),
+      ),
     ),
     vscode.commands.registerCommand('hackbench.closeRom', () =>
-      closeRomCommand(context, fsProvider, mapsProvider, resourcesProvider)
+      closeRomCommand(context, fsProvider, mapsProvider, resourcesProvider),
     ),
     // Spike (libretro-view-engine): runs the libretro core inside the
     // extension's own webview. See src/providers/EmulatorPreviewProvider.ts.
     vscode.commands.registerCommand('hackbench.openEmulatorPreview', (levelId?: number) =>
-      new EmulatorPreviewProvider(context).open(levelId)
-    )
+      new EmulatorPreviewProvider(context).open(levelId),
+    ),
   )
 }
 
@@ -148,12 +164,12 @@ async function openRomCommand(
 
         vscode.window.setStatusBarMessage(
           `HackBench: ${session.summary.internalName.trim()} (${session.summary.romSizeKb} KB)`,
-          5000
+          5000,
         )
       } catch (err) {
         vscode.window.showErrorMessage(`Failed to open ROM: ${(err as Error).message}`)
       }
-    }
+    },
   )
 }
 
@@ -171,4 +187,3 @@ async function closeRomCommand(
   session = undefined
   await vscode.commands.executeCommand('setContext', 'hackbench.romLoaded', false)
 }
-

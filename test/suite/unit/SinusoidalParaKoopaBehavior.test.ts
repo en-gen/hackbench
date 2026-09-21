@@ -1,6 +1,6 @@
 /**
  * ASM-derived tests for $0A Red Vertical Para-Koopa / $0B Red Horizontal
- * Para-Koopa — shared handler at bank_01.asm:1881 (RedVertParaKoopa and
+ * Para-Koopa - shared handler at bank_01.asm:1881 (RedVertParaKoopa and
  * RedHorzParaKoopa, distinguished at line 1895 `CMP #$0A; BNE CODE_018CEA`).
  *
  * Physics:
@@ -49,7 +49,7 @@ import {
   PARAKOOPA_UPDATE_INTERVAL,
 } from '../../../src/rom/model/sprites/behaviors/SinusoidalParaKoopaBehavior'
 
-describe('SinusoidalParaKoopaBehavior — ASM constants', () => {
+describe('SinusoidalParaKoopaBehavior - ASM constants', () => {
   it('STEP table matches DATA_018CBA = db $FF, $01', () => {
     expect(PARAKOOPA_STEP).toEqual([-1, 1])
   })
@@ -64,7 +64,7 @@ describe('SinusoidalParaKoopaBehavior — ASM constants', () => {
   })
 })
 
-describe('SinusoidalParaKoopaBehavior — computeSineBounds (vertical, $0A)', () => {
+describe('SinusoidalParaKoopaBehavior - computeSineBounds (vertical, $0A)', () => {
   it('exposes vertical axis and one-sided range', () => {
     const beh = new SinusoidalParaKoopaBehavior({ axis: 'vertical' })
     const b = beh.computeSineBounds()
@@ -87,7 +87,7 @@ describe('SinusoidalParaKoopaBehavior — computeSineBounds (vertical, $0A)', ()
   })
 })
 
-describe('SinusoidalParaKoopaBehavior — computeSineBounds (horizontal, $0B)', () => {
+describe('SinusoidalParaKoopaBehavior - computeSineBounds (horizontal, $0B)', () => {
   it('exposes horizontal axis and one-sided range', () => {
     const beh = new SinusoidalParaKoopaBehavior({ axis: 'horizontal' })
     const b = beh.computeSineBounds()

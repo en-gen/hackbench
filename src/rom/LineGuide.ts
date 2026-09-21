@@ -1,5 +1,5 @@
 /**
- * LineGuide.ts — load-time port of the SMW line-guide sprite attachment logic.
+ * LineGuide.ts - load-time port of the SMW line-guide sprite attachment logic.
  *
  * Seven sprite IDs ($62-$68) follow Map16 "track" tiles: $62/$63 brown
  * platforms, $64 rope mechanism, $65/$66 chainsaws, $67 grinder, $68 fuzz
@@ -8,7 +8,7 @@
  * looking for a Map16 tile in range $76..$99. The first tile found becomes
  * the attachment point; tile $94/$95 gate on OnOffSwitch state.
  *
- * This module mirrors only the **load-time** logic — it does NOT walk
+ * This module mirrors only the **load-time** logic - it does NOT walk
  * LineTable waypoints, apply per-frame movement, or handle mid-segment
  * re-entry direction flips. The editor surfaces the resolved attachment
  * (direction + attached tile) so the user can see where the game will
@@ -49,7 +49,8 @@ const LINE_GUIDED_IDS = new Set<number>([0x65, 0x66, 0x67, 0x68])
 /** All sprite IDs that follow line-guide tracks. Exposed so the factory and
  *  editor can test membership with a single source of truth. */
 export const LINE_TRACKED_SPRITE_IDS: ReadonlySet<number> = new Set<number>([
-  ...LINE_PLATFORM_IDS, ...LINE_GUIDED_IDS,
+  ...LINE_PLATFORM_IDS,
+  ...LINE_GUIDED_IDS,
 ])
 
 export interface LineGuideAttachment {
@@ -66,7 +67,8 @@ export interface LineGuideAttachment {
  * the sprite at the supplied switch state.
  */
 export function probeTrackTile(
-  x: number, y: number,
+  x: number,
+  y: number,
   l1: readonly (number | null)[][],
   onOffSwitchInitial: boolean,
 ): { col: number; row: number } | null {
@@ -77,11 +79,11 @@ export function probeTrackTile(
     const tile = l1[row]?.[col] ?? null
     if (tile == null) continue
     // Map16TileNumber in the ROM is an 8-bit value; CMP #$76/#$9A checks
-    // only the low byte. We replicate that — page 1 tiles with a matching
+    // only the low byte. We replicate that - page 1 tiles with a matching
     // low byte will also register, matching the game's behavior exactly.
-    const id = tile & 0xFF
+    const id = tile & 0xff
     if (id < LINE_GUIDE_TILE_MIN || id > LINE_GUIDE_TILE_MAX) continue
-    if (id === ON_OFF_TILE_A &&  onOffSwitchInitial) continue
+    if (id === ON_OFF_TILE_A && onOffSwitchInitial) continue
     if (id === ON_OFF_TILE_B && !onOffSwitchInitial) continue
     return { col, row }
   }
@@ -101,22 +103,22 @@ interface InitResult {
  *   clear → forward: 16-bit X decreases by $140 (SEC / SBC #$40 / SBC #$01)
  *   set   → reverse: XLow += $0F (ADC with no carry into XHigh)
  *
- * The $140 forward shift is a faithful port — the ROM really does
+ * The $140 forward shift is a faithful port - the ROM really does
  * SBC #$01 on the high byte (not #$00), so the sprite probes 20 tiles
  * to the left of its spawn. The ROM code also omits any carry from the
  * reverse-mode ADC #$0F, so XLow wraps independently of XHigh.
  */
 function applyInitLineGuidedSpr(spawnX: number, spawnY: number): InitResult {
-  const xLow = spawnX & 0xFF
+  const xLow = spawnX & 0xff
   if ((xLow & 0x10) === 0) {
     return {
-      probeX: (spawnX - 0x140) & 0xFFFF,
+      probeX: (spawnX - 0x140) & 0xffff,
       probeY: spawnY,
       direction: 'forward',
     }
   }
-  const xHigh = spawnX & 0xFF00
-  const newLow = (xLow + 0x0F) & 0xFF
+  const xHigh = spawnX & 0xff00
+  const newLow = (xLow + 0x0f) & 0xff
   return { probeX: xHigh | newLow, probeY: spawnY, direction: 'reverse' }
 }
 
@@ -133,11 +135,11 @@ function applyInitLineGuidedSpr(spawnX: number, spawnY: number): InitResult {
  * first LineFuzzy_Plats call (bank_01.asm:11781), which bypasses the same-tile
  * skip in CODE_01D7F4 so all four corners are probed.
  *
- * The 4-corner probe therefore runs at the UNSHIFTED spawn position — not at
+ * The 4-corner probe therefore runs at the UNSHIFTED spawn position - not at
  * (spawnX - xShift, spawnY - $08).
  */
 function applyInitLinePlat(spawnX: number, spawnY: number): InitResult {
-  const xLow = spawnX & 0xFF
+  const xLow = spawnX & 0xff
   const forward = (xLow & 0x10) === 0
   return {
     probeX: spawnX,
@@ -150,7 +152,7 @@ function applyInitLinePlat(spawnX: number, spawnY: number): InitResult {
  * Compute the pixel anchor for a line-guided sprite given the resolved
  * attachment and the sprite's spawn tile.
  *
- * The anchor is the sprite's nominal pixel position — what gets passed to
+ * The anchor is the sprite's nominal pixel position - what gets passed to
  * `new Sprite(id, anchorX, anchorY, ...)` and ultimately to
  * `appearance.render(ctx, target, x, y)`. When the probe finds a track tile
  * the anchor snaps to that tile's pixel origin; otherwise it falls back to
@@ -161,17 +163,17 @@ function applyInitLinePlat(spawnX: number, spawnY: number): InitResult {
  * `drawOffsetX/Y` absorb any fixed pre-OAM shift that the sprite's draw
  * routine applies but the Appearance's `render()` does NOT replicate:
  *
- *   $62/$63 — render() subtracts xShift and 8 itself  → drawOffset (0, 0)
- *   $64     — StaticSpriteAppearance adds no offset    → drawOffset (−8, −8)
+ *   $62/$63 - render() subtracts xShift and 8 itself  → drawOffset (0, 0)
+ *   $64     - StaticSpriteAppearance adds no offset    → drawOffset (−8, −8)
  *             (CODE_01DC54 does _0=SpriteX−8, _1=SpriteY−8 before OAM)
- *   $65/$66 — ChainsawGfx OAM at SprX−8, SprY−8      → drawOffset (−8, −8)
- *   $67     — 32×32 body centred at SprX; +8 straddles the 16×16 track tile → drawOffset (+8, +8)
- *   $68     — OAM at SprX−8; dispX=[0,8,0,8] → anchor≈col*16 matches game → drawOffset (0, 0)
+ *   $65/$66 - ChainsawGfx OAM at SprX−8, SprY−8      → drawOffset (−8, −8)
+ *   $67     - 32×32 body centred at SprX; +8 straddles the 16×16 track tile → drawOffset (+8, +8)
+ *   $68     - OAM at SprX−8; dispX=[0,8,0,8] → anchor≈col*16 matches game → drawOffset (0, 0)
  */
 export function lineGuideAnchor(
   lineGuide: LineGuideAttachment | null | undefined,
-  spawnCol:  number,
-  spawnRow:  number,
+  spawnCol: number,
+  spawnRow: number,
   drawOffsetX = 0,
   drawOffsetY = 0,
 ): { anchorX: number; anchorY: number } {
@@ -190,7 +192,8 @@ export function lineGuideAnchor(
  */
 export function resolveLineGuideAttachment(
   spriteId: number,
-  spawnX: number, spawnY: number,
+  spawnX: number,
+  spawnY: number,
   l1: readonly (number | null)[][],
   onOffSwitchInitial: boolean,
 ): LineGuideAttachment | null {

@@ -1,5 +1,5 @@
 /**
- * SpriteFactory.buildSprites — synthetic-ROM branch coverage.
+ * SpriteFactory.buildSprites - synthetic-ROM branch coverage.
  *
  * Builds a 4 MB zero-filled LoROM buffer so that readSpriteTileTables
  * returns valid (all-zero) tables, then exercises every per-sprite-id
@@ -43,7 +43,7 @@
  *     0x04..0x07, 0x0F  KoopaAppearance
  *     0x20  StaticSpriteAppearance (generic fallthrough)
  *     0xFF  null-layout fallback (box placeholder)
- *     0x9B alone (suppressed — paired into 0x9C → not emitted)
+ *     0x9B alone (suppressed - paired into 0x9C → not emitted)
  *     thwompReactRangeDy: blocker found + no blocker, priority skip
  */
 
@@ -57,12 +57,12 @@ import type { Tile } from '../../../../src/rom/model/tiles/Tile'
 
 // ── Synthetic ROM fixture ─────────────────────────────────────────────────────
 
-/** 4 MB LoROM buffer — all zeros except the map-mode marker at $7FD5.
+/** 4 MB LoROM buffer - all zeros except the map-mode marker at $7FD5.
  *  readSpriteTileTables reads from multiple addresses; all return zero
  *  buffers (valid non-null), so the tables are all-zero Uint8Arrays. */
 function makeSpriteRom(): RomFile {
   const buf = Buffer.alloc(0x400000, 0x00)
-  buf[0x7FD5] = 0x20   // LoROM slow-mode marker
+  buf[0x7fd5] = 0x20 // LoROM slow-mode marker
   return new RomFile('mock.smc', buf)
 }
 
@@ -82,10 +82,10 @@ function makeEmptyRom(): RomFile {
  */
 function makeSpriteRomHighChar(): RomFile {
   const buf = Buffer.alloc(0x400000, 0x00)
-  buf[0x7FD5] = 0x20   // LoROM slow-mode marker
-  const VALS_FILE_OFFSET = 0x3F3FE  // loromToOffset(0x07F3FE)
+  buf[0x7fd5] = 0x20 // LoROM slow-mode marker
+  const VALS_FILE_OFFSET = 0x3f3fe // loromToOffset(0x07F3FE)
   // Sprite IDs that use `(attr & 0x01) !== 0 ? 0x100 : 0` in buildSprites:
-  for (const id of [0x3D, 0x26, 0x30, 0x32, 0x62, 0x63, 0x64]) {
+  for (const id of [0x3d, 0x26, 0x30, 0x32, 0x62, 0x63, 0x64]) {
     buf[VALS_FILE_OFFSET + id] |= 0x01
   }
   return new RomFile('mock-hc.smc', buf)
@@ -95,14 +95,14 @@ function sprite(spriteId: number, x = 5, y = 5): LevelSprite {
   return { screen: 0, x, y, spriteId, extraBit: false, raw: [0, 0, spriteId] }
 }
 
-const NO_CHARS   = new Map<number, Char>()
-const NO_TILES   = new Map<number, Tile>()
-const MARIO_LEFT  = { x: 0,   y: 0 }    // sprite always to the right → faceRight=false
-const MARIO_RIGHT = { x: 256, y: 0 }    // sprite always to the left  → faceRight=true
+const NO_CHARS = new Map<number, Char>()
+const NO_TILES = new Map<number, Tile>()
+const MARIO_LEFT = { x: 0, y: 0 } // sprite always to the right → faceRight=false
+const MARIO_RIGHT = { x: 256, y: 0 } // sprite always to the left  → faceRight=true
 
 // ── no-tables path ────────────────────────────────────────────────────────────
 
-describe('buildSprites — no-tables (tiny ROM)', () => {
+describe('buildSprites - no-tables (tiny ROM)', () => {
   it('returns [] when readSpriteTileTables returns null', () => {
     const rom = makeEmptyRom()
     const result = buildSprites(rom, [sprite(0x04)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
@@ -110,9 +110,9 @@ describe('buildSprites — no-tables (tiny ROM)', () => {
   })
 })
 
-// ── comprehensive dispatch — all sprite-id branches in one call ───────────────
+// ── comprehensive dispatch - all sprite-id branches in one call ───────────────
 
-describe('buildSprites — all dispatch branches via synthetic ROM', () => {
+describe('buildSprites - all dispatch branches via synthetic ROM', () => {
   const rom = makeSpriteRom()
 
   // An L1 grid: row 0 is empty, row 1 has a tile at col 5 (below a sprite at y=0)
@@ -120,39 +120,53 @@ describe('buildSprites — all dispatch branches via synthetic ROM', () => {
   // Tile id 1 maps to a Tile with collision.floor=true.
   const SOLID_TILE_ID = 1
   const l1WithFloor: (number | null)[][] = [
-    Array(20).fill(null),         // row 0 — no tiles
-    Array(20).fill(SOLID_TILE_ID), // row 1 — all solid (tile id=1)
+    Array(20).fill(null), // row 0 - no tiles
+    Array(20).fill(SOLID_TILE_ID), // row 1 - all solid (tile id=1)
   ]
   const solidTile: Tile = {
     id: SOLID_TILE_ID,
     actsLike: 0x0130,
-    collision: { floor: true, ceiling: true, wall: true, slopeTable: false,
-                 marioFloor: true, marioCeiling: true, marioWall: true },
+    collision: {
+      floor: true,
+      ceiling: true,
+      wall: true,
+      slopeTable: false,
+      marioFloor: true,
+      marioCeiling: true,
+      marioWall: true,
+    },
     behavior: { selectQuad: () => [null!, null!, null!, null!] as never },
   }
   const l1TilesWithFloor = new Map<number, Tile>([[SOLID_TILE_ID, solidTile]])
 
   it('0x9F BanzaiBillAppearance', () => {
-    const r = buildSprites(rom, [sprite(0x9F)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0x9f)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
-    expect(r[0].id).toBe(0x9F)
+    expect(r[0].id).toBe(0x9f)
   })
 
   it('0x3D RipVanFishAppearance', () => {
-    const r = buildSprites(rom, [sprite(0x3D)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0x3d)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
-    expect(r[0].id).toBe(0x3D)
+    expect(r[0].id).toBe(0x3d)
   })
 
-  it('0x26 ThwompAppearance — no blocker in l1 (thwompReactRangeDy falls to level bottom)', () => {
+  it('0x26 ThwompAppearance - no blocker in l1 (thwompReactRangeDy falls to level bottom)', () => {
     const r = buildSprites(rom, [sprite(0x26, 5, 0)], NO_CHARS, [[]], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
     expect(r[0].id).toBe(0x26)
   })
 
-  it('0x26 ThwompAppearance — solid blocker found in l1 (thwompReactRangeDy finds row)', () => {
+  it('0x26 ThwompAppearance - solid blocker found in l1 (thwompReactRangeDy finds row)', () => {
     // sprite at (5,0) = px(80,0); floor at row 1 → blockerRow=1
-    const r = buildSprites(rom, [sprite(0x26, 5, 0)], NO_CHARS, l1WithFloor, MARIO_LEFT, l1TilesWithFloor)
+    const r = buildSprites(
+      rom,
+      [sprite(0x26, 5, 0)],
+      NO_CHARS,
+      l1WithFloor,
+      MARIO_LEFT,
+      l1TilesWithFloor,
+    )
     expect(r).toHaveLength(1)
     expect(r[0].id).toBe(0x26)
   })
@@ -184,17 +198,17 @@ describe('buildSprites — all dispatch branches via synthetic ROM', () => {
   })
 
   it('0x0A WingedSpriteAppearance.fromParaKoopa', () => {
-    const r = buildSprites(rom, [sprite(0x0A)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0x0a)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
   })
 
   it('0x0B WingedSpriteAppearance.fromParaKoopa', () => {
-    const r = buildSprites(rom, [sprite(0x0B)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0x0b)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
   })
 
   it('0x0C WingedSpriteAppearance.fromParaKoopa', () => {
-    const r = buildSprites(rom, [sprite(0x0C)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0x0c)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
   })
 
@@ -204,26 +218,23 @@ describe('buildSprites — all dispatch branches via synthetic ROM', () => {
   })
 
   it('0x0E KeyholeAppearance', () => {
-    const r = buildSprites(rom, [sprite(0x0E)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0x0e)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
   })
 
   it('0x9C + co-located 0x9B → CompositeSprite (broIdx !== undefined)', () => {
     // 0x9C (platform) + 0x9B (Hammer Bro) at same tile → pairedBro, 0x9B suppressed
-    const sprites = [
-      sprite(0x9C, 5, 5),
-      sprite(0x9B, 5, 5),
-    ]
+    const sprites = [sprite(0x9c, 5, 5), sprite(0x9b, 5, 5)]
     const r = buildSprites(rom, sprites, NO_CHARS, [], MARIO_LEFT, NO_TILES)
     // 0x9B suppressed; only the composite is emitted
     expect(r).toHaveLength(1)
-    expect(r[0].id).toBe(0x9C)
+    expect(r[0].id).toBe(0x9c)
   })
 
   it('0x9C alone → plain Sprite (broIdx === undefined)', () => {
-    const r = buildSprites(rom, [sprite(0x9C)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0x9c)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
-    expect(r[0].id).toBe(0x9C)
+    expect(r[0].id).toBe(0x9c)
   })
 
   it('0x30 DryBonesAppearance (faceRight=true: mario >= sprite)', () => {
@@ -242,15 +253,22 @@ describe('buildSprites — all dispatch branches via synthetic ROM', () => {
     expect(r).toHaveLength(1)
   })
 
-  it('0x71 SuperKoopaAppearance — airborne (no tile below)', () => {
+  it('0x71 SuperKoopaAppearance - airborne (no tile below)', () => {
     // l1=[] so l1[s.y+1]?.[s.x] = undefined → airborne=true
     const r = buildSprites(rom, [sprite(0x71, 5, 0)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
   })
 
-  it('0x72 SuperKoopaAppearance — grounded (tile below has floor=true)', () => {
+  it('0x72 SuperKoopaAppearance - grounded (tile below has floor=true)', () => {
     // sprite at (5, 0): l1[0+1][5] = SOLID_TILE_ID → belowTile.collision.floor=true → airborne=false
-    const r = buildSprites(rom, [sprite(0x72, 5, 0)], NO_CHARS, l1WithFloor, MARIO_LEFT, l1TilesWithFloor)
+    const r = buildSprites(
+      rom,
+      [sprite(0x72, 5, 0)],
+      NO_CHARS,
+      l1WithFloor,
+      MARIO_LEFT,
+      l1TilesWithFloor,
+    )
     expect(r).toHaveLength(1)
   })
 
@@ -295,7 +313,7 @@ describe('buildSprites — all dispatch branches via synthetic ROM', () => {
   })
 
   it('0x9A SumoBrotherAppearance', () => {
-    const r = buildSprites(rom, [sprite(0x9A)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0x9a)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
   })
 
@@ -320,15 +338,15 @@ describe('buildSprites — all dispatch branches via synthetic ROM', () => {
   })
 
   it('0xC4 Grey Falling Platform (StaticSpriteAppearance special case)', () => {
-    const r = buildSprites(rom, [sprite(0xC4)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0xc4)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
-    expect(r[0].id).toBe(0xC4)
+    expect(r[0].id).toBe(0xc4)
   })
 
   it('0x2C Yoshi Egg (buildYoshiEggLayout branch)', () => {
     // All-zero synthetic tables: YoshiPal = 0 → palette 8, charHigh 0, base char 0.
     // Only the mirrored corner order and the H-flip survive.
-    const r = buildSprites(rom, [sprite(0x2C)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0x2c)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
     const parts = (r[0].appearance as StaticSpriteAppearance).parts
     expect(parts.map(p => p.flipX)).toEqual([true, true, true, true])
@@ -336,12 +354,12 @@ describe('buildSprites — all dispatch branches via synthetic ROM', () => {
   })
 
   it('0x2E SpikeTopAppearance', () => {
-    const r = buildSprites(rom, [sprite(0x2E)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0x2e)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
   })
 
   it('0x3E PSwitchAppearance', () => {
-    const r = buildSprites(rom, [sprite(0x3E)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0x3e)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
   })
 
@@ -366,22 +384,22 @@ describe('buildSprites — all dispatch branches via synthetic ROM', () => {
   })
 
   it('0x1D HopFlameAppearance', () => {
-    const r = buildSprites(rom, [sprite(0x1D)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0x1d)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
   })
 
   it('0xC2 BlurpAppearance', () => {
-    const r = buildSprites(rom, [sprite(0xC2)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0xc2)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
   })
 
   it('0xB7 CarrotTopLiftAppearance', () => {
-    const r = buildSprites(rom, [sprite(0xB7)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0xb7)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
   })
 
   it('0xB8 CarrotTopLiftAppearance', () => {
-    const r = buildSprites(rom, [sprite(0xB8)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0xb8)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
   })
 
@@ -396,7 +414,7 @@ describe('buildSprites — all dispatch branches via synthetic ROM', () => {
   })
 
   it('0x0F KoopaAppearance (spriteId === 0x0F)', () => {
-    const r = buildSprites(rom, [sprite(0x0F)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0x0f)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
   })
 
@@ -409,24 +427,66 @@ describe('buildSprites — all dispatch branches via synthetic ROM', () => {
   it('0xFF null-layout fallback → box placeholder appearance', () => {
     // 0xFF > MAX_SPRITE_ID_WITH_LAYOUT(0xC8) → buildSpriteLayout returns null
     // → uses the box placeholder StaticSpriteAppearance
-    const r = buildSprites(rom, [sprite(0xFF)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(rom, [sprite(0xff)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
-    expect(r[0].id).toBe(0xFF)
+    expect(r[0].id).toBe(0xff)
   })
 
-  it('all sprites in a single buildSprites call — no crashes', () => {
+  it('all sprites in a single buildSprites call - no crashes', () => {
     const allSprites: LevelSprite[] = [
-      0x9F, 0x3D, 0x26, 0x27, 0x83, 0x84,
-      0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x10, 0x0E,
-      0x9C, 0x9B,   // 0x9C+0x9B pair at same tile
-      0x30, 0x32, 0x99, 0x71, 0x72, 0x73,
-      0x91, 0x92, 0x93, 0x94, 0x95, 0x97, 0x98,
-      0x9A, 0x62, 0x63, 0x64, 0xC4, 0x2E,
-      0x3E, 0x15, 0x16, 0x18, 0x47, 0x1D, 0xC2, 0xB7, 0xB8,
-      0x04, 0x05, 0x06, 0x07, 0x0F, 0x20, 0xFF,
+      0x9f,
+      0x3d,
+      0x26,
+      0x27,
+      0x83,
+      0x84,
+      0x08,
+      0x09,
+      0x0a,
+      0x0b,
+      0x0c,
+      0x10,
+      0x0e,
+      0x9c,
+      0x9b, // 0x9C+0x9B pair at same tile
+      0x30,
+      0x32,
+      0x99,
+      0x71,
+      0x72,
+      0x73,
+      0x91,
+      0x92,
+      0x93,
+      0x94,
+      0x95,
+      0x97,
+      0x98,
+      0x9a,
+      0x62,
+      0x63,
+      0x64,
+      0xc4,
+      0x2e,
+      0x3e,
+      0x15,
+      0x16,
+      0x18,
+      0x47,
+      0x1d,
+      0xc2,
+      0xb7,
+      0xb8,
+      0x04,
+      0x05,
+      0x06,
+      0x07,
+      0x0f,
+      0x20,
+      0xff,
     ].map(id => sprite(id))
     expect(() =>
-      buildSprites(rom, allSprites, NO_CHARS, l1WithFloor, MARIO_LEFT, l1TilesWithFloor)
+      buildSprites(rom, allSprites, NO_CHARS, l1WithFloor, MARIO_LEFT, l1TilesWithFloor),
     ).not.toThrow()
   })
 })
@@ -438,18 +498,26 @@ describe('buildSprites — all dispatch branches via synthetic ROM', () => {
 // All prior tests used l1 with ≤2 rows so startRow=2 ≥ rows and the scan loop
 // never ran. These tests use 3-row l1 grids so the loop body actually executes.
 
-describe('buildSprites — thwompReactRangeDy loop body', () => {
+describe('buildSprites - thwompReactRangeDy loop body', () => {
   const rom = makeSpriteRom()
 
-  const SOLID_ID   = 10
+  const SOLID_ID = 10
   const solidTile: Tile = {
-    id: SOLID_ID, actsLike: 0x0130,
-    collision: { floor: true, ceiling: true, wall: true, slopeTable: false,
-                 marioFloor: true, marioCeiling: true, marioWall: true },
+    id: SOLID_ID,
+    actsLike: 0x0130,
+    collision: {
+      floor: true,
+      ceiling: true,
+      wall: true,
+      slopeTable: false,
+      marioFloor: true,
+      marioCeiling: true,
+      marioWall: true,
+    },
     behavior: { selectQuad: () => [null!, null!, null!, null!] as never },
   }
 
-  it('solid floor in row 2 — loop body executes, floor found, blockerRow < rows TRUE', () => {
+  it('solid floor in row 2 - loop body executes, floor found, blockerRow < rows TRUE', () => {
     // Loop runs: r=2 < rows=3. l1[2][5]=SOLID_ID → tile found → floor=true → break.
     // blockerRow=2 < rows=3 → zoneBottom=(2+1)*16=48 → reactRangeDy=48.
     const l1: (number | null)[][] = [
@@ -463,7 +531,7 @@ describe('buildSprites — thwompReactRangeDy loop body', () => {
     expect(r[0].behavior.reactRangeDy).toBe(48)
   })
 
-  it('null cells in scan row — id === null/undefined continue branch', () => {
+  it('null cells in scan row - id === null/undefined continue branch', () => {
     // l1[2] is all null. Loop runs, id=null → continue. No blocker found.
     // blockerRow stays rows=3 → zoneBottom=rows*16=48.
     const l1: (number | null)[][] = [
@@ -476,33 +544,38 @@ describe('buildSprites — thwompReactRangeDy loop body', () => {
     expect(r[0].behavior.reactRangeDy).toBe(48)
   })
 
-  it('tile ID in l1 but absent from l1Tiles — !tile TRUE continue branch', () => {
+  it('tile ID in l1 but absent from l1Tiles - !tile TRUE continue branch', () => {
     // l1[2][c]=99 but l1Tiles is empty → l1Tiles.get(99)=undefined → !tile → continue.
-    const l1: (number | null)[][] = [
-      Array(20).fill(null),
-      Array(20).fill(null),
-      Array(20).fill(99),
-    ]
+    const l1: (number | null)[][] = [Array(20).fill(null), Array(20).fill(null), Array(20).fill(99)]
     const r = buildSprites(rom, [sprite(0x26, 5, 0)], NO_CHARS, l1, MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
     expect(r[0].behavior.reactRangeDy).toBe(48)
   })
 
-  it('priority-decorative tile in row 2, solid in row 3 — isPriorityDecorative TRUE skip', () => {
+  it('priority-decorative tile in row 2, solid in row 3 - isPriorityDecorative TRUE skip', () => {
     // l1[2][c]=PRIORITY_ID → isPriorityDecorative=true → continue.
     // l1[3][c]=SOLID_ID → floor found → blockerRow=3.
     const PRIORITY_ID = 2
     const priorityTile: Tile = {
-      id: PRIORITY_ID, actsLike: 0x0000,
-      collision: { floor: false, ceiling: false, wall: false, slopeTable: false,
-                   marioFloor: false, marioCeiling: false, marioWall: false },
+      id: PRIORITY_ID,
+      actsLike: 0x0000,
+      collision: {
+        floor: false,
+        ceiling: false,
+        wall: false,
+        slopeTable: false,
+        marioFloor: false,
+        marioCeiling: false,
+        marioWall: false,
+      },
       behavior: {
-        selectQuad: () => [
-          { char: null!, palette: 0, flipX: false, flipY: false, priority: true },
-          { char: null!, palette: 0, flipX: false, flipY: false, priority: true },
-          { char: null!, palette: 0, flipX: false, flipY: false, priority: true },
-          { char: null!, palette: 0, flipX: false, flipY: false, priority: true },
-        ] as never,
+        selectQuad: () =>
+          [
+            { char: null!, palette: 0, flipX: false, flipY: false, priority: true },
+            { char: null!, palette: 0, flipX: false, flipY: false, priority: true },
+            { char: null!, palette: 0, flipX: false, flipY: false, priority: true },
+            { char: null!, palette: 0, flipX: false, flipY: false, priority: true },
+          ] as never,
       },
     }
     const l1: (number | null)[][] = [
@@ -528,13 +601,13 @@ describe('buildSprites — thwompReactRangeDy loop body', () => {
 // `0` arm of `(attr & 0x01) !== 0 ? 0x100 : 0` fires. The `0x100` arm requires
 // attr to have bit 0 set. makeSpriteRomHighChar() sets bit 0 for the relevant IDs.
 
-describe('buildSprites — charHigh=0x100 TRUE arm (attr bit 0 set)', () => {
+describe('buildSprites - charHigh=0x100 TRUE arm (attr bit 0 set)', () => {
   const romHC = makeSpriteRomHighChar()
 
   it('0x3D with charHigh=0x100: attr&0x01 set → TRUE arm of charHigh ternary', () => {
-    const r = buildSprites(romHC, [sprite(0x3D)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
+    const r = buildSprites(romHC, [sprite(0x3d)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
-    expect(r[0].id).toBe(0x3D)
+    expect(r[0].id).toBe(0x3d)
   })
 
   it('0x30 with charHigh=0x100: attr&0x01 set → TRUE arm', () => {

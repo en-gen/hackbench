@@ -13,10 +13,17 @@ import { describe, it, expect } from 'vitest'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 import {
-  expandMap, expandMapOwned, expandObject, TILE_EMPTY,
+  expandMap,
+  expandMapOwned,
+  expandObject,
+  TILE_EMPTY,
 } from '../../../src/rom/ObjectExpander'
 import {
-  OWNER_NONE, OwnerGrid, TileGrid, makeCursor, writeTile,
+  OWNER_NONE,
+  OwnerGrid,
+  TileGrid,
+  makeCursor,
+  writeTile,
 } from '../../../src/rom/objectHandlers/cursor'
 import { parseLevelObjects } from '../../../src/rom/LevelParser'
 import { SmwRom } from '../../../src/rom/SmwRom'
@@ -55,8 +62,15 @@ describe('shape and defaults', () => {
 
     it('expandMap still returns the same grid it always did', () => {
       const { header, objects } = parseLevel(rom, 0x105)
-      const plain = expandMap(objects, header.levelLength, rom.rom, header.objectTileset,
-        false, header.levelMode, 0x105)
+      const plain = expandMap(
+        objects,
+        header.levelLength,
+        rom.rom,
+        header.objectTileset,
+        false,
+        header.levelMode,
+        0x105,
+      )
       const { grid } = expandLevel(rom, 0x105)
       expect(grid).toEqual(plain)
     })
@@ -132,7 +146,7 @@ describe('incremental expansion agrees with the owner grid', () => {
 
     // A sweep, not a single case: horizontal and vertical levels, several
     // tilesets, levels with few objects and levels with hundreds.
-    const LEVELS = [0x105, 0x106, 0x101, 0x002, 0x024, 0x1E, 0x0DC, 0x111, 0x1C, 0x0D3]
+    const LEVELS = [0x105, 0x106, 0x101, 0x002, 0x024, 0x1e, 0x0dc, 0x111, 0x1c, 0x0d3]
 
     it.each(LEVELS)('level $%s', levelId => {
       const { header, objects } = parseLevel(rom, levelId)
@@ -185,11 +199,15 @@ describe('cells no object drew stay unowned', () => {
     const rom = SmwRom.open(ROM_PATH)
 
     it('boss-arena pre-fill rows belong to nobody', () => {
-      const { header, objects } = parseLevel(rom, 0x0DB)
+      const { header, objects } = parseLevel(rom, 0x0db)
       // Force the mode-9 pre-fill path regardless of which level we picked.
       const { grid, owners } = expandMapOwned(
-        objects.filter(o => o.y > 13), header.levelLength, rom.rom,
-        header.objectTileset, false, 9,
+        objects.filter(o => o.y > 13),
+        header.levelLength,
+        rom.rom,
+        header.objectTileset,
+        false,
+        9,
       )
       // Row 11 is the bridge floor MakeMode7BossArenaMap16 writes.
       for (let c = 0; c < 16; c++) {
@@ -220,7 +238,10 @@ describe('cells no object drew stay unowned', () => {
  */
 describe('the oracle can fail', () => {
   it('an owner grid left empty fails the ownership count', () => {
-    const empty: OwnerGrid = [[OWNER_NONE, OWNER_NONE], [OWNER_NONE, OWNER_NONE]]
+    const empty: OwnerGrid = [
+      [OWNER_NONE, OWNER_NONE],
+      [OWNER_NONE, OWNER_NONE],
+    ]
     expect(ownedCount(empty)).toBe(0)
     expect(distinctOwners(empty).size).toBe(0)
   })
@@ -280,15 +301,29 @@ function parseLevel(rom: SmwRom, levelId: number) {
 
 function expandLevel(rom: SmwRom, levelId: number) {
   const { header, objects, isVertical } = parseLevel(rom, levelId)
-  return expandMapOwned(objects, header.levelLength, rom.rom, header.objectTileset,
-    isVertical, header.levelMode, levelId)
+  return expandMapOwned(
+    objects,
+    header.levelLength,
+    rom.rom,
+    header.objectTileset,
+    isVertical,
+    header.levelMode,
+    levelId,
+  )
 }
 
 /** The same starting grid expandLevel builds, with no objects applied. */
 function freshGrid(rom: SmwRom, levelId: number): TileGrid {
   const { header, isVertical } = parseLevel(rom, levelId)
-  return expandMapOwned([], header.levelLength, rom.rom, header.objectTileset,
-    isVertical, header.levelMode, levelId).grid
+  return expandMapOwned(
+    [],
+    header.levelLength,
+    rom.rom,
+    header.objectTileset,
+    isVertical,
+    header.levelMode,
+    levelId,
+  ).grid
 }
 
 function clone(grid: TileGrid): TileGrid {
@@ -303,7 +338,12 @@ function clone(grid: TileGrid): TileGrid {
  * ObjectExpander.test.ts's job; what matters here is who gets recorded.
  */
 function writeAt(
-  grid: TileGrid, owners: OwnerGrid, rom: RomFile, col: number, row: number, owner: number,
+  grid: TileGrid,
+  owners: OwnerGrid,
+  rom: RomFile,
+  col: number,
+  row: number,
+  owner: number,
 ): void {
   const cur = makeCursor(grid, rom, 0, col, row, 1, 0, owners, owner)
   writeTile(cur, 0x80 + owner)

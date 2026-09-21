@@ -41,12 +41,12 @@ export interface DynSpritePalette {
  * `CMP #$09` at $01:C014, and the CGRAM slot this shares with `BooBossPals`.
  */
 export const MAGIKOOPA_PALS: DynSpritePalette = {
-  addr:                0x03B902,
-  colorsPerEntry:      8,
-  entryCount:          8,
-  cgramStart:          0xF0,
-  restingEntry:        7,
-  restingEntryCmpAddr: 0x01C01C,
+  addr: 0x03b902,
+  colorsPerEntry: 8,
+  entryCount: 8,
+  cgramStart: 0xf0,
+  restingEntry: 7,
+  restingEntryCmpAddr: 0x01c01c,
 }
 
 /** CGRAM row the entry lands in. CGRAM is 16 rows of 16 colours. */
@@ -56,11 +56,11 @@ export function dynPalRow(pal: DynSpritePalette): number {
 
 /** First column within that row. Non-zero would mean a mid-row splice. */
 export function dynPalFirstCol(pal: DynSpritePalette): number {
-  return pal.cgramStart & 0x0F
+  return pal.cgramStart & 0x0f
 }
 
 /** 65C816 `CMP #imm` (immediate addressing) opcode. */
-const OP_CMP_IMM = 0xC9
+const OP_CMP_IMM = 0xc9
 
 /**
  * Which entry this cart's fade actually leaves in CGRAM: the terminal `CMP`

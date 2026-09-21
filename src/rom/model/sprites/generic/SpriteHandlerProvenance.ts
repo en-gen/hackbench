@@ -49,7 +49,13 @@ export type HandlerProvenance =
   /** At least one pointer moved. `divergences` is never empty and is ordered
    *  main first, so a caller that only cares about the draw handler can read
    *  `divergences[0].table === 'main'`. */
-  | { kind: 'diverged'; spriteId: number; main: number; init: number; divergences: HandlerDivergence[] }
+  | {
+      kind: 'diverged'
+      spriteId: number
+      main: number
+      init: number
+      divergences: HandlerDivergence[]
+    }
   /** No descriptor has been traced for this sprite, so there is nothing to
    *  compare against. Distinct from divergence: nobody has looked yet. */
   | { kind: 'untraced'; spriteId: number }
@@ -86,12 +92,18 @@ export function describeHandlerProvenance(
 export function provenanceMessage(p: HandlerProvenance): string {
   const id = `$${p.spriteId.toString(16).toUpperCase().padStart(2, '0')}`
   switch (p.kind) {
-    case 'vanilla':   return `${id}: vanilla handlers`
-    case 'untraced':  return `${id}: no descriptor traced`
-    case 'unreadable':return `${id}: handler pointers unreadable`
+    case 'vanilla':
+      return `${id}: vanilla handlers`
+    case 'untraced':
+      return `${id}: no descriptor traced`
+    case 'unreadable':
+      return `${id}: handler pointers unreadable`
     case 'diverged': {
       const where = p.divergences
-        .map(v => `${v.table} $${v.expected.toString(16).toUpperCase()} -> $${v.found.toString(16).toUpperCase()}`)
+        .map(
+          v =>
+            `${v.table} $${v.expected.toString(16).toUpperCase()} -> $${v.found.toString(16).toUpperCase()}`,
+        )
         .join(', ')
       return `${id}: custom handler, appearance unverified (${where})`
     }

@@ -31,7 +31,7 @@ describe('PSwitchAlternateBehavior behavior', () => {
     expect(b.getPixels()).toBe((alt as StaticPixelsBehavior).pixels)
   })
 
-  it('composes with AnimatedPixelsBehavior — animated coin that responds to P-switch', () => {
+  it('composes with AnimatedPixelsBehavior - animated coin that responds to P-switch', () => {
     const coinFrames = [
       new Uint8Array(64).fill(10),
       new Uint8Array(64).fill(11),
@@ -68,7 +68,7 @@ describe('PSwitchAlternateBehavior behavior', () => {
     const vram: VramState = { fg1: fg1Sheet }
 
     const normalFrame = (f: number): Uint8Array => new Uint8Array(64).fill(10 + f) // coin f
-    const altFrame = (f: number): Uint8Array => new Uint8Array(64).fill(90 + f)    // used block variant
+    const altFrame = (f: number): Uint8Array => new Uint8Array(64).fill(90 + f) // used block variant
 
     const slotFor = (f: number): AnimFrameSlot => ({
       charBase: 0x054,
@@ -94,7 +94,7 @@ describe('PSwitchAlternateBehavior behavior', () => {
     editorStore.setPSwitch(false)
     expect(coin.getPixels()[0]).toBe(10) // frame 0 of normal
     editorStore.setPSwitch(true)
-    expect(coin.getPixels()[0]).toBe(90)  // frame 0 of alt
+    expect(coin.getPixels()[0]).toBe(90) // frame 0 of alt
   })
 
   it('computed() invalidates when pSwitchActive changes (top-level branch)', () => {
@@ -120,7 +120,7 @@ describe('PSwitchAlternateBehavior behavior', () => {
     editorStore.setPSwitch(true)
     expect(reactive.value).toBe(used)
 
-    // palAnimFrame doesn't affect either branch — cached.
+    // palAnimFrame doesn't affect either branch - cached.
     editorStore.setPalAnimFrame(5)
     expect(reactive.value).toBe(used)
   })
@@ -143,10 +143,12 @@ describe.skipIf(!existsSync(ROM_PATH))('buildChars end-to-end (vanilla ROM)', ()
     // Slot 13 (behavior=1, selector=0 blue, VRAM $06C0) feeds chars
     // $06C-$06F with coin frames normally, used-block pixels when blue
     // P-switch is active.
-    for (const charNum of [0x06C, 0x06D, 0x06E, 0x06F]) {
+    for (const charNum of [0x06c, 0x06d, 0x06e, 0x06f]) {
       const c = chars.get(charNum)
       expect(c, `char $${charNum.toString(16)}`).toBeInstanceOf(Char)
-      expect(c!.behavior, `char $${charNum.toString(16)} behavior`).toBeInstanceOf(PSwitchAlternateBehavior)
+      expect(c!.behavior, `char $${charNum.toString(16)} behavior`).toBeInstanceOf(
+        PSwitchAlternateBehavior,
+      )
     }
   })
 

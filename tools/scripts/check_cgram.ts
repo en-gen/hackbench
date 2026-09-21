@@ -19,7 +19,12 @@ import { SmwRom } from '../../src/rom/SmwRom'
 import { parseLevelObjects } from '../../src/rom/LevelParser'
 import { loadRomPalettes, buildLevelCgram } from '../../src/rom/PaletteLoader'
 import { bgr555ToRgba } from '../../src/rom/GraphicsDecoder'
-import { compareCgram, parseCgramCapture, EXCLUDED_INDICES, ROM_WRITTEN_INDICES } from '../../src/rom/CgramOracle'
+import {
+  compareCgram,
+  parseCgramCapture,
+  EXCLUDED_INDICES,
+  ROM_WRITTEN_INDICES,
+} from '../../src/rom/CgramOracle'
 
 const args = process.argv.slice(2)
 const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--frame')
@@ -27,10 +32,14 @@ const root = positional[0]
 const frameIdx = args.indexOf('--frame')
 const frame = frameIdx >= 0 ? args[frameIdx + 1] : '0000'
 const verbose = args.includes('--verbose')
-const romPath = process.env.HB_ROM ?? `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
+const romPath =
+  process.env.HB_ROM ??
+  `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
 
 if (!root || !existsSync(root)) {
-  console.error(`usage: check_cgram.ts <capture-root> [--frame NNNN] [--verbose]\ncapture root not found: ${root}`)
+  console.error(
+    `usage: check_cgram.ts <capture-root> [--frame NNNN] [--verbose]\ncapture root not found: ${root}`,
+  )
   process.exit(2)
 }
 
@@ -50,23 +59,35 @@ let failed = 0
 for (const hex of levels) {
   const lvl = parseInt(hex, 16)
   const raw = rom.getLevelRawData(lvl)
-  if (!raw) { console.log(`  $${hex.toUpperCase()}  ERROR no L1 data`); failed++; continue }
+  if (!raw) {
+    console.log(`  $${hex.toUpperCase()}  ERROR no L1 data`)
+    failed++
+    continue
+  }
   const { header } = parseLevelObjects(raw)
   const derived = buildLevelCgram(
     loadRomPalettes(rom.rom, header.bgPalette),
-    header.bgPalette, header.fgPalette, header.spritePalette,
+    header.bgPalette,
+    header.fgPalette,
+    header.spritePalette,
   )
   const captured = parseCgramCapture(readFileSync(join(root, hex, `frame_${frame}_cgram.bin`)))
   const c = compareCgram(captured, derived.colors, bgr555ToRgba)
   if (!c.ok) failed++
-  console.log(`  $${hex.toUpperCase()}  ${c.ok ? 'PASS' : 'FAIL'}  ` +
-    `rom-written ${c.writtenCompared - c.writtenMismatched}/${c.writtenCompared}, ` +
-    `never-written ${c.unwrittenCompared - c.unwrittenMismatched}/${c.unwrittenCompared}` +
-    (c.ok ? '' : `  mismatch idx: ${c.mismatches.map(m => '$' + m.index.toString(16)).join(' ')}`))
+  console.log(
+    `  $${hex.toUpperCase()}  ${c.ok ? 'PASS' : 'FAIL'}  ` +
+      `rom-written ${c.writtenCompared - c.writtenMismatched}/${c.writtenCompared}, ` +
+      `never-written ${c.unwrittenCompared - c.unwrittenMismatched}/${c.unwrittenCompared}` +
+      (c.ok
+        ? ''
+        : `  mismatch idx: ${c.mismatches.map(m => '$' + m.index.toString(16)).join(' ')}`),
+  )
   if (verbose) {
     for (const m of c.mismatches) {
-      console.log(`      $${m.index.toString(16).padStart(2, '0')} ${m.romWritten ? 'rom-written' : 'never-written'}  ` +
-        `hw=${m.expected.join(',')}  ours=${m.actual.join(',')}`)
+      console.log(
+        `      $${m.index.toString(16).padStart(2, '0')} ${m.romWritten ? 'rom-written' : 'never-written'}  ` +
+          `hw=${m.expected.join(',')}  ours=${m.actual.join(',')}`,
+      )
     }
   }
 }

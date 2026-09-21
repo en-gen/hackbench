@@ -74,7 +74,10 @@ function isStaticAt(animData: AnimationData, charBase: number): boolean {
 
 /** Assert two AnimationData objects produce identical frame output at a char. */
 function expectSameCharData(
-  a: AnimationData, b: AnimationData, charBase: number, label: string,
+  a: AnimationData,
+  b: AnimationData,
+  charBase: number,
+  label: string,
 ): void {
   const framesA = charFrameData(a, charBase)
   const framesB = charFrameData(b, charBase)
@@ -124,19 +127,19 @@ describe('AnimationLoader tileset groups', () => {
 
   // ── Group A: tilesets 0, 10, 12 (offset 0) ───────────────────────────────
 
-  describe('Group A (offset 0) — tilesets 0, 10, 12 — Water + Lava', () => {
+  describe('Group A (offset 0) - tilesets 0, 10, 12 - Water + Lava', () => {
     it('tileset 0 char $070 is animated (Water)', () => {
       expect(animatedChars(anim(0)).has(0x070)).toBe(true)
       expect(isAnimatedAt(anim(0), 0x070)).toBe(true)
     })
 
     it('tileset 0 char $04C is animated (Lava)', () => {
-      expect(animatedChars(anim(0)).has(0x04C)).toBe(true)
-      expect(isAnimatedAt(anim(0), 0x04C)).toBe(true)
+      expect(animatedChars(anim(0)).has(0x04c)).toBe(true)
+      expect(isAnimatedAt(anim(0), 0x04c)).toBe(true)
     })
 
     it('tilesets 0, 10, 12 produce identical animation data', () => {
-      for (const char of [0x070, 0x04C, 0x044, 0x048, 0x040]) {
+      for (const char of [0x070, 0x04c, 0x044, 0x048, 0x040]) {
         expectSameCharData(anim(0), anim(10), char, 'ts0 vs ts10')
         expectSameCharData(anim(0), anim(12), char, 'ts0 vs ts12')
       }
@@ -145,16 +148,16 @@ describe('AnimationLoader tileset groups', () => {
 
   // ── Group B: tilesets 1, 11 (offset 5) ───────────────────────────────────
 
-  describe('Group B (offset 5) — tilesets 1, 11 — Coin + Escalators + Candle', () => {
-    it('tileset 1 char $070 is animated (Water — same source data as Group A)', () => {
+  describe('Group B (offset 5) - tilesets 1, 11 - Coin + Escalators + Candle', () => {
+    it('tileset 1 char $070 is animated (Water - same source data as Group A)', () => {
       expect(isAnimatedAt(anim(1), 0x070)).toBe(true)
     })
 
     it('tileset 1 char $04C is animated (Coin)', () => {
       // Note: Group B "Coin" entries in DATA_05BA39 intentionally share the same
       // AnimatedTiles source offsets as Group A "Lava" ($1180 etc.), so pixel data
-      // is identical — only the applied palette differs at runtime.
-      expect(isAnimatedAt(anim(1), 0x04C)).toBe(true)
+      // is identical - only the applied palette differs at runtime.
+      expect(isAnimatedAt(anim(1), 0x04c)).toBe(true)
     })
 
     it('tileset 1 char $044 is animated (Escalator Up)', () => {
@@ -165,7 +168,7 @@ describe('AnimationLoader tileset groups', () => {
       expect(isAnimatedAt(anim(1), 0x048)).toBe(true)
     })
 
-    it('tileset 1 char $040 is animated (Candle glow — tileIdx 18 fix)', () => {
+    it('tileset 1 char $040 is animated (Candle glow - tileIdx 18 fix)', () => {
       // Before the bug fix, tileIdx 18 was treated as behavior 0 (static ?Block).
       // After the fix, it reads behavior $02 from the DATA_05B97D spill byte,
       // giving adjustedIdx = 18 + 5 = 23 → Candle glow animation.
@@ -182,7 +185,7 @@ describe('AnimationLoader tileset groups', () => {
     })
 
     it('tilesets 1 and 11 produce identical animation data', () => {
-      for (const char of [0x070, 0x04C, 0x044, 0x048, 0x040]) {
+      for (const char of [0x070, 0x04c, 0x044, 0x048, 0x040]) {
         expectSameCharData(anim(1), anim(11), char, 'ts1 vs ts11')
       }
     })
@@ -190,15 +193,15 @@ describe('AnimationLoader tileset groups', () => {
 
   // ── Group C: tilesets 2, 8 (offset 10) ───────────────────────────────────
 
-  describe('Group C (offset 10) — tilesets 2, 8 — Rope + Diagonal ropes', () => {
+  describe('Group C (offset 10) - tilesets 2, 8 - Rope + Diagonal ropes', () => {
     it('tileset 2 char $04C is animated (Rope)', () => {
-      expect(isAnimatedAt(anim(2), 0x04C)).toBe(true)
+      expect(isAnimatedAt(anim(2), 0x04c)).toBe(true)
     })
 
     it('tileset 2 char $04C differs from tilesets 0 and 1', () => {
-      const ts0 = charFrameData(anim(0), 0x04C)[0]?.join(',')
-      const ts1 = charFrameData(anim(1), 0x04C)[0]?.join(',')
-      const ts2 = charFrameData(anim(2), 0x04C)[0]?.join(',')
+      const ts0 = charFrameData(anim(0), 0x04c)[0]?.join(',')
+      const ts1 = charFrameData(anim(1), 0x04c)[0]?.join(',')
+      const ts2 = charFrameData(anim(2), 0x04c)[0]?.join(',')
       expect(ts2).not.toBe(ts0)
       expect(ts2).not.toBe(ts1)
     })
@@ -212,7 +215,7 @@ describe('AnimationLoader tileset groups', () => {
     })
 
     it('tilesets 2 and 8 produce identical animation data', () => {
-      for (const char of [0x070, 0x04C, 0x044, 0x048, 0x040]) {
+      for (const char of [0x070, 0x04c, 0x044, 0x048, 0x040]) {
         expectSameCharData(anim(2), anim(8), char, 'ts2 vs ts8')
       }
     })
@@ -220,9 +223,9 @@ describe('AnimationLoader tileset groups', () => {
 
   // ── Group D: tileset 3 (offset 15) ───────────────────────────────────────
 
-  describe('Group D (offset 15) — tileset 3 — Underground lava variants', () => {
+  describe('Group D (offset 15) - tileset 3 - Underground lava variants', () => {
     it('tileset 3 char $04C is animated (Gradual sloped lava)', () => {
-      expect(isAnimatedAt(anim(3), 0x04C)).toBe(true)
+      expect(isAnimatedAt(anim(3), 0x04c)).toBe(true)
     })
 
     it('tileset 3 char $044 is animated (Diagonal sloped lava)', () => {
@@ -233,28 +236,28 @@ describe('AnimationLoader tileset groups', () => {
       expect(isAnimatedAt(anim(3), 0x048)).toBe(true)
     })
 
-    it('tileset 3 char $040 is animated (Gradual sloped lava reversed — tileIdx 18 fix)', () => {
+    it('tileset 3 char $040 is animated (Gradual sloped lava reversed - tileIdx 18 fix)', () => {
       // adjustedIdx = 18 + 15 = 33 → Gradual sloped lava reversed (4-frame reverse cycle)
       expect(isAnimatedAt(anim(3), 0x040)).toBe(true)
     })
 
     it('tileset 3 char $04C differs from tileset 0 (GradLava vs Lava)', () => {
-      const ts0 = charFrameData(anim(0), 0x04C)[0]?.join(',')
-      const ts3 = charFrameData(anim(3), 0x04C)[0]?.join(',')
+      const ts0 = charFrameData(anim(0), 0x04c)[0]?.join(',')
+      const ts3 = charFrameData(anim(3), 0x04c)[0]?.join(',')
       expect(ts3).not.toBe(ts0)
     })
   })
 
   // ── Group E: tilesets 4, 5, 7, 9, 13 (offset 20) ────────────────────────
 
-  describe('Group E (offset 20) — tilesets 4/5/7/9/13 — Ghost house lantern + Seaweed', () => {
+  describe('Group E (offset 20) - tilesets 4/5/7/9/13 - Ghost house lantern + Seaweed', () => {
     it('tileset 5 char $04C is animated (Ghost house lantern)', () => {
-      expect(isAnimatedAt(anim(5), 0x04C)).toBe(true)
+      expect(isAnimatedAt(anim(5), 0x04c)).toBe(true)
     })
 
     it('tileset 5 char $04C differs from tileset 0 (lantern vs lava)', () => {
-      const ts0 = charFrameData(anim(0), 0x04C)[0]?.join(',')
-      const ts5 = charFrameData(anim(5), 0x04C)[0]?.join(',')
+      const ts0 = charFrameData(anim(0), 0x04c)[0]?.join(',')
+      const ts5 = charFrameData(anim(5), 0x04c)[0]?.join(',')
       expect(ts5).not.toBe(ts0)
     })
 
@@ -263,7 +266,7 @@ describe('AnimationLoader tileset groups', () => {
     })
 
     it('tilesets 4, 5, 7, 9, 13 all produce identical animation data', () => {
-      const chars = [0x070, 0x04C, 0x044, 0x048, 0x040]
+      const chars = [0x070, 0x04c, 0x044, 0x048, 0x040]
       for (const other of [5, 7, 9, 13]) {
         for (const char of chars) {
           expectSameCharData(anim(4), anim(other), char, `ts4 vs ts${other}`)
@@ -274,7 +277,7 @@ describe('AnimationLoader tileset groups', () => {
 
   // ── Group F: tileset 6 (offset 25) ───────────────────────────────────────
 
-  describe('Group F (offset 25) — tileset 6 — Switch Palace stars', () => {
+  describe('Group F (offset 25) - tileset 6 - Switch Palace stars', () => {
     it('tileset 6 char $070 is animated (Shining stars)', () => {
       // tileIdx 14, adjustedIdx = 14 + 25 = 39 → AnimatedTileData entries 156-159 (Shining stars)
       expect(isAnimatedAt(anim(6), 0x070)).toBe(true)
@@ -282,14 +285,14 @@ describe('AnimationLoader tileset groups', () => {
 
     it('tileset 6 char $04C is animated (Twinkling stars)', () => {
       // tileIdx 15, adjustedIdx = 15 + 25 = 40 → AnimatedTileData entries 160-163 (Twinkling stars)
-      expect(isAnimatedAt(anim(6), 0x04C)).toBe(true)
+      expect(isAnimatedAt(anim(6), 0x04c)).toBe(true)
     })
 
     it('tileset 6 char $04C differs from Groups C, D, E at $04C', () => {
-      // Groups C/D/E use Rope, Gradual lava, Ghost lantern respectively — all different from Twinkling stars
-      const ts6 = charFrameData(anim(6), 0x04C)[0]?.join(',')
+      // Groups C/D/E use Rope, Gradual lava, Ghost lantern respectively - all different from Twinkling stars
+      const ts6 = charFrameData(anim(6), 0x04c)[0]?.join(',')
       for (const other of [2, 3, 5]) {
-        const tsOther = charFrameData(anim(other), 0x04C)[0]?.join(',')
+        const tsOther = charFrameData(anim(other), 0x04c)[0]?.join(',')
         expect(ts6, `ts6 vs ts${other} at $04C`).not.toBe(tsOther)
       }
     })
@@ -309,7 +312,7 @@ describe('AnimationLoader tileset groups', () => {
       ]
       const frame0s = groups.map(g => ({
         label: g.label,
-        data: charFrameData(anim(g.ts), 0x04C)[0]?.join(',') ?? 'null',
+        data: charFrameData(anim(g.ts), 0x04c)[0]?.join(',') ?? 'null',
       }))
       const seen = new Set<string>()
       for (const { label, data } of frame0s) {
@@ -319,7 +322,7 @@ describe('AnimationLoader tileset groups', () => {
     })
 
     it('Groups D and F produce distinct $044 data', () => {
-      // Group D: Diagonal sloped lava; Group F: static ?Block — both different
+      // Group D: Diagonal sloped lava; Group F: static ?Block - both different
       const tsD = charFrameData(anim(3), 0x044)[0]?.join(',')
       const tsF = charFrameData(anim(6), 0x044)[0]?.join(',')
       expect(tsD).not.toBe(tsF)

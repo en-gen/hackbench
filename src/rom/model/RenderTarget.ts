@@ -41,7 +41,7 @@ export interface LayerToggles {
   mapGrid: boolean
   /**
    * Show HUD-area L3 tiles (VRAM rows 0–7) inside the camera viewport.
-   * Default false — only meaningful when camera viewport is focused.
+   * Default false - only meaningful when camera viewport is focused.
    */
   l3Hud: boolean
   /**

@@ -1,5 +1,5 @@
 /**
- * MusicData.ts — Level music table parser for Super Mario World.
+ * MusicData.ts - Level music table parser for Super Mario World.
  *
  * The game selects background music via a 3-bit index stored in level header
  * byte 2, bits 6:4. This index is used to look up an SPC BGM command byte
@@ -26,7 +26,7 @@ import { getLevelMusicBankAddr, countBankSongs } from './SpcBuilder'
 
 /** LevelMusicTable: 8-byte table mapping 3-bit header index → BGM command.
  *  bank_05.asm line 513, verified at SNES $0584DB. */
-export const ADDR_LEVEL_MUSIC_TABLE = 0x0584DB
+export const ADDR_LEVEL_MUSIC_TABLE = 0x0584db
 
 /** Number of entries in the LevelMusicTable (3-bit index → 8 values). */
 export const LEVEL_MUSIC_COUNT = 8

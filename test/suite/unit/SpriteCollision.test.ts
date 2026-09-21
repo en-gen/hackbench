@@ -1,5 +1,5 @@
 /**
- * Unit tests for spriteCollisionFromL1 — the shared predicate bundle that
+ * Unit tests for spriteCollisionFromL1 - the shared predicate bundle that
  * consolidates priority-filtered slope/ceiling/floor helpers previously
  * duplicated across BouncingKoopaBehavior, WingedGoombaBehavior, and
  * KoopaAppearance (see GitHub issue #229).
@@ -25,7 +25,7 @@ function cellAt(cell: L1Cell | null): GetL1Tile {
   return (c, r) => (c === 0 && r === 0 ? cell : null)
 }
 
-/** Returns the given cell at any (0, r) — for surfaceYAt tests that vary row. */
+/** Returns the given cell at any (0, r) - for surfaceYAt tests that vary row. */
 function colOf(cell: L1Cell | null): GetL1Tile {
   return (c, _r) => (c === 0 ? cell : null)
 }
@@ -35,22 +35,51 @@ const MOCK_SLOPE: SlopeInfo = {
   heights: new Uint8Array([8, 7, 6, 5, 4, 3, 2, 1, 8, 7, 6, 5, 4, 3, 2, 1]),
 }
 
-/** Non-priority solid tile — actsLike page 1, low $30 ($11–$6D range). */
+/** Non-priority solid tile - actsLike page 1, low $30 ($11–$6D range). */
 const FLAT_SOLID_CELL: L1Cell = {
-  id: 0x200, actsLike: 0x130,
-  collision: { floor: true, ceiling: true, wall: true, marioFloor: false, marioCeiling: false, marioWall: false, slopeTable: false },
+  id: 0x200,
+  actsLike: 0x130,
+  collision: {
+    floor: true,
+    ceiling: true,
+    wall: true,
+    marioFloor: false,
+    marioCeiling: false,
+    marioWall: false,
+    slopeTable: false,
+  },
 }
 
-/** Priority-1 decorative — isPriority=true, all collision false. */
+/** Priority-1 decorative - isPriority=true, all collision false. */
 const PRIORITY_CELL: L1Cell = {
-  id: 0x201, actsLike: 0x130, isPriority: true,
-  collision: { floor: false, ceiling: false, wall: false, marioFloor: false, marioCeiling: false, marioWall: false, slopeTable: false },
+  id: 0x201,
+  actsLike: 0x130,
+  isPriority: true,
+  collision: {
+    floor: false,
+    ceiling: false,
+    wall: false,
+    marioFloor: false,
+    marioCeiling: false,
+    marioWall: false,
+    slopeTable: false,
+  },
 }
 
-/** Non-priority slope tile — actsLike page 1, low $70 ($6E–$D7). floor=true, ceiling=false. */
+/** Non-priority slope tile - actsLike page 1, low $70 ($6E–$D7). floor=true, ceiling=false. */
 const SLOPE_CELL: L1Cell = {
-  id: 0x202, actsLike: 0x170,
-  collision: { floor: true, ceiling: false, wall: false, marioFloor: false, marioCeiling: false, marioWall: false, slopeTable: true, slope: MOCK_SLOPE },
+  id: 0x202,
+  actsLike: 0x170,
+  collision: {
+    floor: true,
+    ceiling: false,
+    wall: false,
+    marioFloor: false,
+    marioCeiling: false,
+    marioWall: false,
+    slopeTable: true,
+    slope: MOCK_SLOPE,
+  },
 }
 
 /**
@@ -59,8 +88,18 @@ const SLOPE_CELL: L1Cell = {
  * exercise the explicit `slopeAt` branch of `findFloorRowBelow` in isolation.
  */
 const SLOPE_ONLY_CELL: L1Cell = {
-  id: 0x203, actsLike: 0x170,
-  collision: { floor: false, ceiling: false, wall: false, marioFloor: false, marioCeiling: false, marioWall: false, slopeTable: true, slope: MOCK_SLOPE },
+  id: 0x203,
+  actsLike: 0x170,
+  collision: {
+    floor: false,
+    ceiling: false,
+    wall: false,
+    marioFloor: false,
+    marioCeiling: false,
+    marioWall: false,
+    slopeTable: true,
+    slope: MOCK_SLOPE,
+  },
 }
 
 // ── slopeAt ──────────────────────────────────────────────────────────────────
@@ -166,7 +205,7 @@ describe('ceilingV', () => {
     // classifyForFixture → ceiling=false.
     const g = buildSolidity(['/'], { '/': { actsLike: 0x170 } })
     expect(g.collision.ceilingV(0, 0)).toBe(false)
-    expect(g.collision.solidV(0, 0)).toBe(true)   // floor=true for slope range
+    expect(g.collision.solidV(0, 0)).toBe(true) // floor=true for slope range
   })
 })
 
@@ -188,19 +227,19 @@ describe('surfaceYAt', () => {
     // colOf returns SLOPE_CELL at any row. centerX=8 → col=0, pxInTile=8.
     // heights[8]=8; surfaceY = 3*16 + (8 & 0x0F) = 48+8 = 56.
     const { surfaceYAt } = spriteCollisionFromL1(colOf(SLOPE_CELL))
-    expect(surfaceYAt(8, 3)).toBe(48 + (MOCK_SLOPE.heights[8]! & 0x0F))
+    expect(surfaceYAt(8, 3)).toBe(48 + (MOCK_SLOPE.heights[8]! & 0x0f))
   })
 
   it('clamps pxInTile to 0 when centerX falls left of tile origin', () => {
     // centerX=0 → col=0, pxInTile = max(0, 0-0)=0. heights[0]=8.
     const { surfaceYAt } = spriteCollisionFromL1(cellAt(SLOPE_CELL))
-    expect(surfaceYAt(0, 0)).toBe(0 + (MOCK_SLOPE.heights[0]! & 0x0F))
+    expect(surfaceYAt(0, 0)).toBe(0 + (MOCK_SLOPE.heights[0]! & 0x0f))
   })
 
   it('applies & 0x0F mask to heights entry', () => {
     // heights[0]=8; 8 & 0x0F = 8. Mask is a no-op here but verifies it runs.
     const { surfaceYAt } = spriteCollisionFromL1(cellAt(SLOPE_CELL))
-    expect(surfaceYAt(0, 0)).toBe(MOCK_SLOPE.heights[0]! & 0x0F)
+    expect(surfaceYAt(0, 0)).toBe(MOCK_SLOPE.heights[0]! & 0x0f)
   })
 })
 

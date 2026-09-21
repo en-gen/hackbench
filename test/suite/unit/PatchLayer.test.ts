@@ -1,27 +1,51 @@
 import { describe, it, expect } from 'vitest'
 import {
-  Patch, PatchLayer, flatten, applyPatches, build, invertLayer, upTo, squash,
+  Patch,
+  PatchLayer,
+  flatten,
+  applyPatches,
+  build,
+  invertLayer,
+  upTo,
+  squash,
 } from '../../../src/rom/PatchLayer'
 
 const layer = (id: string, patches: Patch[]): PatchLayer => ({ id, label: id, patches })
 
 /** A base with distinct bytes, so a wrong offset shows up as a wrong value. */
-const base = (): Uint8Array => Uint8Array.from({ length: 16 }, (_, i) => i * 0x11 & 0xff)
+const base = (): Uint8Array => Uint8Array.from({ length: 16 }, (_, i) => (i * 0x11) & 0xff)
 
 describe('flatten', () => {
   it('lets a later layer win where two overlap', () => {
-    const out = flatten([layer('a', [{ offset: 4, value: 0xaa }]), layer('b', [{ offset: 4, value: 0xbb }])])
+    const out = flatten([
+      layer('a', [{ offset: 4, value: 0xaa }]),
+      layer('b', [{ offset: 4, value: 0xbb }]),
+    ])
     expect(out).toEqual([{ offset: 4, value: 0xbb }])
   })
 
   it('keeps writes from layers that do not overlap', () => {
-    const out = flatten([layer('a', [{ offset: 1, value: 0xaa }]), layer('b', [{ offset: 9, value: 0xbb }])])
-    expect(out).toEqual([{ offset: 1, value: 0xaa }, { offset: 9, value: 0xbb }])
+    const out = flatten([
+      layer('a', [{ offset: 1, value: 0xaa }]),
+      layer('b', [{ offset: 9, value: 0xbb }]),
+    ])
+    expect(out).toEqual([
+      { offset: 1, value: 0xaa },
+      { offset: 9, value: 0xbb },
+    ])
   })
 
   it('orders by offset, so equivalent stacks flatten identically', () => {
-    const a = flatten([layer('x', [{ offset: 9, value: 1 }, { offset: 2, value: 2 }])])
-    const b = flatten([layer('y', [{ offset: 2, value: 2 }]), layer('z', [{ offset: 9, value: 1 }])])
+    const a = flatten([
+      layer('x', [
+        { offset: 9, value: 1 },
+        { offset: 2, value: 2 },
+      ]),
+    ])
+    const b = flatten([
+      layer('y', [{ offset: 2, value: 2 }]),
+      layer('z', [{ offset: 9, value: 1 }]),
+    ])
     expect(a).toEqual(b)
   })
 
@@ -59,7 +83,10 @@ describe('applyPatches', () => {
 describe('invertLayer', () => {
   it('round-trips a single layer back to the base', () => {
     const rom = base()
-    const edit = layer('edit', [{ offset: 2, value: 0x77 }, { offset: 5, value: 0x88 }])
+    const edit = layer('edit', [
+      { offset: 2, value: 0x77 },
+      { offset: 5, value: 0x88 },
+    ])
     const edited = build(rom, [edit])
     expect(edited).not.toEqual(rom)
     expect(build(rom, [edit, invertLayer(rom, edit)])).toEqual(rom)
@@ -77,9 +104,11 @@ describe('invertLayer', () => {
 })
 
 describe('upTo', () => {
-  const stack = [layer('one', [{ offset: 0, value: 1 }]),
+  const stack = [
+    layer('one', [{ offset: 0, value: 1 }]),
     layer('two', [{ offset: 1, value: 2 }]),
-    layer('three', [{ offset: 2, value: 3 }])]
+    layer('three', [{ offset: 2, value: 3 }]),
+  ]
 
   it('rebuilds the ROM as it stood at an earlier edit', () => {
     const rom = base()
@@ -102,8 +131,16 @@ describe('upTo', () => {
 describe('squash', () => {
   it('produces a ROM identical to the run it replaces', () => {
     const rom = base()
-    const run = [layer('a', [{ offset: 1, value: 0x10 }, { offset: 2, value: 0x20 }]),
-      layer('b', [{ offset: 2, value: 0x30 }, { offset: 8, value: 0x40 }])]
+    const run = [
+      layer('a', [
+        { offset: 1, value: 0x10 },
+        { offset: 2, value: 0x20 },
+      ]),
+      layer('b', [
+        { offset: 2, value: 0x30 },
+        { offset: 8, value: 0x40 },
+      ]),
+    ]
     expect(build(rom, [squash(run, 'c', 'committed')])).toEqual(build(rom, run))
   })
 })
@@ -120,10 +157,16 @@ describe('the oracle can fail', () => {
   it('a flatten that ignored order would break the last-writer-wins test', () => {
     const firstWins = (layers: readonly PatchLayer[]): Patch[] => {
       const seen = new Map<number, number>()
-      for (const l of layers) for (const p of l.patches) if (!seen.has(p.offset)) seen.set(p.offset, p.value)
-      return [...seen.entries()].sort((a, b) => a[0] - b[0]).map(([offset, value]) => ({ offset, value }))
+      for (const l of layers)
+        for (const p of l.patches) if (!seen.has(p.offset)) seen.set(p.offset, p.value)
+      return [...seen.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([offset, value]) => ({ offset, value }))
     }
-    const stack = [layer('a', [{ offset: 4, value: 0xaa }]), layer('b', [{ offset: 4, value: 0xbb }])]
+    const stack = [
+      layer('a', [{ offset: 4, value: 0xaa }]),
+      layer('b', [{ offset: 4, value: 0xbb }]),
+    ]
     expect(firstWins(stack)).not.toEqual(flatten(stack))
   })
 

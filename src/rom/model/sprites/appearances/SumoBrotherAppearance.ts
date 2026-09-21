@@ -4,7 +4,7 @@ import type { Char } from '../../chars/Char'
 import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearance'
 
 /**
- * Sprite $9A (Sumo Brother) — patrol-and-projectile enemy.
+ * Sprite $9A (Sumo Brother) - patrol-and-projectile enemy.
  *
  * Custom OAM build via `SumoBroGfx` (bank_02.asm:12456). The handler reads
  * 4 tile slots per pose from `SumoBrosTiles` / `SumoBrosDispX` /
@@ -21,38 +21,37 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  * 8 + 2 = 10) and `c = 1` (charHigh = $100 within the OBJ tile bank).
  */
 export class SumoBrotherAppearance extends StaticSpriteAppearance {
-  static fromTables(
-    chars: Map<number, Char>,
-    placeholder: Char,
-  ): SumoBrotherAppearance {
+  static fromTables(chars: Map<number, Char>, placeholder: Char): SumoBrotherAppearance {
     const OBJ_BASE = 0x400
     const charHigh = 0x100
-    const palette  = 10  // CGRAM row 8 + (($34 >> 1) & 0x07) = 8 + 2 = 10
+    const palette = 10 // CGRAM row 8 + (($34 >> 1) & 0x07) = 8 + 2 = 10
 
-    const part = (
-      tile: number, dx: number, dy: number,
-    ): SpritePart => ({
-      char:    chars.get(OBJ_BASE + charHigh + (tile & 0x1FF)) ?? placeholder,
-      palette, flipX: false, flipY: false, dx, dy,
+    const part = (tile: number, dx: number, dy: number): SpritePart => ({
+      char: chars.get(OBJ_BASE + charHigh + (tile & 0x1ff)) ?? placeholder,
+      palette,
+      flipX: false,
+      flipY: false,
+      dx,
+      dy,
     })
 
     // SNES 16×16 OBJ: base N → [N, N+1, N+$10, N+$11] at (0,0)/(8,0)/(0,8)/(8,8).
     const bigTile = (baseTile: number, bdx: number, bdy: number): SpritePart[] => [
-      part(baseTile + 0x00, bdx,     bdy),
+      part(baseTile + 0x00, bdx, bdy),
       part(baseTile + 0x01, bdx + 8, bdy),
-      part(baseTile + 0x10, bdx,     bdy + 8),
+      part(baseTile + 0x10, bdx, bdy + 8),
       part(baseTile + 0x11, bdx + 8, bdy + 8),
     ]
 
     // Pose 0, left-facing (initial pose: 157C toggles to 1 at end of init's
     // state-3 attack window, so first pacing entry walks left).
     const parts: SpritePart[] = [
-      part(0x98, -1, -8),     // head L (8×8)
-      part(0x99,  7, -8),     // head R (8×8)
-      ...bigTile(0xA7, -4, 0), // body L (16×16)
-      ...bigTile(0xA8,  4, 0), // body R (16×16) — overlaps body L's right column
-                               // with identical chars ($A8/$B8); benign duplication
-                               // matches the in-game OAM layout.
+      part(0x98, -1, -8), // head L (8×8)
+      part(0x99, 7, -8), // head R (8×8)
+      ...bigTile(0xa7, -4, 0), // body L (16×16)
+      ...bigTile(0xa8, 4, 0), // body R (16×16) - overlaps body L's right column
+      // with identical chars ($A8/$B8); benign duplication
+      // matches the in-game OAM layout.
     ]
     return new SumoBrotherAppearance(parts)
   }

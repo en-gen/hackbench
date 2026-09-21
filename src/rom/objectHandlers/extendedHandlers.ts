@@ -7,10 +7,19 @@
  */
 
 import {
-  Cursor, writeTile, writeTileAdvance, setPage0, setPage1,
-  advanceCol, advanceRowRaw, saveBookmark, restoreBookmark, nextRow,
+  Cursor,
+  writeTile,
+  writeTileAdvance,
+  setPage0,
+  setPage1,
+  advanceCol,
+  advanceRowRaw,
+  saveBookmark,
+  restoreBookmark,
+  nextRow,
   peekExistingLow,
-  readLongOperand, readImmByte,
+  readLongOperand,
+  readImmByte,
 } from './cursor'
 
 /**
@@ -46,7 +55,8 @@ export function handle_0DA57B(cur: Cursor): void {
   // Within CODE_0DA5B1, the LDA.L opcode is at +14 so its operand is at +15.
   // Net: operand byte at cur.handlerAddr + 69.
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 69)
-  if (idx >= 0x13) setPage1(cur); else setPage0(cur)
+  if (idx >= 0x13) setPage1(cur)
+  else setPage0(cur)
   writeTile(cur, cur.rom.readByte(tableAddr + idx) ?? 0)
 }
 
@@ -69,12 +79,12 @@ export function handle_0DA64D(cur: Cursor): void {
   // CODE_0DA64D handler: the JMP CODE_0DA57F operand is at +4, and from
   // there CODE_0DA5B1's LDA.L operand is at +69 relative to CODE_0DA57B.
   // (CODE_0DA5B1 = CODE_0DA57B + 54; LDA.L opcode at +14; operand at +15.)
-  const idx = readImmByte(cur, cur.handlerAddr + 1)   // $32 by default
+  const idx = readImmByte(cur, cur.handlerAddr + 1) // $32 by default
   // CODE_0DA64D does JMP CODE_0DA57F which is inside CODE_0DA57B at offset +4.
   // Read the JMP operand at +4 (after LDA #$32 + JMP opcode).
   const jmpLo = cur.rom.readByte(cur.handlerAddr + 3) ?? 0
   const jmpHi = cur.rom.readByte(cur.handlerAddr + 4) ?? 0
-  const bank = cur.handlerAddr & 0xFF0000
+  const bank = cur.handlerAddr & 0xff0000
   const code0DA57F = bank | (jmpHi << 8) | jmpLo
   // CODE_0DA57F is 4 bytes into CODE_0DA57B (the SBC #$10 ends at CODE_0DA57F).
   // CODE_0DA57B = code0DA57F - 4. The LDA.L operand is at CODE_0DA57B + 69.
@@ -93,9 +103,9 @@ export function handle_0DA656(cur: Cursor): void {
   const X = cur.objNo - 0x42
   if (X < 0 || X > 1) return
   // CODE_0DA656: LDA.L DATA_0DA652,X operand at +11; LDA.L DATA_0DA654,X at +18.
-  const addrLeft  = readLongOperand(cur, cur.handlerAddr + 11)
+  const addrLeft = readLongOperand(cur, cur.handlerAddr + 11)
   const addrRight = readLongOperand(cur, cur.handlerAddr + 18)
-  const left  = cur.rom.readByte(addrLeft + X) ?? 0
+  const left = cur.rom.readByte(addrLeft + X) ?? 0
   const right = cur.rom.readByte(addrRight + X) ?? 0
   setPage1(cur)
   writeTile(cur, left)
@@ -110,7 +120,7 @@ export function handle_0DA656(cur: Cursor): void {
  * vertical pair. Top from DATA_0DA671[X], bottom is $EB. X = extType - 0x44.
  *
  * Both writes run the low-byte store BEFORE `Sta1To6ePointer`, so the high
- * byte ends up $01 on both rows — the whole pair lives on page 1 ($1B4/$1B5
+ * byte ends up $01 on both rows - the whole pair lives on page 1 ($1B4/$1B5
  * on top, $1EB on bottom).
  */
 export function handle_0DA673(cur: Cursor): void {
@@ -187,7 +197,8 @@ export function handle_0DA7E7(cur: Cursor): void {
     cur.rom.readByte(tableAddr + 2) ?? 0,
     cur.rom.readByte(tableAddr + 3) ?? 0,
   ]
-  const col0 = cur.col, row0 = cur.row
+  const col0 = cur.col,
+    row0 = cur.row
   setPage0(cur)
   writeTile(cur, tiles[0])
   cur.col = col0 + 1
@@ -231,7 +242,8 @@ export function handle_0DC31E(cur: Cursor): void {
     cur.rom.readByte(tableAddr + 4) ?? 0,
     cur.rom.readByte(tableAddr + 5) ?? 0,
   ]
-  const col0 = cur.col, row0 = cur.row
+  const col0 = cur.col,
+    row0 = cur.row
   for (let r = 0; r < 3; r++) {
     cur.row = row0 + r
     cur.col = col0
@@ -254,7 +266,7 @@ export function handle_0DC31E(cur: Cursor): void {
  *   (col0, row0+1) = $68    (col0+1, row0+1) = $69
  */
 export function handle_0DDAA2(cur: Cursor): void {
-  // LDA.L DATA_0DDA9E,X — opcode $BF at +10, operand at +11.
+  // LDA.L DATA_0DDA9E,X - opcode $BF at +10, operand at +11.
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 11)
   const tiles = [
     cur.rom.readByte(tableAddr + 0) ?? 0,
@@ -262,7 +274,8 @@ export function handle_0DDAA2(cur: Cursor): void {
     cur.rom.readByte(tableAddr + 2) ?? 0,
     cur.rom.readByte(tableAddr + 3) ?? 0,
   ]
-  const col0 = cur.col, row0 = cur.row
+  const col0 = cur.col,
+    row0 = cur.row
   setPage1(cur)
   writeTile(cur, tiles[0])
   cur.col = col0 + 1
@@ -285,8 +298,8 @@ export function handle_0DDAA2(cur: Cursor): void {
  *   DATA_0DB589[1] = $6B on page 0 when SwitchBlockFlags[1] is zero (uncleared)
  *   DATA_0DB587[1] = $6B on page 1 when the yellow switch has been pressed
  *
- * We emit the cleared ($16B, page 1) variant so fixtures captured from Mesen —
- * which runs with the switches already pressed in the save state — match
+ * We emit the cleared ($16B, page 1) variant so fixtures captured from Mesen -
+ * which runs with the switches already pressed in the save state - match
  * byte-exact. The webview's `applySwitchPalaceState` re-applies the page bit
  * per the UI toggle, so the on-screen dormant/cleared state is unaffected.
  */
@@ -305,7 +318,7 @@ export function handle_0DB583(cur: Cursor): void {
  * Sibling of CODE_0DB583; enters the shared body directly with X=0 via LDX #$00.
  * DATA_0DB589[0] = $6A (green uncleared) → Map16 $06A.
  * DATA_0DB587[0] = $6A (green cleared)   → Map16 $16A.
- * Emits the cleared ($16A, page 1) variant — see the CODE_0DB583 comment.
+ * Emits the cleared ($16A, page 1) variant - see the CODE_0DB583 comment.
  */
 export function handle_0DB58B(cur: Cursor): void {
   // LDX #$00 at +0 → X at +1. CODE_0DB58B enters the shared body 8 bytes
@@ -346,10 +359,10 @@ export function handle_0DA6D1(cur: Cursor): void {
  * procedurally generated.
  */
 export function handle_0DEABF(cur: Cursor): void {
-  // LDA.L DATA_0DEA71,X — opcode $BF at handler+11, 3-byte operand at +12.
+  // LDA.L DATA_0DEA71,X - opcode $BF at handler+11, 3-byte operand at +12.
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
   const TILES_PER_ROW = 6
-  const TOTAL_TILES   = 0x4E   // 78
+  const TOTAL_TILES = 0x4e // 78
 
   const origCol = cur.col
   setPage0(cur)
@@ -406,8 +419,8 @@ function hillsideMergeWriteAdvance(cur: Cursor, A: number): void {
   if (existing !== 0x25) {
     // BEQ skip both INCs when existing == $25 (no bump). BEQ skip one INC
     // when existing == $49 (bump by 1). Else fall through both INCs (bump by 2).
-    tile = (tile + 1) & 0xFF
-    if (existing !== 0x49) tile = (tile + 1) & 0xFF
+    tile = (tile + 1) & 0xff
+    if (existing !== 0x49) tile = (tile + 1) & 0xff
   }
   writeTile(cur, tile)
   advanceCol(cur)
@@ -438,14 +451,14 @@ export function handle_0DA71B(cur: Cursor): void {
   //   +22 LDA.L DATA_0DA6EE,X         (4 bytes)   operand at +23
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 23)
 
-  const cols = 9    // _0 = 8, loop `DEC _2; BPL -` runs while _2 >= 0 → 9 iters
-  const rows = 5    // _1 = 4, same pattern → 5 iters
+  const cols = 9 // _0 = 8, loop `DEC _2; BPL -` runs while _2 >= 0 → 9 iters
+  const rows = 5 // _1 = 4, same pattern → 5 iters
 
-  saveBookmark(cur)   // CODE_0DA6B1
+  saveBookmark(cur) // CODE_0DA6B1
   let x = 0
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      setPage0(cur)   // StzTo6ePointer before each tile
+      setPage0(cur) // StzTo6ePointer before each tile
       const tile = cur.rom.readByte(tableAddr + x) ?? 0
       hillsideMergeWriteAdvance(cur, tile)
       x++
@@ -464,13 +477,13 @@ export function handle_0DA71B(cur: Cursor): void {
  * overworld and in grass-themed levels.
  */
 export function handle_0DA760(cur: Cursor): void {
-  // LDA.L DATA_0DA748 operand at handler +23 (same layout as CODE_0DA71B —
+  // LDA.L DATA_0DA748 operand at handler +23 (same layout as CODE_0DA71B -
   // the only differences are the LDA #$05 / #$03 immediates at +3/+7 and
   // the table address).
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 23)
 
-  const cols = 6    // _0 = 5 → 6 iters
-  const rows = 4    // _1 = 3 → 4 iters
+  const cols = 6 // _0 = 5 → 6 iters
+  const rows = 4 // _1 = 3 → 4 iters
 
   saveBookmark(cur)
   let x = 0
@@ -543,13 +556,14 @@ export function handle_0DA7C1(cur: Cursor): void {
  * All writes page 0.
  */
 export function handle_0DCE67(cur: Cursor): void {
-  const X = (cur.objNo - 0x4D) * 4
+  const X = (cur.objNo - 0x4d) * 4
   if (X < 0 || X >= 16) return
   // Byte layout verified by dumping $0DCE67:
   //   +16 BF 57 CE 0D   LDA.L DATA_0DCE57,X   (operand at +17..+19)
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 17)
   const tiles = [0, 1, 2, 3].map(i => cur.rom.readByte(tableAddr + X + i) ?? 0)
-  const col0 = cur.col, row0 = cur.row
+  const col0 = cur.col,
+    row0 = cur.row
   setPage0(cur)
   writeTile(cur, tiles[0])
   cur.col = col0 + 1
@@ -685,8 +699,8 @@ export function handle_0DEC33(cur: Cursor): void {
  * anchor position.
  */
 export function handle_0DB6E3(cur: Cursor): void {
-  const X = (cur.objNo - 0x88) & 0xFF
-  // LDA.L DATA_0DB6E1,X — $BF opcode at +11, operand at +12..+14.
+  const X = (cur.objNo - 0x88) & 0xff
+  // LDA.L DATA_0DB6E1,X - $BF opcode at +11, operand at +12..+14.
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
   setPage0(cur)
   writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
@@ -732,7 +746,8 @@ export function handle_0DEC8E(cur: Cursor): void {
   const tr = cur.rom.readByte(tableAddr + base + 1) ?? 0
   const bl = cur.rom.readByte(tableAddr + base + 2) ?? 0
   const br = cur.rom.readByte(tableAddr + base + 3) ?? 0
-  const col0 = cur.col, row0 = cur.row
+  const col0 = cur.col,
+    row0 = cur.row
   setPage0(cur)
   writeTile(cur, tl)
   cur.col = col0 + 1
@@ -765,7 +780,7 @@ export function handle_0DEC8E(cur: Cursor): void {
  *   STA.B [Map16LowPtr],Y  ; write, no advance
  */
 export function handle_0DC259(cur: Cursor): void {
-  const X = cur.objNo - 0x4B
+  const X = cur.objNo - 0x4b
   if (X < 0 || X >= 2) return
   // LDA.L DATA_0DC257,X opcode ($BF) at +11; 3-byte operand at +12..+14.
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
@@ -826,9 +841,10 @@ export function handle_0DE9ED(cur: Cursor): void {
   const base = readImmByte(cur, cur.handlerAddr + 4)
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 23)
   const X = (extType - base) * 4
-  if (X < 0 || X + 3 >= 256) return   // safety: only ext=$64,$65 are valid
+  if (X < 0 || X + 3 >= 256) return // safety: only ext=$64,$65 are valid
 
-  const col0 = cur.col, row0 = cur.row
+  const col0 = cur.col,
+    row0 = cur.row
   for (let row = 0; row < 2; row++) {
     cur.col = col0
     cur.row = row0 + row
@@ -849,7 +865,7 @@ export function handle_0DE9ED(cur: Cursor): void {
  */
 export function handle_0DDA57(cur: Cursor): void {
   setPage1(cur)
-  writeTile(cur, 0xFE)
+  writeTile(cur, 0xfe)
 }
 
 /**
@@ -924,8 +940,8 @@ export function handle_0DEA3E(cur: Cursor): void {
  * DATA_0DE0AA operand at handler+9; DATA_0DE05E operand at handler+28.
  */
 export function handle_0DE0AE(cur: Cursor): void {
-  const addrIdx  = readLongOperand(cur, cur.handlerAddr + 9)   // DATA_0DE0AA
-  const addrData = readLongOperand(cur, cur.handlerAddr + 28)  // DATA_0DE05E
+  const addrIdx = readLongOperand(cur, cur.handlerAddr + 9) // DATA_0DE0AA
+  const addrData = readLongOperand(cur, cur.handlerAddr + 28) // DATA_0DE05E
   let xi = cur.rom.readByte(addrIdx + (cur.objNo - 0x71)) ?? 0
   saveBookmark(cur)
   // Row 0: 4 tiles, page 1
@@ -950,7 +966,7 @@ export function handle_0DE0AE(cur: Cursor): void {
     writeTileAdvance(cur, cur.rom.readByte(addrData + xi++) ?? 0)
   }
   setPage1(cur)
-  writeTile(cur, 0x5F)
+  writeTile(cur, 0x5f)
   restoreBookmark(cur)
   advanceRowRaw(cur)
   // Row 5: 3 tiles, page 0
@@ -980,7 +996,7 @@ export function handle_0DDA68(cur: Cursor): void {
  * DATA_0DDA7A operand at handler+12; DATA_0DDA7D operand at handler+24.
  */
 export function handle_0DDA80(cur: Cursor): void {
-  const X = cur.objNo - 0x7C
+  const X = cur.objNo - 0x7c
   const addr1 = readLongOperand(cur, cur.handlerAddr + 12)
   const addr2 = readLongOperand(cur, cur.handlerAddr + 24)
   setPage0(cur)
@@ -1058,7 +1074,7 @@ export function handle_0DC2E9(cur: Cursor): void {
 /**
  * CODE_0DECC1 (bank_0D.asm line 7939) -- 2×2 tile block via CODE_0DE9F5 (ext $8F).
  *
- * LDX #8; JMP CODE_0DE9F5 — enters handle_0DE9ED at CODE_0DE9F5 with X=8,
+ * LDX #8; JMP CODE_0DE9F5 - enters handle_0DE9ED at CODE_0DE9F5 with X=8,
  * reading DATA_0DE9E1[8..11] = [$FC,$FD,$FE,$FF] as a 2×2 grid, page 0.
  *
  * JMP target lo/hi at handler+3/+4; DATA_0DE9E1 operand at target+15.
@@ -1066,7 +1082,7 @@ export function handle_0DC2E9(cur: Cursor): void {
 export function handle_0DECC1(cur: Cursor): void {
   const jmpLo = cur.rom.readByte(cur.handlerAddr + 3) ?? 0
   const jmpHi = cur.rom.readByte(cur.handlerAddr + 4) ?? 0
-  const jmpTarget = 0x0D0000 | (jmpHi << 8) | jmpLo
+  const jmpTarget = 0x0d0000 | (jmpHi << 8) | jmpLo
   const addr = readLongOperand(cur, jmpTarget + 15)
   saveBookmark(cur)
   let xi = 8

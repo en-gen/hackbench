@@ -158,7 +158,14 @@ export type PaletteSource =
    *  indexes `YoshiPal` by `(SpriteXPosLow >> 4) & 3`, so its colour depends
    *  on which 16 px column it spawned in. Init routines are easy to skip
    *  because they never draw. */
-  | { kind: 'initTableByX'; operandAddr: CodeRef; operandBank: number; entries: number; shift: number; mask: number }
+  | {
+      kind: 'initTableByX'
+      operandAddr: CodeRef
+      operandBank: number
+      entries: number
+      shift: number
+      mask: number
+    }
   /** The handler DMAs colours into CGRAM at runtime, overwriting part of a
    *  row. A still editor uses the resting entry and composites the untouched
    *  columns from the level palette.
@@ -213,7 +220,7 @@ export type ExtraByteSource =
  *  state flag or a timer window and become their own kinds when needed. */
 export type ExtraPartGate =
   /** `SpriteMisc1602 >= imm`, `operandAddr` being the CMP's immediate byte. */
-  | { kind: 'tileGroupAtLeast'; operandAddr: CodeRef }
+  { kind: 'tileGroupAtLeast'; operandAddr: CodeRef }
 
 /**
  * An 8x8 OAM entry the handler writes ITSELF, around the shared draw routine
@@ -406,9 +413,9 @@ export type DrawRoutine =
  * descriptor kind models them yet.
  */
 export const SHARED_DRAW_ROUTINES: readonly { addr: number; routine: DrawRoutine }[] = [
-  { addr: 0x9CF3, routine: 'sub0' },   // SubSprGfx0Entry0, bank_01.asm:3853
-  { addr: 0x9D67, routine: 'sub1' },   // SubSprGfx1,       bank_01.asm:3920
-  { addr: 0x9F0D, routine: 'sub2' },   // SubSprGfx2Entry1, bank_01.asm:4148
+  { addr: 0x9cf3, routine: 'sub0' }, // SubSprGfx0Entry0, bank_01.asm:3853
+  { addr: 0x9d67, routine: 'sub1' }, // SubSprGfx1,       bank_01.asm:3920
+  { addr: 0x9f0d, routine: 'sub2' }, // SubSprGfx2Entry1, bank_01.asm:4148
 ]
 
 export interface SpriteDrawDescriptor {
@@ -481,7 +488,7 @@ export interface SpriteDrawDescriptor {
  * and entries $4F/$50 agree (both `InitPiranha`) yields exactly $01:817D.
  * Cross-checked against every label in `CallSpriteMain`'s init block.
  */
-export const SPRITE_INIT_PTR_TABLE = 0x01817D
+export const SPRITE_INIT_PTR_TABLE = 0x01817d
 
 /**
  * Sprite MAIN pointer table. 201 entries of 2 bytes, bank $01.
@@ -494,7 +501,7 @@ export const SPRITE_INIT_PTR_TABLE = 0x01817D
  * $01:8183 is the INIT table misaligned by three entries; descriptors and
  * tests here use the verified bases.
  */
-export const SPRITE_MAIN_PTR_TABLE = 0x0185CC
+export const SPRITE_MAIN_PTR_TABLE = 0x0185cc
 
 export const SPRITE_PTR_TABLE_COUNT = 201
 
@@ -528,7 +535,11 @@ export const SPRITE_PTR_TABLE_COUNT = 201
  *   `gfxJsr`  the `JSR Spr0to13Gfx` on this handler's route.
  */
 function spr0to13(
-  id: number, main: number, init: number, safJsr: CodeRef, gfxJsr: CodeRef,
+  id: number,
+  main: number,
+  init: number,
+  safJsr: CodeRef,
+  gfxJsr: CodeRef,
 ): SpriteDrawDescriptor {
   const gfx = (off: number): CodeRef => ({ via: gfxJsr, off })
   const saf = (off: number): CodeRef => ({ via: safJsr, off })
@@ -541,23 +552,26 @@ function spr0to13(
     vanillaInitHandler: init,
     frames: 2,
     anim: {
-      kind: 'spriteCounter', shift: 3, mask: 1,
-      shiftAt: { scan: saf(0x06), max: 8 },   // LSR A run,  bank_01.asm:2092-2094
-      maskAt: saf(0x0A),                      // AND #$01,   bank_01.asm:2095
+      kind: 'spriteCounter',
+      shift: 3,
+      mask: 1,
+      shiftAt: { scan: saf(0x06), max: 8 }, // LSR A run,  bank_01.asm:2092-2094
+      maskAt: saf(0x0a), // AND #$01,   bank_01.asm:2095
     },
     tileGroup: { kind: 'frameIndex' },
     routineSelect: {
-      propOperandAddr: gfx(0x1E), propOperandBank: 0x01,   // LDA Spr0to13Prop,Y
-      maskOperandAddr: gfx(0x21),                          // AND #$40
-      jsrIfClear: gfx(0x24),                               // JSR SubSprGfx2Entry1
-      jsrIfSet: gfx(0x3D),                                 // JSR SubSprGfx1
+      propOperandAddr: gfx(0x1e),
+      propOperandBank: 0x01, // LDA Spr0to13Prop,Y
+      maskOperandAddr: gfx(0x21), // AND #$40
+      jsrIfClear: gfx(0x24), // JSR SubSprGfx2Entry1
+      jsrIfSet: gfx(0x3d), // JSR SubSprGfx1
       setBranchYAdjust: {
-        carryShift: { scan: gfx(0x2C), max: 8 },           // LSR A on the tile group
-        sbcOperandAddr: gfx(0x31),                         // SBC #$0F
+        carryShift: { scan: gfx(0x2c), max: 8 }, // LSR A on the tile group
+        sbcOperandAddr: gfx(0x31), // SBC #$0F
       },
       setBranchTailCall: {
-        cmpOperandAddr: gfx(0x4A),                         // CMP #$08
-        jsrAddr: gfx(0x4D),                                // JSR KoopaWingGfxRt
+        cmpOperandAddr: gfx(0x4a), // CMP #$08
+        jsrAddr: gfx(0x4d), // JSR KoopaWingGfxRt
         routineName: 'KoopaWingGfxRt',
         evidence: 'bank_01.asm:1785-1788 Spr0to13Gfx wing tail',
       },
@@ -590,14 +604,19 @@ const SUB_SPR_INTERACT_LEN = 0x03
  *  (bank_01.asm:1418) lands on the interact call that precedes the
  *  `JSR Spr0to13Gfx` the shared blob runs (bank_01.asm:1655-1656). */
 const shellessKoopa = (id: number): SpriteDrawDescriptor =>
-  spr0to13(id, 0x8904, 0x8575, { mainOff: 0x0F },
-    { via: { mainOff: 0x2A }, off: SUB_SPR_INTERACT_LEN })
+  spr0to13(
+    id,
+    0x8904,
+    0x8575,
+    { mainOff: 0x0f },
+    { via: { mainOff: 0x2a }, off: SUB_SPR_INTERACT_LEN },
+  )
 
 /** `Spr0to13Start` route: the `JSR Spr0to13Gfx` is in the handler's first
  *  ten bytes (bank_01.asm:1656) and the walk path's `JSR SetAnimationFrame`
  *  is inside the same blob (bank_01.asm:1691). */
 const spr0to13Start = (id: number): SpriteDrawDescriptor =>
-  spr0to13(id, 0x8AFC, 0x8575, { mainOff: 0x4D }, { mainOff: 0x0A })
+  spr0to13(id, 0x8afc, 0x8575, { mainOff: 0x4d }, { mainOff: 0x0a })
 
 /**
  * The descriptor set. Phase 1 deliberately covers a narrow, well-evidenced
@@ -608,7 +627,7 @@ export const SPRITE_DRAW_DESCRIPTORS: readonly SpriteDrawDescriptor[] = [
   // the two that reach it: the rest of $00-$13 have bespoke handlers
   // (bank_01.asm:906-916) and are not covered here.
   ...[0x00, 0x01, 0x02, 0x03].map(shellessKoopa),
-  ...[0x04, 0x05, 0x06, 0x07, 0x0F, 0x11, 0x13].map(spr0to13Start),
+  ...[0x04, 0x05, 0x06, 0x07, 0x0f, 0x11, 0x13].map(spr0to13Start),
   // $0C Yellow Koopa with wings is DELIBERATELY ABSENT: its draw ends with
   // `JSR KoopaWingGfxRt` (bank_01.asm:1788), writing OAM entries no kind
   // models. Wings need BOTH the property bit AND a sprite number at or above
@@ -625,19 +644,21 @@ export const SPRITE_DRAW_DESCRIPTORS: readonly SpriteDrawDescriptor[] = [
     // `CODE_018C44` label and so cross-checks the base.
     spriteId: 0x14,
     routine: 'sub0',
-    routineJsr: { mainOff: 0x31 },     // JSR SubSprGfx0Entry0, bank_01.asm:1814
-    vanillaMainHandler: 0x8C18,
+    routineJsr: { mainOff: 0x31 }, // JSR SubSprGfx0Entry0, bank_01.asm:1814
+    vanillaMainHandler: 0x8c18,
     vanillaInitHandler: 0x8575,
     frames: 2,
     anim: {
       // Its own `JSR SetAnimationFrame` (bank_01.asm:1799) locates the
       // shared routine, exactly as the walk family's does.
-      kind: 'spriteCounter', shift: 3, mask: 1,
-      shiftAt: { scan: { via: { mainOff: 0x0B }, off: 0x06 }, max: 8 },
-      maskAt: { via: { mainOff: 0x0B }, off: 0x0A },
+      kind: 'spriteCounter',
+      shift: 3,
+      mask: 1,
+      shiftAt: { scan: { via: { mainOff: 0x0b }, off: 0x06 }, max: 8 },
+      maskAt: { via: { mainOff: 0x0b }, off: 0x0a },
     },
     tileGroup: { kind: 'frameIndex' },
-    propGroup: { kind: 'immediate', insnAddr: { mainOff: 0x2F } },  // LDA #$02
+    propGroup: { kind: 'immediate', insnAddr: { mainOff: 0x2f } }, // LDA #$02
     misc157C: { kind: 'unwritten' },
     palette: { kind: 'spriteTable' },
     representativeFrame: 0,
@@ -652,29 +673,30 @@ export const SPRITE_DRAW_DESCRIPTORS: readonly SpriteDrawDescriptor[] = [
     // and its palette are all computed AROUND `SubSprGfx1`, which is why it
     // needed two new kinds. Derivation in
     // docs/sprite-engine-divergence.md section 8.
-    spriteId: 0x1F,
+    spriteId: 0x1f,
     // Every address below is `{ mainOff }`: a byte offset past the MAIN
     // pointer the cart holds at entry $1F, which is $BDD6 on all six carts in
     // `test/roms/`. Offsets, not addresses, so a hack that relocates the
     // handler still resolves. The absolute addresses they correspond to on
     // vanilla are in docs/sprite-engine-divergence.md section 9.
     routine: 'sub1',
-    routineJsr: { mainOff: 0xD6 },     // JSR SubSprGfx1, bank_01.asm:8529
-    vanillaMainHandler: 0xBDD6,
-    vanillaInitHandler: 0xBDB8,
+    routineJsr: { mainOff: 0xd6 }, // JSR SubSprGfx1, bank_01.asm:8529
+    vanillaMainHandler: 0xbdd6,
+    vanillaInitHandler: 0xbdb8,
     // The state-2 countdown seeds at $70 and is decremented once per game
     // frame, so 113 distinct frame indices map onto 4 tile-group values.
     frames: 0x71,
-    anim: { kind: 'stateTimer', seedOperandAddr: { mainOff: 0x24D } },
+    anim: { kind: 'stateTimer', seedOperandAddr: { mainOff: 0x24d } },
     tileGroup: {
       // `DATA_01BE69[timer >> 6] | ((timer >> 3) & 1)`, bank_01.asm:8513-8528.
       // Both shifts are runs of `LSR A` and are counted, not stored.
       kind: 'shiftedTable',
-      operandAddr: { mainOff: 0xD1 }, operandBank: 0x01,
-      shift: { scan: { mainOff: 0xC0 }, max: 8 },
+      operandAddr: { mainOff: 0xd1 },
+      operandBank: 0x01,
+      shift: { scan: { mainOff: 0xc0 }, max: 8 },
       orBit: {
-        shift: { scan: { mainOff: 0xCB }, max: 8 },
-        maskAddr: { mainOff: 0xCF },
+        shift: { scan: { mainOff: 0xcb }, max: 8 },
+        maskAddr: { mainOff: 0xcf },
       },
     },
     tileNudges: [
@@ -682,10 +704,10 @@ export const SPRITE_DRAW_DESCRIPTORS: readonly SpriteDrawDescriptor[] = [
         // 1 px down on the TOP large OBJ, on the cast pose that the OR bit
         // selects. The only rendered effect that bit has, so dropping it is
         // now visible in the output rather than silently harmless.
-        windowBase: { mainOff: 0xDE },
-        windowSize: { mainOff: 0xE0 },
-        bitSelect: { scan: { mainOff: 0xE3 }, max: 8 },
-        insnAddr: { mainOff: 0xEA },
+        windowBase: { mainOff: 0xde },
+        windowSize: { mainOff: 0xe0 },
+        bitSelect: { scan: { mainOff: 0xe3 }, max: 8 },
+        insnAddr: { mainOff: 0xea },
         evidence: 'bank_01.asm:8530-8539 CODE_01BE96 post-JSR Y nudge',
       },
     ],
@@ -695,10 +717,10 @@ export const SPRITE_DRAW_DESCRIPTORS: readonly SpriteDrawDescriptor[] = [
         // +$104, drawn only once the cast poses start. In the wind-up poses
         // the wand is part of the body tilemap instead, held in close.
         oamSlot: 0x08,
-        char: { kind: 'immediateAt', addr: { mainOff: 0x12F } },
+        char: { kind: 'immediateAt', addr: { mainOff: 0x12f } },
         dx: { kind: 'tableByMisc157C', operandAddr: { mainOff: 0x106 }, operandBank: 0x01 },
         dy: { kind: 'immediateAt', addr: { mainOff: 0x118 } },
-        gate: { kind: 'tileGroupAtLeast', operandAddr: { mainOff: 0xFC } },
+        gate: { kind: 'tileGroupAtLeast', operandAddr: { mainOff: 0xfc } },
         evidence: 'bank_01.asm:8545-8578 CODE_01BE6E wand tail',
       },
     ],
@@ -708,8 +730,10 @@ export const SPRITE_DRAW_DESCRIPTORS: readonly SpriteDrawDescriptor[] = [
       // offset $260, so the 24-bit operand is at $261 and resolves to
       // $03:B902 on vanilla.
       kind: 'dynamicCgram',
-      operandAddr: { mainOff: 0x261 }, colorsPerEntry: 8, entryCount: 8,
-      cgramStart: 0xF0,
+      operandAddr: { mainOff: 0x261 },
+      colorsPerEntry: 8,
+      entryCount: 8,
+      cgramStart: 0xf0,
       // The fade uploads entries `0 .. imm - 2` (bank_01.asm:8726-8740), so
       // the one left standing is 7. The literal is the fallback for a cart
       // whose routine is not this shape. Divergence report 11.3.
@@ -729,10 +753,10 @@ export const SPRITE_DRAW_DESCRIPTORS: readonly SpriteDrawDescriptor[] = [
     // so the egg's colour is a function of the 16 px column it spawns in.
     // That is an INIT-routine palette override: the init routine never
     // draws, which is exactly why it is easy to miss.
-    spriteId: 0x2C,
+    spriteId: 0x2c,
     routine: 'sub2',
-    routineJsr: { mainOff: 0x29 },     // JSR SubSprGfx2Entry1, bank_01.asm:16058
-    vanillaMainHandler: 0xF764,
+    routineJsr: { mainOff: 0x29 }, // JSR SubSprGfx2Entry1, bank_01.asm:16058
+    vanillaMainHandler: 0xf764,
     vanillaInitHandler: 0x8339,
     frames: 1,
     anim: { kind: 'static' },
@@ -743,7 +767,7 @@ export const SPRITE_DRAW_DESCRIPTORS: readonly SpriteDrawDescriptor[] = [
       {
         // `LDA #$00 : STA OAMTileNo+$100,Y` right after the `JSR`, so the
         // resting egg's char is this immediate and NOT `SprTilemap`.
-        insnAddr: { mainOff: 0x2F },
+        insnAddr: { mainOff: 0x2f },
         oamSlot: 0x00,
         evidence: 'bank_01.asm:16057-16062 CODE_01F78D post-JSR tile override',
       },
@@ -754,7 +778,14 @@ export const SPRITE_DRAW_DESCRIPTORS: readonly SpriteDrawDescriptor[] = [
     // at $01:8343 and resolves to $01:8335 on the vanilla cart. Storing the
     // OPERAND address rather than the table address means a hack that moves
     // the table still renders, as long as the handler itself is intact.
-    palette: { kind: 'initTableByX', operandAddr: 0x018343, operandBank: 0x01, entries: 4, shift: 4, mask: 3 },
+    palette: {
+      kind: 'initTableByX',
+      operandAddr: 0x018343,
+      operandBank: 0x01,
+      entries: 4,
+      shift: 4,
+      mask: 3,
+    },
     representativeFrame: 0,
     needsHumanReview: true,
     evidence: 'bank_01.asm:16039-16062 YoshiEgg draw; bank_01.asm:463-474 InitYoshiEgg',
@@ -774,17 +805,17 @@ export const SPRITE_DRAW_DESCRIPTORS: readonly SpriteDrawDescriptor[] = [
     // as the recognisable one for a picker. Reviewed, so no review flag.
     // Offsets past the MAIN pointer $E2CF; `+$74` and `+$90` resolve to the
     // `CODE_01E343` and `DATA_01E35F` labels, cross-checking the base twice.
-    spriteId: 0x4D,
+    spriteId: 0x4d,
     routine: 'sub0',
-    routineJsr: { mainOff: 0x8C },     // JSR SubSprGfx0Entry0, bank_01.asm:13402
-    vanillaMainHandler: 0xE2CF,
-    vanillaInitHandler: 0x84CE,
+    routineJsr: { mainOff: 0x8c }, // JSR SubSprGfx0Entry0, bank_01.asm:13402
+    vanillaMainHandler: 0xe2cf,
+    vanillaInitHandler: 0x84ce,
     frames: 2,
     anim: { kind: 'effFrame', shift: 4, mask: 1 },
     // Both table ADDRESSES come from the operands of the `LDA abs,Y` that
     // read them (bank_01.asm:13399, 13401).
     tileGroup: { kind: 'tableViaOperand', operandAddr: { mainOff: 0x84 }, operandBank: 0x01 },
-    propGroup: { kind: 'tableViaOperand', operandAddr: { mainOff: 0x8A }, operandBank: 0x01 },
+    propGroup: { kind: 'tableViaOperand', operandAddr: { mainOff: 0x8a }, operandBank: 0x01 },
     misc157C: { kind: 'faceMario' },
     palette: { kind: 'spriteTable' },
     representativeFrame: 1,
@@ -801,18 +832,18 @@ export const SPRITE_DRAW_DESCRIPTORS: readonly SpriteDrawDescriptor[] = [
     // So $4E is a ONE-TILE sprite whose four poses come from rotating the
     // hardware flip bits, not from four tiles. `buildSpriteLayout`
     // classifies it as sub0, which is the documented $4E defect.
-    spriteId: 0x4E,
+    spriteId: 0x4e,
     routine: 'sub2',
-    routineJsr: { mainOff: 0xA4 },     // JSR SubSprGfx2Entry1, bank_01.asm:13420
-    vanillaMainHandler: 0xE2CF,
-    vanillaInitHandler: 0x84CE,
+    routineJsr: { mainOff: 0xa4 }, // JSR SubSprGfx2Entry1, bank_01.asm:13420
+    vanillaMainHandler: 0xe2cf,
+    vanillaInitHandler: 0x84ce,
     frames: 4,
     // `(EffFrame << 2) & $C0` is algebraically `(EffFrame & $30) << 2`, so the
     // four poses are driven by EffFrame bits 4-5: one pose every 16 game
     // frames, 64 frames for the full rotation.
     anim: { kind: 'effFrame', shift: 4, mask: 3 },
-    tileGroup: { kind: 'immediate', insnAddr: { mainOff: 0x9F } },  // LDA #$03
-    attrOverride: { kind: 'effFrameFlip', shl: 2, andMask: 0xC0, orMask: 0x31 },
+    tileGroup: { kind: 'immediate', insnAddr: { mainOff: 0x9f } }, // LDA #$03
+    attrOverride: { kind: 'effFrameFlip', shl: 2, andMask: 0xc0, orMask: 0x31 },
     misc157C: { kind: 'unwritten' },
     palette: { kind: 'spriteTable' },
     representativeFrame: 0,

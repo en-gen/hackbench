@@ -34,7 +34,10 @@ interface SubTileData {
 }
 
 interface TileSideData {
-  tl: SubTileData; tr: SubTileData; bl: SubTileData; br: SubTileData
+  tl: SubTileData
+  tr: SubTileData
+  bl: SubTileData
+  br: SubTileData
   /** Base64-encoded RGBA frames. 1 frame for static tiles, 4 for animated. */
   rgbaFrames: string[]
 }
@@ -46,14 +49,17 @@ interface TileCompEntry {
   b: TileSideData
 }
 
-interface TilePreviewRender { row: number; rgba: number[] }
+interface TilePreviewRender {
+  row: number
+  rgba: number[]
+}
 
 const vscode = acquireVsCodeApi()
 
 const TILES_PER_ROW = 16
-const PAGE0_TILES   = 256
-const CELL_SIZE     = 22
-const PREVIEW_SCALE = 5   // 16 × 5 = 80px per palette-row swatch
+const PAGE0_TILES = 256
+const CELL_SIZE = 22
+const PREVIEW_SCALE = 5 // 16 × 5 = 80px per palette-row swatch
 /** Tile animation advances every 8 game frames
  *  (bits 3-4 of `EffFrame`, `SMWDisX bank_05.asm:4396-4398`). */
 const ANIM_INTERVAL_FRAMES = 8
@@ -83,7 +89,11 @@ const animTimer = frameClock.every(
 )
 
 function setAnimPlaying(playing: boolean): void {
-  if (playing) { animTimer.start() } else { animTimer.stop() }
+  if (playing) {
+    animTimer.start()
+  } else {
+    animTimer.stop()
+  }
   const btn = document.getElementById('btnAnim')
   if (btn) btn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play'
 }
@@ -91,7 +101,6 @@ function setAnimPlaying(playing: boolean): void {
 // ── Selection state ───────────────────────────────────────────────────────────
 
 let selectedTileId: number | null = null
-let selectedSide:   'a' | 'b' | null = null
 
 function subtileHtml(st: SubTileData): string {
   const flip = [st.flipX ? 'X' : '', st.flipY ? 'Y' : ''].filter(Boolean).join('')
@@ -120,15 +129,12 @@ function tileTooltip(entry: TileCompEntry, ab: 'a' | 'b'): string {
 function cellBorderStyle(entry: TileCompEntry): string {
   const isSelected = entry.id === selectedTileId
   if (isSelected) return `border:2px solid var(--vscode-focusBorder,#007fd4);box-sizing:border-box;`
-  if (!entry.equal) return `border:1px solid var(--vscode-editorWarning-foreground,#cca700);box-sizing:border-box;`
+  if (!entry.equal)
+    return `border:1px solid var(--vscode-editorWarning-foreground,#cca700);box-sizing:border-box;`
   return ''
 }
 
-function renderGrid(
-  container: HTMLElement,
-  tiles: TileCompEntry[],
-  side: 'a' | 'b',
-): void {
+function renderGrid(container: HTMLElement, tiles: TileCompEntry[], side: 'a' | 'b'): void {
   container.innerHTML = ''
   const grid = document.createElement('div')
   grid.style.cssText = [
@@ -165,7 +171,7 @@ function renderGrid(
 
     // Pixel art canvas
     const canvas = document.createElement('canvas')
-    canvas.width  = 16
+    canvas.width = 16
     canvas.height = 16
     const displayPx = CELL_SIZE - 2
     canvas.style.cssText = [
@@ -184,7 +190,6 @@ function renderGrid(
 
     cell.addEventListener('click', () => {
       selectedTileId = entry.id
-      selectedSide   = side
       updateSelectionBorders(tiles)
       vscode.postMessage({ type: 'tilePreview', tileId: entry.id, side: 'a' })
       vscode.postMessage({ type: 'tilePreview', tileId: entry.id, side: 'b' })
@@ -204,7 +209,7 @@ function renderGrid(
     })
 
     cell.dataset['tileId'] = String(i)
-    cell.dataset['side']   = side
+    cell.dataset['side'] = side
     grid.appendChild(cell)
   }
   container.appendChild(grid)
@@ -249,7 +254,7 @@ function renderPreview(
 
   const header = document.createElement('div')
   header.style.cssText = 'font-weight:600;margin-bottom:10px;font-size:0.9em'
-  header.textContent = `Tile $${hex3(tileId)} — ${tilesetLabel} (Side ${side.toUpperCase()})`
+  header.textContent = `Tile $${hex3(tileId)} - ${tilesetLabel} (Side ${side.toUpperCase()})`
   container.appendChild(header)
 
   const swatchRow = document.createElement('div')
@@ -260,7 +265,7 @@ function renderPreview(
     wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px'
 
     const canvas = document.createElement('canvas')
-    canvas.width  = 16
+    canvas.width = 16
     canvas.height = 16
     const px = 16 * PREVIEW_SCALE
     const isNative = r.row === nativePalette
@@ -306,18 +311,17 @@ function renderComparison(
 
   const diffCount = tiles.filter(t => !t.equal).length
 
-  const labelA   = main.querySelector<HTMLSpanElement>('#labelA')
-  const labelB   = main.querySelector<HTMLSpanElement>('#labelB')
+  const labelA = main.querySelector<HTMLSpanElement>('#labelA')
+  const labelB = main.querySelector<HTMLSpanElement>('#labelB')
   const diffInfo = main.querySelector<HTMLSpanElement>('#diffInfo')
-  const gridA    = main.querySelector<HTMLDivElement>('#gridA')
-  const gridB    = main.querySelector<HTMLDivElement>('#gridB')
+  const gridA = main.querySelector<HTMLDivElement>('#gridA')
+  const gridB = main.querySelector<HTMLDivElement>('#gridB')
 
   if (labelA) labelA.textContent = `Tileset ${tilesetA}`
   if (labelB) labelB.textContent = `Tileset ${tilesetB}`
   if (diffInfo) {
-    diffInfo.textContent = diffCount === 0
-      ? 'Tilesets are identical'
-      : `${diffCount} of ${PAGE0_TILES} tiles differ`
+    diffInfo.textContent =
+      diffCount === 0 ? 'Tilesets are identical' : `${diffCount} of ${PAGE0_TILES} tiles differ`
   }
 
   // Reset animation state before building new grids.
@@ -350,15 +354,15 @@ function buildUi(app: HTMLElement): void {
   #previewRow { display:flex; gap:32px; flex-wrap:wrap; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--vscode-editorGroup-border,#333); }
   .preview-col { display:flex; flex-direction:column; gap:8px; min-width:0; }
 </style>
-<h2>Map16 Tileset Comparison — Page 0 ($000–$0FF)</h2>
+<h2>Map16 Tileset Comparison - Page 0 ($000–$0FF)</h2>
 <div class="controls">
   <div class="ctrl-group">
     <label for="selA">Tileset A:</label>
-    <select id="selA">${Array.from({length:15},(_,i)=>`<option value="${i}">${i}</option>`).join('')}</select>
+    <select id="selA">${Array.from({ length: 15 }, (_, i) => `<option value="${i}">${i}</option>`).join('')}</select>
   </div>
   <div class="ctrl-group">
     <label for="selB">Tileset B:</label>
-    <select id="selB">${Array.from({length:15},(_,i)=>`<option value="${i}" ${i===7?'selected':''}>${i}</option>`).join('')}</select>
+    <select id="selB">${Array.from({ length: 15 }, (_, i) => `<option value="${i}" ${i === 7 ? 'selected' : ''}>${i}</option>`).join('')}</select>
   </div>
   <button id="btnAnim" style="background:var(--vscode-button-background,#0e639c);color:var(--vscode-button-foreground,#fff);border:none;padding:3px 10px;border-radius:3px;font-size:0.9em;cursor:pointer">&#9654; Play</button>
   <span class="diff-info" id="diffInfo"></span>
@@ -383,12 +387,15 @@ function buildUi(app: HTMLElement): void {
 
   const requestCompare = () => {
     selectedTileId = null
-    selectedSide   = null
     const pa = app.querySelector<HTMLDivElement>('#previewA')
     const pb = app.querySelector<HTMLDivElement>('#previewB')
     if (pa) pa.innerHTML = ''
     if (pb) pb.innerHTML = ''
-    vscode.postMessage({ type: 'compare', tilesetA: Number(selA.value), tilesetB: Number(selB.value) })
+    vscode.postMessage({
+      type: 'compare',
+      tilesetA: Number(selA.value),
+      tilesetB: Number(selB.value),
+    })
   }
 
   selA.addEventListener('change', requestCompare)
@@ -408,7 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let lastTilesetA = 0
   let lastTilesetB = 1
 
-  window.addEventListener('message', (event) => {
+  window.addEventListener('message', event => {
     const msg = event.data as {
       type: string
       tiles?: TileCompEntry[]
@@ -428,7 +435,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (msg.type === 'load' && msg.tiles) {
-      lastTiles    = msg.tiles
+      lastTiles = msg.tiles
       lastTilesetA = msg.tilesetA ?? 0
       lastTilesetB = msg.tilesetB ?? 0
       renderComparison(app, lastTiles, lastTilesetA, lastTilesetB)
@@ -439,11 +446,22 @@ document.addEventListener('DOMContentLoaded', () => {
       const container = app.querySelector<HTMLDivElement>(side === 'a' ? '#previewA' : '#previewB')
       if (!container) return
       const tilesetId = side === 'a' ? lastTilesetA : lastTilesetB
-      renderPreview(container, msg.tileId ?? 0, side, `Tileset ${tilesetId}`, msg.nativePalette ?? 0, msg.renders)
+      renderPreview(
+        container,
+        msg.tileId ?? 0,
+        side,
+        `Tileset ${tilesetId}`,
+        msg.nativePalette ?? 0,
+        msg.renders,
+      )
     }
   })
 
   const selA0 = app.querySelector<HTMLSelectElement>('#selA')!
   const selB0 = app.querySelector<HTMLSelectElement>('#selB')!
-  vscode.postMessage({ type: 'ready', tilesetA: Number(selA0.value), tilesetB: Number(selB0.value) })
+  vscode.postMessage({
+    type: 'ready',
+    tilesetA: Number(selA0.value),
+    tilesetB: Number(selB0.value),
+  })
 })

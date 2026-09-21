@@ -52,7 +52,7 @@ interface FillerAnalysis {
  * the largest runner-up seen at just 8), so neither threshold fires on real
  * ROMs; they exist for the ROMs that would silently invert without them.
  */
-const MIN_FILLER_SHARE = 0.10
+const MIN_FILLER_SHARE = 0.1
 const MIN_FILLER_MARGIN_RATIO = 2
 
 /**
@@ -124,16 +124,16 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
   if (shareLow || marginThin) {
     notes.push(
       `Filler-pointer confidence low: mode 0x${filler.pointer.toString(16).padStart(6, '0')} ` +
-      `appears ${filler.count}/${LEVEL_COUNT} times, runner-up appears ${filler.runnerUpCount} ` +
-      'times. isReal/parseable below may not reflect true filler vs. real slots -- see ' +
-      'docs/ideas/level-classification.md Tier 1.'
+        `appears ${filler.count}/${LEVEL_COUNT} times, runner-up appears ${filler.runnerUpCount} ` +
+        'times. isReal/parseable below may not reflect true filler vs. real slots -- see ' +
+        'docs/ideas/level-classification.md Tier 1.',
     )
   }
   if (unreadableRealCount > 0) {
     notes.push(
       `${unreadableRealCount} of ${realCount} real slots did not parse (level data ` +
-      'unreadable at its pointer). Likely expanded-ROM bank addressing on ROMs larger ' +
-      'than 512 KB -- see docs/ideas/level-classification.md Tier 1. Out of scope here.'
+        'unreadable at its pointer). Likely expanded-ROM bank addressing on ROMs larger ' +
+        'than 512 KB -- see docs/ideas/level-classification.md Tier 1. Out of scope here.',
     )
   }
 

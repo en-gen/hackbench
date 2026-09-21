@@ -31,7 +31,7 @@ function makeQuad(charId: number, palette: number): SubtileQuad {
 describe('PipeVariantsBehavior behavior', () => {
   beforeEach(resetEditorStore)
 
-  it('picks the variant for the cell\'s screen in a horizontal level', () => {
+  it("picks the variant for the cell's screen in a horizontal level", () => {
     const variants = [makeQuad(10, 3), makeQuad(11, 5), makeQuad(12, 6), makeQuad(13, 7)]
     const behavior = new PipeVariantsBehavior(variants)
     const mapStore = makeTestMapStore({
@@ -39,8 +39,8 @@ describe('PipeVariantsBehavior behavior', () => {
       levelOrientation: 'horizontal',
     })
 
-    // screen 0: cols 0..15, screen 1: cols 16..31, etc. — check any col per screen.
-    expect(behavior.selectQuad(cellBoxOf(5,  0), mapStore)[0].palette).toBe(3)
+    // screen 0: cols 0..15, screen 1: cols 16..31, etc. - check any col per screen.
+    expect(behavior.selectQuad(cellBoxOf(5, 0), mapStore)[0].palette).toBe(3)
     expect(behavior.selectQuad(cellBoxOf(20, 0), mapStore)[0].palette).toBe(5)
     expect(behavior.selectQuad(cellBoxOf(40, 0), mapStore)[0].palette).toBe(6)
     expect(behavior.selectQuad(cellBoxOf(55, 0), mapStore)[0].palette).toBe(7)
@@ -54,7 +54,7 @@ describe('PipeVariantsBehavior behavior', () => {
       levelOrientation: 'vertical',
     })
     // screen 0: rows 0..15, screen 1: rows 16..31.
-    expect(behavior.selectQuad(cellBoxOf(0, 5 ), mapStore)[0].palette).toBe(3)
+    expect(behavior.selectQuad(cellBoxOf(0, 5), mapStore)[0].palette).toBe(3)
     expect(behavior.selectQuad(cellBoxOf(0, 20), mapStore)[0].palette).toBe(5)
   })
 
@@ -79,7 +79,9 @@ describe.skipIf(!existsSync(ROM_PATH))('TileFactory pipe wiring (vanilla ROM)', 
     for (let id = 0x133; id < 0x133 + 8; id++) {
       const tile = tiles.get(id)
       expect(tile, `tile $${id.toString(16)}`).toBeInstanceOf(Tile)
-      expect(tile!.behavior, `tile $${id.toString(16)} behavior`).toBeInstanceOf(PipeVariantsBehavior)
+      expect(tile!.behavior, `tile $${id.toString(16)} behavior`).toBeInstanceOf(
+        PipeVariantsBehavior,
+      )
       // 4 variants
       const variants = (tile!.behavior as PipeVariantsBehavior).variants
       expect(variants).toHaveLength(4)

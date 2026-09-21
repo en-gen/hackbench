@@ -1,5 +1,5 @@
 /**
- * GraphicsDecoder — additional tests for decode2bpp, batch decoders, and
+ * GraphicsDecoder - additional tests for decode2bpp, batch decoders, and
  * tilesToRgba. The original GraphicsDecoder.test.ts covers the 4bpp/3bpp
  * paths and bgr555ToRgba; these fill the gap.
  */
@@ -23,7 +23,7 @@ describe('decode2bpp', () => {
   })
 
   it('all bits set in both planes → pixel value 3', () => {
-    const px = decode2bpp(new Uint8Array(16).fill(0xFF))
+    const px = decode2bpp(new Uint8Array(16).fill(0xff))
     expect(Array.from(px).every(p => p === 3)).toBe(true)
   })
 
@@ -45,8 +45,8 @@ describe('decode2bpp', () => {
 
   it('respects offset for tiles past start', () => {
     const buf = new Uint8Array(32)
-    buf[16] = 0xFF
-    buf[17] = 0xFF
+    buf[16] = 0xff
+    buf[17] = 0xff
     const px = decode2bpp(buf, 16)
     // Row 0 of second tile = all 3s
     expect(Array.from(px.slice(0, 8)).every(p => p === 3)).toBe(true)
@@ -105,7 +105,14 @@ describe('tilesToRgba', () => {
   it('non-zero index uses palette colour and palette alpha', () => {
     const tile = new Uint8Array(64).fill(0)
     tile[0] = 1
-    const out = tilesToRgba([tile], [[0, 0, 0, 255], [128, 64, 32, 200]], 1)
+    const out = tilesToRgba(
+      [tile],
+      [
+        [0, 0, 0, 255],
+        [128, 64, 32, 200],
+      ],
+      1,
+    )
     expect(out.rgba[0]).toBe(128)
     expect(out.rgba[1]).toBe(64)
     expect(out.rgba[2]).toBe(32)
@@ -114,7 +121,7 @@ describe('tilesToRgba', () => {
 
   it('falls back to magenta sentinel when palette index is out of range', () => {
     const tile = new Uint8Array(64).fill(7)
-    const out = tilesToRgba([tile], [[0, 0, 0, 255]], 1)  // only index 0 defined
+    const out = tilesToRgba([tile], [[0, 0, 0, 255]], 1) // only index 0 defined
     // Sentinel = [255, 0, 255, 255]
     expect(out.rgba[0]).toBe(255)
     expect(out.rgba[1]).toBe(0)
@@ -126,8 +133,15 @@ describe('tilesToRgba', () => {
     // 2 tiles in a 2-wide layout: tile 0 top-left, tile 1 top-right.
     const tile0 = new Uint8Array(64).fill(0)
     const tile1 = new Uint8Array(64).fill(1)
-    tile1[0] = 1  // top-left pixel of tile 1 is index 1
-    const out = tilesToRgba([tile0, tile1], [[0, 0, 0, 255], [255, 0, 0, 255]], 2)
+    tile1[0] = 1 // top-left pixel of tile 1 is index 1
+    const out = tilesToRgba(
+      [tile0, tile1],
+      [
+        [0, 0, 0, 255],
+        [255, 0, 0, 255],
+      ],
+      2,
+    )
     // Pixel (0, TILE_W) = top-left of tile 1 → red
     const idx = (0 * out.width + TILE_W) * 4
     expect(out.rgba[idx]).toBe(255)

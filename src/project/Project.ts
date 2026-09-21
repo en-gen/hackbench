@@ -136,15 +136,13 @@ export const INITIAL_HACK_VERSION = '0.1.0'
  * fields existed opens with sensible values instead of `undefined` reaching
  * the UI.
  */
-function withMetadataDefaults(
-  meta: Partial<HackMetadata>, name: string,
-): HackMetadata {
+function withMetadataDefaults(meta: Partial<HackMetadata>, name: string): HackMetadata {
   return {
     title: meta.title?.trim() || name,
     summary: meta.summary ?? '',
     // Tolerates a bare string, which is what a hand-edited manifest tends to
     // hold: splitting it silently would invent authors that do not exist.
-    authors: Array.isArray(meta.authors) ? meta.authors : (meta.authors ? [meta.authors] : []),
+    authors: Array.isArray(meta.authors) ? meta.authors : meta.authors ? [meta.authors] : [],
     version: (meta.version || '').trim() || INITIAL_HACK_VERSION,
   }
 }
@@ -268,9 +266,7 @@ function toProject(manifestPath: string, manifest: ProjectManifest): Project {
  * are facts about the project, not opinions, and changing either would make
  * the manifest describe a different thing.
  */
-export function updateProject(
-  manifestPath: string, changes: Partial<HackMetadata>,
-): Project {
+export function updateProject(manifestPath: string, changes: Partial<HackMetadata>): Project {
   // Round-trips through openProject first so a manifest that is unreadable,
   // orphaned or from a future schema is refused BEFORE anything is written.
   openProject(manifestPath)
@@ -281,7 +277,11 @@ export function updateProject(
     ...withMetadataDefaults({ ...raw, ...changes }, raw.name),
   }
 
-  fs.writeFileSync(manifestPath, `${JSON.stringify(merged, null, 2)}
-`, 'utf8')
+  fs.writeFileSync(
+    manifestPath,
+    `${JSON.stringify(merged, null, 2)}
+`,
+    'utf8',
+  )
   return toProject(manifestPath, merged)
 }

@@ -1,5 +1,5 @@
 /**
- * StaticSpriteAppearance + partsHitRect — unit tests.
+ * StaticSpriteAppearance + partsHitRect - unit tests.
  *
  * partsHitRect(parts): pure function, no ROM dependency.
  *   - Empty iterable → default { dx:0, dy:0, w:16, h:16 }
@@ -51,13 +51,15 @@ function makePart(dx: number, dy: number): SpritePart {
 function capturingTarget() {
   const calls: Array<{ pos: PixelPos }> = []
   const target: RenderTarget = {
-    blit8x8(_px, pos) { calls.push({ pos }) },
+    blit8x8(_px, pos) {
+      calls.push({ pos })
+    },
     fillRect() {},
   }
   return { target, calls }
 }
 
-describe('partsHitRect — empty input', () => {
+describe('partsHitRect - empty input', () => {
   it('empty array → default 16×16 at origin', () => {
     expect(partsHitRect([])).toEqual({ dx: 0, dy: 0, w: 16, h: 16 })
   })
@@ -67,7 +69,7 @@ describe('partsHitRect — empty input', () => {
   })
 })
 
-describe('partsHitRect — single part', () => {
+describe('partsHitRect - single part', () => {
   it('part at (0,0) → { dx:0, dy:0, w:8, h:8 }', () => {
     expect(partsHitRect([makePart(0, 0)])).toEqual({ dx: 0, dy: 0, w: 8, h: 8 })
   })
@@ -81,7 +83,7 @@ describe('partsHitRect — single part', () => {
   })
 })
 
-describe('partsHitRect — multiple parts', () => {
+describe('partsHitRect - multiple parts', () => {
   it('two horizontally adjacent parts → width 16', () => {
     // Part at (0,0) and (8,0) → x0=0, x1=16, y0=0, y1=8
     expect(partsHitRect([makePart(0, 0), makePart(8, 0)])).toEqual({ dx: 0, dy: 0, w: 16, h: 8 })
@@ -92,11 +94,11 @@ describe('partsHitRect — multiple parts', () => {
   })
 
   it('2×2 grid of parts → 16×16', () => {
-    const parts = [makePart(0,0), makePart(8,0), makePart(0,8), makePart(8,8)]
+    const parts = [makePart(0, 0), makePart(8, 0), makePart(0, 8), makePart(8, 8)]
     expect(partsHitRect(parts)).toEqual({ dx: 0, dy: 0, w: 16, h: 16 })
   })
 
-  it('parts with varying offsets — bounding rect is tight', () => {
+  it('parts with varying offsets - bounding rect is tight', () => {
     // dx: -4, 4; dy: -8, 8 → x0=-4, x1=12, y0=-8, y1=16
     const parts = [makePart(-4, -8), makePart(4, 8)]
     expect(partsHitRect(parts)).toEqual({ dx: -4, dy: -8, w: 16, h: 24 })
@@ -109,7 +111,7 @@ describe('partsHitRect — multiple parts', () => {
   })
 })
 
-describe('StaticSpriteAppearance — hitRect via constructor', () => {
+describe('StaticSpriteAppearance - hitRect via constructor', () => {
   it('hitRect matches partsHitRect of the given parts', () => {
     const parts = [makePart(0, 0), makePart(8, 0)]
     const app = new StaticSpriteAppearance(parts)
@@ -122,7 +124,7 @@ describe('StaticSpriteAppearance — hitRect via constructor', () => {
   })
 })
 
-describe('StaticSpriteAppearance.render — blit calls', () => {
+describe('StaticSpriteAppearance.render - blit calls', () => {
   beforeEach(resetEditorStore)
 
   it('calls blit8x8 once per part', () => {

@@ -1,31 +1,31 @@
 /**
- * SuperKoopaAppearance.test.ts — branch coverage for render() + fromTables().
+ * SuperKoopaAppearance.test.ts - branch coverage for render() + fromTables().
  *
  * Test tree:
- *   render() — pose selection
+ *   render() - pose selection
  *     - behavior not instanceof SuperKoopaBehavior → flashing=false → grounded pose
  *     - instanceof but dropsFeather=false → flashing=false → grounded pose
  *     - dropsFeather=true, isAirborne=false → groundedFlash pose
  *     - dropsFeather=false, isAirborne=true → airborne pose
  *     - dropsFeather=true, isAirborne=true → airborneFlash pose
  *     - flap=1 after tickAnimation → flapB used instead of flapA
- *   fromTables() — spriteId branch
+ *   fromTables() - spriteId branch
  *     - spriteId=$71 → normalCapeOverride=$08 → distinct palette on palOverride parts
  *     - spriteId=$72 → normalCapeOverride=$04 → distinct palette on palOverride parts
- *   fromTables() — faceRight / flipX
+ *   fromTables() - faceRight / flipX
  *     - faceRight=true → all parts have flipX=true
  *     - faceRight=false → all parts have flipX=false
- *   fromTables() — size=8 vs size=16 in FRAME_0
+ *   fromTables() - size=8 vs size=16 in FRAME_0
  *     - three size=8 entries → 1 part each; one size=16 entry → 4 parts; total 7
- *   fromTables() — palOverride vs standard path (bit 1 of attrByte)
+ *   fromTables() - palOverride vs standard path (bit 1 of attrByte)
  *     - FRAME_0 entry 0 (attrByte=0x03): palOverride=true → uses capeOverride for palette
  *     - FRAME_0 entry 3 (attrByte=0x00): palOverride=false → uses bodyAttr5
- *   fromTables() — charHigh bit (finalAttr & 0x01)
+ *   fromTables() - charHigh bit (finalAttr & 0x01)
  *     - FRAME_0 entry 0 with $71 (palOverride, finalAttr=0x09, bit0=1) → charHigh=0x100
  *     - FRAME_0 entry 3 (palOverride=false, spriteAttrByte=0) → charHigh=0
- *   fromTables() — placeholder fallback
+ *   fromTables() - placeholder fallback
  *     - empty chars map → placeholder used for all parts
- *   fromTables() — airborne parameter propagated to isAirborne
+ *   fromTables() - airborne parameter propagated to isAirborne
  */
 
 import { describe, it, expect } from 'vitest'
@@ -60,13 +60,24 @@ function makePalette(): Palette {
 const mapStore = makeTestMapStore({ palette: makePalette() })
 
 /** Records each blit8x8 call as the dx offset of the part (via pos.x - spriteX). */
-interface BlitCall { x: number; y: number; flipX: boolean; flipY: boolean }
+interface BlitCall {
+  x: number
+  y: number
+  flipX: boolean
+  flipY: boolean
+}
 function makeMockTarget(spriteX = 0): { calls: BlitCall[]; target: RenderTarget } {
   const calls: BlitCall[] = []
   return {
     calls,
     target: {
-      blit8x8(_pixels: Uint8Array, pos: PixelPos, _row: RgbaColor[], flipX: boolean, flipY: boolean) {
+      blit8x8(
+        _pixels: Uint8Array,
+        pos: PixelPos,
+        _row: RgbaColor[],
+        flipX: boolean,
+        flipY: boolean,
+      ) {
         calls.push({ x: pos.x - spriteX, y: pos.y, flipX, flipY })
       },
       fillRect(_pos: PixelPos, _size: PixelSize, _color: RgbaColor) {},
@@ -86,10 +97,10 @@ function makePoseFrames(dxA: number, dxB: number): SuperKoopaPoseFrames {
 /** Build an appearance with a known pose layout for render() branch testing. */
 function makeAppearance(isAirborne: boolean): SuperKoopaAppearance {
   return new SuperKoopaAppearance(
-    makePoseFrames(1, 2),   // grounded:      flapA dx=1, flapB dx=2
-    makePoseFrames(3, 4),   // groundedFlash: flapA dx=3, flapB dx=4
-    makePoseFrames(5, 6),   // airborne:      flapA dx=5, flapB dx=6
-    makePoseFrames(7, 8),   // airborneFlash: flapA dx=7, flapB dx=8
+    makePoseFrames(1, 2), // grounded:      flapA dx=1, flapB dx=2
+    makePoseFrames(3, 4), // groundedFlash: flapA dx=3, flapB dx=4
+    makePoseFrames(5, 6), // airborne:      flapA dx=5, flapB dx=6
+    makePoseFrames(7, 8), // airborneFlash: flapA dx=7, flapB dx=8
     isAirborne,
   )
 }
@@ -100,9 +111,9 @@ function makeSkBehavior(dropsFeather: boolean): SuperKoopaBehavior {
   return b
 }
 
-// ── render() — pose selection ─────────────────────────────────────────────
+// ── render() - pose selection ─────────────────────────────────────────────
 
-describe('SuperKoopaAppearance.render() — pose selection', () => {
+describe('SuperKoopaAppearance.render() - pose selection', () => {
   it('behavior not instanceof SuperKoopaBehavior → flashing=false → grounded flapA', () => {
     const app = makeAppearance(false)
     const { calls, target } = makeMockTarget()
@@ -159,10 +170,10 @@ describe('SuperKoopaAppearance.render() — pose selection', () => {
   })
 })
 
-// ── fromTables() — spriteId branch ───────────────────────────────────────
+// ── fromTables() - spriteId branch ───────────────────────────────────────
 
-describe('SuperKoopaAppearance.fromTables() — spriteId cape override', () => {
-  const placeholder = makeChar(0xFFFF)
+describe('SuperKoopaAppearance.fromTables() - spriteId cape override', () => {
+  const placeholder = makeChar(0xffff)
 
   function buildChars(): Map<number, Char> {
     const map = new Map<number, Char>()
@@ -187,10 +198,10 @@ describe('SuperKoopaAppearance.fromTables() — spriteId cape override', () => {
   })
 })
 
-// ── fromTables() — faceRight / flipX ─────────────────────────────────────
+// ── fromTables() - faceRight / flipX ─────────────────────────────────────
 
-describe('SuperKoopaAppearance.fromTables() — faceRight / flipX', () => {
-  const placeholder = makeChar(0xFFFF)
+describe('SuperKoopaAppearance.fromTables() - faceRight / flipX', () => {
+  const placeholder = makeChar(0xffff)
 
   function buildChars(): Map<number, Char> {
     const map = new Map<number, Char>()
@@ -209,11 +220,11 @@ describe('SuperKoopaAppearance.fromTables() — faceRight / flipX', () => {
   })
 })
 
-// ── fromTables() — size=8 vs size=16 ─────────────────────────────────────
+// ── fromTables() - size=8 vs size=16 ─────────────────────────────────────
 
-describe('SuperKoopaAppearance.fromTables() — FRAME_0 part count (3×size8 + 1×size16)', () => {
+describe('SuperKoopaAppearance.fromTables() - FRAME_0 part count (3×size8 + 1×size16)', () => {
   it('grounded.flapA has 7 parts: 3 size-8 entries + 1 size-16 entry × 4 sub-tiles', () => {
-    const placeholder = makeChar(0xFFFF)
+    const placeholder = makeChar(0xffff)
     const map = new Map<number, Char>()
     for (let i = 0; i < 0x300; i++) map.set(0x400 + i, makeChar(i))
     const app = SuperKoopaAppearance.fromTables(map, placeholder, 0, 0x71, false, false)
@@ -221,9 +232,9 @@ describe('SuperKoopaAppearance.fromTables() — FRAME_0 part count (3×size8 + 1
   })
 })
 
-// ── fromTables() — palOverride vs standard path ───────────────────────────
+// ── fromTables() - palOverride vs standard path ───────────────────────────
 
-describe('SuperKoopaAppearance.fromTables() — palOverride vs standard path', () => {
+describe('SuperKoopaAppearance.fromTables() - palOverride vs standard path', () => {
   function buildChars(): Map<number, Char> {
     const map = new Map<number, Char>()
     for (let i = 0; i < 0x300; i++) map.set(0x400 + i, makeChar(i))
@@ -244,18 +255,18 @@ describe('SuperKoopaAppearance.fromTables() — palOverride vs standard path', (
   })
 })
 
-// ── fromTables() — charHigh bit ───────────────────────────────────────────
+// ── fromTables() - charHigh bit ───────────────────────────────────────────
 
-describe('SuperKoopaAppearance.fromTables() — charHigh bit', () => {
+describe('SuperKoopaAppearance.fromTables() - charHigh bit', () => {
   it('palOverride entry with finalAttr bit0=1 → charHigh=0x100 → char from [0x500..] range', () => {
     // FRAME_0[0]: attrByte=0x03, spriteId=$71 → finalAttr=0x09, bit0=1 → charHigh=0x100
     // char key = 0x400 + 0x100 + (0xC8 & 0x1FF) = 0x5C8
     const map = new Map<number, Char>()
     for (let i = 0; i < 0x300; i++) {
-      map.set(0x400 + i, makeChar(i))           // low range (no charHigh)
-      map.set(0x400 + 0x100 + i, makeChar(0x100 + i))  // high range (charHigh=0x100)
+      map.set(0x400 + i, makeChar(i)) // low range (no charHigh)
+      map.set(0x400 + 0x100 + i, makeChar(0x100 + i)) // high range (charHigh=0x100)
     }
-    const placeholder = makeChar(0xFFFF)
+    const placeholder = makeChar(0xffff)
     const app = SuperKoopaAppearance.fromTables(map, placeholder, 0, 0x71, false, false)
     // First part uses charHigh=0x100; char.id should be in [0x100..] range
     expect(app.grounded.flapA[0].char.id).toBeGreaterThanOrEqual(0x100)
@@ -269,30 +280,32 @@ describe('SuperKoopaAppearance.fromTables() — charHigh bit', () => {
       map.set(0x400 + i, makeChar(i))
       map.set(0x400 + 0x100 + i, makeChar(0x100 + i))
     }
-    const placeholder = makeChar(0xFFFF)
+    const placeholder = makeChar(0xffff)
     const app = SuperKoopaAppearance.fromTables(map, placeholder, 0, 0x71, false, false)
     // FRAME_0[3] is the 16x16 body tile, parts at indices 3..6; charHigh=0 → char.id < 0x100
     expect(app.grounded.flapA[3].char.id).toBeLessThan(0x100)
   })
 })
 
-// ── fromTables() — placeholder fallback ──────────────────────────────────
+// ── fromTables() - placeholder fallback ──────────────────────────────────
 
-describe('SuperKoopaAppearance.fromTables() — placeholder fallback', () => {
+describe('SuperKoopaAppearance.fromTables() - placeholder fallback', () => {
   it('empty chars map → all parts use placeholder', () => {
-    const placeholder = makeChar(0xABCD)
+    const placeholder = makeChar(0xabcd)
     const app = SuperKoopaAppearance.fromTables(new Map(), placeholder, 0, 0x71, false, false)
     const allParts = [
-      ...app.grounded.flapA, ...app.groundedFlash.flapA,
-      ...app.airborne.flapA, ...app.airborneFlash.flapA,
+      ...app.grounded.flapA,
+      ...app.groundedFlash.flapA,
+      ...app.airborne.flapA,
+      ...app.airborneFlash.flapA,
     ]
     expect(allParts.every(p => p.char === placeholder)).toBe(true)
   })
 })
 
-// ── fromTables() — airborne parameter ────────────────────────────────────
+// ── fromTables() - airborne parameter ────────────────────────────────────
 
-describe('SuperKoopaAppearance.fromTables() — airborne flag', () => {
+describe('SuperKoopaAppearance.fromTables() - airborne flag', () => {
   it('airborne=true → appearance.isAirborne=true', () => {
     const app = SuperKoopaAppearance.fromTables(new Map(), makeChar(0), 0, 0x71, false, true)
     expect(app.isAirborne).toBe(true)
@@ -304,24 +317,24 @@ describe('SuperKoopaAppearance.fromTables() — airborne flag', () => {
   })
 })
 
-// ── fromTables() — faceRight=true column order for size=16 ───────────────
+// ── fromTables() - faceRight=true column order for size=16 ───────────────
 
-describe('SuperKoopaAppearance.fromTables() — flipX column reordering for size=16', () => {
+describe('SuperKoopaAppearance.fromTables() - flipX column reordering for size=16', () => {
   it('faceRight=false → first sub-tile of FRAME_0[3] has tile offset +0x00', () => {
     // co = [0x00, 0x01, 0x10, 0x11]; first part char key = 0x400 + (0xE0 + 0x00)
     const map = new Map<number, Char>()
     for (let i = 0; i < 0x300; i++) map.set(0x400 + i, makeChar(i))
-    const app = SuperKoopaAppearance.fromTables(map, makeChar(0xFFFF), 0, 0x71, false, false)
+    const app = SuperKoopaAppearance.fromTables(map, makeChar(0xffff), 0, 0x71, false, false)
     // part[3] is first sub-tile of FRAME_0[3] (size=16 at tile=0xE0)
-    expect(app.grounded.flapA[3].char.id).toBe(0xE0)
+    expect(app.grounded.flapA[3].char.id).toBe(0xe0)
   })
 
   it('faceRight=true → first sub-tile of FRAME_0[3] has tile offset +0x01 (col reversed)', () => {
     // co = [0x01, 0x00, 0x11, 0x10]; first part char key = 0x400 + (0xE0 + 0x01)
     const map = new Map<number, Char>()
     for (let i = 0; i < 0x300; i++) map.set(0x400 + i, makeChar(i))
-    const app = SuperKoopaAppearance.fromTables(map, makeChar(0xFFFF), 0, 0x71, true, false)
+    const app = SuperKoopaAppearance.fromTables(map, makeChar(0xffff), 0, 0x71, true, false)
     // part[3] is first sub-tile of FRAME_0[3] (size=16 at tile=0xE0, co[0]=0x01)
-    expect(app.grounded.flapA[3].char.id).toBe(0xE1)
+    expect(app.grounded.flapA[3].char.id).toBe(0xe1)
   })
 })

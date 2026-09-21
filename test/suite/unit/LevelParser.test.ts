@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { parseLevelObjects, parseLevelSprites, isLevelModeVertical } from '../../../src/rom/LevelParser'
+import {
+  parseLevelObjects,
+  parseLevelSprites,
+  isLevelModeVertical,
+} from '../../../src/rom/LevelParser'
 
 /**
  * Build a minimal valid level buffer.
@@ -19,38 +23,38 @@ function makeLevel(
   header: [number, number, number, number, number],
   objectBytes: number[],
 ): Buffer {
-  return Buffer.from([...header, ...objectBytes, 0xFF])
+  return Buffer.from([...header, ...objectBytes, 0xff])
 }
 
 const ZERO_HEADER: [number, number, number, number, number] = [0, 0, 0, 0, 0]
 
-describe('parseLevelObjects — header', () => {
+describe('parseLevelObjects - header', () => {
   it('parses 5-byte header fields from CODE_0584E3', () => {
     // byte0 = 0xAA = 0b10101010 → bgPalette = bits 7-5 = 5, screens-1 = bits 4-0 = 10 → levelLength = 11
     // byte1 = 0x66 = 0b01100110 → bgColor = bits 7-5 = 3, levelMode = bits 4-0 = 6
     // byte2 = 0xB8 = 0b10111000 → layer3Priority = bit 7 = true, music = bits 6-4 = 3, spriteSet = bits 3-0 = 8
     // byte3 = 0x99 = 0b10011001 → timeLimit = bits 7-6 = 2, spritePalette = bits 5-3 = 3, fgPalette = bits 2-0 = 1
     // byte4 = 0x67 = 0b01100111 → itemMemory = bits 7-6 = 1, verticalScroll = bits 5-4 = 2, objectTileset = bits 3-0 = 7
-    const buf = makeLevel([0xAA, 0x66, 0xB8, 0x99, 0x67], [])
+    const buf = makeLevel([0xaa, 0x66, 0xb8, 0x99, 0x67], [])
     const { header } = parseLevelObjects(buf)
-    expect(header.raw).toEqual([0xAA, 0x66, 0xB8, 0x99, 0x67])
+    expect(header.raw).toEqual([0xaa, 0x66, 0xb8, 0x99, 0x67])
     expect(header.bgPalette).toBe(5)
-    expect(header.levelLength).toBe(11)   // (0x0A & 0x1F) + 1 = 10 + 1 = 11
+    expect(header.levelLength).toBe(11) // (0x0A & 0x1F) + 1 = 10 + 1 = 11
     expect(header.bgColor).toBe(3)
     expect(header.levelMode).toBe(6)
     expect(header.layer3Priority).toBe(true)
     expect(header.music).toBe(3)
-    expect(header.spriteSet).toBe(8)      // byte 2 bits 3-0
+    expect(header.spriteSet).toBe(8) // byte 2 bits 3-0
     expect(header.timeLimit).toBe(2)
-    expect(header.spritePalette).toBe(3)  // byte 3 bits 5-3
-    expect(header.fgPalette).toBe(1)      // byte 3 bits 2-0
+    expect(header.spritePalette).toBe(3) // byte 3 bits 5-3
+    expect(header.fgPalette).toBe(1) // byte 3 bits 2-0
     expect(header.itemMemory).toBe(1)
     expect(header.verticalScroll).toBe(2)
-    expect(header.objectTileset).toBe(7)  // byte 4 bits 3-0
+    expect(header.objectTileset).toBe(7) // byte 4 bits 3-0
   })
 })
 
-describe('parseLevelObjects — 3-byte objects', () => {
+describe('parseLevelObjects - 3-byte objects', () => {
   it('parses a single normal object after 5-byte header', () => {
     // 3-byte object: bytes $0A, $0B, $59
     // Want: normal object (objNo != 0), x=5, y=3, objNo=2, settings=0x10
@@ -67,10 +71,10 @@ describe('parseLevelObjects — 3-byte objects', () => {
     expect(obj.screen).toBe(0)
     expect(obj.y).toBe(3)
     expect(obj.x).toBe(5)
-    expect(obj.objectNumber).toBe(2)    // ($0B>>4) = 2
-    expect(obj.objectType).toBe(2)      // backward compat alias
+    expect(obj.objectNumber).toBe(2) // ($0B>>4) = 2
+    expect(obj.objectType).toBe(2) // backward compat alias
     expect(obj.settings).toBe(0x10)
-    expect(obj.param).toBe(0x10)        // backward compat alias
+    expect(obj.param).toBe(0x10) // backward compat alias
     expect(obj.raw).toEqual([0x03, 0x25, 0x10])
   })
 
@@ -84,8 +88,8 @@ describe('parseLevelObjects — 3-byte objects', () => {
     expect(objects).toHaveLength(1)
     const obj = objects[0]
     expect(obj.type).toBe('extended')
-    expect(obj.objectNumber).toBe(0x12)   // ext type from $59
-    expect(obj.objectType).toBe(0x100 + 0x12)  // backward compat
+    expect(obj.objectNumber).toBe(0x12) // ext type from $59
+    expect(obj.objectType).toBe(0x100 + 0x12) // backward compat
     expect(obj.y).toBe(5)
     expect(obj.x).toBe(3)
   })
@@ -98,7 +102,7 @@ describe('parseLevelObjects — 3-byte objects', () => {
   })
 })
 
-describe('parseLevelObjects — new screen flag', () => {
+describe('parseLevelObjects - new screen flag', () => {
   it('increments screen counter when bit 7 of byte 0 is set', () => {
     // First object: no new screen flag
     // $0A=0x00, $0B=0x10, $59=0x00 → objNo=1, screen=0
@@ -117,8 +121,12 @@ describe('parseLevelObjects — new screen flag', () => {
     // $0A=0x85 (new screen + y=5), $0B=0x13 (objNo=1, x=3)
     // But we need TWO objects with new-screen to get screen=2
     const buf = makeLevel(ZERO_HEADER, [
-      0x80, 0x10, 0x00,  // screen 1 (new screen)
-      0x85, 0x13, 0x00,  // screen 2 (new screen), y=5, x=3
+      0x80,
+      0x10,
+      0x00, // screen 1 (new screen)
+      0x85,
+      0x13,
+      0x00, // screen 2 (new screen), y=5, x=3
     ])
     const { objects } = parseLevelObjects(buf)
     expect(objects[1].screen).toBe(2)
@@ -126,29 +134,41 @@ describe('parseLevelObjects — new screen flag', () => {
   })
 })
 
-describe('parseLevelObjects — extended object $01 screen jump', () => {
+describe('parseLevelObjects - extended object $01 screen jump', () => {
   it('overwrites the screen counter with (byte0 & 0x1F) after the object', () => {
     // CODE_0DA53D: LDA _A; AND #$1F; STA LevelLoadObject
     // Sequence: a normal object on screen 0, then ext $01 with byte0=0x0A
     // jumping the counter to 10, then a normal object (no NS) should land on
     // screen 10 -- NOT screen 1.
     const buf = makeLevel(ZERO_HEADER, [
-      0x00, 0x10, 0x00,   // std objNo=1, screen 0
-      0x0A, 0x00, 0x01,   // ext $01, b0=0x0A → set screen to 10
-      0x00, 0x10, 0x00,   // std objNo=1, no NS → screen 10
+      0x00,
+      0x10,
+      0x00, // std objNo=1, screen 0
+      0x0a,
+      0x00,
+      0x01, // ext $01, b0=0x0A → set screen to 10
+      0x00,
+      0x10,
+      0x00, // std objNo=1, no NS → screen 10
     ])
     const { objects } = parseLevelObjects(buf)
     expect(objects).toHaveLength(3)
     expect(objects[0].screen).toBe(0)
-    expect(objects[1].screen).toBe(0)       // ext $01 itself reports pre-jump screen
-    expect(objects[2].screen).toBe(10)      // subsequent object uses new counter
+    expect(objects[1].screen).toBe(0) // ext $01 itself reports pre-jump screen
+    expect(objects[2].screen).toBe(10) // subsequent object uses new counter
   })
 
   it('composes with the NS flag: NS increments first, then ext $01 overwrites', () => {
     const buf = makeLevel(ZERO_HEADER, [
-      0x80, 0x10, 0x00,   // NS → screen 1
-      0x0A, 0x00, 0x01,   // ext $01, screen jumps to 10
-      0x80, 0x10, 0x00,   // NS → screen 11 (0x0B)
+      0x80,
+      0x10,
+      0x00, // NS → screen 1
+      0x0a,
+      0x00,
+      0x01, // ext $01, screen jumps to 10
+      0x80,
+      0x10,
+      0x00, // NS → screen 11 (0x0B)
     ])
     const { objects } = parseLevelObjects(buf)
     expect(objects[0].screen).toBe(1)
@@ -158,23 +178,27 @@ describe('parseLevelObjects — extended object $01 screen jump', () => {
 
   it('ignores extended objects with settings != 0x01', () => {
     const buf = makeLevel(ZERO_HEADER, [
-      0x0A, 0x00, 0x12,   // ext $12 -- not a screen jump; no counter change
-      0x00, 0x10, 0x00,   // std -- still on screen 0
+      0x0a,
+      0x00,
+      0x12, // ext $12 -- not a screen jump; no counter change
+      0x00,
+      0x10,
+      0x00, // std -- still on screen 0
     ])
     const { objects } = parseLevelObjects(buf)
     expect(objects[1].screen).toBe(0)
   })
 })
 
-describe('parseLevelObjects — terminator', () => {
+describe('parseLevelObjects - terminator', () => {
   it('stops at 0xFF immediately after header', () => {
-    const buf = Buffer.from([0, 0, 0, 0, 0, 0xFF])
+    const buf = Buffer.from([0, 0, 0, 0, 0, 0xff])
     const { objects } = parseLevelObjects(buf)
     expect(objects).toHaveLength(0)
   })
 })
 
-describe('isLevelModeVertical — VerticalTable bit 0', () => {
+describe('isLevelModeVertical - VerticalTable bit 0', () => {
   it('matches bank_05.asm:480 VerticalTable entries with bit 0 set', () => {
     // Modes with bit-0 set per the table: 3 ($01), 4 ($81), 7 ($03), 8 ($83),
     // 10 ($01), 13 ($01). Every other mode is horizontal for L1.
@@ -185,7 +209,7 @@ describe('isLevelModeVertical — VerticalTable bit 0', () => {
   })
 })
 
-describe('parseLevelObjects — vertical level layout', () => {
+describe('parseLevelObjects - vertical level layout', () => {
   it('places object at 32-wide column + screen*16 row when levelMode is vertical (mode 3)', () => {
     // levelMode = 3 → VerticalTable[3] = $01 → L1 vertical.
     // Header byte 1 low 5 bits = levelMode = 3.
@@ -210,15 +234,19 @@ describe('parseLevelObjects — vertical level layout', () => {
     // $0B = 0x17 → low nibble = 7 (y within screen)
     const buf = makeLevel(vertHeader, [0x15, 0x17, 0x00])
     const { objects } = parseLevelObjects(buf)
-    expect(objects[0].x).toBe(5 + 16)   // right half
+    expect(objects[0].x).toBe(5 + 16) // right half
     expect(objects[0].y).toBe(7)
   })
 
   it('new-screen flag advances downward (y += 16) in vertical mode', () => {
     const vertHeader: [number, number, number, number, number] = [0, 3, 0, 0, 0]
     const buf = makeLevel(vertHeader, [
-      0x03, 0x10, 0x00,   // screen 0, x=3, y=0
-      0x82, 0x14, 0x00,   // NS → screen 1, x=2, y=4  → y_abs = 16 + 4 = 20
+      0x03,
+      0x10,
+      0x00, // screen 0, x=3, y=0
+      0x82,
+      0x14,
+      0x00, // NS → screen 1, x=2, y=4  → y_abs = 16 + 4 = 20
     ])
     const { objects } = parseLevelObjects(buf)
     expect(objects[1].screen).toBe(1)
@@ -232,15 +260,15 @@ describe('parseLevelObjects — vertical level layout', () => {
     const buf = makeLevel([0, 0, 0, 0, 0], [0x03, 0x25, 0x10])
     const { objects, isVertical } = parseLevelObjects(buf)
     expect(isVertical).toBe(false)
-    expect(objects[0].x).toBe(5)   // screen 0, x = 5 (low of $25)
-    expect(objects[0].y).toBe(3)   // y = 3 (low of $03, no highCoord)
+    expect(objects[0].x).toBe(5) // screen 0, x = 5 (low of $25)
+    expect(objects[0].y).toBe(3) // y = 3 (low of $03, no highCoord)
   })
 })
 
 describe('parseLevelSprites', () => {
   it('returns empty array for terminator-only data', () => {
     // Sprite data starts with 1-byte header, then $FF terminator
-    expect(parseLevelSprites(Buffer.from([0x00, 0xFF]))).toHaveLength(0)
+    expect(parseLevelSprites(Buffer.from([0x00, 0xff]))).toHaveLength(0)
   })
 
   it('parses a single sprite: b0=YYYYEEsy, b1=XXXXSSSS, b2=id', () => {
@@ -249,9 +277,9 @@ describe('parseLevelSprites', () => {
     //        b1=0xA0 (XXXX=0xA, SSSS=0)       → screen 0, X=10 tiles within screen
     //        b2=0x0E (sprite id)
     // Horizontal: abs x = 0*16 + 10 = 10, abs y = 4.
-    const result = parseLevelSprites(Buffer.from([0x00, 0x40, 0xA0, 0x0E, 0xFF]))
+    const result = parseLevelSprites(Buffer.from([0x00, 0x40, 0xa0, 0x0e, 0xff]))
     expect(result).toHaveLength(1)
-    expect(result[0].spriteId).toBe(0x0E)
+    expect(result[0].spriteId).toBe(0x0e)
     expect(result[0].screen).toBe(0)
     expect(result[0].x).toBe(10)
     expect(result[0].y).toBe(4)
@@ -260,7 +288,7 @@ describe('parseLevelSprites', () => {
   it('uses byte1 low nibble as screen number', () => {
     // b1=0x05 → XXXX=0, SSSS=5 → screen 5, x within screen = 0.
     // Horizontal: abs x = 5*16 + 0 = 80.
-    const result = parseLevelSprites(Buffer.from([0x00, 0x30, 0x05, 0x11, 0xFF]))
+    const result = parseLevelSprites(Buffer.from([0x00, 0x30, 0x05, 0x11, 0xff]))
     expect(result).toHaveLength(1)
     expect(result[0].screen).toBe(5)
     expect(result[0].x).toBe(80)
@@ -271,7 +299,7 @@ describe('parseLevelSprites', () => {
     // b0 bit 1 = s (screen high bit); bit 0 = y (Y high bit).
     // b0=0x02 → s=1, rest zero. b1=0x03 → SSSS=3 → screen = (1<<4)|3 = 19.
     // Horizontal: abs x = 19*16 + 0 = 304.
-    const result = parseLevelSprites(Buffer.from([0x00, 0x02, 0x03, 0x20, 0xFF]))
+    const result = parseLevelSprites(Buffer.from([0x00, 0x02, 0x03, 0x20, 0xff]))
     expect(result).toHaveLength(1)
     expect(result[0].screen).toBe(19)
     expect(result[0].x).toBe(304)
@@ -279,25 +307,25 @@ describe('parseLevelSprites', () => {
 
   it('does NOT treat b0 bit 0 as screen high (bit 0 is Y-high)', () => {
     // b0=0x01 → y=1 only. Screen high bit is bit 1, which is 0 here.
-    const result = parseLevelSprites(Buffer.from([0x00, 0x01, 0x00, 0x00, 0xFF]))
+    const result = parseLevelSprites(Buffer.from([0x00, 0x01, 0x00, 0x00, 0xff]))
     expect(result[0].screen).toBe(0)
   })
 
   it('adds the Y-high bit for rows 16-31 in horizontal levels', () => {
     // Horizontal screens are 27 tiles tall, so rows 16-26 require yHi=1.
     // b0=0x41 → YYYY=4, yHi=1 → row 16+4 = 20.
-    const result = parseLevelSprites(Buffer.from([0x00, 0x41, 0x00, 0x00, 0xFF]))
+    const result = parseLevelSprites(Buffer.from([0x00, 0x41, 0x00, 0x00, 0xff]))
     expect(result[0].y).toBe(20)
   })
 
   it('parses extra bits from b0 bits 2-3', () => {
     // b0=0x0C → EE=0b11 → extra bit flag true.
-    const result = parseLevelSprites(Buffer.from([0x00, 0x0C, 0x00, 0x00, 0xFF]))
+    const result = parseLevelSprites(Buffer.from([0x00, 0x0c, 0x00, 0x00, 0xff]))
     expect(result[0].extraBit).toBe(true)
   })
 
   it('stops at 0xFF', () => {
-    const result = parseLevelSprites(Buffer.from([0x00, 0x40, 0xA0, 0x0E, 0xFF, 0x10, 0x05, 0x01]))
+    const result = parseLevelSprites(Buffer.from([0x00, 0x40, 0xa0, 0x0e, 0xff, 0x10, 0x05, 0x01]))
     expect(result).toHaveLength(1)
   })
 
@@ -305,7 +333,7 @@ describe('parseLevelSprites', () => {
     // Vertical: YYYY is x-within-screen; XXXX is y-within-screen; SSSS indexes
     // the vertical screen. b0=0x40 (YYYY=4), b1=0x32 (XXXX=3, SSSS=2).
     // abs y = 2*16 + 3 = 35; abs x = 4.
-    const result = parseLevelSprites(Buffer.from([0x00, 0x40, 0x32, 0x0E, 0xFF]), true)
+    const result = parseLevelSprites(Buffer.from([0x00, 0x40, 0x32, 0x0e, 0xff]), true)
     expect(result).toHaveLength(1)
     expect(result[0].screen).toBe(2)
     expect(result[0].x).toBe(4)

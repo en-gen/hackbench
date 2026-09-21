@@ -15,13 +15,13 @@ import { hexN } from './hex'
  * Map16 IDs (0..511) and SNES char numbers (0..1023).
  *
  * The hash is a low-entropy mix that spreads adjacent IDs into
- * visually distinguishable colors — bits 0-4 → red, bits 5-8 → green,
+ * visually distinguishable colors - bits 0-4 → red, bits 5-8 → green,
  * full ID → blue (offset to keep a baseline brightness).
  */
 export function tileBlockColor(tileId: number): string {
-  const r = (tileId & 0x1F) << 3
-  const g = ((tileId >> 5) & 0xF) << 4
-  const b = Math.round((tileId / 0x1FF) * 180) + 40
+  const r = (tileId & 0x1f) << 3
+  const g = ((tileId >> 5) & 0xf) << 4
+  const b = Math.round((tileId / 0x1ff) * 180) + 40
   return `rgb(${r},${g},${b})`
 }
 

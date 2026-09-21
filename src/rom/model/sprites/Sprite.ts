@@ -58,17 +58,25 @@ export class Sprite {
   }
 
   renderOverlay(
-    ctx:        OverlayContext,
-    x:          number,
-    y:          number,
-    isActive:   boolean,
-    getL1:      GetL1Tile,
-    levelCols:  number,
-    levelRows:  number,
-    mapStore:   MapStore,
+    ctx: OverlayContext,
+    x: number,
+    y: number,
+    isActive: boolean,
+    getL1: GetL1Tile,
+    levelCols: number,
+    levelRows: number,
+    mapStore: MapStore,
   ): void {
     this.appearance.renderOverlay?.(
-      ctx, x, y, isActive, getL1, levelCols, levelRows, this.behavior, mapStore,
+      ctx,
+      x,
+      y,
+      isActive,
+      getL1,
+      levelCols,
+      levelRows,
+      this.behavior,
+      mapStore,
     )
   }
 
@@ -78,8 +86,12 @@ export class Sprite {
    */
   pickAt(levelPx: number, levelPy: number): Sprite | null {
     const hr = this.appearance.hitRect
-    if (levelPx >= this.x + hr.dx && levelPx < this.x + hr.dx + hr.w
-     && levelPy >= this.y + hr.dy && levelPy < this.y + hr.dy + hr.h) {
+    if (
+      levelPx >= this.x + hr.dx &&
+      levelPx < this.x + hr.dx + hr.w &&
+      levelPy >= this.y + hr.dy &&
+      levelPy < this.y + hr.dy + hr.h
+    ) {
       return this
     }
     return null

@@ -16,7 +16,13 @@
 
 import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
-import { getNonce, getWebviewUri, readDescriptor, postWebviewError, buildWebviewHtml } from './webviewUtils'
+import {
+  getNonce,
+  getWebviewUri,
+  readDescriptor,
+  postWebviewError,
+  buildWebviewHtml,
+} from './webviewUtils'
 import { hex3 } from '../rom/hex'
 
 export class LevelGraphProvider implements vscode.CustomReadonlyEditorProvider {
@@ -32,13 +38,11 @@ export class LevelGraphProvider implements vscode.CustomReadonlyEditorProvider {
   ): Promise<void> {
     panel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [
-        vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview'),
-      ],
+      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview')],
     }
     panel.webview.html = this._buildHtml(panel.webview)
 
-    panel.webview.onDidReceiveMessage(async (msg) => {
+    panel.webview.onDidReceiveMessage(async msg => {
       if (msg.type === 'ready') {
         await this._sendGraphData(document.uri, panel.webview)
       }
@@ -53,7 +57,7 @@ export class LevelGraphProvider implements vscode.CustomReadonlyEditorProvider {
   private async _sendGraphData(uri: vscode.Uri, webview: vscode.Webview): Promise<void> {
     try {
       const descriptor = await readDescriptor<{ romPath: string; slug: string }>(uri)
-      const rom  = resolveRom(descriptor.romPath)
+      const rom = resolveRom(descriptor.romPath)
       const slug = descriptor.slug
 
       const exitGraph = rom.buildLevelExitGraph()
@@ -99,7 +103,8 @@ export class LevelGraphProvider implements vscode.CustomReadonlyEditorProvider {
       nonce: getNonce(),
       scriptUri: getWebviewUri(webview, this.context.extensionUri, 'levelGraph.js'),
       cspSource: webview.cspSource,
-      styles: 'html,body{height:100%;margin:0;padding:0;overflow:hidden;background:var(--vscode-editor-background,#1e1e1e);}#app{width:100%;height:100%;overflow:hidden;position:relative;}#app svg{position:absolute;top:0;left:0;}',
+      styles:
+        'html,body{height:100%;margin:0;padding:0;overflow:hidden;background:var(--vscode-editor-background,#1e1e1e);}#app{width:100%;height:100%;overflow:hidden;position:relative;}#app svg{position:absolute;top:0;left:0;}',
     })
   }
 }

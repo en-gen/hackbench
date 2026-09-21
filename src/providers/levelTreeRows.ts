@@ -32,7 +32,8 @@ const MARKERS: Partial<Record<RoomRole, { suffix: string; tooltip: (hex: string)
   },
   truncated: {
     suffix: '(not expanded)',
-    tooltip: hex => `$${hex} was not expanded: this level hit the sub-area display cap ` +
+    tooltip: hex =>
+      `$${hex} was not expanded: this level hit the sub-area display cap ` +
       `(${MAX_SUBTREE_NODES} rows or depth ${MAX_SUBTREE_DEPTH}), so its branch is incomplete.`,
   },
 }
@@ -46,9 +47,7 @@ export function roomRow(
   const hex = hex3(index)
   const marker = MARKERS[role]
   // An unnamed room's label is already `$hex`, so repeating it here prints it twice.
-  const description = name
-    ? [`$${hex}`, marker?.suffix].filter(Boolean).join(' ')
-    : marker?.suffix
+  const description = name ? [`$${hex}`, marker?.suffix].filter(Boolean).join(' ') : marker?.suffix
   return {
     role,
     label: name ?? `$${hex}`,
@@ -63,9 +62,5 @@ export function roomRow(
 
 /** Sub-area rows take their role from the node kind; a plain room is a 'sub' row. */
 export function roomRowForNode(node: LevelTreeNode, name: string | null): RoomRow {
-  return roomRow(
-    node.index, name,
-    node.kind === 'room' ? 'sub' : node.kind,
-    node.children.length,
-  )
+  return roomRow(node.index, name, node.kind === 'room' ? 'sub' : node.kind, node.children.length)
 }

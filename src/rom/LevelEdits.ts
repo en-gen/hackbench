@@ -52,18 +52,20 @@ export function moveObjectX(
   const nextX = currentX + dx
   if (nextX < 0 || nextX > 0x0f) {
     throw new RangeError(
-      `moving object ${objectIndex} by ${dx} leaves its screen `
-      + `(x nibble ${currentX} -> ${nextX}); that needs a stream reorder, not a byte patch`,
+      `moving object ${objectIndex} by ${dx} leaves its screen ` +
+        `(x nibble ${currentX} -> ${nextX}); that needs a stream reorder, not a byte patch`,
     )
   }
 
   return {
     id,
     label: `move object ${objectIndex} ${dx > 0 ? 'right' : 'left'} ${Math.abs(dx)}`,
-    patches: [{
-      offset: l1FileOffset + obj.streamOffset + byteIndex,
-      value: (original & 0xf0) | nextX,
-    }],
+    patches: [
+      {
+        offset: l1FileOffset + obj.streamOffset + byteIndex,
+        value: (original & 0xf0) | nextX,
+      },
+    ],
   }
 }
 
@@ -105,8 +107,8 @@ export function moveSpriteX(
   const nextX = currentX + dx
   if (nextX < 0 || nextX > 0x0f) {
     throw new RangeError(
-      `moving sprite ${spriteIndex} by ${dx} leaves its screen `
-      + `(x nibble ${currentX} -> ${nextX}); that needs the screen number changed too`,
+      `moving sprite ${spriteIndex} by ${dx} leaves its screen ` +
+        `(x nibble ${currentX} -> ${nextX}); that needs the screen number changed too`,
     )
   }
 
@@ -115,10 +117,12 @@ export function moveSpriteX(
     label: `move sprite ${spriteIndex} ${dx > 0 ? 'right' : 'left'} ${Math.abs(dx)}`,
     scope: 'edit',
     // Low nibble preserved: for a horizontal level it is the screen number.
-    patches: [{
-      offset: spritesFileOffset + sprite.streamOffset + byteIndex,
-      value: (original & 0x0f) | (nextX << 4),
-    }],
+    patches: [
+      {
+        offset: spritesFileOffset + sprite.streamOffset + byteIndex,
+        value: (original & 0x0f) | (nextX << 4),
+      },
+    ],
   }
 }
 

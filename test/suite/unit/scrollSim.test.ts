@@ -1,5 +1,5 @@
 /**
- * scrollSim — frame-based scroll simulator.
+ * scrollSim - frame-based scroll simulator.
  *
  * Phase 1 tests cover the scaffolding only (state shape, initial-state
  * construction, no-op cmds, hold-fallback). Per-cmd correctness tests
@@ -16,23 +16,23 @@ const baseSeed: ScrollSimSeed = {
   layer1XPos: 0x100,
   layer1YPos: 0x80,
   layer2XPos: 0x100,
-  layer2YPos: 0xC0,
-  layer1ScrollCmd:  0x07, // no-op
-  layer2ScrollCmd:  0x07, // no-op
+  layer2YPos: 0xc0,
+  layer1ScrollCmd: 0x07, // no-op
+  layer2ScrollCmd: 0x07, // no-op
   layer1ScrollBits: 0,
   layer2ScrollBits: 0,
   horizLayer2Setting: 0,
-  vertLayer2Setting:  1,
+  vertLayer2Setting: 1,
   marioSpawnX: 0x40,
   marioSpawnY: 0x60,
 }
 
-describe('buildScrollSimulator — initial state', () => {
+describe('buildScrollSimulator - initial state', () => {
   it('seeds positions and 8-bit fields with wrap-around', () => {
     const sim = buildScrollSimulator(fakeRom, {
       ...baseSeed,
-      layer1XPos: 0x10100,           // wraps to $0100
-      layer1ScrollCmd: 0x107,        // wraps to $07
+      layer1XPos: 0x10100, // wraps to $0100
+      layer1ScrollCmd: 0x107, // wraps to $07
     })
     expect(sim.initial.layer1XPos).toBe(0x100)
     expect(sim.initial.layer1ScrollCmd).toBe(0x07)
@@ -63,7 +63,7 @@ describe('buildScrollSimulator — initial state', () => {
   })
 })
 
-describe('buildScrollSimulator — no-op cmds', () => {
+describe('buildScrollSimulator - no-op cmds', () => {
   it('cmd $07 holds positions exactly across many frames', () => {
     const sim = buildScrollSimulator(fakeRom, {
       ...baseSeed,
@@ -89,15 +89,17 @@ describe('buildScrollSimulator — no-op cmds', () => {
   })
 })
 
-describe('buildScrollSimulator — hold fallback', () => {
+describe('buildScrollSimulator - hold fallback', () => {
   it('returns state unchanged for unported cmds (and warns once)', () => {
     const warns: string[] = []
     const origWarn = console.warn
-    console.warn = (msg: string) => { warns.push(msg) }
+    console.warn = (msg: string) => {
+      warns.push(msg)
+    }
     try {
       const sim = buildScrollSimulator(fakeRom, {
         ...baseSeed,
-        layer1ScrollCmd: 0xFE, // arbitrary unported cmd
+        layer1ScrollCmd: 0xfe, // arbitrary unported cmd
         layer2ScrollCmd: 0x07,
       })
       const s = sim.stateAtFrame(10)
@@ -109,7 +111,7 @@ describe('buildScrollSimulator — hold fallback', () => {
   })
 })
 
-describe('buildScrollSimulator — memoization', () => {
+describe('buildScrollSimulator - memoization', () => {
   it('stateAtFrame(N) returns the same reference across calls', () => {
     const sim = buildScrollSimulator(fakeRom, baseSeed)
     const a = sim.stateAtFrame(5)

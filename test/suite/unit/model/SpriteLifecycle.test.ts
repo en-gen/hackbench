@@ -1,25 +1,24 @@
 /**
- * Sprite + CompositeSprite — branch coverage.
+ * Sprite + CompositeSprite - branch coverage.
  *
  * Branches:
- *   Sprite.tickAnimation     — appearance.tickAnimation?.() : present / absent
- *   Sprite.renderOverlay     — appearance.renderOverlay?.() : present / absent
+ *   Sprite.tickAnimation     - appearance.tickAnimation?.() : present / absent
+ *   Sprite.renderOverlay     - appearance.renderOverlay?.() : present / absent
  *   Sprite.renderAboveL1     - appearance.renderAboveL1?.() : present / absent
  *   CompositeSprite.renderAboveL1 - secondary?.renderAboveL1 : present / absent
- *   Sprite.pickAt            — inside hit-rect / outside hit-rect
- *   CompositeSprite.render   — secondary?.render : present / absent
- *   CompositeSprite.tickAnimation — secondary?.tickAnimation : present / absent
- *   CompositeSprite.pickAt   — secondary hit / secondary miss → primary hit / primary miss
+ *   Sprite.pickAt            - inside hit-rect / outside hit-rect
+ *   CompositeSprite.render   - secondary?.render : present / absent
+ *   CompositeSprite.tickAnimation - secondary?.tickAnimation : present / absent
+ *   CompositeSprite.pickAt   - secondary hit / secondary miss → primary hit / primary miss
  */
 
 import { describe, it, expect } from 'vitest'
 import type { RenderTarget } from '../../../../src/rom/model/RenderTarget'
-import type { MapStore }     from '../../../../src/rom/model/stores/mapStore'
 import type { SpriteAppearance, HitRect } from '../../../../src/rom/model/sprites/SpriteAppearance'
-import type { SpriteBehavior }            from '../../../../src/rom/model/sprites/SpriteBehavior'
-import { Sprite }          from '../../../../src/rom/model/sprites/Sprite'
+import type { SpriteBehavior } from '../../../../src/rom/model/sprites/SpriteBehavior'
+import { Sprite } from '../../../../src/rom/model/sprites/Sprite'
 import { CompositeSprite } from '../../../../src/rom/model/sprites/CompositeSprite'
-import { makeMockCtx }     from '../fixtures/mockOverlayCtx'
+import { makeMockCtx } from '../fixtures/mockOverlayCtx'
 import { makeTestMapStore } from '../fixtures/stores'
 
 // ── shared stubs ──────────────────────────────────────────────────────────────
@@ -34,34 +33,53 @@ function makeAppearance(
   hitRect: HitRect,
   opts: { withTick?: boolean; withOverlay?: boolean; withAbove?: boolean } = {},
 ): SpriteAppearance & { tickCalled: boolean; overlayCalled: boolean; aboveArgs: unknown[] | null } {
-  let tickCalled    = false
+  let tickCalled = false
   let overlayCalled = false
   let aboveArgs: unknown[] | null = null
-  const app: SpriteAppearance & { tickCalled: boolean; overlayCalled: boolean; aboveArgs: unknown[] | null } = {
+  const app: SpriteAppearance & {
+    tickCalled: boolean
+    overlayCalled: boolean
+    aboveArgs: unknown[] | null
+  } = {
     hitRect,
     render: () => {},
-    get tickCalled()    { return tickCalled },
-    get overlayCalled() { return overlayCalled },
-    get aboveArgs()     { return aboveArgs },
+    get tickCalled() {
+      return tickCalled
+    },
+    get overlayCalled() {
+      return overlayCalled
+    },
+    get aboveArgs() {
+      return aboveArgs
+    },
   }
-  if (opts.withTick)    app.tickAnimation = () => { tickCalled    = true }
-  if (opts.withOverlay) app.renderOverlay = (..._args) => { overlayCalled = true }
-  if (opts.withAbove)   app.renderAboveL1 = (...args) => { aboveArgs = args }
+  if (opts.withTick)
+    app.tickAnimation = () => {
+      tickCalled = true
+    }
+  if (opts.withOverlay)
+    app.renderOverlay = (..._args) => {
+      overlayCalled = true
+    }
+  if (opts.withAbove)
+    app.renderAboveL1 = (...args) => {
+      aboveArgs = args
+    }
   return app
 }
 
 // ── Sprite.tickAnimation ──────────────────────────────────────────────────────
 
-describe('Sprite.tickAnimation — optional chaining', () => {
-  it('appearance without tickAnimation — no-op (undefined branch)', () => {
-    const app    = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
+describe('Sprite.tickAnimation - optional chaining', () => {
+  it('appearance without tickAnimation - no-op (undefined branch)', () => {
+    const app = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
     const sprite = new Sprite(0x04, 32, 32, app, MOCK_BEHAVIOR)
     expect(() => sprite.tickAnimation()).not.toThrow()
     expect(app.tickCalled).toBe(false)
   })
 
-  it('appearance with tickAnimation — delegates (defined branch)', () => {
-    const app    = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 }, { withTick: true })
+  it('appearance with tickAnimation - delegates (defined branch)', () => {
+    const app = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 }, { withTick: true })
     const sprite = new Sprite(0x04, 32, 32, app, MOCK_BEHAVIOR)
     sprite.tickAnimation()
     expect(app.tickCalled).toBe(true)
@@ -70,21 +88,23 @@ describe('Sprite.tickAnimation — optional chaining', () => {
 
 // ── Sprite.renderOverlay ──────────────────────────────────────────────────────
 
-describe('Sprite.renderOverlay — optional chaining', () => {
+describe('Sprite.renderOverlay - optional chaining', () => {
   const mapStore = makeTestMapStore()
 
-  it('appearance without renderOverlay — no-op (undefined branch)', () => {
-    const app    = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
+  it('appearance without renderOverlay - no-op (undefined branch)', () => {
+    const app = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
     const sprite = new Sprite(0x04, 32, 32, app, MOCK_BEHAVIOR)
-    const ctx    = makeMockCtx()
-    expect(() => sprite.renderOverlay(ctx, 32, 32, true, NOOP_L1, COLS, ROWS, mapStore)).not.toThrow()
+    const ctx = makeMockCtx()
+    expect(() =>
+      sprite.renderOverlay(ctx, 32, 32, true, NOOP_L1, COLS, ROWS, mapStore),
+    ).not.toThrow()
     expect(app.overlayCalled).toBe(false)
   })
 
-  it('appearance with renderOverlay — delegates (defined branch)', () => {
-    const app    = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 }, { withOverlay: true })
+  it('appearance with renderOverlay - delegates (defined branch)', () => {
+    const app = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 }, { withOverlay: true })
     const sprite = new Sprite(0x04, 32, 32, app, MOCK_BEHAVIOR)
-    const ctx    = makeMockCtx()
+    const ctx = makeMockCtx()
     sprite.renderOverlay(ctx, 32, 32, true, NOOP_L1, COLS, ROWS, mapStore)
     expect(app.overlayCalled).toBe(true)
   })
@@ -96,15 +116,15 @@ describe('Sprite.renderAboveL1 - optional chaining', () => {
   const mapStore = makeTestMapStore()
 
   it('appearance without renderAboveL1 - no-op (undefined branch)', () => {
-    const app    = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
+    const app = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
     const sprite = new Sprite(0x04, 32, 32, app, MOCK_BEHAVIOR)
     expect(() => sprite.renderAboveL1(MOCK_TARGET, mapStore)).not.toThrow()
     expect(app.aboveArgs).toBeNull()
   })
 
   it('appearance with renderAboveL1 - delegates with the sprite position (defined branch)', () => {
-    const app    = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 }, { withAbove: true })
-    const sprite = new Sprite(0x4D, 32, 48, app, MOCK_BEHAVIOR)
+    const app = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 }, { withAbove: true })
+    const sprite = new Sprite(0x4d, 32, 48, app, MOCK_BEHAVIOR)
     sprite.renderAboveL1(MOCK_TARGET, mapStore)
     expect(app.aboveArgs).not.toBeNull()
     expect(app.aboveArgs!.slice(0, 3)).toEqual([MOCK_TARGET, 32, 48])
@@ -115,9 +135,9 @@ describe('Sprite.renderAboveL1 - optional chaining', () => {
 
 // ── Sprite.pickAt ─────────────────────────────────────────────────────────────
 
-describe('Sprite.pickAt — hit-rect test', () => {
+describe('Sprite.pickAt - hit-rect test', () => {
   // Sprite at (32, 32), hitRect dx=0 dy=0 w=16 h=16  → occupied x:[32,48), y:[32,48)
-  const app    = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
+  const app = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
   const sprite = new Sprite(0x04, 32, 32, app, MOCK_BEHAVIOR)
 
   it('point inside hit-rect → returns sprite', () => {
@@ -128,47 +148,49 @@ describe('Sprite.pickAt — hit-rect test', () => {
 
   it('point outside hit-rect → returns null', () => {
     expect(sprite.pickAt(0, 0)).toBeNull()
-    expect(sprite.pickAt(48, 32)).toBeNull()    // right edge (exclusive)
-    expect(sprite.pickAt(32, 48)).toBeNull()    // bottom edge (exclusive)
+    expect(sprite.pickAt(48, 32)).toBeNull() // right edge (exclusive)
+    expect(sprite.pickAt(32, 48)).toBeNull() // bottom edge (exclusive)
   })
 })
 
-// ── CompositeSprite — secondary present / absent ──────────────────────────────
+// ── CompositeSprite - secondary present / absent ──────────────────────────────
 
-describe('CompositeSprite.render — secondary?.render optional chain', () => {
+describe('CompositeSprite.render - secondary?.render optional chain', () => {
   const primaryApp = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
-  const mapStore   = makeTestMapStore()
+  const mapStore = makeTestMapStore()
 
-  it('without secondary — only primary renders (undefined branch)', () => {
+  it('without secondary - only primary renders (undefined branch)', () => {
     const primary = new CompositeSprite(0x04, 32, 32, primaryApp, MOCK_BEHAVIOR)
     expect(() => primary.render(MOCK_TARGET, mapStore)).not.toThrow()
   })
 
-  it('with secondary — both primary and secondary render (defined branch)', () => {
+  it('with secondary - both primary and secondary render (defined branch)', () => {
     let secondaryRendered = false
     const secondaryApp = {
       hitRect: { dx: 0, dy: 0, w: 16, h: 16 } as HitRect,
-      render: () => { secondaryRendered = true },
+      render: () => {
+        secondaryRendered = true
+      },
     } as SpriteAppearance
-    const secondary = new Sprite(0x9B, 48, 48, secondaryApp, MOCK_BEHAVIOR)
-    const primary   = new CompositeSprite(0x04, 32, 32, primaryApp, MOCK_BEHAVIOR, secondary)
+    const secondary = new Sprite(0x9b, 48, 48, secondaryApp, MOCK_BEHAVIOR)
+    const primary = new CompositeSprite(0x04, 32, 32, primaryApp, MOCK_BEHAVIOR, secondary)
     primary.render(MOCK_TARGET, mapStore)
     expect(secondaryRendered).toBe(true)
   })
 })
 
-describe('CompositeSprite.tickAnimation — secondary?.tickAnimation optional chain', () => {
+describe('CompositeSprite.tickAnimation - secondary?.tickAnimation optional chain', () => {
   const primaryApp = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
 
-  it('without secondary — no-op (undefined branch)', () => {
+  it('without secondary - no-op (undefined branch)', () => {
     const primary = new CompositeSprite(0x04, 32, 32, primaryApp, MOCK_BEHAVIOR)
     expect(() => primary.tickAnimation()).not.toThrow()
   })
 
-  it('with secondary that has tickAnimation — secondary tick called (defined branch)', () => {
+  it('with secondary that has tickAnimation - secondary tick called (defined branch)', () => {
     const secApp = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 }, { withTick: true })
-    const secondary = new Sprite(0x9B, 48, 48, secApp, MOCK_BEHAVIOR)
-    const primary   = new CompositeSprite(0x04, 32, 32, primaryApp, MOCK_BEHAVIOR, secondary)
+    const secondary = new Sprite(0x9b, 48, 48, secApp, MOCK_BEHAVIOR)
+    const primary = new CompositeSprite(0x04, 32, 32, primaryApp, MOCK_BEHAVIOR, secondary)
     primary.tickAnimation()
     expect(secApp.tickCalled).toBe(true)
   })
@@ -186,29 +208,29 @@ describe('CompositeSprite.renderAboveL1 - secondary?.renderAboveL1 optional chai
 
   it('with secondary that has renderAboveL1 - secondary called too (defined branch)', () => {
     const primaryApp = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
-    const secApp     = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 }, { withAbove: true })
-    const secondary  = new Sprite(0x9B, 48, 48, secApp, MOCK_BEHAVIOR)
-    const primary    = new CompositeSprite(0x04, 32, 32, primaryApp, MOCK_BEHAVIOR, secondary)
+    const secApp = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 }, { withAbove: true })
+    const secondary = new Sprite(0x9b, 48, 48, secApp, MOCK_BEHAVIOR)
+    const primary = new CompositeSprite(0x04, 32, 32, primaryApp, MOCK_BEHAVIOR, secondary)
     primary.renderAboveL1(MOCK_TARGET, mapStore)
     expect(secApp.aboveArgs).not.toBeNull()
     expect(secApp.aboveArgs!.slice(1, 3)).toEqual([48, 48])
   })
 })
 
-describe('CompositeSprite.pickAt — secondary wins hit-test priority', () => {
-  // Primary at (32,32) 16×16, secondary at (48,48) 16×16 — non-overlapping
+describe('CompositeSprite.pickAt - secondary wins hit-test priority', () => {
+  // Primary at (32,32) 16×16, secondary at (48,48) 16×16 - non-overlapping
   const primaryApp = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
 
-  it('without secondary — delegates to primary pickAt', () => {
+  it('without secondary - delegates to primary pickAt', () => {
     const primary = new CompositeSprite(0x04, 32, 32, primaryApp, MOCK_BEHAVIOR)
-    expect(primary.pickAt(32, 32)).toBe(primary)  // inside primary
-    expect(primary.pickAt(0,  0)).toBeNull()       // miss
+    expect(primary.pickAt(32, 32)).toBe(primary) // inside primary
+    expect(primary.pickAt(0, 0)).toBeNull() // miss
   })
 
-  it('with secondary — secondary wins when hit overlaps secondary', () => {
-    const secApp    = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
-    const secondary = new Sprite(0x9B, 48, 48, secApp, MOCK_BEHAVIOR)
-    const primary   = new CompositeSprite(0x04, 32, 32, primaryApp, MOCK_BEHAVIOR, secondary)
+  it('with secondary - secondary wins when hit overlaps secondary', () => {
+    const secApp = makeAppearance({ dx: 0, dy: 0, w: 16, h: 16 })
+    const secondary = new Sprite(0x9b, 48, 48, secApp, MOCK_BEHAVIOR)
+    const primary = new CompositeSprite(0x04, 32, 32, primaryApp, MOCK_BEHAVIOR, secondary)
 
     // Point inside secondary → returns secondary
     expect(primary.pickAt(48, 48)).toBe(secondary)

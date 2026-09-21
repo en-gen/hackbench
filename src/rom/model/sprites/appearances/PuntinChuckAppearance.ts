@@ -39,7 +39,7 @@ import type { SpritePart } from './StaticSpriteAppearance'
  *
  *   Face-right composition: head and football X mirror face-left (head from
  *   DATA_02C830 negation; football from ChuckSprGenDispX = db $14,$EC = ±20).
- *   Body1 X is NOT a mirror — the chuck X tables DATA_02C909/DATA_02C93D are
+ *   Body1 X is NOT a mirror - the chuck X tables DATA_02C909/DATA_02C93D are
  *   face-doubled (52 entries; face-LEFT 0..25, face-RIGHT 26..51), and
  *   CODE_02CA27 (bank_02.asm:9755) reads body1 from DATA_02C909[pose+$1A]
  *   for face-right. For pose $11 that is DATA_02C909[$2B] = $10 = +16 (vs
@@ -70,16 +70,16 @@ export class PuntinChuckAppearance extends ChuckAppearance {
     // football hflip swaps so the ball points its travel direction.
     const parts: SpritePart[] = faceRight
       ? [
-          ...bigTile(0x06,   7, -10, true,  bodyPalette, bodyCharHigh),  // head
-          ...bigTile(0xCC,   0,   0, true,  bodyPalette, bodyCharHigh),  // body2 16x16  (DATA_02C93D[$2B] = $00)
-          smallTile(0xCB,   16,   3, true,  bodyPalette, bodyCharHigh),  // body1 8x8 kick foot  (DATA_02C909[$2B] = $10)
-          ...bigTile(0x8A,  20,   0, false, ballPalette, ballCharHigh),  // football 16x16, no flip
+          ...bigTile(0x06, 7, -10, true, bodyPalette, bodyCharHigh), // head
+          ...bigTile(0xcc, 0, 0, true, bodyPalette, bodyCharHigh), // body2 16x16  (DATA_02C93D[$2B] = $00)
+          smallTile(0xcb, 16, 3, true, bodyPalette, bodyCharHigh), // body1 8x8 kick foot  (DATA_02C909[$2B] = $10)
+          ...bigTile(0x8a, 20, 0, false, ballPalette, ballCharHigh), // football 16x16, no flip
         ]
       : [
-          ...bigTile(0x06,  -7, -10, false, bodyPalette, bodyCharHigh),  // head
-          ...bigTile(0xCC,   0,   0, false, bodyPalette, bodyCharHigh),  // body2 16x16
-          smallTile(0xCB,   -8,   3, false, bodyPalette, bodyCharHigh),  // body1 8x8 kick foot
-          ...bigTile(0x8A, -20,   0, true,  ballPalette, ballCharHigh),  // football 16x16, hflip
+          ...bigTile(0x06, -7, -10, false, bodyPalette, bodyCharHigh), // head
+          ...bigTile(0xcc, 0, 0, false, bodyPalette, bodyCharHigh), // body2 16x16
+          smallTile(0xcb, -8, 3, false, bodyPalette, bodyCharHigh), // body1 8x8 kick foot
+          ...bigTile(0x8a, -20, 0, true, ballPalette, ballCharHigh), // football 16x16, hflip
         ]
     return new PuntinChuckAppearance(parts)
   }

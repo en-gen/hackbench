@@ -1,5 +1,5 @@
 /**
- * cmd0c.ts — port of `CODE_05C787` (bank_05.asm:5952-5976).
+ * cmd0c.ts - port of `CODE_05C787` (bank_05.asm:5952-5976).
  *
  * Cmd $0C is the "auto-scroll level" L1 X-scroll (used in vanilla levels
  * $1D4 and $1FC). The L1 dispatch routes cmd $0C here.
@@ -37,7 +37,7 @@ export function cmd0cL1(s: ScrollState, rom: RomFile): ScrollState {
   // End-of-level check: if NextLayer1XPos == (LastScreenHoriz - 1) << 8,
   // clear speed before applying. The 16-bit pre-XBA load + DEC + XBA in
   // the ASM yields exactly this value when LastScreenHoriz < $100.
-  const stopTarget = wrap16((cur.lastScreenHoriz - 1) << 8) & 0xFF00
+  const stopTarget = wrap16((cur.lastScreenHoriz - 1) << 8) & 0xff00
   if (cur.nextLayer1XPos === stopTarget) speed = 0
 
   cur = { ...cur, layer1ScrollXSpeed: speed } as ScrollState

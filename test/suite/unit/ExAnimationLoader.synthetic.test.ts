@@ -1,5 +1,5 @@
 /**
- * ExAnimationLoader — synthetic-ROM tests for Lunar Magic ExAnimation parsing.
+ * ExAnimationLoader - synthetic-ROM tests for Lunar Magic ExAnimation parsing.
  *
  * The vanilla ROM lacks LM patches, so the existing tests cover only the
  * "not installed" guard. These tests build a small in-memory ROM that
@@ -11,10 +11,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import {
-  isLmExAnimInstalled,
-  loadExAnimData,
-} from '../../../src/rom/ExAnimationLoader'
+import { isLmExAnimInstalled, loadExAnimData } from '../../../src/rom/ExAnimationLoader'
 
 /**
  * Hand-built LC_LZ2 stream that decompresses to 128 bytes of $42, terminated
@@ -24,32 +21,37 @@ import {
  *   fill byte                                   = 0x42
  *   terminator                                  = 0xFF
  */
-const LZ2_128_BYTES_OF_42 = [0xE4, 0x7F, 0x42, 0xFF]
+const LZ2_128_BYTES_OF_42 = [0xe4, 0x7f, 0x42, 0xff]
 
 /** SNES addresses ExAnimationLoader watches. */
-const ANIMATION_JSL_ADDR        = 0x00A2A5
-const VANILLA_ANIM_TARGET       = 0x05BB39
-const ANIM_SETTINGS_TABLE       = 0x03FE00
-const EXANIM_LEVEL_TABLE_PTR    = 0x0583AE
-const EXGFX_LO_TABLE_ADDR       = 0x0FF600
-const EXGFX_HI_TABLE_ADDR       = 0x0FF937
-const EXGFX_LEVEL_LIST_PTR      = 0x0FF7FF
+const ANIMATION_JSL_ADDR = 0x00a2a5
+const VANILLA_ANIM_TARGET = 0x05bb39
+const ANIM_SETTINGS_TABLE = 0x03fe00
+const EXANIM_LEVEL_TABLE_PTR = 0x0583ae
+const EXGFX_LO_TABLE_ADDR = 0x0ff600
+const EXGFX_HI_TABLE_ADDR = 0x0ff937
+const EXGFX_LEVEL_LIST_PTR = 0x0ff7ff
 
 /** Build an empty 4 MB LoROM buffer with map-mode byte set. */
 function makeMockRom(): RomFile {
   const buf = Buffer.alloc(0x400000, 0x00)
-  buf[0x7FD5] = 0x20  // LoROM map mode → file offset for SNES $00FFD5
+  buf[0x7fd5] = 0x20 // LoROM map mode → file offset for SNES $00FFD5
   return new RomFile('mock.smc', buf)
 }
 
 /** Write a 24-bit LE address into ROM at the given SNES address. */
 function write3(rom: RomFile, snesAddr: number, value: number): void {
-  rom.writeAt(snesAddr, [value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF])
+  rom.writeAt(snesAddr, [value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff])
 }
 
 /** Patch the JSL at $00A2A5 to a non-vanilla target so isLmExAnimInstalled returns true. */
 function installLmJsl(rom: RomFile, target: number = 0x108000): void {
-  rom.writeAt(ANIMATION_JSL_ADDR, [0x22, target & 0xFF, (target >> 8) & 0xFF, (target >> 16) & 0xFF])
+  rom.writeAt(ANIMATION_JSL_ADDR, [
+    0x22,
+    target & 0xff,
+    (target >> 8) & 0xff,
+    (target >> 16) & 0xff,
+  ])
 }
 
 // ── isLmExAnimInstalled ───────────────────────────────────────────────────────
@@ -57,7 +59,7 @@ function installLmJsl(rom: RomFile, target: number = 0x108000): void {
 describe('isLmExAnimInstalled', () => {
   it('returns false when JSL opcode is missing', () => {
     const rom = makeMockRom()
-    rom.writeAt(ANIMATION_JSL_ADDR, [0xEA, 0x00, 0x00, 0x00])  // NOP, not JSL
+    rom.writeAt(ANIMATION_JSL_ADDR, [0xea, 0x00, 0x00, 0x00]) // NOP, not JSL
     expect(isLmExAnimInstalled(rom)).toBe(false)
   })
 
@@ -65,9 +67,9 @@ describe('isLmExAnimInstalled', () => {
     const rom = makeMockRom()
     rom.writeAt(ANIMATION_JSL_ADDR, [
       0x22,
-      VANILLA_ANIM_TARGET & 0xFF,
-      (VANILLA_ANIM_TARGET >> 8) & 0xFF,
-      (VANILLA_ANIM_TARGET >> 16) & 0xFF,
+      VANILLA_ANIM_TARGET & 0xff,
+      (VANILLA_ANIM_TARGET >> 8) & 0xff,
+      (VANILLA_ANIM_TARGET >> 16) & 0xff,
     ])
     expect(isLmExAnimInstalled(rom)).toBe(false)
   })
@@ -81,7 +83,7 @@ describe('isLmExAnimInstalled', () => {
 
 // ── loadExAnimData guard rails ───────────────────────────────────────────────
 
-describe('loadExAnimData — guard paths', () => {
+describe('loadExAnimData - guard paths', () => {
   it('returns null when LM is not installed (delegates to isLmExAnimInstalled)', () => {
     const rom = makeMockRom()
     expect(loadExAnimData(rom, 0)).toBeNull()
@@ -90,14 +92,14 @@ describe('loadExAnimData — guard paths', () => {
   it('returns null when level-disable bit (0x20) is set in ANIM_SETTINGS_TABLE', () => {
     const rom = makeMockRom()
     installLmJsl(rom)
-    rom.writeAt(ANIM_SETTINGS_TABLE + 5, [0x20])  // level 5 has disable bit
+    rom.writeAt(ANIM_SETTINGS_TABLE + 5, [0x20]) // level 5 has disable bit
     expect(loadExAnimData(rom, 5)).toBeNull()
   })
 
   it('returns null when level-table base pointer is $FFFFFF (read3 sentinel)', () => {
     const rom = makeMockRom()
     installLmJsl(rom)
-    write3(rom, EXANIM_LEVEL_TABLE_PTR, 0xFFFFFF)
+    write3(rom, EXANIM_LEVEL_TABLE_PTR, 0xffffff)
     expect(loadExAnimData(rom, 0)).toBeNull()
   })
 
@@ -106,7 +108,7 @@ describe('loadExAnimData — guard paths', () => {
     installLmJsl(rom)
     // level table at SNES $108000, level 0's 3-byte slot has hi-byte 0
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0x108000)
-    rom.writeAt(0x108000, [0x12, 0x00, 0x10])  // hi=0 → no data
+    rom.writeAt(0x108000, [0x12, 0x00, 0x10]) // hi=0 → no data
     expect(loadExAnimData(rom, 0)).toBeNull()
   })
 
@@ -114,7 +116,7 @@ describe('loadExAnimData — guard paths', () => {
     const rom = makeMockRom()
     installLmJsl(rom)
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0x108000)
-    rom.writeAt(0x108000, [0xFF, 0xFF, 0xFF])  // all-FF → invalid
+    rom.writeAt(0x108000, [0xff, 0xff, 0xff]) // all-FF → invalid
     expect(loadExAnimData(rom, 0)).toBeNull()
   })
 
@@ -123,11 +125,11 @@ describe('loadExAnimData — guard paths', () => {
     installLmJsl(rom)
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0x108000)
     // hi=0 triggers "no ExAnim for level"; can't actually hit blockAddr===0
-    // through this combination — that branch protects against malformed data.
+    // through this combination - that branch protects against malformed data.
     // Use a sentinel pointer that's all zeros via the hi byte alternative:
     // a 3-byte ptr of [0xFF, 0x01, 0x00] leaves the function reading at SNES $0001FF
     // (not ROM-mapped), which makes blockFixed null.
-    rom.writeAt(0x108000, [0xFF, 0x01, 0x00])
+    rom.writeAt(0x108000, [0xff, 0x01, 0x00])
     expect(loadExAnimData(rom, 0)).toBeNull()
   })
 
@@ -136,9 +138,9 @@ describe('loadExAnimData — guard paths', () => {
     installLmJsl(rom)
     // Level table → block at $108100 with valid header; ExGFX list ptr is invalid
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0x108000)
-    rom.writeAt(0x108000, [0x00, 0x81, 0x10])  // → block at $108100
-    rom.writeAt(0x108100, [0x01, 0x00])         // SS=1 slot, EE=0
-    write3(rom, EXGFX_LEVEL_LIST_PTR, 0xFFFFFF)
+    rom.writeAt(0x108000, [0x00, 0x81, 0x10]) // → block at $108100
+    rom.writeAt(0x108100, [0x01, 0x00]) // SS=1 slot, EE=0
+    write3(rom, EXGFX_LEVEL_LIST_PTR, 0xffffff)
     expect(loadExAnimData(rom, 0)).toBeNull()
   })
 
@@ -149,7 +151,7 @@ describe('loadExAnimData — guard paths', () => {
     rom.writeAt(0x108000, [0x00, 0x81, 0x10])
     rom.writeAt(0x108100, [0x01, 0x00])
     write3(rom, EXGFX_LEVEL_LIST_PTR, 0x108200)
-    rom.writeAt(0x108200, [0xFF, 0xFF])  // level 0, slot 0 = $FFFF → unset
+    rom.writeAt(0x108200, [0xff, 0xff]) // level 0, slot 0 = $FFFF → unset
     expect(loadExAnimData(rom, 0)).toBeNull()
   })
 
@@ -160,7 +162,7 @@ describe('loadExAnimData — guard paths', () => {
     rom.writeAt(0x108000, [0x00, 0x81, 0x10])
     rom.writeAt(0x108100, [0x01, 0x00])
     write3(rom, EXGFX_LEVEL_LIST_PTR, 0x108200)
-    rom.writeAt(0x108200, [0x00, 0x00])  // unused
+    rom.writeAt(0x108200, [0x00, 0x00]) // unused
     expect(loadExAnimData(rom, 0)).toBeNull()
   })
 
@@ -171,7 +173,7 @@ describe('loadExAnimData — guard paths', () => {
     rom.writeAt(0x108000, [0x00, 0x81, 0x10])
     rom.writeAt(0x108100, [0x01, 0x00])
     write3(rom, EXGFX_LEVEL_LIST_PTR, 0x108200)
-    rom.writeAt(0x108200, [0x10, 0x00])  // fileNum = $0010 < $80 → null
+    rom.writeAt(0x108200, [0x10, 0x00]) // fileNum = $0010 < $80 → null
     expect(loadExAnimData(rom, 0)).toBeNull()
   })
 
@@ -182,15 +184,15 @@ describe('loadExAnimData — guard paths', () => {
     rom.writeAt(0x108000, [0x00, 0x81, 0x10])
     rom.writeAt(0x108100, [0x01, 0x00])
     write3(rom, EXGFX_LEVEL_LIST_PTR, 0x108200)
-    rom.writeAt(0x108200, [0x80, 0x00])  // fileNum = $80 → look in LO table
-    write3(rom, EXGFX_LO_TABLE_ADDR + (0x80 - 0x80) * 3, 0x000000)  // ptr is 0
+    rom.writeAt(0x108200, [0x80, 0x00]) // fileNum = $80 → look in LO table
+    write3(rom, EXGFX_LO_TABLE_ADDR + (0x80 - 0x80) * 3, 0x000000) // ptr is 0
     expect(loadExAnimData(rom, 0)).toBeNull()
   })
 })
 
 // ── loadExAnimData happy paths ───────────────────────────────────────────────
 
-describe('loadExAnimData — happy paths', () => {
+describe('loadExAnimData - happy paths', () => {
   /**
    * Build a minimal valid ExAnim block with one GFX slot whose 4 tiles are
    * solid colors taken from a 4-tile decompressed ExGFX buffer.
@@ -199,12 +201,14 @@ describe('loadExAnimData — happy paths', () => {
    * one slot AA=0 (GFX), TT=0, FF=0 (1 frame), DDdd vram word addr=$0040
    * (charBase = 4), one frame at RAM addr $AD00 (buffer offset 0).
    */
-  function buildExAnimRom(opts: {
-    fileNum?: number  // default $80
-    paletteOnly?: boolean  // first slot has bit 7 set
-    slotCount?: number
-    badSlotCount?: boolean
-  } = {}): RomFile {
+  function buildExAnimRom(
+    opts: {
+      fileNum?: number // default $80
+      paletteOnly?: boolean // first slot has bit 7 set
+      slotCount?: number
+      badSlotCount?: boolean
+    } = {},
+  ): RomFile {
     const fileNum = opts.fileNum ?? 0x80
     const paletteOnly = opts.paletteOnly ?? false
     const slotCount = opts.slotCount ?? 1
@@ -214,41 +218,42 @@ describe('loadExAnimData — happy paths', () => {
 
     // Level table → per-level entry
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0x108000)
-    rom.writeAt(0x108000, [0x00, 0x81, 0x10])  // → $108100
+    rom.writeAt(0x108000, [0x00, 0x81, 0x10]) // → $108100
 
     // ExAnim block at $108100
     // Fixed header (8 bytes): SS EE CCcc IIii MMmm
-    const ss = opts.badSlotCount ? 0xFF : slotCount
+    const ss = opts.badSlotCount ? 0xff : slotCount
     rom.writeAt(0x108100, [ss, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
 
     // DDdd array starts at +8, with `slotCount` × 2-byte offsets to slot data.
     // Place each slot at offset 0x10 (relative to ddddArrayStart), 0x20, ...
     for (let s = 0; s < slotCount; s++) {
       const rel = 0x10 + s * 0x20
-      rom.writeAt(0x108100 + 8 + s * 2, [rel & 0xFF, (rel >> 8) & 0xFF])
+      rom.writeAt(0x108100 + 8 + s * 2, [rel & 0xff, (rel >> 8) & 0xff])
     }
 
     // Slot data: AA TT FF DDdd MMmm (1 frame, vram word addr = $0040 → charBase 4)
     for (let s = 0; s < slotCount; s++) {
       const rel = 0x10 + s * 0x20
       const slotAddr = 0x108100 + 8 + rel
-      const aa = (s === 0 && paletteOnly) ? 0x80 : 0x00
+      const aa = s === 0 && paletteOnly ? 0x80 : 0x00
       // 1 frame (FF=0), DDdd=$0040, frame ramAddr=$AD00 (buffer offset 0)
-      rom.writeAt(slotAddr, [aa, 0x00, 0x00, 0x40, 0x00, 0x00, 0xAD])
+      rom.writeAt(slotAddr, [aa, 0x00, 0x00, 0x40, 0x00, 0x00, 0xad])
     }
 
     // ExGFX list: level 0 slot 0 → fileNum
     write3(rom, EXGFX_LEVEL_LIST_PTR, 0x108300)
-    rom.writeAt(0x108300, [fileNum & 0xFF, (fileNum >> 8) & 0xFF])
+    rom.writeAt(0x108300, [fileNum & 0xff, (fileNum >> 8) & 0xff])
 
     // Stamp a hand-built LZ2 stream that decompresses to 128 bytes (4 tiles).
-    rom.writeAt(0x10A000, LZ2_128_BYTES_OF_42)
+    rom.writeAt(0x10a000, LZ2_128_BYTES_OF_42)
 
     // Point the ExGFX pointer-table entry to the compressed buffer.
-    const tableAddr = fileNum >= 0x100
-      ? EXGFX_HI_TABLE_ADDR + (fileNum - 0x100) * 3
-      : EXGFX_LO_TABLE_ADDR + (fileNum - 0x80) * 3
-    write3(rom, tableAddr, 0x10A000)
+    const tableAddr =
+      fileNum >= 0x100
+        ? EXGFX_HI_TABLE_ADDR + (fileNum - 0x100) * 3
+        : EXGFX_LO_TABLE_ADDR + (fileNum - 0x80) * 3
+    write3(rom, tableAddr, 0x10a000)
 
     return rom
   }
@@ -260,8 +265,8 @@ describe('loadExAnimData — happy paths', () => {
     expect(data!.frameCount).toBe(1)
     expect(data!.frames.length).toBe(1)
     expect(data!.frames[0].length).toBe(1)
-    expect(data!.frames[0][0].charBase).toBe(4)  // vramWord $0040 >> 4
-    expect(data!.frames[0][0].tiles.length).toBe(4)  // EXANIM_TILES_PER_SLOT
+    expect(data!.frames[0][0].charBase).toBe(4) // vramWord $0040 >> 4
+    expect(data!.frames[0][0].tiles.length).toBe(4) // EXANIM_TILES_PER_SLOT
   })
 
   it('handles fileNum >= $100 via the HI table (different lookup branch)', () => {

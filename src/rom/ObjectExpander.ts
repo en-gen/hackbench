@@ -25,13 +25,13 @@ export const TILE_EMPTY = 0x25
 export const TILE_UNKNOWN = 0x00
 
 /** SNES address of the DATA_05F200 secondary-entrance attribute table (bank_05.asm:9287). */
-const DATA_05F200_ADDR = 0x05_F200
+const DATA_05F200_ADDR = 0x05_f200
 
 /**
  * Read Layer3Setting for a level from DATA_05F200 (bank_05.asm line 9287).
  *
  * Layer3Setting is a 2-bit value stored in bits 7:6 of DATA_05F200[levelNum].
- * The ASM extracts it with: AND #$C0; CLC; ASL; ROL; ROL — equivalent to >> 6.
+ * The ASM extracts it with: AND #$C0; CLC; ASL; ROL; ROL - equivalent to >> 6.
  * Non-zero values cause CODE_009FB8 to call CODE_00A045 every gameplay frame,
  * which zeroes the OWLayer1VramBuffer region ($7EE400–$7EFDFF). This region
  * overlaps the Map16 tile buffer at screen 16+ in the row-major WRAM layout
@@ -43,14 +43,14 @@ const DATA_05F200_ADDR = 0x05_F200
  */
 export function readLayer3Setting(rom: RomFile, levelNum: number): number {
   const byte = rom.readByte(DATA_05F200_ADDR + levelNum) ?? 0
-  return (byte & 0xC0) >> 6
+  return (byte & 0xc0) >> 6
 }
 
 export type { TileGrid, OwnerGrid } from './objectHandlers/cursor'
 export { OWNER_NONE } from './objectHandlers/cursor'
 
-const MAP16_OW_L1_VRAM_BUFFER_OFFSET = 0x1C00  // OWLayer1VramBuffer − Map16TilesLow
-const MAP16_BYTES_PER_SCREEN_H = 0x1B0          // 27 rows × 16 cols
+const MAP16_OW_L1_VRAM_BUFFER_OFFSET = 0x1c00 // OWLayer1VramBuffer − Map16TilesLow
+const MAP16_BYTES_PER_SCREEN_H = 0x1b0 // 27 rows × 16 cols
 
 /**
  * CODE_00A045 (bank_00.asm) zeroes OWLayer1VramBuffer in batches.  Each batch
@@ -59,7 +59,7 @@ const MAP16_BYTES_PER_SCREEN_H = 0x1B0          // 27 rows × 16 cols
  *
  * Byte at OWLayer1VramBuffer+off is zeroed iff (off % $1B0) < $B0.
  */
-const MAP16_OW_L1_ZERO_BATCH_SIZE = 0xB0        // bytes zeroed per $1B0-stride batch
+const MAP16_OW_L1_ZERO_BATCH_SIZE = 0xb0 // bytes zeroed per $1B0-stride batch
 
 /**
  * Number of extra screens appended to a horizontal grid when layer3Setting is
@@ -102,8 +102,8 @@ export function createGrid(screens: number, isVertical = false, layer3Setting = 
       for (let r = 0; r < SCREEN_H; r++) {
         const wramOffset = overflowScreen * MAP16_BYTES_PER_SCREEN_H + r * SCREEN_W
         const owlBufOff = wramOffset - MAP16_OW_L1_VRAM_BUFFER_OFFSET
-        const zeroed = owlBufOff >= 0
-          && (owlBufOff % MAP16_BYTES_PER_SCREEN_H) < MAP16_OW_L1_ZERO_BATCH_SIZE
+        const zeroed =
+          owlBufOff >= 0 && owlBufOff % MAP16_BYTES_PER_SCREEN_H < MAP16_OW_L1_ZERO_BATCH_SIZE
         const fillValue = zeroed ? 0x00 : TILE_EMPTY
         for (let c = 0; c < SCREEN_W; c++) {
           grid[r].push(fillValue)
@@ -123,19 +123,41 @@ export function createGrid(screens: number, isVertical = false, layer3Setting = 
  * optional: callers that only want tiles pay nothing for the bookkeeping.
  */
 export function expandObject(
-  grid: TileGrid, obj: LevelObject, rom: RomFile, tileset: number,
-  owners: OwnerGrid | null = null, owner: number = OWNER_NONE,
+  grid: TileGrid,
+  obj: LevelObject,
+  rom: RomFile,
+  tileset: number,
+  owners: OwnerGrid | null = null,
+  owner: number = OWNER_NONE,
 ): void {
   if (obj.type === 'extended') {
     // For extended objects, LevelParser stores the extended type in `objectNumber`
     // (per its comment) and the raw settings byte in `settings`. The ASM's
     // dispatch uses LvlLoadObjSize as the selector, which maps to our objectNumber.
-    const cur = makeCursor(grid, rom, tileset, obj.x, obj.y, obj.objectNumber, obj.settings,
-      owners, owner)
+    const cur = makeCursor(
+      grid,
+      rom,
+      tileset,
+      obj.x,
+      obj.y,
+      obj.objectNumber,
+      obj.settings,
+      owners,
+      owner,
+    )
     dispatchExtended(cur)
   } else {
-    const cur = makeCursor(grid, rom, tileset, obj.x, obj.y, obj.objectNumber, obj.settings,
-      owners, owner)
+    const cur = makeCursor(
+      grid,
+      rom,
+      tileset,
+      obj.x,
+      obj.y,
+      obj.objectNumber,
+      obj.settings,
+      owners,
+      owner,
+    )
     dispatchStandard(cur)
   }
 }
@@ -166,8 +188,8 @@ function applyMode9BossArena(grid: TileGrid): void {
     if (!r) return
     for (let c = 0; c < 32 && c < r.length; c++) r[c] = tile
   }
-  fillRow(11, 0x32)   // bridge floor (MakeMode7BossArenaMap16 LDA #$32)
-  fillRow(13, 0x05)   // lava / solid floor (MakeASolidFloor LDA #$05, X=$D0)
+  fillRow(11, 0x32) // bridge floor (MakeMode7BossArenaMap16 LDA #$32)
+  fillRow(13, 0x05) // lava / solid floor (MakeASolidFloor LDA #$05, X=$D0)
 }
 
 /**
@@ -196,8 +218,13 @@ function applyMode11BossArena(grid: TileGrid): void {
  * zeroed (needed for correct tile output in maps like $002 and $127).
  */
 export function expandMap(
-  objects: LevelObject[], screens: number, rom: RomFile, tileset = 0,
-  isVertical = false, levelMode?: number, levelNum?: number,
+  objects: LevelObject[],
+  screens: number,
+  rom: RomFile,
+  tileset = 0,
+  isVertical = false,
+  levelMode?: number,
+  levelNum?: number,
 ): TileGrid {
   return expandMapOwned(objects, screens, rom, tileset, isVertical, levelMode, levelNum).grid
 }
@@ -219,16 +246,17 @@ export interface ExpandedMap {
  * object drew them and no object edit can change them.
  */
 export function expandMapOwned(
-  objects: LevelObject[], screens: number, rom: RomFile, tileset = 0,
-  isVertical = false, levelMode?: number, levelNum?: number,
+  objects: LevelObject[],
+  screens: number,
+  rom: RomFile,
+  tileset = 0,
+  isVertical = false,
+  levelMode?: number,
+  levelNum?: number,
 ): ExpandedMap {
   // Boss-arena modes override the header screen count.
-  const effectiveScreens = (levelMode === 9 || levelMode === 11)
-    ? BOSS_ARENA_SCREENS
-    : screens
-  const layer3Setting = (!isVertical && levelNum !== undefined)
-    ? readLayer3Setting(rom, levelNum)
-    : 0
+  const effectiveScreens = levelMode === 9 || levelMode === 11 ? BOSS_ARENA_SCREENS : screens
+  const layer3Setting = !isVertical && levelNum !== undefined ? readLayer3Setting(rom, levelNum) : 0
   const grid = createGrid(effectiveScreens, isVertical, layer3Setting)
 
   // Boss-arena levels write tiles via game-mode init, not object handlers.

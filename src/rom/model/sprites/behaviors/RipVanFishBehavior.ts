@@ -1,7 +1,7 @@
 import { MovementBehavior, type BehaviorMeta } from '../MovementBehavior'
 
 /**
- * $3D Rip Van Fish — `RipVanFishMain` (bank_02.asm:8462).
+ * $3D Rip Van Fish - `RipVanFishMain` (bank_02.asm:8462).
  *
  * Sleeps until Mario enters the wake-up zone, then chases. The detection
  * test runs on every frame inside the swim state (CODE_02C02E):
@@ -25,7 +25,7 @@ import { MovementBehavior, type BehaviorMeta } from '../MovementBehavior'
  * sprite's spawn position.
  *
  * Chuck-whistling override: when `ChuckIsWhistling != 0` the test is
- * skipped and the fish wakes immediately. Not modeled here — the
+ * skipped and the fish wakes immediately. Not modeled here - the
  * editor overlay reflects the static distance check only.
  */
 

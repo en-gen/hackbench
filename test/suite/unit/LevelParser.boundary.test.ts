@@ -1,5 +1,5 @@
 /**
- * LevelParser — boundary-case + lesser-tested function tests.
+ * LevelParser - boundary-case + lesser-tested function tests.
  *
  * Existing LevelParser.test.ts covers header, objects, sprites, and the
  * vertical-level swap. This file adds:
@@ -22,10 +22,8 @@ import {
 } from '../../../src/rom/LevelParser'
 
 const ZERO_HEADER: [number, number, number, number, number] = [0, 0, 0, 0, 0]
-const makeLevel = (
-  header: [number, number, number, number, number],
-  body: number[],
-): Buffer => Buffer.from([...header, ...body, 0xFF])
+const makeLevel = (header: [number, number, number, number, number], body: number[]): Buffer =>
+  Buffer.from([...header, ...body, 0xff])
 
 // ── isLevelModeVerticalL2 ────────────────────────────────────────────────────
 
@@ -46,7 +44,7 @@ describe('isLevelModeVerticalL2', () => {
 
 // ── Screen-exit objects in parseLevelObjects ─────────────────────────────────
 
-describe('parseLevelObjects — screen-exit objects (ext, settings == 0)', () => {
+describe('parseLevelObjects - screen-exit objects (ext, settings == 0)', () => {
   it('records primary exit destination from the extra byte (no high bit)', () => {
     // Ext object (objNum=0), settings=0, then 1 extra byte = destination level lo
     // b1 = 0 → highBit=0, secondaryFlag=0 (primary)
@@ -82,7 +80,7 @@ describe('parseLevelObjects — screen-exit objects (ext, settings == 0)', () =>
     const { objects } = parseLevelObjects(buf)
     expect(objects).toHaveLength(2)
     expect(objects[0].screenExitDest).toBeUndefined()
-    expect(objects[1].objectNumber).toBe(1)  // second object parsed correctly
+    expect(objects[1].objectNumber).toBe(1) // second object parsed correctly
   })
 
   it('skips the extra-byte read when the stream ends exactly at the exit object', () => {
@@ -95,9 +93,9 @@ describe('parseLevelObjects — screen-exit objects (ext, settings == 0)', () =>
   })
 })
 
-// ── parseLevelObjects — truncation safety ─────────────────────────────────────
+// ── parseLevelObjects - truncation safety ─────────────────────────────────────
 
-describe('parseLevelObjects — truncation safety', () => {
+describe('parseLevelObjects - truncation safety', () => {
   it('stops cleanly when only 2 bytes are available after the header', () => {
     // header (5) + 2 partial bytes; no terminator.
     const buf = Buffer.from([0, 0, 0, 0, 0, 0x00, 0x10])
@@ -119,7 +117,7 @@ describe('parseL2Objects', () => {
   it('horizontal: same byte format as L1, no header parsed', () => {
     // L2 stream: 5-byte "header" we discard, then a 3-byte normal object.
     // Object: $0A=0x03 (y=3), $0B=0x25 (objNum=2, x=5), $59=0x10
-    const buf = Buffer.from([0, 0, 0, 0, 0, 0x03, 0x25, 0x10, 0xFF])
+    const buf = Buffer.from([0, 0, 0, 0, 0, 0x03, 0x25, 0x10, 0xff])
     const objs = parseL2Objects(buf, 1, false)
     expect(objs).toHaveLength(1)
     expect(objs[0].x).toBe(5)
@@ -129,19 +127,29 @@ describe('parseL2Objects', () => {
 
   it('vertical: x = b0 low + (highCoord ? 16 : 0); y = screen*16 + b1 low', () => {
     // Same object encoding but vertical interpretation.
-    const buf = Buffer.from([0, 0, 0, 0, 0, 0x15, 0x17, 0x00, 0xFF])
+    const buf = Buffer.from([0, 0, 0, 0, 0, 0x15, 0x17, 0x00, 0xff])
     const objs = parseL2Objects(buf, 1, true)
-    expect(objs[0].x).toBe(5 + 16)   // highCoord set → right half
-    expect(objs[0].y).toBe(7)        // screen 0, low nibble of b1
+    expect(objs[0].x).toBe(5 + 16) // highCoord set → right half
+    expect(objs[0].y).toBe(7) // screen 0, low nibble of b1
   })
 
   it('honours the ext-$01 screen jump', () => {
     const buf = Buffer.from([
-      0, 0, 0, 0, 0,
-      0x00, 0x10, 0x00,   // std on screen 0
-      0x0A, 0x00, 0x01,   // ext $01 → set screen to 0x0A
-      0x00, 0x10, 0x00,   // std on screen 10
-      0xFF,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0x00,
+      0x10,
+      0x00, // std on screen 0
+      0x0a,
+      0x00,
+      0x01, // ext $01 → set screen to 0x0A
+      0x00,
+      0x10,
+      0x00, // std on screen 10
+      0xff,
     ])
     const objs = parseL2Objects(buf, 16, false)
     expect(objs).toHaveLength(3)
@@ -162,18 +170,12 @@ describe('parseLevelScreenExits', () => {
     // Header (5) + 1 object (3) + $FF + 2 screens × 2 bytes
     // Screen 0 exit: lo=$30, hi=$01 → bit 0 of hi = 1 → dest = $130
     // Screen 1 exit: lo=$10, hi=$00 → dest = $010
-    const buf = Buffer.from([
-      0, 0, 0, 0, 0,
-      0x00, 0x10, 0x00,
-      0xFF,
-      0x30, 0x01,
-      0x10, 0x00,
-    ])
+    const buf = Buffer.from([0, 0, 0, 0, 0, 0x00, 0x10, 0x00, 0xff, 0x30, 0x01, 0x10, 0x00])
     expect(parseLevelScreenExits(buf, 2)).toEqual([0x130, 0x010])
   })
 
   it('returns fewer entries than `screens` when data runs out', () => {
-    const buf = Buffer.from([0, 0, 0, 0, 0, 0xFF, 0x42, 0x00])
+    const buf = Buffer.from([0, 0, 0, 0, 0, 0xff, 0x42, 0x00])
     expect(parseLevelScreenExits(buf, 5)).toEqual([0x042])
   })
 
@@ -188,14 +190,14 @@ describe('parseLevelScreenExits', () => {
 
 describe('getObjectStreamLength', () => {
   it('returns header(5) + objects(3) + terminator(1) for a normal stream', () => {
-    const buf = Buffer.from([0, 0, 0, 0, 0, 0x00, 0x10, 0x00, 0xFF])
+    const buf = Buffer.from([0, 0, 0, 0, 0, 0x00, 0x10, 0x00, 0xff])
     expect(getObjectStreamLength(buf, true)).toBe(9)
   })
 
   it('counts the extra byte for screen-exit ext objects', () => {
     // hasHeader=false → starts at byte 0
     // ext-exit: 3 + 1 (extra) = 4 bytes, then $FF
-    const buf = Buffer.from([0x00, 0x00, 0x00, 0x42, 0xFF])
+    const buf = Buffer.from([0x00, 0x00, 0x00, 0x42, 0xff])
     expect(getObjectStreamLength(buf, false)).toBe(5)
   })
 
@@ -205,7 +207,7 @@ describe('getObjectStreamLength', () => {
   })
 
   it('stops cleanly on a partial trailing object (pos+2 >= length)', () => {
-    // Two bytes after the header — not enough for a 3-byte object.
+    // Two bytes after the header - not enough for a 3-byte object.
     const buf = Buffer.from([0, 0, 0, 0, 0, 0x00, 0x10])
     expect(getObjectStreamLength(buf, true)).toBe(5)
   })
@@ -216,12 +218,12 @@ describe('getObjectStreamLength', () => {
 describe('getSpriteStreamLength', () => {
   it('returns 1 (header) + 3*N + 1 ($FF) for valid sprite streams', () => {
     // Header(1) + 1 sprite(3) + $FF
-    const buf = Buffer.from([0x00, 0x40, 0xA0, 0x0E, 0xFF])
+    const buf = Buffer.from([0x00, 0x40, 0xa0, 0x0e, 0xff])
     expect(getSpriteStreamLength(buf)).toBe(5)
   })
 
   it('returns full length when no terminator is found', () => {
-    const buf = Buffer.from([0x00, 0x40, 0xA0, 0x0E])
+    const buf = Buffer.from([0x00, 0x40, 0xa0, 0x0e])
     expect(getSpriteStreamLength(buf)).toBe(4)
   })
 

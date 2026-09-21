@@ -1,5 +1,5 @@
 /**
- * ThwompAppearance.render() — cursor proximity face selection.
+ * ThwompAppearance.render() - cursor proximity face selection.
  *
  * Source: ThwompGfx (bank_01.asm:6422) + InitThwomp (bank_01.asm:6316).
  * InitThwomp adds +8 to SpriteXPosLow at spawn. ThwompGfx then dispatches
@@ -24,7 +24,10 @@ import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { ThwompAppearance } from '../../../../src/rom/model/sprites/appearances/ThwompAppearance'
-import { partsHitRect, type SpritePart } from '../../../../src/rom/model/sprites/appearances/StaticSpriteAppearance'
+import {
+  partsHitRect,
+  type SpritePart,
+} from '../../../../src/rom/model/sprites/appearances/StaticSpriteAppearance'
 import type { Palette } from '../../../../src/rom/model/palette/Palette'
 import type { RenderTarget, PixelPos } from '../../../../src/rom/model/RenderTarget'
 import type { SpriteBehavior } from '../../../../src/rom/model/sprites/SpriteBehavior'
@@ -57,12 +60,17 @@ function makeBehavior(reactRangeDy?: number): SpriteBehavior {
   return { reactRangeDy } as unknown as SpriteBehavior
 }
 
-interface BlitPos { x: number; y: number }
+interface BlitPos {
+  x: number
+  y: number
+}
 
 function capturingTarget() {
   const blits: BlitPos[] = []
   const target: RenderTarget = {
-    blit8x8(_px, pos: PixelPos) { blits.push({ x: pos.x, y: pos.y }) },
+    blit8x8(_px, pos: PixelPos) {
+      blits.push({ x: pos.x, y: pos.y })
+    },
     fillRect() {},
   }
   return { target, blits }
@@ -70,13 +78,13 @@ function capturingTarget() {
 
 /** Build a ThwompAppearance with distinct, identifiable face and body parts. */
 function makeThwomp() {
-  const body  = [makePart(4, 0)]      // one body part
-  const alert = [makePart(8, 8)]      // alert face at distinct offset
-  const aggr  = [makePart(8, 8)]      // aggressive face at same offset
+  const body = [makePart(4, 0)] // one body part
+  const alert = [makePart(8, 8)] // alert face at distinct offset
+  const aggr = [makePart(8, 8)] // aggressive face at same offset
   return new ThwompAppearance(body, alert, aggr)
 }
 
-describe('ThwompAppearance — no cursor (no cursorPx)', () => {
+describe('ThwompAppearance - no cursor (no cursorPx)', () => {
   beforeEach(resetEditorStore)
 
   it('renders body parts only when cursorPx is null', () => {
@@ -90,7 +98,7 @@ describe('ThwompAppearance — no cursor (no cursorPx)', () => {
   })
 })
 
-describe('ThwompAppearance — face selection by hdist', () => {
+describe('ThwompAppearance - face selection by hdist', () => {
   beforeEach(resetEditorStore)
 
   // Sprite at x=0, y=0. anchorX = 0+8 = 8.
@@ -147,7 +155,7 @@ describe('ThwompAppearance — face selection by hdist', () => {
   })
 })
 
-describe('ThwompAppearance — inYRange gating', () => {
+describe('ThwompAppearance - inYRange gating', () => {
   beforeEach(resetEditorStore)
 
   // Sprite at x=0, y=100. reactRangeDy=32 → y ∈ [100, 132).
@@ -193,12 +201,12 @@ describe('ThwompAppearance — inYRange gating', () => {
   })
 })
 
-describe('ThwompAppearance — hitRect', () => {
+describe('ThwompAppearance - hitRect', () => {
   it('hitRect is the bounding box of body + alertFace combined', () => {
     // body at (4,0), alertFace at (8,8): x0=4, x1=16, y0=0, y1=16 → w=12, h=16
-    const body  = [makePart(4, 0)]
+    const body = [makePart(4, 0)]
     const alert = [makePart(8, 8)]
-    const aggr  = [makePart(8, 8)]
+    const aggr = [makePart(8, 8)]
     const app = new ThwompAppearance(body, alert, aggr)
     expect(app.hitRect).toEqual(partsHitRect([...body, ...alert]))
   })
@@ -207,7 +215,7 @@ describe('ThwompAppearance — hitRect', () => {
 // ---- renderOverlay ----------------------------------------------------------
 // x=0,y=0: colStart=0, colEnd=2, startRow=2. Stop-line strokeRect = x=5, y=blockerRow*16+1.
 
-describe('ThwompAppearance.fromTables — construction', () => {
+describe('ThwompAppearance.fromTables - construction', () => {
   function makePlaceholder(): Char {
     return new Char(0, new StaticPixelsBehavior(new Uint8Array(64)))
   }
@@ -225,10 +233,10 @@ describe('ThwompAppearance.fromTables — construction', () => {
     const body = [...app.bodyParts]
     // bodyEntries: [left-top, right-top, left-bottom, right-bottom]; each → 4 parts
     // right-top (parts 4-7) and right-bottom (parts 12-15) have hFlip=true
-    expect(body.slice(0,  4).every(p => p.flipX === false)).toBe(true)  // left-top
-    expect(body.slice(4,  8).every(p => p.flipX === true)).toBe(true)   // right-top
-    expect(body.slice(8, 12).every(p => p.flipX === false)).toBe(true)  // left-bottom
-    expect(body.slice(12, 16).every(p => p.flipX === true)).toBe(true)  // right-bottom
+    expect(body.slice(0, 4).every(p => p.flipX === false)).toBe(true) // left-top
+    expect(body.slice(4, 8).every(p => p.flipX === true)).toBe(true) // right-top
+    expect(body.slice(8, 12).every(p => p.flipX === false)).toBe(true) // left-bottom
+    expect(body.slice(12, 16).every(p => p.flipX === true)).toBe(true) // right-bottom
   })
 
   it('face parts are never H-flipped', () => {

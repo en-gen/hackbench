@@ -1,7 +1,7 @@
 import { MovementBehavior, type BehaviorMeta } from '../MovementBehavior'
 
 /**
- * $C2 Blurp fish — `Blurp` handler at bank_03.asm:565.
+ * $C2 Blurp fish - `Blurp` handler at bank_03.asm:565.
  *
  * Movement (decoded from `BlurpSpeedX`/`BlurpAccelY`/`BlurpMaxSpeedY`,
  * bank_03.asm:556-563):
@@ -32,9 +32,9 @@ import { MovementBehavior, type BehaviorMeta } from '../MovementBehavior'
  * normal play: the fish swims off-screen in one direction.
  */
 
-export const BLURP_X_SPEED_SUBPX     = 0x08   // BlurpSpeedX[0]; ±0.5 px/frame avg
-export const BLURP_Y_AMPLITUDE_PX    = 4      // integrated peak from Y triangle wave
-export const BLURP_Y_CYCLE_FRAMES    = 64
+export const BLURP_X_SPEED_SUBPX = 0x08 // BlurpSpeedX[0]; ±0.5 px/frame avg
+export const BLURP_Y_AMPLITUDE_PX = 4 // integrated peak from Y triangle wave
+export const BLURP_Y_CYCLE_FRAMES = 64
 
 export class BlurpBehavior extends MovementBehavior {
   readonly kind = 'blurp'

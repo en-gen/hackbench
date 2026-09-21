@@ -12,7 +12,8 @@ const path = require('path')
 const os = require('os')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
-const ROM = process.env.HB_ROM || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
+const ROM =
+  process.env.HB_ROM || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
 
 /** Reach Theia's DI container the way its own tooling does. */
 const GET_SVC = `function getSvc(name) {
@@ -73,16 +74,19 @@ test('executing it creates a project on disk', async ({ page }) => {
   // Drive the backend service directly. The dialog is a separate surface with
   // its own test; what is being asserted here is that the command's work
   // actually reaches the filesystem through the RPC boundary.
-  const result = await page.evaluate(async ({ romPath, directory }) => {
-    const target = getSvc('Symbol(ProjectService)')
-    if (!target) return { error: 'ProjectService not resolvable from the frontend' }
-    try {
-      const p = await target.createProject({ romPath, name: 'MyHack', directory })
-      return { ok: true, manifestPath: p.manifestPath, baseRom: p.baseRom }
-    } catch (e) {
-      return { error: String(e && e.message) }
-    }
-  }, { romPath: ROM, directory: dir })
+  const result = await page.evaluate(
+    async ({ romPath, directory }) => {
+      const target = getSvc('Symbol(ProjectService)')
+      if (!target) return { error: 'ProjectService not resolvable from the frontend' }
+      try {
+        const p = await target.createProject({ romPath, name: 'MyHack', directory })
+        return { ok: true, manifestPath: p.manifestPath, baseRom: p.baseRom }
+      } catch (e) {
+        return { error: String(e && e.message) }
+      }
+    },
+    { romPath: ROM, directory: dir },
+  )
 
   expect(result.error, 'createProject should not have failed').toBeUndefined()
   expect(fs.existsSync(path.join(dir, 'MyHack.hbproj'))).toBe(true)
@@ -115,19 +119,22 @@ test('the hack metadata reaches the manifest on disk', async ({ page }) => {
   const dir = path.join(tmp, 'Titled')
   await page.addScriptTag({ content: GET_SVC })
 
-  const result = await page.evaluate(async ({ romPath, directory }) => {
-    const svc = getSvc('Symbol(ProjectService)')
-    const p = await svc.createProject({
-      romPath,
-      name: 'Titled',
-      directory,
-      title: 'Super Kaizo World ]|[',
-      summary: 'A short hack about falling.',
-      authors: ['engenb', 'someone else'],
-      version: '1.2.0',
-    })
-    return { title: p.title, version: p.version, authors: p.authors }
-  }, { romPath: ROM, directory: dir })
+  const result = await page.evaluate(
+    async ({ romPath, directory }) => {
+      const svc = getSvc('Symbol(ProjectService)')
+      const p = await svc.createProject({
+        romPath,
+        name: 'Titled',
+        directory,
+        title: 'Super Kaizo World ]|[',
+        summary: 'A short hack about falling.',
+        authors: ['engenb', 'someone else'],
+        version: '1.2.0',
+      })
+      return { title: p.title, version: p.version, authors: p.authors }
+    },
+    { romPath: ROM, directory: dir },
+  )
 
   expect(result.title).toBe('Super Kaizo World ]|[')
 
@@ -145,12 +152,18 @@ test('a title that is not a legal folder name still works', async ({ page }) => 
   // The whole reason title and name are separate fields.
   const dir = path.join(tmp, 'my-hack')
   await page.addScriptTag({ content: GET_SVC })
-  await page.evaluate(async ({ romPath, directory }) => {
-    const svc = getSvc('Symbol(ProjectService)')
-    await svc.createProject({
-      romPath, name: 'my-hack', directory, title: 'Kaizo: World ]|[ <final>',
-    })
-  }, { romPath: ROM, directory: dir })
+  await page.evaluate(
+    async ({ romPath, directory }) => {
+      const svc = getSvc('Symbol(ProjectService)')
+      await svc.createProject({
+        romPath,
+        name: 'my-hack',
+        directory,
+        title: 'Kaizo: World ]|[ <final>',
+      })
+    },
+    { romPath: ROM, directory: dir },
+  )
 
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'my-hack.hbproj'), 'utf8'))
   expect(manifest.name).toBe('my-hack')

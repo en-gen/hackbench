@@ -91,7 +91,10 @@ function findAll(cart: Uint8Array, pattern: BytePattern, limit = 4): Match[] {
   for (let i = 0; i <= last; i++) {
     let ok = true
     for (let k = 0; k < pattern.length; k++) {
-      if (pattern[k] !== -1 && cart[i + k] !== pattern[k]) { ok = false; break }
+      if (pattern[k] !== -1 && cart[i + k] !== pattern[k]) {
+        ok = false
+        break
+      }
     }
     if (!ok) continue
     out.push({ offset: i, immediate: cart[i + 1]! })
@@ -126,16 +129,16 @@ export function findSpecialMaps(rom: RomFile): SpecialMaps {
 
     if (hits.length === 0) {
       notes.push(
-        `${label}: the routine that loads it is not present in this ROM, so its map `
-        + 'cannot be identified. It is still listed among the unassigned maps.',
+        `${label}: the routine that loads it is not present in this ROM, so its map ` +
+          'cannot be identified. It is still listed among the unassigned maps.',
       )
       continue
     }
     if (hits.length > 1) {
       // Picking the first would be a guess dressed as a reading.
       notes.push(
-        `${label}: ${hits.length} candidate load sites found, so which one the game `
-        + 'runs cannot be determined. It is still listed among the unassigned maps.',
+        `${label}: ${hits.length} candidate load sites found, so which one the game ` +
+          'runs cannot be determined. It is still listed among the unassigned maps.',
       )
       continue
     }
@@ -143,8 +146,8 @@ export function findSpecialMaps(rom: RomFile): SpecialMaps {
     const index = hits[0]!.immediate - MAIN_MAP_LEVELS
     if (index < 0 || index > 0x1ff) {
       notes.push(
-        `${label}: the load site reads an out-of-range slot `
-        + `(${hits[0]!.immediate} - ${MAIN_MAP_LEVELS}), so it is not reported.`,
+        `${label}: the load site reads an out-of-range slot ` +
+          `(${hits[0]!.immediate} - ${MAIN_MAP_LEVELS}), so it is not reported.`,
       )
       continue
     }

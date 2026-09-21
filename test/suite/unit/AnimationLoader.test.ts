@@ -1,5 +1,5 @@
 /**
- * Diagnostic test for AnimationLoader — tracing berry tile placement.
+ * Diagnostic test for AnimationLoader - tracing berry tile placement.
  *
  * The berry animation (tileIdx 5) DMA's 4 tiles to VRAM char $080.
  * This test verifies the charBase, buffer offset, and tile data
@@ -11,10 +11,15 @@ import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { loadAnimationData } from '../../../src/rom/AnimationLoader'
-import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, getCharPixels } from '../../../src/rom/GfxLoader'
+import {
+  loadVram,
+  VRAM_SLOT_NAMES,
+  VRAM_CHAR_BASE,
+  getCharPixels,
+} from '../../../src/rom/GfxLoader'
 
-const ROM_PATH  = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent  = existsSync(ROM_PATH)
+const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
+const romPresent = existsSync(ROM_PATH)
 
 describe('AnimationLoader berry tiles', () => {
   if (!romPresent) {
@@ -42,11 +47,15 @@ describe('AnimationLoader berry tiles', () => {
 
     for (let t = 0; t < 2; t++) {
       const nonZero = slot1.tiles[t].filter(p => p !== 0).length
-      console.log(`  berry TL/BL tile[${t}] → char $${(0x080 + t).toString(16).padStart(3, '0')}: ${nonZero}/64 non-zero pixels`)
+      console.log(
+        `  berry TL/BL tile[${t}] → char $${(0x080 + t).toString(16).padStart(3, '0')}: ${nonZero}/64 non-zero pixels`,
+      )
     }
     for (let t = 0; t < 2; t++) {
       const nonZero = slot2.tiles[t].filter(p => p !== 0).length
-      console.log(`  berry TR/BR tile[${t}] → char $${(0x090 + t).toString(16).padStart(3, '0')}: ${nonZero}/64 non-zero pixels`)
+      console.log(
+        `  berry TR/BR tile[${t}] → char $${(0x090 + t).toString(16).padStart(3, '0')}: ${nonZero}/64 non-zero pixels`,
+      )
     }
   })
 
@@ -64,7 +73,9 @@ describe('AnimationLoader berry tiles', () => {
     console.log('\nFrame 0 animation slots (tileset 0):')
     for (const { charBase, count } of allChars) {
       const end = charBase + count - 1
-      console.log(`  chars $${charBase.toString(16).padStart(3,'0')}-$${end.toString(16).padStart(3,'0')} (${count} tiles)`)
+      console.log(
+        `  chars $${charBase.toString(16).padStart(3, '0')}-$${end.toString(16).padStart(3, '0')} (${count} tiles)`,
+      )
     }
   })
 
@@ -141,20 +152,28 @@ describe('AnimationLoader berry tiles', () => {
     // Water tiles are tileset-dependent (behavior 2).
     // For tileset 0, find slots near berry ($080) to check ordering
     const slotsNearBerry = frame0
-      .filter(s => s.charBase >= 0x040 && s.charBase <= 0x0FF)
+      .filter(s => s.charBase >= 0x040 && s.charBase <= 0x0ff)
       .sort((a, b) => a.charBase - b.charBase)
 
     console.log('\nAnimation slots near berry (chars $040-$0FF):')
     for (const slot of slotsNearBerry) {
       const end = slot.charBase + slot.tiles.length - 1
       const nonZeroCounts = slot.tiles.map(t => t.filter(p => p !== 0).length)
-      console.log(`  $${slot.charBase.toString(16).padStart(3,'0')}-$${end.toString(16).padStart(3,'0')}: pixels=[${nonZeroCounts.join(',')}]`)
+      console.log(
+        `  $${slot.charBase.toString(16).padStart(3, '0')}-$${end.toString(16).padStart(3, '0')}: pixels=[${nonZeroCounts.join(',')}]`,
+      )
     }
   })
 
   it('A/B compare our VRAM chars $060-$090 vs Mesen dump', () => {
-    const mesenPath = resolve(__dirname, '../../../tools/mesen/Debugger/Super Mario World (USA) - SnesVideoRam.dmp')
-    if (!existsSync(mesenPath)) { console.log('Mesen VRAM dump not found'); return }
+    const mesenPath = resolve(
+      __dirname,
+      '../../../tools/mesen/Debugger/Super Mario World (USA) - SnesVideoRam.dmp',
+    )
+    if (!existsSync(mesenPath)) {
+      console.log('Mesen VRAM dump not found')
+      return
+    }
 
     const mesenVram = readFileSync(mesenPath)
     const animData = loadAnimationData(rom.rom, 0)!
@@ -176,7 +195,7 @@ describe('AnimationLoader berry tiles', () => {
       }
     }
 
-    // Compare chars in the animated region ($040-$090) — covers berry area
+    // Compare chars in the animated region ($040-$090) - covers berry area
     // Mesen VRAM is 64KB of raw bytes. 4bpp: 32 bytes per tile, at word address * 2
     console.log('\nChar comparison (our vs Mesen) for chars $040-$090:')
     let mismatches = 0
@@ -208,14 +227,25 @@ describe('AnimationLoader berry tiles', () => {
         match = mesenPixels.every(p => p === 0)
       } else {
         for (let p = 0; p < 64; p++) {
-          if ((ourPixels[p] ?? 0) !== mesenPixels[p]) { match = false; break }
+          if ((ourPixels[p] ?? 0) !== mesenPixels[p]) {
+            match = false
+            break
+          }
         }
       }
       if (!match) {
         mismatches++
-        const ourRow0 = ourPixels ? Array.from(ourPixels.slice(0,8)).map(p => p.toString(16)).join('') : '(null)'
-        const mesRow0 = Array.from(mesenPixels.slice(0,8)).map(p => p.toString(16)).join('')
-        console.log(`  MISMATCH char $${charNum.toString(16).padStart(3,'0')}: our=[${ourRow0}] mesen=[${mesRow0}]`)
+        const ourRow0 = ourPixels
+          ? Array.from(ourPixels.slice(0, 8))
+              .map(p => p.toString(16))
+              .join('')
+          : '(null)'
+        const mesRow0 = Array.from(mesenPixels.slice(0, 8))
+          .map(p => p.toString(16))
+          .join('')
+        console.log(
+          `  MISMATCH char $${charNum.toString(16).padStart(3, '0')}: our=[${ourRow0}] mesen=[${mesRow0}]`,
+        )
       }
     }
     console.log(`  ${mismatches} mismatches out of ${0x090 - 0x040 + 1} chars`)
@@ -225,17 +255,26 @@ describe('AnimationLoader berry tiles', () => {
     const vram = loadVram(rom.rom, 0, 0)
     const { readGfxAssignment } = await import('../../../src/rom/GfxLoader')
     const assignment = readGfxAssignment(rom.rom, 0, 0)
-    console.log(`\nTileset 0 GFX assignment: fg1=GFX${assignment.fg1?.toString(16).padStart(2,'0')}, fg2=GFX${assignment.fg2?.toString(16).padStart(2,'0')}, fg3=GFX${assignment.fg3?.toString(16).padStart(2,'0')}, an1=GFX${assignment.an1?.toString(16).padStart(2,'0')}`)
+    console.log(
+      `\nTileset 0 GFX assignment: fg1=GFX${assignment.fg1?.toString(16).padStart(2, '0')}, fg2=GFX${assignment.fg2?.toString(16).padStart(2, '0')}, fg3=GFX${assignment.fg3?.toString(16).padStart(2, '0')}, an1=GFX${assignment.an1?.toString(16).padStart(2, '0')}`,
+    )
 
-    // Check FG2 tiles 0-15 (chars $080-$08F) — the berry goes to chars $080-$083
+    // Check FG2 tiles 0-15 (chars $080-$08F) - the berry goes to chars $080-$083
     const fg2Sheet = vram['fg2']
-    if (!fg2Sheet) { console.log('  FG2 not loaded!'); return }
+    if (!fg2Sheet) {
+      console.log('  FG2 not loaded!')
+      return
+    }
     console.log(`  FG2 sheet: ${fg2Sheet.length} tiles`)
 
     for (let t = 0; t < Math.min(16, fg2Sheet.length); t++) {
       const nonZero = fg2Sheet[t].filter(p => p !== 0).length
-      const row0 = Array.from(fg2Sheet[t].slice(0, 8)).map(p => p.toString(16)).join('')
-      console.log(`  FG2[${t}] (char $${(0x080+t).toString(16).padStart(3,'0')}): ${nonZero.toString().padStart(2)}/64 px  row0=[${row0}]`)
+      const row0 = Array.from(fg2Sheet[t].slice(0, 8))
+        .map(p => p.toString(16))
+        .join('')
+      console.log(
+        `  FG2[${t}] (char $${(0x080 + t).toString(16).padStart(3, '0')}): ${nonZero.toString().padStart(2)}/64 px  row0=[${row0}]`,
+      )
     }
   })
 
@@ -248,10 +287,12 @@ describe('AnimationLoader berry tiles', () => {
         console.log(`  frame ${frame}: NO berry slot at char $080!`)
         continue
       }
-      const tileSummary = berrySlot.tiles.map((t, i) => {
-        const nonZero = t.filter(p => p !== 0).length
-        return `tile${i}=${nonZero}px`
-      }).join(', ')
+      const tileSummary = berrySlot.tiles
+        .map((t, i) => {
+          const nonZero = t.filter(p => p !== 0).length
+          return `tile${i}=${nonZero}px`
+        })
+        .join(', ')
       console.log(`  frame ${frame}: ${tileSummary}`)
     }
   })

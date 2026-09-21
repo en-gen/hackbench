@@ -1,7 +1,10 @@
 import type { RomFile } from '../RomFile'
 import {
-  L3_TILEMAP_COLS, L3_TILEMAP_ROWS,
-  applyInitialTimer, applyStaticStatusBar, loadL3Tilemap,
+  L3_TILEMAP_COLS,
+  L3_TILEMAP_ROWS,
+  applyInitialTimer,
+  applyStaticStatusBar,
+  loadL3Tilemap,
   computeL3ScrollRange,
 } from '../L3Loader'
 import type { GfxSheet } from '../GfxLoader'
@@ -21,7 +24,7 @@ import { L3TilemapLayer, type L3Layer } from './L3Layer'
  * @param l3Chars    GFX28–GFX2B decoded sheets from loadL3Chars()
  * @param screens    Number of screens in the level (drives horizontal repeat width)
  * @param isVertical True for vertical levels (16-tile wide × screens*16-tile tall)
- * @param timeLimit  Header byte-3 bits 7:6 — drives the initial timer digits
+ * @param timeLimit  Header byte-3 bits 7:6 - drives the initial timer digits
  */
 export function buildL3(
   rom: RomFile,
@@ -40,17 +43,24 @@ export function buildL3(
   const load = loadL3Tilemap(rom, levelId, tileset, timeLimit)
   if (load) {
     const scrollRange = computeL3ScrollRange({
-      tilemap:          load.tilemap,
-      initialYPx:       load.initialYPx,
+      tilemap: load.tilemap,
+      initialYPx: load.initialYPx,
       initialCameraYPx: load.initialCameraYPx,
       levelPixelW,
-      settingsByte:     load.settingsByte,
+      settingsByte: load.settingsByte,
       tileset,
     })
-    return new L3TilemapLayer(load.tilemap, l3Chars, load.initialYPx, levelPixelW, levelPixelH, scrollRange)
+    return new L3TilemapLayer(
+      load.tilemap,
+      l3Chars,
+      load.initialYPx,
+      levelPixelW,
+      levelPixelH,
+      scrollRange,
+    )
   }
 
-  // No L3 overlay for this level — still create an L3Layer populated with
+  // No L3 overlay for this level - still create an L3Layer populated with
   // only the static status-bar tiles so the HUD toggle works everywhere.
   // initialYPx = 0xD0 picks the "non-tide" rendering path (full 512px period,
   // no bottom-anchored water positioning). That keeps the HUD-only case
@@ -58,5 +68,5 @@ export function buildL3(
   const hudOnlyTilemap = new Uint16Array(L3_TILEMAP_COLS * L3_TILEMAP_ROWS)
   applyStaticStatusBar(rom, hudOnlyTilemap)
   applyInitialTimer(rom, hudOnlyTilemap, timeLimit)
-  return new L3TilemapLayer(hudOnlyTilemap, l3Chars, 0xD0, levelPixelW, levelPixelH)
+  return new L3TilemapLayer(hudOnlyTilemap, l3Chars, 0xd0, levelPixelW, levelPixelH)
 }

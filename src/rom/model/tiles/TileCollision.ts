@@ -1,5 +1,5 @@
 /**
- * Per-tile collision classification — STRICTLY derived from SMW's
+ * Per-tile collision classification - STRICTLY derived from SMW's
  * disassembly. Exposes BOTH sprite-perspective and Mario-perspective
  * fields so consumers can pick the view that matches their query:
  *
@@ -11,7 +11,7 @@
  *     bounce, CheepCheep arc) were removed; see
  *     `docs/sprite-overlay-removal.md`.
  *   - Editor overlays ("Show surfaces", "Show walls") read the Mario
- *     fields — the designer wants to see what the player experiences.
+ *     fields - the designer wants to see what the player experiences.
  *
  * Both perspectives are still needed: dropping the sprite fields would
  * make the behavior simulators wrong, not just less decorated.
@@ -23,13 +23,13 @@
  *   floor       Top face is landable by sprites. `CODE_01933B`
  *               (bank_01.asm:2705) reached from landing path
  *               `CODE_0192C9` Y=2 via `CODE_019310`. Covers the FULL
- *               CODE_01933B path — all four branches:
+ *               CODE_01933B path - all four branches:
  *                 <$11    semi-solid via `CODE_0193B0` sub-pixel gate
  *                         (mushroom platforms, vines, ropes).
  *                 $11-$6D full solid.
  *                 $6E-$D7 slope-angle table `CODE_00FA19`, called
  *                         unconditionally for the entire range (no
- *                         DATA_00EAC1 gate — that table is buoyancy only).
+ *                         DATA_00EAC1 gate - that table is buoyancy only).
  *                 >=$D8   solid.
  *               `floor` alone is the authoritative "sprite-landable"
  *               predicate; `slopeTable` is no longer needed for this.
@@ -41,7 +41,7 @@
  *                         0/7 per bank_05.asm:323).
  *               Everything else: not solid from below.
  *
- *   wall        Horizontal collision — sprite approaching from either
+ *   wall        Horizontal collision - sprite approaching from either
  *               side is blocked. `CODE_01928E` (bank_01.asm:2613-2635).
  *               Low byte $11-$6D, excluding coin / vine / empty per
  *               `DATA_00F05C` / `CODE_00F17F` block-behavior filter.
@@ -57,13 +57,13 @@
  * velocity universally (the `HurtMario` damage side-effect is
  * orthogonal to whether he stands on the tile).
  *
- * Derivation (no Mario-physics dispatch — static subset):
+ * Derivation (no Mario-physics dispatch - static subset):
  *   marioFloor   = (floor || slopeTable) && isMarioStandable(low)
  *   marioCeiling =  ceiling              && isMarioStandable(low)
  *   marioWall    =  wall                 && isMarioStandable(low)
  *
  * `marioFloor` includes slope tiles (Mario lands at slope angle via
- * `CODE_00FA19`), while sprite-side `floor` does not — slopes route
+ * `CODE_00FA19`), while sprite-side `floor` does not - slopes route
  * through a separate dispatch at the sprite layer. See
  * `isMarioStandable` in `BlockBehaviorLoader.ts` for the ASM-cited
  * exclusion list.
@@ -75,7 +75,7 @@
  *   slopeTable  `DATA_00EAC1` membership (bank_00.asm:11946) via
  *               `CODE_00F04D` (bank_00.asm:12730-12741). 26-entry
  *               table used by the **sprite buoyancy check**
- *               (`CODE_019211`, bank_01.asm:2555) — not the landing
+ *               (`CODE_019211`, bank_01.asm:2555) - not the landing
  *               path. The landing path (`CODE_01933B`) does not consult
  *               this table. Field retained for reference; Phase 4 will
  *               remove it once all consumers migrate to `floor`.
@@ -100,30 +100,30 @@
 import type { SlopeInfo } from '../../SlopeResolver'
 
 export interface TileCollision {
-  // Sprite perspective — matches `CODE_01928E` / `CODE_0192C9`.
-  readonly floor:        boolean
-  readonly ceiling:      boolean
-  readonly wall:         boolean
+  // Sprite perspective - matches `CODE_01928E` / `CODE_0192C9`.
+  readonly floor: boolean
+  readonly ceiling: boolean
+  readonly wall: boolean
 
-  // Mario perspective — "tiles that always stop Mario's movement".
-  readonly marioFloor:   boolean
+  // Mario perspective - "tiles that always stop Mario's movement".
+  readonly marioFloor: boolean
   readonly marioCeiling: boolean
-  readonly marioWall:    boolean
+  readonly marioWall: boolean
 
-  // DATA_00EAC1 membership — sprite buoyancy table (CODE_019211 water check),
+  // DATA_00EAC1 membership - sprite buoyancy table (CODE_019211 water check),
   // NOT the landing table. Kept for reference; use `floor` for landability.
-  readonly slopeTable:   boolean
+  readonly slopeTable: boolean
 
   // Mario-side slope surface profile (CODE_00ED86 / DATA_00E632).
-  readonly slope?:       SlopeInfo
+  readonly slope?: SlopeInfo
 }
 
 export const NO_COLLISION: TileCollision = {
-  floor:        false,
-  ceiling:      false,
-  wall:         false,
-  marioFloor:   false,
+  floor: false,
+  ceiling: false,
+  wall: false,
+  marioFloor: false,
   marioCeiling: false,
-  marioWall:    false,
-  slopeTable:   false,
+  marioWall: false,
+  slopeTable: false,
 }

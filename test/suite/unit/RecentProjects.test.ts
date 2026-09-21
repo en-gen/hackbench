@@ -9,9 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import {
-  RecentProjects, defaultRecentPath, MAX_RECENT,
-} from '../../../src/project/RecentProjects'
+import { RecentProjects, defaultRecentPath, MAX_RECENT } from '../../../src/project/RecentProjects'
 import { PROJECT_EXT } from '../../../src/project/Project'
 
 let tmp: string

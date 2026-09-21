@@ -38,8 +38,17 @@ interface Block {
   indices: number[]
 }
 
-interface Region { label: string; color: string; sub: string }
-interface Start { region: string; snes: number; size: number; name: string }
+interface Region {
+  label: string
+  color: string
+  sub: string
+}
+interface Start {
+  region: string
+  snes: number
+  size: number
+  name: string
+}
 
 interface Cell {
   index: number
@@ -72,91 +81,163 @@ interface SubcellInfo {
 // ── Region catalog ─────────────────────────────────────────────────────────────
 
 const REGIONS: Record<string, Region> = {
-  code:          { label: 'Game code (65816)',             color: '#3b4252', sub: 'banks $00-$04, $0E' },
-  header:        { label: 'ROM header & vectors',          color: '#6b7280', sub: '$00FFC0' },
-  gfxAssign:     { label: 'GFX assignment tables',         color: '#14b8a6', sub: 'sprite / FG-BG slots' },
-  palettes:      { label: 'Palette data',                  color: '#f59e0b', sub: '$00B0A0-$00B6D1' },
-  gfxPtr:        { label: 'GFX pointer tables (lo/hi/bnk)',color: '#ea580c', sub: '$00B992 +50 +50' },
-  spriteTables:  { label: 'Sprite tile / property tables', color: '#92400e', sub: 'bank $01' },
-  music:         { label: 'Music (level track table)',     color: '#ec4899', sub: '$0584DB' },
-  animation:     { label: 'Animation tables',              color: '#a78bfa', sub: '$05B93B-$05B999' },
-  tilesetId:     { label: 'Tileset ID table',              color: '#10b981', sub: '$05D760' },
-  levelPtrs:     { label: 'L1 / L2 / Sprite pointer tables', color: '#dc2626', sub: '$05E000 $05E600 $05EC00' },
-  secExits:      { label: 'Secondary exit tables',         color: '#991b1b', sub: '$05F800-$05FE00' },
-  levelData:     { label: 'Level object / sprite data',    color: '#7e22ce', sub: 'banks $06-$07' },
-  gfxFiles:      { label: 'GFX files (LC_LZ2 compressed)', color: '#16a34a', sub: 'banks $08-$0B, 50 files' },
-  secCode:       { label: 'Secondary code / data',         color: '#475569', sub: 'bank $0C' },
-  map16:         { label: 'Map16 tile definitions',        color: '#eab308', sub: '$0D8000 + $0DC000' },
-  objDispatch:   { label: 'Object handler dispatch',       color: '#06b6d4', sub: '$0DA10F + $0DA41E' },
-  secExitPtrs:   { label: 'Sec exit relocator pointers',   color: '#991b1b', sub: '$0DE191' },
-  freeSpace:     { label: 'Free / padding (vanilla)',      color: '#17171b', sub: 'Lunar Magic reuses some of this' },
+  code: { label: 'Game code (65816)', color: '#3b4252', sub: 'banks $00-$04, $0E' },
+  header: { label: 'ROM header & vectors', color: '#6b7280', sub: '$00FFC0' },
+  gfxAssign: { label: 'GFX assignment tables', color: '#14b8a6', sub: 'sprite / FG-BG slots' },
+  palettes: { label: 'Palette data', color: '#f59e0b', sub: '$00B0A0-$00B6D1' },
+  gfxPtr: { label: 'GFX pointer tables (lo/hi/bnk)', color: '#ea580c', sub: '$00B992 +50 +50' },
+  spriteTables: { label: 'Sprite tile / property tables', color: '#92400e', sub: 'bank $01' },
+  music: { label: 'Music (level track table)', color: '#ec4899', sub: '$0584DB' },
+  animation: { label: 'Animation tables', color: '#a78bfa', sub: '$05B93B-$05B999' },
+  tilesetId: { label: 'Tileset ID table', color: '#10b981', sub: '$05D760' },
+  levelPtrs: {
+    label: 'L1 / L2 / Sprite pointer tables',
+    color: '#dc2626',
+    sub: '$05E000 $05E600 $05EC00',
+  },
+  secExits: { label: 'Secondary exit tables', color: '#991b1b', sub: '$05F800-$05FE00' },
+  levelData: { label: 'Level object / sprite data', color: '#7e22ce', sub: 'banks $06-$07' },
+  gfxFiles: {
+    label: 'GFX files (LC_LZ2 compressed)',
+    color: '#16a34a',
+    sub: 'banks $08-$0B, 50 files',
+  },
+  secCode: { label: 'Secondary code / data', color: '#475569', sub: 'bank $0C' },
+  map16: { label: 'Map16 tile definitions', color: '#eab308', sub: '$0D8000 + $0DC000' },
+  objDispatch: { label: 'Object handler dispatch', color: '#06b6d4', sub: '$0DA10F + $0DA41E' },
+  secExitPtrs: { label: 'Sec exit relocator pointers', color: '#991b1b', sub: '$0DE191' },
+  freeSpace: {
+    label: 'Free / padding (vanilla)',
+    color: '#17171b',
+    sub: 'Lunar Magic reuses some of this',
+  },
 }
 
 const STARTS: Start[] = [
   // Bank $00 data tables
-  { region: 'gfxAssign',    snes: 0x00A8C3, size:   64, name: 'GFX sprite assignment (16 sets x 4 bytes)' },
-  { region: 'gfxAssign',    snes: 0x00A92B, size:   64, name: 'GFX FG/BG assignment (16 sets x 4 bytes)' },
-  { region: 'palettes',     snes: 0x00B0A0, size:   16, name: 'Back area color variants (8 x 2 B)' },
-  { region: 'palettes',     snes: 0x00B0B0, size:  192, name: 'BG palette pairs, rows 0-1 (8 x 24 B)' },
-  { region: 'palettes',     snes: 0x00B170, size:   32, name: 'BG secondary cols 8-15' },
-  { region: 'palettes',     snes: 0x00B190, size:  192, name: 'FG palette pairs, rows 2-3 (8 x 24 B)' },
-  { region: 'palettes',     snes: 0x00B250, size:  120, name: 'Shared sprite colors rows 4-13 cols 2-7' },
-  { region: 'palettes',     snes: 0x00B2C8, size:   80, name: 'Player palettes (Mario, Luigi, Fire)' },
-  { region: 'palettes',     snes: 0x00B318, size:  192, name: 'Sprite palettes E & F (8 x 24 B)' },
-  { region: 'palettes',     snes: 0x00B552, size:   42, name: 'Sprite secondary colors rows 5-7' },
-  { region: 'palettes',     snes: 0x00B674, size:   42, name: 'Berry colors (3 rows x 7 cols)' },
-  { region: 'gfxPtr',       snes: 0x00B992, size:   50, name: 'GFX pointer LO bytes (50 files)' },
-  { region: 'gfxPtr',       snes: 0x00B9C4, size:   50, name: 'GFX pointer HI bytes (50 files)' },
-  { region: 'gfxPtr',       snes: 0x00B9F6, size:   50, name: 'GFX pointer BANK bytes (50 files)' },
-  { region: 'header',       snes: 0x00FFC0, size:   64, name: 'ROM header (name, speed, size, vectors)' },
+  {
+    region: 'gfxAssign',
+    snes: 0x00a8c3,
+    size: 64,
+    name: 'GFX sprite assignment (16 sets x 4 bytes)',
+  },
+  {
+    region: 'gfxAssign',
+    snes: 0x00a92b,
+    size: 64,
+    name: 'GFX FG/BG assignment (16 sets x 4 bytes)',
+  },
+  { region: 'palettes', snes: 0x00b0a0, size: 16, name: 'Back area color variants (8 x 2 B)' },
+  { region: 'palettes', snes: 0x00b0b0, size: 192, name: 'BG palette pairs, rows 0-1 (8 x 24 B)' },
+  { region: 'palettes', snes: 0x00b170, size: 32, name: 'BG secondary cols 8-15' },
+  { region: 'palettes', snes: 0x00b190, size: 192, name: 'FG palette pairs, rows 2-3 (8 x 24 B)' },
+  {
+    region: 'palettes',
+    snes: 0x00b250,
+    size: 120,
+    name: 'Shared sprite colors rows 4-13 cols 2-7',
+  },
+  { region: 'palettes', snes: 0x00b2c8, size: 80, name: 'Player palettes (Mario, Luigi, Fire)' },
+  { region: 'palettes', snes: 0x00b318, size: 192, name: 'Sprite palettes E & F (8 x 24 B)' },
+  { region: 'palettes', snes: 0x00b552, size: 42, name: 'Sprite secondary colors rows 5-7' },
+  { region: 'palettes', snes: 0x00b674, size: 42, name: 'Berry colors (3 rows x 7 cols)' },
+  { region: 'gfxPtr', snes: 0x00b992, size: 50, name: 'GFX pointer LO bytes (50 files)' },
+  { region: 'gfxPtr', snes: 0x00b9c4, size: 50, name: 'GFX pointer HI bytes (50 files)' },
+  { region: 'gfxPtr', snes: 0x00b9f6, size: 50, name: 'GFX pointer BANK bytes (50 files)' },
+  { region: 'header', snes: 0x00ffc0, size: 64, name: 'ROM header (name, speed, size, vectors)' },
 
   // Bank $01 sprite infrastructure
-  { region: 'spriteTables', snes: 0x0188F0, size:   40, name: 'Sprite 0-19 properties' },
-  { region: 'spriteTables', snes: 0x019B83, size:  252, name: 'Sprite tilemap base' },
-  { region: 'spriteTables', snes: 0x019C7F, size:   84, name: 'Sprite tilemap offsets (84 entries)' },
-  { region: 'spriteTables', snes: 0x019CD3, size:   96, name: 'General sprite X/Y displacement tables' },
+  { region: 'spriteTables', snes: 0x0188f0, size: 40, name: 'Sprite 0-19 properties' },
+  { region: 'spriteTables', snes: 0x019b83, size: 252, name: 'Sprite tilemap base' },
+  { region: 'spriteTables', snes: 0x019c7f, size: 84, name: 'Sprite tilemap offsets (84 entries)' },
+  {
+    region: 'spriteTables',
+    snes: 0x019cd3,
+    size: 96,
+    name: 'General sprite X/Y displacement tables',
+  },
 
   // Bank $05 tables
-  { region: 'music',        snes: 0x0584DB, size:  512, name: 'Level music track selection (512 levels)' },
-  { region: 'animation',    snes: 0x05B93B, size:    6, name: 'VRAM dest tables (A/B/C for animated tiles)' },
-  { region: 'animation',    snes: 0x05B96B, size:   32, name: 'Tile behavior table' },
-  { region: 'animation',    snes: 0x05B98B, size:   14, name: 'Tileset offset table' },
-  { region: 'animation',    snes: 0x05B999, size:    4, name: 'Animated tile data base address' },
-  { region: 'tilesetId',    snes: 0x05D760, size:   16, name: 'Tileset ID lookup (sprite-set to tileset)' },
-  { region: 'levelPtrs',    snes: 0x05E000, size: 1536, name: 'Layer 1 pointer table (512 x 3 bytes)' },
-  { region: 'levelPtrs',    snes: 0x05E600, size: 1536, name: 'Layer 2 pointer table (512 x 3 bytes)' },
-  { region: 'levelPtrs',    snes: 0x05EC00, size: 1024, name: 'Sprite pointer table (512 x 2 bytes)' },
-  { region: 'secExits',     snes: 0x05F800, size:  512, name: 'Sec exit: destination level low byte' },
-  { region: 'secExits',     snes: 0x05FA00, size:  512, name: 'Sec exit: Y pos / BG / FG info' },
-  { region: 'secExits',     snes: 0x05FC00, size:  512, name: 'Sec exit: X pos / screen' },
-  { region: 'secExits',     snes: 0x05FE00, size:  512, name: 'Sec exit: flags (action, slippery)' },
+  { region: 'music', snes: 0x0584db, size: 512, name: 'Level music track selection (512 levels)' },
+  {
+    region: 'animation',
+    snes: 0x05b93b,
+    size: 6,
+    name: 'VRAM dest tables (A/B/C for animated tiles)',
+  },
+  { region: 'animation', snes: 0x05b96b, size: 32, name: 'Tile behavior table' },
+  { region: 'animation', snes: 0x05b98b, size: 14, name: 'Tileset offset table' },
+  { region: 'animation', snes: 0x05b999, size: 4, name: 'Animated tile data base address' },
+  {
+    region: 'tilesetId',
+    snes: 0x05d760,
+    size: 16,
+    name: 'Tileset ID lookup (sprite-set to tileset)',
+  },
+  {
+    region: 'levelPtrs',
+    snes: 0x05e000,
+    size: 1536,
+    name: 'Layer 1 pointer table (512 x 3 bytes)',
+  },
+  {
+    region: 'levelPtrs',
+    snes: 0x05e600,
+    size: 1536,
+    name: 'Layer 2 pointer table (512 x 3 bytes)',
+  },
+  { region: 'levelPtrs', snes: 0x05ec00, size: 1024, name: 'Sprite pointer table (512 x 2 bytes)' },
+  { region: 'secExits', snes: 0x05f800, size: 512, name: 'Sec exit: destination level low byte' },
+  { region: 'secExits', snes: 0x05fa00, size: 512, name: 'Sec exit: Y pos / BG / FG info' },
+  { region: 'secExits', snes: 0x05fc00, size: 512, name: 'Sec exit: X pos / screen' },
+  { region: 'secExits', snes: 0x05fe00, size: 512, name: 'Sec exit: flags (action, slippery)' },
 
   // Banks $06-$07 level data (entire range)
-  { region: 'levelData',    snes: 0x068000, size: 32768, name: 'Layer 1 object data (bank $06)' },
-  { region: 'levelData',    snes: 0x078000, size: 32768, name: 'Layer 2 + sprite + L1 overflow (bank $07)' },
+  { region: 'levelData', snes: 0x068000, size: 32768, name: 'Layer 1 object data (bank $06)' },
+  {
+    region: 'levelData',
+    snes: 0x078000,
+    size: 32768,
+    name: 'Layer 2 + sprite + L1 overflow (bank $07)',
+  },
 
   // Banks $08-$0B GFX
-  { region: 'gfxFiles',     snes: 0x088000, size: 32768, name: 'Compressed GFX files (part 1/4)' },
-  { region: 'gfxFiles',     snes: 0x098000, size: 32768, name: 'Compressed GFX files (part 2/4)' },
-  { region: 'gfxFiles',     snes: 0x0A8000, size: 32768, name: 'Compressed GFX files (part 3/4)' },
-  { region: 'gfxFiles',     snes: 0x0B8000, size: 32768, name: 'Compressed GFX files (part 4/4)' },
+  { region: 'gfxFiles', snes: 0x088000, size: 32768, name: 'Compressed GFX files (part 1/4)' },
+  { region: 'gfxFiles', snes: 0x098000, size: 32768, name: 'Compressed GFX files (part 2/4)' },
+  { region: 'gfxFiles', snes: 0x0a8000, size: 32768, name: 'Compressed GFX files (part 3/4)' },
+  { region: 'gfxFiles', snes: 0x0b8000, size: 32768, name: 'Compressed GFX files (part 4/4)' },
 
   // Bank $0C secondary code
-  { region: 'secCode',      snes: 0x0C8000, size: 32768, name: 'Secondary code / data (bank $0C)' },
+  { region: 'secCode', snes: 0x0c8000, size: 32768, name: 'Secondary code / data (bank $0C)' },
 
   // Bank $0D Map16 + dispatch
-  { region: 'map16',        snes: 0x0D8000, size: 2048, name: 'Map16 page 0 (tiles $000-$0FF, 8 B each)' },
-  { region: 'objDispatch',  snes: 0x0DA10F, size:  256, name: 'Extended object handler dispatch' },
-  { region: 'objDispatch',  snes: 0x0DA41E, size:  256, name: 'Tileset object handler dispatch' },
-  { region: 'map16',        snes: 0x0DC000, size: 2048, name: 'Map16 page 1 (tiles $100-$1FF, 8 B each)' },
-  { region: 'secExitPtrs',  snes: 0x0DE191, size:   24, name: 'Sec exit relocator pointers (LM-aware)' },
+  { region: 'map16', snes: 0x0d8000, size: 2048, name: 'Map16 page 0 (tiles $000-$0FF, 8 B each)' },
+  { region: 'objDispatch', snes: 0x0da10f, size: 256, name: 'Extended object handler dispatch' },
+  { region: 'objDispatch', snes: 0x0da41e, size: 256, name: 'Tileset object handler dispatch' },
+  { region: 'map16', snes: 0x0dc000, size: 2048, name: 'Map16 page 1 (tiles $100-$1FF, 8 B each)' },
+  {
+    region: 'secExitPtrs',
+    snes: 0x0de191,
+    size: 24,
+    name: 'Sec exit relocator pointers (LM-aware)',
+  },
 
   // Known vanilla free space (approximate at 2 KB granularity)
-  { region: 'freeSpace',    snes: 0x06F624, size:  2524, name: 'End of bank $06 (vanilla padding)' },
-  { region: 'freeSpace',    snes: 0x07F0DB, size:  3877, name: 'End of bank $07 (vanilla padding)' },
-  { region: 'freeSpace',    snes: 0x0DE1A9, size:  7767, name: 'Bank $0D tail (vanilla padding)' },
-  { region: 'freeSpace',    snes: 0x0EE04B, size:  8117, name: 'Bank $0E tail (vanilla; LM writes custom palette table here at $0EF600)' },
-  { region: 'freeSpace',    snes: 0x0F8000, size: 32768, name: 'Bank $0F entirely free in vanilla (LM ExGFX slot)' },
+  { region: 'freeSpace', snes: 0x06f624, size: 2524, name: 'End of bank $06 (vanilla padding)' },
+  { region: 'freeSpace', snes: 0x07f0db, size: 3877, name: 'End of bank $07 (vanilla padding)' },
+  { region: 'freeSpace', snes: 0x0de1a9, size: 7767, name: 'Bank $0D tail (vanilla padding)' },
+  {
+    region: 'freeSpace',
+    snes: 0x0ee04b,
+    size: 8117,
+    name: 'Bank $0E tail (vanilla; LM writes custom palette table here at $0EF600)',
+  },
+  {
+    region: 'freeSpace',
+    snes: 0x0f8000,
+    size: 32768,
+    name: 'Bank $0F entirely free in vanilla (LM ExGFX slot)',
+  },
 ]
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -169,13 +250,13 @@ const ROWS = 16
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function snesToFile(snes: number): number {
-  const bank = (snes >>> 16) & 0xFF
-  const addr = snes & 0xFFFF
-  return (bank & 0x7F) * BANK_BYTES + (addr & 0x7FFF)
+  const bank = (snes >>> 16) & 0xff
+  const addr = snes & 0xffff
+  return (bank & 0x7f) * BANK_BYTES + (addr & 0x7fff)
 }
 
 function fileToSnes(file: number): number {
-  const bank = Math.floor(file / BANK_BYTES) & 0xFF
+  const bank = Math.floor(file / BANK_BYTES) & 0xff
   const offs = (file % BANK_BYTES) | 0x8000
   return (bank << 16) | offs
 }
@@ -183,7 +264,6 @@ function fileToSnes(file: number): number {
 function cellIndex(fileOffset: number): number {
   return Math.floor(fileOffset / CELL_BYTES)
 }
-
 
 function shadeColor(hex: string, amount: number): string {
   const r = parseInt(hex.slice(1, 3), 16)
@@ -199,9 +279,9 @@ function shadeColor(hex: string, amount: number): string {
 
 function defaultRegionForRow(row: number): string {
   if (row >= 0x06 && row <= 0x07) return 'levelData'
-  if (row >= 0x08 && row <= 0x0B) return 'gfxFiles'
-  if (row === 0x0C) return 'secCode'
-  if (row === 0x0F) return 'freeSpace'
+  if (row >= 0x08 && row <= 0x0b) return 'gfxFiles'
+  if (row === 0x0c) return 'secCode'
+  if (row === 0x0f) return 'freeSpace'
   return 'code'
 }
 
@@ -217,10 +297,7 @@ function findBlocksIn(fileStart: number, fileEnd: number): Block[] {
 }
 
 function colorForBlock(block: Block): string {
-  const base =
-    block.kind === 'L1'     ? '#7e22ce' :
-    block.kind === 'L2'     ? '#9333ea' :
-                              '#c084fc'
+  const base = block.kind === 'L1' ? '#7e22ce' : block.kind === 'L2' ? '#9333ea' : '#c084fc'
   const ord = block.indices[0] % 8
   const amount = (ord / 7) * 0.55 - 0.275
   return shadeColor(base, amount)
@@ -250,7 +327,7 @@ const startOrdinal = new Map<Start, { ord: number; total: number }>()
 {
   const byRegion: Record<string, Start[]> = {}
   for (const s of STARTS) {
-    (byRegion[s.region] ||= []).push(s)
+    ;(byRegion[s.region] ||= []).push(s)
   }
   for (const region in byRegion) {
     const arr = byRegion[region]
@@ -278,8 +355,11 @@ for (let i = 0; i < ROWS * COLS; i++) {
   const fileStart = i * CELL_BYTES
   const fileEnd = fileStart + CELL_BYTES - 1
   cells.push({
-    index: i, row, col,
-    fileStart, fileEnd,
+    index: i,
+    row,
+    col,
+    fileStart,
+    fileEnd,
     snesStart: fileToSnes(fileStart),
     snesEnd: fileToSnes(fileEnd),
     regionId: defaultRegionForRow(row),
@@ -490,8 +570,19 @@ const SCHEMA_RENDERERS: Record<string, SchemaRenderer> = {
     <p>Indexes <code>$00</code>-<code>$31</code> map to files GFX00-GFX31. Each points into banks <code>$08</code>-<code>$0B</code> where the LC_LZ2 data lives.</p>
   `,
   palettes: () => {
-    const sample = ['#687090','#a8b8d8','#483870','#d8c898','#903838','#489028','#f0d838','#f0f0f0']
-    const strip = sample.map(c => `<div class="palette-swatch" style="background:${c}"></div>`).join('')
+    const sample = [
+      '#687090',
+      '#a8b8d8',
+      '#483870',
+      '#d8c898',
+      '#903838',
+      '#489028',
+      '#f0d838',
+      '#f0f0f0',
+    ]
+    const strip = sample
+      .map(c => `<div class="palette-swatch" style="background:${c}"></div>`)
+      .join('')
     return `
       <div class="schema-box">
         <div class="schema-box-title">BGR555 color format (2 bytes, little-endian)</div>
@@ -532,21 +623,23 @@ const SCHEMA_RENDERERS: Record<string, SchemaRenderer> = {
     </ul>
     <p>This 2 KB cell holds exactly 256 tiles &mdash; a full Map16 page.</p>
   `,
-  levelData: (cell) => {
+  levelData: cell => {
     const blocks = findBlocksIn(cell.fileStart, cell.fileEnd)
     let blocksSection: string
     if (blocks.length === 0) {
       blocksSection = `<p><em>No level pointer lands inside this cell (likely padding between blocks).</em></p>`
     } else {
-      const rows = blocks.map(b => {
-        const ids = b.indices.map(i => '$' + hexN(i, 3)).join(', ')
-        return `<div class="level-entry">
+      const rows = blocks
+        .map(b => {
+          const ids = b.indices.map(i => '$' + hexN(i, 3)).join(', ')
+          return `<div class="level-entry">
           <span class="kind">${b.kind}</span>
           <span class="ids">L ${ids}</span>
           <span class="addr">$${hexN(b.snes, 6)} &middot; file $${hexN(b.fileStart, 5)}-$${hexN(b.fileEnd - 1, 5)}</span>
           <span class="size">${b.size}&nbsp;B</span>
         </div>`
-      }).join('')
+        })
+        .join('')
       blocksSection = `<h3>Blocks in this cell (${blocks.length})</h3><div class="level-list">${rows}</div>`
     }
     return `
@@ -721,10 +814,23 @@ function buildGrid(): void {
 function buildLegend(): void {
   const legendItems = document.getElementById('legend-items')!
   const legendOrder = [
-    'code', 'header', 'gfxAssign', 'palettes', 'gfxPtr',
-    'spriteTables', 'music', 'animation', 'tilesetId',
-    'levelPtrs', 'secExits', 'levelData', 'gfxFiles',
-    'secCode', 'map16', 'objDispatch', 'secExitPtrs',
+    'code',
+    'header',
+    'gfxAssign',
+    'palettes',
+    'gfxPtr',
+    'spriteTables',
+    'music',
+    'animation',
+    'tilesetId',
+    'levelPtrs',
+    'secExits',
+    'levelData',
+    'gfxFiles',
+    'secCode',
+    'map16',
+    'objDispatch',
+    'secExitPtrs',
     'freeSpace',
   ]
   for (const id of legendOrder) {
@@ -746,8 +852,14 @@ function buildLegend(): void {
   const usedCells = cells.length - freeCells
   const usedPct = (usedCells / cells.length) * 100
   document.getElementById('stat-util')!.innerHTML =
-    '<strong>Utilization:</strong> ~' + usedPct.toFixed(0) + '% ' +
-    '(' + usedCells + ' used / ' + freeCells + ' free cells)'
+    '<strong>Utilization:</strong> ~' +
+    usedPct.toFixed(0) +
+    '% ' +
+    '(' +
+    usedCells +
+    ' used / ' +
+    freeCells +
+    ' free cells)'
 }
 
 function renderSubgrid(cell: Cell): void {
@@ -795,9 +907,20 @@ function showDetail(cell: Cell): void {
   detailBody.classList.remove('no-rom')
   detailTitle.textContent = REGIONS[cell.regionId].label
   detailRange.innerHTML =
-    'row $' + hexN(cell.row, 2) + ' col $' + hexN(cell.col, 1) + '<br>' +
-    'SNES $' + hexN(cell.snesStart, 6) + ' &ndash; $' + hexN(cell.snesEnd, 6) + '<br>' +
-    'file $' + hexN(cell.fileStart, 5) + ' &ndash; $' + hexN(cell.fileEnd, 5)
+    'row $' +
+    hexN(cell.row, 2) +
+    ' col $' +
+    hexN(cell.col, 1) +
+    '<br>' +
+    'SNES $' +
+    hexN(cell.snesStart, 6) +
+    ' &ndash; $' +
+    hexN(cell.snesEnd, 6) +
+    '<br>' +
+    'file $' +
+    hexN(cell.fileStart, 5) +
+    ' &ndash; $' +
+    hexN(cell.fileEnd, 5)
   renderSubgrid(cell)
   renderSchema(cell)
   detailPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -814,10 +937,10 @@ function positionTooltip(ev: MouseEvent): void {
   const th = tooltipEl.offsetHeight
   let x = ev.clientX + pad
   let y = ev.clientY + pad
-  if (x + tw + pad > window.innerWidth)  x = ev.clientX - tw - pad
+  if (x + tw + pad > window.innerWidth) x = ev.clientX - tw - pad
   if (y + th + pad > window.innerHeight) y = ev.clientY - th - pad
   tooltipEl.style.left = x + 'px'
-  tooltipEl.style.top  = y + 'px'
+  tooltipEl.style.top = y + 'px'
 }
 
 function renderCellTooltip(c: Cell): void {
@@ -834,7 +957,10 @@ function renderCellTooltip(c: Cell): void {
     html += '<div class="tt-starts">'
     for (const s of c.starts) {
       html += '<div class="tt-start"><b>$' + hexN(s.snes, 6) + '</b> '
-      html += (s.size >= 1024 ? (s.size / 1024).toFixed(s.size % 1024 === 0 ? 0 : 1) + ' KB' : s.size + ' B')
+      html +=
+        s.size >= 1024
+          ? (s.size / 1024).toFixed(s.size % 1024 === 0 ? 0 : 1) + ' KB'
+          : s.size + ' B'
       html += ' &middot; ' + s.name + '</div>'
     }
     html += '</div>'
@@ -843,7 +969,7 @@ function renderCellTooltip(c: Cell): void {
 }
 
 function attachHandlers(): void {
-  gridEl.addEventListener('mouseover', (ev) => {
+  gridEl.addEventListener('mouseover', ev => {
     const t = (ev.target as HTMLElement).closest('.cell') as HTMLElement | null
     if (!t) return
     const idx = Number(t.dataset.index)
@@ -851,13 +977,13 @@ function attachHandlers(): void {
     tooltipEl.classList.add('visible')
     positionTooltip(ev)
   })
-  gridEl.addEventListener('mousemove', (ev) => {
+  gridEl.addEventListener('mousemove', ev => {
     if (tooltipEl.classList.contains('visible')) positionTooltip(ev)
   })
   gridEl.addEventListener('mouseleave', () => {
     tooltipEl.classList.remove('visible')
   })
-  gridEl.addEventListener('click', (ev) => {
+  gridEl.addEventListener('click', ev => {
     const t = (ev.target as HTMLElement).closest('.cell') as HTMLElement | null
     if (!t) return
     const idx = Number(t.dataset.index)
@@ -868,21 +994,38 @@ function attachHandlers(): void {
 
   document.getElementById('detail-close')!.addEventListener('click', hideDetail)
 
-  detailSubgrid.addEventListener('mouseover', (ev) => {
+  detailSubgrid.addEventListener('mouseover', ev => {
     const t = (ev.target as HTMLElement).closest('.subcell') as HTMLElement | null
     if (!t) return
     const idx = Number(t.dataset.subIndex)
     const info = currentSubcells[idx]
     const snesEnd = fileToSnes(info.fileEnd)
     let html =
-      '<div class="tt-title">' + REGIONS[info.sub.regionId].label + '</div>' +
-      '<div class="tt-range">$' + hexN(info.snesStart, 6) + ' &ndash; $' + hexN(snesEnd, 6) +
-      '<br>file $' + hexN(info.fileStart, 5) + ' &ndash; $' + hexN(info.fileEnd, 5) + ' (16 B)</div>'
+      '<div class="tt-title">' +
+      REGIONS[info.sub.regionId].label +
+      '</div>' +
+      '<div class="tt-range">$' +
+      hexN(info.snesStart, 6) +
+      ' &ndash; $' +
+      hexN(snesEnd, 6) +
+      '<br>file $' +
+      hexN(info.fileStart, 5) +
+      ' &ndash; $' +
+      hexN(info.fileEnd, 5) +
+      ' (16 B)</div>'
     if (info.block) {
       const ids = info.block.indices.map(i => '$' + hexN(i, 3)).join(', ')
       html +=
-        '<div class="tt-starts"><div class="tt-start"><b>' + info.block.kind + '</b> Level ' + ids + '<br>' +
-        'Block $' + hexN(info.block.snes, 6) + ' &middot; ' + info.block.size + ' B' +
+        '<div class="tt-starts"><div class="tt-start"><b>' +
+        info.block.kind +
+        '</b> Level ' +
+        ids +
+        '<br>' +
+        'Block $' +
+        hexN(info.block.snes, 6) +
+        ' &middot; ' +
+        info.block.size +
+        ' B' +
         '</div></div>'
     } else {
       html += '<div class="tt-starts"><div class="tt-start">' + info.sub.name + '</div></div>'
@@ -891,7 +1034,7 @@ function attachHandlers(): void {
     tooltipEl.classList.add('visible')
     positionTooltip(ev)
   })
-  detailSubgrid.addEventListener('mousemove', (ev) => {
+  detailSubgrid.addEventListener('mousemove', ev => {
     if (tooltipEl.classList.contains('visible')) positionTooltip(ev)
   })
   detailSubgrid.addEventListener('mouseleave', () => {
@@ -933,7 +1076,7 @@ function main(): void {
   vscode.postMessage({ type: 'ready' })
 }
 
-window.addEventListener('message', (ev) => {
+window.addEventListener('message', ev => {
   const msg = ev.data
   if (msg.type === 'load') {
     romBlocks = msg.blocks as Block[]
@@ -943,8 +1086,7 @@ window.addEventListener('message', (ev) => {
     const l1 = romBlocks.filter(b => b.kind === 'L1').length
     const l2 = romBlocks.filter(b => b.kind === 'L2').length
     const spr = romBlocks.filter(b => b.kind === 'Sprite').length
-    romMeta.textContent =
-      `ROM: ${size} B${headerNote} - ${l1} L1 / ${l2} L2 / ${spr} sprite blocks`
+    romMeta.textContent = `ROM: ${size} B${headerNote} - ${l1} L1 / ${l2} L2 / ${spr} sprite blocks`
     rerenderIfOpen()
   } else if (msg.type === 'error') {
     romMeta.textContent = 'Error: ' + msg.message

@@ -11,7 +11,7 @@ import type { TileCollision } from './tiles/TileCollision'
  * references by id.
  *
  * A single `kind` switch inside the rehydrator is the only place in
- * the webview that branches on behavior variety — after that call,
+ * the webview that branches on behavior variety - after that call,
  * downstream code sees polymorphic objects only.
  */
 
@@ -72,11 +72,11 @@ export type TileDescriptor =
       kind: 'keyCoinBalloonKoopaBlock'
       quad: SubtileQuadDescriptor
       /** OBJ chars for Key sprite $80 (TL/TR/BL/BR), -1 when missing. */
-      keyCharNums:       readonly number[]
+      keyCharNums: readonly number[]
       /** OBJ chars for Flying Red Coin sprite $7E (TL/TR/BL/BR), -1 when missing. */
-      redCoinCharNums:   readonly number[]
+      redCoinCharNums: readonly number[]
       /** OBJ chars for P-Balloon sprite $7D (TL/TR/BL/BR), -1 when missing. */
-      pballoonCharNums:  readonly number[]
+      pballoonCharNums: readonly number[]
       /** OBJ chars for Green Para-Koopa sprite $09 (TL/TR/BL/BR), -1 when missing. */
       paraKoopaCharNums: readonly number[]
     } & TileDescriptorBase)
@@ -105,8 +105,7 @@ export type TileDescriptor =
 // ── Palette ──────────────────────────────────────────────────────────
 
 export type ColorDescriptor =
-  | { kind: 'static'; value: RgbaColor }
-  | { kind: 'cycling'; frames: readonly RgbaColor[] }
+  { kind: 'static'; value: RgbaColor } | { kind: 'cycling'; frames: readonly RgbaColor[] }
 
 export interface PaletteDescriptor {
   cells: readonly (readonly ColorDescriptor[])[] // 16 × 16
@@ -136,7 +135,7 @@ export type SpriteAppearanceDescriptor =
       kind: 'ripVanFish'
       sleepFrames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
       awakeFrames: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
-      zParts:      readonly SpritePartDescriptor[]
+      zParts: readonly SpritePartDescriptor[]
     }
   | {
       kind: 'wingedSprite'
@@ -151,9 +150,9 @@ export type SpriteAppearanceDescriptor =
     }
   | {
       kind: 'superKoopa'
-      grounded:      readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
+      grounded: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
       groundedFlash: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
-      airborne:      readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
+      airborne: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
       airborneFlash: readonly [readonly SpritePartDescriptor[], readonly SpritePartDescriptor[]]
       isAirborne: boolean
     }
@@ -171,26 +170,30 @@ export type SpriteAppearanceDescriptor =
       kind: 'lineCheckerPlat'
       platformParts: readonly SpritePartDescriptor[]
       xShift: number
-      width:  number
+      width: number
     }
   | {
       kind: 'ropeMechanism'
-      motorFrames:     readonly (readonly SpritePartDescriptor[])[]
-      bodyTemplate:    readonly SpritePartDescriptor[]
-      knotTemplate:    readonly SpritePartDescriptor[]
+      motorFrames: readonly (readonly SpritePartDescriptor[])[]
+      bodyTemplate: readonly SpritePartDescriptor[]
+      knotTemplate: readonly SpritePartDescriptor[]
       smokePuffFrames: readonly (readonly SpritePartDescriptor[])[]
-      segmentCount:    number
+      segmentCount: number
     }
   | {
       kind: 'chainsaw'
       motorFrames: readonly (readonly SpritePartDescriptor[])[]
-      chainParts:  readonly SpritePartDescriptor[]
+      chainParts: readonly SpritePartDescriptor[]
     }
-  | { kind: 'spikeTop'; parts0: readonly SpritePartDescriptor[]; parts1: readonly SpritePartDescriptor[] }
   | {
-      kind:    'montyMole'
-      parts0:  readonly SpritePartDescriptor[]
-      parts1:  readonly SpritePartDescriptor[]
+      kind: 'spikeTop'
+      parts0: readonly SpritePartDescriptor[]
+      parts1: readonly SpritePartDescriptor[]
+    }
+  | {
+      kind: 'montyMole'
+      parts0: readonly SpritePartDescriptor[]
+      parts1: readonly SpritePartDescriptor[]
       /**
        * Emerged-pose ghost annotation. Empty for $4E, which shares the
        * class but not the annotation - see `MontyMoleAppearance.fromParts`.
@@ -204,7 +207,7 @@ export type SpriteAppearanceDescriptor =
       dynColors: readonly number[]
     }
   | { kind: 'hammerBro'; parts: readonly SpritePartDescriptor[] }
-  | { kind: 'woodSpike'; spriteId: 0xAC | 0xAD; spriteMisc151C: number }
+  | { kind: 'woodSpike'; spriteId: 0xac | 0xad; spriteMisc151C: number }
   | { kind: 'wiggler'; palette: number; charHigh: number; faceLeft: boolean }
 
 export interface SpriteBehaviorDescriptor {
@@ -257,7 +260,7 @@ export interface LevelHeaderDescriptor {
    */
   timeLimit: number
   /**
-   * Mario's starting pixel position at level load — picked from DATA_05F000/
+   * Mario's starting pixel position at level load - picked from DATA_05F000/
    * 05F200 (or DATA_05FA00/05FC00 for sublevels reached via a secondary
    * entrance), resolved through DATA_05D730/740/750/758. Used by sprite
    * handlers whose flip/state depends on FaceMario at spawn.
@@ -269,7 +272,7 @@ export interface LevelHeaderDescriptor {
 
 /**
  * Pre-computed L3 scroll-range rectangle (level pixel coords) for the
- * editor's BG-coverage overlay. Mirrors `L3ScrollRange` in L3Loader.ts —
+ * editor's BG-coverage overlay. Mirrors `L3ScrollRange` in L3Loader.ts -
  * duplicated here as a plain interface so the webview module doesn't have
  * to import from the extension-side rom layer.
  */
@@ -282,7 +285,7 @@ export interface L3ScrollRangeDescriptor {
   /** Wave-surface row Y-position at high tide ($A0). Tide kinds only. */
   yHighTide?: number
   /** Wave-surface row Y-position at low tide ($30). Tide kinds only. */
-  yLowTide?:  number
+  yLowTide?: number
 }
 
 export interface L3Descriptor {
@@ -330,7 +333,7 @@ export type L2Descriptor =
       /**
        * Palette OR mask applied to every L2 subtile when rebuilding the L2
        * tile collection on the webview side. Mirrors SMW's L2 strip-render
-       * `ORA #$1000` at bank_05.asm:1463-1480 — set to `4` for tileset 3,
+       * `ORA #$1000` at bank_05.asm:1463-1480 - set to `4` for tileset 3,
        * `0` otherwise. See `l2PaletteOrForTileset`.
        */
       paletteOrMask: number
@@ -339,7 +342,7 @@ export type L2Descriptor =
 /**
  * Pure-data seed for `buildScrollSimulator` shipped across the
  * postMessage boundary. The webview's rehydrator rebuilds an identical
- * simulator from this — `scrollSim.ts` has no DOM / VS Code deps so
+ * simulator from this - `scrollSim.ts` has no DOM / VS Code deps so
  * both sides import it directly.
  */
 export interface ScrollSimSeedDescriptor {
@@ -347,12 +350,12 @@ export interface ScrollSimSeedDescriptor {
   layer1YPos: number
   layer2XPos: number
   layer2YPos: number
-  layer1ScrollCmd:  number
-  layer2ScrollCmd:  number
+  layer1ScrollCmd: number
+  layer2ScrollCmd: number
   layer1ScrollBits: number
   layer2ScrollBits: number
   horizLayer2Setting: number
-  vertLayer2Setting:  number
+  vertLayer2Setting: number
   marioSpawnX: number
   marioSpawnY: number
   screenMode: number
@@ -378,6 +381,6 @@ export interface MapPayload {
   screenCount: number
   screenPipeVariantIdx: readonly number[]
   /** Frame-accurate scroll simulator seed. null when the level has no
-   *  scroll sprite — webview falls back to the static initial offset. */
+   *  scroll sprite - webview falls back to the static initial offset. */
   scrollSim: ScrollSimSeedDescriptor | null
 }

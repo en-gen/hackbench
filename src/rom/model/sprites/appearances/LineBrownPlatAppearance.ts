@@ -1,4 +1,4 @@
-// Consumes: (none directly — palette via mapStore)
+// Consumes: (none directly - palette via mapStore)
 
 import type { Char } from '../../chars/Char'
 import type { RenderTarget } from '../../RenderTarget'
@@ -11,7 +11,7 @@ import { LineBrownPlatBehavior } from '../behaviors/LineBrownPlatBehavior'
 const OBJ_CHAR_BASE = 0x400
 
 /**
- * $62 Brown Platform (line-guided) — direction-aware appearance.
+ * $62 Brown Platform (line-guided) - direction-aware appearance.
  *
  * CODE_01B2DF (bank_01.asm:6913, _1=0 path) draws 3 big-tiles at
  * slot-X offsets 0/+$10/+$20 with base chars $60/$61/$62. Before the
@@ -40,31 +40,30 @@ export class LineBrownPlatAppearance implements SpriteAppearance {
    * Build the appearance from pre-resolved palette and charHigh.
    * Parts are stored at platform-local offsets; direction determines hitRect.
    *
-   * Tile layout — CODE_01B2DF _1=0 path:
+   * Tile layout - CODE_01B2DF _1=0 path:
    *   slot[100] = big-tile $60  →  chars $60,$61,$70,$71  at (0,0),(8,0),(0,8),(8,8)
    *   slot[104] = big-tile $61  →  chars $61,$62,$71,$72  at (16,0),(24,0),(16,8),(24,8)
    *   slot[108] = big-tile $62  →  chars $62,$63,$72,$73  at (32,0),(40,0),(32,8),(40,8)
    *     (slot[108] tile overridden from $61 → $62 at bank_01.asm:6977)
    */
   static fromTables(
-    chars:       Map<number, Char>,
-    palette:     number,
-    charHigh:    number,
+    chars: Map<number, Char>,
+    palette: number,
+    charHigh: number,
     placeholder: Char,
-    direction:   'forward' | 'reverse',
+    direction: 'forward' | 'reverse',
   ): LineBrownPlatAppearance {
-    const c = (n: number): Char =>
-      chars.get(OBJ_CHAR_BASE + charHigh + (n & 0x1FF)) ?? placeholder
+    const c = (n: number): Char => chars.get(OBJ_CHAR_BASE + charHigh + (n & 0x1ff)) ?? placeholder
 
     const SLOT_BASE_CHARS = [0x60, 0x61, 0x62] as const
     const parts: SpritePart[] = []
     for (let s = 0; s < 3; s++) {
       const base = SLOT_BASE_CHARS[s]
-      const sdx  = s * 16
+      const sdx = s * 16
       parts.push(
-        { char: c(base),        palette, flipX: false, flipY: false, dx: sdx,     dy: 0 },
-        { char: c(base + 1),    palette, flipX: false, flipY: false, dx: sdx + 8, dy: 0 },
-        { char: c(base + 0x10), palette, flipX: false, flipY: false, dx: sdx,     dy: 8 },
+        { char: c(base), palette, flipX: false, flipY: false, dx: sdx, dy: 0 },
+        { char: c(base + 1), palette, flipX: false, flipY: false, dx: sdx + 8, dy: 0 },
+        { char: c(base + 0x10), palette, flipX: false, flipY: false, dx: sdx, dy: 8 },
         { char: c(base + 0x11), palette, flipX: false, flipY: false, dx: sdx + 8, dy: 8 },
       )
     }
@@ -72,9 +71,9 @@ export class LineBrownPlatAppearance implements SpriteAppearance {
   }
 
   render(
-    target:   RenderTarget,
-    x:        number,
-    y:        number,
+    target: RenderTarget,
+    x: number,
+    y: number,
     behavior: SpriteBehavior,
     mapStore: MapStore,
   ): void {
@@ -83,11 +82,13 @@ export class LineBrownPlatAppearance implements SpriteAppearance {
 
     for (const part of this.platformParts) {
       const pixels = part.char.getPixels()
-      const row    = mapStore.palette.row(part.palette)
+      const row = mapStore.palette.row(part.palette)
       target.blit8x8(
         pixels,
         { x: x + part.dx - xShift, y: y + part.dy - 8 },
-        row, part.flipX, part.flipY,
+        row,
+        part.flipX,
+        part.flipY,
       )
     }
   }

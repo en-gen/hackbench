@@ -15,7 +15,7 @@
  *    `(slot*4 XOR EffFrame) & 7 == 0`, bank_01.asm:11823). Lifetime: 19
  *    visible frames (timer init = $13 = 19; on the frame where pre-DEC
  *    timer = 0 the BNE falls through to a cleanup branch that hides the
- *    sprite and frees the slot — line 3281-3290).
+ *    sprite and frees the slot - line 3281-3290).
  *
  *    Tile by puff age, derived from DATA_029922 indexed by post-DEC
  *    timer>>2 (post-DEC timer at age N = 18 - N):
@@ -32,7 +32,7 @@
  *    (anchor-relative 0 vs 8).
  *
  *    Cohort alive count: 3 only when phase ∈ [0, 2]; 2 for phase ∈ [3, 7].
- *    Phase 7 is special — newest cohort has aged into the $64 tile bucket,
+ *    Phase 7 is special - newest cohort has aged into the $64 tile bucket,
  *    yielding a brief "$64 + $66" 2-alive snapshot distinct from the
  *    standard "$62 + $66" 2-alive snapshot of phases 3..6.
  */
@@ -66,7 +66,7 @@ function stubMapStore() {
 function makeChar(tag = 0): Char {
   // Stamp tag into the first byte so blit captures can identify which tile.
   const buf = new Uint8Array(64)
-  buf[0] = tag & 0xFF
+  buf[0] = tag & 0xff
   return new Char(tag, new StaticPixelsBehavior(buf))
 }
 
@@ -79,29 +79,34 @@ function buildChars(): Map<number, Char> {
   // motor/body/knot lookups nor smoke (charHigh=0) lookups miss. Tag each
   // Char's pixels[0] with its low tile id so smoke-blit captures can decode
   // tile identity ($62, $64, $66) from the captured pixel buffer.
-  for (let i = 0x400; i <= 0x4FF; i++) chars.set(i, makeChar(i & 0xFF))
+  for (let i = 0x400; i <= 0x4ff; i++) chars.set(i, makeChar(i & 0xff))
   return chars
 }
 
-interface BlitCall { pos: PixelPos; tileTag: number }
+interface BlitCall {
+  pos: PixelPos
+  tileTag: number
+}
 
 function capturingTarget() {
   const calls: BlitCall[] = []
   const target: RenderTarget = {
-    blit8x8(pixels, pos) { calls.push({ pos, tileTag: pixels[0] }) },
+    blit8x8(pixels, pos) {
+      calls.push({ pos, tileTag: pixels[0] })
+    },
     fillRect() {},
   }
   return { target, calls }
 }
 
-/** Filter for smoke blits — identify by tile tag ($62/$64/$66). Rope body
+/** Filter for smoke blits - identify by tile tag ($62/$64/$66). Rope body
  * subtiles ($CE/$CF/$DE/$DF) and motor ($C0/$C1/$C2/$C3/$D0/$D1/$D2/$D3/$E0..$E3,$F0..$F3)
  * never overlap this range. */
 function smokeBlits(calls: BlitCall[]): BlitCall[] {
   return calls.filter(c => c.tileTag === 0x62 || c.tileTag === 0x64 || c.tileTag === 0x66)
 }
 
-describe('RopeMechanismAppearance.fromTables — smoke palette source', () => {
+describe('RopeMechanismAppearance.fromTables - smoke palette source', () => {
   it('smoke parts use smokePalette, not bodyPalette', () => {
     // Distinct sentinels so a regression that reuses bodyPalette becomes a
     // visible test failure (instead of silently matching when both equal 8).
@@ -148,7 +153,7 @@ describe('RopeMechanismAppearance.fromTables — smoke palette source', () => {
   })
 
   it('SpriteProperties=$20 derivation: (0x20 >> 1) & 7 = 0 → CGRAM row 8', () => {
-    // ASM-derived constant — this is what SpriteFactory should compute.
+    // ASM-derived constant - this is what SpriteFactory should compute.
     // bank_00.asm:2401-2402 sets SpriteProperties = !OBJ_Priority2 = $20
     // at level init; CODE_029927 (bank_02.asm:3351-3352) writes it to
     // OAMTileAttr unmodified.
@@ -186,7 +191,7 @@ function renderSmoke(effFrame: number): BlitCall[] {
   return smokeBlits(calls).sort((a, b) => b.pos.y - a.pos.y)
 }
 
-describe('RopeMechanismAppearance.render — smoke lifecycle', () => {
+describe('RopeMechanismAppearance.render - smoke lifecycle', () => {
   beforeEach(resetEditorStore)
 
   // Per CODE_029927 (bank_02.asm:3280-3339):
@@ -197,7 +202,7 @@ describe('RopeMechanismAppearance.render — smoke lifecycle', () => {
   // Cohorts at any frame are { newest age=phase, middle age=phase+8, oldest=phase+16 }
   // where `phase = effFrame & 7`. Oldest is alive only when phase ≤ 2.
 
-  describe('"3 alive" window — phases 0..2', () => {
+  describe('"3 alive" window - phases 0..2', () => {
     it('phase 0 (cycle 0 even): $62 y=-6 dx=0, $64 y=-7 dx=8, $66 y=-8 dx=0', () => {
       // ages 0, 8, 16 → tiles $62/$64/$66; yRise 0/1/2; even parity 0/8/0.
       const smoke = renderSmoke(0)
@@ -229,7 +234,7 @@ describe('RopeMechanismAppearance.render — smoke lifecycle', () => {
     })
   })
 
-  describe('"2 alive standard" window — phases 3..6 (newest still $62)', () => {
+  describe('"2 alive standard" window - phases 3..6 (newest still $62)', () => {
     it('phase 3 (oldest just died, newest yRise lifts to 1)', () => {
       // age 3 → tile $62, yRise=1 (DEC SmokeSpriteYPos triggered at age 3).
       // age 11 → tile $66, yRise=2 (second DEC at age 11).
@@ -261,7 +266,7 @@ describe('RopeMechanismAppearance.render — smoke lifecycle', () => {
     })
   })
 
-  describe('"2 alive newest=$64" window — phase 7 only', () => {
+  describe('"2 alive newest=$64" window - phase 7 only', () => {
     it('phase 7 (newest cohort has aged into the $64 tile bucket)', () => {
       // age 7 → tile $64 (DATA_029922 index 2 hits at post-DEC timer 11).
       // age 15 → tile $66 yRise 2.
@@ -306,15 +311,15 @@ describe('RopeMechanismAppearance.render — smoke lifecycle', () => {
       expect(smokeCohortsAt(16)).toEqual(smokeCohortsAt(0))
     })
 
-    it('translates by (x, y) anchor — smoke at effFrame=0, anchor (100, 200)', () => {
+    it('translates by (x, y) anchor - smoke at effFrame=0, anchor (100, 200)', () => {
       const app = buildAppearance()
       const { target, calls } = capturingTarget()
       app.render(target, 100, 200, STUB_BEHAVIOR, stubMapStore())
       const smoke = smokeBlits(calls).sort((a, b) => b.pos.y - a.pos.y)
       expect(smoke).toEqual([
-        { pos: { x: 100, y: 194 }, tileTag: 0x62 },  // 200 - 6
-        { pos: { x: 108, y: 193 }, tileTag: 0x64 },  // 200 - 7, dx=8
-        { pos: { x: 100, y: 192 }, tileTag: 0x66 },  // 200 - 8
+        { pos: { x: 100, y: 194 }, tileTag: 0x62 }, // 200 - 6
+        { pos: { x: 108, y: 193 }, tileTag: 0x64 }, // 200 - 7, dx=8
+        { pos: { x: 100, y: 192 }, tileTag: 0x66 }, // 200 - 8
       ])
     })
   })
@@ -375,7 +380,7 @@ describe('RopeMechanismAppearance.render — smoke lifecycle', () => {
     })
   })
 
-  describe('smokeCohortsAt — pure lifecycle math', () => {
+  describe('smokeCohortsAt - pure lifecycle math', () => {
     it('phase 0: 3 cohorts, ages 0/8/16, even parity', () => {
       expect(smokeCohortsAt(0)).toEqual([
         { tileIdx: 0, puffDx: 0, yRise: 0 },
@@ -391,7 +396,7 @@ describe('RopeMechanismAppearance.render — smoke lifecycle', () => {
       ])
     })
 
-    it('phase 7: newest aged into $64 bucket — distinct visual state', () => {
+    it('phase 7: newest aged into $64 bucket - distinct visual state', () => {
       expect(smokeCohortsAt(7)).toEqual([
         { tileIdx: 1, puffDx: 0, yRise: 1 },
         { tileIdx: 2, puffDx: 8, yRise: 2 },

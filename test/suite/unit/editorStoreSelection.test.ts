@@ -32,7 +32,9 @@ describe('editorStore selectedSpriteKey', () => {
   it('re-runs a reactive effect on select and on clear', () => {
     const s = createEditorStore()
     const seen: (string | null)[] = []
-    effect(() => { seen.push(s.selectedSpriteKey) })
+    effect(() => {
+      seen.push(s.selectedSpriteKey)
+    })
     s.setSelectedSprite('15:32,48')
     s.setSelectedSprite(null)
     expect(seen).toEqual([null, '15:32,48', null])
@@ -41,7 +43,10 @@ describe('editorStore selectedSpriteKey', () => {
   it('does not re-run when the same key is set again', () => {
     const s = createEditorStore()
     let runs = 0
-    effect(() => { void s.selectedSpriteKey; runs++ })
+    effect(() => {
+      void s.selectedSpriteKey
+      runs++
+    })
     s.setSelectedSprite('15:32,48')
     s.setSelectedSprite('15:32,48')
     expect(runs).toBe(2)

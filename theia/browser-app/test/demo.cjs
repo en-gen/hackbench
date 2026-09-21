@@ -24,8 +24,8 @@ const path = require('path')
 
 const PACE = Number(process.argv[2] || 1600)
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
-const ROM = process.env.HB_ROM
-  || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
+const ROM =
+  process.env.HB_ROM || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
 const VANILLA_MAPS = 235
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -84,32 +84,48 @@ async function main() {
   await page.evaluate(OVERLAY)
 
   const say = async (title, detail, verdict) => {
-    await page.evaluate(
-      ({ t, d, v }) => window.__caption(t, d, v), { t: title, d: detail, v: verdict || '' },
-    )
+    await page.evaluate(({ t, d, v }) => window.__caption(t, d, v), {
+      t: title,
+      d: detail,
+      v: verdict || '',
+    })
     console.log(`\n${title}\n  ${detail}${verdict ? `\n  ${verdict}` : ''}`)
     await sleep(PACE)
   }
   const ok = c => (c ? 'PASS' : 'FAIL')
 
   // 1. Create a project, which is where a cartridge gets paired to this machine.
-  await say('1. Create a project',
+  await say(
+    '1. Create a project',
     'A project names its cartridge by HASH and never by path, so it can be',
-    'committed and shared. The path is recorded per-user, in the ROM registry.')
+    'committed and shared. The path is recorded per-user, in the ROM registry.',
+  )
 
-  const created = await page.evaluate(async ({ romPath, directory }) => {
-    const svc = getSvc('Symbol(ProjectService)')
-    const proj = await svc.createProject({ romPath, name: 'MyHack', directory })
-    return { manifestPath: proj.manifestPath, title: proj.baseRom.title, sha: proj.baseRom.sha256 }
-  }, { romPath: ROM, directory: path.join(tmp, 'MyHack') })
+  const created = await page.evaluate(
+    async ({ romPath, directory }) => {
+      const svc = getSvc('Symbol(ProjectService)')
+      const proj = await svc.createProject({ romPath, name: 'MyHack', directory })
+      return {
+        manifestPath: proj.manifestPath,
+        title: proj.baseRom.title,
+        sha: proj.baseRom.sha256,
+      }
+    },
+    { romPath: ROM, directory: path.join(tmp, 'MyHack') },
+  )
 
-  await say('1. Create a project', `cart: ${created.title}`,
-    `sha256 ${created.sha.slice(0, 16)}...  manifest written  ${ok(!!created.manifestPath)}`)
+  await say(
+    '1. Create a project',
+    `cart: ${created.title}`,
+    `sha256 ${created.sha.slice(0, 16)}...  manifest written  ${ok(!!created.manifestPath)}`,
+  )
 
   // 2. Load the maps. The count is the assertion, and it is derived per ROM.
-  await say('2. Load every map',
+  await say(
+    '2. Load every map',
     'The count comes from the ROM, never from a constant: a hack with 354 maps',
-    'reports 354. docs/glossary.md documents vanilla as 235.')
+    'reports 354. docs/glossary.md documents vanilla as 235.',
+  )
 
   const loaded = await page.evaluate(async mp => {
     const w = await getWidget('hackbench.map-explorer')
@@ -127,14 +143,18 @@ async function main() {
   }, created.manifestPath)
   await sleep(PACE)
 
-  await say('2. Load every map',
+  await say(
+    '2. Load every map',
     `widget reports ${loaded.mapCount} maps; ${loaded.distinct} distinct slots are reachable in the tree`,
-    `expected ${VANILLA_MAPS}  ${ok(loaded.mapCount === VANILLA_MAPS && loaded.distinct === VANILLA_MAPS)}`)
+    `expected ${VANILLA_MAPS}  ${ok(loaded.mapCount === VANILLA_MAPS && loaded.distinct === VANILLA_MAPS)}`,
+  )
 
   // 3. Grouping. A correct count with a flat tree passes every count check.
-  await say('3. Grouped, not dumped',
+  await say(
+    '3. Grouped, not dumped',
     `roots: ${loaded.groups.join(' / ')} -- ${loaded.overworld} levels, ${loaded.unassigned} unassigned`,
-    'A flattening bug yields the right COUNT with everything at depth 0.')
+    'A flattening bug yields the right COUNT with everything at depth 0.',
+  )
 
   const depth = await page.evaluate(async () => {
     const w = await getWidget('hackbench.map-explorer')
@@ -144,59 +164,90 @@ async function main() {
     return Math.max(0, ...roots.map(n => d(n)))
   })
   await sleep(PACE)
-  await say('3. Grouped, not dumped', `deepest sub-area nesting under a level: ${depth}`,
-    `needs > 0  ${ok(depth > 0)}`)
+  await say(
+    '3. Grouped, not dumped',
+    `deepest sub-area nesting under a level: ${depth}`,
+    `needs > 0  ${ok(depth > 0)}`,
+  )
 
   // 4. Rendered, not merely modelled. This one caught a real defect.
-  await say('4. Rows actually render',
+  await say(
+    '4. Rows actually render',
     'The tree virtualises its rows, so a widget that is attached but NOT VISIBLE',
-    'renders zero rows however full its model is. That shipped during this build.')
+    'renders zero rows however full its model is. That shipped during this build.',
+  )
 
   const rows = await page.locator('#hackbench\\.map-explorer .theia-TreeNode').count()
   const slots = await page.locator('#hackbench\\.map-explorer .hb-map-slot').allTextContents()
   const wellFormed = slots.every(s => /^\$[0-9A-F]{3}$/.test(s))
-  await say('4. Rows actually render', `${rows} rows in the DOM, ${slots.length} slot labels`,
-    `all labels well-formed hex  ${ok(rows > 2 && slots.length > 0 && wellFormed)}`)
+  await say(
+    '4. Rows actually render',
+    `${rows} rows in the DOM, ${slots.length} slot labels`,
+    `all labels well-formed hex  ${ok(rows > 2 && slots.length > 0 && wellFormed)}`,
+  )
 
   // 5. Theming. People customise the look; a pinned colour opts out of that.
-  await say('5. The theme is respected',
+  await say(
+    '5. The theme is respected',
     'Nothing we render carries an inline style, because an inline style outranks',
-    'every rule a theme contributes. Checked on our own elements.')
+    'every rule a theme contributes. Checked on our own elements.',
+  )
 
-  const inlined = await page.locator(
-    '#hackbench\\.map-explorer .hb-map-slot[style], '
-    + '#hackbench\\.map-explorer .hb-map-name[style], '
-    + '#hackbench\\.map-explorer .hb-map-note[style]').count()
-  await say('5. The theme is respected', `inline styles on our elements: ${inlined}`,
-    `needs 0  ${ok(inlined === 0)}`)
+  const inlined = await page
+    .locator(
+      '#hackbench\\.map-explorer .hb-map-slot[style], ' +
+        '#hackbench\\.map-explorer .hb-map-name[style], ' +
+        '#hackbench\\.map-explorer .hb-map-note[style]',
+    )
+    .count()
+  await say(
+    '5. The theme is respected',
+    `inline styles on our elements: ${inlined}`,
+    `needs 0  ${ok(inlined === 0)}`,
+  )
 
-  const sample = () => page.evaluate(() =>
-    getComputedStyle(document.querySelector('#hackbench\\.map-explorer .hb-map-slot')).color)
+  const sample = () =>
+    page.evaluate(
+      () =>
+        getComputedStyle(document.querySelector('#hackbench\\.map-explorer .hb-map-slot')).color,
+    )
   const setTheme = async t => {
-    await page.evaluate(x => { getSvc('ThemeService').setCurrentTheme(x) }, t)
+    await page.evaluate(x => {
+      getSvc('ThemeService').setCurrentTheme(x)
+    }, t)
     await sleep(PACE)
   }
 
-  await say('6. Colours move with the theme',
+  await say(
+    '6. Colours move with the theme',
     'Absence of inline styles is not enough: a rule that resolves to nothing',
-    'would also pass. So switch the theme and watch the colour change.')
+    'would also pass. So switch the theme and watch the colour change.',
+  )
   await setTheme('dark')
   const dark = await sample()
   await setTheme('light')
   const light = await sample()
-  await say('6. Colours move with the theme', `dark ${dark}  ->  light ${light}`,
-    `must differ  ${ok(dark !== light)}`)
+  await say(
+    '6. Colours move with the theme',
+    `dark ${dark}  ->  light ${light}`,
+    `must differ  ${ok(dark !== light)}`,
+  )
   await setTheme('dark')
 
   // 7. The sharing case: a project whose cartridge this machine has never seen.
-  await say('7. A cartridge this machine has not seen',
+  await say(
+    '7. A cartridge this machine has not seen',
     'What every collaborator hits after cloning a project. It must read as',
-    '"locate it", not as an error and not as an empty tree.')
+    '"locate it", not as an error and not as an empty tree.',
+  )
 
   const sharedDir = path.join(tmp, 'Shared')
-  await page.evaluate(async ({ romPath, directory }) => {
-    await getSvc('Symbol(ProjectService)').createProject({ romPath, name: 'Shared', directory })
-  }, { romPath: ROM, directory: sharedDir })
+  await page.evaluate(
+    async ({ romPath, directory }) => {
+      await getSvc('Symbol(ProjectService)').createProject({ romPath, name: 'Shared', directory })
+    },
+    { romPath: ROM, directory: sharedDir },
+  )
 
   const manifestPath = path.join(sharedDir, 'Shared.hbproj')
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
@@ -211,9 +262,11 @@ async function main() {
     return { status: res.status, rows: w.model.root.children.map(n => n.name) }
   }, manifestPath)
   await sleep(PACE)
-  await say('7. A cartridge this machine has not seen',
+  await say(
+    '7. A cartridge this machine has not seen',
     `status: ${shared.status} -- "${shared.rows.join(' ')}"`,
-    `names the cart and asks for it  ${ok(shared.status === 'rom-not-located')}`)
+    `names the cart and asks for it  ${ok(shared.status === 'rom-not-located')}`,
+  )
 
   // 8. Put the real project back so the window ends on something worth seeing.
   await page.evaluate(async mp => {
@@ -223,15 +276,22 @@ async function main() {
     for (const n of roots.slice(0, 8)) if (n.children.length) await w.model.expandNode(n)
   }, created.manifestPath)
 
-  await say('Done', `${VANILLA_MAPS} maps, grouped, rendered and themed.`,
-    'Every assertion above is in test/load-maps.spec.cjs, and each was proven to go red.')
+  await say(
+    'Done',
+    `${VANILLA_MAPS} maps, grouped, rendered and themed.`,
+    'Every assertion above is in test/load-maps.spec.cjs, and each was proven to go red.',
+  )
   await sleep(PACE * 3)
 
   fs.rmSync(tmp, { recursive: true, force: true })
   const clip = video ? page.video() : null
   await browser.close()
-  if (clip) console.log(`
+  if (clip)
+    console.log(`
 video: ${await clip.path()}`)
 }
 
-main().catch(e => { console.error('DEMO FAILED:', e.message); process.exit(1) })
+main().catch(e => {
+  console.error('DEMO FAILED:', e.message)
+  process.exit(1)
+})

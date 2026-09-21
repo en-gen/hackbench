@@ -23,19 +23,19 @@ import { RomFile } from './RomFile'
 
 // ── ROM addresses (from SMW_U.sym) ────────────────────────────────────────────
 /** Map16Common: $0D8000 -- shared (common) Map16 tile data */
-export const MAP16_COMMON = 0x0D8000       // bank_0D.asm line 2
+export const MAP16_COMMON = 0x0d8000 // bank_0D.asm line 2
 
 /** Map16BGTiles: $0D9100 -- L2 preset background Map16 tile data */
-export const MAP16_BG_TILES = 0x0D9100     // bank_0D.asm line 551
+export const MAP16_BG_TILES = 0x0d9100 // bank_0D.asm line 551
 
 /** TilesetMAP16Loc: $058000 -- 15 word entries pointing to tileset-specific data */
-export const TILESET_MAP16_LOC = 0x058000   // bank_05.asm line 2
+export const TILESET_MAP16_LOC = 0x058000 // bank_05.asm line 2
 
 /** DATA_0581BB: $0581BB -- 64-byte bitmap for common/tileset assignment */
-export const MAP16_BITMAP_ADDR = 0x0581BB   // bank_05.asm line 243
+export const MAP16_BITMAP_ADDR = 0x0581bb // bank_05.asm line 243
 
 /** Number of tileset entries in TilesetMAP16Loc */
-export const TILESET_COUNT = 15             // bank_05.asm lines 3-17
+export const TILESET_COUNT = 15 // bank_05.asm lines 3-17
 
 /**
  * MAP16AppTable at SNES `$058776` (bank_05.asm line 884):
@@ -43,10 +43,10 @@ export const TILESET_COUNT = 15             // bank_05.asm lines 3-17
  *
  * Four 16-bit pointers (bank $0D) to four palette variants of the pipe
  * tile block `$133..$13A`:
- *   idx 0 → $0D8AB0 — palette 3 (FG pal row 3; grey in FG pal 0)
- *   idx 1 → $0D84E0 — palette 5 (StandardColors green)
- *   idx 2 → $0D8AF0 — palette 6 (StandardColors yellow/brown)
- *   idx 3 → $0D8B30 — palette 7 (StandardColors blue/purple)
+ *   idx 0 → $0D8AB0 - palette 3 (FG pal row 3; grey in FG pal 0)
+ *   idx 1 → $0D84E0 - palette 5 (StandardColors green)
+ *   idx 2 → $0D8AF0 - palette 6 (StandardColors yellow/brown)
+ *   idx 3 → $0D8B30 - palette 7 (StandardColors blue/purple)
  *
  * CODE_0580BD (level load, bank_05.asm lines 110-143) and CODE_05877E
  * (scroll-triggered, bank_05.asm lines 900-929) both select one of these
@@ -58,10 +58,10 @@ export const TILESET_COUNT = 15             // bank_05.asm lines 3-17
  * vanilla SMW produces the cycling pipe colors across screens.
  */
 export const MAP16_APP_TABLE: readonly number[] = [
-  0x0D8AB0,  // variant 0: palette 3 (grey)
-  0x0D84E0,  // variant 1: palette 5 (green)
-  0x0D8AF0,  // variant 2: palette 6 (yellow)
-  0x0D8B30,  // variant 3: palette 7 (blue/purple)
+  0x0d8ab0, // variant 0: palette 3 (grey)
+  0x0d84e0, // variant 1: palette 5 (green)
+  0x0d8af0, // variant 2: palette 6 (yellow)
+  0x0d8b30, // variant 3: palette 7 (blue/purple)
 ] as const
 
 /** Tile IDs `$133..$13A` are the 8 consecutive pipe tiles the app-table redirects. */
@@ -81,46 +81,52 @@ export function pipeVariantIndex(scrollCounter: number): number {
 
 /** Tileset-specific Map16 addresses from SMW_U.sym */
 export const MAP16_TILESET_ADDRS: number[] = [
-  0x0D8B70,  // Map16Tileset0
-  0x0DBC00,  // Map16Tileset1
-  0x0DC800,  // Map16Tileset2
-  0x0DD400,  // Map16Tileset3
-  0x0DE300,  // Map16Tileset4
+  0x0d8b70, // Map16Tileset0
+  0x0dbc00, // Map16Tileset1
+  0x0dc800, // Map16Tileset2
+  0x0dd400, // Map16Tileset3
+  0x0de300, // Map16Tileset4
 ]
 
 export const MAP16_TILE_BYTES = 8
-export const MAP16_TOTAL_TILES = 512        // 64 bytes * 8 bits = 512 tile entries
+export const MAP16_TOTAL_TILES = 512 // 64 bytes * 8 bits = 512 tile entries
 
 // ── Subtile / tile types ─────────────────────────────────────────────────────
 
 export interface SubTile {
-  charNum: number    // 10-bit GFX character index (bits 0-9)
-  palette: number    // 3-bit palette row (bits 10-12)
-  priority: boolean  // bit 13
-  flipX: boolean     // bit 14
-  flipY: boolean     // bit 15
+  charNum: number // 10-bit GFX character index (bits 0-9)
+  palette: number // 3-bit palette row (bits 10-12)
+  priority: boolean // bit 13
+  flipX: boolean // bit 14
+  flipY: boolean // bit 15
 }
 
 /** A decoded 16x16 Map16 tile with its four 8x8 subtiles. */
 export interface Map16Tile {
   id: number
-  tl: SubTile   // top-left     (word 0, column-major)
-  tr: SubTile   // top-right    (word 2, column-major)
-  bl: SubTile   // bottom-left  (word 1, column-major)
-  br: SubTile   // bottom-right (word 3, column-major)
+  tl: SubTile // top-left     (word 0, column-major)
+  tr: SubTile // top-right    (word 2, column-major)
+  bl: SubTile // bottom-left  (word 1, column-major)
+  br: SubTile // bottom-right (word 3, column-major)
 }
 
 function decodeSubTile(word: number): SubTile {
   return {
-    charNum:  word & 0x3FF,
-    palette:  (word >> 10) & 0x7,
+    charNum: word & 0x3ff,
+    palette: (word >> 10) & 0x7,
     priority: ((word >> 13) & 1) === 1,
-    flipX:    ((word >> 14) & 1) === 1,
-    flipY:    ((word >> 15) & 1) === 1,
+    flipX: ((word >> 14) & 1) === 1,
+    flipY: ((word >> 15) & 1) === 1,
   }
 }
 
-const EMPTY_SUBTILE: SubTile = { charNum: 0, palette: 0, priority: false, flipX: false, flipY: false }
+const EMPTY_SUBTILE: SubTile = {
+  charNum: 0,
+  palette: 0,
+  priority: false,
+  flipX: false,
+  flipY: false,
+}
 
 function readTileAt(rom: RomFile, addr: number, id: number): Map16Tile {
   const buf = rom.readAt(addr, MAP16_TILE_BYTES)
@@ -128,10 +134,10 @@ function readTileAt(rom: RomFile, addr: number, id: number): Map16Tile {
     return { id, tl: EMPTY_SUBTILE, tr: EMPTY_SUBTILE, bl: EMPTY_SUBTILE, br: EMPTY_SUBTILE }
   }
   // Column-major word order: TL(0), BL(2), TR(4), BR(6)
-  const w0 = buf.readUInt16LE(0)  // TL
-  const w1 = buf.readUInt16LE(2)  // BL
-  const w2 = buf.readUInt16LE(4)  // TR
-  const w3 = buf.readUInt16LE(6)  // BR
+  const w0 = buf.readUInt16LE(0) // TL
+  const w1 = buf.readUInt16LE(2) // BL
+  const w2 = buf.readUInt16LE(4) // TR
+  const w3 = buf.readUInt16LE(6) // BR
   return {
     id,
     tl: decodeSubTile(w0),
@@ -158,9 +164,9 @@ function readTileAt(rom: RomFile, addr: number, id: number): Map16Tile {
 export function buildMap16PointerTable(rom: RomFile, tileset: number): number[] {
   // Read the tileset-specific address from TilesetMAP16Loc
   // bank_05.asm line 268-269: LDA.L TilesetMAP16Loc,X (X = tileset*2)
-  const tilesetWord = rom.readWord(TILESET_MAP16_LOC + (tileset & 0x0F) * 2)
+  const tilesetWord = rom.readWord(TILESET_MAP16_LOC + (tileset & 0x0f) * 2)
   // This is a 16-bit address in bank $0D
-  let tilesetPtr = 0x0D0000 | (tilesetWord ?? 0x8B70)
+  let tilesetPtr = 0x0d0000 | (tilesetWord ?? 0x8b70)
 
   // Common pointer starts at Map16Common ($0D8000)
   // bank_05.asm line 270-271: LDA.W #Map16Common -> STA.B _2
@@ -177,12 +183,12 @@ export function buildMap16PointerTable(rom: RomFile, tileset: number): number[] 
   //   _C = bitmap[Y]; then 8 iterations of ASL _C
   let tileIdx = 0
   for (let byteIdx = 0; byteIdx < 64; byteIdx++) {
-    let bitmapByte = bitmap ? bitmap[byteIdx] ?? 0 : 0
+    let bitmapByte = bitmap ? (bitmap[byteIdx] ?? 0) : 0
 
     for (let bit = 0; bit < 8; bit++) {
       // ASL _C: shift left, carry = MSB
       const carry = (bitmapByte & 0x80) !== 0
-      bitmapByte = (bitmapByte << 1) & 0xFF
+      bitmapByte = (bitmapByte << 1) & 0xff
 
       if (carry) {
         // bit=1: common tile (line 288-294)
@@ -203,8 +209,8 @@ export function buildMap16PointerTable(rom: RomFile, tileset: number): number[] 
   // slope-pipe tiles (green-pipe variant, palette 5) that replace the
   // common-bank browns that the bitmap walk would otherwise point at.
   if (tileset === 0 || tileset === 7) {
-    let slopePtr = 0x0D8A70
-    for (const t of [0x1C4, 0x1C5, 0x1C6, 0x1C7, 0x1EC, 0x1ED, 0x1EE, 0x1EF]) {
+    let slopePtr = 0x0d8a70
+    for (const t of [0x1c4, 0x1c5, 0x1c6, 0x1c7, 0x1ec, 0x1ed, 0x1ee, 0x1ef]) {
       pointers[t] = slopePtr
       slopePtr += MAP16_TILE_BYTES
     }
@@ -265,7 +271,10 @@ export function loadAllMap16(rom: RomFile, tileset = 0, pipeVariantIdx?: number)
  * from scratch each time even though only 8 pointers differ. This reuses the
  * pointer table and reads only what actually changes.
  */
-export function loadMap16WithPipeVariants(rom: RomFile, tileset: number): {
+export function loadMap16WithPipeVariants(
+  rom: RomFile,
+  tileset: number,
+): {
   tiles: Map16Tile[]
   pipeVariants: Map16Tile[][]
 } {
@@ -292,7 +301,13 @@ export function loadMap16WithPipeVariants(rom: RomFile, tileset: number): {
 export function loadMap16Tile(rom: RomFile, tileId: number, tileset = 0): Map16Tile {
   const pointers = buildMap16PointerTable(rom, tileset)
   if (tileId < 0 || tileId >= 512) {
-    return { id: tileId, tl: EMPTY_SUBTILE, tr: EMPTY_SUBTILE, bl: EMPTY_SUBTILE, br: EMPTY_SUBTILE }
+    return {
+      id: tileId,
+      tl: EMPTY_SUBTILE,
+      tr: EMPTY_SUBTILE,
+      bl: EMPTY_SUBTILE,
+      br: EMPTY_SUBTILE,
+    }
   }
   return readTileAt(rom, pointers[tileId], tileId)
 }

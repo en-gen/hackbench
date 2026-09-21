@@ -12,9 +12,7 @@ export function decode2bpp(data: ArrayLike<number>, offset = 0): Uint8Array {
     const p0hi = data[offset + row * 2 + 1]
     for (let col = 0; col < 8; col++) {
       const bit = 7 - col
-      px[row * 8 + col] =
-        ((p0lo >> bit) & 1) |
-        (((p0hi >> bit) & 1) << 1)
+      px[row * 8 + col] = ((p0lo >> bit) & 1) | (((p0hi >> bit) & 1) << 1)
     }
   }
   return px
@@ -46,13 +44,11 @@ export function decode3bpp(data: ArrayLike<number>, offset = 0): Uint8Array {
   for (let row = 0; row < 8; row++) {
     const p0lo = data[offset + row * 2]
     const p0hi = data[offset + row * 2 + 1]
-    const p2   = data[offset + 16 + row]
+    const p2 = data[offset + 16 + row]
     for (let col = 0; col < 8; col++) {
       const bit = 7 - col
       px[row * 8 + col] =
-        ((p0lo >> bit) & 1) |
-        (((p0hi >> bit) & 1) << 1) |
-        (((p2   >> bit) & 1) << 2)
+        ((p0lo >> bit) & 1) | (((p0hi >> bit) & 1) << 1) | (((p2 >> bit) & 1) << 2)
     }
   }
   return px
@@ -78,15 +74,10 @@ export function decodeTileSheet(data: Buffer, format: '3bpp' | '4bpp' = '4bpp'):
 /** Convert SNES BGR555 word to RGBA.
  *  Uses bit-replication (c5<<3 | c5>>2) so that 0→0 and 31→255 exactly. */
 export function bgr555ToRgba(v: number): RgbaColor {
-  const r5 = (v)       & 0x1F
-  const g5 = (v >>  5) & 0x1F
-  const b5 = (v >> 10) & 0x1F
-  return [
-    (r5 << 3) | (r5 >> 2),
-    (g5 << 3) | (g5 >> 2),
-    (b5 << 3) | (b5 >> 2),
-    255
-  ]
+  const r5 = v & 0x1f
+  const g5 = (v >> 5) & 0x1f
+  const b5 = (v >> 10) & 0x1f
+  return [(r5 << 3) | (r5 >> 2), (g5 << 3) | (g5 >> 2), (b5 << 3) | (b5 >> 2), 255]
 }
 
 /** Decode a block of BGR555 palette data → RGBA array. */
@@ -102,7 +93,7 @@ export function decodePalette(data: Buffer, count?: number): RgbaColor[] {
 export function tilesToRgba(
   tiles: Uint8Array[],
   palette: RgbaColor[],
-  tilesPerRow = 16
+  tilesPerRow = 16,
 ): { rgba: Uint8ClampedArray; width: number; height: number } {
   const rows = Math.ceil(tiles.length / tilesPerRow)
   const width = tilesPerRow * TILE_W
@@ -117,8 +108,8 @@ export function tilesToRgba(
       for (let px = 0; px < TILE_W; px++) {
         const idx = tile[py * TILE_W + px]
         const color = palette[idx] ?? [255, 0, 255, 255]
-        const dest = (( tileRow * TILE_H + py) * width + tileCol * TILE_W + px) * 4
-        rgba[dest]     = color[0]
+        const dest = ((tileRow * TILE_H + py) * width + tileCol * TILE_W + px) * 4
+        rgba[dest] = color[0]
         rgba[dest + 1] = color[1]
         rgba[dest + 2] = color[2]
         rgba[dest + 3] = idx === 0 ? 0 : color[3]

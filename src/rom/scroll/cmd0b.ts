@@ -1,5 +1,5 @@
 /**
- * cmd0b.ts — port of `CODE_05C727` (bank_05.asm:5907-5950).
+ * cmd0b.ts - port of `CODE_05C727` (bank_05.asm:5907-5950).
  *
  * Cmd $0B implements the On/Off Switch–controlled Layer 2 Y-scroll
  * (used in ghost houses with rising/falling platforms). The L2 dispatch
@@ -7,7 +7,7 @@
  *
  * Algorithm (one frame):
  *
- *   1. `X = OnOffSwitch != 0 ? 2 : 0` — X selects the active direction
+ *   1. `X = OnOffSwitch != 0 ? 2 : 0` - X selects the active direction
  *      (0 = moving toward Y=$0020=32, 2 = moving toward Y=$00C1=193).
  *
  *   2. `CPX Layer2ScrollType`
@@ -16,7 +16,7 @@
  *        negative (was 0 → $FFFF), update `Layer2ScrollType = X`. Then
  *        toggle `NextLayer2YPos ^= 1` (1-pixel jiggle), clear
  *        `Layer2ScrollYSpeed`, and return early (no CODE_05C32B /
- *        applyNext in this path — the tick's leading `applyNext` handles
+ *        applyNext in this path - the tick's leading `applyNext` handles
  *        the commit on the next frame).
  *
  *   3. **Main loop (CODE_05C74A)**:
@@ -31,12 +31,7 @@
  * Vanilla level exercising this cmd: $0DC (sprite $E8 b0=$08 → cmd $0B).
  */
 
-import {
-  ADDR_DATA_05C71B,
-  ADDR_DATA_05C71F,
-  ADDR_DATA_05C723,
-  readWord,
-} from '../scrollData'
+import { ADDR_DATA_05C71B, ADDR_DATA_05C71F, ADDR_DATA_05C723, readWord } from '../scrollData'
 import { applyC4F9 } from './parallaxCore'
 import type { RomFile } from '../RomFile'
 import type { ScrollState } from '../scrollSim'
@@ -49,12 +44,12 @@ export function cmd0bL2(s: ScrollState, rom: RomFile): ScrollState {
   if (x !== s.layer2ScrollType) {
     // Transition frame: decrement timer; if negative, advance type.
     const newTimer = wrap16(s.layer2ScrollTimer - 1)
-    const newType = (newTimer & 0x8000) ? x : s.layer2ScrollType
+    const newType = newTimer & 0x8000 ? x : s.layer2ScrollType
     return {
       ...s,
       layer2ScrollTimer: newTimer,
-      layer2ScrollType:  newType,
-      nextLayer2YPos:    wrap16(s.nextLayer2YPos ^ 0x01),
+      layer2ScrollType: newType,
+      nextLayer2YPos: wrap16(s.nextLayer2YPos ^ 0x01),
       layer2ScrollYSpeed: 0,
     } as ScrollState
   }
@@ -69,9 +64,9 @@ export function cmd0bL2(s: ScrollState, rom: RomFile): ScrollState {
   }
 
   // Ramp speed toward cap, then apply C4F9 on Y axis (CODE_05C770).
-  const cap  = readWord(rom, ADDR_DATA_05C71F, x)
+  const cap = readWord(rom, ADDR_DATA_05C71F, x)
   const step = readWord(rom, ADDR_DATA_05C723, x)
-  let speed  = cur.layer2ScrollYSpeed
+  let speed = cur.layer2ScrollYSpeed
   if (speed !== cap) {
     speed = wrap16(speed + step)
     cur = { ...cur, layer2ScrollYSpeed: speed } as ScrollState

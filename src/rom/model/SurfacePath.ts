@@ -1,5 +1,5 @@
 /**
- * SurfacePath — pixel-accurate floor silhouette over an L1 grid, queried
+ * SurfacePath - pixel-accurate floor silhouette over an L1 grid, queried
  * with edge-to-edge matching so adjacent surface entries connect along
  * the same continuous polyline that `drawSurfaces` (the "Show surfaces"
  * editor overlay) draws.
@@ -10,7 +10,7 @@
  * koopa's previous mid-Y than the lower slope's, even when the koopa is
  * walking on the lower slope). The ROM's slope tables are designed so
  * the right-edge height of one tile equals the left-edge height of the
- * next — i.e. surfaces mate at boundaries with delta ≈ 0. Following
+ * next - i.e. surfaces mate at boundaries with delta ≈ 0. Following
  * those edge values picks the same surface a designer would: the one
  * the koopa was walking on at the previous column.
  *
@@ -23,7 +23,7 @@
  *     per-pixel rendering (the appearance polygon, the editor overlay).
  *
  *   - Non-slope floor tiles emit a surface only at the **silhouette
- *     top** — when the cell directly above is not also a floor. Without
+ *     top** - when the cell directly above is not also a floor. Without
  *     this, a tall solid pillar emits an entry on every interior row,
  *     and `nextSurface` would happily land the koopa inside the pillar
  *     when its tolerance window includes those interior rows. Slope
@@ -56,20 +56,18 @@ export const DEFAULT_EDGE_TOLERANCE = 16
 
 /**
  * Sprite-perspective floor predicate (default). Reads
- * `cell.collision.floor` — full CODE_01933B coverage including slopes.
+ * `cell.collision.floor` - full CODE_01933B coverage including slopes.
  */
-export const SPRITE_HAS_FLOOR = (cell: L1Cell): boolean =>
-  cell.collision?.floor ?? false
+export const SPRITE_HAS_FLOOR = (cell: L1Cell): boolean => cell.collision?.floor ?? false
 
 /**
  * Mario-perspective floor predicate. Reads `cell.collision.marioFloor`
- * — the editor's "Show surfaces" overlay uses this so the displayed
+ * - the editor's "Show surfaces" overlay uses this so the displayed
  * surface matches what Mario stops on, including spikes and slopes
  * but excluding climbables / coins / midway gates filtered by
  * `isMarioStandable`.
  */
-export const MARIO_HAS_FLOOR = (cell: L1Cell): boolean =>
-  cell.collision?.marioFloor ?? false
+export const MARIO_HAS_FLOOR = (cell: L1Cell): boolean => cell.collision?.marioFloor ?? false
 
 export interface SurfacePathConfig {
   /**
@@ -81,12 +79,12 @@ export interface SurfacePathConfig {
 }
 
 export interface SurfaceEntry {
-  /** Surface pixel Y at the left edge of the cell — `floorRow*16 + heights[0]` for slopes, `floorRow*16` for flat. */
-  readonly yLeft:    number
-  /** Surface pixel Y at the right edge of the cell — `floorRow*16 + heights[15]` for slopes, `floorRow*16` for flat. */
-  readonly yRight:   number
-  /** Surface pixel Y at mid-column — `floorRow*16 + heights[8]` for slopes, `floorRow*16` for flat. */
-  readonly yMid:     number
+  /** Surface pixel Y at the left edge of the cell - `floorRow*16 + heights[0]` for slopes, `floorRow*16` for flat. */
+  readonly yLeft: number
+  /** Surface pixel Y at the right edge of the cell - `floorRow*16 + heights[15]` for slopes, `floorRow*16` for flat. */
+  readonly yRight: number
+  /** Surface pixel Y at mid-column - `floorRow*16 + heights[8]` for slopes, `floorRow*16` for flat. */
+  readonly yMid: number
   /** The L1 row that owns this surface (the floor tile / slope tile). */
   readonly floorRow: number
 }
@@ -104,7 +102,7 @@ export interface SurfacePath {
    * previous column along direction `dir`.
    *
    *   `prevExitY` is the previous column's edge Y on the side we step
-   *   off — i.e. `prev.yLeft` when walking left (`dir = -1`) and
+   *   off - i.e. `prev.yLeft` when walking left (`dir = -1`) and
    *   `prev.yRight` when walking right (`dir = +1`).
    *
    *   The candidate's matching edge is on the OPPOSITE side: walking
@@ -114,12 +112,7 @@ export interface SurfacePath {
    * Returns the entry with the smallest `|arrivalY - prevExitY|` whose
    * delta is `<= tolerancePx`. Returns `null` if no entry matches.
    */
-  nextSurface(
-    c:          number,
-    prevExitY:  number,
-    dir:        -1 | 1,
-    tolerancePx?: number,
-  ): SurfaceEntry | null
+  nextSurface(c: number, prevExitY: number, dir: -1 | 1, tolerancePx?: number): SurfaceEntry | null
 }
 
 /**
@@ -128,9 +121,9 @@ export interface SurfacePath {
  * level share work without an explicit shared-instance plumbing.
  */
 export function buildSurfacePath(
-  getL1:  GetL1Tile,
-  cols:   number,
-  rows:   number,
+  getL1: GetL1Tile,
+  cols: number,
+  rows: number,
   config?: SurfacePathConfig,
 ): SurfacePath {
   const cache: (readonly SurfaceEntry[] | undefined)[] = new Array(cols)
@@ -139,13 +132,13 @@ export function buildSurfacePath(
   function compute(c: number): readonly SurfaceEntry[] {
     if (c < 0 || c >= cols) return []
     const surfaces: SurfaceEntry[] = []
-    let aboveIsFloor = false  // tracks any-floor at (c, r-1) for silhouette suppression
+    let aboveIsFloor = false // tracks any-floor at (c, r-1) for silhouette suppression
     for (let r = 0; r < rows; r++) {
       const cell = getL1(c, r)
       // SurfacePath emits surfaces for ALL hasFloor cells, including
       // priority-decorative ones. SMW's sprite-tile collision routines
       // (CODE_01928E / CODE_0192C9 / CODE_01933B) and Mario's CODE_00F545
-      // key off the Map16 tile's actsLike low byte — the priority bit is
+      // key off the Map16 tile's actsLike low byte - the priority bit is
       // a render-order flag, not a collision flag. Skipping priority cells
       // here previously collapsed level $11E patrol corridors when the
       // forest pillars (entirely priority columns) included the platform
@@ -155,7 +148,7 @@ export function buildSurfacePath(
         continue
       }
       const collision = cell.collision
-      // Slope tiles ALWAYS emit a surface entry — they ARE the surface
+      // Slope tiles ALWAYS emit a surface entry - they ARE the surface
       // by definition (DATA_00E632 surface-Y per pixel column). The
       // `hasFloor` predicate doesn't gate slopes: e.g. Mario's
       // `marioFloor` is false for slopes (feetLanding returns 'slope',
@@ -165,14 +158,14 @@ export function buildSurfacePath(
         const h = collision.slope.heights
         const base = r * TILE_PX
         surfaces.push({
-          yLeft:    base + (h[0]  & 0x0F),
-          yRight:   base + (h[15] & 0x0F),
-          yMid:     base + (h[8]  & 0x0F),
+          yLeft: base + (h[0] & 0x0f),
+          yRight: base + (h[15] & 0x0f),
+          yMid: base + (h[8] & 0x0f),
           floorRow: r,
         })
         // Slope tiles always have empty pixels above the surface line,
         // so the cell BELOW a slope can still emit its silhouette top
-        // if the slope's lowest pixel doesn't reach the bottom edge —
+        // if the slope's lowest pixel doesn't reach the bottom edge -
         // but in practice slope tile + solid-below is the common case
         // and the slope's own entry already represents the surface.
         // We treat the slope as "floor above" for the next iteration so

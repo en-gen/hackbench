@@ -1,5 +1,5 @@
 /**
- * HammerBroAppearance — flip cadence and dx mirroring.
+ * HammerBroAppearance - flip cadence and dx mirroring.
  *
  * SMW Hammer Bro ($9B) facing direction is bit 5 of `SpriteMisc1570`
  * (bank_02.asm). Misc1570 increments 3 of every 4 game frames at 60 Hz
@@ -9,7 +9,7 @@
  * game frames. With the 3-of-4 cadence that's ≈5.6 increments per tick;
  * the appearance advances its internal Misc1570 by 6 per tick to round
  * to the nearest integer. Bit 5 then toggles every 32/6 ≈ 5.33 ticks
- * ≈ 666 ms — within ~6 % of the in-game cadence.
+ * ≈ 666 ms - within ~6 % of the in-game cadence.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -35,53 +35,60 @@ function stubMapStore() {
 }
 
 function makeChar(tag: number): Char {
-  const buf = new Uint8Array(64); buf[0] = tag & 0xFF
+  const buf = new Uint8Array(64)
+  buf[0] = tag & 0xff
   return new Char(tag, new StaticPixelsBehavior(buf))
 }
 
-interface Blit { pos: PixelPos; flipX: boolean; tag: number }
+interface Blit {
+  pos: PixelPos
+  flipX: boolean
+  tag: number
+}
 
 function capturingTarget() {
   const calls: Blit[] = []
   const target: RenderTarget = {
-    blit8x8(pixels, pos, _row, flipX) { calls.push({ pos, flipX, tag: pixels[0] }) },
+    blit8x8(pixels, pos, _row, flipX) {
+      calls.push({ pos, flipX, tag: pixels[0] })
+    },
     fillRect() {},
   }
   return { target, calls }
 }
 
 /**
- * 2x2 layout — four 8x8 parts at corners of a 16x16 hitRect, each tagged
+ * 2x2 layout - four 8x8 parts at corners of a 16x16 hitRect, each tagged
  * with a unique fingerprint so a render captures which part landed where.
  */
 function buildParts(): SpritePart[] {
   return [
-    { char: makeChar(0xA0), palette: 0, flipX: false, flipY: false, dx: 0, dy: 0 },  // top-left
-    { char: makeChar(0xA1), palette: 0, flipX: false, flipY: false, dx: 8, dy: 0 },  // top-right
-    { char: makeChar(0xA2), palette: 0, flipX: false, flipY: false, dx: 0, dy: 8 },  // bottom-left
-    { char: makeChar(0xA3), palette: 0, flipX: false, flipY: false, dx: 8, dy: 8 },  // bottom-right
+    { char: makeChar(0xa0), palette: 0, flipX: false, flipY: false, dx: 0, dy: 0 }, // top-left
+    { char: makeChar(0xa1), palette: 0, flipX: false, flipY: false, dx: 8, dy: 0 }, // top-right
+    { char: makeChar(0xa2), palette: 0, flipX: false, flipY: false, dx: 0, dy: 8 }, // bottom-left
+    { char: makeChar(0xa3), palette: 0, flipX: false, flipY: false, dx: 8, dy: 8 }, // bottom-right
   ]
 }
 
-describe('HammerBroAppearance — initial state', () => {
+describe('HammerBroAppearance - initial state', () => {
   it('starts unflipped: parts render at their declared dx', () => {
     const app = new HammerBroAppearance(buildParts())
     const { target, calls } = capturingTarget()
     app.render(target, 0, 0, STUB_BEHAVIOR, stubMapStore())
     const byTag = new Map(calls.map(c => [c.tag, c]))
-    expect(byTag.get(0xA0)).toMatchObject({ pos: { x: 0, y: 0 }, flipX: false })
-    expect(byTag.get(0xA1)).toMatchObject({ pos: { x: 8, y: 0 }, flipX: false })
+    expect(byTag.get(0xa0)).toMatchObject({ pos: { x: 0, y: 0 }, flipX: false })
+    expect(byTag.get(0xa1)).toMatchObject({ pos: { x: 8, y: 0 }, flipX: false })
   })
 })
 
-describe('HammerBroAppearance — flip toggles ~every 5–6 ticks (Misc1570 bit-5)', () => {
+describe('HammerBroAppearance - flip toggles ~every 5–6 ticks (Misc1570 bit-5)', () => {
   it('first 5 ticks: still unflipped', () => {
     const app = new HammerBroAppearance(buildParts())
     for (let i = 0; i < 5; i++) app.tickAnimation()
     const { target, calls } = capturingTarget()
     app.render(target, 0, 0, STUB_BEHAVIOR, stubMapStore())
     // Top-left tag should still be at dx=0 (unflipped)
-    const tl = calls.find(c => c.tag === 0xA0)!
+    const tl = calls.find(c => c.tag === 0xa0)!
     expect(tl.pos.x).toBe(0)
     expect(tl.flipX).toBe(false)
   })
@@ -91,7 +98,7 @@ describe('HammerBroAppearance — flip toggles ~every 5–6 ticks (Misc1570 bit-
     for (let i = 0; i < 6; i++) app.tickAnimation()
     const { target, calls } = capturingTarget()
     app.render(target, 0, 0, STUB_BEHAVIOR, stubMapStore())
-    const tl = calls.find(c => c.tag === 0xA0)!
+    const tl = calls.find(c => c.tag === 0xa0)!
     // 0xA0 was at dx=0; mirrored around 16-wide hitRect → dx=8.
     expect(tl.pos.x).toBe(8)
     expect(tl.flipX).toBe(true)
@@ -102,14 +109,14 @@ describe('HammerBroAppearance — flip toggles ~every 5–6 ticks (Misc1570 bit-
     for (let i = 0; i < 11; i++) app.tickAnimation()
     const { target, calls } = capturingTarget()
     app.render(target, 0, 0, STUB_BEHAVIOR, stubMapStore())
-    const tl = calls.find(c => c.tag === 0xA0)!
+    const tl = calls.find(c => c.tag === 0xa0)!
     expect(tl.pos.x).toBe(0)
     expect(tl.flipX).toBe(false)
   })
 
   it('over 64 ticks the flip toggles ~6 times (close to in-game ~9.6 toggles)', () => {
     // 64 ticks * 6 incr = 384 misc1570 advances. Bit 5 transitions occur
-    // at every multiple of 32 — so ~12 transitions, but with +6 stride
+    // at every multiple of 32 - so ~12 transitions, but with +6 stride
     // some get skipped at the boundary. Empirically: 12 transitions in
     // 64 ticks → flip toggles 12 times.
     const app = new HammerBroAppearance(buildParts())
@@ -119,18 +126,18 @@ describe('HammerBroAppearance — flip toggles ~every 5–6 ticks (Misc1570 bit-
       app.tickAnimation()
       const { target, calls } = capturingTarget()
       app.render(target, 0, 0, STUB_BEHAVIOR, stubMapStore())
-      const isFlipped = calls.find(c => c.tag === 0xA0)!.flipX
+      const isFlipped = calls.find(c => c.tag === 0xa0)!.flipX
       if (isFlipped !== prevFlipped) flips++
       prevFlipped = isFlipped
     }
-    // Sanity bound — between 8 and 16 transitions over 64 ticks (8s of
+    // Sanity bound - between 8 and 16 transitions over 64 ticks (8s of
     // editor time). In-game cadence over the same wall time: ~12.
     expect(flips).toBeGreaterThanOrEqual(8)
     expect(flips).toBeLessThanOrEqual(16)
   })
 })
 
-describe('HammerBroAppearance — dx mirror geometry', () => {
+describe('HammerBroAppearance - dx mirror geometry', () => {
   it('flipped: each part reflects around the hitRect horizontal center', () => {
     const app = new HammerBroAppearance(buildParts())
     // Force into flipped state (6 ticks).
@@ -140,16 +147,16 @@ describe('HammerBroAppearance — dx mirror geometry', () => {
     const byTag = new Map(calls.map(c => [c.tag, c]))
     // Anchor=(100,200), 16x16 hitRect → mirror axis at dx=8 (within sprite).
     // 0xA0 (orig dx=0) → dx=8 → pos x=108. 0xA1 (orig dx=8) → dx=0 → pos x=100.
-    expect(byTag.get(0xA0)!.pos).toEqual({ x: 108, y: 200 })
-    expect(byTag.get(0xA1)!.pos).toEqual({ x: 100, y: 200 })
-    expect(byTag.get(0xA2)!.pos).toEqual({ x: 108, y: 208 })
-    expect(byTag.get(0xA3)!.pos).toEqual({ x: 100, y: 208 })
+    expect(byTag.get(0xa0)!.pos).toEqual({ x: 108, y: 200 })
+    expect(byTag.get(0xa1)!.pos).toEqual({ x: 100, y: 200 })
+    expect(byTag.get(0xa2)!.pos).toEqual({ x: 108, y: 208 })
+    expect(byTag.get(0xa3)!.pos).toEqual({ x: 100, y: 208 })
   })
 
   it('flipped: per-part flipX is XORed with declared flipX', () => {
     const parts: SpritePart[] = [
-      { char: makeChar(0xB0), palette: 0, flipX: false, flipY: false, dx: 0, dy: 0 },
-      { char: makeChar(0xB1), palette: 0, flipX: true,  flipY: false, dx: 8, dy: 0 },
+      { char: makeChar(0xb0), palette: 0, flipX: false, flipY: false, dx: 0, dy: 0 },
+      { char: makeChar(0xb1), palette: 0, flipX: true, flipY: false, dx: 8, dy: 0 },
     ]
     const app = new HammerBroAppearance(parts)
     for (let i = 0; i < 6; i++) app.tickAnimation()
@@ -157,7 +164,7 @@ describe('HammerBroAppearance — dx mirror geometry', () => {
     app.render(target, 0, 0, STUB_BEHAVIOR, stubMapStore())
     const byTag = new Map(calls.map(c => [c.tag, c]))
     // Original false → toggled true; original true → toggled false.
-    expect(byTag.get(0xB0)!.flipX).toBe(true)
-    expect(byTag.get(0xB1)!.flipX).toBe(false)
+    expect(byTag.get(0xb0)!.flipX).toBe(true)
+    expect(byTag.get(0xb1)!.flipX).toBe(false)
   })
 })

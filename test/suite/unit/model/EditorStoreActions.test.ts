@@ -1,5 +1,5 @@
 /**
- * editorStore actions — branch coverage.
+ * editorStore actions - branch coverage.
  *
  * Every action guards with an equality check so spurious mutations don't fire
  * downstream effects. Each test exercises both:
@@ -19,7 +19,7 @@ describe('editorStore.setSwitchPalace', () => {
     const s = createEditorStore()
     // Default state[0] = false
     const before = s.switchPalaceState
-    s.setSwitchPalace(0, false)        // same value → no mutation
+    s.setSwitchPalace(0, false) // same value → no mutation
     expect(s.switchPalaceState).toBe(before)
   })
 
@@ -73,7 +73,7 @@ describe('editorStore.togglePSwitch', () => {
 describe('editorStore.setPalAnimFrame', () => {
   it('no-change: same frame → no mutation', () => {
     const s = createEditorStore()
-    const before = s.palAnimFrame     // default = 1
+    const before = s.palAnimFrame // default = 1
     s.setPalAnimFrame(1)
     expect(s.palAnimFrame).toBe(before)
   })
@@ -107,7 +107,7 @@ describe('editorStore.setLayerToggle', () => {
   it('no-change: l1 already true → guard short-circuits', () => {
     const s = createEditorStore()
     const before = s.layerToggles
-    s.setLayerToggle('l1', true)  // default is true → no mutation
+    s.setLayerToggle('l1', true) // default is true → no mutation
     expect(s.layerToggles).toBe(before)
   })
 
@@ -126,7 +126,7 @@ describe('editorStore.setLayerToggles', () => {
   it('no-change: all fields identical → guard short-circuits', () => {
     const s = createEditorStore()
     const before = s.layerToggles
-    s.setLayerToggles({ ...s.layerToggles })  // structurally equal copy
+    s.setLayerToggles({ ...s.layerToggles }) // structurally equal copy
     expect(s.layerToggles).toBe(before)
   })
 
@@ -144,7 +144,7 @@ describe('editorStore.setCamera', () => {
   it('no-change: same tileX/tileY/focused → guard short-circuits', () => {
     const s = createEditorStore()
     const before = s.camera
-    s.setCamera({ tileX: 0, tileY: 0, focused: false })  // defaults → no-op
+    s.setCamera({ tileX: 0, tileY: 0, focused: false }) // defaults → no-op
     expect(s.camera).toBe(before)
   })
 
@@ -198,8 +198,8 @@ describe('editorStore.toggleVineSource', () => {
 
   it('remove: key already present → deleted from set', () => {
     const s = createEditorStore()
-    s.toggleVineSource('vine_0_5')   // add
-    s.toggleVineSource('vine_0_5')   // remove
+    s.toggleVineSource('vine_0_5') // add
+    s.toggleVineSource('vine_0_5') // remove
     expect(s.activeVineSources.has('vine_0_5')).toBe(false)
   })
 })
@@ -233,14 +233,14 @@ describe('editorStore.setCursorPx', () => {
   it('pos=null, cur=null → inner guard skips mutation (cur !== null branch = false)', () => {
     const s = createEditorStore()
     // cursorPx starts null
-    s.setCursorPx(null)              // !pos branch: cur===null → skip assignment
+    s.setCursorPx(null) // !pos branch: cur===null → skip assignment
     expect(s.cursorPx).toBeNull()
   })
 
   it('pos=null, cur=something → clears cursorPx', () => {
     const s = createEditorStore()
     s.setCursorPx({ x: 10, y: 20 }) // set a value first
-    s.setCursorPx(null)              // !pos branch: cur!==null → clears
+    s.setCursorPx(null) // !pos branch: cur!==null → clears
     expect(s.cursorPx).toBeNull()
   })
 
@@ -254,7 +254,7 @@ describe('editorStore.setCursorPx', () => {
     const s = createEditorStore()
     s.setCursorPx({ x: 10, y: 20 })
     const before = s.cursorPx
-    s.setCursorPx({ x: 10, y: 20 })  // same coords → no mutation
+    s.setCursorPx({ x: 10, y: 20 }) // same coords → no mutation
     expect(s.cursorPx).toBe(before)
   })
 
@@ -285,7 +285,7 @@ describe('editorStore.setL2YOverride', () => {
     const s = createEditorStore()
     s.setL2YOverride(50)
     const before = s.l2YOverride
-    s.setL2YOverride(50)             // same → no mutation
+    s.setL2YOverride(50) // same → no mutation
     expect(s.l2YOverride).toBe(before)
   })
 

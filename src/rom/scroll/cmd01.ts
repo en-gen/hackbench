@@ -1,5 +1,5 @@
 /**
- * cmd01.ts — port of the cmd $01 per-frame handlers.
+ * cmd01.ts - port of the cmd $01 per-frame handlers.
  *
  * Sprite $E8 (`SCROLL_SPRITE_BASE + 1`) writes `Layer1ScrollCmd = $01`
  * via the cmd setup dispatcher (`CODE_05BCE9`). Once set, the per-frame
@@ -23,7 +23,7 @@
  *         RTS
  *
  *     The X-lock side effect makes Layer1XPos auto-scroll at L2's
- *     parallax pace — for `$009`, L2's parallax-target table drives
+ *     parallax pace - for `$009`, L2's parallax-target table drives
  *     forward motion from `$0000` up through ~`$0ACC` (= 2764 px,
  *     observed as `l1x.max` in the capture).
  *

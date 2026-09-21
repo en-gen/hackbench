@@ -17,7 +17,10 @@ import { describe, it, expect } from 'vitest'
 import type { RomFile } from '../../../../src/rom/RomFile'
 import type { SpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
-  ROM_FRAMES_PER_TICK, animPeriodFrames, drawSpriteParts, frameIndexAt,
+  ROM_FRAMES_PER_TICK,
+  animPeriodFrames,
+  drawSpriteParts,
+  frameIndexAt,
   resolveMisc157C,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 import type { SpriteDrawDescriptor } from '../../../../src/rom/model/sprites/generic/SpriteDrawDescriptor'
@@ -51,11 +54,7 @@ function tables(over: Partial<SpriteTileTables> = {}): SpriteTileTables {
     dispX: [0, 8, 0, 8],
     dispY: [0, 0, 8, 8],
     // group 0 = no flips; group 1 = X-flip on corners 1,3; group 2 = Y-flip all
-    gfxProp: [
-      0x00, 0x00, 0x00, 0x00,
-      0x00, 0x40, 0x00, 0x40,
-      0x80, 0x80, 0x80, 0x80,
-    ],
+    gfxProp: [0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x40, 0x80, 0x80, 0x80, 0x80],
     spriteAttr: Uint8Array.from({ length: 0x100 }, () => 0x00),
     spr0to13Prop: new Uint8Array(0x14),
     ...over,
@@ -82,7 +81,16 @@ const BASE_DESC: SpriteDrawDescriptor = {
 
 const CTX = { marioX: 0, romFrame: 0 }
 
-function draw(d: Partial<SpriteDrawDescriptor>, opts: { spriteX?: number; romFrame?: number; marioX?: number; t?: SpriteTileTables; rom?: RomFile } = {}) {
+function draw(
+  d: Partial<SpriteDrawDescriptor>,
+  opts: {
+    spriteX?: number
+    romFrame?: number
+    marioX?: number
+    t?: SpriteTileTables
+    rom?: RomFile
+  } = {},
+) {
   const res = drawSpriteParts({
     rom: opts.rom ?? fakeRom({}),
     tables: opts.t ?? tables(),
@@ -129,9 +137,9 @@ describe('animation cadence is expressed in GAME frames', () => {
     // Guards the tick/frame confusion directly: at 8 frames per tick, a
     // shift-4 animation must change frame on tick 2, not after 8 ticks.
     const anim = { kind: 'effFrame', shift: 4, mask: 1 } as const
-    expect(frameIndexAt(anim, 1 * ROM_FRAMES_PER_TICK)).toBe(0)   // 8
-    expect(frameIndexAt(anim, 2 * ROM_FRAMES_PER_TICK)).toBe(1)   // 16
-    expect(frameIndexAt(anim, 4 * ROM_FRAMES_PER_TICK)).toBe(0)   // 32, wraps
+    expect(frameIndexAt(anim, 1 * ROM_FRAMES_PER_TICK)).toBe(0) // 8
+    expect(frameIndexAt(anim, 2 * ROM_FRAMES_PER_TICK)).toBe(1) // 16
+    expect(frameIndexAt(anim, 4 * ROM_FRAMES_PER_TICK)).toBe(0) // 32, wraps
   })
 })
 
@@ -166,16 +174,18 @@ describe('SubSprGfx0Entry0 - four independent 8x8 chars', () => {
     // This is the pinned-to-zero defect: with misc1602 = 2 the quad must be
     // tiles 8..11 past the base, not 2 past it.
     const parts = draw({
-      routine: 'sub0', tileGroup: { kind: 'const', value: 2 },
+      routine: 'sub0',
+      tileGroup: { kind: 'const', value: 2 },
       propGroup: { kind: 'const', value: 0 },
     }).parts
-    expect(parts.map(p => p.charNum - 0x400)).toEqual([0x18, 0x19, 0x1A, 0x1B])
+    expect(parts.map(p => p.charNum - 0x400)).toEqual([0x18, 0x19, 0x1a, 0x1b])
   })
 
   it('takes per-corner flips from GeneralSprGfxProp[group*4 + corner]', () => {
     // Group 1 of the fixture is 00 40 00 40 -> X-flip on corners 1 and 3.
     const parts = draw({
-      routine: 'sub0', tileGroup: { kind: 'const', value: 0 },
+      routine: 'sub0',
+      tileGroup: { kind: 'const', value: 0 },
       propGroup: { kind: 'const', value: 1 },
     }).parts
     expect(parts.map(p => p.flipX)).toEqual([false, true, false, true])
@@ -184,7 +194,8 @@ describe('SubSprGfx0Entry0 - four independent 8x8 chars', () => {
 
   it('reads bit 7 of the prop byte as Y-flip', () => {
     const parts = draw({
-      routine: 'sub0', tileGroup: { kind: 'const', value: 0 },
+      routine: 'sub0',
+      tileGroup: { kind: 'const', value: 0 },
       propGroup: { kind: 'const', value: 2 },
     }).parts
     expect(parts.map(p => p.flipY)).toEqual([true, true, true, true])
@@ -192,7 +203,12 @@ describe('SubSprGfx0Entry0 - four independent 8x8 chars', () => {
 
   it('places corners at GeneralSprDispX/Y = (0,0) (8,0) (0,8) (8,8)', () => {
     const parts = draw({ routine: 'sub0', propGroup: { kind: 'const', value: 0 } }).parts
-    expect(parts.map(p => [p.dx, p.dy])).toEqual([[0, 0], [8, 0], [0, 8], [8, 8]])
+    expect(parts.map(p => [p.dx, p.dy])).toEqual([
+      [0, 0],
+      [8, 0],
+      [0, 8],
+      [8, 8],
+    ])
   })
 
   it('resolves the tile group and prop group from ROM TABLES, not literals', () => {
@@ -208,7 +224,7 @@ describe('SubSprGfx0Entry0 - four independent 8x8 chars', () => {
     }
     // frame 0 -> tileGroup 2 -> tiles 0x18.., propGroup 2 -> all Y-flipped
     const f0 = draw(d, { rom, romFrame: 0 }).parts
-    expect(f0.map(p => p.charNum - 0x400)).toEqual([0x18, 0x19, 0x1A, 0x1B])
+    expect(f0.map(p => p.charNum - 0x400)).toEqual([0x18, 0x19, 0x1a, 0x1b])
     expect(f0.every(p => p.flipY)).toBe(true)
     // frame 1 -> tileGroup 1 -> tiles 0x14.., propGroup 1 -> X-flip on 1 and 3
     const f1 = draw(d, { rom, romFrame: 16 }).parts
@@ -248,8 +264,12 @@ describe('SubSprGfx1 - two stacked 16x16 large OBJs', () => {
 
   it('X-flips when the latch is CLEAR, not when it is set', () => {
     // bank_01.asm CODE_019DA9: BCS skips the ORA #!OBJ_XFlip.
-    expect(draw({ routine: 'sub1', misc157C: { kind: 'const', value: 0 } }).parts[0].flipX).toBe(true)
-    expect(draw({ routine: 'sub1', misc157C: { kind: 'const', value: 1 } }).parts[0].flipX).toBe(false)
+    expect(draw({ routine: 'sub1', misc157C: { kind: 'const', value: 0 } }).parts[0].flipX).toBe(
+      true,
+    )
+    expect(draw({ routine: 'sub1', misc157C: { kind: 'const', value: 1 } }).parts[0].flipX).toBe(
+      false,
+    )
   })
 
   it('a handler that never writes the latch renders FLIPPED', () => {
@@ -293,12 +313,12 @@ describe('SubSprGfx2Entry1 - one 16x16 large OBJ', () => {
     // of ONE tile. Frame 0 -> no flips from the mask; frame 3 -> both.
     const d = {
       routine: 'sub2' as const,
-      attrOverride: { kind: 'effFrameFlip', shl: 2, andMask: 0xC0, orMask: 0x31 } as const,
+      attrOverride: { kind: 'effFrameFlip', shl: 2, andMask: 0xc0, orMask: 0x31 } as const,
       misc157C: { kind: 'const', value: 1 } as const,
     }
     expect(draw(d, { romFrame: 0 }).parts[0].flipY).toBe(false)
-    expect(draw(d, { romFrame: 32 }).parts[0].flipY).toBe(true)   // (32<<2)&$C0 = $80
-    expect(draw(d, { romFrame: 16 }).parts[0].flipX).toBe(true)    // (16<<2)&$C0 = $40
+    expect(draw(d, { romFrame: 32 }).parts[0].flipY).toBe(true) // (32<<2)&$C0 = $80
+    expect(draw(d, { romFrame: 16 }).parts[0].flipX).toBe(true) // (16<<2)&$C0 = $40
     // and it WRAPS in 8 bits: frame 64 shifts to $100 -> 0, back to pose 0
     expect(draw(d, { romFrame: 64 }).parts[0].flipY).toBe(false)
   })
@@ -309,10 +329,10 @@ describe('SubSprGfx2Entry1 - one 16x16 large OBJ', () => {
 describe('the sprite defines its palette; the level palette is only a fallback', () => {
   it('(a) static: row = 8 + ((attr >> 1) & 7), charHigh = attr & 1', () => {
     const t = tables()
-    t.spriteAttr[0x10] = 0x0B          // 1011: palette index 5, charHigh 1
+    t.spriteAttr[0x10] = 0x0b // 1011: palette index 5, charHigh 1
     const parts = draw({}, { t }).parts
     expect(parts[0].palette).toBe(8 + 5)
-    expect(parts[0].charNum).toBe(0x400 + 0x100 + 0x10)   // charHigh adds a page first
+    expect(parts[0].charNum).toBe(0x400 + 0x100 + 0x10) // charHigh adds a page first
   })
 
   it('(b) an INIT-routine override indexed by the sprite X column', () => {
@@ -320,10 +340,17 @@ describe('the sprite defines its palette; the level palette is only a fallback',
     // read from the operand of the instruction that consumes it, so a hack
     // that relocates the table still resolves.
     const rom = fakeRom({
-      0x018343: [0x35, 0x83],              // operand -> $01:8335
-      0x018335: [0x01, 0x03, 0x05, 0x07],  // invented, not the cart's values
+      0x018343: [0x35, 0x83], // operand -> $01:8335
+      0x018335: [0x01, 0x03, 0x05, 0x07], // invented, not the cart's values
     })
-    const pal = { kind: 'initTableByX', operandAddr: 0x018343, operandBank: 0x01, entries: 4, shift: 4, mask: 3 } as const
+    const pal = {
+      kind: 'initTableByX',
+      operandAddr: 0x018343,
+      operandBank: 0x01,
+      entries: 4,
+      shift: 4,
+      mask: 3,
+    } as const
     // X = 0x20 -> (0x20 >> 4) & 3 = 2 -> attr 0x05 -> row 8 + 2 = 10
     expect(draw({ palette: pal }, { rom, spriteX: 0x20 }).parts[0].palette).toBe(10)
     // X = 0x10 -> index 1 -> attr 0x03 -> row 8 + 1 = 9
@@ -334,23 +361,46 @@ describe('the sprite defines its palette; the level palette is only a fallback',
     // $1F Magikoopa writes 8 colours to CGRAM index $F0 = row 15 columns 0-7,
     // so columns 8-15 still come from the level palette. A whole-row model
     // would be wrong here.
-    const rom = fakeRom({ 0x01C037: [0x02, 0xB9, 0x03] })   // -> $03B902
-    const res = draw({
-      routine: 'sub1',
-      palette: { kind: 'dynamicCgram', operandAddr: 0x01C037, colorsPerEntry: 8, entryCount: 8, cgramStart: 0xF0, restingEntry: 7 },
-    }, { rom })
+    const rom = fakeRom({ 0x01c037: [0x02, 0xb9, 0x03] }) // -> $03B902
+    const res = draw(
+      {
+        routine: 'sub1',
+        palette: {
+          kind: 'dynamicCgram',
+          operandAddr: 0x01c037,
+          colorsPerEntry: 8,
+          entryCount: 8,
+          cgramStart: 0xf0,
+          restingEntry: 7,
+        },
+      },
+      { rom },
+    )
     expect(res.paletteNote).toEqual({
-      kind: 'dynamicCgram', row: 15, firstCol: 0, colors: 8,
-      entryAddr: 0x03B902 + 7 * 8 * 2,
+      kind: 'dynamicCgram',
+      row: 15,
+      firstCol: 0,
+      colors: 8,
+      entryAddr: 0x03b902 + 7 * 8 * 2,
     })
     expect(res.parts.every(p => p.palette === 15)).toBe(true)
   })
 
   it('a partial-row note leaves the untouched columns to the caller', () => {
-    const rom = fakeRom({ 0x01C037: [0x02, 0xB9, 0x03] })
-    const res = draw({
-      palette: { kind: 'dynamicCgram', operandAddr: 0x01C037, colorsPerEntry: 8, entryCount: 8, cgramStart: 0xF0, restingEntry: 7 },
-    }, { rom })
+    const rom = fakeRom({ 0x01c037: [0x02, 0xb9, 0x03] })
+    const res = draw(
+      {
+        palette: {
+          kind: 'dynamicCgram',
+          operandAddr: 0x01c037,
+          colorsPerEntry: 8,
+          entryCount: 8,
+          cgramStart: 0xf0,
+          restingEntry: 7,
+        },
+      },
+      { rom },
+    )
     const note = res.paletteNote!
     expect(note.firstCol + note.colors).toBeLessThan(16)
   })
@@ -374,10 +424,21 @@ describe('facing is derived at render time, not baked in at construction', () =>
     const d: SpriteDrawDescriptor = { ...BASE_DESC, misc157C: { kind: 'faceMario' } }
     const t = tables()
     let reads = 0
-    const counting = { readAt: () => { reads++; return null } } as unknown as RomFile
+    const counting = {
+      readAt: () => {
+        reads++
+        return null
+      },
+    } as unknown as RomFile
     const positions = [0, 500, 0, 500]
     for (const marioX of positions) {
-      drawSpriteParts({ rom: counting, tables: t, descriptor: d, spriteX: 100, ctx: { marioX, romFrame: 0 } })
+      drawSpriteParts({
+        rom: counting,
+        tables: t,
+        descriptor: d,
+        spriteX: 100,
+        ctx: { marioX, romFrame: 0 },
+      })
     }
     // Exactly one: the MAIN pointer, which is what handler-relative offsets
     // are anchored to. Facing itself reads nothing, which is the claim.
@@ -407,8 +468,20 @@ describe('descriptors survive the host -> webview boundary', () => {
     const rom = fakeRom({ 0x020000: [1, 2] })
     const t = tables()
     for (const marioX of [0, 500]) {
-      const a = drawSpriteParts({ rom, tables: t, descriptor: d, spriteX: 100, ctx: { marioX, romFrame: 0 } })
-      const b = drawSpriteParts({ rom, tables: t, descriptor: revived, spriteX: 100, ctx: { marioX, romFrame: 0 } })
+      const a = drawSpriteParts({
+        rom,
+        tables: t,
+        descriptor: d,
+        spriteX: 100,
+        ctx: { marioX, romFrame: 0 },
+      })
+      const b = drawSpriteParts({
+        rom,
+        tables: t,
+        descriptor: revived,
+        spriteX: 100,
+        ctx: { marioX, romFrame: 0 },
+      })
       expect(a).toEqual(b)
     }
   })
@@ -444,17 +517,29 @@ describe('sub0 OAM slots map to reversed corners', () => {
    * bit test out of it.
    */
   const NUDGE_BASE = 0x020000
-  const nudgeRom = (slot: number) => fakeRom({
-    [NUDGE_BASE]: [
-      0x00,                                    // +0  windowBase  SBC #$00
-      0x00,                                    // +1  windowSize  CMP #$00
-      0xEA, 0xEA, 0xEA, 0xEA, 0xEA, 0xEA, 0xEA, 0xEA,  // +2  no LSR run
-      0xFE, (0x0301 + slot) & 0xFF, (0x0301 + slot) >> 8,  // +$A INC abs,X
-    ],
-  })
-  const nudge = (slot: number) => ({
-    windowBase: NUDGE_BASE, windowSize: NUDGE_BASE + 1,
-    bitSelect: { scan: NUDGE_BASE + 2, max: 8 }, insnAddr: NUDGE_BASE + 0x0A,
+  const nudgeRom = (slot: number) =>
+    fakeRom({
+      [NUDGE_BASE]: [
+        0x00, // +0  windowBase  SBC #$00
+        0x00, // +1  windowSize  CMP #$00
+        0xea,
+        0xea,
+        0xea,
+        0xea,
+        0xea,
+        0xea,
+        0xea,
+        0xea, // +2  no LSR run
+        0xfe,
+        (0x0301 + slot) & 0xff,
+        (0x0301 + slot) >> 8, // +$A INC abs,X
+      ],
+    })
+  const nudge = (_slot: number) => ({
+    windowBase: NUDGE_BASE,
+    windowSize: NUDGE_BASE + 1,
+    bitSelect: { scan: NUDGE_BASE + 2, max: 8 },
+    insnAddr: NUDGE_BASE + 0x0a,
     evidence: 'synthetic',
   })
 
@@ -471,17 +556,24 @@ describe('sub0 OAM slots map to reversed corners', () => {
   it('a nudge on OAM slot $0C moves the FIRST corner', () => {
     const base = draw({ routine: 'sub0', propGroup: { kind: 'const', value: 0 } }).parts
     const moved = draw(
-      { routine: 'sub0', propGroup: { kind: 'const', value: 0 }, tileNudges: [nudge(0x0C)] },
-      { rom: nudgeRom(0x0C) },
+      { routine: 'sub0', propGroup: { kind: 'const', value: 0 }, tileNudges: [nudge(0x0c)] },
+      { rom: nudgeRom(0x0c) },
     ).parts
     expect(moved.map((p, i) => p.dy - base[i].dy)).toEqual([1, 0, 0, 0])
   })
 
   it('a slot past the four entries is reported, not silently dropped', () => {
     const res = drawSpriteParts({
-      rom: nudgeRom(0x10), tables: tables(),
-      descriptor: { ...BASE_DESC, routine: 'sub0', propGroup: { kind: 'const', value: 0 }, tileNudges: [nudge(0x10)] },
-      spriteX: 0, ctx: CTX,
+      rom: nudgeRom(0x10),
+      tables: tables(),
+      descriptor: {
+        ...BASE_DESC,
+        routine: 'sub0',
+        propGroup: { kind: 'const', value: 0 },
+        tileNudges: [nudge(0x10)],
+      },
+      spriteX: 0,
+      ctx: CTX,
     })
     expect(res.ok).toBe(false)
     expect(res.ok === false && res.failure.kind).toBe('nudgeTargetOutOfRange')
@@ -492,9 +584,16 @@ describe('sub0 OAM slots map to reversed corners', () => {
     // The alignment check is separate from the range check, and slot $10
     // above exercises only the range one.
     const res = drawSpriteParts({
-      rom: nudgeRom(0x02), tables: tables(),
-      descriptor: { ...BASE_DESC, routine: 'sub0', propGroup: { kind: 'const', value: 0 }, tileNudges: [nudge(0x02)] },
-      spriteX: 0, ctx: CTX,
+      rom: nudgeRom(0x02),
+      tables: tables(),
+      descriptor: {
+        ...BASE_DESC,
+        routine: 'sub0',
+        propGroup: { kind: 'const', value: 0 },
+        tileNudges: [nudge(0x02)],
+      },
+      spriteX: 0,
+      ctx: CTX,
     })
     expect(res.ok).toBe(false)
     expect(res.ok === false && res.failure.kind).toBe('nudgeTargetOutOfRange')
@@ -502,7 +601,7 @@ describe('sub0 OAM slots map to reversed corners', () => {
 
   it('a sub0 tile OVERRIDE on slot 0 replaces the LAST corner', () => {
     // The same reversal, on the other kind that addresses an entry by slot.
-    const ovRom = fakeRom({ 0x030000: [0xA9, 0x77] })   // LDA #$77
+    const ovRom = fakeRom({ 0x030000: [0xa9, 0x77] }) // LDA #$77
     const over = [{ insnAddr: 0x030000, oamSlot: 0x00, evidence: 'synthetic' }]
     const base = draw({ routine: 'sub0', propGroup: { kind: 'const', value: 0 } }).parts
     const out = draw(
@@ -515,8 +614,8 @@ describe('sub0 OAM slots map to reversed corners', () => {
   })
 
   it('a sub0 tile override on slot $0C replaces the FIRST corner', () => {
-    const ovRom = fakeRom({ 0x030000: [0xA9, 0x77] })
-    const over = [{ insnAddr: 0x030000, oamSlot: 0x0C, evidence: 'synthetic' }]
+    const ovRom = fakeRom({ 0x030000: [0xa9, 0x77] })
+    const over = [{ insnAddr: 0x030000, oamSlot: 0x0c, evidence: 'synthetic' }]
     const out = draw(
       { routine: 'sub0', propGroup: { kind: 'const', value: 0 }, tileOverrides: over },
       { rom: ovRom },

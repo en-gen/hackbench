@@ -1,5 +1,5 @@
 /**
- * OverworldLoader — synthetic tests for the count-terminated RLE decoder
+ * OverworldLoader - synthetic tests for the count-terminated RLE decoder
  * used by the SMW overworld L2 tilemap streams.
  *
  * Decoder spec (CODE_04DABA, bank_04.asm:5452):
@@ -12,7 +12,7 @@
  * at offset 0 (low bytes); stream B starts at offset 1 (high bytes). The
  * two streams interleave into a 16-bit tilemap.
  *
- * None of these bytes come from any SMW ROM — original synthetic inputs.
+ * None of these bytes come from any SMW ROM - original synthetic inputs.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -35,37 +35,34 @@ import {
 
 const toBytes = (arr: number[]): Uint8Array => Uint8Array.from(arr)
 
-describe('OW RLE — LITERAL mode (bit 7 clear)', () => {
+describe('OW RLE - LITERAL mode (bit 7 clear)', () => {
   it('cmd=0x00 emits one literal byte', () => {
     // cmd $00 = literal length 1, payload $AA. Stride 1 for direct verification.
     const out = new Uint8Array(4)
-    decompressOwRleStream(toBytes([0x00, 0xAA]), 0, out, 0, 1)
-    expect(out[0]).toBe(0xAA)
+    decompressOwRleStream(toBytes([0x00, 0xaa]), 0, out, 0, 1)
+    expect(out[0]).toBe(0xaa)
   })
 
   it('cmd=0x03 emits four literal bytes', () => {
     const out = new Uint8Array(8)
-    decompressOwRleStream(
-      toBytes([0x03, 0x11, 0x22, 0x33, 0x44]),
-      0, out, 0, 1,
-    )
+    decompressOwRleStream(toBytes([0x03, 0x11, 0x22, 0x33, 0x44]), 0, out, 0, 1)
     expect(Array.from(out.slice(0, 4))).toEqual([0x11, 0x22, 0x33, 0x44])
   })
 
   it('cmd=0x7F emits 128 literal bytes', () => {
-    const payload = Array.from({ length: 128 }, (_, i) => i & 0xFF)
+    const payload = Array.from({ length: 128 }, (_, i) => i & 0xff)
     const out = new Uint8Array(128)
-    decompressOwRleStream(toBytes([0x7F, ...payload]), 0, out, 0, 1)
+    decompressOwRleStream(toBytes([0x7f, ...payload]), 0, out, 0, 1)
     expect(Array.from(out)).toEqual(payload)
   })
 })
 
-describe('OW RLE — RLE mode (bit 7 set)', () => {
+describe('OW RLE - RLE mode (bit 7 set)', () => {
   it('cmd=0x80 emits one repeated byte', () => {
     const out = new Uint8Array(4)
-    decompressOwRleStream(toBytes([0x80, 0xBB]), 0, out, 0, 1)
-    expect(out[0]).toBe(0xBB)
-    expect(out[1]).toBe(0x00)  // untouched
+    decompressOwRleStream(toBytes([0x80, 0xbb]), 0, out, 0, 1)
+    expect(out[0]).toBe(0xbb)
+    expect(out[1]).toBe(0x00) // untouched
   })
 
   it('cmd=0x84 emits five copies', () => {
@@ -77,59 +74,52 @@ describe('OW RLE — RLE mode (bit 7 set)', () => {
 
   it('cmd=0xFF emits 128 copies', () => {
     const out = new Uint8Array(128)
-    decompressOwRleStream(toBytes([0xFF, 0x99]), 0, out, 0, 1)
+    decompressOwRleStream(toBytes([0xff, 0x99]), 0, out, 0, 1)
     expect(out.every(b => b === 0x99)).toBe(true)
   })
 })
 
-describe('OW RLE — count-terminated (no FF FF marker)', () => {
+describe('OW RLE - count-terminated (no FF FF marker)', () => {
   it('stops when destination reaches outputBytes', () => {
     // Stream would emit infinitely many bytes; we cap at output size 4.
     const out = new Uint8Array(4)
     decompressOwRleStream(
-      toBytes([0xFF, 0xCC]),  // cmd=$FF would emit 128 copies of $CC if unbounded
-      0, out, 0, 1,
+      toBytes([0xff, 0xcc]), // cmd=$FF would emit 128 copies of $CC if unbounded
+      0,
+      out,
+      0,
+      1,
     )
-    expect(Array.from(out)).toEqual([0xCC, 0xCC, 0xCC, 0xCC])
+    expect(Array.from(out)).toEqual([0xcc, 0xcc, 0xcc, 0xcc])
   })
 
   it('FF in the middle of literal data is NOT a terminator', () => {
     // cmd=0x03 → literal 4 bytes; payload includes $FF.
     const out = new Uint8Array(4)
-    decompressOwRleStream(
-      toBytes([0x03, 0xFF, 0xFF, 0xAA, 0xBB]),
-      0, out, 0, 1,
-    )
-    expect(Array.from(out)).toEqual([0xFF, 0xFF, 0xAA, 0xBB])
+    decompressOwRleStream(toBytes([0x03, 0xff, 0xff, 0xaa, 0xbb]), 0, out, 0, 1)
+    expect(Array.from(out)).toEqual([0xff, 0xff, 0xaa, 0xbb])
   })
 
   it('after one literal block, decoder reads next command from input', () => {
     // 0x01 (literal len 2) + [0x10, 0x20] then 0x81 (RLE len 2) + 0x33
     const out = new Uint8Array(4)
-    decompressOwRleStream(
-      toBytes([0x01, 0x10, 0x20, 0x81, 0x33]),
-      0, out, 0, 1,
-    )
+    decompressOwRleStream(toBytes([0x01, 0x10, 0x20, 0x81, 0x33]), 0, out, 0, 1)
     expect(Array.from(out)).toEqual([0x10, 0x20, 0x33, 0x33])
   })
 })
 
-describe('OW RLE — stride and start offset (interleave behavior)', () => {
+describe('OW RLE - stride and start offset (interleave behavior)', () => {
   it('stride=2 from offset 0 writes only even positions', () => {
     const out = new Uint8Array(8)
-    decompressOwRleStream(toBytes([0x83, 0xAA]), 0, out, 0, 2)
+    decompressOwRleStream(toBytes([0x83, 0xaa]), 0, out, 0, 2)
     // Should write 4 copies of $AA at positions 0, 2, 4, 6
-    expect(Array.from(out)).toEqual([
-      0xAA, 0x00, 0xAA, 0x00, 0xAA, 0x00, 0xAA, 0x00,
-    ])
+    expect(Array.from(out)).toEqual([0xaa, 0x00, 0xaa, 0x00, 0xaa, 0x00, 0xaa, 0x00])
   })
 
   it('stride=2 from offset 1 writes only odd positions', () => {
     const out = new Uint8Array(8)
-    decompressOwRleStream(toBytes([0x83, 0xBB]), 0, out, 1, 2)
-    expect(Array.from(out)).toEqual([
-      0x00, 0xBB, 0x00, 0xBB, 0x00, 0xBB, 0x00, 0xBB,
-    ])
+    decompressOwRleStream(toBytes([0x83, 0xbb]), 0, out, 1, 2)
+    expect(Array.from(out)).toEqual([0x00, 0xbb, 0x00, 0xbb, 0x00, 0xbb, 0x00, 0xbb])
   })
 
   it('two streams interleaved produce 16-bit words', () => {
@@ -137,22 +127,20 @@ describe('OW RLE — stride and start offset (interleave behavior)', () => {
     // Stream B: 4 copies of $BB → high bytes
     // Result: word $BBAA repeated four times
     const out = interleaveOwL2Streams(
-      toBytes([0x83, 0xAA]),  // stream A
-      toBytes([0x83, 0xBB]),  // stream B
-      8,                      // 8 bytes total = 4 words
+      toBytes([0x83, 0xaa]), // stream A
+      toBytes([0x83, 0xbb]), // stream B
+      8, // 8 bytes total = 4 words
     )
-    expect(Array.from(out)).toEqual([
-      0xAA, 0xBB, 0xAA, 0xBB, 0xAA, 0xBB, 0xAA, 0xBB,
-    ])
+    expect(Array.from(out)).toEqual([0xaa, 0xbb, 0xaa, 0xbb, 0xaa, 0xbb, 0xaa, 0xbb])
   })
 })
 
-describe('OW RLE — truncated input', () => {
+describe('OW RLE - truncated input', () => {
   it('truncated literal payload stops where input runs out', () => {
     // cmd=0x05 wants 6 bytes but only 2 follow.
     const out = new Uint8Array(6)
-    decompressOwRleStream(toBytes([0x05, 0xAA, 0xBB]), 0, out, 0, 1)
-    expect(Array.from(out)).toEqual([0xAA, 0xBB, 0x00, 0x00, 0x00, 0x00])
+    decompressOwRleStream(toBytes([0x05, 0xaa, 0xbb]), 0, out, 0, 1)
+    expect(Array.from(out)).toEqual([0xaa, 0xbb, 0x00, 0x00, 0x00, 0x00])
   })
 
   it('RLE missing fill byte writes nothing for that command', () => {
@@ -164,7 +152,7 @@ describe('OW RLE — truncated input', () => {
 
 // ── 64x64 BG quadrant addressing ─────────────────────────────────────────────
 
-describe('tilemapByteOffset — 64x64 BG quadrant decoder', () => {
+describe('tilemapByteOffset - 64x64 BG quadrant decoder', () => {
   it('layout 0 origin', () => {
     expect(tilemapByteOffset(0, 0, 0)).toBe(0)
   })
@@ -208,7 +196,7 @@ describe('tilemapByteOffset — 64x64 BG quadrant decoder', () => {
   })
 })
 
-describe('map16ByteOffset — Map16TilesLow quadrant decoder', () => {
+describe('map16ByteOffset - Map16TilesLow quadrant decoder', () => {
   it('layout 0 origin', () => {
     expect(map16ByteOffset(0, 0, 0)).toBe(0)
   })
@@ -231,7 +219,7 @@ describe('map16ByteOffset — Map16TilesLow quadrant decoder', () => {
 
 // ── Event-driven tile swaps ──────────────────────────────────────────────────
 
-describe('OverworldEvents — bit indexing + apply swaps', () => {
+describe('OverworldEvents - bit indexing + apply swaps', () => {
   it('isEventActivated reads bit 7 of byte 0 as event 0 (MSB-first)', () => {
     const bits = new Uint8Array(15)
     bits[0] = 0x80
@@ -262,31 +250,29 @@ describe('OverworldEvents — bit indexing + apply swaps', () => {
   it('allEventsActivated produces 15 bytes of $FF', () => {
     const all = allEventsActivated()
     expect(all.length).toBe(15)
-    expect(all.every(b => b === 0xFF)).toBe(true)
+    expect(all.every(b => b === 0xff)).toBe(true)
   })
 
   it('applyEventSwaps replaces a single tile when its event bit is set', () => {
     const map16 = new Uint8Array(256)
-    map16[0x42] = 0x6E  // matches fromTiles[0]
+    map16[0x42] = 0x6e // matches fromTiles[0]
     const tables: OwEventTables = {
-      events: [
-        { bitIndex: 0, primaryOffset: 0x42, secondaryOffset: 0 },
-      ],
-      fromTiles: Uint8Array.from([0x6E]),
-      toTiles:   Uint8Array.from([0x66]),
+      events: [{ bitIndex: 0, primaryOffset: 0x42, secondaryOffset: 0 }],
+      fromTiles: Uint8Array.from([0x6e]),
+      toTiles: Uint8Array.from([0x66]),
     }
     const out = applyEventSwaps(map16, tables, allEventsActivated())
     expect(out[0x42]).toBe(0x66)
-    expect(out).not.toBe(map16)  // returns a new buffer, doesn't mutate input
+    expect(out).not.toBe(map16) // returns a new buffer, doesn't mutate input
   })
 
   it('applyEventSwaps leaves the buffer untouched when no events are active', () => {
     const map16 = new Uint8Array(256)
-    map16[0x10] = 0x6E
+    map16[0x10] = 0x6e
     const tables: OwEventTables = {
       events: [{ bitIndex: 0, primaryOffset: 0x10, secondaryOffset: 0 }],
-      fromTiles: Uint8Array.from([0x6E]),
-      toTiles:   Uint8Array.from([0x66]),
+      fromTiles: Uint8Array.from([0x6e]),
+      toTiles: Uint8Array.from([0x66]),
     }
     const out = applyEventSwaps(map16, tables, noEventsActivated())
     expect(Array.from(out)).toEqual(Array.from(map16))
@@ -294,25 +280,25 @@ describe('OverworldEvents — bit indexing + apply swaps', () => {
 
   it('applyEventSwaps skips events with zero primary offset (unused slots)', () => {
     const map16 = new Uint8Array(256)
-    map16[0] = 0x6E
+    map16[0] = 0x6e
     const tables: OwEventTables = {
       events: [{ bitIndex: 0, primaryOffset: 0, secondaryOffset: 0 }],
-      fromTiles: Uint8Array.from([0x6E]),
-      toTiles:   Uint8Array.from([0x66]),
+      fromTiles: Uint8Array.from([0x6e]),
+      toTiles: Uint8Array.from([0x66]),
     }
     const out = applyEventSwaps(map16, tables, allEventsActivated())
-    expect(out[0]).toBe(0x6E)  // unchanged because offset 0 = unused slot
+    expect(out[0]).toBe(0x6e) // unchanged because offset 0 = unused slot
   })
 
   it('applyEventSwaps skips events whose current tile is not in fromTiles', () => {
     const map16 = new Uint8Array(256)
-    map16[0x10] = 0xFF  // not in fromTiles
+    map16[0x10] = 0xff // not in fromTiles
     const tables: OwEventTables = {
       events: [{ bitIndex: 0, primaryOffset: 0x10, secondaryOffset: 0 }],
-      fromTiles: Uint8Array.from([0x6E]),
-      toTiles:   Uint8Array.from([0x66]),
+      fromTiles: Uint8Array.from([0x6e]),
+      toTiles: Uint8Array.from([0x66]),
     }
     const out = applyEventSwaps(map16, tables, allEventsActivated())
-    expect(out[0x10]).toBe(0xFF)
+    expect(out[0x10]).toBe(0xff)
   })
 })

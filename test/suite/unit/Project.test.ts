@@ -7,12 +7,18 @@
  * an ignore file.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { createHash } from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import {
-  createProject, openProject, romIdentity, SCHEMA_VERSION, PROJECT_EXT,
-  INITIAL_HACK_VERSION, updateProject,
+  createProject,
+  openProject,
+  romIdentity,
+  SCHEMA_VERSION,
+  PROJECT_EXT,
+  INITIAL_HACK_VERSION,
+  updateProject,
 } from '../../../src/project/Project'
 
 const COPIER_HEADER_SIZE = 512
@@ -158,15 +164,18 @@ describe('createProject', () => {
 
     // Merging into an occupied directory risks adopting files that are not
     // ours, so this fails rather than guessing.
-    expect(() => createProject({ romPath, name: 'MyHack', directory: dir }))
-      .toThrow(/not empty/i)
+    expect(() => createProject({ romPath, name: 'MyHack', directory: dir })).toThrow(/not empty/i)
     expect(fs.existsSync(path.join(dir, 'notes.txt'))).toBe(true)
   })
 
   it('refuses a ROM path that does not exist', () => {
-    expect(() => createProject({
-      romPath: path.join(tmp, 'nope.sfc'), name: 'X', directory: path.join(tmp, 'p'),
-    })).toThrow()
+    expect(() =>
+      createProject({
+        romPath: path.join(tmp, 'nope.sfc'),
+        name: 'X',
+        directory: path.join(tmp, 'p'),
+      }),
+    ).toThrow()
   })
 })
 
@@ -202,7 +211,9 @@ describe('hack metadata', () => {
     // The manifest's name is a filename stem and so is constrained by the
     // filesystem; a hack title is not.
     const created = createProject({
-      romPath: rom(), name: 'my-hack', directory: path.join(tmp, 'p'),
+      romPath: rom(),
+      name: 'my-hack',
+      directory: path.join(tmp, 'p'),
       title: 'Super Kaizo World ]|[',
     })
     expect(created.name).toBe('my-hack')
@@ -211,7 +222,9 @@ describe('hack metadata', () => {
 
   it('defaults the title to the project name when none is given', () => {
     const created = createProject({
-      romPath: rom(), name: 'MyHack', directory: path.join(tmp, 'p'),
+      romPath: rom(),
+      name: 'MyHack',
+      directory: path.join(tmp, 'p'),
     })
     expect(created.title).toBe('MyHack')
     expect(created.summary).toBe('')
@@ -226,7 +239,9 @@ describe('hack metadata', () => {
    */
   it('keeps the hack version independent of the schema version', () => {
     const created = createProject({
-      romPath: rom(), name: 'MyHack', directory: path.join(tmp, 'p'),
+      romPath: rom(),
+      name: 'MyHack',
+      directory: path.join(tmp, 'p'),
       version: '2.0.0',
     })
     const m = JSON.parse(fs.readFileSync(created.manifestPath, 'utf8'))
@@ -237,10 +252,15 @@ describe('hack metadata', () => {
 
   it('opens a manifest written before these fields existed', () => {
     const created = createProject({
-      romPath: rom(), name: 'MyHack', directory: path.join(tmp, 'p'),
+      romPath: rom(),
+      name: 'MyHack',
+      directory: path.join(tmp, 'p'),
     })
     const m = JSON.parse(fs.readFileSync(created.manifestPath, 'utf8'))
-    delete m.title; delete m.summary; delete m.authors; delete m.version
+    delete m.title
+    delete m.summary
+    delete m.authors
+    delete m.version
     fs.writeFileSync(created.manifestPath, JSON.stringify(m, null, 2))
 
     // Defaults are applied on READ too, so nothing reaches the UI undefined.
@@ -252,7 +272,9 @@ describe('hack metadata', () => {
 
   it('does not split a single author written as a bare string', () => {
     const created = createProject({
-      romPath: rom(), name: 'MyHack', directory: path.join(tmp, 'p'),
+      romPath: rom(),
+      name: 'MyHack',
+      directory: path.join(tmp, 'p'),
     })
     const m = JSON.parse(fs.readFileSync(created.manifestPath, 'utf8'))
     // What a hand-edited manifest tends to hold. Splitting it on a comma
@@ -264,16 +286,19 @@ describe('hack metadata', () => {
 })
 
 describe('updateProject', () => {
-  const make = () => createProject({
-    romPath: writeRom('cart.sfc', fakeRom()),
-    name: 'MyHack',
-    directory: path.join(tmp, 'my-hack'),
-  })
+  const make = () =>
+    createProject({
+      romPath: writeRom('cart.sfc', fakeRom()),
+      name: 'MyHack',
+      directory: path.join(tmp, 'my-hack'),
+    })
 
   it('writes the edited metadata back to the manifest', () => {
     const created = make()
     updateProject(created.manifestPath, {
-      title: 'Renamed Hack', authors: ['engenb'], version: '1.1.0',
+      title: 'Renamed Hack',
+      authors: ['engenb'],
+      version: '1.1.0',
       summary: 'Now with more spikes.',
     })
 
@@ -352,7 +377,9 @@ describe('openProject', () => {
   it('round-trips the ROM identity it was created with', () => {
     const romPath = writeRom('cart.sfc', fakeRom())
     const created = createProject({
-      romPath, name: 'MyHack', directory: path.join(tmp, 'my-hack'),
+      romPath,
+      name: 'MyHack',
+      directory: path.join(tmp, 'my-hack'),
     })
     const opened = openProject(created.manifestPath)
     expect(opened.baseRom).toEqual(created.baseRom)
@@ -379,7 +406,9 @@ describe('openProject', () => {
   it('says plainly when the manifest has been moved away from its data', () => {
     const romPath = writeRom('cart.sfc', fakeRom())
     const created = createProject({
-      romPath, name: 'MyHack', directory: path.join(tmp, 'my-hack'),
+      romPath,
+      name: 'MyHack',
+      directory: path.join(tmp, 'my-hack'),
     })
     const orphan = path.join(tmp, `Orphan${PROJECT_EXT}`)
     fs.copyFileSync(created.manifestPath, orphan)
@@ -401,7 +430,9 @@ describe('openProject', () => {
   it('rejects a manifest from a future schema rather than guessing', () => {
     const romPath = writeRom('cart.sfc', fakeRom())
     const created = createProject({
-      romPath, name: 'MyHack', directory: path.join(tmp, 'my-hack'),
+      romPath,
+      name: 'MyHack',
+      directory: path.join(tmp, 'my-hack'),
     })
     const m = JSON.parse(fs.readFileSync(created.manifestPath, 'utf8'))
     m.schemaVersion = SCHEMA_VERSION + 1
@@ -436,9 +467,7 @@ describe('the oracle can fail', () => {
   it('hashing the whole file would split one cart into two identities', () => {
     const bare = fakeRom()
     const headered = withCopierHeader(bare)
-    const naive = (b: Uint8Array): string =>
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      require('crypto').createHash('sha256').update(b).digest('hex')
+    const naive = (b: Uint8Array): string => createHash('sha256').update(b).digest('hex')
 
     expect(naive(headered)).not.toBe(naive(bare))
     expect(romIdentity(headered).sha256).toBe(romIdentity(bare).sha256)

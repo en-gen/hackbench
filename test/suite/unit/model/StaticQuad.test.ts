@@ -1,5 +1,5 @@
 /**
- * StaticQuadBehavior — always returns the same quad reference.
+ * StaticQuadBehavior - always returns the same quad reference.
  *
  * The simplest tile behavior: wraps a fixed SubtileQuad and returns it
  * unchanged every frame, regardless of editor / map state. Used for
@@ -16,7 +16,8 @@ import { StaticQuadBehavior } from '../../../../src/rom/model/tiles/behaviors/St
 import { editorStore, resetEditorStore } from '../fixtures/stores'
 
 function makeQuad(): SubtileQuad {
-  const sub = () => new SubTile(new Char(0, new StaticPixelsBehavior(new Uint8Array(64))), 0, false, false, false)
+  const sub = () =>
+    new SubTile(new Char(0, new StaticPixelsBehavior(new Uint8Array(64))), 0, false, false, false)
   return [sub(), sub(), sub(), sub()]
 }
 
@@ -67,7 +68,7 @@ describe('StaticQuadBehavior', () => {
     expect(evaluations).toBe(1)
 
     // Mutating any editorStore field should NOT cause a recompute because
-    // StaticQuadBehavior reads nothing — the computed stays warm.
+    // StaticQuadBehavior reads nothing - the computed stays warm.
     editorStore.setPSwitch(true)
     editorStore.setPalAnimFrame(3)
     expect(reactive.value).toBe(quad)

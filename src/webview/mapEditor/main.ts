@@ -1,10 +1,9 @@
 /**
- * SMW Map Editor — webview entry point.
+ * SMW Map Editor - webview entry point.
  *
  * Opens a single map (1 of 512 from the SMW ROM). Several related maps linked
  * by entrances/exits together form a "level" in the player-facing sense.
  */
-
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare function acquireVsCodeApi(): any
@@ -37,7 +36,11 @@ import { drawScrollPath } from './overlays/drawScrollPath'
 import { drawScrollPlayback } from './overlays/drawScrollPlayback'
 import { drawSpriteSelection } from './overlays/drawSpriteSelection'
 import { spriteSelectionKey } from './spriteProps'
-import { setPropContext as paneSetPropContext, showSpriteProps, type PropContext } from './propsPane'
+import {
+  setPropContext as paneSetPropContext,
+  showSpriteProps,
+  type PropContext,
+} from './propsPane'
 import { editorStore as store } from './store'
 import { frameClock } from '../shared/frameClock'
 import { SNES_NTSC_FPS, msToFrames, SPRITE_ANIM_FRAME_STRIDE } from '../../rom/timing'
@@ -45,10 +48,10 @@ import { tileBlockColor } from '../shared/blockView'
 import { hex2, hex3 } from '../shared/hex'
 
 // FLUX: the store owns state; views dispatch actions; observers read refs.
-// `store.foo`         — direct read of the reactive proxy field. Reads inside
+// `store.foo`         - direct read of the reactive proxy field. Reads inside
 //                       an active `effect()` register a dependency, so when
 //                       `store.setFoo(...)` mutates, the effect re-runs.
-// `store.doThing()`   — action (mutation). Never mutate fields from outside.
+// `store.doThing()`   - action (mutation). Never mutate fields from outside.
 //
 // Per-map ROM-derived data lives on `map.mapStore` (palette, level orientation,
 // pipe variants, mario spawn X). Reach it through the loaded SmwMap.
@@ -70,7 +73,7 @@ declare global {
  * Set up the reactive render effect for the current map. Vue's effect()
  * tracks every ref read inside renderModelOverlay (transitively, including
  * reads inside behaviors during map.render). Subsequent ref mutations
- * trigger an automatic re-run — exactly the cells that changed get
+ * trigger an automatic re-run - exactly the cells that changed get
  * recomposed, and untouched cells are skipped via the per-row scratch
  * + computed-cache discipline lower in the model.
  */
@@ -93,13 +96,13 @@ function ensureReactiveRender(map: SmwMap): void {
 // site, not via a separate bridging function.
 
 /**
- * Render the self-rendering model graph to the model canvas — now the
+ * Render the self-rendering model graph to the model canvas - now the
  * default view. Called when `modelPayload` arrives and re-runs
  * automatically (via effect()) whenever a tracked ref changes. Sized at
  * 1× natural pixels; legacy zoom/pan is independent for now.
  */
 function renderModelOverlay(map: SmwMap): void {
-  // Animation event subscriptions. The numeric values are irrelevant —
+  // Animation event subscriptions. The numeric values are irrelevant -
   // each timer fires by mutating the ref, which retracks the effect so
   // chars / sprites whose internal frame state advanced get redrawn.
   void mapTick.value
@@ -118,7 +121,7 @@ function renderModelOverlay(map: SmwMap): void {
 
   // Register cursorPx as a toplevel dep so the effect re-runs on every
   // pointer move. The nested read inside ThwompAppearance.render is only
-  // tracked while a thwomp is actually rendered — if sprites are toggled
+  // tracked while a thwomp is actually rendered - if sprites are toggled
   // off at first paint, the dep never registers and cursor changes fall
   // on the floor. This line keeps the wiring unconditional.
   void store.cursorPx
@@ -140,7 +143,7 @@ function renderModelOverlay(map: SmwMap): void {
     // camera-strip composite below.
     if (!baseLevelCanvas || baseLevelCanvas.width !== w || baseLevelCanvas.height !== h) {
       baseLevelCanvas = document.createElement('canvas')
-      baseLevelCanvas.width  = w
+      baseLevelCanvas.width = w
       baseLevelCanvas.height = h
     }
     const baseTarget = new CanvasRenderTarget(baseLevelCanvas)
@@ -153,14 +156,15 @@ function renderModelOverlay(map: SmwMap): void {
     const toggles = store.layerToggles
     const bctx = baseLevelCanvas.getContext('2d')!
     if (toggles.block) drawBlockView(bctx, map, toggles.l1, toggles.l2)
-    if (toggles.screens || toggles.mapGrid) drawScreenAndGridOverlays(bctx, map, toggles.screens, toggles.mapGrid)
+    if (toggles.screens || toggles.mapGrid)
+      drawScreenAndGridOverlays(bctx, map, toggles.screens, toggles.mapGrid)
     if (toggles.surfaces) drawSurfaces(bctx, map, store.switchPalaceState)
-    if (toggles.walls)    drawWalls(bctx,    map, store.switchPalaceState)
-    if (toggles.l3Range)  drawL3Range(bctx,  map)
-    if (toggles.l2Range)  drawL2Range(bctx,  map)
+    if (toggles.walls) drawWalls(bctx, map, store.switchPalaceState)
+    if (toggles.l3Range) drawL3Range(bctx, map)
+    if (toggles.l2Range) drawL2Range(bctx, map)
     // L1 path + viewport rect are only meaningful when the active
     // scroll cmd actually drives Layer 1. cmd $03 / $08 / $0B / $0E
-    // (L2-only) leave Layer 1 stationary — drawing a "playback rect"
+    // (L2-only) leave Layer 1 stationary - drawing a "playback rect"
     // for those is misleading.
     const l1cmd = mapData?.header?.layer1ScrollCmd
     const l2cmd = mapData?.header?.layer2ScrollCmd
@@ -170,7 +174,7 @@ function renderModelOverlay(map: SmwMap): void {
     }
     // Scroll-playback rect: tracks `editorStore.frameL1` (the L1
     // viewport's frame in sim-frame units). Gated on the scroll-path
-    // toggle AND on the cmd actually affecting L1 — see above.
+    // toggle AND on the cmd actually affecting L1 - see above.
     //
     // We query the simulator directly for per-frame `(l1x, l1y)`
     // rather than indexing into the strided `scrollPath` (which only
@@ -185,11 +189,19 @@ function renderModelOverlay(map: SmwMap): void {
         // Synthesize a single-element samples array with the live
         // per-frame state so `drawScrollPlayback` can stay agnostic
         // to whether we're using the strided path or the simulator.
-        drawScrollPlayback(bctx, [{
-          f: playbackFrame,
-          l1x: s.layer1XPos, l1y: s.layer1YPos,
-          l2x: s.layer2XPos, l2y: s.layer2YPos,
-        }], 0)
+        drawScrollPlayback(
+          bctx,
+          [
+            {
+              f: playbackFrame,
+              l1x: s.layer1XPos,
+              l1y: s.layer1YPos,
+              l2x: s.layer2XPos,
+              l2y: s.layer2YPos,
+            },
+          ],
+          0,
+        )
       } else {
         // No simulator (level had no scroll sprite but somehow has
         // a path? Shouldn't happen, but fall back to the array.)
@@ -206,7 +218,7 @@ function renderModelOverlay(map: SmwMap): void {
   // Ensure fullLevelCanvas dimensions match.
   if (!fullLevelCanvas || fullLevelCanvas.width !== w || fullLevelCanvas.height !== h) {
     fullLevelCanvas = document.createElement('canvas')
-    fullLevelCanvas.width  = w
+    fullLevelCanvas.width = w
     fullLevelCanvas.height = h
   }
 
@@ -219,7 +231,7 @@ function renderModelOverlay(map: SmwMap): void {
   if (cameraOn) {
     const camTarget = new CanvasRenderTarget(fullLevelCanvas)
     const strip = compositeCameraViewport(camTarget, mapStore, map)
-    // Only overwrite the strip region on fullLevelCanvas — the rest of the
+    // Only overwrite the strip region on fullLevelCanvas - the rest of the
     // base render copied above is left intact.
     if (strip) camTarget.flushRegion(strip.sx, strip.sy, strip.sw, strip.sh)
     drawCameraRectOverlay(foctx, map)
@@ -233,16 +245,16 @@ function renderModelOverlay(map: SmwMap): void {
   // Spacer drives the native scrollbar. Padding centers the level when it
   // fits within the viewport (horizontal levels vertically, vertical horizontally).
   const z = store.zoom
-  levelPadX = isVert() ? Math.max(0, Math.floor((canvasWrap.clientWidth  - w * z) / 2)) : 0
+  levelPadX = isVert() ? Math.max(0, Math.floor((canvasWrap.clientWidth - w * z) / 2)) : 0
   levelPadY = isVert() ? 0 : Math.max(0, Math.floor((canvasWrap.clientHeight - h * z) / 2))
-  levelSpacer.style.width  = `${w * z + levelPadX * 2}px`
+  levelSpacer.style.width = `${w * z + levelPadX * 2}px`
   levelSpacer.style.height = `${h * z + levelPadY * 2}px`
 
   // Viewport canvas: size it to the visible area and blit from the offscreen.
   resizeViewportCanvas(overlay)
   blitViewport(overlay)
 
-  // Side-panel canvases share the reactive pass — each re-reads its
+  // Side-panel canvases share the reactive pass - each re-reads its
   // model inputs via `ctx.*.value`, so a ref change invalidates the
   // effect and rebuilds every panel that reads the changed ref.
   drawPaletteCanvas()
@@ -262,11 +274,11 @@ function renderModelOverlay(map: SmwMap): void {
 function resizeViewportCanvas(overlay: HTMLCanvasElement): void {
   const vpW = canvasWrap.clientWidth
   const vpH = canvasWrap.clientHeight
-  if (overlay.width !== vpW)  overlay.width  = vpW
+  if (overlay.width !== vpW) overlay.width = vpW
   if (overlay.height !== vpH) overlay.height = vpH
-  // No CSS scaling — canvas renders 1:1 with CSS pixels, zoom is handled
+  // No CSS scaling - canvas renders 1:1 with CSS pixels, zoom is handled
   // via the drawImage scale in blitViewport.
-  overlay.style.width  = ''
+  overlay.style.width = ''
   overlay.style.height = ''
 }
 
@@ -279,12 +291,12 @@ function resizeViewportCanvas(overlay: HTMLCanvasElement): void {
 function blitViewport(overlay?: HTMLCanvasElement): void {
   const el = overlay ?? (document.getElementById('model-canvas') as HTMLCanvasElement | null)
   if (!el || !fullLevelCanvas) return
-  const z   = store.zoom
+  const z = store.zoom
   const vpW = el.width
   const vpH = el.height
   // Scroll origin in natural pixels, accounting for centering padding.
   const rawSrcX = (canvasWrap.scrollLeft - levelPadX) / z
-  const rawSrcY = (canvasWrap.scrollTop  - levelPadY) / z
+  const rawSrcY = (canvasWrap.scrollTop - levelPadY) / z
   // When the level is smaller than the viewport the raw origin is negative
   // (we're panning into the padding). Clamp to 0 and offset the dst.
   const srcX = Math.max(0, rawSrcX)
@@ -295,23 +307,33 @@ function blitViewport(overlay?: HTMLCanvasElement): void {
   oc.imageSmoothingEnabled = false
   oc.clearRect(0, 0, vpW, vpH)
   if (dstX < vpW && dstY < vpH) {
-    oc.drawImage(fullLevelCanvas, srcX, srcY, (vpW - dstX) / z, (vpH - dstY) / z, dstX, dstY, vpW - dstX, vpH - dstY)
+    oc.drawImage(
+      fullLevelCanvas,
+      srcX,
+      srcY,
+      (vpW - dstX) / z,
+      (vpH - dstY) / z,
+      dstX,
+      dstY,
+      vpW - dstX,
+      vpH - dstY,
+    )
   }
   // Block-view tile-id labels are drawn on the viewport canvas post-blit
-  // so text rasterizes at display pixel density — crisp at every zoom,
+  // so text rasterizes at display pixel density - crisp at every zoom,
   // unlike the base canvas which is nearest-neighbor-upscaled.
   drawBlockViewLabels(oc, srcX, srcY, dstX, dstY, z, vpW, vpH)
 }
 
 /**
  * Paint `$XXX` tile-id labels over visible block-view cells on the viewport
- * canvas. Must be called AFTER the fullLevelCanvas blit — drawing here
+ * canvas. Must be called AFTER the fullLevelCanvas blit - drawing here
  * (rather than on the natural-resolution base canvas) keeps text vector-like:
  * the glyphs are re-rasterized at the current zoom's font size every blit,
  * so they stay crisp from 1× to 16× without the pixelation that bitmap-scaled
  * text would have.
  *
- * Label prefers L1 id if present; else falls back to L2 id — matching the
+ * Label prefers L1 id if present; else falls back to L2 id - matching the
  * paint order in `drawBlockView` (L1 on top of L2 at 0.55 alpha).
  */
 function drawBlockViewLabels(
@@ -336,8 +358,8 @@ function drawBlockViewLabels(
   if (tilePx < 16) return
 
   const l1 = toggles.l1 ? map.l1 : null
-  const l2Grid = toggles.l2 && map.l2 &&
-    (map.l2 instanceof L2Preset || map.l2 instanceof L2ObjectStream)
+  const l2Grid =
+    toggles.l2 && map.l2 && (map.l2 instanceof L2Preset || map.l2 instanceof L2ObjectStream)
       ? map.l2.grid
       : null
   if (!l1 && !l2Grid) return
@@ -349,9 +371,9 @@ function drawBlockViewLabels(
   const maxCols = Math.max(l1?.[0]?.length ?? 0, l2Grid?.[0]?.length ?? 0)
   const maxRows = Math.max(l1?.length ?? 0, l2Grid?.length ?? 0)
   const colStart = Math.max(0, Math.floor(srcX / TILE))
-  const colEnd   = Math.min(maxCols - 1, Math.floor((srcX + visW) / TILE))
+  const colEnd = Math.min(maxCols - 1, Math.floor((srcX + visW) / TILE))
   const rowStart = Math.max(0, Math.floor(srcY / TILE))
-  const rowEnd   = Math.min(maxRows - 1, Math.floor((srcY + visH) / TILE))
+  const rowEnd = Math.min(maxRows - 1, Math.floor((srcY + visH) / TILE))
   if (colEnd < colStart || rowEnd < rowStart) return
 
   octx.save()
@@ -404,7 +426,7 @@ function compositeCameraViewport(
   // the effect and re-paint at the new camera position. `store.camera`
   // can hold a fractional tile position (free drag). The outer rect
   // overlay uses the float value for smooth gliding, but the strip's
-  // tile content floors to stay tile-aligned — otherwise fillRect and
+  // tile content floors to stay tile-aligned - otherwise fillRect and
   // tile.render would leave seams when the camera sits between tiles.
   const cam = store.camera
   const camX = Math.floor(Math.max(0, Math.min(Math.max(0, cols - CAMERA_W_TILES), cam.tileX)))
@@ -418,7 +440,7 @@ function compositeCameraViewport(
   const sw = isVert ? cols * 16 : CAMERA_W_TILES * 16
   const sh = isVert ? CAMERA_H_TILES * 16 : rows * 16
 
-  // Repaint the strip from scratch — wipe the existing render inside
+  // Repaint the strip from scratch - wipe the existing render inside
   // so parallax BG can be re-sampled without double-painting.
   target.fillRect({ x: sx, y: sy }, { w: sw, h: sh }, map.palette.backAreaColor.rgba())
 
@@ -426,7 +448,7 @@ function compositeCameraViewport(
 
   // Parallax L2. The strip extends across the "fixed" axis of the map
   // (full height for horizontal levels, full width for vertical), so
-  // along that axis the BG should render in its natural layout —
+  // along that axis the BG should render in its natural layout -
   // otherwise the camera position would double-shift the content and
   // the preview drifts away from the real level geometry. Along the
   // "scrolling" axis, shift by `camera >> shift` as usual (null shift
@@ -441,12 +463,12 @@ function compositeCameraViewport(
       // Compute BG parallax position in pixels (matches SNES: Layer2XPos = Layer1XPos >> hShift).
       // Keep the full pixel value before dividing by 16 so we get a sub-tile remainder that
       // lets us shift the first tile's canvas position and achieve smooth pixel-level scroll.
-      const bgParallaxPxX = isVert ? 0 : (hShift === null ? 0 : (camX * 16) >> hShift)
+      const bgParallaxPxX = isVert ? 0 : hShift === null ? 0 : (camX * 16) >> hShift
       const bgParallaxPxY = isVert ? (vShift === null ? 0 : (camY * 16) >> vShift) : 0
-      const bgOriginCol = bgParallaxPxX >> 4          // which BG tile column is at the left edge
-      const bgOriginRow = bgParallaxPxY >> 4          // which BG tile row is at the top edge
-      const bgSubOffsetX = bgParallaxPxX & 0xF        // pixels into bgOriginCol before viewport edge
-      const bgSubOffsetY = bgParallaxPxY & 0xF        // pixels into bgOriginRow before viewport edge
+      const bgOriginCol = bgParallaxPxX >> 4 // which BG tile column is at the left edge
+      const bgOriginRow = bgParallaxPxY >> 4 // which BG tile row is at the top edge
+      const bgSubOffsetX = bgParallaxPxX & 0xf // pixels into bgOriginCol before viewport edge
+      const bgSubOffsetY = bgParallaxPxY & 0xf // pixels into bgOriginRow before viewport edge
       const stripCols = sw / 16
       const stripRows = sh / 16
       // One extra tile on the scrolling edge fills the gap left by the sub-tile shift.
@@ -455,16 +477,16 @@ function compositeCameraViewport(
       target.setClip(sx, sy, sw, sh)
       for (let r = 0; r < stripRows + (bgSubOffsetY > 0 ? 1 : 0); r++) {
         for (let c = 0; c < stripCols + (bgSubOffsetX > 0 ? 1 : 0); c++) {
-          const bgR = ((bgOriginRow + r) % bgRows + bgRows) % bgRows
-          const bgC = ((bgOriginCol + c) % bgCols + bgCols) % bgCols
+          const bgR = (((bgOriginRow + r) % bgRows) + bgRows) % bgRows
+          const bgC = (((bgOriginCol + c) % bgCols) + bgCols) % bgCols
           const tile = bgGrid[bgR]?.[bgC]
           if (!tile) continue
           const px = sx + c * 16 - bgSubOffsetX
           const py = sy + r * 16 - bgSubOffsetY
           const cell = {
-            tl: { x: px,     y: py },
+            tl: { x: px, y: py },
             tr: { x: px + 8, y: py },
-            bl: { x: px,     y: py + 8 },
+            bl: { x: px, y: py + 8 },
             br: { x: px + 8, y: py + 8 },
           }
           tile.render(target, cell, mapStore, 'nonPriority')
@@ -475,7 +497,7 @@ function compositeCameraViewport(
     }
   }
 
-  // L1 on top — reuses world-space tiles so every tile behavior
+  // L1 on top - reuses world-space tiles so every tile behavior
   // (pipe variants, P-switch reveals, switch-palace alt) self-selects
   // from the world-space cell position. No caller-side injection.
   if (toggles.l1) {
@@ -498,7 +520,7 @@ function compositeCameraViewport(
     }
   }
 
-  // L3 on top (if toggled) — the camera strip wipe above erased the main
+  // L3 on top (if toggled) - the camera strip wipe above erased the main
   // render's L3, so re-render it clipped to the strip. Pass clipRangeX so
   // the L3 renderer skips the full-level repeat and only emits tiles for
   // the strip, keeping drag-redraw responsive.
@@ -517,19 +539,16 @@ function compositeCameraViewport(
 /**
  * Draw the camera-viewport border after the framebuffer flush. The
  * viewport rect is always CAMERA_W_TILES × CAMERA_H_TILES regardless of
- * level orientation — it shows the actual playfield size the player
+ * level orientation - it shows the actual playfield size the player
  * sees, independent of the parallax preview strip.
  */
-function drawCameraRectOverlay(
-  octx: CanvasRenderingContext2D,
-  map: SmwMap,
-): void {
+function drawCameraRectOverlay(octx: CanvasRenderingContext2D, map: SmwMap): void {
   const rows = map.l1.length
   const cols = rows > 0 ? map.l1[0].length : 0
   if (rows === 0 || cols === 0) return
   const isVert = map.header.orientation === 'vertical'
   const cam = store.camera
-  // Fractional position — lets the rect glide between tiles as the user
+  // Fractional position - lets the rect glide between tiles as the user
   // drags. Strip content is floored elsewhere; only the visual rect is
   // sub-tile.
   const camXf = Math.max(0, Math.min(Math.max(0, cols - CAMERA_W_TILES), cam.tileX))
@@ -541,7 +560,7 @@ function drawCameraRectOverlay(
   const rw = CAMERA_W_TILES * 16
   const rh = CAMERA_H_TILES * 16
 
-  // Outer rect: the full preview strip — camera-wide × full-height for
+  // Outer rect: the full preview strip - camera-wide × full-height for
   // horizontal levels, full-width × camera-tall for vertical.
   const sx = isVert ? 0 : rx
   const sy = isVert ? ry : 0
@@ -555,13 +574,13 @@ function drawCameraRectOverlay(
   // outside (including the parallax strip area) gets a 40% darken.
   if (cam.focused) {
     octx.fillStyle = 'rgba(0,0,0,0.4)'
-    octx.fillRect(0, 0, w, ry)                     // above
-    octx.fillRect(0, ry + rh, w, h - (ry + rh))    // below
-    octx.fillRect(0, ry, rx, rh)                   // left of
-    octx.fillRect(rx + rw, ry, w - (rx + rw), rh)  // right of
+    octx.fillRect(0, 0, w, ry) // above
+    octx.fillRect(0, ry + rh, w, h - (ry + rh)) // below
+    octx.fillRect(0, ry, rx, rh) // left of
+    octx.fillRect(rx + rw, ry, w - (rx + rw), rh) // right of
   }
 
-  // Outer rect — yellow border around the full preview strip.
+  // Outer rect - yellow border around the full preview strip.
   octx.strokeStyle = 'rgba(255,255,80,0.95)'
   octx.lineWidth = 2
   octx.strokeRect(sx + 1, sy + 1, sw - 2, sh - 2)
@@ -569,7 +588,7 @@ function drawCameraRectOverlay(
   octx.lineWidth = 1
   octx.strokeRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1)
 
-  // Inner rect — indicates the actual camera viewport size inside the
+  // Inner rect - indicates the actual camera viewport size inside the
   // strip. Drawn thinner so it doesn't compete with the strip border.
   octx.strokeStyle = 'rgba(255,255,80,0.95)'
   octx.lineWidth = 1
@@ -649,7 +668,11 @@ function vineSourceKeyAt(lx: number, ly: number): string | null {
   const tile = tiles.get(id)
   if (!tile) return null
   if (tile.behavior instanceof VineSourceBehavior) return `${col},${row}`
-  if (tile.behavior instanceof StarOneUpVineBlockBehavior && tile.behavior.itemAtCol(col) === 'vine') return `${col},${row}`
+  if (
+    tile.behavior instanceof StarOneUpVineBlockBehavior &&
+    tile.behavior.itemAtCol(col) === 'vine'
+  )
+    return `${col},${row}`
   return null
 }
 
@@ -675,10 +698,7 @@ function drawBlockView(
   const cols = rows > 0 ? map.l1[0].length : 0
   if (rows === 0 || cols === 0) return
 
-  const paintFills = (
-    grid: readonly (readonly (number | null)[])[],
-    alpha: number,
-  ) => {
+  const paintFills = (grid: readonly (readonly (number | null)[])[], alpha: number) => {
     octx.save()
     octx.globalAlpha = alpha
     for (let r = 0; r < grid.length; r++) {
@@ -698,9 +718,8 @@ function drawBlockView(
   // we only need the ids for the colored-block visualization, no
   // lookup required.
   if (l2On && map.l2) {
-    const l2Grid = map.l2 instanceof L2Preset || map.l2 instanceof L2ObjectStream
-      ? map.l2.grid
-      : null
+    const l2Grid =
+      map.l2 instanceof L2Preset || map.l2 instanceof L2ObjectStream ? map.l2.grid : null
     if (l2Grid) paintFills(l2Grid, 0.55)
   }
   if (l1On) paintFills(map.l1, 1.0)
@@ -709,7 +728,7 @@ function drawBlockView(
 /**
  * Draw screen dividers + 2-hex screen-number chips (if `screens`) and/or
  * a 16×16 tile grid (if `mapGrid`) over the model canvas. Both overlays
- * use natural-resolution coordinates — the model canvas is always sized
+ * use natural-resolution coordinates - the model canvas is always sized
  * at `cols*16 × rows*16` regardless of zoom (CSS scales it at display).
  */
 function drawScreenAndGridOverlays(
@@ -724,7 +743,7 @@ function drawScreenAndGridOverlays(
   const h = rows * 16
   const isVert = map.header.orientation === 'vertical'
   const screenCount = map.screenCount
-  // Screen size in tile coordinates — horizontal 16×27, vertical 32×16.
+  // Screen size in tile coordinates - horizontal 16×27, vertical 32×16.
   const SCREEN_W_TILES = isVert ? 32 : 16
   const SCREEN_H_TILES = isVert ? 16 : 27
 
@@ -734,12 +753,18 @@ function drawScreenAndGridOverlays(
     if (isVert) {
       for (let s = 1; s < screenCount; s++) {
         const y = Math.round(s * SCREEN_H_TILES * 16) + 0.5
-        octx.beginPath(); octx.moveTo(0, y); octx.lineTo(w, y); octx.stroke()
+        octx.beginPath()
+        octx.moveTo(0, y)
+        octx.lineTo(w, y)
+        octx.stroke()
       }
     } else {
       for (let s = 1; s < screenCount; s++) {
         const x = Math.round(s * SCREEN_W_TILES * 16) + 0.5
-        octx.beginPath(); octx.moveTo(x, 0); octx.lineTo(x, h); octx.stroke()
+        octx.beginPath()
+        octx.moveTo(x, 0)
+        octx.lineTo(x, h)
+        octx.stroke()
       }
     }
   }
@@ -770,45 +795,53 @@ function drawScreenAndGridOverlays(
     octx.lineWidth = 1
     for (let c = 0; c <= cols; c++) {
       const x = Math.round(c * 16) + 0.5
-      octx.beginPath(); octx.moveTo(x, 0); octx.lineTo(x, h); octx.stroke()
+      octx.beginPath()
+      octx.moveTo(x, 0)
+      octx.lineTo(x, h)
+      octx.stroke()
     }
     for (let r = 0; r <= rows; r++) {
       const y = Math.round(r * 16) + 0.5
-      octx.beginPath(); octx.moveTo(0, y); octx.lineTo(w, y); octx.stroke()
+      octx.beginPath()
+      octx.moveTo(0, y)
+      octx.lineTo(w, y)
+      octx.stroke()
     }
   }
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TILE_PX    = 16
-const SCREEN_W   = 16
-const SCREEN_H   = 27
+const TILE_PX = 16
+const SCREEN_W = 16
+const SCREEN_H = 27
 // 0.25 increments around 1× so one zoom-in jump is a small visual change
 // (1.00 → 1.25 instead of 1× → 2×). Coarser steps above 2× since detail
 // differences there are less perceptible.
 const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4]
-const ZOOM_DEFAULT_IDX = 3  // 1×
-const PAL_CELL   = 8        // pixels per palette swatch cell in the properties panel
+const ZOOM_DEFAULT_IDX = 3 // 1×
+const PAL_CELL = 8 // pixels per palette swatch cell in the properties panel
 
 // ── Style helpers ─────────────────────────────────────────────────────────────
 
 function selStyle(): string {
-  return 'width:100%;background:var(--vscode-dropdown-background,#3c3c3c);' +
-         'color:var(--vscode-dropdown-foreground,#ccc);' +
-         'border:1px solid #555;border-radius:3px;height:22px;font-size:11px;cursor:pointer;'
+  return (
+    'width:100%;background:var(--vscode-dropdown-background,#3c3c3c);' +
+    'color:var(--vscode-dropdown-foreground,#ccc);' +
+    'border:1px solid #555;border-radius:3px;height:22px;font-size:11px;cursor:pointer;'
+  )
 }
 function btnStyle(): string {
-  return 'background:transparent;border:1px solid #555;color:#ccc;border-radius:3px;' +
-         'width:22px;height:22px;font-size:14px;line-height:1;cursor:pointer;padding:0;'
-}
-function chkStyle(): string {
-  return 'display:flex;align-items:center;gap:4px;cursor:pointer;' +
-         'font-size:12px;color:#888;user-select:none;'
+  return (
+    'background:transparent;border:1px solid #555;color:#ccc;border-radius:3px;' +
+    'width:22px;height:22px;font-size:14px;line-height:1;cursor:pointer;padding:0;'
+  )
 }
 function propLabelStyle(): string {
-  return 'font-size:9px;font-weight:700;letter-spacing:.08em;' +
-         'color:var(--vscode-descriptionForeground,#888);margin-bottom:3px;'
+  return (
+    'font-size:9px;font-weight:700;letter-spacing:.08em;' +
+    'color:var(--vscode-descriptionForeground,#888);margin-bottom:3px;'
+  )
 }
 
 // ── Build DOM ─────────────────────────────────────────────────────────────────
@@ -939,21 +972,21 @@ app.innerHTML = `
     border-bottom:1px solid var(--vscode-panel-border,#3a3a3a);">
 
     <!-- Layer toggles (SVG 3-bar icons, 40% opacity when off) -->
-    <button id="btn-l2" class="iconBtn layerBtn on" title="Layer 2 — background">
+    <button id="btn-l2" class="iconBtn layerBtn on" title="Layer 2 - background">
       <svg width="16" height="14" viewBox="0 0 16 14" fill="none" xmlns="http://www.w3.org/2000/svg">
         <rect x="1" y="1"  width="14" height="3" rx="1" fill="#666"/>
         <rect x="1" y="6"  width="14" height="3" rx="1" fill="#666"/>
         <rect x="1" y="11" width="14" height="3" rx="1" fill="currentColor"/>
       </svg>
     </button>
-    <button id="btn-l1" class="iconBtn layerBtn on" title="Layer 1 — foreground">
+    <button id="btn-l1" class="iconBtn layerBtn on" title="Layer 1 - foreground">
       <svg width="16" height="14" viewBox="0 0 16 14" fill="none" xmlns="http://www.w3.org/2000/svg">
         <rect x="1" y="1"  width="14" height="3" rx="1" fill="#666"/>
         <rect x="1" y="6"  width="14" height="3" rx="1" fill="currentColor"/>
         <rect x="1" y="11" width="14" height="3" rx="1" fill="#666"/>
       </svg>
     </button>
-    <button id="btn-l3" class="iconBtn layerBtn on" title="Layer 3 — special">
+    <button id="btn-l3" class="iconBtn layerBtn on" title="Layer 3 - special">
       <svg width="16" height="14" viewBox="0 0 16 14" fill="none" xmlns="http://www.w3.org/2000/svg">
         <rect x="1" y="1"  width="14" height="3" rx="1" fill="currentColor"/>
         <rect x="1" y="6"  width="14" height="3" rx="1" fill="#666"/>
@@ -1100,7 +1133,7 @@ app.innerHTML = `
           <!-- BG PALETTE: header.bgPalette (3-bit field, byte 0 bits 7-5).
                Selects 1 of 8 BackgroundPalettes variants → fills CGRAM rows
                0-1 cols 2-7. Affects ANY tile (L1, L2, L3) whose subtile
-               palette index is 0 or 1. NOT an L2-specific knob — many levels
+               palette index is 0 or 1. NOT an L2-specific knob - many levels
                have L2 tiles encoded with palette indices in the StandardColors
                range (4-7), which no header field controls. -->
           <div>
@@ -1171,18 +1204,18 @@ app.innerHTML = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
           <div>
             <div style="${propLabelStyle()}">SCREENS</div>
-            <div id="info-screens" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+            <div id="info-screens" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
           </div>
           <div>
             <div style="${propLabelStyle()}">SPRITES</div>
-            <div id="info-sprites" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+            <div id="info-sprites" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
           </div>
         </div>
 
       </div><!-- /tab-pane general -->
 
       <!-- ── Tab: LAYER 2 ──
-           Currently empty placeholder — reserved for future L2-only
+           Currently empty placeholder - reserved for future L2-only
            knobs (palette OR mask, atlas override, etc.). All L2
            SCROLL controls live on the Scroll tab. -->
       <div class="tab-pane" data-tab="layer2" style="padding:8px;display:none;flex-direction:column;gap:8px;">
@@ -1205,22 +1238,22 @@ app.innerHTML = `
         </div>
 
         <!-- Read-only derived values: $009F88 byte, kind, init Y. These come
-             from (tileset, layer3Setting) and so cannot be edited directly —
+             from (tileset, layer3Setting) and so cannot be edited directly -
              they're outputs of the routine summary, not inputs. -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
           <div>
             <div style="${propLabelStyle()}">$009F88</div>
-            <div id="info-l3-byte" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+            <div id="info-l3-byte" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
           </div>
           <div>
             <div style="${propLabelStyle()}">INIT Y</div>
-            <div id="info-l3-init-y" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+            <div id="info-l3-init-y" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
           </div>
         </div>
 
         <div>
           <div style="${propLabelStyle()}">KIND</div>
-          <div id="info-l3-kind" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+          <div id="info-l3-kind" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
         </div>
 
       </div><!-- /tab-pane layer3 -->
@@ -1249,11 +1282,11 @@ app.innerHTML = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
           <div>
             <div style="${propLabelStyle()}">BG V-SCROLL</div>
-            <div id="info-bg-vscroll" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+            <div id="info-bg-vscroll" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
           </div>
           <div>
             <div style="${propLabelStyle()}">BG H-SCROLL</div>
-            <div id="info-bg-hscroll" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+            <div id="info-bg-hscroll" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
           </div>
         </div>
 
@@ -1268,7 +1301,7 @@ app.innerHTML = `
 
           <div>
             <div style="${propLabelStyle()}">SCROLL SPRITE</div>
-            <div id="info-scroll-sprite" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+            <div id="info-scroll-sprite" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
           </div>
 
           <div style="display:flex;align-items:center;gap:6px;">
@@ -1319,12 +1352,12 @@ app.innerHTML = `
 
         </div><!-- /scroll-autoscroll-section -->
 
-        <!-- Single FRAME counter label — shown only for auto-scroll
+        <!-- Single FRAME counter label - shown only for auto-scroll
              levels. Format: "FRAME 12 / 7800". Positioned above the
              slider stack so the user reads the active frame above the
              slider that scrubs it. -->
         <div id="scroll-frame-counter" style="display:none;align-items:center;">
-          <span id="lbl-scroll-frame" style="${propLabelStyle()}">FRAME 0 / —</span>
+          <span id="lbl-scroll-frame" style="${propLabelStyle()}">FRAME 0 / -</span>
         </div>
 
         <!-- Slider stack: L1 row (auto-scroll only) + L2 row
@@ -1361,19 +1394,19 @@ app.innerHTML = `
       <div style="padding:8px;">
         <div style="${propLabelStyle()};margin-bottom:4px;">SWITCH STATE</div>
         <div id="switch-toggles" style="display:flex;gap:6px;justify-content:space-between;">
-          <button class="pswitch-toggle" data-pcolor="blue" title="Blue P-switch — swaps coins ↔ used blocks and reveals hidden doors / ? blocks">
+          <button class="pswitch-toggle" data-pcolor="blue" title="Blue P-switch - swaps coins ↔ used blocks and reveals hidden doors / ? blocks">
             <canvas width="16" height="16"></canvas>
           </button>
-          <button class="switch-toggle" data-color="0" title="Green switch — click to toggle cleared state">
+          <button class="switch-toggle" data-color="0" title="Green switch - click to toggle cleared state">
             <canvas width="16" height="16"></canvas>
           </button>
-          <button class="switch-toggle" data-color="1" title="Yellow switch — click to toggle cleared state">
+          <button class="switch-toggle" data-color="1" title="Yellow switch - click to toggle cleared state">
             <canvas width="16" height="16"></canvas>
           </button>
-          <button class="switch-toggle" data-color="2" title="Blue switch — click to toggle cleared state">
+          <button class="switch-toggle" data-color="2" title="Blue switch - click to toggle cleared state">
             <canvas width="16" height="16"></canvas>
           </button>
-          <button class="switch-toggle" data-color="3" title="Red switch — click to toggle cleared state">
+          <button class="switch-toggle" data-color="3" title="Red switch - click to toggle cleared state">
             <canvas width="16" height="16"></canvas>
           </button>
         </div>
@@ -1475,28 +1508,28 @@ app.innerHTML = `
 
 // ── Element refs ─────────────────────────────────────────────────────────────
 
-const modelCanvas    = document.getElementById('model-canvas') as HTMLCanvasElement
-const canvasWrap     = document.getElementById('canvas-wrap')!
-const levelSpacer    = document.getElementById('level-spacer') as HTMLDivElement
-const minimapCanvas  = document.getElementById('minimap-canvas') as HTMLCanvasElement
-const minimapCtx     = minimapCanvas.getContext('2d')!
-const mapId          = document.getElementById('map-id')!
-const mapMeta        = document.getElementById('map-meta')!
-const zoomLabel      = document.getElementById('zoom-label')!
-const stPos          = document.getElementById('st-pos')!
-const stTile         = document.getElementById('st-tile')!
-const stInfo         = document.getElementById('st-info')!
-const chkScreens     = document.getElementById('chk-screens')     as HTMLInputElement
-const chkSprites     = document.getElementById('chk-sprites')     as HTMLInputElement
-const chkBlock       = document.getElementById('chk-block')       as HTMLInputElement
-const chkL1          = document.getElementById('chk-l1')          as HTMLInputElement
-const chkL2          = document.getElementById('chk-l2')          as HTMLInputElement
-const chkL3          = document.getElementById('chk-l3')          as HTMLInputElement
-const chkL3Hud       = document.getElementById('chk-l3hud')       as HTMLInputElement
-const chkCamera      = document.getElementById('chk-camera')      as HTMLInputElement
-const chkSurfaces    = document.getElementById('chk-surfaces')    as HTMLInputElement
-const chkWalls       = document.getElementById('chk-walls')       as HTMLInputElement
-const chkScrollPath  = document.getElementById('chk-scrollpath')  as HTMLInputElement
+const modelCanvas = document.getElementById('model-canvas') as HTMLCanvasElement
+const canvasWrap = document.getElementById('canvas-wrap')!
+const levelSpacer = document.getElementById('level-spacer') as HTMLDivElement
+const minimapCanvas = document.getElementById('minimap-canvas') as HTMLCanvasElement
+const minimapCtx = minimapCanvas.getContext('2d')!
+const mapId = document.getElementById('map-id')!
+const mapMeta = document.getElementById('map-meta')!
+const zoomLabel = document.getElementById('zoom-label')!
+const stPos = document.getElementById('st-pos')!
+const stTile = document.getElementById('st-tile')!
+const stInfo = document.getElementById('st-info')!
+const chkScreens = document.getElementById('chk-screens') as HTMLInputElement
+const chkSprites = document.getElementById('chk-sprites') as HTMLInputElement
+const chkBlock = document.getElementById('chk-block') as HTMLInputElement
+const chkL1 = document.getElementById('chk-l1') as HTMLInputElement
+const chkL2 = document.getElementById('chk-l2') as HTMLInputElement
+const chkL3 = document.getElementById('chk-l3') as HTMLInputElement
+const chkL3Hud = document.getElementById('chk-l3hud') as HTMLInputElement
+const chkCamera = document.getElementById('chk-camera') as HTMLInputElement
+const chkSurfaces = document.getElementById('chk-surfaces') as HTMLInputElement
+const chkWalls = document.getElementById('chk-walls') as HTMLInputElement
+const chkScrollPath = document.getElementById('chk-scrollpath') as HTMLInputElement
 
 // ── Camera viewport overlay ──────────────────────────────────────────────────
 // A draggable 16×14 tile rectangle representing the SNES FG screen window
@@ -1510,7 +1543,7 @@ const chkScrollPath  = document.getElementById('chk-scrollpath')  as HTMLInputEl
 const CAMERA_W_TILES = 16
 const CAMERA_H_TILES = 14
 let cameraDragging = false
-let cameraDragOffX = 0  // pointer offset from rect top-left at mousedown (tile coords)
+let cameraDragOffX = 0 // pointer offset from rect top-left at mousedown (tile coords)
 let cameraDragOffY = 0
 
 /** Pixel shift applied to FG pixel Y to get BG pixel Y, per VertLayer2Setting. */
@@ -1518,10 +1551,14 @@ function verticalScrollPixelShift(setting: number): number | null {
   // Returns null for setting 0 (BG locked, BG Y doesn't update).
   // Otherwise: shift is applied to Layer1YPos in pixels (bank_00.asm:13737-13746).
   switch (setting) {
-    case 1: return 0
-    case 2: return 1
-    case 3: return 5
-    default: return null
+    case 1:
+      return 0
+    case 2:
+      return 1
+    case 3:
+      return 5
+    default:
+      return null
   }
 }
 
@@ -1529,110 +1566,36 @@ function horizontalScrollPixelShift(setting: number): number | null {
   // bank_00.asm:13727-13733. Setting 0 locks BG X; 1 is 1:1, 2 is 1/2.
   // (No setting 3 for horizontal; the table tops out at 2.)
   switch (setting) {
-    case 1: return 0
-    case 2: return 1
-    default: return null
+    case 1:
+      return 0
+    case 2:
+      return 1
+    default:
+      return null
   }
 }
 
 // ── Blue P-switch toggle ─────────────────────────────────────────────────────
 // Two sources of substitution, composed in drawL1TileAt:
-//   1. Data-driven swap — each Map16 tile def carries `pSwitchSub`, the
+//   1. Data-driven swap - each Map16 tile def carries `pSwitchSub`, the
 //      ROM-derived substitute tile ID for P-switch activation (CODE_00F545 /
 //      CODE_00F577). When the toggle is ON we render that substitute at full
 //      alpha instead of the original. Populated in rom/Map16.ts.
-//   2. UI-only reveal — webview-specific alpha-preview of tiles that are
+//   2. UI-only reveal - webview-specific alpha-preview of tiles that are
 //      effectively invisible in the editor (hidden ? block, invisible coin
 //      block) or use a non-obvious palette (silver doors). Not in the ROM's
 //      P-switch logic; it's a hint so users can see what's there without
 //      toggling. Alpha is 50% when OFF, 100% when ON.
-let pSwitchBlueOn = false  // eslint-disable-line prefer-const
 
-interface PSwitchRevealBehavior {
-  substitute: number
-  /** If set, composite the substitute's chars with this palette instead of using the atlas. */
-  palOverride?: number
-}
-
-function pSwitchReveal(tileId: number): PSwitchRevealBehavior | null {
-  if ((tileId & ~0xFF) !== 0) return null
-  switch (tileId) {
-    case 0x27: return { substitute: 0x1F, palOverride: 4 }  // silver door top
-    case 0x28: return { substitute: 0x20, palOverride: 4 }  // silver door bottom
-    case 0x29: return { substitute: 0x24 }                  // invisible ? block
-    case 0x2A: return { substitute: 0x2B }                  // invisible coin block
-    default: return null
-  }
-}
-
-function blitSubTile(
-  indexed: Uint8Array, palRows: number[][][],
-  sub: { c: number; p: number; fx: boolean; fy: boolean },
-  dest: Uint8ClampedArray, destX: number, destY: number, destW: number,
-): void {
-  const srcOff = sub.c * 64
-  const pal = palRows[sub.p] ?? palRows[0]
-  for (let py = 0; py < 8; py++) {
-    const sy = sub.fy ? 7 - py : py
-    for (let px = 0; px < 8; px++) {
-      const sx = sub.fx ? 7 - px : px
-      const palIdx = indexed[srcOff + sy * 8 + sx] ?? 0
-      const dx2 = destX + px, dy2 = destY + py
-      const di = (dy2 * destW + dx2) * 4
-      if (palIdx === 0) {
-        dest[di] = dest[di + 1] = dest[di + 2] = 0; dest[di + 3] = 0
-      } else {
-        const c = pal[palIdx] ?? [255, 0, 255, 255]
-        dest[di] = c[0]; dest[di + 1] = c[1]; dest[di + 2] = c[2]; dest[di + 3] = 255
-      }
-    }
-  }
-}
-
-function applySwitchPalaceState(tileId: number): number {
-  const low = tileId & 0xFF
-  if (low < 0x6A || low > 0x6D) return tileId
-  const colorIdx = low - 0x6A
-  return (store.switchPalaceState[colorIdx] ? 0x100 : 0x000) | low
-}
-
-/** Cached per-tile 16×16 canvases composed with a palette override. Cleared
- *  whenever VRAM or palette changes, same lifecycle as map16AtlasCanvas. */
-const palOverrideCache = new Map<number, HTMLCanvasElement>()
-
-function getPalOverrideCanvas(tileId: number, palOverride: number): HTMLCanvasElement | null {
-  const key = (tileId << 8) | palOverride
-  const cached = palOverrideCache.get(key)
-  if (cached) return cached
-  if (!activeVramIndexed || !mapData?.paletteRows || !mapData.map16Defs) return null
-  const def = mapData.map16Defs[tileId]
-  if (!def) return null
-  const buf = new Uint8ClampedArray(16 * 16 * 4)
-  const subs = [
-    { s: def.tl, dx: 0, dy: 0 },
-    { s: def.tr, dx: 8, dy: 0 },
-    { s: def.bl, dx: 0, dy: 8 },
-    { s: def.br, dx: 8, dy: 8 },
-  ]
-  for (const { s, dx, dy } of subs) {
-    blitSubTile(activeVramIndexed, mapData.paletteRows,
-      { c: s.c, p: palOverride, fx: s.fx, fy: s.fy }, buf, dx, dy, 16)
-  }
-  const canvas = document.createElement('canvas')
-  canvas.width = 16; canvas.height = 16
-  canvas.getContext('2d')!.putImageData(new ImageData(buf, 16, 16), 0, 0)
-  palOverrideCache.set(key, canvas)
-  return canvas
-}
-
-
-// ── Tile detail preview state ─────────────────────────────────────────────────
-let selectedDetail: { type: 'vram'; page: number; col: number; row: number } |
-                    { type: 'map16'; page: number; col: number; row: number } | null = null
+// ── Tile detail preview state ─────────────────────────────────────────
+let selectedDetail:
+  | { type: 'vram'; page: number; col: number; row: number }
+  | { type: 'map16'; page: number; col: number; row: number }
+  | null = null
 
 function redrawDetail(): void {
   if (!selectedDetail) return
-  // Self-rendering model drives the preview — animation / pswitch /
+  // Self-rendering model drives the preview - animation / pswitch /
   // switch-palace state all reflect automatically via the reactive chain.
   redrawDetailFromModel()
 }
@@ -1646,31 +1609,40 @@ function redrawDetail(): void {
  */
 function redrawDetailFromModel(): void {
   if (!selectedDetail) return
-  const map      = window.__smwModelMap
-  const chars    = window.__smwModelChars
-  const l1Tiles  = window.__smwModelTiles
-  const bgTiles  = window.__smwModelBgTiles
+  const map = window.__smwModelMap
+  const chars = window.__smwModelChars
+  const l1Tiles = window.__smwModelTiles
+  const bgTiles = window.__smwModelBgTiles
   if (!map) return
 
-  const dc   = document.getElementById('detail-canvas') as HTMLCanvasElement
+  const dc = document.getElementById('detail-canvas') as HTMLCanvasElement
   const info = document.getElementById('detail-info')!
   const mapStore = map.mapStore
 
   if (selectedDetail.type === 'vram' && chars) {
     dc.width = 8
     dc.height = 8
-    const charNum = selectedDetail.page * VRAM_TILES_PER_PAGE
-                  + selectedDetail.row * 16 + selectedDetail.col
+    const charNum =
+      selectedDetail.page * VRAM_TILES_PER_PAGE + selectedDetail.row * 16 + selectedDetail.col
     const char = chars.get(charNum)
-    const slot = charNum < 0x80 ? 'FG1'
-               : charNum < 0x100 ? 'FG2'
-               : charNum < 0x180 ? 'FG3'
-               : charNum < 0x200 ? 'AN1'
-               : charNum < 0x400 ? '—'
-               : 'SP'
-    info.innerHTML = `<b>8×8 char $${charNum.toString(16).padStart(3,'0')}</b><br>slot: ${slot}`
+    const slot =
+      charNum < 0x80
+        ? 'FG1'
+        : charNum < 0x100
+          ? 'FG2'
+          : charNum < 0x180
+            ? 'FG3'
+            : charNum < 0x200
+              ? 'AN1'
+              : charNum < 0x400
+                ? '-'
+                : 'SP'
+    info.innerHTML = `<b>8×8 char $${charNum.toString(16).padStart(3, '0')}</b><br>slot: ${slot}`
     const dctx = dc.getContext('2d')!
-    if (!char) { dctx.clearRect(0, 0, 8, 8); return }
+    if (!char) {
+      dctx.clearRect(0, 0, 8, 8)
+      return
+    }
     const pixels = char.getPixels()
     // Palette-row convention matches VRAM viewer: $000-$17F → row 2
     // (FG terrain), $180-$2FF → row 6 (AN / sprite-slot), $300+ → row 8.
@@ -1684,7 +1656,7 @@ function redrawDetailFromModel(): void {
         const col = paletteRow[idx]
         if (!col) continue
         const di = (py * 8 + px) * 4
-        buf[di]     = col[0]
+        buf[di] = col[0]
         buf[di + 1] = col[1]
         buf[di + 2] = col[2]
         buf[di + 3] = 255
@@ -1700,7 +1672,7 @@ function redrawDetailFromModel(): void {
     const tileSource = isL1 ? l1Tiles : (bgTiles ?? new Map())
     const localTile = selectedDetail.row * 16 + selectedDetail.col
     const tileId = entry.pageInAtlas * 256 + localTile
-    info.innerHTML = `<b>Map16 tile $${tileId.toString(16).padStart(3,'0')}</b>`
+    info.innerHTML = `<b>Map16 tile $${tileId.toString(16).padStart(3, '0')}</b>`
     dc.width = 16
     dc.height = 16
     const target = new CanvasRenderTarget(dc)
@@ -1743,12 +1715,12 @@ document.getElementById('btn-map-grid-tb')?.addEventListener('click', () => {
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 const TAB_NAMES = ['vram', 'map16', 'objects', 'sprites'] as const
-function switchTab(tab: typeof TAB_NAMES[number]): void {
+function switchTab(tab: (typeof TAB_NAMES)[number]): void {
   for (const t of TAB_NAMES) {
     const panel = document.getElementById(`panel-${t}`)
-    const btn   = document.getElementById(`tab-${t}`)
+    const btn = document.getElementById(`tab-${t}`)
     if (panel) panel.style.display = t === tab ? '' : 'none'
-    if (btn)   btn.classList.toggle('active', t === tab)
+    if (btn) btn.classList.toggle('active', t === tab)
   }
 }
 for (const t of TAB_NAMES) {
@@ -1795,15 +1767,15 @@ function wireLayerBtn(btnId: string, chkId: string): void {
     btn.classList.toggle('on', chk.checked)
   })
 }
-wireLayerBtn('btn-l1',       'chk-l1')
-wireLayerBtn('btn-l2',       'chk-l2')
-wireLayerBtn('btn-l3',       'chk-l3')
-wireLayerBtn('btn-sprites',  'chk-sprites')
+wireLayerBtn('btn-l1', 'chk-l1')
+wireLayerBtn('btn-l2', 'chk-l2')
+wireLayerBtn('btn-l3', 'chk-l3')
+wireLayerBtn('btn-sprites', 'chk-sprites')
 wireLayerBtn('btn-surfaces', 'chk-surfaces')
-wireLayerBtn('btn-walls',    'chk-walls')
-wireLayerBtn('btn-block',    'chk-block')
-wireLayerBtn('btn-screens',  'chk-screens')
-wireLayerBtn('btn-hud',      'chk-l3hud')
+wireLayerBtn('btn-walls', 'chk-walls')
+wireLayerBtn('btn-block', 'chk-block')
+wireLayerBtn('btn-screens', 'chk-screens')
+wireLayerBtn('btn-hud', 'chk-l3hud')
 
 // Camera icon button wires into the existing chkCamera handler.
 {
@@ -1857,8 +1829,14 @@ function selectSprite(sprite: Sprite): void {
  * id and tile position, and the extension host resolves that to a stream
  * index against the same patched ROM this view was rendered from.
  */
-let spriteDrag: { id: number, tileX: number, tileY: number, startClientX: number, lastDx: number } | null = null
-let pendingReselect: { id: number, tileX: number, tileY: number } | null = null
+let spriteDrag: {
+  id: number
+  tileX: number
+  tileY: number
+  startClientX: number
+  lastDx: number
+} | null = null
+let pendingReselect: { id: number; tileX: number; tileY: number } | null = null
 
 function beginSpriteDrag(sprite: Sprite, clientX: number): void {
   spriteDrag = {
@@ -1965,9 +1943,10 @@ function setStatusHint(text: string): void {
   if (!el) {
     el = document.createElement('div')
     el.id = 'edit-hint'
-    el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:16px;'
-      + 'background:rgba(30,30,30,.94);border:1px solid #555;color:#ddd;padding:5px 12px;'
-      + 'border-radius:3px;font:12px sans-serif;pointer-events:none;z-index:99999;display:none;'
+    el.style.cssText =
+      'position:fixed;left:50%;transform:translateX(-50%);bottom:16px;' +
+      'background:rgba(30,30,30,.94);border:1px solid #555;color:#ddd;padding:5px 12px;' +
+      'border-radius:3px;font:12px sans-serif;pointer-events:none;z-index:99999;display:none;'
     document.body.appendChild(el)
   }
   el.textContent = text
@@ -1981,9 +1960,11 @@ function restoreSelectionAfterEdit(): void {
   const map = window.__smwModelMap
   if (!want || !map) return
   for (const spr of map.sprites) {
-    if (spr.id === want.id
-        && Math.floor(spr.x / TILE_PX) === want.tileX
-        && Math.floor(spr.y / TILE_PX) === want.tileY) {
+    if (
+      spr.id === want.id &&
+      Math.floor(spr.x / TILE_PX) === want.tileX &&
+      Math.floor(spr.y / TILE_PX) === want.tileY
+    ) {
       selectSprite(spr)
       return
     }
@@ -2008,9 +1989,12 @@ function populateTileProps(tileId: number, def: Map16DefEntry | undefined): void
   }
   const palRow = def.tl.p
   const colors = mapData.paletteRows[palRow] ?? []
-  const swatches = colors.map(([r, g, b]: number[]) =>
-    `<span style="display:inline-block;width:9px;height:9px;background:rgb(${r},${g},${b});flex-shrink:0;"></span>`
-  ).join('')
+  const swatches = colors
+    .map(
+      ([r, g, b]: number[]) =>
+        `<span style="display:inline-block;width:9px;height:9px;background:rgb(${r},${g},${b});flex-shrink:0;"></span>`,
+    )
+    .join('')
   const hex = (n: number) => `$${n.toString(16).padStart(3, '0').toUpperCase()}`
   pp.innerHTML = `
     <div style="margin-bottom:8px;">
@@ -2035,23 +2019,23 @@ function populateTileProps(tileId: number, def: Map16DefEntry | undefined): void
 // Three subscriptions on the one shared frame clock, each a pure event
 // source. Sharing the clock is what holds tile animation and palette
 // cycling in phase, as they are in game (both derive from `EffFrame`).
-//   - mapAnimTimer   — ticks animated chars (tile-graphics). Cadence comes
+//   - mapAnimTimer   - ticks animated chars (tile-graphics). Cadence comes
 //                       from `mapData.animation.intervalMs` so per-level
 //                       tile-animation speed is configurable.
-//   - spriteAnimTimer — ticks sprite appearances. Cadence is fixed
+//   - spriteAnimTimer - ticks sprite appearances. Cadence is fixed
 //                       (`SPRITE_ANIM_FRAMES`) so sprite cadence is
 //                       independent of any level data.
-//   - palAnimTimer   — increments `store.palAnimFrame` for CGRAM cycling.
+//   - palAnimTimer   - increments `store.palAnimFrame` for CGRAM cycling.
 //
 // Tile chars and sprite appearances own their own frame state internally
-// and advance via `tickAnimation()`. The timers carry no counter — each
+// and advance via `tickAnimation()`. The timers carry no counter - each
 // fire is just an event. To force the reactive render effect to re-run
 // after a tick, the timer bumps a `shallowRef` event source (`mapTick`
 // or `spriteTick`); the render effect reads both values to register a
-// dep. The carried number is irrelevant — only the mutation matters.
+// dep. The carried number is irrelevant - only the mutation matters.
 let mapIntervalMs = 133
 let palAnimIntervalMs = 133
-let mapAnimEnabled = false  // true when the loaded map declares animated tiles
+let mapAnimEnabled = false // true when the loaded map declares animated tiles
 
 /** Shared with the draw engine's ROM_FRAMES_PER_TICK, so a tick means the
  *  same number of game frames on both sides. Replaces an uncited 125 ms. */
@@ -2092,7 +2076,10 @@ const palAnimTimer = frameClock.every(
 
 function syncPalAnimButton(): void {
   const btn = document.getElementById('btn-pal-play')
-  if (btn) btn.innerHTML = palAnimTimer.running ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
+  if (btn)
+    btn.innerHTML = palAnimTimer.running
+      ? '<span class="codicon codicon-debug-pause"></span>'
+      : '<span class="codicon codicon-play"></span>'
 }
 
 function startPalAnimTimer(): void {
@@ -2115,14 +2102,14 @@ function togglePalAnim(): void {
 const palPlayBtn = document.getElementById('btn-pal-play')
 if (palPlayBtn) palPlayBtn.addEventListener('click', togglePalAnim)
 
-const animPlayBtns = [
-  document.getElementById('btn-play')!,
-]
+const animPlayBtns = [document.getElementById('btn-play')!]
 
 function syncAnimButtons(): void {
   const running = spriteAnimTimer.running
   for (const btn of animPlayBtns) {
-    btn.innerHTML = running ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
+    btn.innerHTML = running
+      ? '<span class="codicon codicon-debug-pause"></span>'
+      : '<span class="codicon codicon-play"></span>'
     btn.title = running ? 'Pause animation' : 'Play animation'
     btn.classList.toggle('on', running)
   }
@@ -2188,15 +2175,21 @@ function renderVramPage(): void {
 }
 
 document.getElementById('vram-prev')!.addEventListener('click', () => {
-  if (vramTotalPages > 0) { vramPage = (vramPage - 1 + vramTotalPages) % vramTotalPages; renderVramPage() }
+  if (vramTotalPages > 0) {
+    vramPage = (vramPage - 1 + vramTotalPages) % vramTotalPages
+    renderVramPage()
+  }
 })
 document.getElementById('vram-next')!.addEventListener('click', () => {
-  if (vramTotalPages > 0) { vramPage = (vramPage + 1) % vramTotalPages; renderVramPage() }
+  if (vramTotalPages > 0) {
+    vramPage = (vramPage + 1) % vramTotalPages
+    renderVramPage()
+  }
 })
 
 /**
  * Render the current VRAM page from the self-rendering model. Each
- * char on the page gets its pixels via `Char.getPixels(ctx)` — so
+ * char on the page gets its pixels via `Char.getPixels(ctx)` - so
  * AnimatedPixelsBehavior / PSwitchAlternateBehavior / etc. all reflect current
  * state automatically. Palette row selection mirrors the legacy
  * convention: $000-$17F → row 2 (FG), $180-$2FF → row 6 (AN/BG),
@@ -2262,8 +2255,18 @@ function renderVramPageFromModel(): void {
   if (vramGridOn) {
     vctx.strokeStyle = 'rgba(0,0,0,0.5)'
     vctx.lineWidth = 0.5
-    for (let x = 0; x <= vc.width; x += 8) { vctx.beginPath(); vctx.moveTo(x, 0); vctx.lineTo(x, vc.height); vctx.stroke() }
-    for (let y = 0; y <= vc.height; y += 8) { vctx.beginPath(); vctx.moveTo(0, y); vctx.lineTo(vc.width, y); vctx.stroke() }
+    for (let x = 0; x <= vc.width; x += 8) {
+      vctx.beginPath()
+      vctx.moveTo(x, 0)
+      vctx.lineTo(x, vc.height)
+      vctx.stroke()
+    }
+    for (let y = 0; y <= vc.height; y += 8) {
+      vctx.beginPath()
+      vctx.moveTo(0, y)
+      vctx.lineTo(vc.width, y)
+      vctx.stroke()
+    }
   }
 
   // Hover: dim everything, un-dim just the hovered tile. Same visual
@@ -2279,7 +2282,7 @@ function renderVramPageFromModel(): void {
       for (let px = 0; px < 8; px++) {
         const si = ((hy + py) * sw + (hx + px)) * 4
         const di = (py * 8 + px) * 4
-        tileSlice[di]     = buf[si]
+        tileSlice[di] = buf[si]
         tileSlice[di + 1] = buf[si + 1]
         tileSlice[di + 2] = buf[si + 2]
         tileSlice[di + 3] = buf[si + 3]
@@ -2347,8 +2350,18 @@ function renderMap16PageFromModel(): void {
   if (map16GridOn) {
     mctx.strokeStyle = 'rgba(0,0,0,0.5)'
     mctx.lineWidth = 0.5
-    for (let x = 0; x <= 256; x += 16) { mctx.beginPath(); mctx.moveTo(x, 0); mctx.lineTo(x, 256); mctx.stroke() }
-    for (let y = 0; y <= 256; y += 16) { mctx.beginPath(); mctx.moveTo(0, y); mctx.lineTo(256, y); mctx.stroke() }
+    for (let x = 0; x <= 256; x += 16) {
+      mctx.beginPath()
+      mctx.moveTo(x, 0)
+      mctx.lineTo(x, 256)
+      mctx.stroke()
+    }
+    for (let y = 0; y <= 256; y += 16) {
+      mctx.beginPath()
+      mctx.moveTo(0, y)
+      mctx.lineTo(256, y)
+      mctx.stroke()
+    }
   }
   // Hover: dim everything, un-dim just the hovered tile. Snapshot the
   // rendered canvas first so we can restore the hovered 16×16 slice
@@ -2365,7 +2378,7 @@ function renderMap16PageFromModel(): void {
       for (let px = 0; px < 16; px++) {
         const si = ((hy + py) * 256 + (hx + px)) * 4
         const di = (py * 16 + px) * 4
-        tileSlice[di]     = fullSnap.data[si]
+        tileSlice[di] = fullSnap.data[si]
         tileSlice[di + 1] = fullSnap.data[si + 1]
         tileSlice[di + 2] = fullSnap.data[si + 2]
         tileSlice[di + 3] = fullSnap.data[si + 3]
@@ -2385,10 +2398,14 @@ function renderMap16PageFromModel(): void {
   if (lbl2) lbl2.textContent = `Page ${map16PageIdx + 1} / ${map16Pages.length}`
 }
 
-// MAP16 page viewer — pages derived from L1 / L2 Map16 table sizes.
+// MAP16 page viewer - pages derived from L1 / L2 Map16 table sizes.
 // Each entry labels a page and carries its index within its table; the
 // renderer asks the model for tiles at those indices.
-interface Map16PageEntry { pageInAtlas: number; pageNum: number; label: string }
+interface Map16PageEntry {
+  pageInAtlas: number
+  pageNum: number
+  label: string
+}
 let map16Pages: Map16PageEntry[] = []
 let map16PageIdx = 0
 
@@ -2397,80 +2414,87 @@ function renderMap16Page(): void {
 }
 
 document.getElementById('map16-prev')!.addEventListener('click', () => {
-  if (map16Pages.length > 0) { map16PageIdx = (map16PageIdx - 1 + map16Pages.length) % map16Pages.length; renderMap16Page() }
+  if (map16Pages.length > 0) {
+    map16PageIdx = (map16PageIdx - 1 + map16Pages.length) % map16Pages.length
+    renderMap16Page()
+  }
 })
 document.getElementById('map16-next')!.addEventListener('click', () => {
-  if (map16Pages.length > 0) { map16PageIdx = (map16PageIdx + 1) % map16Pages.length; renderMap16Page() }
+  if (map16Pages.length > 0) {
+    map16PageIdx = (map16PageIdx + 1) % map16Pages.length
+    renderMap16Page()
+  }
 })
 
 // Props panel
-const palCanvas      = document.getElementById('palette-canvas')  as HTMLCanvasElement
-const palCtx         = palCanvas.getContext('2d')!
-const palInspect     = document.getElementById('palette-inspect')!
+const palCanvas = document.getElementById('palette-canvas') as HTMLCanvasElement
+const palCtx = palCanvas.getContext('2d')!
+const palInspect = document.getElementById('palette-inspect')!
 const backAreaSwatch = document.getElementById('back-area-swatch')!
-const selBgColor     = document.getElementById('sel-bg-color')     as HTMLSelectElement
-const selFgPalette   = document.getElementById('sel-fg-palette')   as HTMLSelectElement
-const selBgPalette   = document.getElementById('sel-bg-palette')   as HTMLSelectElement
-const selSpritePal   = document.getElementById('sel-sprite-palette') as HTMLSelectElement
-const selMarioPal    = document.getElementById('sel-mario-palette') as HTMLSelectElement
-const selTileset     = document.getElementById('sel-tileset')      as HTMLSelectElement
-const selSpriteSet   = document.getElementById('sel-sprite-set')   as HTMLSelectElement
-const infoScreens    = document.getElementById('info-screens')!
-const infoSprites    = document.getElementById('info-sprites')!
-const infoBgVScroll  = document.getElementById('info-bg-vscroll')!
-const infoBgHScroll  = document.getElementById('info-bg-hscroll')!
+const selBgColor = document.getElementById('sel-bg-color') as HTMLSelectElement
+const selFgPalette = document.getElementById('sel-fg-palette') as HTMLSelectElement
+const selBgPalette = document.getElementById('sel-bg-palette') as HTMLSelectElement
+const selSpritePal = document.getElementById('sel-sprite-palette') as HTMLSelectElement
+const selMarioPal = document.getElementById('sel-mario-palette') as HTMLSelectElement
+const selTileset = document.getElementById('sel-tileset') as HTMLSelectElement
+const selSpriteSet = document.getElementById('sel-sprite-set') as HTMLSelectElement
+const infoScreens = document.getElementById('info-screens')!
+const infoSprites = document.getElementById('info-sprites')!
+const infoBgVScroll = document.getElementById('info-bg-vscroll')!
+const infoBgHScroll = document.getElementById('info-bg-hscroll')!
 // New editable controls (Plan A: render overrides; no ROM write yet).
 // Music / level mode / item memory / L1 V-scroll-mode have no current render
-// path that honors the override — the controls echo back via the rerender
+// path that honors the override - the controls echo back via the rerender
 // pipeline so the selected value sticks across re-renders, but the rendered
 // editor doesn't visibly change. Step 3 (ROM write-back) will wire actual
 // edits.
-const selMusic       = document.getElementById('sel-music')        as HTMLSelectElement
-const btnMusicPrev   = document.getElementById('btn-music-prev')   as HTMLButtonElement
-const btnMusicVol    = document.getElementById('btn-music-vol')    as HTMLButtonElement
-const musicVolPopup  = document.getElementById('music-vol-popup')  as HTMLDivElement
+const selMusic = document.getElementById('sel-music') as HTMLSelectElement
+const btnMusicPrev = document.getElementById('btn-music-prev') as HTMLButtonElement
+const btnMusicVol = document.getElementById('btn-music-vol') as HTMLButtonElement
+const musicVolPopup = document.getElementById('music-vol-popup') as HTMLDivElement
 const sliderMusicVol = document.getElementById('slider-music-vol') as HTMLInputElement
-const btnMusicPlay   = document.getElementById('btn-music-play')   as HTMLButtonElement
-const btnMusicNext   = document.getElementById('btn-music-next')   as HTMLButtonElement
-const selTimeLimit   = document.getElementById('sel-time-limit')   as HTMLSelectElement
-const selLevelMode   = document.getElementById('sel-level-mode')   as HTMLSelectElement
-const selItemMemory  = document.getElementById('sel-item-memory')  as HTMLSelectElement
-const selVScrollHdr  = document.getElementById('sel-vscroll-hdr')  as HTMLSelectElement
-const rngL2y         = document.getElementById('rng-l2y')         as HTMLInputElement
-const infoScrollSprite   = document.getElementById('info-scroll-sprite')   as HTMLDivElement
-const chkScrollPathPanel  = document.getElementById('chk-scrollpath-panel')  as HTMLInputElement
-const chkFollowScroll     = document.getElementById('chk-follow-scroll')      as HTMLInputElement
-const chkOnOffSwitch      = document.getElementById('chk-onoff-switch')       as HTMLInputElement
-const rowOnOffSwitch      = document.getElementById('row-onoff-switch')       as HTMLDivElement
-const chkLayer2Touched    = document.getElementById('chk-layer2-touched')     as HTMLInputElement
-const rowLayer2Touched    = document.getElementById('row-layer2-touched')     as HTMLDivElement
-const btnScrollPlay      = document.getElementById('btn-scroll-play')      as HTMLButtonElement
-const btnScrollStop      = document.getElementById('btn-scroll-stop')      as HTMLButtonElement
-const btnScrollLoop      = document.getElementById('btn-scroll-loop')      as HTMLButtonElement
-const btnScrollLink      = document.getElementById('btn-scroll-link')      as HTMLButtonElement
-const selScrollSpeed     = document.getElementById('sel-scroll-speed')     as HTMLSelectElement
-const rngScrollFrame     = document.getElementById('rng-scroll-frame')     as HTMLInputElement
-const lblScrollFrame     = document.getElementById('lbl-scroll-frame')     as HTMLSpanElement
-const scrollAutoscrollSection = document.getElementById('scroll-autoscroll-section') as HTMLDivElement
+const btnMusicPlay = document.getElementById('btn-music-play') as HTMLButtonElement
+const btnMusicNext = document.getElementById('btn-music-next') as HTMLButtonElement
+const selTimeLimit = document.getElementById('sel-time-limit') as HTMLSelectElement
+const selLevelMode = document.getElementById('sel-level-mode') as HTMLSelectElement
+const selItemMemory = document.getElementById('sel-item-memory') as HTMLSelectElement
+const selVScrollHdr = document.getElementById('sel-vscroll-hdr') as HTMLSelectElement
+const rngL2y = document.getElementById('rng-l2y') as HTMLInputElement
+const infoScrollSprite = document.getElementById('info-scroll-sprite') as HTMLDivElement
+const chkScrollPathPanel = document.getElementById('chk-scrollpath-panel') as HTMLInputElement
+const chkFollowScroll = document.getElementById('chk-follow-scroll') as HTMLInputElement
+const chkOnOffSwitch = document.getElementById('chk-onoff-switch') as HTMLInputElement
+const rowOnOffSwitch = document.getElementById('row-onoff-switch') as HTMLDivElement
+const chkLayer2Touched = document.getElementById('chk-layer2-touched') as HTMLInputElement
+const rowLayer2Touched = document.getElementById('row-layer2-touched') as HTMLDivElement
+const btnScrollPlay = document.getElementById('btn-scroll-play') as HTMLButtonElement
+const btnScrollStop = document.getElementById('btn-scroll-stop') as HTMLButtonElement
+const btnScrollLoop = document.getElementById('btn-scroll-loop') as HTMLButtonElement
+const btnScrollLink = document.getElementById('btn-scroll-link') as HTMLButtonElement
+const selScrollSpeed = document.getElementById('sel-scroll-speed') as HTMLSelectElement
+const rngScrollFrame = document.getElementById('rng-scroll-frame') as HTMLInputElement
+const lblScrollFrame = document.getElementById('lbl-scroll-frame') as HTMLSpanElement
+const scrollAutoscrollSection = document.getElementById(
+  'scroll-autoscroll-section',
+) as HTMLDivElement
 const scrollSlidersSection = document.getElementById('scroll-sliders-section') as HTMLDivElement
-const rowRngL1           = document.getElementById('row-rng-l1')           as HTMLDivElement
-const rowRngL2           = document.getElementById('row-rng-l2')           as HTMLDivElement
+const rowRngL1 = document.getElementById('row-rng-l1') as HTMLDivElement
+const rowRngL2 = document.getElementById('row-rng-l2') as HTMLDivElement
 const scrollFrameCounter = document.getElementById('scroll-frame-counter') as HTMLDivElement
-const tabBtnScroll       = document.getElementById('tab-btn-scroll')       as HTMLButtonElement
-const tabPaneScroll      = document.querySelector<HTMLDivElement>('.tab-pane[data-tab="scroll"]')!
-const tabPaneGeneral     = document.querySelector<HTMLDivElement>('.tab-pane[data-tab="general"]')!
-const chkL3Priority  = document.getElementById('chk-l3-priority')  as HTMLInputElement
-const selL3Setting   = document.getElementById('sel-l3-setting')   as HTMLSelectElement
+const tabBtnScroll = document.getElementById('tab-btn-scroll') as HTMLButtonElement
+const tabPaneScroll = document.querySelector<HTMLDivElement>('.tab-pane[data-tab="scroll"]')!
+const tabPaneGeneral = document.querySelector<HTMLDivElement>('.tab-pane[data-tab="general"]')!
+const chkL3Priority = document.getElementById('chk-l3-priority') as HTMLInputElement
+const selL3Setting = document.getElementById('sel-l3-setting') as HTMLSelectElement
 // Read-only L3 derived fields (driven by the routine summary).
-const infoL3Byte     = document.getElementById('info-l3-byte')!
-const infoL3Kind     = document.getElementById('info-l3-kind')!
-const infoL3InitY    = document.getElementById('info-l3-init-y')!
+const infoL3Byte = document.getElementById('info-l3-byte')!
+const infoL3Kind = document.getElementById('info-l3-kind')!
+const infoL3InitY = document.getElementById('info-l3-init-y')!
 
 // ── State ────────────────────────────────────────────────────────────────────
 
-let zoomIdx      = ZOOM_DEFAULT_IDX
+let zoomIdx = ZOOM_DEFAULT_IDX
 let mapData: MapPayload | null = null
-let l2TileGrid: number[][] | null = null
 
 // Cached ROM bytes + scroll-sim seed from the most recent modelPayload.
 // Used by the gameplay-state checkboxes (`chk-onoff-switch`,
@@ -2487,7 +2511,7 @@ let musicIsPlaying = false
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let musicBackend: any = null
 
-// spc.js WASM compilation is async — poll until the Backend object appears.
+// spc.js WASM compilation is async - poll until the Backend object appears.
 let _musicInitAttempts = 0
 const _musicInitInterval = setInterval(() => {
   _musicInitAttempts++
@@ -2510,12 +2534,14 @@ function _setMusicPlayButton(playing: boolean): void {
   btnMusicPlay.disabled = false
 }
 
-// Must be called from a user gesture (click handler) — Chromium requires
+// Must be called from a user gesture (click handler) - Chromium requires
 // AudioContext.resume() to be within the gesture call stack on first play.
 function _unlockAudioContext(): void {
   if (!musicBackend?.context) return
   musicBackend.locked = false
-  ;(musicBackend.context as AudioContext).resume().catch(() => { /* ignore */ })
+  ;(musicBackend.context as AudioContext).resume().catch(() => {
+    /* ignore */
+  })
 }
 
 function stopMusicPlayback(): void {
@@ -2541,7 +2567,7 @@ function startMusicPlayback(bgmCommand: number): void {
       _setMusicPlayButton(false)
     }
   } else {
-    // Non-current track — fetch SPC on demand. AudioContext was already
+    // Non-current track - fetch SPC on demand. AudioContext was already
     // unlocked in the click handler, so loadSPC will work when data arrives.
     btnMusicPlay.innerHTML = '<span class="codicon codicon-loading codicon-modifier-spin"></span>'
     btnMusicPlay.disabled = true
@@ -2549,10 +2575,6 @@ function startMusicPlayback(bgmCommand: number): void {
   }
 }
 
-// Legacy rendering state — re-introduced from pre-#62 stash. The model renderer
-// owns main display; these back the block-mode and camera-viewport overlays.
-const canvas = modelCanvas  // map-canvas was renamed model-canvas in #62
-const ctx    = canvas.getContext('2d')!
 // Off-screen full-level canvas (1× natural pixels). The viewport canvas blits
 // from this on scroll; the minimap samples from it for its overview.
 // baseLevelCanvas holds the same render WITHOUT the camera-viewport composite,
@@ -2560,50 +2582,47 @@ const ctx    = canvas.getContext('2d')!
 // then re-apply the strip overlay.
 let fullLevelCanvas: HTMLCanvasElement | null = null
 let baseLevelCanvas: HTMLCanvasElement | null = null
-let zoom     = ZOOM_STEPS[ZOOM_DEFAULT_IDX]
+let zoom = ZOOM_STEPS[ZOOM_DEFAULT_IDX]
 // CSS-pixel padding added to the spacer on each side so the level is centered
 // when it's smaller than the canvas-wrap viewport. Horizontal levels get
 // vertical padding (levelPadY); vertical levels get horizontal (levelPadX).
 let levelPadX = 0
 let levelPadY = 0
-const activeVramIndexed: Uint8Array | null = null
-const map16AtlasCanvas:    HTMLCanvasElement | null = null
-const map16BgAtlasCanvas:  HTMLCanvasElement | null = null
-const pipeVariantAtlasCanvases: (HTMLCanvasElement | null)[] = [null, null, null, null]
-let cameraTileX  = 0
-let cameraTileY  = 0
-const cameraFocused = false
 const activeTileId = -1
 let activeTool: 'place' | 'erase' = 'place'
-let isPainting   = false
+let isPainting = false
 // Which CGRAM cells to highlight in the palette panel (null = all at full brightness)
-// Each entry: { row, colStart, colEnd } — highlights cols colStart..colEnd (inclusive)
-interface PaletteHighlight { row: number; colStart: number; colEnd: number }
+// Each entry: { row, colStart, colEnd } - highlights cols colStart..colEnd (inclusive)
+interface PaletteHighlight {
+  row: number
+  colStart: number
+  colEnd: number
+}
 let paletteHighlightCells: PaletteHighlight[] | null = null
 
 interface MapPayload {
-  mapIndex:         number
-  allBgmTracks?:    Array<{ bgmCommand: number }>
+  mapIndex: number
+  allBgmTracks?: Array<{ bgmCommand: number }>
   currentBgmCommand?: number
-  spcData?:         number[] | null
-  screens:          number
+  spcData?: number[] | null
+  screens: number
   /** True if Layer 1 is vertical (ScreenMode bit 0 via VerticalTable). */
-  isVertical?:     boolean
-  tileGrid:        number[][]
-  l2TileGrid?:     number[][] | null
-  /** Truthy when the model payload includes a scroll-simulator seed —
+  isVertical?: boolean
+  tileGrid: number[][]
+  l2TileGrid?: number[][] | null
+  /** Truthy when the model payload includes a scroll-simulator seed -
    *  the slider scrubs scroll FRAME instead of raw Layer2YPos. Only
    *  passed for legacy payload diffing; the actual seed lives on
    *  `modelMapPayload.scrollSim` and rebuilds the simulator on
    *  rehydrate. The webview reads this boolean to switch slider modes. */
   scrollSim?: unknown
-  sprites:         Array<{ x: number; y: number; spriteId: number }>
-  backAreaColor:   [number, number, number, number]
-  backAreaColors:  number[][]   // 8 variants × [r,g,b,a]
-  paletteRows:     number[][][]   // 16 rows × 16 colors × [r,g,b,a]
+  sprites: Array<{ x: number; y: number; spriteId: number }>
+  backAreaColor: [number, number, number, number]
+  backAreaColors: number[][] // 8 variants × [r,g,b,a]
+  paletteRows: number[][][] // 16 rows × 16 colors × [r,g,b,a]
   // Which atlas the L2 tile grid should sample:
-  //   true  → map16BgAtlasCanvas  (preset BG; IDs are into Map16BGTiles)
-  //   false → map16AtlasCanvas    (object-stream L2; IDs are regular Map16)
+  //   true  → the preset-BG atlas (IDs are into Map16BGTiles)
+  //   false → the regular Map16 atlas (object-stream L2)
   l2UsesBgAtlas?: boolean
   // Map16 tile definitions for client-side composition.
   // pSwitchSub is L1-only (ROM-derived P-switch swap); L2 BG defs omit it.
@@ -2626,13 +2645,15 @@ interface MapPayload {
   // Pipe palette variants for tiles $133..$13A (see MAP16AppTable in bank_05.asm).
   // 4 variants × 8 tile defs. At render time, tiles in that range are
   // composited using pipeVariantDefs[screenPipeVariants[screen]][tileId-0x133].
-  pipeVariantDefs?: Array<Array<{
-    id: number
-    tl: { c: number; p: number; fx: boolean; fy: boolean }
-    bl: { c: number; p: number; fx: boolean; fy: boolean }
-    tr: { c: number; p: number; fx: boolean; fy: boolean }
-    br: { c: number; p: number; fx: boolean; fy: boolean }
-  }>>
+  pipeVariantDefs?: Array<
+    Array<{
+      id: number
+      tl: { c: number; p: number; fx: boolean; fy: boolean }
+      bl: { c: number; p: number; fx: boolean; fy: boolean }
+      tr: { c: number; p: number; fx: boolean; fy: boolean }
+      br: { c: number; p: number; fx: boolean; fy: boolean }
+    }>
+  >
   // Per-screen variant index (0..3) for the pipe cycle.
   screenPipeVariants?: number[]
   // Raw indexed VRAM: 1 byte per pixel, 64 bytes per char, 1536 chars
@@ -2641,30 +2662,30 @@ interface MapPayload {
     frameCount: number
     intervalMs: number
   }
-  /** Palette animation timing only — the model drives actual cycling. */
+  /** Palette animation timing only - the model drives actual cycling. */
   paletteAnimation?: {
     frameCount: number
     intervalMs: number
   } | null
   header: {
-    music:          number
-    spriteSet:      number
-    bgPalette:      number
-    fgPalette:      number
-    bgColor:        number
-    spritePalette:  number
-    marioVariant:   number
-    gfxTilesetId:   number
+    music: number
+    spriteSet: number
+    bgPalette: number
+    fgPalette: number
+    bgColor: number
+    spritePalette: number
+    marioVariant: number
+    gfxTilesetId: number
     // VertLayer2Setting / HorizLayer2Setting (0..3) looked up from the
     // per-level scroll byte. Drives the BG parallax ratio: 0=locked, 1=1:1,
     // 2=1/2, 3=1/32. See MapEditorProvider comment at the lookup site.
-    vertLayer2Setting:  number
+    vertLayer2Setting: number
     horizLayer2Setting: number
-    /** Initial Layer1YPos (camera Y) in pixels — see LevelHeaderDescriptor. */
+    /** Initial Layer1YPos (camera Y) in pixels - see LevelHeaderDescriptor. */
     initialCameraYPx?: number
     /**
      * Initial Layer2YPos (BG2VOFS) byte from the L2 object-stream descriptor,
-     * mirrored onto the header for convenient slider population. Optional —
+     * mirrored onto the header for convenient slider population. Optional -
      * only populated when L2 is object-stream.
      */
     initialLayer2YPx?: number
@@ -2685,7 +2706,7 @@ interface MapPayload {
      * Layer 2 Y travel bounds, read from the ROM table the post-setup
      * Layer2ScrollCmd's per-frame routine compares against (e.g.
      * DATA_05C71B for cmd $0B). null when the cmd's bounds source isn't
-     * decoded yet OR there's no L2 motion — slider locks to initialY.
+     * decoded yet OR there's no L2 motion - slider locks to initialY.
      */
     layer2ScrollBounds?: { min: number; max: number } | null
     /**
@@ -2714,20 +2735,20 @@ interface MapPayload {
     // Read-only header bits surfaced for the LEVEL HEADER block in the
     // right panel. Editable bits (palettes, tilesets, sprite set) live
     // above as overrides; these are display-only.
-    levelLength?:    number
-    levelMode?:      number
-    timeLimit?:      number
-    itemMemory?:     number
+    levelLength?: number
+    levelMode?: number
+    timeLimit?: number
+    itemMemory?: number
     verticalScroll?: number
     layer3Priority?: boolean
-    isVertical?:     boolean
+    isVertical?: boolean
   }
   /** L3 routine summary (read-only). See readL3RoutineSummary in L3Loader.ts. */
   l3Routine?: {
-    layer3Setting:   number
-    settingsByte:    number | null
-    kind:            'tide' | 'fixed' | 'camera-tracked' | 'none' | 'disabled'
-    initialYPx:      number | null
+    layer3Setting: number
+    settingsByte: number | null
+    kind: 'tide' | 'fixed' | 'camera-tracked' | 'none' | 'disabled'
+    initialYPx: number | null
     isTideUpAndDown: boolean
   }
 }
@@ -2758,11 +2779,11 @@ function applyZoom(anchor?: { x: number; y: number }): void {
   const oldPadY = levelPadY
 
   const a = anchor ?? {
-    x: canvasWrap.clientWidth  / 2,
+    x: canvasWrap.clientWidth / 2,
     y: canvasWrap.clientHeight / 2,
   }
   const worldX = (canvasWrap.scrollLeft + a.x - oldPadX) / oldZoom
-  const worldY = (canvasWrap.scrollTop  + a.y - oldPadY) / oldZoom
+  const worldY = (canvasWrap.scrollTop + a.y - oldPadY) / oldZoom
 
   const z = ZOOM_STEPS[zoomIdx]
 
@@ -2772,40 +2793,50 @@ function applyZoom(anchor?: { x: number; y: number }): void {
   if (fullLevelCanvas) {
     const fw = fullLevelCanvas.width
     const fh = fullLevelCanvas.height
-    levelPadX = isVert() ? Math.max(0, Math.floor((canvasWrap.clientWidth  - fw * z) / 2)) : 0
+    levelPadX = isVert() ? Math.max(0, Math.floor((canvasWrap.clientWidth - fw * z) / 2)) : 0
     levelPadY = isVert() ? 0 : Math.max(0, Math.floor((canvasWrap.clientHeight - fh * z) / 2))
-    levelSpacer.style.width  = `${fw * z + levelPadX * 2}px`
+    levelSpacer.style.width = `${fw * z + levelPadX * 2}px`
     levelSpacer.style.height = `${fh * z + levelPadY * 2}px`
 
     const newScrollX = worldX * z + levelPadX - a.x
     const newScrollY = worldY * z + levelPadY - a.y
-    const maxX = Math.max(0, canvasWrap.scrollWidth  - canvasWrap.clientWidth)
+    const maxX = Math.max(0, canvasWrap.scrollWidth - canvasWrap.clientWidth)
     const maxY = Math.max(0, canvasWrap.scrollHeight - canvasWrap.clientHeight)
     canvasWrap.scrollLeft = Math.max(0, Math.min(maxX, newScrollX))
-    canvasWrap.scrollTop  = Math.max(0, Math.min(maxY, newScrollY))
+    canvasWrap.scrollTop = Math.max(0, Math.min(maxY, newScrollY))
   }
 
   zoom = z
-  store.setZoom(z)  // reactive — triggers renderModelOverlay with the new zoom
+  store.setZoom(z) // reactive - triggers renderModelOverlay with the new zoom
   zoomLabel.textContent = `${z}×`
 }
 
 document.getElementById('zoom-in')!.addEventListener('click', () => {
-  if (zoomIdx < ZOOM_STEPS.length - 1) { zoomIdx++; applyZoom() }
+  if (zoomIdx < ZOOM_STEPS.length - 1) {
+    zoomIdx++
+    applyZoom()
+  }
 })
 document.getElementById('zoom-out')!.addEventListener('click', () => {
-  if (zoomIdx > 0) { zoomIdx--; applyZoom() }
-})
-canvasWrap.addEventListener('wheel', (e) => {
-  if (!e.ctrlKey) return
-  e.preventDefault()
-  const next = zoomIdx + (e.deltaY < 0 ? 1 : -1)
-  if (next >= 0 && next < ZOOM_STEPS.length) {
-    zoomIdx = next
-    const r = canvasWrap.getBoundingClientRect()
-    applyZoom({ x: e.clientX - r.left, y: e.clientY - r.top })
+  if (zoomIdx > 0) {
+    zoomIdx--
+    applyZoom()
   }
-}, { passive: false })
+})
+canvasWrap.addEventListener(
+  'wheel',
+  e => {
+    if (!e.ctrlKey) return
+    e.preventDefault()
+    const next = zoomIdx + (e.deltaY < 0 ? 1 : -1)
+    if (next >= 0 && next < ZOOM_STEPS.length) {
+      zoomIdx = next
+      const r = canvasWrap.getBoundingClientRect()
+      applyZoom({ x: e.clientX - r.left, y: e.clientY - r.top })
+    }
+  },
+  { passive: false },
+)
 
 // ── Palette canvas ────────────────────────────────────────────────────────────
 
@@ -2816,14 +2847,14 @@ function drawPaletteCanvas(): void {
 /**
  * Render the palette panel from the self-rendering model's Palette.
  * Reads each cell via its ColorBehavior (static or CyclingColorBehavior) so
- * palette animation is naturally driven by `ctx.palAnimFrame` — no
+ * palette animation is naturally driven by `ctx.palAnimFrame` - no
  * separate tick logic needed. Falls back to the legacy path if the
  * model hasn't arrived yet.
  */
 function drawPaletteFromModel(): void {
   const map = window.__smwModelMap
   if (!map) {
-    // Model not yet rehydrated — clear to transparent so the panel
+    // Model not yet rehydrated - clear to transparent so the panel
     // doesn't keep showing stale legacy content.
     palCtx.clearRect(0, 0, 128, 128)
     return
@@ -2868,25 +2899,31 @@ function drawPaletteFromModel(): void {
     palCtx.strokeStyle = 'rgba(0,0,0,0.5)'
     palCtx.lineWidth = 0.5
     for (let x = 0; x <= 128; x += PAL_CELL) {
-      palCtx.beginPath(); palCtx.moveTo(x, 0); palCtx.lineTo(x, 128); palCtx.stroke()
+      palCtx.beginPath()
+      palCtx.moveTo(x, 0)
+      palCtx.lineTo(x, 128)
+      palCtx.stroke()
     }
     for (let y = 0; y <= 128; y += PAL_CELL) {
-      palCtx.beginPath(); palCtx.moveTo(0, y); palCtx.lineTo(128, y); palCtx.stroke()
+      palCtx.beginPath()
+      palCtx.moveTo(0, y)
+      palCtx.lineTo(128, y)
+      palCtx.stroke()
     }
   }
 }
 
-palCanvas.addEventListener('mousemove', (e) => {
+palCanvas.addEventListener('mousemove', e => {
   const map = window.__smwModelMap
   if (!map) return
   const rect = palCanvas.getBoundingClientRect()
   const scaleX = 128 / rect.width
-  const col = Math.floor((e.clientX - rect.left) * scaleX / PAL_CELL)
-  const row = Math.floor((e.clientY - rect.top)  * scaleX / PAL_CELL)
+  const col = Math.floor(((e.clientX - rect.left) * scaleX) / PAL_CELL)
+  const row = Math.floor(((e.clientY - rect.top) * scaleX) / PAL_CELL)
   if (col < 0 || col > 15 || row < 0 || row > 15) return
   const cell = map.palette.cells[row]?.[col]
   const c = cell ? cell.rgba() : [0, 0, 0, 0]
-  const hex = `#${c[0].toString(16).padStart(2,'0')}${c[1].toString(16).padStart(2,'0')}${c[2].toString(16).padStart(2,'0')}`
+  const hex = `#${c[0].toString(16).padStart(2, '0')}${c[1].toString(16).padStart(2, '0')}${c[2].toString(16).padStart(2, '0')}`
   palInspect.textContent = `row ${row}  col ${col}  ${hex}`
 })
 palCanvas.addEventListener('mouseleave', () => {
@@ -2894,378 +2931,6 @@ palCanvas.addEventListener('mouseleave', () => {
 })
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
-
-function screenX(s: number, px: number): number {
-  return isVert() ? 0 : Math.round(s * SCREEN_W * px)
-}
-function screenY(s: number, px: number): number {
-  return isVert() ? Math.round(s * SCREEN_H_VERT * px) : 0
-}
-
-function drawBlockGrid(grid: number[][], cols: number, rows: number, px: number, alpha: number): void {
-  ctx.save()
-  ctx.globalAlpha = alpha
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const tileId = grid[row]?.[col] ?? 0
-      if (tileId === 0) continue
-      ctx.fillStyle = tileBlockColor(tileId)
-      ctx.fillRect(Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
-    }
-  }
-  if (zoom >= 2) {
-    ctx.fillStyle = 'rgba(0,0,0,0.75)'
-    ctx.font = `${Math.max(6, Math.round(px * 0.28))}px monospace`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const tileId = grid[row]?.[col] ?? 0
-        if (tileId === 0) continue
-        ctx.fillText(`$${hex3(tileId)}`,
-          Math.round(col * px) + Math.round(px / 2),
-          Math.round(row * px) + Math.round(px / 2))
-      }
-    }
-  }
-  ctx.restore()
-}
-
-/**
- * Transparency-checkerboard pattern, matching the one used by gfxViewer
- * (4×4 grayscale squares at 40/60 luma). Cached as an offscreen canvas
- * so the main redraw + minimap redraw can reuse a single CanvasPattern.
- */
-let checkerPatternCanvas: HTMLCanvasElement | null = null
-function getCheckerPattern(c: CanvasRenderingContext2D): CanvasPattern | null {
-  if (!checkerPatternCanvas) {
-    checkerPatternCanvas = document.createElement('canvas')
-    checkerPatternCanvas.width = 8
-    checkerPatternCanvas.height = 8
-    const p = checkerPatternCanvas.getContext('2d')!
-    p.fillStyle = 'rgb(40,40,40)'
-    p.fillRect(0, 0, 8, 8)
-    p.fillStyle = 'rgb(60,60,60)'
-    p.fillRect(0, 0, 4, 4)
-    p.fillRect(4, 4, 4, 4)
-  }
-  return c.createPattern(checkerPatternCanvas, 'repeat')
-}
-
-function redraw(): void {
-  if (!mapData) return
-  if (!chkBlock.checked && !map16AtlasCanvas) return
-
-  const { tileGrid, screens, sprites } = mapData
-  const cols = levelCols()
-  const rows = levelRows()
-  const px   = TILE_PX * zoom
-
-  canvas.width  = Math.round(cols * px)
-  canvas.height = Math.round(rows * px)
-  ctx.imageSmoothingEnabled = false
-
-  // When L2 is hidden, show a transparency checkerboard in place of the
-  // back-area color so the user can clearly tell what's solid L1 vs BG.
-  if (!chkL2.checked) {
-    const pat = getCheckerPattern(ctx)
-    ctx.fillStyle = pat ?? '#202020'
-  } else if (mapData.backAreaColor) {
-    const [r, g, b] = mapData.backAreaColor
-    ctx.fillStyle = `rgb(${r},${g},${b})`
-  } else {
-    ctx.fillStyle = '#000'
-  }
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-  if (chkBlock.checked) {
-    if (chkL2.checked && l2TileGrid) drawBlockGrid(l2TileGrid, cols, rows, px, 0.55)
-    if (chkL1.checked)               drawBlockGrid(tileGrid,   cols, rows, px, 1.0)
-  } else {
-    // L2 atlas: 16 cols of 16×16 tiles, tile ID addresses (col,row). Draw
-    // underneath L1 so L1 solid tiles cover the BG (matches SNES PPU layer
-    // priority). Atlas source depends on L2 type:
-    //   preset BG   → map16BgAtlasCanvas (IDs into Map16BGTiles)
-    //   object stream → map16AtlasCanvas (IDs into the regular Map16 table)
-    if (chkL2.checked && l2TileGrid) {
-      const useBg = mapData.l2UsesBgAtlas ?? true
-      const atlas = useBg ? map16BgAtlasCanvas : map16AtlasCanvas
-      if (atlas) {
-        const atlasCols = 16
-        for (let row = 0; row < rows; row++) {
-          for (let col = 0; col < cols; col++) {
-            const tileId = l2TileGrid[row]?.[col] ?? 0
-            // For object-stream L2, tile 0 is "empty" (never drawn). For
-            // preset L2 every slot is meaningful (including $25 "empty BG"),
-            // so we always draw.
-            if (!useBg && tileId === 0) continue
-            const sx = (tileId % atlasCols) * TILE_PX
-            const sy = Math.floor(tileId / atlasCols) * TILE_PX
-            ctx.drawImage(atlas,
-              sx, sy, TILE_PX, TILE_PX,
-              Math.round(col * px), Math.round(row * px), Math.round(px), Math.round(px))
-          }
-        }
-      }
-    }
-    // Live L1 Map16 atlas: 16 cols of 16×16 tiles, tile ID directly addresses (col,row).
-    if (chkL1.checked && map16AtlasCanvas) {
-      ctx.save()
-      for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-          drawL1TileAt(row, col, Math.round(col * px), Math.round(row * px), Math.round(px))
-        }
-      }
-      ctx.restore()
-    }
-  }
-
-  // Screen dividers (shown together with the screen-number chips).
-  // Horizontal levels: vertical lines at screen boundaries on X.
-  // Vertical levels:   horizontal lines at screen boundaries on Y.
-  if (chkScreens.checked) {
-    ctx.strokeStyle = 'rgba(100,120,255,0.4)'
-    ctx.lineWidth = 1
-    if (isVert()) {
-      for (let s = 1; s < screens; s++) {
-        const y = Math.round(s * SCREEN_H_VERT * px) + 0.5
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke()
-      }
-    } else {
-      for (let s = 1; s < screens; s++) {
-        const x = Math.round(s * SCREEN_W * px) + 0.5
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
-      }
-    }
-  }
-
-  // Screen numbers (LM-style) — 2-digit hex label floating over the top-left
-  // of each screen. Font size is independent of the tile size so low-zoom
-  // views stay readable. Object stream transitions, screen exits and entrance
-  // mappings are all keyed on this index, so visibility is diagnostic.
-  if (chkScreens.checked) {
-    ctx.save()
-    const fontSize = 14   // fixed, readable at any zoom
-    ctx.font = `bold ${fontSize}px monospace`
-    ctx.textAlign = 'left'
-    ctx.textBaseline = 'top'
-    const padX = 6
-    const padY = 3
-    for (let s = 0; s < screens; s++) {
-      const chipX = screenX(s, px) + 3
-      const chipY = screenY(s, px) + 3
-      const label = hex2(s)
-      const textW = ctx.measureText(label).width
-      ctx.fillStyle = 'rgba(0,0,0,0.72)'
-      ctx.fillRect(chipX, chipY, textW + padX * 2, fontSize + padY * 2)
-      ctx.fillStyle = '#e8d050'
-      ctx.fillText(label, chipX + padX, chipY + padY)
-    }
-    ctx.restore()
-  }
-
-  // Tile grid
-  if (mapGridOn) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)'
-    ctx.lineWidth = 1
-    for (let c = 0; c <= cols; c++) {
-      const x = Math.round(c * px) + 0.5
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
-    }
-    for (let r = 0; r <= rows; r++) {
-      const y = Math.round(r * px) + 0.5
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke()
-    }
-  }
-
-  // Sprite markers
-  if (chkSprites.checked) {
-    for (const spr of sprites) {
-      const sx = Math.round(spr.x * px)
-      const sy = Math.round(spr.y * px)
-      const sp = Math.max(1, Math.round(px) - 2)
-      ctx.fillStyle = 'rgba(255,70,70,0.8)'
-      ctx.fillRect(sx + 1, sy + 1, sp, sp)
-      if (px >= 14) {
-        ctx.fillStyle = '#fff'
-        ctx.font = `bold ${Math.max(7, Math.round(px * 0.44))}px monospace`
-        ctx.fillText(hex2(spr.spriteId), sx + 2, sy + Math.round(px) - 3)
-      }
-    }
-  }
-
-  // Camera viewport — drawn last so it sits above everything else.
-  if (chkCamera.checked) drawCameraViewport()
-
-  drawMinimap()
-}
-
-/**
- * Dim everything outside the camera rect. Called inside drawCameraViewport()
- * when the camera has focus; mirrors the "spotlight" pattern used by the
- * 8×8/Map16 selected-tile highlights.
- */
-function dimOutsideCamera(rx: number, ry: number, rw: number, rh: number): void {
-  ctx.save()
-  ctx.fillStyle = 'rgba(0,0,0,0.55)'
-  // Top band
-  ctx.fillRect(0, 0, canvas.width, ry)
-  // Bottom band
-  ctx.fillRect(0, ry + rh, canvas.width, canvas.height - (ry + rh))
-  // Left band (between top and bottom bands)
-  ctx.fillRect(0, ry, rx, rh)
-  // Right band
-  ctx.fillRect(rx + rw, ry, canvas.width - (rx + rw), rh)
-  ctx.restore()
-}
-
-/**
- * Draw a single L1 tile from the Map16 atlas at the given destination pixel.
- * Honors switch-palace state, P-switch reveal (with alpha + palette override),
- * and the screen-indexed pipe-palette variant for tiles $133..$13A. Called
- * from both the main map loop and the camera re-paint so they stay in sync.
- * `worldRow`/`worldCol` drive the screen lookup — always level-space, never
- * rect-local.
- */
-function drawL1TileAt(worldRow: number, worldCol: number, dx: number, dy: number, size: number): void {
-  if (!mapData || !map16AtlasCanvas) return
-  const rawTileId = mapData.tileGrid[worldRow]?.[worldCol] ?? 0
-  const tileId = applySwitchPalaceState(rawTileId)
-  if (tileId === 0) return
-  // ROM-derived P-switch swap wins over the UI reveal when both apply.
-  const romSub = pSwitchBlueOn ? (mapData.map16Defs?.[tileId]?.pSwitchSub ?? null) : null
-  const reveal = romSub === null ? pSwitchReveal(rawTileId) : null
-  ctx.globalAlpha = reveal ? (pSwitchBlueOn ? 1.0 : 0.5) : 1.0
-  if (reveal?.palOverride !== undefined) {
-    const override = getPalOverrideCanvas(reveal.substitute, reveal.palOverride)
-    if (override) ctx.drawImage(override, 0, 0, TILE_PX, TILE_PX, dx, dy, size, size)
-    return
-  }
-  const drawId = romSub ?? reveal?.substitute ?? tileId
-  const screenVariants = mapData.screenPipeVariants
-  const vert = mapData.isVertical === true
-  if (drawId >= 0x133 && drawId < 0x13B && screenVariants && pipeVariantAtlasCanvases[0]) {
-    const screenIdx = vert ? Math.floor(worldRow / 16) : Math.floor(worldCol / 16)
-    const variantIdx = screenVariants[screenIdx] ?? 1
-    const variantCanvas = pipeVariantAtlasCanvases[variantIdx]
-    if (variantCanvas) {
-      const sx = (drawId - 0x133) * TILE_PX
-      ctx.drawImage(variantCanvas, sx, 0, TILE_PX, TILE_PX, dx, dy, size, size)
-      return
-    }
-  }
-  const sx = (drawId % 16) * TILE_PX
-  const sy = Math.floor(drawId / 16) * TILE_PX
-  ctx.drawImage(map16AtlasCanvas, sx, sy, TILE_PX, TILE_PX, dx, dy, size, size)
-}
-
-/**
- * Draw the draggable camera rectangle with parallax-composited BG inside it.
- * Outside the rect we dim the map (so the camera's content stands out); inside,
- * we paint the BG at its parallax-shifted position over the existing FG.
- */
-function drawCameraViewport(): void {
-  if (!mapData) return
-  const cols = levelCols()
-  const rows = levelRows()
-  const px   = TILE_PX * zoom
-
-  // Clamp camera so rect stays within level bounds.
-  const maxX = Math.max(0, cols - CAMERA_W_TILES)
-  const maxY = Math.max(0, rows - CAMERA_H_TILES)
-  cameraTileX = Math.max(0, Math.min(maxX, cameraTileX))
-  cameraTileY = Math.max(0, Math.min(maxY, cameraTileY))
-
-  const rx = Math.round(cameraTileX * px)
-  const ry = Math.round(cameraTileY * px)
-  const rw = Math.round(CAMERA_W_TILES * px)
-  const rh = Math.round(CAMERA_H_TILES * px)
-
-  // Dim the rest of the map when the camera is focused so the composited
-  // preview inside the rect visually dominates. Drawn before the rect contents
-  // so the parallax repaint lands on top of clean (non-dimmed) tiles.
-  if (cameraFocused) dimOutsideCamera(rx, ry, rw, rh)
-
-  // Wipe the rect with the level's back-area color so the map's original L1/L2
-  // (drawn by the earlier full-map pass) can't bleed through. Without this,
-  // object-stream L2 levels would show two overlapping BGs inside the rect:
-  // the raw-position L2 underneath, and the parallax L2 on top, through any
-  // "empty" cells the parallax pass skipped.
-  ctx.save()
-  const bac = mapData.backAreaColor
-  ctx.fillStyle = bac ? `rgb(${bac[0]},${bac[1]},${bac[2]})` : '#000'
-  ctx.fillRect(rx, ry, rw, rh)
-  ctx.restore()
-
-  // Parallax-composited BG inside the rect. Skip if L2 hidden or no preset.
-  // The BG origin tracks the camera FG position via shift on pixel Y:
-  //   bg_px_y = fg_px_y >> shift    (locked settings mean BG doesn't move)
-  // We convert back to tile rows for atlas sampling.
-  const vSetting = mapData.header.vertLayer2Setting ?? 0
-  const hSetting = mapData.header.horizLayer2Setting ?? 0
-  const vShift = verticalScrollPixelShift(vSetting)
-  const hShift = horizontalScrollPixelShift(hSetting)
-  if (chkL2.checked && l2TileGrid) {
-    const useBg = mapData.l2UsesBgAtlas ?? true
-    const atlas = useBg ? map16BgAtlasCanvas : map16AtlasCanvas
-    if (atlas) {
-      const bgRows = l2TileGrid.length
-      const bgCols = l2TileGrid[0]?.length ?? 0
-      // fg pixel Y of camera top-left. Shift to BG pixels, then wrap mod BG grid size.
-      const fgPxY = cameraTileY * TILE_PX
-      const fgPxX = cameraTileX * TILE_PX
-      const bgPxY = vShift === null ? 0 : (fgPxY >> vShift)
-      const bgPxX = hShift === null ? 0 : (fgPxX >> hShift)
-      ctx.save()
-      ctx.beginPath()
-      ctx.rect(rx, ry, rw, rh)
-      ctx.clip()
-      for (let r = 0; r < CAMERA_H_TILES; r++) {
-        for (let c = 0; c < CAMERA_W_TILES; c++) {
-          const bgWorldRow = Math.floor((bgPxY + r * TILE_PX) / TILE_PX) % bgRows
-          const bgWorldCol = Math.floor((bgPxX + c * TILE_PX) / TILE_PX) % bgCols
-          const tileId = l2TileGrid[(bgWorldRow + bgRows) % bgRows]?.[(bgWorldCol + bgCols) % bgCols] ?? 0
-          if (!useBg && tileId === 0) continue
-          const sx = (tileId % 16) * TILE_PX
-          const sy = Math.floor(tileId / 16) * TILE_PX
-          const dx = rx + Math.round(c * px)
-          const dy = ry + Math.round(r * px)
-          ctx.drawImage(atlas, sx, sy, TILE_PX, TILE_PX, dx, dy, Math.round(px), Math.round(px))
-        }
-      }
-      ctx.restore()
-      // Re-paint L1 on top of the parallax BG so FG stays dominant inside the
-      // rect. Uses drawL1TileAt with world-space row/col so pipe-palette
-      // variants and P-switch reveal stay consistent with the main map.
-      if (chkL1.checked && map16AtlasCanvas) {
-        ctx.save()
-        ctx.beginPath()
-        ctx.rect(rx, ry, rw, rh)
-        ctx.clip()
-        for (let r = 0; r < CAMERA_H_TILES; r++) {
-          for (let c = 0; c < CAMERA_W_TILES; c++) {
-            const worldRow = cameraTileY + r
-            const worldCol = cameraTileX + c
-            const dx = rx + Math.round(c * px)
-            const dy = ry + Math.round(r * px)
-            drawL1TileAt(worldRow, worldCol, dx, dy, Math.round(px))
-          }
-        }
-        ctx.restore()
-      }
-    }
-  }
-
-  // Border — bright outline so the rect is easy to spot and grab.
-  ctx.save()
-  ctx.strokeStyle = 'rgba(255,255,80,0.95)'
-  ctx.lineWidth = 2
-  ctx.strokeRect(rx + 1, ry + 1, rw - 2, rh - 2)
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)'
-  ctx.lineWidth = 1
-  ctx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1)
-  ctx.restore()
-}
 
 /** True if the given canvas pixel (x,y) lies inside the camera rect. */
 function hitCameraRect(canvasX: number, canvasY: number): boolean {
@@ -3291,10 +2956,10 @@ function scrollContainerToL1Viewport(l1x: number, l1y: number): void {
   const ry = l1y * z
   const rw = VIEWPORT_W_PX * z
   const rh = VIEWPORT_H_PX * z
-  const marginX = Math.max(0, (canvasWrap.clientWidth  - rw) / 2)
+  const marginX = Math.max(0, (canvasWrap.clientWidth - rw) / 2)
   const marginY = Math.max(0, (canvasWrap.clientHeight - rh) / 2)
   canvasWrap.scrollLeft = Math.max(0, rx + levelPadX - marginX)
-  canvasWrap.scrollTop  = Math.max(0, ry + levelPadY - marginY)
+  canvasWrap.scrollTop = Math.max(0, ry + levelPadY - marginY)
 }
 
 /** Look up `(l1x, l1y)` for a sim frame from the level's
@@ -3320,20 +2985,20 @@ function scrollContainerToCamera(center = false): void {
   const rh = CAMERA_H_TILES * px
   const wrap = canvasWrap
   if (center) {
-    const marginX = Math.max(0, (wrap.clientWidth  - rw) / 2)
+    const marginX = Math.max(0, (wrap.clientWidth - rw) / 2)
     const marginY = Math.max(0, (wrap.clientHeight - rh) / 2)
     wrap.scrollLeft = Math.max(0, rx + levelPadX - marginX)
-    wrap.scrollTop  = Math.max(0, ry + levelPadY - marginY)
+    wrap.scrollTop = Math.max(0, ry + levelPadY - marginY)
   } else {
     const pad = px
     const sl = wrap.scrollLeft
     const st = wrap.scrollTop
     const vw = wrap.clientWidth
     const vh = wrap.clientHeight
-    if (rx + levelPadX - pad < sl)                      wrap.scrollLeft = Math.max(0, rx + levelPadX - pad)
-    else if (rx + levelPadX + rw + pad > sl + vw)       wrap.scrollLeft = rx + levelPadX + rw + pad - vw
-    if (ry + levelPadY - pad < st)                      wrap.scrollTop  = Math.max(0, ry + levelPadY - pad)
-    else if (ry + levelPadY + rh + pad > st + vh)       wrap.scrollTop  = ry + levelPadY + rh + pad - vh
+    if (rx + levelPadX - pad < sl) wrap.scrollLeft = Math.max(0, rx + levelPadX - pad)
+    else if (rx + levelPadX + rw + pad > sl + vw) wrap.scrollLeft = rx + levelPadX + rw + pad - vw
+    if (ry + levelPadY - pad < st) wrap.scrollTop = Math.max(0, ry + levelPadY - pad)
+    else if (ry + levelPadY + rh + pad > st + vh) wrap.scrollTop = ry + levelPadY + rh + pad - vh
   }
 }
 
@@ -3379,7 +3044,10 @@ function minimapTilePx(): number {
   // available space along both axes. In vertical mode, the long axis is the
   // parent's height and the short axis is the width, and vice versa.
   const parent = minimapCanvas.parentElement!
-  const availLong = Math.max(100, (vert ? parent.clientHeight : parent.clientWidth) - MINIMAP_LONG_AXIS_SLACK_PX)
+  const availLong = Math.max(
+    100,
+    (vert ? parent.clientHeight : parent.clientWidth) - MINIMAP_LONG_AXIS_SLACK_PX,
+  )
   const longTiles = vert ? rows : cols
   const shortTiles = vert ? cols : rows
   const byLong = Math.floor(availLong / longTiles)
@@ -3406,7 +3074,17 @@ function drawMinimap(): void {
   }
 
   minimapCtx.imageSmoothingEnabled = false
-  minimapCtx.drawImage(fullLevelCanvas, 0, 0, fullLevelCanvas.width, fullLevelCanvas.height, 0, 0, w, h)
+  minimapCtx.drawImage(
+    fullLevelCanvas,
+    0,
+    0,
+    fullLevelCanvas.width,
+    fullLevelCanvas.height,
+    0,
+    0,
+    w,
+    h,
+  )
 
   drawMinimapViewport()
 }
@@ -3424,8 +3102,8 @@ function drawMinimapViewport(): void {
   const mmW = minimapCanvas.width
   const mmH = minimapCanvas.height
   const vx = Math.round(((canvasWrap.scrollLeft - levelPadX) / mainW) * mmW)
-  const vy = Math.round(((canvasWrap.scrollTop  - levelPadY) / mainH) * mmH)
-  const vw = Math.max(1, Math.round((canvasWrap.clientWidth  / mainW) * mmW))
+  const vy = Math.round(((canvasWrap.scrollTop - levelPadY) / mainH) * mmH)
+  const vw = Math.max(1, Math.round((canvasWrap.clientWidth / mainW) * mmW))
   const vh = Math.max(1, Math.round((canvasWrap.clientHeight / mainH) * mmH))
 
   minimapCtx.strokeStyle = 'rgba(255,220,80,0.9)'
@@ -3445,29 +3123,33 @@ function minimapPanTo(e: PointerEvent): void {
   const rows = levelRows()
   const mainPx = TILE_PX * store.zoom
   const fx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-  const fy = Math.max(0, Math.min(1, (e.clientY - rect.top)  / rect.height))
-  canvasWrap.scrollLeft = fx * cols * mainPx + levelPadX - canvasWrap.clientWidth  / 2
-  canvasWrap.scrollTop  = fy * rows * mainPx + levelPadY - canvasWrap.clientHeight / 2
+  const fy = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+  canvasWrap.scrollLeft = fx * cols * mainPx + levelPadX - canvasWrap.clientWidth / 2
+  canvasWrap.scrollTop = fy * rows * mainPx + levelPadY - canvasWrap.clientHeight / 2
   // If the camera viewport is on, pull it along to the new center so
   // the preview stays on-screen after the pan. Center of visible area
   // in tile-coords minus half the camera window gives the new top-left.
   if (store.cameraOn) {
     const centerX = fx * cols
     const centerY = fy * rows
-    const nextX = Math.max(0, Math.min(Math.max(0, cols - CAMERA_W_TILES),
-      centerX - CAMERA_W_TILES / 2))
-    const nextY = Math.max(0, Math.min(Math.max(0, rows - CAMERA_H_TILES),
-      centerY - CAMERA_H_TILES / 2))
+    const nextX = Math.max(
+      0,
+      Math.min(Math.max(0, cols - CAMERA_W_TILES), centerX - CAMERA_W_TILES / 2),
+    )
+    const nextY = Math.max(
+      0,
+      Math.min(Math.max(0, rows - CAMERA_H_TILES), centerY - CAMERA_H_TILES / 2),
+    )
     store.setCamera({ tileX: nextX, tileY: nextY, focused: store.camera.focused })
   }
 }
-minimapCanvas.addEventListener('pointerdown', (e) => {
+minimapCanvas.addEventListener('pointerdown', e => {
   if (e.button !== 0) return
   minimapDragging = true
   minimapCanvas.setPointerCapture(e.pointerId)
   minimapPanTo(e)
 })
-minimapCanvas.addEventListener('pointermove', (e) => {
+minimapCanvas.addEventListener('pointermove', e => {
   if (!minimapDragging) return
   minimapPanTo(e)
 })
@@ -3476,7 +3158,7 @@ const endDrag = (e: PointerEvent) => {
   minimapDragging = false
   minimapCanvas.releasePointerCapture(e.pointerId)
 }
-minimapCanvas.addEventListener('pointerup',     endDrag)
+minimapCanvas.addEventListener('pointerup', endDrag)
 minimapCanvas.addEventListener('pointercancel', endDrag)
 
 // On scroll: fast blit of the already-rendered offscreen level to the
@@ -3488,20 +3170,23 @@ canvasWrap.addEventListener('scroll', () => {
 
 // Resize the viewport canvas and re-blit when the panel or window changes.
 new ResizeObserver(() => {
-  // Recompute centering pads with the new viewport size — without this the
+  // Recompute centering pads with the new viewport size - without this the
   // initial render can use a stale levelPadY (computed before a horizontal
   // scrollbar appeared and shrank clientHeight).
   if (fullLevelCanvas) {
     const z = store.zoom
     const fw = fullLevelCanvas.width
     const fh = fullLevelCanvas.height
-    levelPadX = isVert() ? Math.max(0, Math.floor((canvasWrap.clientWidth  - fw * z) / 2)) : 0
+    levelPadX = isVert() ? Math.max(0, Math.floor((canvasWrap.clientWidth - fw * z) / 2)) : 0
     levelPadY = isVert() ? 0 : Math.max(0, Math.floor((canvasWrap.clientHeight - fh * z) / 2))
-    levelSpacer.style.width  = `${fw * z + levelPadX * 2}px`
+    levelSpacer.style.width = `${fw * z + levelPadX * 2}px`
     levelSpacer.style.height = `${fh * z + levelPadY * 2}px`
   }
   const overlay = document.getElementById('model-canvas') as HTMLCanvasElement | null
-  if (overlay) { resizeViewportCanvas(overlay); blitViewport(overlay) }
+  if (overlay) {
+    resizeViewportCanvas(overlay)
+    blitViewport(overlay)
+  }
   drawMinimap()
 }).observe(canvasWrap)
 
@@ -3510,31 +3195,31 @@ new ResizeObserver(() => drawMinimap()).observe(minimapCanvas.parentElement!)
 
 function syncLayerTogglesFromDom(): void {
   store.setLayerToggles({
-    l1:       chkL1.checked,
-    l2:       chkL2.checked,
-    l3:       chkL3.checked,
-    sprites:  chkSprites.checked,
-    screens:  chkScreens.checked,
-    block:    chkBlock.checked,
-    mapGrid:  mapGridOn,
-    l3Hud:    chkL3Hud.checked,
+    l1: chkL1.checked,
+    l2: chkL2.checked,
+    l3: chkL3.checked,
+    sprites: chkSprites.checked,
+    screens: chkScreens.checked,
+    block: chkBlock.checked,
+    mapGrid: mapGridOn,
+    l3Hud: chkL3Hud.checked,
     surfaces: chkSurfaces.checked,
-    walls:    chkWalls.checked,
-    l3Range:  false,
-    l2Range:  false,
+    walls: chkWalls.checked,
+    l3Range: false,
+    l2Range: false,
     scrollPath: chkScrollPath.checked,
-    scrollPlayback: false,  // driven by editorStore.frameL1, not a checkbox
+    scrollPlayback: false, // driven by editorStore.frameL1, not a checkbox
   })
 }
-chkScreens.addEventListener('change',  syncLayerTogglesFromDom)
-chkSprites.addEventListener('change',  syncLayerTogglesFromDom)
-chkBlock.addEventListener('change',    syncLayerTogglesFromDom)
-chkL1.addEventListener('change',       syncLayerTogglesFromDom)
-chkL2.addEventListener('change',       syncLayerTogglesFromDom)
-chkL3.addEventListener('change',       syncLayerTogglesFromDom)
-chkL3Hud.addEventListener('change',    syncLayerTogglesFromDom)
+chkScreens.addEventListener('change', syncLayerTogglesFromDom)
+chkSprites.addEventListener('change', syncLayerTogglesFromDom)
+chkBlock.addEventListener('change', syncLayerTogglesFromDom)
+chkL1.addEventListener('change', syncLayerTogglesFromDom)
+chkL2.addEventListener('change', syncLayerTogglesFromDom)
+chkL3.addEventListener('change', syncLayerTogglesFromDom)
+chkL3Hud.addEventListener('change', syncLayerTogglesFromDom)
 chkSurfaces.addEventListener('change', syncLayerTogglesFromDom)
-chkWalls.addEventListener('change',    syncLayerTogglesFromDom)
+chkWalls.addEventListener('change', syncLayerTogglesFromDom)
 chkScrollPath.addEventListener('change', () => {
   syncLayerTogglesFromDom()
   // Path toggle gates L1 slider + Link button visibility, and the
@@ -3548,7 +3233,7 @@ chkScrollPath.addEventListener('change', () => {
   // truth stay aligned.
   chkScrollPathPanel.checked = chkScrollPath.checked
 })
-// "follow viewport path" change handler — when the user toggles it
+// "follow viewport path" change handler - when the user toggles it
 // on (and SHOW VIEWPORT PATH is also on), immediately re-center the
 // canvas on the current L1 frame so the user sees the viewport
 // without having to nudge the slider first.
@@ -3584,8 +3269,8 @@ function deriveScrollData(): void {
   const screens = mapData.screens ?? 1
   const isVertical = !!mapData.isVertical
   const cols = isVertical ? 1 : screens
-  const levelPixelW = cols * 16 * 16   // 16 cols/screen × 16 px/col
-  // Use the seed as-is — fresh load defaults checkbox flags to 0.
+  const levelPixelW = cols * 16 * 16 // 16 cols/screen × 16 px/col
+  // Use the seed as-is - fresh load defaults checkbox flags to 0.
   // `rebuildScrollSimulator` (the toggle change handler) overlays
   // the live checkbox values when the user flips them mid-session.
   const sim = buildScrollSimulator(rom, seed)
@@ -3597,7 +3282,9 @@ function deriveScrollData(): void {
     : null
   const scrollPath = sampleViewportPath(sim, levelPixelW, 8)
   const h = mapData.header as {
-    scrollPath?: unknown; layer2YRange?: unknown; columnDyRanges?: unknown
+    scrollPath?: unknown
+    layer2YRange?: unknown
+    columnDyRanges?: unknown
   }
   h.scrollPath = scrollPath
   h.layer2YRange = layer2YRange
@@ -3608,7 +3295,7 @@ function deriveScrollData(): void {
  * Rebuild `mapStore.scrollSimulator` from the cached seed + ROM,
  * overlaying the gameplay-state checkbox values into the seed. Used
  * when the user toggles the On/Off Switch or Layer2Touched checkbox
- * — both feed into the cmd $0B / $0E handlers as initial state, so
+ * - both feed into the cmd $0B / $0E handlers as initial state, so
  * a new simulator is the simplest way to re-tick from frame 0.
  *
  * Resets per-layer frames to 0 so the slider doesn't point past the
@@ -3621,7 +3308,7 @@ function rebuildScrollSimulator(): void {
   if (!map || !cachedRom || !cachedScrollSeed) return
   const seed = {
     ...cachedScrollSeed,
-    onOffSwitch:   chkOnOffSwitch.checked   ? 1 : 0,
+    onOffSwitch: chkOnOffSwitch.checked ? 1 : 0,
     layer2Touched: chkLayer2Touched.checked ? 1 : 0,
   }
   const newSim = buildScrollSimulator(cachedRom, seed)
@@ -3646,9 +3333,9 @@ function rebuildScrollSimulator(): void {
 chkOnOffSwitch.addEventListener('change', rebuildScrollSimulator)
 chkLayer2Touched.addEventListener('change', rebuildScrollSimulator)
 
-chkCamera.addEventListener('change',  () => {
+chkCamera.addEventListener('change', () => {
   const on = chkCamera.checked
-  store.setCameraOn(on)  // reactive — triggers renderModelOverlay
+  store.setCameraOn(on) // reactive - triggers renderModelOverlay
   if (on) {
     scrollContainerToCamera(true)
   } else {
@@ -3664,12 +3351,12 @@ chkCamera.addEventListener('change',  () => {
 // Canvas is now viewport-sized (sticky), so pointer coords are viewport-local.
 // Add canvasWrap.scrollLeft/scrollTop to convert to level CSS-pixel space,
 // then divide by (TILE_PX × zoom) to get tile coords.
-modelCanvas.addEventListener('pointerdown', (e) => {
+modelCanvas.addEventListener('pointerdown', e => {
   if (e.button !== 0) return
   const rect = modelCanvas.getBoundingClientRect()
   const px = TILE_PX * store.zoom
-  const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft - levelPadX
-  const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop  - levelPadY
+  const lx = e.clientX - rect.left + canvasWrap.scrollLeft - levelPadX
+  const ly = e.clientY - rect.top + canvasWrap.scrollTop - levelPadY
 
   // Vine block click: toggle vine path for this source (runs regardless of camera mode).
   const vk = vineSourceKeyAt(lx, ly)
@@ -3718,22 +3405,26 @@ modelCanvas.addEventListener('pointerdown', (e) => {
   }
 })
 
-modelCanvas.addEventListener('pointermove', (e) => {
+modelCanvas.addEventListener('pointermove', e => {
   const rect = modelCanvas.getBoundingClientRect()
   const px = TILE_PX * store.zoom
-  const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft - levelPadX
-  const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop  - levelPadY
+  const lx = e.clientX - rect.left + canvasWrap.scrollLeft - levelPadX
+  const ly = e.clientY - rect.top + canvasWrap.scrollTop - levelPadY
 
   if (cameraDragging) {
     const cols = levelCols()
     const rows = levelRows()
-    // No rounding — keep the drag in fractional-tile space so the rect
+    // No rounding - keep the drag in fractional-tile space so the rect
     // glides pixel-smooth with the cursor. The strip floors this value
     // internally so its parallax content stays tile-aligned.
-    const nextX = Math.max(0, Math.min(Math.max(0, cols - CAMERA_W_TILES),
-      lx / px - cameraDragOffX))
-    const nextY = Math.max(0, Math.min(Math.max(0, rows - CAMERA_H_TILES),
-      ly / px - cameraDragOffY))
+    const nextX = Math.max(
+      0,
+      Math.min(Math.max(0, cols - CAMERA_W_TILES), lx / px - cameraDragOffX),
+    )
+    const nextY = Math.max(
+      0,
+      Math.min(Math.max(0, rows - CAMERA_H_TILES), ly / px - cameraDragOffY),
+    )
     // Dispatch to the store so the reactive effect re-runs; the overlay
     // (`compositeCameraViewport`, `drawCameraRectOverlay`) reads
     // `store.camera` and re-renders to the new position.
@@ -3741,12 +3432,12 @@ modelCanvas.addEventListener('pointermove', (e) => {
     // Scroll just enough to keep the camera rect visible. Then compensate
     // the drag offsets for any scroll that occurred: scrolling shifts
     // scrollLeft/scrollTop so level-space coords change on the next
-    // pointermove — absorb the delta so the drag origin stays stable.
+    // pointermove - absorb the delta so the drag origin stays stable.
     const prevSL = canvasWrap.scrollLeft
     const prevST = canvasWrap.scrollTop
     scrollContainerToCamera()
     cameraDragOffX += (canvasWrap.scrollLeft - prevSL) / px
-    cameraDragOffY += (canvasWrap.scrollTop  - prevST) / px
+    cameraDragOffY += (canvasWrap.scrollTop - prevST) / px
     return
   }
 
@@ -3769,24 +3460,24 @@ modelCanvas.addEventListener('pointerleave', () => {
   store.setCursorPx(null)
 })
 
-modelCanvas.addEventListener('pointerup', (e) => {
+modelCanvas.addEventListener('pointerup', e => {
   if (!cameraDragging) return
   cameraDragging = false
   store.setCameraDragging(false)
   modelCanvas.releasePointerCapture(e.pointerId)
   const rect = modelCanvas.getBoundingClientRect()
-  const px = TILE_PX * store.zoom
-  const lx = (e.clientX - rect.left) + canvasWrap.scrollLeft - levelPadX
-  const ly = (e.clientY - rect.top)  + canvasWrap.scrollTop  - levelPadY
-  modelCanvas.style.cursor = (chkCamera.checked && hitCameraRect(lx, ly)) ? 'grab' : ''
+  const lx = e.clientX - rect.left + canvasWrap.scrollLeft - levelPadX
+  const ly = e.clientY - rect.top + canvasWrap.scrollTop - levelPadY
+  modelCanvas.style.cursor = chkCamera.checked && hitCameraRect(lx, ly) ? 'grab' : ''
 })
 
 // Arrow-key nudge when camera is focused. Shift = 4-tile jumps for faster scan.
-window.addEventListener('keydown', (e) => {
+window.addEventListener('keydown', e => {
   if (!chkCamera.checked || !store.camera.focused) return
   // Don't swallow keys when typing into a form field.
   const tgt = e.target as HTMLElement | null
-  if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'SELECT' || tgt.tagName === 'TEXTAREA')) return
+  if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'SELECT' || tgt.tagName === 'TEXTAREA'))
+    return
   const step = e.shiftKey ? 4 : 1
   const cam = store.camera
   let tileX = cam.tileX
@@ -3794,12 +3485,23 @@ window.addEventListener('keydown', (e) => {
   let focused = cam.focused
   let handled = true
   switch (e.key) {
-    case 'ArrowUp':    tileY -= step; break
-    case 'ArrowDown':  tileY += step; break
-    case 'ArrowLeft':  tileX -= step; break
-    case 'ArrowRight': tileX += step; break
-    case 'Escape':     focused = false; break
-    default: handled = false
+    case 'ArrowUp':
+      tileY -= step
+      break
+    case 'ArrowDown':
+      tileY += step
+      break
+    case 'ArrowLeft':
+      tileX -= step
+      break
+    case 'ArrowRight':
+      tileX += step
+      break
+    case 'Escape':
+      focused = false
+      break
+    default:
+      handled = false
   }
   if (handled) {
     e.preventDefault()
@@ -3820,7 +3522,8 @@ window.addEventListener('keydown', (e) => {
 
 function drawSwitchToggleThumb(colorIdx: number): void {
   const btn = document.querySelector(
-    `.switch-toggle[data-color="${colorIdx}"]`) as HTMLButtonElement | null
+    `.switch-toggle[data-color="${colorIdx}"]`,
+  ) as HTMLButtonElement | null
   if (!btn) return
   const tc = btn.querySelector('canvas') as HTMLCanvasElement | null
   if (!tc) return
@@ -3831,7 +3534,7 @@ function drawSwitchToggleThumb(colorIdx: number): void {
   const map = window.__smwModelMap
   const l1Tiles = window.__smwModelTiles
   if (!map || !l1Tiles) return
-  const tileId = (store.switchPalaceState[colorIdx] ? 0x100 : 0x000) | (0x6A + colorIdx)
+  const tileId = (store.switchPalaceState[colorIdx] ? 0x100 : 0x000) | (0x6a + colorIdx)
   const tile = l1Tiles.get(tileId)
   if (!tile) return
   // Render at 16×16 natural, CSS-scale via the canvas's width/height to the
@@ -3852,7 +3555,8 @@ function refreshSwitchToggleThumbs(): void {
 
 for (let i = 0; i < 4; i++) {
   const btn = document.querySelector(
-    `.switch-toggle[data-color="${i}"]`) as HTMLButtonElement | null
+    `.switch-toggle[data-color="${i}"]`,
+  ) as HTMLButtonElement | null
   if (!btn) continue
   btn.addEventListener('click', () => {
     store.toggleSwitchPalace(i as 0 | 1 | 2 | 3)
@@ -3870,9 +3574,14 @@ for (let i = 0; i < 4; i++) {
 
 /** Draw one 8×8 char from the model into an RGBA buffer at the given offset. */
 function blitCharIntoBuf(
-  buf: Uint8ClampedArray, dstW: number,
-  charNum: number, palRow: ReadonlyArray<readonly [number, number, number, number]>,
-  dstX: number, dstY: number, hFlip: boolean, vFlip = false,
+  buf: Uint8ClampedArray,
+  dstW: number,
+  charNum: number,
+  palRow: ReadonlyArray<readonly [number, number, number, number]>,
+  dstX: number,
+  dstY: number,
+  hFlip: boolean,
+  vFlip = false,
 ): void {
   const chars = window.__smwModelChars
   if (!chars) return
@@ -3888,7 +3597,7 @@ function blitCharIntoBuf(
       const col = palRow[palIdx]
       if (!col) continue
       const di = ((dstY + py) * dstW + (dstX + px)) * 4
-      buf[di]     = col[0]
+      buf[di] = col[0]
       buf[di + 1] = col[1]
       buf[di + 2] = col[2]
       buf[di + 3] = 255
@@ -3897,7 +3606,9 @@ function blitCharIntoBuf(
 }
 
 function drawPSwitchToggleThumb(): void {
-  const btn = document.querySelector('.pswitch-toggle[data-pcolor="blue"]') as HTMLButtonElement | null
+  const btn = document.querySelector(
+    '.pswitch-toggle[data-pcolor="blue"]',
+  ) as HTMLButtonElement | null
   if (!btn) return
   const tc = btn.querySelector('canvas') as HTMLCanvasElement | null
   if (!tc) return
@@ -3909,15 +3620,15 @@ function drawPSwitchToggleThumb(): void {
   c.clearRect(0, 0, 16, 16)
   const map = window.__smwModelMap
   if (!map) return
-  const palRow = map.palette.row(0x0B) as ReadonlyArray<readonly [number, number, number, number]>
+  const palRow = map.palette.row(0x0b) as ReadonlyArray<readonly [number, number, number, number]>
   if (!palRow) return
   const buf = new Uint8ClampedArray(16 * 16 * 4)
   if (store.pSwitchActive) {
     // Pressed: the sprite is 16×8 (chars $4FE + $4FE h-flipped), with
     // the top half empty. Bottom-align so the button sits flush with
-    // the "ground" — matches how the pressed P-switch sits in-game.
-    blitCharIntoBuf(buf, 16, 0x4FE, palRow, 0, 8, false)
-    blitCharIntoBuf(buf, 16, 0x4FE, palRow, 8, 8, true)
+    // the "ground" - matches how the pressed P-switch sits in-game.
+    blitCharIntoBuf(buf, 16, 0x4fe, palRow, 0, 8, false)
+    blitCharIntoBuf(buf, 16, 0x4fe, palRow, 8, 8, true)
   } else {
     blitCharIntoBuf(buf, 16, 0x442, palRow, 0, 0, false)
     blitCharIntoBuf(buf, 16, 0x443, palRow, 8, 0, false)
@@ -3928,7 +3639,9 @@ function drawPSwitchToggleThumb(): void {
 }
 
 {
-  const btn = document.querySelector('.pswitch-toggle[data-pcolor="blue"]') as HTMLButtonElement | null
+  const btn = document.querySelector(
+    '.pswitch-toggle[data-pcolor="blue"]',
+  ) as HTMLButtonElement | null
   if (btn) {
     btn.addEventListener('click', () => {
       store.togglePSwitch()
@@ -3941,8 +3654,7 @@ function drawPSwitchToggleThumb(): void {
 // ── Mouse / edit interactions ─────────────────────────────────────────────────
 
 type PickResult =
-  | { kind: 'sprite'; sprite: Sprite }
-  | { kind: 'tile';   layer: 'l1' | 'l2'; tileId: number }
+  { kind: 'sprite'; sprite: Sprite } | { kind: 'tile'; layer: 'l1' | 'l2'; tileId: number }
 
 /**
  * Z-ordered hit test at a level-pixel coordinate (1× unzoomed space, same
@@ -3978,7 +3690,9 @@ function pickAt(levelPx: number, levelPy: number): PickResult | null {
 
 function updateHoverStatus(levelPx: number | null, levelPy: number | null): void {
   if (levelPx === null || levelPy === null) {
-    stPos.textContent = ''; stTile.textContent = ''; return
+    stPos.textContent = ''
+    stTile.textContent = ''
+    return
   }
   const col = Math.floor(levelPx / TILE_PX)
   const row = Math.floor(levelPy / TILE_PX)
@@ -4006,11 +3720,15 @@ function canvasLevelPxAt(e: MouseEvent): { levelPx: number; levelPy: number } | 
   const rect = modelCanvas.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) return null
   const z = store.zoom
-  const levelPx = ((e.clientX - rect.left) + canvasWrap.scrollLeft - levelPadX) / z
-  const levelPy = ((e.clientY - rect.top)  + canvasWrap.scrollTop  - levelPadY) / z
-  if (levelPx < 0 || levelPy < 0
-   || levelPx >= levelCols() * TILE_PX
-   || levelPy >= levelRows() * TILE_PX) return null
+  const levelPx = (e.clientX - rect.left + canvasWrap.scrollLeft - levelPadX) / z
+  const levelPy = (e.clientY - rect.top + canvasWrap.scrollTop - levelPadY) / z
+  if (
+    levelPx < 0 ||
+    levelPy < 0 ||
+    levelPx >= levelCols() * TILE_PX ||
+    levelPy >= levelRows() * TILE_PX
+  )
+    return null
   return { levelPx, levelPy }
 }
 
@@ -4030,21 +3748,35 @@ function paintAt(e: MouseEvent): void {
   vscode.postMessage({ type: 'edit', kind: activeTool, tileId, col: pos.col, row: pos.row })
 }
 
-modelCanvas.addEventListener('mousedown', (e) => { if (e.button !== 0) return; isPainting = true; paintAt(e) })
-modelCanvas.addEventListener('mousemove', (e) => {
+modelCanvas.addEventListener('mousedown', e => {
+  if (e.button !== 0) return
+  isPainting = true
+  paintAt(e)
+})
+modelCanvas.addEventListener('mousemove', e => {
   const hPos = canvasLevelPxAt(e)
   updateHoverStatus(hPos?.levelPx ?? null, hPos?.levelPy ?? null)
   if (isPainting) paintAt(e)
 })
-modelCanvas.addEventListener('mouseup',    () => { isPainting = false })
-modelCanvas.addEventListener('mouseleave', () => { isPainting = false; updateHoverStatus(null, null) })
-modelCanvas.addEventListener('contextmenu', (e) => {
+modelCanvas.addEventListener('mouseup', () => {
+  isPainting = false
+})
+modelCanvas.addEventListener('mouseleave', () => {
+  isPainting = false
+  updateHoverStatus(null, null)
+})
+modelCanvas.addEventListener('contextmenu', e => {
   e.preventDefault()
-  const prev = activeTool; activeTool = 'erase'; paintAt(e); activeTool = prev
+  const prev = activeTool
+  activeTool = 'erase'
+  paintAt(e)
+  activeTool = prev
 })
 
-modelCanvas.addEventListener('dragover', (e) => { e.preventDefault() })
-modelCanvas.addEventListener('drop', (e) => {
+modelCanvas.addEventListener('dragover', e => {
+  e.preventDefault()
+})
+modelCanvas.addEventListener('drop', e => {
   e.preventDefault()
   const tileId = parseInt(e.dataTransfer?.getData('text/plain') ?? '', 10)
   if (isNaN(tileId) || !mapData) return
@@ -4054,9 +3786,14 @@ modelCanvas.addEventListener('drop', (e) => {
   vscode.postMessage({ type: 'edit', kind: 'place', tileId, col: pos.col, row: pos.row })
 })
 
-// ── Properties panel — selectors ──────────────────────────────────────────────
+// ── Properties panel - selectors ──────────────────────────────────────────────
 
-function buildSelect(el: HTMLSelectElement, count: number, value: number, labelFn?: (i: number) => string): void {
+function buildSelect(
+  el: HTMLSelectElement,
+  count: number,
+  value: number,
+  labelFn?: (i: number) => string,
+): void {
   el.innerHTML = ''
   for (let i = 0; i < count; i++) {
     const opt = document.createElement('option')
@@ -4069,25 +3806,25 @@ function buildSelect(el: HTMLSelectElement, count: number, value: number, labelF
 
 function postRerender(): void {
   vscode.postMessage({
-    type:           'rerender',
-    bgVariant:      parseInt(selBgPalette.value),
-    fgVariant:      parseInt(selFgPalette.value),
-    spriteSet:      parseInt(selSpriteSet.value),
-    spritePalette:  parseInt(selSpritePal.value),
-    tilesetId:      parseInt(selTileset.value),
+    type: 'rerender',
+    bgVariant: parseInt(selBgPalette.value),
+    fgVariant: parseInt(selFgPalette.value),
+    spriteSet: parseInt(selSpriteSet.value),
+    spritePalette: parseInt(selSpritePal.value),
+    tilesetId: parseInt(selTileset.value),
     bgColorVariant: parseInt(selBgColor.value),
-    marioVariant:   parseInt(selMarioPal.value),
-    // New header-bit overrides (Plan A — render overrides only). The provider
+    marioVariant: parseInt(selMarioPal.value),
+    // New header-bit overrides (Plan A - render overrides only). The provider
     // echoes these into the header payload so the controls keep their selected
     // value across re-renders. Render impact varies per field; see the field
     // refs section above for which ones are visibly wired today.
-    music:          parseInt(selMusic.value),
-    timeLimit:      parseInt(selTimeLimit.value),
-    levelMode:      parseInt(selLevelMode.value),
-    itemMemory:     parseInt(selItemMemory.value),
+    music: parseInt(selMusic.value),
+    timeLimit: parseInt(selTimeLimit.value),
+    levelMode: parseInt(selLevelMode.value),
+    itemMemory: parseInt(selItemMemory.value),
     verticalScroll: parseInt(selVScrollHdr.value),
     layer3Priority: chkL3Priority.checked,
-    layer3Setting:  parseInt(selL3Setting.value),
+    layer3Setting: parseInt(selL3Setting.value),
   })
 }
 
@@ -4104,18 +3841,18 @@ function highlightRowCols(rows: number[], colStart: number, colEnd: number): Pal
 selBgColor.addEventListener('change', () => {
   // Update the back area swatch immediately from the pre-loaded colors array
   const colors = mapData?.backAreaColors
-  const idx    = parseInt(selBgColor.value)
+  const idx = parseInt(selBgColor.value)
   if (colors && colors[idx]) {
     const [r, g, b] = colors[idx]
     backAreaSwatch.style.background = `rgb(${r},${g},${b})`
   }
   postRerender()
 })
-selFgPalette.addEventListener('change',  postRerender)
-selBgPalette.addEventListener('change',  postRerender)
-selSpritePal.addEventListener('change',  postRerender)
-selSpriteSet.addEventListener('change',  postRerender)
-selTileset.addEventListener('change',    postRerender)
+selFgPalette.addEventListener('change', postRerender)
+selBgPalette.addEventListener('change', postRerender)
+selSpritePal.addEventListener('change', postRerender)
+selSpriteSet.addEventListener('change', postRerender)
+selTileset.addEventListener('change', postRerender)
 
 // New editable header-bit controls. Same rerender path as the existing
 // palette/tileset selects.
@@ -4124,7 +3861,7 @@ selMusic.addEventListener('change', () => {
     _unlockAudioContext()
     startMusicPlayback(parseInt(selMusic.value))
   }
-  // No postRerender — music track does not affect map rendering.
+  // No postRerender - music track does not affect map rendering.
 })
 function _updateVolIcon(): void {
   const muted = parseFloat(sliderMusicVol.value) === 0
@@ -4133,7 +3870,7 @@ function _updateVolIcon(): void {
     : '<span class="codicon codicon-unmute"></span>'
 }
 
-btnMusicVol.addEventListener('click', (e) => {
+btnMusicVol.addEventListener('click', e => {
   e.stopPropagation()
   musicVolPopup.style.display = musicVolPopup.style.display === 'none' ? 'block' : 'none'
 })
@@ -4141,7 +3878,9 @@ sliderMusicVol.addEventListener('input', () => {
   if (musicBackend?.gainNode) musicBackend.gainNode.gain.value = parseFloat(sliderMusicVol.value)
   _updateVolIcon()
 })
-document.addEventListener('click', () => { musicVolPopup.style.display = 'none' })
+document.addEventListener('click', () => {
+  musicVolPopup.style.display = 'none'
+})
 
 btnMusicPlay.addEventListener('click', () => {
   if (musicIsPlaying) {
@@ -4156,36 +3895,38 @@ btnMusicPrev.addEventListener('click', () => {
   selMusic.selectedIndex = idx > 0 ? idx - 1 : selMusic.options.length - 1
   _unlockAudioContext()
   if (musicIsPlaying) startMusicPlayback(parseInt(selMusic.value))
-  // No postRerender — music track does not affect map rendering.
+  // No postRerender - music track does not affect map rendering.
 })
 btnMusicNext.addEventListener('click', () => {
   const idx = selMusic.selectedIndex
   selMusic.selectedIndex = idx < selMusic.options.length - 1 ? idx + 1 : 0
   _unlockAudioContext()
   if (musicIsPlaying) startMusicPlayback(parseInt(selMusic.value))
-  // No postRerender — music track does not affect map rendering.
+  // No postRerender - music track does not affect map rendering.
 })
-selTimeLimit.addEventListener('change',   postRerender)
-selLevelMode.addEventListener('change',   postRerender)
-selItemMemory.addEventListener('change',  postRerender)
-selVScrollHdr.addEventListener('change',  postRerender)
-chkL3Priority.addEventListener('change',  postRerender)
-selL3Setting.addEventListener('change',   postRerender)
+selTimeLimit.addEventListener('change', postRerender)
+selLevelMode.addEventListener('change', postRerender)
+selItemMemory.addEventListener('change', postRerender)
+selVScrollHdr.addEventListener('change', postRerender)
+chkL3Priority.addEventListener('change', postRerender)
+selL3Setting.addEventListener('change', postRerender)
 
-// Palette highlighting on focus — only highlight the cols controlled by each dropdown
-selBgPalette.addEventListener('focus',  () => setPaletteHighlight(highlightRowCols([0, 1], 2, 7)))
-selBgPalette.addEventListener('blur',   () => setPaletteHighlight(null))
-selBgColor.addEventListener('focus',    () => setPaletteHighlight(highlightRowCols([0, 1, 2, 3, 4, 5, 6, 7], 1, 1)))
-selBgColor.addEventListener('blur',     () => setPaletteHighlight(null))
-selFgPalette.addEventListener('focus',  () => setPaletteHighlight(highlightRowCols([2, 3], 2, 7)))
-selFgPalette.addEventListener('blur',   () => setPaletteHighlight(null))
-selSpritePal.addEventListener('focus',  () => setPaletteHighlight(highlightRowCols([14, 15], 2, 7)))
-selSpritePal.addEventListener('blur',   () => setPaletteHighlight(null))
-selSpriteSet.addEventListener('focus',  () => setPaletteHighlight(highlightRowCols([14, 15], 2, 7)))
-selSpriteSet.addEventListener('blur',   () => setPaletteHighlight(null))
-selMarioPal.addEventListener('change',  postRerender)
-selMarioPal.addEventListener('focus',   () => setPaletteHighlight(highlightRowCols([8], 6, 15)))
-selMarioPal.addEventListener('blur',    () => setPaletteHighlight(null))
+// Palette highlighting on focus - only highlight the cols controlled by each dropdown
+selBgPalette.addEventListener('focus', () => setPaletteHighlight(highlightRowCols([0, 1], 2, 7)))
+selBgPalette.addEventListener('blur', () => setPaletteHighlight(null))
+selBgColor.addEventListener('focus', () =>
+  setPaletteHighlight(highlightRowCols([0, 1, 2, 3, 4, 5, 6, 7], 1, 1)),
+)
+selBgColor.addEventListener('blur', () => setPaletteHighlight(null))
+selFgPalette.addEventListener('focus', () => setPaletteHighlight(highlightRowCols([2, 3], 2, 7)))
+selFgPalette.addEventListener('blur', () => setPaletteHighlight(null))
+selSpritePal.addEventListener('focus', () => setPaletteHighlight(highlightRowCols([14, 15], 2, 7)))
+selSpritePal.addEventListener('blur', () => setPaletteHighlight(null))
+selSpriteSet.addEventListener('focus', () => setPaletteHighlight(highlightRowCols([14, 15], 2, 7)))
+selSpriteSet.addEventListener('blur', () => setPaletteHighlight(null))
+selMarioPal.addEventListener('change', postRerender)
+selMarioPal.addEventListener('focus', () => setPaletteHighlight(highlightRowCols([8], 6, 15)))
+selMarioPal.addEventListener('blur', () => setPaletteHighlight(null))
 
 // ── Scroll panel: state ──────────────────────────────────────────────────────
 //
@@ -4197,7 +3938,7 @@ selMarioPal.addEventListener('blur',    () => setPaletteHighlight(null))
 //     authoritative state; `L2ObjectStream.render` reads `frameL2` and
 //     calls `mapStore.scrollSimulator.stateAtFrame(frameL2)` to compute
 //     the L2 plane shift `(layer1{X,Y}Pos − layer2{X,Y}Pos)`. Using
-//     ONLY frameL2 means scrubbing L1 alone DOES NOT move L2 — the L2
+//     ONLY frameL2 means scrubbing L1 alone DOES NOT move L2 - the L2
 //     plane reflects the SNES viewport at L2's chosen point in time.
 //
 //   - **'rawY'**: object-stream L2 with no scroll sprite. L1 slider is
@@ -4211,7 +3952,7 @@ let scrollMode: ScrollMode = 'none'
 // Loop button: when ON, `tickScrollPlayback` wraps to frame 0 instead of
 // stopping at the path end. Default OFF; persists across loads in this
 // session so a user who turned it on stays in loop mode. Visible only
-// for scroll sprites that don't drive Layer 1 — for L1-affected scrolls
+// for scroll sprites that don't drive Layer 1 - for L1-affected scrolls
 // the path naturally ends at LastScreenHoriz and looping isn't useful.
 let scrollLooping = false
 
@@ -4225,14 +3966,14 @@ let scrollLooping = false
  *   - L2 dispatch BEQs out at cmd $00. cmd $07 = nullroutine. Everything
  *     else (cmd $01..$0E except 5/6/7/A/F) updates L2 state.
  *   - L2 cmd $01 (`CODE_05C198`) mirrors NextLayer2XPos into
- *     NextLayer1XPos at the tail — so an L2 cmd $01 also drives L1.
+ *     NextLayer1XPos at the tail - so an L2 cmd $01 also drives L1.
  *
  * All inputs are post-remap cmd bytes (the `simulateScrollSetup` output
  * shipped on `mapData.header.layer{1,2}ScrollCmd`).
  */
 function cmdAffectsL1(l1cmd: number | null | undefined, l2cmd: number | null | undefined): boolean {
-  if (l1cmd === 0x01 || l1cmd === 0x0C) return true
-  if (l2cmd === 0x01) return true   // cmd $01 L2 mirrors X into nl1x
+  if (l1cmd === 0x01 || l1cmd === 0x0c) return true
+  if (l2cmd === 0x01) return true // cmd $01 L2 mirrors X into nl1x
   return false
 }
 function cmdAffectsL2(l1cmd: number | null | undefined, l2cmd: number | null | undefined): boolean {
@@ -4241,23 +3982,33 @@ function cmdAffectsL2(l1cmd: number | null | undefined, l2cmd: number | null | u
   if (l2cmd === 0x00 || l2cmd === 0x07) return false
   return true
 }
-function cmdAffectsL3(_l1cmd: number | null | undefined, _l2cmd: number | null | undefined): boolean {
-  // No vanilla scroll sprite cmd drives Layer 3 — L3 motion comes from
+function cmdAffectsL3(
+  _l1cmd: number | null | undefined,
+  _l2cmd: number | null | undefined,
+): boolean {
+  // No vanilla scroll sprite cmd drives Layer 3 - L3 motion comes from
   // hardcoded HDMA tables, not the scroll-cmd dispatch. Kept symmetric
   // with the other two helpers so the visibility rule reads uniformly.
   return false
 }
-function hasScrollSprite(l1cmd: number | null | undefined, l2cmd: number | null | undefined): boolean {
+function hasScrollSprite(
+  l1cmd: number | null | undefined,
+  l2cmd: number | null | undefined,
+): boolean {
   return cmdAffectsL1(l1cmd, l2cmd) || cmdAffectsL2(l1cmd, l2cmd) || cmdAffectsL3(l1cmd, l2cmd)
 }
 
 /** Apply visual "active" styling to a toggle button via the
- *  `.active` class on `.btn-action` — see the CSS block above. */
+ *  `.active` class on `.btn-action` - see the CSS block above. */
 function applyToggleClass(btn: HTMLButtonElement, on: boolean): void {
   btn.classList.toggle('active', on)
 }
-function refreshLinkButton(): void { applyToggleClass(btnScrollLink, store.scrollFramesLinked) }
-function refreshLoopButton(): void { applyToggleClass(btnScrollLoop, scrollLooping) }
+function refreshLinkButton(): void {
+  applyToggleClass(btnScrollLink, store.scrollFramesLinked)
+}
+function refreshLoopButton(): void {
+  applyToggleClass(btnScrollLoop, scrollLooping)
+}
 
 /**
  * Resolve which slider rows + Link button + Loop button should be
@@ -4266,12 +4017,12 @@ function refreshLoopButton(): void { applyToggleClass(btnScrollLoop, scrollLoopi
  *
  *   - L1 slider visible iff cmd affects L1 AND SHOW VIEWPORT PATH on
  *   - L2 slider visible iff cmd affects L2
- *   - L3 slider — currently no UI; reserved (no vanilla L3 scroll cmd)
+ *   - L3 slider - currently no UI; reserved (no vanilla L3 scroll cmd)
  *   - Link button visible iff both L1 + L2 sliders are showing
  *   - Frame counter visible iff cmd affects any layer (= scroll sprite
  *     present), independent of the path toggle
  *   - Loop toggle visible iff scroll sprite exists AND cmd does NOT
- *     affect L1 — for L1 auto-scroll the natural end is the level edge
+ *     affect L1 - for L1 auto-scroll the natural end is the level edge
  *     and looping isn't useful; for L2-only oscillating cmds it is
  *
  * Called from the load handler and the chk-scrollpath change handlers
@@ -4287,7 +4038,9 @@ function refreshScrollTabVisibility(): void {
   if (!hasSprite && tabBtnScroll.classList.contains('active')) {
     tabBtnScroll.classList.remove('active')
     tabPaneScroll.style.display = 'none'
-    document.querySelector<HTMLButtonElement>('.tab-btn[data-tab="general"]')?.classList.add('active')
+    document
+      .querySelector<HTMLButtonElement>('.tab-btn[data-tab="general"]')
+      ?.classList.add('active')
     tabPaneGeneral.style.display = 'flex'
   }
 }
@@ -4306,18 +4059,18 @@ function refreshScrollSliderVisibility(): void {
   rowRngL2.style.display = showL2 ? 'flex' : 'none'
   btnScrollLink.style.display = showLink ? 'inline-flex' : 'none'
   scrollFrameCounter.style.display = hasSprite ? 'flex' : 'none'
-  scrollSlidersSection.style.display = (showL1 || showL2) ? 'flex' : 'none'
-  btnScrollLoop.style.display = (hasSprite && !affectsL1) ? 'inline-flex' : 'none'
+  scrollSlidersSection.style.display = showL1 || showL2 ? 'flex' : 'none'
+  btnScrollLoop.style.display = hasSprite && !affectsL1 ? 'inline-flex' : 'none'
   // Cmd-specific gameplay-state toggles. Each row is shown only when
   // the active scroll cmd actually reads that state.
-  rowOnOffSwitch.style.display   = (l2cmd === 0x0B) ? 'flex' : 'none'
-  rowLayer2Touched.style.display = (l2cmd === 0x0E) ? 'flex' : 'none'
+  rowOnOffSwitch.style.display = l2cmd === 0x0b ? 'flex' : 'none'
+  rowLayer2Touched.style.display = l2cmd === 0x0e ? 'flex' : 'none'
 }
 
 function updateFrameLabel(): void {
   const path = mapData?.header?.scrollPath
   if (!path || path.length === 0) {
-    lblScrollFrame.textContent = 'FRAME 0 / —'
+    lblScrollFrame.textContent = 'FRAME 0 / -'
     return
   }
   // Show the "active" layer's frame. With both sliders or L1-only,
@@ -4364,7 +4117,7 @@ function pathIndexForSimFrame(simFrame: number): number {
 // User-perceived "the playback is SO SLOW" was this exact symptom.
 //
 // When `scrollFramesLinked` is ON, all three layer frames advance
-// together via `setAllFrames`. When OFF, only `frameL1` advances —
+// together via `setAllFrames`. When OFF, only `frameL1` advances -
 // L2's plane stays at whatever frame the L2 slider was last left at.
 //
 // At the path end the loop either wraps to 0 (Loop ON) or pins to the
@@ -4382,7 +4135,7 @@ let scrollPlaybackFrameAcc = 0
  *  boomerang loop mode for L2-only oscillating cmds (cmd $03 / $08 /
  *  $0B / $0E) so playback bounces between 0 and lastF instead of
  *  wrapping to 0. Always +1 for cmds that affect L1 (auto-scroll
- *  levels) — they wrap on Loop. */
+ *  levels) - they wrap on Loop. */
 let scrollPlaybackDirection: 1 | -1 = 1
 
 function stopScrollPlayback(): void {
@@ -4424,7 +4177,10 @@ function applyL2Frame(idx: number): void {
 
 function tickScrollPlayback(): void {
   const path = mapData?.header?.scrollPath
-  if (!path || path.length === 0) { stopScrollPlayback(); return }
+  if (!path || path.length === 0) {
+    stopScrollPlayback()
+    return
+  }
   const speed = Math.max(1, parseInt(selScrollSpeed.value, 10) || 1)
   const lastF = path[path.length - 1].f
   const cur = store.frameL1
@@ -4448,10 +4204,10 @@ function tickScrollPlayback(): void {
   scrollPlaybackLastTimeMs = now
 
   // Direction-aware advance. For cmds that affect L1 (auto-scroll
-  // levels) the playback always moves forward — wrap-to-0 on Loop is
+  // levels) the playback always moves forward - wrap-to-0 on Loop is
   // the natural behavior, since the level itself doesn't run
   // backwards. For L2-only cmds (cmd $03 / $08 / $0B / $0E) the
-  // motion is OSCILLATING — wrapping back to 0 produces a visible
+  // motion is OSCILLATING - wrapping back to 0 produces a visible
   // jump, so Loop instead "boomerangs" by reversing direction at
   // each endpoint.
   const l1cmd = mapData?.header?.layer1ScrollCmd
@@ -4471,7 +4227,7 @@ function tickScrollPlayback(): void {
         next = 0
       }
     } else {
-      // Pin to last frame and stop — keeps the moving overlay visible
+      // Pin to last frame and stop - keeps the moving overlay visible
       // at its final position so the user can inspect end-of-level state.
       next = lastF
       applyL1Frame(next)
@@ -4525,7 +4281,7 @@ rngL2y.addEventListener('input', () => {
     updateFrameLabel()
     // When linked, L2 scrub advances L1's frame too, so re-center
     // the canvas on the new L1 viewport position. Unlinked scrub
-    // doesn't move L1 — no-op.
+    // doesn't move L1 - no-op.
     if (store.scrollFramesLinked) autoScrollToFrame(store.frameL1)
   } else if (scrollMode === 'rawY') {
     store.setL2YOverride(v)
@@ -4605,13 +4361,13 @@ chkScrollPathPanel.addEventListener('change', () => {
 
 // ── Message handler ───────────────────────────────────────────────────────────
 
-window.addEventListener('message', async (event) => {
+window.addEventListener('message', async event => {
   const msg = event.data as Record<string, unknown>
   if (msg['type'] === 'modelPayload') {
     try {
       const payload = msg['payload'] as ModelMapPayload
       // ROM bytes are shipped in the 'load' message and cached in
-      // `cachedRom` — modelPayload reuses that reference rather than
+      // `cachedRom` - modelPayload reuses that reference rather than
       // a second Uint8Array transfer. Falls back to null in test
       // contexts where 'load' didn't arrive first.
       const rom = cachedRom
@@ -4626,12 +4382,17 @@ window.addEventListener('message', async (event) => {
       window.__smwModelTiles = tiles
       window.__smwModelBgTiles = bgTiles
       console.log(
-        '[mapEditor] model ready —',
-        'chars:', chars.size,
-        'tiles:', tiles.size,
-        'bgTiles:', bgTiles.size,
-        'sprites:', payload.sprites.length,
-        'l2:', payload.l2?.kind ?? 'none',
+        '[mapEditor] model ready -',
+        'chars:',
+        chars.size,
+        'tiles:',
+        tiles.size,
+        'bgTiles:',
+        bgTiles.size,
+        'sprites:',
+        payload.sprites.length,
+        'l2:',
+        payload.l2?.kind ?? 'none',
       )
       ensureReactiveRender(map)
       renderMap16Page()
@@ -4657,7 +4418,7 @@ window.addEventListener('message', async (event) => {
   }
   if (msg['type'] === 'musicSpc') {
     const bgmCommand = msg['bgmCommand'] as number
-    const spcData    = msg['spcData']    as number[] | null
+    const spcData = msg['spcData'] as number[] | null
     btnMusicPlay.disabled = false
     if (spcData) {
       musicSpcCache.set(bgmCommand, spcData)
@@ -4675,8 +4436,7 @@ window.addEventListener('message', async (event) => {
     clearSpriteSelection()
     setPropContext('empty')
 
-    mapData  = msg as unknown as MapPayload
-    l2TileGrid = mapData.l2TileGrid ?? null
+    mapData = msg as unknown as MapPayload
 
     // ROM bytes arrive once per load message. Cache the RomFile so:
     //  (a) `deriveScrollData` (below) can build a sim + sample paths
@@ -4686,7 +4446,8 @@ window.addEventListener('message', async (event) => {
     //      the simulator with toggled flags.
     const romBytesLoad = msg['romBytes'] as Uint8Array | undefined
     if (romBytesLoad) cachedRom = RomFile.fromBytes('webview-rom', romBytesLoad)
-    cachedScrollSeed = (msg['scrollSim'] as import('../../rom/scrollSim').ScrollSimSeed | null) ?? null
+    cachedScrollSeed =
+      (msg['scrollSim'] as import('../../rom/scrollSim').ScrollSimSeed | null) ?? null
     deriveScrollData()
 
     // Cache SPC data that arrived with this load payload
@@ -4696,22 +4457,26 @@ window.addEventListener('message', async (event) => {
 
     applyMinimapOrientation()
 
-    const hex     = hex3(mapData.mapIndex)
+    const hex = hex3(mapData.mapIndex)
     const screens = mapData.screens
-    mapId.textContent   = `Map $${hex}`
+    mapId.textContent = `Map $${hex}`
     mapMeta.textContent = `${screens} screen${screens !== 1 ? 's' : ''}${mapData.isVertical ? ' · vertical' : ''}`
     const bgmHex = hex2(mapData.currentBgmCommand ?? mapData.header.music)
-    stInfo.textContent  = `BGM $${bgmHex} · Tileset ${mapData.header.gfxTilesetId}`
+    stInfo.textContent = `BGM $${bgmHex} · Tileset ${mapData.header.gfxTilesetId}`
 
     // Populate props panel selectors (only on initial load)
     if (msg['_initial'] !== false) {
-      buildSelect(selBgColor,   8,  mapData.header.bgColor,       i => `Color ${i}`)
-      buildSelect(selFgPalette, 8,  mapData.header.fgPalette,     i => `FG ${i}`)
-      buildSelect(selBgPalette, 8,  mapData.header.bgPalette,     i => `BG ${i}`)
-      buildSelect(selSpritePal, 4,  mapData.header.spritePalette, i => `Set ${i}`)
-      buildSelect(selMarioPal,  4,  mapData.header.marioVariant,
-        i => ['Mario', 'Luigi', 'Fire Mario', 'Fire Luigi'][i] ?? String(i))
-      buildSelect(selTileset,   16, mapData.header.gfxTilesetId)
+      buildSelect(selBgColor, 8, mapData.header.bgColor, i => `Color ${i}`)
+      buildSelect(selFgPalette, 8, mapData.header.fgPalette, i => `FG ${i}`)
+      buildSelect(selBgPalette, 8, mapData.header.bgPalette, i => `BG ${i}`)
+      buildSelect(selSpritePal, 4, mapData.header.spritePalette, i => `Set ${i}`)
+      buildSelect(
+        selMarioPal,
+        4,
+        mapData.header.marioVariant,
+        i => ['Mario', 'Luigi', 'Fire Mario', 'Fire Luigi'][i] ?? String(i),
+      )
+      buildSelect(selTileset, 16, mapData.header.gfxTilesetId)
       buildSelect(selSpriteSet, 16, mapData.header.spriteSet)
 
       // Music: populate from ROM-derived full track list, not the 3-bit header index.
@@ -4729,22 +4494,26 @@ window.addEventListener('message', async (event) => {
       // "every classification must cite an ASM line" rule). Time limit gets
       // a TimerTable-derived label (cited in bank_05.asm:510). L3 setting
       // labels distinguish "Disabled" from the three tileset slots.
-      buildSelect(selTimeLimit,  4, mapData.header.timeLimit ?? 0,
-        i => `${i} (${['none', '200', '300', '400'][i] ?? '?'})`)
+      buildSelect(
+        selTimeLimit,
+        4,
+        mapData.header.timeLimit ?? 0,
+        i => `${i} (${['none', '200', '300', '400'][i] ?? '?'})`,
+      )
       // 5-bit field; 32 modes covered by the SMW level-mode jump table.
-      buildSelect(selLevelMode, 32, mapData.header.levelMode ?? 0,
-        i => `$${hex2(i)}`)
+      buildSelect(selLevelMode, 32, mapData.header.levelMode ?? 0, i => `$${hex2(i)}`)
       buildSelect(selItemMemory, 4, mapData.header.itemMemory ?? 0)
       buildSelect(selVScrollHdr, 4, mapData.header.verticalScroll ?? 0)
-      buildSelect(selL3Setting,  4, mapData.l3Routine?.layer3Setting ?? 0,
-        i => i === 0 ? 'Disabled' : `Slot ${i}`)
-      chkL3Priority.checked = !!(mapData.header.layer3Priority)
+      buildSelect(selL3Setting, 4, mapData.l3Routine?.layer3Setting ?? 0, i =>
+        i === 0 ? 'Disabled' : `Slot ${i}`,
+      )
+      chkL3Priority.checked = !!mapData.header.layer3Priority
     }
 
-    // Back area color swatch — use the selected variant from backAreaColors
+    // Back area color swatch - use the selected variant from backAreaColors
     const bac = mapData.backAreaColors
     const bacIdx = mapData.header.bgColor
-    const bacColor = (bac && bac[bacIdx]) ? bac[bacIdx] : mapData.backAreaColor
+    const bacColor = bac && bac[bacIdx] ? bac[bacIdx] : mapData.backAreaColor
     backAreaSwatch.style.background = `rgb(${bacColor[0]},${bacColor[1]},${bacColor[2]})`
 
     // Room info
@@ -4757,7 +4526,7 @@ window.addEventListener('message', async (event) => {
     const vSet = mapData.header.vertLayer2Setting ?? 0
     const hSet = mapData.header.horizLayer2Setting ?? 0
     const vLabel = ['locked', '1:1', '1:2', '1:32'][vSet] ?? '?'
-    const hLabel = ['locked', '1:1', '1:2', '?'   ][hSet] ?? '?'
+    const hLabel = ['locked', '1:1', '1:2', '?'][hSet] ?? '?'
     infoBgVScroll.textContent = vLabel
     infoBgHScroll.textContent = hLabel
 
@@ -4766,10 +4535,10 @@ window.addEventListener('message', async (event) => {
     // already populated the options via buildSelect; this just reapplies the
     // .value in case the provider echoed a different value back.
     const hdr = mapData.header
-    selMusic.value      = String(mapData.currentBgmCommand ?? hdr.music ?? 0)
-    selTimeLimit.value  = String(hdr.timeLimit      ?? 0)
-    selLevelMode.value  = String(hdr.levelMode      ?? 0)
-    selItemMemory.value = String(hdr.itemMemory     ?? 0)
+    selMusic.value = String(mapData.currentBgmCommand ?? hdr.music ?? 0)
+    selTimeLimit.value = String(hdr.timeLimit ?? 0)
+    selLevelMode.value = String(hdr.levelMode ?? 0)
+    selItemMemory.value = String(hdr.itemMemory ?? 0)
     selVScrollHdr.value = String(hdr.verticalScroll ?? 0)
     chkL3Priority.checked = !!hdr.layer3Priority
 
@@ -4796,18 +4565,14 @@ window.addEventListener('message', async (event) => {
     if (hasScrollPath) {
       scrollAutoscrollSection.style.display = 'flex'
       const cmd = mapData.header.layer1ScrollCmd
-      const cmdHex = cmd !== null && cmd !== undefined
-        ? `$${hex2(cmd)}`
-        : '—'
-      const spriteId = cmd !== null && cmd !== undefined ? 0xE7 + cmd : null
-      const spriteHex = spriteId !== null
-        ? `$${hex2(spriteId)}`
-        : '—'
+      const cmdHex = cmd !== null && cmd !== undefined ? `$${hex2(cmd)}` : '-'
+      const spriteId = cmd !== null && cmd !== undefined ? 0xe7 + cmd : null
+      const spriteHex = spriteId !== null ? `$${hex2(spriteId)}` : '-'
       infoScrollSprite.textContent = `sprite ${spriteHex} / cmd ${cmdHex}`
       // Sync the panel checkbox with the (toolbar-driven) toggle state.
       chkScrollPathPanel.checked = chkScrollPath.checked
       chkFollowScroll.checked = true
-      // Reset cmd-specific gameplay-state toggles on each load —
+      // Reset cmd-specific gameplay-state toggles on each load -
       // they're per-level state, not session state.
       chkOnOffSwitch.checked = false
       chkLayer2Touched.checked = false
@@ -4826,7 +4591,7 @@ window.addEventListener('message', async (event) => {
     // exact per-frame state the SNES would compute.
     //
     // The L1 slider + Link button are gated on the SHOW VIEWPORT PATH
-    // toggle — they're part of the L1-viewport visualization and only
+    // toggle - they're part of the L1-viewport visualization and only
     // make sense when the user has explicitly opted into path
     // controls. The L2 slider stays visible for any object-stream L2
     // because L2-plane scrubbing is independently useful. See
@@ -4863,7 +4628,7 @@ window.addEventListener('message', async (event) => {
       store.setL2YOverride(liveY)
     } else if (hasScrollPath) {
       // Auto-scroll level without object-stream L2 (preset L2 / no L2):
-      // L1 slider only — still useful for path-overlay previewing.
+      // L1 slider only - still useful for path-overlay previewing.
       scrollMode = 'frame'
       rngScrollFrame.min = '0'
       rngScrollFrame.max = String(lastSimFrame)
@@ -4881,28 +4646,28 @@ window.addEventListener('message', async (event) => {
 
     // L3 routine summary. Editable: layer3Setting (via selL3Setting). The
     // $009F88 byte / kind / init Y are derived from (tileset, layer3Setting)
-    // and so stay read-only displays — they update when the provider re-emits
+    // and so stay read-only displays - they update when the provider re-emits
     // l3Routine after applying the override.
     const l3 = mapData.l3Routine
     if (l3) {
       selL3Setting.value = String(l3.layer3Setting ?? 0)
-      infoL3Byte.textContent  = l3.settingsByte === null || l3.settingsByte === undefined
-        ? '—'
-        : `$${hex2(l3.settingsByte)}`
+      infoL3Byte.textContent =
+        l3.settingsByte === null || l3.settingsByte === undefined
+          ? '-'
+          : `$${hex2(l3.settingsByte)}`
       // Tide gets a sub-kind suffix; other kinds map directly.
       let kindLabel: string = String(l3.kind ?? 'disabled')
       if (l3.kind === 'tide') {
         kindLabel = l3.isTideUpAndDown ? 'tide (up/down)' : 'tide (stationary)'
       }
-      infoL3Kind.textContent  = kindLabel
-      infoL3InitY.textContent = l3.initialYPx === null || l3.initialYPx === undefined
-        ? '—'
-        : `$${hex2(l3.initialYPx)}`
+      infoL3Kind.textContent = kindLabel
+      infoL3InitY.textContent =
+        l3.initialYPx === null || l3.initialYPx === undefined ? '-' : `$${hex2(l3.initialYPx)}`
     } else {
-      selL3Setting.value      = '0'
-      infoL3Byte.textContent    = '—'
-      infoL3Kind.textContent    = '—'
-      infoL3InitY.textContent   = '—'
+      selL3Setting.value = '0'
+      infoL3Byte.textContent = '-'
+      infoL3Kind.textContent = '-'
+      infoL3InitY.textContent = '-'
     }
 
     // Seed camera viewport Y from the ROM-derived Layer1YPos at level init
@@ -4912,7 +4677,7 @@ window.addEventListener('message', async (event) => {
     store.setCamera({ tileX: 0, tileY: Math.floor(initCamYPx / 16), focused: false })
     if (chkCamera.checked) scrollContainerToCamera(true)
 
-    // Palette canvas — the model render effect will also render this
+    // Palette canvas - the model render effect will also render this
     // reactively once the model arrives, but this first paint keeps the
     // panel from showing stale content before `modelPayload` lands.
     drawPaletteCanvas()
@@ -4927,7 +4692,7 @@ window.addEventListener('message', async (event) => {
     if (mapAnimEnabled && mapData.animation) {
       mapIntervalMs = mapData.animation.intervalMs
     }
-    // Play button is always shown — sprite animation works on every level
+    // Play button is always shown - sprite animation works on every level
     // regardless of whether tile animation is configured.
     for (const b of animPlayBtns) b.style.display = ''
 
@@ -4946,16 +4711,29 @@ window.addEventListener('message', async (event) => {
 
       const vramCanvas = document.getElementById('vram-canvas') as HTMLCanvasElement
       const vramInspect = document.getElementById('vram-inspect') as HTMLElement
-      vramCanvas.onmousemove = (e) => {
+      vramCanvas.onmousemove = e => {
         const rect = vramCanvas.getBoundingClientRect()
-        const sx = vramCanvas.width / rect.width, sy = vramCanvas.height / rect.height
+        const sx = vramCanvas.width / rect.width,
+          sy = vramCanvas.height / rect.height
         const px = Math.floor((e.clientX - rect.left) * sx)
         const py = Math.floor((e.clientY - rect.top) * sy)
-        const col = Math.floor(px / 8), row = Math.floor(py / 8)
+        const col = Math.floor(px / 8),
+          row = Math.floor(py / 8)
         const localChar = row * 16 + col
         const globalChar = vramPage * VRAM_TILES_PER_PAGE + localChar
-        const slot = globalChar < 0x80 ? 'FG1' : globalChar < 0x100 ? 'FG2' : globalChar < 0x180 ? 'FG3' : globalChar < 0x200 ? 'AN1' : globalChar < 0x400 ? '—' : 'SP'
-        vramInspect.textContent = `char $${globalChar.toString(16).padStart(3,'0')} (${slot})`
+        const slot =
+          globalChar < 0x80
+            ? 'FG1'
+            : globalChar < 0x100
+              ? 'FG2'
+              : globalChar < 0x180
+                ? 'FG3'
+                : globalChar < 0x200
+                  ? 'AN1'
+                  : globalChar < 0x400
+                    ? '-'
+                    : 'SP'
+        vramInspect.textContent = `char $${globalChar.toString(16).padStart(3, '0')} (${slot})`
         vramHoverTile = { col, row }
         renderVramPage()
       }
@@ -4965,11 +4743,12 @@ window.addEventListener('message', async (event) => {
         renderVramPage()
       }
 
-      vramCanvas.onclick = (e) => {
+      vramCanvas.onclick = e => {
         const rect = vramCanvas.getBoundingClientRect()
-        const sx = vramCanvas.width / rect.width, sy = vramCanvas.height / rect.height
-        const col = Math.floor((e.clientX - rect.left) * sx / 8)
-        const row = Math.floor((e.clientY - rect.top) * sy / 8)
+        const sx = vramCanvas.width / rect.width,
+          sy = vramCanvas.height / rect.height
+        const col = Math.floor(((e.clientX - rect.left) * sx) / 8)
+        const row = Math.floor(((e.clientY - rect.top) * sy) / 8)
         selectedDetail = { type: 'vram', page: vramPage, col, row }
         redrawDetail()
         renderVramPage()
@@ -4979,19 +4758,27 @@ window.addEventListener('message', async (event) => {
       }
     }
 
-    // ── Map16 tile pages — page structure only; render driven by model ──
+    // ── Map16 tile pages - page structure only; render driven by model ──
     {
       map16Pages = []
       const l1DefCount = mapData.map16Defs?.length ?? 0
       const l1PageCount = l1DefCount > 0 ? Math.ceil(l1DefCount / 256) : 1
       for (let p = 0; p < l1PageCount; p++) {
-        map16Pages.push({ pageInAtlas: p, pageNum: p, label: `L1 0x${p.toString(16).padStart(2,'0')}` })
+        map16Pages.push({
+          pageInAtlas: p,
+          pageNum: p,
+          label: `L1 0x${p.toString(16).padStart(2, '0')}`,
+        })
       }
       const l2DefCount = mapData.map16BgDefs?.length ?? 0
       if (l2DefCount > 0) {
         const bgPageCount = Math.ceil(l2DefCount / 256)
         for (let p = 0; p < bgPageCount; p++) {
-          map16Pages.push({ pageInAtlas: p, pageNum: 0x80 + p, label: `L2 0x${(0x80 + p).toString(16)}` })
+          map16Pages.push({
+            pageInAtlas: p,
+            pageNum: 0x80 + p,
+            label: `L2 0x${(0x80 + p).toString(16)}`,
+          })
         }
       }
       map16PageIdx = 0
@@ -4999,12 +4786,13 @@ window.addEventListener('message', async (event) => {
 
       const m16Canvas = document.getElementById('map16-canvas') as HTMLCanvasElement
       const m16Inspect = document.getElementById('map16-inspect') as HTMLElement
-      m16Canvas.onmousemove = (e) => {
+      m16Canvas.onmousemove = e => {
         if (map16Pages.length === 0) return
         const rect = m16Canvas.getBoundingClientRect()
-        const sx = m16Canvas.width / rect.width, sy = m16Canvas.height / rect.height
-        const col = Math.floor((e.clientX - rect.left) * sx / 16)
-        const row = Math.floor((e.clientY - rect.top) * sy / 16)
+        const sx = m16Canvas.width / rect.width,
+          sy = m16Canvas.height / rect.height
+        const col = Math.floor(((e.clientX - rect.left) * sx) / 16)
+        const row = Math.floor(((e.clientY - rect.top) * sy) / 16)
         const entry = map16Pages[map16PageIdx]
         const tileWithinPage = row * 16 + col
         const tileId = hex3(entry.pageNum * 256 + tileWithinPage)
@@ -5018,11 +4806,12 @@ window.addEventListener('message', async (event) => {
         renderMap16Page()
       }
 
-      m16Canvas.onclick = (e) => {
+      m16Canvas.onclick = e => {
         const rect = m16Canvas.getBoundingClientRect()
-        const sx = m16Canvas.width / rect.width, sy = m16Canvas.height / rect.height
-        const col = Math.floor((e.clientX - rect.left) * sx / 16)
-        const row = Math.floor((e.clientY - rect.top) * sy / 16)
+        const sx = m16Canvas.width / rect.width,
+          sy = m16Canvas.height / rect.height
+        const col = Math.floor(((e.clientX - rect.left) * sx) / 16)
+        const row = Math.floor(((e.clientY - rect.top) * sy) / 16)
         selectedDetail = { type: 'map16', page: map16PageIdx, col, row }
         redrawDetail()
         renderMap16Page()
@@ -5030,7 +4819,7 @@ window.addEventListener('message', async (event) => {
         const localTile = row * 16 + col
         const tileId = entry.pageInAtlas * 256 + localTile
         const globalId = entry.pageNum * 256 + localTile
-        const label = `Map16 $${globalId.toString(16).padStart(3, '0').toUpperCase()} — Tile`
+        const label = `Map16 $${globalId.toString(16).padStart(3, '0').toUpperCase()} - Tile`
         const isL1 = entry.label.startsWith('L1')
         const def = isL1 ? mapData?.map16Defs?.[tileId] : mapData?.map16BgDefs?.[tileId]
         clearSpriteSelection()
@@ -5047,9 +4836,8 @@ window.addEventListener('message', async (event) => {
     // only the cells that actually moved.
     stopPalAnimTimer()
     applyPalAnimFrame(0)
-
   } else if (msg['type'] === 'error') {
-    mapId.textContent   = 'Error'
+    mapId.textContent = 'Error'
     mapMeta.textContent = msg['message'] as string
   }
 })
@@ -5065,7 +4853,7 @@ window.addEventListener('pagehide', () => {
 
 // Pause animation loops whenever the webview becomes hidden. VS Code keeps
 // replaced preview-tab webviews alive briefly (and sometimes for much
-// longer) while they transition out — before pagehide fires. Without this,
+// longer) while they transition out - before pagehide fires. Without this,
 // a stack of hidden-but-alive webviews each with an animation loop fights
 // the visible tab's main thread and drops its FPS.
 document.addEventListener('visibilitychange', () => {

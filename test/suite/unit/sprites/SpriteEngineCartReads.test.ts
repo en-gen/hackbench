@@ -28,12 +28,21 @@ import { resolve } from 'path'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { readSpriteTileTables, SPR_TILEMAP_ADDR } from '../../../../src/rom/SpriteTileLoader'
 import {
-  SPRITE_DRAW_DESCRIPTORS, SPRITE_MAIN_PTR_TABLE, SHARED_DRAW_ROUTINES,
-  type ByteSource, type CodeRef, type SpriteDrawDescriptor,
+  SPRITE_DRAW_DESCRIPTORS,
+  SPRITE_MAIN_PTR_TABLE,
+  SHARED_DRAW_ROUTINES,
+  type ByteSource,
+  type CodeRef,
+  type SpriteDrawDescriptor,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawDescriptor'
 import {
-  drawSpriteParts, resolveHandlerBase, resolveRef, readShiftCount,
-  resolveStateTimerSeed, type EnginePart, type EngineResult,
+  drawSpriteParts,
+  resolveHandlerBase,
+  resolveRef,
+  readShiftCount,
+  resolveStateTimerSeed,
+  type EnginePart,
+  type EngineResult,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 
 const ROM_DIR = resolve(__dirname, '../../../roms')
@@ -47,7 +56,7 @@ const ROM_FILES = [
 ] as const
 const romsPresent = ROM_FILES.every(f => existsSync(resolve(ROM_DIR, f)))
 
-const MAGIKOOPA = SPRITE_DRAW_DESCRIPTORS.find(d => d.spriteId === 0x1F)!
+const MAGIKOOPA = SPRITE_DRAW_DESCRIPTORS.find(d => d.spriteId === 0x1f)!
 
 /** `resolveRef` that throws instead of returning null, so a test that plants
  *  a byte at a ref the cart cannot resolve fails loudly rather than writing
@@ -67,8 +76,12 @@ const FACING_LEFT = 0
 
 function draw(rom: RomFile, frame: number, d: SpriteDrawDescriptor = MAGIKOOPA): EngineResult {
   return drawSpriteParts({
-    rom, tables: readSpriteTileTables(rom)!, descriptor: d,
-    spriteX: 100, ctx: { marioX: FACING_LEFT, romFrame: 0 }, forceFrame: frame,
+    rom,
+    tables: readSpriteTileTables(rom)!,
+    descriptor: d,
+    spriteX: 100,
+    ctx: { marioX: FACING_LEFT, romFrame: 0 },
+    forceFrame: frame,
   })
 }
 
@@ -86,8 +99,7 @@ const bodyOf = (p: readonly EnginePart[]) => p.filter(q => q.dx >= 0 && q.dx < 1
 const bodyRows = (p: readonly EnginePart[]) =>
   [...new Set(bodyOf(p).map(q => q.dy))].sort((a, b) => a - b)
 
-const poseKey = (p: readonly EnginePart[]) =>
-  p.map(q => `${q.charNum}@${q.dx},${q.dy}`).join('|')
+const poseKey = (p: readonly EnginePart[]) => p.map(q => `${q.charNum}@${q.dx},${q.dy}`).join('|')
 
 /** Distinct drawn poses over the whole state-2 countdown. */
 function poses(rom: RomFile, d: SpriteDrawDescriptor = MAGIKOOPA): string[] {
@@ -131,7 +143,7 @@ describe.skipIf(!romsPresent)('shift counts are counted, not stored', () => {
     const before = poses(rom)
     // `TAY` at the end of the run becomes one more `LSR A`.
     const base = resolveHandlerBase(rom, MAGIKOOPA)
-    rom.writeAt(refAt(rom, TILE_GROUP.shift.scan, base) + 6, [0x4A])
+    rom.writeAt(refAt(rom, TILE_GROUP.shift.scan, base) + 6, [0x4a])
     expect(readShiftCount(rom, TILE_GROUP.shift, base)).toBe(7)
     expect(poses(rom)).not.toEqual(before)
   })
@@ -139,14 +151,14 @@ describe.skipIf(!romsPresent)('shift counts are counted, not stored', () => {
   it('the scan stops at the first non-LSR byte, and does not run past it', () => {
     const rom = freshRom()
     const base = resolveHandlerBase(rom, MAGIKOOPA)
-    rom.writeAt(refAt(rom, TILE_GROUP.shift.scan, base) + 3, [0xEA])   // NOP
+    rom.writeAt(refAt(rom, TILE_GROUP.shift.scan, base) + 3, [0xea]) // NOP
     expect(readShiftCount(rom, TILE_GROUP.shift, base)).toBe(3)
   })
 
   it('a run of zero reads as zero rather than as the vanilla count', () => {
     const rom = freshRom()
     const base = resolveHandlerBase(rom, MAGIKOOPA)
-    rom.writeAt(refAt(rom, TILE_GROUP.shift.scan, base), [0xEA])
+    rom.writeAt(refAt(rom, TILE_GROUP.shift.scan, base), [0xea])
     expect(readShiftCount(rom, TILE_GROUP.shift, base)).toBe(0)
   })
 
@@ -156,7 +168,7 @@ describe.skipIf(!romsPresent)('shift counts are counted, not stored', () => {
     const base = resolveHandlerBase(rom, MAGIKOOPA)
     // The `AND #$01` opcode becomes one more `LSR A`, so the slice moves up
     // a bit and the odd tile group lands on different timer values.
-    rom.writeAt(refAt(rom, TILE_GROUP.orBit!.shift.scan, base) + 3, [0x4A])
+    rom.writeAt(refAt(rom, TILE_GROUP.orBit!.shift.scan, base) + 3, [0x4a])
     expect(readShiftCount(rom, TILE_GROUP.orBit!.shift, base)).toBe(4)
     expect([...nudgedFrames(rom).keys()]).not.toEqual(before)
   })
@@ -200,13 +212,13 @@ describe.skipIf(!romsPresent)('the 1 px top-tile bob is read out of the cart', (
 
   it('the displacement comes from the opcode: DEC abs,X reads as -1', () => {
     const rom = freshRom()
-    rom.writeAt(refAt(rom, NUDGE.insnAddr, resolveHandlerBase(rom, MAGIKOOPA)), [0xDE])
+    rom.writeAt(refAt(rom, NUDGE.insnAddr, resolveHandlerBase(rom, MAGIKOOPA)), [0xde])
     expect([...new Set(nudgedFrames(rom).values())]).toEqual([-1])
   })
 
   it('an opcode that is neither INC nor DEC abs,X is refused, not guessed', () => {
     const rom = freshRom()
-    rom.writeAt(refAt(rom, NUDGE.insnAddr, resolveHandlerBase(rom, MAGIKOOPA)), [0xEA])
+    rom.writeAt(refAt(rom, NUDGE.insnAddr, resolveHandlerBase(rom, MAGIKOOPA)), [0xea])
     const f = [...nudgedFrames(freshRom()).keys()][0]
     const res = draw(rom, f)
     expect(res.ok).toBe(false)
@@ -223,7 +235,7 @@ describe.skipIf(!romsPresent)('the 1 px top-tile bob is read out of the cart', (
     expect(rows.slice(2)).toEqual(rest.slice(2).map(r => r + 1))
   })
 
-  it('an operand pointing outside the routine\'s own entries is refused', () => {
+  it("an operand pointing outside the routine's own entries is refused", () => {
     const rom = freshRom()
     const f = [...nudgedFrames(freshRom()).keys()][0]
     rom.writeAt(refAt(rom, NUDGE.insnAddr, resolveHandlerBase(rom, MAGIKOOPA)) + 1, [0x09, 0x03])
@@ -250,7 +262,7 @@ describe.skipIf(!romsPresent)('the 1 px top-tile bob is read out of the cart', (
     const rom = freshRom()
     const before = nudgedFrames(rom).size
     const base = resolveHandlerBase(rom, MAGIKOOPA)
-    rom.writeAt(refAt(rom, NUDGE.bitSelect.scan, base), [0xEA])
+    rom.writeAt(refAt(rom, NUDGE.bitSelect.scan, base), [0xea])
     expect(readShiftCount(rom, NUDGE.bitSelect, base)).toBe(0)
     expect(nudgedFrames(rom).size).toBeGreaterThan(before)
   })
@@ -259,24 +271,24 @@ describe.skipIf(!romsPresent)('the 1 px top-tile bob is read out of the cart', (
 // ── 3. Handler-relative anchoring ───────────────────────────────────────────
 
 /** Byte span of the handler the descriptor's `{ mainOff }` refs cover. */
-const SPAN_FROM = 0xC0
+const SPAN_FROM = 0xc0
 const SPAN_TO = 0x262
 
 describe.skipIf(!romsPresent)('per-handler addresses follow the cart pointer', () => {
   it.each(ROM_FILES)('%s: the base is the MAIN pointer the cart holds', name => {
     const rom = freshRom(name)
-    const ptr = rom.readAt(SPRITE_MAIN_PTR_TABLE + 0x1F * 2, 2)!
+    const ptr = rom.readAt(SPRITE_MAIN_PTR_TABLE + 0x1f * 2, 2)!
     expect(resolveHandlerBase(rom, MAGIKOOPA)).toBe(0x010000 | (ptr[0] | (ptr[1] << 8)))
   })
 
   it('a RELOCATED handler still renders identically', () => {
     const before = poses(freshRom())
     const rom = freshRom()
-    const base = resolveHandlerBase(rom, MAGIKOOPA) & 0xFFFF
+    const base = resolveHandlerBase(rom, MAGIKOOPA) & 0xffff
     const moved = base + 0x100
     // Snapshot first: source and destination overlap.
     const body = Buffer.from(rom.readAt(0x010000 | (base + SPAN_FROM), SPAN_TO - SPAN_FROM)!)
-    rom.writeAt(SPRITE_MAIN_PTR_TABLE + 0x1F * 2, [moved & 0xFF, moved >> 8])
+    rom.writeAt(SPRITE_MAIN_PTR_TABLE + 0x1f * 2, [moved & 0xff, moved >> 8])
     rom.writeAt(0x010000 | (moved + SPAN_FROM), body)
     expect(poses(rom)).toEqual(before)
   })
@@ -284,11 +296,11 @@ describe.skipIf(!romsPresent)('per-handler addresses follow the cart pointer', (
   it('and the old location is no longer what is read', () => {
     const before = poses(freshRom())
     const rom = freshRom()
-    const base = resolveHandlerBase(rom, MAGIKOOPA) & 0xFFFF
+    const base = resolveHandlerBase(rom, MAGIKOOPA) & 0xffff
     const moved = base + 0x100
     // Repoint WITHOUT moving the code: every offset now lands on unrelated
     // bytes, which an absolute-addressed descriptor would never notice.
-    rom.writeAt(SPRITE_MAIN_PTR_TABLE + 0x1F * 2, [moved & 0xFF, moved >> 8])
+    rom.writeAt(SPRITE_MAIN_PTR_TABLE + 0x1f * 2, [moved & 0xff, moved >> 8])
     const after = draw(rom, 0)
     expect(after.ok === false || poses(rom).join() !== before.join()).toBe(true)
   })
@@ -309,22 +321,23 @@ describe.skipIf(!romsPresent)('the shared routine is read from the JSR target', 
 
   it('the descriptor field does NOT decide it: a lying `routine` is ignored', () => {
     // `sub1` stacks two large OBJs, so eight body subtiles. `sub2` draws one.
-    const body = parts(freshRom(), 0, { ...MAGIKOOPA, routine: 'sub2' })
-      .filter(p => p.dx >= 0 && p.dx < 16)
+    const body = parts(freshRom(), 0, { ...MAGIKOOPA, routine: 'sub2' }).filter(
+      p => p.dx >= 0 && p.dx < 16,
+    )
     expect(body).toHaveLength(8)
   })
 
   it('a JSR retargeted at SubSprGfx2Entry1 renders one large OBJ', () => {
     const rom = freshRom()
     const at = refAt(rom, MAGIKOOPA.routineJsr!, resolveHandlerBase(rom, MAGIKOOPA))
-    rom.writeAt(at + 1, [sub('sub2') & 0xFF, sub('sub2') >> 8])
+    rom.writeAt(at + 1, [sub('sub2') & 0xff, sub('sub2') >> 8])
     expect(parts(rom, 0).filter(p => p.dx >= 0 && p.dx < 16)).toHaveLength(4)
   })
 
   it('a JSR retargeted at SubSprGfx0Entry0 renders four independent chars', () => {
     const rom = freshRom()
     const at = refAt(rom, MAGIKOOPA.routineJsr!, resolveHandlerBase(rom, MAGIKOOPA))
-    rom.writeAt(at + 1, [sub('sub0') & 0xFF, sub('sub0') >> 8])
+    rom.writeAt(at + 1, [sub('sub0') & 0xff, sub('sub0') >> 8])
     expect(parts(rom, 0).filter(p => p.dx >= 0 && p.dx < 16)).toHaveLength(4)
   })
 
@@ -340,7 +353,7 @@ describe.skipIf(!romsPresent)('the shared routine is read from the JSR target', 
   it('an instruction that is not a JSR at all is refused', () => {
     const rom = freshRom()
     const at = refAt(rom, MAGIKOOPA.routineJsr!, resolveHandlerBase(rom, MAGIKOOPA))
-    rom.writeAt(at, [0xEA])
+    rom.writeAt(at, [0xea])
     const res = draw(rom, 0)
     expect(res.ok).toBe(false)
     expect(res.ok === false && res.failure.kind).toBe('unexpectedOpcode')
@@ -361,15 +374,18 @@ describe.skipIf(!romsPresent)('the shared routine is read from the JSR target', 
  * NOT to follow, the other moves the immediate and requires that it does.
  */
 describe.skipIf(!romsPresent)('$2C draws the immediate the handler writes', () => {
-  const EGG = SPRITE_DRAW_DESCRIPTORS.find(d => d.spriteId === 0x2C)!
-  const eggChars = (rom: RomFile) => parts(rom, 0, EGG).map(p => p.charNum).join(',')
+  const EGG = SPRITE_DRAW_DESCRIPTORS.find(d => d.spriteId === 0x2c)!
+  const eggChars = (rom: RomFile) =>
+    parts(rom, 0, EGG)
+      .map(p => p.charNum)
+      .join(',')
   const immAt = (rom: RomFile) =>
     refAt(rom, EGG.tileOverrides![0].insnAddr, resolveHandlerBase(rom, EGG)) + 1
 
   it.each(ROM_FILES)('%s: the override is an LDA #$00 right after the JSR', name => {
     const rom = freshRom(name)
     const at = refAt(rom, EGG.tileOverrides![0].insnAddr, resolveHandlerBase(rom, EGG))
-    expect(rom.readAt(at, 2)![0]).toBe(0xA9)      // LDA #imm
+    expect(rom.readAt(at, 2)![0]).toBe(0xa9) // LDA #imm
     expect(rom.readAt(at, 2)![1]).toBe(0x00)
     // And the `JSR SubSprGfx2Entry1` the override follows.
     const jsr = refAt(rom, EGG.routineJsr!, resolveHandlerBase(rom, EGG))
@@ -386,8 +402,11 @@ describe.skipIf(!romsPresent)('$2C draws the immediate the handler writes', () =
     // At spriteX 100 the egg's attribute is `YoshiPal[(100 >> 4) & 3]` = $05,
     // whose bit 0 is the char-high bit, so base $60 expands through the
     // large-OBJ corners onto chars $560, $561, $570, $571.
-    expect(parts(rom, 0, EGG).map(p => p.charNum).sort((a, b) => a - b))
-      .toEqual([0x560, 0x561, 0x570, 0x571])
+    expect(
+      parts(rom, 0, EGG)
+        .map(p => p.charNum)
+        .sort((a, b) => a - b),
+    ).toEqual([0x560, 0x561, 0x570, 0x571])
   })
 
   it('moving the TILEMAP byte does not, because the ROM discards it', () => {
@@ -396,13 +415,13 @@ describe.skipIf(!romsPresent)('$2C draws the immediate the handler writes', () =
     const rom = freshRom()
     const tables = readSpriteTileTables(rom)!
     const before = eggChars(rom)
-    rom.writeAt(SPR_TILEMAP_ADDR + tables.tilemapOffset[0x2C], [0x60])
+    rom.writeAt(SPR_TILEMAP_ADDR + tables.tilemapOffset[0x2c], [0x60])
     expect(eggChars(rom)).toBe(before)
   })
 
   it('an override instruction that is not an LDA #imm is refused', () => {
     const rom = freshRom()
-    rom.writeAt(refAt(rom, EGG.tileOverrides![0].insnAddr, resolveHandlerBase(rom, EGG)), [0xEA])
+    rom.writeAt(refAt(rom, EGG.tileOverrides![0].insnAddr, resolveHandlerBase(rom, EGG)), [0xea])
     const res = draw(rom, 0, EGG)
     expect(res.ok).toBe(false)
     expect(res.ok === false && res.failure.kind).toBe('unexpectedOpcode')
@@ -411,7 +430,7 @@ describe.skipIf(!romsPresent)('$2C draws the immediate the handler writes', () =
 
 // ── 6. $1F sits where SubSprGfx1 puts it ───────────────────────────────────
 
-describe.skipIf(!romsPresent)('$1F is anchored on the routine\'s first OAM entry', () => {
+describe.skipIf(!romsPresent)("$1F is anchored on the routine's first OAM entry", () => {
   it.each(ROM_FILES)('%s: the body occupies rows 0..31, not -16..15', name => {
     // `SubSprGfx1` stores `_1` to `OAMTileYPos+$100` and `_1 + $10` to
     // `+$104` (bank_01.asm:3948-3952), so its origin is the TOP entry.
@@ -450,7 +469,7 @@ describe.skipIf(!romsPresent)('$1F is anchored on the routine\'s first OAM entry
  * `restingEntry: 7` was a literal on the branch whose whole purpose is
  * reading. It is now the fallback, and the immediate decides.
  */
-describe.skipIf(!romsPresent)('$1F\'s resting palette entry is read, not held', () => {
+describe.skipIf(!romsPresent)("$1F's resting palette entry is read, not held", () => {
   const cmpAt = (rom: RomFile) => {
     const src = MAGIKOOPA.palette as Extract<typeof MAGIKOOPA.palette, { kind: 'dynamicCgram' }>
     return refAt(rom, src.restingEntryCmpAddr!, resolveHandlerBase(rom, MAGIKOOPA))
@@ -463,7 +482,7 @@ describe.skipIf(!romsPresent)('$1F\'s resting palette entry is read, not held', 
 
   it.each(ROM_FILES)('%s: the terminator is CMP #$09 and the entry resolves to 7', name => {
     const rom = freshRom(name)
-    expect(rom.readAt(cmpAt(rom), 2)![0]).toBe(0xC9)       // CMP #imm
+    expect(rom.readAt(cmpAt(rom), 2)![0]).toBe(0xc9) // CMP #imm
     expect(rom.readAt(cmpAt(rom), 2)![1]).toBe(0x09)
     // entry 7 of 8 colours, 2 bytes each, past the table base.
     const base = entryAddr(rom) - 7 * 8 * 2
@@ -473,7 +492,7 @@ describe.skipIf(!romsPresent)('$1F\'s resting palette entry is read, not held', 
   it('shortening the fade moves the entry the editor composites', () => {
     const rom = freshRom()
     const before = entryAddr(rom)
-    rom.writeAt(cmpAt(rom), [0xC9, 0x05])                  // fade ends at entry 3
+    rom.writeAt(cmpAt(rom), [0xc9, 0x05]) // fade ends at entry 3
     expect(entryAddr(rom)).toBe(before - 4 * 16)
   })
 
@@ -486,18 +505,18 @@ describe.skipIf(!romsPresent)('$1F\'s resting palette entry is read, not held', 
     // The second byte must imply a DIFFERENT entry, or the assertion passes
     // whether the opcode is checked or not. Planting `[0xEA]` alone left the
     // old $09 in place and a mutant that skipped the opcode check survived.
-    rom.writeAt(cmpAt(rom), [0xEA, 0x05])
+    rom.writeAt(cmpAt(rom), [0xea, 0x05])
     expect(entryAddr(rom)).toBe(before)
   })
 
   it('an out-of-range immediate falls back too, in both directions', () => {
     const rom = freshRom()
     const before = entryAddr(rom)
-    rom.writeAt(cmpAt(rom), [0xC9, 0x01])                  // imm - 2 = -1
+    rom.writeAt(cmpAt(rom), [0xc9, 0x01]) // imm - 2 = -1
     expect(entryAddr(rom)).toBe(before)
-    rom.writeAt(cmpAt(rom), [0xC9, 0x0B])                  // imm - 2 = 9 >= 8
+    rom.writeAt(cmpAt(rom), [0xc9, 0x0b]) // imm - 2 = 9 >= 8
     expect(entryAddr(rom)).toBe(before)
-    rom.writeAt(cmpAt(rom), [0xC9, 0x0A])                  // imm - 2 = 8, still past the end
+    rom.writeAt(cmpAt(rom), [0xc9, 0x0a]) // imm - 2 = 8, still past the end
     expect(entryAddr(rom)).toBe(before)
   })
 })
@@ -523,11 +542,15 @@ describe.skipIf(!romsPresent)('$1F\'s resting palette entry is read, not held', 
  */
 describe.skipIf(!romsPresent)('the bespoke descriptors read their own bytes', () => {
   const D = (id: number) => SPRITE_DRAW_DESCRIPTORS.find(x => x.spriteId === id)!
-  const SPINY = D(0x14), MOLE = D(0x4D), LEDGE_MOLE = D(0x4E)
+  const SPINY = D(0x14),
+    MOLE = D(0x4d),
+    LEDGE_MOLE = D(0x4e)
   const at = (rom: RomFile, d: SpriteDrawDescriptor, ref: CodeRef) =>
     refAt(rom, ref, resolveHandlerBase(rom, d))
   const pose = (rom: RomFile, d: SpriteDrawDescriptor, f = 0) =>
-    parts(rom, f, d).map(p => `${p.charNum}${p.flipX ? 'X' : ''}${p.flipY ? 'Y' : ''}@${p.dx},${p.dy}`).join('|')
+    parts(rom, f, d)
+      .map(p => `${p.charNum}${p.flipX ? 'X' : ''}${p.flipY ? 'Y' : ''}@${p.dx},${p.dy}`)
+      .join('|')
 
   it.each(ROM_FILES)('%s: all three draw JSRs resolve to the traced routine', name => {
     const rom = freshRom(name)
@@ -541,10 +564,10 @@ describe.skipIf(!romsPresent)('the bespoke descriptors read their own bytes', ()
     expect(routineAt(LEDGE_MOLE)).toBe('sub2')
   })
 
-  it.each([0x14, 0x4D, 0x4E])('$%s: NOPping the draw JSR is refused', id => {
+  it.each([0x14, 0x4d, 0x4e])('$%s: NOPping the draw JSR is refused', id => {
     const rom = freshRom()
     const d = D(id as number)
-    rom.writeAt(at(rom, d, d.routineJsr!), [0xEA])
+    rom.writeAt(at(rom, d, d.routineJsr!), [0xea])
     const res = draw(rom, 0, d)
     expect(res.ok).toBe(false)
     expect(res.ok === false && res.failure.kind).toBe('unexpectedOpcode')
@@ -557,23 +580,23 @@ describe.skipIf(!romsPresent)('the bespoke descriptors read their own bytes', ()
     const rom = freshRom()
     const before = pose(rom, SPINY)
     const sub2 = SHARED_DRAW_ROUTINES.find(r => r.routine === 'sub2')!.addr
-    rom.writeAt(at(rom, SPINY, SPINY.routineJsr!) + 1, [sub2 & 0xFF, sub2 >> 8])
+    rom.writeAt(at(rom, SPINY, SPINY.routineJsr!) + 1, [sub2 & 0xff, sub2 >> 8])
     expect(pose(rom, SPINY)).not.toBe(before)
   })
 
   it('$14 takes its prop group from the LDA #$02 immediate', () => {
     const rom = freshRom()
-    expect(rom.readAt(at(rom, SPINY, { mainOff: 0x2F }), 2)![1]).toBe(0x02)
+    expect(rom.readAt(at(rom, SPINY, { mainOff: 0x2f }), 2)![1]).toBe(0x02)
     const before = pose(rom, SPINY)
     // Prop group selects four GeneralSprGfxProp bytes, which carry the
     // per-corner flips (bank_01.asm:3853).
-    rom.writeAt(at(rom, SPINY, { mainOff: 0x2F }) + 1, [0x01])
+    rom.writeAt(at(rom, SPINY, { mainOff: 0x2f }) + 1, [0x01])
     expect(pose(rom, SPINY)).not.toBe(before)
   })
 
   it('$14 with its LDA replaced is refused, not read as a raw byte', () => {
     const rom = freshRom()
-    rom.writeAt(at(rom, SPINY, { mainOff: 0x2F }), [0xEA])
+    rom.writeAt(at(rom, SPINY, { mainOff: 0x2f }), [0xea])
     expect(draw(rom, 0, SPINY).ok).toBe(false)
   })
 
@@ -584,41 +607,44 @@ describe.skipIf(!romsPresent)('the bespoke descriptors read their own bytes', ()
     expect(readShiftCount(rom, sc, base)).toBe(3)
     // The shared routine is reached by hopping through $14's OWN `JSR`
     // (bank_01.asm:1799), so a planted fourth `LSR A` must move it.
-    rom.writeAt(refAt(rom, sc.scan, base) + 3, [0x4A])
+    rom.writeAt(refAt(rom, sc.scan, base) + 3, [0x4a])
     expect(readShiftCount(rom, sc, base)).toBe(4)
   })
 
   it('$4D resolves BOTH table addresses from their LDA operands', () => {
     const rom = freshRom()
     const tileOp = at(rom, MOLE, { mainOff: 0x84 })
-    const propOp = at(rom, MOLE, { mainOff: 0x8A })
-    const word = (a: number) => { const b = rom.readAt(a, 2)!; return b[0] | (b[1] << 8) }
+    const propOp = at(rom, MOLE, { mainOff: 0x8a })
+    const word = (a: number) => {
+      const b = rom.readAt(a, 2)!
+      return b[0] | (b[1] << 8)
+    }
     // The two tables are two bytes apart (bank_01.asm:13406-13410).
     expect(word(propOp) - word(tileOp)).toBe(2)
 
     const before = pose(rom, MOLE)
     // Point the tile-group read at the PROP table, which holds different
     // bytes, and the drawn quad must move.
-    rom.writeAt(tileOp, [word(propOp) & 0xFF, word(propOp) >> 8])
+    rom.writeAt(tileOp, [word(propOp) & 0xff, word(propOp) >> 8])
     expect(pose(rom, MOLE)).not.toBe(before)
   })
 
   it('$4D follows a relocated prop-group table', () => {
     const rom = freshRom()
-    const propOp = at(rom, MOLE, { mainOff: 0x8A })
+    const propOp = at(rom, MOLE, { mainOff: 0x8a })
     const before = pose(rom, MOLE)
     // Copy the table somewhere else, change it, and repoint the operand.
-    const moved = 0xE900
+    const moved = 0xe900
     rom.writeAt(0x010000 | moved, [0x03, 0x03])
-    rom.writeAt(propOp, [moved & 0xFF, moved >> 8])
+    rom.writeAt(propOp, [moved & 0xff, moved >> 8])
     expect(pose(rom, MOLE)).not.toBe(before)
   })
 
   it('$4E takes its tile group from the LDA #$03 immediate', () => {
     const rom = freshRom()
-    expect(rom.readAt(at(rom, LEDGE_MOLE, { mainOff: 0x9F }), 2)![1]).toBe(0x03)
+    expect(rom.readAt(at(rom, LEDGE_MOLE, { mainOff: 0x9f }), 2)![1]).toBe(0x03)
     const before = pose(rom, LEDGE_MOLE)
-    rom.writeAt(at(rom, LEDGE_MOLE, { mainOff: 0x9F }) + 1, [0x01])
+    rom.writeAt(at(rom, LEDGE_MOLE, { mainOff: 0x9f }) + 1, [0x01])
     expect(pose(rom, LEDGE_MOLE)).not.toBe(before)
   })
 
@@ -629,7 +655,7 @@ describe.skipIf(!romsPresent)('the bespoke descriptors read their own bytes', ()
     const rom = freshRom()
     expect(resolveHandlerBase(rom, MOLE)).toBe(resolveHandlerBase(rom, LEDGE_MOLE))
     const moleBefore = pose(rom, MOLE)
-    rom.writeAt(at(rom, LEDGE_MOLE, { mainOff: 0x9F }) + 1, [0x01])
+    rom.writeAt(at(rom, LEDGE_MOLE, { mainOff: 0x9f }) + 1, [0x01])
     expect(pose(rom, MOLE)).toBe(moleBefore)
   })
 })

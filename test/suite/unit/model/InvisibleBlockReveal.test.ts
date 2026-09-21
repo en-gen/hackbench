@@ -17,13 +17,7 @@ const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario Wor
 
 function makeQuad(tag: number): SubtileQuad {
   const sub = () =>
-    new SubTile(
-      new Char(tag, new StaticPixelsBehavior(new Uint8Array(64))),
-      0,
-      false,
-      false,
-      false,
-    )
+    new SubTile(new Char(tag, new StaticPixelsBehavior(new Uint8Array(64))), 0, false, false, false)
   return [sub(), sub(), sub(), sub()]
 }
 
@@ -59,37 +53,36 @@ describe('InvisibleBlockRevealBehavior behavior', () => {
   })
 })
 
-describe.skipIf(!existsSync(ROM_PATH))('TileFactory invisible-block reveal wiring (vanilla ROM)', () => {
-  beforeEach(resetEditorStore)
+describe.skipIf(!existsSync(ROM_PATH))(
+  'TileFactory invisible-block reveal wiring (vanilla ROM)',
+  () => {
+    beforeEach(resetEditorStore)
 
-  it('$021 wears InvisibleBlockRevealBehavior with the $123 reveal + $02B coin overlay', () => {
-    const rom = SmwRom.open(ROM_PATH)
-    const raw = rom.getLevelRawData(0x024)!
-    const header = parseLevelHeader(raw)
-    const vram = loadVram(rom.rom, header.objectTileset, header.spriteSet)
-    const chars = buildChars(vram)
-    const tiles = buildTiles(rom.rom, header.objectTileset, chars)
-    const mapStore = makeTestMapStore()
+    it('$021 wears InvisibleBlockRevealBehavior with the $123 reveal + $02B coin overlay', () => {
+      const rom = SmwRom.open(ROM_PATH)
+      const raw = rom.getLevelRawData(0x024)!
+      const header = parseLevelHeader(raw)
+      const vram = loadVram(rom.rom, header.objectTileset, header.spriteSet)
+      const chars = buildChars(vram)
+      const tiles = buildTiles(rom.rom, header.objectTileset, chars)
+      const mapStore = makeTestMapStore()
 
-    const tile = tiles.get(0x021)
-    expect(tile, 'tile $021').toBeInstanceOf(Tile)
-    expect(tile!.behavior, 'behavior of $021').toBeInstanceOf(InvisibleBlockRevealBehavior)
+      const tile = tiles.get(0x021)
+      expect(tile, 'tile $021').toBeInstanceOf(Tile)
+      expect(tile!.behavior, 'behavior of $021').toBeInstanceOf(InvisibleBlockRevealBehavior)
 
-    const revealBehavior = tile!.behavior as InvisibleBlockRevealBehavior
-    const cell = { tl: { x: 0, y: 0 }, br: { x: 16, y: 16 } } as unknown as CellBox
+      const revealBehavior = tile!.behavior as InvisibleBlockRevealBehavior
+      const cell = { tl: { x: 0, y: 0 }, br: { x: 16, y: 16 } } as unknown as CellBox
 
-    // Reveal quad must match tile $123 (visible ? coin block graphic).
-    const visibleCoin = tiles.get(0x123)
-    expect(visibleCoin, 'tile $123').toBeInstanceOf(Tile)
-    expect(revealBehavior.revealedQuad).toEqual(
-      visibleCoin!.behavior.selectQuad(cell, mapStore),
-    )
+      // Reveal quad must match tile $123 (visible ? coin block graphic).
+      const visibleCoin = tiles.get(0x123)
+      expect(visibleCoin, 'tile $123').toBeInstanceOf(Tile)
+      expect(revealBehavior.revealedQuad).toEqual(visibleCoin!.behavior.selectQuad(cell, mapStore))
 
-    // Reward overlay quad must match tile $02B (coin).
-    const coin = tiles.get(0x02B)
-    expect(coin, 'tile $02B').toBeInstanceOf(Tile)
-    expect(revealBehavior.rewardOverlayQuad).toEqual(
-      coin!.behavior.selectQuad(cell, mapStore),
-    )
-  })
-})
+      // Reward overlay quad must match tile $02B (coin).
+      const coin = tiles.get(0x02b)
+      expect(coin, 'tile $02B').toBeInstanceOf(Tile)
+      expect(revealBehavior.rewardOverlayQuad).toEqual(coin!.behavior.selectQuad(cell, mapStore))
+    })
+  },
+)

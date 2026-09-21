@@ -1,5 +1,5 @@
 /**
- * WingedGoombaBehavior — synthetic branch coverage.
+ * WingedGoombaBehavior - synthetic branch coverage.
  * ($10 WingedGoomba handler, bank_01.asm:1934-1988)
  *
  * Complements WingedGoombaBehavior.priority.test.ts (priority-1 passthrough)
@@ -29,23 +29,28 @@ import { WingedGoombaBehavior } from '../../../src/rom/model/sprites/behaviors/W
 import { buildSolidity } from './fixtures/buildSolidity'
 
 const GROUND = { actsLike: 0x130 }
-const WALL   = { actsLike: 0x130 }
-const BODY   = 16
+const WALL = { actsLike: 0x130 }
+const BODY = 16
 
-describe('WingedGoombaBehavior — kind', () => {
+describe('WingedGoombaBehavior - kind', () => {
   it('kind === winged_goomba', () => {
     expect(new WingedGoombaBehavior().kind).toBe('winged_goomba')
   })
 })
 
-describe('WingedGoombaBehavior — computeBouncePolyline basic', () => {
+describe('WingedGoombaBehavior - computeBouncePolyline basic', () => {
   it('returns non-empty points and openEnd:true without getL1 (collision=undefined path)', () => {
     // Exercises the `getL1 ? spriteCollisionFromL1(getL1) : undefined` false branch.
     const level = Array(3).fill('..........').concat(['##########'])
     const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND })
     const beh = new WingedGoombaBehavior()
     const { points, openEnd } = beh.computeBouncePolyline(
-      5 * BODY, 2 * BODY, solidH, solidV, cols, rows,
+      5 * BODY,
+      2 * BODY,
+      solidH,
+      solidV,
+      cols,
+      rows,
     )
     expect(points.length).toBeGreaterThan(0)
     expect(openEnd).toBe(true)
@@ -56,7 +61,14 @@ describe('WingedGoombaBehavior — computeBouncePolyline basic', () => {
     const { solidH, solidV, getL1, cols, rows } = buildSolidity(level, { '#': GROUND })
     const beh = new WingedGoombaBehavior()
     const { points, openEnd } = beh.computeBouncePolyline(
-      5 * BODY, 2 * BODY, solidH, solidV, cols, rows, 0, getL1,
+      5 * BODY,
+      2 * BODY,
+      solidH,
+      solidV,
+      cols,
+      rows,
+      0,
+      getL1,
     )
     expect(points.length).toBeGreaterThan(0)
     expect(openEnd).toBe(true)
@@ -67,9 +79,7 @@ describe('WingedGoombaBehavior — computeBouncePolyline basic', () => {
     const level = Array(5).fill('....................').concat(['####################'])
     const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND })
     const beh = new WingedGoombaBehavior()
-    const { points } = beh.computeBouncePolyline(
-      10 * BODY, 4 * BODY, solidH, solidV, cols, rows, 0,
-    )
+    const { points } = beh.computeBouncePolyline(10 * BODY, 4 * BODY, solidH, solidV, cols, rows, 0)
     // After a few frames moving left, center X should drop below spawn center
     const spawnCenterX = 10 * BODY + BODY / 2
     expect(points.at(-1)!.x).toBeLessThan(spawnCenterX)
@@ -81,7 +91,13 @@ describe('WingedGoombaBehavior — computeBouncePolyline basic', () => {
     const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND })
     const beh = new WingedGoombaBehavior()
     const { points } = beh.computeBouncePolyline(
-      5 * BODY, 4 * BODY, solidH, solidV, cols, rows, 10 * BODY,
+      5 * BODY,
+      4 * BODY,
+      solidH,
+      solidV,
+      cols,
+      rows,
+      10 * BODY,
     )
     const spawnCenterX = 5 * BODY + BODY / 2
     expect(points.at(-1)!.x).toBeGreaterThan(spawnCenterX)
@@ -93,14 +109,12 @@ describe('WingedGoombaBehavior — computeBouncePolyline basic', () => {
     const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND })
     const beh = new WingedGoombaBehavior()
     // marioSpawnX=2*BODY > spawnX=0 → dir=0 (right) → exits col ≥ 1
-    const { openEnd } = beh.computeBouncePolyline(
-      0, 0, solidH, solidV, cols, rows, 2 * BODY,
-    )
+    const { openEnd } = beh.computeBouncePolyline(0, 0, solidH, solidV, cols, rows, 2 * BODY)
     expect(openEnd).toBe(true)
   })
 })
 
-describe('WingedGoombaBehavior — bounce counter cycle (s.ground + bounceCount)', () => {
+describe('WingedGoombaBehavior - bounce counter cycle (s.ground + bounceCount)', () => {
   it('full 256-frame budget runs without crash and produces 256 points', () => {
     // 5 air rows + 1 ground, 20 cols wide. dir=1 (left), spawnX=10*BODY=160.
     // In 256 frames at -0.5px/frame: travels ~128 px left → x≈32, still in bounds.
@@ -110,9 +124,17 @@ describe('WingedGoombaBehavior — bounce counter cycle (s.ground + bounceCount)
     const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND })
     const beh = new WingedGoombaBehavior()
     const { points, openEnd } = beh.computeBouncePolyline(
-      10 * BODY, 4 * BODY, solidH, solidV, cols, rows, 0, undefined, 256,
+      10 * BODY,
+      4 * BODY,
+      solidH,
+      solidV,
+      cols,
+      rows,
+      0,
+      undefined,
+      256,
     )
-    expect(points).toHaveLength(256)   // full budget — no premature offgrid exit
+    expect(points).toHaveLength(256) // full budget - no premature offgrid exit
     expect(openEnd).toBe(true)
   })
 
@@ -124,30 +146,42 @@ describe('WingedGoombaBehavior — bounce counter cycle (s.ground + bounceCount)
     const beh = new WingedGoombaBehavior()
     // spawnX=10*BODY > marioSpawnX=0 → dir=1 (left); 10 cols of headroom to the left.
     const { points } = beh.computeBouncePolyline(
-      10 * BODY, 4 * BODY, solidH, solidV, cols, rows, 0, undefined, 256,
+      10 * BODY,
+      4 * BODY,
+      solidH,
+      solidV,
+      cols,
+      rows,
+      0,
+      undefined,
+      256,
     )
     // Ground resting center Y = (5*16 - 16) + 8 = 64+8 = 72
-    const groundCenterY = (5 * BODY - BODY) + BODY / 2
+    const groundCenterY = 5 * BODY - BODY + BODY / 2
     // The tall bounce apex must be more than 20 px above resting center
     const minY = Math.min(...points.map(p => p.y))
     expect(minY).toBeLessThan(groundCenterY - 20)
   })
 })
 
-describe('WingedGoombaBehavior — wall flip (s.blocked)', () => {
+describe('WingedGoombaBehavior - wall flip (s.blocked)', () => {
   it('wall flip keeps sprite inside walled corridor', () => {
     // Wall at col 1 (left), wall at col 8 (right). Ground at row 2.
     // dir=1 (left): spawnX=5*BODY=80 > marioSpawnX=0 → sprite walks left,
     // hits left wall, s.blocked='left' → flip to dir=0 → bounces back right.
-    const level = [
-      '.W.......W',
-      '.W.......W',
-      '##########',
-    ]
-    const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND, 'W': WALL })
+    const level = ['.W.......W', '.W.......W', '##########']
+    const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': GROUND, W: WALL })
     const beh = new WingedGoombaBehavior()
     const { points } = beh.computeBouncePolyline(
-      5 * BODY, 1 * BODY, solidH, solidV, cols, rows, 0, undefined, 128,
+      5 * BODY,
+      1 * BODY,
+      solidH,
+      solidV,
+      cols,
+      rows,
+      0,
+      undefined,
+      128,
     )
     // All path points must stay within the interior corridor (cols 2-8, x in [32,144])
     const minX = Math.min(...points.map(p => p.x))
@@ -158,18 +192,26 @@ describe('WingedGoombaBehavior — wall flip (s.blocked)', () => {
 
   it('flip body executes: hitting wall sets s.blocked, condition fires, dir/vx/blocked updated', () => {
     // 3-row, 4-col level. Ground row uses actsLike=0x100 (floor=true, wall=false) so
-    // the ground row does NOT block horizontal movement — only the explicit 'W' col does.
+    // the ground row does NOT block horizontal movement - only the explicit 'W' col does.
     // spawnX=2*BODY=32 > marioSpawnX=0 → dir=1 (left). On the first non-zero-vx frame
     // applyXSpeed hits the wall at col 1 (x=[16,32)) and sets s.blocked='left'.
     // Flip condition s.blocked==='left'===( dir===0?'right':'left' ) fires:
     //   s.dir 1→0, s.vx negated −8→+8, s.blocked cleared.
     // Sprite then moves right and eventually exits the 4-col level.
-    const FLOOR_ONLY = { actsLike: 0x100 }  // floor=true wall=false: landable, not a horizontal barrier
+    const FLOOR_ONLY = { actsLike: 0x100 } // floor=true wall=false: landable, not a horizontal barrier
     const level = ['.W..', '.W..', '####']
-    const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': FLOOR_ONLY, 'W': WALL })
+    const { solidH, solidV, cols, rows } = buildSolidity(level, { '#': FLOOR_ONLY, W: WALL })
     const beh = new WingedGoombaBehavior()
     const { points, openEnd } = beh.computeBouncePolyline(
-      2 * BODY, 1 * BODY, solidH, solidV, cols, rows, 0, undefined, 50,
+      2 * BODY,
+      1 * BODY,
+      solidH,
+      solidV,
+      cols,
+      rows,
+      0,
+      undefined,
+      50,
     )
     // After the flip the sprite moves rightward and exits the level.
     // Final recorded center-x must be past the starting center-x of 40 (x=32+8).

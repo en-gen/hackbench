@@ -13,11 +13,11 @@ import { assertCatalogAcceptance, buildBrokenCatalogVariants } from '../support/
 // exactly, which is the confirmation that hypothesis was waiting on.
 const CORPUS: Array<{ file: string; real: number; parseable: number }> = [
   { file: 'Super Mario World (USA).vanilla.sfc', real: 235, parseable: 235 },
-  { file: 'Super Mario World (USA).magic.sfc',   real: 235, parseable: 235 },
-  { file: 'Seven_Vanilla_Levels.sfc',             real: 251, parseable: 251 },
-  { file: 'GrandPooWorld_V1.2.sfc',               real: 235, parseable: 235 },
-  { file: 'Grand Poo World 2 1.1.sfc',            real: 291, parseable: 291 },
-  { file: 'Invictus 1.0.sfc',                     real: 354, parseable: 354 },
+  { file: 'Super Mario World (USA).magic.sfc', real: 235, parseable: 235 },
+  { file: 'Seven_Vanilla_Levels.sfc', real: 251, parseable: 251 },
+  { file: 'GrandPooWorld_V1.2.sfc', real: 235, parseable: 235 },
+  { file: 'Grand Poo World 2 1.1.sfc', real: 291, parseable: 291 },
+  { file: 'Invictus 1.0.sfc', real: 354, parseable: 354 },
 ]
 
 for (const { file, real, parseable } of CORPUS) {
@@ -65,7 +65,10 @@ for (const { file, real, parseable } of CORPUS) {
 describe('teeth: acceptance gate rejects broken catalogs (six-ROM sweep)', () => {
   for (const { file, real, parseable } of CORPUS) {
     const romPath = path.resolve(__dirname, '../../roms', file)
-    if (!existsSync(romPath)) { it.skip(`${file} (ROM not present)`, () => {}); continue }
+    if (!existsSync(romPath)) {
+      it.skip(`${file} (ROM not present)`, () => {})
+      continue
+    }
 
     const good = buildLevelCatalog(SmwRom.open(romPath))
     const brokenVariants = buildBrokenCatalogVariants(good)

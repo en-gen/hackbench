@@ -39,7 +39,7 @@ interface EditorStoreState {
   cursorPx: { x: number; y: number } | null
   /**
    * Override Layer2YPos used by `L2ObjectStream.render`. null = use the
-   * level's initialLayer2YPx from the ROM. Legacy field — superseded by
+   * level's initialLayer2YPx from the ROM. Legacy field - superseded by
    * `scrollFrame` for levels with a scrollSimulator attached, but kept
    * as fallback for static levels without one.
    */
@@ -61,7 +61,7 @@ interface EditorStoreState {
    *
    * For the editor's L2 plane shift, `L2ObjectStream.render` reads
    * `frameL2` and computes `(dx, dy) = layer1{X,Y}Pos − layer2{X,Y}Pos`
-   * at that frame — so scrubbing the L2 slider alone moves L2
+   * at that frame - so scrubbing the L2 slider alone moves L2
    * independently of L1 (and vice versa). The Link button keeps all
    * three frames in lock-step when ON.
    */
@@ -110,7 +110,7 @@ interface EditorStoreActions {
   setFrameL1(idx: number): void
   setFrameL2(idx: number): void
   setFrameL3(idx: number): void
-  /** Set all three frames at once — used by the playback engine and
+  /** Set all three frames at once - used by the playback engine and
    *  by the Link-on-mirroring slider input handlers. */
   setAllFrames(idx: number): void
   setScrollFramesLinked(on: boolean): void
@@ -130,9 +130,19 @@ export function createEditorStore(): EditorStore {
     cameraDragging: false,
     zoom: 1,
     layerToggles: {
-      l1: true, l2: true, l3: true, sprites: true, screens: false,
-      block: false, mapGrid: false, l3Hud: false, surfaces: false,
-      walls: false, l3Range: false, l2Range: false, scrollPath: false,
+      l1: true,
+      l2: true,
+      l3: true,
+      sprites: true,
+      screens: false,
+      block: false,
+      mapGrid: false,
+      l3Hud: false,
+      surfaces: false,
+      walls: false,
+      l3Range: false,
+      l2Range: false,
+      scrollPath: false,
       scrollPlayback: false,
     },
     activeVineSources: new Set(),
@@ -183,26 +193,28 @@ export function createEditorStore(): EditorStore {
     setLayerToggles(next) {
       const cur = s.layerToggles
       if (
-        cur.l1             === next.l1             &&
-        cur.l2             === next.l2             &&
-        cur.l3             === next.l3             &&
-        cur.sprites        === next.sprites        &&
-        cur.screens        === next.screens        &&
-        cur.block          === next.block          &&
-        cur.mapGrid        === next.mapGrid        &&
-        cur.l3Hud          === next.l3Hud          &&
-        cur.surfaces       === next.surfaces       &&
-        cur.walls          === next.walls          &&
-        cur.l3Range        === next.l3Range        &&
-        cur.l2Range        === next.l2Range        &&
-        cur.scrollPath     === next.scrollPath     &&
+        cur.l1 === next.l1 &&
+        cur.l2 === next.l2 &&
+        cur.l3 === next.l3 &&
+        cur.sprites === next.sprites &&
+        cur.screens === next.screens &&
+        cur.block === next.block &&
+        cur.mapGrid === next.mapGrid &&
+        cur.l3Hud === next.l3Hud &&
+        cur.surfaces === next.surfaces &&
+        cur.walls === next.walls &&
+        cur.l3Range === next.l3Range &&
+        cur.l2Range === next.l2Range &&
+        cur.scrollPath === next.scrollPath &&
         cur.scrollPlayback === next.scrollPlayback
-      ) return
+      )
+        return
       s.layerToggles = { ...next }
     },
     setCamera(next) {
       const cur = s.camera
-      if (cur.tileX === next.tileX && cur.tileY === next.tileY && cur.focused === next.focused) return
+      if (cur.tileX === next.tileX && cur.tileY === next.tileY && cur.focused === next.focused)
+        return
       s.camera = { ...next }
     },
     setCameraOn(on) {
@@ -213,12 +225,14 @@ export function createEditorStore(): EditorStore {
     },
     toggleVineSource(key) {
       const next = new Set(s.activeVineSources)
-      if (next.has(key)) next.delete(key); else next.add(key)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       s.activeVineSources = next
     },
     toggleSpriteOverlay(key) {
       const next = new Set(s.activeSpriteOverlays)
-      if (next.has(key)) next.delete(key); else next.add(key)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       s.activeSpriteOverlays = next
     },
     setSelectedSprite(key) {
@@ -226,17 +240,21 @@ export function createEditorStore(): EditorStore {
     },
     setCursorPx(pos) {
       const cur = s.cursorPx
-      if (!pos) { if (cur !== null) s.cursorPx = null; return }
-      const nx = Math.round(pos.x), ny = Math.round(pos.y)
+      if (!pos) {
+        if (cur !== null) s.cursorPx = null
+        return
+      }
+      const nx = Math.round(pos.x),
+        ny = Math.round(pos.y)
       if (cur && cur.x === nx && cur.y === ny) return
       s.cursorPx = { x: nx, y: ny }
     },
     setL2YOverride(y) {
-      const next = y === null ? null : Math.max(0, Math.min(0xFF, y | 0))
+      const next = y === null ? null : Math.max(0, Math.min(0xff, y | 0))
       if (s.l2YOverride !== next) s.l2YOverride = next
     },
     setScrollProgress(p) {
-      const next = Math.max(0, Math.min(0xFF, p | 0))
+      const next = Math.max(0, Math.min(0xff, p | 0))
       if (s.scrollProgress !== next) s.scrollProgress = next
     },
     setFrameL1(idx) {

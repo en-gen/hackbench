@@ -31,49 +31,49 @@ import { getLevelNameByIndex } from './SmwLevelNames'
 
 /** SNES addresses for SMW ROM structures. */
 export const ADDR = {
-  ROM_NAME:         0x00FFC0,
-  ROM_SPEED_MAP:    0x00FFD5,
-  ROM_SIZE:         0x00FFD7,
-  SRAM_SIZE:        0x00FFD8,
+  ROM_NAME: 0x00ffc0,
+  ROM_SPEED_MAP: 0x00ffd5,
+  ROM_SIZE: 0x00ffd7,
+  SRAM_SIZE: 0x00ffd8,
 
   // Layer 1 pointer table: interleaved 3-byte entries (lo, hi, bank).
   // bank_05.asm line 7680: Layer1Ptrs at $05E000.
   // 512 entries x 3 bytes = $600 bytes ($05E000-$05E5FF).
-  LEVEL_L1_PTR:     0x05E000,
-  LEVEL_L1_LOW:     0x05E000,
+  LEVEL_L1_PTR: 0x05e000,
+  LEVEL_L1_LOW: 0x05e000,
 
   // Layer 2 pointer table: same 3-byte layout.
   // bank_05.asm line 8194: Layer2Ptrs at $05E600.
-  LEVEL_L2_PTR:     0x05E600,
+  LEVEL_L2_PTR: 0x05e600,
 
   // Sprite pointer table: 2-byte entries (lo, hi), bank always $07.
   // bank_05.asm line 8708: Ptrs05EC00 at $05EC00.
-  LEVEL_SPR_PTR:    0x05EC00,
-  LEVEL_SPR_LOW:    0x05EC00,
+  LEVEL_SPR_PTR: 0x05ec00,
+  LEVEL_SPR_LOW: 0x05ec00,
 
   // Map16 tile data
-  MAP16_LOW:        0x0D8000,
-  MAP16_HIGH:       0x0DC000,
+  MAP16_LOW: 0x0d8000,
+  MAP16_HIGH: 0x0dc000,
 
   // GFX tileset lookup: $05D760[spriteSet] -> tileset index
   // bank_05.asm: referenced in the game's sprite tileset loading
-  TILESETID_TABLE:  0x05D760,
+  TILESETID_TABLE: 0x05d760,
 
   // Secondary entrance tables (bank_05.asm CODE_05D796 lines 7113-7161).
   // DATA_05F800 is two 256-entry halves: index = (submap flag << 8) | byte
   // (line 7116: `LDY.B _E` is a 16-bit load of the _E/_F zero-page pair).
-  SEC_EXIT_DEST:    0x05F800,   // DATA_05F800: lo byte of destination
-  SEC_EXIT_LO:      0x05FA00,   // DATA_05FA00: BG/FG/Mario Y pos info
-  SEC_EXIT_SCREEN:  0x05FC00,   // DATA_05FC00: Mario X pos + screen
-  SEC_EXIT_FLAGS:   0x05FE00,   // DATA_05FE00: entrance action (bits 0-2 only; bit 3 unread, see header)
+  SEC_EXIT_DEST: 0x05f800, // DATA_05F800: lo byte of destination
+  SEC_EXIT_LO: 0x05fa00, // DATA_05FA00: BG/FG/Mario Y pos info
+  SEC_EXIT_SCREEN: 0x05fc00, // DATA_05FC00: Mario X pos + screen
+  SEC_EXIT_FLAGS: 0x05fe00, // DATA_05FE00: entrance action (bits 0-2 only; bit 3 unread, see header)
 
   SEC_ENTRANCE_COUNT: 512,
 
   // Overworld translevel table
-  OW_TRANSLEVEL:    0x049E00,   // OWLayer1Translevel (bank_05.asm line 7214)
+  OW_TRANSLEVEL: 0x049e00, // OWLayer1Translevel (bank_05.asm line 7214)
 
   // Global palette
-  GLOBAL_PALETTE:   0x00B0A0,
+  GLOBAL_PALETTE: 0x00b0a0,
 } as const
 
 const SMW_ROM_NAME = 'SUPER MARIOWORLD'
@@ -88,7 +88,7 @@ export const LEVEL_COUNT = 0x200
  *     (subtract $24, then add $100 for submap flag)
  */
 export function isOverworldLevel(index: number): boolean {
-  return (index >= 0x000 && index <= 0x024) || (index >= 0x101 && index <= 0x13B)
+  return (index >= 0x000 && index <= 0x024) || (index >= 0x101 && index <= 0x13b)
 }
 
 export interface RomSummary {
@@ -118,14 +118,22 @@ export class SmwRom {
     if (mapMode !== 0x20 && mapMode !== 0x30) {
       throw new Error(
         `Unexpected ROM map mode: $${mapMode?.toString(16).toUpperCase()} ` +
-        `(expected $20 or $30 for LoROM)`
+          `(expected $20 or $30 for LoROM)`,
       )
     }
   }
 
-  get internalName(): string { return this.rom.readString(ADDR.ROM_NAME, 21) }
-  get romSizeKb(): number { const n = this.rom.readByte(ADDR.ROM_SIZE); return n ? (1 << n) : 0 }
-  get sramSizeKb(): number { const n = this.rom.readByte(ADDR.SRAM_SIZE); return n ? (1 << n) : 0 }
+  get internalName(): string {
+    return this.rom.readString(ADDR.ROM_NAME, 21)
+  }
+  get romSizeKb(): number {
+    const n = this.rom.readByte(ADDR.ROM_SIZE)
+    return n ? 1 << n : 0
+  }
+  get sramSizeKb(): number {
+    const n = this.rom.readByte(ADDR.SRAM_SIZE)
+    return n ? 1 << n : 0
+  }
 
   getSummary(): RomSummary {
     return {
@@ -188,7 +196,7 @@ export class SmwRom {
   getAllLevelPointers(): Array<{ index: number; address: number | null }> {
     return Array.from({ length: LEVEL_COUNT }, (_, i) => ({
       index: i,
-      address: this.getLevelL1Pointer(i)
+      address: this.getLevelL1Pointer(i),
     }))
   }
 
@@ -223,7 +231,7 @@ export class SmwRom {
     const buf = this.rom.readAt(ptr, 5)
     if (!buf || buf.length < 5) return 0
     // Header byte 2 bits 3-0 = sprite tileset (CODE_0584E3 line 573)
-    const spriteSet = buf[2] & 0x0F
+    const spriteSet = buf[2] & 0x0f
     return this.rom.readByte(ADDR.TILESETID_TABLE + spriteSet) ?? 0
   }
 
@@ -237,11 +245,11 @@ export class SmwRom {
     const data = this.getLevelRawData(index)
     if (data === null || data.length <= 5) return false
 
-    const levelMode = data[1] & 0x1F
+    const levelMode = data[1] & 0x1f
     if (levelMode > 20) return false
 
     // data[5] is first object byte; 0xFF = immediate terminator
-    return data[5] !== 0xFF
+    return data[5] !== 0xff
   }
 
   /**
@@ -297,7 +305,10 @@ export class SmwRom {
     let fillerPtr: number | null = null
     let fillerCount = 0
     for (const [ptr, count] of counts) {
-      if (count > fillerCount) { fillerPtr = ptr; fillerCount = count }
+      if (count > fillerCount) {
+        fillerPtr = ptr
+        fillerCount = count
+      }
     }
     return fillerCount >= FILLER_MIN_REPEATS ? fillerPtr : null
   }
@@ -344,7 +355,7 @@ export class SmwRom {
     const { overworld, subarea } = this.classifyLevels()
     const fillerPtr = this._findFillerL1Pointer()
     const validDestinations = new Set(
-      subarea.filter(idx => this.getLevelL1Pointer(idx) !== fillerPtr)
+      subarea.filter(idx => this.getLevelL1Pointer(idx) !== fillerPtr),
     )
 
     const destTable = this.rom.readAt(ADDR.SEC_EXIT_DEST, ADDR.SEC_ENTRANCE_COUNT)
@@ -358,7 +369,11 @@ export class SmwRom {
       const rawL1 = this.getLevelRawData(levelIdx)
       if (!rawL1 || rawL1.length < 6) continue
       let parsed
-      try { parsed = parseLevelObjects(rawL1) } catch { continue }
+      try {
+        parsed = parseLevelObjects(rawL1)
+      } catch {
+        continue
+      }
       const specs = parsed.objects
         .filter(o => o.screenExitDest !== undefined)
         .map(o => ({
@@ -366,7 +381,7 @@ export class SmwRom {
           // LevelParser folds a dead ExitTableHigh-derived bit into bit 8 of
           // screenExitDest (see LevelParser.ts); mask it back off to recover
           // the object's raw extra byte.
-          rawByte: o.screenExitDest! & 0xFF,
+          rawByte: o.screenExitDest! & 0xff,
         }))
       if (specs.length > 0) exitsByLevel.set(levelIdx, specs)
     }
@@ -398,9 +413,7 @@ export class SmwRom {
 
       const dests: number[] = []
       for (const spec of specs) {
-        const destLow = spec.isSecondary
-          ? destTable[(flag << 8) | spec.rawByte]
-          : spec.rawByte
+        const destLow = spec.isSecondary ? destTable[(flag << 8) | spec.rawByte] : spec.rawByte
         if (destLow === undefined) continue
         const dest = (flag << 8) | destLow
         if (dest === cur || !validDestinations.has(dest)) continue
@@ -431,8 +444,8 @@ export class SmwRom {
       if (ptr !== null) {
         const data = this.rom.readAt(ptr, 6)
         if (data && data.length >= 6) {
-          const mode = data[1] & 0x1F
-          hasData = mode <= 0x1F && data[5] !== undefined
+          const mode = data[1] & 0x1f
+          hasData = mode <= 0x1f && data[5] !== undefined
         }
       }
       results.push({ index: i, hasData, name: hasData ? this.getLevelName(i) : null })

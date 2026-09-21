@@ -21,14 +21,30 @@ const p = (layer: PassLayer, priority: number): RenderPass => ({ layer, priority
 
 /** Back to front, BG3 priority bit SET. docs/snes-superfamicom-selected.md:501-514. */
 const BG3_PRI_SET: readonly RenderPass[] = [
-  p('l3', 0), p('sprites', 0), p('sprites', 1), p('l2', 0), p('l1', 0),
-  p('sprites', 2), p('l2', 1), p('l1', 1), p('sprites', 3), p('l3', 1),
+  p('l3', 0),
+  p('sprites', 0),
+  p('sprites', 1),
+  p('l2', 0),
+  p('l1', 0),
+  p('sprites', 2),
+  p('l2', 1),
+  p('l1', 1),
+  p('sprites', 3),
+  p('l3', 1),
 ]
 
 /** Back to front, bit CLEAR: BG3.1 drops to just under OBJ.0 (:516-518). */
 const BG3_PRI_CLEAR: readonly RenderPass[] = [
-  p('l3', 0), p('sprites', 0), p('l3', 1), p('sprites', 1), p('l2', 0),
-  p('l1', 0), p('sprites', 2), p('l2', 1), p('l1', 1), p('sprites', 3),
+  p('l3', 0),
+  p('sprites', 0),
+  p('l3', 1),
+  p('sprites', 1),
+  p('l2', 0),
+  p('l1', 0),
+  p('sprites', 2),
+  p('l2', 1),
+  p('l1', 1),
+  p('sprites', 3),
 ]
 
 /** The full mode-1 pass list for a level, back to front. */

@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
-import { expandMap, expandObject, createGrid, readLayer3Setting, TILE_EMPTY } from '../../../src/rom/ObjectExpander'
+import {
+  expandMap,
+  createGrid,
+  readLayer3Setting,
+  TILE_EMPTY,
+} from '../../../src/rom/ObjectExpander'
 import { LevelObject, SCREEN_W, parseLevelObjects } from '../../../src/rom/LevelParser'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
@@ -9,45 +14,87 @@ import {
   ADDR_EXTENDED_DISPATCH,
   ADDR_TILESET_DISPATCH,
   ADDR_TILESET0_HANDLERS,
-  readByteTable, readLongPointer, readLongPointerTable,
+  readByteTable,
+  readLongPointer,
+  readLongPointerTable,
 } from '../../../src/rom/objectHandlers/romData'
 import {
-  makeCursor, writeTile, writeTileAdvance, nextRow,
-  saveBookmark, restoreBookmark, advanceCol,
+  makeCursor,
+  writeTile,
+  writeTileAdvance,
+  nextRow,
+  saveBookmark,
+  restoreBookmark,
+  advanceCol,
   TileGrid,
 } from '../../../src/rom/objectHandlers/cursor'
 import {
-  handle_0DA8C3, handle_0DAA26, handle_0DAAB4, handle_0DAB0D, handle_0DAB3E,
-  handle_0DB075, handle_0DB1C8, handle_0DB1D4, handle_0DB224,
-  handle_0DB3BD, handle_0DB3E3,
-  handle_0DB42D, handle_0DB461, handle_0DB49E, handle_0DB51F, handle_0DB547, handle_0DB571, handle_0DB5B7,
-  handle_0DB73F, handle_0DB7AA,
+  handle_0DA8C3,
+  handle_0DAA26,
+  handle_0DAAB4,
+  handle_0DAB0D,
+  handle_0DAB3E,
+  handle_0DB075,
+  handle_0DB1C8,
+  handle_0DB1D4,
+  handle_0DB224,
+  handle_0DB3BD,
+  handle_0DB3E3,
+  handle_0DB42D,
+  handle_0DB461,
+  handle_0DB49E,
+  handle_0DB51F,
+  handle_0DB547,
+  handle_0DB571,
+  handle_0DB5B7,
+  handle_0DB73F,
+  handle_0DB7AA,
   handle_0DB863,
-  handle_0DB916, handle_0DB91E,
-  handle_0DB604, handle_0DBB2C, handle_0DBB63,
-  handle_0DDCEA, handle_0DDD2E, handle_0DE135,
+  handle_0DB916,
+  handle_0DB91E,
+  handle_0DB604,
+  handle_0DBB2C,
+  handle_0DBB63,
+  handle_0DDCEA,
+  handle_0DDD2E,
+  handle_0DE135,
   handle_0DED12,
   handle_0DEDB9,
   handle_0DDAF2,
   handle_0DD070,
 } from '../../../src/rom/objectHandlers/standardHandlers'
 import {
-  handle_0DA57B, handle_0DA64D, handle_0DA656, handle_0DA673, handle_0DA68E, handle_0DA6D1,
+  handle_0DA57B,
+  handle_0DA64D,
+  handle_0DA656,
+  handle_0DA673,
+  handle_0DA68E,
+  handle_0DA6D1,
   handle_0DB2CA,
-  handle_0DB583, handle_0DB58B,
+  handle_0DB583,
+  handle_0DB58B,
   handle_0DC259,
   handle_0DE971,
-  handle_0DE9AA, handle_0DEA3E,
+  handle_0DE9AA,
+  handle_0DEA3E,
   handle_0DE0AE,
-  handle_0DDA68, handle_0DDA80,
-  handle_0DEB6A, handle_0DEC68,
-  handle_0DC2E9, handle_0DECC1,
-  handle_0DA80D, handle_0DA846, handle_0DA87D,
+  handle_0DDA68,
+  handle_0DDA80,
+  handle_0DEB6A,
+  handle_0DEC68,
+  handle_0DC2E9,
+  handle_0DECC1,
+  handle_0DA80D,
+  handle_0DA846,
+  handle_0DA87D,
 } from '../../../src/rom/objectHandlers/extendedHandlers'
 import {
-  handle_0DB6C3, handle_0DB705,
-  handle_0DEF45, handle_0DEFA8,
-  handle_0DF066, handle_0DF06C,
+  handle_0DB6C3,
+  handle_0DB705,
+  handle_0DEF45,
+  handle_0DEFA8,
+  handle_0DF066,
+  handle_0DF06C,
 } from '../../../src/rom/objectHandlers/standardHandlers'
 import { RomFile } from '../../../src/rom/RomFile'
 
@@ -64,7 +111,7 @@ function makeMockRom(patches: Record<number, number[]> = {}): RomFile {
   // 4 MB is enough to cover bank $0D (file offset $68000..$6FFFF) with headroom.
   const buf = Buffer.alloc(0x400000, 0x00)
   // Set the LoROM map mode byte at file offset $7FD5 so RomFile picks LoROM mapping.
-  buf[0x7FD5] = 0x20
+  buf[0x7fd5] = 0x20
   const rom = new RomFile('mock.smc', buf)
   // Apply patches by SNES LoROM address.
   for (const [snesAddrStr, bytes] of Object.entries(patches)) {
@@ -80,19 +127,29 @@ function makeMockRom(patches: Record<number, number[]> = {}): RomFile {
  * handler's body for tests that exercise handlers after the
  * "ROM-derived data tables" refactor.
  */
-function stampLongOperand(rom: RomFile, handlerAddr: number, offsetInHandler: number, targetAddr: number): void {
+function stampLongOperand(
+  rom: RomFile,
+  handlerAddr: number,
+  offsetInHandler: number,
+  targetAddr: number,
+): void {
   rom.writeAt(handlerAddr + offsetInHandler, [
-    targetAddr & 0xFF,
-    (targetAddr >> 8) & 0xFF,
-    (targetAddr >> 16) & 0xFF,
+    targetAddr & 0xff,
+    (targetAddr >> 8) & 0xff,
+    (targetAddr >> 16) & 0xff,
   ])
 }
 
 /** Create a cursor with its handlerAddr pre-populated (as the dispatcher would). */
 function makeCursorForHandler(
   handlerAddr: number,
-  grid: TileGrid, rom: RomFile, tileset: number,
-  col: number, row: number, objNo: number, size: number,
+  grid: TileGrid,
+  rom: RomFile,
+  tileset: number,
+  col: number,
+  row: number,
+  objNo: number,
+  size: number,
 ): ReturnType<typeof makeCursor> {
   const cur = makeCursor(grid, rom, tileset, col, row, objNo, size)
   cur.handlerAddr = handlerAddr
@@ -104,12 +161,15 @@ function makeObj(
   type: 'standard' | 'extended',
   objectNumber: number,
   settings: number,
-  x = 0, y = 14, screen = 0,
+  x = 0,
+  y = 14,
+  screen = 0,
 ): LevelObject {
   return {
     type,
     screen,
-    x, y,
+    x,
+    y,
     objectNumber,
     settings,
     newScreen: screen > 0,
@@ -207,7 +267,7 @@ describe('createGrid', () => {
 
   it('vertical levels never append overflow screens', () => {
     const grid = createGrid(8, true, 2)
-    // 8 screens × 16 rows = 128 rows, 32 cols — no horizontal overflow
+    // 8 screens × 16 rows = 128 rows, 32 cols - no horizontal overflow
     expect(grid.length).toBe(128)
     expect(grid[0].length).toBe(32)
   })
@@ -223,16 +283,16 @@ describe('Cursor', () => {
     const cur = makeCursor(grid, rom, 0, 5, 10, 1, 0)
     writeTile(cur, 0x42)
     expect(grid[10][5]).toBe(0x42)
-    expect(cur.col).toBe(5)  // no advance
+    expect(cur.col).toBe(5) // no advance
   })
 
   it('writeTileAdvance writes then advances column', () => {
     const grid = createGrid(1)
     const cur = makeCursor(grid, rom, 0, 3, 10, 1, 0)
-    writeTileAdvance(cur, 0xAA)
-    writeTileAdvance(cur, 0xBB)
-    expect(grid[10][3]).toBe(0xAA)
-    expect(grid[10][4]).toBe(0xBB)
+    writeTileAdvance(cur, 0xaa)
+    writeTileAdvance(cur, 0xbb)
+    expect(grid[10][3]).toBe(0xaa)
+    expect(grid[10][4]).toBe(0xbb)
     expect(cur.col).toBe(5)
   })
 
@@ -275,26 +335,32 @@ describe('Cursor', () => {
 
 describe('romData readers', () => {
   it('readByteTable returns patched bytes', () => {
-    const rom = makeMockRom({ [0x0DA8B4]: [0x02, 0x21, 0x23, 0x2A, 0x2B, 0x3F, 0x03] })
-    const out = readByteTable(rom, 0x0DA8B4, 7)
-    expect(out).toEqual([0x02, 0x21, 0x23, 0x2A, 0x2B, 0x3F, 0x03])
+    const rom = makeMockRom({ [0x0da8b4]: [0x02, 0x21, 0x23, 0x2a, 0x2b, 0x3f, 0x03] })
+    const out = readByteTable(rom, 0x0da8b4, 7)
+    expect(out).toEqual([0x02, 0x21, 0x23, 0x2a, 0x2b, 0x3f, 0x03])
   })
 
   it('readLongPointer decodes 24-bit LE', () => {
-    const rom = makeMockRom({ [0x0DA10F]: [0x12, 0xA5, 0x0D] })
-    expect(readLongPointer(rom, 0x0DA10F)).toBe(0x0DA512)
+    const rom = makeMockRom({ [0x0da10f]: [0x12, 0xa5, 0x0d] })
+    expect(readLongPointer(rom, 0x0da10f)).toBe(0x0da512)
   })
 
   it('readLongPointerTable handles a full dispatch table', () => {
     const rom = makeMockRom({
-      [0x0DA10F]: [
-        0x12, 0xA5, 0x0D,   // entry 0 -> 0x0DA512
-        0x00, 0x00, 0x00,   // entry 1 -> 0x000000 (null)
-        0x7B, 0xA5, 0x0D,   // entry 2 -> 0x0DA57B
+      [0x0da10f]: [
+        0x12,
+        0xa5,
+        0x0d, // entry 0 -> 0x0DA512
+        0x00,
+        0x00,
+        0x00, // entry 1 -> 0x000000 (null)
+        0x7b,
+        0xa5,
+        0x0d, // entry 2 -> 0x0DA57B
       ],
     })
-    const ptrs = readLongPointerTable(rom, 0x0DA10F, 3)
-    expect(ptrs).toEqual([0x0DA512, 0x000000, 0x0DA57B])
+    const ptrs = readLongPointerTable(rom, 0x0da10f, 3)
+    expect(ptrs).toEqual([0x0da512, 0x000000, 0x0da57b])
   })
 })
 
@@ -305,13 +371,15 @@ describe('handle_0DA8C3 (rectangular terrain)', () => {
   // After the "ROM-derived data tables" refactor, the handler reads DATA_0DA8B4's
   // address from an LDA.L operand at handler offset +108. We stamp both the
   // data table bytes and a synthetic LDA.L operand pointing at them.
-  const HANDLER_ADDR = 0x0DA8C3
+  const HANDLER_ADDR = 0x0da8c3
   const LDA_L_OPERAND_OFFSET = 108
-  const TARGET_TABLE_ADDR = 0x0DA8B4
+  const TARGET_TABLE_ADDR = 0x0da8b4
 
   function romWithStdTable(): RomFile {
     const rom = makeMockRom({
-      [TARGET_TABLE_ADDR]: [0x02, 0x21, 0x23, 0x2A, 0x2B, 0x3F, 0x03, 0x13, 0x1E, 0x24, 0x2E, 0x2F, 0x30, 0x32, 0x65],
+      [TARGET_TABLE_ADDR]: [
+        0x02, 0x21, 0x23, 0x2a, 0x2b, 0x3f, 0x03, 0x13, 0x1e, 0x24, 0x2e, 0x2f, 0x30, 0x32, 0x65,
+      ],
     })
     stampLongOperand(rom, HANDLER_ADDR, LDA_L_OPERAND_OFFSET, TARGET_TABLE_ADDR)
     return rom
@@ -345,7 +413,7 @@ describe('handle_0DA8C3 (rectangular terrain)', () => {
     const rom = romWithStdTable()
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 20, 6, 0x00)
     handle_0DA8C3(cur)
-    expect(grid[20][5]).toBe(0x3F)
+    expect(grid[20][5]).toBe(0x3f)
   })
 
   it('fills across a screen boundary', () => {
@@ -372,8 +440,8 @@ describe('handle_0DA8C3 (rectangular terrain)', () => {
 // ── CODE_0DA57B (extended single-tile) ────────────────────────────────────────
 
 describe('handle_0DA57B (extended single-tile)', () => {
-  const HANDLER_ADDR = 0x0DA57B
-  const TABLE_ADDR = 0x0DA548
+  const HANDLER_ADDR = 0x0da57b
+  const TABLE_ADDR = 0x0da548
   function romWithExtTable(): RomFile {
     const table = Array.from({ length: DATA_0DA548_LEN }, (_, i) => 0x10 + i)
     const rom = makeMockRom({ [TABLE_ADDR]: table })
@@ -398,14 +466,23 @@ describe('handle_0DA57B (extended single-tile)', () => {
 
   it('ext type below 0x10 is a no-op (not a single-tile slot)', () => {
     const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, romWithExtTable(), 0, 3, 10, 0x0F, 0)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, romWithExtTable(), 0, 3, 10, 0x0f, 0)
     handle_0DA57B(cur)
     expect(grid[10][3]).toBe(TILE_EMPTY)
   })
 
   it('ext type above table length is a no-op', () => {
     const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, romWithExtTable(), 0, 3, 10, 0x10 + DATA_0DA548_LEN, 0)
+    const cur = makeCursorForHandler(
+      HANDLER_ADDR,
+      grid,
+      romWithExtTable(),
+      0,
+      3,
+      10,
+      0x10 + DATA_0DA548_LEN,
+      0,
+    )
     handle_0DA57B(cur)
     expect(grid[10][3]).toBe(TILE_EMPTY)
   })
@@ -413,8 +490,8 @@ describe('handle_0DA57B (extended single-tile)', () => {
 
 // ── CODE_0DAB0D (vertical rope/pole, object 17) ───────────────────────────────
 
-describe('handle_0DAB0D (vertical 3-segment — page 1)', () => {
-  const HANDLER_ADDR = 0x0DAB0D
+describe('handle_0DAB0D (vertical 3-segment - page 1)', () => {
+  const HANDLER_ADDR = 0x0dab0d
   function setupRom(): RomFile {
     const rom = makeMockRom()
     rom.writeAt(HANDLER_ADDR + 13, [0x41])
@@ -470,12 +547,12 @@ describe('expandMap (integration)', () => {
     //   handle_0DA8C3's LDA.L operand at +108 -> DATA_0DA8B4 (0x0DA8B4)
     //   DATA_0DA8B4[0] = 0x02 (tile ID for obj 1)
     const rom = makeMockRom({
-      [ADDR_TILESET_DISPATCH]: [0x4B, 0xA4, 0x0D],       // tileset 0 → 0x0DA44B
-      [ADDR_TILESET0_HANDLERS]: [0xC3, 0xA8, 0x0D],       // obj 1 → 0x0DA8C3
-      [0x0DA8B4]: [0x02],
+      [ADDR_TILESET_DISPATCH]: [0x4b, 0xa4, 0x0d], // tileset 0 → 0x0DA44B
+      [ADDR_TILESET0_HANDLERS]: [0xc3, 0xa8, 0x0d], // obj 1 → 0x0DA8C3
+      [0x0da8b4]: [0x02],
     })
-    stampLongOperand(rom, 0x0DA8C3, 108, 0x0DA8B4)
-    const obj = makeObj('standard', 1, 0x00, /*x*/5, /*y*/20)
+    stampLongOperand(rom, 0x0da8c3, 108, 0x0da8b4)
+    const obj = makeObj('standard', 1, 0x00, /*x*/ 5, /*y*/ 20)
     const grid = expandMap([obj], 1, rom, 0)
     expect(grid[20][5]).toBe(0x02)
   })
@@ -484,21 +561,21 @@ describe('expandMap (integration)', () => {
     // Extended-dispatch entry for type 0x10 → CODE_0DA57B (0x0DA57B).
     // handle_0DA57B reads DATA_0DA548 address from LDA.L operand at +69.
     const rom = makeMockRom({
-      [ADDR_EXTENDED_DISPATCH + 0x10 * 3]: [0x7B, 0xA5, 0x0D],
-      [0x0DA548]: [0x1F],
+      [ADDR_EXTENDED_DISPATCH + 0x10 * 3]: [0x7b, 0xa5, 0x0d],
+      [0x0da548]: [0x1f],
     })
-    stampLongOperand(rom, 0x0DA57B, 69, 0x0DA548)
-    const obj = makeObj('extended', 0x10, 0, /*x*/7, /*y*/20)
+    stampLongOperand(rom, 0x0da57b, 69, 0x0da548)
+    const obj = makeObj('extended', 0x10, 0, /*x*/ 7, /*y*/ 20)
     const grid = expandMap([obj], 1, rom, 0)
-    expect(grid[20][7]).toBe(0x1F)
+    expect(grid[20][7]).toBe(0x1f)
   })
 
   it('unmapped handler pointer yields no tile writes', () => {
     // Tileset dispatch points at CODE_0DA44B, but object handler points at an
     // unported address. Nothing should happen.
     const rom = makeMockRom({
-      [ADDR_TILESET_DISPATCH]: [0x4B, 0xA4, 0x0D],
-      [ADDR_TILESET0_HANDLERS]: [0xFF, 0xFF, 0x0D],       // 0x0DFFFF (not ported)
+      [ADDR_TILESET_DISPATCH]: [0x4b, 0xa4, 0x0d],
+      [ADDR_TILESET0_HANDLERS]: [0xff, 0xff, 0x0d], // 0x0DFFFF (not ported)
     })
     const obj = makeObj('standard', 1, 0x00, 5, 20)
     const grid = expandMap([obj], 1, rom, 0)
@@ -508,7 +585,7 @@ describe('expandMap (integration)', () => {
   it('unmapped tileset dispatch (non-CODE_0DA44B) yields no tile writes', () => {
     // Tileset 1 → CODE_0DC190 (not ported yet).
     const rom = makeMockRom({
-      [ADDR_TILESET_DISPATCH + 3]: [0x90, 0xC1, 0x0D],
+      [ADDR_TILESET_DISPATCH + 3]: [0x90, 0xc1, 0x0d],
     })
     const obj = makeObj('standard', 1, 0x00, 5, 20)
     const grid = expandMap([obj], 1, rom, 1)
@@ -519,20 +596,20 @@ describe('expandMap (integration)', () => {
 // ── CODE_0DAA26 + CODE_0DAAB4 regression/smoke tests ──────────────────────────
 
 describe('handle_0DAA26 (horizontal ledge, object 15)', () => {
-  const HANDLER_ADDR = 0x0DAA26
+  const HANDLER_ADDR = 0x0daa26
 
   it('runs without throwing for a small ledge', () => {
     const rom = makeMockRom({
-      [0x0DAA12]: [0x33, 0x37, 0x39, 0x00, 0x00],
-      [0x0DAA17]: [0x34, 0x38, 0x3A, 0x00, 0x00],
-      [0x0DAA1C]: [0x00, 0x00, 0x39, 0x33, 0x37],
-      [0x0DAA21]: [0x00, 0x00, 0x3A, 0x34, 0x38],
+      [0x0daa12]: [0x33, 0x37, 0x39, 0x00, 0x00],
+      [0x0daa17]: [0x34, 0x38, 0x3a, 0x00, 0x00],
+      [0x0daa1c]: [0x00, 0x00, 0x39, 0x33, 0x37],
+      [0x0daa21]: [0x00, 0x00, 0x3a, 0x34, 0x38],
     })
     // LDA.L operands at handler offsets +26, +36, +110, +120
-    stampLongOperand(rom, HANDLER_ADDR, 26, 0x0DAA12)
-    stampLongOperand(rom, HANDLER_ADDR, 36, 0x0DAA17)
-    stampLongOperand(rom, HANDLER_ADDR, 110, 0x0DAA1C)
-    stampLongOperand(rom, HANDLER_ADDR, 120, 0x0DAA21)
+    stampLongOperand(rom, HANDLER_ADDR, 26, 0x0daa12)
+    stampLongOperand(rom, HANDLER_ADDR, 36, 0x0daa17)
+    stampLongOperand(rom, HANDLER_ADDR, 110, 0x0daa1c)
+    stampLongOperand(rom, HANDLER_ADDR, 120, 0x0daa21)
     const grid = createGrid(2)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 2, 20, 15, 0x20)
     expect(() => handle_0DAA26(cur)).not.toThrow()
@@ -541,32 +618,32 @@ describe('handle_0DAA26 (horizontal ledge, object 15)', () => {
 })
 
 describe('handle_0DAAB4 (used-block run, object 16)', () => {
-  const HANDLER_ADDR = 0x0DAAB4
+  const HANDLER_ADDR = 0x0daab4
 
   it('writes a horizontal run without throwing', () => {
     const rom = makeMockRom({
-      [0x0DAAA4]: [0x3B, 0x3C, 0x3B, 0x3F, 0x3B, 0x3C, 0x3B, 0x3F],
-      [0x0DAAAC]: [0x3D, 0x3E, 0x3D, 0x3E, 0x3D, 0x3E, 0x3D, 0x3E],
+      [0x0daaa4]: [0x3b, 0x3c, 0x3b, 0x3f, 0x3b, 0x3c, 0x3b, 0x3f],
+      [0x0daaac]: [0x3d, 0x3e, 0x3d, 0x3e, 0x3d, 0x3e, 0x3d, 0x3e],
     })
-    stampLongOperand(rom, HANDLER_ADDR, 29, 0x0DAAA4)
-    stampLongOperand(rom, HANDLER_ADDR, 42, 0x0DAAAC)
+    stampLongOperand(rom, HANDLER_ADDR, 29, 0x0daaa4)
+    stampLongOperand(rom, HANDLER_ADDR, 42, 0x0daaac)
     const grid = createGrid(2)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 0, 20, 16, 0x03)
     expect(() => handle_0DAAB4(cur)).not.toThrow()
-    expect(grid[20][0]).toBe(P1(0x3B))
+    expect(grid[20][0]).toBe(P1(0x3b))
   })
 })
 
 // ── CODE_0DB1D4 (object 20: water-like rectangle) ─────────────────────────────
 
 describe('handle_0DB1D4 (grass+dirt rectangle, object 20)', () => {
-  const HANDLER_ADDR = 0x0DB1D4
+  const HANDLER_ADDR = 0x0db1d4
   // The shared CODE_0DB1E3 body lives at HANDLER_ADDR + 15. Within that body,
   // LDA #$00 immediate (grass tile) is at bodyAddr + 9; LDA #$3F (dirt) at +25.
   function setupRom(): RomFile {
     const rom = makeMockRom()
-    rom.writeAt(HANDLER_ADDR + 15 + 9,  [0x00])
-    rom.writeAt(HANDLER_ADDR + 15 + 25, [0x3F])
+    rom.writeAt(HANDLER_ADDR + 15 + 9, [0x00])
+    rom.writeAt(HANDLER_ADDR + 15 + 25, [0x3f])
     return rom
   }
 
@@ -577,7 +654,7 @@ describe('handle_0DB1D4 (grass+dirt rectangle, object 20)', () => {
     handle_0DB1D4(cur)
     for (let c = 1; c <= 4; c++) expect(grid[10][c]).toBe(P1(0x00))
     for (let r = 11; r <= 12; r++) {
-      for (let c = 1; c <= 4; c++) expect(grid[r][c]).toBe(0x3F)
+      for (let c = 1; c <= 4; c++) expect(grid[r][c]).toBe(0x3f)
     }
     expect(grid[13][1]).toBe(TILE_EMPTY)
   })
@@ -595,12 +672,12 @@ describe('handle_0DB1D4 (grass+dirt rectangle, object 20)', () => {
 // ── CODE_0DB3BD (object 23: horizontal run from DATA_0DB3BB) ──────────────────
 
 describe('handle_0DB3BD (coin cloud, object 23)', () => {
-  const HANDLER_ADDR = 0x0DB3BD
-  const TABLE_ADDR = 0x0DB3BB
+  const HANDLER_ADDR = 0x0db3bd
+  const TABLE_ADDR = 0x0db3bb
 
   it('stamps (width+1) copies of DATA_0DB3BB[H]', () => {
     const rom = makeMockRom({ [TABLE_ADDR]: [0x05, 0x06] })
-    stampLongOperand(rom, HANDLER_ADDR, 19, TABLE_ADDR)  // LDA.L operand at +19
+    stampLongOperand(rom, HANDLER_ADDR, 19, TABLE_ADDR) // LDA.L operand at +19
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 2, 10, 23, 0x13)
     handle_0DB3BD(cur)
@@ -612,14 +689,14 @@ describe('handle_0DB3BD (coin cloud, object 23)', () => {
 // ── CODE_0DB3E3 (objects 24-26, 34-46: two-row fill) ──────────────────────────
 
 describe('handle_0DB3E3 (two-row fill)', () => {
-  const HANDLER_ADDR = 0x0DB3E3
-  const TOP_ADDR = 0x0DB3DB
-  const BOT_ADDR = 0x0DB3DF
+  const HANDLER_ADDR = 0x0db3e3
+  const TOP_ADDR = 0x0db3db
+  const BOT_ADDR = 0x0db3df
 
   function rom(): RomFile {
     const r = makeMockRom({
       [TOP_ADDR]: [0x00, 0x01, 0x04, 0x08],
-      [BOT_ADDR]: [0x02, 0x03, 0x05, 0x0B],
+      [BOT_ADDR]: [0x02, 0x03, 0x05, 0x0b],
     })
     stampLongOperand(r, HANDLER_ADDR, 30, TOP_ADDR)
     stampLongOperand(r, HANDLER_ADDR, 47, BOT_ADDR)
@@ -638,7 +715,7 @@ describe('handle_0DB3E3 (two-row fill)', () => {
 
   it('objNo 0x1B uses DATA_0DB3DB[3] = $08 for top', () => {
     const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom(), 0, 0, 5, 0x1B, 0x00)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom(), 0, 0, 5, 0x1b, 0x00)
     handle_0DB3E3(cur)
     expect(grid[5][0]).toBe(0x08)
   })
@@ -646,23 +723,23 @@ describe('handle_0DB3E3 (two-row fill)', () => {
   it('handles out-of-table X via raw ROM read (objNo 0x34)', () => {
     // X = 0x34 - 0x18 = 0x1C. Read lands at TOP_ADDR + 0x1C / BOT_ADDR + 0x1C.
     const r = makeMockRom({
-      [TOP_ADDR + 0x1C]: [0xEE],
-      [BOT_ADDR + 0x1C]: [0xFF],
+      [TOP_ADDR + 0x1c]: [0xee],
+      [BOT_ADDR + 0x1c]: [0xff],
     })
     stampLongOperand(r, HANDLER_ADDR, 30, TOP_ADDR)
     stampLongOperand(r, HANDLER_ADDR, 47, BOT_ADDR)
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, r, 0, 0, 5, 0x34, 0x00)
     handle_0DB3E3(cur)
-    expect(grid[5][0]).toBe(0xEE)
+    expect(grid[5][0]).toBe(0xee)
   })
 })
 
 // ── CODE_0DB42D (object 29: goal post) ────────────────────────────────────────
 
 describe('handle_0DB42D (goal post)', () => {
-  const HANDLER_ADDR = 0x0DB42D
-  const TABLE_ADDR = 0x0DB42B
+  const HANDLER_ADDR = 0x0db42d
+  const TABLE_ADDR = 0x0db42b
 
   it('row 0 on page 0 ($26), row 1 on page 1 ($144)', () => {
     const rom = makeMockRom({ [TABLE_ADDR]: [0x26, 0x44] })
@@ -680,59 +757,59 @@ describe('handle_0DB42D (goal post)', () => {
 // ── CODE_0DB461 (object 30: rope/vine with end tile) ──────────────────────────
 
 describe('handle_0DB461 (rope/vine)', () => {
-  const HANDLER_ADDR = 0x0DB461
+  const HANDLER_ADDR = 0x0db461
   it('rows of $0B followed by a final row of $0E', () => {
     const rom = makeMockRom()
     // LDA #$0B at +28, LDA #$0E at +51
-    rom.writeAt(HANDLER_ADDR + 28, [0x0B])
-    rom.writeAt(HANDLER_ADDR + 51, [0x0E])
+    rom.writeAt(HANDLER_ADDR + 28, [0x0b])
+    rom.writeAt(HANDLER_ADDR + 51, [0x0e])
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 1, 10, 30, 0x21)
     handle_0DB461(cur)
     // Rows 10, 11: $0B × 2
     for (let r = 10; r <= 11; r++) {
-      expect(grid[r][1]).toBe(0x0B)
-      expect(grid[r][2]).toBe(0x0B)
+      expect(grid[r][1]).toBe(0x0b)
+      expect(grid[r][2]).toBe(0x0b)
     }
     // Row 12: $0E × 2
-    expect(grid[12][1]).toBe(0x0E)
-    expect(grid[12][2]).toBe(0x0E)
+    expect(grid[12][1]).toBe(0x0e)
+    expect(grid[12][2]).toBe(0x0e)
   })
 })
 
 // ── Extended handlers: 0DA64D, 0DA656, 0DA673, 0DA68E, 0DA6D1 ────────────────
 
 describe('handle_0DA64D (ext 0x17 bonus tile)', () => {
-  const HANDLER_ADDR = 0x0DA64D
-  const CODE_0DA57B = 0x0DA57B
-  const CODE_0DA57F = 0x0DA57F   // = CODE_0DA57B + 4 in vanilla
-  const TABLE_ADDR  = 0x0DA548
+  const HANDLER_ADDR = 0x0da64d
+  const CODE_0DA57B = 0x0da57b
+  const CODE_0DA57F = 0x0da57f // = CODE_0DA57B + 4 in vanilla
+  const TABLE_ADDR = 0x0da548
 
   it('writes DATA_0DA548[0x32] = $2D on page 1', () => {
     const table = Array.from({ length: DATA_0DA548_LEN }, (_, i) => 0x10 + i)
-    table[0x32] = 0x2D
+    table[0x32] = 0x2d
     const rom = makeMockRom({ [TABLE_ADDR]: table })
     // CODE_0DA64D: LDA #$32 at +0, JMP CODE_0DA57F at +3 (3-byte JMP).
     rom.writeAt(HANDLER_ADDR + 1, [0x32])
-    rom.writeAt(HANDLER_ADDR + 3, [CODE_0DA57F & 0xFF, (CODE_0DA57F >> 8) & 0xFF])
+    rom.writeAt(HANDLER_ADDR + 3, [CODE_0DA57F & 0xff, (CODE_0DA57F >> 8) & 0xff])
     // CODE_0DA57B's LDA.L operand (CODE_0DA57B + 69) points to DATA_0DA548.
     stampLongOperand(rom, CODE_0DA57B, 69, TABLE_ADDR)
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 4, 10, 0x17, 0)
     handle_0DA64D(cur)
-    expect(grid[10][4]).toBe(P1(0x2D))
+    expect(grid[10][4]).toBe(P1(0x2d))
   })
 })
 
-describe('handle_0DA656 (ext 0x42/0x43 horizontal pair — page 1)', () => {
-  const HANDLER_ADDR = 0x0DA656
+describe('handle_0DA656 (ext 0x42/0x43 horizontal pair - page 1)', () => {
+  const HANDLER_ADDR = 0x0da656
   function setupRom(): RomFile {
     const rom = makeMockRom({
-      [0x0DA652]: [0xD8, 0xDB],
-      [0x0DA654]: [0xDA, 0xDC],
+      [0x0da652]: [0xd8, 0xdb],
+      [0x0da654]: [0xda, 0xdc],
     })
-    stampLongOperand(rom, HANDLER_ADDR, 11, 0x0DA652)
-    stampLongOperand(rom, HANDLER_ADDR, 18, 0x0DA654)
+    stampLongOperand(rom, HANDLER_ADDR, 11, 0x0da652)
+    stampLongOperand(rom, HANDLER_ADDR, 18, 0x0da654)
     return rom
   }
 
@@ -740,35 +817,35 @@ describe('handle_0DA656 (ext 0x42/0x43 horizontal pair — page 1)', () => {
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 5, 10, 0x42, 0)
     handle_0DA656(cur)
-    expect(grid[10][5]).toBe(P1(0xD8))
-    expect(grid[10][6]).toBe(P1(0xDA))
+    expect(grid[10][5]).toBe(P1(0xd8))
+    expect(grid[10][6]).toBe(P1(0xda))
   })
 
   it('0x43 uses index 1 of the tables', () => {
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 5, 10, 0x43, 0)
     handle_0DA656(cur)
-    expect(grid[10][5]).toBe(P1(0xDB))
-    expect(grid[10][6]).toBe(P1(0xDC))
+    expect(grid[10][5]).toBe(P1(0xdb))
+    expect(grid[10][6]).toBe(P1(0xdc))
   })
 })
 
 describe('handle_0DA673 (ext 0x44/0x45 vertical pair)', () => {
-  const HANDLER_ADDR = 0x0DA673
+  const HANDLER_ADDR = 0x0da673
   it('0x44 writes DATA_0DA671[0] and $EB both on page 1', () => {
-    const rom = makeMockRom({ [0x0DA671]: [0xB4, 0xB5] })
-    stampLongOperand(rom, HANDLER_ADDR, 8, 0x0DA671)
-    rom.writeAt(HANDLER_ADDR + 20, [0xEB])
+    const rom = makeMockRom({ [0x0da671]: [0xb4, 0xb5] })
+    stampLongOperand(rom, HANDLER_ADDR, 8, 0x0da671)
+    rom.writeAt(HANDLER_ADDR + 20, [0xeb])
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 0x44, 0)
     handle_0DA673(cur)
-    expect(grid[10][3]).toBe(P1(0xB4))
-    expect(grid[11][3]).toBe(P1(0xEB))
+    expect(grid[10][3]).toBe(P1(0xb4))
+    expect(grid[11][3]).toBe(P1(0xeb))
   })
 })
 
 describe('handle_0DA68E (ext 0x46 midway)', () => {
-  const HANDLER_ADDR = 0x0DA68E
+  const HANDLER_ADDR = 0x0da68e
   it('stamps $35 at col-1 and $38 at col', () => {
     const rom = makeMockRom()
     rom.writeAt(HANDLER_ADDR + 23, [0x35])
@@ -781,8 +858,8 @@ describe('handle_0DA68E (ext 0x46 midway)', () => {
   })
 })
 
-describe('handle_0DB51F (3-segment vertical, object 32 — page 1)', () => {
-  const HANDLER_ADDR = 0x0DB51F
+describe('handle_0DB51F (3-segment vertical, object 32 - page 1)', () => {
+  const HANDLER_ADDR = 0x0db51f
   function setupRom(): RomFile {
     const rom = makeMockRom()
     rom.writeAt(HANDLER_ADDR + 15, [0x53])
@@ -825,8 +902,8 @@ describe('handle_0DB51F (3-segment vertical, object 32 — page 1)', () => {
   })
 })
 
-describe('handle_0DB547 (3-segment horizontal, object 33 — page 1)', () => {
-  const HANDLER_ADDR = 0x0DB547
+describe('handle_0DB547 (3-segment horizontal, object 33 - page 1)', () => {
+  const HANDLER_ADDR = 0x0db547
   it('W=3 writes $56/$57/$57/$58', () => {
     const rom = makeMockRom()
     rom.writeAt(HANDLER_ADDR + 11, [0x56])
@@ -843,12 +920,12 @@ describe('handle_0DB547 (3-segment horizontal, object 33 — page 1)', () => {
 })
 
 describe('handle_0DB571 (single-tile by size, objects 47-54)', () => {
-  const HANDLER_ADDR = 0x0DB571
-  const TABLE_ADDR = 0x0DB569
+  const HANDLER_ADDR = 0x0db571
+  const TABLE_ADDR = 0x0db569
 
   it('stamps DATA_0DB569[size - $68]', () => {
     const rom = makeMockRom({
-      [TABLE_ADDR]: [0x91, 0x92, 0x96, 0x97, 0x9A, 0x9B, 0x9F, 0xA0],
+      [TABLE_ADDR]: [0x91, 0x92, 0x96, 0x97, 0x9a, 0x9b, 0x9f, 0xa0],
     })
     stampLongOperand(rom, HANDLER_ADDR, 12, TABLE_ADDR)
     const grid = createGrid(1)
@@ -859,16 +936,16 @@ describe('handle_0DB571 (single-tile by size, objects 47-54)', () => {
 })
 
 describe('handle_0DB5B7 (capped horizontal, object 63)', () => {
-  const HANDLER_ADDR = 0x0DB5B7
-  const LEFT_ADDR = 0x0DB5A8
-  const MID_ADDR = 0x0DB5AD
-  const RIGHT_ADDR = 0x0DB5B2
+  const HANDLER_ADDR = 0x0db5b7
+  const LEFT_ADDR = 0x0db5a8
+  const MID_ADDR = 0x0db5ad
+  const RIGHT_ADDR = 0x0db5b2
 
   it('W=3 writes leftCap + 2 middle + rightCap', () => {
     const rom = makeMockRom({
-      [LEFT_ADDR]: [0x73, 0x7A, 0x85, 0x88, 0xC3],
-      [MID_ADDR]:  [0x74, 0x7B, 0x86, 0x89, 0xC3],
-      [RIGHT_ADDR]:[0x79, 0x80, 0x87, 0x8E, 0xC3],
+      [LEFT_ADDR]: [0x73, 0x7a, 0x85, 0x88, 0xc3],
+      [MID_ADDR]: [0x74, 0x7b, 0x86, 0x89, 0xc3],
+      [RIGHT_ADDR]: [0x79, 0x80, 0x87, 0x8e, 0xc3],
     })
     stampLongOperand(rom, HANDLER_ADDR, 19, LEFT_ADDR)
     stampLongOperand(rom, HANDLER_ADDR, 29, MID_ADDR)
@@ -884,14 +961,14 @@ describe('handle_0DB5B7 (capped horizontal, object 63)', () => {
 })
 
 describe('handle_0DA6D1 (ext 0x47/0x48 vertical pair)', () => {
-  const HANDLER_ADDR = 0x0DA6D1
+  const HANDLER_ADDR = 0x0da6d1
   function setupRom(): RomFile {
     const rom = makeMockRom({
-      [0x0DA6CD]: [0x1F, 0x27],
-      [0x0DA6CF]: [0x20, 0x28],
+      [0x0da6cd]: [0x1f, 0x27],
+      [0x0da6cf]: [0x20, 0x28],
     })
-    stampLongOperand(rom, HANDLER_ADDR, 11, 0x0DA6CD)
-    stampLongOperand(rom, HANDLER_ADDR, 23, 0x0DA6CF)
+    stampLongOperand(rom, HANDLER_ADDR, 11, 0x0da6cd)
+    stampLongOperand(rom, HANDLER_ADDR, 23, 0x0da6cf)
     return rom
   }
 
@@ -899,7 +976,7 @@ describe('handle_0DA6D1 (ext 0x47/0x48 vertical pair)', () => {
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 2, 10, 0x47, 0)
     handle_0DA6D1(cur)
-    expect(grid[10][2]).toBe(0x1F)
+    expect(grid[10][2]).toBe(0x1f)
     expect(grid[11][2]).toBe(0x20)
   })
 
@@ -915,29 +992,29 @@ describe('handle_0DA6D1 (ext 0x47/0x48 vertical pair)', () => {
 // ── Additional standard handlers (0DB075 slope, 0DB1C8 huge ground) ──────────
 
 describe('handle_0DB1C8 (huge ground fill, object 33)', () => {
-  const HANDLER_ADDR = 0x0DB1C8
-  const SHARED_BODY_ADDR = 0x0DB1E3   // CODE_0DB1E3
+  const HANDLER_ADDR = 0x0db1c8
+  const SHARED_BODY_ADDR = 0x0db1e3 // CODE_0DB1E3
 
   function setupRom(): RomFile {
     const rom = makeMockRom()
     // LDA #$02 (height-1) immediate at +6
     rom.writeAt(HANDLER_ADDR + 6, [0x02])
     // JMP CODE_0DB1E3 operand at +10 (2-byte little-endian target in same bank)
-    rom.writeAt(HANDLER_ADDR + 10, [SHARED_BODY_ADDR & 0xFF, (SHARED_BODY_ADDR >> 8) & 0xFF])
+    rom.writeAt(HANDLER_ADDR + 10, [SHARED_BODY_ADDR & 0xff, (SHARED_BODY_ADDR >> 8) & 0xff])
     // Shared body: LDA # immediates at body+9 ($00) and body+25 ($3F)
-    rom.writeAt(SHARED_BODY_ADDR + 9,  [0x00])
-    rom.writeAt(SHARED_BODY_ADDR + 25, [0x3F])
+    rom.writeAt(SHARED_BODY_ADDR + 9, [0x00])
+    rom.writeAt(SHARED_BODY_ADDR + 25, [0x3f])
     return rom
   }
 
   it('size $BF produces a 192-tile grass-capped 3-tall block', () => {
     const rom = setupRom()
     const grid = createGrid(13)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 0, 24, 33, 0xBF)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 0, 24, 33, 0xbf)
     handle_0DB1C8(cur)
     for (let c = 0; c < 192; c++) expect(grid[24][c]).toBe(P1(0x00))
     for (let r = 25; r <= 26; r++) {
-      for (let c = 0; c < 192; c++) expect(grid[r][c]).toBe(0x3F)
+      for (let c = 0; c < 192; c++) expect(grid[r][c]).toBe(0x3f)
     }
     expect(grid[24][200]).toBe(TILE_EMPTY)
   })
@@ -948,30 +1025,30 @@ describe('handle_0DB1C8 (huge ground fill, object 33)', () => {
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 10, 33, 0x00)
     handle_0DB1C8(cur)
     expect(grid[10][5]).toBe(P1(0x00))
-    expect(grid[11][5]).toBe(0x3F)
-    expect(grid[12][5]).toBe(0x3F)
+    expect(grid[11][5]).toBe(0x3f)
+    expect(grid[12][5]).toBe(0x3f)
     expect(grid[13][5]).toBe(TILE_EMPTY)
   })
 })
 
 describe('handle_0DB075 (slope/vine column, object 19)', () => {
-  const HANDLER_ADDR = 0x0DB075
+  const HANDLER_ADDR = 0x0db075
 
   function setupRom(): RomFile {
     const rom = makeMockRom({
-      [0x0DB039]: Array.from({ length: 15 }, (_, i) => 0x40 + i),
-      [0x0DB048]: Array.from({ length: 15 }, (_, i) => 0x50 + i),
-      [0x0DB057]: Array.from({ length: 15 }, (_, i) => 0x60 + i),
-      [0x0DB066]: Array.from({ length: 15 }, (_, i) => 0x70 + i),
+      [0x0db039]: Array.from({ length: 15 }, (_, i) => 0x40 + i),
+      [0x0db048]: Array.from({ length: 15 }, (_, i) => 0x50 + i),
+      [0x0db057]: Array.from({ length: 15 }, (_, i) => 0x60 + i),
+      [0x0db066]: Array.from({ length: 15 }, (_, i) => 0x70 + i),
     })
     // LDA.L operands in CODE_0DB075
-    stampLongOperand(rom, HANDLER_ADDR, 26, 0x0DB039)
-    stampLongOperand(rom, HANDLER_ADDR, 60, 0x0DB048)
-    stampLongOperand(rom, HANDLER_ADDR, 94, 0x0DB057)
-    stampLongOperand(rom, HANDLER_ADDR, 117, 0x0DB066)
+    stampLongOperand(rom, HANDLER_ADDR, 26, 0x0db039)
+    stampLongOperand(rom, HANDLER_ADDR, 60, 0x0db048)
+    stampLongOperand(rom, HANDLER_ADDR, 94, 0x0db057)
+    stampLongOperand(rom, HANDLER_ADDR, 117, 0x0db066)
     // JSR CODE_0DB114 operand at +30, JSR CODE_0DB198 at +64 (2-byte same-bank)
-    rom.writeAt(HANDLER_ADDR + 30, [0x14, 0xB1])
-    rom.writeAt(HANDLER_ADDR + 64, [0x98, 0xB1])
+    rom.writeAt(HANDLER_ADDR + 30, [0x14, 0xb1])
+    rom.writeAt(HANDLER_ADDR + 64, [0x98, 0xb1])
     // These tests use X values (2 / 0xB) that cause the merge helpers to skip
     // their merge logic entirely (see writeTileMergeCODE_0DB114/198 skip rules),
     // so the tables inside the helpers are not read. No need to stamp them here.
@@ -993,19 +1070,19 @@ describe('handle_0DB075 (slope/vine column, object 19)', () => {
   it('X=0xB appends footer tile, page 1 throughout', () => {
     const rom = setupRom()
     const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 10, 19, 0x1B)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 10, 19, 0x1b)
     handle_0DB075(cur)
-    expect(grid[10][5]).toBe(P1(0x4B))
-    expect(grid[11][5]).toBe(P1(0x5B))
-    expect(grid[12][5]).toBe(P1(0x7B))
+    expect(grid[10][5]).toBe(P1(0x4b))
+    expect(grid[11][5]).toBe(P1(0x5b))
+    expect(grid[12][5]).toBe(P1(0x7b))
   })
 })
 
 describe('handle_0DAB3E pipe variants (object 18)', () => {
-  const DISPATCHER_ADDR = 0x0DAB3E
+  const DISPATCHER_ADDR = 0x0dab3e
   const VARIANT_ADDRS = [
-    0x0DAB6E, 0x0DAC21, 0x0DAC92, 0x0DAD44, 0x0DADA3,
-    0x0DADEB, 0x0DAE6D, 0x0DAEFC, 0x0DAF61, 0x0DAFEA,
+    0x0dab6e, 0x0dac21, 0x0dac92, 0x0dad44, 0x0dada3, 0x0dadeb, 0x0dae6d, 0x0daefc, 0x0daf61,
+    0x0dafea,
   ]
 
   /** Stamp the 10-entry dispatch table at handler+18 so the TS dispatcher
@@ -1025,45 +1102,54 @@ describe('handle_0DAB3E pipe variants (object 18)', () => {
     //   row 13 (final):     body pair at cols 0-1, fills at cols 2-5
     const rom = makeMockRom()
     stampDispatchTable(rom)
-    rom.writeAt(0x0DAB6E + 27, [0x96])
-    rom.writeAt(0x0DAB6E + 35, [0x9B])
-    rom.writeAt(0x0DAB6E + 47, [0xDE])
-    rom.writeAt(0x0DAB6E + 55, [0xE6])
+    rom.writeAt(0x0dab6e + 27, [0x96])
+    rom.writeAt(0x0dab6e + 35, [0x9b])
+    rom.writeAt(0x0dab6e + 47, [0xde])
+    rom.writeAt(0x0dab6e + 55, [0xe6])
     const grid = createGrid(1)
     const cur = makeCursorForHandler(DISPATCHER_ADDR, grid, rom, 0, 4, 10, 18, 0x20)
     handle_0DAB3E(cur)
     // Row 10: lip pair at cols 4-5
-    expect(grid[10][4]).toBe(P1(0x96)); expect(grid[10][5]).toBe(P1(0x9B))
+    expect(grid[10][4]).toBe(P1(0x96))
+    expect(grid[10][5]).toBe(P1(0x9b))
     // Row 11: lip pair at cols 2-3, body pair at cols 4-5
-    expect(grid[11][2]).toBe(P1(0x96)); expect(grid[11][3]).toBe(P1(0x9B))
-    expect(grid[11][4]).toBe(P1(0xDE)); expect(grid[11][5]).toBe(P1(0xE6))
+    expect(grid[11][2]).toBe(P1(0x96))
+    expect(grid[11][3]).toBe(P1(0x9b))
+    expect(grid[11][4]).toBe(P1(0xde))
+    expect(grid[11][5]).toBe(P1(0xe6))
     // Row 12: lip pair at cols 0-1, body pair at cols 2-3, fills at cols 4-5
-    expect(grid[12][0]).toBe(P1(0x96)); expect(grid[12][1]).toBe(P1(0x9B))
-    expect(grid[12][2]).toBe(P1(0xDE)); expect(grid[12][3]).toBe(P1(0xE6))
-    expect(grid[12][4]).toBe(0x3F);     expect(grid[12][5]).toBe(0x3F)
+    expect(grid[12][0]).toBe(P1(0x96))
+    expect(grid[12][1]).toBe(P1(0x9b))
+    expect(grid[12][2]).toBe(P1(0xde))
+    expect(grid[12][3]).toBe(P1(0xe6))
+    expect(grid[12][4]).toBe(0x3f)
+    expect(grid[12][5]).toBe(0x3f)
     // Row 13: body pair at cols 0-1, fills at cols 2-5
-    expect(grid[13][0]).toBe(P1(0xDE)); expect(grid[13][1]).toBe(P1(0xE6))
-    expect(grid[13][2]).toBe(0x3F);     expect(grid[13][3]).toBe(0x3F)
-    expect(grid[13][4]).toBe(0x3F);     expect(grid[13][5]).toBe(0x3F)
+    expect(grid[13][0]).toBe(P1(0xde))
+    expect(grid[13][1]).toBe(P1(0xe6))
+    expect(grid[13][2]).toBe(0x3f)
+    expect(grid[13][3]).toBe(0x3f)
+    expect(grid[13][4]).toBe(0x3f)
+    expect(grid[13][5]).toBe(0x3f)
   })
 
   it('variant 1: diagonal down-left pipe, lips form a stair', () => {
     // pipeVariant1 (CODE_0DAC21): +25 $AA (merged lip), +36 $E2 (body), +47 $3F.
     const rom = makeMockRom()
     stampDispatchTable(rom)
-    rom.writeAt(0x0DAC21 + 25, [0xAA])
-    rom.writeAt(0x0DAC21 + 36, [0xE2])
-    rom.writeAt(0x0DAC21 + 47, [0x3F])
+    rom.writeAt(0x0dac21 + 25, [0xaa])
+    rom.writeAt(0x0dac21 + 36, [0xe2])
+    rom.writeAt(0x0dac21 + 47, [0x3f])
     const grid = createGrid(2)
     const cur = makeCursorForHandler(DISPATCHER_ADDR, grid, rom, 0, 10, 10, 18, 0x21)
     handle_0DAB3E(cur)
-    expect(grid[10][10]).toBe(P1(0xAA))
+    expect(grid[10][10]).toBe(P1(0xaa))
     expect(grid[10][11]).toBe(TILE_EMPTY)
-    expect(grid[11][9]).toBe(P1(0xAA))
-    expect(grid[11][10]).toBe(P1(0xE2))
-    expect(grid[12][8]).toBe(P1(0xAA))
-    expect(grid[12][9]).toBe(P1(0xE2))
-    expect(grid[12][10]).toBe(0x3F)
+    expect(grid[11][9]).toBe(P1(0xaa))
+    expect(grid[11][10]).toBe(P1(0xe2))
+    expect(grid[12][8]).toBe(P1(0xaa))
+    expect(grid[12][9]).toBe(P1(0xe2))
+    expect(grid[12][10]).toBe(0x3f)
   })
 
   it('variant 3: diagonal down-right slope, lip shifts 2 cols per row', () => {
@@ -1073,22 +1159,27 @@ describe('handle_0DAB3E pipe variants (object 18)', () => {
     //   row 12 (final): 2 fills at cols 4-5, mid pair at cols 6-7 (no lip)
     const rom = makeMockRom()
     stampDispatchTable(rom)
-    rom.writeAt(0x0DAD44 + 28, [0x3F])
-    rom.writeAt(0x0DAD44 + 41, [0xE6])
-    rom.writeAt(0x0DAD44 + 49, [0xE0])
-    rom.writeAt(0x0DAD44 + 63, [0xA0])
-    rom.writeAt(0x0DAD44 + 71, [0xA5])
+    rom.writeAt(0x0dad44 + 28, [0x3f])
+    rom.writeAt(0x0dad44 + 41, [0xe6])
+    rom.writeAt(0x0dad44 + 49, [0xe0])
+    rom.writeAt(0x0dad44 + 63, [0xa0])
+    rom.writeAt(0x0dad44 + 71, [0xa5])
     const grid = createGrid(1)
     const cur = makeCursorForHandler(DISPATCHER_ADDR, grid, rom, 0, 4, 10, 18, 0x13)
     handle_0DAB3E(cur)
     // Row 10
-    expect(grid[10][4]).toBe(P1(0xA0)); expect(grid[10][5]).toBe(P1(0xA5))
+    expect(grid[10][4]).toBe(P1(0xa0))
+    expect(grid[10][5]).toBe(P1(0xa5))
     // Row 11
-    expect(grid[11][4]).toBe(P1(0xE6)); expect(grid[11][5]).toBe(P1(0xE0))
-    expect(grid[11][6]).toBe(P1(0xA0)); expect(grid[11][7]).toBe(P1(0xA5))
+    expect(grid[11][4]).toBe(P1(0xe6))
+    expect(grid[11][5]).toBe(P1(0xe0))
+    expect(grid[11][6]).toBe(P1(0xa0))
+    expect(grid[11][7]).toBe(P1(0xa5))
     // Row 12 (final, no lip)
-    expect(grid[12][4]).toBe(0x3F);     expect(grid[12][5]).toBe(0x3F)
-    expect(grid[12][6]).toBe(P1(0xE6)); expect(grid[12][7]).toBe(P1(0xE0))
+    expect(grid[12][4]).toBe(0x3f)
+    expect(grid[12][5]).toBe(0x3f)
+    expect(grid[12][6]).toBe(P1(0xe6))
+    expect(grid[12][7]).toBe(P1(0xe0))
     expect(grid[12][8]).toBe(TILE_EMPTY)
   })
 
@@ -1096,18 +1187,18 @@ describe('handle_0DAB3E pipe variants (object 18)', () => {
     // pipeVariant4 (CODE_0DADA3): +28 $3F, +41 $E4, +53 $AF.
     const rom = makeMockRom()
     stampDispatchTable(rom)
-    rom.writeAt(0x0DADA3 + 28, [0x3F])
-    rom.writeAt(0x0DADA3 + 41, [0xE4])
-    rom.writeAt(0x0DADA3 + 53, [0xAF])
+    rom.writeAt(0x0dada3 + 28, [0x3f])
+    rom.writeAt(0x0dada3 + 41, [0xe4])
+    rom.writeAt(0x0dada3 + 53, [0xaf])
     const grid = createGrid(1)
     const cur = makeCursorForHandler(DISPATCHER_ADDR, grid, rom, 0, 4, 10, 18, 0x24)
     handle_0DAB3E(cur)
-    expect(grid[10][4]).toBe(P1(0xAF))
-    expect(grid[11][4]).toBe(P1(0xE4))
-    expect(grid[11][5]).toBe(P1(0xAF))
-    expect(grid[12][4]).toBe(0x3F)
-    expect(grid[12][5]).toBe(P1(0xE4))
-    expect(grid[12][6]).toBe(P1(0xAF))
+    expect(grid[10][4]).toBe(P1(0xaf))
+    expect(grid[11][4]).toBe(P1(0xe4))
+    expect(grid[11][5]).toBe(P1(0xaf))
+    expect(grid[12][4]).toBe(0x3f)
+    expect(grid[12][5]).toBe(P1(0xe4))
+    expect(grid[12][6]).toBe(P1(0xaf))
   })
 
   it('variant 5: 4-wide vertical pipe', () => {
@@ -1115,26 +1206,26 @@ describe('handle_0DAB3E pipe variants (object 18)', () => {
     //                             +79 $82, +87 $87, +95 $8C, +103 $91.
     const rom = makeMockRom()
     stampDispatchTable(rom)
-    rom.writeAt(0x0DADEB + 26, [0x3F])
-    rom.writeAt(0x0DADEB + 39, [0xE6])
-    rom.writeAt(0x0DADEB + 47, [0xE6])
-    rom.writeAt(0x0DADEB + 55, [0xDB])
-    rom.writeAt(0x0DADEB + 63, [0xDC])
-    rom.writeAt(0x0DADEB + 79, [0x82])
-    rom.writeAt(0x0DADEB + 87, [0x87])
-    rom.writeAt(0x0DADEB + 95, [0x8C])
-    rom.writeAt(0x0DADEB + 103, [0x91])
+    rom.writeAt(0x0dadeb + 26, [0x3f])
+    rom.writeAt(0x0dadeb + 39, [0xe6])
+    rom.writeAt(0x0dadeb + 47, [0xe6])
+    rom.writeAt(0x0dadeb + 55, [0xdb])
+    rom.writeAt(0x0dadeb + 63, [0xdc])
+    rom.writeAt(0x0dadeb + 79, [0x82])
+    rom.writeAt(0x0dadeb + 87, [0x87])
+    rom.writeAt(0x0dadeb + 95, [0x8c])
+    rom.writeAt(0x0dadeb + 103, [0x91])
     const grid = createGrid(1)
     const cur = makeCursorForHandler(DISPATCHER_ADDR, grid, rom, 0, 4, 10, 18, 0x15)
     handle_0DAB3E(cur)
     expect(grid[10][4]).toBe(P1(0x82))
     expect(grid[10][5]).toBe(P1(0x87))
-    expect(grid[10][6]).toBe(P1(0x8C))
+    expect(grid[10][6]).toBe(P1(0x8c))
     expect(grid[10][7]).toBe(P1(0x91))
-    expect(grid[11][4]).toBe(P1(0xE6))
-    expect(grid[11][5]).toBe(P1(0xE6))
-    expect(grid[11][6]).toBe(P1(0xDB))
-    expect(grid[11][7]).toBe(P1(0xDC))
+    expect(grid[11][4]).toBe(P1(0xe6))
+    expect(grid[11][5]).toBe(P1(0xe6))
+    expect(grid[11][6]).toBe(P1(0xdb))
+    expect(grid[11][7]).toBe(P1(0xdc))
   })
 
   it('variant 8: diagonal slope with vertical right edge, H=3', () => {
@@ -1147,30 +1238,30 @@ describe('handle_0DAB3E pipe variants (object 18)', () => {
     //   Iter 3 at (7, 13): C4                   [C4 lip only; _2==0 -> BMI skips EC]
     const rom = makeMockRom()
     stampDispatchTable(rom)
-    rom.writeAt(0x0DAF61 + 32, [0xC4])
-    rom.writeAt(0x0DAF61 + 43, [0xEC])
-    rom.writeAt(0x0DAF61 + 54, [0x65])
+    rom.writeAt(0x0daf61 + 32, [0xc4])
+    rom.writeAt(0x0daf61 + 43, [0xec])
+    rom.writeAt(0x0daf61 + 54, [0x65])
     const grid = createGrid(1)
     const cur = makeCursorForHandler(DISPATCHER_ADDR, grid, rom, 0, 5, 10, 18, 0x38)
     handle_0DAB3E(cur)
     // Row 10 (iter 0): EC at 5, fill at 6, fill at 7.
-    expect(grid[10][5]).toBe(P1(0xEC))
+    expect(grid[10][5]).toBe(P1(0xec))
     expect(grid[10][6]).toBe(P1(0x65))
     expect(grid[10][7]).toBe(P1(0x65))
     expect(grid[10][8]).toBe(TILE_EMPTY)
     // Row 11 (iter 1): C4 at 5, EC at 6, fill at 7.
-    expect(grid[11][5]).toBe(P1(0xC4))
-    expect(grid[11][6]).toBe(P1(0xEC))
+    expect(grid[11][5]).toBe(P1(0xc4))
+    expect(grid[11][6]).toBe(P1(0xec))
     expect(grid[11][7]).toBe(P1(0x65))
     expect(grid[11][8]).toBe(TILE_EMPTY)
     // Row 12 (iter 2): C4 at 6, EC at 7.
     expect(grid[12][5]).toBe(TILE_EMPTY)
-    expect(grid[12][6]).toBe(P1(0xC4))
-    expect(grid[12][7]).toBe(P1(0xEC))
+    expect(grid[12][6]).toBe(P1(0xc4))
+    expect(grid[12][7]).toBe(P1(0xec))
     expect(grid[12][8]).toBe(TILE_EMPTY)
     // Row 13 (iter 3, i==H=3): C4 at 7 only (_2==0 -> BMI skips EC).
     expect(grid[13][6]).toBe(TILE_EMPTY)
-    expect(grid[13][7]).toBe(P1(0xC4))
+    expect(grid[13][7]).toBe(P1(0xc4))
     expect(grid[13][8]).toBe(TILE_EMPTY)
   })
 
@@ -1184,51 +1275,51 @@ describe('handle_0DAB3E pipe variants (object 18)', () => {
     //   Iter 3 (X=0): C5 at col 5 only            [X==0: skip fills+ED, just lip]
     const rom = makeMockRom()
     stampDispatchTable(rom)
-    rom.writeAt(0x0DAFEA + 28, [0x65])
-    rom.writeAt(0x0DAFEA + 45, [0xED])
-    rom.writeAt(0x0DAFEA + 57, [0xC5])
+    rom.writeAt(0x0dafea + 28, [0x65])
+    rom.writeAt(0x0dafea + 45, [0xed])
+    rom.writeAt(0x0dafea + 57, [0xc5])
     const grid = createGrid(1)
     const cur = makeCursorForHandler(DISPATCHER_ADDR, grid, rom, 0, 5, 10, 18, 0x39)
     handle_0DAB3E(cur)
     // Row 10 (iter 0, X=3): fills at 5,6; ED at 7; no C5.
     expect(grid[10][5]).toBe(P1(0x65))
     expect(grid[10][6]).toBe(P1(0x65))
-    expect(grid[10][7]).toBe(P1(0xED))
+    expect(grid[10][7]).toBe(P1(0xed))
     expect(grid[10][8]).toBe(TILE_EMPTY)
     // Row 11 (iter 1, X=2): fill at 5; ED at 6; C5 at 7.
     expect(grid[11][5]).toBe(P1(0x65))
-    expect(grid[11][6]).toBe(P1(0xED))
-    expect(grid[11][7]).toBe(P1(0xC5))
+    expect(grid[11][6]).toBe(P1(0xed))
+    expect(grid[11][7]).toBe(P1(0xc5))
     expect(grid[11][8]).toBe(TILE_EMPTY)
     // Row 12 (iter 2, X=1): ED at 5; C5 at 6.
-    expect(grid[12][5]).toBe(P1(0xED))
-    expect(grid[12][6]).toBe(P1(0xC5))
+    expect(grid[12][5]).toBe(P1(0xed))
+    expect(grid[12][6]).toBe(P1(0xc5))
     expect(grid[12][7]).toBe(TILE_EMPTY)
     // Row 13 (iter 3, X=0): C5 only at 5.
-    expect(grid[13][5]).toBe(P1(0xC5))
+    expect(grid[13][5]).toBe(P1(0xc5))
     expect(grid[13][6]).toBe(TILE_EMPTY)
   })
 })
 
 describe('handle_0DB224 (3-column framed structure, object 21)', () => {
-  const HANDLER_ADDR = 0x0DB224
+  const HANDLER_ADDR = 0x0db224
 
   function stampAllTables(rom: RomFile) {
     // See handler comment for offsets: V=0 (top/mid/bot) at +24,+66,+108;
     // V!=0 at +34,+76,+118.
-    stampLongOperand(rom, HANDLER_ADDR, 24, 0x0DB212)
-    stampLongOperand(rom, HANDLER_ADDR, 66, 0x0DB215)
-    stampLongOperand(rom, HANDLER_ADDR, 108, 0x0DB218)
-    stampLongOperand(rom, HANDLER_ADDR, 34, 0x0DB21B)
-    stampLongOperand(rom, HANDLER_ADDR, 76, 0x0DB21E)
-    stampLongOperand(rom, HANDLER_ADDR, 118, 0x0DB221)
+    stampLongOperand(rom, HANDLER_ADDR, 24, 0x0db212)
+    stampLongOperand(rom, HANDLER_ADDR, 66, 0x0db215)
+    stampLongOperand(rom, HANDLER_ADDR, 108, 0x0db218)
+    stampLongOperand(rom, HANDLER_ADDR, 34, 0x0db21b)
+    stampLongOperand(rom, HANDLER_ADDR, 76, 0x0db21e)
+    stampLongOperand(rom, HANDLER_ADDR, 118, 0x0db221)
   }
 
   it('variant 0, H=1: TOP + BOT only (no middle, H-1=0 iterations)', () => {
     const rom = makeMockRom({
-      [0x0DB212]: [0x2F, 0x25, 0x32],
-      [0x0DB215]: [0x30, 0x25, 0x33],
-      [0x0DB218]: [0x31, 0x25, 0x34],
+      [0x0db212]: [0x2f, 0x25, 0x32],
+      [0x0db215]: [0x30, 0x25, 0x33],
+      [0x0db218]: [0x31, 0x25, 0x34],
     })
     stampAllTables(rom)
     const grid = createGrid(1)
@@ -1236,7 +1327,7 @@ describe('handle_0DB224 (3-column framed structure, object 21)', () => {
     handle_0DB224(cur)
     // H=1 → ASM's `DEC _1; BEQ CODE_0DB28F` after TOP skips the middle loop.
     // Net: row 0 = TOP, row 1 = BOT.
-    expect(grid[10][2]).toBe(0x2F)
+    expect(grid[10][2]).toBe(0x2f)
     expect(grid[11][2]).toBe(0x31)
     expect(grid[10][3]).toBe(0x25)
     expect(grid[11][3]).toBe(0x25)
@@ -1246,15 +1337,15 @@ describe('handle_0DB224 (3-column framed structure, object 21)', () => {
 
   it('variant 0, H=2: TOP + 1 middle + BOT', () => {
     const rom = makeMockRom({
-      [0x0DB212]: [0x2F, 0x25, 0x32],
-      [0x0DB215]: [0x30, 0x25, 0x33],
-      [0x0DB218]: [0x31, 0x25, 0x34],
+      [0x0db212]: [0x2f, 0x25, 0x32],
+      [0x0db215]: [0x30, 0x25, 0x33],
+      [0x0db218]: [0x31, 0x25, 0x34],
     })
     stampAllTables(rom)
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 2, 10, 21, 0x20)
     handle_0DB224(cur)
-    expect(grid[10][2]).toBe(0x2F)
+    expect(grid[10][2]).toBe(0x2f)
     expect(grid[11][2]).toBe(0x30)
     expect(grid[12][2]).toBe(0x31)
     expect(grid[12][4]).toBe(0x34)
@@ -1262,9 +1353,9 @@ describe('handle_0DB224 (3-column framed structure, object 21)', () => {
 
   it('variant != 0 uses DATA_0DB21B/21E/221 triples', () => {
     const rom = makeMockRom({
-      [0x0DB21B]: [0x39, 0x25, 0x3C],
-      [0x0DB21E]: [0x3A, 0x25, 0x3D],
-      [0x0DB221]: [0x3B, 0x25, 0x3E],
+      [0x0db21b]: [0x39, 0x25, 0x3c],
+      [0x0db21e]: [0x3a, 0x25, 0x3d],
+      [0x0db221]: [0x3b, 0x25, 0x3e],
     })
     stampAllTables(rom)
     const grid = createGrid(1)
@@ -1272,22 +1363,22 @@ describe('handle_0DB224 (3-column framed structure, object 21)', () => {
     handle_0DB224(cur)
     // H=1 variant-1: TOP + BOT only.
     expect(grid[10][2]).toBe(0x39)
-    expect(grid[11][2]).toBe(0x3B)
-    expect(grid[11][4]).toBe(0x3E)
+    expect(grid[11][2]).toBe(0x3b)
+    expect(grid[11][4]).toBe(0x3e)
   })
 })
 
 describe('handle_0DB2CA (dragon coin, ext 0x41)', () => {
-  const HANDLER_ADDR = 0x0DB2CA
+  const HANDLER_ADDR = 0x0db2ca
   it('writes $2D above $2E', () => {
     const rom = makeMockRom()
-    rom.writeAt(HANDLER_ADDR + 94, [0x2D])
-    rom.writeAt(HANDLER_ADDR + 104, [0x2E])
+    rom.writeAt(HANDLER_ADDR + 94, [0x2d])
+    rom.writeAt(HANDLER_ADDR + 104, [0x2e])
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 15, 0x30, 0)
     handle_0DB2CA(cur)
-    expect(grid[15][3]).toBe(0x2D)
-    expect(grid[16][3]).toBe(0x2E)
+    expect(grid[15][3]).toBe(0x2d)
+    expect(grid[16][3]).toBe(0x2e)
   })
 })
 
@@ -1301,7 +1392,7 @@ const romPresent = existsSync(ROM_PATH)
 
 describe('expandMap integration (real SMW ROM)', () => {
   if (!romPresent) {
-    it.skip('SMW ROM not present — integration tests skipped', () => {})
+    it.skip('SMW ROM not present - integration tests skipped', () => {})
     return
   }
 
@@ -1313,7 +1404,15 @@ describe('expandMap integration (real SMW ROM)', () => {
     if (!rawL1) throw new Error(`Level $${index.toString(16)} has no data`)
     const { header, objects } = parseLevelObjects(rawL1)
     const screens = header.levelLength
-    const grid = expandMap(objects, screens, rom.rom, header.objectTileset, false, header.levelMode, index)
+    const grid = expandMap(
+      objects,
+      screens,
+      rom.rom,
+      header.objectTileset,
+      false,
+      header.levelMode,
+      index,
+    )
     return { grid, header, objects, screens }
   }
 
@@ -1340,7 +1439,7 @@ describe('expandMap integration (real SMW ROM)', () => {
   it('level $105 has a ground-like run somewhere in the lower half', () => {
     const { grid } = expandLevelByIndex(0x105)
     // Somewhere in rows 20-26 (lower half) there should be a row with 8+
-    // filled tiles across the first screen — confirming CODE_0DA8C3 ran.
+    // filled tiles across the first screen - confirming CODE_0DA8C3 ran.
     let best = 0
     for (let r = 20; r < 27; r++) {
       let run = 0
@@ -1359,7 +1458,10 @@ describe('expandMap integration (real SMW ROM)', () => {
     let deepestRow = 0
     for (let r = 0; r < 27; r++) {
       for (const t of grid[r]) {
-        if (t !== TILE_EMPTY) { deepestRow = r; break }
+        if (t !== TILE_EMPTY) {
+          deepestRow = r
+          break
+        }
       }
     }
     expect(deepestRow).toBeGreaterThan(15)
@@ -1444,17 +1546,19 @@ describe('expandMap integration (real SMW ROM)', () => {
 // the grid, and advance diagonally (tile-count grows with the size parameter).
 
 describe('handle_0DB73F (diagonal slope walker, object 57)', () => {
-  const HANDLER_ADDR = 0x0DB73F
+  const HANDLER_ADDR = 0x0db73f
   function setupRom(): RomFile {
     const rom = makeMockRom({
-      [0x0DB72F]: [0xC4, 0xC5, 0xC7, 0xEC, 0xED, 0xC6, 0xC7, 0xEE,
-                   0x59, 0x5A, 0xEF, 0xC7, 0xEE, 0x59, 0x5B, 0x5C],
+      [0x0db72f]: [
+        0xc4, 0xc5, 0xc7, 0xec, 0xed, 0xc6, 0xc7, 0xee, 0x59, 0x5a, 0xef, 0xc7, 0xee, 0x59, 0x5b,
+        0x5c,
+      ],
     })
     // LDA.L DATA_0DB72F operand at handler +27
-    stampLongOperand(rom, HANDLER_ADDR, 27, 0x0DB72F)
+    stampLongOperand(rom, HANDLER_ADDR, 27, 0x0db72f)
     // LDA #$01 (initial _1) at +11, LDA #$EB (capper) at +103
     rom.writeAt(HANDLER_ADDR + 11, [0x01])
-    rom.writeAt(HANDLER_ADDR + 103, [0xEB])
+    rom.writeAt(HANDLER_ADDR + 103, [0xeb])
     return rom
   }
 
@@ -1463,7 +1567,7 @@ describe('handle_0DB73F (diagonal slope walker, object 57)', () => {
     const grid = createGrid(3)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 20, 10, 57, 0x20)
     expect(() => handle_0DB73F(cur)).not.toThrow()
-    expect(grid[10][20]).toBe(P1(0xC4))
+    expect(grid[10][20]).toBe(P1(0xc4))
   })
 
   it('larger size produces more total tiles', () => {
@@ -1481,21 +1585,21 @@ describe('handle_0DB73F (diagonal slope walker, object 57)', () => {
 })
 
 describe('handle_0DB7AA (pyramid/hill slope, object 58)', () => {
-  const HANDLER_ADDR = 0x0DB7AA
+  const HANDLER_ADDR = 0x0db7aa
   function setupRom(): RomFile {
     const rom = makeMockRom()
     // 10 inline `LDA #$XX` immediates. The operand byte follows the $A9 opcode,
     // so we stamp one byte past each opcode offset.
-    rom.writeAt(HANDLER_ADDR + 29,  [0xAA])
-    rom.writeAt(HANDLER_ADDR + 37,  [0xA1])
-    rom.writeAt(HANDLER_ADDR + 48,  [0xAA])
-    rom.writeAt(HANDLER_ADDR + 57,  [0xE2])
-    rom.writeAt(HANDLER_ADDR + 68,  [0x3F])
-    rom.writeAt(HANDLER_ADDR + 79,  [0xA6])
-    rom.writeAt(HANDLER_ADDR + 114, [0xF7])
-    rom.writeAt(HANDLER_ADDR + 125, [0xA3])
-    rom.writeAt(HANDLER_ADDR + 136, [0x3F])
-    rom.writeAt(HANDLER_ADDR + 147, [0xA6])
+    rom.writeAt(HANDLER_ADDR + 29, [0xaa])
+    rom.writeAt(HANDLER_ADDR + 37, [0xa1])
+    rom.writeAt(HANDLER_ADDR + 48, [0xaa])
+    rom.writeAt(HANDLER_ADDR + 57, [0xe2])
+    rom.writeAt(HANDLER_ADDR + 68, [0x3f])
+    rom.writeAt(HANDLER_ADDR + 79, [0xa6])
+    rom.writeAt(HANDLER_ADDR + 114, [0xf7])
+    rom.writeAt(HANDLER_ADDR + 125, [0xa3])
+    rom.writeAt(HANDLER_ADDR + 136, [0x3f])
+    rom.writeAt(HANDLER_ADDR + 147, [0xa6])
     return rom
   }
 
@@ -1506,7 +1610,10 @@ describe('handle_0DB7AA (pyramid/hill slope, object 58)', () => {
     expect(() => handle_0DB7AA(cur)).not.toThrow()
     let rowHasLip = false
     for (const tile of grid[10]) {
-      if (tile === P1(0xAA)) { rowHasLip = true; break }
+      if (tile === P1(0xaa)) {
+        rowHasLip = true
+        break
+      }
     }
     expect(rowHasLip).toBe(true)
   })
@@ -1532,47 +1639,47 @@ describe('handle_0DB7AA (pyramid/hill slope, object 58)', () => {
 // webview's `applySwitchPalaceState` re-applies the page bit per the UI toggle.
 
 describe('handle_0DB58B (green switch-palace block, ext)', () => {
-  const HANDLER_ADDR = 0x0DB58B
-  const TABLE_ADDR = 0x0DB587
+  const HANDLER_ADDR = 0x0db58b
+  const TABLE_ADDR = 0x0db587
 
   it('writes $16A (green cleared) at cursor', () => {
     const rom = makeMockRom({
-      [TABLE_ADDR]: [0x6A, 0x6B],          // DATA_0DB587[0]=$6A (green), [1]=$6B (yellow)
-      [HANDLER_ADDR + 1]: [0x00],          // LDX #$00 immediate
+      [TABLE_ADDR]: [0x6a, 0x6b], // DATA_0DB587[0]=$6A (green), [1]=$6B (yellow)
+      [HANDLER_ADDR + 1]: [0x00], // LDX #$00 immediate
     })
     stampLongOperand(rom, HANDLER_ADDR, 23, TABLE_ADDR)
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 10, 0, 0x87)
     handle_0DB58B(cur)
-    expect(grid[10][5]).toBe(P1(0x6A))     // page 1 | $6A
+    expect(grid[10][5]).toBe(P1(0x6a)) // page 1 | $6A
   })
 })
 
 describe('handle_0DB583 (yellow switch-palace block, ext)', () => {
-  const HANDLER_ADDR = 0x0DB583
-  const TABLE_ADDR = 0x0DB587
+  const HANDLER_ADDR = 0x0db583
+  const TABLE_ADDR = 0x0db587
 
   it('writes $16B (yellow cleared) at cursor', () => {
     const rom = makeMockRom({
-      [TABLE_ADDR]: [0x6A, 0x6B],
-      [HANDLER_ADDR + 1]: [0x01],          // LDX #$01 immediate
+      [TABLE_ADDR]: [0x6a, 0x6b],
+      [HANDLER_ADDR + 1]: [0x01], // LDX #$01 immediate
     })
     stampLongOperand(rom, HANDLER_ADDR, 31, TABLE_ADDR)
     const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 10, 0, 0x8E)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 10, 0, 0x8e)
     handle_0DB583(cur)
-    expect(grid[10][5]).toBe(P1(0x6B))
+    expect(grid[10][5]).toBe(P1(0x6b))
   })
 })
 
 describe('handle_0DB916 (blue switch-palace block, standard rect)', () => {
-  const HANDLER_ADDR = 0x0DB916
-  const TABLE_ADDR = 0x0DB91A
+  const HANDLER_ADDR = 0x0db916
+  const TABLE_ADDR = 0x0db91a
 
   function setupRom(): RomFile {
     const rom = makeMockRom({
-      [TABLE_ADDR]: [0x6C, 0x6D],          // DATA_0DB91A[0]=$6C (blue), [1]=$6D (red)
-      [HANDLER_ADDR + 1]: [0x00],          // LDX #$00 immediate
+      [TABLE_ADDR]: [0x6c, 0x6d], // DATA_0DB91A[0]=$6C (blue), [1]=$6D (red)
+      [HANDLER_ADDR + 1]: [0x00], // LDX #$00 immediate
     })
     stampLongOperand(rom, HANDLER_ADDR, 37, TABLE_ADDR)
     return rom
@@ -1583,7 +1690,7 @@ describe('handle_0DB916 (blue switch-palace block, standard rect)', () => {
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 30, 0x00)
     handle_0DB916(cur)
-    expect(grid[10][3]).toBe(P1(0x6C))
+    expect(grid[10][3]).toBe(P1(0x6c))
     // Ensure no accidental spill into neighbors.
     expect(grid[10][2]).toBe(TILE_EMPTY)
     expect(grid[10][4]).toBe(TILE_EMPTY)
@@ -1597,7 +1704,7 @@ describe('handle_0DB916 (blue switch-palace block, standard rect)', () => {
     handle_0DB916(cur)
     for (let r = 10; r <= 12; r++) {
       for (let c = 2; c <= 5; c++) {
-        expect(grid[r][c]).toBe(P1(0x6C))
+        expect(grid[r][c]).toBe(P1(0x6c))
       }
     }
     // One past the right edge must remain empty.
@@ -1616,34 +1723,34 @@ describe('handle_0DB916 (blue switch-palace block, standard rect)', () => {
 })
 
 describe('handle_0DB91E (red switch-palace block, standard rect)', () => {
-  const HANDLER_ADDR = 0x0DB91E
-  const TABLE_ADDR = 0x0DB91A
+  const HANDLER_ADDR = 0x0db91e
+  const TABLE_ADDR = 0x0db91a
 
-  it('writes $16D (red cleared) — single tile at size $00', () => {
+  it('writes $16D (red cleared) - single tile at size $00', () => {
     const rom = makeMockRom({
-      [TABLE_ADDR]: [0x6C, 0x6D],
-      [HANDLER_ADDR + 1]: [0x01],          // LDX #$01 immediate
+      [TABLE_ADDR]: [0x6c, 0x6d],
+      [HANDLER_ADDR + 1]: [0x01], // LDX #$01 immediate
     })
     stampLongOperand(rom, HANDLER_ADDR, 29, TABLE_ADDR)
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 8, 10, 30, 0x00)
     handle_0DB91E(cur)
-    expect(grid[10][8]).toBe(P1(0x6D))
+    expect(grid[10][8]).toBe(P1(0x6d))
   })
 
   it('size $11 fills a 2x2 rect of $16D', () => {
     const rom = makeMockRom({
-      [TABLE_ADDR]: [0x6C, 0x6D],
+      [TABLE_ADDR]: [0x6c, 0x6d],
       [HANDLER_ADDR + 1]: [0x01],
     })
     stampLongOperand(rom, HANDLER_ADDR, 29, TABLE_ADDR)
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 4, 12, 30, 0x11)
     handle_0DB91E(cur)
-    expect(grid[12][4]).toBe(P1(0x6D))
-    expect(grid[12][5]).toBe(P1(0x6D))
-    expect(grid[13][4]).toBe(P1(0x6D))
-    expect(grid[13][5]).toBe(P1(0x6D))
+    expect(grid[12][4]).toBe(P1(0x6d))
+    expect(grid[12][5]).toBe(P1(0x6d))
+    expect(grid[13][4]).toBe(P1(0x6d))
+    expect(grid[13][5]).toBe(P1(0x6d))
     expect(grid[12][6]).toBe(TILE_EMPTY)
     expect(grid[14][4]).toBe(TILE_EMPTY)
   })
@@ -1652,15 +1759,15 @@ describe('handle_0DB91E (red switch-palace block, standard rect)', () => {
 // ── CODE_0DEDB9 (tileset-4 object $3B: horizontal rail/fence strip) ───────────
 
 describe('handle_0DEDB9 (horizontal cap-body-cap strip, tileset-4 object $3B)', () => {
-  const HANDLER_ADDR = 0x0DEDB9
-  const LEFT_IMM_OFFSET  = 11  // LDA #$07 immediate operand
-  const BODY_IMM_OFFSET  = 19  // LDA #$08 immediate operand
-  const RIGHT_IMM_OFFSET = 30  // LDA #$09 immediate operand
+  const HANDLER_ADDR = 0x0dedb9
+  const LEFT_IMM_OFFSET = 11 // LDA #$07 immediate operand
+  const BODY_IMM_OFFSET = 19 // LDA #$08 immediate operand
+  const RIGHT_IMM_OFFSET = 30 // LDA #$09 immediate operand
 
   function romWithHandlerBytes(left: number, body: number, right: number): RomFile {
     const rom = makeMockRom({})
-    rom.writeAt(HANDLER_ADDR + LEFT_IMM_OFFSET,  [left])
-    rom.writeAt(HANDLER_ADDR + BODY_IMM_OFFSET,  [body])
+    rom.writeAt(HANDLER_ADDR + LEFT_IMM_OFFSET, [left])
+    rom.writeAt(HANDLER_ADDR + BODY_IMM_OFFSET, [body])
     rom.writeAt(HANDLER_ADDR + RIGHT_IMM_OFFSET, [right])
     return rom
   }
@@ -1668,7 +1775,7 @@ describe('handle_0DEDB9 (horizontal cap-body-cap strip, tileset-4 object $3B)', 
   it('W=1 emits just the cap pair [$107, $109] (no body)', () => {
     const grid = createGrid(1)
     const rom = romWithHandlerBytes(0x07, 0x08, 0x09)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 2, 10, 0x3B, 0x01)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 2, 10, 0x3b, 0x01)
     handle_0DEDB9(cur)
     expect(grid[10][2]).toBe(P1(0x07))
     expect(grid[10][3]).toBe(P1(0x09))
@@ -1679,7 +1786,7 @@ describe('handle_0DEDB9 (horizontal cap-body-cap strip, tileset-4 object $3B)', 
   it('W=2 emits [$107, $108, $109]', () => {
     const grid = createGrid(1)
     const rom = romWithHandlerBytes(0x07, 0x08, 0x09)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 5, 10, 0x3B, 0x02)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 5, 10, 0x3b, 0x02)
     handle_0DEDB9(cur)
     expect(grid[10][5]).toBe(P1(0x07))
     expect(grid[10][6]).toBe(P1(0x08))
@@ -1690,7 +1797,7 @@ describe('handle_0DEDB9 (horizontal cap-body-cap strip, tileset-4 object $3B)', 
   it('W=4 emits [$107, $108, $108, $108, $109] (3 body tiles)', () => {
     const grid = createGrid(1)
     const rom = romWithHandlerBytes(0x07, 0x08, 0x09)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 0, 12, 0x3B, 0x04)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 0, 12, 0x3b, 0x04)
     handle_0DEDB9(cur)
     expect(grid[12][0]).toBe(P1(0x07))
     expect(grid[12][1]).toBe(P1(0x08))
@@ -1704,7 +1811,7 @@ describe('handle_0DEDB9 (horizontal cap-body-cap strip, tileset-4 object $3B)', 
     const grid = createGrid(1)
     const rom = romWithHandlerBytes(0x07, 0x08, 0x09)
     // size = $F2 → H=15 W=2; result must match W=2 above.
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 1, 8, 0x3B, 0xF2)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 1, 8, 0x3b, 0xf2)
     handle_0DEDB9(cur)
     expect(grid[8][1]).toBe(P1(0x07))
     expect(grid[8][2]).toBe(P1(0x08))
@@ -1716,22 +1823,22 @@ describe('handle_0DEDB9 (horizontal cap-body-cap strip, tileset-4 object $3B)', 
 
   it('resolves cap/body tiles from handler bytecode (tolerates relocated imms)', () => {
     const grid = createGrid(1)
-    const rom = romWithHandlerBytes(0xAA, 0xBB, 0xCC)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 0, 0, 0x3B, 0x02)
+    const rom = romWithHandlerBytes(0xaa, 0xbb, 0xcc)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 4, 0, 0, 0x3b, 0x02)
     handle_0DEDB9(cur)
-    expect(grid[0][0]).toBe(P1(0xAA))
-    expect(grid[0][1]).toBe(P1(0xBB))
-    expect(grid[0][2]).toBe(P1(0xCC))
+    expect(grid[0][0]).toBe(P1(0xaa))
+    expect(grid[0][1]).toBe(P1(0xbb))
+    expect(grid[0][2]).toBe(P1(0xcc))
   })
 })
 
 // ── CODE_0DDCEA (tileset 9-14, object $3D: fill + distinct bottom row) ────────
 
 describe('handle_0DDCEA (filled rect with distinct bottom row, object $3D)', () => {
-  const HANDLER_ADDR = 0x0DDCEA
+  const HANDLER_ADDR = 0x0ddcea
   // Operand offsets inside the handler body for the body / bottom LDA #$imm.
-  const BODY_IMM_OFFSET   = 29  // $A9 $65 → body tile (size = 1 byte)
-  const BOTTOM_IMM_OFFSET = 52  // $A9 $4E → bottom tile
+  const BODY_IMM_OFFSET = 29 // $A9 $65 → body tile (size = 1 byte)
+  const BOTTOM_IMM_OFFSET = 52 // $A9 $4E → bottom tile
 
   function romWithHandlerBytes(bodyTile: number, bottomTile: number): RomFile {
     const rom = makeMockRom({})
@@ -1742,11 +1849,11 @@ describe('handle_0DDCEA (filled rect with distinct bottom row, object $3D)', () 
 
   it('H=0 draws only the bottom row (width W+1, page 1)', () => {
     const grid = createGrid(1)
-    const rom = romWithHandlerBytes(0x65, 0x4E)
+    const rom = romWithHandlerBytes(0x65, 0x4e)
     // size = $06 → H=0 W=6 → single row of bottomTile, width 7.
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 2, 10, 0x3D, 0x06)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 2, 10, 0x3d, 0x06)
     handle_0DDCEA(cur)
-    for (let c = 2; c <= 8; c++) expect(grid[10][c]).toBe(P1(0x4E))
+    for (let c = 2; c <= 8; c++) expect(grid[10][c]).toBe(P1(0x4e))
     expect(grid[10][1]).toBe(TILE_EMPTY)
     expect(grid[10][9]).toBe(TILE_EMPTY)
     expect(grid[9][2]).toBe(TILE_EMPTY)
@@ -1754,16 +1861,16 @@ describe('handle_0DDCEA (filled rect with distinct bottom row, object $3D)', () 
 
   it('H>0 draws H rows of body tile + one bottom row', () => {
     const grid = createGrid(1)
-    const rom = romWithHandlerBytes(0x65, 0x4E)
+    const rom = romWithHandlerBytes(0x65, 0x4e)
     // size = $21 → H=2 W=1 → 2 rows of bodyTile + 1 row of bottomTile, width 2.
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 0, 4, 0x3D, 0x21)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 0, 4, 0x3d, 0x21)
     handle_0DDCEA(cur)
     for (let r = 4; r <= 5; r++) {
       expect(grid[r][0]).toBe(P1(0x65))
       expect(grid[r][1]).toBe(P1(0x65))
     }
-    expect(grid[6][0]).toBe(P1(0x4E))
-    expect(grid[6][1]).toBe(P1(0x4E))
+    expect(grid[6][0]).toBe(P1(0x4e))
+    expect(grid[6][1]).toBe(P1(0x4e))
     expect(grid[7][0]).toBe(TILE_EMPTY)
   })
 
@@ -1771,29 +1878,29 @@ describe('handle_0DDCEA (filled rect with distinct bottom row, object $3D)', () 
     const grid = createGrid(1)
     // Simulate a ROM hack that used different body/bottom tiles by rewriting the
     // LDA #$imm operand bytes. Handler must pick these up.
-    const rom = romWithHandlerBytes(0xAA, 0xBB)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 0, 0, 0x3D, 0x10)
+    const rom = romWithHandlerBytes(0xaa, 0xbb)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 0, 0, 0x3d, 0x10)
     handle_0DDCEA(cur)
-    expect(grid[0][0]).toBe(P1(0xAA))
-    expect(grid[1][0]).toBe(P1(0xBB))
+    expect(grid[0][0]).toBe(P1(0xaa))
+    expect(grid[1][0]).toBe(P1(0xbb))
   })
 })
 
 // ── CODE_0DDD2E (tileset 9-14, object $3E: vertical pillar) ───────────────────
 
 describe('handle_0DDD2E (vertical pillar, object $3E)', () => {
-  const HANDLER_ADDR = 0x0DDD2E
-  const BODY_LDA_OFFSET   = 23  // LDA.L DATA_0DDD26,X operand
-  const BOTTOM_LDA_OFFSET = 39  // LDA.L DATA_0DDD2A,X operand
+  const HANDLER_ADDR = 0x0ddd2e
+  const BODY_LDA_OFFSET = 23 // LDA.L DATA_0DDD26,X operand
+  const BOTTOM_LDA_OFFSET = 39 // LDA.L DATA_0DDD2A,X operand
 
   function romWithPillarTables(): RomFile {
     const rom = makeMockRom({})
     // Vanilla-style tables: 4 variants each.
-    const addrBody   = 0x0DDD26
-    const addrBottom = 0x0DDD2A
-    rom.writeAt(addrBody,   [0x50, 0x50, 0x51, 0x51])
-    rom.writeAt(addrBottom, [0x4D, 0x50, 0x4F, 0x51])
-    stampLongOperand(rom, HANDLER_ADDR, BODY_LDA_OFFSET,   addrBody)
+    const addrBody = 0x0ddd26
+    const addrBottom = 0x0ddd2a
+    rom.writeAt(addrBody, [0x50, 0x50, 0x51, 0x51])
+    rom.writeAt(addrBottom, [0x4d, 0x50, 0x4f, 0x51])
+    stampLongOperand(rom, HANDLER_ADDR, BODY_LDA_OFFSET, addrBody)
     stampLongOperand(rom, HANDLER_ADDR, BOTTOM_LDA_OFFSET, addrBottom)
     return rom
   }
@@ -1802,9 +1909,9 @@ describe('handle_0DDD2E (vertical pillar, object $3E)', () => {
     const grid = createGrid(1)
     const rom = romWithPillarTables()
     // size = $00 → H=0 V=0 → 1 bottom tile at cursor row.
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 3, 6, 0x3E, 0x00)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 3, 6, 0x3e, 0x00)
     handle_0DDD2E(cur)
-    expect(grid[6][3]).toBe(P1(0x4D))
+    expect(grid[6][3]).toBe(P1(0x4d))
     expect(grid[7][3]).toBe(TILE_EMPTY)
   })
 
@@ -1812,12 +1919,12 @@ describe('handle_0DDD2E (vertical pillar, object $3E)', () => {
     const grid = createGrid(1)
     const rom = romWithPillarTables()
     // size = $32 → H=3 V=2 → 3 body + 1 bottom.
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 0, 0, 0x3E, 0x32)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 0, 0, 0x3e, 0x32)
     handle_0DDD2E(cur)
-    expect(grid[0][0]).toBe(P1(0x51))   // body tile (variant 2 of DATA_0DDD26)
+    expect(grid[0][0]).toBe(P1(0x51)) // body tile (variant 2 of DATA_0DDD26)
     expect(grid[1][0]).toBe(P1(0x51))
     expect(grid[2][0]).toBe(P1(0x51))
-    expect(grid[3][0]).toBe(P1(0x4F))   // bottom tile (variant 2 of DATA_0DDD2A)
+    expect(grid[3][0]).toBe(P1(0x4f)) // bottom tile (variant 2 of DATA_0DDD2A)
     expect(grid[4][0]).toBe(TILE_EMPTY)
     expect(grid[0][1]).toBe(TILE_EMPTY) // no horizontal spread
   })
@@ -1826,22 +1933,22 @@ describe('handle_0DDD2E (vertical pillar, object $3E)', () => {
 // ── CODE_0DE135 (tileset 9-14, object $36: three-part rectangle) ──────────────
 
 describe('handle_0DE135 (three-part rect, object $36)', () => {
-  const HANDLER_ADDR = 0x0DE135
-  const LEFT_LDA_OFFSET   = 29  // LDA.L DATA_0DE12C,X
-  const MIDDLE_LDA_OFFSET = 42  // LDA.L DATA_0DE12F,X
-  const RIGHT_LDA_OFFSET  = 56  // LDA.L DATA_0DE132,X
+  const HANDLER_ADDR = 0x0de135
+  const LEFT_LDA_OFFSET = 29 // LDA.L DATA_0DE12C,X
+  const MIDDLE_LDA_OFFSET = 42 // LDA.L DATA_0DE12F,X
+  const RIGHT_LDA_OFFSET = 56 // LDA.L DATA_0DE132,X
 
   function romWithBoxTables(): RomFile {
     const rom = makeMockRom({})
-    const addrLeft   = 0x0DE12C
-    const addrMid    = 0x0DE12F
-    const addrRight  = 0x0DE132
-    rom.writeAt(addrLeft,  [0x45, 0x50, 0x4D])    // top-L, mid-L, bot-L
-    rom.writeAt(addrMid,   [0x00, 0xF0, 0x4E])    // top-M, mid-M, bot-M
-    rom.writeAt(addrRight, [0x48, 0x51, 0x4F])    // top-R, mid-R, bot-R
-    stampLongOperand(rom, HANDLER_ADDR, LEFT_LDA_OFFSET,   addrLeft)
+    const addrLeft = 0x0de12c
+    const addrMid = 0x0de12f
+    const addrRight = 0x0de132
+    rom.writeAt(addrLeft, [0x45, 0x50, 0x4d]) // top-L, mid-L, bot-L
+    rom.writeAt(addrMid, [0x00, 0xf0, 0x4e]) // top-M, mid-M, bot-M
+    rom.writeAt(addrRight, [0x48, 0x51, 0x4f]) // top-R, mid-R, bot-R
+    stampLongOperand(rom, HANDLER_ADDR, LEFT_LDA_OFFSET, addrLeft)
     stampLongOperand(rom, HANDLER_ADDR, MIDDLE_LDA_OFFSET, addrMid)
-    stampLongOperand(rom, HANDLER_ADDR, RIGHT_LDA_OFFSET,  addrRight)
+    stampLongOperand(rom, HANDLER_ADDR, RIGHT_LDA_OFFSET, addrRight)
     return rom
   }
 
@@ -1856,12 +1963,12 @@ describe('handle_0DE135 (three-part rect, object $36)', () => {
     expect(grid[4][4]).toBe(P1(0x48))
     // Row 1 (X=1 middle): mid-L, mid-M, mid-R
     expect(grid[5][2]).toBe(P1(0x50))
-    expect(grid[5][3]).toBe(P1(0xF0))
+    expect(grid[5][3]).toBe(P1(0xf0))
     expect(grid[5][4]).toBe(P1(0x51))
     // Row 2 (X=2 last): bot-L, bot-M, bot-R
-    expect(grid[6][2]).toBe(P1(0x4D))
-    expect(grid[6][3]).toBe(P1(0x4E))
-    expect(grid[6][4]).toBe(P1(0x4F))
+    expect(grid[6][2]).toBe(P1(0x4d))
+    expect(grid[6][3]).toBe(P1(0x4e))
+    expect(grid[6][4]).toBe(P1(0x4f))
     // Bounds
     expect(grid[4][5]).toBe(TILE_EMPTY)
     expect(grid[3][2]).toBe(TILE_EMPTY)
@@ -1876,8 +1983,8 @@ describe('handle_0DE135 (three-part rect, object $36)', () => {
     handle_0DE135(cur)
     expect(grid[0][0]).toBe(P1(0x45)) // top-L
     expect(grid[0][1]).toBe(P1(0x48)) // top-R (adjacent to left, no middle)
-    expect(grid[1][0]).toBe(P1(0x4D)) // bot-L
-    expect(grid[1][1]).toBe(P1(0x4F)) // bot-R
+    expect(grid[1][0]).toBe(P1(0x4d)) // bot-L
+    expect(grid[1][1]).toBe(P1(0x4f)) // bot-R
     expect(grid[0][2]).toBe(TILE_EMPTY)
   })
 
@@ -1887,10 +1994,10 @@ describe('handle_0DE135 (three-part rect, object $36)', () => {
     // size = $03 → H=0 W=3 → single top row with left + 2 middle + right (width 4).
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 9, 0, 0, 0x36, 0x03)
     handle_0DE135(cur)
-    expect(grid[0][0]).toBe(P1(0x45))   // top-L
-    expect(grid[0][1]).toBe(P1(0x00))   // top-M
-    expect(grid[0][2]).toBe(P1(0x00))   // top-M
-    expect(grid[0][3]).toBe(P1(0x48))   // top-R
+    expect(grid[0][0]).toBe(P1(0x45)) // top-L
+    expect(grid[0][1]).toBe(P1(0x00)) // top-M
+    expect(grid[0][2]).toBe(P1(0x00)) // top-M
+    expect(grid[0][3]).toBe(P1(0x48)) // top-R
     expect(grid[1][0]).toBe(TILE_EMPTY) // no row below
   })
 })
@@ -1898,37 +2005,61 @@ describe('handle_0DE135 (three-part rect, object $36)', () => {
 // ── CODE_0DB604 (2:1 slope block, obj=$3C) ────────────────────────────────────
 
 describe('handle_0DB604 (2:1 slope block, obj=$3C)', () => {
-  const HANDLER_ADDR = 0x0DB604
-  const DATA_ADDR    = 0x0DB5E8
+  const HANDLER_ADDR = 0x0db604
+  const DATA_ADDR = 0x0db5e8
 
   // DATA_0DB5E8/9/EA stream: 28 bytes matching vanilla ROM values.
   const TABLE = [
-    0x07, 0x0A,                                                         // index 0,1
-    0x0A, 0x08, 0x0A, 0x0A, 0x09, 0x81, 0x82, 0x83,                    // 2-9
-    0x81, 0x82, 0x83, 0x81, 0x81, 0x25, 0x84, 0x81,                    // 10-17
-    0x25, 0x84, 0x81, 0x81, 0x25, 0x84, 0x81, 0x25, 0x84, 0x81,        // 18-27
+    0x07,
+    0x0a, // index 0,1
+    0x0a,
+    0x08,
+    0x0a,
+    0x0a,
+    0x09,
+    0x81,
+    0x82,
+    0x83, // 2-9
+    0x81,
+    0x82,
+    0x83,
+    0x81,
+    0x81,
+    0x25,
+    0x84,
+    0x81, // 10-17
+    0x25,
+    0x84,
+    0x81,
+    0x81,
+    0x25,
+    0x84,
+    0x81,
+    0x25,
+    0x84,
+    0x81, // 18-27
   ]
 
   function makeRom(): RomFile {
     const rom = makeMockRom({ [DATA_ADDR]: TABLE })
     // Stamp LDA.L DATA_0DB5E8,X operand at handler+$1D.
-    stampLongOperand(rom, HANDLER_ADDR, 0x1D, DATA_ADDR)
+    stampLongOperand(rom, HANDLER_ADDR, 0x1d, DATA_ADDR)
     return rom
   }
 
   it('size=$02 (N=2) paints correct 7-wide × 4-row tile pattern', () => {
     const rom = makeRom()
     const grid = createGrid(4)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 0, 0, 0x3C, 0x02)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 0, 0, 0x3c, 0x02)
     handle_0DB604(cur)
 
     // Row 0 (page 1): indices 0-6
     expect(grid[0][0]).toBe(P1(0x07))
-    expect(grid[0][1]).toBe(P1(0x0A))
-    expect(grid[0][2]).toBe(P1(0x0A))
+    expect(grid[0][1]).toBe(P1(0x0a))
+    expect(grid[0][2]).toBe(P1(0x0a))
     expect(grid[0][3]).toBe(P1(0x08))
-    expect(grid[0][4]).toBe(P1(0x0A))
-    expect(grid[0][5]).toBe(P1(0x0A))
+    expect(grid[0][4]).toBe(P1(0x0a))
+    expect(grid[0][5]).toBe(P1(0x0a))
     expect(grid[0][6]).toBe(P1(0x09))
 
     // Row 1 (page 0): indices 7-13
@@ -1965,17 +2096,17 @@ describe('handle_0DB604 (2:1 slope block, obj=$3C)', () => {
   it('size=$01 (N=1) paints a 4-wide × 4-row shape', () => {
     const rom = makeRom()
     const grid = createGrid(4)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 0, 0, 0x3C, 0x01)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 0, 0, 0x3c, 0x01)
     handle_0DB604(cur)
     // With N=1: first loop=3 tiles, no middle loop, cap=1 → 4 tiles per row.
     // Row 0 (page 1): TABLE[0..2], skip to TABLE[3] for cap (X+=3 after first loop).
     // But wait: N=1, _0=1. After first loop (X=0→3), DEC _2 (1→0), BEQ → skip middle.
     // CODE_0DB652: X+=3→6, write TABLE[6]=$09 (page 1). X++=7.
-    expect(grid[0][0]).toBe(P1(0x07))  // TABLE[0]
-    expect(grid[0][1]).toBe(P1(0x0A))  // TABLE[1]
-    expect(grid[0][2]).toBe(P1(0x0A))  // TABLE[2]
-    expect(grid[0][3]).toBe(P1(0x09))  // TABLE[6] (skip 3,4,5)
-    expect(grid[0][4]).toBe(TILE_EMPTY)  // not written
+    expect(grid[0][0]).toBe(P1(0x07)) // TABLE[0]
+    expect(grid[0][1]).toBe(P1(0x0a)) // TABLE[1]
+    expect(grid[0][2]).toBe(P1(0x0a)) // TABLE[2]
+    expect(grid[0][3]).toBe(P1(0x09)) // TABLE[6] (skip 3,4,5)
+    expect(grid[0][4]).toBe(TILE_EMPTY) // not written
   })
 })
 
@@ -1985,18 +2116,18 @@ describe('handle_0DBB2C (2-wide vertical pillar, obj=$30)', () => {
   it('size=$00 (X=0) draws only header row ($161, $162), no body', () => {
     const rom = makeMockRom()
     const grid = createGrid(3)
-    const cur = makeCursorForHandler(0x0DBB2C, grid, rom, 0, 2, 5, 0x30, 0x00)
+    const cur = makeCursorForHandler(0x0dbb2c, grid, rom, 0, 2, 5, 0x30, 0x00)
     handle_0DBB2C(cur)
-    expect(grid[5][2]).toBe(P1(0x61))  // header left
-    expect(grid[5][3]).toBe(P1(0x62))  // header right
-    expect(grid[6][2]).toBe(TILE_EMPTY)  // no body rows (X=0, loop runs 0 times)
+    expect(grid[5][2]).toBe(P1(0x61)) // header left
+    expect(grid[5][3]).toBe(P1(0x62)) // header right
+    expect(grid[6][2]).toBe(TILE_EMPTY) // no body rows (X=0, loop runs 0 times)
     expect(grid[6][3]).toBe(TILE_EMPTY)
   })
 
   it('size=$20 (X=2) draws header + 2 body rows', () => {
     const rom = makeMockRom()
     const grid = createGrid(5)
-    const cur = makeCursorForHandler(0x0DBB2C, grid, rom, 0, 0, 0, 0x30, 0x20)
+    const cur = makeCursorForHandler(0x0dbb2c, grid, rom, 0, 0, 0, 0x30, 0x20)
     handle_0DBB2C(cur)
     // Header row (row 0):
     expect(grid[0][0]).toBe(P1(0x61))
@@ -2014,14 +2145,14 @@ describe('handle_0DBB2C (2-wide vertical pillar, obj=$30)', () => {
   it('size=$80 (X=8) draws header + 8 body rows (9 total rows)', () => {
     const rom = makeMockRom()
     const grid = createGrid(15)
-    const cur = makeCursorForHandler(0x0DBB2C, grid, rom, 0, 0, 0, 0x30, 0x80)
+    const cur = makeCursorForHandler(0x0dbb2c, grid, rom, 0, 0, 0, 0x30, 0x80)
     handle_0DBB2C(cur)
-    expect(grid[0][0]).toBe(P1(0x61))  // header
+    expect(grid[0][0]).toBe(P1(0x61)) // header
     for (let r = 1; r <= 8; r++) {
-      expect(grid[r][0]).toBe(P1(0x63))  // body left
-      expect(grid[r][1]).toBe(P1(0x64))  // body right
+      expect(grid[r][0]).toBe(P1(0x63)) // body left
+      expect(grid[r][1]).toBe(P1(0x64)) // body right
     }
-    expect(grid[9][0]).toBe(TILE_EMPTY)  // no more rows
+    expect(grid[9][0]).toBe(TILE_EMPTY) // no more rows
   })
 })
 
@@ -2029,25 +2160,40 @@ describe('handle_0DBB2C (2-wide vertical pillar, obj=$30)', () => {
 
 describe('handle_0DBB63 (rectangular fill using tile slot 14, obj=$31)', () => {
   // handle_0DBB63 reads DATA_0DA8B4 via CODE_0DA8C3's LDA.L operand at $0DA92F.
-  const TABLE_ADDR = 0x0DA8B4  // vanilla location of DATA_0DA8B4
-  const TILE_AT_14 = 0x65      // DATA_0DA8B4[14]
+  const TABLE_ADDR = 0x0da8b4 // vanilla location of DATA_0DA8B4
+  const TILE_AT_14 = 0x65 // DATA_0DA8B4[14]
 
   function makeRom(): RomFile {
     // 15-entry table; index 14 = $65.
-    const table = [0x02, 0x21, 0x23, 0x2A, 0x2B, 0x3F, 0x03, 0x13,
-                   0x1E, 0x24, 0x2E, 0x2F, 0x30, 0x32, TILE_AT_14]
+    const table = [
+      0x02,
+      0x21,
+      0x23,
+      0x2a,
+      0x2b,
+      0x3f,
+      0x03,
+      0x13,
+      0x1e,
+      0x24,
+      0x2e,
+      0x2f,
+      0x30,
+      0x32,
+      TILE_AT_14,
+    ]
     const rom = makeMockRom({ [TABLE_ADDR]: table })
     // Stamp the LDA.L operand inside CODE_0DA8C3 at 0x0DA8C3 + 0x6C = 0x0DA92F.
-    stampLongOperand(rom, 0x0DA8C3, 0x6C, TABLE_ADDR)
+    stampLongOperand(rom, 0x0da8c3, 0x6c, TABLE_ADDR)
     return rom
   }
 
   it('size=$00 writes a single $165 at the cursor', () => {
     const rom = makeRom()
     const grid = createGrid(2)
-    const cur = makeCursorForHandler(0x0DBB63, grid, rom, 0, 3, 5, 0x31, 0x00)
+    const cur = makeCursorForHandler(0x0dbb63, grid, rom, 0, 3, 5, 0x31, 0x00)
     handle_0DBB63(cur)
-    expect(grid[5][3]).toBe(P1(TILE_AT_14))  // $165
+    expect(grid[5][3]).toBe(P1(TILE_AT_14)) // $165
     expect(grid[5][4]).toBe(TILE_EMPTY)
     expect(grid[6][3]).toBe(TILE_EMPTY)
   })
@@ -2055,7 +2201,7 @@ describe('handle_0DBB63 (rectangular fill using tile slot 14, obj=$31)', () => {
   it('size=$03 fills a 4-wide × 1-tall row of $165', () => {
     const rom = makeRom()
     const grid = createGrid(2)
-    const cur = makeCursorForHandler(0x0DBB63, grid, rom, 0, 0, 0, 0x31, 0x03)
+    const cur = makeCursorForHandler(0x0dbb63, grid, rom, 0, 0, 0, 0x31, 0x03)
     handle_0DBB63(cur)
     for (let c = 0; c < 4; c++) expect(grid[0][c]).toBe(P1(TILE_AT_14))
     expect(grid[0][4]).toBe(TILE_EMPTY)
@@ -2065,7 +2211,7 @@ describe('handle_0DBB63 (rectangular fill using tile slot 14, obj=$31)', () => {
   it('size=$10 fills a 1-wide × 2-tall column of $165', () => {
     const rom = makeRom()
     const grid = createGrid(3)
-    const cur = makeCursorForHandler(0x0DBB63, grid, rom, 0, 2, 0, 0x31, 0x10)
+    const cur = makeCursorForHandler(0x0dbb63, grid, rom, 0, 2, 0, 0x31, 0x10)
     handle_0DBB63(cur)
     expect(grid[0][2]).toBe(P1(TILE_AT_14))
     expect(grid[1][2]).toBe(P1(TILE_AT_14))
@@ -2078,8 +2224,8 @@ describe('handle_0DBB63 (rectangular fill using tile slot 14, obj=$31)', () => {
 describe('handle_0DC259 (coin block variant, ext $4B/$4C)', () => {
   // DATA_0DC257 = [$07, $08], immediately before CODE_0DC259.
   // LDA.L DATA_0DC257,X opcode at handler+11; 3-byte operand at handler+12.
-  const HANDLER_ADDR = 0x0DC259
-  const DATA_ADDR    = 0x0DC257   // DATA_0DC257 = [$07, $08]
+  const HANDLER_ADDR = 0x0dc259
+  const DATA_ADDR = 0x0dc257 // DATA_0DC257 = [$07, $08]
 
   function setupRom(): RomFile {
     const rom = makeMockRom({ [DATA_ADDR]: [0x07, 0x08] })
@@ -2089,16 +2235,16 @@ describe('handle_0DC259 (coin block variant, ext $4B/$4C)', () => {
 
   it('ext $4B writes $107 (page-1 tile $07) at cursor', () => {
     const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 5, 10, 0x4B, 0x4B)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 5, 10, 0x4b, 0x4b)
     handle_0DC259(cur)
     expect(grid[10][5]).toBe(P1(0x07))
-    expect(grid[10][6]).toBe(TILE_EMPTY)   // no advance
-    expect(grid[11][5]).toBe(TILE_EMPTY)   // single tile, no row change
+    expect(grid[10][6]).toBe(TILE_EMPTY) // no advance
+    expect(grid[11][5]).toBe(TILE_EMPTY) // single tile, no row change
   })
 
   it('ext $4C writes $108 (page-1 tile $08) at cursor', () => {
     const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 3, 20, 0x4C, 0x4C)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 3, 20, 0x4c, 0x4c)
     handle_0DC259(cur)
     expect(grid[20][3]).toBe(P1(0x08))
     expect(grid[20][4]).toBe(TILE_EMPTY)
@@ -2106,7 +2252,7 @@ describe('handle_0DC259 (coin block variant, ext $4B/$4C)', () => {
 
   it('out-of-range ext type emits nothing', () => {
     const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 0, 0, 0x4A, 0x4A)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 0, 0, 0x4a, 0x4a)
     handle_0DC259(cur)
     expect(grid[0][0]).toBe(TILE_EMPTY)
   })
@@ -2125,54 +2271,54 @@ describe('handle_0DB49E (vertical pipe) bottom-merge fix', () => {
   //   DATA_0DB4D7  $0DB4D7  -- top-merge table2 [$1A, $19]
   //   DATA_0DB4FA  $0DB4FA  -- bottom-merge table1 [$0D, $0F]
   //   DATA_0DB4FC  $0DB4FC  -- bottom-merge table2 [$1C, $1B]
-  const HANDLER   = 0x0DB49E
-  const DATA_49C  = 0x0DB49C
-  const TOP_MERGE = 0x0DB4D9
-  const BODY_LOOP = 0x0DB4C0
-  const BOT_MERGE = 0x0DB4FE
-  const DATA_4D5  = 0x0DB4D5
-  const DATA_4D7  = 0x0DB4D7
-  const DATA_4FA  = 0x0DB4FA
-  const DATA_4FC  = 0x0DB4FC
+  const HANDLER = 0x0db49e
+  const DATA_49C = 0x0db49c
+  const TOP_MERGE = 0x0db4d9
+  const BODY_LOOP = 0x0db4c0
+  const BOT_MERGE = 0x0db4fe
+  const DATA_4D5 = 0x0db4d5
+  const DATA_4D7 = 0x0db4d7
+  const DATA_4FA = 0x0db4fa
+  const DATA_4FC = 0x0db4fc
 
   function buildPipeRom(): RomFile {
     const rom = makeMockRom()
 
     // DATA_0DB49C = [$0A, $0C]
-    rom.writeAt(DATA_49C, [0x0A, 0x0C])
+    rom.writeAt(DATA_49C, [0x0a, 0x0c])
     stampLongOperand(rom, HANDLER, 16, DATA_49C)
 
     // JSR CODE_0DB4D9 at handler+19: stamp 2-byte target in same bank ($0D)
-    rom.writeAt(HANDLER + 20, [TOP_MERGE & 0xFF, (TOP_MERGE >> 8) & 0xFF])
+    rom.writeAt(HANDLER + 20, [TOP_MERGE & 0xff, (TOP_MERGE >> 8) & 0xff])
 
     // JMP CODE_0DB4C0 at handler+22: 2-byte target
-    rom.writeAt(HANDLER + 23, [BODY_LOOP & 0xFF, (BODY_LOOP >> 8) & 0xFF])
+    rom.writeAt(HANDLER + 23, [BODY_LOOP & 0xff, (BODY_LOOP >> 8) & 0xff])
 
     // CODE_0DB4C0 layout (18 bytes before JMP CODE_0DB4FE):
     //   TYA CLC ADC#$10 TAY BCC(+2) JSR_CODE_0DA987 DEC_0 BNE LDA.L JMP
     // We only need to stamp:
     //   JMP CODE_0DB4FE at BODY_LOOP+18 (opcode $4C), operand at +19..+20
-    rom.writeAt(BODY_LOOP + 19, [BOT_MERGE & 0xFF, (BOT_MERGE >> 8) & 0xFF])
+    rom.writeAt(BODY_LOOP + 19, [BOT_MERGE & 0xff, (BOT_MERGE >> 8) & 0xff])
 
     // Top merge helper CODE_0DB4D9:
     //   trigger1 = $08 at +5, table1 = DATA_0DB4D5 at +9..+11
     //   trigger2 = $0E at +16, table2 = DATA_0DB4D7 at +20..+22
     rom.writeAt(TOP_MERGE + 5, [0x08])
     stampLongOperand(rom, TOP_MERGE, 9, DATA_4D5)
-    rom.writeAt(TOP_MERGE + 16, [0x0E])
+    rom.writeAt(TOP_MERGE + 16, [0x0e])
     stampLongOperand(rom, TOP_MERGE, 20, DATA_4D7)
     rom.writeAt(DATA_4D5, [0x07, 0x09])
-    rom.writeAt(DATA_4D7, [0x1A, 0x19])
+    rom.writeAt(DATA_4D7, [0x1a, 0x19])
 
     // Bottom merge helper CODE_0DB4FE:
     //   trigger1 = $0E at +5, table1 = DATA_0DB4FA at +9..+11
     //   trigger2 = $08 at +16, table2 = DATA_0DB4FC at +20..+22
-    rom.writeAt(BOT_MERGE + 5, [0x0E])
+    rom.writeAt(BOT_MERGE + 5, [0x0e])
     stampLongOperand(rom, BOT_MERGE, 9, DATA_4FA)
     rom.writeAt(BOT_MERGE + 16, [0x08])
     stampLongOperand(rom, BOT_MERGE, 20, DATA_4FC)
-    rom.writeAt(DATA_4FA, [0x0D, 0x0F])
-    rom.writeAt(DATA_4FC, [0x1C, 0x1B])
+    rom.writeAt(DATA_4FA, [0x0d, 0x0f])
+    rom.writeAt(DATA_4FC, [0x1c, 0x1b])
 
     return rom
   }
@@ -2183,9 +2329,9 @@ describe('handle_0DB49E (vertical pipe) bottom-merge fix', () => {
     const rom = buildPipeRom()
     const cur = makeCursorForHandler(HANDLER, grid, rom, 1, 5, 10, 31, 0x20)
     handle_0DB49E(cur)
-    expect(grid[10][5]).toBe(0x0A)   // top (no existing → base tile, page 0)
-    expect(grid[11][5]).toBe(0x0A)   // middle body row
-    expect(grid[12][5]).toBe(0x0A)   // bottom (no existing → base tile, page 0)
+    expect(grid[10][5]).toBe(0x0a) // top (no existing → base tile, page 0)
+    expect(grid[11][5]).toBe(0x0a) // middle body row
+    expect(grid[12][5]).toBe(0x0a) // bottom (no existing → base tile, page 0)
     expect(grid[13][5]).toBe(TILE_EMPTY)
   })
 
@@ -2194,21 +2340,21 @@ describe('handle_0DB49E (vertical pipe) bottom-merge fix', () => {
     // settings = 0x60 → middleCount=6, X=0 → pipe from row 14 to row 20.
     // Rope end tile $0E pre-written at (row=20, col=0).
     const grid = createGrid(1)
-    grid[20][0] = 0x0E   // rope end tile at bottom of pipe
+    grid[20][0] = 0x0e // rope end tile at bottom of pipe
     const rom = buildPipeRom()
     const cur = makeCursorForHandler(HANDLER, grid, rom, 1, 0, 14, 31, 0x60)
     handle_0DB49E(cur)
     // Bottom at row 20: existing=$0E → trigger1 match → DATA_0DB4FA[0]=$0D
-    expect(grid[20][0]).toBe(0x0D)
+    expect(grid[20][0]).toBe(0x0d)
     // Top at row 14: no existing → base tile $0A
-    expect(grid[14][0]).toBe(0x0A)
+    expect(grid[14][0]).toBe(0x0a)
     // Middle row 15-19: base tile $0A
-    for (let r = 15; r <= 19; r++) expect(grid[r][0]).toBe(0x0A)
+    for (let r = 15; r <= 19; r++) expect(grid[r][0]).toBe(0x0a)
   })
 
   it('top merge: existing $08 below pipe top → produces merged tile $07 (X=0)', () => {
     const grid = createGrid(1)
-    grid[10][5] = 0x08   // existing $08 at top position
+    grid[10][5] = 0x08 // existing $08 at top position
     const rom = buildPipeRom()
     // middleCount=1, X=0 → size=$10
     const cur = makeCursorForHandler(HANDLER, grid, rom, 1, 5, 10, 31, 0x10)
@@ -2225,18 +2371,18 @@ describe('handle_0DB49E (vertical pipe) bottom-merge fix', () => {
 // Identical LDA.L operand layout to handle_0DB5B7, plus the X-indexed lookup.
 
 describe('handle_0DED12 (ghost-house horizontal strip, object $37)', () => {
-  const HANDLER_ADDR = 0x0DED12
+  const HANDLER_ADDR = 0x0ded12
   // Place data tables well away from the handler body to avoid overlap with the
   // stampLongOperand patches at offsets +19, +29, +43 (0x0DED25–0x0DED45).
-  const START_ADDR = 0x0DEE00   // DATA_0DED09 (test alias)
-  const BODY_ADDR  = 0x0DEE10   // DATA_0DED0C (test alias)
-  const END_ADDR   = 0x0DEE20   // DATA_0DED0F (test alias)
+  const START_ADDR = 0x0dee00 // DATA_0DED09 (test alias)
+  const BODY_ADDR = 0x0dee10 // DATA_0DED0C (test alias)
+  const END_ADDR = 0x0dee20 // DATA_0DED0F (test alias)
 
   function setupRom(startBytes: number[], bodyBytes: number[], endBytes: number[]): RomFile {
     const rom = makeMockRom({
       [START_ADDR]: startBytes,
-      [BODY_ADDR]:  bodyBytes,
-      [END_ADDR]:   endBytes,
+      [BODY_ADDR]: bodyBytes,
+      [END_ADDR]: endBytes,
     })
     stampLongOperand(rom, HANDLER_ADDR, 19, START_ADDR)
     stampLongOperand(rom, HANDLER_ADDR, 29, BODY_ADDR)
@@ -2246,8 +2392,8 @@ describe('handle_0DED12 (ghost-house horizontal strip, object $37)', () => {
 
   // Tables have 3 entries (X=0,1,2). Use distinct values for clarity.
   const START = [0x82, 0x89, 0x88]
-  const BODY  = [0x82, 0x8A, 0x88]
-  const END   = [0x82, 0x8B, 0x88]
+  const BODY = [0x82, 0x8a, 0x88]
+  const END = [0x82, 0x8b, 0x88]
 
   it('W=3 X=0: writes start + 2 body + end from variant 0', () => {
     // size = 0x03 → W=3, X=0
@@ -2255,10 +2401,10 @@ describe('handle_0DED12 (ghost-house horizontal strip, object $37)', () => {
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 2, 10, 0x37, 0x03)
     handle_0DED12(cur)
-    expect(grid[10][2]).toBe(0x82)   // start[0] = $82
-    expect(grid[10][3]).toBe(0x82)   // body[0]  = $82
-    expect(grid[10][4]).toBe(0x82)   // body[0]  = $82
-    expect(grid[10][5]).toBe(0x82)   // end[0]   = $82
+    expect(grid[10][2]).toBe(0x82) // start[0] = $82
+    expect(grid[10][3]).toBe(0x82) // body[0]  = $82
+    expect(grid[10][4]).toBe(0x82) // body[0]  = $82
+    expect(grid[10][5]).toBe(0x82) // end[0]   = $82
     expect(grid[10][6]).toBe(TILE_EMPTY)
   })
 
@@ -2268,8 +2414,8 @@ describe('handle_0DED12 (ghost-house horizontal strip, object $37)', () => {
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 0, 5, 0x37, 0x11)
     handle_0DED12(cur)
-    expect(grid[5][0]).toBe(0x89)    // start[1] = $89
-    expect(grid[5][1]).toBe(0x8B)    // end[1]   = $8B
+    expect(grid[5][0]).toBe(0x89) // start[1] = $89
+    expect(grid[5][1]).toBe(0x8b) // end[1]   = $8B
     expect(grid[5][2]).toBe(TILE_EMPTY)
   })
 
@@ -2279,9 +2425,9 @@ describe('handle_0DED12 (ghost-house horizontal strip, object $37)', () => {
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 4, 15, 0x37, 0x22)
     handle_0DED12(cur)
-    expect(grid[15][4]).toBe(0x88)   // start[2] = $88
-    expect(grid[15][5]).toBe(0x88)   // body[2]  = $88 (1 body tile)
-    expect(grid[15][6]).toBe(0x88)   // end[2]   = $88
+    expect(grid[15][4]).toBe(0x88) // start[2] = $88
+    expect(grid[15][5]).toBe(0x88) // body[2]  = $88 (1 body tile)
+    expect(grid[15][6]).toBe(0x88) // end[2]   = $88
     expect(grid[15][7]).toBe(TILE_EMPTY)
   })
 
@@ -2302,30 +2448,30 @@ describe('handle_0DED12 (ghost-house horizontal strip, object $37)', () => {
 // structural invariants (tile count grows with width/height).
 
 describe('handle_0DB863 (diagonal staircase, object $3B)', () => {
-  const HANDLER_ADDR = 0x0DB863
+  const HANDLER_ADDR = 0x0db863
 
   function setupRom(): RomFile {
     const rom = makeMockRom()
     // 12 inline LDA #$XX immediates. Stamp a recognisable value at each offset.
-    rom.writeAt(HANDLER_ADDR + 29,  [0xAF])   // tAF1 first-row slope
-    rom.writeAt(HANDLER_ADDR + 37,  [0xAF])   // tAF2 first-row pipe
-    rom.writeAt(HANDLER_ADDR + 48,  [0xA9])   // tA9a main-loop slope
-    rom.writeAt(HANDLER_ADDR + 59,  [0x3F])   // t3Fa main-loop fill
-    rom.writeAt(HANDLER_ADDR + 72,  [0xE4])   // tE4  main-loop E4
-    rom.writeAt(HANDLER_ADDR + 80,  [0xAF])   // tAFb main-loop pipe
-    rom.writeAt(HANDLER_ADDR + 107, [0xA9])   // tA9b phase1-end slope
-    rom.writeAt(HANDLER_ADDR + 118, [0x3F])   // t3Fb phase1-end fill
-    rom.writeAt(HANDLER_ADDR + 129, [0xF9])   // tF9  phase1-end cap
-    rom.writeAt(HANDLER_ADDR + 140, [0xA9])   // tA9c phase2 slope
-    rom.writeAt(HANDLER_ADDR + 151, [0x3F])   // t3Fc phase2 fill
-    rom.writeAt(HANDLER_ADDR + 162, [0xAC])   // tAC  phase2 cap
+    rom.writeAt(HANDLER_ADDR + 29, [0xaf]) // tAF1 first-row slope
+    rom.writeAt(HANDLER_ADDR + 37, [0xaf]) // tAF2 first-row pipe
+    rom.writeAt(HANDLER_ADDR + 48, [0xa9]) // tA9a main-loop slope
+    rom.writeAt(HANDLER_ADDR + 59, [0x3f]) // t3Fa main-loop fill
+    rom.writeAt(HANDLER_ADDR + 72, [0xe4]) // tE4  main-loop E4
+    rom.writeAt(HANDLER_ADDR + 80, [0xaf]) // tAFb main-loop pipe
+    rom.writeAt(HANDLER_ADDR + 107, [0xa9]) // tA9b phase1-end slope
+    rom.writeAt(HANDLER_ADDR + 118, [0x3f]) // t3Fb phase1-end fill
+    rom.writeAt(HANDLER_ADDR + 129, [0xf9]) // tF9  phase1-end cap
+    rom.writeAt(HANDLER_ADDR + 140, [0xa9]) // tA9c phase2 slope
+    rom.writeAt(HANDLER_ADDR + 151, [0x3f]) // t3Fc phase2 fill
+    rom.writeAt(HANDLER_ADDR + 162, [0xac]) // tAC  phase2 cap
     return rom
   }
 
   it('produces a non-empty staircase shape without throwing', () => {
     const rom = setupRom()
     const grid = createGrid(5)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 40, 5, 0x3B, 0x22)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 40, 5, 0x3b, 0x22)
     expect(() => handle_0DB863(cur)).not.toThrow()
     let count = 0
     for (const row of grid) for (const t of row) if (t !== TILE_EMPTY) count++
@@ -2336,17 +2482,17 @@ describe('handle_0DB863 (diagonal staircase, object $3B)', () => {
     // The very first tile written is the first-row slope (tAF1).
     const rom = setupRom()
     const grid = createGrid(5)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 30, 4, 0x3B, 0x11)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 30, 4, 0x3b, 0x11)
     handle_0DB863(cur)
     // The first tile is at the initial cursor position.
-    expect(grid[4][30]).toBe(0xAF)
+    expect(grid[4][30]).toBe(0xaf)
   })
 
   it('larger width produces more total tiles', () => {
     const rom = setupRom()
     function countTiles(size: number): number {
       const g = createGrid(6)
-      const c = makeCursorForHandler(HANDLER_ADDR, g, rom, 5, 40, 3, 0x3B, size)
+      const c = makeCursorForHandler(HANDLER_ADDR, g, rom, 5, 40, 3, 0x3b, size)
       handle_0DB863(c)
       let n = 0
       for (const row of g) for (const t of row) if (t !== TILE_EMPTY) n++
@@ -2360,7 +2506,7 @@ describe('handle_0DB863 (diagonal staircase, object $3B)', () => {
     // Specifically, col descends so tiles spread across multiple rows.
     const rom = setupRom()
     const grid = createGrid(5)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 40, 3, 0x3B, 0x21)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 5, 40, 3, 0x3b, 0x21)
     handle_0DB863(cur)
     const rowsWithTiles = grid.filter(row => row.some(t => t !== TILE_EMPTY)).length
     expect(rowsWithTiles).toBeGreaterThan(1)
@@ -2368,7 +2514,7 @@ describe('handle_0DB863 (diagonal staircase, object $3B)', () => {
 })
 
 describe('handle_0DDAF2 (diagonal cliff staircase dispatcher, object $39)', () => {
-  const HANDLER_ADDR = 0x0DDAF2
+  const HANDLER_ADDR = 0x0ddaf2
 
   function makeCur(size: number, col = 10, row = 2): ReturnType<typeof makeCursorForHandler> {
     const rom = makeMockRom()
@@ -2379,28 +2525,28 @@ describe('handle_0DDAF2 (diagonal cliff staircase dispatcher, object $39)', () =
   // ── Variant dispatch ──────────────────────────────────────────────────────
 
   it('variant 00 (bits 00): first tile is page-1 $D2 at origin', () => {
-    const cur = makeCur(0x10)   // low 2 bits = 0x00
+    const cur = makeCur(0x10) // low 2 bits = 0x00
     handle_0DDAF2(cur)
     // First tile written is p1:$D2 at (col=10, row=2).
-    expect(cur.grid[2][10]).toBe(P1(0xD2))
+    expect(cur.grid[2][10]).toBe(P1(0xd2))
   })
 
   it('variant 01 (bits 01): first tile is page-1 $D6 at origin', () => {
-    const cur = makeCur(0x11)   // low 2 bits = 0x01
+    const cur = makeCur(0x11) // low 2 bits = 0x01
     handle_0DDAF2(cur)
-    expect(cur.grid[2][10]).toBe(P1(0xD6))
+    expect(cur.grid[2][10]).toBe(P1(0xd6))
   })
 
   it('variant 10 (bits 10): first tile is page-1 $D4 at origin', () => {
-    const cur = makeCur(0x12)   // low 2 bits = 0x02
+    const cur = makeCur(0x12) // low 2 bits = 0x02
     handle_0DDAF2(cur)
-    expect(cur.grid[2][10]).toBe(P1(0xD4))
+    expect(cur.grid[2][10]).toBe(P1(0xd4))
   })
 
   it('variant 11 (bits 11): first tile is page-1 $D7 at origin', () => {
-    const cur = makeCur(0x13)   // low 2 bits = 0x03
+    const cur = makeCur(0x13) // low 2 bits = 0x03
     handle_0DDAF2(cur)
-    expect(cur.grid[2][10]).toBe(P1(0xD7))
+    expect(cur.grid[2][10]).toBe(P1(0xd7))
   })
 
   // ── Variant 00 (CODE_0DDB06) ──────────────────────────────────────────────
@@ -2412,32 +2558,32 @@ describe('handle_0DDAF2 (diagonal cliff staircase dispatcher, object $39)', () =
       const cur = makeCur(0x10, 10, 0)
       handle_0DDAF2(cur)
       // Row 0: expect $D2 at col 10, $D3 at col 11, nothing at col 12.
-      expect(cur.grid[0][10]).toBe(P1(0xD2))
-      expect(cur.grid[0][11]).toBe(P1(0xD3))
+      expect(cur.grid[0][10]).toBe(P1(0xd2))
+      expect(cur.grid[0][11]).toBe(P1(0xd3))
       expect(cur.grid[0][12]).toBe(TILE_EMPTY)
     })
 
     it('row 1 starts 2 cols left of origin (diagonal -2 step)', () => {
       // After the diagonal step (col-=2, row+=1), iteration 2 starts at col 8.
-      const cur = makeCur(0x20, 10, 0)   // _0=3: 3 main rows + final row
+      const cur = makeCur(0x20, 10, 0) // _0=3: 3 main rows + final row
       handle_0DDAF2(cur)
       // Row 1: should have tiles starting at col 8.
-      expect(cur.grid[1][8]).toBe(P1(0xD2))
-      expect(cur.grid[1][9]).toBe(P1(0xD3))
+      expect(cur.grid[1][8]).toBe(P1(0xd2))
+      expect(cur.grid[1][9]).toBe(P1(0xd3))
     })
 
     it('BEQ final row written at diagCol (same as origin when _0=1)', () => {
       // With _0=1 (size>>4=0): only 1 main-loop iteration (row 0), then BEQ fires.
       // BEQ path: row++, write $FB/$FF fill at diagCol=10 (no diagonal step taken).
-      const cur = makeCur(0x00, 10, 0)   // _0 = (0)+1 = 1
+      const cur = makeCur(0x00, 10, 0) // _0 = (0)+1 = 1
       handle_0DDAF2(cur)
       // Row 0: $D2/$D3 at col 10.
-      expect(cur.grid[0][10]).toBe(P1(0xD2))
-      expect(cur.grid[0][11]).toBe(P1(0xD3))
+      expect(cur.grid[0][10]).toBe(P1(0xd2))
+      expect(cur.grid[0][11]).toBe(P1(0xd3))
       // Row 1 (BEQ final row at bookmarkCol=10): _2=3 at this point, xFinal=1.
       // CODE_0DDB31 with xFinal=1: $FB, $FF, DEX→0; CODE_0DDB4D: DEX→-1 stop.
-      expect(cur.grid[1][10]).toBe(P1(0xFB))
-      expect(cur.grid[1][11]).toBe(P1(0xFF))
+      expect(cur.grid[1][10]).toBe(P1(0xfb))
+      expect(cur.grid[1][11]).toBe(P1(0xff))
     })
 
     it('larger height produces more rows', () => {
@@ -2455,36 +2601,36 @@ describe('handle_0DDAF2 (diagonal cliff staircase dispatcher, object $39)', () =
   describe('variant 01 (CODE_0DDB8F): 1-wide left-descending staircase', () => {
     it('row 0 is only 1 tile: $D6', () => {
       // _2 starts at 0; iteration 0 writes $D6 then CODE_0DDBAE: DEX→-1 → BMI.
-      const cur = makeCur(0x11, 10, 0)   // _0=2, variant 01
+      const cur = makeCur(0x11, 10, 0) // _0=2, variant 01
       handle_0DDAF2(cur)
-      expect(cur.grid[0][10]).toBe(P1(0xD6))
+      expect(cur.grid[0][10]).toBe(P1(0xd6))
       expect(cur.grid[0][11]).toBe(TILE_EMPTY)
     })
 
     it('row 1 starts 1 col left of origin (diagonal -1 step)', () => {
-      const cur = makeCur(0x21, 10, 0)   // _0=3
+      const cur = makeCur(0x21, 10, 0) // _0=3
       handle_0DDAF2(cur)
-      expect(cur.grid[1][9]).toBe(P1(0xD6))
+      expect(cur.grid[1][9]).toBe(P1(0xd6))
     })
 
     it('row 1 has D6 + FD (fill tile)', () => {
       // After diagonal step to col 9: _2=1, X=1 after DEX → not BMI.
       // Writes $FD, then DEX→0, CODE_0DDBC4: DEX→-1, stop.
-      const cur = makeCur(0x11, 10, 0)   // _0=2
+      const cur = makeCur(0x11, 10, 0) // _0=2
       handle_0DDAF2(cur)
       // Row 1 starts at col 9 (10 - 1 step).
-      expect(cur.grid[1][9]).toBe(P1(0xD6))
-      expect(cur.grid[1][10]).toBe(P1(0xFD))
+      expect(cur.grid[1][9]).toBe(P1(0xd6))
+      expect(cur.grid[1][10]).toBe(P1(0xfd))
     })
 
     it('BEQ final row: writes fill at diagCol (same as origin when _0=1)', () => {
       // _0=1: 1 main loop iteration → BEQ CODE_0DDBF9.
       // CODE_0DDBF9: X=_2=1, row++, JMP CODE_0DDBAE: DEX→0 (not BMI).
       // Writes $FD at diagCol=10 (no diagonal step taken for _0=1).
-      const cur = makeCur(0x01, 10, 0)   // low2=01, size>>4=0 → _0=1
+      const cur = makeCur(0x01, 10, 0) // low2=01, size>>4=0 → _0=1
       handle_0DDAF2(cur)
-      expect(cur.grid[0][10]).toBe(P1(0xD6))
-      expect(cur.grid[1][10]).toBe(P1(0xFD))
+      expect(cur.grid[0][10]).toBe(P1(0xd6))
+      expect(cur.grid[1][10]).toBe(P1(0xfd))
     })
   })
 
@@ -2497,10 +2643,10 @@ describe('handle_0DDAF2 (diagonal cliff staircase dispatcher, object $39)', () =
       // ADDR_0DDC23 (X=3): no loop, write $FF(C0), $FC(C0+1). _0=0→return.
       const cur = makeCur(0x02, 10, 0)
       handle_0DDAF2(cur)
-      expect(cur.grid[0][10]).toBe(P1(0xD4))
-      expect(cur.grid[0][11]).toBe(P1(0xD5))
-      expect(cur.grid[1][10]).toBe(P1(0xFF))
-      expect(cur.grid[1][11]).toBe(P1(0xFC))
+      expect(cur.grid[0][10]).toBe(P1(0xd4))
+      expect(cur.grid[0][11]).toBe(P1(0xd5))
+      expect(cur.grid[1][10]).toBe(P1(0xff))
+      expect(cur.grid[1][11]).toBe(P1(0xfc))
       expect(cur.grid[1][12]).toBe(TILE_EMPTY)
     })
 
@@ -2509,16 +2655,16 @@ describe('handle_0DDAF2 (diagonal cliff staircase dispatcher, object $39)', () =
       // Row 0: $D4(10), $D5(11). Row 1: $FF(10), $FC(11), $D4(12), $D5(13). Row 2: $FF(10), $FF(11), $FF(12), $FC(13).
       const cur = makeCur(0x12, 10, 0)
       handle_0DDAF2(cur)
-      expect(cur.grid[0][10]).toBe(P1(0xD4))
-      expect(cur.grid[0][11]).toBe(P1(0xD5))
-      expect(cur.grid[1][10]).toBe(P1(0xFF))
-      expect(cur.grid[1][11]).toBe(P1(0xFC))
-      expect(cur.grid[1][12]).toBe(P1(0xD4))
-      expect(cur.grid[1][13]).toBe(P1(0xD5))
-      expect(cur.grid[2][10]).toBe(P1(0xFF))
-      expect(cur.grid[2][11]).toBe(P1(0xFF))
-      expect(cur.grid[2][12]).toBe(P1(0xFF))
-      expect(cur.grid[2][13]).toBe(P1(0xFC))
+      expect(cur.grid[0][10]).toBe(P1(0xd4))
+      expect(cur.grid[0][11]).toBe(P1(0xd5))
+      expect(cur.grid[1][10]).toBe(P1(0xff))
+      expect(cur.grid[1][11]).toBe(P1(0xfc))
+      expect(cur.grid[1][12]).toBe(P1(0xd4))
+      expect(cur.grid[1][13]).toBe(P1(0xd5))
+      expect(cur.grid[2][10]).toBe(P1(0xff))
+      expect(cur.grid[2][11]).toBe(P1(0xff))
+      expect(cur.grid[2][12]).toBe(P1(0xff))
+      expect(cur.grid[2][13]).toBe(P1(0xfc))
     })
   })
 
@@ -2531,8 +2677,8 @@ describe('handle_0DDAF2 (diagonal cliff staircase dispatcher, object $39)', () =
       // CODE_0DDC82: X=1, no $FF, write $FE(10,R1). Fall through to CODE_0DDC8E: _0=0 → return.
       const cur = makeCur(0x03, 10, 0)
       handle_0DDAF2(cur)
-      expect(cur.grid[0][10]).toBe(P1(0xD7))
-      expect(cur.grid[1][10]).toBe(P1(0xFE))
+      expect(cur.grid[0][10]).toBe(P1(0xd7))
+      expect(cur.grid[1][10]).toBe(P1(0xfe))
       expect(cur.grid[1][11]).toBe(TILE_EMPTY)
     })
 
@@ -2541,23 +2687,23 @@ describe('handle_0DDAF2 (diagonal cliff staircase dispatcher, object $39)', () =
       // Row 0: $D7(10,R0). Row 1: $FE(10,R1), $D7(11,R1). Row 2: $FF(10,R2), $FE(11,R2). _0=0→return.
       const cur = makeCur(0x13, 10, 0)
       handle_0DDAF2(cur)
-      expect(cur.grid[0][10]).toBe(P1(0xD7))
-      expect(cur.grid[1][10]).toBe(P1(0xFE))
-      expect(cur.grid[1][11]).toBe(P1(0xD7))
-      expect(cur.grid[2][10]).toBe(P1(0xFF))
-      expect(cur.grid[2][11]).toBe(P1(0xFE))
+      expect(cur.grid[0][10]).toBe(P1(0xd7))
+      expect(cur.grid[1][10]).toBe(P1(0xfe))
+      expect(cur.grid[1][11]).toBe(P1(0xd7))
+      expect(cur.grid[2][10]).toBe(P1(0xff))
+      expect(cur.grid[2][11]).toBe(P1(0xfe))
       expect(cur.grid[2][12]).toBe(TILE_EMPTY)
     })
 
     it('_0=3: row 2 has $FF+$FE+$D7, row 3 has $FF+$FF+$FE', () => {
       const cur = makeCur(0x23, 10, 0)
       handle_0DDAF2(cur)
-      expect(cur.grid[2][10]).toBe(P1(0xFF))
-      expect(cur.grid[2][11]).toBe(P1(0xFE))
-      expect(cur.grid[2][12]).toBe(P1(0xD7))
-      expect(cur.grid[3][10]).toBe(P1(0xFF))
-      expect(cur.grid[3][11]).toBe(P1(0xFF))
-      expect(cur.grid[3][12]).toBe(P1(0xFE))
+      expect(cur.grid[2][10]).toBe(P1(0xff))
+      expect(cur.grid[2][11]).toBe(P1(0xfe))
+      expect(cur.grid[2][12]).toBe(P1(0xd7))
+      expect(cur.grid[3][10]).toBe(P1(0xff))
+      expect(cur.grid[3][11]).toBe(P1(0xff))
+      expect(cur.grid[3][12]).toBe(P1(0xfe))
       expect(cur.grid[3][13]).toBe(TILE_EMPTY)
     })
   })
@@ -2569,7 +2715,7 @@ describe('handle_0DE971 (cave fill, ext $5F)', () => {
   it('fills the entire grid with tile $77', () => {
     const rom = makeMockRom()
     const grid = createGrid(2)
-    const cur = makeCursorForHandler(0x0DE971, grid, rom, 0, 5, 3, 0x5F, 0)
+    const cur = makeCursorForHandler(0x0de971, grid, rom, 0, 5, 3, 0x5f, 0)
     handle_0DE971(cur)
     expect(cur.grid[0][0]).toBe(0x77)
     expect(cur.grid[26][31]).toBe(0x77)
@@ -2579,8 +2725,8 @@ describe('handle_0DE971 (cave fill, ext $5F)', () => {
 
 describe('handle_0DE9AA (3×3 block, ext $61–$63)', () => {
   it('writes a 3×3 page-0 tile block for ext type $61', () => {
-    const DATA = 0x0D8100
-    const HANDLER = 0x0DE9AA
+    const DATA = 0x0d8100
+    const HANDLER = 0x0de9aa
     const tiles = [0x11, 0x12, 0x13, 0x21, 0x22, 0x23, 0x31, 0x32, 0x33]
     const rom = makeMockRom({ [DATA]: tiles })
     stampLongOperand(rom, HANDLER, 29, DATA)
@@ -2602,8 +2748,8 @@ describe('handle_0DE9AA (3×3 block, ext $61–$63)', () => {
   })
 
   it('offsets into data by 9 for ext type $62', () => {
-    const DATA = 0x0D8100
-    const HANDLER = 0x0DE9AA
+    const DATA = 0x0d8100
+    const HANDLER = 0x0de9aa
     const tiles = new Array(27).fill(0x00).map((_, i) => i + 1)
     const rom = makeMockRom({ [DATA]: tiles })
     stampLongOperand(rom, HANDLER, 29, DATA)
@@ -2620,30 +2766,30 @@ describe('handle_0DE9AA (3×3 block, ext $61–$63)', () => {
 
 describe('handle_0DEA3E (4×4 block, ext $66–$67)', () => {
   it('writes a 4×4 page-0 tile block for ext type $66', () => {
-    const DATA = 0x0D8200
-    const HANDLER = 0x0DEA3E
-    const tiles = Array.from({ length: 16 }, (_, i) => 0xA0 + i)
+    const DATA = 0x0d8200
+    const HANDLER = 0x0dea3e
+    const tiles = Array.from({ length: 16 }, (_, i) => 0xa0 + i)
     const rom = makeMockRom({ [DATA]: tiles })
     stampLongOperand(rom, HANDLER, 25, DATA)
     const grid = createGrid(2)
     const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 1, 1, 0x66, 0)
     handle_0DEA3E(cur)
-    expect(cur.grid[1][1]).toBe(0xA0)
-    expect(cur.grid[1][2]).toBe(0xA1)
-    expect(cur.grid[1][3]).toBe(0xA2)
-    expect(cur.grid[1][4]).toBe(0xA3)
-    expect(cur.grid[2][1]).toBe(0xA4)
-    expect(cur.grid[4][1]).toBe(0xAC)
+    expect(cur.grid[1][1]).toBe(0xa0)
+    expect(cur.grid[1][2]).toBe(0xa1)
+    expect(cur.grid[1][3]).toBe(0xa2)
+    expect(cur.grid[1][4]).toBe(0xa3)
+    expect(cur.grid[2][1]).toBe(0xa4)
+    expect(cur.grid[4][1]).toBe(0xac)
   })
 })
 
 describe('handle_0DE0AE (6-row cascade, ext $71–$74)', () => {
   it('writes 6 rows for ext type $71, variant 0 (xi=0)', () => {
-    const IDX  = 0x0D8300  // DATA_0DE0AA: offsets per variant
-    const DATA = 0x0D8400  // DATA_0DE05E: 4*19=76 tile bytes
-    const HANDLER = 0x0DE0AE
+    const IDX = 0x0d8300 // DATA_0DE0AA: offsets per variant
+    const DATA = 0x0d8400 // DATA_0DE05E: 4*19=76 tile bytes
+    const HANDLER = 0x0de0ae
     const idxBytes = [0, 19, 38, 57]
-    const dataBytes = Array.from({ length: 76 }, (_, i) => (0x10 + i) & 0xFF)
+    const dataBytes = Array.from({ length: 76 }, (_, i) => (0x10 + i) & 0xff)
     const rom = makeMockRom({ [IDX]: idxBytes, [DATA]: dataBytes })
     stampLongOperand(rom, HANDLER, 9, IDX)
     stampLongOperand(rom, HANDLER, 28, DATA)
@@ -2660,10 +2806,10 @@ describe('handle_0DE0AE (6-row cascade, ext $71–$74)', () => {
     expect(cur.grid[1][2]).toBe(0x15)
     expect(cur.grid[1][3]).toBe(0x16)
     // Row 4: 3 page-0 tiles + hardcoded $5F page-1 at col0+3
-    expect(cur.grid[4][1]).toBe(0x1D)
-    expect(cur.grid[4][2]).toBe(0x1E)
-    expect(cur.grid[4][3]).toBe(0x1F)
-    expect(cur.grid[4][4]).toBe(P1(0x5F))
+    expect(cur.grid[4][1]).toBe(0x1d)
+    expect(cur.grid[4][2]).toBe(0x1e)
+    expect(cur.grid[4][3]).toBe(0x1f)
+    expect(cur.grid[4][4]).toBe(P1(0x5f))
     // Row 5: 3 page-0 tiles = dataBytes[16..18] = $20,$21,$22
     expect(cur.grid[5][1]).toBe(0x20)
     expect(cur.grid[5][2]).toBe(0x21)
@@ -2673,41 +2819,41 @@ describe('handle_0DE0AE (6-row cascade, ext $71–$74)', () => {
 
 describe('handle_0DDA68 (single page-0 tile, ext $75–$7B)', () => {
   it('writes the correct tile for ext type $77 (X=2)', () => {
-    const DATA = 0x0D8500
-    const HANDLER = 0x0DDA68
-    const tiles = [0x7D, 0x7E, 0x7F, 0x80, 0x81, 0x82, 0x83]
+    const DATA = 0x0d8500
+    const HANDLER = 0x0dda68
+    const tiles = [0x7d, 0x7e, 0x7f, 0x80, 0x81, 0x82, 0x83]
     const rom = makeMockRom({ [DATA]: tiles })
     stampLongOperand(rom, HANDLER, 12, DATA)
     const grid = createGrid(2)
     const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 3, 4, 0x77, 0)
     handle_0DDA68(cur)
-    expect(cur.grid[4][3]).toBe(0x7F)  // DATA[0x77-$75=2] = tiles[2] = $7F
-    expect(cur.grid[4][4]).toBe(TILE_EMPTY)  // no advance
+    expect(cur.grid[4][3]).toBe(0x7f) // DATA[0x77-$75=2] = tiles[2] = $7F
+    expect(cur.grid[4][4]).toBe(TILE_EMPTY) // no advance
   })
 })
 
 describe('handle_0DDA80 (2-tile vertical page-0, ext $7C–$7E)', () => {
   it('writes two rows for ext type $7C (X=0)', () => {
-    const ADDR1 = 0x0D8600
-    const ADDR2 = 0x0D8610
-    const HANDLER = 0x0DDA80
+    const ADDR1 = 0x0d8600
+    const ADDR2 = 0x0d8610
+    const HANDLER = 0x0dda80
     const rom = makeMockRom({ [ADDR1]: [0x81, 0x82, 0x83], [ADDR2]: [0x84, 0x85, 0x86] })
     stampLongOperand(rom, HANDLER, 12, ADDR1)
     stampLongOperand(rom, HANDLER, 24, ADDR2)
     const grid = createGrid(2)
-    const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 2, 5, 0x7C, 0)
+    const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 2, 5, 0x7c, 0)
     handle_0DDA80(cur)
-    expect(cur.grid[5][2]).toBe(0x81)  // top tile = ADDR1[0]
-    expect(cur.grid[6][2]).toBe(0x84)  // bottom tile = ADDR2[0]
+    expect(cur.grid[5][2]).toBe(0x81) // top tile = ADDR1[0]
+    expect(cur.grid[6][2]).toBe(0x84) // bottom tile = ADDR2[0]
   })
 })
 
 describe('handle_0DEB6A (14×10 grid, ext $80)', () => {
   it('writes a 14-row by 10-col tile block', () => {
-    const DATA = 0x0D8700
-    const HANDLER = 0x0DEB6A
+    const DATA = 0x0d8700
+    const HANDLER = 0x0deb6a
     // 140 tile bytes: row major, 10 per row. Use simple sequential values.
-    const tiles = Array.from({ length: 140 }, (_, i) => (i + 1) & 0xFF)
+    const tiles = Array.from({ length: 140 }, (_, i) => (i + 1) & 0xff)
     const rom = makeMockRom({ [DATA]: tiles })
     stampLongOperand(rom, HANDLER, 12, DATA)
     const grid = createGrid(2)
@@ -2729,26 +2875,26 @@ describe('handle_0DEB6A (14×10 grid, ext $80)', () => {
 
 describe('handle_0DEC68 (2-tile vertical, ext $81)', () => {
   it('reads two bytes from the CMP instruction at ADDR_0DEC66 and writes vertically', () => {
-    const DATA = 0x0D8800  // ADDR_0DEC66 = CMP.B #$CA → bytes [$C9,$CA]
-    const HANDLER = 0x0DEC68
-    const rom = makeMockRom({ [DATA]: [0xC9, 0xCA] })
+    const DATA = 0x0d8800 // ADDR_0DEC66 = CMP.B #$CA → bytes [$C9,$CA]
+    const HANDLER = 0x0dec68
+    const rom = makeMockRom({ [DATA]: [0xc9, 0xca] })
     stampLongOperand(rom, HANDLER, 8, DATA)
     const grid = createGrid(2)
     const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 3, 10, 0x81, 0)
     handle_0DEC68(cur)
-    expect(cur.grid[10][3]).toBe(0xC9)
-    expect(cur.grid[11][3]).toBe(0xCA)
-    expect(cur.grid[12][3]).toBe(TILE_EMPTY)  // nothing written beyond 2 rows
+    expect(cur.grid[10][3]).toBe(0xc9)
+    expect(cur.grid[11][3]).toBe(0xca)
+    expect(cur.grid[12][3]).toBe(TILE_EMPTY) // nothing written beyond 2 rows
   })
 })
 
 describe('handle_0DC2E9 (14×9 transparent grid, ext $84)', () => {
   it('writes non-$25 tiles but skips $25 (advances col without writing)', () => {
-    const DATA = 0x0D8900
-    const HANDLER = 0x0DC2E9
+    const DATA = 0x0d8900
+    const HANDLER = 0x0dc2e9
     // 9 tiles per row × 14 rows = 126. Row 0: [1,2,0x25,4,5,6,7,8,9]
     const row0 = [0x01, 0x02, 0x25, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09]
-    const restRows = Array.from({ length: 126 - 9 }, (_, i) => 0xAA)
+    const restRows = Array.from({ length: 126 - 9 }, () => 0xaa)
     const tiles = [...row0, ...restRows]
     const rom = makeMockRom({ [DATA]: tiles })
     stampLongOperand(rom, HANDLER, 12, DATA)
@@ -2757,71 +2903,80 @@ describe('handle_0DC2E9 (14×9 transparent grid, ext $84)', () => {
     handle_0DC2E9(cur)
     expect(cur.grid[0][0]).toBe(0x01)
     expect(cur.grid[0][1]).toBe(0x02)
-    expect(cur.grid[0][2]).toBe(TILE_EMPTY)  // $25 → not written
+    expect(cur.grid[0][2]).toBe(TILE_EMPTY) // $25 → not written
     expect(cur.grid[0][3]).toBe(0x04)
     expect(cur.grid[0][8]).toBe(0x09)
-    expect(cur.grid[0][9]).toBe(TILE_EMPTY)  // column 9 not touched
+    expect(cur.grid[0][9]).toBe(TILE_EMPTY) // column 9 not touched
   })
 })
 
 describe('handle_0DECC1 (2×2 block via CODE_0DE9F5, ext $8F)', () => {
   it('reads DATA_0DE9E1[8..11] as a 2×2 page-0 block', () => {
-    const TARGET = 0x0DE9F5  // CODE_0DE9F5 address (JMP target)
-    const DATA   = 0x0D8A00  // DATA_0DE9E1 test address
-    const HANDLER = 0x0DECC1
+    const TARGET = 0x0de9f5 // CODE_0DE9F5 address (JMP target)
+    const DATA = 0x0d8a00 // DATA_0DE9E1 test address
+    const HANDLER = 0x0decc1
     // Patch JMP bytes at HANDLER+2,+3: lo=$F5, hi=$E9 → target $0DE9F5
     // Patch DATA_0DE9E1 operand at TARGET+15
-    const rom = makeMockRom({ [DATA]: [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0xFC, 0xFD, 0xFE, 0xFF] })
+    const rom = makeMockRom({
+      [DATA]: [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x11, 0x22, 0xfc, 0xfd, 0xfe, 0xff],
+    })
     // Write JMP $E9F5: lo=$F5, hi=$E9 at HANDLER+3,+4
-    rom.writeAt(HANDLER + 3, [0xF5, 0xE9])
+    rom.writeAt(HANDLER + 3, [0xf5, 0xe9])
     stampLongOperand(rom, TARGET, 15, DATA)
     const grid = createGrid(2)
-    const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 2, 4, 0x8F, 0)
+    const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 2, 4, 0x8f, 0)
     handle_0DECC1(cur)
     // xi starts at 8: DATA[8..11] = [$FC,$FD,$FE,$FF]
-    expect(cur.grid[4][2]).toBe(0xFC)
-    expect(cur.grid[4][3]).toBe(0xFD)
-    expect(cur.grid[5][2]).toBe(0xFE)
-    expect(cur.grid[5][3]).toBe(0xFF)
+    expect(cur.grid[4][2]).toBe(0xfc)
+    expect(cur.grid[4][3]).toBe(0xfd)
+    expect(cur.grid[5][2]).toBe(0xfe)
+    expect(cur.grid[5][3]).toBe(0xff)
   })
 })
 
 describe('handle_0DA80D (2-tile vertical page-1, ext $91–$92)', () => {
   it('writes two page-1 tiles vertically for ext type $91 (X=0)', () => {
-    const ADDR1 = 0x0D8B00
-    const ADDR2 = 0x0D8B10
-    const HANDLER = 0x0DA80D
-    const rom = makeMockRom({ [ADDR1]: [0xAA, 0xAF], [ADDR2]: [0xE2, 0xE4] })
+    const ADDR1 = 0x0d8b00
+    const ADDR2 = 0x0d8b10
+    const HANDLER = 0x0da80d
+    const rom = makeMockRom({ [ADDR1]: [0xaa, 0xaf], [ADDR2]: [0xe2, 0xe4] })
     stampLongOperand(rom, HANDLER, 11, ADDR1)
     stampLongOperand(rom, HANDLER, 23, ADDR2)
     const grid = createGrid(2)
     const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 5, 3, 0x91, 0)
     handle_0DA80D(cur)
-    expect(cur.grid[3][5]).toBe(P1(0xAA))  // ADDR1[0]
-    expect(cur.grid[4][5]).toBe(P1(0xE2))  // ADDR2[0]
+    expect(cur.grid[3][5]).toBe(P1(0xaa)) // ADDR1[0]
+    expect(cur.grid[4][5]).toBe(P1(0xe2)) // ADDR2[0]
   })
 
   it('selects X=1 for ext type $92', () => {
-    const ADDR1 = 0x0D8C00
-    const ADDR2 = 0x0D8C10
-    const HANDLER = 0x0DA80D
-    const rom = makeMockRom({ [ADDR1]: [0xAA, 0xAF], [ADDR2]: [0xE2, 0xE4] })
+    const ADDR1 = 0x0d8c00
+    const ADDR2 = 0x0d8c10
+    const HANDLER = 0x0da80d
+    const rom = makeMockRom({ [ADDR1]: [0xaa, 0xaf], [ADDR2]: [0xe2, 0xe4] })
     stampLongOperand(rom, HANDLER, 11, ADDR1)
     stampLongOperand(rom, HANDLER, 23, ADDR2)
     const grid = createGrid(2)
     const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 0, 0, 0x92, 0)
     handle_0DA80D(cur)
-    expect(cur.grid[0][0]).toBe(P1(0xAF))  // ADDR1[1]
-    expect(cur.grid[1][0]).toBe(P1(0xE4))  // ADDR2[1]
+    expect(cur.grid[0][0]).toBe(P1(0xaf)) // ADDR1[1]
+    expect(cur.grid[1][0]).toBe(P1(0xe4)) // ADDR2[1]
   })
 })
 
 describe('handle_0DA846 (2×2 page-1 block, ext $93–$94)', () => {
   it('writes a 2×2 page-1 block for ext type $93 (X=0)', () => {
-    const A1 = 0x0D9D00; const A2 = 0x0D9D10
-    const A3 = 0x0D9D20; const A4 = 0x0D9D30
-    const HANDLER = 0x0DA846
-    const rom = makeMockRom({ [A1]: [0x96, 0xA0], [A2]: [0x9B, 0xA5], [A3]: [0xDE, 0xE6], [A4]: [0xE6, 0xE0] })
+    const A1 = 0x0d9d00
+    const A2 = 0x0d9d10
+    const A3 = 0x0d9d20
+    const A4 = 0x0d9d30
+    const HANDLER = 0x0da846
+    const rom = makeMockRom({
+      [A1]: [0x96, 0xa0],
+      [A2]: [0x9b, 0xa5],
+      [A3]: [0xde, 0xe6],
+      [A4]: [0xe6, 0xe0],
+    })
     stampLongOperand(rom, HANDLER, 11, A1)
     stampLongOperand(rom, HANDLER, 21, A2)
     stampLongOperand(rom, HANDLER, 33, A3)
@@ -2829,61 +2984,64 @@ describe('handle_0DA846 (2×2 page-1 block, ext $93–$94)', () => {
     const grid = createGrid(2)
     const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 1, 2, 0x93, 0)
     handle_0DA846(cur)
-    expect(cur.grid[2][1]).toBe(P1(0x96))  // A1[0], writeTileAdvance
-    expect(cur.grid[2][2]).toBe(P1(0x9B))  // A2[0], writeTile
-    expect(cur.grid[3][1]).toBe(P1(0xDE))  // A3[0], writeTileAdvance
-    expect(cur.grid[3][2]).toBe(P1(0xE6))  // A4[0], writeTile
+    expect(cur.grid[2][1]).toBe(P1(0x96)) // A1[0], writeTileAdvance
+    expect(cur.grid[2][2]).toBe(P1(0x9b)) // A2[0], writeTile
+    expect(cur.grid[3][1]).toBe(P1(0xde)) // A3[0], writeTileAdvance
+    expect(cur.grid[3][2]).toBe(P1(0xe6)) // A4[0], writeTile
   })
 })
 
 describe('handle_0DA87D (3-tile vertical page-1, ext $95–$96)', () => {
   it('writes three page-1 tiles vertically for ext type $95 (X=0)', () => {
-    const A1 = 0x0D9E00; const A2 = 0x0D9E10; const A3 = 0x0D9E20
-    const HANDLER = 0x0DA87D
-    const rom = makeMockRom({ [A1]: [0xCA, 0xCC], [A2]: [0xCB, 0xCD], [A3]: [0xF1, 0xF2] })
+    const A1 = 0x0d9e00
+    const A2 = 0x0d9e10
+    const A3 = 0x0d9e20
+    const HANDLER = 0x0da87d
+    const rom = makeMockRom({ [A1]: [0xca, 0xcc], [A2]: [0xcb, 0xcd], [A3]: [0xf1, 0xf2] })
     stampLongOperand(rom, HANDLER, 11, A1)
     stampLongOperand(rom, HANDLER, 23, A2)
     stampLongOperand(rom, HANDLER, 35, A3)
     const grid = createGrid(2)
     const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 3, 1, 0x95, 0)
     handle_0DA87D(cur)
-    expect(cur.grid[1][3]).toBe(P1(0xCA))
-    expect(cur.grid[2][3]).toBe(P1(0xCB))
-    expect(cur.grid[3][3]).toBe(P1(0xF1))
+    expect(cur.grid[1][3]).toBe(P1(0xca))
+    expect(cur.grid[2][3]).toBe(P1(0xcb))
+    expect(cur.grid[3][3]).toBe(P1(0xf1))
   })
 })
 
 describe('handle_0DB6C3 (horizontal strip page-0)', () => {
   it('writes count=low_nibble+1 tiles from DATA_0DB6C1[high_nibble]', () => {
-    const DATA = 0x0D9F00
-    const HANDLER = 0x0DB6C3
-    const rom = makeMockRom({ [DATA]: [0x93, 0x9C] })
+    const DATA = 0x0d9f00
+    const HANDLER = 0x0db6c3
+    const rom = makeMockRom({ [DATA]: [0x93, 0x9c] })
     stampLongOperand(rom, HANDLER, 19, DATA)
     const grid = createGrid(2)
     // size = 0x12 → high=1 → tile=$9C; low=2 → count=3
     const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 2, 5, 0x25, 0x12)
     handle_0DB6C3(cur)
-    expect(cur.grid[5][2]).toBe(0x9C)
-    expect(cur.grid[5][3]).toBe(0x9C)
-    expect(cur.grid[5][4]).toBe(0x9C)
+    expect(cur.grid[5][2]).toBe(0x9c)
+    expect(cur.grid[5][3]).toBe(0x9c)
+    expect(cur.grid[5][4]).toBe(0x9c)
     expect(cur.grid[5][5]).toBe(TILE_EMPTY)
   })
 })
 
 describe('handle_0DB705 (vertical strip page-0)', () => {
   it('writes top then mid tiles for height=high_nibble+1', () => {
-    const TOP = 0x0DA000; const MID = 0x0DA010
-    const HANDLER = 0x0DB705
-    const rom = makeMockRom({ [TOP]: [0x94, 0x8F, 0x9D, 0x98], [MID]: [0x8F, 0x8F, 0x98, 0x98] })
+    const TOP = 0x0da000
+    const MID = 0x0da010
+    const HANDLER = 0x0db705
+    const rom = makeMockRom({ [TOP]: [0x94, 0x8f, 0x9d, 0x98], [MID]: [0x8f, 0x8f, 0x98, 0x98] })
     stampLongOperand(rom, HANDLER, 19, TOP)
     stampLongOperand(rom, HANDLER, 29, MID)
     const grid = createGrid(2)
     // size = 0x21 → high=2 → height=3; low=1 → X=1 → top=TOP[1]=$8F, mid=MID[1]=$8F
     const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 4, 3, 0x25, 0x21)
     handle_0DB705(cur)
-    expect(cur.grid[3][4]).toBe(0x8F)  // top tile
-    expect(cur.grid[4][4]).toBe(0x8F)  // mid tile row 1
-    expect(cur.grid[5][4]).toBe(0x8F)  // mid tile row 2
+    expect(cur.grid[3][4]).toBe(0x8f) // top tile
+    expect(cur.grid[4][4]).toBe(0x8f) // mid tile row 1
+    expect(cur.grid[5][4]).toBe(0x8f) // mid tile row 2
     expect(cur.grid[6][4]).toBe(TILE_EMPTY)
   })
 })
@@ -2893,36 +3051,36 @@ describe('handle_0DEF45 (horizontal rope/chain strip)', () => {
     const rom = makeMockRom()
     const grid = createGrid(2)
     // size low nibble = 3, so count=3; total tiles = 4: $A0,$A1,$A1,$A2
-    const cur = makeCursorForHandler(0x0DEF45, grid, rom, 0, 1, 5, 0x25, 0x03)
+    const cur = makeCursorForHandler(0x0def45, grid, rom, 0, 1, 5, 0x25, 0x03)
     handle_0DEF45(cur)
-    expect(cur.grid[5][1]).toBe(0xA0)
-    expect(cur.grid[5][2]).toBe(0xA1)
-    expect(cur.grid[5][3]).toBe(0xA1)
-    expect(cur.grid[5][4]).toBe(0xA2)
+    expect(cur.grid[5][1]).toBe(0xa0)
+    expect(cur.grid[5][2]).toBe(0xa1)
+    expect(cur.grid[5][3]).toBe(0xa1)
+    expect(cur.grid[5][4]).toBe(0xa2)
     expect(cur.grid[5][5]).toBe(TILE_EMPTY)
   })
 
   it('writes [$A0, $A2] for size low nibble=1', () => {
     const rom = makeMockRom()
     const grid = createGrid(2)
-    const cur = makeCursorForHandler(0x0DEF45, grid, rom, 0, 0, 0, 0x25, 0x01)
+    const cur = makeCursorForHandler(0x0def45, grid, rom, 0, 0, 0, 0x25, 0x01)
     handle_0DEF45(cur)
-    expect(cur.grid[0][0]).toBe(0xA0)
-    expect(cur.grid[0][1]).toBe(0xA2)
+    expect(cur.grid[0][0]).toBe(0xa0)
+    expect(cur.grid[0][1]).toBe(0xa2)
     expect(cur.grid[0][2]).toBe(TILE_EMPTY)
   })
 })
 
 describe('handle_0DEFA8 (bordered box)', () => {
   it('writes top, middle, bottom rows for size 0x21 (w=1,h=2)', () => {
-    const A2  = 0x0DA100  // DATA_0DEFA2
-    const A4  = 0x0DA110  // DATA_0DEFA4
-    const A6  = 0x0DA120  // DATA_0DEFA6
-    const HANDLER = 0x0DEFA8
+    const A2 = 0x0da100 // DATA_0DEFA2
+    const A4 = 0x0da110 // DATA_0DEFA4
+    const A6 = 0x0da120 // DATA_0DEFA6
+    const HANDLER = 0x0defa8
     const rom = makeMockRom({
-      [A2]: [0x63, 0x65],   // side
-      [A4]: [0xC7, 0xC8],   // mid
-      [A6]: [0x64, 0x6A],   // right
+      [A2]: [0x63, 0x65], // side
+      [A4]: [0xc7, 0xc8], // mid
+      [A6]: [0x64, 0x6a], // right
     })
     stampLongOperand(rom, HANDLER, 58, A2)
     stampLongOperand(rom, HANDLER, 67, A4)
@@ -2938,24 +3096,24 @@ describe('handle_0DEFA8 (bordered box)', () => {
     expect(cur.grid[2][2]).toBe(P1(0x63))
     expect(cur.grid[2][3]).toBe(P1(0x64))
     // Bottom row (page 1): $6B, $6D
-    expect(cur.grid[3][2]).toBe(P1(0x6B))
-    expect(cur.grid[3][3]).toBe(P1(0x6D))
+    expect(cur.grid[3][2]).toBe(P1(0x6b))
+    expect(cur.grid[3][3]).toBe(P1(0x6d))
   })
 })
 
 describe('handle_0DF066 (rectangular fill via CODE_0DECCE)', () => {
   it('fills a rectangle using tile from DATA_0DECC6[X]', () => {
-    const TARGET  = 0x0DECCE  // CODE_0DECCE
-    const TABLE   = 0x0DA200  // DATA_0DECC6
-    const HANDLER = 0x0DF066
-    const rom = makeMockRom({ [TABLE]: [0x92, 0x5E, 0x82] })
+    const TARGET = 0x0decce // CODE_0DECCE
+    const TABLE = 0x0da200 // DATA_0DECC6
+    const HANDLER = 0x0df066
+    const rom = makeMockRom({ [TABLE]: [0x92, 0x5e, 0x82] })
     // Patch JMP lo/hi at HANDLER+2,+3 to point to TARGET=$DECCE
-    rom.writeAt(HANDLER + 2, [0xCE, 0xEC])   // lo=$CE, hi=$EC → $0DECCE
+    rom.writeAt(HANDLER + 2, [0xce, 0xec]) // lo=$CE, hi=$EC → $0DECCE
     // Patch LDA.L operand at TARGET+32
     stampLongOperand(rom, TARGET, 32, TABLE)
     const grid = createGrid(2)
     // X=2 (in LDX #$02 bytecode at handler+1); size=0x11 (w=1,h=1 → 2×2)
-    rom.writeAt(HANDLER + 1, [0x02])          // LDX immediate = 2
+    rom.writeAt(HANDLER + 1, [0x02]) // LDX immediate = 2
     const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 1, 2, 0x25, 0x11)
     handle_0DF066(cur)
     // X=2 → tile=TABLE[2]=$82; page0 (X≠1); widthM1=1, heightM1=1 → 2×2
@@ -2970,8 +3128,8 @@ describe('handle_0DF066 (rectangular fill via CODE_0DECCE)', () => {
 
 describe('handle_0DF06C (horizontal page-1 strip)', () => {
   it('writes count=low_nibble+1 tiles from DATA_0DF06B[high_nibble], page 1', () => {
-    const DATA = 0x0DA300
-    const HANDLER = 0x0DF06C
+    const DATA = 0x0da300
+    const HANDLER = 0x0df06c
     const rom = makeMockRom({ [DATA]: [0x59] })
     stampLongOperand(rom, HANDLER, 19, DATA)
     const grid = createGrid(2)
@@ -2999,19 +3157,19 @@ describe('handle_0DD070 (2-tall staircase, screen $0A)', () => {
   //
   // size byte: high nibble >> 4 = sel (0 = left, 1 = right); low nibble = W (W+1 steps).
 
-  const HANDLER_ADDR = 0x0DD070
-  const ADDR_LEFT    = 0x0DD080
-  const ADDR_RIGHT   = 0x0DD0C3
+  const HANDLER_ADDR = 0x0dd070
+  const ADDR_LEFT = 0x0dd080
+  const ADDR_RIGHT = 0x0dd0c3
 
   function stampSubDispatch(rom: RomFile): void {
     // Pointer table at HANDLER_ADDR+10: dl ADDR_LEFT, dl ADDR_RIGHT
     stampLongOperand(rom, HANDLER_ADDR, 10, ADDR_LEFT)
     stampLongOperand(rom, HANDLER_ADDR, 13, ADDR_RIGHT)
     // Tile immediates inside each sub-handler
-    rom.writeAt(ADDR_LEFT  + 11, [0x88])  // tileTop (left)
-    rom.writeAt(ADDR_LEFT  + 28, [0x8A])  // tileBot (left)
-    rom.writeAt(ADDR_RIGHT + 11, [0x89])  // tileTop (right)
-    rom.writeAt(ADDR_RIGHT + 28, [0x8B])  // tileBot (right)
+    rom.writeAt(ADDR_LEFT + 11, [0x88]) // tileTop (left)
+    rom.writeAt(ADDR_LEFT + 28, [0x8a]) // tileBot (left)
+    rom.writeAt(ADDR_RIGHT + 11, [0x89]) // tileTop (right)
+    rom.writeAt(ADDR_RIGHT + 28, [0x8b]) // tileBot (right)
   }
 
   // Each row: [absCol, startRow, W, sel, expected: [row, col, tile][]]
@@ -3027,53 +3185,84 @@ describe('handle_0DD070 (2-tall staircase, screen $0A)', () => {
   }> = [
     {
       name: 'down-left W=0: single step at screen $0A col 5',
-      col: 165, row: 10, size: 0x00,
-      tiles: [[10, 165, 0x88], [11, 165, 0x8A]],
+      col: 165,
+      row: 10,
+      size: 0x00,
+      tiles: [
+        [10, 165, 0x88],
+        [11, 165, 0x8a],
+      ],
     },
     {
       name: 'down-left W=2: 3 steps mid-screen $0A',
       // col 5 → steps at cols 165, 164, 163; rows 10-11, 12-13, 14-15
-      col: 165, row: 10, size: 0x02,
+      col: 165,
+      row: 10,
+      size: 0x02,
       tiles: [
-        [10, 165, 0x88], [11, 165, 0x8A],
-        [12, 164, 0x88], [13, 164, 0x8A],
-        [14, 163, 0x88], [15, 163, 0x8A],
+        [10, 165, 0x88],
+        [11, 165, 0x8a],
+        [12, 164, 0x88],
+        [13, 164, 0x8a],
+        [14, 163, 0x88],
+        [15, 163, 0x8a],
       ],
     },
     {
       name: 'down-left W=3: crosses screen $0A→$09 boundary at col 1',
       // col 1 (abs 161): steps at 161, 160 (still screen $0A), 159, 158 (screen $09)
-      col: 161, row: 10, size: 0x03,
+      col: 161,
+      row: 10,
+      size: 0x03,
       tiles: [
-        [10, 161, 0x88], [11, 161, 0x8A],
-        [12, 160, 0x88], [13, 160, 0x8A],
-        [14, 159, 0x88], [15, 159, 0x8A],  // screen $09 col 15
-        [16, 158, 0x88], [17, 158, 0x8A],  // screen $09 col 14
+        [10, 161, 0x88],
+        [11, 161, 0x8a],
+        [12, 160, 0x88],
+        [13, 160, 0x8a],
+        [14, 159, 0x88],
+        [15, 159, 0x8a], // screen $09 col 15
+        [16, 158, 0x88],
+        [17, 158, 0x8a], // screen $09 col 14
       ],
     },
     {
       name: 'down-right W=0: single step at screen $0A col 5',
-      col: 165, row: 10, size: 0x10,
-      tiles: [[10, 165, 0x89], [11, 165, 0x8B]],
+      col: 165,
+      row: 10,
+      size: 0x10,
+      tiles: [
+        [10, 165, 0x89],
+        [11, 165, 0x8b],
+      ],
     },
     {
       name: 'down-right W=2: 3 steps mid-screen $0A',
       // col 3 (abs 163): steps at 163, 164, 165; rows 10-11, 12-13, 14-15
-      col: 163, row: 10, size: 0x12,
+      col: 163,
+      row: 10,
+      size: 0x12,
       tiles: [
-        [10, 163, 0x89], [11, 163, 0x8B],
-        [12, 164, 0x89], [13, 164, 0x8B],
-        [14, 165, 0x89], [15, 165, 0x8B],
+        [10, 163, 0x89],
+        [11, 163, 0x8b],
+        [12, 164, 0x89],
+        [13, 164, 0x8b],
+        [14, 165, 0x89],
+        [15, 165, 0x8b],
       ],
     },
     {
       name: 'down-right W=2: crosses screen $0A→$0B boundary at col 14',
       // col 14 (abs 174): steps at 174, 175 (screen $0A), 176 (screen $0B col 0)
-      col: 174, row: 10, size: 0x12,
+      col: 174,
+      row: 10,
+      size: 0x12,
       tiles: [
-        [10, 174, 0x89], [11, 174, 0x8B],
-        [12, 175, 0x89], [13, 175, 0x8B],
-        [14, 176, 0x89], [15, 176, 0x8B],  // screen $0B col 0
+        [10, 174, 0x89],
+        [11, 174, 0x8b],
+        [12, 175, 0x89],
+        [13, 175, 0x8b],
+        [14, 176, 0x89],
+        [15, 176, 0x8b], // screen $0B col 0
       ],
     },
   ]
@@ -3082,7 +3271,7 @@ describe('handle_0DD070 (2-tall staircase, screen $0A)', () => {
     it(tc.name, () => {
       const rom = makeMockRom()
       stampSubDispatch(rom)
-      const grid = createGrid(12)  // 192 cols covers screens $00-$0B
+      const grid = createGrid(12) // 192 cols covers screens $00-$0B
       const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 2, tc.col, tc.row, 59, tc.size)
       handle_0DD070(cur)
       for (const [r, c, tile] of tc.tiles) {

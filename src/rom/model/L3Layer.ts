@@ -1,4 +1,9 @@
-import { L3_HUD_ROW_CUTOFF, L3_TILEMAP_COLS, L3_TILEMAP_ROWS, type L3ScrollRange } from '../L3Loader'
+import {
+  L3_HUD_ROW_CUTOFF,
+  L3_TILEMAP_COLS,
+  L3_TILEMAP_ROWS,
+  type L3ScrollRange,
+} from '../L3Loader'
 import type { GfxSheet } from '../GfxLoader'
 import type { Phase, RenderTarget } from './RenderTarget'
 import { editorStore } from './stores/editorStore'
@@ -91,11 +96,11 @@ export class L3TilemapLayer extends L3Layer {
         const word = tilemap[row * L3_TILEMAP_COLS + col] ?? 0
         if (word === 0) return null
         return {
-          charIdx:  word & 0x3FF,
-          palette:  (word >> 10) & 0x07,
+          charIdx: word & 0x3ff,
+          palette: (word >> 10) & 0x07,
           priority: (word & 0x2000) !== 0,
-          flipX:    (word & 0x4000) !== 0,
-          flipY:    (word & 0x8000) !== 0,
+          flipX: (word & 0x4000) !== 0,
+          flipY: (word & 0x8000) !== 0,
         }
       }),
     )
@@ -104,7 +109,10 @@ export class L3TilemapLayer extends L3Layer {
     let first = L3_HUD_ROW_CUTOFF
     outer: for (let r = L3_HUD_ROW_CUTOFF; r < L3_TILEMAP_ROWS; r++) {
       for (const cell of this.cells[r]!) {
-        if (cell !== null) { first = r; break outer }
+        if (cell !== null) {
+          first = r
+          break outer
+        }
       }
     }
     this.firstDataRow = first
@@ -117,7 +125,7 @@ export class L3TilemapLayer extends L3Layer {
     // sub 2/3 (rows 32–63) with *different* content at the same charIdx values;
     // running the repeat-detection on them prematurely sets dataEndRow = 32 and
     // hides all sub 2/3 tiles.  Skip the detection entirely for non-tides.
-    const isTide = this.initialYPx > 0 && this.initialYPx < 0xC0
+    const isTide = this.initialYPx > 0 && this.initialYPx < 0xc0
     let end = L3_TILEMAP_ROWS
     if (isTide) {
       const firstRow = this.cells[this.firstDataRow]!
@@ -125,12 +133,20 @@ export class L3TilemapLayer extends L3Layer {
         const row = this.cells[r]!
         let match = true
         for (let c = 0; c < L3_TILEMAP_COLS; c++) {
-          const a = firstRow[c], b = row[c]
-          if ((a === null) !== (b === null) || (a !== null && b !== null && a.charIdx !== b.charIdx)) {
-            match = false; break
+          const a = firstRow[c],
+            b = row[c]
+          if (
+            (a === null) !== (b === null) ||
+            (a !== null && b !== null && a.charIdx !== b.charIdx)
+          ) {
+            match = false
+            break
           }
         }
-        if (match) { end = r; break }
+        if (match) {
+          end = r
+          break
+        }
       }
     }
     this.dataEndRow = end
@@ -171,21 +187,24 @@ export class L3TilemapLayer extends L3Layer {
     // relative to the viewport). Gating on cameraOn here also prevents the
     // main L3 render from establishing a reactive dependency on editorStore.camera
     // when HUD is off, so dragging the viewport doesn't force full-level L3
-    // re-renders.  Also skip HUD while actively dragging — the status bar
+    // re-renders.  Also skip HUD while actively dragging - the status bar
     // tiles snap to whole tiles, so a sub-tile-smooth drag looks jittery;
     // snap back on drag release.
     const mayShowHud = toggles.l3Hud && editorStore.cameraOn
     const showHud = mayShowHud && !editorStore.cameraDragging
-    const camera  = showHud ? editorStore.camera : null
+    const camera = showHud ? editorStore.camera : null
 
     // Pre-compute all 8 L3 2BPP sub-palettes.
     // For 2BPP BG3, palette P selects CGRAM colors P*4 to P*4+3:
     //   CGRAM row = P >> 2, column offset = (P & 3) * 4
-    const subPalettes: import('../GraphicsDecoder').RgbaColor[][] = Array.from({ length: 8 }, (_, p) => {
-      const cgRow = mapStore.palette.row(p >> 2)
-      const off   = (p & 3) * 4
-      return [cgRow[off]!, cgRow[off + 1]!, cgRow[off + 2]!, cgRow[off + 3]!]
-    })
+    const subPalettes: import('../GraphicsDecoder').RgbaColor[][] = Array.from(
+      { length: 8 },
+      (_, p) => {
+        const cgRow = mapStore.palette.row(p >> 2)
+        const off = (p & 3) * 4
+        return [cgRow[off]!, cgRow[off + 1]!, cgRow[off + 2]!, cgRow[off + 3]!]
+      },
+    )
 
     // Tide overlays (initialYPx $40/$70) differ from cage/windows ($D0):
     //   - Tide: the game scrolls BG3HOFS with the camera (Layer3XPos += Layer1DXPos,
@@ -193,14 +212,14 @@ export class L3TilemapLayer extends L3Layer {
     //     tiles at 256px instead of 512px.
     //   - Non-tide: BG3 stays fixed relative to the screen, so the full 512px
     //     tilemap renders once per 512px.
-    const isTide = this.initialYPx > 0 && this.initialYPx < 0xC0
-    const xPeriod  = isTide ? 256 : L3_TILEMAP_COLS * 8
+    const isTide = this.initialYPx > 0 && this.initialYPx < 0xc0
+    const xPeriod = isTide ? 256 : L3_TILEMAP_COLS * 8
     const colLimit = isTide ? 32 : L3_TILEMAP_COLS
 
     for (let row = 0; row < L3_TILEMAP_ROWS; row++) {
       const isHud = row < L3_HUD_ROW_CUTOFF
       if (isHud && !showHud) continue
-      if (!isHud && row >= this.dataEndRow) continue  // skip second VRAM copy
+      if (!isHud && row >= this.dataEndRow) continue // skip second VRAM copy
 
       const rowCells = this.cells[row]!
       // HUD rows at the camera viewport top.
@@ -208,9 +227,7 @@ export class L3TilemapLayer extends L3Layer {
       //   and in level coords: screen + cameraY. The level's initial camera Y is the
       //   ROM-derived Layer1YPos at level init (DATA_05D708 lookup, bank_05.asm:7329-7335).
       const initialCamY = mapStore.initialCameraYPx
-      const pixelY = isHud
-        ? (camera!.tileY * 16) + row * 8
-        : row * 8 - this.initialYPx + initialCamY
+      const pixelY = isHud ? camera!.tileY * 16 + row * 8 : row * 8 - this.initialYPx + initialCamY
       if (!isHud && pixelY < 0) continue
 
       // HUD uses the full BG3 sub 0 width (32 cols), regardless of tide's
@@ -219,7 +236,7 @@ export class L3TilemapLayer extends L3Layer {
       const rowColLimit = isHud ? L3_TILEMAP_COLS : colLimit
       // HUD: render once at camera viewport X; skip level-wide repeat.
       const rowXPeriod = isHud ? Number.POSITIVE_INFINITY : xPeriod
-      const rowXStart  = isHud ? (camera!.tileX * 16) : 0
+      const rowXStart = isHud ? camera!.tileX * 16 : 0
 
       for (let col = 0; col < rowColLimit; col++) {
         const cell = rowCells[col]
@@ -235,12 +252,13 @@ export class L3TilemapLayer extends L3Layer {
         // For periodic (non-HUD) tiles with a clipRangeX, jump straight to the
         // first ox that could land inside the range instead of iterating every
         // repeat from 0. Saves ~10× iterations on typical 11-screen levels.
-        const oxMin = clipRangeX && !isHud
-          ? basePixelX + Math.max(0, Math.ceil((clipRangeX.xMin - basePixelX) / rowXPeriod)) * rowXPeriod
-          : basePixelX
-        const oxMax = clipRangeX && !isHud
-          ? Math.min(this.levelPixelW, clipRangeX.xMax)
-          : this.levelPixelW
+        const oxMin =
+          clipRangeX && !isHud
+            ? basePixelX +
+              Math.max(0, Math.ceil((clipRangeX.xMin - basePixelX) / rowXPeriod)) * rowXPeriod
+            : basePixelX
+        const oxMax =
+          clipRangeX && !isHud ? Math.min(this.levelPixelW, clipRangeX.xMax) : this.levelPixelW
 
         for (let ox = oxMin; ox < oxMax; ox += rowXPeriod) {
           const pos = { x: ox, y: pixelY }
@@ -251,8 +269,8 @@ export class L3TilemapLayer extends L3Layer {
   }
 
   private _charPixels(charIdx: number): Uint8Array | null {
-    const fileIdx  = charIdx >> 7       // 0–3 (4 GFX files)
-    const localIdx = charIdx & 0x7F     // 0–127 within the file
+    const fileIdx = charIdx >> 7 // 0–3 (4 GFX files)
+    const localIdx = charIdx & 0x7f // 0–127 within the file
     return this.l3Chars[fileIdx]?.[localIdx] ?? null
   }
 }

@@ -1,9 +1,5 @@
 import type { AnimationData } from '../../AnimationLoader'
-import {
-  VRAM_CHAR_BASE,
-  VRAM_SLOT_NAMES,
-  type VramState,
-} from '../../GfxLoader'
+import { VRAM_CHAR_BASE, VRAM_SLOT_NAMES, type VramState } from '../../GfxLoader'
 import type { CharBehavior } from './CharBehavior'
 import { Char } from './Char'
 import { AnimatedPixelsBehavior } from './behaviors/AnimatedPixelsBehavior'
@@ -29,13 +25,10 @@ interface CharAnim {
  *   3. Else `StaticPixelsBehavior`.
  *
  * Passing `animData = undefined` produces no animation or P-switch
- * wrapping — every VRAM char gets `StaticPixelsBehavior` over its baked
+ * wrapping - every VRAM char gets `StaticPixelsBehavior` over its baked
  * pixels.
  */
-export function buildChars(
-  vram: VramState,
-  animData?: AnimationData,
-): Map<number, Char> {
+export function buildChars(vram: VramState, animData?: AnimationData): Map<number, Char> {
   const animFrames = collectAnimFrames(animData)
 
   const chars = new Map<number, Char>()
@@ -66,15 +59,15 @@ export function buildChars(
 }
 
 /**
- * Transpose AnimationData — which is frame-major (per-frame list of
- * slot patches) — into char-major: `Map<charNum, CharAnim>` where each
+ * Transpose AnimationData - which is frame-major (per-frame list of
+ * slot patches) - into char-major: `Map<charNum, CharAnim>` where each
  * `CharAnim.frames` is indexed by frame, and `altFrames` (when present)
  * holds the blue-P-switch-active pixel data for the same char.
  *
  * Returns an empty map when animData is omitted or has no slots.
  *
  * A char is dropped if any of its normal frames are missing. Alt frames
- * are dropped as a unit if any frame is missing — the normal animation
+ * are dropped as a unit if any frame is missing - the normal animation
  * still runs, just without the P-switch swap.
  */
 function collectAnimFrames(animData: AnimationData | undefined): Map<number, CharAnim> {
@@ -89,16 +82,20 @@ function collectAnimFrames(animData: AnimationData | undefined): Map<number, Cha
         if (!tile) continue
         let anim = out.get(charNum)
         if (!anim) {
-          // Dense array (undefined-filled), not sparse — sparse arrays
+          // Dense array (undefined-filled), not sparse - sparse arrays
           // cause `some()` / `every()` to skip holes and miss gaps.
-          anim = { frames: new Array<Uint8Array>(frameCount).fill(undefined as unknown as Uint8Array) }
+          anim = {
+            frames: new Array<Uint8Array>(frameCount).fill(undefined as unknown as Uint8Array),
+          }
           out.set(charNum, anim)
         }
         anim.frames[f] = tile
         const altTile = slot.altTiles?.[i]
         if (altTile) {
           if (!anim.altFrames) {
-            anim.altFrames = new Array<Uint8Array>(frameCount).fill(undefined as unknown as Uint8Array)
+            anim.altFrames = new Array<Uint8Array>(frameCount).fill(
+              undefined as unknown as Uint8Array,
+            )
           }
           anim.altFrames[f] = altTile
         }

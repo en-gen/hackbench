@@ -1,5 +1,5 @@
 /**
- * ExAnimationLoader.ts — Lunar Magic ExAnimation data loader.
+ * ExAnimationLoader.ts - Lunar Magic ExAnimation data loader.
  *
  * ExAnimation is LM's extension to SMW's vanilla animation system.
  * It adds per-level animated tile overrides driven by ExGFX files.
@@ -8,34 +8,34 @@
  * $05BB39 (CODE_05BB39) to its own handler. If unchanged, no ExAnim.
  *
  * Data layout (bank $0F LM free space, $FF in vanilla):
- *   $0FF7FF — 3-byte ptr → per-level ExGFX file list
+ *   $0FF7FF - 3-byte ptr → per-level ExGFX file list
  *             (16 × 2-byte file nums per level, 32 bytes/level)
- *   $0FF600 — ExGFX pointer table, files $80–$FF (3 bytes per entry)
- *   $0FF937 — ExGFX pointer table, files $100+  (3 bytes per entry)
- *   $0583AE — 3-byte ptr → per-level ExAnim block pointer table
+ *   $0FF600 - ExGFX pointer table, files $80–$FF (3 bytes per entry)
+ *   $0FF937 - ExGFX pointer table, files $100+  (3 bytes per entry)
+ *   $0583AE - 3-byte ptr → per-level ExAnim block pointer table
  *             (3 bytes per level; ptr[1]==0 means no data)
  *
  * ── Block format at per-level block address ───────────────────────────────
  *
  *   SS EE CCcc IIii MMmm [FF×popcount(MMmm)] [DDdd×SS] [slots...]
  *
- *   SS       (1) — slot count (highest used slot + 1)
- *   EE       (1) — ExGFX source slot, 0–15, indexes per-level ExGFX list
- *   CCcc     (2) — custom trigger uninit bitflags
- *   IIii     (2) — custom trigger initial states
- *   MMmm     (2) — manual trigger init bits
- *   FF×…     (variable) — frame numbers, one per set bit in MMmm
- *   DDdd×SS  (variable) — 2-byte offsets from DDdd array start to slot data
+ *   SS       (1) - slot count (highest used slot + 1)
+ *   EE       (1) - ExGFX source slot, 0–15, indexes per-level ExGFX list
+ *   CCcc     (2) - custom trigger uninit bitflags
+ *   IIii     (2) - custom trigger initial states
+ *   MMmm     (2) - manual trigger init bits
+ *   FF×…     (variable) - frame numbers, one per set bit in MMmm
+ *   DDdd×SS  (variable) - 2-byte offsets from DDdd array start to slot data
  *
  * ── Slot format ───────────────────────────────────────────────────────────
  *
  *   AA TT FF DDdd [MMmm×frameCount]
  *
- *   AA       (1) — type: bit 7=1 is palette (skip), bit 7=0 is GFX
- *   TT       (1) — trigger
- *   FF       (1) — frame count − 1
- *   DDdd     (2) — bit 15=1 uses alt ExGFX; bits 14:0 = VRAM word addr
- *   MMmm×N   (N×2) — per-frame source RAM address ($7E:xxxx, 16-bit LE)
+ *   AA       (1) - type: bit 7=1 is palette (skip), bit 7=0 is GFX
+ *   TT       (1) - trigger
+ *   FF       (1) - frame count − 1
+ *   DDdd     (2) - bit 15=1 uses alt ExGFX; bits 14:0 = VRAM word addr
+ *   MMmm×N   (N×2) - per-frame source RAM address ($7E:xxxx, 16-bit LE)
  *                     buffer offset = ramAddr − $AD00
  *
  * References: Lunar Magic source docs, SMWDisX bank_05.asm
@@ -52,29 +52,29 @@ import type { RomFile } from './RomFile'
 /** JSL opcode ($22), 3 bytes of target follow. */
 const JSL_OPCODE = 0x22
 /** SNES address of the animation-dispatch JSL patched by LM. */
-const ANIMATION_JSL_ADDR = 0x00A2A5
+const ANIMATION_JSL_ADDR = 0x00a2a5
 /** Target address of the vanilla animation JSL (CODE_05BB39). */
-const VANILLA_ANIM_TARGET = 0x05BB39
+const VANILLA_ANIM_TARGET = 0x05bb39
 
 /** Animation settings table: 1 byte per level, patched by LM. */
-const ANIM_SETTINGS_TABLE = 0x03FE00
+const ANIM_SETTINGS_TABLE = 0x03fe00
 /** Bit set in the settings byte when level ExAnim is disabled (bit 5). */
 const ANIM_SETTINGS_DISABLE_LEVEL_EXANIM = 0x20
 
 /** 3-byte LE ptr to per-level ExAnim block table (3 bytes per level). */
-const EXANIM_LEVEL_TABLE_PTR = 0x0583AE
+const EXANIM_LEVEL_TABLE_PTR = 0x0583ae
 
 /** ExGFX pointer table for file numbers $80–$FF (3 bytes per entry). */
-const EXGFX_LO_TABLE_ADDR = 0x0FF600
+const EXGFX_LO_TABLE_ADDR = 0x0ff600
 /** ExGFX pointer table for file numbers $100+ (3 bytes per entry). */
-const EXGFX_HI_TABLE_ADDR = 0x0FF937
+const EXGFX_HI_TABLE_ADDR = 0x0ff937
 /** 3-byte LE ptr to the per-level ExGFX file list. */
-const EXGFX_LEVEL_LIST_PTR = 0x0FF7FF
+const EXGFX_LEVEL_LIST_PTR = 0x0ff7ff
 /** Bytes per level in the per-level ExGFX file list (16 × 2-byte entries). */
 const EXGFX_BYTES_PER_LEVEL = 32
 
 /** First RAM address of the ExAnim GFX buffer ($7E:AD00). */
-const EXANIM_BUFFER_RAM_BASE = 0xAD00
+const EXANIM_BUFFER_RAM_BASE = 0xad00
 /** Tiles per DMA transfer (ExAnim always writes 4 consecutive tiles). */
 const EXANIM_TILES_PER_SLOT = 4
 /** Bit 7 of the slot AA byte: set means palette animation (skip). */
@@ -115,16 +115,16 @@ export function loadExAnimData(rom: RomFile, levelIndex: number): AnimationData 
   if (!isLmExAnimInstalled(rom)) return null
 
   const settings = rom.readByte(ANIM_SETTINGS_TABLE + levelIndex)
-  if (settings !== null && (settings & ANIM_SETTINGS_DISABLE_LEVEL_EXANIM)) return null
+  if (settings !== null && settings & ANIM_SETTINGS_DISABLE_LEVEL_EXANIM) return null
 
   const levelTableBase = read3(rom, EXANIM_LEVEL_TABLE_PTR)
   if (levelTableBase === null) return null
 
   const blockPtrBuf = rom.readAt(levelTableBase + levelIndex * 3, 3)
   if (!blockPtrBuf) return null
-  if (blockPtrBuf[1] === 0) return null  // second byte 0 → no ExAnim for level
+  if (blockPtrBuf[1] === 0) return null // second byte 0 → no ExAnim for level
   const blockAddr = blockPtrBuf[0] | (blockPtrBuf[1] << 8) | (blockPtrBuf[2] << 16)
-  if (blockAddr === 0xFFFFFF || blockAddr === 0) return null
+  if (blockAddr === 0xffffff || blockAddr === 0) return null
 
   // Read block fixed header to get EE (ExGFX source slot index)
   const blockFixed = rom.readAt(blockAddr, 2)
@@ -174,27 +174,34 @@ export function mergeAnimationData(a: AnimationData, b: AnimationData): Animatio
 
 interface ParsedSlot {
   charBase: number
-  tilesPerFrame: Uint8Array[][]  // [frameIdx][tileOffset 0..TILES_PER_SLOT-1]
+  tilesPerFrame: Uint8Array[][] // [frameIdx][tileOffset 0..TILES_PER_SLOT-1]
 }
 
 /** Read a 3-byte LE SNES address; null if unreadable or all-$FF. */
 function read3(rom: RomFile, addr: number): number | null {
   const buf = rom.readAt(addr, 3)
   if (!buf) return null
-  if (buf[0] === 0xFF && buf[1] === 0xFF && buf[2] === 0xFF) return null
+  if (buf[0] === 0xff && buf[1] === 0xff && buf[2] === 0xff) return null
   return buf[0] | (buf[1] << 8) | (buf[2] << 16)
 }
 
 /** Count set bits in a 16-bit integer. */
 function popcount16(n: number): number {
   let c = 0
-  n = n & 0xFFFF
-  while (n) { c += n & 1; n >>>= 1 }
+  n = n & 0xffff
+  while (n) {
+    c += n & 1
+    n >>>= 1
+  }
   return c
 }
 
 function gcd(a: number, b: number): number {
-  while (b) { const t = b; b = a % b; a = t }
+  while (b) {
+    const t = b
+    b = a % b
+    a = t
+  }
   return a
 }
 
@@ -215,7 +222,7 @@ function getExAnimSourceFileNum(rom: RomFile, levelIndex: number, eeSlot: number
   if (!buf) return null
 
   const fileNum = buf[0] | (buf[1] << 8)
-  if (fileNum === 0xFFFF || fileNum === 0) return null
+  if (fileNum === 0xffff || fileNum === 0) return null
   return fileNum
 }
 
@@ -275,12 +282,12 @@ function parseExAnimSlot(
   const header = rom.readAt(slotAddr, 5)
   if (!header) return null
 
-  if (header[0] & EXANIM_TYPE_PALETTE_BIT) return null  // skip palette slots
+  if (header[0] & EXANIM_TYPE_PALETTE_BIT) return null // skip palette slots
 
-  const frameCount = (header[2] & 0xFF) + 1
+  const frameCount = (header[2] & 0xff) + 1
   const dddd = header[3] | (header[4] << 8)
-  const vramWordAddr = dddd & 0x7FFF
-  const charBase = vramWordAddr >> 4  // 16 VRAM words per 4bpp tile
+  const vramWordAddr = dddd & 0x7fff
+  const charBase = vramWordAddr >> 4 // 16 VRAM words per 4bpp tile
 
   const frameAddrs = rom.readAt(slotAddr + 5, frameCount * 2)
   if (!frameAddrs) return null
@@ -290,7 +297,9 @@ function parseExAnimSlot(
     const ramAddr = frameAddrs[f * 2] | (frameAddrs[f * 2 + 1] << 8)
     const bufferOffset = ramAddr - EXANIM_BUFFER_RAM_BASE
     if (bufferOffset < 0) {
-      tilesPerFrame.push(Array.from({ length: EXANIM_TILES_PER_SLOT }, () => new Uint8Array(PIXELS_PER_TILE)))
+      tilesPerFrame.push(
+        Array.from({ length: EXANIM_TILES_PER_SLOT }, () => new Uint8Array(PIXELS_PER_TILE)),
+      )
       continue
     }
     tilesPerFrame.push(decodeTilesAt(exGfxBuffer, bufferOffset))
@@ -302,11 +311,7 @@ function parseExAnimSlot(
 /**
  * Parse the full ExAnimation block at blockAddr and return all GFX slots.
  */
-function parseExAnimBlock(
-  rom: RomFile,
-  blockAddr: number,
-  exGfxBuffer: Uint8Array,
-): ParsedSlot[] {
+function parseExAnimBlock(rom: RomFile, blockAddr: number, exGfxBuffer: Uint8Array): ParsedSlot[] {
   // Fixed header: SS EE CCcc IIii MMmm (8 bytes)
   const fixed = rom.readAt(blockAddr, 8)
   if (!fixed) return []

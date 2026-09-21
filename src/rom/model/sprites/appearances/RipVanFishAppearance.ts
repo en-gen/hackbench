@@ -11,15 +11,15 @@ import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
 import { RIP_VAN_FISH_DETECT_HALF_PX } from '../behaviors/RipVanFishBehavior'
 
 /**
- * Sprite $3D — Rip Van Fish. Self-rendering appearance.
+ * Sprite $3D - Rip Van Fish. Self-rendering appearance.
  *
  * Frames (per `SprTilemap[$E2..$E5]` and the SpriteMisc1602 dispatch in
  * RipVanFishMain, bank_02.asm:8462):
  *
- *   misc1602=0 ($AE) — chasing A     (state 1, awake)
- *   misc1602=1 ($AC) — chasing B     (state 1, awake)
- *   misc1602=2 ($8C) — sleeping A    (state 0, idle)
- *   misc1602=3 ($8E) — sleeping B    (state 0, idle, alt every misc1570 bit)
+ *   misc1602=0 ($AE) - chasing A     (state 1, awake)
+ *   misc1602=1 ($AC) - chasing B     (state 1, awake)
+ *   misc1602=2 ($8C) - sleeping A    (state 0, idle)
+ *   misc1602=3 ($8E) - sleeping B    (state 0, idle, alt every misc1570 bit)
  *
  * Both states animate via two-frame oscillation, both driven by the
  * `SpriteMisc1570` per-frame counter (incremented at RipVanFishMain:8489).
@@ -53,11 +53,11 @@ import { RIP_VAN_FISH_DETECT_HALF_PX } from '../behaviors/RipVanFishBehavior'
  * `(sprite + $06, sprite + $00)` with timer = `#$7F`, x-speed = `#$FA`
  * (drifts left at 6/16 px/frame ≈ -0.375). Y decrements by 1 every
  * 4 frames (`MinExtSpriteTimer & $03 == 0`). Tile selected from
- * `RipVanFishZsTiles = $F1,$F0,$E1,$E0` indexed by `(timer >> 5) & 3` —
+ * `RipVanFishZsTiles = $F1,$F0,$E1,$E0` indexed by `(timer >> 5) & 3` -
  * over the timer's $7F → $00 countdown the visible cycle is
  * **$E0 → $E1 → $F0 → $F1**.
  *
- * The trail is hidden when `inZone` (cursor inside the wake square) —
+ * The trail is hidden when `inZone` (cursor inside the wake square) -
  * spawning halts on state→1 in the ASM, so the cursor stand-in mirrors
  * that gating. Animation advances on `tickAnimation()` ticks (driven by
  * the editor Play button via `spriteAnimTimer`); when paused, the trail
@@ -66,8 +66,8 @@ import { RIP_VAN_FISH_DETECT_HALF_PX } from '../behaviors/RipVanFishBehavior'
 
 const OBJ_CHAR_BASE = 0x400
 const CORNER_OFFSET = [0x00, 0x01, 0x10, 0x11] as const
-const SUB_DX        = [0, 8, 0, 8] as const
-const SUB_DY        = [0, 0, 8, 8] as const
+const SUB_DX = [0, 8, 0, 8] as const
+const SUB_DY = [0, 0, 8, 8] as const
 
 /**
  * Expand one 16×16 SNES OAM big-tile into four 8×8 SpriteParts (matches
@@ -82,7 +82,8 @@ function bigTileParts(
   placeholder: Char,
 ): SpritePart[] {
   return [0, 1, 2, 3].map(c => ({
-    char: chars.get(OBJ_CHAR_BASE + charHigh + ((baseTile + CORNER_OFFSET[c]) & 0x1FF)) ?? placeholder,
+    char:
+      chars.get(OBJ_CHAR_BASE + charHigh + ((baseTile + CORNER_OFFSET[c]) & 0x1ff)) ?? placeholder,
     palette,
     flipX: false,
     flipY: false,
@@ -93,22 +94,22 @@ function bigTileParts(
 
 /** ROM-derived frame base tiles (SprTilemap[$E2..$E5]). */
 export const RIP_VAN_FISH_FRAMES = {
-  awakeA: 0xAE,   // misc1602=0
-  awakeB: 0xAC,   // misc1602=1
-  sleepA: 0x8C,   // misc1602=2
-  sleepB: 0x8E,   // misc1602=3
+  awakeA: 0xae, // misc1602=0
+  awakeB: 0xac, // misc1602=1
+  sleepA: 0x8c, // misc1602=2
+  sleepB: 0x8e, // misc1602=3
 } as const
 
 /**
- * Z trail constants — all ROM-derived from bank_02.asm.
+ * Z trail constants - all ROM-derived from bank_02.asm.
  *
  *   INIT_TIMER  `#$7F`  init MinExtSpriteTimer (CODE_02C0F2:8639)
- *   KILL_TIMER  `#$14`  CODE_028DDB:1834 — slot is cleared when the
+ *   KILL_TIMER  `#$14`  CODE_028DDB:1834 - slot is cleared when the
  *                       just-decremented timer equals $14, so the visible
  *                       lifetime is the count of decremented timer values
  *                       in $7E..$15 = 106 frames.
  *   SPAWN_PER   `#$28`  reset MinExtSpriteSlotTimer (CODE_02C0D9:8615)
- *   MAX_SLOTS   ceil(LIFETIME / SPAWN_PER) = ceil(106/40) = 3 — actual
+ *   MAX_SLOTS   ceil(LIFETIME / SPAWN_PER) = ceil(106/40) = 3 - actual
  *                       max simultaneous Zs in steady state (the ROM slot
  *                       pool is 12, but only ~2-3 live for a single fish
  *                       since lifetime/period ≈ 2.65).
@@ -126,7 +127,7 @@ export const RIP_VAN_FISH_FRAMES = {
  *                       over 106 frames is only a few pixels, NOT linear.
  *   Y_DRIFT     -1 px per 4 frames (CODE_028DDB:1810–1813, dec when
  *               `MinExtSpriteTimer & $03 == 0`).
- *   POS_APPLY   CODE_02B5C8 — signed 8.4 fp velocity:
+ *   POS_APPLY   CODE_02B5C8 - signed 8.4 fp velocity:
  *                 subpixel += (xSpeed << 4) & $FF
  *                 carry     = subpixel overflow
  *                 dx       += sign-extended (xSpeed >> 4) + carry
@@ -140,67 +141,67 @@ export const RIP_VAN_FISH_FRAMES = {
  *
  * The trajectory is precomputed by stepping the exact ROM physics for
  * each of the 106 visible frames; the render path is a table lookup.
- * Net X motion ends up around ±5 px from spawn, Y drifts up ~25 px —
+ * Net X motion ends up around ±5 px from spawn, Y drifts up ~25 px -
  * matching the OAM captures showing Zs in a near-vertical column.
  */
-const Z_INIT_TIMER        = 0x7F
-const Z_KILL_TIMER        = 0x14
-const Z_INIT_X_SPEED      = 0xFA  // signed 8.4 fp = -6
-const Z_SPAWN_PERIOD      = 0x28
-const Z_MAX_SLOTS         = 3
-const Z_TOTAL_PERIOD      = Z_SPAWN_PERIOD * Z_MAX_SLOTS  // 120-frame cycle
-const Z_SPAWN_DX          = 0x06
-const Z_SPAWN_DY          = 0x00
-const ROM_FRAMES_PER_TICK = SPRITE_ANIM_FRAME_STRIDE        // 8 game frames
-export const Z_TILES      = [0xE0, 0xE1, 0xF0, 0xF1] as const
+const Z_INIT_TIMER = 0x7f
+const Z_KILL_TIMER = 0x14
+const Z_INIT_X_SPEED = 0xfa // signed 8.4 fp = -6
+const Z_SPAWN_PERIOD = 0x28
+const Z_MAX_SLOTS = 3
+const Z_TOTAL_PERIOD = Z_SPAWN_PERIOD * Z_MAX_SLOTS // 120-frame cycle
+const Z_SPAWN_DX = 0x06
+const Z_SPAWN_DY = 0x00
+const ROM_FRAMES_PER_TICK = SPRITE_ANIM_FRAME_STRIDE // 8 game frames
+export const Z_TILES = [0xe0, 0xe1, 0xf0, 0xf1] as const
 
 /**
  * Precomputed Z particle trajectory. Each entry is the per-frame state
  * of one Z slot, with `age = 0` being the first frame post-spawn (the
- * spawn frame itself runs CODE_02C0F2 only — drawing starts the frame
+ * spawn frame itself runs CODE_02C0F2 only - drawing starts the frame
  * after, when CODE_028DDB first executes). Steps the exact ROM physics
  * from CODE_028DDB and CODE_02B5C8.
  */
 export interface ZTrajectoryFrame {
-  readonly tileIdx: number   // 0..3 indexes Z_TILES → $E0/$E1/$F0/$F1
-  readonly dx:      number   // pixel offset from sprite TL (signed)
-  readonly dy:      number
+  readonly tileIdx: number // 0..3 indexes Z_TILES → $E0/$E1/$F0/$F1
+  readonly dx: number // pixel offset from sprite TL (signed)
+  readonly dy: number
 }
 
 function computeZTrajectory(): readonly ZTrajectoryFrame[] {
   const frames: ZTrajectoryFrame[] = []
-  let xSpeed   = Z_INIT_X_SPEED   // unsigned 8-bit, treated signed via wrap
-  let xPosSpx  = 0                // sub-pixel X accumulator (CODE_02B5C8)
-  let dx       = Z_SPAWN_DX
-  let dy       = Z_SPAWN_DY
-  let timer    = Z_INIT_TIMER
+  let xSpeed = Z_INIT_X_SPEED // unsigned 8-bit, treated signed via wrap
+  let xPosSpx = 0 // sub-pixel X accumulator (CODE_02B5C8)
+  let dx = Z_SPAWN_DX
+  let dy = Z_SPAWN_DY
+  let timer = Z_INIT_TIMER
 
   for (;;) {
-    // CODE_028DDB:1787-1789 — decrement timer (skip if already 0)
+    // CODE_028DDB:1787-1789 - decrement timer (skip if already 0)
     if (timer === 0) break
-    timer = (timer - 1) & 0xFF
+    timer = (timer - 1) & 0xff
 
-    // CODE_028DDB:1834 — kill check fires BEFORE the tile-no is set, so
+    // CODE_028DDB:1834 - kill check fires BEFORE the tile-no is set, so
     // the frame at timer=$14 is not part of the visible trail.
     if (timer === Z_KILL_TIMER) break
 
-    // CODE_028DDB:1794-1798 — wobble XSpeed ±1 based on timer bit 4.
-    xSpeed = (xSpeed + 1) & 0xFF
-    if ((timer & 0x10) === 0) xSpeed = (xSpeed - 2) & 0xFF
+    // CODE_028DDB:1794-1798 - wobble XSpeed ±1 based on timer bit 4.
+    xSpeed = (xSpeed + 1) & 0xff
+    if ((timer & 0x10) === 0) xSpeed = (xSpeed - 2) & 0xff
 
-    // CODE_02B5C8 — apply X velocity as signed 8.4 fp.
-    const subAdd = (xSpeed << 4) & 0xFF
-    const total  = xPosSpx + subAdd
-    const carry  = total >= 0x100 ? 1 : 0
-    xPosSpx      = total & 0xFF
-    let intHigh  = (xSpeed >> 4) & 0x0F
-    if (intHigh >= 0x08) intHigh -= 0x10  // ROM `ORA #$F0` sign-extension
+    // CODE_02B5C8 - apply X velocity as signed 8.4 fp.
+    const subAdd = (xSpeed << 4) & 0xff
+    const total = xPosSpx + subAdd
+    const carry = total >= 0x100 ? 1 : 0
+    xPosSpx = total & 0xff
+    let intHigh = (xSpeed >> 4) & 0x0f
+    if (intHigh >= 0x08) intHigh -= 0x10 // ROM `ORA #$F0` sign-extension
     dx += intHigh + carry
 
-    // CODE_028DDB:1810-1813 — Y stair-steps -1 every 4 frames.
+    // CODE_028DDB:1810-1813 - Y stair-steps -1 every 4 frames.
     if ((timer & 0x03) === 0) dy -= 1
 
-    // CODE_028DDB:1840-1848 — `RipVanFishZsTiles[(timer >> 5) & 3]`.
+    // CODE_028DDB:1840-1848 - `RipVanFishZsTiles[(timer >> 5) & 3]`.
     // ROM table is `db $F1,$F0,$E1,$E0` (idx 0..3 → tile), so our
     // Z_TILES order [$E0,$E1,$F0,$F1] uses tileIdx = 3 - romIdx.
     const tileIdx = 3 - ((timer >> 5) & 0x03)
@@ -216,41 +217,43 @@ export const Z_LIFETIME_FRAMES = Z_TRAJECTORY.length
 
 export class RipVanFishAppearance implements SpriteAppearance {
   readonly hitRect: HitRect
-  private romFrame  = 0
+  private romFrame = 0
   private tickCount = 0
 
   /**
-   * `sleepFrames[0]` = sleepB ($8E, misc1602=3) — eyes-blink alternate
-   * `sleepFrames[1]` = sleepA ($8C, misc1602=2) — eyes-closed default
-   * `awakeFrames[0]` = awakeA ($AE, misc1602=0) — chasing pose A
-   * `awakeFrames[1]` = awakeB ($AC, misc1602=1) — chasing pose B
+   * `sleepFrames[0]` = sleepB ($8E, misc1602=3) - eyes-blink alternate
+   * `sleepFrames[1]` = sleepA ($8C, misc1602=2) - eyes-closed default
+   * `awakeFrames[0]` = awakeA ($AE, misc1602=0) - chasing pose A
+   * `awakeFrames[1]` = awakeB ($AC, misc1602=1) - chasing pose B
    */
   constructor(
     readonly sleepFrames: readonly [readonly SpritePart[], readonly SpritePart[]],
     readonly awakeFrames: readonly [readonly SpritePart[], readonly SpritePart[]],
-    readonly zParts:      readonly SpritePart[],
+    readonly zParts: readonly SpritePart[],
   ) {
-    // hitRect intentionally excludes zParts — the trail is decoration,
+    // hitRect intentionally excludes zParts - the trail is decoration,
     // not a click target.
     this.hitRect = partsHitRect([
-      ...sleepFrames[0], ...sleepFrames[1],
-      ...awakeFrames[0], ...awakeFrames[1],
+      ...sleepFrames[0],
+      ...sleepFrames[1],
+      ...awakeFrames[0],
+      ...awakeFrames[1],
     ])
   }
 
   static fromTables(
-    chars:       Map<number, Char>,
-    palette:     number,
-    charHigh:    number,
+    chars: Map<number, Char>,
+    palette: number,
+    charHigh: number,
     placeholder: Char,
   ): RipVanFishAppearance {
     const zParts: SpritePart[] = Z_TILES.map(t => ({
-      char:    chars.get(OBJ_CHAR_BASE + charHigh + (t & 0x1FF)) ?? placeholder,
+      char: chars.get(OBJ_CHAR_BASE + charHigh + (t & 0x1ff)) ?? placeholder,
       palette,
-      flipX:   false,
-      flipY:   false,
-      dx:      0,
-      dy:      0,
+      flipX: false,
+      flipY: false,
+      dx: 0,
+      dy: 0,
     }))
     const tileParts = (base: number) => bigTileParts(chars, base, palette, charHigh, placeholder)
     return new RipVanFishAppearance(
@@ -286,14 +289,15 @@ export class RipVanFishAppearance implements SpriteAppearance {
     // moves; the toplevel renderModelOverlay also reads it, so the dep is
     // safe even when the cursor is null.
     const cursor = editorStore.cursorPx
-    const cx     = x + 8
-    const cy     = y + 8
-    const inZone = cursor !== null
-      && Math.abs(cursor.x - cx) < RIP_VAN_FISH_DETECT_HALF_PX
-      && Math.abs(cursor.y - cy) < RIP_VAN_FISH_DETECT_HALF_PX
+    const cx = x + 8
+    const cy = y + 8
+    const inZone =
+      cursor !== null &&
+      Math.abs(cursor.x - cx) < RIP_VAN_FISH_DETECT_HALF_PX &&
+      Math.abs(cursor.y - cy) < RIP_VAN_FISH_DETECT_HALF_PX
 
     // Body frame selection:
-    //   awake: alternate every editor tick — ROM cycles at 7.5 Hz (8 ROM
+    //   awake: alternate every editor tick - ROM cycles at 7.5 Hz (8 ROM
     //     frames); the editor's 8 Hz display can only represent 4 Hz, so a
     //     simple tickCount parity avoids the aliasing that `(romFrame & $04)`
     //     produces (near-resonance → the frame sticks for ~1 s at a time).
@@ -306,11 +310,11 @@ export class RipVanFishAppearance implements SpriteAppearance {
       : this.sleepFrames[(fishFrame & 0x30) === 0 ? 1 : 0]
     for (const part of parts) {
       const pixels = part.char.getPixels()
-      const row    = mapStore.palette.row(part.palette)
+      const row = mapStore.palette.row(part.palette)
       target.blit8x8(pixels, { x: x + part.dx, y: y + part.dy }, row, part.flipX, part.flipY)
     }
 
-    // Z snore trail — hidden when the fish is "awake" (cursor in zone).
+    // Z snore trail - hidden when the fish is "awake" (cursor in zone).
     // ASM: spawner CODE_02C0D9 is gated by sleeping-state CODE_02C044
     // only, so on wake new Zs never spawn. Editor mirrors that by
     // skipping the whole trail render when inZone.
@@ -318,13 +322,15 @@ export class RipVanFishAppearance implements SpriteAppearance {
       for (let i = 0; i < Z_MAX_SLOTS; i++) {
         // Stagger: each slot's "spawn" is offset by SPAWN_PERIOD frames.
         // The mod brings stale values back into [0, TOTAL_PERIOD).
-        const age = ((this.romFrame - i * Z_SPAWN_PERIOD) % Z_TOTAL_PERIOD + Z_TOTAL_PERIOD) % Z_TOTAL_PERIOD
+        const age =
+          (((this.romFrame - i * Z_SPAWN_PERIOD) % Z_TOTAL_PERIOD) + Z_TOTAL_PERIOD) %
+          Z_TOTAL_PERIOD
         const ageInt = Math.floor(age)
-        if (ageInt >= Z_LIFETIME_FRAMES) continue   // dead slot, between spawns
-        const frame  = Z_TRAJECTORY[ageInt]
-        const part   = this.zParts[frame.tileIdx]
+        if (ageInt >= Z_LIFETIME_FRAMES) continue // dead slot, between spawns
+        const frame = Z_TRAJECTORY[ageInt]
+        const part = this.zParts[frame.tileIdx]
         const pixels = part.char.getPixels()
-        const row    = mapStore.palette.row(part.palette)
+        const row = mapStore.palette.row(part.palette)
         target.blit8x8(pixels, { x: x + frame.dx, y: y + frame.dy }, row, part.flipX, part.flipY)
       }
     }

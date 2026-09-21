@@ -28,7 +28,7 @@ const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario Wor
 
 describe('Map16 pipe palette variants', () => {
   it('MAP16_APP_TABLE matches the 4 ROM pointers in bank_05.asm:884', () => {
-    expect(MAP16_APP_TABLE).toEqual([0x0D8AB0, 0x0D84E0, 0x0D8AF0, 0x0D8B30])
+    expect(MAP16_APP_TABLE).toEqual([0x0d8ab0, 0x0d84e0, 0x0d8af0, 0x0d8b30])
   })
 
   it('pipeVariantIndex replicates (scroll >> 3) & 6 then >> 1', () => {
@@ -36,7 +36,7 @@ describe('Map16 pipe palette variants', () => {
     // produces a byte offset of 0/2/4/6 into MAP16AppTable. We divide by 2
     // to return the variant index (0-3).
     //
-    // Variant changes every 16 units of the scroll counter — which matches
+    // Variant changes every 16 units of the scroll counter - which matches
     // the observed "1 color per screen" cycle for horizontal levels (where
     // scroll increments by 1 per column, so 16 columns = 1 screen = 1
     // variant step).
@@ -48,7 +48,7 @@ describe('Map16 pipe palette variants', () => {
     expect(pipeVariantIndex(47)).toBe(2)
     expect(pipeVariantIndex(48)).toBe(3)
     expect(pipeVariantIndex(63)).toBe(3)
-    expect(pipeVariantIndex(64)).toBe(0)  // cycle repeats every 64 units (4 screens)
+    expect(pipeVariantIndex(64)).toBe(0) // cycle repeats every 64 units (4 screens)
     expect(pipeVariantIndex(80)).toBe(1)
   })
 
@@ -56,17 +56,15 @@ describe('Map16 pipe palette variants', () => {
     const pointers: number[] = new Array(512).fill(0)
     applyPipePaletteVariant(pointers, 0)
     for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) {
-      expect(pointers[PIPE_VARIANT_TILE_START + i]).toBe(
-        MAP16_APP_TABLE[0] + i * MAP16_TILE_BYTES,
-      )
+      expect(pointers[PIPE_VARIANT_TILE_START + i]).toBe(MAP16_APP_TABLE[0] + i * MAP16_TILE_BYTES)
     }
     applyPipePaletteVariant(pointers, 3)
     expect(pointers[0x133]).toBe(MAP16_APP_TABLE[3])
-    expect(pointers[0x13A]).toBe(MAP16_APP_TABLE[3] + 7 * MAP16_TILE_BYTES)
+    expect(pointers[0x13a]).toBe(MAP16_APP_TABLE[3] + 7 * MAP16_TILE_BYTES)
   })
 
   it('applyPipePaletteVariant does not touch pointers outside $133..$13A', () => {
-    const before = new Array(512).fill(0).map((_, i) => 0x0D0000 | (i * 8))
+    const before = new Array(512).fill(0).map((_, i) => 0x0d0000 | (i * 8))
     const after = [...before]
     applyPipePaletteVariant(after, 2)
     for (let i = 0; i < 512; i++) {
@@ -130,7 +128,7 @@ describe('Map16 pipe palette variants', () => {
       // Both variants should produce the same tile $132 since it's outside the override.
       expect(v0[0x132]).toEqual(v3[0x132])
       // $13B is just after; also unchanged.
-      expect(v0[0x13B]).toEqual(v3[0x13B])
+      expect(v0[0x13b]).toEqual(v3[0x13b])
     },
   )
 })

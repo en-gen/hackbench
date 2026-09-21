@@ -40,14 +40,14 @@ export type GfxRoutine = 'sub0' | 'sub1' | 'sub2'
  * labels checked in `SMWDisX/bank_01.asm` at the cited line.
  */
 const SHARED_ROUTINES: ReadonlyArray<readonly [number, GfxRoutine, string]> = [
-  [0x019CF3, 'sub0', 'SubSprGfx0Entry0 bank_01.asm:3853'],
-  [0x019CF5, 'sub0', 'SubSprGfx0Entry1 bank_01.asm:3855'],
-  [0x019D67, 'sub1', 'SubSprGfx1 bank_01.asm:3920'],
-  [0x019F09, 'sub2', 'SubSprGfx2Entry0 bank_01.asm:4144'],
-  [0x019F0D, 'sub2', 'SubSprGfx2Entry1 bank_01.asm:4148'],
+  [0x019cf3, 'sub0', 'SubSprGfx0Entry0 bank_01.asm:3853'],
+  [0x019cf5, 'sub0', 'SubSprGfx0Entry1 bank_01.asm:3855'],
+  [0x019d67, 'sub1', 'SubSprGfx1 bank_01.asm:3920'],
+  [0x019f09, 'sub2', 'SubSprGfx2Entry0 bank_01.asm:4144'],
+  [0x019f0d, 'sub2', 'SubSprGfx2Entry1 bank_01.asm:4148'],
   [0x018042, 'sub0', 'GenericSprGfxRt0 bank_01.asm:61'],
-  [0x019D5F, 'sub1', 'GenericSprGfxRt1 bank_01.asm:3912'],
-  [0x0190B2, 'sub2', 'GenericSprGfxRt2 bank_01.asm:2393'],
+  [0x019d5f, 'sub1', 'GenericSprGfxRt1 bank_01.asm:3912'],
+  [0x0190b2, 'sub2', 'GenericSprGfxRt2 bank_01.asm:2393'],
 ]
 
 const WATCH: ReadonlyMap<number, string> = new Map(
@@ -87,10 +87,19 @@ export type GfxRoutineReading =
       readonly propGroup?: number
     }
   /** Two are, and a readable branch on a per-sprite ROM byte chooses. */
-  | { readonly kind: 'selected'; readonly routine: GfxRoutine; readonly site: HandlerSite; readonly select: RoutineSelect }
+  | {
+      readonly kind: 'selected'
+      readonly routine: GfxRoutine
+      readonly site: HandlerSite
+      readonly select: RoutineSelect
+    }
   /** Two or more are reachable with no branch this reader can attribute.
    *  Sprites that draw several parts through different routines land here. */
-  | { readonly kind: 'ambiguous'; readonly routines: readonly GfxRoutine[]; readonly site: HandlerSite }
+  | {
+      readonly kind: 'ambiguous'
+      readonly routines: readonly GfxRoutine[]
+      readonly site: HandlerSite
+    }
   /** None is reachable within the walk's budget. */
   | { readonly kind: 'unreached'; readonly stops: readonly WalkStop[]; readonly site: HandlerSite }
   /** The MAIN pointer could not be read at all. */
@@ -100,18 +109,25 @@ export type GfxRoutineReading =
 export function resolveHandlerSite(rom: RomFile, spriteId: number): HandlerSite | null {
   const d = resolveDispatch(rom, spriteId)
   switch (d.kind) {
-    case 'direct':       return { at: d.handler, via: 'direct' }
-    case 'dispatched':   return { at: d.handler, via: 'dispatched' }
-    case 'fallthrough':  return { at: d.at, via: 'fallthrough' }
+    case 'direct':
+      return { at: d.handler, via: 'direct' }
+    case 'dispatched':
+      return { at: d.handler, via: 'dispatched' }
+    case 'fallthrough':
+      return { at: d.at, via: 'fallthrough' }
     // The chain grammar refused, but the stub's own target is still real
     // code shared by every id behind that stub. Walking it is honest as
     // long as nothing claims the result is id-specific.
-    case 'chainRefused': return { at: d.thunk.target, via: 'stubBody' }
-    case 'unreadable':   return null
+    case 'chainRefused':
+      return { at: d.thunk.target, via: 'stubBody' }
+    case 'unreadable':
+      return null
   }
 }
 
-function isSpriteNumberBitTest(a: AccumulatorSource): a is Extract<AccumulatorSource, { kind: 'tableBitTest' }> {
+function isSpriteNumberBitTest(
+  a: AccumulatorSource,
+): a is Extract<AccumulatorSource, { kind: 'tableBitTest' }> {
   return a.kind === 'tableBitTest' && a.bySpriteNumber
 }
 
@@ -142,8 +158,14 @@ export function readGfxRoutine(rom: RomFile, spriteId: number): GfxRoutineReadin
     if (!isSpriteNumberBitTest(branch.accumulator)) continue
     // Cutting each side at the other's entry keeps a path that rejoins from
     // reporting both routines and defeating the split.
-    const notTaken = walkHandler(rom, branch.notTakenAt, { watch: WATCH, blocked: new Set([branch.takenAt]) })
-    const taken = walkHandler(rom, branch.takenAt, { watch: WATCH, blocked: new Set([branch.notTakenAt]) })
+    const notTaken = walkHandler(rom, branch.notTakenAt, {
+      watch: WATCH,
+      blocked: new Set([branch.takenAt]),
+    })
+    const taken = walkHandler(rom, branch.takenAt, {
+      watch: WATCH,
+      blocked: new Set([branch.notTakenAt]),
+    })
     const a = [...notTaken.reached.keys()] as GfxRoutine[]
     const b = [...taken.reached.keys()] as GfxRoutine[]
     if (a.length !== 1 || b.length !== 1 || a[0] === b[0]) continue
@@ -154,9 +176,9 @@ export function readGfxRoutine(rom: RomFile, spriteId: number): GfxRoutineReadin
     // `BNE`/`BEQ` polarity: 0xD0 takes the branch when the mask cleared
     // nothing, 0xF0 when it cleared everything.
     const op = rom.readByte(branch.at)
-    if (op !== 0xD0 && op !== 0xF0) continue
-    const setGoes = op === 0xD0 ? b[0] : a[0]
-    const clearGoes = op === 0xD0 ? a[0] : b[0]
+    if (op !== 0xd0 && op !== 0xf0) continue
+    const setGoes = op === 0xd0 ? b[0] : a[0]
+    const clearGoes = op === 0xd0 ? a[0] : b[0]
     return {
       kind: 'selected',
       routine: (byte & mask) !== 0 ? setGoes : clearGoes,
@@ -176,9 +198,15 @@ export function readGfxRoutine(rom: RomFile, spriteId: number): GfxRoutineReadin
  * single term in the build. `RomFile.version` is the invalidation: it moves
  * on every `writeAt`, so a test that plants a byte gets a fresh read.
  */
-const routineCache = new WeakMap<RomFile, { version: number; count: number; routines: Map<number, GfxRoutineReading> }>()
+const routineCache = new WeakMap<
+  RomFile,
+  { version: number; count: number; routines: Map<number, GfxRoutineReading> }
+>()
 
-export function readGfxRoutines(rom: RomFile, count = SPRITE_PTR_TABLE_COUNT): Map<number, GfxRoutineReading> {
+export function readGfxRoutines(
+  rom: RomFile,
+  count = SPRITE_PTR_TABLE_COUNT,
+): Map<number, GfxRoutineReading> {
   const hit = routineCache.get(rom)
   if (hit && hit.version === rom.version && hit.count === count) return hit.routines
   const out = new Map<number, GfxRoutineReading>()
@@ -205,14 +233,18 @@ export function gfxRoutineMessage(r: GfxRoutineReading): string {
     case 'read':
       return `${r.routine} via the call at ${hex(r.callAt)} in the ${r.site.via} handler ${hex(r.site.at)}`
     case 'selected':
-      return `${r.routine}, chosen by the branch at ${hex(r.select.at)} on `
-        + `${hex(r.select.table)} & $${r.select.mask.toString(16).toUpperCase()} `
-        + `(set: ${r.select.whenSet}, clear: ${r.select.whenClear})`
+      return (
+        `${r.routine}, chosen by the branch at ${hex(r.select.at)} on ` +
+        `${hex(r.select.table)} & $${r.select.mask.toString(16).toUpperCase()} ` +
+        `(set: ${r.select.whenSet}, clear: ${r.select.whenClear})`
+      )
     case 'ambiguous':
       return `handler ${hex(r.site.at)} reaches ${r.routines.join(' and ')} with no readable choice between them`
     case 'unreached':
-      return `handler ${hex(r.site.at)} reaches no shared draw routine `
-        + `(${r.stops.length ? r.stops.join(', ') : 'no call found'})`
+      return (
+        `handler ${hex(r.site.at)} reaches no shared draw routine ` +
+        `(${r.stops.length ? r.stops.join(', ') : 'no call found'})`
+      )
     case 'noHandler':
       return 'handler pointer unreadable'
   }

@@ -13,11 +13,7 @@ import { buildTiles } from '../../../../src/rom/model/tiles/TileFactory'
 import { AnimatedPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/AnimatedPixelsBehavior'
 import { PipeVariantsBehavior } from '../../../../src/rom/model/tiles/behaviors/PipeVariantsBehavior'
 import { SwitchPalaceAlternateBehavior } from '../../../../src/rom/model/tiles/behaviors/SwitchPalaceAlternateBehavior'
-import type {
-  PixelPos,
-  PixelSize,
-  RenderTarget,
-} from '../../../../src/rom/model/RenderTarget'
+import type { PixelPos, PixelSize, RenderTarget } from '../../../../src/rom/model/RenderTarget'
 import { resetEditorStore } from '../fixtures/stores'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
@@ -111,13 +107,15 @@ describe.skipIf(!existsSync(ROM_PATH))('MapPayload round-trip (vanilla ROM)', ()
     const { chars: reChars, tiles: reTiles } = buildGraph(payload)
 
     // At least one char is AnimatedPixelsBehavior
-    const hasAnimated = [...reChars.values()].some(c => c.behavior instanceof AnimatedPixelsBehavior)
+    const hasAnimated = [...reChars.values()].some(
+      c => c.behavior instanceof AnimatedPixelsBehavior,
+    )
     expect(hasAnimated).toBe(true)
 
     // Switch-palace tiles preserved
     for (let c = 0; c < 4; c++) {
-      expect(reTiles.get(0x06A + c)!.behavior).toBeInstanceOf(SwitchPalaceAlternateBehavior)
-      expect(reTiles.get(0x16A + c)!.behavior).toBeInstanceOf(SwitchPalaceAlternateBehavior)
+      expect(reTiles.get(0x06a + c)!.behavior).toBeInstanceOf(SwitchPalaceAlternateBehavior)
+      expect(reTiles.get(0x16a + c)!.behavior).toBeInstanceOf(SwitchPalaceAlternateBehavior)
     }
   })
 })

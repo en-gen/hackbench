@@ -97,8 +97,7 @@ export class RomRegistry {
 
   /** Every remembered cartridge, most recently seen first. */
   list(): RegistryEntry[] {
-    return Object.values(this.read().roms)
-      .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
+    return Object.values(this.read().roms).sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
   }
 
   forget(sha256: string): void {

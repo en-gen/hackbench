@@ -6,7 +6,7 @@ import type { CharBehavior } from '../CharBehavior'
  * frame state is owned internally so cadence is decoupled from any global
  * counter. Matches the SMW NMI animation path that DMAs new tile bytes
  * into specific VRAM slots on a fixed cadence (~7.5 frames per second).
- * Frames come from `AnimationLoader.loadAnimationData` — no hardcoded
+ * Frames come from `AnimationLoader.loadAnimationData` - no hardcoded
  * pixel data.
  */
 export class AnimatedPixelsBehavior implements CharBehavior {

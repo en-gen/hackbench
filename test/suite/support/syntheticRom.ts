@@ -8,7 +8,7 @@ const BUF_SIZE = 0x40000
 // Stamped into the raw buffer before RomFile exists: RomFile picks its
 // addressing mode from this byte in its constructor, and every writeAt below
 // depends on that choice.
-const MAP_MODE_OFFSET = 0x7FD5
+const MAP_MODE_OFFSET = 0x7fd5
 
 // Shared by every unclaimed slot. SmwRom's filler heuristic needs a pointer
 // repeated 10+ times, and the hundreds left over put that beyond doubt.
@@ -17,7 +17,7 @@ const FILLER_PTR = 0x038000
 const FIRST_ROOM_PTR = 0x018000
 const ROOM_STRIDE = 0x100
 
-const ptrBytes = (ptr: number): number[] => [ptr & 0xFF, (ptr >> 8) & 0xFF, (ptr >> 16) & 0xFF]
+const ptrBytes = (ptr: number): number[] => [ptr & 0xff, (ptr >> 8) & 0xff, (ptr >> 16) & 0xff]
 
 /**
  * Writes a synthetic LoROM image whose exit graph is exactly `rooms`, keyed by
@@ -37,7 +37,7 @@ export function writeSyntheticRom(dir: string, rooms: Map<number, number[]>): st
 
   // The filler room terminates before its first object, so `levelHasObjects`
   // rejects it and no unclaimed slot can become a level or an exit target.
-  rom.writeAt(FILLER_PTR + 5, [0xFF])
+  rom.writeAt(FILLER_PTR + 5, [0xff])
   for (let i = 0; i < LEVEL_COUNT; i++) {
     rom.writeAt(ADDR.LEVEL_L1_PTR + i * 3, ptrBytes(FILLER_PTR))
   }
@@ -57,16 +57,14 @@ export function writeSyntheticRom(dir: string, rooms: Map<number, number[]>): st
       // An exit carries only the low byte; buildLevelExitGraph re-adds bit 8
       // from the reaching root's submap flag, so this edge is unreachable.
       if ((dest & 0x100) !== (index & 0x100)) {
-        throw new Error(
-          `$${index.toString(16)} -> $${dest.toString(16)} crosses the submap flag`,
-        )
+        throw new Error(`$${index.toString(16)} -> $${dest.toString(16)} crosses the submap flag`)
       }
       // Extended object $00, settings 0, byte 1 of 0: a primary screen exit,
       // so the trailing byte is the destination low byte (see the screen-exit
       // branch of LevelParser.parseLevelObjects).
-      body.push(0x00, 0x00, 0x00, dest & 0xFF)
+      body.push(0x00, 0x00, 0x00, dest & 0xff)
     }
-    body.push(0xFF)
+    body.push(0xff)
 
     // The 5-byte level header stays zeroed: level mode 0.
     rom.writeAt(ptr + 5, body)

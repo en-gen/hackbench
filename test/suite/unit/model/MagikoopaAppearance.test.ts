@@ -49,26 +49,26 @@ const STUB_BEHAVIOR: SpriteBehavior = { displayName: 'stub', spawns: false } as 
 // Every literal below was read out of the vanilla cart; the ROM-guarded block
 // at the bottom re-reads each one and fails if the cart disagrees.
 
-const TILEMAP_OFFSET_1F = 0x73          // SprTilemapOffset[$1F], ROM $01:9C9E
-const ATTR_1F           = 0x0F          // Sprite166EVals[$1F] & $0F, ROM $07:F41D ($4F)
-const PALETTE           = 8 + ((ATTR_1F >> 1) & 0x07)   // 15
-const CHAR_HIGH         = 0x100
-const OBJ_BASE          = 0x400
-const BASE              = OBJ_BASE + CHAR_HIGH          // 0x500
+const TILEMAP_OFFSET_1F = 0x73 // SprTilemapOffset[$1F], ROM $01:9C9E
+const ATTR_1F = 0x0f // Sprite166EVals[$1F] & $0F, ROM $07:F41D ($4F)
+const PALETTE = 8 + ((ATTR_1F >> 1) & 0x07) // 15
+const CHAR_HIGH = 0x100
+const OBJ_BASE = 0x400
+const BASE = OBJ_BASE + CHAR_HIGH // 0x500
 
 /** SprTilemap[$73 + m*2] pairs for SpriteMisc1602 m = 0..5, ROM $01:9BF6+. */
 const TILE_PAIRS: readonly (readonly [number, number])[] = [
-  [0xA0, 0xC0],  // m=0  (state 1, fade-in)
-  [0xA0, 0xC0],  // m=1  (unreachable)
-  [0xA4, 0xC4],  // m=2  wind-up
-  [0xA4, 0xC4],  // m=3  wind-up
-  [0xA0, 0xC0],  // m=4  cast
-  [0xA0, 0xC0],  // m=5  cast, top tile bobbed
+  [0xa0, 0xc0], // m=0  (state 1, fade-in)
+  [0xa0, 0xc0], // m=1  (unreachable)
+  [0xa4, 0xc4], // m=2  wind-up
+  [0xa4, 0xc4], // m=3  wind-up
+  [0xa0, 0xc0], // m=4  cast
+  [0xa0, 0xc0], // m=5  cast, top tile bobbed
 ]
 
-const POSE_BASE_ROM = [0x04, 0x02, 0x00]   // DATA_01BE69, ROM $01:BE69
-const WAND_DX_ROM   = [0x10, 0xF8]         // DATA_01BE6C, ROM $01:BE6C (raw bytes)
-const WAND_TILE     = 0x99                 // LDA #$99, bank_01.asm:8570, ROM $01:BF04
+const POSE_BASE_ROM = [0x04, 0x02, 0x00] // DATA_01BE69, ROM $01:BE69
+const WAND_DX_ROM = [0x10, 0xf8] // DATA_01BE6C, ROM $01:BE6C (raw bytes)
+const WAND_TILE = 0x99 // LDA #$99, bank_01.asm:8570, ROM $01:BF04
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -79,19 +79,19 @@ function namedChar(fill: number): Char {
 /** Char map covering every charNum any frame can touch, fingerprinted by charNum. */
 function makeChars(): Map<number, Char> {
   const chars = new Map<number, Char>()
-  for (let t = 0; t < 0x200; t++) chars.set(BASE + t, namedChar(t & 0xFF))
+  for (let t = 0; t < 0x200; t++) chars.set(BASE + t, namedChar(t & 0xff))
   return chars
 }
 
 function makeTables(): SpriteTileTables {
-  const tilemap       = new Uint8Array(0xFC)
+  const tilemap = new Uint8Array(0xfc)
   const tilemapOffset = new Uint8Array(0x54)
-  const spriteAttr    = new Uint8Array(0x100)
-  tilemapOffset[0x1F] = TILEMAP_OFFSET_1F
-  spriteAttr[0x1F]    = ATTR_1F
+  const spriteAttr = new Uint8Array(0x100)
+  tilemapOffset[0x1f] = TILEMAP_OFFSET_1F
+  spriteAttr[0x1f] = ATTR_1F
   TILE_PAIRS.forEach(([top, bottom], m) => {
     const idx = TILEMAP_OFFSET_1F + m * 2
-    tilemap[idx]     = top
+    tilemap[idx] = top
     tilemap[idx + 1] = bottom
   })
   return {
@@ -106,7 +106,13 @@ function makeTables(): SpriteTileTables {
 }
 
 function build(faceRight: boolean, dynColors: readonly number[] = []): MagikoopaAppearance {
-  return MagikoopaAppearance.fromTables(makeChars(), makeTables(), namedChar(0xFF), faceRight, dynColors)
+  return MagikoopaAppearance.fromTables(
+    makeChars(),
+    makeTables(),
+    namedChar(0xff),
+    faceRight,
+    dynColors,
+  )
 }
 
 /** charNum recovered from a part's fingerprint fill value. */
@@ -124,13 +130,23 @@ function stubMapStore() {
   return makeTestMapStore({ palette })
 }
 
-function spyTarget(): { blit8x8: RenderTarget['blit8x8']; fillRect: RenderTarget['fillRect']; fills: number[] } {
+function spyTarget(): {
+  blit8x8: RenderTarget['blit8x8']
+  fillRect: RenderTarget['fillRect']
+  fills: number[]
+} {
   const fills: number[] = []
   return {
     fills,
-    blit8x8(pixels: Uint8Array) { fills.push(pixels[0]) },
+    blit8x8(pixels: Uint8Array) {
+      fills.push(pixels[0])
+    },
     fillRect() {},
-  } as unknown as { blit8x8: RenderTarget['blit8x8']; fillRect: RenderTarget['fillRect']; fills: number[] }
+  } as unknown as {
+    blit8x8: RenderTarget['blit8x8']
+    fillRect: RenderTarget['fillRect']
+    fills: number[]
+  }
 }
 
 /**
@@ -140,7 +156,9 @@ function spyTarget(): { blit8x8: RenderTarget['blit8x8']; fillRect: RenderTarget
 function posSpyTarget(): { target: RenderTarget; signature: () => string } {
   const ys: number[] = []
   const target = {
-    blit8x8(_pixels: Uint8Array, pos: { x: number; y: number }) { ys.push(pos.y) },
+    blit8x8(_pixels: Uint8Array, pos: { x: number; y: number }) {
+      ys.push(pos.y)
+    },
     fillRect() {},
   } as unknown as RenderTarget
   return { target, signature: () => `${ys.length}|${ys.join(',')}` }
@@ -176,7 +194,7 @@ describe('misc1602ForTimer - bank_01.asm:8513-8528', () => {
     // `timer >> 6` is 1 at and above $40 (pose base DATA_01BE69[1] = $02) and
     // 0 below it (DATA_01BE69[0] = $04).
     expect(misc1602ForTimer(0x40) & 0x06).toBe(0x02)
-    expect(misc1602ForTimer(0x3F) & 0x06).toBe(0x04)
+    expect(misc1602ForTimer(0x3f) & 0x06).toBe(0x04)
   })
 
   it('toggles the low bit every 8 game frames', () => {
@@ -188,20 +206,23 @@ describe('misc1602ForTimer - bank_01.asm:8513-8528', () => {
   it('is defined across the whole $00..$BF domain DATA_01BE69 covers', () => {
     // Three pose bases indexed by `timer >> 6`, so $BF is the last timer
     // value the table describes.
-    for (let t = 0; t <= 0xBF; t++) expect(() => misc1602ForTimer(t)).not.toThrow()
+    for (let t = 0; t <= 0xbf; t++) expect(() => misc1602ForTimer(t)).not.toThrow()
   })
 
   it('rejects a timer past the end of DATA_01BE69 instead of coercing undefined', () => {
     // POSE_BASE[3] is undefined and `undefined | bit` is `bit`, which would
     // silently yield pose $00 or $01 - values no state-2 timer produces.
-    expect(() => misc1602ForTimer(0xC0)).toThrow(RangeError)
+    expect(() => misc1602ForTimer(0xc0)).toThrow(RangeError)
     expect(() => misc1602ForTimer(-1)).toThrow(RangeError)
   })
 })
 
 describe('topTileBobs - bank_01.asm:8530-8539', () => {
   it.each([
-    [0x02, false], [0x03, false], [0x04, false], [0x05, true],
+    [0x02, false],
+    [0x03, false],
+    [0x04, false],
+    [0x05, true],
   ])('Misc1602 $%s → %s', (v, expected) => {
     expect(topTileBobs(v as number)).toBe(expected)
   })
@@ -209,7 +230,10 @@ describe('topTileBobs - bank_01.asm:8530-8539', () => {
 
 describe('wandVisible - bank_01.asm:8545-8547', () => {
   it.each([
-    [0x02, false], [0x03, false], [0x04, true], [0x05, true],
+    [0x02, false],
+    [0x03, false],
+    [0x04, true],
+    [0x05, true],
   ])('Misc1602 $%s → %s', (v, expected) => {
     expect(wandVisible(v as number)).toBe(expected)
   })
@@ -231,9 +255,13 @@ describe('MagikoopaAppearance.fromTables', () => {
     const f = build(false).frames
     STATE2_MISC1602_VALUES.forEach((m, i) => {
       const [top, bottom] = TILE_PAIRS[m]
-      const body = f[i].slice(f[i].length - 8)     // wand, when present, is first
-      expect(body.slice(0, 4).map(charNumOf)).toEqual([top, top + 1, top + 0x10, top + 0x11].map(t => BASE + t))
-      expect(body.slice(4).map(charNumOf)).toEqual([bottom, bottom + 1, bottom + 0x10, bottom + 0x11].map(t => BASE + t))
+      const body = f[i].slice(f[i].length - 8) // wand, when present, is first
+      expect(body.slice(0, 4).map(charNumOf)).toEqual(
+        [top, top + 1, top + 0x10, top + 0x11].map(t => BASE + t),
+      )
+      expect(body.slice(4).map(charNumOf)).toEqual(
+        [bottom, bottom + 1, bottom + 0x10, bottom + 0x11].map(t => BASE + t),
+      )
     })
   })
 
@@ -248,8 +276,8 @@ describe('MagikoopaAppearance.fromTables', () => {
 
   it('nudges only the top big-tile down one pixel on Misc1602 $05', () => {
     const f = build(false).frames
-    const cast     = f[STATE2_MISC1602_VALUES.indexOf(0x04)].slice(1)
-    const castBob  = f[STATE2_MISC1602_VALUES.indexOf(0x05)].slice(1)
+    const cast = f[STATE2_MISC1602_VALUES.indexOf(0x04)].slice(1)
+    const castBob = f[STATE2_MISC1602_VALUES.indexOf(0x05)].slice(1)
     expect(castBob.slice(0, 4).map(p => p.dy)).toEqual(cast.slice(0, 4).map(p => p.dy + 1))
     expect(castBob.slice(4).map(p => p.dy)).toEqual(cast.slice(4).map(p => p.dy))
   })
@@ -293,7 +321,7 @@ describe('MagikoopaAppearance.fromTables', () => {
 
 describe('MagikoopaAppearance animation', () => {
   it('starts in the wind-up pose and reaches every frame within one countdown', () => {
-    const app   = build(false)
+    const app = build(false)
     const store = stubMapStore()
     const counts = new Set<number>()
     for (let i = 0; i < 16; i++) {
@@ -321,10 +349,10 @@ describe('MagikoopaAppearance animation', () => {
     // misc1602ForTimer reads only two bits of the timer. The comment it
     // replaced claimed "any other cadence fails here", which is false.
     // Making it actually cadence-sensitive belongs with #327, not here.
-    const TIMERS   = [112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8, 0, 105]
+    const TIMERS = [112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8, 0, 105]
     const EXPECTED = TIMERS.map(t => SIGNATURE[misc1602ForTimer(t)])
 
-    const app   = build(false)
+    const app = build(false)
     const store = paletteMapStore()
     const seen: string[] = []
     for (let k = 0; k < TIMERS.length; k++) {
@@ -342,7 +370,7 @@ describe('MagikoopaAppearance animation', () => {
   it('reaches the first cast pose on the 8th rendered frame', () => {
     // `timer >> 6` drops from 1 to 0 at $3F; from $70 at 8 per tick that is
     // tick 7 (56). A doubled cadence would reach it at tick 3.
-    const app   = build(false)
+    const app = build(false)
     const store = stubMapStore()
     let firstCast = -1
     for (let k = 0; k < 16 && firstCast < 0; k++) {
@@ -355,7 +383,7 @@ describe('MagikoopaAppearance animation', () => {
   })
 
   it('never renders a pose outside the four state-2 values', () => {
-    const app   = build(false)
+    const app = build(false)
     const store = paletteMapStore()
     const valid = new Set(STATE2_MISC1602_VALUES.map(v => SIGNATURE[v]))
     for (let k = 0; k < 200; k++) {
@@ -372,8 +400,8 @@ describe('MagikoopaAppearance animation', () => {
     // STATE2_TIMER_START produces, via a negative index.
     const short = new MagikoopaAppearance(build(false).frames.slice(0, 1))
     const store = stubMapStore()
-    short.render(spyTarget(), 0, 0, STUB_BEHAVIOR, store)   // $70 -> $02 -> index 0
-    short.tickAnimation()                                   // -> $03 -> index 1, absent
+    short.render(spyTarget(), 0, 0, STUB_BEHAVIOR, store) // $70 -> $02 -> index 0
+    short.tickAnimation() // -> $03 -> index 1, absent
     expect(() => short.render(spyTarget(), 0, 0, STUB_BEHAVIOR, store)).toThrow(RangeError)
   })
 })
@@ -385,7 +413,7 @@ describe('MagikoopaAppearance animation', () => {
  * is exercised alone. The expected RGBA below is spelled out rather than run
  * through the converter, so a swapped R/B would fail here too.
  */
-const DYN_WORDS = [0x0000, 0x001F, 0x03E0, 0x7C00, 0x7FFF, 0x0400, 0x0020, 0x0001]
+const DYN_WORDS = [0x0000, 0x001f, 0x03e0, 0x7c00, 0x7fff, 0x0400, 0x0020, 0x0001]
 const DYN_RGBA: RgbaColor[] = [
   [0, 0, 0, 255],
   [255, 0, 0, 255],
@@ -399,7 +427,7 @@ const DYN_RGBA: RgbaColor[] = [
 
 /** A level palette whose every row is distinguishable from DYN_RGBA. */
 const levelRow = (idx: number): RgbaColor[] =>
-  Array.from({ length: 16 }, (_, c) => [0x40 + idx, 0x40 + c, 0x7F, 255] as RgbaColor)
+  Array.from({ length: 16 }, (_, c) => [0x40 + idx, 0x40 + c, 0x7f, 255] as RgbaColor)
 
 function paletteMapStore(rowsSeen?: RgbaColor[][][]) {
   const palette = {
@@ -420,7 +448,7 @@ function rowSpyTarget(): { target: RenderTarget; rows: readonly RgbaColor[][] } 
   const rows: readonly RgbaColor[][] = []
   const target = {
     blit8x8(_pixels: Uint8Array, _pos: unknown, row: readonly RgbaColor[]) {
-      (rows as RgbaColor[][]).push(row.map(c => [...c] as RgbaColor))
+      ;(rows as RgbaColor[][]).push(row.map(c => [...c] as RgbaColor))
     },
     fillRect() {},
   } as unknown as RenderTarget
@@ -461,14 +489,20 @@ describe('MagikoopaAppearance palette - CODE_01C028 (bank_01.asm:8733)', () => {
     // fromTables puts every part on row 15, but `frames` is
     // constructor-supplied and rehydrate.ts carries a per-part palette, so a
     // part on another row is representable and must pass through.
-    const OTHER  = PALETTE - 1
+    const OTHER = PALETTE - 1
     const source = build(false).frames
     const frames = source.map((f, i) =>
-      i === 0 ? [{ ...f[0], palette: OTHER }, ...f.slice(1)] : f)
+      i === 0 ? [{ ...f[0], palette: OTHER }, ...f.slice(1)] : f,
+    )
 
     const { target, rows } = rowSpyTarget()
-    new MagikoopaAppearance(frames, DYN_WORDS)
-      .render(target, 0, 0, STUB_BEHAVIOR, paletteMapStore())
+    new MagikoopaAppearance(frames, DYN_WORDS).render(
+      target,
+      0,
+      0,
+      STUB_BEHAVIOR,
+      paletteMapStore(),
+    )
 
     expect(rows[0]).toEqual(levelRow(OTHER))
     expect(rows[1].slice(0, 8)).toEqual(DYN_RGBA)
@@ -490,13 +524,13 @@ describe('MagikoopaAppearance payload round-trip', () => {
   const MOCK_BEH = { kind: 'mock' } as never
 
   it('serialize -> rehydrate keeps kind, frames and the runtime palette', () => {
-    const d = serializeSprite(new Sprite(0x1F, 0, 0, build(false, DYN_WORDS), MOCK_BEH))
+    const d = serializeSprite(new Sprite(0x1f, 0, 0, build(false, DYN_WORDS), MOCK_BEH))
     expect(d.appearance.kind).toBe('magikoopa')
 
     const back = buildSprite(
       { ...d, behavior: { kind: 'mock' } } as never,
       makeChars(),
-      namedChar(0xFF),
+      namedChar(0xff),
     )
     expect(back.appearance).toBeInstanceOf(MagikoopaAppearance)
     const app = back.appearance as MagikoopaAppearance
@@ -506,15 +540,17 @@ describe('MagikoopaAppearance payload round-trip', () => {
 
   it('a rehydrated appearance composites the same row as the original', () => {
     const original = build(false, DYN_WORDS)
-    const d = serializeSprite(new Sprite(0x1F, 0, 0, original, MOCK_BEH))
+    const d = serializeSprite(new Sprite(0x1f, 0, 0, original, MOCK_BEH))
     const back = buildSprite(
       { ...d, behavior: { kind: 'mock' } } as never,
       makeChars(),
-      namedChar(0xFF),
+      namedChar(0xff),
     ).appearance
 
-    const a = rowSpyTarget(); original.render(a.target, 0, 0, STUB_BEHAVIOR, paletteMapStore())
-    const b = rowSpyTarget(); back.render(b.target, 0, 0, STUB_BEHAVIOR, paletteMapStore())
+    const a = rowSpyTarget()
+    original.render(a.target, 0, 0, STUB_BEHAVIOR, paletteMapStore())
+    const b = rowSpyTarget()
+    back.render(b.target, 0, 0, STUB_BEHAVIOR, paletteMapStore())
     expect(b.rows).toEqual(a.rows)
     expect(b.rows[0].slice(0, 8)).toEqual(DYN_RGBA)
   })
@@ -522,29 +558,29 @@ describe('MagikoopaAppearance payload round-trip', () => {
 
 // ── ROM anchor ───────────────────────────────────────────────────────────────
 
-const ROM_PATH   = resolve(__dirname, '../../../roms/Super Mario World (USA).vanilla.sfc')
+const ROM_PATH = resolve(__dirname, '../../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent = existsSync(ROM_PATH)
 
 /** LoROM SNES address → file offset, for a header-free 512KB cart. */
-const lorom = (a: number) => ((a >>> 16) & 0x7F) * 0x8000 + (a & 0x7FFF)
+const lorom = (a: number) => ((a >>> 16) & 0x7f) * 0x8000 + (a & 0x7fff)
 
 describe.skipIf(!romPresent)('sprite $1F ROM anchor (ROM-only)', () => {
   const rom = () => readFileSync(ROM_PATH)
 
   it('SprTilemapOffset[$1F] is still $73', () => {
-    expect(rom()[lorom(0x019C7F) + 0x1F]).toBe(TILEMAP_OFFSET_1F)
+    expect(rom()[lorom(0x019c7f) + 0x1f]).toBe(TILEMAP_OFFSET_1F)
   })
 
   it('Sprite166EVals[$1F] still yields OBJ palette 7 with the char-high bit set', () => {
-    const raw = rom()[lorom(0x07F3FE) + 0x1F]
-    expect(raw & 0x0F).toBe(ATTR_1F)
-    expect(8 + ((raw & 0x0F) >> 1 & 0x07)).toBe(PALETTE)
+    const raw = rom()[lorom(0x07f3fe) + 0x1f]
+    expect(raw & 0x0f).toBe(ATTR_1F)
+    expect(8 + (((raw & 0x0f) >> 1) & 0x07)).toBe(PALETTE)
     expect((raw & 0x01) !== 0).toBe(true)
   })
 
   it('SprTilemap still holds the six Misc1602 tile pairs used above', () => {
     const b = rom()
-    const tm = lorom(0x019B83)
+    const tm = lorom(0x019b83)
     TILE_PAIRS.forEach(([top, bottom], m) => {
       const idx = TILEMAP_OFFSET_1F + m * 2
       expect([b[tm + idx], b[tm + idx + 1]]).toEqual([top, bottom])
@@ -558,11 +594,11 @@ describe.skipIf(!romPresent)('sprite $1F ROM anchor (ROM-only)', () => {
 
   it('DATA_01BE69, DATA_01BE6C and the wand char match the constants in the source', () => {
     const b = rom()
-    expect([...b.subarray(lorom(0x01BE69), lorom(0x01BE69) + 3)]).toEqual(POSE_BASE_ROM)
-    expect([...b.subarray(lorom(0x01BE6C), lorom(0x01BE6C) + 2)]).toEqual(WAND_DX_ROM)
+    expect([...b.subarray(lorom(0x01be69), lorom(0x01be69) + 3)]).toEqual(POSE_BASE_ROM)
+    expect([...b.subarray(lorom(0x01be6c), lorom(0x01be6c) + 2)]).toEqual(WAND_DX_ROM)
     // Read as the whole `LDA #imm`: $01:BF05 is followed by another $99
     // byte, so a single-byte anchor there cannot detect a one-byte drift.
-    expect([...b.subarray(lorom(0x01BF04), lorom(0x01BF04) + 2)]).toEqual([0xA9, WAND_TILE])
+    expect([...b.subarray(lorom(0x01bf04), lorom(0x01bf04) + 2)]).toEqual([0xa9, WAND_TILE])
   })
 
   it('STATE2_TIMER_START is the immediate the ROM loads on entry to state 2', () => {
@@ -571,7 +607,12 @@ describe.skipIf(!romPresent)('sprite $1F ROM anchor (ROM-only)', () => {
     // literal, so changing the constant fails here as well as in the
     // pose-sequence tests above.
     const b = rom()
-    expect([...b.subarray(lorom(0x01C022), lorom(0x01C022) + 5)])
-      .toEqual([0xA9, STATE2_TIMER_START, 0x9D, 0x40, 0x15])
+    expect([...b.subarray(lorom(0x01c022), lorom(0x01c022) + 5)]).toEqual([
+      0xa9,
+      STATE2_TIMER_START,
+      0x9d,
+      0x40,
+      0x15,
+    ])
   })
 })

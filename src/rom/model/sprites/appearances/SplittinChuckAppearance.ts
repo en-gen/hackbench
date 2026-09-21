@@ -10,7 +10,7 @@ import type { SpritePart } from './StaticSpriteAppearance'
  * football) and the other chuck variants which cluster around body
  * tile $40.
  *
- * Geometry verified directly via Mesen sprite inspector — captured slots
+ * Geometry verified directly via Mesen sprite inspector - captured slots
  * for a face-LEFT Splittin' Chuck:
  *
  *     | Slot | Tile | OAM (X, Y)  | H-flip | Notes              |
@@ -37,7 +37,7 @@ import type { SpritePart } from './StaticSpriteAppearance'
  *   `DATA_02C885[Misc151C=4] = $00` (no extra hflip XOR'd into the head
  *   attr). Misc151C retains the InitChuck face-LEFT value of $04 because
  *   the chuck's CODE_02C63B / CODE_02C726 idle-state path only calls
- *   CODE_02C556 conditionally — most frames keep the InitChuck-set
+ *   CODE_02C556 conditionally - most frames keep the InitChuck-set
  *   Misc151C = $00 (face-RIGHT) or $04 (face-LEFT).
  *
  *   Pose $04 OAM (CODE_02C81A → 02C88C / 02CA27, bank_02.asm):
@@ -53,7 +53,7 @@ import type { SpritePart } from './StaticSpriteAppearance'
  *             dx face-RIGHT = DATA_02C93D[$04+$1A]= -4
  *             dy = 0 (hardcoded)
  *             hflip = base XOR DATA_02C9D9[$04]=$40; opposite of body1.
- *     no extras — CODE_02CA9D's pose-$06/$07/$12/$13/$14-$19 dispatches
+ *     no extras - CODE_02CA9D's pose-$06/$07/$12/$13/$14-$19 dispatches
  *     all skip when pose is $04.
  *
  *   Tiles $06, $2D are low-page → live in SP3 = chuck primary GFX13.
@@ -83,14 +83,14 @@ export class SplittinChuckAppearance extends ChuckAppearance {
 
     const parts: SpritePart[] = faceRight
       ? [
-          ...bigTile(0x06,  0, -4, true,  bodyPalette, bodyCharHigh),  // head hflipped (Misc151C=0 face-right)
-          ...bigTile(0x2D,  4,  0, true,  bodyPalette, bodyCharHigh),  // body1 face-right swap
-          ...bigTile(0x2D, -4,  0, false, bodyPalette, bodyCharHigh),  // body2 mirror, no flip
+          ...bigTile(0x06, 0, -4, true, bodyPalette, bodyCharHigh), // head hflipped (Misc151C=0 face-right)
+          ...bigTile(0x2d, 4, 0, true, bodyPalette, bodyCharHigh), // body1 face-right swap
+          ...bigTile(0x2d, -4, 0, false, bodyPalette, bodyCharHigh), // body2 mirror, no flip
         ]
       : [
-          ...bigTile(0x06,  0, -4, false, bodyPalette, bodyCharHigh),  // head no flip (Misc151C=4 face-left)
-          ...bigTile(0x2D, -4,  0, false, bodyPalette, bodyCharHigh),  // body1 left side, no flip
-          ...bigTile(0x2D,  4,  0, true,  bodyPalette, bodyCharHigh),  // body2 right side, hflip
+          ...bigTile(0x06, 0, -4, false, bodyPalette, bodyCharHigh), // head no flip (Misc151C=4 face-left)
+          ...bigTile(0x2d, -4, 0, false, bodyPalette, bodyCharHigh), // body1 left side, no flip
+          ...bigTile(0x2d, 4, 0, true, bodyPalette, bodyCharHigh), // body2 right side, hflip
         ]
     return new SplittinChuckAppearance(parts)
   }

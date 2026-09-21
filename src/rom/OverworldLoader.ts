@@ -32,10 +32,10 @@
  *   standard SNES 4-screen quadrant memory order:
  *
  *      offset within layout    contents
- *      $0000-$07FF             screen 0 (TL)  — rows  0-31, cols  0-31
- *      $0800-$0FFF             screen 1 (TR)  — rows  0-31, cols 32-63
- *      $1000-$17FF             screen 2 (BL)  — rows 32-63, cols  0-31
- *      $1800-$1FFF             screen 3 (BR)  — rows 32-63, cols 32-63
+ *      $0000-$07FF             screen 0 (TL)  - rows  0-31, cols  0-31
+ *      $0800-$0FFF             screen 1 (TR)  - rows  0-31, cols 32-63
+ *      $1000-$17FF             screen 2 (BL)  - rows 32-63, cols  0-31
+ *      $1800-$1FFF             screen 3 (BR)  - rows 32-63, cols 32-63
  *
  *   Layout 0 = bytes $0000-$1FFF; layout 1 = bytes $2000-$3FFF. Within each
  *   32x32 quadrant the row stride is $40 bytes (32 cols x 2 bytes per word).
@@ -45,48 +45,48 @@ import { RomFile } from './RomFile'
 import { bgr555ToRgba, RgbaColor } from './GraphicsDecoder'
 import type { RgbaRow } from './PaletteLoader'
 
-// ── ROM addresses (the only "constants" — all data is read through them) ─────
+// ── ROM addresses (the only "constants" - all data is read through them) ─────
 
 export const OW_ADDR = {
   /** OWTileNumbers: low-byte RLE stream of L2 tilemap (bank_04.asm:3567). */
-  L2_STREAM_LO:    0x04A533,
+  L2_STREAM_LO: 0x04a533,
   /** OWTilemap: high-byte RLE stream of L2 tilemap (bank_04.asm:4433). */
-  L2_STREAM_HI:    0x04C02B,
+  L2_STREAM_HI: 0x04c02b,
   /** OWL1CharData: 512 Map16 character entries x 8 bytes (bank_05.asm:6820). */
-  L1_CHARDATA:     0x05D000,
+  L1_CHARDATA: 0x05d000,
   /** OWL1TileData: $800 raw bytes of L1 Map16 indices (bank_0C.asm:7850). */
-  L1_TILEDATA:     0x0CF7DF,
+  L1_TILEDATA: 0x0cf7df,
   /** DATA_00A06B: 7 signed-word per-area camera X positions (bank_00.asm:4242). */
-  CAMERA_X_TABLE:  0x00A06B,
+  CAMERA_X_TABLE: 0x00a06b,
   /** DATA_00A079: 7 signed-word per-area camera Y positions (bank_00.asm:4246). */
-  CAMERA_Y_TABLE:  0x00A079,
-  /** DATA_04DC02: 7 bytes — ObjectTileset per area (bank_04.asm:5634). */
-  OBJ_TILESET_TBL: 0x04DC02,
-  /** DATA_00AD1E: 7 bytes — palette block index per area (bank_00.asm:5733). */
-  PALETTE_INDEX_TABLE: 0x00AD1E,
+  CAMERA_Y_TABLE: 0x00a079,
+  /** DATA_04DC02: 7 bytes - ObjectTileset per area (bank_04.asm:5634). */
+  OBJ_TILESET_TBL: 0x04dc02,
+  /** DATA_00AD1E: 7 bytes - palette block index per area (bank_00.asm:5733). */
+  PALETTE_INDEX_TABLE: 0x00ad1e,
   /** OverworldColors: 7 normal palette blocks indexed via DATA_00ABDF
    *  (variable stride; outermost block is 56 bytes / 28 colors). */
-  PALETTE_NORMAL_BASE: 0x00B3D8,
+  PALETTE_NORMAL_BASE: 0x00b3d8,
   /** OWSpecialColors: 7 post-special-world palette blocks (same stride). */
-  PALETTE_SPECIAL_BASE: 0x00B732,
+  PALETTE_SPECIAL_BASE: 0x00b732,
   /** DATA_00ABDF: 7 word offsets into OverworldColors per palette index
    *  (`bank_00.asm:5591`). */
-  PALETTE_BLOCK_OFFSETS: 0x00ABDF,
+  PALETTE_BLOCK_OFFSETS: 0x00abdf,
   /** OWStdColors: 42 colors → CGRAM rows 2-7, cols 9-15. Area-INDEPENDENT.
    *  Loaded by `CODE_00AD25` at `bank_00.asm:5762-5770`. */
-  PALETTE_STD: 0x00B528,
+  PALETTE_STD: 0x00b528,
   /** OWStdColors2: 56 colors → CGRAM rows 8-15, cols 1-7. Area-INDEPENDENT.
    *  Loaded by `CODE_00AD25` at `bank_00.asm:5771-5779`. */
-  PALETTE_STD2: 0x00B57C,
+  PALETTE_STD2: 0x00b57c,
   /** OverworldHudColors: 16 colors → CGRAM rows 0-1, cols 8-15.
    *  Loaded by `CODE_00AD25` at `bank_00.asm:5780-5788`. */
-  PALETTE_HUD: 0x00B5EC,
+  PALETTE_HUD: 0x00b5ec,
   /** DATA_04849D: 27 warp X words (bank_04.asm:509). */
-  WARP_X_TABLE:    0x04849D,
+  WARP_X_TABLE: 0x04849d,
   /** DATA_0484D3: 27 warp Y words (bank_04.asm:518). */
-  WARP_Y_TABLE:    0x0484D3,
+  WARP_Y_TABLE: 0x0484d3,
   /**
-   * Title-screen level number — encoded as the 1-byte immediate operand
+   * Title-screen level number - encoded as the 1-byte immediate operand
    * of `LDA.B #!MainMapLvls+!TitleScreenLevel` in `GM03LoadTitleScreen`
    * (`bank_00.asm:2626`). Reading this byte at runtime keeps the OW
    * palette baseline ROM-derived: a hack that swaps the title-screen
@@ -94,9 +94,9 @@ export const OW_ADDR = {
    * SNES `$0096CC` (= `GM03LoadTitleScreen + $1E`, one past the LDA
    * opcode at `$0096CB`). Vanilla SMW: this byte = `$EB` =
    * `MainMapLvls(36) + TitleScreenLevel($C7) - 12 wait that's not right`
-   * — actually `$24 + $C7 = $EB`.
+   * - actually `$24 + $C7 = $EB`.
    */
-  TITLE_LEVEL_LDA_OPERAND: 0x0096CC,
+  TITLE_LEVEL_LDA_OPERAND: 0x0096cc,
 } as const
 
 /**
@@ -105,14 +105,14 @@ export const OW_ADDR = {
  * `LoadPalette`; it only writes 4 small CGRAM blocks via
  * `CODE_00AD25` and DMAs the entire `MainPalette` mirror to CGRAM
  * via `CODE_00922F`. So the cells outside those 4 blocks come from
- * whatever was loaded earlier — for the boot→title→OW path that's
+ * whatever was loaded earlier - for the boot→title→OW path that's
  * the title-screen level's `LoadPalette` result. Returning the
  * level index lets the viewer reproduce that pre-state by parsing
  * the level header and feeding its FG/BG/sprite palette indices to
  * `buildLevelCgram`.
  */
 export function readOwBaselineLevelIndex(rom: RomFile): number {
-  return rom.readByte(OW_ADDR.TITLE_LEVEL_LDA_OPERAND) ?? 0xEB
+  return rom.readByte(OW_ADDR.TITLE_LEVEL_LDA_OPERAND) ?? 0xeb
 }
 
 // ── Buffer + count constants (all derived from asm loop limits) ──────────────
@@ -123,7 +123,7 @@ export const OW_L2_TILEMAP_BYTES = 0x4000
 export const OW_L1_MAP16_BYTES = 0x0800
 /** OWL1CharData entries: CPX #$0400 / step 2 = 512 entries; 8 bytes each. */
 export const OW_L1_CHARDATA_BYTES = 0x1000
-/** Number of overworld areas (constants.asm:269-276 — Submap_Main..StarWorld). */
+/** Number of overworld areas (constants.asm:269-276 - Submap_Main..StarWorld). */
 export const OW_AREA_COUNT = 7
 /** Number of warp entries in the DATA_04849D / DATA_0484D3 tables. */
 export const OW_WARP_COUNT = 27
@@ -136,7 +136,7 @@ export const OW_WARP_COUNT = 27
  * The block START address per area = `OverworldColors + DATA_00ABDF[paletteIndex]`,
  * NOT `paletteIndex * 56` (the offsets in `DATA_00ABDF` happen to be a
  * uniform $38 stride in vanilla but the indirection means future hacks
- * could use a non-uniform layout — we honour the table).
+ * could use a non-uniform layout - we honour the table).
  */
 export const OW_PALETTE_BLOCK_BYTES = 56
 export const OW_PALETTE_ROWS = 4
@@ -175,8 +175,8 @@ export const OW_BG_TILE_WIDTH = 0x40
  * reaches `_E` (`$4000`); there is no in-stream terminator.
  *
  * Command byte format (FLLLLLLL):
- *   F=0 (bit 7 clear): LITERAL — emit (L+1) bytes copied from input
- *   F=1 (bit 7 set):   RLE     — emit (L & $7F)+1 copies of the next byte
+ *   F=0 (bit 7 clear): LITERAL - emit (L+1) bytes copied from input
+ *   F=1 (bit 7 set):   RLE     - emit (L & $7F)+1 copies of the next byte
  */
 export function decompressOwRleStream(
   source: Uint8Array | Buffer,
@@ -192,7 +192,7 @@ export function decompressOwRleStream(
   while (d < dLimit) {
     if (pos >= source.length) break
     const cmd = source[pos++]
-    const length = (cmd & 0x7F) + 1
+    const length = (cmd & 0x7f) + 1
 
     if ((cmd & 0x80) === 0) {
       for (let i = 0; i < length; i++) {
@@ -233,7 +233,7 @@ export function interleaveOwL2Streams(
  *
  * Row and col are wrapped modulo 64 (the BG dimension), so the renderer
  * can pass any positive integer without pre-computing wrap. This matches
- * the SNES BG hardware behavior — when the camera scrolls past a BG
+ * the SNES BG hardware behavior - when the camera scrolls past a BG
  * boundary, content wraps from the opposite edge. (Sub-area viewports
  * that have negative `cameraX` like Yoshi's Island visibly wrap; see the
  * red rectangles in Mesen's tilemap viewer.)
@@ -252,11 +252,8 @@ export function tilemapByteOffset(layout: 0 | 1, row: number, col: number): numb
   const layoutBase = layout * OW_BG_LAYOUT_BYTES
   const r = ((row % 64) + 64) % 64
   const c = ((col % 64) + 64) % 64
-  const screenIdx  = ((r >> 5) << 1) | (c >> 5)
-  return layoutBase
-       + screenIdx * OW_BG_SCREEN_BYTES
-       + (r & 31) * 0x40
-       + (c & 31) * 2
+  const screenIdx = ((r >> 5) << 1) | (c >> 5)
+  return layoutBase + screenIdx * OW_BG_SCREEN_BYTES + (r & 31) * 0x40 + (c & 31) * 2
 }
 
 /**
@@ -268,7 +265,7 @@ export function map16ByteOffset(layout: 0 | 1, row: number, col: number): number
   const layoutBase = layout * 0x0400
   const r = ((row % 32) + 32) % 32
   const c = ((col % 32) + 32) % 32
-  const chunkIdx   = ((r >> 4) << 1) | (c >> 4)
+  const chunkIdx = ((r >> 4) << 1) | (c >> 4)
   return layoutBase + chunkIdx * 0x100 + (r & 15) * 0x10 + (c & 15)
 }
 
@@ -328,7 +325,7 @@ export interface OwArea {
 
 /** Sign-extend a 16-bit unsigned word to a JS-native signed integer. */
 function signExtend16(u: number): number {
-  return u > 0x7FFF ? u - 0x10000 : u
+  return u > 0x7fff ? u - 0x10000 : u
 }
 
 interface RawWarp {
@@ -354,8 +351,8 @@ function loadAllWarps(rom: RomFile): RawWarp[] {
     const yWord = yBuf.readUInt16LE(i * 2)
     out.push({
       index: i,
-      destSubmap: (xWord >> 9) & 0x0F,
-      pos: { x: xWord & 0x01FF, y: yWord & 0xFFFF },
+      destSubmap: (xWord >> 9) & 0x0f,
+      pos: { x: xWord & 0x01ff, y: yWord & 0xffff },
     })
   }
   return out
@@ -384,31 +381,31 @@ export function loadAreaWarpStarts(
  * 64x64 will need to surface that distinction explicitly.
  */
 export function loadOverworldAreas(rom: RomFile): OwArea[] {
-  const xBuf      = rom.readAt(OW_ADDR.CAMERA_X_TABLE, OW_AREA_COUNT * 2)
-  const yBuf      = rom.readAt(OW_ADDR.CAMERA_Y_TABLE, OW_AREA_COUNT * 2)
-  const tsBuf     = rom.readAt(OW_ADDR.OBJ_TILESET_TBL, OW_AREA_COUNT)
-  const palIx     = rom.readAt(OW_ADDR.PALETTE_INDEX_TABLE, OW_AREA_COUNT)
-  // DATA_00ABDF holds 7 word offsets — one per palette index 0..6.
+  const xBuf = rom.readAt(OW_ADDR.CAMERA_X_TABLE, OW_AREA_COUNT * 2)
+  const yBuf = rom.readAt(OW_ADDR.CAMERA_Y_TABLE, OW_AREA_COUNT * 2)
+  const tsBuf = rom.readAt(OW_ADDR.OBJ_TILESET_TBL, OW_AREA_COUNT)
+  const palIx = rom.readAt(OW_ADDR.PALETTE_INDEX_TABLE, OW_AREA_COUNT)
+  // DATA_00ABDF holds 7 word offsets - one per palette index 0..6.
   const palOffBuf = rom.readAt(OW_ADDR.PALETTE_BLOCK_OFFSETS, 7 * 2)
-  const warps     = loadAllWarps(rom)
+  const warps = loadAllWarps(rom)
 
   const out: OwArea[] = []
   for (let i = 0; i < OW_AREA_COUNT; i++) {
     const paletteIndex = palIx?.[i] ?? i
-    const blockOffset  = palOffBuf?.readUInt16LE(paletteIndex * 2)
-                       ?? (paletteIndex * OW_PALETTE_BLOCK_BYTES)
+    const blockOffset =
+      palOffBuf?.readUInt16LE(paletteIndex * 2) ?? paletteIndex * OW_PALETTE_BLOCK_BYTES
     const targetWarp = warps.find(w => w.destSubmap === i) ?? null
-    const widthTiles  = i === 0 ? OW_BG_FULL_TILES : OW_BG_HALF_TILES
+    const widthTiles = i === 0 ? OW_BG_FULL_TILES : OW_BG_HALF_TILES
     const heightTiles = i === 0 ? OW_BG_FULL_TILES : OW_BG_HALF_TILES
     out.push({
       index: i,
       widthTiles,
       heightTiles,
-      cameraX:            signExtend16(xBuf?.readUInt16LE(i * 2) ?? 0),
-      cameraY:            signExtend16(yBuf?.readUInt16LE(i * 2) ?? 0),
-      objectTileset:      tsBuf?.[i] ?? (0x11 + i),
+      cameraX: signExtend16(xBuf?.readUInt16LE(i * 2) ?? 0),
+      cameraY: signExtend16(yBuf?.readUInt16LE(i * 2) ?? 0),
+      objectTileset: tsBuf?.[i] ?? 0x11 + i,
       paletteIndex,
-      paletteAddrNormal:  OW_ADDR.PALETTE_NORMAL_BASE  + blockOffset,
+      paletteAddrNormal: OW_ADDR.PALETTE_NORMAL_BASE + blockOffset,
       paletteAddrSpecial: OW_ADDR.PALETTE_SPECIAL_BASE + blockOffset,
       marioStart: targetWarp ? { ...targetWarp.pos } : null,
       luigiStart: targetWarp ? { ...targetWarp.pos } : null,
@@ -420,10 +417,10 @@ export function loadOverworldAreas(rom: RomFile): OwArea[] {
 // ── Per-area palette ─────────────────────────────────────────────────────────
 
 const TRANSPARENT: RgbaColor = [0, 0, 0, 0]
-const BLACK: RgbaColor       = [0, 0, 0, 255]
+const BLACK: RgbaColor = [0, 0, 0, 255]
 
 function emptyRow(): RgbaRow {
-  return Array.from({ length: 16 }, (_, i) => i === 0 ? TRANSPARENT : BLACK)
+  return Array.from({ length: 16 }, (_, i) => (i === 0 ? TRANSPARENT : BLACK))
 }
 
 /**
@@ -438,7 +435,7 @@ function emptyRow(): RgbaRow {
  *   4. OverworldHudColors      → rows 0-1  cols 8-15 (16 colors, shared)
  *
  * Without 2-4 the L1 icons render with junk colors when their tile pixels
- * land in cols 9-15 (OWStdColors range) or rows 8-15 (sprite range —
+ * land in cols 9-15 (OWStdColors range) or rows 8-15 (sprite range -
  * OWStdColors2). The user reported this for area 0's L1 icons.
  */
 export function loadAreaPalette(rom: RomFile, area: OwArea, useSpecial: boolean): RgbaRow[] {
@@ -521,7 +518,7 @@ export function loadAreaPalette(rom: RomFile, area: OwArea, useSpecial: boolean)
  * that does NOT bleed into an adjacent sub-area's authored BG content.
  * The L3 mask hides the outer ring of this region in-game (the playable
  * interior is roughly 29×20), but a viewer/editor displays the entire
- * authored BG region — matching Lunar Magic.
+ * authored BG region - matching Lunar Magic.
  *
  * Position within the BG comes straight from the camera tables:
  *
@@ -533,7 +530,7 @@ export function loadAreaPalette(rom: RomFile, area: OwArea, useSpecial: boolean)
  * tiles inside the window.
  */
 export interface OwBufferRegion {
-  /** 0 or 1 — which 64×64 BG layout in `OWLayer2Tilemap`. */
+  /** 0 or 1 - which 64×64 BG layout in `OWLayer2Tilemap`. */
   layout: 0 | 1
   /** Starting BG row (0..63) within the layout, from the camera Y. */
   rowStart: number
@@ -558,7 +555,7 @@ export const OW_SUBAREA_TILES_H = 28
 /**
  * L3 row mask: which rows of a sub-area's 32×28 camera viewport are
  * hidden by the OW border sprite-overlay (`OWBorderStripe`,
- * `bank_04.asm:3526`). Columns are NOT clipped — OW init writes
+ * `bank_04.asm:3526`). Columns are NOT clipped - OW init writes
  * `WindowTable` with `$00,$FF` pairs (`bank_00.asm:4356-4361`),
  * giving full-width pass-through.
  *
@@ -574,10 +571,10 @@ export const OW_SUBAREA_TILES_H = 28
  *     middle/bot : 5 + 21 + 2 = 28
  */
 export interface OwL3Mask {
-  topRows:    number
+  topRows: number
   bottomRows: number
-  colLeft:    number
-  colRight:   number
+  colLeft: number
+  colRight: number
 }
 
 /** Compute the per-area L3 mask. Returns `null` for the Main map
@@ -650,11 +647,11 @@ export interface OwMap16 {
 function decodeTilemapWord(lo: number, hi: number): OwSubTile {
   const word = (hi << 8) | lo
   return {
-    charNum:  word & 0x03FF,
+    charNum: word & 0x03ff,
     palette: (word >> 10) & 0x07,
-    priority:((word >> 13) & 0x01) === 1,
-    flipX:   ((word >> 14) & 0x01) === 1,
-    flipY:   ((word >> 15) & 0x01) === 1,
+    priority: ((word >> 13) & 0x01) === 1,
+    flipX: ((word >> 14) & 0x01) === 1,
+    flipY: ((word >> 15) & 0x01) === 1,
   }
 }
 
@@ -681,9 +678,9 @@ export interface OwData {
 /** Single entry point bundling every ROM-derived overworld piece. */
 export function loadOverworld(rom: RomFile): OwData {
   return {
-    l2Tilemap:      loadOverworldL2Tilemap(rom),
+    l2Tilemap: loadOverworldL2Tilemap(rom),
     l1Map16Indices: loadOverworldL1Map16Stream(rom),
-    l1CharData:     loadOverworldL1CharData(rom),
-    areas:          loadOverworldAreas(rom),
+    l1CharData: loadOverworldL1CharData(rom),
+    areas: loadOverworldAreas(rom),
   }
 }

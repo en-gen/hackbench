@@ -1,5 +1,5 @@
 /**
- * scrollSim_camera_x.test.ts — validate the horizontal Mario-X camera
+ * scrollSim_camera_x.test.ts - validate the horizontal Mario-X camera
  * tracking port (bank_00.asm:13658-13691 + CODE_00F8AB) against Mesen
  * captures for the three vanilla cmd-$02 levels.
  *
@@ -15,9 +15,9 @@
  *     of `applyParallaxDerivation`.
  *
  * Capture files:
- *   $01A — C:/Users/engenb/OneDrive/hackbench-fixtures/maps/01a/l2_scroll.csv
- *   $111 — C:/Users/engenb/OneDrive/hackbench-fixtures/maps/111/l2_scroll.csv
- *   $1CF — C:/Users/engenb/OneDrive/hackbench-fixtures/maps/1cf/l2_scroll.csv
+ *   $01A - C:/Users/engenb/OneDrive/hackbench-fixtures/maps/01a/l2_scroll.csv
+ *   $111 - C:/Users/engenb/OneDrive/hackbench-fixtures/maps/111/l2_scroll.csv
+ *   $1CF - C:/Users/engenb/OneDrive/hackbench-fixtures/maps/1cf/l2_scroll.csv
  *
  * Acceptance criteria: `nl1x` matches every active frame of the capture
  * (up to the freeze sentinel detected by `detectActiveFrames`).
@@ -30,14 +30,13 @@ import {
   simFromCapture,
   detectActiveFrames,
   vanillaRomPresent,
-  type CaptureRow,
 } from './scrollSim_capture'
 
 const FIXTURES = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps'
 
 const LEVELS = ['01a', '111', '1cf'] as const
 
-describe.skipIf(!vanillaRomPresent)('scrollSim — Mario-X camera tracking (horizontal)', () => {
+describe.skipIf(!vanillaRomPresent)('scrollSim - Mario-X camera tracking (horizontal)', () => {
   for (const id of LEVELS) {
     const csv = `${FIXTURES}/${id}/l2_scroll.csv`
 

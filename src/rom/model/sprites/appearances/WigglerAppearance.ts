@@ -1,4 +1,4 @@
-// Consumes: (none directly — palette via mapStore)
+// Consumes: (none directly - palette via mapStore)
 
 import type { Char } from '../../chars/Char'
 import type { RenderTarget } from '../../RenderTarget'
@@ -28,7 +28,7 @@ import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
 //
 // Editor pose: render a faithful 4-frame wiggle. Body laid out horizontally
 // trailing the head, 8 px between segments (segments overlap by half their
-// width, matching the compact worm-like in-game appearance) — the chain
+// width, matching the compact worm-like in-game appearance) - the chain
 // trails opposite the face direction (face-left → trail right, face-right
 // → trail left). One editor tick (ANIM_INTERVAL_MS ≈ 133 ms ≈ 8 game
 // frames) advances the frame index, matching the in-game `misc1570>>3`
@@ -38,13 +38,13 @@ import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
 //   bodyPalette = 8 + (5>>1) = 10, charHigh = (5 & 1) ? 0x100 : 0 = 0x100.
 //   eyePalette = 13 (forced; ASM mask preserves charHigh).
 
-export const WIGGLER_HEAD_TILE         = 0x8C
-export const WIGGLER_BODY_TILES        = [0xC4, 0xC6, 0xC8, 0xC6] as const
-export const WIGGLER_EYE_TILE          = 0x98
-export const WIGGLER_EYE_PALETTE       = 13
-export const WIGGLER_BOB_OFFSETS       = [0, 1, 2, 1] as const // DATA_02F108
-export const WIGGLER_SEGMENT_DX        = 8
-export const WIGGLER_FRAME_COUNT       = WIGGLER_BODY_TILES.length // 4
+export const WIGGLER_HEAD_TILE = 0x8c
+export const WIGGLER_BODY_TILES = [0xc4, 0xc6, 0xc8, 0xc6] as const
+export const WIGGLER_EYE_TILE = 0x98
+export const WIGGLER_EYE_PALETTE = 13
+export const WIGGLER_BOB_OFFSETS = [0, 1, 2, 1] as const // DATA_02F108
+export const WIGGLER_SEGMENT_DX = 8
+export const WIGGLER_FRAME_COUNT = WIGGLER_BODY_TILES.length // 4
 export const WIGGLER_BODY_SEGMENT_COUNT = 4 // segIdx 1..4
 
 const OBJ_BASE = 0x400
@@ -63,13 +63,13 @@ function makeBigTileParts(
   placeholder: Char,
 ): [SpritePart, SpritePart, SpritePart, SpritePart] {
   const c = (off: number) =>
-    chars.get(OBJ_BASE + charHigh + ((baseTile + off) & 0x1FF)) ?? placeholder
+    chars.get(OBJ_BASE + charHigh + ((baseTile + off) & 0x1ff)) ?? placeholder
   return hFlip
     ? [
-        { char: c(0x01), palette, flipX: true,  flipY: false, dx: 0, dy: 0 },
-        { char: c(0x00), palette, flipX: true,  flipY: false, dx: 8, dy: 0 },
-        { char: c(0x11), palette, flipX: true,  flipY: false, dx: 0, dy: 8 },
-        { char: c(0x10), palette, flipX: true,  flipY: false, dx: 8, dy: 8 },
+        { char: c(0x01), palette, flipX: true, flipY: false, dx: 0, dy: 0 },
+        { char: c(0x00), palette, flipX: true, flipY: false, dx: 8, dy: 0 },
+        { char: c(0x11), palette, flipX: true, flipY: false, dx: 0, dy: 8 },
+        { char: c(0x10), palette, flipX: true, flipY: false, dx: 8, dy: 8 },
       ]
     : [
         { char: c(0x00), palette, flipX: false, flipY: false, dx: 0, dy: 0 },
@@ -120,16 +120,22 @@ export class WigglerAppearance implements SpriteAppearance {
     this.frame = (this.frame + 1) % WIGGLER_FRAME_COUNT
   }
 
-  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
+  render(
+    target: RenderTarget,
+    x: number,
+    y: number,
+    _behavior: SpriteBehavior,
+    mapStore: MapStore,
+  ): void {
     const trailDir = this.faceLeft ? +1 : -1
     // SNES OAM priority: eye=slot0 (front), head=slot1, seg4=slot5 (back).
     // Lower OAM index = higher priority = draws in front. Iterate back-to-front
     // so later blit8x8 calls paint over earlier ones correctly.
     for (let seg = 4; seg >= 0; seg--) {
       const tableIdx = (this.frame + seg) & 3
-      const bigTile  = seg === 0 ? this.headBigTile : this.bodyBigTiles[tableIdx]
-      const segDx    = trailDir * seg * WIGGLER_SEGMENT_DX
-      const segDy    = -WIGGLER_BOB_OFFSETS[tableIdx]
+      const bigTile = seg === 0 ? this.headBigTile : this.bodyBigTiles[tableIdx]
+      const segDx = trailDir * seg * WIGGLER_SEGMENT_DX
+      const segDy = -WIGGLER_BOB_OFFSETS[tableIdx]
       for (const p of bigTile) {
         target.blit8x8(
           p.char.getPixels(),
@@ -161,7 +167,14 @@ export class WigglerAppearance implements SpriteAppearance {
     // face-right → H-flip (SpriteTableC2 settled to 0x00 → bit=0 per segment)
     // face-left  → no flip (SpriteTableC2 settled to 0xFF → bit=1 per segment)
     const hFlip = !faceLeft
-    const headBigTile  = makeBigTileParts(chars, WIGGLER_HEAD_TILE, charHigh, palette, hFlip, placeholder)
+    const headBigTile = makeBigTileParts(
+      chars,
+      WIGGLER_HEAD_TILE,
+      charHigh,
+      palette,
+      hFlip,
+      placeholder,
+    )
     const bodyBigTiles = WIGGLER_BODY_TILES.map(t =>
       makeBigTileParts(chars, t, charHigh, palette, hFlip, placeholder),
     ) as unknown as readonly [
@@ -175,12 +188,12 @@ export class WigglerAppearance implements SpriteAppearance {
     // Eye attribute inherits H-flip from head (AND #$F1 preserves bit 6).
     const eyeDx = faceLeft ? 8 : 0
     const eye: SpritePart = {
-      char:    chars.get(OBJ_BASE + charHigh + WIGGLER_EYE_TILE) ?? placeholder,
+      char: chars.get(OBJ_BASE + charHigh + WIGGLER_EYE_TILE) ?? placeholder,
       palette: WIGGLER_EYE_PALETTE,
-      flipX:   hFlip,
-      flipY:   false,
-      dx:      eyeDx,
-      dy:      -8,
+      flipX: hFlip,
+      flipY: false,
+      dx: eyeDx,
+      dy: -8,
     }
 
     return new WigglerAppearance(headBigTile, bodyBigTiles, eye, faceLeft, palette, charHigh)

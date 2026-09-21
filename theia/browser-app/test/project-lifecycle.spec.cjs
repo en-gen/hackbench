@@ -11,8 +11,8 @@ const path = require('path')
 const os = require('os')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
-const ROM = process.env.HB_ROM
-  || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
+const ROM =
+  process.env.HB_ROM || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
 
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary
@@ -38,7 +38,9 @@ test.afterEach(() => {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-test('both Open Project and Project Properties are reachable from the File menu', async ({ page }) => {
+test('both Open Project and Project Properties are reachable from the File menu', async ({
+  page,
+}) => {
   // A command registered but never contributed to a menu is unreachable,
   // which this project has shipped before (#379).
   const found = await page.evaluate(() => {
@@ -120,12 +122,15 @@ test('workspace and loose-file entries are gone from the File menu', async ({ pa
 test('a deleted project drops out of the recent list', async ({ page }) => {
   const dir = path.join(tmp, 'Transient')
 
-  const before = await page.evaluate(async ({ romPath, directory }) => {
-    const svc = getSvc('Symbol(ProjectService)')
-    await svc.createProject({ romPath, name: 'Transient', directory })
-    const list = await svc.recentProjects()
-    return list.map(e => e.name)
-  }, { romPath: ROM, directory: dir })
+  const before = await page.evaluate(
+    async ({ romPath, directory }) => {
+      const svc = getSvc('Symbol(ProjectService)')
+      await svc.createProject({ romPath, name: 'Transient', directory })
+      const list = await svc.recentProjects()
+      return list.map(e => e.name)
+    },
+    { romPath: ROM, directory: dir },
+  )
 
   expect(before).toContain('Transient')
 
@@ -141,38 +146,47 @@ test('a deleted project drops out of the recent list', async ({ page }) => {
 test('a reopened project shows the same maps it showed when created', async ({ page }) => {
   const dir = path.join(tmp, 'Reopened')
 
-  const counts = await page.evaluate(async ({ romPath, directory }) => {
-    const svc = getSvc('Symbol(ProjectService)')
-    const w = await getWidget('hackbench.map-explorer')
+  const counts = await page.evaluate(
+    async ({ romPath, directory }) => {
+      const svc = getSvc('Symbol(ProjectService)')
+      const w = await getWidget('hackbench.map-explorer')
 
-    const created = await svc.createProject({ romPath, name: 'Reopened', directory })
-    await w.load(created.manifestPath)
-    const onCreate = w.mapCount
+      const created = await svc.createProject({ romPath, name: 'Reopened', directory })
+      await w.load(created.manifestPath)
+      const onCreate = w.mapCount
 
-    // Drop the project and come back to it, which is the path a second
-    // session takes and the one that drifts.
-    await w.load('')
-      .catch(() => {})
-    const reopened = await svc.openProject(created.manifestPath)
-    await w.load(reopened.manifestPath)
+      // Drop the project and come back to it, which is the path a second
+      // session takes and the one that drifts.
+      await w.load('').catch(() => {})
+      const reopened = await svc.openProject(created.manifestPath)
+      await w.load(reopened.manifestPath)
 
-    return { onCreate, onReopen: w.mapCount, name: reopened.name }
-  }, { romPath: ROM, directory: dir })
+      return { onCreate, onReopen: w.mapCount, name: reopened.name }
+    },
+    { romPath: ROM, directory: dir },
+  )
 
   expect(counts.onCreate).toBe(235)
   expect(counts.onReopen).toBe(counts.onCreate)
   expect(counts.name).toBe('Reopened')
 })
 
-test('editing properties rewrites the manifest without touching the cartridge identity', async ({ page }) => {
+test('editing properties rewrites the manifest without touching the cartridge identity', async ({
+  page,
+}) => {
   const dir = path.join(tmp, 'Described')
   const manifestPath = path.join(dir, 'Described.hbproj')
 
-  await page.evaluate(async ({ romPath, directory }) => {
-    await getSvc('Symbol(ProjectService)').createProject({
-      romPath, name: 'Described', directory,
-    })
-  }, { romPath: ROM, directory: dir })
+  await page.evaluate(
+    async ({ romPath, directory }) => {
+      await getSvc('Symbol(ProjectService)').createProject({
+        romPath,
+        name: 'Described',
+        directory,
+      })
+    },
+    { romPath: ROM, directory: dir },
+  )
 
   const before = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
   // Title defaults to the project name, which is what a new project gets.
@@ -181,7 +195,9 @@ test('editing properties rewrites the manifest without touching the cartridge id
   const after = await page.evaluate(async mp => {
     const svc = getSvc('Symbol(ProjectService)')
     return svc.updateProject(mp, {
-      title: 'Super Kaizo World', authors: ['engenb'], version: '1.1.0',
+      title: 'Super Kaizo World',
+      authors: ['engenb'],
+      version: '1.1.0',
       summary: 'Now with more spikes.',
     })
   }, manifestPath)
@@ -208,10 +224,14 @@ test('the mushroom is visible against the title bar, not merely present', async 
     const svg = document.querySelector('.hb-brand svg')
     const brand = document.querySelector('.hb-brand')
     const lum = rgb => {
-      const [r, g, b] = rgb.match(/[\d.]+/g).slice(0, 3).map(Number).map(v => {
-        const c = v / 255
-        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-      })
+      const [r, g, b] = rgb
+        .match(/[\d.]+/g)
+        .slice(0, 3)
+        .map(Number)
+        .map(v => {
+          const c = v / 255
+          return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+        })
       return 0.2126 * r + 0.7152 * g + 0.0722 * b
     }
     // The path inherits currentColor from .hb-brand.
@@ -220,14 +240,18 @@ test('the mushroom is visible against the title bar, not merely present', async 
     let bg = 'rgba(0, 0, 0, 0)'
     while (node) {
       const c = getComputedStyle(node).backgroundColor
-      if (c && !/rgba\(0, 0, 0, 0\)|transparent/.test(c)) { bg = c; break }
+      if (c && !/rgba\(0, 0, 0, 0\)|transparent/.test(c)) {
+        bg = c
+        break
+      }
       node = node.parentElement
     }
     const a = lum(fg)
     const b = lum(bg)
     return {
       ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05),
-      fg, bg,
+      fg,
+      bg,
       width: svg.getBoundingClientRect().width,
     }
   })

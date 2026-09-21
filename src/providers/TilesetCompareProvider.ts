@@ -22,19 +22,28 @@
 
 import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
-import { getNonce, getWebviewUri, readDescriptor, postWebviewError, buildWebviewHtml } from './webviewUtils'
+import {
+  getNonce,
+  getWebviewUri,
+  readDescriptor,
+  postWebviewError,
+  buildWebviewHtml,
+} from './webviewUtils'
 import { loadAllMap16, TILESET_COUNT, type Map16Tile } from '../rom/Map16'
 import { loadVram, VRAM_CHAR_BASE, VRAM_SLOT_NAMES, type VramState } from '../rom/GfxLoader'
 import { loadRomPalettes, buildLevelCgram } from '../rom/PaletteLoader'
 import { renderMap16Tile } from '../rom/TileRenderer'
 import { loadAnimationData, getAnimatedChars, type AnimFrameSlot } from '../rom/AnimationLoader'
 
-function tilesEqual(a: ReturnType<typeof loadAllMap16>[0], b: ReturnType<typeof loadAllMap16>[0]): boolean {
+function tilesEqual(
+  a: ReturnType<typeof loadAllMap16>[0],
+  b: ReturnType<typeof loadAllMap16>[0],
+): boolean {
   const sameSub = (sa: typeof a.tl, sb: typeof b.tl) =>
     sa.charNum === sb.charNum &&
     sa.palette === sb.palette &&
-    sa.flipX   === sb.flipX   &&
-    sa.flipY   === sb.flipY   &&
+    sa.flipX === sb.flipX &&
+    sa.flipY === sb.flipY &&
     sa.priority === sb.priority
   return sameSub(a.tl, b.tl) && sameSub(a.tr, b.tr) && sameSub(a.bl, b.bl) && sameSub(a.br, b.br)
 }
@@ -81,9 +90,7 @@ export class TilesetCompareProvider implements vscode.CustomReadonlyEditorProvid
   ): Promise<void> {
     panel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [
-        vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview'),
-      ],
+      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview')],
     }
     panel.webview.html = this._buildHtml(panel.webview)
 
@@ -93,7 +100,7 @@ export class TilesetCompareProvider implements vscode.CustomReadonlyEditorProvid
     let cachedTilesA: Map16Tile[] = []
     let cachedTilesB: Map16Tile[] = []
 
-    panel.webview.onDidReceiveMessage(async (msg) => {
+    panel.webview.onDidReceiveMessage(async msg => {
       if (msg.type === 'ready') {
         try {
           const descriptor = await readDescriptor<{ romPath: string }>(document.uri)
@@ -135,11 +142,11 @@ export class TilesetCompareProvider implements vscode.CustomReadonlyEditorProvid
     tilesetB: number,
   ): Promise<{ tilesA: Map16Tile[]; tilesB: Map16Tile[] }> {
     try {
-      const rom     = resolveRom(romPath)
-      const tilesA  = loadAllMap16(rom.rom, tilesetA)
-      const tilesB  = loadAllMap16(rom.rom, tilesetB)
+      const rom = resolveRom(romPath)
+      const tilesA = loadAllMap16(rom.rom, tilesetA)
+      const tilesB = loadAllMap16(rom.rom, tilesetB)
       const palettes = loadRomPalettes(rom.rom)
-      const cgram    = buildLevelCgram(palettes, 0, 0, 0)
+      const cgram = buildLevelCgram(palettes, 0, 0, 0)
 
       const baseVramA = loadVram(rom.rom, tilesetA)
       const baseVramB = loadVram(rom.rom, tilesetB)
@@ -164,24 +171,41 @@ export class TilesetCompareProvider implements vscode.CustomReadonlyEditorProvid
         const ta = tilesA[i]
         const tb = tilesB[i]
         const toSub = (st: typeof ta.tl) => ({
-          charNum: st.charNum, palette: st.palette,
-          flipX: st.flipX, flipY: st.flipY, priority: st.priority,
+          charNum: st.charNum,
+          palette: st.palette,
+          flipX: st.flipX,
+          flipY: st.flipY,
+          priority: st.priority,
         })
 
         const animA_ = tileIsAnimated(ta, animCharsA)
         const animB_ = tileIsAnimated(tb, animCharsB)
 
         // Animated tiles: 4 base64-encoded RGBA frames. Static: 1 frame.
-        const rgbaA = (animA_ ? vramFramesA : [vramFramesA[0]!])
-          .map(vram => Buffer.from(renderMap16Tile(ta, vram, cgram)).toString('base64'))
-        const rgbaB = (animB_ ? vramFramesB : [vramFramesB[0]!])
-          .map(vram => Buffer.from(renderMap16Tile(tb, vram, cgram)).toString('base64'))
+        const rgbaA = (animA_ ? vramFramesA : [vramFramesA[0]!]).map(vram =>
+          Buffer.from(renderMap16Tile(ta, vram, cgram)).toString('base64'),
+        )
+        const rgbaB = (animB_ ? vramFramesB : [vramFramesB[0]!]).map(vram =>
+          Buffer.from(renderMap16Tile(tb, vram, cgram)).toString('base64'),
+        )
 
         return {
           id: i,
           equal: tilesEqual(ta, tb),
-          a: { tl: toSub(ta.tl), tr: toSub(ta.tr), bl: toSub(ta.bl), br: toSub(ta.br), rgbaFrames: rgbaA },
-          b: { tl: toSub(tb.tl), tr: toSub(tb.tr), bl: toSub(tb.bl), br: toSub(tb.br), rgbaFrames: rgbaB },
+          a: {
+            tl: toSub(ta.tl),
+            tr: toSub(ta.tr),
+            bl: toSub(ta.bl),
+            br: toSub(ta.br),
+            rgbaFrames: rgbaA,
+          },
+          b: {
+            tl: toSub(tb.tl),
+            tr: toSub(tb.tr),
+            bl: toSub(tb.bl),
+            br: toSub(tb.br),
+            rgbaFrames: rgbaB,
+          },
         }
       })
 
@@ -205,13 +229,13 @@ export class TilesetCompareProvider implements vscode.CustomReadonlyEditorProvid
       const tile = tiles[tileId]
       if (!tile) return
 
-      const rom      = resolveRom(romPath)
+      const rom = resolveRom(romPath)
       // Apply animation frame 0 so animated chars render correctly.
       const baseVram = loadVram(rom.rom, tilesetId)
       const animData = loadAnimationData(rom.rom, tilesetId)
-      const vram     = animData ? patchVramForFrame(baseVram, animData.frames[0] ?? []) : baseVram
+      const vram = animData ? patchVramForFrame(baseVram, animData.frames[0] ?? []) : baseVram
       const palettes = loadRomPalettes(rom.rom)
-      const cgram    = buildLevelCgram(palettes, 0, 0, 0)
+      const cgram = buildLevelCgram(palettes, 0, 0, 0)
 
       const renders: { row: number; rgba: number[] }[] = []
       for (let row = 0; row < 8; row++) {
@@ -225,7 +249,13 @@ export class TilesetCompareProvider implements vscode.CustomReadonlyEditorProvid
         renders.push({ row, rgba: Array.from(renderMap16Tile(paletteTile, vram, cgram)) })
       }
 
-      webview.postMessage({ type: 'tilePreview', tileId, side, nativePalette: tile.tl.palette, renders })
+      webview.postMessage({
+        type: 'tilePreview',
+        tileId,
+        side,
+        nativePalette: tile.tl.palette,
+        renders,
+      })
     } catch {
       // Silently ignore preview errors
     }
@@ -237,7 +267,8 @@ export class TilesetCompareProvider implements vscode.CustomReadonlyEditorProvid
       nonce: getNonce(),
       scriptUri: getWebviewUri(webview, this.context.extensionUri, 'tilesetCompare.js'),
       cspSource: webview.cspSource,
-      styles: 'html,body{margin:0;padding:0;background:var(--vscode-editor-background,#1e1e1e);overflow-y:auto;}#app{padding:12px 16px;}',
+      styles:
+        'html,body{margin:0;padding:0;background:var(--vscode-editor-background,#1e1e1e);overflow-y:auto;}#app{padding:12px 16px;}',
     })
   }
 }

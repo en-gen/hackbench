@@ -66,7 +66,10 @@ declare global {
   }
 }
 
-interface Patch { offset: number; value: number }
+interface Patch {
+  offset: number
+  value: number
+}
 
 // Arbitrary but distinctive -- vanishingly unlikely to occur by chance
 // elsewhere in a ~24MB wasm heap. Used by __hackbenchTest's WRAM finder.
@@ -91,7 +94,10 @@ function setStatus(text: string): void {
  * CSS box, so collapsing that box would break the GL surface.
  */
 function setCurtain(text: string | null): void {
-  if (text === null) { curtainEl.style.display = 'none'; return }
+  if (text === null) {
+    curtainEl.style.display = 'none'
+    return
+  }
   curtainEl.style.display = 'flex'
   curtainEl.textContent = text
 }
@@ -100,12 +106,17 @@ function applyPatches(romBytes: Uint8Array, patches: Patch[]): void {
   for (const { offset, value } of patches) romBytes[offset] = value
 }
 
-async function boot(romBytes: Uint8Array, wasmUri: string, patches: Patch[]): Promise<EmscriptenModule> {
+async function boot(
+  romBytes: Uint8Array,
+  wasmUri: string,
+  patches: Patch[],
+): Promise<EmscriptenModule> {
   // The whole point: mutate the byte array the core is about to read, before
   // it has read anything. No heap scan, no "was this already cached" doubt.
   applyPatches(romBytes, patches)
 
-  if (!window.EJS_Runtime) throw new Error('EJS_Runtime factory missing -- core script did not load')
+  if (!window.EJS_Runtime)
+    throw new Error('EJS_Runtime factory missing -- core script did not load')
   const t0 = performance.now()
   const Module = await window.EJS_Runtime({
     noInitialRun: true,
@@ -126,8 +137,17 @@ async function boot(romBytes: Uint8Array, wasmUri: string, patches: Patch[]): Pr
   setStatus(`core loaded in ${loadMs}ms, booting...`)
 
   const FS = Module.FS
-  for (const dir of ['/home', '/home/web_user', '/home/web_user/.config', '/home/web_user/.config/retroarch']) {
-    try { FS.mkdir(dir) } catch { /* already exists */ }
+  for (const dir of [
+    '/home',
+    '/home/web_user',
+    '/home/web_user/.config',
+    '/home/web_user/.config/retroarch',
+  ]) {
+    try {
+      FS.mkdir(dir)
+    } catch {
+      /* already exists */
+    }
   }
   // audio_enable=false is mandatory (see t9 findings). screenshot_directory
   // fixes cmd_take_screenshot's output path for __hackbenchTest.screenshotPng
@@ -139,9 +159,9 @@ async function boot(romBytes: Uint8Array, wasmUri: string, patches: Patch[]): Pr
   FS.writeFile(
     '/home/web_user/.config/retroarch/retroarch.cfg',
     'screenshot_directory = "/"\n' +
-    'video_gpu_screenshot = false\n' +
-    'audio_enable = false\n' +
-    'video_smooth = false\n',
+      'video_gpu_screenshot = false\n' +
+      'audio_enable = false\n' +
+      'video_smooth = false\n',
   )
   FS.writeFile('/rom.sfc', romBytes)
   Module.callMain(['/rom.sfc'])
@@ -225,8 +245,8 @@ async function verifyCachedBase(Module: EmscriptenModule, base: number): Promise
     if (inRange(again)) return base
   }
   console.warn(
-    `[emulatorPreview] cached base 0x${base.toString(16)} never showed a load-sequence mode; saw `
-    + [...seen].map(v => '0x' + v.toString(16)).join(','),
+    `[emulatorPreview] cached base 0x${base.toString(16)} never showed a load-sequence mode; saw ` +
+      [...seen].map(v => '0x' + v.toString(16)).join(','),
   )
   return null
 }
@@ -235,7 +255,10 @@ async function verifyCachedBase(Module: EmscriptenModule, base: number): Promise
 function restoreMachineState(Module: EmscriptenModule): boolean {
   if (!machineState) return false
   Module.FS.writeFile('/title.state', machineState)
-  ;(Module.cwrap('load_state', 'number', ['string', 'number']) as (p: string, r: number) => number)('title.state', 0)
+  ;(Module.cwrap('load_state', 'number', ['string', 'number']) as (p: string, r: number) => number)(
+    'title.state',
+    0,
+  )
   return true
 }
 
@@ -271,17 +294,17 @@ function captureState(Module: EmscriptenModule, base: number): void {
 }
 
 /** SNES WRAM offsets, all cited to SMWDisX. */
-const GAME_MODE = 0x0100        // rammap.asm:977-980
-const OW_OVERRIDE = 0x0109      // rammap.asm:1033-1036
-const OW_SUBMAP = 0x1f11        // SMW_U.sym:10966
-const GM_TITLE_SCREEN = 0x07    // rammap.asm:989
-const GM_FADE_TO_LEVEL = 0x0f   // rammap.asm:997, the mode the overworld sets
-const GM_FADE_DONE = 0x10       // bank_00.asm:2597, "Fade to Level (black)"
-const GM_FADE_IN = 0x13         // bank_00.asm:2203, GMTransitionMosaic again
-const BRIGHTNESS = 0x0dae       // SMW_U.sym:3602
+const GAME_MODE = 0x0100 // rammap.asm:977-980
+const OW_OVERRIDE = 0x0109 // rammap.asm:1033-1036
+const OW_SUBMAP = 0x1f11 // SMW_U.sym:10966
+const GM_TITLE_SCREEN = 0x07 // rammap.asm:989
+const GM_FADE_TO_LEVEL = 0x0f // rammap.asm:997, the mode the overworld sets
+const GM_FADE_DONE = 0x10 // bank_00.asm:2597, "Fade to Level (black)"
+const GM_FADE_IN = 0x13 // bank_00.asm:2203, GMTransitionMosaic again
+const BRIGHTNESS = 0x0dae // SMW_U.sym:3602
 const MOSAIC_DIRECTION = 0x0daf // SMW_U.sym:9858
-const MOSAIC_SIZE = 0x0db0      // SMW_U.sym:9861
-const GM_LEVEL = 0x14           // rammap.asm:1002
+const MOSAIC_SIZE = 0x0db0 // SMW_U.sym:9861
+const GM_LEVEL = 0x14 // rammap.asm:1002
 const KEEP_MODE_ACTIVE = 0x0db1 // SMW_U.sym:9510
 
 /**
@@ -292,8 +315,11 @@ const KEEP_MODE_ACTIVE = 0x0db1 // SMW_U.sym:9510
  * real frames rather than polling tightly.
  */
 async function findWram(Module: EmscriptenModule): Promise<number | null> {
-  const setCheat = Module.cwrap('set_cheat', null, ['number', 'number', 'string']) as
-    (i: number, enabled: number, code: string) => void
+  const setCheat = Module.cwrap('set_cheat', null, ['number', 'number', 'string']) as (
+    i: number,
+    enabled: number,
+    code: string,
+  ) => void
   WRAM_SIGNATURE.forEach((v, i) => {
     const addr = (0x7e1000 + i).toString(16).padStart(6, '0').toUpperCase()
     setCheat(i, 1, addr + v.toString(16).padStart(2, '0').toUpperCase())
@@ -370,8 +396,10 @@ async function driveToLevel(
     // A cold console has to reach the title screen first, because the boot
     // modes are what load the player's graphics. A booted one is already past
     // that and may be mid-level, which is just as good a thing to fade out of.
-    if (gm() < GM_TITLE_SCREEN
-        && !await waitFor(() => gm() === GM_TITLE_SCREEN, 3000)) { lastGameMode = gm(); return false }
+    if (gm() < GM_TITLE_SCREEN && !(await waitFor(() => gm() === GM_TITLE_SCREEN, 3000))) {
+      lastGameMode = gm()
+      return false
+    }
 
     // Do exactly what the overworld does on its last two instructions before
     // handing over. CODE_049120 ends (bank_04.asm:1812-1816) with
@@ -396,7 +424,10 @@ async function driveToLevel(
     // 0x10 is after that fade has finished and before GM11LoadLevel reads
     // OverworldOverride (bank_00.asm:2597-2632), so the screen is already
     // black and nothing level-specific has happened. One state, any level.
-    if (!await waitFor(() => gm() === GM_FADE_DONE, 600)) { lastGameMode = gm(); return false }
+    if (!(await waitFor(() => gm() === GM_FADE_DONE, 600))) {
+      lastGameMode = gm()
+      return false
+    }
     captureState(Module, base)
   }
 
@@ -432,15 +463,25 @@ async function driveToLevel(
     Module.HEAPU8[base + BRIGHTNESS] = 0x0e
   }
 
-  if (!await waitFor(() => gm() === GM_LEVEL, 900)) { lastGameMode = gm(); return false }
+  if (!(await waitFor(() => gm() === GM_LEVEL, 900))) {
+    lastGameMode = gm()
+    return false
+  }
   return true
 }
 
 /** libretro RETRO_DEVICE_ID_JOYPAD ids; 7 = RIGHT is confirmed working. */
 const KEY_TO_BUTTON: Record<string, number> = {
-  ArrowUp: 4, ArrowDown: 5, ArrowLeft: 6, ArrowRight: 7,
-  KeyZ: 0, KeyX: 8, KeyA: 1, KeyS: 9,
-  Enter: 3, ShiftRight: 2,
+  ArrowUp: 4,
+  ArrowDown: 5,
+  ArrowLeft: 6,
+  ArrowRight: 7,
+  KeyZ: 0,
+  KeyX: 8,
+  KeyA: 1,
+  KeyS: 9,
+  Enter: 3,
+  ShiftRight: 2,
 }
 
 function wireInput(Module: EmscriptenModule): void {
@@ -452,7 +493,8 @@ function wireInput(Module: EmscriptenModule): void {
     if (btn === undefined) return
     ev.preventDefault()
     if (down === held.has(btn)) return
-    if (down) held.add(btn); else held.delete(btn)
+    if (down) held.add(btn)
+    else held.delete(btn)
     send(0, btn, down ? 1 : 0)
   }
   window.addEventListener('keydown', ev => set(ev.code, true, ev))
@@ -502,7 +544,8 @@ function pinIntegerScale(): void {
 }
 
 function geometry(): string {
-  const gl = (canvas.getContext('webgl2') ?? canvas.getContext('webgl')) as WebGLRenderingContext | null
+  const gl = (canvas.getContext('webgl2') ??
+    canvas.getContext('webgl')) as WebGLRenderingContext | null
   const drawing = gl ? `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}` : 'n/a'
   const scaleX = canvas.width / 256
   return [
@@ -537,7 +580,12 @@ function startFpsTicker(Module: EmscriptenModule, hex: string, arrivedAt: number
   }, 1000)
 }
 
-async function onLoad(romBytes: Uint8Array, wasmUri: string, levelId: number, patches: Patch[]): Promise<void> {
+async function onLoad(
+  romBytes: Uint8Array,
+  wasmUri: string,
+  levelId: number,
+  patches: Patch[],
+): Promise<void> {
   const Module = await boot(romBytes, wasmUri, patches)
   activeModule = Module
   const hex = `$${levelId.toString(16)}`
@@ -563,7 +611,7 @@ async function onLoad(romBytes: Uint8Array, wasmUri: string, levelId: number, pa
   }
 
   activeWramBase = base
-  if (base !== null && await driveToLevel(Module, base, levelId, restored)) {
+  if (base !== null && (await driveToLevel(Module, base, levelId, restored))) {
     setCurtain(null)
     wireInput(Module)
     pinIntegerScale()
@@ -592,7 +640,9 @@ async function onLoad(romBytes: Uint8Array, wasmUri: string, levelId: number, pa
 // webview -- unlike the browser-pane harness this was ported from, which
 // monkeypatched requestAnimationFrame and pumped frames synchronously -- so
 // pause/resume can be driven and observed at genuine wall-clock pace.
-;(window as unknown as { __hackbenchTest: Record<string, (...a: never[]) => unknown> }).__hackbenchTest = {
+;(
+  window as unknown as { __hackbenchTest: Record<string, (...a: never[]) => unknown> }
+).__hackbenchTest = {
   pauseMainLoop: () => activeModule?.pauseMainLoop(),
   resumeMainLoop: () => activeModule?.resumeMainLoop(),
   toggleMainLoop: (n: number) => activeModule?._toggleMainLoop(n),
@@ -605,13 +655,19 @@ async function onLoad(romBytes: Uint8Array, wasmUri: string, levelId: number, pa
     const Module = activeModule
     if (!Module) throw new Error('no active core')
     const FS = Module.FS
-    try { FS.unlink('/screenshot.png') } catch { /* not present yet */ }
+    try {
+      FS.unlink('/screenshot.png')
+    } catch {
+      /* not present yet */
+    }
     Module._cmd_take_screenshot()
     for (let i = 0; i < 300; i++) {
       try {
         FS.stat('/screenshot.png')
         return Array.from(FS.readFile('/screenshot.png'))
-      } catch { /* not yet */ }
+      } catch {
+        /* not yet */
+      }
       await new Promise(r => window.setTimeout(r, 50))
     }
     throw new Error('screenshot.png never appeared after 15s')
@@ -628,8 +684,11 @@ async function onLoad(romBytes: Uint8Array, wasmUri: string, levelId: number, pa
     const Module = activeModule
     if (!Module) throw new Error('no active core')
     console.log('[wram] cwrap available', typeof Module.cwrap)
-    const setCheat = Module.cwrap('set_cheat', null, ['number', 'number', 'string']) as
-      (i: number, enabled: number, code: string) => void
+    const setCheat = Module.cwrap('set_cheat', null, ['number', 'number', 'string']) as (
+      i: number,
+      enabled: number,
+      code: string,
+    ) => void
     const resetCheat = Module.cwrap('reset_cheat', null, []) as () => void
     console.log('[wram] setCheat/resetCheat types', typeof setCheat, typeof resetCheat)
     WRAM_SIGNATURE.forEach((v, i) => {
@@ -650,14 +709,16 @@ async function onLoad(romBytes: Uint8Array, wasmUri: string, levelId: number, pa
     const heap = activeModule?.HEAPU8
     if (!heap) return -1
     outer: for (let i = 0; i + WRAM_SIGNATURE.length <= heap.length; i++) {
-      for (let j = 0; j < WRAM_SIGNATURE.length; j++) if (heap[i + j] !== WRAM_SIGNATURE[j]) continue outer
+      for (let j = 0; j < WRAM_SIGNATURE.length; j++)
+        if (heap[i + j] !== WRAM_SIGNATURE[j]) continue outer
       return i - 0x1000
     }
     return -1
   },
   // snesOffset is the low 16 bits of a $7Exxxx address, e.g. 0x100 for
   // GameMode (rammap.asm:980), 0x13 for TrueFrame (rammap.asm, same table).
-  readWram: (wramBase: number, snesOffset: number): number => activeModule?.HEAPU8[wramBase + snesOffset] ?? -1,
+  readWram: (wramBase: number, snesOffset: number): number =>
+    activeModule?.HEAPU8[wramBase + snesOffset] ?? -1,
 
   /**
    * The WRAM base this panel resolved, so a caller can address game RAM.
@@ -678,10 +739,17 @@ async function onLoad(romBytes: Uint8Array, wasmUri: string, levelId: number, pa
    * `step` is in pixels; 16 is one Map16 column, the rate the game itself
    * scrolls at when running.
    */
-  scrollCapture: async (base: number, step: number, shots: number, settleFrames: number): Promise<number[][]> => {
+  scrollCapture: async (
+    base: number,
+    step: number,
+    shots: number,
+    settleFrames: number,
+  ): Promise<number[][]> => {
     const Module = activeModule
     if (!Module) throw new Error('no active core')
-    const hook = (window as unknown as { __hackbenchTest: { screenshotPng: () => Promise<number[]> } }).__hackbenchTest
+    const hook = (
+      window as unknown as { __hackbenchTest: { screenshotPng: () => Promise<number[]> } }
+    ).__hackbenchTest
     const frames = (): number => Module._get_current_frame_count?.() ?? 0
     const out: number[][] = []
     let x = (Module.HEAPU8[base + 0x1b] << 8) | Module.HEAPU8[base + 0x1a]

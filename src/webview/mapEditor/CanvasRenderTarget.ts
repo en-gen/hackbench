@@ -66,7 +66,7 @@ export class CanvasRenderTarget implements RenderTarget {
     }
     const w = this.width
     const buf = this.buf
-    const a = alpha === undefined || alpha >= 1 ? 1 : (alpha <= 0 ? 0 : alpha)
+    const a = alpha === undefined || alpha >= 1 ? 1 : alpha <= 0 ? 0 : alpha
     const blend = a < 1
     for (let py = 0; py < 8; py++) {
       const dstY = pos.y + py
@@ -93,12 +93,12 @@ export class CanvasRenderTarget implements RenderTarget {
         if (blend) {
           // src over dst (dst already 255-alpha from background fill)
           const inv = 1 - a
-          buf[off]     = col[0] * a + buf[off]     * inv
+          buf[off] = col[0] * a + buf[off] * inv
           buf[off + 1] = col[1] * a + buf[off + 1] * inv
           buf[off + 2] = col[2] * a + buf[off + 2] * inv
           buf[off + 3] = 255
         } else {
-          buf[off]     = col[0]
+          buf[off] = col[0]
           buf[off + 1] = col[1]
           buf[off + 2] = col[2]
           buf[off + 3] = 255

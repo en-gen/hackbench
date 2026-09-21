@@ -24,8 +24,8 @@
  *   CODE_0DA987  (line 2025)  bank-carry helper (no-op in flat grid model)
  *   CODE_0DA6B1  (line 1635)  save Map16LowPtr (bookmark for per-row restart)
  *   CODE_0DA6BA  (line 1642)  restore Map16LowPtr + reset LevelLoadObjectTile
- *   Sta1To6ePointer (line 2107) setPage(1) — next write is on page 1
- *   StzTo6ePointer  (line 2112) setPage(0) — next write is on page 0
+ *   Sta1To6ePointer (line 2107) setPage(1) - next write is on page 1
+ *   StzTo6ePointer  (line 2112) setPage(0) - next write is on page 0
  */
 
 import { RomFile } from '../RomFile'
@@ -56,7 +56,7 @@ export const OWNER_NONE = -1
 export interface Cursor {
   grid: TileGrid
   rom: RomFile
-  /** Object tileset (0-14) — for tileset-specific dispatch. */
+  /** Object tileset (0-14) - for tileset-specific dispatch. */
   tileset: number
   /** Current absolute column across all screens. */
   col: number
@@ -74,7 +74,7 @@ export interface Cursor {
    * Current Map16 page (0 or 1). Handlers set it via setPage1/setPage0 before
    * each low-byte write; writeTile combines it with the low byte: stored tile
    * ID = (page << 8) | lowByte. This reflects Sta1To6ePointer / StzTo6ePointer
-   * semantics — those routines are *page selectors*, not layer/collision flags.
+   * semantics - those routines are *page selectors*, not layer/collision flags.
    */
   page: number
   /**
@@ -98,18 +98,30 @@ export interface Cursor {
 }
 
 export function makeCursor(
-  grid: TileGrid, rom: RomFile, tileset: number,
-  col: number, row: number, objNo: number, size: number,
-  owners: OwnerGrid | null = null, owner: number = OWNER_NONE,
+  grid: TileGrid,
+  rom: RomFile,
+  tileset: number,
+  col: number,
+  row: number,
+  objNo: number,
+  size: number,
+  owners: OwnerGrid | null = null,
+  owner: number = OWNER_NONE,
 ): Cursor {
   return {
-    grid, rom, tileset,
-    col, row,
-    bookmarkCol: col, bookmarkRow: row,
-    objNo, size,
+    grid,
+    rom,
+    tileset,
+    col,
+    row,
+    bookmarkCol: col,
+    bookmarkRow: row,
+    objNo,
+    size,
     page: 0,
-    handlerAddr: 0,     // filled in by dispatcher right before calling handler
-    owners, owner,
+    handlerAddr: 0, // filled in by dispatcher right before calling handler
+    owners,
+    owner,
   }
 }
 
@@ -144,11 +156,11 @@ export function writeTileAdvance(cur: Cursor, lowByte: number): void {
 
 /**
  * Write the low byte at the cursor, combined with the current page.
- * Mirrors raw STA [Map16LowPtr],Y — the page byte was set by a prior call to
+ * Mirrors raw STA [Map16LowPtr],Y - the page byte was set by a prior call to
  * Sta1To6ePointer / StzTo6ePointer (setPage1 / setPage0 here).
  *
  * Writes past the current row length auto-grow the row (padded with TILE_EMPTY)
- * up to a 512-col cap — matches the SNES behaviour where the Map16 RAM buffer
+ * up to a 512-col cap - matches the SNES behaviour where the Map16 RAM buffer
  * has far more headroom than the level's declared screen count. Narrow castle
  * rooms (e.g. level $0FD) stamp right-wall fill tiles one column past the
  * declared levelLength; the engine happily writes there and Mesen captures it.
@@ -156,7 +168,7 @@ export function writeTileAdvance(cur: Cursor, lowByte: number): void {
 export function writeTile(cur: Cursor, lowByte: number): void {
   if (cur.row < 0 || cur.row >= cur.grid.length) return
   if (cur.col < 0 || cur.col >= 0x200) return
-  const tile = ((cur.page & 0x01) << 8) | (lowByte & 0xFF)
+  const tile = ((cur.page & 0x01) << 8) | (lowByte & 0xff)
   const row = cur.grid[cur.row]
   // Pad with TILE_EMPTY ($25) up to the target column so downstream readers
   // that iterate by row length see a contiguous tile stream.
@@ -251,7 +263,7 @@ export function peekExistingLow(cur: Cursor): number {
   if (!row) return 0x25
   const v = row[cur.col]
   if (v === undefined) return 0x25
-  return v & 0xFF
+  return v & 0xff
 }
 
 /**
@@ -280,8 +292,8 @@ export function writeTileSlopeMergeNoAdvance(cur: Cursor, baseTile: number): voi
 function slopeMergeTile(cur: Cursor, baseTile: number): number {
   const existing = peekExistingLow(cur)
   if (existing === 0x25) return baseTile
-  if (existing === 0x3F) return (baseTile + 1) & 0xFF
-  return (baseTile + 2) & 0xFF
+  if (existing === 0x3f) return (baseTile + 1) & 0xff
+  return (baseTile + 2) & 0xff
 }
 
 /**
@@ -301,9 +313,12 @@ function slopeMergeTile(cur: Cursor, baseTile: number): number {
  * whatever terrain was drawn underneath by an earlier object.
  */
 export function writeTileMergeCODE_0DB114(
-  cur: Cursor, helperAddr: number, X: number, baseTile: number,
+  cur: Cursor,
+  helperAddr: number,
+  X: number,
+  baseTile: number,
 ): void {
-  if ((X >= 9 && X < 0x0B) || X === 2) {
+  if ((X >= 9 && X < 0x0b) || X === 2) {
     writeTile(cur, baseTile)
     return
   }
@@ -314,7 +329,7 @@ export function writeTileMergeCODE_0DB114(
   //   +40/+44/+48/+52  CMP #$01/$03/$45/$48  (bump-by-1 triggers)
   const addrDB0F0 = readLongOperand(cur, helperAddr + 25)
   const addrDB102 = readLongOperand(cur, helperAddr + 66)
-  const skipTile  = readImmByte(cur, helperAddr + 34)
+  const skipTile = readImmByte(cur, helperAddr + 34)
   const bump1 = readImmByte(cur, helperAddr + 40)
   const bump2 = readImmByte(cur, helperAddr + 44)
   const bump3 = readImmByte(cur, helperAddr + 48)
@@ -334,7 +349,7 @@ export function writeTileMergeCODE_0DB114(
     return
   }
   if (baseTile === bump1 || baseTile === bump2 || baseTile === bump3 || baseTile === bump4) {
-    writeTile(cur, (baseTile + 1) & 0xFF)
+    writeTile(cur, (baseTile + 1) & 0xff)
   } else {
     writeTile(cur, baseTile)
   }
@@ -355,7 +370,10 @@ export function writeTileMergeCODE_0DB114(
  * Called by CODE_0DB075 for row-1 and middle tiles.
  */
 export function writeTileMergeCODE_0DB198(
-  cur: Cursor, helperAddr: number, X: number, baseTile: number,
+  cur: Cursor,
+  helperAddr: number,
+  X: number,
+  baseTile: number,
 ): void {
   if ((X >= 3 && X < 7) || X >= 9 || X === 2) {
     writeTile(cur, baseTile)
@@ -402,10 +420,10 @@ export function writeTilePipeMergeNoAdvance(cur: Cursor, baseTile: number): void
 /** Computes the CODE_0DABFD merged tile ID from (existing tile, base tile). */
 function pipeMergeTile(cur: Cursor, baseTile: number): number {
   const existing = peekExistingLow(cur)
-  const matches = [0x3F, 0x01, 0x03]  // DATA_0DABF7
-  const deltas  = [0x01, 0x03, 0x04]  // DATA_0DABFA
+  const matches = [0x3f, 0x01, 0x03] // DATA_0DABF7
+  const deltas = [0x01, 0x03, 0x04] // DATA_0DABFA
   for (let x = 0; x < 3; x++) {
-    if (existing === matches[x]) return (baseTile + deltas[x]) & 0xFF
+    if (existing === matches[x]) return (baseTile + deltas[x]) & 0xff
   }
   return baseTile
 }

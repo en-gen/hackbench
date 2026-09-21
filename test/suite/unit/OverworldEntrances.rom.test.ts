@@ -20,10 +20,7 @@ import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { getAllLevelNames } from '../../../src/rom/SmwLevelNames'
 import { loadOverworldEvents } from '../../../src/rom/OverworldEvents'
-import {
-  deriveOverworldEntrances,
-  warpPrecursorTiles,
-} from '../../../src/rom/OverworldEntrances'
+import { deriveOverworldEntrances, warpPrecursorTiles } from '../../../src/rom/OverworldEntrances'
 
 const ROMS_DIR = resolve(__dirname, '../../roms')
 const romPath = (name: string): string => resolve(ROMS_DIR, name)
@@ -39,20 +36,22 @@ const REBUILT_OVERWORLD = [
 
 /** Measured on vanilla: the 77 entry maps an overworld launch tile starts. */
 const VANILLA_ENTRY_MAPS = [
-  0x001, 0x002, 0x003, 0x004, 0x005, 0x006, 0x007, 0x008, 0x009, 0x00A,
-  0x00B, 0x00C, 0x00D, 0x00E, 0x00F, 0x010, 0x011, 0x013, 0x014, 0x015,
-  0x017, 0x018, 0x01A, 0x01B, 0x01C, 0x01D, 0x01F, 0x020, 0x021, 0x022,
-  0x023, 0x024, 0x101, 0x102, 0x103, 0x104, 0x105, 0x106, 0x107, 0x109,
-  0x10A, 0x10B, 0x10D, 0x10E, 0x10F, 0x110, 0x111, 0x113, 0x114, 0x115,
-  0x116, 0x117, 0x118, 0x119, 0x11A, 0x11B, 0x11C, 0x11D, 0x11E, 0x11F,
-  0x120, 0x121, 0x122, 0x123, 0x125, 0x126, 0x127, 0x128, 0x12A, 0x12B,
-  0x12C, 0x12D, 0x130, 0x132, 0x134, 0x135, 0x136,
+  0x001, 0x002, 0x003, 0x004, 0x005, 0x006, 0x007, 0x008, 0x009, 0x00a, 0x00b, 0x00c, 0x00d, 0x00e,
+  0x00f, 0x010, 0x011, 0x013, 0x014, 0x015, 0x017, 0x018, 0x01a, 0x01b, 0x01c, 0x01d, 0x01f, 0x020,
+  0x021, 0x022, 0x023, 0x024, 0x101, 0x102, 0x103, 0x104, 0x105, 0x106, 0x107, 0x109, 0x10a, 0x10b,
+  0x10d, 0x10e, 0x10f, 0x110, 0x111, 0x113, 0x114, 0x115, 0x116, 0x117, 0x118, 0x119, 0x11a, 0x11b,
+  0x11c, 0x11d, 0x11e, 0x11f, 0x120, 0x121, 0x122, 0x123, 0x125, 0x126, 0x127, 0x128, 0x12a, 0x12b,
+  0x12c, 0x12d, 0x130, 0x132, 0x134, 0x135, 0x136,
 ]
 
 /** Live $5F star-warp tiles: translevel -> [tileX, tileY] on layout 1. */
 const VANILLA_STAR_WARPS: [number, number, number][] = [
-  [0x4D, 17, 19], [0x52, 23, 22], [0x53, 18, 24],
-  [0x57, 28, 24], [0x5B, 18, 29], [0x5C, 28, 29],
+  [0x4d, 17, 19],
+  [0x52, 23, 22],
+  [0x53, 18, 24],
+  [0x57, 28, 24],
+  [0x5b, 18, 29],
+  [0x5c, 28, 29],
 ]
 
 /** $5A tiles, which an event swaps to $5F: translevel -> [slot, layout,
@@ -60,10 +59,10 @@ const VANILLA_STAR_WARPS: [number, number, number][] = [
  *  made them look like entry maps before the swap table was read. */
 const VANILLA_PENDING_WARPS: [number, number, number, number, number, boolean][] = [
   [0x12, 0x012, 0, 16, 15, false],
-  [0x16, 0x016, 0,  7, 18, true],
-  [0x1E, 0x01E, 0, 20, 16, false],
-  [0x2C, 0x108, 1,  0, 14, true],
-  [0x30, 0x10C, 1, 20,  3, false],
+  [0x16, 0x016, 0, 7, 18, true],
+  [0x1e, 0x01e, 0, 20, 16, false],
+  [0x2c, 0x108, 1, 0, 14, true],
+  [0x30, 0x10c, 1, 20, 3, false],
   [0x48, 0x124, 1, 17, 17, false],
   [0x55, 0x131, 1, 23, 24, false],
 ]
@@ -71,8 +70,8 @@ const VANILLA_PENDING_WARPS: [number, number, number, number, number, boolean][]
 /** Launch tiles naming a slot that holds only the filler pointer:
  *  translevel -> [slot, layout, tileX, tileY, map16Tile]. */
 const VANILLA_EMPTY_TARGETS: [number, number, number, number, number, number][] = [
-  [0x19, 0x019, 0,  3, 25, 0x56],
-  [0x36, 0x112, 1, 18,  7, 0x78],
+  [0x19, 0x019, 0, 3, 25, 0x56],
+  [0x36, 0x112, 1, 18, 7, 0x78],
 ]
 
 /** Entrances per inferred sub-map, index 0 (main map) through 6. */
@@ -111,22 +110,23 @@ describe.skipIf(!haveVanilla)('deriveOverworldEntrances on vanilla SMW', () => {
 
   it('reads $5A -> $5F as the only warp-producing event swap', () => {
     const rom = SmwRom.open(romPath(VANILLA)).rom
-    expect([...warpPrecursorTiles(rom).entries()]).toEqual([[0x5A, 0x5F]])
+    expect([...warpPrecursorTiles(rom).entries()]).toEqual([[0x5a, 0x5f]])
   })
 
   it('diverts the six live $5F star-warp tiles', () => {
     const warps = vanilla().entrances.filter(e => e.action === 'starWarp')
     expect(warps.map(e => [e.translevel, e.tileX, e.tileY])).toEqual(VANILLA_STAR_WARPS)
-    expect(warps.every(e => e.map16Tile === 0x5F && e.layout === 1)).toBe(true)
+    expect(warps.every(e => e.map16Tile === 0x5f && e.layout === 1)).toBe(true)
     // No $5B pipe tile exists in vanilla's overworld stream.
     expect(vanilla().entrances.some(e => e.action === 'pipeWarp')).toBe(false)
   })
 
   it('diverts the seven $5A tiles an event swaps into star warps', () => {
     const pending = vanilla().entrances.filter(e => e.action === 'pendingWarp')
-    expect(pending.map(e => [e.translevel, e.slot, e.layout, e.tileX, e.tileY, e.isMap]))
-      .toEqual(VANILLA_PENDING_WARPS)
-    expect(pending.every(e => e.map16Tile === 0x5A)).toBe(true)
+    expect(pending.map(e => [e.translevel, e.slot, e.layout, e.tileX, e.tileY, e.isMap])).toEqual(
+      VANILLA_PENDING_WARPS,
+    )
+    expect(pending.every(e => e.map16Tile === 0x5a)).toBe(true)
     // Kept in the index with their positions, excluded from the entry maps.
     for (const e of pending) expect(vanilla().entryMaps).not.toContain(e.slot)
   })
@@ -141,8 +141,9 @@ describe.skipIf(!haveVanilla)('deriveOverworldEntrances on vanilla SMW', () => {
     const positions = new Set(loadOverworldEvents(rom).events.map(e => e.primaryOffset))
     const pending = vanilla().entrances.filter(e => e.action === 'pendingWarp')
     expect(pending).toHaveLength(7)
-    expect(pending.filter(e => positions.has(e.bufferIndex)).map(e => e.bufferIndex))
-      .toEqual(pending.map(e => e.bufferIndex))
+    expect(pending.filter(e => positions.has(e.bufferIndex)).map(e => e.bufferIndex)).toEqual(
+      pending.map(e => e.bufferIndex),
+    )
     // Offset 0 is DATA_04D85D's unused-slot value, so membership in the set
     // has to mean something: no $5A tile sits at buffer 0.
     expect(pending.some(e => e.bufferIndex === 0)).toBe(false)
@@ -150,8 +151,9 @@ describe.skipIf(!haveVanilla)('deriveOverworldEntrances on vanilla SMW', () => {
 
   it('names the two launch tiles whose slot holds no map data', () => {
     const empty = vanilla().entrances.filter(e => e.action === 'map' && !e.isMap)
-    expect(empty.map(e => [e.translevel, e.slot, e.layout, e.tileX, e.tileY, e.map16Tile]))
-      .toEqual(VANILLA_EMPTY_TARGETS)
+    expect(empty.map(e => [e.translevel, e.slot, e.layout, e.tileX, e.tileY, e.map16Tile])).toEqual(
+      VANILLA_EMPTY_TARGETS,
+    )
     expect(vanilla().entryMaps).not.toContain(0x019)
     expect(vanilla().entryMaps).not.toContain(0x112)
   })
@@ -176,13 +178,15 @@ describe.skipIf(!haveVanilla)('deriveOverworldEntrances on vanilla SMW', () => {
       map16Tile: 0x58,
       action: 'map',
       isMap: true,
-      tileDataAddress: 0x0CF7DF + 0x559,
+      tileDataAddress: 0x0cf7df + 0x559,
     })
   })
 
   it('assigns every entrance to a camera-derived sub-map', () => {
-    const counts = Array.from({ length: 7 }, (_, i) =>
-      vanilla().entrances.filter(e => e.submap === i).length)
+    const counts = Array.from(
+      { length: 7 },
+      (_, i) => vanilla().entrances.filter(e => e.submap === i).length,
+    )
     expect(counts).toEqual(VANILLA_SUBMAP_COUNTS)
     expect(vanilla().entrances.filter(e => e.submap === null)).toHaveLength(0)
   })
@@ -191,18 +195,24 @@ describe.skipIf(!haveVanilla)('deriveOverworldEntrances on vanilla SMW', () => {
     const names = getAllLevelNames(SmwRom.open(romPath(VANILLA)).rom)
     // Only translevel $36 (slot $112) has neither a name nor map data.
     expect(vanilla().entrances.filter(e => names.has(e.translevel))).toHaveLength(91)
-    expect(vanilla().entrances.filter(e => !names.has(e.translevel)).map(e => e.translevel))
-      .toEqual([0x36])
+    expect(
+      vanilla()
+        .entrances.filter(e => !names.has(e.translevel))
+        .map(e => e.translevel),
+    ).toEqual([0x36])
     // Every $5A and $5F tile is named STAR ROAD, which is corroboration for
     // the swap-table reading but not proof of it.
-    const warpNames = new Set(vanilla().entrances
-      .filter(e => e.action === 'starWarp' || e.action === 'pendingWarp')
-      .map(e => names.get(e.translevel)))
+    const warpNames = new Set(
+      vanilla()
+        .entrances.filter(e => e.action === 'starWarp' || e.action === 'pendingWarp')
+        .map(e => names.get(e.translevel)),
+    )
     expect([...warpNames]).toEqual(['STAR ROAD'])
     // A decoded name does not prove a slot holds a map: one empty target
     // carries a name, and it duplicates another translevel's name.
-    const namedButEmpty = vanilla().entrances
-      .filter(e => names.has(e.translevel) && e.action === 'map' && !e.isMap)
+    const namedButEmpty = vanilla().entrances.filter(
+      e => names.has(e.translevel) && e.action === 'map' && !e.isMap,
+    )
     expect(namedButEmpty.map(e => names.get(e.translevel))).toEqual(["#2 MORTON'S PLAINS"])
   })
 
@@ -217,7 +227,8 @@ describe.skipIf(!haveVanilla)('deriveOverworldEntrances on vanilla SMW', () => {
 })
 
 describe.skipIf(!haveVanilla || !existsSync(romPath(HEADERED)))(
-  'copier header does not shift the derivation', () => {
+  'copier header does not shift the derivation',
+  () => {
     it('gives byte-for-byte the same index as the unheadered ROM', () => {
       const plain = deriveOverworldEntrances(SmwRom.open(romPath(VANILLA)))
       const headered = deriveOverworldEntrances(SmwRom.open(romPath(HEADERED)))
@@ -225,7 +236,8 @@ describe.skipIf(!haveVanilla || !existsSync(romPath(HEADERED)))(
       expect(headered.entrances).toEqual(plain.entrances)
       expect(headered.entryMaps).toEqual(plain.entryMaps)
     })
-  })
+  },
+)
 
 for (const name of REBUILT_OVERWORLD) {
   describe.skipIf(!existsSync(romPath(name)))(`fail closed: ${name}`, () => {

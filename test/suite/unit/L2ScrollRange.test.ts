@@ -1,7 +1,7 @@
 /**
  * Unit tests for L2 scroll-sprite scan and scroll-range derivation (#246).
  *
- * Pure functions — no ROM dependency. computeL2ScrollRange is the L2 sibling
+ * Pure functions - no ROM dependency. computeL2ScrollRange is the L2 sibling
  * of computeL3ScrollRange (L3Loader.ts:574).
  *
  * Note on naming: the cmd value returned by `findLevelScrollSprite` is the
@@ -29,34 +29,34 @@ describe('findLevelScrollSprite', () => {
   })
 
   it('returns null when no sprite id reaches the scroll-sprite base', () => {
-    expect(findLevelScrollSprite([sprite(0x00), sprite(0x80), sprite(0xE6)])).toBe(null)
+    expect(findLevelScrollSprite([sprite(0x00), sprite(0x80), sprite(0xe6)])).toBe(null)
   })
 
   it('returns Layer1ScrollCmd index (spriteId - $E7) for a scroll sprite', () => {
-    // $E8 → cmd 01 (matches level $009 in vanilla SMW — auto-scroller).
-    expect(findLevelScrollSprite([sprite(0xE8)])).toBe(0x01)
-    // $F5 → cmd $0E (matches levels $1E2/$1EC/$1EF — Layer 2 sink/rise).
-    expect(findLevelScrollSprite([sprite(0xF5)])).toBe(0x0E)
+    // $E8 → cmd 01 (matches level $009 in vanilla SMW - auto-scroller).
+    expect(findLevelScrollSprite([sprite(0xe8)])).toBe(0x01)
+    // $F5 → cmd $0E (matches levels $1E2/$1EC/$1EF - Layer 2 sink/rise).
+    expect(findLevelScrollSprite([sprite(0xf5)])).toBe(0x0e)
   })
 
   it('first scroll sprite wins (bank_02.asm:5294 short-circuits via BNE +)', () => {
     // The sprite stream may contain multiple scroll sprites; only the first
     // one to spawn writes Layer1ScrollCmd because subsequent invocations hit
     // the `LDA Layer1ScrollCmd / ORA Layer2ScrollCmd / BNE +` guard.
-    const cmd = findLevelScrollSprite([sprite(0x10), sprite(0xE8), sprite(0xF5)])
+    const cmd = findLevelScrollSprite([sprite(0x10), sprite(0xe8), sprite(0xf5)])
     expect(cmd).toBe(0x01)
   })
 
   it('SCROLL_SPRITE_BASE is $E7', () => {
-    expect(SCROLL_SPRITE_BASE).toBe(0xE7)
+    expect(SCROLL_SPRITE_BASE).toBe(0xe7)
   })
 })
 
 describe('computeL2ScrollRange', () => {
   const baseInput: Omit<L2ScrollRangeInput, 'grid' | 'layer1ScrollCmd'> = {
-    initialLayer2YPx: 0xC0,
-    initialCameraYPx: 0xC0,
-    levelPixelW:      256 * 8,
+    initialLayer2YPx: 0xc0,
+    initialCameraYPx: 0xc0,
+    levelPixelW: 256 * 8,
   }
 
   it('kind: none for an empty grid (no cells)', () => {
@@ -88,11 +88,11 @@ describe('computeL2ScrollRange', () => {
       new Array<number | null>(32).fill(null),
     )
     grid[8][1] = 0x100
-    const r = computeL2ScrollRange({ ...baseInput, grid, layer1ScrollCmd: 0x0E })
-    // Still 'fixed' kind today — gameplay-L2 has no per-frame Y animation
+    const r = computeL2ScrollRange({ ...baseInput, grid, layer1ScrollCmd: 0x0e })
+    // Still 'fixed' kind today - gameplay-L2 has no per-frame Y animation
     // we've decoded yet. The cmd is just a diagnostic label.
     expect(r.kind).toBe('fixed')
-    expect(r.layer1ScrollCmd).toBe(0x0E)
+    expect(r.layer1ScrollCmd).toBe(0x0e)
   })
 
   it('applies dy = initialCameraYPx - initialLayer2YPx to grid bounds', () => {
@@ -102,8 +102,8 @@ describe('computeL2ScrollRange', () => {
     grid[5][0] = 0x100
     const r = computeL2ScrollRange({
       ...baseInput,
-      initialLayer2YPx: 0xC0,
-      initialCameraYPx: 0x40,  // dy = 0x40 - 0xC0 = -0x80
+      initialLayer2YPx: 0xc0,
+      initialCameraYPx: 0x40, // dy = 0x40 - 0xC0 = -0x80
       grid,
       layer1ScrollCmd: null,
     })

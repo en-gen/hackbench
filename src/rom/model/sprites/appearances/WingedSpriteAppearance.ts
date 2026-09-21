@@ -44,7 +44,13 @@ export class WingedSpriteAppearance implements SpriteAppearance {
     this.frame = (this.frame + 1) % this.wingFrames.length
   }
 
-  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
+  render(
+    target: RenderTarget,
+    x: number,
+    y: number,
+    _behavior: SpriteBehavior,
+    mapStore: MapStore,
+  ): void {
     const wingParts = this.wingFrames[this.frame]
     const blit = (part: SpritePart) => {
       const pixels = part.char.getPixels()
@@ -67,7 +73,11 @@ export class WingedSpriteAppearance implements SpriteAppearance {
   ): SpritePart[] {
     return (layout?.tiles ?? []).map(t => ({
       char: chars.get(t.charNum) ?? placeholder,
-      palette: t.palette, flipX: t.flipX, flipY: t.flipY, dx: t.dx, dy: t.dy,
+      palette: t.palette,
+      flipX: t.flipX,
+      flipY: t.flipY,
+      dx: t.dx,
+      dy: t.dy,
     }))
   }
 
@@ -84,13 +94,21 @@ export class WingedSpriteAppearance implements SpriteAppearance {
     const WING_PAL = 11
     const BASE = 0x400
     const c = (n: number) => chars.get(BASE + n) ?? placeholder
-    const p = (n: number, dx: number, dy: number, flipX: boolean): SpritePart =>
-      ({ char: c(n), palette: WING_PAL, flipX, flipY: false, dx, dy })
+    const p = (n: number, dx: number, dy: number, flipX: boolean): SpritePart => ({
+      char: c(n),
+      palette: WING_PAL,
+      flipX,
+      flipY: false,
+      dx,
+      dy,
+    })
     const wf0: SpritePart[] = [
-      p(0xC6,  9, -12, false), p(0xC7, 17, -12, false),
-      p(0xD6,  9,  -4, false), p(0xD7, 17,  -4, false),
+      p(0xc6, 9, -12, false),
+      p(0xc7, 17, -12, false),
+      p(0xd6, 9, -4, false),
+      p(0xd7, 17, -4, false),
     ]
-    const wf1: SpritePart[] = [p(0x5D, 9, -4, false)]
+    const wf1: SpritePart[] = [p(0x5d, 9, -4, false)]
     return [wf0, wf1]
   }
 
@@ -123,24 +141,34 @@ export class WingedSpriteAppearance implements SpriteAppearance {
     const GPAL = 11
     const GBASE = 0x400
     const gc = (n: number) => chars.get(GBASE + n) ?? placeholder
-    const gp = (n: number, dx: number, dy: number, flipX: boolean): SpritePart =>
-      ({ char: gc(n), palette: GPAL, flipX, flipY: false, dx, dy })
+    const gp = (n: number, dx: number, dy: number, flipX: boolean): SpritePart => ({
+      char: gc(n),
+      palette: GPAL,
+      flipX,
+      flipY: false,
+      dx,
+      dy,
+    })
     // GoombaWingGfxRt (bank_01.asm:2022):
     // iter=1 → GoombaWingGfxProp[1]=$06 EOR $40=$46 → left wing is H-flipped.
     // iter=0 → GoombaWingGfxProp[0]=$46 EOR $40=$06 → right wing is not flipped.
     // X offsets: DATA_018DC7 with _4=0 adds 8; left=index9=$F5=-11, right=index8=$0B=+11.
     // Frame-1 X: left=index13=$FC=-4, right=index12=$0B=+11. Y always+1 (DATA_018DD7[4/5]).
     const gwf0: SpritePart[] = [
-      // Left wing: H-flipped 16x16 $C6 at (-11, -9) — col order swaps for H-flip
-      gp(0xC7, -11, -9, true),  gp(0xC6,  -3, -9, true),
-      gp(0xD7, -11,  -1, true), gp(0xD6,  -3,  -1, true),
+      // Left wing: H-flipped 16x16 $C6 at (-11, -9) - col order swaps for H-flip
+      gp(0xc7, -11, -9, true),
+      gp(0xc6, -3, -9, true),
+      gp(0xd7, -11, -1, true),
+      gp(0xd6, -3, -1, true),
       // Right wing: no-flip 16x16 $C6 at (+11, -9)
-      gp(0xC6,  11, -9, false), gp(0xC7,  19, -9, false),
-      gp(0xD6,  11,  -1, false), gp(0xD7,  19,  -1, false),
+      gp(0xc6, 11, -9, false),
+      gp(0xc7, 19, -9, false),
+      gp(0xd6, 11, -1, false),
+      gp(0xd7, 19, -1, false),
     ]
     const gwf1: SpritePart[] = [
-      gp(0x5D, -4, 1, true),   // left wing: H-flipped, X=DATA_018DC7[13]=-4
-      gp(0x5D, 11, 1, false),  // right wing: no-flip, X=DATA_018DC7[12]=+11
+      gp(0x5d, -4, 1, true), // left wing: H-flipped, X=DATA_018DC7[13]=-4
+      gp(0x5d, 11, 1, false), // right wing: no-flip, X=DATA_018DC7[12]=+11
     ]
     return new WingedSpriteAppearance(gBody, [gwf0, gwf1])
   }
@@ -161,17 +189,24 @@ export class WingedSpriteAppearance implements SpriteAppearance {
     const WING_PAL = 11
     const BASE = 0x400
     const c = (n: number) => chars.get(BASE + n) ?? placeholder
-    const p = (n: number, dx: number, dy: number, flipX: boolean): SpritePart =>
-      ({ char: c(n), palette: WING_PAL, flipX, flipY: false, dx, dy })
-    const wf0: SpritePart[] = [
-      p(0x5D,  -3, -2, true),
-      p(0x5D,  11, -2, false),
-    ]
+    const p = (n: number, dx: number, dy: number, flipX: boolean): SpritePart => ({
+      char: c(n),
+      palette: WING_PAL,
+      flipX,
+      flipY: false,
+      dx,
+      dy,
+    })
+    const wf0: SpritePart[] = [p(0x5d, -3, -2, true), p(0x5d, 11, -2, false)]
     const wf1: SpritePart[] = [
-      p(0xC7, -11, -10, true),  p(0xC6,  -3, -10, true),
-      p(0xD7, -11,  -2, true),  p(0xD6,  -3,  -2, true),
-      p(0xC6,  11, -10, false), p(0xC7,  19, -10, false),
-      p(0xD6,  11,  -2, false), p(0xD7,  19,  -2, false),
+      p(0xc7, -11, -10, true),
+      p(0xc6, -3, -10, true),
+      p(0xd7, -11, -2, true),
+      p(0xd6, -3, -2, true),
+      p(0xc6, 11, -10, false),
+      p(0xc7, 19, -10, false),
+      p(0xd6, 11, -2, false),
+      p(0xd7, 19, -2, false),
     ]
     return new WingedSpriteAppearance(bodyParts, [wf0, wf1])
   }

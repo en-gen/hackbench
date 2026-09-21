@@ -35,13 +35,21 @@ import { resolve } from 'path'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
-  SPRITE_DRAW_DESCRIPTORS, SPRITE_MAIN_PTR_TABLE,
-  type CodeRef, type SpriteDrawDescriptor,
+  SPRITE_DRAW_DESCRIPTORS,
+  SPRITE_MAIN_PTR_TABLE,
+  type CodeRef,
+  type SpriteDrawDescriptor,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawDescriptor'
 import {
-  animPeriodFrames, drawSpriteParts, frameIndexAt, readShiftCount,
-  resolveAnim, resolveHandlerBase, resolveRef,
-  type EnginePart, type EngineResult,
+  animPeriodFrames,
+  drawSpriteParts,
+  frameIndexAt,
+  readShiftCount,
+  resolveAnim,
+  resolveHandlerBase,
+  resolveRef,
+  type EnginePart,
+  type EngineResult,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 
 const ROM_DIR = resolve(__dirname, '../../../roms')
@@ -66,7 +74,7 @@ const SHELLESS = 0x00
 /** $04 Green Koopa, the same family's 16x32 branch. */
 const SHELLED = 0x04
 /** $0F Goomba, a 16x16 on the `Spr0to13Start` handler. */
-const GOOMBA = 0x0F
+const GOOMBA = 0x0f
 
 /** `resolveRef` that throws rather than returning null, so a planted byte is
  *  never written to address 0 because a ref quietly failed. */
@@ -77,16 +85,24 @@ function refAt(rom: RomFile, ref: CodeRef, base: number): number {
 }
 
 /** Address of one of `routineSelect`'s refs on this cart. */
-function selAt(rom: RomFile, id: number, pick: (s: NonNullable<SpriteDrawDescriptor['routineSelect']>) => CodeRef): number {
+function selAt(
+  rom: RomFile,
+  id: number,
+  pick: (s: NonNullable<SpriteDrawDescriptor['routineSelect']>) => CodeRef,
+): number {
   const d = desc(id)
   return refAt(rom, pick(d.routineSelect!), resolveHandlerBase(rom, d))
 }
 
 function draw(rom: RomFile, id: number, frame: number): EngineResult {
   return drawSpriteParts({
-    rom, tables: readSpriteTileTables(rom)!, descriptor: desc(id),
+    rom,
+    tables: readSpriteTileTables(rom)!,
+    descriptor: desc(id),
     // Mario to the RIGHT of the sprite, which is latch 0 on `FaceMario`.
-    spriteX: 0x40, ctx: { marioX: 0x80, romFrame: 0 }, forceFrame: frame,
+    spriteX: 0x40,
+    ctx: { marioX: 0x80, romFrame: 0 },
+    forceFrame: frame,
   })
 }
 
@@ -106,7 +122,7 @@ const topDy = (p: readonly EnginePart[]) => Math.min(...p.map(q => q.dy))
 // ── 1. The two handlers both reach the shared draw routine ──────────────────
 
 describe.skipIf(!romsPresent)('the walk family renders at all', () => {
-  const FAMILY = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0F, 0x11, 0x13]
+  const FAMILY = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0f, 0x11, 0x13]
 
   it.each(ROM_FILES)('%s: every member draws two DISTINCT frames', name => {
     const rom = freshRom(name)
@@ -120,7 +136,7 @@ describe.skipIf(!romsPresent)('the walk family renders at all', () => {
 
   it.each(ROM_FILES)('%s: $00-$03 draw one 16x16 and $04-$07 two stacked', name => {
     const rom = freshRom(name)
-    for (const id of [0x00, 0x01, 0x02, 0x03, 0x0F, 0x11, 0x13]) {
+    for (const id of [0x00, 0x01, 0x02, 0x03, 0x0f, 0x11, 0x13]) {
       expect(parts(rom, id, 0), `$${id.toString(16)}`).toHaveLength(4)
     }
     for (const id of [0x04, 0x05, 0x06, 0x07]) {
@@ -131,7 +147,7 @@ describe.skipIf(!romsPresent)('the walk family renders at all', () => {
   it('$0C is deliberately absent, because its draw ends in KoopaWingGfxRt', () => {
     // bank_01.asm:1785-1788. If someone adds $0C without a wing kind, this
     // goes red and says why rather than shipping a wingless Koopa.
-    expect(SPRITE_DRAW_DESCRIPTORS.some(d => d.spriteId === 0x0C)).toBe(false)
+    expect(SPRITE_DRAW_DESCRIPTORS.some(d => d.spriteId === 0x0c)).toBe(false)
   })
 })
 
@@ -145,7 +161,10 @@ describe.skipIf(!romsPresent)('SetAnimationFrame is read, not recorded', () => {
     const rom = freshRom(name)
     for (const id of [SHELLESS, SHELLED]) {
       const sc = (desc(id).anim as { shiftAt: Parameters<typeof readShiftCount>[1] }).shiftAt
-      expect(readShiftCount(rom, sc, resolveHandlerBase(rom, desc(id))), `$${id.toString(16)}`).toBe(3)
+      expect(
+        readShiftCount(rom, sc, resolveHandlerBase(rom, desc(id))),
+        `$${id.toString(16)}`,
+      ).toBe(3)
     }
   })
 
@@ -165,7 +184,7 @@ describe.skipIf(!romsPresent)('SetAnimationFrame is read, not recorded', () => {
     // Overwrite the `AND #$01` opcode with a fourth `LSR A`. The mask operand
     // byte $01 then reads as `ORA ($xx,X)`'s opcode, which the mask ref does
     // not care about: it reads the byte one further along.
-    rom.writeAt(refAt(rom, sc.scan, resolveHandlerBase(rom, desc(SHELLESS))) + 3, [0x4A])
+    rom.writeAt(refAt(rom, sc.scan, resolveHandlerBase(rom, desc(SHELLESS))) + 3, [0x4a])
     expect(animPeriodFrames(animOf(rom, SHELLESS))).toBe(before * 2)
     // Vanilla flips at game frame 8; a fourth shift moves that to 16.
     expect(frameIndexAt(animOf(rom, SHELLESS), 8)).toBe(0)
@@ -187,7 +206,7 @@ describe.skipIf(!romsPresent)('SetAnimationFrame is read, not recorded', () => {
     // rather than read a shift out of whatever follows.
     const rom = freshRom()
     const d = desc(SHELLESS)
-    rom.writeAt(resolveHandlerBase(rom, d) + 0x0F, [0xEA])   // NOP
+    rom.writeAt(resolveHandlerBase(rom, d) + 0x0f, [0xea]) // NOP
     expect(resolveAnim(rom, d.anim, resolveHandlerBase(rom, d))).toBeNull()
     expect(draw(rom, SHELLESS, 0).ok).toBe(false)
   })
@@ -200,12 +219,17 @@ describe.skipIf(!romsPresent)('the 16x16 / 16x32 choice is read per cart', () =>
     const rom = freshRom(name)
     const operand = selAt(rom, SHELLESS, s => s.propOperandAddr)
     const b = rom.readAt(operand, 2)!
-    expect(b[0] | (b[1] << 8)).toBe(0x88F0)
+    expect(b[0] | (b[1] << 8)).toBe(0x88f0)
   })
 
   it.each(ROM_FILES)('%s: the selecting bit is $40', name => {
     const rom = freshRom(name)
-    expect(rom.readAt(selAt(rom, SHELLESS, s => s.maskOperandAddr), 1)![0]).toBe(0x40)
+    expect(
+      rom.readAt(
+        selAt(rom, SHELLESS, s => s.maskOperandAddr),
+        1,
+      )![0],
+    ).toBe(0x40)
   })
 
   it('setting the property bit on a shell-less Koopa draws it 16x32', () => {
@@ -218,20 +242,23 @@ describe.skipIf(!romsPresent)('the 16x16 / 16x32 choice is read per cart', () =>
     // routine choice from the wing tail. Section 6 covers the other half.
     const rom = freshRom()
     expect(parts(rom, SHELLESS, 0)).toHaveLength(4)
-    rom.writeAt(0x0188F0 + SHELLESS, [0x60])     // $20 | $40
+    rom.writeAt(0x0188f0 + SHELLESS, [0x60]) // $20 | $40
     expect(parts(rom, SHELLESS, 0)).toHaveLength(8)
   })
 
   it('clearing the property bit on a Koopa draws it 16x16', () => {
     const rom = freshRom()
     expect(parts(rom, SHELLED, 0)).toHaveLength(8)
-    rom.writeAt(0x0188F0 + SHELLED, [0x00])
+    rom.writeAt(0x0188f0 + SHELLED, [0x00])
     expect(parts(rom, SHELLED, 0)).toHaveLength(4)
   })
 
   it('a planted AND #$00 sends every member down the clear branch', () => {
     const rom = freshRom()
-    rom.writeAt(selAt(rom, SHELLED, s => s.maskOperandAddr), [0x00])
+    rom.writeAt(
+      selAt(rom, SHELLED, s => s.maskOperandAddr),
+      [0x00],
+    )
     expect(parts(rom, SHELLED, 0)).toHaveLength(4)
   })
 
@@ -240,7 +267,10 @@ describe.skipIf(!romsPresent)('the 16x16 / 16x32 choice is read per cart', () =>
     // Point `LDA Spr0to13Prop,Y` at a stretch whose $04th byte has bit 6
     // clear. $88EC is `Spr0to13SpeedX` (bank_01.asm:1389), four bytes of
     // speed, so entry $04 falls on `Spr0to13Prop`'s own entry $00 = $00.
-    rom.writeAt(selAt(rom, SHELLED, s => s.propOperandAddr), [0xEC, 0x88])
+    rom.writeAt(
+      selAt(rom, SHELLED, s => s.propOperandAddr),
+      [0xec, 0x88],
+    )
     expect(parts(rom, SHELLED, 0)).toHaveLength(4)
   })
 
@@ -254,8 +284,8 @@ describe.skipIf(!romsPresent)('the 16x16 / 16x32 choice is read per cart', () =>
     const b = Array.from(rom.readAt(set, 3)!)
     rom.writeAt(clear, b)
     rom.writeAt(set, a)
-    expect(parts(rom, SHELLED, 0)).toHaveLength(4)     // set branch now 16x16
-    expect(parts(rom, SHELLESS, 0)).toHaveLength(8)    // clear branch now 16x32
+    expect(parts(rom, SHELLED, 0)).toHaveLength(4) // set branch now 16x16
+    expect(parts(rom, SHELLESS, 0)).toHaveLength(8) // clear branch now 16x32
   })
 
   it('a branch JSR into untraced code is reported, not guessed', () => {
@@ -270,7 +300,10 @@ describe.skipIf(!romsPresent)('the 16x16 / 16x32 choice is read per cart', () =>
 
   it('a branch site that is no longer a JSR is reported as such', () => {
     const rom = freshRom()
-    rom.writeAt(selAt(rom, SHELLESS, s => s.jsrIfClear), [0xEA])
+    rom.writeAt(
+      selAt(rom, SHELLESS, s => s.jsrIfClear),
+      [0xea],
+    )
     const res = draw(rom, SHELLESS, 0)
     expect(res.ok).toBe(false)
     if (res.ok) throw new Error('unreachable')
@@ -283,9 +316,20 @@ describe.skipIf(!romsPresent)('the 16x16 / 16x32 choice is read per cart', () =>
 describe.skipIf(!romsPresent)('the bob is the SBC operand plus a carry', () => {
   it.each(ROM_FILES)('%s: vanilla holds SBC #$0F and a single LSR A', name => {
     const rom = freshRom(name)
-    expect(rom.readAt(selAt(rom, SHELLED, s => s.setBranchYAdjust!.sbcOperandAddr), 1)![0]).toBe(0x0F)
+    expect(
+      rom.readAt(
+        selAt(rom, SHELLED, s => s.setBranchYAdjust!.sbcOperandAddr),
+        1,
+      )![0],
+    ).toBe(0x0f)
     const d = desc(SHELLED)
-    expect(readShiftCount(rom, d.routineSelect!.setBranchYAdjust!.carryShift, resolveHandlerBase(rom, d))).toBe(1)
+    expect(
+      readShiftCount(
+        rom,
+        d.routineSelect!.setBranchYAdjust!.carryShift,
+        resolveHandlerBase(rom, d),
+      ),
+    ).toBe(1)
   })
 
   it.each(ROM_FILES)('%s: frame 1 sits exactly one pixel below frame 0', name => {
@@ -299,7 +343,10 @@ describe.skipIf(!romsPresent)('the bob is the SBC operand plus a carry', () => {
   it('a planted SBC operand moves the whole body', () => {
     const rom = freshRom()
     const before = topDy(parts(rom, SHELLED, 0))
-    rom.writeAt(selAt(rom, SHELLED, s => s.setBranchYAdjust!.sbcOperandAddr), [0x1F])
+    rom.writeAt(
+      selAt(rom, SHELLED, s => s.setBranchYAdjust!.sbcOperandAddr),
+      [0x1f],
+    )
     expect(topDy(parts(rom, SHELLED, 0))).toBe(before - 0x10)
     // The bob rides on top of it, unchanged.
     expect(topDy(parts(rom, SHELLED, 1)) - topDy(parts(rom, SHELLED, 0))).toBe(1)
@@ -310,7 +357,10 @@ describe.skipIf(!romsPresent)('the bob is the SBC operand plus a carry', () => {
     // Its ACCUMULATOR result is indeed dead; its carry is not, and this is
     // the assertion that says so.
     const rom = freshRom()
-    rom.writeAt(selAt(rom, SHELLED, s => s.setBranchYAdjust!.carryShift.scan), [0xEA])
+    rom.writeAt(
+      selAt(rom, SHELLED, s => s.setBranchYAdjust!.carryShift.scan),
+      [0xea],
+    )
     expect(topDy(parts(rom, SHELLED, 1))).toBe(topDy(parts(rom, SHELLED, 0)))
   })
 
@@ -328,19 +378,23 @@ describe.skipIf(!romsPresent)('the bob is the SBC operand plus a carry', () => {
     //          bottom `+$10` below it (bank_01.asm:3948-3952).
     const rom = freshRom(name)
     expect(parts(rom, SHELLESS, 0).map(p => p.dy)).toEqual([0, 0, 8, 8])
-    expect(parts(rom, SHELLED, 0).map(p => p.dy))
-      .toEqual([-16, -16, -8, -8, 0, 0, 8, 8])
+    expect(parts(rom, SHELLED, 0).map(p => p.dy)).toEqual([-16, -16, -8, -8, 0, 0, 8, 8])
     // Frame 1's tile group is 1, so the carry is set and the shift is 15.
-    expect(parts(rom, SHELLED, 1).map(p => p.dy))
-      .toEqual([-15, -15, -7, -7, 1, 1, 9, 9])
+    expect(parts(rom, SHELLED, 1).map(p => p.dy)).toEqual([-15, -15, -7, -7, 1, 1, 9, 9])
   })
 
   it('a planted second LSR A takes the carry from the next bit up', () => {
     const rom = freshRom()
     const at = selAt(rom, SHELLED, s => s.setBranchYAdjust!.carryShift.scan)
     const d = desc(SHELLED)
-    rom.writeAt(at + 1, [0x4A])
-    expect(readShiftCount(rom, d.routineSelect!.setBranchYAdjust!.carryShift, resolveHandlerBase(rom, d))).toBe(2)
+    rom.writeAt(at + 1, [0x4a])
+    expect(
+      readShiftCount(
+        rom,
+        d.routineSelect!.setBranchYAdjust!.carryShift,
+        resolveHandlerBase(rom, d),
+      ),
+    ).toBe(2)
     // Bit 1 of a two-frame walk's tile group is always 0, so the bob stops.
     expect(topDy(parts(rom, SHELLED, 1))).toBe(topDy(parts(rom, SHELLED, 0)))
     // A tile group of 2 or 3 would bob, and forcing frame 3 shows it does.
@@ -355,42 +409,42 @@ describe.skipIf(!romsPresent)('every ref is anchored past the cart pointer', () 
   function relocate(rom: RomFile, id: number, to: number, len = 0x40): void {
     const from = resolveHandlerBase(rom, desc(id))
     rom.writeAt(0x010000 | to, Array.from(rom.readAt(from, len)!))
-    rom.writeAt(SPRITE_MAIN_PTR_TABLE + id * 2, [to & 0xFF, (to >> 8) & 0xFF])
+    rom.writeAt(SPRITE_MAIN_PTR_TABLE + id * 2, [to & 0xff, (to >> 8) & 0xff])
   }
 
   it('a relocated ShellessKoopas still renders identically', () => {
     const rom = freshRom()
     const before = poseKey(parts(rom, SHELLESS, 1))
     // $01:E800 is inside `Return01F87B`'s bank and unused by any descriptor.
-    relocate(rom, SHELLESS, 0xE800)
+    relocate(rom, SHELLESS, 0xe800)
     expect(poseKey(parts(rom, SHELLESS, 1))).toBe(before)
   })
 
   it('after relocation the OLD location is no longer read', () => {
     const rom = freshRom()
-    const original = resolveHandlerBase(rom, desc(SHELLESS)) & 0xFFFF
-    relocate(rom, SHELLESS, 0xE800)
+    const original = resolveHandlerBase(rom, desc(SHELLESS)) & 0xffff
+    relocate(rom, SHELLESS, 0xe800)
     const before = poseKey(parts(rom, SHELLESS, 1))
     // Wreck the `JSR SetAnimationFrame` at the ABANDONED address. If the
     // engine still anchored there, the animation would stop resolving.
-    rom.writeAt(0x010000 | (original + 0x0F), [0xEA])
+    rom.writeAt(0x010000 | (original + 0x0f), [0xea])
     expect(poseKey(parts(rom, SHELLESS, 1))).toBe(before)
   })
 
   it('the JMP hop is followed, not assumed', () => {
     const rom = freshRom()
     const base = resolveHandlerBase(rom, desc(SHELLESS))
-    const hop = rom.readAt(base + 0x2A, 3)!
-    expect(hop[0]).toBe(0x4C)                     // JMP abs, bank_01.asm:1418
+    const hop = rom.readAt(base + 0x2a, 3)!
+    expect(hop[0]).toBe(0x4c) // JMP abs, bank_01.asm:1418
     const target = hop[1] | (hop[2] << 8)
     // Move the three bytes the hop lands three past, then repoint the JMP.
-    const moved = 0xE900
+    const moved = 0xe900
     rom.writeAt(0x010000 | moved, Array.from(rom.readAt(0x010000 | (target + 3), 3)!))
     const before = poseKey(parts(rom, SHELLESS, 1))
-    rom.writeAt(base + 0x2A + 1, [(moved - 3) & 0xFF, ((moved - 3) >> 8) & 0xFF])
+    rom.writeAt(base + 0x2a + 1, [(moved - 3) & 0xff, ((moved - 3) >> 8) & 0xff])
     expect(poseKey(parts(rom, SHELLESS, 1))).toBe(before)
     // And the original site is now irrelevant.
-    rom.writeAt(0x010000 | (target + 3), [0xEA])
+    rom.writeAt(0x010000 | (target + 3), [0xea])
     expect(poseKey(parts(rom, SHELLESS, 1))).toBe(before)
   })
 
@@ -402,17 +456,17 @@ describe.skipIf(!romsPresent)('every ref is anchored past the cart pointer', () 
     // second `JSR`, so no named hop lands on it. This pins the assumption.
     const rom = freshRom(name)
     const base = resolveHandlerBase(rom, desc(SHELLESS))
-    const jmp = rom.readAt(base + 0x2A, 3)!
-    expect(jmp[0]).toBe(0x4C)                                  // JMP abs
+    const jmp = rom.readAt(base + 0x2a, 3)!
+    expect(jmp[0]).toBe(0x4c) // JMP abs
     const target = 0x010000 | (jmp[1] | (jmp[2] << 8))
-    expect(rom.readAt(target, 1)![0]).toBe(0x20)               // JSR SubSprSprInteract
-    expect(rom.readAt(target + 3, 1)![0]).toBe(0x20)           // JSR Spr0to13Gfx
+    expect(rom.readAt(target, 1)![0]).toBe(0x20) // JSR SubSprSprInteract
+    expect(rom.readAt(target + 3, 1)![0]).toBe(0x20) // JSR Spr0to13Gfx
   })
 
   it('a hop through something that is not a JSR or JMP does not resolve', () => {
     const rom = freshRom()
     const base = resolveHandlerBase(rom, desc(SHELLESS))
-    rom.writeAt(base + 0x2A, [0xEA])
+    rom.writeAt(base + 0x2a, [0xea])
     expect(resolveRef(rom, desc(SHELLESS).routineSelect!.maskOperandAddr, base)).toBeNull()
     expect(draw(rom, SHELLESS, 0).ok).toBe(false)
   })
@@ -433,15 +487,31 @@ describe.skipIf(!romsPresent)('every ref is anchored past the cart pointer', () 
  * them in both directions.
  */
 describe.skipIf(!romsPresent)('the wing tail is read, not assumed', () => {
-  const tailAt = (rom: RomFile, id: number, pick: (t: NonNullable<NonNullable<SpriteDrawDescriptor['routineSelect']>['setBranchTailCall']>) => CodeRef) => {
+  const tailAt = (
+    rom: RomFile,
+    id: number,
+    pick: (
+      t: NonNullable<NonNullable<SpriteDrawDescriptor['routineSelect']>['setBranchTailCall']>,
+    ) => CodeRef,
+  ) => {
     const d = desc(id)
     return refAt(rom, pick(d.routineSelect!.setBranchTailCall!), resolveHandlerBase(rom, d))
   }
 
   it.each(ROM_FILES)('%s: the threshold is $08 and the gated call is a JSR', name => {
     const rom = freshRom(name)
-    expect(rom.readAt(tailAt(rom, GOOMBA, t => t.cmpOperandAddr), 1)![0]).toBe(0x08)
-    expect(rom.readAt(tailAt(rom, GOOMBA, t => t.jsrAddr), 1)![0]).toBe(0x20)
+    expect(
+      rom.readAt(
+        tailAt(rom, GOOMBA, t => t.cmpOperandAddr),
+        1,
+      )![0],
+    ).toBe(0x08)
+    expect(
+      rom.readAt(
+        tailAt(rom, GOOMBA, t => t.jsrAddr),
+        1,
+      )![0],
+    ).toBe(0x20)
   })
 
   it('a Goomba given the property bit is DECLINED, not drawn wingless', () => {
@@ -449,13 +519,14 @@ describe.skipIf(!romsPresent)('the wing tail is read, not assumed', () => {
     // ROM draws body PLUS wings; the engine has no kind for the wings and
     // must say so rather than emit the eight clean subtiles of the body.
     const rom = freshRom()
-    expect(parts(rom, GOOMBA, 0)).toHaveLength(4)     // vanilla: 16x16, no wings
-    rom.writeAt(0x0188F0 + GOOMBA, [0x60])            // $20 | $40
+    expect(parts(rom, GOOMBA, 0)).toHaveLength(4) // vanilla: 16x16, no wings
+    rom.writeAt(0x0188f0 + GOOMBA, [0x60]) // $20 | $40
     const r = draw(rom, GOOMBA, 0)
     expect(r.ok).toBe(false)
     if (r.ok) throw new Error('unreachable')
     expect(r.failure).toEqual({
-      kind: 'unmodelledTailCall', spriteId: GOOMBA,
+      kind: 'unmodelledTailCall',
+      spriteId: GOOMBA,
       routineName: 'KoopaWingGfxRt',
       addr: tailAt(rom, GOOMBA, t => t.jsrAddr),
     })
@@ -466,11 +537,11 @@ describe.skipIf(!romsPresent)('the wing tail is read, not assumed', () => {
     // affected, and nothing below it is.
     const rom = freshRom()
     for (const id of [0x11, 0x13]) {
-      rom.writeAt(0x0188F0 + id, [0x60])
+      rom.writeAt(0x0188f0 + id, [0x60])
       expect(draw(rom, id, 0).ok, `$${id.toString(16)} must decline`).toBe(false)
     }
     for (const id of [0x00, 0x04]) {
-      rom.writeAt(0x0188F0 + id, [0x60])
+      rom.writeAt(0x0188f0 + id, [0x60])
       expect(parts(rom, id, 0), `$${id.toString(16)} must still render`).toHaveLength(8)
     }
   })
@@ -481,7 +552,10 @@ describe.skipIf(!romsPresent)('the wing tail is read, not assumed', () => {
     // byte rather than the vanilla threshold.
     const rom = freshRom()
     expect(parts(rom, SHELLED, 0)).toHaveLength(8)
-    rom.writeAt(tailAt(rom, SHELLED, t => t.cmpOperandAddr), [0x00])
+    rom.writeAt(
+      tailAt(rom, SHELLED, t => t.cmpOperandAddr),
+      [0x00],
+    )
     expect(draw(rom, SHELLED, 0).ok).toBe(false)
   })
 
@@ -490,9 +564,12 @@ describe.skipIf(!romsPresent)('the wing tail is read, not assumed', () => {
     // narrows the gate has REMOVED the wings, and the body is then the whole
     // sprite and safe to draw.
     const rom = freshRom()
-    rom.writeAt(0x0188F0 + GOOMBA, [0x60])
+    rom.writeAt(0x0188f0 + GOOMBA, [0x60])
     expect(draw(rom, GOOMBA, 0).ok).toBe(false)
-    rom.writeAt(tailAt(rom, GOOMBA, t => t.cmpOperandAddr), [0x40])
+    rom.writeAt(
+      tailAt(rom, GOOMBA, t => t.cmpOperandAddr),
+      [0x40],
+    )
     expect(parts(rom, GOOMBA, 0)).toHaveLength(8)
   })
 
@@ -500,9 +577,12 @@ describe.skipIf(!romsPresent)('the wing tail is read, not assumed', () => {
     // The call itself is read, not just its threshold. Removing it removes
     // the reason to decline.
     const rom = freshRom()
-    rom.writeAt(0x0188F0 + GOOMBA, [0x60])
+    rom.writeAt(0x0188f0 + GOOMBA, [0x60])
     expect(draw(rom, GOOMBA, 0).ok).toBe(false)
-    rom.writeAt(tailAt(rom, GOOMBA, t => t.jsrAddr), [0xEA])
+    rom.writeAt(
+      tailAt(rom, GOOMBA, t => t.jsrAddr),
+      [0xea],
+    )
     expect(parts(rom, GOOMBA, 0)).toHaveLength(8)
   })
 
@@ -510,7 +590,10 @@ describe.skipIf(!romsPresent)('the wing tail is read, not assumed', () => {
     // `BRA +` at bank_01.asm:1767 jumps past the wing call, so a 16x16
     // Goomba is unaffected by the gate even at #$00.
     const rom = freshRom()
-    rom.writeAt(tailAt(rom, GOOMBA, t => t.cmpOperandAddr), [0x00])
+    rom.writeAt(
+      tailAt(rom, GOOMBA, t => t.cmpOperandAddr),
+      [0x00],
+    )
     expect(parts(rom, GOOMBA, 0)).toHaveLength(4)
   })
 })

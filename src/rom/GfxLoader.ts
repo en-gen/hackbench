@@ -30,23 +30,23 @@ import { hex2 } from './hex'
 // ── GFX pointer tables (bank_00.asm lines 6415-6569) ──────────────────────────
 // Split lo/hi/bank byte tables, one byte per GFX file.
 // GFXFilesLow at $00B992, GFXFilesHigh at $00B9C4, GFXFilesBank at $00B9F6.
-export const GFX_PTR_LO   = 0x00B992   // bank_00.asm line 6415
-export const GFX_PTR_HI   = 0x00B9C4   // bank_00.asm line 6467
-export const GFX_PTR_BANK = 0x00B9F6   // bank_00.asm line 6519
+export const GFX_PTR_LO = 0x00b992 // bank_00.asm line 6415
+export const GFX_PTR_HI = 0x00b9c4 // bank_00.asm line 6467
+export const GFX_PTR_BANK = 0x00b9f6 // bank_00.asm line 6519
 
 // Number of GFX files = gap between lo and hi tables
 // $B9C4 - $B992 = $32 = 50 entries (GFX00-GFX31 hex)
-export const GFX_FILE_COUNT = GFX_PTR_HI - GFX_PTR_LO  // 50
+export const GFX_FILE_COUNT = GFX_PTR_HI - GFX_PTR_LO // 50
 
-export const GFX_TILES = 128  // tiles per standard file
+export const GFX_TILES = 128 // tiles per standard file
 
-// ── Layer 3 GFX (2BPP) — CODE_00A993 (bank_00.asm line 5287) ────────────────
+// ── Layer 3 GFX (2BPP) - CODE_00A993 (bank_00.asm line 5287) ────────────────
 // The Layer 3 upload routine loads a contiguous range of GFX files as raw 2BPP
 // (no 3→4bpp conversion). The start index and count are immediate operands:
 //   $A99B: LDA #$03   → count-1 (operand at $A99C)
 //   $A99F: LDA #$28   → start file index (operand at $A9A0)
-const L3_GFX_COUNT_ADDR = 0x00A99C  // immediate byte: count - 1
-const L3_GFX_START_ADDR = 0x00A9A0  // immediate byte: starting file index
+const L3_GFX_COUNT_ADDR = 0x00a99c // immediate byte: count - 1
+const L3_GFX_START_ADDR = 0x00a9a0 // immediate byte: starting file index
 
 /**
  * Read the Layer 3 GFX file range from CODE_00A993.
@@ -61,19 +61,19 @@ export function getLayer3GfxRange(rom: RomFile): { start: number; end: number } 
 // GFX20 hex (decimal 32) = Mario/Luigi sprites
 // bank_00.asm line 5407: LDY #$31 (special world variant)
 // bank_00.asm lines 5426-5431: GfxBppConvertFlag set for Y=$01 or Y=$17
-export const GFX_MARIO_3BPP_INDEX = 32  // 0x20 hex
+export const GFX_MARIO_3BPP_INDEX = 32 // 0x20 hex
 
 // GFX20/GFX21 are static, always loaded into AN2/BG1
 // bank_00.asm line 6247-6248: dl GFX33&$7FFFFF / dl GFX32&$7FFFFF
-export const GFX_STATIC_INDEX = 32  // GFX20 hex
+export const GFX_STATIC_INDEX = 32 // GFX20 hex
 
 const GFX_MAX_COMPRESSED = 0x2000
 
 // ── GFX assignment tables (bank_00.asm) ───────────────────────────────────────
 // SPRITEGFXLIST at $00A8C3 (line 5232): 4 bytes per sprite set
 // OBJECTGFXLIST at $00A92B (line 5259): 4 bytes per tileset
-export const GFX_SPRITE_TABLE  = 0x00A8C3   // bank_00.asm line 5232
-export const GFX_FGBG_TABLE    = 0x00A92B   // bank_00.asm line 5259
+export const GFX_SPRITE_TABLE = 0x00a8c3 // bank_00.asm line 5232
+export const GFX_FGBG_TABLE = 0x00a92b // bank_00.asm line 5259
 export const GFX_BYTES_PER_SET = 4
 
 // VRAM upload addresses from DATA_00A9D2/DATA_00A9D6 (bank_00.asm lines 5320-5323):
@@ -87,11 +87,8 @@ export const GFX_BYTES_PER_SET = 4
  * OBJ slots (sp1-sp4): loaded from SPRITEGFXLIST, chars $400-$5FF
  * GFX32/33 (Mario + animated) are DMA'd to OBJ space at runtime by MarioGFXDMA.
  */
-export const VRAM_SLOT_NAMES = [
-  'sp1', 'sp2', 'sp3', 'sp4',
-  'fg1', 'fg2', 'fg3', 'an1',
-] as const
-export type VramSlotName = typeof VRAM_SLOT_NAMES[number]
+export const VRAM_SLOT_NAMES = ['sp1', 'sp2', 'sp3', 'sp4', 'fg1', 'fg2', 'fg3', 'an1'] as const
+export type VramSlotName = (typeof VRAM_SLOT_NAMES)[number]
 
 /**
  * Character number base for each VRAM slot.
@@ -107,17 +104,17 @@ export type VramSlotName = typeof VRAM_SLOT_NAMES[number]
  */
 // VRAM layout from rammap.asm lines 2286-2306:
 //   BG space ($0000-$1FFF): character tiles for Layer 1/2
-//     $0000: VRam_GFX_FG1 (2048B = 128 tiles)  — OBJECTGFXLIST byte[0]
-//     $0800: VRam_GFX_FG2 (2048B)               — OBJECTGFXLIST byte[1]
-//     $1000: VRam_GFX_BG1 (2048B)               — OBJECTGFXLIST byte[2]
-//     $1800: VRam_GFX_FG3 (2048B)               — OBJECTGFXLIST byte[3]
+//     $0000: VRam_GFX_FG1 (2048B = 128 tiles)  - OBJECTGFXLIST byte[0]
+//     $0800: VRam_GFX_FG2 (2048B)               - OBJECTGFXLIST byte[1]
+//     $1000: VRam_GFX_BG1 (2048B)               - OBJECTGFXLIST byte[2]
+//     $1800: VRam_GFX_FG3 (2048B)               - OBJECTGFXLIST byte[3]
 //   Tilemaps ($2000-$3FFF): L1+L2 tilemaps (not tile graphics)
 //   Layer 3 ($4000-$5FFF): L3 tiles + tilemaps
 //   OBJ space ($6000-$7FFF): sprite character tiles
-//     $6000: VRam_GFX_SP1 (2048B)  — SPRITEGFXLIST byte[0]
-//     $6800: VRam_GFX_SP2 (2048B)  — SPRITEGFXLIST byte[1]
-//     $7000: VRam_GFX_SP3 (2048B)  — SPRITEGFXLIST byte[2]
-//     $7800: VRam_GFX_SP4 (2048B)  — SPRITEGFXLIST byte[3]
+//     $6000: VRam_GFX_SP1 (2048B)  - SPRITEGFXLIST byte[0]
+//     $6800: VRam_GFX_SP2 (2048B)  - SPRITEGFXLIST byte[1]
+//     $7000: VRam_GFX_SP3 (2048B)  - SPRITEGFXLIST byte[2]
+//     $7800: VRam_GFX_SP4 (2048B)  - SPRITEGFXLIST byte[3]
 //   MarioGFXDMA (bank_00.asm line 4580): GFX32 → VRAM $6000 (overlaps SP1/SP2)
 //
 // BG char number = VRAM word address / 16 (each 4bpp tile = 16 words = 32 bytes)
@@ -130,14 +127,14 @@ export type VramSlotName = typeof VRAM_SLOT_NAMES[number]
 //   Pages 0x02-0x03: Tilemaps (blank in tile viewer)
 //   Pages 0x04-0x05: OBJ chars (VRAM $6000-$7FFF, displayed as chars $400-$5FF)
 export const VRAM_CHAR_BASE: Record<VramSlotName, number> = {
-  fg1: 0x000,   // VRAM $0000 — BG char $000-$07F
-  fg2: 0x080,   // VRAM $0800 — BG char $080-$0FF
-  fg3: 0x100,   // VRAM $1000 — BG char $100-$17F (rammap: VRam_GFX_BG1)
-  an1: 0x180,   // VRAM $1800 — BG char $180-$1FF (rammap: VRam_GFX_FG3)
-  sp1: 0x400,   // VRAM $6000 — OBJ char $400-$47F (viewer page 0x04)
-  sp2: 0x480,   // VRAM $6800 — OBJ char $480-$4FF
-  sp3: 0x500,   // VRAM $7000 — OBJ char $500-$57F
-  sp4: 0x580,   // VRAM $7800 — OBJ char $580-$5FF
+  fg1: 0x000, // VRAM $0000 - BG char $000-$07F
+  fg2: 0x080, // VRAM $0800 - BG char $080-$0FF
+  fg3: 0x100, // VRAM $1000 - BG char $100-$17F (rammap: VRam_GFX_BG1)
+  an1: 0x180, // VRAM $1800 - BG char $180-$1FF (rammap: VRam_GFX_FG3)
+  sp1: 0x400, // VRAM $6000 - OBJ char $400-$47F (viewer page 0x04)
+  sp2: 0x480, // VRAM $6800 - OBJ char $480-$4FF
+  sp3: 0x500, // VRAM $7000 - OBJ char $500-$57F
+  sp4: 0x580, // VRAM $7800 - OBJ char $580-$5FF
 }
 
 /** Decoded GFX sheet: N tiles x 64 palette indices each. */
@@ -161,7 +158,11 @@ export function loadGfxFileBin(binDir: string, fileIndex: number): GfxSheet | nu
   const p = gfxBinPath(binDir, fileIndex)
   if (!fs.existsSync(p)) return null
   let data: Buffer
-  try { data = fs.readFileSync(p) } catch { return null }
+  try {
+    data = fs.readFileSync(p)
+  } catch {
+    return null
+  }
   if (data.length === 0 || data.length % 32 !== 0) return null
   const count = data.length / 32
   const sheet: GfxSheet = []
@@ -180,9 +181,9 @@ export function loadGfxFileBin(binDir: string, fileIndex: number): GfxSheet | nu
  */
 function getGfxFileAddress(rom: RomFile, fileIndex: number): number | null {
   if (fileIndex >= GFX_FILE_COUNT) return null
-  const lo   = rom.readByte(GFX_PTR_LO   + fileIndex)
-  const hi   = rom.readByte(GFX_PTR_HI   + fileIndex)
-  const bank = rom.readByte(GFX_PTR_BANK  + fileIndex)
+  const lo = rom.readByte(GFX_PTR_LO + fileIndex)
+  const hi = rom.readByte(GFX_PTR_HI + fileIndex)
+  const bank = rom.readByte(GFX_PTR_BANK + fileIndex)
   if (lo === null || hi === null || bank === null) return null
   return (bank << 16) | (hi << 8) | lo
 }
@@ -221,7 +222,7 @@ export function loadGfxFile(rom: RomFile, fileIndex: number): GfxSheet {
   const data = loadGfxRaw(rom, fileIndex)
   if (data.length === 0) return _emptySheet(GFX_TILES)
 
-  // Layer 3 files are always 2BPP — range read from CODE_00A993 operands
+  // Layer 3 files are always 2BPP - range read from CODE_00A993 operands
   const l3 = getLayer3GfxRange(rom)
   if (fileIndex >= l3.start && fileIndex <= l3.end && data.length % 16 === 0) {
     const count = data.length / 16
@@ -278,8 +279,8 @@ export function readGfxAssignment(
   tilesetId: number,
   spriteSet: number,
 ): Partial<Record<VramSlotName, number>> {
-  const fgBuf = rom.readAt(GFX_FGBG_TABLE   + tilesetId * GFX_BYTES_PER_SET, GFX_BYTES_PER_SET)
-  const spBuf = rom.readAt(GFX_SPRITE_TABLE  + spriteSet * GFX_BYTES_PER_SET, GFX_BYTES_PER_SET)
+  const fgBuf = rom.readAt(GFX_FGBG_TABLE + tilesetId * GFX_BYTES_PER_SET, GFX_BYTES_PER_SET)
+  const spBuf = rom.readAt(GFX_SPRITE_TABLE + spriteSet * GFX_BYTES_PER_SET, GFX_BYTES_PER_SET)
 
   // UploadSpriteGFX (bank_00.asm lines 5360-5389):
   //   Load loop (lines 5360-5369):
@@ -295,14 +296,14 @@ export function readGfxAssignment(
   //   Two reverses cancel out → FORWARD order: byte[0]→FG1, byte[1]→FG2, etc.
   //   Same for sprites with DATA_00A9D2 = {$78,$70,$68,$60}
   return {
-    fg1: fgBuf?.[0] ?? 0,   // byte[0] → VRAM $0000 (FG1)
-    fg2: fgBuf?.[1] ?? 0,   // byte[1] → VRAM $0800 (FG2)
-    fg3: fgBuf?.[2] ?? 0,   // byte[2] → VRAM $1000 (FG3)
-    an1: fgBuf?.[3] ?? 0,   // byte[3] → VRAM $1800 (AN1)
-    sp1: spBuf?.[0] ?? 0,   // byte[0] → VRAM $6000 (SP1)
-    sp2: spBuf?.[1] ?? 0,   // byte[1] → VRAM $6800 (SP2)
-    sp3: spBuf?.[2] ?? 0,   // byte[2] → VRAM $7000 (SP3)
-    sp4: spBuf?.[3] ?? 0,   // byte[3] → VRAM $7800 (SP4)
+    fg1: fgBuf?.[0] ?? 0, // byte[0] → VRAM $0000 (FG1)
+    fg2: fgBuf?.[1] ?? 0, // byte[1] → VRAM $0800 (FG2)
+    fg3: fgBuf?.[2] ?? 0, // byte[2] → VRAM $1000 (FG3)
+    an1: fgBuf?.[3] ?? 0, // byte[3] → VRAM $1800 (AN1)
+    sp1: spBuf?.[0] ?? 0, // byte[0] → VRAM $6000 (SP1)
+    sp2: spBuf?.[1] ?? 0, // byte[1] → VRAM $6800 (SP2)
+    sp3: spBuf?.[2] ?? 0, // byte[2] → VRAM $7000 (SP3)
+    sp4: spBuf?.[3] ?? 0, // byte[3] → VRAM $7800 (SP4)
   }
 }
 
@@ -333,7 +334,7 @@ export function readGfxAssignment(
 // `$1E`) and the FG3 slot in OW (file `$08`, since OW ObjectTileset is
 // `$11`-`$17`). A hack that swaps either file index into a level slot or
 // promotes a level tileset to ≥$11 would re-trigger the path on hardware
-// — and this emulation flows through automatically because we read the
+// - and this emulation flows through automatically because we read the
 // file index out of `OBJECTGFXLIST` and the tileset out of the level
 // header / `DATA_04DC02`.
 
@@ -343,7 +344,7 @@ export function readGfxAssignment(
  * trigger conditions.
  */
 export function isFilterSomeRamFile(fileIndex: number, objectTileset: number): boolean {
-  if (fileIndex === 0x1E) return true
+  if (fileIndex === 0x1e) return true
   if (fileIndex === 0x08 && objectTileset >= 0x11) return true
   return false
 }
@@ -395,7 +396,7 @@ export function loadVram(rom: RomFile, tilesetId: number, spriteSet = 0): VramSt
   // GFX32 (Mario) and GFX33 (animated base) are loaded into OBJ VRAM $6000+
   // by MarioGFXDMA (bank_00.asm line 4580), not into BG char space.
   // They overlap with SP1/SP2 in the OBJ tile region.
-  // For now we don't load them separately — the sprite slots already cover that range.
+  // For now we don't load them separately - the sprite slots already cover that range.
   return vram
 }
 
@@ -406,7 +407,7 @@ export function loadVram(rom: RomFile, tilesetId: number, spriteSet = 0): VramSt
  */
 export function getCharPixels(vram: VramState, charNum: number): Uint8Array | null {
   for (const slot of VRAM_SLOT_NAMES) {
-    const base  = VRAM_CHAR_BASE[slot]
+    const base = VRAM_CHAR_BASE[slot]
     const sheet = vram[slot]
     if (!sheet) continue
     if (charNum >= base && charNum < base + sheet.length) {

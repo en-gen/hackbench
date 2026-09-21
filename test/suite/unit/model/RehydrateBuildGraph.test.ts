@@ -1,5 +1,5 @@
 /**
- * rehydrate.ts buildGraph — branch coverage.
+ * rehydrate.ts buildGraph - branch coverage.
  *
  * Test tree:
  *   bgTiles
@@ -42,20 +42,24 @@ import { NO_COLLISION } from '../../../../src/rom/model/tiles/TileCollision'
 
 const STATIC_COLOR: ColorDescriptor = { kind: 'static', value: { r: 0, g: 0, b: 0, a: 255 } }
 
-/** 16×16 palette grid — minimal valid PaletteDescriptor */
+/** 16×16 palette grid - minimal valid PaletteDescriptor */
 const PALETTE_DESC: PaletteDescriptor = {
-  cells: Array.from({ length: 16 }, () =>
-    Array.from({ length: 16 }, () => STATIC_COLOR),
-  ),
+  cells: Array.from({ length: 16 }, () => Array.from({ length: 16 }, () => STATIC_COLOR)),
   backAreaColor: STATIC_COLOR,
 }
 
-const ST: SubTileDescriptor = { charNum: 0, palette: 0, flipX: false, flipY: false, priority: false }
+const ST: SubTileDescriptor = {
+  charNum: 0,
+  palette: 0,
+  flipX: false,
+  flipY: false,
+  priority: false,
+}
 const QUAD = [ST, ST, ST, ST] as unknown as SubtileQuadDescriptor
 
 const TILE: TileDescriptor = { kind: 'static', quad: QUAD, actsLike: 0, collision: NO_COLLISION }
 
-/** Minimal char descriptor — static with 64 zero-valued pixels. */
+/** Minimal char descriptor - static with 64 zero-valued pixels. */
 const CHAR_STATIC = { kind: 'static' as const, pixels: Array(64).fill(0) }
 
 /** Minimal valid LevelHeaderDescriptor with marioStartPx present. */
@@ -97,7 +101,10 @@ function makeBasePayload(overrides: Partial<MapPayload> = {}): MapPayload {
     chars: { 0: CHAR_STATIC },
     tiles: { 0: TILE },
     palette: PALETTE_DESC,
-    layout: [[0, null], [null, 0]],
+    layout: [
+      [0, null],
+      [null, 0],
+    ],
     l2: null,
     sprites: [] as readonly SpriteDescriptor[],
     tileset: 0,
@@ -110,18 +117,18 @@ function makeBasePayload(overrides: Partial<MapPayload> = {}): MapPayload {
 
 // ── bgTiles ───────────────────────────────────────────────────────────────────
 
-describe('buildGraph — bgTiles absent', () => {
+describe('buildGraph - bgTiles absent', () => {
   it('returns empty bgTiles map when bgTiles key is not in payload', () => {
-    // Covers: if (payload.bgTiles) — false branch
-    const payload = makeBasePayload()       // no bgTiles key
+    // Covers: if (payload.bgTiles) - false branch
+    const payload = makeBasePayload() // no bgTiles key
     const { bgTiles } = buildGraph(payload)
     expect(bgTiles.size).toBe(0)
   })
 })
 
-describe('buildGraph — bgTiles present', () => {
+describe('buildGraph - bgTiles present', () => {
   it('populates bgTiles map when bgTiles is defined', () => {
-    // Covers: if (payload.bgTiles) — true branch + inner loop
+    // Covers: if (payload.bgTiles) - true branch + inner loop
     const payload = makeBasePayload({
       bgTiles: { 5: TILE },
     })
@@ -133,18 +140,18 @@ describe('buildGraph — bgTiles present', () => {
 
 // ── scrollSim ─────────────────────────────────────────────────────────────────
 
-describe('buildGraph — scrollSim null', () => {
+describe('buildGraph - scrollSim null', () => {
   it('builds map without scroll simulator when scrollSim is null', () => {
-    // Covers: payload.scrollSim ? ... : null — false branch (null result)
+    // Covers: payload.scrollSim ? ... : null - false branch (null result)
     const payload = makeBasePayload({ scrollSim: null })
     const { map } = buildGraph(payload)
     expect(map).toBeDefined()
   })
 })
 
-describe('buildGraph — scrollSim defined', () => {
+describe('buildGraph - scrollSim defined', () => {
   it('calls buildScrollSimulator when scrollSim seed is provided', () => {
-    // Covers: payload.scrollSim ? buildScrollSimulator(...) : null — true branch
+    // Covers: payload.scrollSim ? buildScrollSimulator(...) : null - true branch
     const payload = makeBasePayload({ scrollSim: SCROLL_SEED })
     const { map } = buildGraph(payload)
     expect(map).toBeDefined()
@@ -153,9 +160,9 @@ describe('buildGraph — scrollSim defined', () => {
 
 // ── marioStartPx ─────────────────────────────────────────────────────────────
 
-describe('buildGraph — marioStartPx defined', () => {
+describe('buildGraph - marioStartPx defined', () => {
   it('uses marioStartPx.x when present (??-left side branch)', () => {
-    // Covers: payload.header.marioStartPx?.x ?? 0 — left side (defined value)
+    // Covers: payload.header.marioStartPx?.x ?? 0 - left side (defined value)
     const payload = makeBasePayload({
       header: makeHeader({ marioStartPx: { x: 72, y: 200 } }),
     })
@@ -165,9 +172,9 @@ describe('buildGraph — marioStartPx defined', () => {
   })
 })
 
-describe('buildGraph — marioStartPx undefined', () => {
+describe('buildGraph - marioStartPx undefined', () => {
   it('falls back to 0 when marioStartPx is absent (??-right side branch)', () => {
-    // Covers: payload.header.marioStartPx?.x ?? 0 — right side (?? fires)
+    // Covers: payload.header.marioStartPx?.x ?? 0 - right side (?? fires)
     const header = { ...makeHeader(), marioStartPx: undefined } as any
     const payload = makeBasePayload({ header })
     const { map } = buildGraph(payload)
@@ -177,21 +184,24 @@ describe('buildGraph — marioStartPx undefined', () => {
 
 // ── buildL2 ───────────────────────────────────────────────────────────────────
 
-describe('buildGraph — l2 null', () => {
+describe('buildGraph - l2 null', () => {
   it('builds map with no L2 layer when l2 descriptor is null', () => {
-    // Covers: buildL2 if (!desc) return null — true branch
+    // Covers: buildL2 if (!desc) return null - true branch
     const { map } = buildGraph(makeBasePayload({ l2: null }))
     expect(map).toBeDefined()
   })
 })
 
-describe('buildGraph — l2 kind=preset', () => {
+describe('buildGraph - l2 kind=preset', () => {
   it('builds L2Preset when l2.kind is preset', () => {
-    // Covers: buildL2 if (desc.kind === 'preset') — true branch
+    // Covers: buildL2 if (desc.kind === 'preset') - true branch
     const l2: L2Descriptor = {
       kind: 'preset',
       page: 0,
-      layout: [[0, null], [null, 0]],
+      layout: [
+        [0, null],
+        [null, 0],
+      ],
     }
     const payload = makeBasePayload({
       bgTiles: { 0: TILE },
@@ -202,10 +212,10 @@ describe('buildGraph — l2 kind=preset', () => {
   })
 })
 
-describe('buildGraph — l2 kind=objectStream', () => {
+describe('buildGraph - l2 kind=objectStream', () => {
   it('builds L2ObjectStream from object-stream descriptor', () => {
     // Covers: buildL2 objectStream path with paletteOrMask present
-    //   desc.paletteOrMask ?? 0 — left side (0 is not null/undefined)
+    //   desc.paletteOrMask ?? 0 - left side (0 is not null/undefined)
     const l2: L2Descriptor = {
       kind: 'objectStream',
       layout: [[0, null]],
@@ -220,10 +230,10 @@ describe('buildGraph — l2 kind=objectStream', () => {
 
 // ── buildL3 ───────────────────────────────────────────────────────────────────
 
-describe('buildGraph — l3 absent', () => {
+describe('buildGraph - l3 absent', () => {
   it('builds map with no L3 when l3 is undefined', () => {
-    // Covers: buildL3(payload.l3 ?? null) — ?? fires (undefined), buildL3(!desc) true branch
-    const payload = makeBasePayload()   // l3 key absent
+    // Covers: buildL3(payload.l3 ?? null) - ?? fires (undefined), buildL3(!desc) true branch
+    const payload = makeBasePayload() // l3 key absent
     const { map } = buildGraph(payload)
     expect(map).toBeDefined()
   })
@@ -242,41 +252,41 @@ function makeL3Desc(sparseChars = false): L3Descriptor {
     tilemap: Array(4096).fill(0),
     // 512 entries: 4 sheets × 128 tiles. Each entry is 64 pixel indices.
     chars: sparseChars
-      // Empty outer array — desc.chars[idx] is always undefined → falsy pixels branch.
-      ? []
-      // All 512 slots filled with 64 zero-valued pixels → truthy pixels branch.
-      : Array.from({ length: 512 }, () => Array(64).fill(0)),
+      ? // Empty outer array - desc.chars[idx] is always undefined → falsy pixels branch.
+        []
+      : // All 512 slots filled with 64 zero-valued pixels → truthy pixels branch.
+        Array.from({ length: 512 }, () => Array(64).fill(0)),
     initialYPx: 0,
     levelPixelW: 256,
     levelPixelH: 432,
   }
 }
 
-describe('buildGraph — l3 with all chars populated', () => {
+describe('buildGraph - l3 with all chars populated', () => {
   it('wraps each char pixel array (pixels truthy branch)', () => {
-    // Covers: buildL3 inner loop → pixels ? new Uint8Array(pixels) : ... — true branch
+    // Covers: buildL3 inner loop → pixels ? new Uint8Array(pixels) : ... - true branch
     const payload = makeBasePayload({ l3: makeL3Desc(false) })
     const { map } = buildGraph(payload)
     expect(map).toBeDefined()
   })
 })
 
-describe('buildGraph — l3 with sparse/empty chars array', () => {
+describe('buildGraph - l3 with sparse/empty chars array', () => {
   it('uses zero-filled Uint8Array(64) for missing char slots (pixels falsy branch)', () => {
-    // Covers: buildL3 inner loop → pixels ? ... : new Uint8Array(64) — false branch
+    // Covers: buildL3 inner loop → pixels ? ... : new Uint8Array(64) - false branch
     const payload = makeBasePayload({ l3: makeL3Desc(true) })
     const { map } = buildGraph(payload)
     expect(map).toBeDefined()
   })
 })
 
-// ── tiles loop — ?? right-side branches ──────────────────────────────────────
+// ── tiles loop - ?? right-side branches ──────────────────────────────────────
 
-describe('buildGraph — tile descriptor missing actsLike and collision', () => {
+describe('buildGraph - tile descriptor missing actsLike and collision', () => {
   it('falls back to id for actsLike and NO_COLLISION when fields absent (?? right-side branches)', () => {
     // TILE always carries actsLike:0 and collision:NO_COLLISION, so their ??
     // operators always take the left branch.  Use a descriptor that omits
-    // both fields — V8 then takes the right branch for both expressions:
+    // both fields - V8 then takes the right branch for both expressions:
     //   desc.actsLike   ?? id          → id
     //   desc.collision  ?? NO_COLLISION → NO_COLLISION
     const tileNoMeta = { kind: 'static', quad: QUAD } as any
@@ -286,7 +296,7 @@ describe('buildGraph — tile descriptor missing actsLike and collision', () => 
   })
 })
 
-describe('buildGraph — bgTile descriptor missing actsLike and collision', () => {
+describe('buildGraph - bgTile descriptor missing actsLike and collision', () => {
   it('falls back to id and NO_COLLISION for bgTiles (?? right-side branches)', () => {
     // Same as the tiles test above but exercises the bgTiles loop:
     //   td.actsLike   ?? id          → id
@@ -298,9 +308,9 @@ describe('buildGraph — bgTile descriptor missing actsLike and collision', () =
   })
 })
 
-// ── buildL2 — paletteOrMask ?? right-side branches ───────────────────────────
+// ── buildL2 - paletteOrMask ?? right-side branches ───────────────────────────
 
-describe('buildGraph — l2 objectStream with paletteOrMask absent', () => {
+describe('buildGraph - l2 objectStream with paletteOrMask absent', () => {
   it('falls back to 0 for paletteOrMask when field is absent (?? right-side branches)', () => {
     // The two existing objectStream tests always supply `paletteOrMask: 0`,
     // so the left side of `desc.paletteOrMask ?? 0` fires (0 ≠ null/undefined).

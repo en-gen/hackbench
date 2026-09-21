@@ -16,7 +16,7 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  *   SubHorizPos Y = 1 → Mario is left of sprite           → no flip, topDx = -8
  *
  * Sprite $31 (Bony Beetle) shares the same handler entry but diverts at
- * CODE_03C3DA via CMP #$31 BEQ → GenericSprGfxRt2 — it stays on the
+ * CODE_03C3DA via CMP #$31 BEQ → GenericSprGfxRt2 - it stays on the
  * generic SpriteFactory path.
  *
  * Extends StaticSpriteAppearance → serializes as { kind:'static' }, no
@@ -36,21 +36,24 @@ export class DryBonesAppearance extends StaticSpriteAppearance {
     faceRight: boolean,
   ): DryBonesAppearance {
     const OBJ_BASE = 0x400
-    const flipX    = faceRight
-    const topDx    = faceRight ? 8 : -8
-    const bigTile  = (baseTile: number, bdx: number, bdy: number): SpritePart[] => {
+    const flipX = faceRight
+    const topDx = faceRight ? 8 : -8
+    const bigTile = (baseTile: number, bdx: number, bdy: number): SpritePart[] => {
       // SNES 16×16 OBJ: base N → [N, N+1, N+$10, N+$11] at (0,0),(8,0),(0,8),(8,8).
       // flipX reverses column order AND flips each 8×8.
       const co = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
       return co.map((off, i) => ({
-        char: chars.get(OBJ_BASE + charHigh + ((baseTile + off) & 0x1FF)) ?? placeholder,
-        palette, flipX, flipY: false,
-        dx: bdx + [0, 8, 0, 8][i], dy: bdy + [0, 0, 8, 8][i],
+        char: chars.get(OBJ_BASE + charHigh + ((baseTile + off) & 0x1ff)) ?? placeholder,
+        palette,
+        flipX,
+        flipY: false,
+        dx: bdx + [0, 8, 0, 8][i],
+        dy: bdy + [0, 0, 8, 8][i],
       }))
     }
     const parts: SpritePart[] = [
-      ...bigTile(0x64, topDx, -16),  // top body
-      ...bigTile(0x66, 0,     0),    // bottom body
+      ...bigTile(0x64, topDx, -16), // top body
+      ...bigTile(0x66, 0, 0), // bottom body
     ]
     return new DryBonesAppearance(parts)
   }

@@ -9,8 +9,8 @@ import { staleRomTabs } from '../../../src/romTabs'
  * and the editor cannot resolve its descriptor. `activate` closes them, and
  * this is the selection it closes.
  */
-const tab = (input: unknown): vscode.Tab => ({ input } as vscode.Tab)
-const group = (...tabs: vscode.Tab[]): vscode.TabGroup => ({ tabs } as vscode.TabGroup)
+const tab = (input: unknown): vscode.Tab => ({ input }) as vscode.Tab
+const group = (...tabs: vscode.Tab[]): vscode.TabGroup => ({ tabs }) as vscode.TabGroup
 
 const smwmap = (n: string) => vscode.Uri.parse(`smwrom://vanilla/maps/${n}.smwmap`)
 

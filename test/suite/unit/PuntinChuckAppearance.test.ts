@@ -1,5 +1,5 @@
 /**
- * PuntinChuckAppearance — locks the OAM composition for sprite $97 in the
+ * PuntinChuckAppearance - locks the OAM composition for sprite $97 in the
  * canonical kick wind-up pose ($11 from DATA_02C4B5 in bank_02.asm:9136),
  * verified against a Mesen sprite-inspector dump on level $1F1.
  *
@@ -13,7 +13,7 @@
  *     - football $8A 16x16 at (-20, 0), ballPalette / ballCharHigh, hflip=TRUE
  *   face-right (Mario to chuck's right)
  *     - head +7 and football +20 are simple negations of face-left
- *     - body1 +16 is NOT a negation — sourced from face-doubled DATA_02C909[$2B] = $10
+ *     - body1 +16 is NOT a negation - sourced from face-doubled DATA_02C909[$2B] = $10
  *     - body2 stays at 0 (DATA_02C93D[$2B] = $00; coincidentally symmetric)
  *     - chuck parts gain hflip=true
  *     - football hflip=false (ball travels right; default tile already faces right)
@@ -45,10 +45,10 @@ function buildChars(): Map<number, Char> {
   return map
 }
 
-const BODY_PAL = 13      // OBJ pal 5 → CGRAM row 13 (chuck body)
-const BODY_HIGH = 0x100  // bit 0 of Sprite166EVals[$97] = $0B
-const BALL_PAL = 8       // OBJ pal 0 → CGRAM row 8 (sprite $1B)
-const BALL_HIGH = 0x100  // bit 0 of Sprite166EVals[$1B] = $01
+const BODY_PAL = 13 // OBJ pal 5 → CGRAM row 13 (chuck body)
+const BODY_HIGH = 0x100 // bit 0 of Sprite166EVals[$97] = $0B
+const BALL_PAL = 8 // OBJ pal 0 → CGRAM row 8 (sprite $1B)
+const BALL_HIGH = 0x100 // bit 0 of Sprite166EVals[$1B] = $01
 
 // Helpers for matching SpritePart values without hand-typing flipY false
 // every line.
@@ -56,15 +56,28 @@ type PartShape = { id: number; palette: number; flipX: boolean; dx: number; dy: 
 function shape(id: number, palette: number, flipX: boolean, dx: number, dy: number): PartShape {
   return { id, palette, flipX, dx, dy }
 }
-function partShape(p: { char: Char; palette: number; flipX: boolean; flipY: boolean; dx: number; dy: number }): PartShape {
-  expect(p.flipY).toBe(false)  // none of the chuck/football tiles ever vflip
+function partShape(p: {
+  char: Char
+  palette: number
+  flipX: boolean
+  flipY: boolean
+  dx: number
+  dy: number
+}): PartShape {
+  expect(p.flipY).toBe(false) // none of the chuck/football tiles ever vflip
   return { id: p.char.id, palette: p.palette, flipX: p.flipX, dx: p.dx, dy: p.dy }
 }
 
 describe('PuntinChuckAppearance.fromTables', () => {
-  describe('face-left (Mario to chuck\'s left)', () => {
+  describe("face-left (Mario to chuck's left)", () => {
     const a = PuntinChuckAppearance.fromTables(
-      buildChars(), placeholder, BODY_PAL, BODY_HIGH, BALL_PAL, BALL_HIGH, /*faceRight*/ false,
+      buildChars(),
+      placeholder,
+      BODY_PAL,
+      BODY_HIGH,
+      BALL_PAL,
+      BALL_HIGH,
+      /*faceRight*/ false,
     )
     const parts = a.parts.map(partShape)
 
@@ -76,41 +89,45 @@ describe('PuntinChuckAppearance.fromTables', () => {
       // bigTile face-left order: [$00, $01, $10, $11], dx [0,8,0,8], dy [0,0,8,8]
       expect(parts.slice(0, 4)).toEqual([
         shape(OBJ_BASE + BODY_HIGH + 0x06, BODY_PAL, false, -7, -10),
-        shape(OBJ_BASE + BODY_HIGH + 0x07, BODY_PAL, false,  1, -10),
-        shape(OBJ_BASE + BODY_HIGH + 0x16, BODY_PAL, false, -7,  -2),
-        shape(OBJ_BASE + BODY_HIGH + 0x17, BODY_PAL, false,  1,  -2),
+        shape(OBJ_BASE + BODY_HIGH + 0x07, BODY_PAL, false, 1, -10),
+        shape(OBJ_BASE + BODY_HIGH + 0x16, BODY_PAL, false, -7, -2),
+        shape(OBJ_BASE + BODY_HIGH + 0x17, BODY_PAL, false, 1, -2),
       ])
     })
 
     it('body2 $CC expands to 4 chars at (0, 0)', () => {
       expect(parts.slice(4, 8)).toEqual([
-        shape(OBJ_BASE + BODY_HIGH + 0xCC, BODY_PAL, false, 0, 0),
-        shape(OBJ_BASE + BODY_HIGH + 0xCD, BODY_PAL, false, 8, 0),
-        shape(OBJ_BASE + BODY_HIGH + 0xDC, BODY_PAL, false, 0, 8),
-        shape(OBJ_BASE + BODY_HIGH + 0xDD, BODY_PAL, false, 8, 8),
+        shape(OBJ_BASE + BODY_HIGH + 0xcc, BODY_PAL, false, 0, 0),
+        shape(OBJ_BASE + BODY_HIGH + 0xcd, BODY_PAL, false, 8, 0),
+        shape(OBJ_BASE + BODY_HIGH + 0xdc, BODY_PAL, false, 0, 8),
+        shape(OBJ_BASE + BODY_HIGH + 0xdd, BODY_PAL, false, 8, 8),
       ])
     })
 
-    it('body1 $CB is a single 8x8 tile at (-8, +3) — DATA_02C9F3[$11] = $00', () => {
-      expect(parts[8]).toEqual(
-        shape(OBJ_BASE + BODY_HIGH + 0xCB, BODY_PAL, false, -8, 3),
-      )
+    it('body1 $CB is a single 8x8 tile at (-8, +3) - DATA_02C9F3[$11] = $00', () => {
+      expect(parts[8]).toEqual(shape(OBJ_BASE + BODY_HIGH + 0xcb, BODY_PAL, false, -8, 3))
     })
 
     it('football $8A expands to 4 chars at (-20, 0) hflipped (ball travels left)', () => {
       // bigTile flipX order: [$01, $00, $11, $10], dx [0,8,0,8], dy [0,0,8,8]
       expect(parts.slice(9, 13)).toEqual([
-        shape(OBJ_BASE + BALL_HIGH + 0x8B, BALL_PAL, true, -20, 0),
-        shape(OBJ_BASE + BALL_HIGH + 0x8A, BALL_PAL, true, -12, 0),
-        shape(OBJ_BASE + BALL_HIGH + 0x9B, BALL_PAL, true, -20, 8),
-        shape(OBJ_BASE + BALL_HIGH + 0x9A, BALL_PAL, true, -12, 8),
+        shape(OBJ_BASE + BALL_HIGH + 0x8b, BALL_PAL, true, -20, 0),
+        shape(OBJ_BASE + BALL_HIGH + 0x8a, BALL_PAL, true, -12, 0),
+        shape(OBJ_BASE + BALL_HIGH + 0x9b, BALL_PAL, true, -20, 8),
+        shape(OBJ_BASE + BALL_HIGH + 0x9a, BALL_PAL, true, -12, 8),
       ])
     })
   })
 
-  describe('face-right (Mario to chuck\'s right) — mirror of face-left', () => {
+  describe("face-right (Mario to chuck's right) - mirror of face-left", () => {
     const a = PuntinChuckAppearance.fromTables(
-      buildChars(), placeholder, BODY_PAL, BODY_HIGH, BALL_PAL, BALL_HIGH, /*faceRight*/ true,
+      buildChars(),
+      placeholder,
+      BODY_PAL,
+      BODY_HIGH,
+      BALL_PAL,
+      BALL_HIGH,
+      /*faceRight*/ true,
     )
     const parts = a.parts.map(partShape)
 
@@ -121,35 +138,33 @@ describe('PuntinChuckAppearance.fromTables', () => {
     it('head mirrors to (+7, -10) with hflip on each big-tile cell', () => {
       // bigTile flipX order: [$01, $00, $11, $10]
       expect(parts.slice(0, 4)).toEqual([
-        shape(OBJ_BASE + BODY_HIGH + 0x07, BODY_PAL, true,  7, -10),
+        shape(OBJ_BASE + BODY_HIGH + 0x07, BODY_PAL, true, 7, -10),
         shape(OBJ_BASE + BODY_HIGH + 0x06, BODY_PAL, true, 15, -10),
-        shape(OBJ_BASE + BODY_HIGH + 0x17, BODY_PAL, true,  7,  -2),
-        shape(OBJ_BASE + BODY_HIGH + 0x16, BODY_PAL, true, 15,  -2),
+        shape(OBJ_BASE + BODY_HIGH + 0x17, BODY_PAL, true, 7, -2),
+        shape(OBJ_BASE + BODY_HIGH + 0x16, BODY_PAL, true, 15, -2),
       ])
     })
 
-    it('body2 stays at (0, 0) — bdx is symmetric — but tiles flip', () => {
+    it('body2 stays at (0, 0) - bdx is symmetric - but tiles flip', () => {
       expect(parts.slice(4, 8)).toEqual([
-        shape(OBJ_BASE + BODY_HIGH + 0xCD, BODY_PAL, true, 0, 0),
-        shape(OBJ_BASE + BODY_HIGH + 0xCC, BODY_PAL, true, 8, 0),
-        shape(OBJ_BASE + BODY_HIGH + 0xDD, BODY_PAL, true, 0, 8),
-        shape(OBJ_BASE + BODY_HIGH + 0xDC, BODY_PAL, true, 8, 8),
+        shape(OBJ_BASE + BODY_HIGH + 0xcd, BODY_PAL, true, 0, 0),
+        shape(OBJ_BASE + BODY_HIGH + 0xcc, BODY_PAL, true, 8, 0),
+        shape(OBJ_BASE + BODY_HIGH + 0xdd, BODY_PAL, true, 0, 8),
+        shape(OBJ_BASE + BODY_HIGH + 0xdc, BODY_PAL, true, 8, 8),
       ])
     })
 
-    it('body1 face-right dx=+16 (not simple mirror) — DATA_02C909[$2B] = $10', () => {
-      expect(parts[8]).toEqual(
-        shape(OBJ_BASE + BODY_HIGH + 0xCB, BODY_PAL, true, 16, 3),
-      )
+    it('body1 face-right dx=+16 (not simple mirror) - DATA_02C909[$2B] = $10', () => {
+      expect(parts[8]).toEqual(shape(OBJ_BASE + BODY_HIGH + 0xcb, BODY_PAL, true, 16, 3))
     })
 
     it('football mirrors to (+20, 0) with hflip OFF (ball travels right)', () => {
       // bigTile no-flip order: [$00, $01, $10, $11]
       expect(parts.slice(9, 13)).toEqual([
-        shape(OBJ_BASE + BALL_HIGH + 0x8A, BALL_PAL, false, 20, 0),
-        shape(OBJ_BASE + BALL_HIGH + 0x8B, BALL_PAL, false, 28, 0),
-        shape(OBJ_BASE + BALL_HIGH + 0x9A, BALL_PAL, false, 20, 8),
-        shape(OBJ_BASE + BALL_HIGH + 0x9B, BALL_PAL, false, 28, 8),
+        shape(OBJ_BASE + BALL_HIGH + 0x8a, BALL_PAL, false, 20, 0),
+        shape(OBJ_BASE + BALL_HIGH + 0x8b, BALL_PAL, false, 28, 0),
+        shape(OBJ_BASE + BALL_HIGH + 0x9a, BALL_PAL, false, 20, 8),
+        shape(OBJ_BASE + BALL_HIGH + 0x9b, BALL_PAL, false, 28, 8),
       ])
     })
   })
@@ -158,9 +173,12 @@ describe('PuntinChuckAppearance.fromTables', () => {
     it('chuck parts use bodyPalette/bodyCharHigh; football uses ballPalette/ballCharHigh', () => {
       // Pick deliberately different values so the assertion catches any swap.
       const a = PuntinChuckAppearance.fromTables(
-        buildChars(), placeholder,
-        /*bodyPalette*/ 13, /*bodyCharHigh*/ 0x100,
-        /*ballPalette*/  8, /*ballCharHigh*/ 0x000,  // force ball into low-page so charHigh diverges
+        buildChars(),
+        placeholder,
+        /*bodyPalette*/ 13,
+        /*bodyCharHigh*/ 0x100,
+        /*ballPalette*/ 8,
+        /*ballCharHigh*/ 0x000, // force ball into low-page so charHigh diverges
         /*faceRight*/ false,
       )
       // First 9 parts are chuck (head + body2 + body1).
@@ -181,7 +199,13 @@ describe('PuntinChuckAppearance.fromTables', () => {
     it('uses the placeholder Char for any tile missing from chars map', () => {
       const emptyChars = new Map<number, Char>()
       const a = PuntinChuckAppearance.fromTables(
-        emptyChars, placeholder, BODY_PAL, BODY_HIGH, BALL_PAL, BALL_HIGH, false,
+        emptyChars,
+        placeholder,
+        BODY_PAL,
+        BODY_HIGH,
+        BALL_PAL,
+        BALL_HIGH,
+        false,
       )
       for (const part of a.parts) {
         expect(part.char).toBe(placeholder)

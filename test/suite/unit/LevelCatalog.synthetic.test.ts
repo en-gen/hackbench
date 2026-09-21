@@ -11,18 +11,21 @@ const BUF_SIZE = 0x40000
 const L1_TABLE_OFFSET = loromToOffset(ADDR.LEVEL_L1_PTR, BUF_SIZE)!
 
 /** Builds a synthetic LoROM image with a hand-picked L1 pointer per slot. */
-function buildFakeRom(pointerOf: (index: number) => number, readable: Set<number> = new Set()): SmwRom {
+function buildFakeRom(
+  pointerOf: (index: number) => number,
+  readable: Set<number> = new Set(),
+): SmwRom {
   const buf = Buffer.alloc(BUF_SIZE, 0)
-  buf[0x7FD5] = 0x20 // LoROM map-mode byte -- required by SmwRom's constructor check
+  buf[0x7fd5] = 0x20 // LoROM map-mode byte -- required by SmwRom's constructor check
   for (let i = 0; i < LEVEL_COUNT; i++) {
     const ptr = pointerOf(i)
     const base = L1_TABLE_OFFSET + i * 3
-    buf[base] = ptr & 0xFF
-    buf[base + 1] = (ptr >> 8) & 0xFF
-    buf[base + 2] = (ptr >> 16) & 0xFF
+    buf[base] = ptr & 0xff
+    buf[base + 1] = (ptr >> 8) & 0xff
+    buf[base + 2] = (ptr >> 16) & 0xff
     if (readable.has(ptr)) {
       const off = loromToOffset(ptr, BUF_SIZE)
-      if (off !== null) buf[off + 5] = 0xFF // 5-byte header + immediate terminator
+      if (off !== null) buf[off + 5] = 0xff // 5-byte header + immediate terminator
     }
   }
   return new SmwRom(new RomFile('fake.sfc', buf))
@@ -48,8 +51,11 @@ describe('buildLevelCatalog (synthetic)', () => {
 
   it('marks readable real slots parseable and unreadable ones not', () => {
     const READABLE = 0x048000
-    const UNREADABLE = 0x3F8000 // maps past the end of this small synthetic buffer
-    const rom = buildFakeRom(i => (i === 0 ? READABLE : i === 1 ? UNREADABLE : FILLER), new Set([READABLE]))
+    const UNREADABLE = 0x3f8000 // maps past the end of this small synthetic buffer
+    const rom = buildFakeRom(
+      i => (i === 0 ? READABLE : i === 1 ? UNREADABLE : FILLER),
+      new Set([READABLE]),
+    )
     const catalog = buildLevelCatalog(rom)
     expect(catalog.entries[0]).toMatchObject({ isReal: true, parseable: true })
     expect(catalog.entries[1]).toMatchObject({ isReal: true, parseable: false })
@@ -78,7 +84,7 @@ describe('buildLevelCatalog (synthetic)', () => {
       const rom = buildFakeRom(i => (i < 300 ? REUSED_REAL : FILLER))
       const catalog = buildLevelCatalog(rom)
       expect(catalog.fillerPointer).toBe(REUSED_REAL) // the inversion: mode != true filler
-      expect(catalog.realCount).toBe(212)              // true real/filler roles are swapped
+      expect(catalog.realCount).toBe(212) // true real/filler roles are swapped
       expect(catalog.notes.length).toBeGreaterThan(0)
     })
 

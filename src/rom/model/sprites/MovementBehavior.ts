@@ -1,9 +1,9 @@
 import type { L1Cell } from '../OverlayContext'
 import type { SpriteBehavior } from './SpriteBehavior'
 
-/** Solidity callback — true if the L1 cell at (col, row) blocks horizontal motion. */
+/** Solidity callback - true if the L1 cell at (col, row) blocks horizontal motion. */
 export type SolidH = (col: number, row: number) => boolean
-/** Solidity callback — true if the L1 cell at (col, row) blocks vertical motion (or is slope ground). */
+/** Solidity callback - true if the L1 cell at (col, row) blocks vertical motion (or is slope ground). */
 export type SolidV = (col: number, row: number) => boolean
 
 /**
@@ -18,17 +18,17 @@ export type SolidV = (col: number, row: number) => boolean
  * reached only from their tests. They are kept for issue #321.
  */
 export interface BehaviorSimContext {
-  spawnX:    number
-  spawnY:    number
-  solidH:    SolidH
-  solidV:    SolidV
+  spawnX: number
+  spawnY: number
+  solidH: SolidH
+  solidV: SolidV
   levelCols: number
   levelRows: number
 }
 
 /**
  * Abstract base for sprite movement simulators. Each concrete subclass
- * encodes one sprite family's handler — its per-frame physics and the
+ * encodes one sprite family's handler - its per-frame physics and the
  * higher-level "where can it go" queries the Appearance draws.
  *
  * Why a class and not a plain object: behaviors need methods that close
@@ -42,25 +42,25 @@ export interface BehaviorSimContext {
  */
 export abstract class MovementBehavior implements SpriteBehavior {
   abstract readonly kind: string
-  displayName?:  string
-  spawns?:       number
-  isGenerator?:  boolean
+  displayName?: string
+  spawns?: number
+  isGenerator?: boolean
   reactRangeDy?: number
 
   constructor(meta?: BehaviorMeta) {
     if (meta) {
-      this.displayName  = meta.displayName
-      this.spawns       = meta.spawns
-      this.isGenerator  = meta.isGenerator
+      this.displayName = meta.displayName
+      this.spawns = meta.spawns
+      this.isGenerator = meta.isGenerator
       this.reactRangeDy = meta.reactRangeDy
     }
   }
 }
 
 export interface BehaviorMeta {
-  displayName?:  string
-  spawns?:       number
-  isGenerator?:  boolean
+  displayName?: string
+  spawns?: number
+  isGenerator?: boolean
   reactRangeDy?: number
 }
 
@@ -69,16 +69,17 @@ export interface BehaviorMeta {
  * of solidity callbacks behaviors consume.
  *
  *   `solidH(c, r)` → does this tile block horizontal motion? (wall)
- *                    Reads `tile.collision.wall` — CODE_01928E port
+ *                    Reads `tile.collision.wall` - CODE_01928E port
  *                    (page-0 guard + $11-$6D range).
  *   `solidV(c, r)` → is this tile a sprite-landable surface?
- *                    Reads `tile.collision.floor` — covers CODE_01933B's
+ *                    Reads `tile.collision.floor` - covers CODE_01933B's
  *                    full landing path: hard floors AND slopes $6E-$D7.
  *                    Use for both gravity landing and ledge detection.
  */
-export function solidityFromL1(
-  getCell: (col: number, row: number) => L1Cell | null,
-): { solidH: SolidH; solidV: SolidV } {
+export function solidityFromL1(getCell: (col: number, row: number) => L1Cell | null): {
+  solidH: SolidH
+  solidV: SolidV
+} {
   return {
     solidH: (c, r) => {
       const cell = getCell(c, r)

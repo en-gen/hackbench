@@ -12,10 +12,20 @@ import { describe, expect, it } from 'vitest'
 import { Sprite } from '../../../src/rom/model/sprites/Sprite'
 import type { SpriteAppearance } from '../../../src/rom/model/sprites/SpriteAppearance'
 import {
-  drawSpriteSelection, SELECTION_DASH, spriteSelectionRect,
+  drawSpriteSelection,
+  SELECTION_DASH,
+  spriteSelectionRect,
 } from '../../../src/webview/mapEditor/overlays/drawSpriteSelection'
 
-type RectOp = { x: number; y: number; w: number; h: number; strokeStyle: string; lineWidth: number; dash: number[] }
+type RectOp = {
+  x: number
+  y: number
+  w: number
+  h: number
+  strokeStyle: string
+  lineWidth: number
+  dash: number[]
+}
 
 function makeCtx(): { rects: RectOp[]; saves: number; restores: number } & Record<string, unknown> {
   const rects: RectOp[] = []
@@ -24,23 +34,49 @@ function makeCtx(): { rects: RectOp[]; saves: number; restores: number } & Recor
     rects,
     saves: 0,
     restores: 0,
-    get strokeStyle() { return state.strokeStyle },
-    set strokeStyle(v: string) { state.strokeStyle = v },
-    get lineWidth() { return state.lineWidth },
-    set lineWidth(v: number) { state.lineWidth = v },
-    save() { ctx.saves++ },
-    restore() { ctx.restores++ },
-    setLineDash(d: number[]) { state.dash = [...d] },
+    get strokeStyle() {
+      return state.strokeStyle
+    },
+    set strokeStyle(v: string) {
+      state.strokeStyle = v
+    },
+    get lineWidth() {
+      return state.lineWidth
+    },
+    set lineWidth(v: number) {
+      state.lineWidth = v
+    },
+    save() {
+      ctx.saves++
+    },
+    restore() {
+      ctx.restores++
+    },
+    setLineDash(d: number[]) {
+      state.dash = [...d]
+    },
     strokeRect(x: number, y: number, w: number, h: number) {
-      rects.push({ x, y, w, h, strokeStyle: state.strokeStyle, lineWidth: state.lineWidth, dash: [...state.dash] })
+      rects.push({
+        x,
+        y,
+        w,
+        h,
+        strokeStyle: state.strokeStyle,
+        lineWidth: state.lineWidth,
+        dash: [...state.dash],
+      })
     },
   }
   return ctx as unknown as ReturnType<typeof makeCtx>
 }
 
-function spriteWith(hitRect: { dx: number; dy: number; w: number; h: number }, x = 32, y = 48): Sprite {
+function spriteWith(
+  hitRect: { dx: number; dy: number; w: number; h: number },
+  x = 32,
+  y = 48,
+): Sprite {
   const appearance = { hitRect, render: () => {} } as unknown as SpriteAppearance
-  return new Sprite(0x0F, x, y, appearance, { kind: 'k' })
+  return new Sprite(0x0f, x, y, appearance, { kind: 'k' })
 }
 
 describe('spriteSelectionRect', () => {
@@ -53,7 +89,7 @@ describe('spriteSelectionRect', () => {
   })
 
   it('honours a hit rect offset from the sprite origin', () => {
-    const plain   = spriteSelectionRect(spriteWith({ dx: 0, dy: 0, w: 16, h: 16 }))
+    const plain = spriteSelectionRect(spriteWith({ dx: 0, dy: 0, w: 16, h: 16 }))
     const shifted = spriteSelectionRect(spriteWith({ dx: -8, dy: 16, w: 16, h: 16 }))
     expect(shifted.x).toBe(plain.x - 8)
     expect(shifted.y).toBe(plain.y + 16)

@@ -1,5 +1,5 @@
 /**
- * Map-editor state store — webview-side re-export.
+ * Map-editor state store - webview-side re-export.
  *
  * The store itself lives in `src/rom/model/stores/editorStore.ts` so model
  * behaviors can import it without crossing the webview boundary. The webview

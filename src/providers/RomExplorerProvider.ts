@@ -10,7 +10,16 @@ import { hex2, hex3 } from '../rom/hex'
 // ── Shared tree item types ─────────────────────────────────────────────────────
 
 type MapsTreeItem = RomInfoItem | LevelFolder | RoomItem | OverworldFolder | OverworldAreaItem
-type ResourcesTreeItem = StatsItem | GraphItem | TileCompItem | RomMapItem | SectionFolder | RoomItem | PaletteGroupItem | GfxFileItem | PlaceholderItem
+type ResourcesTreeItem =
+  | StatsItem
+  | GraphItem
+  | TileCompItem
+  | RomMapItem
+  | SectionFolder
+  | RoomItem
+  | PaletteGroupItem
+  | GfxFileItem
+  | PlaceholderItem
 
 /** Collapsible header item showing ROM identity; levels nest under it. */
 class RomInfoItem extends vscode.TreeItem {
@@ -20,7 +29,7 @@ class RomInfoItem extends vscode.TreeItem {
     this.tooltip = summary.isVanilla ? 'Vanilla SMW ROM' : 'Modified ROM'
     this.iconPath = new vscode.ThemeIcon(
       summary.isVanilla ? 'verified' : 'warning',
-      summary.isVanilla ? undefined : new vscode.ThemeColor('problemsWarningIcon.foreground')
+      summary.isVanilla ? undefined : new vscode.ThemeColor('problemsWarningIcon.foreground'),
     )
     this.contextValue = 'smwRomInfo'
   }
@@ -35,9 +44,12 @@ class SectionFolder extends vscode.TreeItem {
     public readonly children: ResourcesTreeItem[],
     collapsed = true,
   ) {
-    super(label, collapsed
-      ? vscode.TreeItemCollapsibleState.Collapsed
-      : vscode.TreeItemCollapsibleState.Expanded)
+    super(
+      label,
+      collapsed
+        ? vscode.TreeItemCollapsibleState.Collapsed
+        : vscode.TreeItemCollapsibleState.Expanded,
+    )
     this.iconPath = new vscode.ThemeIcon(icon)
     this.contextValue = `smwSection_${sectionId}`
   }
@@ -67,12 +79,12 @@ class LevelFolder extends vscode.TreeItem {
         ? vscode.TreeItemCollapsibleState.Collapsed
         : vscode.TreeItemCollapsibleState.None,
     )
-    this.description  = displayName ? `$${hex}` : undefined
-    this.iconPath     = new vscode.ThemeIcon('symbol-method')
+    this.description = displayName ? `$${hex}` : undefined
+    this.iconPath = new vscode.ThemeIcon('symbol-method')
     this.contextValue = 'smwLevelFolder'
     this.command = {
       command: 'vscode.open',
-      title:   'Open Map',
+      title: 'Open Map',
       arguments: [vscode.Uri.parse(`smwrom:/${slug}/maps/${hex}.smwmap`)],
     }
   }
@@ -86,17 +98,20 @@ class RoomItem extends vscode.TreeItem {
     /** Sub-rooms entered from this one. Empty for leaves, markers and Resources rows. */
     public readonly subNodes: LevelTreeNode[] = [],
   ) {
-    super(row.label, row.collapsible
-      ? vscode.TreeItemCollapsibleState.Collapsed
-      : vscode.TreeItemCollapsibleState.None)
-    this.description  = row.description
-    this.tooltip      = row.tooltip
-    this.iconPath     = new vscode.ThemeIcon(row.icon)
+    super(
+      row.label,
+      row.collapsible
+        ? vscode.TreeItemCollapsibleState.Collapsed
+        : vscode.TreeItemCollapsibleState.None,
+    )
+    this.description = row.description
+    this.tooltip = row.tooltip
+    this.iconPath = new vscode.ThemeIcon(row.icon)
     this.contextValue = row.contextValue
     this.command = {
       command: 'vscode.open',
-      title:   'Open Room',
-      arguments: [vscode.Uri.parse(`smwrom:/${slug}/${row.resourcePath}`)]
+      title: 'Open Room',
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/${row.resourcePath}`)],
     }
   }
 }
@@ -110,7 +125,7 @@ class PaletteGroupItem extends vscode.TreeItem {
     this.command = {
       command: 'vscode.open',
       title: 'Open Palette Group',
-      arguments: [vscode.Uri.parse(`smwrom:/${slug}/palettes/${groupId}.smwpalette`)]
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/palettes/${groupId}.smwpalette`)],
     }
     this.contextValue = 'smwPalette'
   }
@@ -125,7 +140,7 @@ class GfxFileItem extends vscode.TreeItem {
     this.command = {
       command: 'vscode.open',
       title: 'Open GFX File',
-      arguments: [vscode.Uri.parse(`smwrom:/${slug}/gfx/GFX${hex}.smwgfx`)]
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/gfx/GFX${hex}.smwgfx`)],
     }
     this.contextValue = 'smwGfxFile'
   }
@@ -144,15 +159,19 @@ class OverworldFolder extends vscode.TreeItem {
 /** A single overworld area entry, generically named (no submap names). */
 class OverworldAreaItem extends vscode.TreeItem {
   constructor(slug: string, area: OwArea) {
-    super(`Area ${area.index} (${area.widthTiles}×${area.heightTiles})`,
-          vscode.TreeItemCollapsibleState.None)
+    super(
+      `Area ${area.index} (${area.widthTiles}×${area.heightTiles})`,
+      vscode.TreeItemCollapsibleState.None,
+    )
     this.iconPath = new vscode.ThemeIcon('map')
     this.command = {
       command: 'vscode.open',
       title: 'Open Overworld Area',
-      arguments: [vscode.Uri.parse(
-        `smwrom:/${slug}/overworld/${area.index}-${area.widthTiles}x${area.heightTiles}.smwoverworld`,
-      )],
+      arguments: [
+        vscode.Uri.parse(
+          `smwrom:/${slug}/overworld/${area.index}-${area.widthTiles}x${area.heightTiles}.smwoverworld`,
+        ),
+      ],
     }
     this.contextValue = 'smwOverworldArea'
   }
@@ -166,7 +185,7 @@ class StatsItem extends vscode.TreeItem {
     this.command = {
       command: 'vscode.open',
       title: 'ROM Statistics',
-      arguments: [vscode.Uri.parse(`smwrom:/${slug}/info.smwinfo`)]
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/info.smwinfo`)],
     }
     this.contextValue = 'smwRomStats'
   }
@@ -180,7 +199,7 @@ class TileCompItem extends vscode.TreeItem {
     this.command = {
       command: 'vscode.open',
       title: 'Open Tileset Comparison',
-      arguments: [vscode.Uri.parse(`smwrom:/${slug}/compare.smwtilecomp`)]
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/compare.smwtilecomp`)],
     }
     this.contextValue = 'smwTileComp'
   }
@@ -194,7 +213,7 @@ class GraphItem extends vscode.TreeItem {
     this.command = {
       command: 'vscode.open',
       title: 'Open Level Graph',
-      arguments: [vscode.Uri.parse(`smwrom:/${slug}/graph.smwgraph`)]
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/graph.smwgraph`)],
     }
     this.contextValue = 'smwLevelGraph'
   }
@@ -208,12 +227,11 @@ class RomMapItem extends vscode.TreeItem {
     this.command = {
       command: 'vscode.open',
       title: 'Open ROM Map',
-      arguments: [vscode.Uri.parse(`smwrom:/${slug}/rom.smwrommap`)]
+      arguments: [vscode.Uri.parse(`smwrom:/${slug}/rom.smwrommap`)],
     }
     this.contextValue = 'smwRomMap'
   }
 }
-
 
 class PlaceholderItem extends vscode.TreeItem {
   constructor(label: string) {
@@ -244,7 +262,9 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
     this._emitter.fire()
   }
 
-  getTreeItem(element: MapsTreeItem): vscode.TreeItem { return element }
+  getTreeItem(element: MapsTreeItem): vscode.TreeItem {
+    return element
+  }
 
   getChildren(element?: MapsTreeItem): MapsTreeItem[] {
     if (!this.session) return []
@@ -260,11 +280,15 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
       const { overworld } = rom.classifyLevels()
       const exitGraph = rom.buildLevelExitGraph()
 
-      const folders = overworld.map(index => new LevelFolder(
-        index, slug,
-        buildLevelSubtree(index, exitGraph),
-        rom.getLevelName(index) ?? undefined,
-      ))
+      const folders = overworld.map(
+        index =>
+          new LevelFolder(
+            index,
+            slug,
+            buildLevelSubtree(index, exitGraph),
+            rom.getLevelName(index) ?? undefined,
+          ),
+      )
       return [new OverworldFolder(slug), ...folders]
     }
 
@@ -287,9 +311,9 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
 
   private roomsFor(nodes: LevelTreeNode[], slug: string): RoomItem[] {
     const rom = this.session!.rom
-    return nodes.map(n => new RoomItem(
-      roomRowForNode(n, rom.getLevelName(n.index)), slug, n.children,
-    ))
+    return nodes.map(
+      n => new RoomItem(roomRowForNode(n, rom.getLevelName(n.index)), slug, n.children),
+    )
   }
 }
 
@@ -310,7 +334,9 @@ export class ResourcesProvider implements vscode.TreeDataProvider<ResourcesTreeI
     this._emitter.fire()
   }
 
-  getTreeItem(element: ResourcesTreeItem): vscode.TreeItem { return element }
+  getTreeItem(element: ResourcesTreeItem): vscode.TreeItem {
+    return element
+  }
 
   getChildren(element?: ResourcesTreeItem): ResourcesTreeItem[] {
     if (!this.session) return []
@@ -321,12 +347,16 @@ export class ResourcesProvider implements vscode.TreeDataProvider<ResourcesTreeI
       const allSlots = rom.enumerateAllLevels()
       const validRooms = allSlots.filter(s => s.hasData)
 
-      const roomItems: RoomItem[] = validRooms.map(s =>
-        new RoomItem(roomRow(s.index, s.name, 'resource', 0), slug)
+      const roomItems: RoomItem[] = validRooms.map(
+        s => new RoomItem(roomRow(s.index, s.name, 'resource', 0), slug),
       )
 
       const roomsSection = new SectionFolder(
-        `Maps  (${validRooms.length})`, 'rooms', 'file-code', roomItems, true,
+        `Maps  (${validRooms.length})`,
+        'rooms',
+        'file-code',
+        roomItems,
+        true,
       )
       const romPalettes = loadRomPalettes(rom.rom)
       const paletteItems: PaletteGroupItem[] = romPalettes.groups.map(g => {
@@ -335,21 +365,36 @@ export class ResourcesProvider implements vscode.TreeDataProvider<ResourcesTreeI
         return new PaletteGroupItem(g.label, slug, g.id, desc)
       })
       const palettesSection = new SectionFolder(
-        `Palettes  (${paletteItems.length})`, 'palettes', 'symbol-color',
+        `Palettes  (${paletteItems.length})`,
+        'palettes',
+        'symbol-color',
         paletteItems,
         true,
       )
       const gfxSection = new SectionFolder(
-        `GFX Files  (${GFX_FILE_COUNT})`, 'gfx', 'file-media',
+        `GFX Files  (${GFX_FILE_COUNT})`,
+        'gfx',
+        'file-media',
         Array.from({ length: GFX_FILE_COUNT }, (_, i) => new GfxFileItem(i, slug)),
         true,
       )
       const asmSection = new SectionFolder(
-        'ASM', 'asm', 'symbol-function',
+        'ASM',
+        'asm',
+        'symbol-function',
         [new PlaceholderItem('ROM Code')],
         true,
       )
-      return [new StatsItem(slug), new GraphItem(slug), new TileCompItem(slug), new RomMapItem(slug), roomsSection, palettesSection, gfxSection, asmSection]
+      return [
+        new StatsItem(slug),
+        new GraphItem(slug),
+        new TileCompItem(slug),
+        new RomMapItem(slug),
+        roomsSection,
+        palettesSection,
+        gfxSection,
+        asmSection,
+      ]
     }
 
     if (element instanceof SectionFolder) return element.children

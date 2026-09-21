@@ -1,5 +1,5 @@
 /**
- * cmd03.ts — port of `CODE_05C5BB` (bank_05.asm:5727-5803).
+ * cmd03.ts - port of `CODE_05C5BB` (bank_05.asm:5727-5803).
  *
  * Cmd $03 is the Y-axis mirror of cmd $08:
  *
@@ -17,7 +17,7 @@
  * Test coverage: `scrollSim_0d4.test.ts` validates this against the
  * $0D4 capture (sprite $EA b0=$00 → cmd $03). The capture diverges in
  * `l1x` from row 193 onward due to Mario-X camera tracking which we
- * don't model — checks exclude the camera-position chain past that
+ * don't model - checks exclude the camera-position chain past that
  * point.
  */
 
@@ -34,41 +34,46 @@ import type { ScrollState } from '../scrollSim'
 import { wrap16 } from '../scrollSim'
 
 interface FieldSet {
-  type:    keyof Pick<ScrollState, 'layer1ScrollType' | 'layer2ScrollType'>
-  bits:    keyof Pick<ScrollState, 'layer1ScrollBits' | 'layer2ScrollBits'>
+  type: keyof Pick<ScrollState, 'layer1ScrollType' | 'layer2ScrollType'>
+  bits: keyof Pick<ScrollState, 'layer1ScrollBits' | 'layer2ScrollBits'>
   xposupd: keyof Pick<ScrollState, 'layer1ScrollXPosUpd' | 'layer2ScrollXPosUpd'>
-  yspeed:  keyof Pick<ScrollState, 'layer1ScrollYSpeed'  | 'layer2ScrollYSpeed'>
-  nextY:   keyof Pick<ScrollState, 'nextLayer1YPos'      | 'nextLayer2YPos'>
+  yspeed: keyof Pick<ScrollState, 'layer1ScrollYSpeed' | 'layer2ScrollYSpeed'>
+  nextY: keyof Pick<ScrollState, 'nextLayer1YPos' | 'nextLayer2YPos'>
 }
 const FIELDS: Record<Layer, FieldSet> = {
   l1: {
-    type:    'layer1ScrollType',
-    bits:    'layer1ScrollBits',
+    type: 'layer1ScrollType',
+    bits: 'layer1ScrollBits',
     xposupd: 'layer1ScrollXPosUpd',
-    yspeed:  'layer1ScrollYSpeed',
-    nextY:   'nextLayer1YPos',
+    yspeed: 'layer1ScrollYSpeed',
+    nextY: 'nextLayer1YPos',
   },
   l2: {
-    type:    'layer2ScrollType',
-    bits:    'layer2ScrollBits',
+    type: 'layer2ScrollType',
+    bits: 'layer2ScrollBits',
     xposupd: 'layer2ScrollXPosUpd',
-    yspeed:  'layer2ScrollYSpeed',
-    nextY:   'nextLayer2YPos',
+    yspeed: 'layer2ScrollYSpeed',
+    nextY: 'nextLayer2YPos',
   },
 }
 
 function asI16(u16: number): number {
-  return (u16 & 0x8000) ? u16 - 0x10000 : u16
+  return u16 & 0x8000 ? u16 - 0x10000 : u16
 }
 function negI16(u16: number): number {
-  return wrap16((u16 ^ 0xFFFF) + 1)
+  return wrap16((u16 ^ 0xffff) + 1)
 }
 
-export function cmd03(s: ScrollState, rom: RomFile, layer: Layer, _screenMode: number): ScrollState {
+export function cmd03(
+  s: ScrollState,
+  rom: RomFile,
+  layer: Layer,
+  _screenMode: number,
+): ScrollState {
   const f = FIELDS[layer]
   const xposupd = s[f.xposupd]
-  const nextY   = s[f.nextY]
-  const bits    = s[f.bits]
+  const nextY = s[f.nextY]
+  const bits = s[f.bits]
 
   // Step 1: sort sync counter (XPosUpd) and position target (NextYPos).
   let _2: number, _4: number
@@ -83,8 +88,8 @@ export function cmd03(s: ScrollState, rom: RomFile, layer: Layer, _screenMode: n
   // Step 2: SEP #$10 leaves A 16-bit. Full 16-bit equality on sync.
   let next = s
   if (_2 === _4) {
-    let step = readWord(rom, ADDR_DATA_05CBF6, bits * 2) & 0x00FF
-    const newType = (s[f.type] ^ 0x01) & 0xFF
+    let step = readWord(rom, ADDR_DATA_05CBF6, bits * 2) & 0x00ff
+    const newType = (s[f.type] ^ 0x01) & 0xff
     next = { ...next, [f.type]: newType } as ScrollState
     if (newType === 0) step = negI16(step)
     const newXposupd = wrap16(xposupd + step)
@@ -93,7 +98,7 @@ export function cmd03(s: ScrollState, rom: RomFile, layer: Layer, _screenMode: n
 
   // Step 4: speed bias toward ±$80 (Y axis).
   const type = next[f.type]
-  let target = readByte(rom, ADDR_DATA_05CBF1, type) & 0xFF
+  let target = readByte(rom, ADDR_DATA_05CBF1, type) & 0xff
   if (type !== 0x01) target = negI16(target)
 
   const curSpeed = next[f.yspeed]

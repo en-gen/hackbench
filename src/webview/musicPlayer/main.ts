@@ -1,10 +1,10 @@
 /**
- * SMW Music Player — webview entry point.
+ * SMW Music Player - webview entry point.
  *
  * Displays all BGM tracks from the ROM and provides media playback controls.
  * Audio is handled entirely within this webview using the spc.js WASM engine
  * (loaded before this script), so user gestures (clicks) happen in the same
- * frame — no autoplay policy issues.
+ * frame - no autoplay policy issues.
  */
 
 import { createTransportBar, TRANSPORT_CSS } from '../shared/transportBar'
@@ -32,7 +32,7 @@ interface MusicPayload {
 // ── State ────────────────────────────────────────────────────────────────────
 
 let payload: MusicPayload | null = null
-let currentTrack = -1  // index into payload.tracks
+let currentTrack = -1 // index into payload.tracks
 let isPlaying = false
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let backend: any = null
@@ -80,7 +80,7 @@ const transport = createTransportBar({
   onStop: () => stopTrack(),
   onPrev: () => prevTrack(),
   onNext: () => nextTrack(),
-  onStateChange: (playing) => vscode.postMessage({ type: 'musicState', playing }),
+  onStateChange: playing => vscode.postMessage({ type: 'musicState', playing }),
 })
 document.getElementById('transport-mount')!.appendChild(transport.element)
 
@@ -97,16 +97,38 @@ function initBackend(): void {
 
 function playTrack(index: number): void {
   console.log('[MUSIC] playTrack', index, 'backend:', backend?.status, 'payload:', !!payload)
-  if (!payload) { console.error('[MUSIC] No payload'); return }
-  if (!backend) { console.error('[MUSIC] No backend'); return }
-  if (backend.status !== 1) { console.error('[MUSIC] Backend not ready, status:', backend.status); return }
+  if (!payload) {
+    console.error('[MUSIC] No payload')
+    return
+  }
+  if (!backend) {
+    console.error('[MUSIC] No backend')
+    return
+  }
+  if (backend.status !== 1) {
+    console.error('[MUSIC] Backend not ready, status:', backend.status)
+    return
+  }
   const track = payload.tracks[index]
-  if (!track) { console.error('[MUSIC] No track at index', index); return }
+  if (!track) {
+    console.error('[MUSIC] No track at index', index)
+    return
+  }
   const spcData = payload.spcFiles[track.bgmCommand]
-  if (!spcData) { console.error('[MUSIC] No SPC data for BGM', track.bgmCommand); return }
-  console.log('[MUSIC] Playing track', track.bgmCommand, '— SPC size:', spcData.length, 'context state:', backend.context?.state)
+  if (!spcData) {
+    console.error('[MUSIC] No SPC data for BGM', track.bgmCommand)
+    return
+  }
+  console.log(
+    '[MUSIC] Playing track',
+    track.bgmCommand,
+    '- SPC size:',
+    spcData.length,
+    'context state:',
+    backend.context?.state,
+  )
 
-  // Unlock AudioContext — must happen in the click call stack
+  // Unlock AudioContext - must happen in the click call stack
   backend.locked = false
   const ctx = backend.context as AudioContext
   if (ctx) {
@@ -117,9 +139,14 @@ function playTrack(index: number): void {
         // Ensure gain is at max (spc.js UI init may have left it at 0)
         if (backend.gainNode) backend.gainNode.gain.value = 1.0
         // Ensure sample rate matches SPC output (32kHz)
-        console.log('[MUSIC] loadSPC complete, context:', ctx.state,
-          'gain:', backend.gainNode?.gain?.value,
-          'sampleRate:', ctx.sampleRate)
+        console.log(
+          '[MUSIC] loadSPC complete, context:',
+          ctx.state,
+          'gain:',
+          backend.gainNode?.gain?.value,
+          'sampleRate:',
+          ctx.sampleRate,
+        )
       } catch (err) {
         console.error('[MUSIC] loadSPC failed:', err)
       }
@@ -173,7 +200,7 @@ function renderTrackList(): void {
     const el = document.createElement('div')
     el.className = 'track' + (i === currentTrack ? ' active' : '')
     el.innerHTML = `
-      <span class="track-num ${i === currentTrack && isPlaying ? 'track-playing' : ''}">${i === currentTrack && isPlaying ? '&#x25B6;' : (i + 1)}</span>
+      <span class="track-num ${i === currentTrack && isPlaying ? 'track-playing' : ''}">${i === currentTrack && isPlaying ? '&#x25B6;' : i + 1}</span>
       <span class="track-label">Track ${track.bgmCommand}</span>
       <span class="track-bgm">BGM $${track.bgmHex}</span>
     `
@@ -189,7 +216,9 @@ function updateUI(): void {
 
   if (payload && currentTrack >= 0 && currentTrack < payload.tracks.length) {
     const t = payload.tracks[currentTrack]
-    transport.setTrackLabel(isPlaying ? `Track ${t.bgmCommand} — BGM $${t.bgmHex}` : `Track ${t.bgmCommand}`)
+    transport.setTrackLabel(
+      isPlaying ? `Track ${t.bgmCommand} - BGM $${t.bgmHex}` : `Track ${t.bgmCommand}`,
+    )
   } else {
     transport.setTrackLabel('No track selected')
   }
@@ -201,7 +230,7 @@ function updateUI(): void {
     const num = el.querySelector('.track-num')
     if (num) {
       num.classList.toggle('track-playing', i === currentTrack && isPlaying)
-      num.innerHTML = (i === currentTrack && isPlaying) ? '&#x25B6;' : String(i + 1)
+      num.innerHTML = i === currentTrack && isPlaying ? '&#x25B6;' : String(i + 1)
     }
   })
 }
@@ -216,7 +245,7 @@ setInterval(() => {
 
 // ── Message handler ──────────────────────────────────────────────────────────
 
-window.addEventListener('message', (event) => {
+window.addEventListener('message', event => {
   const msg = event.data
   if (msg.type === 'load') {
     payload = msg as MusicPayload
@@ -233,7 +262,9 @@ let initAttempts = 0
 const initInterval = setInterval(() => {
   initAttempts++
   const b = SMWCentral?.SPCPlayer?.Backend
-  console.log(`[MUSIC] Init poll #${initAttempts}: Backend=${b ? 'found' : 'null'}, status=${b?.status}`)
+  console.log(
+    `[MUSIC] Init poll #${initAttempts}: Backend=${b ? 'found' : 'null'}, status=${b?.status}`,
+  )
   if (b && b.status !== undefined) {
     clearInterval(initInterval)
     initBackend()

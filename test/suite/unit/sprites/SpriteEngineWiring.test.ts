@@ -24,7 +24,11 @@ import { buildGraph } from '../../../../src/rom/model/rehydrate'
 import { editorStore } from '../../../../src/rom/model/stores/editorStore'
 import { EngineSpriteAppearance } from '../../../../src/rom/model/sprites/generic/EngineSpriteAppearance'
 import { SPRITE_DRAW_DESCRIPTORS } from '../../../../src/rom/model/sprites/generic/SpriteDrawDescriptor'
-import { drawSpriteParts, resolveHandlerBase, resolveRef } from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
+import {
+  drawSpriteParts,
+  resolveHandlerBase,
+  resolveRef,
+} from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import { bgr555ToRgba } from '../../../../src/rom/GraphicsDecoder'
 import type { RenderTarget, PixelPos, PixelSize } from '../../../../src/rom/model/RenderTarget'
@@ -35,7 +39,7 @@ const romPresent = existsSync(VANILLA)
 /** $010 carries both Monty Mole variants; see the file header. */
 const MAP_WITH_MOLES = 0x010
 /** $11C is one of only two vanilla maps whose sprite stream holds a $1F. */
-const MAP_WITH_MAGIKOOPA = 0x11C
+const MAP_WITH_MAGIKOOPA = 0x11c
 const DESCRIPTOR_IDS = new Set(SPRITE_DRAW_DESCRIPTORS.map(d => d.spriteId))
 
 /** Records what was asked of the framebuffer without owning a canvas. */
@@ -78,14 +82,17 @@ describe('sprite engine wiring (webview boundary)', () => {
     expect(editorStore.spriteEngine).toBe(false)
   })
 
-  it.skipIf(!romPresent)('attaches an engine appearance to descriptor sprites after rehydrate', () => {
-    const { map } = rehydrateMap(MAP_WITH_MOLES)
-    const withDescriptor = map.sprites.filter(s => DESCRIPTOR_IDS.has(s.id))
-    expect(withDescriptor.length).toBeGreaterThan(0)
-    for (const s of withDescriptor) {
-      expect(s.engineAppearance).toBeInstanceOf(EngineSpriteAppearance)
-    }
-  })
+  it.skipIf(!romPresent)(
+    'attaches an engine appearance to descriptor sprites after rehydrate',
+    () => {
+      const { map } = rehydrateMap(MAP_WITH_MOLES)
+      const withDescriptor = map.sprites.filter(s => DESCRIPTOR_IDS.has(s.id))
+      expect(withDescriptor.length).toBeGreaterThan(0)
+      for (const s of withDescriptor) {
+        expect(s.engineAppearance).toBeInstanceOf(EngineSpriteAppearance)
+      }
+    },
+  )
 
   it.skipIf(!romPresent)('leaves sprites without a descriptor untouched', () => {
     const { map } = rehydrateMap(MAP_WITH_MOLES)
@@ -96,9 +103,14 @@ describe('sprite engine wiring (webview boundary)', () => {
 
   it.skipIf(!romPresent)('toggle OFF renders the shipped appearance', () => {
     const { map } = rehydrateMap(MAP_WITH_MOLES)
-    const s = map.sprites.find(x => x.id === 0x4D)!
+    const s = map.sprites.find(x => x.id === 0x4d)!
     let shipped = 0
-    const spy = { ...s.appearance, render: () => { shipped++ } }
+    const spy = {
+      ...s.appearance,
+      render: () => {
+        shipped++
+      },
+    }
     Object.defineProperty(s, 'appearance', { value: spy, configurable: true })
     s.render(new RecordingTarget(), map.mapStore)
     expect(shipped).toBe(1)
@@ -106,10 +118,16 @@ describe('sprite engine wiring (webview boundary)', () => {
 
   it.skipIf(!romPresent)('toggle ON routes a descriptor sprite through the engine', () => {
     const { map } = rehydrateMap(MAP_WITH_MOLES)
-    const s = map.sprites.find(x => x.id === 0x4D)!
+    const s = map.sprites.find(x => x.id === 0x4d)!
     let shipped = 0
     Object.defineProperty(s, 'appearance', {
-      value: { ...s.appearance, render: () => { shipped++ } }, configurable: true,
+      value: {
+        ...s.appearance,
+        render: () => {
+          shipped++
+        },
+      },
+      configurable: true,
     })
     editorStore.setSpriteEngine(true)
     const target = new RecordingTarget()
@@ -121,7 +139,7 @@ describe('sprite engine wiring (webview boundary)', () => {
 
   it.skipIf(!romPresent)('marks engine-rendered sprites, and stops when markers are off', () => {
     const { map } = rehydrateMap(MAP_WITH_MOLES)
-    const s = map.sprites.find(x => x.id === 0x4D)!
+    const s = map.sprites.find(x => x.id === 0x4d)!
     editorStore.setSpriteEngine(true)
 
     const marked = new RecordingTarget()
@@ -138,7 +156,7 @@ describe('sprite engine wiring (webview boundary)', () => {
 
   it.skipIf(!romPresent)('engine sprites advance on the shared sprite timer', () => {
     const { map } = rehydrateMap(MAP_WITH_MOLES)
-    const s = map.sprites.find(x => x.id === 0x4D)!
+    const s = map.sprites.find(x => x.id === 0x4d)!
     editorStore.setSpriteEngine(true)
     const before = new RecordingTarget()
     s.render(before, map.mapStore)
@@ -157,7 +175,10 @@ describe('sprite engine wiring (webview boundary)', () => {
     // tracked dependency, clicking the button would change nothing on screen
     // until some other input happened to invalidate the effect.
     let passes = 0
-    effect(() => { passes++; map.render(new RecordingTarget()) })
+    effect(() => {
+      passes++
+      map.render(new RecordingTarget())
+    })
     expect(passes).toBe(1)
     editorStore.setSpriteEngine(true)
     expect(passes).toBe(2)
@@ -165,48 +186,60 @@ describe('sprite engine wiring (webview boundary)', () => {
     expect(passes).toBe(3)
   })
 
-  it.skipIf(!romPresent)('$1F is drawn with the palette its teleport uploads, not the level row', () => {
-    const { map } = rehydrateMap(MAP_WITH_MAGIKOOPA)
-    const s = map.sprites.find(x => x.id === 0x1F)!
-    editorStore.setSpriteEngine(true)
-    const target = new RecordingTarget()
-    s.render(target, map.mapStore)
-    expect(target.blits.length).toBeGreaterThan(0)
+  it.skipIf(!romPresent)(
+    '$1F is drawn with the palette its teleport uploads, not the level row',
+    () => {
+      const { map } = rehydrateMap(MAP_WITH_MAGIKOOPA)
+      const s = map.sprites.find(x => x.id === 0x1f)!
+      editorStore.setSpriteEngine(true)
+      const target = new RecordingTarget()
+      s.render(target, map.mapStore)
+      expect(target.blits.length).toBeGreaterThan(0)
 
-    // Read what the descriptor says the hardware leaves in CGRAM, straight
-    // from the cart, so nothing ROM-derived is written down here.
-    const smw = SmwRom.open(VANILLA)
-    const d = SPRITE_DRAW_DESCRIPTORS.find(x => x.spriteId === 0x1F)!
-    const res = drawSpriteParts({
-      rom: smw.rom, tables: readSpriteTileTables(smw.rom)!, descriptor: d,
-      spriteX: 0, ctx: { marioX: 0, romFrame: 0 },
-    })
-    expect(res.ok).toBe(true)
-    const note = res.ok ? res.paletteNote! : undefined!
-    const raw = smw.rom.readAt(note.entryAddr, note.colors * 2)!
-    const uploaded = Array.from({ length: note.colors },
-      (_, i) => bgr555ToRgba(raw[i * 2] | (raw[i * 2 + 1] << 8)))
+      // Read what the descriptor says the hardware leaves in CGRAM, straight
+      // from the cart, so nothing ROM-derived is written down here.
+      const smw = SmwRom.open(VANILLA)
+      const d = SPRITE_DRAW_DESCRIPTORS.find(x => x.spriteId === 0x1f)!
+      const res = drawSpriteParts({
+        rom: smw.rom,
+        tables: readSpriteTileTables(smw.rom)!,
+        descriptor: d,
+        spriteX: 0,
+        ctx: { marioX: 0, romFrame: 0 },
+      })
+      expect(res.ok).toBe(true)
+      const note = res.ok ? res.paletteNote! : undefined!
+      const raw = smw.rom.readAt(note.entryAddr, note.colors * 2)!
+      const uploaded = Array.from({ length: note.colors }, (_, i) =>
+        bgr555ToRgba(raw[i * 2] | (raw[i * 2 + 1] << 8)),
+      )
 
-    const level = map.mapStore.palette.row(note.row).map(c => [...c] as RgbaColor)
-    for (const row of target.rows) {
-      // The uploaded window replaces the level palette.
-      for (let i = 0; i < note.colors; i++) {
-        expect(row[note.firstCol + i]).toEqual(uploaded[i])
+      const level = map.mapStore.palette.row(note.row).map(c => [...c] as RgbaColor)
+      for (const row of target.rows) {
+        // The uploaded window replaces the level palette.
+        for (let i = 0; i < note.colors; i++) {
+          expect(row[note.firstCol + i]).toEqual(uploaded[i])
+        }
+        // Everything outside it is still the level's own row. This is the
+        // whole reason the note carries a column window instead of a row.
+        for (let i = note.firstCol + note.colors; i < level.length; i++) {
+          expect(row[i]).toEqual(level[i])
+        }
       }
-      // Everything outside it is still the level's own row. This is the
-      // whole reason the note carries a column window instead of a row.
-      for (let i = note.firstCol + note.colors; i < level.length; i++) {
-        expect(row[i]).toEqual(level[i])
-      }
-    }
-    // A composite that changed nothing would mean the note was ignored.
-    expect(target.rows.some(r => r.slice(note.firstCol, note.firstCol + note.colors)
-      .some((c, i) => JSON.stringify(c) !== JSON.stringify(level[note.firstCol + i])))).toBe(true)
-  })
+      // A composite that changed nothing would mean the note was ignored.
+      expect(
+        target.rows.some(r =>
+          r
+            .slice(note.firstCol, note.firstCol + note.colors)
+            .some((c, i) => JSON.stringify(c) !== JSON.stringify(level[note.firstCol + i])),
+        ),
+      ).toBe(true)
+    },
+  )
 
   it.skipIf(!romPresent)('$1F draws its wand, and the marker box is wide enough to hold it', () => {
     const { map } = rehydrateMap(MAP_WITH_MAGIKOOPA)
-    const s = map.sprites.find(x => x.id === 0x1F)!
+    const s = map.sprites.find(x => x.id === 0x1f)!
     editorStore.setSpriteEngine(true)
     const target = new RecordingTarget()
     s.render(target, map.mapStore)
@@ -224,32 +257,41 @@ describe('sprite engine wiring (webview boundary)', () => {
     expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(16)
   })
 
-  it.skipIf(!romPresent)('a repointed draw handler renders the fallback and is marked unverified', () => {
-    const smw = SmwRom.open(VANILLA)
-    const payload = buildMapPayload(smw, MAP_WITH_MOLES)
-    // Repoint $4D's MAIN entry in an in-memory copy of the cart. Nothing is
-    // saved, so `test/roms/` is untouched.
-    smw.rom.writeAt(0x0185CC + 0x4D * 2, [0x34, 0x12])
-    const { map } = buildGraph(payload, smw.rom)
-    const s = map.sprites.find(x => x.id === 0x4D)!
-    const eng = s.engineAppearance as EngineSpriteAppearance
-    expect(eng.provenance.kind).toBe('diverged')
+  it.skipIf(!romPresent)(
+    'a repointed draw handler renders the fallback and is marked unverified',
+    () => {
+      const smw = SmwRom.open(VANILLA)
+      const payload = buildMapPayload(smw, MAP_WITH_MOLES)
+      // Repoint $4D's MAIN entry in an in-memory copy of the cart. Nothing is
+      // saved, so `test/roms/` is untouched.
+      smw.rom.writeAt(0x0185cc + 0x4d * 2, [0x34, 0x12])
+      const { map } = buildGraph(payload, smw.rom)
+      const s = map.sprites.find(x => x.id === 0x4d)!
+      const eng = s.engineAppearance as EngineSpriteAppearance
+      expect(eng.provenance.kind).toBe('diverged')
 
-    // The engine captured the shipped appearance at construction, so the
-    // spy has to replace the captured reference, not `s.appearance`.
-    let shipped = 0
-    Object.defineProperty(eng, 'fallback', {
-      value: { ...eng.fallback, render: () => { shipped++ } }, configurable: true,
-    })
-    editorStore.setSpriteEngine(true)
-    const target = new RecordingTarget()
-    s.render(target, map.mapStore)
-    expect(shipped).toBe(1)
-    expect(target.blits.length).toBe(0)
-    // Amber marker, visibly different from the engine's cyan ticks.
-    expect(target.rects.length).toBeGreaterThan(0)
-    expect(target.rects[0].color).toEqual([255, 170, 40, 255])
-  })
+      // The engine captured the shipped appearance at construction, so the
+      // spy has to replace the captured reference, not `s.appearance`.
+      let shipped = 0
+      Object.defineProperty(eng, 'fallback', {
+        value: {
+          ...eng.fallback,
+          render: () => {
+            shipped++
+          },
+        },
+        configurable: true,
+      })
+      editorStore.setSpriteEngine(true)
+      const target = new RecordingTarget()
+      s.render(target, map.mapStore)
+      expect(shipped).toBe(1)
+      expect(target.blits.length).toBe(0)
+      // Amber marker, visibly different from the engine's cyan ticks.
+      expect(target.rects.length).toBeGreaterThan(0)
+      expect(target.rects[0].color).toEqual([255, 170, 40, 255])
+    },
+  )
 })
 
 // ── Render-time failures are visible, and distinct from a repointed handler ─
@@ -278,10 +320,10 @@ describe('a render failure is reported, not silently swallowed', () => {
 
   const breakMagikoopa = () => {
     const built = rehydrateMap(MAP_WITH_MAGIKOOPA)
-    const s = built.map.sprites.find(x => x.id === 0x1F)!
-    const d = SPRITE_DRAW_DESCRIPTORS.find(x => x.spriteId === 0x1F)!
+    const s = built.map.sprites.find(x => x.id === 0x1f)!
+    const d = SPRITE_DRAW_DESCRIPTORS.find(x => x.spriteId === 0x1f)!
     const at = resolveRef(built.rom, d.routineJsr!, resolveHandlerBase(built.rom, d))!
-    built.rom.writeAt(at, [0xEA])
+    built.rom.writeAt(at, [0xea])
     return { ...built, sprite: s }
   }
 
@@ -314,7 +356,7 @@ describe('a render failure is reported, not silently swallowed', () => {
   it.skipIf(!romPresent)('marks it in its OWN colour, not the unverified amber', () => {
     const before = new RecordingTarget()
     const ok = rehydrateMap(MAP_WITH_MAGIKOOPA)
-    ok.map.sprites.find(x => x.id === 0x1F)!.render(before, ok.map.mapStore)
+    ok.map.sprites.find(x => x.id === 0x1f)!.render(before, ok.map.mapStore)
 
     const { sprite, map } = breakMagikoopa()
     const after = new RecordingTarget()
@@ -328,6 +370,4 @@ describe('a render failure is reported, not silently swallowed', () => {
     // MARK_UNVERIFIED, the repointed-handler amber.
     expect([...colours(after)]).not.toContain('255,170,40,255')
   })
-
-
 })

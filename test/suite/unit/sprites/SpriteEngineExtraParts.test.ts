@@ -25,11 +25,19 @@ import { RomFile } from '../../../../src/rom/RomFile'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
   SPRITE_DRAW_DESCRIPTORS,
-  type ExtraByteSource, type ExtraPart, type SpriteDrawDescriptor,
+  type ExtraByteSource,
+  type ExtraPart,
+  type SpriteDrawDescriptor,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawDescriptor'
 import {
-  animPeriodFrames, drawSpriteParts, frameIndexAt, resolveHandlerBase,
-  resolveRef, resolveStateTimerSeed, unionExtents, type EnginePart,
+  animPeriodFrames,
+  drawSpriteParts,
+  frameIndexAt,
+  resolveHandlerBase,
+  resolveRef,
+  resolveStateTimerSeed,
+  unionExtents,
+  type EnginePart,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 
 // ── Synthetic fixtures ──────────────────────────────────────────────────────
@@ -49,8 +57,14 @@ function fakeRom(bytes: Record<number, number[]>): RomFile {
   } as unknown as RomFile
 }
 
-const part = (dx: number, dy: number): EnginePart =>
-  ({ charNum: 0, palette: 8, flipX: false, flipY: false, dx, dy })
+const part = (dx: number, dy: number): EnginePart => ({
+  charNum: 0,
+  palette: 8,
+  flipX: false,
+  flipY: false,
+  dx,
+  dy,
+})
 
 // ── stateTimer cadence ──────────────────────────────────────────────────────
 
@@ -78,7 +92,7 @@ describe('stateTimer animation', () => {
 
   it('counts DOWN from the seed, one step per game frame', () => {
     expect(frameIndexAt(anim, 0, 0x70)).toBe(0x70)
-    expect(frameIndexAt(anim, 1, 0x70)).toBe(0x6F)
+    expect(frameIndexAt(anim, 1, 0x70)).toBe(0x6f)
     expect(frameIndexAt(anim, 0x70, 0x70)).toBe(0)
   })
 
@@ -95,8 +109,11 @@ describe('stateTimer animation', () => {
   it('a descriptor whose seed cannot be read fails rather than drawing frame 0', () => {
     const d = { ...BASE_TIMER_DESC, anim }
     const res = drawSpriteParts({
-      rom: fakeRom({}), tables: readSyntheticTables(), descriptor: d,
-      spriteX: 0, ctx: { marioX: 0, romFrame: 0 },
+      rom: fakeRom({}),
+      tables: readSyntheticTables(),
+      descriptor: d,
+      spriteX: 0,
+      ctx: { marioX: 0, romFrame: 0 },
     })
     expect(res.ok).toBe(false)
   })
@@ -139,33 +156,39 @@ describe('shiftedTable byte source', () => {
   const SHIFT3 = { scan: 0x018020, max: 8 }
   const MASK1 = 0x018030
   const runs = {
-    0x018010: [0x4A, 0x4A, 0x4A, 0x4A, 0x4A, 0x4A, 0xA8, 0x00],
-    0x018020: [0x4A, 0x4A, 0x4A, 0x29, 0x00, 0x00, 0x00, 0x00],
+    0x018010: [0x4a, 0x4a, 0x4a, 0x4a, 0x4a, 0x4a, 0xa8, 0x00],
+    0x018020: [0x4a, 0x4a, 0x4a, 0x29, 0x00, 0x00, 0x00, 0x00],
     0x018030: [0x01],
   }
   // Operand at $018000 points at a table at $018100 holding 9,7,5,3.
   const rom = fakeRom({ 0x018000: [0x00, 0x81], 0x018100: [9, 7, 5, 3], ...runs })
   const src = (shift: { scan: number; max: number }, orShift?: { scan: number; max: number }) =>
     ({
-      kind: 'shiftedTable', operandAddr: 0x018000, operandBank: 0x01, shift,
+      kind: 'shiftedTable',
+      operandAddr: 0x018000,
+      operandBank: 0x01,
+      shift,
       orBit: orShift ? { shift: orShift, maskAddr: MASK1 } : undefined,
     }) as const
 
   const groupFor = (frame: number, shift: { scan: number; max: number }) => {
     const res = drawSpriteParts({
-      rom, tables: readSyntheticTables(),
+      rom,
+      tables: readSyntheticTables(),
       descriptor: { ...BASE_TIMER_DESC, tileGroup: src(shift) },
-      spriteX: 0, ctx: { marioX: 0, romFrame: 0 }, forceFrame: frame,
+      spriteX: 0,
+      ctx: { marioX: 0, romFrame: 0 },
+      forceFrame: frame,
     })
     if (!res.ok) throw new Error(JSON.stringify(res.failure))
     // tilemap[i] = 0x10 + i and tilemapOffset is 0, so sub2 reads
     // tilemap[tileGroup] and the char recovers the group.
-    return (res.parts[0].charNum - 0x400) - 0x10
+    return res.parts[0].charNum - 0x400 - 0x10
   }
 
   it('indexes the table by frame >> the counted shift', () => {
     expect(groupFor(0x00, SHIFT6)).toBe(9)
-    expect(groupFor(0x3F, SHIFT6)).toBe(9)
+    expect(groupFor(0x3f, SHIFT6)).toBe(9)
     expect(groupFor(0x40, SHIFT6)).toBe(7)
     expect(groupFor(0x80, SHIFT6)).toBe(5)
   })
@@ -173,17 +196,22 @@ describe('shiftedTable byte source', () => {
   it('a shorter LSR run shifts less, with no descriptor change', () => {
     // Same descriptor, different cart: the run at $018010 is three long.
     const shorter = fakeRom({
-      0x018000: [0x00, 0x81], 0x018100: [9, 7, 5, 3], ...runs,
-      0x018010: [0x4A, 0x4A, 0x4A, 0xA8, 0x00, 0x00, 0x00, 0x00],
+      0x018000: [0x00, 0x81],
+      0x018100: [9, 7, 5, 3],
+      ...runs,
+      0x018010: [0x4a, 0x4a, 0x4a, 0xa8, 0x00, 0x00, 0x00, 0x00],
     })
     const res = drawSpriteParts({
-      rom: shorter, tables: readSyntheticTables(),
+      rom: shorter,
+      tables: readSyntheticTables(),
       descriptor: { ...BASE_TIMER_DESC, tileGroup: src(SHIFT6) },
-      spriteX: 0, ctx: { marioX: 0, romFrame: 0 }, forceFrame: 0x08,
+      spriteX: 0,
+      ctx: { marioX: 0, romFrame: 0 },
+      forceFrame: 0x08,
     })
     if (!res.ok) throw new Error(JSON.stringify(res.failure))
     // 8 >> 3 = 1, so entry 1; 8 >> 6 = 0 would have given entry 0.
-    expect((res.parts[0].charNum - 0x400) - 0x10).toBe(7)
+    expect(res.parts[0].charNum - 0x400 - 0x10).toBe(7)
   })
 
   it('ORs a masked slice of the SAME index when orBit is set', () => {
@@ -193,17 +221,20 @@ describe('shiftedTable byte source', () => {
     const evenRom = fakeRom({ 0x018000: [0x00, 0x81], 0x018100: [4, 2, 0], ...runs })
     const at = (frame: number) => {
       const res = drawSpriteParts({
-        rom: evenRom, tables: readSyntheticTables(),
+        rom: evenRom,
+        tables: readSyntheticTables(),
         descriptor: { ...BASE_TIMER_DESC, tileGroup: src(SHIFT6, SHIFT3) },
-        spriteX: 0, ctx: { marioX: 0, romFrame: 0 }, forceFrame: frame,
+        spriteX: 0,
+        ctx: { marioX: 0, romFrame: 0 },
+        forceFrame: frame,
       })
       if (!res.ok) throw new Error(JSON.stringify(res.failure))
-      return (res.parts[0].charNum - 0x400) - 0x10
+      return res.parts[0].charNum - 0x400 - 0x10
     }
-    expect(at(0x00)).toBe(4)        // (0 >> 3) & 1 = 0
-    expect(at(0x08)).toBe(5)        // (8 >> 3) & 1 = 1
-    expect(at(0x40)).toBe(2)        // entry 1, bit 0
-    expect(at(0x48)).toBe(3)        // entry 1, bit 1
+    expect(at(0x00)).toBe(4) // (0 >> 3) & 1 = 0
+    expect(at(0x08)).toBe(5) // (8 >> 3) & 1 = 1
+    expect(at(0x40)).toBe(2) // entry 1, bit 0
+    expect(at(0x48)).toBe(3) // entry 1, bit 1
   })
 
   it('omitting orBit leaves the table value untouched', () => {
@@ -212,16 +243,22 @@ describe('shiftedTable byte source', () => {
 
   it('the OR mask is read, so a mask of 3 brings in two bits', () => {
     const evenRom = fakeRom({
-      0x018000: [0x00, 0x81], 0x018100: [4, 2, 0], ...runs, 0x018030: [0x03],
+      0x018000: [0x00, 0x81],
+      0x018100: [4, 2, 0],
+      ...runs,
+      0x018030: [0x03],
     })
     const res = drawSpriteParts({
-      rom: evenRom, tables: readSyntheticTables(),
+      rom: evenRom,
+      tables: readSyntheticTables(),
       descriptor: { ...BASE_TIMER_DESC, tileGroup: src(SHIFT6, SHIFT3) },
-      spriteX: 0, ctx: { marioX: 0, romFrame: 0 }, forceFrame: 0x18,
+      spriteX: 0,
+      ctx: { marioX: 0, romFrame: 0 },
+      forceFrame: 0x18,
     })
     if (!res.ok) throw new Error(JSON.stringify(res.failure))
     // (0x18 >> 3) & 3 = 3, against a mask of 1 it would have been 1.
-    expect((res.parts[0].charNum - 0x400) - 0x10).toBe(4 | 3)
+    expect(res.parts[0].charNum - 0x400 - 0x10).toBe(4 | 3)
   })
 })
 
@@ -263,7 +300,7 @@ const ROM_FILES = [
 const romPaths = ROM_FILES.map(f => resolve(ROM_DIR, f))
 const romsPresent = romPaths.every(existsSync)
 
-const MAGIKOOPA = SPRITE_DRAW_DESCRIPTORS.find(d => d.spriteId === 0x1F)!
+const MAGIKOOPA = SPRITE_DRAW_DESCRIPTORS.find(d => d.spriteId === 0x1f)!
 
 /** Body span of a `sub1` sprite: two stacked 16x16 large OBJs at dx 0..15. */
 const BODY_X0 = 0
@@ -272,8 +309,12 @@ const BODY_X1 = 16
 function drawAt(rom: RomFile, d: SpriteDrawDescriptor, frame: number, marioX: number) {
   const tables = readSpriteTileTables(rom)!
   const res = drawSpriteParts({
-    rom, tables, descriptor: d, spriteX: 100,
-    ctx: { marioX, romFrame: 0 }, forceFrame: frame,
+    rom,
+    tables,
+    descriptor: d,
+    spriteX: 100,
+    ctx: { marioX, romFrame: 0 },
+    forceFrame: frame,
   })
   if (!res.ok) throw new Error(`draw failed: ${JSON.stringify(res.failure)}`)
   return res
@@ -296,21 +337,26 @@ describe.skipIf(!romsPresent)('$1F Magikoopa, extra part and state-timer pose cy
     expect(MAGIKOOPA.frames).toBe(seed! + 1)
   })
 
-  it.each(ROM_FILES)('%s: the wand is drawn on the cast poses and absent on the wind-up poses', name => {
-    const rom = RomFile.load(resolve(ROM_DIR, name))
-    const seed = resolveStateTimerSeed(rom, MAGIKOOPA.anim, resolveHandlerBase(rom, MAGIKOOPA))!
-    const counts = new Set<number>()
-    let withWand = 0, withoutWand = 0
-    for (let f = 0; f <= seed; f++) {
-      const n = drawAt(rom, MAGIKOOPA, f, FACING_LEFT).parts.length
-      counts.add(n)
-      if (n === 9) withWand++; else withoutWand++
-    }
-    // Eight body subtiles always; nine when the wand's own OAM entry exists.
-    expect([...counts].sort()).toEqual([8, 9])
-    expect(withWand).toBeGreaterThan(0)
-    expect(withoutWand).toBeGreaterThan(0)
-  })
+  it.each(ROM_FILES)(
+    '%s: the wand is drawn on the cast poses and absent on the wind-up poses',
+    name => {
+      const rom = RomFile.load(resolve(ROM_DIR, name))
+      const seed = resolveStateTimerSeed(rom, MAGIKOOPA.anim, resolveHandlerBase(rom, MAGIKOOPA))!
+      const counts = new Set<number>()
+      let withWand = 0,
+        withoutWand = 0
+      for (let f = 0; f <= seed; f++) {
+        const n = drawAt(rom, MAGIKOOPA, f, FACING_LEFT).parts.length
+        counts.add(n)
+        if (n === 9) withWand++
+        else withoutWand++
+      }
+      // Eight body subtiles always; nine when the wand's own OAM entry exists.
+      expect([...counts].sort()).toEqual([8, 9])
+      expect(withWand).toBeGreaterThan(0)
+      expect(withoutWand).toBeGreaterThan(0)
+    },
+  )
 
   it.each(ROM_FILES)('%s: the wand sits OUTSIDE the body box and is drawn behind it', name => {
     const rom = RomFile.load(resolve(ROM_DIR, name))
@@ -328,7 +374,9 @@ describe.skipIf(!romsPresent)('$1F Magikoopa, extra part and state-timer pose cy
     const rom = RomFile.load(resolve(ROM_DIR, name))
     const cast = drawAt(rom, MAGIKOOPA, 0, FACING_LEFT)
     const wand = outside(cast.parts)[0]
-    const bodyRows = [...new Set(cast.parts.filter(p => p !== wand).map(p => p.dy))].sort((a, b) => a - b)
+    const bodyRows = [...new Set(cast.parts.filter(p => p !== wand).map(p => p.dy))].sort(
+      (a, b) => a - b,
+    )
     // `SubSprGfx1` stacks two 16x16 entries, so the body occupies four 8 px
     // rows. The wand's `ADC #$10` (bank_01.asm:8560) puts it on the SECOND
     // entry's top row, which is the third of those four.
@@ -339,34 +387,40 @@ describe.skipIf(!romsPresent)('$1F Magikoopa, extra part and state-timer pose cy
     expect(wand.dy).toBeLessThanOrEqual(bodyRows[3])
   })
 
-  it.each(ROM_FILES)('%s: the wand switches sides with the facing, and is not double-mirrored', name => {
-    const rom = RomFile.load(resolve(ROM_DIR, name))
-    const left = outside(drawAt(rom, MAGIKOOPA, 0, FACING_LEFT).parts)[0]
-    const right = outside(drawAt(rom, MAGIKOOPA, 0, FACING_RIGHT).parts)[0]
-    expect(left.dx).toBeLessThan(BODY_X0)
-    expect(right.dx).toBeGreaterThanOrEqual(BODY_X1)
-    expect(left.flipX).toBe(false)
-    expect(right.flipX).toBe(true)
-    // Same char both ways: the displacement table carries the asymmetry.
-    expect(left.charNum).toBe(right.charNum)
-  })
+  it.each(ROM_FILES)(
+    '%s: the wand switches sides with the facing, and is not double-mirrored',
+    name => {
+      const rom = RomFile.load(resolve(ROM_DIR, name))
+      const left = outside(drawAt(rom, MAGIKOOPA, 0, FACING_LEFT).parts)[0]
+      const right = outside(drawAt(rom, MAGIKOOPA, 0, FACING_RIGHT).parts)[0]
+      expect(left.dx).toBeLessThan(BODY_X0)
+      expect(right.dx).toBeGreaterThanOrEqual(BODY_X1)
+      expect(left.flipX).toBe(false)
+      expect(right.flipX).toBe(true)
+      // Same char both ways: the displacement table carries the asymmetry.
+      expect(left.charNum).toBe(right.charNum)
+    },
+  )
 
-  it.each(ROM_FILES)('%s: the wand char comes from the cart immediate, not a literal here', name => {
-    const rom = RomFile.load(resolve(ROM_DIR, name))
-    const parts = drawAt(rom, MAGIKOOPA, 0, FACING_LEFT).parts
-    const wand = outside(parts)[0]
-    const body = parts.filter(p => p !== wand).map(p => p.charNum)
-    expect(body).not.toContain(wand.charNum)
+  it.each(ROM_FILES)(
+    '%s: the wand char comes from the cart immediate, not a literal here',
+    name => {
+      const rom = RomFile.load(resolve(ROM_DIR, name))
+      const parts = drawAt(rom, MAGIKOOPA, 0, FACING_LEFT).parts
+      const wand = outside(parts)[0]
+      const body = parts.filter(p => p !== wand).map(p => p.charNum)
+      expect(body).not.toContain(wand.charNum)
 
-    // Re-derive the char from the operand the descriptor points at. The
-    // number itself stays in the cart: what is pinned is that the engine
-    // READ it, and read it from the right address.
-    const src = MAGIKOOPA.extraParts![0].char as Extract<ExtraByteSource, { kind: 'immediateAt' }>
-    const imm = rom.readAt(resolveRef(rom, src.addr, resolveHandlerBase(rom, MAGIKOOPA))!, 1)![0]
-    const attr = readSpriteTileTables(rom)!.spriteAttr[0x1F]
-    const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
-    expect(wand.charNum).toBe(0x400 + charHigh + (imm & 0x1FF))
-  })
+      // Re-derive the char from the operand the descriptor points at. The
+      // number itself stays in the cart: what is pinned is that the engine
+      // READ it, and read it from the right address.
+      const src = MAGIKOOPA.extraParts![0].char as Extract<ExtraByteSource, { kind: 'immediateAt' }>
+      const imm = rom.readAt(resolveRef(rom, src.addr, resolveHandlerBase(rom, MAGIKOOPA))!, 1)![0]
+      const attr = readSpriteTileTables(rom)!.spriteAttr[0x1f]
+      const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+      expect(wand.charNum).toBe(0x400 + charHigh + (imm & 0x1ff))
+    },
+  )
 
   it.each(ROM_FILES)('%s: the pose cycle is three poses, wind-up plus the two cast poses', name => {
     const rom = RomFile.load(resolve(ROM_DIR, name))
@@ -430,8 +484,10 @@ describe.skipIf(!romsPresent)('planted defects make the $1F oracles fail', () =>
   const wandOf = (d: SpriteDrawDescriptor, frame = 0) =>
     outside(drawAt(rom(), d, frame, FACING_LEFT).parts)[0]
 
-  const mutate = (over: Partial<SpriteDrawDescriptor>): SpriteDrawDescriptor =>
-    ({ ...MAGIKOOPA, ...over })
+  const mutate = (over: Partial<SpriteDrawDescriptor>): SpriteDrawDescriptor => ({
+    ...MAGIKOOPA,
+    ...over,
+  })
   const wand = MAGIKOOPA.extraParts![0]
   const mutateWand = (over: Partial<ExtraPart>): SpriteDrawDescriptor =>
     mutate({ extraParts: [{ ...wand, ...over }] })
@@ -463,7 +519,7 @@ describe.skipIf(!romsPresent)('planted defects make the $1F oracles fail', () =>
   it('wrong frame gating: a gate of zero draws the wand on every pose', () => {
     // The gate immediate lives at a cart address; point it at a byte that
     // holds $00 and every tile group clears it.
-    const zeroByte = 0x01BF15   // `RTS` opcode $60 is non-zero; use a known 0
+    const zeroByte = 0x01bf15 // `RTS` opcode $60 is non-zero; use a known 0
     const d = mutateWand({ gate: { kind: 'tileGroupAtLeast', operandAddr: zeroByte } })
     const seed = resolveStateTimerSeed(rom(), MAGIKOOPA.anim, resolveHandlerBase(rom(), MAGIKOOPA))!
     const counts = new Set<number>()
@@ -486,13 +542,19 @@ describe.skipIf(!romsPresent)('planted defects make the $1F oracles fail', () =>
     const poseCount = (d: SpriteDrawDescriptor) => {
       const s = new Set<string>()
       for (let f = 0; f <= seed; f++) {
-        s.add(drawAt(rom(), d, f, FACING_LEFT).parts.map(p => `${p.charNum}@${p.dx},${p.dy}`).join('|'))
+        s.add(
+          drawAt(rom(), d, f, FACING_LEFT)
+            .parts.map(p => `${p.charNum}@${p.dx},${p.dy}`)
+            .join('|'),
+        )
       }
       return s.size
     }
     expect(poseCount(MAGIKOOPA)).toBe(3)
     // Point the shift scan at a byte that is not `LSR A`, so the count is 0.
-    expect(poseCount(mutate({ tileGroup: { ...t, shift: { scan: 0x01BDD6, max: 8 } } }))).not.toBe(3)
+    expect(poseCount(mutate({ tileGroup: { ...t, shift: { scan: 0x01bdd6, max: 8 } } }))).not.toBe(
+      3,
+    )
   })
 
   it('missing OR bit: now observable, because the bob it selects is modelled', () => {
@@ -508,7 +570,11 @@ describe.skipIf(!romsPresent)('planted defects make the $1F oracles fail', () =>
     const trace = (d: SpriteDrawDescriptor) => {
       const out: string[] = []
       for (let f = 0; f <= seed; f++) {
-        out.push(drawAt(rom(), d, f, FACING_LEFT).parts.map(p => `${p.charNum}@${p.dx},${p.dy}`).join(','))
+        out.push(
+          drawAt(rom(), d, f, FACING_LEFT)
+            .parts.map(p => `${p.charNum}@${p.dx},${p.dy}`)
+            .join(','),
+        )
       }
       return out
     }
@@ -522,13 +588,17 @@ describe.skipIf(!romsPresent)('planted defects make the $1F oracles fail', () =>
     const trace = (d: SpriteDrawDescriptor) => {
       const out: string[] = []
       for (let f = 0; f <= seed; f++) {
-        out.push(drawAt(rom(), d, f, FACING_LEFT).parts.map(p => p.charNum).join(','))
+        out.push(
+          drawAt(rom(), d, f, FACING_LEFT)
+            .parts.map(p => p.charNum)
+            .join(','),
+        )
       }
       return out
     }
     // One byte off in the operand resolves to a different table. Frame 0
     // alone can still coincide, so the whole countdown is the oracle.
-    const bad = mutate({ tileGroup: { ...t, operandAddr: { mainOff: 0xD2 } } })
+    const bad = mutate({ tileGroup: { ...t, operandAddr: { mainOff: 0xd2 } } })
     expect(trace(bad)).not.toEqual(trace(MAGIKOOPA))
   })
 
@@ -546,10 +616,13 @@ describe.skipIf(!romsPresent)('planted defects make the $1F oracles fail', () =>
   it('wrong timer seed address: the descriptor fails rather than guessing', () => {
     // $01:FFFF is past the handler; pointing the seed off the cart must not
     // silently degrade to frame 0.
-    const d = mutate({ anim: { kind: 'stateTimer', seedOperandAddr: 0xFFFFFF } })
+    const d = mutate({ anim: { kind: 'stateTimer', seedOperandAddr: 0xffffff } })
     const res = drawSpriteParts({
-      rom: rom(), tables: readSpriteTileTables(rom())!, descriptor: d,
-      spriteX: 100, ctx: { marioX: 0, romFrame: 0 },
+      rom: rom(),
+      tables: readSpriteTileTables(rom())!,
+      descriptor: d,
+      spriteX: 100,
+      ctx: { marioX: 0, romFrame: 0 },
     })
     expect(res.ok).toBe(false)
   })

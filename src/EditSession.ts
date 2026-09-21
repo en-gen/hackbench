@@ -74,7 +74,9 @@ export class EditSession {
     return s
   }
 
-  get records(): readonly LayerRecord[] { return this.manifest.layers }
+  get records(): readonly LayerRecord[] {
+    return this.manifest.layers
+  }
 
   private load(): void {
     try {
@@ -85,8 +87,8 @@ export class EditSession {
         return
       }
       vscode.window.showWarningMessage(
-        `HackBench: ${manifestPath(this.romPath)} is not a layer manifest this build understands; `
-        + 'starting with no layers. The file has been left alone.',
+        `HackBench: ${manifestPath(this.romPath)} is not a layer manifest this build understands; ` +
+          'starting with no layers. The file has been left alone.',
       )
     } catch {
       // No layers yet. Normal for a ROM that has never been edited.
@@ -95,7 +97,11 @@ export class EditSession {
 
   private saveManifest(): void {
     fs.mkdirSync(layerDir(this.romPath), { recursive: true })
-    fs.writeFileSync(manifestPath(this.romPath), JSON.stringify(this.manifest, null, 2) + '\n', 'utf8')
+    fs.writeFileSync(
+      manifestPath(this.romPath),
+      JSON.stringify(this.manifest, null, 2) + '\n',
+      'utf8',
+    )
   }
 
   /**
@@ -111,7 +117,10 @@ export class EditSession {
     for (const rec of this.manifest.layers) {
       try {
         const patches = decodeIps(fs.readFileSync(path.join(layerDir(this.romPath), rec.file)))
-        if (!patches) { skipped.push(`${rec.file}: not a readable IPS`); continue }
+        if (!patches) {
+          skipped.push(`${rec.file}: not a readable IPS`)
+          continue
+        }
         layers.push({ id: rec.id, label: rec.label, scope: 'edit', patches })
       } catch (err) {
         skipped.push(`${rec.file}: ${(err as Error).message}`)
@@ -139,7 +148,10 @@ export class EditSession {
   pushEdit(baseRom: SmwRom, op: EditOp): void {
     // Buffer.from: host-side readers call Buffer-only methods on RomFile.buffer.
     const current = new SmwRom(
-      RomFile.fromBytes(this.romPath, Buffer.from(this.patchedBytes(new Uint8Array(baseRom.rom.buffer)))),
+      RomFile.fromBytes(
+        this.romPath,
+        Buffer.from(this.patchedBytes(new Uint8Array(baseRom.rom.buffer))),
+      ),
     )
     const seq = this.manifest.layers.length + 1
     const layer = deriveLayer(current, op, `layer-${seq}`)

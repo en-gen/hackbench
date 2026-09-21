@@ -44,8 +44,8 @@ const ROOMS = new Map<number, number[]>([
   [0x033, []],
   [0x034, [0x035]],
   [0x035, [0x034]],
-  [0x110, [0x1C0]],
-  [0x1C0, []],
+  [0x110, [0x1c0]],
+  [0x1c0, []],
 ])
 
 interface Row {
@@ -173,8 +173,11 @@ describe('MapsProvider tree wiring (synthetic ROM)', () => {
     // `smwrom://synthetic/...` would parse to authority 'synthetic' and path
     // '/maps/005.smwmap', which resolves to no file. Both halves are asserted
     // because either alone lets that rewrite through.
-    expect({ scheme: target.scheme, authority: target.authority, path: target.path })
-      .toEqual({ scheme: 'smwrom', authority: '', path: '/synthetic/maps/005.smwmap' })
+    expect({ scheme: target.scheme, authority: target.authority, path: target.path }).toEqual({
+      scheme: 'smwrom',
+      authority: '',
+      path: '/synthetic/maps/005.smwmap',
+    })
   })
 
   it('carries a room node children into its RoomItem so re-expansion descends', () => {
@@ -189,16 +192,19 @@ describe('MapsProvider tree wiring (synthetic ROM)', () => {
 
   it('stops at a loop marker instead of recursing into the back edge', () => {
     const rows = descend('005', '034', '035')
-    expect(rows.map(row)).toEqual([{
-      uri: mapUri('034'),
-      command: 'vscode.open',
-      state: vscode.TreeItemCollapsibleState.None,
-      context: 'smwRoom_loop',
-      icon: 'issue-reopened',
-      description: '(loops back)',
-    }])
-    expect(rows[0].tooltip)
-      .toBe('$034 is already open higher in this branch; expansion stops here.')
+    expect(rows.map(row)).toEqual([
+      {
+        uri: mapUri('034'),
+        command: 'vscode.open',
+        state: vscode.TreeItemCollapsibleState.None,
+        context: 'smwRoom_loop',
+        icon: 'issue-reopened',
+        description: '(loops back)',
+      },
+    ])
+    expect(rows[0].tooltip).toBe(
+      '$034 is already open higher in this branch; expansion stops here.',
+    )
     // The new fact: a marker carries no subNodes, so the recursion ends here.
     expect(provider.getChildren(rows[0])).toEqual([])
   })

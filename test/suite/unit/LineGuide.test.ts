@@ -7,7 +7,8 @@ import {
 
 /** Build an l1 grid of given dimensions, optionally seeded with tile IDs. */
 function makeL1(
-  rows: number, cols: number,
+  rows: number,
+  cols: number,
   seed: Record<`${number},${number}`, number> = {},
 ): (number | null)[][] {
   const g: (number | null)[][] = Array.from({ length: rows }, () => Array(cols).fill(null))
@@ -20,8 +21,9 @@ function makeL1(
 
 describe('LINE_TRACKED_SPRITE_IDS', () => {
   it('contains exactly $62..$68', () => {
-    expect([...LINE_TRACKED_SPRITE_IDS].sort((a, b) => a - b))
-      .toEqual([0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68])
+    expect([...LINE_TRACKED_SPRITE_IDS].sort((a, b) => a - b)).toEqual([
+      0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
+    ])
   })
 })
 
@@ -44,7 +46,7 @@ describe('probeTrackTile', () => {
     const l1 = makeL1(30, 40, { '21,25': 0x75 })
     expect(probeTrackTile(400, 336, l1, NO)).toBeNull()
 
-    const l1b = makeL1(30, 40, { '21,25': 0x9A })
+    const l1b = makeL1(30, 40, { '21,25': 0x9a })
     expect(probeTrackTile(400, 336, l1b, NO)).toBeNull()
   })
 
@@ -54,16 +56,16 @@ describe('probeTrackTile', () => {
     // (404, 332)=(25, 20), (396, 332)=(24, 20).
     // Y=3 first → (col 25, row 21) wins when multiple corners have matches.
     const l1 = makeL1(30, 40, {
-      '21,25': 0x80,  // TL in image / Y=3 probe = bottom-right of box
-      '21,24': 0x81,  // Y=2 probe
-      '20,25': 0x82,  // Y=1 probe
-      '20,24': 0x83,  // Y=0 probe
+      '21,25': 0x80, // TL in image / Y=3 probe = bottom-right of box
+      '21,24': 0x81, // Y=2 probe
+      '20,25': 0x82, // Y=1 probe
+      '20,24': 0x83, // Y=0 probe
     })
     expect(probeTrackTile(400, 336, l1, NO)).toEqual({ col: 25, row: 21 })
   })
 
   it('skips earlier corners that miss and picks a later corner that hits', () => {
-    const l1 = makeL1(30, 40, { '20,24': 0x85 })  // only Y=0 (top-left) corner
+    const l1 = makeL1(30, 40, { '20,24': 0x85 }) // only Y=0 (top-left) corner
     expect(probeTrackTile(400, 336, l1, NO)).toEqual({ col: 24, row: 20 })
   })
 
@@ -83,7 +85,7 @@ describe('probeTrackTile', () => {
   })
 
   it('matches by low byte only (page 1 tile $192 registers as line-guide)', () => {
-    // The ROM CMP #$76/#$9A checks Map16TileNumber (low byte only) — we mirror that.
+    // The ROM CMP #$76/#$9A checks Map16TileNumber (low byte only) - we mirror that.
     // $192 → low byte $92 (in range, no ON/OFF gate). $195 is unsuitable: low byte
     // $95 = ON_OFF_TILE_B, correctly blocked at initial state (NO=false) after the
     // polarity fix.
@@ -138,7 +140,7 @@ describe('resolveLineGuideAttachment', () => {
       // Reverse: XLow = ($F0 + $0F) & $FF = $FF, XHigh stays 1 → probe X = $01FF.
       // $1FF / 16 = col 31 (row 21 unchanged). Probe corners land in cols 31-32.
       const l1 = makeL1(30, 40, { '21,31': 0x92 })
-      const r = resolveLineGuideAttachment(0x67, 0x01F0, 336, l1, false)
+      const r = resolveLineGuideAttachment(0x67, 0x01f0, 336, l1, false)
       expect(r?.trackTile).toEqual({ col: 31, row: 21 })
       expect(r?.direction).toBe('reverse')
     })

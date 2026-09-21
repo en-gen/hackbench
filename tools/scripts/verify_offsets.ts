@@ -8,17 +8,19 @@ function dump(addr: number, len: number, label: string) {
   for (let i = 0; i < len; i++) {
     bytes.push(rom.rom.readByte(addr + i) ?? 0)
   }
-  const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join(' ')
   console.log(`${label} $${addr.toString(16).padStart(6, '0').toUpperCase()}:`)
   // break into lines every 16
   for (let i = 0; i < len; i += 16) {
-    const slice = bytes.slice(i, i + 16).map(b => b.toString(16).padStart(2, '0')).join(' ')
+    const slice = bytes
+      .slice(i, i + 16)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join(' ')
     console.log(`  +${i.toString().padStart(3, '0')}: ${slice}`)
   }
 }
 
-dump(0x0DDCEA, 64, 'CODE_0DDCEA')
+dump(0x0ddcea, 64, 'CODE_0DDCEA')
 console.log()
-dump(0x0DDD2E, 64, 'CODE_0DDD2E')
+dump(0x0ddd2e, 64, 'CODE_0DDD2E')
 console.log()
-dump(0x0DE135, 96, 'CODE_0DE135')
+dump(0x0de135, 96, 'CODE_0DE135')

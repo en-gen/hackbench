@@ -21,13 +21,7 @@ function setSwitches(state: readonly [boolean, boolean, boolean, boolean]): void
 
 function makeQuad(tag: number): SubtileQuad {
   const sub = () =>
-    new SubTile(
-      new Char(tag, new StaticPixelsBehavior(new Uint8Array(64))),
-      0,
-      false,
-      false,
-      false,
-    )
+    new SubTile(new Char(tag, new StaticPixelsBehavior(new Uint8Array(64))), 0, false, false, false)
   return [sub(), sub(), sub(), sub()]
 }
 
@@ -88,18 +82,18 @@ describe.skipIf(!existsSync(ROM_PATH))('TileFactory switch-palace wiring (vanill
     const tiles = buildTiles(rom.rom, header.objectTileset, chars)
 
     for (let c = 0; c < 4; c++) {
-      const off = tiles.get(0x06A + c)!
-      const on = tiles.get(0x16A + c)!
-      expect(off, `off $${(0x06A + c).toString(16)}`).toBeInstanceOf(Tile)
-      expect(on, `on $${(0x16A + c).toString(16)}`).toBeInstanceOf(Tile)
+      const off = tiles.get(0x06a + c)!
+      const on = tiles.get(0x16a + c)!
+      expect(off, `off $${(0x06a + c).toString(16)}`).toBeInstanceOf(Tile)
+      expect(on, `on $${(0x16a + c).toString(16)}`).toBeInstanceOf(Tile)
       expect(off.behavior).toBeInstanceOf(SwitchPalaceAlternateBehavior)
       expect(on.behavior).toBeInstanceOf(SwitchPalaceAlternateBehavior)
     }
 
     // With color 0 set, $06A and $16A both select the "on" quad
     setSwitches([true, false, false, false])
-    const off06A = tiles.get(0x06A)!
-    const on16A = tiles.get(0x16A)!
+    const off06A = tiles.get(0x06a)!
+    const on16A = tiles.get(0x16a)!
     const q1 = off06A.behavior as SwitchPalaceAlternateBehavior
     const q2 = on16A.behavior as SwitchPalaceAlternateBehavior
     expect(q1.selectQuad()).toBe(q1.on)

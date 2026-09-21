@@ -19,10 +19,13 @@ import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { RomFile } from '../../../../src/rom/RomFile'
 import {
-  SPRITE_DRAW_DESCRIPTORS, SPRITE_MAIN_PTR_TABLE, SPRITE_INIT_PTR_TABLE,
+  SPRITE_DRAW_DESCRIPTORS,
+  SPRITE_MAIN_PTR_TABLE,
+  SPRITE_INIT_PTR_TABLE,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawDescriptor'
 import {
-  describeHandlerProvenance, provenanceMessage,
+  describeHandlerProvenance,
+  provenanceMessage,
 } from '../../../../src/rom/model/sprites/generic/SpriteHandlerProvenance'
 
 const ROM_DIR = resolve(__dirname, '../../../roms')
@@ -47,14 +50,15 @@ describe('describeHandlerProvenance', () => {
       const rom = RomFile.load(romPaths[i])
       for (const id of DESCRIPTOR_IDS) {
         const p = describeHandlerProvenance(rom, id)
-        expect(`${ROM_FILES[i]} $${id.toString(16)}: ${p.kind}`)
-          .toBe(`${ROM_FILES[i]} $${id.toString(16)}: vanilla`)
+        expect(`${ROM_FILES[i]} $${id.toString(16)}: ${p.kind}`).toBe(
+          `${ROM_FILES[i]} $${id.toString(16)}: vanilla`,
+        )
       }
     }
   })
 
   it.skipIf(!romsPresent)('reports MAIN divergence when the draw pointer is repointed', () => {
-    const id = 0x4D
+    const id = 0x4d
     // In-memory copy: `writeAt` mutates this RomFile's buffer only, and
     // `save()` is never called, so `test/roms/` is not touched.
     const patched = RomFile.fromBytes('patched', new Uint8Array(readFileSync(romPaths[0])))
@@ -63,14 +67,12 @@ describe('describeHandlerProvenance', () => {
     const p = describeHandlerProvenance(patched, id)
     expect(p.kind).toBe('diverged')
     if (p.kind !== 'diverged') throw new Error('unreachable')
-    expect(p.divergences).toEqual([
-      { table: 'main', expected: 0xE2CF, found: 0x1234 },
-    ])
+    expect(p.divergences).toEqual([{ table: 'main', expected: 0xe2cf, found: 0x1234 }])
     expect(provenanceMessage(p)).toContain('custom handler, appearance unverified')
   })
 
   it.skipIf(!romsPresent)('reports INIT divergence separately from MAIN', () => {
-    const id = 0x2C
+    const id = 0x2c
     const patched = RomFile.fromBytes('patched', new Uint8Array(readFileSync(romPaths[0])))
     patched.writeAt(SPRITE_INIT_PTR_TABLE + id * 2, [0x78, 0x56])
     const p = describeHandlerProvenance(patched, id)
@@ -92,7 +94,7 @@ describe('describeHandlerProvenance', () => {
   it.skipIf(!romsPresent)('reports unreadable for an out-of-range sprite id', () => {
     const rom = RomFile.load(romPaths[0])
     // Force a descriptor whose id is outside the 201-entry pointer tables.
-    const fake = [{ ...SPRITE_DRAW_DESCRIPTORS[0], spriteId: 0xFE }]
-    expect(describeHandlerProvenance(rom, 0xFE, fake).kind).toBe('unreadable')
+    const fake = [{ ...SPRITE_DRAW_DESCRIPTORS[0], spriteId: 0xfe }]
+    expect(describeHandlerProvenance(rom, 0xfe, fake).kind).toBe('unreadable')
   })
 })

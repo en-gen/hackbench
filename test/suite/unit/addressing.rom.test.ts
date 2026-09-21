@@ -23,10 +23,10 @@ const romPath = (name: string): string => resolve(ROMS_DIR, name)
 
 // LM writes a JSL ($22) over the vanilla level-load dispatch at $05D8B1 when
 // a ROM has been touched by Lunar Magic; vanilla/.magic keep $F0 (BEQ).
-const LM_PATCH_PROBE = 0x05D8B1
+const LM_PATCH_PROBE = 0x05d8b1
 // LM's compressed-translevel-table pointer: 16-bit LE lo/hi + separate bank byte.
-const TABLE_PTR_WORD = 0x04D803
-const TABLE_PTR_BANK = 0x04D808
+const TABLE_PTR_WORD = 0x04d803
+const TABLE_PTR_BANK = 0x04d808
 const EXPECTED_TABLE_SIZE = 4096
 
 // Invictus 1.0.sfc decompresses this same pointer to 174 bytes, both before
@@ -85,8 +85,9 @@ function preFixParseableCount(smw: SmwRom, realIndices: number[]): number {
     const rawOffset = brokenOldHiromShaped(ptr)
     if (rawOffset === null) continue
     const offset = rawOffset + headerBytes
-    const readable = [0x2000, 0x1000, 0x800, 0x400, 0x200]
-      .some(len => offset >= 0 && offset + len <= rom.buffer.length)
+    const readable = [0x2000, 0x1000, 0x800, 0x400, 0x200].some(
+      len => offset >= 0 && offset + len <= rom.buffer.length,
+    )
     if (readable) count++
   }
   return count
@@ -104,39 +105,49 @@ describe('Acceptance B: level catalog parseable count', () => {
 
   for (const { name, expectRise } of roms) {
     const present = existsSync(romPath(name))
-    ;(present ? it : it.skip)(`${name}: parseable count ${expectRise ? 'rises' : 'is unchanged'} vs the pre-fix count`, () => {
-      const smw = SmwRom.open(romPath(name))
+    ;(present ? it : it.skip)(
+      `${name}: parseable count ${expectRise ? 'rises' : 'is unchanged'} vs the pre-fix count`,
+      () => {
+        const smw = SmwRom.open(romPath(name))
 
-      // "Real slots" = every L1 pointer except the modal (filler) value that
-      // fills unused slots - counting occurrences is how the bug report
-      // derived 235/251/291/354 without hardcoding per-ROM numbers here.
-      const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => smw.getLevelL1Pointer(i))
-      const counts = new Map<number, number>()
-      for (const p of pointers) if (p !== null) counts.set(p, (counts.get(p) ?? 0) + 1)
-      let filler = -1, fillerCount = 0
-      for (const [p, c] of counts) if (c > fillerCount) { filler = p; fillerCount = c }
-      const realIndices = pointers
-        .map((p, i) => ({ p, i }))
-        .filter(({ p }) => p !== null && p !== filler)
-        .map(({ i }) => i)
+        // "Real slots" = every L1 pointer except the modal (filler) value that
+        // fills unused slots - counting occurrences is how the bug report
+        // derived 235/251/291/354 without hardcoding per-ROM numbers here.
+        const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => smw.getLevelL1Pointer(i))
+        const counts = new Map<number, number>()
+        for (const p of pointers) if (p !== null) counts.set(p, (counts.get(p) ?? 0) + 1)
+        let filler = -1,
+          fillerCount = 0
+        for (const [p, c] of counts)
+          if (c > fillerCount) {
+            filler = p
+            fillerCount = c
+          }
+        const realIndices = pointers
+          .map((p, i) => ({ p, i }))
+          .filter(({ p }) => p !== null && p !== filler)
+          .map(({ i }) => i)
 
-      const parseable = realIndices.filter(i => smw.getLevelRawData(i) !== null).length
-      const preFixParseable = preFixParseableCount(smw, realIndices)
+        const parseable = realIndices.filter(i => smw.getLevelRawData(i) !== null).length
+        const preFixParseable = preFixParseableCount(smw, realIndices)
 
-      // Not tuned to hit 100%: report what we get and let a human diagnose
-      // any residual gap between parseable and realIndices.length.
-      console.log(`  [${name}] real slots=${realIndices.length} parseable=${parseable} preFixParseable=${preFixParseable}`)
-      if (expectRise) {
-        // The actual pre-fix floor, computed from the committed
-        // brokenOldHiromShaped mutant rather than a hardcoded number - a
-        // buggy converter that regressed to pre-fix behavior fails this.
-        expect(parseable).toBeGreaterThan(preFixParseable)
-      } else {
-        expect(parseable).toBe(realIndices.length)
-        // These ROMs don't touch the banks the bug affected, so the pre-fix
-        // and post-fix converters must agree exactly here too.
-        expect(preFixParseable).toBe(parseable)
-      }
-    })
+        // Not tuned to hit 100%: report what we get and let a human diagnose
+        // any residual gap between parseable and realIndices.length.
+        console.log(
+          `  [${name}] real slots=${realIndices.length} parseable=${parseable} preFixParseable=${preFixParseable}`,
+        )
+        if (expectRise) {
+          // The actual pre-fix floor, computed from the committed
+          // brokenOldHiromShaped mutant rather than a hardcoded number - a
+          // buggy converter that regressed to pre-fix behavior fails this.
+          expect(parseable).toBeGreaterThan(preFixParseable)
+        } else {
+          expect(parseable).toBe(realIndices.length)
+          // These ROMs don't touch the banks the bug affected, so the pre-fix
+          // and post-fix converters must agree exactly here too.
+          expect(preFixParseable).toBe(parseable)
+        }
+      },
+    )
   }
 })

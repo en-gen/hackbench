@@ -13,7 +13,7 @@
  *   so simulators stop on any contact with the unobserved area instead of
  *   inferring it as solid).
  *
- * Fixture cells use the Map16 tile ID itself as `actsLike` — for vanilla
+ * Fixture cells use the Map16 tile ID itself as `actsLike` - for vanilla
  * SMW levels, page-1 tiles ($100+) are mostly self-acts-like, and the
  * collision range checks (low byte) are what drives sprite physics.
  * Tilesets that remap acts-like via `readActsLikeTable` would need a ROM
@@ -31,17 +31,17 @@ import type { SlopeInfo } from '../../../../src/rom/SlopeResolver'
 /**
  * Mirror of TileFactory.classify's sprite-side fields, without the ROM
  * lookups (block-behavior table, slope-tables, Mario dispatch). Slope
- * tiles get a synthetic flat `heights` array — landing tests that need
+ * tiles get a synthetic flat `heights` array - landing tests that need
  * accurate slope angle should use a ROM-backed fixture instead.
  */
 function classifyForFixture(actsLike: number): TileCollision {
-  const low  = actsLike & 0xFF
-  const high = (actsLike >> 8) & 0xFF
+  const low = actsLike & 0xff
+  const high = (actsLike >> 8) & 0xff
   if (high === 0) return NO_COLLISION
-  const inSolidRange = low >= 0x11 && low <= 0x6D
-  const inSlopeRange = low >= 0x6E && low <= 0xD7
-  const wall    = inSolidRange
-  const floor   = low <= 0x10 || inSolidRange || inSlopeRange || low >= 0xD8
+  const inSolidRange = low >= 0x11 && low <= 0x6d
+  const inSlopeRange = low >= 0x6e && low <= 0xd7
+  const wall = inSolidRange
+  const floor = low <= 0x10 || inSolidRange || inSlopeRange || low >= 0xd8
   const ceiling = inSolidRange
   const slopeTable = inSlopeRange
   // Synthetic flat slope (heights all 0 → surface at top of tile). The
@@ -51,8 +51,13 @@ function classifyForFixture(actsLike: number): TileCollision {
     ? { slopeIndex: 0, heights: new Uint8Array(16) }
     : undefined
   return {
-    wall, floor, ceiling, slopeTable,
-    marioFloor: false, marioCeiling: false, marioWall: false,
+    wall,
+    floor,
+    ceiling,
+    slopeTable,
+    marioFloor: false,
+    marioCeiling: false,
+    marioWall: false,
     ...(slope ? { slope } : {}),
   }
 }
@@ -74,7 +79,7 @@ export interface MesenFixtureOptions {
    * Map16 table, not in the live tile-number RAM the walker reads), so
    * tests that exercise priority-driven behavior pass the affected columns
    * in here. The level $11E forest decoration runs in vertical columns
-   * (e.g. c35/c40/c45 — the leaf-and-trunk pillars), so column-granular
+   * (e.g. c35/c40/c45 - the leaf-and-trunk pillars), so column-granular
    * priority overrides are sufficient for those cases.
    */
   priorityCols?: ReadonlySet<number>
@@ -92,7 +97,10 @@ export function loadMesenFixture(path: string, opts: MesenFixtureOptions = {}): 
     if (colon < 0) continue
     const rowNum = parseInt(line.slice(1, colon).trim(), 10)
     if (Number.isNaN(rowNum)) continue
-    const tokens = line.slice(colon + 1).trim().split(/\s+/)
+    const tokens = line
+      .slice(colon + 1)
+      .trim()
+      .split(/\s+/)
     const cells = tokens.map(t => {
       if (t === '.' || t === '???') return null
       const n = parseInt(t, 16)
@@ -110,7 +118,7 @@ export function loadMesenFixture(path: string, opts: MesenFixtureOptions = {}): 
   // Two cell variants per tile id: priority and non-priority. Cells in a
   // column listed in `priorityCols` get the `isPriority: true` variant so
   // tests can simulate ROM priority bits that the Mesen dump doesn't carry.
-  const plainCache    = new Map<number, L1Cell>()
+  const plainCache = new Map<number, L1Cell>()
   const priorityCache = new Map<number, L1Cell>()
   const cellFor = (id: number, isPriority: boolean): L1Cell => {
     const cache = isPriority ? priorityCache : plainCache

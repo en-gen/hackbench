@@ -36,17 +36,21 @@ export class SuperKoopaAppearance implements SpriteAppearance {
   private flap = 0
 
   constructor(
-    readonly grounded:       SuperKoopaPoseFrames,
-    readonly groundedFlash:  SuperKoopaPoseFrames,
-    readonly airborne:       SuperKoopaPoseFrames,
-    readonly airborneFlash:  SuperKoopaPoseFrames,
-    readonly isAirborne:     boolean,
+    readonly grounded: SuperKoopaPoseFrames,
+    readonly groundedFlash: SuperKoopaPoseFrames,
+    readonly airborne: SuperKoopaPoseFrames,
+    readonly airborneFlash: SuperKoopaPoseFrames,
+    readonly isAirborne: boolean,
   ) {
     this.hitRect = partsHitRect([
-      ...grounded.flapA, ...grounded.flapB,
-      ...groundedFlash.flapA, ...groundedFlash.flapB,
-      ...airborne.flapA, ...airborne.flapB,
-      ...airborneFlash.flapA, ...airborneFlash.flapB,
+      ...grounded.flapA,
+      ...grounded.flapB,
+      ...groundedFlash.flapA,
+      ...groundedFlash.flapB,
+      ...airborne.flapA,
+      ...airborne.flapB,
+      ...airborneFlash.flapA,
+      ...airborneFlash.flapB,
     ])
   }
 
@@ -55,16 +59,20 @@ export class SuperKoopaAppearance implements SpriteAppearance {
   }
 
   render(
-    target:   RenderTarget,
-    x:        number,
-    y:        number,
+    target: RenderTarget,
+    x: number,
+    y: number,
     behavior: SpriteBehavior,
     mapStore: MapStore,
   ): void {
     const flashing = behavior instanceof SuperKoopaBehavior && behavior.dropsFeather(x)
     const pose = this.isAirborne
-      ? (flashing ? this.airborneFlash : this.airborne)
-      : (flashing ? this.groundedFlash : this.grounded)
+      ? flashing
+        ? this.airborneFlash
+        : this.airborne
+      : flashing
+        ? this.groundedFlash
+        : this.grounded
     const parts = this.flap === 0 ? pose.flapA : pose.flapB
     for (const part of parts) {
       const pixels = part.char.getPixels()
@@ -100,41 +108,49 @@ export class SuperKoopaAppearance implements SpriteAppearance {
   ): SuperKoopaAppearance {
     const OBJ_BASE = 0x400
     const flipX = faceRight
-    const bodyAttr5 = spriteAttrByte & 0x0E
+    const bodyAttr5 = spriteAttrByte & 0x0e
     const normalCapeOverride = spriteId === 0x71 ? 0x08 : 0x04
     const FLASH_A = 0x10
-    const FLASH_B = 0x0A
+    const FLASH_B = 0x0a
 
     type Entry = { tile: number; size: 8 | 16; attrByte: number; dx: number; dy: number }
     const buildFrameParts = (entries: readonly Entry[], capeOverride: number): SpritePart[] => {
       const parts: SpritePart[] = []
       for (const e of entries) {
         const palOverride = (e.attrByte & 0x02) !== 0
-        const finalAttr = palOverride
-          ? (e.attrByte | capeOverride) & 0xFD
-          : e.attrByte | bodyAttr5
+        const finalAttr = palOverride ? (e.attrByte | capeOverride) & 0xfd : e.attrByte | bodyAttr5
         const palette = 8 + ((finalAttr >> 1) & 0x07)
         const charHigh = (finalAttr & 0x01) !== 0 ? 0x100 : 0
         const vflip = (finalAttr & 0x80) !== 0
         if (e.size === 16) {
-          const co = flipX && vflip ? [0x11, 0x10, 0x01, 0x00]
-                   : flipX          ? [0x01, 0x00, 0x11, 0x10]
-                   : vflip          ? [0x10, 0x11, 0x00, 0x01]
-                   :                  [0x00, 0x01, 0x10, 0x11]
+          const co =
+            flipX && vflip
+              ? [0x11, 0x10, 0x01, 0x00]
+              : flipX
+                ? [0x01, 0x00, 0x11, 0x10]
+                : vflip
+                  ? [0x10, 0x11, 0x00, 0x01]
+                  : [0x00, 0x01, 0x10, 0x11]
           const dxo = [0, 8, 0, 8]
           const dyo = [0, 0, 8, 8]
           for (let i = 0; i < 4; i++) {
             parts.push({
-              char: chars.get(OBJ_BASE + charHigh + ((e.tile + co[i]) & 0x1FF)) ?? placeholder,
-              palette, flipX, flipY: vflip,
-              dx: e.dx + dxo[i], dy: e.dy + dyo[i],
+              char: chars.get(OBJ_BASE + charHigh + ((e.tile + co[i]) & 0x1ff)) ?? placeholder,
+              palette,
+              flipX,
+              flipY: vflip,
+              dx: e.dx + dxo[i],
+              dy: e.dy + dyo[i],
             })
           }
         } else {
           parts.push({
-            char: chars.get(OBJ_BASE + charHigh + (e.tile & 0x1FF)) ?? placeholder,
-            palette, flipX, flipY: vflip,
-            dx: e.dx, dy: e.dy,
+            char: chars.get(OBJ_BASE + charHigh + (e.tile & 0x1ff)) ?? placeholder,
+            palette,
+            flipX,
+            flipY: vflip,
+            dx: e.dx,
+            dy: e.dy,
           })
         }
       }
@@ -142,22 +158,22 @@ export class SuperKoopaAppearance implements SpriteAppearance {
     }
 
     const FRAME_0: readonly Entry[] = [
-      { tile: 0xC8, size:  8, attrByte: 0x03, dx:  8, dy:  0 },
-      { tile: 0xD8, size:  8, attrByte: 0x03, dx:  8, dy:  8 },
-      { tile: 0xD0, size:  8, attrByte: 0x03, dx: 16, dy:  8 },
-      { tile: 0xE0, size: 16, attrByte: 0x00, dx:  0, dy:  0 },
+      { tile: 0xc8, size: 8, attrByte: 0x03, dx: 8, dy: 0 },
+      { tile: 0xd8, size: 8, attrByte: 0x03, dx: 8, dy: 8 },
+      { tile: 0xd0, size: 8, attrByte: 0x03, dx: 16, dy: 8 },
+      { tile: 0xe0, size: 16, attrByte: 0x00, dx: 0, dy: 0 },
     ]
     const FRAME_2: readonly Entry[] = [
-      { tile: 0xE4, size:  8, attrByte: 0x03, dx:  8, dy:  3 },
-      { tile: 0xE5, size:  8, attrByte: 0x03, dx: 16, dy:  3 },
-      { tile: 0xF2, size:  8, attrByte: 0x01, dx: 16, dy:  8 },
-      { tile: 0xE0, size: 16, attrByte: 0x01, dx:  0, dy:  0 },
+      { tile: 0xe4, size: 8, attrByte: 0x03, dx: 8, dy: 3 },
+      { tile: 0xe5, size: 8, attrByte: 0x03, dx: 16, dy: 3 },
+      { tile: 0xf2, size: 8, attrByte: 0x01, dx: 16, dy: 8 },
+      { tile: 0xe0, size: 16, attrByte: 0x01, dx: 0, dy: 0 },
     ]
     const FRAME_3: readonly Entry[] = [
-      { tile: 0xF4, size:  8, attrByte: 0x03, dx:  8, dy:  3 },
-      { tile: 0xF5, size:  8, attrByte: 0x03, dx: 16, dy:  3 },
-      { tile: 0xF2, size:  8, attrByte: 0x01, dx: 16, dy:  8 },
-      { tile: 0xE0, size: 16, attrByte: 0x01, dx:  0, dy:  0 },
+      { tile: 0xf4, size: 8, attrByte: 0x03, dx: 8, dy: 3 },
+      { tile: 0xf5, size: 8, attrByte: 0x03, dx: 16, dy: 3 },
+      { tile: 0xf2, size: 8, attrByte: 0x01, dx: 16, dy: 8 },
+      { tile: 0xe0, size: 16, attrByte: 0x01, dx: 0, dy: 0 },
     ]
 
     const groundedNormal = buildFrameParts(FRAME_0, normalCapeOverride)
@@ -174,6 +190,12 @@ export class SuperKoopaAppearance implements SpriteAppearance {
       flapA: buildFrameParts(FRAME_2, FLASH_A),
       flapB: buildFrameParts(FRAME_3, FLASH_B),
     }
-    return new SuperKoopaAppearance(grounded, groundedFlash, airborneFrames, airborneFlash, airborne)
+    return new SuperKoopaAppearance(
+      grounded,
+      groundedFlash,
+      airborneFrames,
+      airborneFlash,
+      airborne,
+    )
   }
 }

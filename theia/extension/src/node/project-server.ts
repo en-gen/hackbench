@@ -7,7 +7,10 @@
  */
 import { injectable } from '@theia/core/shared/inversify'
 import {
-  createProject, openProject, romIdentity, updateProject,
+  createProject,
+  openProject,
+  romIdentity,
+  updateProject,
 } from '../../../../src/project/Project'
 import { RomRegistry } from '../../../../src/project/RomRegistry'
 import { RecentProjects } from '../../../../src/project/RecentProjects'
@@ -16,8 +19,13 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMapTree } from '../../../../src/rom/MapTree'
 import * as fs from 'fs'
 import {
-  CreateProjectRequest, HackMetadataDto, LoadMapsResult, ProjectDto, ProjectService,
-  RecentProjectDto, RomIdentityDto,
+  CreateProjectRequest,
+  HackMetadataDto,
+  LoadMapsResult,
+  ProjectDto,
+  ProjectService,
+  RecentProjectDto,
+  RomIdentityDto,
 } from '../common/project-protocol'
 
 @injectable()
@@ -48,7 +56,8 @@ export class ProjectServiceImpl implements ProjectService {
   }
 
   async updateProject(
-    manifestPath: string, changes: Partial<HackMetadataDto>,
+    manifestPath: string,
+    changes: Partial<HackMetadataDto>,
   ): Promise<ProjectDto> {
     return toDto(updateProject(manifestPath, changes))
   }

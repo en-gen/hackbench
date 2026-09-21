@@ -3,7 +3,7 @@
  *
  * Holds ROM-derived per-level data that today is reached as `RenderContext`
  * fields populated by `SmwMap.render`. Each `SmwMap` owns one `mapStore`
- * built by `MapBuilder` from the level header — multiple maps loaded
+ * built by `MapBuilder` from the level header - multiple maps loaded
  * simultaneously (e.g. a future level-browser thumbnail grid) get
  * independent stores.
  *
@@ -26,12 +26,12 @@ import type { LevelOrientation } from '../SmwMap'
 export interface MapStoreState {
   /** Per-map CGRAM palette. */
   palette: Palette
-  /** Level orientation — drives "scrolling axis" decisions in PipeVariantsBehavior. */
+  /** Level orientation - drives "scrolling axis" decisions in PipeVariantsBehavior. */
   levelOrientation: LevelOrientation
   /** Per-screen MAP16AppTable index (0..3), one per screen. PipeVariantsBehavior
    *  picks a variant via `screenPipeVariantIdx[screenOf(cell)]`. */
   screenPipeVariantIdx: readonly number[]
-  /** Initial Layer1YPos in pixels — L3 tide overlays use this. */
+  /** Initial Layer1YPos in pixels - L3 tide overlays use this. */
   initialCameraYPx: number
   /** Mario's level-entry pixel X. Sprites whose ASM init uses `FaceMario`
    *  (e.g. Chargin' Chuck, Dry Bones, Super Koopa) read this to choose
@@ -42,7 +42,7 @@ export interface MapStoreState {
    *  `simulator.stateAtFrame(editorStore.scrollFrame)` to compute the
    *  correct (Layer1YPos − Layer2YPos) viewport delta for the current
    *  scrub position. `null` when no scroll sprite was found in the
-   *  level — render falls back to the static initial offset. */
+   *  level - render falls back to the static initial offset. */
   scrollSimulator: ScrollSimulator | null
 }
 
@@ -51,7 +51,7 @@ export type MapStore = MapStoreState
 export type MapStoreInit = Partial<MapStoreState>
 
 const DEFAULTS: MapStoreState = {
-  // `palette` has no safe default — callers that don't pass one (Map16 panel)
+  // `palette` has no safe default - callers that don't pass one (Map16 panel)
   // construct a uniformPalette themselves. The cast lets TS allow construction
   // without it; consumers that read `palette` are responsible for ensuring
   // the field is set.

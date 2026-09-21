@@ -1,5 +1,5 @@
 /**
- * RomFile — HiROM mapping, copier-header detection, write/read symmetry,
+ * RomFile - HiROM mapping, copier-header detection, write/read symmetry,
  * and unmapped-address null returns. Pins down the address-space contract
  * that all SNES address translation depends on.
  */
@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 
-describe('RomFile — copier header detection', () => {
+describe('RomFile - copier header detection', () => {
   it('hasHeader is false for sizes that are exact multiples of 1024', () => {
     const rom = new RomFile('clean.smc', Buffer.alloc(0x100000))
     expect(rom.hasHeader).toBe(false)
@@ -16,42 +16,42 @@ describe('RomFile — copier header detection', () => {
 
   it('hasHeader is true when size mod 1024 == 512', () => {
     const buf = Buffer.alloc(0x100000 + 512)
-    buf[512 + 0x7FD5] = 0x20  // map mode at INTERNAL header offset
+    buf[512 + 0x7fd5] = 0x20 // map mode at INTERNAL header offset
     const rom = new RomFile('headered.smc', buf)
     expect(rom.hasHeader).toBe(true)
     expect(rom.romSize).toBe(0x100000)
   })
 })
 
-describe('RomFile — map-mode auto-detect', () => {
+describe('RomFile - map-mode auto-detect', () => {
   it("'lorom' when file offset $7FD5 is $20 and HiROM offset is not", () => {
     const buf = Buffer.alloc(0x100000)
-    buf[0x7FD5] = 0x20
+    buf[0x7fd5] = 0x20
     expect(new RomFile('lo.smc', buf).mapMode).toBe('lorom')
   })
 
   it("'lorom' for fast-LoROM map byte $30", () => {
     const buf = Buffer.alloc(0x100000)
-    buf[0x7FD5] = 0x30
+    buf[0x7fd5] = 0x30
     expect(new RomFile('lo.smc', buf).mapMode).toBe('lorom')
   })
 
   it("'hirom' when only HiROM map byte at $FFD5 matches", () => {
     const buf = Buffer.alloc(0x100000)
-    buf[0xFFD5] = 0x21
+    buf[0xffd5] = 0x21
     expect(new RomFile('hi.smc', buf).mapMode).toBe('hirom')
   })
 
   it("'hirom' for fast-HiROM map byte $31", () => {
     const buf = Buffer.alloc(0x100000)
-    buf[0xFFD5] = 0x31
+    buf[0xffd5] = 0x31
     expect(new RomFile('hi.smc', buf).mapMode).toBe('hirom')
   })
 
   it("prefers 'lorom' when BOTH map bytes are valid (header at 7FD5 wins)", () => {
     const buf = Buffer.alloc(0x100000)
-    buf[0x7FD5] = 0x20
-    buf[0xFFD5] = 0x21
+    buf[0x7fd5] = 0x20
+    buf[0xffd5] = 0x21
     expect(new RomFile('both.smc', buf).mapMode).toBe('lorom')
   })
 
@@ -59,21 +59,21 @@ describe('RomFile — map-mode auto-detect', () => {
     const rom = new RomFile('unk.smc', Buffer.alloc(0x100000))
     expect(rom.mapMode).toBe('unknown')
     // readAt still works via LoROM fallback
-    expect(rom.readByte(0x008000)).toBe(0)  // file offset 0
+    expect(rom.readByte(0x008000)).toBe(0) // file offset 0
   })
 })
 
-describe('RomFile.readAt — LoROM mapping', () => {
+describe('RomFile.readAt - LoROM mapping', () => {
   it('reads from bank $00 addr $8000 → file offset 0', () => {
     const buf = Buffer.alloc(0x100000)
-    buf[0x7FD5] = 0x20
+    buf[0x7fd5] = 0x20
     buf[0] = 0x42
     expect(new RomFile('lo.smc', buf).readByte(0x008000)).toBe(0x42)
   })
 
   it('reads from a higher LoROM bank with correct offset arithmetic', () => {
     const buf = Buffer.alloc(0x100000)
-    buf[0x7FD5] = 0x20
+    buf[0x7fd5] = 0x20
     // SNES $068000 = bank 6, addr $8000 → file offset 6*$8000 = $30000
     buf[0x30000] = 0x77
     expect(new RomFile('lo.smc', buf).readByte(0x068000)).toBe(0x77)
@@ -81,22 +81,22 @@ describe('RomFile.readAt — LoROM mapping', () => {
 
   it('returns null for addresses below $8000 in banks $00-$3F', () => {
     const buf = Buffer.alloc(0x10000)
-    buf[0x7FD5] = 0x20
+    buf[0x7fd5] = 0x20
     expect(new RomFile('lo.smc', buf).readByte(0x000100)).toBeNull()
   })
 
   it('returns null for SRAM/WRAM banks ($70-$7F)', () => {
     const buf = Buffer.alloc(0x10000)
-    buf[0x7FD5] = 0x20
-    expect(new RomFile('lo.smc', buf).readByte(0x7E0000)).toBeNull()
+    buf[0x7fd5] = 0x20
+    expect(new RomFile('lo.smc', buf).readByte(0x7e0000)).toBeNull()
   })
 })
 
-describe('RomFile.readAt — HiROM mapping', () => {
+describe('RomFile.readAt - HiROM mapping', () => {
   function makeHiRom(): RomFile {
     const buf = Buffer.alloc(0x400000)
-    buf[0xFFD5] = 0x21
-    buf[0x008100] = 0x55  // bank $00 addr $8100 → file offset $8100
+    buf[0xffd5] = 0x21
+    buf[0x008100] = 0x55 // bank $00 addr $8100 → file offset $8100
     // Bank $42 addr $8200: effectiveBank = $42 & $3F = 2, offset = 2*$10000 + $8200 = $28200
     buf[0x028200] = 0x66
     return new RomFile('hi.smc', buf)
@@ -115,14 +115,14 @@ describe('RomFile.readAt — HiROM mapping', () => {
   })
 
   it('returns null for SRAM/WRAM banks $70-$7F', () => {
-    expect(makeHiRom().readByte(0x7E0000)).toBeNull()
+    expect(makeHiRom().readByte(0x7e0000)).toBeNull()
   })
 })
 
-describe('RomFile.readAt — bounds check', () => {
+describe('RomFile.readAt - bounds check', () => {
   it('returns null when offset + length exceeds buffer.length', () => {
     const buf = Buffer.alloc(0x10000)
-    buf[0x7FD5] = 0x20
+    buf[0x7fd5] = 0x20
     expect(new RomFile('lo.smc', buf).readAt(0x008000, 0x20000)).toBeNull()
   })
 })
@@ -130,9 +130,9 @@ describe('RomFile.readAt — bounds check', () => {
 describe('RomFile.readWord and readString', () => {
   function makeRom(): RomFile {
     const buf = Buffer.alloc(0x10000)
-    buf[0x7FD5] = 0x20
+    buf[0x7fd5] = 0x20
     buf[0] = 0x34
-    buf[1] = 0x12  // little-endian word $1234
+    buf[1] = 0x12 // little-endian word $1234
     Buffer.from('HACKBENCH', 'ascii').copy(buf, 0x100)
     return new RomFile('lo.smc', buf)
   }
@@ -159,24 +159,23 @@ describe('RomFile.readWord and readString', () => {
 describe('RomFile.writeAt', () => {
   it('writes bytes back through the SNES → file mapping', () => {
     const buf = Buffer.alloc(0x10000)
-    buf[0x7FD5] = 0x20
+    buf[0x7fd5] = 0x20
     const rom = new RomFile('lo.smc', buf)
-    rom.writeAt(0x008010, [0xAA, 0xBB, 0xCC])
-    expect(buf[0x10]).toBe(0xAA)
-    expect(buf[0x11]).toBe(0xBB)
-    expect(buf[0x12]).toBe(0xCC)
+    rom.writeAt(0x008010, [0xaa, 0xbb, 0xcc])
+    expect(buf[0x10]).toBe(0xaa)
+    expect(buf[0x11]).toBe(0xbb)
+    expect(buf[0x12]).toBe(0xcc)
   })
 
   it('throws when address is not writable (WRAM bank)', () => {
     const buf = Buffer.alloc(0x10000)
-    buf[0x7FD5] = 0x20
-    expect(() => new RomFile('lo.smc', buf).writeAt(0x7E0000, [0x42]))
-      .toThrow(/not writable/)
+    buf[0x7fd5] = 0x20
+    expect(() => new RomFile('lo.smc', buf).writeAt(0x7e0000, [0x42])).toThrow(/not writable/)
   })
 
   it('accepts both Buffer and number-array data', () => {
     const buf = Buffer.alloc(0x10000)
-    buf[0x7FD5] = 0x20
+    buf[0x7fd5] = 0x20
     const rom = new RomFile('lo.smc', buf)
     rom.writeAt(0x008000, Buffer.from([0x11, 0x22]))
     rom.writeAt(0x008002, [0x33, 0x44])
@@ -187,7 +186,7 @@ describe('RomFile.writeAt', () => {
 describe('RomFile.readAtFileOffset', () => {
   it('skips the copier header when present', () => {
     const buf = Buffer.alloc(0x100000 + 512)
-    buf[512 + 0x7FD5] = 0x20
+    buf[512 + 0x7fd5] = 0x20
     buf[512 + 100] = 0x99
     const rom = new RomFile('headered.smc', buf)
     expect(rom.readAtFileOffset(100, 1)?.[0]).toBe(0x99)
@@ -216,7 +215,7 @@ describe('RomFile.readAtFileOffset', () => {
 describe('RomFile reads are detached copies', () => {
   const loromBuffer = () => {
     const buf = Buffer.alloc(0x10000)
-    buf[0x7FD5] = 0x20
+    buf[0x7fd5] = 0x20
     buf[0x0000] = 0x11
     return buf
   }

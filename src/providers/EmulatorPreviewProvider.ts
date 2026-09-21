@@ -26,9 +26,16 @@ function levelLoadPatches(rom: Buffer, levelId: number): Patch[] {
   const enc = encodeOverride(levelId)
   if (!enc) throw new Error(`level $${levelId.toString(16)} is unreachable via OverworldOverride`)
   const b = rom.subarray(LEVEL_LOAD_PATCH.checkFrom, LEVEL_LOAD_PATCH.checkFrom + 7)
-  const siteOk = b[0] === 0xa9 && b[1] === 0xeb && b[2] === 0xa0 && b[3] === 0x00
-    && b[4] === 0x8d && b[5] === 0x09 && b[6] === 0x01
-  if (!siteOk) throw new Error('level-load patch site does not match expected bytes; refusing to patch')
+  const siteOk =
+    b[0] === 0xa9 &&
+    b[1] === 0xeb &&
+    b[2] === 0xa0 &&
+    b[3] === 0x00 &&
+    b[4] === 0x8d &&
+    b[5] === 0x09 &&
+    b[6] === 0x01
+  if (!siteOk)
+    throw new Error('level-load patch site does not match expected bytes; refusing to patch')
   return [
     { offset: LEVEL_LOAD_PATCH.ldaImm, value: enc.overrideByte },
     { offset: LEVEL_LOAD_PATCH.ldyImm, value: enc.submapFlag },
@@ -103,25 +110,39 @@ function spawnXPatch(rom: Buffer): Patch {
  */
 function readScenario(romPath: string): string | undefined {
   try {
-    return fs.readFileSync(path.join(path.dirname(romPath), '.hackbench-e2e-scenario'), 'utf8').trim()
+    return fs
+      .readFileSync(path.join(path.dirname(romPath), '.hackbench-e2e-scenario'), 'utf8')
+      .trim()
   } catch {
     return process.env['HACKBENCH_E2E_PATCH_SCENARIO']
   }
 }
 
-function scenarioPatches(rom: Buffer, scenario: string | undefined): { freeze: boolean; extend: boolean; extra: Patch[] } {
+function scenarioPatches(
+  rom: Buffer,
+  scenario: string | undefined,
+): { freeze: boolean; extend: boolean; extra: Patch[] } {
   switch (scenario) {
-    case 'baseline': return { freeze: false, extend: false, extra: [] }
-    case 'truncate-l1': return { freeze: true, extend: false, extra: [TRUNCATE_L1_PATCH] }
-    case 'truncate-l1-no-freeze': return { freeze: false, extend: false, extra: [TRUNCATE_L1_PATCH] }
-    case 'spawn-x': return { freeze: true, extend: false, extra: [spawnXPatch(rom)] }
-    case 'spawn-x-no-freeze': return { freeze: false, extend: false, extra: [spawnXPatch(rom)] }
-    case 'pause-test': return { freeze: true, extend: true, extra: [] }
+    case 'baseline':
+      return { freeze: false, extend: false, extra: [] }
+    case 'truncate-l1':
+      return { freeze: true, extend: false, extra: [TRUNCATE_L1_PATCH] }
+    case 'truncate-l1-no-freeze':
+      return { freeze: false, extend: false, extra: [TRUNCATE_L1_PATCH] }
+    case 'spawn-x':
+      return { freeze: true, extend: false, extra: [spawnXPatch(rom)] }
+    case 'spawn-x-no-freeze':
+      return { freeze: false, extend: false, extra: [spawnXPatch(rom)] }
+    case 'pause-test':
+      return { freeze: true, extend: true, extra: [] }
     // 'edit-layer' and 'edit-layer-undone' are handled by the caller, which
     // has the SmwRom needed to locate the object being moved.
-    case 'edit-layer': return { freeze: true, extend: false, extra: [] }
-    case 'edit-layer-undone': return { freeze: true, extend: false, extra: [] }
-    default: return { freeze: true, extend: false, extra: [] } // 'positive-control' and unset (F5)
+    case 'edit-layer':
+      return { freeze: true, extend: false, extra: [] }
+    case 'edit-layer-undone':
+      return { freeze: true, extend: false, extra: [] }
+    default:
+      return { freeze: true, extend: false, extra: [] } // 'positive-control' and unset (F5)
   }
 }
 
@@ -235,7 +256,9 @@ export class EmulatorPreviewProvider {
   async open(levelIdArg?: number): Promise<void> {
     const session = getActiveRomSession()
     if (!session) {
-      vscode.window.showErrorMessage('HackBench: open a ROM before previewing a level in the emulator.')
+      vscode.window.showErrorMessage(
+        'HackBench: open a ROM before previewing a level in the emulator.',
+      )
       return
     }
 
@@ -257,7 +280,9 @@ export class EmulatorPreviewProvider {
 
     const coreDir = vscode.Uri.joinPath(this.context.extensionUri, 'vendor', 'cores', 'snes9x-wasm')
     const coreJsUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(coreDir, 'snes9x_libretro.js'))
-    const coreWasmUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(coreDir, 'snes9x_libretro.wasm'))
+    const coreWasmUri = panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(coreDir, 'snes9x_libretro.wasm'),
+    )
     const scriptUri = panel.webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'emulatorPreview.js'),
     )
@@ -272,12 +297,34 @@ export class EmulatorPreviewProvider {
       // ROM is never mutated, which is what keeps the cached machine state
       // (keyed on ROM content) valid across edits.
       const layers: PatchLayer[] = [
-        { id: 'level-load', label: `force-load $${levelId.toString(16)}`, scope: 'preview',
-          patches: levelLoadPatches(session.rom.rom.buffer, levelId) },
+        {
+          id: 'level-load',
+          label: `force-load $${levelId.toString(16)}`,
+          scope: 'preview',
+          patches: levelLoadPatches(session.rom.rom.buffer, levelId),
+        },
       ]
-      if (freeze) layers.push({ id: 'demo-freeze', label: 'freeze demo input', scope: 'preview', patches: demoFreezePatches(session.rom.rom.buffer) })
-      if (extend) layers.push({ id: 'demo-extend', label: 'extend demo', scope: 'preview', patches: demoExtendPatches(session.rom.rom.buffer) })
-      if (extra.length) layers.push({ id: 'scenario', label: scenario ?? 'scenario', scope: 'preview', patches: extra })
+      if (freeze)
+        layers.push({
+          id: 'demo-freeze',
+          label: 'freeze demo input',
+          scope: 'preview',
+          patches: demoFreezePatches(session.rom.rom.buffer),
+        })
+      if (extend)
+        layers.push({
+          id: 'demo-extend',
+          label: 'extend demo',
+          scope: 'preview',
+          patches: demoExtendPatches(session.rom.rom.buffer),
+        })
+      if (extra.length)
+        layers.push({
+          id: 'scenario',
+          label: scenario ?? 'scenario',
+          scope: 'preview',
+          patches: extra,
+        })
 
       // The user's own edits, derived from their op list against this ROM.
       // Last, so they win over anything the preview set up for its own
@@ -302,44 +349,41 @@ export class EmulatorPreviewProvider {
     // Keyed by the state's own URI, which already carries the ROM content hash.
     // An unkeyed cache would hand a second ROM the first one's machine state.
     const cacheKey = stateUri.toString()
-    const cached = EmulatorPreviewProvider.titleState.get(cacheKey)
-      ?? await this.readCachedState(stateUri)
+    const cached =
+      EmulatorPreviewProvider.titleState.get(cacheKey) ?? (await this.readCachedState(stateUri))
 
-    panel.webview.onDidReceiveMessage((msg: {
-      type: string
-      message?: string
-      state?: Uint8Array
-      wramBase?: number
-    }) => {
-      if (msg.type === 'ready') {
-        panel.webview.postMessage({
-          type: 'load',
-          // Sent as a live Uint8Array, not Array.from() -- postMessage structured-
-          // clones typed arrays directly, same as MapEditorProvider's romBytes.
-          romBytes: new Uint8Array(session.rom.rom.buffer),
-          wasmUri: coreWasmUri.toString(),
-          levelId,
-          patches,
-          // A savestate captured at the title screen on a previous open, if we
-          // have one. Restoring it skips the whole boot sequence (the Nintendo
-          // Presents logo and the title fade, roughly 230 emulated frames)
-          // because the one-time Layer 3 graphics uploads GM00/GM01 perform are
-          // already baked into the state.
-          machineState: cached?.state,
-          // The heap offset WRAM sat at when the state was taken. The webview
-          // re-verifies it before trusting it. Without it the webview has to
-          // search for WRAM, and searching costs the ~90 live frames of boot
-          // that the state exists to skip.
-          wramBase: cached?.wramBase,
-        })
-      } else if (msg.type === 'machineState' && msg.state && msg.wramBase !== undefined) {
-        const next: CachedState = { state: msg.state, wramBase: msg.wramBase }
-        EmulatorPreviewProvider.titleState.set(cacheKey, next)
-        void this.writeCachedState(stateUri, next)
-      } else if (msg.type === 'error') {
-        vscode.window.showErrorMessage(`HackBench emulator preview: ${msg.message}`)
-      }
-    })
+    panel.webview.onDidReceiveMessage(
+      (msg: { type: string; message?: string; state?: Uint8Array; wramBase?: number }) => {
+        if (msg.type === 'ready') {
+          panel.webview.postMessage({
+            type: 'load',
+            // Sent as a live Uint8Array, not Array.from() -- postMessage structured-
+            // clones typed arrays directly, same as MapEditorProvider's romBytes.
+            romBytes: new Uint8Array(session.rom.rom.buffer),
+            wasmUri: coreWasmUri.toString(),
+            levelId,
+            patches,
+            // A savestate captured at the title screen on a previous open, if we
+            // have one. Restoring it skips the whole boot sequence (the Nintendo
+            // Presents logo and the title fade, roughly 230 emulated frames)
+            // because the one-time Layer 3 graphics uploads GM00/GM01 perform are
+            // already baked into the state.
+            machineState: cached?.state,
+            // The heap offset WRAM sat at when the state was taken. The webview
+            // re-verifies it before trusting it. Without it the webview has to
+            // search for WRAM, and searching costs the ~90 live frames of boot
+            // that the state exists to skip.
+            wramBase: cached?.wramBase,
+          })
+        } else if (msg.type === 'machineState' && msg.state && msg.wramBase !== undefined) {
+          const next: CachedState = { state: msg.state, wramBase: msg.wramBase }
+          EmulatorPreviewProvider.titleState.set(cacheKey, next)
+          void this.writeCachedState(stateUri, next)
+        } else if (msg.type === 'error') {
+          vscode.window.showErrorMessage(`HackBench emulator preview: ${msg.message}`)
+        }
+      },
+    )
   }
 
   /**
@@ -354,7 +398,9 @@ export class EmulatorPreviewProvider {
         if (!tab.isActive || !(tab.input instanceof vscode.TabInputCustom)) continue
         if (tab.input.viewType !== 'hackbench.mapEditor') continue
         try {
-          const descriptor = await readDescriptor<{ romPath: string; mapIndex: number }>(tab.input.uri)
+          const descriptor = await readDescriptor<{ romPath: string; mapIndex: number }>(
+            tab.input.uri,
+          )
           if (descriptor.romPath === romPath) return descriptor.mapIndex
         } catch {
           // No usable descriptor -- fall through to the caller's default.
@@ -364,12 +410,16 @@ export class EmulatorPreviewProvider {
     return undefined
   }
 
-  private _buildHtml(webview: vscode.Webview, coreJsUri: vscode.Uri, scriptUri: vscode.Uri): string {
+  private _buildHtml(
+    webview: vscode.Webview,
+    coreJsUri: vscode.Uri,
+    scriptUri: vscode.Uri,
+  ): string {
     const nonce = getNonce()
     // wasm-unsafe-eval + unsafe-eval: same combination MapEditorProvider
     // already ships for spc.wasm. connect-src needs webview.cspSource
     // because Emscripten fetches the .wasm itself via locateFile's URI.
-    return /* html */`<!DOCTYPE html>
+    return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />

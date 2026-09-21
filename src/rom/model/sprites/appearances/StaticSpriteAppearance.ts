@@ -1,4 +1,4 @@
-// Consumes: (none directly — palette via mapStore, char pixels via Char.getPixels)
+// Consumes: (none directly - palette via mapStore, char pixels via Char.getPixels)
 
 import type { Char } from '../../chars/Char'
 import type { GetL1Tile, OverlayContext } from '../../OverlayContext'
@@ -18,12 +18,18 @@ export interface SpritePart {
 
 /** Compute the tightest axis-aligned bounding rect over a set of 8×8 parts. */
 export function partsHitRect(parts: Iterable<SpritePart>): HitRect {
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  let x0 = Infinity,
+    y0 = Infinity,
+    x1 = -Infinity,
+    y1 = -Infinity
   for (const p of parts) {
-    x0 = Math.min(x0, p.dx);     y0 = Math.min(y0, p.dy)
-    x1 = Math.max(x1, p.dx + 8); y1 = Math.max(y1, p.dy + 8)
+    x0 = Math.min(x0, p.dx)
+    y0 = Math.min(y0, p.dy)
+    x1 = Math.max(x1, p.dx + 8)
+    y1 = Math.max(y1, p.dy + 8)
   }
-  return x0 === Infinity ? { dx: 0, dy: 0, w: 16, h: 16 }
+  return x0 === Infinity
+    ? { dx: 0, dy: 0, w: 16, h: 16 }
     : { dx: x0, dy: y0, w: x1 - x0, h: y1 - y0 }
 }
 
@@ -34,7 +40,13 @@ export class StaticSpriteAppearance implements SpriteAppearance {
     this.hitRect = partsHitRect(parts)
   }
 
-  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
+  render(
+    target: RenderTarget,
+    x: number,
+    y: number,
+    _behavior: SpriteBehavior,
+    mapStore: MapStore,
+  ): void {
     for (const part of this.parts) {
       const pixels = part.char.getPixels()
       const row = mapStore.palette.row(part.palette)
@@ -49,22 +61,22 @@ export class StaticSpriteAppearance implements SpriteAppearance {
   tickAnimation?(): void
 
   renderAboveL1?(
-    target:   RenderTarget,
-    x:        number,
-    y:        number,
+    target: RenderTarget,
+    x: number,
+    y: number,
     behavior: SpriteBehavior,
     mapStore: MapStore,
   ): void
 
   renderOverlay?(
-    ctx:       OverlayContext,
-    x:         number,
-    y:         number,
-    isActive:  boolean,
-    getL1:     GetL1Tile,
+    ctx: OverlayContext,
+    x: number,
+    y: number,
+    isActive: boolean,
+    getL1: GetL1Tile,
     levelCols: number,
     levelRows: number,
-    behavior:  SpriteBehavior | undefined,
-    mapStore:  MapStore,
+    behavior: SpriteBehavior | undefined,
+    mapStore: MapStore,
   ): void
 }

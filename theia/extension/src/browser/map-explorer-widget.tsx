@@ -17,10 +17,23 @@
  * sub-areas; a slot is never given a name from any other source.
  */
 import * as React from '@theia/core/shared/react'
-import { inject, injectable, postConstruct, interfaces, Container } from '@theia/core/shared/inversify'
 import {
-  ContextMenuRenderer, NodeProps, TreeModel, TreeNode, TreeProps, TreeWidget,
-  CompositeTreeNode, SelectableTreeNode, createTreeContainer,
+  inject,
+  injectable,
+  postConstruct,
+  interfaces,
+  Container,
+} from '@theia/core/shared/inversify'
+import {
+  ContextMenuRenderer,
+  NodeProps,
+  TreeModel,
+  TreeNode,
+  TreeProps,
+  TreeWidget,
+  CompositeTreeNode,
+  SelectableTreeNode,
+  createTreeContainer,
 } from '@theia/core/lib/browser'
 import { MessageService } from '@theia/core/lib/common'
 import { MapNodeDto, ProjectService, SpecialMapNodeDto } from '../common/project-protocol'
@@ -131,9 +144,9 @@ export class MapExplorerWidget extends TreeWidget {
 
     if (result.status === 'rom-not-located') {
       this.mapCount = 0
-      this.setRoot([this.message(
-        `Locate ${result.baseRom.title || 'the base cartridge'} to load its maps`,
-      )])
+      this.setRoot([
+        this.message(`Locate ${result.baseRom.title || 'the base cartridge'} to load its maps`),
+      ])
       return
     }
 
@@ -166,7 +179,10 @@ export class MapExplorerWidget extends TreeWidget {
 
   /** `id` is stable and lowercase; `label` is what the user reads. */
   protected group(
-    id: string, label: string, category: MapCategory, maps: MapNodeDto[],
+    id: string,
+    label: string,
+    category: MapCategory,
+    maps: MapNodeDto[],
   ): MapTreeNode {
     const node: MapTreeNode = {
       id: `group:${id}`,
@@ -197,9 +213,7 @@ export class MapExplorerWidget extends TreeWidget {
     // A loop or a truncation is what it is regardless of where it sits: both
     // are dead ends the user must not mistake for an expandable map.
     const category: MapCategory =
-      dto.kind === 'loop' ? 'loop'
-        : dto.kind === 'truncated' ? 'truncated'
-          : asCategory
+      dto.kind === 'loop' ? 'loop' : dto.kind === 'truncated' ? 'truncated' : asCategory
 
     const node: MapTreeNode = {
       id: `${parent.id}/${slotLabel(dto.index)}`,
@@ -242,9 +256,15 @@ export class MapExplorerWidget extends TreeWidget {
 
   protected message(text: string): MapTreeNode {
     return {
-      id: 'message', name: text, index: -1, mapName: null, kind: 'message',
+      id: 'message',
+      name: text,
+      index: -1,
+      mapName: null,
+      kind: 'message',
       category: 'message',
-      parent: undefined, children: [], selected: false,
+      parent: undefined,
+      children: [],
+      selected: false,
     }
   }
 
@@ -270,21 +290,33 @@ export class MapExplorerWidget extends TreeWidget {
     if (map.category === 'title-screen' || map.category === 'new-game') {
       return [
         <span key="label">{map.name}</span>,
-        <span key="slot" className="hb-map-slot hb-map-trailing">{slotLabel(map.index)}</span>,
+        <span key="slot" className="hb-map-slot hb-map-trailing">
+          {slotLabel(map.index)}
+        </span>,
       ]
     }
 
     // The slot is the identity; the name is a convenience that many maps do
     // not have. Showing the slot first keeps rows aligned and keeps the thing
     // the user actually addresses in the leading column.
-    const suffix = map.kind === 'loop' ? ' (loops back)'
-      : map.kind === 'truncated' ? ' (not expanded)' : ''
+    const suffix =
+      map.kind === 'loop' ? ' (loops back)' : map.kind === 'truncated' ? ' (not expanded)' : ''
     // Classes only. Styling lives in style/index.css so the active theme can
     // override it; an inline style would outrank every theme rule.
     return [
-      <span key="slot" className="hb-map-slot">{map.name}</span>,
-      map.mapName ? <span key="name" className="hb-map-name">{map.mapName}</span> : null,
-      suffix ? <span key="sfx" className="hb-map-note">{suffix}</span> : null,
+      <span key="slot" className="hb-map-slot">
+        {map.name}
+      </span>,
+      map.mapName ? (
+        <span key="name" className="hb-map-name">
+          {map.mapName}
+        </span>
+      ) : null,
+      suffix ? (
+        <span key="sfx" className="hb-map-note">
+          {suffix}
+        </span>
+      ) : null,
     ]
   }
 }

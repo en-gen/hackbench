@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  createFrameClock, MAX_CATCHUP_FRAMES,
+  createFrameClock,
+  MAX_CATCHUP_FRAMES,
   type ClockHost,
 } from '../../../src/webview/shared/frameClock'
 import { SNES_NTSC_FPS, msToFrames, framesToMs } from '../../../src/rom/timing'
@@ -41,10 +42,19 @@ function fakeHost(hz: number, latencyMs = 0): FakeHost {
   let pending: ((n: number) => void) | null = null
   return {
     now: () => wallMs,
-    requestFrame(cb) { pending = cb; return 1 },
-    cancelFrame() { pending = null },
-    get lastTimestampMs() { return lastTimestampMs },
-    burn(ms) { wallMs += ms },
+    requestFrame(cb) {
+      pending = cb
+      return 1
+    },
+    cancelFrame() {
+      pending = null
+    },
+    get lastTimestampMs() {
+      return lastTimestampMs
+    },
+    burn(ms) {
+      wallMs += ms
+    },
     run(frames) {
       for (let i = 0; i < frames; i++) {
         while (vsyncIdx * stepMs < wallMs) vsyncIdx++
@@ -105,7 +115,8 @@ describe('timing conversions', () => {
  * fails the oracle, not only the sweep.
  */
 function assertCadenceIndependentOfRefreshRate(
-  realised: Map<number, number[]>, cadence: number,
+  realised: Map<number, number[]>,
+  cadence: number,
 ): void {
   expect(realised.size, 'a sweep needs more than one refresh rate').toBeGreaterThan(2)
   for (const [hz, g] of realised) {
@@ -121,8 +132,13 @@ function measureClock(cadence: number, latencyMs = 0): Map<number, number[]> {
     const host = fakeHost(hz, latencyMs)
     const clock = createFrameClock(host)
     const at: number[] = []
-    clock.every(() => cadence, () => at.push(clock.frame)).start()
-    host.run(Math.round(hz * 2))          // two seconds of wall clock
+    clock
+      .every(
+        () => cadence,
+        () => at.push(clock.frame),
+      )
+      .start()
+    host.run(Math.round(hz * 2)) // two seconds of wall clock
     out.set(hz, gaps(at))
   }
   return out
@@ -159,11 +175,18 @@ describe('cadence is independent of refresh rate', () => {
   }
 
   it('realises the same tick count at every refresh rate', () => {
-    const counts = REFRESH_HZ.map((hz) => {
+    const counts = REFRESH_HZ.map(hz => {
       const host = fakeHost(hz)
       const clock = createFrameClock(host)
       let n = 0
-      clock.every(() => 8, () => { n++ }).start()
+      clock
+        .every(
+          () => 8,
+          () => {
+            n++
+          },
+        )
+        .start()
       host.run(Math.round(hz * 2))
       return n
     })
@@ -188,8 +211,8 @@ describe('oracle: the re-basing timer this replaces', () => {
 
   it('re-basing quantises 125 ms to 8.01 frames at 60 Hz and 7.51 at 144 Hz', () => {
     const data = measureRebasing(125)
-    for (const x of data.get(60)!) expect(x).toBeCloseTo(8.013, 2)    // 133.3 ms
-    for (const x of data.get(144)!) expect(x).toBeCloseTo(7.512, 2)   // 125.0 ms
+    for (const x of data.get(60)!) expect(x).toBeCloseTo(8.013, 2) // 133.3 ms
+    for (const x of data.get(144)!) expect(x).toBeCloseTo(7.512, 2) // 125.0 ms
   })
 })
 
@@ -210,7 +233,15 @@ function frameTrackingRatio(hz: number, latencyMs: number, tickCostMs: number): 
   const host = fakeHost(hz, latencyMs)
   const clock = createFrameClock(host)
   let ticks = 0
-  clock.every(() => 8, () => { ticks++; if (tickCostMs > 0) host.burn(tickCostMs) }).start()
+  clock
+    .every(
+      () => 8,
+      () => {
+        ticks++
+        if (tickCostMs > 0) host.burn(tickCostMs)
+      },
+    )
+    .start()
   while (host.lastTimestampMs < 2000) host.run(1)
   const expected = (host.lastTimestampMs * SNES_NTSC_FPS) / 1000
   expect(ticks).toBeGreaterThan(5)
@@ -221,15 +252,17 @@ describe('the clock tracks wall clock, not the end of its own callbacks', () => 
   for (const hz of REFRESH_HZ) {
     it(`stays within 2 percent of wall clock at ${hz} Hz with callback latency`, () => {
       const ratio = frameTrackingRatio(hz, 2, 0)
-      expect(ratio, `realised ${(ratio * 100).toFixed(1)} percent of wall clock`)
-        .toBeGreaterThan(0.98)
+      expect(ratio, `realised ${(ratio * 100).toFixed(1)} percent of wall clock`).toBeGreaterThan(
+        0.98,
+      )
       expect(ratio).toBeLessThan(1.02)
     })
 
     it(`stays within 2 percent of wall clock at ${hz} Hz with a 30 ms tick`, () => {
       const ratio = frameTrackingRatio(hz, 2, 30)
-      expect(ratio, `realised ${(ratio * 100).toFixed(1)} percent of wall clock`)
-        .toBeGreaterThan(0.98)
+      expect(ratio, `realised ${(ratio * 100).toFixed(1)} percent of wall clock`).toBeGreaterThan(
+        0.98,
+      )
       expect(ratio).toBeLessThan(1.02)
     })
   }
@@ -250,7 +283,12 @@ describe('the frame counter never runs backwards', () => {
     const host = fakeHost(60, 2)
     const clock = createFrameClock(host)
     const seen: number[] = []
-    clock.every(() => 8, () => seen.push(clock.frame)).start()
+    clock
+      .every(
+        () => 8,
+        () => seen.push(clock.frame),
+      )
+      .start()
     host.run(10)
     const before = clock.frame
     // rAF timestamps can precede a now() taken at the end of the previous
@@ -258,13 +296,18 @@ describe('the frame counter never runs backwards', () => {
     host.fireAt(host.lastTimestampMs - 5)
     expect(clock.frame).toBeGreaterThanOrEqual(before)
     host.run(20)
-    expect(gaps(seen).every((g) => g > 0)).toBe(true)
+    expect(gaps(seen).every(g => g > 0)).toBe(true)
   })
 
   it('never decrements however far a timestamp goes back', () => {
     const host = fakeHost(60)
     const clock = createFrameClock(host)
-    clock.every(() => 8, () => {}).start()
+    clock
+      .every(
+        () => 8,
+        () => {},
+      )
+      .start()
     host.run(30)
     const before = clock.frame
     host.fireAt(0)
@@ -280,15 +323,21 @@ describe('phase lock', () => {
     const clock = createFrameClock(host)
     const a: number[] = []
     const b: number[] = []
-    const subA = clock.every(() => 8, () => a.push(clock.frame))
-    const subB = clock.every(() => 8, () => b.push(clock.frame))
+    const subA = clock.every(
+      () => 8,
+      () => a.push(clock.frame),
+    )
+    const subB = clock.every(
+      () => 8,
+      () => b.push(clock.frame),
+    )
     subA.start()
-    host.run(3)              // B starts mid-period, as palette does on load
+    host.run(3) // B starts mid-period, as palette does on load
     subB.start()
     host.run(120)
     expect(b.length).toBeGreaterThan(10)
-    expect(b.every((f) => a.includes(f))).toBe(true)
-    expect(a.every((f) => f % 8 === 0)).toBe(true)
+    expect(b.every(f => a.includes(f))).toBe(true)
+    expect(a.every(f => f % 8 === 0)).toBe(true)
   })
 
   it('keeps 4-frame palette ticks aligned with 8-frame tile ticks', () => {
@@ -296,8 +345,18 @@ describe('phase lock', () => {
     const clock = createFrameClock(host)
     const tiles: number[] = []
     const pal: number[] = []
-    clock.every(() => 8, () => tiles.push(clock.frame)).start()
-    clock.every(() => 4, () => pal.push(clock.frame)).start()
+    clock
+      .every(
+        () => 8,
+        () => tiles.push(clock.frame),
+      )
+      .start()
+    clock
+      .every(
+        () => 4,
+        () => pal.push(clock.frame),
+      )
+      .start()
     host.run(120)
     expect(tiles.length).toBeGreaterThan(5)
     for (const f of tiles) expect(pal).toContain(f)
@@ -312,8 +371,13 @@ describe('catch-up', () => {
     // mapEditor/main.ts:4195-4206: jump frames when the render is slow.
     const host = fakeHost(60)
     const clock = createFrameClock(host)
-    clock.every(() => 8, () => {}).start()
-    host.burn(100)                       // one 100 ms render
+    clock
+      .every(
+        () => 8,
+        () => {},
+      )
+      .start()
+    host.burn(100) // one 100 ms render
     host.run(1)
     expect(clock.frame).toBe(Math.floor((host.lastTimestampMs * SNES_NTSC_FPS) / 1000))
     expect(clock.frame).toBeGreaterThan(5)
@@ -328,7 +392,14 @@ describe('catch-up', () => {
     const host = fakeHost(60)
     const clock = createFrameClock(host)
     let ticks = 0
-    clock.every(() => 8, () => { ticks++ }).start()
+    clock
+      .every(
+        () => 8,
+        () => {
+          ticks++
+        },
+      )
+      .start()
     host.run(4)
     const before = clock.frame
     host.burn(10_000)
@@ -340,7 +411,6 @@ describe('catch-up', () => {
 
 // ── Held frame ──────────────────────────────────────────────────────────────
 
-
 // ── Lifecycle ───────────────────────────────────────────────────────────────
 
 describe('subscription lifecycle', () => {
@@ -348,7 +418,12 @@ describe('subscription lifecycle', () => {
     const host = fakeHost(60)
     const clock = createFrameClock(host)
     let ticks = 0
-    const sub = clock.every(() => 4, () => { ticks++ })
+    const sub = clock.every(
+      () => 4,
+      () => {
+        ticks++
+      },
+    )
     expect(sub.running).toBe(false)
     host.run(30)
     expect(ticks).toBe(0)
@@ -372,9 +447,20 @@ describe('subscription lifecycle', () => {
     const clock = createFrameClock(host)
     let stopped = 0
     let kept = 0
-    const a = clock.every(() => 4, () => { stopped++ })
-    const b = clock.every(() => 4, () => { kept++ })
-    a.start(); b.start()
+    const a = clock.every(
+      () => 4,
+      () => {
+        stopped++
+      },
+    )
+    const b = clock.every(
+      () => 4,
+      () => {
+        kept++
+      },
+    )
+    a.start()
+    b.start()
     host.run(20)
     expect(stopped).toBeGreaterThan(0)
     const frozen = stopped
@@ -389,7 +475,12 @@ describe('subscription lifecycle', () => {
     const host = fakeHost(60)
     const clock = createFrameClock(host)
     let ticks = 0
-    const sub = clock.every(() => 4, () => { ticks++ })
+    const sub = clock.every(
+      () => 4,
+      () => {
+        ticks++
+      },
+    )
     sub.start()
     host.run(20)
     const before = ticks
@@ -408,9 +499,17 @@ describe('subscription lifecycle', () => {
     const host = fakeHost(60)
     const clock = createFrameClock(host)
     let ticks = 0
-    const keeper = clock.every(() => 4, () => {})
-    keeper.suspend()                      // clock-level suspend, tab hidden
-    const late = clock.every(() => 4, () => { ticks++ })
+    const keeper = clock.every(
+      () => 4,
+      () => {},
+    )
+    keeper.suspend() // clock-level suspend, tab hidden
+    const late = clock.every(
+      () => 4,
+      () => {
+        ticks++
+      },
+    )
     late.start()
     host.run(40)
     expect(ticks).toBe(0)
@@ -423,9 +522,19 @@ describe('subscription lifecycle', () => {
     const host = fakeHost(60)
     const clock = createFrameClock(host)
     let ticks = 0
-    clock.every(() => 4, () => { ticks++ }).start()
+    clock
+      .every(
+        () => 4,
+        () => {
+          ticks++
+        },
+      )
+      .start()
     host.run(1)
-    const other = clock.every(() => 4, () => {})
+    const other = clock.every(
+      () => 4,
+      () => {},
+    )
     other.suspend()
     const before = ticks
     host.run(40)
@@ -437,10 +546,22 @@ describe('lifecycle, with more than one subscription', () => {
   it('a stopped subscription stops while another keeps the clock running', () => {
     const host = fakeHost(60)
     const clock = createFrameClock(host)
-    let a = 0, b = 0
-    const subA = clock.every(() => 8, () => { a++ })
-    const subB = clock.every(() => 8, () => { b++ })
-    subA.start(); subB.start()
+    let a = 0,
+      b = 0
+    const subA = clock.every(
+      () => 8,
+      () => {
+        a++
+      },
+    )
+    const subB = clock.every(
+      () => 8,
+      () => {
+        b++
+      },
+    )
+    subA.start()
+    subB.start()
     host.run(40)
     const aAtStop = a
     // Only meaningful with a second subscription holding the clock up: with
@@ -455,7 +576,12 @@ describe('lifecycle, with more than one subscription', () => {
     const host = fakeHost(60)
     const clock = createFrameClock(host)
     let n = 0
-    const sub = clock.every(() => 8, () => { n++ })
+    const sub = clock.every(
+      () => 8,
+      () => {
+        n++
+      },
+    )
     // suspend/resume are per-subscription but the suspended flag is
     // clock-global, which is the semantic this pins.
     sub.suspend()

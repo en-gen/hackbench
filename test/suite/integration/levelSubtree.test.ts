@@ -30,11 +30,11 @@ const romPresent = existsSync(VANILLA)
 // _findFillerL1Pointer, so all six numbers had to be re-pasted at once.
 const CORPUS = [
   { name: 'Super Mario World (USA).vanilla.sfc', maxRootNodes: 41, loops: 1, maxDepth: 4 },
-  { name: 'Super Mario World (USA).magic.sfc',   maxRootNodes: 41, loops: 1, maxDepth: 4 },
-  { name: 'Grand Poo World 2 1.1.sfc',           maxRootNodes: 12, loops: 6, maxDepth: 4 },
-  { name: 'GrandPooWorld_V1.2.sfc',              maxRootNodes:  6, loops: 4, maxDepth: 3 },
-  { name: 'Invictus 1.0.sfc',                    maxRootNodes: 31, loops: 6, maxDepth: 4 },
-  { name: 'Seven_Vanilla_Levels.sfc',            maxRootNodes: 41, loops: 1, maxDepth: 4 },
+  { name: 'Super Mario World (USA).magic.sfc', maxRootNodes: 41, loops: 1, maxDepth: 4 },
+  { name: 'Grand Poo World 2 1.1.sfc', maxRootNodes: 12, loops: 6, maxDepth: 4 },
+  { name: 'GrandPooWorld_V1.2.sfc', maxRootNodes: 6, loops: 4, maxDepth: 3 },
+  { name: 'Invictus 1.0.sfc', maxRootNodes: 31, loops: 6, maxDepth: 4 },
+  { name: 'Seven_Vanilla_Levels.sfc', maxRootNodes: 41, loops: 1, maxDepth: 4 },
 ].filter(c => existsSync(path.join(ROM_DIR, c.name)))
 const corpusPresent = CORPUS.length > 0
 
@@ -48,8 +48,13 @@ function shape(node: LevelTreeNode): string {
 }
 
 interface Stats {
-  nodes: number; loops: number; truncated: number; maxDepth: number
-  maxRootNodes: number; distinct: Set<number>; loopEdges: string[]
+  nodes: number
+  loops: number
+  truncated: number
+  maxDepth: number
+  maxRootNodes: number
+  distinct: Set<number>
+  loopEdges: string[]
 }
 
 function walk(node: LevelTreeNode, depth: number, s: Stats): void {
@@ -67,8 +72,13 @@ function walk(node: LevelTreeNode, depth: number, s: Stats): void {
 function statsForRom(rom: SmwRom): Stats {
   const graph = rom.buildLevelExitGraph()
   const s: Stats = {
-    nodes: 0, loops: 0, truncated: 0, maxDepth: 0,
-    maxRootNodes: 0, distinct: new Set(), loopEdges: [],
+    nodes: 0,
+    loops: 0,
+    truncated: 0,
+    maxDepth: 0,
+    maxRootNodes: 0,
+    distinct: new Set(),
+    loopEdges: [],
   }
   for (const root of rom.classifyLevels().overworld) {
     const before = s.nodes
@@ -128,10 +138,16 @@ describe.skipIf(!romPresent)('buildLevelSubtree -- vanilla nesting', () => {
 describe.skipIf(!corpusPresent)('buildLevelSubtree -- measured expansion sizes', () => {
   // The caps in LevelTree.ts are sized against maxRootNodes; these pins are what
   // say how much headroom the six ROMs actually leave.
-  it.each(CORPUS)('$name peaks at $maxRootNodes nodes under one root, $loops loops, depth $maxDepth', (c) => {
-    const s = statsForRom(SmwRom.open(path.join(ROM_DIR, c.name)))
-    expect({ maxRootNodes: s.maxRootNodes, loops: s.loops, maxDepth: s.maxDepth })
-      .toEqual({ maxRootNodes: c.maxRootNodes, loops: c.loops, maxDepth: c.maxDepth })
-    expect(s.truncated).toBe(0)
-  })
+  it.each(CORPUS)(
+    '$name peaks at $maxRootNodes nodes under one root, $loops loops, depth $maxDepth',
+    c => {
+      const s = statsForRom(SmwRom.open(path.join(ROM_DIR, c.name)))
+      expect({ maxRootNodes: s.maxRootNodes, loops: s.loops, maxDepth: s.maxDepth }).toEqual({
+        maxRootNodes: c.maxRootNodes,
+        loops: c.loops,
+        maxDepth: c.maxDepth,
+      })
+      expect(s.truncated).toBe(0)
+    },
+  )
 })

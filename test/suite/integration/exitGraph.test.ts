@@ -26,7 +26,9 @@ const CORPUS = [
   'GrandPooWorld_V1.2.sfc',
   'Invictus 1.0.sfc',
   'Seven_Vanilla_Levels.sfc',
-].map(name => path.join(ROM_DIR, name)).filter(existsSync)
+]
+  .map(name => path.join(ROM_DIR, name))
+  .filter(existsSync)
 
 // CORPUS is empty in CI, where test/roms/ is absent (gitignored, and the ROMs
 // are copyrighted). An it.each over an empty array leaves its describe block
@@ -44,7 +46,7 @@ describe.skipIf(!romPresent)('buildLevelExitGraph -- vanilla acceptance', () => 
   })
 
   it('$113 resolves to $1BB, not the $0BB filler', () => {
-    expect(graph.get(0x113)).toEqual([0x1BB])
+    expect(graph.get(0x113)).toEqual([0x1bb])
   })
 
   it('submap-range sources ($1xx) only ever resolve to submap ($1xx) destinations', () => {
@@ -81,30 +83,43 @@ describe.skipIf(!romPresent)('buildLevelExitGraph -- vanilla acceptance', () => 
   })
 })
 
-describe.skipIf(!corpusPresent)('buildLevelExitGraph -- AC2 and AC6 across the full ROM corpus', () => {
-  it.each(CORPUS)('no edge points at the filler L1 pointer, and the graph builds without throwing: %s', (romPath) => {
-    const rom = SmwRom.open(romPath)
-    let graph: Map<number, number[]> = new Map()
-    expect(() => { graph = rom.buildLevelExitGraph() }).not.toThrow()
+describe.skipIf(!corpusPresent)(
+  'buildLevelExitGraph -- AC2 and AC6 across the full ROM corpus',
+  () => {
+    it.each(CORPUS)(
+      'no edge points at the filler L1 pointer, and the graph builds without throwing: %s',
+      romPath => {
+        const rom = SmwRom.open(romPath)
+        let graph: Map<number, number[]> = new Map()
+        expect(() => {
+          graph = rom.buildLevelExitGraph()
+        }).not.toThrow()
 
-    // Recompute the filler pointer the same way SmwRom does, to assert no
-    // edge in the graph resolves to a level sharing that pointer.
-    const counts = new Map<number, number>()
-    for (let i = 0; i < 0x200; i++) {
-      const ptr = rom.getLevelL1Pointer(i)
-      if (!ptr) continue
-      counts.set(ptr, (counts.get(ptr) ?? 0) + 1)
-    }
-    let fillerPtr: number | null = null, fillerCount = 0
-    for (const [ptr, count] of counts) if (count > fillerCount) { fillerPtr = ptr; fillerCount = count }
-    if (fillerCount < 10) fillerPtr = null
+        // Recompute the filler pointer the same way SmwRom does, to assert no
+        // edge in the graph resolves to a level sharing that pointer.
+        const counts = new Map<number, number>()
+        for (let i = 0; i < 0x200; i++) {
+          const ptr = rom.getLevelL1Pointer(i)
+          if (!ptr) continue
+          counts.set(ptr, (counts.get(ptr) ?? 0) + 1)
+        }
+        let fillerPtr: number | null = null,
+          fillerCount = 0
+        for (const [ptr, count] of counts)
+          if (count > fillerCount) {
+            fillerPtr = ptr
+            fillerCount = count
+          }
+        if (fillerCount < 10) fillerPtr = null
 
-    for (const [, dests] of graph) {
-      for (const d of dests) {
-        expect(rom.getLevelL1Pointer(d)).not.toBe(fillerPtr)
-        // Every destination must be a genuine sub-area, never an overworld node.
-        expect(isOverworldLevel(d)).toBe(false)
-      }
-    }
-  })
-})
+        for (const [, dests] of graph) {
+          for (const d of dests) {
+            expect(rom.getLevelL1Pointer(d)).not.toBe(fillerPtr)
+            // Every destination must be a genuine sub-area, never an overworld node.
+            expect(isOverworldLevel(d)).toBe(false)
+          }
+        }
+      },
+    )
+  },
+)

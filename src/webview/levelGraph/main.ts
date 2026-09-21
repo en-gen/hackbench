@@ -9,7 +9,14 @@
  * Navigation: mouse-wheel to zoom, drag to pan.
  */
 
-import { buildLayout, type GraphNode, type GraphEdge, type LayoutNode, NODE_W, NODE_H } from './layout'
+import {
+  buildLayout,
+  type GraphNode,
+  type GraphEdge,
+  type LayoutNode,
+  NODE_W,
+  NODE_H,
+} from './layout'
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void
@@ -22,7 +29,10 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
 
 // ── SVG rendering ─────────────────────────────────────────────────────────────
 
-function svgEl<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>): SVGElementTagNameMap[K] {
+function svgEl<K extends keyof SVGElementTagNameMap>(
+  tag: K,
+  attrs: Record<string, string | number>,
+): SVGElementTagNameMap[K] {
   const el = document.createElementNS(SVG_NS, tag)
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v))
   return el
@@ -42,23 +52,28 @@ function renderGraph(
   const posMap = new Map<number, LayoutNode>(nodes.map(n => [n.id, n]))
 
   const svg = svgEl('svg', {
-    width: svgW, height: svgH,
+    width: svgW,
+    height: svgH,
     viewBox: `0 0 ${svgW} ${svgH}`,
     style: 'user-select:none',
   })
 
-  // Arrow marker — fill:context-stroke so the arrowhead inherits the edge stroke color.
+  // Arrow marker - fill:context-stroke so the arrowhead inherits the edge stroke color.
   const defs = svgEl('defs', {})
   const marker = svgEl('marker', {
-    id: 'arrow', markerWidth: 8, markerHeight: 8,
-    refX: 7, refY: 3, orient: 'auto',
+    id: 'arrow',
+    markerWidth: 8,
+    markerHeight: 8,
+    refX: 7,
+    refY: 3,
+    orient: 'auto',
   })
   const arrowPath = svgEl('path', { d: 'M0,0 L0,6 L8,3 Z', fill: 'context-stroke' })
   marker.appendChild(arrowPath)
   defs.appendChild(marker)
   svg.appendChild(defs)
 
-  // Edges — build per-node lookup for hover highlighting.
+  // Edges - build per-node lookup for hover highlighting.
   const allEdgePaths: SVGPathElement[] = []
   const nodeEdgePaths = new Map<number, SVGPathElement[]>()
 
@@ -76,7 +91,7 @@ function renderGraph(
     if (backEdges.has(`${e.source}->${e.target}`)) continue
     const x1 = src.x + NODE_W
     const y1 = src.y + NODE_H / 2
-    const x2 = tgt.x - 8   // leave room for arrowhead
+    const x2 = tgt.x - 8 // leave room for arrowhead
     const y2 = tgt.y + NODE_H / 2
     const cp1x = x1 + (x2 - x1) * 0.5
     const path = svgEl('path', {
@@ -110,15 +125,16 @@ function renderGraph(
       : 'var(--vscode-editor-inactiveSelectionBackground, #3a3a3a)'
 
     const rect = svgEl('rect', {
-      width: NODE_W, height: NODE_H, rx: 3, ry: 3,
+      width: NODE_W,
+      height: NODE_H,
+      rx: 3,
+      ry: 3,
       fill,
       stroke: 'var(--vscode-focusBorder, #007fd4)',
       'stroke-width': 1,
     })
 
-    const nameStr = n.name
-      ? (n.name.length > 24 ? n.name.slice(0, 24) + '…' : n.name)
-      : null
+    const nameStr = n.name ? (n.name.length > 24 ? n.name.slice(0, 24) + '…' : n.name) : null
 
     const baseText = {
       y: 16,
@@ -129,21 +145,25 @@ function renderGraph(
     g.appendChild(rect)
     if (nameStr) {
       const nameEl = svgEl('text', {
-        ...baseText, x: 6,
+        ...baseText,
+        x: 6,
         fill: 'var(--vscode-editor-foreground, #ccc)',
       })
       nameEl.textContent = nameStr
       g.appendChild(nameEl)
 
       const idEl = svgEl('text', {
-        ...baseText, x: NODE_W - 6, 'text-anchor': 'end',
+        ...baseText,
+        x: NODE_W - 6,
+        'text-anchor': 'end',
         fill: 'var(--vscode-descriptionForeground, #999)',
       })
       idEl.textContent = `$${n.hex}`
       g.appendChild(idEl)
     } else {
       const idEl = svgEl('text', {
-        ...baseText, x: 6,
+        ...baseText,
+        x: 6,
         fill: 'var(--vscode-editor-foreground, #ccc)',
       })
       idEl.textContent = `$${n.hex}`
@@ -183,18 +203,24 @@ function renderGraph(
 
   container.appendChild(svg)
 
-  // Zoom / pan — fit to viewport on first render
+  // Zoom / pan - fit to viewport on first render
   setupZoomPan(container, svg, svgW, svgH)
 }
 
-function setupZoomPan(container: HTMLElement, svg: SVGSVGElement, svgW: number, svgH: number): void {
-  const cw = container.clientWidth  || window.innerWidth
+function setupZoomPan(
+  container: HTMLElement,
+  svg: SVGSVGElement,
+  svgW: number,
+  svgH: number,
+): void {
+  const cw = container.clientWidth || window.innerWidth
   const ch = container.clientHeight || window.innerHeight
   let scale = Math.min(cw / svgW, ch / svgH) * 0.95
   let tx = (cw - svgW * scale) / 2
   let ty = (ch - svgH * scale) / 2
   let dragging = false
-  let lastX = 0, lastY = 0
+  let lastX = 0,
+    lastY = 0
 
   const applyTransform = () => {
     svg.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`
@@ -202,23 +228,33 @@ function setupZoomPan(container: HTMLElement, svg: SVGSVGElement, svgW: number, 
   }
   applyTransform()
 
-  container.addEventListener('wheel', (e) => {
-    e.preventDefault()
-    const factor = e.deltaY > 0 ? 0.9 : 1.1
-    scale = Math.max(0.1, Math.min(3, scale * factor))
-    applyTransform()
-  }, { passive: false })
+  container.addEventListener(
+    'wheel',
+    e => {
+      e.preventDefault()
+      const factor = e.deltaY > 0 ? 0.9 : 1.1
+      scale = Math.max(0.1, Math.min(3, scale * factor))
+      applyTransform()
+    },
+    { passive: false },
+  )
 
-  container.addEventListener('mousedown', (e) => {
-    dragging = true; lastX = e.clientX; lastY = e.clientY
+  container.addEventListener('mousedown', e => {
+    dragging = true
+    lastX = e.clientX
+    lastY = e.clientY
   })
-  window.addEventListener('mousemove', (e) => {
+  window.addEventListener('mousemove', e => {
     if (!dragging) return
-    tx += e.clientX - lastX; ty += e.clientY - lastY
-    lastX = e.clientX; lastY = e.clientY
+    tx += e.clientX - lastX
+    ty += e.clientY - lastY
+    lastX = e.clientX
+    lastY = e.clientY
     applyTransform()
   })
-  window.addEventListener('mouseup', () => { dragging = false })
+  window.addEventListener('mouseup', () => {
+    dragging = false
+  })
 }
 
 // ── Message handling ──────────────────────────────────────────────────────────
@@ -235,8 +271,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const app = document.getElementById('app')!
   showLoading(app)
 
-  window.addEventListener('message', (event) => {
-    const msg = event.data as { type: string; nodes?: GraphNode[]; edges?: GraphEdge[]; slug?: string; message?: string }
+  window.addEventListener('message', event => {
+    const msg = event.data as {
+      type: string
+      nodes?: GraphNode[]
+      edges?: GraphEdge[]
+      slug?: string
+      message?: string
+    }
 
     if (msg.type === 'error') {
       showError(app, msg.message ?? 'Unknown error')
