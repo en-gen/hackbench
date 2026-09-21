@@ -19,6 +19,10 @@ export default [
       // Emitted by Theia's own build, not authored here.
       'theia/**/lib/**',
       'theia/**/src-gen/**',
+      // Also generated, and gitignored: present only after a local build, so
+      // linting them fails for whoever built and passes in CI, which never has.
+      'theia/*/esbuild.mjs',
+      'theia/*/gen-esbuild.*.mjs',
     ],
   },
   js.configs.recommended,
