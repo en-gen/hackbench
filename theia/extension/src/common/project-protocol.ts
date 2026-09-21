@@ -65,6 +65,12 @@ export interface SpecialMapNodeDto extends MapNodeDto {
   foundAt: string
 }
 
+/** `entrances` is null when the overworld is unreadable: unknown, not zero. */
+export interface MapTreeCountsDto {
+  entrances: number | null
+  unassigned: number
+}
+
 export interface MapTreeDto {
   /**
    * The title screen and the new-game intro, in the order a player meets
@@ -74,6 +80,7 @@ export interface MapTreeDto {
   overworld: MapNodeDto[]
   unassigned: MapNodeDto[]
   mapCount: number
+  counts: MapTreeCountsDto
   notes: string[]
 }
 
@@ -96,6 +103,26 @@ export interface RecentProjectDto {
   name: string
   title: string
   lastOpened: string
+}
+
+/**
+ * What one map holds, read from the cartridge.
+ *
+ * Every field is decoded from the level header, whose bit layout and ASM
+ * citations live in src/rom/LevelParser.ts. Nothing here is inferred: a field
+ * this build cannot read is absent rather than defaulted.
+ */
+export interface MapDetailsDto {
+  index: number
+  name: string | null
+  /** The five header bytes, so the user can check the decode themselves. */
+  headerBytes: number[]
+  screens: number
+  isVertical: boolean
+  objectCount: number
+  spriteCount: number
+  /** Decoded header fields, label and value, in header-byte order. */
+  header: Array<{ label: string; value: string }>
 }
 
 export interface ProjectService {
@@ -128,12 +155,23 @@ export interface ProjectService {
   updateProject(manifestPath: string, changes: Partial<HackMetadataDto>): Promise<ProjectDto>
 
   /**
+   * Read one map out of the project's base cartridge.
+   *
+   * Throws when the slot holds no readable level data, which is a real answer
+   * rather than an empty map: an empty map looks like one that lost its work.
+   */
+  mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto>
+
+  /**
    * Projects this user has opened, most recent first.
    *
    * Entries whose manifest has gone are pruned rather than offered: a recent
    * list that fails when clicked reads as data loss.
    */
   recentProjects(): Promise<RecentProjectDto[]>
+
+  /** Forget every remembered project. Affects this machine only. */
+  clearRecentProjects(): Promise<void>
 
   /**
    * Every map in the project's base cartridge, grouped for display.

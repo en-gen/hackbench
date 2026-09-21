@@ -19,9 +19,10 @@ import {
   QuickInputService,
   WidgetManager,
 } from '@theia/core/lib/browser'
-import { ProjectDto, ProjectService } from '../common/project-protocol'
+import { ProjectDto, ProjectService, RecentProjectDto } from '../common/project-protocol'
 import { NewProjectDialog } from './new-project-dialog'
 import { MapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
+import { MapViewWidget, MAP_VIEW_ID } from './map-view-widget'
 import { ProjectPropertiesDialog } from './project-properties-dialog'
 import { ProjectContext } from './project-context'
 import { FileDialogService } from '@theia/filesystem/lib/browser'
@@ -39,11 +40,24 @@ export const OpenProjectCommand: Command = {
   category: 'HackBench',
 }
 
+/** Kept as a command too, so the palette and a keybinding can reach the list. */
 export const OpenRecentProjectCommand: Command = {
   id: 'hackbench.project.openRecent',
   label: 'Open Recent Project...',
   category: 'HackBench',
 }
+
+export const ClearRecentProjectsCommand: Command = {
+  id: 'hackbench.project.clearRecent',
+  label: 'Clear Recently Opened',
+  category: 'HackBench',
+}
+
+/** Where the dynamic submenu hangs, beside the other project actions. */
+const RECENT_SUBMENU = [...CommonMenus.FILE, '1_hackbench_project', 'recent']
+
+/** One command per remembered project, registered and torn down as it changes. */
+const RECENT_COMMAND_PREFIX = 'hackbench.project.openRecent.'
 
 export const ProjectPropertiesCommand: Command = {
   id: 'hackbench.project.properties',
@@ -92,6 +106,15 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
   @inject(FileDialogService) protected readonly fileDialog!: FileDialogService
   @inject(QuickInputService) protected readonly quickInput!: QuickInputService
 
+  /** Captured at registration so the submenu can be rebuilt later. */
+  protected commands: CommandRegistry | undefined
+  protected menus: MenuModelRegistry | undefined
+  /** Command ids currently in the submenu, so they can be torn down. */
+  protected recentIds: string[] = []
+  /** Explorer instances already wired, so a reopened view gets its own. */
+  protected readonly wiredExplorers = new WeakSet<MapExplorerWidget>()
+  protected currentManifest = ''
+
   registerCommands(registry: CommandRegistry): void {
     registry.registerCommand(NewProjectCommand, {
       execute: () => this.newProject(),
@@ -102,6 +125,14 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
     registry.registerCommand(OpenRecentProjectCommand, {
       execute: () => this.openRecent(),
     })
+    registry.registerCommand(ClearRecentProjectsCommand, {
+      execute: () => this.clearRecent(),
+      isEnabled: () => this.recentIds.length > 0,
+    })
+    this.commands = registry
+    // Populate once the backend is reachable; the menu is empty until then
+    // rather than showing a stale list from a previous run.
+    void this.refreshRecentMenu()
     registry.registerCommand(ProjectPropertiesCommand, {
       execute: () => this.editProperties(),
       // Greyed out rather than hidden with no project: a command that vanishes
@@ -121,11 +152,11 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
       label: OpenProjectCommand.label,
       order: '1',
     })
-    menus.registerMenuAction(CommonMenus.FILE, {
-      commandId: OpenRecentProjectCommand.id,
-      label: OpenRecentProjectCommand.label,
-      order: '2',
-    })
+    // A submenu rather than a quick pick, matching VS Code: the list is short
+    // and the whole point is seeing it without a second interaction.
+    menus.registerSubmenu(RECENT_SUBMENU, 'Open Recent Project')
+    this.menus = menus
+    void this.refreshRecentMenu()
     menus.registerMenuAction(CommonMenus.FILE, {
       commandId: ProjectPropertiesCommand.id,
       label: ProjectPropertiesCommand.label,
@@ -200,7 +231,11 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
    */
   protected async show(project: ProjectDto): Promise<void> {
     this.context.current = project
+    // Opening or creating a project reorders the recent list.
+    void this.refreshRecentMenu()
+
     const explorer = await this.widgets.getOrCreateWidget<MapExplorerWidget>(MAP_EXPLORER_ID)
+    this.listenForMapOpens(explorer, project.manifestPath)
     await explorer.load(project.manifestPath)
     // Activated, not merely revealed: the tree virtualises its rows, so a
     // background tab shows a loaded project as an empty view.
@@ -208,11 +243,72 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
   }
 
   /**
-   * Reopen something from the recent list.
+   * Rebuild the Open Recent submenu from the backend's list.
    *
-   * A quick pick rather than a nested menu: the list is per-machine state that
-   * changes as the user works, and a menu built once at registration would go
-   * stale the moment they created a project.
+   * Rebuilt rather than registered once: the list is per-machine state that
+   * changes as the user works, and a menu built at registration time would go
+   * stale the moment they created a project. Old entries are unregistered
+   * first so a project that dropped off does not linger as a dead command.
+   */
+  protected async refreshRecentMenu(): Promise<void> {
+    if (!this.commands || !this.menus) return
+
+    for (const id of this.recentIds) {
+      this.menus.unregisterMenuAction(id, RECENT_SUBMENU)
+      this.commands.unregisterCommand(id)
+    }
+    this.recentIds = []
+
+    let entries: RecentProjectDto[]
+    try {
+      entries = await this.projects.recentProjects()
+    } catch {
+      // The backend may not be up yet on first paint. An empty submenu is the
+      // honest state; it fills as soon as a project is opened.
+      return
+    }
+
+    entries.forEach((entry, i) => {
+      const id = `${RECENT_COMMAND_PREFIX}${i}`
+      this.commands!.registerCommand(
+        { id, label: entry.title || entry.name },
+        {
+          execute: () => this.openPath(entry.manifestPath),
+        },
+      )
+      this.menus!.registerMenuAction(RECENT_SUBMENU, {
+        commandId: id,
+        // The path disambiguates two hacks that share a title.
+        label: `${entry.title || entry.name}  ${entry.manifestPath}`,
+        order: String(i).padStart(3, '0'),
+      })
+      this.recentIds.push(id)
+    })
+
+    if (entries.length > 0) {
+      this.menus.registerMenuAction(RECENT_SUBMENU, {
+        commandId: ClearRecentProjectsCommand.id,
+        label: ClearRecentProjectsCommand.label,
+        order: 'zzz',
+      })
+    }
+  }
+
+  protected async clearRecent(): Promise<void> {
+    await this.projects.clearRecentProjects()
+    await this.refreshRecentMenu()
+  }
+
+  protected async openPath(manifestPath: string): Promise<void> {
+    try {
+      await this.show(await this.projects.openProject(manifestPath))
+    } catch (err) {
+      this.messages.error(`Could not open that project: ${(err as Error).message}`)
+    }
+  }
+
+  /**
+   * The same list as a quick pick, for the command palette.
    */
   protected async openRecent(): Promise<void> {
     const entries = await this.projects.recentProjects()
@@ -232,11 +328,32 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
     )
     if (!picked) return
 
-    try {
-      await this.show(await this.projects.openProject(picked.manifestPath))
-    } catch (err) {
-      this.messages.error(`Could not open that project: ${(err as Error).message}`)
-    }
+    await this.openPath(picked.manifestPath)
+  }
+
+  /**
+   * Open a map when a row is clicked.
+   *
+   * Subscribed once per explorer instance: the widget is a singleton, so
+   * re-subscribing on every project open would open one widget per past
+   * project on the next click.
+   */
+  protected listenForMapOpens(explorer: MapExplorerWidget, manifestPath: string): void {
+    this.currentManifest = manifestPath
+    // Keyed on the widget instance, not a one-shot flag: the view is closable,
+    // so closing it and reopening yields a NEW widget that a once-only guard
+    // would never subscribe, leaving every row click silently dead.
+    if (this.wiredExplorers.has(explorer)) return
+    this.wiredExplorers.add(explorer)
+
+    explorer.onMapOpened(async ({ index, label }) => {
+      const widget = await this.widgets.getOrCreateWidget<MapViewWidget>(MAP_VIEW_ID, { index })
+      await widget.open({ manifestPath: this.currentManifest, index, label })
+      if (!widget.isAttached) {
+        this.shell.addWidget(widget, { area: 'main' })
+      }
+      await this.shell.activateWidget(widget.id)
+    })
   }
 
   protected async editProperties(): Promise<void> {

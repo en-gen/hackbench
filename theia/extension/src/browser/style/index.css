@@ -167,3 +167,59 @@
   height: 1.15em;
   display: block;
 }
+
+/* ── Map view ────────────────────────────────────────── */
+
+.hb-map-view {
+  overflow: auto;
+  padding: 1.2em 1.4em;
+  color: var(--theia-foreground);
+}
+
+.hb-map-view-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+  margin: 0 0 0.3em 0;
+  font-size: var(--theia-ui-font-size3);
+  font-weight: 600;
+}
+
+.hb-map-view-summary {
+  margin-bottom: 1.2em;
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map-view-table {
+  border-collapse: collapse;
+}
+
+.hb-map-view-table th {
+  text-align: left;
+  font-weight: normal;
+  color: var(--theia-descriptionForeground);
+  padding: 0.2em 1.6em 0.2em 0;
+}
+
+.hb-map-view-table td {
+  font-family: var(--theia-code-font-family);
+  padding: 0.2em 0;
+}
+
+/* The decode above is a claim; these are the bytes it was made from. */
+.hb-map-view-raw {
+  margin-top: 1.4em;
+  padding-top: 0.8em;
+  border-top: 1px solid var(--theia-editorWidget-border);
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map-view-raw code {
+  margin-left: 0.6em;
+  font-family: var(--theia-code-font-family);
+  color: var(--theia-foreground);
+}
+
+.hb-map-view-error {
+  color: var(--theia-errorForeground);
+}

@@ -32,10 +32,11 @@ import {
   TreeProps,
   TreeWidget,
   CompositeTreeNode,
+  ExpandableTreeNode,
   SelectableTreeNode,
   createTreeContainer,
 } from '@theia/core/lib/browser'
-import { MessageService } from '@theia/core/lib/common'
+import { Emitter, MessageService } from '@theia/core/lib/common'
 import { MapNodeDto, ProjectService, SpecialMapNodeDto } from '../common/project-protocol'
 
 export const MAP_EXPLORER_ID = 'hackbench.map-explorer'
@@ -88,7 +89,9 @@ export const CATEGORY_ICONS: Record<MapCategory, string> = {
   // The intro cutscene that runs when a file is started.
   'new-game': 'codicon-play-circle',
   'overworld-group': 'codicon-globe',
-  'unassigned-group': 'codicon-circle-slash',
+  // Deliberately the same mark as the orphans it contains: the folder is not
+  // a different kind of thing from its children, it is just where they sit.
+  'unassigned-group': 'codicon-question',
   // What a launch tile starts: the way into a level.
   entry: 'codicon-home',
   // Reached only from another map, which is what a branch is.
@@ -113,6 +116,18 @@ export class MapExplorerWidget extends TreeWidget {
   /** Exposed for tests: the count the backend reported for this cartridge. */
   mapCount = 0
 
+  /** The project currently loaded, needed to open a map from a row. */
+  protected manifestPath = ''
+
+  /**
+   * Fired when a row is clicked, carrying the map it names.
+   *
+   * An event rather than a direct call so the tree stays a view: it knows
+   * which map was asked for and nothing about what opening one means.
+   */
+  protected readonly onMapOpenedEmitter = new Emitter<{ index: number; label: string }>()
+  readonly onMapOpened = this.onMapOpenedEmitter.event
+
   constructor(
     @inject(TreeProps) props: TreeProps,
     @inject(TreeModel) model: TreeModel,
@@ -122,7 +137,7 @@ export class MapExplorerWidget extends TreeWidget {
     this.id = MAP_EXPLORER_ID
     this.title.label = 'Maps'
     this.title.caption = 'Maps'
-    this.title.iconClass = 'codicon codicon-list-tree'
+    this.title.iconClass = 'codicon codicon-map'
     this.title.closable = true
   }
 
@@ -140,6 +155,7 @@ export class MapExplorerWidget extends TreeWidget {
    * the answer is to ask the user where theirs is.
    */
   async load(manifestPath: string): Promise<void> {
+    this.manifestPath = manifestPath
     const result = await this.projects.loadMaps(manifestPath)
 
     if (result.status === 'rom-not-located') {
@@ -151,18 +167,57 @@ export class MapExplorerWidget extends TreeWidget {
     }
 
     this.mapCount = result.tree.mapCount
+    const counts = result.tree.counts
     // Listed in the order a player meets them: title screen, new game, then
     // the overworld and whatever it does not reach.
     this.setRoot([
       ...result.tree.special.map(s => this.specialNode(s)),
-      this.group('overworld', 'Overworld', 'overworld-group', result.tree.overworld),
-      this.group('unassigned', 'Unassigned', 'unassigned-group', result.tree.unassigned),
+      this.group(
+        'overworld',
+        // A null entrance count means the overworld could not be read, so the
+        // label carries no number rather than implying zero.
+        counts.entrances === null ? 'Overworld' : `Overworld (${counts.entrances})`,
+        'overworld-group',
+        result.tree.overworld,
+      ),
+      this.group(
+        'unassigned',
+        `Unassigned (${counts.unassigned})`,
+        'unassigned-group',
+        result.tree.unassigned,
+      ),
     ])
 
     // Notes carry what the grouping could not do (unassigned maps, a ROM
     // whose filler could not be identified confidently). Surfacing them beats
     // a tidy tree that quietly means less than it looks like it does.
     for (const note of result.tree.notes) this.messages.info(note)
+  }
+
+  /** Expanded breadth-first so the tree paints top-down rather than in bursts. */
+  async expandAll(): Promise<void> {
+    const root = this.model.root
+    if (!root) return
+
+    const queue: TreeNode[] = [root]
+    for (let i = 0; i < queue.length; i++) {
+      const node = queue[i]!
+      if (ExpandableTreeNode.is(node) && !node.expanded) {
+        await this.model.expandNode(node)
+      }
+      if (CompositeTreeNode.is(node)) queue.push(...node.children)
+    }
+  }
+
+  async collapseAll(): Promise<void> {
+    const root = this.model.root
+    if (!CompositeTreeNode.is(root)) return
+    await this.model.collapseAll(root)
+    // collapseAll folds the grouping folders too, which leaves the view
+    // apparently empty; they are containers, not content.
+    for (const group of root.children) {
+      if (ExpandableTreeNode.is(group)) await this.model.expandNode(group)
+    }
   }
 
   protected setRoot(children: MapTreeNode[]): void {
@@ -254,6 +309,29 @@ export class MapExplorerWidget extends TreeWidget {
     }
   }
 
+  /**
+   * A click selects and OPENS; only the chevron expands.
+   *
+   * Theia's default toggles expansion on a row click as well, which means a
+   * folder cannot be opened without also collapsing it. The container sets
+   * expandOnlyOnExpansionToggleClick to stop that, and this adds the open.
+   */
+  protected override tapNode(node: TreeNode | undefined): void {
+    super.tapNode(node)
+    const map = node as MapTreeNode | undefined
+    // Groups and messages name no map; a loop or truncation is a marker for
+    // one shown elsewhere, so following it would open a row the user did not
+    // click.
+    if (!map || map.index < 0 || map.kind !== 'map' || !this.manifestPath) return
+    this.onMapOpenedEmitter.fire({
+      index: map.index,
+      label:
+        map.category === 'title-screen' || map.category === 'new-game'
+          ? (map.name ?? slotLabel(map.index))
+          : `${slotLabel(map.index)}${map.mapName ? ` ${map.mapName}` : ''}`,
+    })
+  }
+
   protected message(text: string): MapTreeNode {
     return {
       id: 'message',
@@ -324,6 +402,21 @@ export class MapExplorerWidget extends TreeWidget {
 export function createMapExplorerWidget(parent: interfaces.Container): MapExplorerWidget {
   const child: Container = createTreeContainer(parent, {
     widget: MapExplorerWidget,
+    props: {
+      // Without this a row click toggles expansion as well as selecting, so a
+      // folder cannot be opened without collapsing it.
+      expandOnlyOnExpansionToggleClick: true,
+      // Opening a map is a single click here, not a double: the tree is the
+      // application's primary navigation, not a file browser.
+      globalSelection: true,
+      // Theia already indents rows that have no expansion chevron, so their
+      // icons line up with the expandable ones. Its default of 22px is 2px
+      // wider than the toggle actually occupies (measured: an expandable
+      // row's icon sits at x+68 with no padding, a non-expandable one at
+      // x+48 plus this value), which left the icon column visibly ragged
+      // wherever leaves and folders are siblings.
+      expansionTogglePadding: 20,
+    },
   })
   return child.get(MapExplorerWidget)
 }

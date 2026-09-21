@@ -35,6 +35,7 @@ import { SmwRom, isOverworldLevel } from './SmwRom'
 import { buildLevelCatalog } from './LevelCatalog'
 import { buildLevelSubtree, LevelTreeNode } from './LevelTree'
 import { findSpecialMaps, SpecialRole } from './SpecialMaps'
+import { deriveOverworldEntrances } from './OverworldEntrances'
 
 export interface MapNode {
   /** Pointer-table slot, $000-$1FF. */
@@ -62,6 +63,18 @@ export interface SpecialMapNode extends MapNode {
   foundAt: string
 }
 
+/**
+ * Counts the explorer shows beside a group label.
+ *
+ * `entrances` is null when the overworld is not readable, which
+ * deriveOverworldEntrances reports for a ROM another editor rebuilt. Null
+ * means unknown, not zero, and the label must not show a number for it.
+ */
+export interface MapTreeCounts {
+  entrances: number | null
+  unassigned: number
+}
+
 export interface MapTree {
   /**
    * The title screen and the new-game intro, in the order a player meets
@@ -76,6 +89,7 @@ export interface MapTree {
   unassigned: MapNode[]
   /** Real maps in the ROM. The tree is required to cover exactly this many. */
   mapCount: number
+  counts: MapTreeCounts
   notes: string[]
 }
 
@@ -161,5 +175,16 @@ export function buildMapTree(rom: SmwRom): MapTree {
     )
   }
 
-  return { special, overworld, unassigned, mapCount: maps.size, notes }
+  // Launch tiles the overworld grants a translevel, which is what a hacker
+  // means by an entrance. Traced in OverworldEntrances; unreadable on a ROM
+  // whose overworld another editor rebuilt, and reported as unknown.
+  const entranceIndex = deriveOverworldEntrances(rom, catalog)
+  if (!entranceIndex.overworldReadable) notes.push(...entranceIndex.notes)
+
+  const counts: MapTreeCounts = {
+    entrances: entranceIndex.overworldReadable ? entranceIndex.entrances.length : null,
+    unassigned: unassigned.length,
+  }
+
+  return { special, overworld, unassigned, mapCount: maps.size, counts, notes }
 }
