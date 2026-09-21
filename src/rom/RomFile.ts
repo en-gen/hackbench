@@ -140,6 +140,21 @@ export class RomFile {
   private _version = 0
   get version(): number { return this._version }
 
+  /**
+   * File offset a SNES address maps to, or null if it is not in ROM.
+   *
+   * Exposed because a patch is expressed in FILE offsets (it is applied to the
+   * raw byte array before the emulator ever reads it), while everything that
+   * locates level data works in SNES addresses. Callers previously had no way
+   * to cross that boundary without re-deriving the mapMode and copier-header
+   * branches below, which is exactly the duplication that goes stale.
+   */
+  fileOffsetOf(snesAddr: number): number | null {
+    return this.mapMode === 'hirom'
+      ? hiromToOffset(snesAddr, this.hasHeader)
+      : loromToOffset(snesAddr, this.romSize, this.hasHeader)
+  }
+
   writeAt(snesAddr: number, data: Buffer | number[]): void {
     // Host-only: file-backed write needs Node's Buffer.copy. Webview
     // RomFiles never write back to ROM (the writeback path is the

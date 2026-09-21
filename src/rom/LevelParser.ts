@@ -102,6 +102,13 @@ export interface LevelObject {
   newScreen: boolean   // new screen flag (byte 0 bit 7)
   highCoord: boolean   // high coordinate flag (byte 0 bit 4)
   raw: number[]        // original 3 bytes
+  /**
+   * Byte offset of this object's first byte within the raw L1 data, counted
+   * from the start of the 5-byte header. Not uniform: most objects are 3
+   * bytes but a screen exit consumes a 4th, so a caller cannot derive this by
+   * multiplying an index. Needed to turn an edit into a ROM byte patch.
+   */
+  streamOffset: number
   // Backward-compatible aliases used by webview/providers:
   objectType: number   // = objectNumber for normal, 0x100+objectNumber for extended
   param: number        // = settings
@@ -118,6 +125,11 @@ export interface LevelSprite {
   spriteId: number
   extraBit: boolean    // sprite header extra bit
   raw: number[]
+  /** Position in the sprite stream. The stable way to name a sprite for an
+   *  edit: x/y change the moment it is moved, so they cannot identify it. */
+  index: number
+  /** Byte offset of this sprite's first byte within the raw sprite data. */
+  streamOffset: number
 }
 
 export interface ParsedLevel {
@@ -246,6 +258,7 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
     if (pos + 2 >= data.length) break
     const b1 = data[pos + 1]
     const b2 = data[pos + 2]
+    const streamOffset = pos
     pos += 3   // Advance by 3 bytes (line 689-695)
 
     // New screen flag: bit 7 of byte 0 (line 754-758)
@@ -309,6 +322,7 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
 
     const objNum = isExtended ? b2 : objectNumber
     objects.push({
+      streamOffset,
       type: isExtended ? 'extended' : 'standard',
       screen,
       x: xAbs,
@@ -372,6 +386,7 @@ export function parseL2Objects(
     if (pos + 2 >= data.length) break
     const b1 = data[pos + 1]
     const b2 = data[pos + 2]
+    const streamOffset = pos
     pos += 3
 
     const newScreen = (b0 & 0x80) !== 0
@@ -401,6 +416,7 @@ export function parseL2Objects(
 
     const objNum = isExtended ? b2 : objectNumber
     objects.push({
+      streamOffset,
       type: isExtended ? 'extended' : 'standard',
       screen,
       x: xAbs,
@@ -461,6 +477,7 @@ export function parseLevelSprites(data: Buffer | Uint8Array, isVertical = false)
 
     const b1 = data[pos + 1]
     const b2 = data[pos + 2]
+    const streamOffset = pos
     pos += 3
 
     const yyyy = (b0 >> 4) & 0x0F
@@ -491,6 +508,8 @@ export function parseLevelSprites(data: Buffer | Uint8Array, isVertical = false)
     }
 
     sprites.push({
+      index: sprites.length,
+      streamOffset,
       screen,
       x,
       y,

@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "lib": ["ES2022", "DOM"],
+    "outDir": "lib",
+    // rootDir is the REPO ROOT, not this package, because the backend service
+    // wraps src/project/, which is shared with the existing extension and the
+    // unit tests. Emitted paths therefore mirror the repo layout, which is why
+    // theiaExtensions below points at lib/theia/extension/src/...
+    //
+    // Debt, deliberately taken: the clean fix is npm workspaces with the ROM
+    // and project code as its own package. That restructures paths every
+    // existing test imports, so it belongs in its own change rather than
+    // riding along with the shell scaffold. Tracked on #391.
+    "rootDir": "../..",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "jsx": "react"
+  },
+  "include": ["src", "../../src/project", "../../src/rom"]
+}

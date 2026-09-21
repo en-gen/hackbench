@@ -102,3 +102,32 @@ __pycache__/
 # Playwright e2e output
 /test-results/
 /playwright-report/
+
+# Spike: libretro core binaries (snes9x, non-commercial license) - never commit
+vendor/cores/
+
+# Spike: gameplay screenshots are ROM-derived output - never commit
+spike/**/evidence/
+spike/**/*.png
+spike/**/serve.log
+
+# ROM-derived edit layers (IPS patch files contain ROM bytes)
+*.hackbench/
+*.hackbench-edits.json
+
+# Theia app: build output and installed dependencies
+theia/node_modules/
+theia/*/node_modules/
+theia/*/lib/
+theia/*/src-gen/
+theia/*/gen-webpack*.js
+theia/browser-app/test-results/
+theia/yarn.lock
+theia/*/esbuild.mjs
+theia/*/gen-esbuild.*.mjs
+
+# tsc output must never land beside the TypeScript sources
+src/**/*.js
+src/**/*.d.ts
+src/**/*.js.map
+src/**/*.d.ts.map

@@ -15,6 +15,54 @@ import { expandMap } from '../rom/ObjectExpander'
 import { readL2Pointer, isPresetPtr, loadL2Preset, loadL2Objects, readInitialLayer2YPos, findLevelScrollSprite, findLevelScrollSpriteFull, readL2ScrollBounds, L2_TILEMAP_COLS, L2_TILEMAP_ROWS, L1_SCREEN_W, L1_SCREEN_H } from '../rom/L2Loader'
 import { simulateScrollSetup } from '../rom/scrollDispatch'
 import { buildMapPayload } from '../rom/model/MapBuilder'
+import { EditSession, levelsSharingSprites } from '../EditSession'
+import { build } from '../rom/PatchLayer'
+import { RomFile } from '../rom/RomFile'
+import { SmwRom } from '../rom/SmwRom'
+
+
+/**
+ * The ROM as the editor should show it: base plus the user's edit layers.
+ *
+ * Returns the base unchanged when there are no edits, so the common path
+ * allocates nothing. Layer failures are swallowed to the base rather than
+ * thrown: a stale edit must not stop the level from opening.
+ */
+function patchedRom(base: SmwRom, romPath: string, level: number): SmwRom {
+  try {
+    const { layers } = EditSession.for(romPath).layersFor(level)
+    if (layers.length === 0) return base
+    // Buffer.from, not the raw Uint8Array: RomFile.buffer is type-asserted as
+    // a Buffer and host-side readers (PaletteLoader, SmwRom) call Buffer-only
+    // methods on it. Handing them a Uint8Array throws inside buildMapPayload,
+    // whose catch then silently keeps the PREVIOUS model, so tiles updated and
+    // sprites did not.
+    return new SmwRom(RomFile.fromBytes(romPath, Buffer.from(build(new Uint8Array(base.rom.buffer), layers))))
+  } catch {
+    return base
+  }
+}
+
+/**
+ * Which sprite in the stream the webview means.
+ *
+ * The webview identifies a sprite by what is on screen (id and tile
+ * position), because that is all it has. Resolving that to a stream index
+ * happens HERE, against the same patched ROM the webview was rendered from,
+ * so the two agree. Returns -1 when the position matches nothing, which
+ * happens if the view is stale.
+ */
+function resolveSpriteIndex(rom: SmwRom, level: number, id: number, tileX: number, tileY: number): number {
+  const rawL1 = rom.getLevelRawData(level)
+  if (!rawL1) return -1
+  const { isVertical } = parseLevelObjects(rawL1)
+  const ptr = rom.getLevelSpritePointer(level)
+  if (ptr === null) return -1
+  const data = rom.rom.readAt(ptr, 0x200)
+  if (!data) return -1
+  return parseLevelSprites(data, isVertical)
+    .findIndex(s => s.spriteId === id && s.x === tileX && s.y === tileY)
+}
 
 /**
  * Custom editor provider for .smwmap virtual files.
@@ -59,6 +107,8 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
     panel.webview.onDidReceiveMessage(async (msg) => {
       if (msg.type === 'ready') {
         await this._sendLevelData(document.uri, panel.webview, {})
+      } else if (msg.type === 'nudgeSprite' || msg.type === 'deleteSprite' || msg.type === 'undoEdit') {
+        await this._handleEdit(document.uri, panel.webview, msg)
       } else if (msg.type === 'rerender') {
         await this._sendLevelData(document.uri, panel.webview, {
           bgVariant:      msg.bgVariant      as number,
@@ -101,6 +151,79 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
     })
   }
 
+  /**
+   * Apply an edit from the webview, then re-send the level so the editor shows
+   * it. The edit is recorded as an OP, not as bytes; layers are re-derived on
+   * every render. The ROM file is never written.
+   */
+  private async _handleEdit(
+    uri: vscode.Uri,
+    webview: vscode.Webview,
+    msg: Record<string, unknown>,
+  ): Promise<void> {
+    const descriptor = await readDescriptor<{ romPath: string; mapIndex: number }>(uri)
+    if (!descriptor) return
+    const { romPath, mapIndex } = descriptor
+    const edits = EditSession.for(romPath)
+
+    if (msg.type === 'undoEdit') {
+      if (!edits.undo()) {
+        void vscode.window.showInformationMessage('HackBench: nothing to undo.')
+        return
+      }
+    } else {
+      const base = getActiveRomSession()?.rom ?? resolveRom(romPath)
+      // Resolve against the SAME patched view the webview was rendered from,
+      // otherwise a second nudge would look the sprite up at its old position.
+      const rom = patchedRom(base, romPath, mapIndex)
+      const index = resolveSpriteIndex(
+        rom, mapIndex, msg.spriteId as number, msg.tileX as number, msg.tileY as number,
+      )
+      if (index < 0) {
+        // Almost always a stale selection: the sprite was already edited away
+        // and the view still holds the old object. Say that, rather than
+        // implying the level data is broken.
+        void vscode.window.showWarningMessage(
+          'HackBench: that sprite is no longer in the level. Click a sprite to select it again.',
+        )
+        await this._sendLevelData(uri, webview, {})
+        return
+      }
+      // Sprite data is reached by a per-level pointer, and those pointers are
+      // not all distinct. Editing shared data changes every level that points
+      // at it, so say so before doing it rather than after.
+      const alsoAffected = levelsSharingSprites(rom, mapIndex)
+      if (alsoAffected.length > 0) {
+        const list = alsoAffected.slice(0, 6).map(l => `$${l.toString(16).toUpperCase()}`).join(', ')
+        const more = alsoAffected.length > 6 ? ` and ${alsoAffected.length - 6} more` : ''
+        const choice = await vscode.window.showWarningMessage(
+          `This level shares its sprite data with ${alsoAffected.length} other level(s): ${list}${more}. `
+          + 'Editing it changes them too.',
+          { modal: true }, 'Edit anyway',
+        )
+        if (choice !== 'Edit anyway') {
+          // The webview may have already removed the sprite optimistically.
+          // Re-send so a declined edit is visibly declined.
+          await this._sendLevelData(uri, webview, {})
+          return
+        }
+      }
+
+      try {
+        edits.pushEdit(base, msg.type === 'deleteSprite'
+          ? { kind: 'deleteSprite', level: mapIndex, index }
+          : { kind: 'moveSpriteX', level: mapIndex, index, dx: msg.dx as number })
+      } catch (err) {
+        void vscode.window.showWarningMessage(`HackBench: ${(err as Error).message}`)
+        await this._sendLevelData(uri, webview, {})
+        return
+      }
+    }
+
+    await this._sendLevelData(uri, webview, {})
+    webview.postMessage({ type: 'editApplied', count: edits.records.length })
+  }
+
   private async _sendLevelData(
     uri: vscode.Uri,
     webview: vscode.Webview,
@@ -121,8 +244,16 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       const activeSession = getActiveRomSession()
       const session: RomSession | null =
         activeSession && activeSession.rom.rom.filePath === romPath ? activeSession : null
-      const rom   = session?.rom ?? resolveRom(romPath)
+      const baseRom = session?.rom ?? resolveRom(romPath)
       const index = descriptor.mapIndex
+
+      // Render the level the user is actually editing: base ROM plus their
+      // edit layers. The ROM FILE is untouched; this is a patched copy held
+      // for the duration of this build. Resolving sprite indices against the
+      // same patched view is what keeps an index stable across repeated
+      // nudges, since a move changes a sprite's x but never its position in
+      // the stream.
+      const rom = patchedRom(baseRom, romPath, index)
 
       // ── Parse level ───────────────────────────────────────────────────────
       const rawL1 = rom.getLevelRawData(index)

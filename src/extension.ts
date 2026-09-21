@@ -11,6 +11,7 @@ import { TilesetCompareProvider } from './providers/TilesetCompareProvider'
 import { RomMapProvider } from './providers/RomMapProvider'
 import { OverworldViewerProvider } from './providers/OverworldViewerProvider'
 import { SmwFileSystemProvider } from './providers/SmwFileSystemProvider'
+import { EmulatorPreviewProvider } from './providers/EmulatorPreviewProvider'
 import { romPathFromCommandArg } from './romPathFromCommandArg'
 import { staleRomTabs } from './romTabs'
 
@@ -86,6 +87,11 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('hackbench.closeRom', () =>
       closeRomCommand(context, fsProvider, mapsProvider, resourcesProvider)
+    ),
+    // Spike (libretro-view-engine): runs the libretro core inside the
+    // extension's own webview. See src/providers/EmulatorPreviewProvider.ts.
+    vscode.commands.registerCommand('hackbench.openEmulatorPreview', (levelId?: number) =>
+      new EmulatorPreviewProvider(context).open(levelId)
     )
   )
 }

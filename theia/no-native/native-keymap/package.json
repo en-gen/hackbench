@@ -1,0 +1,7 @@
+{
+  "name": "native-keymap",
+  "version": "2.5.0",
+  "description": "Replacement for the native-keymap native addon. See ../README.md.",
+  "main": "index.js",
+  "license": "MIT"
+}

@@ -181,7 +181,6 @@ In practice:
 
 `*.smc`, `*.sfc`, `*.rom`, `*.ips`, `*.bps`, `test/roms/`, `test/magic/` are gitignored.
 
-<!-- gitnexus:start -->
 # Quality gates
 
 These exist because each one corresponds to a defect that actually reached review in this repo. They are not generic best practice.
@@ -208,6 +207,33 @@ Any check, harness or test that reports a verdict needs a committed test proving
 
 Never accept a single-case acceptance test. A debounce tuned to level `$105` false-failed 22% of levels with a factually wrong diagnosis. Sweep the range.
 
+## Every feature ships with a Playwright test
+
+Features are validated by automated UI tests, not by someone clicking through
+the app. Manual testing is for exploring, never for acceptance.
+
+Playwright drives the Electron app directly through `_electron`, which is
+proven: a shell spike ran 18 cases against a real window, including an
+emulator core booting and holding framerate.
+
+Rules:
+
+- Every feature issue states its acceptance criteria as assertions a test can
+  make. "Works" is not acceptance; "clicking File > Open with no project
+  prompts to locate the cart" is.
+- Assertions check BEHAVIOUR, not presence. Two defects in the shell spike
+  rendered perfectly and did nothing: a menu bar appended by node instead of
+  attached ignored every click, and a logo drawn in its default black on a
+  black bar was present and invisible. Both pass an "is it on screen" check.
+  Assert that a click opens a menu, and assert a contrast RATIO.
+- The oracle rule applies here as everywhere. A UI test that cannot go red is
+  worse than none. Plant the defect and prove it fails.
+- Performance claims are assertions too, with the measurement bound to the
+  thing being measured. A framerate meter that counted requestAnimationFrame
+  callbacks reported a confident 59.9fps for an emulator core that was frozen.
+  Read the core's own frame counter, and assert a frozen-span count separately
+  from an average, because an average survives a freeze.
+
 ## Size budgets
 
 State an expected size in every implementation brief, and stop and ask if the work is heading past it. A Phase 1 task scoped at roughly 150 lines of mechanism returned 813 lines, most of it narration.
@@ -222,27 +248,36 @@ Do not build scaffolding for phases that have not been approved.
 - Worktrees go in `C:/Projects/.worktrees/<repo>/<task>`, never inside the repo and never as a sibling.
 - The implementer never certifies its own work. Every non-trivial change gets two fresh-agent reviews against the diff, adversarial and simplification, and the orchestrator independently builds and runs before accepting.
 - Never use a small model for the adversarial gate.
+- Keep the GitNexus index fresh. A hook reports it stale after a commit; the
+  refresh is `npm run gitnexus`, never a bare `gitnexus analyze`. The bare
+  command rewrites the gitnexus-marked region of CLAUDE.md and AGENTS.md with
+  em-dashes the pre-commit gate then blocks, and it once destroyed this whole
+  section by writing over it. The wrapper normalises the generated text,
+  repairs the full-text index when incremental analysis corrupts it, and fails
+  loudly if the marker creeps back above this heading.
 
-# GitNexus — Code Intelligence
+<!-- gitnexus:start -->
+# GitNexus - Code Intelligence
 
-This project is indexed by GitNexus as **hackbench**. Use the GitNexus MCP tools to understand code, assess impact, and navigate safely. Symbol and relationship counts drift as the code changes; check `gitnexus://repo/hackbench/context` for current figures rather than trusting a number written here.
+This project is indexed by GitNexus as **hackbench** (8676 symbols, 21277 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
-> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root - it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
 ## Always Do
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "develop"})`.
 - **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol - callers, callees, which execution flows it participates in - use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
 
 ## Never Do
 
-- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
+- NEVER edit a function, class, or method without first running `impact` on it.
 - NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
-- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+- NEVER rename symbols with find-and-replace - use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
 
 ## Resources
 

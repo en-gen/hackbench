@@ -33,6 +33,25 @@ import { RomFile } from '../RomFile'
 /** A 2D tile grid; grid[row][col] = 9-bit Map16 tile ID (page << 8 | low). */
 export type TileGrid = number[][]
 
+/**
+ * Which object drew each cell, parallel to TileGrid.
+ *
+ * The editor needs this to turn a click into a selection. A tile ID cannot
+ * answer that on its own, because the same ID is written by dozens of objects.
+ *
+ * Ownership is LAST WRITER WINS, which is the rule the tile itself already
+ * follows: whatever a handler writes last is what renders, so the recorded
+ * owner always names the object that drew what is on screen.
+ *
+ * Cells the object stream never touched keep OWNER_NONE. Boss-arena pre-fills
+ * and the Layer 3 overflow region come from game-mode init routines rather
+ * than object handlers, so they stay unowned and are not selectable.
+ */
+export type OwnerGrid = number[][]
+
+/** No object drew this cell. */
+export const OWNER_NONE = -1
+
 /** Mirrors the game's object-handler execution state. */
 export interface Cursor {
   grid: TileGrid
@@ -68,11 +87,20 @@ export interface Cursor {
    * LDA.L operands inside the handler body) still resolve correctly.
    */
   handlerAddr: number
+  /**
+   * Parallel grid recording which object drew each cell, or null when the
+   * caller does not want ownership tracked. Every write goes through
+   * writeTile, so that one function is the entire mechanism.
+   */
+  owners: OwnerGrid | null
+  /** Index into the level's object stream of the object being expanded. */
+  owner: number
 }
 
 export function makeCursor(
   grid: TileGrid, rom: RomFile, tileset: number,
   col: number, row: number, objNo: number, size: number,
+  owners: OwnerGrid | null = null, owner: number = OWNER_NONE,
 ): Cursor {
   return {
     grid, rom, tileset,
@@ -81,6 +109,7 @@ export function makeCursor(
     objNo, size,
     page: 0,
     handlerAddr: 0,     // filled in by dispatcher right before calling handler
+    owners, owner,
   }
 }
 
@@ -133,6 +162,23 @@ export function writeTile(cur: Cursor, lowByte: number): void {
   // that iterate by row length see a contiguous tile stream.
   while (row.length < cur.col) row.push(0x25)
   row[cur.col] = tile
+  claimCell(cur)
+}
+
+/**
+ * Record the current object as the owner of the cell just written.
+ *
+ * Grows the owner row in step with the tile row so the two stay the same
+ * shape; a shorter owner row would read as OWNER_NONE for a cell that an
+ * object really did draw, and the click on it would select nothing.
+ */
+function claimCell(cur: Cursor): void {
+  const owners = cur.owners
+  if (!owners) return
+  const orow = owners[cur.row]
+  if (!orow) return
+  while (orow.length < cur.col) orow.push(OWNER_NONE)
+  orow[cur.col] = cur.owner
 }
 
 /** Sta1To6ePointer (bank_0D line 2107) -- next tile is on page 1 ($100-$1FF). */

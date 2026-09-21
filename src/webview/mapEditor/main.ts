@@ -1836,12 +1836,165 @@ function selectSprite(sprite: Sprite): void {
   selectedSprite = sprite
   store.setSelectedSprite(spriteSelectionKey(sprite))
   showSpriteProps(document, sprite, mapData?.paletteRows ?? [])
+  setStatusHint('sprite selected: Delete to remove, drag to move, Ctrl+Z to undo')
+}
+
+/**
+ * Drag a sprite horizontally to move it.
+ *
+ * It SNAPS TO THE TILE GRID, and that is the ROM's constraint rather than a
+ * shortcut: a sprite's position within its screen is a 4-bit nibble
+ * (bank_02.asm:5279), so 16 pixels is the smallest step that exists. Free
+ * pixel positioning would let someone express something the cart cannot
+ * store.
+ *
+ * The drag also stops at the screen edge. Crossing one means changing the
+ * sprite's screen number as well, and the sprite stream is kept in screen
+ * order, so it is a different operation than moving a byte.
+ *
+ * The webview cannot name a sprite by its position in the ROM's sprite
+ * stream, because it never sees the stream. It sends what it DOES know, the
+ * id and tile position, and the extension host resolves that to a stream
+ * index against the same patched ROM this view was rendered from.
+ */
+let spriteDrag: { id: number, tileX: number, tileY: number, startClientX: number, lastDx: number } | null = null
+let pendingReselect: { id: number, tileX: number, tileY: number } | null = null
+
+function beginSpriteDrag(sprite: Sprite, clientX: number): void {
+  spriteDrag = {
+    id: sprite.id,
+    tileX: Math.floor(sprite.x / TILE_PX),
+    tileY: Math.floor(sprite.y / TILE_PX),
+    startClientX: clientX,
+    lastDx: 0,
+  }
+}
+
+window.addEventListener('pointermove', e => {
+  if (!spriteDrag) return
+  // One tile per TILE_PX of travel, measured in level pixels so the drag
+  // tracks the cursor at any zoom.
+  const dx = Math.round((e.clientX - spriteDrag.startClientX) / (TILE_PX * store.zoom))
+  if (dx === spriteDrag.lastDx) return
+  spriteDrag.lastDx = dx
+  setStatusHint(dx === 0 ? '' : `move sprite ${dx > 0 ? '+' : ''}${dx} tile(s), release to apply`)
+})
+
+window.addEventListener('pointerup', () => {
+  const drag = spriteDrag
+  spriteDrag = null
+  if (!drag) return
+  setStatusHint('')
+  if (drag.lastDx === 0) return
+  pendingReselect = { id: drag.id, tileX: drag.tileX + drag.lastDx, tileY: drag.tileY }
+  vscode.postMessage({
+    type: 'nudgeSprite',
+    spriteId: drag.id,
+    tileX: drag.tileX,
+    tileY: drag.tileY,
+    dx: drag.lastDx,
+  })
+})
+
+/** Delete removes the selected sprite; Ctrl+Z undoes. The host owns the ops. */
+window.addEventListener('keydown', ev => {
+  const t = ev.target as HTMLElement | null
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') {
+    ev.preventDefault()
+    vscode.postMessage({ type: 'undoEdit' })
+    return
+  }
+
+  if ((ev.key === 'Delete' || ev.key === 'Backspace') && selectedSprite) {
+    ev.preventDefault()
+    vscode.postMessage({
+      type: 'deleteSprite',
+      spriteId: selectedSprite.id,
+      tileX: Math.floor(selectedSprite.x / TILE_PX),
+      tileY: Math.floor(selectedSprite.y / TILE_PX),
+    })
+    // Drop the selection immediately. Holding it would leave it pointing at a
+    // sprite that is about to stop existing, and a second Delete would then
+    // ask the host to find something that is gone.
+    pendingReselect = null
+    const going = selectedSprite
+    selectedSprite = null
+    store.setSelectedSprite(null)
+
+    // Remove it locally and redraw NOW, rather than waiting for the host.
+    //
+    // The host's answer is authoritative and arrives shortly after, but it
+    // costs a full level rebuild: measured at ~85ms host-side plus shipping
+    // 512KB of ROM to this webview and rehydrating every char, tile and
+    // sprite. None of that work changes when one sprite goes away, and the
+    // delay reads as the edit not having registered.
+    //
+    // If the host rejects the edit it re-sends the level, which puts the
+    // sprite back, so the optimistic state cannot outlive one round trip.
+    removeSpriteLocally(going)
+  }
+})
+
+/**
+ * Take a sprite out of the rendered model immediately.
+ *
+ * map.sprites is a plain array, so the reactive effect does not see a splice;
+ * the render is kicked directly.
+ */
+function removeSpriteLocally(sprite: Sprite): void {
+  const map = window.__smwModelMap
+  if (!map) return
+  const i = map.sprites.indexOf(sprite)
+  if (i < 0) return
+  map.sprites.splice(i, 1)
+  renderModelOverlay(map)
+}
+
+/**
+ * Floating hint for edit affordances.
+ *
+ * Created on demand rather than added to the editor's markup, because the
+ * markup is built in one large template and this is the only thing that needs
+ * it. An earlier version referenced an id that did not exist, so a drag gave
+ * no feedback at all.
+ */
+function setStatusHint(text: string): void {
+  let el = document.getElementById('edit-hint')
+  if (!el) {
+    el = document.createElement('div')
+    el.id = 'edit-hint'
+    el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:16px;'
+      + 'background:rgba(30,30,30,.94);border:1px solid #555;color:#ddd;padding:5px 12px;'
+      + 'border-radius:3px;font:12px sans-serif;pointer-events:none;z-index:99999;display:none;'
+    document.body.appendChild(el)
+  }
+  el.textContent = text
+  el.style.display = text ? 'block' : 'none'
+}
+
+/** Re-select the moved sprite once the rebuilt level arrives. */
+function restoreSelectionAfterEdit(): void {
+  const want = pendingReselect
+  pendingReselect = null
+  const map = window.__smwModelMap
+  if (!want || !map) return
+  for (const spr of map.sprites) {
+    if (spr.id === want.id
+        && Math.floor(spr.x / TILE_PX) === want.tileX
+        && Math.floor(spr.y / TILE_PX) === want.tileY) {
+      selectSprite(spr)
+      return
+    }
+  }
 }
 
 /** Drop the sprite selection. Any other pick context replaces it. */
 function clearSpriteSelection(): void {
   selectedSprite = null
   store.setSelectedSprite(null)
+  setStatusHint('')
 }
 
 // ── Tile properties panel ────────────────────────────────────────────────────
@@ -3534,6 +3687,7 @@ modelCanvas.addEventListener('pointerdown', (e) => {
   const pick = pickAt(lx / store.zoom, ly / store.zoom)
   if (pick?.kind === 'sprite') {
     selectSprite(pick.sprite)
+    beginSpriteDrag(pick.sprite, e.clientX)
   } else {
     clearSpriteSelection()
     setPropContext('empty')
@@ -4487,9 +4641,18 @@ window.addEventListener('message', async (event) => {
       // means the very first paint is correct without needing a user click.
       refreshSwitchToggleThumbs()
       drawPSwitchToggleThumb()
+      // Every Sprite object was just rebuilt, so a selection held across an
+      // edit points at a discarded one. Re-find it by where it should now be.
+      restoreSelectionAfterEdit()
     } catch (err) {
       console.error('[mapEditor] modelPayload rehydrate failed:', err)
     }
+    return
+  }
+  if (msg['type'] === 'editApplied') {
+    const n = msg['count'] as number
+    setStatusHint(`${n} layer${n === 1 ? '' : 's'} applied`)
+    window.setTimeout(() => setStatusHint(''), 2500)
     return
   }
   if (msg['type'] === 'musicSpc') {

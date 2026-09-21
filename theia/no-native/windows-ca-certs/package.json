@@ -1,0 +1,7 @@
+{
+  "name": "@vscode/windows-ca-certs",
+  "version": "0.3.3",
+  "description": "Replacement for the windows-ca-certs native addon. See ../README.md.",
+  "main": "index.js",
+  "license": "MIT"
+}

@@ -16,7 +16,7 @@
 
 import { LevelObject, SCREEN_W, SCREEN_H, SCREEN_W_VERT, SCREEN_H_VERT } from './LevelParser'
 import { RomFile } from './RomFile'
-import { makeCursor, TileGrid } from './objectHandlers/cursor'
+import { makeCursor, OWNER_NONE, OwnerGrid, TileGrid } from './objectHandlers/cursor'
 import { dispatchStandard, dispatchExtended } from './objectHandlers/dispatch'
 
 /** Empty tile = $25 (bank_05.asm CODE_05801E fills the level map with #$25). */
@@ -46,7 +46,8 @@ export function readLayer3Setting(rom: RomFile, levelNum: number): number {
   return (byte & 0xC0) >> 6
 }
 
-export type { TileGrid } from './objectHandlers/cursor'
+export type { TileGrid, OwnerGrid } from './objectHandlers/cursor'
+export { OWNER_NONE } from './objectHandlers/cursor'
 
 const MAP16_OW_L1_VRAM_BUFFER_OFFSET = 0x1C00  // OWLayer1VramBuffer − Map16TilesLow
 const MAP16_BYTES_PER_SCREEN_H = 0x1B0          // 27 rows × 16 cols
@@ -117,18 +118,24 @@ export function createGrid(screens: number, isVertical = false, layer3Setting = 
 /**
  * Expand a single level object into the grid.
  * Dispatches via the ROM's pointer tables (tileset dispatch → handler table).
+ *
+ * Pass `owners` and `owner` to record which object drew each cell. Both are
+ * optional: callers that only want tiles pay nothing for the bookkeeping.
  */
 export function expandObject(
   grid: TileGrid, obj: LevelObject, rom: RomFile, tileset: number,
+  owners: OwnerGrid | null = null, owner: number = OWNER_NONE,
 ): void {
   if (obj.type === 'extended') {
     // For extended objects, LevelParser stores the extended type in `objectNumber`
     // (per its comment) and the raw settings byte in `settings`. The ASM's
     // dispatch uses LvlLoadObjSize as the selector, which maps to our objectNumber.
-    const cur = makeCursor(grid, rom, tileset, obj.x, obj.y, obj.objectNumber, obj.settings)
+    const cur = makeCursor(grid, rom, tileset, obj.x, obj.y, obj.objectNumber, obj.settings,
+      owners, owner)
     dispatchExtended(cur)
   } else {
-    const cur = makeCursor(grid, rom, tileset, obj.x, obj.y, obj.objectNumber, obj.settings)
+    const cur = makeCursor(grid, rom, tileset, obj.x, obj.y, obj.objectNumber, obj.settings,
+      owners, owner)
     dispatchStandard(cur)
   }
 }
@@ -192,6 +199,29 @@ export function expandMap(
   objects: LevelObject[], screens: number, rom: RomFile, tileset = 0,
   isVertical = false, levelMode?: number, levelNum?: number,
 ): TileGrid {
+  return expandMapOwned(objects, screens, rom, tileset, isVertical, levelMode, levelNum).grid
+}
+
+/** A tile grid plus the record of which object drew each of its cells. */
+export interface ExpandedMap {
+  grid: TileGrid
+  owners: OwnerGrid
+}
+
+/**
+ * expandMap, plus the owner grid the editor needs to make a click mean
+ * something.
+ *
+ * Same expansion, same tiles; the only addition is that each handler's writes
+ * are attributed to the object that triggered them. Boss-arena pre-fills and
+ * the Layer 3 overflow region happen before any object runs, so those cells
+ * stay OWNER_NONE and clicking them selects nothing, which is correct: no
+ * object drew them and no object edit can change them.
+ */
+export function expandMapOwned(
+  objects: LevelObject[], screens: number, rom: RomFile, tileset = 0,
+  isVertical = false, levelMode?: number, levelNum?: number,
+): ExpandedMap {
   // Boss-arena modes override the header screen count.
   const effectiveScreens = (levelMode === 9 || levelMode === 11)
     ? BOSS_ARENA_SCREENS
@@ -205,8 +235,10 @@ export function expandMap(
   if (levelMode === 9) applyMode9BossArena(grid)
   else if (levelMode === 11) applyMode11BossArena(grid)
 
-  for (const obj of objects) {
-    expandObject(grid, obj, rom, tileset)
+  const owners: OwnerGrid = grid.map(row => new Array<number>(row.length).fill(OWNER_NONE))
+
+  for (let i = 0; i < objects.length; i++) {
+    expandObject(grid, objects[i], rom, tileset, owners, i)
   }
-  return grid
+  return { grid, owners }
 }
