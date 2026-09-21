@@ -104,6 +104,6 @@ npx vitest run test/suite/unit/LcLz2.synthetic.test.ts   # one file
 ## Related docs
 
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) - general dev setup and PR flow
-- [`docs/roadmap.md`](./roadmap.md) - "Testing & Coverage" section tracks
-  critical-path test priorities
+- [Testing milestone](https://github.com/en-gen/hackbench/milestone/12) -
+  tracks critical-path test priorities
 - [`docs/smw-rom-format.md`](./smw-rom-format.md) - ROM layout reference

@@ -61,7 +61,7 @@ git checkout -b feature/<next>
 
 ## Code layout
 
-See [docs/architecture.md](./docs/architecture.md) for the full tour.
+See the Architecture section of [CLAUDE.md](./CLAUDE.md) for the full tour.
 Short version:
 
 - `src/extension.ts` - activation + provider registration
