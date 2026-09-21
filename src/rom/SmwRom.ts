@@ -352,11 +352,26 @@ export class SmwRom {
    * prefers over a confidently wrong graph.
    */
   buildLevelExitGraph(): Map<number, number[]> {
-    const { overworld, subarea } = this.classifyLevels()
+    // The map universe comes from pointer identity, the same test
+    // buildLevelCatalog applies. classifyLevels is deliberately NOT used here:
+    // it dedupes by L1 pointer, and it gates on levelHasObjects(). Between them
+    // those made 47 of the vanilla cart's 235 real maps ineligible as a
+    // destination, leaving 59 unreachable. $0EB's pointer is shared by $0F0,
+    // $0FB, $1DA, $1E7 and $1F9; the dedupe kept one and discarded four, but
+    // the secondary-exit table names a SLOT, not a pointer, so all five are
+    // distinct destinations. MapTree.ts documents both defects and routes
+    // around them the same way; levelHasObjects is issue #311.
+    // (Inlined rather than calling buildLevelCatalog: LevelCatalog imports
+    // SmwRom for a value, so depending on it here would be a runtime cycle.)
     const fillerPtr = this._findFillerL1Pointer()
-    const validDestinations = new Set(
-      subarea.filter(idx => this.getLevelL1Pointer(idx) !== fillerPtr),
-    )
+    const realMaps: number[] = []
+    for (let i = 0; i < LEVEL_COUNT; i++) {
+      const ptr = this.getLevelL1Pointer(i)
+      if (!ptr || ptr === fillerPtr) continue
+      realMaps.push(i)
+    }
+    const overworld = realMaps.filter(isOverworldLevel)
+    const validDestinations = new Set(realMaps.filter(idx => !isOverworldLevel(idx)))
 
     const destTable = this.rom.readAt(ADDR.SEC_EXIT_DEST, ADDR.SEC_ENTRANCE_COUNT)
     if (!destTable) return new Map()

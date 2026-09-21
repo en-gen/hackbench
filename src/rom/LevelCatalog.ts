@@ -26,6 +26,26 @@ export interface CatalogEntry {
   isReal: boolean
   /** True when the slot's level data could actually be read back. */
   parseable: boolean
+  /**
+   * Other real slots whose L1 pointer is identical to this one, ascending.
+   *
+   * These are not copies, they are the same bytes. An edit is a byte patch at
+   * a file offset derived from the pointer, so editing Layer-1 data "for this
+   * slot" edits every slot listed here as well. Vanilla shares 63 of its 235
+   * real slots across 21 groups, so this is the normal case, not an oddity.
+   *
+   * Filler slots always report [] : 277 of them share the filler pointer, and
+   * calling that 276 aliases each would be true, useless, and would bury the
+   * real groups.
+   */
+  l1Aliases: number[]
+  /**
+   * The same, for the sprite pointer. Tracked separately because sharing is
+   * per data stream: on vanilla, $0EB's six slots share one L1 pointer but two
+   * different sprite pointers, so an object move and a sprite delete affect
+   * different sets. One combined "is aliased" flag would be wrong for both.
+   */
+  spriteAliases: number[]
 }
 
 export interface LevelCatalog {
@@ -34,6 +54,14 @@ export interface LevelCatalog {
   fillerPointer: number
   realCount: number
   parseableCount: number
+  /**
+   * Real slots sharing Layer-1 data with at least one other real slot, and the
+   * number of distinct groups they form. Reported as data, not in `notes`:
+   * `notes` carries correctness caveats about the catalog itself, and aliasing
+   * is a property of the cart that is true of a perfectly-read ROM.
+   */
+  aliasedSlotCount: number
+  l1AliasGroupCount: number
   notes: string[]
 }
 
@@ -116,8 +144,42 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
     }
 
     if (parseable) parseableCount++
-    entries.push({ index: i, l1Pointer, isReal, parseable })
+    entries.push({ index: i, l1Pointer, isReal, parseable, l1Aliases: [], spriteAliases: [] })
   }
+
+  // Alias groups, over real slots only. Two passes rather than one: the groups
+  // cannot be known until every pointer has been seen.
+  const groupBy = (ptrOf: (index: number) => number | null) => {
+    const byPointer = new Map<number, number[]>()
+    for (const e of entries) {
+      if (!e.isReal) continue
+      const ptr = ptrOf(e.index)
+      if (ptr === null) continue
+      const bucket = byPointer.get(ptr)
+      if (bucket) bucket.push(e.index)
+      else byPointer.set(ptr, [e.index])
+    }
+    return byPointer
+  }
+
+  const l1Groups = groupBy(i => pointers[i] ?? null)
+  const spriteGroups = groupBy(i => rom.getLevelSpritePointer(i))
+
+  for (const [, members] of l1Groups) {
+    if (members.length < 2) continue
+    for (const index of members) {
+      entries[index]!.l1Aliases = members.filter(m => m !== index)
+    }
+  }
+  for (const [, members] of spriteGroups) {
+    if (members.length < 2) continue
+    for (const index of members) {
+      entries[index]!.spriteAliases = members.filter(m => m !== index)
+    }
+  }
+
+  const l1AliasGroupCount = [...l1Groups.values()].filter(m => m.length > 1).length
+  const aliasedSlotCount = entries.filter(e => e.l1Aliases.length > 0).length
 
   const shareLow = filler.count / LEVEL_COUNT < MIN_FILLER_SHARE
   const marginThin = filler.count < MIN_FILLER_MARGIN_RATIO * filler.runnerUpCount
@@ -137,5 +199,13 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
     )
   }
 
-  return { entries, fillerPointer: filler.pointer, realCount, parseableCount, notes }
+  return {
+    entries,
+    fillerPointer: filler.pointer,
+    realCount,
+    parseableCount,
+    aliasedSlotCount,
+    l1AliasGroupCount,
+    notes,
+  }
 }

@@ -53,6 +53,15 @@ export interface MapNode {
    * disappears silently.
    */
   kind: 'map' | 'loop' | 'truncated'
+  /**
+   * Other slots holding the identical Layer-1 bytes. Not copies: an edit here
+   * is an edit to all of them, because a patch is written at the offset the
+   * shared pointer resolves to. Empty for the common case. Carried on the node
+   * so a view can warn before the user edits a map they are not looking at.
+   * `CatalogEntry.spriteAliases` is the separate, and different, sprite-pointer
+   * grouping.
+   */
+  l1Aliases: number[]
   children: MapNode[]
 }
 
@@ -112,6 +121,7 @@ export function buildMapTree(rom: SmwRom): MapTree {
   const notes = [...catalog.notes]
 
   const name = (index: number): string | null => rom.getLevelName(index)
+  const aliasesOf = (index: number): number[] => catalog.entries[index]?.l1Aliases ?? []
 
   // Roots come from the map set, not from classifyLevels, so a slot the
   // latter deduped away still heads its own folder.
@@ -126,6 +136,7 @@ export function buildMapTree(rom: SmwRom): MapTree {
       // LevelTree says 'room' for an expandable node; the glossary's term for
       // the editable unit is 'map', and this module speaks the glossary.
       kind: node.kind === 'room' ? 'map' : node.kind,
+      l1Aliases: aliasesOf(node.index),
       // A destination outside the map set is filler the exit data still
       // points at; showing it would invent a map.
       children: node.children.filter(c => maps.has(c.index)).map(adopt),
@@ -149,6 +160,7 @@ export function buildMapTree(rom: SmwRom): MapTree {
       index: hit.index,
       name: name(hit.index),
       kind: 'map',
+      l1Aliases: aliasesOf(hit.index),
       children: [],
       role: hit.role,
       foundAt: hit.foundAt,
@@ -165,7 +177,13 @@ export function buildMapTree(rom: SmwRom): MapTree {
   const unassigned = [...maps]
     .filter(i => !placed.has(i))
     .sort((a, b) => a - b)
-    .map(i => ({ index: i, name: name(i), kind: 'map' as const, children: [] }))
+    .map(i => ({
+      index: i,
+      name: name(i),
+      kind: 'map' as const,
+      l1Aliases: aliasesOf(i),
+      children: [],
+    }))
 
   if (unassigned.length > 0) {
     notes.push(
