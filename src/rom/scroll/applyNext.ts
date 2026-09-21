@@ -1,10 +1,10 @@
 /**
- * applyNext.ts — the end-of-frame "commit" step.
+ * applyNext.ts - the end-of-frame "commit" step.
  *
  * SMW's main loop runs `ProcScreenScrollCmds` (which mutates
  * `NextLayer{1,2}{X,Y}Pos`) and then commits `Next* → Layer*` so the
  * BG2/BG1 PPU registers see the new viewport position. The commit
- * lives in bank_00 around `UpdateScreenPosition` — the agent decode
+ * lives in bank_00 around `UpdateScreenPosition` - the agent decode
  * placed it at line 13650 (`Layer1YPos` ← `NextLayer1YPos` at frame
  * start).
  *

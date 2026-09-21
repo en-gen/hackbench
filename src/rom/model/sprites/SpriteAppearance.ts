@@ -6,16 +6,16 @@ import type { SpritePart } from './appearances/StaticSpriteAppearance'
 
 /** Axis-aligned hit rectangle in sprite-local pixel space. */
 export interface HitRect {
-  dx: number  // left edge relative to sprite origin
-  dy: number  // top edge relative to sprite origin
-  w:  number
-  h:  number
+  dx: number // left edge relative to sprite origin
+  dy: number // top edge relative to sprite origin
+  w: number
+  h: number
 }
 
 export interface SpriteAppearance {
   /**
    * Draw this sprite at the given pixel position. `behavior` is the same
-   * object hanging off the parent `Sprite` — appearances that need access
+   * object hanging off the parent `Sprite` - appearances that need access
    * to behavioral data (reach, state, etc.) read it here; most ignore it.
    * Editor-singleton state is read via direct `editorStore` import.
    */
@@ -51,9 +51,9 @@ export interface SpriteAppearance {
    * is an optional-chained no-op.
    */
   renderAboveL1?(
-    target:   RenderTarget,
-    x:        number,
-    y:        number,
+    target: RenderTarget,
+    x: number,
+    y: number,
     behavior: SpriteBehavior,
     mapStore: MapStore,
   ): void
@@ -104,14 +104,14 @@ export interface SpriteAppearance {
    * @param mapStore  Per-map reactive store.
    */
   renderOverlay?(
-    ctx:        OverlayContext,
-    x:          number,
-    y:          number,
-    isActive:   boolean,
-    getL1:      GetL1Tile,
-    levelCols:  number,
-    levelRows:  number,
-    behavior:   SpriteBehavior | undefined,
-    mapStore:   MapStore,
+    ctx: OverlayContext,
+    x: number,
+    y: number,
+    isActive: boolean,
+    getL1: GetL1Tile,
+    levelCols: number,
+    levelRows: number,
+    behavior: SpriteBehavior | undefined,
+    mapStore: MapStore,
   ): void
 }

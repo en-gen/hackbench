@@ -1,18 +1,18 @@
 /**
  * ASM-derived tests for $08 Green Para-Koopa (horizontally flying variant)
- * — the GreenParaKoopa handler at bank_01.asm:1817 taking the $08 branch
+ * - the GreenParaKoopa handler at bank_01.asm:1817 taking the $08 branch
  * at line 1835 (`CMP #$08; BEQ/BNE branch`).
  *
  * The $08 branch:
- *   - vx = Spr0to13SpeedX[dir] — always -$08 (left) because InitGrnBounceKoopa
+ *   - vx = Spr0to13SpeedX[dir] - always -$08 (left) because InitGrnBounceKoopa
  *     seeds direction from (Y low bit 4); the overlay uses the worst-case
  *     "flies left forever" semantics.
- *   - vy alternates $FC / +$04 based on SpriteMisc1570 bit 5 — i.e. vertical
+ *   - vy alternates $FC / +$04 based on SpriteMisc1570 bit 5 - i.e. vertical
  *     bob of ±4 sub-pixels (±0.25 px/frame). Flips every 32 frames.
  *   - `SubSprXPosNoGrvty` + `SubSprYPosNoGrvty` are applied, but `CODE_019140`
  *     (the full collision scanner) is NOT called, so `SpriteBlockedDirs` is
  *     never set. The sprite passes through walls.
- *   - No gravity, no on-ground branch, no direction flip — never turns.
+ *   - No gravity, no on-ground branch, no direction flip - never turns.
  *
  * The overlay is the 5-6-tile fade-to-transparent corridor to the left of
  * spawn, indicating "this koopa flies left indefinitely; it passes through
@@ -32,7 +32,7 @@
  *     │   → assert heightPx ≥ 16 (body) and ≤ 32 (bob + margin)
  *     └─ direction is always leftwards (endX < originX)
  *
- *   computeFlightPosition(frame) — deterministic per-frame position
+ *   computeFlightPosition(frame) - deterministic per-frame position
  *     ├─ frame 0 same as spawn (no movement yet)
  *     ├─ frame 100: X decreased by ~50 px (0.5 px/frame; off by sub-pixel carry)
  *     ├─ frame 1000: X decreased by ~500 px (linear drift)
@@ -49,7 +49,7 @@ import {
   FADE_HEIGHT_PX,
 } from '../../../src/rom/model/sprites/behaviors/FlyingLeftKoopaBehavior'
 
-describe('FlyingLeftKoopaBehavior — ASM constants', () => {
+describe('FlyingLeftKoopaBehavior - ASM constants', () => {
   it('FLY_XSPEED matches Spr0to13SpeedX[1] = $F8 (signed -8)', () => {
     expect(FLY_XSPEED).toBe(-8)
   })
@@ -72,7 +72,7 @@ describe('FlyingLeftKoopaBehavior — ASM constants', () => {
   })
 })
 
-describe('FlyingLeftKoopaBehavior — computeFadeCorridor', () => {
+describe('FlyingLeftKoopaBehavior - computeFadeCorridor', () => {
   it('originX/originY match spawn', () => {
     const beh = new FlyingLeftKoopaBehavior()
     const corridor = beh.computeFadeCorridor(128, 64)
@@ -108,7 +108,7 @@ describe('FlyingLeftKoopaBehavior — computeFadeCorridor', () => {
   })
 })
 
-describe('FlyingLeftKoopaBehavior — computeFlightPosition', () => {
+describe('FlyingLeftKoopaBehavior - computeFlightPosition', () => {
   it('frame 0 equals spawn', () => {
     const beh = new FlyingLeftKoopaBehavior()
     const p = beh.computeFlightPosition(100, 100, 0)
@@ -140,11 +140,11 @@ describe('FlyingLeftKoopaBehavior — computeFlightPosition', () => {
     }
   })
 
-  it('Y pattern is periodic — frame 64 equals frame 0', () => {
+  it('Y pattern is periodic - frame 64 equals frame 0', () => {
     // SpriteMisc1570 bit 5 flips every 32 frames (low bit 5 = bit position 5
     // in an incrementing counter) so a full up-down cycle takes 64 frames.
     const beh = new FlyingLeftKoopaBehavior()
-    const y0  = beh.computeFlightPosition(1000, 100, 0).y
+    const y0 = beh.computeFlightPosition(1000, 100, 0).y
     const y64 = beh.computeFlightPosition(1000, 100, 64).y
     expect(y64).toBe(y0)
   })

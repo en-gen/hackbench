@@ -22,7 +22,10 @@ import { buildMapTree, MapNode, MapTree } from '../../../src/rom/MapTree'
 const ROM_DIR = path.join(__dirname, '../../roms')
 
 const romFiles = fs.existsSync(ROM_DIR)
-  ? fs.readdirSync(ROM_DIR).filter(f => /\.sfc$/i.test(f)).sort()
+  ? fs
+      .readdirSync(ROM_DIR)
+      .filter(f => /\.sfc$/i.test(f))
+      .sort()
   : []
 
 /**
@@ -102,7 +105,10 @@ withRoms('buildMapTree', () => {
       it('never files a map under both a level and the unassigned root', () => {
         const tree = buildMapTree(load(file))
         const under = new Set<number>()
-        const walk = (n: MapNode): void => { under.add(n.index); n.children.forEach(walk) }
+        const walk = (n: MapNode): void => {
+          under.add(n.index)
+          n.children.forEach(walk)
+        }
         tree.overworld.forEach(walk)
         tree.special.forEach(walk)
         // Unassigned means exactly "no overworld root reaches this".
@@ -214,7 +220,9 @@ withVanilla('special maps', () => {
   it('still covers every map once they have been moved', () => {
     const rom = load(vanilla!)
     const expected = new Set(
-      buildLevelCatalog(rom).entries.filter(e => e.isReal).map(e => e.index),
+      buildLevelCatalog(rom)
+        .entries.filter(e => e.isReal)
+        .map(e => e.index),
     )
     const actual = indicesIn(buildMapTree(rom))
     expect([...expected].filter(i => !actual.has(i))).toEqual([])
@@ -248,12 +256,13 @@ describe('special maps on edited ROMs', () => {
 })
 
 withVanilla('the oracle can fail', () => {
-
   it('a tree missing one map fails the coverage check', () => {
     const rom = load(vanilla!)
     const tree = buildMapTree(rom)
     const expected = new Set(
-      buildLevelCatalog(rom).entries.filter(e => e.isReal).map(e => e.index),
+      buildLevelCatalog(rom)
+        .entries.filter(e => e.isReal)
+        .map(e => e.index),
     )
 
     // Plant exactly the defect: drop a map from the tree.

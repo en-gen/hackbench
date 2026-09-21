@@ -1,5 +1,5 @@
 /**
- * cmd09.ts — port of `CODE_05C7C1` (bank_05.asm:5981-6001).
+ * cmd09.ts - port of `CODE_05C7C1` (bank_05.asm:5981-6001).
  *
  * Cmd $09 only appears as an L2 per-frame handler (the L1 dispatch
  * table at 4535 routes cmd $09 → `Return05BC49`). The handler:

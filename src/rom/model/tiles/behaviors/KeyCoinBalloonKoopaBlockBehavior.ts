@@ -41,10 +41,14 @@ export type Tile25Item = 'key' | 'redCoin' | 'pBalloon' | 'paraKoopa'
 /** Pure per-column dispatch. Exported so tests / other tools can re-use it. */
 export function tile25ItemAt(col: number): Tile25Item {
   switch (col & 3) {
-    case 0: return 'key'
-    case 1: return 'redCoin'
-    case 2: return 'pBalloon'
-    default: return 'paraKoopa'
+    case 0:
+      return 'key'
+    case 1:
+      return 'redCoin'
+    case 2:
+      return 'pBalloon'
+    default:
+      return 'paraKoopa'
   }
 }
 
@@ -58,10 +62,10 @@ export function tile25ItemAt(col: number): Tile25Item {
 //   $7D P-Balloon  : Sprite166EVals[$7D]=$21 page 1; tile $E4 → [$5E4, $5E5, $5F4, $5F5]
 //   $09 Para-Koopa : Sprite166EVals[$09]=$0A page 0;
 //                    SprTilemap[SprTilemapOffset[$09]=$09]=$C8 → [$4C8, $4C9, $4D8, $4D9]
-export const KEY_CHAR_NUMS       = [0x4EC, 0x4ED, 0x4FC, 0x4FD] as const
-export const REDCOIN_CHAR_NUMS   = [0x4E8, 0x4E9, 0x4F8, 0x4F9] as const
-export const PBALLOON_CHAR_NUMS  = [0x5E4, 0x5E5, 0x5F4, 0x5F5] as const
-export const PARAKOOPA_CHAR_NUMS = [0x4C8, 0x4C9, 0x4D8, 0x4D9] as const
+export const KEY_CHAR_NUMS = [0x4ec, 0x4ed, 0x4fc, 0x4fd] as const
+export const REDCOIN_CHAR_NUMS = [0x4e8, 0x4e9, 0x4f8, 0x4f9] as const
+export const PBALLOON_CHAR_NUMS = [0x5e4, 0x5e5, 0x5f4, 0x5f5] as const
+export const PARAKOOPA_CHAR_NUMS = [0x4c8, 0x4c9, 0x4d8, 0x4d9] as const
 
 // Sprite166EVals (bank_07.asm:792) → OAM attribute byte. The palette row
 // is 8 + ((val & $0F) >> 1) & 7 (CGRAM rows 8-15 = OBJ palette 0-7).
@@ -70,26 +74,30 @@ export const PARAKOOPA_CHAR_NUMS = [0x4C8, 0x4C9, 0x4D8, 0x4D9] as const
 //   $7E Red Coin   : $28 → row 12
 //   $7D P-Balloon  : $21 → row 8
 //   $09 Para-Koopa : $0A → row 13
-const KEY_PALETTE_ROW       = 8
-const REDCOIN_PALETTE_ROW   = 12
-const PBALLOON_PALETTE_ROW  = 8
+const KEY_PALETTE_ROW = 8
+const REDCOIN_PALETTE_ROW = 12
+const PBALLOON_PALETTE_ROW = 8
 const PARAKOOPA_PALETTE_ROW = 13
 
 const OVERLAY_OFFSETS = [
-  { dx: 0, dy: -8 }, { dx: 8, dy: -8 },
-  { dx: 0, dy:  0 }, { dx: 8, dy:  0 },
+  { dx: 0, dy: -8 },
+  { dx: 8, dy: -8 },
+  { dx: 0, dy: 0 },
+  { dx: 8, dy: 0 },
 ] as const
 
 export class KeyCoinBalloonKoopaBlockBehavior implements TileBehavior {
   constructor(
     readonly quad: SubtileQuad,
-    readonly keyChars:       readonly (Char | null)[],
-    readonly redCoinChars:   readonly (Char | null)[],
-    readonly pballoonChars:  readonly (Char | null)[],
+    readonly keyChars: readonly (Char | null)[],
+    readonly redCoinChars: readonly (Char | null)[],
+    readonly pballoonChars: readonly (Char | null)[],
     readonly paraKoopaChars: readonly (Char | null)[],
   ) {}
 
-  selectQuad(): SubtileQuad { return this.quad }
+  selectQuad(): SubtileQuad {
+    return this.quad
+  }
 
   itemAtCol(col: number): Tile25Item {
     return tile25ItemAt(col)
@@ -99,17 +107,34 @@ export class KeyCoinBalloonKoopaBlockBehavior implements TileBehavior {
     const col = cell.tl.x / 16
     const item = tile25ItemAt(col)
     const cursor = editorStore.cursorPx
-    const alpha = (cursor !== null
-      && cursor.x >= cell.tl.x && cursor.x < cell.tl.x + 16
-      && cursor.y >= cell.tl.y && cursor.y < cell.tl.y + 16) ? 1.0 : 0.5
+    const alpha =
+      cursor !== null &&
+      cursor.x >= cell.tl.x &&
+      cursor.x < cell.tl.x + 16 &&
+      cursor.y >= cell.tl.y &&
+      cursor.y < cell.tl.y + 16
+        ? 1.0
+        : 0.5
 
     let chars: readonly (Char | null)[]
     let row: number
     switch (item) {
-      case 'key':       chars = this.keyChars;       row = KEY_PALETTE_ROW;       break
-      case 'redCoin':   chars = this.redCoinChars;   row = REDCOIN_PALETTE_ROW;   break
-      case 'pBalloon':  chars = this.pballoonChars;  row = PBALLOON_PALETTE_ROW;  break
-      case 'paraKoopa': chars = this.paraKoopaChars; row = PARAKOOPA_PALETTE_ROW; break
+      case 'key':
+        chars = this.keyChars
+        row = KEY_PALETTE_ROW
+        break
+      case 'redCoin':
+        chars = this.redCoinChars
+        row = REDCOIN_PALETTE_ROW
+        break
+      case 'pBalloon':
+        chars = this.pballoonChars
+        row = PBALLOON_PALETTE_ROW
+        break
+      case 'paraKoopa':
+        chars = this.paraKoopaChars
+        row = PARAKOOPA_PALETTE_ROW
+        break
     }
 
     const paletteRow = mapStore.palette.row(row)
@@ -117,7 +142,14 @@ export class KeyCoinBalloonKoopaBlockBehavior implements TileBehavior {
       const ch = chars[i]
       if (!ch) continue
       const { dx, dy } = OVERLAY_OFFSETS[i]
-      target.blit8x8(ch.getPixels(), { x: cell.tl.x + dx, y: cell.tl.y + dy }, paletteRow, false, false, alpha)
+      target.blit8x8(
+        ch.getPixels(),
+        { x: cell.tl.x + dx, y: cell.tl.y + dy },
+        paletteRow,
+        false,
+        false,
+        alpha,
+      )
     }
   }
 }

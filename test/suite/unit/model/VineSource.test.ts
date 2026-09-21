@@ -1,5 +1,5 @@
 /**
- * VineSourceBehavior — selectQuad + renderOverlay tests.
+ * VineSourceBehavior - selectQuad + renderOverlay tests.
  *
  * VineSourceBehavior is attached by TileFactory when a tile's acts-like
  * low byte is $2A or $2B (DATA_00F05C indices 25/26 = $03 → vine via
@@ -51,13 +51,15 @@ function makeQuad(): SubtileQuad {
 function capturingTarget() {
   const calls: Array<{ pos: PixelPos; alpha: number | undefined }> = []
   const target: RenderTarget = {
-    blit8x8(_pixels, pos, _row, _fx, _fy, alpha) { calls.push({ pos, alpha }) },
+    blit8x8(_pixels, pos, _row, _fx, _fy, alpha) {
+      calls.push({ pos, alpha })
+    },
     fillRect() {},
   }
   return { target, calls }
 }
 
-describe('VineSourceBehavior — selectQuad', () => {
+describe('VineSourceBehavior - selectQuad', () => {
   beforeEach(resetEditorStore)
 
   it('returns the stored quad reference', () => {
@@ -65,10 +67,9 @@ describe('VineSourceBehavior — selectQuad', () => {
     const b = new VineSourceBehavior(quad, null)
     expect(b.selectQuad()).toBe(quad)
   })
-
 })
 
-describe('VineSourceBehavior — renderOverlay with null overlayQuad', () => {
+describe('VineSourceBehavior - renderOverlay with null overlayQuad', () => {
   beforeEach(resetEditorStore)
 
   it('produces zero blit8x8 calls when overlayQuad is null', () => {
@@ -79,11 +80,11 @@ describe('VineSourceBehavior — renderOverlay with null overlayQuad', () => {
   })
 })
 
-describe('VineSourceBehavior — renderOverlay with overlay quad', () => {
+describe('VineSourceBehavior - renderOverlay with overlay quad', () => {
   beforeEach(resetEditorStore)
 
-  const CELL_TX = 3  // tile column 3 → pixel x = 48
-  const CELL_TY = 5  // tile row 5   → pixel y = 80
+  const CELL_TX = 3 // tile column 3 → pixel x = 48
+  const CELL_TY = 5 // tile row 5   → pixel y = 80
   const cell = cellBoxOf(CELL_TX, CELL_TY)
   const expectedPositions: PixelPos[] = [
     { x: CELL_TX * 16 + 0, y: CELL_TY * 16 - 8 },
@@ -119,7 +120,7 @@ describe('VineSourceBehavior — renderOverlay with overlay quad', () => {
   it('alpha is 0.5 when cursor is outside the cell', () => {
     const b = new VineSourceBehavior(makeQuad(), makeQuad())
     const { target, calls } = capturingTarget()
-    // cursor at (0, 0) — far from cell at tile (3,5) = pixel (48,80)
+    // cursor at (0, 0) - far from cell at tile (3,5) = pixel (48,80)
     editorStore.setCursorPx({ x: 0, y: 0 })
     b.renderOverlay(target, cell, stubMapStore())
     for (const call of calls) expect(call.alpha).toBe(0.5)

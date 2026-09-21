@@ -54,8 +54,7 @@ export class RecentProjects {
    */
   remember(project: { manifestPath: string; name: string; title: string }): void {
     const absolute = path.resolve(project.manifestPath)
-    const kept = this.read().projects
-      .filter(p => path.resolve(p.manifestPath) !== absolute)
+    const kept = this.read().projects.filter(p => path.resolve(p.manifestPath) !== absolute)
 
     kept.unshift({
       manifestPath: absolute,
@@ -75,7 +74,9 @@ export class RecentProjects {
    */
   list(): RecentProject[] {
     const all = this.read().projects
-    const alive = all.filter(p => fs.existsSync(p.manifestPath) && p.manifestPath.endsWith(PROJECT_EXT))
+    const alive = all.filter(
+      p => fs.existsSync(p.manifestPath) && p.manifestPath.endsWith(PROJECT_EXT),
+    )
     if (alive.length !== all.length) {
       this.write({ version: RECENT_VERSION, projects: alive })
     }

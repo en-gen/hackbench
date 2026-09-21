@@ -1,5 +1,5 @@
 /**
- * PaletteOrBehavior — TileBehavior decorator that ORs each subtile's
+ * PaletteOrBehavior - TileBehavior decorator that ORs each subtile's
  * palette field with a fixed mask. Mirrors SMW's L2 strip-render
  * `ORA #$1000` for tileset 3 (bank_05.asm:1463-1480).
  */
@@ -32,8 +32,14 @@ describe('PaletteOrBehavior', () => {
 
   it('OR mask 4 maps every palette correctly (0→4, 1→5, 2→6, 3→7, 4→4, 5→5, 6→6, 7→7)', () => {
     const cases: [number, number][] = [
-      [0, 4], [1, 5], [2, 6], [3, 7],
-      [4, 4], [5, 5], [6, 6], [7, 7],
+      [0, 4],
+      [1, 5],
+      [2, 6],
+      [3, 7],
+      [4, 4],
+      [5, 5],
+      [6, 6],
+      [7, 7],
     ]
     for (const [input, expected] of cases) {
       const inner = new StaticQuadBehavior(quadWithPalettes([input, input, input, input]))
@@ -43,7 +49,7 @@ describe('PaletteOrBehavior', () => {
     }
   })
 
-  it('preserves char, flip, priority — only palette changes', () => {
+  it('preserves char, flip, priority - only palette changes', () => {
     const char = new Char(0x123, new StaticPixelsBehavior(new Uint8Array(64)))
     const sub = new SubTile(char, 2, true, false, true)
     const inner = new StaticQuadBehavior([sub, sub, sub, sub])
@@ -57,7 +63,13 @@ describe('PaletteOrBehavior', () => {
   })
 
   it('returns the original SubTile reference when OR is a no-op (palette already has bit set)', () => {
-    const sub = new SubTile(new Char(0, new StaticPixelsBehavior(new Uint8Array(64))), 6, false, false, false)
+    const sub = new SubTile(
+      new Char(0, new StaticPixelsBehavior(new Uint8Array(64))),
+      6,
+      false,
+      false,
+      false,
+    )
     const inner = new StaticQuadBehavior([sub, sub, sub, sub])
     const wrapped = new PaletteOrBehavior(inner, 4)
     const quad = wrapped.selectQuad(FAKE_CELL, FAKE_STORE)

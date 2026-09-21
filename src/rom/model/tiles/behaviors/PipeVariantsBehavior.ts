@@ -28,9 +28,8 @@ export class PipeVariantsBehavior implements TileBehavior {
     if (!table || table.length === 0) return this.variants[0]
     const tileCol = Math.floor(cell.tl.x / 16)
     const tileRow = Math.floor(cell.tl.y / 16)
-    const screenIdx = mapStore.levelOrientation === 'vertical'
-      ? Math.floor(tileRow / 16)
-      : Math.floor(tileCol / 16)
+    const screenIdx =
+      mapStore.levelOrientation === 'vertical' ? Math.floor(tileRow / 16) : Math.floor(tileCol / 16)
     const variant = table[screenIdx] ?? 0
     return this.variants[variant] ?? this.variants[0]
   }

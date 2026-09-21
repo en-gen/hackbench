@@ -1,5 +1,5 @@
 /**
- * drawWalls — "Show walls" overlay renderer.
+ * drawWalls - "Show walls" overlay renderer.
  *
  * Locks the RENDERING behavior: given a tile with its `marioWall` flag
  * already classified, drawWalls must emit the right canvas path
@@ -20,23 +20,26 @@ function makeCtx(): WallDrawCtx & { ops: PathOp[]; strokeCount: number } {
   const ops: PathOp[] = []
   const ctx = {
     strokeStyle: '',
-    lineWidth:   0,
+    lineWidth: 0,
     ops,
     strokeCount: 0,
-    save()  {},
+    save() {},
     restore() {},
     beginPath() {},
-    moveTo(x: number, y: number) { ops.push({ kind: 'move', x, y }) },
-    lineTo(x: number, y: number) { ops.push({ kind: 'line', x, y }) },
-    stroke() { ctx.strokeCount++ },
+    moveTo(x: number, y: number) {
+      ops.push({ kind: 'move', x, y })
+    },
+    lineTo(x: number, y: number) {
+      ops.push({ kind: 'line', x, y })
+    },
+    stroke() {
+      ctx.strokeCount++
+    },
   }
   return ctx
 }
 
-function makeMap(
-  l1: (number | null)[][],
-  tileCollisions: Map<number, TileCollision>,
-): SmwMap {
+function makeMap(l1: (number | null)[][], tileCollisions: Map<number, TileCollision>): SmwMap {
   const l1Tiles = new Map<number, { id: number; collision: TileCollision }>()
   for (const [id, coll] of tileCollisions) l1Tiles.set(id, { id, collision: coll })
   return { l1, l1Tiles } as unknown as SmwMap
@@ -45,7 +48,7 @@ function makeMap(
 const WALL: TileCollision = { ...NO_COLLISION, wall: true, marioWall: true }
 
 /**
- * Minimal slope fixture — only `slope` matters for the silhouette rule.
+ * Minimal slope fixture - only `slope` matters for the silhouette rule.
  * Heights are placeholder bytes; drawWalls never reads them.
  */
 const SLOPE: TileCollision = {
@@ -59,9 +62,9 @@ describe('drawWalls', () => {
     const ctx = makeCtx()
     drawWalls(ctx, map)
     expect(ctx.ops).toEqual([
-      { kind: 'move', x: 0,  y: 0  },
-      { kind: 'line', x: 0,  y: 16 },
-      { kind: 'move', x: 16, y: 0  },
+      { kind: 'move', x: 0, y: 0 },
+      { kind: 'line', x: 0, y: 16 },
+      { kind: 'move', x: 16, y: 0 },
       { kind: 'line', x: 16, y: 16 },
     ])
     expect(ctx.strokeCount).toBe(1)
@@ -93,28 +96,28 @@ describe('drawWalls', () => {
     // Left cell: left edge only (no right neighbour check suppresses right).
     // Right cell: right edge only.
     expect(ctx.ops).toEqual([
-      { kind: 'move', x: 0,  y: 0  },
-      { kind: 'line', x: 0,  y: 16 },
-      { kind: 'move', x: 32, y: 0  },
+      { kind: 'move', x: 0, y: 0 },
+      { kind: 'line', x: 0, y: 16 },
+      { kind: 'move', x: 32, y: 0 },
       { kind: 'line', x: 32, y: 16 },
     ])
   })
 
   it('draws full L/R edges on each of two vertically-adjacent marioWall cells', () => {
-    // Walls are a vertical-axis concept — adjacency in Y does NOT fuse
+    // Walls are a vertical-axis concept - adjacency in Y does NOT fuse
     // faces. Each cell still exposes its left and right faces.
     const map = makeMap([[1], [1]], new Map([[1, WALL]]))
     const ctx = makeCtx()
     drawWalls(ctx, map)
     expect(ctx.ops).toEqual([
       // row 0
-      { kind: 'move', x: 0,  y: 0  },
-      { kind: 'line', x: 0,  y: 16 },
-      { kind: 'move', x: 16, y: 0  },
+      { kind: 'move', x: 0, y: 0 },
+      { kind: 'line', x: 0, y: 16 },
+      { kind: 'move', x: 16, y: 0 },
       { kind: 'line', x: 16, y: 16 },
       // row 1
-      { kind: 'move', x: 0,  y: 16 },
-      { kind: 'line', x: 0,  y: 32 },
+      { kind: 'move', x: 0, y: 16 },
+      { kind: 'line', x: 0, y: 32 },
       { kind: 'move', x: 16, y: 16 },
       { kind: 'line', x: 16, y: 32 },
     ])
@@ -124,11 +127,11 @@ describe('drawWalls', () => {
     const map = makeMap([[null, 1]], new Map([[1, WALL]]))
     const ctx = makeCtx()
     drawWalls(ctx, map)
-    // Only the single wall cell at col 1 draws — both its edges exposed.
+    // Only the single wall cell at col 1 draws - both its edges exposed.
     expect(ctx.ops).toEqual([
-      { kind: 'move', x: 16, y: 0  },
+      { kind: 'move', x: 16, y: 0 },
       { kind: 'line', x: 16, y: 16 },
-      { kind: 'move', x: 32, y: 0  },
+      { kind: 'move', x: 32, y: 0 },
       { kind: 'line', x: 32, y: 16 },
     ])
   })
@@ -156,9 +159,9 @@ describe('drawWalls', () => {
     const ctx = makeCtx()
     drawWalls(ctx, map)
     expect(ctx.ops).toEqual([
-      { kind: 'move', x: 0,  y: 0  },
-      { kind: 'line', x: 0,  y: 16 },
-      { kind: 'move', x: 48, y: 0  },
+      { kind: 'move', x: 0, y: 0 },
+      { kind: 'line', x: 0, y: 16 },
+      { kind: 'move', x: 48, y: 0 },
       { kind: 'line', x: 48, y: 16 },
     ])
   })
@@ -187,7 +190,7 @@ describe('drawWalls', () => {
     const ctx = makeCtx()
     drawWalls(ctx, map)
     expect(ctx.ops).toEqual([
-      { kind: 'move', x: 0, y: 0  },
+      { kind: 'move', x: 0, y: 0 },
       { kind: 'line', x: 0, y: 16 },
     ])
   })
@@ -204,12 +207,12 @@ describe('drawWalls', () => {
     drawWalls(ctx, map)
     // Only the wall's right face should draw (col 1 right edge at x=32).
     expect(ctx.ops).toEqual([
-      { kind: 'move', x: 32, y: 0  },
+      { kind: 'move', x: 32, y: 0 },
       { kind: 'line', x: 32, y: 16 },
     ])
   })
 
-  it('row [wall, slope, wall] emits only the outer faces — no stair-step', () => {
+  it('row [wall, slope, wall] emits only the outer faces - no stair-step', () => {
     // Reproduces the picture-1 artefact fix. Pre-Phase-3, the left
     // wall's right face and the right wall's left face would each draw
     // a vertical purple line against the slope's surface graphic. With
@@ -225,23 +228,23 @@ describe('drawWalls', () => {
     const ctx = makeCtx()
     drawWalls(ctx, map)
     expect(ctx.ops).toEqual([
-      { kind: 'move', x: 0,  y: 0  },
-      { kind: 'line', x: 0,  y: 16 },
-      { kind: 'move', x: 48, y: 0  },
+      { kind: 'move', x: 0, y: 0 },
+      { kind: 'line', x: 0, y: 16 },
+      { kind: 'move', x: 48, y: 0 },
       { kind: 'line', x: 48, y: 16 },
     ])
   })
 
   it('switch palace $06B and $16B: passable at default, solid when toggled', () => {
     // Both palace ranges go passable when state[color]=false and
-    // solid when true. marioWall set regardless — the overlay strips
+    // solid when true. marioWall set regardless - the overlay strips
     // it via switchPalacePassable(). Uses color 1 (green) like the
     // surfaces test for parity.
     const map = makeMap(
-      [[0x06B, 0x16B]],
+      [[0x06b, 0x16b]],
       new Map([
-        [0x06B, WALL],
-        [0x16B, WALL],
+        [0x06b, WALL],
+        [0x16b, WALL],
       ]),
     )
 
@@ -251,17 +254,17 @@ describe('drawWalls', () => {
 
     const ctx2 = makeCtx()
     drawWalls(ctx2, map, [false, true, false, false]) // green toggled
-    // Two adjacent wall cells — left face of left cell, right face of
+    // Two adjacent wall cells - left face of left cell, right face of
     // right cell. The interior shared face is suppressed.
     expect(ctx2.ops).toEqual([
-      { kind: 'move', x: 0,  y: 0  },
-      { kind: 'line', x: 0,  y: 16 },
-      { kind: 'move', x: 32, y: 0  },
+      { kind: 'move', x: 0, y: 0 },
+      { kind: 'line', x: 0, y: 16 },
+      { kind: 'move', x: 32, y: 0 },
       { kind: 'line', x: 32, y: 16 },
     ])
   })
 
-  it('clean silhouette of a 3x3 solid mass — left column + right column only', () => {
+  it('clean silhouette of a 3x3 solid mass - left column + right column only', () => {
     const map = makeMap(
       [
         [1, 1, 1],
@@ -274,14 +277,20 @@ describe('drawWalls', () => {
     drawWalls(ctx, map)
     const expected: PathOp[] = [
       // row 0: col 0 left face, col 2 right face
-      { kind: 'move', x: 0,  y: 0  }, { kind: 'line', x: 0,  y: 16 },
-      { kind: 'move', x: 48, y: 0  }, { kind: 'line', x: 48, y: 16 },
+      { kind: 'move', x: 0, y: 0 },
+      { kind: 'line', x: 0, y: 16 },
+      { kind: 'move', x: 48, y: 0 },
+      { kind: 'line', x: 48, y: 16 },
       // row 1
-      { kind: 'move', x: 0,  y: 16 }, { kind: 'line', x: 0,  y: 32 },
-      { kind: 'move', x: 48, y: 16 }, { kind: 'line', x: 48, y: 32 },
+      { kind: 'move', x: 0, y: 16 },
+      { kind: 'line', x: 0, y: 32 },
+      { kind: 'move', x: 48, y: 16 },
+      { kind: 'line', x: 48, y: 32 },
       // row 2
-      { kind: 'move', x: 0,  y: 32 }, { kind: 'line', x: 0,  y: 48 },
-      { kind: 'move', x: 48, y: 32 }, { kind: 'line', x: 48, y: 48 },
+      { kind: 'move', x: 0, y: 32 },
+      { kind: 'line', x: 0, y: 48 },
+      { kind: 'move', x: 48, y: 32 },
+      { kind: 'line', x: 48, y: 48 },
     ]
     expect(ctx.ops).toEqual(expected)
   })
@@ -298,11 +307,15 @@ describe('drawWalls', () => {
     drawWalls(ctx, map)
     expect(ctx.ops).toEqual([
       // (0,0): both vertical edges
-      { kind: 'move', x: 0,  y: 0  }, { kind: 'line', x: 0,  y: 16 },
-      { kind: 'move', x: 16, y: 0  }, { kind: 'line', x: 16, y: 16 },
+      { kind: 'move', x: 0, y: 0 },
+      { kind: 'line', x: 0, y: 16 },
+      { kind: 'move', x: 16, y: 0 },
+      { kind: 'line', x: 16, y: 16 },
       // (2,1): both vertical edges
-      { kind: 'move', x: 32, y: 16 }, { kind: 'line', x: 32, y: 32 },
-      { kind: 'move', x: 48, y: 16 }, { kind: 'line', x: 48, y: 32 },
+      { kind: 'move', x: 32, y: 16 },
+      { kind: 'line', x: 32, y: 32 },
+      { kind: 'move', x: 48, y: 16 },
+      { kind: 'line', x: 48, y: 32 },
     ])
   })
 })

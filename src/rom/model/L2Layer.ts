@@ -28,13 +28,13 @@ export abstract class L2Layer {
 
 export class L2Preset extends L2Layer {
   /**
-   * `page` is 0 or 1 — derived from the preset's BG data address threshold
+   * `page` is 0 or 1 - derived from the preset's BG data address threshold
    * (see `L2_PAGE_THRESHOLD` in L2Loader).
    *
    * `grid` is a 2D table of BG Map16 tile IDs (or null for empty cells),
    * which resolve against the shared `bgTiles` map at render time. This
-   * mirrors how vanilla SMW stores the preset — Map16 pointers into the
-   * BG table — and keeps the layer a lightweight data structure rather
+   * mirrors how vanilla SMW stores the preset - Map16 pointers into the
+   * BG table - and keeps the layer a lightweight data structure rather
    * than a copy of Tile references.
    */
   constructor(
@@ -50,7 +50,7 @@ export class L2Preset extends L2Layer {
     // can still iterate a Tile-valued grid. The common render path
     // overrides `render` below and walks ids directly without this.
     return this.grid.map(row =>
-      row.map(id => (id === null ? null : this.bgTiles.get(id) ?? null)),
+      row.map(id => (id === null ? null : (this.bgTiles.get(id) ?? null))),
     )
   }
 
@@ -78,7 +78,7 @@ export class L2ObjectStream extends L2Layer {
    * that resolve against an L2-specific tile collection. For tilesets
    * 0/1/2/4/5+, the collection IS the L1 atlas. For tileset 3, every
    * tile is wrapped in `PaletteOrBehavior(mask=4)` to mirror the
-   * runtime ORA at bank_05.asm:1463-1480 — see `buildL2Tiles` in
+   * runtime ORA at bank_05.asm:1463-1480 - see `buildL2Tiles` in
    * `L2Factory.ts` and `paletteOrMask` below.
    *
    * `initialLayer2YPx` is the per-level initial `Layer2YPos` (BG2VOFS) byte
@@ -111,23 +111,24 @@ export class L2ObjectStream extends L2Layer {
     /**
      * Per-tile `(Layer1YPos − Layer2YPos)` delta ranges, indexed
      * `[row][col]`. Each non-null entry is the (min, max) of the 2D
-     * connected component the tile belongs to — derived by
+     * connected component the tile belongs to - derived by
      * `L2Factory.buildTileDyRanges` (BFS flood-fill + per-component
      * column-range union). Tiles in the same contiguous region share
      * one range, so the slider moves the region as a rigid unit.
      *
-     * `null` entry = empty tile or component the camera never reached —
+     * `null` entry = empty tile or component the camera never reached -
      * render skips it. `null` outer = no simulator; render falls back
      * to a global `dy = initialCameraYPx − initialL2YPx`.
      */
-    readonly tileDyRanges: readonly (readonly ({ min: number; max: number } | null)[])[] | null = null,
+    readonly tileDyRanges:
+      readonly (readonly ({ min: number; max: number } | null)[])[] | null = null,
   ) {
     super()
   }
 
   layout(): (Tile | null)[][] {
     return this.grid.map(row =>
-      row.map(id => (id === null ? null : this.l1Tiles.get(id) ?? null)),
+      row.map(id => (id === null ? null : (this.l1Tiles.get(id) ?? null))),
     )
   }
 
@@ -140,7 +141,7 @@ export class L2ObjectStream extends L2Layer {
     //      frame state and shifts every tile by
     //      `(layer1{X,Y}Pos − layer2{X,Y}Pos)` at that frame. Using
     //      ONLY `frameL2` (not `frameL1`) means the L2 plane reflects
-    //      the SNES viewport offset at L2's chosen point in time —
+    //      the SNES viewport offset at L2's chosen point in time -
     //      which is the natural mental model for the scrub: scrolling
     //      L2 alone moves L2; scrolling L1 alone moves the L1 path
     //      overlay but leaves L2 untouched.
@@ -161,15 +162,15 @@ export class L2ObjectStream extends L2Layer {
       // unsigned in WRAM; reinterpret as signed for the display shift.
       const dxRaw = (s.layer1XPos - s.layer2XPos) | 0
       const dyRaw = (s.layer1YPos - s.layer2YPos) | 0
-      let dx = ((dxRaw + 0x8000) & 0xFFFF) - 0x8000
-      let dy = ((dyRaw + 0x8000) & 0xFFFF) - 0x8000
+      let dx = ((dxRaw + 0x8000) & 0xffff) - 0x8000
+      let dy = ((dyRaw + 0x8000) & 0xffff) - 0x8000
       // SNES BG2 plane wraparound. Cmd $09 / $0D Fast-BG-scroll levels
       // ($0C8, $122) push `l2x` arbitrarily far past `l1x`, so the
       // raw delta `(l1x − l2x)` saturates at large negative values
       // and the L2 grid renders entirely off the left of the canvas.
       // The actual SNES BG plane is a fixed-size tilemap (32×32
       // 16x16-tiles = 512×512 px in standard SMW BG2 mode) that
-      // tiles infinitely as the camera scrolls — same Map16 strips
+      // tiles infinitely as the camera scrolls - same Map16 strips
       // cycle through.
       //
       // For our editor we model this by wrapping the offset modulo
@@ -180,12 +181,12 @@ export class L2ObjectStream extends L2Layer {
       // level needs it).
       const gridPxW = (this.grid[0]?.length ?? 0) * 16
       const gridPxH = this.grid.length * 16
-      if (gridPxW > 0) dx = (((dx % gridPxW) + gridPxW) % gridPxW)
-      if (gridPxH > 0) dy = (((dy % gridPxH) + gridPxH) % gridPxH)
+      if (gridPxW > 0) dx = ((dx % gridPxW) + gridPxW) % gridPxW
+      if (gridPxH > 0) dy = ((dy % gridPxH) + gridPxH) % gridPxH
       // Pick the wrapped value closest to 0 so a small forward dx
       // shifts the grid right (intuitive) rather than wrapping all
       // the way to the right edge. Only the magnitude matters for
-      // visibility — the modular reduction was the actual fix.
+      // visibility - the modular reduction was the actual fix.
       if (gridPxW > 0 && dx > gridPxW / 2) dx -= gridPxW
       if (gridPxH > 0 && dy > gridPxH / 2) dy -= gridPxH
       // SNES BG2 tiles infinitely. For small grids (cmd $09/$0D levels
@@ -228,7 +229,7 @@ export class L2ObjectStream extends L2Layer {
         let cellDy: number
         if (useRanges) {
           const r = tileRow?.[x] ?? null
-          if (!r) continue  // null = empty cell, or component camera never reached
+          if (!r) continue // null = empty cell, or component camera never reached
           cellDy = Math.round(r.min + (r.max - r.min) * t)
         } else {
           cellDy = fallbackDy

@@ -9,13 +9,13 @@ import { Sprite } from './Sprite'
  * participating in hit-testing.
  *
  * Used for SMW sprite pairs where one sprite's runtime handler repositions
- * and drives the other — e.g. Hammer Brother Platform ($9C) places Hammer
+ * and drives the other - e.g. Hammer Brother Platform ($9C) places Hammer
  * Brother ($9B) 16px above itself and calls HammerBroGfx for it
  * (bank_02.asm:12115-12148). The primary is the "master" that owns the
  * relationship; the secondary keeps its own `id` / `displayName` /
  * `behavior`, so hover reports the correct sprite per hovered region.
  *
- * The child's (x, y) are absolute level-pixel coordinates — already offset
+ * The child's (x, y) are absolute level-pixel coordinates - already offset
  * from the primary by whatever the runtime routine would apply.
  * `map.sprites` contains only the primary; the child is reached via
  * `.secondary` and is never iterated at the top level.

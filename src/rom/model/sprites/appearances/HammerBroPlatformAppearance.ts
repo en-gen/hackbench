@@ -1,4 +1,4 @@
-// Consumes: (none directly — palette via mapStore)
+// Consumes: (none directly - palette via mapStore)
 
 import type { RenderTarget } from '../../RenderTarget'
 import type { MapStore } from '../../stores/mapStore'
@@ -35,18 +35,20 @@ export class HammerBroPlatformAppearance implements SpriteAppearance {
     readonly platformParts: readonly SpritePart[],
     readonly wingFrames: readonly [readonly SpritePart[], readonly SpritePart[]],
   ) {
-    this.hitRect = partsHitRect([
-      ...platformParts,
-      ...wingFrames[0],
-      ...wingFrames[1],
-    ])
+    this.hitRect = partsHitRect([...platformParts, ...wingFrames[0], ...wingFrames[1]])
   }
 
   tickAnimation(): void {
     this.frame = (this.frame + 1) % this.wingFrames.length
   }
 
-  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
+  render(
+    target: RenderTarget,
+    x: number,
+    y: number,
+    _behavior: SpriteBehavior,
+    mapStore: MapStore,
+  ): void {
     for (const part of this.platformParts) {
       const pixels = part.char.getPixels()
       const row = mapStore.palette.row(part.palette)
@@ -67,32 +69,34 @@ export class HammerBroPlatformAppearance implements SpriteAppearance {
   static fromTables(chars: Map<number, Char>, placeholder: Char): HammerBroPlatformAppearance {
     const PAL = 9
     const OBJ_BASE = 0x400
-    const c = (n: number) => chars.get(OBJ_BASE + (n & 0x1FF)) ?? placeholder
+    const c = (n: number) => chars.get(OBJ_BASE + (n & 0x1ff)) ?? placeholder
     const bigTile = (baseTile: number, dx: number, dy: number, flipX = false): SpritePart[] => {
       const co = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
       const dxo = [0, 8, 0, 8]
       const dyo = [0, 0, 8, 8]
       return co.map((off, i) => ({
         char: c(baseTile + off),
-        palette: PAL, flipX, flipY: false,
-        dx: dx + dxo[i], dy: dy + dyo[i],
+        palette: PAL,
+        flipX,
+        flipY: false,
+        dx: dx + dxo[i],
+        dy: dy + dyo[i],
       }))
     }
     const smallTile = (tile: number, dx: number, dy: number, flipX = false): SpritePart => ({
-      char: c(tile), palette: PAL, flipX, flipY: false, dx, dy,
+      char: c(tile),
+      palette: PAL,
+      flipX,
+      flipY: false,
+      dx,
+      dy,
     })
-    const platformParts: SpritePart[] = [
-      ...bigTile(0x40,  0, 0),
-      ...bigTile(0x40, 16, 0),
-    ]
+    const platformParts: SpritePart[] = [...bigTile(0x40, 0, 0), ...bigTile(0x40, 16, 0)]
     const frame0: SpritePart[] = [
-      ...bigTile(0xC6, -14, -10, true),
-      ...bigTile(0xC6,  30, -10, false),
+      ...bigTile(0xc6, -14, -10, true),
+      ...bigTile(0xc6, 30, -10, false),
     ]
-    const frame1: SpritePart[] = [
-      smallTile(0x5D, -6, -2, true),
-      smallTile(0x5D, 30, -2, false),
-    ]
+    const frame1: SpritePart[] = [smallTile(0x5d, -6, -2, true), smallTile(0x5d, 30, -2, false)]
     return new HammerBroPlatformAppearance(platformParts, [frame0, frame1])
   }
 }

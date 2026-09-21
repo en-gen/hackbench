@@ -34,15 +34,21 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
 
   mount(session: RomSession): void {
     this.sessions.set(session.slug, session)
-    this._emitter.fire([{
-      type: vscode.FileChangeType.Created,
-      uri: vscode.Uri.parse(`smwrom:/${session.slug}/`)
-    }])
+    this._emitter.fire([
+      {
+        type: vscode.FileChangeType.Created,
+        uri: vscode.Uri.parse(`smwrom:/${session.slug}/`),
+      },
+    ])
   }
 
-  unmount(slug: string): void { this.sessions.delete(slug) }
+  unmount(slug: string): void {
+    this.sessions.delete(slug)
+  }
 
-  watch(): vscode.Disposable { return { dispose: () => undefined } }
+  watch(): vscode.Disposable {
+    return { dispose: () => undefined }
+  }
 
   stat(uri: vscode.Uri): vscode.FileStat {
     const { slug, parts } = this._parse(uri)
@@ -91,24 +97,23 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
 
     if (parts.length === 0) {
       return [
-        ['maps',      vscode.FileType.Directory],
+        ['maps', vscode.FileType.Directory],
         ['overworld', vscode.FileType.Directory],
-        ['palettes',  vscode.FileType.Directory],
-        ['gfx',       vscode.FileType.Directory],
+        ['palettes', vscode.FileType.Directory],
+        ['gfx', vscode.FileType.Directory],
       ]
     }
 
     if (parts.length === 1 && parts[0] === 'overworld') {
       const session = this.sessions.get(slug)!
       const areas = loadOverworldAreas(session.rom.rom)
-      return areas.map((a): [string, vscode.FileType] =>
-        [areaFilename(a), vscode.FileType.File]
-      )
+      return areas.map((a): [string, vscode.FileType] => [areaFilename(a), vscode.FileType.File])
     }
 
     if (parts.length === 1 && parts[0] === 'maps') {
       const session = this.sessions.get(slug)!
-      return session.rom.getAllLevelPointers()
+      return session.rom
+        .getAllLevelPointers()
         .filter(p => p.address !== null)
         .map(p => [indexToFilename(p.index), vscode.FileType.File])
     }
@@ -118,16 +123,17 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
       const session = this.sessions.get(slug)!
       const palettes = loadRomPalettes(session.rom.rom)
       const entries: [string, vscode.FileType][] = palettes.groups.map(
-        g => [`${g.id}.smwpalette`, vscode.FileType.File] as [string, vscode.FileType]
+        g => [`${g.id}.smwpalette`, vscode.FileType.File] as [string, vscode.FileType],
       )
       entries.unshift(['global.smwpalette', vscode.FileType.File])
       return entries
     }
 
     if (parts.length === 1 && parts[0] === 'gfx') {
-      return Array.from({ length: GFX_FILE_COUNT }, (_, i): [string, vscode.FileType] =>
-        [`GFX${hex2(i)}.smwgfx`, vscode.FileType.File]
-      )
+      return Array.from({ length: GFX_FILE_COUNT }, (_, i): [string, vscode.FileType] => [
+        `GFX${hex2(i)}.smwgfx`,
+        vscode.FileType.File,
+      ])
     }
 
     if (parts.length === 1 && parts[0] === 'music') {
@@ -167,32 +173,37 @@ export class SmwFileSystemProvider implements vscode.FileSystemProvider {
 
     if (parts.length === 2 && parts[0] === 'overworld' && parts[1].endsWith('.smwoverworld')) {
       const areaIndex = filenameToAreaIndex(parts[1])
-      if (areaIndex < 0 || areaIndex >= OW_AREA_COUNT) throw vscode.FileSystemError.FileNotFound(uri)
+      if (areaIndex < 0 || areaIndex >= OW_AREA_COUNT)
+        throw vscode.FileSystemError.FileNotFound(uri)
       return encode('smwoverworld', { areaIndex })
     }
 
     if (parts.length === 2 && parts[0] === 'music' && parts[1].endsWith('.smwmusic'))
       return encode('smwmusic')
 
-    if (parts.length === 1 && parts[0] === 'info.smwinfo')
-      return encode('smwinfo')
+    if (parts.length === 1 && parts[0] === 'info.smwinfo') return encode('smwinfo')
 
-    if (parts.length === 1 && parts[0] === 'graph.smwgraph')
-      return encode('smwgraph', { slug })
+    if (parts.length === 1 && parts[0] === 'graph.smwgraph') return encode('smwgraph', { slug })
 
-    if (parts.length === 1 && parts[0] === 'compare.smwtilecomp')
-      return encode('smwtilecomp')
+    if (parts.length === 1 && parts[0] === 'compare.smwtilecomp') return encode('smwtilecomp')
 
-    if (parts.length === 1 && parts[0] === 'rom.smwrommap')
-      return encode('smwrommap')
+    if (parts.length === 1 && parts[0] === 'rom.smwrommap') return encode('smwrommap')
 
     throw vscode.FileSystemError.FileNotFound(uri)
   }
 
-  writeFile(): void { throw vscode.FileSystemError.NoPermissions('ROM editing not yet implemented') }
-  createDirectory(): void { throw vscode.FileSystemError.NoPermissions() }
-  delete(): void { throw vscode.FileSystemError.NoPermissions() }
-  rename(): void { throw vscode.FileSystemError.NoPermissions() }
+  writeFile(): void {
+    throw vscode.FileSystemError.NoPermissions('ROM editing not yet implemented')
+  }
+  createDirectory(): void {
+    throw vscode.FileSystemError.NoPermissions()
+  }
+  delete(): void {
+    throw vscode.FileSystemError.NoPermissions()
+  }
+  rename(): void {
+    throw vscode.FileSystemError.NoPermissions()
+  }
 
   private _parse(uri: vscode.Uri): { slug: string; parts: string[] } {
     const segments = uri.path.replace(/^\//, '').split('/').filter(Boolean)
@@ -212,7 +223,7 @@ function filenameToIndex(filename: string): number {
   return parseInt(filename.replace('.smwmap', ''), 16)
 }
 
-/** "0-64x64.smwoverworld", "1-32x32.smwoverworld", … — generic, dimensions only. */
+/** "0-64x64.smwoverworld", "1-32x32.smwoverworld", … - generic, dimensions only. */
 function areaFilename(area: OwArea): string {
   return `${area.index}-${area.widthTiles}x${area.heightTiles}.smwoverworld`
 }

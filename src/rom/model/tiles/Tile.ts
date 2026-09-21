@@ -16,7 +16,7 @@ export class Tile {
    * @param actsLike   Tile id whose game behavior this tile dispatches as.
    *                   Defaults to `id` (identity). Lunar Magic's acts-like
    *                   override lets custom tiles behave as vanilla ones.
-   * @param collision  Pre-computed per-direction collision classification —
+   * @param collision  Pre-computed per-direction collision classification -
    *                   horizontal wall / top-stand / bottom-bonk. Pulls from
    *                   the ROM's block-behavior table + acts-like ranges at
    *                   factory time so the overlay predicates don't have to

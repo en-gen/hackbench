@@ -1,5 +1,5 @@
 /**
- * Tile — render phase routing + renderOverlay delegation.
+ * Tile - render phase routing + renderOverlay delegation.
  *
  * Tile.render() selects subtiles from behavior.selectQuad() and routes
  * each to the correct render phase:
@@ -17,7 +17,12 @@ import { SubTile } from '../../../../src/rom/model/tiles/SubTile'
 import { Tile, type SubtileQuad } from '../../../../src/rom/model/tiles/Tile'
 import { NO_COLLISION } from '../../../../src/rom/model/tiles/TileCollision'
 import { StaticQuadBehavior } from '../../../../src/rom/model/tiles/behaviors/StaticQuadBehavior'
-import { cellBoxOf, type CellBox, type RenderTarget, type PixelPos } from '../../../../src/rom/model/RenderTarget'
+import {
+  cellBoxOf,
+  type CellBox,
+  type RenderTarget,
+  type PixelPos,
+} from '../../../../src/rom/model/RenderTarget'
 import type { Palette } from '../../../../src/rom/model/palette/Palette'
 import type { TileBehavior } from '../../../../src/rom/model/tiles/TileBehavior'
 import { makeTestMapStore, resetEditorStore } from '../fixtures/stores'
@@ -45,20 +50,28 @@ function makeSub(priority: boolean): SubTile {
 function capturingTarget() {
   const calls: Array<{ pos: PixelPos; alpha: number | undefined }> = []
   const target: RenderTarget = {
-    blit8x8(_pixels, pos, _row, _fx, _fy, alpha) { calls.push({ pos, alpha }) },
+    blit8x8(_pixels, pos, _row, _fx, _fy, alpha) {
+      calls.push({ pos, alpha })
+    },
     fillRect() {},
   }
   return { target, calls }
 }
 
-describe('Tile — defaults', () => {
+describe('Tile - defaults', () => {
   it('actsLike defaults to id when not provided', () => {
-    const t = new Tile(0x42, new StaticQuadBehavior([makeSub(false), makeSub(false), makeSub(false), makeSub(false)]))
+    const t = new Tile(
+      0x42,
+      new StaticQuadBehavior([makeSub(false), makeSub(false), makeSub(false), makeSub(false)]),
+    )
     expect(t.actsLike).toBe(0x42)
   })
 
   it('collision defaults to NO_COLLISION (all false)', () => {
-    const t = new Tile(1, new StaticQuadBehavior([makeSub(false), makeSub(false), makeSub(false), makeSub(false)]))
+    const t = new Tile(
+      1,
+      new StaticQuadBehavior([makeSub(false), makeSub(false), makeSub(false), makeSub(false)]),
+    )
     expect(t.collision).toEqual(NO_COLLISION)
     expect(t.collision.floor).toBe(false)
     expect(t.collision.marioFloor).toBe(false)
@@ -66,16 +79,16 @@ describe('Tile — defaults', () => {
   })
 })
 
-describe('Tile.render — phase routing', () => {
+describe('Tile.render - phase routing', () => {
   beforeEach(resetEditorStore)
 
   // Quad layout: TL=nonPriority, TR=nonPriority, BL=priority, BR=priority
   function makePhaseQuad(): SubtileQuad {
     return [
-      makeSub(false), // TL — nonPriority
-      makeSub(false), // TR — nonPriority
-      makeSub(true),  // BL — priority
-      makeSub(true),  // BR — priority
+      makeSub(false), // TL - nonPriority
+      makeSub(false), // TR - nonPriority
+      makeSub(true), // BL - priority
+      makeSub(true), // BR - priority
     ]
   }
 
@@ -116,7 +129,12 @@ describe('Tile.render — phase routing', () => {
   })
 
   it('all-nonPriority quad: priority phase produces zero blit calls', () => {
-    const allNonPriority: SubtileQuad = [makeSub(false), makeSub(false), makeSub(false), makeSub(false)]
+    const allNonPriority: SubtileQuad = [
+      makeSub(false),
+      makeSub(false),
+      makeSub(false),
+      makeSub(false),
+    ]
     const tile = new Tile(1, new StaticQuadBehavior(allNonPriority))
     const { target, calls } = capturingTarget()
     tile.render(target, cellBoxOf(0, 0), makeStubMapStore(), 'priority')
@@ -132,7 +150,7 @@ describe('Tile.render — phase routing', () => {
   })
 })
 
-describe('Tile.render — alpha forwarding', () => {
+describe('Tile.render - alpha forwarding', () => {
   beforeEach(resetEditorStore)
 
   it('passes alpha from behavior.selectAlpha?() to every sub.render()', () => {
@@ -158,7 +176,7 @@ describe('Tile.render — alpha forwarding', () => {
   })
 })
 
-describe('Tile.renderOverlay — delegation', () => {
+describe('Tile.renderOverlay - delegation', () => {
   beforeEach(resetEditorStore)
 
   it('delegates to behavior.renderOverlay when present', () => {
@@ -166,7 +184,9 @@ describe('Tile.renderOverlay — delegation', () => {
     const quad: SubtileQuad = [makeSub(false), makeSub(false), makeSub(false), makeSub(false)]
     const behavior: TileBehavior = {
       selectQuad: () => quad,
-      renderOverlay: () => { overlayCallCount++ },
+      renderOverlay: () => {
+        overlayCallCount++
+      },
     }
     const tile = new Tile(1, behavior)
     const { target } = capturingTarget()
@@ -188,7 +208,9 @@ describe('Tile.renderOverlay — delegation', () => {
     let capturedCell: CellBox | undefined
     const behavior: TileBehavior = {
       selectQuad: () => quad,
-      renderOverlay: (_target, c) => { capturedCell = c },
+      renderOverlay: (_target, c) => {
+        capturedCell = c
+      },
     }
     const tile = new Tile(1, behavior)
     const { target } = capturingTarget()

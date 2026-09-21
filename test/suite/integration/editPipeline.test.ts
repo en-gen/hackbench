@@ -3,7 +3,11 @@ import { existsSync } from 'fs'
 import * as path from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { RomFile } from '../../../src/rom/RomFile'
-import { isLevelModeVertical, parseLevelHeader, parseLevelSprites } from '../../../src/rom/LevelParser'
+import {
+  isLevelModeVertical,
+  parseLevelHeader,
+  parseLevelSprites,
+} from '../../../src/rom/LevelParser'
 import { moveSpriteX, moveObjectX } from '../../../src/rom/LevelEdits'
 import { applyPatches, build, flatten, exportable } from '../../../src/rom/PatchLayer'
 import { encodeIps, decodeIps } from '../../../src/rom/Ips'
@@ -131,11 +135,17 @@ describe.skipIf(!ROM_PATH)('edit pipeline against a real ROM', () => {
     const a = moveSpriteX(lv.raw, lv.spriteOffset, i, 1, lv.isVertical, 'a')
     const one = build(base, [a])
     const rawOne = new SmwRom(RomFile.fromBytes(ROM_PATH!, one))
-    const b = moveSpriteX(rawOne.rom.readAt(rawOne.getLevelSpritePointer(lv.id)!, 0x200)!,
-      lv.spriteOffset, i, 1, lv.isVertical, 'b')
+    const b = moveSpriteX(
+      rawOne.rom.readAt(rawOne.getLevelSpritePointer(lv.id)!, 0x200)!,
+      lv.spriteOffset,
+      i,
+      1,
+      lv.isVertical,
+      'b',
+    )
 
     expect(build(base, [a, b])).not.toEqual(one)
-    expect(build(base, [a])).toEqual(one)   // undo is dropping b, not inverting it
+    expect(build(base, [a])).toEqual(one) // undo is dropping b, not inverting it
   })
 
   it('an object edit reaches the ROM too', () => {
@@ -167,7 +177,12 @@ describe.skipIf(!ROM_PATH)('edit pipeline against a real ROM', () => {
     const byteIndex = lv.isVertical ? 0 : 1
     const i = lv.sprites.findIndex(s => ((s.raw[byteIndex] >> 4) & 0x0f) < 0x0f)
     const edit = moveSpriteX(lv.raw, lv.spriteOffset, i, 1, lv.isVertical)
-    const preview = { id: 'demo-freeze', label: 'freeze', scope: 'preview' as const, patches: [{ offset: 0x1c1f, value: 0 }] }
+    const preview = {
+      id: 'demo-freeze',
+      label: 'freeze',
+      scope: 'preview' as const,
+      patches: [{ offset: 0x1c1f, value: 0 }],
+    }
 
     expect(flatten([edit, preview])).toHaveLength(2)
     expect(exportable([edit, preview])).toEqual([edit])
@@ -198,7 +213,11 @@ describe.skipIf(!ROM_PATH)('a patched ROM renders', () => {
     const before = buildMapPayload(smw, LEVEL, {}).sprites.length
 
     const layer = deleteSprite(raw, smw.rom.fileOffsetOf(ptr)!, 0)
-    const after = buildMapPayload(patched(build(new Uint8Array(smw.rom.buffer), [layer])), LEVEL, {})
+    const after = buildMapPayload(
+      patched(build(new Uint8Array(smw.rom.buffer), [layer])),
+      LEVEL,
+      {},
+    )
 
     expect(after.sprites.length).toBe(before - 1)
   })

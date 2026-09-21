@@ -16,14 +16,21 @@ import { URI } from 'vscode-uri'
 
 export const Uri = URI
 
-export enum TreeItemCollapsibleState { None = 0, Collapsed = 1, Expanded = 2 }
+export enum TreeItemCollapsibleState {
+  None = 0,
+  Collapsed = 1,
+  Expanded = 2,
+}
 
 export class ThemeColor {
   constructor(readonly id: string) {}
 }
 
 export class ThemeIcon {
-  constructor(readonly id: string, readonly color?: ThemeColor) {}
+  constructor(
+    readonly id: string,
+    readonly color?: ThemeColor,
+  ) {}
 }
 
 export class TreeItem {
@@ -62,7 +69,10 @@ export class TabInputText {
 }
 
 export class TabInputCustom {
-  constructor(readonly uri: URI, readonly viewType: string) {}
+  constructor(
+    readonly uri: URI,
+    readonly viewType: string,
+  ) {}
 }
 
 export class EventEmitter<T> {
@@ -71,16 +81,24 @@ export class EventEmitter<T> {
   readonly event: vscode.Event<T> = (listener, thisArgs?, disposables?) => {
     const bound = thisArgs ? listener.bind(thisArgs) : listener
     this.listeners.add(bound)
-    const sub = { dispose: () => { this.listeners.delete(bound) } }
+    const sub = {
+      dispose: () => {
+        this.listeners.delete(bound)
+      },
+    }
     disposables?.push(sub)
     return sub
   }
 
   // Copied before iterating: a listener that unsubscribes itself would
   // otherwise mutate the set mid-fire.
-  fire(data: T): void { for (const l of [...this.listeners]) l(data) }
+  fire(data: T): void {
+    for (const l of [...this.listeners]) l(data)
+  }
 
-  dispose(): void { this.listeners.clear() }
+  dispose(): void {
+    this.listeners.clear()
+  }
 }
 
 /**
@@ -99,4 +117,13 @@ export const conformsToVsCodeApi: {
   Uri: { parse(value: string, strict?: boolean): vscode.Uri }
   TabInputText: new (uri: vscode.Uri) => vscode.TabInputText
   TabInputCustom: new (uri: vscode.Uri, viewType: string) => vscode.TabInputCustom
-} = { TreeItem, TreeItemCollapsibleState, ThemeColor, ThemeIcon, EventEmitter, Uri, TabInputText, TabInputCustom }
+} = {
+  TreeItem,
+  TreeItemCollapsibleState,
+  ThemeColor,
+  ThemeIcon,
+  EventEmitter,
+  Uri,
+  TabInputText,
+  TabInputCustom,
+}

@@ -1,6 +1,8 @@
 import type { Sprite } from '../../rom/model/sprites/Sprite'
 import {
-  paintSpritePreviews, spriteProps, spritePropsHtml,
+  paintSpritePreviews,
+  spriteProps,
+  spritePropsHtml,
   type PreviewCanvas,
 } from './spriteProps'
 import type { PaletteRows, RgbaBuffer } from './spritePixels'
@@ -12,14 +14,16 @@ import type { PaletteRows, RgbaBuffer } from './spritePixels'
  * wiring is testable without a DOM implementation.
  */
 export interface PaneEl {
-  style:       { display: string }
-  innerHTML:   string
+  style: { display: string }
+  innerHTML: string
   textContent: string | null
   setAttribute(name: string, value: string): void
   /** Present on a real element; how the pane finds its preview canvases. */
   querySelectorAll?(selectors: string): Iterable<PreviewCanvas>
 }
-export interface PaneHost { getElementById(id: string): PaneEl | null }
+export interface PaneHost {
+  getElementById(id: string): PaneEl | null
+}
 
 export type PropContext = 'tile' | 'sprite' | 'object' | 'empty'
 
@@ -30,9 +34,10 @@ export function setPropContext(host: PaneHost, type: PropContext, label = ''): v
   const ctx = host.getElementById('props-ctx')
   if (ctx) {
     ctx.textContent = label
-    ctx.setAttribute('style', label
-      ? 'color:#ccc;font-style:normal;'
-      : 'color:#888;font-style:italic;')
+    ctx.setAttribute(
+      'style',
+      label ? 'color:#ccc;font-style:normal;' : 'color:#888;font-style:italic;',
+    )
   }
   for (const t of PANES) {
     const el = host.getElementById(`pp-${t}`)
@@ -46,8 +51,7 @@ const hex2 = (n: number): string => n.toString(16).padStart(2, '0').toUpperCase(
  * Default `ImageData` factory. Guarded because vitest runs this module under
  * `environment: 'node'`, where the constructor does not exist.
  */
-const domImageData = (data: RgbaBuffer, w: number, h: number): unknown =>
-  new ImageData(data, w, h)
+const domImageData = (data: RgbaBuffer, w: number, h: number): unknown => new ImageData(data, w, h)
 
 /** Fill the sprite pane for `sprite`, paint its previews, bring it to the front. */
 export function showSpriteProps(

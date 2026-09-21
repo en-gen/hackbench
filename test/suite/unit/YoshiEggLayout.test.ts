@@ -32,7 +32,7 @@ import type { LevelSprite } from '../../../src/rom/LevelParser'
 import type { Char } from '../../../src/rom/model/chars/Char'
 import type { Tile } from '../../../src/rom/model/tiles/Tile'
 
-const ROM_PATH   = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
+const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent = existsSync(ROM_PATH)
 
 // ── synthetic tables ─────────────────────────────────────────────────────────
@@ -40,14 +40,14 @@ const romPresent = existsSync(ROM_PATH)
 /** Poison values. buildYoshiEggLayout must not read SprTilemap at all, so
  *  every entry it could reach is non-zero and they all differ from each other. */
 const POISON_TILEMAP_OFFSET = 0x94
-const POISON_BASE_CHAR      = 0x40
+const POISON_BASE_CHAR = 0x40
 
 /** Four distinct bytes, unlike vanilla's $09,$07,$05,$07 which repeats $07.
  *  Decoded: palettes 8/9/10/11, char-high set on all four. */
 const SYN_YOSHI_PAL = [0x01, 0x03, 0x05, 0x07] as const
 
 function makeTables(overrides: Partial<SpriteTileTables> = {}): SpriteTileTables {
-  const tilemap       = new Uint8Array(0xFC)
+  const tilemap = new Uint8Array(0xfc)
   const tilemapOffset = new Uint8Array(0x54)
   tilemapOffset[YOSHI_EGG_ID] = POISON_TILEMAP_OFFSET
   tilemap[POISON_TILEMAP_OFFSET] = POISON_BASE_CHAR
@@ -70,9 +70,9 @@ function makeTables(overrides: Partial<SpriteTileTables> = {}): SpriteTileTables
 
 /** All four corners of an unflipped base-$00 big-tile, charHigh $100. */
 const UNFLIPPED_CHARS = [0x500, 0x501, 0x510, 0x511]
-const FLIPX_CHARS     = [0x501, 0x500, 0x511, 0x510]
-const FLIPY_CHARS     = [0x510, 0x511, 0x500, 0x501]
-const FLIPXY_CHARS    = [0x511, 0x510, 0x501, 0x500]
+const FLIPX_CHARS = [0x501, 0x500, 0x511, 0x510]
+const FLIPY_CHARS = [0x510, 0x511, 0x500, 0x501]
+const FLIPXY_CHARS = [0x511, 0x510, 0x501, 0x500]
 
 describe('buildYoshiEggLayout - palette selection by X position', () => {
   // InitYoshiEgg indexes YoshiPal with (SpriteXPosLow >> 4) & 3.
@@ -83,10 +83,10 @@ describe('buildYoshiEggLayout - palette selection by X position', () => {
     { pixelX: 0x10, row: 9 },
     { pixelX: 0x20, row: 10 },
     { pixelX: 0x30, row: 11 },
-    { pixelX: 0x40, row: 8 },    // wraps: index 4 & 3 = 0
-    { pixelX: 0x8F, row: 8 },    // low nibble ignored
-    { pixelX: 0xF0, row: 11 },
-    { pixelX: 0x130, row: 11 },  // bits above 7 cannot reach the index either
+    { pixelX: 0x40, row: 8 }, // wraps: index 4 & 3 = 0
+    { pixelX: 0x8f, row: 8 }, // low nibble ignored
+    { pixelX: 0xf0, row: 11 },
+    { pixelX: 0x130, row: 11 }, // bits above 7 cannot reach the index either
   ])('pixelX $$pixelX → CGRAM row $row', ({ pixelX, row }) => {
     const layout = buildYoshiEggLayout(makeTables(), pixelX)
     expect(layout.tiles.map(t => t.palette)).toEqual([row, row, row, row])
@@ -109,8 +109,8 @@ describe('buildYoshiEggLayout - char is the ASM immediate, not SprTilemap', () =
   })
 
   it('is unaffected by a completely different SprTilemap', () => {
-    const tilemap = new Uint8Array(0xFC).fill(0xAA)
-    const tilemapOffset = new Uint8Array(0x54).fill(0x7F)
+    const tilemap = new Uint8Array(0xfc).fill(0xaa)
+    const tilemapOffset = new Uint8Array(0x54).fill(0x7f)
     const a = buildYoshiEggLayout(makeTables(), 0x00)
     const b = buildYoshiEggLayout(makeTables({ tilemap, tilemapOffset }), 0x00)
     expect(b.tiles.map(t => t.charNum)).toEqual(a.tiles.map(t => t.charNum))
@@ -121,7 +121,7 @@ describe('buildYoshiEggLayout - mirrored 16x16 big-tile', () => {
   const layout = buildYoshiEggLayout(makeTables(), 0x00)
 
   it('is a single 16x16 unit of four 8x8 corners', () => {
-    expect(layout.spriteId).toBe(0x2C)
+    expect(layout.spriteId).toBe(0x2c)
     expect(layout.height).toBe(16)
     expect(layout.tiles).toHaveLength(4)
   })
@@ -152,10 +152,10 @@ describe('buildYoshiEggLayout - flip comes from the attribute, not a literal', (
     buildYoshiEggLayout(makeTables({ yoshiPal: fourOf(attrByte) }), 0x00)
 
   it.each([
-    { attr: 0x09, flipX: true,  flipY: false, chars: FLIPX_CHARS  },
+    { attr: 0x09, flipX: true, flipY: false, chars: FLIPX_CHARS },
     { attr: 0x49, flipX: false, flipY: false, chars: UNFLIPPED_CHARS },
-    { attr: 0x89, flipX: true,  flipY: true,  chars: FLIPXY_CHARS },
-    { attr: 0xC9, flipX: false, flipY: true,  chars: FLIPY_CHARS  },
+    { attr: 0x89, flipX: true, flipY: true, chars: FLIPXY_CHARS },
+    { attr: 0xc9, flipX: false, flipY: true, chars: FLIPY_CHARS },
   ])('attr $$attr → flipX $flipX, flipY $flipY', ({ attr, flipX, flipY, chars }) => {
     const layout = layoutFor(attr)
     expect(layout.tiles.map(t => t.flipX)).toEqual([flipX, flipX, flipX, flipX])
@@ -166,7 +166,7 @@ describe('buildYoshiEggLayout - flip comes from the attribute, not a literal', (
   it('bits 4-7 do not disturb the palette or the char-high bit', () => {
     // $09 and $F9 differ only above bit 3, which is where palette stops.
     const plain = layoutFor(0x09)
-    const noisy = layoutFor(0xF9)
+    const noisy = layoutFor(0xf9)
     expect(noisy.tiles.map(t => t.palette)).toEqual(plain.tiles.map(t => t.palette))
     expect(noisy.tiles.every(t => t.charNum >= 0x500)).toBe(true)
   })
@@ -209,7 +209,6 @@ function loadTables(): SpriteTileTables {
 }
 
 describe.skipIf(!romPresent)('Yoshi Egg $2C (vanilla US ROM)', () => {
-
   it('YoshiPal ($01:8335) is the four attribute bytes InitYoshiEgg picks from', () => {
     const tables = loadTables()
     expect(Array.from(tables.yoshiPal)).toEqual([0x09, 0x07, 0x05, 0x07])
@@ -220,14 +219,14 @@ describe.skipIf(!romPresent)('Yoshi Egg $2C (vanilla US ROM)', () => {
     // set, but in THIS ROM they are always clear, so the egg is always
     // mirrored, never V-flipped, and never carries an OAM priority.
     const tables = loadTables()
-    expect(Array.from(tables.yoshiPal).every(b => (b & 0xF0) === 0)).toBe(true)
+    expect(Array.from(tables.yoshiPal).every(b => (b & 0xf0) === 0)).toBe(true)
   })
 
   it('Sprite166EVals[$2C] is dead data for this sprite', () => {
     // $3B & $0F = $0B → palette bits 5 → CGRAM row 13. InitYoshiEgg overwrites
     // it before the egg is ever drawn, so the generic path picks the wrong row.
     const tables = loadTables()
-    expect(tables.spriteAttr[YOSHI_EGG_ID]).toBe(0x0B)
+    expect(tables.spriteAttr[YOSHI_EGG_ID]).toBe(0x0b)
     const generic = buildSpriteLayout(tables, YOSHI_EGG_ID)!
     expect(generic.tiles.map(t => t.palette)).toEqual([13, 13, 13, 13])
     expect(generic.tiles.map(t => t.flipX)).toEqual([false, false, false, false])
@@ -242,8 +241,9 @@ describe.skipIf(!romPresent)('Yoshi Egg $2C (vanilla US ROM)', () => {
 
   it('palette cycles across every four 16px columns', () => {
     const tables = loadTables()
-    const rows = [0, 1, 2, 3, 4, 5, 6, 7].map(col =>
-      buildYoshiEggLayout(tables, (col * 16) & 0xFF).tiles[0].palette)
+    const rows = [0, 1, 2, 3, 4, 5, 6, 7].map(
+      col => buildYoshiEggLayout(tables, (col * 16) & 0xff).tiles[0].palette,
+    )
     expect(rows).toEqual([12, 11, 10, 11, 12, 11, 10, 11])
   })
 })
@@ -251,9 +251,15 @@ describe.skipIf(!romPresent)('Yoshi Egg $2C (vanilla US ROM)', () => {
 describe.skipIf(!romPresent)('buildSprites - $2C uses the Yoshi Egg layout', () => {
   const NO_CHARS = new Map<number, Char>()
   const NO_TILES = new Map<number, Tile>()
-  const MARIO    = { x: 0, y: 0 }
-  const egg = (x: number): LevelSprite =>
-    ({ screen: 0, x, y: 5, spriteId: YOSHI_EGG_ID, extraBit: false, raw: [0, 0, YOSHI_EGG_ID] })
+  const MARIO = { x: 0, y: 0 }
+  const egg = (x: number): LevelSprite => ({
+    screen: 0,
+    x,
+    y: 5,
+    spriteId: YOSHI_EGG_ID,
+    extraBit: false,
+    raw: [0, 0, YOSHI_EGG_ID],
+  })
 
   it('emits a static appearance with no idle animation', () => {
     const r = buildSprites(loadRom(), [egg(0)], NO_CHARS, [], MARIO, NO_TILES)
@@ -266,7 +272,14 @@ describe.skipIf(!romPresent)('buildSprites - $2C uses the Yoshi Egg layout', () 
   })
 
   it('carries the column-dependent palette and the mirror into the parts', () => {
-    const r = buildSprites(loadRom(), [egg(0), egg(1), egg(2), egg(3)], NO_CHARS, [], MARIO, NO_TILES)
+    const r = buildSprites(
+      loadRom(),
+      [egg(0), egg(1), egg(2), egg(3)],
+      NO_CHARS,
+      [],
+      MARIO,
+      NO_TILES,
+    )
     const parts = r.map(s => (s.appearance as StaticSpriteAppearance).parts)
     expect(parts.map(p => p[0].palette)).toEqual([12, 11, 10, 11])
     expect(parts.every(p => p.every(q => q.flipX))).toBe(true)

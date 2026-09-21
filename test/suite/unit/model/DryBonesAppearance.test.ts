@@ -16,7 +16,7 @@ function makePlaceholder(): Char {
   return new Char(0, new StaticPixelsBehavior(new Uint8Array(64)))
 }
 
-describe('DryBonesAppearance.fromTables — faceRight column order', () => {
+describe('DryBonesAppearance.fromTables - faceRight column order', () => {
   // Build a chars map where every tile ID maps to a distinct char so we can
   // identify which tile ended up where.
   function buildChars(base: number, charHigh: number): Map<number, Char> {
@@ -35,7 +35,7 @@ describe('DryBonesAppearance.fromTables — faceRight column order', () => {
     // bigTile(0x64, topDx, -16): first part has char = chars.get(OBJ_BASE + 0x65)
     const firstPart = app.parts[0]
     expect(firstPart.flipX).toBe(true)
-    expect(firstPart.char.id).toBe(0x65)  // 0x64 + 0x01
+    expect(firstPart.char.id).toBe(0x65) // 0x64 + 0x01
   })
 
   it('faceRight=false: first part uses offset 0x00 (left col first)', () => {
@@ -46,6 +46,6 @@ describe('DryBonesAppearance.fromTables — faceRight column order', () => {
     // bigTile(0x64, topDx, -16): first part has char = chars.get(OBJ_BASE + 0x64)
     const firstPart = app.parts[0]
     expect(firstPart.flipX).toBe(false)
-    expect(firstPart.char.id).toBe(0x64)  // 0x64 + 0x00
+    expect(firstPart.char.id).toBe(0x64) // 0x64 + 0x00
   })
 })

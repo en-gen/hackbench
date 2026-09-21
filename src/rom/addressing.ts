@@ -13,13 +13,13 @@
 
 import { hex6 } from './hex'
 
-export const LOROM_BANK_SIZE  = 0x8000
-export const HIROM_BANK_SIZE  = 0x10000
+export const LOROM_BANK_SIZE = 0x8000
+export const HIROM_BANK_SIZE = 0x10000
 export const COPIER_HEADER_SIZE = 512
 
 /** Returns true if the file size suggests a 512-byte copier header. */
 export function hasCopierHeader(fileSize: number): boolean {
-  return (fileSize % 1024) === COPIER_HEADER_SIZE
+  return fileSize % 1024 === COPIER_HEADER_SIZE
 }
 
 /**
@@ -34,19 +34,23 @@ export function hasCopierHeader(fileSize: number): boolean {
  * @returns File offset, or null for WRAM ($7E-$7F, always) or any address
  *          that maps past the end of the actual ROM data.
  */
-export function loromToOffset(snesAddr: number, romSize: number, headerOffset = false): number | null {
-  const bank = (snesAddr >>> 16) & 0xFF
-  const addr = snesAddr & 0xFFFF
+export function loromToOffset(
+  snesAddr: number,
+  romSize: number,
+  headerOffset = false,
+): number | null {
+  const bank = (snesAddr >>> 16) & 0xff
+  const addr = snesAddr & 0xffff
 
   // Check the raw bank BEFORE the & 0x7F mirror fold below - /WRAMSEL
   // decodes only the literal banks $7E/$7F, not A23, so folding first would
   // wrongly reject the $FE/$FF ROM mirror.
-  if (bank === 0x7E || bank === 0x7F) return null
+  if (bank === 0x7e || bank === 0x7f) return null
 
-  const effectiveBank = bank & 0x7F // $80-$FF mirror $00-$7F
-  if (effectiveBank <= 0x3F && addr < 0x8000) return null // registers / WRAM mirror
+  const effectiveBank = bank & 0x7f // $80-$FF mirror $00-$7F
+  if (effectiveBank <= 0x3f && addr < 0x8000) return null // registers / WRAM mirror
 
-  const dataOffset = effectiveBank * LOROM_BANK_SIZE + (addr & 0x7FFF)
+  const dataOffset = effectiveBank * LOROM_BANK_SIZE + (addr & 0x7fff)
   if (!(dataOffset < romSize)) return null // beyond real data (also rejects NaN/undefined romSize)
 
   return dataOffset + (headerOffset ? COPIER_HEADER_SIZE : 0)
@@ -61,17 +65,17 @@ export function loromToOffset(snesAddr: number, romSize: number, headerOffset = 
  * but nothing in this codebase exercises that branch.
  */
 export function hiromToOffset(snesAddr: number, headerOffset = false): number | null {
-  const bank = (snesAddr >>> 16) & 0xFF
-  const addr = snesAddr & 0xFFFF
-  const effectiveBank = bank & 0x3F
+  const bank = (snesAddr >>> 16) & 0xff
+  const addr = snesAddr & 0xffff
+  const effectiveBank = bank & 0x3f
 
   let offset: number
 
-  if (bank <= 0x3F || (bank >= 0x80 && bank <= 0xBF)) {
+  if (bank <= 0x3f || (bank >= 0x80 && bank <= 0xbf)) {
     // Banks $00–$3F and $80–$BF: ROM only at $8000–$FFFF (upper 32KB)
     if (addr < 0x8000) return null
     offset = effectiveBank * HIROM_BANK_SIZE + addr
-  } else if ((bank >= 0x40 && bank <= 0x6F) || bank >= 0xC0) {
+  } else if ((bank >= 0x40 && bank <= 0x6f) || bank >= 0xc0) {
     // Banks $40–$6F and $C0–$FF: full 64KB ROM pages
     offset = effectiveBank * HIROM_BANK_SIZE + addr
   } else {

@@ -1,5 +1,5 @@
 /**
- * Shared SPC transport bar — reusable media controls for any webview.
+ * Shared SPC transport bar - reusable media controls for any webview.
  *
  * Creates a horizontal bar with: prev, stop, play/pause, next, elapsed time,
  * track label, volume slider + mute toggle.
@@ -20,7 +20,7 @@ export interface TransportCallbacks {
   onStop: () => void
   onPrev: () => void
   onNext: () => void
-  /** Called when playback state changes — use to notify extension for tab icon updates. */
+  /** Called when playback state changes - use to notify extension for tab icon updates. */
   onStateChange?: (playing: boolean) => void
   /** Hide the prev/next track buttons (e.g. single-track contexts). */
   hidePrevNext?: boolean
@@ -70,7 +70,7 @@ export function createTransportBar(cb: TransportCallbacks): TransportBar {
 
   // Hide prev/next if not applicable
   if (cb.hidePrevNext) {
-    (el.querySelector('[data-action="prev"]') as HTMLElement).style.display = 'none'
+    ;(el.querySelector('[data-action="prev"]') as HTMLElement).style.display = 'none'
     ;(el.querySelector('[data-action="next"]') as HTMLElement).style.display = 'none'
   }
 
@@ -110,22 +110,36 @@ export function createTransportBar(cb: TransportCallbacks): TransportBar {
   }
 
   function updateButtons(): void {
-    btnPlay.textContent = (isPlaying && !isPaused) ? '\u23F8' : '\u25B6'
-    btnPlay.title = (isPlaying && !isPaused) ? 'Pause' : 'Play'
+    btnPlay.textContent = isPlaying && !isPaused ? '\u23F8' : '\u25B6'
+    btnPlay.title = isPlaying && !isPaused ? 'Pause' : 'Play'
     btnStop.disabled = !isPlaying
   }
 
   return {
     element: el,
-    setPlaying(playing: boolean) { isPlaying = playing; isPaused = false; updateButtons(); cb.onStateChange?.(playing) },
-    setPaused(paused: boolean) { isPaused = paused; updateButtons() },
-    setTrackLabel(label: string) { labelEl.textContent = label },
-    updateTime(seconds: number) { timeEl.textContent = formatTime(seconds) },
-    setStopEnabled(enabled: boolean) { btnStop.disabled = !enabled },
+    setPlaying(playing: boolean) {
+      isPlaying = playing
+      isPaused = false
+      updateButtons()
+      cb.onStateChange?.(playing)
+    },
+    setPaused(paused: boolean) {
+      isPaused = paused
+      updateButtons()
+    },
+    setTrackLabel(label: string) {
+      labelEl.textContent = label
+    },
+    updateTime(seconds: number) {
+      timeEl.textContent = formatTime(seconds)
+    },
+    setStopEnabled(enabled: boolean) {
+      btnStop.disabled = !enabled
+    },
   }
 }
 
-/** CSS for the transport bar — inject once into the document. */
+/** CSS for the transport bar - inject once into the document. */
 export const TRANSPORT_CSS = `
 .smw-transport {
   display: flex; align-items: center; gap: 6px;

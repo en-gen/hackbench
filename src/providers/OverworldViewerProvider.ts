@@ -19,7 +19,13 @@
 
 import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
-import { getNonce, getWebviewUri, readDescriptor, postWebviewError, buildWebviewHtml } from './webviewUtils'
+import {
+  getNonce,
+  getWebviewUri,
+  readDescriptor,
+  postWebviewError,
+  buildWebviewHtml,
+} from './webviewUtils'
 import {
   loadOverworld,
   loadOverworldAreas,
@@ -36,16 +42,8 @@ import {
 import { loadOverworldAnimation } from '../rom/OverworldAnimation'
 import { loadOverworldEvents } from '../rom/OverworldEvents'
 import { parseLevelHeader } from '../rom/LevelParser'
-import {
-  loadPaletteAnimData,
-  serializePaletteAnimData,
-} from '../rom/PaletteAnimationLoader'
-import {
-  loadVram,
-  VRAM_SLOT_NAMES,
-  VRAM_CHAR_BASE,
-  VramSlotName,
-} from '../rom/GfxLoader'
+import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
+import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, VramSlotName } from '../rom/GfxLoader'
 import { loadRomPalettes, buildLevelCgram, RgbaRow } from '../rom/PaletteLoader'
 
 /** Pack the loaded VRAM into one flat tile array indexed by SNES char number. */
@@ -76,13 +74,11 @@ export class OverworldViewerProvider implements vscode.CustomReadonlyEditorProvi
   ): Promise<void> {
     panel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [
-        vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview'),
-      ],
+      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview')],
     }
     panel.webview.html = this._buildHtml(panel.webview)
 
-    panel.webview.onDidReceiveMessage(async (msg) => {
+    panel.webview.onDidReceiveMessage(async msg => {
       if (msg.type === 'ready') {
         await this._send(document.uri, panel.webview)
       }
@@ -109,14 +105,14 @@ export class OverworldViewerProvider implements vscode.CustomReadonlyEditorProvi
       // DATA_04DC02, SpriteTileset hardcoded to $11. Reuse the shared
       // `loadVram` from GfxLoader so the FilterSomeRAM upload variant
       // (bank_00.asm:5480) is applied consistently with the level path
-      // — without it, OW AN1 chars (file $1E) miss plane 3 and fall
+      // - without it, OW AN1 chars (file $1E) miss plane 3 and fall
       // back to palette indices 0..7 instead of 0/9..15.
       const SPRITE_TILESET = 0x11
       const vram = loadVram(rom, area.objectTileset, SPRITE_TILESET)
 
       // Build CGRAM in two passes to mirror real-hardware OW behavior:
       //
-      //   Pass 1 — title-screen level baseline. `CODE_00AD25`
+      //   Pass 1 - title-screen level baseline. `CODE_00AD25`
       //   (`bank_00.asm:5736`) only writes four small CGRAM rectangles
       //   (HUD, OWStdColors, area-specific, OWStdColors2). It does NOT
       //   clear CGRAM first, and the OW init path
@@ -133,7 +129,7 @@ export class OverworldViewerProvider implements vscode.CustomReadonlyEditorProvi
       //   change either the title level or its palette indices flow
       //   through automatically.
       //
-      //   Pass 2 — OW overlays. `loadAreaPalette` already reads the four
+      //   Pass 2 - OW overlays. `loadAreaPalette` already reads the four
       //   OW blocks per CODE_00AD25; we copy ONLY the cells that load
       //   actually writes onto the title-baseline.
       //
@@ -149,8 +145,8 @@ export class OverworldViewerProvider implements vscode.CustomReadonlyEditorProvi
       })()
       const baseCgram = buildLevelCgram(
         romPalettes,
-        baselineHeader?.bgPalette     ?? 0,
-        baselineHeader?.fgPalette     ?? 0,
+        baselineHeader?.bgPalette ?? 0,
+        baselineHeader?.fgPalette ?? 0,
         baselineHeader?.spritePalette ?? 0,
       ).rows
       const owCgram = loadAreaPalette(rom, area, false)
@@ -171,15 +167,13 @@ export class OverworldViewerProvider implements vscode.CustomReadonlyEditorProvi
       for (let r = 8; r <= 15; r++) {
         for (let c = 1; c <= 7; c++) baseCgram[r][c] = owCgram[r][c]
       }
-      const paletteRows = baseCgram.map((row: RgbaRow) =>
-        row.map(c => Array.from(c)),
-      )
+      const paletteRows = baseCgram.map((row: RgbaRow) => row.map(c => Array.from(c)))
 
       const animation = loadOverworldAnimation(rom)
-      const events    = loadOverworldEvents(rom)
+      const events = loadOverworldEvents(rom)
       const warpStarts = loadAreaWarpStarts(rom, descriptor.areaIndex)
 
-      // Palette animation — same loader the level path uses, with
+      // Palette animation - same loader the level path uses, with
       // 'overworld' mode selecting the OW NMI's CGRAM $6D + $7D cycle
       // (`bank_00.asm:80/A4E3-A51E`). Returns null only on bad ROM data;
       // the webview gates its timer on the presence of a non-null
@@ -192,11 +186,11 @@ export class OverworldViewerProvider implements vscode.CustomReadonlyEditorProvi
         area,
         region: areaBufferRegion(area),
         // Whole staging buffer goes over so the webview can address any
-        // layout/quadrant — the area's own region is just one slice.
-        l2Tilemap:      Array.from(overworld.l2Tilemap),
+        // layout/quadrant - the area's own region is just one slice.
+        l2Tilemap: Array.from(overworld.l2Tilemap),
         l1Map16Indices: Array.from(overworld.l1Map16Indices),
-        l1CharData:     Array.from(overworld.l1CharData),
-        vramTiles:      buildVramTileArray(vram),
+        l1CharData: Array.from(overworld.l1CharData),
+        vramTiles: buildVramTileArray(vram),
         paletteRows,
         animation,
         paletteAnimation,

@@ -1,7 +1,12 @@
 import type { LevelSprite } from '../LevelParser'
 import { LINE_TRACKED_SPRITE_IDS, lineGuideAnchor, resolveLineGuideAttachment } from '../LineGuide'
 import type { RomFile } from '../RomFile'
-import { buildSpriteLayout, buildYoshiEggLayout, readSpriteTileTables, YOSHI_EGG_ID } from '../SpriteTileLoader'
+import {
+  buildSpriteLayout,
+  buildYoshiEggLayout,
+  readSpriteTileTables,
+  YOSHI_EGG_ID,
+} from '../SpriteTileLoader'
 import { DEFAULT_OBJ_PRIORITY, readSpriteObjPriority } from '../SpritePriorityLoader'
 import type { Char } from './chars/Char'
 import { isPriorityDecorative } from './OverlayContext'
@@ -9,7 +14,10 @@ import type { Tile } from './tiles/Tile'
 import { makeTransparentPlaceholderChar } from './tiles/TileFactory'
 import { Sprite } from './sprites/Sprite'
 import { CompositeSprite } from './sprites/CompositeSprite'
-import { StaticSpriteAppearance, type SpritePart } from './sprites/appearances/StaticSpriteAppearance'
+import {
+  StaticSpriteAppearance,
+  type SpritePart,
+} from './sprites/appearances/StaticSpriteAppearance'
 import { buildSpriteAppearance } from './sprites/appearances/AppearanceFactory'
 import { RipVanFishAppearance } from './sprites/appearances/RipVanFishAppearance'
 import { ThwompAppearance } from './sprites/appearances/ThwompAppearance'
@@ -115,11 +123,12 @@ export function buildSprites(
   const suppressed = new Set<number>()
   const pairedBro = new Map<number, number>()
   for (let i = 0; i < levelSprites.length; i++) {
-    if (levelSprites[i].spriteId !== 0x9C) continue
+    if (levelSprites[i].spriteId !== 0x9c) continue
     for (let j = 0; j < levelSprites.length; j++) {
       if (i === j || suppressed.has(j)) continue
-      const a = levelSprites[i], b = levelSprites[j]
-      if (b.spriteId === 0x9B && a.x === b.x && a.y === b.y) {
+      const a = levelSprites[i],
+        b = levelSprites[j]
+      if (b.spriteId === 0x9b && a.x === b.x && a.y === b.y) {
         pairedBro.set(i, j)
         suppressed.add(j)
         break
@@ -143,58 +152,74 @@ export function buildSprites(
     // $9E (Ball and Chain) -- sphere (4× 8×8 tile $EA) + 2 chain links (tile $E8)
     // from CODE_02D813 (sphere) and CODE_02D62A (chain loop).
     // Rest pose: theta=0 (InitBallNChain default) → sphere 56 px below pivot.
-    if (s.spriteId === 0x9E) {
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        BallAndChainAppearance.fromTables(chars, placeholder),
-        behavior,
-      ))
+    if (s.spriteId === 0x9e) {
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          BallAndChainAppearance.fromTables(chars, placeholder),
+          behavior,
+        ),
+      )
       continue
     }
 
     // $9F (Banzai Bill) -- 4x4 grid of 16x16 big-tiles from CODE_02D5E4.
-    if (s.spriteId === 0x9F) {
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        BanzaiBillAppearance.fromTables(chars, placeholder),
-        behavior,
-      ))
+    if (s.spriteId === 0x9f) {
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          BanzaiBillAppearance.fromTables(chars, placeholder),
+          behavior,
+        ),
+      )
       continue
     }
 
-    // $3D (Rip Van Fish) — custom appearance with cursor-driven idle/detected
+    // $3D (Rip Van Fish) - custom appearance with cursor-driven idle/detected
     // pose swap and a 96×96 detection-zone overlay (per CODE_02C02E's
     // |dx| < $30 && |dy| < $30 wake-up check). Pose tile bases come from
-    // SprTilemap[$E2..$E5] indexed by SpriteMisc1602 — see RipVanFishAppearance.
-    if (s.spriteId === 0x3D) {
-      const attr     = tables.spriteAttr[s.spriteId] ?? 0
-      const palette  = 8 + ((attr >> 1) & 0x07)
+    // SprTilemap[$E2..$E5] indexed by SpriteMisc1602 - see RipVanFishAppearance.
+    if (s.spriteId === 0x3d) {
+      const attr = tables.spriteAttr[s.spriteId] ?? 0
+      const palette = 8 + ((attr >> 1) & 0x07)
       const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        RipVanFishAppearance.fromTables(chars, palette, charHigh, placeholder),
-        behavior,
-      ))
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          RipVanFishAppearance.fromTables(chars, palette, charHigh, placeholder),
+          behavior,
+        ),
+      )
       continue
     }
 
     // $26 (Thwomp) -- custom ThwompGfx routine; reactRangeDy stays in factory
     // because it needs the live l1 + l1Tiles data structures (CANNOT MIGRATE).
     if (s.spriteId === 0x26) {
-      const attr     = tables.spriteAttr[s.spriteId] ?? 0
-      const palette  = 8 + ((attr >> 1) & 0x07)
+      const attr = tables.spriteAttr[s.spriteId] ?? 0
+      const palette = 8 + ((attr >> 1) & 0x07)
       const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
-      const px       = s.x * 16
-      const py       = s.y * 16
+      const px = s.x * 16
+      const py = s.y * 16
       const thwompBehavior: SpriteBehavior = {
         ...behavior,
         reactRangeDy: thwompReactRangeDy(l1, l1Tiles, px, py),
       }
-      out.push(new Sprite(
-        s.spriteId, px, py,
-        ThwompAppearance.fromTables(chars, palette, charHigh, placeholder),
-        thwompBehavior,
-      ))
+      out.push(
+        new Sprite(
+          s.spriteId,
+          px,
+          py,
+          ThwompAppearance.fromTables(chars, palette, charHigh, placeholder),
+          thwompBehavior,
+        ),
+      )
       continue
     }
 
@@ -204,11 +229,15 @@ export function buildSprites(
     // so it renders the right column un-mirrored. Dispatch to the
     // dedicated appearance which reads the same tables correctly.
     if (s.spriteId === 0x27) {
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        ThwimpAppearance.fromTables(chars, tables, placeholder),
-        behavior,
-      ))
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          ThwimpAppearance.fromTables(chars, tables, placeholder),
+          behavior,
+        ),
+      )
       continue
     }
 
@@ -217,45 +246,82 @@ export function buildSprites(
     // internal sprite-tick state, matching the in-game KoopaWingGfxRt /
     // CODE_019E95 routine (bank_01.asm:4024/4083).
     if (s.spriteId === 0x83 || s.spriteId === 0x84) {
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        WingedSpriteAppearance.fromFlyingQBlock(chars, placeholder, buildSpriteLayout(tables, s.spriteId)),
-        behavior,
-      ))
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          WingedSpriteAppearance.fromFlyingQBlock(
+            chars,
+            placeholder,
+            buildSpriteLayout(tables, s.spriteId),
+          ),
+          behavior,
+        ),
+      )
       continue
     }
 
     // $08/$09 (Green Para-Koopa) and $0A/$0B/$0C (Red/Yellow Para-Koopa).
     // All five share the same KoopaWingGfxRt wing geometry (wingsInFront=true).
-    if (s.spriteId === 0x08 || s.spriteId === 0x09
-     || s.spriteId === 0x0A || s.spriteId === 0x0B || s.spriteId === 0x0C) {
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        WingedSpriteAppearance.fromParaKoopa(chars, placeholder, buildSpriteLayout(tables, s.spriteId)),
-        behavior,
-      ))
+    if (
+      s.spriteId === 0x08 ||
+      s.spriteId === 0x09 ||
+      s.spriteId === 0x0a ||
+      s.spriteId === 0x0b ||
+      s.spriteId === 0x0c
+    ) {
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          WingedSpriteAppearance.fromParaKoopa(
+            chars,
+            placeholder,
+            buildSpriteLayout(tables, s.spriteId),
+          ),
+          behavior,
+        ),
+      )
       continue
     }
 
     // $10 (Para-Goomba).
     if (s.spriteId === 0x10) {
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        WingedSpriteAppearance.fromParaGoomba(chars, placeholder, buildSpriteLayout(tables, s.spriteId)),
-        behavior,
-      ))
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          WingedSpriteAppearance.fromParaGoomba(
+            chars,
+            placeholder,
+            buildSpriteLayout(tables, s.spriteId),
+          ),
+          behavior,
+        ),
+      )
       continue
     }
 
     // $0E (Keyhole).
-    if (s.spriteId === 0x0E) {
-      out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, KeyholeAppearance.fromTables(chars, placeholder), behavior))
+    if (s.spriteId === 0x0e) {
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          KeyholeAppearance.fromTables(chars, placeholder),
+          behavior,
+        ),
+      )
       continue
     }
 
     // $9C (Hammer Bro Platform). Cross-sprite pairing must stay in the factory
     // (CANNOT MIGRATE). The platform appearance is now in fromTables.
-    if (s.spriteId === 0x9C) {
+    if (s.spriteId === 0x9c) {
       const platformApp = HammerBroPlatformAppearance.fromTables(chars, placeholder)
       const broIdx = pairedBro.get(i)
       let spr: Sprite
@@ -265,10 +331,14 @@ export function buildSprites(
           kind: 'sprite_' + broLevelSprite.spriteId.toString(16),
           ...getSpriteMetadata(broLevelSprite.spriteId),
         }
-        const broLayout = buildSpriteLayout(tables, 0x9B)
+        const broLayout = buildSpriteLayout(tables, 0x9b)
         const broParts: SpritePart[] = (broLayout?.tiles ?? []).map(t => ({
           char: chars.get(t.charNum) ?? placeholder,
-          palette: t.palette, flipX: t.flipX, flipY: t.flipY, dx: t.dx, dy: t.dy,
+          palette: t.palette,
+          flipX: t.flipX,
+          flipY: t.flipY,
+          dx: t.dx,
+          dy: t.dy,
         }))
         const broSprite = new Sprite(
           broLevelSprite.spriteId,
@@ -287,50 +357,65 @@ export function buildSprites(
 
     // $30/$32 (Dry Bones).
     if (s.spriteId === 0x30 || s.spriteId === 0x32) {
-      const attr      = tables.spriteAttr[s.spriteId] ?? 0
-      const palette   = 8 + ((attr >> 1) & 0x07)
-      const charHigh  = (attr & 0x01) !== 0 ? 0x100 : 0
+      const attr = tables.spriteAttr[s.spriteId] ?? 0
+      const palette = 8 + ((attr >> 1) & 0x07)
+      const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
       const faceRight = marioStartPx.x >= s.x * 16
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        DryBonesAppearance.fromTables(chars, placeholder, palette, charHigh, faceRight),
-        behavior,
-      ))
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          DryBonesAppearance.fromTables(chars, placeholder, palette, charHigh, faceRight),
+          behavior,
+        ),
+      )
       continue
     }
 
     // $99 (Volcano Lotus).
     if (s.spriteId === 0x99) {
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        VolcanoLotusAppearance.fromTables(chars, placeholder),
-        behavior,
-      ))
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          VolcanoLotusAppearance.fromTables(chars, placeholder),
+          behavior,
+        ),
+      )
       continue
     }
 
     // $71/$72/$73 (Super Koopa). airborne L1-probe stays in factory
     // (one-line check; see CANNOT MIGRATE note above). The cell directly
     // below the sprite is "ground" only if its tile resolves to a solid
-    // floor (per TileFactory.classify) — page-0 decoration tiles like
+    // floor (per TileFactory.classify) - page-0 decoration tiles like
     // $02D/$02E/$0A3 (the foreground bushes / clouds in level $00D)
     // sit visually behind the sprite and must NOT pin it to the grounded
     // pose. Mirrors `CODE_01928E` page-0 BEQ-skip semantics.
     if (s.spriteId === 0x71 || s.spriteId === 0x72 || s.spriteId === 0x73) {
-      const spritePx  = s.x * 16
+      const spritePx = s.x * 16
       const faceRight = marioStartPx.x >= spritePx
-      const belowId   = l1[s.y + 1]?.[s.x] ?? null
+      const belowId = l1[s.y + 1]?.[s.x] ?? null
       const belowTile = belowId !== null ? l1Tiles.get(belowId) : undefined
-      const airborne  = !belowTile?.collision.floor
-      out.push(new Sprite(
-        s.spriteId, spritePx, s.y * 16,
-        SuperKoopaAppearance.fromTables(
-          chars, placeholder,
-          tables.spriteAttr[s.spriteId] ?? 0,
-          s.spriteId, faceRight, airborne,
+      const airborne = !belowTile?.collision.floor
+      out.push(
+        new Sprite(
+          s.spriteId,
+          spritePx,
+          s.y * 16,
+          SuperKoopaAppearance.fromTables(
+            chars,
+            placeholder,
+            tables.spriteAttr[s.spriteId] ?? 0,
+            s.spriteId,
+            faceRight,
+            airborne,
+          ),
+          behavior,
         ),
-        behavior,
-      ))
+      )
       continue
     }
 
@@ -338,63 +423,115 @@ export function buildSprites(
     // $94 Whistlin', $95 Clappin', $97 Puntin', $98 Pitchin'). All resolve
     // their body palette / charHigh from Sprite166EVals via
     // ChuckAppearance.bodyAttrs and their face direction from FaceMario via
-    // ChuckAppearance.facesMario — see ChuckAppearance.ts for the full asm
+    // ChuckAppearance.facesMario - see ChuckAppearance.ts for the full asm
     // grounding. Per-chuck dispatch differs only in which appearance class
     // is built and (for Puntin') the extra ball palette derived from
     // sprite $1B.
     if (
-      s.spriteId === 0x91 || s.spriteId === 0x92 || s.spriteId === 0x93
-   || s.spriteId === 0x94 || s.spriteId === 0x95
-   || s.spriteId === 0x97 || s.spriteId === 0x98
+      s.spriteId === 0x91 ||
+      s.spriteId === 0x92 ||
+      s.spriteId === 0x93 ||
+      s.spriteId === 0x94 ||
+      s.spriteId === 0x95 ||
+      s.spriteId === 0x97 ||
+      s.spriteId === 0x98
     ) {
-      const { palette: bodyPalette, charHigh: bodyCharHigh } =
-        ChuckAppearance.bodyAttrs(tables.spriteAttr[s.spriteId] ?? 0)
+      const { palette: bodyPalette, charHigh: bodyCharHigh } = ChuckAppearance.bodyAttrs(
+        tables.spriteAttr[s.spriteId] ?? 0,
+      )
       const faceRight = ChuckAppearance.facesMario(s.x * 16, marioStartPx.x)
       let appearance: ChuckAppearance
       switch (s.spriteId) {
         case 0x91:
-          appearance = CharginChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight)
+          appearance = CharginChuckAppearance.fromTables(
+            chars,
+            placeholder,
+            bodyPalette,
+            bodyCharHigh,
+            faceRight,
+          )
           break
         case 0x92:
-          appearance = SplittinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight)
+          appearance = SplittinChuckAppearance.fromTables(
+            chars,
+            placeholder,
+            bodyPalette,
+            bodyCharHigh,
+            faceRight,
+          )
           break
         case 0x93:
-          appearance = BouncinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight)
+          appearance = BouncinChuckAppearance.fromTables(
+            chars,
+            placeholder,
+            bodyPalette,
+            bodyCharHigh,
+            faceRight,
+          )
           break
         case 0x94:
-          appearance = WhistlinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight)
+          appearance = WhistlinChuckAppearance.fromTables(
+            chars,
+            placeholder,
+            bodyPalette,
+            bodyCharHigh,
+            faceRight,
+          )
           break
         case 0x95:
-          appearance = ClappinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight)
+          appearance = ClappinChuckAppearance.fromTables(
+            chars,
+            placeholder,
+            bodyPalette,
+            bodyCharHigh,
+            faceRight,
+          )
           break
         case 0x97: {
           // Puntin' Chuck composes sprite $1B (Football) at its spawn offset
           // (CODE_03CBB3 bank_03.asm:8769); its palette comes from $1B's attr.
-          const { palette: ballPalette, charHigh: ballCharHigh } =
-            ChuckAppearance.bodyAttrs(tables.spriteAttr[0x1B] ?? 0)
+          const { palette: ballPalette, charHigh: ballCharHigh } = ChuckAppearance.bodyAttrs(
+            tables.spriteAttr[0x1b] ?? 0,
+          )
           appearance = PuntinChuckAppearance.fromTables(
-            chars, placeholder, bodyPalette, bodyCharHigh, ballPalette, ballCharHigh, faceRight,
+            chars,
+            placeholder,
+            bodyPalette,
+            bodyCharHigh,
+            ballPalette,
+            ballCharHigh,
+            faceRight,
           )
           break
         }
         case 0x98:
-          appearance = PitchinChuckAppearance.fromTables(chars, placeholder, bodyPalette, bodyCharHigh, faceRight)
+          appearance = PitchinChuckAppearance.fromTables(
+            chars,
+            placeholder,
+            bodyPalette,
+            bodyCharHigh,
+            faceRight,
+          )
           break
       }
       out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, appearance, behavior))
       continue
     }
 
-    // $9A (Sumo Brother) — custom 4-part OAM layout via SumoBroGfx
+    // $9A (Sumo Brother) - custom 4-part OAM layout via SumoBroGfx
     // (bank_02.asm:12456). Generic buildSpriteLayout returns only the head
     // tile fallback ($98) since the sprite uses its own table-driven render
     // path; build the full head-plus-body layout here.
-    if (s.spriteId === 0x9A) {
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        SumoBrotherAppearance.fromTables(chars, placeholder),
-        behavior,
-      ))
+    if (s.spriteId === 0x9a) {
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          SumoBrotherAppearance.fromTables(chars, placeholder),
+          behavior,
+        ),
+      )
       continue
     }
 
@@ -402,18 +539,22 @@ export function buildSprites(
     // Direction is derived from bit 4 of SpriteXPosLow by InitLinePlat
     // (bank_01.asm:11774) and resolved into lineGuide.direction above.
     if (s.spriteId === 0x62) {
-      const attr     = tables.spriteAttr[0x62] ?? 0x01
-      const palette  = 8 + ((attr >> 1) & 0x07)
+      const attr = tables.spriteAttr[0x62] ?? 0x01
+      const palette = 8 + ((attr >> 1) & 0x07)
       const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
       const dir = lineGuide?.direction ?? 'reverse'
       // Anchor = sprite's nominal position (track tile origin when probe succeeds,
       // spawn tile origin otherwise). render() applies −xShift/−8 itself.
       const { anchorX, anchorY } = lineGuideAnchor(lineGuide, s.x, s.y)
-      out.push(new Sprite(
-        s.spriteId, anchorX, anchorY,
-        LineBrownPlatAppearance.fromTables(chars, palette, charHigh, placeholder, dir),
-        behavior,
-      ))
+      out.push(
+        new Sprite(
+          s.spriteId,
+          anchorX,
+          anchorY,
+          LineBrownPlatAppearance.fromTables(chars, palette, charHigh, placeholder, dir),
+          behavior,
+        ),
+      )
       continue
     }
 
@@ -422,19 +563,23 @@ export function buildSprites(
     // Even tile col → SpriteMisc1602≠0 → checker mode (80px, 5 tiles, xShift=40px).
     // Odd tile col  → SpriteMisc1602=0  → brown mode  (48px, 3 tiles, xShift=24px).
     // CODE_01DAA2 (bank_01.asm:12323) reads SpriteMisc1602 for xShift, same as $62, so the
-    // same $18/$28 values apply. Unlike $62, xShift is fixed at spawn — not from lineGuide.
+    // same $18/$28 values apply. Unlike $62, xShift is fixed at spawn - not from lineGuide.
     if (s.spriteId === 0x63) {
-      const attr        = tables.spriteAttr[0x63] ?? 0x01
-      const palette     = 8 + ((attr >> 1) & 0x07)
-      const charHigh    = (attr & 0x01) !== 0 ? 0x100 : 0
-      const checkerMode = (s.x % 2 === 0)
+      const attr = tables.spriteAttr[0x63] ?? 0x01
+      const palette = 8 + ((attr >> 1) & 0x07)
+      const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+      const checkerMode = s.x % 2 === 0
       // Anchor = sprite's nominal position. render() applies −xShift/−8 itself.
       const { anchorX, anchorY } = lineGuideAnchor(lineGuide, s.x, s.y)
-      out.push(new Sprite(
-        s.spriteId, anchorX, anchorY,
-        LineCheckerPlatAppearance.fromTables(chars, palette, charHigh, placeholder, checkerMode),
-        behavior,
-      ))
+      out.push(
+        new Sprite(
+          s.spriteId,
+          anchorX,
+          anchorY,
+          LineCheckerPlatAppearance.fromTables(chars, palette, charHigh, placeholder, checkerMode),
+          behavior,
+        ),
+      )
       continue
     }
 
@@ -443,10 +588,10 @@ export function buildSprites(
     // See bank_01.asm:12557 (RopeMotorTiles), 12564 (CODE_01DC54), 12620 (knot overwrite).
     // Offset: _0=spriteX−8, _1=spriteY−8 absorbed via lineGuideAnchor drawOffset.
     if (s.spriteId === 0x64) {
-      const attr        = tables.spriteAttr[0x64] ?? 0
-      const charHigh    = (attr & 0x01) !== 0 ? 0x100 : 0
-      const motorPalette = 11  // ($37 >> 1) & 0x07 = 3 → CGRAM 8+3=11
-      const bodyPalette  = 8   // ($31 >> 1) & 0x07 = 0 → CGRAM 8+0=8
+      const attr = tables.spriteAttr[0x64] ?? 0
+      const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+      const motorPalette = 11 // ($37 >> 1) & 0x07 = 3 → CGRAM 8+3=11
+      const bodyPalette = 8 // ($31 >> 1) & 0x07 = 0 → CGRAM 8+0=8
       // Smoke palette is NOT inherited from the rope's body attr. CODE_029927
       // (bank_02.asm:3351-3352) copies SpriteProperties (DP $64) directly into
       // OAMTileAttr. SpriteProperties is the per-level XYPPCCCT byte set at
@@ -457,11 +602,22 @@ export function buildSprites(
       const SMOKE_SPRITE_PROPERTIES = 0x20
       const smokePalette = 8 + ((SMOKE_SPRITE_PROPERTIES >> 1) & 0x07)
       const { anchorX, anchorY } = lineGuideAnchor(lineGuide, s.x, s.y, -8, -8)
-      out.push(new Sprite(
-        s.spriteId, anchorX, anchorY,
-        RopeMechanismAppearance.fromTables(chars, motorPalette, bodyPalette, smokePalette, charHigh, placeholder),
-        behavior,
-      ))
+      out.push(
+        new Sprite(
+          s.spriteId,
+          anchorX,
+          anchorY,
+          RopeMechanismAppearance.fromTables(
+            chars,
+            motorPalette,
+            bodyPalette,
+            smokePalette,
+            charHigh,
+            placeholder,
+          ),
+          behavior,
+        ),
+      )
       continue
     }
 
@@ -472,16 +628,20 @@ export function buildSprites(
     // Chain direction: DATA_03C25F[id−$65]=$F2=−14 ($65 above), $0E=+14 ($66 below).
     if (s.spriteId === 0x65 || s.spriteId === 0x66) {
       const { anchorX, anchorY } = lineGuideAnchor(lineGuide, s.x, s.y, -8, -8)
-      out.push(new Sprite(
-        s.spriteId, anchorX, anchorY,
-        ChainsawAppearance.fromTables(chars, s.spriteId === 0x66, placeholder),
-        behavior,
-      ))
+      out.push(
+        new Sprite(
+          s.spriteId,
+          anchorX,
+          anchorY,
+          ChainsawAppearance.fromTables(chars, s.spriteId === 0x66, placeholder),
+          behavior,
+        ),
+      )
       continue
     }
 
     // $67 (Grinder): CODE_01DC0B draws 4 big-tiles via DATA_01DC3B/3F
-    // X offsets $F0,$00,$F0,$00 and Y offsets $F0,$F0,$00,$00 — 32×32 sprite
+    // X offsets $F0,$00,$F0,$00 and Y offsets $F0,$F0,$00,$00 - 32×32 sprite
     // with OAM anchor at SprX/SprY and visual centre at SprX−0.5.
     // lineGuideAnchor snaps to the track tile's pixel origin (col*16); +8 offsets
     // the anchor to the tile centre so the 32×32 body straddles it symmetrically.
@@ -505,15 +665,17 @@ export function buildSprites(
         const dx = s.spriteId === 0x67 ? 8 : 0
         const dy = s.spriteId === 0x67 ? 8 : 0
         const { anchorX, anchorY } = lineGuideAnchor(lineGuide, s.x, s.y, dx, dy)
-        out.push(new Sprite(s.spriteId, anchorX, anchorY, new StaticSpriteAppearance(grParts), behavior))
+        out.push(
+          new Sprite(s.spriteId, anchorX, anchorY, new StaticSpriteAppearance(grParts), behavior),
+        )
       }
       continue
     }
 
-    // $0C4 (Grey Falling Platform) — CODE_038492 (bank_03.asm:528).
+    // $0C4 (Grey Falling Platform) - CODE_038492 (bank_03.asm:528).
     // FallingPlatTiles=$60/$61/$61/$62 at FallingPlatDispX=0/16/32/48 px.
     // Sprite166EVals[$C4]=$F3 → &$0F=$03 → OBJ pal 1 (CGRAM row 9), charHigh=1 ($100).
-    if (s.spriteId === 0xC4) {
+    if (s.spriteId === 0xc4) {
       const OBJ_BASE = 0x400
       const attr = tables.spriteAttr[s.spriteId] ?? 0
       const palette = 8 + ((attr >> 1) & 0x07)
@@ -522,49 +684,92 @@ export function buildSprites(
       const parts: SpritePart[] = tiles.flatMap((t, col) => {
         const dx = col * 16
         return [
-          { char: chars.get(OBJ_BASE + charHigh + t)        ?? placeholder, palette, flipX: false, flipY: false, dx: dx,     dy: 0 },
-          { char: chars.get(OBJ_BASE + charHigh + t + 1)    ?? placeholder, palette, flipX: false, flipY: false, dx: dx + 8, dy: 0 },
-          { char: chars.get(OBJ_BASE + charHigh + t + 0x10) ?? placeholder, palette, flipX: false, flipY: false, dx: dx,     dy: 8 },
-          { char: chars.get(OBJ_BASE + charHigh + t + 0x11) ?? placeholder, palette, flipX: false, flipY: false, dx: dx + 8, dy: 8 },
+          {
+            char: chars.get(OBJ_BASE + charHigh + t) ?? placeholder,
+            palette,
+            flipX: false,
+            flipY: false,
+            dx: dx,
+            dy: 0,
+          },
+          {
+            char: chars.get(OBJ_BASE + charHigh + t + 1) ?? placeholder,
+            palette,
+            flipX: false,
+            flipY: false,
+            dx: dx + 8,
+            dy: 0,
+          },
+          {
+            char: chars.get(OBJ_BASE + charHigh + t + 0x10) ?? placeholder,
+            palette,
+            flipX: false,
+            flipY: false,
+            dx: dx,
+            dy: 8,
+          },
+          {
+            char: chars.get(OBJ_BASE + charHigh + t + 0x11) ?? placeholder,
+            palette,
+            flipX: false,
+            flipY: false,
+            dx: dx + 8,
+            dy: 8,
+          },
         ]
       })
-      out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, new StaticSpriteAppearance(parts), behavior))
+      out.push(
+        new Sprite(s.spriteId, s.x * 16, s.y * 16, new StaticSpriteAppearance(parts), behavior),
+      )
       continue
     }
 
-    // $AC/$AD (Wooden Spike) — WoodSpikeGfx (bank_03.asm:2669).
+    // $AC/$AD (Wooden Spike) - WoodSpikeGfx (bank_03.asm:2669).
     // 5 stacked 16×16 tiles from hardcoded WoodSpikeTiles/WoodSpikeGfxProp.
     // $AC: InitWoodSpike (bank_01.asm:488) subtracts $40 from Y → tip at spawn,
     //   body 64 px above; all V-flip (prop $81).
     // $AD: InitMontyMole (bank_01.asm:730) leaves Y unchanged → tip at spawn,
     //   body 64 px below; no flip (prop $01).
-    if (s.spriteId === 0xAC || s.spriteId === 0xAD) {
+    if (s.spriteId === 0xac || s.spriteId === 0xad) {
       // spriteMisc151C = SpriteXPosLow & $10 (CODE_039475): non-zero negates Y speed.
       // For $AC, SpriteMisc151C is always 0 (InitWoodSpike never sets it).
       // For $AD, InitMontyMole sets it from (SpriteXPosLow & $10): bit 4 of pixel X.
-      const spriteMisc151C = s.spriteId === 0xAD ? (s.x * 16) & 0x10 : 0
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        WoodSpikeAppearance.fromTables(chars, s.spriteId as 0xAC | 0xAD, placeholder, spriteMisc151C),
-        behavior,
-      ))
+      const spriteMisc151C = s.spriteId === 0xad ? (s.x * 16) & 0x10 : 0
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          WoodSpikeAppearance.fromTables(
+            chars,
+            s.spriteId as 0xac | 0xad,
+            placeholder,
+            spriteMisc151C,
+          ),
+          behavior,
+        ),
+      )
       continue
     }
 
-    // $86 (Wiggler) — multi-segment chain per WigglerGfx (bank_02.asm:14987).
+    // $86 (Wiggler) - multi-segment chain per WigglerGfx (bank_02.asm:14987).
     // Head + 4 body big-tiles plus an 8×8 eye. H-flip is direction-dependent
     // via SpriteTableC2 shift register (face-right → H-flip on, face-left →
     // no flip). faceLeft mirrors FaceMario at spawn (CODE_02D4FA).
     if (s.spriteId === 0x86) {
-      const attr     = tables.spriteAttr[s.spriteId] ?? 0
-      const palette  = 8 + ((attr >> 1) & 0x07)
+      const attr = tables.spriteAttr[s.spriteId] ?? 0
+      const palette = 8 + ((attr >> 1) & 0x07)
       const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
       const faceLeft = marioStartPx.x < s.x * 16
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        WigglerAppearance.fromTables(chars, palette, charHigh, faceLeft, placeholder),
-        behavior,
-      ))
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          WigglerAppearance.fromTables(chars, palette, charHigh, faceLeft, placeholder),
+          behavior,
+        ),
+      )
       continue
     }
 
@@ -574,12 +779,16 @@ export function buildSprites(
     // DATA_01E361 the GeneralSprGfxProp flip quad ($00/$05); the generic
     // sub0 path in buildSpriteLayout hardcodes SpriteMisc1602 = 0 and so
     // reads the sprite's SubSprGfx2 frame list instead of either quad.
-    if (s.spriteId === 0x4D) {
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        MontyMoleAppearance.fromTables(chars, tables, placeholder),
-        behavior,
-      ))
+    if (s.spriteId === 0x4d) {
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          MontyMoleAppearance.fromTables(chars, tables, placeholder),
+          behavior,
+        ),
+      )
       continue
     }
 
@@ -590,12 +799,22 @@ export function buildSprites(
     // pinned here to Mario's spawn side, as $30/$91 already do. Palette: the
     // resting MagiKoopaPals entry spliced over CGRAM row 15 columns 0-7.
     // See docs/sprite-1f-magikoopa.md.
-    if (s.spriteId === 0x1F) {
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        MagikoopaAppearance.fromTables(chars, tables, placeholder, marioStartPx.x >= s.x * 16, magikoopaPal),
-        behavior,
-      ))
+    if (s.spriteId === 0x1f) {
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          MagikoopaAppearance.fromTables(
+            chars,
+            tables,
+            placeholder,
+            marioStartPx.x >= s.x * 16,
+            magikoopaPal,
+          ),
+          behavior,
+        ),
+      )
       continue
     }
 
@@ -603,12 +822,16 @@ export function buildSprites(
     // Tiles at SprTilemap[tilemapBase+0/1] alternate every 8 ticks; direction is
     // hardcoded to 0 (DATA_02BCC7[0]=$00, no flip), which is wrong when Mario spawns
     // left of the sprite. See SpikeTopAppearance.fromTables.
-    if (s.spriteId === 0x2E) {
-      out.push(new Sprite(
-        s.spriteId, s.x * 16, s.y * 16,
-        SpikeTopAppearance.fromTables(chars, tables, placeholder),
-        behavior,
-      ))
+    if (s.spriteId === 0x2e) {
+      out.push(
+        new Sprite(
+          s.spriteId,
+          s.x * 16,
+          s.y * 16,
+          SpikeTopAppearance.fromTables(chars, tables, placeholder),
+          behavior,
+        ),
+      )
       continue
     }
 
@@ -624,21 +847,25 @@ export function buildSprites(
         dx: t.dx,
         dy: t.dy,
       }))
-      out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, new StaticSpriteAppearance(eggParts), behavior))
+      out.push(
+        new Sprite(s.spriteId, s.x * 16, s.y * 16, new StaticSpriteAppearance(eggParts), behavior),
+      )
       continue
     }
 
     const layout = buildSpriteLayout(tables, s.spriteId)
     if (!layout) {
       const boxChar = chars.get(-2) ?? makeTransparentPlaceholderChar()
-      const palette = 8 + ((tables.spriteAttr[s.spriteId] ?? 0) >> 1 & 0x07)
+      const palette = 8 + (((tables.spriteAttr[s.spriteId] ?? 0) >> 1) & 0x07)
       const boxParts: SpritePart[] = [
         { char: boxChar, palette, flipX: false, flipY: false, dx: 0, dy: 0 },
-        { char: boxChar, palette, flipX: true,  flipY: false, dx: 8, dy: 0 },
-        { char: boxChar, palette, flipX: false, flipY: true,  dx: 0, dy: 8 },
-        { char: boxChar, palette, flipX: true,  flipY: true,  dx: 8, dy: 8 },
+        { char: boxChar, palette, flipX: true, flipY: false, dx: 8, dy: 0 },
+        { char: boxChar, palette, flipX: false, flipY: true, dx: 0, dy: 8 },
+        { char: boxChar, palette, flipX: true, flipY: true, dx: 8, dy: 8 },
       ]
-      out.push(new Sprite(s.spriteId, s.x * 16, s.y * 16, new StaticSpriteAppearance(boxParts), behavior))
+      out.push(
+        new Sprite(s.spriteId, s.x * 16, s.y * 16, new StaticSpriteAppearance(boxParts), behavior),
+      )
       continue
     }
 
@@ -690,9 +917,9 @@ function thwompReactRangeDy(
   // four CODE_01933B branches (incl. tiles like $100 whose acts-like is
   // page-0 solid behavior, missed by `isActsLikeVertSolid`'s $11..$6D
   // fast-path).
-  const rows     = l1.length
+  const rows = l1.length
   const colStart = Math.floor((px + 4) / 16)
-  const colEnd   = Math.ceil((px + 28) / 16)
+  const colEnd = Math.ceil((px + 28) / 16)
   const startRow = Math.ceil((py + 32) / 16)
   let blockerRow = rows
   outer: for (let r = startRow; r < rows; r++) {
@@ -701,7 +928,10 @@ function thwompReactRangeDy(
       if (id === null || id === undefined) continue
       const tile = l1Tiles.get(id)
       if (!tile || isPriorityDecorative(tile)) continue
-      if (tile.collision.floor) { blockerRow = r; break outer }
+      if (tile.collision.floor) {
+        blockerRow = r
+        break outer
+      }
     }
   }
   const zoneBottom = blockerRow < rows ? (blockerRow + 1) * 16 : rows * 16

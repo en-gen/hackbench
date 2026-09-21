@@ -34,8 +34,10 @@ HackBench loaded).
 | `npm run compile` | Webpack dev build - extension + all webview bundles |
 | `npm run watch` | Rebuild on save |
 | `npm run package` | Production build (minified, hidden source maps) |
-| `npm run lint` | ESLint `src/` |
+| `npm run lint` | ESLint over `src`, `test`, `tools`, `theia` and root config, at `--max-warnings 0` |
 | `npm run lint:fix` | Auto-fix lint |
+| `npm run format` | Prettier over JS/TS/CSS |
+| `npm run format:check` | Prettier in check mode, as CI runs it |
 | `npm run test:unit` | Vitest unit tests (single run) |
 | `npm run test:unit:watch` | Vitest watch mode |
 
@@ -82,7 +84,8 @@ Short version:
 ## Pull request checklist
 
 - [ ] Targets `develop` (not `main`)
-- [ ] `npm run lint` passes
+- [ ] `npm run lint` passes (warnings are fatal)
+- [ ] `npm run format:check` passes, or run `npm run format`
 - [ ] `npm run test:unit` passes
 - [ ] New behavior covered by a unit test in `test/suite/unit/`
 - [ ] ROM parsing logic lives in `src/rom/` (no VS Code imports)

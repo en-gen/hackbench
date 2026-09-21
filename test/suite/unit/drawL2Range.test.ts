@@ -1,17 +1,25 @@
 /**
- * drawL2Range — "Show L2 BG range" overlay renderer (sibling of drawL3Range).
+ * drawL2Range - "Show L2 BG range" overlay renderer (sibling of drawL3Range).
  *
  * Locks the canvas operations the overlay emits. Scroll-range derivation is
  * tested separately in L2ScrollRange.test.ts.
  */
 
 import { describe, expect, it } from 'vitest'
-import { drawL2Range, type L2RangeDrawCtx } from '../../../src/webview/mapEditor/overlays/drawL2Range'
+import {
+  drawL2Range,
+  type L2RangeDrawCtx,
+} from '../../../src/webview/mapEditor/overlays/drawL2Range'
 import { L2ObjectStream, L2Preset } from '../../../src/rom/model/L2Layer'
 import type { SmwMap } from '../../../src/rom/model/SmwMap'
 import type { L2ScrollRange } from '../../../src/rom/L2Loader'
 
-interface RectOp { x: number; y: number; w: number; h: number }
+interface RectOp {
+  x: number
+  y: number
+  w: number
+  h: number
+}
 interface CtxRecorder extends L2RangeDrawCtx {
   rects: RectOp[]
   fills: number
@@ -36,15 +44,27 @@ function makeCtx(): CtxRecorder {
     labels,
     saved: 0,
     restored: 0,
-    save()    { ctx.saved++ },
-    restore() { ctx.restored++ },
+    save() {
+      ctx.saved++
+    },
+    restore() {
+      ctx.restored++
+    },
     beginPath() {},
-    rect(x, y, w, h) { rects.push({ x, y, w, h }) },
+    rect(x, y, w, h) {
+      rects.push({ x, y, w, h })
+    },
     moveTo() {},
     lineTo() {},
-    fill()   { ctx.fills++ },
-    stroke() { ctx.strokes++ },
-    fillText(text, x, y) { labels.push({ text, x, y }) },
+    fill() {
+      ctx.fills++
+    },
+    stroke() {
+      ctx.strokes++
+    },
+    fillText(text, x, y) {
+      labels.push({ text, x, y })
+    },
     strokeText() {},
   }
   return ctx
@@ -53,14 +73,18 @@ function makeCtx(): CtxRecorder {
 function makeMap(range: L2ScrollRange | null): SmwMap {
   const grid: (number | null)[][] = []
   const l1Tiles = new Map()
-  const l2 = range === null ? null : new L2ObjectStream(grid, l1Tiles, 0xC0, range)
+  const l2 = range === null ? null : new L2ObjectStream(grid, l1Tiles, 0xc0, range)
   return { l2 } as unknown as SmwMap
 }
 
 describe('drawL2Range', () => {
   it('emits rect + fill + stroke + label for fixed kind without cmd', () => {
     const range: L2ScrollRange = {
-      kind: 'fixed', xMin: 0, xMax: 256 * 11, yMin: 50, yMax: 200,
+      kind: 'fixed',
+      xMin: 0,
+      xMax: 256 * 11,
+      yMin: 50,
+      yMax: 200,
     }
     const ctx = makeCtx()
     drawL2Range(ctx, makeMap(range))
@@ -76,7 +100,12 @@ describe('drawL2Range', () => {
 
   it('annotates the label with the L1 cmd byte when present', () => {
     const range: L2ScrollRange = {
-      kind: 'fixed', xMin: 0, xMax: 2048, yMin: 64, yMax: 128, layer1ScrollCmd: 0x0E,
+      kind: 'fixed',
+      xMin: 0,
+      xMax: 2048,
+      yMin: 64,
+      yMax: 128,
+      layer1ScrollCmd: 0x0e,
     }
     const ctx = makeCtx()
     drawL2Range(ctx, makeMap(range))

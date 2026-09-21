@@ -6,7 +6,7 @@
  * accumulator, gravity is added to Y speed (clamped at $40 terminal), then
  * per-handler code adjusts speeds. Porting any of that faithfully in TS
  * means re-using the same sub-pixel math and signed-8-bit arithmetic every
- * handler uses — so those primitives live here, not in each Behavior.
+ * handler uses - so those primitives live here, not in each Behavior.
  *
  * None of this is canvas-aware; it's physics only. The Appearance layer
  * calls these via a Behavior's higher-level methods (simulateBounds,
@@ -24,16 +24,10 @@ export interface Rect {
  * Union a point's body-box (`(x, y)` → `(x+w, y+h)`) into an existing rect.
  * Shrinking `rect` values grow towards the body; both axes grow independently.
  */
-export function unionBodyBox(
-  rect: Rect,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-): void {
-  if (x     < rect.minX) rect.minX = x
+export function unionBodyBox(rect: Rect, x: number, y: number, w: number, h: number): void {
+  if (x < rect.minX) rect.minX = x
   if (x + w > rect.maxX) rect.maxX = x + w
-  if (y     < rect.minY) rect.minY = y
+  if (y < rect.minY) rect.minY = y
   if (y + h > rect.maxY) rect.maxY = y + h
 }
 
@@ -59,14 +53,10 @@ export function unsigned8(v: number): number {
  * terminal velocity. Matches `SubUpdateSprPos`'s gravity step: load
  * `DATA_019030[idx]` (default $03), add to speed, compare against
  * `DATA_01902E[idx]` (default $40) and clamp. The clamp is done in the
- * positive direction only (falling) — rising speeds are bounded by the
+ * positive direction only (falling) - rising speeds are bounded by the
  * handler's own `DEC.B SpriteYSpeed,x`.
  */
-export function applyGravity(
-  vy: number,
-  gravity: number = 3,
-  terminal: number = 0x40,
-): number {
+export function applyGravity(vy: number, gravity: number = 3, terminal: number = 0x40): number {
   const next = vy + gravity
   return next > terminal ? terminal : next
 }
@@ -75,7 +65,7 @@ export function applyGravity(
  * Run a simulation loop with a convergence cut-off. The body `step` mutates
  * its caller-owned state and returns `false` when the sim should stop early
  * (e.g. sprite is offscreen). The loop also exits once `bounds` stops growing
- * for `stableFrames` iterations — useful for range-of-motion computations
+ * for `stableFrames` iterations - useful for range-of-motion computations
  * where the goal is "enumerate every reachable pixel" rather than "simulate
  * forever". `maxFrames` is an absolute guard against runaway sims.
  *
@@ -90,15 +80,17 @@ export function simulateUntilStable(
   } = {},
 ): number {
   const stableTarget = options.stableFrames ?? 256
-  const maxFrames    = options.maxFrames   ?? 4096
+  const maxFrames = options.maxFrames ?? 4096
   let stable = 0
   for (let frame = 0; frame < maxFrames; frame++) {
     const before = { ...bounds }
     const cont = step(frame)
     if (cont === false) return frame + 1
     const grew =
-      bounds.minX !== before.minX || bounds.maxX !== before.maxX ||
-      bounds.minY !== before.minY || bounds.maxY !== before.maxY
+      bounds.minX !== before.minX ||
+      bounds.maxX !== before.maxX ||
+      bounds.minY !== before.minY ||
+      bounds.maxY !== before.maxY
     stable = grew ? 0 : stable + 1
     if (stable >= stableTarget) return frame + 1
   }

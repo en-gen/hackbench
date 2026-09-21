@@ -13,11 +13,7 @@ import { L3Layer } from '../../../../src/rom/model/L3Layer'
 import type { Sprite } from '../../../../src/rom/model/sprites/Sprite'
 import { SmwMap } from '../../../../src/rom/model/SmwMap'
 import type { MapStore } from '../../../../src/rom/model/stores/mapStore'
-import type {
-  PixelPos,
-  PixelSize,
-  RenderTarget,
-} from '../../../../src/rom/model/RenderTarget'
+import type { PixelPos, PixelSize, RenderTarget } from '../../../../src/rom/model/RenderTarget'
 import { editorStore, makeTestMapStore, resetEditorStore } from '../fixtures/stores'
 
 interface BlitCall {
@@ -44,7 +40,13 @@ class MockRenderTarget implements RenderTarget {
     this.pixelsToCharId.set(pixels, char.id)
   }
 
-  blit8x8(pixels: Uint8Array, pos: PixelPos, _row: RgbaColor[], _flipX: boolean, _flipY: boolean): void {
+  blit8x8(
+    pixels: Uint8Array,
+    pos: PixelPos,
+    _row: RgbaColor[],
+    _flipX: boolean,
+    _flipY: boolean,
+  ): void {
     this.calls.push({
       kind: 'blit',
       posX: pos.x,
@@ -69,7 +71,11 @@ function makeStaticTile(id: number, quad: SubtileQuad): Tile {
   return new Tile(id, new StaticQuadBehavior(quad))
 }
 
-function makeQuad(chars: [number, number, number, number], mock: MockRenderTarget, priority = false): SubtileQuad {
+function makeQuad(
+  chars: [number, number, number, number],
+  mock: MockRenderTarget,
+  priority = false,
+): SubtileQuad {
   return [
     new SubTile(makeCharWithPixels(chars[0], mock), 0, false, false, priority),
     new SubTile(makeCharWithPixels(chars[1], mock), 0, false, false, priority),
@@ -115,7 +121,7 @@ function makeStubSprite(bodyChar: Char, aboveChar?: Char): Sprite {
     id: 0,
     x: 0,
     y: 0,
-    priority: { value: 2, source: 'level' },   // OBJ.2, the common case
+    priority: { value: 2, source: 'level' }, // OBJ.2, the common case
     appearance: {
       render: (t, x, y, _b, ms) => {
         t.blit8x8(bodyChar.getPixels(), { x, y }, ms.palette.row(0), false, false)
@@ -139,7 +145,7 @@ function makeStubSprite(bodyChar: Char, aboveChar?: Char): Sprite {
 
 /** Minimal L3 layer that blits one identifiable char, for ordering tests. */
 function makeStubL3(char: Char): L3Layer {
-  return new class extends L3Layer {
+  return new (class extends L3Layer {
     render(t: RenderTarget, ms: MapStore): void {
       t.blit8x8(char.getPixels(), { x: 0, y: 0 }, ms.palette.row(0), false, false)
     }
@@ -147,8 +153,10 @@ function makeStubL3(char: Char): L3Layer {
     // sits relative to the above-L1 annotation pass; claiming nonPriority
     // too would put a second L3 draw at the back of the order and change
     // what those tests are measuring.
-    phases(): Set<Phase> { return new Set<Phase>(['priority']) }
-  }()
+    phases(): Set<Phase> {
+      return new Set<Phase>(['priority'])
+    }
+  })()
 }
 
 /**
@@ -157,22 +165,27 @@ function makeStubL3(char: Char): L3Layer {
  * buried the one or two that actually varied.
  */
 function makeMap(opts: {
-  l1?:            (number | null)[][]
-  l2?:            L2Layer | null
-  l3?:            L3Layer | null
-  sprites?:       Sprite[]
-  l1Tiles?:       Map<number, Tile>
-  palette?:       Palette
-  mapStore?:      MapStore
+  l1?: (number | null)[][]
+  l2?: L2Layer | null
+  l3?: L3Layer | null
+  sprites?: Sprite[]
+  l1Tiles?: Map<number, Tile>
+  palette?: Palette
+  mapStore?: MapStore
   layer3Priority?: boolean
 }): SmwMap {
-  const palette  = opts.palette  ?? makePalette()
+  const palette = opts.palette ?? makePalette()
   const mapStore = opts.mapStore ?? makeMapStore(palette)
   return new SmwMap(
     0,
     {
-      mode: 0, music: 0, tileset: 0, orientation: 'horizontal',
-      initialCameraYPx: 0, timeLimit: 0, marioStartPx: { x: 0, y: 0 },
+      mode: 0,
+      music: 0,
+      tileset: 0,
+      orientation: 'horizontal',
+      initialCameraYPx: 0,
+      timeLimit: 0,
+      marioStartPx: { x: 0, y: 0 },
       ...(opts.layer3Priority === undefined ? {} : { layer3Priority: opts.layer3Priority }),
     },
     opts.l1 ?? [[0]],
@@ -263,11 +276,11 @@ describe('SmwMap.render', () => {
     ]
     l1Tiles.set(0, makeStaticTile(0, priorityQuad))
 
-    const bodyChar  = makeCharWithPixels(40, mock)
+    const bodyChar = makeCharWithPixels(40, mock)
     const aboveChar = makeCharWithPixels(41, mock)
-    const sprite    = makeStubSprite(bodyChar, aboveChar)
+    const sprite = makeStubSprite(bodyChar, aboveChar)
 
-    const palette  = makePalette()
+    const palette = makePalette()
     const mapStore = makeMapStore(palette)
     const map = makeMap({ sprites: [sprite], l1Tiles, palette, mapStore })
     map.render(mock)
@@ -279,9 +292,11 @@ describe('SmwMap.render', () => {
 
   it('skips the above-L1 sprite pass when the sprite layer is toggled off', () => {
     const mock = new MockRenderTarget()
-    const l1Tiles = new Map<number, Tile>([[0, makeStaticTile(0, makeQuad([30, 31, 32, 33], mock))]])
+    const l1Tiles = new Map<number, Tile>([
+      [0, makeStaticTile(0, makeQuad([30, 31, 32, 33], mock))],
+    ])
     const sprite = makeStubSprite(makeCharWithPixels(40, mock), makeCharWithPixels(41, mock))
-    const palette  = makePalette()
+    const palette = makePalette()
     const mapStore = makeMapStore(palette)
     const map = makeMap({ sprites: [sprite], l1Tiles, palette, mapStore })
     editorStore.setLayerToggles({ ...editorStore.layerToggles, sprites: false })
@@ -297,8 +312,10 @@ describe('SmwMap.render', () => {
     // layer 1 only, it is not promoted over the foreground BG. The
     // sibling ordering test builds with l3 = null and cannot see it.
     const mock = new MockRenderTarget()
-    const l1Tiles = new Map<number, Tile>([[0, makeStaticTile(0, makeQuad([30, 31, 32, 33], mock))]])
-    const sprite  = makeStubSprite(makeCharWithPixels(40, mock), makeCharWithPixels(41, mock))
+    const l1Tiles = new Map<number, Tile>([
+      [0, makeStaticTile(0, makeQuad([30, 31, 32, 33], mock))],
+    ])
+    const sprite = makeStubSprite(makeCharWithPixels(40, mock), makeCharWithPixels(41, mock))
     const map = makeMap({
       sprites: [sprite],
       l1Tiles,
@@ -316,8 +333,10 @@ describe('SmwMap.render', () => {
     // The other side of the same branch: layer3Priority = false puts L3
     // before everything, annotation included.
     const mock = new MockRenderTarget()
-    const l1Tiles = new Map<number, Tile>([[0, makeStaticTile(0, makeQuad([30, 31, 32, 33], mock))]])
-    const sprite  = makeStubSprite(makeCharWithPixels(40, mock), makeCharWithPixels(41, mock))
+    const l1Tiles = new Map<number, Tile>([
+      [0, makeStaticTile(0, makeQuad([30, 31, 32, 33], mock))],
+    ])
+    const sprite = makeStubSprite(makeCharWithPixels(40, mock), makeCharWithPixels(41, mock))
     const map = makeMap({
       sprites: [sprite],
       l1Tiles,
@@ -334,11 +353,17 @@ describe('SmwMap.render', () => {
     const mock = new MockRenderTarget()
     const l2Tile = makeStaticTile(100, makeQuad([20, 21, 22, 23], mock))
     const l1Tile = makeStaticTile(0, makeQuad([30, 31, 32, 33], mock))
-    const l1Tiles = new Map<number, Tile>([[0, l1Tile], [100, l2Tile]])
+    const l1Tiles = new Map<number, Tile>([
+      [0, l1Tile],
+      [100, l2Tile],
+    ])
     const palette = makePalette()
     const mapStore = makeMapStore(palette)
     const map = makeMap({
-      l2: new L2ObjectStream([[100]], l1Tiles), l1Tiles, palette, mapStore,
+      l2: new L2ObjectStream([[100]], l1Tiles),
+      l1Tiles,
+      palette,
+      mapStore,
     })
 
     editorStore.setLayerToggles({

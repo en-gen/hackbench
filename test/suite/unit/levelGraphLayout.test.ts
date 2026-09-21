@@ -11,7 +11,14 @@
  * right edge of a canvas only a few thousand pixels wide.
  */
 import { describe, it, expect } from 'vitest'
-import { buildLayout, NODE_W, COL_GAP, MARGIN, type GraphNode, type GraphEdge } from '../../../src/webview/levelGraph/layout'
+import {
+  buildLayout,
+  NODE_W,
+  COL_GAP,
+  MARGIN,
+  type GraphNode,
+  type GraphEdge,
+} from '../../../src/webview/levelGraph/layout'
 
 describe('buildLayout', () => {
   it('bounds depth on a cyclic graph instead of growing without limit', () => {
@@ -45,13 +52,13 @@ describe('buildLayout', () => {
   it('reproduces the vanilla $1DB <-> $1DD pipe loop without blowing up the canvas', () => {
     const nodes: GraphNode[] = [
       { id: 0x113, hex: '113', name: 'overworld root', isOverworld: true },
-      { id: 0x1DB, hex: '1DB', name: null, isOverworld: false },
-      { id: 0x1DD, hex: '1DD', name: null, isOverworld: false },
+      { id: 0x1db, hex: '1DB', name: null, isOverworld: false },
+      { id: 0x1dd, hex: '1DD', name: null, isOverworld: false },
     ]
     const edges: GraphEdge[] = [
-      { source: 0x113, target: 0x1DB },
-      { source: 0x1DB, target: 0x1DD },
-      { source: 0x1DD, target: 0x1DB },
+      { source: 0x113, target: 0x1db },
+      { source: 0x1db, target: 0x1dd },
+      { source: 0x1dd, target: 0x1db },
     ]
 
     const layout = buildLayout(nodes, edges)
@@ -70,7 +77,7 @@ describe('buildLayout', () => {
     // than max depth + 1 (5), the exact mismatch that let nodes render past
     // a canvas sized from the distinct count.
     const nodes: GraphNode[] = [
-      { id: 0, hex: '000', name: null, isOverworld: true },  // root
+      { id: 0, hex: '000', name: null, isOverworld: true }, // root
       { id: 1, hex: '001', name: null, isOverworld: false }, // A
       { id: 2, hex: '002', name: null, isOverworld: false }, // Y
       { id: 3, hex: '003', name: null, isOverworld: false }, // Z

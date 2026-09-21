@@ -16,8 +16,8 @@ import { VramState, getCharPixels } from './GfxLoader'
 import { getPaletteColor } from './PaletteLoader'
 import { RgbaColor } from './GraphicsDecoder'
 
-const TILE_PX = 8     // 8×8 pixels per subtile
-const MAP16_PX = 16   // 16×16 pixels per Map16 tile
+const TILE_PX = 8 // 8×8 pixels per subtile
+const MAP16_PX = 16 // 16×16 pixels per Map16 tile
 
 /** RGBA bytes for one 16×16 Map16 tile (16*16*4 = 1024 bytes). */
 export type TileRgba = Uint8ClampedArray
@@ -32,27 +32,27 @@ function renderSubTile(
   palette: { colors: RgbaColor[] },
   dest: Uint8ClampedArray,
   destOffset: number,
-  destStride: number,  // bytes per destination row (4 * MAP16_PX)
+  destStride: number, // bytes per destination row (4 * MAP16_PX)
 ): void {
   const pixels = getCharPixels(vram, sub.charNum)
   const paletteRow = sub.palette
 
   for (let py = 0; py < TILE_PX; py++) {
-    const srcY = sub.flipY ? (TILE_PX - 1 - py) : py
+    const srcY = sub.flipY ? TILE_PX - 1 - py : py
     for (let px = 0; px < TILE_PX; px++) {
-      const srcX = sub.flipX ? (TILE_PX - 1 - px) : px
+      const srcX = sub.flipX ? TILE_PX - 1 - px : px
       const paletteIdx = pixels ? pixels[srcY * TILE_PX + srcX] : 0
       const dest4 = destOffset + py * destStride + px * 4
 
       if (paletteIdx === 0) {
         // Color 0 = transparent; write magenta placeholder for empty VRAM
-        dest[dest4]     = pixels ? 0 : 255
+        dest[dest4] = pixels ? 0 : 255
         dest[dest4 + 1] = 0
         dest[dest4 + 2] = pixels ? 0 : 255
         dest[dest4 + 3] = pixels ? 0 : 128
       } else {
         const color: RgbaColor = getPaletteColor(palette, paletteRow, paletteIdx)
-        dest[dest4]     = color[0]
+        dest[dest4] = color[0]
         dest[dest4 + 1] = color[1]
         dest[dest4 + 2] = color[2]
         dest[dest4 + 3] = 255

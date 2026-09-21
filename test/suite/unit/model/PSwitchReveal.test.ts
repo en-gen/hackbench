@@ -17,13 +17,7 @@ const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario Wor
 
 function makeQuad(tag: number): SubtileQuad {
   const sub = () =>
-    new SubTile(
-      new Char(tag, new StaticPixelsBehavior(new Uint8Array(64))),
-      0,
-      false,
-      false,
-      false,
-    )
+    new SubTile(new Char(tag, new StaticPixelsBehavior(new Uint8Array(64))), 0, false, false, false)
   return [sub(), sub(), sub(), sub()]
 }
 
@@ -76,7 +70,7 @@ describe.skipIf(!existsSync(ROM_PATH))('TileFactory P-switch reveal wiring (vani
     // $27/$28/$29 are strict ports of `CODE_00F545`. $2A is included as
     // an editor-UX inclusion: its native Map16 visual is transparent in
     // many tilesets, but vanilla level data uses it for "hidden coin"
-    // arrow patterns the designer needs to see — so we substitute the
+    // arrow patterns the designer needs to see - so we substitute the
     // $2B coin artwork at 50% opacity (full opacity when the editor's
     // blue P-switch toggle is on). The tile retains its $2A identity in
     // the level grid; only the rendered visual changes.
@@ -87,10 +81,12 @@ describe.skipIf(!existsSync(ROM_PATH))('TileFactory P-switch reveal wiring (vani
     const chars = buildChars(vram)
     const tiles = buildTiles(rom.rom, header.objectTileset, chars)
 
-    for (const id of [0x27, 0x28, 0x29, 0x2A]) {
+    for (const id of [0x27, 0x28, 0x29, 0x2a]) {
       const tile = tiles.get(id)
       expect(tile, `tile $${id.toString(16)}`).toBeInstanceOf(Tile)
-      expect(tile!.behavior, `behavior of $${id.toString(16)}`).toBeInstanceOf(PSwitchRevealBehavior)
+      expect(tile!.behavior, `behavior of $${id.toString(16)}`).toBeInstanceOf(
+        PSwitchRevealBehavior,
+      )
       expect(tile!.id, `id of $${id.toString(16)}`).toBe(id)
     }
   })

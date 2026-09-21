@@ -22,7 +22,7 @@ const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario Wor
 const key = (p: RenderPass): string => `${p.layer}.${p.priority}`
 
 /** Levels ranked by Layer-1 priority cell count: 923, 630 and 462 cells. */
-const DENSE_L1_PRIORITY = [0x10A, 0x1EC, 0x11E]
+const DENSE_L1_PRIORITY = [0x10a, 0x1ec, 0x11e]
 
 describe.skipIf(!existsSync(ROM_PATH))('pass list over all 512 level ids', () => {
   beforeEach(resetEditorStore)
@@ -66,7 +66,9 @@ describe.skipIf(!existsSync(ROM_PATH))('pass list over all 512 level ids', () =>
     // $10A is both the densest L1-priority level and one of the 17 that
     // carry an OBJ.1 sprite, so it exercises the bug on real level data:
     // the old fixed order drew those sprites after l1.0.
-    const passes = sweep().find(s => s.id === 0x10A)!.passes.map(key)
+    const passes = sweep()
+      .find(s => s.id === 0x10a)!
+      .passes.map(key)
     expect(passes).toContain('sprites.1')
     expect(passes.indexOf('sprites.1')).toBeLessThan(passes.indexOf('l1.0'))
     expect(passes.indexOf('sprites.1')).toBeLessThan(passes.indexOf('l2.0'))
@@ -79,8 +81,14 @@ describe.skipIf(!existsSync(ROM_PATH))('pass list over all 512 level ids', () =>
     // layer, and sprites split three ways.
     const hist = new Map<number, number>()
     for (const { passes } of sweep()) hist.set(passes.length, (hist.get(passes.length) ?? 0) + 1)
-    expect([...hist.entries()].sort((a, b) => a[0] - b[0]))
-      .toEqual([[2, 294], [3, 83], [4, 112], [5, 19], [6, 3], [7, 1]])
+    expect([...hist.entries()].sort((a, b) => a[0] - b[0])).toEqual([
+      [2, 294],
+      [3, 83],
+      [4, 112],
+      [5, 19],
+      [6, 3],
+      [7, 1],
+    ])
   })
 
   it('every sprite on the cart resolves to a priority in 0..3', () => {
@@ -88,8 +96,10 @@ describe.skipIf(!existsSync(ROM_PATH))('pass list over all 512 level ids', () =>
     const sources = new Map<string, number>()
     for (let id = 0; id < 512; id++) {
       for (const s of buildMap(rom, id).sprites) {
-        expect(s.priority.value, `level $${id.toString(16)} sprite $${s.id.toString(16)}`)
-          .toBeGreaterThanOrEqual(0)
+        expect(
+          s.priority.value,
+          `level $${id.toString(16)} sprite $${s.id.toString(16)}`,
+        ).toBeGreaterThanOrEqual(0)
         expect(s.priority.value).toBeLessThanOrEqual(3)
         sources.set(s.priority.source, (sources.get(s.priority.source) ?? 0) + 1)
       }

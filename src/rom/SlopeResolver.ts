@@ -1,5 +1,5 @@
 /**
- * SlopeResolver.ts — faithful port of SMW's slope-angle dispatch at
+ * SlopeResolver.ts - faithful port of SMW's slope-angle dispatch at
  * `CODE_00ED86` (bank_00.asm:12334-12381) as a pure lookup: given a
  * tile's acts-like low byte plus the level's object tileset, produce
  * the 16-byte per-pixel-X surface-height profile for that tile.
@@ -15,12 +15,12 @@
  * `SlopesPtr` (rammap.asm:700) is loaded by `CODE_0581FB`
  * (bank_05.asm:253) at level init: `DATA_00E55E` is the default target
  * (bank_05.asm:260-268), replaced by `DATA_00E5C8` when the foreground
- * tileset is 0 or 7 (bank_05.asm:317-327 — the `CODE_058281` branch).
+ * tileset is 0 or 7 (bank_05.asm:317-327 - the `CODE_058281` branch).
  *
  * This resolver reproduces the dispatch as a static lookup so the map
  * editor can render the slope surface without emulating the CPU. For
  * visualisation we do NOT replicate the `CPY #$D2 BCS` gate at
- * bank_00.asm:12340-12342 (tileset 3/$E skips `$D2+` at runtime) —
+ * bank_00.asm:12340-12342 (tileset 3/$E skips `$D2+` at runtime) -
  * overlay-only deviation, since the slope graphic is still present in
  * the ROM's tile data and designers benefit from seeing it.
  *
@@ -57,7 +57,7 @@ import type { RomFile } from './RomFile'
  * A smaller value is a higher point on the slope (surface closer to the
  * tile's top edge); larger values are lower. The tile is "empty" (no
  * collision) at Y positions strictly below the surface value, "solid"
- * at Y positions at or above it — this matches `CODE_00ED86`'s
+ * at Y positions at or above it - this matches `CODE_00ED86`'s
  * `SBC DATA_00E632,X / BPL` logic at bank_00.asm:12361-12364.
  */
 export interface SlopeInfo {
@@ -79,8 +79,8 @@ export interface SlopeTables {
 
 export function readSlopeTables(rom: RomFile): SlopeTables {
   return {
-    heightTable:       readSlopeHeightTable(rom),
-    indexMapDefault:   readSlopeIndexMapDefault(rom),
+    heightTable: readSlopeHeightTable(rom),
+    indexMapDefault: readSlopeIndexMapDefault(rom),
     indexMapOverworld: readSlopeIndexMapOverworld(rom),
   }
 }
@@ -94,7 +94,7 @@ export function readSlopeTables(rom: RomFile): SlopeTables {
  * ignored to mirror `CODE_00ED86`'s Y-register input.
  *
  * Per the ASM guards at bank_00.asm:12327-12330, low bytes outside
- * `$6E..$D7` are NOT slopes — this returns `null` for them. The
+ * `$6E..$D7` are NOT slopes - this returns `null` for them. The
  * overworld branch selects between the two pointer targets exactly as
  * `CODE_0581FB` does at level init.
  */
@@ -103,19 +103,17 @@ export function resolveSlope(
   tileset: number,
   tables: SlopeTables,
 ): SlopeInfo | null {
-  const low = actsLikeLow & 0xFF
+  const low = actsLikeLow & 0xff
   if (low < SLOPE_LOW_BASE || low > SLOPE_LOW_END) return null
 
-  // bank_05.asm:317-327 — tileset 0 or 7 swaps SlopesPtr to DATA_00E5C8.
-  const map = (tileset === 0 || tileset === 7)
-    ? tables.indexMapOverworld
-    : tables.indexMapDefault
+  // bank_05.asm:317-327 - tileset 0 or 7 swaps SlopesPtr to DATA_00E5C8.
+  const map = tileset === 0 || tileset === 7 ? tables.indexMapOverworld : tables.indexMapDefault
 
   const mapIdx = low - SLOPE_LOW_BASE
-  if (mapIdx >= map.length) return null  // defensive; shouldn't hit in-range
+  if (mapIdx >= map.length) return null // defensive; shouldn't hit in-range
   const slopeIndex = map[mapIdx]
 
-  // bank_00.asm:12350-12357 — 4x ASL = slopeIndex * 16; ORA pixelX gives
+  // bank_00.asm:12350-12357 - 4x ASL = slopeIndex * 16; ORA pixelX gives
   // the 16-entry slice covering all pixel columns in the tile.
   const base = slopeIndex * 16
   if (base + 16 > tables.heightTable.length) return null

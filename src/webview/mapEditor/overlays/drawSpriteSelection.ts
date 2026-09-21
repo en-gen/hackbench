@@ -6,14 +6,19 @@ import type { Sprite } from '../../../rom/model/sprites/Sprite'
  */
 export interface SelectionDrawCtx {
   strokeStyle: string | CanvasGradient | CanvasPattern
-  lineWidth:   number
+  lineWidth: number
   save(): void
   restore(): void
   setLineDash(segments: number[]): void
   strokeRect(x: number, y: number, w: number, h: number): void
 }
 
-export interface SelectionRect { x: number; y: number; w: number; h: number }
+export interface SelectionRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
 
 // The mark has to be told apart from two neighbours on this canvas: the
 // engine marker's corner ticks, and the sprite annotations. It is therefore
@@ -21,8 +26,8 @@ export interface SelectionRect { x: number; y: number; w: number; h: number }
 // hue-coded (camera yellow, vine green, wall purple, L3 magenta), so the
 // dash pattern alone carries "this is a selection", and the white reads
 // as UI chrome rather than as another data layer.
-export const SELECTION_DASH    = [4, 3]
-export const SELECTION_COLOR   = '#ffffff'
+export const SELECTION_DASH = [4, 3]
+export const SELECTION_COLOR = '#ffffff'
 export const SELECTION_BACKING = 'rgba(0,0,0,0.8)'
 
 const OUTSET = 2

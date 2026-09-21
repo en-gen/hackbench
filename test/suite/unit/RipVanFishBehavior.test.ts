@@ -1,8 +1,8 @@
 /**
- * RipVanFishBehavior — detection-radius constant matches the ROM port.
+ * RipVanFishBehavior - detection-radius constant matches the ROM port.
  *
  * The wake-up test in `CODE_02C02E` (bank_02.asm:8533-8542) does
- *   `ADC #$30; CMP #$60` on both axes — the standard SMW
+ *   `ADC #$30; CMP #$60` on both axes - the standard SMW
  * `|signed| >= $30` shortcut. Anything within ±$30 px on each axis
  * triggers the wake-up. The behavior exposes that half-width as
  * `detectHalfPx` for the appearance overlay; this test pins it.

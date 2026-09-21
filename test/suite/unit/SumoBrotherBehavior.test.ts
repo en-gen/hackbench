@@ -1,5 +1,5 @@
 /**
- * SumoBrotherBehavior — branch coverage.
+ * SumoBrotherBehavior - branch coverage.
  * ($9A Sumo Brother patrol + lightning geometry, bank_02.asm:12286–12578)
  *
  * Test tree:
@@ -27,8 +27,8 @@ import {
 import { buildSolidity } from './fixtures/buildSolidity'
 import type { GetL1Tile } from '../../../src/rom/model/OverlayContext'
 
-const GROUND = { actsLike: 0x130 }  // page-1 $30 — solid floor/wall
-const BODY   = 16
+const GROUND = { actsLike: 0x130 } // page-1 $30 - solid floor/wall
+const BODY = 16
 
 // ── getPatrolRange ────────────────────────────────────────────────────────────
 
@@ -50,8 +50,8 @@ describe('SumoBrotherBehavior.getPatrolRange', () => {
 
   it('clips rightX to levelCols*16 when sprite is near the right edge', () => {
     // spriteX at far right: center near levelPixels → raw rightX > levelPixels
-    const levelCols = 5                        // 80 px wide
-    const spriteX   = levelCols * BODY - 8    // 72, center=80
+    const levelCols = 5 // 80 px wide
+    const spriteX = levelCols * BODY - 8 // 72, center=80
     const { rightX } = beh.getPatrolRange(spriteX, levelCols)
     expect(rightX).toBe(levelCols * BODY)
   })
@@ -59,22 +59,22 @@ describe('SumoBrotherBehavior.getPatrolRange', () => {
 
 // ── getLightningFall ──────────────────────────────────────────────────────────
 
-describe('SumoBrotherBehavior.getLightningFall — floor detection', () => {
+describe('SumoBrotherBehavior.getLightningFall - floor detection', () => {
   it('hasFloor=true when a floor tile exists at startRow (spriteRow + 4)', () => {
     // Sprite at y=0 (row 0): startRow = 0 + 1 + 3 = 4.
     // Floor at row 4 → found immediately on first scan step.
     const level = [
-      '.....',  // row 0 — sprite here (y=0)
-      '.....',  // row 1
-      '.....',  // row 2
-      '.....',  // row 3
-      '#####',  // row 4 — ground  (startRow = 4)
+      '.....', // row 0 - sprite here (y=0)
+      '.....', // row 1
+      '.....', // row 2
+      '.....', // row 3
+      '#####', // row 4 - ground  (startRow = 4)
     ]
     const { getL1, cols, rows } = buildSolidity(level, { '#': GROUND })
     const beh = new SumoBrotherBehavior()
     const result = beh.getLightningFall(0, 0, getL1, cols, rows)
     expect(result.hasFloor).toBe(true)
-    expect(result.groundY).toBe(4 * BODY)  // top of blocker row
+    expect(result.groundY).toBe(4 * BODY) // top of blocker row
   })
 
   it('hasFloor=false when level has no solid floor', () => {
@@ -83,17 +83,17 @@ describe('SumoBrotherBehavior.getLightningFall — floor detection', () => {
     const beh = new SumoBrotherBehavior()
     const result = beh.getLightningFall(0, 0, getL1, cols, rows)
     expect(result.hasFloor).toBe(false)
-    expect(result.groundY).toBe(rows * BODY)  // fallback: level bottom
+    expect(result.groundY).toBe(rows * BODY) // fallback: level bottom
   })
 
   it('fallTopY is always spriteY + 16 (sprite bottom edge)', () => {
     // ASM: GenSumoLightning (bank_02.asm:12417) uses SpriteYPos unchanged.
     const level = [
-      '.......',  // row 0
-      '.......',  // row 1
-      '.......',  // row 2
-      '.......',  // row 3
-      '#######',  // row 4
+      '.......', // row 0
+      '.......', // row 1
+      '.......', // row 2
+      '.......', // row 3
+      '#######', // row 4
     ]
     const { getL1, cols, rows } = buildSolidity(level, { '#': GROUND })
     const beh = new SumoBrotherBehavior()
@@ -102,7 +102,7 @@ describe('SumoBrotherBehavior.getLightningFall — floor detection', () => {
   })
 })
 
-describe('SumoBrotherBehavior.getLightningFall — surfacePoints', () => {
+describe('SumoBrotherBehavior.getLightningFall - surfacePoints', () => {
   it('surfacePoints is non-empty when floor tiles cover the fire band', () => {
     // Wide enough level for the full ±36px fire band around the lightning.
     // spriteX=80, spriteY=0 → lightningX=84, startRow=4.
@@ -149,10 +149,10 @@ describe('SumoBrotherBehavior.getClusterFireXs', () => {
     expect(xs.length).toBeLessThan(5)
   })
 
-  it('filters fires at negative x (fx >= 0 false branch — && short-circuit)', () => {
+  it('filters fires at negative x (fx >= 0 false branch - && short-circuit)', () => {
     // lightningX = spriteX + 4 = 4.
     // DATA_02DF22 offsets: -4→0, +12→16, -20→-16, +28→32, -36→-32.
-    // Two fires land below 0 (dx=-20 → fx=-16, dx=-36 → fx=-32) — the
+    // Two fires land below 0 (dx=-20 → fx=-16, dx=-36 → fx=-32) - the
     // `&&` left-side check `fx >= 0` fires false, short-circuiting the
     // right side and covering the previously-missed && branch.
     const xs = beh.getClusterFireXs(0, 20)
@@ -170,9 +170,9 @@ describe('SumoBrotherBehavior.getLightningSpawnX', () => {
   })
 })
 
-// ── getLightningFall — slope at blocker row ───────────────────────────────────
+// ── getLightningFall - slope at blocker row ───────────────────────────────────
 
-describe('SumoBrotherBehavior.getLightningFall — slope at blocker row', () => {
+describe('SumoBrotherBehavior.getLightningFall - slope at blocker row', () => {
   it('slope at fallCol,blockerRow: groundY refined from heights (if slope true branch)', () => {
     // spriteX=80: fallX=84, fallCol=floor((84+8)/16)=5, startRow=4.
     // Heights all 4 → px = (84 - 5*16 + 16) % 16 = 4
@@ -183,16 +183,22 @@ describe('SumoBrotherBehavior.getLightningFall — slope at blocker row', () => 
       '...........', // row 1
       '...........', // row 2
       '...........', // row 3
-      '###########', // row 4 — ground; col 5 overridden to slope below
+      '###########', // row 4 - ground; col 5 overridden to slope below
     ]
     const { getL1: flatGetL1, cols, rows } = buildSolidity(level, { '#': GROUND })
     const slopeGetL1: GetL1Tile = (c, r) => {
       if (c === 5 && r === 4) {
         return {
-          id: 0x180, actsLike: 0x16E,
+          id: 0x180,
+          actsLike: 0x16e,
           collision: {
-            wall: false, floor: true, ceiling: false, slopeTable: true,
-            marioFloor: true, marioCeiling: false, marioWall: false,
+            wall: false,
+            floor: true,
+            ceiling: false,
+            slopeTable: true,
+            marioFloor: true,
+            marioCeiling: false,
+            marioWall: false,
             slope: { heights },
           },
         }
@@ -206,9 +212,9 @@ describe('SumoBrotherBehavior.getLightningFall — slope at blocker row', () => 
   })
 })
 
-// ── computeFireSurface — slope tile in fire band ──────────────────────────────
+// ── computeFireSurface - slope tile in fire band ──────────────────────────────
 
-describe('SumoBrotherBehavior.getLightningFall — slope in fire band (computeFireSurface slope branch)', () => {
+describe('SumoBrotherBehavior.getLightningFall - slope in fire band (computeFireSurface slope branch)', () => {
   it('slope tile in fire band yields more surfacePoints than all-flat floor', () => {
     // spriteX=80: fallX=84, fireLeftX=48, fireRightX=128.
     // startCol=3, endCol=8 → col 5 (fallCol) is inside the band.
@@ -226,10 +232,16 @@ describe('SumoBrotherBehavior.getLightningFall — slope in fire band (computeFi
     const slopeGetL1: GetL1Tile = (c, r) => {
       if (c === 5 && r === 4) {
         return {
-          id: 0x180, actsLike: 0x16E,
+          id: 0x180,
+          actsLike: 0x16e,
           collision: {
-            wall: false, floor: true, ceiling: false, slopeTable: true,
-            marioFloor: true, marioCeiling: false, marioWall: false,
+            wall: false,
+            floor: true,
+            ceiling: false,
+            slopeTable: true,
+            marioFloor: true,
+            marioCeiling: false,
+            marioWall: false,
             slope: { heights },
           },
         }
@@ -237,7 +249,7 @@ describe('SumoBrotherBehavior.getLightningFall — slope in fire band (computeFi
       return flatGetL1(c, r)
     }
     const beh = new SumoBrotherBehavior()
-    const flatResult  = beh.getLightningFall(80, 0, flatGetL1,  cols, rows)
+    const flatResult = beh.getLightningFall(80, 0, flatGetL1, cols, rows)
     const slopeResult = beh.getLightningFall(80, 0, slopeGetL1, cols, rows)
     // One slope tile replaces 2 flat points with 9 slope points (+7 net).
     expect(slopeResult.surfacePoints.length).toBeGreaterThan(flatResult.surfacePoints.length)

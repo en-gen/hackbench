@@ -124,8 +124,8 @@ import {
 export const TRANSLEVEL_TILE_MIN = 0x56
 export const TRANSLEVEL_TILE_MAX = 0x80
 /** `OWPU_ABXY` diverts these two before `OWPU_EnterLevel`. */
-export const STAR_WARP_TILE = 0x5F
-export const PIPE_WARP_TILE = 0x5B
+export const STAR_WARP_TILE = 0x5f
+export const PIPE_WARP_TILE = 0x5b
 /** `CODE_05D8A2`'s low-byte gate. */
 export const TRANSLEVEL_BIAS_THRESHOLD = 0x25
 export const TRANSLEVEL_BIAS = 0x24
@@ -134,8 +134,8 @@ export const SUBMAP_SLOT_BASE = 0x100
 /** Buffer index at which the sub-map half of `OWLayer1Translevel` starts. */
 export const SUBMAP_BUFFER_BASE = 0x400
 /** `$05D8B1`: `BEQ` in a stock ROM, `JSL` once an overworld editor patched it. */
-export const OW_PATCH_PROBE_ADDR = 0x05D8B1
-export const OW_PATCH_PROBE_STOCK_BYTE = 0xF0
+export const OW_PATCH_PROBE_ADDR = 0x05d8b1
+export const OW_PATCH_PROBE_STOCK_BYTE = 0xf0
 
 /**
  * What happens when the player presses A on this tile.
@@ -193,11 +193,11 @@ export function decodeBufferIndex(bufferIndex: number): {
   tileY: number
 } {
   const layout: 0 | 1 = bufferIndex >= SUBMAP_BUFFER_BASE ? 1 : 0
-  const rel = bufferIndex & 0x3FF
+  const rel = bufferIndex & 0x3ff
   return {
     layout,
-    tileX: (((rel >> 8) & 0x01) << 4) | (rel & 0x0F),
-    tileY: (((rel >> 9) & 0x01) << 4) | ((rel >> 4) & 0x0F),
+    tileX: (((rel >> 8) & 0x01) << 4) | (rel & 0x0f),
+    tileY: (((rel >> 9) & 0x01) << 4) | ((rel >> 4) & 0x0f),
   }
 }
 
@@ -294,11 +294,11 @@ export function deriveOverworldEntrances(
   if (probe !== OW_PATCH_PROBE_STOCK_BYTE) {
     return unavailable([
       `Overworld not readable: $${OW_PATCH_PROBE_ADDR.toString(16).toUpperCase()} holds ` +
-      `0x${(probe ?? 0).toString(16).padStart(2, '0')}, not the stock 0xF0. This ROM's ` +
-      'overworld was rebuilt by another editor, which replaces the translevel-to-slot ' +
-      'mapping with code HackBench does not decode. No entry maps can be identified, so ' +
-      'every map is left unclassified and stays fully editable. To get the overworld ' +
-      'grouping, start from an unmodified ROM.',
+        `0x${(probe ?? 0).toString(16).padStart(2, '0')}, not the stock 0xF0. This ROM's ` +
+        'overworld was rebuilt by another editor, which replaces the translevel-to-slot ' +
+        'mapping with code HackBench does not decode. No entry maps can be identified, so ' +
+        'every map is left unclassified and stays fully editable. To get the overworld ' +
+        'grouping, start from an unmodified ROM.',
     ])
   }
 
@@ -306,9 +306,9 @@ export function deriveOverworldEntrances(
   if (!stream) {
     return unavailable([
       'Overworld not readable: the Layer-1 tile stream at SNES ' +
-      `$${OW_ADDR.L1_TILEDATA.toString(16).toUpperCase()} could not be read ` +
-      `(${OW_L1_MAP16_BYTES} bytes). No entry maps can be identified, so every map is ` +
-      'left unclassified.',
+        `$${OW_ADDR.L1_TILEDATA.toString(16).toUpperCase()} could not be read ` +
+        `(${OW_L1_MAP16_BYTES} bytes). No entry maps can be identified, so every map is ` +
+        'left unclassified.',
     ])
   }
 
@@ -324,15 +324,15 @@ export function deriveOverworldEntrances(
     const map16Tile = stream[bufferIndex]!
     if (map16Tile < TRANSLEVEL_TILE_MIN || map16Tile > TRANSLEVEL_TILE_MAX) continue
 
-    const translevel = counter & 0xFF
-    counter = (counter + 1) & 0xFF
+    const translevel = counter & 0xff
+    counter = (counter + 1) & 0xff
     if (counter === 0) wrapped = true
 
     const { layout, tileX, tileY } = decodeBufferIndex(bufferIndex)
     const biased = translevel >= TRANSLEVEL_BIAS_THRESHOLD
     if (biased && layout === 0) mainMapBiased++
-    const slot = (layout === 1 ? SUBMAP_SLOT_BASE : 0)
-               + (biased ? translevel - TRANSLEVEL_BIAS : translevel)
+    const slot =
+      (layout === 1 ? SUBMAP_SLOT_BASE : 0) + (biased ? translevel - TRANSLEVEL_BIAS : translevel)
 
     entrances.push({
       slot,
@@ -350,8 +350,9 @@ export function deriveOverworldEntrances(
   }
 
   const launching = entrances.filter(e => e.action === 'map')
-  const entryMaps = [...new Set(launching.filter(e => e.isMap).map(e => e.slot))]
-    .sort((a, b) => a - b)
+  const entryMaps = [...new Set(launching.filter(e => e.isMap).map(e => e.slot))].sort(
+    (a, b) => a - b,
+  )
 
   const notes: string[] = []
   const live = entrances.filter(e => e.action === 'starWarp' || e.action === 'pipeWarp').length
@@ -359,10 +360,10 @@ export function deriveOverworldEntrances(
   const dead = launching.length - launching.filter(e => e.isMap).length
   notes.push(
     `${entrances.length} overworld tiles carry a translevel. ${live} are warp tiles ` +
-    `($5B/$5F, bank_04.asm:1752-1771) and ${pending} more are swapped into warp tiles by ` +
-    'an overworld event (DATA_04DA1D/DATA_04DA33, bank_04.asm:5377-5385), so neither ' +
-    `group starts a map. Of the ${launching.length} that do, ${dead} name a slot whose ` +
-    'L1 pointer is this ROM\'s filler, so no map exists there.',
+      `($5B/$5F, bank_04.asm:1752-1771) and ${pending} more are swapped into warp tiles by ` +
+      'an overworld event (DATA_04DA1D/DATA_04DA33, bank_04.asm:5377-5385), so neither ' +
+      `group starts a map. Of the ${launching.length} that do, ${dead} name a slot whose ` +
+      "L1 pointer is this ROM's filler, so no map exists there.",
   )
   if (precursors.size > 0) {
     const pairs = [...precursors.entries()]
@@ -374,23 +375,23 @@ export function deriveOverworldEntrances(
   if (unplaced > 0) {
     notes.push(
       `${unplaced} sub-map entrances fall outside every camera-derived sub-map window, so ` +
-      'their `submap` is null. `layout`, `tileX`, `tileY` and `tileDataAddress` are exact ' +
-      'regardless; only `submap` is inferred.',
+        'their `submap` is null. `layout`, `tileX`, `tileY` and `tileDataAddress` are exact ' +
+        'regardless; only `submap` is inferred.',
     )
   }
   if (wrapped) {
     notes.push(
       'The translevel counter wrapped past $FF (`INC.B _0`, bank_04.asm:5306 is an 8-bit ' +
-      'increment). Slots after the wrap collide with earlier ones, exactly as they would ' +
-      'in-game.',
+        'increment). Slots after the wrap collide with earlier ones, exactly as they would ' +
+        'in-game.',
     )
   }
   if (mainMapBiased > 0) {
     notes.push(
       `${mainMapBiased} main-map entrances have a translevel >= $25, so CODE_05D8A2's ` +
-      'low-byte gate subtracts $24 while its high-byte gate keeps them on the main map. ' +
-      'Their slots collide with low-translevel main-map entrances. The two gates are ' +
-      'independent (bank_05.asm:7217-7226); this is what the ROM does.',
+        'low-byte gate subtracts $24 while its high-byte gate keeps them on the main map. ' +
+        'Their slots collide with low-translevel main-map entrances. The two gates are ' +
+        'independent (bank_05.asm:7217-7226); this is what the ROM does.',
     )
   }
 

@@ -56,53 +56,293 @@ const X = -2
  * of them. `docs/sprite-gfx-routine-reading.md` section 8 lists them.
  */
 const INSN_LEN: readonly number[] = [
-  2, 2, 2, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4,
-  2, 2, 2, 2, 2, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4,
-  3, 2, 4, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4,
-  2, 2, 2, 2, 2, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4,
-  1, 2, 2, 2, 3, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4,
-  2, 2, 2, 2, 3, 2, 2, 2, 1, 3, 1, 1, 4, 3, 3, 4,
-  1, 2, 3, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4,
-  2, 2, 2, 2, 2, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4,
-  2, 2, 3, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4,
-  2, 2, 2, 2, 2, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4,
-  X, 2, X, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4,
-  2, 2, 2, 2, 2, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4,
-  X, 2, 2, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4,
-  2, 2, 2, 2, 2, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4,
-  X, 2, 2, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4,
-  2, 2, 2, 2, 3, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  M,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  3,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  3,
+  2,
+  4,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  M,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  3,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  1,
+  2,
+  2,
+  2,
+  3,
+  2,
+  2,
+  2,
+  1,
+  M,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  2,
+  2,
+  2,
+  2,
+  3,
+  2,
+  2,
+  2,
+  1,
+  3,
+  1,
+  1,
+  4,
+  3,
+  3,
+  4,
+  1,
+  2,
+  3,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  M,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  3,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  2,
+  2,
+  3,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  M,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  3,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  X,
+  2,
+  X,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  M,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  3,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  X,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  M,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  3,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  X,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  M,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
+  2,
+  2,
+  2,
+  2,
+  3,
+  2,
+  2,
+  2,
+  1,
+  3,
+  1,
+  1,
+  3,
+  3,
+  3,
+  4,
 ]
 
 const OP_JSR = 0x20
 const OP_JSL = 0x22
-const OP_JMP_ABS = 0x4C
-const OP_JML_LONG = 0x5C
+const OP_JMP_ABS = 0x4c
+const OP_JML_LONG = 0x5c
 const OP_BRA = 0x80
 const OP_BRL = 0x82
-const OP_REP = 0xC2
-const OP_SEP = 0xE2
-const OP_LDA_IMM = 0xA9
-const OP_LDA_ABS_Y = 0xB9
-const OP_LDA_ABS_X = 0xBD
-const OP_LDA_ABS = 0xAD
+const OP_REP = 0xc2
+const OP_SEP = 0xe2
+const OP_LDA_IMM = 0xa9
+const OP_LDA_ABS_Y = 0xb9
+const OP_LDA_ABS_X = 0xbd
+const OP_LDA_ABS = 0xad
 const OP_AND_IMM = 0x29
-const OP_LDY_DP_X = 0xB4
-const OP_STA_ABS = 0x8D
-const OP_STA_ABS_X = 0x9D
+const OP_LDY_DP_X = 0xb4
+const OP_STA_ABS = 0x8d
+const OP_STA_ABS_X = 0x9d
 const OP_STA_ABS_Y = 0x99
-const CONDITIONAL_BRANCHES = [0x10, 0x30, 0x50, 0x70, 0x90, 0xB0, 0xD0, 0xF0]
+const CONDITIONAL_BRANCHES = [0x10, 0x30, 0x50, 0x70, 0x90, 0xb0, 0xd0, 0xf0]
 /** `RTI`, `RTS`, `RTL`. Reaching one is what makes a call return. */
-const RETURNS = [0x40, 0x60, 0x6B]
-const COMPUTED_JUMPS = [0x6C, 0x7C, 0xDC, 0xFC]
+const RETURNS = [0x40, 0x60, 0x6b]
+const COMPUTED_JUMPS = [0x6c, 0x7c, 0xdc, 0xfc]
 /** `WAI`, `STP`. Neither comes back on its own. */
-const HALTS = [0xCB, 0xDB]
+const HALTS = [0xcb, 0xdb]
 /** Instructions that leave the accumulator holding something this walk
  *  cannot name. Anything not listed as a tracked load lands here. */
 const A_CLOBBER_EXCEPTIONS = [OP_LDA_IMM, OP_LDA_ABS, OP_LDA_ABS_X, OP_LDA_ABS_Y, OP_AND_IMM]
 
 /** Direct-page address of `SpriteNumber`. */
-const SPRITE_NUMBER_DP = 0x9E
+const SPRITE_NUMBER_DP = 0x9e
 
 const DEFAULT_CALL_DEPTH = 3
 export const DEFAULT_INSN_BUDGET = 6000
@@ -118,12 +358,12 @@ export const DEFAULT_PROBE_DEPTH = 64
 /** Why a path stopped without reaching a return. */
 export type WalkStop =
   | 'nonReturningCall' // the callee reaches no RTS/RTL, so the next bytes are not code
-  | 'computedJump'     // JMP (abs) / JMP (abs,X) / JML [abs] / JSR (abs,X)
-  | 'callDepth'        // a JSR/JSL not descended into, depth budget spent
-  | 'unreadable'       // the address is not backed by ROM
-  | 'insnBudget'       // the whole walk hit its ceiling
-  | 'probeBudget'      // a call the probe ran out of instructions to decide
-  | 'probeDepth'       // a call nested past the probe's recursion bound
+  | 'computedJump' // JMP (abs) / JMP (abs,X) / JML [abs] / JSR (abs,X)
+  | 'callDepth' // a JSR/JSL not descended into, depth budget spent
+  | 'unreadable' // the address is not backed by ROM
+  | 'insnBudget' // the whole walk hit its ceiling
+  | 'probeBudget' // a call the probe ran out of instructions to decide
+  | 'probeDepth' // a call nested past the probe's recursion bound
 
 /** What the accumulator holds, where the walk can name it. */
 export type AccumulatorSource =
@@ -208,15 +448,16 @@ export interface WalkOptions {
  *  It also merges $7E/$7F with $FE/$FF, which is NOT a mirror pair
  *  (`loromToOffset` rejects the first as WRAM and maps the second as ROM).
  *  Nothing executes from $FE/$FF, so the collision is theoretical. */
-const fold = (addr: number) => addr & 0x7FFFFF
+const fold = (addr: number) => addr & 0x7fffff
 
-const signed8 = (b: number) => (b > 0x7F ? b - 0x100 : b)
+const signed8 = (b: number) => (b > 0x7f ? b - 0x100 : b)
 /** `BRL`'s displacement needs no sign extension: the sum is masked to 16
  *  bits, and a negative 16-bit displacement is congruent to its unsigned
  *  reading modulo $10000. An earlier sign-extending helper here could be
  *  removed without any test noticing, because it could not matter. */
 const relative16 = (lo: number, hi: number) => lo | (hi << 8)
-const stateKey = (addr: number, m: boolean, x: boolean) => fold(addr) * 4 + (m ? 2 : 0) + (x ? 1 : 0)
+const stateKey = (addr: number, m: boolean, x: boolean) =>
+  fold(addr) * 4 + (m ? 2 : 0) + (x ? 1 : 0)
 
 interface Decoded {
   readonly op: number
@@ -234,17 +475,15 @@ function decode(rom: RomFile, addr: number, m: boolean, x: boolean): Decoded | n
 
 /** `JSR abs` stays in the current bank; `JSL long` names its own. */
 function callTarget(op: number, addr: number, b: Uint8Array): number {
-  return op === OP_JSR
-    ? (addr & 0xFF0000) | b[1] | (b[2] << 8)
-    : b[1] | (b[2] << 8) | (b[3] << 16)
+  return op === OP_JSR ? (addr & 0xff0000) | b[1] | (b[2] << 8) : b[1] | (b[2] << 8) | (b[3] << 16)
 }
 
 /** What a return-reachability probe concluded about one call. */
 type ProbeVerdict =
-  | 'returns'   // some path from the callee reaches an RTS, RTL or RTI
-  | 'noReturn'  // every path ends somewhere else, so the call does not come back
-  | 'budget'    // undecided: the callee outran the probe's state budget
-  | 'depth'     // undecided: the callee nested past the probe's recursion bound
+  | 'returns' // some path from the callee reaches an RTS, RTL or RTI
+  | 'noReturn' // every path ends somewhere else, so the call does not come back
+  | 'budget' // undecided: the callee outran the probe's state budget
+  | 'depth' // undecided: the callee nested past the probe's recursion bound
 
 /** A verdict, and whether producing it consumed an unresolved assumption. */
 interface ProbeResult {
@@ -305,20 +544,25 @@ function probeReturns(
    *  verdict when nothing was proved. */
   let refusal: ProbeVerdict | null = null
 
-  outer:
-  while (queue.length > 0) {
+  outer: while (queue.length > 0) {
     let [addr, m, x] = queue.shift()!
     for (;;) {
-      if (steps++ >= ctx.budget) { refusal ??= 'budget'; break outer }
+      if (steps++ >= ctx.budget) {
+        refusal ??= 'budget'
+        break outer
+      }
       const k = stateKey(addr, m, x)
       if (seen.has(k)) break
       seen.add(k)
       const d = decode(ctx.rom, addr, m, x)
       if (!d) break
       const { op, len, bytes } = d
-      const bank = addr & 0xFF0000
+      const bank = addr & 0xff0000
 
-      if (RETURNS.includes(op)) { sawReturn = true; break outer }
+      if (RETURNS.includes(op)) {
+        sawReturn = true
+        break outer
+      }
       if (HALTS.includes(op) || COMPUTED_JUMPS.includes(op)) break
       if (op === OP_REP || op === OP_SEP) {
         const set = op === OP_SEP
@@ -341,14 +585,26 @@ function probeReturns(
         continue
       }
       if (CONDITIONAL_BRANCHES.includes(op)) {
-        queue.push([bank | ((addr + 2 + signed8(bytes[1])) & 0xFFFF), m, x])
+        queue.push([bank | ((addr + 2 + signed8(bytes[1])) & 0xffff), m, x])
         addr += 2
         continue
       }
-      if (op === OP_BRA) { addr = bank | ((addr + 2 + signed8(bytes[1])) & 0xFFFF); continue }
-      if (op === OP_BRL) { addr = bank | ((addr + 3 + relative16(bytes[1], bytes[2])) & 0xFFFF); continue }
-      if (op === OP_JMP_ABS) { addr = bank | bytes[1] | (bytes[2] << 8); continue }
-      if (op === OP_JML_LONG) { addr = bytes[1] | (bytes[2] << 8) | (bytes[3] << 16); continue }
+      if (op === OP_BRA) {
+        addr = bank | ((addr + 2 + signed8(bytes[1])) & 0xffff)
+        continue
+      }
+      if (op === OP_BRL) {
+        addr = bank | ((addr + 3 + relative16(bytes[1], bytes[2])) & 0xffff)
+        continue
+      }
+      if (op === OP_JMP_ABS) {
+        addr = bank | bytes[1] | (bytes[2] << 8)
+        continue
+      }
+      if (op === OP_JML_LONG) {
+        addr = bytes[1] | (bytes[2] << 8) | (bytes[3] << 16)
+        continue
+      }
       addr += len
     }
   }
@@ -400,17 +656,23 @@ export function walkHandler(rom: RomFile, entry: number, opts: WalkOptions): Wal
     let yHoldsSpriteNumber = false
 
     for (;;) {
-      if (decoded >= insnBudget) { stops.add('insnBudget'); return }
+      if (decoded >= insnBudget) {
+        stops.add('insnBudget')
+        return
+      }
       if (blocked.has(fold(addr))) return
       const key = stateKey(addr, m, x)
       if (visited.has(key)) return
       visited.add(key)
 
       const d = decode(rom, addr, m, x)
-      if (!d) { stops.add('unreadable'); return }
+      if (!d) {
+        stops.add('unreadable')
+        return
+      }
       decoded++
       const { op, len, bytes } = d
-      const bank = addr & 0xFF0000
+      const bank = addr & 0xff0000
 
       if (op === OP_REP || op === OP_SEP) {
         const set = op === OP_SEP
@@ -446,7 +708,7 @@ export function walkHandler(rom: RomFile, entry: number, opts: WalkOptions): Wal
       }
 
       if (CONDITIONAL_BRANCHES.includes(op)) {
-        const taken = bank | ((addr + 2 + signed8(bytes[1])) & 0xFFFF)
+        const taken = bank | ((addr + 2 + signed8(bytes[1])) & 0xffff)
         branches.push({ at: addr, notTakenAt: addr + 2, takenAt: taken, accumulator: acc })
         // A cheap early-out only: `path` re-checks `blocked` on entry, so
         // dropping this line, or its `fold`, changes nothing a test can
@@ -456,12 +718,27 @@ export function walkHandler(rom: RomFile, entry: number, opts: WalkOptions): Wal
         continue
       }
 
-      if (op === OP_BRA) { addr = bank | ((addr + 2 + signed8(bytes[1])) & 0xFFFF); continue }
-      if (op === OP_BRL) { addr = bank | ((addr + 3 + relative16(bytes[1], bytes[2])) & 0xFFFF); continue }
-      if (op === OP_JMP_ABS) { addr = bank | bytes[1] | (bytes[2] << 8); continue }
-      if (op === OP_JML_LONG) { addr = bytes[1] | (bytes[2] << 8) | (bytes[3] << 16); continue }
+      if (op === OP_BRA) {
+        addr = bank | ((addr + 2 + signed8(bytes[1])) & 0xffff)
+        continue
+      }
+      if (op === OP_BRL) {
+        addr = bank | ((addr + 3 + relative16(bytes[1], bytes[2])) & 0xffff)
+        continue
+      }
+      if (op === OP_JMP_ABS) {
+        addr = bank | bytes[1] | (bytes[2] << 8)
+        continue
+      }
+      if (op === OP_JML_LONG) {
+        addr = bytes[1] | (bytes[2] << 8) | (bytes[3] << 16)
+        continue
+      }
       if (RETURNS.includes(op) || HALTS.includes(op)) return
-      if (COMPUTED_JUMPS.includes(op)) { stops.add('computedJump'); return }
+      if (COMPUTED_JUMPS.includes(op)) {
+        stops.add('computedJump')
+        return
+      }
 
       if (op === OP_STA_ABS || op === OP_STA_ABS_X || op === OP_STA_ABS_Y) {
         const target = bytes[1] | (bytes[2] << 8)
@@ -489,7 +766,11 @@ export function walkHandler(rom: RomFile, entry: number, opts: WalkOptions): Wal
       } else if (op === OP_LDA_ABS || op === OP_LDA_ABS_X || op === OP_LDA_ABS_Y) {
         // Bank taken from the program counter, not from DBR, which this
         // walk does not model. See the doc's section 9.
-        acc = { kind: 'table', addr: bank | bytes[1] | (bytes[2] << 8), indexedByY: op === OP_LDA_ABS_Y }
+        acc = {
+          kind: 'table',
+          addr: bank | bytes[1] | (bytes[2] << 8),
+          indexedByY: op === OP_LDA_ABS_Y,
+        }
       } else if (!A_CLOBBER_EXCEPTIONS.includes(op)) {
         // Conservative: anything not recognised as a tracked load is assumed
         // to leave the accumulator holding something unnameable. Overshooting
@@ -518,6 +799,16 @@ export function walkHandler(rom: RomFile, entry: number, opts: WalkOptions): Wal
  * indexed by something that was not the sprite id.
  */
 function writesY(op: number): boolean {
-  return op === 0xA0 || op === 0xA4 || op === 0xB4 || op === 0xAC || op === 0xBC   // LDY
-    || op === 0xA8 || op === 0xC8 || op === 0x88 || op === 0x7A || op === 0x9B     // TAY INY DEY PLY TXY
+  return (
+    op === 0xa0 ||
+    op === 0xa4 ||
+    op === 0xb4 ||
+    op === 0xac ||
+    op === 0xbc || // LDY
+    op === 0xa8 ||
+    op === 0xc8 ||
+    op === 0x88 ||
+    op === 0x7a ||
+    op === 0x9b
+  ) // TAY INY DEY PLY TXY
 }

@@ -77,8 +77,8 @@ export interface ClockHost {
 
 const browserHost: ClockHost = {
   now: () => performance.now(),
-  requestFrame: (cb) => requestAnimationFrame(cb),
-  cancelFrame: (id) => cancelAnimationFrame(id),
+  requestFrame: cb => requestAnimationFrame(cb),
+  cancelFrame: id => cancelAnimationFrame(id),
 }
 
 interface Sub extends FrameSubscription {
@@ -144,18 +144,35 @@ export function createFrameClock(host: ClockHost = browserHost): FrameClock {
         lastBoundary = b
         onTick()
       },
-      start() { running = true; lastBoundary = boundaryAt(frame); schedule() },
-      stop() { running = false; if (!anyRunning()) unschedule() },
-      suspend() { suspended = true; unschedule() },
-      resume() { suspended = false; schedule() },
-      get running() { return running },
+      start() {
+        running = true
+        lastBoundary = boundaryAt(frame)
+        schedule()
+      },
+      stop() {
+        running = false
+        if (!anyRunning()) unschedule()
+      },
+      suspend() {
+        suspended = true
+        unschedule()
+      },
+      resume() {
+        suspended = false
+        schedule()
+      },
+      get running() {
+        return running
+      },
     }
     subs.add(sub)
     return sub
   }
 
   return {
-    get frame() { return frame },
+    get frame() {
+      return frame
+    },
     every,
   }
 }

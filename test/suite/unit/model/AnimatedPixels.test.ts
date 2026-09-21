@@ -28,7 +28,7 @@ describe('AnimatedPixelsBehavior behavior', () => {
     expect(behavior.getPixels()).toBe(f0) // wraps
   })
 
-  it('owns its frame state independently — separate instances do not share', () => {
+  it('owns its frame state independently - separate instances do not share', () => {
     const f0 = new Uint8Array(64).fill(10)
     const f1 = new Uint8Array(64).fill(20)
     const a = new AnimatedPixelsBehavior([f0, f1])
@@ -51,7 +51,9 @@ describe.skipIf(!existsSync(ROM_PATH))('CharFactory animation wiring (vanilla RO
     const chars = buildChars(vram, animData)
 
     // At least one animated char should exist
-    const animatedChars = [...chars.values()].filter(c => c.behavior instanceof AnimatedPixelsBehavior)
+    const animatedChars = [...chars.values()].filter(
+      c => c.behavior instanceof AnimatedPixelsBehavior,
+    )
     expect(animatedChars.length).toBeGreaterThan(0)
 
     // And most chars should still be static

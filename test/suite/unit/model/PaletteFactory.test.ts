@@ -1,5 +1,5 @@
 /**
- * PaletteFactory.test.ts — branch coverage for buildPalette / collectPaletteAnimFrames
+ * PaletteFactory.test.ts - branch coverage for buildPalette / collectPaletteAnimFrames
  * (src/rom/model/palette/PaletteFactory.ts).
  *
  * ROM dependencies are mocked so no ROM file is needed.
@@ -32,25 +32,22 @@ vi.mock('../../../../src/rom/PaletteAnimationLoader', () => ({
 
 import { buildPalette } from '../../../../src/rom/model/palette/PaletteFactory'
 import { loadPaletteAnimData } from '../../../../src/rom/PaletteAnimationLoader'
-import {
-  buildLevelCgram,
-  loadBackAreaColors,
-} from '../../../../src/rom/PaletteLoader'
+import { buildLevelCgram, loadBackAreaColors } from '../../../../src/rom/PaletteLoader'
 import { CyclingColorBehavior } from '../../../../src/rom/model/palette/behaviors/CyclingColorBehavior'
 import { StaticColorBehavior } from '../../../../src/rom/model/palette/behaviors/StaticColorBehavior'
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-const RED:   RgbaColor = [255, 0, 0, 255]
+const RED: RgbaColor = [255, 0, 0, 255]
 const GREEN: RgbaColor = [0, 255, 0, 255]
 const BLACK: RgbaColor = [0, 0, 0, 255]
 
-/** Minimal header — only the fields PaletteFactory reads. */
+/** Minimal header - only the fields PaletteFactory reads. */
 const baseHeader = { bgPalette: 0, fgPalette: 0, spritePalette: 0, bgColor: 0 }
 
 /** 1×1 CGRAM grid at cgramIdx 0 (row 0, col 0). */
 function oneCell(color: RgbaColor = RED) {
-  (buildLevelCgram as ReturnType<typeof vi.fn>).mockReturnValue({
+  ;(buildLevelCgram as ReturnType<typeof vi.fn>).mockReturnValue({
     rows: [[color]],
   })
 }
@@ -63,9 +60,9 @@ beforeEach(() => {
   oneCell()
 })
 
-// ── collectPaletteAnimFrames — anim=null branch ───────────────────────────
+// ── collectPaletteAnimFrames - anim=null branch ───────────────────────────
 
-describe('collectPaletteAnimFrames — loadPaletteAnimData returns null', () => {
+describe('collectPaletteAnimFrames - loadPaletteAnimData returns null', () => {
   it('all cells get StaticColorBehavior when anim data is absent', () => {
     // Branch: `if (!anim) return out` in collectPaletteAnimFrames
     vi.mocked(loadPaletteAnimData).mockReturnValue(null)
@@ -74,18 +71,15 @@ describe('collectPaletteAnimFrames — loadPaletteAnimData returns null', () => 
   })
 })
 
-// ── collectPaletteAnimFrames — frames fully populated ─────────────────────
+// ── collectPaletteAnimFrames - frames fully populated ─────────────────────
 
-describe('collectPaletteAnimFrames — anim frames present', () => {
+describe('collectPaletteAnimFrames - anim frames present', () => {
   it('cell at the animated cgramIdx gets CyclingColorBehavior', () => {
-    // Branch: `if (frames)` in buildPalette — animated cgramIdx found in map
-    // Branch: `if (!frames)` in loop — first encounter allocates the array
+    // Branch: `if (frames)` in buildPalette - animated cgramIdx found in map
+    // Branch: `if (!frames)` in loop - first encounter allocates the array
     vi.mocked(loadPaletteAnimData).mockReturnValue({
       frameCount: 2,
-      frames: [
-        [{ cgramIdx: 0, color: RED }],
-        [{ cgramIdx: 0, color: GREEN }],
-      ],
+      frames: [[{ cgramIdx: 0, color: RED }], [{ cgramIdx: 0, color: GREEN }]],
     })
     oneCell(RED)
     const pal = buildPalette(fakeRom, baseHeader)
@@ -97,13 +91,10 @@ describe('collectPaletteAnimFrames — anim frames present', () => {
     // Branch: `if (frames)` false path → StaticColorBehavior
     vi.mocked(loadPaletteAnimData).mockReturnValue({
       frameCount: 2,
-      frames: [
-        [{ cgramIdx: 0, color: RED }],
-        [{ cgramIdx: 0, color: GREEN }],
-      ],
+      frames: [[{ cgramIdx: 0, color: RED }], [{ cgramIdx: 0, color: GREEN }]],
     })
     ;(buildLevelCgram as ReturnType<typeof vi.fn>).mockReturnValue({
-      rows: [[RED, GREEN]],   // two cells; cgramIdx=0 animated, cgramIdx=1 not
+      rows: [[RED, GREEN]], // two cells; cgramIdx=0 animated, cgramIdx=1 not
     })
     const pal = buildPalette(fakeRom, baseHeader)
     expect(pal.cells[0][0].behavior).toBeInstanceOf(CyclingColorBehavior)
@@ -113,10 +104,7 @@ describe('collectPaletteAnimFrames — anim frames present', () => {
   it('CyclingColorBehavior carries all animation frames', () => {
     vi.mocked(loadPaletteAnimData).mockReturnValue({
       frameCount: 2,
-      frames: [
-        [{ cgramIdx: 0, color: RED }],
-        [{ cgramIdx: 0, color: GREEN }],
-      ],
+      frames: [[{ cgramIdx: 0, color: RED }], [{ cgramIdx: 0, color: GREEN }]],
     })
     oneCell(RED)
     const pal = buildPalette(fakeRom, baseHeader)
@@ -127,18 +115,18 @@ describe('collectPaletteAnimFrames — anim frames present', () => {
   })
 })
 
-// ── collectPaletteAnimFrames — partial frames pruned ─────────────────────
+// ── collectPaletteAnimFrames - partial frames pruned ─────────────────────
 
-describe('collectPaletteAnimFrames — partial frames (some frames missing)', () => {
+describe('collectPaletteAnimFrames - partial frames (some frames missing)', () => {
   it('cell with incomplete anim frames falls back to StaticColorBehavior', () => {
-    // Branch: `if (frames.some(f => !f)) out.delete(idx)` — partial entry removed
+    // Branch: `if (frames.some(f => !f)) out.delete(idx)` - partial entry removed
     // Array.some skips sparse holes, so we must inject an explicitly falsy color
     // (null) to make the check trigger. This mirrors corrupted / partial ROM data.
     vi.mocked(loadPaletteAnimData).mockReturnValue({
       frameCount: 2,
       frames: [
         [{ cgramIdx: 0, color: RED }],
-        [{ cgramIdx: 0, color: null as unknown as RgbaColor }],  // explicit null → !f
+        [{ cgramIdx: 0, color: null as unknown as RgbaColor }], // explicit null → !f
       ],
     })
     oneCell(RED)
@@ -147,11 +135,11 @@ describe('collectPaletteAnimFrames — partial frames (some frames missing)', ()
   })
 })
 
-// ── buildPalette — back-area color ────────────────────────────────────────
+// ── buildPalette - back-area color ────────────────────────────────────────
 
-describe('buildPalette — back-area color fallback', () => {
+describe('buildPalette - back-area color fallback', () => {
   it('uses loadBackAreaColors[bgColor] when the index is in range', () => {
-    // Branch: `?? [0,0,0,255]` — false path (index in range)
+    // Branch: `?? [0,0,0,255]` - false path (index in range)
     const BLUE: RgbaColor = [0, 0, 255, 255]
     vi.mocked(loadBackAreaColors).mockReturnValue([BLUE])
     oneCell()
@@ -161,8 +149,8 @@ describe('buildPalette — back-area color fallback', () => {
   })
 
   it('falls back to opaque black when bgColor index is out of range', () => {
-    // Branch: `?? [0,0,0,255]` — true path (backAreas[bgColor] is undefined)
-    vi.mocked(loadBackAreaColors).mockReturnValue([])  // empty → index 0 undefined
+    // Branch: `?? [0,0,0,255]` - true path (backAreas[bgColor] is undefined)
+    vi.mocked(loadBackAreaColors).mockReturnValue([]) // empty → index 0 undefined
     oneCell()
     const pal = buildPalette(fakeRom, { ...baseHeader, bgColor: 0 })
     expect(pal.backAreaColor.rgba()).toEqual([0, 0, 0, 255])

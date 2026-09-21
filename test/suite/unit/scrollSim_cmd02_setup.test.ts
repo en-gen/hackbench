@@ -1,5 +1,5 @@
 /**
- * scrollSim_cmd02_setup.test.ts — validate cmd $02 (Layer 2 Smash)
+ * scrollSim_cmd02_setup.test.ts - validate cmd $02 (Layer 2 Smash)
  * SETUP body and per-frame smash logic against the three vanilla
  * cmd-$02 captures.
  *
@@ -35,8 +35,14 @@
 import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
 import {
-  loadCapture, firstMismatch, simFromCapture, detectActiveFrames,
-  loadVanillaRom, type CaptureRow, type FieldKey, vanillaRomPresent,
+  loadCapture,
+  firstMismatch,
+  simFromCapture,
+  detectActiveFrames,
+  loadVanillaRom,
+  type CaptureRow,
+  type FieldKey,
+  vanillaRomPresent,
 } from './scrollSim_capture'
 import { cmd02L2 } from '../../../src/rom/scroll/cmd02'
 import type { ScrollState } from '../../../src/rom/scrollSim'
@@ -49,24 +55,40 @@ const FIXTURES = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps'
 function stateFromCapture(r: CaptureRow): ScrollState {
   return {
     frame: r.frame,
-    layer1XPos: r.l1x,         layer1YPos: r.l1y,
-    layer2XPos: r.l2x,         layer2YPos: r.l2y,
-    layer1ScrollCmd:  r.l1cmd, layer2ScrollCmd:  r.l2cmd,
-    layer1ScrollBits: r.l1bits, layer2ScrollBits: r.l2bits,
-    layer1ScrollType:  r.l1type,  layer2ScrollType:  r.l2type,
-    layer1ScrollTimer: r.l1timer, layer2ScrollTimer: r.l2timer,
-    layer1ScrollXSpeed: r.l1xspd, layer1ScrollYSpeed: r.l1yspd,
-    layer2ScrollXSpeed: r.l2xspd, layer2ScrollYSpeed: r.l2yspd,
-    layer1ScrollXPosUpd: r.l1xupd, layer1ScrollYPosUpd: r.l1yupd,
-    layer2ScrollXPosUpd: r.l2xupd, layer2ScrollYPosUpd: r.l2yupd,
+    layer1XPos: r.l1x,
+    layer1YPos: r.l1y,
+    layer2XPos: r.l2x,
+    layer2YPos: r.l2y,
+    layer1ScrollCmd: r.l1cmd,
+    layer2ScrollCmd: r.l2cmd,
+    layer1ScrollBits: r.l1bits,
+    layer2ScrollBits: r.l2bits,
+    layer1ScrollType: r.l1type,
+    layer2ScrollType: r.l2type,
+    layer1ScrollTimer: r.l1timer,
+    layer2ScrollTimer: r.l2timer,
+    layer1ScrollXSpeed: r.l1xspd,
+    layer1ScrollYSpeed: r.l1yspd,
+    layer2ScrollXSpeed: r.l2xspd,
+    layer2ScrollYSpeed: r.l2yspd,
+    layer1ScrollXPosUpd: r.l1xupd,
+    layer1ScrollYPosUpd: r.l1yupd,
+    layer2ScrollXPosUpd: r.l2xupd,
+    layer2ScrollYPosUpd: r.l2yupd,
     scrollLayerIndex: 4,
     layer1ScrollDir: r.l1dir,
-    nextLayer1XPos: r.nl1x, nextLayer1YPos: r.nl1y,
-    nextLayer2XPos: r.nl2x, nextLayer2YPos: r.nl2y,
-    playerXPosNext: r.marioX, playerYPosNext: r.marioY,
+    nextLayer1XPos: r.nl1x,
+    nextLayer1YPos: r.nl1y,
+    nextLayer2XPos: r.nl2x,
+    nextLayer2YPos: r.nl2y,
+    playerXPosNext: r.marioX,
+    playerYPosNext: r.marioY,
     screenShakeYOffset: r.shakeY,
-    horizLayer2Setting: r.horizL2, vertLayer2Setting: r.vertL2,
-    onOffSwitch: 0, layer2Touched: 0, lastScreenHoriz: 0x1F,
+    horizLayer2Setting: r.horizL2,
+    vertLayer2Setting: r.vertL2,
+    onOffSwitch: 0,
+    layer2Touched: 0,
+    lastScreenHoriz: 0x1f,
     backgroundVertOffset: 0,
   }
 }
@@ -81,7 +103,7 @@ const LEVELS: readonly { id: string; expectedL1Type: number; expectedL1Timer: nu
   { id: '1cf', expectedL1Type: 0x10, expectedL1Timer: 0x40 },
 ]
 
-describe.skipIf(!vanillaRomPresent)('scrollSim — cmd $02 setup body validation', () => {
+describe.skipIf(!vanillaRomPresent)('scrollSim - cmd $02 setup body validation', () => {
   for (const lvl of LEVELS) {
     const csv = `${FIXTURES}/${lvl.id}/l2_scroll.csv`
     describe(`$${lvl.id.toUpperCase()}`, () => {
@@ -97,8 +119,12 @@ describe.skipIf(!vanillaRomPresent)('scrollSim — cmd $02 setup body validation
           const r = cap[0]
           const f0 = sim.stateAtFrame(0)
           console.warn(`[$${lvl.id}] post-setup mismatch: ${m}`)
-          console.warn(`  cap row 1: l1=(${r.l1x},${r.l1y}) l2=(${r.l2x},${r.l2y}) types=(${r.l1type},${r.l2type}) timers=(${r.l1timer},${r.l2timer})`)
-          console.warn(`  sim   f0: l1=(${f0.layer1XPos},${f0.layer1YPos}) l2=(${f0.layer2XPos},${f0.layer2YPos}) types=(${f0.layer1ScrollType},${f0.layer2ScrollType}) timers=(${f0.layer1ScrollTimer},${f0.layer2ScrollTimer})`)
+          console.warn(
+            `  cap row 1: l1=(${r.l1x},${r.l1y}) l2=(${r.l2x},${r.l2y}) types=(${r.l1type},${r.l2type}) timers=(${r.l1timer},${r.l2timer})`,
+          )
+          console.warn(
+            `  sim   f0: l1=(${f0.layer1XPos},${f0.layer1YPos}) l2=(${f0.layer2XPos},${f0.layer2YPos}) types=(${f0.layer1ScrollType},${f0.layer2ScrollType}) timers=(${f0.layer1ScrollTimer},${f0.layer2ScrollTimer})`,
+          )
         }
         expect(m).toBe(null)
       })
@@ -138,10 +164,15 @@ describe.skipIf(!vanillaRomPresent)('scrollSim — cmd $02 setup body validation
         const setupTimer = cap[0].l1timer
         let introEnd = -1
         for (let r = 1; r < cap.length; r++) {
-          if (cap[r].l1timer !== setupTimer) { introEnd = r; break }
+          if (cap[r].l1timer !== setupTimer) {
+            introEnd = r
+            break
+          }
         }
         if (introEnd < 0) {
-          console.warn(`[$${lvl.id}] l1timer never changed — SpriteLock period covers entire capture`)
+          console.warn(
+            `[$${lvl.id}] l1timer never changed - SpriteLock period covers entire capture`,
+          )
           return
         }
 
@@ -157,9 +188,7 @@ describe.skipIf(!vanillaRomPresent)('scrollSim — cmd $02 setup body validation
           s = out
           const m = firstMismatch(out, cap[r], PERFRAME_FIELDS)
           if (m !== null) {
-            throw new Error(
-              `[$${lvl.id.toUpperCase()}] frame ${cap[r].frame} (row ${r + 1}): ${m}`,
-            )
+            throw new Error(`[$${lvl.id.toUpperCase()}] frame ${cap[r].frame} (row ${r + 1}): ${m}`)
           }
         }
       })

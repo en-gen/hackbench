@@ -3,11 +3,7 @@ import { existsSync } from 'fs'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMap } from '../../../../src/rom/model/MapBuilder'
-import type {
-  PixelPos,
-  PixelSize,
-  RenderTarget,
-} from '../../../../src/rom/model/RenderTarget'
+import type { PixelPos, PixelSize, RenderTarget } from '../../../../src/rom/model/RenderTarget'
 import { resetEditorStore } from '../fixtures/stores'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
@@ -38,7 +34,7 @@ describe.skipIf(!existsSync(ROM_PATH))('MapBuilder end-to-end (vanilla ROM)', ()
     const placed = map.l1.flat().filter(t => t !== null)
     expect(placed.length).toBeGreaterThan(0)
 
-    // Render via mock — proves Map→Tile→SubTile→Char dispatch works end-to-end
+    // Render via mock - proves Map→Tile→SubTile→Char dispatch works end-to-end
     const target = new CountingRenderTarget()
     map.render(target)
 

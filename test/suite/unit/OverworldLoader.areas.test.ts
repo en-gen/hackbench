@@ -1,5 +1,5 @@
 /**
- * OverworldLoader — synthetic-ROM tests for the area-table parser, palette
+ * OverworldLoader - synthetic-ROM tests for the area-table parser, palette
  * assembly, region/mask logic, and Map16 decode. The existing synthetic tests
  * cover the RLE decoder and event swaps; this file exercises the rest of the
  * file's business logic without requiring a real SMW ROM.
@@ -33,12 +33,12 @@ import {
 /** 4 MB LoROM buffer with map-mode byte set. */
 function makeMockRom(): RomFile {
   const buf = Buffer.alloc(0x400000, 0x00)
-  buf[0x7FD5] = 0x20
+  buf[0x7fd5] = 0x20
   return new RomFile('mock.smc', buf)
 }
 
 /**
- * Tiny buffer (0x100 bytes) — every overworld ROM read returns null because
+ * Tiny buffer (0x100 bytes) - every overworld ROM read returns null because
  * the lowest required offset (CAMERA_X_TABLE → file offset $206B) is far
  * past the end of the buffer. Lets us exercise the loader's null-fallback paths.
  */
@@ -47,7 +47,7 @@ function makeTinyRom(): RomFile {
 }
 
 const writeWord = (rom: RomFile, addr: number, value: number): void => {
-  rom.writeAt(addr, [value & 0xFF, (value >> 8) & 0xFF])
+  rom.writeAt(addr, [value & 0xff, (value >> 8) & 0xff])
 }
 
 // ── Title-screen baseline read ───────────────────────────────────────────────
@@ -55,15 +55,15 @@ const writeWord = (rom: RomFile, addr: number, value: number): void => {
 describe('readOwBaselineLevelIndex', () => {
   it('returns the byte at $0096CC when readable', () => {
     const rom = makeMockRom()
-    rom.writeAt(OW_ADDR.TITLE_LEVEL_LDA_OPERAND, [0xC7])
-    expect(readOwBaselineLevelIndex(rom)).toBe(0xC7)
+    rom.writeAt(OW_ADDR.TITLE_LEVEL_LDA_OPERAND, [0xc7])
+    expect(readOwBaselineLevelIndex(rom)).toBe(0xc7)
   })
 
   it('falls back to $EB when ROM cannot be read at the address', () => {
     // We can't easily build a ROM where $0096CC is unmapped via LoROM, so emulate by
     // constructing a tiny buffer where the byte read returns null (offset out of range).
     const rom = new RomFile('empty.smc', Buffer.alloc(8))
-    expect(readOwBaselineLevelIndex(rom)).toBe(0xEB)
+    expect(readOwBaselineLevelIndex(rom)).toBe(0xeb)
   })
 })
 
@@ -88,7 +88,7 @@ describe('loadOverworldAreas', () => {
     // so the loader falls back to (paletteIndex * OW_PALETTE_BLOCK_BYTES).
     // tilesetBuf is also null so objectTileset uses (0x11 + i).
     expect(areas[3].objectTileset).toBe(0x11 + 3)
-    expect(areas[3].paletteIndex).toBe(3)  // fallback to index when palIx is null
+    expect(areas[3].paletteIndex).toBe(3) // fallback to index when palIx is null
     expect(areas[3].paletteAddrNormal).toBe(
       OW_ADDR.PALETTE_NORMAL_BASE + 3 * OW_PALETTE_BLOCK_BYTES,
     )
@@ -97,8 +97,8 @@ describe('loadOverworldAreas', () => {
   it('sign-extends negative camera-X values from the ROM word table', () => {
     const rom = makeMockRom()
     // Area 1 cameraX = $FFEF (= -17 signed)
-    writeWord(rom, OW_ADDR.CAMERA_X_TABLE + 1 * 2, 0xFFEF)
-    writeWord(rom, OW_ADDR.CAMERA_Y_TABLE + 1 * 2, 0xFFD8)  // = -40
+    writeWord(rom, OW_ADDR.CAMERA_X_TABLE + 1 * 2, 0xffef)
+    writeWord(rom, OW_ADDR.CAMERA_Y_TABLE + 1 * 2, 0xffd8) // = -40
     const areas = loadOverworldAreas(rom)
     expect(areas[1].cameraX).toBe(-17)
     expect(areas[1].cameraY).toBe(-40)
@@ -119,13 +119,13 @@ describe('loadOverworldAreas', () => {
     const rom = makeMockRom()
     // Initialise the entire warp X table to destSubmap=$0F (no area) so default
     // zero entries don't accidentally claim area 0.
-    rom.writeAt(OW_ADDR.WARP_X_TABLE, new Array(27 * 2).fill(0xFF))
+    rom.writeAt(OW_ADDR.WARP_X_TABLE, new Array(27 * 2).fill(0xff))
     // Warp 0 targets area 3 (destSubmap = (xWord >> 9) & 0x0F = 3 → xWord = (3<<9) | 0x55 = $0655)
     writeWord(rom, OW_ADDR.WARP_X_TABLE, 0x0655)
-    writeWord(rom, OW_ADDR.WARP_Y_TABLE, 0x00A4)
+    writeWord(rom, OW_ADDR.WARP_Y_TABLE, 0x00a4)
     const areas = loadOverworldAreas(rom)
-    expect(areas[3].marioStart).toEqual({ x: 0x55, y: 0x00A4 })
-    expect(areas[3].luigiStart).toEqual({ x: 0x55, y: 0x00A4 })
+    expect(areas[3].marioStart).toEqual({ x: 0x55, y: 0x00a4 })
+    expect(areas[3].luigiStart).toEqual({ x: 0x55, y: 0x00a4 })
     // Distinct objects (warp tables share data but the area builds separate copies).
     expect(areas[3].marioStart).not.toBe(areas[3].luigiStart)
     // Areas with no targeting warp keep null.
@@ -151,7 +151,10 @@ describe('loadAreaWarpStarts', () => {
     writeWord(rom, OW_ADDR.WARP_Y_TABLE + 2, 0x0050)
     writeWord(rom, OW_ADDR.WARP_Y_TABLE + 4, 0x0060)
     const result = loadAreaWarpStarts(rom, 2)
-    expect(result.mario).toEqual([{ x: 0x10, y: 0x0040 }, { x: 0x30, y: 0x0060 }])
+    expect(result.mario).toEqual([
+      { x: 0x10, y: 0x0040 },
+      { x: 0x30, y: 0x0060 },
+    ])
     // luigi is a separate array but with equal contents
     expect(result.luigi).toEqual(result.mario)
     expect(result.luigi).not.toBe(result.mario)
@@ -181,7 +184,7 @@ describe('loadAreaPalette', () => {
     const rom = makeMockRom()
     const area = fakeArea()
     // Plant a non-zero color in the area-specific block (col 1 row 4 → first read).
-    writeWord(rom, area.paletteAddrNormal, 0x7C00)  // BGR555 red-ish
+    writeWord(rom, area.paletteAddrNormal, 0x7c00) // BGR555 red-ish
     const rows = loadAreaPalette(rom, area, false)
     expect(rows.length).toBe(16)
     expect(rows[4][1]).toBeDefined()
@@ -190,8 +193,8 @@ describe('loadAreaPalette', () => {
   it('uses the special-world block when useSpecial is true', () => {
     const rom = makeMockRom()
     const area = fakeArea()
-    writeWord(rom, area.paletteAddrNormal, 0x7C00)
-    writeWord(rom, area.paletteAddrSpecial, 0x001F)  // distinct color
+    writeWord(rom, area.paletteAddrNormal, 0x7c00)
+    writeWord(rom, area.paletteAddrSpecial, 0x001f) // distinct color
     const normal = loadAreaPalette(rom, area, false)
     const special = loadAreaPalette(rom, area, true)
     expect(special[4][1]).not.toEqual(normal[4][1])
@@ -202,7 +205,7 @@ describe('loadAreaPalette', () => {
     const area = fakeArea()
     const rows = loadAreaPalette(rom, area, false)
     expect(rows.length).toBe(16)
-    // Without ROM data, everything is empty/black/transparent — col 0 of each row is transparent.
+    // Without ROM data, everything is empty/black/transparent - col 0 of each row is transparent.
     for (let r = 0; r < 16; r++) {
       expect(rows[r][0]).toEqual([0, 0, 0, 0])
     }
@@ -212,9 +215,9 @@ describe('loadAreaPalette', () => {
     const rom = makeMockRom()
     const area = fakeArea()
     // Plant uniques into each sub-block first byte
-    writeWord(rom, OW_ADDR.PALETTE_STD,  0x7C00)   // → row 2 col 9
-    writeWord(rom, OW_ADDR.PALETTE_STD2, 0x03E0)   // → row 8 col 1
-    writeWord(rom, OW_ADDR.PALETTE_HUD,  0x001F)   // → row 0 col 8
+    writeWord(rom, OW_ADDR.PALETTE_STD, 0x7c00) // → row 2 col 9
+    writeWord(rom, OW_ADDR.PALETTE_STD2, 0x03e0) // → row 8 col 1
+    writeWord(rom, OW_ADDR.PALETTE_HUD, 0x001f) // → row 0 col 8
     const rows = loadAreaPalette(rom, area, false)
     expect(rows[2][9]).toBeDefined()
     expect(rows[8][1]).toBeDefined()
@@ -296,7 +299,11 @@ describe('areaBufferRegion', () => {
 
   it('Area 0 returns full 64×64 layout 0', () => {
     expect(areaBufferRegion(area(0))).toEqual({
-      layout: 0, rowStart: 0, colStart: 0, widthTiles: 64, heightTiles: 64,
+      layout: 0,
+      rowStart: 0,
+      colStart: 0,
+      widthTiles: 64,
+      heightTiles: 64,
     })
   })
 
@@ -324,11 +331,16 @@ describe('l3MaskForArea', () => {
   function area(index: number, cameraY = 0): OwArea {
     return {
       index,
-      widthTiles: 32, heightTiles: 32,
-      cameraX: 0, cameraY,
-      objectTileset: 0, paletteIndex: 0,
-      paletteAddrNormal: 0, paletteAddrSpecial: 0,
-      marioStart: null, luigiStart: null,
+      widthTiles: 32,
+      heightTiles: 32,
+      cameraX: 0,
+      cameraY,
+      objectTileset: 0,
+      paletteIndex: 0,
+      paletteAddrNormal: 0,
+      paletteAddrSpecial: 0,
+      marioStart: null,
+      luigiStart: null,
     }
   }
 
@@ -337,11 +349,21 @@ describe('l3MaskForArea', () => {
   })
 
   it('Top-row sub-area (negative cameraY) masks 4 top rows', () => {
-    expect(l3MaskForArea(area(1, -40))).toEqual({ topRows: 4, bottomRows: 2, colLeft: 2, colRight: 2 })
+    expect(l3MaskForArea(area(1, -40))).toEqual({
+      topRows: 4,
+      bottomRows: 2,
+      colLeft: 2,
+      colRight: 2,
+    })
   })
 
   it('Mid/bottom sub-area (cameraY >= 0) masks 5 top rows', () => {
-    expect(l3MaskForArea(area(2, 168))).toEqual({ topRows: 5, bottomRows: 2, colLeft: 2, colRight: 2 })
+    expect(l3MaskForArea(area(2, 168))).toEqual({
+      topRows: 5,
+      bottomRows: 2,
+      colLeft: 2,
+      colRight: 2,
+    })
   })
 })
 
@@ -376,15 +398,19 @@ describe('decodeOwMap16', () => {
     // Build 8 bytes = 4 LE words.
     // Layout matches the loader: tl, bl, tr, br.
     // Each word: charNum(10) | palette(3 << 10) | priority(1 << 13) | flipX(1 << 14) | flipY(1 << 15)
-    const tlWord = 0x0123  // chN=$123, pal=0
-    const blWord = 0x1456  // chN=$56, pal=5
-    const trWord = 0x4789  // chN=$189, pal=1, flipX=1
-    const brWord = 0xC0AB  // chN=$0AB, pal=0, prio=0, flipX=0, flipY=1, also priority bit
+    const tlWord = 0x0123 // chN=$123, pal=0
+    const blWord = 0x1456 // chN=$56, pal=5
+    const trWord = 0x4789 // chN=$189, pal=1, flipX=1
+    const brWord = 0xc0ab // chN=$0AB, pal=0, prio=0, flipX=0, flipY=1, also priority bit
     const charData = new Uint8Array([
-      tlWord & 0xFF, (tlWord >> 8) & 0xFF,
-      blWord & 0xFF, (blWord >> 8) & 0xFF,
-      trWord & 0xFF, (trWord >> 8) & 0xFF,
-      brWord & 0xFF, (brWord >> 8) & 0xFF,
+      tlWord & 0xff,
+      (tlWord >> 8) & 0xff,
+      blWord & 0xff,
+      (blWord >> 8) & 0xff,
+      trWord & 0xff,
+      (trWord >> 8) & 0xff,
+      brWord & 0xff,
+      (brWord >> 8) & 0xff,
     ])
     const m = decodeOwMap16(charData, 0)
     expect(m.tl.charNum).toBe(0x123)

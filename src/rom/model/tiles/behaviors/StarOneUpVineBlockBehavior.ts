@@ -49,8 +49,10 @@ export const STAR_CHAR_NUMS = [0x448, 0x449, 0x458, 0x459] as const
 const STAR_PALETTE_ROW = 8
 
 const OVERLAY_OFFSETS = [
-  { dx: 0, dy: -8 }, { dx: 8, dy: -8 },
-  { dx: 0, dy:  0 }, { dx: 8, dy:  0 },
+  { dx: 0, dy: -8 },
+  { dx: 8, dy: -8 },
+  { dx: 0, dy: 0 },
+  { dx: 8, dy: 0 },
 ] as const
 
 export class StarOneUpVineBlockBehavior implements TileBehavior {
@@ -61,7 +63,9 @@ export class StarOneUpVineBlockBehavior implements TileBehavior {
     readonly starChars: readonly (Char | null)[],
   ) {}
 
-  selectQuad(): SubtileQuad { return this.quad }
+  selectQuad(): SubtileQuad {
+    return this.quad
+  }
 
   itemAtCol(col: number): ItemType {
     return starOneUpVineItemAt(col)
@@ -70,21 +74,34 @@ export class StarOneUpVineBlockBehavior implements TileBehavior {
   renderOverlay(target: RenderTarget, cell: CellBox, mapStore: MapStore): void {
     const col = cell.tl.x / 16
     const type = starOneUpVineItemAt(col)
-    if (type === 'vine' && this.vineOverlayQuad) drawQuadOverlay(this.vineOverlayQuad, target, cell, mapStore)
-    else if (type === '1up') drawCharsOverlay(this.oneupChars, ONEUP_PALETTE_ROW, target, cell, mapStore)
-    else if (type === 'star') drawCharsOverlay(this.starChars, STAR_PALETTE_ROW, target, cell, mapStore)
+    if (type === 'vine' && this.vineOverlayQuad)
+      drawQuadOverlay(this.vineOverlayQuad, target, cell, mapStore)
+    else if (type === '1up')
+      drawCharsOverlay(this.oneupChars, ONEUP_PALETTE_ROW, target, cell, mapStore)
+    else if (type === 'star')
+      drawCharsOverlay(this.starChars, STAR_PALETTE_ROW, target, cell, mapStore)
   }
 }
 
 function indicatorAlpha(cell: CellBox): number {
   const cursor = editorStore.cursorPx
-  if (cursor !== null
-    && cursor.x >= cell.tl.x && cursor.x < cell.tl.x + 16
-    && cursor.y >= cell.tl.y && cursor.y < cell.tl.y + 16) return 1.0
+  if (
+    cursor !== null &&
+    cursor.x >= cell.tl.x &&
+    cursor.x < cell.tl.x + 16 &&
+    cursor.y >= cell.tl.y &&
+    cursor.y < cell.tl.y + 16
+  )
+    return 1.0
   return 0.5
 }
 
-function drawQuadOverlay(quad: SubtileQuad, target: RenderTarget, cell: CellBox, mapStore: MapStore): void {
+function drawQuadOverlay(
+  quad: SubtileQuad,
+  target: RenderTarget,
+  cell: CellBox,
+  mapStore: MapStore,
+): void {
   const alpha = indicatorAlpha(cell)
   for (let i = 0; i < 4; i++) {
     const { dx, dy } = OVERLAY_OFFSETS[i]
@@ -92,13 +109,26 @@ function drawQuadOverlay(quad: SubtileQuad, target: RenderTarget, cell: CellBox,
   }
 }
 
-function drawCharsOverlay(chars: readonly (Char | null)[], paletteIdx: number, target: RenderTarget, cell: CellBox, mapStore: MapStore): void {
+function drawCharsOverlay(
+  chars: readonly (Char | null)[],
+  paletteIdx: number,
+  target: RenderTarget,
+  cell: CellBox,
+  mapStore: MapStore,
+): void {
   const alpha = indicatorAlpha(cell)
   const paletteRow = mapStore.palette.row(paletteIdx)
   for (let i = 0; i < 4; i++) {
     const ch = chars[i]
     if (!ch) continue
     const { dx, dy } = OVERLAY_OFFSETS[i]
-    target.blit8x8(ch.getPixels(), { x: cell.tl.x + dx, y: cell.tl.y + dy }, paletteRow, false, false, alpha)
+    target.blit8x8(
+      ch.getPixels(),
+      { x: cell.tl.x + dx, y: cell.tl.y + dy },
+      paletteRow,
+      false,
+      false,
+      alpha,
+    )
   }
 }

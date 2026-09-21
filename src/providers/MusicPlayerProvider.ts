@@ -18,7 +18,14 @@ import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
 import { getAllLevelBgmTracks, readLevelMusicTable } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
-import { getNonce, getWebviewUri, readDescriptor, postWebviewError, SPC_PLAYER_STUB_DOM, buildSpcInitScript } from './webviewUtils'
+import {
+  getNonce,
+  getWebviewUri,
+  readDescriptor,
+  postWebviewError,
+  SPC_PLAYER_STUB_DOM,
+  buildSpcInitScript,
+} from './webviewUtils'
 import { hex2 } from '../rom/hex'
 
 export class MusicPlayerProvider implements vscode.CustomReadonlyEditorProvider {
@@ -34,18 +41,22 @@ export class MusicPlayerProvider implements vscode.CustomReadonlyEditorProvider 
   ): Promise<void> {
     panel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [
-        vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview')
-      ]
+      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview')],
     }
     panel.webview.html = this._buildHtml(panel.webview)
 
     const unmuteIcon = {
-          light: vscode.Uri.joinPath(this.context.extensionUri, 'build', 'icons', 'light', 'unmute.svg'),
-          dark: vscode.Uri.joinPath(this.context.extensionUri, 'build', 'icons', 'dark', 'unmute.svg'),
-        }
+      light: vscode.Uri.joinPath(
+        this.context.extensionUri,
+        'build',
+        'icons',
+        'light',
+        'unmute.svg',
+      ),
+      dark: vscode.Uri.joinPath(this.context.extensionUri, 'build', 'icons', 'dark', 'unmute.svg'),
+    }
 
-    panel.webview.onDidReceiveMessage(async (msg) => {
+    panel.webview.onDidReceiveMessage(async msg => {
       if (msg.type === 'ready') {
         await this._sendMusicData(document.uri, panel.webview)
       } else if (msg.type === 'musicState') {
@@ -78,9 +89,7 @@ export class MusicPlayerProvider implements vscode.CustomReadonlyEditorProvider 
           bgmCommand: t.bgmCommand,
           bgmHex: hex2(t.bgmCommand),
           // Which level music indices map to this track
-          levelIndices: levelTable
-            .filter(e => e.bgmCommand === t.bgmCommand)
-            .map(e => e.index),
+          levelIndices: levelTable.filter(e => e.bgmCommand === t.bgmCommand).map(e => e.index),
         })),
         spcFiles,
       })
@@ -90,12 +99,12 @@ export class MusicPlayerProvider implements vscode.CustomReadonlyEditorProvider 
   }
 
   private _buildHtml(webview: vscode.Webview): string {
-    const ext       = this.context.extensionUri
+    const ext = this.context.extensionUri
     const scriptUri = getWebviewUri(webview, ext, 'musicPlayer.js')
-    const spcJsUri  = getWebviewUri(webview, ext, 'spc.js')
-    const wasmUri   = getWebviewUri(webview, ext, 'spc.wasm')
-    const nonce     = getNonce()
-    return /* html */`<!DOCTYPE html>
+    const spcJsUri = getWebviewUri(webview, ext, 'spc.js')
+    const wasmUri = getWebviewUri(webview, ext, 'spc.wasm')
+    const nonce = getNonce()
+    return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />

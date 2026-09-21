@@ -2,7 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import { isLmExAnimInstalled, loadExAnimData, mergeAnimationData } from '../../../src/rom/ExAnimationLoader'
+import {
+  isLmExAnimInstalled,
+  loadExAnimData,
+  mergeAnimationData,
+} from '../../../src/rom/ExAnimationLoader'
 import type { AnimationData } from '../../../src/rom/AnimationLoader'
 
 const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
@@ -75,17 +79,17 @@ describe('mergeAnimationData', () => {
 
   it('b slots appear after a slots in each frame (override wins in collectAnimFrames)', () => {
     const a = makeAnimData(2, [0x080])
-    const b = makeAnimData(2, [0x080])  // same charBase, b overrides a
+    const b = makeAnimData(2, [0x080]) // same charBase, b overrides a
     const merged = mergeAnimationData(a, b)
     // Both charBase 0x080 present; b's entry (fill=2) is last in frame array
     const frame0 = merged.frames[0]
     const last080 = [...frame0].reverse().find(s => s.charBase === 0x080)!
-    expect(last080.tiles[0][0]).toBe(1)  // frame 0 fill = f+1 = 1 for b
+    expect(last080.tiles[0][0]).toBe(1) // frame 0 fill = f+1 = 1 for b
   })
 
   it('tiles shorter source across the LCM period', () => {
-    const a = makeAnimData(2, [0x000])  // 2-frame source
-    const b = makeAnimData(4, [0x100])  // 4-frame source → LCM = 4
+    const a = makeAnimData(2, [0x000]) // 2-frame source
+    const b = makeAnimData(4, [0x100]) // 4-frame source → LCM = 4
     const merged = mergeAnimationData(a, b)
     expect(merged.frameCount).toBe(4)
     // a's char $000 at frame 2 should use a's frame 0 (tiled: 2 % 2 = 0)

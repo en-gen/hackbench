@@ -1,5 +1,5 @@
 /**
- * L2Loader — faithful port of CODE_05801E (bank_05.asm lines 20-74) for the
+ * L2Loader - faithful port of CODE_05801E (bank_05.asm lines 20-74) for the
  * Layer 2 preset-background path. Object-stream L2 (bank != $FF) is NOT
  * handled here; that requires the standard object dispatcher targeting a
  * Map16-page-2/3 backing store, which is a separate concern.
@@ -9,7 +9,7 @@
  * 1. The L2 pointer table at $05E600 stores a 3-byte entry per level:
  *      lo, hi, bank
  *    If `bank == $FF`, the level uses a preset background and the lo/hi form
- *    a 16-bit address in bank $0C — not $FF. (The game sets
+ *    a 16-bit address in bank $0C - not $FF. (The game sets
  *    `Layer2DataPtr+2 = $0C` after detecting the $FF sentinel.)
  *
  * 2. A page selector is derived purely from the address threshold:
@@ -21,7 +21,7 @@
  *    by the tail of CODE_058126 (ported as `loadAllMap16BG`).
  *
  * 3. The compressed data is decoded by CODE_058126 (LC_RLE1) into a flat byte
- *    stream. The game's Layer2TilemapLow buffer is 1024 bytes — a 32×32 tile
+ *    stream. The game's Layer2TilemapLow buffer is 1024 bytes - a 32×32 tile
  *    grid. Shorter streams leave the trailing bytes at $25 (the value written
  *    during pre-init).
  */
@@ -33,13 +33,13 @@ import { expandObject, createGrid } from './ObjectExpander'
 import { findSecondaryEntranceForLevel } from './L3Loader'
 
 /** L2 pointer table base. 3 bytes per level: lo, hi, bank. */
-export const L2_POINTER_TABLE = 0x05E600
+export const L2_POINTER_TABLE = 0x05e600
 
 /** Page-selector threshold from CODE_05801E line 38. */
-export const L2_PAGE_THRESHOLD = 0xE8FE
+export const L2_PAGE_THRESHOLD = 0xe8fe
 
 /** BG data bank set by CODE_05801E line 48 after the $FF sentinel check. */
-export const L2_BG_BANK = 0x0C
+export const L2_BG_BANK = 0x0c
 
 /**
  * Preset tilemap dimensions.
@@ -62,15 +62,15 @@ export const L2_BG_BANK = 0x0C
  */
 export const L2_PRESET_SCREEN_COLS = 16
 export const L2_PRESET_SCREEN_ROWS = 27
-export const L2_PRESET_SCREEN_BYTES = L2_PRESET_SCREEN_COLS * L2_PRESET_SCREEN_ROWS  // 432
-/** Full tiled pattern — two side-by-side screens. */
-export const L2_TILEMAP_COLS = L2_PRESET_SCREEN_COLS * 2  // 32
-export const L2_TILEMAP_ROWS = L2_PRESET_SCREEN_ROWS      // 27
-export const L2_TILEMAP_SIZE = L2_PRESET_SCREEN_BYTES * 2  // 864
+export const L2_PRESET_SCREEN_BYTES = L2_PRESET_SCREEN_COLS * L2_PRESET_SCREEN_ROWS // 432
+/** Full tiled pattern - two side-by-side screens. */
+export const L2_TILEMAP_COLS = L2_PRESET_SCREEN_COLS * 2 // 32
+export const L2_TILEMAP_ROWS = L2_PRESET_SCREEN_ROWS // 27
+export const L2_TILEMAP_SIZE = L2_PRESET_SCREEN_BYTES * 2 // 864
 
 /**
  * BG2 PPU sub-tilemap height in tiles. Layer2TilemapLow is a 1024-byte buffer
- * (32×32 tiles); only the first 864 bytes hold preset data — the bottom 5 rows
+ * (32×32 tiles); only the first 864 bytes hold preset data - the bottom 5 rows
  * stay at the $25 init fill (CODE_05801E lines 24-30). For vertical levels the
  * BG scrolls vertically and the PPU wraps the sub-tilemap every 32 rows, so
  * the tiled pattern repeats with a 5-row $25 strip between iterations. Lunar
@@ -107,7 +107,7 @@ export function readL2Pointer(rom: RomFile, level: number): number | null {
 
 /** True if the L2 pointer indicates a preset BG (bank byte $FF). */
 export function isPresetPtr(ptr: number): boolean {
-  return ((ptr >> 16) & 0xFF) === 0xFF
+  return ((ptr >> 16) & 0xff) === 0xff
 }
 
 /**
@@ -121,7 +121,7 @@ export function isPresetPtr(ptr: number): boolean {
 export function loadL2Preset(rom: RomFile, ptr: number): L2PresetLoad | null {
   if (!isPresetPtr(ptr)) return null
 
-  const lowWord = ptr & 0xFFFF
+  const lowWord = ptr & 0xffff
   const page = lowWord >= L2_PAGE_THRESHOLD ? 1 : 0
   const dataAddr = (L2_BG_BANK << 16) | lowWord
 
@@ -158,32 +158,35 @@ export function loadL2Preset(rom: RomFile, ptr: number): L2PresetLoad | null {
  * Mirrors LoadLevel (bank_05.asm line 424) for `LayerProcessing == 1`:
  *   - The game COPIES Layer2DataPtr + 5 into Layer1DataPtr and JMPs back into
  *     LoadAgain, which is the object-expansion loop. The +5 skips L2's own
- *     5-byte header bytes — the game never parses L2's header.
+ *     5-byte header bytes - the game never parses L2's header.
  *   - Object dispatch uses L1's ObjectTileset and L1's LevelScrLength. That's
  *     the screen count and tileset we pass in here.
  *   - The object stream writes Map16 IDs against the *regular* Map16 pointer
- *     table (not Map16BGTiles) — so the rendered tile IDs are L1-atlas
+ *     table (not Map16BGTiles) - so the rendered tile IDs are L1-atlas
  *     compatible.
  *
  * We still call parseLevelObjects on the raw L2 bytes because it reads a
- * 5-byte "header" then an object stream — the same layout L2 data has. We
+ * 5-byte "header" then an object stream - the same layout L2 data has. We
  * discard the parsed header and use only `.objects`.
  */
 export function loadL2Objects(
-  rom: RomFile, ptr: number, screens: number, objectTileset: number,
+  rom: RomFile,
+  ptr: number,
+  screens: number,
+  objectTileset: number,
   isVertical = false,
 ): { grid: number[][] } | null {
   if (isPresetPtr(ptr)) return null
 
-  const snesAddr = ptr & 0xFFFFFF
-  // Read a generous window — real L2 streams terminate with $FF.
+  const snesAddr = ptr & 0xffffff
+  // Read a generous window - real L2 streams terminate with $FF.
   const raw = rom.readAt(snesAddr, 0x2000)
   if (!raw) return null
 
   // parseL2Objects skips the same 5-byte preamble the game does
   // (bank_05.asm:462-470 copies Layer2DataPtr+5 into Layer1DataPtr before
   // re-running LoadLevelData with LayerProcessing=1). The vertical flag
-  // mirrors L1's — in vanilla SMW, L2 verticality tracks L1 closely.
+  // mirrors L1's - in vanilla SMW, L2 verticality tracks L1 closely.
   const objects = parseL2Objects(raw, screens, isVertical)
   const grid = createGrid(screens, isVertical)
   for (const obj of objects) {
@@ -199,32 +202,32 @@ export { SCREEN_W as L1_SCREEN_W, SCREEN_H as L1_SCREEN_H }
 // ── Initial Layer2YPos (BG2VOFS) ──────────────────────────────────────────────
 
 /**
- * SNES address of DATA_05F400 — per-level Layer1/Layer2 startup Y-index byte.
+ * SNES address of DATA_05F400 - per-level Layer1/Layer2 startup Y-index byte.
  * - Bits 1:0 index DATA_05D70C for primary-entrance Layer2YPos init.
  * - Bits 3:2 index DATA_05D708 for primary-entrance Layer1YPos init (L1 path).
  * Confirmed at bank_05.asm:7323-7328.
  */
-const DATA_05F400_ADDR = 0x05F400
+const DATA_05F400_ADDR = 0x05f400
 
 /**
- * SNES address of DATA_05FA00 — secondary-entrance settings byte.
+ * SNES address of DATA_05FA00 - secondary-entrance settings byte.
  * - Bits 7:6 index DATA_05D70C for secondary-entrance Layer2YPos init
- *   (bank_05.asm:7137-7146 — top 2 bits, distinct from L1's bits 5:4).
+ *   (bank_05.asm:7137-7146 - top 2 bits, distinct from L1's bits 5:4).
  */
-const DATA_05FA00_ADDR = 0x05FA00
+const DATA_05FA00_ADDR = 0x05fa00
 
 /**
- * SNES address of DATA_05F600 — first level-data byte per level. For vertical
+ * SNES address of DATA_05F600 - first level-data byte per level. For vertical
  * levels, low 5 bits hold the high byte of the initial Y position used for
  * both Layer1YPos+1 and Layer2YPos+1 (bank_05.asm:7386-7393).
  */
-const DATA_05F600_ADDR = 0x05F600
+const DATA_05F600_ADDR = 0x05f600
 
 /**
- * SNES address of DATA_05D70C — initial Layer2YPos low-byte table.
+ * SNES address of DATA_05D70C - initial Layer2YPos low-byte table.
  * Verified contents: $60, $90, $C0, $00 (bank_05.asm:7035-7036).
  */
-const DATA_05D70C_ADDR = 0x05D70C
+const DATA_05D70C_ADDR = 0x05d70c
 
 /**
  * Read the initial `Layer2YPos` (BG2VOFS) byte for a level, picking the
@@ -254,7 +257,7 @@ export function readInitialLayer2YPos(rom: RomFile, levelId: number, isVertical 
       const idx = (faByte >> 6) & 0x03
       loByte = rom.readByte(DATA_05D70C_ADDR + idx) ?? 0
     } else {
-      // Primary fallback for sublevels with no targeting entrance — same path
+      // Primary fallback for sublevels with no targeting entrance - same path
       // as the standard primary load. Mirrors readInitialLayer1YPos's fallback
       // at L3Loader.ts:260-266.
       const settings = rom.readByte(DATA_05F400_ADDR + levelId) ?? 0
@@ -268,7 +271,7 @@ export function readInitialLayer2YPos(rom: RomFile, levelId: number, isVertical 
   }
 
   if (!isVertical) return loByte
-  const hiByte = (rom.readByte(DATA_05F600_ADDR + levelId) ?? 0) & 0x1F
+  const hiByte = (rom.readByte(DATA_05F600_ADDR + levelId) ?? 0) & 0x1f
   return (hiByte << 8) | loByte
 }
 
@@ -281,7 +284,8 @@ export function readInitialLayer2YPos(rom: RomFile, levelId: number, isVertical 
  * reference each pointer so the UI can label them helpfully.
  */
 export function enumerateL2Presets(
-  rom: RomFile, levelCount = 0x200,
+  rom: RomFile,
+  levelCount = 0x200,
 ): { ptr: number; levels: number[] }[] {
   const byPtr = new Map<number, number[]>()
   for (let level = 0; level < levelCount; level++) {
@@ -293,7 +297,7 @@ export function enumerateL2Presets(
   }
   return [...byPtr.entries()]
     .map(([ptr, levels]) => ({ ptr, levels }))
-    .sort((a, b) => (a.ptr & 0xFFFF) - (b.ptr & 0xFFFF))
+    .sort((a, b) => (a.ptr & 0xffff) - (b.ptr & 0xffff))
 }
 
 // ── Scroll-range derivation (#246) ───────────────────────────────────────────
@@ -311,7 +315,7 @@ export function enumerateL2Presets(
  * VertLayer2Setting tables) and event-driven sources (screen shake, sink/rise
  * timers set up by L1 cmds like $0E).
  */
-export const SCROLL_SPRITE_BASE = 0xE7
+export const SCROLL_SPRITE_BASE = 0xe7
 
 /**
  * First scroll sprite in a level's sprite stream, returned as the
@@ -319,7 +323,7 @@ export const SCROLL_SPRITE_BASE = 0xE7
  * short-circuits via `BNE +` once any cmd is set, so the FIRST scroll sprite
  * wins; later ones in the stream are ignored.
  *
- * Returns null when no scroll sprite is present — typical of non-auto-scroll
+ * Returns null when no scroll sprite is present - typical of non-auto-scroll
  * levels.
  */
 export function findLevelScrollSprite(sprites: readonly LevelSprite[]): number | null {
@@ -351,11 +355,11 @@ export function findLevelScrollSpriteFull(
  * Per-`Layer2ScrollCmd` motion bounds, read directly from the ROM tables
  * the cmd's per-frame routine compares against. The argument is the
  * **post-setup** Layer2ScrollCmd (computed via `simulateScrollSetup`),
- * NOT the raw scroll-sprite cmd byte — those differ for cmds where the
+ * NOT the raw scroll-sprite cmd byte - those differ for cmds where the
  * L1 setup routine remaps via 16-bit STA tricks (e.g. L1 cmd $0C → L2
  * cmd $00, no L2 motion).
  *
- * Returns `null` for cmds whose bounds source we haven't decoded yet —
+ * Returns `null` for cmds whose bounds source we haven't decoded yet -
  * caller falls back to `(initialLayer2YPx, initialLayer2YPx)` (no motion).
  *
  * Currently mapped:
@@ -365,15 +369,16 @@ export function findLevelScrollSpriteFull(
  *
  * Other cmds (e.g. $0E sink/rise CODE_05C81C) pending decoding.
  */
-const DATA_05C71B_ADDR = 0x05C71B
+const DATA_05C71B_ADDR = 0x05c71b
 
 export function readL2ScrollBounds(
-  rom: RomFile, layer2ScrollCmd: number | null,
+  rom: RomFile,
+  layer2ScrollCmd: number | null,
 ): { min: number; max: number } | null {
-  if (layer2ScrollCmd === 0x0B) {
-    const a = rom.readByte(DATA_05C71B_ADDR + 0) ?? 0   // target 0 low
+  if (layer2ScrollCmd === 0x0b) {
+    const a = rom.readByte(DATA_05C71B_ADDR + 0) ?? 0 // target 0 low
     // hi bytes (DATA_05C71B + 1, +3) are zero in vanilla; treating Y as 8-bit
-    const b = rom.readByte(DATA_05C71B_ADDR + 2) ?? 0   // target 1 low
+    const b = rom.readByte(DATA_05C71B_ADDR + 2) ?? 0 // target 1 low
     const min = Math.min(a, b)
     const max = Math.max(a, b)
     if (max > min) return { min, max }
@@ -390,7 +395,7 @@ export interface L2ScrollRange {
    *
    * A per-frame Y animation source (screen-shake / cmd-$0E sink-rise /
    * boss-specific routines) would warrant a future `'animated'` kind with
-   * captured sweep extremes. Not yet decoded — see issue #246.
+   * captured sweep extremes. Not yet decoded - see issue #246.
    */
   kind: 'none' | 'fixed'
   /** Level pixel rectangle bounds. */
@@ -407,13 +412,13 @@ export interface L2ScrollRange {
 
 export interface L2ScrollRangeInput {
   /** Object-stream grid (null cells are empty). row-major. */
-  grid:             readonly (readonly (number | null)[])[]
+  grid: readonly (readonly (number | null)[])[]
   initialLayer2YPx: number
   initialCameraYPx: number
   /** Level pixel width (screens × 256). */
-  levelPixelW:      number
+  levelPixelW: number
   /** L1 cmd from `findLevelScrollSprite`, or null when no scroll sprite. */
-  layer1ScrollCmd:  number | null
+  layer1ScrollCmd: number | null
 }
 
 /**
@@ -422,7 +427,7 @@ export interface L2ScrollRangeInput {
  */
 function findGridDataRows(grid: readonly (readonly (number | null)[])[]): [number, number] {
   let first = -1
-  let last  = -1
+  let last = -1
   for (let r = 0; r < grid.length; r++) {
     const row = grid[r] ?? []
     for (let c = 0; c < row.length; c++) {
@@ -440,7 +445,7 @@ function findGridDataRows(grid: readonly (readonly (number | null)[])[]): [numbe
  * Bounding rectangle (level pixels) for the L2 plane the editor should
  * visualize. Mirrors the shape of `computeL3ScrollRange`.
  *
- * Returns `kind: 'fixed'` whenever the grid has any data — gameplay-L2 has
+ * Returns `kind: 'fixed'` whenever the grid has any data - gameplay-L2 has
  * no per-frame Y animation we've decoded yet (Layer2ScrollCmd is always 0
  * in vanilla play; cmd-$0E sink-rise needs separate verification). The
  * rect is at `firstRow*16 + dy` to `(lastRow+1)*16 + dy` where `dy =
@@ -455,7 +460,7 @@ export function computeL2ScrollRange(input: L2ScrollRangeInput): L2ScrollRange {
     return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }
   }
 
-  const dy   = -initialLayer2YPx + initialCameraYPx
+  const dy = -initialLayer2YPx + initialCameraYPx
   return {
     kind: 'fixed',
     xMin: 0,

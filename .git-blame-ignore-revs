@@ -1,0 +1,9 @@
+# Commits that only moved characters around. Ignore them in blame with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub reads this file automatically in its blame view.
+
+# style: replace em-dashes with regular dashes in JS/TS/CSS comments
+4bd0d22a87f90d9c3e680ea39fad7a002f7fab00
+
+# style: prettier sweep across JS/TS/CSS
+df3a4c7a300642bf74afb21ca329395f234a5ec1

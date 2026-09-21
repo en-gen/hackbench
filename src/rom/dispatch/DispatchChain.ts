@@ -32,23 +32,23 @@ import { SPRITE_MAIN_PTR_TABLE, SPRITE_PTR_TABLE_COUNT } from './SpritePointerTa
 
 // ── Opcodes ─────────────────────────────────────────────────────────────────
 
-const OP_PHB = 0x8B
-const OP_PHK = 0x4B
-const OP_PLB = 0xAB
+const OP_PHB = 0x8b
+const OP_PHK = 0x4b
+const OP_PLB = 0xab
 /** `LDA dp,X`. The chain reads the sprite number through it. */
-const OP_LDA_DP_X = 0xB5
-const OP_CMP_IMM = 0xC9
-const OP_BNE = 0xD0
-const OP_BEQ = 0xF0
+const OP_LDA_DP_X = 0xb5
+const OP_CMP_IMM = 0xc9
+const OP_BNE = 0xd0
+const OP_BEQ = 0xf0
 const OP_JSR = 0x20
 const OP_JSL = 0x22
 const OP_RTS = 0x60
-const OP_RTL = 0x6B
+const OP_RTL = 0x6b
 
 /** Direct-page address of `SpriteNumber`, the operand of the chain's own
  *  `LDA dp,X`. Read as part of the opcode check, so a chain that dispatches
  *  on some other byte is refused instead of mapped. */
-const SPRITE_NUMBER_DP = 0x9E
+const SPRITE_NUMBER_DP = 0x9e
 
 /** Bytes of a `JSL long : RTS` stub. */
 const THUNK_LEN = 5
@@ -119,16 +119,20 @@ function byteAt(rom: RomFile, addr: number): number | null {
 }
 
 function toSigned8(b: number): number {
-  return b > 0x7F ? b - 0x100 : b
+  return b > 0x7f ? b - 0x100 : b
 }
 
 /** Target of a two-byte relative branch whose opcode sits at `addr`. */
 function branchTarget(rel: number, addr: number): number {
-  return (addr & 0xFF0000) | ((addr + 2 + toSigned8(rel)) & 0xFFFF)
+  return (addr & 0xff0000) | ((addr + 2 + toSigned8(rel)) & 0xffff)
 }
 
-const refuse = (at: number, linkIndex: number, expected: string, found: number | null): DispatchChainRead =>
-  ({ kind: 'refused', at, refusal: { at, linkIndex, expected, found } })
+const refuse = (
+  at: number,
+  linkIndex: number,
+  expected: string,
+  found: number | null,
+): DispatchChainRead => ({ kind: 'refused', at, refusal: { at, linkIndex, expected, found } })
 
 // ── Thunk ───────────────────────────────────────────────────────────────────
 
@@ -155,7 +159,7 @@ export function readHandlerThunk(rom: RomFile, handlerAddr: number): HandlerThun
  * inserted into it is refused instead of silently re-cut at the wrong place.
  */
 export function readDispatchChain(rom: RomFile, chainAt: number): DispatchChainRead {
-  const bank = chainAt & 0xFF0000
+  const bank = chainAt & 0xff0000
   const pro = rom.readAt(chainAt, PROLOGUE_LEN)
   if (!pro) return refuse(chainAt, -1, 'chain prologue', null)
   if (pro[0] !== OP_PHB) return refuse(chainAt, -1, 'PHB', pro[0])
@@ -227,10 +231,20 @@ export function readDispatchChain(rom: RomFile, chainAt: number): DispatchChainR
     // measured, which is what makes the id-to-routine pairing structural
     // rather than assumed.
     if (bneTarget !== q) {
-      return refuse(q - LINK_TAIL_LEN - 2, i, `BNE skipping ${LINK_TAIL_LEN} bytes to $${q.toString(16)}`, bneTarget)
+      return refuse(
+        q - LINK_TAIL_LEN - 2,
+        i,
+        `BNE skipping ${LINK_TAIL_LEN} bytes to $${q.toString(16)}`,
+        bneTarget,
+      )
     }
     if (beqTarget !== null && beqTarget !== jsrAt) {
-      return refuse(jsrAt - PAIR_HEAD_LEN - 2, i, `BEQ skipping ${PAIR_HEAD_LEN} bytes to $${jsrAt.toString(16)}`, beqTarget)
+      return refuse(
+        jsrAt - PAIR_HEAD_LEN - 2,
+        i,
+        `BEQ skipping ${PAIR_HEAD_LEN} bytes to $${jsrAt.toString(16)}`,
+        beqTarget,
+      )
     }
 
     links.push({ ids, routine, jsrAt })
@@ -298,13 +312,19 @@ export function resolveDispatch(rom: RomFile, spriteId: number, bank = 0x01): Di
 export function dispatchMessage(r: DispatchResolution): string {
   const hex = (n: number, w = 6) => `$${n.toString(16).toUpperCase().padStart(w, '0')}`
   switch (r.kind) {
-    case 'direct':      return `handler ${hex(r.handler)}`
-    case 'dispatched':  return `dispatched to ${hex(r.handler)} via ${hex(r.thunk.at)}`
-    case 'fallthrough': return `unmatched by the chain at ${hex(r.thunk.target)}, falls through to ${hex(r.at)}`
+    case 'direct':
+      return `handler ${hex(r.handler)}`
+    case 'dispatched':
+      return `dispatched to ${hex(r.handler)} via ${hex(r.thunk.at)}`
+    case 'fallthrough':
+      return `unmatched by the chain at ${hex(r.thunk.target)}, falls through to ${hex(r.at)}`
     case 'chainRefused':
-      return `stub ${hex(r.thunk.at)} leads to ${hex(r.thunk.target)}, which is not a readable chain `
-        + `(expected ${r.refusal.expected} at ${hex(r.refusal.at)}, found `
-        + `${r.refusal.found === null ? 'nothing' : hex(r.refusal.found, 2)})`
-    case 'unreadable':  return 'handler pointer unreadable'
+      return (
+        `stub ${hex(r.thunk.at)} leads to ${hex(r.thunk.target)}, which is not a readable chain ` +
+        `(expected ${r.refusal.expected} at ${hex(r.refusal.at)}, found ` +
+        `${r.refusal.found === null ? 'nothing' : hex(r.refusal.found, 2)})`
+      )
+    case 'unreadable':
+      return 'handler pointer unreadable'
   }
 }

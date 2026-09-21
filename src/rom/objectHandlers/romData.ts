@@ -15,7 +15,7 @@ import { RomFile } from '../RomFile'
 
 // ── Data tables ───────────────────────────────────────────────────────────────
 //
-// NOTE: Previously this module exported ~35 `ADDR_DATA_0DXXXX` constants — the
+// NOTE: Previously this module exported ~35 `ADDR_DATA_0DXXXX` constants - the
 // vanilla-SMW addresses of each data table referenced by an object handler.
 // Those have all been removed. Object handlers now read their referenced table
 // addresses from LDA.L operand bytes *inside the handler's own bytecode* via
@@ -24,7 +24,7 @@ import { RomFile } from '../RomFile'
 //
 // A few data-table sizes are still referenced by tests:
 
-export const DATA_0DA548_LEN = 51   // 51 tile IDs, extended single-tile objects
+export const DATA_0DA548_LEN = 51 // 51 tile IDs, extended single-tile objects
 
 // ── Dispatch table addresses ──────────────────────────────────────────────────
 
@@ -33,7 +33,7 @@ export const DATA_0DA548_LEN = 51   // 51 tile IDs, extended single-tile objects
  * CODE_0DA106 opcodes: SEP #$30 (2) + LDA.B LvlLoadObjSize (2) + TAX (1) + JSL (4) = 9 bytes.
  * Table starts at $0DA106 + 9 = $0DA10F. 128 entries (0x00-0x7F), 3 bytes each.
  */
-export const ADDR_EXTENDED_DISPATCH = 0x0DA10F
+export const ADDR_EXTENDED_DISPATCH = 0x0da10f
 /** Extended-object dispatch table size: 256 entries covering all possible
  *  `LvlLoadObjSize` values (0-0xFF). Entries 0x49-0xFF all repeat CODE_0DA6D1
  *  so the vast majority of "unknown" ext types still have a defined handler. */
@@ -44,7 +44,7 @@ export const EXTENDED_DISPATCH_COUNT = 256
  * CODE_0DA415 opcodes: SEP #$30 (2) + LDA.W ObjectTileset (3) + JSL (4) = 9 bytes.
  * Table starts at $0DA415 + 9 = $0DA41E. 15 entries, 3 bytes each.
  */
-export const ADDR_TILESET_DISPATCH = 0x0DA41E
+export const ADDR_TILESET_DISPATCH = 0x0da41e
 export const TILESET_DISPATCH_COUNT = 15
 
 /**
@@ -52,7 +52,7 @@ export const TILESET_DISPATCH_COUNT = 15
  * CODE_0DA44B opcodes: SEP #$30 (2) + LDX.B LvlLoadObjNo (2) + DEX (1) + TXA (1) + JSL (4) = 10 bytes.
  * Table starts at $0DA44B + 10 = $0DA455. 63 entries (objects 1-0x3F), 3 bytes each.
  */
-export const ADDR_TILESET0_HANDLERS = 0x0DA455
+export const ADDR_TILESET0_HANDLERS = 0x0da455
 export const STANDARD_HANDLER_COUNT = 63
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

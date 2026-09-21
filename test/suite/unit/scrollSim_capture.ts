@@ -1,5 +1,5 @@
 /**
- * scrollSim_capture.ts — shared loader + comparator for the
+ * scrollSim_capture.ts - shared loader + comparator for the
  * scrollSim_*.test.ts capture-validation tests.
  *
  * Each test takes a path to a Mesen `l2_scroll.csv` capture, reads
@@ -21,7 +21,7 @@ import { buildScrollSimulator, type ScrollState } from '../../../src/rom/scrollS
  *  gracefully when the gitignored ROM isn't present.
  *
  *  Resolves across multiple candidates because git worktrees don't
- *  share the gitignored `test/roms/` directory — the ROM only lives
+ *  share the gitignored `test/roms/` directory - the ROM only lives
  *  in the canonical checkout. */
 function resolveVanillaRom(): string | null {
   const candidates = [
@@ -46,21 +46,36 @@ export function loadVanillaRom(): RomFile {
 
 export interface CaptureRow {
   frame: number
-  l1x: number; l1y: number
-  l2x: number; l2y: number
-  l1cmd: number; l2cmd: number
-  l1bits: number; l2bits: number
-  l1type: number; l2type: number
-  l1timer: number; l2timer: number
-  l1xspd: number; l1yspd: number
-  l2xspd: number; l2yspd: number
-  l1xupd: number; l1yupd: number
-  l2xupd: number; l2yupd: number
-  nl1x: number; nl1y: number
-  nl2x: number; nl2y: number
-  l1dir: number; shakeY: number
-  marioX: number; marioY: number
-  horizL2: number; vertL2: number
+  l1x: number
+  l1y: number
+  l2x: number
+  l2y: number
+  l1cmd: number
+  l2cmd: number
+  l1bits: number
+  l2bits: number
+  l1type: number
+  l2type: number
+  l1timer: number
+  l2timer: number
+  l1xspd: number
+  l1yspd: number
+  l2xspd: number
+  l2yspd: number
+  l1xupd: number
+  l1yupd: number
+  l2xupd: number
+  l2yupd: number
+  nl1x: number
+  nl1y: number
+  nl2x: number
+  nl2y: number
+  l1dir: number
+  shakeY: number
+  marioX: number
+  marioY: number
+  horizL2: number
+  vertL2: number
   scrollIdx: number
 }
 
@@ -69,57 +84,114 @@ export function loadCapture(csvPath: string): CaptureRow[] {
   const lines = text.trim().split('\n')
   const header = lines[0].split(',')
   const idx: Record<string, number> = {}
-  header.forEach((name, i) => { idx[name] = i })
+  header.forEach((name, i) => {
+    idx[name] = i
+  })
   return lines.slice(1).map(line => {
     const c = line.split(',').map(s => parseInt(s, 10))
     return {
       frame: c[idx.frame],
-      l1x:   c[idx.l1x],   l1y:   c[idx.l1y],
-      l2x:   c[idx.l2x],   l2y:   c[idx.l2y],
-      l1cmd: c[idx.l1cmd], l2cmd: c[idx.l2cmd],
-      l1bits: c[idx.l1bits], l2bits: c[idx.l2bits],
-      l1type: c[idx.l1type], l2type: c[idx.l2type],
-      l1timer: c[idx.l1timer], l2timer: c[idx.l2timer],
-      l1xspd: c[idx.l1xspd], l1yspd: c[idx.l1yspd],
-      l2xspd: c[idx.l2xspd], l2yspd: c[idx.l2yspd],
-      l1xupd: c[idx.l1xupd], l1yupd: c[idx.l1yupd],
-      l2xupd: c[idx.l2xupd], l2yupd: c[idx.l2yupd],
-      nl1x:   c[idx.nl1x],   nl1y:   c[idx.nl1y],
-      nl2x:   c[idx.nl2x],   nl2y:   c[idx.nl2y],
-      l1dir:  c[idx.l1dir],  shakeY: c[idx.shakeY],
-      marioX: c[idx.marioX], marioY: c[idx.marioY],
-      horizL2: c[idx.horizL2], vertL2: c[idx.vertL2],
+      l1x: c[idx.l1x],
+      l1y: c[idx.l1y],
+      l2x: c[idx.l2x],
+      l2y: c[idx.l2y],
+      l1cmd: c[idx.l1cmd],
+      l2cmd: c[idx.l2cmd],
+      l1bits: c[idx.l1bits],
+      l2bits: c[idx.l2bits],
+      l1type: c[idx.l1type],
+      l2type: c[idx.l2type],
+      l1timer: c[idx.l1timer],
+      l2timer: c[idx.l2timer],
+      l1xspd: c[idx.l1xspd],
+      l1yspd: c[idx.l1yspd],
+      l2xspd: c[idx.l2xspd],
+      l2yspd: c[idx.l2yspd],
+      l1xupd: c[idx.l1xupd],
+      l1yupd: c[idx.l1yupd],
+      l2xupd: c[idx.l2xupd],
+      l2yupd: c[idx.l2yupd],
+      nl1x: c[idx.nl1x],
+      nl1y: c[idx.nl1y],
+      nl2x: c[idx.nl2x],
+      nl2y: c[idx.nl2y],
+      l1dir: c[idx.l1dir],
+      shakeY: c[idx.shakeY],
+      marioX: c[idx.marioX],
+      marioY: c[idx.marioY],
+      horizL2: c[idx.horizL2],
+      vertL2: c[idx.vertL2],
       scrollIdx: c[idx.scrollIdx],
     }
   })
 }
 
 export type FieldKey =
-  | 'l1x' | 'l1y' | 'l2x' | 'l2y'
-  | 'l1type' | 'l2type' | 'l1timer' | 'l2timer'
-  | 'l1xspd' | 'l1yspd' | 'l2xspd' | 'l2yspd'
-  | 'l1xupd' | 'l1yupd' | 'l2xupd' | 'l2yupd'
-  | 'nl1x' | 'nl1y' | 'nl2x' | 'nl2y'
+  | 'l1x'
+  | 'l1y'
+  | 'l2x'
+  | 'l2y'
+  | 'l1type'
+  | 'l2type'
+  | 'l1timer'
+  | 'l2timer'
+  | 'l1xspd'
+  | 'l1yspd'
+  | 'l2xspd'
+  | 'l2yspd'
+  | 'l1xupd'
+  | 'l1yupd'
+  | 'l2xupd'
+  | 'l2yupd'
+  | 'nl1x'
+  | 'nl1y'
+  | 'nl2x'
+  | 'nl2y'
 
 const FIELD_MAP: Record<FieldKey, keyof ScrollState> = {
-  l1x:    'layer1XPos',         l1y:    'layer1YPos',
-  l2x:    'layer2XPos',         l2y:    'layer2YPos',
-  l1type: 'layer1ScrollType',   l2type: 'layer2ScrollType',
-  l1timer:'layer1ScrollTimer',  l2timer:'layer2ScrollTimer',
-  l1xspd: 'layer1ScrollXSpeed', l1yspd: 'layer1ScrollYSpeed',
-  l2xspd: 'layer2ScrollXSpeed', l2yspd: 'layer2ScrollYSpeed',
-  l1xupd: 'layer1ScrollXPosUpd',l1yupd: 'layer1ScrollYPosUpd',
-  l2xupd: 'layer2ScrollXPosUpd',l2yupd: 'layer2ScrollYPosUpd',
-  nl1x:   'nextLayer1XPos',     nl1y:   'nextLayer1YPos',
-  nl2x:   'nextLayer2XPos',     nl2y:   'nextLayer2YPos',
+  l1x: 'layer1XPos',
+  l1y: 'layer1YPos',
+  l2x: 'layer2XPos',
+  l2y: 'layer2YPos',
+  l1type: 'layer1ScrollType',
+  l2type: 'layer2ScrollType',
+  l1timer: 'layer1ScrollTimer',
+  l2timer: 'layer2ScrollTimer',
+  l1xspd: 'layer1ScrollXSpeed',
+  l1yspd: 'layer1ScrollYSpeed',
+  l2xspd: 'layer2ScrollXSpeed',
+  l2yspd: 'layer2ScrollYSpeed',
+  l1xupd: 'layer1ScrollXPosUpd',
+  l1yupd: 'layer1ScrollYPosUpd',
+  l2xupd: 'layer2ScrollXPosUpd',
+  l2yupd: 'layer2ScrollYPosUpd',
+  nl1x: 'nextLayer1XPos',
+  nl1y: 'nextLayer1YPos',
+  nl2x: 'nextLayer2XPos',
+  nl2y: 'nextLayer2YPos',
 }
 
 const ALL_FIELDS: readonly FieldKey[] = [
-  'l1x', 'l1y', 'l2x', 'l2y',
-  'l1type', 'l2type', 'l1timer', 'l2timer',
-  'l1xspd', 'l1yspd', 'l2xspd', 'l2yspd',
-  'l1xupd', 'l1yupd', 'l2xupd', 'l2yupd',
-  'nl1x', 'nl1y', 'nl2x', 'nl2y',
+  'l1x',
+  'l1y',
+  'l2x',
+  'l2y',
+  'l1type',
+  'l2type',
+  'l1timer',
+  'l2timer',
+  'l1xspd',
+  'l1yspd',
+  'l2xspd',
+  'l2yspd',
+  'l1xupd',
+  'l1yupd',
+  'l2xupd',
+  'l2yupd',
+  'nl1x',
+  'nl1y',
+  'nl2x',
+  'nl2y',
 ]
 
 /**
@@ -153,16 +225,22 @@ export function simFromCapture(
 ) {
   const rom = loadVanillaRom()
   return buildScrollSimulator(rom, {
-    layer1XPos: r0.l1x, layer1YPos: r0.l1y,
-    layer2XPos: r0.l2x, layer2YPos: r0.l2y,
-    layer1ScrollCmd: r0.l1cmd, layer2ScrollCmd: r0.l2cmd,
-    layer1ScrollBits: r0.l1bits, layer2ScrollBits: r0.l2bits,
-    horizLayer2Setting: r0.horizL2, vertLayer2Setting: r0.vertL2,
-    marioSpawnX: r0.marioX, marioSpawnY: r0.marioY,
+    layer1XPos: r0.l1x,
+    layer1YPos: r0.l1y,
+    layer2XPos: r0.l2x,
+    layer2YPos: r0.l2y,
+    layer1ScrollCmd: r0.l1cmd,
+    layer2ScrollCmd: r0.l2cmd,
+    layer1ScrollBits: r0.l1bits,
+    layer2ScrollBits: r0.l2bits,
+    horizLayer2Setting: r0.horizL2,
+    vertLayer2Setting: r0.vertL2,
+    marioSpawnX: r0.marioX,
+    marioSpawnY: r0.marioY,
     screenMode: 0,
     lastScreenHoriz: extra.lastScreenHoriz,
-    marioWalkRate: 0,              // tests inject exact marioX; no auto-advance
-    horizLayer1Setting: extra.horizLayer1Setting ?? 0,  // disabled unless test opts in
+    marioWalkRate: 0, // tests inject exact marioX; no auto-advance
+    horizLayer1Setting: extra.horizLayer1Setting ?? 0, // disabled unless test opts in
   })
 }
 
@@ -180,10 +258,14 @@ export function detectActiveFrames(
 ): number {
   let active = 0
   for (let r = 1; r < cap.length; r++) {
-    const cur = cap[r - 1], nxt = cap[r]
+    const cur = cap[r - 1],
+      nxt = cap[r]
     let frozen = true
     for (const k of freezeKeys) {
-      if (cur[k] !== nxt[k]) { frozen = false; break }
+      if (cur[k] !== nxt[k]) {
+        frozen = false
+        break
+      }
     }
     if (frozen) break
     active = r

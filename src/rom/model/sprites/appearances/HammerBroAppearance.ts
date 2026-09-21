@@ -14,7 +14,7 @@ import { partsHitRect, type SpritePart } from './StaticSpriteAppearance'
  *
  * spriteAnimTimer fires at 125 ms, so a tick is ~7.5 game frames. With
  * the 3-of-4 cadence that's ≈5.6 increments per tick; rounded to 6, bit 5
- * flips every 32/6 ≈ 5.3 ticks ≈ 666 ms — within ~6% of the in-game rate.
+ * flips every 32/6 ≈ 5.3 ticks ≈ 666 ms - within ~6% of the in-game rate.
  */
 export class HammerBroAppearance implements SpriteAppearance {
   readonly hitRect: HitRect
@@ -27,7 +27,7 @@ export class HammerBroAppearance implements SpriteAppearance {
   }
 
   tickAnimation(): void {
-    this.misc1570 = (this.misc1570 + 6) & 0xFF
+    this.misc1570 = (this.misc1570 + 6) & 0xff
     const bit5 = (this.misc1570 >> 5) & 1
     if (bit5 !== this.prevBit5) {
       this.prevBit5 = bit5
@@ -35,7 +35,13 @@ export class HammerBroAppearance implements SpriteAppearance {
     }
   }
 
-  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
+  render(
+    target: RenderTarget,
+    x: number,
+    y: number,
+    _behavior: SpriteBehavior,
+    mapStore: MapStore,
+  ): void {
     // When flipped, mirror each 8×8 part horizontally around the hitRect
     // center: a part at left edge `dx` reflects to `2*L + W - 8 - dx`,
     // where L = hitRect.dx and W = hitRect.w.

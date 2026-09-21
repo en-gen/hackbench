@@ -1,5 +1,5 @@
 /**
- * PSwitchAppearance — palette selection from pixel X position.
+ * PSwitchAppearance - palette selection from pixel X position.
  *
  * Ports InitPSwitch (bank_01.asm:665):
  *   (SpriteXPosLow >> 4) & 1
@@ -47,7 +47,7 @@ function makePart(dx = 0, dy = 0): SpritePart {
   return { char: mockChar(), palette: 0, flipX: false, flipY: false, dx, dy }
 }
 
-describe('PSwitchAppearance — static palette constants', () => {
+describe('PSwitchAppearance - static palette constants', () => {
   it('BLUE_PALETTE is 11 (OBJ pal $06 → 8 + ((0x06>>1)&7) = 8+3)', () => {
     expect(PSwitchAppearance.BLUE_PALETTE).toBe(11)
   })
@@ -57,7 +57,7 @@ describe('PSwitchAppearance — static palette constants', () => {
   })
 })
 
-describe('PSwitchAppearance.render — palette selection from x position', () => {
+describe('PSwitchAppearance.render - palette selection from x position', () => {
   beforeEach(resetEditorStore)
 
   // (x >> 4) & 1 === 0 → BLUE (11)
@@ -66,7 +66,10 @@ describe('PSwitchAppearance.render — palette selection from x position', () =>
   function palettesUsedAt(x: number): number[] {
     const requested: number[] = []
     const app = new PSwitchAppearance([makePart()])
-    const palette = makePaletteSpy((idx) => { requested.push(idx); return [] })
+    const palette = makePaletteSpy(idx => {
+      requested.push(idx)
+      return []
+    })
     const mapStore = makeTestMapStore({ palette })
     app.render(nullTarget(), x, 0, STUB_BEHAVIOR, mapStore)
     return requested
@@ -105,7 +108,10 @@ describe('PSwitchAppearance.render — palette selection from x position', () =>
   it('uses the same palette for all parts when multiple parts are present', () => {
     const requested: number[] = []
     const app = new PSwitchAppearance([makePart(0, 0), makePart(8, 0), makePart(0, 8)])
-    const palette = makePaletteSpy((idx) => { requested.push(idx); return [] })
+    const palette = makePaletteSpy(idx => {
+      requested.push(idx)
+      return []
+    })
     app.render(nullTarget(), 0, 0, STUB_BEHAVIOR, makeTestMapStore({ palette }))
     // x=0 → BLUE for all 3 parts
     expect(requested).toHaveLength(3)
@@ -113,7 +119,7 @@ describe('PSwitchAppearance.render — palette selection from x position', () =>
   })
 })
 
-describe('PSwitchAppearance — hitRect', () => {
+describe('PSwitchAppearance - hitRect', () => {
   it('hitRect is derived from the parts bounding box', () => {
     const app = new PSwitchAppearance([makePart(0, 0)])
     // single part at dx=0, dy=0 → x0=0, y0=0, x1=8, y1=8 → w=8, h=8

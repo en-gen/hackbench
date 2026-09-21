@@ -23,10 +23,14 @@
  */
 export function pSwitchSubstitute(tileId: number): number | null {
   switch (tileId) {
-    case 0x02B:
-    case 0x12B: return 0x132
-    case 0x132: return 0x12B
-    case 0x029: return 0x024
-    default:    return null
+    case 0x02b:
+    case 0x12b:
+      return 0x132
+    case 0x132:
+      return 0x12b
+    case 0x029:
+      return 0x024
+    default:
+      return null
   }
 }

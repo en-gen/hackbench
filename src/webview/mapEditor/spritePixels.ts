@@ -24,17 +24,22 @@ export type RgbaBuffer = Uint8ClampedArray<ArrayBuffer>
 export interface PreviewBounds {
   dx: number
   dy: number
-  w:  number
-  h:  number
+  w: number
+  h: number
 }
 
 /** Tightest rect covering every 8x8 part. Empty input gives one tile. */
 export function partsBounds(parts: readonly SpritePartInfo[]): PreviewBounds {
   if (parts.length === 0) return { dx: 0, dy: 0, w: 8, h: 8 }
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  let x0 = Infinity,
+    y0 = Infinity,
+    x1 = -Infinity,
+    y1 = -Infinity
   for (const p of parts) {
-    x0 = Math.min(x0, p.dx);     y0 = Math.min(y0, p.dy)
-    x1 = Math.max(x1, p.dx + 8); y1 = Math.max(y1, p.dy + 8)
+    x0 = Math.min(x0, p.dx)
+    y0 = Math.min(y0, p.dy)
+    x1 = Math.max(x1, p.dx + 8)
+    y1 = Math.max(y1, p.dy + 8)
   }
   return { dx: x0, dy: y0, w: x1 - x0, h: y1 - y0 }
 }
@@ -59,9 +64,9 @@ export function previewScale(w: number, h: number, maxPx = 128, maxScale = 8): n
  * covers, and colour index 0 within a part, stay fully transparent.
  */
 export function blitPartsRgba(
-  parts:       readonly SpritePartInfo[],
+  parts: readonly SpritePartInfo[],
   paletteRows: PaletteRows,
-  bounds:      PreviewBounds,
+  bounds: PreviewBounds,
 ): RgbaBuffer {
   const buf = new Uint8ClampedArray(Math.max(0, bounds.w * bounds.h * 4))
   for (const part of parts) {
@@ -80,7 +85,7 @@ export function blitPartsRgba(
         const col = row[idx]
         if (!col) continue
         const off = (dstY * bounds.w + dstX) * 4
-        buf[off]     = col[0]
+        buf[off] = col[0]
         buf[off + 1] = col[1]
         buf[off + 2] = col[2]
         buf[off + 3] = 255

@@ -29,12 +29,24 @@ import type { RomFile } from '../../../RomFile'
 import { SPRITE_ANIM_FRAME_STRIDE } from '../../../timing'
 import type { SpriteTileTables } from '../../../SpriteTileLoader'
 import {
-  SPRITE_INIT_PTR_TABLE, SPRITE_MAIN_PTR_TABLE, SPRITE_PTR_TABLE_COUNT,
-  SPRITE_DRAW_DESCRIPTORS, SHARED_DRAW_ROUTINES,
-  type AnimSource, type AttrOverride, type ByteSource, type CodeRef,
-  type DrawRoutine, type ExtraByteSource, type ExtraPart,
-  type PaletteSource, type ShiftCount, type SpriteDrawDescriptor, type UnmodelledTailCall,
-  type TileNudge, type TileOverride,
+  SPRITE_INIT_PTR_TABLE,
+  SPRITE_MAIN_PTR_TABLE,
+  SPRITE_PTR_TABLE_COUNT,
+  SPRITE_DRAW_DESCRIPTORS,
+  SHARED_DRAW_ROUTINES,
+  type AnimSource,
+  type AttrOverride,
+  type ByteSource,
+  type CodeRef,
+  type DrawRoutine,
+  type ExtraByteSource,
+  type ExtraPart,
+  type PaletteSource,
+  type ShiftCount,
+  type SpriteDrawDescriptor,
+  type UnmodelledTailCall,
+  type TileNudge,
+  type TileOverride,
 } from './SpriteDrawDescriptor'
 
 // ── Hardware / layout constants ─────────────────────────────────────────────
@@ -42,7 +54,7 @@ import {
 /** OBJ tile 0 lives at hackbench char $400 (`VRAM_CHAR_BASE.sp1`). */
 const OBJ_CHAR_BASE = 0x400
 /** Chars addressable by an OBJ tile number plus the char-high bit. */
-const OBJ_CHAR_MASK = 0x1FF
+const OBJ_CHAR_MASK = 0x1ff
 /** `charHigh` (`SpriteOBJAttribute` bit 0) adds a whole page first. */
 const OBJ_CHAR_HIGH = 0x100
 /** SNES large-OBJ expansion: base char N covers N, N+1, N+$10, N+$11. */
@@ -58,17 +70,17 @@ const SPRITE_HANDLER_BANK = 0x01
 
 /** `LSR A`. A run of these is how 65816 code spells a shift, so counting the
  *  run reads the shift instead of assuming it. */
-const OPCODE_LSR_A = 0x4A
+const OPCODE_LSR_A = 0x4a
 /** `JSR addr`. */
 const OPCODE_JSR = 0x20
 /** `JMP addr`. */
-const OPCODE_JMP = 0x4C
+const OPCODE_JMP = 0x4c
 /** `CMP #imm`. The terminator of a `dynamicCgram` fade. */
-const OPCODE_CMP_IMM = 0xC9
+const OPCODE_CMP_IMM = 0xc9
 /** `LDA #imm`. A `TileOverride` requires this exact form, so a handler whose
  *  instruction was replaced reads as an unexpected opcode rather than having
  *  its next byte taken as a tile number. */
-const OPCODE_LDA_IMM = 0xA9
+const OPCODE_LDA_IMM = 0xa9
 /** Opcodes a `{ via }` `CodeRef` will hop through. Both are three bytes with
  *  a 16-bit target in the same bank; a longer form would change the
  *  arithmetic, so it is refused rather than guessed at. */
@@ -77,7 +89,7 @@ const LINK_OPCODES: readonly number[] = [OPCODE_JSR, OPCODE_JMP]
 /** Read-modify-write opcodes a `TileNudge` understands, and the pixel
  *  displacement each one means. `INC abs,X` moves an OAM Y byte DOWN one
  *  pixel; `DEC abs,X` moves it UP. */
-const NUDGE_DISPLACEMENT: Readonly<Record<number, number>> = { 0xFE: 1, 0xDE: -1 }
+const NUDGE_DISPLACEMENT: Readonly<Record<number, number>> = { 0xfe: 1, 0xde: -1 }
 
 /**
  * Y byte of the FIRST OAM entry the shared draw routines write.
@@ -168,7 +180,13 @@ export type EngineFailure =
   /** The cart's handler pointer differs from the traced one and does not
    *  match any other descriptor's handler, so we are looking at code nobody
    *  has read. The editor must show "custom handler, appearance unverified". */
-  | { kind: 'customHandler'; spriteId: number; expected: number; found: number; table: 'main' | 'init' }
+  | {
+      kind: 'customHandler'
+      spriteId: number
+      expected: number
+      found: number
+      table: 'main' | 'init'
+    }
   /** The sprite's chars are not in this level's sprite set. Produced by
    *  `renderSpriteFrame` ONLY, the picker and annotation path; the MAP
    *  render substitutes a placeholder per missing char instead. See
@@ -179,7 +197,13 @@ export type EngineFailure =
   /** An opcode at an offset the descriptor names is not the instruction that
    *  kind requires, so the handler has been REWRITTEN rather than retuned and
    *  the engine cannot say what it now does. */
-  | { kind: 'unexpectedOpcode'; spriteId: number; addr: number; expected: readonly number[]; found: number }
+  | {
+      kind: 'unexpectedOpcode'
+      spriteId: number
+      addr: number
+      expected: readonly number[]
+      found: number
+    }
   /** The handler's `JSR` enters code that is not one of the three shared draw
    *  routines. */
   | { kind: 'unknownDrawRoutine'; spriteId: number; target: number }
@@ -233,7 +257,8 @@ function readWord(rom: RomFile, addr: number): number | null {
 
 /** Read a sprite's MAIN and INIT handler pointers from the open cart. */
 export function readHandlerPointers(
-  rom: RomFile, spriteId: number,
+  rom: RomFile,
+  spriteId: number,
 ): { main: number; init: number } | null {
   if (spriteId < 0 || spriteId >= SPRITE_PTR_TABLE_COUNT) return null
   const main = readWord(rom, SPRITE_MAIN_PTR_TABLE + spriteId * 2)
@@ -273,7 +298,12 @@ export function resolveIdentity(
   // Naming the target is useful to whoever has to look at it; it does not
   // make the sprite renderable.
   const alias = descriptors.find(d => d.vanillaMainHandler === ptrs.main && d.spriteId !== spriteId)
-  const base = { spriteId, mainHandler: ptrs.main, initHandler: ptrs.init, status: 'custom' as const }
+  const base = {
+    spriteId,
+    mainHandler: ptrs.main,
+    initHandler: ptrs.init,
+    status: 'custom' as const,
+  }
   return alias && ptrs.main !== own.vanillaMainHandler ? { ...base, aliasOf: alias.spriteId } : base
 }
 
@@ -297,7 +327,7 @@ export function resolveIdentity(
  */
 export function resolveHandlerBase(rom: RomFile, d: SpriteDrawDescriptor): number {
   const main = readWord(rom, SPRITE_MAIN_PTR_TABLE + d.spriteId * 2)
-  return (SPRITE_HANDLER_BANK << 16) | ((main ?? d.vanillaMainHandler) & 0xFFFF)
+  return (SPRITE_HANDLER_BANK << 16) | ((main ?? d.vanillaMainHandler) & 0xffff)
 }
 
 /**
@@ -317,7 +347,7 @@ export function resolveRef(rom: RomFile, ref: CodeRef, handlerBase: number): num
   const b = rom.readAt(at, 3)
   if (!b || !LINK_OPCODES.includes(b[0])) return null
   // The target is 16-bit, so it stays in the bank the link itself is in.
-  return (at & 0xFF0000) | (((b[1] | (b[2] << 8)) + ref.off) & 0xFFFF)
+  return (at & 0xff0000) | (((b[1] | (b[2] << 8)) + ref.off) & 0xffff)
 }
 
 function readRefByte(rom: RomFile, ref: CodeRef, handlerBase: number): number | null {
@@ -345,12 +375,15 @@ export function readShiftCount(rom: RomFile, sc: ShiftCount, handlerBase: number
 
 /** Resolve the operand of an absolute-addressed instruction into a full
  *  24-bit address. `size` is 2 for `LDA abs,Y`, 3 for `LDA.L long,X`. */
-function resolveOperand(rom: RomFile, operandAddr: number | null, size: 2 | 3, bank: number): number | null {
+function resolveOperand(
+  rom: RomFile,
+  operandAddr: number | null,
+  size: 2 | 3,
+  bank: number,
+): number | null {
   const b = operandAddr === null ? null : rom.readAt(operandAddr, size)
   if (!b) return null
-  return size === 2
-    ? (bank << 16) | b[0] | (b[1] << 8)
-    : b[0] | (b[1] << 8) | (b[2] << 16)
+  return size === 2 ? (bank << 16) | b[0] | (b[1] << 8) : b[0] | (b[1] << 8) | (b[2] << 16)
 }
 
 /**
@@ -362,7 +395,10 @@ function resolveOperand(rom: RomFile, operandAddr: number | null, size: 2 | 3, b
  * byte read as a tile or prop group.
  */
 function readByteSource(
-  rom: RomFile, src: ByteSource, frame: number, handlerBase: number,
+  rom: RomFile,
+  src: ByteSource,
+  frame: number,
+  handlerBase: number,
 ): number | null {
   if (src.kind === 'const') return src.value
   if (src.kind === 'frameIndex') return frame
@@ -371,9 +407,10 @@ function readByteSource(
     const b = at === null ? null : rom.readAt(at, 2)
     return b && b[0] === OPCODE_LDA_IMM ? b[1] : null
   }
-  const addr = src.kind === 'table'
-    ? src.addr
-    : resolveOperand(rom, resolveRef(rom, src.operandAddr, handlerBase), 2, src.operandBank)
+  const addr =
+    src.kind === 'table'
+      ? src.addr
+      : resolveOperand(rom, resolveRef(rom, src.operandAddr, handlerBase), 2, src.operandBank)
   if (addr === null) return null
   if (src.kind === 'shiftedTable') {
     const shift = readShiftCount(rom, src.shift, handlerBase)
@@ -397,12 +434,16 @@ function toSigned8(b: number): number {
 
 /** Read one byte an extra part needs. Raw: the caller sign-extends offsets. */
 function readExtraByte(
-  rom: RomFile, src: ExtraByteSource, misc157C: number, handlerBase: number,
+  rom: RomFile,
+  src: ExtraByteSource,
+  misc157C: number,
+  handlerBase: number,
 ): number | null {
   if (src.kind === 'const') return src.value
-  const addr = src.kind === 'immediateAt'
-    ? resolveRef(rom, src.addr, handlerBase)
-    : resolveOperand(rom, resolveRef(rom, src.operandAddr, handlerBase), 2, src.operandBank)
+  const addr =
+    src.kind === 'immediateAt'
+      ? resolveRef(rom, src.addr, handlerBase)
+      : resolveOperand(rom, resolveRef(rom, src.operandAddr, handlerBase), 2, src.operandBank)
   if (addr === null) return null
   const b = rom.readAt(src.kind === 'immediateAt' ? addr : addr + (misc157C & 1), 1)
   return b ? b[0] : null
@@ -416,7 +457,9 @@ function readExtraByte(
  * which no handler writes, so 0 is also treated as unusable.
  */
 export function resolveStateTimerSeed(
-  rom: RomFile, anim: AnimSource, handlerBase: number,
+  rom: RomFile,
+  anim: AnimSource,
+  handlerBase: number,
 ): number | null {
   if (anim.kind !== 'stateTimer') return null
   const b = readRefByte(rom, anim.seedOperandAddr, handlerBase)
@@ -437,7 +480,9 @@ export function resolveStateTimerSeed(
  * that repoints `SetAnimationFrame` is followed rather than missed.
  */
 export function resolveAnim(
-  rom: RomFile, anim: AnimSource, handlerBase: number,
+  rom: RomFile,
+  anim: AnimSource,
+  handlerBase: number,
 ): AnimSource | null {
   if (anim.kind !== 'spriteCounter') return anim
   if (!anim.shiftAt && !anim.maskAt) return anim
@@ -501,12 +546,17 @@ export function romFrameForFrame(anim: AnimSource, frame: number, seed = 0): num
  * (bank_01.asm:847) stores that Y straight into `SpriteMisc157C`.
  */
 export function resolveMisc157C(
-  src: SpriteDrawDescriptor['misc157C'], spriteX: number, marioX: number,
+  src: SpriteDrawDescriptor['misc157C'],
+  spriteX: number,
+  marioX: number,
 ): number {
   switch (src.kind) {
-    case 'const':     return src.value
-    case 'unwritten': return 0
-    case 'faceMario': return marioX >= spriteX ? 0 : 1
+    case 'const':
+      return src.value
+    case 'unwritten':
+      return 0
+    case 'faceMario':
+      return marioX >= spriteX ? 0 : 1
   }
 }
 
@@ -544,7 +594,9 @@ function xflipFromLatch(misc157C: number, attr: number, routine: 'sub1' | 'sub2'
  * Divergence report 11.3.
  */
 function resolveRestingEntry(
-  rom: RomFile, src: Extract<PaletteSource, { kind: 'dynamicCgram' }>, handlerBase: number,
+  rom: RomFile,
+  src: Extract<PaletteSource, { kind: 'dynamicCgram' }>,
+  handlerBase: number,
 ): number {
   if (src.restingEntryCmpAddr === undefined) return src.restingEntry
   const at = resolveRef(rom, src.restingEntryCmpAddr, handlerBase)
@@ -555,7 +607,12 @@ function resolveRestingEntry(
 }
 
 /** Palette row and char-high bit, plus any compositing note. */
-interface ResolvedPalette { row: number; charHigh: number; attr: number; note?: PaletteNote }
+interface ResolvedPalette {
+  row: number
+  charHigh: number
+  attr: number
+  note?: PaletteNote
+}
 
 /**
  * The sprite defines its palette; the level palette is only a fallback.
@@ -568,20 +625,28 @@ interface ResolvedPalette { row: number; charHigh: number; attr: number; note?: 
  *     the caller must composite the untouched columns from the level palette.
  */
 function resolvePalette(
-  rom: RomFile, tables: SpriteTileTables, desc: SpriteDrawDescriptor,
-  spriteX: number, handlerBase: number,
+  rom: RomFile,
+  tables: SpriteTileTables,
+  desc: SpriteDrawDescriptor,
+  spriteX: number,
+  handlerBase: number,
 ): ResolvedPalette | null {
   const src: PaletteSource = desc.palette
   let attr = tables.spriteAttr[desc.spriteId] ?? 0
 
   if (src.kind === 'initTableByX') {
-    const tableAddr = resolveOperand(rom, resolveRef(rom, src.operandAddr, handlerBase), 2, src.operandBank)
+    const tableAddr = resolveOperand(
+      rom,
+      resolveRef(rom, src.operandAddr, handlerBase),
+      2,
+      src.operandBank,
+    )
     if (tableAddr === null) return null
     const idx = (spriteX >> src.shift) & src.mask
     if (idx >= src.entries) return null
     const b = rom.readAt(tableAddr + idx, 1)
     if (!b) return null
-    attr = b[0] & 0x0F
+    attr = b[0] & 0x0f
   }
 
   const base: ResolvedPalette = {
@@ -594,13 +659,16 @@ function resolvePalette(
     const tableAddr = resolveOperand(rom, resolveRef(rom, src.operandAddr, handlerBase), 3, 0)
     if (tableAddr === null) return null
     const row = src.cgramStart >> 4
-    const firstCol = src.cgramStart & 0x0F
+    const firstCol = src.cgramStart & 0x0f
     const entry = resolveRestingEntry(rom, src, handlerBase)
     return {
       ...base,
       row,
       note: {
-        kind: 'dynamicCgram', row, firstCol, colors: src.colorsPerEntry,
+        kind: 'dynamicCgram',
+        row,
+        firstCol,
+        colors: src.colorsPerEntry,
         entryAddr: tableAddr + entry * src.colorsPerEntry * 2,
       },
     }
@@ -628,7 +696,10 @@ const NO_TILE_OVERRIDES: TileOverrides = new Map()
  * A slot the routine never writes overrides nothing.
  */
 function readTileOverrides(
-  rom: RomFile, ovs: readonly TileOverride[], spriteId: number, handlerBase: number,
+  rom: RomFile,
+  ovs: readonly TileOverride[],
+  spriteId: number,
+  handlerBase: number,
 ): { map: TileOverrides; failure?: undefined } | { map?: undefined; failure: EngineFailure } {
   const map = new Map<number, number>()
   for (const ov of ovs) {
@@ -638,8 +709,11 @@ function readTileOverrides(
     if (b[0] !== OPCODE_LDA_IMM) {
       return {
         failure: {
-          kind: 'unexpectedOpcode', spriteId, addr: at,
-          expected: [OPCODE_LDA_IMM], found: b[0],
+          kind: 'unexpectedOpcode',
+          spriteId,
+          addr: at,
+          expected: [OPCODE_LDA_IMM],
+          found: b[0],
         },
       }
     }
@@ -669,9 +743,7 @@ function sub0SlotForCorner(corner: number): number {
  * negative, or past its last entry. A descriptor and a handler disagreeing
  * about what ran is reported, not silently ignored.
  */
-function partsForSlot(
-  routine: DrawRoutine, slot: number, partCount: number,
-): number[] | null {
+function partsForSlot(routine: DrawRoutine, slot: number, partCount: number): number[] | null {
   if (slot < 0 || (slot & 3) !== 0) return null
   const per = ROUTINE_PARTS_PER_ENTRY[routine]
   const entry = slot >> 2
@@ -696,12 +768,17 @@ function partsForSlot(
  * Bit 6 of the prop byte is X-flip and bit 7 is Y-flip, per corner.
  */
 function drawSub0(
-  tables: SpriteTileTables, tilemapBase: number, misc1602: number,
-  propGroup: number, pal: ResolvedPalette, ov: TileOverrides,
+  tables: SpriteTileTables,
+  tilemapBase: number,
+  misc1602: number,
+  propGroup: number,
+  pal: ResolvedPalette,
+  ov: TileOverrides,
 ): EnginePart[] {
   const parts: EnginePart[] = []
   for (let corner = 0; corner < 4; corner++) {
-    const tile = ov.get(sub0SlotForCorner(corner)) ?? tables.tilemap[tilemapBase + misc1602 * 4 + corner] ?? 0
+    const tile =
+      ov.get(sub0SlotForCorner(corner)) ?? tables.tilemap[tilemapBase + misc1602 * 4 + corner] ?? 0
     const prop = tables.gfxProp[propGroup * 4 + corner] ?? 0
     parts.push({
       charNum: OBJ_CHAR_BASE + pal.charHigh + (tile & OBJ_CHAR_MASK),
@@ -717,16 +794,26 @@ function drawSub0(
 
 /** Expand one hardware large OBJ into its four 8x8 corners. */
 function largeObj(
-  baseTile: number, pal: ResolvedPalette, flipX: boolean, flipY: boolean,
-  baseDx: number, baseDy: number, tables: SpriteTileTables,
+  baseTile: number,
+  pal: ResolvedPalette,
+  flipX: boolean,
+  flipY: boolean,
+  baseDx: number,
+  baseDy: number,
+  tables: SpriteTileTables,
 ): EnginePart[] {
   // Flipping a large OBJ swaps the corner CHARS as well as mirroring each
   // 8x8, because the hardware flips the whole 16x16 quad.
-  const order = flipX && flipY ? [3, 2, 1, 0] : flipX ? [1, 0, 3, 2] : flipY ? [2, 3, 0, 1] : [0, 1, 2, 3]
+  const order =
+    flipX && flipY ? [3, 2, 1, 0] : flipX ? [1, 0, 3, 2] : flipY ? [2, 3, 0, 1] : [0, 1, 2, 3]
   return [0, 1, 2, 3].map(corner => ({
-    charNum: OBJ_CHAR_BASE + pal.charHigh + ((baseTile + LARGE_OBJ_CORNERS[order[corner]]) & OBJ_CHAR_MASK),
+    charNum:
+      OBJ_CHAR_BASE +
+      pal.charHigh +
+      ((baseTile + LARGE_OBJ_CORNERS[order[corner]]) & OBJ_CHAR_MASK),
     palette: pal.row,
-    flipX, flipY,
+    flipX,
+    flipY,
     dx: baseDx + (tables.dispX[corner] ?? 0),
     dy: baseDy + (tables.dispY[corner] ?? 0),
   }))
@@ -743,8 +830,12 @@ function largeObj(
  * computed and stored to both entries, and both get `OAMTileSize` bit $02.
  */
 function drawSub1(
-  tables: SpriteTileTables, tilemapBase: number, misc1602: number,
-  pal: ResolvedPalette, flipX: boolean, ov: TileOverrides,
+  tables: SpriteTileTables,
+  tilemapBase: number,
+  misc1602: number,
+  pal: ResolvedPalette,
+  flipX: boolean,
+  ov: TileOverrides,
 ): EnginePart[] {
   const idx = tilemapBase + misc1602 * 2
   const top = ov.get(0x00) ?? tables.tilemap[idx] ?? 0
@@ -768,8 +859,12 @@ function drawSub1(
  * X-flip from `SpriteMisc157C` with `EOR`, not `ORA`.
  */
 function drawSub2(
-  tables: SpriteTileTables, tilemapBase: number, misc1602: number,
-  pal: ResolvedPalette, flipX: boolean, ov: TileOverrides,
+  tables: SpriteTileTables,
+  tilemapBase: number,
+  misc1602: number,
+  pal: ResolvedPalette,
+  flipX: boolean,
+  ov: TileOverrides,
 ): EnginePart[] {
   const tile = ov.get(0x00) ?? tables.tilemap[tilemapBase + misc1602] ?? 0
   const flipY = (pal.attr & OBJ_YFLIP) !== 0
@@ -783,7 +878,7 @@ function drawSub2(
  * (bank_01.asm:3853, 3920, 4148). An extra part past this slot draws BEHIND
  * the routine's own tiles, because a lower OAM index wins.
  */
-const ROUTINE_LAST_SLOT: Record<DrawRoutine, number> = { sub0: 0x0C, sub1: 0x04, sub2: 0x00 }
+const ROUTINE_LAST_SLOT: Record<DrawRoutine, number> = { sub0: 0x0c, sub1: 0x04, sub2: 0x00 }
 
 /** 8x8 parts each of a routine's OAM entries expands to. `sub0` writes four
  *  independent 8x8 entries; `sub1` and `sub2` write hardware large OBJs,
@@ -797,9 +892,15 @@ const ROUTINE_PARTS_PER_ENTRY: Record<DrawRoutine, number> = { sub0: 1, sub1: 4,
  * into a failure rather than a body drawn without its extras.
  */
 function drawExtraParts(
-  rom: RomFile, parts: readonly ExtraPart[], routine: DrawRoutine,
-  tileGroup: number, misc157C: number, pal: ResolvedPalette,
-  flipX: boolean, flipY: boolean, handlerBase: number,
+  rom: RomFile,
+  parts: readonly ExtraPart[],
+  routine: DrawRoutine,
+  tileGroup: number,
+  misc157C: number,
+  pal: ResolvedPalette,
+  flipX: boolean,
+  flipY: boolean,
+  handlerBase: number,
 ): { behind: EnginePart[]; front: EnginePart[] } | null {
   const behind: EnginePart[] = []
   const front: EnginePart[] = []
@@ -810,13 +911,14 @@ function drawExtraParts(
       if (tileGroup < min) continue
     }
     const char = readExtraByte(rom, ep.char, misc157C, handlerBase)
-    const dx   = readExtraByte(rom, ep.dx, misc157C, handlerBase)
-    const dy   = readExtraByte(rom, ep.dy, misc157C, handlerBase)
+    const dx = readExtraByte(rom, ep.dx, misc157C, handlerBase)
+    const dy = readExtraByte(rom, ep.dy, misc157C, handlerBase)
     if (char === null || dx === null || dy === null) return null
     const part: EnginePart = {
       charNum: OBJ_CHAR_BASE + pal.charHigh + (char & OBJ_CHAR_MASK),
       palette: pal.row,
-      flipX, flipY,
+      flipX,
+      flipY,
       // The displacement table already encodes both facings, so a flipped
       // part must NOT be mirrored a second time.
       dx: toSigned8(dx),
@@ -840,8 +942,13 @@ function drawExtraParts(
  * reported as what it is instead of collapsing into "a read failed".
  */
 function applyTileNudges(
-  rom: RomFile, parts: EnginePart[], nudges: readonly TileNudge[],
-  routine: DrawRoutine, tileGroup: number, spriteId: number, handlerBase: number,
+  rom: RomFile,
+  parts: EnginePart[],
+  nudges: readonly TileNudge[],
+  routine: DrawRoutine,
+  tileGroup: number,
+  spriteId: number,
+  handlerBase: number,
 ): EngineFailure | null {
   for (const n of nudges) {
     const from = readRefByte(rom, n.windowBase, handlerBase)
@@ -855,13 +962,16 @@ function applyTileNudges(
     const dy = NUDGE_DISPLACEMENT[insn[0]]
     if (dy === undefined) {
       return {
-        kind: 'unexpectedOpcode', spriteId, addr: at,
-        expected: Object.keys(NUDGE_DISPLACEMENT).map(Number), found: insn[0],
+        kind: 'unexpectedOpcode',
+        spriteId,
+        addr: at,
+        expected: Object.keys(NUDGE_DISPLACEMENT).map(Number),
+        found: insn[0],
       }
     }
     // The handler's own gate: `SEC : SBC #from : CMP #size : BCC skip`, then
     // an `LSR A` run whose last shifted-out bit gates a second `BCC`.
-    const diff = (tileGroup - from) & 0xFF
+    const diff = (tileGroup - from) & 0xff
     if (diff < size) continue
     if (bits > 0 && ((diff >> (bits - 1)) & 1) === 0) continue
 
@@ -880,16 +990,28 @@ function applyTileNudges(
  * how they decide WHICH `JSR` to look at.
  */
 function routineAtJsr(
-  rom: RomFile, at: number | null, spriteId: number,
+  rom: RomFile,
+  at: number | null,
+  spriteId: number,
 ): { routine: DrawRoutine; failure?: undefined } | { routine?: undefined; failure: EngineFailure } {
   const b = at === null ? null : rom.readAt(at, 3)
   if (at === null || !b) return { failure: { kind: 'romReadFailed', spriteId, addr: at ?? 0 } }
   if (b[0] !== OPCODE_JSR) {
-    return { failure: { kind: 'unexpectedOpcode', spriteId, addr: at, expected: [OPCODE_JSR], found: b[0] } }
+    return {
+      failure: {
+        kind: 'unexpectedOpcode',
+        spriteId,
+        addr: at,
+        expected: [OPCODE_JSR],
+        found: b[0],
+      },
+    }
   }
   const target = b[1] | (b[2] << 8)
   const hit = SHARED_DRAW_ROUTINES.find(r => r.addr === target)
-  return hit ? { routine: hit.routine } : { failure: { kind: 'unknownDrawRoutine', spriteId, target } }
+  return hit
+    ? { routine: hit.routine }
+    : { failure: { kind: 'unknownDrawRoutine', spriteId, target } }
 }
 
 /**
@@ -900,7 +1022,10 @@ function routineAtJsr(
  * the wings are gone, so the body is the whole sprite and safe to draw.
  */
 function readTailCall(
-  rom: RomFile, tail: UnmodelledTailCall, spriteId: number, handlerBase: number,
+  rom: RomFile,
+  tail: UnmodelledTailCall,
+  spriteId: number,
+  handlerBase: number,
 ): EngineFailure | null {
   const threshold = readRefByte(rom, tail.cmpOperandAddr, handlerBase)
   const at = resolveRef(rom, tail.jsrAddr, handlerBase)
@@ -928,10 +1053,18 @@ function readTailCall(
  * produces, so the routine's own base translation is not counted twice.
  */
 function readRoutineSelect(
-  rom: RomFile, d: SpriteDrawDescriptor, tileGroup: number, handlerBase: number,
+  rom: RomFile,
+  d: SpriteDrawDescriptor,
+  tileGroup: number,
+  handlerBase: number,
 ): { routine: DrawRoutine; dy: number; failure?: undefined } | { failure: EngineFailure } {
   const sel = d.routineSelect!
-  const tableAddr = resolveOperand(rom, resolveRef(rom, sel.propOperandAddr, handlerBase), 2, sel.propOperandBank)
+  const tableAddr = resolveOperand(
+    rom,
+    resolveRef(rom, sel.propOperandAddr, handlerBase),
+    2,
+    sel.propOperandBank,
+  )
   const mask = readRefByte(rom, sel.maskOperandAddr, handlerBase)
   const prop = tableAddr === null ? null : rom.readAt(tableAddr + d.spriteId, 1)
   if (mask === null || !prop) {
@@ -939,7 +1072,11 @@ function readRoutineSelect(
   }
 
   const set = (prop[0] & mask) !== 0
-  const read = routineAtJsr(rom, resolveRef(rom, set ? sel.jsrIfSet : sel.jsrIfClear, handlerBase), d.spriteId)
+  const read = routineAtJsr(
+    rom,
+    resolveRef(rom, set ? sel.jsrIfSet : sel.jsrIfClear, handlerBase),
+    d.spriteId,
+  )
   if (read.failure) return { failure: read.failure }
 
   if (set && sel.setBranchTailCall) {
@@ -973,14 +1110,21 @@ function readRoutineSelect(
  * lives.
  */
 export function readDrawRoutine(
-  rom: RomFile, d: SpriteDrawDescriptor, handlerBase: number,
+  rom: RomFile,
+  d: SpriteDrawDescriptor,
+  handlerBase: number,
 ): { routine: DrawRoutine; failure?: undefined } | { routine?: undefined; failure: EngineFailure } {
   if (d.routineJsr === undefined) return { routine: d.routine }
   return routineAtJsr(rom, resolveRef(rom, d.routineJsr, handlerBase), d.spriteId)
 }
 
 /** Bounding box of a part list, in the same frame as `EnginePart.dx/dy`. */
-export interface SpriteExtents { x0: number; y0: number; x1: number; y1: number }
+export interface SpriteExtents {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
 
 /**
  * Union of every frame's extents.
@@ -994,11 +1138,16 @@ export interface SpriteExtents { x0: number; y0: number; x1: number; y1: number 
  * parts they just drew.
  */
 export function unionExtents(frames: readonly (readonly EnginePart[])[]): SpriteExtents | null {
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  let x0 = Infinity,
+    y0 = Infinity,
+    x1 = -Infinity,
+    y1 = -Infinity
   for (const parts of frames) {
     for (const p of parts) {
-      x0 = Math.min(x0, p.dx); y0 = Math.min(y0, p.dy)
-      x1 = Math.max(x1, p.dx + 8); y1 = Math.max(y1, p.dy + 8)
+      x0 = Math.min(x0, p.dx)
+      y0 = Math.min(y0, p.dy)
+      x1 = Math.max(x1, p.dx + 8)
+      y1 = Math.max(y1, p.dy + 8)
     }
   }
   return x0 === Infinity ? null : { x0, y0, x1, y1 }
@@ -1010,7 +1159,7 @@ function applyAttrOverride(ov: AttrOverride, romFrame: number): number {
   if (ov.kind === 'const') return ov.value
   // The ASL happens in the 8-bit accumulator, so the shift WRAPS. Without the
   // & $FF the flip bits stop cycling and the sprite freezes in one pose.
-  return (((Math.floor(romFrame) & 0xFF) << ov.shl) & 0xFF & ov.andMask) | ov.orMask
+  return (((Math.floor(romFrame) & 0xff) << ov.shl) & 0xff & ov.andMask) | ov.orMask
 }
 
 export interface DrawRequest {
@@ -1046,7 +1195,8 @@ export function drawSpriteParts(req: DrawRequest): EngineResult {
   // Ahead of the routine choice, because a `routineSelect` branch's Y adjust
   // takes its carry from the tile group.
   const tileGroup = readByteSource(rom, d.tileGroup, frame, handlerBase)
-  if (tileGroup === null) return { ok: false, failure: { kind: 'romReadFailed', spriteId: d.spriteId, addr: 0 } }
+  if (tileGroup === null)
+    return { ok: false, failure: { kind: 'romReadFailed', spriteId: d.spriteId, addr: 0 } }
 
   let overrides: TileOverrides = NO_TILE_OVERRIDES
   if (d.tileOverrides && d.tileOverrides.length > 0) {
@@ -1055,11 +1205,15 @@ export function drawSpriteParts(req: DrawRequest): EngineResult {
     overrides = read.map
   }
 
-  const routineRead: { routine?: DrawRoutine; dy?: number; failure?: EngineFailure } = d.routineSelect
-    ? readRoutineSelect(rom, d, tileGroup, handlerBase)
-    : readDrawRoutine(rom, d, handlerBase)
+  const routineRead: { routine?: DrawRoutine; dy?: number; failure?: EngineFailure } =
+    d.routineSelect
+      ? readRoutineSelect(rom, d, tileGroup, handlerBase)
+      : readDrawRoutine(rom, d, handlerBase)
   if (routineRead.failure || !routineRead.routine) {
-    return { ok: false, failure: routineRead.failure ?? { kind: 'romReadFailed', spriteId: d.spriteId, addr: 0 } }
+    return {
+      ok: false,
+      failure: routineRead.failure ?? { kind: 'romReadFailed', spriteId: d.spriteId, addr: 0 },
+    }
   }
   const routine = routineRead.routine
   const selectDy = routineRead.dy ?? 0
@@ -1086,12 +1240,14 @@ export function drawSpriteParts(req: DrawRequest): EngineResult {
   let parts: EnginePart[]
   if (routine === 'sub0') {
     const pg = d.propGroup ? readByteSource(rom, d.propGroup, frame, handlerBase) : 0
-    if (pg === null) return { ok: false, failure: { kind: 'romReadFailed', spriteId: d.spriteId, addr: 0 } }
+    if (pg === null)
+      return { ok: false, failure: { kind: 'romReadFailed', spriteId: d.spriteId, addr: 0 } }
     parts = drawSub0(tables, tilemapBase, tileGroup, pg, pal, overrides)
   } else {
-    parts = routine === 'sub1'
-      ? drawSub1(tables, tilemapBase, tileGroup, pal, flipX, overrides)
-      : drawSub2(tables, tilemapBase, tileGroup, pal, flipX, overrides)
+    parts =
+      routine === 'sub1'
+        ? drawSub1(tables, tilemapBase, tileGroup, pal, flipX, overrides)
+        : drawSub2(tables, tilemapBase, tileGroup, pal, flipX, overrides)
   }
 
   // The handler's own pre-`JSR` Y adjust moves the whole body, so it lands
@@ -1100,19 +1256,40 @@ export function drawSpriteParts(req: DrawRequest): EngineResult {
 
   // Before the extras: a nudge names an entry the ROUTINE wrote.
   if (d.tileNudges && d.tileNudges.length > 0) {
-    const failure = applyTileNudges(rom, parts, d.tileNudges, routine, tileGroup, d.spriteId, handlerBase)
+    const failure = applyTileNudges(
+      rom,
+      parts,
+      d.tileNudges,
+      routine,
+      tileGroup,
+      d.spriteId,
+      handlerBase,
+    )
     if (failure) return { ok: false, failure }
   }
 
   if (d.extraParts && d.extraParts.length > 0) {
-    const extra = drawExtraParts(rom, d.extraParts, routine, tileGroup, misc157C, pal, flipX, flipY, handlerBase)
-    if (!extra) return { ok: false, failure: { kind: 'romReadFailed', spriteId: d.spriteId, addr: 0 } }
+    const extra = drawExtraParts(
+      rom,
+      d.extraParts,
+      routine,
+      tileGroup,
+      misc157C,
+      pal,
+      flipX,
+      flipY,
+      handlerBase,
+    )
+    if (!extra)
+      return { ok: false, failure: { kind: 'romReadFailed', spriteId: d.spriteId, addr: 0 } }
     parts = [...extra.behind, ...parts, ...extra.front]
   }
 
   const identity: SpriteIdentity = {
-    spriteId: d.spriteId, mainHandler: d.vanillaMainHandler,
-    initHandler: d.vanillaInitHandler, status: 'vanilla',
+    spriteId: d.spriteId,
+    mainHandler: d.vanillaMainHandler,
+    initHandler: d.vanillaInitHandler,
+    status: 'vanilla',
   }
   return pal.note
     ? { ok: true, parts, identity, paletteNote: pal.note }
@@ -1121,7 +1298,8 @@ export function drawSpriteParts(req: DrawRequest): EngineResult {
 
 /** Look up a traced descriptor by sprite ID. */
 export function findDescriptor(
-  spriteId: number, descriptors: readonly SpriteDrawDescriptor[] = SPRITE_DRAW_DESCRIPTORS,
+  spriteId: number,
+  descriptors: readonly SpriteDrawDescriptor[] = SPRITE_DRAW_DESCRIPTORS,
 ): SpriteDrawDescriptor | undefined {
   return descriptors.find(d => d.spriteId === spriteId)
 }
@@ -1173,10 +1351,14 @@ export function renderSpriteFrame(
   if (identity && identity.status === 'custom') {
     const ptrs = readHandlerPointers(rom, spriteId)!
     return {
-      ok: false, identity,
+      ok: false,
+      identity,
       failure: {
-        kind: 'customHandler', spriteId, table: 'main',
-        expected: d.vanillaMainHandler, found: ptrs.main,
+        kind: 'customHandler',
+        spriteId,
+        table: 'main',
+        expected: d.vanillaMainHandler,
+        found: ptrs.main,
       },
     }
   }
@@ -1191,7 +1373,10 @@ export function renderSpriteFrame(
   // frame, so an attribute override driven by EffFrame stays consistent with
   // the tile the frame selector asked for.
   const res = drawSpriteParts({
-    rom, tables, descriptor: d, spriteX: 0,
+    rom,
+    tables,
+    descriptor: d,
+    spriteX: 0,
     ctx: { marioX: 0, romFrame: romFrameForFrame(anim, frame, seed) },
     forceFrame: frame,
   })
@@ -1199,7 +1384,11 @@ export function renderSpriteFrame(
 
   const missing = res.parts.map(p => p.charNum).filter(c => !level.loadedChars.has(c))
   if (missing.length > 0) {
-    return { ok: false, identity: identity ?? undefined, failure: { kind: 'charsNotLoaded', spriteId, missing: [...new Set(missing)] } }
+    return {
+      ok: false,
+      identity: identity ?? undefined,
+      failure: { kind: 'charsNotLoaded', spriteId, missing: [...new Set(missing)] },
+    }
   }
   return { ...res, identity: identity ?? res.identity }
 }

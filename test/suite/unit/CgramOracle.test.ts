@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
-  CGRAM_COLORS, CGRAM_CAPTURE_BYTES, EXCLUDED_INDICES, ROM_WRITTEN_INDICES,
-  compareCgram, parseCgramCapture,
+  CGRAM_COLORS,
+  CGRAM_CAPTURE_BYTES,
+  EXCLUDED_INDICES,
+  ROM_WRITTEN_INDICES,
+  compareCgram,
+  parseCgramCapture,
 } from '../../../src/rom/CgramOracle'
 import { bgr555ToRgba, RgbaColor } from '../../../src/rom/GraphicsDecoder'
 
@@ -14,7 +18,7 @@ import { bgr555ToRgba, RgbaColor } from '../../../src/rom/GraphicsDecoder'
 /** A capture whose every index holds a distinct, non-trivial BGR555 word. */
 function syntheticCapture(): Uint16Array {
   const w = new Uint16Array(CGRAM_COLORS)
-  for (let i = 0; i < CGRAM_COLORS; i++) w[i] = (i * 0x0123 + 0x1111) & 0x7FFF
+  for (let i = 0; i < CGRAM_COLORS; i++) w[i] = (i * 0x0123 + 0x1111) & 0x7fff
   return w
 }
 
@@ -22,19 +26,16 @@ function derivationMatching(capture: Uint16Array): RgbaColor[] {
   return Array.from(capture, w => bgr555ToRgba(w))
 }
 
-function toBytes(words: Uint16Array): Uint8Array {
-  const b = new Uint8Array(words.length * 2)
-  for (let i = 0; i < words.length; i++) { b[i * 2] = words[i] & 0xFF; b[i * 2 + 1] = words[i] >> 8 }
-  return b
-}
-
-const comparedIndices = Array.from({ length: CGRAM_COLORS }, (_, i) => i).filter(i => !EXCLUDED_INDICES.has(i))
+const comparedIndices = Array.from({ length: CGRAM_COLORS }, (_, i) => i).filter(
+  i => !EXCLUDED_INDICES.has(i),
+)
 
 describe('parseCgramCapture', () => {
   it('decodes little-endian words and masks the unused bit 15', () => {
     const b = new Uint8Array(CGRAM_CAPTURE_BYTES)
-    b[0] = 0xDD; b[1] = 0xFF   // $FFDD -> $7FDD once bit 15 is masked
-    expect(parseCgramCapture(b)[0]).toBe(0x7FDD)
+    b[0] = 0xdd
+    b[1] = 0xff // $FFDD -> $7FDD once bit 15 is masked
+    expect(parseCgramCapture(b)[0]).toBe(0x7fdd)
   })
 
   it('rejects a capture of the wrong size rather than comparing a truncated one', () => {
@@ -52,7 +53,7 @@ describe('bgr555ToRgba is injective, so RGBA equality == BGR555 equality', () =>
 
 describe('CGRAM oracle bucket accounting', () => {
   it('splits the 256 indices into the documented buckets', () => {
-    expect(EXCLUDED_INDICES.size).toBe(17)                                  // 16 col-0 + animated $64
+    expect(EXCLUDED_INDICES.size).toBe(17) // 16 col-0 + animated $64
     expect(ROM_WRITTEN_INDICES.size).toBe(178)
     expect(comparedIndices.length).toBe(239)
     for (let r = 0; r < 16; r++) expect(ROM_WRITTEN_INDICES.has(r * 16)).toBe(false)
@@ -62,7 +63,7 @@ describe('CGRAM oracle bucket accounting', () => {
     const cap = syntheticCapture()
     const c = compareCgram(cap, derivationMatching(cap), bgr555ToRgba)
     expect(c.ok).toBe(true)
-    expect(c.writtenCompared).toBe(177)      // 178 written minus animated $64
+    expect(c.writtenCompared).toBe(177) // 178 written minus animated $64
     expect(c.unwrittenCompared).toBe(62)
     expect(c.excluded).toBe(17)
   })
@@ -73,7 +74,7 @@ describe('planted palette defects turn the oracle red', () => {
     const cap = syntheticCapture()
     const derived = derivationMatching(cap)
     const bgIndices = [0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17]
-    for (const i of bgIndices) derived[i] = bgr555ToRgba((cap[i] + 0x0421) & 0x7FFF)
+    for (const i of bgIndices) derived[i] = bgr555ToRgba((cap[i] + 0x0421) & 0x7fff)
     const c = compareCgram(cap, derived, bgr555ToRgba)
     expect(c.ok).toBe(false)
     expect(c.mismatches.map(m => m.index)).toEqual(bgIndices)
@@ -87,7 +88,8 @@ describe('planted palette defects turn the oracle red', () => {
     const cap = syntheticCapture()
     for (let r = 5; r <= 7; r++) for (let c = 9; c <= 15; c++) cap[r * 16 + c] = 0
     const derived = derivationMatching(cap)
-    for (let r = 5; r <= 7; r++) for (let c = 9; c <= 15; c++) derived[r * 16 + c] = bgr555ToRgba(0x2A5F)
+    for (let r = 5; r <= 7; r++)
+      for (let c = 9; c <= 15; c++) derived[r * 16 + c] = bgr555ToRgba(0x2a5f)
     const c = compareCgram(cap, derived, bgr555ToRgba)
     expect(c.ok).toBe(false)
     expect(c.mismatches).toHaveLength(21)
@@ -109,7 +111,7 @@ describe('planted palette defects turn the oracle red', () => {
     const undetected: number[] = []
     for (const i of comparedIndices) {
       const derived = derivationMatching(cap)
-      derived[i] = bgr555ToRgba(cap[i] ^ 0x7FFF)
+      derived[i] = bgr555ToRgba(cap[i] ^ 0x7fff)
       if (compareCgram(cap, derived, bgr555ToRgba).ok) undetected.push(i)
     }
     expect(undetected).toEqual([])
@@ -129,7 +131,7 @@ describe('the exclusions are exactly as wide as documented', () => {
     const wronglyDetected: number[] = []
     for (const i of EXCLUDED_INDICES.keys()) {
       const derived = derivationMatching(cap)
-      derived[i] = bgr555ToRgba(cap[i] ^ 0x7FFF)
+      derived[i] = bgr555ToRgba(cap[i] ^ 0x7fff)
       if (!compareCgram(cap, derived, bgr555ToRgba).ok) wronglyDetected.push(i)
     }
     expect(wronglyDetected).toEqual([])

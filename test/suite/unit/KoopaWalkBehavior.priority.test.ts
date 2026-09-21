@@ -3,7 +3,7 @@
  * synthetic L1 cells that set `isPriority` on candidate tile positions.
  *
  * The fixture-driven test (KoopaWalkBehavior.fixture.test.ts) passes,
- * because `loadMesenFixture` doesn't carry priority info — so the
+ * because `loadMesenFixture` doesn't carry priority info - so the
  * regression must come from priority-driven filtering of the platform
  * layout. This file explicitly toggles `isPriority` on each plausible
  * tile and asserts that the corridor stays wide regardless.
@@ -22,7 +22,10 @@
 import { describe, expect, it } from 'vitest'
 import type { GetL1Tile, L1Cell } from '../../../src/rom/model/OverlayContext'
 import { solidityFromL1 } from '../../../src/rom/model/sprites/MovementBehavior'
-import { KoopaWalkBehavior, propsFromSpriteId } from '../../../src/rom/model/sprites/behaviors/KoopaWalkBehavior'
+import {
+  KoopaWalkBehavior,
+  propsFromSpriteId,
+} from '../../../src/rom/model/sprites/behaviors/KoopaWalkBehavior'
 
 const TILE = 16
 
@@ -44,23 +47,23 @@ function buildGrid(cells: Map<string, CellSpec>): {
     if (c < 0 || c >= cols || r < 0 || r >= rows) return null
     const spec = cells.get(`${c},${r}`)
     if (!spec) return null
-    const low  = spec.actsLike & 0xFF
-    const high = (spec.actsLike >> 8) & 0xFF
+    const low = spec.actsLike & 0xff
+    const high = (spec.actsLike >> 8) & 0xff
     const isPage0 = high === 0
-    const inSolidRange = !isPage0 && low >= 0x11 && low <= 0x6D
-    const inSlopeRange = !isPage0 && low >= 0x6E && low <= 0xD7
+    const inSolidRange = !isPage0 && low >= 0x11 && low <= 0x6d
+    const inSlopeRange = !isPage0 && low >= 0x6e && low <= 0xd7
     const cell: L1Cell = {
       id: spec.actsLike,
       actsLike: spec.actsLike,
       isPriority: spec.priority ?? false,
       collision: {
-        floor:        !isPage0 && (low <= 0x10 || inSolidRange || inSlopeRange || low >= 0xD8),
-        wall:         inSolidRange,
-        ceiling:      inSolidRange,
-        marioFloor:   false,
+        floor: !isPage0 && (low <= 0x10 || inSolidRange || inSlopeRange || low >= 0xd8),
+        wall: inSolidRange,
+        ceiling: inSolidRange,
+        marioFloor: false,
         marioCeiling: false,
-        marioWall:    false,
-        slopeTable:   inSlopeRange,
+        marioWall: false,
+        slopeTable: inSlopeRange,
       },
     }
     return cell
@@ -69,23 +72,30 @@ function buildGrid(cells: Map<string, CellSpec>): {
   return { getL1, solidH, solidV, cols, rows }
 }
 
-function placeKoopaPlatform(prioritySet: Partial<{
-  trunkR23: boolean; trunkR24: boolean
-  platformLeft: boolean; platformMiddle: boolean; platformRight: boolean
-  underLeft: boolean; underTrunk: boolean; underRight: boolean
-}>) {
+function placeKoopaPlatform(
+  prioritySet: Partial<{
+    trunkR23: boolean
+    trunkR24: boolean
+    platformLeft: boolean
+    platformMiddle: boolean
+    platformRight: boolean
+    underLeft: boolean
+    underTrunk: boolean
+    underRight: boolean
+  }>,
+) {
   const cells = new Map<string, CellSpec>()
   // Trunk column at c40 (page-0 decorative trunk)
-  cells.set('40,23', { actsLike: 0x0BD, priority: prioritySet.trunkR23 })
-  cells.set('40,24', { actsLike: 0x0BE, priority: prioritySet.trunkR24 })
+  cells.set('40,23', { actsLike: 0x0bd, priority: prioritySet.trunkR23 })
+  cells.set('40,24', { actsLike: 0x0be, priority: prioritySet.trunkR24 })
   // Platform top at r25
-  cells.set('39,25', { actsLike: 0x15F, priority: prioritySet.platformLeft })   // left edge
-  cells.set('40,25', { actsLike: 0x10D, priority: prioritySet.platformMiddle }) // middle
-  cells.set('41,25', { actsLike: 0x15E, priority: prioritySet.platformRight })  // right edge
+  cells.set('39,25', { actsLike: 0x15f, priority: prioritySet.platformLeft }) // left edge
+  cells.set('40,25', { actsLike: 0x10d, priority: prioritySet.platformMiddle }) // middle
+  cells.set('41,25', { actsLike: 0x15e, priority: prioritySet.platformRight }) // right edge
   // Lower platform at r26
   cells.set('39,26', { actsLike: 0x160, priority: prioritySet.underLeft })
-  cells.set('40,26', { actsLike: 0x0BE, priority: prioritySet.underTrunk })
-  cells.set('41,26', { actsLike: 0x15D, priority: prioritySet.underRight })
+  cells.set('40,26', { actsLike: 0x0be, priority: prioritySet.underTrunk })
+  cells.set('41,26', { actsLike: 0x15d, priority: prioritySet.underRight })
   return buildGrid(cells)
 }
 
@@ -93,12 +103,18 @@ function corridor(prioritySet: Parameters<typeof placeKoopaPlatform>[0]) {
   const grid = placeKoopaPlatform(prioritySet)
   const beh = new KoopaWalkBehavior(propsFromSpriteId(0x05))
   const r = beh.computePatrolRange(
-    41 * TILE, 24 * TILE, grid.solidH, grid.solidV, grid.cols, grid.rows, grid.getL1,
+    41 * TILE,
+    24 * TILE,
+    grid.solidH,
+    grid.solidV,
+    grid.cols,
+    grid.rows,
+    grid.getL1,
   )
   return { leftX: r.leftX, rightX: r.rightX, leftKind: r.leftKind, rightKind: r.rightKind }
 }
 
-describe('KoopaWalkBehavior — $11E priority-bit reproductions', () => {
+describe('KoopaWalkBehavior - $11E priority-bit reproductions', () => {
   it('baseline: no priority anywhere → corridor c39..c42 left edges', () => {
     const r = corridor({})
     expect(r.leftX).toBe(39 * TILE)
@@ -134,7 +150,9 @@ describe('KoopaWalkBehavior — $11E priority-bit reproductions', () => {
 
   it('trunk priority + middle platform priority (the $11E suspected combo)', () => {
     const r = corridor({
-      trunkR23: true, trunkR24: true, underTrunk: true,
+      trunkR23: true,
+      trunkR24: true,
+      underTrunk: true,
       platformMiddle: true,
     })
     expect(r.leftX).toBe(39 * TILE)

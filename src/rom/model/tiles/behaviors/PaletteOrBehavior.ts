@@ -23,7 +23,7 @@ import type { TileBehavior } from '../TileBehavior'
  * For object-stream L2 in tileset-3 levels (e.g. `$009`, `$115`, `$1e2`)
  * the ROM atlas encodes L2 tiles with palette 2, but the strip uploader
  * OR's `$1000` (palette bit 2 = +4) so they end up in the 4-7 palette
- * range — typically palette 6 (CGRAM row 6, StandardColors). Tilesets
+ * range - typically palette 6 (CGRAM row 6, StandardColors). Tilesets
  * other than 3 don't OR; L2 there uses whatever the atlas encodes.
  *
  * The mask is a value to OR with the 3-bit palette index (not a bit

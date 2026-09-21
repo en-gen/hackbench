@@ -13,7 +13,7 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
 export class CarrotTopLiftAppearance extends StaticSpriteAppearance {
   constructor(
     parts: SpritePart[],
-    readonly spriteId: 0xB7 | 0xB8,
+    readonly spriteId: 0xb7 | 0xb8,
   ) {
     super(parts)
   }

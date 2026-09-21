@@ -1,5 +1,5 @@
 /**
- * SMW Overworld Viewer — webview entry point.
+ * SMW Overworld Viewer - webview entry point.
  *
  * Layout mirrors `src/webview/mapEditor/main.ts` so OW areas inherit the same
  * navigation feel: left tab panel (8×8 / Map16 / Sprites + selected preview +
@@ -26,27 +26,26 @@ declare function acquireVsCodeApi(): any
 const vscode = acquireVsCodeApi()
 void vscode
 
-import {
-  paintBlockFill,
-  paintBlockLabel,
-  BLOCK_LABEL_MIN_PX,
-} from '../shared/blockView'
+import { paintBlockFill, paintBlockLabel, BLOCK_LABEL_MIN_PX } from '../shared/blockView'
 import { frameClock } from '../shared/frameClock'
 import { msToFrames } from '../../rom/timing'
 import { hex2, hex3, hex4, hex6 } from '../shared/hex'
 
 // ── Constants (mirror OverworldLoader.ts so the webview is self-contained) ──
 
-const SNES_TILE_PX  = 8
-const MAP16_PX      = 16
-const MAP16_SNES    = 2
-const ZOOM_STEPS    = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4]
-const ZOOM_DEFAULT  = 2 // 1×
-const PAL_CELL      = 8
+const SNES_TILE_PX = 8
+const MAP16_PX = 16
+const MAP16_SNES = 2
+const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4]
+const ZOOM_DEFAULT = 2 // 1×
+const PAL_CELL = 8
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-interface OwPosition { x: number; y: number }
+interface OwPosition {
+  x: number
+  y: number
+}
 
 interface OwArea {
   index: number
@@ -62,8 +61,14 @@ interface OwArea {
   luigiStart: OwPosition | null
 }
 
-interface OwAnimFrameTable { framePointers: number[] }
-interface OwEvent { bitIndex: number; primaryOffset: number; secondaryOffset: number }
+interface OwAnimFrameTable {
+  framePointers: number[]
+}
+interface OwEvent {
+  bitIndex: number
+  primaryOffset: number
+  secondaryOffset: number
+}
 interface OwEventTables {
   events: OwEvent[]
   fromTiles: number[] | Uint8Array
@@ -79,10 +84,10 @@ interface OwBufferRegion {
 }
 
 interface OwL3Mask {
-  topRows:    number
+  topRows: number
   bottomRows: number
-  colLeft:    number
-  colRight:   number
+  colLeft: number
+  colRight: number
 }
 
 /** Mirrors `SerializedPaletteAnimData` from `PaletteAnimationLoader.ts`. */
@@ -95,33 +100,39 @@ interface OwPaletteAnim {
 interface OwPayload {
   area: OwArea
   region: OwBufferRegion
-  l2Tilemap:      number[]
+  l2Tilemap: number[]
   l1Map16Indices: number[]
-  l1CharData:     number[]
-  vramTiles:      number[][]
-  paletteRows:    number[][][]
-  animation:        OwAnimFrameTable
+  l1CharData: number[]
+  vramTiles: number[][]
+  paletteRows: number[][][]
+  animation: OwAnimFrameTable
   /** Per-frame CGRAM patches for the OW NMI palette cycle (`$6D` yellow,
    *  `$7D` red). Same loader as the level path, mode='overworld'. */
   paletteAnimation: OwPaletteAnim | null
-  events:         OwEventTables
-  warpStarts:     { mario: OwPosition[]; luigi: OwPosition[] }
-  marioStart:     OwPosition | null
-  luigiStart:     OwPosition | null
-  l2LayoutBytes:  number
-  l2ScreenBytes:  number
+  events: OwEventTables
+  warpStarts: { mario: OwPosition[]; luigi: OwPosition[] }
+  marioStart: OwPosition | null
+  luigiStart: OwPosition | null
+  l2LayoutBytes: number
+  l2ScreenBytes: number
   /** Mask for sub-areas: top/bottom rows + left/right cols hidden by the L3 border frame.
    *  null for the Main map (Area 0). Masked cells always show the checker pattern. */
-  l3Mask:         OwL3Mask | null
+  l3Mask: OwL3Mask | null
 }
 
 // ── Tilemap-quadrant addressing (mirror OverworldLoader.tilemapByteOffset) ──
 
-function tilemapByteOffset(layout: 0 | 1, row: number, col: number, layoutBytes: number, screenBytes: number): number {
+function tilemapByteOffset(
+  layout: 0 | 1,
+  row: number,
+  col: number,
+  layoutBytes: number,
+  screenBytes: number,
+): number {
   const layoutBase = layout * layoutBytes
   const r = ((row % 64) + 64) % 64
   const c = ((col % 64) + 64) % 64
-  const screenIdx  = ((r >> 5) << 1) | (c >> 5)
+  const screenIdx = ((r >> 5) << 1) | (c >> 5)
   return layoutBase + screenIdx * screenBytes + (r & 31) * 0x40 + (c & 31) * 2
 }
 
@@ -129,7 +140,7 @@ function map16ByteOffset(layout: 0 | 1, row: number, col: number): number {
   const layoutBase = layout * 0x0400
   const r = ((row % 32) + 32) % 32
   const c = ((col % 32) + 32) % 32
-  const chunkIdx   = ((r >> 4) << 1) | (c >> 4)
+  const chunkIdx = ((r >> 4) << 1) | (c >> 4)
   return layoutBase + chunkIdx * 0x100 + (r & 15) * 0x10 + (c & 15)
 }
 
@@ -143,23 +154,27 @@ interface TilemapWord {
 function decodeTilemapWord(lo: number, hi: number): TilemapWord {
   const word = (hi << 8) | lo
   return {
-    charNum:  word & 0x03FF,
+    charNum: word & 0x03ff,
     palette: (word >> 10) & 0x07,
-    flipX:   ((word >> 14) & 0x01) === 1,
-    flipY:   ((word >> 15) & 0x01) === 1,
+    flipX: ((word >> 14) & 0x01) === 1,
+    flipY: ((word >> 15) & 0x01) === 1,
   }
 }
 
 // ── Style helpers (match map editor) ────────────────────────────────────────
 
 function selStyle(): string {
-  return 'width:100%;background:var(--vscode-dropdown-background,#3c3c3c);' +
-         'color:var(--vscode-dropdown-foreground,#ccc);' +
-         'border:1px solid #555;border-radius:3px;height:22px;font-size:11px;cursor:pointer;'
+  return (
+    'width:100%;background:var(--vscode-dropdown-background,#3c3c3c);' +
+    'color:var(--vscode-dropdown-foreground,#ccc);' +
+    'border:1px solid #555;border-radius:3px;height:22px;font-size:11px;cursor:pointer;'
+  )
 }
 function propLabelStyle(): string {
-  return 'font-size:9px;font-weight:700;letter-spacing:.08em;' +
-         'color:var(--vscode-descriptionForeground,#888);margin-bottom:3px;'
+  return (
+    'font-size:9px;font-weight:700;letter-spacing:.08em;' +
+    'color:var(--vscode-descriptionForeground,#888);margin-bottom:3px;'
+  )
 }
 
 // ── Build DOM (CSS grid mirrors map editor) ─────────────────────────────────
@@ -225,7 +240,7 @@ app.innerHTML = `
       <!-- Warps -->
       <div id="panel-warps" style="display:none;padding:8px;">
         <div style="${propLabelStyle()};margin-bottom:4px;">WARPS TO THIS AREA</div>
-        <div id="warp-list" style="font-family:monospace;font-size:11px;color:#bbb;line-height:1.5;">—</div>
+        <div id="warp-list" style="font-family:monospace;font-size:11px;color:#bbb;line-height:1.5;">-</div>
       </div>
 
     </div><!-- left scroll wrapper -->
@@ -278,7 +293,7 @@ app.innerHTML = `
         <rect x="1" y="11" width="14" height="3" rx="1" fill="#666"/>
       </svg>
     </button>
-    <button id="btn-l3" class="iconBtn layerBtn on" title="Layer 3 — show/hide OW border row mask">
+    <button id="btn-l3" class="iconBtn layerBtn on" title="Layer 3 - show/hide OW border row mask">
       <svg width="16" height="14" viewBox="0 0 16 14" fill="none" xmlns="http://www.w3.org/2000/svg">
         <rect x="1" y="1"  width="14" height="3" rx="1" fill="currentColor"/>
         <rect x="1" y="6"  width="14" height="3" rx="1" fill="#666"/>
@@ -288,13 +303,13 @@ app.innerHTML = `
 
     <div class="tb-sep"></div>
 
-    <button id="btn-block" class="iconBtn" title="Block view — color/label each tile by ID"><span class="codicon codicon-symbol-method"></span></button>
+    <button id="btn-block" class="iconBtn" title="Block view - color/label each tile by ID"><span class="codicon codicon-symbol-method"></span></button>
     <button id="btn-grid"  class="iconBtn" title="Tile grid (8×8)"><span class="codicon codicon-table"></span></button>
 
     <div class="tb-sep"></div>
 
     <button id="btn-anim"   class="iconBtn"    title="Play / pause palette animation"><span class="codicon codicon-play"></span></button>
-    <button id="btn-events" class="iconBtn"    title="Switch state — apply OW event tile swaps"><span class="codicon codicon-symbol-event"></span></button>
+    <button id="btn-events" class="iconBtn"    title="Switch state - apply OW event tile swaps"><span class="codicon codicon-symbol-event"></span></button>
 
     <div class="tb-sep"></div>
 
@@ -324,7 +339,7 @@ app.innerHTML = `
     <div id="props-hdr" style="
       padding:6px 8px;border-bottom:1px solid var(--vscode-panel-border,#3a3a3a);
       font-size:11px;min-height:30px;flex-shrink:0;display:flex;align-items:center;">
-      <span id="props-ctx" style="color:#bbb;font-weight:600;">Area —</span>
+      <span id="props-ctx" style="color:#bbb;font-weight:600;">Area -</span>
     </div>
 
     <!-- Inspector (selected tile / sprite) -->
@@ -343,28 +358,28 @@ app.innerHTML = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
           <div>
             <div style="${propLabelStyle()}">AREA</div>
-            <div id="info-area" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+            <div id="info-area" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
           </div>
           <div>
             <div style="${propLabelStyle()}">SIZE (TILES)</div>
-            <div id="info-size" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+            <div id="info-size" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
           </div>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
           <div>
             <div style="${propLabelStyle()}">OBJ TILESET</div>
-            <div id="info-tileset" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+            <div id="info-tileset" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
           </div>
           <div>
             <div style="${propLabelStyle()}">PAL INDEX</div>
-            <div id="info-palix" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+            <div id="info-palix" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
           </div>
         </div>
 
         <div>
           <div style="${propLabelStyle()}">PALETTE BLOCK (NORMAL)</div>
-          <div id="info-paddr" style="font-family:monospace;font-size:11px;color:#aaa;">—</div>
+          <div id="info-paddr" style="font-family:monospace;font-size:11px;color:#aaa;">-</div>
         </div>
 
       </div><!-- /tab-pane general -->
@@ -374,17 +389,17 @@ app.innerHTML = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
           <div>
             <div style="${propLabelStyle()}">CAMERA X (PX)</div>
-            <div id="info-camx" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+            <div id="info-camx" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
           </div>
           <div>
             <div style="${propLabelStyle()}">CAMERA Y (PX)</div>
-            <div id="info-camy" style="font-family:monospace;font-size:12px;color:#ccc;">—</div>
+            <div id="info-camy" style="font-family:monospace;font-size:12px;color:#ccc;">-</div>
           </div>
         </div>
 
         <div>
           <div style="${propLabelStyle()}">BG REGION</div>
-          <div id="info-region" style="font-family:monospace;font-size:11px;color:#aaa;line-height:1.6;">—</div>
+          <div id="info-region" style="font-family:monospace;font-size:11px;color:#aaa;line-height:1.6;">-</div>
         </div>
 
       </div><!-- /tab-pane camera -->
@@ -434,59 +449,62 @@ app.innerHTML = `
 
 // ── Element refs ────────────────────────────────────────────────────────────
 
-const canvas       = document.getElementById('ow-canvas')        as HTMLCanvasElement
-const ctx          = canvas.getContext('2d')!
-const canvasWrap   = document.getElementById('canvas-wrap')!
-const areaIdEl     = document.getElementById('area-id')!
-const propsCtx     = document.getElementById('props-ctx')!
-const stTile       = document.getElementById('st-tile')!
-const stPos        = document.getElementById('st-pos')!
-const ppEmpty      = document.getElementById('pp-empty')!
-const ppTile       = document.getElementById('pp-tile')!
+const canvas = document.getElementById('ow-canvas') as HTMLCanvasElement
+const ctx = canvas.getContext('2d')!
+const canvasWrap = document.getElementById('canvas-wrap')!
+const areaIdEl = document.getElementById('area-id')!
+const propsCtx = document.getElementById('props-ctx')!
+const stTile = document.getElementById('st-tile')!
+const stPos = document.getElementById('st-pos')!
+const ppEmpty = document.getElementById('pp-empty')!
+const ppTile = document.getElementById('pp-tile')!
 
-const btnL1        = document.getElementById('btn-l1')        as HTMLButtonElement
-const btnL2        = document.getElementById('btn-l2')        as HTMLButtonElement
-const btnL3        = document.getElementById('btn-l3')        as HTMLButtonElement
-const btnBlock     = document.getElementById('btn-block')     as HTMLButtonElement
-const btnGrid      = document.getElementById('btn-grid')      as HTMLButtonElement
-const btnAnim      = document.getElementById('btn-anim')      as HTMLButtonElement
-const btnEvents    = document.getElementById('btn-events')    as HTMLButtonElement
-const zoomOutBtn   = document.getElementById('zoom-out')      as HTMLButtonElement
-const zoomInBtn    = document.getElementById('zoom-in')       as HTMLButtonElement
-const zoomLabel    = document.getElementById('zoom-label')!
+const btnL1 = document.getElementById('btn-l1') as HTMLButtonElement
+const btnL2 = document.getElementById('btn-l2') as HTMLButtonElement
+const btnL3 = document.getElementById('btn-l3') as HTMLButtonElement
+const btnBlock = document.getElementById('btn-block') as HTMLButtonElement
+const btnGrid = document.getElementById('btn-grid') as HTMLButtonElement
+const btnAnim = document.getElementById('btn-anim') as HTMLButtonElement
+const btnEvents = document.getElementById('btn-events') as HTMLButtonElement
+const zoomOutBtn = document.getElementById('zoom-out') as HTMLButtonElement
+const zoomInBtn = document.getElementById('zoom-in') as HTMLButtonElement
+const zoomLabel = document.getElementById('zoom-label')!
 
-const tabBtns      = Array.from(document.querySelectorAll('.tab-btn')) as HTMLButtonElement[]
-const tilesRowSel  = document.getElementById('tiles-row')     as HTMLSelectElement
-const tilesCanvas  = document.getElementById('tiles-canvas')  as HTMLCanvasElement
-const map16Canvas  = document.getElementById('map16-canvas')  as HTMLCanvasElement
+const tabBtns = Array.from(document.querySelectorAll('.tab-btn')) as HTMLButtonElement[]
+const tilesRowSel = document.getElementById('tiles-row') as HTMLSelectElement
+const tilesCanvas = document.getElementById('tiles-canvas') as HTMLCanvasElement
+const map16Canvas = document.getElementById('map16-canvas') as HTMLCanvasElement
 const tilesInspect = document.getElementById('tiles-inspect')!
 const map16Inspect = document.getElementById('map16-inspect')!
 const detailCanvas = document.getElementById('detail-canvas') as HTMLCanvasElement
-const detailInfo   = document.getElementById('detail-info')!
-const palCanvas    = document.getElementById('palette-canvas') as HTMLCanvasElement
-const palInspect   = document.getElementById('palette-inspect')!
-const warpList     = document.getElementById('warp-list')!
+const detailInfo = document.getElementById('detail-info')!
+const palCanvas = document.getElementById('palette-canvas') as HTMLCanvasElement
+const palInspect = document.getElementById('palette-inspect')!
+const warpList = document.getElementById('warp-list')!
 
-const infoArea     = document.getElementById('info-area')!
-const infoSize     = document.getElementById('info-size')!
-const infoTileset  = document.getElementById('info-tileset')!
-const infoPalIx    = document.getElementById('info-palix')!
-const infoPAddr    = document.getElementById('info-paddr')!
-const infoCamX     = document.getElementById('info-camx')!
-const infoCamY     = document.getElementById('info-camy')!
-const infoRegion   = document.getElementById('info-region')!
+const infoArea = document.getElementById('info-area')!
+const infoSize = document.getElementById('info-size')!
+const infoTileset = document.getElementById('info-tileset')!
+const infoPalIx = document.getElementById('info-palix')!
+const infoPAddr = document.getElementById('info-paddr')!
+const infoCamX = document.getElementById('info-camx')!
+const infoCamY = document.getElementById('info-camy')!
+const infoRegion = document.getElementById('info-region')!
 
 // ── State ───────────────────────────────────────────────────────────────────
 
 let payload: OwPayload | null = null
-let zoomIdx                = ZOOM_DEFAULT
+let zoomIdx = ZOOM_DEFAULT
 let highlightedPalRow: number | null = null
 
 const toggle = {
-  l1: true, l2: true, l3: true,         // L3 frame mask visible by default
-  block: false, grid: false,
+  l1: true,
+  l2: true,
+  l3: true, // L3 frame mask visible by default
+  block: false,
+  grid: false,
   events: false,
-  anim: false,                          // animation off until user opts in
+  anim: false, // animation off until user opts in
 }
 
 // OW animation: split into two cadences, mirroring the level path's
@@ -496,16 +514,16 @@ const toggle = {
 //                    patches in `payload.paletteAnimation.frames` from
 //                    the shared `loadPaletteAnimData(rom, 'overworld')`.
 //   - animationTimer: tile-shimmer cadence from `OW_Tile_Animation`
-//                    (`bank_04.asm:74-148`) — water bitplane rotation
+//                    (`bank_04.asm:74-148`) - water bitplane rotation
 //                    and crumbling-castle frame swap. Tile-byte
 //                    rendering for these is still TODO; the timer
 //                    advances the frame index so the webview is ready
 //                    to consume that data when it lands.
 //
-// Both timers share the single `toggle.anim` button — start/stop in
+// Both timers share the single `toggle.anim` button - start/stop in
 // lockstep so the user sees one consistent "playing/paused" state.
 
-// Palette animation — applies `paletteAnimation.frames[palAnimFrame]`
+// Palette animation - applies `paletteAnimation.frames[palAnimFrame]`
 // to the live `paletteRows` (overwriting CGRAM $6D and $7D each tick).
 // The base palette stays in `payload.paletteRows` and gets re-overwritten
 // each tick, so rolling back is automatic when we apply the next frame.
@@ -518,8 +536,8 @@ function applyPalAnimFrame(): void {
   const anim = payload.paletteAnimation
   const frame = anim.frames[palAnimFrame % anim.frameCount] ?? []
   for (const patch of frame) {
-    const r = (patch.cgramIdx >> 4) & 0x0F
-    const c =  patch.cgramIdx       & 0x0F
+    const r = (patch.cgramIdx >> 4) & 0x0f
+    const c = patch.cgramIdx & 0x0f
     const row = payload.paletteRows[r]
     if (row) row[c] = [patch.r, patch.g, patch.b, patch.a]
   }
@@ -548,8 +566,8 @@ const animationTimer = frameClock.every(
   () => ANIM_TICK_FRAMES,
   () => {
     if (!payload) return
-    animationFrameIdx = (animationFrameIdx + 1)
-      % Math.max(1, payload.animation.framePointers.length)
+    animationFrameIdx =
+      (animationFrameIdx + 1) % Math.max(1, payload.animation.framePointers.length)
     // TODO: wire GFX bitplane rotation for water tiles + crumbling
     // castle frame swap from `DATA_048006`. The frame counter is
     // already advancing so the renderer just needs to consume it.
@@ -557,14 +575,14 @@ const animationTimer = frameClock.every(
 )
 
 const offscreen = document.createElement('canvas')
-let offCtx       = offscreen.getContext('2d')!
+let offCtx = offscreen.getContext('2d')!
 
 // ── Lookups ─────────────────────────────────────────────────────────────────
 
 function readL2Word(layout: 0 | 1, row: number, col: number): TilemapWord | null {
   if (!payload) return null
   const off = tilemapByteOffset(layout, row, col, payload.l2LayoutBytes, payload.l2ScreenBytes)
-  const lo = payload.l2Tilemap[off]     ?? 0
+  const lo = payload.l2Tilemap[off] ?? 0
   const hi = payload.l2Tilemap[off + 1] ?? 0
   if (lo === 0 && hi === 0) return null
   return decodeTilemapWord(lo, hi)
@@ -594,17 +612,17 @@ function blitChar(
   const W = SNES_TILE_PX
 
   for (let y = 0; y < W; y++) {
-    const sy = word.flipY ? (W - 1 - y) : y
+    const sy = word.flipY ? W - 1 - y : y
     for (let x = 0; x < W; x++) {
-      const sx   = word.flipX ? (W - 1 - x) : x
-      const idx  = tile[sy * W + sx]
+      const sx = word.flipX ? W - 1 - x : x
+      const idx = tile[sy * W + sx]
       if (idx === 0 && transparent) continue
       const c = palRow[idx] ?? [255, 0, 255, 255]
       const dx = px + x
       const dy = py + y
       if (dx < 0 || dy < 0 || dx >= imgW || dy >= imgData.height) continue
       const o = (dy * imgW + dx) * 4
-      d[o]     = c[0]
+      d[o] = c[0]
       d[o + 1] = c[1]
       d[o + 2] = c[2]
       d[o + 3] = 255
@@ -631,7 +649,7 @@ function fillCheckerCell(imgData: ImageData, imgW: number, px: number, py: numbe
       const dark = (((px + x) >> 2) + ((py + y) >> 2)) & 1
       const v = dark ? 0x22 : 0x33
       const o = ((py + y) * imgW + (px + x)) * 4
-      d[o]     = v
+      d[o] = v
       d[o + 1] = v
       d[o + 2] = v
       d[o + 3] = 255
@@ -644,17 +662,17 @@ function fillCheckerCell(imgData: ImageData, imgW: number, px: number, py: numbe
 function renderArea(): void {
   if (!payload) return
 
-  const layout    = payload.region.layout
+  const layout = payload.region.layout
   const rowOffset = payload.region.rowStart
   const colOffset = payload.region.colStart
 
-  const widthTiles  = payload.region.widthTiles
+  const widthTiles = payload.region.widthTiles
   const heightTiles = payload.region.heightTiles
-  const imgW = widthTiles  * SNES_TILE_PX
+  const imgW = widthTiles * SNES_TILE_PX
   const imgH = heightTiles * SNES_TILE_PX
 
   if (offscreen.width !== imgW || offscreen.height !== imgH) {
-    offscreen.width  = imgW
+    offscreen.width = imgW
     offscreen.height = imgH
     offCtx = offscreen.getContext('2d')!
   }
@@ -664,7 +682,7 @@ function renderArea(): void {
   // Back-area baseline
   const back = payload.paletteRows[0]?.[0] ?? [0, 0, 0, 255]
   for (let i = 0; i < imgData.data.length; i += 4) {
-    imgData.data[i]     = back[0]
+    imgData.data[i] = back[0]
     imgData.data[i + 1] = back[1]
     imgData.data[i + 2] = back[2]
     imgData.data[i + 3] = 255
@@ -673,7 +691,7 @@ function renderArea(): void {
   // Overlap row mask: the top-N and bottom-M rows contain spillover BG
   // content from neighboring sub-areas. When L3 is off, replace them with
   // the transparency checker. When L3 is on, the actual L3 overlay renders
-  // there instead. Border columns (colLeft/colRight) are NOT masked here —
+  // there instead. Border columns (colLeft/colRight) are NOT masked here -
   // L1/L2 renders normally in those columns; isMaskedCol is reserved for
   // the future L3 overlay pass.
   if (payload.l3Mask && !toggle.l3) {
@@ -706,7 +724,7 @@ function renderArea(): void {
         const bgCol = colOffset + col
         const mrow = bgRow >> 1
         const mcol = bgCol >> 1
-        const idx = readL1Map16Index(layout,mrow, mcol)
+        const idx = readL1Map16Index(layout, mrow, mcol)
         if (idx === 0) continue
         const subtileSlot = ((bgCol & 1) << 1) | (bgRow & 1) // 0..3
         const charBytePair = idx * 8 + subtileSlot * 2
@@ -719,14 +737,14 @@ function renderArea(): void {
     }
   }
 
-  // L3 overlay — wiring is stubbed; toggle is visible but inert until
+  // L3 overlay - wiring is stubbed; toggle is visible but inert until
   // actual L3 tile rendering is implemented.
   void toggle.l3
 
   offCtx.putImageData(imgData, 0, 0)
 
   const zoom = ZOOM_STEPS[zoomIdx]
-  canvas.width  = imgW * zoom
+  canvas.width = imgW * zoom
   canvas.height = imgH * zoom
   ctx.imageSmoothingEnabled = false
   ctx.drawImage(offscreen, 0, 0, canvas.width, canvas.height)
@@ -735,15 +753,21 @@ function renderArea(): void {
   if (toggle.grid) {
     ctx.save()
     ctx.strokeStyle = 'rgba(255,255,255,0.10)'
-    ctx.lineWidth   = 1
+    ctx.lineWidth = 1
     const tw = SNES_TILE_PX * zoom
     for (let c = 0; c <= widthTiles; c++) {
       const x = Math.round(c * tw) + 0.5
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(x, 0)
+      ctx.lineTo(x, canvas.height)
+      ctx.stroke()
     }
     for (let r = 0; r <= heightTiles; r++) {
       const y = Math.round(r * tw) + 0.5
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(0, y)
+      ctx.lineTo(canvas.width, y)
+      ctx.stroke()
     }
     ctx.restore()
   }
@@ -767,8 +791,8 @@ function renderBlockView(
   zoom: number,
 ): void {
   if (!payload) return
-  const tilePx   = SNES_TILE_PX * zoom
-  const map16Px  = MAP16_PX     * zoom
+  const tilePx = SNES_TILE_PX * zoom
+  const map16Px = MAP16_PX * zoom
 
   // L2: per-SNES-tile colored fill (55% alpha) keyed on tilemap char num.
   ctx.save()
@@ -791,7 +815,7 @@ function renderBlockView(
     for (let col = 0; col < widthTiles; col += MAP16_SNES) {
       const bgRow = rowOffset + row
       const bgCol = colOffset + col
-      const idx   = readL1Map16Index(layout,bgRow >> 1, bgCol >> 1)
+      const idx = readL1Map16Index(layout, bgRow >> 1, bgCol >> 1)
       if (idx === 0) continue
       paintBlockFill(ctx, col * tilePx, row * tilePx, map16Px, idx)
     }
@@ -811,14 +835,14 @@ function renderBlockView(
         const bgCol = colOffset + col
         const isMap16TopLeft = (row & 1) === 0 && (col & 1) === 0
         if (isMap16TopLeft) {
-          const m16 = readL1Map16Index(layout,bgRow >> 1, bgCol >> 1)
+          const m16 = readL1Map16Index(layout, bgRow >> 1, bgCol >> 1)
           if (m16 !== 0) {
             paintBlockLabel(ctx, col * tilePx, row * tilePx, map16Px, m16, 3)
             continue
           }
         }
-        // L2 fallback at 8×8 — only if no L1 Map16 covers this cell.
-        const m16Cover = readL1Map16Index(layout,bgRow >> 1, bgCol >> 1)
+        // L2 fallback at 8×8 - only if no L1 Map16 covers this cell.
+        const m16Cover = readL1Map16Index(layout, bgRow >> 1, bgCol >> 1)
         if (m16Cover !== 0) continue
         const word = readL2Word(layout, bgRow, bgCol)
         if (!word) continue
@@ -829,7 +853,7 @@ function renderBlockView(
 }
 
 function formatZoom(z: number): string {
-  return Number.isInteger(z) ? `${z}×` : `${z.toFixed(2).replace(/0+$/,'').replace(/\.$/,'')}×`
+  return Number.isInteger(z) ? `${z}×` : `${z.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')}×`
 }
 
 // ── Side panels ─────────────────────────────────────────────────────────────
@@ -862,7 +886,7 @@ function renderPaletteCanvas(): void {
     const y = highlightedPalRow * PAL_CELL
     pctx.save()
     pctx.strokeStyle = '#ffd040'
-    pctx.lineWidth   = 1
+    pctx.lineWidth = 1
     pctx.strokeRect(0.5, y + 0.5, 128 - 1, PAL_CELL - 1)
     pctx.restore()
   }
@@ -890,7 +914,7 @@ function drawTilesCanvas(paletteRow: number): void {
   const rowsCnt = Math.ceil(filled.length / COLS)
   const w = COLS * SNES_TILE_PX
   const h = rowsCnt * SNES_TILE_PX
-  tilesCanvas.width  = w
+  tilesCanvas.width = w
   tilesCanvas.height = h
   const tctx = tilesCanvas.getContext('2d')!
   const img = tctx.createImageData(w, h)
@@ -909,10 +933,16 @@ function drawTilesCanvas(paletteRow: number): void {
         if (idx === 0) {
           const ck = ((cx >> 2) + (cy >> 2)) & 1
           const v = ck ? 60 : 40
-          img.data[o] = v; img.data[o+1] = v; img.data[o+2] = v; img.data[o+3] = 255
+          img.data[o] = v
+          img.data[o + 1] = v
+          img.data[o + 2] = v
+          img.data[o + 3] = 255
         } else {
           const c = palRow[idx] ?? [255, 0, 255, 255]
-          img.data[o] = c[0]; img.data[o+1] = c[1]; img.data[o+2] = c[2]; img.data[o+3] = 255
+          img.data[o] = c[0]
+          img.data[o + 1] = c[1]
+          img.data[o + 2] = c[2]
+          img.data[o + 3] = 255
         }
       }
     }
@@ -928,7 +958,7 @@ function renderMap16Panel(): void {
   const rowsCnt = Math.ceil(COUNT / COLS)
   const w = COLS * MAP16_PX
   const h = rowsCnt * MAP16_PX
-  map16Canvas.width  = w
+  map16Canvas.width = w
   map16Canvas.height = h
   const mctx = map16Canvas.getContext('2d')!
   const img = mctx.createImageData(w, h)
@@ -944,15 +974,21 @@ function renderMap16Panel(): void {
     const br = decodeTilemapWord(payload.l1CharData[off + 6], payload.l1CharData[off + 7])
     const baseX = col * MAP16_PX
     const baseY = row * MAP16_PX
-    blitToImage(img, w, baseX,                baseY,                tl)
-    blitToImage(img, w, baseX + SNES_TILE_PX, baseY,                tr)
-    blitToImage(img, w, baseX,                baseY + SNES_TILE_PX, bl)
+    blitToImage(img, w, baseX, baseY, tl)
+    blitToImage(img, w, baseX + SNES_TILE_PX, baseY, tr)
+    blitToImage(img, w, baseX, baseY + SNES_TILE_PX, bl)
     blitToImage(img, w, baseX + SNES_TILE_PX, baseY + SNES_TILE_PX, br)
   }
   mctx.putImageData(img, 0, 0)
 }
 
-function blitToImage(img: ImageData, imgW: number, px: number, py: number, word: TilemapWord): void {
+function blitToImage(
+  img: ImageData,
+  imgW: number,
+  px: number,
+  py: number,
+  word: TilemapWord,
+): void {
   if (!payload) return
   const tile = payload.vramTiles[word.charNum]
   const palRow = payload.paletteRows[word.palette]
@@ -969,10 +1005,16 @@ function blitToImage(img: ImageData, imgW: number, px: number, py: number, word:
       if (idx === 0) {
         const ck = ((dx >> 2) + (dy >> 2)) & 1
         const v = ck ? 50 : 30
-        img.data[o] = v; img.data[o+1] = v; img.data[o+2] = v; img.data[o+3] = 255
+        img.data[o] = v
+        img.data[o + 1] = v
+        img.data[o + 2] = v
+        img.data[o + 3] = 255
       } else {
         const c = palRow[idx] ?? [255, 0, 255, 255]
-        img.data[o] = c[0]; img.data[o+1] = c[1]; img.data[o+2] = c[2]; img.data[o+3] = 255
+        img.data[o] = c[0]
+        img.data[o + 1] = c[1]
+        img.data[o + 2] = c[2]
+        img.data[o + 3] = 255
       }
     }
   }
@@ -982,12 +1024,11 @@ function renderWarpsPanel(): void {
   if (!payload) return
   const m = payload.warpStarts.mario
   if (m.length === 0) {
-    warpList.innerHTML = '<span style="color:#666;font-style:italic;">No warps target this area</span>'
+    warpList.innerHTML =
+      '<span style="color:#666;font-style:italic;">No warps target this area</span>'
     return
   }
-  warpList.innerHTML = m.map((p, i) =>
-    `<div>#${i}: x=$${hex4(p.x)} y=$${hex4(p.y)}</div>`,
-  ).join('')
+  warpList.innerHTML = m.map((p, i) => `<div>#${i}: x=$${hex4(p.x)} y=$${hex4(p.y)}</div>`).join('')
 }
 
 function renderInspector(): void {
@@ -996,11 +1037,11 @@ function renderInspector(): void {
   const r = payload.region
   propsCtx.textContent = `Area ${a.index} (${a.widthTiles}×${a.heightTiles})`
 
-  infoArea.textContent    = `$${hex2(a.index)}`
-  infoSize.textContent    = `${a.widthTiles}×${a.heightTiles}`
+  infoArea.textContent = `$${hex2(a.index)}`
+  infoSize.textContent = `${a.widthTiles}×${a.heightTiles}`
   infoTileset.textContent = `$${hex2(a.objectTileset)}`
-  infoPalIx.textContent   = `$${hex2(a.paletteIndex)}`
-  infoPAddr.textContent   = `$${hex6(a.paletteAddrNormal)}`
+  infoPalIx.textContent = `$${hex2(a.paletteIndex)}`
+  infoPAddr.textContent = `$${hex6(a.paletteAddrNormal)}`
 
   infoCamX.textContent = `${a.cameraX} (signed)`
   infoCamY.textContent = `${a.cameraY} (signed)`
@@ -1013,7 +1054,7 @@ function renderInspector(): void {
 // ── Animation timer ─────────────────────────────────────────────────────────
 
 function syncAnimButton(): void {
-  // Both timers run in lockstep — palette is always running with
+  // Both timers run in lockstep - palette is always running with
   // tile, so either one's `running` state reflects the toggle.
   const running = animationTimer.running || palAnimTimer.running
   toggle.anim = running
@@ -1049,33 +1090,43 @@ function wireToggle(btn: HTMLButtonElement, key: keyof typeof toggle, defaultOn:
   })
 }
 
-wireToggle(btnL1,    'l1',     toggle.l1)
-wireToggle(btnL2,    'l2',     toggle.l2)
-wireToggle(btnL3,    'l3',     toggle.l3)
-wireToggle(btnBlock, 'block',  toggle.block)
-wireToggle(btnGrid,  'grid',   toggle.grid)
-wireToggle(btnEvents,'events', toggle.events)
+wireToggle(btnL1, 'l1', toggle.l1)
+wireToggle(btnL2, 'l2', toggle.l2)
+wireToggle(btnL3, 'l3', toggle.l3)
+wireToggle(btnBlock, 'block', toggle.block)
+wireToggle(btnGrid, 'grid', toggle.grid)
+wireToggle(btnEvents, 'events', toggle.events)
 
 btnAnim.addEventListener('click', () => {
   if (toggle.anim) pauseAnimation()
-  else             startAnimation()
+  else startAnimation()
 })
 
 zoomInBtn.addEventListener('click', () => {
-  if (zoomIdx < ZOOM_STEPS.length - 1) { zoomIdx++; renderArea() }
+  if (zoomIdx < ZOOM_STEPS.length - 1) {
+    zoomIdx++
+    renderArea()
+  }
 })
 zoomOutBtn.addEventListener('click', () => {
-  if (zoomIdx > 0) { zoomIdx--; renderArea() }
+  if (zoomIdx > 0) {
+    zoomIdx--
+    renderArea()
+  }
 })
 
-canvasWrap.addEventListener('wheel', (e) => {
-  if (!e.ctrlKey) return
-  e.preventDefault()
-  if (e.deltaY < 0 && zoomIdx < ZOOM_STEPS.length - 1) zoomIdx++
-  else if (e.deltaY > 0 && zoomIdx > 0)                 zoomIdx--
-  else return
-  renderArea()
-}, { passive: false })
+canvasWrap.addEventListener(
+  'wheel',
+  e => {
+    if (!e.ctrlKey) return
+    e.preventDefault()
+    if (e.deltaY < 0 && zoomIdx < ZOOM_STEPS.length - 1) zoomIdx++
+    else if (e.deltaY > 0 && zoomIdx > 0) zoomIdx--
+    else return
+    renderArea()
+  },
+  { passive: false },
+)
 
 tilesRowSel.addEventListener('change', () => {
   drawTilesCanvas(parseInt(tilesRowSel.value, 10))
@@ -1086,51 +1137,52 @@ tabBtns.forEach(b => {
     const tab = b.dataset.tab!
     const scope = b.closest('#left-panel') ? 'left' : 'right'
     if (scope === 'left') {
-      Array.from(document.querySelectorAll('#left-panel .tab-btn'))
-        .forEach(x => x.classList.toggle('active', (x as HTMLElement).dataset.tab === tab))
-      const panels: Record<string,string> = {
-        vram: 'panel-vram', map16: 'panel-map16', warps: 'panel-warps',
+      Array.from(document.querySelectorAll('#left-panel .tab-btn')).forEach(x =>
+        x.classList.toggle('active', (x as HTMLElement).dataset.tab === tab),
+      )
+      const panels: Record<string, string> = {
+        vram: 'panel-vram',
+        map16: 'panel-map16',
+        warps: 'panel-warps',
       }
       Object.entries(panels).forEach(([k, id]) => {
         const el = document.getElementById(id)
         if (el) el.style.display = k === tab ? '' : 'none'
       })
     } else {
-      Array.from(document.querySelectorAll('#right-panel .tab-btn'))
-        .forEach(x => x.classList.toggle('active', (x as HTMLElement).dataset.tab === tab))
-      Array.from(document.querySelectorAll('#right-panel .tab-pane'))
-        .forEach(x => {
-          const el = x as HTMLElement
-          el.style.display = el.dataset.tab === tab ? 'flex' : 'none'
-        })
+      Array.from(document.querySelectorAll('#right-panel .tab-btn')).forEach(x =>
+        x.classList.toggle('active', (x as HTMLElement).dataset.tab === tab),
+      )
+      Array.from(document.querySelectorAll('#right-panel .tab-pane')).forEach(x => {
+        const el = x as HTMLElement
+        el.style.display = el.dataset.tab === tab ? 'flex' : 'none'
+      })
     }
   })
 })
 
-map16Canvas.addEventListener('mousemove', (ev) => {
+map16Canvas.addEventListener('mousemove', ev => {
   if (!payload) return
   const rect = map16Canvas.getBoundingClientRect()
-  const sx = map16Canvas.width  / rect.width
+  const sx = map16Canvas.width / rect.width
   const sy = map16Canvas.height / rect.height
-  const col = Math.floor((ev.clientX - rect.left) * sx / MAP16_PX)
-  const row = Math.floor((ev.clientY - rect.top)  * sy / MAP16_PX)
+  const col = Math.floor(((ev.clientX - rect.left) * sx) / MAP16_PX)
+  const row = Math.floor(((ev.clientY - rect.top) * sy) / MAP16_PX)
   const idx = row * 16 + col
   if (idx >= 0 && idx < 512) {
     map16Inspect.textContent = `Map16 #$${hex3(idx)}`
   }
 })
 
-tilesCanvas.addEventListener('mousemove', (ev) => {
+tilesCanvas.addEventListener('mousemove', ev => {
   if (!payload) return
   const rect = tilesCanvas.getBoundingClientRect()
-  const sx = tilesCanvas.width  / rect.width
+  const sx = tilesCanvas.width / rect.width
   const sy = tilesCanvas.height / rect.height
-  const col = Math.floor((ev.clientX - rect.left) * sx / SNES_TILE_PX)
-  const row = Math.floor((ev.clientY - rect.top)  * sy / SNES_TILE_PX)
+  const col = Math.floor(((ev.clientX - rect.left) * sx) / SNES_TILE_PX)
+  const row = Math.floor(((ev.clientY - rect.top) * sy) / SNES_TILE_PX)
   // Map back from "filled tile sequence" to actual char index
-  const filled = payload.vramTiles
-    .map((t, i) => t.length > 0 ? i : -1)
-    .filter(i => i >= 0)
+  const filled = payload.vramTiles.map((t, i) => (t.length > 0 ? i : -1)).filter(i => i >= 0)
   const idx = row * 16 + col
   const charNum = filled[idx]
   if (charNum !== undefined) {
@@ -1138,18 +1190,19 @@ tilesCanvas.addEventListener('mousemove', (ev) => {
   }
 })
 
-palCanvas.addEventListener('mousemove', (ev) => {
+palCanvas.addEventListener('mousemove', ev => {
   if (!payload) return
   const rect = palCanvas.getBoundingClientRect()
   const sx = 128 / rect.width
   const sy = 128 / rect.height
-  const col = Math.floor((ev.clientX - rect.left) * sx / PAL_CELL)
-  const row = Math.floor((ev.clientY - rect.top)  * sy / PAL_CELL)
+  const col = Math.floor(((ev.clientX - rect.left) * sx) / PAL_CELL)
+  const row = Math.floor(((ev.clientY - rect.top) * sy) / PAL_CELL)
   if (row < 0 || row >= 16 || col < 0 || col >= 16) return
   const c = payload.paletteRows[row]?.[col] ?? [0, 0, 0, 0]
-  const bgr555 = (Math.round(c[2] * 31 / 255) << 10)
-               | (Math.round(c[1] * 31 / 255) << 5)
-               | (Math.round(c[0] * 31 / 255))
+  const bgr555 =
+    (Math.round((c[2] * 31) / 255) << 10) |
+    (Math.round((c[1] * 31) / 255) << 5) |
+    Math.round((c[0] * 31) / 255)
   const idx = row * 16 + col
   palInspect.textContent =
     `$${hex2(idx)} ` +
@@ -1158,11 +1211,11 @@ palCanvas.addEventListener('mousemove', (ev) => {
     `BGR=$${hex4(bgr555)}`
 })
 
-palCanvas.addEventListener('click', (ev) => {
+palCanvas.addEventListener('click', ev => {
   if (!payload) return
   const rect = palCanvas.getBoundingClientRect()
   const sy = 128 / rect.height
-  const row = Math.floor((ev.clientY - rect.top)  * sy / PAL_CELL)
+  const row = Math.floor(((ev.clientY - rect.top) * sy) / PAL_CELL)
   if (row < 0 || row >= 16) return
   // Click a row to switch the 8×8 viewer to that palette
   for (let i = 0; i < tilesRowSel.options.length; i++) {
@@ -1175,11 +1228,15 @@ palCanvas.addEventListener('click', (ev) => {
 })
 
 /** Decode the L1 subtile tilemap word at the given BG (row, col). */
-function readL1Word(layout: 0 | 1, bgRow: number, bgCol: number): { word: TilemapWord; m16: number } | null {
+function readL1Word(
+  layout: 0 | 1,
+  bgRow: number,
+  bgCol: number,
+): { word: TilemapWord; m16: number } | null {
   if (!payload) return null
   const mrow = bgRow >> 1
   const mcol = bgCol >> 1
-  const m16 = readL1Map16Index(layout,mrow, mcol)
+  const m16 = readL1Map16Index(layout, mrow, mcol)
   if (m16 === 0) return null
   const subtileSlot = ((bgCol & 1) << 1) | (bgRow & 1) // 0..3
   const charBytePair = m16 * 8 + subtileSlot * 2
@@ -1190,12 +1247,12 @@ function readL1Word(layout: 0 | 1, bgRow: number, bgCol: number): { word: Tilema
   return { word, m16 }
 }
 
-canvas.addEventListener('mousemove', (ev) => {
+canvas.addEventListener('mousemove', ev => {
   if (!payload) return
   const rect = canvas.getBoundingClientRect()
   const zoom = ZOOM_STEPS[zoomIdx]
-  const cx   = Math.floor((ev.clientX - rect.left) / zoom)
-  const cy   = Math.floor((ev.clientY - rect.top)  / zoom)
+  const cx = Math.floor((ev.clientX - rect.left) / zoom)
+  const cy = Math.floor((ev.clientY - rect.top) / zoom)
   if (cx < 0 || cy < 0) return
 
   const tileCol = Math.floor(cx / SNES_TILE_PX)
@@ -1207,38 +1264,44 @@ canvas.addEventListener('mousemove', (ev) => {
   const bgRow = payload.region.rowStart + tileRow
   const bgCol = payload.region.colStart + tileCol
   const l2word = readL2Word(payload.region.layout, bgRow, bgCol)
-  const l1     = readL1Word(payload.region.layout, bgRow, bgCol)
+  const l1 = readL1Word(payload.region.layout, bgRow, bgCol)
 
   // L1 icons take priority for inspection (the user is usually selecting the
   // foreground icon, not the BG). Fall back to L2 if no L1 tile here.
-  const inspect = l1 ? { word: l1.word, layer: 'L1' as const, m16: l1.m16 } :
-                  l2word ? { word: l2word, layer: 'L2' as const, m16: 0 } :
-                  null
+  const inspect = l1
+    ? { word: l1.word, layer: 'L1' as const, m16: l1.m16 }
+    : l2word
+      ? { word: l2word, layer: 'L2' as const, m16: 0 }
+      : null
 
   stPos.textContent = `(${cx},${cy}) tile (${tileCol},${tileRow})`
   if (inspect) {
     const m16Str = l1 ? ` | L1 #$${hex2(l1.m16)}` : ''
     stTile.textContent = `${inspect.layer} $${hex3(inspect.word.charNum)} pal ${inspect.word.palette}${m16Str}`
   } else {
-    stTile.textContent = '—'
+    stTile.textContent = '-'
   }
 
   // Right panel hover inspector
   if (inspect) {
     ppEmpty.style.display = 'none'
-    ppTile.style.display  = ''
+    ppTile.style.display = ''
     ppTile.innerHTML = `
       <div style="${propLabelStyle()}">${inspect.layer} TILE</div>
       <div style="font-family:monospace;font-size:11px;line-height:1.6;color:#bbb;">
         char    $${hex3(inspect.word.charNum)}<br>
         palette ${inspect.word.palette} (CGRAM row ${inspect.word.palette})<br>
-        flipX   ${inspect.word.flipX ? 'yes' : '—'}<br>
-        flipY   ${inspect.word.flipY ? 'yes' : '—'}
+        flipX   ${inspect.word.flipX ? 'yes' : '-'}<br>
+        flipY   ${inspect.word.flipY ? 'yes' : '-'}
       </div>
-      ${l1 ? `<div style="${propLabelStyle()};margin-top:8px;">L1 MAP16</div>
+      ${
+        l1
+          ? `<div style="${propLabelStyle()};margin-top:8px;">L1 MAP16</div>
       <div style="font-family:monospace;font-size:11px;color:#bbb;">
         index #$${hex2(l1.m16)}
-      </div>` : ''}
+      </div>`
+          : ''
+      }
       <div style="${propLabelStyle()};margin-top:8px;">BG POSITION</div>
       <div style="font-family:monospace;font-size:11px;color:#bbb;">
         row=${bgRow}  col=${bgCol}
@@ -1260,10 +1323,10 @@ canvas.addEventListener('mousemove', (ev) => {
 
 function drawDetail(word: TilemapWord): void {
   if (!payload) return
-  detailCanvas.width  = SNES_TILE_PX
+  detailCanvas.width = SNES_TILE_PX
   detailCanvas.height = SNES_TILE_PX
   const dctx = detailCanvas.getContext('2d')!
-  const img  = dctx.createImageData(SNES_TILE_PX, SNES_TILE_PX)
+  const img = dctx.createImageData(SNES_TILE_PX, SNES_TILE_PX)
   const tile = payload.vramTiles[word.charNum]
   const palRow = payload.paletteRows[word.palette]
   if (!tile || tile.length === 0) return
@@ -1276,10 +1339,16 @@ function drawDetail(word: TilemapWord): void {
       if (idx === 0) {
         const ck = ((x >> 1) + (y >> 1)) & 1
         const v = ck ? 60 : 40
-        img.data[o] = v; img.data[o+1] = v; img.data[o+2] = v; img.data[o+3] = 255
+        img.data[o] = v
+        img.data[o + 1] = v
+        img.data[o + 2] = v
+        img.data[o + 3] = 255
       } else {
         const c = palRow?.[idx] ?? [255, 0, 255, 255]
-        img.data[o] = c[0]; img.data[o+1] = c[1]; img.data[o+2] = c[2]; img.data[o+3] = 255
+        img.data[o] = c[0]
+        img.data[o + 1] = c[1]
+        img.data[o + 2] = c[2]
+        img.data[o + 3] = 255
       }
     }
   }
@@ -1287,17 +1356,17 @@ function drawDetail(word: TilemapWord): void {
   detailInfo.innerHTML = `
     char $${hex3(word.charNum)}<br>
     pal  ${word.palette}<br>
-    flip ${word.flipX ? 'X' : '—'}${word.flipY ? 'Y' : ''}
+    flip ${word.flipX ? 'X' : '-'}${word.flipY ? 'Y' : ''}
   `
 }
 
-window.addEventListener('error', (ev) => {
+window.addEventListener('error', ev => {
   console.error('overworldViewer error:', ev.message)
 })
 
 // ── Inbound messages ────────────────────────────────────────────────────────
 
-window.addEventListener('message', (ev) => {
+window.addEventListener('message', ev => {
   const msg = ev.data
   if (msg.type === 'load') {
     payload = msg as OwPayload

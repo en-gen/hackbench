@@ -27,7 +27,7 @@ export function postWebviewError(webview: vscode.Webview, err: unknown): void {
  * The hidden stub DOM required by spc.js at init time. Both MapEditor and
  * MusicPlayer embed the SPC player, so this block is shared.
  */
-export const SPC_PLAYER_STUB_DOM = /* html */`\
+export const SPC_PLAYER_STUB_DOM = /* html */ `\
   <!-- Stub DOM: spc.js UI init accesses these elements. All hidden. -->
   <div id="spc-player-interface" style="display:none;">
     <div id="spc-player-header" class="header-button"></div>
@@ -80,10 +80,13 @@ export function buildWebviewHtml(opts: {
   styles?: string
 }): string {
   const { title, nonce, scriptUri, cspSource } = opts
-  const styles = opts.styles ?? 'html,body{height:100%;margin:0;padding:0;overflow:hidden;}#app{height:100%;}'
-  const cssLinkTags = (opts.cssLinks ?? []).map(u => `  <link rel="stylesheet" href="${u}" />\n`).join('')
+  const styles =
+    opts.styles ?? 'html,body{height:100%;margin:0;padding:0;overflow:hidden;}#app{height:100%;}'
+  const cssLinkTags = (opts.cssLinks ?? [])
+    .map(u => `  <link rel="stylesheet" href="${u}" />\n`)
+    .join('')
   const extraCspLine = opts.extraCsp ? '\n             ' + opts.extraCsp : ''
-  return /* html */`<!DOCTYPE html>
+  return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />

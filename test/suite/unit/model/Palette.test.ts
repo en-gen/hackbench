@@ -80,11 +80,15 @@ describe('Color behaviors', () => {
       [150, 150, 0, 255],
     ]
     const c = new Color(new CyclingColorBehavior(frames))
-    editorStore.setPalAnimFrame(0); expect(c.rgba()).toEqual([255, 255, 0, 255])
-    editorStore.setPalAnimFrame(1); expect(c.rgba()).toEqual([200, 200, 0, 255])
-    editorStore.setPalAnimFrame(2); expect(c.rgba()).toEqual([150, 150, 0, 255])
+    editorStore.setPalAnimFrame(0)
+    expect(c.rgba()).toEqual([255, 255, 0, 255])
+    editorStore.setPalAnimFrame(1)
+    expect(c.rgba()).toEqual([200, 200, 0, 255])
+    editorStore.setPalAnimFrame(2)
+    expect(c.rgba()).toEqual([150, 150, 0, 255])
     // wraps
-    editorStore.setPalAnimFrame(3); expect(c.rgba()).toEqual([255, 255, 0, 255])
+    editorStore.setPalAnimFrame(3)
+    expect(c.rgba()).toEqual([255, 255, 0, 255])
   })
 })
 
@@ -169,7 +173,7 @@ describe.skipIf(!existsSync(ROM_PATH))('PaletteFactory (vanilla ROM)', () => {
       expect(row[1][3]).toBe(255)
     }
 
-    // backAreaColor is a Color — could be re-wrapped as animated in principle
+    // backAreaColor is a Color - could be re-wrapped as animated in principle
     expect(palette.backAreaColor).toBeInstanceOf(Color)
     expect(palette.backAreaColor.rgba()).toHaveLength(4)
   })

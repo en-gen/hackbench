@@ -2,11 +2,11 @@
  * SpriteTileLoader.ts -- loads the per-sprite-ID tile layout tables used by
  * SMW's generic sprite draw routines.
  *
- * SubSprGfx2Entry1 (bank_01.asm:4148) is the dominant routine — used by
+ * SubSprGfx2Entry1 (bank_01.asm:4148) is the dominant routine - used by
  * roughly 60 of the ~80 call sites in bank_01-04 (Goombas, Koopas, Buzzy
  * Beetles, Rex, Chuck variants, etc.). It writes ONE OAM entry with the
  * hardware's "large" (16x16) tile-size bit set, so a single char number N
- * expands to the contiguous 4-char block [N, N+1, N+$10, N+$11] — that's
+ * expands to the contiguous 4-char block [N, N+1, N+$10, N+$11] - that's
  * TL, TR, BL, BR in a 2x2 grid within OBJ VRAM.
  *
  * We port that semantics here: SprTilemap[SprTilemapOffset[id]] gives the
@@ -19,7 +19,7 @@
  * the ids that walk cannot reach.
  *
  * Sprite166EVals (bank_07.asm:792) is the spawn-time source for
- * SpriteOBJAttribute — LoadSpriteTables in bank_07.asm:977 reads this byte,
+ * SpriteOBJAttribute - LoadSpriteTables in bank_07.asm:977 reads this byte,
  * masks it with $0F (so only the palette bits and char-high bit survive),
  * and stores it as the sprite's OAM attribute. Flip bits and priority are
  * left zero and get set later by per-sprite handlers at runtime.
@@ -39,24 +39,28 @@
 
 import { RomFile } from './RomFile'
 import {
-  decidedPropGroup, decidedRoutine, readGfxRoutines, type GfxRoutine, type GfxRoutineReading,
+  decidedPropGroup,
+  decidedRoutine,
+  readGfxRoutines,
+  type GfxRoutine,
+  type GfxRoutineReading,
 } from './dispatch/GfxRoutineReader'
 
-export const SPR_TILEMAP_ADDR          = 0x019B83
-export const SPR_TILEMAP_OFFSET_ADDR   = 0x019C7F
-export const GENERAL_SPR_DISP_X_ADDR   = 0x019CD3
-export const GENERAL_SPR_DISP_Y_ADDR   = 0x019CD7
-export const GENERAL_SPR_GFX_PROP_ADDR = 0x019CDB
-export const SPRITE_166E_VALS_ADDR     = 0x07F3FE
-export const SPR_0_TO_13_PROP_ADDR     = 0x0188F0
-export const YOSHI_PAL_ADDR            = 0x018335
+export const SPR_TILEMAP_ADDR = 0x019b83
+export const SPR_TILEMAP_OFFSET_ADDR = 0x019c7f
+export const GENERAL_SPR_DISP_X_ADDR = 0x019cd3
+export const GENERAL_SPR_DISP_Y_ADDR = 0x019cd7
+export const GENERAL_SPR_GFX_PROP_ADDR = 0x019cdb
+export const SPRITE_166E_VALS_ADDR = 0x07f3fe
+export const SPR_0_TO_13_PROP_ADDR = 0x0188f0
+export const YOSHI_PAL_ADDR = 0x018335
 
-export const SPR_TILEMAP_OFFSET_COUNT   = 0x54   // sprites 0x00..0x53
-export const SPR_TILEMAP_LEN            = 0xFC   // 0x9C7F - 0x9B83
-export const GENERAL_SPR_GFX_PROP_COUNT = 24    // 6 groups × 4 corners
-export const SPRITE_166E_VALS_COUNT     = 0x100
-export const SPR_0_TO_13_PROP_COUNT     = 0x14   // sprites 0x00..0x13
-export const YOSHI_PAL_COUNT            = 4
+export const SPR_TILEMAP_OFFSET_COUNT = 0x54 // sprites 0x00..0x53
+export const SPR_TILEMAP_LEN = 0xfc // 0x9C7F - 0x9B83
+export const GENERAL_SPR_GFX_PROP_COUNT = 24 // 6 groups × 4 corners
+export const SPRITE_166E_VALS_COUNT = 0x100
+export const SPR_0_TO_13_PROP_COUNT = 0x14 // sprites 0x00..0x13
+export const YOSHI_PAL_COUNT = 4
 
 /** Raw sprite tile layout data read from ROM. */
 export interface SpriteTileTables {
@@ -64,9 +68,9 @@ export interface SpriteTileTables {
   tilemap: Uint8Array
   /** One offset per sprite ID (0x00..0x53) into `tilemap`. */
   tilemapOffset: Uint8Array
-  /** Corner X offsets — indexed 0..3 = TL, TR, BL, BR. */
+  /** Corner X offsets - indexed 0..3 = TL, TR, BL, BR. */
   dispX: number[]
-  /** Corner Y offsets — same indexing as dispX. */
+  /** Corner Y offsets - same indexing as dispX. */
   dispY: number[]
   /** GeneralSprGfxProp flip flags: 6 groups × 4 corners, bit6=flipX bit7=flipY.
    *  Index as gfxProp[group * 4 + corner]. ROM address $01:9CDB (bank_01.asm:3848). */
@@ -87,19 +91,29 @@ export interface SpriteTileTables {
 }
 
 export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
-  const tilemap        = rom.readAt(SPR_TILEMAP_ADDR,          SPR_TILEMAP_LEN)
-  const tilemapOffset  = rom.readAt(SPR_TILEMAP_OFFSET_ADDR,  SPR_TILEMAP_OFFSET_COUNT)
-  const dispXBuf       = rom.readAt(GENERAL_SPR_DISP_X_ADDR,  4)
-  const dispYBuf       = rom.readAt(GENERAL_SPR_DISP_Y_ADDR,  4)
-  const gfxPropBuf     = rom.readAt(GENERAL_SPR_GFX_PROP_ADDR, GENERAL_SPR_GFX_PROP_COUNT)
-  const rawAttr        = rom.readAt(SPRITE_166E_VALS_ADDR,     SPRITE_166E_VALS_COUNT)
-  const spr0to13Prop   = rom.readAt(SPR_0_TO_13_PROP_ADDR,     SPR_0_TO_13_PROP_COUNT)
-  const yoshiPal       = rom.readAt(YOSHI_PAL_ADDR,            YOSHI_PAL_COUNT)
-  if (!tilemap || !tilemapOffset || !dispXBuf || !dispYBuf || !gfxPropBuf || !rawAttr || !spr0to13Prop || !yoshiPal) return null
-  // Match LoadSpriteTables (bank_07.asm:978) — only the low nibble of
+  const tilemap = rom.readAt(SPR_TILEMAP_ADDR, SPR_TILEMAP_LEN)
+  const tilemapOffset = rom.readAt(SPR_TILEMAP_OFFSET_ADDR, SPR_TILEMAP_OFFSET_COUNT)
+  const dispXBuf = rom.readAt(GENERAL_SPR_DISP_X_ADDR, 4)
+  const dispYBuf = rom.readAt(GENERAL_SPR_DISP_Y_ADDR, 4)
+  const gfxPropBuf = rom.readAt(GENERAL_SPR_GFX_PROP_ADDR, GENERAL_SPR_GFX_PROP_COUNT)
+  const rawAttr = rom.readAt(SPRITE_166E_VALS_ADDR, SPRITE_166E_VALS_COUNT)
+  const spr0to13Prop = rom.readAt(SPR_0_TO_13_PROP_ADDR, SPR_0_TO_13_PROP_COUNT)
+  const yoshiPal = rom.readAt(YOSHI_PAL_ADDR, YOSHI_PAL_COUNT)
+  if (
+    !tilemap ||
+    !tilemapOffset ||
+    !dispXBuf ||
+    !dispYBuf ||
+    !gfxPropBuf ||
+    !rawAttr ||
+    !spr0to13Prop ||
+    !yoshiPal
+  )
+    return null
+  // Match LoadSpriteTables (bank_07.asm:978) - only the low nibble of
   // Sprite166EVals feeds SpriteOBJAttribute (palette + char-high bit).
   const spriteAttr = new Uint8Array(rawAttr.length)
-  for (let i = 0; i < rawAttr.length; i++) spriteAttr[i] = rawAttr[i] & 0x0F
+  for (let i = 0; i < rawAttr.length; i++) spriteAttr[i] = rawAttr[i] & 0x0f
   return {
     tilemap: new Uint8Array(tilemap),
     tilemapOffset: new Uint8Array(tilemapOffset),
@@ -136,7 +150,7 @@ export interface SpriteSubtile {
  *  `height` is 16 for SubSprGfx2 sprites (one big-tile → 4 8x8 corners) or
  *  32 for SubSprGfx1 sprites (two stacked big-tiles → 8 8x8 corners). Corner
  *  dy values are relative to the sprite's anchor, where anchor Y is the
- *  bottom-of-visual-box row — so tall sprites have dy in [-16..+8] and short
+ *  bottom-of-visual-box row - so tall sprites have dy in [-16..+8] and short
  *  sprites have dy in [0..8].
  *
  *  `width` is 16 for the common case (one big-tile column) or 32 for
@@ -186,114 +200,114 @@ export interface SpriteLayout {
  * Method and the full per-id measurement: `docs/sprite-gfx-routine-reading.md`.
  */
 const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
-  0x54: 0x08,   // Climbing net door
-  0x55: 0xEA,   // Checkerboard platform, horizontal
-  0x56: 0xEA,   // Flying rock platform, horizontal
-  0x57: 0xEA,   // Checkerboard platform, vertical
-  0x58: 0xEA,   // Flying rock platform, vertical
-  0x59: 0x40,   // Turn block bridge, horizontal and vertical
-  0x5A: 0x40,   // Turn block bridge, horizontal
-  0x5E: 0xEA,   // Orange platform, goes on forever
-  0x5F: 0xA2,   // Brown platform on a chain
-  0x60: 0x00,   // Flat green switch palace switch
-  0x61: 0xE2,   // Floating skulls
+  0x54: 0x08, // Climbing net door
+  0x55: 0xea, // Checkerboard platform, horizontal
+  0x56: 0xea, // Flying rock platform, horizontal
+  0x57: 0xea, // Checkerboard platform, vertical
+  0x58: 0xea, // Flying rock platform, vertical
+  0x59: 0x40, // Turn block bridge, horizontal and vertical
+  0x5a: 0x40, // Turn block bridge, horizontal
+  0x5e: 0xea, // Orange platform, goes on forever
+  0x5f: 0xa2, // Brown platform on a chain
+  0x60: 0x00, // Flat green switch palace switch
+  0x61: 0xe2, // Floating skulls
   // 0x62 Brown platform, line-guided: rendered by LineBrownPlatAppearance (direction-aware, not a static override).
-  0x63: 0xC8,   // Checker/brown platform, line-guided
-  0x5B: 0x60,   // Brown platform floating in water — CODE_01B344 base tile (SpriteMisc1602=0)
-  0x5C: 0xEA,   // Checkerboard platform that falls — CODE_01B2DF tile (SpriteMisc1602=1 from InitFallingPlat)
-  0x5D: 0xCB,   // Orange platform floating in water — DiagPlatTiles[0], bank_01.asm:6989
-  0x64: 0xAE,   // Rope mechanism, line-guided
-  0x65: 0xAE,   // Chainsaw, line-guided
-  0x66: 0xAE,   // Upside down chainsaw, line-guided
-  // 0x67 Grinder line-guided — promoted to SPRITE_WIDE_OVERRIDES (32×32, 4-way symmetric)
-  0x68: 0xC8,   // Fuzz ball, line-guided
-  0x6A: 0x60,   // Coin game cloud
-  0x6B: 0x3D,   // Spring board, left wall
-  0x6C: 0x3D,   // Spring board, right wall
-  0x6D: 0x80,   // Invisible solid block
-  0x6E: 0x80,   // Dino Rhino — superseded by SPRITE_WIDE_OVERRIDES; kept as fallback
-  0x6F: 0xEA,   // Dino Torch — DinoTorchTiles[0] (frame 0 body), bank_03.asm:3900
-  0x70: 0xE8,   // Pokey
-  0x71: 0xC8,   // Super Koopa, red cape — superseded by SpriteFactory custom handler; kept as fallback
-  0x72: 0xC8,   // Super Koopa, yellow cape, straight, drops feather — superseded by SpriteFactory
-  0x73: 0xC8,   // Super Koopa, yellow cape, swooping, drops feather — superseded by SpriteFactory
-  0x74: 0x24,   // Mushroom — PowerUpTiles[0], bank_01.asm:9528
-  0x75: 0x26,   // Fire Flower — PowerUpTiles[1]
-  0x76: 0x48,   // Star — PowerUpTiles[2]
-  0x77: 0x0E,   // Feather — PowerUpTiles[3] ($77 - $74 = 3)
-  0x78: 0x24,   // 1-Up — PowerUpTiles[4] ($78 - $74 = 4)
-  0x79: 0xAE,   // Growing Vine
-  0x7A: 0xAE,   // Firework — Bank3SprHandler, uses same particle tile range as vine
-  // 0x7B Goal Tape — moved to SPRITE_WIDE_OVERRIDES (three 8×8 parts, not 16×16 big-tile)
-  0x7C: 0x6E,   // Princess Peach
-  0x7D: 0x5D,   // Balloon
-  0x7E: 0x5D,   // Flying Red coin
-  0x7F: 0x5D,   // Flying yellow 1-Up
-  0x80: 0xEC,   // Key — PowerUpGfxRt with PowerUpTiles[$0C], bank_01.asm:9528
-  0x81: 0x80,   // Changing item from translucent block
-  0x82: 0xE4,   // Bonus game sprite
-  0x83: 0x2A,   // Left flying question block (initial/unhit state; $2E after hit)
-  0x84: 0x2A,   // Flying question block (initial/unhit state; $2E after hit)
-  0x85: 0x2A,   // Unused sprite — per-frame InitFlying_Block; shares tile with 0x83/0x84
-  // 0x86 Wiggler — handled by WigglerAppearance in SpriteFactory (multi-segment chain + eye).
-  0x87: 0x60,   // Lakitu's cloud
-  0x88: 0xC6,   // Winged cage (unused) — ADDR_02CCB9: BCC→$C6, bank_02.asm:10161
-  0x8A: 0xD2,   // Bird from Yoshi's house — BirdsTilemap[0], bank_02.asm:15379
-  0x8B: 0xC5,   // Puff of smoke from Yoshi's house
-  0x8C: 0x60,   // Fireplace smoke/exit from side screen
-  0x8D: 0x9C,   // Ghost house exit sign and door
-  0x8F: 0x80,   // Scale platforms
-  0x90: 0x80,   // Large green gas bubble
-  0x91: 0x06,   // Chargin' Chuck — handled in SpriteFactory (FaceMario direction); kept as fallback
-  0x92: 0x06,   // Splittin' Chuck
-  0x93: 0x06,   // Bouncin' Chuck
-  0x94: 0x06,   // Whistlin' Chuck
-  0x95: 0x06,   // Clappin' Chuck
-  0x96: 0x06,   // Unused Chargin' Chuck clone
-  0x97: 0x06,   // Puntin' Chuck
-  // 0x98 Pitchin' Chuck — promoted to SPRITE_WIDE_OVERRIDES (release pose $19)
-  // 0x99 Volcano Lotus — handled in SpriteFactory (VolcanoLotusAppearance: head + animated flower)
-  0x9A: 0x98,   // Sumo Brother
-  0x9B: 0x46,   // Hammer Brother — HammerBroTiles[2] (left body big-tile), bank_02.asm:12040
-  0x9C: 0x40,   // Flying blocks for Hammer Brother
-  0x9D: 0xAA,   // Bubble with sprite
-  // 0x9E Ball and Chain — handled by BallAndChainAppearance in SpriteFactory
-  0x9F: 0x80,   // Banzai Bill — top-left char of BanzaiBillTiles (bank_02.asm:11331)
-  0xA0: 0xE3,   // Activates Bowser scene
-  0xA1: 0x45,   // Bowser's bowling ball
-  0xA2: 0x40,   // MechaKoopa
-  0xA3: 0xA2,   // Grey platform on chain
-  0xA4: 0xAA,   // Floating Spike ball — CODE_01B666: (EffFrame>>2&2) | $AA, bank_01.asm:12413
-  0xA5: 0xC8,   // Fuzzball/Sparky, ground-guided
-  0xA6: 0xC8,   // HotHead, ground-guided
-  0xA7: 0x4A,   // Iggy's ball
-  0xA8: 0xA0,   // Blargg
-  0xA9: 0x40,   // Reznor — ReznorTiles[0], bank_03.asm
-  0xAA: 0xA8,   // Fishbone
-  // 0xAC / 0xAD (Wooden Spike) — handled by WoodSpikeAppearance in SpriteFactory;
+  0x63: 0xc8, // Checker/brown platform, line-guided
+  0x5b: 0x60, // Brown platform floating in water - CODE_01B344 base tile (SpriteMisc1602=0)
+  0x5c: 0xea, // Checkerboard platform that falls - CODE_01B2DF tile (SpriteMisc1602=1 from InitFallingPlat)
+  0x5d: 0xcb, // Orange platform floating in water - DiagPlatTiles[0], bank_01.asm:6989
+  0x64: 0xae, // Rope mechanism, line-guided
+  0x65: 0xae, // Chainsaw, line-guided
+  0x66: 0xae, // Upside down chainsaw, line-guided
+  // 0x67 Grinder line-guided - promoted to SPRITE_WIDE_OVERRIDES (32×32, 4-way symmetric)
+  0x68: 0xc8, // Fuzz ball, line-guided
+  0x6a: 0x60, // Coin game cloud
+  0x6b: 0x3d, // Spring board, left wall
+  0x6c: 0x3d, // Spring board, right wall
+  0x6d: 0x80, // Invisible solid block
+  0x6e: 0x80, // Dino Rhino - superseded by SPRITE_WIDE_OVERRIDES; kept as fallback
+  0x6f: 0xea, // Dino Torch - DinoTorchTiles[0] (frame 0 body), bank_03.asm:3900
+  0x70: 0xe8, // Pokey
+  0x71: 0xc8, // Super Koopa, red cape - superseded by SpriteFactory custom handler; kept as fallback
+  0x72: 0xc8, // Super Koopa, yellow cape, straight, drops feather - superseded by SpriteFactory
+  0x73: 0xc8, // Super Koopa, yellow cape, swooping, drops feather - superseded by SpriteFactory
+  0x74: 0x24, // Mushroom - PowerUpTiles[0], bank_01.asm:9528
+  0x75: 0x26, // Fire Flower - PowerUpTiles[1]
+  0x76: 0x48, // Star - PowerUpTiles[2]
+  0x77: 0x0e, // Feather - PowerUpTiles[3] ($77 - $74 = 3)
+  0x78: 0x24, // 1-Up - PowerUpTiles[4] ($78 - $74 = 4)
+  0x79: 0xae, // Growing Vine
+  0x7a: 0xae, // Firework - Bank3SprHandler, uses same particle tile range as vine
+  // 0x7B Goal Tape - moved to SPRITE_WIDE_OVERRIDES (three 8×8 parts, not 16×16 big-tile)
+  0x7c: 0x6e, // Princess Peach
+  0x7d: 0x5d, // Balloon
+  0x7e: 0x5d, // Flying Red coin
+  0x7f: 0x5d, // Flying yellow 1-Up
+  0x80: 0xec, // Key - PowerUpGfxRt with PowerUpTiles[$0C], bank_01.asm:9528
+  0x81: 0x80, // Changing item from translucent block
+  0x82: 0xe4, // Bonus game sprite
+  0x83: 0x2a, // Left flying question block (initial/unhit state; $2E after hit)
+  0x84: 0x2a, // Flying question block (initial/unhit state; $2E after hit)
+  0x85: 0x2a, // Unused sprite - per-frame InitFlying_Block; shares tile with 0x83/0x84
+  // 0x86 Wiggler - handled by WigglerAppearance in SpriteFactory (multi-segment chain + eye).
+  0x87: 0x60, // Lakitu's cloud
+  0x88: 0xc6, // Winged cage (unused) - ADDR_02CCB9: BCC→$C6, bank_02.asm:10161
+  0x8a: 0xd2, // Bird from Yoshi's house - BirdsTilemap[0], bank_02.asm:15379
+  0x8b: 0xc5, // Puff of smoke from Yoshi's house
+  0x8c: 0x60, // Fireplace smoke/exit from side screen
+  0x8d: 0x9c, // Ghost house exit sign and door
+  0x8f: 0x80, // Scale platforms
+  0x90: 0x80, // Large green gas bubble
+  0x91: 0x06, // Chargin' Chuck - handled in SpriteFactory (FaceMario direction); kept as fallback
+  0x92: 0x06, // Splittin' Chuck
+  0x93: 0x06, // Bouncin' Chuck
+  0x94: 0x06, // Whistlin' Chuck
+  0x95: 0x06, // Clappin' Chuck
+  0x96: 0x06, // Unused Chargin' Chuck clone
+  0x97: 0x06, // Puntin' Chuck
+  // 0x98 Pitchin' Chuck - promoted to SPRITE_WIDE_OVERRIDES (release pose $19)
+  // 0x99 Volcano Lotus - handled in SpriteFactory (VolcanoLotusAppearance: head + animated flower)
+  0x9a: 0x98, // Sumo Brother
+  0x9b: 0x46, // Hammer Brother - HammerBroTiles[2] (left body big-tile), bank_02.asm:12040
+  0x9c: 0x40, // Flying blocks for Hammer Brother
+  0x9d: 0xaa, // Bubble with sprite
+  // 0x9E Ball and Chain - handled by BallAndChainAppearance in SpriteFactory
+  0x9f: 0x80, // Banzai Bill - top-left char of BanzaiBillTiles (bank_02.asm:11331)
+  0xa0: 0xe3, // Activates Bowser scene
+  0xa1: 0x45, // Bowser's bowling ball
+  0xa2: 0x40, // MechaKoopa
+  0xa3: 0xa2, // Grey platform on chain
+  0xa4: 0xaa, // Floating Spike ball - CODE_01B666: (EffFrame>>2&2) | $AA, bank_01.asm:12413
+  0xa5: 0xc8, // Fuzzball/Sparky, ground-guided
+  0xa6: 0xc8, // HotHead, ground-guided
+  0xa7: 0x4a, // Iggy's ball
+  0xa8: 0xa0, // Blargg
+  0xa9: 0x40, // Reznor - ReznorTiles[0], bank_03.asm
+  0xaa: 0xa8, // Fishbone
+  // 0xAC / 0xAD (Wooden Spike) - handled by WoodSpikeAppearance in SpriteFactory;
   // WoodSpikeGfx uses hardcoded tile tables, not SprTilemap.
-  0xAE: 0xCC,   // Fishin' Boo
-  0xAF: 0x8C,   // Boo Block
-  0xB0: 0x88,   // Reflecting stream of Boo Buddies
-  0xB1: 0x2E,   // Creating/Eating block
-  0xB2: 0xE0,   // Falling Spike
-  0xB3: 0x32,   // Bowser statue fireball
-  0xB4: 0x18,   // Grinder, non-line-guided
-  0xB5: 0x2A,   // Sinking fireball used in boss battles
-  0xB6: 0xAC,   // Reflecting fireball
-  0xB9: 0xC0,   // Info Box
-  0xBA: 0xC4,   // Timed lift
-  0xBB: 0xCC,   // Grey moving castle block
-  0xBC: 0x00,   // Bowser statue
-  0xBD: 0xE0,   // Sliding Koopa without a shell
-  0xBE: 0xAE,   // Swooper bat
-  0xC0: 0x85,   // Grey platform on lava
-  0xC1: 0x40,   // Flying grey turnblocks
-  0xC2: 0xEC,   // Blurp fish
-  0xC3: 0x86,   // Porcu-Puffer fish
-  // 0xC4 Grey Falling Platform — handled in SpriteFactory (4-tile 64×16; FallingPlatTiles bank_03.asm:525)
-  0xC5: 0xC0,   // Big Boo Boss
-  0xC8: 0x2A,   // Light switch block for dark room
+  0xae: 0xcc, // Fishin' Boo
+  0xaf: 0x8c, // Boo Block
+  0xb0: 0x88, // Reflecting stream of Boo Buddies
+  0xb1: 0x2e, // Creating/Eating block
+  0xb2: 0xe0, // Falling Spike
+  0xb3: 0x32, // Bowser statue fireball
+  0xb4: 0x18, // Grinder, non-line-guided
+  0xb5: 0x2a, // Sinking fireball used in boss battles
+  0xb6: 0xac, // Reflecting fireball
+  0xb9: 0xc0, // Info Box
+  0xba: 0xc4, // Timed lift
+  0xbb: 0xcc, // Grey moving castle block
+  0xbc: 0x00, // Bowser statue
+  0xbd: 0xe0, // Sliding Koopa without a shell
+  0xbe: 0xae, // Swooper bat
+  0xc0: 0x85, // Grey platform on lava
+  0xc1: 0x40, // Flying grey turnblocks
+  0xc2: 0xec, // Blurp fish
+  0xc3: 0x86, // Porcu-Puffer fish
+  // 0xC4 Grey Falling Platform - handled in SpriteFactory (4-tile 64×16; FallingPlatTiles bank_03.asm:525)
+  0xc5: 0xc0, // Big Boo Boss
+  0xc8: 0x2a, // Light switch block for dark room
 }
 
 /**
@@ -307,10 +321,10 @@ const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
  * renders with $80 regardless.
  */
 const SPRITE_LOW_RANGE_OVERRIDES: Readonly<Record<number, number>> = {
-  0x44: 0x80,   // Torpedo Ted — TorpedoGfxRt LDA #$80/#$82, bank_02.asm:7544
+  0x44: 0x80, // Torpedo Ted - TorpedoGfxRt LDA #$80/#$82, bank_02.asm:7544
 }
 
-export const MAX_SPRITE_ID_WITH_LAYOUT = 0xC8
+export const MAX_SPRITE_ID_WITH_LAYOUT = 0xc8
 
 /**
  * Tall (16x32) overrides for sprites whose handler builds OAM with exactly
@@ -334,7 +348,7 @@ export const MAX_SPRITE_ID_WITH_LAYOUT = 0xC8
  *   $9B Hammer Brother - mixed 8x8/16x16; BASE=$5A
  */
 const SPRITE_TALL_OVERRIDES: Readonly<Record<number, { top: number; bottom: number }>> = {
-  0xAB: { top: 0x8A, bottom: 0xAA },   // Rex — RexTiles bank_03.asm:2877
+  0xab: { top: 0x8a, bottom: 0xaa }, // Rex - RexTiles bank_03.asm:2877
 }
 
 /**
@@ -367,24 +381,24 @@ const SPRITE_TALL_OVERRIDES: Readonly<Record<number, { top: number; bottom: numb
  */
 const SPRITE_GFX_OVERRIDES: Readonly<Record<number, GfxRoutine>> = {
   // SubSprGfx1 (16x32)
-  0x1A: 'sub1',   // Classic Piranha Plant
-  0x1E: 'sub1',   // Lakitu
-  0x1F: 'sub1',   // Magikoopa - unused: SpriteFactory intercepts $1F before buildSpriteLayout
-  0x22: 'sub1',   // Green vertical net Koopa
-  0x23: 'sub1',   // Red vertical net Koopa
-  0x24: 'sub1',   // Green horizontal net Koopa
-  0x25: 'sub1',   // Red horizontal net Koopa
-  0x2A: 'sub1',   // Upside-down Piranha Plant
-  0x41: 'sub1',   // Dolphin, horizontal
-  0x42: 'sub1',   // Dolphin 2, horizontal
-  0x43: 'sub1',   // Dolphin, vertical
+  0x1a: 'sub1', // Classic Piranha Plant
+  0x1e: 'sub1', // Lakitu
+  0x1f: 'sub1', // Magikoopa - unused: SpriteFactory intercepts $1F before buildSpriteLayout
+  0x22: 'sub1', // Green vertical net Koopa
+  0x23: 'sub1', // Red vertical net Koopa
+  0x24: 'sub1', // Green horizontal net Koopa
+  0x25: 'sub1', // Red horizontal net Koopa
+  0x2a: 'sub1', // Upside-down Piranha Plant
+  0x41: 'sub1', // Dolphin, horizontal
+  0x42: 'sub1', // Dolphin 2, horizontal
+  0x43: 'sub1', // Dolphin, vertical
   // SubSprGfx0 (4 independent 8x8)
-  0x14: 'sub0',   // Spiny, falling
-  0x27: 'sub0',   // Thwimp
-  0x2B: 'sub0',   // Sumo Brother's fire lightning
-  0x2F: 'sub0',   // Portable spring board
-  0x4D: 'sub0',   // Ground-dwelling Monty Mole - see MontyMoleAppearance
-  0x4E: 'sub0',   // Ledge-dwelling Monty Mole - see caveat below
+  0x14: 'sub0', // Spiny, falling
+  0x27: 'sub0', // Thwimp
+  0x2b: 'sub0', // Sumo Brother's fire lightning
+  0x2f: 'sub0', // Portable spring board
+  0x4d: 'sub0', // Ground-dwelling Monty Mole - see MontyMoleAppearance
+  0x4e: 'sub0', // Ledge-dwelling Monty Mole - see caveat below
 }
 
 /**
@@ -424,96 +438,134 @@ const SPRITE_GFX_OVERRIDES: Readonly<Record<number, GfxRoutine>> = {
  *   ThwompGfxProp:  db $03,$43,$03,$43   (bit6=flipX on the +4 column)
  * Left column uses tile $8E/$AE with no flip; right column mirrors them.
  */
-const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
-  quadrants: ReadonlyArray<{ baseTile: number; baseDx: number; baseDy: number; flipX?: boolean; flipY?: boolean }>
-  /** Extra individual 8×8 tiles for sprites with mixed-size OAM (e.g. 8×8 head + 16×16 body).
-   *  dx/dy are pixel offsets from the sprite anchor; charHigh from `attr` is applied automatically.
-   *  palette defaults to the sprite's main OBJ palette; override when a specific part uses a
-   *  different palette in its own draw routine (e.g. Pitchin' Chuck's baseball uses attr $09 → pal 12).
-   *  Parts are appended AFTER all quadrants in the tiles list, so they render ON TOP of quadrants. */
-  parts?: ReadonlyArray<{ tile: number; dx: number; dy: number; flipX?: boolean; palette?: number }>
-  /** Override the sprite's OBJ attribute when Sprite166EVals differs from the runtime draw routine.
-   *  Low nibble only (matches readSpriteTileTables masking): bits 3-1 = palette offset, bit 0 = charHigh. */
-  attr?: number
-}>> = {
-  0x26: { quadrants: [
-    { baseTile: 0x8E, baseDx:  0, baseDy:  0 },             // top-left
-    { baseTile: 0x8E, baseDx: 16, baseDy:  0, flipX: true }, // top-right
-    { baseTile: 0xAE, baseDx:  0, baseDy: 16 },              // bottom-left
-    { baseTile: 0xAE, baseDx: 16, baseDy: 16, flipX: true }, // bottom-right
-  ]},
+const SPRITE_WIDE_OVERRIDES: Readonly<
+  Record<
+    number,
+    {
+      quadrants: ReadonlyArray<{
+        baseTile: number
+        baseDx: number
+        baseDy: number
+        flipX?: boolean
+        flipY?: boolean
+      }>
+      /** Extra individual 8×8 tiles for sprites with mixed-size OAM (e.g. 8×8 head + 16×16 body).
+       *  dx/dy are pixel offsets from the sprite anchor; charHigh from `attr` is applied automatically.
+       *  palette defaults to the sprite's main OBJ palette; override when a specific part uses a
+       *  different palette in its own draw routine (e.g. Pitchin' Chuck's baseball uses attr $09 → pal 12).
+       *  Parts are appended AFTER all quadrants in the tiles list, so they render ON TOP of quadrants. */
+      parts?: ReadonlyArray<{
+        tile: number
+        dx: number
+        dy: number
+        flipX?: boolean
+        palette?: number
+      }>
+      /** Override the sprite's OBJ attribute when Sprite166EVals differs from the runtime draw routine.
+       *  Low nibble only (matches readSpriteTileTables masking): bits 3-1 = palette offset, bit 0 = charHigh. */
+      attr?: number
+    }
+  >
+> = {
+  0x26: {
+    quadrants: [
+      { baseTile: 0x8e, baseDx: 0, baseDy: 0 }, // top-left
+      { baseTile: 0x8e, baseDx: 16, baseDy: 0, flipX: true }, // top-right
+      { baseTile: 0xae, baseDx: 0, baseDy: 16 }, // bottom-left
+      { baseTile: 0xae, baseDx: 16, baseDy: 16, flipX: true }, // bottom-right
+    ],
+  },
   // Dino Rhino ($6E): DinoRhinoTiles frame 0, DinoRhinoTileDispX $F8/$08 (-8/+8),
-  //   DinoRhinoTileDispY $F0/$00 (-16/0) — bank_03.asm:3904
-  0x6E: { quadrants: [
-    { baseTile: 0xC0, baseDx:  -8, baseDy: -16 },  // top-left
-    { baseTile: 0xC2, baseDx:   8, baseDy: -16 },  // top-right
-    { baseTile: 0xE4, baseDx:  -8, baseDy:   0 },  // bottom-left
-    { baseTile: 0xE6, baseDx:   8, baseDy:   0 },  // bottom-right
-  ]},
+  //   DinoRhinoTileDispY $F0/$00 (-16/0) - bank_03.asm:3904
+  0x6e: {
+    quadrants: [
+      { baseTile: 0xc0, baseDx: -8, baseDy: -16 }, // top-left
+      { baseTile: 0xc2, baseDx: 8, baseDy: -16 }, // top-right
+      { baseTile: 0xe4, baseDx: -8, baseDy: 0 }, // bottom-left
+      { baseTile: 0xe6, baseDx: 8, baseDy: 0 }, // bottom-right
+    ],
+  },
   // Hammer Brother ($9B): HammerBroGfx ORA.B #$37 → palette 3, charHigh 1.
   //   Sprite166EVals[$9B]=0x00 is wrong; override attr=0x07 (pal 3, charHigh 1).
-  //   HammerBroDispX $08/$10/$00/$10, HammerBroDispY $F8/$F8/$00/$00 — bank_02.asm:12033
+  //   HammerBroDispX $08/$10/$00/$10, HammerBroDispY $F8/$F8/$00/$00 - bank_02.asm:12033
   //   Loop X=3..0: entry[3]=$48(16x16) at (+16,0), [2]=$46(16x16) at (0,0),
   //                entry[1]=$4A(8x8) at (+16,-8), [0]=$5A(8x8) at (+8,-8)
-  0x9B: { attr: 0x07, quadrants: [
-    { baseTile: 0x46, baseDx:  0, baseDy: 0 },   // body-left  (16×16)
-    { baseTile: 0x48, baseDx: 16, baseDy: 0 },   // body-right (16×16)
-  ], parts: [
-    { tile: 0x5A, dx:  8, dy: -8 },              // head-left  (8×8)
-    { tile: 0x4A, dx: 16, dy: -8 },              // head-right (8×8)
-  ]},
+  0x9b: {
+    attr: 0x07,
+    quadrants: [
+      { baseTile: 0x46, baseDx: 0, baseDy: 0 }, // body-left  (16×16)
+      { baseTile: 0x48, baseDx: 16, baseDy: 0 }, // body-right (16×16)
+    ],
+    parts: [
+      { tile: 0x5a, dx: 8, dy: -8 }, // head-left  (8×8)
+      { tile: 0x4a, dx: 16, dy: -8 }, // head-right (8×8)
+    ],
+  },
   // Mega Mole ($BF): MegaMoleTiles frame 0, MegaMoleTileDispX $00/$10 (0/+16),
-  //   MegaMoleTileDispY $F0/$00 (-16/0) — bank_03.asm:1013
-  0xBF: { quadrants: [
-    { baseTile: 0xC6, baseDx:  0, baseDy: -16 },  // top-left
-    { baseTile: 0xC8, baseDx: 16, baseDy: -16 },  // top-right
-    { baseTile: 0xE6, baseDx:  0, baseDy:   0 },  // bottom-left
-    { baseTile: 0xE8, baseDx: 16, baseDy:   0 },  // bottom-right
-  ]},
-  // Carrot Top lift ($B7) — CarrotTopLiftGfx (bank_03.asm:1661).
+  //   MegaMoleTileDispY $F0/$00 (-16/0) - bank_03.asm:1013
+  0xbf: {
+    quadrants: [
+      { baseTile: 0xc6, baseDx: 0, baseDy: -16 }, // top-left
+      { baseTile: 0xc8, baseDx: 16, baseDy: -16 }, // top-right
+      { baseTile: 0xe6, baseDx: 0, baseDy: 0 }, // bottom-left
+      { baseTile: 0xe8, baseDx: 16, baseDy: 0 }, // bottom-right
+    ],
+  },
+  // Carrot Top lift ($B7) - CarrotTopLiftGfx (bank_03.asm:1661).
   // DiagPlatTiles2[0..2]=$E4,$E0,$E2; DiagPlatDispX[0..2]=$10,$00,$10;
   // DiagPlatDispY[0..2]=$00,$10,$10; DiagPlatGfxProp[0..2]=$0B (no flip).
-  // Upper-left quadrant is empty — the platform is an upward-left L-shape.
-  0xB7: { quadrants: [
-    { baseTile: 0xE4, baseDx: 16, baseDy:  0 },  // upper-right
-    { baseTile: 0xE0, baseDx:  0, baseDy: 16 },  // lower-left
-    { baseTile: 0xE2, baseDx: 16, baseDy: 16 },  // lower-right
-  ]},
-  // Carrot Top lift ($B8) — same tables, indices 3..5; all flipX ($4B).
-  // Upper-right quadrant is empty — mirrors $B7 horizontally.
-  0xB8: { quadrants: [
-    { baseTile: 0xE4, baseDx:  0, baseDy:  0, flipX: true },  // upper-left
-    { baseTile: 0xE2, baseDx:  0, baseDy: 16, flipX: true },  // lower-left
-    { baseTile: 0xE0, baseDx: 16, baseDy: 16, flipX: true },  // lower-right
-  ]},
-  // Goal Tape ($7B) — CODE_01C12D (bank_01.asm:8865).
+  // Upper-left quadrant is empty - the platform is an upward-left L-shape.
+  0xb7: {
+    quadrants: [
+      { baseTile: 0xe4, baseDx: 16, baseDy: 0 }, // upper-right
+      { baseTile: 0xe0, baseDx: 0, baseDy: 16 }, // lower-left
+      { baseTile: 0xe2, baseDx: 16, baseDy: 16 }, // lower-right
+    ],
+  },
+  // Carrot Top lift ($B8) - same tables, indices 3..5; all flipX ($4B).
+  // Upper-right quadrant is empty - mirrors $B7 horizontally.
+  0xb8: {
+    quadrants: [
+      { baseTile: 0xe4, baseDx: 0, baseDy: 0, flipX: true }, // upper-left
+      { baseTile: 0xe2, baseDx: 0, baseDy: 16, flipX: true }, // lower-left
+      { baseTile: 0xe0, baseDx: 16, baseDy: 16, flipX: true }, // lower-right
+    ],
+  },
+  // Goal Tape ($7B) - CODE_01C12D (bank_01.asm:8865).
   // Three 8×8 extra-OAM tiles; no 16×16 big-tile is written.
   // X offsets: −8, 0, +8 from GetDrawInfoBnk1 anchor. Y offset: +8 (bank_01.asm:8882).
   // Tile $D4 (left cap), $D5 (middle), $D5 (right), all at OAMTileAttr=$32.
   // Attr $32: bits 3:1 = (0x32>>1)&7 = 1 → OBJ pal 1 → CGRAM row 9; charHigh = 0.
   // Low nibble 0x32 & 0x0F = 0x02 overrides Sprite166EVals[$7B].
-  0x7B: { attr: 0x02, quadrants: [], parts: [
-    { tile: 0xD4, dx: -8, dy: 8 },  // left cap
-    { tile: 0xD5, dx:  0, dy: 8 },  // middle
-    { tile: 0xD5, dx:  8, dy: 8 },  // right
-  ]},
+  0x7b: {
+    attr: 0x02,
+    quadrants: [],
+    parts: [
+      { tile: 0xd4, dx: -8, dy: 8 }, // left cap
+      { tile: 0xd5, dx: 0, dy: 8 }, // middle
+      { tile: 0xd5, dx: 8, dy: 8 }, // right
+    ],
+  },
   // Grinder line-guided ($67): CODE_01DC0B (bank_01.asm:12521) draws 4 big-tiles
   // all sharing base char $6C (animated to $6C/$6E via EffFrame bit 1), with
   // hardcoded attr table DATA_01DC43=$33/$73/$B3/$F3 (pal 1, charHigh 1, 4-way
   // symmetric flip). DATA_01DC3B/3F put the sprite anchor at the center: TL at
   // (-16,-16), TR at (0,-16) flipX, BL at (-16,0) flipY, BR at (0,0) flipX+flipY.
-  0x67: { attr: 0x03, quadrants: [
-    { baseTile: 0x6C, baseDx: -16, baseDy: -16 },                         // TL
-    { baseTile: 0x6C, baseDx:   0, baseDy: -16, flipX: true },             // TR
-    { baseTile: 0x6C, baseDx: -16, baseDy:   0,               flipY: true }, // BL
-    { baseTile: 0x6C, baseDx:   0, baseDy:   0, flipX: true,  flipY: true }, // BR
-  ]},
+  0x67: {
+    attr: 0x03,
+    quadrants: [
+      { baseTile: 0x6c, baseDx: -16, baseDy: -16 }, // TL
+      { baseTile: 0x6c, baseDx: 0, baseDy: -16, flipX: true }, // TR
+      { baseTile: 0x6c, baseDx: -16, baseDy: 0, flipY: true }, // BL
+      { baseTile: 0x6c, baseDx: 0, baseDy: 0, flipX: true, flipY: true }, // BR
+    ],
+  },
   // Dry Bones ($30, $32) and Chargin' Chuck ($91) are handled in SpriteFactory
   // rather than here because their flip direction depends on FaceMario
-  // evaluated against the level's Mario start position — not a property of the
+  // evaluated against the level's Mario start position - not a property of the
   // sprite tile tables.
   //
-  // Pitchin' Chuck ($98) — pose $19 (windup overhead, ball cocked for release).
+  // Pitchin' Chuck ($98) - pose $19 (windup overhead, ball cocked for release).
   // bank_02.asm:9591 CODE_02C81A. SMW OAM order back→front:
   //   entry 3 head ($06)  →  entry 2 ball ($AD, pal 12 via attr $09)
   //   → entry 1 body-bot ($AE)  →  entry 0 body-top ($5D)
@@ -523,24 +575,27 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
   // Offsets: head (-6,-11) from DATA_02C830/02C84A; body-bot at anchor;
   // body-top (+1,-8) from DATA_02C909/02C971; baseball (+1,-12) from
   // CODE_02CB2D/02CB39. Face-left (_151C=4), no flipX.
-  0x98: { quadrants: [
-    { baseTile: 0x06, baseDx: -6, baseDy: -11 },   // head 16×16 (back)
-  ], parts: [
-    // Baseball (attr $09 → OBJ pal 4 = CGRAM row 12, red stitches).
-    { tile: 0xAD, dx:  1, dy: -12, palette: 12 },
-    // Body-bot $AE expanded to 4 explicit 8×8 chars (large-OBJ: N, N+1, N+$10, N+$11).
-    { tile: 0xAE, dx:  0, dy:   0 },
-    { tile: 0xAF, dx:  8, dy:   0 },
-    { tile: 0xBE, dx:  0, dy:   8 },
-    { tile: 0xBF, dx:  8, dy:   8 },
-    // Body-top / arm detail on top so it isn't obscured by the ball.
-    { tile: 0x5D, dx:  1, dy:  -8 },
-  ]},
-  // Jumping Piranha Plant ($4F) — CODE_02E0CD (bank_02.asm:12812).
-  // InitPiranha (bank_01.asm:880): SpriteXPosLow += 8 — centers the 16px-wide
+  0x98: {
+    quadrants: [
+      { baseTile: 0x06, baseDx: -6, baseDy: -11 }, // head 16×16 (back)
+    ],
+    parts: [
+      // Baseball (attr $09 → OBJ pal 4 = CGRAM row 12, red stitches).
+      { tile: 0xad, dx: 1, dy: -12, palette: 12 },
+      // Body-bot $AE expanded to 4 explicit 8×8 chars (large-OBJ: N, N+1, N+$10, N+$11).
+      { tile: 0xae, dx: 0, dy: 0 },
+      { tile: 0xaf, dx: 8, dy: 0 },
+      { tile: 0xbe, dx: 0, dy: 8 },
+      { tile: 0xbf, dx: 8, dy: 8 },
+      // Body-top / arm detail on top so it isn't obscured by the ball.
+      { tile: 0x5d, dx: 1, dy: -8 },
+    ],
+  },
+  // Jumping Piranha Plant ($4F) - CODE_02E0CD (bank_02.asm:12812).
+  // InitPiranha (bank_01.asm:880): SpriteXPosLow += 8 - centers the 16px-wide
   // head within the 32px pipe. All dx values are shifted +8 relative to the
   // spawn tile to match. GenericSprGfxRt0/2 are bare bank-switching wrappers
-  // (bank_01.asm:61/2393) — no additional X offset.
+  // (bank_01.asm:61/2393) - no additional X offset.
   // OAM priority: head goes to OAM index 0 (drawn IN FRONT), body to indices 4-7
   // (BEHIND). To match this, body parts come FIRST in the array and the head's
   // 4 expanded 8×8 tiles come LAST so the head overlays the body's upper row.
@@ -550,18 +605,22 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
   // Body: GenericSprGfxRt0 with SpriteOBJAttribute=$0A (charHigh=0, pal 13) at Y+8;
   //   SpriteMisc1602=1 → SprTilemap[0x3E..0x41] = [$83,$83,$C4,$C4].
   //   GeneralSprGfxProp[A=1, group 1]: tiles 1 and 3 (TR, BR) have X-flip ($40).
-  0x4F: { attr: 0x08, quadrants: [], parts: [
-    // Body (drawn first, BEHIND head)
-    { tile: 0x83, dx:  8, dy:  8, palette: 13 },               // neck-TL
-    { tile: 0x83, dx: 16, dy:  8, flipX: true, palette: 13 },  // neck-TR
-    { tile: 0xC4, dx:  8, dy: 16, palette: 13 },               // stem-BL
-    { tile: 0xC4, dx: 16, dy: 16, flipX: true, palette: 13 },  // stem-BR
-    // Head 16×16 large-tile expansion (drawn last, IN FRONT)
-    { tile: 0xAE, dx:  8, dy: 0 },
-    { tile: 0xAF, dx: 16, dy: 0 },
-    { tile: 0xBE, dx:  8, dy: 8 },
-    { tile: 0xBF, dx: 16, dy: 8 },
-  ]},
+  0x4f: {
+    attr: 0x08,
+    quadrants: [],
+    parts: [
+      // Body (drawn first, BEHIND head)
+      { tile: 0x83, dx: 8, dy: 8, palette: 13 }, // neck-TL
+      { tile: 0x83, dx: 16, dy: 8, flipX: true, palette: 13 }, // neck-TR
+      { tile: 0xc4, dx: 8, dy: 16, palette: 13 }, // stem-BL
+      { tile: 0xc4, dx: 16, dy: 16, flipX: true, palette: 13 }, // stem-BR
+      // Head 16×16 large-tile expansion (drawn last, IN FRONT)
+      { tile: 0xae, dx: 8, dy: 0 },
+      { tile: 0xaf, dx: 16, dy: 0 },
+      { tile: 0xbe, dx: 8, dy: 8 },
+      { tile: 0xbf, dx: 16, dy: 8 },
+    ],
+  },
 }
 
 /**
@@ -581,8 +640,8 @@ const SPRITE_WIDE_OVERRIDES: Readonly<Record<number, {
  * renders differently today.
  */
 const SUB0_GFX_PROP_GROUP: Readonly<Record<number, number>> = {
-  0x14: 2,   // SpinyEgg — bank_01.asm:1813
-  0x2F: 2,   // Portable spring board — bank_01.asm:13884
+  0x14: 2, // SpinyEgg - bank_01.asm:1813
+  0x2f: 2, // Portable spring board - bank_01.asm:13884
 }
 
 /**
@@ -598,7 +657,9 @@ const SUB0_GFX_PROP_GROUP: Readonly<Record<number, number>> = {
  */
 function isSpr0to13TallSprite(tables: SpriteTileTables, spriteId: number): boolean {
   if (spriteId >= tables.spr0to13Prop.length) return false
-  const SPR_0_TO_13_START_IDS = [0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0F, 0x11, 0x13]
+  const SPR_0_TO_13_START_IDS = [
+    0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0f, 0x11, 0x13,
+  ]
   if (!SPR_0_TO_13_START_IDS.includes(spriteId)) return false
   return (tables.spr0to13Prop[spriteId] & 0x40) !== 0
 }
@@ -635,15 +696,15 @@ function spriteGfxRoutine(tables: SpriteTileTables, spriteId: number): GfxRoutin
  * SpriteMisc1602 (for OAMIndex ≠ 0; $08 otherwise), then calls SubSprGfx2Entry1
  * (bank_01.asm:4148). That routine reads a SINGLE base tile from
  * SprTilemap[SprTilemapOffset[Koopa] + SpriteMisc1602] and writes it as one
- * 16×16 OAM entry — the stationary shell-on-ground graphic, not the walking
+ * 16×16 OAM entry - the stationary shell-on-ground graphic, not the walking
  * Koopa's upper body. Palette comes from Sprite166EVals[$04..$07] (the Koopa
  * attr), since SpriteNumber has been aliased by draw time.
  */
 const STUNNED_ANIM_OFFSET = 0x06
 
 function resolveShellAlias(spriteId: number): { targetId: number; shellOnly: boolean } {
-  if (spriteId >= 0xDA && spriteId <= 0xDD) {
-    return { targetId: spriteId - 0xDA + 0x04, shellOnly: true }
+  if (spriteId >= 0xda && spriteId <= 0xdd) {
+    return { targetId: spriteId - 0xda + 0x04, shellOnly: true }
   }
   return { targetId: spriteId, shellOnly: false }
 }
@@ -654,22 +715,25 @@ function resolveShellAlias(spriteId: number): { targetId: number; shellOnly: boo
  * the rows AND flips each 8×8; both does both.
  */
 const CORNER_OFFSETS = {
-  none:  [0x00, 0x01, 0x10, 0x11],
+  none: [0x00, 0x01, 0x10, 0x11],
   flipX: [0x01, 0x00, 0x11, 0x10],
   flipY: [0x10, 0x11, 0x00, 0x01],
-  both:  [0x11, 0x10, 0x01, 0x00],
+  both: [0x11, 0x10, 0x01, 0x00],
 } as const
 
 /** Pick the corner order for a flip combination. */
 function cornerOffsetsFor(flipX: boolean, flipY: boolean): readonly number[] {
-  return flipX && flipY ? CORNER_OFFSETS.both
-       : flipX          ? CORNER_OFFSETS.flipX
-       : flipY          ? CORNER_OFFSETS.flipY
-       :                  CORNER_OFFSETS.none
+  return flipX && flipY
+    ? CORNER_OFFSETS.both
+    : flipX
+      ? CORNER_OFFSETS.flipX
+      : flipY
+        ? CORNER_OFFSETS.flipY
+        : CORNER_OFFSETS.none
 }
 
 /** Sprite ID of the Yoshi Egg. */
-export const YOSHI_EGG_ID = 0x2C
+export const YOSHI_EGG_ID = 0x2c
 
 /**
  * Resting layout for the Yoshi Egg ($2C): char $00, an X-position-dependent
@@ -693,26 +757,23 @@ export const YOSHI_EGG_ID = 0x2C
  * @param spritePixelX  Sprite pixel X. Only bits 5-4 reach the YoshiPal index,
  *   so masking to SpriteXPosLow first would not change the result.
  */
-export function buildYoshiEggLayout(
-  tables: SpriteTileTables,
-  spritePixelX: number,
-): SpriteLayout {
-  const attr     = tables.yoshiPal[(spritePixelX >> 4) & 0x03] ?? 0
-  const palette  = 8 + ((attr >> 1) & 0x07)
+export function buildYoshiEggLayout(tables: SpriteTileTables, spritePixelX: number): SpriteLayout {
+  const attr = tables.yoshiPal[(spritePixelX >> 4) & 0x03] ?? 0
+  const palette = 8 + ((attr >> 1) & 0x07)
   const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
   // EOR, not ORA: an attribute that already has bit 6 set comes out unmirrored.
-  const flipX    = ((attr ^ 0x40) & 0x40) !== 0
-  const flipY    = (attr & 0x80) !== 0
+  const flipX = ((attr ^ 0x40) & 0x40) !== 0
+  const flipY = (attr & 0x80) !== 0
 
-  const YOSHI_EGG_CHAR = 0x00   // CODE_01F78D: LDA #$00 / STA OAMTileNo+$100,Y
-  const OBJ_CHAR_BASE  = 0x400
+  const YOSHI_EGG_CHAR = 0x00 // CODE_01F78D: LDA #$00 / STA OAMTileNo+$100,Y
+  const OBJ_CHAR_BASE = 0x400
   const offsets = cornerOffsetsFor(flipX, flipY)
 
   return {
     spriteId: YOSHI_EGG_ID,
     height: 16,
     tiles: [0, 1, 2, 3].map(corner => ({
-      charNum: OBJ_CHAR_BASE + charHigh + ((YOSHI_EGG_CHAR + offsets[corner]) & 0x1FF),
+      charNum: OBJ_CHAR_BASE + charHigh + ((YOSHI_EGG_CHAR + offsets[corner]) & 0x1ff),
       palette,
       flipX,
       flipY,
@@ -722,10 +783,7 @@ export function buildYoshiEggLayout(
   }
 }
 
-export function buildSpriteLayout(
-  tables: SpriteTileTables,
-  spriteId: number,
-): SpriteLayout | null {
+export function buildSpriteLayout(tables: SpriteTileTables, spriteId: number): SpriteLayout | null {
   const alias = resolveShellAlias(spriteId)
   if (alias.shellOnly) {
     const tilemapBase = tables.tilemapOffset[alias.targetId] ?? 0
@@ -736,7 +794,7 @@ export function buildSpriteLayout(
     const OBJ_CHAR_BASE = 0x400
     const cornerOffset = [0x00, 0x01, 0x10, 0x11]
     const shellTiles: SpriteSubtile[] = [0, 1, 2, 3].map(corner => ({
-      charNum: OBJ_CHAR_BASE + charHigh + ((shellBaseTile + cornerOffset[corner]) & 0x1FF),
+      charNum: OBJ_CHAR_BASE + charHigh + ((shellBaseTile + cornerOffset[corner]) & 0x1ff),
       palette,
       flipX: false,
       flipY: false,
@@ -752,14 +810,20 @@ export function buildSpriteLayout(
   // generic SprTilemap path.
   const wideSpec = SPRITE_WIDE_OVERRIDES[spriteId]
   if (wideSpec) {
-    const wAttr = wideSpec.attr ?? (tables.spriteAttr[spriteId] ?? 0)
+    const wAttr = wideSpec.attr ?? tables.spriteAttr[spriteId] ?? 0
     const wPalette = 8 + ((wAttr >> 1) & 0x07)
     const wCharHigh = (wAttr & 0x01) !== 0 ? 0x100 : 0
     const W_OBJ_BASE = 0x400
-    const wideCorners = (baseTile: number, baseDx: number, baseDy: number, flipX = false, flipY = false): SpriteSubtile[] => {
+    const wideCorners = (
+      baseTile: number,
+      baseDx: number,
+      baseDy: number,
+      flipX = false,
+      flipY = false,
+    ): SpriteSubtile[] => {
       const offsets = cornerOffsetsFor(flipX, flipY)
       return [0, 1, 2, 3].map(corner => ({
-        charNum: W_OBJ_BASE + wCharHigh + ((baseTile + offsets[corner]) & 0x1FF),
+        charNum: W_OBJ_BASE + wCharHigh + ((baseTile + offsets[corner]) & 0x1ff),
         palette: wPalette,
         flipX,
         flipY,
@@ -768,7 +832,7 @@ export function buildSpriteLayout(
       }))
     }
     const extraParts: SpriteSubtile[] = (wideSpec.parts ?? []).map(p => ({
-      charNum: W_OBJ_BASE + wCharHigh + (p.tile & 0x1FF),
+      charNum: W_OBJ_BASE + wCharHigh + (p.tile & 0x1ff),
       palette: p.palette ?? wPalette,
       flipX: p.flipX ?? false,
       flipY: false,
@@ -779,7 +843,12 @@ export function buildSpriteLayout(
       spriteId,
       height: 32,
       width: 32,
-      tiles: [...wideSpec.quadrants.flatMap(q => wideCorners(q.baseTile, q.baseDx, q.baseDy, q.flipX, q.flipY)), ...extraParts],
+      tiles: [
+        ...wideSpec.quadrants.flatMap(q =>
+          wideCorners(q.baseTile, q.baseDx, q.baseDy, q.flipX, q.flipY),
+        ),
+        ...extraParts,
+      ],
     }
   }
 
@@ -795,7 +864,7 @@ export function buildSpriteLayout(
 
     const bigTileCorners = (baseTile: number, baseDy: number): SpriteSubtile[] =>
       [0, 1, 2, 3].map(corner => ({
-        charNum: OBJ_CHAR_BASE + charHigh + ((baseTile + cornerOffset[corner]) & 0x1FF),
+        charNum: OBJ_CHAR_BASE + charHigh + ((baseTile + cornerOffset[corner]) & 0x1ff),
         palette,
         flipX: false,
         flipY: false,
@@ -835,11 +904,11 @@ export function buildSpriteLayout(
   //   TL = N        TR = N+1
   //   BL = N+$10    BR = N+$11
   // (Rows of 16 chars per OBJ VRAM row.)
-  const cornerOffset = [0x00, 0x01, 0x10, 0x11]  // TL, TR, BL, BR
+  const cornerOffset = [0x00, 0x01, 0x10, 0x11] // TL, TR, BL, BR
 
   const bigTileCorners = (baseTile: number, baseDy: number): SpriteSubtile[] => {
     return [0, 1, 2, 3].map(corner => ({
-      charNum: OBJ_CHAR_BASE + charHigh + ((baseTile + cornerOffset[corner]) & 0x1FF),
+      charNum: OBJ_CHAR_BASE + charHigh + ((baseTile + cornerOffset[corner]) & 0x1ff),
       palette,
       flipX: false,
       flipY: false,
@@ -850,7 +919,7 @@ export function buildSpriteLayout(
 
   // Para-Goomba ($3F) and Para-Bomb ($40): ParachuteSprites (bank_01.asm:11558).
   // Two draw units in sequence:
-  //   1. 16×16 parachute via SubSprGfx2Entry1 — drawn at ORIGINAL_X, ORIGINAL_Y−16.
+  //   1. 16×16 parachute via SubSprGfx2Entry1 - drawn at ORIGINAL_X, ORIGINAL_Y−16.
   //      SpriteX is NOT modified before SubSprGfx2Entry1 (line 11663); X modification
   //      happens AFTER (lines 11671–11679) for the body draw. So parachute dx = 0.
   //      SubSprGfx2Entry1 adds SpriteMisc1602 DIRECTLY to tilemapOffset (no ×4).
@@ -862,26 +931,54 @@ export function buildSpriteLayout(
   //      DATA_01D57E[0]=$F8=−8 → body dx = −8.
   //      DATA_01D59E[0]=$0E=14 → body_Y = (ORIGINAL_Y−16)+14 = ORIGINAL_Y−2 → dy = −2.
   //      DATA_01D5B0[0]=$01 → GeneralSprGfxProp[$04..$07]={$00,$40,$00,$40} → flipX right column.
-  if (spriteId === 0x3F || spriteId === 0x40) {
-    const PARACHUTE_FRAME = 0x0D     // DATA_01D55E[0]
+  if (spriteId === 0x3f || spriteId === 0x40) {
+    const PARACHUTE_FRAME = 0x0d // DATA_01D55E[0]
     const pc = tables.tilemap[tilemapBase + PARACHUTE_FRAME] ?? 0
-    const ppRow = 11                 // (attr & $F1)|$06 → ppp=011 → OBJ pal 3 → CGRAM row 11
+    const ppRow = 11 // (attr & $F1)|$06 → ppp=011 → OBJ pal 3 → CGRAM row 11
     // Parachute: drawn at (ORIGINAL_X, ORIGINAL_Y−16). X is unmodified at draw time.
     const parachuteTiles: SpriteSubtile[] = [
-      { charNum: OBJ_CHAR_BASE + charHigh + ((pc + 0x01) & 0x1FF), palette: ppRow, flipX: true,  flipY: false, dx: 0, dy: -16 },  // TL ← orig TR
-      { charNum: OBJ_CHAR_BASE + charHigh + ((pc + 0x00) & 0x1FF), palette: ppRow, flipX: true,  flipY: false, dx: 8, dy: -16 },  // TR ← orig TL
-      { charNum: OBJ_CHAR_BASE + charHigh + ((pc + 0x11) & 0x1FF), palette: ppRow, flipX: true,  flipY: false, dx: 0, dy:  -8 },  // BL ← orig BR
-      { charNum: OBJ_CHAR_BASE + charHigh + ((pc + 0x10) & 0x1FF), palette: ppRow, flipX: true,  flipY: false, dx: 8, dy:  -8 },  // BR ← orig BL
+      {
+        charNum: OBJ_CHAR_BASE + charHigh + ((pc + 0x01) & 0x1ff),
+        palette: ppRow,
+        flipX: true,
+        flipY: false,
+        dx: 0,
+        dy: -16,
+      }, // TL ← orig TR
+      {
+        charNum: OBJ_CHAR_BASE + charHigh + ((pc + 0x00) & 0x1ff),
+        palette: ppRow,
+        flipX: true,
+        flipY: false,
+        dx: 8,
+        dy: -16,
+      }, // TR ← orig TL
+      {
+        charNum: OBJ_CHAR_BASE + charHigh + ((pc + 0x11) & 0x1ff),
+        palette: ppRow,
+        flipX: true,
+        flipY: false,
+        dx: 0,
+        dy: -8,
+      }, // BL ← orig BR
+      {
+        charNum: OBJ_CHAR_BASE + charHigh + ((pc + 0x10) & 0x1ff),
+        palette: ppRow,
+        flipX: true,
+        flipY: false,
+        dx: 8,
+        dy: -8,
+      }, // BR ← orig BL
     ]
     // Body: drawn at (ORIGINAL_X−8, ORIGINAL_Y−2). DATA_01D57E[0]=$F8=−8, DATA_01D59E[0]=$0E=14.
-    const bodyFlipX = [false, true, false, true]  // GeneralSprGfxProp[$04..$07] bit 6
+    const bodyFlipX = [false, true, false, true] // GeneralSprGfxProp[$04..$07] bit 6
     const bodyTiles: SpriteSubtile[] = [0, 1, 2, 3].map(corner => ({
-      charNum: OBJ_CHAR_BASE + charHigh + ((tables.tilemap[tilemapBase + corner] ?? 0) & 0x1FF),
+      charNum: OBJ_CHAR_BASE + charHigh + ((tables.tilemap[tilemapBase + corner] ?? 0) & 0x1ff),
       palette,
       flipX: bodyFlipX[corner],
       flipY: false,
-      dx: (tables.dispX[corner] ?? 0) - 8,   // SpriteX shifted −8 before body draw
-      dy: (tables.dispY[corner] ?? 0) - 2,   // SpriteY = (ORIGINAL_Y−16)+14 = ORIGINAL_Y−2
+      dx: (tables.dispX[corner] ?? 0) - 8, // SpriteX shifted −8 before body draw
+      dy: (tables.dispY[corner] ?? 0) - 2, // SpriteY = (ORIGINAL_Y−16)+14 = ORIGINAL_Y−2
     }))
     return { spriteId, height: 32, tiles: [...parachuteTiles, ...bodyTiles] }
   }
@@ -901,15 +998,12 @@ export function buildSpriteLayout(
     // appearance. The remaining sub1 IDs ($1A, $1E, $22-$25, $2A, $41-$43)
     // have not been traced to their callers and may share that 16px offset
     // error. Tracked in docs/sprite-1f-magikoopa.md section 2.
-    const topTile    = tables.tilemap[tilemapBase]     ?? 0
+    const topTile = tables.tilemap[tilemapBase] ?? 0
     const bottomTile = tables.tilemap[tilemapBase + 1] ?? 0
     return {
       spriteId,
       height: 32,
-      tiles: [
-        ...bigTileCorners(topTile, -16),
-        ...bigTileCorners(bottomTile, 0),
-      ],
+      tiles: [...bigTileCorners(topTile, -16), ...bigTileCorners(bottomTile, 0)],
     }
   }
 
@@ -917,7 +1011,7 @@ export function buildSpriteLayout(
     // SubSprGfx0 (bank_01.asm:3853) reads four INDEPENDENT 8x8 char bytes
     // from SprTilemap[offset + 0..3] and lays them out as TL, TR, BL, BR
     // per GeneralSprDispX/Y. Unlike SubSprGfx2 there's no large-size
-    // expansion — each corner picks its own char. Flip flags come from
+    // expansion - each corner picks its own char. Flip flags come from
     // GeneralSprGfxProp[propGroup*4 + corner] (bit6=flipX, bit7=flipY).
     //
     // NOT modelled here: the routine's first selector. bank_01.asm:3865-3869
@@ -928,8 +1022,8 @@ export function buildSpriteLayout(
     // drawing state sets a non-zero SpriteMisc1602 ($4D ground Monty Mole)
     // or that animate across quads ($14 Spiny egg, via SetAnimationFrame)
     // need a dedicated multi-frame SpriteAppearance, not an entry here.
-    const propGroup = decidedPropGroup(tables.gfxRoutines?.get(spriteId))
-      ?? SUB0_GFX_PROP_GROUP[spriteId] ?? 0
+    const propGroup =
+      decidedPropGroup(tables.gfxRoutines?.get(spriteId)) ?? SUB0_GFX_PROP_GROUP[spriteId] ?? 0
     return {
       spriteId,
       height: 16,
@@ -937,7 +1031,7 @@ export function buildSpriteLayout(
         const tileByte = tables.tilemap[tilemapBase + corner] ?? 0
         const gfxFlags = tables.gfxProp[propGroup * 4 + corner] ?? 0
         return {
-          charNum: OBJ_CHAR_BASE + charHigh + (tileByte & 0x1FF),
+          charNum: OBJ_CHAR_BASE + charHigh + (tileByte & 0x1ff),
           palette,
           flipX: (gfxFlags & 0x40) !== 0,
           flipY: (gfxFlags & 0x80) !== 0,

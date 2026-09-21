@@ -29,7 +29,7 @@ export class RomFile {
    * callers (PaletteLoader, SmwRom, etc.) that want Buffer-only methods
    * like `readUInt16LE` and `toString('ascii')`. At runtime the value
    * may actually be a plain `Uint8Array` when constructed by the
-   * webview from `postMessage`-delivered ROM bytes — that's safe
+   * webview from `postMessage`-delivered ROM bytes - that's safe
    * because the webview side only calls `readByte` / `readWord` (both
    * refactored to byte-indexed access that works on either type).
    */
@@ -61,23 +61,23 @@ export class RomFile {
     const hdrBase = this.hasHeader ? COPIER_HEADER_SIZE : 0
 
     // LoROM internal header: map mode byte at file offset $7FD5
-    const loromMapByte = this.buffer[hdrBase + 0x7FD5]
+    const loromMapByte = this.buffer[hdrBase + 0x7fd5]
     // HiROM internal header: map mode byte at file offset $FFD5
-    const hiromMapByte = this.buffer[hdrBase + 0xFFD5]
+    const hiromMapByte = this.buffer[hdrBase + 0xffd5]
 
     const isLoRom = loromMapByte === 0x20 || loromMapByte === 0x30
     const isHiRom = hiromMapByte === 0x21 || hiromMapByte === 0x31
 
     if (isLoRom && !isHiRom) return 'lorom'
     if (isHiRom && !isLoRom) return 'hirom'
-    if (isLoRom) return 'lorom'  // prefer LoROM if both match
-    return 'unknown'             // default to LoROM behavior via readAt()
+    if (isLoRom) return 'lorom' // prefer LoROM if both match
+    return 'unknown' // default to LoROM behavior via readAt()
   }
 
   /**
    * Read bytes directly by ROM file offset, bypassing SNES address mapping.
    * Useful for contiguous data blocks (e.g. GFX files) that span LoROM bank
-   * boundaries — linear addition of SNES addresses breaks at 32 KB boundaries.
+   * boundaries - linear addition of SNES addresses breaks at 32 KB boundaries.
    *
    * @param fileOffset  Byte offset from the start of ROM data (after any copier header).
    */
@@ -88,9 +88,10 @@ export class RomFile {
   }
 
   readAt(snesAddr: number, length: number): Buffer | null {
-    const offset = this.mapMode === 'hirom'
-      ? hiromToOffset(snesAddr, this.hasHeader)
-      : loromToOffset(snesAddr, this.romSize, this.hasHeader)
+    const offset =
+      this.mapMode === 'hirom'
+        ? hiromToOffset(snesAddr, this.hasHeader)
+        : loromToOffset(snesAddr, this.romSize, this.hasHeader)
     if (offset === null || offset + length > this.buffer.length) return null
     return this._copy(offset, length)
   }
@@ -118,7 +119,7 @@ export class RomFile {
   readWord(snesAddr: number): number | null {
     // Manual two-byte composition rather than `Buffer.readUInt16LE` so
     // RomFile can be backed by either a Node `Buffer` or a plain
-    // `Uint8Array` — the webview gets the ROM bytes as a Uint8Array
+    // `Uint8Array` - the webview gets the ROM bytes as a Uint8Array
     // across the postMessage boundary and constructs a RomFile from it.
     const buf = this.readAt(snesAddr, 2)
     if (!buf) return null
@@ -138,7 +139,9 @@ export class RomFile {
    *  notice that the bytes underneath it changed, which tests that plant
    *  bytes rely on. Not persisted and not part of the ROM. */
   private _version = 0
-  get version(): number { return this._version }
+  get version(): number {
+    return this._version
+  }
 
   /**
    * File offset a SNES address maps to, or null if it is not in ROM.
@@ -159,15 +162,21 @@ export class RomFile {
     // Host-only: file-backed write needs Node's Buffer.copy. Webview
     // RomFiles never write back to ROM (the writeback path is the
     // extension host's responsibility).
-    const offset = this.mapMode === 'hirom'
-      ? hiromToOffset(snesAddr, this.hasHeader)
-      : loromToOffset(snesAddr, this.romSize, this.hasHeader)
-    if (offset === null) throw new Error(`Address ${snesAddr.toString(16)} is not writable (not ROM)`)
+    const offset =
+      this.mapMode === 'hirom'
+        ? hiromToOffset(snesAddr, this.hasHeader)
+        : loromToOffset(snesAddr, this.romSize, this.hasHeader)
+    if (offset === null)
+      throw new Error(`Address ${snesAddr.toString(16)} is not writable (not ROM)`)
     const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data)
     bytes.copy(this.buffer, offset)
     this._version++
   }
 
-  save(): void { fs.writeFileSync(this.filePath, this.buffer) }
-  saveAs(destPath: string): void { fs.writeFileSync(destPath, this.buffer) }
+  save(): void {
+    fs.writeFileSync(this.filePath, this.buffer)
+  }
+  saveAs(destPath: string): void {
+    fs.writeFileSync(destPath, this.buffer)
+  }
 }

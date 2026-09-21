@@ -3,7 +3,7 @@
  *
  * Opens a tile sheet viewer for a single GFX file (GFX00–GFX31 hex = indices 0–49).
  * Each file is LC_LZ2-compressed in ROM; standard files decompress to 96 4bpp tiles.
- * GFX20 hex (index 32) is the Mario sprites file — 3bpp, 128 tiles.
+ * GFX20 hex (index 32) is the Mario sprites file - 3bpp, 128 tiles.
  *
  * Message protocol:
  *   Extension → Webview:
@@ -15,9 +15,26 @@
 
 import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
-import { GFX_FILE_COUNT, GFX_MARIO_3BPP_INDEX, loadGfxFile, loadGfxRaw, getLayer3GfxRange } from '../rom/GfxLoader'
-import { loadRomPalettes, buildLevelCgram, loadCustomLevelPalette, RgbaRow } from '../rom/PaletteLoader'
-import { getNonce, getWebviewUri, readDescriptor, postWebviewError, buildWebviewHtml } from './webviewUtils'
+import {
+  GFX_FILE_COUNT,
+  GFX_MARIO_3BPP_INDEX,
+  loadGfxFile,
+  loadGfxRaw,
+  getLayer3GfxRange,
+} from '../rom/GfxLoader'
+import {
+  loadRomPalettes,
+  buildLevelCgram,
+  loadCustomLevelPalette,
+  RgbaRow,
+} from '../rom/PaletteLoader'
+import {
+  getNonce,
+  getWebviewUri,
+  readDescriptor,
+  postWebviewError,
+  buildWebviewHtml,
+} from './webviewUtils'
 import { hex2 } from '../rom/hex'
 
 /**
@@ -71,13 +88,11 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
   ): Promise<void> {
     panel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [
-        vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview')
-      ]
+      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview')],
     }
     panel.webview.html = this._buildHtml(panel.webview)
 
-    panel.webview.onDidReceiveMessage(async (msg) => {
+    panel.webview.onDidReceiveMessage(async msg => {
       if (msg.type === 'ready') {
         await this._sendGfxData(document.uri, panel.webview)
       }
@@ -96,17 +111,17 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
       }
 
       // Decompress and decode the GFX file via pointer tables + LC_LZ2
-      const rawBytes  = loadGfxRaw(rom.rom, gfxIndex)
-      const sheet     = loadGfxFile(rom.rom, gfxIndex)
+      const rawBytes = loadGfxRaw(rom.rom, gfxIndex)
+      const sheet = loadGfxFile(rom.rom, gfxIndex)
       const tilePixels = sheet.map(tile => Array.from(tile))
 
       // Build 16 CGRAM rows from ROM palettes (FG variant 0 baseline).
       // Also build rows 2–3 for each available FG variant so the webview can
       // let the user switch between level types (plains, underground, castle…).
       // Variants 1–5 are loaded from the intermediate region ($B1C0+); their
-      // addresses are unverified — use fg_palette_source.lua to confirm.
+      // addresses are unverified - use fg_palette_source.lua to confirm.
       const PREVIEW_LEVEL = 0x025
-      const romPalettes   = loadRomPalettes(rom.rom)
+      const romPalettes = loadRomPalettes(rom.rom)
       const customPalette = loadCustomLevelPalette(rom.rom, PREVIEW_LEVEL)
 
       // Base CGRAM (variant 0 for all groups)
@@ -130,13 +145,13 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
       webview.postMessage({
         type: 'load',
         gfxIndex,
-        gfxHex:           hex2(gfxIndex),
+        gfxHex: hex2(gfxIndex),
         tilePixels,
-        tileCount:        tilePixels.length,
+        tileCount: tilePixels.length,
         paletteRows,
-        fgVariants,           // [[row2, row3], …] per FG variant 0–N
+        fgVariants, // [[row2, row3], …] per FG variant 0–N
         suggestedPaletteRow: _suggestPaletteRow(gfxIndex),
-        // Raw decompressed bytes — sent so the webview can re-decode client-side
+        // Raw decompressed bytes - sent so the webview can re-decode client-side
         // when the user toggles the 3bpp / 4bpp selector.
         rawBytes: Array.from(rawBytes),
         // Determine BPP: Layer 3 files (from CODE_00A993) are always 2BPP,

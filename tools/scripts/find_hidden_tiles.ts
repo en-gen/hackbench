@@ -15,20 +15,20 @@ import { parseLevelObjects } from '../../src/rom/LevelParser'
 import { expandMap } from '../../src/rom/ObjectExpander'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
-const TARGETS = [0x27, 0x28, 0x29, 0x2A, 0x2F]
+const TARGETS = [0x27, 0x28, 0x29, 0x2a, 0x2f]
 const LABEL: Record<number, string> = {
   0x27: 'door-top',
   0x28: 'door-bot',
   0x29: 'inv-?blk',
-  0x2A: 'psw-coin',
-  0x2F: 'inv-coin',
+  0x2a: 'psw-coin',
+  0x2f: 'inv-coin',
 }
 
 const rom = SmwRom.open(ROM_PATH)
 
 type Hit = { count: number; cells: string[] }
 const byMap = new Map<number, Map<number, Hit>>()
-const byTile = new Map<number, number[]>()  // tileId -> list of map nums
+const byTile = new Map<number, number[]>() // tileId -> list of map nums
 
 for (let lv = 0; lv < 0x200; lv++) {
   const raw = rom.getLevelRawData(lv)
@@ -36,7 +36,14 @@ for (let lv = 0; lv < 0x200; lv++) {
   let grid
   try {
     const { header, objects } = parseLevelObjects(raw)
-    grid = expandMap(objects, header.levelLength, rom.rom, header.objectTileset & 0x0F, false, header.levelMode)
+    grid = expandMap(
+      objects,
+      header.levelLength,
+      rom.rom,
+      header.objectTileset & 0x0f,
+      false,
+      header.levelMode,
+    )
   } catch {
     continue
   }
@@ -66,7 +73,8 @@ for (const [lv, hits] of [...byMap.entries()].sort((a, b) => a[0] - b[0])) {
   const parts: string[] = []
   for (const t of TARGETS) {
     const h = hits.get(t)
-    if (h) parts.push(`$${t.toString(16).toUpperCase()}(${LABEL[t]})×${h.count} ${h.cells.join(',')}`)
+    if (h)
+      parts.push(`$${t.toString(16).toUpperCase()}(${LABEL[t]})×${h.count} ${h.cells.join(',')}`)
   }
   console.log(`  map $${lv.toString(16).toUpperCase().padStart(3, '0')}: ${parts.join('  ')}`)
 }
@@ -75,5 +83,7 @@ console.log(`\nSummary by tile:`)
 for (const t of TARGETS) {
   const maps = byTile.get(t) ?? []
   const list = maps.map(m => `$${m.toString(16).toUpperCase().padStart(3, '0')}`).join(', ')
-  console.log(`  $${t.toString(16).toUpperCase()} ${LABEL[t].padEnd(9)} ${maps.length.toString().padStart(3)} map(s): ${list || '(none)'}`)
+  console.log(
+    `  $${t.toString(16).toUpperCase()} ${LABEL[t].padEnd(9)} ${maps.length.toString().padStart(3)} map(s): ${list || '(none)'}`,
+  )
 }

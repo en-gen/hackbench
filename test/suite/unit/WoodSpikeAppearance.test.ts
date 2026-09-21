@@ -1,5 +1,5 @@
 /**
- * WoodSpikeAppearance — locks the 5-tile vertical layout for sprites $AC/$AD.
+ * WoodSpikeAppearance - locks the 5-tile vertical layout for sprites $AC/$AD.
  *
  * WoodSpikeGfx (bank_03.asm:2669) draws 5 stacked 16×16 tiles per sprite,
  * indexed by SpriteNumber (slot 0-9).
@@ -53,7 +53,7 @@ const placeholder = syntheticChar(-1)
 
 function buildChars(): Map<number, Char> {
   const map = new Map<number, Char>()
-  for (let id = 0; id < 0xC00; id++) map.set(id, syntheticChar(id))
+  for (let id = 0; id < 0xc00; id++) map.set(id, syntheticChar(id))
   return map
 }
 
@@ -65,8 +65,8 @@ function tileParts(parts: WoodSpikeAppearance['parts'], tileIdx: number) {
   return parts.slice(tileIdx * 4, tileIdx * 4 + 4)
 }
 
-describe('WoodSpikeAppearance — $AC (hanging spike, V-flip)', () => {
-  const a = WoodSpikeAppearance.fromTables(buildChars(), 0xAC, placeholder)
+describe('WoodSpikeAppearance - $AC (hanging spike, V-flip)', () => {
+  const a = WoodSpikeAppearance.fromTables(buildChars(), 0xac, placeholder)
 
   it('produces 20 parts', () => {
     expect(a.parts).toHaveLength(20)
@@ -86,45 +86,48 @@ describe('WoodSpikeAppearance — $AC (hanging spike, V-flip)', () => {
     [1, -48, WOOD_SPIKE_BODY_TILE],
     [2, -32, WOOD_SPIKE_BODY_TILE],
     [3, -16, WOOD_SPIKE_BODY_TILE],
-    [4,   0, WOOD_SPIKE_TIP_TILE ],
-  ] as const)('tile %i at tileY=%i uses correct chars (V-flip layout)', (tileIdx, tileY, tileBase) => {
-    const t = tileParts(a.parts, tileIdx)
-    expect(t[0]).toMatchObject({ char: { id: charId(tileBase, 0x10) }, dx: 0, dy: tileY     })
-    expect(t[1]).toMatchObject({ char: { id: charId(tileBase, 0x11) }, dx: 8, dy: tileY     })
-    expect(t[2]).toMatchObject({ char: { id: charId(tileBase, 0x00) }, dx: 0, dy: tileY + 8 })
-    expect(t[3]).toMatchObject({ char: { id: charId(tileBase, 0x01) }, dx: 8, dy: tileY + 8 })
-  })
+    [4, 0, WOOD_SPIKE_TIP_TILE],
+  ] as const)(
+    'tile %i at tileY=%i uses correct chars (V-flip layout)',
+    (tileIdx, tileY, tileBase) => {
+      const t = tileParts(a.parts, tileIdx)
+      expect(t[0]).toMatchObject({ char: { id: charId(tileBase, 0x10) }, dx: 0, dy: tileY })
+      expect(t[1]).toMatchObject({ char: { id: charId(tileBase, 0x11) }, dx: 8, dy: tileY })
+      expect(t[2]).toMatchObject({ char: { id: charId(tileBase, 0x00) }, dx: 0, dy: tileY + 8 })
+      expect(t[3]).toMatchObject({ char: { id: charId(tileBase, 0x01) }, dx: 8, dy: tileY + 8 })
+    },
+  )
 })
 
-describe('WoodSpikeAppearance — extendDir', () => {
+describe('WoodSpikeAppearance - extendDir', () => {
   it('$AC: extendDir = +1 (extends down from ceiling)', () => {
-    expect(WoodSpikeAppearance.fromTables(buildChars(), 0xAC, placeholder).extendDir).toBe(1)
+    expect(WoodSpikeAppearance.fromTables(buildChars(), 0xac, placeholder).extendDir).toBe(1)
   })
 
   it('$AD odd col (spriteMisc151C≠0): extendDir = -1 (extends up from floor)', () => {
-    expect(WoodSpikeAppearance.fromTables(buildChars(), 0xAD, placeholder, 0x10).extendDir).toBe(-1)
+    expect(WoodSpikeAppearance.fromTables(buildChars(), 0xad, placeholder, 0x10).extendDir).toBe(-1)
   })
 
   it('$AD even col (spriteMisc151C=0): extendDir = +1 (retracts underground first)', () => {
-    expect(WoodSpikeAppearance.fromTables(buildChars(), 0xAD, placeholder, 0).extendDir).toBe(1)
+    expect(WoodSpikeAppearance.fromTables(buildChars(), 0xad, placeholder, 0).extendDir).toBe(1)
   })
 })
 
-describe('WoodSpikeAppearance — animation cycle', () => {
+describe('WoodSpikeAppearance - animation cycle', () => {
   it('$AC starts at cycleTick=0, dyMove=0 (retracted)', () => {
-    const a = WoodSpikeAppearance.fromTables(buildChars(), 0xAC, placeholder)
+    const a = WoodSpikeAppearance.fromTables(buildChars(), 0xac, placeholder)
     expect(a.cycleTick).toBe(0)
     expect(a.dyMove).toBe(0)
   })
 
   it('$AD spriteMisc151C=0 starts at tick 0, dyMove=0 (retracted, even column)', () => {
-    const a = WoodSpikeAppearance.fromTables(buildChars(), 0xAD, placeholder, 0)
+    const a = WoodSpikeAppearance.fromTables(buildChars(), 0xad, placeholder, 0)
     expect(a.cycleTick).toBe(0)
     expect(a.dyMove).toBe(0)
   })
 
   it('$AD spriteMisc151C≠0 starts at tick 0, dyMove=0 (retracted, odd column)', () => {
-    const a = WoodSpikeAppearance.fromTables(buildChars(), 0xAD, placeholder, 0x10)
+    const a = WoodSpikeAppearance.fromTables(buildChars(), 0xad, placeholder, 0x10)
     expect(a.cycleTick).toBe(0)
     expect(a.dyMove).toBe(0)
   })
@@ -132,33 +135,33 @@ describe('WoodSpikeAppearance — animation cycle', () => {
   // 21-tick cycle: 6 hold-retracted → 3 extend → 6 hold-extended → 6 retract.
   // EXTEND_RANGE = 48 px, extend step = 16 px/tick, retract step = 8 px/tick.
   it.each([
-    [6,  16],
-    [7,  32],
-    [8,  48],
-    [9,  48],
+    [6, 16],
+    [7, 32],
+    [8, 48],
+    [9, 48],
     [14, 48],
     [15, 40],
     [16, 32],
     [17, 24],
     [18, 16],
-    [19,  8],
-    [20,  0],
+    [19, 8],
+    [20, 0],
   ] as const)('after %i ticks dyMove = %i', (ticks, expected) => {
-    const a = WoodSpikeAppearance.fromTables(buildChars(), 0xAC, placeholder)
+    const a = WoodSpikeAppearance.fromTables(buildChars(), 0xac, placeholder)
     for (let i = 0; i < ticks; i++) a.tickAnimation()
     expect(a.dyMove).toBe(expected)
   })
 
   it('cycle wraps at 21 ticks back to cycleTick=0, dyMove=0', () => {
-    const a = WoodSpikeAppearance.fromTables(buildChars(), 0xAC, placeholder)
+    const a = WoodSpikeAppearance.fromTables(buildChars(), 0xac, placeholder)
     for (let i = 0; i < 21; i++) a.tickAnimation()
     expect(a.cycleTick).toBe(0)
     expect(a.dyMove).toBe(0)
   })
 })
 
-describe('WoodSpikeAppearance — $AD (ground spike, no flip)', () => {
-  const a = WoodSpikeAppearance.fromTables(buildChars(), 0xAD, placeholder)
+describe('WoodSpikeAppearance - $AD (ground spike, no flip)', () => {
+  const a = WoodSpikeAppearance.fromTables(buildChars(), 0xad, placeholder)
 
   it('produces 20 parts', () => {
     expect(a.parts).toHaveLength(20)
@@ -174,16 +177,19 @@ describe('WoodSpikeAppearance — $AD (ground spike, no flip)', () => {
 
   // Normal layout: TL at (dx,dy), TR at (dx+8,dy), BL at (dx,dy+8), BR at (dx+8,dy+8)
   it.each([
-    [0,  0, WOOD_SPIKE_TIP_TILE ],
+    [0, 0, WOOD_SPIKE_TIP_TILE],
     [1, 16, WOOD_SPIKE_BODY_TILE],
     [2, 32, WOOD_SPIKE_BODY_TILE],
     [3, 48, WOOD_SPIKE_BODY_TILE],
     [4, 64, WOOD_SPIKE_BODY_TILE],
-  ] as const)('tile %i at tileY=%i uses correct chars (normal layout)', (tileIdx, tileY, tileBase) => {
-    const t = tileParts(a.parts, tileIdx)
-    expect(t[0]).toMatchObject({ char: { id: charId(tileBase, 0x00) }, dx: 0, dy: tileY     })
-    expect(t[1]).toMatchObject({ char: { id: charId(tileBase, 0x01) }, dx: 8, dy: tileY     })
-    expect(t[2]).toMatchObject({ char: { id: charId(tileBase, 0x10) }, dx: 0, dy: tileY + 8 })
-    expect(t[3]).toMatchObject({ char: { id: charId(tileBase, 0x11) }, dx: 8, dy: tileY + 8 })
-  })
+  ] as const)(
+    'tile %i at tileY=%i uses correct chars (normal layout)',
+    (tileIdx, tileY, tileBase) => {
+      const t = tileParts(a.parts, tileIdx)
+      expect(t[0]).toMatchObject({ char: { id: charId(tileBase, 0x00) }, dx: 0, dy: tileY })
+      expect(t[1]).toMatchObject({ char: { id: charId(tileBase, 0x01) }, dx: 8, dy: tileY })
+      expect(t[2]).toMatchObject({ char: { id: charId(tileBase, 0x10) }, dx: 0, dy: tileY + 8 })
+      expect(t[3]).toMatchObject({ char: { id: charId(tileBase, 0x11) }, dx: 8, dy: tileY + 8 })
+    },
+  )
 })

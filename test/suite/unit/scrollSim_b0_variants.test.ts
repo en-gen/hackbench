@@ -1,19 +1,19 @@
 /**
- * scrollSim_b0_variants.test.ts — extend cmd $03 / $08 validation
+ * scrollSim_b0_variants.test.ts - extend cmd $03 / $08 validation
  * across the b0 setup variants beyond the primary $0D4 / $0E7
  * captures.
  *
  * Cmd $03 (sprite $EA) appears in 5 vanilla levels with 4 distinct
  * b0 values:
- *   $0D4 b0=$00 — primary capture (covered by scrollSim_0d4)
- *   $1E3 b0=$04 — covered here
- *   $115 b0=$08 — Valley of Bowser 2; covered here
- *   $1D1 b0=$10 — covered here
- *   $1F3 b0=$0C — orphaned, no capture
+ *   $0D4 b0=$00 - primary capture (covered by scrollSim_0d4)
+ *   $1E3 b0=$04 - covered here
+ *   $115 b0=$08 - Valley of Bowser 2; covered here
+ *   $1D1 b0=$10 - covered here
+ *   $1F3 b0=$0C - orphaned, no capture
  *
  * Cmd $08 (sprite $EF) appears in 2 vanilla levels:
- *   $0E7 b0=$00 — primary capture (covered by scrollSim_0e7)
- *   $1CE b0=$04 — covered here
+ *   $0E7 b0=$00 - primary capture (covered by scrollSim_0e7)
+ *   $1CE b0=$04 - covered here
  *
  * Each capture exercises the per-cmd setup body across different b0
  * (= initial ScrollBits) values, which select different rows in the
@@ -56,18 +56,33 @@ const VARIANTS: readonly VariantSpec[] = [
 ]
 
 const ALL_FIELDS: readonly FieldKey[] = [
-  'l1x', 'l1y', 'l2x', 'l2y',
-  'l1type', 'l2type', 'l1timer', 'l2timer',
-  'l1xspd', 'l1yspd', 'l2xspd', 'l2yspd',
-  'l1xupd', 'l1yupd', 'l2xupd', 'l2yupd',
-  'nl1x', 'nl1y', 'nl2x', 'nl2y',
+  'l1x',
+  'l1y',
+  'l2x',
+  'l2y',
+  'l1type',
+  'l2type',
+  'l1timer',
+  'l2timer',
+  'l1xspd',
+  'l1yspd',
+  'l2xspd',
+  'l2yspd',
+  'l1xupd',
+  'l1yupd',
+  'l2xupd',
+  'l2yupd',
+  'nl1x',
+  'nl1y',
+  'nl2x',
+  'nl2y',
 ]
 
 function activeFields(exclude: readonly FieldKey[]): readonly FieldKey[] {
   return ALL_FIELDS.filter(f => !exclude.includes(f))
 }
 
-describe.skipIf(!vanillaRomPresent)('scrollSim — b0-variant captures (cmd $03 / cmd $08)', () => {
+describe.skipIf(!vanillaRomPresent)('scrollSim - b0-variant captures (cmd $03 / cmd $08)', () => {
   for (const v of VARIANTS) {
     const csv = `${FIXTURES}/${v.level}/l2_scroll.csv`
 

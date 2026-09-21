@@ -76,7 +76,7 @@ export function misc1602ForTimer(timer: number): number {
  * bank_01.asm:8530-8539, `SBC #$02 : CMP #$02 : BCC + : LSR : BCC +`.
  */
 export function topTileBobs(misc1602: number): boolean {
-  const d = (misc1602 - 0x02) & 0xFF
+  const d = (misc1602 - 0x02) & 0xff
   return d >= 0x02 && (d & 0x01) === 1
 }
 
@@ -131,24 +131,24 @@ export class MagikoopaAppearance implements SpriteAppearance {
     faceRight: boolean,
     dynColors: readonly number[] = [],
   ): MagikoopaAppearance {
-    const SPRITE_ID    = 0x1F
-    const attr         = tables.spriteAttr[SPRITE_ID] ?? 0
-    const palette      = 8 + ((attr >> 1) & 0x07)
-    const charHigh     = (attr & 0x01) !== 0 ? 0x100 : 0
-    const tilemapBase  = tables.tilemapOffset[SPRITE_ID] ?? 0
+    const SPRITE_ID = 0x1f
+    const attr = tables.spriteAttr[SPRITE_ID] ?? 0
+    const palette = 8 + ((attr >> 1) & 0x07)
+    const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+    const tilemapBase = tables.tilemapOffset[SPRITE_ID] ?? 0
     // SubSprGfx1 X-flips when SpriteMisc157C bit 0 is CLEAR (bank_01.asm:3957-3962).
-    const flipX        = faceRight
-    const misc157C     = faceRight ? 0 : 1
+    const flipX = faceRight
+    const misc157C = faceRight ? 0 : 1
 
     const char = (tile: number): Char =>
-      chars.get(OBJ_BASE + charHigh + (tile & 0x1FF)) ?? placeholder
+      chars.get(OBJ_BASE + charHigh + (tile & 0x1ff)) ?? placeholder
 
     // SNES large-OBJ: base N -> [N, N+1, N+$10, N+$11] at (0,0),(8,0),(0,8),(8,8).
     // An X-flipped entry swaps the columns AND mirrors each 8x8 char.
     const bigTile = (baseTile: number, dy: number): SpritePart[] => {
       const co = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
       return co.map((off, i) => ({
-        char:  char(baseTile + off),
+        char: char(baseTile + off),
         palette,
         flipX,
         flipY: false,
@@ -158,16 +158,20 @@ export class MagikoopaAppearance implements SpriteAppearance {
     }
 
     const frames = STATE2_MISC1602_VALUES.map(misc1602 => {
-      const idx    = (tilemapBase + misc1602 * 2) & 0xFF
-      const top    = tables.tilemap[idx]     ?? 0
+      const idx = (tilemapBase + misc1602 * 2) & 0xff
+      const top = tables.tilemap[idx] ?? 0
       const bottom = tables.tilemap[idx + 1] ?? 0
       const parts: SpritePart[] = []
       // The wand goes to OAM slot +$108, behind the body's slots +$100/+$104,
       // so it must blit first for the body to cover it.
       if (wandVisible(misc1602)) {
         parts.push({
-          char: char(WAND_TILE), palette, flipX, flipY: false,
-          dx: WAND_DX[misc157C], dy: WAND_DY,
+          char: char(WAND_TILE),
+          palette,
+          flipX,
+          flipY: false,
+          dx: WAND_DX[misc157C],
+          dy: WAND_DY,
         })
       }
       parts.push(...bigTile(top, topTileBobs(misc1602) ? 1 : 0))
@@ -183,16 +187,22 @@ export class MagikoopaAppearance implements SpriteAppearance {
     if (this.timer < 0) this.timer += STATE2_TIMER_START + 1
   }
 
-  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
+  render(
+    target: RenderTarget,
+    x: number,
+    y: number,
+    _behavior: SpriteBehavior,
+    mapStore: MapStore,
+  ): void {
     const misc1602 = misc1602ForTimer(Math.floor(this.timer))
-    const frame    = this.frames[misc1602 - FRAME_BASE]
+    const frame = this.frames[misc1602 - FRAME_BASE]
     // No silent fallback: a missing frame means `frames` was not built from
     // STATE2_MISC1602_VALUES, and frames[0] would render a pose the timer
     // never selects rather than surfacing that.
     if (!frame) {
       throw new RangeError(
         `Magikoopa frame missing for SpriteMisc1602 $${misc1602.toString(16)} ` +
-        `(have ${this.frames.length} frames from $${FRAME_BASE.toString(16)})`,
+          `(have ${this.frames.length} frames from $${FRAME_BASE.toString(16)})`,
       )
     }
     for (const p of frame) {

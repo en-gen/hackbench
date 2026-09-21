@@ -1,5 +1,5 @@
 /**
- * RipVanFishAppearance.test.ts — branch coverage for sprite $3D.
+ * RipVanFishAppearance.test.ts - branch coverage for sprite $3D.
  * (src/rom/model/sprites/appearances/RipVanFishAppearance.ts)
  *
  * Test tree:
@@ -19,9 +19,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
-import {
-  RipVanFishAppearance,
-} from '../../../../src/rom/model/sprites/appearances/RipVanFishAppearance'
+import { RipVanFishAppearance } from '../../../../src/rom/model/sprites/appearances/RipVanFishAppearance'
 import type { Palette } from '../../../../src/rom/model/palette/Palette'
 import type { RenderTarget } from '../../../../src/rom/model/RenderTarget'
 import type { SpriteBehavior } from '../../../../src/rom/model/sprites/SpriteBehavior'
@@ -50,14 +48,24 @@ const STUB_BEHAVIOR: SpriteBehavior = { displayName: 'stub', spawns: false } as 
 /** Build an appearance with distinguishable frames (fill values encode frame identity). */
 function makeAppearance(): RipVanFishAppearance {
   const makePart = (fill: number) => ({
-    char: makeChar(fill), palette: 0, flipX: false, flipY: false, dx: 0, dy: 0,
+    char: makeChar(fill),
+    palette: 0,
+    flipX: false,
+    flipY: false,
+    dx: 0,
+    dy: 0,
   })
-  const sleepB  = [makePart(0x10)]  // sleepFrames[0]
-  const sleepA  = [makePart(0x11)]  // sleepFrames[1]
-  const awakeA  = [makePart(0x20)]  // awakeFrames[0]
-  const awakeB  = [makePart(0x21)]  // awakeFrames[1]
-  const zParts  = [makeChar(0x30), makeChar(0x31), makeChar(0x32), makeChar(0x33)].map(c => ({
-    char: c, palette: 0, flipX: false, flipY: false, dx: 0, dy: 0,
+  const sleepB = [makePart(0x10)] // sleepFrames[0]
+  const sleepA = [makePart(0x11)] // sleepFrames[1]
+  const awakeA = [makePart(0x20)] // awakeFrames[0]
+  const awakeB = [makePart(0x21)] // awakeFrames[1]
+  const zParts = [makeChar(0x30), makeChar(0x31), makeChar(0x32), makeChar(0x33)].map(c => ({
+    char: c,
+    palette: 0,
+    flipX: false,
+    flipY: false,
+    dx: 0,
+    dy: 0,
   }))
   return new RipVanFishAppearance([sleepB, sleepA], [awakeA, awakeB], zParts)
 }
@@ -66,16 +74,18 @@ function makeAppearance(): RipVanFishAppearance {
 function renderFills(app: RipVanFishAppearance, x = 0, y = 0): number[] {
   const fills: number[] = []
   const target: RenderTarget = {
-    blit8x8(pixels: Uint8Array) { fills.push(pixels[0]) },
+    blit8x8(pixels: Uint8Array) {
+      fills.push(pixels[0])
+    },
     fillRect() {},
   }
   app.render(target, x, y, STUB_BEHAVIOR, stubMapStore())
   return fills
 }
 
-// ── render — pose selection ───────────────────────────────────────────────────
+// ── render - pose selection ───────────────────────────────────────────────────
 
-describe('RipVanFishAppearance.render — pose selection', () => {
+describe('RipVanFishAppearance.render - pose selection', () => {
   beforeEach(resetEditorStore)
 
   it('cursor null → sleepA pose (fill=0x11)', () => {
@@ -99,8 +109,8 @@ describe('RipVanFishAppearance.render — pose selection', () => {
     // The inZone && chain: cursor!==null (pass), |dx|<48 (pass), |dy|<48 (FAIL) → inZone=false.
     const app = makeAppearance()
     editorStore.setCursorPx({ x: 8, y: 100 })
-    expect(renderFills(app)).toContain(0x11)  // sleeping (not awake)
-    expect(renderFills(app)).not.toContain(0x20)  // not awake pose
+    expect(renderFills(app)).toContain(0x11) // sleeping (not awake)
+    expect(renderFills(app)).not.toContain(0x20) // not awake pose
   })
 
   it('cursor inside zone → awakeA pose (fill=0x20)', () => {
@@ -114,7 +124,7 @@ describe('RipVanFishAppearance.render — pose selection', () => {
   it('awake: tickCount odd → awakeFrames[1] (fill=0x21)', () => {
     const app = makeAppearance()
     editorStore.setCursorPx({ x: 8, y: 8 })
-    app.tickAnimation()  // tickCount → 1
+    app.tickAnimation() // tickCount → 1
     expect(renderFills(app)).toContain(0x21)
   })
 
@@ -122,7 +132,7 @@ describe('RipVanFishAppearance.render — pose selection', () => {
     const app = makeAppearance()
     editorStore.setCursorPx({ x: 8, y: 8 })
     app.tickAnimation()
-    app.tickAnimation()  // tickCount → 2 (even)
+    app.tickAnimation() // tickCount → 2 (even)
     expect(renderFills(app)).toContain(0x20)
   })
 
@@ -136,13 +146,13 @@ describe('RipVanFishAppearance.render — pose selection', () => {
     // Tick enough times to get romFrame past 16 (where bit 4 is set)
     // ROM_FRAMES_PER_TICK = 8; after 3 ticks romFrame = 24; 24 & 0x30 = 16 ≠ 0
     for (let i = 0; i < 3; i++) app.tickAnimation()
-    expect(renderFills(app)).toContain(0x10)  // sleepB
+    expect(renderFills(app)).toContain(0x10) // sleepB
   })
 })
 
-// ── render — Z trail ──────────────────────────────────────────────────────────
+// ── render - Z trail ──────────────────────────────────────────────────────────
 
-describe('RipVanFishAppearance.render — Z trail', () => {
+describe('RipVanFishAppearance.render - Z trail', () => {
   beforeEach(resetEditorStore)
 
   it('cursor outside zone → Z trail rendered (blit count > body)', () => {
@@ -180,11 +190,13 @@ describe('RipVanFishAppearance.render — Z trail', () => {
 
 describe('RipVanFishAppearance.fromTables', () => {
   it('empty chars → all parts use placeholder', () => {
-    const ph = makeChar(0xFF)
+    const ph = makeChar(0xff)
     const app = RipVanFishAppearance.fromTables(new Map(), 8, 0, ph)
     const allParts = [
-      ...app.sleepFrames[0], ...app.sleepFrames[1],
-      ...app.awakeFrames[0], ...app.awakeFrames[1],
+      ...app.sleepFrames[0],
+      ...app.sleepFrames[1],
+      ...app.awakeFrames[0],
+      ...app.awakeFrames[1],
       ...app.zParts,
     ]
     expect(allParts.every(p => p.char === ph)).toBe(true)

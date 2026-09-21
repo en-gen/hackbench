@@ -15,7 +15,7 @@ const COLS = 16
  * cycle (CyclingColorBehavior) read `editorStore.palAnimFrame` directly.
  *
  * The scratch pattern means callers must consume the returned row
- * before the next `row()` call with the same index — in practice
+ * before the next `row()` call with the same index - in practice
  * SubTile.render reads the row and passes it straight to the
  * RenderTarget's blit, so the constraint is met naturally.
  */

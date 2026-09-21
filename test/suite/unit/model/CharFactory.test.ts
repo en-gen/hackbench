@@ -1,5 +1,5 @@
 /**
- * CharFactory — synthetic branch coverage.
+ * CharFactory - synthetic branch coverage.
  *
  * Exercises collectAnimFrames and buildChars using synthetic VramState +
  * AnimationData, so coverage runs without a ROM file.
@@ -26,7 +26,7 @@ import type { AnimationData } from '../../../../src/rom/AnimationLoader'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-const PIXELS     = new Uint8Array(64).fill(1)
+const PIXELS = new Uint8Array(64).fill(1)
 const ALT_PIXELS = new Uint8Array(64).fill(2)
 
 // fg1 slot: VRAM_CHAR_BASE.fg1 = 0x000. Index 0 → char 0x000.
@@ -34,7 +34,7 @@ const VRAM: VramState = { fg1: [PIXELS] }
 
 // ── No animData → StaticPixelsBehavior ───────────────────────────────────────
 
-describe('buildChars — animData=undefined: StaticPixelsBehavior for every char', () => {
+describe('buildChars - animData=undefined: StaticPixelsBehavior for every char', () => {
   it('each VRAM tile gets StaticPixelsBehavior when no animData is provided', () => {
     const chars = buildChars(VRAM)
     expect(chars.get(0x000)?.behavior).toBeInstanceOf(StaticPixelsBehavior)
@@ -43,15 +43,12 @@ describe('buildChars — animData=undefined: StaticPixelsBehavior for every char
 
 // ── animData with no altTiles → AnimatedPixelsBehavior ───────────────────────
 
-describe('buildChars — animData present, no altTiles: AnimatedPixelsBehavior', () => {
+describe('buildChars - animData present, no altTiles: AnimatedPixelsBehavior', () => {
   it('char gets AnimatedPixelsBehavior when slot has tiles but no altTiles', () => {
     const animData: AnimationData = {
       frameCount: 2,
       intervalMs: 133,
-      frames: [
-        [{ charBase: 0x000, tiles: [PIXELS] }],
-        [{ charBase: 0x000, tiles: [PIXELS] }],
-      ],
+      frames: [[{ charBase: 0x000, tiles: [PIXELS] }], [{ charBase: 0x000, tiles: [PIXELS] }]],
     }
     const chars = buildChars(VRAM, animData)
     expect(chars.get(0x000)?.behavior).toBeInstanceOf(AnimatedPixelsBehavior)
@@ -60,7 +57,7 @@ describe('buildChars — animData present, no altTiles: AnimatedPixelsBehavior',
 
 // ── altTiles in all frames → PSwitchAlternateBehavior ────────────────────────
 
-describe('buildChars — altTiles present in all frames: PSwitchAlternateBehavior', () => {
+describe('buildChars - altTiles present in all frames: PSwitchAlternateBehavior', () => {
   it('charNum gets PSwitchAlternateBehavior when altTiles filled in every frame', () => {
     // Covers:
     //   collectAnimFrames line 98: slot.altTiles?.[i] non-null → truthy branch
@@ -82,7 +79,7 @@ describe('buildChars — altTiles present in all frames: PSwitchAlternateBehavio
 
 // ── empty tiles array → char dropped ─────────────────────────────────────────
 
-describe('buildChars — frame with tiles.length === 0: animation dropped, StaticPixelsBehavior used', () => {
+describe('buildChars - frame with tiles.length === 0: animation dropped, StaticPixelsBehavior used', () => {
   it('frame slot with empty Uint8Array fires anim.frames[f].length === 0 TRUE branch', () => {
     // slot.tiles[0] = new Uint8Array(0) is truthy (not filtered by `if (!tile) continue`),
     // so anim.frames[f] = new Uint8Array(0). At the drop-check loop,
@@ -92,9 +89,7 @@ describe('buildChars — frame with tiles.length === 0: animation dropped, Stati
     const animData: AnimationData = {
       frameCount: 1,
       intervalMs: 133,
-      frames: [
-        [{ charBase: 0x000, tiles: [new Uint8Array(0)] }],
-      ],
+      frames: [[{ charBase: 0x000, tiles: [new Uint8Array(0)] }]],
     }
     const chars = buildChars(VRAM, animData)
     // Char 0x000 still exists (from VRAM) but without animation → StaticPixelsBehavior
@@ -104,7 +99,7 @@ describe('buildChars — frame with tiles.length === 0: animation dropped, Stati
 
 // ── altFrames hole → altFrames dropped, AnimatedPixelsBehavior ───────────────
 
-describe('buildChars — altFrames hole in frame 1: altFrames dropped', () => {
+describe('buildChars - altFrames hole in frame 1: altFrames dropped', () => {
   it('char falls back to AnimatedPixelsBehavior when altFrames has a missing frame', () => {
     // Frame 0 has altTiles → anim.altFrames created, altFrames[0] filled.
     // Frame 1 has no altTiles → altFrames[1] remains undefined → hole detected
@@ -114,7 +109,7 @@ describe('buildChars — altFrames hole in frame 1: altFrames dropped', () => {
       intervalMs: 133,
       frames: [
         [{ charBase: 0x000, tiles: [PIXELS], altTiles: [ALT_PIXELS] }],
-        [{ charBase: 0x000, tiles: [PIXELS] }],   // no altTiles on frame 1
+        [{ charBase: 0x000, tiles: [PIXELS] }], // no altTiles on frame 1
       ],
     }
     const chars = buildChars(VRAM, animData)

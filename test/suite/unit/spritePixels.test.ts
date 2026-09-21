@@ -10,19 +10,29 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  blitPartsRgba, partBounds, partsBounds, previewScale,
+  blitPartsRgba,
+  partBounds,
+  partsBounds,
+  previewScale,
   type PaletteRows,
 } from '../../../src/webview/mapEditor/spritePixels'
 import type { SpritePartInfo } from '../../../src/webview/mapEditor/spriteProps'
 
 /** Row r, index i is [r, i, 0, 255], so a pixel names its own row and index. */
 const ROWS: PaletteRows = Array.from({ length: 16 }, (_, r) =>
-  Array.from({ length: 16 }, (_, i) => [r, i, 0, 255]))
+  Array.from({ length: 16 }, (_, i) => [r, i, 0, 255]),
+)
 
 function info(over: Partial<SpritePartInfo> = {}): SpritePartInfo {
   return {
-    char: 0x100, palette: 8, flipX: false, flipY: false, dx: 0, dy: 0,
-    pixels: new Uint8Array(64).fill(1), ...over,
+    char: 0x100,
+    palette: 8,
+    flipX: false,
+    flipY: false,
+    dx: 0,
+    dy: 0,
+    pixels: new Uint8Array(64).fill(1),
+    ...over,
   }
 }
 
@@ -42,8 +52,12 @@ function dot(sx: number, sy: number): Uint8Array {
 
 describe('partsBounds', () => {
   it('covers every part, including ones placed above and left of the origin', () => {
-    expect(partsBounds([info({ dx: -8, dy: -16 }), info({ dx: 8, dy: 0 })]))
-      .toEqual({ dx: -8, dy: -16, w: 24, h: 24 })
+    expect(partsBounds([info({ dx: -8, dy: -16 }), info({ dx: 8, dy: 0 })])).toEqual({
+      dx: -8,
+      dy: -16,
+      w: 24,
+      h: 24,
+    })
   })
 
   it('is one tile for a single part at the origin', () => {
@@ -67,7 +81,7 @@ describe('previewScale', () => {
   it('shrinks the step as the sprite grows, keeping it inside the 230px panel', () => {
     expect(previewScale(16, 16)).toBe(8)
     expect(previewScale(32, 32)).toBe(4)
-    expect(previewScale(64, 64)).toBe(2)   // $9F Banzai Bill
+    expect(previewScale(64, 64)).toBe(2) // $9F Banzai Bill
   })
 
   it('scales on the longer side, so a tall sprite still fits', () => {
@@ -82,9 +96,13 @@ describe('previewScale', () => {
 
 describe('blitPartsRgba', () => {
   it('reads colours from the part own palette row', () => {
-    const buf = blitPartsRgba([info({ palette: 11, pixels: dot(0, 0) })], ROWS, partsBounds([info()]))
-    expect(buf[0]).toBe(11)      // red channel carries the row
-    expect(buf[1]).toBe(5)       // green channel carries the colour index
+    const buf = blitPartsRgba(
+      [info({ palette: 11, pixels: dot(0, 0) })],
+      ROWS,
+      partsBounds([info()]),
+    )
+    expect(buf[0]).toBe(11) // red channel carries the row
+    expect(buf[1]).toBe(5) // green channel carries the colour index
   })
 
   it('leaves colour index 0 fully transparent', () => {
@@ -113,13 +131,13 @@ describe('blitPartsRgba', () => {
   it('places each part at its displacement relative to the bounds origin', () => {
     const parts = [
       info({ dx: -8, dy: 0, pixels: dot(0, 0) }),
-      info({ dx: 0,  dy: 8, pixels: dot(1, 1) }),
+      info({ dx: 0, dy: 8, pixels: dot(1, 1) }),
     ]
     const b = partsBounds(parts)
     expect(b).toEqual({ dx: -8, dy: 0, w: 16, h: 16 })
     const buf = blitPartsRgba(parts, ROWS, b)
-    expect(at(buf, 16, 0, 0)).toBe(5)    // part 0 at bounds-local (0, 0)
-    expect(at(buf, 16, 9, 9)).toBe(5)    // part 1 at bounds-local (8, 8) + (1, 1)
+    expect(at(buf, 16, 0, 0)).toBe(5) // part 0 at bounds-local (0, 0)
+    expect(at(buf, 16, 9, 9)).toBe(5) // part 1 at bounds-local (8, 8) + (1, 1)
   })
 
   it('clips a part that reaches outside the requested bounds', () => {
@@ -136,10 +154,14 @@ describe('blitPartsRgba', () => {
 
   it('draws later parts over earlier ones, as the map render order does', () => {
     const b = { dx: 0, dy: 0, w: 8, h: 8 }
-    const buf = blitPartsRgba([
-      info({ palette: 3, pixels: new Uint8Array(64).fill(1) }),
-      info({ palette: 7, pixels: new Uint8Array(64).fill(1) }),
-    ], ROWS, b)
+    const buf = blitPartsRgba(
+      [
+        info({ palette: 3, pixels: new Uint8Array(64).fill(1) }),
+        info({ palette: 7, pixels: new Uint8Array(64).fill(1) }),
+      ],
+      ROWS,
+      b,
+    )
     expect(buf[0]).toBe(7)
   })
 })

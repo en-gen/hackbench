@@ -1,9 +1,9 @@
 /**
- * SMW GFX Viewer — webview entry point.
+ * SMW GFX Viewer - webview entry point.
  *
  * Displays a single GFX file in a 16-column grid (standard SMW layout).
  * Standard 4bpp files have 128 tiles (16×8); GFX32 (3bpp) has 64 tiles (16×4).
- * Tile count is dynamic from the payload — the grid adjusts automatically.
+ * Tile count is dynamic from the payload - the grid adjusts automatically.
  *
  * Messages FROM extension host:
  *   { type:'load', gfxIndex, gfxHex, tilePixels, tileCount, paletteRows,
@@ -23,29 +23,29 @@ const vscode = acquireVsCodeApi()
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TILE_PX   = 8   // native pixels per tile side
-const TILE_COLS = 16  // tiles per row (standard SMW sheet layout)
-const ZOOM_STEPS   = [1, 2, 3, 4, 6, 8]
-const ZOOM_DEFAULT = 3   // 3× → 24×24 px displayed per tile
+const TILE_PX = 8 // native pixels per tile side
+const TILE_COLS = 16 // tiles per row (standard SMW sheet layout)
+const ZOOM_STEPS = [1, 2, 3, 4, 6, 8]
+const ZOOM_DEFAULT = 3 // 3× → 24×24 px displayed per tile
 
 // CGRAM row names matching SMW's runtime layout
 const ROW_LABELS: string[] = [
-  'Row  0 — BG Layer 2',
-  'Row  1 — BG Layer 2',
-  'Row  2 — FG Layer 1',
-  'Row  3 — FG Layer 1',
-  'Row  4 — Sprite',
-  'Row  5 — Sprite',
-  'Row  6 — Sprite',
-  'Row  7 — Sprite',
-  'Row  8 — Player/Sprite',
-  'Row  9 — Sprite',
-  'Row 10 — Sprite (Ludwig)',
-  'Row 11 — Sprite (Roy)',
-  'Row 12 — Sprite',
-  'Row 13 — Sprite (Morton)',
-  'Row 14 — Sprite E',
-  'Row 15 — Sprite F',
+  'Row  0 - BG Layer 2',
+  'Row  1 - BG Layer 2',
+  'Row  2 - FG Layer 1',
+  'Row  3 - FG Layer 1',
+  'Row  4 - Sprite',
+  'Row  5 - Sprite',
+  'Row  6 - Sprite',
+  'Row  7 - Sprite',
+  'Row  8 - Player/Sprite',
+  'Row  9 - Sprite',
+  'Row 10 - Sprite (Ludwig)',
+  'Row 11 - Sprite (Roy)',
+  'Row 12 - Sprite',
+  'Row 13 - Sprite (Morton)',
+  'Row 14 - Sprite E',
+  'Row 15 - Sprite F',
 ]
 
 // ── Build DOM ─────────────────────────────────────────────────────────────────
@@ -114,76 +114,78 @@ app.innerHTML = `
   background:var(--vscode-statusBar-background,#007acc);
   font-family:monospace;font-size:11px;
   color:var(--vscode-statusBar-foreground,#fff);">
-  <span id="st-tile">—</span>
-  <span id="st-vram">—</span>
-  <span id="st-color">—</span>
+  <span id="st-tile">-</span>
+  <span id="st-vram">-</span>
+  <span id="st-color">-</span>
 </div>
 `
 
 function btnStyle(): string {
-  return 'background:transparent;border:1px solid #555;color:#ccc;border-radius:3px;' +
-         'width:22px;height:22px;font-size:14px;line-height:1;cursor:pointer;padding:0;'
+  return (
+    'background:transparent;border:1px solid #555;color:#ccc;border-radius:3px;' +
+    'width:22px;height:22px;font-size:14px;line-height:1;cursor:pointer;padding:0;'
+  )
 }
 
 // ── Element refs ─────────────────────────────────────────────────────────────
 
-const canvas      = document.getElementById('gfx-canvas') as HTMLCanvasElement
-const ctx         = canvas.getContext('2d')!
-const gfxId       = document.getElementById('gfx-id')!
+const canvas = document.getElementById('gfx-canvas') as HTMLCanvasElement
+const ctx = canvas.getContext('2d')!
+const gfxId = document.getElementById('gfx-id')!
 const tileCountEl = document.getElementById('tile-count')!
-const zoomLabel   = document.getElementById('zoom-label')!
-const swatchRow   = document.getElementById('swatch-row')!
-const stTile      = document.getElementById('st-tile')!
-const stVram      = document.getElementById('st-vram')!
-const stColor     = document.getElementById('st-color')!
-const selRow      = document.getElementById('sel-palette-row') as HTMLSelectElement
-const selBpp      = document.getElementById('sel-bpp') as HTMLSelectElement
-const selFgVar    = document.getElementById('sel-fg-variant') as HTMLSelectElement
-const fgVarLabel  = document.getElementById('fg-var-label')!
-const chkGrid     = document.getElementById('chk-grid') as HTMLInputElement
+const zoomLabel = document.getElementById('zoom-label')!
+const swatchRow = document.getElementById('swatch-row')!
+const stTile = document.getElementById('st-tile')!
+const stVram = document.getElementById('st-vram')!
+const stColor = document.getElementById('st-color')!
+const selRow = document.getElementById('sel-palette-row') as HTMLSelectElement
+const selBpp = document.getElementById('sel-bpp') as HTMLSelectElement
+const selFgVar = document.getElementById('sel-fg-variant') as HTMLSelectElement
+const fgVarLabel = document.getElementById('fg-var-label')!
+const chkGrid = document.getElementById('chk-grid') as HTMLInputElement
 
 // ── State ────────────────────────────────────────────────────────────────────
 
 interface GfxPayload {
-  gfxIndex:   number
-  gfxHex:     string
-  tilePixels: number[][]     // [tileIdx][pixelIdx] = palette color index 0–15 (server-decoded)
-  tileCount:  number
-  paletteRows: number[][][]  // [rowIdx][colorIdx] = [r, g, b, a]
+  gfxIndex: number
+  gfxHex: string
+  tilePixels: number[][] // [tileIdx][pixelIdx] = palette color index 0–15 (server-decoded)
+  tileCount: number
+  paletteRows: number[][][] // [rowIdx][colorIdx] = [r, g, b, a]
   /** FG palette variants: [[row2colors, row3colors], …] per variant index. ⚠ Addresses unverified beyond variant 0. */
   fgVariants: number[][][][]
-  suggestedPaletteRow: number  // best guess at which CGRAM row applies to this file
-  rawBytes:   number[]       // decompressed GFX bytes — for client-side re-decode
-  defaultBpp: 2 | 3 | 4     // server's decode format for this file
+  suggestedPaletteRow: number // best guess at which CGRAM row applies to this file
+  rawBytes: number[] // decompressed GFX bytes - for client-side re-decode
+  defaultBpp: 2 | 3 | 4 // server's decode format for this file
 }
 
-// ── Tile decoders — imported from shared rom/GraphicsDecoder ─────────────────
+// ── Tile decoders - imported from shared rom/GraphicsDecoder ─────────────────
 // decode2bpp, decode3bpp, decode4bpp, decodeTilesBatch imported at top
 
-let payload:    GfxPayload | null = null
-let zoomIdx    = ZOOM_DEFAULT
+let payload: GfxPayload | null = null
+let zoomIdx = ZOOM_DEFAULT
 // Overridden per-file by suggestedPaletteRow from the extension host.
 let paletteRow = 2
-// Active decoded tiles — rebuilt when payload changes or bpp mode is toggled.
+// Active decoded tiles - rebuilt when payload changes or bpp mode is toggled.
 let activeTiles: Uint8Array[] = []
-// Current bpp decoding mode — overridden per-file by defaultBpp from the host.
+// Current bpp decoding mode - overridden per-file by defaultBpp from the host.
 let activeBpp: 2 | 3 | 4 = 3
 // Active FG variant (0 = vanilla/plains; higher = other level types ⚠ unverified).
 let activeFgVariant = 0
-// Effective palette rows — payload.paletteRows with rows 2-3 swapped per FG variant.
+// Effective palette rows - payload.paletteRows with rows 2-3 swapped per FG variant.
 let effectivePaletteRows: number[][][] = []
 
 // ── Offscreen tile buffer (rebuilt when tile count changes) ───────────────────
 
 const offscreen = document.createElement('canvas')
-let offCtx      = offscreen.getContext('2d')!
+let offCtx = offscreen.getContext('2d')!
 
 function ensureOffscreen(tileCount: number): void {
   const rows = Math.ceil(tileCount / TILE_COLS)
   const w = TILE_COLS * TILE_PX
   const h = rows * TILE_PX
   if (offscreen.width !== w || offscreen.height !== h) {
-    offscreen.width  = w
+    offscreen.width = w
     offscreen.height = h
     offCtx = offscreen.getContext('2d')!
   }
@@ -195,37 +197,43 @@ function redraw(): void {
   if (!payload) return
 
   const tileCount = activeTiles.length
-  const tileRows  = Math.ceil(tileCount / TILE_COLS)
+  const tileRows = Math.ceil(tileCount / TILE_COLS)
   ensureOffscreen(tileCount)
 
   const zoom = ZOOM_STEPS[zoomIdx]
-  const pw   = TILE_COLS * TILE_PX
-  const ph   = tileRows  * TILE_PX
+  const pw = TILE_COLS * TILE_PX
+  const ph = tileRows * TILE_PX
 
   const imgData = offCtx.createImageData(pw, ph)
-  const d       = imgData.data
-  const palRow  = effectivePaletteRows[paletteRow] ?? effectivePaletteRows[0]
+  const d = imgData.data
+  const palRow = effectivePaletteRows[paletteRow] ?? effectivePaletteRows[0]
 
   for (let t = 0; t < tileCount; t++) {
     const tileCol = t % TILE_COLS
     const tileRow = Math.floor(t / TILE_COLS)
-    const pixels  = activeTiles[t]
+    const pixels = activeTiles[t]
 
     for (let py = 0; py < TILE_PX; py++) {
       for (let px = 0; px < TILE_PX; px++) {
         const colorIdx = pixels[py * TILE_PX + px]
         const cx = tileCol * TILE_PX + px
         const cy = tileRow * TILE_PX + py
-        const i  = (cy * pw + cx) * 4
+        const i = (cy * pw + cx) * 4
 
         if (colorIdx === 0) {
-          // transparent — checkerboard background
+          // transparent - checkerboard background
           const checker = ((cx >> 2) + (cy >> 2)) & 1
           const v = checker ? 60 : 40
-          d[i] = v; d[i+1] = v; d[i+2] = v; d[i+3] = 255
+          d[i] = v
+          d[i + 1] = v
+          d[i + 2] = v
+          d[i + 3] = 255
         } else {
           const c = palRow[colorIdx] ?? [255, 0, 255, 255]
-          d[i] = c[0]; d[i+1] = c[1]; d[i+2] = c[2]; d[i+3] = c[3]
+          d[i] = c[0]
+          d[i + 1] = c[1]
+          d[i + 2] = c[2]
+          d[i + 3] = c[3]
         }
       }
     }
@@ -233,7 +241,7 @@ function redraw(): void {
 
   offCtx.putImageData(imgData, 0, 0)
 
-  canvas.width  = pw * zoom
+  canvas.width = pw * zoom
   canvas.height = ph * zoom
   ctx.imageSmoothingEnabled = false
   ctx.drawImage(offscreen, 0, 0, canvas.width, canvas.height)
@@ -241,15 +249,21 @@ function redraw(): void {
   // Tile grid overlay
   if (chkGrid.checked) {
     ctx.strokeStyle = 'rgba(255,255,255,0.15)'
-    ctx.lineWidth   = 1
+    ctx.lineWidth = 1
     const tw = TILE_PX * zoom
     for (let c = 0; c <= TILE_COLS; c++) {
       const x = Math.round(c * tw) + 0.5
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(x, 0)
+      ctx.lineTo(x, canvas.height)
+      ctx.stroke()
     }
     for (let r = 0; r <= tileRows; r++) {
       const y = Math.round(r * tw) + 0.5
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(0, y)
+      ctx.lineTo(canvas.width, y)
+      ctx.stroke()
     }
   }
 
@@ -263,10 +277,11 @@ function buildSwatches(): void {
   const row = effectivePaletteRows[paletteRow] ?? []
   swatchRow.innerHTML = ''
   for (let i = 0; i < 16; i++) {
-    const c  = row[i]
+    const c = row[i]
     const el = document.createElement('div')
     el.title = `Color ${i}`
-    el.style.cssText = `width:11px;height:11px;border-radius:2px;border:1px solid #333;` +
+    el.style.cssText =
+      `width:11px;height:11px;border-radius:2px;border:1px solid #333;` +
       (c && c[3] > 0
         ? `background:rgb(${c[0]},${c[1]},${c[2]});`
         : 'background:repeating-linear-gradient(45deg,#444 0 2px,#222 2px 4px);')
@@ -299,12 +314,12 @@ selRow.addEventListener('change', () => {
 /** Rebuild effectivePaletteRows by swapping rows 2-3 from the selected FG variant. */
 function applyFgVariant(variantIdx: number): void {
   if (!payload) return
-  effectivePaletteRows = payload.paletteRows.map(r => r)  // shallow copy
+  effectivePaletteRows = payload.paletteRows.map(r => r) // shallow copy
   const fg = payload.fgVariants?.[variantIdx]
   if (fg) {
     effectivePaletteRows = effectivePaletteRows.slice()
-    effectivePaletteRows[2] = fg[0]  // row 2
-    effectivePaletteRows[3] = fg[1]  // row 3
+    effectivePaletteRows[2] = fg[0] // row 2
+    effectivePaletteRows[3] = fg[1] // row 3
   }
 }
 
@@ -334,38 +349,51 @@ selFgVar.addEventListener('change', () => {
 // ── Zoom controls ─────────────────────────────────────────────────────────────
 
 document.getElementById('zoom-in')!.addEventListener('click', () => {
-  if (zoomIdx < ZOOM_STEPS.length - 1) { zoomIdx++; redraw() }
+  if (zoomIdx < ZOOM_STEPS.length - 1) {
+    zoomIdx++
+    redraw()
+  }
 })
 document.getElementById('zoom-out')!.addEventListener('click', () => {
-  if (zoomIdx > 0) { zoomIdx--; redraw() }
+  if (zoomIdx > 0) {
+    zoomIdx--
+    redraw()
+  }
 })
-document.getElementById('canvas-wrap')!.addEventListener('wheel', (e) => {
-  const we = e as WheelEvent
-  if (!we.ctrlKey) return
-  we.preventDefault()
-  const next = zoomIdx + (we.deltaY < 0 ? 1 : -1)
-  if (next >= 0 && next < ZOOM_STEPS.length) { zoomIdx = next; redraw() }
-}, { passive: false })
+document.getElementById('canvas-wrap')!.addEventListener(
+  'wheel',
+  e => {
+    const we = e as WheelEvent
+    if (!we.ctrlKey) return
+    we.preventDefault()
+    const next = zoomIdx + (we.deltaY < 0 ? 1 : -1)
+    if (next >= 0 && next < ZOOM_STEPS.length) {
+      zoomIdx = next
+      redraw()
+    }
+  },
+  { passive: false },
+)
 
 chkGrid.addEventListener('change', redraw)
 
 // ── Mouse hover ───────────────────────────────────────────────────────────────
 
-canvas.addEventListener('mousemove', (e) => {
+canvas.addEventListener('mousemove', e => {
   if (!payload) return
-  const zoom     = ZOOM_STEPS[zoomIdx]
-  const tw       = TILE_PX * zoom
+  const zoom = ZOOM_STEPS[zoomIdx]
+  const tw = TILE_PX * zoom
   const tileRows = Math.ceil(activeTiles.length / TILE_COLS)
-  const rect     = canvas.getBoundingClientRect()
-  const cx       = Math.floor((e.clientX - rect.left) / tw)
-  const cy       = Math.floor((e.clientY - rect.top)  / tw)
+  const rect = canvas.getBoundingClientRect()
+  const cx = Math.floor((e.clientX - rect.left) / tw)
+  const cy = Math.floor((e.clientY - rect.top) / tw)
   if (cx < 0 || cy < 0 || cx >= TILE_COLS || cy >= tileRows) return
 
-  const tileIdx  = cy * TILE_COLS + cx
+  const tileIdx = cy * TILE_COLS + cx
   if (tileIdx >= activeTiles.length) return
 
-  const localX   = Math.floor(((e.clientX - rect.left) - cx * tw) / zoom)
-  const localY   = Math.floor(((e.clientY - rect.top)  - cy * tw) / zoom)
+  const localX = Math.floor((e.clientX - rect.left - cx * tw) / zoom)
+  const localY = Math.floor((e.clientY - rect.top - cy * tw) / zoom)
   const pixelIdx = localY * TILE_PX + localX
   const colorIdx = activeTiles[tileIdx]?.[pixelIdx] ?? 0
 
@@ -373,24 +401,24 @@ canvas.addEventListener('mousemove', (e) => {
   // Base = gfxIndex * 128 for standard 4bpp files (approximate; exact base
   // depends on which VRAM slot this file is loaded into).
   const charNum = payload.gfxIndex * 128 + tileIdx
-  const vramWord = charNum * 16  // each 4bpp tile = 32 bytes = 16 VRAM words
+  const vramWord = charNum * 16 // each 4bpp tile = 32 bytes = 16 VRAM words
 
-  stTile.textContent  = `Tile $${hex2(tileIdx)}`
-  stVram.textContent  = `char $${hex3(charNum)}  VRAM $${hex4(vramWord)}.w`
+  stTile.textContent = `Tile $${hex2(tileIdx)}`
+  stVram.textContent = `char $${hex3(charNum)}  VRAM $${hex4(vramWord)}.w`
   stColor.textContent = `color ${colorIdx} (${activeBpp}bpp)`
 })
 
 canvas.addEventListener('mouseleave', () => {
-  stTile.textContent  = '—'
-  stVram.textContent  = '—'
-  stColor.textContent = '—'
+  stTile.textContent = '-'
+  stVram.textContent = '-'
+  stColor.textContent = '-'
 })
 
 // ── BPP selector ─────────────────────────────────────────────────────────────
 
 selBpp.addEventListener('change', () => {
   if (!payload) return
-  activeBpp   = parseInt(selBpp.value) as 2 | 3 | 4
+  activeBpp = parseInt(selBpp.value) as 2 | 3 | 4
   activeTiles = decodeTilesBatch(payload.rawBytes, activeBpp)
   tileCountEl.textContent = `(${activeTiles.length} tiles)`
   redraw()
@@ -398,15 +426,15 @@ selBpp.addEventListener('change', () => {
 
 // ── Message handler ───────────────────────────────────────────────────────────
 
-window.addEventListener('message', (event) => {
+window.addEventListener('message', event => {
   const msg = event.data as Record<string, unknown>
 
   if (msg['type'] === 'load') {
-    payload    = msg as unknown as GfxPayload
-    paletteRow = payload.suggestedPaletteRow ?? 2   // apply per-file suggestion
+    payload = msg as unknown as GfxPayload
+    paletteRow = payload.suggestedPaletteRow ?? 2 // apply per-file suggestion
 
     // Decode tiles client-side using the default bpp for this file
-    activeBpp   = payload.defaultBpp ?? 3
+    activeBpp = payload.defaultBpp ?? 3
     selBpp.value = String(activeBpp)
     activeTiles = decodeTilesBatch(payload.rawBytes, activeBpp)
 
@@ -414,16 +442,15 @@ window.addEventListener('message', (event) => {
     activeFgVariant = 0
     applyFgVariant(0)
 
-    gfxId.textContent       = `GFX ${payload.gfxHex}`
+    gfxId.textContent = `GFX ${payload.gfxHex}`
     tileCountEl.textContent = `(${activeTiles.length} tiles)`
     buildPaletteSelector()
     buildFgVariantSelector()
     buildSwatches()
     redraw()
-
   } else if (msg['type'] === 'error') {
-    gfxId.textContent   = 'Error'
-    stTile.textContent  = msg['message'] as string
+    gfxId.textContent = 'Error'
+    stTile.textContent = msg['message'] as string
   }
 })
 

@@ -18,7 +18,7 @@ import type { SlopeInfo } from '../../SlopeResolver'
 export interface SpriteCollision {
   solidH(c: number, r: number): boolean
   solidV(c: number, r: number): boolean
-  /** Ceiling-bonk predicate.  Slope range $6E–$D7 has ceiling=false — using
+  /** Ceiling-bonk predicate.  Slope range $6E–$D7 has ceiling=false - using
    *  solidV here instead would snap an ascending sprite down below a rising
    *  slope (the cause of the level-$006 Para-Goomba glitch, fixed in PR #228). */
   ceilingV(c: number, r: number): boolean
@@ -65,10 +65,10 @@ export function spriteCollisionFromL1(getL1: GetL1Tile): SpriteCollision {
   }
 
   function surfaceYAt(centerX: number, row: number): number {
-    const col      = Math.floor(centerX / 16)
+    const col = Math.floor(centerX / 16)
     const pxInTile = Math.max(0, Math.min(15, Math.floor(centerX) - col * 16))
-    const slope    = slopeAt(col, row)
-    return slope ? row * 16 + (slope.heights[pxInTile]! & 0x0F) : row * 16
+    const slope = slopeAt(col, row)
+    return slope ? row * 16 + (slope.heights[pxInTile]! & 0x0f) : row * 16
   }
 
   function findFloorRowBelow(col: number, startRow: number, levelRows: number): number | null {

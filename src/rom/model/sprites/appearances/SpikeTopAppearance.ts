@@ -8,14 +8,14 @@ import type { SpriteBehavior } from '../SpriteBehavior'
 import type { Char } from '../../chars/Char'
 import type { SpriteTileTables } from '../../../SpriteTileLoader'
 
-const OBJ_BASE      = 0x400
+const OBJ_BASE = 0x400
 const CORNER_OFFSETS = [0x00, 0x01, 0x10, 0x11] as const
-// EffFrame >> 3 & 1 — toggles every 8 game frames (bank_02.asm:8079-8083)
+// EffFrame >> 3 & 1 - toggles every 8 game frames (bank_02.asm:8079-8083)
 const ANIM_TICKS = 8
 
 export class SpikeTopAppearance implements SpriteAppearance {
   readonly hitRect: HitRect
-  private tick  = 0
+  private tick = 0
   private frame = 0
 
   constructor(
@@ -39,22 +39,26 @@ export class SpikeTopAppearance implements SpriteAppearance {
    * Both frames expand to four 8×8 corners via the SNES large-OBJ layout
    * [N, N+1, N+$10, N+$11] (bank_01.asm:4148 SubSprGfx2Entry1).
    */
-  static fromTables(chars: Map<number, Char>, tables: SpriteTileTables, placeholder: Char): SpikeTopAppearance {
-    const attr        = tables.spriteAttr[0x2E] ?? 0
-    const palette     = 8 + ((attr >> 1) & 0x07)
-    const charHigh    = (attr & 0x01) !== 0 ? 0x100 : 0
-    const tilemapBase = tables.tilemapOffset[0x2E] ?? 0
+  static fromTables(
+    chars: Map<number, Char>,
+    tables: SpriteTileTables,
+    placeholder: Char,
+  ): SpikeTopAppearance {
+    const attr = tables.spriteAttr[0x2e] ?? 0
+    const palette = 8 + ((attr >> 1) & 0x07)
+    const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+    const tilemapBase = tables.tilemapOffset[0x2e] ?? 0
 
     const makeParts = (animOffset: number): SpritePart[] =>
       CORNER_OFFSETS.map((co, corner) => {
         const baseTile = tables.tilemap[tilemapBase + animOffset] ?? 0
         return {
-          char:  chars.get(OBJ_BASE + charHigh + ((baseTile + co) & 0x1FF)) ?? placeholder,
+          char: chars.get(OBJ_BASE + charHigh + ((baseTile + co) & 0x1ff)) ?? placeholder,
           palette,
           flipX: false,
           flipY: false,
-          dx:    tables.dispX[corner] ?? 0,
-          dy:    tables.dispY[corner] ?? 0,
+          dx: tables.dispX[corner] ?? 0,
+          dy: tables.dispY[corner] ?? 0,
         }
       })
 
@@ -62,11 +66,20 @@ export class SpikeTopAppearance implements SpriteAppearance {
   }
 
   tickAnimation(): void {
-    if (++this.tick >= ANIM_TICKS) { this.tick = 0; this.frame ^= 1 }
+    if (++this.tick >= ANIM_TICKS) {
+      this.tick = 0
+      this.frame ^= 1
+    }
   }
 
-  render(target: RenderTarget, x: number, y: number, _behavior: SpriteBehavior, mapStore: MapStore): void {
-    for (const p of (this.frame === 0 ? this.parts0 : this.parts1)) {
+  render(
+    target: RenderTarget,
+    x: number,
+    y: number,
+    _behavior: SpriteBehavior,
+    mapStore: MapStore,
+  ): void {
+    for (const p of this.frame === 0 ? this.parts0 : this.parts1) {
       target.blit8x8(
         p.char.getPixels(),
         { x: x + p.dx, y: y + p.dy },

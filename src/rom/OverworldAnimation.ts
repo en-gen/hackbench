@@ -8,7 +8,7 @@
  * The actual animation work in vanilla SMW splits into three mechanisms:
  *
  *   1. Water (`bank_04.asm:74-93`):
- *      A bit-rotate in place on bytes of `GfxDecompOWAni` — every 8 frames
+ *      A bit-rotate in place on bytes of `GfxDecompOWAni` - every 8 frames
  *      (`TrueFrame & $07 == 0`) a 32-byte block is rotated left or right
  *      depending on bit 3 of the index. Pure pixel-shimmer, no source bytes.
  *   2. Waterfall (`bank_04.asm:97-110`):
@@ -20,7 +20,7 @@
  *      at that pointer are DMA'd into `GfxDecompOWAni` at a fixed offset.
  *
  * For the viewer's first pass we only surface the `DATA_048006` pointer
- * table — that's the only animation data with a stable ROM source. The
+ * table - that's the only animation data with a stable ROM source. The
  * water/waterfall pixel rotators do not have ROM-side data to surface
  * (their state is purely live VRAM during play). The viewer toggle for
  * "Animation" can drive a webview-side timer; the actual frame-swap
@@ -43,7 +43,7 @@ export const OW_ANIM_FRAME_COUNT = 64
 export const OW_ANIM_PERIOD_FRAMES = 8
 
 /** Bank for animation tile-data pointers (used at runtime by `[_0],Y` with `_2=$7E`). */
-export const OW_ANIM_DATA_BANK = 0x7E
+export const OW_ANIM_DATA_BANK = 0x7e
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

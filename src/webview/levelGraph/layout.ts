@@ -36,7 +36,8 @@ export const MARGIN = 20
  * depth toward the pass cap.
  */
 function findBackEdges(nodeIds: number[], adj: Map<number, number[]>): Set<string> {
-  const GREY = 1, BLACK = 2
+  const GREY = 1,
+    BLACK = 2
   const color = new Map<number, number>()
   const backEdges = new Set<string>()
 
@@ -103,7 +104,7 @@ export function buildLayout(
   while (qi < queue.length) {
     const id = queue[qi++]
     const d = depth.get(id)!
-    for (const nb of (adj.get(id) ?? [])) {
+    for (const nb of adj.get(id) ?? []) {
       if (!depth.has(nb)) {
         depth.set(nb, d + 1)
         queue.push(nb)
@@ -165,7 +166,7 @@ export function buildLayout(
   // pushed far ahead by a long forward chain) would otherwise leave a
   // narrower canvas than the x-coordinates it renders.
   const maxDepth = allDepths.length > 0 ? allDepths[allDepths.length - 1]! : 0
-  const width  = MARGIN * 2 + (maxDepth + 1) * (NODE_W + COL_GAP)
+  const width = MARGIN * 2 + (maxDepth + 1) * (NODE_W + COL_GAP)
   const height = MARGIN * 2 + totalHeight
   // backEdges is returned so the renderer can drop exactly the cycle-closing
   // edges this pass identified, rather than re-deriving them from geometry

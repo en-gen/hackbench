@@ -1,11 +1,11 @@
 /**
- * BlurpBehavior — constants match the ROM port (`bank_03.asm:556-565`).
+ * BlurpBehavior - constants match the ROM port (`bank_03.asm:556-565`).
  *
  *   BlurpSpeedX    = $08, $F8        → ±$08 sub-px/frame  (X)
  *   BlurpMaxSpeedY = $04, $FC        → ±$04 cap            (Y triangle)
  *   BlurpAccelY    = $01, $FF        → ±1 per 4 frames     (Y triangle)
  *
- * Y amplitude — integrating speed across half a cycle (16 ticks per
+ * Y amplitude - integrating speed across half a cycle (16 ticks per
  * direction × 4 frames per tick): 1+1+1+1+2+2+2+2+3+3+3+3+4+4+4+4 then
  * decel back to 0 = sum 64 speed-units. Position update uses
  * `speed * 16` sub-pixel offsets per frame (256 sub-px = 1 px), so

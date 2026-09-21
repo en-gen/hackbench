@@ -1,11 +1,11 @@
 /**
- * Audio engine webview — SPC playback via @smwcentral/spc-player Backend.
+ * Audio engine webview - SPC playback via @smwcentral/spc-player Backend.
  *
  * The spc.js (Emscripten-compiled snes_spc) is loaded before this script.
  * It provides window.SMWCentral.SPCPlayer.Backend with the low-level API:
- *   Backend.initialize()  — create AudioContext
- *   Backend.loadSPC(spc)  — load Uint8Array SPC, start playback
- *   Backend.stopSPC()     — stop
+ *   Backend.initialize()  - create AudioContext
+ *   Backend.loadSPC(spc)  - load Uint8Array SPC, start playback
+ *   Backend.stopSPC()     - stop
  *
  * Messages FROM extension:
  *   { type: 'play',   spcData: number[] }
@@ -75,10 +75,11 @@ function playSpc(spcData: Uint8Array): void {
     unlockAndPlay(spcData)
   } else {
     // AudioContext can only be resumed from a user gesture inside this frame.
-    // Queue the SPC data and show a prompt — the next click unlocks audio.
+    // Queue the SPC data and show a prompt - the next click unlocks audio.
     pendingPlay = spcData
     document.body.style.display = ''
-    document.body.innerHTML = `<div style="
+    document.body.innerHTML =
+      `<div style="
       display:flex;align-items:center;justify-content:center;height:100%;
       cursor:pointer;font:12px var(--vscode-font-family,system-ui);
       color:var(--vscode-foreground,#ccc);user-select:none;
@@ -96,7 +97,7 @@ function stopPlayback(): void {
 
 // ── Message handler ──────────────────────────────────────────────────────────
 
-window.addEventListener('message', (event) => {
+window.addEventListener('message', event => {
   const msg = event.data
   switch (msg.type) {
     case 'play':
@@ -115,18 +116,22 @@ window.addEventListener('message', (event) => {
 })
 
 // ── Unlock audio on first user gesture inside the webview ────────────────────
-document.addEventListener('click', function onFirstClick() {
-  document.removeEventListener('click', onFirstClick)
-  audioUnlocked = true
-  const prompt = document.body.querySelector('div')
-  if (prompt) prompt.remove()
-  console.log('[AUDIO] User gesture received, audio unlocked')
-  if (pendingPlay) {
-    const data = pendingPlay
-    pendingPlay = null
-    unlockAndPlay(data)
-  }
-}, { once: true })
+document.addEventListener(
+  'click',
+  function onFirstClick() {
+    document.removeEventListener('click', onFirstClick)
+    audioUnlocked = true
+    const prompt = document.body.querySelector('div')
+    if (prompt) prompt.remove()
+    console.log('[AUDIO] User gesture received, audio unlocked')
+    if (pendingPlay) {
+      const data = pendingPlay
+      pendingPlay = null
+      unlockAndPlay(data)
+    }
+  },
+  { once: true },
+)
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 // Wait a tick for spc.js WASM to finish initializing

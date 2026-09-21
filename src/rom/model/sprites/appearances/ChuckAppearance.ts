@@ -18,14 +18,14 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  *
  * The base class deliberately stays in the appearance layer
  * (`src/rom/model/sprites/appearances/`) because face direction in the
- * editor is a render-time concern — `marioStartPx` is read once at sprite
+ * editor is a render-time concern - `marioStartPx` is read once at sprite
  * construction and frozen into the parts list, no per-frame movement
  * simulation involved. Per `src/rom/model/sprites/CLAUDE.md`, behavior
  * classes are reserved for movement physics and overlay data.
  *
  * ## Naming convention
  *
- * Every concrete subclass MUST be named `<Variant>ChuckAppearance` — i.e.
+ * Every concrete subclass MUST be named `<Variant>ChuckAppearance` - i.e.
  * keep the `*Appearance` suffix that all sprite-appearance classes use
  * (mirroring `StaticSpriteAppearance`, `KoopaAppearance`, etc.). Current
  * subclasses:
@@ -60,9 +60,13 @@ export abstract class ChuckAppearance extends StaticSpriteAppearance {
   ): SpritePart[] {
     const co = flipX ? [0x01, 0x00, 0x11, 0x10] : [0x00, 0x01, 0x10, 0x11]
     return co.map((off, i) => ({
-      char: chars.get(ChuckAppearance.OBJ_BASE + charHigh + ((baseTile + off) & 0x1FF)) ?? placeholder,
-      palette, flipX, flipY: false,
-      dx: bdx + [0, 8, 0, 8][i], dy: bdy + [0, 0, 8, 8][i],
+      char:
+        chars.get(ChuckAppearance.OBJ_BASE + charHigh + ((baseTile + off) & 0x1ff)) ?? placeholder,
+      palette,
+      flipX,
+      flipY: false,
+      dx: bdx + [0, 8, 0, 8][i],
+      dy: bdy + [0, 0, 8, 8][i],
     }))
   }
 
@@ -78,19 +82,36 @@ export abstract class ChuckAppearance extends StaticSpriteAppearance {
     charHigh: number,
   ): SpritePart {
     return {
-      char: chars.get(ChuckAppearance.OBJ_BASE + charHigh + (tile & 0x1FF)) ?? placeholder,
-      palette, flipX, flipY: false, dx, dy,
+      char: chars.get(ChuckAppearance.OBJ_BASE + charHigh + (tile & 0x1ff)) ?? placeholder,
+      palette,
+      flipX,
+      flipY: false,
+      dx,
+      dy,
     }
   }
 
-  /** Curried builder pair — the typical pattern in chuck `fromTables` methods.
+  /** Curried builder pair - the typical pattern in chuck `fromTables` methods.
    *  Saves boilerplate when many calls share the same chars/placeholder. */
   static builders(chars: Map<number, Char>, placeholder: Char) {
     return {
-      bigTile: (baseTile: number, bdx: number, bdy: number, flipX: boolean, palette: number, charHigh: number) =>
+      bigTile: (
+        baseTile: number,
+        bdx: number,
+        bdy: number,
+        flipX: boolean,
+        palette: number,
+        charHigh: number,
+      ) =>
         ChuckAppearance.bigTile(chars, placeholder, baseTile, bdx, bdy, flipX, palette, charHigh),
-      smallTile: (tile: number, dx: number, dy: number, flipX: boolean, palette: number, charHigh: number) =>
-        ChuckAppearance.smallTile(chars, placeholder, tile, dx, dy, flipX, palette, charHigh),
+      smallTile: (
+        tile: number,
+        dx: number,
+        dy: number,
+        flipX: boolean,
+        palette: number,
+        charHigh: number,
+      ) => ChuckAppearance.smallTile(chars, placeholder, tile, dx, dy, flipX, palette, charHigh),
     }
   }
 
@@ -99,12 +120,12 @@ export abstract class ChuckAppearance extends StaticSpriteAppearance {
    *  Format (bank_07.asm Sprite166EVals): `vhopppcc`
    *    bit 0     = charHigh select ($100 when set, $000 otherwise)
    *    bits 3-1  = OBJ palette index N → CGRAM row 8+N
-   *  bits 6-4 are priority/X/V flags — not consumed here; that lives on
+   *  bits 6-4 are priority/X/V flags - not consumed here; that lives on
    *  the renderer side in mapStore.palette.row().
    */
   static bodyAttrs(attr: number): { palette: number; charHigh: number } {
     return {
-      palette:  8 + ((attr >> 1) & 0x07),
+      palette: 8 + ((attr >> 1) & 0x07),
       charHigh: (attr & 0x01) !== 0 ? 0x100 : 0,
     }
   }

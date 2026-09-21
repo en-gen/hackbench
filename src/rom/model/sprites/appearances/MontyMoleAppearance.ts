@@ -28,18 +28,19 @@ const OBJ_CHAR_BASE = 0x400
  * big-tile N covers [N, N+1, N+$10, N+$11].
  */
 const CORNER_OFFSET = [0x00, 0x01, 0x10, 0x11] as const
-const SUB_DX        = [0, 8, 0, 8] as const
-const SUB_DY        = [0, 0, 8, 8] as const
+const SUB_DX = [0, 8, 0, 8] as const
+const SUB_DY = [0, 0, 8, 8] as const
 
 function bigTileParts(
-  chars:       Map<number, Char>,
-  baseTile:    number,
-  palette:     number,
-  charHigh:    number,
+  chars: Map<number, Char>,
+  baseTile: number,
+  palette: number,
+  charHigh: number,
   placeholder: Char,
 ): SpritePart[] {
   return [0, 1, 2, 3].map(c => ({
-    char: chars.get(OBJ_CHAR_BASE + charHigh + ((baseTile + CORNER_OFFSET[c]) & 0x1FF)) ?? placeholder,
+    char:
+      chars.get(OBJ_CHAR_BASE + charHigh + ((baseTile + CORNER_OFFSET[c]) & 0x1ff)) ?? placeholder,
     palette,
     flipX: false,
     flipY: false,
@@ -86,7 +87,7 @@ export const EMERGED_DY = -16
 export const EMERGED_ALPHA = 0.5
 
 /** `EffFrame >> 4 & 1` (bank_01.asm:13392-13397): 16 game frames per pose. */
-export const ANIM_ROM_FRAMES       = 16
+export const ANIM_ROM_FRAMES = 16
 export const ANIM_CYCLE_ROM_FRAMES = ANIM_ROM_FRAMES * 2
 
 /**
@@ -119,8 +120,8 @@ export class MontyMoleAppearance extends StaticSpriteAppearance {
    * Empty = no annotation.
    */
   constructor(
-    readonly parts0:       readonly SpritePart[],
-    readonly parts1:       readonly SpritePart[],
+    readonly parts0: readonly SpritePart[],
+    readonly parts1: readonly SpritePart[],
     readonly emergedParts: readonly SpritePart[] = [],
   ) {
     super(parts0)
@@ -149,22 +150,22 @@ export class MontyMoleAppearance extends StaticSpriteAppearance {
     tables: SpriteTileTables,
     placeholder: Char,
   ): MontyMoleAppearance {
-    const attr     = tables.spriteAttr[0x4D] ?? 0
-    const palette  = 8 + ((attr >> 1) & 0x07)
+    const attr = tables.spriteAttr[0x4d] ?? 0
+    const palette = 8 + ((attr >> 1) & 0x07)
     const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
-    const base     = tables.tilemapOffset[0x4D] ?? 0
+    const base = tables.tilemapOffset[0x4d] ?? 0
 
     const makeParts = (animFrame: number, propGroup: number): SpritePart[] =>
       [0, 1, 2, 3].map(corner => {
         const tileByte = tables.tilemap[base + animFrame * 4 + corner] ?? 0
         const gfxFlags = tables.gfxProp[propGroup * 4 + corner] ?? 0
         return {
-          char:  chars.get(OBJ_CHAR_BASE + charHigh + (tileByte & 0x1FF)) ?? placeholder,
+          char: chars.get(OBJ_CHAR_BASE + charHigh + (tileByte & 0x1ff)) ?? placeholder,
           palette,
           flipX: (gfxFlags & 0x40) !== 0,
           flipY: (gfxFlags & 0x80) !== 0,
-          dx:    tables.dispX[corner] ?? 0,
-          dy:    tables.dispY[corner] ?? 0,
+          dx: tables.dispX[corner] ?? 0,
+          dy: tables.dispY[corner] ?? 0,
         }
       })
 
@@ -198,11 +199,11 @@ export class MontyMoleAppearance extends StaticSpriteAppearance {
   }
 
   override render(
-    target:    RenderTarget,
-    x:         number,
-    y:         number,
+    target: RenderTarget,
+    x: number,
+    y: number,
     _behavior: SpriteBehavior,
-    mapStore:  MapStore,
+    mapStore: MapStore,
   ): void {
     for (const p of this.activeParts()) {
       target.blit8x8(
@@ -247,11 +248,11 @@ export class MontyMoleAppearance extends StaticSpriteAppearance {
    * only - which covers every vanilla placement, but not most hack ones.
    */
   override renderAboveL1(
-    target:    RenderTarget,
-    x:         number,
-    y:         number,
+    target: RenderTarget,
+    x: number,
+    y: number,
     _behavior: SpriteBehavior,
-    mapStore:  MapStore,
+    mapStore: MapStore,
   ): void {
     for (const p of this.emergedParts) {
       target.blit8x8(
@@ -264,5 +265,4 @@ export class MontyMoleAppearance extends StaticSpriteAppearance {
       )
     }
   }
-
 }

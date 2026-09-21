@@ -10,7 +10,7 @@ import { buildSurfacePath, MARIO_HAS_FLOOR } from '../../../rom/model/SurfacePat
  */
 export interface SurfaceDrawCtx {
   strokeStyle: string | CanvasGradient | CanvasPattern
-  lineWidth:   number
+  lineWidth: number
   save(): void
   restore(): void
   beginPath(): void
@@ -19,9 +19,9 @@ export interface SurfaceDrawCtx {
   stroke(): void
 }
 
-const TILE_PX       = 16
-const SURFACE_COLOR = '#ffeb3b'  // yellow — distinct from vine green / block-view tints
-const LINE_WIDTH    = 2
+const TILE_PX = 16
+const SURFACE_COLOR = '#ffeb3b' // yellow - distinct from vine green / block-view tints
+const LINE_WIDTH = 2
 
 /**
  * Switch palace state-dependent passthrough. Tile IDs `$06A-$06D` and
@@ -32,7 +32,7 @@ const LINE_WIDTH    = 2
  * in the overlay follows the visual: passable when dotted (default),
  * solid when toggled on.
  *
- * This is an editor preview convention, not a ROM runtime mechanism —
+ * This is an editor preview convention, not a ROM runtime mechanism -
  * per the ASM deep-dive, the game's collision routines never consult
  * `SwitchPalaceColor`. Lives in this overlay file (not in `TileCollision`)
  * because the tile's `marioFloor` / `marioCeiling` / `marioWall` fields
@@ -40,15 +40,13 @@ const LINE_WIDTH    = 2
  */
 function switchPalacePassable(id: number, state: readonly boolean[]): boolean {
   const color =
-    id >= 0x06A && id <= 0x06D ? id - 0x06A :
-    id >= 0x16A && id <= 0x16D ? id - 0x16A :
-    -1
+    id >= 0x06a && id <= 0x06d ? id - 0x06a : id >= 0x16a && id <= 0x16d ? id - 0x16a : -1
   if (color < 0) return false
   return !state[color]
 }
 
 /**
- * Draw the "Show surfaces" overlay — a 2px yellow line along the top
+ * Draw the "Show surfaces" overlay - a 2px yellow line along the top
  * edge of every L1 cell that is a Mario-floor (standable from above),
  * the bottom edge of every Mario-ceiling (bonkable from below), and a
  * pixel-accurate diagonal polyline along the collision surface of every
@@ -69,7 +67,7 @@ function switchPalacePassable(id: number, state: readonly boolean[]): boolean {
  * segments tracing the ROM's `DATA_00E632` surface Y per pixel column.
  * Each cell emits an independent sub-path (no cross-tile connection) so
  * the visual matches the per-tile dispatch in `CODE_00ED86`. Slope
- * cells do NOT also draw a horizontal floor line — `marioFloor` is
+ * cells do NOT also draw a horizontal floor line - `marioFloor` is
  * `false` for slopes by design (feet-landing returns `'slope'`, not
  * `'land'`).
  */
@@ -97,7 +95,7 @@ export function drawSurfaces(
 
   // Floor surfaces come from SurfacePath with the Mario predicate.
   // This is the SAME source of truth `KoopaWalkBehavior.scanBoundary`
-  // consumes — silhouette suppression, slope-vs-flat classification,
+  // consumes - silhouette suppression, slope-vs-flat classification,
   // priority-decorative passthrough are all decided in one place.
   const path = buildSurfacePath(getL1, cols, rows, { hasFloor: MARIO_HAS_FLOOR })
 
@@ -124,7 +122,7 @@ export function drawSurfaces(
 
   octx.save()
   octx.strokeStyle = SURFACE_COLOR
-  octx.lineWidth   = LINE_WIDTH
+  octx.lineWidth = LINE_WIDTH
   octx.beginPath()
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -143,18 +141,18 @@ export function drawSurfaces(
           // any horizontally-adjacent tile's collision. Heights are
           // ROM-derived 0..15 for the $6E-$D7 range; mask defensively
           // in case hacked ROMs seed out-of-range values.
-          octx.moveTo(x, y + (slope.heights[0] & 0x0F))
+          octx.moveTo(x, y + (slope.heights[0] & 0x0f))
           for (let px = 1; px < TILE_PX; px++) {
-            octx.lineTo(x + px, y + (slope.heights[px] & 0x0F))
+            octx.lineTo(x + px, y + (slope.heights[px] & 0x0f))
           }
-          octx.lineTo(x + TILE_PX, y + (slope.heights[TILE_PX - 1] & 0x0F))
+          octx.lineTo(x + TILE_PX, y + (slope.heights[TILE_PX - 1] & 0x0f))
         } else {
-          octx.moveTo(x,           y)
+          octx.moveTo(x, y)
           octx.lineTo(x + TILE_PX, y)
         }
       }
       if (cell.collision?.marioCeiling && !marioCeilingAt(c, r + 1)) {
-        octx.moveTo(x,           y + TILE_PX)
+        octx.moveTo(x, y + TILE_PX)
         octx.lineTo(x + TILE_PX, y + TILE_PX)
       }
     }

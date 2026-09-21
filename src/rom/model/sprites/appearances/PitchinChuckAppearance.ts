@@ -11,7 +11,7 @@ import type { SpritePart } from './StaticSpriteAppearance'
  * the head pulled back and slightly down.
  *
  * Geometry verified directly via Mesen sprite inspector against a face-LEFT
- * Pitchin' Chuck on level $015 (DP1) — captured slots:
+ * Pitchin' Chuck on level $015 (DP1) - captured slots:
  *
  *     | Slot | Tile | OAM (X, Y)  | H-flip | Notes                |
  *     |------|------|-------------|--------|----------------------|
@@ -40,7 +40,7 @@ import type { SpritePart } from './StaticSpriteAppearance'
  *   face-LEFT (Mario left). `ChuckHeadTiles[0]` and `[4]` both = $06, so
  *   the head tile is the same for both faces. `DATA_02C885[0]=$40`
  *   forces hflip face-RIGHT; `DATA_02C885[4]=$00` keeps the head clear
- *   face-LEFT — matches Mesen.
+ *   face-LEFT - matches Mesen.
  *
  *   Pose $18 OAM (CODE_02C81A → 02C88C / 02CA27, bank_02.asm):
  *     head    $06 16×16 at dx=∓DATA_02C830[$18] = ∓8, dy=DATA_02C84A[$18]=-8
@@ -55,7 +55,7 @@ import type { SpritePart } from './StaticSpriteAppearance'
  *             dy = 0 (hardcoded)
  *             hflip = base XOR DATA_02C9D9[$18]=$00
  *
- *   baseball  Sprite $19 (Baseball) — separately spawned by Pitchin's
+ *   baseball  Sprite $19 (Baseball) - separately spawned by Pitchin's
  *             throw routine; not part of CODE_02CB53's pose-$14..$19 ball
  *             draw. Mesen captures it mid-flight at chuck_x − 20 face-LEFT,
  *             palette 4 (CGRAM row 12) charHigh $100 hflipped (default
@@ -79,22 +79,22 @@ export class PitchinChuckAppearance extends ChuckAppearance {
     const { bigTile, smallTile } = ChuckAppearance.builders(chars, placeholder)
     // Baseball OAM: palette 4 (CGRAM row 12), charHigh $100, hardcoded
     // attr $09 in CODE_02CB53 family. Baseball travel direction sets the
-    // hflip — face-LEFT chuck → ball moves left → hflip TRUE.
-    const ballPalette  = 12
+    // hflip - face-LEFT chuck → ball moves left → hflip TRUE.
+    const ballPalette = 12
     const ballCharHigh = 0x100
 
     const parts: SpritePart[] = faceRight
       ? [
-          ...bigTile(0x06,   8,  -8, true,  bodyPalette, bodyCharHigh),  // head hflipped (DATA_02C885[0]=$40)
-          ...bigTile(0xA4,   0,   0, true,  bodyPalette, bodyCharHigh),  // body2 16x16, hflip
-          smallTile(0xBD,   16,   0, true,  bodyPalette, bodyCharHigh),  // body1 8x8 at face-RIGHT dx=+16
-          smallTile(0xAD,   20,   0, false, ballPalette, ballCharHigh),  // baseball flying right
+          ...bigTile(0x06, 8, -8, true, bodyPalette, bodyCharHigh), // head hflipped (DATA_02C885[0]=$40)
+          ...bigTile(0xa4, 0, 0, true, bodyPalette, bodyCharHigh), // body2 16x16, hflip
+          smallTile(0xbd, 16, 0, true, bodyPalette, bodyCharHigh), // body1 8x8 at face-RIGHT dx=+16
+          smallTile(0xad, 20, 0, false, ballPalette, ballCharHigh), // baseball flying right
         ]
       : [
-          ...bigTile(0x06,  -8,  -8, false, bodyPalette, bodyCharHigh),  // head no flip (DATA_02C885[4]=$00)
-          ...bigTile(0xA4,   0,   0, false, bodyPalette, bodyCharHigh),  // body2 16x16
-          smallTile(0xBD,   -8,   0, false, bodyPalette, bodyCharHigh),  // body1 8x8 at face-LEFT dx=-8
-          smallTile(0xAD,  -20,   0, true,  ballPalette, ballCharHigh),  // baseball flying left, hflip
+          ...bigTile(0x06, -8, -8, false, bodyPalette, bodyCharHigh), // head no flip (DATA_02C885[4]=$00)
+          ...bigTile(0xa4, 0, 0, false, bodyPalette, bodyCharHigh), // body2 16x16
+          smallTile(0xbd, -8, 0, false, bodyPalette, bodyCharHigh), // body1 8x8 at face-LEFT dx=-8
+          smallTile(0xad, -20, 0, true, ballPalette, ballCharHigh), // baseball flying left, hflip
         ]
     return new PitchinChuckAppearance(parts)
   }

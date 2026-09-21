@@ -13,28 +13,26 @@
 export const SCREEN_W = 16
 /** Tiles per screen vertically (horizontal levels). */
 export const SCREEN_H = 27
-/** Tiles per screen vertically (vertical levels — screens stack downward, 16 rows each). */
+/** Tiles per screen vertically (vertical levels - screens stack downward, 16 rows each). */
 export const SCREEN_H_VERT = 16
-/** Tiles per screen horizontally (vertical levels — always 32 tiles wide, 2 sub-screens). */
+/** Tiles per screen horizontally (vertical levels - always 32 tiles wide, 2 sub-screens). */
 export const SCREEN_W_VERT = 32
 
 /**
- * VerticalTable from bank_05.asm line 480-484 — indexed by 5-bit levelMode.
+ * VerticalTable from bank_05.asm line 480-484 - indexed by 5-bit levelMode.
  *   Format per entry: ?uuuuu?v  (v=bit 0 = Layer 1 vertical, bit 1 = Layer 2 vertical,
  *   bit 7 = "special" flag set for boss levels; we only care about bit 0 here).
  * The game loads this into ScreenMode ($7E:005B) in CODE_0584E3; rammap.asm:481
  * confirms `!ScrMode_Layer1Vert = %01`.
  */
 const LEVEL_MODE_VERTICAL_TABLE: readonly number[] = [
-  0x00, 0x00, 0x80, 0x01, 0x81, 0x02, 0x82, 0x03,
-  0x83, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80,
+  0x00, 0x00, 0x80, 0x01, 0x81, 0x02, 0x82, 0x03, 0x83, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80,
 ]
 
 /** True if a level's Layer 1 is vertical, per the ROM's VerticalTable (bit 0). */
 export function isLevelModeVertical(levelMode: number): boolean {
-  const entry = LEVEL_MODE_VERTICAL_TABLE[levelMode & 0x1F] ?? 0
+  const entry = LEVEL_MODE_VERTICAL_TABLE[levelMode & 0x1f] ?? 0
   return (entry & 0x01) !== 0
 }
 
@@ -45,7 +43,7 @@ export function isLevelModeVertical(levelMode: number): boolean {
  * lives at position 1 of the same table entry.
  */
 export function isLevelModeVerticalL2(levelMode: number): boolean {
-  const entry = LEVEL_MODE_VERTICAL_TABLE[levelMode & 0x1F] ?? 0
+  const entry = LEVEL_MODE_VERTICAL_TABLE[levelMode & 0x1f] ?? 0
   return (entry & 0x02) !== 0
 }
 
@@ -60,20 +58,20 @@ export function isLevelModeVerticalL2(levelMode: number): boolean {
  *   Byte 4: IIVVOOOO  I=item memory[7:6], V=vert scroll[5:4], O=object tileset[3:0]
  */
 export interface LevelHeader {
-  raw: number[]          // all 5 header bytes
-  bgPalette: number      // 3-bit BG palette row (byte 0 bits 7-5)     -- CODE_0584E3 line 530-536
-  levelLength: number    // 5-bit screen count (byte 0 bits 4-0) + 1   -- CODE_0584E3 line 527-529
-  bgColor: number        // 3-bit back area color (byte 1 bits 7-5)    -- CODE_0584E3 line 562-568
-  levelMode: number      // 5-bit level mode (byte 1 bits 4-0)         -- CODE_0584E3 line 539-540
+  raw: number[] // all 5 header bytes
+  bgPalette: number // 3-bit BG palette row (byte 0 bits 7-5)     -- CODE_0584E3 line 530-536
+  levelLength: number // 5-bit screen count (byte 0 bits 4-0) + 1   -- CODE_0584E3 line 527-529
+  bgColor: number // 3-bit back area color (byte 1 bits 7-5)    -- CODE_0584E3 line 562-568
+  levelMode: number // 5-bit level mode (byte 1 bits 4-0)         -- CODE_0584E3 line 539-540
   layer3Priority: boolean // byte 2 bit 7                              -- CODE_0584E3 line 590-597
-  music: number          // 3-bit music index (byte 2 bits 6-4)        -- CODE_0584E3 line 575-581
-  spriteSet: number      // 4-bit sprite tileset (byte 2 bits 3-0)     -- CODE_0584E3 line 573-574
-  timeLimit: number      // 2-bit time limit (byte 3 bits 7-6)         -- CODE_0584E3 line 601-607
-  spritePalette: number  // 3-bit sprite palette (byte 3 bits 5-3)     -- CODE_0584E3 line 617-622
-  fgPalette: number      // 3-bit FG palette (byte 3 bits 2-0)         -- CODE_0584E3 line 614-616
-  itemMemory: number     // 2-bit item memory (byte 4 bits 7-6)        -- CODE_0584E3 line 628-633
+  music: number // 3-bit music index (byte 2 bits 6-4)        -- CODE_0584E3 line 575-581
+  spriteSet: number // 4-bit sprite tileset (byte 2 bits 3-0)     -- CODE_0584E3 line 573-574
+  timeLimit: number // 2-bit time limit (byte 3 bits 7-6)         -- CODE_0584E3 line 601-607
+  spritePalette: number // 3-bit sprite palette (byte 3 bits 5-3)     -- CODE_0584E3 line 617-622
+  fgPalette: number // 3-bit FG palette (byte 3 bits 2-0)         -- CODE_0584E3 line 614-616
+  itemMemory: number // 2-bit item memory (byte 4 bits 7-6)        -- CODE_0584E3 line 628-633
   verticalScroll: number // 2-bit vertical scroll (byte 4 bits 5-4)    -- CODE_0584E3 line 634-644
-  objectTileset: number  // 4-bit object tileset (byte 4 bits 3-0)     -- CODE_0584E3 line 625-627
+  objectTileset: number // 4-bit object tileset (byte 4 bits 3-0)     -- CODE_0584E3 line 625-627
 }
 
 export type ObjectType = 'standard' | 'extended'
@@ -94,14 +92,14 @@ export type ObjectType = 'standard' | 'extended'
  */
 export interface LevelObject {
   type: ObjectType
-  screen: number       // which screen this object is on (new-screen flag tracking)
-  x: number            // tile X position (absolute: screen * 16 + local x nibble)
-  y: number            // tile Y position (local within screen)
+  screen: number // which screen this object is on (new-screen flag tracking)
+  x: number // tile X position (absolute: screen * 16 + local x nibble)
+  y: number // tile Y position (local within screen)
   objectNumber: number // 6-bit object number ($5A) for normal; extended type ($59) for ext
-  settings: number     // byte 2 ($59) -- size/settings
-  newScreen: boolean   // new screen flag (byte 0 bit 7)
-  highCoord: boolean   // high coordinate flag (byte 0 bit 4)
-  raw: number[]        // original 3 bytes
+  settings: number // byte 2 ($59) -- size/settings
+  newScreen: boolean // new screen flag (byte 0 bit 7)
+  highCoord: boolean // high coordinate flag (byte 0 bit 4)
+  raw: number[] // original 3 bytes
   /**
    * Byte offset of this object's first byte within the raw L1 data, counted
    * from the start of the 5-byte header. Not uniform: most objects are 3
@@ -110,8 +108,8 @@ export interface LevelObject {
    */
   streamOffset: number
   // Backward-compatible aliases used by webview/providers:
-  objectType: number   // = objectNumber for normal, 0x100+objectNumber for extended
-  param: number        // = settings
+  objectType: number // = objectNumber for normal, 0x100+objectNumber for extended
+  param: number // = settings
   /** For screen exit objects: the destination level (primary) or entrance index (secondary). */
   screenExitDest?: number
   /** True if this is a secondary exit (needs DATA_05F800 lookup), false if primary (dest is direct). */
@@ -123,7 +121,7 @@ export interface LevelSprite {
   x: number
   y: number
   spriteId: number
-  extraBit: boolean    // sprite header extra bit
+  extraBit: boolean // sprite header extra bit
   raw: number[]
   /** Position in the sprite stream. The stable way to name a sprite for an
    *  edit: x/y change the moment it is moved, so they cannot identify it. */
@@ -141,7 +139,7 @@ export interface ParsedLevel {
   isVertical: boolean
 }
 
-const HEADER_SIZE = 5   // bytes before object data begins (CODE_0584E3 line 645-651)
+const HEADER_SIZE = 5 // bytes before object data begins (CODE_0584E3 line 645-651)
 
 /**
  * Parse the 5-byte level header from raw L1 data.
@@ -153,20 +151,20 @@ export function parseLevelHeader(data: Buffer | Uint8Array): LevelHeader {
   // Byte 0: PPPNNNNN
   // Line 527: AND #$1F -> screens-1; Line 528: INC A -> screens
   // Line 530-536: LSR x5 -> BG palette
-  const levelLength = (h[0] & 0x1F) + 1
+  const levelLength = (h[0] & 0x1f) + 1
   const bgPalette = (h[0] >> 5) & 0x07
 
   // Byte 1: BBBMMMMM
   // Line 539: AND #$1F -> level mode
   // Line 562-568: LSR x5 -> back area color
-  const levelMode = h[1] & 0x1F
+  const levelMode = h[1] & 0x1f
   const bgColor = (h[1] >> 5) & 0x07
 
   // Byte 2: LMMMSSSS
   // Line 573: AND #$0F -> sprite tileset
   // Line 576-580: LSR x4, AND #$07 -> music
   // Line 590-591: AND #$80 -> layer 3 priority flag
-  const spriteSet = h[2] & 0x0F
+  const spriteSet = h[2] & 0x0f
   const music = (h[2] >> 4) & 0x07
   const layer3Priority = (h[2] & 0x80) !== 0
 
@@ -182,7 +180,7 @@ export function parseLevelHeader(data: Buffer | Uint8Array): LevelHeader {
   // Line 625: AND #$0F -> object tileset
   // Line 628-633: AND #$C0, ASL, ROL, ROL -> item memory (2 bits at 7-6)
   // Line 634-639: AND #$30, LSR x4 -> vertical scroll (2 bits at 5-4)
-  const objectTileset = h[4] & 0x0F
+  const objectTileset = h[4] & 0x0f
   const itemMemory = (h[4] >> 6) & 0x03
   const verticalScroll = (h[4] >> 4) & 0x03
 
@@ -235,7 +233,7 @@ export function parseLevelHeader(data: Buffer | Uint8Array): LevelHeader {
  *   - highCoord (b0 bit 4) selects the right half → col += 16 (cols 16-31)
  *   - new-screen flag advances downward → row += 16 per screen
  *
- * Net effect in grid space (nibble sources are the SAME as horizontal — only
+ * Net effect in grid space (nibble sources are the SAME as horizontal - only
  * the axis that gets screen*16 and highCoord+16 flips):
  *   horizontal: X = screen*16 + b1_low,        Y = b0_low + (16 if highCoord)
  *   vertical:   X = b0_low + (16 if highCoord), Y = screen*16 + b1_low
@@ -248,18 +246,18 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
   const isVertical = isLevelModeVertical(header.levelMode)
 
   const objects: LevelObject[] = []
-  let pos = HEADER_SIZE   // Object data begins after 5-byte header (line 645-651)
+  let pos = HEADER_SIZE // Object data begins after 5-byte header (line 645-651)
   let screen = 0
 
   while (pos < data.length) {
     const b0 = data[pos]
-    if (b0 === undefined || b0 === 0xFF) break   // $FF terminator (line 794)
+    if (b0 === undefined || b0 === 0xff) break // $FF terminator (line 794)
 
     if (pos + 2 >= data.length) break
     const b1 = data[pos + 1]
     const b2 = data[pos + 2]
     const streamOffset = pos
-    pos += 3   // Advance by 3 bytes (line 689-695)
+    pos += 3 // Advance by 3 bytes (line 689-695)
 
     // New screen flag: bit 7 of byte 0 (line 754-758)
     // ASL then ADC with carry = increment screen by 1 when bit 7 set
@@ -275,11 +273,11 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
 
     // Object number: $5A = ($0B >> 4) | (($0A & $60) >> 1)
     // bank_05.asm lines 696-706 (computed BEFORE the XY swap, so using raw b0/b1)
-    const objNumHigh = (b0 & 0x60) >> 1   // bits 6-5 shifted to bits 5-4
-    const objNumLow = (b1 >> 4) & 0x0F     // high nibble of byte 1
+    const objNumHigh = (b0 & 0x60) >> 1 // bits 6-5 shifted to bits 5-4
+    const objNumLow = (b1 >> 4) & 0x0f // high nibble of byte 1
     const objectNumber = objNumLow | objNumHigh
 
-    // Position decoding — bank_05.asm lines 714-724.
+    // Position decoding - bank_05.asm lines 714-724.
     // Horizontal: Y = b0 low, X = b1 low (within 16-col screen at column screen*16).
     // Vertical:   after CODE_0585D8 low-nibble swap, the game interprets positions
     //             against vertical Map16 tables. Net effect in grid space:
@@ -290,13 +288,13 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
     let xAbs: number
     let yAbs: number
     if (isVertical) {
-      xLocal = b0 & 0x0F
-      yLocal = b1 & 0x0F
+      xLocal = b0 & 0x0f
+      yLocal = b1 & 0x0f
       xAbs = xLocal + (highCoord ? 16 : 0)
       yAbs = screen * 16 + yLocal
     } else {
-      yLocal = (b0 & 0x0F) + (highCoord ? 16 : 0)
-      xLocal = b1 & 0x0F
+      yLocal = (b0 & 0x0f) + (highCoord ? 16 : 0)
+      xLocal = b1 & 0x0f
       xAbs = screen * SCREEN_W + xLocal
       yAbs = yLocal
     }
@@ -316,7 +314,7 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
       const extraByte = data[pos]!
       const highBit = b1 & 0x01
       screenExitDest = (highBit << 8) | extraByte
-      screenExitIsSecondary = (b1 >> 1) !== 0
+      screenExitIsSecondary = b1 >> 1 !== 0
       pos += 1
     }
 
@@ -338,14 +336,14 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
       screenExitIsSecondary,
     })
 
-    // Extended object $01 — CODE_0DA53D (bank_0D.asm line 1441):
+    // Extended object $01 - CODE_0DA53D (bank_0D.asm line 1441):
     //   LDA _A; AND #$1F; STA LevelLoadObject
     // Overwrites the screen counter with the low 5 bits of byte 0. This lets
     // level data jump forward to an arbitrary screen without emitting tiles.
     // Must run after the NS-increment for this object so subsequent objects
     // are positioned relative to the new screen value.
     if (isExtended && b2 === 0x01) {
-      screen = b0 & 0x1F
+      screen = b0 & 0x1f
     }
   }
 
@@ -367,7 +365,9 @@ export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 
  * from the L1 header's levelMode.
  */
 export function parseL2Objects(
-  data: Buffer | Uint8Array, _screens: number, isVertical = false,
+  data: Buffer | Uint8Array,
+  _screens: number,
+  isVertical = false,
 ): LevelObject[] {
   const objects: LevelObject[] = []
   // bank_05.asm:462-470 copies Layer2DataPtr+5 into Layer1DataPtr before
@@ -381,7 +381,7 @@ export function parseL2Objects(
 
   while (pos < data.length) {
     const b0 = data[pos]
-    if (b0 === undefined || b0 === 0xFF) break
+    if (b0 === undefined || b0 === 0xff) break
 
     if (pos + 2 >= data.length) break
     const b1 = data[pos + 1]
@@ -394,22 +394,22 @@ export function parseL2Objects(
 
     const highCoord = (b0 & 0x10) !== 0
     const objNumHigh = (b0 & 0x60) >> 1
-    const objNumLow = (b1 >> 4) & 0x0F
+    const objNumLow = (b1 >> 4) & 0x0f
     const objectNumber = objNumLow | objNumHigh
 
     let xAbs: number
     let yAbs: number
     if (isVertical) {
-      xAbs = (b0 & 0x0F) + (highCoord ? 16 : 0)
-      yAbs = screen * 16 + (b1 & 0x0F)
+      xAbs = (b0 & 0x0f) + (highCoord ? 16 : 0)
+      yAbs = screen * 16 + (b1 & 0x0f)
     } else {
       // Horizontal: highCoord (b0 bit 4) extends Y past row 15 into rows
-      // 16-26 of the 27-row screen — matches parseLevelObjects line 285,
+      // 16-26 of the 27-row screen - matches parseLevelObjects line 285,
       // which mirrors bank_05.asm:778-782 ("INC Map16LowPtr+1 → +16 rows").
       // Missing this shifted half of $009's L2 structures (and others) up
       // by 256 px in the editor.
-      xAbs = screen * SCREEN_W + (b1 & 0x0F)
-      yAbs = (b0 & 0x0F) + (highCoord ? 16 : 0)
+      xAbs = screen * SCREEN_W + (b1 & 0x0f)
+      yAbs = (b0 & 0x0f) + (highCoord ? 16 : 0)
     }
 
     const isExtended = objectNumber === 0
@@ -432,7 +432,7 @@ export function parseL2Objects(
 
     // Ext $01 screen-jump: see parseLevelObjects for the ASM reference.
     if (isExtended && b2 === 0x01) {
-      screen = b0 & 0x1F
+      screen = b0 & 0x1f
     }
   }
 
@@ -449,7 +449,7 @@ export function parseL2Objects(
  * Byte layout per bank_02.asm LoadSprFromLevel (lines 5240-5451):
  *   Byte 0: YYYYEEsy
  *     bits 7-4 = Y position within screen, in tiles (16px units)
- *     bits 3-2 = extra bits (EE) — Lunar Magic uses for extended sprite banks
+ *     bits 3-2 = extra bits (EE) - Lunar Magic uses for extended sprite banks
  *     bit 1    = screen-number high bit (s), combined with SSSS to form 5-bit screen
  *     bit 0    = Y-position high bit (y), used only by vertical levels
  *   Byte 1: XXXXSSSS
@@ -469,32 +469,32 @@ export function parseLevelSprites(data: Buffer | Uint8Array, isVertical = false)
   const sprites: LevelSprite[] = []
   if (data.length < 2) return sprites
 
-  let pos = 1  // skip header byte
+  let pos = 1 // skip header byte
 
   while (pos + 2 < data.length) {
     const b0 = data[pos]
-    if (b0 === 0xFF) break
+    if (b0 === 0xff) break
 
     const b1 = data[pos + 1]
     const b2 = data[pos + 2]
     const streamOffset = pos
     pos += 3
 
-    const yyyy = (b0 >> 4) & 0x0F
+    const yyyy = (b0 >> 4) & 0x0f
     const extraBits = (b0 >> 2) & 0x03
     const screenHi = (b0 >> 1) & 0x01
     const yHi = b0 & 0x01
-    const xxxx = (b1 >> 4) & 0x0F
-    const ssss = b1 & 0x0F
+    const xxxx = (b1 >> 4) & 0x0f
+    const ssss = b1 & 0x0f
 
     const screen = (screenHi << 4) | ssss
 
     // Vertical levels swap the meaning of YYYY and XXXX; SSSS still indexes
-    // the (vertical) screen. See bank_02.asm:5427-5437 — YYYY→X low byte,
+    // the (vertical) screen. See bank_02.asm:5427-5437 - YYYY→X low byte,
     // bit 0 (y)→X high byte so X spans SCREEN_W_VERT=32 tiles.
     //
     // Horizontal levels put the y bit into the high byte of Y position
-    // (bank_02.asm:5446, AND #$0D then STA SpriteYPosHigh) — combined with
+    // (bank_02.asm:5446, AND #$0D then STA SpriteYPosHigh) - combined with
     // YYYY*16 pixel low byte, Y spans 0..511 pixels (0..31 tiles), which
     // covers the 27-tile-tall horizontal screen.
     let x: number
@@ -536,11 +536,11 @@ export function parseLevelScreenExits(data: Buffer | Uint8Array, screens: number
   while (pos < data.length) {
     const b = data[pos]
     if (b === undefined) break
-    if (b === 0xFF) {
-      pos += 1   // $FF terminator; exit table starts here
+    if (b === 0xff) {
+      pos += 1 // $FF terminator; exit table starts here
       break
     }
-    pos += 3     // All objects are 3 bytes in the vanilla format
+    pos += 3 // All objects are 3 bytes in the vanilla format
   }
 
   const exits: number[] = []
@@ -573,12 +573,12 @@ export function getObjectStreamLength(data: Buffer | Uint8Array, hasHeader: bool
   while (pos < data.length) {
     const b0 = data[pos]
     if (b0 === undefined) return pos
-    if (b0 === 0xFF) return pos + 1
+    if (b0 === 0xff) return pos + 1
     if (pos + 2 >= data.length) return pos
     const b1 = data[pos + 1]!
     const b2 = data[pos + 2]!
     pos += 3
-    const objNum = ((b0 & 0x60) >> 1) | ((b1 >> 4) & 0x0F)
+    const objNum = ((b0 & 0x60) >> 1) | ((b1 >> 4) & 0x0f)
     if (objNum === 0 && b2 === 0) pos += 1
   }
   return pos
@@ -589,11 +589,11 @@ export function getObjectStreamLength(data: Buffer | Uint8Array, hasHeader: bool
  * (1-byte header + 3-byte sprite entries + $FF terminator).
  */
 export function getSpriteStreamLength(data: Buffer | Uint8Array): number {
-  let pos = 1   // skip 1-byte sprite-memory/buoyancy header
+  let pos = 1 // skip 1-byte sprite-memory/buoyancy header
   while (pos < data.length) {
     const b0 = data[pos]
     if (b0 === undefined) return pos
-    if (b0 === 0xFF) return pos + 1
+    if (b0 === 0xff) return pos + 1
     pos += 3
   }
   return pos

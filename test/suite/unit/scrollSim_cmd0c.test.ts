@@ -1,5 +1,5 @@
 /**
- * scrollSim_cmd0c.test.ts — validate L1 cmd $0C (auto-scroll level)
+ * scrollSim_cmd0c.test.ts - validate L1 cmd $0C (auto-scroll level)
  * against the two vanilla cmd-$0C captures.
  *
  * cmd $0C dispatches via L1 to CODE_05C787. It ramps Layer1ScrollXSpeed
@@ -17,7 +17,13 @@
 
 import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
-import { loadCapture, firstMismatch, simFromCapture, type FieldKey , vanillaRomPresent } from './scrollSim_capture'
+import {
+  loadCapture,
+  firstMismatch,
+  simFromCapture,
+  type FieldKey,
+  vanillaRomPresent,
+} from './scrollSim_capture'
 
 const FIXTURES = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps'
 
@@ -29,13 +35,9 @@ const LEVELS: readonly { id: string; lastScreenHoriz: number }[] = [
 // L1 X-axis fields are what cmd $0C drives. L1 Y stays at the seeded
 // value (no Y motion). L2 fields excluded because parallax derivation
 // alignment is verified by other tests.
-const CHECK_FIELDS: readonly FieldKey[] = [
-  'l1x', 'l1y',
-  'l1xspd', 'l1xupd',
-  'nl1x', 'nl1y',
-]
+const CHECK_FIELDS: readonly FieldKey[] = ['l1x', 'l1y', 'l1xspd', 'l1xupd', 'nl1x', 'nl1y']
 
-describe.skipIf(!vanillaRomPresent)('scrollSim — cmd $0C auto-scroll level validation', () => {
+describe.skipIf(!vanillaRomPresent)('scrollSim - cmd $0C auto-scroll level validation', () => {
   for (const lvl of LEVELS) {
     const csv = `${FIXTURES}/${lvl.id}/l2_scroll.csv`
     describe(`$${lvl.id.toUpperCase()}`, () => {
@@ -54,7 +56,7 @@ describe.skipIf(!vanillaRomPresent)('scrollSim — cmd $0C auto-scroll level val
         if (!fs.existsSync(csv)) return
         const cap = loadCapture(csv)
         const sim = simFromCapture(cap[0], { lastScreenHoriz: lvl.lastScreenHoriz })
-        // Stop at game freeze (Mario stops moving in both axes — e.g.
+        // Stop at game freeze (Mario stops moving in both axes - e.g.
         // death, goal). The capture continues recording past this, but
         // SpriteLock halts the bank_05 scroll handlers and our sim
         // doesn't model it.
@@ -69,7 +71,9 @@ describe.skipIf(!vanillaRomPresent)('scrollSim — cmd $0C auto-scroll level val
         for (let r = 0; r <= activeFrames; r++) {
           const m = firstMismatch(sim.stateAtFrame(r), cap[r], CHECK_FIELDS)
           if (m !== null) {
-            throw new Error(`[$${lvl.id}] mismatch at capture row ${r + 1}/${activeFrames + 1}: ${m}`)
+            throw new Error(
+              `[$${lvl.id}] mismatch at capture row ${r + 1}/${activeFrames + 1}: ${m}`,
+            )
           }
         }
       })

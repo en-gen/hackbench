@@ -24,7 +24,7 @@ export interface LevelHeader {
    */
   vertLayer2Setting?: number
   horizLayer2Setting?: number
-  /** True when BG3 priority is set — L3 draws in front of L1 non-priority tiles. */
+  /** True when BG3 priority is set - L3 draws in front of L1 non-priority tiles. */
   layer3Priority?: boolean
   /**
    * Initial Layer1YPos (camera Y) in pixels, from DATA_05D708 via
@@ -57,7 +57,7 @@ export class SmwMap {
      * L1 tilemap as a 2D (row, col) table of Map16 ids (or null for
      * empty). The actual Tile instances live in `l1Tiles`; callers that
      * need them resolve `l1Tiles.get(id)`. Storing ids keeps the map a
-     * data table and makes the editing model straightforward — replacing
+     * data table and makes the editing model straightforward - replacing
      * a tile is a number write, not a reference swap.
      */
     readonly l1: (number | null)[][],
@@ -72,7 +72,7 @@ export class SmwMap {
      *  produces). Shared with any L2ObjectStream that points at L1. */
     readonly l1Tiles: Map<number, Tile>,
     /**
-     * Full 512-entry BG Map16 tile palette for this level's tileset —
+     * Full 512-entry BG Map16 tile palette for this level's tileset -
      * always loaded, independent of whether this level's L2 layout
      * references every entry. The Map16 viewer surface (pages 0x80 /
      * 0x81) renders from this, so an editor always shows the whole
@@ -102,9 +102,9 @@ export class SmwMap {
       return out
     }
     const occupancy: PassOccupancy = {
-      l1:      bgPhases(this.l1Phases()),
-      l2:      bgPhases(this.l2?.phases(this.mapStore) ?? new Set()),
-      l3:      bgPhases(this.l3?.phases() ?? new Set()),
+      l1: bgPhases(this.l1Phases()),
+      l2: bgPhases(this.l2?.phases(this.mapStore) ?? new Set()),
+      l3: bgPhases(this.l3?.phases() ?? new Set()),
       sprites: new Set(this.sprites.map(s => s.priority.value)),
     }
     return livePasses(this.header.layer3Priority ?? false, occupancy)
@@ -143,9 +143,15 @@ export class SmwMap {
       if (rank(pass) > annotateAfter) annotate()
       const phase: Phase = pass.priority === 1 ? 'priority' : 'nonPriority'
       switch (pass.layer) {
-        case 'l1': if (toggles.l1) this.renderL1(target, phase); break
-        case 'l2': if (toggles.l2) this.l2?.render(target, this.mapStore, phase); break
-        case 'l3': if (toggles.l3) this.l3?.render(target, this.mapStore, phase); break
+        case 'l1':
+          if (toggles.l1) this.renderL1(target, phase)
+          break
+        case 'l2':
+          if (toggles.l2) this.l2?.render(target, this.mapStore, phase)
+          break
+        case 'l3':
+          if (toggles.l3) this.l3?.render(target, this.mapStore, phase)
+          break
         case 'sprites':
           for (const sprite of sprites) {
             if (sprite.priority.value === pass.priority) sprite.render(target, this.mapStore)
@@ -214,13 +220,13 @@ export class SmwMap {
    *                   annotation is currently toggled on by the user.
    */
   renderSpriteOverlays(ctx: OverlayContext, activeKeys: ReadonlySet<string>): void {
-    const rows     = this.l1.length
-    const cols     = this.l1[0]?.length ?? 0
+    const rows = this.l1.length
+    const cols = this.l1[0]?.length ?? 0
     // Priority-1 decorative tiles (foreground grass, backdrop tubes, etc.)
     // render in front of sprites but pass through sprite collision per
     // SMW's bank_01 interaction routines. Filter them out once here so every
     // sprite overlay sees a collision-correct L1 grid without open-coding
-    // the check — matches CODE_01928E's "actsLike is gospel except when the
+    // the check - matches CODE_01928E's "actsLike is gospel except when the
     // quad is all-priority decoration" semantics.
     // Emit the priority-decorative status as a cell field rather than
     // filtering the cell to null. Per-predicate consumers decide the
@@ -237,9 +243,16 @@ export class SmwMap {
     }
     for (const sprite of this.sprites) {
       if (!sprite.appearance.renderOverlay) continue
-      const key    = spriteOverlayKey(sprite)
+      const key = spriteOverlayKey(sprite)
       sprite.renderOverlay(
-        ctx, sprite.x, sprite.y, activeKeys.has(key), getL1, cols, rows, this.mapStore,
+        ctx,
+        sprite.x,
+        sprite.y,
+        activeKeys.has(key),
+        getL1,
+        cols,
+        rows,
+        this.mapStore,
       )
     }
   }

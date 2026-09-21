@@ -48,7 +48,11 @@ class OrderRecorder implements RenderTarget {
   fillRect(_p: PixelPos, _s: PixelSize, _c: RgbaColor): void {}
 }
 
-function quad(t: OrderRecorder, ids: [number, number, number, number], priority: boolean): SubtileQuad {
+function quad(
+  t: OrderRecorder,
+  ids: [number, number, number, number],
+  priority: boolean,
+): SubtileQuad {
   return ids.map(id => new SubTile(t.char(id), 0, false, false, priority)) as unknown as SubtileQuad
 }
 
@@ -58,7 +62,8 @@ function makePalette(): Palette {
   const black: RgbaColor = [0, 0, 0, 255]
   return new Palette(
     Array.from({ length: 16 }, () =>
-      Array.from({ length: 16 }, () => new Color(new StaticColorBehavior(black)))),
+      Array.from({ length: 16 }, () => new Color(new StaticColorBehavior(black))),
+    ),
     new Color(new StaticColorBehavior(black)),
   )
 }
@@ -90,15 +95,23 @@ function buildMap(parts: MapParts, mapStore: MapStore, palette: Palette): SmwMap
   return new SmwMap(
     0,
     {
-      mode: 0, music: 0, tileset: 0, orientation: 'horizontal',
+      mode: 0,
+      music: 0,
+      tileset: 0,
+      orientation: 'horizontal',
       layer3Priority: parts.layer3Priority ?? false,
-      initialCameraYPx: 0, timeLimit: 0, marioStartPx: { x: 0, y: 0 },
+      initialCameraYPx: 0,
+      timeLimit: 0,
+      marioStartPx: { x: 0, y: 0 },
     },
     parts.l1 ?? [[0]],
     parts.l2 ?? null,
     parts.l3 ?? null,
     parts.sprites ?? [],
-    palette, 0, 1, [0],
+    palette,
+    0,
+    1,
+    [0],
     parts.l1Tiles ?? new Map(),
     new Map(),
     mapStore,
@@ -111,8 +124,16 @@ describe('ppuDrawOrder', () => {
       const keys = ppuDrawOrder(bit).map(p => `${p.layer}.${p.priority}`)
       expect(new Set(keys).size).toBe(keys.length)
       expect(keys.sort()).toEqual([
-        'l1.0', 'l1.1', 'l2.0', 'l2.1', 'l3.0', 'l3.1',
-        'sprites.0', 'sprites.1', 'sprites.2', 'sprites.3',
+        'l1.0',
+        'l1.1',
+        'l2.0',
+        'l2.1',
+        'l3.0',
+        'l3.1',
+        'sprites.0',
+        'sprites.1',
+        'sprites.2',
+        'sprites.3',
       ])
     }
   })
@@ -144,10 +165,17 @@ describe('livePasses', () => {
   const none = new Set<number>()
   it('keeps only occupied pairs and never reorders them', () => {
     const passes = livePasses(false, {
-      l1: new Set([0, 1]), l2: none, l3: none, sprites: new Set([1, 2]),
+      l1: new Set([0, 1]),
+      l2: none,
+      l3: none,
+      sprites: new Set([1, 2]),
     })
-    expect(passes.map(p => `${p.layer}.${p.priority}`))
-      .toEqual(['sprites.1', 'l1.0', 'sprites.2', 'l1.1'])
+    expect(passes.map(p => `${p.layer}.${p.priority}`)).toEqual([
+      'sprites.1',
+      'l1.0',
+      'sprites.2',
+      'l1.1',
+    ])
   })
 
   it('returns nothing for an empty level', () => {
@@ -165,7 +193,9 @@ describe('SmwMap composites by OBJ priority', () => {
       t,
       palette,
       mapStore: makeTestMapStore({
-        palette, levelOrientation: 'horizontal', screenPipeVariantIdx: [0],
+        palette,
+        levelOrientation: 'horizontal',
+        screenPipeVariantIdx: [0],
       }),
     }
   }
@@ -178,11 +208,13 @@ describe('SmwMap composites by OBJ priority', () => {
     // non-priority tiles, so this assertion fails on it.
     const { t, palette, mapStore } = setup()
     const l1Tiles = new Map([
-      [0, tileOf(0, quad(t, [30, 31, 32, 33], true))],   // priority subtiles
-      [1, tileOf(1, quad(t, [40, 41, 42, 43], false))],  // non-priority subtiles
+      [0, tileOf(0, quad(t, [30, 31, 32, 33], true))], // priority subtiles
+      [1, tileOf(1, quad(t, [40, 41, 42, 43], false))], // non-priority subtiles
     ])
     const map = buildMap(
-      { l1: [[0, 1]], l1Tiles, sprites: [spriteAt(t, 99, 1)] }, mapStore, palette,
+      { l1: [[0, 1]], l1Tiles, sprites: [spriteAt(t, 99, 1)] },
+      mapStore,
+      palette,
     )
 
     map.render(t)
@@ -196,9 +228,7 @@ describe('SmwMap composites by OBJ priority', () => {
     // wrong in both directions. bank_03.asm:4579-4580 raises to OBJ.3.
     const { t, palette, mapStore } = setup()
     const l1Tiles = new Map([[0, tileOf(0, quad(t, [30, 31, 32, 33], true))]])
-    const map = buildMap(
-      { l1: [[0]], l1Tiles, sprites: [spriteAt(t, 99, 3)] }, mapStore, palette,
-    )
+    const map = buildMap({ l1: [[0]], l1Tiles, sprites: [spriteAt(t, 99, 3)] }, mapStore, palette)
 
     map.render(t)
 
@@ -213,7 +243,9 @@ describe('SmwMap composites by OBJ priority', () => {
       [1, tileOf(1, quad(t, [40, 41, 42, 43], false))],
     ])
     const map = buildMap(
-      { l1: [[0, 1]], l1Tiles, sprites: [spriteAt(t, 99, 2)] }, mapStore, palette,
+      { l1: [[0, 1]], l1Tiles, sprites: [spriteAt(t, 99, 2)] },
+      mapStore,
+      palette,
     )
 
     map.render(t)
@@ -227,11 +259,15 @@ describe('SmwMap composites by OBJ priority', () => {
       [0, tileOf(0, quad(t, [30, 31, 32, 33], true))],
       [1, tileOf(1, quad(t, [40, 41, 42, 43], false))],
     ])
-    const map = buildMap({
-      l1: [[0, 1]],
-      l1Tiles,
-      sprites: [spriteAt(t, 97, 1), spriteAt(t, 98, 2), spriteAt(t, 99, 3)],
-    }, mapStore, palette)
+    const map = buildMap(
+      {
+        l1: [[0, 1]],
+        l1Tiles,
+        sprites: [spriteAt(t, 97, 1), spriteAt(t, 98, 2), spriteAt(t, 99, 3)],
+      },
+      mapStore,
+      palette,
+    )
 
     map.render(t)
 
@@ -251,17 +287,23 @@ describe('Layer 2 has a real phase split', () => {
     const t = new OrderRecorder()
     const palette = makePalette()
     const mapStore = makeTestMapStore({
-      palette, levelOrientation: 'horizontal', screenPipeVariantIdx: [0],
+      palette,
+      levelOrientation: 'horizontal',
+      screenPipeVariantIdx: [0],
     })
     const l2Tiles = new Map([
       [100, tileOf(100, quad(t, [20, 21, 22, 23], false))],
       [101, tileOf(101, quad(t, [50, 51, 52, 53], true))],
     ])
-    const map = buildMap({
-      l1: [[null]],
-      l2: new L2ObjectStream([[100, 101]], l2Tiles),
-      sprites: [spriteAt(t, 99, 2)],
-    }, mapStore, palette)
+    const map = buildMap(
+      {
+        l1: [[null]],
+        l2: new L2ObjectStream([[100, 101]], l2Tiles),
+        sprites: [spriteAt(t, 99, 2)],
+      },
+      mapStore,
+      palette,
+    )
 
     map.render(t)
 
@@ -274,17 +316,23 @@ describe('Layer 2 has a real phase split', () => {
     const t = new OrderRecorder()
     const palette = makePalette()
     const mapStore = makeTestMapStore({
-      palette, levelOrientation: 'horizontal', screenPipeVariantIdx: [0],
+      palette,
+      levelOrientation: 'horizontal',
+      screenPipeVariantIdx: [0],
     })
     const bgTiles = new Map([
       [100, tileOf(100, quad(t, [20, 21, 22, 23], false))],
       [101, tileOf(101, quad(t, [50, 51, 52, 53], true))],
     ])
-    const map = buildMap({
-      l1: [[null]],
-      l2: new L2Preset(0, [[100, 101]], bgTiles),
-      sprites: [spriteAt(t, 99, 2)],
-    }, mapStore, palette)
+    const map = buildMap(
+      {
+        l1: [[null]],
+        l2: new L2Preset(0, [[100, 101]], bgTiles),
+        sprites: [spriteAt(t, 99, 2)],
+      },
+      mapStore,
+      palette,
+    )
 
     map.render(t)
 
@@ -302,18 +350,25 @@ describe('Layer 2 has a real phase split', () => {
       stateAtFrame: () => ({ layer1XPos: 0, layer1YPos: 0, layer2XPos: 0, layer2YPos: 0 }),
     } as unknown as ScrollSimulator
     const mapStore = makeTestMapStore({
-      palette, levelOrientation: 'horizontal', screenPipeVariantIdx: [0], scrollSimulator: sim,
+      palette,
+      levelOrientation: 'horizontal',
+      screenPipeVariantIdx: [0],
+      scrollSimulator: sim,
     })
     editorStore.setFrameL2(0)
     const tiles = new Map([
       [100, tileOf(100, quad(t, [20, 21, 22, 23], false))],
       [101, tileOf(101, quad(t, [50, 51, 52, 53], true))],
     ])
-    const map = buildMap({
-      l1: [[null]],
-      l2: new L2ObjectStream([[100, 101]], tiles),
-      sprites: [spriteAt(t, 99, 2)],
-    }, mapStore, palette)
+    const map = buildMap(
+      {
+        l1: [[null]],
+        l2: new L2ObjectStream([[100, 101]], tiles),
+        sprites: [spriteAt(t, 99, 2)],
+      },
+      mapStore,
+      palette,
+    )
 
     map.render(t)
 
@@ -326,9 +381,15 @@ describe('Layer 2 has a real phase split', () => {
   it('reports only the phases its grid occupies', () => {
     const t = new OrderRecorder()
     const tiles = new Map([[100, tileOf(100, quad(t, [20, 21, 22, 23], false))]])
-    expect([...new L2ObjectStream([[100]], tiles).phases(
-      makeTestMapStore({ palette: makePalette(), levelOrientation: 'horizontal', screenPipeVariantIdx: [0] }),
-    )]).toEqual(['nonPriority'])
+    expect([
+      ...new L2ObjectStream([[100]], tiles).phases(
+        makeTestMapStore({
+          palette: makePalette(),
+          levelOrientation: 'horizontal',
+          screenPipeVariantIdx: [0],
+        }),
+      ),
+    ]).toEqual(['nonPriority'])
   })
 })
 
@@ -339,7 +400,9 @@ describe('SmwMap.passes is per level', () => {
     const t = new OrderRecorder()
     const palette = makePalette()
     const mapStore = makeTestMapStore({
-      palette, levelOrientation: 'horizontal', screenPipeVariantIdx: [0],
+      palette,
+      levelOrientation: 'horizontal',
+      screenPipeVariantIdx: [0],
     })
     const l1Tiles = new Map([[0, tileOf(0, quad(t, [30, 31, 32, 33], false))]])
     const map = buildMap({ l1: [[0]], l1Tiles, sprites: [spriteAt(t, 99, 2)] }, mapStore, palette)
@@ -351,7 +414,9 @@ describe('SmwMap.passes is per level', () => {
     const t = new OrderRecorder()
     const palette = makePalette()
     const mapStore = makeTestMapStore({
-      palette, levelOrientation: 'horizontal', screenPipeVariantIdx: [0],
+      palette,
+      levelOrientation: 'horizontal',
+      screenPipeVariantIdx: [0],
     })
     const l1Tiles = new Map([[0, tileOf(0, quad(t, [30, 31, 32, 33], false))]])
     const map = buildMap({ l1: [[0]], l1Tiles }, mapStore, palette)
@@ -381,18 +446,30 @@ describe('Layer 3 has a phase, and the header bit moves only BG3.1', () => {
   const env = (): { t: OrderRecorder; palette: Palette; mapStore: MapStore } => {
     const t = new OrderRecorder()
     const palette = makePalette()
-    return { t, palette, mapStore: makeTestMapStore({
-      palette, levelOrientation: 'horizontal', screenPipeVariantIdx: [0],
-    }) }
+    return {
+      t,
+      palette,
+      mapStore: makeTestMapStore({
+        palette,
+        levelOrientation: 'horizontal',
+        screenPipeVariantIdx: [0],
+      }),
+    }
   }
 
   it('bit clear: BG3.0 behind everything, BG3.1 between OBJ.1 and OBJ.0', () => {
     const { t, palette, mapStore } = env()
     const l3 = l3With(t, 60, 61)
-    const map = buildMap({
-      l1: [[null]], l3, layer3Priority: false,
-      sprites: [spriteAt(t, 96, 0), spriteAt(t, 97, 1)],
-    }, mapStore, palette)
+    const map = buildMap(
+      {
+        l1: [[null]],
+        l3,
+        layer3Priority: false,
+        sprites: [spriteAt(t, 96, 0), spriteAt(t, 97, 1)],
+      },
+      mapStore,
+      palette,
+    )
 
     map.render(t)
 
@@ -402,10 +479,16 @@ describe('Layer 3 has a phase, and the header bit moves only BG3.1', () => {
   it('bit set: BG3.1 is the frontmost pass on the level', () => {
     const { t, palette, mapStore } = env()
     const l3 = l3With(t, 60, 61)
-    const map = buildMap({
-      l1: [[null]], l3, layer3Priority: true,
-      sprites: [spriteAt(t, 96, 0), spriteAt(t, 99, 3)],
-    }, mapStore, palette)
+    const map = buildMap(
+      {
+        l1: [[null]],
+        l3,
+        layer3Priority: true,
+        sprites: [spriteAt(t, 96, 0), spriteAt(t, 99, 3)],
+      },
+      mapStore,
+      palette,
+    )
 
     map.render(t)
 

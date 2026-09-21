@@ -13,7 +13,7 @@ import type { TileBehavior } from '../TileBehavior'
  * In the ROM the hidden tiles ($27/$28/$29/$2A) are rendered as blank
  * 16×16 cells until the player stomps a blue P-switch, at which point
  * the game's DMA swaps them to visible door/block/coin tiles. The editor
- * can't ship empty cells — a designer needs to see what's there — so we
+ * can't ship empty cells - a designer needs to see what's there - so we
  * always render the revealed artwork but fade it to `offAlpha` (default
  * 0.5) when the P-switch is inactive. Tap the toolbar's blue P-switch
  * button to bring the tile up to full opacity.
@@ -23,7 +23,7 @@ import type { TileBehavior } from '../TileBehavior'
  * instead of their substitute's brown palette 6).
  *
  * The constructor unwraps any `PSwitchAlternateBehavior` on the
- * substitute's chars to its `normal` branch — the substitute for $2A
+ * substitute's chars to its `normal` branch - the substitute for $2A
  * pulls coin chars whose CharFactory wires altFrames (used-block pixels)
  * for the bank_05.asm:4417-4422 DMA swap. Without unwrapping, "P-switch
  * active" would render the alt (turn-block) pixels at full opacity, the
@@ -50,8 +50,10 @@ export class PSwitchRevealBehavior implements TileBehavior {
     // tiles (palette-override clones, etc) and consumers may compare by
     // reference for memoization.
     this.revealedQuad =
-      tl === revealedQuad[0] && tr === revealedQuad[1] &&
-      bl === revealedQuad[2] && br === revealedQuad[3]
+      tl === revealedQuad[0] &&
+      tr === revealedQuad[1] &&
+      bl === revealedQuad[2] &&
+      br === revealedQuad[3]
         ? revealedQuad
         : [tl, tr, bl, br]
   }

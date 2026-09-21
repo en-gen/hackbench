@@ -1,5 +1,5 @@
 /**
- * WigglerAppearance — locks the multi-segment OAM expansion for sprite $86.
+ * WigglerAppearance - locks the multi-segment OAM expansion for sprite $86.
  *
  * WigglerGfx (bank_02.asm:14987) draws 5 16×16 big-tiles + an 8×8 eye:
  *   WigglerTiles  (bank_02.asm:14984): db $C4,$C6,$C8,$C6  (body indices 0..3)
@@ -22,16 +22,16 @@
  *
  * Test tree
  * ---------
- *   constructor — head/body/eye structure
+ *   constructor - head/body/eye structure
  *     - head big-tile (faceLeft): 4 corners, standard layout, flipX=false
  *     - body big-tiles (faceLeft): 4 entries indexed by WigglerTiles ($C4/$C6/$C8/$C6)
  *     - eye: 1 part, tile $98, palette 13
  *       - faceLeft → flipX=false, dx=+8, dy=-8
  *       - faceRight → flipX=true, dx=+0
- *   render — body trail direction
+ *   render - body trail direction
  *     - faceLeft → segIdx i drawn at +i*8
  *     - faceRight → segIdx i drawn at -i*8
- *   tickAnimation — 4-frame wiggle cycle
+ *   tickAnimation - 4-frame wiggle cycle
  *     - frame F → segIdx 1 uses bodyBigTiles[(F+1) & 3]
  *     - cycle wraps every 4 ticks
  *   bob offsets
@@ -55,9 +55,9 @@ import {
 } from '../../../../src/rom/model/sprites/appearances/WigglerAppearance'
 import { makeTestMapStore } from '../fixtures/stores'
 
-const OBJ_BASE  = 0x400
-const CHAR_HIGH = 0x100  // Sprite166EVals[$86] & $0F = $05; bit 0 = 1.
-const PALETTE   = 10     // 8 + (5>>1) = 10
+const OBJ_BASE = 0x400
+const CHAR_HIGH = 0x100 // Sprite166EVals[$86] & $0F = $05; bit 0 = 1.
+const PALETTE = 10 // 8 + (5>>1) = 10
 
 // face-right: H-flip swaps column pairs → TL=$01, TR=$00, BL=$11, BR=$10.
 const H_FLIP_CORNERS = [0x01, 0x00, 0x11, 0x10] as const
@@ -81,7 +81,7 @@ const PIXEL_BUFFER_TO_CHAR_ID = new WeakMap<Uint8Array, number>()
 
 function buildChars(): Map<number, Char> {
   const map = new Map<number, Char>()
-  for (let id = 0; id < 0xC00; id++) {
+  for (let id = 0; id < 0xc00; id++) {
     const buf = new Uint8Array(64)
     PIXEL_BUFFER_TO_CHAR_ID.set(buf, id)
     map.set(id, new Char(id, new StaticPixelsBehavior(buf)))
@@ -93,13 +93,25 @@ function charId(tileBase: number, cornerOffset: number): number {
   return OBJ_BASE + CHAR_HIGH + tileBase + cornerOffset
 }
 
-interface BlitCall { x: number; y: number; charId: number; flipX: boolean; flipY: boolean }
+interface BlitCall {
+  x: number
+  y: number
+  charId: number
+  flipX: boolean
+  flipY: boolean
+}
 
 function capturingTarget(): { target: RenderTarget; calls: BlitCall[] } {
   const calls: BlitCall[] = []
   const target: RenderTarget = {
     blit8x8(pixels: Uint8Array, pos: PixelPos, _row, flipX, flipY) {
-      calls.push({ x: pos.x, y: pos.y, charId: PIXEL_BUFFER_TO_CHAR_ID.get(pixels) ?? -1, flipX, flipY })
+      calls.push({
+        x: pos.x,
+        y: pos.y,
+        charId: PIXEL_BUFFER_TO_CHAR_ID.get(pixels) ?? -1,
+        flipX,
+        flipY,
+      })
     },
     fillRect() {},
   }
@@ -110,7 +122,7 @@ const placeholder = new Char(-1, new StaticPixelsBehavior(new Uint8Array(64)))
 
 // ── Constructor / part shape ──────────────────────────────────────────────
 
-describe('WigglerAppearance — head big-tile (faceLeft)', () => {
+describe('WigglerAppearance - head big-tile (faceLeft)', () => {
   const a = WigglerAppearance.fromTables(buildChars(), PALETTE, CHAR_HIGH, true, placeholder)
 
   it('exposes 4 standard-corner parts using head tile $8C, flipX=false', () => {
@@ -124,7 +136,7 @@ describe('WigglerAppearance — head big-tile (faceLeft)', () => {
   })
 })
 
-describe('WigglerAppearance — head big-tile (faceRight)', () => {
+describe('WigglerAppearance - head big-tile (faceRight)', () => {
   const a = WigglerAppearance.fromTables(buildChars(), PALETTE, CHAR_HIGH, false, placeholder)
 
   it('exposes 4 H-flipped corners using head tile $8C, flipX=true', () => {
@@ -138,7 +150,7 @@ describe('WigglerAppearance — head big-tile (faceRight)', () => {
   })
 })
 
-describe('WigglerAppearance — body big-tiles (faceLeft)', () => {
+describe('WigglerAppearance - body big-tiles (faceLeft)', () => {
   const a = WigglerAppearance.fromTables(buildChars(), PALETTE, CHAR_HIGH, true, placeholder)
 
   it('exposes 4 big-tiles indexed by WigglerTiles = [$C4,$C6,$C8,$C6], flipX=false', () => {
@@ -156,7 +168,7 @@ describe('WigglerAppearance — body big-tiles (faceLeft)', () => {
   })
 })
 
-describe('WigglerAppearance — eye', () => {
+describe('WigglerAppearance - eye', () => {
   it('faceLeft → eye dx=+8, dy=-8, palette 13, flipX=false', () => {
     const a = WigglerAppearance.fromTables(buildChars(), PALETTE, CHAR_HIGH, true, placeholder)
     expect(a.eye.char.id).toBe(OBJ_BASE + CHAR_HIGH + WIGGLER_EYE_TILE)
@@ -176,15 +188,16 @@ describe('WigglerAppearance — eye', () => {
 
 // ── Render-time positional checks ─────────────────────────────────────────
 
-describe('WigglerAppearance.render — body trail direction', () => {
+describe('WigglerAppearance.render - body trail direction', () => {
   it('faceLeft trails to the right: tail TL char appears at +32', () => {
     const a = WigglerAppearance.fromTables(buildChars(), PALETTE, CHAR_HIGH, true, placeholder)
     const { target, calls } = capturingTarget()
     a.render(target, 0, 0, undefined as never, mapStore)
 
-    const tailTL = calls.find(c =>
-      c.x === 4 * WIGGLER_SEGMENT_DX
-      && c.charId === charId(WIGGLER_BODY_TILES[(0 + 4) & 3], NO_FLIP_CORNERS[0]),
+    const tailTL = calls.find(
+      c =>
+        c.x === 4 * WIGGLER_SEGMENT_DX &&
+        c.charId === charId(WIGGLER_BODY_TILES[(0 + 4) & 3], NO_FLIP_CORNERS[0]),
     )
     expect(tailTL, 'tail TL at +32').toBeDefined()
   })
@@ -194,53 +207,61 @@ describe('WigglerAppearance.render — body trail direction', () => {
     const { target, calls } = capturingTarget()
     a.render(target, 0, 0, undefined as never, mapStore)
 
-    const tailTL = calls.find(c =>
-      c.x === -4 * WIGGLER_SEGMENT_DX
-      && c.charId === charId(WIGGLER_BODY_TILES[(0 + 4) & 3], H_FLIP_CORNERS[0]),
+    const tailTL = calls.find(
+      c =>
+        c.x === -4 * WIGGLER_SEGMENT_DX &&
+        c.charId === charId(WIGGLER_BODY_TILES[(0 + 4) & 3], H_FLIP_CORNERS[0]),
     )
     expect(tailTL, 'tail TL at -32').toBeDefined()
   })
 })
 
-describe('WigglerAppearance.render — head always uses $8C', () => {
-  it.each([0, 1, 2, 3] as const)('frame %i: head TL at (0, bob) is tile $8C', (ticks) => {
+describe('WigglerAppearance.render - head always uses $8C', () => {
+  it.each([0, 1, 2, 3] as const)('frame %i: head TL at (0, bob) is tile $8C', ticks => {
     const a = WigglerAppearance.fromTables(buildChars(), PALETTE, CHAR_HIGH, true, placeholder)
     for (let i = 0; i < ticks; i++) a.tickAnimation()
     const { target, calls } = capturingTarget()
     a.render(target, 0, 0, undefined as never, mapStore)
 
     const expectedBobY = -WIGGLER_BOB_OFFSETS[(ticks + 0) & 3]
-    const headTL = calls.find(c =>
-      c.x === 0 && c.y === expectedBobY
-      && c.charId === charId(WIGGLER_HEAD_TILE, NO_FLIP_CORNERS[0]),
+    const headTL = calls.find(
+      c =>
+        c.x === 0 &&
+        c.y === expectedBobY &&
+        c.charId === charId(WIGGLER_HEAD_TILE, NO_FLIP_CORNERS[0]),
     )
     expect(headTL, `head TL at frame ${ticks}`).toBeDefined()
   })
 })
 
-describe('WigglerAppearance.tickAnimation — 4-frame wiggle cycle', () => {
+describe('WigglerAppearance.tickAnimation - 4-frame wiggle cycle', () => {
   // For each frame F, segIdx 1's body tile is WIGGLER_BODY_TILES[(F + 1) & 3].
   it.each([
     [0, 1], // frame 0 → table idx 1 → $C6
     [1, 2], // frame 1 → table idx 2 → $C8
     [2, 3], // frame 2 → table idx 3 → $C6
     [3, 0], // frame 3 → table idx 0 → $C4
-  ] as const)('after %i ticks, segIdx 1 uses body tile WigglerTiles[%i]', (ticks, expectedTableIdx) => {
-    const a = WigglerAppearance.fromTables(buildChars(), PALETTE, CHAR_HIGH, true, placeholder)
-    for (let i = 0; i < ticks; i++) a.tickAnimation()
+  ] as const)(
+    'after %i ticks, segIdx 1 uses body tile WigglerTiles[%i]',
+    (ticks, expectedTableIdx) => {
+      const a = WigglerAppearance.fromTables(buildChars(), PALETTE, CHAR_HIGH, true, placeholder)
+      for (let i = 0; i < ticks; i++) a.tickAnimation()
 
-    const { target, calls } = capturingTarget()
-    a.render(target, 0, 0, undefined as never, mapStore)
+      const { target, calls } = capturingTarget()
+      a.render(target, 0, 0, undefined as never, mapStore)
 
-    const expectedTile  = WIGGLER_BODY_TILES[expectedTableIdx]
-    const expectedX     = WIGGLER_SEGMENT_DX
-    const expectedY     = -WIGGLER_BOB_OFFSETS[expectedTableIdx]
-    const seg1TL = calls.find(c =>
-      c.x === expectedX && c.y === expectedY
-      && c.charId === charId(expectedTile, NO_FLIP_CORNERS[0]),
-    )
-    expect(seg1TL).toBeDefined()
-  })
+      const expectedTile = WIGGLER_BODY_TILES[expectedTableIdx]
+      const expectedX = WIGGLER_SEGMENT_DX
+      const expectedY = -WIGGLER_BOB_OFFSETS[expectedTableIdx]
+      const seg1TL = calls.find(
+        c =>
+          c.x === expectedX &&
+          c.y === expectedY &&
+          c.charId === charId(expectedTile, NO_FLIP_CORNERS[0]),
+      )
+      expect(seg1TL).toBeDefined()
+    },
+  )
 
   it('cycle wraps every 4 ticks', () => {
     const a = WigglerAppearance.fromTables(buildChars(), PALETTE, CHAR_HIGH, true, placeholder)
@@ -256,20 +277,22 @@ describe('WigglerAppearance.tickAnimation — 4-frame wiggle cycle', () => {
   })
 })
 
-describe('WigglerAppearance.render — bob offsets follow DATA_02F108', () => {
+describe('WigglerAppearance.render - bob offsets follow DATA_02F108', () => {
   it('per-segment Y bob = -DATA_02F108[(frame + segIdx) & 3] at frame 0', () => {
     const a = WigglerAppearance.fromTables(buildChars(), PALETTE, CHAR_HIGH, true, placeholder)
     const { target, calls } = capturingTarget()
     a.render(target, 0, 0, undefined as never, mapStore)
 
     for (let segIdx = 0; segIdx < 5; segIdx++) {
-      const tableIdx     = (0 + segIdx) & 3
+      const tableIdx = (0 + segIdx) & 3
       const expectedBobY = -WIGGLER_BOB_OFFSETS[tableIdx]
-      const expectedX    = segIdx * WIGGLER_SEGMENT_DX
-      const tileBase     = segIdx === 0 ? WIGGLER_HEAD_TILE : WIGGLER_BODY_TILES[tableIdx]
-      const tl = calls.find(c =>
-        c.x === expectedX && c.y === expectedBobY
-        && c.charId === charId(tileBase, NO_FLIP_CORNERS[0]),
+      const expectedX = segIdx * WIGGLER_SEGMENT_DX
+      const tileBase = segIdx === 0 ? WIGGLER_HEAD_TILE : WIGGLER_BODY_TILES[tableIdx]
+      const tl = calls.find(
+        c =>
+          c.x === expectedX &&
+          c.y === expectedBobY &&
+          c.charId === charId(tileBase, NO_FLIP_CORNERS[0]),
       )
       expect(tl, `segIdx ${segIdx} TL at (${expectedX}, ${expectedBobY})`).toBeDefined()
     }
@@ -278,7 +301,7 @@ describe('WigglerAppearance.render — bob offsets follow DATA_02F108', () => {
 
 // ── Eye render position ───────────────────────────────────────────────────
 
-describe('WigglerAppearance.render — eye position', () => {
+describe('WigglerAppearance.render - eye position', () => {
   it('faceLeft: eye drawn at (+8, -8) regardless of frame', () => {
     const a = WigglerAppearance.fromTables(buildChars(), PALETTE, CHAR_HIGH, true, placeholder)
     a.tickAnimation()

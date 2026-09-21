@@ -1,5 +1,5 @@
 /**
- * PaletteLoader — synthetic-ROM tests for the loaders, CGRAM assembly, and
+ * PaletteLoader - synthetic-ROM tests for the loaders, CGRAM assembly, and
  * Lunar Magic custom-palette path. The ROM-dependent integration test is
  * skipped without a real ROM; this file pins down the boundary behavior.
  */
@@ -21,7 +21,7 @@ import {
 
 function make4MbRom(): RomFile {
   const buf = Buffer.alloc(0x400000, 0x00)
-  buf[0x7FD5] = 0x20
+  buf[0x7fd5] = 0x20
   return new RomFile('mock.smc', buf)
 }
 
@@ -30,7 +30,7 @@ function makeTinyRom(): RomFile {
 }
 
 const writeWord = (rom: RomFile, addr: number, value: number): void => {
-  rom.writeAt(addr, [value & 0xFF, (value >> 8) & 0xFF])
+  rom.writeAt(addr, [value & 0xff, (value >> 8) & 0xff])
 }
 
 // ── loadRomPalettes ──────────────────────────────────────────────────────────
@@ -39,9 +39,7 @@ describe('loadRomPalettes', () => {
   it('returns 5 palette groups in canonical order', () => {
     const rom = make4MbRom()
     const pal = loadRomPalettes(rom)
-    expect(pal.groups.map(g => g.id)).toEqual(
-      ['bg', 'fg', 'sprite_sets', 'player', 'sp_ef'],
-    )
+    expect(pal.groups.map(g => g.id)).toEqual(['bg', 'fg', 'sprite_sets', 'player', 'sp_ef'])
   })
 
   it('each pair group exposes 8 variants (one per BG/FG/sprite palette index)', () => {
@@ -68,7 +66,7 @@ describe('loadRomPalettes', () => {
   it('decodes the BackArea color from the BGR555 word at $00B0A0', () => {
     const rom = make4MbRom()
     // BGR555 $03E0 = pure green (R=0, G=31, B=0). Bit-replication (31<<3)|(31>>2) = 255.
-    writeWord(rom, ADDR_BACK_AREA, 0x03E0)
+    writeWord(rom, ADDR_BACK_AREA, 0x03e0)
     const pal = loadRomPalettes(rom)
     expect(pal.backAreaColor).toEqual([0, 255, 0, 255])
   })
@@ -77,7 +75,7 @@ describe('loadRomPalettes', () => {
     const rom = make4MbRom()
     // Plant a unique color into BG variant 4's first row col 2.
     // VARIANT_OFFSETS[4] = $60. Each variant covers 24 bytes (12 colors).
-    writeWord(rom, ADDR_BG_PAIR + 0x60, 0x7FFF)  // pure white
+    writeWord(rom, ADDR_BG_PAIR + 0x60, 0x7fff) // pure white
     const pal = loadRomPalettes(rom)
     const bg = pal.groups.find(g => g.id === 'bg')!
     expect(bg.variants[4].rows[0][2]).toEqual([255, 255, 255, 255])
@@ -113,7 +111,7 @@ describe('buildLevelCgram', () => {
     const pal = loadRomPalettes(rom)
     // bgVariant=99 → clamped to 7; doesn't crash
     const cgram = buildLevelCgram(pal, 99, 99, 99, 99)
-    expect(cgram.bgVariantIndex).toBe(99)  // raw param echoed
+    expect(cgram.bgVariantIndex).toBe(99) // raw param echoed
     expect(cgram.colors.length).toBe(256)
   })
 
@@ -185,14 +183,14 @@ describe('loadCustomLevelPalette', () => {
 
   it('returns null when pointer is $FFFFFF (sentinel)', () => {
     const rom = make4MbRom()
-    rom.writeAt(ADDR_CUSTOM_PALETTE_TABLE + 0 * 3, [0xFF, 0xFF, 0xFF])
+    rom.writeAt(ADDR_CUSTOM_PALETTE_TABLE + 0 * 3, [0xff, 0xff, 0xff])
     expect(loadCustomLevelPalette(rom, 0)).toBeNull()
   })
 
   it('returns null when pointer block is unreadable (out of ROM)', () => {
     const rom = make4MbRom()
-    // Pointer at $7E:1234 — WRAM, not ROM. loromToOffset returns null for bank $7E.
-    rom.writeAt(ADDR_CUSTOM_PALETTE_TABLE + 0 * 3, [0x34, 0x12, 0x7E])
+    // Pointer at $7E:1234 - WRAM, not ROM. loromToOffset returns null for bank $7E.
+    rom.writeAt(ADDR_CUSTOM_PALETTE_TABLE + 0 * 3, [0x34, 0x12, 0x7e])
     expect(loadCustomLevelPalette(rom, 0)).toBeNull()
   })
 
@@ -201,12 +199,14 @@ describe('loadCustomLevelPalette', () => {
     // Stash the custom palette block at SNES $108000 (LoROM bank $10).
     const blockAddr = 0x108000
     rom.writeAt(ADDR_CUSTOM_PALETTE_TABLE + 0 * 3, [
-      blockAddr & 0xFF, (blockAddr >> 8) & 0xFF, (blockAddr >> 16) & 0xFF,
+      blockAddr & 0xff,
+      (blockAddr >> 8) & 0xff,
+      (blockAddr >> 16) & 0xff,
     ])
     // Plant a recognizable back-area color and one foreground color.
-    writeWord(rom, blockAddr, 0x7FFF)             // back area = white
+    writeWord(rom, blockAddr, 0x7fff) // back area = white
     // BGR555: low 5 bits = R. $001F = pure red.
-    writeWord(rom, blockAddr + 2 + (5 * 16 + 3) * 2, 0x001F)
+    writeWord(rom, blockAddr + 2 + (5 * 16 + 3) * 2, 0x001f)
 
     const pal = loadCustomLevelPalette(rom, 0)
     expect(pal).not.toBeNull()
@@ -221,7 +221,7 @@ describe('loadCustomLevelPalette', () => {
   it('returns null when block buffer cannot be read (pointer in WRAM bank)', () => {
     const rom = make4MbRom()
     // Pointer = $7E0000 (WRAM). loromToOffset returns null for bank $7E.
-    rom.writeAt(ADDR_CUSTOM_PALETTE_TABLE + 0 * 3, [0x00, 0x00, 0x7E])
+    rom.writeAt(ADDR_CUSTOM_PALETTE_TABLE + 0 * 3, [0x00, 0x00, 0x7e])
     expect(loadCustomLevelPalette(rom, 0)).toBeNull()
   })
 })

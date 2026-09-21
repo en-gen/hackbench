@@ -2,7 +2,13 @@ import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
 import { loadRomPalettes } from '../rom/PaletteLoader'
 import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
-import { getNonce, getWebviewUri, readDescriptor, postWebviewError, buildWebviewHtml } from './webviewUtils'
+import {
+  getNonce,
+  getWebviewUri,
+  readDescriptor,
+  postWebviewError,
+  buildWebviewHtml,
+} from './webviewUtils'
 
 /**
  * Custom editor for .smwpalette virtual files.
@@ -30,13 +36,11 @@ export class PaletteEditorProvider implements vscode.CustomReadonlyEditorProvide
   ): Promise<void> {
     panel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [
-        vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview')
-      ]
+      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview')],
     }
     panel.webview.html = this._buildHtml(panel.webview)
 
-    panel.webview.onDidReceiveMessage(async (msg) => {
+    panel.webview.onDidReceiveMessage(async msg => {
       if (msg.type === 'ready') {
         await this._sendPaletteData(document.uri, panel.webview)
       }

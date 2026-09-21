@@ -13,6 +13,7 @@ export default defineConfig({
       'test/suite/unit/**/*.test.ts',
       'test/suite/integration/**/*.test.ts',
       'test/suite/provider/**/*.test.ts',
+      'test/suite/gates/**/*.test.ts',
     ],
     environment: 'node',
     coverage: {

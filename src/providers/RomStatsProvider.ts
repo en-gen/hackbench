@@ -42,7 +42,10 @@ export class RomStatsProvider implements vscode.CustomReadonlyEditorProvider {
 
 // ── Stats collection ──────────────────────────────────────────────────────────
 
-interface TilesetRow { id: number; count: number }
+interface TilesetRow {
+  id: number
+  count: number
+}
 
 interface RomStats {
   name: string
@@ -96,15 +99,15 @@ function gatherStats(rom: ReturnType<typeof resolveRom>): RomStats {
 function renderHtml(stats: RomStats): string {
   const mod = stats.isVanilla ? 'Unmodified (vanilla)' : 'Modified'
 
-  const tilesetRows = stats.tilesetDist.map(row =>
-    `<tr><td>Tileset ${hex2(row.id)} (${row.id})</td><td>${row.count}</td></tr>`
-  ).join('\n')
+  const tilesetRows = stats.tilesetDist
+    .map(row => `<tr><td>Tileset ${hex2(row.id)} (${row.id})</td><td>${row.count}</td></tr>`)
+    .join('\n')
 
   const catalogNotesHtml = stats.catalogNotes.length
     ? `<h2>Catalog Notes</h2><ul>${stats.catalogNotes.map(n => `<li>${esc(n)}</li>`).join('\n')}</ul>`
     : ''
 
-  return /* html */`<!DOCTYPE html>
+  return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -158,5 +161,9 @@ function errorHtml(message: string): string {
 }
 
 function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }

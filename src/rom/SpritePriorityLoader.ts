@@ -11,9 +11,9 @@
 import type { RomFile } from './RomFile'
 
 /** 32 bytes indexed by level mode. SMW_U.sym; bank_05.asm:505. */
-export const LEV_XYPPCCCT_TBL_ADDR = 0x0584B7
+export const LEV_XYPPCCCT_TBL_ADDR = 0x0584b7
 /** `dw` table after `CallSpriteMain`'s `JSL ExecutePtr`. bank_01.asm:893-896. */
-export const SPRITE_MAIN_PTR_ADDR = 0x0185CC
+export const SPRITE_MAIN_PTR_ADDR = 0x0185cc
 /** `SpriteProperties` direct page -- the `STA $64` we look for. rammap.asm:521. */
 const SPRITE_PROPERTIES_DP = 0x64
 /** `SpriteBehindScene`; `LDA.W $1632,X` is `BD 32 16`. SMW_U.sym. */
@@ -23,8 +23,8 @@ const SPRITE_BEHIND_SCENE = 0x1632
 export const DEFAULT_OBJ_PRIORITY = 2
 
 export type ObjPrioritySource =
-  | 'level'        // LevXYPPCCCTtbl[levelMode]
-  | 'handler'      // an immediate the sprite's own handler stores to $64
+  | 'level' // LevXYPPCCCTtbl[levelMode]
+  | 'handler' // an immediate the sprite's own handler stores to $64
   | 'runtimeGated' // handler lowers it, but only under SpriteBehindScene
 
 export interface SpriteObjPriority {
@@ -43,7 +43,7 @@ const priorityBits = (xyppccct: number): number => (xyppccct >> 4) & 0x03
 
 /** Per-level default. Null when the table read fails, so callers can say so. */
 export function readLevelObjPriority(rom: RomFile, levelMode: number): number | null {
-  const b = rom.readByte(LEV_XYPPCCCT_TBL_ADDR + (levelMode & 0x1F))
+  const b = rom.readByte(LEV_XYPPCCCT_TBL_ADDR + (levelMode & 0x1f))
   return b === null ? null : priorityBits(b)
 }
 
@@ -52,15 +52,26 @@ export function readLevelObjPriority(rom: RomFile, levelMode: number): number | 
  * run. 'm'/'x' are the immediates that widen under REP; the walker tracks
  * SEP/REP to resolve them. Rows are opcode high nibbles $0. through $F..
  */
-const OPERAND_LEN = (
-  '111111110m002223' + '1111111102002223' + '213111110m002223' + '1111111102002223' +
-  '011121110m002223' + '1111211102003223' + '012111110m002223' + '1111111102002223' +
-  '112111110m002223' + '1111111102002223' + 'x1x111110m002223' + '1111111102002223' +
-  'x11111110m002223' + '1111111102002223' + 'x11111110m002223' + '1111211102002223'
-)
+const OPERAND_LEN =
+  '111111110m002223' +
+  '1111111102002223' +
+  '213111110m002223' +
+  '1111111102002223' +
+  '011121110m002223' +
+  '1111211102003223' +
+  '012111110m002223' +
+  '1111111102002223' +
+  '112111110m002223' +
+  '1111111102002223' +
+  'x1x111110m002223' +
+  '1111111102002223' +
+  'x11111110m002223' +
+  '1111111102002223' +
+  'x11111110m002223' +
+  '1111211102002223'
 
 /** Ends straight-line flow: RTI RTS RTL, the JMP/JML forms, BRA, BRL. */
-const STOPS = new Set([0x40, 0x60, 0x6B, 0x4C, 0x5C, 0x6C, 0x7C, 0xDC, 0x80, 0x82])
+const STOPS = new Set([0x40, 0x60, 0x6b, 0x4c, 0x5c, 0x6c, 0x7c, 0xdc, 0x80, 0x82])
 
 /** Vanilla's longest handler entry block is 156 instructions (measured, USA cart). */
 const MAX_INSTRUCTIONS = 400
@@ -83,14 +94,18 @@ function findPriorityStore(
     if (op === null) return null
     const code = OPERAND_LEN[op]!
     const len = code === 'm' ? (m8 ? 1 : 2) : code === 'x' ? (x8 ? 1 : 2) : Number(code)
-    if (op === 0xE2 || op === 0xC2) {
+    if (op === 0xe2 || op === 0xc2) {
       const flags = rom.readByte(pc + 1) ?? 0
-      const on = op === 0xE2
+      const on = op === 0xe2
       if (flags & 0x20) m8 = on
       if (flags & 0x10) x8 = on
     }
-    if (op === 0xBD && rom.readWord(pc + 1) === SPRITE_BEHIND_SCENE) sinceBehindScene = 0
-    if (op === 0xA9 && rom.readByte(pc + 2) === 0x85 && rom.readByte(pc + 3) === SPRITE_PROPERTIES_DP) {
+    if (op === 0xbd && rom.readWord(pc + 1) === SPRITE_BEHIND_SCENE) sinceBehindScene = 0
+    if (
+      op === 0xa9 &&
+      rom.readByte(pc + 2) === 0x85 &&
+      rom.readByte(pc + 3) === SPRITE_PROPERTIES_DP
+    ) {
       return { imm: rom.readByte(pc + 1) ?? 0, behindSceneGated: sinceBehindScene <= 2 }
     }
     if (STOPS.has(op)) return null

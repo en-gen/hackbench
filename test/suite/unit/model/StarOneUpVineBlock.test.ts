@@ -1,5 +1,5 @@
 /**
- * StarOneUpVineBlockBehavior — column-dispatch tests.
+ * StarOneUpVineBlockBehavior - column-dispatch tests.
  *
  * Ports CODE_00F1AE (bank_00.asm:12868) via DATA_00F080[$09]=$81
  * (column-cycle, second-half offset) and DATA_00F100[16..31]:
@@ -38,19 +38,19 @@ function makeQuad(): SubtileQuad {
   return [makeSub(), makeSub(), makeSub(), makeSub()]
 }
 
-describe('starOneUpVineItemAt — column dispatch (CODE_00F1AE)', () => {
+describe('starOneUpVineItemAt - column dispatch (CODE_00F1AE)', () => {
   // (col % 16) % 3 === 0 → star ($76)
-  it.each([0, 3, 6, 9, 12, 15])('col %i → star', (col) => {
+  it.each([0, 3, 6, 9, 12, 15])('col %i → star', col => {
     expect(starOneUpVineItemAt(col)).toBe('star')
   })
 
   // (col % 16) % 3 === 1 → 1up ($78)
-  it.each([1, 4, 7, 10, 13])('col %i → 1up', (col) => {
+  it.each([1, 4, 7, 10, 13])('col %i → 1up', col => {
     expect(starOneUpVineItemAt(col)).toBe('1up')
   })
 
   // (col % 16) % 3 === 2 → vine ($79)
-  it.each([2, 5, 8, 11, 14])('col %i → vine', (col) => {
+  it.each([2, 5, 8, 11, 14])('col %i → vine', col => {
     expect(starOneUpVineItemAt(col)).toBe('vine')
   })
 
@@ -126,7 +126,7 @@ function makeBlitTarget() {
   return { target, blits }
 }
 
-describe('StarOneUpVineBlockBehavior.renderOverlay — item dispatch', () => {
+describe('StarOneUpVineBlockBehavior.renderOverlay - item dispatch', () => {
   beforeEach(resetEditorStore)
 
   it('col=2 (vine) with vineOverlayQuad → 4 blits (quad rendered)', () => {
@@ -168,7 +168,7 @@ describe('StarOneUpVineBlockBehavior.renderOverlay — item dispatch', () => {
   })
 })
 
-describe('StarOneUpVineBlockBehavior.renderOverlay — indicatorAlpha', () => {
+describe('StarOneUpVineBlockBehavior.renderOverlay - indicatorAlpha', () => {
   beforeEach(resetEditorStore)
 
   // col=0 (star), cell at tl={x:0,y:0}, covers x=[0,16) y=[0,16)
@@ -186,7 +186,7 @@ describe('StarOneUpVineBlockBehavior.renderOverlay — indicatorAlpha', () => {
     const ch = makeChar()
     const b = new StarOneUpVineBlockBehavior(makeQuad(), null, [], [ch, ch, ch, ch])
     const { target, blits } = makeBlitTarget()
-    editorStore.setCursorPx({ x: 8, y: 8 })  // inside [0,16)×[0,16)
+    editorStore.setCursorPx({ x: 8, y: 8 }) // inside [0,16)×[0,16)
     b.renderOverlay(target, makeCell(0), stubMapStore())
     expect(blits.every(bl => bl.alpha === 1.0)).toBe(true)
   })
@@ -195,7 +195,7 @@ describe('StarOneUpVineBlockBehavior.renderOverlay — indicatorAlpha', () => {
     const ch = makeChar()
     const b = new StarOneUpVineBlockBehavior(makeQuad(), null, [], [ch, ch, ch, ch])
     const { target, blits } = makeBlitTarget()
-    editorStore.setCursorPx({ x: 100, y: 8 })  // x outside [0,16)
+    editorStore.setCursorPx({ x: 100, y: 8 }) // x outside [0,16)
     b.renderOverlay(target, makeCell(0), stubMapStore())
     expect(blits.every(bl => bl.alpha === 0.5)).toBe(true)
   })
@@ -204,7 +204,7 @@ describe('StarOneUpVineBlockBehavior.renderOverlay — indicatorAlpha', () => {
     const ch = makeChar()
     const b = new StarOneUpVineBlockBehavior(makeQuad(), null, [], [ch, ch, ch, ch])
     const { target, blits } = makeBlitTarget()
-    editorStore.setCursorPx({ x: 8, y: 100 })  // y outside [0,16)
+    editorStore.setCursorPx({ x: 8, y: 100 }) // y outside [0,16)
     b.renderOverlay(target, makeCell(0), stubMapStore())
     expect(blits.every(bl => bl.alpha === 0.5)).toBe(true)
   })

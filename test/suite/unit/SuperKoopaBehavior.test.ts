@@ -34,7 +34,7 @@ describe('SuperKoopaBehavior.dropsFeather', () => {
 
   it('$73 drops a feather when SpriteXPosLow bit 4 is clear', () => {
     const b = new SuperKoopaBehavior(0x73)
-    // ASM: InitSuperKoopaFthr (bank_01.asm:804) — LDA SpriteXPosLow / AND #$10 / BEQ +
+    // ASM: InitSuperKoopaFthr (bank_01.asm:804) - LDA SpriteXPosLow / AND #$10 / BEQ +
     // The even-16-px-slot branch keeps TweakerE=$50 → bit 6 set → drops feather.
     expect(b.dropsFeather(0x00)).toBe(true)
     expect(b.dropsFeather(0x20)).toBe(true)

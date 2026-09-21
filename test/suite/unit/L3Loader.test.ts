@@ -1,5 +1,5 @@
 /**
- * Unit tests for L3Loader.ts — stripe-image parser and helpers.
+ * Unit tests for L3Loader.ts - stripe-image parser and helpers.
  *
  * parseStripeImage is a pure function (no ROM dependency), so all tests
  * run unconditionally.  ROM-dependent tests (readL3TilemapAddr, loadL3Tilemap)
@@ -27,14 +27,14 @@ import {
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { buildMapWithGraph } from '../../../src/rom/model/MapBuilder'
 
-const ROM_PATH   = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
+const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent = existsSync(ROM_PATH)
 
 // ── parseStripeImage (pure) ──────────────────────────────────────────────────
 
 describe('parseStripeImage', () => {
   it('returns a zero-filled 64×64 buffer for empty data', () => {
-    const buf = parseStripeImage(new Uint8Array([0xFF]))
+    const buf = parseStripeImage(new Uint8Array([0xff]))
     expect(buf.length).toBe(L3_TILEMAP_COLS * L3_TILEMAP_ROWS)
     expect(buf.every(v => v === 0)).toBe(true)
   })
@@ -43,17 +43,20 @@ describe('parseStripeImage', () => {
     // Entry: VRAM=$5800, flags=$00 (horiz, no RLE), 4 bytes data = 2 tiles
     // byte0=$58, byte1=$00 → VRAM=$5800 → offset=$5800-$5000=$800=2048 → row=32,col=0
     const data = new Uint8Array([
-      0x58, 0x00,  // VRAM $5800
-      0x00, 0x03,  // flags=0 (horiz), count_hi byte + count=3 → (0<<8|3)+1=4 bytes
-      0x7D, 0x39,  // tile 0: char $17D, palette 1
-      0x7E, 0x39,  // tile 1: char $17E, palette 1
-      0xFF,        // terminator
+      0x58,
+      0x00, // VRAM $5800
+      0x00,
+      0x03, // flags=0 (horiz), count_hi byte + count=3 → (0<<8|3)+1=4 bytes
+      0x7d,
+      0x39, // tile 0: char $17D, palette 1
+      0x7e,
+      0x39, // tile 1: char $17E, palette 1
+      0xff, // terminator
     ])
     const buf = parseStripeImage(data)
-    const offset = L3_TILEMAP_BASE  // $5800 - $5000 = $800 = 2048
-    const vramOffset = 0x5800 - L3_TILEMAP_BASE  // 2048 = row 32, col 0
-    expect(buf[vramOffset]).toBe(0x397D)
-    expect(buf[vramOffset + 1]).toBe(0x397E)
+    const vramOffset = 0x5800 - L3_TILEMAP_BASE // 2048 = row 32, col 0
+    expect(buf[vramOffset]).toBe(0x397d)
+    expect(buf[vramOffset + 1]).toBe(0x397e)
     // other entries untouched
     expect(buf[vramOffset - 1]).toBe(0)
     expect(buf[vramOffset + 2]).toBe(0)
@@ -63,25 +66,32 @@ describe('parseStripeImage', () => {
     // VRAM=$5800, flags=$80 (vertical), count=3 → 4 bytes = 2 tiles written in column
     // row=32,col=0 and row=33,col=0 (stride=64)
     const data = new Uint8Array([
-      0x58, 0x00,  // VRAM $5800
-      0x80, 0x03,  // flags=$80 (vertical), count byte=3 → (0<<8|3)+1=4 bytes
-      0x01, 0x00,  // tile 0: word $0001
-      0x02, 0x00,  // tile 1: word $0002
-      0xFF,
+      0x58,
+      0x00, // VRAM $5800
+      0x80,
+      0x03, // flags=$80 (vertical), count byte=3 → (0<<8|3)+1=4 bytes
+      0x01,
+      0x00, // tile 0: word $0001
+      0x02,
+      0x00, // tile 1: word $0002
+      0xff,
     ])
     const buf = parseStripeImage(data)
-    const base = 0x5800 - L3_TILEMAP_BASE  // 2048 (row 32, col 0)
+    const base = 0x5800 - L3_TILEMAP_BASE // 2048 (row 32, col 0)
     expect(buf[base]).toBe(0x0001)
-    expect(buf[base + L3_TILEMAP_COLS]).toBe(0x0002)  // next row, same col
+    expect(buf[base + L3_TILEMAP_COLS]).toBe(0x0002) // next row, same col
   })
 
   it('skips entries outside the tilemap range', () => {
-    // VRAM=$4FFF is below L3_TILEMAP_BASE=$5000 — should not write
+    // VRAM=$4FFF is below L3_TILEMAP_BASE=$5000 - should not write
     const data = new Uint8Array([
-      0x4F, 0xFF,  // VRAM $4FFF (below base)
-      0x00, 0x01,  // 2 bytes = 1 tile
-      0xAA, 0xBB,
-      0xFF,
+      0x4f,
+      0xff, // VRAM $4FFF (below base)
+      0x00,
+      0x01, // 2 bytes = 1 tile
+      0xaa,
+      0xbb,
+      0xff,
     ])
     const buf = parseStripeImage(data)
     expect(buf.every(v => v === 0)).toBe(true)
@@ -92,37 +102,51 @@ describe('parseStripeImage', () => {
     // VRAM $5000 → sub 0, within=0 → hw (row 0, col 0) → flat 0
     // VRAM $5040 → sub 0, within=$40=64 → hw (row 2, col 0) → flat 128
     const data = new Uint8Array([
-      0x50, 0x00,  // VRAM $5000
-      0x00, 0x01,  // 2 bytes = 1 tile
-      0x01, 0x02,
-      0x50, 0x40,  // VRAM $5040
-      0x00, 0x01,  // 2 bytes = 1 tile
-      0x03, 0x04,
-      0xFF,
+      0x50,
+      0x00, // VRAM $5000
+      0x00,
+      0x01, // 2 bytes = 1 tile
+      0x01,
+      0x02,
+      0x50,
+      0x40, // VRAM $5040
+      0x00,
+      0x01, // 2 bytes = 1 tile
+      0x03,
+      0x04,
+      0xff,
     ])
     const buf = parseStripeImage(data)
-    expect(buf[0]).toBe(0x0201)    // hw row 0, col 0
-    expect(buf[128]).toBe(0x0403)  // hw row 2, col 0
+    expect(buf[0]).toBe(0x0201) // hw row 0, col 0
+    expect(buf[128]).toBe(0x0403) // hw row 2, col 0
   })
 
   it('HUD rows (0 to L3_HUD_ROW_CUTOFF-1) may contain data from some tilemaps', () => {
     // VRAM $50A8 → sub 0, within=$A8=168 → hw row=168/32=5, col=168%32=8 → flat=5*64+8=328
     const data = new Uint8Array([
-      0x50, 0xA8,  // VRAM $50A8
-      0x00, 0x01,  // 1 tile
-      0x99, 0x3D,
-      0xFF,
+      0x50,
+      0xa8, // VRAM $50A8
+      0x00,
+      0x01, // 1 tile
+      0x99,
+      0x3d,
+      0xff,
     ])
     const buf = parseStripeImage(data)
-    const flat = 5 * L3_TILEMAP_COLS + 8  // hw row 5, col 8 = 328
-    expect(flat >> 6).toBeLessThan(L3_HUD_ROW_CUTOFF)  // row 5 < 8 cutoff
-    expect(buf[flat]).toBe(0x3D99)
+    const flat = 5 * L3_TILEMAP_COLS + 8 // hw row 5, col 8 = 328
+    expect(flat >> 6).toBeLessThan(L3_HUD_ROW_CUTOFF) // row 5 < 8 cutoff
+    expect(buf[flat]).toBe(0x3d99)
   })
 
   it('terminates on first byte with bit 7 set', () => {
     const data = new Uint8Array([
-      0x80,  // bit 7 set — immediate terminator, no entries written
-      0x50, 0x00, 0x00, 0x01, 0xAA, 0xBB,  // would write if not terminated
+      0x80, // bit 7 set - immediate terminator, no entries written
+      0x50,
+      0x00,
+      0x00,
+      0x01,
+      0xaa,
+      0xbb, // would write if not terminated
     ])
     const buf = parseStripeImage(data)
     expect(buf.every(v => v === 0)).toBe(true)
@@ -134,16 +158,19 @@ describe('parseStripeImage', () => {
     // Should write $1234 at row 32 col 0 and col 1; stream advances by 2 (not 4).
     // Then $FF terminator.
     const data = new Uint8Array([
-      0x58, 0x00,  // VRAM $5800
-      0x40, 0x03,  // FLAGS=$40 (RLE, horiz), COUNT=3 → countBytes=4, tileCount=2
-      0x34, 0x12,  // tile word $1234 (lo=$34, hi=$12)
-      0xFF,        // terminator — must be reached (not skipped over)
+      0x58,
+      0x00, // VRAM $5800
+      0x40,
+      0x03, // FLAGS=$40 (RLE, horiz), COUNT=3 → countBytes=4, tileCount=2
+      0x34,
+      0x12, // tile word $1234 (lo=$34, hi=$12)
+      0xff, // terminator - must be reached (not skipped over)
     ])
     const buf = parseStripeImage(data)
-    const base = 0x5800 - L3_TILEMAP_BASE  // 2048 = row 32, col 0
+    const base = 0x5800 - L3_TILEMAP_BASE // 2048 = row 32, col 0
     expect(buf[base]).toBe(0x1234)
     expect(buf[base + 1]).toBe(0x1234)
-    expect(buf[base + 2]).toBe(0)  // only 2 tiles written
+    expect(buf[base + 2]).toBe(0) // only 2 tiles written
   })
 
   it('RLE entry followed by normal entry parses both correctly', () => {
@@ -151,16 +178,24 @@ describe('parseStripeImage', () => {
     // $5800 → sub 2, within=0 → hw (row 32, col 0) → flat 2048
     // $5040 → sub 0, within=$40=64 → hw (row 2, col 0) → flat 128
     const data = new Uint8Array([
-      0x58, 0x00, 0x40, 0x03,  // RLE header: $5800, tileCount=2
-      0xBB, 0xAA,              // tile word $AABB
-      0x50, 0x40, 0x00, 0x01,  // normal header: $5040, countBytes=2, tileCount=1
-      0x01, 0x02,              // tile $0201
-      0xFF,
+      0x58,
+      0x00,
+      0x40,
+      0x03, // RLE header: $5800, tileCount=2
+      0xbb,
+      0xaa, // tile word $AABB
+      0x50,
+      0x40,
+      0x00,
+      0x01, // normal header: $5040, countBytes=2, tileCount=1
+      0x01,
+      0x02, // tile $0201
+      0xff,
     ])
     const buf = parseStripeImage(data)
-    expect(buf[2048]).toBe(0xAABB)  // hw row 32, col 0
-    expect(buf[2049]).toBe(0xAABB)  // hw row 32, col 1
-    expect(buf[128]).toBe(0x0201)   // hw row 2, col 0
+    expect(buf[2048]).toBe(0xaabb) // hw row 32, col 0
+    expect(buf[2049]).toBe(0xaabb) // hw row 32, col 1
+    expect(buf[128]).toBe(0x0201) // hw row 2, col 0
   })
 })
 
@@ -179,23 +214,23 @@ describe('l3InitialYPx', () => {
     expect(l3InitialYPx(0x00)).toBe(0x70)
   })
 
-  it('returns $40 for stationary tide ($02 — canonical Tide_Stationary)', () => {
+  it('returns $40 for stationary tide ($02 - canonical Tide_Stationary)', () => {
     // rammap.asm:1512: !Tide_Stationary = 2. CODE_009FB8 LSR makes A=$01,
     // Z=0, BEQ falls through to LDA #$40.
     expect(l3InitialYPx(0x02)).toBe(0x40)
   })
 
   it('returns $D0 for non-tide overlay ($80)', () => {
-    expect(l3InitialYPx(0x80)).toBe(0xD0)
+    expect(l3InitialYPx(0x80)).toBe(0xd0)
   })
 
   it('returns $D0 for non-tide overlay ($81)', () => {
-    expect(l3InitialYPx(0x81)).toBe(0xD0)
+    expect(l3InitialYPx(0x81)).toBe(0xd0)
   })
 
   it('returns 0 for values >= $C0 (special / no BG)', () => {
-    expect(l3InitialYPx(0xC0)).toBe(0)
-    expect(l3InitialYPx(0xFF)).toBe(0)
+    expect(l3InitialYPx(0xc0)).toBe(0)
+    expect(l3InitialYPx(0xff)).toBe(0)
   })
 })
 
@@ -208,67 +243,113 @@ describe('l3InitialYPx', () => {
 
 describe('classifyL3Routine', () => {
   it('returns disabled when layer3Setting is 0', () => {
-    expect(classifyL3Routine({ layer3Setting: 0, settingsByte: null, tileset: 0 }).kind).toBe('disabled')
+    expect(classifyL3Routine({ layer3Setting: 0, settingsByte: null, tileset: 0 }).kind).toBe(
+      'disabled',
+    )
   })
 
   it('returns tide ONLY for settingsByte === $01 (Tide_UpAndDown)', () => {
     // Per CODE_05C494 (bank_05.asm:5576-5578): DEC A; BNE CODE_05C4EC means
     // Y animation runs only when Layer3TideSetting === 1. Bytes $00 and
     // $02..$7F take other paths and don't update Layer3YPos.
-    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x01, tileset: 0 }).kind).toBe('tide')
+    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x01, tileset: 0 }).kind).toBe(
+      'tide',
+    )
   })
 
   it('returns fixed for byte $00 (CODE_05C40C BEQ skips tide handler)', () => {
-    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x00, tileset: 0 }).kind).toBe('fixed')
+    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x00, tileset: 0 }).kind).toBe(
+      'fixed',
+    )
   })
 
-  it('returns fixed for byte $02 (Tide_Stationary — Y is static at $40)', () => {
-    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x02, tileset: 8 }).kind).toBe('fixed')
+  it('returns fixed for byte $02 (Tide_Stationary - Y is static at $40)', () => {
+    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x02, tileset: 8 }).kind).toBe(
+      'fixed',
+    )
   })
 
   it('flags isTideUpAndDown only for byte $01', () => {
-    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x01, tileset: 0 }).isTideUpAndDown).toBe(true)
-    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x00, tileset: 0 }).isTideUpAndDown).toBe(false)
-    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x02, tileset: 8 }).isTideUpAndDown).toBe(false)
+    expect(
+      classifyL3Routine({ layer3Setting: 1, settingsByte: 0x01, tileset: 0 }).isTideUpAndDown,
+    ).toBe(true)
+    expect(
+      classifyL3Routine({ layer3Setting: 1, settingsByte: 0x00, tileset: 0 }).isTideUpAndDown,
+    ).toBe(false)
+    expect(
+      classifyL3Routine({ layer3Setting: 2, settingsByte: 0x02, tileset: 8 }).isTideUpAndDown,
+    ).toBe(false)
   })
 
   it('returns fixed for settingsByte $80', () => {
-    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x80, tileset: 1 }).kind).toBe('fixed')
-    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x80, tileset: 6 }).kind).toBe('fixed')
+    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x80, tileset: 1 }).kind).toBe(
+      'fixed',
+    )
+    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x80, tileset: 6 }).kind).toBe(
+      'fixed',
+    )
   })
 
   it('returns fixed for settingsByte $81 with tileset 1 (Castle1) or 3 (Underground1)', () => {
-    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 1 }).kind).toBe('fixed')
-    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 3 }).kind).toBe('fixed')
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 1 }).kind).toBe(
+      'fixed',
+    )
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 3 }).kind).toBe(
+      'fixed',
+    )
   })
 
   it('returns camera-tracked for settingsByte $81 with non-castle/non-underground tileset', () => {
     // Same special-case as loadL3Tilemap: $81 + tileset != 1,3 takes the
     // CODE_00A01F path where Layer3YPos = Layer1YPos every frame.
-    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 6 }).kind).toBe('camera-tracked')
-    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 0 }).kind).toBe('camera-tracked')
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 6 }).kind).toBe(
+      'camera-tracked',
+    )
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 0 }).kind).toBe(
+      'camera-tracked',
+    )
   })
 
   it('returns none for settingsByte >= $C0', () => {
-    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0xC0, tileset: 0 }).kind).toBe('none')
-    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0xFF, tileset: 0 }).kind).toBe('none')
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0xc0, tileset: 0 }).kind).toBe(
+      'none',
+    )
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0xff, tileset: 0 }).kind).toBe(
+      'none',
+    )
   })
 
   it('exposes initialYPx that matches l3InitialYPx, except for camera-tracked', () => {
     // Tide / fixed / none come straight from l3InitialYPx (post-fix: $00 = $70,
-    // $01 = $70, $02..$7F = $40 — see l3InitialYPx tests for ASM citation).
-    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x01, tileset: 0 }).initialYPx).toBe(0x70)
-    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x00, tileset: 0 }).initialYPx).toBe(0x70)
-    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x02, tileset: 8 }).initialYPx).toBe(0x40)
-    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x80, tileset: 1 }).initialYPx).toBe(0xD0)
-    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x81, tileset: 1 }).initialYPx).toBe(0xD0)
-    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0xC0, tileset: 0 }).initialYPx).toBe(0)
-    // camera-tracked has no static initial Y — it follows Layer1YPos every
+    // $01 = $70, $02..$7F = $40 - see l3InitialYPx tests for ASM citation).
+    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x01, tileset: 0 }).initialYPx).toBe(
+      0x70,
+    )
+    expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x00, tileset: 0 }).initialYPx).toBe(
+      0x70,
+    )
+    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x02, tileset: 8 }).initialYPx).toBe(
+      0x40,
+    )
+    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x80, tileset: 1 }).initialYPx).toBe(
+      0xd0,
+    )
+    expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x81, tileset: 1 }).initialYPx).toBe(
+      0xd0,
+    )
+    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0xc0, tileset: 0 }).initialYPx).toBe(
+      0,
+    )
+    // camera-tracked has no static initial Y - it follows Layer1YPos every
     // frame. Surface as null so consumers don't render a misleading static
     // pixel value.
-    expect(classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 6 }).initialYPx).toBeNull()
+    expect(
+      classifyL3Routine({ layer3Setting: 3, settingsByte: 0x81, tileset: 6 }).initialYPx,
+    ).toBeNull()
     // Disabled: no settings byte means no initial Y.
-    expect(classifyL3Routine({ layer3Setting: 0, settingsByte: null, tileset: 0 }).initialYPx).toBeNull()
+    expect(
+      classifyL3Routine({ layer3Setting: 0, settingsByte: null, tileset: 0 }).initialYPx,
+    ).toBeNull()
   })
 })
 
@@ -301,7 +382,7 @@ describe.skipIf(!romPresent)('L3Loader (ROM-only)', () => {
     // DATA_05F200[$1B] = $00 → X idx 0 → DATA_05D750[0]=$10, DATA_05D758[0]=$00
     //   → X = $0010 = 16 px (col 1).
     const rom = SmwRom.open(ROM_PATH)
-    const pos = readMarioStartPos(rom.rom, 0x01B)
+    const pos = readMarioStartPos(rom.rom, 0x01b)
     expect(pos).toEqual({ x: 0x0010, y: 0x0160 })
   })
 
@@ -312,7 +393,7 @@ describe.skipIf(!romPresent)('L3Loader (ROM-only)', () => {
     const pos = readMarioStartPos(rom.rom, 0x102)
     // Values come from the ROM; assert basic shape + within legal pixel range.
     expect(pos.x).toBeGreaterThanOrEqual(0)
-    expect(pos.x).toBeLessThanOrEqual(0x1E0)
+    expect(pos.x).toBeLessThanOrEqual(0x1e0)
     expect(pos.y).toBeGreaterThanOrEqual(0)
   })
 
@@ -328,20 +409,20 @@ describe.skipIf(!romPresent)('L3Loader (ROM-only)', () => {
     //   $05F400[$009] = $0A → bits 3:2 = 2 → DATA_05D708[2] = $C0 (CORRECT,
     //     verified against live game runtime via Mesen Memory Viewer at $7E:001C)
     const rom = SmwRom.open(ROM_PATH)
-    expect(readInitialLayer1YPos(rom.rom, 0x009, false)).toBe(0xC0)
+    expect(readInitialLayer1YPos(rom.rom, 0x009, false)).toBe(0xc0)
     // $127 (water level, primary entrance, no secondary entrance targets it).
-    expect(readInitialLayer1YPos(rom.rom, 0x127, false)).toBe(0xC0)
+    expect(readInitialLayer1YPos(rom.rom, 0x127, false)).toBe(0xc0)
   })
 
   it('sublevels ($100+) use secondary-entrance camera Y, not primary entrance', () => {
-    // Level $102 (Yoshi's Island 4) is a sublevel — only reachable via
+    // Level $102 (Yoshi's Island 4) is a sublevel - only reachable via
     // secondary entrance $1BE (bank_05.asm:7129-7136).  The primary-entrance
     // tables put camera Y at 0 (wrong), but $05FA00[$1BE] = $AB → bits 5:4 = 2
     // → DATA_05D708[2] = $C0 = 192. This places the tide water at level Y 384.
     const rom = SmwRom.open(ROM_PATH)
-    expect(findSecondaryEntranceForLevel(rom.rom, 0x102)).toBe(0x1BE)
+    expect(findSecondaryEntranceForLevel(rom.rom, 0x102)).toBe(0x1be)
     const camY = readInitialLayer1YPos(rom.rom, 0x102, false)
-    expect(camY).toBe(0xC0)  // = 192
+    expect(camY).toBe(0xc0) // = 192
     // Derived: wave row 32 with Tide_Stationary ($40): pixelY = 256 - 64 + 192 = 384
     const load = loadL3Tilemap(rom.rom, 0x102, 8)
     expect(load!.initialYPx).toBe(0x40)
@@ -372,26 +453,26 @@ describe.skipIf(!romPresent)('L3Loader (ROM-only)', () => {
     //   ts0: db !Tide_UpAndDown,!Tide_Stationary,$C0  → 0x01, 0x02, 0xC0
     //   ts1: db !Tide_UpAndDown,$80,$81               → 0x01, 0x80, 0x81
     const rom = SmwRom.open(ROM_PATH)
-    expect(rom.rom.readByte(0x009F88)).toBe(0x01)
-    expect(rom.rom.readByte(0x009F89)).toBe(0x02)
-    expect(rom.rom.readByte(0x009F8A)).toBe(0xC0)
-    expect(rom.rom.readByte(0x009F8B)).toBe(0x01)
-    expect(rom.rom.readByte(0x009F8C)).toBe(0x80)
-    expect(rom.rom.readByte(0x009F8D)).toBe(0x81)
+    expect(rom.rom.readByte(0x009f88)).toBe(0x01)
+    expect(rom.rom.readByte(0x009f89)).toBe(0x02)
+    expect(rom.rom.readByte(0x009f8a)).toBe(0xc0)
+    expect(rom.rom.readByte(0x009f8b)).toBe(0x01)
+    expect(rom.rom.readByte(0x009f8c)).toBe(0x80)
+    expect(rom.rom.readByte(0x009f8d)).toBe(0x81)
   })
 
-  it('level $102 (Yoshi\'s Island 4) ROM values: tileset 8, Tide_Stationary', () => {
+  it("level $102 (Yoshi's Island 4) ROM values: tileset 8, Tide_Stationary", () => {
     const rom = SmwRom.open(ROM_PATH)
     const raw = rom.getLevelRawData(0x102)
     expect(raw).not.toBeNull()
-    const tileset = raw![4]! & 0x0F
+    const tileset = raw![4]! & 0x0f
     expect(tileset).toBe(8)
     const load = loadL3Tilemap(rom.rom, 0x102, tileset)
     expect(load).not.toBeNull()
-    expect(load!.initialYPx).toBe(0x40)  // Tide_Stationary → $40 = 64
+    expect(load!.initialYPx).toBe(0x40) // Tide_Stationary → $40 = 64
   })
 
-  it('readL3RoutineSummary level $102 (Yoshi\'s Island 4 sublevel) → fixed / Tide_Stationary', () => {
+  it("readL3RoutineSummary level $102 (Yoshi's Island 4 sublevel) → fixed / Tide_Stationary", () => {
     // $102 has tileset 8, layer3Setting 2, settings byte $02 (Tide_Stationary).
     // Per the fix: only byte $01 animates Y, so $02 → kind:'fixed'. Init Y
     // stays at $40 from l3InitialYPx (canonical Tide_Stationary value).
@@ -409,8 +490,8 @@ describe.skipIf(!romPresent)('L3Loader (ROM-only)', () => {
     const rom = SmwRom.open(ROM_PATH)
     let foundDisabled = false
     for (let lvl = 0; lvl < 0x200; lvl++) {
-      const byte = rom.rom.readByte(0x05F200 + lvl) ?? 0
-      if (((byte & 0xC0) >> 6) === 0) {
+      const byte = rom.rom.readByte(0x05f200 + lvl) ?? 0
+      if ((byte & 0xc0) >> 6 === 0) {
         const sum = readL3RoutineSummary(rom.rom, lvl, 0)
         expect(sum.layer3Setting).toBe(0)
         expect(sum.kind).toBe('disabled')

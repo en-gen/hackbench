@@ -27,12 +27,19 @@ import { Sprite } from '../Sprite'
 import { CompositeSprite } from '../CompositeSprite'
 import type { SpriteDrawDescriptor } from './SpriteDrawDescriptor'
 import {
-  drawSpriteParts, findDescriptor, unionExtents,
-  ROM_FRAMES_PER_TICK, type EngineFailure, type EnginePart, type PaletteNote,
+  drawSpriteParts,
+  findDescriptor,
+  unionExtents,
+  ROM_FRAMES_PER_TICK,
+  type EngineFailure,
+  type EnginePart,
+  type PaletteNote,
   type SpriteExtents,
 } from './SpriteDrawEngine'
 import {
-  describeHandlerProvenance, provenanceMessage, type HandlerProvenance,
+  describeHandlerProvenance,
+  provenanceMessage,
+  type HandlerProvenance,
 } from './SpriteHandlerProvenance'
 
 /** Editor affordance, not sprite art: corner ticks in a fixed hue. The
@@ -54,7 +61,14 @@ const MARK_UNVERIFIED: [number, number, number, number] = [255, 170, 40, 255]
 const MARK_ENGINE_DECLINED: [number, number, number, number] = [235, 90, 220, 255]
 const TICK_LEN = 3
 
-function fill(target: RenderTarget, x: number, y: number, w: number, h: number, c: [number, number, number, number]): void {
+function fill(
+  target: RenderTarget,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  c: [number, number, number, number],
+): void {
   target.fillRect({ x, y } as PixelPos, { w, h }, c)
 }
 
@@ -62,14 +76,23 @@ function fill(target: RenderTarget, x: number, y: number, w: number, h: number, 
  *  the sprite is not boxed in and the marker cannot be mistaken for the
  *  tile-grid overlay. */
 function drawCornerTicks(
-  target: RenderTarget, x: number, y: number, w: number, h: number,
+  target: RenderTarget,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
   c: [number, number, number, number],
 ): void {
-  const r = x + w - 1, b = y + h - 1
-  fill(target, x, y, TICK_LEN, 1, c);                 fill(target, x, y, 1, TICK_LEN, c)
-  fill(target, r - TICK_LEN + 1, y, TICK_LEN, 1, c);  fill(target, r, y, 1, TICK_LEN, c)
-  fill(target, x, b, TICK_LEN, 1, c);                 fill(target, x, b - TICK_LEN + 1, 1, TICK_LEN, c)
-  fill(target, r - TICK_LEN + 1, b, TICK_LEN, 1, c);  fill(target, r, b - TICK_LEN + 1, 1, TICK_LEN, c)
+  const r = x + w - 1,
+    b = y + h - 1
+  fill(target, x, y, TICK_LEN, 1, c)
+  fill(target, x, y, 1, TICK_LEN, c)
+  fill(target, r - TICK_LEN + 1, y, TICK_LEN, 1, c)
+  fill(target, r, y, 1, TICK_LEN, c)
+  fill(target, x, b, TICK_LEN, 1, c)
+  fill(target, x, b - TICK_LEN + 1, 1, TICK_LEN, c)
+  fill(target, r - TICK_LEN + 1, b, TICK_LEN, 1, c)
+  fill(target, r, b - TICK_LEN + 1, 1, TICK_LEN, c)
 }
 
 /** Provenance warnings already emitted, by sprite ID. */
@@ -129,11 +152,21 @@ export class EngineSpriteAppearance implements SpriteAppearance {
 
   /** Hit-testing stays on the shipped rect so selection behaviour does not
    *  change with the toggle. */
-  get hitRect(): HitRect { return this.fallback.hitRect }
+  get hitRect(): HitRect {
+    return this.fallback.hitRect
+  }
 
-  tickAnimation(): void { this.romFrame += ROM_FRAMES_PER_TICK }
+  tickAnimation(): void {
+    this.romFrame += ROM_FRAMES_PER_TICK
+  }
 
-  render(target: RenderTarget, x: number, y: number, behavior: SpriteBehavior, mapStore: MapStore): void {
+  render(
+    target: RenderTarget,
+    x: number,
+    y: number,
+    behavior: SpriteBehavior,
+    mapStore: MapStore,
+  ): void {
     const marks = editorStore.spriteEngineMarkers
     if (this.provenance.kind !== 'vanilla') {
       this.fallback.render(target, x, y, behavior, mapStore)
@@ -142,7 +175,9 @@ export class EngineSpriteAppearance implements SpriteAppearance {
     }
 
     const res = drawSpriteParts({
-      rom: this.rom, tables: this.tables, descriptor: this.descriptor,
+      rom: this.rom,
+      tables: this.tables,
+      descriptor: this.descriptor,
       spriteX: x,
       ctx: { marioX: mapStore.marioSpawnX, romFrame: this.romFrame },
     })
@@ -168,7 +203,8 @@ export class EngineSpriteAppearance implements SpriteAppearance {
       target.blit8x8(char.getPixels(), { x: x + p.dx, y: y + p.dy }, row, p.flipX, p.flipY)
     }
     const box = this.boundingBox(x, mapStore)
-    if (marks && box) drawCornerTicks(target, x + box.x0, y + box.y0, box.x1 - box.x0, box.y1 - box.y0, MARK_ENGINE)
+    if (marks && box)
+      drawCornerTicks(target, x + box.x0, y + box.y0, box.x1 - box.x0, box.y1 - box.y0, MARK_ENGINE)
   }
 
   /**
@@ -198,7 +234,9 @@ export class EngineSpriteAppearance implements SpriteAppearance {
     this.dynFrom = note.entryAddr
     const bytes = this.rom.readAt(note.entryAddr, note.colors * 2)
     this.dynColors = bytes
-      ? Array.from({ length: note.colors }, (_, i) => bgr555ToRgba(bytes[i * 2] | (bytes[i * 2 + 1] << 8)))
+      ? Array.from({ length: note.colors }, (_, i) =>
+          bgr555ToRgba(bytes[i * 2] | (bytes[i * 2 + 1] << 8)),
+        )
       : []
   }
 
@@ -211,8 +249,12 @@ export class EngineSpriteAppearance implements SpriteAppearance {
     const frames: EnginePart[][] = []
     for (let f = 0; f < this.descriptor.frames; f++) {
       const r = drawSpriteParts({
-        rom: this.rom, tables: this.tables, descriptor: this.descriptor,
-        spriteX, ctx: { marioX: mapStore.marioSpawnX, romFrame: 0 }, forceFrame: f,
+        rom: this.rom,
+        tables: this.tables,
+        descriptor: this.descriptor,
+        spriteX,
+        ctx: { marioX: mapStore.marioSpawnX, romFrame: 0 },
+        forceFrame: f,
       })
       if (r.ok) frames.push(r.parts)
     }
@@ -275,7 +317,14 @@ export function attachEngineAppearances(
   const visit = (s: Sprite): void => {
     const d = findDescriptor(s.id)
     if (d) {
-      s.engineAppearance = new EngineSpriteAppearance(rom, tables, d, chars, placeholder, s.appearance)
+      s.engineAppearance = new EngineSpriteAppearance(
+        rom,
+        tables,
+        d,
+        chars,
+        placeholder,
+        s.appearance,
+      )
       attached++
     }
     if (s instanceof CompositeSprite && s.secondary) visit(s.secondary)

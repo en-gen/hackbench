@@ -11,12 +11,20 @@ describe('IPS round trip', () => {
   })
 
   it('survives scattered bytes', () => {
-    const p: Patch[] = [{ offset: 0x10, value: 1 }, { offset: 0x200, value: 2 }, { offset: 0x3ff, value: 3 }]
+    const p: Patch[] = [
+      { offset: 0x10, value: 1 },
+      { offset: 0x200, value: 2 },
+      { offset: 0x3ff, value: 3 },
+    ]
     expect(decodeIps(encodeIps(p))).toEqual(p)
   })
 
   it('produces the same ROM as applying the patches directly', () => {
-    const p: Patch[] = [{ offset: 5, value: 0xaa }, { offset: 6, value: 0xbb }, { offset: 0x100, value: 0xcc }]
+    const p: Patch[] = [
+      { offset: 5, value: 0xaa },
+      { offset: 6, value: 0xbb },
+      { offset: 0x100, value: 0xcc },
+    ]
     expect(applyPatches(rom(), decodeIps(encodeIps(p))!)).toEqual(applyPatches(rom(), p))
   })
 
@@ -29,13 +37,22 @@ describe('IPS round trip', () => {
   })
 
   it('sorts by offset, so input order does not change the file', () => {
-    const a: Patch[] = [{ offset: 9, value: 2 }, { offset: 8, value: 1 }]
-    const b: Patch[] = [{ offset: 8, value: 1 }, { offset: 9, value: 2 }]
+    const a: Patch[] = [
+      { offset: 9, value: 2 },
+      { offset: 8, value: 1 },
+    ]
+    const b: Patch[] = [
+      { offset: 8, value: 1 },
+      { offset: 9, value: 2 },
+    ]
     expect(encodeIps(a)).toEqual(encodeIps(b))
   })
 
   it('lets a later patch win on a repeated offset, matching flatten', () => {
-    const p: Patch[] = [{ offset: 7, value: 0x11 }, { offset: 7, value: 0x22 }]
+    const p: Patch[] = [
+      { offset: 7, value: 0x11 },
+      { offset: 7, value: 0x22 },
+    ]
     expect(decodeIps(encodeIps(p))).toEqual([{ offset: 7, value: 0x22 }])
   })
 
@@ -97,7 +114,10 @@ describe('RLE records, which other patchers emit', () => {
 /** Proof the round-trip assertions above can actually fail. */
 describe('the oracle can fail', () => {
   it('an encoder that dropped the last record would break the round trip', () => {
-    const p: Patch[] = [{ offset: 0x10, value: 1 }, { offset: 0x200, value: 2 }]
+    const p: Patch[] = [
+      { offset: 0x10, value: 1 },
+      { offset: 0x200, value: 2 },
+    ]
     const good = encodeIps(p)
     // Chop the final record out, keeping the terminator.
     const broken = Uint8Array.from([...good.slice(0, good.length - 9), ...good.slice(-3)])

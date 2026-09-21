@@ -1,11 +1,11 @@
 /**
- * SpcBuilder.ts — Build playable SPC files from Super Mario World ROM data.
+ * SpcBuilder.ts - Build playable SPC files from Super Mario World ROM data.
  *
  * The SNES SPC700 audio processor has 64KB of dedicated RAM (ARAM).
  * At startup, the game uploads three data blocks to ARAM:
- *   1. SPC engine code (N-SPC by Kankichi Ito) — from UploadSPCEngine ($80E8)
- *   2. BRR instrument samples — from UploadSamples ($80FD)
- *   3. A music bank (songs + sequence data) — from UploadMusicBank1/2/3
+ *   1. SPC engine code (N-SPC by Kankichi Ito) - from UploadSPCEngine ($80E8)
+ *   2. BRR instrument samples - from UploadSamples ($80FD)
+ *   3. A music bank (songs + sequence data) - from UploadMusicBank1/2/3
  *
  * Each ROM block has a 4-byte header: [size_lo, size_hi, dest_lo, dest_hi]
  * followed by raw data bytes.
@@ -32,18 +32,18 @@ import { RomFile } from './RomFile'
 //   LDA.B #val (2 bytes) + STA.W addr (3 bytes) = 5 bytes per component.
 // Operand bytes are at offsets +1, +6, +11 from the pattern start.
 
-const UPLOAD_SPC_ENGINE   = 0x0080E8  // UploadSPCEngine routine
-const UPLOAD_SAMPLES      = 0x0080FD  // UploadSamples routine
-const UPLOAD_MUSIC_BANK1  = 0x00810E  // UploadMusicBank1 (overworld)
+const UPLOAD_SPC_ENGINE = 0x0080e8 // UploadSPCEngine routine
+const UPLOAD_SAMPLES = 0x0080fd // UploadSamples routine
+const UPLOAD_MUSIC_BANK1 = 0x00810e // UploadMusicBank1 (overworld)
 // UploadLevelMusic ($8134) has a conditional preamble (20 bytes) before the
 // MusicBank2 LDA pattern at UploadOverworldMusic ($8148).
-const UPLOAD_MUSIC_BANK2  = 0x008148  // UploadOverworldMusic (level music bank)
-const UPLOAD_MUSIC_BANK3  = 0x008159  // UploadCreditsMusic
+const UPLOAD_MUSIC_BANK2 = 0x008148 // UploadOverworldMusic (level music bank)
+const UPLOAD_MUSIC_BANK3 = 0x008159 // UploadCreditsMusic
 
 /** Read a 24-bit ROM address from three LDA #imm operands at offsets +1, +6, +11. */
 function readUploadAddress(rom: RomFile, routineAddr: number): number {
-  const lo   = rom.readByte(routineAddr + 1) ?? 0
-  const hi   = rom.readByte(routineAddr + 6) ?? 0
+  const lo = rom.readByte(routineAddr + 1) ?? 0
+  const hi = rom.readByte(routineAddr + 6) ?? 0
   const bank = rom.readByte(routineAddr + 11) ?? 0
   return (bank << 16) | (hi << 8) | lo
 }
@@ -51,23 +51,14 @@ function readUploadAddress(rom: RomFile, routineAddr: number): number {
 // ── SPC file format constants ────────────────────────────────────────────────
 
 const SPC_HEADER_SIZE = 256
-const ARAM_SIZE       = 65536
-const DSP_REG_SIZE    = 128
-const SPC_FILE_SIZE   = SPC_HEADER_SIZE + ARAM_SIZE + DSP_REG_SIZE
+const ARAM_SIZE = 65536
+const DSP_REG_SIZE = 128
+const SPC_FILE_SIZE = SPC_HEADER_SIZE + ARAM_SIZE + DSP_REG_SIZE
 
 /** SPC file signature: "SNES-SPC700 Sound File Data v0.30" + 0x1A1A */
 const SPC_SIGNATURE = 'SNES-SPC700 Sound File Data v0.30\x1A\x1A'
 
 // ── ROM block parser ─────────────────────────────────────────────────────────
-
-interface RomBlock {
-  /** Size of data payload (from header). */
-  size: number
-  /** ARAM destination address (from header). */
-  aramDest: number
-  /** Raw data bytes. */
-  data: Uint8Array
-}
 
 /**
  * Upload all consecutive ROM blocks into an ARAM buffer.
@@ -83,10 +74,10 @@ function uploadBlocks(rom: RomFile, romAddr: number, aram: Uint8Array): number {
   for (;;) {
     const header = rom.readAt(offset, 4)
     if (!header) break
-    const size     = header[0] | (header[1] << 8)
+    const size = header[0] | (header[1] << 8)
     const aramDest = header[2] | (header[3] << 8)
 
-    if (size === 0) break  // terminator block
+    if (size === 0) break // terminator block
 
     if (firstDest < 0) firstDest = aramDest
 
@@ -98,10 +89,12 @@ function uploadBlocks(rom: RomFile, romAddr: number, aram: Uint8Array): number {
     for (let i = 0; i < end; i++) aram[aramDest + i] = data[i]
 
     blockCount++
-    offset += 4 + size  // advance past header + data
+    offset += 4 + size // advance past header + data
   }
 
-  console.log(`[SPC] Uploaded ${blockCount} blocks from ROM $${romAddr.toString(16)}, firstDest=$${firstDest.toString(16).padStart(4, '0')}`)
+  console.log(
+    `[SPC] Uploaded ${blockCount} blocks from ROM $${romAddr.toString(16)}, firstDest=$${firstDest.toString(16).padStart(4, '0')}`,
+  )
   return firstDest
 }
 
@@ -117,7 +110,7 @@ function buildAram(
   rom: RomFile,
   musicBankAddr: number,
 ): { aram: Uint8Array; engineEntry: number } | null {
-  const engineAddr  = readUploadAddress(rom, UPLOAD_SPC_ENGINE)
+  const engineAddr = readUploadAddress(rom, UPLOAD_SPC_ENGINE)
   const samplesAddr = readUploadAddress(rom, UPLOAD_SAMPLES)
 
   const aram = new Uint8Array(ARAM_SIZE)
@@ -153,9 +146,15 @@ export function buildSpc(
   // Determine music bank ROM address
   let bankRoutineAddr: number
   switch (musicBank) {
-    case 'overworld': bankRoutineAddr = UPLOAD_MUSIC_BANK1; break
-    case 'credits':   bankRoutineAddr = UPLOAD_MUSIC_BANK3; break
-    default:          bankRoutineAddr = UPLOAD_MUSIC_BANK2; break
+    case 'overworld':
+      bankRoutineAddr = UPLOAD_MUSIC_BANK1
+      break
+    case 'credits':
+      bankRoutineAddr = UPLOAD_MUSIC_BANK3
+      break
+    default:
+      bankRoutineAddr = UPLOAD_MUSIC_BANK2
+      break
   }
   const musicBankAddr = readUploadAddress(rom, bankRoutineAddr)
 
@@ -169,7 +168,7 @@ export function buildSpc(
   //   1. Zeros ARAM $00-$E7 (work RAM)
   //   2. Zeros ARAM $0200-$03FF (voice state)
   //   3. Writes default DSP register values from DefaultDSPRegs/Vals tables
-  //   4. Writes $F0 to CONTROL ($F1) — CLEARS ALL I/O PORTS including $F4
+  //   4. Writes $F0 to CONTROL ($F1) - CLEARS ALL I/O PORTS including $F4
   //   5. Sets timer 0
   //   6. Enters APU_Loop at $0549
   //
@@ -177,14 +176,14 @@ export function buildSpc(
   // So we simulate the init ourselves and set PC directly to APU_Loop ($0549).
 
   // Step 1-2: Zero work areas (same as engine init)
-  for (let i = 0; i < 0xE8; i++) aram[i] = 0
+  for (let i = 0; i < 0xe8; i++) aram[i] = 0
   for (let i = 0x200; i < 0x400; i++) aram[i] = 0
 
   // Step 3: Read DSP defaults from the engine's ARAM tables
   // DefaultDSPRegs at $12A1, DefaultDSPVals at $1295, 12 entries each
   const DSP_DEFAULTS_COUNT = 12
-  const DSP_REGS_ADDR  = 0x12A1
-  const DSP_VALS_ADDR  = 0x1295
+  const DSP_REGS_ADDR = 0x12a1
+  const DSP_VALS_ADDR = 0x1295
   const dspRegs = new Uint8Array(128)
   for (let i = 0; i < DSP_DEFAULTS_COUNT; i++) {
     const reg = aram[DSP_REGS_ADDR + i]
@@ -196,15 +195,15 @@ export function buildSpc(
   aram[0x51] = 0x36
 
   // Step 5: Set CONTROL ($F1) = $01 (timer 0 running, ports NOT cleared)
-  aram[0xF1] = 0x01
+  aram[0xf1] = 0x01
   // Timer 0 target ($FA) = $10 (2ms interval)
-  aram[0xFA] = 0x10
+  aram[0xfa] = 0x10
 
   // BGM command: I/O port 2 ($F6) is the music command port (SNES writes SPCIO2).
-  // The engine also checks SPCOutBuffer+2 ($0C) — both must be set for the
+  // The engine also checks SPCOutBuffer+2 ($0C) - both must be set for the
   // engine to process the command on the first main loop iteration.
-  aram[0xF6] = bgmCommand
-  aram[0x0C] = bgmCommand
+  aram[0xf6] = bgmCommand
+  aram[0x0c] = bgmCommand
 
   // ── Build SPC file ──
   const spc = new Uint8Array(SPC_FILE_SIZE)
@@ -215,14 +214,14 @@ export function buildSpc(
   spc.set(sig, 0)
 
   // CPU registers at offset 37
-  // PC = APU_Loop ($0549) — skip init, start in main loop
+  // PC = APU_Loop ($0549) - skip init, start in main loop
   const APU_LOOP = 0x0549
-  spc[37] = APU_LOOP & 0xFF
-  spc[38] = (APU_LOOP >> 8) & 0xFF
+  spc[37] = APU_LOOP & 0xff
+  spc[38] = (APU_LOOP >> 8) & 0xff
   // A = 0, X = 0, Y = 0 (already zero)
   // PSW at offset 42 = 0
   // SP at offset 43 = $CF
-  spc[43] = 0xCF
+  spc[43] = 0xcf
 
   // ARAM dump at offset 256
   spc.set(aram, SPC_HEADER_SIZE)
@@ -264,7 +263,7 @@ export function countBankSongs(rom: RomFile, bankRomAddr: number): number {
   const header = rom.readAt(bankRomAddr, 4)
   if (!header) return 0
   const blockSize = header[0] | (header[1] << 8)
-  const aramDest  = header[2] | (header[3] << 8)
+  const aramDest = header[2] | (header[3] << 8)
   if (blockSize === 0) return 0
 
   const bankEnd = aramDest + blockSize

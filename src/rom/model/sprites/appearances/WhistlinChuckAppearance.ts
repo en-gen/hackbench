@@ -27,19 +27,19 @@ import type { SpritePart } from './StaticSpriteAppearance'
  *         in SpriteMisc151C ($00 face-RIGHT, $04 face-LEFT).
  *   Main  bank_01.asm:1046 → Chucks → ChucksMain → CODE_02C22C dispatches
  *         on SpriteTableC2 via the table at bank_02.asm:8930-8942:
- *           state $0B → CODE_02C356 (bank_02.asm:8944) — proximity gate.
+ *           state $0B → CODE_02C356 (bank_02.asm:8944) - proximity gate.
  *             When |player_x - sprite_x| <= $30, transitions to state $0C;
  *             then JMP CODE_02C556 to refresh face direction.
- *           state $0C → CODE_02C37B (bank_02.asm:8963) — active whistle:
+ *           state $0C → CODE_02C37B (bank_02.asm:8963) - active whistle:
  *             • plays SFX_WHISTLE every 64 frames (EffFrame & $3F == 0)
  *             • Misc1602 ← $03 (1/4 of frames) or $06 (3/4 of frames) per
- *               (EffFrame & $30) test — pose $06 dominates the cycle.
+ *               (EffFrame & $30) test - pose $06 dominates the cycle.
  *             • Misc151C ← DATA_02C373[(EffFrame >> 2) & 7], where
  *               DATA_02C373 = $05,$05,$05,$02,$02,$06,$06,$06.
  *               This OVERWRITES the InitWhistlinChuck face-derived
  *               Misc151C, so the head animation is decoupled from face
  *               direction (the body still mirrors via Misc157C).
- *             • sets ChuckIsWhistling — overrides the Rip Van Fish wake-up
+ *             • sets ChuckIsWhistling - overrides the Rip Van Fish wake-up
  *               distance check ($3D RipVanFishBehavior).
  *
  *   Pose $06 OAM emit (CODE_02C81A → CODE_02C88C / 02CA27 / 02CA9D):
@@ -89,24 +89,24 @@ export class WhistlinChuckAppearance extends ChuckAppearance {
     const { bigTile, smallTile } = ChuckAppearance.builders(chars, placeholder)
 
     // Body and arm geometry mirrors BouncinChuckAppearance's pose $06 frame
-    // exactly — only the head tile differs ($4B whistling lips vs. $06).
+    // exactly - only the head tile differs ($4B whistling lips vs. $06).
     // Head hflip toggles with face direction so each orientation matches one
     // of the asm-emitted cycle phases (face-LEFT = Misc151C=$05 no flip per
     // Mesen capture; face-RIGHT = Misc151C=$06 hflip, also a valid phase).
     const parts: SpritePart[] = faceRight
       ? [
-          ...bigTile(0x4B,  0, -12, true,  bodyPalette, bodyCharHigh),  // head $4B hflip (mirror of capture)
-          ...bigTile(0x40,  4,   0, true,  bodyPalette, bodyCharHigh),  // body1 hflip
-          ...bigTile(0x40, -4,   0, false, bodyPalette, bodyCharHigh),  // body2 no flip
-          smallTile(0x0C, -6,   -8, false, bodyPalette, bodyCharHigh),  // arm1 (always)
-          smallTile(0x0C, 14,   -8, true,  bodyPalette, bodyCharHigh),  // arm2 (always)
+          ...bigTile(0x4b, 0, -12, true, bodyPalette, bodyCharHigh), // head $4B hflip (mirror of capture)
+          ...bigTile(0x40, 4, 0, true, bodyPalette, bodyCharHigh), // body1 hflip
+          ...bigTile(0x40, -4, 0, false, bodyPalette, bodyCharHigh), // body2 no flip
+          smallTile(0x0c, -6, -8, false, bodyPalette, bodyCharHigh), // arm1 (always)
+          smallTile(0x0c, 14, -8, true, bodyPalette, bodyCharHigh), // arm2 (always)
         ]
       : [
-          ...bigTile(0x4B,  0, -12, false, bodyPalette, bodyCharHigh),  // head $4B no flip (Mesen capture)
-          ...bigTile(0x40, -4,   0, false, bodyPalette, bodyCharHigh),  // body1 no flip
-          ...bigTile(0x40,  4,   0, true,  bodyPalette, bodyCharHigh),  // body2 hflip
-          smallTile(0x0C, -6,   -8, false, bodyPalette, bodyCharHigh),  // arm1 (always)
-          smallTile(0x0C, 14,   -8, true,  bodyPalette, bodyCharHigh),  // arm2 (always)
+          ...bigTile(0x4b, 0, -12, false, bodyPalette, bodyCharHigh), // head $4B no flip (Mesen capture)
+          ...bigTile(0x40, -4, 0, false, bodyPalette, bodyCharHigh), // body1 no flip
+          ...bigTile(0x40, 4, 0, true, bodyPalette, bodyCharHigh), // body2 hflip
+          smallTile(0x0c, -6, -8, false, bodyPalette, bodyCharHigh), // arm1 (always)
+          smallTile(0x0c, 14, -8, true, bodyPalette, bodyCharHigh), // arm2 (always)
         ]
     return new WhistlinChuckAppearance(parts)
   }

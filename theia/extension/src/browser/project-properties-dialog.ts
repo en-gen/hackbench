@@ -10,7 +10,7 @@
  * facts about the project rather than opinions, and changing the cartridge
  * would leave the patch layers pointed at a different game.
  */
-import { inject, injectable } from '@theia/core/shared/inversify'
+import { injectable } from '@theia/core/shared/inversify'
 import { AbstractDialog } from '@theia/core/lib/browser'
 import { HackMetadataDto, ProjectDto } from '../common/project-protocol'
 
@@ -79,8 +79,8 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
     this.summaryField.value = project.summary
 
     this.factsNode.textContent =
-      `${project.baseRom.title || 'unrecognised cart'} · ${project.baseRom.size} bytes `
-      + `· sha256 ${project.baseRom.sha256.slice(0, 12)}…`
+      `${project.baseRom.title || 'unrecognised cart'} · ${project.baseRom.size} bytes ` +
+      `· sha256 ${project.baseRom.sha256.slice(0, 12)}…`
 
     return this.open()
   }
@@ -91,7 +91,10 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
       // Empty falls back to the project name rather than storing a blank
       // title, which would leave the hack nameless everywhere it is shown.
       title: this.titleField.value.trim() || this.project.name,
-      authors: this.authorsField.value.split(',').map(a => a.trim()).filter(Boolean),
+      authors: this.authorsField.value
+        .split(',')
+        .map(a => a.trim())
+        .filter(Boolean),
       version: this.versionField.value.trim(),
       summary: this.summaryField.value.trim(),
     }

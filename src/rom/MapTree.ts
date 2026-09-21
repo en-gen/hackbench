@@ -156,8 +156,8 @@ export function buildMapTree(rom: SmwRom): MapTree {
   if (unassigned.length > 0) {
     notes.push(
       `${unassigned.length} of ${maps.size} maps are unassigned: no overworld root ` +
-      'reaches them through the exit graph. They are listed flat because an ' +
-      'orphan\'s own exits are left unresolved by design (SmwRom.buildLevelExitGraph).',
+        'reaches them through the exit graph. They are listed flat because an ' +
+        "orphan's own exits are left unresolved by design (SmwRom.buildLevelExitGraph).",
     )
   }
 

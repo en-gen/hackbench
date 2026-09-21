@@ -1,9 +1,9 @@
 /**
- * KeyCoinBalloonKoopaBlockBehavior — branch coverage.
+ * KeyCoinBalloonKoopaBlockBehavior - branch coverage.
  * (src/rom/model/tiles/behaviors/KeyCoinBalloonKoopaBlockBehavior.ts)
  *
  * Test tree:
- *   tile25ItemAt — all 4 switch cases
+ *   tile25ItemAt - all 4 switch cases
  *   renderOverlay
  *     - cursor null → alpha=0.5
  *     - cursor inside cell → alpha=1.0
@@ -82,18 +82,18 @@ function makeFullBehavior(): KeyCoinBalloonKoopaBlockBehavior {
 
 // ── tile25ItemAt ──────────────────────────────────────────────────────────────
 
-describe('tile25ItemAt — column dispatch (CODE_028972)', () => {
-  it('col%4==0 → key',       () => expect(tile25ItemAt(0)).toBe('key'))
-  it('col%4==1 → redCoin',   () => expect(tile25ItemAt(1)).toBe('redCoin'))
-  it('col%4==2 → pBalloon',  () => expect(tile25ItemAt(2)).toBe('pBalloon'))
+describe('tile25ItemAt - column dispatch (CODE_028972)', () => {
+  it('col%4==0 → key', () => expect(tile25ItemAt(0)).toBe('key'))
+  it('col%4==1 → redCoin', () => expect(tile25ItemAt(1)).toBe('redCoin'))
+  it('col%4==2 → pBalloon', () => expect(tile25ItemAt(2)).toBe('pBalloon'))
   it('col%4==3 → paraKoopa', () => expect(tile25ItemAt(3)).toBe('paraKoopa'))
-  it('col=4 wraps to key',   () => expect(tile25ItemAt(4)).toBe('key'))
+  it('col=4 wraps to key', () => expect(tile25ItemAt(4)).toBe('key'))
   it('col=7 wraps to paraKoopa', () => expect(tile25ItemAt(7)).toBe('paraKoopa'))
 })
 
-// ── renderOverlay — item switch ───────────────────────────────────────────────
+// ── renderOverlay - item switch ───────────────────────────────────────────────
 
-describe('KeyCoinBalloonKoopaBlockBehavior.renderOverlay — item dispatch', () => {
+describe('KeyCoinBalloonKoopaBlockBehavior.renderOverlay - item dispatch', () => {
   beforeEach(resetEditorStore)
 
   it('col=0 (key) → renders keyChars (4 blits)', () => {
@@ -124,20 +124,20 @@ describe('KeyCoinBalloonKoopaBlockBehavior.renderOverlay — item dispatch', () 
     const ch = makeChar()
     const b = new KeyCoinBalloonKoopaBlockBehavior(
       makeQuad(),
-      [ch, null, ch, ch],  // keyChars: 3 non-null + 1 null
+      [ch, null, ch, ch], // keyChars: 3 non-null + 1 null
       [ch, ch, ch, ch],
       [ch, ch, ch, ch],
       [ch, ch, ch, ch],
     )
     const { target, blits } = makeBlitTarget()
-    b.renderOverlay(target, makeCell(0), stubMapStore())  // col=0 → key
+    b.renderOverlay(target, makeCell(0), stubMapStore()) // col=0 → key
     expect(blits).toHaveLength(3)
   })
 })
 
-// ── renderOverlay — indicatorAlpha ────────────────────────────────────────────
+// ── renderOverlay - indicatorAlpha ────────────────────────────────────────────
 
-describe('KeyCoinBalloonKoopaBlockBehavior.renderOverlay — indicatorAlpha', () => {
+describe('KeyCoinBalloonKoopaBlockBehavior.renderOverlay - indicatorAlpha', () => {
   beforeEach(resetEditorStore)
 
   // col=0 (key), cell at tl={x:0,y:0}, covers x=[0,16) y=[0,16)
@@ -151,21 +151,21 @@ describe('KeyCoinBalloonKoopaBlockBehavior.renderOverlay — indicatorAlpha', ()
 
   it('cursor inside cell → alpha=1.0', () => {
     const { target, blits } = makeBlitTarget()
-    editorStore.setCursorPx({ x: 8, y: 8 })  // inside [0,16)×[0,16)
+    editorStore.setCursorPx({ x: 8, y: 8 }) // inside [0,16)×[0,16)
     makeFullBehavior().renderOverlay(target, makeCell(0), stubMapStore())
     expect(blits.every(b => b.alpha === 1.0)).toBe(true)
   })
 
   it('cursor outside cell (x) → alpha=0.5', () => {
     const { target, blits } = makeBlitTarget()
-    editorStore.setCursorPx({ x: 100, y: 8 })  // x outside [0,16)
+    editorStore.setCursorPx({ x: 100, y: 8 }) // x outside [0,16)
     makeFullBehavior().renderOverlay(target, makeCell(0), stubMapStore())
     expect(blits.every(b => b.alpha === 0.5)).toBe(true)
   })
 
   it('cursor outside cell (y) → alpha=0.5', () => {
     const { target, blits } = makeBlitTarget()
-    editorStore.setCursorPx({ x: 8, y: 100 })  // y outside [0,16)
+    editorStore.setCursorPx({ x: 8, y: 100 }) // y outside [0,16)
     makeFullBehavior().renderOverlay(target, makeCell(0), stubMapStore())
     expect(blits.every(b => b.alpha === 0.5)).toBe(true)
   })

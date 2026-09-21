@@ -16,6 +16,6 @@
  * This is the DRAW-relevant table. A previously circulated figure of
  * $01:8183 is the INIT table misaligned by three entries.
  */
-export const SPRITE_MAIN_PTR_TABLE = 0x0185CC
+export const SPRITE_MAIN_PTR_TABLE = 0x0185cc
 
 export const SPRITE_PTR_TABLE_COUNT = 201

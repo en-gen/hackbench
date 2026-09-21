@@ -1,12 +1,12 @@
 /**
- * MarioTileDispatch.ts — faithful port of SMW's Mario-tile dispatch
+ * MarioTileDispatch.ts - faithful port of SMW's Mario-tile dispatch
  * chain starting at `CODE_00F127` (bank_00.asm:12789).
  *
  * The SMW routine is called with A = tile low byte, Y = direction
  * (0-3 after AND #$03). It dispatches into one of three outcomes:
  *
  *   - HurtMario: tile hurts Mario (spike / tileset-specific hazards).
- *     Mario does not come to rest on the tile — he bounces off.
+ *     Mario does not come to rest on the tile - he bounces off.
  *   - Pass-through (RTL / `Return00F1F8`): tile has no effect; Mario
  *     passes through without stopping.
  *   - Block-action (via `CODE_00F17F` → `CODE_028752`): tile has a
@@ -23,7 +23,7 @@
  *     (side = dir 1 or 2).
  *
  * Every branch is a direct ASM port with line-level citations. Carry
- * flag propagation is replicated faithfully — see comments.
+ * flag propagation is replicated faithfully - see comments.
  */
 
 import type { RomFile } from './RomFile'
@@ -38,15 +38,15 @@ import {
 
 /** Outcome of `CODE_00F127` dispatch for a given tile + tileset + direction. */
 export type MarioDispatch =
-  | { kind: 'hit' }            // Tile has a block-hit action; Mario stops to trigger it.
-  | { kind: 'hurt' }           // Tile routes to `HurtMario`; Mario bounces off.
-  | { kind: 'passThrough' }    // Tile is not solid for Mario; he continues through.
+  | { kind: 'hit' } // Tile has a block-hit action; Mario stops to trigger it.
+  | { kind: 'hurt' } // Tile routes to `HurtMario`; Mario bounces off.
+  | { kind: 'passThrough' } // Tile is not solid for Mario; he continues through.
 
 /** Cached ROM-loaded tables for the dispatch. Read once per ROM. */
 export interface MarioDispatchTables {
-  readonly dataA625: Uint8Array  // 16 bytes
-  readonly dataF0A4: Uint8Array  // 36 bytes
-  readonly dataF0EC: Uint8Array  // 12 bytes
+  readonly dataA625: Uint8Array // 16 bytes
+  readonly dataF0A4: Uint8Array // 36 bytes
+  readonly dataF0EC: Uint8Array // 12 bytes
 }
 
 export function readMarioDispatchTables(rom: RomFile): MarioDispatchTables {
@@ -63,16 +63,16 @@ export function readMarioDispatchTables(rom: RomFile): MarioDispatchTables {
  * `CODE_00F14C`, `CODE_00F15F`, `CODE_00F160`, `CODE_00F17F`).
  *
  * Parameters:
- *   lowByte     — `Map16TileNumber` low byte (A register at entry)
- *   tileset     — `ObjectTileset` (0-$F)
- *   direction   — which Mario face touches the tile (AND #$03 → 0-3).
+ *   lowByte     - `Map16TileNumber` low byte (A register at entry)
+ *   tileset     - `ObjectTileset` (0-$F)
+ *   direction   - which Mario face touches the tile (AND #$03 → 0-3).
  *                 Per `DATA_00F0EC` (bank_00.asm:12772) mapped to
  *                 `PlayerBlockedDir` bits (rammap.asm:632):
  *                   0 → $08 bit 3 = PlayerBlock_Top    → head bump  (ceiling)
  *                   1 → $01 bit 0 = PlayerBlock_Right  → side       (wall)
  *                   2 → $02 bit 1 = PlayerBlock_Left   → side       (wall)
  *                   3 → $04 bit 2 = PlayerBlock_Bottom → feet land  (floor)
- *   tables      — pre-loaded `DATA_00A625` / `F0A4` / `F0EC` byte arrays
+ *   tables      - pre-loaded `DATA_00A625` / `F0A4` / `F0EC` byte arrays
  *
  * Returns the dispatch outcome Mario experiences at this tile.
  */
@@ -82,13 +82,13 @@ export function marioTileDispatch(
   direction: number,
   tables: MarioDispatchTables,
 ): MarioDispatch {
-  const low = lowByte & 0xFF
-  const ts  = tileset & 0xFF
+  const low = lowByte & 0xff
+  const ts = tileset & 0xff
   const dir = direction & 0x03
 
   // CODE_00F127 (bank_00.asm:12789):
-  //   CMP #$2F / BEQ CODE_00F154  — spike / hurt range
-  if (low === 0x2F) return { kind: 'hurt' }
+  //   CMP #$2F / BEQ CODE_00F154  - spike / hurt range
+  if (low === 0x2f) return { kind: 'hurt' }
 
   // CMP #$59 / BCC CODE_00F144
   if (low < 0x59) {
@@ -96,13 +96,13 @@ export function marioTileDispatch(
   }
 
   // CMP #$5C / BCS CODE_00F140
-  if (low >= 0x5C) {
+  if (low >= 0x5c) {
     return dispatchF140(low, ts, dir, tables)
   }
 
   // Fallthrough: $59-$5B
   // XBA / LDA ObjectTileset / CMP #$05 BEQ CODE_00F154 / CMP #$0D BEQ CODE_00F154
-  if (ts === 0x05 || ts === 0x0D) return { kind: 'hurt' }
+  if (ts === 0x05 || ts === 0x0d) return { kind: 'hurt' }
   // XBA (restore) / fallthrough to CODE_00F140
   return dispatchF140(low, ts, dir, tables)
 }
@@ -114,7 +114,7 @@ function dispatchF140(
   direction: number,
   tables: MarioDispatchTables,
 ): MarioDispatch {
-  if (low < 0x5D) return dispatchF14C(low, tileset, direction, tables)
+  if (low < 0x5d) return dispatchF14C(low, tileset, direction, tables)
   return dispatchF144(low, tileset, direction, tables)
 }
 
@@ -125,7 +125,7 @@ function dispatchF144(
   direction: number,
   tables: MarioDispatchTables,
 ): MarioDispatch {
-  if (low < 0x66 || low >= 0x6A) {
+  if (low < 0x66 || low >= 0x6a) {
     return dispatchF160(low, tileset, direction, tables)
   }
   // $66-$69: fallthrough to CODE_00F14C
@@ -152,11 +152,11 @@ function dispatchF160(
   direction: number,
   tables: MarioDispatchTables,
 ): MarioDispatch {
-  // SEC + SBC #$11 — C=1, so SBC = A - $11 - 0
-  const a1 = (low - 0x11) & 0xFF
-  // CMP #$1D — sets C=1 if a1 >= $1D, else C=0 (borrow)
-  if (a1 < 0x1D) {
-    // BCC CODE_00F17F — reached for low $11-$2D
+  // SEC + SBC #$11 - C=1, so SBC = A - $11 - 0
+  const a1 = (low - 0x11) & 0xff
+  // CMP #$1D - sets C=1 if a1 >= $1D, else C=0 (borrow)
+  if (a1 < 0x1d) {
+    // BCC CODE_00F17F - reached for low $11-$2D
     return dispatchF17F(a1, direction, tables)
   }
 
@@ -174,16 +174,16 @@ function dispatchF160(
   // SBC with C=1: a2 = a1 - $59 - 0 = a1 - $59 (may underflow; the 6502
   // would set C=0, but CMP #$02 below overwrites C before any
   // carry-dependent op, so we don't track it explicitly).
-  const a2 = (a1 - 0x59) & 0xFF
+  const a2 = (a1 - 0x59) & 0xff
   // CMP #$02: C=1 if a2 >= $02
   if (a2 >= 0x02) {
     // BCS Return00F1F8 → not solid
     return { kind: 'passThrough' }
   }
 
-  // ADC #$22 — C state from CMP #$02 BCS fails (a2 < $02, C=0 after CMP).
+  // ADC #$22 - C state from CMP #$02 BCS fails (a2 < $02, C=0 after CMP).
   // CMP #$02 sets C based on a2 vs $02, not inheriting from the prior SBC.
-  const a3 = (a2 + 0x22 + 0) & 0xFF
+  const a3 = (a2 + 0x22 + 0) & 0xff
   return dispatchF17F(a3, direction, tables)
 }
 
@@ -196,7 +196,7 @@ function dispatchF17F(
   tables: MarioDispatchTables,
 ): MarioDispatch {
   if (tileIndex >= tables.dataF0A4.length) {
-    // Out of table range — shouldn't happen for valid dispatch inputs.
+    // Out of table range - shouldn't happen for valid dispatch inputs.
     return { kind: 'passThrough' }
   }
   const dir = direction & 0x03
@@ -212,7 +212,7 @@ function dispatchF17F(
  * Convenience: does Mario come to rest on this tile (any direction)?
  *
  * True iff ANY direction yields a `hit` dispatch (tile has a block
- * action from that direction). False for hurt / pass-through — those
+ * action from that direction). False for hurt / pass-through - those
  * don't settle Mario on the tile.
  *
  * This is the "Mario-surface" predicate: a tile that stops Mario from
@@ -234,17 +234,17 @@ export function marioStopsOnTile(
 export { DATA_A625_LEN, DATA_F0A4_LEN, DATA_F0EC_LEN }
 
 // --------------------------------------------------------------------
-// Mario FEET-LANDING dispatch — separate from the block-action F127
+// Mario FEET-LANDING dispatch - separate from the block-action F127
 // --------------------------------------------------------------------
 
 /**
  * Mario's vertical/feet-landing dispatch from `CODE_00EDF7`
  * (bank_00.asm:12401). Called when Mario is moving downward and his
- * feet touch a tile — decides whether the tile stops his fall.
+ * feet touch a tile - decides whether the tile stops his fall.
  *
  * Dispatch by `Map16TileNumber` low byte (Y register):
  *
- *   < $6E:  CODE_00EDF7 path. `LDA PlayerYSpeed+1 / BMI Return` — if
+ *   < $6E:  CODE_00EDF7 path. `LDA PlayerYSpeed+1 / BMI Return` - if
  *           Mario is moving UP, return (no landing). Otherwise:
  *           - If `ObjectTileset` is $03 or $0E AND low byte is
  *             $59-$5B: branch `CODE_00EE1D` (Mario stays in air,
@@ -266,7 +266,7 @@ export { DATA_A625_LEN, DATA_F0A4_LEN, DATA_F0EC_LEN }
  *   $FB+:    special (`JMP CODE_00F629`).
  *
  * This means most tiles with low byte in the `$00-$6D` range are
- * Mario-feet-solid — a FAR broader set than `CODE_00F127`'s block
+ * Mario-feet-solid - a FAR broader set than `CODE_00F127`'s block
  * action dispatch. For the "Show surfaces" overlay, this is the
  * dispatch that actually governs whether Mario can stand on a tile.
  *
@@ -278,28 +278,25 @@ export { DATA_A625_LEN, DATA_F0A4_LEN, DATA_F0EC_LEN }
  * classify.
  */
 export type MarioLanding =
-  | { kind: 'land' }    // Mario lands on this tile (from above)
-  | { kind: 'hole' }    // Tile is a hole — Mario falls through (tileset 3/$E, low $59-$5B)
-  | { kind: 'slope' }   // Slope range — see slopeTable membership + Phase 3 angle data
-  | { kind: 'special' } // Upper $FB+ range — JMP CODE_00F629, not ported here
+  | { kind: 'land' } // Mario lands on this tile (from above)
+  | { kind: 'hole' } // Tile is a hole - Mario falls through (tileset 3/$E, low $59-$5B)
+  | { kind: 'slope' } // Slope range - see slopeTable membership + Phase 3 angle data
+  | { kind: 'special' } // Upper $FB+ range - JMP CODE_00F629, not ported here
 
-export function marioFeetLanding(
-  lowByte: number,
-  tileset: number,
-): MarioLanding {
-  const low = lowByte & 0xFF
-  const ts  = tileset & 0xFF
+export function marioFeetLanding(lowByte: number, tileset: number): MarioLanding {
+  const low = lowByte & 0xff
+  const ts = tileset & 0xff
 
   // $6E-$D7: slope angle dispatch (CODE_00ED86)
-  if (low >= 0x6E && low <= 0xD7) return { kind: 'slope' }
+  if (low >= 0x6e && low <= 0xd7) return { kind: 'slope' }
   // $D8-$FA: also routed to slope-angle
-  if (low >= 0xD8 && low <= 0xFA) return { kind: 'slope' }
+  if (low >= 0xd8 && low <= 0xfa) return { kind: 'slope' }
   // $FB+: JMP CODE_00F629
-  if (low >= 0xFB) return { kind: 'special' }
+  if (low >= 0xfb) return { kind: 'special' }
 
   // < $6E: CODE_00EDF7 path
   // Tileset $03 / $0E specific: $59-$5B are holes
-  if ((ts === 0x03 || ts === 0x0E) && low >= 0x59 && low <= 0x5B) {
+  if ((ts === 0x03 || ts === 0x0e) && low >= 0x59 && low <= 0x5b) {
     return { kind: 'hole' }
   }
 
@@ -309,7 +306,7 @@ export function marioFeetLanding(
 }
 
 // --------------------------------------------------------------------
-// Mario SOLIDITY predicate — CODE_00F545 port
+// Mario SOLIDITY predicate - CODE_00F545 port
 // --------------------------------------------------------------------
 
 /**
@@ -318,18 +315,18 @@ export function marioFeetLanding(
  * corresponding timer is non-zero.
  */
 export interface PSwitchState {
-  readonly bluePSwitchActive:   boolean
+  readonly bluePSwitchActive: boolean
   readonly silverPSwitchActive: boolean
 }
 
 /** Default: no P-switch pressed (both timers = 0). */
 export const PSWITCH_INACTIVE: PSwitchState = {
-  bluePSwitchActive:   false,
+  bluePSwitchActive: false,
   silverPSwitchActive: false,
 }
 
 /**
- * Port of `CODE_00F545` (bank_00.asm:13410) — the Mario tile solidity
+ * Port of `CODE_00F545` (bank_00.asm:13410) - the Mario tile solidity
  * predicate. The ROM calls this from `CODE_00F44D` (bank_00.asm:13342)
  * which reads a Map16 tile's low byte from bank $7E and high byte from
  * bank $7F, then JSLs F545 with A = high byte. F545 returns A = 0 for
@@ -338,8 +335,8 @@ export const PSWITCH_INACTIVE: PSwitchState = {
  * `CODE_00EB77` (bank_00.asm:12073-12074) `BEQ CODE_00EBDD` skips the
  * `TSB PlayerBlockedDir` wall-flag path for non-solid tiles.
  *
- * This is MARIO'S side-collision predicate (and — since F44D is also
- * called from the landing dispatch — his feet-landing predicate). It is
+ * This is MARIO'S side-collision predicate (and - since F44D is also
+ * called from the landing dispatch - his feet-landing predicate). It is
  * DIFFERENT from the sprite range check (`CODE_01928E`/`0192C9`) which
  * tests low byte `$11-$6D` directly.
  *
@@ -360,14 +357,14 @@ export const PSWITCH_INACTIVE: PSwitchState = {
  *     That's ground ($100), item blocks ($11A, $11E), turn blocks,
  *     decorative-but-walkable terrain.
  *   - All page-0 tiles ($0xx) with low byte outside the special cases
- *     are NON-solid — this is how checkpoint-post bodies ($030, $032,
+ *     are NON-solid - this is how checkpoint-post bodies ($030, $032,
  *     $033, $035), the midway tape ($038), goal tape ($039, $03C),
  *     decorative fill ($03F), lava/decoration corners ($0A3, $0A6),
  *     spike-top column ($02F), and dragon-coin graphics ($02A-$02E)
  *     all pass through Mario horizontally and vertically.
  *   - Block-action handlers still fire for non-solid tiles via the
  *     separate `CODE_00F28C` / `CODE_00F2C9` / `CODE_00F127` chains,
- *     so coins collect, midway tape saves + powers up, etc. — F545
+ *     so coins collect, midway tape saves + powers up, etc. - F545
  *     only gates the PHYSICAL WALL flag.
  */
 export function marioTileSolidity(
@@ -375,10 +372,10 @@ export function marioTileSolidity(
   highByte: number,
   state: PSwitchState = PSWITCH_INACTIVE,
 ): boolean {
-  const low  = lowByte  & 0xFF
-  const high = highByte & 0xFF
+  const low = lowByte & 0xff
+  const high = highByte & 0xff
 
-  // TAY / BNE CODE_00F577 — high-byte != 0 branch
+  // TAY / BNE CODE_00F577 - high-byte != 0 branch
   if (high !== 0) {
     // CODE_00F577 (bank_00.asm:13442): two P-switch remap cases, else solid
     if (low === 0x32) {
@@ -386,7 +383,7 @@ export function marioTileSolidity(
       // (bank_00.asm:13446-13448 BNE CODE_00F58D falls into A=0)
       return !state.bluePSwitchActive
     }
-    if (low === 0x2F) {
+    if (low === 0x2f) {
       // Silver P-switch active: remap to $2B, A = 0 → non-solid
       // (bank_00.asm:13453-13454 BEQ Return00F594 preserves A, else A=0)
       return !state.silverPSwitchActive
@@ -404,7 +401,7 @@ export function marioTileSolidity(
   }
 
   // PSwitchNotInvQBlk: CPY #$2B / BEQ PSwitchCoinBrown
-  if (low === 0x2B) {
+  if (low === 0x2b) {
     // Coin. Blue P-switch active remaps to $32 (solid); inactive A=0.
     return state.bluePSwitchActive
   }
@@ -412,7 +409,7 @@ export function marioTileSolidity(
   // TYA / SEC / SBC #$EC / CMP #$10 / BCS CODE_00F592
   // Low bytes $EC-$FB fall into the INC A → STA SwitchPalacePressed →
   // CODE_00F571 (LDA #$32) path: A = $32, solid.
-  const delta = (low - 0xEC) & 0xFF
+  const delta = (low - 0xec) & 0xff
   if (delta < 0x10) {
     // $EC-$FB: switch-palace range, solid.
     return true

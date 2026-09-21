@@ -1,5 +1,5 @@
 /**
- * simulate.test.ts — branch coverage for shared simulation primitives
+ * simulate.test.ts - branch coverage for shared simulation primitives
  * (src/rom/model/sprites/behaviors/simulate.ts)
  *
  * Test tree:
@@ -128,7 +128,7 @@ describe('applyGravity', () => {
   })
 
   it('next > terminal → clamped to terminal', () => {
-    expect(applyGravity(0x3F, 3, 0x40)).toBe(0x40)
+    expect(applyGravity(0x3f, 3, 0x40)).toBe(0x40)
   })
 
   it('already at terminal → stays at terminal', () => {
@@ -156,20 +156,28 @@ describe('simulateUntilStable', () => {
 
   it('step returns false → early return on that frame', () => {
     const bounds = makeRect()
-    const frames = simulateUntilStable(bounds, frame => {
-      if (frame === 2) return false
-    }, { stableFrames: 100, maxFrames: 1000 })
+    const frames = simulateUntilStable(
+      bounds,
+      frame => {
+        if (frame === 2) return false
+      },
+      { stableFrames: 100, maxFrames: 1000 },
+    )
     expect(frames).toBe(3)
   })
 
   it('bounds grow each frame → stable resets; stabilises when growth stops', () => {
     const bounds = makeRect()
     let callCount = 0
-    // Grow for 5 frames then stop — should stabilise after stableFrames=3 more
-    const frames = simulateUntilStable(bounds, frame => {
-      callCount++
-      if (frame < 5) bounds.maxX = frame + 1
-    }, { stableFrames: 3, maxFrames: 500 })
+    // Grow for 5 frames then stop - should stabilise after stableFrames=3 more
+    const frames = simulateUntilStable(
+      bounds,
+      frame => {
+        callCount++
+        if (frame < 5) bounds.maxX = frame + 1
+      },
+      { stableFrames: 3, maxFrames: 500 },
+    )
     // After 5 growth frames, 3 stable frames needed → converges at frame 5+3=7, returns frame+1=8
     expect(frames).toBe(8)
     expect(callCount).toBe(8)
@@ -177,27 +185,39 @@ describe('simulateUntilStable', () => {
 
   it('stable immediately from frame 0 → converges after stableTarget frames', () => {
     const bounds = makeRect()
-    const frames = simulateUntilStable(bounds, () => { /* no mutations */ }, {
-      stableFrames: 5,
-      maxFrames: 1000,
-    })
+    const frames = simulateUntilStable(
+      bounds,
+      () => {
+        /* no mutations */
+      },
+      {
+        stableFrames: 5,
+        maxFrames: 1000,
+      },
+    )
     expect(frames).toBe(5)
   })
 
   it('maxFrames exhaustion → returns maxFrames', () => {
     const bounds = makeRect()
     let frame = 0
-    const frames = simulateUntilStable(bounds, () => {
-      // Always grow to prevent early convergence
-      bounds.maxX = ++frame
-    }, { stableFrames: 1000, maxFrames: 10 })
+    const frames = simulateUntilStable(
+      bounds,
+      () => {
+        // Always grow to prevent early convergence
+        bounds.maxX = ++frame
+      },
+      { stableFrames: 1000, maxFrames: 10 },
+    )
     expect(frames).toBe(10)
   })
 
   it('options omitted → ?? defaults used (stableFrames=256, maxFrames=4096)', () => {
     const bounds = makeRect()
     // No growth → will stabilise after 256 frames with default stableFrames
-    const frames = simulateUntilStable(bounds, () => { /* no-op */ })
+    const frames = simulateUntilStable(bounds, () => {
+      /* no-op */
+    })
     expect(frames).toBe(256)
   })
 
@@ -205,10 +225,16 @@ describe('simulateUntilStable', () => {
     // stableFrames=0 means "stable as soon as we don't grow", but since ?? only
     // fires on undefined/null, 0 is used as-is → stable >= 0 is immediately true
     const bounds = makeRect()
-    const frames = simulateUntilStable(bounds, () => { /* no growth */ }, {
-      stableFrames: 0,
-      maxFrames: 1000,
-    })
+    const frames = simulateUntilStable(
+      bounds,
+      () => {
+        /* no growth */
+      },
+      {
+        stableFrames: 0,
+        maxFrames: 1000,
+      },
+    )
     // stable starts at 0, 0 >= 0 → returns immediately after frame 0 → frames=1
     expect(frames).toBe(1)
   })
@@ -222,17 +248,19 @@ describe('simulateUntilStable', () => {
     expect(frames).toBe(0)
   })
 
-  it('multiple bounds dimensions grow independently — all four ?? stable-reset sub-branches', () => {
+  it('multiple bounds dimensions grow independently - all four ?? stable-reset sub-branches', () => {
     const bounds = makeRect()
-    let n = 0
-    const frames = simulateUntilStable(bounds, frame => {
-      n++
-      // On frame 0 grow minX, frame 1 grow maxX, frame 2 grow minY, frame 3 grow maxY
-      if (frame === 0) bounds.minX = -1
-      if (frame === 1) bounds.maxX = 1
-      if (frame === 2) bounds.minY = -1
-      if (frame === 3) bounds.maxY = 1
-    }, { stableFrames: 2, maxFrames: 100 })
+    const frames = simulateUntilStable(
+      bounds,
+      frame => {
+        // On frame 0 grow minX, frame 1 grow maxX, frame 2 grow minY, frame 3 grow maxY
+        if (frame === 0) bounds.minX = -1
+        if (frame === 1) bounds.maxX = 1
+        if (frame === 2) bounds.minY = -1
+        if (frame === 3) bounds.maxY = 1
+      },
+      { stableFrames: 2, maxFrames: 100 },
+    )
     // 4 growth frames then 2 stable → converges at frame 4+2=6
     expect(frames).toBe(6)
   })

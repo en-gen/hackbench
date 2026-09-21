@@ -1,9 +1,5 @@
 import { readActsLikeTable } from '../../ActsLikeLoader'
-import {
-  isMarioStandable,
-  isSlopeTile,
-  readSlopeTable,
-} from '../../BlockBehaviorLoader'
+import { isMarioStandable, isSlopeTile, readSlopeTable } from '../../BlockBehaviorLoader'
 import {
   marioFeetLanding,
   marioTileDispatch,
@@ -33,15 +29,19 @@ import {
   PBALLOON_CHAR_NUMS,
   REDCOIN_CHAR_NUMS,
 } from './behaviors/KeyCoinBalloonKoopaBlockBehavior'
-import { StarOneUpVineBlockBehavior, ONEUP_CHAR_NUMS, STAR_CHAR_NUMS } from './behaviors/StarOneUpVineBlockBehavior'
+import {
+  StarOneUpVineBlockBehavior,
+  ONEUP_CHAR_NUMS,
+  STAR_CHAR_NUMS,
+} from './behaviors/StarOneUpVineBlockBehavior'
 import { PipeVariantsBehavior } from './behaviors/PipeVariantsBehavior'
 import { PSwitchRevealBehavior } from './behaviors/PSwitchRevealBehavior'
 import { StaticQuadBehavior } from './behaviors/StaticQuadBehavior'
 import { SwitchPalaceAlternateBehavior } from './behaviors/SwitchPalaceAlternateBehavior'
 import { VineSourceBehavior } from './behaviors/VineSourceBehavior'
 
-const SWITCH_PALACE_OFF_BASE = 0x06A
-const SWITCH_PALACE_ON_BASE = 0x16A
+const SWITCH_PALACE_OFF_BASE = 0x06a
+const SWITCH_PALACE_ON_BASE = 0x16a
 const SWITCH_PALACE_COLORS = 4 // yellow, green, red, blue
 
 /**
@@ -49,13 +49,13 @@ const SWITCH_PALACE_COLORS = 4 // yellow, green, red, blue
  * substitute tile whose Map16 definition supplies the revealed artwork,
  * plus an optional CGRAM-row palette override.
  *
- * $27/$28/$29 mirror `CODE_00F545` (bank_00.asm:13410) — the silver
+ * $27/$28/$29 mirror `CODE_00F545` (bank_00.asm:13410) - the silver
  * doors and the hidden ?-block, all of which transform during blue
  * P-switch.
  *
  * $2A is an editor-UX inclusion, not a strict `CODE_00F545` port. The
  * tile's native Map16 visual in many tilesets (e.g. tileset 9 used in
- * level $00A) is transparent — vanilla level data uses $2A in
+ * level $00A) is transparent - vanilla level data uses $2A in
  * "hidden coin" arrow patterns that designers want to see in the
  * editor. Substituting the $2B coin artwork at 50% opacity when the
  * blue P-switch is inactive (and 100% when toggled on) gives the
@@ -71,17 +71,17 @@ interface PSwitchRevealEntry {
   readonly palOverride?: number
 }
 const P_SWITCH_REVEALS: ReadonlyMap<number, PSwitchRevealEntry> = new Map([
-  [0x27, { substitute: 0x1F, palOverride: 4 }],
+  [0x27, { substitute: 0x1f, palOverride: 4 }],
   [0x28, { substitute: 0x20, palOverride: 4 }],
   [0x29, { substitute: 0x24 }],
-  [0x2A, { substitute: 0x2B }],
+  [0x2a, { substitute: 0x2b }],
 ])
 
 /**
  * Invisible blocks that reveal as their *visible* coin-giver counterpart
  * at a fixed 50% alpha, plus an optional reward-indicator quad drawn as
  * a pre-pass overlay above the block. Unlike `P_SWITCH_REVEALS`, there
- * is no state that flips these back to full opacity — the designer just
+ * is no state that flips these back to full opacity - the designer just
  * needs to see that something is there.
  *
  * We don't draw the post-hit form ($132 "used block") because that tile
@@ -98,7 +98,7 @@ interface InvisibleBlockRevealEntry {
   readonly rewardOverlay?: number
 }
 const INVISIBLE_BLOCK_REVEALS: ReadonlyMap<number, InvisibleBlockRevealEntry> = new Map([
-  [0x021, { substitute: 0x123, rewardOverlay: 0x02B }],
+  [0x021, { substitute: 0x123, rewardOverlay: 0x02b }],
 ])
 
 /**
@@ -121,33 +121,33 @@ export function buildTiles(
   const placeholder = makePlaceholderChar()
   const { tiles: baseTiles, pipeVariants } = loadMap16WithPipeVariants(rom, tileset)
   const actsLike = readActsLikeTable(rom)
-  const slopeTable   = readSlopeTable(rom)
-  const marioTables  = readMarioDispatchTables(rom)
-  const slopeTables  = readSlopeTables(rom)
+  const slopeTable = readSlopeTable(rom)
+  const marioTables = readMarioDispatchTables(rom)
+  const slopeTables = readSlopeTables(rom)
   const tiles = new Map<number, Tile>()
 
   /**
    * Classify a tile's sprite-collision fields. Every branch is a
-   * direct port of a named ASM routine — no folklore, no approximation.
+   * direct port of a named ASM routine - no folklore, no approximation.
    * Landing (Y=2) and bonking (Y=3) go through different code paths
    * with different ranges; they're tracked as separate flags.
    */
   const classify = (actsLikeId: number) => {
-    const low  = actsLikeId & 0xFF
-    const high = (actsLikeId >> 8) & 0xFF
+    const low = actsLikeId & 0xff
+    const high = (actsLikeId >> 8) & 0xff
 
-    // Page-0 guard — sprite collision routines check the Map16 tile's
+    // Page-0 guard - sprite collision routines check the Map16 tile's
     // HIGH BYTE before applying any range test:
     //   CODE_01928E (bank_01.asm:2617-2618): JSR CODE_019441 → A = high
-    //     byte; STA SprMap16TouchHorizHigh / BEQ + — if high = 0, the
+    //     byte; STA SprMap16TouchHorizHigh / BEQ + - if high = 0, the
     //     entire wall check is skipped.
-    //   CODE_0192C9 (bank_01.asm:2651-2657): same pattern — BEQ
+    //   CODE_0192C9 (bank_01.asm:2651-2657): same pattern - BEQ
     //     Return01930F skips floor/ceiling detection for page-0 tiles.
     // Page-0 tiles ($0xx actsLike) are therefore unconditionally
     // passthrough for sprites regardless of their low byte.
     const isPage0 = high === 0
 
-    // CODE_01928E (bank_01.asm:2613-2635) — sprite horizontal wall.
+    // CODE_01928E (bank_01.asm:2613-2635) - sprite horizontal wall.
     //   SprMap16TouchHorizHigh BEQ skip  (page-0 → passthrough, see above)
     //   CMP #$11 / BCC +       (< $11 → not a wall)
     //   CMP #$6E / BCS +       (>= $6E → not a wall)
@@ -157,16 +157,16 @@ export function buildTiles(
     // CODE_0192C9 for vert collision, CODE_01933B for landing) do NOT
     // consult `DATA_00F05C` (the block-behavior table). That table
     // governs Mario's hit-from-below dispatch (`CODE_00F17F`,
-    // bank_00.asm:12846) — coin spawn, ?-block transform, vine grow —
+    // bank_00.asm:12846) - coin spawn, ?-block transform, vine grow -
     // not whether the tile is collidable. Sprite-side floor / wall /
     // ceiling are therefore PURE range checks after the page-0 gate.
     // Filtering these by `bhBlocks` (BH_EMPTY → false) was a
     // misapplication that excluded $11A item blocks, $11C wood planks,
     // etc. from sprite collision even though the ROM treats them as
     // solid.
-    const wall = !isPage0 && low >= 0x11 && low <= 0x6D
+    const wall = !isPage0 && low >= 0x11 && low <= 0x6d
 
-    // CODE_01933B (bank_01.asm:2705-2721) — LANDING path (reached from
+    // CODE_01933B (bank_01.asm:2705-2721) - LANDING path (reached from
     // CODE_0192C9 Y=2 via CODE_019310). Gated by the page-0 check above.
     //   <$11     → CODE_0193B0 semi-solid (sub-pixel gate; approximated
     //              as "solid from above" for the static overlay).
@@ -175,20 +175,19 @@ export function buildTiles(
     //              for the entire range. DATA_00EAC1 is NOT consulted here;
     //              it is a buoyancy table (CODE_019211). All slope-range
     //              tiles are therefore landable; `floor` is the complete
-    //              "sprite-landable" predicate — `slopeTable` is separate.
+    //              "sprite-landable" predicate - `slopeTable` is separate.
     //   >=$D8    → CODE_019386 solid.
-    const inSolidRange    = low >= 0x11 && low <= 0x6D
-    const inSlopeRange    = low >= 0x6E && low <= 0xD7
-    const inTilesetWindow = tileset !== 0 && tileset !== 7 && low >= 0xC4 && low <= 0xC9
+    const inSolidRange = low >= 0x11 && low <= 0x6d
+    const inSlopeRange = low >= 0x6e && low <= 0xd7
+    const inTilesetWindow = tileset !== 0 && tileset !== 7 && low >= 0xc4 && low <= 0xc9
     const floor =
-      !isPage0 && (
-        low <= 0x10 ||            // CODE_0193B0 semi-solid platform range
-        inSolidRange ||            // standard solid
-        inSlopeRange ||            // CODE_00FA19 slope-angle landing
-        low >= 0xD8                // CODE_019386 upper solid range
-      )
+      !isPage0 &&
+      (low <= 0x10 || // CODE_0193B0 semi-solid platform range
+        inSolidRange || // standard solid
+        inSlopeRange || // CODE_00FA19 slope-angle landing
+        low >= 0xd8) // CODE_019386 upper solid range
 
-    // CODE_0192C9 (bank_01.asm:2646-2668) — BONKING path (Y=3).
+    // CODE_0192C9 (bank_01.asm:2646-2668) - BONKING path (Y=3).
     // Gated by the same page-0 check (BEQ Return01930F for Y=3 path too).
     //   CMP #$11 / BCC return    (< $11 → not solid)
     //   CMP #$6E / BCC +solid    ($11-$6D → solid)
@@ -199,14 +198,14 @@ export function buildTiles(
     //   → solid (in window range)
     const ceiling = !isPage0 && (inSolidRange || inTilesetWindow)
 
-    // DATA_00EAC1 (bank_00.asm:11946) membership — slope recognition.
+    // DATA_00EAC1 (bank_00.asm:11946) membership - slope recognition.
     // Not reached for page-0 tiles (CODE_0192C9 never dispatches there).
     const slopeTableFlag = !isPage0 && isSlopeTile(actsLikeId, slopeTable)
 
-    // Mario perspective — tiles Mario comes to rest on. Uses the real
+    // Mario perspective - tiles Mario comes to rest on. Uses the real
     // ASM dispatches ported in `src/rom/MarioTileDispatch.ts`:
     //
-    //   1. `marioFeetLanding` = `CODE_00EDF7` (bank_00.asm:12401) —
+    //   1. `marioFeetLanding` = `CODE_00EDF7` (bank_00.asm:12401) -
     //      the feet-landing dispatcher. Returns `land` for most
     //      $00-$6D low bytes (Mario's fall stops on these), `hole`
     //      for tileset 3/$E $59-$5B, `slope` for $6E-$FA (slope-angle
@@ -214,13 +213,13 @@ export function buildTiles(
     //      when feet-landing returns `land`, OR when the tile is
     //      in the slope table (slopes ARE Mario surfaces).
     //
-    //   2. `marioTileDispatch` = `CODE_00F127` (bank_00.asm:12789) —
+    //   2. `marioTileDispatch` = `CODE_00F127` (bank_00.asm:12789) -
     //      block-action dispatcher. Returns `hurt` for tiles that
     //      `HurtMario` (spike $2F unconditional, tileset 5/$D
     //      $59-$5B, tileset 1 $66-$69). Hurt tiles bounce Mario off
     //      and are excluded from ALL Mario surface fields.
     //
-    //   3. `isMarioStandable` — thin wide-pattern pass-through filter
+    //   3. `isMarioStandable` - thin wide-pattern pass-through filter
     //      (coins $2A-$2E, checkpoint $66-$69) where the block-action
     //      ALWAYS fires to collect/pass regardless of tileset.
     //
@@ -236,12 +235,11 @@ export function buildTiles(
     const dispatch1 = marioTileDispatch(low, tileset, 1, marioTables)
     const dispatch2 = marioTileDispatch(low, tileset, 2, marioTables)
     const dispatch3 = marioTileDispatch(low, tileset, 3, marioTables)
-    const hurtsFromAnyDir = (
+    const hurtsFromAnyDir =
       dispatch0.kind === 'hurt' ||
       dispatch1.kind === 'hurt' ||
       dispatch2.kind === 'hurt' ||
       dispatch3.kind === 'hurt'
-    )
     // F127 block-action hits, split by which Mario face touches the
     // tile. DATA_00F0EC encoding per `PlayerBlockedDir` (rammap.asm:632):
     //   dir 0 → F0EC[0]=$08 = bit 3 = PlayerBlock_Top    → Mario head bump → CEILING
@@ -252,21 +250,21 @@ export function buildTiles(
     // (invisible coin block) are F545-non-solid but DO interact with
     // Mario on head bump: the dispatch transforms them to their visible
     // counterpart and Mario bonks. Coins $2A-$2E and spike $2F also
-    // return 'hit' from some directions — they stay excluded via the
+    // return 'hit' from some directions - they stay excluded via the
     // `marioOk` filter (isMarioStandable hand-list + hurtsFromAnyDir).
-    const hitOnHead  = dispatch0.kind === 'hit'
+    const hitOnHead = dispatch0.kind === 'hit'
     const hitOnSides = dispatch1.kind === 'hit' || dispatch2.kind === 'hit'
-    const hitOnFeet  = dispatch3.kind === 'hit'
-    const feetLanding  = marioFeetLanding(low, tileset)
-    const marioOk      = isMarioStandable(actsLikeId) && !hurtsFromAnyDir
+    const hitOnFeet = dispatch3.kind === 'hit'
+    const feetLanding = marioFeetLanding(low, tileset)
+    const marioOk = isMarioStandable(actsLikeId) && !hurtsFromAnyDir
     // CODE_00F545 (bank_00.asm:13410) is Mario's SOLIDITY predicate,
     // gating the wall-flag set at bank_00.asm:12189 via the F44D probe
     // at bank_00.asm:13342-13353. Page-0 tiles ($0xx) outside a few
-    // P-switch / switch-palace special cases are non-solid — that's
+    // P-switch / switch-palace special cases are non-solid - that's
     // why checkpoint-post bodies ($030/$032/$033/$035), midway tape
     // ($038), goal tape ($039/$03C), decorative fill ($03F), and
     // lava-corner graphics ($0A3/$0A6) pass through Mario. Page-1
-    // tiles ($1xx) are solid by default — ground $100, item blocks
+    // tiles ($1xx) are solid by default - ground $100, item blocks
     // $11A/$11E, structural terrain. P-switch state is assumed
     // inactive at classify time; per-frame overlays can layer the
     // reactive state if needed.
@@ -275,44 +273,47 @@ export function buildTiles(
     // $11-$6D / $C4-$C9 tileset window (CODE_00EC46 bank_00.asm:12161
     // and CODE_00ECB1 bank_00.asm:12218). Mario fields union the F545
     // physical-wall gate with the F127 block-action gate, then apply
-    // the hurt / Mario-standable filter on top — so ?-blocks ($11A/$11F)
+    // the hurt / Mario-standable filter on top - so ?-blocks ($11A/$11F)
     // and hidden coin blocks ($021) report `marioCeiling=true` from
     // the F127 head-bump dispatch even when F545 says non-solid.
-    const marioInSolidRange    = low >= 0x11 && low <= 0x6D
-    const marioInCeilingWindow = tileset !== 0 && tileset !== 7 && low >= 0xC4 && low <= 0xC9
+    const marioInSolidRange = low >= 0x11 && low <= 0x6d
+    const marioInCeilingWindow = tileset !== 0 && tileset !== 7 && low >= 0xc4 && low <= 0xc9
     // Slopes are NOT floors. `feetLanding` returns 'slope' (not 'land')
-    // for tiles in the $6E-$D7 range — they have a diagonal surface,
+    // for tiles in the $6E-$D7 range - they have a diagonal surface,
     // not a flat top. The "Show surfaces" overlay draws a horizontal
     // line, which is only correct for flat floors. Slope membership is
     // still surfaced via `slopeTable` for overlays that render angle.
-    const marioFloor   = (marioSolid || hitOnFeet)  && (feetLanding.kind === 'land') && marioOk
-    const marioCeiling = (marioSolid || hitOnHead)  && (marioInSolidRange || marioInCeilingWindow) && marioOk
-    const marioWall    = (marioSolid || hitOnSides) && marioInSolidRange && marioOk
+    const marioFloor = (marioSolid || hitOnFeet) && feetLanding.kind === 'land' && marioOk
+    const marioCeiling =
+      (marioSolid || hitOnHead) && (marioInSolidRange || marioInCeilingWindow) && marioOk
+    const marioWall = (marioSolid || hitOnSides) && marioInSolidRange && marioOk
 
-    // CODE_00ED86 (bank_00.asm:12334) — Mario's slope-surface profile.
+    // CODE_00ED86 (bank_00.asm:12334) - Mario's slope-surface profile.
     // resolveSlope returns null outside the $6E-$D7 range, otherwise a
     // 16-byte per-pixel-X height array derived from DATA_00E632 via the
     // tileset-specific SlopesPtr map (DATA_00E55E or DATA_00E5C8).
     //
     // Gated by F545 solidity. The ROM checks F545 at bank_00.asm:12393
     // (`CODE_00EDE9: JSR CODE_00F44D / BNE`) before any slope dispatch
-    // fires — non-solid tiles route to `CODE_00F309` (midway / coin
+    // fires - non-solid tiles route to `CODE_00F309` (midway / coin
     // handlers) instead. F545 says page-0 tiles outside the P-switch /
     // switch-palace special cases are non-solid, so a page-0 placement
     // of a slope-range low byte (e.g. $0A6 lava-corner graphic, $073
-    // bush graphic) is decorative — Mario walks straight through it
+    // bush graphic) is decorative - Mario walks straight through it
     // and the slope-angle path never runs. Without this gate the
     // overlay would draw misleading slope lines on those passthrough
     // tiles. resolveSlope itself stays low-byte-only (matching the
     // ROM's `LDA [SlopesPtr],Y` indirection); the high-byte solidity
     // gate lives here at the call site beside the rest of F545.
-    const slope = marioSolid
-      ? resolveSlope(low, tileset, slopeTables)
-      : null
+    const slope = marioSolid ? resolveSlope(low, tileset, slopeTables) : null
 
     return {
-      floor, ceiling, wall,
-      marioFloor, marioCeiling, marioWall,
+      floor,
+      ceiling,
+      wall,
+      marioFloor,
+      marioCeiling,
+      marioWall,
       slopeTable: slopeTableFlag,
       ...(slope ? { slope } : {}),
     }
@@ -328,11 +329,11 @@ export function buildTiles(
   const vineOverlayQuad = quads.get(0x006) ?? null
 
   // Item-block indicator chars from sprite OBJ VRAM.
-  const oneupChars     = ONEUP_CHAR_NUMS.map(i => chars.get(i) ?? null)
-  const starChars      = STAR_CHAR_NUMS.map(i => chars.get(i) ?? null)
-  const keyChars       = KEY_CHAR_NUMS.map(i => chars.get(i) ?? null)
-  const redCoinChars   = REDCOIN_CHAR_NUMS.map(i => chars.get(i) ?? null)
-  const pballoonChars  = PBALLOON_CHAR_NUMS.map(i => chars.get(i) ?? null)
+  const oneupChars = ONEUP_CHAR_NUMS.map(i => chars.get(i) ?? null)
+  const starChars = STAR_CHAR_NUMS.map(i => chars.get(i) ?? null)
+  const keyChars = KEY_CHAR_NUMS.map(i => chars.get(i) ?? null)
+  const redCoinChars = REDCOIN_CHAR_NUMS.map(i => chars.get(i) ?? null)
+  const pballoonChars = PBALLOON_CHAR_NUMS.map(i => chars.get(i) ?? null)
   const paraKoopaChars = PARAKOOPA_CHAR_NUMS.map(i => chars.get(i) ?? null)
 
   for (const m16 of baseTiles) {
@@ -345,38 +346,56 @@ export function buildTiles(
     const actsLikeId = override ?? m16.id
     const quad = quads.get(m16.id)!
 
-    // Tile $1A (any page) — 3-state column-cycle item block (star/1-up/vine).
+    // Tile $1A (any page) - 3-state column-cycle item block (star/1-up/vine).
     // The block-hit dispatch keys on the Map16 low byte (CODE_00F17F), so
     // tiles whose acts-like resolves to low byte $1A get this behavior.
-    const lowByte = actsLikeId & 0xFF
-    if (lowByte === 0x1A) {
-      tiles.set(m16.id, new Tile(m16.id, new StarOneUpVineBlockBehavior(
-        quad, vineOverlayQuad, oneupChars, starChars,
-      ), actsLikeId, classify(actsLikeId)))
+    const lowByte = actsLikeId & 0xff
+    if (lowByte === 0x1a) {
+      tiles.set(
+        m16.id,
+        new Tile(
+          m16.id,
+          new StarOneUpVineBlockBehavior(quad, vineOverlayQuad, oneupChars, starChars),
+          actsLikeId,
+          classify(actsLikeId),
+        ),
+      )
       continue
     }
 
-    // Tile $25 (any page) — 4-state column-cycle item block
+    // Tile $25 (any page) - 4-state column-cycle item block
     // (key/red-coin/p-balloon/para-koopa per col % 4). The block-hit
     // dispatch (CODE_00F17F) routes here via DATA_00F080[$14]=$16 →
     // _5=$0B → SpriteInBlock[$0B]=$7D (P-Balloon), then CODE_028972
     // (bank_02.asm:1199-1212) overrides the sprite by the block's
     // pixel-X bits [5:4] → DATA_0288D6.
     if (lowByte === 0x25) {
-      tiles.set(m16.id, new Tile(m16.id,
-        new KeyCoinBalloonKoopaBlockBehavior(quad,
-          keyChars, redCoinChars, pballoonChars, paraKoopaChars),
-        actsLikeId, classify(actsLikeId)))
+      tiles.set(
+        m16.id,
+        new Tile(
+          m16.id,
+          new KeyCoinBalloonKoopaBlockBehavior(
+            quad,
+            keyChars,
+            redCoinChars,
+            pballoonChars,
+            paraKoopaChars,
+          ),
+          actsLikeId,
+          classify(actsLikeId),
+        ),
+      )
       continue
     }
 
-    // VineSourceBehavior for tiles whose acts-like is $2A/$2B — vine generators
+    // VineSourceBehavior for tiles whose acts-like is $2A/$2B - vine generators
     // (DATA_00F05C index 25/26 = $03). Without reading the real LM
     // acts-like table, only explicit overrides in the acts-like map hit
     // this branch.
-    const behavior = override !== undefined && isVineSource(override)
-      ? new VineSourceBehavior(quad, vineOverlayQuad)
-      : new StaticQuadBehavior(quad)
+    const behavior =
+      override !== undefined && isVineSource(override)
+        ? new VineSourceBehavior(quad, vineOverlayQuad)
+        : new StaticQuadBehavior(quad)
     tiles.set(m16.id, new Tile(m16.id, behavior, actsLikeId, classify(actsLikeId)))
   }
 
@@ -389,11 +408,13 @@ export function buildTiles(
   for (const [hiddenId, entry] of P_SWITCH_REVEALS) {
     const srcQuad = quads.get(entry.substitute) ?? quads.get(hiddenId)
     if (!srcQuad) continue
-    const revealed = entry.palOverride !== undefined
-      ? withPaletteOverride(srcQuad, entry.palOverride)
-      : srcQuad
+    const revealed =
+      entry.palOverride !== undefined ? withPaletteOverride(srcQuad, entry.palOverride) : srcQuad
     const actsLikeId = actsLike.get(hiddenId) ?? hiddenId
-    tiles.set(hiddenId, new Tile(hiddenId, new PSwitchRevealBehavior(revealed), actsLikeId, classify(actsLikeId)))
+    tiles.set(
+      hiddenId,
+      new Tile(hiddenId, new PSwitchRevealBehavior(revealed), actsLikeId, classify(actsLikeId)),
+    )
   }
 
   // Invisible blocks revealed as a visible counterpart at a fixed 50%
@@ -404,16 +425,18 @@ export function buildTiles(
   for (const [hiddenId, entry] of INVISIBLE_BLOCK_REVEALS) {
     const srcQuad = quads.get(entry.substitute) ?? quads.get(hiddenId)
     if (!srcQuad) continue
-    const rewardQuad = entry.rewardOverlay !== undefined
-      ? (quads.get(entry.rewardOverlay) ?? null)
-      : null
+    const rewardQuad =
+      entry.rewardOverlay !== undefined ? (quads.get(entry.rewardOverlay) ?? null) : null
     const actsLikeId = actsLike.get(hiddenId) ?? hiddenId
-    tiles.set(hiddenId, new Tile(
+    tiles.set(
       hiddenId,
-      new InvisibleBlockRevealBehavior(srcQuad, rewardQuad),
-      actsLikeId,
-      classify(actsLikeId),
-    ))
+      new Tile(
+        hiddenId,
+        new InvisibleBlockRevealBehavior(srcQuad, rewardQuad),
+        actsLikeId,
+        classify(actsLikeId),
+      ),
+    )
   }
 
   for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) {
@@ -422,7 +445,10 @@ export function buildTiles(
       quadFromMap16(variant[i], chars, placeholder),
     )
     const actsLikeId = actsLike.get(id) ?? id
-    tiles.set(id, new Tile(id, new PipeVariantsBehavior(variantQuads), actsLikeId, classify(actsLikeId)))
+    tiles.set(
+      id,
+      new Tile(id, new PipeVariantsBehavior(variantQuads), actsLikeId, classify(actsLikeId)),
+    )
   }
 
   for (let c = 0; c < SWITCH_PALACE_COLORS; c++) {
@@ -432,16 +458,16 @@ export function buildTiles(
     const onQuad = quads.get(onId)!
     const color = c as 0 | 1 | 2 | 3
     // Both `$06x` and `$16x` share one behavior instance that renders
-    // (state ? onQuad : offQuad) — i.e., both default to the dotted
+    // (state ? onQuad : offQuad) - i.e., both default to the dotted
     // "off" visual when the palace has not been hit, and both flip to
     // the solid "on" visual when it has. The collision rule in
     // drawSurfaces matches: both passable by default, both solid
     // when their corresponding color is toggled.
     const behavior = new SwitchPalaceAlternateBehavior(offQuad, onQuad, color)
     const offActsLike = actsLike.get(offId) ?? offId
-    const onActsLike  = actsLike.get(onId)  ?? onId
+    const onActsLike = actsLike.get(onId) ?? onId
     tiles.set(offId, new Tile(offId, behavior, offActsLike, classify(offActsLike)))
-    tiles.set(onId,  new Tile(onId,  behavior, onActsLike,  classify(onActsLike)))
+    tiles.set(onId, new Tile(onId, behavior, onActsLike, classify(onActsLike)))
   }
 
   return tiles
@@ -456,12 +482,13 @@ export function buildTiles(
  * despite the page bit differing.
  */
 function isVineSource(actsLikeId: number): boolean {
-  const lowByte = actsLikeId & 0xFF
-  return lowByte === 0x2A || lowByte === 0x2B
+  const lowByte = actsLikeId & 0xff
+  return lowByte === 0x2a || lowByte === 0x2b
 }
 
 function isSwitchPalaceTile(id: number): boolean {
-  if (id >= SWITCH_PALACE_OFF_BASE && id < SWITCH_PALACE_OFF_BASE + SWITCH_PALACE_COLORS) return true
+  if (id >= SWITCH_PALACE_OFF_BASE && id < SWITCH_PALACE_OFF_BASE + SWITCH_PALACE_COLORS)
+    return true
   if (id >= SWITCH_PALACE_ON_BASE && id < SWITCH_PALACE_ON_BASE + SWITCH_PALACE_COLORS) return true
   return false
 }
@@ -470,7 +497,11 @@ function isPipeTile(id: number): boolean {
   return id >= PIPE_VARIANT_TILE_START && id < PIPE_VARIANT_TILE_START + PIPE_VARIANT_TILE_COUNT
 }
 
-export function quadFromMap16(m16: Map16Tile, chars: Map<number, Char>, placeholder: Char): SubtileQuad {
+export function quadFromMap16(
+  m16: Map16Tile,
+  chars: Map<number, Char>,
+  placeholder: Char,
+): SubtileQuad {
   return [
     toSubTile(m16.tl, chars, placeholder),
     toSubTile(m16.tr, chars, placeholder),
@@ -483,7 +514,7 @@ export function quadFromMap16(m16: Map16Tile, chars: Map<number, Char>, placehol
  * Clone a quad, replacing every subtile's CGRAM-row palette with
  * `palette`. Used for the silver-door P-switch reveals where the
  * revealed chars come from a brown-palette door but should render in
- * palette 4 (silver/blue) — legacy does this via a pal-override atlas.
+ * palette 4 (silver/blue) - legacy does this via a pal-override atlas.
  */
 function withPaletteOverride(quad: SubtileQuad, palette: number): SubtileQuad {
   return [
@@ -500,10 +531,18 @@ export function makeTransparentPlaceholderChar(): Char {
 
 export function makePlaceholderBoxChar(): Char {
   const p = new Uint8Array(64)
-  for (let x = 0; x < 8; x++) { p[x] = 3; p[56 + x] = 3 }
-  for (let y = 1; y <= 6; y++) { p[y * 8] = 3; p[y * 8 + 7] = 3 }
-  p[3 * 8 + 3] = 3; p[3 * 8 + 4] = 3
-  p[4 * 8 + 3] = 3; p[4 * 8 + 4] = 3
+  for (let x = 0; x < 8; x++) {
+    p[x] = 3
+    p[56 + x] = 3
+  }
+  for (let y = 1; y <= 6; y++) {
+    p[y * 8] = 3
+    p[y * 8 + 7] = 3
+  }
+  p[3 * 8 + 3] = 3
+  p[3 * 8 + 4] = 3
+  p[4 * 8 + 3] = 3
+  p[4 * 8 + 4] = 3
   return new CharClass(-2, new StaticPixelsBehavior(p))
 }
 

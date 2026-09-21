@@ -20,8 +20,13 @@ import { existsSync } from 'fs'
 import { resolve } from 'path'
 import { RomFile } from '../../../../src/rom/RomFile'
 import {
-  decidedPropGroup, decidedRoutine, gfxRoutineMessage, readGfxRoutine, readGfxRoutines,
-  resolveHandlerSite, type GfxRoutine,
+  decidedPropGroup,
+  decidedRoutine,
+  gfxRoutineMessage,
+  readGfxRoutine,
+  readGfxRoutines,
+  resolveHandlerSite,
+  type GfxRoutine,
 } from '../../../../src/rom/dispatch/GfxRoutineReader'
 import { walkHandler } from '../../../../src/rom/dispatch/HandlerWalk'
 
@@ -48,8 +53,14 @@ const TILEMAP_IDS = 0x54
  *  direct walk here sees what `readGfxRoutine` sees. `ENTRY_POINTS` at the
  *  bottom of this file is the row-by-row check that the list is right. */
 const WATCHED_ENTRIES: ReadonlyMap<number, string> = new Map([
-  [0x019CF3, 'sub0'], [0x019CF5, 'sub0'], [0x019D67, 'sub1'], [0x019F09, 'sub2'],
-  [0x019F0D, 'sub2'], [0x018042, 'sub0'], [0x019D5F, 'sub1'], [0x0190B2, 'sub2'],
+  [0x019cf3, 'sub0'],
+  [0x019cf5, 'sub0'],
+  [0x019d67, 'sub1'],
+  [0x019f09, 'sub2'],
+  [0x019f0d, 'sub2'],
+  [0x018042, 'sub0'],
+  [0x019d5f, 'sub1'],
+  [0x0190b2, 'sub2'],
 ])
 
 /**
@@ -59,12 +70,28 @@ const WATCHED_ENTRIES: ReadonlyMap<number, string> = new Map([
  * now reads off the cart.
  */
 const FROZEN_OVERRIDES: Readonly<Record<number, GfxRoutine>> = {
-  0x1A: 'sub1', 0x1E: 'sub1', 0x1F: 'sub1', 0x22: 'sub1', 0x23: 'sub1', 0x24: 'sub1',
-  0x25: 'sub1', 0x2A: 'sub1', 0x41: 'sub1', 0x42: 'sub1', 0x43: 'sub1',
-  0x14: 'sub0', 0x27: 'sub0', 0x2B: 'sub0', 0x2F: 'sub0', 0x4D: 'sub0', 0x4E: 'sub0',
+  0x1a: 'sub1',
+  0x1e: 'sub1',
+  0x1f: 'sub1',
+  0x22: 'sub1',
+  0x23: 'sub1',
+  0x24: 'sub1',
+  0x25: 'sub1',
+  0x2a: 'sub1',
+  0x41: 'sub1',
+  0x42: 'sub1',
+  0x43: 'sub1',
+  0x14: 'sub0',
+  0x27: 'sub0',
+  0x2b: 'sub0',
+  0x2f: 'sub0',
+  0x4d: 'sub0',
+  0x4e: 'sub0',
 }
-const SPR_0_TO_13_START_IDS = [0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0F, 0x11, 0x13]
-const SPR_0_TO_13_PROP_ADDR = 0x0188F0
+const SPR_0_TO_13_START_IDS = [
+  0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0f, 0x11, 0x13,
+]
+const SPR_0_TO_13_PROP_ADDR = 0x0188f0
 
 function frozenAnswer(rom: RomFile, id: number): GfxRoutine {
   if (FROZEN_OVERRIDES[id]) return FROZEN_OVERRIDES[id]
@@ -74,13 +101,13 @@ function frozenAnswer(rom: RomFile, id: number): GfxRoutine {
 
 /** Rex. Its MAIN pointer is the bank-3 stub, so reaching a verdict at all
  *  requires the dispatch chain underneath. */
-const REX = 0xAB
+const REX = 0xab
 /** Green Koopa. The `Spr0to13Gfx` selector, bank_01.asm:1762-1765. */
 const SELECTED = 0x04
 /** Classic Piranha Plant. A plain one-routine handler reaching `sub1`. */
-const SINGLE_SUB1 = 0x1A
+const SINGLE_SUB1 = 0x1a
 /** Magikoopa. Its draw call sits behind `JSL ExecutePtr`. */
-const UNREACHED = 0x1F
+const UNREACHED = 0x1f
 
 describe.skipIf(!romsPresent)('the classification as the six carts hold it', () => {
   it('resolves 57 of the 84 tilemap-range ids, 56 on Grand Poo World 2', () => {
@@ -117,8 +144,10 @@ describe.skipIf(!romsPresent)('the classification as the six carts hold it', () 
       // Para-Goomba, Para-Bomb, Jumping Piranha and two others draw several
       // parts through different routines. There is no single answer to give.
       expect(tally('ambiguous'), name).toBe(5)
-      expect(tally('read') + tally('selected') + tally('ambiguous') + tally('unreached'), name)
-        .toBe(TILEMAP_IDS)
+      expect(
+        tally('read') + tally('selected') + tally('ambiguous') + tally('unreached'),
+        name,
+      ).toBe(TILEMAP_IDS)
     }
   })
 
@@ -152,7 +181,7 @@ describe.skipIf(!romsPresent)('the classification as the six carts hold it', () 
     for (const { name, rom } of allRoms()) {
       const site = resolveHandlerSite(rom, REX)
       expect(site?.via, name).toBe('dispatched')
-      expect(site!.at & 0xFFFF, name).toBe(0x9517)   // RexMainRt, SMW_U.sym
+      expect(site!.at & 0xffff, name).toBe(0x9517) // RexMainRt, SMW_U.sym
     }
   })
 
@@ -197,7 +226,7 @@ describe.skipIf(!romsPresent)('every verdict follows a cart byte', () => {
     if (before.kind !== 'read') return
     expect(before.routine).toBe('sub1')
     // SubSprGfx2Entry1 is $9F0D, SubSprGfx1 is $9D67; both in bank $01.
-    rom.writeAt(before.callAt + 1, [0x0D, 0x9F])
+    rom.writeAt(before.callAt + 1, [0x0d, 0x9f])
     expect(decidedRoutine(readGfxRoutine(rom, SINGLE_SUB1))).toBe('sub2')
   })
 
@@ -205,7 +234,7 @@ describe.skipIf(!romsPresent)('every verdict follows a cart byte', () => {
     const rom = freshRom()
     expect(decidedRoutine(readGfxRoutine(rom, SELECTED))).toBe('sub1')
     const at = SPR_0_TO_13_PROP_ADDR + SELECTED
-    rom.writeAt(at, [(rom.readByte(at)! & ~0x40) & 0xFF])
+    rom.writeAt(at, [rom.readByte(at)! & ~0x40 & 0xff])
     expect(decidedRoutine(readGfxRoutine(rom, SELECTED))).toBe('sub2')
   })
 
@@ -226,8 +255,8 @@ describe.skipIf(!romsPresent)('every verdict follows a cart byte', () => {
     const rom = freshRom()
     const r = readGfxRoutine(rom, SELECTED)
     if (r.kind !== 'selected') throw new Error('precondition: $04 is selector-resolved')
-    expect(rom.readByte(r.select.at)).toBe(0xD0)   // BNE
-    rom.writeAt(r.select.at, [0xF0])               // BEQ: the sides swap
+    expect(rom.readByte(r.select.at)).toBe(0xd0) // BNE
+    rom.writeAt(r.select.at, [0xf0]) // BEQ: the sides swap
     const after = readGfxRoutine(rom, SELECTED)
     expect(after.kind === 'selected' && after.select.whenSet).toBe('sub2')
     expect(decidedRoutine(after)).toBe('sub2')
@@ -241,7 +270,7 @@ describe.skipIf(!romsPresent)('every verdict follows a cart byte', () => {
     // clear, and the verdict must change even though $0188F0 is untouched.
     const moved = 0x018000
     expect((rom.readByte(moved + SELECTED)! & 0x40) === 0).toBe(true)
-    rom.writeAt(r.select.at - 4, [moved & 0xFF, (moved >> 8) & 0xFF])
+    rom.writeAt(r.select.at - 4, [moved & 0xff, (moved >> 8) & 0xff])
     const after = readGfxRoutine(rom, SELECTED)
     expect(after.kind === 'selected' && after.select.table).toBe(moved)
     expect(decidedRoutine(after)).toBe('sub2')
@@ -254,8 +283,8 @@ describe.skipIf(!romsPresent)('every verdict follows a cart byte', () => {
     // it: the code being walked is whatever the chain's JSR operand names.
     expect(readGfxRoutine(rom, REX).kind).toBe('unreached')
     const operandAt = findChainJsrOperand(rom, REX)
-    rom.writeAt(operandAt, [0xB2, 0x90])
-    expect(resolveHandlerSite(rom, REX)).toEqual({ at: 0x0390B2, via: 'dispatched' })
+    rom.writeAt(operandAt, [0xb2, 0x90])
+    expect(resolveHandlerSite(rom, REX)).toEqual({ at: 0x0390b2, via: 'dispatched' })
     // $03:90B2 is not bank 1's GenericSprGfxRt2, so still no shared routine.
     expect(decidedRoutine(readGfxRoutine(rom, REX))).toBe(null)
   })
@@ -263,9 +292,9 @@ describe.skipIf(!romsPresent)('every verdict follows a cart byte', () => {
   it('reaches sub2 when the chain link is pointed at code that calls it', () => {
     const rom = freshRom()
     // A three-byte JSL into bank 1's sub2 trampoline, planted in bank 3.
-    const planted = 0x03FFF0
-    rom.writeAt(planted, [0x22, 0xB2, 0x90, 0x01, 0x6B])
-    rom.writeAt(findChainJsrOperand(rom, REX), [planted & 0xFF, (planted >> 8) & 0xFF])
+    const planted = 0x03fff0
+    rom.writeAt(planted, [0x22, 0xb2, 0x90, 0x01, 0x6b])
+    rom.writeAt(findChainJsrOperand(rom, REX), [planted & 0xff, (planted >> 8) & 0xff])
     expect(decidedRoutine(readGfxRoutine(rom, REX))).toBe('sub2')
   })
 
@@ -277,9 +306,9 @@ describe.skipIf(!romsPresent)('every verdict follows a cart byte', () => {
     const rom = freshRom()
     const before = readGfxRoutine(rom, UNREACHED)
     expect(before.kind).toBe('unreached')
-    const body = rom.readAt(0x0086DF, 0x1B)!
-    rom.writeAt(0x00FFB0, Array.from(body))
-    rom.writeAt(0x01BDE6, [0x22, 0xB0, 0xFF, 0x00])
+    const body = rom.readAt(0x0086df, 0x1b)!
+    rom.writeAt(0x00ffb0, Array.from(body))
+    rom.writeAt(0x01bde6, [0x22, 0xb0, 0xff, 0x00])
     const after = readGfxRoutine(rom, UNREACHED)
     expect(after.kind).toBe('unreached')
     if (after.kind === 'unreached') expect(after.stops).toContain('nonReturningCall')
@@ -290,17 +319,17 @@ describe.skipIf(!romsPresent)('every verdict follows a cart byte', () => {
       // $14 SpinyEgg and $2F portable spring both pass 2; $2B passes 0.
       // bank_01.asm:1813 and :13884 for the two twos.
       expect(decidedPropGroup(readGfxRoutine(rom, 0x14)), name).toBe(2)
-      expect(decidedPropGroup(readGfxRoutine(rom, 0x2B)), name).toBe(0)
-      expect(decidedPropGroup(readGfxRoutine(rom, 0x2F)), name).toBe(2)
+      expect(decidedPropGroup(readGfxRoutine(rom, 0x2b)), name).toBe(0)
+      expect(decidedPropGroup(readGfxRoutine(rom, 0x2f)), name).toBe(2)
     }
   })
 
   it('follows the prop-group immediate, and drops it when it is not one', () => {
     const rom = freshRom()
-    const r = readGfxRoutine(rom, 0x2F)
+    const r = readGfxRoutine(rom, 0x2f)
     if (r.kind !== 'read') throw new Error('precondition: $2F resolves to a single routine')
     rom.writeAt(r.callAt - 1, [0x05])
-    expect(decidedPropGroup(readGfxRoutine(rom, 0x2F))).toBe(5)
+    expect(decidedPropGroup(readGfxRoutine(rom, 0x2f))).toBe(5)
 
     // $A5 is `LDA dp`, two bytes, so the call stays where it was and the
     // only thing that changed is what reaches it in A. An earlier version
@@ -308,13 +337,13 @@ describe.skipIf(!romsPresent)('every verdict follows a cart byte', () => {
     // so the call was never reached at all: the reading came back
     // `unreached` and the null was for an unrelated reason.
     const shifted = freshRom()
-    shifted.writeAt(r.callAt - 2, [0xEA])
-    expect(readGfxRoutine(shifted, 0x2F).kind).toBe('unreached')
+    shifted.writeAt(r.callAt - 2, [0xea])
+    expect(readGfxRoutine(shifted, 0x2f).kind).toBe('unreached')
 
     const kept = freshRom()
-    expect(kept.readByte(r.callAt - 2)).toBe(0xA9)   // LDA #imm, as read
-    kept.writeAt(r.callAt - 2, [0xA5])               // LDA dp: same length, no immediate
-    const after = readGfxRoutine(kept, 0x2F)
+    expect(kept.readByte(r.callAt - 2)).toBe(0xa9) // LDA #imm, as read
+    kept.writeAt(r.callAt - 2, [0xa5]) // LDA dp: same length, no immediate
+    const after = readGfxRoutine(kept, 0x2f)
     expect(after.kind).toBe('read')
     expect(after.kind === 'read' && after.callAt).toBe(r.callAt)
     expect(decidedPropGroup(after)).toBe(null)
@@ -327,11 +356,11 @@ describe.skipIf(!romsPresent)('every verdict follows a cart byte', () => {
     // beats frozen it overrode the correct frozen 2. The decoder already
     // knows A holds a table read here, so nothing is claimed.
     const rom = freshRom()
-    const r = readGfxRoutine(rom, 0x2F)
+    const r = readGfxRoutine(rom, 0x2f)
     if (r.kind !== 'read') throw new Error('precondition: $2F resolves to a single routine')
     expect(decidedPropGroup(r)).toBe(2)
-    rom.writeAt(r.callAt - 3, [0xAD, 0xA9, 0x07])
-    const after = readGfxRoutine(rom, 0x2F)
+    rom.writeAt(r.callAt - 3, [0xad, 0xa9, 0x07])
+    const after = readGfxRoutine(rom, 0x2f)
     expect(after.kind === 'read' && after.callAt).toBe(r.callAt)
     expect(decidedPropGroup(after)).toBe(null)
   })
@@ -344,7 +373,7 @@ describe.skipIf(!romsPresent)('every verdict follows a cart byte', () => {
     expect(readGfxRoutines(rom, 0x54)).toBe(first)
     const link = readGfxRoutine(rom, SINGLE_SUB1)
     if (link.kind !== 'read') throw new Error('precondition')
-    rom.writeAt(link.callAt + 1, [0x0D, 0x9F])
+    rom.writeAt(link.callAt + 1, [0x0d, 0x9f])
     const second = readGfxRoutines(rom, 0x54)
     expect(second).not.toBe(first)
     expect(decidedRoutine(second.get(SINGLE_SUB1))).toBe('sub2')
@@ -356,7 +385,9 @@ describe.skipIf(!romsPresent)('every verdict follows a cart byte', () => {
 
   it('messages name the address that produced the verdict', () => {
     const rom = freshRom()
-    expect(gfxRoutineMessage(readGfxRoutine(rom, SINGLE_SUB1))).toMatch(/^sub1 via the call at \$01/)
+    expect(gfxRoutineMessage(readGfxRoutine(rom, SINGLE_SUB1))).toMatch(
+      /^sub1 via the call at \$01/,
+    )
     expect(gfxRoutineMessage(readGfxRoutine(rom, SELECTED))).toContain('$0188F0 & $40')
     expect(gfxRoutineMessage(readGfxRoutine(rom, UNREACHED))).toContain('nonReturningCall')
     expect(gfxRoutineMessage(readGfxRoutine(rom, 500))).toContain('unreadable')
@@ -368,37 +399,37 @@ describe.skipIf(!romsPresent)('all nine shared entry points are watched', () => 
    *  it, so dropping any one row from the watch map goes red. Addresses
    *  from `SMW_U.sym`; each caller found by walking the sprite named. */
   const ENTRY_POINTS: ReadonlyArray<readonly [number, string, string]> = [
-    [0x019CF3, 'sub0', 'SubSprGfx0Entry0 bank_01.asm:3853'],
-    [0x019CF5, 'sub0', 'SubSprGfx0Entry1 bank_01.asm:3855'],
-    [0x019D67, 'sub1', 'SubSprGfx1 bank_01.asm:3920'],
-    [0x019F09, 'sub2', 'SubSprGfx2Entry0 bank_01.asm:4144'],
-    [0x019F0D, 'sub2', 'SubSprGfx2Entry1 bank_01.asm:4148'],
+    [0x019cf3, 'sub0', 'SubSprGfx0Entry0 bank_01.asm:3853'],
+    [0x019cf5, 'sub0', 'SubSprGfx0Entry1 bank_01.asm:3855'],
+    [0x019d67, 'sub1', 'SubSprGfx1 bank_01.asm:3920'],
+    [0x019f09, 'sub2', 'SubSprGfx2Entry0 bank_01.asm:4144'],
+    [0x019f0d, 'sub2', 'SubSprGfx2Entry1 bank_01.asm:4148'],
     [0x018042, 'sub0', 'GenericSprGfxRt0 bank_01.asm:61'],
-    [0x019D5F, 'sub1', 'GenericSprGfxRt1 bank_01.asm:3912'],
-    [0x0190B2, 'sub2', 'GenericSprGfxRt2 bank_01.asm:2393'],
+    [0x019d5f, 'sub1', 'GenericSprGfxRt1 bank_01.asm:3912'],
+    [0x0190b2, 'sub2', 'GenericSprGfxRt2 bank_01.asm:2393'],
   ]
 
   it.each(ENTRY_POINTS)('$%s is classified as its own routine', (addr, routine, label) => {
     // A planted handler calling the entry point directly, so the claim is
     // about the watch map and not about which sprite happens to use it.
-    const bytes = new Uint8Array(0x400000).fill(0xEA)
-    bytes[0x7FD5] = 0x20
+    const bytes = new Uint8Array(0x400000).fill(0xea)
+    bytes[0x7fd5] = 0x20
     const rom = RomFile.fromBytes('synthetic.sfc', bytes)
     const at = 0x018800
-    rom.writeAt(at, [0x20, (addr as number) & 0xFF, ((addr as number) >> 8) & 0xFF, 0x60])
-    rom.writeAt(0x0185CC, [at & 0xFF, (at >> 8) & 0xFF])
+    rom.writeAt(at, [0x20, (addr as number) & 0xff, ((addr as number) >> 8) & 0xff, 0x60])
+    rom.writeAt(0x0185cc, [at & 0xff, (at >> 8) & 0xff])
     const r = readGfxRoutine(rom, 0)
     expect(r.kind, label as string).toBe('read')
     if (r.kind === 'read') expect(r.routine, label as string).toBe(routine)
   })
 
   it('classifies a call that is not one of them as reaching nothing', () => {
-    const bytes = new Uint8Array(0x400000).fill(0xEA)
-    bytes[0x7FD5] = 0x20
+    const bytes = new Uint8Array(0x400000).fill(0xea)
+    bytes[0x7fd5] = 0x20
     const rom = RomFile.fromBytes('synthetic.sfc', bytes)
     rom.writeAt(0x018800, [0x20, 0x00, 0x91, 0x60])
     rom.writeAt(0x019100, [0x60])
-    rom.writeAt(0x0185CC, [0x00, 0x88])
+    rom.writeAt(0x0185cc, [0x00, 0x88])
     expect(readGfxRoutine(rom, 0).kind).toBe('unreached')
   })
 })
@@ -408,27 +439,29 @@ describe('a synthetic cart, for shapes no real cart holds', () => {
    *  MAIN pointer. The shared-routine addresses are real, so a planted
    *  `JSR $9F0D` counts as sub2 even though nothing is there. */
   function cartWithHandler(code: number[], handlerAt = 0x018800, id = 0): RomFile {
-    const bytes = new Uint8Array(0x400000).fill(0xEA)
-    bytes[0x7FD5] = 0x20
+    const bytes = new Uint8Array(0x400000).fill(0xea)
+    bytes[0x7fd5] = 0x20
     const rom = RomFile.fromBytes('synthetic.sfc', bytes)
     rom.writeAt(handlerAt, code)
-    rom.writeAt(0x0185CC + id * 2, [handlerAt & 0xFF, (handlerAt >> 8) & 0xFF])
+    rom.writeAt(0x0185cc + id * 2, [handlerAt & 0xff, (handlerAt >> 8) & 0xff])
     return rom
   }
 
-  const jsr = (t: number) => [0x20, t & 0xFF, (t >> 8) & 0xFF]
+  const jsr = (t: number) => [0x20, t & 0xff, (t >> 8) & 0xff]
   /** `LDY SpriteNumber,X : LDA $88F0,Y : AND #$40 : BNE +4`. */
-  const bitTestBranch = [0xB4, 0x9E, 0xB9, 0xF0, 0x88, 0x29, 0x40, 0xD0, 0x04]
+  const bitTestBranch = [0xb4, 0x9e, 0xb9, 0xf0, 0x88, 0x29, 0x40, 0xd0, 0x04]
 
   it('declines a branch whose two sides reach the SAME routine', () => {
     // Two routines are reachable overall, so the selector search runs, but
     // the branch does not separate them. Reporting it as a selector would
     // hand back a routine chosen by a bit that decides nothing.
     const rom = cartWithHandler([
-      ...jsr(0x9D67),          // sub1, above the branch
+      ...jsr(0x9d67), // sub1, above the branch
       ...bitTestBranch,
-      ...jsr(0x9F0D), 0x60,    // not taken: sub2
-      ...jsr(0x9F0D), 0x60,    // taken: sub2 as well
+      ...jsr(0x9f0d),
+      0x60, // not taken: sub2
+      ...jsr(0x9f0d),
+      0x60, // taken: sub2 as well
     ])
     const r = readGfxRoutine(rom, 0)
     expect(r.kind).toBe('ambiguous')
@@ -440,11 +473,20 @@ describe('a synthetic cart, for shapes no real cart holds', () => {
     // table byte it reads is not the one for this sprite, so resolving
     // from it would be a confident answer about the wrong row.
     const rom = cartWithHandler([
-      ...jsr(0x9D67),
-      0xA0, 0x00,                          // LDY #$00 in place of LDY SpriteNumber,X
-      0xB9, 0xF0, 0x88, 0x29, 0x40, 0xD0, 0x04,
-      ...jsr(0x9F0D), 0x60,
-      ...jsr(0x9CF5), 0x60,
+      ...jsr(0x9d67),
+      0xa0,
+      0x00, // LDY #$00 in place of LDY SpriteNumber,X
+      0xb9,
+      0xf0,
+      0x88,
+      0x29,
+      0x40,
+      0xd0,
+      0x04,
+      ...jsr(0x9f0d),
+      0x60,
+      ...jsr(0x9cf5),
+      0x60,
     ])
     const r = readGfxRoutine(rom, 0)
     expect(r.kind).toBe('ambiguous')
@@ -455,14 +497,14 @@ describe('a synthetic cart, for shapes no real cart holds', () => {
     // out of A. `SubSprGfx1` does not read A that way, so an immediate in
     // front of a sub1 call names nothing. Reporting it anyway would put a
     // row number on a reading whose routine has no rows.
-    const sub1 = cartWithHandler([0xA9, 0x07, ...jsr(0x9D67), 0x60])
+    const sub1 = cartWithHandler([0xa9, 0x07, ...jsr(0x9d67), 0x60])
     const r1 = readGfxRoutine(sub1, 0)
     expect(r1.kind === 'read' && r1.routine).toBe('sub1')
     expect(decidedPropGroup(r1)).toBe(null)
 
     // The identical shape aimed at sub0, so the assertion above is about
     // the routine and not about the immediate being unreadable.
-    const sub0 = cartWithHandler([0xA9, 0x07, ...jsr(0x9CF5), 0x60])
+    const sub0 = cartWithHandler([0xa9, 0x07, ...jsr(0x9cf5), 0x60])
     expect(decidedPropGroup(readGfxRoutine(sub0, 0))).toBe(7)
   })
 
@@ -470,10 +512,12 @@ describe('a synthetic cart, for shapes no real cart holds', () => {
     // The identical shape with one operand changed, so the previous test is
     // about the guard and not about the cart being unreadable.
     const rom = cartWithHandler([
-      ...jsr(0x9D67),
+      ...jsr(0x9d67),
       ...bitTestBranch,
-      ...jsr(0x9F0D), 0x60,    // not taken: sub2
-      ...jsr(0x9CF5), 0x60,    // taken: sub0
+      ...jsr(0x9f0d),
+      0x60, // not taken: sub2
+      ...jsr(0x9cf5),
+      0x60, // taken: sub0
     ])
     const r = readGfxRoutine(rom, 0)
     expect(r.kind).toBe('selected')
@@ -488,12 +532,12 @@ describe('a synthetic cart, for shapes no real cart holds', () => {
  *  reader gives the routine, not the site, so it is recovered by matching. */
 function findChainJsrOperand(rom: RomFile, spriteId: number): number {
   const site = resolveHandlerSite(rom, spriteId)!
-  const stub = rom.readAt(0x0185CC + spriteId * 2, 2)!
+  const stub = rom.readAt(0x0185cc + spriteId * 2, 2)!
   const target = rom.readAt(0x010000 | stub[0] | (stub[1] << 8), 4)!
   const chainAt = target[1] | (target[2] << 8) | (target[3] << 16)
   for (let p = chainAt; p < chainAt + 0x400; p++) {
     const b = rom.readAt(p, 3)!
-    if (b[0] === 0x20 && ((chainAt & 0xFF0000) | b[1] | (b[2] << 8)) === site.at) return p + 1
+    if (b[0] === 0x20 && ((chainAt & 0xff0000) | b[1] | (b[2] << 8)) === site.at) return p + 1
   }
   throw new Error('chain JSR not found')
 }

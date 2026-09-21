@@ -1,21 +1,16 @@
 import type { GetL1Tile } from '../../OverlayContext'
 import { buildSurfacePath, type SurfacePath, type SurfaceEntry } from '../../SurfacePath'
-import {
-  MovementBehavior,
-  type BehaviorMeta,
-  type SolidH,
-  type SolidV,
-} from '../MovementBehavior'
+import { MovementBehavior, type BehaviorMeta, type SolidH, type SolidV } from '../MovementBehavior'
 
 /**
- * $04-$07 / $0C / (any Spr0to13Main-handled) walking sprite — the classic
+ * $04-$07 / $0C / (any Spr0to13Main-handled) walking sprite - the classic
  * Koopa patrol. Derived from the `Spr0to13Main` handler at bank_01.asm:1659.
  *
  * The overlay only cares about where the sprite can walk, so the behavior
  * exposes a single `computePatrolRange` method that returns the left/right
  * pixel boundaries of the corridor. This is geometry-only (no per-frame
  * sim) because ground walkers only turn at walls or (with prop bit 1) at
- * ledges — both decidable from the L1 grid alone.
+ * ledges - both decidable from the L1 grid alone.
  *
  * The factory derives `KoopaWalkConfig` from `Spr0to13Prop[spriteId]`:
  *   bit 1 → turnsAtLedges  (matches `SpriteInAir` at bank_01.asm:1718
@@ -25,9 +20,9 @@ import {
  *                           scan covers per Spr0to13Start:1649)
  *
  * Collision rules:
- *   - Walls:   `CODE_01928E` (bank_01.asm:2613) — `$11..$6D` range.
+ *   - Walls:   `CODE_01928E` (bank_01.asm:2613) - `$11..$6D` range.
  *              Supplied by `solidH`.
- *   - Floors:  `CODE_01933B` (bank_01.asm:2705) — full landing path,
+ *   - Floors:  `CODE_01933B` (bank_01.asm:2705) - full landing path,
  *              including hard floors AND slopes `$6E..$D7`.
  *              Supplied by `solidV` (`collision.floor`).
  *
@@ -36,12 +31,12 @@ import {
  */
 
 export interface KoopaWalkConfig {
-  /** Spr0to13Prop bit 1 — true → sprite turns at ledge edges. */
+  /** Spr0to13Prop bit 1 - true → sprite turns at ledge edges. */
   readonly turnsAtLedges: boolean
-  /** Spr0to13Prop bit 6 — true → 2-tile-tall body; false → single-row (goomba). */
+  /** Spr0to13Prop bit 6 - true → 2-tile-tall body; false → single-row (goomba). */
   readonly tall: boolean
   /**
-   * Walk speed magnitude in sub-pixels/frame (signed 8-bit unsigned form —
+   * Walk speed magnitude in sub-pixels/frame (signed 8-bit unsigned form -
    * always positive; sign applied by the direction toggle). Slow koopas
    * ($04–$07/$0C, all prop bit 6 = 1) use $0C = 12; fast ($0F Goomba,
    * prop bit 6 = 0) uses $08 = 8. Matches Spr0to13SpeedX bank_01.asm:1390
@@ -54,7 +49,7 @@ export interface KoopaWalkConfig {
  * Classification of what the patrol scan hit on each side. `wall` stops
  * the patrol AND bounces the koopa. `turnLedge` is a ledge that a
  * turning koopa ($05/$06) treats as a wall. `fallLedge` is a ledge a
- * non-turning koopa ($04/$07/$0C) walks off — the one case where the
+ * non-turning koopa ($04/$07/$0C) walks off - the one case where the
  * overlay draws an L. `levelEdge` is reached when the scan runs off the
  * level without finding any obstacle; the koopa walks off-screen and
  * eventually despawns, so no fall indicator is drawn.
@@ -62,21 +57,21 @@ export interface KoopaWalkConfig {
 export type BoundaryKind = 'wall' | 'turnLedge' | 'fallLedge' | 'levelEdge'
 
 export interface PatrolRange {
-  leftX:  number
+  leftX: number
   rightX: number
   /** Top body row (levelPx) at the effective landing position. */
-  topY:    number
+  topY: number
   /** Bottom body row (levelPx) = effective floor Y. */
   bottomY: number
-  leftKind:  BoundaryKind
+  leftKind: BoundaryKind
   rightKind: BoundaryKind
   /**
    * True when the overlay should draw a solid boundary line on this side.
-   * Encodes wall || turnLedge — both are stopping boundaries that the koopa
+   * Encodes wall || turnLedge - both are stopping boundaries that the koopa
    * bounces off of. Computed here (where turnsAtLedges is known) so the
    * appearance layer reads a plain boolean instead of comparing kind strings.
    */
-  solidLeft:  boolean
+  solidLeft: boolean
   solidRight: boolean
   /**
    * Which boundary the koopa actually falls off, or null. Factored in:
@@ -101,32 +96,46 @@ const BODY_W = 16
 
 /**
  * Derive `KoopaWalkConfig` from a sprite ID. Spr0to13Prop values at
- * bank_01.asm:1393 — hardcoded because the overlay is rendered pre-ROM-load
+ * bank_01.asm:1393 - hardcoded because the overlay is rendered pre-ROM-load
  * in tests and the prop table lookup belongs in the factory (which reads
  * from `SpriteTileLoader.ts#readSpriteTileTables`). Unknown IDs fall back
  * to a safe `(false, true)` pair (doesn't turn at ledges, tall body).
  */
 export function propsFromSpriteId(id: number): KoopaWalkConfig {
   // Slow speed = $0C (prop bit 6 set); fast = $08.
-  const SLOW = 0x0C, FAST = 0x08
+  const SLOW = 0x0c,
+    FAST = 0x08
   switch (id) {
-    // Shelless Koopas ($00-$03) — Spr0to13Prop: $00,$02,$03,$0D (bank_01.asm:1393).
+    // Shelless Koopas ($00-$03) - Spr0to13Prop: $00,$02,$03,$0D (bank_01.asm:1393).
     // Prop bit 1 = "stay on ledges" (turnsAtLedges). No shell → short body (tall=false).
-    case 0x00: return { turnsAtLedges: false, tall: false, walkSpeed: FAST }  // prop $00
-    case 0x01: return { turnsAtLedges: true,  tall: false, walkSpeed: FAST }  // prop $02 — bit 1 set
-    case 0x02: return { turnsAtLedges: true,  tall: false, walkSpeed: FAST }  // prop $03 — bit 1 set
-    case 0x03: return { turnsAtLedges: false, tall: false, walkSpeed: FAST }  // prop $0D — bit 1 clear
-    case 0x04: return { turnsAtLedges: false, tall: true,  walkSpeed: SLOW }  // prop $40
-    case 0x05: return { turnsAtLedges: true,  tall: true,  walkSpeed: SLOW }  // prop $42
-    case 0x06: return { turnsAtLedges: true,  tall: true,  walkSpeed: SLOW }  // prop $43
-    case 0x07: return { turnsAtLedges: false, tall: true,  walkSpeed: SLOW }  // prop $45
-    case 0x0C: return { turnsAtLedges: true,  tall: true,  walkSpeed: SLOW }  // prop $DD — yellow koopa w/ wings; observed to turn at ledges in-game
-    case 0x0F: return { turnsAtLedges: false, tall: false, walkSpeed: FAST }  // prop $20 — Goomba
-    // bank_01.asm:13520 — DryBonesAndBeetle; DATA_01E41F[0]=$08 walk speed.
+    case 0x00:
+      return { turnsAtLedges: false, tall: false, walkSpeed: FAST } // prop $00
+    case 0x01:
+      return { turnsAtLedges: true, tall: false, walkSpeed: FAST } // prop $02 - bit 1 set
+    case 0x02:
+      return { turnsAtLedges: true, tall: false, walkSpeed: FAST } // prop $03 - bit 1 set
+    case 0x03:
+      return { turnsAtLedges: false, tall: false, walkSpeed: FAST } // prop $0D - bit 1 clear
+    case 0x04:
+      return { turnsAtLedges: false, tall: true, walkSpeed: SLOW } // prop $40
+    case 0x05:
+      return { turnsAtLedges: true, tall: true, walkSpeed: SLOW } // prop $42
+    case 0x06:
+      return { turnsAtLedges: true, tall: true, walkSpeed: SLOW } // prop $43
+    case 0x07:
+      return { turnsAtLedges: false, tall: true, walkSpeed: SLOW } // prop $45
+    case 0x0c:
+      return { turnsAtLedges: true, tall: true, walkSpeed: SLOW } // prop $DD - yellow koopa w/ wings; observed to turn at ledges in-game
+    case 0x0f:
+      return { turnsAtLedges: false, tall: false, walkSpeed: FAST } // prop $20 - Goomba
+    // bank_01.asm:13520 - DryBonesAndBeetle; DATA_01E41F[0]=$08 walk speed.
     // $30 walks off ledges; $32 reverses at ledge edges (SpriteTableC2 air-to-ground flip).
-    case 0x30: return { turnsAtLedges: false, tall: true,  walkSpeed: FAST }
-    case 0x32: return { turnsAtLedges: true,  tall: true,  walkSpeed: FAST }
-    default:   return { turnsAtLedges: false, tall: true,  walkSpeed: SLOW }
+    case 0x30:
+      return { turnsAtLedges: false, tall: true, walkSpeed: FAST }
+    case 0x32:
+      return { turnsAtLedges: true, tall: true, walkSpeed: FAST }
+    default:
+      return { turnsAtLedges: false, tall: true, walkSpeed: SLOW }
   }
 }
 
@@ -165,26 +174,27 @@ export class KoopaWalkBehavior extends MovementBehavior {
   ): PatrolRange {
     const sprCol = Math.floor(ax / 16)
 
-    // Spawn rows — the sprite's initial placement in the level data.
-    const rowBotSpawn   = Math.floor(ay / 16)
+    // Spawn rows - the sprite's initial placement in the level data.
+    const rowBotSpawn = Math.floor(ay / 16)
     const spawnBodyBottomY = (rowBotSpawn + 1) * 16
 
-    // Surface path is the unified floor-silhouette source — same data
+    // Surface path is the unified floor-silhouette source - same data
     // the "Show surfaces" overlay renders. When `getL1` is unavailable
     // (ROM-less tests that still pass `solidV`), fall back to a row-
     // granular scan that mimics the surface path's column-step semantics
     // without slope geometry.
-    const path: SurfacePath | null = getL1
-      ? buildSurfacePath(getL1, levelCols, levelRows)
-      : null
+    const path: SurfacePath | null = getL1 ? buildSurfacePath(getL1, levelCols, levelRows) : null
 
-    // Spawn floor lookup — first surface in the spawn column whose
+    // Spawn floor lookup - first surface in the spawn column whose
     // mid-Y lies at or below the sprite's spawn body bottom. The koopa
     // falls onto that surface before patrolling.
     let startSurface: SurfaceEntry | null = null
     if (path) {
       for (const s of path.surfacesAt(sprCol)) {
-        if (s.yMid >= spawnBodyBottomY) { startSurface = s; break }
+        if (s.yMid >= spawnBodyBottomY) {
+          startSurface = s
+          break
+        }
       }
     } else {
       let r = rowBotSpawn + 1
@@ -195,26 +205,44 @@ export class KoopaWalkBehavior extends MovementBehavior {
       }
     }
 
-    // No ground within the level — sprite falls off-screen. Cap the
+    // No ground within the level - sprite falls off-screen. Cap the
     // effective floor at the world bottom so geometry stays finite; the
     // dotted drop line still draws to bottom.
     const startSurfaceY = startSurface?.yMid ?? levelRows * 16
-    const floorRowEff   = startSurface?.floorRow ?? levelRows
+    const floorRowEff = startSurface?.floorRow ?? levelRows
 
-    // Effective body — derived from floor row. For a 2-tall sprite,
+    // Effective body - derived from floor row. For a 2-tall sprite,
     // body occupies rowTopEff..rowBotEff just above the floor. For a
     // 1-tall goomba, only rowBotEff matters.
     const rowBotEff = floorRowEff - 1
     const rowTopEff = this.tall ? rowBotEff - 1 : rowBotEff
-    const topY      = rowTopEff * 16
-    const bottomY   = floorRowEff * 16
+    const topY = rowTopEff * 16
+    const bottomY = floorRowEff * 16
 
     // Always scan both sides. Non-turning koopas ($04/$07/$0C) spawn facing
     // LEFT, but wall collision bounces them rightward (`CODE_01928E` flips
     // direction regardless of prop bit 1). If the left boundary is a wall
     // they walk the full right corridor before reaching a ledge or exit.
-    const left  = this.scanBoundary(-1, sprCol, startSurface, path, solidH, solidV, levelCols, levelRows)
-    const right = this.scanBoundary(+1, sprCol, startSurface, path, solidH, solidV, levelCols, levelRows)
+    const left = this.scanBoundary(
+      -1,
+      sprCol,
+      startSurface,
+      path,
+      solidH,
+      solidV,
+      levelCols,
+      levelRows,
+    )
+    const right = this.scanBoundary(
+      +1,
+      sprCol,
+      startSurface,
+      path,
+      solidH,
+      solidV,
+      levelCols,
+      levelRows,
+    )
 
     // Which side does the koopa actually fall off?
     //   Turning koopas ($05/$06): bounce at walls AND ledges → perpetual patrol → null.
@@ -230,20 +258,20 @@ export class KoopaWalkBehavior extends MovementBehavior {
       return null
     })()
 
-    // Spawn drop — if the sprite's initial body bottom is above the
+    // Spawn drop - if the sprite's initial body bottom is above the
     // effective floor, the sprite falls before it starts walking. The
     // overlay uses this to draw a dotted vertical line from spawn down
     // to the patrol row.
     const spawnDropFromY = spawnBodyBottomY < startSurfaceY ? spawnBodyBottomY : undefined
 
     return {
-      leftX:  left.x,
+      leftX: left.x,
       rightX: right.x,
       topY,
       bottomY,
-      leftKind:  left.kind,
+      leftKind: left.kind,
       rightKind: right.kind,
-      solidLeft:  left.kind  === 'wall' || left.kind  === 'turnLedge',
+      solidLeft: left.kind === 'wall' || left.kind === 'turnLedge',
       solidRight: right.kind === 'wall' || right.kind === 'turnLedge',
       fallSide,
       spawnDropFromY,
@@ -253,14 +281,14 @@ export class KoopaWalkBehavior extends MovementBehavior {
   /**
    * Scan one side of the patrol corridor and return the first obstacle's
    * x plus a classification. `dir` is -1 (leftward) or +1 (rightward).
-   * `x` is the pixel x of the corridor boundary — `(c+1)*16` for left,
+   * `x` is the pixel x of the corridor boundary - `(c+1)*16` for left,
    * `c*16` for right. For `levelEdge` the scan reached the world
    * boundary without finding an obstacle and x is `0` or `levelCols*16`.
    *
    * Surface continuity is decided by `path.nextSurface`, which matches
    * the previous column's exit edge against each candidate's arrival
    * edge in column `c`. This connects two adjacent slope tiles along
-   * the SAME continuous polyline drawn by "Show surfaces" — at slope
+   * the SAME continuous polyline drawn by "Show surfaces" - at slope
    * corners where two slopes share a column, the matching tile is the
    * one whose edge value continues the surface, not the one whose mid
    * happens to be closer.
@@ -273,19 +301,19 @@ export class KoopaWalkBehavior extends MovementBehavior {
    * the destination row.
    *
    * Fallback (no `path`): row-granular search using `solidV` over a
-   * ±DEFAULT_EDGE_TOLERANCE / 16 = ±1 row window — equivalent to the
+   * ±DEFAULT_EDGE_TOLERANCE / 16 = ±1 row window - equivalent to the
    * old algorithm's window when slope geometry isn't available, but
    * driven by surface-Y delta rather than fixed row offsets.
    */
   private scanBoundary(
-    dir:           -1 | 1,
-    sprCol:        number,
-    startSurface:  SurfaceEntry | null,
-    path:          SurfacePath | null,
-    solidH:        SolidH,
-    solidV:        SolidV,
-    levelCols:     number,
-    levelRows:     number,
+    dir: -1 | 1,
+    sprCol: number,
+    startSurface: SurfaceEntry | null,
+    path: SurfacePath | null,
+    solidH: SolidH,
+    solidV: SolidV,
+    levelCols: number,
+    levelRows: number,
   ): { x: number; kind: BoundaryKind } {
     if (!startSurface) {
       return { x: dir > 0 ? levelCols * BODY_W : 0, kind: 'levelEdge' }
@@ -293,7 +321,7 @@ export class KoopaWalkBehavior extends MovementBehavior {
     let prev: SurfaceEntry = startSurface
 
     const start = dir > 0 ? sprCol + 1 : sprCol - 1
-    const end   = dir > 0 ? levelCols  : -1
+    const end = dir > 0 ? levelCols : -1
     for (let c = start; dir > 0 ? c < end : c > end; c += dir) {
       // Edge-matched surface lookup: walking right uses the previous
       // cell's right edge as the arrival reference; walking left uses
@@ -304,7 +332,7 @@ export class KoopaWalkBehavior extends MovementBehavior {
         : findNextRowGranular(c, prev.floorRow, solidV, levelRows)
 
       // Wall check FIRST. A column that is solid top-to-bottom (a level-
-      // bounding wall) has no floor surface — `nextSurface` returns null —
+      // bounding wall) has no floor surface - `nextSurface` returns null -
       // but the koopa still bounces off it. Wall classification must be
       // independent of surface continuity at the destination column. Use
       // `prev`'s body rows as the probe range when `next` is unknown.
@@ -340,9 +368,9 @@ export class KoopaWalkBehavior extends MovementBehavior {
  * Returns a synthesized flat-cell SurfaceEntry, or null on miss.
  */
 function findNextRowGranular(
-  c:        number,
-  prevRow:  number,
-  solidV:   SolidV,
+  c: number,
+  prevRow: number,
+  solidV: SolidV,
   levelRows: number,
 ): SurfaceEntry | null {
   for (const r of [prevRow - 1, prevRow, prevRow + 1]) {

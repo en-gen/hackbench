@@ -1,5 +1,5 @@
 /**
- * SMW Palette Editor — global ROM palette viewer.
+ * SMW Palette Editor - global ROM palette viewer.
  *
  * Shows ALL palette groups that exist in the ROM, organized by category.
  * Each group may have multiple variants (e.g. sprite sets 0-7).
@@ -13,17 +13,22 @@ import { hex4, hex6 } from '../shared/hex'
 declare function acquireVsCodeApi(): any
 const vscode = acquireVsCodeApi()
 
-const COLS   = 16
+const COLS = 16
 const SWATCH = 20
-const GAP    = 2
+const GAP = 2
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface Color { r: number; g: number; b: number; a: number }
+interface Color {
+  r: number
+  g: number
+  b: number
+  a: number
+}
 
 interface PaletteVariant {
   label: string
-  rows: Color[][]   // array of CGRAM rows; each row = 16 colors
+  rows: Color[][] // array of CGRAM rows; each row = 16 colors
   romAddr: number | null
 }
 
@@ -35,7 +40,13 @@ interface PaletteGroup {
   cgRamRow: number | null
 }
 
-interface SerializedPaletteAnimPatch { cgramIdx: number; r: number; g: number; b: number; a: number }
+interface SerializedPaletteAnimPatch {
+  cgramIdx: number
+  r: number
+  g: number
+  b: number
+  a: number
+}
 interface SerializedPaletteAnimData {
   frameCount: number
   intervalMs: number
@@ -52,7 +63,8 @@ interface LoadMsg {
 // ── DOM ───────────────────────────────────────────────────────────────────────
 
 const app = document.getElementById('app')!
-app.style.cssText = 'display:flex;flex-direction:column;height:100vh;overflow:hidden;' +
+app.style.cssText =
+  'display:flex;flex-direction:column;height:100vh;overflow:hidden;' +
   'font-family:var(--vscode-font-family,system-ui);font-size:12px;color:var(--vscode-foreground,#ccc);'
 
 app.innerHTML = `
@@ -108,8 +120,8 @@ app.innerHTML = `
         width:32px;height:32px;border-radius:3px;flex-shrink:0;
         border:1px solid #444;background:#111;"></div>
       <div>
-        <div id="detail-label"  style="font-weight:600;margin-bottom:2px;font-size:12px;">—</div>
-        <div id="detail-values" style="font-family:monospace;font-size:11px;color:#888;">—</div>
+        <div id="detail-label"  style="font-weight:600;margin-bottom:2px;font-size:12px;">-</div>
+        <div id="detail-values" style="font-family:monospace;font-size:11px;color:#888;">-</div>
       </div>
     </div>
   </div>
@@ -158,27 +170,27 @@ app.innerHTML = `
 
 // ── Element refs ──────────────────────────────────────────────────────────────
 
-const navEl        = document.getElementById('nav')!
-const groupTitle   = document.getElementById('group-title')!
-const groupDesc    = document.getElementById('group-desc')!
-const variantTabs  = document.getElementById('variant-tabs')!
-const swatchRows   = document.getElementById('swatch-rows')!
+const navEl = document.getElementById('nav')!
+const groupTitle = document.getElementById('group-title')!
+const groupDesc = document.getElementById('group-desc')!
+const variantTabs = document.getElementById('variant-tabs')!
+const swatchRows = document.getElementById('swatch-rows')!
 const detailSwatch = document.getElementById('detail-swatch')!
-const detailLabel  = document.getElementById('detail-label')!
+const detailLabel = document.getElementById('detail-label')!
 const detailValues = document.getElementById('detail-values')!
-const romNameEl    = document.getElementById('rom-name')!
+const romNameEl = document.getElementById('rom-name')!
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let groups: PaletteGroup[] = []
-let activeGroupId    = ''
+let activeGroupId = ''
 let activeVariantIdx = 0
-let selectedRowIdx   = 0
-let selectedColIdx   = -1
+let selectedRowIdx = 0
+let selectedColIdx = -1
 
 // Palette animation
 let paletteAnim: SerializedPaletteAnimData | null = null
-let palAnimFrame   = 0
+let palAnimFrame = 0
 let palAnimRunning = false
 let palAnimTimer: ReturnType<typeof setInterval> | null = null
 // cgramIdx → live color overrides (updated each animation frame)
@@ -188,13 +200,16 @@ const animOverrides = new Map<number, Color>()
 
 function toHex(c: Color): string {
   if (c.a === 0) return '#000000'
-  return '#' + c.r.toString(16).padStart(2,'0') +
-               c.g.toString(16).padStart(2,'0') +
-               c.b.toString(16).padStart(2,'0')
+  return (
+    '#' +
+    c.r.toString(16).padStart(2, '0') +
+    c.g.toString(16).padStart(2, '0') +
+    c.b.toString(16).padStart(2, '0')
+  )
 }
 
 function toBgr555(c: Color): number {
-  return ((c.r >> 3) & 0x1F) | (((c.g >> 3) & 0x1F) << 5) | (((c.b >> 3) & 0x1F) << 10)
+  return ((c.r >> 3) & 0x1f) | (((c.g >> 3) & 0x1f) << 5) | (((c.b >> 3) & 0x1f) << 10)
 }
 
 function isUnknown(c: Color): boolean {
@@ -236,10 +251,12 @@ function applyPalFrame(f: number): void {
   if (!group || group.cgRamRow === null) return
   for (const [cgramIdx, color] of animOverrides) {
     const absRow = cgramIdx >> 4
-    const col    = cgramIdx & 15
+    const col = cgramIdx & 15
     const rowIdx = absRow - group.cgRamRow
     if (rowIdx < 0 || rowIdx >= (group.variants[activeVariantIdx]?.rows.length ?? 0)) continue
-    const el = swatchRows.querySelector<HTMLElement>(`.swatch[data-row="${rowIdx}"][data-col="${col}"]`)
+    const el = swatchRows.querySelector<HTMLElement>(
+      `.swatch[data-row="${rowIdx}"][data-col="${col}"]`,
+    )
     if (el && !isUnknown(color) && color.a !== 0) {
       el.style.background = toHex(color)
     }
@@ -247,9 +264,8 @@ function applyPalFrame(f: number): void {
 
   // Refresh detail bar if selected swatch is animated
   if (selectedColIdx >= 0) {
-    const cgramIdx = group.cgRamRow !== null
-      ? ((group.cgRamRow + selectedRowIdx) << 4) | selectedColIdx
-      : -1
+    const cgramIdx =
+      group.cgRamRow !== null ? ((group.cgRamRow + selectedRowIdx) << 4) | selectedColIdx : -1
     if (animOverrides.has(cgramIdx)) {
       const variant = group.variants[activeVariantIdx]
       if (variant) selectColor(selectedRowIdx, selectedColIdx, variant, group)
@@ -261,7 +277,10 @@ function setPalAnimRunning(running: boolean): void {
   palAnimRunning = running
   // Update whichever play button is currently in the group header
   const btn = document.getElementById('pal-play-btn')
-  if (btn) btn.innerHTML = running ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'
+  if (btn)
+    btn.innerHTML = running
+      ? '<span class="codicon codicon-debug-pause"></span>'
+      : '<span class="codicon codicon-play"></span>'
   if (running) {
     if (palAnimTimer) clearInterval(palAnimTimer)
     palAnimTimer = setInterval(() => {
@@ -269,7 +288,10 @@ function setPalAnimRunning(running: boolean): void {
       applyPalFrame(palAnimFrame + 1)
     }, paletteAnim?.intervalMs ?? 66)
   } else {
-    if (palAnimTimer) { clearInterval(palAnimTimer); palAnimTimer = null }
+    if (palAnimTimer) {
+      clearInterval(palAnimTimer)
+      palAnimTimer = null
+    }
   }
 }
 
@@ -288,10 +310,10 @@ function buildNav(): void {
 }
 
 function selectGroup(id: string): void {
-  activeGroupId    = id
+  activeGroupId = id
   activeVariantIdx = 0
-  selectedRowIdx   = 0
-  selectedColIdx   = -1
+  selectedRowIdx = 0
+  selectedColIdx = -1
   buildNav()
   renderGroup()
 }
@@ -303,9 +325,8 @@ function renderGroup(): void {
   if (!group) return
 
   const hasUnverified = group.variants.some(v => v.romAddr === null)
-  const cgBadge = group.cgRamRow !== null
-    ? `<span class="cgram-badge">CGRAM row ${group.cgRamRow}</span>`
-    : ''
+  const cgBadge =
+    group.cgRamRow !== null ? `<span class="cgram-badge">CGRAM row ${group.cgRamRow}</span>` : ''
   const warnBadge = hasUnverified
     ? `<span class="unverified-badge">⚠ some addresses unverified</span>`
     : ''
@@ -317,7 +338,9 @@ function renderGroup(): void {
         vertical-align:middle;margin-left:6px;">${palAnimRunning ? '<span class="codicon codicon-debug-pause"></span>' : '<span class="codicon codicon-play"></span>'}</button>`
     : ''
   groupTitle.innerHTML = group.label + cgBadge + warnBadge + animBtn
-  groupTitle.querySelector('#pal-play-btn')?.addEventListener('click', () => setPalAnimRunning(!palAnimRunning))
+  groupTitle
+    .querySelector('#pal-play-btn')
+    ?.addEventListener('click', () => setPalAnimRunning(!palAnimRunning))
   groupDesc.textContent = group.description
 
   // Variant tabs
@@ -327,7 +350,12 @@ function renderGroup(): void {
       const tab = document.createElement('button')
       tab.className = 'vtab' + (i === activeVariantIdx ? ' active' : '')
       tab.textContent = v.label
-      tab.addEventListener('click', () => { activeVariantIdx = i; selectedRowIdx = 0; selectedColIdx = -1; renderVariant(group) })
+      tab.addEventListener('click', () => {
+        activeVariantIdx = i
+        selectedRowIdx = 0
+        selectedColIdx = -1
+        renderVariant(group)
+      })
       variantTabs.appendChild(tab)
     })
     variantTabs.style.display = 'flex'
@@ -340,22 +368,23 @@ function renderGroup(): void {
 
 function renderVariant(group: PaletteGroup): void {
   // Update tab active state
-  variantTabs.querySelectorAll('.vtab').forEach((t, i) =>
-    t.classList.toggle('active', i === activeVariantIdx))
+  variantTabs
+    .querySelectorAll('.vtab')
+    .forEach((t, i) => t.classList.toggle('active', i === activeVariantIdx))
 
   const variant = group.variants[activeVariantIdx]
   if (!variant) return
 
   swatchRows.innerHTML = ''
 
-  const addrText = variant.romAddr !== null
-    ? `ROM: $${hex6(variant.romAddr)}`
-    : '⚠ ROM address unverified'
+  const addrText =
+    variant.romAddr !== null ? `ROM: $${hex6(variant.romAddr)}` : '⚠ ROM address unverified'
 
   // Meta header
   const meta = document.createElement('div')
   meta.style.cssText = 'font-size:10px;color:#555;font-family:monospace;margin-bottom:10px;'
-  meta.textContent = addrText + (variant.rows.length > 1 ? `  (${variant.rows.length} CGRAM rows)` : '')
+  meta.textContent =
+    addrText + (variant.rows.length > 1 ? `  (${variant.rows.length} CGRAM rows)` : '')
   swatchRows.appendChild(meta)
 
   // Render each CGRAM row as a separate swatch row
@@ -365,11 +394,12 @@ function renderVariant(group: PaletteGroup): void {
     // Row label
     const label = document.createElement('div')
     label.className = 'row-label'
-    label.textContent = cgRamRowNum !== null
-      ? `CGRAM row ${cgRamRowNum}  ·  ${variant.romAddr !== null
-          ? '$' + hex6(variant.romAddr + rowIdx * 24)
-          : '⚠'}`
-      : `Row ${rowIdx}`
+    label.textContent =
+      cgRamRowNum !== null
+        ? `CGRAM row ${cgRamRowNum}  ·  ${
+            variant.romAddr !== null ? '$' + hex6(variant.romAddr + rowIdx * 24) : '⚠'
+          }`
+        : `Row ${rowIdx}`
     swatchRows.appendChild(label)
 
     // Swatch row
@@ -377,19 +407,20 @@ function renderVariant(group: PaletteGroup): void {
     row.style.cssText = `display:flex;gap:${GAP}px;margin-bottom:2px;`
 
     for (let col = 0; col < COLS; col++) {
-      const c   = liveColorAt(group, rowIdx, col)
+      const c = liveColorAt(group, rowIdx, col)
       const unk = isUnknown(c)
       const transparent = c.a === 0
 
       const el = document.createElement('div')
-      el.className = 'swatch' +
+      el.className =
+        'swatch' +
         (col === 0 ? ' idx0' : '') +
         (unk ? ' unknown' : '') +
         (selectedRowIdx === rowIdx && selectedColIdx === col ? ' active' : '')
       el.dataset.row = String(rowIdx)
       el.dataset.col = String(col)
 
-      el.style.background = (unk || transparent) ? '#1a1a1a' : toHex(c)
+      el.style.background = unk || transparent ? '#1a1a1a' : toHex(c)
       el.title = col === 0 ? 'Index 0 (transparent)' : `Row ${rowIdx} Index ${col}: ${toHex(c)}`
 
       el.addEventListener('click', () => selectColor(rowIdx, col, variant, group))
@@ -407,36 +438,43 @@ function renderVariant(group: PaletteGroup): void {
   }
 }
 
-function selectColor(rowIdx: number, col: number, variant: PaletteVariant, group: PaletteGroup): void {
+function selectColor(
+  rowIdx: number,
+  col: number,
+  variant: PaletteVariant,
+  group: PaletteGroup,
+): void {
   selectedRowIdx = rowIdx
   selectedColIdx = col
 
   swatchRows.querySelectorAll('.swatch').forEach(e => e.classList.remove('active'))
-  swatchRows.querySelector(`.swatch[data-row="${rowIdx}"][data-col="${col}"]`)?.classList.add('active')
+  swatchRows
+    .querySelector(`.swatch[data-row="${rowIdx}"][data-col="${col}"]`)
+    ?.classList.add('active')
 
-  const c   = liveColorAt(group, rowIdx, col)
+  const c = liveColorAt(group, rowIdx, col)
   const unk = isUnknown(c)
   const transparent = c.a === 0
 
-  detailSwatch.style.background = (unk || transparent) ? '#1a1a1a' : toHex(c)
+  detailSwatch.style.background = unk || transparent ? '#1a1a1a' : toHex(c)
 
   const cgRamRowNum = group.cgRamRow !== null ? group.cgRamRow + rowIdx : rowIdx
-  detailLabel.textContent = `${group.label}  ·  ${variant.label}  ·  CGRAM row ${cgRamRowNum}  ·  index ${col}` +
+  detailLabel.textContent =
+    `${group.label}  ·  ${variant.label}  ·  CGRAM row ${cgRamRowNum}  ·  index ${col}` +
     (col === 0 ? '  (transparent)' : '')
 
   if (unk) {
-    detailValues.textContent = 'ROM address not yet verified — color unknown'
+    detailValues.textContent = 'ROM address not yet verified - color unknown'
   } else if (transparent) {
     detailValues.textContent = 'Transparent (SNES color index 0 is always transparent)'
   } else {
-    detailValues.textContent =
-      `RGB: ${c.r}, ${c.g}, ${c.b}  ·  ${toHex(c).toUpperCase()}  ·  BGR555: $${hex4(toBgr555(c))}`
+    detailValues.textContent = `RGB: ${c.r}, ${c.g}, ${c.b}  ·  ${toHex(c).toUpperCase()}  ·  BGR555: $${hex4(toBgr555(c))}`
   }
 }
 
 // ── Message handler ───────────────────────────────────────────────────────────
 
-window.addEventListener('message', (event) => {
+window.addEventListener('message', event => {
   const msg = event.data as Record<string, unknown>
 
   if (msg['type'] === 'load') {
@@ -448,7 +486,10 @@ window.addEventListener('message', (event) => {
     paletteAnim = data.paletteAnimation ?? null
     animOverrides.clear()
     palAnimRunning = false
-    if (palAnimTimer) { clearInterval(palAnimTimer); palAnimTimer = null }
+    if (palAnimTimer) {
+      clearInterval(palAnimTimer)
+      palAnimTimer = null
+    }
 
     if (groups.length > 0) {
       activeGroupId = groups[0].id
@@ -457,7 +498,7 @@ window.addEventListener('message', (event) => {
     }
   } else if (msg['type'] === 'error') {
     groupTitle.textContent = 'Error'
-    groupDesc.textContent  = String(msg['message'])
+    groupDesc.textContent = String(msg['message'])
   }
 })
 

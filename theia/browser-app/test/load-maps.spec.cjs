@@ -12,8 +12,8 @@ const path = require('path')
 const os = require('os')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
-const ROM = process.env.HB_ROM
-  || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
+const ROM =
+  process.env.HB_ROM || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
 
 /** Vanilla's documented map count, from docs/glossary.md. */
 const VANILLA_MAPS = 235
@@ -60,34 +60,45 @@ test.afterEach(() => {
 
 /** Create a project and load its maps, returning what the widget holds. */
 async function loadMaps(page, dir) {
-  return page.evaluate(async ({ romPath, directory }) => {
-    const svc = getSvc('Symbol(ProjectService)')
-    if (!svc) return { error: 'ProjectService not resolvable from the frontend' }
-    const project = await svc.createProject({ romPath, name: 'MyHack', directory })
-    const w = await getWidget('hackbench.map-explorer')
-    await w.load(project.manifestPath)
+  return page.evaluate(
+    async ({ romPath, directory }) => {
+      const svc = getSvc('Symbol(ProjectService)')
+      if (!svc) return { error: 'ProjectService not resolvable from the frontend' }
+      const project = await svc.createProject({ romPath, name: 'MyHack', directory })
+      const w = await getWidget('hackbench.map-explorer')
+      await w.load(project.manifestPath)
 
-    const walk = n => [n, ...(n.children || []).flatMap(walk)]
-    const roots = (w.model.root.children || [])
-    return {
-      mapCount: w.mapCount,
-      groups: roots.map(r => r.name),
-      overworldTop: (roots.find(r => r.name === 'Overworld')?.children || []).length,
-      unassignedTop: (roots.find(r => r.name === 'Unassigned')?.children || []).length,
-      specialSlots: roots
-        .filter(r => r.category === 'title-screen' || r.category === 'new-game')
-        .map(r => r.index),
-      // Walk the roots themselves, not just their children: Title Screen and
-      // New Game ARE maps rather than folders, so descending past them would
-      // drop two real maps from the count.
-      distinct: new Set(
-        roots.flatMap(walk).map(n => n.index).filter(i => i >= 0),
-      ).size,
-      deepest: Math.max(0, ...(roots.find(r => r.name === 'Overworld').children).map(function d(n, depth = 0) {
-        return n.children.length ? Math.max(...n.children.map(c => d(c, depth + 1))) : depth
-      })),
-    }
-  }, { romPath: ROM, directory: dir })
+      const walk = n => [n, ...(n.children || []).flatMap(walk)]
+      const roots = w.model.root.children || []
+      return {
+        mapCount: w.mapCount,
+        groups: roots.map(r => r.name),
+        overworldTop: (roots.find(r => r.name === 'Overworld')?.children || []).length,
+        unassignedTop: (roots.find(r => r.name === 'Unassigned')?.children || []).length,
+        specialSlots: roots
+          .filter(r => r.category === 'title-screen' || r.category === 'new-game')
+          .map(r => r.index),
+        // Walk the roots themselves, not just their children: Title Screen and
+        // New Game ARE maps rather than folders, so descending past them would
+        // drop two real maps from the count.
+        distinct: new Set(
+          roots
+            .flatMap(walk)
+            .map(n => n.index)
+            .filter(i => i >= 0),
+        ).size,
+        deepest: Math.max(
+          0,
+          ...roots
+            .find(r => r.name === 'Overworld')
+            .children.map(function d(n, depth = 0) {
+              return n.children.length ? Math.max(...n.children.map(c => d(c, depth + 1))) : depth
+            }),
+        ),
+      }
+    },
+    { romPath: ROM, directory: dir },
+  )
 }
 
 test('a new project loads every map its cartridge holds', async ({ page }) => {
@@ -202,7 +213,8 @@ test('rows are iconised by category and only expandable rows show a chevron', as
     for (const row of rows) {
       const seg = row.querySelector('[data-node-id]')
       byId[seg ? seg.getAttribute('data-node-id') : row.textContent] = {
-        icon: icon(row), chevron: hasChevron(row),
+        icon: icon(row),
+        chevron: hasChevron(row),
       }
     }
 
@@ -268,24 +280,32 @@ test('map rows follow the active theme instead of pinning their own styling', as
   //    rule a theme contributes. Scoped to our own classes: Theia's tree puts
   //    inline styles on its rows for virtualisation and indentation, and
   //    those are layout the framework owns, not styling we are pinning.
-  const inlined = await page.locator(
-    '#hackbench\\.map-explorer .hb-map-slot[style], '
-    + '#hackbench\\.map-explorer .hb-map-name[style], '
-    + '#hackbench\\.map-explorer .hb-map-note[style]',
-  ).count()
+  const inlined = await page
+    .locator(
+      '#hackbench\\.map-explorer .hb-map-slot[style], ' +
+        '#hackbench\\.map-explorer .hb-map-name[style], ' +
+        '#hackbench\\.map-explorer .hb-map-note[style]',
+    )
+    .count()
   expect(inlined, 'inline styles cannot be overridden by a theme').toBe(0)
 
   // 2. The colours actually move when the theme does. A rule that merely
   //    looks like `color: var(--theia-...)` but resolves to nothing would
   //    pass the check above and still ignore the theme.
-  const sample = async () => page.evaluate(() => {
-    const el = document.querySelector('#hackbench\\.map-explorer .hb-map-slot')
-    const cs = getComputedStyle(el)
-    return { color: cs.color, bg: getComputedStyle(el.closest('.theia-TreeNode')).backgroundColor }
-  })
+  const sample = async () =>
+    page.evaluate(() => {
+      const el = document.querySelector('#hackbench\\.map-explorer .hb-map-slot')
+      const cs = getComputedStyle(el)
+      return {
+        color: cs.color,
+        bg: getComputedStyle(el.closest('.theia-TreeNode')).backgroundColor,
+      }
+    })
 
   const setTheme = async id => {
-    await page.evaluate(t => { getSvc('ThemeService').setCurrentTheme(t) }, id)
+    await page.evaluate(t => {
+      getSvc('ThemeService').setCurrentTheme(t)
+    }, id)
     await page.waitForTimeout(600)
   }
 
@@ -301,10 +321,13 @@ test('a project whose cartridge is not on this machine asks for it', async ({ pa
   const dir = path.join(tmp, 'Shared')
   const manifestPath = path.join(dir, 'Shared.hbproj')
 
-  await page.evaluate(async ({ romPath, directory }) => {
-    const svc = getSvc('Symbol(ProjectService)')
-    await svc.createProject({ romPath, name: 'Shared', directory })
-  }, { romPath: ROM, directory: dir })
+  await page.evaluate(
+    async ({ romPath, directory }) => {
+      const svc = getSvc('Symbol(ProjectService)')
+      await svc.createProject({ romPath, name: 'Shared', directory })
+    },
+    { romPath: ROM, directory: dir },
+  )
 
   // Point the manifest at a cartridge this machine has never seen. That is
   // exactly the state a collaborator is in after cloning a project, and it

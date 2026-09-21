@@ -46,13 +46,23 @@ function stubMapStore() {
 }
 
 /** Capture all Uint8Array pixel buffers passed to blit8x8. */
-function spyTarget(): { blit8x8: RenderTarget['blit8x8']; fillRect: RenderTarget['fillRect']; blits: Uint8Array[] } {
+function spyTarget(): {
+  blit8x8: RenderTarget['blit8x8']
+  fillRect: RenderTarget['fillRect']
+  blits: Uint8Array[]
+} {
   const blits: Uint8Array[] = []
   return {
     blits,
-    blit8x8(pixels: Uint8Array) { blits.push(pixels) },
+    blit8x8(pixels: Uint8Array) {
+      blits.push(pixels)
+    },
     fillRect() {},
-  } as unknown as { blit8x8: RenderTarget['blit8x8']; fillRect: RenderTarget['fillRect']; blits: Uint8Array[] }
+  } as unknown as {
+    blit8x8: RenderTarget['blit8x8']
+    fillRect: RenderTarget['fillRect']
+    blits: Uint8Array[]
+  }
 }
 
 /**
@@ -65,8 +75,8 @@ function spyTarget(): { blit8x8: RenderTarget['blit8x8']; fillRect: RenderTarget
  * Chars populated for all 8 charNums touched by frames 0 and 1
  * (CORNER_OFFSETS = 0x00, 0x01, 0x10, 0x11 applied to each base tile).
  */
-const TILE_A = 0x60   // frame 0 base tile
-const TILE_B = 0x62   // frame 1 base tile
+const TILE_A = 0x60 // frame 0 base tile
+const TILE_B = 0x62 // frame 1 base tile
 const CHAR_HIGH = 0x100
 const TILEMAP_BASE = 10
 
@@ -74,8 +84,8 @@ const TILEMAP_BASE = 10
 const CHAR_FILL: Record<number, number> = {}
 const CORNER_OFFSETS = [0x00, 0x01, 0x10, 0x11] as const
 for (const co of CORNER_OFFSETS) {
-  CHAR_FILL[OBJ_BASE + CHAR_HIGH + TILE_A + co] = 0x10 + co   // frame 0
-  CHAR_FILL[OBJ_BASE + CHAR_HIGH + TILE_B + co] = 0x20 + co   // frame 1
+  CHAR_FILL[OBJ_BASE + CHAR_HIGH + TILE_A + co] = 0x10 + co // frame 0
+  CHAR_FILL[OBJ_BASE + CHAR_HIGH + TILE_B + co] = 0x20 + co // frame 1
 }
 
 function makeChars(): Map<number, Char> {
@@ -88,14 +98,14 @@ function makeChars(): Map<number, Char> {
 
 function makeTables(): SpriteTileTables {
   const tilemap = new Uint8Array(64)
-  tilemap[TILEMAP_BASE]     = TILE_A
+  tilemap[TILEMAP_BASE] = TILE_A
   tilemap[TILEMAP_BASE + 1] = TILE_B
 
   const tilemapOffset = new Uint8Array(0x54)
-  tilemapOffset[0x2E] = TILEMAP_BASE
+  tilemapOffset[0x2e] = TILEMAP_BASE
 
   const spriteAttr = new Uint8Array(0x100)
-  spriteAttr[0x2E] = 0x01   // charHigh=1, palette bits=0 → CGRAM row 8
+  spriteAttr[0x2e] = 0x01 // charHigh=1, palette bits=0 → CGRAM row 8
 
   return {
     tilemap,
@@ -112,7 +122,7 @@ function makeTables(): SpriteTileTables {
 // ------------------------------------------------------------------ helpers for appearance construction
 
 function makeAppearance(): SpikeTopAppearance {
-  return SpikeTopAppearance.fromTables(makeChars(), makeTables(), namedChar(0xFF))
+  return SpikeTopAppearance.fromTables(makeChars(), makeTables(), namedChar(0xff))
 }
 
 /** Render and collect the pixel fills that were blit'd (first pixel of each Uint8Array). */
@@ -129,7 +139,7 @@ const FRAME1_FILLS = CORNER_OFFSETS.map(co => CHAR_FILL[OBJ_BASE + CHAR_HIGH + T
 
 // ------------------------------------------------------------------ tests
 
-describe('SpikeTopAppearance.fromTables — construction', () => {
+describe('SpikeTopAppearance.fromTables - construction', () => {
   beforeEach(resetEditorStore)
 
   it('hitRect covers a 16×16 box (one big-tile, corners at 0,0 to 16,16)', () => {
@@ -143,17 +153,20 @@ describe('SpikeTopAppearance.fromTables — construction', () => {
     const app = makeAppearance()
     // All blits must be from frame-0 chars (fill 0x10..0x1x), NOT placeholder (0xFF)
     for (const fill of blitFills(app)) {
-      expect(fill).not.toBe(0xFF)
+      expect(fill).not.toBe(0xff)
     }
   })
 })
 
-describe('SpikeTopAppearance — animation gating', () => {
+describe('SpikeTopAppearance - animation gating', () => {
   let app: SpikeTopAppearance
 
-  beforeEach(() => { resetEditorStore(); app = makeAppearance() })
+  beforeEach(() => {
+    resetEditorStore()
+    app = makeAppearance()
+  })
 
-  // ASM: bank_02.asm:8079-8083 — animBit stays 0 until EffFrame>>3 increments
+  // ASM: bank_02.asm:8079-8083 - animBit stays 0 until EffFrame>>3 increments
   it('tick 0: renders frame 0 tiles (tilemap[base+0])', () => {
     expect(blitFills(app)).toEqual(FRAME0_FILLS)
   })
@@ -185,34 +198,34 @@ describe('SpikeTopAppearance — animation gating', () => {
   })
 })
 
-describe('SpikeTopAppearance.fromTables — ?? fallback branches', () => {
+describe('SpikeTopAppearance.fromTables - ?? fallback branches', () => {
   it('short spriteAttr/tilemapOffset/tilemap → ?? 0 defaults; palette=8, charHigh=0', () => {
     const tables: SpriteTileTables = {
-      tilemap:       new Uint8Array(0),
+      tilemap: new Uint8Array(0),
       tilemapOffset: new Uint8Array(0),
-      spriteAttr:    new Uint8Array(0),
+      spriteAttr: new Uint8Array(0),
       dispX: [],
       dispY: [],
       gfxProp: [],
-      spr0to13Prop:  new Uint8Array(0),
-      yoshiPal:      new Uint8Array(0),
+      spr0to13Prop: new Uint8Array(0),
+      yoshiPal: new Uint8Array(0),
     }
-    const placeholder = namedChar(0xFF)
+    const placeholder = namedChar(0xff)
     const app = SpikeTopAppearance.fromTables(new Map(), tables, placeholder)
     expect(app.parts0.every(p => p.char === placeholder)).toBe(true)
     expect(app.parts0[0].palette).toBe(8)
   })
 
   it('chars missing key → ?? placeholder for all parts in both frames', () => {
-    const placeholder = namedChar(0xFF)
+    const placeholder = namedChar(0xff)
     const app = SpikeTopAppearance.fromTables(new Map(), makeTables(), placeholder)
-    expect(app.parts0.every(p => p.char.getPixels()[0] === 0xFF)).toBe(true)
-    expect(app.parts1.every(p => p.char.getPixels()[0] === 0xFF)).toBe(true)
+    expect(app.parts0.every(p => p.char.getPixels()[0] === 0xff)).toBe(true)
+    expect(app.parts1.every(p => p.char.getPixels()[0] === 0xff)).toBe(true)
   })
 
   it('empty dispX/dispY → ?? 0 for all dx/dy', () => {
     const tables: SpriteTileTables = { ...makeTables(), dispX: [], dispY: [] }
-    const app = SpikeTopAppearance.fromTables(makeChars(), tables, namedChar(0xFF))
+    const app = SpikeTopAppearance.fromTables(makeChars(), tables, namedChar(0xff))
     expect(app.parts0.every(p => p.dx === 0 && p.dy === 0)).toBe(true)
   })
 })

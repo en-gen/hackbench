@@ -43,37 +43,37 @@ export const COLORS_PER_ROW = 16
 // ── ROM addresses (from SMW_U.sym, verified against LoadPalette) ──────────────
 
 /** BackAreaColors: $00B0A0 -- 8 BGR555 words indexed by BackAreaColor setting */
-export const ADDR_BACK_AREA = 0x00B0A0        // bank_00.asm line 6125
+export const ADDR_BACK_AREA = 0x00b0a0 // bank_00.asm line 6125
 
 /** BackgroundPalettes: $00B0B0 -- 8 x 24-byte packed pairs (rows 0+1) */
-export const ADDR_BG_PAIR = 0x00B0B0          // bank_00.asm line 6128
+export const ADDR_BG_PAIR = 0x00b0b0 // bank_00.asm line 6128
 
 /** StatusBarColors: $00B170 -- rows 0-1 cols 8-15 (2 x 8 colors = 32 bytes) */
-export const ADDR_BG_COLS_8_15 = 0x00B170     // bank_00.asm line 6138
+export const ADDR_BG_COLS_8_15 = 0x00b170 // bank_00.asm line 6138
 
 /** ForegroundPalettes: $00B190 -- 8 x 24-byte packed pairs (rows 2+3) */
-export const ADDR_FG_PAIR = 0x00B190          // bank_00.asm line 6141
+export const ADDR_FG_PAIR = 0x00b190 // bank_00.asm line 6141
 
 /** StandardColors: $00B250 -- 10 rows x 6 colors x 2B = 120 bytes (rows 4-13 cols 2-7) */
-export const ADDR_SHARED_SPRITES = 0x00B250   // bank_00.asm line 6151
+export const ADDR_SHARED_SPRITES = 0x00b250 // bank_00.asm line 6151
 
 /** PlayerColors: $00B2C8 -- 4 variants x 20 bytes (10 colors for row 8 cols 6-15) */
-export const ADDR_PLAYER_MARIO = 0x00B2C8     // bank_00.asm line 6163
-export const ADDR_PLAYER_LUIGI = 0x00B2DC
-export const ADDR_PLAYER_FIRE_MARIO = 0x00B2F0
-export const ADDR_PLAYER_FIRE_LUIGI = 0x00B304
+export const ADDR_PLAYER_MARIO = 0x00b2c8 // bank_00.asm line 6163
+export const ADDR_PLAYER_LUIGI = 0x00b2dc
+export const ADDR_PLAYER_FIRE_MARIO = 0x00b2f0
+export const ADDR_PLAYER_FIRE_LUIGI = 0x00b304
 
 /** SpriteColors: $00B318 -- 8 variants x 24-byte packed pairs */
-export const ADDR_SPRITE_COLORS = 0x00B318    // bank_00.asm line 6169
+export const ADDR_SPRITE_COLORS = 0x00b318 // bank_00.asm line 6169
 
 /** BerryColors: $00B674 -- 3 rows x 7 colors x 2B = 42 bytes */
-export const ADDR_BERRY_COLS = 0x00B674       // bank_00.asm line 6226
+export const ADDR_BERRY_COLS = 0x00b674 // bank_00.asm line 6226
 
 // ── Palette layout constants ──────────────────────────────────────────────────
 
 /** Each packed pair = 24 bytes = 12 BGR555 words (6 per half-row) */
 export const PALETTE_ENTRY_BYTES = 24
-export const PALETTE_ROW_COLORS = 6    // colors 2-7 per half-row
+export const PALETTE_ROW_COLORS = 6 // colors 2-7 per half-row
 export const PALETTE_ENTRY_COLORS = 12 // total words per packed pair
 
 /** Player palette: 20 bytes = 10 colors filling cols 6-15 of row 8 */
@@ -84,7 +84,7 @@ export const PLAYER_COL_START = 6
 /** Variant offset table: DATA_00ABD3 (bank_00.asm line 5587) */
 // db $00,$18,$30,$48,$60,$78,$90,$A8
 // Each offset = variant * 24 ($18 = 24 decimal)
-const VARIANT_OFFSETS = [0x00, 0x18, 0x30, 0x48, 0x60, 0x78, 0x90, 0xA8]
+const VARIANT_OFFSETS = [0x00, 0x18, 0x30, 0x48, 0x60, 0x78, 0x90, 0xa8]
 
 // Standard sprite rows
 export const SHARED_SPRITE_ROWS = 10
@@ -115,7 +115,7 @@ export const ADDR_FG0 = ADDR_FG_PAIR
 export const ADDR_FG1 = ADDR_FG_PAIR + 12
 
 // Lunar Magic custom palette (kept for compatibility)
-export const ADDR_CUSTOM_PALETTE_TABLE = 0x0EF600
+export const ADDR_CUSTOM_PALETTE_TABLE = 0x0ef600
 export const CUSTOM_PALETTE_LEVEL_COUNT = 424
 export const CUSTOM_PALETTE_PTR_BYTES = 3
 export const CUSTOM_PALETTE_BLOCK_BYTES = 0x0202
@@ -153,7 +153,7 @@ const TRANSPARENT: RgbaColor = [0, 0, 0, 0]
 const BLACK: RgbaColor = [0, 0, 0, 255]
 
 function emptyRow(): RgbaRow {
-  return Array.from({ length: COLORS_PER_ROW }, (_, i) => i === 0 ? TRANSPARENT : BLACK)
+  return Array.from({ length: COLORS_PER_ROW }, (_, i) => (i === 0 ? TRANSPARENT : BLACK))
 }
 
 /**
@@ -161,7 +161,12 @@ function emptyRow(): RgbaRow {
  * Each color is a 16-bit LE BGR555 word.
  * Colors are placed starting at `colStart` in the 16-color row.
  */
-function readEntry(rom: RomFile, addr: number, numColors = PALETTE_ROW_COLORS, colStart = 2): RgbaRow {
+function readEntry(
+  rom: RomFile,
+  addr: number,
+  numColors = PALETTE_ROW_COLORS,
+  colStart = 2,
+): RgbaRow {
   const row = emptyRow()
   const buf = rom.readAt(addr, numColors * 2)
   if (!buf) return row
@@ -171,7 +176,13 @@ function readEntry(rom: RomFile, addr: number, numColors = PALETTE_ROW_COLORS, c
   return row
 }
 
-function singleVariant(label: string, addr: number, rom: RomFile, numColors = PALETTE_ROW_COLORS, colStart = 2): PaletteVariant {
+function singleVariant(
+  label: string,
+  addr: number,
+  rom: RomFile,
+  numColors = PALETTE_ROW_COLORS,
+  colStart = 2,
+): PaletteVariant {
   return { label, rows: [readEntry(rom, addr, numColors, colStart)], romAddr: addr }
 }
 
@@ -193,9 +204,7 @@ function singleVariant(label: string, addr: number, rom: RomFile, numColors = PA
 export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
   // Back area color
   const backBuf = rom.readAt(ADDR_BACK_AREA + bgVariant * 2, 2)
-  const backAreaColor: RgbaColor = backBuf
-    ? bgr555ToRgba(backBuf.readUInt16LE(0))
-    : BLACK
+  const backAreaColor: RgbaColor = backBuf ? bgr555ToRgba(backBuf.readUInt16LE(0)) : BLACK
 
   // BG pair variants (8 variants x 24 bytes)
   // LoadPalette line 5663-5679: BackgroundPalettes + DATA_00ABD3[variant]
@@ -251,7 +260,7 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
     berryCols.push(readEntry(rom, addr, BERRY_COLS_COUNT, BERRY_COL_START))
   }
 
-  // SpriteColors pair variants (8 variants × 24 bytes) — rows 14-15 cols 2-7
+  // SpriteColors pair variants (8 variants × 24 bytes) - rows 14-15 cols 2-7
   // LoadPalette bank_00.asm:5646-5653: SpriteColors[SpritePalette] → CGRAM rows 14-15
   const spriteColorVariants: PaletteVariant[] = []
   for (let v = 0; v < 8; v++) {
@@ -259,8 +268,8 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
     spriteColorVariants.push({
       label: `Palette ${v}`,
       rows: [
-        readEntry(rom, pairAddr,                          PALETTE_ROW_COLORS),  // row 14 cols 2-7
-        readEntry(rom, pairAddr + PALETTE_ROW_COLORS * 2, PALETTE_ROW_COLORS),  // row 15 cols 2-7
+        readEntry(rom, pairAddr, PALETTE_ROW_COLORS), // row 14 cols 2-7
+        readEntry(rom, pairAddr + PALETTE_ROW_COLORS * 2, PALETTE_ROW_COLORS), // row 15 cols 2-7
       ],
       romAddr: pairAddr,
     })
@@ -268,33 +277,58 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
 
   const groups: PaletteGroup[] = [
     {
-      id: 'bg', label: 'Layer 2 Background (Rows 0-1)', cgRamRow: 0,
-      description: 'CGRAM rows 0-1. Variant selected by BackgroundPalette (header byte 0 bits 7-5).',
+      id: 'bg',
+      label: 'Layer 2 Background (Rows 0-1)',
+      cgRamRow: 0,
+      description:
+        'CGRAM rows 0-1. Variant selected by BackgroundPalette (header byte 0 bits 7-5).',
       variants: bgPairVariants,
     },
     {
-      id: 'fg', label: 'Layer 1 Foreground (Rows 2-3)', cgRamRow: 2,
-      description: 'CGRAM rows 2-3. Variant selected by ForegroundPalette (header byte 3 bits 2-0).',
+      id: 'fg',
+      label: 'Layer 1 Foreground (Rows 2-3)',
+      cgRamRow: 2,
+      description:
+        'CGRAM rows 2-3. Variant selected by ForegroundPalette (header byte 3 bits 2-0).',
       variants: fgPairVariants,
     },
     {
-      id: 'sprite_sets', label: 'Shared Sprite Colors (Rows 4-13)', cgRamRow: 4,
+      id: 'sprite_sets',
+      label: 'Shared Sprite Colors (Rows 4-13)',
+      cgRamRow: 4,
       description: 'CGRAM rows 4-13 cols 2-7. Fixed from StandardColors at $B250.',
       variants: [{ label: 'Shared', rows: sharedSpriteRows, romAddr: ADDR_SHARED_SPRITES }],
     },
     {
-      id: 'player', label: 'Player Palettes', cgRamRow: 8,
+      id: 'player',
+      label: 'Player Palettes',
+      cgRamRow: 8,
       description: 'CGRAM row 8 cols 6-15. PlayerColors at $B2C8.',
       variants: [
-        singleVariant('Mario',      ADDR_PLAYER_MARIO,      rom, PLAYER_ENTRY_COLORS, PLAYER_COL_START),
-        singleVariant('Luigi',      ADDR_PLAYER_LUIGI,      rom, PLAYER_ENTRY_COLORS, PLAYER_COL_START),
-        singleVariant('Fire Mario', ADDR_PLAYER_FIRE_MARIO, rom, PLAYER_ENTRY_COLORS, PLAYER_COL_START),
-        singleVariant('Fire Luigi', ADDR_PLAYER_FIRE_LUIGI, rom, PLAYER_ENTRY_COLORS, PLAYER_COL_START),
+        singleVariant('Mario', ADDR_PLAYER_MARIO, rom, PLAYER_ENTRY_COLORS, PLAYER_COL_START),
+        singleVariant('Luigi', ADDR_PLAYER_LUIGI, rom, PLAYER_ENTRY_COLORS, PLAYER_COL_START),
+        singleVariant(
+          'Fire Mario',
+          ADDR_PLAYER_FIRE_MARIO,
+          rom,
+          PLAYER_ENTRY_COLORS,
+          PLAYER_COL_START,
+        ),
+        singleVariant(
+          'Fire Luigi',
+          ADDR_PLAYER_FIRE_LUIGI,
+          rom,
+          PLAYER_ENTRY_COLORS,
+          PLAYER_COL_START,
+        ),
       ],
     },
     {
-      id: 'sp_ef', label: 'Sprite Palette E/F (Rows 14-15)', cgRamRow: 14,
-      description: 'CGRAM rows 14-15 cols 2-7. SpriteColors at $B318, variant from SpritePalette header field.',
+      id: 'sp_ef',
+      label: 'Sprite Palette E/F (Rows 14-15)',
+      cgRamRow: 14,
+      description:
+        'CGRAM rows 14-15 cols 2-7. SpriteColors at $B318, variant from SpritePalette header field.',
       variants: spriteColorVariants,
     },
   ]
@@ -336,7 +370,6 @@ export function buildLevelCgram(
 
   const bg = palettes.groups.find(g => g.id === 'bg')
   const fg = palettes.groups.find(g => g.id === 'fg')
-  const sp = palettes.groups.find(g => g.id === 'sprite_sets')
   const pl = palettes.groups.find(g => g.id === 'player')
   const spef = palettes.groups.find(g => g.id === 'sp_ef')
   const spefIdx = spef ? Math.min(spritePalette, spef.variants.length - 1) : 0
@@ -404,7 +437,7 @@ export function buildLevelCgram(
     }
   }
 
-  // SP_E/F rows 14-15, cols 2-7 — variant selected by SpritePalette header field
+  // SP_E/F rows 14-15, cols 2-7 - variant selected by SpritePalette header field
   if (spef) {
     const v = spef.variants[spefIdx]
     if (v) {
@@ -415,8 +448,8 @@ export function buildLevelCgram(
 
   // Color 1: $7FDD for BG rows 0-7, $7FFF for OBJ rows 8-15
   // LoadPalette lines 5597-5604: LoadCol8Pal
-  const COL1_BG: RgbaColor = bgr555ToRgba(0x7FDD)
-  const COL1_OBJ: RgbaColor = bgr555ToRgba(0x7FFF)
+  const COL1_BG: RgbaColor = bgr555ToRgba(0x7fdd)
+  const COL1_OBJ: RgbaColor = bgr555ToRgba(0x7fff)
   for (let r = 0; r < 8; r++) rows[r][1] = COL1_BG
   for (let r = 8; r < 16; r++) rows[r][1] = COL1_OBJ
 
@@ -459,10 +492,7 @@ export interface CustomLevelPalette {
   colors: RgbaColor[]
 }
 
-export function loadCustomLevelPalette(
-  rom: RomFile,
-  mapIndex: number,
-): CustomLevelPalette | null {
+export function loadCustomLevelPalette(rom: RomFile, mapIndex: number): CustomLevelPalette | null {
   if (mapIndex < 0 || mapIndex >= CUSTOM_PALETTE_LEVEL_COUNT) return null
 
   const ptrAddr = ADDR_CUSTOM_PALETTE_TABLE + mapIndex * CUSTOM_PALETTE_PTR_BYTES
@@ -470,7 +500,7 @@ export function loadCustomLevelPalette(
   if (!ptrBuf) return null
 
   const blockAddr = ptrBuf[0] | (ptrBuf[1] << 8) | (ptrBuf[2] << 16)
-  if (blockAddr === 0x000000 || blockAddr === 0xFFFFFF) return null
+  if (blockAddr === 0x000000 || blockAddr === 0xffffff) return null
 
   const block = rom.readAt(blockAddr, CUSTOM_PALETTE_BLOCK_BYTES)
   if (!block) return null

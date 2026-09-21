@@ -79,12 +79,12 @@ import type { Tile } from '../../../../src/rom/model/tiles/Tile'
 import type { MapStore } from '../../../../src/rom/model/stores/mapStore'
 
 const OBJ_BASE = 0x400
-const MOLE     = 0x4D
+const MOLE = 0x4d
 
 function syntheticChar(id: number): Char {
   // One stable buffer per char, so a render sniffer can map the blitted
   // pixels back to the char id by buffer identity.
-  const pixels = new Uint8Array(64).fill(id & 0xFF)
+  const pixels = new Uint8Array(64).fill(id & 0xff)
   return new Char(id, { getPixels: () => pixels })
 }
 const placeholder = syntheticChar(-1)
@@ -97,30 +97,26 @@ function buildChars(): Map<number, Char> {
 
 /** GeneralSprGfxProp, bank_01.asm:3848-3850 - 6 groups × 4 corners. */
 const GFX_PROP = [
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x40, 0x00, 0x40,
-  0x00, 0x40, 0x80, 0xC0,
-  0x40, 0x40, 0x00, 0x00,
-  0x40, 0x00, 0xC0, 0x80,
-  0x40, 0x40, 0x40, 0x40,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x40, 0x00, 0x40, 0x80, 0xc0, 0x40, 0x40, 0x00, 0x00,
+  0x40, 0x00, 0xc0, 0x80, 0x40, 0x40, 0x40, 0x40,
 ]
 
 function makeTables(overrides: Partial<SpriteTileTables> = {}): SpriteTileTables {
   return {
-    tilemap:       new Uint8Array(0xFC),
+    tilemap: new Uint8Array(0xfc),
     tilemapOffset: new Uint8Array(0x54),
-    dispX:         [0, 8, 0, 8],
-    dispY:         [0, 0, 8, 8],
-    gfxProp:       GFX_PROP,
-    spriteAttr:    new Uint8Array(0x100),
-    spr0to13Prop:  new Uint8Array(0x14),
+    dispX: [0, 8, 0, 8],
+    dispY: [0, 0, 8, 8],
+    gfxProp: GFX_PROP,
+    spriteAttr: new Uint8Array(0x100),
+    spr0to13Prop: new Uint8Array(0x14),
     ...overrides,
   }
 }
 
 /** Synthetic tables where every tilemap byte equals its own index. */
 function identityTables(base: number, attr = 0): SpriteTileTables {
-  const tilemap = new Uint8Array(0xFC)
+  const tilemap = new Uint8Array(0xfc)
   for (let i = 0; i < tilemap.length; i++) tilemap[i] = i
   const tilemapOffset = new Uint8Array(0x54)
   tilemapOffset[MOLE] = base
@@ -174,14 +170,20 @@ describe('MontyMoleAppearance.fromTables - tile-quad selection', () => {
     const a = MontyMoleAppearance.fromTables(chars, identityTables(BASE), placeholder)
     // identity tilemap → char id = OBJ_BASE + tilemap index
     expect(a.parts0.map(p => p.char.id)).toEqual([
-      OBJ_BASE + BASE + 4, OBJ_BASE + BASE + 5, OBJ_BASE + BASE + 6, OBJ_BASE + BASE + 7,
+      OBJ_BASE + BASE + 4,
+      OBJ_BASE + BASE + 5,
+      OBJ_BASE + BASE + 6,
+      OBJ_BASE + BASE + 7,
     ])
   })
 
   it('frame 1 reads the quad at base + SpriteMisc1602($02) * 4', () => {
     const a = MontyMoleAppearance.fromTables(chars, identityTables(BASE), placeholder)
     expect(a.parts1.map(p => p.char.id)).toEqual([
-      OBJ_BASE + BASE + 8, OBJ_BASE + BASE + 9, OBJ_BASE + BASE + 10, OBJ_BASE + BASE + 11,
+      OBJ_BASE + BASE + 8,
+      OBJ_BASE + BASE + 9,
+      OBJ_BASE + BASE + 10,
+      OBJ_BASE + BASE + 11,
     ])
   })
 
@@ -212,13 +214,18 @@ describe('MontyMoleAppearance.fromTables - layout and attribute', () => {
   it('places corners per GeneralSprDispX/Y', () => {
     const a = MontyMoleAppearance.fromTables(chars, identityTables(0x20), placeholder)
     for (const frame of [a.parts0, a.parts1]) {
-      expect(frame.map(p => [p.dx, p.dy])).toEqual([[0, 0], [8, 0], [0, 8], [8, 8]])
+      expect(frame.map(p => [p.dx, p.dy])).toEqual([
+        [0, 0],
+        [8, 0],
+        [0, 8],
+        [8, 8],
+      ])
     }
   })
 
   it('derives palette from attr bits 3-1 and char-high from bit 0', () => {
     // attr $0D → palette row 8 + ((0x0D >> 1) & 7) = 14, char-high = $100.
-    const a = MontyMoleAppearance.fromTables(chars, identityTables(0x20, 0x0D), placeholder)
+    const a = MontyMoleAppearance.fromTables(chars, identityTables(0x20, 0x0d), placeholder)
     expect(a.parts0.every(p => p.palette === 14)).toBe(true)
     expect(a.parts0[0].char.id).toBe(OBJ_BASE + 0x100 + 0x24)
   })
@@ -250,9 +257,14 @@ describe('MontyMoleAppearance.tickAnimation - cadence', () => {
   // flag the first blit receives identifies which frame render() picked.
   function activeFrame(a: MontyMoleAppearance): 0 | 1 {
     let flipped = false
-    let first   = true
+    let first = true
     const sniff: RenderTarget = {
-      blit8x8: (_pixels, _pos, _row, flipX) => { if (first) { flipped = flipX; first = false } },
+      blit8x8: (_pixels, _pos, _row, flipX) => {
+        if (first) {
+          flipped = flipX
+          first = false
+        }
+      },
       fillRect: () => {},
     }
     a.render(sniff, 0, 0, undefined as never, MOCK_MAP_STORE)
@@ -270,9 +282,12 @@ describe('MontyMoleAppearance.tickAnimation - cadence', () => {
     // until the 16th tick. At the old 7.5 it was the 3rd tick.
     const a = newMole()
     expect(activeFrame(a)).toBe(0)
-    a.tickAnimation(); expect(activeFrame(a)).toBe(0)   // 8 game frames
-    a.tickAnimation(); expect(activeFrame(a)).toBe(1)   // 16 → bit 4 set
-    a.tickAnimation(); expect(activeFrame(a)).toBe(1)   // 24
+    a.tickAnimation()
+    expect(activeFrame(a)).toBe(0) // 8 game frames
+    a.tickAnimation()
+    expect(activeFrame(a)).toBe(1) // 16 → bit 4 set
+    a.tickAnimation()
+    expect(activeFrame(a)).toBe(1) // 24
   })
 
   it('toggles at exactly the wall-clock rate the ROM does', () => {
@@ -283,12 +298,15 @@ describe('MontyMoleAppearance.tickAnimation - cadence', () => {
     // The pre-fix code managed 240/16 = 15 toggles.
     const TICKS = 240
     const a = newMole()
-    let prev   = activeFrame(a)
+    let prev = activeFrame(a)
     let toggles = 0
     for (let i = 0; i < TICKS; i++) {
       a.tickAnimation()
       const cur = activeFrame(a)
-      if (cur !== prev) { toggles++; prev = cur }
+      if (cur !== prev) {
+        toggles++
+        prev = cur
+      }
     }
     expect(toggles).toBe(TICKS / 2)
   })
@@ -305,14 +323,22 @@ describe('MontyMoleAppearance.tickAnimation - cadence', () => {
     const EXPECTED = '0110'.repeat(10)
     const a = newMole()
     let got = ''
-    for (let i = 0; i < EXPECTED.length; i++) { a.tickAnimation(); got += activeFrame(a) }
+    for (let i = 0; i < EXPECTED.length; i++) {
+      a.tickAnimation()
+      got += activeFrame(a)
+    }
     expect(got).toBe(EXPECTED)
   })
 
   it('renders one blit per part', () => {
     const a = newMole()
     let count = 0
-    const target: RenderTarget = { blit8x8: () => { count++ }, fillRect: () => {} }
+    const target: RenderTarget = {
+      blit8x8: () => {
+        count++
+      },
+      fillRect: () => {},
+    }
     a.render(target, 0, 0, undefined as never, MOCK_MAP_STORE)
     expect(count).toBe(4)
   })
@@ -320,7 +346,12 @@ describe('MontyMoleAppearance.tickAnimation - cadence', () => {
 
 // ── renderAboveL1: the emerged-pose ghost annotation ────────────────────────
 
-interface SniffedBlit { x: number; y: number; charId: number; alpha: number | undefined }
+interface SniffedBlit {
+  x: number
+  y: number
+  charId: number
+  alpha: number | undefined
+}
 
 function sniffBlits(
   draw: (t: RenderTarget) => void,
@@ -375,9 +406,17 @@ describe('MontyMoleAppearance.renderAboveL1', () => {
     const a = newMole(BASE)
     const tile = BASE + EMERGED_MISC1602
     expect(a.emergedParts.map(p => p.char.id)).toEqual([
-      OBJ_BASE + tile, OBJ_BASE + tile + 1, OBJ_BASE + tile + 0x10, OBJ_BASE + tile + 0x11,
+      OBJ_BASE + tile,
+      OBJ_BASE + tile + 1,
+      OBJ_BASE + tile + 0x10,
+      OBJ_BASE + tile + 0x11,
     ])
-    expect(a.emergedParts.map(p => [p.dx, p.dy])).toEqual([[0, 0], [8, 0], [0, 8], [8, 8]])
+    expect(a.emergedParts.map(p => [p.dx, p.dy])).toEqual([
+      [0, 0],
+      [8, 0],
+      [0, 8],
+      [8, 8],
+    ])
   })
 
   it('is NOT one of the mound quads - a wrong source would land on $CE/$88/$89', () => {
@@ -395,7 +434,7 @@ describe('MontyMoleAppearance.renderAboveL1', () => {
 
   it('shares the mound palette and char-high - same SpriteOBJAttribute byte', () => {
     // attr $0D → palette 8 + ((0x0D >> 1) & 7) = 14, char-high $100.
-    const a = MontyMoleAppearance.fromTables(chars, identityTables(0x20, 0x0D), placeholder)
+    const a = MontyMoleAppearance.fromTables(chars, identityTables(0x20, 0x0d), placeholder)
     expect(a.emergedParts.every(p => p.palette === 14)).toBe(true)
     expect(a.emergedParts[0].char.id).toBe(OBJ_BASE + 0x100 + 0x20 + EMERGED_MISC1602)
   })
@@ -404,20 +443,28 @@ describe('MontyMoleAppearance.renderAboveL1', () => {
     // Coordinates spelled out, NOT recomputed from EMERGED_DY - reading the
     // constant back out of the module under test would make this pass for
     // any offset, including 0.
-    const a  = newMole()
+    const a = newMole()
     const ix = charLookup(a)
     const at = sniffBlits(t => a.renderAboveL1(t, 64, 96, undefined as never, MOCK_MAP_STORE), ix)
-    expect(at.map(b => [b.x, b.y])).toEqual([[64, 80], [72, 80], [64, 88], [72, 88]])
+    expect(at.map(b => [b.x, b.y])).toEqual([
+      [64, 80],
+      [72, 80],
+      [64, 88],
+      [72, 88],
+    ])
     expect(at.map(b => b.charId)).toEqual(a.emergedParts.map(p => p.char.id))
   })
 
   it('never overlaps the in-place render - the mound stays readable', () => {
     // Behavioural form of "the ghost is offset": the two passes must not
     // write the same pixel rows. An offset of 0 collapses this.
-    const a  = newMole()
+    const a = newMole()
     const ix = charLookup(a)
     const below = sniffBlits(t => a.render(t, 64, 96, undefined as never, MOCK_MAP_STORE), ix)
-    const above = sniffBlits(t => a.renderAboveL1(t, 64, 96, undefined as never, MOCK_MAP_STORE), ix)
+    const above = sniffBlits(
+      t => a.renderAboveL1(t, 64, 96, undefined as never, MOCK_MAP_STORE),
+      ix,
+    )
     const rows = new Set(below.map(b => b.y))
     expect(above.some(b => rows.has(b.y))).toBe(false)
     // and above, not below
@@ -429,7 +476,7 @@ describe('MontyMoleAppearance.renderAboveL1', () => {
     // real sprite; zero alpha makes it silently do nothing. The literal
     // 0.5 is spelled out rather than read from EMERGED_ALPHA, so changing
     // the constant moves this expectation.
-    const a  = newMole()
+    const a = newMole()
     const ix = charLookup(a)
     const at = sniffBlits(t => a.renderAboveL1(t, 0, 0, undefined as never, MOCK_MAP_STORE), ix)
     expect(at).toHaveLength(4)
@@ -441,34 +488,48 @@ describe('MontyMoleAppearance.renderAboveL1', () => {
   })
 
   it('is static - the annotation does not follow the mound animation', () => {
-    const a  = newMole()
+    const a = newMole()
     const ix = charLookup(a)
     const before = sniffBlits(t => a.renderAboveL1(t, 0, 0, undefined as never, MOCK_MAP_STORE), ix)
     for (let i = 0; i < 40; i++) {
       a.tickAnimation()
-      expect(sniffBlits(t => a.renderAboveL1(t, 0, 0, undefined as never, MOCK_MAP_STORE), ix))
-        .toEqual(before)
+      expect(
+        sniffBlits(t => a.renderAboveL1(t, 0, 0, undefined as never, MOCK_MAP_STORE), ix),
+      ).toEqual(before)
     }
   })
 
   it('leaves the in-place render untouched - the rubble is still drawn at the anchor', () => {
-    const a  = newMole()
+    const a = newMole()
     const ix = charLookup(a)
     const at = sniffBlits(t => a.render(t, 64, 96, undefined as never, MOCK_MAP_STORE), ix)
-    expect(at.map(b => [b.x, b.y])).toEqual([[64, 96], [72, 96], [64, 104], [72, 104]])
+    expect(at.map(b => [b.x, b.y])).toEqual([
+      [64, 96],
+      [72, 96],
+      [64, 104],
+      [72, 104],
+    ])
     expect(at.map(b => b.charId)).toEqual(a.parts0.map(p => p.char.id))
     expect(at.every(b => b.alpha === undefined)).toBe(true)
   })
 
   it('$4E (fromParts) gets no annotation - its resting pose is modelled wrong', () => {
-    const a = MontyMoleAppearance.fromParts(
-      [{ char: syntheticChar(1), palette: 8, flipX: false, flipY: false, dx: 0, dy: 0 }],
-    )
+    const a = MontyMoleAppearance.fromParts([
+      { char: syntheticChar(1), palette: 8, flipX: false, flipY: false, dx: 0, dy: 0 },
+    ])
     expect(a.emergedParts).toEqual([])
     let blits = 0
     a.renderAboveL1(
-      { blit8x8: () => { blits++ }, fillRect: () => {} },
-      0, 0, undefined as never, MOCK_MAP_STORE,
+      {
+        blit8x8: () => {
+          blits++
+        },
+        fillRect: () => {},
+      },
+      0,
+      0,
+      undefined as never,
+      MOCK_MAP_STORE,
     )
     expect(blits).toBe(0)
   })
@@ -477,9 +538,9 @@ describe('MontyMoleAppearance.renderAboveL1', () => {
     // The reported symptom: level $010, mole at tile (12,23). The mound is
     // anonymous dirt and the ghost is the only recognisable mole artwork,
     // so a click at (12,22) used to fall through to `L1 $xyz`.
-    const mole = new Sprite(
-      MOLE, 12 * 16, 23 * 16, newMole(), { kind: 'stub' } as unknown as SpriteBehavior,
-    )
+    const mole = new Sprite(MOLE, 12 * 16, 23 * 16, newMole(), {
+      kind: 'stub',
+    } as unknown as SpriteBehavior)
     // Ghost row: one tile above the anchor.
     expect(mole.pickAt(12 * 16 + 8, 22 * 16 + 8)).toBe(mole)
     // Mound row still picks, and it is the SAME sprite - the ghost is an
@@ -491,16 +552,16 @@ describe('MontyMoleAppearance.renderAboveL1', () => {
   })
 
   it('$4E, with no annotation, keeps the plain 16x16 hit rect', () => {
-    const a = MontyMoleAppearance.fromParts(
-      [{ char: syntheticChar(1), palette: 8, flipX: false, flipY: false, dx: 0, dy: 0 }],
-    )
+    const a = MontyMoleAppearance.fromParts([
+      { char: syntheticChar(1), palette: 8, flipX: false, flipY: false, dx: 0, dy: 0 },
+    ])
     expect(a.hitRect).toEqual({ dx: 0, dy: 0, w: 8, h: 8 })
   })
 })
 
 // ── vanilla ROM ──────────────────────────────────────────────────────────────
 
-const ROM_PATH   = resolve(__dirname, '../../../roms/Super Mario World (USA).vanilla.sfc')
+const ROM_PATH = resolve(__dirname, '../../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent = existsSync(ROM_PATH)
 
 describe.skipIf(!romPresent)('MontyMoleAppearance - vanilla ROM (ROM-only)', () => {
@@ -514,9 +575,9 @@ describe.skipIf(!romPresent)('MontyMoleAppearance - vanilla ROM (ROM-only)', () 
     // Both sides come from the ROM, so this cannot go red on a rendering
     // defect. It locks the offsets the reader derives against the table.
     const tables = romTables()
-    const base   = tables.tilemapOffset[MOLE]
-    const attr   = tables.spriteAttr[MOLE]
-    const high   = (attr & 0x01) !== 0 ? 0x100 : 0
+    const base = tables.tilemapOffset[MOLE]
+    const attr = tables.spriteAttr[MOLE]
+    const high = (attr & 0x01) !== 0 ? 0x100 : 0
 
     // Expectations are READ FROM THE ROM at the offsets the ASM derives:
     //   frame 0 → base + $01*4, frame 1 → base + $02*4  (DATA_01E35F).
@@ -548,26 +609,38 @@ describe.skipIf(!romPresent)('MontyMoleAppearance - vanilla ROM (ROM-only)', () 
     // swapped pair between frames. Frame 1 = frame 0 with the bottom row
     // swapped and every corner H-flipped, i.e. the mole looking the other way.
     const tables = romTables()
-    const base   = tables.tilemapOffset[MOLE]
+    const base = tables.tilemapOffset[MOLE]
     const f0 = [0, 1, 2, 3].map(c => tables.tilemap[base + 4 + c])
     const f1 = [0, 1, 2, 3].map(c => tables.tilemap[base + 8 + c])
 
-    expect(f0[0]).toBe(f0[1])                 // both head chars identical
+    expect(f0[0]).toBe(f0[1]) // both head chars identical
     expect(f1).toEqual([f0[1], f0[0], f0[3], f0[2]])
   })
 
   it('buildSprites routes $4D to the two-frame pose, not buildSpriteLayout', () => {
     // End-to-end oracle: deleting the SpriteFactory $4D branch drops back to
     // the generic sub0 layout and this goes red.
-    const rom    = SmwRom.open(ROM_PATH)
+    const rom = SmwRom.open(ROM_PATH)
     const tables = readSpriteTileTables(rom.rom)!
-    const base   = tables.tilemapOffset[MOLE]
-    const high   = (tables.spriteAttr[MOLE] & 0x01) !== 0 ? 0x100 : 0
+    const base = tables.tilemapOffset[MOLE]
+    const high = (tables.spriteAttr[MOLE] & 0x01) !== 0 ? 0x100 : 0
 
     const levelSprite: LevelSprite = {
-      screen: 0, x: 5, y: 5, spriteId: MOLE, extraBit: false, raw: [0, 0, MOLE],
+      screen: 0,
+      x: 5,
+      y: 5,
+      spriteId: MOLE,
+      extraBit: false,
+      raw: [0, 0, MOLE],
     }
-    const built = buildSprites(rom.rom, [levelSprite], buildChars(), [], { x: 0, y: 0 }, new Map<number, Tile>())
+    const built = buildSprites(
+      rom.rom,
+      [levelSprite],
+      buildChars(),
+      [],
+      { x: 0, y: 0 },
+      new Map<number, Tile>(),
+    )
     expect(built).toHaveLength(1)
 
     const app = built[0].appearance
@@ -585,13 +658,13 @@ describe.skipIf(!romPresent)('MontyMoleAppearance - vanilla ROM (ROM-only)', () 
     // (bank_01.asm:4154-4159), and state 2 sets it to $02
     // (CODE_01E37F, bank_01.asm:13426-13429).
     const tables = romTables()
-    const base   = tables.tilemapOffset[MOLE]
-    const high   = (tables.spriteAttr[MOLE] & 0x01) !== 0 ? 0x100 : 0
-    const tile   = tables.tilemap[base + 0x02]
+    const base = tables.tilemapOffset[MOLE]
+    const high = (tables.spriteAttr[MOLE] & 0x01) !== 0 ? 0x100 : 0
+    const tile = tables.tilemap[base + 0x02]
 
     const a = MontyMoleAppearance.fromTables(buildChars(), tables, placeholder)
     expect(a.emergedParts.map(p => p.char.id)).toEqual(
-      [0x00, 0x01, 0x10, 0x11].map(c => OBJ_BASE + high + ((tile + c) & 0x1FF)),
+      [0x00, 0x01, 0x10, 0x11].map(c => OBJ_BASE + high + ((tile + c) & 0x1ff)),
     )
   })
 
@@ -599,9 +672,9 @@ describe.skipIf(!romPresent)('MontyMoleAppearance - vanilla ROM (ROM-only)', () 
     // Oracle for a wrong emerged-frame source: the four SubSprGfx2 frame
     // bytes are distinct, and none of them appears in either mound quad.
     const tables = romTables()
-    const base   = tables.tilemapOffset[MOLE]
+    const base = tables.tilemapOffset[MOLE]
     const frames = [0, 1, 2, 3].map(i => tables.tilemap[base + i])
-    const mound  = [4, 5, 6, 7, 8, 9, 10, 11].map(i => tables.tilemap[base + i])
+    const mound = [4, 5, 6, 7, 8, 9, 10, 11].map(i => tables.tilemap[base + i])
 
     expect(new Set(frames).size).toBe(4)
     expect(mound).not.toContain(frames[2])
@@ -610,7 +683,7 @@ describe.skipIf(!romPresent)('MontyMoleAppearance - vanilla ROM (ROM-only)', () 
     const emergedBase = a.emergedParts[0].char.id
     for (const other of [0, 1, 3]) {
       const high = (tables.spriteAttr[MOLE] & 0x01) !== 0 ? 0x100 : 0
-      expect(emergedBase).not.toBe(OBJ_BASE + high + (frames[other] & 0x1FF))
+      expect(emergedBase).not.toBe(OBJ_BASE + high + (frames[other] & 0x1ff))
     }
   })
 
@@ -618,14 +691,15 @@ describe.skipIf(!romPresent)('MontyMoleAppearance - vanilla ROM (ROM-only)', () 
   function emergedAsymmetry(rom: SmwRom, spriteSet: number): number {
     // SP1-SP4 come from SPRITEGFXLIST[spriteSet] and do not depend on the
     // BG tileset id, so tileset 0 is a safe constant here.
-    const vram   = loadVram(rom.rom, 0, spriteSet)
+    const vram = loadVram(rom.rom, 0, spriteSet)
     const tables = readSpriteTileTables(rom.rom)!
-    const base   = tables.tilemapOffset[MOLE]
-    const high   = (tables.spriteAttr[MOLE] & 0x01) !== 0 ? 0x100 : 0
-    const tile   = tables.tilemap[base + 0x02]
+    const base = tables.tilemapOffset[MOLE]
+    const high = (tables.spriteAttr[MOLE] & 0x01) !== 0 ? 0x100 : 0
+    const tile = tables.tilemap[base + 0x02]
 
-    const quad = [0x00, 0x01, 0x10, 0x11]
-      .map(c => getCharPixels(vram, OBJ_BASE + high + ((tile + c) & 0x1FF)))
+    const quad = [0x00, 0x01, 0x10, 0x11].map(c =>
+      getCharPixels(vram, OBJ_BASE + high + ((tile + c) & 0x1ff)),
+    )
     expect(quad.every(q => q !== null)).toBe(true)
 
     const px = (X: number, Y: number): number => {
@@ -671,8 +745,7 @@ describe.skipIf(!romPresent)('MontyMoleAppearance - vanilla ROM (ROM-only)', () 
       if (!raw || !ptr) continue
       const sdata = rom.rom.readAt(ptr, 1024)
       if (!sdata) continue
-      const moles = parseLevelSprites(sdata)
-        .filter(s => s.spriteId === 0x4D || s.spriteId === 0x4E)
+      const moles = parseLevelSprites(sdata).filter(s => s.spriteId === 0x4d || s.spriteId === 0x4e)
       if (moles.length === 0) continue
       placements += moles.length
       sets.add(parseLevelHeader(raw).spriteSet)
@@ -686,11 +759,11 @@ describe.skipIf(!romPresent)('MontyMoleAppearance - vanilla ROM (ROM-only)', () 
     // SubSprGfx2 single-tile frame list (CODE_01E3EF / the $4E branch), so
     // rendering it as four 8x8 corners shows four unrelated chars.
     const tables = romTables()
-    const base   = tables.tilemapOffset[MOLE]
-    const stale  = [0, 1, 2, 3].map(c => tables.tilemap[base + c])
-    const f0     = [0, 1, 2, 3].map(c => tables.tilemap[base + 4 + c])
+    const base = tables.tilemapOffset[MOLE]
+    const stale = [0, 1, 2, 3].map(c => tables.tilemap[base + c])
+    const f0 = [0, 1, 2, 3].map(c => tables.tilemap[base + 4 + c])
 
     expect(stale).not.toEqual(f0)
-    expect(new Set(stale).size).toBe(4)       // four distinct chars - the scramble
+    expect(new Set(stale).size).toBe(4) // four distinct chars - the scramble
   })
 })

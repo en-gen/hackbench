@@ -34,10 +34,10 @@ export class CharginChuckAppearance extends ChuckAppearance {
     bodyCharHigh: number,
     faceRight: boolean,
   ): CharginChuckAppearance {
-    // Football uses hardcoded ChuckGfxProp attr $07 (palette bits only —
+    // Football uses hardcoded ChuckGfxProp attr $07 (palette bits only -
     // hflip is separate). Low nibble $07 → OBJ palette 3 → CGRAM row 11, charHigh 1.
-    const BALL_ATTR    = 0x07
-    const ballPalette  = 8 + ((BALL_ATTR >> 1) & 0x07)
+    const BALL_ATTR = 0x07
+    const ballPalette = 8 + ((BALL_ATTR >> 1) & 0x07)
     const ballCharHigh = (BALL_ATTR & 0x01) !== 0 ? 0x100 : 0
 
     const { bigTile, smallTile } = ChuckAppearance.builders(chars, placeholder)
@@ -45,18 +45,18 @@ export class CharginChuckAppearance extends ChuckAppearance {
     // Draw order matches SMW OAM: head first (behind), body2, body1; football on top.
     const parts: SpritePart[] = faceRight
       ? [
-          ...bigTile(0x06,  10, -12, true,  bodyPalette, bodyCharHigh),  // head
-          ...bigTile(0x21,   0,   0, true,  bodyPalette, bodyCharHigh),  // body2
-          ...bigTile(0x20,   8,   0, true,  bodyPalette, bodyCharHigh),  // body1
-          smallTile(0x1C,  8,  -8, true,  ballPalette, ballCharHigh),    // football tile 1
-          smallTile(0x1D,  0,  -8, true,  ballPalette, ballCharHigh),    // football tile 2
+          ...bigTile(0x06, 10, -12, true, bodyPalette, bodyCharHigh), // head
+          ...bigTile(0x21, 0, 0, true, bodyPalette, bodyCharHigh), // body2
+          ...bigTile(0x20, 8, 0, true, bodyPalette, bodyCharHigh), // body1
+          smallTile(0x1c, 8, -8, true, ballPalette, ballCharHigh), // football tile 1
+          smallTile(0x1d, 0, -8, true, ballPalette, ballCharHigh), // football tile 2
         ]
       : [
-          ...bigTile(0x06, -10, -12, false, bodyPalette, bodyCharHigh),  // head
-          ...bigTile(0x21,   0,   0, false, bodyPalette, bodyCharHigh),  // body2
-          ...bigTile(0x20,  -8,   0, false, bodyPalette, bodyCharHigh),  // body1
-          smallTile(0x1C,  0,  -8, false, ballPalette, ballCharHigh),    // football tile 1
-          smallTile(0x1D,  8,  -8, false, ballPalette, ballCharHigh),    // football tile 2
+          ...bigTile(0x06, -10, -12, false, bodyPalette, bodyCharHigh), // head
+          ...bigTile(0x21, 0, 0, false, bodyPalette, bodyCharHigh), // body2
+          ...bigTile(0x20, -8, 0, false, bodyPalette, bodyCharHigh), // body1
+          smallTile(0x1c, 0, -8, false, ballPalette, ballCharHigh), // football tile 1
+          smallTile(0x1d, 8, -8, false, ballPalette, ballCharHigh), // football tile 2
         ]
     return new CharginChuckAppearance(parts)
   }

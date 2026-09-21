@@ -27,11 +27,17 @@ import { existsSync } from 'fs'
 import { resolve } from 'path'
 import { RomFile } from '../../../../src/rom/RomFile'
 import {
-  MAX_CHAIN_LINKS, dispatchMessage, readDispatchChain, readHandlerThunk, resolveDispatch,
-  type ChainLink, type DispatchChainRead,
+  MAX_CHAIN_LINKS,
+  dispatchMessage,
+  readDispatchChain,
+  readHandlerThunk,
+  resolveDispatch,
+  type ChainLink,
+  type DispatchChainRead,
 } from '../../../../src/rom/dispatch/DispatchChain'
 import {
-  SPRITE_MAIN_PTR_TABLE, SPRITE_PTR_TABLE_COUNT,
+  SPRITE_MAIN_PTR_TABLE,
+  SPRITE_PTR_TABLE_COUNT,
 } from '../../../../src/rom/dispatch/SpritePointerTables'
 
 const ROM_DIR = resolve(__dirname, '../../../roms')
@@ -53,14 +59,14 @@ const allRoms = () => ROM_FILES.map(name => ({ name, rom: freshRom(name) }))
 // Sprite ids used as probes. Each names a DIFFERENT shape behind the MAIN
 // pointer, so a change that collapses two shapes cannot pass unnoticed.
 /** Rex. A plain one-id link, bank_03.asm:4485-4489. */
-const REX = 0xAB
+const REX = 0xab
 /** Bowser. The only id no link claims, so it reaches the tail block. */
-const FALLTHROUGH_ID = 0xA0
+const FALLTHROUGH_ID = 0xa0
 /** Carrot Top Lift, the `CMP/BEQ/CMP/BNE` pair at bank_03.asm:4412-4419. */
-const PAIR_A = 0xB8
-const PAIR_B = 0xB7
+const PAIR_A = 0xb8
+const PAIR_B = 0xb7
 /** Falling Spike, the link preceded by a reload, bank_03.asm:4445-4450. */
-const RELOADED = 0xB2
+const RELOADED = 0xb2
 /** A Koopa: MAIN points at a real handler, so there is no stub to read. */
 const DIRECT = 0x04
 
@@ -107,8 +113,9 @@ describe.skipIf(!romsPresent)('the bank-3 chain as the six carts hold it', () =>
   it('every cart points all bank-3 sprites at one JSL/RTS stub', () => {
     for (const { name, rom } of allRoms()) {
       const t = bank3Thunk(rom)
-      const behind = Array.from({ length: SPRITE_PTR_TABLE_COUNT }, (_, i) => i)
-        .filter(i => mainHandlerOf(rom, i) === t.at)
+      const behind = Array.from({ length: SPRITE_PTR_TABLE_COUNT }, (_, i) => i).filter(
+        i => mainHandlerOf(rom, i) === t.at,
+      )
       expect(behind.length, name).toBe(37)
       expect(behind, name).toContain(REX)
       expect(behind, name).toContain(FALLTHROUGH_ID)
@@ -130,7 +137,10 @@ describe.skipIf(!romsPresent)('the bank-3 chain as the six carts hold it', () =>
 
   it('accounts for all 37 ids: 36 dispatched plus 1 fallthrough', () => {
     for (const { name, rom } of allRoms()) {
-      const kinds = Array.from({ length: SPRITE_PTR_TABLE_COUNT }, (_, i) => resolveDispatch(rom, i).kind)
+      const kinds = Array.from(
+        { length: SPRITE_PTR_TABLE_COUNT },
+        (_, i) => resolveDispatch(rom, i).kind,
+      )
       const tally = (k: string) => kinds.filter(x => x === k).length
       expect(tally('dispatched'), name).toBe(36)
       expect(tally('fallthrough'), name).toBe(1)
@@ -145,7 +155,7 @@ describe.skipIf(!romsPresent)('the bank-3 chain as the six carts hold it', () =>
       if (r.kind !== 'dispatched') return
       // `RexMainRt` is $03:9517 in `SMWDisX/SMW_U.sym`. The bank comes from
       // the chain's own address, which is why the mirrored carts agree.
-      expect(r.handler & 0xFFFF, name).toBe(0x9517)
+      expect(r.handler & 0xffff, name).toBe(0x9517)
       expect(r.sharedWith, name).toEqual([])
     }
   })
@@ -155,9 +165,12 @@ describe.skipIf(!romsPresent)('the bank-3 chain as the six carts hold it', () =>
       const pairs = linksOf(rom).filter(l => l.ids.length > 1)
       expect(pairs.length, name).toBe(2)
       // CarrotTopLift $03:8C2F and WoodenSpike $03:9423, SMW_U.sym.
-      expect(pairs.map(p => [p.ids, p.routine & 0xFFFF]), name).toEqual([
-        [[PAIR_A, PAIR_B], 0x8C2F],
-        [[0xAC, 0xAD], 0x9423],
+      expect(
+        pairs.map(p => [p.ids, p.routine & 0xffff]),
+        name,
+      ).toEqual([
+        [[PAIR_A, PAIR_B], 0x8c2f],
+        [[0xac, 0xad], 0x9423],
       ])
     }
   })
@@ -185,7 +198,7 @@ describe.skipIf(!romsPresent)('the bank-3 chain as the six carts hold it', () =>
       expect(r.kind, name).toBe('fallthrough')
       // The tail block is `JSL : JSR : JSR : PLB : RTL` (bank_03.asm:4521),
       // three calls rather than one, so no single routine is claimed for it.
-      if (r.kind === 'fallthrough') expect(r.at & 0xFFFF, name).toBe(0xA259)
+      if (r.kind === 'fallthrough') expect(r.at & 0xffff, name).toBe(0xa259)
       expect(r, name).not.toHaveProperty('handler')
     }
   })
@@ -206,9 +219,9 @@ describe.skipIf(!romsPresent)('every reported value follows the cart byte', () =
     const rom = freshRom()
     const at = cmpImmAddrOf(linkFor(rom, REX))
     // $B4 is behind no stub in vanilla, so it cannot collide with a real link.
-    rom.writeAt(at, [0xB4])
+    rom.writeAt(at, [0xb4])
     expect(resolveDispatch(rom, REX).kind).toBe('fallthrough')
-    const moved = linksOf(rom).find(l => l.ids.includes(0xB4))
+    const moved = linksOf(rom).find(l => l.ids.includes(0xb4))
     expect(moved?.routine).toBe(linkFor(freshRom(), REX).routine)
   })
 
@@ -216,7 +229,7 @@ describe.skipIf(!romsPresent)('every reported value follows the cart byte', () =
     const rom = freshRom()
     rom.writeAt(linkFor(rom, REX).jsrAt + 1, [0x34, 0x12])
     const r = resolveDispatch(rom, REX)
-    expect(r.kind === 'dispatched' && (r.handler & 0xFFFF)).toBe(0x1234)
+    expect(r.kind === 'dispatched' && r.handler & 0xffff).toBe(0x1234)
   })
 
   it('the bank of the routine comes from the stub JSL, not from a constant', () => {
@@ -224,9 +237,13 @@ describe.skipIf(!romsPresent)('every reported value follows the cart byte', () =
     const t = bank3Thunk(rom)
     // Re-point the stub at the $80-mirror of the same chain. Same bytes, a
     // different bank, so a hardcoded bank would not move with it.
-    rom.writeAt(t.at + 1, [t.target & 0xFF, (t.target >> 8) & 0xFF, ((t.target >> 16) | 0x80) & 0xFF])
+    rom.writeAt(t.at + 1, [
+      t.target & 0xff,
+      (t.target >> 8) & 0xff,
+      ((t.target >> 16) | 0x80) & 0xff,
+    ])
     const r = resolveDispatch(rom, REX)
-    expect(r.kind === 'dispatched' && (r.handler >> 16)).toBe((t.target >> 16) | 0x80)
+    expect(r.kind === 'dispatched' && r.handler >> 16).toBe((t.target >> 16) | 0x80)
   })
 
   it('the chain is read at the address the stub JSL names', () => {
@@ -235,21 +252,33 @@ describe.skipIf(!romsPresent)('every reported value follows the cart byte', () =
     // A whole one-link chain planted elsewhere in the same bank. If the
     // reader used a fixed address rather than the stub's operand it would
     // still find the 34-link original.
-    const planted = (t.target & 0xFF0000) | ((t.target + 0x1000) & 0xFFFF)
+    const planted = (t.target & 0xff0000) | ((t.target + 0x1000) & 0xffff)
     rom.writeAt(planted, [
-      0x8B, 0x4B, 0xAB, 0xB5, 0x9E,             // PHB PHK PLB LDA SpriteNumber,X
-      0xC9, REX, 0xD0, 0x05, 0x20, 0x34, 0x12, 0xAB, 0x6B,  // CMP/BNE/JSR/PLB/RTL
-      0x60,                                     // not a CMP: the tail block
+      0x8b,
+      0x4b,
+      0xab,
+      0xb5,
+      0x9e, // PHB PHK PLB LDA SpriteNumber,X
+      0xc9,
+      REX,
+      0xd0,
+      0x05,
+      0x20,
+      0x34,
+      0x12,
+      0xab,
+      0x6b, // CMP/BNE/JSR/PLB/RTL
+      0x60, // not a CMP: the tail block
     ])
-    rom.writeAt(t.at + 1, [planted & 0xFF, (planted >> 8) & 0xFF, (planted >> 16) & 0xFF])
+    rom.writeAt(t.at + 1, [planted & 0xff, (planted >> 8) & 0xff, (planted >> 16) & 0xff])
     expect(linksOf(rom).length).toBe(1)
     const r = resolveDispatch(rom, REX)
-    expect(r.kind === 'dispatched' && (r.handler & 0xFFFF)).toBe(0x1234)
+    expect(r.kind === 'dispatched' && r.handler & 0xffff).toBe(0x1234)
   })
 
   it('a stub whose RTS is gone is not a stub, so the pointer stands', () => {
     const rom = freshRom()
-    rom.writeAt(bank3Thunk(rom).at + 4, [0xEA])
+    rom.writeAt(bank3Thunk(rom).at + 4, [0xea])
     const r = resolveDispatch(rom, REX)
     expect(r.kind).toBe('direct')
     if (r.kind === 'direct') expect(r.handler).toBe(mainHandlerOf(rom, REX))
@@ -260,15 +289,15 @@ describe.skipIf(!romsPresent)('every reported value follows the cart byte', () =
     const pair = linkFor(rom, PAIR_A)
     // The `BEQ` sits six bytes before the `JSR`: `BEQ`(2) `CMP`(2) `BNE`(2).
     const beqAt = pair.jsrAt - 6
-    expect(rom.readAt(beqAt, 1)![0]).toBe(0xF0)
-    rom.writeAt(beqAt, [0xD0])
+    expect(rom.readAt(beqAt, 1)![0]).toBe(0xf0)
+    rom.writeAt(beqAt, [0xd0])
     // Without the `BEQ` the second `CMP` now stands where a `JSR` must be.
     // The reader refuses there instead of mapping $B8 onto whatever follows.
     const c = chainOf(rom)
     expect(c.kind).toBe('refused')
     if (c.kind === 'refused') {
       expect(c.refusal.expected).toBe('JSR abs')
-      expect(c.refusal.found).toBe(0xC9)
+      expect(c.refusal.found).toBe(0xc9)
     }
   })
 })
@@ -290,25 +319,25 @@ describe.skipIf(!romsPresent)('the reader refuses rather than guessing', () => {
     const t = bank3Thunk(rom)
     // `LDA abs,X` rather than `LDA dp,X`: a chain dispatching on some other
     // byte is refused, not mapped as though it keyed on the sprite number.
-    const r = refusalAfter(t.target + 3, 0xBD)
+    const r = refusalAfter(t.target + 3, 0xbd)
     expect(r?.expected).toBe('LDA dp,X')
-    expect(r?.found).toBe(0xBD)
+    expect(r?.found).toBe(0xbd)
     expect(r?.at).toBe(t.target + 3)
   })
 
   it('stops when the prologue reads a different direct-page address', () => {
     const t = bank3Thunk(freshRom())
-    const r = refusalAfter(t.target + 4, 0x9F)
+    const r = refusalAfter(t.target + 4, 0x9f)
     expect(r?.expected).toBe('SpriteNumber operand')
-    expect(r?.found).toBe(0x9F)
+    expect(r?.found).toBe(0x9f)
   })
 
   it('stops when a link does not restore the data bank', () => {
     const rom = freshRom()
     const link = linkFor(rom, REX)
-    const r = refusalAfter(link.jsrAt + 3, 0xEA)
+    const r = refusalAfter(link.jsrAt + 3, 0xea)
     expect(r?.expected).toBe('PLB')
-    expect(r?.found).toBe(0xEA)
+    expect(r?.found).toBe(0xea)
   })
 
   it('stops when a link does not return long', () => {
@@ -350,8 +379,8 @@ describe.skipIf(!romsPresent)('the reader refuses rather than guessing', () => {
     const link = linkFor(rom, RELOADED)
     // The reload is `LDA dp,X` immediately before this link's `CMP`.
     const operandAt = cmpImmAddrOf(link) - 2
-    expect(rom.readAt(operandAt - 1, 2)![0]).toBe(0xB5)
-    const r = refusalAfter(operandAt, 0x9F)
+    expect(rom.readAt(operandAt - 1, 2)![0]).toBe(0xb5)
+    const r = refusalAfter(operandAt, 0x9f)
     expect(r?.expected).toBe('SpriteNumber operand')
   })
 
@@ -359,8 +388,8 @@ describe.skipIf(!romsPresent)('the reader refuses rather than guessing', () => {
     const rom = freshRom()
     const first = linksOf(rom)[0]
     const last = linkFor(rom, REX)
-    expect(refusalAfter(first.jsrAt + 3, 0xEA)?.linkIndex).toBe(0)
-    expect(refusalAfter(last.jsrAt + 3, 0xEA)?.linkIndex).toBeGreaterThan(20)
+    expect(refusalAfter(first.jsrAt + 3, 0xea)?.linkIndex).toBe(0)
+    expect(refusalAfter(last.jsrAt + 3, 0xea)?.linkIndex).toBeGreaterThan(20)
   })
 
   it('refuses the four other multi-id stubs, each at its own byte', () => {
@@ -369,14 +398,14 @@ describe.skipIf(!romsPresent)('the reader refuses rather than guessing', () => {
     const rom = freshRom()
     const cases = [
       // Chucks, bank_02.asm:8758. Reads SpriteMisc187B, not SpriteNumber.
-      { id: 0x91, expected: 'LDA dp,X', found: 0xBD },
+      { id: 0x91, expected: 'LDA dp,X', found: 0xbd },
       // InvisSolid_Dinos, bank_03.asm:3655. No PHB/PHK/PLB prologue at all.
-      { id: 0x6D, expected: 'PHB', found: 0xB5 },
+      { id: 0x6d, expected: 'PHB', found: 0xb5 },
       // Banzai_Rotating, bank_02.asm:11365. A two-way split joined by a
       // `BRA`, so it gets as far as the link tail and fails there.
-      { id: 0x9E, expected: 'PLB', found: 0x80 },
+      { id: 0x9e, expected: 'PLB', found: 0x80 },
       // JumpingPiranha, bank_02.asm:12804. Straight into a `JSR`.
-      { id: 0x4F, expected: 'LDA dp,X', found: 0x20 },
+      { id: 0x4f, expected: 'LDA dp,X', found: 0x20 },
     ]
     for (const c of cases) {
       const r = resolveDispatch(rom, c.id)
@@ -389,11 +418,15 @@ describe.skipIf(!romsPresent)('the reader refuses rather than guessing', () => {
 
   it('leaves the refused stubs unmapped rather than guessing a routine', () => {
     for (const { name, rom } of allRoms()) {
-      const refused = Array.from({ length: SPRITE_PTR_TABLE_COUNT }, (_, i) => resolveDispatch(rom, i))
-        .filter(r => r.kind === 'chainRefused')
+      const refused = Array.from({ length: SPRITE_PTR_TABLE_COUNT }, (_, i) =>
+        resolveDispatch(rom, i),
+      ).filter(r => r.kind === 'chainRefused')
       // 83 ids sit behind a stub and 37 of them are the bank-3 chain.
       expect(refused.length, name).toBe(46)
-      expect(refused.every(r => !('handler' in r)), name).toBe(true)
+      expect(
+        refused.every(r => !('handler' in r)),
+        name,
+      ).toBe(true)
     }
   })
 
@@ -424,8 +457,8 @@ describe('a chain that never ends terminates anyway', () => {
 
   it('stops at the link ceiling instead of walking off the bank', () => {
     const at = 0x038000
-    const link = [0xC9, 0x00, 0xD0, 0x05, 0x20, 0x00, 0x90, 0xAB, 0x6B]
-    const body = [0x8B, 0x4B, 0xAB, 0xB5, 0x9E]
+    const link = [0xc9, 0x00, 0xd0, 0x05, 0x20, 0x00, 0x90, 0xab, 0x6b]
+    const body = [0x8b, 0x4b, 0xab, 0xb5, 0x9e]
     for (let i = 0; i < MAX_CHAIN_LINKS + 10; i++) body.push(...link)
     const c = readDispatchChain(fakeRom({ [at]: body }), at)
     expect(c.kind).toBe('refused')
@@ -438,7 +471,10 @@ describe('a chain that never ends terminates anyway', () => {
   it('refuses a chain that runs off the end of readable memory', () => {
     const at = 0x038000
     // A prologue and one truncated link: the `JSR` operand is missing.
-    const c = readDispatchChain(fakeRom({ [at]: [0x8B, 0x4B, 0xAB, 0xB5, 0x9E, 0xC9, 0xAB, 0xD0, 0x05, 0x20] }), at)
+    const c = readDispatchChain(
+      fakeRom({ [at]: [0x8b, 0x4b, 0xab, 0xb5, 0x9e, 0xc9, 0xab, 0xd0, 0x05, 0x20] }),
+      at,
+    )
     expect(c.kind).toBe('refused')
     if (c.kind === 'refused') expect(c.refusal.found).toBe(null)
   })
@@ -472,5 +508,4 @@ describe.skipIf(!romsPresent)('a refusal can be read by whoever has to fix it', 
   it('survives an unreadable id without throwing', () => {
     expect(dispatchMessage(resolveDispatch(freshRom(), 999))).toContain('unreadable')
   })
-
 })

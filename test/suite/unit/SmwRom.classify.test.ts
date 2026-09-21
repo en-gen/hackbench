@@ -1,5 +1,5 @@
 /**
- * SmwRom — synthetic-ROM tests for classifyLevels, buildLevelExitGraph, and
+ * SmwRom - synthetic-ROM tests for classifyLevels, buildLevelExitGraph, and
  * enumerateAllLevels. These exercise the higher-level orchestration logic on
  * top of the pointer/header reads tested in SmwRom.synthetic.test.ts.
  */
@@ -10,16 +10,16 @@ import { SmwRom, ADDR } from '../../../src/rom/SmwRom'
 
 function make4MbRom(): RomFile {
   const buf = Buffer.alloc(0x400000, 0x00)
-  buf[0x7FD5] = 0x20
+  buf[0x7fd5] = 0x20
   return new RomFile('mock.smc', buf)
 }
 
 /** Stamp a 3-byte L1 pointer for the given level index. */
 function setL1Ptr(rom: RomFile, levelIndex: number, snesAddr: number): void {
   rom.writeAt(ADDR.LEVEL_L1_PTR + levelIndex * 3, [
-    snesAddr & 0xFF,
-    (snesAddr >> 8) & 0xFF,
-    (snesAddr >> 16) & 0xFF,
+    snesAddr & 0xff,
+    (snesAddr >> 8) & 0xff,
+    (snesAddr >> 16) & 0xff,
   ])
 }
 
@@ -42,7 +42,7 @@ describe('SmwRom.classifyLevels', () => {
   it('puts indices in main-map range $000-$024 into overworld', () => {
     const rom = make4MbRom()
     setL1Ptr(rom, 0x010, 0x068000)
-    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0x42, 0xFF])  // valid + has objects
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0x42, 0xff]) // valid + has objects
     const smw = new SmwRom(rom)
     const result = smw.classifyLevels()
     expect(result.overworld).toEqual([0x010])
@@ -52,7 +52,7 @@ describe('SmwRom.classifyLevels', () => {
   it('puts indices outside overworld ranges into subarea', () => {
     const rom = make4MbRom()
     setL1Ptr(rom, 0x150, 0x068000)
-    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0x42, 0xFF])
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0x42, 0xff])
     const smw = new SmwRom(rom)
     const result = smw.classifyLevels()
     expect(result.subarea).toEqual([0x150])
@@ -61,19 +61,19 @@ describe('SmwRom.classifyLevels', () => {
 
   it('skips duplicate-pointer levels (vanilla shares many slots)', () => {
     const rom = make4MbRom()
-    // Two indices with the SAME L1 pointer — second should be skipped.
+    // Two indices with the SAME L1 pointer - second should be skipped.
     setL1Ptr(rom, 0x010, 0x068000)
     setL1Ptr(rom, 0x011, 0x068000)
-    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0x42, 0xFF])
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0x42, 0xff])
     const smw = new SmwRom(rom)
     const result = smw.classifyLevels()
-    expect(result.overworld).toEqual([0x010])  // 0x011 dropped as dup
+    expect(result.overworld).toEqual([0x010]) // 0x011 dropped as dup
   })
 
   it('skips levels whose header.levelMode > 20 (invalid)', () => {
     const rom = make4MbRom()
     setL1Ptr(rom, 0x010, 0x068000)
-    setLevelData(rom, 0x068000, [0, 0x1F, 0, 0, 0, 0x42, 0xFF])  // mode = 31
+    setLevelData(rom, 0x068000, [0, 0x1f, 0, 0, 0, 0x42, 0xff]) // mode = 31
     const smw = new SmwRom(rom)
     expect(smw.classifyLevels().overworld).toEqual([])
   })
@@ -81,7 +81,7 @@ describe('SmwRom.classifyLevels', () => {
   it('skips levels whose first object byte is the immediate $FF terminator', () => {
     const rom = make4MbRom()
     setL1Ptr(rom, 0x010, 0x068000)
-    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0xFF])  // empty stream
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0xff]) // empty stream
     const smw = new SmwRom(rom)
     expect(smw.classifyLevels().overworld).toEqual([])
   })
@@ -99,7 +99,7 @@ function exitObj(rawByte: number, secondary: boolean): number[] {
 describe('SmwRom.buildLevelExitGraph', () => {
   it('returns an empty Map when sec-exit tables cannot be read (tiny ROM)', () => {
     const buf = Buffer.alloc(0x60000)
-    buf[0x7FD5] = 0x20
+    buf[0x7fd5] = 0x20
     const smw = new SmwRom(new RomFile('mini.smc', buf))
     expect(smw.buildLevelExitGraph().size).toBe(0)
   })
@@ -107,17 +107,17 @@ describe('SmwRom.buildLevelExitGraph', () => {
   it('returns an empty Map when no level has any exit objects', () => {
     const rom = make4MbRom()
     setL1Ptr(rom, 0x010, 0x068000)
-    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0x00, 0x10, 0x00, 0xFF])
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0x00, 0x10, 0x00, 0xff])
     const smw = new SmwRom(rom)
     expect(smw.buildLevelExitGraph().size).toBe(0)
   })
 
   it('resolves a primary exit from a main-map root (submap flag 0)', () => {
     const rom = make4MbRom()
-    setL1Ptr(rom, 0x010, 0x068000)                       // root, $000-$024 -> flag 0
-    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xFF])
-    setL1Ptr(rom, 0x050, 0x06A000)
-    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, 0x42, 0xFF])   // real sub-area
+    setL1Ptr(rom, 0x010, 0x068000) // root, $000-$024 -> flag 0
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xff])
+    setL1Ptr(rom, 0x050, 0x06a000)
+    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, 0x42, 0xff]) // real sub-area
     const smw = new SmwRom(rom)
     expect(smw.buildLevelExitGraph().get(0x010)).toEqual([0x050])
   })
@@ -127,48 +127,52 @@ describe('SmwRom.buildLevelExitGraph', () => {
     // ($101-$13B) and must produce a dest in that same high range, not the
     // main-map range the old ExitTableHigh-derived bit produced.
     const rom = make4MbRom()
-    setL1Ptr(rom, 0x113, 0x068000)                       // root, $101-$13B -> flag 1
-    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0xBB, false), 0xFF])
-    setL1Ptr(rom, 0x1BB, 0x06A000)
-    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, 0x42, 0xFF])
+    setL1Ptr(rom, 0x113, 0x068000) // root, $101-$13B -> flag 1
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0xbb, false), 0xff])
+    setL1Ptr(rom, 0x1bb, 0x06a000)
+    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, 0x42, 0xff])
     const smw = new SmwRom(rom)
-    expect(smw.buildLevelExitGraph().get(0x113)).toEqual([0x1BB])
+    expect(smw.buildLevelExitGraph().get(0x113)).toEqual([0x1bb])
   })
 
   it('resolves secondary exits via the submap-selected half of DATA_05F800', () => {
     const rom = make4MbRom()
-    setL1Ptr(rom, 0x105, 0x068000)                       // root, flag 1
-    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x10, true), 0xFF])
-    setL1Ptr(rom, 0x177, 0x06A000)                       // correct dest (high half)
-    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, 0x42, 0xFF])
-    setL1Ptr(rom, 0x188, 0x06B000)                       // decoy: what a low-byte-only
-    setLevelData(rom, 0x06B000, [0, 0, 0, 0, 0, 0x42, 0xFF])  // index would produce
+    setL1Ptr(rom, 0x105, 0x068000) // root, flag 1
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x10, true), 0xff])
+    setL1Ptr(rom, 0x177, 0x06a000) // correct dest (high half)
+    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, 0x42, 0xff])
+    setL1Ptr(rom, 0x188, 0x06b000) // decoy: what a low-byte-only
+    setLevelData(rom, 0x06b000, [0, 0, 0, 0, 0, 0x42, 0xff]) // index would produce
     // High half: index (1<<8)|$10 = $110 -> $77 (dest $177).
     // Low half (bug): index $10 alone -> $88 (dest $188, wrong).
     rom.writeAt(ADDR.SEC_EXIT_DEST + 0x110, [0x77])
-    rom.writeAt(ADDR.SEC_EXIT_DEST + 0x10,  [0x88])
+    rom.writeAt(ADDR.SEC_EXIT_DEST + 0x10, [0x88])
     const smw = new SmwRom(rom)
     expect(smw.buildLevelExitGraph().get(0x105)).toEqual([0x177])
   })
 
   it('rejects a destination sharing the filler L1 pointer even if classifyLevels lists it', () => {
     const rom = make4MbRom()
-    setL1Ptr(rom, 0x106, 0x068000)                       // root, flag 1
+    setL1Ptr(rom, 0x106, 0x068000) // root, flag 1
     setLevelData(rom, 0x068000, [
-      0, 0, 0, 0, 0,
-      ...exitObj(0x40, false),   // -> $140, filler
-      ...exitObj(0x41, false),   // -> $141, real
-      0xFF,
+      0,
+      0,
+      0,
+      0,
+      0,
+      ...exitObj(0x40, false), // -> $140, filler
+      ...exitObj(0x41, false), // -> $141, real
+      0xff,
     ])
     // Ten subarea-range slots share one pointer -- classifyLevels keeps only
     // the first ($140) after dedup, exactly like $027 on the Invictus ROM.
     // ($141 is deliberately skipped here -- it gets its own distinct pointer below.)
-    for (const idx of [0x140, 0x142, 0x143, 0x144, 0x145, 0x146, 0x147, 0x148, 0x149, 0x14A]) {
-      setL1Ptr(rom, idx, 0x06A000)
+    for (const idx of [0x140, 0x142, 0x143, 0x144, 0x145, 0x146, 0x147, 0x148, 0x149, 0x14a]) {
+      setL1Ptr(rom, idx, 0x06a000)
     }
-    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, 0x42, 0xFF])
-    setL1Ptr(rom, 0x141, 0x06B000)                       // distinct real sub-area
-    setLevelData(rom, 0x06B000, [0, 0, 0, 0, 0, 0x42, 0xFF])
+    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, 0x42, 0xff])
+    setL1Ptr(rom, 0x141, 0x06b000) // distinct real sub-area
+    setLevelData(rom, 0x06b000, [0, 0, 0, 0, 0, 0x42, 0xff])
     const smw = new SmwRom(rom)
     expect(smw.buildLevelExitGraph().get(0x106)).toEqual([0x141])
   })
@@ -178,7 +182,7 @@ describe('SmwRom.buildLevelExitGraph', () => {
     setL1Ptr(rom, 0x010, 0x068000)
     // Secondary exit -> entrance $20 -> DATA_05F800[$20] = $05 -> dest $005,
     // which is in the main-map overworld range, not a sub-area.
-    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x20, true), 0xFF])
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x20, true), 0xff])
     rom.writeAt(ADDR.SEC_EXIT_DEST + 0x20, [0x05])
     const smw = new SmwRom(rom)
     expect(smw.buildLevelExitGraph().has(0x010)).toBe(false)
@@ -189,9 +193,9 @@ describe('SmwRom.buildLevelExitGraph', () => {
     // not $150 -- the destination's high byte always matches the root's range.
     const rom = make4MbRom()
     setL1Ptr(rom, 0x010, 0x068000)
-    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xFF])
-    setL1Ptr(rom, 0x050, 0x06A000)
-    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xFF])  // -> self
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xff])
+    setL1Ptr(rom, 0x050, 0x06a000)
+    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xff]) // -> self
     const smw = new SmwRom(rom)
     const graph = smw.buildLevelExitGraph()
     expect(graph.get(0x010)).toEqual([0x050])
@@ -201,11 +205,11 @@ describe('SmwRom.buildLevelExitGraph', () => {
   it('terminates and records both edges of a two-node cycle between sub-areas', () => {
     const rom = make4MbRom()
     setL1Ptr(rom, 0x010, 0x068000)
-    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xFF])
-    setL1Ptr(rom, 0x050, 0x06A000)
-    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, ...exitObj(0x60, false), 0xFF])
-    setL1Ptr(rom, 0x060, 0x06B000)
-    setLevelData(rom, 0x06B000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xFF])  // back to $050
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xff])
+    setL1Ptr(rom, 0x050, 0x06a000)
+    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, ...exitObj(0x60, false), 0xff])
+    setL1Ptr(rom, 0x060, 0x06b000)
+    setLevelData(rom, 0x06b000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), 0xff]) // back to $050
     const smw = new SmwRom(rom)
     const graph = smw.buildLevelExitGraph()
     expect(graph.get(0x050)).toEqual([0x060])
@@ -217,9 +221,9 @@ describe('SmwRom.buildLevelExitGraph', () => {
     // $170 has an exit but nothing reaches it from an overworld root, so its
     // submap flag is never known and its own exits cannot be resolved.
     setL1Ptr(rom, 0x170, 0x068000)
-    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x80, false), 0xFF])
-    setL1Ptr(rom, 0x080, 0x06A000)
-    setLevelData(rom, 0x06A000, [0, 0, 0, 0, 0, 0x42, 0xFF])
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x80, false), 0xff])
+    setL1Ptr(rom, 0x080, 0x06a000)
+    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, 0x42, 0xff])
     const smw = new SmwRom(rom)
     expect(smw.buildLevelExitGraph().has(0x170)).toBe(false)
   })
@@ -240,7 +244,7 @@ describe('SmwRom.enumerateAllLevels', () => {
     const smw = new SmwRom(rom)
     const all = smw.enumerateAllLevels()
     expect(all[0].hasData).toBe(true)
-    expect(all[1].hasData).toBe(false)  // no pointer set
+    expect(all[1].hasData).toBe(false) // no pointer set
   })
 
   it('decodes the level name when hasData is true (overworld-range only)', () => {
@@ -249,17 +253,17 @@ describe('SmwRom.enumerateAllLevels', () => {
     setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0x42])
     // Plant a name for translevel 0 (= pointer index 0).
     // Use the same packed-byte trick as SmwLevelNames.test.ts.
-    const ADDR_LEVEL_NAME_STRINGS = 0x049AC5
-    const ADDR_PREFIX_TABLE       = 0x049C91
-    const ADDR_TYPE_TABLE         = 0x049CCF
-    const ADDR_SUFFIX_TABLE       = 0x049CED
-    const ADDR_LEVEL_NAMES        = 0x04A0FC
-    rom.writeAt(ADDR_LEVEL_NAMES, [0x01, 0x00])  // pack
-    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x00, [0x00, 0x81])  // "AB"
-    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x10, [0x9F, 0x80])  // type skip
-    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x20, [0x9A])         // suffix → ''
+    const ADDR_LEVEL_NAME_STRINGS = 0x049ac5
+    const ADDR_PREFIX_TABLE = 0x049c91
+    const ADDR_TYPE_TABLE = 0x049ccf
+    const ADDR_SUFFIX_TABLE = 0x049ced
+    const ADDR_LEVEL_NAMES = 0x04a0fc
+    rom.writeAt(ADDR_LEVEL_NAMES, [0x01, 0x00]) // pack
+    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x00, [0x00, 0x81]) // "AB"
+    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x10, [0x9f, 0x80]) // type skip
+    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x20, [0x9a]) // suffix → ''
     rom.writeAt(ADDR_PREFIX_TABLE + 0, [0x00, 0x00])
-    rom.writeAt(ADDR_TYPE_TABLE   + 0, [0x10, 0x00])
+    rom.writeAt(ADDR_TYPE_TABLE + 0, [0x10, 0x00])
     rom.writeAt(ADDR_SUFFIX_TABLE + 2, [0x20, 0x00])
     const smw = new SmwRom(rom)
     const all = smw.enumerateAllLevels()
