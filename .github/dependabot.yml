@@ -12,20 +12,15 @@ updates:
     commit-message:
       prefix: chore
       include: scope
-    allow:
-      - dependency-type: production
+    # No `allow` filter. The extension ships two runtime dependencies; the
+    # toolchain that builds and tests it (TypeScript, webpack, ESLint, vitest,
+    # @types/vscode) is all devDependencies, so a production-only filter left
+    # almost the whole surface unwatched.
     groups:
       minor-and-patch:
         update-types:
           - minor
           - patch
-    ignore:
-      # Hold @vue/reactivity at 3.5.32 until pinia ships storeToRefs typings
-      # compatible with Vue 3.5.33's dual-generic Ref<Get, Set>. 3.5.33 makes
-      # `storeToRefs` over a setup store double-wrap each ref into
-      # Ref<Ref<T, T>, Ref<T, T>>, breaking RenderContext consumers.
-      - dependency-name: "@vue/reactivity"
-        versions: [">=3.5.33"]
 
   - package-ecosystem: github-actions
     directory: /
