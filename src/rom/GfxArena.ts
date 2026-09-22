@@ -21,6 +21,7 @@ import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern } from './BytePattern'
 import { LOROM_BANK_SIZE, loromFromOffset, loromToOffset } from './addressing'
 import { parseStream } from './LcLz2'
+import { formatHexBytes } from './ByteOp'
 
 /** $00B9C4 - $00B992 on a stock cart: the gap between the low and high
  *  tables IS the count (bank_00.asm:6415,6467). */
@@ -382,4 +383,47 @@ function pointerWrites(
     { offset: loromToOffset(sites.hi, rom.romSize)!, bytes: hi },
     { offset: loromToOffset(sites.bank, rom.romSize)!, bytes: bank },
   ]
+}
+
+/**
+ * The arena plan as layer ops, carrying only the bytes that actually change.
+ *
+ * How little that is depends entirely on WHERE the edit landed, and the
+ * measurement is worth stating because the intuition is wrong. The
+ * structure-preserving encoder returns every untouched file byte for byte,
+ * so an edit that does not change any stream's LENGTH costs only that
+ * stream. But a stream that grows by three bytes shifts every file behind
+ * it, and the diff is then the rest of the region. Measured on the vanilla
+ * cart, one machine: one pixel in GFX $00 changes 102,185 bytes; the same
+ * edit in GFX $31, the last file, changes 1,208. See
+ * docs/gfx-arena-budget.md.
+ *
+ * @param current  Cart bytes with the copier header already stripped, which
+ *                 is the frame `ArenaWrite.offset` is in.
+ */
+export function arenaLayerOps(
+  current: Uint8Array,
+  writes: readonly ArenaWrite[],
+): { address: string; oldBytes: string; newBytes: string }[] {
+  const ops: { address: string; oldBytes: string; newBytes: string }[] = []
+  for (const w of writes) {
+    let i = 0
+    while (i < w.bytes.length) {
+      if (w.bytes[i] === current[w.offset + i]) {
+        i++
+        continue
+      }
+      let end = i
+      while (end < w.bytes.length && w.bytes[end] !== current[w.offset + end]) end++
+      const snes = loromFromOffset(w.offset + i)
+      if (snes === null) throw new Error(`arena write at ${w.offset + i} is outside LoROM`)
+      ops.push({
+        address: `$${snes.toString(16).toUpperCase().padStart(6, '0')}`,
+        oldBytes: formatHexBytes(current.subarray(w.offset + i, w.offset + end)),
+        newBytes: formatHexBytes(w.bytes.subarray(i, end)),
+      })
+      i = end
+    }
+  }
+  return ops
 }

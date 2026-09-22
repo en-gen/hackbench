@@ -19,7 +19,13 @@ import {
 } from '../../../../src/rom/GraphicsDecoder'
 import { buildLevelCgram, loadRomPalettes } from '../../../../src/rom/PaletteLoader'
 import { hex2 } from '../../../../src/rom/hex'
-import { GfxBpp, GfxFileDto, GfxSheetDto, PALETTE_ROW_COUNT } from '../common/gfx-protocol'
+import {
+  GfxBpp,
+  GfxColorDto,
+  GfxFileDto,
+  GfxSheetDto,
+  PALETTE_ROW_COUNT,
+} from '../common/gfx-protocol'
 
 export const GFX_TILES_PER_ROW = 16
 
@@ -102,6 +108,7 @@ export function decodeGfxSheet(
   index: number,
   bpp?: GfxBpp,
   paletteRow?: number,
+  edited?: Uint8Array,
 ): GfxSheetDto {
   if (index < 0 || index >= GFX_FILE_COUNT) {
     throw new Error(`GFX file index out of range: ${index}`)
@@ -109,7 +116,10 @@ export function decodeGfxSheet(
   if (bpp !== undefined && !isGfxBpp(bpp)) {
     throw new Error(`Unsupported GFX bit depth: ${String(bpp)}`)
   }
-  const raw = loadGfxRaw(rom.rom, index)
+  // `edited` is the painter's in-memory sheet, which is ahead of the
+  // cartridge between an edit and a save. Colours still come from the
+  // working copy, so a palette edit made elsewhere shows up either way.
+  const raw = edited ?? loadGfxRaw(rom.rom, index)
   if (raw.length === 0) {
     throw new Error(`No readable GFX data at file $${hex2(index)}`)
   }
@@ -154,7 +164,15 @@ export function decodeGfxSheet(
     width,
     height,
     paletteRow: rowIdx,
+    paletteColors: (row as RgbaColor[]).map(toColorDto),
     paletteVariant: { ...PALETTE_VARIANT },
     rgbaBase64: Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength).toString('base64'),
   }
+}
+
+/** Index 0 is transparent whatever the ROM puts there, matching what
+ *  tilesToRgba paints, so the swatch strip cannot offer a colour the sheet
+ *  will not show. */
+function toColorDto([r, g, b, a]: RgbaColor, index: number): GfxColorDto {
+  return { r, g, b, a: index === 0 ? 0 : a }
 }

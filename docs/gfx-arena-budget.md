@@ -71,3 +71,28 @@ only edit that fits is one that makes the file more compressible. For any
 cartridge whose GFX region is already packed to its own end, the painter is
 unusable until en-gen/hackbench#446 (ROM expansion) lands, and two of the
 four editable carts in this corpus are in that state.
+
+## What a save costs an exported patch
+
+Separate question from the budget, and the intuition is wrong, so it is
+measured here too (vanilla cartridge, one machine).
+
+The encoder returns every untouched file byte for byte, so an edit that does
+not change any stream's LENGTH touches only that stream. But the files are
+packed with no gaps, so a stream that grows by three bytes shifts every file
+behind it, and the exported patch is then the rest of the region:
+
+| Edit | Runs | Bytes changed |
+| --- | ---: | ---: |
+| One pixel in GFX $00 (first file) | 4,598 | 102,185 |
+| One pixel in GFX $31 (last file) | 47 | 1,208 |
+| One tile painted flat in GFX $00 | 4,079 | 102,865 |
+
+So "the patch stays proportional to the edit" is true of the CONTENT and not
+of the position: an edit near the front of the arena exports as most of the
+region whatever the encoder does. Fixing that would mean laying files out in
+an order the cartridge does not currently use (pointers are per-file, so
+nothing requires them to stay in index order), which is a layout change this
+work deliberately did not make: the spec asks for a contiguous relay from the
+arena start, and reordering trades a smaller patch for slack burned on
+abandoned copies.

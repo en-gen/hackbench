@@ -35,8 +35,26 @@ import {
   Op,
 } from '../rom/PaletteOp'
 import { COPIER_HEADER_SIZE } from '../rom/addressing'
+import {
+  ByteRunOp,
+  applyByteRun,
+  byteRunFileOffset,
+  formatHexBytes,
+  isByteRunOp,
+  parseHexBytes,
+} from '../rom/ByteOp'
 
 export type { Op } from '../rom/PaletteOp'
+export type { ByteRunOp } from '../rom/ByteOp'
+
+/**
+ * What a layer can carry: one colour, or one run of raw bytes.
+ *
+ * Two shapes, not an open-ended instruction set. A palette op masks bit 15
+ * off (a CGRAM entry has none), which is exactly why graphics bytes need
+ * their own shape rather than being squeezed through it.
+ */
+export type LayerOp = Op | ByteRunOp
 
 export type LayerScope = 'edit' | 'preview'
 
@@ -46,7 +64,7 @@ export interface Layer {
   label: string
   /** Defaults to 'edit'. 'preview' layers never persist and never export. */
   scope?: LayerScope
-  ops: Op[]
+  ops: LayerOp[]
 }
 
 /**
@@ -200,10 +218,32 @@ export class WorkingRom {
     this.redoLayers.push(...layers)
   }
 
+  /**
+   * Take out the layer with this id, wherever it sits. Returns whether there
+   * was one.
+   *
+   * The GFX arena rewrite is DERIVED from the pixel ops, so re-deriving it
+   * has to supersede the previous derivation rather than stack a second copy
+   * of the whole region on top. Removing by id, not by position, is what
+   * makes that safe when a palette edit landed in between. Nothing joins the
+   * redo stack: a derived layer was never a user action to undo.
+   */
+  removeById(id: string): boolean {
+    const at = this.layerStack.findIndex(l => l.id === id)
+    if (at < 0) return false
+    const [layer] = this.layerStack.splice(at, 1)
+    this.invalidate({ kind: 'pop', layer: layer! })
+    return true
+  }
+
   /** Throws unless every op still matches the working copy it would apply to. */
   private validate(layer: Layer): void {
     const before = this.bytes()
     for (const op of layer.ops) {
+      if (isByteRunOp(op)) {
+        this.validateByteRun(op, before)
+        continue
+      }
       const offset = opFileOffset(op, this.romSize, this.hasHeader)
       if (offset === null) {
         throw new Error(`address ${op.address} is outside the cart`)
@@ -239,10 +279,24 @@ export class WorkingRom {
     for (const fn of this.listeners) fn(change)
   }
 
+  private validateByteRun(op: ByteRunOp, before: Uint8Array): void {
+    const offset = byteRunFileOffset(op, this.romSize, this.hasHeader)
+    if (offset === null) throw new Error(`byte run at ${op.address} does not fit in the cart`)
+    const expected = parseHexBytes(op.oldBytes)
+    const current = before.subarray(offset, offset + expected.length)
+    if (formatHexBytes(current) !== formatHexBytes(expected)) {
+      throw new Error(`stale byte run at ${op.address}: the cart no longer holds what it expects`)
+    }
+    parseHexBytes(op.newBytes) // rejected eagerly, so a bad layer never reaches the stack
+  }
+
   private computeBytes(layers: readonly Layer[]): Uint8Array {
     const out = new Uint8Array(this.base)
     for (const layer of layers) {
-      for (const op of layer.ops) applyOp(out, op, this.romSize, this.hasHeader)
+      for (const op of layer.ops) {
+        if (isByteRunOp(op)) applyByteRun(out, op, this.romSize, this.hasHeader)
+        else applyOp(out, op, this.romSize, this.hasHeader)
+      }
     }
     return out
   }

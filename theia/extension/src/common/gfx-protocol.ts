@@ -81,9 +81,54 @@ export interface GfxSheetDto {
   height: number
   /** Which of the 16 CGRAM rows actually coloured this preview. */
   paletteRow: number
+  /** That row's 16 colours, so the painter can draw a swatch per index it
+   *  can actually reach. Index 0 is transparent however the ROM colours it,
+   *  the same rule tilesToRgba applies. */
+  paletteColors: GfxColorDto[]
   paletteVariant: PaletteVariantDto
   /** RGBA8888 pixels, row-major, 16 tiles per row, base64-encoded. */
   rgbaBase64: string
+}
+
+/** One painted pixel on the wire. Mirrors GfxPixelOp in src/rom/GfxTable.ts,
+ *  minus the `kind` tag, which the RPC path already carries in the method. */
+export interface GfxPixelDto {
+  file: number
+  tile: number
+  x: number
+  y: number
+  value: number
+}
+
+/** An RGBA colour, the same shape palette-protocol.ts uses. */
+export interface GfxColorDto {
+  r: number
+  g: number
+  b: number
+  a: number
+}
+
+/** What a save did, or why it could not. */
+export type GfxSaveDto =
+  | { status: 'ok'; bytesChanged: number }
+  | { status: 'overflow'; overage: number; reason: string }
+  | { status: 'unavailable'; reason: string }
+
+export type SetGfxPixelDto = { status: 'ok' } | { status: 'refused'; reason: string }
+
+/**
+ * What the painter needs to tell the user where they stand.
+ *
+ * `slack` is what the packed regions have left, which on a stock cartridge
+ * is 755 bytes and on both Grand Poo Worlds is zero. See
+ * docs/gfx-arena-budget.md.
+ */
+export interface GfxEditStateDto {
+  dirtyFiles: number[]
+  /** Ops a reload could not replay, e.g. against a changed base cartridge. */
+  skippedOps: number
+  /** The last save attempt, or null when nothing has been saved this session. */
+  lastSave: GfxSaveDto | null
 }
 
 /**
@@ -128,4 +173,26 @@ export interface GfxService {
     bpp?: GfxBpp,
     paletteRow?: number,
   ): Promise<GfxSheetDto>
+
+  /**
+   * Paint one pixel.
+   *
+   * Takes effect in the decoded table immediately and is persisted as an op
+   * immediately; it does NOT reach the cartridge bytes until `saveGfx`. The
+   * painter has to say so, because an emulator preview will keep showing the
+   * unedited graphics until then.
+   */
+  setGfxPixel(manifestPath: string, pixel: GfxPixelDto): Promise<SetGfxPixelDto>
+
+  /**
+   * Re-encode every file and lay the arena out again.
+   *
+   * Refuses rather than writing anything when the repack does not fit, and
+   * reports the exact overage: on a stock 512 KB cartridge there are 755
+   * bytes of slack and on a fully packed hack there are none.
+   */
+  saveGfx(manifestPath: string): Promise<GfxSaveDto>
+
+  /** Dirty files and the last save outcome, for the painter's indicator. */
+  gfxEditState(manifestPath: string): Promise<GfxEditStateDto>
 }

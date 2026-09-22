@@ -104,3 +104,59 @@
 .hb-gfx-view-error {
   color: var(--theia-errorForeground);
 }
+
+/*
+ * The brush palette. One swatch per index the sheet can actually express:
+ * 4, 8 or 16 for 2, 3 or 4bpp. Sized in em so it tracks the editor font
+ * rather than pinning a pixel size the user cannot change.
+ */
+.hb-gfx-swatches {
+  display: flex;
+  gap: 2px;
+  padding: 4px 0;
+}
+
+.hb-gfx-swatch {
+  width: 1.5em;
+  height: 1.5em;
+  padding: 0;
+  border: 1px solid var(--theia-editorWidget-border);
+  cursor: pointer;
+}
+
+.hb-gfx-swatch-active {
+  outline: 2px solid var(--theia-focusBorder);
+  outline-offset: 1px;
+}
+
+/*
+ * Index 0 paints transparent, so its swatch shows the checker rather than
+ * whatever colour the ROM happens to store there: offering that colour
+ * would promise something the sheet will not draw.
+ */
+.hb-gfx-swatch-eraser {
+  background-image:
+    linear-gradient(45deg, var(--theia-editorWidget-border) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--theia-editorWidget-border) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--theia-editorWidget-border) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--theia-editorWidget-border) 75%);
+  background-size: 8px 8px;
+  background-position:
+    0 0,
+    0 4px,
+    4px -4px,
+    -4px 0;
+}
+
+.hb-gfx-view-dirty {
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-gfx-view-dirty[data-dirty='true'] {
+  color: var(--theia-editorWarning-foreground);
+}
+
+.hb-gfx-view-lens,
+.hb-gfx-view-notice {
+  color: var(--theia-descriptionForeground);
+}
