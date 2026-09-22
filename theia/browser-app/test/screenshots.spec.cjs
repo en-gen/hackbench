@@ -55,18 +55,26 @@ test.afterEach(() => {
 
 /** Activation matters: a widget attached but not visible renders nothing. */
 async function reveal(page, widgetId) {
-  await page.evaluate(id => getSvc('ApplicationShell').activateWidget(id), widgetId)
+  // Block body, not a concise one: activateWidget resolves to the Widget,
+  // and returning it fails with "object reference chain is too long".
+  await page.evaluate(async id => {
+    await getSvc('ApplicationShell').activateWidget(id)
+  }, widgetId)
   await page.waitForTimeout(800)
 }
 
 async function openProject(page, name) {
   return page.evaluate(
-    async ({ romPath, directory, projectName }) =>
-      getSvc('Symbol(ProjectService)').createProject({
+    async ({ romPath, directory, projectName }) => {
+      const p = await getSvc('Symbol(ProjectService)').createProject({
         romPath,
         name: projectName,
         directory,
-      }),
+      })
+      // Only the fields the test uses: the DTO itself carries references
+      // deep enough to defeat serialization.
+      return { manifestPath: p.manifestPath, name: p.name }
+    },
     { romPath: ROM, directory: path.join(tmp, name), projectName: name },
   )
 }

@@ -73,11 +73,17 @@ test('both Open Project and Project Properties are reachable from the File menu'
  * here was read out of a running app before being removed.
  */
 test('workspace and loose-file entries are gone from the File menu', async ({ page }) => {
-  // Seed a project first. The recent submenu is generated per remembered
-  // project and RecentProjects persists to disk, so on a developer machine an
-  // earlier project satisfied this and on a clean CI runner nothing did. The
-  // test asserted a precondition it never established, and failed the first
-  // time it ran anywhere fresh (run 35683353340).
+  // Seed a project, then reload. The recent submenu is generated per
+  // remembered project and RecentProjects persists to disk, so on a developer
+  // machine an earlier project satisfied this while a clean CI runner had
+  // none: the test asserted a precondition it never established (runs
+  // 35683353340, 35684409050).
+  //
+  // The reload is what makes the seed visible. refreshRecentMenu() runs from
+  // show() and from command registration at startup, and calling the service
+  // directly goes through neither, so the project is remembered while the
+  // menu still holds nothing. Reloading rebuilds it through the app's own
+  // startup path rather than reaching into a protected method.
   await page.evaluate(
     async ({ romPath, directory }) => {
       await getSvc('Symbol(ProjectService)').createProject({
@@ -88,6 +94,10 @@ test('workspace and loose-file entries are gone from the File menu', async ({ pa
     },
     { romPath: ROM, directory: path.join(tmp, 'RecentSeed') },
   )
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
+  await page.waitForTimeout(4000)
+  await page.addScriptTag({ content: GET_SVC })
 
   const ids = await page.evaluate(() => {
     const menus = getSvc('MenuModelRegistry')
