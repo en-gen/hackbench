@@ -1,6 +1,10 @@
 import { ContainerModule } from '@theia/core/shared/inversify'
 import { ConnectionHandler, RpcConnectionHandler } from '@theia/core/lib/common/messaging'
-import { PROJECT_SERVICE_PATH, ProjectService } from '../common/project-protocol'
+import {
+  PROJECT_SERVICE_PATH,
+  ProjectService,
+  ProjectServiceClient,
+} from '../common/project-protocol'
 import { ProjectServiceImpl } from './project-server'
 import { WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
 
@@ -19,7 +23,14 @@ export default new ContainerModule(bind => {
   bind(ConnectionHandler)
     .toDynamicValue(
       ctx =>
-        new RpcConnectionHandler(PROJECT_SERVICE_PATH, () => ctx.container.get(ProjectService)),
+        // The client is this connection's proxy back to the frontend, same
+        // shape as the palette handler: it is what lets an edit made in any
+        // view refresh the Edit menu's undo/redo enablement.
+        new RpcConnectionHandler<ProjectServiceClient>(PROJECT_SERVICE_PATH, client => {
+          const server = ctx.container.get<ProjectService>(ProjectService)
+          server.setClient(client)
+          return server
+        }),
     )
     .inSingletonScope()
 })

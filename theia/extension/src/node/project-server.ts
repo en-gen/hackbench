@@ -23,21 +23,29 @@ import { exportPatch } from '../../../../src/project/ExportPatch'
 import * as fs from 'fs'
 import {
   CreateProjectRequest,
+  EditStackResult,
   ExportPatchResult,
   HackMetadataDto,
   LoadMapsResult,
   MapDetailsDto,
   ProjectDto,
   ProjectService,
+  ProjectServiceClient,
   RecentProjectDto,
   RomIdentityDto,
 } from '../common/project-protocol'
+import { WorkingCopyNotifier } from './working-copy-notifier'
 
 @injectable()
 export class ProjectServiceImpl implements ProjectService {
   private readonly registry = new RomRegistry()
   private readonly recent = new RecentProjects()
   @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
+  private readonly notifier = new WorkingCopyNotifier<ProjectServiceClient>()
+
+  setClient(client: ProjectServiceClient | undefined): void {
+    this.notifier.setClient(client)
+  }
 
   async createProject(req: CreateProjectRequest): Promise<ProjectDto> {
     const p = createProject(req)
@@ -179,6 +187,26 @@ export class ProjectServiceImpl implements ProjectService {
       hasCopierHeader: written.hasCopierHeader,
       opCount: written.opCount,
     }
+  }
+
+  /**
+   * Reading the stack is also where this service starts WATCHING the working
+   * copy: the frontend calls it when a project opens, and from then on an
+   * edit made in any view (a palette colour) pushes here too, so the Edit
+   * menu's enablement is never stale.
+   */
+  async editStack(manifestPath: string): Promise<EditStackResult> {
+    const entry = this.workingRoms.get(manifestPath)
+    if (entry.status === 'ok') this.notifier.watch(manifestPath, entry.working)
+    return this.workingRoms.editStack(manifestPath)
+  }
+
+  async undo(manifestPath: string): Promise<EditStackResult> {
+    return this.workingRoms.undo(manifestPath)
+  }
+
+  async redo(manifestPath: string): Promise<EditStackResult> {
+    return this.workingRoms.redo(manifestPath)
   }
 }
 

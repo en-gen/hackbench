@@ -223,3 +223,145 @@ describe('WorkingRom', () => {
     expect(offset).toBe(unshifted + HEADER)
   })
 })
+
+/**
+ * Undo/redo over the layer stack.
+ *
+ * An undone layer is KEPT, not discarded, so redo can re-apply it. A new
+ * edit clears that redo future, which is the standard editor contract and
+ * also the only thing that keeps a redo layer's `old` meaningful: a layer
+ * held across a divergent edit would re-apply against bytes nobody looked at.
+ */
+describe('WorkingRom undo/redo', () => {
+  const base = (): Uint8Array => withWordAt(fakeRom(), MARIO_RED_ADDR, 0x391f)
+  const wordAt = (bytes: Uint8Array, romLen: number): number => {
+    const offset = loromToOffset(MARIO_RED_ADDR, romLen, false) as number
+    return bytes[offset] | (bytes[offset + 1] << 8)
+  }
+
+  it('undo removes the top layer and reverts bytes(), keeping it for redo', () => {
+    const rom = base()
+    const working = new WorkingRom(rom, false)
+    working.append(editLayer('L1', '$00B2CE', '$391F', '$03E0'))
+
+    const undone = working.undo()
+
+    expect(undone?.id).toBe('L1')
+    expect(working.stack).toHaveLength(0)
+    expect(working.redoStack.map(l => l.id)).toEqual(['L1'])
+    expect(wordAt(working.bytes(), rom.length)).toBe(0x391f)
+  })
+
+  it('redo re-applies the undone layer and takes it back off the redo stack', () => {
+    const rom = base()
+    const working = new WorkingRom(rom, false)
+    working.append(editLayer('L1', '$00B2CE', '$391F', '$03E0'))
+    working.undo()
+
+    const redone = working.redo()
+
+    expect(redone?.id).toBe('L1')
+    expect(working.stack.map(l => l.id)).toEqual(['L1'])
+    expect(working.redoStack).toHaveLength(0)
+    expect(wordAt(working.bytes(), rom.length)).toBe(0x03e0)
+  })
+
+  it('undo and redo are LIFO across several layers', () => {
+    const rom = base()
+    const working = new WorkingRom(rom, false)
+    working.append(editLayer('L1', '$00B2CE', '$391F', '$03E0'))
+    working.append(editLayer('L2', '$00B2CE', '$03E0', '$7C00'))
+
+    working.undo()
+    working.undo()
+    expect(working.redoStack.map(l => l.id)).toEqual(['L2', 'L1']) // L1 undone last, so on top
+    expect(wordAt(working.bytes(), rom.length)).toBe(0x391f)
+
+    working.redo()
+    expect(working.stack.map(l => l.id)).toEqual(['L1'])
+    expect(wordAt(working.bytes(), rom.length)).toBe(0x03e0)
+    working.redo()
+    expect(working.stack.map(l => l.id)).toEqual(['L1', 'L2'])
+    expect(wordAt(working.bytes(), rom.length)).toBe(0x7c00)
+  })
+
+  it('a new edit clears the redo future', () => {
+    const rom = base()
+    const working = new WorkingRom(rom, false)
+    working.append(editLayer('L1', '$00B2CE', '$391F', '$03E0'))
+    working.undo()
+    expect(working.redoStack).toHaveLength(1)
+
+    working.append(editLayer('L2', '$00B2CE', '$391F', '$7C00'))
+
+    expect(working.redoStack).toHaveLength(0)
+  })
+
+  /**
+   * `pop` is the ROLLBACK primitive: WorkingRomRegistry calls it when an
+   * edit validated in memory but failed to reach disk. That edit never
+   * happened, so offering it as something to "redo" would put a layer the
+   * user never made one keystroke away from being applied.
+   */
+  it('pop is rollback, not undo: it creates no redo entry', () => {
+    const rom = base()
+    const working = new WorkingRom(rom, false)
+    working.append(editLayer('L1', '$00B2CE', '$391F', '$03E0'))
+
+    working.pop()
+
+    expect(working.redoStack).toHaveLength(0)
+  })
+
+  it('undo on an empty stack returns undefined and changes nothing', () => {
+    const rom = base()
+    const working = new WorkingRom(rom, false)
+    expect(working.undo()).toBeUndefined()
+    expect(working.redoStack).toHaveLength(0)
+    expect(sameBytes(working.bytes(), rom)).toBe(true)
+  })
+
+  it('redo with nothing undone returns undefined and changes nothing', () => {
+    const rom = base()
+    const working = new WorkingRom(rom, false)
+    working.append(editLayer('L1', '$00B2CE', '$391F', '$03E0'))
+    expect(working.redo()).toBeUndefined()
+    expect(working.stack).toHaveLength(1)
+    expect(wordAt(working.bytes(), rom.length)).toBe(0x03e0)
+  })
+
+  it('onDidChange reports undo as a pop and redo as an append', () => {
+    const rom = base()
+    const working = new WorkingRom(rom, false)
+    working.append(editLayer('L1', '$00B2CE', '$391F', '$03E0'))
+    const seen: Array<{ kind: string; layerId: string }> = []
+    working.onDidChange(c => seen.push({ kind: c.kind, layerId: c.layer.id }))
+
+    working.undo()
+    working.redo()
+
+    expect(seen).toEqual([
+      { kind: 'pop', layerId: 'L1' },
+      { kind: 'append', layerId: 'L1' },
+    ])
+  })
+
+  /**
+   * The persisted-redo case: `ops/redo/` is read back at project open and
+   * seeded here. A file that was hand-edited, or that belongs to a different
+   * base cartridge, holds an `old` the cart does not match - and redo must
+   * refuse rather than write over bytes nobody looked at.
+   */
+  it('restoreRedo seeds the redo stack, and a redo whose "old" diverged refuses', () => {
+    const rom = base()
+    const working = new WorkingRom(rom, false)
+    working.restoreRedo([editLayer('STALE', '$00B2CE', '$7C00', '$03E0')])
+
+    expect(working.redoStack.map(l => l.id)).toEqual(['STALE'])
+    expect(() => working.redo()).toThrow(/stale/i)
+    // Refused, not half-applied: the layer stays where it was and nothing moved.
+    expect(working.stack).toHaveLength(0)
+    expect(working.redoStack).toHaveLength(1)
+    expect(sameBytes(working.bytes(), rom)).toBe(true)
+  })
+})

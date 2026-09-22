@@ -7,7 +7,17 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import { appendLayer, loadLayers, popLayer, OPS_DIR } from '../../../src/project/OpsStore'
+import {
+  appendLayer,
+  clearRedo,
+  loadLayers,
+  loadRedoLayers,
+  popLayer,
+  popRedoLayer,
+  pushRedoLayer,
+  OPS_DIR,
+  REDO_DIR,
+} from '../../../src/project/OpsStore'
 import { Layer } from '../../../src/project/WorkingRom'
 
 let tmp: string
@@ -73,5 +83,69 @@ describe('OpsStore', () => {
       old: '$391F',
       new: '$03E0',
     })
+  })
+})
+
+/**
+ * The redo area: `ops/redo/`, holding layers `undo` took off the stack.
+ *
+ * Persisted rather than held in memory so redo survives closing the project.
+ * Same file format and same zero-padded naming as `ops/` itself, so the
+ * highest index is the top of the stack - the next layer `redo` re-applies.
+ */
+describe('OpsStore redo area', () => {
+  it('a project with no redo/ directory yet loads as an empty redo stack', () => {
+    expect(loadRedoLayers(tmp)).toEqual([])
+  })
+
+  it('round-trips an undone layer: address, old and new all survive', () => {
+    pushRedoLayer(tmp, layer('L1'))
+    expect(loadRedoLayers(tmp)).toEqual([layer('L1')])
+  })
+
+  it('preserves undo order, oldest-undone first', () => {
+    pushRedoLayer(tmp, layer('L3'))
+    pushRedoLayer(tmp, layer('L2'))
+    pushRedoLayer(tmp, layer('L1'))
+    expect(loadRedoLayers(tmp).map(l => l.id)).toEqual(['L3', 'L2', 'L1'])
+  })
+
+  it('popRedoLayer removes only the most recently undone layer', () => {
+    pushRedoLayer(tmp, layer('L2'))
+    pushRedoLayer(tmp, layer('L1'))
+    popRedoLayer(tmp)
+    expect(loadRedoLayers(tmp).map(l => l.id)).toEqual(['L2'])
+  })
+
+  it('popping an empty redo stack is a no-op, not a throw', () => {
+    expect(() => popRedoLayer(tmp)).not.toThrow()
+    expect(loadRedoLayers(tmp)).toEqual([])
+  })
+
+  it('clearRedo empties the redo area, and is safe when there is none', () => {
+    expect(() => clearRedo(tmp)).not.toThrow()
+    pushRedoLayer(tmp, layer('L1'))
+    pushRedoLayer(tmp, layer('L2'))
+    clearRedo(tmp)
+    expect(loadRedoLayers(tmp)).toEqual([])
+  })
+
+  /**
+   * `redo/` lives INSIDE `ops/`, so this proves the applied-stack reader is
+   * not confused by it. `layerFiles` filters to `.json`, which a directory
+   * is not - but that is an invariant worth a test rather than a reading,
+   * because a redo entry leaking into the applied stack would re-apply an
+   * edit the user explicitly undid.
+   */
+  it('redo entries never appear in the applied stack', () => {
+    appendLayer(tmp, layer('APPLIED'))
+    pushRedoLayer(tmp, layer('UNDONE'))
+    expect(loadLayers(tmp).map(l => l.id)).toEqual(['APPLIED'])
+  })
+
+  it('the redo area sits under ops/, one file per undone layer', () => {
+    pushRedoLayer(tmp, layer('L1'))
+    const files = fs.readdirSync(path.join(tmp, OPS_DIR, REDO_DIR)).filter(f => f.endsWith('.json'))
+    expect(files).toHaveLength(1)
   })
 })

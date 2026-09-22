@@ -167,6 +167,17 @@ staging a per-tick drag layer, after an earlier version of that design
 caused a real bug. The scope stays as a general `WorkingRom` capability for
 whichever editor needs a live, discardable layer next.
 
+**Redo area.** `ops/redo/`, holding layers `undo` took off the top of the
+stack. The append-only rule still holds where it matters - a layer only ever
+leaves the top, and a redo only ever puts one back on the top - but an undone
+layer is KEPT rather than deleted, and kept on disk, so redo survives closing
+the project. A new edit ends the redo future and empties the directory: a
+layer held across a divergent edit would re-apply against bytes the user never
+looked at, which `WorkingRom.redo`'s `old` check refuses anyway. Because
+`ops/` is committed, `ops/redo/` is too, so a diff can contain layers that are
+not applied to the working copy; they are the same hex-text ops, never
+cartridge bytes.
+
 **Working copy.** The base cartridge with every layer in a project's stack
 applied, IN ORDER (`WorkingRom.bytes()`). A MIGRATED view renders this, never
 the base cartridge directly - an edit made in one such view (a palette

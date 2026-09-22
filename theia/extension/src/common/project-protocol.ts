@@ -138,7 +138,57 @@ export type ExportPatchResult =
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
   | { status: 'unreadable'; reason: string }
 
+/**
+ * What undo and redo can do for the open project right now.
+ *
+ * Mirrors src/project/WorkingRomRegistry.EditStackState; declared again here
+ * because this file is the wire contract and must not drag the project layer
+ * into the frontend bundle.
+ *
+ * The labels are the layers' own, so a caller can name the edit that is about
+ * to move rather than offering a bare "Undo".
+ */
+export interface EditStackDto {
+  canUndo: boolean
+  canRedo: boolean
+  undoLabel: string | null
+  redoLabel: string | null
+}
+
+/**
+ * Result of reading or moving the edit stack.
+ *
+ * `stale` is the redo refusal: a persisted `ops/redo/` entry whose address no
+ * longer holds the value it recorded (hand-edited, or belonging to a different
+ * base cartridge). Nothing is written, and the layer stays redoable.
+ *
+ * `io-error` is the write-back failing after the in-memory move already
+ * succeeded; the working copy is rolled back to match, same as `setColor`.
+ *
+ * Running out of layers is NOT an error: it comes back `ok` with `canUndo` or
+ * `canRedo` false. A user pressing Ctrl+Z on an untouched project has not done
+ * anything that deserves a message.
+ */
+export type EditStackResult =
+  | ({ status: 'ok' } & EditStackDto)
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+  | { status: 'unreadable'; reason: string }
+  | { status: 'stale'; reason: string }
+  | { status: 'io-error'; reason: string }
+
+/**
+ * Pushed to the frontend when a project's working copy changes, so the Edit
+ * menu's enablement reflects an edit made in any view. No payload beyond which
+ * project: a subscriber re-fetches, same reasoning as PaletteServiceClient.
+ */
+export interface ProjectServiceClient {
+  onWorkingCopyChanged(manifestPath: string): void
+}
+
 export interface ProjectService {
+  /** Registers the frontend's push target. Theia calls this once per connection. */
+  setClient(client: ProjectServiceClient | undefined): void
+
   /**
    * Create a project against a base ROM.
    *
@@ -208,4 +258,22 @@ export interface ProjectService {
    * layer (mid-drag) is never part of an export.
    */
   exportPatch(manifestPath: string): Promise<ExportPatchResult>
+
+  /**
+   * What undo/redo can do for this project right now, without moving
+   * anything. The Edit menu's enablement is synchronous, so the frontend
+   * caches this and refreshes it on the working-copy push.
+   */
+  editStack(manifestPath: string): Promise<EditStackResult>
+
+  /**
+   * Undo: take the top edit layer off the stack.
+   *
+   * The layer is KEPT, in `ops/redo/`, so the redo survives the project being
+   * closed. Returns the stack's state afterwards.
+   */
+  undo(manifestPath: string): Promise<EditStackResult>
+
+  /** Redo: put the most recently undone layer back. */
+  redo(manifestPath: string): Promise<EditStackResult>
 }
