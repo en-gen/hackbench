@@ -63,6 +63,8 @@ export interface WorkingRomChange {
 export class WorkingRom {
   private readonly romSize: number
   private readonly layerStack: Layer[] = []
+  /** Layers taken off by `undo`, kept so `redo` can put them back. */
+  private readonly redoLayers: Layer[] = []
   private cached: Uint8Array | null = null
   private readonly listeners = new Set<(change: WorkingRomChange) => void>()
 
@@ -124,6 +126,82 @@ export class WorkingRom {
    * looked at when they made the edit.
    */
   append(layer: Layer): void {
+    this.validate(layer)
+    this.layerStack.push(layer)
+    // A new edit ends the redo future. Standard editor behaviour, and also
+    // the only thing keeping a held layer's `old` meaningful: redoing across
+    // a divergent edit would write over bytes the user never looked at.
+    this.redoLayers.length = 0
+    this.invalidate({ kind: 'append', layer })
+  }
+
+  /**
+   * Removes and returns the top layer, DISCARDING it.
+   *
+   * This is the ROLLBACK primitive, not undo: WorkingRomRegistry calls it
+   * when a layer validated in memory but failed to reach disk. That edit
+   * never happened, so it must not join the redo stack - offering it back
+   * would put a layer the user never made one keystroke from applying.
+   * User-facing undo is `undo()`.
+   */
+  pop(): Layer | undefined {
+    const layer = this.layerStack.pop()
+    if (layer) this.invalidate({ kind: 'pop', layer })
+    return layer
+  }
+
+  /** The undone layers, oldest-undone first; the LAST is what `redo` applies. */
+  get redoStack(): readonly Layer[] {
+    return this.redoLayers
+  }
+
+  /**
+   * Undo: move the top layer onto the redo stack.
+   *
+   * Reported as a `pop` change, because that is what happened to the working
+   * copy - a subscriber re-reading `bytes()` cannot tell, and should not
+   * have to care, whether the layer was kept.
+   */
+  undo(): Layer | undefined {
+    const layer = this.layerStack.pop()
+    if (!layer) return undefined
+    this.redoLayers.push(layer)
+    this.invalidate({ kind: 'pop', layer })
+    return layer
+  }
+
+  /**
+   * Redo: re-apply the most recently undone layer.
+   *
+   * Validated exactly as `append` validates, and BEFORE anything moves, so a
+   * layer whose `old` no longer matches (a hand-edited `ops/redo/` file, or
+   * one belonging to a different base cartridge) refuses with the stack
+   * untouched rather than writing over bytes nobody looked at.
+   */
+  redo(): Layer | undefined {
+    const layer = this.redoLayers[this.redoLayers.length - 1]
+    if (!layer) return undefined
+    this.validate(layer)
+    this.redoLayers.pop()
+    this.layerStack.push(layer)
+    this.invalidate({ kind: 'append', layer })
+    return layer
+  }
+
+  /**
+   * Seed the redo stack from persisted `ops/redo/`, oldest-undone first.
+   *
+   * Deliberately NOT validated here: a stale entry would otherwise make the
+   * whole project fail to open, when the honest outcome is a project that
+   * opens fine and one redo that refuses when it is actually asked for.
+   */
+  restoreRedo(layers: readonly Layer[]): void {
+    this.redoLayers.length = 0
+    this.redoLayers.push(...layers)
+  }
+
+  /** Throws unless every op still matches the working copy it would apply to. */
+  private validate(layer: Layer): void {
     const before = this.bytes()
     for (const op of layer.ops) {
       const offset = opFileOffset(op, this.romSize, this.hasHeader)
@@ -140,15 +218,6 @@ export class WorkingRom {
       }
       parseBgr555Word(op.new) // validated eagerly so a bad layer never reaches the stack
     }
-    this.layerStack.push(layer)
-    this.invalidate({ kind: 'append', layer })
-  }
-
-  /** Removes and returns the top layer, or undefined if the stack is empty. */
-  pop(): Layer | undefined {
-    const layer = this.layerStack.pop()
-    if (layer) this.invalidate({ kind: 'pop', layer })
-    return layer
   }
 
   /**

@@ -14,7 +14,15 @@ import { openProject, Project, RomIdentity } from './Project'
 import { RomRegistry } from './RomRegistry'
 import { RomFile } from '../rom/RomFile'
 import { Layer, WorkingRom } from './WorkingRom'
-import { loadLayers, appendLayer } from './OpsStore'
+import {
+  loadLayers,
+  appendLayer,
+  popLayer,
+  loadRedoLayers,
+  pushRedoLayer,
+  popRedoLayer,
+  clearRedo,
+} from './OpsStore'
 
 export interface WorkingRomEntry {
   working: WorkingRom
@@ -26,6 +34,29 @@ export type WorkingRomResult =
   | ({ status: 'ok' } & WorkingRomEntry)
   | { status: 'rom-not-located'; baseRom: RomIdentity }
   | { status: 'unreadable'; reason: string }
+
+/**
+ * What undo/redo can do right now, and what each would be called.
+ *
+ * The labels are the layers' own, so the caller can say "Undo set $00B2CE to
+ * $03E0" rather than a bare "Undo": which edit is about to disappear is the
+ * one thing a user needs before pressing it.
+ */
+export interface EditStackState {
+  canUndo: boolean
+  canRedo: boolean
+  /** Label of the layer undo would take off, or null when there is none. */
+  undoLabel: string | null
+  /** Label of the layer redo would put back, or null when there is none. */
+  redoLabel: string | null
+}
+
+export type EditStackResult =
+  | ({ status: 'ok' } & EditStackState)
+  | { status: 'rom-not-located'; baseRom: RomIdentity }
+  | { status: 'unreadable'; reason: string }
+  | { status: 'stale'; reason: string }
+  | { status: 'io-error'; reason: string }
 
 export interface SetColorRequest {
   /** 24-bit SNES address of the CGRAM word being changed. */
@@ -72,6 +103,9 @@ export class WorkingRomRegistry {
       for (const layer of loadLayers(project.directory)) {
         working.append(layer)
       }
+      // AFTER the replay: `append` clears the redo future, so seeding first
+      // would wipe the very stack this is restoring.
+      working.restoreRedo(loadRedoLayers(project.directory))
     } catch (err) {
       return { status: 'unreadable', reason: (err as Error).message }
     }
@@ -129,6 +163,11 @@ export class WorkingRomRegistry {
     }
 
     try {
+      // `append` has already ended the redo future in memory; this is the
+      // same decision on disk. Done BEFORE the write so a failure leaves the
+      // two agreeing - a disk redo the working copy no longer knows about
+      // would come back, applicable, on the next launch.
+      clearRedo(project.directory)
       appendLayer(project.directory, layer)
     } catch (err) {
       working.pop() // roll back: it never actually took effect
@@ -136,5 +175,85 @@ export class WorkingRomRegistry {
     }
 
     return r
+  }
+
+  /** What undo/redo can do for this project right now. */
+  editStack(manifestPath: string): EditStackResult {
+    const r = this.get(manifestPath)
+    if (r.status !== 'ok') return r
+    return { status: 'ok', ...stateOf(r.working) }
+  }
+
+  /**
+   * Undo: take the top layer off and KEEP it, on disk, so redo survives the
+   * project being closed.
+   *
+   * Nothing to undo is an `ok` no-op rather than a failure: a user pressing
+   * Ctrl+Z on an untouched project has not done anything wrong, and the
+   * returned state already says `canUndo: false`.
+   */
+  undo(manifestPath: string): EditStackResult {
+    const r = this.get(manifestPath)
+    if (r.status !== 'ok') return r
+    const { working, project } = r
+
+    const layer = working.undo()
+    if (!layer) return { status: 'ok', ...stateOf(working) }
+
+    try {
+      popLayer(project.directory)
+      pushRedoLayer(project.directory, layer)
+    } catch (err) {
+      // Put it back: an undo live in memory but not on disk would come back
+      // from the dead on the next launch, which is the same failure mode
+      // setColor's own rollback exists to prevent.
+      working.redo()
+      return { status: 'io-error', reason: (err as Error).message }
+    }
+
+    return { status: 'ok', ...stateOf(working) }
+  }
+
+  /**
+   * Redo: put the most recently undone layer back.
+   *
+   * `stale` is WorkingRom.redo's refusal, reachable here for a persisted
+   * redo whose address no longer holds what it expects - a hand-edited
+   * `ops/redo/`, or one belonging to a different base cartridge. Nothing is
+   * written in that case, and the layer stays redoable.
+   */
+  redo(manifestPath: string): EditStackResult {
+    const r = this.get(manifestPath)
+    if (r.status !== 'ok') return r
+    const { working, project } = r
+
+    let layer: Layer | undefined
+    try {
+      layer = working.redo()
+    } catch (err) {
+      return { status: 'stale', reason: (err as Error).message }
+    }
+    if (!layer) return { status: 'ok', ...stateOf(working) }
+
+    try {
+      popRedoLayer(project.directory)
+      appendLayer(project.directory, layer)
+    } catch (err) {
+      working.undo() // roll back, same reasoning as undo's own failure path
+      return { status: 'io-error', reason: (err as Error).message }
+    }
+
+    return { status: 'ok', ...stateOf(working) }
+  }
+}
+
+function stateOf(working: WorkingRom): EditStackState {
+  const top = working.stack[working.stack.length - 1]
+  const next = working.redoStack[working.redoStack.length - 1]
+  return {
+    canUndo: !!top,
+    canRedo: !!next,
+    undoLabel: top?.label ?? null,
+    redoLabel: next?.label ?? null,
   }
 }

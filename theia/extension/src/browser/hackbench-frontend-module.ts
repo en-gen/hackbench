@@ -24,14 +24,21 @@ import { BrandContribution } from './brand-contribution'
 import { MapExplorerContribution } from './map-explorer-contribution'
 import { createMapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
 import { MapViewWidget, MAP_VIEW_ID } from './map-view-widget'
+import { ProjectFrontendClient } from './project-push-client'
+import { EditStackContribution } from './edit-stack-contribution'
 
 export default new ContainerModule(bind => {
+  bind(ProjectFrontendClient).toSelf().inSingletonScope()
+
   // The frontend cannot touch the filesystem, so project creation is a proxy
-  // onto the backend service over JSON-RPC.
+  // onto the backend service over JSON-RPC. The client is this connection's
+  // push target: the backend uses it to report a working-copy change, which
+  // is what keeps Edit > Undo/Redo enabled correctly.
   bind(ProjectService)
     .toDynamicValue(ctx => {
       const provider = ctx.container.get<ServiceConnectionProvider>(RemoteConnectionProvider)
-      return provider.createProxy<ProjectService>(PROJECT_SERVICE_PATH)
+      const client = ctx.container.get(ProjectFrontendClient)
+      return provider.createProxy<ProjectService>(PROJECT_SERVICE_PATH, client)
     })
     .inSingletonScope()
 
@@ -41,6 +48,11 @@ export default new ContainerModule(bind => {
   bind(HackBenchContribution).toSelf().inSingletonScope()
   bind(CommandContribution).toService(HackBenchContribution)
   bind(MenuContribution).toService(HackBenchContribution)
+
+  // No MenuContribution: this claims Theia's existing Edit > Undo/Redo
+  // entries rather than adding a second pair beside them.
+  bind(EditStackContribution).toSelf().inSingletonScope()
+  bind(CommandContribution).toService(EditStackContribution)
 
   // The tree gets its own child container: Theia builds a model, expansion
   // service and selection service per tree, so the widget cannot be a plain
