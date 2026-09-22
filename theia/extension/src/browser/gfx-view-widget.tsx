@@ -92,7 +92,7 @@ export class GfxViewWidget extends ReactWidget {
     this.id = `${GFX_VIEW_ID}:${options.index}`
     this.title.label = options.label
     this.title.caption = options.label
-    this.title.iconClass = 'codicon codicon-extensions'
+    this.title.iconClass = 'codicon codicon-file-media'
 
     this.sheet = undefined
     this.error = undefined
