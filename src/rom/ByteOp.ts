@@ -12,7 +12,7 @@
  * and are not persisted, so nothing cartridge-derived reaches `ops/`. See
  * src/rom/EditStack.ts for why what is stored is the edit, not the bytes.
  */
-import { loromToOffset } from './addressing'
+import { COPIER_HEADER_SIZE, loromToOffset } from './addressing'
 import { parseHexAddr } from './PaletteOp'
 
 export interface ByteRunOp {
@@ -45,8 +45,16 @@ export function formatHexBytes(bytes: Uint8Array): string {
   return s
 }
 
-/** The file offset this op's first byte resolves to, or null if it is
- *  outside the cart. The whole run must fit, not only its first byte. */
+/**
+ * The BUFFER offset this op's first byte resolves to, or null if the run
+ * does not fit. The whole run must fit, not only its first byte.
+ *
+ * Buffer, not cart-relative: `applyByteRun` indexes the file bytes directly,
+ * so the copier header is included here. That is the opposite convention to
+ * `ArenaWrite.offset`, which is cart-relative because it is handed to
+ * `RomFile.readAtFileOffset`. Mixing the two is a 512-byte silent write to
+ * the wrong place, so each is stated where it is produced.
+ */
 export function byteRunFileOffset(
   op: ByteRunOp,
   romSize: number,
@@ -55,7 +63,7 @@ export function byteRunFileOffset(
   const length = parseHexBytes(op.newBytes).length
   const offset = loromToOffset(parseHexAddr(op.address), romSize, hasHeader)
   if (offset === null) return null
-  const base = hasHeader ? offset - 512 : offset
+  const base = hasHeader ? offset - COPIER_HEADER_SIZE : offset
   return base + length <= romSize ? offset : null
 }
 

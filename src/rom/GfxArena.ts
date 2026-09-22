@@ -16,6 +16,20 @@
  * PrepareGraphicsFile's own operands (bank_00.asm:6571-6591), so a hack that
  * relocates them is still readable and a hack that replaced them is refused
  * rather than written over.
+ *
+ * OFFSET FRAME. Everything in this module, `ArenaWrite.offset` included, is
+ * CART-RELATIVE: the copier header is excluded. That is the frame
+ * `RomFile.readAtFileOffset` takes (it adds the header itself), the frame
+ * `findPattern` returns, and the frame `loromFromOffset` inverts, so
+ * `loromToOffset` is called here with TWO arguments and must stay that way.
+ * Passing `hasHeader` as its third would add the header to a number that is
+ * then handed to `readAtFileOffset`, which adds it again: every read a
+ * header late, and every pointer-table write address a header high, which
+ * is a silent write over whatever lives there. `ByteOp.byteRunFileOffset`
+ * uses the other frame, buffer-absolute, because it indexes the bytes
+ * directly; the two are never mixed.
+ * test/suite/unit/GfxArena.header.test.ts plants the mistake and proves the
+ * headered and headerless twins diverge under it.
  */
 import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern } from './BytePattern'
@@ -186,7 +200,7 @@ export function readGfxFileTable(rom: RomFile): GfxFileExtent[] {
     const hi = rom.readByte(sites.hi + index)
     const bank = rom.readByte(sites.bank + index)
     const snesAddr = lo === null || hi === null || bank === null ? 0 : (bank << 16) | (hi << 8) | lo
-    const offset = loromToOffset(snesAddr, rom.romSize)
+    const offset = loromToOffset(snesAddr, rom.romSize) // cart-relative; see OFFSET FRAME
     if (offset === null) {
       files.push({
         index,
@@ -378,6 +392,9 @@ function pointerWrites(
     hi[i] = (snes >> 8) & 0xff
     bank[i] = (snes >> 16) & 0xff
   }
+  // Cart-relative, per OFFSET FRAME. These three are addresses to WRITE to,
+  // so a frame error here is not a bad read, it is 150 bytes over whatever
+  // sits a copier header away, with no refusal to notice it.
   return [
     { offset: loromToOffset(sites.lo, rom.romSize)!, bytes: lo },
     { offset: loromToOffset(sites.hi, rom.romSize)!, bytes: hi },
@@ -399,7 +416,9 @@ function pointerWrites(
  * docs/gfx-arena-budget.md.
  *
  * @param current  Cart bytes with the copier header already stripped, which
- *                 is the frame `ArenaWrite.offset` is in.
+ *                 is the frame `ArenaWrite.offset` is in. Passing the raw
+ *                 file here on a headered cart would diff every byte
+ *                 against its neighbour 512 places away.
  */
 export function arenaLayerOps(
   current: Uint8Array,

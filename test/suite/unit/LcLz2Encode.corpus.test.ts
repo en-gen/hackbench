@@ -40,6 +40,10 @@ const EXPECTED_CARTS = [
  *  the corpus holds the stock prologue. Measured, 6 of 6, one machine. */
 const NON_STOCK_COMPRESSION = new Set(['Invictus 1.0.sfc'])
 
+/** The corpus's headered dumps: 524,800 bytes, so `size % 1024 === 512`.
+ *  A copier-header frame error reads identically on every other cart. */
+const HEADERED = new Set(['Super Mario World (USA).magic.sfc'])
+
 for (const name of EXPECTED_CARTS) {
   const path = resolve(ROMS_DIR, name)
   const present = existsSync(path)
@@ -48,6 +52,10 @@ for (const name of EXPECTED_CARTS) {
   describe.skipIf(!present || !stock)(`${name}: structure-preserving re-encode`, () => {
     it('reproduces every GFX stream byte for byte', () => {
       const rom = RomFile.load(path)
+      // Tripwire: the .magic dump is the corpus's only headered cart, and a
+      // 512-byte frame error is invisible on the other five. If it ever
+      // stops being headered this suite silently stops covering that case.
+      expect(rom.hasHeader, `${name} header`).toBe(HEADERED.has(name))
       expect(checkStockCompression(rom).ok).toBe(true)
       const readable = readableFiles(rom)
 

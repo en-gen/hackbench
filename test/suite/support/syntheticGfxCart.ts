@@ -9,7 +9,7 @@
  */
 import { RomFile } from '../../../src/rom/RomFile'
 import { encode } from '../../../src/rom/LcLz2'
-import { loromFromOffset } from '../../../src/rom/addressing'
+import { COPIER_HEADER_SIZE, loromFromOffset } from '../../../src/rom/addressing'
 import { GFX_FILE_COUNT, STOCK_LCLZ2_ENTRY } from '../../../src/rom/GfxArena'
 
 export const CART_SIZE = 0x18000 // three LoROM banks: tables, routine, arena
@@ -92,6 +92,12 @@ export interface CartOptions {
   routine?: number[]
   /** The tile-count site, or null to leave it out entirely. */
   uploadSite?: number[] | null
+  /**
+   * Prepend a 512-byte copier header, making this the headered twin of the
+   * same cartridge. CART_SIZE is a whole number of KB, so adding the header
+   * is exactly what `hasCopierHeader` detects.
+   */
+  headered?: boolean
 }
 
 export interface SyntheticCart {
@@ -135,7 +141,11 @@ export function buildCart(opts: CartOptions = {}): SyntheticCart {
     buf[TABLE_HI - 0x8000 + i] = (snes >> 8) & 0xff
     buf[TABLE_BANK - 0x8000 + i] = (snes >> 16) & 0xff
   }
-  return { rom: new RomFile('synthetic.sfc', buf), offsets }
+  if (!opts.headered) return { rom: new RomFile('synthetic.sfc', buf), offsets }
+  // Junk in the header, not zeroes: a header full of $00 would let an
+  // off-by-512 read look plausible instead of obviously wrong.
+  const header = Buffer.alloc(COPIER_HEADER_SIZE, 0x5a)
+  return { rom: new RomFile('synthetic.smc', Buffer.concat([header, buf])), offsets }
 }
 
 /** Apply an arena plan to a copy of the cart, the way the working copy will. */
@@ -144,6 +154,11 @@ export function applyWrites(
   writes: readonly { offset: number; bytes: Uint8Array }[],
 ): RomFile {
   const buf = Buffer.from(rom.buffer)
-  for (const w of writes) buf.set(w.bytes, w.offset)
+  // `ArenaWrite.offset` is CART-relative, the same frame
+  // `RomFile.readAtFileOffset` takes, so the copier header is added here and
+  // exactly once. Writing at the bare offset on a headered cart would land
+  // 512 bytes early, over whatever actually lives there.
+  const base = rom.hasHeader ? COPIER_HEADER_SIZE : 0
+  for (const w of writes) buf.set(w.bytes, base + w.offset)
   return new RomFile(rom.filePath, buf)
 }

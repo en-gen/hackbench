@@ -261,6 +261,21 @@ describe('planGfxSave', () => {
     expect(r.status).toBe('unavailable')
   })
 
+  it('turns an encoder that THROWS into a refusal, not an escaping exception', () => {
+    // Every other refusal returns a status. This one has to as well: an
+    // exception out of the save path crashes the caller instead of telling
+    // the user why nothing was written.
+    const { rom } = cartWith3bppFiles()
+    const throwing = (): Uint8Array => {
+      throw new Error('template stream is not terminated')
+    }
+    const r = planGfxSave(rom, GfxTable.load(rom), throwing)
+    expect(r.status).toBe('unavailable')
+    if (r.status !== 'unavailable') return
+    expect(r.reason).toMatch(/did not re-encode/)
+    expect(r.reason).toMatch(/not terminated/)
+  })
+
   it('refuses a cartridge whose decompressor has been replaced', () => {
     const entryBytes = [0x22, 0, 0, 0x20, 0xea, 0x22, 0, 0, 0x20, 0x60]
     const streams = Array.from({ length: GFX_FILE_COUNT }, (_, i) =>
