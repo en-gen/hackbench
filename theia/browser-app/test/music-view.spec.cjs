@@ -246,6 +246,14 @@ test('a project whose cartridge is not on this machine asks for it', async ({ pa
  * cart HackBench genuinely cannot read unless the UI says which.
  */
 test('a cartridge whose music bank cannot be read says so, not "no tracks"', async ({ page }) => {
+  // Guarded like its siblings in gfx-view.spec.cjs: this needs a SECOND cart
+  // that CI does not have, and an unguarded require would fail the whole run
+  // for a reason unrelated to the change under test.
+  test.skip(
+    !fs.existsSync(ROM_UNREADABLE_BANK),
+    `second cartridge not present at ${ROM_UNREADABLE_BANK}; the AddmusicK ` +
+      'refusal assertion (#417) cannot run without it and must SKIP, not pass.',
+  )
   const result = await loadMusic(page, path.join(tmp, 'Unreadable'), ROM_UNREADABLE_BANK)
   expect(result.error).toBeUndefined()
 

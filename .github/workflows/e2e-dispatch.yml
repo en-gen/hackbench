@@ -1,0 +1,72 @@
+# Runs the Playwright end-to-end suite, which lives in the private
+# en-gen/hackbench-playwright repo because it needs a real cartridge and
+# test/roms/ can never be committed here. That repo holds the OneDrive
+# credential; this one holds only a dispatch token scoped to its Actions, so a
+# leak here cannot reach the ROM storage.
+#
+# Deliberately not part of ci.yml: the run pays a full Theia workspace install
+# and frontend bundle, which has no business blocking an ordinary PR.
+name: e2e-dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      hackbench_ref:
+        description: 'hackbench ref to test. Defaults to this run ref.'
+        required: false
+        type: string
+
+env:
+  TARGET_REPO: en-gen/hackbench-playwright
+  TARGET_WORKFLOW: e2e-playwright.yml
+
+jobs:
+  e2e:
+    name: Playwright (remote)
+    runs-on: ubuntu-latest
+    # The remote run installs a 734-package Theia workspace, bundles the
+    # frontend and runs the suite serially.
+    timeout-minutes: 90
+    steps:
+      - name: Trigger and wait
+        env:
+          # Fine-grained PAT, Actions read and write on TARGET_REPO only.
+          # GITHUB_TOKEN cannot write to another repository.
+          GH_TOKEN: ${{ secrets.E2E_DISPATCH_TOKEN }}
+          REF: ${{ inputs.hackbench_ref || github.sha }}
+        run: |
+          set -euo pipefail
+          : "${GH_TOKEN:?E2E_DISPATCH_TOKEN is not set on this repository}"
+
+          # A dispatch only starts a workflow whose file is on the target's
+          # DEFAULT branch. Without this check the POST returns success, no
+          # run starts, and this job reports green having tested nothing.
+          if ! gh api "repos/$TARGET_REPO/actions/workflows/$TARGET_WORKFLOW" >/dev/null 2>&1; then
+            echo "::error::$TARGET_WORKFLOW is not on $TARGET_REPO's default branch, so a dispatch would be silently discarded." >&2
+            exit 1
+          fi
+
+          before=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "Requesting e2e run for hackbench $REF"
+          gh workflow run "$TARGET_WORKFLOW" --repo "$TARGET_REPO" \
+            --ref "$(gh api "repos/$TARGET_REPO" --jq .default_branch)" \
+            -f "hackbench_ref=$REF"
+
+          # workflow run returns no id, so find the run it created.
+          run_id=''
+          for _ in $(seq 1 30); do
+            sleep 5
+            run_id=$(gh run list --repo "$TARGET_REPO" --workflow "$TARGET_WORKFLOW" \
+              --created ">=$before" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            [ -n "$run_id" ] && break
+          done
+          if [ -z "$run_id" ]; then
+            echo "::error::Dispatched but no run appeared within 150s." >&2
+            exit 1
+          fi
+
+          url="https://github.com/$TARGET_REPO/actions/runs/$run_id"
+          echo "Watching $url"
+          echo "[Remote run]($url)" >> "$GITHUB_STEP_SUMMARY"
+          # --exit-status makes this job fail when the remote suite fails.
+          gh run watch "$run_id" --repo "$TARGET_REPO" --exit-status
