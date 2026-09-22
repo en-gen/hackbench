@@ -24,7 +24,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { RomFile } from './RomFile'
-import { COPIER_HEADER_SIZE } from './addressing'
+import { BytePattern, WILD, findPattern } from './BytePattern'
 import { decodeTilesBatch, PIXELS_PER_TILE } from './GraphicsDecoder'
 import { decompress } from './LcLz2'
 import { hex2 } from './hex'
@@ -80,9 +80,7 @@ export const GFX_MARIO_3BPP_INDEX = 32 // 0x20 hex
 // other instructions scores zero matches and turns the 2BPP reading off. That
 // is the intended direction to fail in: the file then renders under size
 // inference, as it did before this resolver existed.
-const WILD = -1
-
-const LOAD_CREDITS_PATTERN = [
+const LOAD_CREDITS_PATTERN: BytePattern = [
   0xa0,
   WILD, // LDY #fileIndex
   0x22,
@@ -125,7 +123,7 @@ const CREDITS_WORD_COUNT_OFF = 20
 // HW_BG34NBA ($00210C) bits 0-3 hold the BG3 character base in $1000-word
 // steps (hardware_registers.asm lines 155-163). SMW writes it as an immediate
 // (bank_00.asm lines 1276-1277); $04 puts BG3 characters at word $4000.
-const BG34NBA_PATTERN = [0xa9, WILD, 0x8d, 0x0c, 0x21]
+const BG34NBA_PATTERN: BytePattern = [0xa9, WILD, 0x8d, 0x0c, 0x21]
 const BG3_CHAR_BASE_STEP = 0x1000 // words per nibble step
 const BG3_CHAR_WINDOW = 0x2000 // words: 1024 characters x 8 words
 const WORDS_PER_2BPP_CHAR = 8
@@ -150,34 +148,23 @@ export interface CreditsGfxFile {
 // MapEditorProvider and EditSession already do.
 const _creditsCache = new WeakMap<RomFile, { version: number; result: CreditsGfxFile | null }>()
 
-/** File offsets of every match for `pattern`; WILD matches any byte. */
-function scanPattern(rom: RomFile, pattern: number[]): number[] {
-  const buf = rom.buffer
-  const start = rom.hasHeader ? COPIER_HEADER_SIZE : 0
-  const last = start + rom.romSize - pattern.length
-  const hits: number[] = []
-  for (let i = start; i <= last; i++) {
-    if (buf[i] !== pattern[0]) continue
-    let ok = true
-    for (let j = 1; j < pattern.length; j++) {
-      if (pattern[j] !== WILD && buf[i + j] !== pattern[j]) {
-        ok = false
-        break
-      }
-    }
-    if (ok) hits.push(i)
-  }
-  return hits
+/** The BG3 character base nibble written at one $210C site, or null if the
+ *  operand is somehow unreadable. */
+function readBg34nbaNibble(rom: RomFile, at: number): number | null {
+  const operand = rom.readAtFileOffset(at + 1, 1)
+  return operand ? operand[0]! & 0x0f : null
 }
 
 /** BG3 character base in VRAM words, or null if the $210C writes are absent
- *  or disagree - either way we cannot place the credits copy. */
+ *  or disagree - either way we cannot place the credits copy. Every site is
+ *  checked, not just the first, so `findPattern` runs uncapped here. */
 function readBg3CharBase(rom: RomFile): number | null {
-  const hits = scanPattern(rom, BG34NBA_PATTERN)
+  const hits = findPattern(rom, BG34NBA_PATTERN)
   if (hits.length === 0) return null
-  const nibble = rom.buffer[hits[0] + 1] & 0x0f
+  const nibble = readBg34nbaNibble(rom, hits[0]!)
+  if (nibble === null) return null
   for (const at of hits) {
-    if ((rom.buffer[at + 1] & 0x0f) !== nibble) return null
+    if (readBg34nbaNibble(rom, at) !== nibble) return null
   }
   return nibble * BG3_CHAR_BASE_STEP
 }
@@ -192,13 +179,15 @@ export function findCreditsGfxFile(rom: RomFile): CreditsGfxFile | null {
 }
 
 function _findCreditsGfxFile(rom: RomFile): CreditsGfxFile | null {
-  const hits = scanPattern(rom, LOAD_CREDITS_PATTERN)
+  const hits = findPattern(rom, LOAD_CREDITS_PATTERN)
   if (hits.length !== 1) return null // 0 = replaced, >1 = which one runs?
 
-  const buf = rom.buffer
-  const at = hits[0]
-  const read16 = (off: number): number => buf[at + off] | (buf[at + off + 1] << 8)
-  const fileIndex = buf[at + CREDITS_FILE_INDEX_OFF]
+  // A match guarantees the whole run is in range, so the three operands all
+  // come out of one read of the matched site.
+  const site = rom.readAtFileOffset(hits[0]!, LOAD_CREDITS_PATTERN.length)
+  if (!site) return null
+  const read16 = (off: number): number => site[off]! | (site[off + 1]! << 8)
+  const fileIndex = site[CREDITS_FILE_INDEX_OFF]!
   const vramDest = read16(CREDITS_VRAM_DEST_OFF)
   const byteLength = read16(CREDITS_WORD_COUNT_OFF) * 2
 
