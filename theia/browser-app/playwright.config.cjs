@@ -9,9 +9,10 @@ module.exports = defineConfig({
   forbidOnly: Boolean(process.env.CI),
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }], ['github']] : [['list']],
   use: {
-    // The evidence a failed CI run leaves behind: without these a red job
-    // reports which assertion threw, not what the shell looked like.
-    screenshot: 'only-on-failure',
+    // 'on', not 'only-on-failure': a green run should still show what the
+    // editor rendered. Presence of a view is not evidence it drew anything,
+    // and a blank canvas passes every assertion that only checks attachment.
+    screenshot: 'on',
     trace: process.env.CI ? 'retain-on-failure' : 'off',
   },
   // HB_ROM aside, HB_APP_URL means a shell is already running somewhere we do
