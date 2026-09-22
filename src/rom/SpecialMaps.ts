@@ -46,6 +46,7 @@
  * the first would be a guess dressed as a reading.
  */
 import { RomFile } from './RomFile'
+import { BytePattern, WILD, findPattern } from './BytePattern'
 
 /** What a special map is FOR, which is what the explorer labels it with. */
 export type SpecialRole = 'title-screen' | 'new-game'
@@ -71,37 +72,31 @@ export interface SpecialMaps {
  */
 const MAIN_MAP_LEVELS = 0x24
 
-/** -1 matches any byte: the immediate operand we are here to read. */
-type BytePattern = readonly number[]
-
 /** LDA #imm : LDY #$00 : STA $0109   (bank_00.asm:2626) */
-const TITLE_SCREEN: BytePattern = [0xa9, -1, 0xa0, 0x00, 0x8d, 0x09, 0x01]
+const TITLE_SCREEN: BytePattern = [0xa9, WILD, 0xa0, 0x00, 0x8d, 0x09, 0x01]
 
 /** LDA #imm : STA $0109             (bank_00.asm:3389) */
-const NEW_GAME: BytePattern = [0xa9, -1, 0x8d, 0x09, 0x01]
+const NEW_GAME: BytePattern = [0xa9, WILD, 0x8d, 0x09, 0x01]
+
+/** Uniqueness is the whole test; counting past a couple is wasted work. */
+const MATCH_LIMIT = 4
+
+/** Both patterns are LDA #imm, so the operand is the second byte. */
+const IMMEDIATE_OFF = 1
 
 interface Match {
   offset: number
   immediate: number
 }
 
-function findAll(cart: Uint8Array, pattern: BytePattern, limit = 4): Match[] {
-  const out: Match[] = []
-  const last = cart.length - pattern.length
-  for (let i = 0; i <= last; i++) {
-    let ok = true
-    for (let k = 0; k < pattern.length; k++) {
-      if (pattern[k] !== -1 && cart[i + k] !== pattern[k]) {
-        ok = false
-        break
-      }
-    }
-    if (!ok) continue
-    out.push({ offset: i, immediate: cart[i + 1]! })
-    // Uniqueness is the whole test; counting past a couple is wasted work.
-    if (out.length >= limit) break
+/** Load sites for `pattern`, each with its immediate already read. */
+function findLoadSites(rom: RomFile, pattern: BytePattern): Match[] {
+  const sites: Match[] = []
+  for (const offset of findPattern(rom, pattern, MATCH_LIMIT)) {
+    const operand = rom.readAtFileOffset(offset + IMMEDIATE_OFF, 1)
+    if (operand) sites.push({ offset, immediate: operand[0]! })
   }
-  return out
+  return sites
 }
 
 /** LoROM file offset back to the SNES address it was read from, for citation. */
@@ -112,10 +107,6 @@ function snesAddress(offset: number): string {
 }
 
 export function findSpecialMaps(rom: RomFile): SpecialMaps {
-  // The cart without any copier header, so offsets match SNES banks.
-  const whole = rom.buffer
-  const cart = rom.hasHeader ? whole.subarray(whole.length - rom.romSize) : whole
-
   const maps: SpecialMap[] = []
   const notes: string[] = []
 
@@ -125,7 +116,7 @@ export function findSpecialMaps(rom: RomFile): SpecialMaps {
   ]
 
   for (const { role, label, pattern } of roles) {
-    const hits = findAll(cart, pattern)
+    const hits = findLoadSites(rom, pattern)
 
     if (hits.length === 0) {
       notes.push(
