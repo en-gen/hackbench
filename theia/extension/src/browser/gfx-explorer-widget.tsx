@@ -96,7 +96,7 @@ export class GfxExplorerWidget extends TreeWidget {
     this.id = GFX_EXPLORER_ID
     this.title.label = 'Graphics'
     this.title.caption = 'Graphics'
-    this.title.iconClass = 'codicon codicon-extensions'
+    this.title.iconClass = 'codicon codicon-file-media'
     this.title.closable = true
   }
 
@@ -226,7 +226,7 @@ export class GfxExplorerWidget extends TreeWidget {
   protected override renderIcon(node: TreeNode, _props: NodeProps): React.ReactNode {
     const file = node as GfxTreeNode
     if (file.kind !== 'file') return undefined
-    return <span className="hb-gfx-icon codicon codicon-extensions" />
+    return <span className="hb-gfx-icon codicon codicon-file-media" />
   }
 
   protected override renderCaption(node: TreeNode, props: NodeProps): React.ReactNode {
