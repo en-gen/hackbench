@@ -22,6 +22,8 @@ export interface MapViewOptions {
   manifestPath: string
   index: number
   label: string
+  /** The tree row's own icon, so the tab matches where it was opened from. */
+  iconClass?: string
 }
 
 export const slotLabel = (index: number): string =>
@@ -47,7 +49,7 @@ export class MapViewWidget extends ReactWidget {
     this.id = `${MAP_VIEW_ID}:${options.index}`
     this.title.label = options.label
     this.title.caption = `${options.label} (${slotLabel(options.index)})`
-    this.title.iconClass = 'codicon codicon-map'
+    this.title.iconClass = options.iconClass ?? 'codicon codicon-map'
 
     this.details = undefined
     this.error = undefined
@@ -59,6 +61,11 @@ export class MapViewWidget extends ReactWidget {
       this.error = (err as Error).message
     }
     this.update()
+  }
+
+  /** Which slot this tab currently shows, so a pin can retire the preview of it. */
+  shows(index: number): boolean {
+    return this.options?.index === index
   }
 
   protected override onActivateRequest(msg: Message): void {

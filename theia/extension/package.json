@@ -28,6 +28,22 @@
     {
       "frontend": "lib/theia/extension/src/browser/hackbench-frontend-module",
       "backend": "lib/theia/extension/src/node/hackbench-backend-module"
+    },
+    {
+      "frontend": "lib/theia/extension/src/browser/palette-frontend-module",
+      "backend": "lib/theia/extension/src/node/palette-backend-module"
+    },
+    {
+      "frontend": "lib/theia/extension/src/browser/music-frontend-module",
+      "backend": "lib/theia/extension/src/node/music-backend-module"
+    },
+    {
+      "frontend": "lib/theia/extension/src/browser/gfx-frontend-module",
+      "backend": "lib/theia/extension/src/node/gfx-backend-module"
+    },
+    {
+      "frontend": "lib/theia/extension/src/browser/emulator-frontend-module",
+      "backend": "lib/theia/extension/src/node/emulator-backend-module"
     }
   ],
   "keywords": [

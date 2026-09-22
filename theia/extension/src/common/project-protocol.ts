@@ -163,6 +163,14 @@ export interface ProjectService {
   mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto>
 
   /**
+   * Read one map out of the project's base cartridge.
+   *
+   * Throws when the slot holds no readable level data, which is a real answer
+   * rather than an empty map: an empty map looks like one that lost its work.
+   */
+  mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto>
+
+  /**
    * Projects this user has opened, most recent first.
    *
    * Entries whose manifest has gone are pruned rather than offered: a recent

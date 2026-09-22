@@ -125,7 +125,12 @@ export class MapExplorerWidget extends TreeWidget {
    * An event rather than a direct call so the tree stays a view: it knows
    * which map was asked for and nothing about what opening one means.
    */
-  protected readonly onMapOpenedEmitter = new Emitter<{ index: number; label: string }>()
+  protected readonly onMapOpenedEmitter = new Emitter<{
+    index: number
+    label: string
+    pinned: boolean
+    iconClass: string
+  }>()
   readonly onMapOpened = this.onMapOpenedEmitter.event
 
   constructor(
@@ -319,17 +324,49 @@ export class MapExplorerWidget extends TreeWidget {
   protected override tapNode(node: TreeNode | undefined): void {
     super.tapNode(node)
     const map = node as MapTreeNode | undefined
-    // Groups and messages name no map; a loop or truncation is a marker for
-    // one shown elsewhere, so following it would open a row the user did not
-    // click.
+    this.fireOpen(map, false)
+  }
+
+  /**
+   * Double click pins. Theia fires tapNode for the first click of the pair,
+   * so the preview opens and is then promoted, which is what VS Code does.
+   */
+  protected override handleDblClickEvent(
+    node: TreeNode | undefined,
+    event: React.MouseEvent<HTMLElement>,
+  ): void {
+    super.handleDblClickEvent(node, event)
+    this.fireOpen(node as MapTreeNode | undefined, true)
+  }
+
+  /** Groups and messages name no map; a marker points at a row shown elsewhere. */
+  protected fireOpen(map: MapTreeNode | undefined, pinned: boolean): void {
     if (!map || map.index < 0 || map.kind !== 'map' || !this.manifestPath) return
     this.onMapOpenedEmitter.fire({
       index: map.index,
+      pinned,
+      // The tab wears the row's own mark, so a map is the same thing in the
+      // tree and in the tab bar.
+      iconClass: `codicon ${CATEGORY_ICONS[map.category]}`,
       label:
         map.category === 'title-screen' || map.category === 'new-game'
           ? (map.name ?? slotLabel(map.index))
           : `${slotLabel(map.index)}${map.mapName ? ` ${map.mapName}` : ''}`,
     })
+  }
+
+  /**
+   * Rows belong to a project, and nothing is open on a fresh load, so none of
+   * them are persisted. Theia's TreeWidget serialises its whole model by
+   * default, which restores a populated tree over an empty ProjectContext:
+   * the view then lists maps from a cartridge the session has not opened.
+   */
+  override storeState(): object {
+    return {}
+  }
+
+  override restoreState(_state: object): void {
+    // Intentionally empty; load() repopulates when a project opens.
   }
 
   protected message(text: string): MapTreeNode {

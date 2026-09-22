@@ -1,7 +1,12 @@
 import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
 import { loadRomPalettes } from '../rom/PaletteLoader'
-import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
+import {
+  explainPaletteAnimation,
+  loadPaletteAnimData,
+  serializePaletteAnimData,
+} from '../rom/PaletteAnimationLoader'
+import { detectPaletteAnimation } from '../rom/PaletteAnimationDetect'
 import {
   getNonce,
   getWebviewUri,
@@ -74,13 +79,16 @@ export class PaletteEditorProvider implements vscode.CustomReadonlyEditorProvide
       }))
 
       const [br, bg, bb, ba] = palettes.backAreaColor
-      const palAnimRaw = loadPaletteAnimData(rom.rom)
+      const palAnim = detectPaletteAnimation(rom.rom)
+      const palAnimRaw = loadPaletteAnimData(rom.rom, 'overworld', palAnim)
       webview.postMessage({
         type: 'load',
         groups,
         backAreaColor: { r: br, g: bg, b: bb, a: ba },
         romName: rom.internalName.trim(),
         paletteAnimation: palAnimRaw ? serializePaletteAnimData(palAnimRaw) : null,
+        // A null animation needs a reason, or a static swatch looks authored.
+        paletteAnimationNotes: explainPaletteAnimation(rom.rom, 'overworld', palAnim),
       })
     } catch (err) {
       postWebviewError(webview, err)

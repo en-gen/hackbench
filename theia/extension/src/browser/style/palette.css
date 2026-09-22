@@ -1,0 +1,307 @@
+/*
+ * Palette view styling.
+ *
+ * Same rule as style/index.css: no fixed colour and no fixed px TEXT size,
+ * so the view tracks the active theme and the user's font-size preference.
+ * The one exception is a swatch's own fill, set inline in
+ * palette-view-widget.tsx, because that colour is ROM data rather than UI
+ * chrome. The unwritten-cell hatch is NOT an exception: it is chrome
+ * indicating absence, not cart data, so its two stripe colours are theme
+ * variables. Swatch gap and radius are small hairline values kept in px,
+ * matching the border-width convention already used elsewhere in this repo.
+ */
+
+.hb-palette-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  color: var(--theia-foreground);
+}
+
+.hb-palette-empty,
+.hb-palette-error {
+  padding: 0.8em 1em;
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-palette-error {
+  color: var(--theia-errorForeground);
+}
+
+/* ── Layout: nav | content, inspector below the content ─────────────────── */
+
+.hb-palette-layout {
+  display: grid;
+  grid-template-columns: 11em 1fr;
+  grid-template-rows: 1fr auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.hb-palette-nav {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  overflow-y: auto;
+  border-right: 1px solid var(--theia-editorWidget-border);
+  padding: 0.6em 0;
+}
+
+.hb-palette-main {
+  grid-column: 2;
+  grid-row: 1;
+  overflow-y: auto;
+  padding: 0.8em 1em;
+}
+
+/* ── Nav: a thin list of contexts, not a second copy of Maps ────────────── */
+
+.hb-palette-nav-title {
+  padding: 0 0.7em 0.6em;
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-palette-warning {
+  margin: 0 0.7em 0.6em;
+  padding: 0.4em 0.6em;
+  border-radius: 0.2em;
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-editorWarning-foreground, var(--theia-descriptionForeground));
+  background: var(--theia-inputValidation-warningBackground, var(--theia-editorWidget-background));
+  border: 1px solid var(--theia-inputValidation-warningBorder, var(--theia-editorWidget-border));
+}
+
+.hb-palette-nav-section {
+  padding: 0.5em 0.7em 0.2em;
+  font-size: var(--theia-ui-font-size0);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-palette-nav-item {
+  padding: 0.35em 0.7em;
+  cursor: pointer;
+}
+
+.hb-palette-nav-item:hover {
+  background: var(--theia-list-hoverBackground);
+}
+
+.hb-palette-nav-item-active {
+  background: var(--theia-list-activeSelectionBackground);
+}
+
+.hb-palette-nav-label {
+  font-size: var(--theia-ui-font-size1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-palette-nav-sub {
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-palette-nav-note {
+  padding: 0 0.7em;
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+  font-style: italic;
+}
+
+/* ── Content: one group, full width ──────────────────────────────────────── */
+
+.hb-palette-header {
+  margin-bottom: 1em;
+}
+
+.hb-palette-title {
+  font-size: var(--theia-ui-font-size3);
+  font-weight: 600;
+  margin: 0 0 0.2em;
+}
+
+.hb-palette-meta {
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+  margin-bottom: 0.2em;
+}
+
+.hb-palette-selection-note {
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-palette-variant {
+  margin: 0.8em 0;
+}
+
+.hb-palette-variant-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  font-size: var(--theia-ui-font-size0);
+  font-weight: 600;
+  margin-bottom: 0.3em;
+}
+
+.hb-palette-addr {
+  font-weight: normal;
+  font-family: var(--theia-code-font-family);
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-palette-backarea {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  font-weight: normal;
+  font-family: var(--theia-code-font-family);
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-palette-backarea-chip {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  border-radius: 2px;
+  border: 1px solid var(--theia-editorWidget-border);
+}
+
+.hb-palette-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  margin-bottom: 2px;
+}
+
+.hb-palette-row-gutter {
+  flex: none;
+  /* "CGRAM 15" is the longest value this ever holds. */
+  width: 5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}
+
+/* ── Swatches: fixed square via flex, never a stretching grid ───────────── */
+
+.hb-palette-swatches {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+
+.hb-palette-swatch {
+  flex: 0 0 auto;
+  width: 1.8em;
+  height: 1.8em;
+  box-sizing: border-box;
+  border-radius: 2px;
+  border: 1px solid var(--theia-editorWidget-border);
+  cursor: pointer;
+}
+
+.hb-palette-swatch-unwritten {
+  cursor: default;
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--theia-editorWidget-border) 0,
+    var(--theia-editorWidget-border) 2px,
+    var(--theia-editor-background) 2px,
+    var(--theia-editor-background) 5px
+  );
+}
+
+.hb-palette-swatch-selected {
+  outline: 2px solid var(--theia-focusBorder);
+  outline-offset: 1px;
+}
+
+.hb-palette-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-top: 1em;
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-palette-legend-swatch {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border-radius: 2px;
+  border: 1px solid var(--theia-editorWidget-border);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--theia-editorWidget-border) 0,
+    var(--theia-editorWidget-border) 2px,
+    var(--theia-editor-background) 2px,
+    var(--theia-editor-background) 5px
+  );
+}
+
+/* ── Inspector: below the content, one selected slot ─────────────────────── */
+
+.hb-palette-inspector {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  padding: 0.6em 1em;
+  border-top: 1px solid var(--theia-editorWidget-border);
+}
+
+.hb-palette-inspector-empty {
+  color: var(--theia-descriptionForeground);
+  font-size: var(--theia-ui-font-size0);
+}
+
+.hb-palette-inspector-chip {
+  flex: none;
+  width: 3em;
+  height: 3em;
+  box-sizing: border-box;
+  border-radius: 2px;
+  border: 1px solid var(--theia-editorWidget-border);
+}
+
+.hb-palette-inspector-readout {
+  display: flex;
+  gap: 1.2em;
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size0);
+}
+
+.hb-palette-inspector-readout div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1em;
+}
+
+.hb-palette-inspector-readout span:first-child {
+  font-size: 0.85em;
+  text-transform: uppercase;
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-palette-inspector-from {
+  flex: 1 1 auto;
+  text-align: right;
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}

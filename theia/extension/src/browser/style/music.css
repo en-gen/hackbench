@@ -1,0 +1,72 @@
+/*
+ * Music view styling. Mirrors style/index.css's map rules: colours and sizes
+ * come from the active theme and the user's font-size preference, never a
+ * literal, so a switch never reads as a rendering bug. Kept in its own file
+ * so the music view never touches index.css (see the feature brief).
+ */
+
+/* ── Music explorer rows ────────────────────────────────────────────────── */
+
+#hackbench\.music-explorer .theia-TreeNodeContent {
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.hb-music-icon {
+  margin-right: 0.45em;
+  font-size: 1em;
+  color: var(--theia-icon-foreground, var(--theia-descriptionForeground));
+  flex: none;
+}
+
+/* The BGM command is the track's identity and is read as a hex number. */
+.hb-music-command {
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-code-font-size);
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Which level header music indices (0-7) select this track, if any. */
+.hb-music-note {
+  margin-left: 0.6em;
+  font-style: italic;
+  color: var(--theia-descriptionForeground);
+}
+
+/* ── Music view ──────────────────────────────────────────────────────────── */
+
+.hb-music-view {
+  overflow: auto;
+  padding: 1.2em 1.4em;
+  color: var(--theia-foreground);
+}
+
+.hb-music-view-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+  margin: 0 0 0.8em 0;
+  font-size: var(--theia-ui-font-size3);
+  font-weight: 600;
+}
+
+.hb-music-view-table {
+  border-collapse: collapse;
+}
+
+.hb-music-view-table th {
+  text-align: left;
+  font-weight: normal;
+  color: var(--theia-descriptionForeground);
+  padding: 0.2em 1.6em 0.2em 0;
+}
+
+.hb-music-view-table td {
+  font-family: var(--theia-code-font-family);
+  padding: 0.2em 0;
+}
+
+.hb-music-view-error {
+  color: var(--theia-errorForeground);
+}

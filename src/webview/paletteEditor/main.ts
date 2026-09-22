@@ -58,6 +58,7 @@ interface LoadMsg {
   backAreaColor: Color
   romName: string
   paletteAnimation: SerializedPaletteAnimData | null
+  paletteAnimationNotes?: string[]
 }
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
@@ -75,6 +76,7 @@ app.innerHTML = `
   border-bottom:1px solid var(--vscode-panel-border,#3a3a3a);">
   <span style="font-weight:700;color:#5b9cf6;font-size:13px;">Color Palettes</span>
   <span id="rom-name" style="color:#666;font-family:monospace;font-size:11px;"></span>
+  <span id="anim-note" style="color:#888;font-size:11px;cursor:help;"></span>
   <span style="flex:1"></span>
   <span style="font-size:10px;color:#555;">⚠ = address unverified, colors unavailable</span>
 </div>
@@ -178,6 +180,7 @@ const swatchRows = document.getElementById('swatch-rows')!
 const detailSwatch = document.getElementById('detail-swatch')!
 const detailLabel = document.getElementById('detail-label')!
 const detailValues = document.getElementById('detail-values')!
+const animNoteEl = document.getElementById('anim-note')!
 const romNameEl = document.getElementById('rom-name')!
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -484,6 +487,10 @@ window.addEventListener('message', event => {
 
     // Initialize palette animation (button appears in group header when relevant)
     paletteAnim = data.paletteAnimation ?? null
+    const notes = data.paletteAnimationNotes ?? []
+    animNoteEl.textContent =
+      paletteAnim || notes.length === 0 ? '' : 'palette animation unavailable'
+    animNoteEl.title = notes.join('\n\n')
     animOverrides.clear()
     palAnimRunning = false
     if (palAnimTimer) {

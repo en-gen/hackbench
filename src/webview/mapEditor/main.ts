@@ -2083,7 +2083,13 @@ function syncPalAnimButton(): void {
 }
 
 function startPalAnimTimer(): void {
-  if (!mapData?.paletteAnimation) return
+  if (!mapData?.paletteAnimation) {
+    // Silence here reads as "this cart animates nothing"; the notes say
+    // whether it is that or a routine HackBench could not read.
+    const why = (mapData as { paletteAnimationNotes?: string[] } | undefined)?.paletteAnimationNotes
+    if (why?.length) console.warn('palette animation unavailable:', why.join(' '))
+    return
+  }
   palAnimIntervalMs = mapData.paletteAnimation.intervalMs
   palAnimTimer.start()
   syncPalAnimButton()

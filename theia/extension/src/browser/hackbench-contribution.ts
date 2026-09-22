@@ -22,6 +22,7 @@ import {
 import { ProjectDto, ProjectService, RecentProjectDto } from '../common/project-protocol'
 import { NewProjectDialog } from './new-project-dialog'
 import { MapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
+import { PreviewTabs } from './preview-tabs'
 import { MapViewWidget, MAP_VIEW_ID } from './map-view-widget'
 import { ProjectPropertiesDialog } from './project-properties-dialog'
 import { ProjectContext } from './project-context'
@@ -100,6 +101,7 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
   @inject(MessageService) protected readonly messages!: MessageService
   @inject(NewProjectDialog) protected readonly dialog!: NewProjectDialog
   @inject(WidgetManager) protected readonly widgets!: WidgetManager
+  @inject(PreviewTabs) protected readonly previews!: PreviewTabs
   @inject(ApplicationShell) protected readonly shell!: ApplicationShell
   @inject(ProjectPropertiesDialog) protected readonly properties!: ProjectPropertiesDialog
   @inject(ProjectContext) protected readonly context!: ProjectContext
@@ -346,13 +348,14 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
     if (this.wiredExplorers.has(explorer)) return
     this.wiredExplorers.add(explorer)
 
-    explorer.onMapOpened(async ({ index, label }) => {
-      const widget = await this.widgets.getOrCreateWidget<MapViewWidget>(MAP_VIEW_ID, { index })
-      await widget.open({ manifestPath: this.currentManifest, index, label })
-      if (!widget.isAttached) {
-        this.shell.addWidget(widget, { area: 'main' })
+    explorer.onMapOpened(async ({ index, label, pinned, iconClass }) => {
+      const manifestPath = this.currentManifest
+      const apply = (w: MapViewWidget) => w.open({ manifestPath, index, label, iconClass })
+      if (pinned) {
+        await this.previews.pin<MapViewWidget>(MAP_VIEW_ID, { index }, apply, p => p.shows(index))
+      } else {
+        await this.previews.preview<MapViewWidget>(MAP_VIEW_ID, apply)
       }
-      await this.shell.activateWidget(widget.id)
     })
   }
 

@@ -1,0 +1,106 @@
+/*
+ * Graphics view styling.
+ *
+ * Same rules as style/index.css: nothing here fixes a colour, a font or a
+ * text size, all of which Theia resolves from the active theme and the
+ * user's own font-size preference at runtime. Spacing is in em for the same
+ * reason. Pixel data on the canvas is ROM data and is the one exception.
+ */
+
+/* ── GFX explorer rows ──────────────────────────────────────────────────── */
+
+/* One line per file, same reasoning as the map explorer's rows. */
+#hackbench\.gfx-explorer .theia-TreeNodeContent {
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.hb-gfx-icon {
+  margin-right: 0.45em;
+  font-size: 1em;
+  color: var(--theia-icon-foreground, var(--theia-descriptionForeground));
+  flex: none;
+}
+
+/*
+ * The hex id is the file's identity. Not "slot": docs/glossary.md reserves
+ * that word for a map pointer-table index, a different kind of ROM index.
+ */
+.hb-gfx-id {
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-code-font-size);
+  flex: none;
+  white-space: nowrap;
+}
+
+.hb-gfx-meta {
+  margin-left: 0.6em;
+  color: var(--theia-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ── GFX view ────────────────────────────────────────────────────────────── */
+
+.hb-gfx-view {
+  overflow: auto;
+  padding: 1.2em 1.4em;
+  color: var(--theia-foreground);
+}
+
+.hb-gfx-view-toolbar {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 1em;
+  margin-bottom: 1em;
+}
+
+.hb-gfx-view-title {
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size3);
+  font-weight: 600;
+}
+
+.hb-gfx-view-summary {
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-gfx-view-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}
+
+/*
+ * Shrink-wrapped: the frame marks where the sheet ends, so it has to hug the
+ * canvas rather than stretch across the panel.
+ */
+.hb-gfx-view-canvas-wrap {
+  display: inline-block;
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--theia-editorWidget-border);
+}
+
+/*
+ * The canvas BITMAP stays native (width/height come from the decoded sheet);
+ * zoom scales it through CSS only. `pixelated` is what makes that safe - a
+ * ROM tile magnified with smoothing is a blur, not data.
+ */
+.hb-gfx-view-canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.hb-gfx-view-empty {
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-gfx-view-error {
+  color: var(--theia-errorForeground);
+}
