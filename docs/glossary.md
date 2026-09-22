@@ -10,11 +10,11 @@ counts, none of which were measuring the same thing.
 exists whether or not anything is in it. At each index sit THREE parallel
 pointers, not one:
 
-| table | address |
-|---|---|
-| L1, terrain | `$05E000 + index * 3` |
+| table          | address               |
+| -------------- | --------------------- |
+| L1, terrain    | `$05E000 + index * 3` |
 | L2, background | `$05E600 + index * 3` |
-| sprites | `$05EC00 + index * 3` |
+| sprites        | `$05EC00 + index * 3` |
 
 **Empty slot.** A slot whose L1 pointer is the ROM's filler value. On vanilla
 that is `$068000`, shared by 277 slots. The filler is computed per ROM as the
@@ -53,11 +53,11 @@ Together the three categories partition every map by reachability:
 
 Every map falls in exactly one of these, decided purely by reachability:
 
-| reachable from the overworld | reachable from another map | the map is |
-|---|---|---|
-| yes | either | an entry map |
-| no | yes | a sub area |
-| no | no | an orphaned map |
+| reachable from the overworld | reachable from another map | the map is      |
+| ---------------------------- | -------------------------- | --------------- |
+| yes                          | either                     | an entry map    |
+| no                           | yes                        | a sub area      |
+| no                           | no                         | an orphaned map |
 
 A worked case, because it gets re-litigated. Map A exits into map B, and
 nothing reaches A. Then A is ORPHANED (nothing reaches it) and B is a SUB
@@ -110,29 +110,29 @@ tiles.
 
 ## Words to avoid
 
-| Avoid | Because | Say |
-|---|---|---|
-| "Map" for the overworld | collides with map-the-editable-unit | "overworld" |
-| "Maps" for levels | the tree's folders are levels, not maps | "levels" |
-| "area" for a submap | collides with sub area | "submap" |
-| "level" for a slot or a map | a level is composed of maps | "slot" or "map" |
-| "extras" or "unlinked" | vague; says what it is not | "orphaned map" |
-| bare "exit" for the object | collides with the 96 counter | "screen exit" |
+| Avoid                       | Because                                 | Say             |
+| --------------------------- | --------------------------------------- | --------------- |
+| "Map" for the overworld     | collides with map-the-editable-unit     | "overworld"     |
+| "Maps" for levels           | the tree's folders are levels, not maps | "levels"        |
+| "area" for a submap         | collides with sub area                  | "submap"        |
+| "level" for a slot or a map | a level is composed of maps             | "slot" or "map" |
+| "extras" or "unlinked"      | vague; says what it is not              | "orphaned map"  |
+| bare "exit" for the object  | collides with the 96 counter            | "screen exit"   |
 
 `Map16` is exempt. It is the standard SMW name for the tile format and does
 not collide in practice.
 
 ## Counts on vanilla, for orientation
 
-| | |
-|---|---|
-| slots | 512 |
-| empty slots | 277 |
-| maps | 235 |
-| launch tiles carrying a translevel | 92 |
-| of those, entering a level | 86 |
-| levels | 77 |
-| exits (documented) | 96 |
+|                                    |     |
+| ---------------------------------- | --- |
+| slots                              | 512 |
+| empty slots                        | 277 |
+| maps                               | 235 |
+| launch tiles carrying a translevel | 92  |
+| of those, entering a level         | 86  |
+| levels                             | 77  |
+| exits (documented)                 | 96  |
 
 Resolved, on the tiles that decide 77 versus 79: Map16 tile `$5A` is the
 pre-activation state of a star road node. The overworld event system swaps it
@@ -144,3 +144,41 @@ The rest of that table is the level-completion swap set (`$6E`->`$66`,
 
 So a `$5A` tile never enters a level, and the two launch tiles named STAR ROAD
 that hold real map data (`$016`, `$108`) are not levels.
+
+## Editing
+
+**Base cartridge.** The ROM file exactly as the user supplied it. Referenced
+by identity (`RomIdentity`) and never modified; a project can be shared
+without ever containing a byte of it.
+
+**Op.** One BGR555 word write: `{ address, old, new }`, all hex strings.
+`address` is a 24-bit SNES address, not a semantic path. `old` is carried so
+undo is a write-back rather than a recomputation, and so applying an op can
+refuse when the address no longer holds it. Fully committed alongside the
+project (`ops/`) - a collaborator who clones the project gets working undo
+without needing the machine the edit was made on.
+
+**Layer.** A named, ordered list of ops (`WorkingRom.Layer`). Layers stack
+append-only; nothing is ever removed from the middle. An `edit` layer
+persists and exports. `WorkingRom` also supports a `preview` scope that
+neither persists nor exports, but nothing currently creates one: the
+palette editor commits directly (pick a colour, click OK) rather than
+staging a per-tick drag layer, after an earlier version of that design
+caused a real bug. The scope stays as a general `WorkingRom` capability for
+whichever editor needs a live, discardable layer next.
+
+**Working copy.** The base cartridge with every layer in a project's stack
+applied, IN ORDER (`WorkingRom.bytes()`). A MIGRATED view renders this, never
+the base cartridge directly - an edit made in one such view (a palette
+colour) is invisible everywhere else otherwise. Concretely: every
+`theia/extension/src/node/*-server.ts` reads the cartridge through
+`WorkingRomRegistry`, not `RomFile.load`. `project-server.ts` is the one
+exception, because it is what RESOLVES the cartridge in the first place,
+before any working copy exists to read from - `WorkingRomRegistry` itself
+calls `RomFile.load` once, on first access per project.
+
+Palette and GFX are migrated, and both push a re-render to an open widget on
+the working copy's change event (`WorkingCopyNotifier`). The map view is
+NOT yet: `project-server.ts`'s `mapDetails`/`loadMaps` still read the base
+cartridge directly, so a palette edit is not visible there. That migration
+is unstarted work, done per view rather than assumed.

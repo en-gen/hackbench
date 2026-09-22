@@ -1,6 +1,6 @@
 import { ContainerModule } from '@theia/core/shared/inversify'
 import { ConnectionHandler, RpcConnectionHandler } from '@theia/core/lib/common/messaging'
-import { GFX_SERVICE_PATH, GfxService } from '../common/gfx-protocol'
+import { GFX_SERVICE_PATH, GfxService, GfxServiceClient } from '../common/gfx-protocol'
 import { GfxServiceImpl } from './gfx-server'
 
 export default new ContainerModule(bind => {
@@ -8,7 +8,15 @@ export default new ContainerModule(bind => {
   bind(GfxService).toService(GfxServiceImpl)
   bind(ConnectionHandler)
     .toDynamicValue(
-      ctx => new RpcConnectionHandler(GFX_SERVICE_PATH, () => ctx.container.get(GfxService)),
+      ctx =>
+        // Registering the client is what lets a palette edit (or any other
+        // change to this project's WorkingRom) push "re-render" to whatever
+        // GFX view is open, without the view polling or the user reloading.
+        new RpcConnectionHandler<GfxServiceClient>(GFX_SERVICE_PATH, client => {
+          const server = ctx.container.get<GfxService>(GfxService)
+          server.setClient(client)
+          return server
+        }),
     )
     .inSingletonScope()
 })

@@ -150,6 +150,15 @@ export class MapExplorerWidget extends TreeWidget {
   protected init(): void {
     super.init()
     this.setRoot([])
+
+    // Selection drives the preview, not the click: the arrow keys change
+    // selection without tapping, so binding to the click left the keyboard
+    // moving the highlight and nothing else.
+    this.toDispose.push(
+      this.model.onSelectionChanged(() => {
+        this.fireOpen(this.model.selectedNodes[0] as MapTreeNode | undefined, false)
+      }),
+    )
   }
 
   /**
@@ -323,8 +332,6 @@ export class MapExplorerWidget extends TreeWidget {
    */
   protected override tapNode(node: TreeNode | undefined): void {
     super.tapNode(node)
-    const map = node as MapTreeNode | undefined
-    this.fireOpen(map, false)
   }
 
   /**

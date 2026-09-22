@@ -1,5 +1,9 @@
 /**
- * Puts the music explorer in the shell's left sidebar and on the View menu.
+ * Puts the music explorer in the shell's RIGHT sidebar and on the View menu.
+ *
+ * Right rather than left: music is a secondary activity beside the map and
+ * graphics work the left bar is for, and it sits with Palettes, the other
+ * view you consult while editing something else.
  *
  * A widget bound to the container but never contributed to a menu is
  * registered and unreachable (#379), so the view command is menu-contributed
@@ -33,7 +37,7 @@ export class MusicExplorerContribution extends AbstractViewContribution<MusicExp
     super({
       widgetId: MUSIC_EXPLORER_ID,
       widgetName: 'Music',
-      defaultWidgetOptions: { area: 'left', rank: 101 },
+      defaultWidgetOptions: { area: 'right', rank: 201 },
       toggleCommandId: ShowMusicExplorerCommand.id,
     })
   }
@@ -58,10 +62,19 @@ export class MusicExplorerContribution extends AbstractViewContribution<MusicExp
   async onStart(): Promise<void> {
     this.widgetManager.onDidCreateWidget(({ factoryId, widget }) => {
       if (factoryId !== MUSIC_EXPLORER_ID) return
-      const explorer = widget as MusicExplorerWidget
-      explorer.onTrackOpened(({ manifestPath, bgmCommand, pinned }) => {
-        void this.openTrack(manifestPath, bgmCommand, pinned)
-      })
+      this.wireExplorer(widget as MusicExplorerWidget)
+    })
+    // Theia restores saved-layout widgets BEFORE contributions start, so an
+    // explorer that came back with the layout predates the subscription above
+    // and would never be wired. Its rows render and its clicks do nothing.
+    for (const existing of this.widgetManager.getWidgets(MUSIC_EXPLORER_ID)) {
+      this.wireExplorer(existing as MusicExplorerWidget)
+    }
+  }
+
+  protected wireExplorer(explorer: MusicExplorerWidget): void {
+    explorer.onTrackOpened(({ manifestPath, bgmCommand, pinned }) => {
+      void this.openTrack(manifestPath, bgmCommand, pinned)
     })
   }
 

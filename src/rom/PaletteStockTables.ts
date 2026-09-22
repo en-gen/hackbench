@@ -55,7 +55,6 @@ export interface AttributedVariant {
   label: string
   romAddr: number | null
   rows: AttributedCell[][]
-  backAreaColor: RgbaColor | null
 }
 
 export interface AttributedGroup {
@@ -257,12 +256,46 @@ export function countCustomPaletteLevels(rom: RomFile): number {
   return count
 }
 
+/**
+ * Back Area Colors, standalone: NOT a palette table and never written into
+ * CGRAM. `bank_00.asm:5623-5628` reads `BackAreaColors,Y` and does
+ * `STA.W BackgroundColor`; `rammap.asm:1166-1170` names that RAM address
+ * ($7E0701) as the value buffer for PPU register $2132 (COLDATA), the
+ * fixed colour fed to colour math behind every layer. It shares no CGRAM
+ * row with anything else this view shows, which is why every OTHER group
+ * states the rows it occupies and this one cannot.
+ *
+ * Was previously shown as one swatch riding beside each of the 8 Layer 2
+ * Background variants, implying a pairing the cartridge does not have: BG
+ * palette is level header byte 0 bits 7-5, back area colour is byte 1 bits
+ * 7-5 (`bank_05.asm:562-568`), two independent fields. A level can combine
+ * BG palette 3 with back area colour 6.
+ */
+function buildBackAreaGroup(backAreaColors: RgbaColor[]): AttributedGroup {
+  const cells: AttributedCell[] = backAreaColors.map((color, i) => ({
+    written: true,
+    color,
+    table: 'BackAreaColors',
+    romAddr: ADDR_BACK_AREA + i * 2,
+  }))
+  return {
+    id: 'back_area',
+    label: 'Back Area Colors',
+    cgRamRow: null,
+    description:
+      'The 8 fixed background colours, written to PPU register $2132 (COLDATA) rather than ' +
+      'to CGRAM. A map chooses among them with level header byte 1 bits 7-5, independent of ' +
+      'its BG palette. BackAreaColors at $B0A0.',
+    variants: [{ label: 'Fixed', romAddr: ADDR_BACK_AREA, rows: [cells] }],
+  }
+}
+
 /** Every stock palette table, attributed per cell, for the read-only palette view. */
 export function buildStockTables(rom: RomFile): AttributedGroup[] {
   const palettes = loadRomPalettes(rom)
   const backAreaColors = loadBackAreaColors(rom)
 
-  return palettes.groups.map((g: PaletteGroup): AttributedGroup => ({
+  const groups = palettes.groups.map((g: PaletteGroup): AttributedGroup => ({
     id: g.id,
     label: g.label,
     description: g.description,
@@ -270,7 +303,6 @@ export function buildStockTables(rom: RomFile): AttributedGroup[] {
     variants: g.variants.map((v, vi): AttributedVariant => ({
       label: v.label,
       romAddr: v.romAddr,
-      backAreaColor: g.id === 'bg' ? (backAreaColors[vi] ?? null) : null,
       rows: v.rows.map((ownRow, ri) => {
         const cgramRow = g.cgRamRow !== null ? g.cgRamRow + ri : -1
         return Array.from({ length: 16 }, (_, col) =>
@@ -279,4 +311,10 @@ export function buildStockTables(rom: RomFile): AttributedGroup[] {
       }),
     })),
   }))
+
+  // Next to Layer 2 Background: that is the group whose (mistaken) pairing
+  // with these colours a reader will be thinking about.
+  const bgIndex = groups.findIndex(g => g.id === 'bg')
+  groups.splice(bgIndex + 1, 0, buildBackAreaGroup(backAreaColors))
+  return groups
 }

@@ -56,12 +56,13 @@ let tmp
  * defect #379 was.
  */
 async function revealMusic(page) {
-  // Music happens to be the shell's default-current left tab on a fresh
-  // launch, and clicking an already-current Lumino tab toggles its panel
-  // CLOSED rather than doing nothing. Clicking Maps first guarantees the
-  // Music click below is a real activation regardless of the starting state.
-  await page.locator('#shell-tab-hackbench\\.map-explorer').click()
-  await page.locator('#shell-tab-hackbench\\.music-explorer').click()
+  // Activated through the shell rather than by clicking a tab: Music docks
+  // in the RIGHT sidebar, so there is no left tab to click, and clicking an
+  // already-current Lumino tab would toggle its panel closed anyway.
+  await page.evaluate(async () => {
+    await getSvc('ApplicationShell').activateWidget('hackbench.music-explorer')
+  })
+  await page.waitForTimeout(800)
 }
 
 test.beforeEach(async ({ page }) => {

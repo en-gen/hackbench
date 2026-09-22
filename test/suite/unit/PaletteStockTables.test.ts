@@ -126,8 +126,38 @@ describe.skipIf(!romPresent)('buildStockTables (vanilla cart)', () => {
         table: 'BackAreaColors',
         color: backAreaColors[vi],
       })
-      expect(v.backAreaColor).toEqual(backAreaColors[vi])
     })
+  })
+
+  /**
+   * Back Area Colors: a standalone group, not a field riding along with each
+   * bg variant. That pairing implied a link the cartridge does not have -
+   * see PaletteStockTables.ts's own comment on `buildBackAreaGroup`.
+   */
+  it('back_area is its own group of 8, with no CGRAM row, matching loadBackAreaColors', () => {
+    const { rom, groups } = load()
+    const backArea = groups.find(g => g.id === 'back_area')!
+    expect(backArea).toBeTruthy()
+    expect(backArea.cgRamRow).toBeNull()
+
+    const truth = loadBackAreaColors(rom)
+    expect(backArea.variants.length).toBe(1)
+    const cells = backArea.variants[0].rows[0]
+    expect(cells.length).toBe(8)
+    cells.forEach((cell, i) => {
+      expect(cell, `back_area index ${i}`).toEqual({
+        written: true,
+        table: 'BackAreaColors',
+        color: truth[i],
+        romAddr: 0x00b0a0 + i * 2,
+      })
+    })
+  })
+
+  it('sits directly after Layer 2 Background in the group order', () => {
+    const ids = load().groups.map(g => g.id)
+    const bgIndex = ids.indexOf('bg')
+    expect(ids[bgIndex + 1]).toBe('back_area')
   })
 
   it('column 0 of every OTHER row is unwritten, not a fabricated backdrop reading', () => {

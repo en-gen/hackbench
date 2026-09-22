@@ -66,6 +66,12 @@ export const ProjectPropertiesCommand: Command = {
   category: 'HackBench',
 }
 
+export const ExportPatchCommand: Command = {
+  id: 'hackbench.project.exportPatch',
+  label: 'Export Patch',
+  category: 'HackBench',
+}
+
 /**
  * File-menu entries Theia contributes that make no sense here, by the menu
  * path they live under and the command they invoke. Verified against the live
@@ -141,6 +147,10 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
       // reads as a broken install, one that is disabled reads as "not yet".
       isEnabled: () => !!this.context.current,
     })
+    registry.registerCommand(ExportPatchCommand, {
+      execute: () => this.exportPatch(),
+      isEnabled: () => !!this.context.current,
+    })
   }
 
   registerMenus(menus: MenuModelRegistry): void {
@@ -163,6 +173,11 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
       commandId: ProjectPropertiesCommand.id,
       label: ProjectPropertiesCommand.label,
       order: '3',
+    })
+    menus.registerMenuAction(CommonMenus.FILE, {
+      commandId: ExportPatchCommand.id,
+      label: ExportPatchCommand.label,
+      order: '4',
     })
 
     // Strip what a workspace IDE offers and a ROM editor does not have.
@@ -384,6 +399,39 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
       this.messages.info(`Saved properties for ${changes.title}`)
     } catch (err) {
       this.messages.error(`Could not save properties: ${(err as Error).message}`)
+    }
+  }
+
+  /**
+   * Diff the working copy against the base cartridge and write an .ips into
+   * `<project>/export/`. The copier-header note is what tells the user which
+   * variant of the base cartridge (headered or not) the patch's offsets
+   * assume - applying it to the other one silently lands on the wrong bytes.
+   */
+  protected async exportPatch(): Promise<void> {
+    const open = this.context.current
+    if (!open) {
+      this.messages.info('Open a project first')
+      return
+    }
+
+    try {
+      const result = await this.projects.exportPatch(open.manifestPath)
+      if (result.status === 'rom-not-located') {
+        this.messages.error(`Locate ${result.baseRom.title || 'the base cartridge'} first`)
+        return
+      }
+      if (result.status === 'unreadable') {
+        this.messages.error(result.reason)
+        return
+      }
+      const header = result.hasCopierHeader ? 'has a copier header' : 'has no copier header'
+      this.messages.info(
+        `Exported ${result.opCount} changed byte${result.opCount === 1 ? '' : 's'} to ` +
+          `${result.path} (base cartridge ${header})`,
+      )
+    } catch (err) {
+      this.messages.error(`Could not export patch: ${(err as Error).message}`)
     }
   }
 }

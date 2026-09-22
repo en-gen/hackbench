@@ -42,6 +42,12 @@ export class GfxExplorerContribution extends AbstractViewContribution<GfxExplore
     this.widgetManager.onDidCreateWidget(({ factoryId, widget }) => {
       if (factoryId === GFX_EXPLORER_ID) this.wireExplorer(widget as GfxExplorerWidget)
     })
+    // Theia restores saved-layout widgets BEFORE contributions start, so an
+    // explorer that came back with the layout predates the subscription above
+    // and would never be wired. Its rows render and its clicks do nothing.
+    for (const existing of this.widgetManager.getWidgets(GFX_EXPLORER_ID)) {
+      this.wireExplorer(existing as GfxExplorerWidget)
+    }
     // Attach immediately so the rail icon is reachable before any project
     // opens; this also creates the first instance, which the subscription
     // above (already registered) picks up like any later one.

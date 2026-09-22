@@ -343,6 +343,68 @@ test('switching the palette row repaints the canvas', async ({ page }) => {
   expect(after.checksum).not.toBe(before.checksum)
 })
 
+/**
+ * The feature's headline cross-view claim: a palette edit made through
+ * PaletteService visibly recolours an ALREADY-OPEN GFX sheet, with no
+ * manual reload - the entire point of `gfx-push-client.ts` and
+ * `WorkingCopyNotifier`. Nothing else in this suite exercises that push
+ * path; every other GFX test either never edits a palette, or calls
+ * `w.load(...)` itself, which would pass even if the push were dead.
+ *
+ * GFX file $00 (the first tree node) decodes at its natural default of
+ * 3bpp - see the "switching bit depth" test above. A 3bpp pixel is 3 bits,
+ * so decodeGfxSheet can only ever sample palette indices 0-7 out of a
+ * CGRAM row's 16; indices 8-15 are not "wrong colour", they are simply
+ * never read at this depth, regardless of which row is selected. An
+ * earlier version of this test edited col 9 ($00B2CE, Mario's red) and
+ * failed for exactly that reason - confirmed by decoding file $00's raw
+ * bytes directly (decodeTilesBatch(raw, 3)) and checking which indices
+ * the real tile data actually uses: {0,1,2,3,4,5,6,7}, never 9. That is a
+ * bad test, not a broken push path.
+ *
+ * col 6 - PlayerColors' first entry, $00B2C8, $635F vanilla
+ * (PLAYER_COL_START in PaletteLoader.ts; bank_00.asm:6163) - lands on
+ * index 6, which the same raw-bytes check confirms file $00 does use at
+ * 3bpp.
+ */
+test('a palette edit visibly recolours an already-open GFX sheet, with no manual reload', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await page.evaluate(async manifestPath => {
+    const w = await getWidget('hackbench.gfx-explorer')
+    await w.load(manifestPath)
+  }, project.manifestPath)
+  await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
+
+  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').first().click()
+  await page.waitForSelector('#hb-gfx-palette-row-select', { timeout: 15000 })
+  await page.waitForTimeout(500)
+
+  // PlayerColors is CGRAM row 8. Leave bit depth at its default (3bpp for
+  // file $00) rather than forcing 4bpp: the point is that an ordinary,
+  // already-open sheet repaints, not a depth the user had to pick first.
+  await page.selectOption('#hb-gfx-palette-row-select', '8')
+  await page.waitForTimeout(500)
+  const before = await readCanvas(page)
+
+  // Edit through PaletteService directly - the palette VIEW is not open at
+  // all, so this is unambiguously the push path and not some coincidental
+  // shared in-memory reference the widget already held.
+  const setColorResult = await page.evaluate(async manifestPath => {
+    const svc = getSvc('Symbol(PaletteService)')
+    return svc.setColor(manifestPath, 0x00b2c8, '$635F', '$03E0')
+  }, project.manifestPath)
+  expect(setColorResult.status).toBe('ok')
+
+  // No call to w.load/w.reload here: the push is what must repaint this.
+  await page.waitForTimeout(500)
+  const after = await readCanvas(page)
+
+  expect(after.checksum).not.toBe(before.checksum)
+})
+
 /** Read the open GFX view's canvas back: dimensions and real pixel variety. */
 async function readCanvas(page) {
   return page.evaluate(() => {
