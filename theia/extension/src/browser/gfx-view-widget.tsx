@@ -17,6 +17,7 @@ import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
 import { Emitter } from '@theia/core/lib/common'
 import { GfxBpp, GfxService, GfxSheetDto, PALETTE_ROW_COUNT } from '../common/gfx-protocol'
+import { GfxFrontendClient } from './gfx-push-client'
 
 export const GFX_VIEW_ID = 'hackbench.gfx-view'
 
@@ -56,6 +57,7 @@ function decodeRgba(base64: string): Uint8ClampedArray {
 @injectable()
 export class GfxViewWidget extends ReactWidget {
   @inject(GfxService) protected readonly gfx!: GfxService
+  @inject(GfxFrontendClient) protected readonly pushClient!: GfxFrontendClient
 
   protected options: GfxViewOptions | undefined
   protected sheet: GfxSheetDto | undefined
@@ -75,6 +77,14 @@ export class GfxViewWidget extends ReactWidget {
     this.node.tabIndex = 0
     // Every open sheet redraws when any one of them changes the zoom.
     this.toDispose.push(zoomChangedEmitter.event(() => this.update()))
+    // A palette edit (or anything else touching this project's working
+    // copy) re-decodes this sheet, which is what makes an edit visibly
+    // recolour an already-open GFX view without the user reopening it.
+    this.toDispose.push(
+      this.pushClient.onChanged(manifestPath => {
+        if (manifestPath === this.options?.manifestPath) void this.reload()
+      }),
+    )
   }
 
   async open(options: GfxViewOptions): Promise<void> {

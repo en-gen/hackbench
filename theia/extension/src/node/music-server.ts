@@ -1,13 +1,14 @@
 /**
  * Backend half of the music service.
  *
- * Thin on purpose, same rule as project-server.ts: the real work is
+ * Reads the project's WORKING COPY (WorkingRomRegistry), never the base
+ * cartridge directly - see docs/glossary.md, "Working copy". Otherwise thin
+ * on purpose, same rule as project-server.ts: the real work is
  * src/rom/MusicData.ts and src/rom/SpcBuilder.ts, unit tested without Theia.
  */
-import { injectable } from '@theia/core/shared/inversify'
-import { openProject } from '../../../../src/project/Project'
-import { RomRegistry } from '../../../../src/project/RomRegistry'
+import { inject, injectable } from '@theia/core/shared/inversify'
 import { RomFile } from '../../../../src/rom/RomFile'
+import { WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
 import { readLevelMusicTable } from '../../../../src/rom/MusicData'
 import {
   getLevelMusicBankAddrIfReadable,
@@ -26,16 +27,14 @@ const hex = (n: number, w = 2): string => `$${n.toString(16).toUpperCase().padSt
 
 @injectable()
 export class MusicServiceImpl implements MusicService {
-  private readonly registry = new RomRegistry()
+  @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
 
   async loadMusic(manifestPath: string): Promise<LoadMusicResult> {
-    const project = openProject(manifestPath)
-    const romPath = this.registry.resolve(project.baseRom.sha256)
-    if (!romPath) {
-      return { status: 'rom-not-located', baseRom: project.baseRom }
-    }
+    const r = this.workingRoms.get(manifestPath)
+    if (r.status === 'rom-not-located') return r
+    if (r.status === 'unreadable') throw new Error(r.reason)
 
-    const rom = RomFile.load(romPath)
+    const rom = RomFile.fromBytes(r.romPath, Buffer.from(r.working.bytes()))
     const bankRomAddr = getLevelMusicBankAddrIfReadable(rom)
     if (bankRomAddr === null) {
       return { status: 'bank-unreadable' }
@@ -79,17 +78,19 @@ export class MusicServiceImpl implements MusicService {
   }
 
   /**
-   * The cartridge behind a project, or a refusal.
+   * The cartridge behind a project, working copy included, or a throw.
    *
-   * Opened per call, same as project-server.ts's romFor: the registry
-   * re-verifies the hash, so a cart swapped under us never resolves stale.
+   * Read fresh from the registry each call: it is itself the shared cache,
+   * so this never needs its own.
    */
   private romFor(manifestPath: string): RomFile {
-    const project = openProject(manifestPath)
-    const romPath = this.registry.resolve(project.baseRom.sha256)
-    if (!romPath) {
-      throw new Error(`The base cartridge for ${project.name} is not on this machine`)
+    const r = this.workingRoms.get(manifestPath)
+    if (r.status === 'rom-not-located') {
+      throw new Error(
+        `The base cartridge for ${r.baseRom.title || 'this project'} is not on this machine`,
+      )
     }
-    return RomFile.load(romPath)
+    if (r.status === 'unreadable') throw new Error(r.reason)
+    return RomFile.fromBytes(r.romPath, Buffer.from(r.working.bytes()))
   }
 }

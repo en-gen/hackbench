@@ -36,7 +36,7 @@ export class PreviewTabs {
     // the shell loses track of it the moment a second row is clicked.
     widget.id = previewId(viewId)
     addClass(widget, PREVIEW_TAB_CLASS)
-    this.attach(widget)
+    this.attach(widget, false)
     return widget
   }
 
@@ -55,7 +55,7 @@ export class PreviewTabs {
     const widget = await this.widgets.getOrCreateWidget<W>(viewId, key)
     await apply(widget)
     removeClass(widget, PREVIEW_TAB_CLASS)
-    this.attach(widget)
+    this.attach(widget, true)
 
     if (existingPreview && existingPreview !== widget && sameRow(existingPreview)) {
       existingPreview.close()
@@ -63,9 +63,16 @@ export class PreviewTabs {
     return widget
   }
 
-  protected attach(widget: Widget): void {
+  /**
+   * `focus` false reveals the tab without taking focus, so a single click
+   * leaves the caret in the tree and the arrow keys keep walking the list,
+   * previewing each row as it goes. Pinning is an explicit "I want this
+   * one", so it focuses.
+   */
+  protected attach(widget: Widget, focus: boolean): void {
     if (!widget.isAttached) this.shell.addWidget(widget, { area: 'main' })
-    void this.shell.activateWidget(widget.id)
+    if (focus) void this.shell.activateWidget(widget.id)
+    else void this.shell.revealWidget(widget.id)
   }
 }
 

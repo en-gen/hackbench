@@ -5,7 +5,7 @@
  * modules, which are unit tested without Theia, VS Code or a browser. This
  * class exists only to put those modules on the wire.
  */
-import { injectable } from '@theia/core/shared/inversify'
+import { inject, injectable } from '@theia/core/shared/inversify'
 import {
   createProject,
   openProject,
@@ -18,9 +18,12 @@ import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMapTree } from '../../../../src/rom/MapTree'
 import { parseLevelObjects, parseLevelSprites } from '../../../../src/rom/LevelParser'
+import { WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
+import { exportPatch } from '../../../../src/project/ExportPatch'
 import * as fs from 'fs'
 import {
   CreateProjectRequest,
+  ExportPatchResult,
   HackMetadataDto,
   LoadMapsResult,
   MapDetailsDto,
@@ -34,6 +37,7 @@ import {
 export class ProjectServiceImpl implements ProjectService {
   private readonly registry = new RomRegistry()
   private readonly recent = new RecentProjects()
+  @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
 
   async createProject(req: CreateProjectRequest): Promise<ProjectDto> {
     const p = createProject(req)
@@ -155,6 +159,26 @@ export class ProjectServiceImpl implements ProjectService {
 
     const rom = new SmwRom(RomFile.load(romPath))
     return { status: 'ok', tree: buildMapTree(rom), romPath }
+  }
+
+  /**
+   * Diff the working copy against the base cartridge and write an .ips.
+   *
+   * Uses the SAME WorkingRomRegistry instance palette-server.ts writes
+   * through, so this exports whatever edits are actually live in this run,
+   * not a re-read of ops/ from disk (which would also be correct, but would
+   * silently miss an unflushed in-memory state if one ever existed).
+   */
+  async exportPatch(manifestPath: string): Promise<ExportPatchResult> {
+    const r = this.workingRoms.get(manifestPath)
+    if (r.status !== 'ok') return r
+    const written = exportPatch(r.project.directory, r.project.name, r.working)
+    return {
+      status: 'ok',
+      path: written.path,
+      hasCopierHeader: written.hasCopierHeader,
+      opCount: written.opCount,
+    }
   }
 }
 

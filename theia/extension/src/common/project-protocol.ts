@@ -125,6 +125,19 @@ export interface MapDetailsDto {
   header: Array<{ label: string; value: string }>
 }
 
+/**
+ * Result of exporting the working copy as an .ips patch.
+ *
+ * `hasCopierHeader` describes the BASE cartridge the patch's offsets are
+ * relative to: an .ips generated against a headered dump will not line up
+ * against a headerless one of the same game, so the user needs to know
+ * which variant to apply it to.
+ */
+export type ExportPatchResult =
+  | { status: 'ok'; path: string; hasCopierHeader: boolean; opCount: number }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+  | { status: 'unreadable'; reason: string }
+
 export interface ProjectService {
   /**
    * Create a project against a base ROM.
@@ -188,4 +201,11 @@ export interface ProjectService {
    * than failing when this machine has not been told where it is.
    */
   loadMaps(manifestPath: string): Promise<LoadMapsResult>
+
+  /**
+   * Diff the working copy against the base cartridge and write an .ips into
+   * `<project>/export/`. Includes every persisted edit layer; a live preview
+   * layer (mid-drag) is never part of an export.
+   */
+  exportPatch(manifestPath: string): Promise<ExportPatchResult>
 }

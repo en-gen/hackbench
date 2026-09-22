@@ -116,6 +116,11 @@ export class GfxExplorerWidget extends TreeWidget {
         }
       }),
     )
+    this.toDispose.push(
+      this.model.onSelectionChanged(() => {
+        this.fireOpen(this.model.selectedNodes[0] as GfxTreeNode | undefined, false)
+      }),
+    )
     // The context may already hold a project by the time this view is first
     // created (e.g. the user opened Graphics after opening a project).
     if (this.projectContext.current) {
@@ -190,9 +195,13 @@ export class GfxExplorerWidget extends TreeWidget {
   }
 
   /** A click selects and opens; there is nothing to expand in a flat list. */
+  /**
+   * Selection drives the preview, not the click: a click selects, and so do
+   * the arrow keys, so both walk the list with the preview following. Only
+   * pinning is bound to a gesture.
+   */
   protected override tapNode(node: TreeNode | undefined): void {
     super.tapNode(node)
-    this.fireOpen(node as GfxTreeNode | undefined, false)
   }
 
   /** Double click pins, matching the map explorer and VS Code. */

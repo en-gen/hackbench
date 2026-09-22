@@ -34,3 +34,30 @@ export function formatRomAddr(addr: number | null): string {
 export function cssColor(c: PaletteColorDto): string {
   return `rgba(${c.r}, ${c.g}, ${c.b}, ${c.a / 255})`
 }
+
+/** "#rrggbb" (an `<input type="color">`'s value) to a BGR555 hex word. */
+export function cssHexToBgr555(cssHex: string): string {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(cssHex.trim())
+  if (!m) throw new Error(`not a 6-digit css colour: ${JSON.stringify(cssHex)}`)
+  const n = parseInt(m[1], 16)
+  return formatBgr555({ r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff, a: 255 })
+}
+
+/** A BGR555 word an operator typed ("391F", "$391f", ...) to canonical "$XXXX". */
+export function normalizeBgr555Hex(input: string): string {
+  const m = /^\$?([0-9a-fA-F]{1,4})$/.exec(input.trim())
+  if (!m) throw new Error(`not a BGR555 hex word: ${JSON.stringify(input)}`)
+  return `$${m[1].toUpperCase().padStart(4, '0')}`
+}
+
+/** The opposite direction: a BGR555 word to "#rrggbb" for the colour input's value. */
+export function bgr555HexToCssHex(bgrHex: string): string {
+  const m = /^\$?([0-9a-fA-F]{1,4})$/.exec(bgrHex.trim())
+  if (!m) throw new Error(`not a BGR555 hex word: ${JSON.stringify(bgrHex)}`)
+  const word = parseInt(m[1], 16) & 0x7fff
+  const r5 = word & 0x1f
+  const g5 = (word >> 5) & 0x1f
+  const b5 = (word >> 10) & 0x1f
+  const expand = (c5: number): number => (c5 << 3) | (c5 >> 2)
+  return `#${[expand(r5), expand(g5), expand(b5)].map(n => hex(n, 2)).join('')}`
+}

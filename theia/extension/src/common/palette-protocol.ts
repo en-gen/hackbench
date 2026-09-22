@@ -46,17 +46,17 @@ export type PaletteRowDto = PaletteCellDto[]
 /**
  * One variant of a group (e.g. one of the 8 background palettes).
  *
- * `backAreaColor` is attached only to the 'bg' group's variants: BackAreaColor
- * is selected by the same index as the background variant (PaletteLoader.ts's
- * ADDR_BACK_AREA + variant*2), so it rides along with the variant it belongs
- * to rather than living as an unexplained separate list.
+ * No `backAreaColor` here: back area colours are not palette data (they are
+ * never written into CGRAM - see the 'back_area' group's own description)
+ * and are selected by an independent header field, byte 1 rather than the
+ * BG variant's byte 0. Pairing one with each BG variant used to imply a
+ * link the cartridge does not have; they are their own standalone group now.
  */
 export interface PaletteVariantDto {
   label: string
   /** Null when the source address has not been verified against the ASM. */
   romAddr: number | null
   rows: PaletteRowDto[]
-  backAreaColor?: PaletteColorDto
 }
 
 /**
@@ -98,7 +98,40 @@ export type LoadPaletteResult =
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
   | { status: 'unreadable'; reason: string }
 
+/**
+ * Result of an edit. Shares `LoadPaletteResult`'s shape for `ok` so the
+ * widget can drop the response straight into the same `result` field it
+ * already re-renders from - `setColor` and `loadPalettes` answer the same
+ * question ("what does the working copy look like now"), just after a
+ * different action.
+ *
+ * `stale` covers WorkingRom.append's own refusal: the address no longer
+ * holds the `old` value the caller expected (moved by another edit, or a
+ * bad request), so nothing was written rather than overwriting the wrong
+ * bytes.
+ *
+ * `io-error` covers `ops/`'s write-back failing (read-only directory, full
+ * disk, a file locked by another process) AFTER the in-memory layer already
+ * validated. The working copy is rolled back to match - an edit that is
+ * live in memory but not on disk would render as committed and then vanish
+ * on the next launch, which is worse than refusing it up front.
+ */
+export type SetColorResult =
+  LoadPaletteResult | { status: 'stale'; reason: string } | { status: 'io-error'; reason: string }
+
+/**
+ * Pushed to the frontend when a project's working copy changes. No payload
+ * beyond which project: a subscriber re-fetches (`loadPalettes`) rather than
+ * being handed a diff, same reasoning as `SetColorResult`.
+ */
+export interface PaletteServiceClient {
+  onWorkingCopyChanged(manifestPath: string): void
+}
+
 export interface PaletteService {
+  /** Registers the frontend's push target. Theia calls this once per connection. */
+  setClient(client: PaletteServiceClient | undefined): void
+
   /**
    * Every stock palette table the project's base cartridge holds.
    *
@@ -108,4 +141,19 @@ export interface PaletteService {
    * too short to actually contain this data.
    */
   loadPalettes(manifestPath: string): Promise<LoadPaletteResult>
+
+  /**
+   * Write one BGR555 word to the project's working copy: records one `edit`
+   * layer and persists it to `ops/`. `oldHex` is the word currently
+   * committed at `romAddr`; the caller (OK, or a hex field Enter) reads it
+   * fresh from what is on screen right before calling this, so it always
+   * matches what the cartridge actually holds - there is no live preview
+   * layer that could move it out from under the check in between.
+   */
+  setColor(
+    manifestPath: string,
+    romAddr: number,
+    oldHex: string,
+    newHex: string,
+  ): Promise<SetColorResult>
 }

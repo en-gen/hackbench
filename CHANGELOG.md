@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Palette view is now editable. Click a swatch, change its colour through a
+  colour picker or the BGR555 hex field, and the working copy updates live -
+  a recolour of a written cell is visible in the GFX viewer too, since both
+  now read the same in-memory working copy rather than the base cartridge.
+  Edits are recorded as `{address, old, new}` ops, stacked into layers under
+  a project's `ops/` (fully committed, portable across machines), and a new
+  `HackBench: Export Patch` command diffs the working copy against the base
+  cartridge into a real `.ips` under `<project>/export/`. Pick a colour with
+  the native picker or the hex field, then click OK to commit one layer;
+  nothing downstream updates until you confirm.
+- Back Area Colors is its own palette group, next to Layer 2 Background,
+  rather than a swatch paired one-to-one with each BG variant. That pairing
+  implied a link the cartridge does not have: BG palette is level header
+  byte 0, back area colour is the independent header byte 1, and the colour
+  itself is a PPU register (`$2132`/COLDATA) fed to colour math, not CGRAM
+  data at all.
 - Sprite $93 (Bouncin' Chuck) renders the canonical arms-up bounce pose
   (`SpriteMisc1602 = $06` written by `CODE_02C53C` in bank_02.asm:9204 once
   `SpriteTableC2` advances to $06 after the chuck triggers). Body uses
