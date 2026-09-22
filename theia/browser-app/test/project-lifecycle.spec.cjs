@@ -73,6 +73,22 @@ test('both Open Project and Project Properties are reachable from the File menu'
  * here was read out of a running app before being removed.
  */
 test('workspace and loose-file entries are gone from the File menu', async ({ page }) => {
+  // Seed a project first. The recent submenu is generated per remembered
+  // project and RecentProjects persists to disk, so on a developer machine an
+  // earlier project satisfied this and on a clean CI runner nothing did. The
+  // test asserted a precondition it never established, and failed the first
+  // time it ran anywhere fresh (run 35683353340).
+  await page.evaluate(
+    async ({ romPath, directory }) => {
+      await getSvc('Symbol(ProjectService)').createProject({
+        romPath,
+        name: 'RecentSeed',
+        directory,
+      })
+    },
+    { romPath: ROM, directory: path.join(tmp, 'RecentSeed') },
+  )
+
   const ids = await page.evaluate(() => {
     const menus = getSvc('MenuModelRegistry')
     const root = menus.getMenu(['menubar']) || menus.getMenu([])
