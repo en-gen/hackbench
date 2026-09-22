@@ -14,6 +14,7 @@ import {
   RemoteConnectionProvider,
   ServiceConnectionProvider,
 } from '@theia/core/lib/browser/messaging/service-connection-provider'
+import { PreviewTabs } from './preview-tabs'
 import { PROJECT_SERVICE_PATH, ProjectService } from '../common/project-protocol'
 import { HackBenchContribution } from './hackbench-contribution'
 import { NewProjectDialog } from './new-project-dialog'
@@ -45,6 +46,8 @@ export default new ContainerModule(bind => {
   // service and selection service per tree, so the widget cannot be a plain
   // self-binding in this container. Everything else reaches it through
   // WidgetManager by id.
+  bind(PreviewTabs).toSelf().inSingletonScope()
+
   bind(WidgetFactory)
     .toDynamicValue(ctx => ({
       id: MAP_EXPLORER_ID,

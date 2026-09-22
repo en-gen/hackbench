@@ -13,7 +13,11 @@ import { loadAllMap16BG, loadMap16WithPipeVariants, type Map16Tile } from '../ro
 import { pSwitchSubstitute } from '../rom/PSwitchRules'
 import { loadRomPalettes, loadBackAreaColors } from '../rom/PaletteLoader'
 import { loadAnimationData, ANIM_INTERVAL_MS } from '../rom/AnimationLoader'
-import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
+import {
+  explainPaletteAnimation,
+  loadPaletteAnimData,
+  serializePaletteAnimData,
+} from '../rom/PaletteAnimationLoader'
 import { readInitialLayer1YPos, readL3RoutineSummary, classifyL3Routine } from '../rom/L3Loader'
 import { getAllLevelBgmTracks, readLevelMusicTable } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
@@ -538,8 +542,13 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
       // Palette-animation raw - the model owns the frame cycle; the
       // legacy load payload only needs the timer's frameCount / intervalMs.
-      const palAnimRaw = session?.getPaletteAnim('level') ?? loadPaletteAnimData(rom.rom, 'level')
+      // `??` would treat the session's correctly cached null as a miss and
+      // re-scan the whole cart on every open of a cart that has no animation.
+      const palAnimRaw = session
+        ? session.getPaletteAnim('level')
+        : loadPaletteAnimData(rom.rom, 'level')
       const palAnimSerialized = palAnimRaw ? serializePaletteAnimData(palAnimRaw) : null
+      const palAnimNotes = explainPaletteAnimation(rom.rom, 'level')
       // ROM bytes: shipped once per load message so the webview can
       // (a) reconstruct a `RomFile` for `buildScrollSimulator` (every
       // scroll handler reads data tables directly from ROM), and
@@ -590,6 +599,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         paletteAnimation: palAnimSerialized
           ? { frameCount: palAnimSerialized.frameCount, intervalMs: palAnimSerialized.intervalMs }
           : null,
+        paletteAnimationNotes: palAnimNotes,
         backAreaColor: romPalettes.backAreaColor,
         backAreaColors: backAreaColors.map(c => [c[0], c[1], c[2], c[3]]),
         sprites: sprites.map(s => ({ x: s.x, y: s.y, spriteId: s.spriteId })),

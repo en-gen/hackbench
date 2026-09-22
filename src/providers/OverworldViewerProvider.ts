@@ -42,7 +42,11 @@ import {
 import { loadOverworldAnimation } from '../rom/OverworldAnimation'
 import { loadOverworldEvents } from '../rom/OverworldEvents'
 import { parseLevelHeader } from '../rom/LevelParser'
-import { loadPaletteAnimData, serializePaletteAnimData } from '../rom/PaletteAnimationLoader'
+import {
+  explainPaletteAnimation,
+  loadPaletteAnimData,
+  serializePaletteAnimData,
+} from '../rom/PaletteAnimationLoader'
 import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, VramSlotName } from '../rom/GfxLoader'
 import { loadRomPalettes, buildLevelCgram, RgbaRow } from '../rom/PaletteLoader'
 
@@ -175,14 +179,16 @@ export class OverworldViewerProvider implements vscode.CustomReadonlyEditorProvi
 
       // Palette animation - same loader the level path uses, with
       // 'overworld' mode selecting the OW NMI's CGRAM $6D + $7D cycle
-      // (`bank_00.asm:80/A4E3-A51E`). Returns null only on bad ROM data;
-      // the webview gates its timer on the presence of a non-null
-      // `paletteAnimation` field.
+      // (`bank_00.asm:80/A4E3-A51E`). Null whenever this cart's overworld
+      // NMI cannot be read; the webview gates its timer on `paletteAnimation`
+      // and the notes say why.
       const palAnim = loadPaletteAnimData(rom, 'overworld')
       const paletteAnimation = palAnim ? serializePaletteAnimData(palAnim) : null
+      const paletteAnimationNotes = explainPaletteAnimation(rom, 'overworld')
 
       webview.postMessage({
         type: 'load',
+        paletteAnimationNotes,
         area,
         region: areaBufferRegion(area),
         // Whole staging buffer goes over so the webview can address any

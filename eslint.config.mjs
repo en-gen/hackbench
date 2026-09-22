@@ -81,6 +81,15 @@ export default [
     },
   },
 
+  // `revealEmulator` follows the same preamble pattern, but only in this one
+  // spec: it calls getSvc/getWidget itself, so it has to run in the page too.
+  {
+    files: ['theia/browser-app/test/emulator-view.spec.cjs'],
+    languageOptions: {
+      globals: { revealEmulator: 'readonly' },
+    },
+  },
+
   // Tests reach for `any` to build partial fixtures and stub objects that
   // would otherwise need the whole shape spelled out. The rule stays on for
   // src/, which is where an untyped value actually costs something.

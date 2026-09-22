@@ -54,10 +54,15 @@ export function decode3bpp(data: ArrayLike<number>, offset = 0): Uint8Array {
   return px
 }
 
+/** Bytes one tile occupies at a given bit depth. */
+export function bytesPerTile(bpp: 2 | 3 | 4): number {
+  return bpp === 4 ? 32 : bpp === 3 ? 24 : 16
+}
+
 /** Decode all tiles from raw bytes using the given BPP mode.
  *  Works in both Node and browser contexts (accepts any array-like input). */
 export function decodeTilesBatch(data: ArrayLike<number>, bpp: 2 | 3 | 4): Uint8Array[] {
-  const bpt = bpp === 4 ? 32 : bpp === 3 ? 24 : 16
+  const bpt = bytesPerTile(bpp)
   const count = Math.floor(data.length / bpt)
   const decode = bpp === 4 ? decode4bpp : bpp === 3 ? decode3bpp : decode2bpp
   return Array.from({ length: count }, (_, i) => decode(data, i * bpt))

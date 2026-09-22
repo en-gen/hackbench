@@ -35,7 +35,10 @@ fi
 # --- Rule 1: ROM-derived bytes -------------------------------------------
 
 # Extensions that are ROM images, saves, savestates or patches. Never allowed.
-rom_ext='\.(smc|sfc|rom|srm|mss|ips|bps|spc|cdl)$'
+# wasm: the emulator core binary (vendor/cores/, gitignored) is the same
+# never-commit class; nothing in this repo ships a first-party .wasm, so this
+# has no legitimate case to allow-list.
+rom_ext='\.(smc|sfc|rom|srm|mss|ips|bps|spc|cdl|wasm)$'
 
 # Paths whose contents are ROM-derived by construction. Allow-list the few
 # first-party files that legitimately live there.
