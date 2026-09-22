@@ -1,5 +1,5 @@
 /**
- * LC_LZ2 decompressor - Nintendo's compression format used for all SMW GFX files.
+ * LC_LZ2 codec - Nintendo's compression format used for all SMW GFX files.
  *
  * Every GFX file in the ROM is stored compressed. Addresses are read from
  * split pointer tables (lo/hi/bank) rather than computed linearly.
@@ -125,4 +125,312 @@ export function decompress(
   }
 
   return new Uint8Array(out)
+}
+
+// ── Encoder ─────────────────────────────────────────────────────────────────
+//
+// STRUCTURE-PRESERVING RE-ENCODE, not a from-scratch compressor, and the
+// difference is load-bearing. A correct greedy encoder (byte/word/increasing
+// fill plus literal runs) re-encodes the UNEDITED vanilla cart's 50 GFX files
+// to 117,834 bytes against the cart's own 107,284: 9.8% worse, worse on 50 of
+// 50 files, overflowing the 108,039-byte arena by 9,795 bytes before a pixel
+// is painted. Evidence scope: throwaway probe, 5 cartridges, one machine. The
+// gap is command 4, which carries 12.0% of vanilla's decompressed bytes and
+// which a run-encoder never produces.
+//
+// So `encode` walks the ORIGINAL command stream and keeps every command that
+// still reproduces its own output byte for byte, back-references included.
+// Only the commands an edit actually broke are replaced, and the replacement
+// is a greedy re-encode of just that span. Unedited input therefore comes
+// back byte-identical, and an edit costs bytes in proportion to itself.
+
+/** Extended-header ceiling: 10 bits of length, so 1..1024. */
+export const MAX_RUN = 1024
+/** Short-header ceiling: 5 bits of length, so 1..32. */
+export const MAX_SHORT_RUN = 32
+/** Command 4's operand is a 16-bit output index, so nothing past this is
+ *  addressable and emitting into it would be a stream the game cannot read. */
+export const MAX_OUTPUT = 0x10000
+
+/** One command as the decompressor reads it, with where it sits and what it
+ *  produced. Commands 5 and 6 are never produced. */
+export interface LcLz2Command {
+  cmd: number
+  len: number
+  /** Offset of the header byte in the source buffer. */
+  at: number
+  /** Offset of the first operand byte. */
+  opAt: number
+  /** Bytes occupied, header included. */
+  size: number
+  /** Where this command's output begins in the decompressed buffer. */
+  outStart: number
+}
+
+export interface LcLz2Stream {
+  commands: LcLz2Command[]
+  /** Bytes from `srcOffset` through the terminator, inclusive. */
+  byteLength: number
+  outputLength: number
+  /** False when the buffer ran out, or the stream used a command SMW's
+   *  decompressor ignores: either way it cannot be faithfully re-encoded. */
+  terminated: boolean
+}
+
+function operandBytes(cmd: number, len: number): number {
+  switch (cmd) {
+    case 0:
+      return len
+    case 1:
+    case 3:
+      return 1
+    default:
+      return 2
+  }
+}
+
+/**
+ * Measure a compressed stream without decompressing it: where each command
+ * sits, how long the whole thing is, and how much it produces.
+ *
+ * `byteLength` is what the arena needs to know a file's on-cart footprint,
+ * and the command list is what `encode` re-walks.
+ */
+export function parseStream(src: Buffer | Uint8Array, srcOffset = 0): LcLz2Stream {
+  const commands: LcLz2Command[] = []
+  let i = srcOffset
+  let wp = 0
+
+  while (i < src.length) {
+    const at = i
+    const header = src[i++]!
+    if (header === 0xff) {
+      return { commands, byteLength: i - srcOffset, outputLength: wp, terminated: true }
+    }
+
+    let cmd = (header >> 5) & 7
+    let len: number
+    if (cmd === 7) {
+      if (i >= src.length) break
+      const ext = src[i++]!
+      cmd = (header >> 2) & 7
+      len = (((header & 3) << 8) | ext) + 1
+    } else {
+      len = (header & 0x1f) + 1
+    }
+    // Commands 5-7 write nothing and consume no operands in SMW's
+    // decompressor, so a stream containing one is not a stream we can
+    // re-encode. Refusing beats guessing at an operand width.
+    if (cmd >= 5) break
+
+    const opAt = i
+    i += operandBytes(cmd, len)
+    if (i > src.length) break
+    commands.push({ cmd, len, at, opAt, size: i - at, outStart: wp })
+    wp += len
+  }
+
+  return { commands, byteLength: i - srcOffset, outputLength: wp, terminated: false }
+}
+
+/**
+ * Compress `data`, reusing `template`'s command structure where it still
+ * holds.
+ *
+ * Hard invariant, and the one every test leans on:
+ * `decompress(encode(x))` equals `x`. With a template that matches, the
+ * stronger `encode(decompress(s), s)` equals `s` also holds.
+ *
+ * Refuses a template that is unterminated or produces a different length,
+ * rather than re-encoding against a structure that does not describe this
+ * data: a partial read silently re-encoded is the confidently-wrong write
+ * this whole approach exists to avoid.
+ */
+export function encode(data: Uint8Array, template?: Buffer | Uint8Array): Uint8Array {
+  if (data.length > MAX_OUTPUT) {
+    throw new Error(
+      `cannot encode ${data.length} bytes: LC_LZ2 addresses output with 16 bits, ` +
+        'so 65536 (0x10000) is the ceiling',
+    )
+  }
+
+  const out: number[] = []
+  if (template) {
+    const parsed = parseStream(template)
+    if (!parsed.terminated) {
+      throw new Error('template stream is not terminated; refusing to re-encode a partial read')
+    }
+    if (parsed.outputLength !== data.length) {
+      throw new Error(
+        `template decompresses to ${parsed.outputLength} bytes but the data is ` +
+          `${data.length}: length must match`,
+      )
+    }
+    reencode(out, data, template, parsed.commands)
+  } else {
+    emitRange(out, data, 0, data.length)
+  }
+  out.push(0xff)
+  return Uint8Array.from(out)
+}
+
+/**
+ * Would this command, run against `data` as the output buffer, write exactly
+ * the bytes `data` already holds there?
+ *
+ * Mirrors `decompress`'s own semantics, including the one non-obvious case:
+ * a back-reference whose source index is at or past the write head reads
+ * zeroes, because the output array has not grown that far yet.
+ */
+function reproduces(c: LcLz2Command, data: Uint8Array, template: Buffer | Uint8Array): boolean {
+  const wp = c.outStart
+  switch (c.cmd) {
+    case 0:
+      for (let n = 0; n < c.len; n++) if (data[wp + n] !== template[c.opAt + n]) return false
+      return true
+    case 1: {
+      const b = template[c.opAt]!
+      for (let n = 0; n < c.len; n++) if (data[wp + n] !== b) return false
+      return true
+    }
+    case 2: {
+      const b0 = template[c.opAt]!
+      const b1 = template[c.opAt + 1]!
+      for (let n = 0; n < c.len; n++) if (data[wp + n] !== (n % 2 === 0 ? b0 : b1)) return false
+      return true
+    }
+    case 3: {
+      const b = template[c.opAt]!
+      for (let n = 0; n < c.len; n++) if (data[wp + n] !== ((b + n) & 0xff)) return false
+      return true
+    }
+    default: {
+      const addr = (template[c.opAt]! << 8) | template[c.opAt + 1]!
+      const live = addr < wp
+      for (let n = 0; n < c.len; n++) {
+        if (data[wp + n] !== (live ? data[addr + n] : 0)) return false
+      }
+      return true
+    }
+  }
+}
+
+/** Kept commands are copied verbatim; broken ones are coalesced into spans
+ *  and greedily re-encoded together, so a run of them pays one header set. */
+function reencode(
+  out: number[],
+  data: Uint8Array,
+  template: Buffer | Uint8Array,
+  commands: readonly LcLz2Command[],
+): void {
+  let brokenFrom = -1
+  const flush = (end: number): void => {
+    if (brokenFrom < 0) return
+    emitRange(out, data, brokenFrom, end)
+    brokenFrom = -1
+  }
+
+  for (const c of commands) {
+    if (!reproduces(c, data, template)) {
+      if (brokenFrom < 0) brokenFrom = c.outStart
+      continue
+    }
+    flush(c.outStart)
+    for (let k = 0; k < c.size; k++) out.push(template[c.at + k]!)
+  }
+  flush(data.length)
+}
+
+interface Run {
+  cmd: number
+  len: number
+  operands: number[]
+}
+
+/**
+ * The most economical fill starting at `p`, or null when literals win.
+ *
+ * `saving` is what the fill costs against the same bytes as literal payload.
+ * It must clear 1, not 0: interrupting a literal run costs an extra header
+ * byte on the far side, so a saving of 1 nets nothing.
+ */
+function bestRun(data: Uint8Array, p: number, end: number): Run | null {
+  const limit = Math.min(end - p, MAX_RUN)
+  const b0 = data[p]!
+
+  let byteLen = 1
+  while (byteLen < limit && data[p + byteLen] === b0) byteLen++
+
+  let incLen = 1
+  while (incLen < limit && data[p + incLen] === ((b0 + incLen) & 0xff)) incLen++
+
+  let wordLen = 0
+  if (limit >= 2) {
+    const b1 = data[p + 1]!
+    wordLen = 1
+    while (wordLen < limit && data[p + wordLen] === (wordLen % 2 === 0 ? b0 : b1)) wordLen++
+  }
+
+  const candidates: Run[] = [
+    { cmd: 1, len: byteLen, operands: [b0] },
+    { cmd: 3, len: incLen, operands: [b0] },
+    { cmd: 2, len: wordLen, operands: [b0, data[p + 1] ?? 0] },
+  ]
+  let best: Run | null = null
+  let bestSaving = 1
+  for (const r of candidates) {
+    if (r.len < 2) continue
+    const saving = r.len - (headerSize(r.len) + r.operands.length)
+    if (saving > bestSaving) {
+      best = r
+      bestSaving = saving
+    }
+  }
+  return best
+}
+
+function headerSize(len: number): number {
+  return len <= MAX_SHORT_RUN ? 1 : 2
+}
+
+function emitHeader(out: number[], cmd: number, len: number): void {
+  if (len <= MAX_SHORT_RUN) {
+    out.push(((cmd & 7) << 5) | (len - 1))
+    return
+  }
+  // Extended form: 111 in the top bits, command in 4-2, the length's high
+  // bits in 1-0. Command never reaches 7 here, so this cannot emit $FF.
+  out.push(0xe0 | ((cmd & 7) << 2) | (((len - 1) >> 8) & 3))
+  out.push((len - 1) & 0xff)
+}
+
+/** Greedy encode of one span: fills where they pay, literals otherwise. */
+function emitRange(out: number[], data: Uint8Array, start: number, end: number): void {
+  let p = start
+  let litFrom = -1
+
+  const flushLiterals = (): void => {
+    if (litFrom < 0) return
+    for (let n = litFrom; n < p;) {
+      const take = Math.min(p - n, MAX_RUN)
+      emitHeader(out, 0, take)
+      for (let k = 0; k < take; k++) out.push(data[n + k]!)
+      n += take
+    }
+    litFrom = -1
+  }
+
+  while (p < end) {
+    const run = bestRun(data, p, end)
+    if (!run) {
+      if (litFrom < 0) litFrom = p
+      p++
+      continue
+    }
+    flushLiterals()
+    emitHeader(out, run.cmd, run.len)
+    for (const b of run.operands) out.push(b)
+    p += run.len
+  }
+  flushLiterals()
 }

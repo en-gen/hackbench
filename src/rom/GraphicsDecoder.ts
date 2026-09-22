@@ -54,6 +54,48 @@ export function decode3bpp(data: ArrayLike<number>, offset = 0): Uint8Array {
   return px
 }
 
+/**
+ * Which bytes hold one pixel row's bitplanes, lowest plane first.
+ *
+ * The inverse of what decode2/3/4bpp read, written once so a painter cannot
+ * drift from the decoder: 2BPP and 4BPP interleave plane pairs two bytes per
+ * row, and 3BPP's third plane is a flat 8 bytes after the first sixteen.
+ */
+export function planeOffsets(bpp: 2 | 3 | 4, offset: number, row: number): number[] {
+  const base = [offset + row * 2, offset + row * 2 + 1]
+  if (bpp === 2) return base
+  if (bpp === 3) return [...base, offset + 16 + row]
+  return [...base, offset + 16 + row * 2, offset + 16 + row * 2 + 1]
+}
+
+/**
+ * Write one palette index into a tile's bitplanes, in place.
+ *
+ * Refuses a value the depth cannot hold rather than truncating it: a 4BPP
+ * colour painted into a 3BPP file would silently become a different colour,
+ * and the caller would have no way to know.
+ */
+export function setTilePixel(
+  data: Uint8Array,
+  offset: number,
+  bpp: 2 | 3 | 4,
+  x: number,
+  y: number,
+  value: number,
+): void {
+  if (!Number.isInteger(value) || value < 0 || value >= 1 << bpp) {
+    throw new Error(`palette index ${value} does not fit ${bpp}bpp`)
+  }
+  if (x < 0 || x >= TILE_W || y < 0 || y >= TILE_H) {
+    throw new Error(`pixel (${x}, ${y}) is outside an 8x8 tile`)
+  }
+  const mask = 1 << (7 - x)
+  planeOffsets(bpp, offset, y).forEach((at, plane) => {
+    if (at >= data.length) throw new Error(`tile at ${offset} runs past the end of the sheet`)
+    data[at] = ((value >> plane) & 1) === 1 ? data[at]! | mask : data[at]! & ~mask & 0xff
+  })
+}
+
 /** Bytes one tile occupies at a given bit depth. */
 export function bytesPerTile(bpp: 2 | 3 | 4): number {
   return bpp === 4 ? 32 : bpp === 3 ? 24 : 16

@@ -57,6 +57,21 @@ export function loromToOffset(
 }
 
 /**
+ * The inverse of `loromToOffset`: the SNES address a file offset is reached
+ * through, in the $00-$7D half of the map.
+ *
+ * Needed by anything that WRITES a pointer, because a pointer table holds
+ * SNES addresses and a layout is computed in file offsets. Returns null past
+ * the 4MB LoROM ceiling, where no such address exists.
+ */
+export function loromFromOffset(fileOffset: number): number | null {
+  if (!Number.isInteger(fileOffset) || fileOffset < 0) return null
+  const bank = Math.floor(fileOffset / LOROM_BANK_SIZE)
+  if (bank > 0x7d) return null
+  return (bank << 16) | ((fileOffset % LOROM_BANK_SIZE) + 0x8000)
+}
+
+/**
  * Convert a 24-bit SNES HiROM address to a ROM file byte offset.
  * Returns null for addresses not backed by ROM (WRAM, SRAM, low-page system area).
  * Unused by any SMW pointer path (SMW ships LoROM only) and kept only for
