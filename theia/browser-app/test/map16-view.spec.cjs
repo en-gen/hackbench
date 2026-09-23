@@ -43,6 +43,7 @@
  * re-clicking) to wait out the round trip instead.
  */
 const { test, expect } = require('@playwright/test')
+const { CART, shownWords } = require('./rom-words.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -839,4 +840,12 @@ test('the large block preview updates when the selection changes and tracks the 
 
   await page.locator('#hb-map16-play-toggle').click()
   await expect.poll(readPreviewChecksum, { timeout: 5000 }).not.toBe(animatedChecksum) // advances with the sheet's own animation phase
+})
+
+test('the Map16 view speaks of ROMs, never cartridges', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'Words'))
+  await openMap16(page)
+  const words = await shownWords(page, '.hb-map16-body')
+  expect(words).toMatch(/Tileset/)
+  expect(words).not.toMatch(CART)
 })

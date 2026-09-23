@@ -166,20 +166,20 @@ export function checkStockCompression(rom: RomFile): CompressionCheck {
     return {
       ok: false,
       reason:
-        'PrepareGraphicsFile does not resolve to exactly one site on this cartridge, ' +
+        'PrepareGraphicsFile does not resolve to exactly one site on this ROM, ' +
         'so there is no readable path to the decompressor',
     }
   }
   const entry = rom.readAt(sites.decompressorEntry, STOCK_LCLZ2_ENTRY.length)
   if (!entry) {
-    return { ok: false, reason: `the decompressor entry does not resolve to cartridge data` }
+    return { ok: false, reason: `the decompressor entry does not resolve to ROM data` }
   }
   for (let i = 0; i < STOCK_LCLZ2_ENTRY.length; i++) {
     if (entry[i] !== STOCK_LCLZ2_ENTRY[i]) {
       return {
         ok: false,
         reason:
-          'this cartridge has replaced the LC_LZ2 decompressor, so writing an LC_LZ2 ' +
+          'this ROM has replaced the LC_LZ2 decompressor, so writing an LC_LZ2 ' +
           'stream to it would corrupt the graphics it is meant to change',
       }
     }
@@ -343,7 +343,7 @@ export function layoutArena(rom: RomFile, streams: readonly Uint8Array[]): Arena
   if (unreadable.length > 0) {
     return {
       status: 'unavailable',
-      reason: `GFX ${unreadable.join(', ')} cannot be read back from this cartridge, so the arena extent is unknown`,
+      reason: `GFX ${unreadable.join(', ')} cannot be read back from this ROM, so the arena extent is unknown`,
     }
   }
 
@@ -364,7 +364,7 @@ export function layoutArena(rom: RomFile, streams: readonly Uint8Array[]): Arena
         needed,
         capacity: region.capacity,
         reason:
-          `the repacked graphics need ${needed} bytes where the cartridge has ${region.capacity}, ` +
+          `the repacked graphics need ${needed} bytes where the ROM has ${region.capacity}, ` +
           `${needed - region.capacity} too many. Making room needs ROM expansion, ` +
           'en-gen/hackbench#446, which this build does not do.',
       }
@@ -384,7 +384,7 @@ export function layoutArena(rom: RomFile, streams: readonly Uint8Array[]): Arena
         return {
           status: 'unavailable',
           reason:
-            `GFX ${block.join(', ')} share one block on this cartridge, so they cannot hold ` +
+            `GFX ${block.join(', ')} share one block on this ROM, so they cannot hold ` +
             `different graphics, but ${diverged.join(', ')} differ from ${block[0]} after this ` +
             'edit. Editing one would change all of them, so this save is refused rather than ' +
             'dropping the change.',

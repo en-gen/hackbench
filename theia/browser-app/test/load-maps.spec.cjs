@@ -7,6 +7,7 @@
  * user can actually reach: the tree is expanded and its rows are read back.
  */
 const { test, expect } = require('@playwright/test')
+const { CART, shownWords, makeUntitledAndUnlocated } = require('./rom-words.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -518,4 +519,31 @@ test('a project whose cartridge is not on this machine asks for it', async ({ pa
   expect(state.mapCount).toBe(0)
   expect(state.rows.join(' ')).toMatch(/locate/i)
   expect(state.rows.join(' ')).toContain('SOMEONE ELSES CART')
+})
+
+test('the map explorer and map view speak of ROMs, never cartridges', async ({ page }) => {
+  const dir = path.join(tmp, 'Words')
+  const manifestPath = path.join(dir, 'MyHack.hbproj')
+  await loadMaps(page, dir)
+  await page.evaluate(async mp => {
+    const w = await getWidget('hackbench.map-view')
+    await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
+    const shell = getSvc('ApplicationShell')
+    await shell.addWidget(w, { area: 'main' })
+    await shell.activateWidget(w.id)
+  }, manifestPath)
+  await page.waitForSelector('.hb-map-view-body', { timeout: 15000 })
+  const view = await shownWords(page, '.hb-map-view-body')
+  expect(view).toMatch(/105/)
+  expect(view).not.toMatch(CART)
+
+  makeUntitledAndUnlocated(manifestPath)
+  await page.evaluate(
+    async mp => (await getWidget('hackbench.map-explorer')).load(mp),
+    manifestPath,
+  )
+  await revealMaps(page)
+  const explorer = () => shownWords(page, '[id="hackbench.map-explorer"]')
+  await expect.poll(explorer).toContain('Locate the base ROM')
+  expect(await explorer()).not.toMatch(CART)
 })

@@ -134,7 +134,7 @@ export class EmulatorWidget extends ReactWidget {
       if (mine !== this.refreshGeneration) return
       if (rom.status === 'rom-not-located') {
         this.romBytes = undefined
-        this.state = { kind: 'rom-not-located', title: rom.baseRom.title || 'the base cartridge' }
+        this.state = { kind: 'rom-not-located', title: rom.baseRom.title || 'the base ROM' }
         // The canvas this render shows next has no core behind it: a booted
         // driver left running here would paint into a detached node.
         this.driver.dispose()
@@ -188,7 +188,7 @@ export class EmulatorWidget extends ReactWidget {
 
   protected async pickRom(): Promise<void> {
     const uri = await this.fileDialog.showOpenDialog({
-      title: "Locate this project's cartridge",
+      title: "Locate this project's ROM",
       canSelectFiles: true,
       canSelectFolders: false,
       canSelectMany: false,
@@ -373,7 +373,7 @@ export class EmulatorWidget extends ReactWidget {
           <button
             className="hb-emulator-btn"
             disabled={this.busy}
-            title="Reload the cartridge from the working copy"
+            title="Reload from working copy"
             aria-label="Reload"
             onClick={() => void this.reload()}
           >

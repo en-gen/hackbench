@@ -7,6 +7,7 @@
  * pixels back and checks for actual variation and coverage.
  */
 const { test, expect } = require('@playwright/test')
+const { CART, shownWords, makeUntitledAndUnlocated } = require('./rom-words.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -524,4 +525,25 @@ test('a project whose cartridge is not on this machine asks for it', async ({ pa
   expect(state.fileCount).toBe(0)
   expect(state.rows.join(' ')).toMatch(/locate/i)
   expect(state.rows.join(' ')).toContain('SOMEONE ELSES CART')
+})
+
+test('the graphics explorer and GFX view speak of ROMs, never cartridges', async ({ page }) => {
+  await loadGfx(page, path.join(tmp, 'Words'))
+  await revealGfx(page)
+  await page.waitForSelector('[id="hackbench.gfx-explorer"] .theia-TreeNode', { timeout: 15000 })
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  const view = await shownWords(page, '.hb-gfx-view-body')
+  expect(view).toMatch(/tiles/)
+  expect(view).not.toMatch(CART)
+
+  const project = await createProject(page, path.join(tmp, 'Untitled'), 'Untitled')
+  makeUntitledAndUnlocated(project.manifestPath)
+  await page.evaluate(
+    async mp => (await getWidget('hackbench.gfx-explorer')).load(mp),
+    project.manifestPath,
+  )
+  const explorer = () => shownWords(page, '[id="hackbench.gfx-explorer"]')
+  await expect.poll(explorer).toContain('Locate the base ROM')
+  expect(await explorer()).not.toMatch(CART)
 })

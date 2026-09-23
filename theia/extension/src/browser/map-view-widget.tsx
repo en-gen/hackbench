@@ -78,7 +78,7 @@ export class MapViewWidget extends ReactWidget {
       return <div className="hb-map-view-error">{this.error}</div>
     }
     if (!this.details) {
-      return <div className="hb-map-view-empty">Reading the cartridge...</div>
+      return <div className="hb-map-view-empty">Reading the ROM...</div>
     }
 
     const d = this.details

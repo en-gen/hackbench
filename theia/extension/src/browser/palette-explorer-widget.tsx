@@ -193,7 +193,7 @@ export class PaletteExplorerWidget extends TreeWidget {
     this.result = result
 
     if (result.status === 'rom-not-located') {
-      const title = result.baseRom.title || 'the base cartridge'
+      const title = result.baseRom.title || 'the base ROM'
       this.setRoot([this.note(`Locate ${title} to see its palettes`)])
       return
     }

@@ -197,10 +197,10 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
 
     try {
       const project = await this.projects.createProject(request)
-      // Name the cart back to the user: it is how they confirm they picked
-      // the ROM they meant, and the title comes from the cart's own header.
+      // Name the ROM back to the user: it is how they confirm they picked
+      // the ROM they meant, and the title comes from the ROM's own header.
       this.messages.info(
-        `Created ${project.name} against ${project.baseRom.title || 'an SNES cart'} ` +
+        `Created ${project.name} against ${project.baseRom.title || 'a ROM'} ` +
           `(${project.baseRom.size} bytes)`,
       )
 
@@ -418,7 +418,7 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
     try {
       const result = await this.projects.exportPatch(open.manifestPath)
       if (result.status === 'rom-not-located') {
-        this.messages.error(`Locate ${result.baseRom.title || 'the base cartridge'} first`)
+        this.messages.error(`Locate ${result.baseRom.title || 'the base ROM'} first`)
         return
       }
       if (result.status === 'unreadable') {
@@ -428,7 +428,7 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
       const header = result.hasCopierHeader ? 'has a copier header' : 'has no copier header'
       this.messages.info(
         `Exported ${result.opCount} changed byte${result.opCount === 1 ? '' : 's'} to ` +
-          `${result.path} (base cartridge ${header})`,
+          `${result.path} (base ROM ${header})`,
       )
     } catch (err) {
       this.messages.error(`Could not export patch: ${(err as Error).message}`)
