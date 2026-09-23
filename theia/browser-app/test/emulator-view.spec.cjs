@@ -904,6 +904,30 @@ test('keys drive the controller while the screen has focus, and release when it 
     [0, 7, 0],
   ])
 
+  // The shoulders, and Select on either of its two keys. Select stays held
+  // until the last key holding it is let go.
+  await page.keyboard.press('KeyQ')
+  await page.keyboard.press('KeyW')
+  await page.keyboard.down('ShiftRight')
+  await page.keyboard.down('Space')
+  await page.keyboard.up('ShiftRight')
+  expect(await calls()).toEqual([
+    [0, 10, 1],
+    [0, 10, 0],
+    [0, 11, 1],
+    [0, 11, 0],
+    [0, 2, 1],
+  ])
+  await page.keyboard.up('Space')
+  expect(await calls()).toEqual([[0, 2, 0]])
+  // And in the other order, so a button owned by its latest key fails.
+  await page.keyboard.down('ShiftRight')
+  await page.keyboard.down('Space')
+  await page.keyboard.up('Space')
+  expect(await calls()).toEqual([[0, 2, 1]])
+  await page.keyboard.up('ShiftRight')
+  expect(await calls()).toEqual([[0, 2, 0]])
+
   // Focus leaving the panel with A still held must release it.
   await page.evaluate(() => document.activeElement.blur())
   expect(await calls()).toEqual([[0, 8, 0]])
