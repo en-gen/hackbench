@@ -68,6 +68,26 @@ const VANILLA_TILE_COUNT = 512
 const TILES_PER_ROW = 16
 const DEFAULT_ZOOM = 2
 const TILE_PX = 16
+/**
+ * TILES_PER_PAGE / PAGE_GAP_PX in map16-view-widget.tsx: the strip is drawn as
+ * 256-tile pages with a blank 6px band between them, so every tile past the
+ * first page sits PAGE_GAP_PX lower per page than row * TILE_PX would put it.
+ */
+const TILES_PER_PAGE = 256
+const PAGE_GAP_PX = 6
+
+/** Mirrors the widget's tileOrigin: a tile's top-left in natural canvas px. */
+function tileOrigin(tileId) {
+  const page = Math.floor(tileId / TILES_PER_PAGE)
+  const within = tileId % TILES_PER_PAGE
+  return {
+    x: (within % TILES_PER_ROW) * TILE_PX,
+    y:
+      Math.floor(within / TILES_PER_ROW) * TILE_PX +
+      page * (TILES_PER_PAGE / TILES_PER_ROW) * TILE_PX +
+      page * PAGE_GAP_PX,
+  }
+}
 
 /** Widget dom ids, one per layer - map16WidgetId() in map16-view-model.ts. */
 const FG = '#hackbench\\.map16-view\\:fg'
@@ -320,13 +340,12 @@ function romClaimingTileCount(src, dest, tiles) {
 
 /** Whether the 16x16 region for `tileId` contains a pixel matching `rgb`. */
 async function tileHasColor(page, tileId, rgb, root = FG) {
+  const { x, y } = tileOrigin(tileId)
   return page.evaluate(
-    ({ tileId, rgb, tilesPerRow, tilePx, sel }) => {
+    ({ x, y, rgb, tilePx, sel }) => {
       const canvas = document.querySelector(`${sel} .hb-map16-canvas`)
       const ctx = canvas.getContext('2d')
-      const col = tileId % tilesPerRow
-      const row = Math.floor(tileId / tilesPerRow)
-      const data = ctx.getImageData(col * tilePx, row * tilePx, tilePx, tilePx).data
+      const data = ctx.getImageData(x, y, tilePx, tilePx).data
       for (let i = 0; i < data.length; i += 4) {
         if (
           data[i] === rgb[0] &&
@@ -339,7 +358,7 @@ async function tileHasColor(page, tileId, rgb, root = FG) {
       }
       return false
     },
-    { tileId, rgb, tilesPerRow: TILES_PER_ROW, tilePx: TILE_PX, sel: root },
+    { x, y, rgb, tilePx: TILE_PX, sel: root },
   )
 }
 
@@ -354,12 +373,11 @@ function bgr555ToRgbTriplet(word) {
 
 /** Clicks the tile at `tileId` on the browser strip, at the default zoom. */
 async function clickTile(page, tileId, root = FG) {
-  const cellPx = TILE_PX * DEFAULT_ZOOM
-  const col = tileId % TILES_PER_ROW
-  const row = Math.floor(tileId / TILES_PER_ROW)
+  const { x, y } = tileOrigin(tileId)
+  const center = TILE_PX / 2
   await page
     .locator(`${root} .hb-map16-canvas`)
-    .click({ position: { x: col * cellPx + cellPx / 2, y: row * cellPx + cellPx / 2 } })
+    .click({ position: { x: (x + center) * DEFAULT_ZOOM, y: (y + center) * DEFAULT_ZOOM } })
   await page.waitForTimeout(300)
 }
 
@@ -497,7 +515,24 @@ test('opening a row shows a real sheet of the count the cartridge reports', asyn
 
   const info = await readCanvas(page)
   expect(info.width).toBe(TILES_PER_ROW * TILE_PX)
-  expect(info.height).toBeGreaterThan(0)
+  // Every row of tiles, plus the blank band between each pair of pages.
+  const pages = Math.ceil(VANILLA_TILE_COUNT / TILES_PER_PAGE)
+  expect(info.height).toBe(
+    (VANILLA_TILE_COUNT / TILES_PER_ROW) * TILE_PX + (pages - 1) * PAGE_GAP_PX,
+  )
+  // The band is really blank and sits where tileOrigin puts page 1's top,
+  // so tileHasColor and clickTile address the tile they name.
+  const opaqueInBand = await page.evaluate(
+    ({ sel, top, height }) => {
+      const canvas = document.querySelector(`${sel} .hb-map16-canvas`)
+      const data = canvas.getContext('2d').getImageData(0, top, canvas.width, height).data
+      let opaque = 0
+      for (let i = 3; i < data.length; i += 4) if (data[i] !== 0) opaque++
+      return opaque
+    },
+    { sel: FG, top: tileOrigin(TILES_PER_PAGE).y - PAGE_GAP_PX, height: PAGE_GAP_PX },
+  )
+  expect(opaqueInBand).toBe(0)
   // Real tile art, not a blank or single-color sheet.
   expect(info.distinctColors).toBeGreaterThan(1)
 
