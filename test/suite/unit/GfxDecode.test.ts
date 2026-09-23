@@ -233,6 +233,10 @@ describe.skipIf(!romPresent)('gfx-decode (ROM-only)', () => {
  * fail-closed path at all, since every one of its GFX files lands cleanly at
  * 2/3/4bpp. Six carts, four of them hacks with real GFX changes.
  */
+// Declared, not discovered: the `.filter(existsSync)` this list used to carry
+// removed the absent carts from the loop below, so on a clone without the
+// corpus the six cases were never registered at all. Keeping every cart in
+// the list and gating each one with `skipIf` makes the skip count name them.
 const CORPUS = [
   'Super Mario World (USA).vanilla.sfc',
   'Super Mario World (USA).magic.sfc',
@@ -240,30 +244,31 @@ const CORPUS = [
   'GrandPooWorld_V1.2.sfc',
   'Invictus 1.0.sfc',
   'Seven_Vanilla_Levels.sfc',
-]
-  .map(name => ({ name, path: resolve(__dirname, '../../roms', name) }))
-  .filter(rom => existsSync(rom.path))
+].map(name => ({ name, path: resolve(__dirname, '../../roms', name) }))
 
-describe.skipIf(CORPUS.length === 0)('gfx-decode corpus sweep', () => {
+describe('gfx-decode corpus sweep', () => {
   for (const { name, path } of CORPUS) {
-    it(`${name}: every file's availability is honest (tileCount null iff defaultBpp null)`, () => {
-      const rom = SmwRom.open(path)
-      const files = listGfxFileInfos(rom)
-      expect(files.length).toBe(GFX_FILE_COUNT)
-      for (const f of files) {
-        if (f.defaultBpp === null) {
-          expect(f.tileCount).toBeNull()
-        } else {
-          expect(f.tileCount).toBeGreaterThan(0)
-          // 'mode7' packs 64 3-bit pixels into 24 bytes, the same as 3bpp.
-          const bytesPerTile = f.defaultBpp === 4 ? 32 : f.defaultBpp === 2 ? 16 : 24
-          expect(f.tileCount).toBe(Math.floor(f.byteLength / bytesPerTile))
-          // The list's own arithmetic must agree with what a real decode
-          // produces, not merely look plausible.
-          expect(decodeGfxSheet(rom, f.index).tileCount).toBe(f.tileCount)
+    it.skipIf(!existsSync(path))(
+      `${name}: every file's availability is honest (tileCount null iff defaultBpp null)`,
+      () => {
+        const rom = SmwRom.open(path)
+        const files = listGfxFileInfos(rom)
+        expect(files.length).toBe(GFX_FILE_COUNT)
+        for (const f of files) {
+          if (f.defaultBpp === null) {
+            expect(f.tileCount).toBeNull()
+          } else {
+            expect(f.tileCount).toBeGreaterThan(0)
+            // 'mode7' packs 64 3-bit pixels into 24 bytes, the same as 3bpp.
+            const bytesPerTile = f.defaultBpp === 4 ? 32 : f.defaultBpp === 2 ? 16 : 24
+            expect(f.tileCount).toBe(Math.floor(f.byteLength / bytesPerTile))
+            // The list's own arithmetic must agree with what a real decode
+            // produces, not merely look plausible.
+            expect(decodeGfxSheet(rom, f.index).tileCount).toBe(f.tileCount)
+          }
         }
-      }
-    })
+      },
+    )
   }
 })
 

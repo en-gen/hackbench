@@ -6,7 +6,7 @@
  * to diagnose why the bottom half appears shifted in the 8x8 viewer.
  */
 
-import { describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
@@ -21,13 +21,14 @@ import {
 const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent = existsSync(ROM_PATH)
 
-describe('AnimationLoader berry tiles', () => {
-  if (!romPresent) {
-    it.skip('ROM not available', () => {})
-    return
-  }
-
-  const rom = SmwRom.open(ROM_PATH)
+// `describe.skipIf`, not an early `return` from the suite body: a return
+// registers ZERO cases when the cart is absent, so the run is green and the
+// skip count reads one placeholder instead of the ten cases that vanished.
+describe.skipIf(!romPresent)('AnimationLoader berry tiles', () => {
+  let rom: SmwRom
+  beforeAll(() => {
+    rom = SmwRom.open(ROM_PATH)
+  })
 
   it('loads animation data for tileset 0', () => {
     const animData = loadAnimationData(rom.rom, 0)

@@ -64,8 +64,9 @@ correctness gate.
 
 ### 2. ROM-dependent tests (skipped in CI, run locally if ROM present)
 
-Blocks marked with `describe.skipIf(!romPresent)` or `if (!romPresent)`.
-Examples:
+Blocks marked with `describe.skipIf(!romPresent)` or `it.skipIf(...)`.
+That spelling is not a style preference, it is the whole mechanism: see
+"Gate with skipIf, never by discovery" below. Examples:
 
 - `SmwRom integration` - opens the ROM and exercises the pointer-table
   logic end-to-end.
@@ -76,6 +77,33 @@ Examples:
 These skip cleanly when `test/roms/Super Mario World (USA).vanilla.sfc`
 is missing. If you've dropped your ROM in place, they run automatically.
 
+### Gate with skipIf, never by discovery
+
+A case that is absent is not a case that is skipped. Measured on the suite
+at 830be6f by running it twice, once with `test/roms/` attached and once
+without, and diffing the TEST COUNTS rather than the skip counts: 154 cases
+existed with the corpus and did not exist without it. None was reported as
+skipped, because none was ever registered. CI has no cartridge, so that was
+CI's permanent state.
+
+Four spellings produced it, all of them now banned by
+`test/suite/gates/testRegistrationGate.test.ts`:
+
+- `readdirSync(ROM_DIR)` at module scope, then `for (const f of romFiles)`
+  around the cases. An empty listing registers nothing.
+- A declared corpus `.filter(existsSync)` before the loop, which drops the
+  absent carts out of the list instead of skipping them.
+- `cond ? describe : describe.skip`, and bare `.skip` / `.todo`.
+- `if (romPresent) { it(...) }`, which leaves no trace in any count at all.
+
+Do this instead: DECLARE the corpus as a list of names, loop over the whole
+list, and gate each entry with `describe.skipIf(!present(file))`. The case
+is registered on every machine and the skip count names it.
+
+Reading the corpus INSIDE a case body stays fine: the case exists either
+way. Put a tripwire on the listing so it cannot pass vacuously, as
+`Map16.tileCount.test.ts` does with `expect(carts.length).toBeGreaterThan(0)`.
+
 ## Writing new tests
 
 Order of preference, highest to lowest:
@@ -84,10 +112,14 @@ Order of preference, highest to lowest:
 2. **Property/round-trip tests** that validate internal consistency
    (e.g., encode-then-decode returns the original).
 3. **ROM-dependent test with `skipIf(!romPresent)`.** Acceptable when
-   testing ROM-traversal code paths. Remember: these won't run in CI.
+   testing ROM-traversal code paths. Remember: these won't run in CI, so
+   the gate has to be honest about what it disabled.
 4. **Fixture-based tests that read from `test/fixtures/`.** Fine for
-   local cross-validation, but gate them on fixture presence and never
-   commit the fixtures themselves.
+   local cross-validation, but gate them on fixture presence with
+   `skipIf` and never commit the fixtures themselves. Mesen captures are
+   found through `MESEN_FIXTURES_DIR` in
+   `test/suite/unit/fixtures/loadMesenFixture.ts`; a gate on an env var
+   nothing sets is a permanently dark test, not a gated one.
 
 When in doubt, ask on the PR whether the test has any ROM-derived bytes
 in it.

@@ -3,7 +3,12 @@ import { existsSync } from 'fs'
 import * as path from 'path'
 import { SmwRom, LEVEL_COUNT } from '../../../src/rom/SmwRom'
 import { buildLevelCatalog, type LevelCatalog } from '../../../src/rom/LevelCatalog'
-import { assertCatalogAcceptance, buildBrokenCatalogVariants } from '../support/catalogAcceptance'
+import {
+  assertCatalogAcceptance,
+  assertVariantNames,
+  BROKEN_VARIANT_NAMES,
+  buildBrokenCatalogVariants,
+} from '../support/catalogAcceptance'
 
 // Measured baseline -- see docs/ideas/level-classification.md Tier 1.
 // Every ROM in the corpus now parses its catalog in full (parseable == real).
@@ -62,20 +67,20 @@ for (const { file, real, parseable } of CORPUS) {
 // every ROM in the corpus, not just one. Mirrors the real failure mode this
 // gate exists to catch: `return []` once passed a six-ROM acceptance sweep
 // because every check there was a vacuous per-element loop.
+// Case names come from BROKEN_VARIANT_NAMES, not from keys of a catalog built
+// off a cart. Deriving them needed a ROM, so without the corpus this sweep
+// registered 6 placeholders in place of its 24 real cases: 24 cases did not
+// skip, they ceased to exist, and the skip count still read a tidy 6.
 describe('teeth: acceptance gate rejects broken catalogs (six-ROM sweep)', () => {
   for (const { file, real, parseable } of CORPUS) {
     const romPath = path.resolve(__dirname, '../../roms', file)
-    if (!existsSync(romPath)) {
-      it.skip(`${file} (ROM not present)`, () => {})
-      continue
-    }
+    const romPresent = existsSync(romPath)
 
-    const good = buildLevelCatalog(SmwRom.open(romPath))
-    const brokenVariants = buildBrokenCatalogVariants(good)
-
-    for (const [variantName, broken] of Object.entries(brokenVariants)) {
-      it(`${file}: "${variantName}" fails the gate`, () => {
-        expect(() => assertCatalogAcceptance(broken, real, parseable)).toThrow()
+    for (const variantName of BROKEN_VARIANT_NAMES) {
+      it.skipIf(!romPresent)(`${file}: "${variantName}" fails the gate`, () => {
+        const variants = buildBrokenCatalogVariants(buildLevelCatalog(SmwRom.open(romPath)))
+        assertVariantNames(variants)
+        expect(() => assertCatalogAcceptance(variants[variantName], real, parseable)).toThrow()
       })
     }
   }

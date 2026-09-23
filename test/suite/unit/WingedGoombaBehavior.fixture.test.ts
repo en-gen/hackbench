@@ -21,25 +21,28 @@
  * directory containing per-level subdirs (e.g. `<dir>/006/map16.txt`)
  * to enable this test locally - it skips silently otherwise.
  */
-import { describe, expect, it } from 'vitest'
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { WingedGoombaBehavior } from '../../../src/rom/model/sprites/behaviors/WingedGoombaBehavior'
-import { loadMesenFixture } from './fixtures/loadMesenFixture'
+import {
+  hasMesenFixture,
+  loadMesenFixture,
+  mesenFixturePath,
+  type MesenSolidity,
+} from './fixtures/loadMesenFixture'
 
-const FIXTURES_DIR = process.env.HACKBENCH_FIXTURES_DIR
-const FIXTURE = FIXTURES_DIR ? join(FIXTURES_DIR, '006', 'map16.txt') : null
+const LEVEL = '006'
 const TILE = 16
-const skipIfNoFixture = FIXTURE && existsSync(FIXTURE) ? describe : describe.skip
 
-skipIfNoFixture('WingedGoombaBehavior - level $006 fixture', () => {
-  const fix = FIXTURE && existsSync(FIXTURE) ? loadMesenFixture(FIXTURE) : null
+describe.skipIf(!hasMesenFixture(LEVEL))('WingedGoombaBehavior - level $006 fixture', () => {
+  let fix: MesenSolidity
+  beforeAll(() => {
+    fix = loadMesenFixture(mesenFixturePath(LEVEL))
+  })
   // Mario spawns at the left edge of horizontal levels; precise X
   // doesn't matter - anything < goomba.x produces dir=1 (face left).
   const marioSpawnX = 0
 
   it('parses the fixture and finds the platform under the goomba', () => {
-    if (!fix) return
     // Sanity: c225 r22 should be a solid tile (the platform), and c225 r21
     // should be air-or-decorative (the goomba's body row).
     const platform = fix.grid[22]?.[225]
@@ -54,7 +57,6 @@ skipIfNoFixture('WingedGoombaBehavior - level $006 fixture', () => {
   })
 
   it('bounce arc never descends below the lowest solid floor below the goomba', () => {
-    if (!fix) return
     const beh = new WingedGoombaBehavior()
     const spawnX = 225 * TILE
     const spawnY = 21 * TILE
@@ -102,7 +104,6 @@ skipIfNoFixture('WingedGoombaBehavior - level $006 fixture', () => {
   })
 
   it('ascending arc passes through a rising slope (no ceiling-snap)', () => {
-    if (!fix) return
     // Verify the slope is where we expect it - defensive sanity so a
     // fixture re-record doesn't silently invalidate the test.
     const slopeId = fix.grid[21]?.[222]

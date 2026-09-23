@@ -31,6 +31,22 @@ export function assertCatalogAcceptance(
 }
 
 /**
+ * The variant names, stated without needing a cart to discover them.
+ *
+ * The ROM-gated teeth sweep names its cases from this, so all 24 register on a
+ * clone with no corpus and then skip. Deriving them from
+ * `Object.keys(buildBrokenCatalogVariants(...))` needed a built catalog, which
+ * needed a ROM, so without one the cases were never created at all.
+ * `assertVariantNames` below keeps the two in step.
+ */
+export const BROKEN_VARIANT_NAMES = ['empty', 'droppedHalf', 'allReal', 'noneReal'] as const
+
+/** Tripwire: the declared names must still be the ones the builder returns. */
+export function assertVariantNames(variants: Record<string, LevelCatalog>): void {
+  expect(Object.keys(variants).sort()).toEqual([...BROKEN_VARIANT_NAMES].sort())
+}
+
+/**
  * Four ways a LevelCatalog can be broken while still type-checking, shared by
  * the synthetic teeth suite and the ROM-gated teeth suite so the variants are
  * defined once instead of copy-pasted per file.

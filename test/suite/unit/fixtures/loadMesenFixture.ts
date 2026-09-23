@@ -20,13 +20,37 @@
  * read to be exact, which is out of scope for unit tests.
  */
 
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { GetL1Tile, L1Cell } from '../../../../src/rom/model/OverlayContext'
 import type { SolidH, SolidV } from '../../../../src/rom/model/sprites/MovementBehavior'
 import { solidityFromL1 } from '../../../../src/rom/model/sprites/MovementBehavior'
 import { NO_COLLISION } from '../../../../src/rom/model/tiles/TileCollision'
 import type { TileCollision } from '../../../../src/rom/model/tiles/TileCollision'
 import type { SlopeInfo } from '../../../../src/rom/SlopeResolver'
+
+/**
+ * Where per-level Mesen captures live: `<root>/<level>/map16.txt`.
+ *
+ * The scrollSim suites already hardcode this OneDrive root in eleven places.
+ * The two behavior fixtures did not: they read `HACKBENCH_FIXTURES_DIR` alone,
+ * which nothing in this repo, its docs or its CI ever sets, so their seven
+ * cases were dark on every machine including the one holding the captures.
+ * The env var still wins where it is set; the default is simply the place the
+ * rest of the suite already looks.
+ */
+export const MESEN_FIXTURES_DIR =
+  process.env.HACKBENCH_FIXTURES_DIR ?? 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps'
+
+/** Path to one level's stitched Map16 capture, present or not. */
+export function mesenFixturePath(level: string): string {
+  return join(MESEN_FIXTURES_DIR, level, 'map16.txt')
+}
+
+/** True when that level's capture is on this machine. */
+export function hasMesenFixture(level: string): boolean {
+  return existsSync(mesenFixturePath(level))
+}
 
 /**
  * Mirror of TileFactory.classify's sprite-side fields, without the ROM
