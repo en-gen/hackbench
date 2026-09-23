@@ -5,15 +5,42 @@
  * `setWord` always records one committed `edit` layer, validated against
  * the value currently at that address.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { RomRegistry } from '../../../src/project/RomRegistry'
 import { createProject, RomIdentity } from '../../../src/project/Project'
 import { WorkingRomRegistry } from '../../../src/project/WorkingRomRegistry'
-import { loadLayers, loadRedoLayers } from '../../../src/project/OpsStore'
+import {
+  appendLayer,
+  loadLayers,
+  loadRedoLayers,
+  pushRedoLayer,
+} from '../../../src/project/OpsStore'
+import { Layer, WorkingRom } from '../../../src/project/WorkingRom'
 import { loromToOffset } from '../../../src/rom/addressing'
+
+/**
+ * Fault injection for the write paths: `fsFault.hook`, when set, runs before
+ * each wrapped call and may throw (a failed write) or act (a pull landing
+ * mid-operation). Portable, unlike provoking real I/O errors, and CI is Linux.
+ */
+const fsFault = vi.hoisted(() => ({
+  hook: null as null | ((call: string, target: string) => void),
+}))
+vi.mock('fs', async importOriginal => {
+  const actual = await importOriginal<typeof import('fs')>()
+  const wrapped: Record<string, unknown> = { ...actual }
+  for (const name of ['writeFileSync', 'unlinkSync', 'rmSync'] as const) {
+    const real = actual[name] as (...args: unknown[]) => unknown
+    wrapped[name] = (...args: unknown[]) => {
+      fsFault.hook?.(name, String(args[0]))
+      return real(...args)
+    }
+  }
+  return { ...wrapped, default: wrapped }
+})
 
 let tmp: string
 let romRegistry: RomRegistry
@@ -27,6 +54,8 @@ beforeEach(() => {
   working = new WorkingRomRegistry(romRegistry)
 })
 afterEach(() => {
+  fsFault.hook = null
+  vi.useRealTimers()
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
@@ -183,6 +212,289 @@ describe('WorkingRomRegistry', () => {
       expect(b.working).toBe(a.working)
       expect(b.working.stack).toHaveLength(1)
       expect(b.project.baseRom.title).toBe('RETITLED')
+    })
+  })
+
+  // A `git pull` can add, remove or rewrite ops/ files under the same base ROM.
+  describe('the cached copy follows the ops/ directory on disk', () => {
+    const redLayer = (id: string, oldHex: string, newHex: string): Layer => ({
+      id,
+      label: `pulled ${id}`,
+      ops: [{ address: '$00B2CE', old: oldHex, new: newHex }],
+    })
+
+    const redWord = (w: WorkingRom): number => {
+      const offset = loromToOffset(MARIO_RED_ADDR, w.baseBytes().length, false) as number
+      const bytes = w.bytes()
+      return bytes[offset] | (bytes[offset + 1] << 8)
+    }
+
+    function opened(manifestPath: string): { w: WorkingRom; dir: string } {
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error(`expected ok, got ${r.status}`)
+      return { w: r.working, dir: r.project.directory }
+    }
+
+    it('picks up a layer file added on disk', () => {
+      const { manifestPath } = makeProject()
+      working.setWord(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex: '$391F', newHex: '$1000' })
+      const { dir } = opened(manifestPath)
+
+      appendLayer(dir, redLayer('pulled', '$1000', '$2000'))
+
+      const { w } = opened(manifestPath)
+      expect(w.stack.map(l => l.id).slice(1)).toEqual(['pulled'])
+      expect(redWord(w)).toBe(0x2000)
+    })
+
+    // Same file name, same layer id and label: only the ops moved.
+    it('picks up a layer file rewritten in place', () => {
+      const { manifestPath } = makeProject()
+      working.setWord(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex: '$391F', newHex: '$1000' })
+      const { w: before, dir } = opened(manifestPath)
+      const { id, label } = before.stack[0]
+
+      fs.rmSync(path.join(dir, 'ops'), { recursive: true })
+      appendLayer(dir, { id, label, ops: [{ address: '$00B2CE', old: '$391F', new: '$7C00' }] })
+
+      const { w } = opened(manifestPath)
+      expect(w.stack.map(l => l.id)).toEqual([id])
+      expect(redWord(w)).toBe(0x7c00)
+    })
+
+    it('picks up a layer file added to the redo area on disk', () => {
+      const { manifestPath } = makeProject()
+      const { dir } = opened(manifestPath)
+
+      pushRedoLayer(dir, redLayer('pulled', '$391F', '$2000'))
+
+      expect(working.editStack(manifestPath)).toMatchObject({
+        status: 'ok',
+        canRedo: true,
+        redoLabel: 'pulled pulled',
+      })
+    })
+
+    it('undo after an external change does not delete a file the working copy never applied', () => {
+      const { manifestPath } = makeProject()
+      working.setWord(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex: '$391F', newHex: '$1000' })
+      const { w: before, dir } = opened(manifestPath)
+      const mine = before.stack[0].id
+
+      appendLayer(dir, redLayer('pulled', '$1000', '$2000'))
+
+      // Undo takes the pulled layer, which is now the top in memory AND on
+      // disk; the edit this copy made stays applied in both.
+      expect(working.undo(manifestPath)).toMatchObject({ status: 'ok', redoLabel: 'pulled pulled' })
+      const { w } = opened(manifestPath)
+      expect(loadLayers(dir).map(l => l.id)).toEqual([mine])
+      expect(w.stack.map(l => l.id)).toEqual([mine])
+      expect(loadRedoLayers(dir).map(l => l.id)).toEqual(['pulled'])
+      expect(redWord(w)).toBe(0x1000)
+    })
+
+    // A pulled stack that does not apply to this ROM refuses edits rather
+    // than letting them land on a copy that disagrees with disk.
+    it('reports unreadable, and refuses edits, when the pulled layers do not apply', () => {
+      const { manifestPath } = makeProject()
+      const { dir } = opened(manifestPath)
+
+      appendLayer(dir, redLayer('foreign', '$0BAD', '$2000'))
+
+      expect(working.get(manifestPath).status).toBe('unreadable')
+      const r = working.setWord(manifestPath, {
+        romAddr: MARIO_RED_ADDR,
+        oldHex: '$391F',
+        newHex: '$1000',
+      })
+      expect(r.status).toBe('unreadable')
+      expect(loadLayers(dir).map(l => l.id)).toEqual(['foreign'])
+    })
+
+    // Same name, same size, mtime put back: only ctime says it was written.
+    it('picks up a same-size rewrite whose mtime was preserved', () => {
+      const { manifestPath } = makeProject()
+      working.setWord(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex: '$391F', newHex: '$1000' })
+      const file = path.join(opened(manifestPath).dir, 'ops', '0000.json')
+      // A whole-second mtime survives the round trip through utimes exactly.
+      const pinned = new Date('2026-01-01T00:00:00Z')
+      fs.utimesSync(file, pinned, pinned)
+      opened(manifestPath)
+
+      const text = fs.readFileSync(file, 'utf8')
+      fs.writeFileSync(file, text.replace('"new":"$1000"', '"new":"$7C00"'))
+      fs.utimesSync(file, pinned, pinned)
+
+      expect(redWord(opened(manifestPath).w)).toBe(0x7c00)
+    })
+
+    // Views hold the instance (working-copy-notifier.ts), so the copy's own
+    // writes, and a touch that changes nothing, must not rebuild it.
+    it('keeps the same instance across its own edit, undo and redo, and a no-op touch', () => {
+      const { manifestPath } = makeProject()
+      const { w: first, dir } = opened(manifestPath)
+
+      working.setWord(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex: '$391F', newHex: '$1000' })
+      expect(opened(manifestPath).w).toBe(first)
+      working.undo(manifestPath)
+      expect(opened(manifestPath).w).toBe(first)
+      working.redo(manifestPath)
+      expect(opened(manifestPath).w).toBe(first)
+
+      const file = path.join(dir, 'ops', '0000.json')
+      fs.utimesSync(file, new Date(), new Date(Date.now() + 60_000))
+      expect(opened(manifestPath).w).toBe(first)
+      expect(first.stack).toHaveLength(1)
+    })
+  })
+
+  // Undo/redo move a layer between two areas in two writes. Neither a failed
+  // write nor a pull landing between them may lose the layer or leave memory
+  // and disk disagreeing.
+  describe('a move between ops/ and ops/redo/ that fails part-way', () => {
+    const inRedo = (target: string) => target.includes(`${path.sep}redo${path.sep}`)
+
+    function editedOnce(): { manifestPath: string; w: WorkingRom; dir: string; mine: string } {
+      const { manifestPath } = makeProject()
+      working.setWord(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex: '$391F', newHex: '$1000' })
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      return { manifestPath, w: r.working, dir: r.project.directory, mine: r.working.stack[0].id }
+    }
+
+    it('undo whose redo write fails keeps the layer applied, in memory and on disk', () => {
+      const { manifestPath, w, dir, mine } = editedOnce()
+      fsFault.hook = (call, target) => {
+        if (call === 'writeFileSync' && inRedo(target)) throw new Error('disk full')
+      }
+
+      expect(working.undo(manifestPath).status).toBe('io-error')
+      fsFault.hook = null
+
+      expect(loadLayers(dir).map(l => l.id)).toEqual([mine])
+      expect(loadRedoLayers(dir)).toEqual([])
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      expect(r.working).toBe(w)
+      expect(r.working.stack.map(l => l.id)).toEqual([mine])
+    })
+
+    it('redo whose applied write fails keeps the layer redoable, in memory and on disk', () => {
+      const { manifestPath, w, dir, mine } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = (call, target) => {
+        if (call === 'writeFileSync' && !inRedo(target)) throw new Error('disk full')
+      }
+
+      expect(working.redo(manifestPath).status).toBe('io-error')
+      fsFault.hook = null
+
+      expect(loadLayers(dir)).toEqual([])
+      expect(loadRedoLayers(dir).map(l => l.id)).toEqual([mine])
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      expect(r.working).toBe(w)
+      expect(r.working.redoStack.map(l => l.id)).toEqual([mine])
+    })
+
+    it('undo refuses to delete a layer pulled on top between get() and the delete', () => {
+      const { manifestPath, dir, mine } = editedOnce()
+      fsFault.hook = (call, target) => {
+        if (call !== 'writeFileSync' || !inRedo(target)) return
+        fsFault.hook = null
+        appendLayer(dir, {
+          id: 'pulled',
+          label: 'pulled',
+          ops: [{ address: '$00B2CE', old: '$1000', new: '$2000' }],
+        })
+      }
+
+      expect(working.undo(manifestPath).status).toBe('io-error')
+
+      expect(loadLayers(dir).map(l => l.id)).toEqual([mine, 'pulled'])
+      expect(loadRedoLayers(dir)).toEqual([])
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      expect(r.working.stack.map(l => l.id)).toEqual([mine, 'pulled'])
+    })
+
+    it('redo refuses to delete a redo layer pulled on top between get() and the delete', () => {
+      const { manifestPath, dir, mine } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = (call, target) => {
+        if (call !== 'writeFileSync' || inRedo(target)) return
+        fsFault.hook = null
+        pushRedoLayer(dir, {
+          id: 'pulled',
+          label: 'pulled',
+          ops: [{ address: '$00B2CE', old: '$391F', new: '$2000' }],
+        })
+      }
+
+      expect(working.redo(manifestPath).status).toBe('io-error')
+
+      expect(loadLayers(dir)).toEqual([])
+      expect(loadRedoLayers(dir).map(l => l.id)).toEqual([mine, 'pulled'])
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      expect(r.working.stack).toEqual([])
+      expect(r.working.redoStack.map(l => l.id)).toEqual([mine, 'pulled'])
+    })
+
+    // The refusal's compensating delete fails too, stranding the layer in
+    // both areas. It must read as applied, not also as a redo, and the
+    // refusal (the cause) must be what the caller is told.
+    it('a layer stranded in both areas by a failed compensation reads as applied only', () => {
+      const { manifestPath, dir, mine } = editedOnce()
+      fsFault.hook = (call, target) => {
+        if (call === 'unlinkSync' && inRedo(target)) throw new Error('locked')
+        if (call !== 'writeFileSync' || !inRedo(target)) return
+        appendLayer(dir, {
+          id: 'pulled',
+          label: 'pulled',
+          ops: [{ address: '$00B2CE', old: '$1000', new: '$2000' }],
+        })
+      }
+
+      const undone = working.undo(manifestPath)
+      fsFault.hook = null
+      expect(undone).toMatchObject({
+        status: 'io-error',
+        reason: expect.stringContaining('pulled'),
+      })
+
+      expect(loadRedoLayers(dir).map(l => l.id)).toEqual([mine])
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      expect(r.working.stack.map(l => l.id)).toEqual([mine, 'pulled'])
+      expect(r.working.redoStack).toEqual([])
+      expect(working.editStack(manifestPath)).toMatchObject({ canRedo: false })
+    })
+
+    // append clears the redo stack in memory; if clearing it on disk then
+    // fails, the stamp has not moved, so only dropping it forces the check.
+    // The clock steps past RACY_MS first: inside that window every call
+    // compares anyway, which would hide a stamp that was kept.
+    it('an edit whose redo clear fails leaves memory agreeing with disk', () => {
+      const { manifestPath, dir, mine } = editedOnce()
+      working.undo(manifestPath)
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(Date.now() + 10_000)
+      working.get(manifestPath) // stamps the settled state
+      fsFault.hook = call => {
+        if (call === 'rmSync') throw new Error('locked')
+      }
+
+      const r = working.setWord(manifestPath, {
+        romAddr: MARIO_RED_ADDR,
+        oldHex: '$391F',
+        newHex: '$7C00',
+      })
+      expect(r.status).toBe('io-error')
+      fsFault.hook = null
+
+      expect(loadRedoLayers(dir).map(l => l.id)).toEqual([mine])
+      expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: true })
     })
   })
 

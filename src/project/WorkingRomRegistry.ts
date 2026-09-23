@@ -22,7 +22,16 @@ import {
   pushRedoLayer,
   popRedoLayer,
   clearRedo,
+  opsStamp,
 } from './OpsStore'
+
+/**
+ * How long after a stamp is taken a file change may still be hidden from it.
+ * Covers a coarse ctime clock (a few ms on Linux) and FAT's 2 s mtime, the
+ * same "racy" window git applies to its index. Local filesystems only: a
+ * network share with a skewed server clock is not covered.
+ */
+const RACY_MS = 2000
 
 export interface WorkingRomEntry {
   working: WorkingRom
@@ -86,6 +95,14 @@ function addrHex(romAddr: number): string {
 
 export class WorkingRomRegistry {
   private readonly cache = new Map<string, WorkingRomEntry>()
+  /**
+   * opsStamp of the last ops/ state the cached copy was checked against.
+   * Not on WorkingRomEntry, which is spread into every result. Dropped when
+   * setWord fails, whose in-memory redo clear can leave memory disagreeing
+   * with a disk the failure never touched, so no stamp would move. Undo and
+   * redo need no such drop: every partial state they leave changes a file.
+   */
+  private readonly stamps = new Map<string, { key: string; takenAt: number }>()
 
   constructor(private readonly registry: RomRegistry = new RomRegistry()) {}
 
@@ -94,8 +111,12 @@ export class WorkingRomRegistry {
    * layers on first access. The point of this class is that in-memory state
    * (which services share it with) survives between calls in the same
    * backend process, so it is cached per manifest path for as long as the
-   * manifest's base ROM sha256 is unchanged. The manifest is re-read every
-   * call because a `git pull` can repoint it under a running backend.
+   * manifest's base ROM sha256 is unchanged AND the layers in `ops/` and
+   * `ops/redo/` are the ones it holds. Both are re-checked every call
+   * because a `git pull` can repoint the manifest or rewrite the layers
+   * under a running backend. Rebuilding strands every view subscribed to
+   * the old instance, so it happens only when the layers really differ, not
+   * whenever a file's mtime moves (the copy's own writes move it).
    */
   get(manifestPath: string): WorkingRomResult {
     // openProject throws on a missing/corrupt/orphaned manifest, same as
@@ -116,30 +137,57 @@ export class WorkingRomRegistry {
     const cached = this.cache.get(manifestPath)
     if (cached && cached.project.baseRom.sha256 === project.baseRom.sha256) {
       cached.project = project
-      return { status: 'ok', ...cached }
+      try {
+        if (this.opsMatch(manifestPath, cached.working, project.directory)) {
+          return { status: 'ok', ...cached }
+        }
+      } catch (err) {
+        return { status: 'unreadable', reason: (err as Error).message }
+      }
     }
 
     let romPath: string
     let working: WorkingRom
+    let stamp: { key: string; takenAt: number }
     try {
+      // Taken BEFORE the layers are read: a write landing in between then
+      // shows as a changed stamp next call, rather than being stamped as seen.
+      stamp = { key: opsStamp(project.directory).key, takenAt: Date.now() }
       const resolved = this.registry.resolve(project.baseRom.sha256)
       if (!resolved) return { status: 'rom-not-located', baseRom: project.baseRom }
       romPath = resolved
       const rom = RomFile.load(romPath)
       working = new WorkingRom(rom.buffer, rom.hasHeader)
-      for (const layer of loadLayers(project.directory)) {
+      const persisted = persistedOps(project.directory)
+      for (const layer of persisted.applied) {
         working.append(layer)
       }
       // AFTER the replay: `append` clears the redo future, so seeding first
       // would wipe the very stack this is restoring.
-      working.restoreRedo(loadRedoLayers(project.directory))
+      working.restoreRedo(persisted.redo)
     } catch (err) {
       return { status: 'unreadable', reason: (err as Error).message }
     }
 
     const entry: WorkingRomEntry = { working, romPath, project }
     this.cache.set(manifestPath, entry)
+    this.stamps.set(manifestPath, stamp)
     return { status: 'ok', ...entry }
+  }
+
+  /** Whether `ops/` on disk still holds exactly the layers `working` does. */
+  private opsMatch(manifestPath: string, working: WorkingRom, directory: string): boolean {
+    const takenAt = Date.now()
+    const now = opsStamp(directory)
+    const seen = this.stamps.get(manifestPath)
+    // Trusted only once every file is older than the window around the last
+    // look: a change inside it may not have moved the key.
+    if (seen && seen.key === now.key && now.newest < seen.takenAt - RACY_MS) return true
+    const persisted = persistedOps(directory)
+    const same =
+      sameLayers(persisted.applied, working.stack) && sameLayers(persisted.redo, working.redoStack)
+    if (same) this.stamps.set(manifestPath, { key: now.key, takenAt })
+    return same
   }
 
   /**
@@ -200,6 +248,7 @@ export class WorkingRomRegistry {
       appendLayer(project.directory, layer)
     } catch (err) {
       working.pop() // roll back: it never actually took effect
+      this.stamps.delete(manifestPath)
       return { status: 'io-error', reason: (err as Error).message }
     }
 
@@ -230,8 +279,17 @@ export class WorkingRomRegistry {
     if (!layer) return { status: 'ok', ...stateOf(working) }
 
     try {
-      popLayer(project.directory)
+      // Destination first: a failure part-way leaves the layer in both areas,
+      // which the next get() sees and reloads, never in neither. The pop names
+      // the layer, so a file pulled on top since get() is refused rather than
+      // deleted in place of this one.
       pushRedoLayer(project.directory, layer)
+      try {
+        popLayer(project.directory, layer.id)
+      } catch (err) {
+        compensate(() => popRedoLayer(project.directory, layer.id))
+        throw err
+      }
     } catch (err) {
       // Put it back: an undo live in memory but not on disk would come back
       // from the dead on the next launch, which is the same failure mode
@@ -265,8 +323,13 @@ export class WorkingRomRegistry {
     if (!layer) return { status: 'ok', ...stateOf(working) }
 
     try {
-      popRedoLayer(project.directory)
-      appendLayer(project.directory, layer)
+      appendLayer(project.directory, layer) // destination first, as in undo
+      try {
+        popRedoLayer(project.directory, layer.id)
+      } catch (err) {
+        compensate(() => popLayer(project.directory, layer.id))
+        throw err
+      }
     } catch (err) {
       working.undo() // roll back, same reasoning as undo's own failure path
       return { status: 'io-error', reason: (err as Error).message }
@@ -274,6 +337,37 @@ export class WorkingRomRegistry {
 
     return { status: 'ok', ...stateOf(working) }
   }
+}
+
+/**
+ * Both areas as the working copy should hold them. A layer in BOTH is what a
+ * half-done move leaves (undo and redo write the destination first); it is
+ * applied, and its redo copy is dropped rather than offered as a redo that
+ * would either refuse as stale or apply the layer twice.
+ */
+function persistedOps(directory: string): { applied: Layer[]; redo: Layer[] } {
+  const applied = loadLayers(directory)
+  const ids = new Set(applied.map(l => l.id))
+  return { applied, redo: loadRedoLayers(directory).filter(l => !ids.has(l.id)) }
+}
+
+/**
+ * Runs a compensating write whose own failure must not replace the error
+ * that made it necessary: the layer is then left in both areas, which
+ * persistedOps reads as applied.
+ */
+function compensate(undoWrite: () => void): void {
+  try {
+    undoWrite()
+  } catch {
+    // Reported through the original error; see persistedOps.
+  }
+}
+
+/** Layer-for-layer equal, ignoring `scope`, which OpsStore does not persist. */
+function sameLayers(a: readonly Layer[], b: readonly Layer[]): boolean {
+  const key = (l: Layer): string => JSON.stringify([l.id, l.label, l.ops])
+  return a.length === b.length && a.every((l, i) => key(l) === key(b[i]))
 }
 
 function stateOf(working: WorkingRom): EditStackState {
