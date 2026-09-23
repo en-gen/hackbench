@@ -6,7 +6,8 @@
  * reimplemented here: both are read from GfxLoader.inferGfxBpp and
  * GraphicsDecoder.bytesPerTile, the same functions loadGfxFile itself uses,
  * so this view's reading of a file can never drift from what the game's own
- * loader would decode (review F3).
+ * loader would decode (review F3). The one addition is the Mode 7 file,
+ * which no tileset upload reads; see inferDefaultBpp.
  */
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -19,7 +20,19 @@ import {
 } from '../../../../src/rom/GraphicsDecoder'
 import { buildLevelCgram, loadRomPalettes } from '../../../../src/rom/PaletteLoader'
 import { hex2 } from '../../../../src/rom/hex'
-import { GfxBpp, GfxFileDto, GfxSheetDto, PALETTE_ROW_COUNT } from '../common/gfx-protocol'
+import {
+  BYTES_PER_MODE7_TILE,
+  decodeMode7Tiles,
+  findMode7GfxFiles,
+} from '../../../../src/rom/Mode7Gfx'
+import {
+  GFX_FORMATS,
+  GfxFormat,
+  gfxFormatLabel,
+  GfxFileDto,
+  GfxSheetDto,
+  PALETTE_ROW_COUNT,
+} from '../common/gfx-protocol'
 
 export const GFX_TILES_PER_ROW = 16
 
@@ -35,22 +48,39 @@ export const DEFAULT_PALETTE_ROW = 2
  */
 const PALETTE_VARIANT = { bg: 0, fg: 0, sprite: 0 } as const
 
-const VALID_BPP: readonly GfxBpp[] = [2, 3, 4]
+function isGfxFormat(value: unknown): value is GfxFormat {
+  return (GFX_FORMATS as readonly unknown[]).includes(value)
+}
 
-function isGfxBpp(value: number): value is GfxBpp {
-  return (VALID_BPP as readonly number[]).includes(value)
+function formatBytesPerTile(format: GfxFormat): number {
+  return format === 'mode7' ? BYTES_PER_MODE7_TILE : bytesPerTile(format)
+}
+
+export function decodeTiles(raw: Uint8Array, format: GfxFormat): Uint8Array[] {
+  return format === 'mode7' ? decodeMode7Tiles(raw) : decodeTilesBatch(raw, format)
 }
 
 /**
- * Which bit depth GfxLoader.loadGfxFile will decode this file at, or null
+ * 'mode7' for a file a Mode 7 unpack routine names, when that routine is
+ * readable and the length is what its loop consumes; any other named file
+ * is null, never a planar guess. Kept out of GfxLoader.inferGfxBpp because
+ * a tileset upload of the same file is 3bpp, which loadVram must keep.
+ *
+ * For every other file, which bit depth GfxLoader.loadGfxFile will decode this file at, or null
  * when the length matches none of its rules and it falls back to a blank
  * sheet instead of decoding the bytes at any depth. A relocated GFX
  * arrangement lands here on real hacks (observed on Invictus 1.0: 49 of 50
  * files), not only on a corrupt ROM, so this is a real case to fail closed
  * on rather than an edge case to approximate.
  */
-export function inferDefaultBpp(rom: RomFile, fileIndex: number, rawLength: number): GfxBpp | null {
+export function inferDefaultBpp(
+  rom: RomFile,
+  fileIndex: number,
+  rawLength: number,
+): GfxFormat | null {
   if (rawLength <= 0) return null
+  const mode7 = findMode7GfxFiles(rom).find(f => f.fileIndex === fileIndex)
+  if (mode7) return rawLength === mode7.byteLength ? 'mode7' : null
   return inferGfxBpp(rom, fileIndex, rawLength)
 }
 
@@ -65,7 +95,7 @@ export function listGfxFileInfos(rom: SmwRom): GfxFileDto[] {
   for (let index = 0; index < GFX_FILE_COUNT; index++) {
     const raw = loadGfxRaw(rom.rom, index)
     const bpp = inferDefaultBpp(rom.rom, index, raw.length)
-    const tileCount = bpp === null ? null : Math.floor(raw.length / bytesPerTile(bpp))
+    const tileCount = bpp === null ? null : Math.floor(raw.length / formatBytesPerTile(bpp))
     files.push({ index, hex: hex2(index), byteLength: raw.length, defaultBpp: bpp, tileCount })
   }
   return files
@@ -100,38 +130,38 @@ function resolvePaletteRow(paletteRow: number | undefined): number {
 export function decodeGfxSheet(
   rom: SmwRom,
   index: number,
-  bpp?: GfxBpp,
+  bpp?: GfxFormat,
   paletteRow?: number,
 ): GfxSheetDto {
   if (index < 0 || index >= GFX_FILE_COUNT) {
     throw new Error(`GFX file index out of range: ${index}`)
   }
-  if (bpp !== undefined && !isGfxBpp(bpp)) {
-    throw new Error(`Unsupported GFX bit depth: ${String(bpp)}`)
+  if (bpp !== undefined && !isGfxFormat(bpp)) {
+    throw new Error(`Unsupported GFX format: ${String(bpp)}`)
   }
   const raw = loadGfxRaw(rom.rom, index)
   if (raw.length === 0) {
     throw new Error(`No readable GFX data at file $${hex2(index)}`)
   }
 
-  let actualBpp: GfxBpp
+  let actualBpp: GfxFormat
   if (bpp !== undefined) {
     actualBpp = bpp
   } else {
     const inferred = inferDefaultBpp(rom.rom, index, raw.length)
     if (inferred === null) {
       throw new Error(
-        `GFX file $${hex2(index)} is ${raw.length} bytes, which GfxLoader cannot place at 2/3/4bpp ` +
-          '(likely a relocated GFX arrangement); pick a bit depth explicitly to force a read',
+        `GFX file $${hex2(index)} is ${raw.length} bytes, which cannot be placed at 2/3/4bpp or as ` +
+          'the Mode 7 file (likely a relocated GFX arrangement); pick a format explicitly to force a read',
       )
     }
     actualBpp = inferred
   }
 
-  const tiles = decodeTilesBatch(raw, actualBpp)
+  const tiles = decodeTiles(raw, actualBpp)
   if (tiles.length === 0) {
     throw new Error(
-      `GFX file $${hex2(index)} is shorter than one tile at ${actualBpp}bpp (${raw.length} bytes)`,
+      `GFX file $${hex2(index)} is shorter than one tile as ${gfxFormatLabel(actualBpp)} (${raw.length} bytes)`,
     )
   }
 

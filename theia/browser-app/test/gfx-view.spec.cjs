@@ -116,7 +116,7 @@ test('a new project lists every GFX file its cartridge holds', async ({ page }) 
 
   for (const r of result.rows) {
     expect(r.tileCount).toBeGreaterThan(0)
-    expect([2, 3, 4]).toContain(r.bpp)
+    expect([2, 3, 4, 'mode7']).toContain(r.bpp)
   }
   // Every file addressable, not collapsed onto a shared row id.
   expect(new Set(result.rows.map(r => r.index)).size).toBe(VANILLA_GFX_FILES)
@@ -323,6 +323,44 @@ test('switching bit depth re-decodes the sheet, not just its label', async ({ pa
   expect(after.height).not.toBe(before.height)
 })
 
+/**
+ * The Mode 7 file (vanilla GFX $27) is packed 3-bit pixels, not bitplanes.
+ * Every planar depth paints it as noise, which is the bug this guards, and
+ * noise passes any "distinct colors" check. So the oracle is coherence:
+ * the share of horizontally adjacent pixels that match. Measured on the
+ * vanilla ROM: 0.62 decoded as Mode 7, 0.20 misread as 3bpp.
+ */
+test('the Mode 7 GFX file opens as Mode 7 and paints coherent art, not noise', async ({ page }) => {
+  const MODE7_FILE = 0x27 // CODE_00AB42's LDY operand on the vanilla ROM
+  const result = await loadGfx(page, path.join(tmp, 'MyHack'))
+  expect(result.rows.find(r => r.index === MODE7_FILE).bpp).toBe('mode7')
+  expect(result.rows.filter(r => r.bpp === 'mode7').length).toBe(1)
+
+  await revealGfx(page)
+  await page.evaluate(async index => {
+    const w = await getWidget('hackbench.gfx-explorer')
+    w.fireOpen(
+      w.model.root.children.find(n => n.index === index),
+      false,
+    )
+  }, MODE7_FILE)
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(500)
+
+  expect(await page.locator('#hb-gfx-bpp-select').inputValue()).toBe('mode7')
+  const mode7 = await readCanvas(page)
+
+  await page.selectOption('#hb-gfx-bpp-select', '3')
+  await page.waitForTimeout(500)
+  const planar = await readCanvas(page)
+
+  // Same 24 bytes per tile both ways, so the height alone cannot tell them
+  // apart; the pixels must.
+  expect(planar.height).toBe(mode7.height)
+  expect(mode7.coherence).toBeGreaterThan(0.5)
+  expect(mode7.coherence - planar.coherence).toBeGreaterThan(0.2)
+})
+
 test('switching the palette row repaints the canvas', async ({ page }) => {
   await loadGfx(page, path.join(tmp, 'MyHack'))
   await revealGfx(page)
@@ -414,7 +452,13 @@ async function readCanvas(page) {
     const distinct = new Set()
     let opaque = 0
     let checksum = 0
+    let same = 0
     for (let i = 0; i < data.length; i += 4) {
+      if ((i / 4) % canvas.width !== canvas.width - 1) {
+        let eq = true
+        for (let c = 0; c < 4; c++) if (data[i + c] !== data[i + 4 + c]) eq = false
+        if (eq) same++
+      }
       distinct.add(`${data[i]},${data[i + 1]},${data[i + 2]},${data[i + 3]}`)
       if (data[i + 3] > 0) opaque++
       checksum = (checksum + data[i] * 7 + data[i + 1] * 13 + data[i + 2] * 17 + data[i + 3]) >>> 0
@@ -425,6 +469,8 @@ async function readCanvas(page) {
       distinctColors: distinct.size,
       opaquePixels: opaque,
       checksum,
+      /** Share of horizontally adjacent pixel pairs that match. */
+      coherence: same / ((canvas.width - 1) * canvas.height),
     }
   })
 }

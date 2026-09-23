@@ -30,7 +30,7 @@ import {
   createTreeContainer,
 } from '@theia/core/lib/browser'
 import { Emitter } from '@theia/core/lib/common'
-import { GfxBpp, GfxFileDto, GfxService } from '../common/gfx-protocol'
+import { GfxFileDto, GfxFormat, GfxService, gfxFormatLabel } from '../common/gfx-protocol'
 import { ProjectContext } from './project-context'
 
 export const GFX_EXPLORER_ID = 'hackbench.gfx-explorer'
@@ -39,7 +39,7 @@ export interface GfxTreeNode extends CompositeTreeNode, SelectableTreeNode {
   /** GFX file index, or -1 for a placeholder row. */
   index: number
   hex: string | null
-  bpp: GfxBpp | null
+  bpp: GfxFormat | null
   /** Null alongside `bpp` null: no depth to divide the length by. */
   tileCount: number | null
   kind: 'file' | 'message'
@@ -236,7 +236,8 @@ export class GfxExplorerWidget extends TreeWidget {
     // Null means GfxLoader itself cannot place this length at any depth (a
     // relocated GFX arrangement, seen on real hacks): say so rather than
     // printing a fabricated tile count.
-    const meta = file.bpp === null ? 'unavailable' : `${file.tileCount} tiles · ${file.bpp}bpp`
+    const meta =
+      file.bpp === null ? 'unavailable' : `${file.tileCount} tiles · ${gfxFormatLabel(file.bpp)}`
     return [
       <span key="id" className="hb-gfx-id">{`GFX $${file.hex}`}</span>,
       <span key="meta" className="hb-gfx-meta">

@@ -16,7 +16,14 @@ import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
 import { Emitter } from '@theia/core/lib/common'
-import { GfxBpp, GfxService, GfxSheetDto, PALETTE_ROW_COUNT } from '../common/gfx-protocol'
+import {
+  GFX_FORMATS,
+  GfxFormat,
+  GfxService,
+  GfxSheetDto,
+  PALETTE_ROW_COUNT,
+  gfxFormatLabel,
+} from '../common/gfx-protocol'
 import { GfxFrontendClient } from './gfx-push-client'
 
 export const GFX_VIEW_ID = 'hackbench.gfx-view'
@@ -26,8 +33,6 @@ export interface GfxViewOptions {
   index: number
   label: string
 }
-
-const BPP_OPTIONS: GfxBpp[] = [2, 3, 4]
 
 /**
  * A sheet is 128px wide, which is unreadably small on a modern display, so
@@ -63,7 +68,7 @@ export class GfxViewWidget extends ReactWidget {
   protected sheet: GfxSheetDto | undefined
   protected error: string | undefined
   /** User overrides; undefined defers to whatever the loader itself reports. */
-  protected bppChoice: GfxBpp | undefined
+  protected bppChoice: GfxFormat | undefined
   protected paletteRowChoice: number | undefined
   protected canvasEl: HTMLCanvasElement | null = null
   /** Bumped on every reload; a response is applied only if it is still current,
@@ -160,7 +165,7 @@ export class GfxViewWidget extends ReactWidget {
   }
 
   protected handleBppChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
-    this.bppChoice = Number(e.target.value) as GfxBpp
+    this.bppChoice = GFX_FORMATS.find(f => String(f) === e.target.value)
     void this.reload()
   }
 
@@ -178,7 +183,7 @@ export class GfxViewWidget extends ReactWidget {
     // While a sheet is loaded the controls reflect what actually produced
     // it; before the first one arrives (or after a refusal) they reflect
     // only the user's own pending choice, defaulting to the lowest option.
-    const bppValue = this.bppChoice ?? s?.bpp ?? BPP_OPTIONS[0]
+    const bppValue = this.bppChoice ?? s?.bpp ?? GFX_FORMATS[0]
     const rowValue = this.paletteRowChoice ?? s?.paletteRow ?? 0
 
     return (
@@ -198,8 +203,10 @@ export class GfxViewWidget extends ReactWidget {
               value={bppValue}
               onChange={this.handleBppChange}
             >
-              {BPP_OPTIONS.map(b => (
-                <option key={b} value={b}>{`${b}bpp`}</option>
+              {GFX_FORMATS.map(b => (
+                <option key={b} value={b}>
+                  {gfxFormatLabel(b)}
+                </option>
               ))}
             </select>
           </label>

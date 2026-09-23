@@ -23,7 +23,7 @@ import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { WorkingRomEntry, WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
 import {
-  GfxBpp,
+  GfxFormat,
   GfxService,
   GfxServiceClient,
   GfxSheetDto,
@@ -52,7 +52,7 @@ export class GfxServiceImpl implements GfxService {
   async gfxSheet(
     manifestPath: string,
     index: number,
-    bpp?: GfxBpp,
+    bpp?: GfxFormat,
     paletteRow?: number,
   ): Promise<GfxSheetDto> {
     return decodeGfxSheet(this.romFor(manifestPath), index, bpp, paletteRow)
