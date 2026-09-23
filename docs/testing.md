@@ -212,6 +212,64 @@ red when `loromToOffset` stops refusing, which was confirmed separately.
 | Skip the `openProject` refusal              | 1         |
 | Delete only the canonical spelling of a key | 2         |
 
+### Map16 tile editor - the write gate, the palettes and the preview tabs
+
+Run with `test/roms/` ABSENT and the `theia/` workspace absent, which is
+what CI has. Every case below registers and runs in that state except where
+noted, which is the point: an earlier version of the write-path suite
+imported `Map16ServiceImpl`, could not resolve
+`@theia/core/shared/inversify`, and none of its cases ever ran in CI while
+passing locally.
+
+One machine, vitest 4.1.5. Thirteen planted defects, each reverted after
+the run:
+
+| Planted defect                                                            | Cases red |
+| ------------------------------------------------------------------------- | --------- |
+| Gate the BG extent on the FG fill-loop count again                        | 3         |
+| Let `nextQuadrantWord` truncate an out-of-range value instead of refusing | 3         |
+| Remove the write-path capacity gate                                       | 4         |
+| Take `maxColorIndex` across all sheets rather than per sheet              | 1         |
+| Make `tileFrameCount` ignore `animatedTileIds`                            | 1         |
+| Feed the character palettes raw VRAM instead of animation frame 0         | 2 *       |
+| Make `PreviewSequence.settled` return without waiting                     | 2         |
+| Drop the RPC value type check, so a boolean writes character 1            | 2         |
+| Drop the tilemap-space bound from the RPC gate                            | 1         |
+| Drop the tileset validation from the RPC gate                             | 1         |
+| Remove the per-slot character clamp                                       | 2         |
+| Make the clamp return the slot CAPACITY, so a short sheet over-offers     | 2         |
+| Take the edit axis from the picker rather than the sheet on screen        | 2         |
+
+`*` This one is the exception to the corpus-absent rule: both cases that
+catch it are `describe.skipIf(!romPresent)`, so with no cartridge the
+mutation runs GREEN. That is stated rather than hidden. The claim is that
+the atlas and the character palettes composite from the same VRAM, which is
+a fact about a CALL SITE in `decodeMap16Sheet` rather than about any one
+function, so no synthetic fixture reaches it; the alternative was a
+source-text tripwire, which fails on a rename and passes on a respelling.
+It is proven wherever a cartridge exists, and the figure it asserts (75 of
+80 animated characters differing on vanilla tileset 0) is a tripwire on the
+fixture itself.
+
+A fourteenth is planted by the Playwright suite itself rather than by hand.
+`map16-view.spec.cjs`'s hover-reflow oracle adds a hover rule that changes
+`padding` instead of painting, confirms the same comparison catches it, and
+removes the rule again. It is inline because the first version of that
+oracle measured viewport coordinates and so fired on a SCROLL while saying
+nothing about a reflow: an oracle that can only be trusted after someone
+remembers to plant a defect by hand is one that goes untrusted.
+
+Two of these exist because the first pass showed no test could fail. The
+palette/VRAM one, because nothing compared a palette cell against the
+quadrant citing it. And the edit-axis one, which began as a source-text
+tripwire on the reasoning that `Map16ViewWidget` extends `ReactWidget` and
+cannot be constructed in node: true, and beside the point, because the
+DECISION is a pure function of the sheet and the picker. Extracting it as
+`editAxisFor` turned an untestable coupling into five ordinary cases, the
+same move `previewId` and `gateQuadrantWrite` made. A grep over source text
+passes when the bug returns under a different spelling and fails on an
+innocent rename, which is the wrong failure mode twice over.
+
 ## Commands
 
 ```bash

@@ -79,8 +79,8 @@ async function createProject(page, dir, name = 'MyHack') {
 /**
  * Create a project and load its GFX files, returning what the widget holds.
  *
- * `rows` is every tree row INCLUDING the Map16 row that now sits above the
- * GFX file list (map16-view.spec.cjs covers that row itself); `fileRows` is
+ * `rows` is every tree row INCLUDING the two Map16 rows that now sit above
+ * the GFX file list (map16-view.spec.cjs covers them); `fileRows` is
  * `rows` filtered to `kind === 'file'`, which is what every GFX-file-only
  * assertion in this spec actually wants.
  */
@@ -104,9 +104,13 @@ async function loadGfx(page, dir) {
   return { ...result, fileRows: result.rows.filter(r => r.kind === 'file') }
 }
 
-/** The first GFX FILE row's locator - row 0 is always the Map16 row now. */
+/** How many non-file rows sit above the GFX list: Map16 Foreground and
+ *  Map16 Background (gfx-explorer-widget.tsx's MAP16_ROWS). */
+const MAP16_ROW_COUNT = 2
+
+/** The first GFX FILE row's locator - the Map16 rows sit above the list. */
 function firstGfxFileRow(page) {
-  return page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(1)
+  return page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(MAP16_ROW_COUNT)
 }
 
 test('the graphics view has nothing to show until a project is open', async ({ page }) => {
@@ -125,9 +129,10 @@ test('a new project lists every GFX file its cartridge holds', async ({ page }) 
   const result = await loadGfx(page, path.join(tmp, 'MyHack'))
 
   expect(result.fileCount).toBe(VANILLA_GFX_FILES)
-  // Map16 sits above the file list as its own row (map16-view.spec.cjs).
-  expect(result.rows.length).toBe(VANILLA_GFX_FILES + 1)
-  expect(result.rows[0].kind).toBe('map16')
+  // Both Map16 tables sit above the file list, one row each
+  // (map16-view.spec.cjs covers those rows themselves).
+  expect(result.rows.length).toBe(VANILLA_GFX_FILES + MAP16_ROW_COUNT)
+  expect(result.rows.slice(0, MAP16_ROW_COUNT).every(r => r.kind === 'map16')).toBe(true)
   expect(result.fileRows.length).toBe(VANILLA_GFX_FILES)
   expect(result.fileRows.every(r => r.kind === 'file')).toBe(true)
 
@@ -151,7 +156,7 @@ test('the GFX rows are rendered and reachable, not just in the model', async ({ 
   const rows = await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').count()
   expect(rows).toBeGreaterThan(2)
 
-  // `.hb-gfx-id` deliberately excludes the Map16 row (own classes, see
+  // `.hb-gfx-id` deliberately excludes the Map16 rows (own classes, see
   // gfx-explorer-widget.tsx), so every match here is still a GFX $XX file.
   const ids = await page.locator('#hackbench\\.gfx-explorer .hb-gfx-id').allTextContents()
   expect(ids.length).toBeGreaterThan(0)
@@ -408,7 +413,7 @@ test('switching the palette row repaints the canvas', async ({ page }) => {
  * path; every other GFX test either never edits a palette, or calls
  * `w.load(...)` itself, which would pass even if the push were dead.
  *
- * GFX file $00 (the first GFX FILE row - the Map16 row now sits above it)
+ * GFX file $00 (the first GFX FILE row - the Map16 rows sit above it)
  * decodes at its natural default of 3bpp - see the "switching bit depth"
  * test above. A 3bpp pixel is 3 bits,
  * so decodeGfxSheet can only ever sample palette indices 0-7 out of a

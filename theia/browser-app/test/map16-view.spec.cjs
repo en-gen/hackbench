@@ -1,10 +1,34 @@
 /**
- * The Map16 view, end to end against the shell: the tree row, the composited
- * 512-block sheet, the inspector, and cross-view recoloring.
+ * The Map16 tile editor, end to end against the shell: the two tree rows,
+ * the two independent widgets, the tile preview, the edit pane it opens on
+ * request, the character palettes and the tile browser strip.
  *
- * Modelled on gfx-view.spec.cjs. The failure mode this guards against is the
- * same one that spec calls out: a canvas that renders but shows nothing
- * real, or a "recolor" claim that never actually reads the new pixels back.
+ * Every assertion here is on BEHAVIOUR. A presence check passes for a blank
+ * editor, and two defects in this repo's shell spike rendered perfectly and
+ * did nothing. So picking a character is proved by the quadrant's PIXELS
+ * changing AND by the committed word being read back from the service; a
+ * color-row change is proved by the pixels changing WHILE every character
+ * number stays put; the hover affordance is proved by the overlay becoming
+ * visible AND by every bounding box around it staying exactly where it was.
+ *
+ * Three things this file gets right that its drag-era predecessor did not,
+ * each of which made a real test fail for a reason that had nothing to do
+ * with the product:
+ *
+ * - Only the ACTIVE tab of a dock area is rendered. With both tables open,
+ *   the other one's canvases have no layout box, so every click on them
+ *   waits for actionability and times out. `activate` is therefore called
+ *   before touching either widget, and that is also what the user does.
+ * - `checksum` mixes the pixel's OFFSET in. The old helper summed channel
+ *   values with no positional term, so a horizontal mirror of an image
+ *   hashed identically to the image: the assertion that tile $101 draws
+ *   tl/tr as mirrors could not have failed, and did not pass either.
+ * - A Theia RPC proxy is a `Proxy` whose `get` trap answers EVERY property
+ *   with a freshly built RPC closure (proxy-factory.js:188). Assigning
+ *   `svc.loadMap16 = ...` writes to the target and changes nothing, so the
+ *   old refusal test's canned response was never returned. The refusal is
+ *   now driven from a real cartridge whose fill-loop bound this file
+ *   patches, which proves the backend gate rather than the renderer.
  *
  * One Theia BACKEND process serves every test in this file (only the
  * frontend page/context is fresh per test, via Playwright's default `page`
@@ -13,34 +37,20 @@
  *
  * - Every backend `*ServiceImpl` (Map16, Gfx, Palette) is a DI singleton
  *   whose `WorkingCopyNotifier` holds exactly ONE client, overwritten by
- *   whichever connection registered most recently (working-copy-notifier.ts,
- *   gfx-server.ts, map16-server.ts, palette-server.ts). That is a real,
+ *   whichever connection registered most recently. That is a real,
  *   pre-existing limitation - two genuine browser tabs on the same project
- *   would have the same problem, only the most recently opened tab would
- *   ever receive a push - not something introduced or fixed here. It does
- *   NOT explain this file's own flakiness, though: every widget's push
- *   handler filters by `manifestPath === this.options?.manifestPath` before
- *   acting, and each test's project has a distinct manifest path, so even a
- *   stale registration from an earlier test's page cannot make THIS test's
- *   view react to the wrong project's edit.
+ *   would have the same problem - not something introduced or fixed here.
+ *   It does NOT explain this file's own flakiness, though: every widget's
+ *   push handler filters by `manifestPath === this.options?.manifestPath`
+ *   before acting, and each test's project has a distinct manifest path.
  * - `WorkingRomRegistry`'s cache is keyed by manifest path and never evicts,
  *   so it accumulates one entry per test for the life of the backend
  *   process. Paths differ per test (fresh `tmp` dir each time), so entries
- *   never collide - this is memory growth over a long run, not a
- *   correctness bug, and not addressed here.
+ *   never collide - memory growth over a long run, not a correctness bug.
  *
- * The actual flake found in this file: `.check()` re-verifies the checked
- * state after clicking and, per Playwright's documented retry behaviour,
- * RE-CLICKS if that verification does not pass within its own polling
- * window. map16-view-widget.tsx's checkbox/select controls are genuinely
- * asynchronous (their committed value is a round trip away, even with the
- * `pendingEdits` optimistic overlay covering the common case) - under this
- * suite's slower full-file-run timing, `.check()`'s retry can land on an
- * already-checked box and toggle it back off before the assertion after it
- * ever gets to look. Every checkbox interaction below uses a plain
- * `.click()` (exactly one click, no re-click) followed by an
- * `expect(...).toBeChecked()` (which retries by re-reading, never
- * re-clicking) to wait out the round trip instead.
+ * Tabs are PINNED (double click) rather than previewed, so each widget has
+ * the stable dom id `hackbench.map16-view:<layer>` and a test can scope its
+ * queries to one of the two tables even with both open.
  */
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
@@ -52,22 +62,53 @@ const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM =
   process.env.HB_ROM || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
 
-/** MAP16_TOTAL_TILES in src/rom/Map16.ts: 64 bitmap bytes * 8 bits. */
-const MAP16_TILE_COUNT = 512
+/** What vanilla holds. The view READS its count (readMap16TileCount); this
+ *  is the cross-check, never the view's own default. */
+const VANILLA_TILE_COUNT = 512
 const TILES_PER_ROW = 16
 const DEFAULT_ZOOM = 2
-const BLOCK_PX = 16
+const TILE_PX = 16
+
+/** Widget dom ids, one per layer - map16WidgetId() in map16-view-model.ts. */
+const FG = '#hackbench\\.map16-view\\:fg'
+const BG = '#hackbench\\.map16-view\\:bg'
+const ROOT = { fg: FG, bg: BG }
 
 /**
- * Tile $130, tileset 0: TL subtile is charNum $30, palette 4 (CGRAM row 4,
- * "sprite_sets" group's "Shared" variant, i.e. StandardColors row 0 -
- * PaletteStockTables.ts). Confirmed by decoding the real ROM
- * (loadAllMap16(rom, 0)[0x130].tl and getCharPixels against loadVram(rom, 0))
- * that this subtile's pixels actually use palette INDEX 4, i.e. CGRAM row 4
- * column 4 - StandardColors' address $00B254, vanilla word $6318 - so
- * editing that exact address is guaranteed to move a pixel this tile draws,
- * not a column this depth/tile can never reach (the mistake noted in
- * gfx-view.spec.cjs's own edit-target comment).
+ * One control, INSIDE one widget.
+ *
+ * Scoped by the widget root rather than by a global id, and that matters
+ * for a reason measured on `ccb66b4`: a double click opened a preview
+ * widget and a pinned one of the SAME layer, so every global `#id`
+ * resolved to two elements and 21 of 26 cases died on strict mode. The
+ * widgets no longer emit ids at all (see the duplicate-id case below), but
+ * the lesson stands on its own - a lookup that can only work while ids
+ * happen to be globally unique breaks again the moment two widgets
+ * coexist, which the shell allows at any time.
+ */
+function ctl(base, layer = 'fg') {
+  return `${ROOT[layer]} ${within(base)}`
+}
+
+/** The same control with no root, for use inside `:has()`, whose argument
+ * is relative to the element it qualifies rather than to the document. */
+function within(base) {
+  return `[data-control="${base}"]`
+}
+
+/** CELL_PX in map16-char-palettes.tsx: CHAR_PX (8) * CHAR_SCALE (4). */
+const CELL_PX = 32
+const CHARS_PER_ROW = 8
+
+/**
+ * Tile $130, tileset 0: TL character is $30 on CGRAM row 4 ("sprite_sets"
+ * Shared variant, i.e. StandardColors row 0 - PaletteStockTables.ts).
+ * Confirmed by decoding the real ROM (loadAllMap16(rom, 0)[0x130].tl and
+ * getCharPixels against loadVram(rom, 0)) that this character's pixels
+ * actually use palette INDEX 4, i.e. CGRAM row 4 column 4 - StandardColors'
+ * address $00B254, vanilla word $6318 - so editing that exact address is
+ * guaranteed to move a pixel this tile draws, not a column this depth/tile
+ * can never reach.
  */
 const TARGET_TILE_ID = 0x130
 const TARGET_ADDR = 0x00b254
@@ -76,14 +117,25 @@ const TARGET_NEW_HEX = '$03E0'
 
 /**
  * Character-animation fixtures for FG tileset 0, confirmed by decoding the
- * real ROM (decodeMap16Sheet's own charAnimation.animatedBlockIds): block
- * $000 animates (a common animated tile - ? block/coin/similar), block
- * $001 does not, and TARGET_TILE_ID ($130, used for the palette-edit tests
- * above) also does not. Picked from real data, not assumed, per the same
- * "measure, don't guess" rule as TARGET_TILE_ID's own comment.
+ * real ROM (decodeMap16Sheet's own charAnimation.animatedTileIds): tile
+ * $000 animates, tile $001 does not, and TARGET_TILE_ID ($130) also does
+ * not. Picked from real data, not assumed.
  */
-const ANIMATED_BLOCK_ID = 0x000
-const STATIC_BLOCK_ID = 0x001
+const ANIMATED_TILE_ID = 0x000
+const STATIC_TILE_ID = 0x001
+const VANILLA_FRAME_COUNT = 4
+
+/**
+ * The Map16 pointer-fill loop's tail, `bank_05.asm:229-237`:
+ * ADC.W #$0008 / STA.B _0 / INX / INX / CPX.W #imm / BNE -. `null` is a
+ * wildcard. Mirrors MAP16_COUNT_PATTERN in src/rom/Map16.ts; duplicated
+ * here because a spec may not import the extension's TypeScript, and the
+ * hit COUNT is asserted below so a drift would fail loudly rather than
+ * silently patch nothing.
+ */
+const FILL_LOOP = [0x69, 0x08, 0x00, 0x85, null, 0xe8, 0xe8, 0xe0, null, null, 0xd0]
+const FILL_LOOP_SITES = 3
+const COPIER_HEADER = 512
 
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary
@@ -96,6 +148,14 @@ const GET_SVC = `function getSvc(name) {
 function getWidget(id) {
   const wm = getSvc('WidgetManager')
   return wm.getOrCreateWidget(id)
+}
+function checksumOf(data) {
+  let sum = 2166136261
+  for (let i = 0; i < data.length; i += 4) {
+    sum = (sum ^ (i + data[i] * 7 + data[i + 1] * 13 + data[i + 2] * 17 + data[i + 3] * 19)) >>> 0
+    sum = Math.imul(sum, 16777619) >>> 0
+  }
+  return sum
 }`
 
 let tmp
@@ -116,52 +176,46 @@ test.beforeEach(async ({ page }) => {
 })
 
 /**
- * Every test in this file opens the Map16 view through a single click,
- * which always resolves through PreviewTabs.preview - one widget, id
- * `${MAP16_VIEW_ID}:preview` (preview-tabs.ts's `previewId`). Playwright
- * gives each test a fresh page/context already (the default `page` fixture,
- * same as gfx-view.spec.cjs and palette-view.spec.cjs), so this is not
- * needed for frontend isolation; it is closed anyway to keep the ONE shared
- * Theia backend process this file's tests all run against (see this file's
- * own note on WorkingRomRegistry/WorkingCopyNotifier below) from
- * accumulating an open RPC subscription and a live widget per test for the
- * whole spec-file run.
+ * Closed after every test to keep the ONE shared Theia backend process from
+ * accumulating an open RPC subscription and a live widget per test. Both
+ * pinned ids and both preview ids, since a single click and a double click
+ * produce different widgets.
  */
-async function closeMap16View(page) {
+async function closeMap16Views(page) {
   await page.evaluate(async () => {
-    try {
-      await getSvc('ApplicationShell').closeWidget('hackbench.map16-view:preview')
-    } catch {
-      /* nothing open to close - fine */
+    const shell = getSvc('ApplicationShell')
+    for (const id of [
+      'hackbench.map16-view:fg',
+      'hackbench.map16-view:bg',
+      'hackbench.map16-view:preview:layer=fg',
+      'hackbench.map16-view:preview:layer=bg',
+    ]) {
+      try {
+        await shell.closeWidget(id)
+      } catch {
+        /* nothing open under that id - fine */
+      }
     }
   })
 }
 
 test.afterEach(async ({ page }) => {
-  await closeMap16View(page)
+  await closeMap16Views(page)
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-async function createProject(page, dir, name = 'MyHack') {
+async function createProject(page, dir, name = 'MyHack', romPath = ROM) {
   return page.evaluate(
     async ({ romPath, directory, projectName }) => {
       const svc = getSvc('Symbol(ProjectService)')
       return svc.createProject({ romPath, name: projectName, directory })
     },
-    { romPath: ROM, directory: dir, projectName: name },
+    { romPath, directory: dir, projectName: name },
   )
 }
 
-/** Opens the Map16 row from the (already-loaded) Graphics explorer. */
-async function openMap16(page) {
-  await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
-  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').first().click()
-  await page.waitForSelector('.hb-map16-canvas', { timeout: 15000 })
-  await page.waitForTimeout(500)
-}
-
-async function loadGfxExplorer(page, dir) {
-  const project = await createProject(page, dir)
+async function loadGfxExplorer(page, dir, romPath = ROM) {
+  const project = await createProject(page, dir, 'MyHack', romPath)
   await revealGfx(page)
   await page.evaluate(async manifestPath => {
     const w = await getWidget('hackbench.gfx-explorer')
@@ -170,31 +224,109 @@ async function loadGfxExplorer(page, dir) {
   return project
 }
 
-/** Reads the Map16 canvas back: native-resolution pixel data (zoom is CSS only). */
-async function readCanvas(page) {
-  return page.evaluate(() => {
-    const canvas = document.querySelector('.hb-map16-canvas')
+/** Row 0 is Map16 Foreground, row 1 is Map16 Background. */
+const ROW_OF = { fg: 0, bg: 1 }
+
+/**
+ * Brings one table's tab to the front.
+ *
+ * Only the ACTIVE tab of a dock area is laid out, so a canvas in the other
+ * one has no box and every click on it waits for actionability until it
+ * times out. Three of this file's tests used to fail for exactly that.
+ */
+async function activate(page, layer = 'fg') {
+  await page.evaluate(async id => {
+    // The result is DISCARDED on the page side on purpose: activateWidget
+    // resolves to the Widget, and returning it makes Playwright try to
+    // serialize a Lumino object graph across the boundary, which fails with
+    // "object reference chain is too long" rather than with anything about
+    // the widget.
+    await getSvc('ApplicationShell').activateWidget(id)
+  }, `hackbench.map16-view:${layer}`)
+  await page.waitForTimeout(300)
+}
+
+/** Opens one Map16 table as a PINNED tab, so its widget id is stable. */
+async function openMap16(page, layer = 'fg') {
+  await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
+  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(ROW_OF[layer]).dblclick()
+  await page.waitForSelector(`${ROOT[layer]} .hb-map16-preview-canvas`, { timeout: 15000 })
+  await page.waitForTimeout(500)
+}
+
+/**
+ * The browser strip, read back at native resolution (zoom is CSS only).
+ *
+ * `checksum` mixes the pixel's OFFSET in, so two images made of the same
+ * pixels in a different arrangement hash differently. The previous helper
+ * did not, which made every mirror/flip assertion in this file unable to
+ * fail.
+ */
+async function readCanvas(page, root = FG) {
+  return page.evaluate(sel => {
+    const canvas = document.querySelector(`${sel} .hb-map16-canvas`)
     const ctx = canvas.getContext('2d')
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data
     const distinct = new Set()
-    let checksum = 0
     for (let i = 0; i < data.length; i += 4) {
       distinct.add(`${data[i]},${data[i + 1]},${data[i + 2]},${data[i + 3]}`)
-      checksum = (checksum + data[i] * 7 + data[i + 1] * 13 + data[i + 2] * 17 + data[i + 3]) >>> 0
     }
-    return { width: canvas.width, height: canvas.height, distinctColors: distinct.size, checksum }
-  })
+    return {
+      width: canvas.width,
+      height: canvas.height,
+      distinctColors: distinct.size,
+      checksum: checksumOf(data),
+    }
+  }, root)
 }
 
-/** Whether the 16x16 region for `tileId` contains a pixel matching `rgb` (opaque). */
-async function blockHasColor(page, tileId, rgb) {
+/** Any canvas, by selector: preview, frame quadrant or palette sheet. */
+async function readCanvasChecksum(page, selector) {
+  return page.evaluate(sel => {
+    const c = document.querySelector(sel)
+    if (!c) return null
+    const ctx = c.getContext('2d')
+    return checksumOf(ctx.getImageData(0, 0, c.width, c.height).data)
+  }, selector)
+}
+
+/**
+ * A copy of `src` whose Map16 pointer-fill loop claims `tiles` tiles.
+ *
+ * Nothing in the corpus carries Lunar Magic's expanded Map16 - all 6 carts
+ * hold exactly 512 - so the only honest way to exercise the refusal end to
+ * end is to make a cartridge that says otherwise. This reads the owner's
+ * ROM at run time and writes the patched copy into the test's own tmp dir;
+ * no ROM-derived bytes are committed.
+ */
+function romClaimingTileCount(src, dest, tiles) {
+  const buf = fs.readFileSync(src)
+  const base = buf.length % 1024 === COPIER_HEADER ? COPIER_HEADER : 0
+  const sites = []
+  for (let at = base; at <= buf.length - FILL_LOOP.length; at++) {
+    let ok = true
+    for (let k = 0; k < FILL_LOOP.length; k++) {
+      if (FILL_LOOP[k] !== null && buf[at + k] !== FILL_LOOP[k]) {
+        ok = false
+        break
+      }
+    }
+    if (ok) sites.push(at)
+  }
+  for (const at of sites) buf.writeUInt16LE(tiles * 2, at + 8)
+  fs.writeFileSync(dest, buf)
+  return sites.length
+}
+
+/** Whether the 16x16 region for `tileId` contains a pixel matching `rgb`. */
+async function tileHasColor(page, tileId, rgb, root = FG) {
   return page.evaluate(
-    ({ tileId, rgb, tilesPerRow, blockPx }) => {
-      const canvas = document.querySelector('.hb-map16-canvas')
+    ({ tileId, rgb, tilesPerRow, tilePx, sel }) => {
+      const canvas = document.querySelector(`${sel} .hb-map16-canvas`)
       const ctx = canvas.getContext('2d')
       const col = tileId % tilesPerRow
       const row = Math.floor(tileId / tilesPerRow)
-      const data = ctx.getImageData(col * blockPx, row * blockPx, blockPx, blockPx).data
+      const data = ctx.getImageData(col * tilePx, row * tilePx, tilePx, tilePx).data
       for (let i = 0; i < data.length; i += 4) {
         if (
           data[i] === rgb[0] &&
@@ -207,7 +339,7 @@ async function blockHasColor(page, tileId, rgb) {
       }
       return false
     },
-    { tileId, rgb, tilesPerRow: TILES_PER_ROW, blockPx: BLOCK_PX },
+    { tileId, rgb, tilesPerRow: TILES_PER_ROW, tilePx: TILE_PX, sel: root },
   )
 }
 
@@ -220,165 +352,1007 @@ function bgr555ToRgbTriplet(word) {
   return [expand(r5), expand(g5), expand(b5)]
 }
 
-/** Clicks the block at `tileId` on the canvas, at the view's default zoom. */
-async function clickBlock(page, tileId) {
-  const cellPx = BLOCK_PX * DEFAULT_ZOOM
+/** Clicks the tile at `tileId` on the browser strip, at the default zoom. */
+async function clickTile(page, tileId, root = FG) {
+  const cellPx = TILE_PX * DEFAULT_ZOOM
   const col = tileId % TILES_PER_ROW
   const row = Math.floor(tileId / TILES_PER_ROW)
   await page
-    .locator('.hb-map16-canvas')
+    .locator(`${root} .hb-map16-canvas`)
     .click({ position: { x: col * cellPx + cellPx / 2, y: row * cellPx + cellPx / 2 } })
   await page.waitForTimeout(300)
 }
 
-/** Clicks a corner button ("Top-left", "Top-right", ...) by its exact label. */
-async function selectCorner(page, label) {
-  await page.getByRole('button', { name: label, exact: true }).click()
-  await page.waitForTimeout(150)
+/**
+ * Opens the edit pane the way a user does: hover the preview, which dims it
+ * and surfaces the affordance, then press it.
+ */
+async function openEditPane(page, layer = 'fg') {
+  await page.locator(`${ROOT[layer]} .hb-map16-preview`).hover()
+  await page.locator(ctl('edit-toggle', layer)).click()
+  await page.waitForSelector(`${ROOT[layer]} .hb-map16-edit-pane`, { timeout: 5000 })
+  await page.waitForTimeout(300)
+}
+
+async function selectQuadrant(page, key, layer = 'fg') {
+  await page
+    .locator(
+      `${ROOT[layer]} .hb-map16-frame[data-frame="0"] .hb-map16-quad[data-quadrant="${key}"]`,
+    )
+    .click()
+  await page.waitForTimeout(200)
+}
+
+function quadrantCanvas(key, layer = 'fg', frame = 0) {
+  return `${ROOT[layer]} .hb-map16-frame[data-frame="${frame}"] .hb-map16-quad[data-quadrant="${key}"] .hb-map16-quad-canvas`
+}
+
+/** Expands one palette section and waits for its characters to paint. */
+async function expandSheet(page, slot, layer = 'fg') {
+  const head = page.locator(
+    `${ROOT[layer]} .hb-map16-sheet[data-slot="${slot}"] [data-control="sheet-head"]`,
+  )
+  if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click()
+  await page.waitForSelector(`${ROOT[layer]} .hb-map16-sheet[data-slot="${slot}"] canvas`, {
+    timeout: 5000,
+  })
+  await page.waitForTimeout(300)
 }
 
 /**
- * Reads the currently-selected subtile's fields straight from the DOM, in
- * the fixed order map16-view-widget.tsx's renderSubtileFields renders them:
- * the one number input (char number), the one select (palette row), then
- * three checkboxes (priority, flipX, flipY).
+ * The editor's own displayed values for the selected quadrant, read out of
+ * the DOM - the character number is read-only TEXT, not an input.
  */
-async function readSubtileFields(page) {
-  return page.evaluate(() => {
-    const charInput = document.querySelector('.hb-map16-fields input[type="number"]')
-    const paletteSelect = document.querySelector('.hb-map16-fields select')
-    const checkboxes = [...document.querySelectorAll('.hb-map16-fields input[type="checkbox"]')]
+async function readQuadrantUi(page, layer = 'fg') {
+  return page.evaluate(sel => {
+    const scope = document.querySelector(sel)
+    const charText = scope.querySelector('.hb-map16-char-number').textContent
+    const row = scope.querySelector('.hb-map16-rowpick-row-on')
+    const toggle = label =>
+      scope
+        .querySelector(`.hb-map16-toggle[aria-label="${label}"]`)
+        .getAttribute('aria-pressed') === 'true'
     return {
-      charNum: Number(charInput.value),
-      palette: Number(paletteSelect.value),
-      priority: checkboxes[0].checked,
-      flipX: checkboxes[1].checked,
-      flipY: checkboxes[2].checked,
+      charNum: parseInt(charText.replace('$', ''), 16),
+      colorRow: row ? Number(row.getAttribute('data-row')) : null,
+      source: scope.querySelector('.hb-map16-char-source').textContent,
+      flipX: toggle('Flip X'),
+      flipY: toggle('Flip Y'),
+      priority: toggle('Priority'),
     }
-  })
+  }, ROOT[layer])
 }
 
-test('the Map16 row sits above the GFX files and opens a real 512-block sheet', async ({
-  page,
-}) => {
+/**
+ * The COMMITTED word for one tile, read back through Map16Service itself.
+ *
+ * The strongest available oracle for "picking a character changed the
+ * character field and nothing else": it reads what is actually in the
+ * working copy, not what the editor is displaying. Projected down inside
+ * the page because a whole sheet DTO carries several hundred KB of base64
+ * atlases.
+ */
+async function readCommittedTile(page, manifestPath, tileset, layer, tileId) {
+  return page.evaluate(
+    async a => {
+      const svc = getSvc('Symbol(Map16Service)')
+      const r = await svc.loadMap16(a.manifestPath, a.tileset, a.layer, { bg: 0, fg: 0 })
+      if (r.status !== 'ok') return { status: r.status, reason: r.reason }
+      const t = r.sheet.tiles[a.tileId]
+      const pick = q => ({
+        charNum: q.charNum,
+        colorRow: q.colorRow,
+        priority: q.priority,
+        flipX: q.flipX,
+        flipY: q.flipY,
+      })
+      return {
+        status: 'ok',
+        tileCount: r.sheet.tiles.length,
+        tileCountSource: r.sheet.tileCountSource,
+        charLabels: r.sheet.charSheets.map(s => `${s.slot} - ${s.fileLabel}`),
+        tl: pick(t.tl),
+        tr: pick(t.tr),
+        bl: pick(t.bl),
+        br: pick(t.br),
+      }
+    },
+    { manifestPath, tileset, layer, tileId },
+  )
+}
+
+/** The accordion's section headers, as the user reads them. */
+async function readSheetHeaders(page, layer = 'fg') {
+  return page.evaluate(sel => {
+    const heads = [...document.querySelectorAll(`${sel} .hb-map16-sheet-head`)]
+    return heads.map(h => ({
+      slot: h.querySelector('.hb-map16-sheet-slot').textContent,
+      file: h.querySelector('.hb-map16-sheet-file').textContent,
+      animated: !!h.querySelector('.hb-map16-sheet-anim'),
+      expanded: h.getAttribute('aria-expanded') === 'true',
+    }))
+  }, ROOT[layer])
+}
+
+// -- The two rows and the two widgets ------------------------------------
+
+test('the Graphics tree lists BOTH Map16 tables above the GFX files', async ({ page }) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
   await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
 
   const rows = await page.evaluate(async () => {
     const w = await getWidget('hackbench.gfx-explorer')
-    return (w.model.root.children || []).map(n => ({ kind: n.kind, name: n.name }))
+    return (w.model.root.children || []).map(n => ({ kind: n.kind, name: n.name, layer: n.layer }))
   })
-  expect(rows[0].kind).toBe('map16')
-  expect(rows[0].name).toBe('Map16')
-  expect(rows.slice(1).every(r => r.kind === 'file')).toBe(true)
+  // One row called "Map16" showed only the FG table, which is how the BG
+  // table went unnoticed entirely.
+  expect(rows[0]).toMatchObject({ kind: 'map16', name: 'Map16 Foreground', layer: 'fg' })
+  expect(rows[1]).toMatchObject({ kind: 'map16', name: 'Map16 Background', layer: 'bg' })
+  expect(rows.slice(2).every(r => r.kind === 'file')).toBe(true)
+})
 
-  await openMap16(page)
+test('opening a row shows a real sheet of the count the cartridge reports', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+
   const info = await readCanvas(page)
-  expect(info.width).toBeGreaterThan(0)
+  expect(info.width).toBe(TILES_PER_ROW * TILE_PX)
   expect(info.height).toBeGreaterThan(0)
-  // 512 blocks, 16 per row, 16x16px each.
-  expect(info.width).toBe(TILES_PER_ROW * BLOCK_PX)
-  expect(info.height).toBe((MAP16_TILE_COUNT / TILES_PER_ROW) * BLOCK_PX)
   // Real tile art, not a blank or single-color sheet.
   expect(info.distinctColors).toBeGreaterThan(1)
 
-  const summary = await page.locator('.hb-map16-summary-dims').textContent()
-  expect(summary).toContain(`${MAP16_TILE_COUNT} blocks`)
-})
+  const summary = await page.locator(`${FG} .hb-map16-summary-dims`).textContent()
+  expect(summary).toContain(`${VANILLA_TILE_COUNT} tiles`)
+  // "block" was this view's own invention; the community and
+  // docs/glossary.md:137 both call a 16x16 Map16 entry a tile.
+  expect(summary.toLowerCase()).not.toContain('block')
 
-test('clicking a block shows its four subtiles and the real ROM addresses of each', async ({
-  page,
-}) => {
-  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
-
-  await clickBlock(page, TARGET_TILE_ID)
-  await page.waitForSelector('.hb-map16-fields', { timeout: 5000 })
-
-  const headerText = await page.locator('.hb-map16-inspector-header').innerText()
-  expect(headerText).toMatch(/\$130/i)
-  expect(headerText).toMatch(/\$[0-9A-F]{6}/) // the block's own ROM address
-
-  const addrLine = await page.locator('.hb-map16-addr-line').textContent()
-  expect(addrLine).toMatch(/\$[0-9A-F]{6}/) // the selected subtile's own word address
-
-  // Default corner on a fresh selection is top-left.
-  const selectedCorner = await page.locator('.hb-map16-corner-selected').textContent()
-  expect(selectedCorner).toBe('Top-left')
-})
-
-test('editing a subtile field writes a real op and repaints the block', async ({ page }) => {
-  const dir = path.join(tmp, 'MyHack')
-  await loadGfxExplorer(page, dir)
-  await openMap16(page)
-  await clickBlock(page, TARGET_TILE_ID)
-  await page.waitForSelector('.hb-map16-fields', { timeout: 5000 })
-
-  const before = await readCanvas(page)
-
-  // A plain click, not `.check()`: the checkbox is CONTROLLED by a value
-  // that only becomes final once map16-server.ts's response lands
-  // (map16-view-widget.tsx's `pendingEdits` shows the click's effect right
-  // away, but the definitive value is still one round trip away). `.check()`
-  // re-verifies the checked state and, per Playwright's own documented
-  // retry semantics, RE-CLICKS if that verification does not pass inside
-  // its own polling window - which, under this suite's slower full-file-run
-  // timing, can land its retry click on an already-optimistically-checked
-  // box and toggle it back off. `.click()` performs exactly one click; the
-  // `expect(...).toBeChecked()` below is what waits for (and retries
-  // reading, never re-clicking) the eventually-consistent server state.
-  const flipX = page.getByLabel('Flip X')
-  await expect(flipX).not.toBeChecked()
-  await flipX.click()
-  await expect(flipX).toBeChecked({ timeout: 10000 })
-
-  // Poll the CANVAS, not the checkbox. The checkbox now flips optimistically,
-  // before the round trip, so it goes checked while the repaint is still in
-  // flight; waiting on it and reading the canvas immediately is a race.
-  await expect
-    .poll(async () => (await readCanvas(page)).checksum, { timeout: 10000 })
-    .not.toBe(before.checksum)
-
-  const opsDir = path.join(dir, 'ops')
-  const opFiles = fs.readdirSync(opsDir).filter(f => f.endsWith('.json'))
-  expect(opFiles.length).toBeGreaterThan(0)
-  const layer = JSON.parse(fs.readFileSync(path.join(opsDir, opFiles[opFiles.length - 1]), 'utf8'))
-  // A Map16 op carries `mask` (bit 15 is real data here) - the one thing
-  // that distinguishes it from a palette op at the JSON level.
-  expect(layer.ops[0].mask).toBe(0xffff)
+  // Where the count came from, said in place. A page control that cannot
+  // work would be worse than saying what a further page needs.
+  const note = await page.locator(`${FG} .hb-map16-browser-note`).textContent()
+  expect(note).toContain('read from this ROM')
+  expect(note).toContain('en-gen/hackbench#102')
 })
 
 /**
- * The feature's headline cross-view claim: a PALETTE edit made through
- * PaletteService visibly recolors an ALREADY-OPEN Map16 view, with no
- * manual reload - the same push path gfx-view.spec.cjs proves for GFX
- * sheets, now proved for Map16 too (map16-server.ts subscribes to the same
- * WorkingRom, per working-copy-notifier.ts).
+ * The Layer 2 table's extent is NOT the foreground loop's answer, and the
+ * view says so. `buildL2Map16PointerTable` takes no ROM and hardcodes 512,
+ * so presenting it as something read off the cartridge would be the
+ * confident kind of wrong. Backed by Map16Decode.charSheets.test.ts and
+ * Map16Server.test.ts, which prove the decoupling itself on synthetic
+ * bytes; this is the half the user can see.
+ */
+test('the Background tab says its extent is not read from the cartridge', async ({ page }) => {
+  const project = await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'bg')
+
+  const note = await page.locator(`${BG} .hb-map16-browser-note`).textContent()
+  expect(note).toContain('does not yet read the Layer 2 table extent from the ROM')
+  expect(note).toContain('en-gen/hackbench#102')
+  expect(note).not.toContain('read from this ROM.')
+
+  const bg = await readCommittedTile(page, project.manifestPath, 0, 'bg', 0)
+  expect(bg.tileCountSource).toBe('fixed-bg-table')
+  const fg = await readCommittedTile(page, project.manifestPath, 0, 'fg', 0)
+  expect(fg.tileCountSource).toBe('rom')
+})
+
+/**
+ * The two tables are two WIDGETS, not one widget with a mode switch. Both
+ * open at once, each with its own selection, and neither has a Table
+ * dropdown: the tab IS the table.
+ */
+test('Foreground and Background are separate widgets with independent selections', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await openMap16(page, 'bg')
+
+  await expect(page.locator(FG)).toHaveCount(1)
+  await expect(page.locator(BG)).toHaveCount(1)
+
+  // The Table dropdown is gone from both.
+  await expect(page.locator('#hb-map16-layer-select')).toHaveCount(0)
+  // Each widget carries its own controls, addressed within its own root.
+  for (const base of ['tileset-select', 'zoom-in', 'grid-toggle', 'browser-toggle']) {
+    await expect(page.locator(ctl(base, 'fg'))).toHaveCount(1)
+    await expect(page.locator(ctl(base, 'bg'))).toHaveCount(1)
+  }
+
+  await activate(page, 'fg')
+  await clickTile(page, 0x130, FG)
+  await activate(page, 'bg')
+  await clickTile(page, 0x101, BG)
+
+  expect(await page.locator(`${FG} .hb-map16-editor-tile-id`).textContent()).toMatch(/\$130/i)
+  expect(await page.locator(`${BG} .hb-map16-editor-tile-id`).textContent()).toMatch(/\$101/i)
+
+  // Selecting in one must not move the other.
+  await activate(page, 'fg')
+  await clickTile(page, 0x005, FG)
+  expect(await page.locator(`${FG} .hb-map16-editor-tile-id`).textContent()).toMatch(/\$005/i)
+  expect(await page.locator(`${BG} .hb-map16-editor-tile-id`).textContent()).toMatch(/\$101/i)
+})
+
+/**
+ * A double click fires a single click FIRST, so the tree runs two handlers
+ * for one gesture: one opens the preview tab, the other pins the row's own
+ * widget and retires that preview.
  *
- * The edited address/color ($00B254, StandardColors row 0 col 4) was
- * chosen because tile $130's TL subtile (charNum $30, palette 4) was
- * decoded from the real ROM and confirmed to actually use palette index 4 -
- * see this file's TARGET_* constants and their comment. A col this tile's
- * pixels can never reach would pass "the canvas didn't change" for the
- * wrong reason, the exact mistake gfx-view.spec.cjs's own comment warns
- * about for a 3bpp sheet's unreachable columns.
+ * On `ccb66b4` the second looked before the first had attached anything,
+ * found nothing, and left TWO attached widgets of the same layer rendering
+ * the same controls. Every global `#id` then resolved to two elements and
+ * 21 of 26 cases in this file died on strict mode.
+ *
+ * Two assertions, because either alone passes for the wrong reason: the
+ * gesture leaves exactly one widget per layer, and no element id appears
+ * twice anywhere in the document. The second is the invariant that actually
+ * broke, and it holds however many widgets the shell decides to keep.
+ */
+test('a double click leaves ONE widget per layer, and no duplicate element ids', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await openMap16(page, 'bg')
+
+  const widgets = await page.evaluate(() =>
+    getSvc('ApplicationShell')
+      .widgets.map(w => w.id)
+      .filter(wid => wid.startsWith('hackbench.map16-view')),
+  )
+  expect(widgets.sort()).toEqual(['hackbench.map16-view:bg', 'hackbench.map16-view:fg'])
+
+  // Every id in the document, not just this view's: a duplicate is invalid
+  // HTML wherever it comes from, and getElementById answers with whichever
+  // element attached first.
+  const duplicates = await page.evaluate(() => {
+    const seen = new Map()
+    for (const el of document.querySelectorAll('[id]')) {
+      seen.set(el.id, (seen.get(el.id) || 0) + 1)
+    }
+    return [...seen.entries()].filter(([, n]) => n > 1).map(([elId, n]) => `${elId} x${n}`)
+  })
+  expect(duplicates).toEqual([])
+})
+
+// -- Preview and the edit pane -------------------------------------------
+
+/**
+ * The view opens on the PREVIEW. Hovering dims it and surfaces the
+ * affordance, and - per docs/ui-conventions.md - moves no layout at all:
+ * emphasis never shifts the page.
+ *
+ * Both halves matter. "Nothing moved" passes trivially for an affordance
+ * that never appears, so the overlay's own opacity is asserted alongside
+ * the boxes.
+ */
+test('the edit pane is absent until asked for, and the hover affordance moves no layout', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await clickTile(page, TARGET_TILE_ID)
+
+  await expect(page.locator(`${FG} .hb-map16-edit-pane`)).toHaveCount(0)
+  await expect(page.locator(`${FG} .hb-map16-palettes`)).toHaveCount(0)
+  await expect(page.locator(`${FG} .hb-map16-preview-canvas`)).toHaveCount(1)
+
+  /**
+   * EVERY box below the preview, not a sample: the elements the edit pane
+   * adds are exactly the ones a reflow would push around, and measuring
+   * only the closed state never sees them.
+   *
+   * Positions are measured in the WIDGET's own content space, not in
+   * viewport coordinates. `getBoundingClientRect` alone cannot tell a
+   * reflow from a scroll, and it reported one: opening the edit pane
+   * scrolled its content into view, so six independent boxes each moved by
+   * exactly 1030.0px with every width and height byte-identical. That is a
+   * scroll, and the oracle called it a reflow. Adding back the scroll
+   * offset of every ancestor up to the widget root removes the scrolling
+   * degree of freedom while keeping sub-pixel precision, which
+   * `offsetTop`/`offsetWidth` would have rounded away.
+   */
+  const boxes = async () =>
+    page.evaluate(sel => {
+      const root = document.querySelector(sel)
+      const rootBox = root.getBoundingClientRect()
+      const round = n => Math.round(n * 100) / 100
+      const pick = q => {
+        const el = document.querySelector(`${sel} ${q}`)
+        if (!el) return null
+        const b = el.getBoundingClientRect()
+        let sx = 0
+        let sy = 0
+        for (let n = el.parentElement; n && n !== root.parentElement; n = n.parentElement) {
+          sx += n.scrollLeft
+          sy += n.scrollTop
+        }
+        return [
+          round(b.x - rootBox.x + sx),
+          round(b.y - rootBox.y + sy),
+          round(b.width),
+          round(b.height),
+        ]
+      }
+      const overlay = document.querySelector(`${sel} .hb-map16-preview-overlay`)
+      return {
+        preview: pick('.hb-map16-preview-canvas'),
+        caption: pick('.hb-map16-preview-caption'),
+        browser: pick('.hb-map16-browser'),
+        editPane: pick('.hb-map16-edit-pane'),
+        frames: pick('.hb-map16-frames'),
+        firstFrame: pick('.hb-map16-frame[data-frame="0"]'),
+        fields: pick('.hb-map16-quad-fields'),
+        palettes: pick('.hb-map16-palettes'),
+        firstSheet: pick('.hb-map16-sheet'),
+        overlayOpacity: Number(getComputedStyle(overlay).opacity),
+      }
+    }, FG)
+
+  const unhover = async () => {
+    await page.locator(`${FG} .hb-map16-browser-head`).hover()
+    await page.waitForTimeout(250)
+  }
+
+  const beforeClosed = await boxes()
+  expect(beforeClosed.overlayOpacity).toBe(0)
+
+  await page.locator(`${FG} .hb-map16-preview`).hover()
+  await page.waitForTimeout(250)
+  const afterClosed = await boxes()
+
+  // The affordance really did appear...
+  expect(afterClosed.overlayOpacity).toBeGreaterThan(0.9)
+  await expect(page.locator(ctl('edit-toggle'))).toBeVisible()
+  // ...and nothing moved by so much as a pixel.
+  expect(afterClosed).toEqual({ ...beforeClosed, overlayOpacity: afterClosed.overlayOpacity })
+
+  await openEditPane(page)
+  await expect(page.locator(`${FG} .hb-map16-edit-pane`)).toHaveCount(1)
+  await expect(page.locator(ctl('edit-toggle'))).toHaveAttribute('aria-pressed', 'true')
+
+  // Again with the pane OPEN, which is when there is something below the
+  // preview for a reflow to move.
+  await expandSheet(page, 'fg3')
+  await unhover()
+  const beforeOpen = await boxes()
+  expect(beforeOpen.overlayOpacity).toBe(0)
+  expect(beforeOpen.frames).not.toBeNull()
+  expect(beforeOpen.palettes).not.toBeNull()
+
+  await page.locator(`${FG} .hb-map16-preview`).hover()
+  await page.waitForTimeout(250)
+  const afterOpen = await boxes()
+  expect(afterOpen.overlayOpacity).toBeGreaterThan(0.9)
+  expect(afterOpen).toEqual({ ...beforeOpen, overlayOpacity: afterOpen.overlayOpacity })
+
+  // -- and now prove this oracle can fail -------------------------------
+  //
+  // The version of this check that shipped before could not: it compared
+  // viewport coordinates, so it fired on a scroll and said nothing about a
+  // reflow. Rather than assert that in a comment, plant a REAL reflow - a
+  // hover rule that changes layout instead of painting - and watch the same
+  // comparison catch it, in this run, on this machine.
+  const plantedStyle = await page.addStyleTag({
+    content: `${FG} .hb-map16-preview:hover { padding-bottom: 24px; }`,
+  })
+  await unhover()
+  const beforePlanted = await boxes()
+  await page.locator(`${FG} .hb-map16-preview`).hover()
+  await page.waitForTimeout(250)
+  const afterPlanted = await boxes()
+  expect(
+    afterPlanted,
+    'the planted reflow must move something, or this oracle proves nothing',
+  ).not.toEqual({ ...beforePlanted, overlayOpacity: afterPlanted.overlayOpacity })
+  // Everything BELOW the preview moved down by the planted padding, and the
+  // preview canvas itself did not: that is the signature of a reflow, and
+  // the signature a scroll cannot produce.
+  expect(afterPlanted.preview).toEqual(beforePlanted.preview)
+  expect(afterPlanted.caption[1] - beforePlanted.caption[1]).toBe(24)
+  expect(afterPlanted.frames[1] - beforePlanted.frames[1]).toBe(24)
+
+  // Remove it and the boxes come back, which also proves the planted style
+  // was what moved them rather than anything else this test did. Removed by
+  // its own handle, not by picking the last <style> in the document, which
+  // is only the planted one until something else appends one.
+  await plantedStyle.evaluate(el => el.remove())
+  await unhover()
+  await page.locator(`${FG} .hb-map16-preview`).hover()
+  await page.waitForTimeout(250)
+  const afterRemoval = await boxes()
+  expect(afterRemoval).toEqual({ ...beforeOpen, overlayOpacity: afterRemoval.overlayOpacity })
+})
+
+/**
+ * Frames are derived from what the TILE does, never from a slot name. The
+ * earlier design was going to call `an1` the animated slot and freeze it;
+ * measured on all 15 tilesets of all 6 corpus ROMs, animated characters
+ * land in fg1/fg2 and never in an1.
+ */
+test('a tile that cites no animated character shows ONE frame, one that does shows four', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+
+  await clickTile(page, STATIC_TILE_ID)
+  await openEditPane(page)
+  await expect(page.locator(`${FG} .hb-map16-frame`)).toHaveCount(1)
+  expect(await page.locator(`${FG} .hb-map16-frames-note`).textContent()).toMatch(
+    /nothing this tile cites animates/i,
+  )
+
+  await clickTile(page, ANIMATED_TILE_ID)
+  await expect(page.locator(`${FG} .hb-map16-frame`)).toHaveCount(VANILLA_FRAME_COUNT)
+  expect(await page.locator(`${FG} .hb-map16-frame-label`).allTextContents()).toEqual([
+    '0',
+    '1',
+    '2',
+    '3',
+  ])
+
+  // Four GENUINELY different frames, not four copies of one thumbnail
+  // standing in for "we don't know".
+  const checksums = []
+  for (let f = 0; f < VANILLA_FRAME_COUNT; f++) {
+    checksums.push(await readCanvasChecksum(page, quadrantCanvas('tl', 'fg', f)))
+  }
+  expect(new Set(checksums).size).toBeGreaterThan(1)
+})
+
+// -- The character palettes ----------------------------------------------
+
+/**
+ * The constraint that shapes the whole feature: a quadrant can only say
+ * "character N", so the accordion offers exactly the four sheets this
+ * tileset has LOADED. Fifty GFX files would let the user pick a character
+ * that is not in VRAM, and it would render as whatever actually sits at
+ * that address.
+ */
+test('the accordion shows exactly four sheets, headed by slot and the file this tileset loads', async ({
+  page,
+}) => {
+  const project = await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await clickTile(page, TARGET_TILE_ID)
+  await openEditPane(page)
+
+  const heads = await readSheetHeaders(page)
+  expect(heads.map(h => h.slot)).toEqual(['fg1', 'fg2', 'fg3', 'an1'])
+  for (const h of heads) expect(h.file).toMatch(/^GFX[0-9A-F]{2}$/)
+
+  // The headers must name the files the service actually resolved from
+  // OBJECTGFXLIST - Map16Decode.charSheets.test.ts pins that DTO against
+  // readGfxAssignment directly, so this is the wiring half of that claim.
+  const committed = await readCommittedTile(page, project.manifestPath, 0, 'fg', 0)
+  expect(heads.map(h => `${h.slot} - ${h.file}`)).toEqual(committed.charLabels)
+
+  await expandSheet(page, 'fg3')
+  await expect(
+    page.locator(`${FG} .hb-map16-sheet[data-slot="fg3"] .hb-map16-char`).first(),
+  ).toBeVisible()
+})
+
+test('switching tileset changes both the sheet headers and the rendered characters', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await clickTile(page, TARGET_TILE_ID)
+  await openEditPane(page)
+  // fg3 is a slot that VARIES by tileset (file $25 on tileset 0, $12 on 3).
+  await expandSheet(page, 'fg3')
+
+  const headsBefore = await readSheetHeaders(page)
+  const pixelsBefore = await readCanvasChecksum(
+    page,
+    `${FG} .hb-map16-sheet[data-slot="fg3"] .hb-map16-sheet-canvas`,
+  )
+
+  await page.selectOption(ctl('tileset-select'), '3')
+  await page.waitForTimeout(800)
+
+  const headsAfter = await readSheetHeaders(page)
+  const pixelsAfter = await readCanvasChecksum(
+    page,
+    `${FG} .hb-map16-sheet[data-slot="fg3"] .hb-map16-sheet-canvas`,
+  )
+
+  expect(headsAfter.map(h => h.file)).not.toEqual(headsBefore.map(h => h.file))
+  // Pixels too, not just labels: a palette that relabels without
+  // re-decoding is exactly the confidently-wrong case this feature exists
+  // to avoid.
+  expect(pixelsAfter).not.toBe(pixelsBefore)
+})
+
+/**
+ * The handles are transparent boxes laid over one canvas that paints every
+ * character at once, so the grid geometry and the canvas geometry have to
+ * agree exactly or a click lands on a neighbour. Both are sized from
+ * CELL_PX in map16-char-palettes.tsx; this asserts the result rather than
+ * the constant, which is the half a stylesheet edit could break.
+ */
+test('a character handle sits exactly over the character it paints', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await clickTile(page, TARGET_TILE_ID)
+  await openEditPane(page)
+  await expandSheet(page, 'fg3')
+
+  const geometry = await page.evaluate(
+    ({ sel, perRow }) => {
+      const section = document.querySelector(`${sel} .hb-map16-sheet[data-slot="fg3"]`)
+      const canvas = section.querySelector('.hb-map16-sheet-canvas').getBoundingClientRect()
+      const handles = [...section.querySelectorAll('.hb-map16-char')]
+      const base = Number(handles[0].dataset.char)
+      const probe = handles.map((h, i) => {
+        const b = h.getBoundingClientRect()
+        return {
+          index: i,
+          dx: Math.round(b.x - canvas.x),
+          dy: Math.round(b.y - canvas.y),
+          w: Math.round(b.width),
+          h: Math.round(b.height),
+          col: i % perRow,
+          row: Math.floor(i / perRow),
+        }
+      })
+      return { base, count: handles.length, canvasW: Math.round(canvas.width), probe }
+    },
+    { sel: FG, perRow: CHARS_PER_ROW },
+  )
+
+  expect(geometry.count).toBeGreaterThan(CHARS_PER_ROW)
+  expect(geometry.canvasW).toBe(CHARS_PER_ROW * CELL_PX)
+  // Every handle, not a sampled one: an off-by-one row would show up only
+  // past the first row.
+  for (const p of geometry.probe) {
+    expect({ dx: p.dx, dy: p.dy, w: p.w, h: p.h }).toEqual({
+      dx: p.col * CELL_PX,
+      dy: p.row * CELL_PX,
+      w: CELL_PX,
+      h: CELL_PX,
+    })
+  }
+})
+
+/**
+ * The palettes are frozen at the cartridge's frame 0. A click target that
+ * changes four times a second is not a click target - while the tile
+ * surfaces keep animating, which the browser-strip poll proves, so this
+ * cannot pass for the wrong reason (a frozen app).
+ */
+test('the character palettes do not animate while playback is running', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await clickTile(page, ANIMATED_TILE_ID)
+  await openEditPane(page)
+
+  const heads = await readSheetHeaders(page)
+  const animated = heads.find(h => h.animated)
+  expect(animated, 'vanilla tileset 0 animates characters in at least one slot').toBeTruthy()
+  // Measured on all 15 tilesets of all 6 corpus ROMs: never an1.
+  expect(animated.slot).not.toBe('an1')
+
+  await expandSheet(page, animated.slot)
+  const sheetSel = `${FG} .hb-map16-sheet[data-slot="${animated.slot}"] .hb-map16-sheet-canvas`
+  const sheetBefore = await readCanvasChecksum(page, sheetSel)
+  const stripBefore = await readCanvas(page)
+
+  await page.locator(ctl('play-toggle')).click()
+  await expect
+    .poll(async () => (await readCanvas(page)).checksum, { timeout: 5000 })
+    .not.toBe(stripBefore.checksum)
+
+  expect(await readCanvasChecksum(page, sheetSel)).toBe(sheetBefore)
+  await page.locator(ctl('play-toggle')).click()
+})
+
+// -- Assigning a character -----------------------------------------------
+
+/**
+ * The headline gesture: select a quadrant, click a character. Three things
+ * must be true at once, and a check of any one alone would pass for a
+ * broken editor:
+ *
+ * 1. the quadrant's RENDERED PIXELS change,
+ * 2. the committed word's character field becomes the clicked number,
+ * 3. NOTHING ELSE in that word, or in the other three quadrants, moves.
+ *
+ * (3) is why picking a character does not also take a color row: that
+ * would change two fields from one gesture, and the palette's colors come
+ * from the selected quadrant's row rather than from the character itself.
+ */
+test('selecting a quadrant and clicking a character changes its pixels and only its character field', async ({
+  page,
+}) => {
+  const project = await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await clickTile(page, TARGET_TILE_ID)
+  await openEditPane(page)
+  await selectQuadrant(page, 'tr')
+
+  const before = await readCommittedTile(page, project.manifestPath, 0, 'fg', TARGET_TILE_ID)
+  expect(before.status).toBe('ok')
+  const quadBefore = await readCanvasChecksum(page, quadrantCanvas('tr'))
+
+  await expandSheet(page, 'fg3')
+
+  // A character the quadrant does NOT already hold: picking the same one
+  // would prove nothing about the pixels.
+  const candidate = await page.evaluate(
+    ({ sel, avoid }) => {
+      const handles = [
+        ...document.querySelectorAll(`${sel} .hb-map16-sheet[data-slot="fg3"] .hb-map16-char`),
+      ]
+      return handles.map(h => Number(h.dataset.char)).find(c => c !== avoid)
+    },
+    { sel: FG, avoid: before.tr.charNum },
+  )
+  expect(candidate).toBeGreaterThanOrEqual(0)
+
+  await page.locator(`${FG} .hb-map16-char[data-char="${candidate}"]`).click()
+
+  // Poll the COMMITTED word: the click is a round trip, and the optimistic
+  // display would satisfy a DOM-only check before the write landed.
+  await expect
+    .poll(
+      async () =>
+        (await readCommittedTile(page, project.manifestPath, 0, 'fg', TARGET_TILE_ID)).tr.charNum,
+      { timeout: 10000 },
+    )
+    .toBe(candidate)
+
+  const after = await readCommittedTile(page, project.manifestPath, 0, 'fg', TARGET_TILE_ID)
+  // Every other field of the quadrant, unchanged.
+  expect({ ...after.tr, charNum: before.tr.charNum }).toEqual(before.tr)
+  // And the other three quadrants, untouched.
+  expect(after.tl).toEqual(before.tl)
+  expect(after.bl).toEqual(before.bl)
+  expect(after.br).toEqual(before.br)
+
+  // The picture, not just the number.
+  expect(await readCanvasChecksum(page, quadrantCanvas('tr'))).not.toBe(quadBefore)
+
+  // The read-only number beside the picture verifies the choice and names
+  // where the character came from.
+  const ui = await readQuadrantUi(page)
+  expect(ui.charNum).toBe(candidate)
+  expect(ui.source).toMatch(/^(fg1|fg2|fg3|an1) - GFX[0-9A-F]{2}$/)
+
+  // A real op layer on disk, with the full-word mask a Map16 write needs.
+  const opsDir = path.join(tmp, 'MyHack', 'ops')
+  const opFiles = fs.readdirSync(opsDir).filter(f => f.endsWith('.json'))
+  expect(opFiles.length).toBeGreaterThan(0)
+  const layer = JSON.parse(fs.readFileSync(path.join(opsDir, opFiles[opFiles.length - 1]), 'utf8'))
+  expect(layer.ops[0].mask).toBe(0xffff)
+})
+
+test('no control anywhere accepts a typed character number', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await clickTile(page, TARGET_TILE_ID)
+  await openEditPane(page)
+  await expandSheet(page, 'fg3')
+
+  // The interface the owner rejected: "I don't like that interface,
+  // especially having to just type in a char number."
+  await expect(page.locator(`${FG} input`)).toHaveCount(0)
+  await expect(page.locator(`${FG} [contenteditable="true"]`)).toHaveCount(0)
+  // The number is still on screen, as text: recognition comes from the
+  // picture, verification from the number.
+  await expect(page.locator(`${FG} .hb-map16-char-number`)).toHaveText(/^\$[0-9A-F]{3}$/)
+})
+
+// -- Color rows ----------------------------------------------------------
+
+/**
+ * Changing the color row must recolor the tile and leave every character
+ * number exactly where it was. The picker offers only rows the sheet's own
+ * characters cite, and only as many swatches as the SELECTED character's
+ * own sheet can index - a 3bpp sheet never reaches 8-15, so offering them
+ * would invite an edit that renders wrong.
+ */
+test('choosing a different color row recolors the tile and moves no character number', async ({
+  page,
+}) => {
+  const project = await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await clickTile(page, TARGET_TILE_ID)
+  await openEditPane(page)
+  await selectQuadrant(page, 'tl')
+
+  const before = await readCommittedTile(page, project.manifestPath, 0, 'fg', TARGET_TILE_ID)
+  const quadBefore = await readCanvasChecksum(page, quadrantCanvas('tl'))
+
+  const rows = await page.evaluate(sel => {
+    const buttons = [...document.querySelectorAll(`${sel} .hb-map16-rowpick-row`)]
+    return buttons.map(b => ({
+      row: Number(b.getAttribute('data-row')),
+      swatches: b.querySelectorAll('.hb-map16-swatch').length,
+      on: b.classList.contains('hb-map16-rowpick-row-on'),
+    }))
+  }, FG)
+
+  // Real swatch strips, built from the CGRAM the sheet was composited with.
+  expect(rows.length).toBeGreaterThan(1)
+  for (const r of rows) {
+    expect(r.row).toBeGreaterThanOrEqual(0)
+    // 3 bits: rows 8-15 are unreachable from a quadrant's color-row field.
+    expect(r.row).toBeLessThan(8)
+    expect(r.swatches).toBeGreaterThan(0)
+    expect(r.swatches).toBeLessThanOrEqual(16)
+  }
+
+  const target = rows.find(r => !r.on)
+  await page.locator(`${FG} .hb-map16-rowpick-row[data-row="${target.row}"]`).click()
+
+  await expect
+    .poll(
+      async () =>
+        (await readCommittedTile(page, project.manifestPath, 0, 'fg', TARGET_TILE_ID)).tl.colorRow,
+      { timeout: 10000 },
+    )
+    .toBe(target.row)
+
+  const after = await readCommittedTile(page, project.manifestPath, 0, 'fg', TARGET_TILE_ID)
+  // Every character number in the tile, unchanged.
+  expect([after.tl.charNum, after.tr.charNum, after.bl.charNum, after.br.charNum]).toEqual([
+    before.tl.charNum,
+    before.tr.charNum,
+    before.bl.charNum,
+    before.br.charNum,
+  ])
+  // And the colors on screen actually moved.
+  expect(await readCanvasChecksum(page, quadrantCanvas('tl'))).not.toBe(quadBefore)
+})
+
+test('the flip and priority toggles each move exactly their own bit', async ({ page }) => {
+  const project = await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await clickTile(page, TARGET_TILE_ID)
+  await openEditPane(page)
+  await selectQuadrant(page, 'tl')
+
+  const before = await readCommittedTile(page, project.manifestPath, 0, 'fg', TARGET_TILE_ID)
+
+  const flipX = page.locator(`${FG} .hb-map16-toggle[aria-label="Flip X"]`)
+  await expect(flipX).toHaveAttribute('aria-pressed', String(before.tl.flipX))
+  await flipX.click()
+  await expect
+    .poll(
+      async () =>
+        (await readCommittedTile(page, project.manifestPath, 0, 'fg', TARGET_TILE_ID)).tl.flipX,
+      { timeout: 10000 },
+    )
+    .toBe(!before.tl.flipX)
+
+  // Only that bit: a toggle that also reset a flip or the color row would
+  // be two edits from one gesture.
+  const after = await readCommittedTile(page, project.manifestPath, 0, 'fg', TARGET_TILE_ID)
+  expect({ ...after.tl, flipX: before.tl.flipX }).toEqual(before.tl)
+  // The pressed state must be readable without a hover or a tooltip, and
+  // the read-only line beside it must agree with the toggle.
+  await expect(flipX).toHaveAttribute('aria-pressed', String(!before.tl.flipX))
+  await expect(flipX).toHaveClass(/hb-map16-toggle-on/)
+})
+
+// -- Refusals ------------------------------------------------------------
+
+/**
+ * A cartridge whose Map16 this view cannot present IN FULL is refused with
+ * a reason, never truncated to two pages.
+ *
+ * Driven by a REAL cartridge: the corpus holds no expanded Map16 (all 6
+ * carts hold exactly 512), so this copies the owner's ROM into the test's
+ * tmp dir and rewrites the three `CPX #imm` bounds of the pointer-fill loop
+ * to claim 2048. No ROM-derived bytes are committed; the bytes are read at
+ * run time from the cart the suite already needs.
+ *
+ * The site count is asserted, so a pattern that stopped matching fails
+ * loudly instead of silently patching nothing and testing the vanilla path.
+ */
+test('a Map16 the view cannot present in full is refused with a reason, not truncated', async ({
+  page,
+}) => {
+  const patched = path.join(tmp, 'expanded.sfc')
+  const sites = romClaimingTileCount(ROM, patched, 2048)
+  expect(sites, 'the fill-loop pattern must still match all three sites').toBe(FILL_LOOP_SITES)
+
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'), patched)
+  await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
+  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(ROW_OF.fg).dblclick()
+
+  const refusal = page.locator(`${FG} .hb-map16-unavailable`)
+  await expect(refusal).toBeVisible({ timeout: 15000 })
+  const reason = await refusal.textContent()
+  expect(reason).toContain('2048')
+  expect(reason).toContain('512')
+  expect(reason).toContain('en-gen/hackbench#102')
+
+  // Nothing plausible-looking rendered in its place. Two pages of an
+  // expanded table would look exactly right and be wrong.
+  await expect(page.locator(`${FG} .hb-map16-canvas`)).toHaveCount(0)
+  await expect(page.locator(`${FG} .hb-map16-preview-canvas`)).toHaveCount(0)
+  await expect(page.locator(`${FG} .hb-map16-edit-pane`)).toHaveCount(0)
+})
+
+// -- The BG table's own values -------------------------------------------
+
+/**
+ * FG and BG are two separate tables. Values decoded independently from
+ * vanilla bytes at offset 0x69100 (SNES $0D9100, no copier header on this
+ * cart), column-major words (w0 tl, w1 bl, w2 tr, w3 br) - see
+ * Map16.romAddress.test.ts's BG section for the address proof. tl differing
+ * from the FG table's own $100 (character $182, row 2) proves the BG tab is
+ * reading a different table, not relabelling the same data.
+ */
+test('the Background tab shows the global Layer 2 table with its own real values', async ({
+  page,
+}) => {
+  const project = await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'bg')
+  await clickTile(page, 0x100, BG)
+
+  const tile = await readCommittedTile(page, project.manifestPath, 0, 'bg', 0x100)
+  expect(tile.tl).toMatchObject({ charNum: 0x0fd, colorRow: 1 })
+  expect(tile.tr).toMatchObject({ charNum: 0x106, colorRow: 1 })
+  expect(tile.bl).toMatchObject({ charNum: 0x0fd, colorRow: 1 })
+  expect(tile.br).toMatchObject({ charNum: 0x107, colorRow: 1 })
+
+  // And the editor is showing those values, not some other tile's.
+  await openEditPane(page, 'bg')
+  await selectQuadrant(page, 'tr', 'bg')
+  expect((await readQuadrantUi(page, 'bg')).charNum).toBe(0x106)
+})
+
+/**
+ * Flip flags specifically, which a character-number-only check would not
+ * catch: tile $101's tl and tr both hold character $100, and tr is its
+ * horizontal mirror (words $0500 and $4500 at 0x69108, read off the
+ * cartridge).
+ *
+ * This is the assertion the old positional-blind checksum could not make:
+ * a mirror is the same pixels in a different order, so a hash with no
+ * positional term returns the same number for both and the comparison can
+ * neither pass nor fail honestly.
+ */
+test('BG tile $101 renders tl/tr as horizontal mirrors of the same character', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'bg')
+  await clickTile(page, 0x101, BG)
+  await openEditPane(page, 'bg')
+
+  await selectQuadrant(page, 'tl', 'bg')
+  const tl = await readQuadrantUi(page, 'bg')
+  expect(tl.charNum).toBe(0x100)
+  expect(tl.flipX).toBe(false)
+
+  await selectQuadrant(page, 'tr', 'bg')
+  const tr = await readQuadrantUi(page, 'bg')
+  expect(tr.charNum).toBe(0x100)
+  expect(tr.flipX).toBe(true)
+
+  // Same character, mirrored: the PIXELS must differ, or the flip bit is
+  // being displayed and not applied.
+  const tlPixels = await readCanvasChecksum(page, quadrantCanvas('tl', 'bg'))
+  const trPixels = await readCanvasChecksum(page, quadrantCanvas('tr', 'bg'))
+  expect(trPixels).not.toBe(tlPixels)
+
+  // ...and the two really are made of the same pixels, so what differs is
+  // the ARRANGEMENT. A quadrant painted from the wrong character would
+  // also fail the check above, for the wrong reason.
+  const histograms = await page.evaluate(
+    ({ tlSel, trSel }) => {
+      const histogram = sel => {
+        const c = document.querySelector(sel)
+        const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+        const counts = {}
+        for (let i = 0; i < data.length; i += 4) {
+          const key = `${data[i]},${data[i + 1]},${data[i + 2]},${data[i + 3]}`
+          counts[key] = (counts[key] || 0) + 1
+        }
+        return counts
+      }
+      return { tl: histogram(tlSel), tr: histogram(trSel) }
+    },
+    { tlSel: quadrantCanvas('tl', 'bg'), trSel: quadrantCanvas('tr', 'bg') },
+  )
+  expect(histograms.tr).toEqual(histograms.tl)
+})
+
+/**
+ * The BG TILE TABLE does not vary with tileset, but the RENDERED PIXELS
+ * still do: readGfxAssignment differs across tilesets in the fg3/an1 slots
+ * the BG table heavily uses (64.0% of its characters, measured). Goes red
+ * if anyone disables the tileset control on BG or drops tileset from the BG
+ * VRAM path.
+ */
+test('switching tileset on the Background tab still changes the rendered pixels', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'bg')
+
+  await expect(page.locator(ctl('tileset-select', 'bg'))).toBeEnabled()
+  const before = await readCanvas(page, BG)
+  await page.selectOption(ctl('tileset-select', 'bg'), '3')
+  await page.waitForTimeout(600)
+  expect((await readCanvas(page, BG)).checksum).not.toBe(before.checksum)
+})
+
+/**
+ * Which palette control can affect a sheet's pixels is derived from the
+ * LOADED TABLE (citedColorRows), never assumed from which layer this is.
+ * Vanilla measurement (identical on all 6 corpus carts): the BG table cites
+ * CGRAM rows {0,1,4,7} only - zero characters on rows 2-3, which the FG
+ * palette control feeds - so there that control genuinely cannot change a
+ * pixel. The FG common table cites both pairs.
+ */
+test('the FG palette control disables itself on the Background tab and stays live on Foreground', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await expect(page.locator(ctl('bg-variant-select'))).toBeEnabled()
+  await expect(page.locator(ctl('fg-variant-select'))).toBeEnabled()
+
+  await openMap16(page, 'bg')
+  await expect(page.locator(ctl('bg-variant-select', 'bg'))).toBeEnabled()
+  await expect(page.locator(ctl('fg-variant-select', 'bg'))).toBeDisabled()
+
+  const fgLabel = page.locator(`${BG} label.hb-map16-control:has(${within('fg-variant-select')})`)
+  await expect(fgLabel).toHaveAttribute('title', /no character.*foreground/i)
+})
+
+test('the tileset control says it is graphics-only on the Background tab', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  const fgLabel = await page
+    .locator(`${FG} label.hb-map16-control:has(${within('tileset-select')})`)
+    .innerText()
+  expect(fgLabel).toMatch(/^Tileset/)
+  expect(fgLabel.toLowerCase()).not.toContain('graphics only')
+
+  await openMap16(page, 'bg')
+  const bgLabel = await page
+    .locator(`${BG} label.hb-map16-control:has(${within('tileset-select')})`)
+    .innerText()
+  expect(bgLabel.toLowerCase()).toContain('graphics only')
+  await expect(page.locator(ctl('tileset-select', 'bg'))).toBeEnabled()
+})
+
+// -- Cross-view push, view state, animation ------------------------------
+
+/**
+ * A PALETTE edit made through PaletteService visibly recolors an
+ * ALREADY-OPEN Map16 view, with no manual reload - the push path
+ * map16-push-client.ts and WorkingCopyNotifier exist for.
+ *
+ * The edited address/color ($00B254, StandardColors row 0 col 4) was chosen
+ * because tile $130's TL character ($30, color row 4) was decoded from the
+ * real ROM and confirmed to actually use palette index 4. A column this
+ * tile's pixels can never reach would pass "the canvas didn't change" for
+ * the wrong reason.
  */
 test('a palette edit visibly recolors an already-open Map16 view, with no manual reload', async ({
   page,
 }) => {
   const project = await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
+  await openMap16(page, 'fg')
 
   const newRgb = bgr555ToRgbTriplet(parseInt(TARGET_NEW_HEX.slice(1), 16))
   const oldRgb = bgr555ToRgbTriplet(parseInt(TARGET_OLD_HEX.slice(1), 16))
 
-  expect(await blockHasColor(page, TARGET_TILE_ID, oldRgb)).toBe(true)
-  expect(await blockHasColor(page, TARGET_TILE_ID, newRgb)).toBe(false)
+  expect(await tileHasColor(page, TARGET_TILE_ID, oldRgb)).toBe(true)
+  expect(await tileHasColor(page, TARGET_TILE_ID, newRgb)).toBe(false)
   const before = await readCanvas(page)
 
-  // Edit through PaletteService directly - the Palette VIEW is not open at
-  // all, so this is unambiguously the push path, not a coincidental shared
-  // reference the widget already held.
+  // Edited through PaletteService directly - the Palette view is not open
+  // at all, so this is unambiguously the push path.
   const setColorResult = await page.evaluate(
     async ({ manifestPath, addr, oldHex, newHex }) => {
       const svc = getSvc('Symbol(PaletteService)')
@@ -398,239 +1372,46 @@ test('a palette edit visibly recolors an already-open Map16 view, with no manual
 
   const after = await readCanvas(page)
   expect(after.checksum).not.toBe(before.checksum)
-  expect(await blockHasColor(page, TARGET_TILE_ID, newRgb)).toBe(true)
-  expect(await blockHasColor(page, TARGET_TILE_ID, oldRgb)).toBe(false)
+  expect(await tileHasColor(page, TARGET_TILE_ID, newRgb)).toBe(true)
+  expect(await tileHasColor(page, TARGET_TILE_ID, oldRgb)).toBe(false)
 })
 
 /**
- * The reverse direction and the brief's own extra requirement: a Map16 edit
- * made through THIS view must repaint correctly too, without looping or
- * fighting the selection - since map16-server.ts's own write fires the same
- * working-copy-changed event this view listens to for other views' edits.
- *
- * Uses a plain `.click()`, not `.check()` - see the matching comment in
- * "editing a subtile field writes a real op and repaints the block" above
- * for why `.check()`'s built-in re-click-on-failed-verification can race a
- * genuinely async, server-controlled checkbox under load.
+ * Seven independent pieces of view state (tileset, BG palette variant, FG
+ * palette variant, zoom, grid, playing, the edit pane) plus the selection.
+ * This is the class of bug that has cost the most time on this view:
+ * changing any one must preserve the selected tile and must not reset any
+ * of the others.
  */
-test("editing this view's own field does not clear or fight the current selection", async ({
+test('changing tileset/palettes/zoom/grid/playing preserves the selection and the others', async ({
   page,
 }) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
-  await clickBlock(page, TARGET_TILE_ID)
-  await page.waitForSelector('.hb-map16-fields', { timeout: 5000 })
-
-  const priority = page.getByLabel('Priority (draws over sprites)')
-  await expect(priority).not.toBeChecked()
-  await priority.click()
-
-  // Still the same block/corner selected - refresh(), not load(), on a change.
-  const header = await page.locator('.hb-map16-inspector-header').innerText()
-  expect(header).toMatch(/\$130/i)
-  await expect(priority).toBeChecked({ timeout: 10000 })
-})
-
-test('switching tileset re-decodes the sheet, not just its label', async ({ page }) => {
-  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
-
-  const before = await readCanvas(page)
-  await page.selectOption('#hb-map16-tileset-select', '1')
-  await page.waitForTimeout(500)
-  const after = await readCanvas(page)
-
-  expect(after.checksum).not.toBe(before.checksum)
-})
-
-/**
- * The first gap the owner's Mesen/map-editor diff found: FG and BG are two
- * separate 512-block tables. Values decoded independently from vanilla
- * bytes at offset 0x69100 (SNES $0D9100, no copier header on this cart),
- * column-major words (w0 tl, w1 bl, w2 tr, w3 br) - see this file's header
- * comment and Map16.romAddress.test.ts's BG section for the address proof.
- * tl differing from the FG table's own $100 (char=$182 pal=2, this file's
- * TARGET_TILE_ID) also proves the Table selector actually switched tables,
- * not just relabelled the same data.
- */
-test('the BG table selector shows the global Layer 2 table with its own real values', async ({
-  page,
-}) => {
-  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
-
-  await page.selectOption('#hb-map16-layer-select', 'bg')
-  await page.waitForTimeout(300)
-
-  await clickBlock(page, 0x100)
-  await page.waitForSelector('.hb-map16-fields', { timeout: 5000 })
-
-  let fields = await readSubtileFields(page) // default corner: top-left
-  expect(fields.charNum).toBe(0x0fd)
-  expect(fields.palette).toBe(1)
-
-  await selectCorner(page, 'Top-right')
-  fields = await readSubtileFields(page)
-  expect(fields.charNum).toBe(0x106)
-  expect(fields.palette).toBe(1)
-
-  await selectCorner(page, 'Bottom-left')
-  fields = await readSubtileFields(page)
-  expect(fields.charNum).toBe(0x0fd)
-  expect(fields.palette).toBe(1)
-
-  await selectCorner(page, 'Bottom-right')
-  fields = await readSubtileFields(page)
-  expect(fields.charNum).toBe(0x107)
-  expect(fields.palette).toBe(1)
-})
-
-/**
- * Flip flags specifically, which a presence-only check (e.g. "the char
- * number is right") would not catch: tl and tr share the same character
- * ($100) but are horizontal mirrors of each other.
- */
-test('BG block $101 renders tl/tr as horizontal mirrors of the same character', async ({
-  page,
-}) => {
-  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
-  await page.selectOption('#hb-map16-layer-select', 'bg')
-  await page.waitForTimeout(300)
-
-  await clickBlock(page, 0x101)
-  await page.waitForSelector('.hb-map16-fields', { timeout: 5000 })
-
-  const tl = await readSubtileFields(page)
-  expect(tl.charNum).toBe(0x100)
-  expect(tl.flipX).toBe(false)
-
-  await selectCorner(page, 'Top-right')
-  const tr = await readSubtileFields(page)
-  expect(tr.charNum).toBe(0x100)
-  expect(tr.flipX).toBe(true)
-})
-
-/**
- * Reversed guidance from the owner: the BG block TABLE does not vary with
- * tileset, but the RENDERED PIXELS still do (readGfxAssignment differs
- * across tilesets in the fg3/an1 slots the BG table heavily uses - measured
- * at 64.0% of its subtiles). Tileset 0 -> 3 is the largest single swing
- * (fg3 file $25 -> $12). Goes red if anyone re-disables the tileset control
- * on BG, or drops tileset from the BG VRAM path.
- */
-test('switching tileset while BG is selected still changes the rendered pixels', async ({
-  page,
-}) => {
-  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
-  await page.selectOption('#hb-map16-layer-select', 'bg')
-  await page.waitForTimeout(300)
-
-  await expect(page.locator('#hb-map16-tileset-select')).toBeEnabled()
-  const before = await readCanvas(page)
-  await page.selectOption('#hb-map16-tileset-select', '3')
-  await page.waitForTimeout(500)
-  const after = await readCanvas(page)
-
-  expect(after.checksum).not.toBe(before.checksum)
-})
-
-/**
- * Second gap from the owner's review: which palette control can affect a
- * sheet's pixels must be derived from the LOADED TABLE (citedPaletteRows),
- * never assumed from which layer is selected. Vanilla measurement (owner's
- * histogram, identical on all 6 corpus carts): the BG table cites CGRAM
- * rows {0,1,4,7} only - zero subtiles on rows 2-3, which the FG palette
- * control feeds - so on BG that control genuinely cannot change a pixel.
- * The FG common table cites both row pairs, so on FG both controls stay
- * enabled.
- */
-test('the FG palette control disables itself on BG (no subtile there cites rows 2-3); both stay enabled on FG', async ({
-  page,
-}) => {
-  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
-
-  await expect(page.locator('#hb-map16-bg-variant-select')).toBeEnabled()
-  await expect(page.locator('#hb-map16-fg-variant-select')).toBeEnabled()
-
-  await page.selectOption('#hb-map16-layer-select', 'bg')
-  await page.waitForTimeout(300)
-
-  await expect(page.locator('#hb-map16-bg-variant-select')).toBeEnabled()
-  await expect(page.locator('#hb-map16-fg-variant-select')).toBeDisabled()
-
-  const fgLabel = page.locator('label.hb-map16-control:has(#hb-map16-fg-variant-select)')
-  await expect(fgLabel).toHaveAttribute('title', /no subtile.*foreground/i)
-})
-
-/**
- * The tileset control stays ENABLED on both layers (the owner's reversed
- * guidance - it still changes real pixels on BG), so only its label may
- * differ; a human needs to see why the same control means something
- * different once BG is selected.
- */
-test('the tileset control label explains it is graphics-only when BG is selected', async ({
-  page,
-}) => {
-  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
-
-  const fgLabel = await page
-    .locator('label.hb-map16-control:has(#hb-map16-tileset-select)')
-    .innerText()
-  expect(fgLabel).toMatch(/^Tileset/)
-  expect(fgLabel.toLowerCase()).not.toContain('graphics only')
-
-  await page.selectOption('#hb-map16-layer-select', 'bg')
-  await page.waitForTimeout(300)
-
-  const bgLabel = await page
-    .locator('label.hb-map16-control:has(#hb-map16-tileset-select)')
-    .innerText()
-  expect(bgLabel.toLowerCase()).toContain('graphics only')
-  await expect(page.locator('#hb-map16-tileset-select')).toBeEnabled()
-})
-
-/**
- * There are now SEVEN independent pieces of view state (table, tileset, BG
- * palette variant, FG palette variant, zoom, grid, playing) plus the
- * selection. This is the class of bug that has cost the most time on this
- * view: changing any one of them must preserve the selected block and must
- * not reset any of the others. Walks all seven, checking both properties
- * after each change - extended in place rather than duplicated, per the
- * owner's own instruction, when grid/playing were added.
- */
-test('changing table/tileset/BG palette/FG palette/zoom/grid/playing each preserves the selection and never resets the others', async ({
-  page,
-}) => {
-  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
-  await clickBlock(page, TARGET_TILE_ID)
-  await page.waitForSelector('.hb-map16-fields', { timeout: 5000 })
+  await openMap16(page, 'fg')
+  await clickTile(page, TARGET_TILE_ID)
+  await openEditPane(page)
 
   const stillSelected = async () => {
-    const header = await page.locator('.hb-map16-inspector-header').innerText()
-    expect(header).toMatch(/\$130/i)
+    const tileId = await page.locator(`${FG} .hb-map16-editor-tile-id`).textContent()
+    expect(tileId).toMatch(/\$130/i)
+    // The pane stays open across every axis change: closing it would throw
+    // away the user's place in a way nothing asked for.
+    await expect(page.locator(`${FG} .hb-map16-edit-pane`)).toHaveCount(1)
   }
   const controlValues = async () => ({
-    layer: await page.locator('#hb-map16-layer-select').inputValue(),
-    tileset: await page.locator('#hb-map16-tileset-select').inputValue(),
-    bg: await page.locator('#hb-map16-bg-variant-select').inputValue(),
-    fg: await page.locator('#hb-map16-fg-variant-select').inputValue(),
-    zoom: await page.locator('#hb-map16-zoom-indicator').textContent(),
-    grid: (await page.locator('#hb-map16-grid-toggle').getAttribute('aria-pressed')) === 'true',
-    playing: (await page.locator('#hb-map16-play-toggle').getAttribute('aria-pressed')) === 'true',
+    tileset: await page.locator(ctl('tileset-select')).inputValue(),
+    bg: await page.locator(ctl('bg-variant-select')).inputValue(),
+    fg: await page.locator(ctl('fg-variant-select')).inputValue(),
+    zoom: await page.locator(ctl('zoom-indicator')).textContent(),
+    grid: (await page.locator(ctl('grid-toggle')).getAttribute('aria-pressed')) === 'true',
+    playing: (await page.locator(ctl('play-toggle')).getAttribute('aria-pressed')) === 'true',
   })
 
-  // Zoom: purely a view preference, touches no server state at all.
+  // Zoom: purely a view preference, touches no server state. Driven to the
+  // clamp rather than a fixed count, which would overshoot onto a disabled
+  // button and hang; that also asserts the clamp.
   let before = await controlValues()
-  // Step to maximum rather than clicking a fixed number of times: zoom
-  // starts at DEFAULT_ZOOM (2), and the button DISABLES at the top of
-  // ZOOM_OPTIONS, so a fixed count overshoots onto a disabled control and
-  // hangs. Driving it to the clamp asserts the clamp as well.
-  const zoomIn = page.locator('#hb-map16-zoom-in')
+  const zoomIn = page.locator(ctl('zoom-in'))
   while (await zoomIn.isEnabled()) await zoomIn.click()
   await page.waitForTimeout(200)
   await stillSelected()
@@ -638,102 +1419,96 @@ test('changing table/tileset/BG palette/FG palette/zoom/grid/playing each preser
   expect(after.zoom).toBe('4x')
   expect({ ...after, zoom: before.zoom }).toEqual(before)
 
-  // BG palette variant.
   before = await controlValues()
-  await page.selectOption('#hb-map16-bg-variant-select', '7')
-  await page.waitForTimeout(300)
+  await page.selectOption(ctl('bg-variant-select'), '7')
+  await page.waitForTimeout(400)
   await stillSelected()
   after = await controlValues()
   expect(after.bg).toBe('7')
   expect({ ...after, bg: before.bg }).toEqual(before)
 
-  // FG palette variant.
   before = await controlValues()
-  await page.selectOption('#hb-map16-fg-variant-select', '3')
-  await page.waitForTimeout(300)
+  await page.selectOption(ctl('fg-variant-select'), '3')
+  await page.waitForTimeout(400)
   await stillSelected()
   after = await controlValues()
   expect(after.fg).toBe('3')
   expect({ ...after, fg: before.fg }).toEqual(before)
 
-  // Tileset.
   before = await controlValues()
-  await page.selectOption('#hb-map16-tileset-select', '5')
-  await page.waitForTimeout(300)
+  await page.selectOption(ctl('tileset-select'), '5')
+  await page.waitForTimeout(400)
   await stillSelected()
   after = await controlValues()
   expect(after.tileset).toBe('5')
   expect({ ...after, tileset: before.tileset }).toEqual(before)
 
-  // Grid: local overlay only, no reload.
   before = await controlValues()
-  await page.locator('#hb-map16-grid-toggle').click()
+  await page.locator(ctl('grid-toggle')).click()
   await page.waitForTimeout(150)
   await stillSelected()
   after = await controlValues()
   expect(after.grid).toBe(true)
   expect({ ...after, grid: before.grid }).toEqual(before)
 
-  // Playing: client-side timer only, no reload.
   before = await controlValues()
-  await page.locator('#hb-map16-play-toggle').click()
+  await page.locator(ctl('play-toggle')).click()
   await page.waitForTimeout(150)
   await stillSelected()
   after = await controlValues()
   expect(after.playing).toBe(true)
   expect({ ...after, playing: before.playing }).toEqual(before)
-  await page.locator('#hb-map16-play-toggle').click() // stop, so the next axis starts from a clean state
-  await page.waitForTimeout(150)
-
-  // Table (fg -> bg): the selected id/corner must survive even though the
-  // content AT that id is now a completely different block.
-  before = await controlValues()
-  await page.selectOption('#hb-map16-layer-select', 'bg')
-  await page.waitForTimeout(300)
-  await stillSelected()
-  after = await controlValues()
-  expect(after.layer).toBe('bg')
-  expect({ ...after, layer: before.layer }).toEqual(before)
+  await page.locator(ctl('play-toggle')).click()
 })
 
 /**
- * Grid is a pure overlay (map16-view-widget.tsx's own doc comment on
- * paintCanvas): toggling it must repaint the SAME decoded pixels with lines
- * drawn on top, then repaint the identical pixels again with them removed -
- * never a re-decode, and never a residual line left behind.
+ * Grid is a pure overlay (paintCanvas's own doc comment): toggling it
+ * repaints the SAME decoded pixels with lines on top, then the identical
+ * pixels again with them removed - never a re-decode, never a residue.
  */
-test('toggling grid draws an overlay and removes it cleanly, without changing the underlying sheet', async ({
-  page,
-}) => {
+test('toggling grid draws an overlay and removes it cleanly', async ({ page }) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
+  await openMap16(page, 'fg')
 
   const before = await readCanvas(page)
-  await page.locator('#hb-map16-grid-toggle').click()
+  await page.locator(ctl('grid-toggle')).click()
   await page.waitForTimeout(150)
-  const withGrid = await readCanvas(page)
-  expect(withGrid.checksum).not.toBe(before.checksum) // lines were actually drawn
+  expect((await readCanvas(page)).checksum).not.toBe(before.checksum)
 
-  await page.locator('#hb-map16-grid-toggle').click()
+  await page.locator(ctl('grid-toggle')).click()
   await page.waitForTimeout(150)
-  const gridOff = await readCanvas(page)
-  expect(gridOff.checksum).toBe(before.checksum) // exact same pixels once removed
+  expect((await readCanvas(page)).checksum).toBe(before.checksum)
+})
+
+test('the tile browser strip collapses and expands', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+
+  const toggle = page.locator(ctl('browser-toggle'))
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.locator(`${FG} .hb-map16-canvas`)).toHaveCount(0)
+  // The preview is still there with the strip put away.
+  await expect(page.locator(`${FG} .hb-map16-preview-canvas`)).toHaveCount(1)
+
+  await toggle.click()
+  await expect(page.locator(`${FG} .hb-map16-canvas`)).toHaveCount(1)
 })
 
 /**
- * Play/stop, the headline claim of this feature: pressing play must
- * actually advance through DIFFERENT composited frames over time (not just
- * flip an icon), using the cart's own native interval - and stopping must
- * leave a stable, re-readable frame rather than a canvas frozen mid-tick.
+ * Play/stop: pressing play advances through DIFFERENT composited frames
+ * over time (not just an icon flip), at the cart's own native interval, and
+ * stopping leaves a stable frame rather than a canvas frozen mid-tick.
  */
-test('play cycles the canvas through real animation frames at the native interval; stop leaves it stable', async ({
+test('play cycles the sheet through real animation frames; stop leaves it stable', async ({
   page,
 }) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
+  await openMap16(page, 'fg')
 
-  const playButton = page.locator('#hb-map16-play-toggle')
-  await expect(playButton).toBeEnabled() // vanilla always has char animation - see Map16Decode.test.ts
+  const playButton = page.locator(ctl('play-toggle'))
+  await expect(playButton).toBeEnabled() // vanilla always has char animation
   await expect(playButton).toHaveAttribute('title', 'Play animation')
 
   const frame0 = await readCanvas(page)
@@ -741,9 +1516,7 @@ test('play cycles the canvas through real animation frames at the native interva
   await expect(playButton).toHaveAttribute('title', 'Stop animation')
   await expect(playButton).toHaveClass(/hb-map16-icon-btn-on/)
 
-  // Native interval is ~133ms on vanilla (AnimationLoader.loadAnimationData);
-  // poll rather than sleep a fixed guess, since exactly how many ticks land
-  // in a given wait is timing-sensitive under load.
+  // Native interval is ~133ms on vanilla; poll rather than sleep a guess.
   await expect
     .poll(async () => (await readCanvas(page)).checksum, { timeout: 5000 })
     .not.toBe(frame0.checksum)
@@ -752,94 +1525,38 @@ test('play cycles the canvas through real animation frames at the native interva
   await expect(playButton).toHaveAttribute('title', 'Play animation')
   const stopped1 = await readCanvas(page)
   await page.waitForTimeout(400) // several native intervals' worth
-  const stopped2 = await readCanvas(page)
-  expect(stopped2.checksum).toBe(stopped1.checksum) // no drift once stopped
+  expect((await readCanvas(page)).checksum).toBe(stopped1.checksum)
 })
 
 /**
- * The frame strip: an animating block gets 4 labelled, real (non-identical)
- * frames; a non-animating block says so plainly instead of showing four
- * copies of the same thumbnail - the exact "looks functional, proves
- * nothing" shape CLAUDE.md's oracle-discipline section warns about.
+ * The preview shares the browser strip's decoded source (paintDetail crops
+ * the same atlas), so proving it repaints for a different tile and tracks
+ * the current phase while playing proves that shared path works.
  */
-test('the frame strip shows 4 real frames for an animating block, and an explicit message for one that does not animate', async ({
-  page,
-}) => {
+test('the preview follows the selection and the current animation phase', async ({ page }) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
+  await openMap16(page, 'fg')
 
-  await clickBlock(page, ANIMATED_BLOCK_ID)
-  await page.waitForSelector('.hb-map16-fields', { timeout: 5000 })
-  await expect(page.locator('.hb-map16-frame-strip-empty')).toHaveCount(0)
-  const frameCanvases = page.locator('.hb-map16-frame-canvas')
-  await expect(frameCanvases).toHaveCount(4)
-  const labels = await page.locator('.hb-map16-frame-label').allTextContents()
-  expect(labels).toEqual(['0', '1', '2', '3'])
+  const previewSel = `${FG} .hb-map16-preview-canvas`
 
-  // Read each strip canvas back - real animation must produce at least one
-  // frame that differs from frame 0, not four renders of the same bitmap.
-  const stripChecksums = await page.evaluate(() => {
-    const canvases = [...document.querySelectorAll('.hb-map16-frame-canvas')]
-    return canvases.map(c => {
-      const ctx = c.getContext('2d')
-      const data = ctx.getImageData(0, 0, c.width, c.height).data
-      let sum = 0
-      for (let i = 0; i < data.length; i += 4)
-        sum = (sum + data[i] * 7 + data[i + 1] * 13 + data[i + 2] * 17) >>> 0
-      return sum
-    })
-  })
-  expect(new Set(stripChecksums).size).toBeGreaterThan(1)
-
-  // A block that does NOT animate: no strip, an explicit statement instead.
-  await clickBlock(page, STATIC_BLOCK_ID)
-  await page.waitForSelector('.hb-map16-fields', { timeout: 5000 })
-  await expect(page.locator('.hb-map16-frame-canvas')).toHaveCount(0)
-  await expect(page.locator('.hb-map16-frame-strip-empty')).toHaveText(
-    'This block does not animate.',
-  )
-})
-
-/**
- * The large preview: shares the frame strip's own decoded source (map16-
- * view-widget.tsx's paintDetail decodes the block exactly once), so proving
- * it repaints for a different block and tracks the current phase while
- * playing is really proving that shared path works, not a separate one.
- */
-test('the large block preview updates when the selection changes and tracks the current animation phase while playing', async ({
-  page,
-}) => {
-  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page)
-
-  await clickBlock(page, STATIC_BLOCK_ID)
-  await page.waitForSelector('.hb-map16-fields', { timeout: 5000 })
-  const previewA = await page.evaluate(() => {
-    const c = document.querySelector('.hb-map16-preview-canvas')
+  await clickTile(page, STATIC_TILE_ID)
+  const size = await page.evaluate(sel => {
+    const c = document.querySelector(sel)
     return { w: c.width, h: c.height }
-  })
-  expect(previewA.w).toBeGreaterThan(16) // scaled up, not native 16x16
-  expect(previewA.h).toBe(previewA.w) // square
+  }, previewSel)
+  expect(size.w).toBeGreaterThan(16) // scaled up, not native 16x16
+  expect(size.h).toBe(size.w)
+  const staticChecksum = await readCanvasChecksum(page, previewSel)
 
-  const readPreviewChecksum = () =>
-    page.evaluate(() => {
-      const c = document.querySelector('.hb-map16-preview-canvas')
-      const ctx = c.getContext('2d')
-      const data = ctx.getImageData(0, 0, c.width, c.height).data
-      let sum = 0
-      for (let i = 0; i < data.length; i += 4)
-        sum = (sum + data[i] * 7 + data[i + 1] * 13 + data[i + 2] * 17) >>> 0
-      return sum
-    })
-  const staticChecksum = await readPreviewChecksum()
+  await clickTile(page, ANIMATED_TILE_ID)
+  const animatedChecksum = await readCanvasChecksum(page, previewSel)
+  expect(animatedChecksum).not.toBe(staticChecksum)
 
-  await clickBlock(page, ANIMATED_BLOCK_ID)
-  await page.waitForSelector('.hb-map16-fields', { timeout: 5000 })
-  const animatedChecksum = await readPreviewChecksum()
-  expect(animatedChecksum).not.toBe(staticChecksum) // a different block, a different preview
-
-  await page.locator('#hb-map16-play-toggle').click()
-  await expect.poll(readPreviewChecksum, { timeout: 5000 }).not.toBe(animatedChecksum) // advances with the sheet's own animation phase
+  await page.locator(ctl('play-toggle')).click()
+  await expect
+    .poll(() => readCanvasChecksum(page, previewSel), { timeout: 5000 })
+    .not.toBe(animatedChecksum)
+  await page.locator(ctl('play-toggle')).click()
 })
 
 test('the Map16 view speaks of ROMs, never cartridges', async ({ page }) => {
