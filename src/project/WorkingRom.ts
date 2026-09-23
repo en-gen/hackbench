@@ -208,8 +208,9 @@ export class WorkingRom {
       if (offset === null) {
         throw new Error(`address ${op.address} is outside the cart`)
       }
-      const current = readBgr555Word(before, offset) & BGR555_MASK
-      const expected = parseBgr555Word(op.old) & BGR555_MASK
+      const mask = op.mask ?? BGR555_MASK
+      const current = readBgr555Word(before, offset) & mask
+      const expected = parseBgr555Word(op.old) & mask
       if (current !== expected) {
         throw new Error(
           `stale op at ${op.address}: cart holds $${current.toString(16).toUpperCase()}, ` +

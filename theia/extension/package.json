@@ -44,6 +44,10 @@
     {
       "frontend": "lib/theia/extension/src/browser/emulator-frontend-module",
       "backend": "lib/theia/extension/src/node/emulator-backend-module"
+    },
+    {
+      "frontend": "lib/theia/extension/src/browser/map16-frontend-module",
+      "backend": "lib/theia/extension/src/node/map16-backend-module"
     }
   ],
   "keywords": [

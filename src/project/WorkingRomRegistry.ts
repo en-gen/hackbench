@@ -58,13 +58,26 @@ export type EditStackResult =
   | { status: 'stale'; reason: string }
   | { status: 'io-error'; reason: string }
 
-export interface SetColorRequest {
-  /** 24-bit SNES address of the CGRAM word being changed. */
+/**
+ * One 16-bit word write against a project's working copy: originally a
+ * CGRAM colour (hence the field names), now shared by Map16 subtile edits
+ * too (see Map16.ts's decodeSubTileWord/encodeSubTileWord) - the write
+ * mechanism this backs (WorkingRom.append, one `edit` layer) never cared
+ * whether the word meant a colour or a tile attribute.
+ */
+export interface SetWordRequest {
+  /** 24-bit SNES address of the word being changed. */
   romAddr: number
-  /** BGR555 word currently committed there, hex string e.g. "$391F". */
+  /** Word currently committed there, hex string e.g. "$391F". */
   oldHex: string
-  /** BGR555 word to write, hex string e.g. "$03E0". */
+  /** Word to write, hex string e.g. "$03E0". */
   newHex: string
+  /**
+   * Which bits are significant, forwarded to the op (see PaletteOp.ts's
+   * `Op.mask`). Omitted keeps the original BGR555 behaviour (bit 15
+   * ignored); pass `FULL_WORD_MASK` for a word where bit 15 is real data.
+   */
+  mask?: number
 }
 
 function addrHex(romAddr: number): string {
@@ -116,13 +129,15 @@ export class WorkingRomRegistry {
   }
 
   /**
-   * Applies one colour edit: records and PERSISTS one `edit` layer - the
-   * write-back that makes the change survive a reload.
+   * Applies one word edit: records and PERSISTS one `edit` layer - the
+   * write-back that makes the change survive a reload. Originally
+   * palette-only (`setColor`); now also the write path for Map16 subtile
+   * edits, which is why this takes a `mask` rather than assuming BGR555.
    *
    * Returns `stale` rather than throwing when the address no longer holds
    * `oldHex` (WorkingRom.append's own refusal), so the caller can tell the
-   * user their edit target moved instead of silently corrupting a different
-   * colour. Since nothing writes to the working copy between the caller
+   * user their edit target moved instead of silently corrupting something
+   * else. Since nothing writes to the working copy between the caller
    * reading the committed value and calling this, `oldHex` should always
    * match - a `stale` result here means a genuine race (another edit landed
    * first), not routine drift.
@@ -138,9 +153,9 @@ export class WorkingRomRegistry {
    * working copy, then be gone the next time the project opens - worse than
    * refusing it.
    */
-  setColor(
+  setWord(
     manifestPath: string,
-    req: SetColorRequest,
+    req: SetWordRequest,
   ):
     | WorkingRomResult
     | { status: 'stale'; reason: string }
@@ -153,7 +168,7 @@ export class WorkingRomRegistry {
       id: `edit-${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffff).toString(36)}`,
       label: `set ${addrHex(req.romAddr)} to ${req.newHex}`,
       scope: 'edit',
-      ops: [{ address: addrHex(req.romAddr), old: req.oldHex, new: req.newHex }],
+      ops: [{ address: addrHex(req.romAddr), old: req.oldHex, new: req.newHex, mask: req.mask }],
     }
 
     try {

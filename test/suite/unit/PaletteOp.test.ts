@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   applyOp,
+  FULL_WORD_MASK,
   opFileOffset,
   parseBgr555Word,
   parseHexAddr,
@@ -79,6 +80,28 @@ describe('PaletteOp', () => {
       applyOp(bytes, { address: '$00B2CE', old: '$0000', new: '$03E0' }, bytes.length, false),
     ).toThrow()
     expect(bytes).toEqual(before)
+  })
+
+  /**
+   * Map16 subtile words use bit 15 for vertical flip, so applyOp must be
+   * able to keep it - the default (no `mask`) is right for a CGRAM colour
+   * only, not for every 16-bit word this reducer now writes.
+   */
+  it('applyOp with mask: FULL_WORD_MASK keeps bit 15 instead of dropping it', () => {
+    const bytes = new Uint8Array(0x80000)
+    applyOp(
+      bytes,
+      { address: '$00B2CE', old: '$0000', new: '$83E0', mask: FULL_WORD_MASK },
+      bytes.length,
+      false,
+    )
+    const offset = opFileOffset(
+      { address: '$00B2CE', old: '', new: '' },
+      bytes.length,
+      false,
+    ) as number
+    expect(bytes[offset]).toBe(0xe0)
+    expect(bytes[offset + 1]).toBe(0x83) // bit 15 preserved, unlike the default-mask case above
   })
 
   it('applyOp is deterministic: the same bytes and op always produce the same result', () => {

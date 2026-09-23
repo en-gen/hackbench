@@ -17,6 +17,7 @@ import { AbstractViewContribution } from '@theia/core/lib/browser'
 import { Command } from '@theia/core/lib/common'
 import { GfxExplorerWidget, GFX_EXPLORER_ID } from './gfx-explorer-widget'
 import { GfxViewWidget, GFX_VIEW_ID } from './gfx-view-widget'
+import { Map16ViewWidget, MAP16_VIEW_ID } from './map16-view-widget'
 import { PreviewTabs } from './preview-tabs'
 
 export const ShowGfxExplorerCommand: Command = {
@@ -61,6 +62,16 @@ export class GfxExplorerContribution extends AbstractViewContribution<GfxExplore
         await this.previews.pin<GfxViewWidget>(GFX_VIEW_ID, { index }, apply, p => p.shows(index))
       } else {
         await this.previews.preview<GfxViewWidget>(GFX_VIEW_ID, apply)
+      }
+    })
+    // Map16 has no per-row key: one project has exactly one block table open
+    // at a time, so `{}` is the only key this view ever asks WidgetManager for.
+    explorer.onMap16Opened(async ({ manifestPath, pinned }) => {
+      const apply = (w: Map16ViewWidget) => w.open({ manifestPath, label: 'Map16' })
+      if (pinned) {
+        await this.previews.pin<Map16ViewWidget>(MAP16_VIEW_ID, {}, apply, p => p.shows())
+      } else {
+        await this.previews.preview<Map16ViewWidget>(MAP16_VIEW_ID, apply)
       }
     })
   }

@@ -36,16 +36,17 @@ import { ProjectContext } from './project-context'
 export const GFX_EXPLORER_ID = 'hackbench.gfx-explorer'
 
 export interface GfxTreeNode extends CompositeTreeNode, SelectableTreeNode {
-  /** GFX file index, or -1 for a placeholder row. */
+  /** GFX file index, or -1 for a placeholder/map16 row. */
   index: number
   hex: string | null
   bpp: GfxFormat | null
   /** Null alongside `bpp` null: no depth to divide the length by. */
   tileCount: number | null
-  kind: 'file' | 'message'
+  kind: 'file' | 'message' | 'map16'
 }
 
 const NO_PROJECT_MESSAGE = 'Open a project to see its graphics'
+const MAP16_ROW_ID = 'map16'
 
 @injectable()
 export class GfxExplorerWidget extends TreeWidget {
@@ -86,6 +87,18 @@ export class GfxExplorerWidget extends TreeWidget {
     pinned: boolean
   }>()
   readonly onFileOpened = this.onFileOpenedEmitter.event
+
+  /**
+   * Fired when the Map16 row is opened. A separate emitter rather than
+   * folding it into `onFileOpened`'s shape: a Map16 row has no GFX file
+   * index or bit depth, and the contribution opens a different widget type
+   * for it (Map16ViewWidget, not GfxViewWidget).
+   */
+  protected readonly onMap16OpenedEmitter = new Emitter<{
+    manifestPath: string
+    pinned: boolean
+  }>()
+  readonly onMap16Opened = this.onMap16OpenedEmitter.event
 
   constructor(
     @inject(TreeProps) props: TreeProps,
@@ -149,7 +162,9 @@ export class GfxExplorerWidget extends TreeWidget {
     }
 
     this.fileCount = result.files.length
-    this.setRoot(result.files.map(f => this.toNode(f)))
+    // Map16 sits above the GFX file list: it is the block table the GFX
+    // files' tiles get composed into, not a GFX file itself.
+    this.setRoot([this.map16Node(), ...result.files.map(f => this.toNode(f))])
   }
 
   protected setRoot(children: GfxTreeNode[]): void {
@@ -194,6 +209,21 @@ export class GfxExplorerWidget extends TreeWidget {
     }
   }
 
+  protected map16Node(): GfxTreeNode {
+    return {
+      id: MAP16_ROW_ID,
+      name: 'Map16',
+      index: -1,
+      hex: null,
+      bpp: null,
+      tileCount: null,
+      kind: 'map16',
+      parent: undefined,
+      children: [],
+      selected: false,
+    }
+  }
+
   /** A click selects and opens; there is nothing to expand in a flat list. */
   /**
    * Selection drives the preview, not the click: a click selects, and so do
@@ -214,7 +244,12 @@ export class GfxExplorerWidget extends TreeWidget {
   }
 
   protected fireOpen(file: GfxTreeNode | undefined, pinned: boolean): void {
-    if (!file || file.kind !== 'file' || !this.manifestPath) return
+    if (!file || !this.manifestPath) return
+    if (file.kind === 'map16') {
+      this.onMap16OpenedEmitter.fire({ manifestPath: this.manifestPath, pinned })
+      return
+    }
+    if (file.kind !== 'file') return
     this.onFileOpenedEmitter.fire({
       manifestPath: this.manifestPath,
       index: file.index,
@@ -225,13 +260,29 @@ export class GfxExplorerWidget extends TreeWidget {
 
   protected override renderIcon(node: TreeNode, _props: NodeProps): React.ReactNode {
     const file = node as GfxTreeNode
-    if (file.kind !== 'file') return undefined
-    return <span className="hb-gfx-icon codicon codicon-file-media" />
+    if (file.kind === 'message') return undefined
+    // file-media for GFX files comes from #452; map16 keeps its own glyph
+    // because it is a block table, not a tile sheet.
+    const icon = file.kind === 'map16' ? 'codicon-symbol-structure' : 'codicon-file-media'
+    return <span className={`hb-gfx-icon codicon ${icon}`} />
   }
 
   protected override renderCaption(node: TreeNode, props: NodeProps): React.ReactNode {
     const file = node as GfxTreeNode
     if (file.kind === 'message') return super.renderCaption(node, props)
+    if (file.kind === 'map16') {
+      // Deliberately NOT `.hb-gfx-id`/`.hb-gfx-meta`: existing tests query
+      // those classes and assert every match is a "GFX $XX" row, which this
+      // row is not.
+      return [
+        <span key="id" className="hb-gfx-map16-label">
+          Map16
+        </span>,
+        <span key="meta" className="hb-gfx-map16-meta">
+          the block table
+        </span>,
+      ]
+    }
 
     // Null means GfxLoader itself cannot place this length at any depth (a
     // relocated GFX arrangement, seen on real hacks): say so rather than
