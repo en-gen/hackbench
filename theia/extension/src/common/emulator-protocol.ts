@@ -45,12 +45,19 @@ export interface EmulatorRomIdentityDto {
 
 /**
  * Same shape as ProjectService.loadMaps's LoadMapsResult, and for the same
- * reason: a cartridge not on this machine is an ordinary first-run state, not
- * an error.
+ * reason: a ROM not on this machine is an ordinary first-run state, not
+ * an error. `digest` identifies these exact bytes, so the frontend can tell
+ * whether the working copy has moved on since a core booted from them.
  */
 export type EmulatorRomResult =
-  | { status: 'ok'; romBytes: Uint8Array }
+  | { status: 'ok'; romBytes: Uint8Array; digest: string }
   | { status: 'rom-not-located'; baseRom: EmulatorRomIdentityDto }
+
+/** One save slot: `saves/<ROM title>.<slot>.srm`, and its label if it has one. */
+export interface SaveSlotDto {
+  slot: number
+  label?: string
+}
 
 export interface EmulatorService {
   /** The core currently registered on this machine, if any. */
@@ -68,6 +75,44 @@ export interface EmulatorService {
   /** The registered core's bytes, ready to instantiate. */
   coreFiles(): Promise<CoreFilesResult>
 
-  /** The project's base cartridge, resolved through the ROM registry. */
+  /** The project's working copy, every edit layer applied. */
   romForEmulator(manifestPath: string): Promise<EmulatorRomResult>
+
+  /**
+   * romForEmulator's digest without shipping the bytes: cheap enough to ask
+   * on every edit. Undefined when the ROM is not on this machine.
+   */
+  romDigest(manifestPath: string): Promise<string | undefined>
+
+  /** The project's save slots, lowest number first. */
+  listSaves(manifestPath: string): Promise<SaveSlotDto[]>
+
+  /** One slot's save game (SRAM), if that slot has one yet. */
+  loadSave(manifestPath: string, slot: number): Promise<Uint8Array | undefined>
+
+  /** Replace one slot's save game. Rejects anything but a real project. */
+  storeSave(manifestPath: string, slot: number, bytes: Uint8Array): Promise<void>
+
+  deleteSave(manifestPath: string, slot: number): Promise<void>
+
+  /**
+   * Copy a slot into the next free number, skipping `reserved` (slots chosen
+   * or running but not yet written, which have no file); returns it.
+   */
+  duplicateSave(manifestPath: string, slot: number, reserved?: number[]): Promise<number>
+
+  /** Set a slot's label; an empty one clears it. */
+  labelSave(manifestPath: string, slot: number, label: string): Promise<void>
+
+  /**
+   * Other .srm files in saves/ (e.g. from another emulator, named after the
+   * ROM file), which the user can import. Never renamed unasked.
+   */
+  listForeignSaves(manifestPath: string): Promise<string[]>
+
+  /** Move a foreign save into the next free slot, skipping `reserved`; returns it. */
+  importSave(manifestPath: string, file: string, reserved?: number[]): Promise<number>
+
+  /** The lowest slot number with no save in it and not `reserved`, for "New save". */
+  nextFreeSlot(manifestPath: string, reserved?: number[]): Promise<number>
 }

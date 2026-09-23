@@ -26,6 +26,7 @@ import { createMapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
 import { MapViewWidget, MAP_VIEW_ID } from './map-view-widget'
 import { ProjectFrontendClient } from './project-push-client'
 import { EditStackContribution } from './edit-stack-contribution'
+import { ReconnectContribution } from './reconnect-contribution'
 
 export default new ContainerModule(bind => {
   bind(ProjectFrontendClient).toSelf().inSingletonScope()
@@ -51,6 +52,8 @@ export default new ContainerModule(bind => {
 
   // No MenuContribution: this claims Theia's existing Edit > Undo/Redo
   // entries rather than adding a second pair beside them.
+  bind(ReconnectContribution).toSelf().inSingletonScope()
+  bind(FrontendApplicationContribution).toService(ReconnectContribution)
   bind(EditStackContribution).toSelf().inSingletonScope()
   bind(CommandContribution).toService(EditStackContribution)
 

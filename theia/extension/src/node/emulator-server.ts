@@ -11,12 +11,16 @@
  * editing a palette showed the unedited cart and the edit looked lost.
  */
 import { inject, injectable } from '@theia/core/shared/inversify'
-import * as fs from 'fs' // core files only; the cartridge comes from the working copy
+import * as fs from 'fs' // core files only; the ROM comes from the working copy
+import { createHash } from 'crypto'
 import { WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
 import { CoreRegistry } from '../../../../src/project/CoreRegistry'
+import * as saves from '../../../../src/project/SaveStore'
+import * as path from 'path'
 import {
   CoreFilesResult,
   CoreIdentityDto,
+  SaveSlotDto,
   EmulatorRomResult,
   EmulatorService,
   LocateCoreResult,
@@ -74,6 +78,96 @@ export class EmulatorServiceImpl implements EmulatorService {
     }
     // A COPY, not the registry's buffer: this crosses the RPC boundary and
     // the working copy's own cache must not be handed out by reference.
-    return { status: 'ok', romBytes: Uint8Array.from(r.working.bytes()) }
+    const bytes = r.working.bytes()
+    return { status: 'ok', romBytes: Uint8Array.from(bytes), digest: digestOf(bytes) }
   }
+
+  async listSaves(manifestPath: string): Promise<SaveSlotDto[]> {
+    const { dir, title } = this.project(manifestPath)
+    return saves
+      .listSaves(dir, title)
+      .map(({ slot, label }) => (label ? { slot, label } : { slot }))
+  }
+
+  async loadSave(manifestPath: string, slot: number): Promise<Uint8Array | undefined> {
+    const { dir, title } = this.project(manifestPath)
+    return saves.loadSave(dir, title, slot)
+  }
+
+  async storeSave(manifestPath: string, slot: number, bytes: Uint8Array): Promise<void> {
+    if (!(bytes instanceof Uint8Array) || bytes.length > saves.MAX_SAVE_BYTES) {
+      throw new Error('not a save file')
+    }
+    const { dir, title } = this.project(manifestPath)
+    saves.storeSave(dir, title, slot, bytes)
+  }
+
+  async deleteSave(manifestPath: string, slot: number): Promise<void> {
+    const { dir, title } = this.project(manifestPath)
+    saves.deleteSave(dir, title, slot)
+  }
+
+  async duplicateSave(
+    manifestPath: string,
+    slot: number,
+    reserved: number[] = [],
+  ): Promise<number> {
+    const { dir, title } = this.project(manifestPath)
+    return saves.duplicateSave(dir, title, slot, numbers(reserved))
+  }
+
+  async labelSave(manifestPath: string, slot: number, label: string): Promise<void> {
+    if (typeof label !== 'string') throw new Error('not a label')
+    const { dir, title } = this.project(manifestPath)
+    saves.labelSave(dir, title, slot, label)
+  }
+
+  async listForeignSaves(manifestPath: string): Promise<string[]> {
+    const { dir, title } = this.project(manifestPath)
+    return saves.listForeignSaves(dir, title)
+  }
+
+  async importSave(manifestPath: string, file: string, reserved: number[] = []): Promise<number> {
+    if (typeof file !== 'string') throw new Error('not a file name')
+    const { dir, title } = this.project(manifestPath)
+    return saves.importSave(dir, title, file, numbers(reserved))
+  }
+
+  async nextFreeSlot(manifestPath: string, reserved: number[] = []): Promise<number> {
+    const { dir, title } = this.project(manifestPath)
+    return saves.nextFreeSlot(dir, title, numbers(reserved))
+  }
+
+  /**
+   * The folder of a real HackBench project: a manifest still on disk whose
+   * ROM this machine has located. The path comes from the frontend, so it
+   * must not become a way to write a saves/ folder next to an arbitrary
+   * file, nor to recreate the folder of a project deleted since it was
+   * cached.
+   */
+  private project(manifestPath: string): { dir: string; title: string } {
+    if (!manifestPath.endsWith('.hbproj') || !fs.existsSync(manifestPath)) {
+      throw new Error(`not a project: ${manifestPath}`)
+    }
+    const r = this.workingRoms.get(manifestPath)
+    if (r.status !== 'ok') throw new Error(`not a project with a located ROM: ${manifestPath}`)
+    // Saves are named for the title in the ROM's own header, recorded in
+    // the manifest: the same on every machine the project is opened on.
+    return { dir: path.dirname(manifestPath), title: r.project.baseRom.title }
+  }
+
+  async romDigest(manifestPath: string): Promise<string | undefined> {
+    const r = this.workingRoms.get(manifestPath)
+    return r.status === 'ok' ? digestOf(r.working.bytes()) : undefined
+  }
+}
+
+/** Content identity: an undo back to the booted state reads as unchanged. */
+function digestOf(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+/** Reserved slot numbers from the frontend: integers only, anything else dropped. */
+function numbers(values: unknown): number[] {
+  return Array.isArray(values) ? values.filter((v): v is number => Number.isInteger(v)) : []
 }

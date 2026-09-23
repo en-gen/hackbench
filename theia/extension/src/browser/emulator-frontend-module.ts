@@ -1,6 +1,8 @@
 // Self-referencing package path, same reason as hackbench-frontend-module.ts:
 // this package compiles with rootDir at the repo root (#391).
 import 'hackbench-theia-extension/src/browser/style/emulator.css'
+import 'hackbench-theia-extension/src/browser/style/volume.css'
+import 'hackbench-theia-extension/src/browser/style/save-slots.css'
 import { ContainerModule } from '@theia/core/shared/inversify'
 import {
   FrontendApplicationContribution,
