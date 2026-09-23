@@ -74,6 +74,26 @@ export interface PaletteGroupDto {
   variants: PaletteVariantDto[]
 }
 
+export interface PaletteAnimFrameDto {
+  color: PaletteColorDto
+  romAddr: number
+}
+
+export interface PaletteAnimTargetDto {
+  cgramIdx: number
+  frameStride: number
+  intervalMs: number
+  sharedWithOtherTargets: boolean | 'unknown'
+  timing: { maskAddr: number; mask: number; shift: number; counterDp: number }
+  frames: PaletteAnimFrameDto[]
+}
+
+export interface PaletteAnimationDto {
+  available: boolean
+  notes: string[]
+  targets: PaletteAnimTargetDto[]
+}
+
 export interface RomPalettesDto {
   groups: PaletteGroupDto[]
   /**
@@ -83,6 +103,12 @@ export interface RomPalettesDto {
    * the whole story for those levels.
    */
   customPaletteLevelCount: number
+  /**
+   * Level palette animation, read from the NMI handler
+   * (src/rom/PaletteAnimationDetect.ts). `available: false` means the
+   * handler did not decode or is not reached; `targets` is then empty.
+   */
+  animation: PaletteAnimationDto
 }
 
 /**

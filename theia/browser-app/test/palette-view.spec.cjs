@@ -1,12 +1,15 @@
 /**
- * The palette view, end to end against the shell.
+ * The palette explorer and its group/variant tabs, end to end against the shell.
  *
- * This view shows the STOCK ROM TABLES loadRomPalettes() and
- * PaletteStockTables.ts read, not the composed runtime CGRAM a level or the
- * overworld actually loads. Theia's main-area tab bar does not render
- * `title.iconClass` into the tab's icon element (verified against Maps'
- * own already-shipped main-area widget), so the icon test checks the
- * title's class rather than the rendered tab.
+ * Palettes lives in the left activity bar as a tree of the six stock groups
+ * (`hackbench.palette-explorer`); a row opens a main-area tab
+ * (`PaletteGroupViewWidget`, id `hackbench.palette-group-view:<groupId>[:<variant>]`)
+ * showing the STOCK ROM TABLES loadRomPalettes() and PaletteStockTables.ts
+ * read, not the composed runtime CGRAM a level or the overworld actually
+ * loads. Theia's main-area tab bar does not render `title.iconClass` into
+ * the tab's icon element (verified against Maps' own already-shipped
+ * main-area widget), so the icon test checks the title's class rather than
+ * the rendered tab.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -55,13 +58,6 @@ function getWidget(id) {
 
 let tmp
 
-async function revealPalettes(page) {
-  await page.evaluate(async () => {
-    await getSvc('ApplicationShell').activateWidget('hackbench.palette-view')
-  })
-  await page.waitForTimeout(800)
-}
-
 test.beforeEach(async ({ page }) => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-pal-'))
   await page.goto(APP, { waitUntil: 'domcontentloaded' })
@@ -74,54 +70,491 @@ test.afterEach(() => {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-async function loadPalettes(page, dir) {
+/** Same expansion PaletteColorFormat.bgr555HexToCssHex uses: 5-bit -> 8-bit, exact for a value that came from bgr555ToRgba. */
+function bgr555ToRgbTriplet(word) {
+  const r5 = word & 0x1f
+  const g5 = (word >> 5) & 0x1f
+  const b5 = (word >> 10) & 0x1f
+  const expand = c5 => (c5 << 3) | (c5 >> 2)
+  return [expand(r5), expand(g5), expand(b5)]
+}
+
+function parseRgbTriplet(cssColor) {
+  const m = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(cssColor)
+  if (!m) throw new Error(`not an rgb() colour: ${cssColor}`)
+  return [Number(m[1]), Number(m[2]), Number(m[3])]
+}
+
+const EXPLORER = 'hackbench.palette-explorer'
+const sel = id => '#' + id.replace(/[.:]/g, m => '\\' + m)
+
+async function createProject(page, dir, romPath = ROM, name = 'MyHack') {
   return page.evaluate(
-    async ({ romPath, directory }) => {
-      const svc = getSvc('Symbol(ProjectService)')
-      if (!svc) return { error: 'ProjectService not resolvable from the frontend' }
-      const project = await svc.createProject({ romPath, name: 'MyHack', directory })
-      const w = await getWidget('hackbench.palette-view')
-      await w.load(project.manifestPath)
-      return { manifestPath: project.manifestPath, result: w.result }
-    },
-    { romPath: ROM, directory: dir },
+    async ({ romPath, directory, name }) =>
+      getSvc('Symbol(ProjectService)').createProject({ romPath, name, directory }),
+    { romPath, directory: dir, name },
   )
 }
 
-test("every group and row shape matches loadRomPalettes' own definitions", async ({ page }) => {
-  const { result, error } = await loadPalettes(page, path.join(tmp, 'MyHack'))
-  expect(error).toBeUndefined()
-  expect(result.status).toBe('ok')
-  expect(result.palettes.groups.map(g => g.id)).toEqual(EXPECTED_GROUPS.map(g => g.id))
+/** Opens a project in the shell the way File > Open does, so every palette widget reacts to it. */
+async function openProject(page, dir, romPath) {
+  const project = await createProject(page, dir, romPath)
+  await page.evaluate(p => {
+    getSvc('ProjectContext').current = p
+  }, project)
+  await page.waitForTimeout(500)
+  return project
+}
 
-  for (const expected of EXPECTED_GROUPS) {
-    const g = result.palettes.groups.find(x => x.id === expected.id)
-    expect(g.variants.length, `${expected.id} variant count`).toBe(expected.variants)
-    g.variants.forEach((v, vi) => {
-      expect(v.rows.length, `${expected.id}[${vi}] row count`).toBe(expected.rowsPerVariant)
-      v.rows.forEach((row, ri) =>
-        expect(row.length, `${expected.id}[${vi}][${ri}] col count`).toBe(expected.cols ?? COLS),
-      )
-    })
-  }
+async function revealExplorer(page) {
+  await page.evaluate(async id => {
+    await getSvc('ApplicationShell').activateWidget(id)
+  }, EXPLORER)
+  await page.waitForTimeout(800)
+}
 
-  // The rendered nav follows the same order, and opens on its first entry.
-  await revealPalettes(page)
-  await page.waitForSelector('#hackbench\\.palette-view .hb-palette-nav-item', { timeout: 15000 })
-  const nav = await page.evaluate(() =>
-    [...document.querySelectorAll('.hb-palette-nav-item')].map(n => {
-      const el = n.querySelector('.hb-palette-nav-label')
-      return {
-        label: el?.textContent ?? '',
-        active: n.classList.contains('hb-palette-nav-item-active'),
-        clipped: !el || el.scrollWidth > el.clientWidth,
-      }
-    }),
+/**
+ * load() clears `result` to undefined until the RPC settles (palette-explorer-widget.tsx),
+ * so reading it with a single evaluate races a slow server. Wait for it to
+ * actually land through the WidgetManager before reading it back.
+ */
+async function explorerResult(page) {
+  await page.waitForFunction(id => {
+    const w = getSvc('WidgetManager').tryGetWidget(id)
+    return !!w && w.result !== undefined
+  }, EXPLORER)
+  return page.evaluate(id => getSvc('WidgetManager').tryGetWidget(id).result, EXPLORER)
+}
+
+/** Opens a group or variant tab through the contribution, returning its widget id. */
+async function openTab(page, manifestPath, groupId, variant, pinned = true) {
+  const id = await page.evaluate(
+    async ({ manifestPath, groupId, variant, pinned }) => {
+      const w = await getSvc('PaletteExplorerContribution').openGroup({
+        manifestPath,
+        groupId,
+        variant: variant === null ? undefined : variant,
+        pinned,
+      })
+      return w.id
+    },
+    { manifestPath, groupId, variant: variant ?? null, pinned },
   )
-  expect(nav.map(n => n.label)).toEqual(result.palettes.groups.map(g => g.label))
-  expect(nav.findIndex(n => n.active)).toBe(0)
-  // The nav is fixed-width and not resizable, so every label must show in full.
-  for (const n of nav) expect(n.clipped, `nav label "${n.label}" is clipped`).toBe(false)
+  await page.waitForSelector(`${sel(id)} .hb-palette-swatch`, { timeout: 15000 })
+  return id
+}
+
+/** Mario's red: PlayerColors variant 0 ("Mario"), CGRAM row 8 col 9, first `.hb-palette-variant` section. */
+async function selectMarioRedSwatch(page, id) {
+  const swatch = page
+    .locator(`${sel(id)} .hb-palette-variant`)
+    .first()
+    .locator('.hb-palette-swatch')
+    .nth(9)
+  await swatch.click()
+  return swatch
+}
+
+test('Palettes is in the left activity bar and reveals a tree of the six groups in served order', async ({
+  page,
+}) => {
+  const project = await openProject(page, path.join(tmp, 'MyHack'))
+  const inLeft = await page.evaluate(
+    id =>
+      getSvc('ApplicationShell')
+        .getWidgets('left')
+        .some(w => w.id === id),
+    EXPLORER,
+  )
+  expect(inLeft).toBe(true)
+  await revealExplorer(page)
+  const labels = await page.evaluate(
+    s => [...document.querySelectorAll(`${s} .theia-TreeNode`)].map(n => n.textContent),
+    sel(EXPLORER),
+  )
+  const r = await explorerResult(page)
+  expect(r.palettes.groups.map(g => g.id)).toEqual(EXPECTED_GROUPS.map(g => g.id))
+  for (const g of r.palettes.groups) expect(labels.some(l => l.includes(g.label))).toBe(true)
+  expect(project.manifestPath).toBeTruthy()
+})
+
+test('single click previews a group in an italic tab, double click pins it', async ({ page }) => {
+  await openProject(page, path.join(tmp, 'MyHack'))
+  await revealExplorer(page)
+  const node = page.locator(`${sel(EXPLORER)} .theia-TreeNode`, { hasText: 'Shared Sprite Colors' })
+  // Rendered style, not just the class: index.css styles .hb-preview-tab .theia-tab-icon-label.
+  const tabStyles = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.lm-TabBar-tab, .p-TabBar-tab')]
+        .filter(t => (t.textContent || '').includes('Shared Sprite Colors'))
+        .map(t => getComputedStyle(t.querySelector('.theia-tab-icon-label')).fontStyle),
+    )
+  await node.click()
+  await page.waitForTimeout(500)
+  expect(await tabStyles()).toEqual(['italic'])
+  await node.dblclick()
+  await page.waitForTimeout(500)
+  expect(await tabStyles()).toEqual(['normal'])
+})
+
+test('a variant row opens a tab with exactly that one variant', async ({ page }) => {
+  const p = await openProject(page, path.join(tmp, 'MyHack'))
+  const id = await openTab(page, p.manifestPath, 'bg', 3)
+  const state = await page.evaluate(s => {
+    const el = document.querySelector(s)
+    return {
+      sections: el.querySelectorAll('.hb-palette-variant').length,
+      rows: el.querySelectorAll('.hb-palette-row').length,
+    }
+  }, sel(id))
+  expect(state).toEqual({ sections: 1, rows: 2 })
+  // Variant 3's own label is "Palette 3" (PaletteLoader.ts loadRomPalettes,
+  // bgPairVariants: `label: \`Palette ${v}\``), not a generic "Variant 3" -
+  // tabTitle only falls back to "Variant N" when a variant carries no label.
+  expect(
+    await page.evaluate(
+      i => document.getElementById(i) && getSvc('ApplicationShell').getWidgetById(i).title.label,
+      id,
+    ),
+  ).toBe('Layer 2 Background \u00b7 Palette 3')
+})
+
+test('column 0 is hatched in every Layer 2 variant and Back Area Colors draws 8 swatches at the same size', async ({
+  page,
+}) => {
+  const p = await openProject(page, path.join(tmp, 'MyHack'))
+  const bg = await openTab(page, p.manifestPath, 'bg')
+  const col0 = await page.evaluate(
+    s =>
+      [...document.querySelectorAll(`${s} .hb-palette-variant`)].map(v => {
+        const swatch = v.querySelector('.hb-palette-swatch')
+        return {
+          unwritten: swatch.classList.contains('hb-palette-swatch-unwritten'),
+          style: swatch.getAttribute('style') || '',
+          title: swatch.getAttribute('title') || '',
+        }
+      }),
+    sel(bg),
+  )
+  expect(col0.map(c => c.unwritten)).toEqual(Array(8).fill(true))
+  // Hatched, not a fabricated colour: no inline background and no BGR555
+  // reading in its tooltip (only a real table-read cell ever gets either).
+  for (const c of col0) {
+    expect(c.style).not.toContain('background')
+    expect(c.title).not.toMatch(/BGR555/i)
+  }
+  const ref = await page
+    .locator(`${sel(bg)} .hb-palette-swatch`)
+    .first()
+    .evaluate(e => e.getBoundingClientRect().width)
+  const ba = await openTab(page, p.manifestPath, 'back_area')
+  const swatches = page.locator(`${sel(ba)} .hb-palette-swatch`)
+  expect(await swatches.count()).toBe(8)
+  expect(await page.locator(`${sel(ba)} .hb-palette-row-gutter`).count()).toBe(0)
+  expect(await swatches.first().evaluate(e => e.getBoundingClientRect().width)).toBe(ref)
+})
+
+test('a group tab dragged into a split keeps rendering and accepting edits', async ({ page }) => {
+  const dir = path.join(tmp, 'MyHack')
+  const p = await openProject(page, dir)
+  const player = await openTab(page, p.manifestPath, 'player')
+  const bg = await openTab(page, p.manifestPath, 'bg')
+  await page.evaluate(
+    ({ player, bg }) => {
+      const shell = getSvc('ApplicationShell')
+      shell.addWidget(shell.getWidgetById(player), {
+        area: 'main',
+        mode: 'split-right',
+        ref: shell.getWidgetById(bg),
+      })
+    },
+    { player, bg },
+  )
+  await page.waitForTimeout(500)
+  const boxes = await page.evaluate(
+    ids => ids.map(i => document.getElementById(i).getBoundingClientRect().left),
+    [player, bg],
+  )
+  expect(boxes[0]).not.toBe(boxes[1]) // side by side, both visible
+  await page
+    .locator(`${sel(player)} .hb-palette-variant`)
+    .first()
+    .locator('.hb-palette-swatch')
+    .nth(9)
+    .click()
+  const hex = page.locator(`${sel(player)} .hb-palette-inspector-hex`)
+  await hex.fill('03E0')
+  await hex.press('Enter')
+  await page.waitForTimeout(400)
+  const opFiles = fs.readdirSync(path.join(dir, 'ops')).filter(f => f.endsWith('.json'))
+  const layer = JSON.parse(fs.readFileSync(path.join(dir, 'ops', opFiles[0]), 'utf8'))
+  expect(layer.ops).toContainEqual({ address: '$00B2CE', old: '$391F', new: '$03E0' })
+})
+
+test('an edit in a variant tab updates the same cell in an open group tab', async ({ page }) => {
+  const p = await openProject(page, path.join(tmp, 'MyHack'))
+  const group = await openTab(page, p.manifestPath, 'player')
+  const variant = await openTab(page, p.manifestPath, 'player', 0)
+  const groupSwatch = page
+    .locator(`${sel(group)} .hb-palette-variant`)
+    .first()
+    .locator('.hb-palette-swatch')
+    .nth(9)
+  await page
+    .locator(`${sel(variant)} .hb-palette-swatch`)
+    .nth(9)
+    .click()
+  const hex = page.locator(`${sel(variant)} .hb-palette-inspector-hex`)
+  await hex.fill('03E0')
+  await hex.press('Enter')
+  await page.waitForTimeout(600)
+  expect(
+    parseRgbTriplet(await groupSwatch.evaluate(e => getComputedStyle(e).backgroundColor)),
+  ).toEqual(bgr555ToRgbTriplet(0x03e0))
+})
+
+test('the animated color plays in the preview, with its frames directly beneath', async ({
+  page,
+}) => {
+  const p = await openProject(page, path.join(tmp, 'MyHack'))
+  const id = await openTab(page, p.manifestPath, 'sprite_sets')
+  const r = await explorerResult(page)
+  const t = r.palettes.animation.targets.find(x => x.cgramIdx === 0x64)
+  expect(r.palettes.animation.available).toBe(true)
+  expect(t.frames.length).toBeGreaterThan(1)
+  // CGRAM $64 is Shared Sprite Colors row index 2 (CGRAM 6), column 4.
+  const cell = page
+    .locator(`${sel(id)} .hb-palette-row`)
+    .nth(2)
+    .locator('.hb-palette-swatch')
+    .nth(4)
+  await expect(cell).toHaveClass(/hb-palette-swatch-animated/)
+  await cell.click()
+  const samples = await page.evaluate(async s => {
+    const el = document.querySelector(`${s} .hb-palette-preview`)
+    const out = []
+    const t0 = performance.now()
+    while (performance.now() - t0 < 1600) {
+      out.push({ t: performance.now() - t0, c: getComputedStyle(el).backgroundColor })
+      await new Promise(r => setTimeout(r, 16))
+    }
+    return out
+  }, sel(id))
+  const distinct = new Set(samples.map(s => s.c))
+  const expectedDistinct = new Set(t.frames.map(f => `${f.color.r},${f.color.g},${f.color.b}`)).size
+  expect(distinct.size).toBe(expectedDistinct)
+  // No frozen span: the color must change at least once in any 4 frame periods.
+  let last = samples[0]
+  let longest = 0
+  for (const s of samples) {
+    if (s.c !== last.c) {
+      longest = Math.max(longest, s.t - last.t)
+      last = s
+    }
+  }
+  longest = Math.max(longest, samples[samples.length - 1].t - last.t)
+  expect(longest).toBeLessThan(4 * t.intervalMs + 100)
+  // Frames sit directly under the preview.
+  const gap = await page.evaluate(s => {
+    const pv = document.querySelector(`${s} .hb-palette-preview`).getBoundingClientRect()
+    const fr = document.querySelector(`${s} .hb-palette-frames`).getBoundingClientRect()
+    return fr.top - pv.bottom
+  }, sel(id))
+  expect(gap).toBeGreaterThanOrEqual(0)
+  expect(gap).toBeLessThan(16)
+})
+
+test('editing a frame persists an op file and updates every linked frame', async ({ page }) => {
+  const dir = path.join(tmp, 'MyHack')
+  // File offset 0x2424 (headerless LoROM) is $00A424, the operand of the
+  // kernel's `AND.B #$1C` at $00A423 (SMWDisX bank_00.asm:4669).
+  // Vanilla's own mask ($1C) is contiguous, so $64's frame list
+  // never repeats a ROM address and this test cannot tell "every linked
+  // frame" apart from "the one frame clicked". Poke the kernel's AND
+  // operand non-contiguous instead (bits 2,3,5 set -> repeated low-order
+  // phase offsets 0,2,4,6,0,2,4,6,16,... across 16 phases), so more than one
+  // frame index genuinely shares one ROM word.
+  const romPath = path.join(tmp, 'framemask.sfc')
+  const bytes = fs.readFileSync(ROM)
+  bytes[0x2424] = 0x2c
+  fs.writeFileSync(romPath, bytes)
+  const p = await openProject(page, dir, romPath)
+  const id = await openTab(page, p.manifestPath, 'sprite_sets')
+  await page
+    .locator(`${sel(id)} .hb-palette-row`)
+    .nth(2)
+    .locator('.hb-palette-swatch')
+    .nth(4)
+    .click()
+  const frames = page.locator(`${sel(id)} .hb-palette-frames .hb-palette-swatch`)
+  await frames.nth(0).click()
+  const r = await explorerResult(page)
+  const t = r.palettes.animation.targets.find(x => x.cgramIdx === 0x64)
+  const addr = t.frames[0].romAddr
+  const linked = t.frames.map((f, i) => (f.romAddr === addr ? i : -1)).filter(i => i >= 0)
+  // Prove the fixture itself before trusting the assertions built on it.
+  expect(linked.length).toBeGreaterThan(1)
+  const hex = page.locator(`${sel(id)} .hb-palette-inspector-hex`)
+  const old = await hex.inputValue()
+  await hex.fill('03E0')
+  await hex.press('Enter')
+  await page.waitForTimeout(600)
+  for (const i of linked) {
+    expect(
+      parseRgbTriplet(await frames.nth(i).evaluate(e => getComputedStyle(e).backgroundColor)),
+    ).toEqual(bgr555ToRgbTriplet(0x03e0))
+  }
+  const opFiles = fs.readdirSync(path.join(dir, 'ops')).filter(f => f.endsWith('.json'))
+  const layer = JSON.parse(fs.readFileSync(path.join(dir, 'ops', opFiles[0]), 'utf8'))
+  const a = '$' + addr.toString(16).toUpperCase().padStart(6, '0')
+  expect(layer.ops).toContainEqual({ address: a, old: '$' + old, new: '$03E0' })
+})
+
+test('a ROM whose level animation routine is patched out shows the reason and no markers', async ({
+  page,
+}) => {
+  // $00A418 poked to RTS: the routine is intact but never reaches its write (CLAUDE.md, "Existing is not the same as reached").
+  const romPath = path.join(tmp, 'patched.sfc')
+  const bytes = fs.readFileSync(ROM)
+  bytes[0x2418] = 0x60
+  fs.writeFileSync(romPath, bytes)
+  const p = await openProject(page, path.join(tmp, 'Patched'), romPath)
+  await revealExplorer(page)
+  const r = await explorerResult(page)
+  expect(r.palettes.animation.available).toBe(false)
+  expect(r.palettes.animation.targets).toEqual([])
+  // A specific reason, not just the generic banner: `notes` empty would
+  // still let the banner alone read "unavailable: no reason given" and pass
+  // a text-only match.
+  expect(r.palettes.animation.notes.length).toBeGreaterThan(0)
+  const text = await page.evaluate(s => document.querySelector(s).innerText, sel(EXPLORER))
+  expect(text).toMatch(/Level palette animation unavailable/)
+  expect(text).toContain(r.palettes.animation.notes[0])
+  const id = await openTab(page, p.manifestPath, 'sprite_sets')
+  expect(await page.locator(`${sel(id)} .hb-palette-swatch-animated`).count()).toBe(0)
+})
+
+test('switching projects closes palette tabs', async ({ page }) => {
+  const a = await openProject(page, path.join(tmp, 'A'))
+  const id = await openTab(page, a.manifestPath, 'player')
+  await openProject(page, path.join(tmp, 'B'))
+  expect(await page.evaluate(i => !!getSvc('ApplicationShell').getWidgetById(i), id)).toBe(false)
+})
+
+test('a stale refusal in one tab leaves its grid visible', async ({ page }) => {
+  const p = await openProject(page, path.join(tmp, 'MyHack'))
+  const id = await openTab(page, p.manifestPath, 'player')
+  await page
+    .locator(`${sel(id)} .hb-palette-variant`)
+    .first()
+    .locator('.hb-palette-swatch')
+    .nth(9)
+    .click()
+  // Real races are not a reliable oracle (the push refresh usually wins), so
+  // the service answers this tab's edit with the refusal WorkingRom.append gives.
+  await page.evaluate(i => {
+    const w = getSvc('ApplicationShell').getWidgetById(i)
+    const real = w.palettes
+    w.palettes = {
+      loadPalettes: mp => real.loadPalettes(mp),
+      setColor: async () => ({ status: 'stale', reason: '$00B2CE no longer holds $391F' }),
+    }
+  }, id)
+  const hex = page.locator(`${sel(id)} .hb-palette-inspector-hex`)
+  await hex.fill('03E0')
+  await hex.press('Enter')
+  await page.waitForTimeout(400)
+  await expect(page.locator(`${sel(id)} .hb-palette-inspector-from-error`)).toHaveText(
+    /no longer holds/,
+  )
+  expect(await page.locator(`${sel(id)} .hb-palette-swatch`).count()).toBeGreaterThan(0)
+})
+
+test('a successful edit clears an earlier refusal on the same cell', async ({ page }) => {
+  const p = await openProject(page, path.join(tmp, 'MyHackRecover'))
+  const id = await openTab(page, p.manifestPath, 'player')
+  const swatch = await selectMarioRedSwatch(page, id)
+  // One refusal, as WorkingRom.append gives it, then the real service back.
+  await page.evaluate(i => {
+    const w = getSvc('ApplicationShell').getWidgetById(i)
+    const real = w.palettes
+    w.palettes = {
+      loadPalettes: mp => real.loadPalettes(mp),
+      setColor: async () => {
+        w.palettes = real
+        return { status: 'stale', reason: '$00B2CE no longer holds $391F' }
+      },
+    }
+  }, id)
+  const hex = page.locator(`${sel(id)} .hb-palette-inspector-hex`)
+  await hex.fill('03E0')
+  await hex.press('Enter')
+  const err = page.locator(`${sel(id)} .hb-palette-inspector-from-error`)
+  await expect(err).toHaveText(/no longer holds/)
+  // The real write pushes a working-copy change, and the fetch it starts
+  // supersedes this commit's own response; the error must clear anyway.
+  await hex.fill('03E0')
+  await hex.press('Enter')
+  await page.waitForTimeout(600)
+  await expect(err).toHaveCount(0)
+  expect(parseRgbTriplet(await swatch.evaluate(e => getComputedStyle(e).backgroundColor))).toEqual(
+    bgr555ToRgbTriplet(0x03e0),
+  )
+})
+
+test('a narrow tab wraps the inspector below the grid', async ({ page }) => {
+  const p = await openProject(page, path.join(tmp, 'MyHack'))
+  const id = await openTab(page, p.manifestPath, 'sprite_sets')
+  // CGRAM $64 is Shared Sprite Colors row index 2, column 4 - the animated
+  // cell. An empty inspector never renders its preview, frame strip or edit
+  // row at all, so an overflow check against it would pass regardless of
+  // whether those elements actually fit a narrow tab.
+  await page
+    .locator(`${sel(id)} .hb-palette-row`)
+    .nth(2)
+    .locator('.hb-palette-swatch')
+    .nth(4)
+    .click()
+  await page.setViewportSize({ width: 700, height: 900 })
+  await page.waitForTimeout(400)
+  const pos = await page.evaluate(s => {
+    const m = document.querySelector(`${s} .hb-palette-main`).getBoundingClientRect()
+    const i = document.querySelector(`${s} .hb-palette-inspector`).getBoundingClientRect()
+    const maxRight = Math.max(
+      ...[
+        ...document.querySelectorAll(`${s} .hb-palette-inspector, ${s} .hb-palette-inspector *`),
+      ].map(el => el.getBoundingClientRect().right),
+    )
+    return {
+      inspectorTop: i.top,
+      gridBottom: m.bottom,
+      maxRight,
+      tabRight: document.querySelector(s).getBoundingClientRect().right,
+    }
+  }, sel(id))
+  expect(pos.inspectorTop).toBeGreaterThanOrEqual(pos.gridBottom - 1)
+  // No descendant of the inspector - preview, frame strip, hex field,
+  // buttons - overflows the tab, not just the inspector's own box.
+  expect(pos.maxRight).toBeLessThanOrEqual(pos.tabRight + 1)
+})
+
+test("a reloaded window's explorer still opens tabs", async ({ page }) => {
+  await openProject(page, path.join(tmp, 'MyHack'))
+  await revealExplorer(page)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
+  await page.waitForTimeout(4000)
+  await page.addScriptTag({ content: GET_SVC })
+  await openProject(page, path.join(tmp, 'Again'))
+  await revealExplorer(page)
+  await page.locator(`${sel(EXPLORER)} .theia-TreeNode`, { hasText: 'Player Palettes' }).dblclick()
+  await page.waitForTimeout(600)
+  expect(
+    await page.evaluate(
+      () =>
+        !!document.querySelector('[id^="hackbench.palette-group-view:player"] .hb-palette-swatch'),
+    ),
+  ).toBe(true)
 })
 
 /**
@@ -135,17 +568,22 @@ test("every group and row shape matches loadRomPalettes' own definitions", async
 test("every written cell's colour matches the actual ROM bytes at the address it cites", async ({
   page,
 }) => {
-  const { result, error } = await loadPalettes(page, path.join(tmp, 'MyHack'))
-  expect(error).toBeUndefined()
-  expect(result.status).toBe('ok')
+  await openProject(page, path.join(tmp, 'MyHack'))
+  const r = await explorerResult(page)
+  expect(r.status).toBe('ok')
 
   const rom = RomFile.load(ROM)
+  const truth = loadBackAreaColors(rom)
   let checked = 0
   let checkedCol1 = 0
 
-  for (const g of result.palettes.groups) {
+  for (const g of r.palettes.groups) {
+    // Every row this view renders is a 16-wide CGRAM slice, except
+    // back_area's own 8-wide COLDATA row (EXPECTED_GROUPS' cols:8).
+    const expectedCols = g.id === 'back_area' ? 8 : COLS
     for (const v of g.variants) {
       for (const row of v.rows) {
+        expect(row.length, `${g.id} row width`).toBe(expectedCols)
         for (const cell of row) {
           if (!cell.written) continue
           expect(cell.romAddr, `${g.id} ${cell.table} cell with no romAddr`).not.toBeNull()
@@ -178,188 +616,33 @@ test("every written cell's colour matches the actual ROM bytes at the address it
       }
     }
   }
+  // Back Area Colors independently against loadBackAreaColors' own truth
+  // (COLDATA, not a CGRAM row read through the address-citation path above).
+  const backArea = r.palettes.groups.find(g => g.id === 'back_area')
+  backArea.variants[0].rows[0].forEach((cell, i) => {
+    const [tr, tg, tb, ta] = truth[i]
+    expect(cell, `back_area index ${i}`).toMatchObject({ color: { r: tr, g: tg, b: tb, a: ta } })
+  })
+  // Animation frames against the bytes at the address each one cites, read
+  // here rather than trusted from the detector that computed the address.
+  expect(r.palettes.animation.available).toBe(true)
+  let checkedFrames = 0
+  for (const t of r.palettes.animation.targets) {
+    for (const f of t.frames) {
+      const buf = rom.readAt(f.romAddr, 2)
+      expect(buf, `frame word $${f.romAddr.toString(16)} unreadable`).not.toBeNull()
+      const [er, eg, eb, ea] = bgr555ToRgba(buf.readUInt16LE(0))
+      expect(f.color, `CGRAM $${t.cgramIdx.toString(16)} frame $${f.romAddr.toString(16)}`).toEqual(
+        { r: er, g: eg, b: eb, a: ea },
+      )
+      checkedFrames++
+    }
+  }
   // Tripwire against a sweep that silently checks nothing, or checks one
   // swatch: both were real defects here before this fix.
   expect(checked).toBeGreaterThan(700)
   expect(checkedCol1).toBeGreaterThan(0)
-})
-
-/**
- * Back Area Colors: its own standalone group next to Layer 2 Background,
- * not a swatch paired one-to-one with each BG variant (that pairing implied
- * a link the cartridge does not have - BG palette is header byte 0, back
- * area colour is the INDEPENDENT header byte 1). Nor does it leak into
- * CGRAM row 0 col 0: CODE_00922F zeroes that cell before every upload
- * (SMWDisX bank_00.asm:2047-2048); back area goes to COLDATA instead.
- */
-test('Back Area Colors is its own group of 8, matching loadBackAreaColors, with no CGRAM row', async ({
-  page,
-}) => {
-  const { result } = await loadPalettes(page, path.join(tmp, 'MyHack'))
-  const rom = RomFile.load(ROM)
-  const truth = loadBackAreaColors(rom)
-
-  const group = result.palettes.groups.find(g => g.id === 'back_area')
-  expect(group, 'a back_area group should exist').toBeTruthy()
-  expect(group.cgRamRow).toBeNull() // it has no CGRAM row - it is not CGRAM data
-  expect(group.description.toLowerCase()).toMatch(/coldata|\$2132/) // states what it IS
-  expect(group.description).toMatch(/byte 1/) // and how a map picks one
-
-  expect(group.variants.length).toBe(1)
-  const cells = group.variants[0].rows[0]
-  expect(cells.length).toBe(8)
-  cells.forEach((cell, i) => {
-    const [r, g, b, a] = truth[i]
-    expect(cell, `back_area index ${i}`).toMatchObject({ written: true, color: { r, g, b, a } })
-    expect(cell.romAddr, `back_area index ${i} romAddr`).toBe(0x00b0a0 + i * 2)
-  })
-
-  // Layer 2 Background no longer carries a per-variant back-area pairing,
-  // neither as a field nor as its first row's column 0.
-  const bg = result.palettes.groups.find(g => g.id === 'bg')
-  bg.variants.forEach((v, vi) => {
-    expect(v.backAreaColor).toBeUndefined()
-    expect(v.rows[0][0], `bg variant ${vi} row 0 col 0`).toEqual({ written: false })
-  })
-
-  // It has its own nav entry, same weight as the other five - not a detail
-  // nested inside Layer 2 Background's own display.
-  await revealPalettes(page)
-  await page.waitForSelector('#hackbench\\.palette-view .hb-palette-nav-item', { timeout: 15000 })
-
-  // Rendered: Layer 2 Background's first swatch in every variant is hatched,
-  // not painted with a back area colour.
-  const bgCol0 = await page.evaluate(() => {
-    const nav = [...document.querySelectorAll('.hb-palette-nav-item')].find(n =>
-      (n.textContent || '').includes('Layer 2 Background'),
-    )
-    nav.click()
-    return new Promise(resolve =>
-      setTimeout(() => {
-        const el = document.getElementById('hackbench.palette-view')
-        resolve(
-          [...el.querySelectorAll('.hb-palette-variant')].map(variant => {
-            const s = variant.querySelector('.hb-palette-row .hb-palette-swatch')
-            return {
-              unwritten: s.classList.contains('hb-palette-swatch-unwritten'),
-              style: s.getAttribute('style') || '',
-            }
-          }),
-        )
-      }, 300),
-    )
-  })
-  expect(bgCol0.length).toBe(8)
-  for (const s of bgCol0) {
-    expect(s.unwritten).toBe(true)
-    expect(s.style).not.toContain('background')
-  }
-  const navLabels = await page.evaluate(() =>
-    [...document.querySelectorAll('.hb-palette-nav-label')].map(el => el.textContent),
-  )
-  expect(navLabels).toContain('Back Area Colors')
-
-  // Its swatches render at the same size as every other group's.
-  const referenceSize = await page
-    .locator('#hackbench\\.palette-view .hb-palette-swatch')
-    .first()
-    .evaluate(el => el.getBoundingClientRect().width)
-  await page.evaluate(() => {
-    const nav = [...document.querySelectorAll('.hb-palette-nav-item')].find(n =>
-      (n.textContent || '').includes('Back Area Colors'),
-    )
-    nav.click()
-  })
-  await page.waitForTimeout(300)
-  const backAreaSwatches = page.locator('#hackbench\\.palette-view .hb-palette-swatch')
-  expect(await backAreaSwatches.count()).toBe(8)
-  const backAreaSize = await backAreaSwatches
-    .first()
-    .evaluate(el => el.getBoundingClientRect().width)
-  expect(backAreaSize).toBe(referenceSize)
-})
-
-test('a cell no table writes is never painted as a colour or given a BGR555 reading', async ({
-  page,
-}) => {
-  const { result } = await loadPalettes(page, path.join(tmp, 'MyHack'))
-
-  // Known-still-unwritten cells: fg col 8 (no table covers it), player cols
-  // 2-5 (PlayerColors starts at col 6), sp_ef cols 8-15 (no secondary table
-  // targets its rows), and any row but the first's column 0 (only CGRAM $00
-  // is the real backdrop; every other row's col 0 is a transparent sentinel).
-  const fg = result.palettes.groups.find(g => g.id === 'fg')
-  expect(fg.variants[0].rows[0][8]).toEqual({ written: false })
-  const player = result.palettes.groups.find(g => g.id === 'player')
-  for (const col of [2, 3, 4, 5])
-    expect(player.variants[0].rows[0][col]).toEqual({ written: false })
-  const spEf = result.palettes.groups.find(g => g.id === 'sp_ef')
-  for (const col of [8, 9, 12, 15])
-    expect(spEf.variants[0].rows[0][col]).toEqual({ written: false })
-  const bg = result.palettes.groups.find(g => g.id === 'bg')
-  expect(bg.variants[0].rows[1][0]).toEqual({ written: false })
-
-  // And the rendered half: hatched, no colour, no BGR555 in its tooltip.
-  await revealPalettes(page)
-  await page.waitForSelector('#hackbench\\.palette-view .hb-palette-swatch', { timeout: 15000 })
-
-  const unwritten = await page.evaluate(() => {
-    // bg's active row 0: column 8 is unwritten only past StatusBarColors'
-    // range on OTHER groups, so use fg's col 8 instead - switch group first.
-    const nav = [...document.querySelectorAll('.hb-palette-nav-item')].find(n =>
-      (n.textContent || '').includes('Foreground'),
-    )
-    nav.click()
-    return new Promise(resolve =>
-      setTimeout(() => {
-        const el = document.getElementById('hackbench.palette-view')
-        const row0 = [...el.querySelectorAll('.hb-palette-row')][0]
-        const swatch = row0.querySelectorAll('.hb-palette-swatch')[8]
-        resolve({
-          hasUnwrittenClass: swatch.classList.contains('hb-palette-swatch-unwritten'),
-          inlineStyle: swatch.getAttribute('style') || '',
-          title: swatch.getAttribute('title') || '',
-        })
-      }, 300),
-    )
-  })
-  expect(unwritten.hasUnwrittenClass).toBe(true)
-  expect(unwritten.inlineStyle).not.toContain('background')
-  expect(unwritten.title).not.toMatch(/BGR555/)
-})
-
-test('two groups that genuinely share a CGRAM row still cite their own distinct tables', async ({
-  page,
-}) => {
-  // sprite_sets row index 4 and player's only row are both CGRAM row 8, and
-  // both StandardColors and PlayerColors cover its columns 6-7 - a real
-  // overlap, not a bug. Each cell must still name ITS OWN table rather than
-  // asserting one shared, unqualified "CGRAM row 8" identity.
-  const { result } = await loadPalettes(page, path.join(tmp, 'MyHack'))
-  const spriteSets = result.palettes.groups.find(g => g.id === 'sprite_sets')
-  const player = result.palettes.groups.find(g => g.id === 'player')
-  expect(spriteSets.variants[0].rows[4][6].table).toBe('StandardColors')
-  expect(player.variants[0].rows[0][6].table).toBe('PlayerColors')
-
-  await revealPalettes(page)
-  await page.waitForSelector('#hackbench\\.palette-view .hb-palette-nav-item', { timeout: 15000 })
-
-  const gutter = await page.evaluate(() => {
-    const nav = [...document.querySelectorAll('.hb-palette-nav-item')].find(n =>
-      (n.textContent || '').includes('Shared Sprite Colors'),
-    )
-    nav.click()
-    return new Promise(resolve =>
-      setTimeout(() => {
-        const el = document.getElementById('hackbench.palette-view')
-        const gutters = [...el.querySelectorAll('.hb-palette-row-gutter')].map(g => g.textContent)
-        resolve(gutters)
-      }, 300),
-    )
-  })
-  // Plain row identifiers, not a table-name claim that would misattribute
-  // the half of the row a different table actually supplies.
-  for (const g of gutter) expect(g).toMatch(/^CGRAM \d+$/)
+  expect(checkedFrames).toBeGreaterThan(1)
 })
 
 test('a cartridge too short to hold the palette tables is reported unreadable, not rendered as a plausible grid', async ({
@@ -372,130 +655,33 @@ test('a cartridge too short to hold the palette tables is reported unreadable, n
   // header (needs 32 KB+) or any palette table.
   fs.writeFileSync(tinyRomPath, Buffer.alloc(0x2000, 0xff))
 
-  const state = await page.evaluate(
-    async ({ romPath, directory }) => {
-      const svc = getSvc('Symbol(ProjectService)')
-      const project = await svc.createProject({ romPath, name: 'Tiny', directory })
-      const w = await getWidget('hackbench.palette-view')
-      await w.load(project.manifestPath)
-      return {
-        status: w.result ? w.result.status : null,
-        error: w.error || null,
-        text: document.getElementById('hackbench.palette-view').innerText,
-      }
-    },
-    { romPath: tinyRomPath, directory: dir },
-  )
-
-  expect(state.error, state.error).toBeNull()
-  expect(state.status).toBe('unreadable')
-  expect(state.text.length).toBeGreaterThan(0)
-})
-
-test('a stale response never overwrites a newer one', async ({ page }) => {
-  // Real RPC timing is not a reliable oracle here, so the service is
-  // stubbed with two synthetic responses on controlled delays: A resolves
-  // LAST despite being called FIRST. Without a request token, A's late
-  // arrival overwrites B's.
-  const state = await page.evaluate(async () => {
-    const w = await getWidget('hackbench.palette-view')
-    const real = w.palettes
-    // Replacing what w.palettes POINTS TO, not a method on the live object:
-    // the live object is a JSON-RPC proxy whose `get` trap can keep
-    // synthesising the real RPC call regardless of a property write on it.
-    let call = 0
-    w.palettes = {
-      loadPalettes: async () => {
-        call++
-        if (call === 1) {
-          await new Promise(r => setTimeout(r, 150)) // A: called first, resolves last
-          return { status: 'unreadable', reason: 'STALE-A' }
-        }
-        await new Promise(r => setTimeout(r, 10)) // B: called second, resolves first
-        return { status: 'unreadable', reason: 'CURRENT-B' }
-      },
-    }
-    try {
-      const a = w.load('manifest-a')
-      const b = w.load('manifest-b')
-      await Promise.all([a, b])
-      return {
-        manifestPath: w.manifestPath,
-        error: w.error || null,
-        reason: w.result ? w.result.reason : null,
-      }
-    } finally {
-      w.palettes = real
-    }
-  })
-
-  expect(state.error, state.error).toBeNull()
-  expect(state.manifestPath).toBe('manifest-b')
-  expect(state.reason).toBe('CURRENT-B')
-})
-
-test('a project whose cartridge is not on this machine asks for it, not an error', async ({
-  page,
-}) => {
-  const dir = path.join(tmp, 'Shared')
-  const manifestPath = path.join(dir, 'Shared.hbproj')
-
-  await page.evaluate(
-    async ({ romPath, directory }) => {
-      const svc = getSvc('Symbol(ProjectService)')
-      await svc.createProject({ romPath, name: 'Shared', directory })
-    },
-    { romPath: ROM, directory: dir },
-  )
-
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-  manifest.baseRom.sha256 = 'f'.repeat(64)
-  manifest.baseRom.title = 'SOMEONE ELSES CART'
-  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
-
-  const state = await page.evaluate(async mp => {
-    const w = await getWidget('hackbench.palette-view')
-    await w.load(mp)
-    return {
-      status: w.result.status,
-      title: w.result.status === 'rom-not-located' ? w.result.baseRom.title : null,
-    }
-  }, manifestPath)
-
-  expect(state.status).toBe('rom-not-located')
-  expect(state.title).toBe('SOMEONE ELSES CART')
-
-  await revealPalettes(page)
-  await page.waitForSelector('#hackbench\\.palette-view', { timeout: 15000 })
-  const text = await page.locator('#hackbench\\.palette-view').innerText()
-  expect(text).toMatch(/locate/i)
-  expect(text).toContain('SOMEONE ELSES CART')
+  await openProject(page, dir, tinyRomPath)
+  await revealExplorer(page)
+  const r = await explorerResult(page)
+  expect(r.status).toBe('unreadable')
+  const text = await page.evaluate(s => document.querySelector(s).innerText, sel(EXPLORER))
+  // The served reason itself, not just "some text exists" - a note that
+  // renders any non-empty placeholder would still pass a length check.
+  expect(text).toContain(r.reason)
+  expect(await page.locator('.hb-palette-swatch').count()).toBe(0)
 })
 
 test('no project open shows an explicit empty state, not a blank panel', async ({ page }) => {
-  await revealPalettes(page)
-  await page.waitForSelector('#hackbench\\.palette-view', { timeout: 15000 })
-
-  const text = await page.locator('#hackbench\\.palette-view').innerText()
-  expect(text.toLowerCase()).toContain('open a project')
+  await revealExplorer(page)
+  const text = await page.evaluate(s => document.querySelector(s).innerText, sel(EXPLORER))
+  expect(text.toLowerCase()).toContain('open a project to see its palettes')
 })
 
-test('the palette view is labelled and carries a real, defined codicon class', async ({ page }) => {
-  await revealPalettes(page)
+test('the palette explorer is labelled and carries a real, defined codicon class', async ({
+  page,
+}) => {
+  await revealExplorer(page)
 
-  const found = await page.evaluate(() => !!document.getElementById('hackbench.palette-view'))
+  const found = await page.evaluate(id => !!document.getElementById(id), EXPLORER)
   expect(found, 'the widget itself should exist').toBe(true)
 
-  const tabLabel = await page.evaluate(() => {
-    const tab = [...document.querySelectorAll('.lm-TabBar-tab')].find(
-      t => (t.querySelector('.lm-TabBar-tabLabel')?.textContent || '') === 'Palettes',
-    )
-    return tab ? tab.querySelector('.lm-TabBar-tabLabel').textContent : null
-  })
-  expect(tabLabel, 'a tab labelled Palettes should exist').toBe('Palettes')
-
-  const icon = await page.evaluate(async () => {
-    const w = await getWidget('hackbench.palette-view')
+  const icon = await page.evaluate(async id => {
+    const w = await getWidget(id)
     const iconClass = w.title.iconClass || ''
     const hasCodicon = iconClass
       .split(/\s+/)
@@ -520,104 +706,22 @@ test('the palette view is labelled and carries a real, defined codicon class', a
       if (hasGlyphRule) break
     }
     return { iconClass, hasCodicon, hasGlyphRule }
-  })
+  }, EXPLORER)
 
   expect(icon.hasCodicon, `iconClass was "${icon.iconClass}"`).toBe(true)
   expect(icon.hasGlyphRule, `no ::before rule found for ${icon.iconClass}`).toBe(true)
-})
 
-/**
- * Editing. Mario's red: PlayerColors variant 0 ("Mario"), CGRAM row 8 col 9,
- * $00B2CE, vanilla word $391F (SMWDisX/bank_00.asm:11257, :11324-11332 -
- * see the implementation brief). Player Palettes is currently the first
- * group, which activeGroupId defaults to, but it is selected explicitly
- * rather than assuming that order.
- */
+  const label = await page.evaluate(async id => (await getWidget(id)).title.label, EXPLORER)
+  expect(label).toBe('Palettes')
 
-/** Same expansion PaletteColorFormat.bgr555HexToCssHex uses: 5-bit -> 8-bit, exact for a value that came from bgr555ToRgba. */
-function bgr555ToRgbTriplet(word) {
-  const r5 = word & 0x1f
-  const g5 = (word >> 5) & 0x1f
-  const b5 = (word >> 10) & 0x1f
-  const expand = c5 => (c5 << 3) | (c5 >> 2)
-  return [expand(r5), expand(g5), expand(b5)]
-}
-
-function parseRgbTriplet(cssColor) {
-  const m = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(cssColor)
-  if (!m) throw new Error(`not an rgb() colour: ${cssColor}`)
-  return [Number(m[1]), Number(m[2]), Number(m[3])]
-}
-
-async function selectMarioRedSwatch(page) {
-  await page.evaluate(() => {
-    const nav = [...document.querySelectorAll('.hb-palette-nav-item')].find(n =>
-      (n.textContent || '').includes('Player Palettes'),
+  // Rendered: the activity-bar tab for this view carries the same label.
+  const barLabel = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.p-TabBar-tab, .lm-TabBar-tab')].find(t =>
+      (t.getAttribute('title') || t.textContent || '').includes('Palettes'),
     )
-    nav.click()
+    return el ? el.getAttribute('title') || el.textContent : null
   })
-  await page.waitForTimeout(300)
-  // Mario is the first variant section; its one row is CGRAM row 8; column
-  // index 9 is the 10th swatch.
-  const swatch = page
-    .locator('#hackbench\\.palette-view .hb-palette-variant')
-    .first()
-    .locator('.hb-palette-swatch')
-    .nth(9)
-  await swatch.click()
-  return swatch
-}
-
-test("changing a swatch's hex value updates its rendered colour and persists a real op file", async ({
-  page,
-}) => {
-  const dir = path.join(tmp, 'MyHack')
-  const { manifestPath } = await loadPalettes(page, dir)
-  await revealPalettes(page)
-  await page.waitForSelector('#hackbench\\.palette-view .hb-palette-swatch', { timeout: 15000 })
-
-  const swatch = await selectMarioRedSwatch(page)
-
-  const before = await swatch.evaluate(el => getComputedStyle(el).backgroundColor)
-  expect(parseRgbTriplet(before)).toEqual(bgr555ToRgbTriplet(0x391f)) // vanilla red before the edit
-
-  const hexField = page.locator('#hackbench\\.palette-view .hb-palette-inspector-hex')
-  await expect(hexField).toHaveValue('391F')
-
-  await hexField.fill('03E0')
-  await hexField.press('Enter')
-  await page.waitForTimeout(300)
-
-  const after = await swatch.evaluate(el => getComputedStyle(el).backgroundColor)
-  expect(parseRgbTriplet(after)).toEqual(bgr555ToRgbTriplet(0x03e0))
-  expect(after).not.toBe(before) // the actual pixel colour changed, not just a class
-
-  await expect(hexField).toHaveValue('03E0')
-
-  // The edit is a real, committed op file under ops/ - address+old+new, not
-  // a raw cartridge byte, so it is plainly fine for check-staged-content.sh.
-  const opsDir = path.join(dir, 'ops')
-  const opFiles = fs.readdirSync(opsDir).filter(f => f.endsWith('.json'))
-  expect(opFiles.length).toBeGreaterThan(0)
-  const layer = JSON.parse(fs.readFileSync(path.join(opsDir, opFiles[0]), 'utf8'))
-  expect(layer.ops).toContainEqual({ address: '$00B2CE', old: '$391F', new: '$03E0' })
-
-  // Reload the project fresh: the working copy (not just in-memory widget
-  // state) reflects the edit.
-  const reloaded = await page.evaluate(async mp => {
-    const wm = getSvc('WidgetManager')
-    const widget = await wm.getOrCreateWidget('hackbench.palette-view')
-    await widget.load(mp)
-    return widget.result
-  }, manifestPath)
-  expect(reloaded.status).toBe('ok')
-  const player = reloaded.palettes.groups.find(g => g.id === 'player')
-  expect(player.variants[0].rows[0][9].color).toEqual({
-    r: bgr555ToRgbTriplet(0x03e0)[0],
-    g: bgr555ToRgbTriplet(0x03e0)[1],
-    b: bgr555ToRgbTriplet(0x03e0)[2],
-    a: 255,
-  })
+  expect(barLabel).toContain('Palettes')
 })
 
 /**
@@ -631,19 +735,17 @@ test('picking a colour previews it locally; OK commits it and persists a real op
   page,
 }) => {
   const dir = path.join(tmp, 'MyHack2')
-  await loadPalettes(page, dir)
-  await revealPalettes(page)
-  await page.waitForSelector('#hackbench\\.palette-view .hb-palette-swatch', { timeout: 15000 })
-
-  const swatch = await selectMarioRedSwatch(page)
+  const p = await openProject(page, dir)
+  const id = await openTab(page, p.manifestPath, 'player')
+  const swatch = await selectMarioRedSwatch(page, id)
   const before = await swatch.evaluate(el => getComputedStyle(el).backgroundColor)
 
-  await page.evaluate(() => {
-    const el = document.querySelector('#hackbench\\.palette-view .hb-palette-inspector-color')
+  await page.evaluate(s => {
+    const el = document.querySelector(`${s} .hb-palette-inspector-color`)
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
     setter.call(el, '#00ff00')
     el.dispatchEvent(new Event('input', { bubbles: true }))
-  })
+  }, sel(id))
   await page.waitForTimeout(200)
 
   // Picking alone must not write anything to disk yet.
@@ -653,7 +755,7 @@ test('picking a colour previews it locally; OK commits it and persists a real op
     : []
   expect(opFilesBeforeOk).toEqual([])
 
-  const okButton = page.locator('#hackbench\\.palette-view .hb-palette-inspector-ok')
+  const okButton = page.locator(`${sel(id)} .hb-palette-inspector-ok`)
   await expect(okButton).toBeEnabled()
   await okButton.click()
   await page.waitForTimeout(300)
@@ -671,22 +773,20 @@ test('picking a colour previews it locally; OK commits it and persists a real op
 
 test('Cancel (and Escape) abandon a pick without writing anything', async ({ page }) => {
   const dir = path.join(tmp, 'MyHackCancel')
-  await loadPalettes(page, dir)
-  await revealPalettes(page)
-  await page.waitForSelector('#hackbench\\.palette-view .hb-palette-swatch', { timeout: 15000 })
-
-  const swatch = await selectMarioRedSwatch(page)
+  const p = await openProject(page, dir)
+  const id = await openTab(page, p.manifestPath, 'player')
+  const swatch = await selectMarioRedSwatch(page, id)
   const before = await swatch.evaluate(el => getComputedStyle(el).backgroundColor)
 
-  await page.evaluate(() => {
-    const el = document.querySelector('#hackbench\\.palette-view .hb-palette-inspector-color')
+  await page.evaluate(s => {
+    const el = document.querySelector(`${s} .hb-palette-inspector-color`)
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
     setter.call(el, '#00ff00')
     el.dispatchEvent(new Event('input', { bubbles: true }))
-  })
+  }, sel(id))
   await page.waitForTimeout(200)
 
-  const cancelButton = page.locator('#hackbench\\.palette-view .hb-palette-inspector-cancel')
+  const cancelButton = page.locator(`${sel(id)} .hb-palette-inspector-cancel`)
   await expect(cancelButton).toBeEnabled()
   await cancelButton.click()
   await page.waitForTimeout(200)
@@ -698,19 +798,101 @@ test('Cancel (and Escape) abandon a pick without writing anything', async ({ pag
   expect(fs.existsSync(opsDir) ? fs.readdirSync(opsDir) : []).toEqual([])
 
   // Pick again, this time abandon it with Escape.
-  await page.evaluate(() => {
-    const el = document.querySelector('#hackbench\\.palette-view .hb-palette-inspector-color')
+  await page.evaluate(s => {
+    const el = document.querySelector(`${s} .hb-palette-inspector-color`)
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
     setter.call(el, '#0000ff')
     el.dispatchEvent(new Event('input', { bubbles: true }))
-  })
+  }, sel(id))
   await page.waitForTimeout(200)
+  // Escape is scoped to the inspector (a document listener cancelled every
+  // open tab's pick), so it has to be pressed from inside it, where focus
+  // sits after a real color dialog closes.
+  await page.locator(`${sel(id)} .hb-palette-inspector-color`).focus()
   await page.keyboard.press('Escape')
   await page.waitForTimeout(200)
 
   const afterEscape = await swatch.evaluate(el => getComputedStyle(el).backgroundColor)
   expect(afterEscape).toBe(before)
   expect(fs.existsSync(opsDir) ? fs.readdirSync(opsDir) : []).toEqual([])
+})
+
+test('a stale response never overwrites a newer one', async ({ page }) => {
+  // Real RPC timing is not a reliable oracle here, so the service is
+  // stubbed with two synthetic responses on controlled delays: A resolves
+  // LAST despite being called FIRST. Without a request token, A's late
+  // arrival overwrites B's.
+  const p = await openProject(page, path.join(tmp, 'MyHack'))
+  const id = await openTab(page, p.manifestPath, 'player')
+  const state = await page.evaluate(
+    async ({ id, manifestPath }) => {
+      const w = getSvc('ApplicationShell').getWidgetById(id)
+      const real = w.palettes
+      // Replacing what w.palettes POINTS TO, not a method on the live object:
+      // the live object is a JSON-RPC proxy whose `get` trap can keep
+      // synthesising the real RPC call regardless of a property write on it.
+      let call = 0
+      w.palettes = {
+        loadPalettes: async () => {
+          call++
+          if (call === 1) {
+            await new Promise(r => setTimeout(r, 150)) // A: called first, resolves last
+            return { status: 'unreadable', reason: 'STALE-A' }
+          }
+          await new Promise(r => setTimeout(r, 10)) // B: called second, resolves first
+          return { status: 'unreadable', reason: 'CURRENT-B' }
+        },
+      }
+      try {
+        const a = w.open({ manifestPath, groupId: 'player' })
+        const b = w.open({ manifestPath, groupId: 'player' })
+        await Promise.all([a, b])
+        return { error: w.error || null, reason: w.result ? w.result.reason : null }
+      } finally {
+        w.palettes = real
+      }
+    },
+    { id, manifestPath: p.manifestPath },
+  )
+
+  expect(state.error, state.error).toBeNull()
+  expect(state.reason).toBe('CURRENT-B')
+})
+
+test('a project whose cartridge is not on this machine asks for it, not an error', async ({
+  page,
+}) => {
+  const dir = path.join(tmp, 'Shared')
+  const manifestPath = path.join(dir, 'Shared.hbproj')
+  await createProject(page, dir, ROM, 'Shared')
+
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+  manifest.baseRom.sha256 = 'f'.repeat(64)
+  manifest.baseRom.title = 'SOMEONE ELSES CART'
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
+
+  // Drive the explorer's own load() directly (as the old single-widget
+  // test drove hackbench.palette-view's) rather than through ProjectContext,
+  // since the manifest on disk is now the corrupted one.
+  const state = await page.evaluate(
+    async ({ mp, id }) => {
+      const w = await getWidget(id)
+      await w.load(mp)
+      return {
+        status: w.result.status,
+        title: w.result.status === 'rom-not-located' ? w.result.baseRom.title : null,
+      }
+    },
+    { mp: manifestPath, id: EXPLORER },
+  )
+
+  expect(state.status).toBe('rom-not-located')
+  expect(state.title).toBe('SOMEONE ELSES CART')
+
+  await revealExplorer(page)
+  const text = await page.evaluate(s => document.querySelector(s).innerText, sel(EXPLORER))
+  expect(text).toMatch(/locate/i)
+  expect(text).toContain('SOMEONE ELSES CART')
 })
 
 /**
@@ -727,12 +909,10 @@ test('a second edit on the same cell, right after the first, still visibly commi
   page,
 }) => {
   const dir = path.join(tmp, 'MyHackSecondEdit')
-  await loadPalettes(page, dir)
-  await revealPalettes(page)
-  await page.waitForSelector('#hackbench\\.palette-view .hb-palette-swatch', { timeout: 15000 })
-
-  const swatch = await selectMarioRedSwatch(page)
-  const hexField = page.locator('#hackbench\\.palette-view .hb-palette-inspector-hex')
+  const p = await openProject(page, dir)
+  const id = await openTab(page, p.manifestPath, 'player')
+  const swatch = await selectMarioRedSwatch(page, id)
+  const hexField = page.locator(`${sel(id)} .hb-palette-inspector-hex`)
 
   await hexField.fill('1000')
   await hexField.press('Enter')
@@ -752,9 +932,7 @@ test('a second edit on the same cell, right after the first, still visibly commi
   expect(parseRgbTriplet(afterSecond)).toEqual(bgr555ToRgbTriplet(0x2000))
   expect(afterSecond).not.toBe(afterFirst)
 
-  const errorText = await page
-    .locator('#hackbench\\.palette-view .hb-palette-inspector-from-error')
-    .count()
+  const errorText = await page.locator(`${sel(id)} .hb-palette-inspector-from-error`).count()
   expect(errorText).toBe(0) // no refusal was hit
 
   const opsDir = path.join(dir, 'ops')
@@ -762,115 +940,227 @@ test('a second edit on the same cell, right after the first, still visibly commi
   expect(opFiles).toHaveLength(2)
 })
 
-/**
- * A genuine stale refusal must be visible INSIDE the inspector, naming the
- * address and both values, and must NOT hide the rest of the palette view -
- * an earlier version replaced the entire panel with a bare error div on
- * ANY edit refusal, including ones a later successful edit never cleared.
- */
-test('a stale refusal is shown inline in the inspector, without hiding the palette grid', async ({
+/** Every main-area widget that is a palette tab, found by class: a restored tab never got its per-row id. */
+async function paletteTabsInShell(page) {
+  return page.evaluate(() =>
+    getSvc('ApplicationShell')
+      .getWidgets('main')
+      .filter(w => w.node.classList.contains('hb-palette-group-view'))
+      .map(w => ({ id: w.id, label: w.title.label })),
+  )
+}
+
+test('a palette tab saved with the layout does not come back as an empty tab after a reload', async ({
   page,
 }) => {
-  const dir = path.join(tmp, 'MyHackStale')
-  const { manifestPath } = await loadPalettes(page, dir)
-  await revealPalettes(page)
-  await page.waitForSelector('#hackbench\\.palette-view .hb-palette-swatch', { timeout: 15000 })
-  await selectMarioRedSwatch(page)
-
-  // Force a stale refusal directly: claim the cell still holds $1234 when it does not.
-  const result = await page.evaluate(async mp => {
-    const svc = getSvc('Symbol(PaletteService)')
-    return svc.setColor(mp, 0x00b2ce, '$1234', '$5678')
-  }, manifestPath)
-  expect(result.status).toBe('stale')
-
-  await page.evaluate(async res => {
-    const wm = getSvc('WidgetManager')
-    const w = await wm.getOrCreateWidget('hackbench.palette-view')
-    w.applyResult(res)
-  }, result)
-  await page.waitForTimeout(200)
-
-  const notice = page.locator('#hackbench\\.palette-view .hb-palette-inspector-from-error')
-  await expect(notice).toBeVisible()
-  const noticeText = await notice.innerText()
-  expect(noticeText).toContain('$00B2CE')
-  expect(noticeText).toContain('$1234') // the value it expected
-  expect(noticeText).toMatch(/\$391F/i) // the value actually there
-
-  // The rest of the view is still fully there - not replaced by the error.
-  const swatchCount = await page.locator('#hackbench\\.palette-view .hb-palette-swatch').count()
-  expect(swatchCount).toBeGreaterThan(0)
-
-  // And it clears on the next SUCCESSFUL edit rather than sticking forever.
-  const hexField = page.locator('#hackbench\\.palette-view .hb-palette-inspector-hex')
-  await hexField.fill('2000')
-  await hexField.press('Enter')
-  await page.waitForTimeout(300)
-  expect(await notice.count()).toBe(0)
+  const p = await openProject(page, path.join(tmp, 'MyHack'))
+  await openTab(page, p.manifestPath, 'player')
+  expect((await paletteTabsInShell(page)).length).toBe(1)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
+  await page.waitForTimeout(4000)
+  await page.addScriptTag({ content: GET_SVC })
+  // Prove the fixture: the saved layout really does ask the restorer for a
+  // palette tab, so an empty shell below is the guard's work and not a
+  // layout that never held one.
+  const saved = await page.evaluate(() =>
+    Object.keys(localStorage).some(k =>
+      (localStorage.getItem(k) || '').includes('hackbench.palette-group-view'),
+    ),
+  )
+  expect(saved).toBe(true)
+  expect(await paletteTabsInShell(page)).toEqual([])
+  expect(await page.locator('.hb-palette-group-view').count()).toBe(0)
 })
 
-/**
- * Layout: the inspector (and the edit controls it holds) is pinned above
- * the group content and never scrolls with it, at both size extremes -
- * Player Palettes (shortest) and Shared Sprite Colors (tallest).
- */
-test('the inspector is pinned above the content and does not move when the content scrolls', async ({
+test('expanding Layer 2 Background and clicking Palette 3 opens that one variant', async ({
   page,
 }) => {
-  // Shrunk so the tallest group (10 rows) cannot possibly fit without
-  // scrolling - the point of this test is the scroll behaviour itself, not
-  // whichever height this test happens to run at by default.
-  await page.setViewportSize({ width: 900, height: 480 })
-  await loadPalettes(page, path.join(tmp, 'MyHack3'))
-  await revealPalettes(page)
-  await page.waitForSelector('#hackbench\\.palette-view .hb-palette-inspector', { timeout: 15000 })
-
-  const panel = page.locator('#hackbench\\.palette-view')
-  const inspector = page.locator('#hackbench\\.palette-view .hb-palette-inspector')
-  const content = page.locator('#hackbench\\.palette-view .hb-palette-main')
-
-  // Player Palettes (the shortest group) is active by default.
-  const panelBox = await panel.boundingBox()
-  const inspectorBoxShort = await inspector.boundingBox()
-  const contentBoxShort = await content.boundingBox()
-  expect(inspectorBoxShort.y - panelBox.y).toBeLessThan(40)
-  expect(inspectorBoxShort.y).toBeLessThan(contentBoxShort.y)
-
-  // Selecting a swatch when nothing was selected must not move the content
-  // region's top: the empty and populated inspector are the same height.
-  const swatch = page
-    .locator('#hackbench\\.palette-view .hb-palette-variant')
-    .first()
-    .locator('.hb-palette-swatch:not(.hb-palette-swatch-unwritten)')
-    .first()
-  await swatch.click()
-  await page.waitForTimeout(200)
-  const contentBoxAfterSelect = await content.boundingBox()
-  expect(Math.abs(contentBoxAfterSelect.y - contentBoxShort.y)).toBeLessThan(2)
-
-  const inspectorBoxBeforeScroll = await inspector.boundingBox()
-
-  // Switch to the tallest group and scroll its content under the inspector.
-  await page.evaluate(() => {
-    const nav = [...document.querySelectorAll('.hb-palette-nav-item')].find(n =>
-      (n.textContent || '').includes('Shared Sprite Colors'),
-    )
-    nav.click()
+  await openProject(page, path.join(tmp, 'MyHack'))
+  await revealExplorer(page)
+  await explorerResult(page)
+  const group = page.locator(`${sel(EXPLORER)} .theia-TreeNode`, {
+    hasText: 'Layer 2 Background',
   })
-  await page.waitForTimeout(300)
-  await page.evaluate(() => {
-    document.querySelector('#hackbench\\.palette-view .hb-palette-main').scrollTop = 300
-  })
-  await page.waitForTimeout(150)
-
-  const scrollTop = await page.evaluate(
-    () => document.querySelector('#hackbench\\.palette-view .hb-palette-main').scrollTop,
+  await group.locator('.theia-ExpansionToggle').click()
+  const row = page.locator(`${sel(EXPLORER)} .theia-TreeNode`, { hasText: 'Palette 3' })
+  await expect(row).toHaveCount(1)
+  await row.click()
+  await page.waitForFunction(() =>
+    getSvc('ApplicationShell')
+      .getWidgets('main')
+      .some(w => w.title.label.endsWith('Palette 3')),
   )
-  expect(scrollTop).toBeGreaterThan(0) // the content actually scrolled
+  const opened = await page.evaluate(() => {
+    const w = getSvc('ApplicationShell')
+      .getWidgets('main')
+      .find(x => x.title.label.endsWith('Palette 3'))
+    return {
+      label: w.title.label,
+      sections: w.node.querySelectorAll('.hb-palette-variant').length,
+    }
+  })
+  expect(opened.label).toMatch(/^Layer 2 Background .*Palette 3$/)
+  expect(opened.sections).toBe(1)
+})
 
-  const inspectorBoxAfterScroll = await inspector.boundingBox()
-  expect(Math.abs(inspectorBoxAfterScroll.y - inspectorBoxBeforeScroll.y)).toBeLessThan(2)
+test('Escape in one tab leaves a pick in another tab alone', async ({ page }) => {
+  const p = await openProject(page, path.join(tmp, 'MyHackEsc'))
+  const a = await openTab(page, p.manifestPath, 'player')
+  const b = await openTab(page, p.manifestPath, 'player', 0)
+  // Side by side, so both inspectors are mounted and shown at once.
+  await page.evaluate(
+    ({ a, b }) => {
+      const shell = getSvc('ApplicationShell')
+      shell.addWidget(shell.getWidgetById(a), {
+        area: 'main',
+        mode: 'split-right',
+        ref: shell.getWidgetById(b),
+      })
+    },
+    { a, b },
+  )
+  await page.waitForTimeout(400)
+  await selectMarioRedSwatch(page, a)
+  await page
+    .locator(`${sel(b)} .hb-palette-swatch`)
+    .nth(9)
+    .click()
+  for (const id of [a, b]) await page.locator(`${sel(id)} .hb-palette-inspector-hex`).fill('03E0')
+  await expect(page.locator(`${sel(a)} .hb-palette-inspector-ok`)).toBeEnabled()
+  await expect(page.locator(`${sel(b)} .hb-palette-inspector-ok`)).toBeEnabled()
+  // From the color input, not the hex field: the hex field handles Escape
+  // itself, so only this reaches the inspector root's handler.
+  await page.locator(`${sel(b)} .hb-palette-inspector-color`).press('Escape')
+  await page.waitForTimeout(200)
+  await expect(page.locator(`${sel(b)} .hb-palette-inspector-ok`)).toBeDisabled()
+  await expect(page.locator(`${sel(a)} .hb-palette-inspector-ok`)).toBeEnabled()
+  await expect(page.locator(`${sel(a)} .hb-palette-inspector-hex`)).toHaveValue('03E0')
+})
+
+/** Samples the preview's background in tab `id` for `ms`, returning the distinct values seen. */
+async function previewColors(page, id, ms) {
+  return page.evaluate(
+    async ({ s, ms }) => {
+      const el = document.querySelector(`${s} .hb-palette-preview`)
+      const seen = new Set()
+      const t0 = performance.now()
+      while (performance.now() - t0 < ms) {
+        seen.add(getComputedStyle(el).backgroundColor)
+        await new Promise(r => setTimeout(r, 16))
+      }
+      return [...seen]
+    },
+    { s: sel(id), ms },
+  )
+}
+
+/** CGRAM $64, the animated cell: Shared Sprite Colors row index 2, column 4. */
+async function selectAnimatedCell(page, id) {
+  await page
+    .locator(`${sel(id)} .hb-palette-row`)
+    .nth(2)
+    .locator('.hb-palette-swatch')
+    .nth(4)
+    .click()
+}
+
+test('the preview pauses while its tab is hidden and resumes when shown', async ({ page }) => {
+  const p = await openProject(page, path.join(tmp, 'MyHack'))
+  const id = await openTab(page, p.manifestPath, 'sprite_sets')
+  await selectAnimatedCell(page, id)
+  // Playing while shown, or "no change while hidden" below proves nothing.
+  expect((await previewColors(page, id, 600)).length).toBeGreaterThan(1)
+  await openTab(page, p.manifestPath, 'player')
+  await page.waitForTimeout(200)
+  expect(await page.evaluate(i => getSvc('ApplicationShell').getWidgetById(i).isVisible, id)).toBe(
+    false,
+  )
+  expect((await previewColors(page, id, 600)).length).toBe(1)
+  await page.evaluate(async i => {
+    await getSvc('ApplicationShell').activateWidget(i)
+  }, id)
+  await page.waitForTimeout(200)
+  expect((await previewColors(page, id, 600)).length).toBeGreaterThan(1)
+})
+
+test('on a wide tab the inspector sits beside the grid, not at the far edge', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  const p = await openProject(page, path.join(tmp, 'MyHack'))
+  const id = await openTab(page, p.manifestPath, 'sprite_sets')
+  await selectAnimatedCell(page, id)
+  await page.waitForTimeout(300)
+  const m = await page.evaluate(s => {
+    const root = document.querySelector(s)
+    const layout = root.querySelector('.hb-palette-view-layout')
+    const swatchRight = Math.max(
+      ...[...root.querySelectorAll('.hb-palette-main .hb-palette-swatch')].map(
+        e => e.getBoundingClientRect().right,
+      ),
+    )
+    const i = root.querySelector('.hb-palette-inspector').getBoundingClientRect()
+    const main = root.querySelector('.hb-palette-main').getBoundingClientRect()
+    return {
+      em: parseFloat(getComputedStyle(layout).fontSize),
+      swatchRight,
+      inspectorLeft: i.left,
+      inspectorTop: i.top,
+      mainTop: main.top,
+      tabRight: root.getBoundingClientRect().right,
+    }
+  }, sel(id))
+  // Same line: a wrapped inspector sits below, where the gap check is meaningless.
+  expect(Math.abs(m.inspectorTop - m.mainTop)).toBeLessThan(2)
+  expect(m.inspectorLeft).toBeGreaterThan(m.swatchRight)
+  expect(m.inspectorLeft - m.swatchRight).toBeLessThanOrEqual(3 * m.em)
+})
+
+test('the inspector stays in view while a tall tab scrolls', async ({ page }) => {
+  // Shorter than 1080 so Layer 2 Background (8 variants x 2 rows) is surely
+  // taller than the tab at 1920 wide; the range check below proves it scrolls.
+  await page.setViewportSize({ width: 1920, height: 640 })
+  const p = await openProject(page, path.join(tmp, 'MyHack'))
+  const id = await openTab(page, p.manifestPath, 'bg')
+  await page
+    .locator(`${sel(id)} .hb-palette-swatch`)
+    .nth(3)
+    .click()
+  await page.waitForTimeout(300)
+  const m = await page.evaluate(async s => {
+    const layout = document.querySelector(`${s} .hb-palette-view-layout`)
+    const range = layout.scrollHeight - layout.clientHeight
+    layout.scrollTop = layout.scrollHeight
+    await new Promise(r => setTimeout(r, 200))
+    const box = layout.getBoundingClientRect()
+    const i = document.querySelector(`${s} .hb-palette-inspector`).getBoundingClientRect()
+    return { range, scrolled: layout.scrollTop, top: box.top, bottom: box.bottom, iTop: i.top }
+  }, sel(id))
+  expect(m.range).toBeGreaterThan(100)
+  expect(m.scrolled).toBeGreaterThan(100)
+  expect(m.iTop).toBeGreaterThanOrEqual(m.top - 1)
+  expect(m.iTop).toBeLessThan(m.bottom)
+})
+
+test('swatches grow on a wide tab and stay 1.8em on a narrow one', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  const p = await openProject(page, path.join(tmp, 'MyHack'))
+  const id = await openTab(page, p.manifestPath, 'bg')
+  const measure = () =>
+    page.evaluate(s => {
+      const sw = document.querySelector(`${s} .hb-palette-main .hb-palette-swatch`)
+      return {
+        width: sw.getBoundingClientRect().width,
+        em: parseFloat(getComputedStyle(sw).fontSize),
+      }
+    }, sel(id))
+  await page.waitForTimeout(300)
+  const wide = await measure()
+  await page.setViewportSize({ width: 700, height: 900 })
+  await page.waitForTimeout(400)
+  const narrow = await measure()
+  expect(wide.width).toBeGreaterThan(narrow.width)
+  // The pre-change size, so a narrow tab looks exactly as it did.
+  expect(Math.abs(narrow.width - 1.8 * narrow.em)).toBeLessThan(0.5)
 })
 
 /**
@@ -887,30 +1177,14 @@ test('the inspector is pinned above the content and does not move when the conte
  */
 test('Ctrl+Z after a hex-field edit undoes the edit, not just the text', async ({ page }) => {
   const dir = path.join(tmp, 'KeyUndoFromField')
-  // Create the project AND set the context in one step: EditStackContribution
-  // gates on ProjectContext.current, so a widget-only load would have undo
-  // correctly declining and the test measuring its own setup.
-  await page.evaluate(
-    async ({ romPath, directory }) => {
-      const projects = getSvc('Symbol(ProjectService)')
-      const project = await projects.createProject({
-        romPath,
-        name: 'KeyUndoFromField',
-        directory,
-      })
-      getSvc('ProjectContext').current = project
-      const w = await getWidget('hackbench.palette-view')
-      await w.load(project.manifestPath)
-    },
-    { romPath: ROM, directory: dir },
-  )
-  await revealPalettes(page)
+  // openProject sets ProjectContext.current: EditStackContribution gates on
+  // it, so without it undo would correctly decline and the test would measure
+  // its own setup.
+  const p = await openProject(page, dir)
+  const id = await openTab(page, p.manifestPath, 'player')
+  await selectMarioRedSwatch(page, id)
 
-  const swatches = page.locator('[id="hackbench.palette-view"] .hb-palette-swatch')
-  await expect(swatches.first()).toBeVisible({ timeout: 15000 })
-  await selectMarioRedSwatch(page)
-
-  const hexField = page.locator('[id="hackbench.palette-view"] .hb-palette-inspector-hex')
+  const hexField = page.locator(`${sel(id)} .hb-palette-inspector-hex`)
   await hexField.fill('03E0')
   await hexField.press('Enter')
   await page.waitForTimeout(400)

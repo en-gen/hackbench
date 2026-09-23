@@ -106,6 +106,8 @@ export const VANILLA_EXPECTED = {
 export interface FlashKernel {
   /** SNES address of the kernel's `STA $2121`. */
   addr: number
+  /** SNES address of the kernel's `AND #imm`, the byte that sets phase count and speed. */
+  maskAddr: number
   /** Direct-page byte the kernel reads as the phase counter. */
   counterDp: number
   phaseMask: number
@@ -141,6 +143,10 @@ export interface PaletteAnimTarget {
   frameStride: number
   /** BGR555 words in counter order; a non-contiguous mask repeats values. */
   colors: number[]
+  /** SNES address of each entry of `colors`, same order: table plus phase offset. */
+  frameAddrs: number[]
+  /** The kernel operands that set count and speed (bank_00.asm:4668-4670). Read-only facts. */
+  timing: { maskAddr: number; mask: number; shift: number; counterDp: number }
   kernelAddr: number
 }
 
@@ -319,6 +325,7 @@ function decodeKernel(
   const frameStride = phaseMask & -phaseMask
   return yes({
     addr,
+    maskAddr,
     counterDp,
     phaseMask,
     shift,
@@ -778,10 +785,17 @@ function walkToCgramWrite(
 function toTarget(rom: RomFile, site: CallSite): PaletteAnimTarget | null {
   const { kernel, baseOffset } = site
   const colors: number[] = []
+  const frameAddrs: number[] = []
   for (const offset of kernel.phaseOffsets) {
-    const word = rom.readWord(kernel.tableAddr + baseOffset + offset)
+    // The ADC is 8-bit (SEP #$20 at bank_00.asm:4662; ADC.B _0 / TAY at
+    // :4671-4672), so the index wraps at $FF. Without an ADC there is no
+    // add to overflow.
+    const index = kernel.baseDp !== null ? (baseOffset + offset) & 0xff : baseOffset + offset
+    const addr = kernel.tableAddr + index
+    const word = rom.readWord(addr)
     if (word === null) return null
     colors.push(word)
+    frameAddrs.push(addr)
   }
   return {
     cgramIdx: site.cgramIdx,
@@ -790,6 +804,13 @@ function toTarget(rom: RomFile, site: CallSite): PaletteAnimTarget | null {
     phaseCount: kernel.phaseOffsets.length,
     frameStride: kernel.frameStride,
     colors,
+    frameAddrs,
+    timing: {
+      maskAddr: kernel.maskAddr,
+      mask: kernel.phaseMask,
+      shift: kernel.shift,
+      counterDp: kernel.counterDp,
+    },
     kernelAddr: kernel.addr,
   }
 }

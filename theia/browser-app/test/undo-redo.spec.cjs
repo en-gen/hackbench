@@ -196,7 +196,7 @@ test('executing core.undo through the CommandRegistry moves the real stack', asy
   await page.evaluate(async () => {
     const shell = getSvc('ApplicationShell')
     const widgets = getSvc('WidgetManager')
-    const view = await widgets.getOrCreateWidget('hackbench.palette-view')
+    const view = await widgets.getOrCreateWidget('hackbench.palette-explorer')
     await shell.activateWidget(view.id)
   })
   await page.waitForTimeout(500)
@@ -242,13 +242,16 @@ test('undo with nothing to undo is a quiet no-op, not an error', async ({ page }
  * focus - an untested link, and the one the owner reported broken by hand
  * while these tests were green.
  */
-async function focusPaletteView(page) {
-  await page.evaluate(async () => {
-    const shell = getSvc('ApplicationShell')
-    const widgets = getSvc('WidgetManager')
-    const view = await widgets.getOrCreateWidget('hackbench.palette-view')
-    await shell.activateWidget(view.id)
-  })
+async function focusPaletteView(page, manifestPath) {
+  // A palette tab is where colors are edited, so it is the focus that matters.
+  await page.evaluate(async mp => {
+    const tab = await getSvc('PaletteExplorerContribution').openGroup({
+      manifestPath: mp,
+      groupId: 'player',
+      pinned: true,
+    })
+    await getSvc('ApplicationShell').activateWidget(tab.id)
+  }, manifestPath)
   await page.waitForTimeout(500)
 }
 
@@ -257,7 +260,7 @@ test('Ctrl+Z undoes a palette edit, pressed as a real keystroke', async ({ page 
   await setColor(page, manifestPath, '$391F', '$03E0')
   expect(await committedRed(page, manifestPath)).toBe(0x03e0)
 
-  await focusPaletteView(page)
+  await focusPaletteView(page, manifestPath)
   await page.keyboard.press('Control+z')
   await page.waitForTimeout(800)
 
@@ -268,7 +271,7 @@ test('Ctrl+Y redoes it, pressed as a real keystroke', async ({ page }) => {
   const { manifestPath } = await openProject(page, 'KeyRedo')
   await setColor(page, manifestPath, '$391F', '$03E0')
 
-  await focusPaletteView(page)
+  await focusPaletteView(page, manifestPath)
   await page.keyboard.press('Control+z')
   await page.waitForTimeout(800)
   expect(await committedRed(page, manifestPath)).toBe(VANILLA_RED)

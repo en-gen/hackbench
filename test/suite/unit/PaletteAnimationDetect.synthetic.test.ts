@@ -816,3 +816,55 @@ describe('a relocated overworld upload', () => {
     expect(d.level.targets[0]!.cgramIdx).toBe(VANILLA_EXPECTED.levelCgramIdx)
   })
 })
+
+// ── Frame addresses and timing metadata ──────────────────────────────────
+
+describe('targets carry their own frame addresses and timing', () => {
+  it('maskAddr is the AND #imm after STA $2121 and LDA dp', () => {
+    // STA abs (3 bytes) + LDA dp (2 bytes) precede the AND in the stock shape.
+    expect(decodeFlashKernel(buildRom(), KERNEL)!.maskAddr).toBe(KERNEL + 5)
+  })
+
+  it('frameAddrs are the table plus each phase offset, in counter order', () => {
+    const t = detectPaletteAnimation(buildRom()).level.targets[0]!
+    const k = decodeFlashKernel(buildRom(), KERNEL)!
+    expect(t.frameAddrs).toEqual(k.phaseOffsets.map(o => t.tableAddr + o))
+    expect(t.frameAddrs.length).toBe(t.colors.length)
+  })
+
+  // Literal addresses, not re-derived from phaseOffsets: an oracle that
+  // recomputes the detector's own formula agrees with any bug in it.
+  it('the level target reads $00B60C through $00B61A, two bytes apart', () => {
+    const t = detectPaletteAnimation(buildRom()).level.targets[0]!
+    expect(t.frameAddrs).toEqual([
+      0x00b60c, 0x00b60e, 0x00b610, 0x00b612, 0x00b614, 0x00b616, 0x00b618, 0x00b61a,
+    ])
+  })
+
+  it("the second overworld target's frames start at its $10 base", () => {
+    const t = detectPaletteAnimation(buildRom()).overworld.targets[1]!
+    expect(t.frameAddrs).toEqual([
+      0x00b61c, 0x00b61e, 0x00b620, 0x00b622, 0x00b624, 0x00b626, 0x00b628, 0x00b62a,
+    ])
+  })
+
+  // The kernel adds the base with an 8-bit ADC (A is 8-bit after SEP #$20,
+  // bank_00.asm:4662; ADC.B _0 / TAY at :4671-4672), so Y wraps at $FF and
+  // the read lands back at the start of the table, not $100 past it.
+  it('a base plus offset past $FF wraps the index, as the 8-bit ADC does', () => {
+    const rom = buildRom({
+      poke: { [PROBE_OW_SECOND_BASE + 1]: 0xf8 },
+      tables: [{ at: TABLE + 0xf8, words: [0x7001, 0x7002, 0x7003, 0x7004] }],
+    })
+    const t = detectPaletteAnimation(rom).overworld.targets[1]!
+    expect(t.frameAddrs).toEqual([
+      0x00b704, 0x00b706, 0x00b708, 0x00b70a, 0x00b60c, 0x00b60e, 0x00b610, 0x00b612,
+    ])
+    expect(t.colors).toEqual([0x7001, 0x7002, 0x7003, 0x7004, 0x0000, 0x0100, 0x0200, 0x0300])
+  })
+
+  it('timing reports the mask and shift the kernel actually holds', () => {
+    const t = detectPaletteAnimation(buildRom({ mask: 0x0c })).level.targets[0]!
+    expect(t.timing).toEqual({ maskAddr: KERNEL + 5, mask: 0x0c, shift: 1, counterDp: 0x14 })
+  })
+})
