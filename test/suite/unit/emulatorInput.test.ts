@@ -40,8 +40,38 @@ describe('HeldButtons', () => {
     ])
   })
 
-  it('maps every SNES button exactly once', () => {
-    const ids = Object.values(KEY_TO_BUTTON).sort((a, b) => a - b)
+  it('maps every SNES button, with Select on both RShift and Space', () => {
+    const ids = [...new Set(Object.values(KEY_TO_BUTTON))].sort((a, b) => a - b)
     expect(ids).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+    expect(KEY_TO_BUTTON.ShiftRight).toBe(2)
+    expect(KEY_TO_BUTTON.Space).toBe(2)
+  })
+
+  it.each([
+    ['ShiftRight', 'Space'],
+    ['Space', 'ShiftRight'],
+  ])('holds a button until the last of its keys is released (%s let go first)', (first, last) => {
+    const { sent, buttons } = recorder()
+    buttons.key('ShiftRight', true)
+    buttons.key('Space', true)
+    buttons.key(first, false)
+    expect(sent).toEqual([[2, true]])
+    buttons.key(last, false)
+    expect(sent).toEqual([
+      [2, true],
+      [2, false],
+    ])
+  })
+
+  it('releaseAll sends one release per button, however many keys hold it', () => {
+    const { sent, buttons } = recorder()
+    buttons.key('ShiftRight', true)
+    buttons.key('Space', true)
+    buttons.releaseAll()
+    buttons.key('Space', false)
+    expect(sent).toEqual([
+      [2, true],
+      [2, false],
+    ])
   })
 })
