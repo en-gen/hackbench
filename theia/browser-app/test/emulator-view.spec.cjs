@@ -553,11 +553,18 @@ test('in the bottom and right panels every control is inside the view, and it do
   page,
 }) => {
   test.setTimeout(120000)
-  const setup = await setupProject(page, path.join(tmp, 'Narrow'))
+  const dir = path.join(tmp, 'Narrow')
+  const setup = await setupProject(page, dir)
   expect(setup.error).toBeUndefined()
-  await page.evaluate(async () => {
-    await revealEmulator()
-  })
+  // A save on disk, so the save menu has a row ending in its rename,
+  // duplicate and delete buttons, the widest thing the view draws.
+  const title = JSON.parse(fs.readFileSync(setup.manifestPath, 'utf8')).baseRom.title
+  fs.mkdirSync(path.join(dir, 'saves'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'saves', `${title}.1.srm`), Buffer.alloc(2048))
+  await page.evaluate(async mp => {
+    const w = await revealEmulator()
+    await w.loadSaveChoice(mp)
+  }, setup.manifestPath)
   await bootAndWaitForFrames(page, 30)
   for (const area of ['bottom', 'right']) {
     const layout = await page.evaluate(async area => {
@@ -602,6 +609,32 @@ test('in the bottom and right panels every control is inside the view, and it do
     await expect(page.locator(`${VIEW} .hb-volume-popover`)).toHaveCount(1)
     await page.keyboard.press('Escape')
     await expect(page.locator(`${VIEW} .hb-volume-popover`)).toHaveCount(0)
+
+    await page.locator(`${VIEW} .hb-saves-toggle`).click()
+    await expect(page.locator(`${VIEW} button[aria-label="Delete save 1"]`)).toHaveCount(1)
+    const menu = await page.evaluate(async () => {
+      const w = await getWidget('hackbench.emulator-view')
+      const view = w.node.getBoundingClientRect()
+      const buttons = [...w.node.querySelectorAll('.hb-saves-menu button')]
+      return {
+        count: buttons.length,
+        // Hit-tested: the view clips its overflow, so a button past its edge
+        // is drawn over by whatever is beside the panel.
+        unreachable: buttons
+          .filter(b => {
+            const r = b.getBoundingClientRect()
+            const x = r.left + r.width / 2
+            const y = r.top + r.height / 2
+            const hit = document.elementFromPoint(x, y)
+            return x > view.right || y > view.bottom || !hit || !b.contains(hit)
+          })
+          .map(b => b.getAttribute('aria-label') ?? b.textContent),
+      }
+    })
+    expect(menu.count, `${area}: the save menu drew no buttons`).toBeGreaterThanOrEqual(4)
+    expect(menu.unreachable, `${area}: save menu buttons out of reach`).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(page.locator(`${VIEW} .hb-saves-menu`)).toHaveCount(0)
   }
 })
 
