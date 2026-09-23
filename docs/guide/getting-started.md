@@ -91,7 +91,8 @@ in the right:
 - **Audio** - every BGM track with bank details, and the sound effect
   explorer beside them
 - **Emulator** - a libretro core running the working copy, docked in the
-  right sidebar so it sits beside what you are editing
+  bottom panel beside Problems so it sits below what you are editing; open
+  it from View > Emulator
 
 If you open a project on a machine where the ROM is not registered,
 every view asks you to locate the ROM rather than showing you nothing.

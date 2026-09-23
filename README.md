@@ -56,7 +56,7 @@ What follows from that:
 | **Map16** | **editable.** Subtiles write through the same layer mechanism |
 | **Graphics** | every GFX file decoded, selectable bit depth and palette row, and the Map16 tile editor |
 | **Audio** | every BGM track with bank details, plus the sound effect explorer |
-| **Emulator** | docked in the right sidebar, running your working copy through a libretro core you supply |
+| **Emulator** | docked in the bottom panel beside Problems, running your working copy through a libretro core you supply |
 
 Undo and redo work across the layer stack and survive closing the project.
 
@@ -107,7 +107,7 @@ Full walkthrough: [docs/guide/getting-started.md](docs/guide/getting-started.md)
    file dialog, choose where the project folder goes. HackBench shows you
    the ROM identity before writing anything.
 2. Browse with the **Maps**, **Graphics**, **Palettes** and **Audio** views
-   in the left sidebar. The Emulator is docked in the right sidebar.
+   in the left sidebar. The Emulator is in the bottom panel: View > Emulator.
 3. Edit a palette: click a swatch, change it, click **OK**. That commits one
    layer. Nothing downstream moves until you confirm.
 4. **File > Export Patch** writes an `.ips` into your project's `export/`.
