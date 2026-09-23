@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect } from 'vitest'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 import {
@@ -1390,13 +1390,14 @@ describe('handle_0DB2CA (dragon coin, ext 0x41)', () => {
 const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent = existsSync(ROM_PATH)
 
-describe('expandMap integration (real SMW ROM)', () => {
-  if (!romPresent) {
-    it.skip('SMW ROM not present - integration tests skipped', () => {})
-    return
-  }
-
-  const rom = SmwRom.open(ROM_PATH)
+// `describe.skipIf`, not an early `return`: the return registered one
+// placeholder and dropped all 13 integration cases, which is invisible in a
+// skip count.
+describe.skipIf(!romPresent)('expandMap integration (real SMW ROM)', () => {
+  let rom: SmwRom
+  beforeAll(() => {
+    rom = SmwRom.open(ROM_PATH)
+  })
 
   /** Load and expand a level by translevel index (passes levelNum for layer3 overflow). */
   function expandLevelByIndex(index: number) {

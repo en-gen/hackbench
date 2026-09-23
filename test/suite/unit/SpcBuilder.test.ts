@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect } from 'vitest'
 import { existsSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
@@ -13,12 +13,13 @@ import {
 const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent = existsSync(ROM_PATH)
 
-describe('SpcBuilder', () => {
-  if (!romPresent) {
-    it.skip('ROM not available', () => {})
-    return
-  }
-  const rom = SmwRom.open(ROM_PATH)
+// `describe.skipIf`, not an early `return`: the return registered a single
+// placeholder and dropped the six real cases entirely.
+describe.skipIf(!romPresent)('SpcBuilder', () => {
+  let rom: SmwRom
+  beforeAll(() => {
+    rom = SmwRom.open(ROM_PATH)
+  })
 
   it('reads correct music bank addresses from upload routines', () => {
     const level = getLevelMusicBankAddr(rom.rom)

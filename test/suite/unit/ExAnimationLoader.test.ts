@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect } from 'vitest'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
@@ -12,26 +12,24 @@ import type { AnimationData } from '../../../src/rom/AnimationLoader'
 const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent = existsSync(ROM_PATH)
 
-describe('isLmExAnimInstalled', () => {
-  if (!romPresent) {
-    it.skip('ROM not available', () => {})
-    return
-  }
-
-  const rom = SmwRom.open(ROM_PATH)
+// `describe.skipIf`, not an early `return`: the return registered no case at
+// all without the cart, so the real case did not skip, it ceased to exist.
+describe.skipIf(!romPresent)('isLmExAnimInstalled', () => {
+  let rom: SmwRom
+  beforeAll(() => {
+    rom = SmwRom.open(ROM_PATH)
+  })
 
   it('returns false for vanilla ROM', () => {
     expect(isLmExAnimInstalled(rom.rom)).toBe(false)
   })
 })
 
-describe('loadExAnimData', () => {
-  if (!romPresent) {
-    it.skip('ROM not available', () => {})
-    return
-  }
-
-  const rom = SmwRom.open(ROM_PATH)
+describe.skipIf(!romPresent)('loadExAnimData', () => {
+  let rom: SmwRom
+  beforeAll(() => {
+    rom = SmwRom.open(ROM_PATH)
+  })
 
   it('returns null for vanilla ROM (no LM ExAnim installed)', () => {
     expect(loadExAnimData(rom.rom, 0)).toBeNull()

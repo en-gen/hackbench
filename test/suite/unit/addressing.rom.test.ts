@@ -50,8 +50,10 @@ describe('Acceptance A: LM compressed translevel table decompresses to 4096 byte
   ]
   for (const name of hackRoms) {
     const expected = EXPECTED_SIZE_OVERRIDE[name] ?? EXPECTED_TABLE_SIZE
-    const present = existsSync(romPath(name))
-    ;(present ? it : it.skip)(`${name} table decompresses to ${expected} bytes`, () => {
+    // `it.skipIf`, not a ternary choosing between the two spellings of `it`.
+    // Both register the case here, but the ternary is one edit away from the
+    // shape that drops cases entirely, and it states the gate twice.
+    it.skipIf(!existsSync(romPath(name)))(`${name} table decompresses to ${expected} bytes`, () => {
       const smw = SmwRom.open(romPath(name))
       const rom = smw.rom
       expect(rom.readByte(LM_PATCH_PROBE)).toBe(0x22) // sanity: is actually LM-patched
@@ -104,8 +106,7 @@ describe('Acceptance B: level catalog parseable count', () => {
   ]
 
   for (const { name, expectRise } of roms) {
-    const present = existsSync(romPath(name))
-    ;(present ? it : it.skip)(
+    it.skipIf(!existsSync(romPath(name)))(
       `${name}: parseable count ${expectRise ? 'rises' : 'is unchanged'} vs the pre-fix count`,
       () => {
         const smw = SmwRom.open(romPath(name))

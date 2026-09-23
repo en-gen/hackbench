@@ -3,7 +3,11 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom, ADDR, LEVEL_COUNT } from '../../../src/rom/SmwRom'
 import { loromToOffset } from '../../../src/rom/addressing'
 import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
-import { assertCatalogAcceptance, buildBrokenCatalogVariants } from '../support/catalogAcceptance'
+import {
+  assertCatalogAcceptance,
+  assertVariantNames,
+  buildBrokenCatalogVariants,
+} from '../support/catalogAcceptance'
 
 // Size chosen so (size % 1024) !== 512, so RomFile never treats this as
 // copier-headered -- keeps pointer math free of the +512 header offset.
@@ -120,6 +124,13 @@ describe('buildLevelCatalog (synthetic)', () => {
 
     it('the real catalog passes', () => {
       expect(() => assertCatalogAcceptance(good, expectedReal, expectedParseable)).not.toThrow()
+    })
+
+    // Runs with no cart, which is where it is needed: the ROM-gated sweep
+    // names its 24 cases from BROKEN_VARIANT_NAMES, so a variant renamed here
+    // would silently stop being swept there.
+    it('the declared variant names match what the builder returns', () => {
+      assertVariantNames(variants)
     })
 
     for (const [name, broken] of Object.entries(variants)) {

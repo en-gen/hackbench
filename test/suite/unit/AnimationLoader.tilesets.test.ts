@@ -18,7 +18,7 @@
  *                AnimatedTileData table ($05B999).
  */
 
-import { describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect } from 'vitest'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
@@ -90,13 +90,14 @@ function expectSameCharData(
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('AnimationLoader tileset groups', () => {
-  if (!romPresent) {
-    it.skip('ROM not available', () => {})
-    return
-  }
-
-  const rom = SmwRom.open(ROM_PATH)
+// `describe.skipIf`, not an early `return` from the suite body: a return
+// registers ZERO cases when the cart is absent, so the 31 cases below did not
+// skip, they ceased to exist, and the run stayed green reporting one skip.
+describe.skipIf(!romPresent)('AnimationLoader tileset groups', () => {
+  let rom: SmwRom
+  beforeAll(() => {
+    rom = SmwRom.open(ROM_PATH)
+  })
 
   // Cache animation data per tileset (expensive to recompute each test)
   const animCache = new Map<number, AnimationData>()
