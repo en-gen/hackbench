@@ -1,0 +1,331 @@
+/*
+ * Map16 view styling.
+ *
+ * Same rule as gfx.css: no fixed color or px text size, so the view tracks
+ * the active theme and the user's font-size preference. The canvas bitmap
+ * and the selection outline color (read from --theia-focusBorder in
+ * map16-view-widget.tsx, since a <canvas> cannot use a CSS variable
+ * directly) are the exceptions - one is ROM pixel data, the other still
+ * tracks the theme, just via JS instead of CSS.
+ */
+
+.hb-map16-empty,
+.hb-map16-error {
+  padding: 0.8em 1em;
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map16-error {
+  color: var(--theia-errorForeground);
+}
+
+.hb-map16-view {
+  height: 100%;
+  overflow: hidden;
+  color: var(--theia-foreground);
+}
+
+.hb-map16-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.hb-map16-toolbar {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 1em;
+  padding: 0.8em 1.2em;
+  border-bottom: 1px solid var(--theia-editorWidget-border);
+}
+
+.hb-map16-title {
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size3);
+  font-weight: 600;
+}
+
+.hb-map16-summary {
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map16-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map16-note {
+  font-size: var(--theia-ui-font-size0);
+  font-style: italic;
+  color: var(--theia-descriptionForeground);
+  flex-basis: 100%;
+}
+
+/* Play/stop: same shape as the palette inspector's OK/Cancel buttons - a
+ * bordered button, not a bare icon, so the click target and the disabled
+ * state are both visibly real. */
+
+/* ── Layout: canvas | inspector ────────────────────────────────────────── */
+
+.hb-map16-layout {
+  display: grid;
+  grid-template-columns: 1fr 18em;
+  flex: 1;
+  min-height: 0;
+}
+
+.hb-map16-canvas-wrap {
+  overflow: auto;
+  padding: 1.2em;
+}
+
+/* Native bitmap size comes from the decoded sheet; zoom is CSS only, so
+ * pixel data never gets resampled - `pixelated` is what keeps a magnified
+ * ROM tile crisp instead of blurred. */
+.hb-map16-canvas {
+  display: block;
+  image-rendering: pixelated;
+  cursor: pointer;
+}
+
+.hb-map16-inspector {
+  border-left: 1px solid var(--theia-editorWidget-border);
+  padding: 0.8em 1em;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+}
+
+.hb-map16-inspector-empty {
+  color: var(--theia-descriptionForeground);
+  font-style: italic;
+}
+
+.hb-map16-inspector-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+}
+
+.hb-map16-inspector-block-id {
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size2);
+  font-weight: 600;
+}
+
+.hb-map16-addr {
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map16-corners {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3em;
+}
+
+.hb-map16-corner {
+  font-size: var(--theia-ui-font-size0);
+  padding: 0.3em 0.4em;
+  border-radius: 2px;
+  border: 1px solid var(--theia-editorWidget-border);
+  background: var(--theia-editorWidget-background);
+  color: var(--theia-foreground);
+  cursor: pointer;
+}
+
+.hb-map16-corner-selected {
+  background: var(--theia-list-activeSelectionBackground);
+  border-color: var(--theia-focusBorder);
+}
+
+.hb-map16-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  padding-top: 0.3em;
+  border-top: 1px solid var(--theia-editorWidget-border);
+}
+
+.hb-map16-addr-line {
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map16-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6em;
+  font-size: var(--theia-ui-font-size0);
+}
+
+.hb-map16-field-checkbox {
+  justify-content: flex-start;
+}
+
+.hb-map16-field-input {
+  width: 5em;
+  box-sizing: border-box;
+  font-family: var(--theia-code-font-family);
+  background: var(--theia-input-background, var(--theia-editorWidget-background));
+  color: var(--theia-input-foreground, var(--theia-foreground));
+  border: 1px solid var(--theia-input-border, var(--theia-editorWidget-border));
+  border-radius: 2px;
+  padding: 0.15em 0.4em;
+}
+
+.hb-map16-inspector-error {
+  color: var(--theia-errorForeground);
+  font-size: var(--theia-ui-font-size0);
+}
+
+.hb-map16-inspector-note {
+  font-size: var(--theia-ui-font-size0);
+  font-style: italic;
+  color: var(--theia-descriptionForeground);
+}
+
+/* ── Large preview + frame strip ──────────────────────────────────────── */
+/* Both canvases are pixel art, painted at their native BLOCK_PX size and
+ * scaled up in JS (paintScaledBlock) - `pixelated` is the CSS-side half of
+ * that contract, in case a canvas is ever stretched by layout rounding. */
+
+.hb-map16-preview-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 0.4em 0;
+}
+
+.hb-map16-preview-canvas {
+  image-rendering: pixelated;
+  border: 1px solid var(--theia-editorWidget-border);
+}
+
+.hb-map16-frame-strip-empty {
+  font-size: var(--theia-ui-font-size0);
+  font-style: italic;
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map16-frame-strip {
+  display: flex;
+  gap: 0.5em;
+  padding-top: 0.3em;
+  border-top: 1px solid var(--theia-editorWidget-border);
+}
+
+.hb-map16-frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15em;
+}
+
+.hb-map16-frame-canvas {
+  image-rendering: pixelated;
+  border: 1px solid var(--theia-editorWidget-border);
+}
+
+/* Highlight the playing frame WITHOUT changing the box size. A canvas has
+   an intrinsic width/height, so growing its border from 1px to 2px made the
+   element 2px wider and taller and shunted the whole strip sideways on every
+   phase tick. box-shadow paints outside the border box and takes no layout
+   space, so the emphasis reads as a thicker edge while the strip stays put. */
+.hb-map16-frame-current .hb-map16-frame-canvas {
+  border-color: var(--theia-focusBorder);
+  box-shadow: 0 0 0 1px var(--theia-focusBorder);
+}
+
+.hb-map16-frame-label {
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}
+
+/* Icon toolbar: zoom stepper, grid and animation toggles. Sits above the
+   data selectors so shell-style actions and form fields do not interleave. */
+/* Keeps the base toolbar's 1em gap between the TEXT items (title,
+   dimensions) - an earlier 2px here applied to the whole row and ran the
+   title straight into the summary. Only the action cluster below is tight.
+   Center rather than baseline: the base row aligns text baselines, which
+   sits 24px icon buttons too low next to the selects they share a row with. */
+.hb-map16-toolbar-controls {
+  align-items: center;
+}
+
+/* The icon buttons themselves, packed tightly as one control group. */
+.hb-map16-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.hb-map16-toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.hb-map16-toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 4px;
+  background: var(--theia-menu-separatorBackground, rgba(128, 128, 128, 0.35));
+}
+
+.hb-map16-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--theia-icon-foreground);
+  cursor: pointer;
+}
+
+.hb-map16-icon-btn:hover:not(:disabled) {
+  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.hb-map16-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Pressed state for the two toggles, so "grid on" and "playing" are
+   readable at a glance rather than only via the tooltip.
+   Follows the VS Code extension's own toolbar convention - an ACCENT
+   FOREGROUND on the glyph (`.iconBtn.on { color: #5b9cf6 }`,
+   webview/mapEditor/main.ts:1428) - with a tinted fill and inset outline
+   added, since a 24px codicon recolored alone is easy to miss. */
+.hb-map16-icon-btn-on {
+  color: var(--theia-focusBorder, #5b9cf6);
+  background: var(--theia-inputOption-activeBackground, rgba(91, 156, 246, 0.18));
+  box-shadow: inset 0 0 0 1px var(--theia-focusBorder, #5b9cf6);
+}
+
+/* Needed because `.hb-map16-icon-btn:hover:not(:disabled)` above outranks
+   a single class, so without this the fill vanished on hover - the button
+   looked UNSET exactly while the pointer was on it. */
+.hb-map16-icon-btn-on:hover:not(:disabled) {
+  background: var(--theia-inputOption-hoverBackground, rgba(91, 156, 246, 0.3));
+}
+
+.hb-map16-zoom-indicator {
+  min-width: 26px;
+  text-align: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--theia-descriptionForeground);
+  user-select: none;
+}

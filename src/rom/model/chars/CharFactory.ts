@@ -1,5 +1,5 @@
 import type { AnimationData } from '../../AnimationLoader'
-import { VRAM_CHAR_BASE, VRAM_SLOT_NAMES, type VramState } from '../../GfxLoader'
+import { VRAM_CHAR_BASE, VRAM_SLOT_NAMES, type GfxSheet, type VramState } from '../../GfxLoader'
 import type { CharBehavior } from './CharBehavior'
 import { Char } from './Char'
 import { AnimatedPixelsBehavior } from './behaviors/AnimatedPixelsBehavior'
@@ -122,5 +122,51 @@ function collectAnimFrames(animData: AnimationData | undefined): Map<number, Cha
     }
   }
   for (const c of toDelete) out.delete(c)
+  return out
+}
+
+/**
+ * A `VramState` reflecting `chars`' CURRENT pixel state - each char's
+ * `getPixels()`, which for an `AnimatedPixelsBehavior` char is whichever
+ * frame its own internal index currently points at. Lets a caller reuse a
+ * `VramState`-shaped renderer (TileRenderer.buildTileAtlas) against a
+ * point-in-time snapshot of the char model, without that renderer knowing
+ * anything about `Char`/`CharBehavior`.
+ *
+ * `base` supplies slot membership and length (which chars exist per slot);
+ * only slots present in `base` are considered. A slot is copied (not
+ * mutated) only if at least one of its chars actually differs from the
+ * base pixels - `StaticPixelsBehavior` hands back the exact array it was
+ * built FROM `base` with, so a char with no animation is always skipped.
+ *
+ * This does NOT mean phase 0 (before any `tickAnimation()`) equals `base`
+ * for a tileset that has real animation. `AnimatedPixelsBehavior`'s frames
+ * come from `AnimationLoader.loadAnimationData`, decoded from a completely
+ * separate part of the cart than the tileset's own GFX file - frame 0 is
+ * never the same array as whatever static bytes the GFX file happened to
+ * leave at that VRAM char, so an animated char's slot IS patched even at
+ * phase 0. Measured on vanilla tileset 0: 76 chars across 2 of the 8
+ * `VRAM_SLOT_NAMES` groups (`fg3`, `an1`) differ from `base` before a
+ * single `tickAnimation()` call - see Map16Decode.test.ts's
+ * "vanilla tileset 0, phase 0" pin, which is the oracle that catches a
+ * regression back to rendering raw, un-animated VRAM.
+ */
+export function vramFromChars(base: VramState, chars: Map<number, Char>): VramState {
+  const out: VramState = { ...base }
+  for (const slot of VRAM_SLOT_NAMES) {
+    const sheet = base[slot]
+    if (!sheet) continue
+    const slotBase = VRAM_CHAR_BASE[slot]
+    let patched: GfxSheet | undefined
+    for (let i = 0; i < sheet.length; i++) {
+      const char = chars.get(slotBase + i)
+      if (!char) continue
+      const pixels = char.getPixels()
+      if (pixels === sheet[i]) continue
+      if (!patched) patched = sheet.slice()
+      patched[i] = pixels
+    }
+    if (patched) out[slot] = patched
+  }
   return out
 }

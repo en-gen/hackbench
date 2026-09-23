@@ -230,3 +230,50 @@ test('undo with nothing to undo is a quiet no-op, not an error', async ({ page }
   const r = await page.evaluate(mp => getSvc('Symbol(ProjectService)').undo(mp), manifestPath)
   expect(r).toMatchObject({ status: 'ok', canUndo: false, canRedo: false })
 })
+
+/**
+ * The KEYSTROKE path, which every other test in this file skips.
+ *
+ * `executing core.undo through the CommandRegistry` above proves the handler
+ * and the backend stack. It cannot prove Ctrl+Z, because it dispatches the
+ * command directly. EditStackContribution registers a CommandContribution
+ * and no KeybindingContribution, so whether the keystroke ever REACHES that
+ * handler depends on Theia's own binding firing while a HackBench widget has
+ * focus - an untested link, and the one the owner reported broken by hand
+ * while these tests were green.
+ */
+async function focusPaletteView(page) {
+  await page.evaluate(async () => {
+    const shell = getSvc('ApplicationShell')
+    const widgets = getSvc('WidgetManager')
+    const view = await widgets.getOrCreateWidget('hackbench.palette-view')
+    await shell.activateWidget(view.id)
+  })
+  await page.waitForTimeout(500)
+}
+
+test('Ctrl+Z undoes a palette edit, pressed as a real keystroke', async ({ page }) => {
+  const { manifestPath } = await openProject(page, 'KeyUndo')
+  await setColor(page, manifestPath, '$391F', '$03E0')
+  expect(await committedRed(page, manifestPath)).toBe(0x03e0)
+
+  await focusPaletteView(page)
+  await page.keyboard.press('Control+z')
+  await page.waitForTimeout(800)
+
+  expect(await committedRed(page, manifestPath)).toBe(VANILLA_RED)
+})
+
+test('Ctrl+Y redoes it, pressed as a real keystroke', async ({ page }) => {
+  const { manifestPath } = await openProject(page, 'KeyRedo')
+  await setColor(page, manifestPath, '$391F', '$03E0')
+
+  await focusPaletteView(page)
+  await page.keyboard.press('Control+z')
+  await page.waitForTimeout(800)
+  expect(await committedRed(page, manifestPath)).toBe(VANILLA_RED)
+
+  await page.keyboard.press('Control+y')
+  await page.waitForTimeout(800)
+  expect(await committedRed(page, manifestPath)).toBe(0x03e0)
+})

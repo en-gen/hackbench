@@ -42,6 +42,24 @@
   min-width: 0;
 }
 
+/* The Map16 row: same look as a GFX row, own classes so tests that assert
+ * "every `.hb-gfx-id` is a GFX $XX file" are not looking at this one too. */
+.hb-gfx-map16-label {
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-code-font-size);
+  flex: none;
+  white-space: nowrap;
+}
+
+.hb-gfx-map16-meta {
+  margin-left: 0.6em;
+  color: var(--theia-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 /* ── GFX view ────────────────────────────────────────────────────────────── */
 
 .hb-gfx-view {

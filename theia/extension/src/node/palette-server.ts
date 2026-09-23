@@ -53,7 +53,7 @@ export class PaletteServiceImpl implements PaletteService {
     oldHex: string,
     newHex: string,
   ): Promise<SetColorResult> {
-    const r = this.workingRoms.setColor(manifestPath, { romAddr, oldHex, newHex })
+    const r = this.workingRoms.setWord(manifestPath, { romAddr, oldHex, newHex })
     if (r.status !== 'ok') return r
     return this.currentPalettes(manifestPath)
   }

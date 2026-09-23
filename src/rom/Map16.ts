@@ -20,6 +20,7 @@
  */
 
 import { RomFile } from './RomFile'
+import { BytePattern, WILD, findPattern } from './BytePattern'
 
 // ── ROM addresses (from SMW_U.sym) ────────────────────────────────────────────
 /** Map16Common: $0D8000 -- shared (common) Map16 tile data */
@@ -91,6 +92,81 @@ export const MAP16_TILESET_ADDRS: number[] = [
 export const MAP16_TILE_BYTES = 8
 export const MAP16_TOTAL_TILES = 512 // 64 bytes * 8 bits = 512 tile entries
 
+/**
+ * What a STOCK cartridge holds, kept as a documented cross-check.
+ *
+ * Never read this as a default. `readMap16TileCount` reads the real count
+ * off the cart; a cart that does not say is unavailable, not vanilla.
+ */
+export const VANILLA_MAP16_TILE_COUNT = 512
+
+/**
+ * The Map16 pointer-fill loop, `bank_05.asm:229-237`:
+ *
+ *     ADC.W #$0008 / STA.B _0 / INX / INX / CPX.W #imm / BNE -
+ *
+ * The `CPX` immediate is the loop's bound in BYTES of `Map16Pointers`, two
+ * per tile, so it divided by two is the tile count.
+ *
+ * Anchored on the `ADC.W #$0008` stride, not on the `INX/INX/CPX/BNE` tail
+ * alone: that tail is a generic 16-bit loop ending and matches 5 to 7 times
+ * per cartridge, measured across the 6-cart corpus. With the stride
+ * included it matches 3 times, at identical offsets on all 6, and all three
+ * sites carry the same bound.
+ */
+const MAP16_COUNT_PATTERN: BytePattern = [
+  0x69,
+  0x08,
+  0x00,
+  0x85,
+  WILD,
+  0xe8,
+  0xe8,
+  0xe0,
+  WILD,
+  WILD,
+  0xd0,
+]
+const MAP16_COUNT_OPERAND_OFFSET = 8
+
+/**
+ * How many Map16 tiles this cartridge's engine indexes, or null when it
+ * does not say.
+ *
+ * Read rather than assumed: Lunar Magic's expanded-Map16 patch
+ * (en-gen/hackbench#102) raises this past the stock 512, and a hardcoded
+ * constant would present the first two pages as though they were the whole
+ * table. That is the failure CLAUDE.md's "never fall back to the vanilla
+ * value" rule exists to prevent, so a cartridge whose loop cannot be
+ * resolved returns null and the caller refuses.
+ *
+ * EVERY matching site is read, not just the first, and they must agree -
+ * the same rule `GfxLoader.readBg3CharBase` follows for its `$210C` writes.
+ * A cart that patched one fill loop and not another cannot be said to have
+ * a single count.
+ *
+ * Null when: no site matches, the sites disagree, the bound is not a whole
+ * number of two-byte pointers, or it is zero.
+ */
+export function readMap16TileCount(rom: RomFile): number | null {
+  const hits = findPattern(rom, MAP16_COUNT_PATTERN)
+  if (hits.length === 0) return null
+
+  let agreed: number | null = null
+  for (const at of hits) {
+    const operand = rom.readAtFileOffset(at + MAP16_COUNT_OPERAND_OFFSET, 2)
+    if (!operand) return null
+    // Byte-indexed, not readUInt16LE: readAtFileOffset hands back a plain
+    // Uint8Array when the RomFile was built from bytes rather than a file,
+    // as RomFile's own `buffer` comment warns.
+    const pointerBytes = operand[0]! | (operand[1]! << 8)
+    if (pointerBytes === 0 || pointerBytes % 2 !== 0) return null
+    if (agreed === null) agreed = pointerBytes
+    else if (agreed !== pointerBytes) return null
+  }
+  return agreed === null ? null : agreed / 2
+}
+
 // ── Subtile / tile types ─────────────────────────────────────────────────────
 
 export interface SubTile {
@@ -110,7 +186,8 @@ export interface Map16Tile {
   br: SubTile // bottom-right (word 3, column-major)
 }
 
-function decodeSubTile(word: number): SubTile {
+/** Unpacks one 16-bit SNES BG tile-attribute word into its five fields. */
+export function decodeSubTileWord(word: number): SubTile {
   return {
     charNum: word & 0x3ff,
     palette: (word >> 10) & 0x7,
@@ -118,6 +195,22 @@ function decodeSubTile(word: number): SubTile {
     flipX: ((word >> 14) & 1) === 1,
     flipY: ((word >> 15) & 1) === 1,
   }
+}
+
+/**
+ * Inverse of `decodeSubTileWord`. Every input field is masked to its own bit
+ * width rather than trusted as already-clamped, so an editor UI passing a
+ * stray out-of-range value (a char number above 1023, say) cannot corrupt a
+ * bit outside its own field.
+ */
+export function encodeSubTileWord(sub: SubTile): number {
+  return (
+    (sub.charNum & 0x3ff) |
+    ((sub.palette & 0x7) << 10) |
+    ((sub.priority ? 1 : 0) << 13) |
+    ((sub.flipX ? 1 : 0) << 14) |
+    ((sub.flipY ? 1 : 0) << 15)
+  )
 }
 
 const EMPTY_SUBTILE: SubTile = {
@@ -140,10 +233,10 @@ function readTileAt(rom: RomFile, addr: number, id: number): Map16Tile {
   const w3 = buf.readUInt16LE(6) // BR
   return {
     id,
-    tl: decodeSubTile(w0),
-    bl: decodeSubTile(w1),
-    tr: decodeSubTile(w2),
-    br: decodeSubTile(w3),
+    tl: decodeSubTileWord(w0),
+    bl: decodeSubTileWord(w1),
+    tr: decodeSubTileWord(w2),
+    br: decodeSubTileWord(w3),
   }
 }
 

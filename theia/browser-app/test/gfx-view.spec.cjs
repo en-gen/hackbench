@@ -75,10 +75,17 @@ async function createProject(page, dir, name = 'MyHack') {
   )
 }
 
-/** Create a project and load its GFX files, returning what the widget holds. */
+/**
+ * Create a project and load its GFX files, returning what the widget holds.
+ *
+ * `rows` is every tree row INCLUDING the Map16 row that now sits above the
+ * GFX file list (map16-view.spec.cjs covers that row itself); `fileRows` is
+ * `rows` filtered to `kind === 'file'`, which is what every GFX-file-only
+ * assertion in this spec actually wants.
+ */
 async function loadGfx(page, dir) {
   const project = await createProject(page, dir)
-  return page.evaluate(async manifestPath => {
+  const result = await page.evaluate(async manifestPath => {
     const w = await getWidget('hackbench.gfx-explorer')
     await w.load(manifestPath)
     return {
@@ -93,6 +100,12 @@ async function loadGfx(page, dir) {
       })),
     }
   }, project.manifestPath)
+  return { ...result, fileRows: result.rows.filter(r => r.kind === 'file') }
+}
+
+/** The first GFX FILE row's locator - row 0 is always the Map16 row now. */
+function firstGfxFileRow(page) {
+  return page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(1)
 }
 
 test('the graphics view has nothing to show until a project is open', async ({ page }) => {
@@ -111,16 +124,19 @@ test('a new project lists every GFX file its cartridge holds', async ({ page }) 
   const result = await loadGfx(page, path.join(tmp, 'MyHack'))
 
   expect(result.fileCount).toBe(VANILLA_GFX_FILES)
-  expect(result.rows.length).toBe(VANILLA_GFX_FILES)
-  expect(result.rows.every(r => r.kind === 'file')).toBe(true)
+  // Map16 sits above the file list as its own row (map16-view.spec.cjs).
+  expect(result.rows.length).toBe(VANILLA_GFX_FILES + 1)
+  expect(result.rows[0].kind).toBe('map16')
+  expect(result.fileRows.length).toBe(VANILLA_GFX_FILES)
+  expect(result.fileRows.every(r => r.kind === 'file')).toBe(true)
 
-  for (const r of result.rows) {
+  for (const r of result.fileRows) {
     expect(r.tileCount).toBeGreaterThan(0)
     expect([2, 3, 4, 'mode7']).toContain(r.bpp)
   }
   // Every file addressable, not collapsed onto a shared row id.
-  expect(new Set(result.rows.map(r => r.index)).size).toBe(VANILLA_GFX_FILES)
-  expect(result.rows[0].hex).toBe('00')
+  expect(new Set(result.fileRows.map(r => r.index)).size).toBe(VANILLA_GFX_FILES)
+  expect(result.fileRows[0].hex).toBe('00')
 })
 
 test('the GFX rows are rendered and reachable, not just in the model', async ({ page }) => {
@@ -134,6 +150,8 @@ test('the GFX rows are rendered and reachable, not just in the model', async ({ 
   const rows = await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').count()
   expect(rows).toBeGreaterThan(2)
 
+  // `.hb-gfx-id` deliberately excludes the Map16 row (own classes, see
+  // gfx-explorer-widget.tsx), so every match here is still a GFX $XX file.
   const ids = await page.locator('#hackbench\\.gfx-explorer .hb-gfx-id').allTextContents()
   expect(ids.length).toBeGreaterThan(0)
   for (const id of ids) expect(id).toMatch(/^GFX \$[0-9A-F]{2}$/)
@@ -144,7 +162,7 @@ test('clicking a row opens a canvas with real, non-uniform pixel data', async ({
   await revealGfx(page)
   await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
 
-  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').first().click()
+  await firstGfxFileRow(page).click()
   await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
   await page.waitForTimeout(500)
 
@@ -198,7 +216,7 @@ test('closing and reopening the Graphics view still wires row clicks', async ({ 
   }, result.manifestPath)
   await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
 
-  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').first().click()
+  await firstGfxFileRow(page).click()
   await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
   await page.waitForTimeout(500)
 
@@ -306,7 +324,7 @@ test('switching bit depth re-decodes the sheet, not just its label', async ({ pa
   await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
   // File 0 decodes at 3bpp by default (24 bytes/tile); switching to 4bpp
   // (32 bytes/tile) on the SAME raw bytes must change the tile count.
-  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').first().click()
+  await firstGfxFileRow(page).click()
   await page.waitForSelector('#hb-gfx-bpp-select', { timeout: 15000 })
   await page.waitForTimeout(500)
 
@@ -365,7 +383,7 @@ test('switching the palette row repaints the canvas', async ({ page }) => {
   await loadGfx(page, path.join(tmp, 'MyHack'))
   await revealGfx(page)
   await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
-  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').first().click()
+  await firstGfxFileRow(page).click()
   await page.waitForSelector('#hb-gfx-palette-row-select', { timeout: 15000 })
   await page.waitForTimeout(500)
 
@@ -389,8 +407,9 @@ test('switching the palette row repaints the canvas', async ({ page }) => {
  * path; every other GFX test either never edits a palette, or calls
  * `w.load(...)` itself, which would pass even if the push were dead.
  *
- * GFX file $00 (the first tree node) decodes at its natural default of
- * 3bpp - see the "switching bit depth" test above. A 3bpp pixel is 3 bits,
+ * GFX file $00 (the first GFX FILE row - the Map16 row now sits above it)
+ * decodes at its natural default of 3bpp - see the "switching bit depth"
+ * test above. A 3bpp pixel is 3 bits,
  * so decodeGfxSheet can only ever sample palette indices 0-7 out of a
  * CGRAM row's 16; indices 8-15 are not "wrong colour", they are simply
  * never read at this depth, regardless of which row is selected. An
@@ -416,7 +435,7 @@ test('a palette edit visibly recolours an already-open GFX sheet, with no manual
   }, project.manifestPath)
   await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
 
-  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').first().click()
+  await firstGfxFileRow(page).click()
   await page.waitForSelector('#hb-gfx-palette-row-select', { timeout: 15000 })
   await page.waitForTimeout(500)
 

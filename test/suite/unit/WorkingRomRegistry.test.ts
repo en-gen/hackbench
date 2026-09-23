@@ -2,7 +2,7 @@
  * WorkingRomRegistry: one WorkingRom per open project, shared by every
  * backend service. See docs/glossary.md, "Working copy".
  *
- * `setColor` always records one committed `edit` layer, validated against
+ * `setWord` always records one committed `edit` layer, validated against
  * the value currently at that address.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -59,9 +59,9 @@ describe('WorkingRomRegistry', () => {
     expect(r.status).toBe('rom-not-located')
   })
 
-  it('setColor records one persisted edit layer and updates bytes()', () => {
+  it('setWord records one persisted edit layer and updates bytes()', () => {
     const { manifestPath } = makeProject()
-    const r1 = working.setColor(manifestPath, {
+    const r1 = working.setWord(manifestPath, {
       romAddr: MARIO_RED_ADDR,
       oldHex: '$391F',
       newHex: '$03E0',
@@ -80,8 +80,8 @@ describe('WorkingRomRegistry', () => {
 
   it('each call against the newly-committed value records its own layer, in order', () => {
     const { manifestPath } = makeProject()
-    working.setColor(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex: '$391F', newHex: '$1000' })
-    const r2 = working.setColor(manifestPath, {
+    working.setWord(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex: '$391F', newHex: '$1000' })
+    const r2 = working.setWord(manifestPath, {
       romAddr: MARIO_RED_ADDR,
       oldHex: '$1000', // the value the FIRST call just committed, not the original
       newHex: '$2000',
@@ -97,14 +97,14 @@ describe('WorkingRomRegistry', () => {
     expect(bytes[offset] | (bytes[offset + 1] << 8)).toBe(0x2000)
   })
 
-  it('setColor refuses a stale oldHex instead of silently overwriting', () => {
+  it('setWord refuses a stale oldHex instead of silently overwriting', () => {
     const { manifestPath } = makeProject()
-    working.setColor(manifestPath, {
+    working.setWord(manifestPath, {
       romAddr: MARIO_RED_ADDR,
       oldHex: '$391F',
       newHex: '$03E0',
     })
-    const stale = working.setColor(manifestPath, {
+    const stale = working.setWord(manifestPath, {
       romAddr: MARIO_RED_ADDR,
       oldHex: '$391F', // no longer true: the first edit already changed it
       newHex: '$7C00',
@@ -123,6 +123,37 @@ describe('WorkingRomRegistry', () => {
     if (a.status !== 'ok' || b.status !== 'ok') throw new Error('unreachable')
     expect(a.working).toBe(b.working)
   })
+
+  /**
+   * setWord backs Map16 edits too, where bit 15 is real data (vertical
+   * flip), not padding. Without `mask: FULL_WORD_MASK` this bit would be
+   * silently dropped on write (the default BGR555 behaviour every palette
+   * op relies on) - see PaletteOp.ts's `Op.mask`.
+   */
+  it('setWord with FULL_WORD_MASK writes and validates all 16 bits, not just the low 15', () => {
+    const { manifestPath } = makeProject()
+    const r1 = working.setWord(manifestPath, {
+      romAddr: MARIO_RED_ADDR,
+      oldHex: '$391F',
+      newHex: '$83E0', // bit 15 set: would be dropped to $03E0 under the default mask
+      mask: 0xffff,
+    })
+    expect(r1.status).toBe('ok')
+    if (r1.status !== 'ok') throw new Error('unreachable')
+    const offset = loromToOffset(MARIO_RED_ADDR, r1.working.baseBytes().length, false) as number
+    const bytes = r1.working.bytes()
+    expect(bytes[offset] | (bytes[offset + 1] << 8)).toBe(0x83e0)
+
+    // A stale check against the pre-bit-15 value must now fail: with the
+    // full mask, $03E0 no longer matches what is actually committed ($83E0).
+    const stale = working.setWord(manifestPath, {
+      romAddr: MARIO_RED_ADDR,
+      oldHex: '$03E0',
+      newHex: '$0000',
+      mask: 0xffff,
+    })
+    expect(stale.status).toBe('stale')
+  })
 })
 
 /**
@@ -134,7 +165,7 @@ describe('WorkingRomRegistry', () => {
  */
 describe('WorkingRomRegistry undo/redo', () => {
   const edit = (manifestPath: string, oldHex: string, newHex: string) =>
-    working.setColor(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex, newHex })
+    working.setWord(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex, newHex })
 
   const wordAt = (mp: string): number => {
     const r = working.get(mp)

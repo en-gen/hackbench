@@ -872,3 +872,58 @@ test('the inspector is pinned above the content and does not move when the conte
   const inspectorBoxAfterScroll = await inspector.boundingBox()
   expect(Math.abs(inspectorBoxAfterScroll.y - inspectorBoxBeforeScroll.y)).toBeLessThan(2)
 })
+
+/**
+ * Ctrl+Z straight after a hex-field edit, with focus left exactly where the
+ * edit leaves it.
+ *
+ * undo-redo.spec.cjs proves Ctrl+Z works when the palette view has been
+ * activated through `ApplicationShell.activateWidget`, which focuses the
+ * widget NODE. A user editing a colour leaves focus in the hex `<input>`,
+ * which has its own native undo. This is the path the owner reported broken
+ * by hand while every existing undo test was green, so the assertion is on
+ * the committed op files: whether the EDIT was undone, not whether some
+ * keybinding fired.
+ */
+test('Ctrl+Z after a hex-field edit undoes the edit, not just the text', async ({ page }) => {
+  const dir = path.join(tmp, 'KeyUndoFromField')
+  // Create the project AND set the context in one step: EditStackContribution
+  // gates on ProjectContext.current, so a widget-only load would have undo
+  // correctly declining and the test measuring its own setup.
+  await page.evaluate(
+    async ({ romPath, directory }) => {
+      const projects = getSvc('Symbol(ProjectService)')
+      const project = await projects.createProject({
+        romPath,
+        name: 'KeyUndoFromField',
+        directory,
+      })
+      getSvc('ProjectContext').current = project
+      const w = await getWidget('hackbench.palette-view')
+      await w.load(project.manifestPath)
+    },
+    { romPath: ROM, directory: dir },
+  )
+  await revealPalettes(page)
+
+  const swatches = page.locator('[id="hackbench.palette-view"] .hb-palette-swatch')
+  await expect(swatches.first()).toBeVisible({ timeout: 15000 })
+  await selectMarioRedSwatch(page)
+
+  const hexField = page.locator('[id="hackbench.palette-view"] .hb-palette-inspector-hex')
+  await hexField.fill('03E0')
+  await hexField.press('Enter')
+  await page.waitForTimeout(400)
+
+  const opsDir = path.join(dir, 'ops')
+  expect(fs.readdirSync(opsDir).filter(f => f.endsWith('.json'))).toHaveLength(1)
+
+  // No click elsewhere first: focus is wherever committing the edit left it.
+  await page.keyboard.press('Control+z')
+  await page.waitForTimeout(800)
+
+  // The layer file leaves ops/ on undo - that is the behaviour, not a
+  // repainted swatch.
+  const after = fs.existsSync(opsDir) ? fs.readdirSync(opsDir).filter(f => f.endsWith('.json')) : []
+  expect(after).toHaveLength(0)
+})

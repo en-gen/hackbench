@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { buildChars } from '../../../../src/rom/model/chars/CharFactory'
+import { buildChars, vramFromChars } from '../../../../src/rom/model/chars/CharFactory'
 import { PSwitchAlternateBehavior } from '../../../../src/rom/model/chars/behaviors/PSwitchAlternateBehavior'
 import { AnimatedPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/AnimatedPixelsBehavior'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
@@ -94,6 +94,67 @@ describe('buildChars - frame with tiles.length === 0: animation dropped, StaticP
     const chars = buildChars(VRAM, animData)
     // Char 0x000 still exists (from VRAM) but without animation → StaticPixelsBehavior
     expect(chars.get(0x000)?.behavior).toBeInstanceOf(StaticPixelsBehavior)
+  })
+})
+
+// ── vramFromChars: chars model → VramState snapshot ──────────────────────────
+
+describe('vramFromChars', () => {
+  it('with no animData at all, every char is StaticPixelsBehavior over the base array, so the whole slot is returned unchanged by reference', () => {
+    const chars = buildChars(VRAM) // no animData -> StaticPixelsBehavior(sheet[i]) for every char
+    const snapshot = vramFromChars(VRAM, chars)
+    expect(snapshot.fg1).toBe(VRAM.fg1)
+  })
+
+  /**
+   * The claim this whole fix depends on, and the one an earlier draft of
+   * this file's doc comment got backwards: an ANIMATED char's frame data
+   * comes from AnimationLoader, decoded from a separate part of the cart
+   * than the tileset's own GFX file - so even at PHASE 0, before any
+   * tickAnimation(), its pixels are a genuinely different array than
+   * whatever the GFX file left at that VRAM slot, and the slot must be
+   * patched. `FRAME0_DISTINCT_FROM_BASE` deliberately has the SAME
+   * content as `PIXELS` but is a different Uint8Array instance, so this
+   * pins the check as reference equality, not a content diff - matching
+   * `vramFromChars`'s own `pixels === sheet[i]` early-out.
+   */
+  it('an animated char already differs from base at phase 0, before any tickAnimation', () => {
+    const frame0DistinctFromBase = new Uint8Array(PIXELS) // same bytes, different object
+    const animData: AnimationData = {
+      frameCount: 2,
+      intervalMs: 133,
+      frames: [
+        [{ charBase: 0x000, tiles: [frame0DistinctFromBase] }],
+        [{ charBase: 0x000, tiles: [ALT_PIXELS] }],
+      ],
+    }
+    const chars = buildChars(VRAM, animData)
+    const snapshot = vramFromChars(VRAM, chars) // no tickAnimation() call
+    expect(snapshot.fg1).not.toBe(VRAM.fg1) // slot IS copied
+    expect(snapshot.fg1![0]).toBe(frame0DistinctFromBase) // frame 0's own array, not base's
+    expect(snapshot.fg1![0]).not.toBe(VRAM.fg1![0])
+  })
+
+  it("after tickAnimation, the snapshot reflects the animated char's new frame, base untouched", () => {
+    const animData: AnimationData = {
+      frameCount: 2,
+      intervalMs: 133,
+      frames: [[{ charBase: 0x000, tiles: [PIXELS] }], [{ charBase: 0x000, tiles: [ALT_PIXELS] }]],
+    }
+    const chars = buildChars(VRAM, animData)
+    for (const char of chars.values()) char.tickAnimation()
+
+    const snapshot = vramFromChars(VRAM, chars)
+    expect(snapshot.fg1).not.toBe(VRAM.fg1) // slot copied, not mutated in place
+    expect(snapshot.fg1![0]).toBe(ALT_PIXELS)
+    expect(VRAM.fg1![0]).toBe(PIXELS) // base is never mutated
+  })
+
+  it('a char with no entry in `chars` (VRAM has a slot the model does not cover) keeps its base pixels', () => {
+    const twoTileVram: VramState = { fg1: [PIXELS, ALT_PIXELS] }
+    const partialChars = new Map(buildChars({ fg1: [PIXELS] })) // only char 0x000
+    const snapshot = vramFromChars(twoTileVram, partialChars)
+    expect(snapshot.fg1![1]).toBe(ALT_PIXELS) // untouched: no Char for 0x001
   })
 })
 
