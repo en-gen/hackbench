@@ -57,12 +57,21 @@ describe('OpsStore', () => {
   it('pop removes only the most recently appended layer', () => {
     appendLayer(tmp, layer('L1'))
     appendLayer(tmp, layer('L2'))
-    popLayer(tmp)
+    popLayer(tmp, 'L2')
     expect(loadLayers(tmp).map(l => l.id)).toEqual(['L1'])
   })
 
-  it('popping an empty stack is a no-op, not a throw', () => {
-    expect(() => popLayer(tmp)).not.toThrow()
+  // The caller names the layer it just took off in memory. A top file that is
+  // not that layer (a `git pull` landed one on top) belongs to someone else.
+  it('pop refuses, and deletes nothing, when the top file is not the named layer', () => {
+    appendLayer(tmp, layer('L1'))
+    appendLayer(tmp, layer('PULLED'))
+    expect(() => popLayer(tmp, 'L1')).toThrow(/PULLED/)
+    expect(loadLayers(tmp).map(l => l.id)).toEqual(['L1', 'PULLED'])
+  })
+
+  it('popping an empty stack refuses: the named layer is not on disk', () => {
+    expect(() => popLayer(tmp, 'L1')).toThrow()
     expect(loadLayers(tmp)).toEqual([])
   })
 
@@ -113,12 +122,19 @@ describe('OpsStore redo area', () => {
   it('popRedoLayer removes only the most recently undone layer', () => {
     pushRedoLayer(tmp, layer('L2'))
     pushRedoLayer(tmp, layer('L1'))
-    popRedoLayer(tmp)
+    popRedoLayer(tmp, 'L1')
     expect(loadRedoLayers(tmp).map(l => l.id)).toEqual(['L2'])
   })
 
-  it('popping an empty redo stack is a no-op, not a throw', () => {
-    expect(() => popRedoLayer(tmp)).not.toThrow()
+  it('popRedoLayer refuses, and deletes nothing, when the top file is not the named layer', () => {
+    pushRedoLayer(tmp, layer('L1'))
+    pushRedoLayer(tmp, layer('PULLED'))
+    expect(() => popRedoLayer(tmp, 'L1')).toThrow(/PULLED/)
+    expect(loadRedoLayers(tmp).map(l => l.id)).toEqual(['L1', 'PULLED'])
+  })
+
+  it('popping an empty redo stack refuses: the named layer is not on disk', () => {
+    expect(() => popRedoLayer(tmp, 'L1')).toThrow()
     expect(loadRedoLayers(tmp)).toEqual([])
   })
 

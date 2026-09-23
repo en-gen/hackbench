@@ -75,10 +75,49 @@ function appendTo(dir: string, layer: Layer): void {
   fs.writeFileSync(file, formatLayerFile(layer), 'utf8')
 }
 
-function popFrom(dir: string): void {
+/**
+ * Deletes the top file only if it holds `expectedId`, the layer the caller
+ * just took off in memory. Anything else on top (a pulled layer) is not the
+ * caller's to delete, so this throws and leaves the area untouched.
+ */
+function popFrom(dir: string, expectedId: string): void {
   const files = layerFiles(dir)
   const last = files[files.length - 1]
-  if (last) fs.unlinkSync(path.join(dir, last))
+  const file = last && path.join(dir, last)
+  const onDisk = file ? (JSON.parse(fs.readFileSync(file, 'utf8')) as Layer).id : 'nothing'
+  if (!file || onDisk !== expectedId) {
+    throw new Error(`top of ${dir} is ${onDisk}, not ${expectedId}`)
+  }
+  fs.unlinkSync(file)
+}
+
+export interface OpsStamp {
+  /** Name, size and mtime of every file in both areas. */
+  key: string
+  /** Latest mtime or ctime of any of them, in ms. */
+  newest: number
+}
+
+/**
+ * Stats only, no reads or parses, which is why get() can take it on every
+ * request. A changed key means "re-read and compare", not "changed".
+ * `newest` is separate from the key because ctime is on a coarse clock on
+ * Linux (a same-tick rewrite leaves it unchanged), so it is compared against
+ * WHEN the stamp was taken rather than for equality; it is also what a copy
+ * preserving mtime (`cp -p`, archive extraction) cannot set.
+ */
+export function opsStamp(projectDirectory: string): OpsStamp {
+  const parts: string[] = []
+  let newest = 0
+  for (const dir of [opsDir(projectDirectory), redoDir(projectDirectory)]) {
+    for (const f of layerFiles(dir)) {
+      const st = fs.statSync(path.join(dir, f))
+      parts.push(`${f}:${st.size}:${st.mtimeMs}`)
+      newest = Math.max(newest, st.mtimeMs, st.ctimeMs)
+    }
+    parts.push('/')
+  }
+  return { key: parts.join('|'), newest }
 }
 
 /** Every persisted layer, oldest (bottom of stack) first. */
@@ -97,9 +136,9 @@ export function appendLayer(projectDirectory: string, layer: Layer): void {
   appendTo(opsDir(projectDirectory), layer)
 }
 
-/** Deletes the top (most recently appended) layer file, if any. */
-export function popLayer(projectDirectory: string): void {
-  popFrom(opsDir(projectDirectory))
+/** Deletes the top (most recently appended) layer file; see popFrom. */
+export function popLayer(projectDirectory: string, expectedId: string): void {
+  popFrom(opsDir(projectDirectory), expectedId)
 }
 
 /** Every undone layer, oldest-undone first; the LAST is what redo re-applies. */
@@ -112,9 +151,9 @@ export function pushRedoLayer(projectDirectory: string, layer: Layer): void {
   appendTo(redoDir(projectDirectory), layer)
 }
 
-/** Deletes the most recently undone layer file, if any. */
-export function popRedoLayer(projectDirectory: string): void {
-  popFrom(redoDir(projectDirectory))
+/** Deletes the most recently undone layer file; see popFrom. */
+export function popRedoLayer(projectDirectory: string, expectedId: string): void {
+  popFrom(redoDir(projectDirectory), expectedId)
 }
 
 /** Ends the redo future, which a new edit does. Safe when there is none. */
