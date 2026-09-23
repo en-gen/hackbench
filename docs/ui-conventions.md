@@ -8,6 +8,37 @@ already established wins over a fresh invention.
 Vocabulary is NOT defined here. `docs/glossary.md` owns domain terms, and
 UI copy uses them exactly as that file defines them.
 
+## The rule above all the others
+
+**A user must never have to LEARN ROM internals to do ordinary creative
+work.**
+
+Hex values, character numbers, tile ids, addresses and byte values may be
+SHOWN. Advanced users benefit from seeing them, and a visible value is what
+makes a rendering bug reportable. But nothing may REQUIRE typing or
+understanding one to get work done.
+
+The goal this serves, stated by the owner: make romhacking approachable.
+The working belief is that the incumbent editor is hard enough to learn
+that people push through only because it is the only option, and that we
+can do better. Approachable is the product, not a nicety layered on top of
+it.
+
+The test to apply when a design exposes a raw value: **must the user
+understand this to proceed, or do they merely benefit from seeing it?** The
+first is a defect. The second is fine, and often good.
+
+The worked example, because this rule came from a real correction. The
+Map16 tile editor first asked the user to type a character number into a
+hex field. The owner rejected it: "I don't like that interface, especially
+having to just type in a char number." The replacement is picking a
+rendered 8x8 character out of a palette. The number is still on screen,
+read-only, beside the selection. Recognition comes from the picture;
+verification comes from the number.
+
+Note which half of that survived. The fix was not to hide the hex. It was
+to stop requiring it.
+
 ## The reference implementation
 
 `src/webview/mapEditor/main.ts` and `src/webview/overworldViewer/main.ts`

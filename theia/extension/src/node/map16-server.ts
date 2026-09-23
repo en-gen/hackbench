@@ -10,16 +10,19 @@
  * WorkingRomRegistry singleton (hackbench-backend-module.ts), never a
  * second store.
  *
- * The write path reuses WorkingRomRegistry.setWord - the SAME mechanism
- * palette-server.ts's setColor uses - with `mask: FULL_WORD_MASK` since a
- * Map16 subtile word is not a BGR555 color (bit 15 is vertical flip, real
- * data). See PaletteOp.ts's `Op.mask` and WorkingRomRegistry's setWord.
+ * Every DECISION the write path makes lives in map16-decode.ts's
+ * `gateQuadrantWrite`, not here, and deliberately: this file imports
+ * `@theia/core/shared/inversify`, the unit job does not install the
+ * `theia/` workspace, and a test that reaches it fails to load in CI while
+ * passing on any machine that has the workspace. What is left here is what
+ * genuinely needs the container - resolving the working copy and handing
+ * the op to WorkingRomRegistry.setWord, the SAME mechanism
+ * palette-server.ts's setColor uses.
  */
 import { inject, injectable } from '@theia/core/shared/inversify'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { WorkingRomEntry, WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
-import { FULL_WORD_MASK } from '../../../../src/rom/PaletteOp'
 import {
   LoadMap16Result,
   Map16Field,
@@ -27,15 +30,11 @@ import {
   Map16PaletteVariantDto,
   Map16Service,
   Map16ServiceClient,
-  Map16SubtileKey,
+  Map16QuadrantKey,
   SetMap16Result,
 } from '../common/map16-protocol'
-import { decodeMap16Sheet, nextSubtileWord, subtileWordAddress } from './map16-decode'
+import { decodeMap16Sheet, gateQuadrantWrite } from './map16-decode'
 import { WorkingCopyNotifier } from './working-copy-notifier'
-
-function hexWord(word: number): string {
-  return `$${(word & 0xffff).toString(16).toUpperCase().padStart(4, '0')}`
-}
 
 @injectable()
 export class Map16ServiceImpl implements Map16Service {
@@ -55,13 +54,13 @@ export class Map16ServiceImpl implements Map16Service {
     return this.currentSheet(manifestPath, tileset, layer, paletteVariant)
   }
 
-  async setSubtileField(
+  async setQuadrantField(
     manifestPath: string,
     tileset: number,
     layer: Map16Layer,
     paletteVariant: Map16PaletteVariantDto,
     tileId: number,
-    which: Map16SubtileKey,
+    which: Map16QuadrantKey,
     field: Map16Field,
     value: number | boolean,
   ): Promise<SetMap16Result> {
@@ -69,21 +68,11 @@ export class Map16ServiceImpl implements Map16Service {
     if (r.status === 'rom-not-located') return r
     if (r.status === 'unreadable') throw new Error(r.reason)
 
-    const romFile = this.romFileFrom(r)
-    const addr = subtileWordAddress(romFile, tileset, layer, tileId, which)
-    // Read the word straight from the working copy: `old` must be exactly
-    // what is committed right now, not a re-encode of a decoded struct,
-    // or a lossy codec would send a wrong `old` and every stale-check
-    // would be comparing against the wrong thing (see WorkingRom.append).
-    const oldWord = romFile.readWord(addr) ?? 0
-    const newWord = nextSubtileWord(oldWord, field, value)
+    // Every refusal is the gate's, and none of them reaches setWord.
+    const gate = gateQuadrantWrite(this.romFileFrom(r), tileset, layer, tileId, which, field, value)
+    if (gate.status !== 'ok') return gate
 
-    const result = this.workingRoms.setWord(manifestPath, {
-      romAddr: addr,
-      oldHex: hexWord(oldWord),
-      newHex: hexWord(newWord),
-      mask: FULL_WORD_MASK,
-    })
+    const result = this.workingRoms.setWord(manifestPath, gate.write)
     // setWord's own `get` can, in principle, re-observe 'unreadable' (the
     // cart changed under us between the read above and this write) - not
     // part of SetMap16Result's shape, same as currentSheet's own throw.
@@ -108,10 +97,11 @@ export class Map16ServiceImpl implements Map16Service {
     if (r.status === 'rom-not-located') return r
     if (r.status === 'unreadable') throw new Error(r.reason)
     this.notifier.watch(manifestPath, r.working)
-    return {
-      status: 'ok',
-      sheet: decodeMap16Sheet(this.smwRomFrom(r), tileset, layer, paletteVariant),
-    }
+    // decodeMap16Sheet's own refusal ('unavailable', an unreadable or
+    // expanded Map16) is a LOAD result, not a throw: the view says why it
+    // cannot show the table rather than rendering two pages of one that is
+    // bigger. See DecodeMap16Result.
+    return decodeMap16Sheet(this.smwRomFrom(r), tileset, layer, paletteVariant)
   }
 
   private romFileFrom(entry: WorkingRomEntry): RomFile {

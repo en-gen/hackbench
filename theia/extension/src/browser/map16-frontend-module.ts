@@ -28,11 +28,11 @@ export default new ContainerModule(bind => {
     })
     .inSingletonScope()
 
-  // One widget for the whole view (there is exactly one Map16 block table
-  // per project, unlike GFX's per-file tabs), reached through PreviewTabs
-  // with an empty key - WidgetManager's own cache is what makes repeat
-  // opens reuse it, the same mechanism GfxViewWidget relies on for its keyed
-  // per-index tabs.
+  // `toSelf()` and NOT inSingletonScope: WidgetManager caches by factory id
+  // PLUS options, so it calls createWidget once per distinct key and each
+  // call must yield a fresh instance. That is what gives `{ layer: 'fg' }`
+  // and `{ layer: 'bg' }` two independent widgets - the previous factory
+  // took no options, which is why only one ever existed.
   bind(Map16ViewWidget).toSelf()
   bind(WidgetFactory)
     .toDynamicValue(ctx => ({

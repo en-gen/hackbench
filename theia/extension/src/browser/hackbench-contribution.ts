@@ -367,7 +367,13 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
       const manifestPath = this.currentManifest
       const apply = (w: MapViewWidget) => w.open({ manifestPath, index, label, iconClass })
       if (pinned) {
-        await this.previews.pin<MapViewWidget>(MAP_VIEW_ID, { index }, apply, p => p.shows(index))
+        await this.previews.pin<MapViewWidget>(
+          MAP_VIEW_ID,
+          { index },
+          apply,
+          p => p.shows(index),
+          {},
+        )
       } else {
         await this.previews.preview<MapViewWidget>(MAP_VIEW_ID, apply)
       }

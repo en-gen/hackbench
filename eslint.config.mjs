@@ -70,14 +70,14 @@ export default [
     },
   },
 
-  // `getSvc` and `getWidget` are defined by the GET_SVC preamble that these
-  // specs inject into the page, so they are undefined in Node scope and real
-  // at page runtime. Declaring them is telling ESLint the truth about where
-  // the code runs, not silencing a finding.
+  // `getSvc`, `getWidget` and `checksumOf` are defined by the GET_SVC
+  // preamble that these specs inject into the page, so they are undefined in
+  // Node scope and real at page runtime. Declaring them is telling ESLint the
+  // truth about where the code runs, not silencing a finding.
   {
     files: ['theia/browser-app/test/**/*.cjs'],
     languageOptions: {
-      globals: { getSvc: 'readonly', getWidget: 'readonly' },
+      globals: { getSvc: 'readonly', getWidget: 'readonly', checksumOf: 'readonly' },
     },
   },
 

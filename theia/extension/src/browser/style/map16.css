@@ -66,17 +66,135 @@
   flex-basis: 100%;
 }
 
-/* Play/stop: same shape as the palette inspector's OK/Cancel buttons - a
- * bordered button, not a bare icon, so the click target and the disabled
- * state are both visibly real. */
+/* ── Layout: preview, then the edit pane, browser strip below ─────────── */
 
-/* ── Layout: canvas | inspector ────────────────────────────────────────── */
-
-.hb-map16-layout {
-  display: grid;
-  grid-template-columns: 1fr 18em;
+.hb-map16-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1em;
+  padding: 1.2em;
   flex: 1;
   min-height: 0;
+  overflow: auto;
+}
+
+/* ── Tile preview ─────────────────────────────────────────────────────── */
+
+.hb-map16-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+
+.hb-map16-preview {
+  position: relative;
+  line-height: 0;
+  width: max-content;
+  border: 1px solid var(--theia-editorWidget-border);
+}
+
+.hb-map16-preview-canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+/* The affordance OVERLAYS the preview and takes no layout space: emphasis
+   must never move layout, so hovering may change opacity and nothing else.
+   The dim itself is applied inline from HOVER_DIM (map16-pixels.ts), which
+   the canvas spotlight also uses, rather than written out again here. */
+.hb-map16-preview-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 80ms ease-in;
+}
+
+.hb-map16-preview:hover .hb-map16-preview-overlay,
+.hb-map16-preview:focus-within .hb-map16-preview-overlay {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Not dimmed: the overlay dims the picture, and the control sits on top of
+   it at full strength so it reads as the thing to press. */
+.hb-map16-preview-edit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2em;
+  height: 2.2em;
+  border-radius: 4px;
+  border: 1px solid var(--theia-editorWidget-border);
+  background: var(--theia-editorWidget-background);
+  color: var(--theia-foreground);
+  font-size: var(--theia-ui-font-size2);
+  cursor: pointer;
+  opacity: 1;
+}
+
+.hb-map16-preview-edit-on {
+  color: var(--theia-focusBorder, #5b9cf6);
+  box-shadow: inset 0 0 0 1px var(--theia-focusBorder, #5b9cf6);
+}
+
+.hb-map16-preview-caption {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8em;
+}
+
+/* ── Edit pane ────────────────────────────────────────────────────────── */
+
+.hb-map16-edit-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+  border-top: 1px solid var(--theia-editorWidget-border);
+  padding-top: 1em;
+  width: 100%;
+}
+
+.hb-map16-frames {
+  display: flex;
+  gap: 0.9em;
+  flex-wrap: wrap;
+}
+
+.hb-map16-frames-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+
+.hb-map16-frames-note {
+  font-size: var(--theia-ui-font-size0);
+  font-style: italic;
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map16-frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Which native frame is on screen while playback runs. An outline rather
+   than a border, so the strip does not shift as the phase advances. */
+.hb-map16-frame-current .hb-map16-quads {
+  outline: 2px solid var(--theia-focusBorder, #5b9cf6);
+  outline-offset: -1px;
+}
+
+.hb-map16-frame-label {
+  font-family: var(--theia-code-font-family);
+  font-size: 10px;
+  color: var(--theia-descriptionForeground);
 }
 
 .hb-map16-canvas-wrap {
@@ -93,160 +211,329 @@
   cursor: pointer;
 }
 
-.hb-map16-inspector {
-  border-left: 1px solid var(--theia-editorWidget-border);
-  padding: 0.8em 1em;
-  overflow-y: auto;
+/* ── Tile editor ──────────────────────────────────────────────────────── */
+
+.hb-map16-editor {
   display: flex;
   flex-direction: column;
-  gap: 0.6em;
+  gap: 0.7em;
 }
 
-.hb-map16-inspector-empty {
+.hb-map16-editor-empty {
   color: var(--theia-descriptionForeground);
   font-style: italic;
 }
 
-.hb-map16-inspector-header {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15em;
-}
-
-.hb-map16-inspector-block-id {
+.hb-map16-editor-tile-id {
   font-family: var(--theia-code-font-family);
   font-size: var(--theia-ui-font-size2);
   font-weight: 600;
 }
 
-.hb-map16-addr {
-  font-family: var(--theia-code-font-family);
-  font-size: var(--theia-ui-font-size0);
-  color: var(--theia-descriptionForeground);
-}
-
-.hb-map16-corners {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.3em;
-}
-
-.hb-map16-corner {
-  font-size: var(--theia-ui-font-size0);
-  padding: 0.3em 0.4em;
-  border-radius: 2px;
-  border: 1px solid var(--theia-editorWidget-border);
-  background: var(--theia-editorWidget-background);
-  color: var(--theia-foreground);
-  cursor: pointer;
-}
-
-.hb-map16-corner-selected {
-  background: var(--theia-list-activeSelectionBackground);
-  border-color: var(--theia-focusBorder);
-}
-
-.hb-map16-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5em;
-  padding-top: 0.3em;
-  border-top: 1px solid var(--theia-editorWidget-border);
-}
-
+.hb-map16-addr,
 .hb-map16-addr-line {
   font-family: var(--theia-code-font-family);
   font-size: var(--theia-ui-font-size0);
   color: var(--theia-descriptionForeground);
 }
 
-.hb-map16-field {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6em;
+.hb-map16-editor-note {
   font-size: var(--theia-ui-font-size0);
+  font-style: italic;
+  color: var(--theia-descriptionForeground);
 }
 
-.hb-map16-field-checkbox {
-  justify-content: flex-start;
-}
-
-.hb-map16-field-input {
-  width: 5em;
-  box-sizing: border-box;
-  font-family: var(--theia-code-font-family);
-  background: var(--theia-input-background, var(--theia-editorWidget-background));
-  color: var(--theia-input-foreground, var(--theia-foreground));
-  border: 1px solid var(--theia-input-border, var(--theia-editorWidget-border));
-  border-radius: 2px;
-  padding: 0.15em 0.4em;
-}
-
-.hb-map16-inspector-error {
+.hb-map16-editor-error {
   color: var(--theia-errorForeground);
   font-size: var(--theia-ui-font-size0);
 }
 
-.hb-map16-inspector-note {
-  font-size: var(--theia-ui-font-size0);
-  font-style: italic;
-  color: var(--theia-descriptionForeground);
-}
-
-/* ── Large preview + frame strip ──────────────────────────────────────── */
-/* Both canvases are pixel art, painted at their native BLOCK_PX size and
- * scaled up in JS (paintScaledBlock) - `pixelated` is the CSS-side half of
- * that contract, in case a canvas is ever stretched by layout rounding. */
-
-.hb-map16-preview-wrap {
+.hb-map16-editor-main {
   display: flex;
-  justify-content: center;
-  padding: 0.4em 0;
+  align-items: flex-start;
+  gap: 1.2em;
+  flex-wrap: wrap;
 }
 
-.hb-map16-preview-canvas {
-  image-rendering: pixelated;
+/* The four quadrants, 2x2. No gap between them: they are one 16x16 tile,
+   and a gutter would read as four separate pictures. */
+.hb-map16-quads {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 0;
   border: 1px solid var(--theia-editorWidget-border);
+  width: max-content;
 }
 
-.hb-map16-frame-strip-empty {
-  font-size: var(--theia-ui-font-size0);
-  font-style: italic;
-  color: var(--theia-descriptionForeground);
+.hb-map16-quad {
+  position: relative;
+  line-height: 0;
+  cursor: pointer;
 }
 
-.hb-map16-frame-strip {
-  display: flex;
-  gap: 0.5em;
-  padding-top: 0.3em;
-  border-top: 1px solid var(--theia-editorWidget-border);
+/* Emphasis that takes no layout space: an inset outline rather than a
+   border, so selecting a quadrant cannot shift the other three. */
+.hb-map16-quad-on {
+  box-shadow: inset 0 0 0 2px var(--theia-focusBorder, #5b9cf6);
 }
 
-.hb-map16-frame {
+.hb-map16-quad-canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.hb-map16-quad-fields {
   display: flex;
   flex-direction: column;
+  gap: 0.5em;
+  min-width: 16em;
+}
+
+.hb-map16-quad-name {
+  font-weight: 600;
+}
+
+.hb-map16-field-row {
+  display: flex;
   align-items: center;
-  gap: 0.15em;
-}
-
-.hb-map16-frame-canvas {
-  image-rendering: pixelated;
-  border: 1px solid var(--theia-editorWidget-border);
-}
-
-/* Highlight the playing frame WITHOUT changing the box size. A canvas has
-   an intrinsic width/height, so growing its border from 1px to 2px made the
-   element 2px wider and taller and shunted the whole strip sideways on every
-   phase tick. box-shadow paints outside the border box and takes no layout
-   space, so the emphasis reads as a thicker edge while the strip stays put. */
-.hb-map16-frame-current .hb-map16-frame-canvas {
-  border-color: var(--theia-focusBorder);
-  box-shadow: 0 0 0 1px var(--theia-focusBorder);
-}
-
-.hb-map16-frame-label {
+  gap: 0.6em;
+  flex-wrap: wrap;
   font-size: var(--theia-ui-font-size0);
+}
+
+.hb-map16-field-label {
+  color: var(--theia-descriptionForeground);
+  font-size: var(--theia-ui-font-size0);
+}
+
+.hb-map16-char-number {
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size1);
+  font-weight: 600;
+}
+
+.hb-map16-char-source {
+  color: var(--theia-descriptionForeground);
+  font-size: var(--theia-ui-font-size0);
+}
+
+.hb-map16-toggle {
+  font-size: var(--theia-ui-font-size0);
+  padding: 0.25em 0.6em;
+  border-radius: 3px;
+  border: 1px solid var(--theia-editorWidget-border);
+  background: var(--theia-editorWidget-background);
+  color: var(--theia-foreground);
+  cursor: pointer;
+}
+
+/* Same pressed convention as the toolbar's icon toggles: accent foreground,
+   tinted fill, inset outline. */
+.hb-map16-toggle-on {
+  color: var(--theia-focusBorder, #5b9cf6);
+  background: var(--theia-inputOption-activeBackground, rgba(91, 156, 246, 0.18));
+  box-shadow: inset 0 0 0 1px var(--theia-focusBorder, #5b9cf6);
+}
+
+.hb-map16-toggle:hover {
+  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+/* Needed because the hover rule above outranks a single class, so without
+   this the fill vanished exactly while the pointer was on the button. */
+.hb-map16-toggle-on:hover {
+  background: var(--theia-inputOption-hoverBackground, rgba(91, 156, 246, 0.3));
+}
+
+/* ── Color row picker ─────────────────────────────────────────────────── */
+
+.hb-map16-rowpick-heading {
+  margin-top: 0.2em;
+}
+
+.hb-map16-rowpick {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hb-map16-rowpick-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--theia-foreground);
+  cursor: pointer;
+  text-align: left;
+}
+
+.hb-map16-rowpick-row:hover {
+  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.hb-map16-rowpick-row-on {
+  border-color: var(--theia-focusBorder, #5b9cf6);
+  background: var(--theia-inputOption-activeBackground, rgba(91, 156, 246, 0.18));
+}
+
+.hb-map16-rowpick-label {
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size0);
+  min-width: 3.4em;
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map16-rowpick-strip {
+  display: flex;
+}
+
+.hb-map16-swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--theia-editorWidget-border);
+  margin-right: -1px;
+}
+
+/* ── Character palettes ───────────────────────────────────────────────── */
+
+.hb-map16-palettes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid var(--theia-editorWidget-border);
+  padding-top: 0.6em;
+}
+
+.hb-map16-palettes-empty {
+  font-style: italic;
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map16-palettes-hint,
+.hb-map16-palettes-foot {
+  font-size: var(--theia-ui-font-size0);
+  font-style: italic;
+  color: var(--theia-descriptionForeground);
+  max-width: 34em;
+}
+
+.hb-map16-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.3em 0.2em;
+  border: none;
+  background: transparent;
+  color: var(--theia-foreground);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
+.hb-map16-sheet-head:hover {
+  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.hb-map16-sheet-slot,
+.hb-map16-sheet-file {
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size0);
+}
+
+.hb-map16-sheet-file,
+.hb-map16-sheet-anim {
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map16-sheet-anim {
+  font-size: 10px;
+}
+
+/* The canvas paints every character at once; the handles sit over it so
+   each character keeps its own hit box and accessible name. Both the grid
+   and the canvas are sized INLINE from CELL_PX in map16-char-palettes.tsx:
+   the two numbers used to be written out here as well, and nothing could
+   have caught them drifting apart. */
+.hb-map16-sheet-grid {
+  position: relative;
+  margin: 0 0 0.6em 1.4em;
+}
+
+.hb-map16-sheet-canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.hb-map16-sheet-handles {
+  position: absolute;
+  inset: 0;
+  display: grid;
+}
+
+.hb-map16-sheet-unavailable {
+  margin: 0 0 0.6em 1.4em;
+  font-size: var(--theia-ui-font-size0);
+  font-style: italic;
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map16-char {
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* Outline rather than a border: the handle overlays pixel art, and a border
+   would shift the grid by its own width. */
+.hb-map16-char:hover:enabled {
+  outline: 1px solid var(--theia-focusBorder, #5b9cf6);
+  outline-offset: -1px;
+}
+
+/* Where the selected quadrant's character currently sits. */
+.hb-map16-char-current {
+  outline: 2px solid var(--theia-focusBorder, #5b9cf6);
+  outline-offset: -2px;
+}
+
+/* ── Tile browser strip ───────────────────────────────────────────────── */
+
+.hb-map16-browser {
+  border-top: 1px solid var(--theia-editorWidget-border);
+  display: flex;
+  flex-direction: column;
+  max-height: 45%;
+  min-height: 0;
+}
+
+.hb-map16-browser-closed {
+  max-height: none;
+}
+
+.hb-map16-browser-head {
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+  padding: 0.3em 0.8em;
+}
+
+.hb-map16-browser-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  border: none;
+  background: transparent;
+  color: var(--theia-foreground);
+  cursor: pointer;
+  font-size: var(--theia-ui-font-size0);
+}
+
+.hb-map16-browser-note {
+  font-size: 10px;
   color: var(--theia-descriptionForeground);
 }
 

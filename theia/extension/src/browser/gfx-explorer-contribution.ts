@@ -59,19 +59,35 @@ export class GfxExplorerContribution extends AbstractViewContribution<GfxExplore
     explorer.onFileOpened(async ({ manifestPath, index, label, pinned }) => {
       const apply = (w: GfxViewWidget) => w.open({ manifestPath, index, label })
       if (pinned) {
-        await this.previews.pin<GfxViewWidget>(GFX_VIEW_ID, { index }, apply, p => p.shows(index))
+        await this.previews.pin<GfxViewWidget>(
+          GFX_VIEW_ID,
+          { index },
+          apply,
+          p => p.shows(index),
+          {},
+        )
       } else {
         await this.previews.preview<GfxViewWidget>(GFX_VIEW_ID, apply)
       }
     })
-    // Map16 has no per-row key: one project has exactly one block table open
-    // at a time, so `{}` is the only key this view ever asks WidgetManager for.
-    explorer.onMap16Opened(async ({ manifestPath, pinned }) => {
-      const apply = (w: Map16ViewWidget) => w.open({ manifestPath, label: 'Map16' })
+    // Keyed by LAYER: WidgetManager keys a widget by factory id plus
+    // options, so `{ layer }` is what makes Foreground and Background two
+    // independent widgets that tab, split and select on their own. The
+    // preview tab is keyed the same way, or clicking one row would replace
+    // the other's preview.
+    explorer.onMap16Opened(async ({ manifestPath, layer, pinned }) => {
+      const label = layer === 'bg' ? 'Map16 Background' : 'Map16 Foreground'
+      const apply = (w: Map16ViewWidget) => w.open({ manifestPath, label, layer })
       if (pinned) {
-        await this.previews.pin<Map16ViewWidget>(MAP16_VIEW_ID, {}, apply, p => p.shows())
+        await this.previews.pin<Map16ViewWidget>(
+          MAP16_VIEW_ID,
+          { layer },
+          apply,
+          p => p.shows(layer),
+          { layer },
+        )
       } else {
-        await this.previews.preview<Map16ViewWidget>(MAP16_VIEW_ID, apply)
+        await this.previews.preview<Map16ViewWidget>(MAP16_VIEW_ID, apply, { layer })
       }
     })
   }

@@ -31,6 +31,7 @@ import {
 } from '@theia/core/lib/browser'
 import { Emitter } from '@theia/core/lib/common'
 import { GfxFileDto, GfxFormat, GfxService, gfxFormatLabel } from '../common/gfx-protocol'
+import { Map16Layer } from '../common/map16-protocol'
 import { ProjectContext } from './project-context'
 
 export const GFX_EXPLORER_ID = 'hackbench.gfx-explorer'
@@ -43,10 +44,23 @@ export interface GfxTreeNode extends CompositeTreeNode, SelectableTreeNode {
   /** Null alongside `bpp` null: no depth to divide the length by. */
   tileCount: number | null
   kind: 'file' | 'message' | 'map16'
+  /** Which Map16 table a `map16` row opens; null on every other kind. */
+  layer: Map16Layer | null
 }
 
 const NO_PROJECT_MESSAGE = 'Open a project to see its graphics'
-const MAP16_ROW_ID = 'map16'
+
+/**
+ * Both tables get their own row.
+ *
+ * They share nothing: `fg` is the per-tileset object and terrain table,
+ * `bg` is the one global Layer 2 preset table. A single row called "Map16"
+ * showed only `fg`, which is how the BG table went unnoticed entirely.
+ */
+const MAP16_ROWS: readonly { layer: Map16Layer; name: string; meta: string }[] = [
+  { layer: 'fg', name: 'Map16 Foreground', meta: 'per-tileset object and terrain tiles' },
+  { layer: 'bg', name: 'Map16 Background', meta: 'the global Layer 2 preset tiles' },
+]
 
 @injectable()
 export class GfxExplorerWidget extends TreeWidget {
@@ -96,6 +110,7 @@ export class GfxExplorerWidget extends TreeWidget {
    */
   protected readonly onMap16OpenedEmitter = new Emitter<{
     manifestPath: string
+    layer: Map16Layer
     pinned: boolean
   }>()
   readonly onMap16Opened = this.onMap16OpenedEmitter.event
@@ -162,9 +177,12 @@ export class GfxExplorerWidget extends TreeWidget {
     }
 
     this.fileCount = result.files.length
-    // Map16 sits above the GFX file list: it is the block table the GFX
-    // files' tiles get composed into, not a GFX file itself.
-    this.setRoot([this.map16Node(), ...result.files.map(f => this.toNode(f))])
+    // Map16 sits above the GFX file list: these are the tile tables the GFX
+    // files' characters get composed into, not GFX files themselves.
+    this.setRoot([
+      ...MAP16_ROWS.map(r => this.map16Node(r.layer)),
+      ...result.files.map(f => this.toNode(f)),
+    ])
   }
 
   protected setRoot(children: GfxTreeNode[]): void {
@@ -188,6 +206,7 @@ export class GfxExplorerWidget extends TreeWidget {
       bpp: dto.defaultBpp,
       tileCount: dto.tileCount,
       kind: 'file',
+      layer: null,
       parent: undefined,
       children: [],
       selected: false,
@@ -203,21 +222,24 @@ export class GfxExplorerWidget extends TreeWidget {
       bpp: null,
       tileCount: null,
       kind: 'message',
+      layer: null,
       parent: undefined,
       children: [],
       selected: false,
     }
   }
 
-  protected map16Node(): GfxTreeNode {
+  protected map16Node(layer: Map16Layer): GfxTreeNode {
+    const row = MAP16_ROWS.find(r => r.layer === layer)!
     return {
-      id: MAP16_ROW_ID,
-      name: 'Map16',
+      id: `map16:${layer}`,
+      name: row.name,
       index: -1,
       hex: null,
       bpp: null,
       tileCount: null,
       kind: 'map16',
+      layer,
       parent: undefined,
       children: [],
       selected: false,
@@ -245,8 +267,8 @@ export class GfxExplorerWidget extends TreeWidget {
 
   protected fireOpen(file: GfxTreeNode | undefined, pinned: boolean): void {
     if (!file || !this.manifestPath) return
-    if (file.kind === 'map16') {
-      this.onMap16OpenedEmitter.fire({ manifestPath: this.manifestPath, pinned })
+    if (file.kind === 'map16' && file.layer) {
+      this.onMap16OpenedEmitter.fire({ manifestPath: this.manifestPath, layer: file.layer, pinned })
       return
     }
     if (file.kind !== 'file') return
@@ -271,15 +293,16 @@ export class GfxExplorerWidget extends TreeWidget {
     const file = node as GfxTreeNode
     if (file.kind === 'message') return super.renderCaption(node, props)
     if (file.kind === 'map16') {
+      const row = MAP16_ROWS.find(r => r.layer === file.layer)
       // Deliberately NOT `.hb-gfx-id`/`.hb-gfx-meta`: existing tests query
       // those classes and assert every match is a "GFX $XX" row, which this
       // row is not.
       return [
         <span key="id" className="hb-gfx-map16-label">
-          Map16
+          {row?.name ?? file.name}
         </span>,
         <span key="meta" className="hb-gfx-map16-meta">
-          the block table
+          {row?.meta ?? ''}
         </span>,
       ]
     }

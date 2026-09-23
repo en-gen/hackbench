@@ -47,89 +47,147 @@ afterEach(() => {
   fs.rmSync(fixtureDir, { recursive: true, force: true })
 })
 
+/**
+ * Every case here spawns a real ESLint or Prettier process, which on a
+ * loaded machine takes longer than vitest's 5s default: the first case
+ * started timing out once the suite grew past 240 files, while passing when
+ * this file runs on its own. A gate that goes red because the machine was
+ * busy teaches people to ignore it, so the budget is stated rather than
+ * inherited. It is a timeout, not a weakening: the assertions are unchanged.
+ */
+const CLI_TIMEOUT_MS = 30000
+
 describe('the lint gate can fail', () => {
-  it('rejects an unused variable', () => {
-    const file = writeFixture(
-      'unused.ts',
-      'export function f(): number {\n  const dead = 1\n  return 2\n}\n',
-    )
-    expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', file])).not.toBe(0)
-  })
+  it(
+    'rejects an unused variable',
+    () => {
+      const file = writeFixture(
+        'unused.ts',
+        'export function f(): number {\n  const dead = 1\n  return 2\n}\n',
+      )
+      expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', file])).not.toBe(0)
+    },
+    CLI_TIMEOUT_MS,
+  )
 
-  it('rejects a hard error', () => {
-    // `require` in a .ts file, which is error severity rather than warning.
-    // Proves the gate goes red on errors independently of --max-warnings, and
-    // it is the rule that caught two real instances in test/ when the scope
-    // widened. `no-undef` deliberately does NOT work here: typescript-eslint
-    // turns it off for .ts because the compiler already reports it.
-    const file = writeFixture('cjs.ts', "const fs = require('fs')\nexport default fs\n")
-    expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', file])).not.toBe(0)
-  })
+  it(
+    'rejects a hard error',
+    () => {
+      // `require` in a .ts file, which is error severity rather than warning.
+      // Proves the gate goes red on errors independently of --max-warnings, and
+      // it is the rule that caught two real instances in test/ when the scope
+      // widened. `no-undef` deliberately does NOT work here: typescript-eslint
+      // turns it off for .ts because the compiler already reports it.
+      const file = writeFixture('cjs.ts', "const fs = require('fs')\nexport default fs\n")
+      expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', file])).not.toBe(0)
+    },
+    CLI_TIMEOUT_MS,
+  )
 
-  it('accepts a clean file, so the gate is not simply always red', () => {
-    const file = writeFixture(
-      'clean.ts',
-      'export function add(a: number, b: number): number {\n  return a + b\n}\n',
-    )
-    expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', file])).toBe(0)
-  })
+  it(
+    'accepts a clean file, so the gate is not simply always red',
+    () => {
+      const file = writeFixture(
+        'clean.ts',
+        'export function add(a: number, b: number): number {\n  return a + b\n}\n',
+      )
+      expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', file])).toBe(0)
+    },
+    CLI_TIMEOUT_MS,
+  )
 
-  it('would pass the unused variable without --max-warnings 0', () => {
-    // Documents WHY the flag is load-bearing: this is the exact state the
-    // repo shipped in, where 14 warnings rode along under a green check.
-    const file = writeFixture(
-      'unused.ts',
-      'export function f(): number {\n  const dead = 1\n  return 2\n}\n',
-    )
-    expect(exitCodeOf('npx', ['eslint', file])).toBe(0)
-  })
+  it(
+    'would pass the unused variable without --max-warnings 0',
+    () => {
+      // Documents WHY the flag is load-bearing: this is the exact state the
+      // repo shipped in, where 14 warnings rode along under a green check.
+      const file = writeFixture(
+        'unused.ts',
+        'export function f(): number {\n  const dead = 1\n  return 2\n}\n',
+      )
+      expect(exitCodeOf('npx', ['eslint', file])).toBe(0)
+    },
+    CLI_TIMEOUT_MS,
+  )
 
-  it('binds the gate to the real script: npm run lint keeps --max-warnings 0', () => {
-    expect(pkg.scripts.lint).toContain('--max-warnings 0')
-  })
+  it(
+    'binds the gate to the real script: npm run lint keeps --max-warnings 0',
+    () => {
+      expect(pkg.scripts.lint).toContain('--max-warnings 0')
+    },
+    CLI_TIMEOUT_MS,
+  )
 
-  it('lints every tree that holds product or test code', () => {
-    for (const dir of ['src', 'test', 'tools', 'theia']) {
-      expect(pkg.scripts.lint).toContain(dir)
-    }
-  })
+  it(
+    'lints every tree that holds product or test code',
+    () => {
+      for (const dir of ['src', 'test', 'tools', 'theia']) {
+        expect(pkg.scripts.lint).toContain(dir)
+      }
+    },
+    CLI_TIMEOUT_MS,
+  )
 })
 
 describe('the format gate can fail', () => {
-  it('rejects a misformatted file', () => {
-    const file = writeFixture('ugly.ts', 'export const a   =    {b:1,c:  2};\n')
-    expect(exitCodeOf('npx', ['prettier', '--check', file])).not.toBe(0)
-  })
+  it(
+    'rejects a misformatted file',
+    () => {
+      const file = writeFixture('ugly.ts', 'export const a   =    {b:1,c:  2};\n')
+      expect(exitCodeOf('npx', ['prettier', '--check', file])).not.toBe(0)
+    },
+    CLI_TIMEOUT_MS,
+  )
 
-  it('rejects house-style violations the config pins', () => {
-    // Semicolons and double quotes are what Prettier defaults to and this
-    // repo does not use. A config that lost `semi: false` passes this file.
-    const file = writeFixture('style.ts', 'export const greeting = "hi";\n')
-    expect(exitCodeOf('npx', ['prettier', '--check', file])).not.toBe(0)
-  })
+  it(
+    'rejects house-style violations the config pins',
+    () => {
+      // Semicolons and double quotes are what Prettier defaults to and this
+      // repo does not use. A config that lost `semi: false` passes this file.
+      const file = writeFixture('style.ts', 'export const greeting = "hi";\n')
+      expect(exitCodeOf('npx', ['prettier', '--check', file])).not.toBe(0)
+    },
+    CLI_TIMEOUT_MS,
+  )
 
-  it('accepts a correctly formatted file', () => {
-    const file = writeFixture('pretty.ts', "export const greeting = 'hi'\n")
-    expect(exitCodeOf('npx', ['prettier', '--check', file])).toBe(0)
-  })
+  it(
+    'accepts a correctly formatted file',
+    () => {
+      const file = writeFixture('pretty.ts', "export const greeting = 'hi'\n")
+      expect(exitCodeOf('npx', ['prettier', '--check', file])).toBe(0)
+    },
+    CLI_TIMEOUT_MS,
+  )
 
-  it('checks CSS too', () => {
-    const file = writeFixture('ugly.css', '.a{color:red;background:blue}\n')
-    expect(exitCodeOf('npx', ['prettier', '--check', file])).not.toBe(0)
-  })
+  it(
+    'checks CSS too',
+    () => {
+      const file = writeFixture('ugly.css', '.a{color:red;background:blue}\n')
+      expect(exitCodeOf('npx', ['prettier', '--check', file])).not.toBe(0)
+    },
+    CLI_TIMEOUT_MS,
+  )
 
-  it('binds the gate to the real script: format:check runs prettier --check', () => {
-    expect(pkg.scripts['format:check']).toContain('prettier')
-    expect(pkg.scripts['format:check']).toContain('--check')
-  })
+  it(
+    'binds the gate to the real script: format:check runs prettier --check',
+    () => {
+      expect(pkg.scripts['format:check']).toContain('prettier')
+      expect(pkg.scripts['format:check']).toContain('--check')
+    },
+    CLI_TIMEOUT_MS,
+  )
 
-  it('formats only JS/TS/CSS, never prose or config', () => {
-    // `prettier --write .` also rewrites Markdown, YAML and JSON. That
-    // reformats CLAUDE.md and AGENTS.md, and CLAUDE.md carries a generated
-    // region plus a no-em-dash rule that the pre-commit gate then blocks.
-    // Caught in review when the unscoped glob swept 60+ docs.
-    for (const script of [pkg.scripts.format, pkg.scripts['format:check']]) {
-      expect(script).toContain('{ts,tsx,js,mjs,cjs,css}')
-    }
-  })
+  it(
+    'formats only JS/TS/CSS, never prose or config',
+    () => {
+      // `prettier --write .` also rewrites Markdown, YAML and JSON. That
+      // reformats CLAUDE.md and AGENTS.md, and CLAUDE.md carries a generated
+      // region plus a no-em-dash rule that the pre-commit gate then blocks.
+      // Caught in review when the unscoped glob swept 60+ docs.
+      for (const script of [pkg.scripts.format, pkg.scripts['format:check']]) {
+        expect(script).toContain('{ts,tsx,js,mjs,cjs,css}')
+      }
+    },
+    CLI_TIMEOUT_MS,
+  )
 })
