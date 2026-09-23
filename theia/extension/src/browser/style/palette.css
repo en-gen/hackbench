@@ -1,23 +1,16 @@
 /*
- * Palette view styling.
+ * Palette explorer tree and group tab styling.
  *
  * Same rule as style/index.css: no fixed colour and no fixed px TEXT size,
  * so the view tracks the active theme and the user's font-size preference.
  * The one exception is a swatch's own fill, set inline in
- * palette-view-widget.tsx, because that colour is ROM data rather than UI
- * chrome. The unwritten-cell hatch is NOT an exception: it is chrome
- * indicating absence, not cart data, so its two stripe colours are theme
- * variables. Swatch gap and radius are small hairline values kept in px,
- * matching the border-width convention already used elsewhere in this repo.
+ * palette-swatch-row.tsx and palette-inspector.tsx, because that colour is
+ * ROM data rather than UI chrome. The unwritten-cell hatch is NOT an
+ * exception: it is chrome indicating absence, not cart data, so its two
+ * stripe colours are theme variables. Swatch gap and radius are small
+ * hairline values kept in px, matching the border-width convention already
+ * used elsewhere in this repo.
  */
-
-.hb-palette-view {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-  color: var(--theia-foreground);
-}
 
 .hb-palette-empty,
 .hb-palette-error {
@@ -29,103 +22,13 @@
   color: var(--theia-errorForeground);
 }
 
-/* ── Layout: nav | inspector (pinned) above scrolling content ────────────── */
-/*
- * The inspector is row 1, `auto` height, and does NOT scroll: it is where
- * the colour edit controls live, and it must stay reachable without
- * chasing a swatch grid up and down. The content row takes whatever is
- * left and scrolls on its own. Both are fixed-height siblings of the nav
- * column, which still spans both rows and keeps its own independent
- * scroll - three scroll regions total, never two competing for the same
- * one (nav, inspector-is-static, content).
- */
-
-.hb-palette-layout {
-  display: grid;
-  grid-template-columns: 11em 1fr;
-  grid-template-rows: auto 1fr;
-  flex: 1;
-  min-height: 0;
-}
-
-.hb-palette-nav {
-  grid-column: 1;
-  grid-row: 1 / span 2;
-  overflow-y: auto;
-  border-right: 1px solid var(--theia-editorWidget-border);
-  padding: 0.6em 0;
-}
+/* ── Content: one group, full width ──────────────────────────────────────── */
 
 .hb-palette-main {
-  grid-column: 2;
-  grid-row: 2;
   overflow-y: auto;
   min-height: 0;
   padding: 0.8em 1em;
 }
-
-/* ── Nav: a thin list of contexts, not a second copy of Maps ────────────── */
-
-.hb-palette-nav-title {
-  padding: 0 0.7em 0.6em;
-  font-family: var(--theia-code-font-family);
-  font-size: var(--theia-ui-font-size0);
-  color: var(--theia-descriptionForeground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hb-palette-warning {
-  margin: 0 0.7em 0.6em;
-  padding: 0.4em 0.6em;
-  border-radius: 0.2em;
-  font-size: var(--theia-ui-font-size0);
-  color: var(--theia-editorWarning-foreground, var(--theia-descriptionForeground));
-  background: var(--theia-inputValidation-warningBackground, var(--theia-editorWidget-background));
-  border: 1px solid var(--theia-inputValidation-warningBorder, var(--theia-editorWidget-border));
-}
-
-.hb-palette-nav-section {
-  padding: 0.5em 0.7em 0.2em;
-  font-size: var(--theia-ui-font-size0);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--theia-descriptionForeground);
-}
-
-.hb-palette-nav-item {
-  padding: 0.35em 0.7em;
-  cursor: pointer;
-}
-
-.hb-palette-nav-item:hover {
-  background: var(--theia-list-hoverBackground);
-}
-
-.hb-palette-nav-item-active {
-  background: var(--theia-list-activeSelectionBackground);
-}
-
-/* Wraps rather than ellipsizes: the nav is fixed-width and not resizable. */
-.hb-palette-nav-label {
-  font-size: var(--theia-ui-font-size1);
-  overflow-wrap: anywhere;
-}
-
-.hb-palette-nav-sub {
-  font-size: var(--theia-ui-font-size0);
-  color: var(--theia-descriptionForeground);
-}
-
-.hb-palette-nav-note {
-  padding: 0 0.7em;
-  font-size: var(--theia-ui-font-size0);
-  color: var(--theia-descriptionForeground);
-  font-style: italic;
-}
-
-/* ── Content: one group, full width ──────────────────────────────────────── */
 
 .hb-palette-header {
   margin-bottom: 1em;
@@ -135,13 +38,6 @@
   font-size: var(--theia-ui-font-size3);
   font-weight: 600;
   margin: 0 0 0.2em;
-}
-
-.hb-palette-meta {
-  font-family: var(--theia-code-font-family);
-  font-size: var(--theia-ui-font-size0);
-  color: var(--theia-descriptionForeground);
-  margin-bottom: 0.2em;
 }
 
 .hb-palette-selection-note {
@@ -160,12 +56,6 @@
   font-size: var(--theia-ui-font-size0);
   font-weight: 600;
   margin-bottom: 0.3em;
-}
-
-.hb-palette-addr {
-  font-weight: normal;
-  font-family: var(--theia-code-font-family);
-  color: var(--theia-descriptionForeground);
 }
 
 .hb-palette-row {
@@ -197,8 +87,8 @@
 
 .hb-palette-swatch {
   flex: 0 0 auto;
-  width: 1.8em;
-  height: 1.8em;
+  width: var(--hb-swatch-size, 1.8em);
+  height: var(--hb-swatch-size, 1.8em);
   box-sizing: border-box;
   border-radius: 2px;
   border: 1px solid var(--theia-editorWidget-border);
@@ -221,62 +111,19 @@
   outline-offset: 1px;
 }
 
-.hb-palette-legend {
-  display: flex;
-  align-items: center;
-  gap: 0.5em;
-  margin-top: 1em;
-  font-size: var(--theia-ui-font-size0);
-  color: var(--theia-descriptionForeground);
-}
-
-.hb-palette-legend-swatch {
-  display: inline-block;
-  width: 1em;
-  height: 1em;
-  border-radius: 2px;
-  border: 1px solid var(--theia-editorWidget-border);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--theia-editorWidget-border) 0,
-    var(--theia-editorWidget-border) 2px,
-    var(--theia-editor-background) 2px,
-    var(--theia-editor-background) 5px
-  );
-}
-
-/* ── Inspector: pinned above the content, one selected slot ──────────────── */
+/* ── Inspector: pinned beside the content, one selected slot ─────────────── */
 /*
- * Pinned (grid-row: 1 in .hb-palette-layout above) so the colour edit
- * controls it holds are never more than a click away, regardless of how
- * far the swatch grid below has scrolled.
- *
- * The populated and empty states render the SAME elements - a chip, the
- * four readout fields, the edit controls, the source line - just with
+ * The populated and empty states render the SAME elements - a preview chip,
+ * the readout fields, the edit controls, the source line - just with
  * placeholder text/disabled inputs when nothing is selected
- * (palette-view-widget.tsx's renderInspector). That alone is NOT enough to
- * keep the height constant: the source line's text is a very different
- * length empty ("Click a swatch...") vs populated ("PlayerColors $00B2C8
- * +$06"), and while it lived in the same flex-wrap chain as everything
- * else, that length difference changed how many lines the row wrapped to,
- * which changed the panel's total height on the first click. Two FIXED
- * rows - `.hb-palette-inspector-main` (chip, readout, edit controls) and
- * `.hb-palette-inspector-from` below it - fixes the line count regardless
- * of either row's text length, which `min-height` alone could not: it sets
- * a floor, not an equal ceiling, so it could not make two DIFFERENT
- * natural heights equal to each other.
- *
- * `flex-wrap` inside `.hb-palette-inspector-main` rather than a fixed
- * width: the fields (index, value, RGB, hex, the two edit inputs) must fit
- * the panel's EXISTING width, which the owner does not want to grow, so at
- * narrow widths that row wraps rather than forcing the layout wider - it
- * wraps the SAME way regardless of which state is showing, because both
- * states put comparable-length placeholder/real text in every field.
+ * (palette-inspector.tsx's render). `.hb-palette-inspector-empty` only dims
+ * them; it does not need a fixed-height trick like a sidebar panel would,
+ * since this inspector sits in its own flex column beside the group tab's
+ * swatch grid (`.hb-palette-view-layout` below) rather than being pinned
+ * above content that scrolls beneath it.
  */
 
 .hb-palette-inspector {
-  grid-column: 2;
-  grid-row: 1;
   display: flex;
   flex-direction: column;
   gap: 0.3em;
@@ -285,14 +132,7 @@
   border-bottom: 1px solid var(--theia-editorWidget-border);
 }
 
-.hb-palette-inspector-main {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5em 1.2em;
-}
-
-.hb-palette-inspector-empty .hb-palette-inspector-chip,
+.hb-palette-inspector-empty .hb-palette-preview,
 .hb-palette-inspector-empty .hb-palette-inspector-readout,
 .hb-palette-inspector-empty .hb-palette-inspector-edit {
   opacity: 0.4;
@@ -300,15 +140,6 @@
 
 .hb-palette-inspector-empty .hb-palette-inspector-from {
   font-style: italic;
-}
-
-.hb-palette-inspector-chip {
-  flex: none;
-  width: 2.6em;
-  height: 2.6em;
-  box-sizing: border-box;
-  border-radius: 2px;
-  border: 1px solid var(--theia-editorWidget-border);
 }
 
 .hb-palette-inspector-readout {
@@ -333,6 +164,7 @@
 
 .hb-palette-inspector-edit {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.4em;
 }
@@ -391,8 +223,6 @@
 }
 
 .hb-palette-inspector-from {
-  /* Its own fixed row now (not a flex-wrap participant with `-main`'s
-   * fields) - see `.hb-palette-inspector`'s own comment for why. */
   font-family: var(--theia-code-font-family);
   font-size: var(--theia-ui-font-size0);
   color: var(--theia-descriptionForeground);
@@ -400,4 +230,146 @@
 
 .hb-palette-inspector-from-error {
   color: var(--theia-errorForeground);
+}
+
+/*
+ * A group tab: swatch grid and inspector side by side, inspector below when
+ * narrow. Neither column grows, so spare width lands right of the inspector
+ * rather than between it and the swatches it describes (a 1920px tab put
+ * the inspector at the far edge).
+ *
+ * Swatches scale with the tab's width: every swatch in the tab (grid, frame
+ * strip, Back Area) resolves the same size against this container, so they
+ * stay equal to each other. 2.2cqi only passes 1.8em in a tab over ~1060px,
+ * so a narrow tab keeps the 1.8em size.
+ */
+.hb-palette-view-layout {
+  container-type: inline-size;
+  --hb-swatch-size: clamp(1.8em, 2.2cqi, 3em);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1em 2em;
+  padding: 0.8em 1em;
+  height: 100%;
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+.hb-palette-view-layout > .hb-palette-main {
+  flex: 0 1 auto;
+  /* The column gap alone separates grid and inspector. */
+  padding-right: 0;
+  min-width: 0;
+  /* A narrow tab still fits full-size swatches: the grid scrolls sideways
+     instead of clipping (min-width: 0 above lets it shrink enough to do so). */
+  overflow-x: auto;
+}
+
+.hb-palette-view-layout > .hb-palette-main > .hb-palette-header {
+  /* A long description would otherwise set the content-sized grid column's
+     width; it wraps to the swatches instead. */
+  contain: inline-size;
+}
+
+.hb-palette-view-layout > .hb-palette-inspector {
+  /* Shrinkable, not fixed: at a very narrow tab width 18em alone overflows
+     the tab (measured 527px inspector right edge vs a 456.5px tab right edge
+     at 700px viewport with other panels docked). Wide enough for one row of
+     8 frames once swatches scale up. */
+  flex: 0 1 max(18em, calc(8 * var(--hb-swatch-size) + 14px + 2em));
+  min-width: 0;
+  max-width: 100%;
+  /* Stays in view while a tall tab (Layer 2 Background) scrolls. */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+}
+
+.hb-palette-inspector-title {
+  font-weight: 600;
+  margin-bottom: 0.5em;
+}
+
+/* The preview and the frames beneath it read as one unit. */
+.hb-palette-preview {
+  width: 4.5em;
+  height: 4.5em;
+  border: 1px solid var(--theia-editorWidget-border);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--theia-editorWidget-border) 0,
+    var(--theia-editorWidget-border) 2px,
+    var(--theia-editor-background) 2px,
+    var(--theia-editor-background) 5px
+  );
+}
+
+.hb-palette-frames {
+  margin: 0.4em 0 0.6em;
+}
+
+/* A narrowed inspector column (see .hb-palette-view-layout > .hb-palette-inspector
+   above) can be tighter than 8 non-wrapping swatches; wrap rather than overflow. */
+.hb-palette-frames .hb-palette-swatches {
+  flex-wrap: wrap;
+}
+
+.hb-palette-swatch-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.hb-palette-swatch-caption {
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-palette-swatch-linked {
+  outline: 1px dashed var(--theia-focusBorder);
+  outline-offset: 1px;
+}
+
+/* Corner marker: this color is overwritten every frame by the animation. */
+.hb-palette-swatch-animated {
+  position: relative;
+}
+
+.hb-palette-swatch-animated::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-style: solid;
+  border-width: 0 0.45em 0.45em 0;
+  border-color: transparent var(--theia-focusBorder) transparent transparent;
+}
+
+.hb-palette-inspector-wordlabel,
+.hb-palette-inspector-notes {
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+  margin-top: 0.4em;
+}
+
+/* ── Palette explorer tree (left activity bar) ────────────────────────────── */
+
+.hb-palette-tree-icon {
+  margin-right: 0.45em;
+  font-size: 1em;
+  color: var(--theia-icon-foreground, var(--theia-descriptionForeground));
+  flex: none;
+}
+
+/* A no-project / rom-not-located / warning / overworld-caveat row. */
+.hb-palette-note {
+  font-style: italic;
+  color: var(--theia-descriptionForeground);
+}
+
+/* A group row's variant count, trailing the label. */
+.hb-palette-tree-sub {
+  margin-left: 0.5em;
+  color: var(--theia-descriptionForeground);
 }

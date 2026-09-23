@@ -13,8 +13,10 @@ import {
   ServiceConnectionProvider,
 } from '@theia/core/lib/browser/messaging/service-connection-provider'
 import { PALETTE_SERVICE_PATH, PaletteService } from '../common/palette-protocol'
-import { PaletteViewWidget, PALETTE_VIEW_ID } from './palette-view-widget'
-import { PaletteViewContribution } from './palette-view-contribution'
+import { PaletteExplorerContribution } from './palette-explorer-contribution'
+import { createPaletteExplorerWidget, PALETTE_EXPLORER_ID } from './palette-explorer-widget'
+import { PaletteGroupViewWidget } from './palette-group-view-widget'
+import { PALETTE_GROUP_VIEW_ID } from './palette-view-model'
 import { PaletteFrontendClient } from './palette-push-client'
 
 export default new ContainerModule(bind => {
@@ -32,14 +34,25 @@ export default new ContainerModule(bind => {
     })
     .inSingletonScope()
 
-  bind(PaletteViewWidget).toSelf()
+  // The tree gets its own child container, same reason as the map and GFX
+  // explorers: Theia builds a model, expansion service and selection service
+  // per tree.
   bind(WidgetFactory)
     .toDynamicValue(ctx => ({
-      id: PALETTE_VIEW_ID,
-      createWidget: () => ctx.container.get(PaletteViewWidget),
+      id: PALETTE_EXPLORER_ID,
+      createWidget: () => createPaletteExplorerWidget(ctx.container),
     }))
     .inSingletonScope()
 
-  bindViewContribution(bind, PaletteViewContribution)
-  bind(FrontendApplicationContribution).toService(PaletteViewContribution)
+  // One widget per group or variant, keyed by PreviewTabs, so reopening focuses the existing tab.
+  bind(PaletteGroupViewWidget).toSelf()
+  bind(WidgetFactory)
+    .toDynamicValue(ctx => ({
+      id: PALETTE_GROUP_VIEW_ID,
+      createWidget: () => ctx.container.get(PaletteGroupViewWidget),
+    }))
+    .inSingletonScope()
+
+  bindViewContribution(bind, PaletteExplorerContribution)
+  bind(FrontendApplicationContribution).toService(PaletteExplorerContribution)
 })

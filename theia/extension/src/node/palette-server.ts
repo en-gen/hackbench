@@ -20,6 +20,8 @@ import {
   AttributedCell,
   AttributedGroup,
 } from '../../../../src/rom/PaletteStockTables'
+import { detectPaletteAnimation } from '../../../../src/rom/PaletteAnimationDetect'
+import { buildLevelAnimation, LevelAnimationView } from '../../../../src/rom/PaletteAnimationView'
 import { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import {
   LoadPaletteResult,
@@ -89,9 +91,25 @@ export class PaletteServiceImpl implements PaletteService {
 
     return {
       status: 'ok',
-      palettes: toDto(buildStockTables(rom.rom), countCustomPaletteLevels(rom.rom)),
+      palettes: toDto(
+        buildStockTables(rom.rom),
+        countCustomPaletteLevels(rom.rom),
+        levelAnimation(rom.rom),
+      ),
       romName: rom.internalName.trim(),
     }
+  }
+}
+
+/**
+ * The animation is one note among the tables: a detector that throws on an
+ * odd cart must not take the stock grid down with it.
+ */
+function levelAnimation(rom: RomFile): LevelAnimationView {
+  try {
+    return buildLevelAnimation(detectPaletteAnimation(rom))
+  } catch (err) {
+    return { available: false, notes: [(err as Error).message], targets: [] }
   }
 }
 
@@ -109,9 +127,21 @@ function toCellDto(cell: AttributedCell): PaletteCellDto {
   }
 }
 
-function toDto(groups: AttributedGroup[], customPaletteLevelCount: number): RomPalettesDto {
+function toDto(
+  groups: AttributedGroup[],
+  customPaletteLevelCount: number,
+  animation: LevelAnimationView,
+): RomPalettesDto {
   return {
     customPaletteLevelCount,
+    animation: {
+      available: animation.available,
+      notes: animation.notes,
+      targets: animation.targets.map(t => ({
+        ...t,
+        frames: t.frames.map(f => ({ color: toColorDto(f.color), romAddr: f.romAddr })),
+      })),
+    },
     groups: groups.map((g): PaletteGroupDto => ({
       id: g.id,
       label: g.label,
