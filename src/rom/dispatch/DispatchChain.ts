@@ -20,7 +20,7 @@
  *
  * The grammar, the four thunks that do NOT match it, and what a hack can
  * still change without this noticing are in
- * `docs/sprite-dispatch-chains.md`.
+ * `docs/sprites/sprite-dispatch-chains.md`.
  *
  * Evidence scope: grammar derived from `Bnk3CallSprMain`, bank_03.asm:4305
  * to 4525, and confirmed against the raw bytes of all six cart files in

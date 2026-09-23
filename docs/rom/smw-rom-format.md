@@ -5,7 +5,7 @@ Sources:
 - smwspeedruns.com/Level_Data_Format
 - smwspeedruns.com/Overworld_Data_Format
 - datacrystal.tcrf.net/wiki/Super_Mario_World_(SNES)/GFX_Files
-- hackbench docs (this repo): docs/smw-rom-format.md
+- hackbench docs (this repo): docs/rom/smw-rom-format.md
 - sneslab.net/wiki/LC_LZ2
 - superfamicom.org
 
@@ -18,7 +18,7 @@ Sources:
 | Internal name | `SUPER MARIOWORLD     ` (21 bytes, space-padded) |
 | ROM size | 512 KiB |
 | Mapper | LoROM (slow, $20) |
-| Cartridge type | Normal + Battery ($02) |
+| ROM type | Normal + Battery ($02) |
 | SRAM size | 2 KiB |
 | Country | USA ($01) |
 | Version | 1.0 |
@@ -32,7 +32,7 @@ Sources:
 |---|---|---|---|
 | £007FC0 | $00FFC0 | Game title | 21 bytes |
 | £007FD5 | $00FFD5 | Map mode | 1 byte |
-| £007FD6 | $00FFD6 | Cartridge type | 1 byte |
+| £007FD6 | $00FFD6 | ROM type | 1 byte |
 | £007FD7 | $00FFD7 | ROM size | 1 byte |
 | £007FD8 | $00FFD8 | SRAM size | 1 byte |
 | £007FD9 | $00FFD9 | Region/destination | 1 byte |

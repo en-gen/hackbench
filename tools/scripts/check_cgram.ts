@@ -10,7 +10,7 @@
  *
  * Exit 0 = every level agreed on every compared index. Exit 1 = at least one
  * disagreed. Exit 2 = nothing was compared (no captures found), which is a
- * failure too: see docs/cgram-oracle.md on why "compared zero things" must
+ * failure too: see docs/spikes/cgram-oracle.md on why "compared zero things" must
  * never report success.
  */
 import { readdirSync, readFileSync, existsSync } from 'fs'

@@ -39,7 +39,7 @@ trace below is for.
 `getLevelMusicBankAddr` reads three `LDA #imm` operands at a fixed ROM
 address (`readUploadAddress`). That address alone proves nothing: a hack can
 replace the routine's body while the fixed address still "resolves" to
-whatever bytes now sit there, and on 2 of the 3 patched carts in
+whatever bytes now sit there, and on 2 of the 3 patched ROMs in
 `test/roms/` the first byte read is `$20`, not a JSR as an earlier version of
 this fix claimed - it is the `#$20` operand of `SEP #$20` at `$008147`
 (`E2 20`), one byte before where `readUploadAddress` starts reading. Reading
@@ -94,7 +94,7 @@ itself, which is not available here.
 
 `test/suite/unit/SpcBuilderBankSongs.test.ts` isolates each table-scan
 safeguard behind a synthetic fixture engineered to trigger it specifically
-(the corpus's three broken carts all happen to trip the self-reference check
+(the corpus's three broken ROMs all happen to trip the self-reference check
 at slot 0, which never exercises the table-overlap check on its own), plus a
 synthetic 64- and 100-song bank proving the read-buffer size is no longer a
 correctness cap.

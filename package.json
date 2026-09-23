@@ -1,19 +1,15 @@
 {
   "name": "hackbench",
   "displayName": "HackBench",
-  "description": "Super Mario World ROM editor for Visual Studio Code",
+  "description": "Super Mario World ROM editor. The application is the Theia desktop app under theia/.",
   "version": "0.1.0",
-  "publisher": "engenb",
   "author": "Brian Engen",
   "license": "MIT",
   "private": true,
+  "//": "The vscode engine, main, activationEvents and contributes fields are NOT a shipping target. They belong to the original VS Code extension in src/providers/ and src/webview/, which is kept as a reference implementation for reading SMW data and is still built by npm run compile. HackBench is not published to the Marketplace, so the publisher, categories and icon fields that asserted otherwise are gone. See docs/architecture/overview.md.",
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": [
-    "Other"
-  ],
-  "icon": "build/icons/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/en-gen/hackbench"

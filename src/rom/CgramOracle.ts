@@ -8,7 +8,7 @@
  * own WRAM staging buffer), so comparing buildLevelCgram against it is not
  * circular.
  *
- * Index buckets and the ROM citations behind them: docs/cgram-oracle.md.
+ * Index buckets and the ROM citations behind them: docs/spikes/cgram-oracle.md.
  */
 
 import { RgbaColor } from './GraphicsDecoder'

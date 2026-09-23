@@ -78,7 +78,7 @@ STA.W SpriteOBJAttribute,X
 Two things follow.
 
 **The palette depends on where the egg was placed.** Index is
-`(SpriteXPosLow >> 4) & 3`, so the colour cycles across every four 16-pixel
+`(SpriteXPosLow >> 4) & 3`, so the color cycles across every four 16-pixel
 columns. In vanilla that is CGRAM rows 12, 11, 10, 11. `Sprite166EVals[$2C]`
 (`$3B`, low nibble `$0B`, CGRAM row 13) never reaches the screen.
 

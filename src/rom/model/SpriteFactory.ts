@@ -798,7 +798,7 @@ export function buildSprites(
     // Facing is SubHorizPos, recomputed live in-game (bank_01.asm:8496-8498) and
     // pinned here to Mario's spawn side, as $30/$91 already do. Palette: the
     // resting MagiKoopaPals entry spliced over CGRAM row 15 columns 0-7.
-    // See docs/sprite-1f-magikoopa.md.
+    // See docs/sprites/sprite-1f-magikoopa.md.
     if (s.spriteId === 0x1f) {
       out.push(
         new Sprite(

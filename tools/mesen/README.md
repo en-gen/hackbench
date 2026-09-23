@@ -184,7 +184,7 @@ oracle can still pass. Skips with exit 77 if Mesen or the ROM is absent.
   verified only functionally (the determinism check above).
 - Sample artifacts are screenshot + 8KB WRAM ($7E0000-$7E1FFF) + 512 bytes of
   PPU CGRAM (`frame_NNNN_cgram.bin`, consumed by
-  `../scripts/check_cgram.ts` -- see [docs/cgram-oracle.md](../../docs/cgram-oracle.md)).
+  `../scripts/check_cgram.ts` -- see [docs/spikes/cgram-oracle.md](../../docs/spikes/cgram-oracle.md)).
   VRAM and OAM capture are still not implemented.
 - **The captured WRAM state is not equivalent to entering the level from the
   overworld normally -- it is qualified, not a full simulation of a real

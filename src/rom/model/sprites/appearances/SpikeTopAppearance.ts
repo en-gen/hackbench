@@ -32,7 +32,7 @@ export class SpikeTopAppearance implements SpriteAppearance {
    * DATA_02BCC7[0]=$00. It is not always 0 in game - a Spike Top that
    * spawns with Mario to its left starts at direction 4 and is drawn
    * X-flipped. Trace, and the fix available from marioStartPx, in
-   * docs/sprite-overlay-removal.md, "ROM evidence that went with the
+   * docs/sprites/sprite-overlay-removal.md, "ROM evidence that went with the
    * overlays".
    *
    * Frame 0: SprTilemap[tilemapBase + 0], Frame 1: SprTilemap[tilemapBase + 1].

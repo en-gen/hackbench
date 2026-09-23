@@ -2,7 +2,7 @@
  * `describeHandlerProvenance` must be able to answer BOTH ways.
  *
  * On the shipped corpus it can only ever say "vanilla" for a draw handler:
- * measured in `docs/sprite-engine-divergence.md`, the MAIN pointer table is
+ * measured in `docs/sprites/sprite-engine-divergence.md`, the MAIN pointer table is
  * byte-identical in all six ROM files in `test/roms/`, and the only three
  * INIT repoints are at $52, $53 and $9B, none of which is a descriptor
  * sprite. A query that has never been observed returning its other answer is

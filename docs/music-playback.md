@@ -110,7 +110,7 @@ uploads. A confidently wrong noise is worse than silence.
 The panel stays useful on those ROMs. Map attribution comes from the
 level-header decode, which survives AddmusicK on all six corpus ROMs, so
 the list still shows which commands the project's maps ask for and how
-many maps each. See [music-bank-song-table.md](./music-bank-song-table.md)
+many maps each. See [music-bank-song-table.md](./spikes/music-bank-song-table.md)
 for the bank reading itself.
 
 ## Banks

@@ -7,7 +7,7 @@ rendering, emphasis and copy apply here without restating them.
 
 The layer stack is the project's edit history: each layer visits the ROM
 and manipulates it, and `bytes()` is the fold of that stack over the base
-cartridge. A preview answers one question about one layer:
+ROM. A preview answers one question about one layer:
 
 > What did this change, and what did it look like before and after?
 

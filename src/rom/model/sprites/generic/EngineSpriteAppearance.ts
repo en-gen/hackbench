@@ -6,7 +6,7 @@
  * gated behind a toolbar toggle that is OFF by default, it persists nothing,
  * and when the engine becomes the only render path this file, the toggle and
  * the `Sprite.engineAppearance` field all delete together. See
- * `docs/sprite-engine-wiring.md`.
+ * `docs/sprites/sprite-engine-wiring.md`.
  *
  * It adds NO rendering capability. Every pixel decision is made by
  * `drawSpriteParts`; this file only supplies the live inputs (sprite X,

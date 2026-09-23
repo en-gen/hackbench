@@ -13,11 +13,11 @@ import { partsHitRect, StaticSpriteAppearance, type SpritePart } from './StaticS
  * $4D/$4E Monty Mole - two-frame emerging pose and an emerged-pose ghost
  * annotation. The detection-zone overlay that used to live here was
  * removed with the path and movement overlays; see
- * docs/sprite-overlay-removal.md.
+ * docs/sprites/sprite-overlay-removal.md.
  *
  * Full ROM derivation, measured evidence scopes, and the two judgement
  * calls (why the ghost gets its own render pass, why the cadence constant
- * is 7.5) live in docs/sprite-4d-monty-mole.md. Handler `MontyMole`,
+ * is 7.5) live in docs/sprites/sprite-4d-monty-mole.md. Handler `MontyMole`,
  * bank_01.asm:13330.
  */
 
@@ -61,7 +61,7 @@ export const MOLE_PROP_GROUPS = [0x00, 0x05] as const
  *
  * Vanilla resolves it to big-tile $86. Which of the four emerged frames
  * best identifies the sprite was a human visual judgement by the user,
- * not an ASM claim. Frame table in docs/sprite-4d-monty-mole.md.
+ * not an ASM claim. Frame table in docs/sprites/sprite-4d-monty-mole.md.
  */
 export const EMERGED_MISC1602 = 0x02
 
@@ -97,7 +97,7 @@ export const ANIM_CYCLE_ROM_FRAMES = ANIM_ROM_FRAMES * 2
  * Was 7.5, which converted the interval the editor ASKED for while the
  * interval it REALIZED was display-dependent. The shared frame clock
  * realizes 8 game frames exactly on any display, so the two agree.
- * docs/sprite-4d-monty-mole.md predates the clock on this point.
+ * docs/sprites/sprite-4d-monty-mole.md predates the clock on this point.
  */
 export const ROM_FRAMES_PER_TICK = TICK_ROM_FRAMES
 
@@ -225,7 +225,7 @@ export class MontyMoleAppearance extends StaticSpriteAppearance {
    * unoccluded: 176 $4D/$4E instances across four ROMs (vanilla, Grand
    * Poo World 2, Seven_Vanilla_Levels, Invictus), none with an L1
    * priority subtile in the sprite's cell or the ghost's. Method and
-   * scope in docs/sprite-4d-monty-mole.md.
+   * scope in docs/sprites/sprite-4d-monty-mole.md.
    *
    * It runs in the above-L1 pass so the annotation's legibility does not
    * depend on what the author put in that cell. On today's evidence that

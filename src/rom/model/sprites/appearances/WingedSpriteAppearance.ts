@@ -25,7 +25,7 @@ import type { SpriteLayout } from '../../../SpriteTileLoader'
  *   true            -- body before wings  (wings in front, used for para-koopas)
  *
  * The behavior-driven movement annotation this class used to draw was
- * removed; see docs/sprite-overlay-removal.md.
+ * removed; see docs/sprites/sprite-overlay-removal.md.
  */
 
 export class WingedSpriteAppearance implements SpriteAppearance {

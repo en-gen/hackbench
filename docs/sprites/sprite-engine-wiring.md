@@ -70,14 +70,14 @@ and `spriteX` from the sprite's own level-pixel X, both read per draw.
 Engine-drawn sprites get four L-shaped corner ticks, 3 px, drawn in a fixed
 editor blue outside the sprite's own pixels. Corner ticks rather than a full
 outline so the sprite is not boxed in and the mark cannot be confused with the
-tile-grid overlay. The sprite is never tinted or recoloured, because colour is
+tile-grid overlay. The sprite is never tinted or recolored, because color is
 exactly what the comparison is looking at. The second toolbar button hides the
-ticks so a clean colour read is available; it appears only while the engine
+ticks so a clean color read is available; it appears only while the engine
 toggle is on and does not change a single sprite pixel.
 
 ## Honest degradation
 
-`describeHandlerProvenance` (`SpriteHandlerProvenance.ts`) compares the cart's
+`describeHandlerProvenance` (`SpriteHandlerProvenance.ts`) compares the ROM's
 MAIN and INIT pointers for a sprite against the handlers its descriptor was
 traced from. `EngineSpriteAppearance` resolves it once at construction. On any
 divergence the engine declines to draw: the shipped appearance is drawn instead
@@ -90,8 +90,8 @@ There are THREE marker states, not two:
 | Marks | Meaning | Actionable? |
 |---|---|---|
 | blue ticks | the engine drew this sprite | n/a |
-| amber ticks + pip | the cart repointed the handler, shipped appearance drawn | no, it is a property of the cart |
-| magenta ticks + pip | the engine READ the cart and could not interpret it, shipped appearance drawn | yes: an engine gap or a partly rewritten handler |
+| amber ticks + pip | the ROM repointed the handler, shipped appearance drawn | no, it is a property of the ROM |
+| magenta ticks + pip | the engine READ the ROM and could not interpret it, shipped appearance drawn | yes: an engine gap or a partly rewritten handler |
 
 The magenta state was previously amber as well, and logged nothing, so
 `unknownDrawRoutine`, `unexpectedOpcode`, `nudgeTargetOutOfRange`,
@@ -119,7 +119,7 @@ default, because a repointed init can change the sprite's palette without
 touching a pixel of the draw routine. A later pass could relax it to "init
 divergence only matters when the descriptor's palette source actually reads
 init", which is a one-line predicate over `descriptor.palette.kind`, but it is
-not worth the branch until a cart in the corpus exercises it.
+not worth the branch until a ROM in the corpus exercises it.
 
 ### Exercising the divergence branch
 
@@ -150,7 +150,7 @@ so `test/roms/` is not touched. Both branches are covered in
 
 `$1F` Magikoopa's `dynamicCgram` palette note WAS listed here as produced but
 not consumed. It has been consumed since `1e3e94e`:
-`EngineSpriteAppearance.rowFor` splices the runtime-uploaded colours over the
+`EngineSpriteAppearance.rowFor` splices the runtime-uploaded colors over the
 level palette's row for the column window the note names, and
 `SpriteEngineWiring.test.ts` asserts both halves of the composite plus the
 fact that it changed something.
@@ -191,6 +191,6 @@ carry four family members each and are the best single maps for comparing the
 
 `$14` is Lakitu's thrown Spiny. It is spawned at runtime and appears in no
 vanilla level's sprite stream, so the vanilla ROM cannot show it in the editor
-at all. Hack carts in `test/roms/` do place it; `GrandPooWorld_V1.2.sfc` map
+at all. Hack ROMs in `test/roms/` do place it; `GrandPooWorld_V1.2.sfc` map
 `$113` at (col 93, row 23) and (col 77, row 23) is the most plausible pair, but
 that was not visually confirmed.

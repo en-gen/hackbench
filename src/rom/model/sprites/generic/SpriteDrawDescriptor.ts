@@ -234,7 +234,7 @@ export type ExtraPartGate =
  * No attribute and no size field: both known users inherit the body's
  * attribute byte (bank_01.asm:8562-8568, 13564-13565) and clear the OAM size
  * bit (bank_01.asm:8576-8578). Derivation, the second user and what the wing
- * family would still need are in docs/sprite-engine-divergence.md section 8.
+ * family would still need are in docs/sprites/sprite-engine-divergence.md section 8.
  */
 export interface ExtraPart {
   /** Byte offset of this part's OAM slot past the routine's first entry.
@@ -672,13 +672,13 @@ export const SPRITE_DRAW_DESCRIPTORS: readonly SpriteDrawDescriptor[] = [
     // draws a pose the editor can put a clock on. Its pose selector, its wand
     // and its palette are all computed AROUND `SubSprGfx1`, which is why it
     // needed two new kinds. Derivation in
-    // docs/sprite-engine-divergence.md section 8.
+    // docs/sprites/sprite-engine-divergence.md section 8.
     spriteId: 0x1f,
     // Every address below is `{ mainOff }`: a byte offset past the MAIN
     // pointer the cart holds at entry $1F, which is $BDD6 on all six carts in
     // `test/roms/`. Offsets, not addresses, so a hack that relocates the
     // handler still resolves. The absolute addresses they correspond to on
-    // vanilla are in docs/sprite-engine-divergence.md section 9.
+    // vanilla are in docs/sprites/sprite-engine-divergence.md section 9.
     routine: 'sub1',
     routineJsr: { mainOff: 0xd6 }, // JSR SubSprGfx1, bank_01.asm:8529
     vanillaMainHandler: 0xbdd6,

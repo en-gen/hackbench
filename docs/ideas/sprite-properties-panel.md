@@ -2,19 +2,19 @@
 
 Clicking a sprite in the map editor should make it visually SELECTED and
 present its properties in a panel. This document inventories what that panel
-has to show: every facet HackBench interprets from the cart in order to draw
+has to show: every facet HackBench interprets from the ROM in order to draw
 the sprite, plus the editor-layer choices that are ours rather than the ROM's.
 
 Each facet needs to be at least VIEWABLE. Most should eventually be EDITABLE.
 This is the inventory, not a UI design.
 
-Status column: **read** means the value comes from the cart today,
+Status column: **read** means the value comes from the ROM today,
 **hardcoded** means it is a derivation baked into our source and therefore
 cannot track a romhack, **absent** means we do not model it yet.
 
 Evidence scope: derived while building the table-driven sprite engine against
 Super Mario World (USA) vanilla, headerless, 524288 bytes, plus the four hack
-carts in `test/roms/`. Addresses are SNES unless stated. Not verified against
+ROMs in `test/roms/`. Addresses are SNES unless stated. Not verified against
 an emulator.
 
 ## Selection behaviour
@@ -46,7 +46,7 @@ should surface that: "custom handler, appearance unverified" is a fact the
 user needs, not an internal detail.
 
 The id is a LABEL, not the identity. The handler is the identity. Three of
-four hack carts repoint init entries, and a repointed sprite can share another
+four hack ROMs repoint init entries, and a repointed sprite can share another
 sprite's draw code entirely.
 
 ## 2. Which draw routine

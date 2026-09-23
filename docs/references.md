@@ -6,7 +6,7 @@ answers which question, so the lookup is one click away without HackBench
 redistributing someone else's writing under its own MIT license.
 
 Anything in `docs/` other than this file is HackBench's own work: derivations
-traced against the cart, design proposals, or records of what the code does.
+traced against the ROM, design proposals, or records of what the code does.
 
 ## SMW specifics
 
@@ -20,7 +20,7 @@ traced against the cart, design proposals, or records of what the code does.
 
 For anything about what the game *does*, SMWDisX is the source of truth. See
 the "ROM is a collection of lookup tables" section of `CLAUDE.md`: trace the
-disassembly to find the index, then read the table from the cart.
+disassembly to find the index, then read the table from the ROM.
 
 ## SNES hardware
 

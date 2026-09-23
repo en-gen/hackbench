@@ -4,7 +4,7 @@ Read-only measurement. Nothing in any repo or worktree was modified.
 
 Sources, both read-only:
 
-- Cart: `C:\Projects\hackbench\test\roms\Super Mario World (USA).vanilla.sfc`, headerless, 524288 bytes, SHA of length verified at read time.
+- ROM: `C:\Projects\hackbench\test\roms\Super Mario World (USA).vanilla.sfc`, headerless, 524288 bytes, SHA of length verified at read time.
 - Disassembly: `C:\Projects\SMWDisX`, with `SMW_U.sym` used to bind labels to SNES addresses.
 
 ## The four numbers
@@ -315,7 +315,7 @@ Columns: stub = behind `Bank3SprHandler`; depth = distinct named routines on the
 
 ## Method
 
-**Step 1, the pointer table, read from the cart.** `CallSpriteMain` is at `$01:85C3` (`bank_01.asm:893`). Its prologue is `STZ.W SpriteXMovement` (3 bytes), `LDA.B SpriteNumber,X` (2), `JSL ExecutePtr` (4), so the table begins at `$01:85CC`, which is file offset `0x85CC` in LoROM with no header. I read 402 bytes there and decoded 201 little-endian bank-`$01` pointers. All 201 resolved to a named label in `SMW_U.sym`, and the resulting id-to-label list matches the `dw` list in `bank_01.asm:897-1098` entry for entry. 104 distinct pointer values.
+**Step 1, the pointer table, read from the ROM.** `CallSpriteMain` is at `$01:85C3` (`bank_01.asm:893`). Its prologue is `STZ.W SpriteXMovement` (3 bytes), `LDA.B SpriteNumber,X` (2), `JSL ExecutePtr` (4), so the table begins at `$01:85CC`, which is file offset `0x85CC` in LoROM with no header. I read 402 bytes there and decoded 201 little-endian bank-`$01` pointers. All 201 resolved to a named label in `SMW_U.sym`, and the resulting id-to-label list matches the `dw` list in `bank_01.asm:897-1098` entry for entry. 104 distinct pointer values.
 
 **Step 2, a line-level control flow graph.** I built a CFG over all 13 `bank_*.asm` files, 64092 code nodes. Node per code line; fallthrough to the next code line with `db`/`dw`/`dl`/`incbin` blocks acting as barriers; `RTS`/`RTL`/`RTI` terminate; `JSR`/`JSL` add both a call edge and a return-side fallthrough; `JMP`/`JML`/`BRA`/`BRL` replace fallthrough; conditional branches add both. `JSL ExecutePtr` and `JSL ExecutePtrLong` are expanded into the `dw`/`dl` table that follows them, 85 dispatch sites in total. asar anonymous labels (`+`, `++`, `-`, `--`) are resolved to the nearest matching anchor in the same file.
 
@@ -333,9 +333,9 @@ Columns: stub = behind `Bank3SprHandler`; depth = distinct named routines on the
 
 ### Validation
 
-**Cart against disassembly text, call-site counts.** I scanned all 524288 cart bytes for `JSR` (`$20`), `JMP` (`$4C`), `JSL` (`$22`) and `JML` (`$5C`) opcodes targeting each shared routine's address, requiring the same bank for the bank-local forms, and compared with a text grep of the disassembly:
+**ROM against disassembly text, call-site counts.** I scanned all 524288 ROM bytes for `JSR` (`$20`), `JMP` (`$4C`), `JSL` (`$22`) and `JML` (`$5C`) opcodes targeting each shared routine's address, requiring the same bank for the bank-local forms, and compared with a text grep of the disassembly:
 
-| routine | address | cart | disassembly |
+| routine | address | ROM | disassembly |
 |---|---|---|---|
 | `SubSprGfx0Entry0` | `$01:9CF3` | 6 | 6 |
 | `SubSprGfx0Entry1` | `$01:9CF5` | 1 | 1 |
@@ -346,7 +346,7 @@ Columns: stub = behind `Bank3SprHandler`; depth = distinct named routines on the
 | `GenericSprGfxRt1` | `$01:9D5F` | 1 | 1 |
 | `GenericSprGfxRt2` | `$01:90B2` | 28 | 28 |
 
-All eight match exactly. For these call sites the disassembly text is faithful to the cart.
+All eight match exactly. For these call sites the disassembly text is faithful to the ROM.
 
 **Citations in the brief, checked.** `SubSprGfx0Entry0` at `bank_01.asm:3853`, `SubSprGfx1` at `3920`, `SubSprGfx2Entry1` at `4148`, `RexGfxRt` at `bank_03.asm:2884`, `Bank3SprHandler` label at `bank_01.asm:1126`: all correct as given.
 
@@ -358,7 +358,7 @@ All eight match exactly. For these call sites the disassembly text is faithful t
 
 - **It measures reachability, not execution.** The CFG is a sound over-approximation: it follows both sides of every branch and has no path conditions. SHARED means "some path from the handler reaches a shared draw routine", not "the sprite draws through it on a normal frame". The `DrawMarioAndYoshi` bridge is the case where that mattered and I removed it; there may be others I did not recognise, and a second reviewer should scan the per-id paths for the same shape.
 - **The hybrid split is the weakest number.** I counted an id as hybrid when the routine that calls the shared draw routine also contains a `STA OAMTileNo` anywhere in its body, which does not prove both run on the same frame. The 46 is an upper bound. `$C2` and `$BE` are hand-confirmed; the rest are not.
-- **Anchoring on MAIN is structurally incomplete, and `$3E` proves it.** Both `$19` and `$3E` point at `$01:E75B`, whose entire body is `LDA $1564,x / CMP #$01 / BNE +` and message-box bookkeeping (cart bytes `BD 64 15 C9 01 D0 0C ...`, matching the disassembly exactly). Nothing in the MAIN handler for `$3E` draws anything, yet `PSwitchAppearance` exists in the TypeScript and the P-switch plainly appears on screen. Whatever draws it is outside the MAIN table, so a census anchored on MAIN cannot classify it. I did not trace that other path, and I do not know how many of the 10 NEITHER ids are in the same position rather than genuinely invisible. This is a hole in the question as posed, not only in my answer.
+- **Anchoring on MAIN is structurally incomplete, and `$3E` proves it.** Both `$19` and `$3E` point at `$01:E75B`, whose entire body is `LDA $1564,x / CMP #$01 / BNE +` and message-box bookkeeping (ROM bytes `BD 64 15 C9 01 D0 0C ...`, matching the disassembly exactly). Nothing in the MAIN handler for `$3E` draws anything, yet `PSwitchAppearance` exists in the TypeScript and the P-switch plainly appears on screen. Whatever draws it is outside the MAIN table, so a census anchored on MAIN cannot classify it. I did not trace that other path, and I do not know how many of the 10 NEITHER ids are in the same position rather than genuinely invisible. This is a hole in the question as posed, not only in my answer.
 - **`$36` is UNDETERMINED for a concrete reason.** Its MAIN pointer targets `$01:E41F`, whose bytes are `08 F8 02 03 04 04 04 04 04 04 04 04`, a `db` table (`bank_01.asm:13516`), not code. Executing it is undefined. The disassembly comments the id as unused. Static analysis cannot say what runs, so it is not NEITHER and not BESPOKE.
 - **Indirect jumps.** The CFG contains exactly one `JMP (...)` node, which I treated as a terminator. That one site is unresolved.
 - **Dead code.** The reachability analysis makes no liveness judgement. An id classified SHARED via a path that the game never takes would be counted SHARED.

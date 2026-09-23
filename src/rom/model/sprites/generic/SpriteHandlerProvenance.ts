@@ -17,13 +17,13 @@
  * override a display choice the user made: declining to assert something
  * unverified and hiding something the user asked for are different acts.
  * Nothing here may be wired to suppress a user-enabled annotation.
- * See `docs/sprite-engine-wiring.md`.
+ * See `docs/sprites/sprite-engine-wiring.md`.
  *
  * Pure and plain-data: no vscode, no webview, no canvas. The result is
  * structurally clonable, so it survives the extension-host to webview hop.
  *
  * Evidence scope: the pointer-table bases are the ones verified in
- * `docs/sprite-engine-divergence.md` against the 6 ROM files in `test/roms/`.
+ * `docs/sprites/sprite-engine-divergence.md` against the 6 ROM files in `test/roms/`.
  * Static reads only; no emulator was run.
  */
 

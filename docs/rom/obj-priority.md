@@ -59,10 +59,10 @@ On "Super Mario World (USA)" that table reads `$20` for modes 0, 1, 2, $0E
 and $0F, and `$30` for the other 27 (byte-compared against
 `bank_05.asm:506-509`). So **the default is OBJ.2 on five level modes and
 OBJ.3 on twenty-seven** -- "sprites default to OBJ priority 2" is false on
-this cart.
+this ROM.
 
 `bank_00.asm:2401-2402` does write `#!OBJ_Priority2`, but it sits inside
-`LoadCastleCutscene`, not the level loader. It is a whole-cart grep of
+`LoadCastleCutscene`, not the level loader. It is a whole-ROM grep of
 constant stores to `SpriteProperties` that shows this: outside the handler
 sites below, the only two are that one and `bank_05.asm:543`.
 
@@ -82,16 +82,16 @@ Handlers that draw behind scenery open with `LDA #imm : STA $64` -- e.g.
 `ClassicPiranhas` at `bank_01.asm:2113-2114`, reached from sprite ids `$1A`
 and `$2A`. `SpritePriorityLoader` walks real 65816 instructions from the
 handler entry to the first unconditional control transfer and reads that
-immediate off the cart, so a repointed handler or an altered constant reads
+immediate off the ROM, so a repointed handler or an altered constant reads
 correctly.
 
 Why an instruction walk and not a byte search: a raw 4-byte search for
 `A9 ?? 85 64` gives a different answer for every window size -- on the
-vanilla cart it finds the pattern for 12 sprite ids at 128 bytes, 18 at 256
+vanilla ROM it finds the pattern for 12 sprite ids at 128 bytes, 18 at 256
 and 23 at 512, because past the routine's `RTS` it is reading unrelated
 code. The walk has no such free parameter.
 
-What the walk finds on the vanilla cart: **7 sprite ids** (`$1A`, `$2A`,
+What the walk finds on the vanilla ROM: **7 sprite ids** (`$1A`, `$2A`,
 `$79`, `$7D`, `$7E`, `$7F`, `$80`) reach a lowering to OBJ.1 on the
 straight-line path from their handler entry. The walk does not follow
 branches or `JSL`, so the four bank_02 sites (`:7482`, `:12816`, `:12995`,
@@ -110,7 +110,7 @@ branch (`:3751-3752`). A still frame has no value for it.
 When the walk reaches a lowering within two instructions of a
 `LDA.W SpriteBehindScene,X`, the loader returns the level default with
 `source: 'runtimeGated'` rather than asserting the lowered value. On the
-vanilla cart this never fires, because all four such sites sit past an
+vanilla ROM this never fires, because all four such sites sit past an
 unconditional transfer from their handler entry; it is covered by a
 synthetic-ROM test instead.
 

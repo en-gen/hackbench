@@ -56,7 +56,7 @@ state.
 
 `marioSpawnX` is still written (`MapBuilder`, `rehydrate`, the Map16
 viewer's default store) but has **zero readers in `src/`**. All five were
-sprite overlays and went with them; see `docs/sprite-overlay-removal.md`.
+sprite overlays and went with them; see `docs/sprites/sprite-overlay-removal.md`.
 The facing decisions that survive - `ChuckAppearance.facesMario`,
 `DryBonesAppearance.fromTables` - read `marioStartPx`, the parse-time
 argument `SpriteFactory` receives, not this reactive field. The field is
@@ -158,7 +158,7 @@ the pixel `RenderTarget`.
 
 It currently has **zero implementations**: the path and movement
 annotations that used it were removed (see
-`docs/sprite-overlay-removal.md`). The hook, the `SmwMap` pre-pass and
+`docs/sprites/sprite-overlay-removal.md`). The hook, the `SmwMap` pre-pass and
 the webview click-to-toggle plumbing are kept on purpose as the
 extension point for identity annotations. Do not clean them up.
 

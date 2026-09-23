@@ -7,7 +7,7 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  *
  * Renders the sprite's pixel parts via `StaticSpriteAppearance`. The
  * swim-path annotation that used to live here was removed; see
- * docs/sprite-overlay-removal.md.
+ * docs/sprites/sprite-overlay-removal.md.
  */
 
 export class BlurpAppearance extends StaticSpriteAppearance {

@@ -12,7 +12,7 @@
  * Kernel and callers: bank_00.asm:4667-4677, :4663-4665, :4779-4784.
  * Approaches: smw.asm:43, bank_00.asm:194-196, :288, :4635, :4644, :4760.
  * The derivation, the phase arithmetic, the known gaps in the reach check
- * and the per-cart corpus results are in docs/palette-animation-detect.md.
+ * and the per-cart corpus results are in docs/spikes/palette-animation-detect.md.
  */
 
 import type { RomFile } from './RomFile'

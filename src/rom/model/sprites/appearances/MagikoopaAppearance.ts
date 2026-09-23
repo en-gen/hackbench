@@ -33,7 +33,7 @@ import {
  * convention, and a known divergence from post-fade hardware: see the doc.
  *
  * Dispatch table, tile selection, anchoring, the pose formula, the bob and wand
- * gates, and the whole CGRAM story are derived in docs/sprite-1f-magikoopa.md.
+ * gates, and the whole CGRAM story are derived in docs/sprites/sprite-1f-magikoopa.md.
  */
 
 const OBJ_BASE = 0x400

@@ -346,7 +346,7 @@ function calleeOf(rom: RomFile, callSite: number): number | null {
  * path from LEVEL_LOAD_MUSIC_CALL_SITE, gating on the opcode at every hop,
  * rather than trusting a fixed address for the routine itself: a routine a
  * hack relocates but leaves otherwise intact is still found this way. See
- * docs/music-bank-song-table.md.
+ * docs/spikes/music-bank-song-table.md.
  */
 function locateLevelMusicUploadRoutine(rom: RomFile): number | null {
   const uploadLevelMusic = calleeOf(rom, LEVEL_LOAD_MUSIC_CALL_SITE)
@@ -553,7 +553,7 @@ export interface BankSongPointer {
 /**
  * Read a music bank's song pointer table, stopping at the table's true end
  * rather than reading into a song's own sub-pointers. See
- * docs/music-bank-song-table.md for the full derivation and issue #417.
+ * docs/spikes/music-bank-song-table.md for the full derivation and issue #417.
  */
 export function readBankSongPointers(rom: RomFile, bankRomAddr: number): BankSongPointer[] {
   const header = readBankHeader(rom, bankRomAddr)

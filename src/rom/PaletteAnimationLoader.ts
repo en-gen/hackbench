@@ -4,7 +4,7 @@
  * read yields null, which every caller already treats as "no animation
  * data", so such a cart shows nothing rather than stock's swatches.
  * `explainPaletteAnimation` carries the reason, since null alone cannot.
- * See docs/palette-animation-detect.md.
+ * See docs/spikes/palette-animation-detect.md.
  */
 
 import { RomFile } from './RomFile'

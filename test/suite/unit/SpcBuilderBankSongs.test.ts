@@ -33,7 +33,7 @@ const ROMS_DIR = resolve(__dirname, '../../roms')
  * Their credits bank reads correct data even though the shared tail both
  * upload paths fall through to (StartMusicUpload) is also patched on this
  * corpus - the routine's own bytes read intact, but that is not the same
- * claim as "this path is reached at runtime" (docs/music-bank-song-table.md).
+ * claim as "this path is reached at runtime" (docs/spikes/music-bank-song-table.md).
  * Included anyway: a fix that broke real data to catch fake data would not
  * show up testing only the broken banks.
  */

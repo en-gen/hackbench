@@ -1,9 +1,9 @@
 # Generic sprite draw engine: Phase 1 divergence report
 
 Evidence scope for everything below: static traces against `C:\Projects\SMWDisX`
-plus the six cart files in `test/roms/` (vanilla, magic, Grand Poo World 2 1.1,
+plus the six ROM files in `test/roms/` (vanilla, magic, Grand Poo World 2 1.1,
 GrandPooWorld V1.2, Invictus 1.0, Seven Vanilla Levels, which is six files
-because vanilla and magic are the same cart with and without a copier header).
+because vanilla and magic are the same ROM with and without a copier header).
 No emulator was run. Nothing here is verified against live hardware or an
 accurate emulator, and no claim should be read as dynamically confirmed.
 
@@ -18,7 +18,7 @@ first.
 
 | # | Section | Status |
 |---|---|---|
-| 1 | Two premises the cart contradicts | CURRENT |
+| 1 | Two premises the ROM contradicts | CURRENT |
 | 2 | What was built | CURRENT for the mechanism; the descriptor COUNT is stale, see 13 |
 | 3 | Descriptor coverage and the divergence result | PARTLY SUPERSEDED. Five descriptors became sixteen in `45e9e1e`, and two verdict rows stated the shipped path's output wrongly. Corrected in place; the live version is `ADJUDICATION` in `SpriteEngineEquivalence.test.ts` |
 | 4 | Inventory of the 40 classes | CURRENT |
@@ -29,12 +29,12 @@ first.
 | 9 | Reading the handler instead of deriving from it | CURRENT. 9.4 is the live declared-hardcode list |
 | 10 | The walk family, and what Rex would cost | CURRENT. 10.5's stated reason was backwards and is rewritten |
 | 11 | Three more values converted from literal to read | CURRENT |
-| 12 | Six cart files, five carts | CURRENT |
+| 12 | Six ROM files, five ROMs | CURRENT |
 | 13 | What is read-backed, per descriptor | CURRENT. Start here for "is X read or hardcoded" |
 
 Two questions have a single authoritative answer, and it is not prose:
 
-- **Is this value read from the cart?** Section 13's table, plus the
+- **Is this value read from the ROM?** Section 13's table, plus the
   planted-byte tests in `SpriteEngineCartReads.test.ts` and
   `SpriteEngineWalkCycle.test.ts`. A read with no plant against it is not a
   read.
@@ -43,7 +43,7 @@ Two questions have a single authoritative answer, and it is not prose:
   carries a structural `pin` per sprite. Section 3's table is a snapshot of an
   earlier state of it.
 
-## 1. Two premises in the brief that the cart contradicts
+## 1. Two premises in the brief that the ROM contradicts
 
 Both were checked before anything was built on them.
 
@@ -64,7 +64,7 @@ Both were then cross-checked entry by entry against the labels in
 `CallSpriteMain` (bank_01.asm:893 onward). Reading the misaligned table is what
 produced the sprite IDs in the next item.
 
-### The MAIN handler table is byte-identical in all six cart files
+### The MAIN handler table is byte-identical in all six ROM files
 
 The brief reported the main handler table as repointed at $4F, $50 and $98.
 Measured against the correctly located tables:
@@ -92,11 +92,11 @@ the resolved handler can.
 The practical consequence for Phase 1 is that **the honest degradation path is
 currently unexercised by draw-handler repoints in this corpus**, because no
 draw handler is repointed in it. It is exercised by the INIT repoints, and the
-harness tests it against `$9B` on a real hack cart rather than a synthetic one.
+harness tests it against `$9B` on a real hack ROM rather than a synthetic one.
 
 ### What was confirmed
 
-The data tables are byte-identical in all six cart files, as reported:
+The data tables are byte-identical in all six ROM files, as reported:
 `SprTilemap` `$01:9B83`, `SprTilemapOffset` `$01:9C7F`, `GeneralSprDispX/Y`,
 `GeneralSprGfxProp` `$01:9CDB`, `Sprite166EVals` `$07:F3FE`, and also
 `SPRITEGFXLIST` `$00:A8C3`. The three anchor offsets were confirmed:
@@ -112,7 +112,7 @@ existing 40 appearance classes.
 
 ### The three routine ports
 
-Each ported once, reading every value from the cart. Re-verified against
+Each ported once, reading every value from the ROM. Re-verified against
 `bank_01.asm` rather than taken from the brief.
 
 - **`SubSprGfx0Entry0`** (bank_01.asm:3853). Four independent 8x8 chars.
@@ -168,7 +168,7 @@ the end of its tilemap entry.
 
 ### Identity and degradation
 
-`resolveIdentity` reads the cart's own MAIN and INIT pointers and returns one
+`resolveIdentity` reads the ROM's own MAIN and INIT pointers and returns one
 of three statuses.
 
 - `vanilla`: both match the traced pointers.
@@ -191,13 +191,13 @@ All three sources are modelled, and the partial-row case is first class.
 - **(a) static.** `Sprite166EVals & $0F`, row `8 + ((attr >> 1) & 7)`,
   `charHigh = attr & 1`.
 - **(b) init-routine override.** `$2C` Yoshi Egg indexes `YoshiPal` by
-  `(SpriteXPosLow >> 4) & 3` in `InitYoshiEgg`, so its colour is a function of
+  `(SpriteXPosLow >> 4) & 3` in `InitYoshiEgg`, so its color is a function of
   the 16 px column it spawned in. Init routines never draw, which is exactly
   why this is easy to miss.
-- **(c) runtime CGRAM DMA.** `$1F` Magikoopa writes 8 colours to CGRAM colour
+- **(c) runtime CGRAM DMA.** `$1F` Magikoopa writes 8 colors to CGRAM color
   index `$F0`, which is row 15 columns 0-7. Only HALF the row is overwritten,
   so the engine returns a `PaletteNote` telling the caller to composite:
-  dynamic colours for `[firstCol, firstCol + colors)`, level palette for the
+  dynamic colors for `[firstCol, firstCol + colors)`, level palette for the
   rest. A whole-row model would be wrong here.
 
 **Reconciliation needed.** The `dynamicCgram` variant's five fields are
@@ -273,7 +273,7 @@ small, well-evidenced set over a wide shallow pass. The walk family followed
 once the mechanism held.
 
 The harness (`test/suite/unit/sprites/SpriteEngineEquivalence.test.ts`) is
-committed, runs against all six cart files, and compares the engine's output against
+committed, runs against all six ROM files, and compares the engine's output against
 the shipped `buildSpriteLayout` path field by field (chars, positions, flips,
 palette row) **for every frame of the descriptor**, not just frame 0.
 
@@ -288,7 +288,7 @@ walk descriptors; section 10 covers those.
 | `$4D` Monty Mole | ENGINE_WINS | `CODE_01E343` (bank_01.asm:13388) selects `SpriteMisc1602` from `DATA_01E35F` and the prop group from `DATA_01E361`, both indexed by `(EffFrame >> 4) & 1`. The shipped path pins `SpriteMisc1602` to 0, which is neither of the two frames the ROM ever draws. |
 | `$4E` Monty Mole on ledge | ENGINE_WINS | `CODE_01E343` routes `$4E` to `SubSprGfx2Entry1` with `SpriteMisc1602 = $03` and an attribute override of `((EffFrame << 2) & $C0) | $31`. The shipped path classifies it as sub0 and drops the override. `$4E` is a ONE-TILE sprite whose four poses come from rotating the hardware flip bits. |
 
-Engine output is identical across all six cart files for these sprites, as it must
+Engine output is identical across all six ROM files for these sprites, as it must
 be given the data tables are byte-identical.
 
 ### The number that decides whether full replacement is viable
@@ -298,9 +298,9 @@ up as one.** What the inventory below measures is a better predictor.
 
 The raw count has moved twice and says little either way: five descriptors
 when this was written, sixteen after `45e9e1e`. Counted in PLACEMENTS across
-the vanilla cart's 512 level slots the picture changes again, because the
+the vanilla ROM's 512 level slots the picture changes again, because the
 eleven walk ids account for 297 of them against the bespoke five's 42. That
-census is in `docs/sprite-engine-wiring.md`.
+census is in `docs/sprites/sprite-engine-wiring.md`.
 
 ## 4. Inventory of the 40 classes
 
@@ -436,7 +436,7 @@ is general. My engine does not add an above-L1 pass and should consume that one.
 | `npx webpack --mode development` | compiled successfully |
 | `npx vitest run` after | 146 files passed, 2 skipped; **2434 tests passed**, 8 skipped. +47 tests, no regressions |
 | Suite with `test/roms/` moved aside | 133 passed, 15 skipped; **2234 passed**, 122 skipped. No collection-time failure. Restored afterwards |
-| Engine exercised against all 6 cart files | yes, in the committed harness |
+| Engine exercised against all 6 ROM files | yes, in the committed harness |
 | Degradation on a genuinely repointed handler | yes, `$9B` on Grand Poo World 2 |
 | `git status` | clean apart from the new files |
 
@@ -469,11 +469,11 @@ because a mutation that turns nothing red is the finding, not a formality.
 ## 7. What I could not verify, and what is left
 
 > **SUPERSEDED** by 9.4 and 13.1, which are the maintained lists of declared
-> hack-fragility points. Several items here have since been converted to cart
+> hack-fragility points. Several items here have since been converted to ROM
 > reads.
 
 
-- **No emulator.** Every claim is a static trace over a five-cart corpus. Nothing
+- **No emulator.** Every claim is a static trace over a five-ROM corpus. Nothing
   is confirmed against running hardware.
 - **Visual check is partial.** I rendered `$4D`'s quad with
   `render_sprite_frame`. Under GFX02 it composes into a coherent creature and
@@ -510,7 +510,7 @@ because a mutation that turns nothing red is the finding, not a formality.
 > **HISTORICAL.** The derivation is sound and worth reading. Its lists of
 > what is "still a literal" are superseded by sections 9, 11 and 13: the
 > routine choice, the bob, the resting palette entry and several others have
-> since been converted to cart reads.
+> since been converted to ROM reads.
 
 
 Phase 1 shipped with a green suite and `$1F` Magikoopa rendered wrong in three
@@ -525,8 +525,8 @@ one root cause, stated here because it predicts where the next gap will be:
 handler does before or after the `JSR` was invisible to it.
 
 Evidence scope for this section: every ROM address below was read out of the
-six carts in `test/roms/` with `xxd` and matched against the disassembly
-instruction by instruction, not copied from an earlier summary. All six carts
+six ROMs in `test/roms/` with `xxd` and matched against the disassembly
+instruction by instruction, not copied from an earlier summary. All six ROMs
 agree byte for byte at every address named. No emulator was run.
 
 ### The $1F state-2 handler, traced
@@ -656,7 +656,7 @@ those routines bump `SpriteOAMIndex` instead of using a fixed `+$1xx` offset:
 
 - `KoopaWingGfxRt` (`bank_01.asm:4024`), called from `Spr0to13Gfx` at
   `bank_01.asm:1788` for sprite ids at or above `$08` on the 16x32 branch. On
-  the vanilla cart that is `$08`, `$09`, `$0A`, `$0B`, `$0C`: five sprites,
+  the vanilla ROM that is `$08`, `$09`, `$0A`, `$0B`, `$0C`: five sprites,
   read from `Spr0to13Prop` at `$01:88F0`, bit 6 set and id at or above `$08`.
 - `GoombaWingGfxRt` (`bank_01.asm:2022`), called from `CODE_018DAC`
   (`bank_01.asm:1992`).
@@ -700,7 +700,7 @@ produces the frame index" and "what turns the index into a tile group":
 
 - `anim: { kind: 'stateTimer', seedOperandAddr }`. The frame index IS the
   timer value and it runs from the seed down to 0. The seed is read from the
-  cart, so a hack that retimes the state animates at the retimed rate.
+  ROM, so a hack that retimes the state animates at the retimed rate.
 - `tileGroup: { kind: 'shiftedTable', operandAddr, operandBank, shift,
   orBitShift? }`, giving `table[index >> shift]` optionally ORed with
   `(index >> orBitShift) & 1`.
@@ -748,12 +748,12 @@ a pose from a different state.
 `$1F` rendered magenta because `EngineSpriteAppearance` drew every part with
 `mapStore.palette.row(p.palette)` and threw away the `dynamicCgram`
 `paletteNote` the engine had already computed. The fix was small and is
-included: read the resting entry's BGR555 words from the cart once, convert,
+included: read the resting entry's BGR555 words from the ROM once, convert,
 and splice them over columns `[firstCol, firstCol + colors)` of the level row.
 
 The splice, not a replace, is the point. `CODE_01C028` writes a 2-byte header
-of `$10` then `$F0` (`bank_01.asm:8752-8755`): `$10` bytes is 8 colours, and
-`$F0` is a CGRAM COLOUR index, not a byte address, because `CODE_00A488`
+of `$10` then `$F0` (`bank_01.asm:8752-8755`): `$10` bytes is 8 colors, and
+`$F0` is a CGRAM COLOR index, not a byte address, because `CODE_00A488`
 writes it straight to `HW_CGADD` (`bank_00.asm:4735`). So only row 15 columns
 0 to 7 are overwritten and columns 8 to 15 still come from the level palette.
 A test asserts both halves.
@@ -761,13 +761,13 @@ A test asserts both halves.
 ### What is still divergent
 
 - **The 1 px top-tile bob is not modelled.** SUPERSEDED BY SECTION 9, which
-  adds the `TileNudge` kind and reads the whole thing out of the cart. Leaving
+  adds the `TileNudge` kind and reads the whole thing out of the ROM. Leaving
   the original entry here because its reasoning was wrong in an instructive
   way: it called the displacement an unreadable constant, when `$FE` is an
   opcode and opcodes are readable bytes. `bank_01.asm:8530-8539` nudges only
   the `+$100` entry down one pixel, and only when the tile group minus 2 is at
   least 2 and odd, which in state 2 means tile group `$05` alone. It is the
-  ONLY observable effect of the OR bit on the vanilla cart: groups `$04` and
+  ONLY observable effect of the OR bit on the vanilla ROM: groups `$04` and
   `$05` select the same tile pair, so while the bob was unmodelled, dropping
   the OR bit changed no pixel. Section 9 inverts that test rather than
   deleting it.
@@ -788,7 +788,7 @@ A test asserts both halves.
 - **The routine choice was a descriptor literal.** Superseded by section 9:
   it is now read from the handler's own `JSR` target.
 - **`restingEntry` is still a literal 7.** `feature/sprite-1f-render` resolves
-  it from the cart instead, by reading the immediate of the `CMP #$09` at
+  it from the ROM instead, by reading the immediate of the `CMP #$09` at
   `$01:C01C` and subtracting 2. That is the better design and this branch does
   not adopt it, because changing `dynamicCgram` is outside the two kinds this
   work was scoped to. Note carefully which `CMP #$09` it is: there are two,
@@ -836,16 +836,16 @@ time, each restored by copying back a file saved outside the repo. No
 | M8 | `shiftedTable` ignores `shift` | 12 failed |
 | M9 | unreadable timer seed tolerated | caught by `tsc` |
 | M10 | `unionExtents` uses the first frame only | 2 failed |
-| M11 | composite window one colour short | 1 failed |
+| M11 | composite window one color short | 1 failed |
 | M12 | dynamic palette never loaded | 1 failed |
 | M13 | composite overwrites the whole row | 2 failed |
-| M14 | dynamic colours read big-endian | 1 failed |
+| M14 | dynamic colors read big-endian | 1 failed |
 | M15 | extra-part char source ignored | 6 failed |
 | M16 | gate always passes | 13 failed |
 
 M15 initially turned nothing red. The oracle was "the wand char is not one of
 the body chars", which a planted char of 0 satisfies. It was replaced with one
-that re-reads the immediate from the cart at the address the descriptor points
+that re-reads the immediate from the ROM at the address the descriptor points
 at, so what is pinned is that the engine read it, and read it from the right
 place. Recording this because a mutation that turns nothing red is the
 finding, not a formality.
@@ -853,7 +853,7 @@ finding, not a formality.
 Two further mutants were tried and DISCARDED as unkillable rather than left in
 the table: both targeted a per-part palette-row check in `rowFor` that guarded
 a case `drawSpriteParts` cannot produce, since every part of one call carries
-the same row. The check was deleted instead, and a cart test now asserts the
+the same row. The check was deleted instead, and a ROM test now asserts the
 invariant that makes deleting it safe.
 
 `render_sprite_frame` was used to look at both tile pairs and both facings
@@ -864,11 +864,11 @@ against GFX03 before any of this was called correct.
 Pillar 1a of `CLAUDE.md` draws the line: the ASM is reference for tracing how
 graphics are composed, not a source to derive logic from and then hardcode,
 because a hack can invalidate any such derivation. If HackBench can interpret
-the cart directly it must, and no further.
+the ROM directly it must, and no further.
 
 The engine was on the wrong side of that line in four places, all of them on
 `$1F`. Each one was a number a human read out of the disassembly once and
-typed into the descriptor, when the byte it came from is sitting in the cart
+typed into the descriptor, when the byte it came from is sitting in the ROM
 at a fixed offset. **Opcodes are readable bytes.** Reading a byte at a known
 offset to learn what an instruction does is interpretation. Simulating
 execution to discover which code runs would not be, and nothing here does it:
@@ -882,11 +882,11 @@ every read below is a bounded fetch at an offset the descriptor names.
 | `orBitShift: 3` | length of the `LSR A` run at `$CB` | `ShiftCount` |
 | implicit `& 1` | the `AND` immediate at `$CF` | `CodeRef` byte |
 | not modelled | the 1 px bob: displacement, sign, target entry, both gate thresholds and the odd-only bit test | `TileNudge` |
-| `0x01BEA7` and friends | offsets past the MAIN pointer the cart holds | `CodeRef` `{ mainOff }` |
+| `0x01BEA7` and friends | offsets past the MAIN pointer the ROM holds | `CodeRef` `{ mainOff }` |
 | `routine: 'sub1'` | the `JSR` target at `$D6`, matched to `SHARED_DRAW_ROUTINES` | `routineJsr` |
 
 Handler offsets, and the vanilla address each resolves to. The base is the
-MAIN pointer at `$01:85CC + $1F*2`, which reads `$BDD6` on all six carts in
+MAIN pointer at `$01:85CC + $1F*2`, which reads `$BDD6` on all six ROMs in
 `test/roms/`; the engine re-reads it every draw rather than assuming it.
 
 | Offset | Vanilla | Instruction | Line |
@@ -908,9 +908,9 @@ MAIN pointer at `$01:85CC + $1F*2`, which reads `$BDD6` on all six carts in
 | `$261` | `$01:C037` | `LDA.L MagiKoopaPals,X` operand | `bank_01.asm:8734` |
 
 Every line number above was checked by opening `bank_01.asm` at that line, and
-every offset by dumping the corresponding byte out of the cart with `xxd`.
+every offset by dumping the corresponding byte out of the ROM with `xxd`.
 Both shift runs, the `JSR` target and the `INC` opcode are additionally
-asserted in `SpriteEngineCartReads.test.ts` against all six carts, which is
+asserted in `SpriteEngineCartReads.test.ts` against all six ROMs, which is
 the citation form that does not rot.
 
 ### 9.2 The `TileNudge` kind
@@ -940,7 +940,7 @@ Four things are read, and a test plants a different byte for each:
   same difference, so a hack that adds an `LSR A` moves which pose bobs.
 
 What this does NOT model, stated rather than left implicit: the OAM buffer
-base `$0301` is a RAM address, not cart data, and a hack that relocated SMW's
+base `$0301` is a RAM address, not ROM data, and a hack that relocated SMW's
 sprite OAM window would break the operand-to-slot arithmetic silently. It is a
 single module constant, `SPRITE_OAM_FIRST_Y`.
 
@@ -980,7 +980,7 @@ a tracer to find it would be the "simulating execution" side of the line.
   2 is modelled. A hack that made state 1 the visible one would render the
   wrong state, and nothing in the descriptor would say so.
 - **The OAM buffer base.** `SPRITE_OAM_FIRST_Y` is `$0301`, from the RAM map,
-  and is the one address in the nudge path that is not cart data.
+  and is the one address in the nudge path that is not ROM data.
 - **`ExtraPart.oamSlot`.** Still a literal `$08`. It is readable, from the
   operands of the handler's own `STA.W OAMTile*+$108,Y` run, and converting it
   is the same shape as the nudge's operand read. Left alone because this work
@@ -989,7 +989,7 @@ a tracer to find it would be the "simulating execution" side of the line.
   routines. A hack that rewrites `SubSprGfx1` while leaving its entry point in
   place renders wrongly and confidently.
 - **`SprTilemapOffset` semantics, `frames`, `representativeFrame`.** `frames`
-  is asserted against the cart-read seed; the other two are editorial.
+  is asserted against the ROM-read seed; the other two are editorial.
 - **`colorsPerEntry`, `entryCount`, `cgramStart`** on `dynamicCgram`: still
   literals. Section 8 records why. `restingEntry` is no longer one of them:
   section 11 records the read that replaced it.
@@ -1087,7 +1087,7 @@ separates the head and upper body from the lower body by one pixel, which is
 what the ASM says.
 
 Evidence scope: static traces against `C:\Projects\SMWDisX`, byte reads out of
-the six carts in `test/roms/` with `xxd` and through `RomFile`, and the
+the six ROMs in `test/roms/` with `xxd` and through `RomFile`, and the
 planted-byte tests above. No emulator was run, so nothing here is dynamically
 verified against hardware or an accurate emulator.
 
@@ -1148,7 +1148,7 @@ own `JSR` target. Nothing about $40, about $01:88F0, or about which branch is
 which is written down. `SpriteTileLoader.SPR_0_TO_13_PROP_ADDR` is the
 hardcoded table address this supersedes for engine purposes.
 
-On all six carts in `test/roms/` the table reads
+On all six ROMs in `test/roms/` the table reads
 `00 02 03 0D 40 42 43 45 50 50 50 5C DD 05 00 20 20 00 00 00`, so the shelled
 Koopas are 16x32 and the shell-less ones, the Goomba, the Buzzy Beetle and the
 Spiny are 16x16.
@@ -1215,18 +1215,18 @@ and four family members do that, not one: $0C, $0F, $11 and $13.
 Wings need two conditions, and only one of them is a property of the sprite
 number:
 
-| Condition | Where | Per-cart? |
+| Condition | Where | Per-ROM? |
 |---|---|---|
 | `Spr0to13Prop[id] & $40` set, taking the 16x32 branch | bank_01.asm:1765 | yes, it is a ROM table byte |
 | sprite number at or above the `CMP #$08` | bank_01.asm:1786 | yes, it is an immediate |
 
 The clear branch `BRA`s past the wing call entirely (bank_01.asm:1767), so a
 16x16 member never reaches it whatever the threshold says. $0F, $11 and $13 are
-spared on a vanilla cart only because their property bit is clear, and that bit
-is exactly what `routineSelect` already reads per cart.
+spared on a vanilla ROM only because their property bit is clear, and that bit
+is exactly what `routineSelect` already reads per ROM.
 
 A static exclusion list keyed on $0C therefore guarded a value the engine reads
-from the cart. Measured: planting `Spr0to13Prop[$0F] = $60` made the engine emit
+from the ROM. Measured: planting `Spr0to13Prop[$0F] = $60` made the engine emit
 a clean 8-subtile 16x32 Goomba reporting `status: 'vanilla'`, while the ROM
 draws that body PLUS `KoopaWingGfxRt`; and because `$0F >= $0F`, `SubSprGfx1`
 skips its `ADC #$04` OAM shift (bank_01.asm:3931-3933), so the wings land on the
@@ -1236,7 +1236,7 @@ wings and the engine ignored it.
 Both gate bytes sit at fixed offsets past the `JSR Spr0to13Gfx` the descriptor
 already names: the immediate at `+$4A` and the `JSR` at `+$4D`. So this is a
 stop-early, not an unreadable value. `UnmodelledTailCall` reads them, and the
-engine returns `unmodelledTailCall` for whichever ids THIS cart actually wings.
+engine returns `unmodelledTailCall` for whichever ids THIS ROM actually wings.
 The `BCC` polarity is assumed rather than read and is listed in section 9.4 as a
 declared hack-fragility point, the same assumption `TileNudge` makes about its
 own two `BCC`s.
@@ -1257,7 +1257,7 @@ consequences for the format:
 
 **`Bnk3CallSprMain` is not a pointer table.** It is a chain of
 `CMP #imm : BNE + : JSR handler : PLB : RTL` links starting at
-$03:A118 + 5 (bank_03.asm:4305). Walking it on the vanilla cart, $AB is link
+$03:A118 + 5 (bank_03.asm:4305). Walking it on the vanilla ROM, $AB is link
 30 of 36, and the chain is NOT uniform: link 17 is a `CMP / BEQ / CMP / BNE`
 pair sharing one handler (bank_03.asm:4412-4417), there is a stray
 `LDA SpriteNumber,X` reload partway down (bank_03.asm:4445), and the chain
@@ -1352,7 +1352,7 @@ path and 3bpp on the sheet path; 3bpp is the one that produces a Koopa, so
 
 Evidence scope: static traces against `C:\Projects\SMWDisX`, with every line
 number checked by opening `bank_01.asm` or `bank_03.asm` at that line; byte
-reads out of all six carts in `test/roms/`, which agree byte for byte at every
+reads out of all six ROMs in `test/roms/`, which agree byte for byte at every
 site named above; and the planted-byte tests in
 `test/suite/unit/sprites/SpriteEngineWalkCycle.test.ts`. No emulator was run,
 so no claim here is dynamically verified against hardware.
@@ -1361,7 +1361,7 @@ so no claim here is dynamically verified against hardware.
 
 Review found three descriptor fields still holding what vanilla happens to
 contain, on a branch whose stated purpose is reading. Each is now read, with a
-planted-byte test proving the render follows the cart and a mutation proving
+planted-byte test proving the render follows the ROM and a mutation proving
 the test can go red.
 
 ### 11.1 The wing gate (`UnmodelledTailCall`)
@@ -1385,7 +1385,7 @@ writes over it. So the tilemap is a source the ROM discards, and both the
 engine and the shipped `buildSpriteLayout` read it.
 
 **Vanilla coincides.** `SprTilemap[$94]` is $00 and so is the immediate, which
-is why the whole-cart equivalence run could not see the difference. Planting
+is why the whole-ROM equivalence run could not see the difference. Planting
 $60 in the tilemap moved the engine to chars $560, $561, $570, $571 while the
 ROM still draws base $00.
 
@@ -1397,7 +1397,7 @@ through the same large-OBJ corner expansion the routine's own tile does, and
 reconstructing that from finished parts would mean undoing the flip
 permutation in `largeObj` first.
 
-$2C also gained a `routineJsr`, so its `sub2` now comes from the cart's own
+$2C also gained a `routineJsr`, so its `sub2` now comes from the ROM's own
 `JSR` target (bank_01.asm:16058) rather than the declared `routine`.
 
 Offsets, from the MAIN pointer $F764: the `JSR` at `+$29`, which resolves to
@@ -1415,8 +1415,8 @@ Offset `+$246` past the MAIN pointer $BDD6. The same handler's state-2 seed
 named, so the base is cross-checked by two independent refs.
 
 This is a FALLBACK, not a failure: the literal 7 stands when the ref is
-absent, the read falls off the cart, the instruction is not a `CMP #imm`, or
-the implied entry is outside the table. The colours are a still editor's
+absent, the read falls off the ROM, the instruction is not a `CMP #imm`, or
+the implied entry is outside the table. The colors are a still editor's
 approximation of a runtime DMA either way, and declining to draw $1F over an
 unrecognised fade terminator would lose a sprite the engine otherwise renders
 correctly.
@@ -1439,30 +1439,30 @@ offset, so the handler-relative form is the one to keep.
 
 Evidence scope: static traces against `C:\Projects\SMWDisX` with every line
 number checked by opening `bank_01.asm` at it; fixed-offset byte assertions on
-all six carts in `test/roms/`, which agree at every site named above; and
+all six ROMs in `test/roms/`, which agree at every site named above; and
 planted-byte tests on `Super Mario World (USA).vanilla.sfc` in
 `SpriteEngineCartReads.test.ts` sections 5 and 7 and
 `SpriteEngineWalkCycle.test.ts` section 6. No emulator was run.
 
-## 12. Six cart files, five carts
+## 12. Six ROM files, five ROMs
 
 `test/roms/` holds six `.sfc` files, and the reports above repeatedly called
 them "five ROMs". Both counts were loose. Measured:
 
 | File | Bytes | Note |
 |---|---|---|
-| `Super Mario World (USA).vanilla.sfc` | 524288 | the reference cart |
-| `Super Mario World (USA).magic.sfc` | 524800 | the SAME cart plus a 512-byte copier header |
+| `Super Mario World (USA).vanilla.sfc` | 524288 | the reference ROM |
+| `Super Mario World (USA).magic.sfc` | 524800 | the SAME ROM plus a 512-byte copier header |
 | `Grand Poo World 2 1.1.sfc` | 4194304 | hack |
 | `GrandPooWorld_V1.2.sfc` | 2097152 | hack |
 | `Invictus 1.0.sfc` | 4194304 | hack |
 | `Seven_Vanilla_Levels.sfc` | 1048576 | hack, despite the name |
 
 `magic.sfc` with its first 512 bytes stripped is byte-identical to
-`vanilla.sfc`. So the corpus is FIVE DISTINCT CARTS IN SIX FILES, and the
+`vanilla.sfc`. So the corpus is FIVE DISTINCT ROMS IN SIX FILES, and the
 sixth file exercises the copier-header handling in `RomFile` rather than a
 fifth hack. Claims of the form "identical across all five ROMs" are now
-written as "all six cart files", which is what the harness actually iterates.
+written as "all six ROM files", which is what the harness actually iterates.
 
 ## 13. What is read-backed, per descriptor
 
@@ -1475,7 +1475,7 @@ and `SpriteEngineCartReads.test.ts` covered $1F only.
 Most of that is now converted. This table is the honest statement of what
 remains, so the claim can be checked rather than believed.
 
-| Descriptor | Read from the cart | Still a literal |
+| Descriptor | Read from the ROM | Still a literal |
 |---|---|---|
 | $00-$07, $0F, $11, $13 (walk) | animation shift and mask, property table address, selecting bit, both branch `JSR`s, the `SBC` bob and its carry bit, the wing threshold and its `JSR` | `frames`, `representativeFrame` |
 | $14 Spiny egg | draw `JSR`, prop group `LDA #$02`, animation shift and mask | `frames`, `representativeFrame` |
@@ -1498,7 +1498,7 @@ only, so $4E would also need an `ASL A` variant.
 **$2C's `initTableByX.operandAddr`.** It is the absolute $01:8343, not a
 handler offset, because the operand lives in the INIT handler
 (bank_01.asm:471) and `CodeRef`'s `{ mainOff }` is measured from the MAIN
-pointer. Reading it relative to the cart's own INIT pointer needs an
+pointer. Reading it relative to the ROM's own INIT pointer needs an
 `{ initOff }` form. That is the right fix and it is not in this pass.
 
 All three are listed in 9.4 as declared hack-fragility points.
@@ -1519,6 +1519,6 @@ the other.
 
 Evidence scope: static traces against `C:\Projects\SMWDisX` with every line
 number checked by opening `bank_01.asm` at it; fixed-offset assertions on all
-six cart files in `test/roms/`; planted-byte tests on
+six ROM files in `test/roms/`; planted-byte tests on
 `Super Mario World (USA).vanilla.sfc` in `SpriteEngineCartReads.test.ts`
 section 8. No emulator was run.

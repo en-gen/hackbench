@@ -2,9 +2,9 @@
 
 Evidence scope for everything below: static reads against `C:\Projects\SMWDisX`
 with every cited line number checked by opening the file at it, plus the raw
-bytes of the six cart files in `test/roms/` (vanilla, magic, Grand Poo World 2
+bytes of the six ROM files in `test/roms/` (vanilla, magic, Grand Poo World 2
 1.1, GrandPooWorld V1.2, Invictus 1.0, Seven Vanilla Levels; six files, five
-carts, because magic is vanilla plus a copier header). No emulator was run.
+ROMs, because magic is vanilla plus a copier header). No emulator was run.
 Nothing here is dynamically confirmed.
 
 Implementation: `src/rom/dispatch/DispatchChain.ts`.
@@ -19,10 +19,10 @@ which is what `SpriteTileLoader` uses.
 `SPRITE_MAIN_PTR_TABLE` ($01:85CC) holds 201 sixteen-bit handler pointers.
 The engine's first design rule is to key on the resolved handler pointer
 rather than the sprite id, on the grounds that the id is a label and the
-handler is the identity. Measured across all six carts, that rule buys less
+handler is the identity. Measured across all six ROMs, that rule buys less
 than it looks:
 
-| Measurement | Value, identical on all six carts |
+| Measurement | Value, identical on all six ROMs |
 |---|---|
 | Entries | 201 |
 | Distinct pointer values | 104 |
@@ -59,7 +59,7 @@ target does not close.
 `Bnk3CallSprMain` is not a pointer table. It is a run of links, each of which
 compares the sprite number against one immediate and calls one routine. The
 byte forms below were derived from bank_03.asm:4305-4525 and then confirmed
-against the raw cart bytes.
+against the raw ROM bytes.
 
 ```
 prologue    8B 4B AB B5 9E        PHB PHK PLB LDA SpriteNumber,X   :4306-4309
@@ -71,7 +71,7 @@ paired link C9 ii F0 04 C9 jj D0 05 20 ll hh AB 6B
 tail        anything not C9       the block an unmatched id reaches :4521
 ```
 
-`SpriteNumber` is direct page $9E, read out of the cart rather than assumed:
+`SpriteNumber` is direct page $9E, read out of the ROM rather than assumed:
 the operand byte is part of the opcode check, so a chain that dispatched on
 some other byte is refused instead of being mapped as though it keyed on the
 sprite number.
@@ -95,11 +95,11 @@ a branch is taken. It reads a fixed sequence of bytes at offsets derived from
 the previous opcode's own length, exactly as the existing `CodeRef` `{ via }`
 hops do, and checks each one. The id attached to a routine is the `CMP`
 immediate physically adjacent to the `JSR`, which is a static datum in the
-cart, not a fact about execution.
+ROM, not a fact about execution.
 
 ## 3 What it recovers
 
-Identical on all six carts:
+Identical on all six ROMs:
 
 | Measurement | Value |
 |---|---|
@@ -187,8 +187,8 @@ notice only as a refusal.
 5. **Bank mirroring is passed through, not normalised.** Grand Poo World 2,
    Invictus and Seven Vanilla Levels hold the stub's `JSL` target as $83:A118
    rather than $03:A118. Resolved routines carry the same bank, which is
-   correct for reading but means a caller comparing two carts' addresses must
+   correct for reading but means a caller comparing two ROMs' addresses must
    fold bit 23 itself.
 6. **`readHandlerThunk` assumes the handler bank is $01.** `resolveDispatch`
    takes the bank as a parameter defaulting to $01, which is right for every
-   cart measured, but it is a default rather than a read.
+   ROM measured, but it is a default rather than a read.

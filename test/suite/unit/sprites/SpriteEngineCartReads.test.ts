@@ -535,7 +535,7 @@ describe.skipIf(!romsPresent)("$1F's resting palette entry is read, not held", (
  *   $4D  draw `JSR`, both table ADDRESSES from their `LDA abs,Y` operands
  *   $4E  draw `JSR`, the `LDA #$03` tile group
  *
- * What is NOT, and is listed in docs/sprite-engine-divergence.md section 13:
+ * What is NOT, and is listed in docs/sprites/sprite-engine-divergence.md section 13:
  * $4D's `effFrame` shift and mask, $4E's `attrOverride` shift and masks, and
  * $2C's `initTableByX` operand, which lives in the INIT handler and has no
  * handler-relative `CodeRef` form.

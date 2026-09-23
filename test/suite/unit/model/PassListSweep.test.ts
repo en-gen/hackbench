@@ -105,7 +105,7 @@ describe.skipIf(!existsSync(ROM_PATH))('pass list over all 512 level ids', () =>
       }
     }
     // No placement on the vanilla cart lands on the runtimeGated path; see
-    // docs/obj-priority.md section 3 for why, and the synthetic cover.
+    // docs/rom/obj-priority.md section 3 for why, and the synthetic cover.
     expect(sources.get('runtimeGated')).toBeUndefined()
     expect(sources.get('handler')).toBe(24)
     expect(sources.get('level')).toBe(3252)

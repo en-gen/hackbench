@@ -9,7 +9,7 @@
  * NOT an emulator. No condition is evaluated and no memory is modelled. The
  * only machine state tracked is the M and X flags, because they alone decide
  * an instruction's length, and even that is incomplete: see
- * `docs/sprite-gfx-routine-reading.md` section 9 for the flag-state holes
+ * `docs/sprites/sprite-gfx-routine-reading.md` section 9 for the flag-state holes
  * and the DBR assumption, both of which can in principle desync the decoder
  * into a fabricated answer.
  *
@@ -31,7 +31,7 @@
  * what makes refusing cheaper than guessing. One hole stays open: reaching
  * a return is not resuming at `callAt + len`, so the inline-argument idiom
  * that rewrites its own return address passes the probe. Vanilla
- * `ExecutePtr` does not use it. `docs/sprite-gfx-routine-reading.md`
+ * `ExecutePtr` does not use it. `docs/sprites/sprite-gfx-routine-reading.md`
  * section 2, "What the probe assumes".
  *
  * Evidence scope: run against all six cart files in `test/roms/`. Static
@@ -53,7 +53,7 @@ const X = -2
  * Twenty-three entries are never read: the returns, halts, jumps, branches
  * and `REP`/`SEP` all set the next address or add a literal instead. They
  * are kept correct as documentation, and no test can see a mutation to any
- * of them. `docs/sprite-gfx-routine-reading.md` section 8 lists them.
+ * of them. `docs/sprites/sprite-gfx-routine-reading.md` section 8 lists them.
  */
 const INSN_LEN: readonly number[] = [
   2,
@@ -386,7 +386,7 @@ export type AccumulatorSource =
  * store into $0200-$03FF at an offset congruent to 2 is a tile number.
  * Reported because the claim that `SPRITE_BASE_TILE_OVERRIDES` cannot be
  * derived this way is a measurement, and a measurement nobody can re-run
- * is just an assertion. `docs/sprite-gfx-routine-reading.md` section 6.
+ * is just an assertion. `docs/sprites/sprite-gfx-routine-reading.md` section 6.
  */
 export interface TileStore {
   readonly at: number
@@ -516,7 +516,7 @@ interface ProbeCtx {
  * out of the memo so the answer cannot depend on call order. A cycle that
  * closes WITHIN one probe is not a return; `seen` breaks it without one.
  * Both ceilings refuse rather than decide.
- * `docs/sprite-gfx-routine-reading.md` section 2.
+ * `docs/sprites/sprite-gfx-routine-reading.md` section 2.
  */
 function probeReturns(
   ctx: ProbeCtx,

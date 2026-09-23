@@ -16,7 +16,7 @@ fields so consumers can pick the view that matches their query:
   `solidityFromL1`) and the `getL1` closure `SmwMap.renderSpriteOverlays`
   hands to sprite annotations. The sprite overlays that used to be the
   visible consumer (KoopaWalk patrol, HopFlame bounce, CheepCheep arc)
-  were removed; see `docs/sprite-overlay-removal.md`. The sprite fields
+  were removed; see `docs/sprites/sprite-overlay-removal.md`. The sprite fields
   are not dead with them: the simulators still read them.
 - **Editor overlays** ("Show surfaces", "Show walls") read
   `marioFloor` / `marioCeiling` / `marioWall` — the designer wants

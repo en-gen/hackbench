@@ -957,8 +957,8 @@ which skips the hardcode when nonzero, so the condition is `== 0`.
 authoritatively, rather than counting `skip` directives in `rammap.asm`.
 `UseSecondaryExit` is `$7E1B93` (`SMW_U.sym:12265`).
 
-Level `$105` is Yoshi's Island 1 (`docs/smw-overworld-wram.md:47`), 5120x432,
-20 screens (`docs/per-pass-canvas-spike.md:55`).
+Level `$105` is Yoshi's Island 1 (`docs/rom/smw-overworld-wram.md:47`), 5120x432,
+20 screens (`docs/spikes/per-pass-canvas-spike.md:55`).
 
 ## Licensing note
 

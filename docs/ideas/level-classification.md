@@ -141,7 +141,7 @@ correctly excluded. This decided a dispute that ran two review rounds, so the
 evidence is recorded here rather than left in a code comment.
 
 All figures below are read from `Super Mario World (USA).vanilla.sfc`, one
-cart, this revision, plus the identical headered copy. The four carts with a
+ROM, this revision, plus the identical headered copy. The four ROMs with a
 rebuilt overworld fail closed before any of this runs and are not oracles for
 it; their swap tables were read anyway and all four still pair `$5A -> $5F`.
 
@@ -181,12 +181,12 @@ All 27 warp entries account for exactly:
 So the source table covers 7 of 7, not 6 of 7, and the destination table is
 the weaker oracle: `OWPU_ABXY` never consults it.
 
-What the cart does not settle: whether every one of those events is actually
+What the ROM does not settle: whether every one of those events is actually
 triggered in normal play. Event activation lives in save state, not in ROM, so
 a static read cannot prove a `$5A` is always swapped before a player reaches
 it. The answer does not depend on that, because 5 of the 7 slots a `$5A` tile
-would name hold this cart's filler L1 pointer, against 2 of the 79 tiles that
-do start a map. A cart does not put 5 of 7 level entrances on empty slots.
+would name hold this ROM's filler L1 pointer, against 2 of the 79 tiles that
+do start a map. A ROM does not put 5 of 7 level entrances on empty slots.
 
 The two slots that would flip the count if the rule were wrong:
 
