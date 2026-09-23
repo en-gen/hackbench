@@ -9,7 +9,7 @@
  *     `SmwMap.renderSpriteOverlays`'s `getL1` closure. The sprite overlays
  *     that used to be the visible consumer (KoopaWalk patrol, HopFlame
  *     bounce, CheepCheep arc) were removed; see
- *     `docs/sprite-overlay-removal.md`.
+ *     `docs/sprites/sprite-overlay-removal.md`.
  *   - Editor overlays ("Show surfaces", "Show walls") read the Mario
  *     fields - the designer wants to see what the player experiences.
  *

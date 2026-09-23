@@ -83,7 +83,7 @@ A case that is absent is not a case that is skipped. Measured on the suite
 at 830be6f by running it twice, once with `test/roms/` attached and once
 without, and diffing the TEST COUNTS rather than the skip counts: 154 cases
 existed with the corpus and did not exist without it. None was reported as
-skipped, because none was ever registered. CI has no cartridge, so that was
+skipped, because none was ever registered. CI has no ROM, so that was
 CI's permanent state.
 
 Four spellings produced it, all of them now banned by
@@ -92,7 +92,7 @@ Four spellings produced it, all of them now banned by
 - `readdirSync(ROM_DIR)` at module scope, then `for (const f of romFiles)`
   around the cases. An empty listing registers nothing.
 - A declared corpus `.filter(existsSync)` before the loop, which drops the
-  absent carts out of the list instead of skipping them.
+  absent ROMs out of the list instead of skipping them.
 - `cond ? describe : describe.skip`, and bare `.skip` / `.todo`.
 - `if (romPresent) { it(...) }`, which leaves no trace in any count at all.
 
@@ -284,4 +284,4 @@ npx vitest run test/suite/unit/LcLz2.synthetic.test.ts   # one file
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) - general dev setup and PR flow
 - [Testing milestone](https://github.com/en-gen/hackbench/milestone/12) -
   tracks critical-path test priorities
-- [`docs/smw-rom-format.md`](./smw-rom-format.md) - ROM layout reference
+- [`docs/rom/smw-rom-format.md`](./rom/smw-rom-format.md) - ROM layout reference

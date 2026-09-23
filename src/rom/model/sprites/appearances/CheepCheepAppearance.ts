@@ -9,7 +9,7 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  * since the sprite ID in the descriptor drives class selection on rehydration.
  *
  * The swim-corridor annotation that used to live here was removed; see
- * docs/sprite-overlay-removal.md.
+ * docs/sprites/sprite-overlay-removal.md.
  */
 export class CheepCheepAppearance extends StaticSpriteAppearance {
   constructor(

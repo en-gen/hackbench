@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Thanks for the suggestion! Check the
-        [roadmap](../../docs/roadmap.md) and open issues first — your
+        [roadmap](https://github.com/en-gen/hackbench/milestones) and open issues first. Your
         idea may already be tracked.
 
   - type: textarea

@@ -1,10 +1,10 @@
 # Palette animation detection
 
 How `src/rom/PaletteAnimationDetect.ts` decides which CGRAM indices a
-cartridge cycles, where their frame tables are, and how many phases each has.
+ROM cycles, where their frame tables are, and how many phases each has.
 
 All three answers are operands inside SMW's NMI handler, not entries in a
-data table, so they are read out of the cart rather than named as constants.
+data table, so they are read out of the ROM rather than named as constants.
 `PaletteAnimationLoader.ts` turns the result into the per-frame patches the
 palette views replay. A context whose bytes do not decode reports itself
 unavailable and emits nothing; callers read that as "unknown", never as
@@ -13,9 +13,9 @@ unavailable and emits nothing; callers read that as "unknown", never as
 Reading the operands rather than naming them means the frame table's address
 is not a regional constant: `FlashingColors` sits at `$00B60C` in U,
 `$00B61F` in E0 and E1, `$00B5AC` in J and `$00B61C` in SS, and the operand
-gives whichever one this cart holds. The module is NOT region-portable as a
+gives whichever one this ROM holds. The module is NOT region-portable as a
 whole, because the probe addresses themselves are U: in J the kernel is at
-`$00A3BA`, so a J cart reports unavailable rather than wrong.
+`$00A3BA`, so a J ROM reports unavailable rather than wrong.
 
 ## The shared CGRAM flash kernel
 
@@ -46,7 +46,7 @@ The frame table operand is 16-bit, so it needs a bank. The NMI prologue's
 bank, and a `JSL` into another bank does not change it, so the operand
 resolves against the bank the NMI entry itself lives in. Those two bytes are
 checked as part of `NMI_PROLOGUE` rather than merely cited: the bank claim
-rests on them, and a cart that had dropped them would otherwise get a
+rests on them, and a ROM that had dropped them would otherwise get a
 confidently wrong table address.
 
 ## The three callers
@@ -68,7 +68,7 @@ checked, not assumed.
 
 ### Relocated routines
 
-A cart may move the whole overworld upload out of bank $00 and replace
+A ROM may move the whole overworld upload out of bank $00 and replace
 `$00A4E3` with the long call that reaches it. Grand Poo World 2 does exactly
 this: `$00A4E3` holds `JSL $1BBE20 / RTS`, and everything after it, including
 the stock callers at `$00A513` and `$00A518`, is dead.
@@ -84,7 +84,7 @@ that jumps to a shared kernel, and writes successive targets byte-adjacent:
 
 So the detector follows the `JSL` and then WALKS the routine's instructions
 from the landing address to the first CGRAM write its own control flow
-reaches. A byte scan is not enough and was actively wrong: every edited cart
+reaches. A byte scan is not enough and was actively wrong: every edited ROM
 in the corpus carries a spare decodable kernel in a high bank, so a scan
 finds one whether or not any path reaches it, and a hack that removes the
 overworld flash by pointing `$00A4E3` at an `RTL` gets reported as animating
@@ -151,7 +151,7 @@ commonest patch shape there is. So each context checks its approaches first:
 | `$00A4E3` | `REP #$10` opening that routine | `bank_00.asm:4760-4761` |
 
 "Arriving at" rather than "pointing at" because hooking the vector with a
-trampoline is ordinary. Three of this repo's six carts point `$00FFEA` at a
+trampoline is ordinary. Three of this repo's six ROMs point `$00FFEA` at a
 stub holding a single `JML $80816A` straight back to the stock handler, and
 they do run it; refusing them would be a false negative, which for a palette
 view is as wrong as the false positive. Only a leading unconditional jump is
@@ -172,10 +172,10 @@ still be reported.
 
 ## What the corpus shows
 
-Measured on this repo's six carts. Addresses only; frame colors are the
-cart's bytes and stay out of the repo.
+Measured on this repo's six ROMs. Addresses only; frame colors are the
+ROM's bytes and stay out of the repo.
 
-| cart | level | overworld | approach |
+| ROM | level | overworld | approach |
 |---|---|---|---|
 | Super Mario World (USA).vanilla.sfc | `$64` from `$00B60C` | `$6D` from `$00B60C`, `$7D` from `$00B61C` | stock |
 | Super Mario World (USA).magic.sfc | same | same | stock, copier header |
@@ -195,9 +195,9 @@ decoder accepts all of them. Its kernels sit at `$1BC0FC` and `$1BC113`.
 
 ## Tests
 
-`test/suite/unit/PaletteAnimationDetect.synthetic.test.ts` builds carts that
+`test/suite/unit/PaletteAnimationDetect.synthetic.test.ts` builds ROMs that
 break one rule each and runs in CI with no ROM file.
 `PaletteAnimationDetect.rom.test.ts` sweeps the corpus, records the observed
-slots per cart by name, and patches each real cart in memory to exercise
+slots per ROM by name, and patches each real ROM in memory to exercise
 every refusal shape. It is skipped, not silently green, when `test/roms/` is
 absent.

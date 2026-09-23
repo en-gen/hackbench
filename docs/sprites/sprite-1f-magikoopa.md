@@ -5,7 +5,7 @@ carry a one-line citation pointing here instead of an inline narration block.
 
 Every line number below was read out of `C:\Projects\SMWDisX` on 2026-09-18 and
 re-checked instruction by instruction, not copied from an earlier summary. ROM
-addresses were confirmed against the six carts in `test/roms/` (vanilla, the
+addresses were confirmed against the six ROMs in `test/roms/` (vanilla, the
 Lunar-Magic-headered copy, and four hacks); all six agree byte for byte at every
 address named here.
 
@@ -111,7 +111,7 @@ array order must emit the wand first.
 `& $0F` gives `$0F`, so every `$1F` tile is on OBJ palette 7 = CGRAM row 15.
 
 The level's static row 15 is not what the hardware shows. The teleport fade
-leaves a runtime-uploaded palette in CGRAM colours `$F0..$F7` and state 2 never
+leaves a runtime-uploaded palette in CGRAM colors `$F0..$F7` and state 2 never
 overwrites it.
 
 ### Transport
@@ -120,24 +120,24 @@ overwrites it.
 with a 2-byte header: byte 0 = number of bytes to upload, byte 1 = CGRAM **word**
 address. `CODE_00A488` (`bank_00.asm:4714`) writes that second byte straight to
 `HW_CGADD` (`$2121`) at `bank_00.asm:4735` and DMAs the body to `$2122`, so the
-address is a colour index, not a byte address. A byte count below `$20` therefore
-rewrites only PART of a 16-colour CGRAM row.
+address is a color index, not a byte address. A byte count below `$20` therefore
+rewrites only PART of a 16-color CGRAM row.
 
 ### The upload
 
 `CODE_01C028` (`bank_01.asm:8733`) indexes `MagiKoopaPals` with
 `(SpriteMisc1570 - 1) << 4` (`DEC A` plus four `ASL`, `bank_01.asm:8734-8740`) and
-copies `$10` bytes, so an entry is 16 bytes = 8 BGR555 colours. It writes the
-header `$10 / $F0` (`bank_01.asm:8752-8755`): 8 colours at CGRAM index `$F0` =
+copies `$10` bytes, so an entry is 16 bytes = 8 BGR555 colors. It writes the
+header `$10 / $F0` (`bank_01.asm:8752-8755`): 8 colors at CGRAM index `$F0` =
 row 15, columns 0-7. Columns 8-15 of row 15 are never touched, so a consumer must
 composite rather than replace.
 
-### Which values are read from the cart, and which are not
+### Which values are read from the ROM, and which are not
 
-Only the colour bytes themselves are read from the cart at runtime. `addr`,
+Only the color bytes themselves are read from the ROM at runtime. `addr`,
 `colorsPerEntry`, `entryCount` and `cgramStart` are hardcoded literals in
 `DynSpritePalette.ts`, each derived once from the instructions below and
-re-checked by `DynSpritePalette.test.ts` against the cart:
+re-checked by `DynSpritePalette.test.ts` against the ROM:
 
 | Field | Derived from | ROM address |
 |---|---|---|
@@ -146,7 +146,7 @@ re-checked by `DynSpritePalette.test.ts` against the cart:
 | `entryCount` = 8 | gap to the next label `BooBossPals` (`bank_03.asm:7321`, `$03:B982`), read as the operand of `LDA.L BooBossPals,X` (`bank_03.asm:327`) | `$03:8254` |
 | `cgramStart` = `$F0` | header immediate `LDA #$F0` (`bank_01.asm:8754`) | `$01:C04F` |
 
-`restingEntry` is the exception: it is resolved from the cart at load time. See
+`restingEntry` is the exception: it is resolved from the ROM at load time. See
 below.
 
 ### restingEntry
@@ -171,7 +171,7 @@ right number for the wrong reason.
 
 `resolveRestingEntry` reads the immediate at `$01:C01C` and returns `imm - 2`.
 A hack that shortens the fade (say `CMP #$05`) makes hardware rest on rung 3, and
-the editor now follows. Evidence scope: all six carts in `test/roms/` hold
+the editor now follows. Evidence scope: all six ROMs in `test/roms/` hold
 `C9 09` at `$01:C01C`, so this changes nothing observable on any ROM currently
 tested; it removes a divergence that would otherwise be silent.
 
@@ -179,7 +179,7 @@ tested; it removes a divergence that would otherwise be silent.
 
 `BooBossPals` is uploaded by the Big Boo boss handler with the SAME header,
 `$10 / $F0` (`bank_03.asm:336-339`). Sprite `$1F` and sprites `$C5` / `$C6`
-therefore contend for CGRAM colours `$F0..$F7` and cannot both show their runtime
+therefore contend for CGRAM colors `$F0..$F7` and cannot both show their runtime
 palette at the same time on hardware. The `DynSpritePalette` interface has no
 field expressing that; a consumer that renders both would need one.
 
@@ -199,4 +199,4 @@ themselves. It is still a divergence from the post-fade hardware state.
 That list of nine is not folklore: it is every sprite ID other than `$1F` whose
 `Sprite166EVals` entry (`bank_07.asm:792`, read at `bank_07.asm:977`, ROM
 `$07:F3FE`) selects OBJ palette 7, i.e. `(val & $0F) >> 1 == 7`. Enumerated over
-all 256 IDs on the vanilla cart.
+all 256 IDs on the vanilla ROM.

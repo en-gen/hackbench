@@ -123,7 +123,7 @@ export class SmwMap {
     // `ppuDrawOrder`. It belongs directly above the Layer 1 priority tiles
     // and deliberately BELOW any Layer 3 priority pass: an annotation goes
     // over layer 1 only, it is not promoted over the foreground BG. See
-    // SpriteAppearance.renderAboveL1 and docs/sprite-4d-monty-mole.md.
+    // SpriteAppearance.renderAboveL1 and docs/sprites/sprite-4d-monty-mole.md.
     //
     // Anchored to L1.1's slot in the FULL mode-1 order, not to the live
     // pass list, because 75 percent of levels have no L1 priority content

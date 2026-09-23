@@ -30,7 +30,7 @@ export class Sprite {
    * attached by `attachEngineAppearances` only for sprites with a traced
    * descriptor. Selected by the `spriteEngine` toolbar toggle, which is a
    * temporary comparison control; this field deletes with it. See
-   * `docs/sprite-engine-wiring.md`.
+   * `docs/sprites/sprite-engine-wiring.md`.
    */
   engineAppearance?: SpriteAppearance
 

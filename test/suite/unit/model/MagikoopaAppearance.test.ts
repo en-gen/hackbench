@@ -12,7 +12,7 @@
  *   round-trip            serialize -> rehydrate keeps the runtime palette
  *   ROM                   the literal expectations above still match the cart
  *
- * Derivation lives in docs/sprite-1f-magikoopa.md. The short version: idx =
+ * Derivation lives in docs/sprites/sprite-1f-magikoopa.md. The short version: idx =
  * SprTilemapOffset[$1F] + SpriteMisc1602 * 2, top at (_0, _1) and bottom at
  * (_0, _1 + $10) (SubSprGfx1, bank_01.asm:3920); Magikoopa does NOT pre-shift
  * SpriteYPos, so dy is 0 / +16, not -16 / 0.

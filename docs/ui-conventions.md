@@ -136,7 +136,7 @@ border box and take no layout space.
 - Overlays (grid lines, selection outlines, hover dimming) are drawn on
   top at paint time and never baked into the decoded pixels. Toggling one
   is a repaint, not a reload, and the bytes an export would use stay
-  exactly what the cartridge says.
+  exactly what the ROM says.
 
 ## Hover
 
@@ -164,8 +164,8 @@ and the control looks unstyled.
 
 - US spelling. **color**, never "colour".
 - No em-dashes. A pre-commit hook blocks them in added lines.
-- Say what the app actually does. "Save" is correct; "Save to cartridge"
-  is not, because saving appends an op layer and the base cartridge is
+- Say what the app actually does. "Save" is correct; "Save to ROM"
+  is not, because saving appends an op layer and the base ROM is
   never written. A wrong verb here is an architecture error before it is
   a copy error.
 - State a limit rather than hiding it. When a view cannot show something,

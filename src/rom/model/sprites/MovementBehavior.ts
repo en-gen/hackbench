@@ -14,7 +14,7 @@ export type SolidV = (col: number, row: number) => boolean
  * `SmwMap.renderSpriteOverlays` builds the `getL1` closure these callbacks
  * come from, and an Appearance used to forward it into the behavior. No
  * Appearance does today: every sprite overlay was removed
- * (`docs/sprite-overlay-removal.md`), so the solidity-taking methods are
+ * (`docs/sprites/sprite-overlay-removal.md`), so the solidity-taking methods are
  * reached only from their tests. They are kept for issue #321.
  */
 export interface BehaviorSimContext {

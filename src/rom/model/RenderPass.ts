@@ -6,7 +6,7 @@
  * belongs under every BG1 and BG2 tile, OBJ.3 over all of them, and BG3's
  * priority-1 position moves with the header bit. Evidence, and the one link
  * in the chain that is hardware documentation rather than `SMWDisX`:
- * `docs/obj-priority.md` section 1.
+ * `docs/rom/obj-priority.md` section 1.
  */
 
 export type PassLayer = 'l1' | 'l2' | 'l3' | 'sprites'

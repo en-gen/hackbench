@@ -5,8 +5,8 @@ rendering across `SpriteMetadata.ts` and `SpriteTileLoader.ts`. Each batch
 covers 5 sprite IDs so multiple agent sessions can work in parallel.
 
 Legend:
-- `~~$XX~~` — already handled (custom appearance or composite); skip.
-- `⚠$XX` — batch-2-researched but code change not yet applied; needs edit.
+- `~~$XX~~` - already handled (custom appearance or composite); skip.
+- `⚠$XX` - batch-2-researched but code change not yet applied; needs edit.
 
 ## Per-agent prompt template
 
@@ -27,7 +27,7 @@ For each sprite ID in your batch:
    the sprite (use snes-to-offset conversion + parse sprite stream at
    $05EC00 + levelId*2).
 5. Report: sprite ID, displayName, layout type, correct BASE_TILE/WIDE/TALL
-   entry, needed code changes, test level ID. No code changes yet — batch
+   entry, needed code changes, test level ID. No code changes yet - batch
    the findings for review.
 ```
 
@@ -40,7 +40,7 @@ For each sprite ID in your batch:
 | 3 | `$0A $0B $0C $0D $0E` | Red/Red Para-Koopa, Yellow Para-Koopa, Bob-omb, Keyhole |
 | 4 | `$0F $10 $11 $12 $13` | Goomba, Para-Goomba, Buzzy Beetle, Unused, Spiny |
 | 5 | `$14 $15 $16 $17 $18` | Spiny Egg, Cheep-Cheeps (3 variants), Jumping Cheep |
-| 6 | `$19 $1A $1B $1C $1D` | Message Box, Piranha Plant, Football, Bullet Bill, Hopping Flame | ✅ analysed — see notes below |
+| 6 | `$19 $1A $1B $1C $1D` | Message Box, Piranha Plant, Football, Bullet Bill, Hopping Flame | ✅ analysed - see notes below |
 | 7 | `$1E $1F $20 $21 $22` | Lakitu, Magikoopa, Magic, Moving Coin, Green Net Koopa |
 | 8 | `$23 $24 $25 ~~$26~~ $27` | Net Koopas, ~~Thwomp~~, Thwimp |
 | 9 | `$28 $29 $2A $2B $2C` | Blue Shell, Spike Top, Piranha (upside-down), Lightning, Yoshi Egg |
@@ -77,13 +77,13 @@ For each sprite ID in your batch:
 | 40 | `$C3 $C4 ~~$C5~~ $C6 $C7` | Porcu-Puffer, Grey Falling, ~~Big Boo~~, Spotlight, Invisible Mushroom |
 | 41 | `$C8` | Light Switch Block (tail of list) |
 
-Generators (`$C9`–`$D9`) and scroll controllers (`$DE`–`$E7`) are skipped — no visuals. Shell aliases (`$DA`–`$DD`) are handled via `resolveShellAlias` in `SpriteTileLoader`.
+Generators (`$C9`–`$D9`) and scroll controllers (`$DE`–`$E7`) are skipped - no visuals. Shell aliases (`$DA`–`$DD`) are handled via `resolveShellAlias` in `SpriteTileLoader`.
 
 ---
 
 ## Batch analysis notes
 
-### Batch 6 — `$19 $1A $1B $1C $1D`
+### Batch 6 - `$19 $1A $1B $1C $1D`
 
 Sources: `bank_01.asm` PSwitch/Pirahna/FootBall/BulletBill/HopFlame handlers;
 `SprTilemapOffset` table at `$01:9C7F`; `Sprite166EVals` at `$07:F3FE`; ROM

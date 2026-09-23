@@ -7,7 +7,7 @@
  *   livePasses   : filters to occupied pairs, preserves PPU order
  *   the bug      : an OBJ.1 sprite draws UNDER a priority BG tile at the
  *                  same cell -- this is what the single-pass render got
- *                  wrong (docs/obj-priority.md)
+ *                  wrong (docs/rom/obj-priority.md)
  *   layer 2 / 3  : both phases are real passes, not two calls in a row
  */
 

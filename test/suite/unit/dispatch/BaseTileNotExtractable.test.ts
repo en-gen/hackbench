@@ -10,7 +10,7 @@
  *
  * It is a characterisation test. It is expected to change if the walk
  * changes, and a change here is a prompt to re-read
- * `docs/sprite-gfx-routine-reading.md` section 6, not automatically a bug.
+ * `docs/sprites/sprite-gfx-routine-reading.md` section 6, not automatically a bug.
  *
  * Evidence scope: all six cart files in `test/roms/`. Static reads only; no
  * emulator was run.

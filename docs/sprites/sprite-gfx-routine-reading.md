@@ -1,25 +1,25 @@
-# Reading a sprite's draw routine off the cart
+# Reading a sprite's draw routine off the ROM
 
 Evidence scope for everything below: static reads against `C:\Projects\SMWDisX`
 with every cited line number checked by opening the file at it, plus the raw
-bytes of the six cart files in `test/roms/` (vanilla, magic, Grand Poo World 2
+bytes of the six ROM files in `test/roms/` (vanilla, magic, Grand Poo World 2
 1.1, GrandPooWorld V1.2, Invictus 1.0, Seven Vanilla Levels; six files, five
-carts, because magic is vanilla plus a copier header). No emulator was run.
+ROMs, because magic is vanilla plus a copier header). No emulator was run.
 Nothing here is dynamically confirmed.
 
 Implementation: `src/rom/dispatch/HandlerWalk.ts` and
 `src/rom/dispatch/GfxRoutineReader.ts`.
 Tests: `test/suite/unit/dispatch/HandlerWalk.test.ts` and
 `test/suite/unit/dispatch/GfxRoutineReader.test.ts`.
-The dispatch chain this builds on: `docs/sprite-dispatch-chains.md`.
+The dispatch chain this builds on: `docs/sprites/sprite-dispatch-chains.md`.
 
 ## 1 What was frozen, and why that is a defect
 
 `SpriteTileLoader.ts` carried four hand-extracted tables. A frozen derivation
 is not the same thing as a constant: it is an answer that WAS true of one
-cart's code, presented as though it were a property of the format. Open a
+ROM's code, presented as though it were a property of the format. Open a
 romhack and it renders the vanilla answer, confidently, with nothing on
-screen to say the cart disagrees.
+screen to say the ROM disagrees.
 
 `SPRITE_GFX_OVERRIDES` was the worst of the four because the thing it encodes
 is a single `JSR` operand in the sprite's own handler, which is about as
@@ -93,7 +93,7 @@ properties of it are worth stating because none is obvious:
 ### Bounds
 
 Both of the probe's ceilings refuse when they are hit, which degrades to the
-frozen floor in `SPRITE_GFX_OVERRIDES`. Neither is reached on the six carts,
+frozen floor in `SPRITE_GFX_OVERRIDES`. Neither is reached on the six ROMs,
 and both were measured by lowering them until a verdict on vanilla moved:
 
 | Ceiling | Value | Lowest value that still changes nothing |
@@ -105,7 +105,7 @@ The budget counts distinct `(address, M, X)` states across every branch
 side, not straight-line length, so a branchy non-returning dispatcher
 reaches it well short of 1500 real instructions. Before, exhausting it read
 as "returns", and the walk then decoded whatever followed the call as code:
-measured on a synthetic cart, 1499 NOPs in front of a dead end gave "does
+measured on a synthetic ROM, 1499 NOPs in front of a dead end gave "does
 not return" and 1500 gave "returns".
 
 The depth bound exists because the probe was the only unbounded recursion
@@ -132,7 +132,7 @@ allocation in `decode` and none of it is the probe. Whether that is worth
 buying back with a fill-a-caller's-buffer read is an open question, not a
 decision made here.
 
-`readGfxRoutines` caches per cart, invalidated by a counter that
+`readGfxRoutines` caches per ROM, invalidated by a counter that
 `RomFile.writeAt` bumps, because a map build reruns on every toolbar change
 and this was otherwise the largest single term in it. That invalidation
 rests on `writeAt` being the only way the bytes change, which was not true
@@ -172,10 +172,10 @@ reader looks for a branch whose accumulator came from
 `LDY SpriteNumber,X : LDA table,Y : AND #mask`, walks each side with the
 other side's entry blocked, and takes the split only when each side reaches
 exactly one routine and the two differ. Then it reads `table + spriteId` from
-the cart, applies `mask`, and resolves by the branch's own opcode: `BNE`
+the ROM, applies `mask`, and resolves by the branch's own opcode: `BNE`
 means the set case takes the branch, `BEQ` means it does not.
 
-On all six carts this finds exactly one selector, `Spr0to13Gfx`
+On all six ROMs this finds exactly one selector, `Spr0to13Gfx`
 bank_01.asm:1762-1765:
 
 ```
@@ -190,7 +190,7 @@ those facts are read, not remembered, and each has a planted-byte test.
 
 It covers 17 ids: $00-$0D, $0F, $11, $13. The frozen list it replaces named
 12 of them, leaving out $00-$03 and $0D. The omission never showed, because
-`Spr0to13Prop` has bit 6 clear for all five on every cart measured; only
+`Spr0to13Prop` has bit 6 clear for all five on every ROM measured; only
 $04-$0C have it set. The reader covers them because the code path does.
 
 ## 5 What resolves, measured
@@ -247,7 +247,7 @@ and capturing the first `LDA ... STA OAMTileNo` pair, an immediate's operand
 or an indexed load's first table byte.
 
 That rule was reimplemented on top of `HandlerWalk` and run against the
-table. On every one of the six carts:
+table. On every one of the six ROMs:
 
 | | count |
 |---|---|
@@ -266,7 +266,7 @@ Three reasons the disagreements are not bugs in the reimplementation:
    World 2 1.1, from a shared OAM preamble that runs before the
    handler writes its own tile. "First" in reachability order is not "first"
    in the sense a human reading the routine means.
-2. **Table-sourced tiles need an index the cart does not hold statically.**
+2. **Table-sourced tiles need an index the ROM does not hold statically.**
    `PowerUpTiles` serves $74-$78 at indices 0 through 4; the index is an
    animation or state byte in RAM. Taking element 0 is right once in five.
    The frozen table has all five correct, which is itself proof it was
@@ -282,7 +282,7 @@ A weaker check was measured and also rejected: collect every value the
 handler can store to `OAMTileNo` (immediates, plus the first 16 bytes of any
 table it indexes) and warn when the frozen value is not among them. On
 vanilla that warns on 8 of the 98 correct entries, and on the other five
-carts it produces the identical 8, so it never fires on a real difference in
+ROMs it produces the identical 8, so it never fires on a real difference in
 this corpus. An 8 percent false-alarm rate with no demonstrated true
 positive is not worth the code.
 
@@ -290,7 +290,7 @@ positive is not worth the code.
 
 1. **Every value in `SPRITE_BASE_TILE_OVERRIDES`, `SPRITE_TALL_OVERRIDES`,
    `SPRITE_WIDE_OVERRIDES` and `SPRITE_LOW_RANGE_OVERRIDES`.** Nothing reads
-   these off the cart.
+   these off the ROM.
 2. **The `sub2` default** that an id with no reading and no floor entry
    falls back to, and the 17 floor values themselves wherever the walk does
    not resolve. `SUB0_GFX_PROP_GROUP` is the same: read live for the three
@@ -307,7 +307,7 @@ positive is not worth the code.
 6. **The layout semantics themselves.** `buildSpriteLayout` implements
    `SubSprGfx2Entry1`'s large-OBJ corner expansion as TypeScript. A hack that
    patches `SubSprGfx2Entry1` is not followed at all; only the choice of
-   WHICH routine is read from the cart, not what the routine does.
+   WHICH routine is read from the ROM, not what the routine does.
 
 ## 8 Testing the decoder, and what a mutation sweep found
 
@@ -425,14 +425,14 @@ is the safe direction" is true of the cases measured, not of the mechanism.
    `addr & $7FFFFF`, which correctly makes $83:A118 and $03:A118 one
    address, and also merges $7E/$7F with $FE/$FF, which are not a pair:
    `loromToOffset` rejects the first as WRAM and maps the second as real
-   ROM. Nothing in SMW or in the six carts executes from $FE/$FF, so this
+   ROM. Nothing in SMW or in the six ROMs executes from $FE/$FF, so this
    is theoretical, but it is a collision and not a mirror.
 
 A sixth, the one where the probe can be satisfied by a callee that reaches
 a return without resuming at the call site, is in section 2 with the rest of
 the probe.
 
-None of this changes a current answer. All six carts were re-run under three
+None of this changes a current answer. All six ROMs were re-run under three
 alternative treatments of the flag state and the tallies were identical, so
 no measurement in this document depends on which treatment is chosen. It is
 a mechanism hole, recorded so that the next person extending the walk knows

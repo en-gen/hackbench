@@ -20,7 +20,7 @@
  * carts in `test/roms/` and 56 on Grand Poo World 2 1.1; every resolution
  * agrees with the frozen table it replaces, on all six. Static reads only;
  * no emulator was run. Measurements and method in
- * `docs/sprite-gfx-routine-reading.md`.
+ * `docs/sprites/sprite-gfx-routine-reading.md`.
  */
 
 import type { RomFile } from '../RomFile'

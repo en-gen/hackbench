@@ -52,7 +52,7 @@ bug.
 **Never written (62 indices).** No level-load path writes them. Agreement
 here is close to worthless -- both sides are zero on every level measured --
 and it is reported separately for that reason. Its one job is catching
-colours we invent where the ROM writes none, which is exactly the defect it
+colors we invent where the ROM writes none, which is exactly the defect it
 found (see below).
 
 **Excluded (17 indices).**
@@ -68,7 +68,7 @@ found (see below).
 
 ## How much of the agreement is load-bearing
 
-Measured over 12 levels, frame +0, vanilla cart:
+Measured over 12 levels, frame +0, vanilla ROM:
 
 | bucket | indices | vary across the 12 levels | all-zero baseline scores | constant-table baseline scores |
 |---|---|---|---|---|
@@ -98,7 +98,7 @@ a failure on purpose: a verdict computed over zero inputs is not a pass.
 
 `test/suite/unit/CgramOracle.test.ts` plants defects in a synthetic palette
 (no ROM bytes, no captures committed) and asserts the comparison goes red:
-a wrong background-palette variant, a colour invented where the ROM writes
+a wrong background-palette variant, a color invented where the ROM writes
 none, a one-step BGR555 error, and -- because a defect planted at one
 convenient index proves nothing about the rest -- a sweep that plants one at
 every single compared index and asserts all 239 are caught. A matching sweep

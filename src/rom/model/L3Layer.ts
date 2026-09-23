@@ -163,7 +163,7 @@ export class L3TilemapLayer extends L3Layer {
    * Gameplay rows only, mirroring `render`'s row filter. The HUD rows are
    * an editor diagnostic behind `l3Hud`, and the status bar is a
    * scanline-region rule the pass model does not try to express
-   * (docs/obj-priority.md section 4); counting them would put every level
+   * (docs/rom/obj-priority.md section 4); counting them would put every level
    * in a BG3.1 pass it never draws.
    */
   phases(): Set<Phase> {

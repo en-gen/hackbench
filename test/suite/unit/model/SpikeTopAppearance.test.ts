@@ -7,7 +7,7 @@
  *
  * Direction is hardcoded to 0 (no flip, DATA_02BCC7[0]=$00); direction 4,
  * the Mario-spawns-left case, is not modelled. See
- * docs/sprite-overlay-removal.md.
+ * docs/sprites/sprite-overlay-removal.md.
  * Frame 0 uses tilemap[tilemapBase + 0]; frame 1 uses tilemap[tilemapBase + 1].
  * The tick counter toggles every ANIM_TICKS=8 calls to tickAnimation().
  *

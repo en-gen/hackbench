@@ -1007,7 +1007,7 @@ app.innerHTML = `
     <button id="btn-play"        class="iconBtn"    title="Play animation"><span class="codicon codicon-play"></span></button>
     <!-- Scaffolding: temporary A/B control for the table-driven sprite draw
          engine. Not a preference, not persisted, deletes with the old render
-         path. See docs/sprite-engine-wiring.md. -->
+         path. See docs/sprites/sprite-engine-wiring.md. -->
     <button id="btn-sprite-engine"      class="iconBtn" title="Sprite engine (comparison, off)"><span class="codicon codicon-beaker"></span></button>
     <button id="btn-sprite-engine-mark" class="iconBtn on" title="Mark engine-rendered sprites" style="display:none;"><span class="codicon codicon-primitive-square"></span></button>
     <button id="btn-camera"      class="iconBtn"    title="Camera viewport"><span class="codicon codicon-device-camera-video"></span></button>

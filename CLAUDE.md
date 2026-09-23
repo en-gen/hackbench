@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**HackBench** - a VS Code extension for editing Super Mario World (SNES) ROM files. Opening a ROM mounts it as a navigable virtual folder tree. Custom editors handle level, palette, and GFX tile-sheet viewing/editing. Package name `hackbench`; marketplace ID `engenb.hackbench`; command/view/viewType IDs use the `hackbench.*` namespace.
+**HackBench** - a Super Mario World (SNES) ROM editor, built as an Eclipse Theia and Electron desktop application. Command and view IDs use the `hackbench.*` namespace.
+
+It is NOT a VS Code extension. It began as one, and that code is still in the tree under `src/providers/` and `src/webview/`, but the project changed course: the extension is not a shipping target, is not published, and receives no new features. It is kept as a reference implementation for reading SMW data, and it still builds. Do not add features there.
+
+Work is non-destructive and project-based. A `.hbproj` project references a ROM by identity and never copies it; every edit is an ordered patch layer under `ops/`; `Export Patch` diffs the working copy into a real `.ips`. See [docs/architecture/project-format.md](docs/architecture/project-format.md).
 
 ## Branch strategy
 
@@ -19,37 +23,59 @@ Do not add `Co-Authored-By: Claude` lines to commits. Do not add "Generated with
 
 ## Commands
 
+From the repo root:
+
 ```bash
-npm run compile        # webpack dev build - extension + all four webview bundles
-npm run watch          # rebuild on save
-npm run package        # production build (minified, hidden source maps)
 npm run lint           # ESLint src, test, tools, theia, root config; --max-warnings 0
 npm run lint:fix       # auto-fix
 npm run format         # Prettier over JS/TS/CSS
 npm run format:check   # Prettier check mode, as CI runs it
 npm run test:unit      # Vitest unit tests (single run)
 npm run test:unit:watch
+npm run typecheck:theia
+npm run gitnexus       # refresh the index; never a bare `gitnexus analyze`
 ```
+
+The desktop app, from `theia/`. `build` and `start` target Electron, which
+is the shipping form; `build:browser` and `start:browser` are what the
+Playwright suite drives.
+
+```bash
+yarn --cwd theia install
+yarn --cwd theia build
+yarn --cwd theia start
+```
+
+The reference VS Code extension still builds with `npm run compile`
+(webpack dev build; `watch` rebuilds on save, `package` is the production
+build). **F5** in VS Code launches it in an Extension Development Host.
+Neither is how HackBench ships.
 
 To run a single test file: `npx vitest run test/suite/unit/GraphicsDecoder.test.ts`
 
-To launch the extension: **F5** in VS Code (Extension Development Host).
-
 ## Architecture
 
-### Extension host (`src/`)
+Domain terms (slot, map, level, entry map, sub area, launch tile, submap) are
+defined in [docs/glossary.md](docs/glossary.md). They are not interchangeable;
+using them loosely is how this project produced five different level counts.
+
+Three trees. Full picture in
+[docs/architecture/overview.md](docs/architecture/overview.md).
 
 ```
-extension.ts              - activate(); registers all providers and commands
-RomSession.ts             - holds the open SmwRom + URI slug for the session
-rom/                      - pure ROM parsing, zero VS Code dependency
-providers/                - VS Code integration layer (FileSystem, TreeView, editors)
-webview/                  - sandboxed browser bundles, one subfolder per editor
+src/rom/        the core: ROM parsing, decoding, decompression
+src/project/    the core: projects, patch layers, working copy, export
+theia/          the application: widgets, commands, RPC servers
+src/providers/  the original VS Code extension, REFERENCE ONLY
+src/webview/    its webview bundles, REFERENCE ONLY
 ```
 
-### ROM parsing layer (`src/rom/`)
+### The core (`src/rom/`, `src/project/`)
 
-All modules are plain TypeScript with no VS Code imports - independently testable.
+All modules are plain TypeScript with **no shell imports**: no Theia, no VS
+Code. That is what makes them testable without starting an application, and
+it is why the Theia backend may import the core directly while its frontend
+may not import anything that touches a file.
 
 | File | Purpose |
 |------|---------|
@@ -63,34 +89,40 @@ All modules are plain TypeScript with no VS Code imports - independently testabl
 | `LevelParser.ts` | Layer-1 object + sprite stream parser; level header |
 | `ObjectExpander.ts` | Level object → 2D Map16 tile grid |
 
-### Virtual filesystem
+| File (`src/project/`) | Purpose |
+|------|---------|
+| `Project.ts` | `.hbproj` manifest, ROM identity, directory layout |
+| `WorkingRom.ts` | the store: base bytes with every layer applied, in order |
+| `OpsStore.ts` | persists layers under `ops/`, undone ones under `ops/redo/` |
+| `ExportPatch.ts` | diffs the working copy into a real `.ips` |
+| `RomRegistry.ts`, `CoreRegistry.ts` | per-machine paths to the ROM and the libretro core |
 
-Opening a ROM mounts `smwrom://<slug>/`. Each virtual file is a small JSON descriptor; the editor provider reads it and fetches actual ROM data on demand.
+A view that shows ROM content must read the WORKING COPY, never the base
+bytes, or an edit in one view is invisible in another. Palette, GFX and
+Map16 comply; the Maps view does not yet, and
+`test/suite/gates/workingCopyGate.test.ts` exempts `project-server.ts` by
+name. It is a rule with one known exception, not a description.
 
-```
-smwrom://<slug>/
-  maps/000.smwmap         ← { romPath, levelIndex }
-  palettes/global.smwpalette
-  gfx/GFX00.smwgfx        ← { romPath, gfxIndex }
-```
+### The Theia shell (`theia/`)
 
-Domain terms (slot, map, level, entry map, sub area, launch tile, submap) are
-defined in [docs/glossary.md](docs/glossary.md). They are not interchangeable;
-using them loosely is how this project produced five different level counts.
+`extension/package.json` declares six frontend and backend pairs: hackbench
+(shell, projects), palette, music (audio: BGM and SFX), gfx, map16,
+emulator. `common/` holds the service
+interface and `SERVICE_PATH` for each, so a protocol change breaks the compile
+rather than the runtime. `node/` is the only side allowed to touch the ROM.
+`browser/` never reads a file; it asks over JSON-RPC.
 
-### Providers (`src/providers/`)
+Details, including the two distinct change-notification paths, in
+[docs/architecture/theia-shell.md](docs/architecture/theia-shell.md).
 
-| Provider | Virtual file | Editor |
-|----------|-------------|--------|
-| `SmwFileSystemProvider` | - | Implements `vscode.FileSystemProvider` for `smwrom://` |
-| `RomExplorerProvider` | - | TreeDataProvider sidebar |
-| `MapEditorProvider` | `.smwmap` | Map tile grid + object/sprite overlay |
-| `PaletteEditorProvider` | `.smwpalette` | Palette group browser |
-| `GfxViewerProvider` | `.smwgfx` | Tile sheet viewer |
+### Reference only: the VS Code extension
 
-### Webview layer (`src/webview/`)
-
-Webpack bundles each editor's `main.ts` into `dist/webview/<name>.js`. Communication is via `postMessage`: webview sends `{ type: 'ready' }`, extension replies `{ type: 'load', ...payload }` or `{ type: 'error', message }`. GFX viewer payload includes `rawBytes` + `defaultBpp` for client-side re-decode.
+`src/providers/`, `src/webview/`, `src/extension.ts` and its `src/`-root
+helpers are the original VS Code extension, kept for the ROM interpretation
+they hold. Not a shipping target; no new features. Its virtual filesystem,
+providers and webview protocol are documented in
+[src/providers/CLAUDE.md](src/providers/CLAUDE.md), loaded only when you
+work in that tree.
 
 ## The ROM is a collection of lookup tables
 
@@ -102,7 +134,7 @@ question this project asks ("which levels exist", "what does this exit lead
 to", "what is this level called") is answered by finding the right table and
 the right index into it. We are not building an emulator. Where a table is
 enough, reading the table IS the answer; reach for code only when the table
-alone cannot tell you whether it is still the one the cart uses.
+alone cannot tell you whether it is still the one the ROM uses.
 
 **The table is never the hard part. The index is.** Reading 512 three-byte
 entries is trivial. The work is knowing what indexes them. The exit-graph bug
@@ -135,13 +167,13 @@ the tier is unavailable. Emitting vanilla-shaped output for a patched ROM is
 the worst outcome available, because it is confidently wrong and looks right.
 
 **Relocation is rarer than override. Measure before assuming either.** Palettes
-were measured across the 6-cart corpus: all eight stock tables sit at their
+were measured across the 6-ROM corpus: all eight stock tables sit at their
 vanilla addresses on 6 of 6, and the variant-offset table at `$00ABD3` plus the
 two `LDA #imm` sites feeding CGRAM column 1 are byte-identical on 6 of 6. The
 data does not move. What changes is the CONTENT in place - GPW2 edits 4 of the
 8 tables, Invictus 2 - and, separately, Lunar Magic writes per-level override
 blocks through `$0EF600`: 157 levels on GPW2, 161 on Invictus, 53 on GPW 1.2,
-0 on the three unedited carts. So for palettes a fixed address is safe and
+0 on the three unedited ROMs. So for palettes a fixed address is safe and
 reading the override table is mandatory, which is the opposite shape to music,
 where AddmusicK moves the data and deletes the call. Do not generalise one
 subsystem's answer to another; both cost one probe to check.
@@ -149,7 +181,7 @@ subsystem's answer to another; both cost one probe to check.
 **Existing is not the same as reached.** A patch that leaves a routine
 byte-identical and diverts control before it passes every existence check.
 Poking `$00A418` to `RTS`, or the NMI vector at `$00FFEA` to anywhere, leaves
-`$00A41A..$00A435` pristine while the cart animates nothing; a detector
+`$00A41A..$00A435` pristine while the ROM animates nothing; a detector
 anchored only on the callee reports vanilla with full confidence. Hijacking an
 entry point is the commonest patch shape there is, so verify the PATH as well
 as the destination: the vector, the branch displacement, the call site. Those
@@ -189,7 +221,7 @@ disassembly to trace which lookups happen, in what order, and how graphics are
 composed and presented. Do NOT derive logic from the ROM and then hardcode it.
 This tool targets romhacks, and the ROM's code can be manipulated in ways that
 invalidate any such derivation. A hardcoded derivation does not merely go
-stale: it renders confidently wrong on the user's own cart with every test
+stale: it renders confidently wrong on the user's own ROM with every test
 still green.
 
 In practice:
@@ -197,7 +229,7 @@ In practice:
 - Sprite identity comes from the MAP's sprite stream. Everything about that
   sprite is then looked up from ROM tables: one hardcoded address per SHARED
   table, indexed by the id. `SprTilemapOffset[id]`, `Sprite166EVals[id]`, the
-  handler pointer at `$01:85CC + id*2`. Values always read from the cart.
+  handler pointer at `$01:85CC + id*2`. Values always read from the ROM.
 - Where a value lives inside one sprite's own handler rather than a shared
   table, anchor it as an OFFSET FROM THE ROM-RESOLVED HANDLER POINTER, not as
   an absolute address, so a relocated handler still resolves.
@@ -205,7 +237,7 @@ In practice:
   animation, it MUST. It must go no further.** Opcodes are readable bytes, so
   reading them is interpretation, not assumption. Do not stop at data tables
   and hardcode the rest.
-- Worked examples, all verified readable on the vanilla cart. A shift count is
+- Worked examples, all verified readable on the vanilla ROM. A shift count is
   the number of consecutive `$4A` (`LSR A`) bytes at an address: `$01:BE96`
   reads 6 and the OR-bit slice reads 3, which a descriptor should COUNT rather
   than hardcode. A displacement can be the opcode itself: `$FE` at `$01:BEC3`
@@ -214,15 +246,15 @@ In practice:
   as -1. Comparison thresholds are plain immediates.
 - The line is at ASSUMPTION, not at opcodes. **We are not building an
   emulator, but content we load for editing must be INTERPRETED, not assumed
-  from the ROM.** Running the cart to see what happens is out of scope.
-  Reading bytes - including opcodes - to determine what the cart does with
+  from the ROM.** Running the ROM to see what happens is out of scope.
+  Reading bytes - including opcodes - to determine what the ROM does with
   the content we are about to show the user is in scope and required.
 - Static control-flow reading is on the required side of that line. Walking
   instructions from a known entry to find which write is REACHED is reading,
   because it evaluates no condition and holds no machine state; it follows
   determinate transfers and refuses everything else. The palette-animation
   detector does this to resolve a relocated routine, and it exists because
-  the byte scan it replaced reported a cart as animating a slot the hack had
+  the byte scan it replaced reported a ROM as animating a slot the hack had
   disabled. A walk that refuses conditional branches fails closed; a scan
   that takes the first plausible match fails confident.
 - A derivation that truly cannot be read must be NAMED as a hack-fragility
@@ -274,7 +306,7 @@ Any check, harness or test that reports a verdict needs a committed test proving
 
 Never accept a single-case acceptance test. A debounce tuned to level `$105` false-failed 22% of levels with a factually wrong diagnosis. Sweep the range.
 
-**CI has no cartridge, so every safeguard needs a test that runs without one.**
+**CI has no ROM, so every safeguard needs a test that runs without one.**
 `test/roms/` is gitignored and cannot be committed, so CI is permanently the
 corpus-absent case. A safeguard proven only by corpus tests is unproven where
 it actually runs. Measured on the music branch: with the corpus removed,
@@ -285,7 +317,7 @@ green. That last one is the defect the gate exists to prevent.
 Two rules follow, and the second is the subtle one:
 
 - Every gate, refusal or bounds check gets at least one SYNTHETIC fixture
-  exercising it. Build the bytes in the test; do not reach for a cart.
+  exercising it. Build the bytes in the test; do not reach for a ROM.
 - Gate with `describe.skipIf`, never by generating cases from a corpus
   listing. `for (const file of romFiles)` over an empty array registers
   nothing, so the cases do not skip, they cease to exist: the run is green,
@@ -293,7 +325,7 @@ Two rules follow, and the second is the subtle one:
   `describe.skipIf` uses already in the suite do this correctly.
 
 Report skipped counts both ways when you report a suite. A count that is
-identical with and without the corpus means either the tests need no cart, or
+identical with and without the corpus means either the tests need no ROM, or
 they are not registering at all, and those look the same from the outside.
 
 ## Every feature ships with a Playwright test
@@ -309,7 +341,7 @@ Rules:
 
 - Every feature issue states its acceptance criteria as assertions a test can
   make. "Works" is not acceptance; "clicking File > Open with no project
-  prompts to locate the cart" is.
+  prompts to locate the ROM" is.
 - Assertions check BEHAVIOUR, not presence. Two defects in the shell spike
   rendered perfectly and did nothing: a menu bar appended by node instead of
   attached ignored every click, and a logo drawn in its default black on a
@@ -348,7 +380,7 @@ Do not build scaffolding for phases that have not been approved.
 <!-- gitnexus:start -->
 # GitNexus - Code Intelligence
 
-This project is indexed by GitNexus as **hackbench** (9694 symbols, 25292 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hackbench** (10574 symbols, 27662 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root - it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

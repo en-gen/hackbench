@@ -8,8 +8,8 @@ edited: `feature/generic-sprite-renderer`, `docs/sprite-draw-path-census`,
 Evidence scope for the whole document. Every ROM claim is a static read of
 `C:\Projects\SMWDisX` with the cited line opened, or a byte count over
 `Super Mario World (USA).vanilla.sfc` (headerless, 524288 bytes). Two
-measurements ran the repo's own loaders over all 512 slots of that cart. No
-emulator was run. No hack cart was measured here; where a hack figure is
+measurements ran the repo's own loaders over all 512 slots of that ROM. No
+emulator was run. No hack ROM was measured here; where a hack figure is
 quoted it is the census's or the divergence report's, and is marked so. Each
 claim is tagged: **verified** (opened the line or ran the count),
 **inferred** (follows from verified facts), **unverified** (nobody has
@@ -26,7 +26,7 @@ rename, not a rewrite, and the rename buys nothing by itself.
 
 What the proposal gets right is the list of things that are missing, and it
 gets that list from analogy rather than from the code. Checked against the
-code and the cart, the real gaps are, in order of demonstrated cost:
+code and the ROM, the real gaps are, in order of demonstrated cost:
 
 1. A shared game-frame clock. Six independent timers ship today, with a
    refresh-rate-dependent period. **verified**, section 5.
@@ -150,7 +150,7 @@ becomes a cache keyed on a hash. Examined:
    the bank-3 dispatch grammar byte by byte (`DispatchChain.ts`). No byte
    hash exists anywhere in the repo. **verified** by grep.
 2. Pointer equality misses in-place patches. The repo's own worked case is
-   `$05D8B1`, where four hack carts hold a `JSL` opcode at an unchanged
+   `$05D8B1`, where four hack ROMs hold a `JSL` opcode at an unchanged
    address (`CLAUDE.md`, "The one case where table-reading is not enough").
    A hash over the handler's extent would catch that class. So a hash is a
    strict improvement on pointer equality **for the bytes it covers**.
@@ -201,7 +201,7 @@ not an architecture.
   routines validated row-for-row against Mesen captures, which is a
   different thing from executing unknown bytes. The population an
   interpreter would serve is the 86 BESPOKE ids plus 46 hybrids; that is
-  most of the cart, which is the argument for it and also why it would
+  most of the ROM, which is the argument for it and also why it would
   become the renderer.
 - Tier 4, human override in `<romfile>.hackbench.json`: the sidecar exists
   only on the unmerged `feature/map-alias-sidecar` branch
@@ -216,14 +216,14 @@ not an architecture.
 
 Correct, and already handled once, privately. `$1F` uploads
 `MagiKoopaPals` (`bank_03.asm:7318`, read at `bank_01.asm:8743`) to CGRAM,
-and the engine branch splices those colours over the level row for
+and the engine branch splices those colors over the level row for
 Magikoopa's own parts (`EngineSpriteAppearance.ts:185-193`). The static
 attribute path is `Sprite166EVals & $0F` into `SpriteOBJAttribute`
 (`bank_07.asm:972-980`); the init override is `YoshiPal` for `$2C`
 (`bank_01.asm:460, 471`). **verified**
 
 The nuance the proposal misses: the upload is a write to CGRAM row 15, so
-every other sprite on that map using row 15 shows Magikoopa's colours while
+every other sprite on that map using row 15 shows Magikoopa's colors while
 his handler runs, and stops when it does not. Contribution is temporal. In a
 still editor "which contributor won index N" has no answer without a chosen
 moment, so the resource record needs a policy field (resting entry of the
@@ -292,7 +292,7 @@ scanline's worth and must name which.
 ### 4.3 Layer 1 is the biggest hardcoded derivation, and it already has a gate
 
 `objectHandlers/dispatch.ts` reads the per-tileset dispatch pointer tables
-from the cart and looks each 24-bit pointer up in a TypeScript map keyed by
+from the ROM and looks each 24-bit pointer up in a TypeScript map keyed by
 address; a repointed handler falls to `TILE_UNKNOWN` (file header,
 `dispatch.ts`). Table operands are read from the handler's own `LDA.L`
 bytes (`romData.ts` header). That is pointer-equality provenance plus
@@ -373,7 +373,7 @@ The scroll playback already has a correct accumulator in game frames
 
 ### 5.3 What the clock does not cover
 
-HDMA. `CODE_00A488` (`bank_00.asm:4714`) is a per-level colour-gradient
+HDMA. `CODE_00A488` (`bank_00.asm:4714`) is a per-level color-gradient
 path and Layer 3 motion in some tilesets comes from HDMA tables rather than
 the scroll-command dispatch (`main.ts:4022-4026` comment). Neither is
 modelled anywhere in `src/rom/` (**verified** by grep: `hdma` appears only in
@@ -402,7 +402,7 @@ diffing both branches against `origin/develop`.
 | Level header, entrances, screen exits | services and facts; not rendering | **verified** (`parseLevelHeader`, `parseLevelScreenExits`, `readMarioStartPos`) |
 | Backgrounds vs foregrounds | object-stream L2 shares the L1 Map16 table and gets the tileset-3 palette OR (`L2Layer.ts`, `L2Factory.ts`) | **verified**; fits |
 | HDMA | breaks it | section 5.3 |
-| Colour math and windows | not modelled; `HW_CGADSUB` is written from `ColorSettings` (`bank_00.asm:466-467`) | **verified** the write; whether any vanilla level uses translucency is **unverified** |
+| Color math and windows | not modelled; `HW_CGADSUB` is written from `ColorSettings` (`bank_00.asm:466-467`) | **verified** the write; whether any vanilla level uses translucency is **unverified** |
 | Animated tiles | fits as VRAM contributors; exists | **verified** |
 | Mario GFX32 DMA | missing; `loadVram` says so | **verified** |
 | Third-party per-level custom palette | `loadCustomLevelPalette` exists and is used only by the GFX viewer, not the map | **verified** by grep |
@@ -413,7 +413,7 @@ diffing both branches against `origin/develop`.
 Tested arguments, then the order.
 
 **"Palette bugs dominate" is false as a frequency claim.** Fix commits
-mentioning palette, colour or CGRAM: 4 of 57; sprites: 24 of 57. Issue
+mentioning palette, color or CGRAM: 4 of 57; sprites: 24 of 57. Issue
 titles: 5 of 132 palette, 25 sprite. **measured** on `git log` and
 `gh issue list`. What is true is narrower: the three palette cases that
 shipped wrong in one night were invisible to every automated check and were
@@ -466,10 +466,10 @@ buy nothing; do them when a boundary earns a name by having a test.
 - Whether the OBJ.1 case is visible in the shipped editor on any vanilla
   map (depends on pipe tiles' priority bits at those placements).
 - Whether any vanilla map co-locates `$1F` with another row-15 sprite.
-- Whether any vanilla level uses colour math or windows.
+- Whether any vanilla level uses color math or windows.
 - The timer quantisation on real displays; it is read from the code, not
   measured.
-- Any hack-cart figure quoted from the census or the divergence report; those
+- Any hack-ROM figure quoted from the census or the divergence report; those
   documents state their own scope.
 - `PaletteLoader`'s `bank_00.asm:5595-5699` citations were not re-opened
   here; the file is trusted on its own evidence.
@@ -477,7 +477,7 @@ buy nothing; do them when a boundary earns a name by having a test.
 ## 9 Corrections to existing documents, for follow-up
 
 - `docs/ideas/sprite-properties-panel.md`: INIT table stride is 2, not 3.
-- `docs/level-rendering.md`: describes the retired atlas pipeline, a render
+- `docs/rom/level-rendering.md`: describes the retired atlas pipeline, a render
   order with no Layer 3 and no priority passes, and "sprite markers";
   stale against `src/rom/model/`.
 - `project_layer_render_order` memory note: now traced, and incomplete on

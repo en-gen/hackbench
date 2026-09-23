@@ -9,7 +9,7 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  *
  * The swim/jump path annotation that used to live here, together with the
  * frame-by-frame ASM physics simulation that fed it, was removed; see
- * docs/sprite-overlay-removal.md.
+ * docs/sprites/sprite-overlay-removal.md.
  */
 export class SwimJumpFishAppearance extends StaticSpriteAppearance {
   constructor(parts: SpritePart[]) {

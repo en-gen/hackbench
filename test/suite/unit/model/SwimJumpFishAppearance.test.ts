@@ -3,7 +3,7 @@
  *
  * The frame-by-frame FISH_PATH / FISH_BOUNDS simulation this file used to
  * exercise existed only to feed the swim/jump path annotation, and went
- * with it (see docs/sprite-overlay-removal.md). What is left is a bare
+ * with it (see docs/sprites/sprite-overlay-removal.md). What is left is a bare
  * StaticSpriteAppearance subclass, so the only behaviour worth locking is
  * that it still inherits the part-driven hit rect.
  */

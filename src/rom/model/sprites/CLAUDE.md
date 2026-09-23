@@ -23,7 +23,7 @@ A `Sprite` is `id + (x, y) + Appearance + Behavior`:
   those as "the consumer this was built for, currently absent". The
   methods and their tests are deliberately untouched - they are issue
   #321's scope, not this layer's. Inventory in
-  `docs/sprite-overlay-removal.md`.
+  `docs/sprites/sprite-overlay-removal.md`.
 
 The renderer is still dumb: `SmwMap` walks the sprite list and calls
 `sprite.render()` / `sprite.renderOverlay()`. No per-sprite-id switches
@@ -45,7 +45,7 @@ above the mound.
 It is **not** a fix for buried sprites. That was the original stated
 motivation and it is false: 176 `$4D`/`$4E` instances across four ROMs
 were checked and none is occluded by an L1 priority subtile
-(`docs/sprite-4d-monty-mole.md`). The pass earns its keep by making an
+(`docs/sprites/sprite-4d-monty-mole.md`). The pass earns its keep by making an
 annotation's legibility independent of the cell contents, not by
 rescuing anything shipped.
 
@@ -90,7 +90,7 @@ Rules:
 It has **no implementations on `develop` today**: every path, movement,
 trajectory, patrol, orbit and detection-zone annotation was removed,
 along with the shared `overlays/primitives.ts` drawing vocabulary they
-used. See `docs/sprite-overlay-removal.md` for the inventory and the
+used. See `docs/sprites/sprite-overlay-removal.md` for the inventory and the
 restore procedure.
 
 The hook is kept deliberately. It is the extension point for **identity

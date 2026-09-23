@@ -319,7 +319,7 @@ describe('every opcode is decoded at its real length', () => {
    *  2, so the table entry is never read. Measured by mutating all 256
    *  entries one at a time against the full suite: 23 survive, and those
    *  23 are exactly the entries no code path consults.
-   *  `docs/sprite-gfx-routine-reading.md` section 8 lists them. */
+   *  `docs/sprites/sprite-gfx-routine-reading.md` section 8 lists them. */
   const CONTROL = new Set([
     0x20,
     0x22, // JSR, JSL

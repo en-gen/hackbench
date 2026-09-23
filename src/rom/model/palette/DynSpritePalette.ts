@@ -6,7 +6,7 @@ import { bgr555ToRgba, type RgbaColor } from '../../GraphicsDecoder'
  * level's static palette supplies. `DynPaletteTable` (rammap.asm:1157-1164)
  * carries a CGRAM *colour index*, not a byte address (bank_00.asm:4735), and
  * an entry may cover only part of a 16-colour row, so consumers composite.
- * Derivation: docs/sprite-1f-magikoopa.md section 4.
+ * Derivation: docs/sprites/sprite-1f-magikoopa.md section 4.
  */
 export interface DynSpritePalette {
   /** SNES address of the source colour table. */
@@ -36,7 +36,7 @@ export interface DynSpritePalette {
  *
  * Only the colour bytes are read from the cart at runtime; `addr`,
  * `colorsPerEntry`, `entryCount` and `cgramStart` are hardcoded literals.
- * docs/sprite-1f-magikoopa.md section 4 has the per-field derivation table,
+ * docs/sprites/sprite-1f-magikoopa.md section 4 has the per-field derivation table,
  * why `restingEntryCmpAddr` is $01:C01C and not the identical-looking
  * `CMP #$09` at $01:C014, and the CGRAM slot this shares with `BooBossPals`.
  */
@@ -65,7 +65,7 @@ const OP_CMP_IMM = 0xc9
 /**
  * Which entry this cart's fade actually leaves in CGRAM: the terminal `CMP`
  * immediate minus 2, falling back to the descriptor's literal when the routine
- * does not have the expected shape. See docs/sprite-1f-magikoopa.md section 4.
+ * does not have the expected shape. See docs/sprites/sprite-1f-magikoopa.md section 4.
  *
  * Evidence scope: all six carts in `test/roms/` hold `C9 09` at $01:C01C, so
  * this returns 7 for every ROM tested today. It exists so a hack that shortens

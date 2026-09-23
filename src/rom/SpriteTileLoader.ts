@@ -180,7 +180,7 @@ export interface SpriteLayout {
  * six carts in `test/roms/`. The table is curated, not extracted.
  *
  * Why it cannot be read live, in one line each, with the measurements and
- * the worked examples in `docs/sprite-gfx-routine-reading.md` section 6:
+ * the worked examples in `docs/sprites/sprite-gfx-routine-reading.md` section 6:
  * the first store a handler reaches is usually a shared OAM preamble and
  * not the sprite's own; a table-sourced tile needs an animation index that
  * lives in RAM; and which of several stores is the representative pose is
@@ -197,7 +197,7 @@ export interface SpriteLayout {
  * not listed here, and 0xC9..0xE7 (generators, scroll sprites), fall
  * through to the anchor marker.
  *
- * Method and the full per-id measurement: `docs/sprite-gfx-routine-reading.md`.
+ * Method and the full per-id measurement: `docs/sprites/sprite-gfx-routine-reading.md`.
  */
 const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x54: 0x08, // Climbing net door
@@ -738,7 +738,7 @@ export const YOSHI_EGG_ID = 0x2c
 /**
  * Resting layout for the Yoshi Egg ($2C): char $00, an X-position-dependent
  * palette, and a mirrored big-tile. The generic SprTilemap path gets the last
- * two wrong. Full trace: docs/smw-sprite-2c-yoshi-egg.md
+ * two wrong. Full trace: docs/sprites/smw-sprite-2c-yoshi-egg.md
  *
  * CODE_01F78D (bank_01.asm:16057) stamps the immediate $00 over OAMTileNo
  * after SubSprGfx2Entry1 (bank_01.asm:4148) returns, so SprTilemap is dead
@@ -997,7 +997,7 @@ export function buildSpriteLayout(tables: SpriteTileTables, spriteId: number): S
     // (bank_01.asm:8529) has no such wrapper, which is why it has its own
     // appearance. The remaining sub1 IDs ($1A, $1E, $22-$25, $2A, $41-$43)
     // have not been traced to their callers and may share that 16px offset
-    // error. Tracked in docs/sprite-1f-magikoopa.md section 2.
+    // error. Tracked in docs/sprites/sprite-1f-magikoopa.md section 2.
     const topTile = tables.tilemap[tilemapBase] ?? 0
     const bottomTile = tables.tilemap[tilemapBase + 1] ?? 0
     return {
@@ -1017,7 +1017,7 @@ export function buildSpriteLayout(tables: SpriteTileTables, spriteId: number): S
     // NOT modelled here: the routine's first selector. bank_01.asm:3865-3869
     // computes `_2 = (SpriteMisc1602 << 2) + SprTilemapOffset[id]`, so each
     // animation frame owns its own 4-byte quad (walked through in
-    // docs/sprite-4d-monty-mole.md). This builder returns one
+    // docs/sprites/sprite-4d-monty-mole.md). This builder returns one
     // static layout and therefore pins SpriteMisc1602 = 0. Sprites whose
     // drawing state sets a non-zero SpriteMisc1602 ($4D ground Monty Mole)
     // or that animate across quads ($14 Spiny egg, via SetAnimationFrame)

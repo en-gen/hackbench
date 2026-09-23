@@ -7,7 +7,7 @@
  *   walker can fail    : synthetic carts where a byte search would be wrong
  *   honest degradation : synthetic SpriteBehindScene gate
  *
- * Derivation: docs/obj-priority.md.
+ * Derivation: docs/rom/obj-priority.md.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -110,7 +110,7 @@ describe('readSpriteObjPriority walker (synthetic cart)', () => {
     // LDA.W $1632,X : BEQ +2 : LDA #$10 : STA $64 : RTS
     // $1632 is zeroed at spawn (bank_07.asm:935) and only set by runtime
     // events, so a still frame has no value for it. Never reached on the
-    // vanilla cart -- see docs/obj-priority.md section 3.
+    // vanilla cart -- see docs/rom/obj-priority.md section 3.
     const rom = cartWithHandler([0xbd, 0x32, 0x16, 0xf0, 0x02, 0xa9, 0x10, 0x85, 0x64, 0x60])
     expect(readSpriteObjPriority(rom, 0x1a, 2)).toEqual({ value: 2, source: 'runtimeGated' })
   })

@@ -2,7 +2,7 @@
  * Direct oracle for the sprite-annotation extension point.
  *
  * `SpriteAppearance.renderOverlay` has no implementations today (see
- * docs/sprite-overlay-removal.md). Until they were removed, 19 of them
+ * docs/sprites/sprite-overlay-removal.md). Until they were removed, 19 of them
  * plus AppearanceGuards.test.ts exercised the pre-pass incidentally;
  * afterwards nothing did, so `SmwMap.renderSpriteOverlays` could have been
  * gutted or deleted without a single test going red. Preserving that

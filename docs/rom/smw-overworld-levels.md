@@ -281,7 +281,7 @@ exits       = (normalExit ? 1 : 0) + (secretExit ? 1 : 0)
 a keyhole or a secret goal tape may sit in a sub area rather than the entry map.
 A per-map sprite scan that ignores sub areas misattributes them.
 
-### Sprite census on the vanilla cart
+### Sprite census on the vanilla ROM
 
 Counts from walking every level's sprite stream via the pointer table at
 `$05:EC00`. Labels are the disassembly's own names from `Ptrs05EC00`. Scope: one
@@ -296,7 +296,7 @@ with the sprite present, **not** exit counts, for the reasons above.
 | `$7B` goal tape | 66 | extra bits not distinguished by this scan |
 | `$8D` ghost house sign | 8 | every one of the 8 also carries `$7B` |
 
-The `$8C` result is the useful one. Exactly two levels in the cart can be left
+The `$8C` result is the useful one. Exactly two levels in the ROM can be left
 by walking off the right edge, and the ASM says that path awards nothing. Those
 two are the Top Secret Area and Yoshi's House, neither of which counts toward
 the exit total. The ROM scan and the `SubSideExit` trace agree.
@@ -311,13 +311,13 @@ of them. Counting level IDs is not counting exits.
 `CMP #!TotalExitCount / BCC .NoStar` (`bank_00.asm:3628-3629`). It is a
 greater-or-equal threshold for drawing the star next to the file. The counter
 itself is drawn by `HexToDec` on the raw byte (`bank_00.asm:3636`), so a hack
-whose event graph yields 120 exits would display 120, with a star. **The cart
+whose event graph yields 120 exits would display 120, with a star. **The ROM
 never derives a total; it asserts a target.** Do not treat 96 as an oracle for
 anything HackBench computes.
 
 ### The vanilla counts, derived
 
-`test/suite/integration/vanillaCounts.test.ts` computes these from the cart.
+`test/suite/integration/vanillaCounts.test.ts` computes these from the ROM.
 
 **Exits close exactly at 96.**
 
@@ -352,7 +352,7 @@ That is an external editorial source, not ASM, so it is a cross-check and not a
 citation. It is recorded because it is the only external figure in this
 investigation that matched a ROM quantity without being fitted to.
 
-**73 is 76 minus three stated conventions**, not a quantity the cart computes:
+**73 is 76 minus three stated conventions**, not a quantity the ROM computes:
 
 ```
 76  distinct level data
@@ -367,7 +367,7 @@ There is no algorithm from the ROM that yields 73, and looking for one is what
 produced the retracted switch-palace rule below.
 
 The same article puts the exit total at "96 to 100, depending on how one counts
-the levels". The cart has no such ambiguity: `ExitsCompleted` increments once
+the levels". The ROM has no such ambiguity: `ExitsCompleted` increments once
 per overworld event first activated, which is a single well-defined quantity,
 and it gives exactly 96.
 
@@ -400,7 +400,7 @@ drop out by construction, because they never become entry maps.
   - it gates on `levelHasObjects()`, the defect in issue #311, which rejects 24
     real rooms.
 
-  Between them, 47 of the cart's 235 real maps could never be a destination.
+  Between them, 47 of the ROM's 235 real maps could never be a destination.
   `buildLevelExitGraph` now takes its map universe from pointer identity, the
   same test `buildLevelCatalog` applies, and orphans fall from **59 to 26**.
 
@@ -420,7 +420,7 @@ drop out by construction, because they never become entry maps.
   | `$016` (1) | a third copy of `DP1Sprites015` that no launch tile starts | nothing |
   | `$108` (1) | `TestLevelSprites`, unused | nothing |
 
-  So exactly **two** slots in the cart are genuinely unreferenced, and both are
+  So exactly **two** slots in the ROM are genuinely unreferenced, and both are
   leftovers rather than defects. Every map reachable in normal play is reachable
   in the graph. `test/suite/integration/exitGraphReach.test.ts` pins the full
   classification, so a map that stops being reachable fails there by name rather
@@ -428,7 +428,7 @@ drop out by construction, because they never become entry maps.
 
   Re-measured on the fixed graph, the earlier "no sub area is shared between two
   entry maps" is overturned. **Front Door (`$10D`) and Back Door (`$10E`) do
-  converge**, at `$1C7`, which was itself one of the orphans. The cart has
+  converge**, at `$1C7`, which was itself one of the orphans. The ROM has
   exactly two entry-map pairs that share any sub area:
 
   | Entry maps | Shared | Why |
@@ -517,7 +517,7 @@ they appear in the disassembly source.
 
 The sprite census is the one section derived from ROM bytes rather than from the
 disassembly: a single scan of `Super Mario World (USA).vanilla.sfc` on
-2026-09-21, no other cart, no repeat run.
+2026-09-21, no other ROM, no repeat run.
 
 No claim here was checked against a running ROM, and none was checked against an
 edited ROM. Per `CLAUDE.md`, a romhack can replace the routines traced above; in

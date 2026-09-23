@@ -14,7 +14,7 @@
  *   entry maps      deriveOverworldEntrances (walks OWL1TileData as CODE_04D7F2 does)
  *   switch palaces  DATA_05A590[0..3], the indices the CPX #$04 gate at
  *                   bank_05.asm:3321-3324 turns into SwitchPalaceColor
- *   awards          OWLevelExitMode per docs/smw-overworld-levels.md
+ *   awards          OWLevelExitMode per docs/rom/smw-overworld-levels.md
  */
 import { describe, it, expect, beforeAll } from 'vitest'
 import { existsSync } from 'fs'

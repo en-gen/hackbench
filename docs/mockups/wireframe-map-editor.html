@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>HackBench Map Editor — Wireframe v2</title>
+<title>HackBench Map Editor - Wireframe v2</title>
 <link rel="stylesheet" href="https://unpkg.com/@vscode/codicons@0.0.36/dist/codicon.css">
 <style>
 :root {
@@ -327,13 +327,13 @@ select.inlineSelect:focus { outline: 1px solid var(--accent); }
 <!-- ── TOOLBAR ── -->
 <div id="toolbar">
   <!-- Layer toggles: order is L2/L1/L3 (bg→fg→special); highlighted bar position matches render order (bottom=bg, mid=fg, top=special) -->
-  <button class="iconBtn layerBtn on" id="lbtn-l2" onclick="toggleLayerBtn('l2')" title="Layer 2 — background">
+  <button class="iconBtn layerBtn on" id="lbtn-l2" onclick="toggleLayerBtn('l2')" title="Layer 2 - background">
     <svg width="16" height="14" viewBox="0 0 16 14"><rect x="1" y="1"  width="14" height="3" rx="1" fill="#444"/><rect x="1" y="6"  width="14" height="3" rx="1" fill="#444"/><rect x="1" y="11" width="14" height="3" rx="1" fill="currentColor"/></svg>
   </button>
-  <button class="iconBtn layerBtn on" id="lbtn-l1" onclick="toggleLayerBtn('l1')" title="Layer 1 — foreground">
+  <button class="iconBtn layerBtn on" id="lbtn-l1" onclick="toggleLayerBtn('l1')" title="Layer 1 - foreground">
     <svg width="16" height="14" viewBox="0 0 16 14"><rect x="1" y="1"  width="14" height="3" rx="1" fill="#444"/><rect x="1" y="6"  width="14" height="3" rx="1" fill="currentColor"/><rect x="1" y="11" width="14" height="3" rx="1" fill="#444"/></svg>
   </button>
-  <button class="iconBtn layerBtn on" id="lbtn-l3" onclick="toggleLayerBtn('l3')" title="Layer 3 — special">
+  <button class="iconBtn layerBtn on" id="lbtn-l3" onclick="toggleLayerBtn('l3')" title="Layer 3 - special">
     <svg width="16" height="14" viewBox="0 0 16 14"><rect x="1" y="1"  width="14" height="3" rx="1" fill="currentColor"/><rect x="1" y="6"  width="14" height="3" rx="1" fill="#444"/><rect x="1" y="11" width="14" height="3" rx="1" fill="#444"/></svg>
   </button>
   <div class="sep"></div>
@@ -375,7 +375,7 @@ select.inlineSelect:focus { outline: 1px solid var(--accent); }
 
       <!-- 8x8 TAB -->
       <div class="tabPanel on" id="panel-8x8">
-        <div class="secHead">VRAM — Page 1 / 6
+        <div class="secHead">VRAM - Page 1 / 6
           <span><button class="chevBtn">◀</button><button class="chevBtn">▶</button></span>
         </div>
         <div class="vramGrid" id="vramGrid"></div>
@@ -389,7 +389,7 @@ select.inlineSelect:focus { outline: 1px solid var(--accent); }
       <!-- MAP16 TAB -->
       <div class="tabPanel" id="panel-map16">
         <div class="secHead">
-          Tiles — Page 1 / 2
+          Tiles - Page 1 / 2
           <span><button class="chevBtn">◀</button><button class="chevBtn">▶</button></span>
         </div>
         <div class="m16grid" id="m16grid"></div>
@@ -402,7 +402,7 @@ select.inlineSelect:focus { outline: 1px solid var(--accent); }
 
       <!-- OBJECTS TAB -->
       <div class="tabPanel" id="panel-objects">
-        <div class="secHead">Objects — Page 1 / 4
+        <div class="secHead">Objects - Page 1 / 4
           <span><button class="chevBtn">◀</button><button class="chevBtn">▶</button></span>
         </div>
         <div class="objGrid" id="objGrid"></div>
@@ -415,7 +415,7 @@ select.inlineSelect:focus { outline: 1px solid var(--accent); }
 
       <!-- SPRITES TAB -->
       <div class="tabPanel" id="panel-sprites">
-        <div class="secHead">Sprites — Page 1 / 4
+        <div class="secHead">Sprites - Page 1 / 4
           <span><button class="chevBtn">◀</button><button class="chevBtn">▶</button></span>
         </div>
         <div class="sprGrid" id="sprGrid"></div>
@@ -523,7 +523,7 @@ select.inlineSelect:focus { outline: 1px solid var(--accent); }
   <div id="right">
     <div id="propsHead">
       Properties
-      <span class="propsCtx" id="propsCtx">Map16 $02E — Tile</span>
+      <span class="propsCtx" id="propsCtx">Map16 $02E - Tile</span>
     </div>
     <div id="propsContent">
 
@@ -544,16 +544,16 @@ select.inlineSelect:focus { outline: 1px solid var(--accent); }
           </div>
           <div class="pRow"><span class="pLabel">Acts as</span></div>
           <select class="inlineSelect">
-            <option selected>$25 — Coin-content block</option>
-            <option>$00 — Passthrough</option>
-            <option>$01 — Solid</option>
-            <option>$03 — Ledge (top only)</option>
-            <option>$07 — Vine top</option>
-            <option>$08 — Coin</option>
-            <option>$09 — Yoshi coin</option>
-            <option>$13 — Water / swim</option>
-            <option>$42 — Lava / lethal</option>
-            <option>$C0 — Cement block</option>
+            <option selected>$25 - Coin-content block</option>
+            <option>$00 - Passthrough</option>
+            <option>$01 - Solid</option>
+            <option>$03 - Ledge (top only)</option>
+            <option>$07 - Vine top</option>
+            <option>$08 - Coin</option>
+            <option>$09 - Yoshi coin</option>
+            <option>$13 - Water / swim</option>
+            <option>$42 - Lava / lethal</option>
+            <option>$C0 - Cement block</option>
           </select>
         </div>
         <div class="section">
@@ -777,7 +777,7 @@ for (let i = 0; i < 128; i++) {
   vg.appendChild(d)
 }
 
-// Object grid — 64 placeholder cells per page (8×8)
+// Object grid - 64 placeholder cells per page (8×8)
 const og = document.getElementById('objGrid')
 for (let i = 0; i < 64; i++) {
   const d = document.createElement('div')
@@ -789,7 +789,7 @@ for (let i = 0; i < 64; i++) {
   og.appendChild(d)
 }
 
-// Sprite grid — 64 placeholder cells per page (8×8)
+// Sprite grid - 64 placeholder cells per page (8×8)
 const sg = document.getElementById('sprGrid')
 for (let i = 0; i < 64; i++) {
   const d = document.createElement('div')
@@ -880,9 +880,9 @@ function setTab(name) {
 
 // ── Properties context (dynamic, no tabs) ───────────────────────────────────
 const PROP_CTX = {
-  tile:   'Map16 $02E — Tile',
-  sprite: 'Layer-2 Smash $C9 — Sprite',
-  object: '? Block Row — Object',
+  tile:   'Map16 $02E - Tile',
+  sprite: 'Layer-2 Smash $C9 - Sprite',
+  object: '? Block Row - Object',
   empty:  '',
 }
 function setPropContext(type) {

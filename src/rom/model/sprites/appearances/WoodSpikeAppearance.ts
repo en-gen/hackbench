@@ -35,7 +35,7 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
 // extendDir: +1 = DOWN ($AC ceiling / $AD even-col underground), -1 = UP ($AD odd-col floor spike).
 //
 // Where the sharp point sits inside the 16x16 tip tile is recorded in
-// docs/sprite-overlay-removal.md, "ROM evidence that went with the overlays":
+// docs/sprites/sprite-overlay-removal.md, "ROM evidence that went with the overlays":
 // $AC is V-flipped so its point is at the BOTTOM of the tip tile (y+16);
 // $AD is unflipped so its point is at the TOP (y).
 

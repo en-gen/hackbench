@@ -26,7 +26,7 @@ design: a fixed 5 or 6 buffer list is not affordable, a data-driven one is.
 
 ## Evidence scope
 
-Cart: `Super Mario World (USA).vanilla.sfc`, 524288 bytes, no copier header.
+ROM: `Super Mario World (USA).vanilla.sfc`, 524288 bytes, no copier header.
 Browser: Chromium 152 in a hidden pane. Code: `origin/develop` at `a160b10`,
 unmodified. Timings are medians of 15 or 21 warm iterations, first dropped,
 alternating single and per-pass every iteration so drift and GC hit both
@@ -166,10 +166,10 @@ End to end on `$11E`, two interleaved runs, patched vs shipped:
 | per-pass clear | 26.6 / 22.1 ms | 8.4 / 6.4 ms |
 | single clear | 6.7 / 5.7 ms | 3.2 / 2.1 ms |
 
-The clear colours actually used are `[0,0,0,0]` and `[222,255,222,255]`, so a
+The clear colors actually used are `[0,0,0,0]` and `[222,255,222,255]`, so a
 zero-only fast path is not enough; packing RGBA into a u32 and filling a
 32-bit view handles both. Byte-for-byte identical output verified for the
-non-zero colour.
+non-zero color.
 
 **This is a free win for the single-buffer renderer shipping today**, about
 3.5 ms off every map build, independent of any per-pass decision.

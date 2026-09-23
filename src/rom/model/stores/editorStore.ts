@@ -81,7 +81,7 @@ interface EditorStoreState {
    * through `SpriteDrawEngine` instead of their shipped appearance class, so
    * the two can be compared by clicking back and forth on one map. A
    * temporary comparison control, not a preference: nothing persists it and
-   * it deletes with the old render path. See `docs/sprite-engine-wiring.md`.
+   * it deletes with the old render path. See `docs/sprites/sprite-engine-wiring.md`.
    */
   spriteEngine: boolean
   /** Draw the corner ticks that identify which sprites the engine drew.

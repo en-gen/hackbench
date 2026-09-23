@@ -9,7 +9,7 @@ import { StaticSpriteAppearance, type SpritePart } from './StaticSpriteAppearanc
  *
  * Renders the sprite's pixel parts via `StaticSpriteAppearance`. The
  * patrol-path annotation that used to live here was removed; see
- * docs/sprite-overlay-removal.md.
+ * docs/sprites/sprite-overlay-removal.md.
  */
 export class KoopaAppearance extends StaticSpriteAppearance {
   constructor(parts: SpritePart[]) {

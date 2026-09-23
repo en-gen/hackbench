@@ -5,7 +5,7 @@
  * (bank_05.asm:505-509, stored at :542-543) and the per-handler lowering,
  * read as opcodes off the handler the cart's own pointer table names.
  * Derivation, measurements and the honest-degradation rule:
- * `docs/obj-priority.md`.
+ * `docs/rom/obj-priority.md`.
  */
 
 import type { RomFile } from './RomFile'
@@ -33,7 +33,7 @@ export interface SpriteObjPriority {
   /**
    * `runtimeGated` means `value` is the level default and the real answer
    * is unknown for a still frame -- callers must not present it as the
-   * game's. See docs/obj-priority.md section 3.
+   * game's. See docs/rom/obj-priority.md section 3.
    */
   source: ObjPrioritySource
 }

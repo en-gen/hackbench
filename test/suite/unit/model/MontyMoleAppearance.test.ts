@@ -10,7 +10,7 @@
  * SubSprGfx2 single-tile frame list, not a pose.
  *
  * The full ASM walk, table values and measured evidence scopes are in
- * docs/sprite-4d-monty-mole.md; this file cites lines, it does not
+ * docs/sprites/sprite-4d-monty-mole.md; this file cites lines, it does not
  * restate the routines.
  *
  * Test tree
@@ -735,7 +735,7 @@ describe.skipIf(!romPresent)('MontyMoleAppearance - vanilla ROM (ROM-only)', () 
     // Grand Poo World 2 puts 16 of its 17 $4D in other sets. Hardcoding
     // flipX=false there is still not a pixel defect - the same four chars
     // are drawn, only mirrored, and the ROM has no static facing to be
-    // faithful to. See docs/sprite-4d-monty-mole.md.
+    // faithful to. See docs/sprites/sprite-4d-monty-mole.md.
     const rom = SmwRom.open(ROM_PATH)
     const sets = new Set<number>()
     let placements = 0

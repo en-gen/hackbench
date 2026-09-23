@@ -41,7 +41,7 @@ export interface SpriteAppearance {
    * It is NOT a fix for buried sprites. An earlier version of this comment
    * claimed moles are hidden under terrain; that was measured and is false
    * - 176 $4D/$4E instances across four ROMs, none occluded by an L1
-   * priority subtile (docs/sprite-4d-monty-mole.md).
+   * priority subtile (docs/sprites/sprite-4d-monty-mole.md).
    *
    * Rule: never introduce a second animation timer. An implementation may
    * draw something static, or drive itself from the same state `render`
@@ -85,7 +85,7 @@ export interface SpriteAppearance {
    * **This hook has no implementations right now, and that is
    * deliberate.** Every path, movement, trajectory, patrol, orbit and
    * detection-zone annotation was removed (see
-   * `docs/sprite-overlay-removal.md`); the hook, the `SmwMap` pre-pass
+   * `docs/sprites/sprite-overlay-removal.md`); the hook, the `SmwMap` pre-pass
    * and the webview click-to-toggle plumbing were kept as the extension
    * point for identity annotations, which tell the user what a sprite IS
    * when its static appearance does not. Do not remove it as dead code.

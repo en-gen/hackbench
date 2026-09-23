@@ -147,7 +147,7 @@ that hold real map data (`$016`, `$108`) are not levels.
 
 ## Editing
 
-**Base cartridge.** The ROM file exactly as the user supplied it. Referenced
+**Base ROM.** The ROM file exactly as the user supplied it. Referenced
 by identity (`RomIdentity`) and never modified; a project can be shared
 without ever containing a byte of it.
 
@@ -162,7 +162,7 @@ without needing the machine the edit was made on.
 append-only; nothing is ever removed from the middle. An `edit` layer
 persists and exports. `WorkingRom` also supports a `preview` scope that
 neither persists nor exports, but nothing currently creates one: the
-palette editor commits directly (pick a colour, click OK) rather than
+palette editor commits directly (pick a color, click OK) rather than
 staging a per-tick drag layer, after an earlier version of that design
 caused a real bug. The scope stays as a general `WorkingRom` capability for
 whichever editor needs a live, discardable layer next.
@@ -176,20 +176,20 @@ layer held across a divergent edit would re-apply against bytes the user never
 looked at, which `WorkingRom.redo`'s `old` check refuses anyway. Because
 `ops/` is committed, `ops/redo/` is too, so a diff can contain layers that are
 not applied to the working copy; they are the same hex-text ops, never
-cartridge bytes.
+ROM bytes.
 
-**Working copy.** The base cartridge with every layer in a project's stack
+**Working copy.** The base ROM with every layer in a project's stack
 applied, IN ORDER (`WorkingRom.bytes()`). A MIGRATED view renders this, never
-the base cartridge directly - an edit made in one such view (a palette
-colour) is invisible everywhere else otherwise. Concretely: every
-`theia/extension/src/node/*-server.ts` reads the cartridge through
+the base ROM directly - an edit made in one such view (a palette
+color) is invisible everywhere else otherwise. Concretely: every
+`theia/extension/src/node/*-server.ts` reads the ROM through
 `WorkingRomRegistry`, not `RomFile.load`. `project-server.ts` is the one
-exception, because it is what RESOLVES the cartridge in the first place,
+exception, because it is what RESOLVES the ROM in the first place,
 before any working copy exists to read from - `WorkingRomRegistry` itself
 calls `RomFile.load` once, on first access per project.
 
 Palette and GFX are migrated, and both push a re-render to an open widget on
 the working copy's change event (`WorkingCopyNotifier`). The map view is
 NOT yet: `project-server.ts`'s `mapDetails`/`loadMaps` still read the base
-cartridge directly, so a palette edit is not visible there. That migration
+ROM directly, so a palette edit is not visible there. That migration
 is unstarted work, done per view rather than assumed.

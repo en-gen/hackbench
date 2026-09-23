@@ -174,7 +174,7 @@ describe('buildYoshiEggLayout - flip comes from the attribute, not a literal', (
   it('OAM priority bits are deliberately not modelled', () => {
     // $29 sets priority 2 in bits 5-4. SpriteSubtile has no priority field and
     // no other layout in SpriteTileLoader models one, so $29 must decode
-    // exactly like $09. Documented in docs/smw-sprite-2c-yoshi-egg.md.
+    // exactly like $09. Documented in docs/sprites/smw-sprite-2c-yoshi-egg.md.
     expect(layoutFor(0x29).tiles).toEqual(layoutFor(0x09).tiles)
   })
 })
