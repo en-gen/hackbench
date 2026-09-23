@@ -33,7 +33,7 @@ export interface PaletteColorDto {
  * #311). A cell with `written: true` always names the ROM table it came
  * from: src/rom/PaletteStockTables.ts merges several tables per row (a
  * background row's cols 2-7 are BackgroundPalettes, cols 8-15 are
- * StatusBarColors, col 0 is BackAreaColors, col 1 is a routine rather than
+ * StatusBarColors, col 0 is never table-written, col 1 is a routine rather than
  * a table), so one address for the whole row would misattribute most of it.
  */
 export type PaletteCellDto =

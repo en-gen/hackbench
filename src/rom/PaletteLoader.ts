@@ -20,7 +20,7 @@
  *   Rows 2-3:   FG (ForegroundPalettes, variant per level header)
  *   Rows 4-13:  Standard sprite/object colors (StandardColors)
  *   Row 8:      Player variant overlaid at cols 6-15 (PlayerColors)
- *   Rows 14-15: Sprite palette E/F (SpriteColors variant-selected)
+ *   Rows 14-15: Level sprite colors (SpriteColors variant-selected)
  *
  * CGRAM rows 5-7 cols 9-15 are deliberately left at the row default: no
  * LoadPalette step writes them (bank_00.asm:5595-5699), confirmed against
@@ -278,7 +278,7 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
   const groups: PaletteGroup[] = [
     {
       id: 'bg',
-      label: 'Layer 2 Background (Rows 0-1)',
+      label: 'Layer 2 Background',
       cgRamRow: 0,
       description:
         'CGRAM rows 0-1. Variant selected by BackgroundPalette (header byte 0 bits 7-5).',
@@ -286,7 +286,7 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
     },
     {
       id: 'fg',
-      label: 'Layer 1 Foreground (Rows 2-3)',
+      label: 'Layer 1 Foreground',
       cgRamRow: 2,
       description:
         'CGRAM rows 2-3. Variant selected by ForegroundPalette (header byte 3 bits 2-0).',
@@ -294,7 +294,7 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
     },
     {
       id: 'sprite_sets',
-      label: 'Shared Sprite Colors (Rows 4-13)',
+      label: 'Shared Sprite Colors',
       cgRamRow: 4,
       description: 'CGRAM rows 4-13 cols 2-7. Fixed from StandardColors at $B250.',
       variants: [{ label: 'Shared', rows: sharedSpriteRows, romAddr: ADDR_SHARED_SPRITES }],
@@ -325,7 +325,7 @@ export function loadRomPalettes(rom: RomFile, bgVariant = 0): RomPalettes {
     },
     {
       id: 'sp_ef',
-      label: 'Sprite Palette E/F (Rows 14-15)',
+      label: 'Level Sprite Colors',
       cgRamRow: 14,
       description:
         'CGRAM rows 14-15 cols 2-7. SpriteColors at $B318, variant from SpritePalette header field.',
