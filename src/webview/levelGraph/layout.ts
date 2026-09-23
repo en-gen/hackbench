@@ -30,7 +30,7 @@ export const MARGIN = 20
 /**
  * Identify back edges via DFS from every node (grey/black coloring): an edge
  * to a node still on the current DFS stack closes a cycle. Vanilla SMW has
- * one ($1DB -> $1DD -> $1DB, a pipe loop); base already hit this on other
+ * several, such as the $1DB -> $1DD -> $1DB pipe loop, and so do the other
  * corpus ROMs. Removing these edges before the forward-push relaxation pass
  * leaves a DAG, so relaxation is guaranteed to converge instead of pushing
  * depth toward the pass cap.
