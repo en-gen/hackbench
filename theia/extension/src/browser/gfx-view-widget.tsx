@@ -176,7 +176,7 @@ export class GfxViewWidget extends ReactWidget {
 
   protected render(): React.ReactNode {
     if (!this.options) {
-      return <div className="hb-gfx-view-empty">Reading the cartridge...</div>
+      return <div className="hb-gfx-view-empty">Reading the ROM...</div>
     }
 
     const s = this.sheet

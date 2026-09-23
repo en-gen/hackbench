@@ -858,16 +858,16 @@ export class Map16ViewWidget extends ReactWidget {
 
   protected render(): React.ReactNode {
     if (!this.options) {
-      return <div className="hb-map16-empty">Reading the cartridge...</div>
+      return <div className="hb-map16-empty">Reading the ROM...</div>
     }
     if (this.error) {
       return <div className="hb-map16-error">{this.error}</div>
     }
     if (!this.result) {
-      return <div className="hb-map16-empty">Reading the cartridge...</div>
+      return <div className="hb-map16-empty">Reading the ROM...</div>
     }
     if (this.result.status === 'rom-not-located') {
-      const title = this.result.baseRom.title || 'the base cartridge'
+      const title = this.result.baseRom.title || 'the base ROM'
       return <div className="hb-map16-empty">{`Locate ${title} to view its Map16 tiles`}</div>
     }
 

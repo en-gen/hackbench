@@ -206,14 +206,14 @@ export class WorkingRom {
     for (const op of layer.ops) {
       const offset = opFileOffset(op, this.romSize, this.hasHeader)
       if (offset === null) {
-        throw new Error(`address ${op.address} is outside the cart`)
+        throw new Error(`address ${op.address} is outside the ROM`)
       }
       const mask = op.mask ?? BGR555_MASK
       const current = readBgr555Word(before, offset) & mask
       const expected = parseBgr555Word(op.old) & mask
       if (current !== expected) {
         throw new Error(
-          `stale op at ${op.address}: cart holds $${current.toString(16).toUpperCase()}, ` +
+          `stale op at ${op.address}: ROM holds $${current.toString(16).toUpperCase()}, ` +
             `expected $${expected.toString(16).toUpperCase()}`,
         )
       }

@@ -80,7 +80,7 @@ export function readBgr555Word(bytes: Uint8Array, offset: number): number {
 export function applyOp(out: Uint8Array, op: Op, romSize: number, hasHeader: boolean): void {
   const offset = opFileOffset(op, romSize, hasHeader)
   if (offset === null) {
-    throw new Error(`address ${op.address} is outside the cart`)
+    throw new Error(`address ${op.address} is outside the ROM`)
   }
   const word = parseBgr555Word(op.new) & (op.mask ?? BGR555_MASK)
   out[offset] = word & 0xff

@@ -69,9 +69,7 @@ export class GfxServiceImpl implements GfxService {
   private romFor(manifestPath: string): SmwRom {
     const r = this.workingRoms.get(manifestPath)
     if (r.status === 'rom-not-located') {
-      throw new Error(
-        `The base cartridge for ${r.baseRom.title || 'this project'} is not on this machine`,
-      )
+      throw new Error(`${r.baseRom.title || 'The base ROM'} is not on this machine`)
     }
     if (r.status === 'unreadable') throw new Error(r.reason)
     this.notifier.watch(manifestPath, r.working)

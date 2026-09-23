@@ -70,7 +70,7 @@ export class EmulatorServiceImpl implements EmulatorService {
       return { status: 'rom-not-located', baseRom: { title: r.baseRom.title } }
     }
     if (r.status !== 'ok') {
-      return { status: 'rom-not-located', baseRom: { title: 'the base cartridge' } }
+      return { status: 'rom-not-located', baseRom: { title: 'the base ROM' } }
     }
     // A COPY, not the registry's buffer: this crosses the RPC boundary and
     // the working copy's own cache must not be handed out by reference.

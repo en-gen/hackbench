@@ -820,7 +820,7 @@ function divergenceNote(rom: RomFile, at: Divergence, role: string): string {
   const seen = held === null ? 'nothing mapped' : `0x${hex2(held)}`
   return (
     `The ${role} does not decode: $${hex6(at.at)} holds ${seen} where the routine needs ` +
-    `${at.wanted}. This cart drives that palette cycle with code HackBench does not read, so the ` +
+    `${at.wanted}. This ROM drives that palette cycle with code HackBench does not read, so the ` +
     'animated index and its frames are unknown. No slot is claimed to be animated and none is ' +
     'claimed to be static.'
   )
@@ -834,7 +834,7 @@ function divergenceNote(rom: RomFile, at: Divergence, role: string): string {
  */
 function relocationNote(rom: RomFile): string {
   const found = findFlashKernels(rom)
-  if (found.length === 0) return 'The kernel pattern decodes nowhere in this cart.'
+  if (found.length === 0) return 'The kernel pattern decodes nowhere in this ROM.'
   const addrs = found.map(a => `$${hex6(a)}`).join(', ')
   return found.length === 1
     ? `The kernel pattern still decodes at ${addrs}. Whether this context reaches it is not ` +
@@ -887,7 +887,7 @@ function relocatedOverworld(rom: RomFile, at: number, dbrBank: number): PaletteA
     .map(site => toTarget(rom, site))
     .filter((t): t is PaletteAnimTarget => t !== null)
   if (targets.length !== sites.length) {
-    return blind('one of its frame tables is not backed by ROM on this cart.')
+    return blind('one of its frame tables does not point into ROM.')
   }
   // A swatch painted as cycling has to cycle. `decodeKernel` already refuses a
   // mask reaching one offset; this catches the same emptiness in the data.
@@ -931,8 +931,8 @@ export function detectPaletteAnimation(rom: RomFile): PaletteAnimDetection {
     const target = toTarget(rom, site.value)
     if (!target) {
       return unavailable('level', [
-        `The level kernel's frame table at $${hex6(site.value.kernel.tableAddr)} is not backed by ` +
-          'ROM on this cart, so its frames cannot be read.',
+        `The level kernel's frame table at $${hex6(site.value.kernel.tableAddr)} does not point into ` +
+          'ROM, so its frames cannot be read.',
       ])
     }
     return { context: 'level', available: true, targets: [target], notes: [describe(target)] }
@@ -961,7 +961,7 @@ export function detectPaletteAnimation(rom: RomFile): PaletteAnimDetection {
       if (!target) {
         return unavailable('overworld', [
           `An overworld frame table at $${hex6(site.value.kernel.tableAddr + site.value.baseOffset)} ` +
-            'is not backed by ROM on this cart, so its frames cannot be read.',
+            'does not point into ROM, so its frames cannot be read.',
         ])
       }
       targets.push(target)

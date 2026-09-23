@@ -79,7 +79,7 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
     this.summaryField.value = project.summary
 
     this.factsNode.textContent =
-      `${project.baseRom.title || 'unrecognised cart'} · ${project.baseRom.size} bytes ` +
+      `${project.baseRom.title || 'unrecognized ROM'} · ${project.baseRom.size} bytes ` +
       `· sha256 ${project.baseRom.sha256.slice(0, 12)}…`
 
     return this.open()

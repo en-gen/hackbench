@@ -105,7 +105,7 @@ export class EditStackContribution implements CommandContribution {
   ): string {
     const what = label ? `${direction} "${label}"` : direction
     if (result.status === 'rom-not-located') {
-      return `Cannot ${what}: this machine has not been told where ${result.baseRom.title.trim() || 'the base cartridge'} is.`
+      return `Cannot ${what}: this machine has not been told where ${result.baseRom.title.trim() || 'the base ROM'} is.`
     }
     return `Cannot ${what}: ${result.reason}`
   }

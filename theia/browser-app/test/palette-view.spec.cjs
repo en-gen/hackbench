@@ -12,6 +12,7 @@
  * the rendered tab.
  */
 const { test, expect } = require('@playwright/test')
+const { CART, shownWords, makeUntitledAndUnlocated } = require('./rom-words.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -1200,4 +1201,24 @@ test('Ctrl+Z after a hex-field edit undoes the edit, not just the text', async (
   // repainted swatch.
   const after = fs.existsSync(opsDir) ? fs.readdirSync(opsDir).filter(f => f.endsWith('.json')) : []
   expect(after).toHaveLength(0)
+})
+
+test('the palette explorer speaks of ROMs, never cartridges', async ({ page }) => {
+  await openProject(page, path.join(tmp, 'Words'))
+  await revealExplorer(page)
+  await page.waitForSelector(`${sel(EXPLORER)} .theia-TreeNode`, { timeout: 15000 })
+  const loaded = await shownWords(page, sel(EXPLORER))
+  expect(loaded).toMatch(/Player Palettes/)
+  expect(loaded).not.toMatch(CART)
+
+  // A fresh project: the opened one's working copy is already resolved.
+  const untitled = await createProject(page, path.join(tmp, 'Untitled'), ROM, 'Untitled')
+  makeUntitledAndUnlocated(untitled.manifestPath)
+  await page.evaluate(async ({ mp, id }) => (await getWidget(id)).load(mp), {
+    mp: untitled.manifestPath,
+    id: EXPLORER,
+  })
+  const missing = () => shownWords(page, sel(EXPLORER))
+  await expect.poll(missing).toContain('Locate the base ROM')
+  expect(await missing()).not.toMatch(CART)
 })

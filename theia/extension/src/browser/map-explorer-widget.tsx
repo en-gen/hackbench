@@ -175,7 +175,7 @@ export class MapExplorerWidget extends TreeWidget {
     if (result.status === 'rom-not-located') {
       this.mapCount = 0
       this.setRoot([
-        this.message(`Locate ${result.baseRom.title || 'the base cartridge'} to load its maps`),
+        this.message(`Locate ${result.baseRom.title || 'the base ROM'} to load its maps`),
       ])
       return
     }

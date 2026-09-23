@@ -156,7 +156,7 @@ export class GfxExplorerWidget extends TreeWidget {
     if (result.status === 'rom-not-located') {
       this.fileCount = 0
       this.setRoot([
-        this.message(`Locate ${result.baseRom.title || 'the base cartridge'} to see its graphics`),
+        this.message(`Locate ${result.baseRom.title || 'the base ROM'} to see its graphics`),
       ])
       return
     }

@@ -6,6 +6,7 @@
  * to whoever hits it, and no assertion about creation alone can see it.
  */
 const { test, expect } = require('@playwright/test')
+const { CART, shownWords } = require('./rom-words.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -291,4 +292,23 @@ test('the mushroom is visible against the title bar, not merely present', async 
 
   expect(contrast.width).toBeGreaterThan(8)
   expect(contrast.ratio, `logo ${contrast.fg} on ${contrast.bg}`).toBeGreaterThan(3)
+})
+
+test('Project Properties speaks of ROMs, never cartridges, even for an untitled ROM', async ({
+  page,
+}) => {
+  const project = await page.evaluate(
+    async ({ romPath, directory }) =>
+      getSvc('Symbol(ProjectService)').createProject({ romPath, name: 'Untitled', directory }),
+    { romPath: ROM, directory: path.join(tmp, 'Untitled') },
+  )
+  await page.evaluate(p => {
+    // Not awaited: editFor resolves only when the dialog closes.
+    void getSvc('ProjectPropertiesDialog').editFor({ ...p, baseRom: { ...p.baseRom, title: '' } })
+  }, project)
+  await page.waitForSelector('.hb-dialog-facts', { timeout: 15000 })
+  const words = await shownWords(page, '.dialogBlock')
+  expect(words).toContain('unrecognized ROM')
+  expect(words).not.toMatch(CART)
+  await page.keyboard.press('Escape')
 })

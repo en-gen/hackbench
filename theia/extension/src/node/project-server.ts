@@ -138,7 +138,7 @@ export class ProjectServiceImpl implements ProjectService {
     const project = openProject(manifestPath)
     const romPath = this.registry.resolve(project.baseRom.sha256)
     if (!romPath) {
-      throw new Error(`The base cartridge for ${project.name} is not on this machine`)
+      throw new Error(`The base ROM for ${project.name} is not on this machine`)
     }
     return new SmwRom(RomFile.load(romPath))
   }

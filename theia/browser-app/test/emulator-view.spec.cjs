@@ -22,6 +22,7 @@
  * projects the developer running it had registered.
  */
 const { test, expect } = require('@playwright/test')
+const { CART, shownWords, makeUntitledAndUnlocated } = require('./rom-words.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -464,4 +465,20 @@ test('planted defect: a paused core reads as frozen on the real meter, not as ~6
   expect(result.honestDelta, 'the core is paused; its own counter must not advance').toBe(0)
   expect(result.honestStats.frozenSpans).toBeGreaterThan(0)
   expect(result.honestStats.overallFps).toBeLessThan(2)
+})
+
+test('the emulator asking for an untitled ROM speaks of ROMs, never cartridges', async ({
+  page,
+}) => {
+  const setup = await setupProject(page, path.join(tmp, 'Untitled'))
+  expect(setup.error).toBeUndefined()
+  makeUntitledAndUnlocated(setup.manifestPath)
+  await page.evaluate(async mp => {
+    const w = await revealEmulator()
+    getSvc('ProjectContext').current = await getSvc('Symbol(ProjectService)').openProject(mp)
+    await w.refresh()
+  }, setup.manifestPath)
+  const words = () => shownWords(page, '[id="hackbench.emulator-view"]')
+  await expect.poll(words).toContain('Locate the base ROM')
+  expect(await words()).not.toMatch(CART)
 })
