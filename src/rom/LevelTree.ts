@@ -11,8 +11,8 @@ export interface LevelTreeNode {
  * Per-root caps. k chained branch-and-rejoin rooms give 2^k root-to-leaf paths, so
  * the cost is exponential in graph shape, not in the 512-slot table: a synthetic
  * 20-diamond chain reaches 4.19M nodes. Across this repo's six-ROM corpus no single
- * root exceeded 41 nodes at depth 4 (vanilla $10D), but that is six ROMs measured,
- * not a property of exit graphs -- the caps, ~24x and 6x above it, are the bound.
+ * root exceeded 118 nodes (vanilla $022) or depth 6, but that is six ROMs measured,
+ * not a property of exit graphs -- the caps, ~8x and 4x above it, are the bound.
  */
 export const MAX_SUBTREE_NODES = 1000
 export const MAX_SUBTREE_DEPTH = 24

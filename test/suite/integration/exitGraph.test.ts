@@ -10,15 +10,24 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest'
 import { existsSync } from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import { SmwRom, isOverworldLevel } from '../../../src/rom/SmwRom'
+import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
 
 const ROM_DIR = path.resolve(__dirname, '../../roms')
-const VANILLA = path.join(ROM_DIR, 'Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(VANILLA)
+// Same resolution as exitGraphReach.test.ts, so this does not skip in a worktree.
+const VANILLA = [
+  process.env.ROM_PATH,
+  path.join(ROM_DIR, 'Super Mario World (USA).vanilla.sfc'),
+  path.join(os.homedir(), 'OneDrive', 'hackbench-fixtures', 'Super Mario World (USA).vanilla.sfc'),
+  path.join(os.homedir(), 'Super Mario World (USA).vanilla.sfc'),
+]
+  .filter((p): p is string => !!p)
+  .find(existsSync)
 
-// All ROMs in the six-ROM corpus (test/roms/, gitignored). Only the ones
-// actually present on disk are exercised.
+// The six-ROM corpus (test/roms/, gitignored). One case per ROM, so an absent
+// ROM skips rather than vanishing (CLAUDE.md, Quality gates).
 const CORPUS = [
   'Super Mario World (USA).vanilla.sfc',
   'Super Mario World (USA).magic.sfc',
@@ -27,21 +36,13 @@ const CORPUS = [
   'Invictus 1.0.sfc',
   'Seven_Vanilla_Levels.sfc',
 ]
-  .map(name => path.join(ROM_DIR, name))
-  .filter(existsSync)
 
-// CORPUS is empty in CI, where test/roms/ is absent (gitignored, and the ROMs
-// are copyrighted). An it.each over an empty array leaves its describe block
-// with no tests at all, which vitest treats as a suite-level failure, so the
-// block needs its own skip guard rather than relying on the it.each.
-const corpusPresent = CORPUS.length > 0
-
-describe.skipIf(!romPresent)('buildLevelExitGraph -- vanilla acceptance', () => {
+describe.skipIf(!VANILLA)('buildLevelExitGraph -- vanilla acceptance', () => {
   let rom: SmwRom
   let graph: Map<number, number[]>
 
   beforeAll(() => {
-    rom = SmwRom.open(VANILLA)
+    rom = SmwRom.open(VANILLA!)
     graph = rom.buildLevelExitGraph()
   })
 
@@ -56,39 +57,62 @@ describe.skipIf(!romPresent)('buildLevelExitGraph -- vanilla acceptance', () => 
     }
   })
 
-  // The two counts below are pinned to values measured against the vanilla
-  // ROM at the commit that introduced them, not to an independently derived
-  // expectation. They exist to make any change in reachability visible and
-  // deliberate: a diff that moves them is not automatically wrong, but it
-  // must be explained. Re-derive by running rom.classifyLevels() and
-  // buildLevelExitGraph() against the vanilla ROM and comparing the sets,
-  // not just the totals -- an unchanged total can still hide one sub-area
-  // dropping out while another appears.
-  it('sub-areas above $136 are reached: 55 of the 56 that exist', () => {
-    const { subarea } = rom.classifyLevels()
-    const above136 = subarea.filter(i => i > 0x136)
-    expect(above136).toHaveLength(56)
+  // The counts below are pinned to values measured against the vanilla ROM,
+  // not to an independently derived expectation. A diff that moves them is not
+  // automatically wrong, but it must be explained.
+  //
+  // The universe is every slot whose L1 pointer is not the filler, taken from
+  // buildLevelCatalog. It is deliberately NOT classifyLevels().subarea: that
+  // dedupes by L1 pointer and gates on levelHasObjects() (#311), and a
+  // destination is a SLOT, not a pointer. CODE_05D8B7 indexes Layer1Ptrs,
+  // Layer2Ptrs and Ptrs05EC00 all by the same level number
+  // (SMWDisX bank_05.asm:7227-7255), so two slots sharing L1 data are still
+  // two maps.
+  let subareas: number[]
+  let reached: Set<number>
 
-    const reachedAbove136 = new Set<number>()
-    for (const [, dests] of graph) for (const d of dests) if (d > 0x136) reachedAbove136.add(d)
-    expect(reachedAbove136.size).toBe(55)
+  beforeAll(() => {
+    subareas = buildLevelCatalog(rom)
+      .entries.filter(e => e.isReal && !isOverworldLevel(e.index))
+      .map(e => e.index)
+    reached = new Set([...graph.values()].flat())
   })
 
-  it('sub-areas attached to overworld roots: 99 of 109', () => {
-    const { subarea } = rom.classifyLevels()
-    const reached = new Set<number>()
-    for (const [, dests] of graph) for (const d of dests) reached.add(d)
-    expect(subarea).toHaveLength(109)
-    expect(reached.size).toBe(99)
+  it('sub-areas above $136 are reached: 68 of the 78 that exist', () => {
+    const above136 = subareas.filter(i => i > 0x136)
+    expect(above136).toHaveLength(78)
+    // Pinned by slot, not count: an unchanged total can hide one sub-area
+    // dropping out while another appears. $193-$19B are the credits enemy
+    // scenes (game mode $23, SMWDisX bank_00.asm:2508) and $1C8 is Yoshi Wings
+    // (bank_00.asm:5009), entered by game mode or flag rather than a screen
+    // exit; exitGraphReach.test.ts traces each one.
+    const unreached = above136.filter(i => !reached.has(i))
+    expect(unreached).toEqual([
+      0x193, 0x194, 0x195, 0x196, 0x197, 0x198, 0x199, 0x19a, 0x19b, 0x1c8,
+    ])
+  })
+
+  it('sub-areas attached to overworld roots: 132 of 155', () => {
+    expect(subareas).toHaveLength(155)
+    // Every destination is a real sub-area, so the reached set is a subset of
+    // the universe; the 23 left over are a subset of exitGraphReach's orphans.
+    expect([...reached].filter(i => !subareas.includes(i))).toEqual([])
+    expect(reached.size).toBe(132)
+  })
+
+  it('holds 178 edges', () => {
+    // Reachability, loop and shape pins miss an edge whose loss changes none
+    // of them, such as $016 -> $0FD or $11D -> $1E7. The total catches those.
+    expect([...graph.values()].flat()).toHaveLength(178)
   })
 })
 
-describe.skipIf(!corpusPresent)(
-  'buildLevelExitGraph -- AC2 and AC6 across the full ROM corpus',
-  () => {
-    it.each(CORPUS)(
-      'no edge points at the filler L1 pointer, and the graph builds without throwing: %s',
-      romPath => {
+describe('buildLevelExitGraph -- AC2 and AC6 across the full ROM corpus', () => {
+  for (const name of CORPUS) {
+    const romPath = path.join(ROM_DIR, name)
+    it.skipIf(!existsSync(romPath))(
+      `no edge points at the filler L1 pointer, and the graph builds without throwing: ${name}`,
+      () => {
         const rom = SmwRom.open(romPath)
         let graph: Map<number, number[]> = new Map()
         expect(() => {
@@ -121,5 +145,5 @@ describe.skipIf(!corpusPresent)(
         }
       },
     )
-  },
-)
+  }
+})

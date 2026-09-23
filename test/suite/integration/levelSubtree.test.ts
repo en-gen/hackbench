@@ -4,8 +4,9 @@
  * The synthetic tests in test/suite/unit/LevelSubtree.test.ts prove the
  * diamond/back-edge distinction and the expansion caps on hand-built graphs.
  * These prove the distinction survives contact with real pointer tables, where
- * the single vanilla back edge ($1DB -> $1DD) is the only thing standing between
- * path expansion and an infinite one.
+ * vanilla holds 24 distinct back edges, each one standing between path
+ * expansion and an infinite one. Most run through slots that share L1 data,
+ * such as $0D0/$0D1/$0F5/$0F6, which exit into each other.
  *
  * Every number below was measured on the ROM it names, not derived from an
  * independent expectation. A diff that moves one is not automatically wrong,
@@ -13,30 +14,37 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest'
 import { existsSync } from 'fs'
+import * as os from 'os'
 import * as path from 'path'
-import { SmwRom } from '../../../src/rom/SmwRom'
+import { SmwRom, isOverworldLevel } from '../../../src/rom/SmwRom'
 import { buildLevelSubtree, LevelTreeNode } from '../../../src/rom/LevelTree'
 
 const ROM_DIR = path.resolve(__dirname, '../../roms')
-const VANILLA = path.join(ROM_DIR, 'Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(VANILLA)
+// Same resolution as exitGraphReach.test.ts, so this does not skip in a worktree.
+const VANILLA = [
+  process.env.ROM_PATH,
+  path.join(ROM_DIR, 'Super Mario World (USA).vanilla.sfc'),
+  path.join(os.homedir(), 'OneDrive', 'hackbench-fixtures', 'Super Mario World (USA).vanilla.sfc'),
+  path.join(os.homedir(), 'Super Mario World (USA).vanilla.sfc'),
+]
+  .filter((p): p is string => !!p)
+  .find(existsSync)
 
-// test/roms/ is gitignored and absent in CI, so every block guards itself.
-// An it.each over an empty array fails its suite rather than skipping.
+// test/roms/ is gitignored and absent in CI. One case per ROM, so an absent
+// ROM skips rather than vanishing (CLAUDE.md, Quality gates).
 //
 // maxRootNodes is the largest expansion under any single root, which is the
 // figure the caps in LevelTree.ts are sized against. The whole-ROM totals that
 // used to be pinned here moved with any change to classifyLevels or
 // _findFillerL1Pointer, so all six numbers had to be re-pasted at once.
 const CORPUS = [
-  { name: 'Super Mario World (USA).vanilla.sfc', maxRootNodes: 41, loops: 1, maxDepth: 4 },
-  { name: 'Super Mario World (USA).magic.sfc', maxRootNodes: 41, loops: 1, maxDepth: 4 },
-  { name: 'Grand Poo World 2 1.1.sfc', maxRootNodes: 12, loops: 6, maxDepth: 4 },
-  { name: 'GrandPooWorld_V1.2.sfc', maxRootNodes: 6, loops: 4, maxDepth: 3 },
-  { name: 'Invictus 1.0.sfc', maxRootNodes: 31, loops: 6, maxDepth: 4 },
-  { name: 'Seven_Vanilla_Levels.sfc', maxRootNodes: 41, loops: 1, maxDepth: 4 },
-].filter(c => existsSync(path.join(ROM_DIR, c.name)))
-const corpusPresent = CORPUS.length > 0
+  { name: 'Super Mario World (USA).vanilla.sfc', maxRootNodes: 118, loops: 81, maxDepth: 6 },
+  { name: 'Super Mario World (USA).magic.sfc', maxRootNodes: 118, loops: 81, maxDepth: 6 },
+  { name: 'Grand Poo World 2 1.1.sfc', maxRootNodes: 23, loops: 20, maxDepth: 5 },
+  { name: 'GrandPooWorld_V1.2.sfc', maxRootNodes: 118, loops: 80, maxDepth: 6 },
+  { name: 'Invictus 1.0.sfc', maxRootNodes: 44, loops: 13, maxDepth: 5 },
+  { name: 'Seven_Vanilla_Levels.sfc', maxRootNodes: 118, loops: 76, maxDepth: 6 },
+]
 
 const hex = (n: number) => '$' + n.toString(16).toUpperCase().padStart(3, '0')
 
@@ -80,7 +88,9 @@ function statsForRom(rom: SmwRom): Stats {
     distinct: new Set(),
     loopEdges: [],
   }
-  for (const root of rom.classifyLevels().overworld) {
+  // Roots are the graph's own, not classifyLevels().overworld, which dedupes by
+  // L1 pointer and drops real roots such as $016/$017.
+  for (const root of [...graph.keys()].filter(isOverworldLevel)) {
     const before = s.nodes
     walk(buildLevelSubtree(root, graph), 0, s)
     s.maxRootNodes = Math.max(s.maxRootNodes, s.nodes - before)
@@ -88,13 +98,13 @@ function statsForRom(rom: SmwRom): Stats {
   return s
 }
 
-describe.skipIf(!romPresent)('buildLevelSubtree -- vanilla nesting', () => {
+describe.skipIf(!VANILLA)('buildLevelSubtree -- vanilla nesting', () => {
   let rom: SmwRom
   let graph: Map<number, number[]>
   let stats: Stats
 
   beforeAll(() => {
-    rom = SmwRom.open(VANILLA)
+    rom = SmwRom.open(VANILLA!)
     graph = rom.buildLevelExitGraph()
     stats = statsForRom(rom)
   })
@@ -103,21 +113,50 @@ describe.skipIf(!romPresent)('buildLevelSubtree -- vanilla nesting', () => {
   // would still get $00E (diamond one tier down) or $009 (parent and child both
   // reachable from the root) wrong.
   it.each([
-    { expected: '$007[$0E6[$0E7] $0E8[$0E7]]' },
-    { expected: '$00E[$0DC[$0DB] $0DA[$0DC[$0DB]]]' },
+    { expected: '$007[$0E6[$0E7[$0E5]] $0E8[$0E7[$0E5]]]' },
+    { expected: '$00E[$0DC[$0DB[$0D9]] $0DA[$0DC[$0DB[$0D9]]]]' },
     { expected: '$009[$0E9[$0FF] $0FF]' },
   ])('nests both routes of $expected, with no loop marker', ({ expected }) => {
     const root = parseInt(expected.slice(1, 4), 16)
     expect(shape(buildLevelSubtree(root, graph))).toBe(expected)
   })
 
-  it('has exactly one loop node in the whole tree, $1DB -> $1DD under $114', () => {
-    expect(stats.loops).toBe(1)
-    expect(stats.loopEdges).toEqual(['$1DB->$1DD'])
-    expect(shape(buildLevelSubtree(0x114, graph))).toBe('$114[$1DD[$1DB[$1DD!]]]')
+  it('marks 81 loop nodes over exactly 24 distinct back edges', () => {
+    // A loop node is emitted once per path that reaches the back edge, so the
+    // node count exceeds the edge count; the edge set is what is pinned.
+    expect(stats.loops).toBe(81)
+    expect([...new Set(stats.loopEdges)].sort()).toEqual([
+      '$0BE->$0D0',
+      '$0D0->$0BE',
+      '$0D0->$0F5',
+      '$0D0->$0F6',
+      '$0D1->$0BE',
+      '$0D1->$0F5',
+      '$0D1->$0F6',
+      '$0DE->$0FE',
+      '$0EC->$0ED',
+      '$0EE->$0ED',
+      '$0F2->$0F1',
+      '$0F5->$0BE',
+      '$0F5->$0D0',
+      '$0F5->$0D1',
+      '$0F6->$0BE',
+      '$0F6->$0D0',
+      '$0F6->$0D1',
+      '$0FA->$0F9',
+      '$1D9->$1DD',
+      '$1DB->$1DD',
+      '$1DC->$1DD',
+      '$1E8->$1FA',
+      '$1E9->$1FA',
+      '$1FB->$1EA',
+    ])
+    expect(shape(buildLevelSubtree(0x114, graph))).toBe(
+      '$114[$1DD[$1DB[$1DD!] $1D9[$1DD!] $1DA $1DC[$1DD!]]]',
+    )
   })
 
-  it('nests exactly the 99 sub-areas the exit graph names as destinations', () => {
+  it('nests exactly the 132 sub-areas the exit graph names as destinations', () => {
     // Derived by a route the expansion never takes: a flat scan of every
     // adjacency list, no traversal. buildLevelExitGraph only records edges for
     // levels it reached from an overworld root, and a room's first occurrence on
@@ -127,7 +166,7 @@ describe.skipIf(!romPresent)('buildLevelSubtree -- vanilla nesting', () => {
     // emitting one would turn this red instead of passing silently.
     const destinations = new Set([...graph.values()].flat())
     expect(stats.distinct).toEqual(destinations)
-    expect(stats.distinct.size).toBe(99)
+    expect(stats.distinct.size).toBe(132)
   })
 
   it('expands vanilla without ever reaching a cap', () => {
@@ -135,19 +174,22 @@ describe.skipIf(!romPresent)('buildLevelSubtree -- vanilla nesting', () => {
   })
 })
 
-describe.skipIf(!corpusPresent)('buildLevelSubtree -- measured expansion sizes', () => {
+describe('buildLevelSubtree -- measured expansion sizes', () => {
   // The caps in LevelTree.ts are sized against maxRootNodes; these pins are what
   // say how much headroom the six ROMs actually leave.
-  it.each(CORPUS)(
-    '$name peaks at $maxRootNodes nodes under one root, $loops loops, depth $maxDepth',
-    c => {
-      const s = statsForRom(SmwRom.open(path.join(ROM_DIR, c.name)))
-      expect({ maxRootNodes: s.maxRootNodes, loops: s.loops, maxDepth: s.maxDepth }).toEqual({
-        maxRootNodes: c.maxRootNodes,
-        loops: c.loops,
-        maxDepth: c.maxDepth,
-      })
-      expect(s.truncated).toBe(0)
-    },
-  )
+  for (const c of CORPUS) {
+    const romPath = path.join(ROM_DIR, c.name)
+    it.skipIf(!existsSync(romPath))(
+      `${c.name} peaks at ${c.maxRootNodes} nodes under one root, ${c.loops} loops, depth ${c.maxDepth}`,
+      () => {
+        const s = statsForRom(SmwRom.open(romPath))
+        expect({ maxRootNodes: s.maxRootNodes, loops: s.loops, maxDepth: s.maxDepth }).toEqual({
+          maxRootNodes: c.maxRootNodes,
+          loops: c.loops,
+          maxDepth: c.maxDepth,
+        })
+        expect(s.truncated).toBe(0)
+      },
+    )
+  }
 })
