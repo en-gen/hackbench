@@ -34,39 +34,195 @@
   color: var(--theia-descriptionForeground);
 }
 
-/* ── Music view ──────────────────────────────────────────────────────────── */
+/* ── Panel layout ───────────────────────────────────────── */
 
-.hb-music-view {
-  overflow: auto;
-  padding: 1.2em 1.4em;
-  color: var(--theia-foreground);
-}
-
-.hb-music-view-title {
+/*
+ * The tree is composed between a bank selector and a footer, so the list
+ * takes the remaining height and scrolls inside itself. min-height:0 is
+ * load-bearing: without it the flex child refuses to shrink below its
+ * content and the footer is pushed off the bottom of the sidebar.
+ */
+.hb-music-body {
   display: flex;
-  align-items: baseline;
-  gap: 0.6em;
-  margin: 0 0 0.8em 0;
-  font-size: var(--theia-ui-font-size3);
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.hb-music-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+
+.hb-music-bankbar {
+  display: flex;
+  gap: 1px;
+  flex: none;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--theia-sideBarSectionHeader-border, transparent);
+}
+
+.hb-music-bank {
+  flex: 1;
+  padding: 2px 0;
+  font-family: var(--theia-ui-font-family);
+  font-size: var(--theia-ui-font-size1);
+  color: var(--theia-foreground);
+  background: none;
+  border: none;
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+}
+
+.hb-music-bank:hover {
+  background: var(--theia-list-hoverBackground);
+}
+
+/*
+ * The active bank is marked by an underline AND a weight change, not colour
+ * alone: a colour-only indicator is invisible to anyone who cannot see that
+ * hue, and reads as no selection at all in a high-contrast theme.
+ */
+.hb-music-bank-active {
   font-weight: 600;
+  border-bottom-color: var(--theia-focusBorder);
 }
 
-.hb-music-view-table {
-  border-collapse: collapse;
+.hb-music-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Separates the user's name from the hex command beside it; without it
+     the two run together as one word. */
+  margin-right: 0.6em;
 }
 
-.hb-music-view-table th {
-  text-align: left;
-  font-weight: normal;
-  color: var(--theia-descriptionForeground);
-  padding: 0.2em 1.6em 0.2em 0;
-}
-
-.hb-music-view-table td {
+/* Two commands, one song. */
+.hb-music-shared {
+  margin-left: 0.6em;
   font-family: var(--theia-code-font-family);
-  padding: 0.2em 0;
+  color: var(--theia-descriptionForeground);
+  flex: none;
 }
 
-.hb-music-view-error {
+.hb-music-footer {
+  flex: none;
+  padding: 4px 8px;
+  border-top: 1px solid var(--theia-sideBarSectionHeader-border, transparent);
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+  display: flex;
+  gap: 0.8em;
+  align-items: baseline;
+}
+
+/*
+ * A refusal is prose, so it wraps and stacks rather than sitting on one
+ * line: truncating the reason would leave the user with a warning icon and
+ * no way to find out what it was about.
+ */
+.hb-music-refusal {
+  display: block;
+  color: var(--theia-editorWarning-foreground, var(--theia-descriptionForeground));
+  white-space: normal;
+}
+
+/* ── Transport ──────────────────────────────────────────────────────────── */
+
+.hb-music-transport {
+  flex: none;
+  padding: 5px 8px;
+  border-top: 1px solid var(--theia-sideBarSectionHeader-border, transparent);
+}
+
+.hb-music-buttons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.hb-music-btn {
+  background: none;
+  border: none;
+  color: var(--theia-foreground);
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+}
+
+.hb-music-btn:hover {
+  background: var(--theia-list-hoverBackground);
+}
+
+/* Elapsed time is a number that changes twice a second, so it is tabular
+   to stop the buttons beside it shifting as the digits change. */
+.hb-music-elapsed {
+  font-family: var(--theia-code-font-family);
+  font-size: var(--theia-ui-font-size0);
+  font-variant-numeric: tabular-nums;
+  margin: 0 0.5em 0 0.6em;
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-music-volicon {
+  color: var(--theia-descriptionForeground);
+  flex: none;
+}
+
+.hb-music-volume {
+  flex: 1;
+  min-width: 40px;
+  margin-left: 4px;
+}
+
+.hb-music-toggles {
+  display: flex;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.hb-music-toggle {
+  flex: 1;
+  padding: 2px 0;
+  font-family: var(--theia-ui-font-family);
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-foreground);
+  background: var(--theia-button-secondaryBackground, transparent);
+  border: 1px solid var(--theia-sideBarSectionHeader-border, var(--theia-descriptionForeground));
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+/*
+ * An engaged toggle is marked by weight and a border, not colour alone,
+ * for the same reason the active bank is: colour alone disappears in a
+ * high-contrast theme and for anyone who cannot see that hue.
+ */
+.hb-music-toggle-on {
+  font-weight: 600;
+  border-color: var(--theia-focusBorder);
+  background: var(--theia-button-background, var(--theia-list-activeSelectionBackground));
+  color: var(--theia-button-foreground, var(--theia-list-activeSelectionForeground));
+}
+
+.hb-music-playback-error {
+  margin-top: 4px;
   color: var(--theia-errorForeground);
+  white-space: normal;
+}
+
+/* ── Tree groups ────────────────────────────────────────────────────────── */
+
+/* Group and bank rows name a container, so they read as a heading rather
+   than as another track. */
+.hb-music-groupname {
+  font-weight: 600;
+  margin-right: 0.6em;
+}
+
+/* The speaker beside the row that is currently loaded into the player. */
+.hb-music-playing {
+  margin-left: 0.5em;
+  color: var(--theia-focusBorder);
+  flex: none;
 }
