@@ -91,23 +91,37 @@ export class WorkingRomRegistry {
 
   /**
    * The working copy for a project, loading and replaying its persisted
-   * layers on first access. Cached after that: the point of this class is
-   * that in-memory state (which services share it with) survives between
-   * calls in the same backend process.
+   * layers on first access. The point of this class is that in-memory state
+   * (which services share it with) survives between calls in the same
+   * backend process, so it is cached per manifest path for as long as the
+   * manifest's base ROM sha256 is unchanged. The manifest is re-read every
+   * call because a `git pull` can repoint it under a running backend.
    */
   get(manifestPath: string): WorkingRomResult {
-    const cached = this.cache.get(manifestPath)
-    if (cached) return { status: 'ok', ...cached }
-
     // openProject throws on a missing/corrupt/orphaned manifest, same as
-    // the block below throws on a bad cartridge - both are "we could not
-    // stand this project up", so both fold into the one `unreadable`
-    // result rather than one of them escaping as an unhandled rejection.
+    // the ROM-loading try below throws on a bad cartridge - both are "we
+    // could not stand this project up", so both fold into the one
+    // `unreadable` result rather than one of them escaping as an unhandled
+    // rejection. The cache entry is kept: a checkout can leave the manifest
+    // briefly missing, and a rebuilt instance would strand every view
+    // subscribed to the old one. A real base ROM change below does strand
+    // them; nothing yet tells those views to re-fetch.
     let project: Project
+    try {
+      project = openProject(manifestPath)
+    } catch (err) {
+      return { status: 'unreadable', reason: (err as Error).message }
+    }
+
+    const cached = this.cache.get(manifestPath)
+    if (cached && cached.project.baseRom.sha256 === project.baseRom.sha256) {
+      cached.project = project
+      return { status: 'ok', ...cached }
+    }
+
     let romPath: string
     let working: WorkingRom
     try {
-      project = openProject(manifestPath)
       const resolved = this.registry.resolve(project.baseRom.sha256)
       if (!resolved) return { status: 'rom-not-located', baseRom: project.baseRom }
       romPath = resolved
