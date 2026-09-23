@@ -212,6 +212,13 @@ async function liveCanvasIsAttached(page) {
 
 const VIEW = '#hackbench\\.emulator-view'
 
+/** The tab's own close button, the way a user closes it. */
+async function closeFromItsTab(page) {
+  const tab = page.locator('.lm-TabBar-tab[id$="hackbench.emulator-view"]')
+  await tab.hover()
+  await tab.locator('.lm-TabBar-tabCloseIcon').click()
+}
+
 /**
  * Energy before and after the volume stage, over windows where the core is
  * actually playing. Two taps, not one: the game's music swells, rests and
@@ -536,6 +543,69 @@ test('planted defect: a paused core reads as frozen on the real meter, not as ~6
 })
 
 /**
+ * Every control fits whichever panel the emulator is in: the short bottom
+ * panel it docks in, and the right side panel it can be dragged to, which
+ * opens narrower than one row of controls. Overflowing there, the volume
+ * button sat under the panel's scrollbar, which took the click, and the
+ * status was off-screen. Checked running, when the status reads "NN fps".
+ */
+test('in the bottom and right panels every control is inside the view, and it does not scroll', async ({
+  page,
+}) => {
+  test.setTimeout(120000)
+  const setup = await setupProject(page, path.join(tmp, 'Narrow'))
+  expect(setup.error).toBeUndefined()
+  await page.evaluate(async () => {
+    await revealEmulator()
+  })
+  await bootAndWaitForFrames(page, 30)
+  for (const area of ['bottom', 'right']) {
+    const layout = await page.evaluate(async area => {
+      const w = await getWidget('hackbench.emulator-view')
+      const shell = getSvc('ApplicationShell')
+      if (shell.getAreaFor(w) !== area) await shell.addWidget(w, { area })
+      await shell.activateWidget(w.id)
+      await new Promise(r => setTimeout(r, 300))
+      const view = w.node.getBoundingClientRect()
+      const controls = [...w.node.querySelectorAll('.hb-emulator-controls > *')]
+      return {
+        area: shell.getAreaFor(w),
+        overflow: [
+          w.node.scrollWidth - w.node.clientWidth,
+          w.node.scrollHeight - w.node.clientHeight,
+        ],
+        outside: controls
+          .filter(c => {
+            const r = c.getBoundingClientRect()
+            return (
+              r.left < view.left ||
+              r.right > view.right ||
+              r.top < view.top ||
+              r.bottom > view.bottom
+            )
+          })
+          .map(c => c.className),
+        count: controls.length,
+        // Tops differ within one row (align-items: center), so compare rows.
+        wrapped:
+          controls.at(-1).getBoundingClientRect().top >= controls[0].getBoundingClientRect().bottom,
+      }
+    }, area)
+    expect(layout.area).toBe(area)
+    expect(layout.count, `${area}: no controls rendered, so nothing was checked`).toBeGreaterThan(0)
+    // The right panel only tests the wrap if it is narrow enough to need it.
+    if (area === 'right') expect(layout.wrapped, 'right: the controls never wrapped').toBe(true)
+    expect(layout.outside, `${area}: controls outside the view`).toEqual([])
+    expect(layout.overflow, `${area}: the view scrolls`).toEqual([0, 0])
+    // Reachable, not only inside: a click lands on it rather than a scrollbar.
+    await page.locator(`${VIEW} .hb-volume-dropdown`).click({ timeout: 5000 })
+    await expect(page.locator(`${VIEW} .hb-volume-popover`)).toHaveCount(1)
+    await page.keyboard.press('Escape')
+    await expect(page.locator(`${VIEW} .hb-volume-popover`)).toHaveCount(0)
+  }
+})
+
+/**
  * Sound, and the volume split button, judged by what reaches the output.
  * An icon that flips to "muted" while the game keeps playing passes every
  * check on the button; only the measured level can fail it.
@@ -678,10 +748,7 @@ test('closing the tab stops the emulator completely', async ({ page }) => {
   // The heartbeat must be seen running, or "stopped" below proves nothing.
   expect(before.beats).toBeGreaterThan(5)
 
-  // The tab's own close button, the way a user closes it.
-  const tab = page.locator('.lm-TabBar-tab[id$="hackbench.emulator-view"]')
-  await tab.hover()
-  await tab.locator('.lm-TabBar-tabCloseIcon').click()
+  await closeFromItsTab(page)
   await expect(page.locator(VIEW)).toHaveCount(0)
 
   const after = await page.evaluate(async () => {
@@ -821,15 +888,21 @@ test('the core keeps running through maximize and moving the tab to another area
     await revealEmulator()
   })
   await bootAndWaitForFrames(page, 30)
-  await page.evaluate(() => {
+  const home = await page.evaluate(async () => {
     window.__hbCoreWindow = document.querySelector('iframe.hb-emulator-frame').contentWindow
+    return getSvc('ApplicationShell').getAreaFor(await getWidget('hackbench.emulator-view'))
   })
+  expect(home).toBe('bottom')
 
+  // Maximized in its own bottom panel, then through main and the right side
+  // panel (which Theia does not maximize) and home again.
+  const heights = {}
   for (const [step, area] of [
-    ['maximize', 'main'],
-    ['restore', 'main'],
-    ['bottom', 'bottom'],
+    ['maximize', 'bottom'],
+    ['restore', 'bottom'],
     ['main', 'main'],
+    ['right', 'right'],
+    ['bottom', 'bottom'],
   ]) {
     const s = await page.evaluate(async step => {
       const w = await getWidget('hackbench.emulator-view')
@@ -847,12 +920,14 @@ test('the core keeps running through maximize and moving the tab to another area
           window.__hbCoreWindow,
         audio: w.driver.audioOutput()?.context.state,
         area: shell.getAreaFor(w),
+        height: w.node.getBoundingClientRect().height,
         aspect: (() => {
           const r = w.node.querySelector('canvas').getBoundingClientRect()
           return r.height > 0 ? r.width / r.height : 0
         })(),
       }
     }, step)
+    heights[step] = s.height
     expect(s.area, step).toBe(area)
     expect(s.sameCore, `${step}: the core's document was replaced, so the game restarted`).toBe(
       true,
@@ -862,6 +937,8 @@ test('the core keeps running through maximize and moving the tab to another area
     // SNES output is 256:224 whatever the panel's shape.
     expect(Math.abs(s.aspect - 256 / 224), `${step}: aspect ${s.aspect}`).toBeLessThan(0.02)
   }
+  // A maximize that did nothing would pass every check above.
+  expect(heights.maximize, 'maximize did not grow the view').toBeGreaterThan(heights.restore + 100)
 })
 
 /**
@@ -1444,9 +1521,7 @@ test('save games live in the project and survive Stop, the poll and closing the 
   // Closing the tab flushes whatever the poll has not written yet.
   await holdPoll()
   await coreSaves(pattern(4))
-  const tab = page.locator('.lm-TabBar-tab[id$="hackbench.emulator-view"]')
-  await tab.hover()
-  await tab.locator('.lm-TabBar-tabCloseIcon').click()
+  await closeFromItsTab(page)
   await expect.poll(onDisk, { message: 'closing the tab lost the save' }).toEqual(pattern(4))
 })
 

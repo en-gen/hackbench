@@ -1,9 +1,8 @@
 /**
- * Reaches the emulator from a command (View menu, activity bar), and docks it
- * in the RIGHT activity bar: the left one holds the explorers over the ROM's
- * contents, and the emulator is consulted beside whatever is being edited.
- * Outline, which held that slot, is left out of the default layout
- * (hidden-outline-view-contribution.ts).
+ * Reaches the emulator from a command (View menu), and docks it in the
+ * BOTTOM panel beside Problems: the left activity bar holds the explorers
+ * over the ROM's contents, and a running game is consulted below whatever is
+ * being edited. It was in the right activity bar before (#472).
  *
  * A widget bound but never menu-contributed is registered and unreachable
  * (#379), which is why the command is contributed rather than only bound.
@@ -40,15 +39,15 @@ export class EmulatorContribution extends AbstractViewContribution<EmulatorWidge
     super({
       widgetId: EMULATOR_VIEW_ID,
       widgetName: 'Emulator',
-      defaultWidgetOptions: { area: 'right', rank: 100 },
+      defaultWidgetOptions: { area: 'bottom', rank: 100 },
       toggleCommandId: ShowEmulatorCommand.id,
     })
   }
 
   /**
-   * An icon in the right activity bar on first launch, collapsed: revealing
-   * would open the right panel and take width from the editor before anyone
-   * asked for the emulator.
+   * Added to the bottom panel on first launch without revealing it: revealing
+   * would open the panel and take height from the editor before anyone asked
+   * for the emulator.
    */
   async initializeLayout(): Promise<void> {
     await this.openView({ activate: false, reveal: false })

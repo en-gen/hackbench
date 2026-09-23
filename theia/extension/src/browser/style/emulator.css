@@ -22,6 +22,7 @@
 .hb-emulator-body {
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
   height: 100%;
   padding: 1em;
   gap: 0.8em;
@@ -55,10 +56,14 @@
   image-rendering: pixelated;
 }
 
+/* Wraps rather than overflowing: the right side panel opened 196px wide in
+   a 1280px window, narrower than one row of controls (264px), and the
+   overflow put the volume button under the panel's scrollbar. */
 .hb-emulator-controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 2px;
+  gap: 4px 2px;
   flex: none;
   padding-bottom: 0.5em;
 }
@@ -76,6 +81,7 @@
    same ones the Map16 view uses for playback. See docs/ui-conventions.md. */
 .hb-emulator-btn {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: center;
   width: 24px;

@@ -110,13 +110,13 @@ with no round trip through the frontend.
 
 Five views, each with a focus command in the `HackBench` category.
 **Maps**, **Graphics**, **Palettes** and **Audio** dock in the left
-sidebar; the **Emulator** docks in the right, so it can sit beside whatever
-you are editing.
+sidebar; the **Emulator** docks in the bottom panel beside Problems, so it
+can sit below whatever you are editing.
 
 Each view's side and ordering is its contribution's
 `defaultWidgetOptions`, in `theia/extension/src/browser/*-contribution.ts`.
 Read it there rather than trusting this paragraph: the emulator moved from
-the main area to the right sidebar in #472, while this branch was open.
+the main area to the right sidebar in #472, then to the bottom panel.
 Project-level commands (`New Project...`, `Open Project...`, `Open Recent
 Project...`, `Project Properties...`, `Export Patch`) live on the same
 category and are reachable from the File menu.
