@@ -1,13 +1,15 @@
 /**
- * Reaches the emulator from a command (View menu, activity bar), and opens it
- * in the MAIN editor area rather than the sidebar: a running game needs the
- * width, and there is one widget with no separate navigator beside it.
+ * Reaches the emulator from a command (View menu, activity bar), and docks it
+ * in the RIGHT activity bar: the left one holds the explorers over the ROM's
+ * contents, and the emulator is consulted beside whatever is being edited.
+ * Outline, which held that slot, is left out of the default layout
+ * (hidden-outline-view-contribution.ts).
  *
  * A widget bound but never menu-contributed is registered and unreachable
  * (#379), which is why the command is contributed rather than only bound.
  */
-import { inject, injectable } from '@theia/core/shared/inversify'
-import { AbstractViewContribution, WidgetManager } from '@theia/core/lib/browser'
+import { injectable } from '@theia/core/shared/inversify'
+import { AbstractViewContribution } from '@theia/core/lib/browser'
 import { Command, CommandRegistry } from '@theia/core/lib/common'
 import { EmulatorWidget, EMULATOR_VIEW_ID } from './emulator-widget'
 
@@ -34,20 +36,22 @@ export const ChangeCoreCommand: Command = {
 
 @injectable()
 export class EmulatorContribution extends AbstractViewContribution<EmulatorWidget> {
-  @inject(WidgetManager) protected readonly widgets!: WidgetManager
-
   constructor() {
     super({
       widgetId: EMULATOR_VIEW_ID,
       widgetName: 'Emulator',
-      defaultWidgetOptions: { area: 'main' },
+      defaultWidgetOptions: { area: 'right', rank: 100 },
       toggleCommandId: ShowEmulatorCommand.id,
     })
   }
 
-  /** Present but not focused on first launch, matching the palette view. */
+  /**
+   * An icon in the right activity bar on first launch, collapsed: revealing
+   * would open the right panel and take width from the editor before anyone
+   * asked for the emulator.
+   */
   async initializeLayout(): Promise<void> {
-    await this.openView({ activate: false, reveal: true })
+    await this.openView({ activate: false, reveal: false })
   }
 
   override registerCommands(registry: CommandRegistry): void {
@@ -57,7 +61,7 @@ export class EmulatorContribution extends AbstractViewContribution<EmulatorWidge
       // stealing focus to a widget the user was not looking at is rude. The
       // widget refreshes itself once the new core registers.
       execute: async () => {
-        const widget = await this.widgets.getOrCreateWidget<EmulatorWidget>(EMULATOR_VIEW_ID)
+        const widget = await this.openView({ activate: false, reveal: true })
         await widget.pickCore()
       },
     })

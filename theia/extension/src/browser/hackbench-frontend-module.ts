@@ -27,8 +27,12 @@ import { MapViewWidget, MAP_VIEW_ID } from './map-view-widget'
 import { ProjectFrontendClient } from './project-push-client'
 import { EditStackContribution } from './edit-stack-contribution'
 import { ReconnectContribution } from './reconnect-contribution'
+import { OutlineViewContribution } from '@theia/outline-view/lib/browser/outline-view-contribution'
+import { HiddenOutlineViewContribution } from './hidden-outline-view-contribution'
 
-export default new ContainerModule(bind => {
+export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
+  rebind(OutlineViewContribution).to(HiddenOutlineViewContribution).inSingletonScope()
+
   bind(ProjectFrontendClient).toSelf().inSingletonScope()
 
   // The frontend cannot touch the filesystem, so project creation is a proxy
