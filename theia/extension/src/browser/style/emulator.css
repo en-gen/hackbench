@@ -51,8 +51,9 @@
 .hb-emulator-controls {
   display: flex;
   align-items: center;
-  gap: 0.6em;
+  gap: 2px;
   flex: none;
+  padding-bottom: 0.5em;
 }
 
 .hb-emulator-status {
@@ -60,4 +61,30 @@
   font-family: var(--theia-code-font-family);
   font-size: var(--theia-ui-font-size0);
   color: var(--theia-descriptionForeground);
+}
+
+/* Transport buttons. Icon buttons rather than labelled ones: three controls
+   in a row of text would crowd a 256px-wide stage, and the glyphs are the
+   same ones the Map16 view uses for playback. See docs/ui-conventions.md. */
+.hb-emulator-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--theia-icon-foreground);
+  cursor: pointer;
+}
+
+.hb-emulator-btn:hover:not(:disabled) {
+  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.hb-emulator-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }

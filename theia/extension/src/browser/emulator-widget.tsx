@@ -153,7 +153,13 @@ export class EmulatorWidget extends ReactWidget {
     }
   }
 
-  protected async pickCore(): Promise<void> {
+  /**
+   * Public so the Change Emulator Core command can reach it. The empty
+   * state's button and the command palette must run the SAME picker, or
+   * they drift: the button validates through `locateCore` and this would
+   * be the second path that could forget to.
+   */
+  async pickCore(): Promise<void> {
     const props: OpenFileDialogProps = {
       title: "Select the core's Emscripten loader (.js)",
       canSelectFiles: true,
@@ -247,10 +253,47 @@ export class EmulatorWidget extends ReactWidget {
     }
   }
 
-  protected stop(): void {
+  /**
+   * Pause the core, keeping it booted.
+   *
+   * Named for what it does. `driver.stop()` calls `pauseMainLoop()` and
+   * leaves the module and its frame count alone, so `start()` resumes
+   * rather than re-reading the cartridge. The button said "Stop" and
+   * carried a stop glyph, which promised a teardown that never happened.
+   */
+  protected pause(): void {
     this.driver.stop()
     this.meter.stop()
     this.update()
+  }
+
+  /**
+   * Throw the running core away and boot a fresh one from the project's
+   * CURRENT working copy.
+   *
+   * This is the control that makes an edit visible. `romBytes` is captured
+   * when the view loads, so a palette change made afterwards is not in the
+   * running core's memory and no amount of stopping and starting will show
+   * it - `start()` resumes the booted module rather than re-reading the
+   * cartridge. Reload re-fetches, so the bytes the core runs are the bytes
+   * the working copy holds right now.
+   */
+  protected async reload(): Promise<void> {
+    if (this.busy) return
+    this.busy = true
+    this.error = undefined
+    this.meter.stop()
+    this.driver.dispose()
+    this.update()
+    try {
+      // refresh() re-reads the cartridge through the working copy and
+      // re-renders; start() then boots, since dispose() left nothing booted.
+      await this.refresh()
+      await this.start()
+    } finally {
+      this.busy = false
+      this.update()
+    }
   }
 
   protected override onActivateRequest(msg: Message): void {
@@ -297,23 +340,44 @@ export class EmulatorWidget extends ReactWidget {
     const running = this.driver.isRunning()
     return (
       <div className="hb-emulator-body">
-        <div className="hb-emulator-stage">
-          <canvas ref={this.canvasRef} className="hb-emulator-canvas" width={256} height={224} />
-        </div>
+        {/* Controls above the stage: a transport bar belongs at the top of
+            its panel, and the canvas is a fixed 256x224 that would otherwise
+            push them out of view at small heights. Codicons per
+            docs/ui-conventions.md. */}
         <div className="hb-emulator-controls">
+          {/* Resume once booted, not Start: driver.start() calls
+              resumeMainLoop() on the module that is already there. Only
+              Reload boots a new one. */}
           <button
-            className="theia-button"
+            className="hb-emulator-btn"
             disabled={this.busy || running}
+            title={this.driver.isBooted() ? 'Resume' : 'Start'}
+            aria-label={this.driver.isBooted() ? 'Resume' : 'Start'}
             onClick={() => this.start()}
           >
-            Start
+            <span className="codicon codicon-play" />
+          </button>
+          {/* Pause, and the glyph says so. This calls pauseMainLoop() and
+              keeps the core booted with its frame counter intact, so a stop
+              glyph would promise a teardown that does not happen. Reload is
+              the control that actually discards the core. */}
+          <button
+            className="hb-emulator-btn"
+            disabled={this.busy || !running}
+            title="Pause"
+            aria-label="Pause"
+            onClick={() => this.pause()}
+          >
+            <span className="codicon codicon-debug-pause" />
           </button>
           <button
-            className="theia-button secondary"
-            disabled={this.busy || !running}
-            onClick={() => this.stop()}
+            className="hb-emulator-btn"
+            disabled={this.busy}
+            title="Reload the cartridge from the working copy"
+            aria-label="Reload"
+            onClick={() => void this.reload()}
           >
-            Stop
+            <span className="codicon codicon-refresh" />
           </button>
           <span className="hb-emulator-status">
             {this.error
@@ -322,8 +386,11 @@ export class EmulatorWidget extends ReactWidget {
                 ? 'not started'
                 : running
                   ? `${this.fps} fps (frame ${this.frameCount})`
-                  : `stopped (frame ${this.frameCount})`}
+                  : `paused (frame ${this.frameCount})`}
           </span>
+        </div>
+        <div className="hb-emulator-stage">
+          <canvas ref={this.canvasRef} className="hb-emulator-canvas" width={256} height={224} />
         </div>
       </div>
     )

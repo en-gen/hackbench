@@ -2,13 +2,17 @@
  * Backend half of the emulator service.
  *
  * Thin on purpose, same rule as project-server.ts: bookkeeping lives in
- * CoreRegistry and RomRegistry, which are shell-free and unit tested without
- * Theia.
+ * CoreRegistry and WorkingRomRegistry, which are shell-free and unit tested
+ * without Theia.
+ *
+ * The cartridge handed to the core is the project's WORKING COPY, every
+ * edit layer applied - the same bytes an export would write. It used to be
+ * `fs.readFileSync` of the base cartridge, so booting the emulator after
+ * editing a palette showed the unedited cart and the edit looked lost.
  */
-import { injectable } from '@theia/core/shared/inversify'
-import * as fs from 'fs'
-import { openProject } from '../../../../src/project/Project'
-import { RomRegistry } from '../../../../src/project/RomRegistry'
+import { inject, injectable } from '@theia/core/shared/inversify'
+import * as fs from 'fs' // core files only; the cartridge comes from the working copy
+import { WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
 import { CoreRegistry } from '../../../../src/project/CoreRegistry'
 import {
   CoreFilesResult,
@@ -20,7 +24,8 @@ import {
 
 @injectable()
 export class EmulatorServiceImpl implements EmulatorService {
-  private readonly roms = new RomRegistry()
+  @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
+
   private readonly cores = new CoreRegistry()
 
   async registeredCore(): Promise<CoreIdentityDto | undefined> {
@@ -60,11 +65,15 @@ export class EmulatorServiceImpl implements EmulatorService {
    * to cross.
    */
   async romForEmulator(manifestPath: string): Promise<EmulatorRomResult> {
-    const project = openProject(manifestPath)
-    const romPath = this.roms.resolve(project.baseRom.sha256)
-    if (!romPath) {
-      return { status: 'rom-not-located', baseRom: { title: project.baseRom.title } }
+    const r = this.workingRoms.get(manifestPath)
+    if (r.status === 'rom-not-located') {
+      return { status: 'rom-not-located', baseRom: { title: r.baseRom.title } }
     }
-    return { status: 'ok', romBytes: new Uint8Array(fs.readFileSync(romPath)) }
+    if (r.status !== 'ok') {
+      return { status: 'rom-not-located', baseRom: { title: 'the base cartridge' } }
+    }
+    // A COPY, not the registry's buffer: this crosses the RPC boundary and
+    // the working copy's own cache must not be handed out by reference.
+    return { status: 'ok', romBytes: Uint8Array.from(r.working.bytes()) }
   }
 }
