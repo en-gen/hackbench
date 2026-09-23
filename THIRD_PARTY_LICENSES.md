@@ -15,17 +15,24 @@ on any distribution of HackBench (not just on its own source).
 - **License:** LGPL-2.1-only
 - **Copyright:** Telinc1
 - **Upstream:** https://github.com/telinc1/smwcentral-spc-player
-- **Used for:** SPC700 audio playback in the music player webview.
+- **Used for:** SPC700 audio playback in the Music panel.
+- **Contains:** Blargg's snes_spc and logic from cosinusoidally's
+  snes_spc_js, both LGPL-2.1 in their own right (upstream README).
 
-HackBench distributes this library bundled into its webview JavaScript
-output. Under LGPL-2.1 §6, users are entitled to replace the library
-with a modified version. To exercise that right:
+The Theia shell does NOT bundle this library. `dist/spc.js` and
+`dist/spc.wasm` are served as files, straight out of `node_modules`, by
+`theia/extension/src/node/spc-assets.ts`, and the frontend loads them by
+URL. That makes the LGPL-2.1 §6 relink right easier to exercise, not
+harder: replacing the files replaces the library, with no rebuild of
+anything that links against it.
 
-1. Fork this repository.
-2. Replace `node_modules/@smwcentral/spc-player` with your modified
-   build (same directory layout - `dist/spc.js` is the entry point).
-3. Run `npm run compile` (webpack rebuilds the music player webview
-   against your modified copy).
+1. Replace `node_modules/@smwcentral/spc-player/dist/spc.js` and
+   `spc.wasm` with your modified build.
+2. Restart the app. The Theia shell picks them up on next load.
+
+The legacy VS Code extension under `src/webview/` still bundles the
+library into its webview output through webpack, so a modified copy there
+needs `npm run compile` as well.
 
 The full text of the LGPL-2.1 is available at
 https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html and in the

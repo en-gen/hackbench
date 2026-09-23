@@ -50,13 +50,13 @@ function readUploadAddress(rom: RomFile, routineAddr: number): number {
 
 // ── SPC file format constants ────────────────────────────────────────────────
 
-const SPC_HEADER_SIZE = 256
-const ARAM_SIZE = 65536
-const DSP_REG_SIZE = 128
+export const SPC_HEADER_SIZE = 256
+export const ARAM_SIZE = 65536
+export const DSP_REG_SIZE = 128
 const SPC_FILE_SIZE = SPC_HEADER_SIZE + ARAM_SIZE + DSP_REG_SIZE
 
 /** SPC file signature: "SNES-SPC700 Sound File Data v0.30" + 0x1A1A */
-const SPC_SIGNATURE = 'SNES-SPC700 Sound File Data v0.30\x1A\x1A'
+export const SPC_SIGNATURE = 'SNES-SPC700 Sound File Data v0.30\x1A\x1A'
 
 // ── ROM block parser ─────────────────────────────────────────────────────────
 
@@ -138,10 +138,39 @@ function buildAram(
  * @param musicBank    Which music bank to use: 'level' | 'overworld' | 'credits'
  * @returns            Uint8Array containing a valid .spc file, or null on failure
  */
+/**
+ * Extra SPC I/O port values baked into the snapshot alongside the BGM
+ * command.
+ *
+ * These exist because the player engine loads a 64 KB ARAM snapshot and
+ * exposes no way to write a port afterwards, so a control that the game
+ * implements as a single port write has to be set BEFORE the snapshot is
+ * handed over. A caller toggling one rebuilds and reloads, which restarts
+ * the track; that is a limitation of the player, not of the ROM.
+ *
+ * The SNES writes $2140-$2143 and the SPC reads $F4-$F7, and the game
+ * mirrors SPCIO0-3 ($1DF9-$1DFC) onto them in NMI (bank_00.asm:213-218).
+ * So port 0 is $F4, port 1 is $F5 and port 2 is $F6.
+ */
+export interface SpcPorts {
+  /**
+   * Port 0. $FF is `!SFX_HURRYUP` (constants.asm:322), the byte
+   * UpdateStatusBar writes when the timer ticks to 099 (bank_00.asm:1591).
+   * It both plays the jingle and speeds the music up.
+   */
+  port0?: number
+  /**
+   * Port 1. $02 is `!SFX_YOSHIDRUMON` and $03 `!SFX_YOSHIDRUMOFF`
+   * (constants.asm:325-326). Port 1 carries only four commands in total.
+   */
+  port1?: number
+}
+
 export function buildSpc(
   rom: RomFile,
   bgmCommand: number,
   musicBank: 'level' | 'overworld' | 'credits' = 'level',
+  ports: SpcPorts = {},
 ): Uint8Array | null {
   // Determine music bank ROM address
   let bankRoutineAddr: number
@@ -204,6 +233,15 @@ export function buildSpc(
   // engine to process the command on the first main loop iteration.
   aram[0xf6] = bgmCommand
   aram[0x0c] = bgmCommand
+
+  // Ports 0 and 1, when the caller wants a control the game drives with a
+  // single port write: hurry-up on port 0, Yoshi drums on port 1. Left
+  // untouched when absent, so the default snapshot is exactly what the
+  // engine sees on an ordinary track change.
+  // No byte mask: `aram` is a Uint8Array and truncates on assignment, so a
+  // mask here would be code that no test could turn red.
+  if (ports.port0 !== undefined) aram[0xf4] = ports.port0
+  if (ports.port1 !== undefined) aram[0xf5] = ports.port1
 
   // ── Build SPC file ──
   const spc = new Uint8Array(SPC_FILE_SIZE)
@@ -277,6 +315,33 @@ function uploadRoutineIntact(rom: RomFile, routineAddr: number): boolean {
 }
 
 /**
+ * The routine a `JSR abs` at `callSite` transfers to, or null when the call
+ * site no longer holds a JSR.
+ *
+ * The bank comes from the CALL SITE, not from a constant: a JSR is
+ * bank-local, so the callee is wherever the operand points within the bank
+ * the JSR itself sits in.
+ *
+ * No check is made that the operand is above $8000. It reads like one is
+ * needed - the low half of a LoROM bank is WRAM and registers, not code -
+ * but `loromToOffset` already returns null for any address under $8000 in
+ * banks $00-$3F (addressing.ts:51), so every subsequent read of such a
+ * target fails and the shape gate refuses. A guard here would be dead code
+ * with a test that could not go red.
+ *
+ * Measured across the six-cartridge corpus: the three stock carts hold JSR
+ * at each of the three music call sites, and all three AddmusicK carts hold
+ * $80 (BRA) at every one of them.
+ */
+function calleeOf(rom: RomFile, callSite: number): number | null {
+  if (rom.readByte(callSite) !== OPCODE_JSR) return null
+  const lo = rom.readByte(callSite + 1)
+  const hi = rom.readByte(callSite + 2)
+  if (lo === null || hi === null) return null
+  return (callSite & 0xff0000) | (hi << 8) | lo
+}
+
+/**
  * Locate the level music bank's upload routine by tracing the actual call
  * path from LEVEL_LOAD_MUSIC_CALL_SITE, gating on the opcode at every hop,
  * rather than trusting a fixed address for the routine itself: a routine a
@@ -284,11 +349,8 @@ function uploadRoutineIntact(rom: RomFile, routineAddr: number): boolean {
  * docs/music-bank-song-table.md.
  */
 function locateLevelMusicUploadRoutine(rom: RomFile): number | null {
-  if (rom.readByte(LEVEL_LOAD_MUSIC_CALL_SITE) !== OPCODE_JSR) return null
-  const calleeLo = rom.readByte(LEVEL_LOAD_MUSIC_CALL_SITE + 1)
-  const calleeHi = rom.readByte(LEVEL_LOAD_MUSIC_CALL_SITE + 2)
-  if (calleeLo === null || calleeHi === null) return null
-  const uploadLevelMusic = 0x008000 | (calleeHi << 8) | calleeLo
+  const uploadLevelMusic = calleeOf(rom, LEVEL_LOAD_MUSIC_CALL_SITE)
+  if (uploadLevelMusic === null) return null
 
   // UploadLevelMusic opens LDA.W BonusGameActivate; BNE takes the common
   // "loading a new level" path straight to the upload routine
@@ -314,6 +376,98 @@ export function getLevelMusicBankAddrIfReadable(rom: RomFile): number | null {
   return routine === null ? null : readUploadAddress(rom, routine)
 }
 
+/** An engine-and-samples ARAM image, and where the engine code landed. */
+export interface EngineImage {
+  /** 64 KB of ARAM holding the SPC engine and the BRR samples. */
+  aram: Uint8Array
+  /** ARAM address the engine's first block uploaded to. */
+  engineLo: number
+  /** One past the last byte of that block. */
+  engineHi: number
+  /**
+   * Every block the engine upload wrote, in order.
+   *
+   * Kept rather than discarded because a reader needs the span of the
+   * block a table lives in as a real read bound. The stock engine uploads
+   * three, and the tables and phrases are all in the second.
+   */
+  blocks: ReadonlyArray<{ dest: number; size: number }>
+}
+
+/**
+ * Upload the engine and the samples, and say where the engine code sits.
+ *
+ * No music bank: sound effects live in the engine upload's second block
+ * (`SoundEffects`, bank_0E.asm:2025), so this image already holds them.
+ * See docs/sfx-tables.md.
+ *
+ * Gated, unlike `buildAram`. Both upload routines have to still be the
+ * shape `readUploadAddress` assumes, or the addresses it derives name
+ * blocks this ROM never uploads.
+ *
+ * `engineLo`/`engineHi` bound the FIRST block only, which is where the
+ * stock readers and init sequence sit on all six corpus ROMs. That is a
+ * measurement, not an invariant: the stock engine uploads three blocks and
+ * a hack could emit them in another order, in which case a perfectly good
+ * reader is not found and the caller refuses. That fails closed, which is
+ * the right direction, but it is a false negative rather than a guarantee.
+ * `blocks` carries all of them so a caller can bound differently.
+ */
+export function buildEngineImage(rom: RomFile): EngineImage | null {
+  if (!uploadRoutineIntact(rom, UPLOAD_SPC_ENGINE)) return null
+  if (!uploadRoutineIntact(rom, UPLOAD_SAMPLES)) return null
+
+  const aram = new Uint8Array(ARAM_SIZE)
+  const engineBlocks = uploadBlockSpans(rom, readUploadAddress(rom, UPLOAD_SPC_ENGINE), aram)
+  if (engineBlocks.length === 0) return null
+  // Checked for outcome, not only for shape. A samples walk that yields
+  // nothing leaves a well-formed snapshot with no BRR data, which plays as
+  // silence and is indistinguishable from an empty phrase.
+  if (uploadBlockSpans(rom, readUploadAddress(rom, UPLOAD_SAMPLES), aram).length === 0) return null
+
+  const first = engineBlocks[0]
+  return {
+    aram,
+    engineLo: first.dest,
+    engineHi: first.dest + first.size,
+    blocks: engineBlocks,
+  }
+}
+
+/**
+ * The same walk `uploadBlocks` does, reporting each block's ARAM span.
+ *
+ * Separate from `uploadBlocks` rather than replacing it: that one returns
+ * the first destination and is called from three places on the music path,
+ * and widening its return type to serve one new caller would churn all of
+ * them for nothing.
+ */
+function uploadBlockSpans(
+  rom: RomFile,
+  romAddr: number,
+  aram: Uint8Array,
+): Array<{ dest: number; size: number }> {
+  const spans: Array<{ dest: number; size: number }> = []
+  let offset = romAddr
+
+  for (;;) {
+    const header = rom.readAt(offset, 4)
+    if (!header) break
+    const size = header[0] | (header[1] << 8)
+    const dest = header[2] | (header[3] << 8)
+    if (size === 0) break // terminator
+
+    const data = rom.readAt(offset + 4, size)
+    if (!data) break
+
+    const end = Math.min(size, ARAM_SIZE - dest)
+    for (let i = 0; i < end; i++) aram[dest + i] = data[i]
+    spans.push({ dest, size: end })
+    offset += 4 + size
+  }
+  return spans
+}
+
 /** Get the ROM address of the overworld music bank (Bank 1). */
 export function getOverworldMusicBankAddr(rom: RomFile): number {
   return readUploadAddress(rom, UPLOAD_MUSIC_BANK1)
@@ -322,6 +476,54 @@ export function getOverworldMusicBankAddr(rom: RomFile): number {
 /** Get the ROM address of the credits music bank (Bank 3). */
 export function getCreditsMusicBankAddr(rom: RomFile): number {
   return readUploadAddress(rom, UPLOAD_MUSIC_BANK3)
+}
+
+/**
+ * `JSR UploadMusicBank1` on the title-screen load path (bank_00.asm:2623).
+ * UploadMusicBank1 is called from two places on a stock cart, $0096C3 and
+ * $00A0B3; either would do as an anchor, and this is the earlier one.
+ */
+const OVERWORLD_MUSIC_CALL_SITE = 0x0096c3
+
+/** `JSR UploadCreditsMusic` on the credits load path (bank_00.asm:183). */
+const CREDITS_MUSIC_CALL_SITE = 0x0094a0
+
+/**
+ * The overworld and credits banks reached the same way as the level bank:
+ * from a call site, gating on the opcode there and on the routine's shape.
+ *
+ * Neither had a gate before, and the credits one is why this matters. On all
+ * three AddmusicK carts in the corpus the credits upload routine at $008159
+ * is BYTE-IDENTICAL to stock and still holds the stock operands, so every
+ * check anchored on the routine itself passes and getCreditsMusicBankAddr
+ * hands back $03E400 with full confidence. Nothing calls it: $0094A0 holds
+ * $80 (BRA), not JSR. Existing is not the same as reached, and without this
+ * the bank switcher would play a stock credits soundtrack for a cart that
+ * has replaced its music wholesale.
+ *
+ * Unlike the level bank there is no guard to hop: both routines begin the
+ * LDA #imm / STA.W triple directly (bank_00.asm:145, 183).
+ */
+function bankAddrIfReached(rom: RomFile, callSite: number): number | null {
+  const routine = calleeOf(rom, callSite)
+  if (routine === null) return null
+  return uploadRoutineIntact(rom, routine) ? readUploadAddress(rom, routine) : null
+}
+
+/**
+ * The overworld music bank's ROM address, or null when the path to its
+ * upload routine cannot be verified.
+ */
+export function getOverworldMusicBankAddrIfReadable(rom: RomFile): number | null {
+  return bankAddrIfReached(rom, OVERWORLD_MUSIC_CALL_SITE)
+}
+
+/**
+ * The credits music bank's ROM address, or null when the path to its upload
+ * routine cannot be verified.
+ */
+export function getCreditsMusicBankAddrIfReadable(rom: RomFile): number | null {
+  return bankAddrIfReached(rom, CREDITS_MUSIC_CALL_SITE)
 }
 
 interface BankHeader {

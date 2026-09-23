@@ -34,15 +34,31 @@ export type BytePattern = readonly number[]
  *               only where the count itself is the verdict.
  */
 export function findPattern(rom: RomFile, pattern: BytePattern, limit = Infinity): number[] {
-  const buf = rom.buffer
   const base = rom.hasHeader ? COPIER_HEADER_SIZE : 0
-  const last = rom.romSize - pattern.length
-  const hits: number[] = []
+  return findInBytes(rom.buffer, pattern, base, base + rom.romSize, limit).map(at => at - base)
+}
 
-  for (let at = 0; at <= last; at++) {
+/**
+ * The same scan over a plain byte range, for buffers that are not a cart.
+ *
+ * SfxTables searches an ARAM image rather than a ROM: same nested loop,
+ * same wildcard, no copier header and no cart-relative convention to
+ * apply. Offsets returned are absolute within `bytes`.
+ */
+export function findInBytes(
+  bytes: Uint8Array,
+  pattern: BytePattern,
+  lo: number,
+  hi: number,
+  limit = Infinity,
+): number[] {
+  const hits: number[] = []
+  const last = hi - pattern.length
+
+  for (let at = lo; at <= last; at++) {
     let ok = true
     for (let k = 0; k < pattern.length; k++) {
-      if (pattern[k] !== WILD && buf[base + at + k] !== pattern[k]) {
+      if (pattern[k] !== WILD && bytes[at + k] !== pattern[k]) {
         ok = false
         break
       }

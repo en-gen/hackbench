@@ -13,7 +13,6 @@ import {
 } from '@theia/core/lib/browser/messaging/service-connection-provider'
 import { MUSIC_SERVICE_PATH, MusicService } from '../common/music-protocol'
 import { createMusicExplorerWidget, MUSIC_EXPLORER_ID } from './music-explorer-widget'
-import { MusicViewWidget, MUSIC_VIEW_ID } from './music-view-widget'
 import { MusicExplorerContribution } from './music-explorer-contribution'
 
 export default new ContainerModule(bind => {
@@ -32,16 +31,6 @@ export default new ContainerModule(bind => {
     .toDynamicValue(ctx => ({
       id: MUSIC_EXPLORER_ID,
       createWidget: () => createMusicExplorerWidget(ctx.container),
-    }))
-    .inSingletonScope()
-
-  // One widget per track, keyed by BGM command, so reopening a track focuses
-  // the one already on screen instead of stacking duplicates.
-  bind(MusicViewWidget).toSelf()
-  bind(WidgetFactory)
-    .toDynamicValue(ctx => ({
-      id: MUSIC_VIEW_ID,
-      createWidget: () => ctx.container.get(MusicViewWidget),
     }))
     .inSingletonScope()
 
