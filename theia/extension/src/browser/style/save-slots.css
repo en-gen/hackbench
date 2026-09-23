@@ -44,8 +44,8 @@
   top: calc(100% + 4px);
   left: 0;
   z-index: 100;
-  min-width: 260px;
-  max-width: 360px;
+  min-width: min(260px, 100cqw);
+  max-width: min(360px, 100cqw);
   padding: 4px 0;
   background: var(--theia-menu-background);
   color: var(--theia-menu-foreground);

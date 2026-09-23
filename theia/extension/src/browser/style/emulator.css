@@ -26,6 +26,8 @@
   height: 100%;
   padding: 1em;
   gap: 0.8em;
+  /* The save menu caps its width to this, for the narrow right panel. */
+  container-type: inline-size;
   color: var(--theia-foreground);
 }
 
