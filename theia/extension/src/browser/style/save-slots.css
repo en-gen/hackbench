@@ -1,0 +1,173 @@
+/*
+ * The save-slot dropdown (save-slot-picker.tsx). Themed tokens only, per
+ * style/index.css; menu colours from the theme's menu tokens, the same ones
+ * Theia's own context menus use.
+ */
+
+.hb-saves {
+  position: relative;
+}
+
+.hb-saves-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  max-width: 220px;
+  padding: 0 4px 0 6px;
+  border: 1px solid var(--theia-dropdown-border, var(--theia-editorWidget-border));
+  border-radius: 4px;
+  background: transparent;
+  color: var(--theia-foreground);
+  cursor: pointer;
+}
+
+.hb-saves-toggle:hover:not(:disabled) {
+  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.hb-saves-toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.hb-saves-current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--theia-ui-font-size1);
+}
+
+/* Opens downward: the transport bar sits at the top of its panel. */
+.hb-saves-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 100;
+  min-width: 260px;
+  max-width: 360px;
+  padding: 4px 0;
+  background: var(--theia-menu-background);
+  color: var(--theia-menu-foreground);
+  border: 1px solid var(--theia-menu-border, var(--theia-editorWidget-border));
+  border-radius: 4px;
+  box-shadow: 0 2px 8px var(--theia-widget-shadow);
+}
+
+.hb-saves-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px 0 0;
+}
+
+.hb-saves-item:hover {
+  background: var(--theia-menu-selectionBackground);
+  color: var(--theia-menu-selectionForeground);
+}
+
+.hb-saves-menu button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.hb-saves-pick,
+.hb-saves-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  text-align: left;
+}
+
+/* Outranks `.hb-saves-menu button { border: none }`. */
+.hb-saves-menu .hb-saves-new {
+  width: 100%;
+  margin-top: 4px;
+  border-top: 1px solid var(--theia-menu-separatorBackground, var(--theia-editorWidget-border));
+}
+
+.hb-saves-new:hover {
+  background: var(--theia-menu-selectionBackground);
+  color: var(--theia-menu-selectionForeground);
+}
+
+.hb-saves-check {
+  visibility: hidden;
+}
+
+.hb-saves-selected .hb-saves-check {
+  visibility: visible;
+}
+
+.hb-saves-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-saves-note {
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-saves-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  opacity: 0.7;
+}
+
+.hb-saves-action:hover:not(:disabled) {
+  opacity: 1;
+  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.hb-saves-action:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.hb-saves-rename {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  margin: 1px 2px 1px 8px;
+  padding: 0 6px;
+  color: var(--theia-input-foreground);
+  background: var(--theia-input-background);
+  border: 1px solid var(--theia-focusBorder);
+  border-radius: 2px;
+  outline: none;
+}
+
+/* Other .srm files in saves/, offered for import. */
+.hb-saves-foreign {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--theia-menu-separatorBackground, var(--theia-editorWidget-border));
+}
+
+.hb-saves-heading {
+  padding: 2px 8px 2px 30px;
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-saves-foreign-name {
+  flex: 1;
+  min-width: 0;
+  padding-left: 30px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

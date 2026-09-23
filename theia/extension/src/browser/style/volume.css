@@ -1,0 +1,102 @@
+/*
+ * The volume split button (volume-split-button.tsx). Themed tokens only, per
+ * style/index.css. Self-contained rather than borrowing .hb-emulator-btn,
+ * because other views that play sound will reuse this control.
+ */
+
+/* One bordered control split by a divider, as a split button is drawn
+   (Bootstrap's split dropdown, VS Code's dropdown-with-primary): two
+   borderless buttons side by side read as two separate controls. */
+.hb-volume {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  height: 22px;
+  border: 1px solid var(--theia-dropdown-border, var(--theia-editorWidget-border));
+  border-radius: 4px;
+}
+
+.hb-volume button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--theia-icon-foreground);
+  cursor: pointer;
+}
+
+.hb-volume-mute {
+  width: 24px;
+  border-radius: 3px 0 0 3px;
+}
+
+/* Outranks `.hb-volume button { border: none }`. */
+.hb-volume .hb-volume-dropdown {
+  width: 16px;
+  border-left: 1px solid var(--theia-dropdown-border, var(--theia-editorWidget-border));
+  border-radius: 0 3px 3px 0;
+}
+
+.hb-volume-dropdown .codicon {
+  font-size: 12px;
+}
+
+.hb-volume button:hover:not(:disabled) {
+  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.hb-volume button:disabled {
+  cursor: default;
+}
+
+/* Faded as one control: fading each half would leave the outer border,
+   which belongs to the group, at full strength. */
+.hb-volume:has(button:disabled) {
+  opacity: 0.4;
+}
+
+/* Opens downward: the transport bar sits at the top of its panel. */
+.hb-volume-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px 6px;
+  background: var(--theia-menu-background);
+  border: 1px solid var(--theia-menu-border, var(--theia-editorWidget-border));
+  border-radius: 4px;
+  box-shadow: 0 2px 8px var(--theia-widget-shadow);
+}
+
+.hb-volume-popover input[type='range'] {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 22px;
+  height: 96px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--theia-focusBorder);
+}
+
+/* It takes focus when the popover opens, so arrow keys work at once; the
+   theme's focus ring would then frame it permanently. The popover itself
+   already marks what has focus. */
+.hb-volume-popover input[type='range']:focus {
+  outline: none;
+}
+
+.hb-volume-readout {
+  /* Widest text it shows is "Muted"; a fixed width keeps the popover from
+     changing size as the level goes from 1 to 3 digits. */
+  width: 6ch;
+  text-align: center;
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+  font-variant-numeric: tabular-nums;
+}

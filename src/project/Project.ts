@@ -18,6 +18,8 @@
  *     MyHack.hbproj      this manifest
  *     levels/            per-level patch layers
  *     snapshots/         squashed save points
+ *     saves/             the emulator's save game (SRAM: the game's own
+ *                        progress data, not ROM content; see SaveStore.ts)
  *
  * Directory names are FIXED, not derived from the project name, so renaming
  * the manifest cannot orphan the layers.
@@ -36,6 +38,7 @@ export const SCHEMA_VERSION = 1
 /** Fixed, because renaming the manifest must not orphan the data. */
 export const LEVELS_DIR = 'levels'
 export const SNAPSHOTS_DIR = 'snapshots'
+export const SAVES_DIR = 'saves'
 
 /**
  * Which cartridge a project is built against.
