@@ -10,7 +10,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { RomRegistry } from '../../../src/project/RomRegistry'
-import { createProject } from '../../../src/project/Project'
+import { createProject, RomIdentity } from '../../../src/project/Project'
 import { WorkingRomRegistry } from '../../../src/project/WorkingRomRegistry'
 import { loadLayers, loadRedoLayers } from '../../../src/project/OpsStore'
 import { loromToOffset } from '../../../src/rom/addressing'
@@ -122,6 +122,68 @@ describe('WorkingRomRegistry', () => {
     const b = working.get(manifestPath)
     if (a.status !== 'ok' || b.status !== 'ok') throw new Error('unreachable')
     expect(a.working).toBe(b.working)
+  })
+
+  // The cache is keyed by path; a `git pull` can repoint the manifest under it.
+  describe('the cached copy follows the manifest base ROM identity', () => {
+    function rewriteBaseRom(manifestPath: string, baseRom: Partial<RomIdentity>): void {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+      manifest.baseRom = { ...manifest.baseRom, ...baseRom }
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest))
+    }
+
+    it('reports rom-not-located once the manifest names a ROM not on this machine', () => {
+      const { manifestPath } = makeProject()
+      expect(working.get(manifestPath).status).toBe('ok')
+      rewriteBaseRom(manifestPath, { sha256: 'f'.repeat(64), title: 'SOMEONE ELSES ROM' })
+      const r = working.get(manifestPath)
+      expect(r.status).toBe('rom-not-located')
+      if (r.status !== 'rom-not-located') throw new Error('unreachable')
+      expect(r.baseRom.title).toBe('SOMEONE ELSES ROM')
+    })
+
+    it('loads the newly named ROM when it is registered, not the cached one', () => {
+      const { manifestPath } = makeProject()
+      const before = working.get(manifestPath)
+      if (before.status !== 'ok') throw new Error('unreachable')
+
+      const other = fakeRom()
+      other[0] ^= 0xff
+      const otherPath = path.join(tmp, 'other.sfc')
+      fs.writeFileSync(otherPath, other)
+      const otherIdentity = romRegistry.register(otherPath)
+      rewriteBaseRom(manifestPath, { sha256: otherIdentity.sha256 })
+
+      const after = working.get(manifestPath)
+      if (after.status !== 'ok') throw new Error('unreachable')
+      expect(after.working).not.toBe(before.working)
+      expect(after.romPath).toBe(otherPath)
+      expect(after.working.bytes()[0]).toBe(other[0])
+    })
+
+    it('reports unreadable while the manifest is gone, and the same copy once it is back', () => {
+      const { manifestPath } = makeProject()
+      const a = working.get(manifestPath)
+      const saved = fs.readFileSync(manifestPath)
+      fs.rmSync(manifestPath)
+      expect(working.get(manifestPath).status).toBe('unreadable')
+      fs.writeFileSync(manifestPath, saved)
+      const b = working.get(manifestPath)
+      if (a.status !== 'ok' || b.status !== 'ok') throw new Error('unreachable')
+      expect(b.working).toBe(a.working)
+    })
+
+    it('keeps the in-memory copy, edits included, when only the title changes', () => {
+      const { manifestPath } = makeProject()
+      working.setWord(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex: '$391F', newHex: '$03E0' })
+      const a = working.get(manifestPath)
+      rewriteBaseRom(manifestPath, { title: 'RETITLED' })
+      const b = working.get(manifestPath)
+      if (a.status !== 'ok' || b.status !== 'ok') throw new Error('unreachable')
+      expect(b.working).toBe(a.working)
+      expect(b.working.stack).toHaveLength(1)
+      expect(b.project.baseRom.title).toBe('RETITLED')
+    })
   })
 
   /**
