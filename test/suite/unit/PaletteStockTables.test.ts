@@ -7,7 +7,7 @@ import {
   countCustomPaletteLevels,
   AttributedGroup,
 } from '../../../src/rom/PaletteStockTables'
-import { loadRomPalettes, loadBackAreaColors } from '../../../src/rom/PaletteLoader'
+import { loadRomPalettes, loadBackAreaColors, ADDR_BACK_AREA } from '../../../src/rom/PaletteLoader'
 
 const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
 const romPresent = existsSync(ROM_PATH)
@@ -115,20 +115,6 @@ describe.skipIf(!romPresent)('buildStockTables (vanilla cart)', () => {
     }
   })
 
-  it('column 0 of CGRAM row 0 reads BackAreaColors for every bg variant, matching loadBackAreaColors', () => {
-    const { rom, groups } = load()
-    const bg = groups.find(g => g.id === 'bg')!
-    // Independently loaded, not read back off buildStockTables' own output.
-    const backAreaColors = loadBackAreaColors(rom)
-    bg.variants.forEach((v, vi) => {
-      expect(v.rows[0][0], `bg variant ${vi}`).toMatchObject({
-        written: true,
-        table: 'BackAreaColors',
-        color: backAreaColors[vi],
-      })
-    })
-  })
-
   /**
    * Back Area Colors: a standalone group, not a field riding along with each
    * bg variant. That pairing implied a link the cartridge does not have -
@@ -154,13 +140,7 @@ describe.skipIf(!romPresent)('buildStockTables (vanilla cart)', () => {
     })
   })
 
-  it('sits directly after Layer 2 Background in the group order', () => {
-    const ids = load().groups.map(g => g.id)
-    const bgIndex = ids.indexOf('bg')
-    expect(ids[bgIndex + 1]).toBe('back_area')
-  })
-
-  it('column 0 of every OTHER row is unwritten, not a fabricated backdrop reading', () => {
+  it('column 0 is unwritten, not a fabricated backdrop reading', () => {
     expect(group('bg').variants[0].rows[1][0]).toEqual({
       written: false,
       color: null,
@@ -253,5 +233,47 @@ describe('col1 opcode gate', () => {
       table: null,
       romAddr: null,
     })
+  })
+})
+
+describe('group order', () => {
+  it('lists player, sprites, layer 1, layer 2, then back area colors', () => {
+    const buf = Buffer.alloc(0x200000, 0)
+    buf[0x7fd5] = 0x20
+    const groups = buildStockTables(new RomFile('synthetic', buf))
+    expect(groups.map(g => g.id)).toEqual([
+      'player',
+      'sprite_sets',
+      'sp_ef',
+      'fg',
+      'bg',
+      'back_area',
+    ])
+    expect(groups.find(g => g.id === 'sp_ef')!.label).toBe('Level Sprite Colors')
+  })
+})
+
+describe('back area colors stay out of the palette rows', () => {
+  // CODE_00922F zeroes CGRAM $00 before every upload (SMWDisX bank_00.asm:2047-2048),
+  // so no back area color ever lands in a palette row, not even row 0's.
+  it('column 0 is unwritten in every row of every CGRAM group, even with nonzero BackAreaColors', () => {
+    const buf = Buffer.alloc(0x200000, 0)
+    buf[0x7fd5] = 0x20
+    const rom = new RomFile('synthetic', buf)
+    for (let i = 0; i < 8; i++) rom.writeAt(ADDR_BACK_AREA + i * 2, [0x1f + i, 0x7c])
+    const groups = buildStockTables(rom)
+    expect(groups.find(g => g.id === 'back_area')!.variants[0].rows[0][0].written).toBe(true)
+    for (const g of groups.filter(g => g.cgRamRow !== null)) {
+      g.variants.forEach((v, vi) =>
+        v.rows.forEach((row, ri) =>
+          expect(row[0], `${g.id} variant ${vi} row ${ri}`).toEqual({
+            written: false,
+            color: null,
+            table: null,
+            romAddr: null,
+          }),
+        ),
+      )
+    }
   })
 })

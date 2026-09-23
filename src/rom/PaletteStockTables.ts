@@ -5,8 +5,8 @@
  * loadRomPalettes()'s own per-group rows only cover each group's primary
  * columns (e.g. BackgroundPalettes' cols 2-7); the rest of a 16-wide row
  * comes from tables it reads but returns separately (bgSecondaryCols,
- * berryCols, loadBackAreaColors) or, for column 1, from a routine
- * (LoadCol8Pal) that runs before any table is touched at all. This module
+ * berryCols) or, for column 1, from a routine (LoadCol8Pal) that runs
+ * before any table is touched at all. This module
  * merges all of that per cell rather than leaving the extra columns as
  * unattributed filler, and names the table that actually supplied each one.
  *
@@ -161,22 +161,12 @@ function buildCell(
   col: number,
   ownRow: RgbaColor[],
   variantAddr: number | null,
-  variantIdx: number,
-  backAreaColors: RgbaColor[],
 ): AttributedCell {
-  // Index $00 is the true PPU backdrop (BackAreaColors); every other row's
-  // own column 0 is a per-row transparent sentinel the hardware never
-  // samples for rendering (CgramOracle.ts's EXCLUDED_INDICES), so it is
-  // left unwritten here rather than given a fabricated reading.
-  if (col === 0) {
-    if (cgramRow !== 0) return { written: false, color: null, table: null, romAddr: null }
-    return {
-      written: true,
-      color: backAreaColors[variantIdx] ?? [0, 0, 0, 255],
-      table: 'BackAreaColors',
-      romAddr: ADDR_BACK_AREA + variantIdx * 2,
-    }
-  }
+  // No table writes column 0. Back area colors go to COLDATA, not CGRAM $00,
+  // which CODE_00922F zeroes before every upload (bank_00.asm:2047-2048); they
+  // are the standalone back_area group. Other rows' column 0 is a transparent
+  // sentinel the hardware never samples (CgramOracle.ts's EXCLUDED_INDICES).
+  if (col === 0) return { written: false, color: null, table: null, romAddr: null }
   if (col === 1) return col1Cell(rom, cgramRow)
 
   if (!ROM_WRITTEN_INDICES.has(cgramRow * 16 + col)) {
@@ -300,21 +290,26 @@ export function buildStockTables(rom: RomFile): AttributedGroup[] {
     label: g.label,
     description: g.description,
     cgRamRow: g.cgRamRow,
-    variants: g.variants.map((v, vi): AttributedVariant => ({
+    variants: g.variants.map((v): AttributedVariant => ({
       label: v.label,
       romAddr: v.romAddr,
       rows: v.rows.map((ownRow, ri) => {
         const cgramRow = g.cgRamRow !== null ? g.cgRamRow + ri : -1
         return Array.from({ length: 16 }, (_, col) =>
-          buildCell(rom, palettes, g.id, cgramRow, ri, col, ownRow, v.romAddr, vi, backAreaColors),
+          buildCell(rom, palettes, g.id, cgramRow, ri, col, ownRow, v.romAddr),
         )
       }),
     })),
   }))
 
-  // Next to Layer 2 Background: that is the group whose (mistaken) pairing
-  // with these colours a reader will be thinking about.
-  const bgIndex = groups.findIndex(g => g.id === 'bg')
-  groups.splice(bgIndex + 1, 0, buildBackAreaGroup(backAreaColors))
-  return groups
+  // Display order for the palette view; loadRomPalettes keeps CGRAM order.
+  groups.push(buildBackAreaGroup(backAreaColors))
+  // Unlisted ids sort last rather than vanish.
+  const rank = (id: string) => {
+    const i = VIEW_ORDER.indexOf(id)
+    return i === -1 ? VIEW_ORDER.length : i
+  }
+  return groups.sort((a, b) => rank(a.id) - rank(b.id))
 }
+
+const VIEW_ORDER = ['player', 'sprite_sets', 'sp_ef', 'fg', 'bg', 'back_area']

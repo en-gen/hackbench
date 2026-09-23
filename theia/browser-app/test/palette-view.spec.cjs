@@ -28,15 +28,15 @@ const { bgr555ToRgba } = require('../../extension/lib/src/rom/GraphicsDecoder')
  * variants of 1 row. Every row is 16 colours (COLORS_PER_ROW).
  */
 const EXPECTED_GROUPS = [
-  { id: 'bg', variants: 8, rowsPerVariant: 2 },
-  // Its own group, standalone next to Layer 2 Background: 8 fixed colours,
-  // one variant, one row of 8 - not a 16-wide CGRAM row (it has no CGRAM
-  // row at all; PPU register $2132/COLDATA, not palette data).
-  { id: 'back_area', variants: 1, rowsPerVariant: 1, cols: 8 },
-  { id: 'fg', variants: 8, rowsPerVariant: 2 },
-  { id: 'sprite_sets', variants: 1, rowsPerVariant: 10 },
   { id: 'player', variants: 4, rowsPerVariant: 1 },
+  { id: 'sprite_sets', variants: 1, rowsPerVariant: 10 },
   { id: 'sp_ef', variants: 8, rowsPerVariant: 2 },
+  { id: 'fg', variants: 8, rowsPerVariant: 2 },
+  { id: 'bg', variants: 8, rowsPerVariant: 2 },
+  // Its own group, last, after Layer 2 Background: 8 fixed colours, one
+  // variant, one row of 8 - not a 16-wide CGRAM row (it has no CGRAM row
+  // at all; PPU register $2132/COLDATA, not palette data).
+  { id: 'back_area', variants: 1, rowsPerVariant: 1, cols: 8 },
 ]
 const COLS = 16
 
@@ -104,6 +104,24 @@ test("every group and row shape matches loadRomPalettes' own definitions", async
       )
     })
   }
+
+  // The rendered nav follows the same order, and opens on its first entry.
+  await revealPalettes(page)
+  await page.waitForSelector('#hackbench\\.palette-view .hb-palette-nav-item', { timeout: 15000 })
+  const nav = await page.evaluate(() =>
+    [...document.querySelectorAll('.hb-palette-nav-item')].map(n => {
+      const el = n.querySelector('.hb-palette-nav-label')
+      return {
+        label: el?.textContent ?? '',
+        active: n.classList.contains('hb-palette-nav-item-active'),
+        clipped: !el || el.scrollWidth > el.clientWidth,
+      }
+    }),
+  )
+  expect(nav.map(n => n.label)).toEqual(result.palettes.groups.map(g => g.label))
+  expect(nav.findIndex(n => n.active)).toBe(0)
+  // The nav is fixed-width and not resizable, so every label must show in full.
+  for (const n of nav) expect(n.clipped, `nav label "${n.label}" is clipped`).toBe(false)
 })
 
 /**
@@ -170,9 +188,9 @@ test("every written cell's colour matches the actual ROM bytes at the address it
  * Back Area Colors: its own standalone group next to Layer 2 Background,
  * not a swatch paired one-to-one with each BG variant (that pairing implied
  * a link the cartridge does not have - BG palette is header byte 0, back
- * area colour is the INDEPENDENT header byte 1). CGRAM row 0 col 0's own
- * "BackAreaColors" attribution is a separate, pre-existing mechanism (that
- * cell really is the true PPU backdrop) and is untouched by this change.
+ * area colour is the INDEPENDENT header byte 1). Nor does it leak into
+ * CGRAM row 0 col 0: CODE_00922F zeroes that cell before every upload
+ * (SMWDisX bank_00.asm:2047-2048); back area goes to COLDATA instead.
  */
 test('Back Area Colors is its own group of 8, matching loadBackAreaColors, with no CGRAM row', async ({
   page,
@@ -196,14 +214,46 @@ test('Back Area Colors is its own group of 8, matching loadBackAreaColors, with 
     expect(cell.romAddr, `back_area index ${i} romAddr`).toBe(0x00b0a0 + i * 2)
   })
 
-  // Layer 2 Background no longer carries a per-variant back-area pairing.
+  // Layer 2 Background no longer carries a per-variant back-area pairing,
+  // neither as a field nor as its first row's column 0.
   const bg = result.palettes.groups.find(g => g.id === 'bg')
-  bg.variants.forEach(v => expect(v.backAreaColor).toBeUndefined())
+  bg.variants.forEach((v, vi) => {
+    expect(v.backAreaColor).toBeUndefined()
+    expect(v.rows[0][0], `bg variant ${vi} row 0 col 0`).toEqual({ written: false })
+  })
 
   // It has its own nav entry, same weight as the other five - not a detail
   // nested inside Layer 2 Background's own display.
   await revealPalettes(page)
   await page.waitForSelector('#hackbench\\.palette-view .hb-palette-nav-item', { timeout: 15000 })
+
+  // Rendered: Layer 2 Background's first swatch in every variant is hatched,
+  // not painted with a back area colour.
+  const bgCol0 = await page.evaluate(() => {
+    const nav = [...document.querySelectorAll('.hb-palette-nav-item')].find(n =>
+      (n.textContent || '').includes('Layer 2 Background'),
+    )
+    nav.click()
+    return new Promise(resolve =>
+      setTimeout(() => {
+        const el = document.getElementById('hackbench.palette-view')
+        resolve(
+          [...el.querySelectorAll('.hb-palette-variant')].map(variant => {
+            const s = variant.querySelector('.hb-palette-row .hb-palette-swatch')
+            return {
+              unwritten: s.classList.contains('hb-palette-swatch-unwritten'),
+              style: s.getAttribute('style') || '',
+            }
+          }),
+        )
+      }, 300),
+    )
+  })
+  expect(bgCol0.length).toBe(8)
+  for (const s of bgCol0) {
+    expect(s.unwritten).toBe(true)
+    expect(s.style).not.toContain('background')
+  }
   const navLabels = await page.evaluate(() =>
     [...document.querySelectorAll('.hb-palette-nav-label')].map(el => el.textContent),
   )
@@ -479,10 +529,9 @@ test('the palette view is labelled and carries a real, defined codicon class', a
 /**
  * Editing. Mario's red: PlayerColors variant 0 ("Mario"), CGRAM row 8 col 9,
  * $00B2CE, vanilla word $391F (SMWDisX/bank_00.asm:11257, :11324-11332 -
- * see the implementation brief). Player Palettes is already the active
- * group on load (EXPECTED_GROUPS[3], the first group whose id is 'player'
- * is not first alphabetically, but activeGroupId defaults to whatever
- * loads first - select it explicitly rather than assume).
+ * see the implementation brief). Player Palettes is currently the first
+ * group, which activeGroupId defaults to, but it is selected explicitly
+ * rather than assuming that order.
  */
 
 /** Same expansion PaletteColorFormat.bgr555HexToCssHex uses: 5-bit -> 8-bit, exact for a value that came from bgr555ToRgba. */
