@@ -16,6 +16,18 @@ export const GfxService = Symbol('GfxService')
 
 export type GfxBpp = 2 | 3 | 4
 
+/**
+ * How a sheet's bytes are read: a planar bit depth, or 'mode7' for the file
+ * the game unpacks as packed 3-bit Mode 7 pixels (src/rom/Mode7Gfx.ts).
+ */
+export type GfxFormat = GfxBpp | 'mode7'
+
+export const GFX_FORMATS: readonly GfxFormat[] = [2, 3, 4, 'mode7']
+
+export function gfxFormatLabel(format: GfxFormat): string {
+  return format === 'mode7' ? 'Mode 7' : `${format}bpp`
+}
+
 /** CGRAM is 16 rows of 16 colours on real hardware, not a per-ROM fact. */
 export const PALETTE_ROW_COUNT = 16
 
@@ -27,14 +39,15 @@ export interface GfxFileDto {
   /** Decompressed byte length, before any bit-depth decode. */
   byteLength: number
   /**
-   * Bit depth GfxLoader infers for this file: 2bpp for the Layer 3 range
-   * read from CODE_00A993, otherwise the size-based rule loadGfxFile uses.
+   * Format this file is read in: 'mode7' for the file CODE_00AB42 unpacks
+   * (Mode7Gfx.findMode7GfxFile), otherwise the depth GfxLoader infers - 2bpp
+   * for the Layer 3 range read from CODE_00A993, else loadGfxFile's size rule.
    * Null when the length is zero or fits none of those rules: a relocated
    * GFX arrangement (observed on real hacks, not only a corrupt ROM) that
    * this build cannot place at any depth. gfxSheet refuses to decode such a
    * file without an explicit `bpp`, per CLAUDE.md's fail-closed rule.
    */
-  defaultBpp: GfxBpp | null
+  defaultBpp: GfxFormat | null
   /** Tile count at defaultBpp. Null exactly when defaultBpp is null: there
    * is no real count to report, and reporting one anyway is the defect. */
   tileCount: number | null
@@ -75,7 +88,7 @@ export interface PaletteVariantDto {
 export interface GfxSheetDto {
   index: number
   hex: string
-  bpp: GfxBpp
+  bpp: GfxFormat
   tileCount: number
   width: number
   height: number
@@ -125,7 +138,7 @@ export interface GfxService {
   gfxSheet(
     manifestPath: string,
     index: number,
-    bpp?: GfxBpp,
+    bpp?: GfxFormat,
     paletteRow?: number,
   ): Promise<GfxSheetDto>
 }

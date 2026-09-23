@@ -41,8 +41,17 @@ describe.skipIf(!romPresent)('gfx-decode (ROM-only)', () => {
     for (const f of files) {
       expect(f.byteLength).toBeGreaterThan(0)
       expect(f.tileCount).toBeGreaterThan(0)
-      expect([2, 3, 4]).toContain(f.defaultBpp)
+      expect([2, 3, 4, 'mode7']).toContain(f.defaultBpp)
     }
+  })
+
+  it('reads the Mode 7 file as Mode 7, and only that file', () => {
+    const rom = SmwRom.open(ROM_PATH)
+    const files = listGfxFileInfos(rom)
+    expect(files.filter(f => f.defaultBpp === 'mode7').map(f => f.index)).toEqual([0x27])
+    const sheet = decodeGfxSheet(rom, 0x27)
+    expect(sheet.bpp).toBe('mode7')
+    expect(sheet.tileCount).toBe(128)
   })
 
   it('infers 3bpp for a standard file (file 0)', () => {
@@ -246,7 +255,8 @@ describe.skipIf(CORPUS.length === 0)('gfx-decode corpus sweep', () => {
           expect(f.tileCount).toBeNull()
         } else {
           expect(f.tileCount).toBeGreaterThan(0)
-          const bytesPerTile = f.defaultBpp === 4 ? 32 : f.defaultBpp === 3 ? 24 : 16
+          // 'mode7' packs 64 3-bit pixels into 24 bytes, the same as 3bpp.
+          const bytesPerTile = f.defaultBpp === 4 ? 32 : f.defaultBpp === 2 ? 16 : 24
           expect(f.tileCount).toBe(Math.floor(f.byteLength / bytesPerTile))
           // The list's own arithmetic must agree with what a real decode
           // produces, not merely look plausible.
