@@ -43,6 +43,8 @@ export interface GfxTreeNode extends CompositeTreeNode, SelectableTreeNode {
   bpp: GfxFormat | null
   /** Null alongside `bpp` null: no depth to divide the length by. */
   tileCount: number | null
+  /** The read gate's reason, shown as the row's tooltip. */
+  unavailable?: string
   kind: 'file' | 'message' | 'map16'
   /** Which Map16 table a `map16` row opens; null on every other kind. */
   layer: Map16Layer | null
@@ -205,6 +207,7 @@ export class GfxExplorerWidget extends TreeWidget {
       hex: dto.hex,
       bpp: dto.defaultBpp,
       tileCount: dto.tileCount,
+      unavailable: dto.unavailable,
       kind: 'file',
       layer: null,
       parent: undefined,
@@ -314,7 +317,7 @@ export class GfxExplorerWidget extends TreeWidget {
       file.bpp === null ? 'unavailable' : `${file.tileCount} tiles · ${gfxFormatLabel(file.bpp)}`
     return [
       <span key="id" className="hb-gfx-id">{`GFX $${file.hex}`}</span>,
-      <span key="meta" className="hb-gfx-meta">
+      <span key="meta" className="hb-gfx-meta" title={file.unavailable}>
         {meta}
       </span>,
     ]

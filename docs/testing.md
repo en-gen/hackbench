@@ -110,7 +110,7 @@ That spelling is not a style preference, it is the whole mechanism: see
 
 - `SmwRom integration` - opens the ROM and exercises the pointer-table
   logic end-to-end.
-- `GfxLoader (ROM-only)` - checks that `loadGfxRaw`/`loadGfxFile` return
+- `GfxLoader (ROM-only)` - checks that `readGfxFile`/`loadGfxFile` return
   expected sizes and pixel counts for specific GFX files.
 - `PaletteLoader (requires ROM)` - verifies CGRAM assembly for level $104.
 

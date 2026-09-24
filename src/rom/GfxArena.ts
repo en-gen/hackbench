@@ -150,7 +150,15 @@ export function readGfxPointerSites(rom: RomFile): GfxPointerSites | null {
   }
 }
 
-export type CompressionCheck = { ok: true; entry: number } | { ok: false; reason: string }
+export type CompressionCheck = { ok: true; sites: GfxPointerSites } | { ok: false; reason: string }
+
+/** The SNES address the pointer tables give file `index`, or null. */
+export function gfxFileAddress(rom: RomFile, sites: GfxPointerSites, index: number): number | null {
+  const lo = rom.readByte(sites.lo + index)
+  const hi = rom.readByte(sites.hi + index)
+  const bank = rom.readByte(sites.bank + index)
+  return lo === null || hi === null || bank === null ? null : (bank << 16) | (hi << 8) | lo
+}
 
 /**
  * Is this cartridge still decompressing GFX the way we are about to encode
@@ -179,12 +187,12 @@ export function checkStockCompression(rom: RomFile): CompressionCheck {
       return {
         ok: false,
         reason:
-          'this ROM has replaced the LC_LZ2 decompressor, so writing an LC_LZ2 ' +
-          'stream to it would corrupt the graphics it is meant to change',
+          'this ROM has replaced the LC_LZ2 decompressor, so its GFX are not ' +
+          'LC_LZ2 streams this editor can read or write',
       }
     }
   }
-  return { ok: true, entry: sites.decompressorEntry }
+  return { ok: true, sites }
 }
 
 export interface GfxFileExtent {
@@ -217,10 +225,7 @@ export function readGfxFileTable(rom: RomFile): GfxFileExtent[] {
       })
       continue
     }
-    const lo = rom.readByte(sites.lo + index)
-    const hi = rom.readByte(sites.hi + index)
-    const bank = rom.readByte(sites.bank + index)
-    const snesAddr = lo === null || hi === null || bank === null ? 0 : (bank << 16) | (hi << 8) | lo
+    const snesAddr = gfxFileAddress(rom, sites, index) ?? 0
     const offset = loromToOffset(snesAddr, rom.romSize) // cart-relative; see OFFSET FRAME
     if (offset === null) {
       files.push({

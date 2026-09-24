@@ -11,7 +11,12 @@
  */
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
-import { GFX_FILE_COUNT, inferGfxBpp, loadGfxRaw } from '../../../../src/rom/GfxLoader'
+import {
+  GFX_FILE_COUNT,
+  inferGfxBpp,
+  l3DepthUnknown,
+  readGfxFile,
+} from '../../../../src/rom/GfxLoader'
 import {
   bytesPerTile,
   decodeTilesBatch,
@@ -68,10 +73,9 @@ export function decodeTiles(raw: Uint8Array, format: GfxFormat): Uint8Array[] {
  *
  * For every other file, which bit depth GfxLoader.loadGfxFile will decode this file at, or null
  * when the length matches none of its rules and it falls back to a blank
- * sheet instead of decoding the bytes at any depth. A relocated GFX
- * arrangement lands here on real hacks (observed on Invictus 1.0: 49 of 50
- * files), not only on a corrupt ROM, so this is a real case to fail closed
- * on rather than an edge case to approximate.
+ * sheet instead of decoding the bytes at any depth, or when the L3 range it
+ * depends on is unreadable. A ROM whose decompressor is replaced never gets
+ * here: readGfxFile refuses it first.
  */
 export function inferDefaultBpp(
   rom: RomFile,
@@ -93,10 +97,19 @@ export function inferDefaultBpp(
 export function listGfxFileInfos(rom: SmwRom): GfxFileDto[] {
   const files: GfxFileDto[] = []
   for (let index = 0; index < GFX_FILE_COUNT; index++) {
-    const raw = loadGfxRaw(rom.rom, index)
+    const read = readGfxFile(rom.rom, index)
+    const raw = read.ok ? read.bytes : new Uint8Array(0)
     const bpp = inferDefaultBpp(rom.rom, index, raw.length)
     const tileCount = bpp === null ? null : Math.floor(raw.length / formatBytesPerTile(bpp))
-    files.push({ index, hex: hex2(index), byteLength: raw.length, defaultBpp: bpp, tileCount })
+    const file: GfxFileDto = {
+      index,
+      hex: hex2(index),
+      byteLength: raw.length,
+      defaultBpp: bpp,
+      tileCount,
+    }
+    if (!read.ok) file.unavailable = read.reason
+    files.push(file)
   }
   return files
 }
@@ -139,7 +152,11 @@ export function decodeGfxSheet(
   if (bpp !== undefined && !isGfxFormat(bpp)) {
     throw new Error(`Unsupported GFX format: ${String(bpp)}`)
   }
-  const raw = loadGfxRaw(rom.rom, index)
+  // Before the override: a forced depth cannot fix bytes this ROM's own
+  // decompressor would never produce.
+  const read = readGfxFile(rom.rom, index)
+  if (!read.ok) throw new Error(`GFX file $${hex2(index)} is unavailable: ${read.reason}`)
+  const raw = read.bytes
   if (raw.length === 0) {
     throw new Error(`No readable GFX data at file $${hex2(index)}`)
   }
@@ -150,10 +167,10 @@ export function decodeGfxSheet(
   } else {
     const inferred = inferDefaultBpp(rom.rom, index, raw.length)
     if (inferred === null) {
-      throw new Error(
-        `GFX file $${hex2(index)} is ${raw.length} bytes, which cannot be placed at 2/3/4bpp or as ` +
-          'the Mode 7 file (likely a relocated GFX arrangement); pick a format explicitly to force a read',
-      )
+      const why =
+        l3DepthUnknown(rom.rom, raw.length) ??
+        `${raw.length} bytes cannot be placed at 2/3/4bpp or as the Mode 7 file`
+      throw new Error(`GFX file $${hex2(index)}: ${why}; pick a format explicitly to force a read`)
     }
     actualBpp = inferred
   }

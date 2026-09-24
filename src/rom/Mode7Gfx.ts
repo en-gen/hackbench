@@ -17,7 +17,7 @@
  * the GFX view then reports it unavailable rather than guessing planar.
  * A hack that rewrites the opening itself is not recognised at all.
  */
-import { BytePattern, WILD, findPattern } from './BytePattern'
+import { BytePattern, WILD, findPattern, matchesAt } from './BytePattern'
 import { LOROM_BANK_SIZE } from './addressing'
 import { GFX_FILE_COUNT } from './GfxLoader'
 import { PIXELS_PER_TILE } from './GraphicsDecoder'
@@ -80,11 +80,6 @@ export function findMode7GfxFiles(rom: RomFile): Mode7GfxFile[] {
 function jsrTarget(from: number, operand: number): number | null {
   if (operand < LOROM_BANK_SIZE) return null
   return from - (from % LOROM_BANK_SIZE) + (operand - LOROM_BANK_SIZE)
-}
-
-function matchesAt(rom: RomFile, at: number, p: BytePattern): Buffer | null {
-  const bytes = rom.readAtFileOffset(at, p.length)
-  return bytes && p.every((b, i) => b === WILD || bytes[i] === b) ? bytes : null
 }
 
 function _findMode7GfxFiles(rom: RomFile): Mode7GfxFile[] {

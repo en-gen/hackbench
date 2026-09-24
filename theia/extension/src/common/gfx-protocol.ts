@@ -51,6 +51,9 @@ export interface GfxFileDto {
   /** Tile count at defaultBpp. Null exactly when defaultBpp is null: there
    * is no real count to report, and reporting one anyway is the defect. */
   tileCount: number | null
+  /** Why the file cannot be read at all (the GFX read gate's reason), for the
+   * explorer to show. Absent on a readable file. */
+  unavailable?: string
 }
 
 /**

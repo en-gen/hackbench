@@ -9,35 +9,37 @@
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import {
-  GFX_PTR_LO,
-  GFX_PTR_HI,
-  GFX_PTR_BANK,
   GFX_FILE_COUNT,
   GFX_FGBG_TABLE,
   GFX_SPRITE_TABLE,
   VRAM_CHAR_BASE,
-  loadGfxRaw,
+  readGfxFile,
   loadGfxFile,
   readGfxAssignment,
   loadVram,
   getCharPixels,
   isFilterSomeRamFile,
   applyFilterSomeRamTransform,
-  getLayer3GfxRange,
   findCreditsGfxFile,
   inferGfxBpp,
   loadL3Chars,
   gfxBinPath,
 } from '../../../src/rom/GfxLoader'
+import {
+  TABLE_BANK,
+  TABLE_HI,
+  TABLE_LO,
+  layer3Routine,
+  L3_ROUTINE,
+  plantGfxReadPath,
+} from '../support/syntheticGfxCart'
 
 function make4MbRom(): RomFile {
   const buf = Buffer.alloc(0x400000, 0x00)
   buf[0x7fd5] = 0x20
   const rom = new RomFile('mock.smc', buf)
-  // Default L3 range to vanilla $28..$2B so file 0 in BPP-inference tests
-  // doesn't get treated as a Layer-3 (2bpp) file.
-  rom.writeAt(0x00a99c, [3]) // count-1
-  rom.writeAt(0x00a9a0, [0x28]) // start
+  // L3 range $28..$2B, so file 0 in BPP-inference tests is not an L3 file.
+  plantGfxReadPath(rom)
   return rom
 }
 
@@ -46,9 +48,9 @@ function makeTinyRom(): RomFile {
 }
 
 const writeAddr = (rom: RomFile, fileIndex: number, snesAddr: number): void => {
-  rom.writeAt(GFX_PTR_LO + fileIndex, [snesAddr & 0xff])
-  rom.writeAt(GFX_PTR_HI + fileIndex, [(snesAddr >> 8) & 0xff])
-  rom.writeAt(GFX_PTR_BANK + fileIndex, [(snesAddr >> 16) & 0xff])
+  rom.writeAt(TABLE_LO + fileIndex, [snesAddr & 0xff])
+  rom.writeAt(TABLE_HI + fileIndex, [(snesAddr >> 8) & 0xff])
+  rom.writeAt(TABLE_BANK + fileIndex, [(snesAddr >> 16) & 0xff])
 }
 
 /**
@@ -66,46 +68,30 @@ function lz2ByteFill(len: number, fillByte: number): number[] {
   return [h, e, fillByte, 0xff]
 }
 
-// ── getLayer3GfxRange ────────────────────────────────────────────────────────
+// ── readGfxFile ───────────────────────────────────────────────────────────────
 
-describe('getLayer3GfxRange', () => {
-  it('returns vanilla defaults ($28..$2B) when ROM bytes are missing', () => {
-    // Tiny ROM → readByte returns null → fallback to start=$28, count-1=3.
-    const rom = makeTinyRom()
-    expect(getLayer3GfxRange(rom)).toEqual({ start: 0x28, end: 0x2b })
+describe('readGfxFile', () => {
+  it('refuses fileIndex >= GFX_FILE_COUNT', () => {
+    expect(readGfxFile(make4MbRom(), GFX_FILE_COUNT).ok).toBe(false)
   })
 
-  it('reads start + count from the immediate operands of CODE_00A993', () => {
-    const rom = make4MbRom()
-    rom.writeAt(0x00a99c, [4]) // count - 1 = 4 → count 5 files
-    rom.writeAt(0x00a9a0, [0x30]) // start = $30
-    expect(getLayer3GfxRange(rom)).toEqual({ start: 0x30, end: 0x34 })
-  })
-})
-
-// ── loadGfxRaw ───────────────────────────────────────────────────────────────
-
-describe('loadGfxRaw', () => {
-  it('returns empty for fileIndex >= GFX_FILE_COUNT', () => {
-    expect(loadGfxRaw(make4MbRom(), GFX_FILE_COUNT)).toEqual(new Uint8Array(0))
-  })
-
-  it('returns empty when any pointer-table byte is unreadable (tiny ROM)', () => {
-    expect(loadGfxRaw(makeTinyRom(), 0)).toEqual(new Uint8Array(0))
+  it('refuses a ROM too small to hold PrepareGraphicsFile', () => {
+    expect(readGfxFile(makeTinyRom(), 0).ok).toBe(false)
   })
 
   it('returns empty when the resolved address points to unmapped memory', () => {
     const rom = make4MbRom()
     // Pointer to bank $7E (WRAM) → loromToOffset returns null → readAt fails.
     writeAddr(rom, 0, 0x7e0000)
-    expect(loadGfxRaw(rom, 0)).toEqual(new Uint8Array(0))
+    expect(readGfxFile(rom, 0).ok).toBe(false)
   })
 
   it('decompresses a hand-built LZ2 stream', () => {
     const rom = make4MbRom()
     writeAddr(rom, 0, 0x108000)
     rom.writeAt(0x108000, lz2ByteFill(48, 0x33))
-    expect(Array.from(loadGfxRaw(rom, 0))).toEqual(new Array(48).fill(0x33))
+    const read = readGfxFile(rom, 0)
+    expect(read.ok && Array.from(read.bytes)).toEqual(new Array(48).fill(0x33))
   })
 })
 
@@ -348,8 +334,6 @@ describe('loadGfxFile - BPP inference', () => {
 
   it('decodes 2BPP for files in the Layer 3 range (16 bytes/tile)', () => {
     const rom = make4MbRom()
-    rom.writeAt(0x00a99c, [3])
-    rom.writeAt(0x00a9a0, [0x28])
     setupGfx(rom, 0x28, lz2ByteFill(16 * 4, 0x42))
     const sheet = loadGfxFile(rom, 0x28)
     expect(sheet.length).toBe(4)
@@ -427,9 +411,16 @@ describe('loadVram', () => {
     const rom = make4MbRom()
     // Force one slot's file index out of range; others stay 0.
     rom.writeAt(GFX_FGBG_TABLE, [0xff, 0x00, 0x00, 0x00])
+    writeAddr(rom, 0, 0x108000)
+    rom.writeAt(0x108000, lz2ByteFill(24, 0x11))
     const vram = loadVram(rom, 0, 0)
     expect(vram.fg1).toBeUndefined()
     expect(vram.fg2).toBeDefined() // file 0 is valid
+  })
+
+  it('leaves a slot empty when its file points outside the ROM', () => {
+    const vram = loadVram(make4MbRom(), 0, 0) // every pointer is $000000, WRAM
+    expect(vram).toEqual({})
   })
 
   it('applies the FilterSomeRAM transform for file $1E', () => {
@@ -512,10 +503,15 @@ describe('applyFilterSomeRamTransform', () => {
 describe('loadL3Chars', () => {
   it('returns one sheet per file in the L3 range', () => {
     const rom = make4MbRom()
-    rom.writeAt(0x00a99c, [2]) // count - 1 = 2 → 3 files
-    rom.writeAt(0x00a9a0, [0x28])
+    rom.writeAt(L3_ROUTINE, layer3Routine(2, 0x28)) // 3 files
     const sheets = loadL3Chars(rom)
     expect(sheets.length).toBe(3)
+  })
+
+  it('returns no sheets when the range is unavailable', () => {
+    const rom = make4MbRom()
+    rom.writeAt(L3_ROUTINE, [0x60])
+    expect(loadL3Chars(rom)).toEqual([])
   })
 })
 

@@ -38,6 +38,12 @@ export function findPattern(rom: RomFile, pattern: BytePattern, limit = Infinity
   return findInBytes(rom.buffer, pattern, base, base + rom.romSize, limit).map(at => at - base)
 }
 
+/** The bytes at cart-relative `at` when they match `p`, else null. */
+export function matchesAt(rom: RomFile, at: number, p: BytePattern): Buffer | null {
+  const bytes = rom.readAtFileOffset(at, p.length)
+  return bytes && p.every((b, i) => b === WILD || bytes[i] === b) ? bytes : null
+}
+
 /**
  * The same scan over a plain byte range, for buffers that are not a cart.
  *

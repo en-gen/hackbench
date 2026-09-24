@@ -19,7 +19,7 @@ import {
   GFX_FILE_COUNT,
   GFX_MARIO_3BPP_INDEX,
   loadGfxFile,
-  loadGfxRaw,
+  readGfxFile,
   inferGfxBpp,
 } from '../rom/GfxLoader'
 import {
@@ -111,7 +111,8 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
       }
 
       // Decompress and decode the GFX file via pointer tables + LC_LZ2
-      const rawBytes = loadGfxRaw(rom.rom, gfxIndex)
+      const read = readGfxFile(rom.rom, gfxIndex)
+      const rawBytes = read.ok ? read.bytes : new Uint8Array(0)
       const sheet = loadGfxFile(rom.rom, gfxIndex)
       const tilePixels = sheet.map(tile => Array.from(tile))
 
