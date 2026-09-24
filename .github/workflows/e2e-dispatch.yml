@@ -4,8 +4,10 @@
 # credential; this one holds only a dispatch token scoped to its Actions, so a
 # leak here cannot reach the ROM storage.
 #
-# Deliberately not part of ci.yml: the run pays a full Theia workspace install
-# and frontend bundle, which has no business blocking an ordinary PR.
+# The suite takes about 30 minutes, too long for every PR on the free plan's
+# Actions minutes. hackbench-playwright runs it nightly against develop and
+# reports here (e2e-nightly commit status, and an issue while failing). This
+# workflow is the manual path: run it on a branch before merging a risky PR.
 name: e2e-dispatch
 
 on:
@@ -15,6 +17,11 @@ on:
         description: 'hackbench ref to test. Defaults to this run ref.'
         required: false
         type: string
+
+# A second request for the same commit supersedes the first.
+concurrency:
+  group: e2e-dispatch-${{ inputs.hackbench_ref || github.sha }}
+  cancel-in-progress: true
 
 env:
   TARGET_REPO: en-gen/hackbench-playwright
@@ -34,6 +41,7 @@ jobs:
           # GITHUB_TOKEN cannot write to another repository.
           GH_TOKEN: ${{ secrets.E2E_DISPATCH_TOKEN }}
           REF: ${{ inputs.hackbench_ref || github.sha }}
+          DISPATCH_ID: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
           : "${GH_TOKEN:?E2E_DISPATCH_TOKEN is not set on this repository}"
@@ -50,14 +58,17 @@ jobs:
           echo "Requesting e2e run for hackbench $REF"
           gh workflow run "$TARGET_WORKFLOW" --repo "$TARGET_REPO" \
             --ref "$(gh api "repos/$TARGET_REPO" --jq .default_branch)" \
-            -f "hackbench_ref=$REF"
+            -f "hackbench_ref=$REF" -f "dispatch_id=$DISPATCH_ID"
 
-          # workflow run returns no id, so find the run it created.
+          # workflow run returns no id. The target titles its run with our
+          # dispatch_id; matching the newest run instead would let two
+          # requests made together (or the nightly) each watch the wrong run.
           run_id=''
           for _ in $(seq 1 30); do
             sleep 5
             run_id=$(gh run list --repo "$TARGET_REPO" --workflow "$TARGET_WORKFLOW" \
-              --created ">=$before" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+              --created ">=$before" --limit 50 --json databaseId,displayTitle \
+              --jq "map(select(.displayTitle | endswith(\" $DISPATCH_ID\"))) | .[0].databaseId // empty")
             [ -n "$run_id" ] && break
           done
           if [ -z "$run_id" ]; then
@@ -68,5 +79,18 @@ jobs:
           url="https://github.com/$TARGET_REPO/actions/runs/$run_id"
           echo "Watching $url"
           echo "[Remote run]($url)" >> "$GITHUB_STEP_SUMMARY"
-          # --exit-status makes this job fail when the remote suite fails.
-          gh run watch "$run_id" --repo "$TARGET_REPO" --exit-status
+          # A superseded request is cancelled here; take the remote run with
+          # it. Sleep in the background so the trap fires without waiting.
+          trap 'gh run cancel "$run_id" --repo "$TARGET_REPO" || true; exit 1' INT TERM
+          # Poll rather than `gh run watch`: watch fetches annotations, which
+          # need checks:read, which a fine-grained PAT cannot hold, so it logs
+          # a 403 every 3 seconds for the whole run.
+          while :; do
+            sleep 30 & wait $!
+            state=$(gh run view "$run_id" --repo "$TARGET_REPO" \
+              --json status,conclusion --jq '"\(.status) \(.conclusion)"') || continue
+            [ "${state%% *}" = completed ] && break
+          done
+          conclusion=${state#* }
+          echo "Remote run concluded: $conclusion"
+          [ "$conclusion" = success ]
