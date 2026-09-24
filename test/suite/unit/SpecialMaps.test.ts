@@ -2,7 +2,7 @@
  * findSpecialMaps across the six-cart corpus.
  *
  * The synthetic suite in SpecialMaps.synthetic.test.ts is the one that runs
- * in CI, where test/roms/ is absent by design. This file is the measurement
+ * in CI, where the corpus is absent by design. This file is the measurement
  * that backs the claims in the SpecialMaps header comment, and it exists
  * because the two roles degrade differently on edited carts: the new-game
  * loader survives every hack in the corpus, the title-screen loader does not.
@@ -15,24 +15,15 @@
  * Measured 2026-09-21 on this repo's six carts, one machine.
  */
 import { describe, it, expect } from 'vitest'
-import * as fs from 'fs'
-import * as path from 'path'
-import { RomFile } from '../../../src/rom/RomFile'
 import { findSpecialMaps } from '../../../src/rom/SpecialMaps'
+import { MAGIC, freshRom, romsOnDisk } from '../support/corpus'
 
-const ROM_DIR = path.join(__dirname, '../../roms')
-
-const romFiles = fs.existsSync(ROM_DIR)
-  ? fs
-      .readdirSync(ROM_DIR)
-      .filter(f => /\.sfc$/i.test(f))
-      .sort()
-  : []
+const romFiles = romsOnDisk()
 
 /** The one cart in the corpus that carries a copier header. */
-const HEADERED = 'Super Mario World (USA).magic.sfc'
+const HEADERED = MAGIC
 
-const open = (file: string): RomFile => RomFile.load(path.join(ROM_DIR, file))
+const open = freshRom
 
 describe.skipIf(romFiles.length === 0)('findSpecialMaps (corpus)', () => {
   it('reads the new-game slot as $0C5 at $00:9CB0 on every cart', () => {

@@ -1,6 +1,6 @@
 # Runs the Playwright end-to-end suite, which lives in the private
 # en-gen/hackbench-playwright repo because it needs a real cartridge and
-# test/roms/ can never be committed here. That repo holds the OneDrive
+# the ROM corpus can never be committed here. That repo holds the OneDrive
 # credential; this one holds only a dispatch token scoped to its Actions, so a
 # leak here cannot reach the ROM storage.
 #

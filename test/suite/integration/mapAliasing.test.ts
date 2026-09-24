@@ -15,28 +15,20 @@
  * the 235 real slots.
  */
 import { describe, it, expect, beforeAll } from 'vitest'
-import { existsSync } from 'fs'
-import * as os from 'os'
-import * as path from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { buildLevelCatalog, type LevelCatalog } from '../../../src/rom/LevelCatalog'
 import { buildMapTree, type MapNode } from '../../../src/rom/MapTree'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const CANDIDATES = [
-  process.env.ROM_PATH,
-  path.resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc'),
-  path.join(os.homedir(), 'OneDrive', 'hackbench-fixtures', 'Super Mario World (USA).vanilla.sfc'),
-  path.join(os.homedir(), 'Super Mario World (USA).vanilla.sfc'),
-].filter((p): p is string => !!p)
-const VANILLA = CANDIDATES.find(existsSync)
+const VANILLA_ROM = romPath(VANILLA)
 
-describe.skipIf(!VANILLA)('map data aliasing', () => {
+describe.skipIf(!hasRom(VANILLA))('map data aliasing', () => {
   let catalog: LevelCatalog
   let at: (index: number) => LevelCatalog['entries'][number]
   let nodeAt: (index: number) => MapNode | undefined
 
   beforeAll(() => {
-    const rom = SmwRom.open(VANILLA!)
+    const rom = SmwRom.open(VANILLA_ROM)
     catalog = buildLevelCatalog(rom)
     at = (index: number) => catalog.entries[index]!
 
@@ -92,7 +84,7 @@ describe.skipIf(!VANILLA)('map data aliasing', () => {
       expect(n.l1Aliases, `node ${n.index}`).toEqual(at(n.index).l1Aliases)
       n.children.forEach(check)
     }
-    const tree = buildMapTree(SmwRom.open(VANILLA!))
+    const tree = buildMapTree(SmwRom.open(VANILLA_ROM))
     for (const n of [...tree.overworld, ...tree.special, ...tree.unassigned]) check(n)
   })
 

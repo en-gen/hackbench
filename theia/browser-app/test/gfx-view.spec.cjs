@@ -11,14 +11,13 @@ const { CART, shownWords, makeUntitledAndUnlocated } = require('./rom-words.cjs'
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const { romPath, VANILLA, INVICTUS } = require('../../../test/suite/support/corpus.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
-const ROM =
-  process.env.HB_ROM || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
+const ROM = process.env.HB_ROM || romPath(VANILLA)
 /** A hack with a relocated GFX arrangement: 49 of its 50 files fit no bit
  * depth GfxLoader recognises (review C1), unlike every vanilla-derived cart. */
-const INVICTUS_ROM =
-  process.env.HB_ROM_INVICTUS || 'C:/Projects/hackbench/test/roms/Invictus 1.0.sfc'
+const INVICTUS_ROM = process.env.HB_ROM_INVICTUS || romPath(INVICTUS)
 
 /**
  * GfxLoader.GFX_FILE_COUNT for vanilla: GFXFilesHigh ($00B9C4) minus

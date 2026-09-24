@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { existsSync } from 'fs'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMap } from '../../../../src/rom/model/MapBuilder'
 import type { PixelPos, PixelSize, RenderTarget } from '../../../../src/rom/model/RenderTarget'
 import { resetEditorStore } from '../fixtures/stores'
+import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
-const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
+const ROM_PATH = romPath(VANILLA)
 
 class CountingRenderTarget implements RenderTarget {
   blits = 0
@@ -19,7 +19,7 @@ class CountingRenderTarget implements RenderTarget {
   }
 }
 
-describe.skipIf(!existsSync(ROM_PATH))('MapBuilder end-to-end (vanilla ROM)', () => {
+describe.skipIf(!hasRom(VANILLA))('MapBuilder end-to-end (vanilla ROM)', () => {
   beforeEach(resetEditorStore)
 
   it('builds level $0 and renders through the self-rendering chain', () => {

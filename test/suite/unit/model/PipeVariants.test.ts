@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { existsSync } from 'fs'
 import { loadVram } from '../../../../src/rom/GfxLoader'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -13,8 +12,9 @@ import { Char } from '../../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { cellBoxOf } from '../../../../src/rom/model/RenderTarget'
 import { makeTestMapStore, resetEditorStore } from '../fixtures/stores'
+import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
-const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
+const ROM_PATH = romPath(VANILLA)
 
 function makeQuad(charId: number, palette: number): SubtileQuad {
   const sub = () =>
@@ -66,7 +66,7 @@ describe('PipeVariantsBehavior behavior', () => {
   })
 })
 
-describe.skipIf(!existsSync(ROM_PATH))('TileFactory pipe wiring (vanilla ROM)', () => {
+describe.skipIf(!hasRom(VANILLA))('TileFactory pipe wiring (vanilla ROM)', () => {
   it('$133-$13A tiles get PipeVariantsBehavior; other tiles stay StaticQuadBehavior', () => {
     const rom = SmwRom.open(ROM_PATH)
     const raw = rom.getLevelRawData(0x105)!

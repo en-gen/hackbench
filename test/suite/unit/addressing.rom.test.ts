@@ -4,22 +4,18 @@
  * These are the two independent measurements from the bug report: a known
  * compressed table must decompress to its documented size, and the level
  * catalog's parseable count must not regress. Both exercise real pointers
- * from real ROM files (test/roms/, gitignored) rather than hand-picked
+ * from real ROM files (outside the repo, see support/corpus.ts) rather than hand-picked
  * addresses, so a broken bank branch has nowhere to hide.
  *
  * Skipped entirely (describe.skipIf) when a given ROM file is absent, per
  * docs/testing.md - CI never sees ROM-derived bytes.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { SmwRom, LEVEL_COUNT } from '../../../src/rom/SmwRom'
 import { decompress } from '../../../src/rom/LcLz2'
 import { loromToOffset, COPIER_HEADER_SIZE } from '../../../src/rom/addressing'
 import { brokenOldHiromShaped } from './fixtures/brokenLoromConverter'
-
-const ROMS_DIR = resolve(__dirname, '../../roms')
-const romPath = (name: string): string => resolve(ROMS_DIR, name)
+import { hasRom, romPath } from '../support/corpus'
 
 // LM writes a JSL ($22) over the vanilla level-load dispatch at $05D8B1 when
 // a ROM has been touched by Lunar Magic; vanilla/.magic keep $F0 (BEQ).
@@ -53,7 +49,7 @@ describe('Acceptance A: LM compressed translevel table decompresses to 4096 byte
     // `it.skipIf`, not a ternary choosing between the two spellings of `it`.
     // Both register the case here, but the ternary is one edit away from the
     // shape that drops cases entirely, and it states the gate twice.
-    it.skipIf(!existsSync(romPath(name)))(`${name} table decompresses to ${expected} bytes`, () => {
+    it.skipIf(!hasRom(name))(`${name} table decompresses to ${expected} bytes`, () => {
       const smw = SmwRom.open(romPath(name))
       const rom = smw.rom
       expect(rom.readByte(LM_PATCH_PROBE)).toBe(0x22) // sanity: is actually LM-patched
@@ -106,7 +102,7 @@ describe('Acceptance B: level catalog parseable count', () => {
   ]
 
   for (const { name, expectRise } of roms) {
-    it.skipIf(!existsSync(romPath(name)))(
+    it.skipIf(!hasRom(name))(
       `${name}: parseable count ${expectRise ? 'rises' : 'is unchanged'} vs the pre-fix count`,
       () => {
         const smw = SmwRom.open(romPath(name))

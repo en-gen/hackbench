@@ -43,8 +43,13 @@
 -- Mesen 2's VRAM byte addressing maps word W → bytes [W*2, W*2+1] little-
 -- endian, so the byte range $8000-$BFFF covers both regions.
 
--- OneDrive-synced fixture root, mirrors l1_dump.lua / l2_dump.lua.
-local DUMPS_DIR = "C:/Users/engenb/OneDrive/hackbench-fixtures/maps"
+-- Fixture root for the captures, which are ROM-derived and therefore never
+-- committed: they live in OneDrive, outside the repo, like the ROM corpus and
+-- the emulator. Spelled from the environment rather than one developer's
+-- drive letter; HACKBENCH_FIXTURES_DIR is the same override the TypeScript
+-- side reads (test/suite/unit/fixtures/loadMesenFixture.ts).
+local DUMPS_DIR = os.getenv("HACKBENCH_FIXTURES_DIR")
+  or ((os.getenv("USERPROFILE") or os.getenv("HOME") or ".") .. "/OneDrive/hackbench-fixtures/maps")
 local HUD_ROW   = 30  -- HUD-row convention (see header)
 
 local MEM = emu.memType.snesMemory

@@ -3,7 +3,7 @@
  * routine by its instruction sequence rather than at a fixed address.
  *
  * Synthetic carts only: this needs no cartridge and so runs in CI, where
- * test/roms/ is absent by design.
+ * the corpus is absent by design.
  *
  * The contract worth stating twice is the offset convention. `findPattern`
  * returns CART-RELATIVE file offsets, the same thing `RomFile.readAtFileOffset`

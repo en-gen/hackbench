@@ -11,7 +11,6 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
@@ -20,8 +19,9 @@ import {
   readLevelObjPriority,
   readSpriteObjPriority,
 } from '../../../src/rom/SpritePriorityLoader'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
+const ROM_PATH = romPath(VANILLA)
 
 /**
  * A LoROM image with one sprite handler at $01:9000 and every pointer in
@@ -122,7 +122,7 @@ describe('readSpriteObjPriority walker (synthetic cart)', () => {
   })
 })
 
-describe.skipIf(!existsSync(ROM_PATH))('SpritePriorityLoader (vanilla ROM)', () => {
+describe.skipIf(!hasRom(VANILLA))('SpritePriorityLoader (vanilla ROM)', () => {
   const rom = () => SmwRom.open(ROM_PATH).rom
 
   it('LevXYPPCCCTtbl gives OBJ.2 on five level modes and OBJ.3 on the other 27', () => {

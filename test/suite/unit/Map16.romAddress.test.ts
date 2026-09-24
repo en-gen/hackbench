@@ -14,8 +14,7 @@
  * what the production path (`loadAllMap16`) decoded for the same tile.
  */
 import { describe, it, expect, beforeAll } from 'vitest'
-import { existsSync, readFileSync } from 'fs'
-import { resolve } from 'path'
+import { readFileSync } from 'fs'
 import { hasCopierHeader, loromToOffset } from '../../../src/rom/addressing'
 import {
   buildL2Map16PointerTable,
@@ -29,13 +28,14 @@ import {
   TILESET_MAP16_LOC,
 } from '../../../src/rom/Map16'
 import { SmwRom } from '../../../src/rom/SmwRom'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-// test/roms/ - the convention 48 of the suite's files use - not a path under
+// The corpus helper - the convention the suite's ROM files use - not a path under
 // the user's home directory. On CI, HOME resolves to /home/runner, where no
 // cartridge exists, and the home-directory form made this file's gate depend
 // on one developer's machine layout.
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 describe.runIf(romPresent)('Map16 pointer-table addresses against real cart bytes', () => {
   // Read LAZILY, inside the cases. Vitest still executes a describe body

@@ -1,7 +1,7 @@
 /**
  * Unit tests for PaletteLoader - verified against Mesen CGRAM ground truth.
  *
- * Ground truth: tools/mesen/Debugger/Super Mario World (USA) - SnesCgRam.dmp
+ * Ground truth: <hackbench-tools>/mesen/Debugger/Super Mario World (USA) - SnesCgRam.dmp
  *   512 bytes = 256 LE16 BGR555 words, captured at runtime for level $104.
  *
  * Level $104 Yoshi's House:
@@ -18,7 +18,6 @@
 
 import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'fs'
-import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   loadRomPalettes,
@@ -27,13 +26,11 @@ import {
 } from '../../../src/rom/PaletteLoader'
 import { bgr555ToRgba } from '../../../src/rom/GraphicsDecoder'
 import { parseLevelObjects } from '../../../src/rom/LevelParser'
+import { VANILLA, hasRom, mesenDumpPath, romPath } from '../support/corpus'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const CGRAM_DMP = resolve(
-  __dirname,
-  '../../../tools/mesen/Debugger/Super Mario World (USA) - SnesCgRam.dmp',
-)
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const CGRAM_DMP = mesenDumpPath('Super Mario World (USA) - SnesCgRam.dmp')
+const romPresent = hasRom(VANILLA)
 const dumpPresent = existsSync(CGRAM_DMP)
 
 const LEVEL_104 = 0x104

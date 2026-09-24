@@ -17,14 +17,12 @@
  * Nothing is written to disk: `RomFile.writeAt` mutates the loaded buffer.
  *
  * Evidence scope: `Bnk3CallSprMain` bank_03.asm:4305-4525. Corpus claims run
- * on all six carts in `test/roms/`; planted bytes run on
+ * on all six carts in the corpus; planted bytes run on
  * `Super Mario World (USA).vanilla.sfc`. Static reads only; no emulator was
  * run.
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../../src/rom/RomFile'
 import {
   MAX_CHAIN_LINKS,
@@ -39,22 +37,12 @@ import {
   SPRITE_MAIN_PTR_TABLE,
   SPRITE_PTR_TABLE_COUNT,
 } from '../../../../src/rom/dispatch/SpritePointerTables'
+import { CORPUS, freshRom, hasRoms } from '../../support/corpus'
 
-const ROM_DIR = resolve(__dirname, '../../../roms')
-const ROM_FILES = [
-  'Super Mario World (USA).vanilla.sfc',
-  'Super Mario World (USA).magic.sfc',
-  'Grand Poo World 2 1.1.sfc',
-  'GrandPooWorld_V1.2.sfc',
-  'Invictus 1.0.sfc',
-  'Seven_Vanilla_Levels.sfc',
-] as const
-const romsPresent = ROM_FILES.every(f => existsSync(resolve(ROM_DIR, f)))
+const romsPresent = hasRoms()
 
 /** A fresh in-memory cart per test, so a planted byte never leaks sideways. */
-const freshRom = (name: (typeof ROM_FILES)[number] = ROM_FILES[0]) =>
-  RomFile.load(resolve(ROM_DIR, name))
-const allRoms = () => ROM_FILES.map(name => ({ name, rom: freshRom(name) }))
+const allRoms = () => CORPUS.map(name => ({ name, rom: freshRom(name) }))
 
 // Sprite ids used as probes. Each names a DIFFERENT shape behind the MAIN
 // pointer, so a change that collapses two shapes cannot pass unnoticed.

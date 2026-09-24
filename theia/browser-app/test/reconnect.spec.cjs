@@ -15,11 +15,11 @@ const { spawn, execSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
 const PORT = Number(process.env.HB_RECONNECT_PORT || 3100)
 const APP = `http://127.0.0.1:${PORT}`
-const ROM =
-  process.env.HB_ROM || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
+const ROM = process.env.HB_ROM || romPath(VANILLA)
 const haveRom = fs.existsSync(ROM)
 
 const GET_SVC = `function getSvc(name) {

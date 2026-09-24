@@ -23,7 +23,7 @@
  * structurally clonable, so it survives the extension-host to webview hop.
  *
  * Evidence scope: the pointer-table bases are the ones verified in
- * `docs/sprites/sprite-engine-divergence.md` against the 6 ROM files in `test/roms/`.
+ * `docs/sprites/sprite-engine-divergence.md` against the 6 ROM files in the corpus.
  * Static reads only; no emulator was run.
  */
 

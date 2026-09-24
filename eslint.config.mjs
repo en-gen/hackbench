@@ -46,7 +46,7 @@ export default [
 
   // Tests, tooling and root config: node only.
   {
-    files: ['test/**/*.ts', 'tools/**/*.ts', 'theia/**/*.{js,cjs}', '*.js', '*.mjs'],
+    files: ['test/**/*.{ts,cjs}', 'tools/**/*.ts', 'theia/**/*.{js,cjs}', '*.js', '*.mjs'],
     languageOptions: {
       globals: { ...globals.node, ...globals.es2020 },
     },

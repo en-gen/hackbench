@@ -7,8 +7,6 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import {
   parseStripeImage,
   l3InitialYPx,
@@ -26,9 +24,10 @@ import {
 } from '../../../src/rom/L3Loader'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { buildMapWithGraph } from '../../../src/rom/model/MapBuilder'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 // ── parseStripeImage (pure) ──────────────────────────────────────────────────
 

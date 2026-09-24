@@ -2,7 +2,7 @@
  * The in-memory decoded GFX state, and what saving it costs.
  *
  * **Synthetic cartridges only** (test/suite/support/syntheticGfxCart.ts), so
- * this runs in CI where test/roms/ is absent by design.
+ * this runs in CI where the corpus is absent by design.
  *
  * The pixel op is the unit of intent: what is persisted is
  * `{ kind: 'gfxPixel', file, tile, x, y, value }`, never the resulting

@@ -19,8 +19,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync, readFileSync } from 'fs'
-import { resolve } from 'path'
+import { readFileSync } from 'fs'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
@@ -42,6 +41,7 @@ import { serializeSprite } from '../../../../src/rom/model/serialize'
 import { buildSprite } from '../../../../src/rom/model/rehydrate'
 import { MAGIKOOPA_PALS } from '../../../../src/rom/model/palette/DynSpritePalette'
 import { makeTestMapStore } from '../fixtures/stores'
+import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
 const STUB_BEHAVIOR: SpriteBehavior = { displayName: 'stub', spawns: false } as never
 
@@ -558,8 +558,8 @@ describe('MagikoopaAppearance payload round-trip', () => {
 
 // ── ROM anchor ───────────────────────────────────────────────────────────────
 
-const ROM_PATH = resolve(__dirname, '../../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 /** LoROM SNES address → file offset, for a header-free 512KB cart. */
 const lorom = (a: number) => ((a >>> 16) & 0x7f) * 0x8000 + (a & 0x7fff)

@@ -17,15 +17,13 @@ const { test, expect } = require('@playwright/test')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const { romPath, VANILLA, GPW2 } = require('../../../test/suite/support/corpus.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
-// Absolute path into the main checkout, overridable via HB_ROM: the same
-// convention every sibling spec uses, since test/roms/ is gitignored and a
-// worktree does not carry its own copy of the corpus.
-const ROM =
-  process.env.HB_ROM || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
-const ROM_UNREADABLE_BANK =
-  process.env.HB_ROM_UNREADABLE_BANK || 'C:/Projects/hackbench/test/roms/Grand Poo World 2 1.1.sfc'
+// The corpus lives outside the repo (see test/suite/support/corpus.cjs), so this resolves
+// rather than naming one checkout. HB_ROM still overrides, and CI sets it.
+const ROM = process.env.HB_ROM || romPath(VANILLA)
+const ROM_UNREADABLE_BANK = process.env.HB_ROM_UNREADABLE_BANK || romPath(GPW2)
 
 /**
  * Per-bank song counts for the stock ROM, measured across the six-ROM

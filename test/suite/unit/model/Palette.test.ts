@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { computed } from '@vue/reactivity'
-import { existsSync } from 'fs'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -10,8 +9,9 @@ import { buildPalette } from '../../../../src/rom/model/palette/PaletteFactory'
 import { StaticColorBehavior } from '../../../../src/rom/model/palette/behaviors/StaticColorBehavior'
 import { CyclingColorBehavior } from '../../../../src/rom/model/palette/behaviors/CyclingColorBehavior'
 import { editorStore, resetEditorStore } from '../fixtures/stores'
+import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
-const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
+const ROM_PATH = romPath(VANILLA)
 
 function uniformPalette(color: RgbaColor): Palette {
   const cells = Array.from({ length: 16 }, () =>
@@ -150,7 +150,7 @@ describe('Palette', () => {
   })
 })
 
-describe.skipIf(!existsSync(ROM_PATH))('PaletteFactory (vanilla ROM)', () => {
+describe.skipIf(!hasRom(VANILLA))('PaletteFactory (vanilla ROM)', () => {
   beforeEach(resetEditorStore)
 
   it('buildPalette produces a 16x16 Color grid from the level CGRAM', () => {

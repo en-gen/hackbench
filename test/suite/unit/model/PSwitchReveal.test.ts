@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { computed } from '@vue/reactivity'
-import { existsSync } from 'fs'
 import { loadVram } from '../../../../src/rom/GfxLoader'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -12,8 +11,9 @@ import { Tile, type SubtileQuad } from '../../../../src/rom/model/tiles/Tile'
 import { buildTiles } from '../../../../src/rom/model/tiles/TileFactory'
 import { PSwitchRevealBehavior } from '../../../../src/rom/model/tiles/behaviors/PSwitchRevealBehavior'
 import { editorStore, resetEditorStore } from '../fixtures/stores'
+import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
-const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
+const ROM_PATH = romPath(VANILLA)
 
 function makeQuad(tag: number): SubtileQuad {
   const sub = () =>
@@ -65,7 +65,7 @@ describe('PSwitchRevealBehavior behavior', () => {
   })
 })
 
-describe.skipIf(!existsSync(ROM_PATH))('TileFactory P-switch reveal wiring (vanilla ROM)', () => {
+describe.skipIf(!hasRom(VANILLA))('TileFactory P-switch reveal wiring (vanilla ROM)', () => {
   it('$27/$28/$29/$2A all wear PSwitchRevealBehavior', () => {
     // $27/$28/$29 are strict ports of `CODE_00F545`. $2A is included as
     // an editor-UX inclusion: its native Map16 visual is transparent in

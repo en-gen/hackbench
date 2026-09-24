@@ -24,7 +24,7 @@
  *
  * Evidence scope: grammar derived from `Bnk3CallSprMain`, bank_03.asm:4305
  * to 4525, and confirmed against the raw bytes of all six cart files in
- * `test/roms/`. Static reads only; no emulator was run.
+ * the corpus. Static reads only; no emulator was run.
  */
 
 import type { RomFile } from '../RomFile'

@@ -19,12 +19,11 @@ const { test, expect } = require('@playwright/test')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const { romPath, VANILLA, GPW2 } = require('../../../test/suite/support/corpus.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
-const ROM =
-  process.env.HB_ROM || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
-const ROM_ADDMUSICK =
-  process.env.HB_ROM_UNREADABLE_BANK || 'C:/Projects/hackbench/test/roms/Grand Poo World 2 1.1.sfc'
+const ROM = process.env.HB_ROM || romPath(VANILLA)
+const ROM_ADDMUSICK = process.env.HB_ROM_UNREADABLE_BANK || romPath(GPW2)
 
 /** Measured on the three stock-engine ROMs; see docs/sfx-tables.md. */
 const STOCK = { port0: 42, port3: 52, total: 94 }

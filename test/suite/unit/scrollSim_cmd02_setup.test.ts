@@ -46,8 +46,9 @@ import {
 } from './scrollSim_capture'
 import { cmd02L2 } from '../../../src/rom/scroll/cmd02'
 import type { ScrollState } from '../../../src/rom/scrollSim'
+import { MESEN_FIXTURES_DIR } from './fixtures/loadMesenFixture'
 
-const FIXTURES = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps'
+const FIXTURES = MESEN_FIXTURES_DIR
 
 /** Build a minimal ScrollState from a CaptureRow. Populates all fields
  *  present in the CSV; leaves gameplay-only fields (backgroundVertOffset,

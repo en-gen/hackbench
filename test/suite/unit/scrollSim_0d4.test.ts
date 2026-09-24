@@ -2,7 +2,7 @@
  * scrollSim_0d4.test.ts - validate L2 cmd $03 (oscillating-Y scroll)
  * against the Mesen capture for `$0D4`.
  *
- * Capture: `C:/Users/engenb/OneDrive/hackbench-fixtures/maps/0d4/l2_scroll.csv`
+ * Capture: `<hackbench-fixtures>/maps/0d4/l2_scroll.csv`
  * Sprite: $EA b0=$00 → post-remap (l1cmd=0, l2cmd=3, l1bits=0, l2bits=0).
  *
  * What this validates:
@@ -30,8 +30,10 @@ import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
 import { buildScrollSimulator, type ScrollState } from '../../../src/rom/scrollSim'
 import { loadVanillaRom, vanillaRomPresent } from './scrollSim_capture'
+import { join } from 'path'
+import { MESEN_FIXTURES_DIR } from './fixtures/loadMesenFixture'
 
-const CSV = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps/0d4/l2_scroll.csv'
+const CSV = join(MESEN_FIXTURES_DIR, '0d4', 'l2_scroll.csv')
 
 interface CaptureRow {
   frame: number

@@ -24,8 +24,9 @@ import {
   type FieldKey,
   vanillaRomPresent,
 } from './scrollSim_capture'
+import { MESEN_FIXTURES_DIR } from './fixtures/loadMesenFixture'
 
-const FIXTURES = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps'
+const FIXTURES = MESEN_FIXTURES_DIR
 
 const LEVELS: readonly { id: string; lastScreenHoriz: number }[] = [
   { id: '1d4', lastScreenHoriz: 0x03 },

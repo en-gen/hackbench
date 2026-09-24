@@ -4,7 +4,7 @@
  * The synthetic suite beside this one proves each gate can fire; this one
  * pins what the gates actually say about six real carts, so a change that
  * quietly alters the verdict on a hack is visible. It skips per file when
- * test/roms/ is absent, which is always the case in CI.
+ * the corpus is absent, which is always the case in CI.
  *
  * The measured result, and the reason this function exists: the decode site
  * matches exactly once on all six carts and always names $0584DB, so the
@@ -14,12 +14,9 @@
  * stops a cart without the decode reporting eight commands anyway.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../src/rom/RomFile'
 import { readLevelMusicTableIfReadable, LEVEL_MUSIC_COUNT } from '../../../src/rom/MusicData'
-
-const ROMS_DIR = resolve(__dirname, '../../roms')
+import { hasRom, romPath } from '../support/corpus'
 
 /** The stock table: BGM $02 $06 $01 $08 $07 $03 $05 $12 (bank_05.asm:513-521). */
 const STOCK = [0x02, 0x06, 0x01, 0x08, 0x07, 0x03, 0x05, 0x12]
@@ -47,12 +44,12 @@ const EXPECTED: Record<string, number[]> = {
 const SITE = 0x058549
 const TABLE = 0x0584db
 
-describe('readLevelMusicTableIfReadable (requires test/roms/*.sfc)', () => {
+describe('readLevelMusicTableIfReadable (requires the ROM corpus)', () => {
   for (const [file, commands] of Object.entries(EXPECTED)) {
-    const path = resolve(ROMS_DIR, file)
+    const path = romPath(file)
     // skipIf per file: with the corpus absent these must still be
     // REGISTERED and reported skipped, not silently cease to exist.
-    describe.skipIf(!existsSync(path))(file, () => {
+    describe.skipIf(!hasRom(file))(file, () => {
       it('finds exactly one decode site, at $058549', () => {
         const result = readLevelMusicTableIfReadable(RomFile.load(path))
 

@@ -12,7 +12,7 @@
  * still plays, and the control simply does nothing, which is the shape of
  * defect the house rules single out.
  *
- * Synthetic, so it runs in CI where test/roms/ is absent.
+ * Synthetic, so it runs in CI where the corpus is absent.
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'

@@ -23,8 +23,6 @@
  * green on a clone without them.
  */
 import { describe, it, expect } from 'vitest'
-import * as fs from 'fs'
-import * as path from 'path'
 import { RomFile } from '../../../src/rom/RomFile'
 import {
   detectPaletteAnimation,
@@ -40,23 +38,13 @@ import {
 } from '../../../src/rom/PaletteAnimationDetect'
 import { loadPaletteAnimData } from '../../../src/rom/PaletteAnimationLoader'
 import { loromToOffset } from '../../../src/rom/addressing'
+import { MAGIC, VANILLA, freshRom, hasRom, romsOnDisk } from '../support/corpus'
 
-const ROM_DIR = path.join(__dirname, '../../roms')
-const romFiles = fs.existsSync(ROM_DIR)
-  ? fs
-      .readdirSync(ROM_DIR)
-      .filter(f => /\.sfc$/i.test(f))
-      .sort()
-  : []
+const HEADERED = MAGIC
+const withVanilla = describe.skipIf(!hasRom(VANILLA))
+const withHeadered = describe.skipIf(!hasRom(HEADERED) || !hasRom(VANILLA))
 
-const has = (file: string): boolean => romFiles.includes(file)
-
-const VANILLA = 'Super Mario World (USA).vanilla.sfc'
-const HEADERED = 'Super Mario World (USA).magic.sfc'
-const withVanilla = describe.skipIf(!has(VANILLA))
-const withHeadered = describe.skipIf(!has(HEADERED) || !has(VANILLA))
-
-const load = (file: string): RomFile => RomFile.load(path.join(ROM_DIR, file))
+const load = freshRom
 
 /** The same cart with bytes overwritten, as a patch would leave it. */
 function patched(file: string, pokes: Record<number, number>): RomFile {
@@ -218,15 +206,15 @@ function expectAnimates(context: PaletteAnimContext): void {
 }
 
 describe('palette animation detection across the corpus', () => {
-  it.skipIf(romFiles.length === 0)('is the corpus this suite was measured on', () => {
-    const unmeasured = romFiles.filter(f => !(f in OBSERVED))
+  it.skipIf(romsOnDisk().length === 0)('is the corpus this suite was measured on', () => {
+    const unmeasured = romsOnDisk().filter(f => !(f in OBSERVED))
     expect(unmeasured, 'measure these carts and add an OBSERVED entry').toEqual([])
   })
 
   // Registered from OBSERVED rather than from what is on disk, so a missing
   // corpus skips a known number of cases instead of collecting none.
   for (const file of Object.keys(OBSERVED)) {
-    describe.skipIf(!has(file) || !has(VANILLA))(file, () => {
+    describe.skipIf(!hasRom(file) || !hasRom(VANILLA))(file, () => {
       it('carries the stock kernel and callers byte for byte', () => {
         expect(routineBytes(load(file))).toEqual(routineBytes(load(VANILLA)))
       })

@@ -18,13 +18,11 @@
  *
  * Evidence scope: the planted-byte tests run on
  * `Super Mario World (USA).vanilla.sfc`; the "vanilla holds N" tests run on
- * all six carts in `test/roms/`. Static traces against `C:\Projects\SMWDisX`.
+ * all six carts in the corpus. Static traces against `C:\Projects\SMWDisX`.
  * No emulator was run.
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { readSpriteTileTables, SPR_TILEMAP_ADDR } from '../../../../src/rom/SpriteTileLoader'
 import {
@@ -44,17 +42,9 @@ import {
   type EnginePart,
   type EngineResult,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
+import { CORPUS, freshRom, hasRoms } from '../../support/corpus'
 
-const ROM_DIR = resolve(__dirname, '../../../roms')
-const ROM_FILES = [
-  'Super Mario World (USA).vanilla.sfc',
-  'Super Mario World (USA).magic.sfc',
-  'Grand Poo World 2 1.1.sfc',
-  'GrandPooWorld_V1.2.sfc',
-  'Invictus 1.0.sfc',
-  'Seven_Vanilla_Levels.sfc',
-] as const
-const romsPresent = ROM_FILES.every(f => existsSync(resolve(ROM_DIR, f)))
+const romsPresent = hasRoms()
 
 const MAGIKOOPA = SPRITE_DRAW_DESCRIPTORS.find(d => d.spriteId === 0x1f)!
 
@@ -68,8 +58,6 @@ function refAt(rom: RomFile, ref: CodeRef, base: number): number {
 }
 
 /** A fresh in-memory cart per test, so a planted byte never leaks sideways. */
-const freshRom = (name: (typeof ROM_FILES)[number] = ROM_FILES[0]) =>
-  RomFile.load(resolve(ROM_DIR, name))
 
 /** Mario left of the sprite: latch 1, so `SubSprGfx1` does not X-flip. */
 const FACING_LEFT = 0
@@ -128,12 +116,12 @@ function nudgedFrames(rom: RomFile, d: SpriteDrawDescriptor = MAGIKOOPA): Map<nu
 const TILE_GROUP = MAGIKOOPA.tileGroup as Extract<ByteSource, { kind: 'shiftedTable' }>
 
 describe.skipIf(!romsPresent)('shift counts are counted, not stored', () => {
-  it.each(ROM_FILES)('%s: the pose-table index shift is a run of six LSR A', name => {
+  it.each(CORPUS)('%s: the pose-table index shift is a run of six LSR A', name => {
     const rom = freshRom(name)
     expect(readShiftCount(rom, TILE_GROUP.shift, resolveHandlerBase(rom, MAGIKOOPA))).toBe(6)
   })
 
-  it.each(ROM_FILES)('%s: the OR-bit slice is a run of three LSR A', name => {
+  it.each(CORPUS)('%s: the OR-bit slice is a run of three LSR A', name => {
     const rom = freshRom(name)
     expect(readShiftCount(rom, TILE_GROUP.orBit!.shift, resolveHandlerBase(rom, MAGIKOOPA))).toBe(3)
   })
@@ -189,14 +177,14 @@ describe.skipIf(!romsPresent)('shift counts are counted, not stored', () => {
 const NUDGE = MAGIKOOPA.tileNudges![0]
 
 describe.skipIf(!romsPresent)('the 1 px top-tile bob is read out of the cart', () => {
-  it.each(ROM_FILES)('%s: exactly one pose class is displaced, by +1 px', name => {
+  it.each(CORPUS)('%s: exactly one pose class is displaced, by +1 px', name => {
     const rom = freshRom(name)
     const hits = nudgedFrames(rom)
     expect(hits.size).toBeGreaterThan(0)
     expect([...new Set(hits.values())]).toEqual([1])
   })
 
-  it.each(ROM_FILES)('%s: only the TOP large OBJ moves, not the whole sprite', name => {
+  it.each(CORPUS)('%s: only the TOP large OBJ moves, not the whole sprite', name => {
     const rom = freshRom(name)
     const f = [...nudgedFrames(rom).keys()][0]
     const rows = bodyRows(parts(rom, f))
@@ -275,7 +263,7 @@ const SPAN_FROM = 0xc0
 const SPAN_TO = 0x262
 
 describe.skipIf(!romsPresent)('per-handler addresses follow the cart pointer', () => {
-  it.each(ROM_FILES)('%s: the base is the MAIN pointer the cart holds', name => {
+  it.each(CORPUS)('%s: the base is the MAIN pointer the cart holds', name => {
     const rom = freshRom(name)
     const ptr = rom.readAt(SPRITE_MAIN_PTR_TABLE + 0x1f * 2, 2)!
     expect(resolveHandlerBase(rom, MAGIKOOPA)).toBe(0x010000 | (ptr[0] | (ptr[1] << 8)))
@@ -311,7 +299,7 @@ describe.skipIf(!romsPresent)('per-handler addresses follow the cart pointer', (
 describe.skipIf(!romsPresent)('the shared routine is read from the JSR target', () => {
   const sub = (n: 'sub0' | 'sub1' | 'sub2') => SHARED_DRAW_ROUTINES.find(r => r.routine === n)!.addr
 
-  it.each(ROM_FILES)('%s: the cart holds a JSR to SubSprGfx1', name => {
+  it.each(CORPUS)('%s: the cart holds a JSR to SubSprGfx1', name => {
     const rom = freshRom(name)
     const at = refAt(rom, MAGIKOOPA.routineJsr!, resolveHandlerBase(rom, MAGIKOOPA))
     const b = rom.readAt(at, 3)!
@@ -382,7 +370,7 @@ describe.skipIf(!romsPresent)('$2C draws the immediate the handler writes', () =
   const immAt = (rom: RomFile) =>
     refAt(rom, EGG.tileOverrides![0].insnAddr, resolveHandlerBase(rom, EGG)) + 1
 
-  it.each(ROM_FILES)('%s: the override is an LDA #$00 right after the JSR', name => {
+  it.each(CORPUS)('%s: the override is an LDA #$00 right after the JSR', name => {
     const rom = freshRom(name)
     const at = refAt(rom, EGG.tileOverrides![0].insnAddr, resolveHandlerBase(rom, EGG))
     expect(rom.readAt(at, 2)![0]).toBe(0xa9) // LDA #imm
@@ -431,7 +419,7 @@ describe.skipIf(!romsPresent)('$2C draws the immediate the handler writes', () =
 // ── 6. $1F sits where SubSprGfx1 puts it ───────────────────────────────────
 
 describe.skipIf(!romsPresent)("$1F is anchored on the routine's first OAM entry", () => {
-  it.each(ROM_FILES)('%s: the body occupies rows 0..31, not -16..15', name => {
+  it.each(CORPUS)('%s: the body occupies rows 0..31, not -16..15', name => {
     // `SubSprGfx1` stores `_1` to `OAMTileYPos+$100` and `_1 + $10` to
     // `+$104` (bank_01.asm:3948-3952), so its origin is the TOP entry.
     //
@@ -447,7 +435,7 @@ describe.skipIf(!romsPresent)("$1F is anchored on the routine's first OAM entry"
     expect(bodyRows(parts(rom, 0))).toEqual([0, 8, 16, 24])
   })
 
-  it.each(ROM_FILES)('%s: the 1 px nudge still lands on the TOP entry', name => {
+  it.each(CORPUS)('%s: the 1 px nudge still lands on the TOP entry', name => {
     // Re-anchoring must not move which entry `INC OAMTileYPos+$100`
     // (bank_01.asm:8539) targets: `+$100` is the routine's first, which is
     // the top one either way.
@@ -480,7 +468,7 @@ describe.skipIf(!romsPresent)("$1F's resting palette entry is read, not held", (
     return res.paletteNote.entryAddr
   }
 
-  it.each(ROM_FILES)('%s: the terminator is CMP #$09 and the entry resolves to 7', name => {
+  it.each(CORPUS)('%s: the terminator is CMP #$09 and the entry resolves to 7', name => {
     const rom = freshRom(name)
     expect(rom.readAt(cmpAt(rom), 2)![0]).toBe(0xc9) // CMP #imm
     expect(rom.readAt(cmpAt(rom), 2)![1]).toBe(0x09)
@@ -552,7 +540,7 @@ describe.skipIf(!romsPresent)('the bespoke descriptors read their own bytes', ()
       .map(p => `${p.charNum}${p.flipX ? 'X' : ''}${p.flipY ? 'Y' : ''}@${p.dx},${p.dy}`)
       .join('|')
 
-  it.each(ROM_FILES)('%s: all three draw JSRs resolve to the traced routine', name => {
+  it.each(CORPUS)('%s: all three draw JSRs resolve to the traced routine', name => {
     const rom = freshRom(name)
     const routineAt = (d: SpriteDrawDescriptor) => {
       const b = rom.readAt(at(rom, d, d.routineJsr!), 3)!

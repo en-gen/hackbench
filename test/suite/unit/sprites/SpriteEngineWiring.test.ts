@@ -11,13 +11,11 @@
  * $4E there, which is the largest descriptor-sprite population in the game
  * (measured by parsing every level's sprite stream in the vanilla ROM).
  *
- * Evidence scope: vanilla ROM in `test/roms/`, static reads, no emulator.
+ * Evidence scope: vanilla ROM in the corpus, static reads, no emulator.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { effect } from '@vue/reactivity'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMapPayload } from '../../../../src/rom/model/MapBuilder'
 import { buildGraph } from '../../../../src/rom/model/rehydrate'
@@ -33,9 +31,10 @@ import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import { bgr555ToRgba } from '../../../../src/rom/GraphicsDecoder'
 import type { RenderTarget, PixelPos, PixelSize } from '../../../../src/rom/model/RenderTarget'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
+import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
-const VANILLA = resolve(__dirname, '../../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(VANILLA)
+const VANILLA_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 /** $010 carries both Monty Mole variants; see the file header. */
 const MAP_WITH_MOLES = 0x010
 /** $11C is one of only two vanilla maps whose sprite stream holds a $1F. */
@@ -64,7 +63,7 @@ class RecordingTarget implements RenderTarget {
 
 /** Build the webview-side graph exactly as the message handler does. */
 function rehydrateMap(levelId: number) {
-  const smw = SmwRom.open(VANILLA)
+  const smw = SmwRom.open(VANILLA_PATH)
   const payload = buildMapPayload(smw, levelId)
   // The ROM comes back so a test can plant a byte in it: appearances hold
   // the reference and re-read at render time, so a plant after the build
@@ -198,7 +197,7 @@ describe('sprite engine wiring (webview boundary)', () => {
 
       // Read what the descriptor says the hardware leaves in CGRAM, straight
       // from the cart, so nothing ROM-derived is written down here.
-      const smw = SmwRom.open(VANILLA)
+      const smw = SmwRom.open(VANILLA_PATH)
       const d = SPRITE_DRAW_DESCRIPTORS.find(x => x.spriteId === 0x1f)!
       const res = drawSpriteParts({
         rom: smw.rom,
@@ -260,10 +259,10 @@ describe('sprite engine wiring (webview boundary)', () => {
   it.skipIf(!romPresent)(
     'a repointed draw handler renders the fallback and is marked unverified',
     () => {
-      const smw = SmwRom.open(VANILLA)
+      const smw = SmwRom.open(VANILLA_PATH)
       const payload = buildMapPayload(smw, MAP_WITH_MOLES)
       // Repoint $4D's MAIN entry in an in-memory copy of the cart. Nothing is
-      // saved, so `test/roms/` is untouched.
+      // saved, so the corpus is untouched.
       smw.rom.writeAt(0x0185cc + 0x4d * 2, [0x34, 0x12])
       const { map } = buildGraph(payload, smw.rom)
       const s = map.sprites.find(x => x.id === 0x4d)!

@@ -31,14 +31,21 @@
 --
 -- Workflow:
 --   1. Enter a level from the overworld. Script sees gameMode=$14 and opens
---      test/fixtures/maps/<hhh>/dumps.txt in write mode.
+--      <DUMPS_DIR>/<hhh>/dumps.txt in write mode. That root is outside
+--      the repo (see DUMPS_DIR below); it was never `test/fixtures/`.
 --   2. If the level has a tricky intro, play it manually. When you're ready
 --      to cruise, tap Space. Mario snaps to the clamp, auto-walk begins.
 --   3. Tap Space again to take over manually (e.g. to enter a pipe).
 --   4. Reaching the overworld wipes the per-level flags so the next visit
 --      re-opens its dumps.txt fresh.
 
-local DUMPS_DIR = "C:/Users/engenb/OneDrive/hackbench-fixtures/maps"
+-- Fixture root for the captures, which are ROM-derived and therefore never
+-- committed: they live in OneDrive, outside the repo, like the ROM corpus and
+-- the emulator. Spelled from the environment rather than one developer's
+-- drive letter; HACKBENCH_FIXTURES_DIR is the same override the TypeScript
+-- side reads (test/suite/unit/fixtures/loadMesenFixture.ts).
+local DUMPS_DIR = os.getenv("HACKBENCH_FIXTURES_DIR")
+  or ((os.getenv("USERPROFILE") or os.getenv("HOME") or ".") .. "/OneDrive/hackbench-fixtures/maps")
 local TICK_FRAMES = 20    -- dump every 1/3s; Mario covers 80px (5 tiles) in AUTO-SCROLL between dumps.
 local STEP_PIXELS = 4     -- AUTO-SCROLL speed (~Mario running, 240 px/s = 15 tiles/s).
 local FLOAT_Y_PX  = 0x20  -- Mario's Y when horizontal AUTO-SCROLL clamps him. Row 2-ish; Up/Down tweak.

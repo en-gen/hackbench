@@ -1,6 +1,7 @@
 import { beforeAll, describe, it, expect } from 'vitest'
-import { existsSync, writeFileSync } from 'fs'
-import { resolve } from 'path'
+import { mkdtempSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join, resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   buildSpc,
@@ -9,9 +10,10 @@ import {
   getCreditsMusicBankAddr,
   countBankSongs,
 } from '../../../src/rom/SpcBuilder'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 // `describe.skipIf`, not an early `return`: the return registered a single
 // placeholder and dropped the six real cases entirely.
@@ -101,7 +103,10 @@ describe.skipIf(!romPresent)('SpcBuilder', () => {
   })
 
   it('export multiple SPC variants for testing', () => {
-    const outDir = resolve(__dirname, '../../roms')
+    // A per-run temp dir, never the corpus: that directory is shared by every
+    // checkout and worktree, and HACKBENCH_ROMS may point at a read-only one.
+    const outDir = mkdtempSync(join(tmpdir(), 'hackbench-spc-'))
+    console.log(`SPC variants written to ${outDir}`)
 
     // Approach A: Current buildSpc (post-init, PC=APU_Loop)
     const spcA = buildSpc(rom.rom, 2, 'level')

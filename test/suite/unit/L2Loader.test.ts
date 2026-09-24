@@ -3,18 +3,17 @@
  * L3Loader.test.ts § "primary-entrance camera Y reads from DATA_05F400 bits 3:2"
  * - the L2 path uses bits 1:0 of the same byte and a different lookup table.
  *
- * ROM-dependent; gated on test/roms/Super Mario World (USA).vanilla.sfc.
+ * ROM-dependent; gated on the corpus vanilla ROM.
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { readInitialLayer2YPos } from '../../../src/rom/L2Loader'
 import { findSecondaryEntranceForLevel } from '../../../src/rom/L3Loader'
 import { SmwRom } from '../../../src/rom/SmwRom'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 describe.skipIf(!romPresent)('L2Loader.readInitialLayer2YPos (ROM-only)', () => {
   it('primary-entrance Layer2YPos reads DATA_05F400 bits 1:0 -> DATA_05D70C', () => {

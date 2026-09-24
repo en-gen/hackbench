@@ -2,7 +2,7 @@
  * The level music decode, exercised entirely on synthetic carts.
  *
  * CI has no cartridge, so every gate in LevelMusicTable.ts is proven here
- * rather than only against test/roms/. The corpus suite beside this one adds
+ * rather than only against the corpus. The corpus suite beside this one adds
  * the measured values; it skips when the carts are absent, and these do not.
  *
  * What is at risk, and so what is asserted directly:

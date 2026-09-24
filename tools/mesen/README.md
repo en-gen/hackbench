@@ -24,6 +24,23 @@ Files:
   verification layer itself -- see "Route-drift guard proof" and "Known
   limitations" below for why a single-level test is not trustworthy here.
 
+## Where Mesen lives
+
+`Mesen.exe`, its `Saves/`, `Debugger/`, `GameConfig/` and `Cheats/` are NOT
+in this directory. They are non-redistributable binaries, and the ROM corpus
+beside them is copyrighted, so both sit outside the repo where `git clean -x`
+cannot delete them:
+
+```
+<projects>/hackbench-tools/mesen/    Mesen.exe, Saves/, Debugger/, ...
+<projects>/hackbench-tools/roms/     the cartridges
+```
+
+Only the `*.lua` route scripts and this README are tracked here. The
+PowerShell wrappers default to `C:/Projects/hackbench-tools` and accept
+`-ToolsRoot`, or read `HACKBENCH_TOOLS` (and `HACKBENCH_ROMS` for the
+corpus alone); each names the expected location when a file is missing.
+
 ## Running it
 
 ```powershell
@@ -33,7 +50,7 @@ Files:
 Or invoke Mesen directly:
 
 ```
-Mesen.exe --testrunner tools/mesen/headless_capture.lua "test/roms/Super Mario World (USA).vanilla.sfc" ^
+Mesen.exe --testrunner tools/mesen/headless_capture.lua "%HACKBENCH_TOOLS%/roms/Super Mario World (USA).vanilla.sfc" ^
   --snes.rampoweronstate=AllZeros --snes.disableframeskipping=true
 ```
 
@@ -58,7 +75,7 @@ The force-load mechanism can only reach level indices whose low byte is
 `$01`-`$DB` -- that is, `[$001,$0DB] u [$101,$1DB]`. Low byte `$DC`-`$FF` is
 unreachable for the arithmetic reason described in `headless_capture.lua`'s
 `REACHABILITY CONSTRAINT` comment. Low byte `$00` (levels `$000` and `$100`)
-is *separately* unreachable: `bank_05.asm:7167-7168` is `LDA.W
+is _separately_ unreachable: `bank_05.asm:7167-7168` is `LDA.W
 OverworldOverride / BNE CODE_05D8A2`, so an override of `0` falls through to
 the normal overworld-cursor path instead of the forced-load path and is
 silently ignored, not "loads level 0". `CONFIG.LEVEL_ID` is validated against
@@ -68,16 +85,16 @@ or burning a full run first.
 
 ## Exit codes
 
-| Code | Name | Meaning |
-|---|---|---|
-| 0 | OK | All configured sample frames captured for the correct level. |
-| 10 | POWERON_STATE_WRONG | Power-on WRAM probe ($7EC100-$7EC10F, documented unused by the entire disassembly) was not all-zero. `--snes.rampoweronstate=AllZeros` was omitted or did not take effect. |
-| 11 | LEVEL_UNREACHABLE_CONFIG | `CONFIG.LEVEL_ID` fails the reachability constraint above. Checked before any frame runs. |
-| 12 | TITLE_SCREEN_TIMEOUT | `GameMode` never reached `$07` within `CONFIG.TITLE_SCREEN_FRAME_BUDGET` frames. Something is wrong with the boot sequence or the ROM/build. |
-| 13 | LEVEL_LOAD_TIMEOUT | The level force-load was triggered but `GameMode` never reached `$14` within `CONFIG.LEVEL_LOAD_FRAME_BUDGET` frames after the trigger. |
-| 14 | WRONG_LEVEL_LOADED | `GameMode` reached `$14`, but the live `Layer1DataPtr` does not match the ROM's own `Layer1Ptrs` table entry for `CONFIG.LEVEL_ID`. The route drifted -- some other level loaded instead. Nothing is captured. |
-| 15 | SAMPLE_STALL | A configured sample frame was missed by more than 60 frames (or a screenshot/WRAM write failed). Should be unreachable given `disableframeskipping=true` and no injected input; indicates a genuinely stuck emulator or disk write failure. |
-| 16 | CGRAM_UNAVAILABLE | No CGRAM `memType` could be resolved from `emu.memType` (tried `snesCgRam`, `snesCgram`, `cgRam`, `cgram`). Checked before any frame runs -- the route aborts rather than producing a capture silently missing `frame_*_cgram.bin`. |
+| Code | Name                     | Meaning                                                                                                                                                                                                                                     |
+| ---- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | OK                       | All configured sample frames captured for the correct level.                                                                                                                                                                                |
+| 10   | POWERON_STATE_WRONG      | Power-on WRAM probe ($7EC100-$7EC10F, documented unused by the entire disassembly) was not all-zero. `--snes.rampoweronstate=AllZeros` was omitted or did not take effect.                                                                  |
+| 11   | LEVEL_UNREACHABLE_CONFIG | `CONFIG.LEVEL_ID` fails the reachability constraint above. Checked before any frame runs.                                                                                                                                                   |
+| 12   | TITLE_SCREEN_TIMEOUT     | `GameMode` never reached `$07` within `CONFIG.TITLE_SCREEN_FRAME_BUDGET` frames. Something is wrong with the boot sequence or the ROM/build.                                                                                                |
+| 13   | LEVEL_LOAD_TIMEOUT       | The level force-load was triggered but `GameMode` never reached `$14` within `CONFIG.LEVEL_LOAD_FRAME_BUDGET` frames after the trigger.                                                                                                     |
+| 14   | WRONG_LEVEL_LOADED       | `GameMode` reached `$14`, but the live `Layer1DataPtr` does not match the ROM's own `Layer1Ptrs` table entry for `CONFIG.LEVEL_ID`. The route drifted -- some other level loaded instead. Nothing is captured.                              |
+| 15   | SAMPLE_STALL             | A configured sample frame was missed by more than 60 frames (or a screenshot/WRAM write failed). Should be unreachable given `disableframeskipping=true` and no injected input; indicates a genuinely stuck emulator or disk write failure. |
+| 16   | CGRAM_UNAVAILABLE        | No CGRAM `memType` could be resolved from `emu.memType` (tried `snesCgRam`, `snesCgram`, `cgRam`, `cgram`). Checked before any frame runs -- the route aborts rather than producing a capture silently missing `frame_*_cgram.bin`.         |
 
 `debug.log` in the output directory mirrors every log line to a plain file.
 This is necessary, not cosmetic: `emu.log`'s destination is not visible from
@@ -94,7 +111,7 @@ script used the poll+debounce design and silently mis-verified 6 of 27
 levels (`$013 $01F $0DB $101 $1DA $1DB`): it reported `EXIT_WRONG_LEVEL_LOADED`
 ("route drift") on every one of them even though the correct level had
 loaded, because its 2-frame debounce was tuned to level `$105`'s timing and
-some levels' object parser starts consuming `Layer1DataPtr` in the *same*
+some levels' object parser starts consuming `Layer1DataPtr` in the _same_
 frame it is written, leaving zero pristine frames to debounce across. A
 write callback has no such requirement -- it fires at the exact CPU write,
 not on a frame boundary, so it captures the pristine value regardless of how
@@ -138,7 +155,7 @@ exit `0`.
 
 `headless_capture.lua` recursively removes and recreates `OUTPUT_DIR` before
 writing anything to it, including `debug.log`. Without this, a failed run
-left a *complete, plausible-looking* artifact set behind from whichever
+left a _complete, plausible-looking_ artifact set behind from whichever
 level last succeeded into that same directory (only `debug.log` used to get
 overwritten on every run), and nothing distinguished it from a real capture.
 Absence of artifacts is now the only signal for "this run produced no valid

@@ -11,15 +11,12 @@
  * recovered from operands rather than hardcoded, and a change that started
  * hardcoding them would otherwise look identical from the outside.
  *
- * Skips per file when test/roms/ is absent, which is always the case in CI.
+ * Skips per file when the corpus is absent, which is always the case in CI.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../src/rom/RomFile'
 import { readSfxTable, buildSfxSpc, SFX_PORTS, SfxPort } from '../../../src/rom/SfxTables'
-
-const ROMS_DIR = resolve(__dirname, '../../roms')
+import { hasRom, romPath } from '../support/corpus'
 
 interface PortShape {
   tableAram: number
@@ -43,12 +40,12 @@ const STOCK_ENGINE_ROMS = [
 
 const ADDMUSICK_ROMS = ['Grand Poo World 2 1.1.sfc', 'GrandPooWorld_V1.2.sfc', 'Invictus 1.0.sfc']
 
-describe('readSfxTable (requires test/roms/*.sfc)', () => {
+describe('readSfxTable (requires the ROM corpus)', () => {
   for (const file of STOCK_ENGINE_ROMS) {
-    const path = resolve(ROMS_DIR, file)
+    const path = romPath(file)
     // skipIf per file: with the corpus absent these must still be
     // REGISTERED and reported skipped, not silently cease to exist.
-    describe.skipIf(!existsSync(path))(file, () => {
+    describe.skipIf(!hasRom(file))(file, () => {
       for (const port of SFX_PORTS) {
         const shape = STOCK[port]
 
@@ -114,8 +111,8 @@ describe('readSfxTable (requires test/roms/*.sfc)', () => {
   }
 
   for (const file of ADDMUSICK_ROMS) {
-    const path = resolve(ROMS_DIR, file)
-    describe.skipIf(!existsSync(path))(file, () => {
+    const path = romPath(file)
+    describe.skipIf(!hasRom(file))(file, () => {
       for (const port of SFX_PORTS) {
         it(`reports port ${port} unavailable rather than the stock table`, () => {
           const result = readSfxTable(RomFile.load(path), port)

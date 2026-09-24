@@ -38,10 +38,17 @@
     ./run_headless_capture.ps1 -LevelId 0x0DB -OutputDir ../mesen/sweep/0db
 #>
 param(
-  [string]$MesenExe  = "C:/Projects/hackbench/tools/mesen/Mesen.exe",
-  [string]$Rom       = "C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc",
+  # The emulator, its Saves/ and the ROM corpus live OUTSIDE the repo: they
+  # are non-redistributable binaries and copyrighted cartridge bytes, so
+  # keeping them out of the checkout means `git clean -x` can no longer reach
+  # them. Override with the HACKBENCH_TOOLS environment variable, or pass
+  # -ToolsRoot. HACKBENCH_ROMS overrides the corpus directory on its own.
+  [string]$ToolsRoot = $(if ($env:HACKBENCH_TOOLS) { $env:HACKBENCH_TOOLS } else { "C:/Projects/hackbench-tools" }),
+  [string]$RomDir    = $(if ($env:HACKBENCH_ROMS) { $env:HACKBENCH_ROMS } else { Join-Path $ToolsRoot "roms" }),
+  [string]$MesenExe  = (Join-Path $ToolsRoot "mesen/Mesen.exe"),
+  [string]$Rom       = (Join-Path $RomDir "Super Mario World (USA).vanilla.sfc"),
   [string]$LuaScript = $(Join-Path $PSScriptRoot "../mesen/headless_capture.lua"),
-  [string]$SramPath  = "C:/Projects/hackbench/tools/mesen/Saves/Super Mario World (USA).vanilla.srm",
+  [string]$SramPath  = (Join-Path $ToolsRoot "mesen/Saves/Super Mario World (USA).vanilla.srm"),
   # Relative to this script's own repo (not the checkout the ROM/Mesen.exe
   # happen to live in) so running from a worktree writes inside that worktree
   # instead of polluting whatever checkout $MesenExe/$Rom point at.
@@ -63,8 +70,8 @@ function Resolve-ExitName([int]$code) {
   return "see tools/mesen/README.md"
 }
 
-if (-not (Test-Path $MesenExe))  { throw "Mesen.exe not found at $MesenExe" }
-if (-not (Test-Path $Rom))       { throw "ROM not found at $Rom (see docs/testing.md to obtain one)" }
+if (-not (Test-Path $MesenExe))  { throw "Mesen.exe not found at $MesenExe. The emulator lives outside the repo, under `$ToolsRoot (default C:/Projects/hackbench-tools/mesen). Set HACKBENCH_TOOLS or pass -ToolsRoot." }
+if (-not (Test-Path $Rom))       { throw "ROM not found at $Rom. The corpus lives outside the repo, under `$RomDir (default C:/Projects/hackbench-tools/roms). Set HACKBENCH_ROMS or pass -RomDir. See docs/testing.md to obtain a cartridge." }
 if (-not (Test-Path $LuaScript)) { throw "Route script not found at $LuaScript" }
 
 # Normalize away any ".." from the $PSScriptRoot-relative default (or a

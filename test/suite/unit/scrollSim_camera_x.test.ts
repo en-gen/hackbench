@@ -15,9 +15,9 @@
  *     of `applyParallaxDerivation`.
  *
  * Capture files:
- *   $01A - C:/Users/engenb/OneDrive/hackbench-fixtures/maps/01a/l2_scroll.csv
- *   $111 - C:/Users/engenb/OneDrive/hackbench-fixtures/maps/111/l2_scroll.csv
- *   $1CF - C:/Users/engenb/OneDrive/hackbench-fixtures/maps/1cf/l2_scroll.csv
+ *   $01A - <hackbench-fixtures>/maps/01a/l2_scroll.csv
+ *   $111 - <hackbench-fixtures>/maps/111/l2_scroll.csv
+ *   $1CF - <hackbench-fixtures>/maps/1cf/l2_scroll.csv
  *
  * Acceptance criteria: `nl1x` matches every active frame of the capture
  * (up to the freeze sentinel detected by `detectActiveFrames`).
@@ -31,8 +31,9 @@ import {
   detectActiveFrames,
   vanillaRomPresent,
 } from './scrollSim_capture'
+import { MESEN_FIXTURES_DIR } from './fixtures/loadMesenFixture'
 
-const FIXTURES = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps'
+const FIXTURES = MESEN_FIXTURES_DIR
 
 const LEVELS = ['01a', '111', '1cf'] as const
 

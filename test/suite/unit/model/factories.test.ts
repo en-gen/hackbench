@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { loadVram } from '../../../../src/rom/GfxLoader'
 import { Char } from '../../../../src/rom/model/chars/Char'
@@ -8,10 +7,11 @@ import { Tile } from '../../../../src/rom/model/tiles/Tile'
 import { buildTiles } from '../../../../src/rom/model/tiles/TileFactory'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { StaticQuadBehavior } from '../../../../src/rom/model/tiles/behaviors/StaticQuadBehavior'
+import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
-const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
+const ROM_PATH = romPath(VANILLA)
 
-describe.skipIf(!existsSync(ROM_PATH))('CharFactory / TileFactory (vanilla ROM)', () => {
+describe.skipIf(!hasRom(VANILLA))('CharFactory / TileFactory (vanilla ROM)', () => {
   it('buildChars wraps every loaded VRAM char as a Char with StaticPixelsBehavior', () => {
     const rom = SmwRom.open(ROM_PATH)
     const vram = loadVram(rom.rom, /* tilesetId */ 0, /* spriteSet */ 0)

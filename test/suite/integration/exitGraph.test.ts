@@ -9,40 +9,22 @@
  * loose bounds: a regression that halves the graph must fail these tests.
  */
 import { describe, it, expect, beforeAll } from 'vitest'
-import { existsSync } from 'fs'
-import * as os from 'os'
-import * as path from 'path'
 import { SmwRom, isOverworldLevel } from '../../../src/rom/SmwRom'
 import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
+import { CORPUS, VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_DIR = path.resolve(__dirname, '../../roms')
 // Same resolution as exitGraphReach.test.ts, so this does not skip in a worktree.
-const VANILLA = [
-  process.env.ROM_PATH,
-  path.join(ROM_DIR, 'Super Mario World (USA).vanilla.sfc'),
-  path.join(os.homedir(), 'OneDrive', 'hackbench-fixtures', 'Super Mario World (USA).vanilla.sfc'),
-  path.join(os.homedir(), 'Super Mario World (USA).vanilla.sfc'),
-]
-  .filter((p): p is string => !!p)
-  .find(existsSync)
+const VANILLA_ROM = romPath(VANILLA)
 
-// The six-ROM corpus (test/roms/, gitignored). One case per ROM, so an absent
+// The six-ROM corpus (outside the repo, see support/corpus.ts). One case per ROM, so an absent
 // ROM skips rather than vanishing (CLAUDE.md, Quality gates).
-const CORPUS = [
-  'Super Mario World (USA).vanilla.sfc',
-  'Super Mario World (USA).magic.sfc',
-  'Grand Poo World 2 1.1.sfc',
-  'GrandPooWorld_V1.2.sfc',
-  'Invictus 1.0.sfc',
-  'Seven_Vanilla_Levels.sfc',
-]
 
-describe.skipIf(!VANILLA)('buildLevelExitGraph -- vanilla acceptance', () => {
+describe.skipIf(!hasRom(VANILLA))('buildLevelExitGraph -- vanilla acceptance', () => {
   let rom: SmwRom
   let graph: Map<number, number[]>
 
   beforeAll(() => {
-    rom = SmwRom.open(VANILLA!)
+    rom = SmwRom.open(VANILLA_ROM)
     graph = rom.buildLevelExitGraph()
   })
 
@@ -109,11 +91,10 @@ describe.skipIf(!VANILLA)('buildLevelExitGraph -- vanilla acceptance', () => {
 
 describe('buildLevelExitGraph -- AC2 and AC6 across the full ROM corpus', () => {
   for (const name of CORPUS) {
-    const romPath = path.join(ROM_DIR, name)
-    it.skipIf(!existsSync(romPath))(
+    it.skipIf(!hasRom(name))(
       `no edge points at the filler L1 pointer, and the graph builds without throwing: ${name}`,
       () => {
-        const rom = SmwRom.open(romPath)
+        const rom = SmwRom.open(romPath(name))
         let graph: Map<number, number[]> = new Map()
         expect(() => {
           graph = rom.buildLevelExitGraph()

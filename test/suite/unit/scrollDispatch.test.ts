@@ -10,13 +10,12 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { simulateScrollSetup } from '../../../src/rom/scrollDispatch'
 import { SmwRom } from '../../../src/rom/SmwRom'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 describe.skipIf(!romPresent)('simulateScrollSetup (ROM-only)', () => {
   it('returns null for non-scroll sprite ids', () => {

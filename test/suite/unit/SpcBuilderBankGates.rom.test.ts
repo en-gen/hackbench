@@ -3,7 +3,7 @@
  *
  * The synthetic suite proves the refusals can fire; this pins which
  * cartridges they fire on, so a change that quietly starts reporting a
- * stock bank for a hack is visible. Skips per file when test/roms/ is
+ * stock bank for a hack is visible. Skips per file when the corpus is
  * absent, which is always the case in CI.
  *
  * The credits row is the one that matters. On all three AddmusicK carts the
@@ -14,16 +14,13 @@
  * the ungated one is asserted alongside it to keep the contrast visible.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../src/rom/RomFile'
 import {
   getOverworldMusicBankAddrIfReadable,
   getCreditsMusicBankAddrIfReadable,
   getCreditsMusicBankAddr,
 } from '../../../src/rom/SpcBuilder'
-
-const ROMS_DIR = resolve(__dirname, '../../roms')
+import { hasRom, romPath } from '../support/corpus'
 
 /** Measured 2026-09-21 on this repo's six-cartridge corpus, one machine. */
 const EXPECTED: Record<string, { overworld: number | null; credits: number | null }> = {
@@ -35,12 +32,12 @@ const EXPECTED: Record<string, { overworld: number | null; credits: number | nul
   'Invictus 1.0.sfc': { overworld: null, credits: null },
 }
 
-describe('music bank path gates (requires test/roms/*.sfc)', () => {
+describe('music bank path gates (requires the ROM corpus)', () => {
   for (const [file, expected] of Object.entries(EXPECTED)) {
-    const path = resolve(ROMS_DIR, file)
+    const path = romPath(file)
     // skipIf per file: with the corpus absent these must still be
     // REGISTERED and reported skipped, not silently cease to exist.
-    describe.skipIf(!existsSync(path))(file, () => {
+    describe.skipIf(!hasRom(file))(file, () => {
       it(`reads the overworld bank as ${expected.overworld === null ? 'unavailable' : '$0E98B1'}`, () => {
         expect(getOverworldMusicBankAddrIfReadable(RomFile.load(path))).toBe(expected.overworld)
       })

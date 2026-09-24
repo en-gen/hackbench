@@ -5,7 +5,7 @@
  * The instruction sequence is written from the 65816 encoding so the arena
  * code has a `PrepareGraphicsFile` to resolve; the graphics are arithmetic.
  * That is what lets the GFX editor's gates and refusals be tested in CI,
- * where test/roms/ is absent by design.
+ * where the corpus is absent by design.
  */
 import { RomFile } from '../../../src/rom/RomFile'
 import { encode } from '../../../src/rom/LcLz2'

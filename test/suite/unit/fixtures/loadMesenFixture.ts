@@ -21,6 +21,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { GetL1Tile, L1Cell } from '../../../../src/rom/model/OverlayContext'
 import type { SolidH, SolidV } from '../../../../src/rom/model/sprites/MovementBehavior'
@@ -32,15 +33,18 @@ import type { SlopeInfo } from '../../../../src/rom/SlopeResolver'
 /**
  * Where per-level Mesen captures live: `<root>/<level>/map16.txt`.
  *
- * The scrollSim suites already hardcode this OneDrive root in eleven places.
- * The two behavior fixtures did not: they read `HACKBENCH_FIXTURES_DIR` alone,
+ * The scrollSim suites used to hardcode this OneDrive root in eleven places,
+ * spelled `C:/Users/<one developer>/...`, which no other machine has; they now
+ * import it from here. The two behavior fixtures read `HACKBENCH_FIXTURES_DIR`
+ * alone,
  * which nothing in this repo, its docs or its CI ever sets, so their seven
  * cases were dark on every machine including the one holding the captures.
  * The env var still wins where it is set; the default is simply the place the
- * rest of the suite already looks.
+ * rest of the suite already looks, spelled from `os.homedir()` so it is not
+ * one developer's drive.
  */
 export const MESEN_FIXTURES_DIR =
-  process.env.HACKBENCH_FIXTURES_DIR ?? 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps'
+  process.env.HACKBENCH_FIXTURES_DIR ?? join(homedir(), 'OneDrive', 'hackbench-fixtures', 'maps')
 
 /** Path to one level's stitched Map16 capture, present or not. */
 export function mesenFixturePath(level: string): string {

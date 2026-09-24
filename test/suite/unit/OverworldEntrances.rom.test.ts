@@ -15,18 +15,13 @@
  * empty array fails a vitest suite outright.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { getAllLevelNames } from '../../../src/rom/SmwLevelNames'
 import { loadOverworldEvents } from '../../../src/rom/OverworldEvents'
 import { deriveOverworldEntrances, warpPrecursorTiles } from '../../../src/rom/OverworldEntrances'
+import { MAGIC, VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROMS_DIR = resolve(__dirname, '../../roms')
-const romPath = (name: string): string => resolve(ROMS_DIR, name)
-
-const VANILLA = 'Super Mario World (USA).vanilla.sfc'
-const HEADERED = 'Super Mario World (USA).magic.sfc'
+const HEADERED = MAGIC
 const REBUILT_OVERWORLD = [
   'Seven_Vanilla_Levels.sfc',
   'GrandPooWorld_V1.2.sfc',
@@ -77,7 +72,7 @@ const VANILLA_EMPTY_TARGETS: [number, number, number, number, number, number][] 
 /** Entrances per inferred sub-map, index 0 (main map) through 6. */
 const VANILLA_SUBMAP_COUNTS = [36, 6, 9, 7, 13, 10, 11]
 
-const haveVanilla = existsSync(romPath(VANILLA))
+const haveVanilla = hasRom(VANILLA)
 
 // describe.skipIf still RUNS the suite body to collect tests, so the ROM
 // must not be opened until a test executes. Memoised so the walk runs once.
@@ -226,7 +221,7 @@ describe.skipIf(!haveVanilla)('deriveOverworldEntrances on vanilla SMW', () => {
   })
 })
 
-describe.skipIf(!haveVanilla || !existsSync(romPath(HEADERED)))(
+describe.skipIf(!haveVanilla || !hasRom(HEADERED))(
   'copier header does not shift the derivation',
   () => {
     it('gives byte-for-byte the same index as the unheadered ROM', () => {
@@ -240,7 +235,7 @@ describe.skipIf(!haveVanilla || !existsSync(romPath(HEADERED)))(
 )
 
 for (const name of REBUILT_OVERWORLD) {
-  describe.skipIf(!existsSync(romPath(name)))(`fail closed: ${name}`, () => {
+  describe.skipIf(!hasRom(name))(`fail closed: ${name}`, () => {
     it('reports the derivation unavailable instead of a vanilla-shaped list', () => {
       const result = deriveOverworldEntrances(SmwRom.open(romPath(name)))
       expect(result.overworldReadable).toBe(false)

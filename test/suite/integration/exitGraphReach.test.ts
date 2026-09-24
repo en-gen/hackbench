@@ -19,24 +19,16 @@
  * 59 orphans (neither an entry map nor reachable from one).
  */
 import { describe, it, expect, beforeAll } from 'vitest'
-import { existsSync } from 'fs'
-import * as os from 'os'
-import * as path from 'path'
 import { SmwRom, LEVEL_COUNT } from '../../../src/rom/SmwRom'
 import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
 import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const CANDIDATES = [
-  process.env.ROM_PATH,
-  path.resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc'),
-  path.join(os.homedir(), 'OneDrive', 'hackbench-fixtures', 'Super Mario World (USA).vanilla.sfc'),
-  path.join(os.homedir(), 'Super Mario World (USA).vanilla.sfc'),
-].filter((p): p is string => !!p)
-const VANILLA = CANDIDATES.find(existsSync)
+const VANILLA_ROM = romPath(VANILLA)
 
 const hex = (n: number) => '$' + n.toString(16).toUpperCase().padStart(3, '0')
 
-describe.skipIf(!VANILLA)('exit graph reachability', () => {
+describe.skipIf(!hasRom(VANILLA))('exit graph reachability', () => {
   // Built in beforeAll, not in the describe body: describe.skipIf still runs
   // the body at collection time, so opening the ROM there crashes CI, which has
   // no ROM. The suite must skip, not explode.
@@ -48,7 +40,7 @@ describe.skipIf(!VANILLA)('exit graph reachability', () => {
   let orphans: number[]
 
   beforeAll(() => {
-    rom = SmwRom.open(VANILLA!)
+    rom = SmwRom.open(VANILLA_ROM)
     graph = rom.buildLevelExitGraph()
     const catalog = buildLevelCatalog(rom)
     entryMaps = new Set(deriveOverworldEntrances(rom).entryMaps)

@@ -9,15 +9,12 @@
  * `sharedWith` grouping is answering a real question rather than a
  * hypothetical one.
  *
- * Skips per file when test/roms/ is absent, which is always the case in CI.
+ * Skips per file when the corpus is absent, which is always the case in CI.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { readMusicCatalog, MusicBankName, MUSIC_BANKS } from '../../../src/rom/MusicCatalog'
-
-const ROMS_DIR = resolve(__dirname, '../../roms')
+import { hasRom, romPath } from '../support/corpus'
 
 interface BankShape {
   romAddr: number
@@ -43,12 +40,12 @@ const STOCK_CARTS = [
 
 const ADDMUSICK_CARTS = ['Grand Poo World 2 1.1.sfc', 'GrandPooWorld_V1.2.sfc', 'Invictus 1.0.sfc']
 
-describe('readMusicCatalog (requires test/roms/*.sfc)', () => {
+describe('readMusicCatalog (requires the ROM corpus)', () => {
   for (const file of STOCK_CARTS) {
-    const path = resolve(ROMS_DIR, file)
+    const path = romPath(file)
     // skipIf per file: with the corpus absent these must still be
     // REGISTERED and reported skipped, not silently cease to exist.
-    describe.skipIf(!existsSync(path))(file, () => {
+    describe.skipIf(!hasRom(file))(file, () => {
       for (const bank of MUSIC_BANKS) {
         const shape = STOCK[bank]
 
@@ -105,8 +102,8 @@ describe('readMusicCatalog (requires test/roms/*.sfc)', () => {
   }
 
   for (const file of ADDMUSICK_CARTS) {
-    const path = resolve(ROMS_DIR, file)
-    describe.skipIf(!existsSync(path))(file, () => {
+    const path = romPath(file)
+    describe.skipIf(!hasRom(file))(file, () => {
       for (const bank of MUSIC_BANKS) {
         it(`refuses the ${bank} bank rather than naming the stock address`, () => {
           const result = readMusicCatalog(SmwRom.open(path), bank)

@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import * as path from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { RomFile } from '../../../src/rom/RomFile'
 import {
@@ -13,6 +11,7 @@ import { applyPatches, build, flatten, exportable } from '../../../src/rom/Patch
 import { encodeIps, decodeIps } from '../../../src/rom/Ips'
 import { buildMapPayload } from '../../../src/rom/model/MapBuilder'
 import { deleteSprite } from '../../../src/rom/LevelEdits'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
 /**
  * The edit pipeline against a real cart: locate a sprite in the ROM's own
@@ -23,13 +22,10 @@ import { deleteSprite } from '../../../src/rom/LevelEdits'
  * Swept across levels rather than asserted on one, because a single-case pass
  * here would say nothing about whether the byte layout holds generally.
  */
-const ROM_PATH = [
-  path.resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc'),
-  'C:/Users/engenb/Super Mario World (USA).vanilla.sfc',
-].find(p => existsSync(p))
+const ROM_PATH = romPath(VANILLA)
 
-describe.skipIf(!ROM_PATH)('edit pipeline against a real ROM', () => {
-  const rom = (): SmwRom => SmwRom.open(ROM_PATH!)
+describe.skipIf(!hasRom(VANILLA))('edit pipeline against a real ROM', () => {
+  const rom = (): SmwRom => SmwRom.open(ROM_PATH)
 
   interface Level {
     id: number
@@ -76,7 +72,7 @@ describe.skipIf(!ROM_PATH)('edit pipeline against a real ROM', () => {
       const layer = moveSpriteX(lv.raw, lv.spriteOffset, i, 1, lv.isVertical)
       const patched = applyPatches(base, layer.patches)
 
-      const reread = new SmwRom(RomFile.fromBytes(ROM_PATH!, patched))
+      const reread = new SmwRom(RomFile.fromBytes(ROM_PATH, patched))
       const ptr = reread.getLevelSpritePointer(lv.id)!
       const after = parseLevelSprites(reread.rom.readAt(ptr, 0x200)!, lv.isVertical)[i]
 
@@ -104,11 +100,11 @@ describe.skipIf(!ROM_PATH)('edit pipeline against a real ROM', () => {
     const startX = lv.sprites[i].x
 
     const spritesOf = (bytes: Uint8Array) => {
-      const r = new SmwRom(RomFile.fromBytes(ROM_PATH!, bytes))
+      const r = new SmwRom(RomFile.fromBytes(ROM_PATH, bytes))
       return parseLevelSprites(r.rom.readAt(r.getLevelSpritePointer(lv.id)!, 0x200)!, lv.isVertical)
     }
     const rawOf = (bytes: Uint8Array) => {
-      const r = new SmwRom(RomFile.fromBytes(ROM_PATH!, bytes))
+      const r = new SmwRom(RomFile.fromBytes(ROM_PATH, bytes))
       return r.rom.readAt(r.getLevelSpritePointer(lv.id)!, 0x200)!
     }
 
@@ -134,7 +130,7 @@ describe.skipIf(!ROM_PATH)('edit pipeline against a real ROM', () => {
     const i = lv.sprites.findIndex(s => ((s.raw[byteIndex] >> 4) & 0x0f) < 0x0e)
     const a = moveSpriteX(lv.raw, lv.spriteOffset, i, 1, lv.isVertical, 'a')
     const one = build(base, [a])
-    const rawOne = new SmwRom(RomFile.fromBytes(ROM_PATH!, one))
+    const rawOne = new SmwRom(RomFile.fromBytes(ROM_PATH, one))
     const b = moveSpriteX(
       rawOne.rom.readAt(rawOne.getLevelSpritePointer(lv.id)!, 0x200)!,
       lv.spriteOffset,
@@ -199,15 +195,15 @@ describe.skipIf(!ROM_PATH)('edit pipeline against a real ROM', () => {
  * model: the level's tiles updated and its sprites did not, so a deleted
  * sprite stayed on screen while the emulator showed it gone.
  */
-describe.skipIf(!ROM_PATH)('a patched ROM renders', () => {
+describe.skipIf(!hasRom(VANILLA))('a patched ROM renders', () => {
   const LEVEL = 0x001
 
   function patched(bytes: Uint8Array): SmwRom {
-    return new SmwRom(RomFile.fromBytes(ROM_PATH!, Buffer.from(bytes)))
+    return new SmwRom(RomFile.fromBytes(ROM_PATH, Buffer.from(bytes)))
   }
 
   it('builds a map payload after an edit, with one fewer sprite', () => {
-    const smw = SmwRom.open(ROM_PATH!)
+    const smw = SmwRom.open(ROM_PATH)
     const ptr = smw.getLevelSpritePointer(LEVEL)!
     const raw = smw.rom.readAt(ptr, 0x200)!
     const before = buildMapPayload(smw, LEVEL, {}).sprites.length
@@ -223,9 +219,9 @@ describe.skipIf(!ROM_PATH)('a patched ROM renders', () => {
   })
 
   it('throws when handed a raw Uint8Array, which is why Buffer.from is required', () => {
-    const smw = SmwRom.open(ROM_PATH!)
+    const smw = SmwRom.open(ROM_PATH)
     const bytes = new Uint8Array(smw.rom.buffer)
-    const asUint8 = new SmwRom(RomFile.fromBytes(ROM_PATH!, bytes))
+    const asUint8 = new SmwRom(RomFile.fromBytes(ROM_PATH, bytes))
     // Guards the fix: if this ever stops throwing, RomFile has been made safe
     // for Uint8Array and the Buffer.from calls can go.
     expect(() => buildMapPayload(asUint8, LEVEL, {})).toThrow()
@@ -240,9 +236,9 @@ describe.skipIf(!ROM_PATH)('a patched ROM renders', () => {
  * per-level pointer and those pointers are not all distinct, so patching a
  * stream in place edits every level pointing at it.
  */
-describe.skipIf(!ROM_PATH)('shared sprite data', () => {
+describe.skipIf(!hasRom(VANILLA))('shared sprite data', () => {
   it('multiple real levels share one sprite pointer in the vanilla cart', () => {
-    const smw = SmwRom.open(ROM_PATH!)
+    const smw = SmwRom.open(ROM_PATH)
     const byPtr = new Map<number, number[]>()
     for (let id = 0; id < 0x200; id++) {
       const ptr = smw.getLevelSpritePointer(id)

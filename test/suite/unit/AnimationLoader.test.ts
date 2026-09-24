@@ -8,7 +8,6 @@
 
 import { beforeAll, describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'fs'
-import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { loadAnimationData } from '../../../src/rom/AnimationLoader'
 import {
@@ -17,9 +16,10 @@ import {
   VRAM_CHAR_BASE,
   getCharPixels,
 } from '../../../src/rom/GfxLoader'
+import { VANILLA, hasRom, mesenDumpPath, romPath } from '../support/corpus'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 // `describe.skipIf`, not an early `return` from the suite body: a return
 // registers ZERO cases when the cart is absent, so the run is green and the
@@ -167,10 +167,7 @@ describe.skipIf(!romPresent)('AnimationLoader berry tiles', () => {
   })
 
   it('A/B compare our VRAM chars $060-$090 vs Mesen dump', () => {
-    const mesenPath = resolve(
-      __dirname,
-      '../../../tools/mesen/Debugger/Super Mario World (USA) - SnesVideoRam.dmp',
-    )
+    const mesenPath = mesenDumpPath('Super Mario World (USA) - SnesVideoRam.dmp')
     if (!existsSync(mesenPath)) {
       console.log('Mesen VRAM dump not found')
       return

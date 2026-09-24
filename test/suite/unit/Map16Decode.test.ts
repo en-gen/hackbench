@@ -9,8 +9,6 @@
  * variant choice actually reaching the decode.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { decodeSubTileWord, MAP16_TOTAL_TILES } from '../../../src/rom/Map16'
 import { loadVram, VRAM_SLOT_NAMES } from '../../../src/rom/GfxLoader'
@@ -26,9 +24,10 @@ import {
   MAP16_TILES_PER_ROW,
   MAP16_TILESET_COUNT,
 } from '../../../theia/extension/src/common/map16-protocol'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 const DEFAULT_VARIANT: Map16PaletteVariantDto = { bg: 0, fg: 0 }
 
@@ -434,7 +433,7 @@ describe('nextQuadrantWord', () => {
  * The two refusal paths, WITHOUT a cartridge.
  *
  * Both bounds checks were previously exercised only inside the corpus-gated
- * describe above, so on CI - where `test/roms/` is gitignored and absent -
+ * describe above, so on CI - where the corpus is gitignored and absent -
  * neither was proven at all. That is precisely the case CLAUDE.md's "CI has
  * no cartridge" rule exists for: a safeguard proven only by a corpus test is
  * unproven where it actually runs.
