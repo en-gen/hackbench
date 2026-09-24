@@ -17,7 +17,7 @@
  * computed jump reports `unreached`, and the caller keeps whatever it had.
  *
  * Evidence scope: 57 of the 84 ids below $54 resolve on five of the six
- * carts in `test/roms/` and 56 on Grand Poo World 2 1.1; every resolution
+ * carts in the corpus and 56 on Grand Poo World 2 1.1; every resolution
  * agrees with the frozen table it replaces, on all six. Static reads only;
  * no emulator was run. Measurements and method in
  * `docs/sprites/sprite-gfx-routine-reading.md`.

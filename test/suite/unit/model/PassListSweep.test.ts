@@ -11,20 +11,20 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { existsSync } from 'fs'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMap } from '../../../../src/rom/model/MapBuilder'
 import { ppuDrawOrder, type RenderPass } from '../../../../src/rom/model/RenderPass'
 import { resetEditorStore } from '../fixtures/stores'
+import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
-const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
+const ROM_PATH = romPath(VANILLA)
 
 const key = (p: RenderPass): string => `${p.layer}.${p.priority}`
 
 /** Levels ranked by Layer-1 priority cell count: 923, 630 and 462 cells. */
 const DENSE_L1_PRIORITY = [0x10a, 0x1ec, 0x11e]
 
-describe.skipIf(!existsSync(ROM_PATH))('pass list over all 512 level ids', () => {
+describe.skipIf(!hasRom(VANILLA))('pass list over all 512 level ids', () => {
   beforeEach(resetEditorStore)
 
   const sweep = (): { id: number; passes: RenderPass[]; bg3: boolean }[] => {
@@ -35,6 +35,11 @@ describe.skipIf(!existsSync(ROM_PATH))('pass list over all 512 level ids', () =>
     })
   }
 
+  // 30s, not vitest's default 5s. This case is the first of four to call
+  // `sweep()`, so it pays for the cold build of all 512 maps: measured at
+  // 5.2-5.5s in a full `npm run test:unit`, and under 5s when the file runs
+  // alone. It was already at the edge and went over when this branch added
+  // cases to the run. No assertion below is changed; only the budget is.
   it('every level emits a duplicate-free subsequence of the PPU order', () => {
     // The structural invariant that matters: the compositor may drop
     // passes a level does not occupy, never reorder or repeat them.
@@ -49,7 +54,7 @@ describe.skipIf(!existsSync(ROM_PATH))('pass list over all 512 level ids', () =>
         at = next
       }
     }
-  })
+  }, 30_000)
 
   it('the three densest Layer-1 priority levels each split Layer 1 in two', () => {
     // 666 vanilla cells mix priority and non-priority subtiles inside one

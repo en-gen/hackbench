@@ -11,27 +11,18 @@
  */
 
 import * as fs from 'fs'
-import { resolve } from 'path'
-import { existsSync } from 'fs'
 import { RomFile } from '../../../src/rom/RomFile'
 import { buildScrollSimulator, type ScrollState } from '../../../src/rom/scrollSim'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
 /** Path to the vanilla SMW ROM used as the source of truth for all
  *  scroll-sim ROM reads. Tests check `vanillaRomPresent` and skip
  *  gracefully when the gitignored ROM isn't present.
  *
- *  Resolves across multiple candidates because git worktrees don't
- *  share the gitignored `test/roms/` directory - the ROM only lives
- *  in the canonical checkout. */
+ *  The corpus helper resolves it for the clone and every worktree alike;
+ *  the absolute fallback into one checkout this used to carry is gone. */
 function resolveVanillaRom(): string | null {
-  const candidates = [
-    resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc'),
-    'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc',
-  ]
-  for (const p of candidates) {
-    if (existsSync(p)) return p
-  }
-  return null
+  return hasRom(VANILLA) ? romPath(VANILLA) : null
 }
 const _vanillaRomPath = resolveVanillaRom()
 export const VANILLA_ROM_PATH: string = _vanillaRomPath ?? ''

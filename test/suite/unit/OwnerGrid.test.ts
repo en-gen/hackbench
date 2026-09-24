@@ -10,8 +10,6 @@
  * what is actually on screen, which is what a click means.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import {
   expandMap,
   expandMapOwned,
@@ -28,9 +26,10 @@ import {
 import { parseLevelObjects } from '../../../src/rom/LevelParser'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { RomFile } from '../../../src/rom/RomFile'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 /**
  * Opened on first use, from inside a case body, so the gates below can be

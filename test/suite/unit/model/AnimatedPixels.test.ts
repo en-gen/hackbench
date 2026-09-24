@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { existsSync } from 'fs'
 import { loadAnimationData } from '../../../../src/rom/AnimationLoader'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { loadVram } from '../../../../src/rom/GfxLoader'
@@ -8,8 +7,9 @@ import { buildChars } from '../../../../src/rom/model/chars/CharFactory'
 import { AnimatedPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/AnimatedPixelsBehavior'
 import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { resetEditorStore } from '../fixtures/stores'
+import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
-const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
+const ROM_PATH = romPath(VANILLA)
 
 describe('AnimatedPixelsBehavior behavior', () => {
   beforeEach(resetEditorStore)
@@ -39,7 +39,7 @@ describe('AnimatedPixelsBehavior behavior', () => {
   })
 })
 
-describe.skipIf(!existsSync(ROM_PATH))('CharFactory animation wiring (vanilla ROM)', () => {
+describe.skipIf(!hasRom(VANILLA))('CharFactory animation wiring (vanilla ROM)', () => {
   it('wraps animated chars with AnimatedPixelsBehavior; leaves others Static', () => {
     const rom = SmwRom.open(ROM_PATH)
     // Level $105 (YI1) uses tileset 0 and has standard animation (coins, ? blocks, etc)

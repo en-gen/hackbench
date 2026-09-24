@@ -3,7 +3,7 @@
  * and what a repack writes.
  *
  * **Synthetic cartridges only.** No bytes here come from any Super Mario
- * World ROM or derived resource, so this runs in CI where test/roms/ is
+ * World ROM or derived resource, so this runs in CI where the corpus is
  * absent by design. The instruction sequences planted below are written from
  * the 65816 encoding, not copied out of a cart: they exist so the resolver
  * and the refusals have something to resolve and refuse.

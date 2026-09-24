@@ -12,15 +12,11 @@
  * edited ROMs and a single-ROM acceptance test would not show it.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import * as path from 'path'
-import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
 import { buildMapTree, MapNode, MapTree } from '../../../src/rom/MapTree'
 import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
-
-const ROM_DIR = path.join(__dirname, '../../roms')
+import { CORPUS, INVICTUS, VANILLA, freshRom, hasRom, hasRoms } from '../support/corpus'
 
 /**
  * DECLARED, not discovered. This list used to be a `readdirSync` of
@@ -30,27 +26,10 @@ const ROM_DIR = path.join(__dirname, '../../roms')
  * the skip count said a word. Naming the corpus registers every case on every
  * machine; `skipIf` below is what turns the absent ones into honest skips.
  */
-const CORPUS = [
-  'Super Mario World (USA).vanilla.sfc',
-  'Super Mario World (USA).magic.sfc',
-  'Grand Poo World 2 1.1.sfc',
-  'GrandPooWorld_V1.2.sfc',
-  'Invictus 1.0.sfc',
-  'Seven_Vanilla_Levels.sfc',
-].sort()
-
-const present = (file: string): boolean => existsSync(path.join(ROM_DIR, file))
-
-/**
- * The vanilla cart specifically. Matched exactly rather than by a /vanilla/
- * substring, which also matches Seven_Vanilla_Levels.sfc and quietly checked
- * the glossary's vanilla counts against the wrong ROM.
- */
-const VANILLA = 'Super Mario World (USA).vanilla.sfc'
-const INVICTUS = 'Invictus 1.0.sfc'
+const CARTS = [...CORPUS].sort()
 
 function load(file: string): SmwRom {
-  return new SmwRom(RomFile.load(path.join(ROM_DIR, file)))
+  return new SmwRom(freshRom(file))
 }
 
 /** Every index appearing anywhere in the tree, in either root. */
@@ -71,8 +50,8 @@ function depthOf(n: MapNode, d = 0): number {
 }
 
 describe('buildMapTree', () => {
-  for (const file of CORPUS) {
-    describe.skipIf(!present(file))(file, () => {
+  for (const file of CARTS) {
+    describe.skipIf(!hasRom(file))(file, () => {
       /**
        * The assertion this feature exists to make. "Load all the maps" means
        * all of them: every non-filler slot the catalog found has to be
@@ -138,7 +117,7 @@ describe('buildMapTree', () => {
   }
 })
 
-describe.skipIf(!present(VANILLA))('buildMapTree, on the vanilla cart', () => {
+describe.skipIf(!hasRom(VANILLA))('buildMapTree, on the vanilla cart', () => {
   /**
    * Vanilla's documented figure, from docs/glossary.md: 512 slots, 277 empty,
    * 235 maps. Pinned because it is the number every other count in this
@@ -188,7 +167,7 @@ describe.skipIf(!present(VANILLA))('buildMapTree, on the vanilla cart', () => {
  * flat list would satisfy every count check above, and so would one that
  * dropped maps if the expectation were computed from the tree itself.
  */
-describe.skipIf(!present(VANILLA))('group counts', () => {
+describe.skipIf(!hasRom(VANILLA))('group counts', () => {
   /**
    * An entrance is a launch tile the overworld grants a translevel, which is
    * what a hacker means by the word. Traced in OverworldEntrances, not counted
@@ -219,8 +198,8 @@ describe.skipIf(!present(VANILLA))('group counts', () => {
  * entrances", which is a confident false statement about someone's work.
  */
 describe('group counts on a rebuilt overworld', () => {
-  for (const file of CORPUS) {
-    it.skipIf(!present(file))(
+  for (const file of CARTS) {
+    it.skipIf(!hasRom(file))(
       `${file}: reports null rather than zero when the overworld is unreadable`,
       () => {
         const rom = load(file)
@@ -238,7 +217,7 @@ describe('group counts on a rebuilt overworld', () => {
   }
 })
 
-describe.skipIf(!present(VANILLA))('special maps', () => {
+describe.skipIf(!hasRom(VANILLA))('special maps', () => {
   /**
    * The title screen and the new-game intro are ordinary maps in ordinary
    * slots that nothing in the exit graph reaches. Found by reading the
@@ -291,26 +270,26 @@ describe.skipIf(!present(VANILLA))('special maps', () => {
  * pattern match and the fail-closed note exist to prevent.
  */
 describe('special maps on edited ROMs', () => {
-  const EDITED = CORPUS.filter(f => /Invictus|Grand Poo World 2/i.test(f))
+  const EDITED = CARTS.filter(f => /Invictus|Grand Poo World 2/i.test(f))
 
-  it.skipIf(!EDITED.every(present))(
-    'declines to name a title screen it cannot read, and says so',
-    () => {
-      for (const file of EDITED) {
-        const tree = buildMapTree(load(file))
-        const roles = tree.special.map(s => s.role)
+  // `hasRoms` is false for an empty list. `EDITED.every(...)` was true for
+  // one, so renaming a cart left this case running, looping over nothing and
+  // passing (issue #469).
+  it.skipIf(!hasRoms(EDITED))('declines to name a title screen it cannot read, and says so', () => {
+    for (const file of EDITED) {
+      const tree = buildMapTree(load(file))
+      const roles = tree.special.map(s => s.role)
 
-        expect(roles, `${file} should not claim a title screen`).not.toContain('title-screen')
-        // Silence would be indistinguishable from "this ROM has no title screen".
-        expect(tree.notes.join(' ')).toMatch(/title screen/i)
-        // The new-game pattern survives on these carts, so it is still found.
-        expect(roles, `${file} should still find new game`).toContain('new-game')
-      }
-    },
-  )
+      expect(roles, `${file} should not claim a title screen`).not.toContain('title-screen')
+      // Silence would be indistinguishable from "this ROM has no title screen".
+      expect(tree.notes.join(' ')).toMatch(/title screen/i)
+      // The new-game pattern survives on these carts, so it is still found.
+      expect(roles, `${file} should still find new game`).toContain('new-game')
+    }
+  })
 })
 
-describe.skipIf(!present(VANILLA))('the oracle can fail', () => {
+describe.skipIf(!hasRom(VANILLA))('the oracle can fail', () => {
   it('a tree missing one map fails the coverage check', () => {
     const rom = load(VANILLA)
     const tree = buildMapTree(rom)
@@ -329,7 +308,7 @@ describe.skipIf(!present(VANILLA))('the oracle can fail', () => {
   // Gated, not early-returned: `if (!invictus) return` reported this case as
   // PASSED on any machine without that cart, which is a green tick for work
   // that never ran.
-  it.skipIf(!present(INVICTUS))(
+  it.skipIf(!hasRom(INVICTUS))(
     'reading the title screen at a fixed address would be confidently wrong',
     () => {
       const rom = load(INVICTUS)

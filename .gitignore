@@ -5,8 +5,13 @@
 *.ips
 *.bps
 
-# Test/development ROM hacks (downloaded from SMW Central for local testing)
+# Test/development ROM hacks (downloaded from SMW Central for local testing).
+# The corpus MOVED OUT of the repo, to <projects>/hackbench-tools/roms/, so
+# `git clean -x` can no longer delete cartridges that cannot be re-downloaded.
+# This rule stays for a clone that has not moved its own copy yet: the
+# resolver in test/suite/support/corpus.ts still falls back to test/roms/.
 test/roms/
+test/magic/
 
 # ROM-DERIVED test fixtures (decompressed GFX, palette dumps, tilemap snapshots,
 # SPC audio extracts, etc.) — STRICTLY LOCAL. Nintendo owns this data regardless
@@ -26,6 +31,9 @@ test/suite/**/*.js
 test/suite/**/*.js.map
 test/suite/**/*.d.ts
 
+# Mesen's own binaries, Saves/, Debugger/, GameConfig/ and Cheats/ now live in
+# <projects>/hackbench-tools/mesen/, outside the repo. These rules still hold
+# so an existing clone that kept them in place does not commit them.
 # Third-party tools — not redistributable (emulator binaries, proprietary apps)
 tools/*
 # ...but our own scripts, vendored open-source helpers, and emulator-glue

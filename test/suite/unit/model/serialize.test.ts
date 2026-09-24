@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { existsSync } from 'fs'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { loadAnimationData } from '../../../../src/rom/AnimationLoader'
 import { loadVram } from '../../../../src/rom/GfxLoader'
@@ -15,8 +14,9 @@ import { PipeVariantsBehavior } from '../../../../src/rom/model/tiles/behaviors/
 import { SwitchPalaceAlternateBehavior } from '../../../../src/rom/model/tiles/behaviors/SwitchPalaceAlternateBehavior'
 import type { PixelPos, PixelSize, RenderTarget } from '../../../../src/rom/model/RenderTarget'
 import { resetEditorStore } from '../fixtures/stores'
+import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
-const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
+const ROM_PATH = romPath(VANILLA)
 
 class CollectingTarget implements RenderTarget {
   blits: { charId: number; posX: number; posY: number }[] = []
@@ -30,7 +30,7 @@ class CollectingTarget implements RenderTarget {
   fillRect(_p: PixelPos, _s: PixelSize, _c: RgbaColor): void {}
 }
 
-describe.skipIf(!existsSync(ROM_PATH))('MapPayload round-trip (vanilla ROM)', () => {
+describe.skipIf(!hasRom(VANILLA))('MapPayload round-trip (vanilla ROM)', () => {
   beforeEach(resetEditorStore)
 
   it('serializes a built map and rehydrates a structurally-equivalent graph', () => {

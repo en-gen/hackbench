@@ -12,28 +12,18 @@
  * changes, and a change here is a prompt to re-read
  * `docs/sprites/sprite-gfx-routine-reading.md` section 6, not automatically a bug.
  *
- * Evidence scope: all six cart files in `test/roms/`. Static reads only; no
+ * Evidence scope: all six cart files in the corpus. Static reads only; no
  * emulator was run.
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { walkHandler } from '../../../../src/rom/dispatch/HandlerWalk'
 import { resolveHandlerSite } from '../../../../src/rom/dispatch/GfxRoutineReader'
+import { CORPUS, freshRom, hasRoms } from '../../support/corpus'
 
-const ROM_DIR = resolve(__dirname, '../../../roms')
-const ROM_FILES = [
-  'Super Mario World (USA).vanilla.sfc',
-  'Super Mario World (USA).magic.sfc',
-  'Grand Poo World 2 1.1.sfc',
-  'GrandPooWorld_V1.2.sfc',
-  'Invictus 1.0.sfc',
-  'Seven_Vanilla_Levels.sfc',
-] as const
-const romsPresent = ROM_FILES.every(f => existsSync(resolve(ROM_DIR, f)))
-const allRoms = () => ROM_FILES.map(name => ({ name, rom: RomFile.load(resolve(ROM_DIR, name)) }))
+const romsPresent = hasRoms()
+const allRoms = () => CORPUS.map(name => ({ name, rom: freshRom(name) }))
 
 /**
  * `SPRITE_BASE_TILE_OVERRIDES` as `SpriteTileLoader` holds it. Duplicated

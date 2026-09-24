@@ -27,10 +27,17 @@
 #>
 param(
   [string]$RepoRoot   = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path,
-  [string]$MesenExe   = "C:/Projects/hackbench/tools/mesen/Mesen.exe",
-  [string]$Rom        = "C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc",
+  # The emulator, its Saves/ and the ROM corpus live OUTSIDE the repo: they
+  # are non-redistributable binaries and copyrighted cartridge bytes, so
+  # keeping them out of the checkout means `git clean -x` can no longer reach
+  # them. Override with the HACKBENCH_TOOLS environment variable, or pass
+  # -ToolsRoot. HACKBENCH_ROMS overrides the corpus directory on its own.
+  [string]$ToolsRoot = $(if ($env:HACKBENCH_TOOLS) { $env:HACKBENCH_TOOLS } else { "C:/Projects/hackbench-tools" }),
+  [string]$RomDir    = $(if ($env:HACKBENCH_ROMS) { $env:HACKBENCH_ROMS } else { Join-Path $ToolsRoot "roms" }),
+  [string]$MesenExe   = (Join-Path $ToolsRoot "mesen/Mesen.exe"),
+  [string]$Rom        = (Join-Path $RomDir "Super Mario World (USA).vanilla.sfc"),
   [string]$LuaScript  = $(Join-Path $PSScriptRoot "../mesen/headless_capture.lua"),
-  [string]$SramPath   = "C:/Projects/hackbench/tools/mesen/Saves/Super Mario World (USA).vanilla.srm",
+  [string]$SramPath   = (Join-Path $ToolsRoot "mesen/Saves/Super Mario World (USA).vanilla.srm"),
   [string]$SweepDir   = $(Join-Path $PSScriptRoot "../mesen/sweep_output"),
   [int]$TimeoutSec    = 90
 )

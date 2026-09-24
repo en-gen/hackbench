@@ -1,7 +1,7 @@
 /**
  * The arena against real cartridges.
  *
- * `test/roms/` is gitignored, so CI never runs this; the arena's gates and
+ * the corpus is gitignored, so CI never runs this; the arena's gates and
  * refusals are proven synthetically in GfxArena.synthetic.test.ts. What only
  * a real cart can show is that the packing actually reproduces itself and
  * that the numbers in docs/gfx-arena-budget.md still hold.
@@ -10,14 +10,11 @@
  * when the corpus is absent. Reports no ROM bytes, only counts.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../src/rom/RomFile'
 import { GFX_FILE_COUNT, planRegions, readGfxFileTable } from '../../../src/rom/GfxArena'
 import { GfxTable, planGfxSave, readTilesPerFile } from '../../../src/rom/GfxTable'
 import { COPIER_HEADER_SIZE } from '../../../src/rom/addressing'
-
-const ROMS_DIR = resolve(__dirname, '../../roms')
+import { hasRom, romPath } from '../support/corpus'
 
 /** Measured across this corpus on one machine. `slack` is what the packed
  *  regions have spare; see docs/gfx-arena-budget.md. */
@@ -30,8 +27,8 @@ const CARTS = [
 ]
 
 for (const cart of CARTS) {
-  const path = resolve(ROMS_DIR, cart.name)
-  describe.skipIf(!existsSync(path))(`${cart.name}: arena`, () => {
+  const path = romPath(cart.name)
+  describe.skipIf(!hasRom(cart.name))(`${cart.name}: arena`, () => {
     it('measures the packing the documented figures were taken from', () => {
       const rom = RomFile.load(path)
       const regions = planRegions(rom, readGfxFileTable(rom))

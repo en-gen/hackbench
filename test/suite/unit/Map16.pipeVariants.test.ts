@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
 import {
   MAP16_APP_TABLE,
   MAP16_TILE_BYTES,
@@ -11,6 +10,7 @@ import {
   pipeVariantIndex,
 } from '../../../src/rom/Map16'
 import { SmwRom } from '../../../src/rom/SmwRom'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
 /**
  * Verifies the MAP16AppTable port reproduces the 4 palette-variant pointer
@@ -24,7 +24,7 @@ import { SmwRom } from '../../../src/rom/SmwRom'
  *   variant 3 ($0D8B30) -> palette 7 (StandardColors blue/purple)
  */
 
-const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
+const ROM_PATH = romPath(VANILLA)
 
 describe('Map16 pipe palette variants', () => {
   it('MAP16_APP_TABLE matches the 4 ROM pointers in bank_05.asm:884', () => {
@@ -74,7 +74,7 @@ describe('Map16 pipe palette variants', () => {
     }
   })
 
-  it.runIf(existsSync(ROM_PATH))(
+  it.runIf(!!hasRom(VANILLA))(
     'loadAllMap16 with variant 0 returns tile $133 with palette 3 subtiles',
     () => {
       const rom = SmwRom.open(ROM_PATH)
@@ -87,7 +87,7 @@ describe('Map16 pipe palette variants', () => {
     },
   )
 
-  it.runIf(existsSync(ROM_PATH))(
+  it.runIf(!!hasRom(VANILLA))(
     'loadAllMap16 with variant 1 returns tile $133 with palette 5 subtiles (default-green)',
     () => {
       const rom = SmwRom.open(ROM_PATH)
@@ -98,7 +98,7 @@ describe('Map16 pipe palette variants', () => {
     },
   )
 
-  it.runIf(existsSync(ROM_PATH))(
+  it.runIf(!!hasRom(VANILLA))(
     'loadAllMap16 with variant 2 returns tile $133 with palette 6 subtiles',
     () => {
       const rom = SmwRom.open(ROM_PATH)
@@ -107,7 +107,7 @@ describe('Map16 pipe palette variants', () => {
     },
   )
 
-  it.runIf(existsSync(ROM_PATH))(
+  it.runIf(!!hasRom(VANILLA))(
     'loadAllMap16 with variant 3 returns tile $133 with palette 7 subtiles',
     () => {
       const rom = SmwRom.open(ROM_PATH)
@@ -116,7 +116,7 @@ describe('Map16 pipe palette variants', () => {
     },
   )
 
-  it.runIf(existsSync(ROM_PATH))(
+  it.runIf(!!hasRom(VANILLA))(
     'non-pipe tiles (e.g. $133 neighbors outside $133..$13A) are unchanged across variants',
     () => {
       const rom = SmwRom.open(ROM_PATH)

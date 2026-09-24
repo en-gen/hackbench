@@ -3,7 +3,7 @@
  *
  * **No bytes here come from any Super Mario World ROM or derived resource.**
  * Every stream is hand-built from the header encoding documented in
- * src/rom/LcLz2.ts, so these run in CI where test/roms/ is absent by design.
+ * src/rom/LcLz2.ts, so these run in CI where the corpus is absent by design.
  *
  * The encoder's whole reason for existing is that a from-scratch greedy
  * encoder does not fit the cartridge: measured on the vanilla cart, a correct

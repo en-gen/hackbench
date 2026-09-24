@@ -2,7 +2,7 @@
  * scrollSim_122.test.ts - validate L2 cmd $0D (Fast BG scroll)
  * against the Mesen capture for level $122.
  *
- * Capture: `C:/Users/engenb/OneDrive/hackbench-fixtures/maps/122/l2_scroll.csv`
+ * Capture: `<hackbench-fixtures>/maps/122/l2_scroll.csv`
  * Sprite: $E8 b0=$0D → post-remap (l1cmd=0, l2cmd=$0D).
  *
  * cmd $0D dispatches via L2 to CODE_05C7BC, which checks
@@ -26,8 +26,10 @@ import {
   type FieldKey,
   vanillaRomPresent,
 } from './scrollSim_capture'
+import { join } from 'path'
+import { MESEN_FIXTURES_DIR } from './fixtures/loadMesenFixture'
 
-const CSV = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps/122/l2_scroll.csv'
+const CSV = join(MESEN_FIXTURES_DIR, '122', 'l2_scroll.csv')
 
 const CHECK_FIELDS: readonly FieldKey[] = ['l2xspd', 'l2xupd', 'nl2x']
 

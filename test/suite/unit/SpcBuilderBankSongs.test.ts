@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   getLevelMusicBankAddr,
@@ -10,8 +8,7 @@ import {
   getBankBlockSize,
   readBankSongPointers,
 } from '../../../src/rom/SpcBuilder'
-
-const ROMS_DIR = resolve(__dirname, '../../roms')
+import { hasRom, romPath } from '../support/corpus'
 
 /**
  * Pinned per-ROM, per-bank, read directly against the fixtures rather than
@@ -77,10 +74,10 @@ const EXPECTED: Record<
   },
 }
 
-describe('SpcBuilder bank song table (requires test/roms/*.sfc)', () => {
+describe('SpcBuilder bank song table (requires the ROM corpus)', () => {
   for (const file of Object.keys(EXPECTED)) {
     const expected = EXPECTED[file]
-    const present = existsSync(resolve(ROMS_DIR, file))
+    const present = hasRom(file)
 
     // skipIf per file, not a filter over the file list: with the corpus
     // absent these cases must still be REGISTERED and reported skipped, not
@@ -89,7 +86,7 @@ describe('SpcBuilder bank song table (requires test/roms/*.sfc)', () => {
     // ROM is opened lazily inside each it() rather than at factory scope -
     // opening it here would throw before skipIf ever gets to skip anything.
     describe.skipIf(!present)(file, () => {
-      const openRom = () => SmwRom.open(resolve(ROMS_DIR, file)).rom
+      const openRom = () => SmwRom.open(romPath(file)).rom
 
       it('level bank: resolves the expected ROM address and readability', () => {
         const rom = openRom()

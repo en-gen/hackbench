@@ -2,7 +2,7 @@
  * The copier header, and the offset frame the arena works in.
  *
  * **Synthetic cartridges only**, built here and never read from a cart, so
- * this runs on CI where test/roms/ is absent by design. That matters more
+ * this runs on CI where the corpus is absent by design. That matters more
  * than usual: the defect class is a 512-byte silent write to the wrong
  * place, and a corpus-only test would not guard it where it actually runs.
  *

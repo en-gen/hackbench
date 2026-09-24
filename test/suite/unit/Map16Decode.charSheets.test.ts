@@ -13,8 +13,6 @@
  * count of zero and the cases silently cease to exist.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { buildL2Map16PointerTable, MAP16_TOTAL_TILES } from '../../../src/rom/Map16'
@@ -42,9 +40,10 @@ import {
   MAP16_CHAR_SPACE_END,
   Map16PaletteVariantDto,
 } from '../../../theia/extension/src/common/map16-protocol'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 const DEFAULT_VARIANT: Map16PaletteVariantDto = { bg: 0, fg: 0 }
 
 /**

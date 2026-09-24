@@ -77,25 +77,25 @@ Code. That is what makes them testable without starting an application, and
 it is why the Theia backend may import the core directly while its frontend
 may not import anything that touches a file.
 
-| File | Purpose |
-|------|---------|
-| `addressing.ts` | LoROM SNES address ↔ file offset conversion |
-| `RomFile.ts` | Binary ROM wrapper; all reads go through SNES-addressed helpers |
-| `SmwRom.ts` | SMW pointer tables, level list, header parsing |
-| `LcLz2.ts` | LC_LZ2 decompressor (used for all GFX files) |
-| `GfxLoader.ts` | GFX file loading: pointer tables → decompress → decode tiles into VRAM slots |
-| `GraphicsDecoder.ts` | 2BPP/3BPP/4BPP tile decoders; BGR555 → RGBA conversion |
-| `PaletteLoader.ts` | ROM palette groups → CGRAM rows |
-| `LevelParser.ts` | Layer-1 object + sprite stream parser; level header |
-| `ObjectExpander.ts` | Level object → 2D Map16 tile grid |
+| File                 | Purpose                                                                      |
+| -------------------- | ---------------------------------------------------------------------------- |
+| `addressing.ts`      | LoROM SNES address ↔ file offset conversion                                  |
+| `RomFile.ts`         | Binary ROM wrapper; all reads go through SNES-addressed helpers              |
+| `SmwRom.ts`          | SMW pointer tables, level list, header parsing                               |
+| `LcLz2.ts`           | LC_LZ2 decompressor (used for all GFX files)                                 |
+| `GfxLoader.ts`       | GFX file loading: pointer tables → decompress → decode tiles into VRAM slots |
+| `GraphicsDecoder.ts` | 2BPP/3BPP/4BPP tile decoders; BGR555 → RGBA conversion                       |
+| `PaletteLoader.ts`   | ROM palette groups → CGRAM rows                                              |
+| `LevelParser.ts`     | Layer-1 object + sprite stream parser; level header                          |
+| `ObjectExpander.ts`  | Level object → 2D Map16 tile grid                                            |
 
-| File (`src/project/`) | Purpose |
-|------|---------|
-| `Project.ts` | `.hbproj` manifest, ROM identity, directory layout |
-| `WorkingRom.ts` | the store: base bytes with every layer applied, in order |
-| `OpsStore.ts` | persists layers under `ops/`, undone ones under `ops/redo/` |
-| `ExportPatch.ts` | diffs the working copy into a real `.ips` |
-| `RomRegistry.ts`, `CoreRegistry.ts` | per-machine paths to the ROM and the libretro core |
+| File (`src/project/`)               | Purpose                                                     |
+| ----------------------------------- | ----------------------------------------------------------- |
+| `Project.ts`                        | `.hbproj` manifest, ROM identity, directory layout          |
+| `WorkingRom.ts`                     | the store: base bytes with every layer applied, in order    |
+| `OpsStore.ts`                       | persists layers under `ops/`, undone ones under `ops/redo/` |
+| `ExportPatch.ts`                    | diffs the working copy into a real `.ips`                   |
+| `RomRegistry.ts`, `CoreRegistry.ts` | per-machine paths to the ROM and the libretro core          |
 
 A view that shows ROM content must read the WORKING COPY, never the base
 bytes, or an edit in one view is invisible in another. Palette, GFX and
@@ -147,11 +147,11 @@ table. Do not port the routine.
 **If you are describing behaviour, you have lost the thread.** Every defect
 this project has shipped came from modelling instead of reading:
 
-| Defect | What it did | What it should have done |
-|---|---|---|
-| `screenHasExitTrigger` | invented Map16 tile scanning, cited an address with zero hits in the disassembly | read `DATA_05F800` |
-| `levelHasObjects()` | invented a "modes 0-20 valid" rule with a fabricated line citation | compare the L1 pointer against the filler |
-| exit-graph high byte | derived it from `ExitTableHigh` bit 3, which the game never reads for this | take it from the submap flag |
+| Defect                 | What it did                                                                      | What it should have done                  |
+| ---------------------- | -------------------------------------------------------------------------------- | ----------------------------------------- |
+| `screenHasExitTrigger` | invented Map16 tile scanning, cited an address with zero hits in the disassembly | read `DATA_05F800`                        |
+| `levelHasObjects()`    | invented a "modes 0-20 valid" rule with a fabricated line citation               | compare the L1 pointer against the filler |
+| exit-graph high byte   | derived it from `ExitTableHigh` bit 3, which the game never reads for this       | take it from the submap flag              |
 
 Both fabricated citations are tracked in issue #311. Neither was caught by
 tests; both were caught by someone re-reading the disassembly.
@@ -269,7 +269,22 @@ In practice:
 
 ## Files never to commit
 
-`*.smc`, `*.sfc`, `*.rom`, `*.ips`, `*.bps`, `test/roms/`, `test/magic/` are gitignored.
+`*.smc`, `*.sfc`, `*.rom`, `*.ips`, `*.bps` are gitignored.
+
+The ROM corpus and the emulator tooling are no longer in the repo at all.
+`test/roms/`, `test/magic/` and the binary half of `tools/mesen/` moved to
+`<projects>/hackbench-tools/{roms,magic,mesen,fixtures,dispel,spcplay}/`.
+Gitignoring stops a commit; it does not stop `git clean -x`, which deletes
+ignored files, and these are cartridges and captures that cannot be
+downloaded again. Outside the repo, git cannot reach them.
+
+`tools/mesen/*.lua` and `tools/mesen/README.md` stay tracked here.
+
+Nothing hardcodes the new location. Tests ask `test/suite/support/corpus.ts`
+(`romPath`, `hasRom`, `freshRom`, `CORPUS`, `VANILLA`), which reads
+`HACKBENCH_ROMS`, then walks up for `hackbench-tools/roms`, then falls back
+to the legacy `test/roms`. The PowerShell runners read `HACKBENCH_TOOLS`.
+See [docs/testing.md](docs/testing.md).
 
 # Quality gates
 
@@ -307,8 +322,8 @@ Any check, harness or test that reports a verdict needs a committed test proving
 Never accept a single-case acceptance test. A debounce tuned to level `$105` false-failed 22% of levels with a factually wrong diagnosis. Sweep the range.
 
 **CI has no ROM, so every safeguard needs a test that runs without one.**
-`test/roms/` is gitignored and cannot be committed, so CI is permanently the
-corpus-absent case. A safeguard proven only by corpus tests is unproven where
+The corpus cannot be committed and lives outside the repo, so CI is
+permanently the corpus-absent case. A safeguard proven only by corpus tests is unproven where
 it actually runs. Measured on the music branch: with the corpus removed,
 deleting the opcode gate outright, shifting an operand offset by one, and
 falling back to the vanilla address when the gate fails all passed 5 of 5
@@ -378,6 +393,7 @@ Do not build scaffolding for phases that have not been approved.
   loudly if the marker creeps back above this heading.
 
 <!-- gitnexus:start -->
+
 # GitNexus - Code Intelligence
 
 This project is indexed by GitNexus as **hackbench** (10574 symbols, 27662 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
@@ -402,22 +418,22 @@ This project is indexed by GitNexus as **hackbench** (10574 symbols, 27662 relat
 
 ## Resources
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/hackbench/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/hackbench/clusters` | All functional areas |
-| `gitnexus://repo/hackbench/processes` | All execution flows |
-| `gitnexus://repo/hackbench/process/{name}` | Step-by-step execution trace |
+| Resource                                   | Use for                                  |
+| ------------------------------------------ | ---------------------------------------- |
+| `gitnexus://repo/hackbench/context`        | Codebase overview, check index freshness |
+| `gitnexus://repo/hackbench/clusters`       | All functional areas                     |
+| `gitnexus://repo/hackbench/processes`      | All execution flows                      |
+| `gitnexus://repo/hackbench/process/{name}` | Step-by-step execution trace             |
 
 ## CLI
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| Task                                         | Read this skill file                                        |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md`       |
+| Blast radius / "What breaks if I change X?"  | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?"             | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md`       |
+| Rename / extract / split / refactor          | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md`     |
+| Tools, resources, schema reference           | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md`           |
+| Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
 
 <!-- gitnexus:end -->

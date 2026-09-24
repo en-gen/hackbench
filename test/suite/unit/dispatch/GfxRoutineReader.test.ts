@@ -10,14 +10,12 @@
  *
  * Nothing is written to disk: `RomFile.writeAt` mutates the loaded buffer.
  *
- * Evidence scope: all six cart files in `test/roms/` for the corpus claims,
+ * Evidence scope: all six cart files in the corpus for the corpus claims,
  * `Super Mario World (USA).vanilla.sfc` for the planted ones. Static reads
  * only; no emulator was run.
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../../src/rom/RomFile'
 import {
   decidedPropGroup,
@@ -29,21 +27,11 @@ import {
   type GfxRoutine,
 } from '../../../../src/rom/dispatch/GfxRoutineReader'
 import { walkHandler } from '../../../../src/rom/dispatch/HandlerWalk'
+import { CORPUS, freshRom, hasRoms } from '../../support/corpus'
 
-const ROM_DIR = resolve(__dirname, '../../../roms')
-const ROM_FILES = [
-  'Super Mario World (USA).vanilla.sfc',
-  'Super Mario World (USA).magic.sfc',
-  'Grand Poo World 2 1.1.sfc',
-  'GrandPooWorld_V1.2.sfc',
-  'Invictus 1.0.sfc',
-  'Seven_Vanilla_Levels.sfc',
-] as const
-const romsPresent = ROM_FILES.every(f => existsSync(resolve(ROM_DIR, f)))
+const romsPresent = hasRoms()
 
-const freshRom = (name: (typeof ROM_FILES)[number] = ROM_FILES[0]) =>
-  RomFile.load(resolve(ROM_DIR, name))
-const allRoms = () => ROM_FILES.map(name => ({ name, rom: freshRom(name) }))
+const allRoms = () => CORPUS.map(name => ({ name, rom: freshRom(name) }))
 
 /** Sprites below this use `SprTilemapOffset`, so this is the range the
  *  classification actually feeds. */

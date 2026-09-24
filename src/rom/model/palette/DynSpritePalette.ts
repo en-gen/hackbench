@@ -67,7 +67,7 @@ const OP_CMP_IMM = 0xc9
  * immediate minus 2, falling back to the descriptor's literal when the routine
  * does not have the expected shape. See docs/sprites/sprite-1f-magikoopa.md section 4.
  *
- * Evidence scope: all six carts in `test/roms/` hold `C9 09` at $01:C01C, so
+ * Evidence scope: all six carts in the corpus hold `C9 09` at $01:C01C, so
  * this returns 7 for every ROM tested today. It exists so a hack that shortens
  * the fade cannot silently leave the editor showing the wrong rung.
  */

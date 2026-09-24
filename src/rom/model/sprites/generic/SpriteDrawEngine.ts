@@ -20,7 +20,7 @@
  *    placeholder, never a silent fallback.
  *
  * Evidence scope: static traces against `C:\Projects\SMWDisX` plus the six
- * cart files in `test/roms/`, which hold FIVE distinct carts: `magic.sfc` is
+ * cart files in the corpus, which hold FIVE distinct carts: `magic.sfc` is
  * `vanilla.sfc` plus a 512-byte copier header. No emulator was run, so nothing here is dynamically
  * verified against live hardware or an accurate emulator.
  */

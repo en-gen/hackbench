@@ -17,23 +17,18 @@
  *   awards          OWLevelExitMode per docs/rom/smw-overworld-levels.md
  */
 import { describe, it, expect, beforeAll } from 'vitest'
-import { existsSync } from 'fs'
-import * as os from 'os'
-import * as path from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { buildLevelSubtree } from '../../../src/rom/LevelTree'
 import { parseLevelSprites } from '../../../src/rom/LevelParser'
 import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const P = [
-  path.join(os.homedir(), 'OneDrive', 'hackbench-fixtures', 'Super Mario World (USA).vanilla.sfc'),
-  path.join(os.homedir(), 'Super Mario World (USA).vanilla.sfc'),
-].find(existsSync)
+const VANILLA_ROM = romPath(VANILLA)
 const EVENT_TABLE = 0x05d608
 const SWITCH_TABLE = 0x05a590
 const SWITCH_COUNT = 4 // the CPX #$04 gate, bank_05.asm:3321
 
-describe.skipIf(!P)('vanilla level and exit counts', () => {
+describe.skipIf(!hasRom(VANILLA))('vanilla level and exit counts', () => {
   // Built in beforeAll, not in the describe body: describe.skipIf still runs
   // the body at collection time, so opening the ROM there crashes CI, which
   // has no ROM. The suite must skip, not explode.
@@ -53,7 +48,7 @@ describe.skipIf(!P)('vanilla level and exit counts', () => {
   let distinctL1 = 0
 
   beforeAll(() => {
-    rom = SmwRom.open(P!)
+    rom = SmwRom.open(VANILLA_ROM)
     const g = rom.buildLevelExitGraph()
     const idx = deriveOverworldEntrances(rom)
     const sp = (i: number) => {

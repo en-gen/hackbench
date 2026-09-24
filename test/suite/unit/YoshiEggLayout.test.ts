@@ -16,8 +16,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync, readFileSync } from 'fs'
-import { resolve } from 'path'
+import { readFileSync } from 'fs'
 import {
   buildSpriteLayout,
   buildYoshiEggLayout,
@@ -31,9 +30,10 @@ import { StaticSpriteAppearance } from '../../../src/rom/model/sprites/appearanc
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import type { Char } from '../../../src/rom/model/chars/Char'
 import type { Tile } from '../../../src/rom/model/tiles/Tile'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 // ── synthetic tables ─────────────────────────────────────────────────────────
 

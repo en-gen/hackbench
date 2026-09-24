@@ -1,6 +1,6 @@
 /**
  * Characterisation tests for findSpecialMaps, built entirely from synthetic
- * carts so they run where CI actually runs: with test/roms/ absent.
+ * carts so they run where CI actually runs: with the corpus absent.
  *
  * These were written BEFORE the byte-pattern scanner was extracted into
  * src/rom/BytePattern.ts, to pin the behaviour the extraction must not

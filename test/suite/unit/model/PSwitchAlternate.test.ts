@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { computed } from '@vue/reactivity'
-import { existsSync } from 'fs'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import { buildChars } from '../../../../src/rom/model/chars/CharFactory'
 import { AnimatedPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/AnimatedPixelsBehavior'
@@ -9,8 +8,9 @@ import { StaticPixelsBehavior } from '../../../../src/rom/model/chars/behaviors/
 import type { VramState } from '../../../../src/rom/GfxLoader'
 import type { AnimationData, AnimFrameSlot } from '../../../../src/rom/AnimationLoader'
 import { editorStore, resetEditorStore } from '../fixtures/stores'
+import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
-const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
+const ROM_PATH = romPath(VANILLA)
 
 describe('PSwitchAlternateBehavior behavior', () => {
   beforeEach(resetEditorStore)
@@ -126,7 +126,7 @@ describe('PSwitchAlternateBehavior behavior', () => {
   })
 })
 
-describe.skipIf(!existsSync(ROM_PATH))('buildChars end-to-end (vanilla ROM)', () => {
+describe.skipIf(!hasRom(VANILLA))('buildChars end-to-end (vanilla ROM)', () => {
   it('vanilla coin animation chars ($06C-$06F) wear PSwitchAlternateBehavior', async () => {
     const { SmwRom } = await import('../../../../src/rom/SmwRom')
     const { parseLevelHeader } = await import('../../../../src/rom/LevelParser')

@@ -20,14 +20,11 @@
  * Every case here builds its bytes in the test. CI has no cartridge.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync, readdirSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../src/rom/RomFile'
 import { readMap16TileCount, VANILLA_MAP16_TILE_COUNT } from '../../../src/rom/Map16'
+import { VANILLA, hasRom, romPath, romsOnDisk } from '../support/corpus'
 
-const ROM_DIR = resolve(__dirname, '../../roms')
-const VANILLA = resolve(ROM_DIR, 'Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 /**
  * A 64 KB stub carrying one copy of the fill loop's tail at a known offset,
@@ -112,10 +109,10 @@ describe('readMap16TileCount', () => {
 
 describe.skipIf(!romPresent)('readMap16TileCount against real cartridges', () => {
   it('reads 512 from every cart in the corpus, from their own bytes', () => {
-    const carts = readdirSync(ROM_DIR).filter(f => f.endsWith('.sfc'))
+    const carts = romsOnDisk()
     expect(carts.length).toBeGreaterThan(0)
     for (const name of carts) {
-      const rom = RomFile.load(resolve(ROM_DIR, name))
+      const rom = RomFile.load(romPath(name))
       expect(readMap16TileCount(rom), name).toBe(512)
     }
   })

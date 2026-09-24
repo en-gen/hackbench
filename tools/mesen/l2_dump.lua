@@ -44,10 +44,15 @@
 --   3. Optional: hit F2 to snapshot the L2 tilemap once positioned.
 --   4. Leaving the level closes the CSV. Re-entering opens a new file.
 
--- OneDrive-synced fixture root, mirrors l1_dump.lua. Per-level subfolder
 -- is created on demand so L1/L2/L3 artifacts for the same level live in
 -- one place.
-local DUMPS_DIR = "C:/Users/engenb/OneDrive/hackbench-fixtures/maps"
+-- Fixture root for the captures, which are ROM-derived and therefore never
+-- committed: they live in OneDrive, outside the repo, like the ROM corpus and
+-- the emulator. Spelled from the environment rather than one developer's
+-- drive letter; HACKBENCH_FIXTURES_DIR is the same override the TypeScript
+-- side reads (test/suite/unit/fixtures/loadMesenFixture.ts).
+local DUMPS_DIR = os.getenv("HACKBENCH_FIXTURES_DIR")
+  or ((os.getenv("USERPROFILE") or os.getenv("HOME") or ".") .. "/OneDrive/hackbench-fixtures/maps")
 local HUD_ROW   = 20  -- HUD-row convention (see header)
 
 local MEM = emu.memType.snesMemory

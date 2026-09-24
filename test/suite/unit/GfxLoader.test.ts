@@ -11,8 +11,6 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   loadGfxRaw,
@@ -22,9 +20,10 @@ import {
   GFX_FILE_COUNT,
 } from '../../../src/rom/GfxLoader'
 import { parseLevelObjects } from '../../../src/rom/LevelParser'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 const LEVEL_104 = 0x104
 

@@ -2,7 +2,7 @@
  * scrollSim_009.test.ts - validate the parallax+cmd-$01 port against
  * the Mesen ground-truth capture for `$009`.
  *
- * Capture: `C:/Users/engenb/OneDrive/hackbench-fixtures/maps/009/l2_scroll.csv`
+ * Capture: `<hackbench-fixtures>/maps/009/l2_scroll.csv`
  * (7,739 frames; written by `tools/mesen/l2_dump.lua`).
  *
  * **Frame indexing**: the Lua dumper's `onFrame` callback fires at
@@ -28,8 +28,10 @@ import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
 import { buildScrollSimulator, type ScrollState } from '../../../src/rom/scrollSim'
 import { loadVanillaRom, vanillaRomPresent } from './scrollSim_capture'
+import { join } from 'path'
+import { MESEN_FIXTURES_DIR } from './fixtures/loadMesenFixture'
 
-const CSV = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps/009/l2_scroll.csv'
+const CSV = join(MESEN_FIXTURES_DIR, '009', 'l2_scroll.csv')
 
 interface CaptureRow {
   frame: number

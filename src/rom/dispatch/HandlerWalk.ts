@@ -34,7 +34,7 @@
  * `ExecutePtr` does not use it. `docs/sprites/sprite-gfx-routine-reading.md`
  * section 2, "What the probe assumes".
  *
- * Evidence scope: run against all six cart files in `test/roms/`. Static
+ * Evidence scope: run against all six cart files in the corpus. Static
  * reads only; no emulator was run.
  */
 

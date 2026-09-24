@@ -21,11 +21,11 @@ const { chromium } = require('@playwright/test')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
 const PACE = Number(process.argv[2] || 1600)
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
-const ROM =
-  process.env.HB_ROM || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
+const ROM = process.env.HB_ROM || romPath(VANILLA)
 const VANILLA_MAPS = 235
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))

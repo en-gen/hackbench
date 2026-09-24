@@ -2,7 +2,7 @@
  * scrollSim_0dc.test.ts - validate cmd $0B (L2 On/Off Switch Y-scroll)
  * against the Mesen capture for level $0DC.
  *
- * Capture: `C:/Users/engenb/OneDrive/hackbench-fixtures/maps/0dc/l2_scroll.csv`
+ * Capture: `<hackbench-fixtures>/maps/0dc/l2_scroll.csv`
  * Sprite: $E8 b0=$08 → post-remap (l1cmd=0, l2cmd=$0B, l1bits=0, l2bits=0).
  *
  * What this validates:
@@ -34,8 +34,10 @@ import {
   type FieldKey,
   vanillaRomPresent,
 } from './scrollSim_capture'
+import { join } from 'path'
+import { MESEN_FIXTURES_DIR } from './fixtures/loadMesenFixture'
 
-const CSV = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps/0dc/l2_scroll.csv'
+const CSV = join(MESEN_FIXTURES_DIR, '0dc', 'l2_scroll.csv')
 
 const CHECK_FIELDS: readonly FieldKey[] = [
   'l1y',

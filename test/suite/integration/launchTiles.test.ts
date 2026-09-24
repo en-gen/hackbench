@@ -1,7 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import * as os from 'os'
-import * as path from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   deriveOverworldEntrances,
@@ -10,19 +7,17 @@ import {
   STAR_WARP_TILE,
   PIPE_WARP_TILE,
 } from '../../../src/rom/OverworldEntrances'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const P = [
-  path.join(os.homedir(), 'OneDrive', 'hackbench-fixtures', 'Super Mario World (USA).vanilla.sfc'),
-  path.join(os.homedir(), 'Super Mario World (USA).vanilla.sfc'),
-].find(existsSync)
+const VANILLA_ROM = romPath(VANILLA)
 
 // CODE_04DC09 (bank_04.asm:5637) MVN-copies OWL1TileData from $0CF7DF, $800 bytes.
 const OWL1_TILE_DATA = 0x0cf7df
 const BUF_LEN = 0x800
 
-describe.skipIf(!P)('launch tile count, direct scan', () => {
+describe.skipIf(!hasRom(VANILLA))('launch tile count, direct scan', () => {
   it('counts bytes in [$56,$80] the way CODE_04D7F2 does', () => {
-    const rom = SmwRom.open(P!)
+    const rom = SmwRom.open(VANILLA_ROM)
     const buf = rom.rom.readAt(OWL1_TILE_DATA, BUF_LEN)!
     const hist = new Map<number, number>()
     let count = 0

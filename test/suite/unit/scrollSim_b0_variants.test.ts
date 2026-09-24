@@ -32,8 +32,9 @@ import {
   vanillaRomPresent,
   type FieldKey,
 } from './scrollSim_capture'
+import { MESEN_FIXTURES_DIR } from './fixtures/loadMesenFixture'
 
-const FIXTURES = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps'
+const FIXTURES = MESEN_FIXTURES_DIR
 
 interface VariantSpec {
   level: string

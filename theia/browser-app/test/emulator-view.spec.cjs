@@ -26,10 +26,10 @@ const { CART, shownWords, makeUntitledAndUnlocated } = require('./rom-words.cjs'
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
-const ROM =
-  process.env.HB_ROM || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
+const ROM = process.env.HB_ROM || romPath(VANILLA)
 // Resolved against the repo root this file lives in, NOT a hardcoded machine
 // path: vendor/cores/ is gitignored per checkout (.gitignore:107), so a fixed
 // absolute default would only ever work on the one machine it was written on.

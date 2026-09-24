@@ -1,7 +1,7 @@
 /**
  * The encoder against real cartridges.
  *
- * `test/roms/` is gitignored, so CI never runs this: the encoder's contract
+ * the corpus is gitignored, so CI never runs this: the encoder's contract
  * is proven synthetically in LcLz2Encode.synthetic.test.ts, and this file
  * adds the one thing a synthetic stream cannot, which is Nintendo's own
  * command mix. Gated per cart with `describe.skipIf` so the cases SKIP
@@ -16,37 +16,28 @@
  * being tested.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync, readdirSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../src/rom/RomFile'
 import { decompress, encode, parseStream } from '../../../src/rom/LcLz2'
 import { checkStockCompression, readGfxFileTable } from '../../../src/rom/GfxArena'
+import { CORPUS, INVICTUS, MAGIC, hasRom, romPath, romsOnDisk } from '../support/corpus'
 
-const ROMS_DIR = resolve(__dirname, '../../roms')
-const CARTS = existsSync(ROMS_DIR) ? readdirSync(ROMS_DIR).filter(f => /\.(sfc|smc)$/i.test(f)) : []
+const CARTS = romsOnDisk()
 
 /** Every cart the corpus may hold, named so the cases register and SKIP
  *  whether or not the files are present. */
-const EXPECTED_CARTS = [
-  'Super Mario World (USA).vanilla.sfc',
-  'Super Mario World (USA).magic.sfc',
-  'Seven_Vanilla_Levels.sfc',
-  'GrandPooWorld_V1.2.sfc',
-  'Grand Poo World 2 1.1.sfc',
-  'Invictus 1.0.sfc',
-]
+const EXPECTED_CARTS = CORPUS
 
 /** Invictus 1.0 replaces the LC_LZ2 entry at $00B8DE; every other cart in
  *  the corpus holds the stock prologue. Measured, 6 of 6, one machine. */
-const NON_STOCK_COMPRESSION = new Set(['Invictus 1.0.sfc'])
+const NON_STOCK_COMPRESSION = new Set<string>([INVICTUS])
 
 /** The corpus's headered dumps: 524,800 bytes, so `size % 1024 === 512`.
  *  A copier-header frame error reads identically on every other cart. */
-const HEADERED = new Set(['Super Mario World (USA).magic.sfc'])
+const HEADERED = new Set<string>([MAGIC])
 
 for (const name of EXPECTED_CARTS) {
-  const path = resolve(ROMS_DIR, name)
-  const present = existsSync(path)
+  const path = romPath(name)
+  const present = hasRom(name)
   const stock = !NON_STOCK_COMPRESSION.has(name)
 
   describe.skipIf(!present || !stock)(`${name}: structure-preserving re-encode`, () => {

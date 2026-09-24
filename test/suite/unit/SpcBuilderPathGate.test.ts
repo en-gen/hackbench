@@ -3,7 +3,7 @@ import { getLevelMusicBankAddrIfReadable, readBankSongPointers } from '../../../
 
 /**
  * Synthetic, no-cartridge coverage for the level-music path trace and
- * opcode gate (issue #417). CI never has test/roms/ (copyright), so every
+ * opcode gate (issue #417). CI never has the corpus (copyright), so every
  * corpus-based assertion of this behaviour registers zero test cases there;
  * this file is what actually runs in CI for these safeguards.
  */

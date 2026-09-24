@@ -177,7 +177,7 @@ export interface SpriteLayout {
  * an immediate's operand or an indexed load's first table byte. That claim
  * is false. Applying exactly that rule with `HandlerWalk` reproduces 35 of
  * the 98 values; 58 differ and 5 find no store at all, identically on all
- * six carts in `test/roms/`. The table is curated, not extracted.
+ * six carts in the corpus. The table is curated, not extracted.
  *
  * Why it cannot be read live, in one line each, with the measurements and
  * the worked examples in `docs/sprites/sprite-gfx-routine-reading.md` section 6:
@@ -364,7 +364,7 @@ const SPRITE_TALL_OVERRIDES: Readonly<Record<number, { top: number; bottom: numb
  *
  * So: live beats frozen when live has an answer, frozen beats nothing when
  * it does not. Four of these are never reached live on any of the six
- * carts in `test/roms/` and would be load-bearing today:
+ * carts in the corpus and would be load-bearing today:
  *
  *   $1F Magikoopa, $4D and $4E Monty Mole - the handler calls through
  *       `ExecutePtr` (bank_00.asm:847), which never returns, so the bytes
@@ -635,7 +635,7 @@ const SPRITE_WIDE_OVERRIDES: Readonly<
  * FROZEN DERIVATION below, kept for the same reason as the routine floor:
  * a cart the walk cannot read gets 0, which is "no flips" and wrong for a
  * sprite that wanted 2. Measured on the five distinct carts in
- * `test/roms/`, the live read gives $14 = 2, $2B = 0 and $2F = 2, which is
+ * the corpus, the live read gives $14 = 2, $2B = 0 and $2F = 2, which is
  * exactly what this table plus the default already produced, so nothing
  * renders differently today.
  */
@@ -669,7 +669,7 @@ function isSpr0to13TallSprite(tables: SpriteTileTables, spriteId: number): boole
  *
  * Live beats frozen deliberately: where the two disagree the cart is right
  * and the table is stale. They do not disagree on any of the six carts in
- * `test/roms/`, which is what makes the swap safe to make now rather than a
+ * the corpus, which is what makes the swap safe to make now rather than a
  * behaviour change dressed as a refactor.
  */
 function spriteGfxRoutine(tables: SpriteTileTables, spriteId: number): GfxRoutine {

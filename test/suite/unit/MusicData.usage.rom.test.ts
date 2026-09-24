@@ -11,15 +11,12 @@
  * before this function existed: both report 235 real maps and the same
  * eight per-slot counts.
  *
- * Skips per file when test/roms/ is absent, which is always the case in CI.
+ * Skips per file when the corpus is absent, which is always the case in CI.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { readLevelMusicUsage } from '../../../src/rom/MusicData'
-
-const ROMS_DIR = resolve(__dirname, '../../roms')
+import { hasRom, romPath } from '../support/corpus'
 
 interface Expectation {
   realMapCount: number
@@ -66,12 +63,12 @@ const EXPECTED: Record<string, Expectation> = {
   },
 }
 
-describe('readLevelMusicUsage (requires test/roms/*.sfc)', () => {
+describe('readLevelMusicUsage (requires the ROM corpus)', () => {
   for (const [file, expected] of Object.entries(EXPECTED)) {
-    const path = resolve(ROMS_DIR, file)
+    const path = romPath(file)
     // skipIf per file: with the corpus absent these must still be
     // REGISTERED and reported skipped, not silently cease to exist.
-    describe.skipIf(!existsSync(path))(file, () => {
+    describe.skipIf(!hasRom(file))(file, () => {
       it(`counts ${expected.realMapCount} real maps`, () => {
         expect(readLevelMusicUsage(SmwRom.open(path)).realMapCount).toBe(expected.realMapCount)
       })

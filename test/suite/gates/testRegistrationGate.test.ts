@@ -45,8 +45,25 @@ const MODULE_SCOPE_BINDING = /^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$
  */
 const IF_LINE = /^\s*if\s*\(/
 
+/**
+ * The corpus helper's disk questions, called or passed point-free:
+ * `CORPUS.filter(hasRom)` asks the disk as surely as `.filter(existsSync)`.
+ * Without these names, moving a suite onto the helper would exempt it.
+ */
+const HELPER_ASKS = String.raw`\b(?:hasRoms?|romsOnDisk|hasMesenFixture)\b`
+
+/** Any spelling of "ask the disk", raw or through the helper. */
+const ASKS_DISK = new RegExp(`existsSync|readdirSync|${HELPER_ASKS}`)
+
+/** Calls that return a LISTING of the disk, not a yes/no. */
+const LISTS_DISK = /\b(?:readdirSync|romsOnDisk)\(/
+
 /** `.filter(f => existsSync(...))`: an existence test inside one filter argument. */
-const EXISTS_FILTER = /\.filter\([^)]*existsSync/
+const EXISTS_FILTER = new RegExp(String.raw`\.filter\([^)]*(?:` + ASKS_DISK.source + `)`)
+
+/** A loop or `.each` straight over a listing call, with no binding between. */
+const LOOP_OVER_LISTING = /\bof\s+[\w$.]*\b(?:readdirSync|romsOnDisk)\(/
+const EACH_OVER_LISTING = /\.(?:each|for)\(\s*[\w$.]*\b(?:readdirSync|romsOnDisk)\(/
 
 interface Offence {
   file: string
@@ -90,8 +107,8 @@ export function findRegistrationOffences(relPath: string, source: string): Offen
     const m = MODULE_SCOPE_BINDING.exec(lines[i])
     if (!m) continue
     const expr = initialiser(lines, i)
-    if (/readdirSync/.test(expr)) fsDerived.add(m[1])
-    if (/existsSync/.test(expr)) fsFlags.add(m[1])
+    if (LISTS_DISK.test(expr)) fsDerived.add(m[1])
+    if (ASKS_DISK.test(expr)) fsFlags.add(m[1])
     if (EXISTS_FILTER.test(expr)) {
       fsDerived.add(m[1])
       add(i, 'existsFilter')
@@ -106,7 +123,7 @@ export function findRegistrationOffences(relPath: string, source: string): Offen
    * deliberately, from per-ROM tables committed alongside them.
    */
   const asksTheDisk = (text: string): boolean =>
-    /existsSync|readdirSync/.test(text) ||
+    ASKS_DISK.test(text) ||
     [...fsDerived, ...fsFlags].some(n => new RegExp(`\\b${n}\\b`).test(text))
 
   for (let i = 0; i < lines.length; i++) {
@@ -122,6 +139,8 @@ export function findRegistrationOffences(relPath: string, source: string): Offen
     const each = /\b([A-Za-z_$][\w$]*)\.(forEach|map)\(/.exec(line)
     const over = (loop?.[1] ?? '') || (each?.[1] ?? '')
     if (over && fsDerived.has(over) && blockRegisters(lines, i)) add(i, 'listingIteration')
+    else if (LOOP_OVER_LISTING.test(line) && blockRegisters(lines, i)) add(i, 'listingIteration')
+    else if (EACH_OVER_LISTING.test(line)) add(i, 'listingIteration')
 
     // A case registered inside an `if` that asks the filesystem. Whichever
     // way the condition falls, the cases on the other side do not exist, and
@@ -375,6 +394,66 @@ describe('the registration gate can fail', () => {
   for (const { rule, source } of PLANTS) {
     it(`catches the ${rule} shape`, () => {
       const offences = findRegistrationOffences('planted.test.ts', source)
+      expect(offences.map(o => o.rule)).toContain(rule)
+    })
+  }
+
+  // The same shapes spelled through `support/corpus.ts`. One plant per rule
+  // extension, each proven to go red with only that extension reverted.
+  const HELPER_PLANTS: Array<{ name: string; rule: string; source: string[] }> = [
+    {
+      name: 'an if on hasRom(...) directly',
+      rule: 'conditional',
+      source: [
+        'describe("x", () => {',
+        '  if (hasRom(VANILLA)) {',
+        '    it("a", () => {})',
+        '  }',
+        '})',
+      ],
+    },
+    {
+      name: 'an if on a flag bound to hasRom(...)',
+      rule: 'conditional',
+      source: [
+        'const romPresent = hasRom(VANILLA)',
+        'describe("x", () => {',
+        '  if (romPresent) {',
+        '    it("a", () => {})',
+        '  }',
+        '})',
+      ],
+    },
+    {
+      name: 'a point-free .filter(hasRom)',
+      rule: 'existsFilter',
+      source: [
+        'const carts = CORPUS.filter(hasRom)',
+        'for (const c of carts) {',
+        '  it(c, () => {})',
+        '}',
+      ],
+    },
+    {
+      name: 'a loop over a binding of romsOnDisk()',
+      rule: 'listingIteration',
+      source: ['const carts = romsOnDisk()', 'for (const c of carts) {', '  it(c, () => {})', '}'],
+    },
+    {
+      name: 'a loop straight over romsOnDisk()',
+      rule: 'listingIteration',
+      source: ['for (const c of romsOnDisk()) {', '  it(c, () => {})', '}'],
+    },
+    {
+      name: 'it.each(romsOnDisk())',
+      rule: 'listingIteration',
+      source: ["it.each(romsOnDisk())('%s', c => {})"],
+    },
+  ]
+
+  for (const { name, rule, source } of HELPER_PLANTS) {
+    it(`catches ${name} as ${rule}`, () => {
+      const offences = findRegistrationOffences('planted.test.ts', source.join('\n'))
       expect(offences.map(o => o.rule)).toContain(rule)
     })
   }

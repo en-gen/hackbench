@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { computed } from '@vue/reactivity'
-import { existsSync } from 'fs'
 import { loadVram } from '../../../../src/rom/GfxLoader'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -12,8 +11,9 @@ import { Tile, type SubtileQuad } from '../../../../src/rom/model/tiles/Tile'
 import { buildTiles } from '../../../../src/rom/model/tiles/TileFactory'
 import { SwitchPalaceAlternateBehavior } from '../../../../src/rom/model/tiles/behaviors/SwitchPalaceAlternateBehavior'
 import { editorStore, resetEditorStore } from '../fixtures/stores'
+import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
-const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
+const ROM_PATH = romPath(VANILLA)
 
 function setSwitches(state: readonly [boolean, boolean, boolean, boolean]): void {
   for (let c = 0; c < 4; c++) editorStore.setSwitchPalace(c as 0 | 1 | 2 | 3, state[c])
@@ -70,7 +70,7 @@ describe('SwitchPalaceAlternateBehavior behavior', () => {
   })
 })
 
-describe.skipIf(!existsSync(ROM_PATH))('TileFactory switch-palace wiring (vanilla ROM)', () => {
+describe.skipIf(!hasRom(VANILLA))('TileFactory switch-palace wiring (vanilla ROM)', () => {
   beforeEach(resetEditorStore)
 
   it('$06A-$06D and $16A-$16D all wear SwitchPalaceAlternateBehavior', () => {

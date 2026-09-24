@@ -2,7 +2,7 @@
  * scrollSim_1e2.test.ts - partial validation of L2 cmd $0E (sink/rise)
  * against the Mesen capture for level $1E2.
  *
- * Capture: `C:/Users/engenb/OneDrive/hackbench-fixtures/maps/1e2/l2_scroll.csv`
+ * Capture: `<hackbench-fixtures>/maps/1e2/l2_scroll.csv`
  * Sprite: $E8 b0=$0E → post-remap (l1cmd=0, l2cmd=$0E, l1bits=1, l2bits=0).
  *
  * What this validates:
@@ -32,8 +32,10 @@ import {
   type FieldKey,
   vanillaRomPresent,
 } from './scrollSim_capture'
+import { join } from 'path'
+import { MESEN_FIXTURES_DIR } from './fixtures/loadMesenFixture'
 
-const CSV = 'C:/Users/engenb/OneDrive/hackbench-fixtures/maps/1e2/l2_scroll.csv'
+const CSV = join(MESEN_FIXTURES_DIR, '1e2', 'l2_scroll.csv')
 
 const CHECK_FIELDS: readonly FieldKey[] = [
   'l1y',

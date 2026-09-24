@@ -14,8 +14,6 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../../src/rom/RomFile'
 import {
   walkHandler,
@@ -23,11 +21,9 @@ import {
   DEFAULT_PROBE_BUDGET,
   DEFAULT_PROBE_DEPTH,
 } from '../../../../src/rom/dispatch/HandlerWalk'
+import { VANILLA, freshRom, hasRom } from '../../support/corpus'
 
-const ROM_DIR = resolve(__dirname, '../../../roms')
-const VANILLA = 'Super Mario World (USA).vanilla.sfc'
-const romPresent = existsSync(resolve(ROM_DIR, VANILLA))
-const freshRom = () => RomFile.load(resolve(ROM_DIR, VANILLA))
+const romPresent = hasRom(VANILLA)
 
 /** A 4 MB LoROM cart of `NOP`s that code can be planted into. */
 function blankRom(): RomFile {

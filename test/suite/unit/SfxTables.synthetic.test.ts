@@ -2,7 +2,7 @@
  * Reading the SPC engine's sound-effect tables, on synthetic ROMs only.
  *
  * CI is permanently the corpus-absent case, so every gate and refusal is
- * proven here rather than only against test/roms/. The ROMs are built byte
+ * proven here rather than only against the corpus. The ROMs are built byte
  * by byte in this file: an engine upload whose first block holds the reader
  * routines and whose second block holds the tables and the phrase data,
  * which is the shape a real ROM has.

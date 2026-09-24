@@ -23,7 +23,7 @@
  *
  * Evidence scope: every descriptor cites `SMWDisX file:line`. Behaviour was
  * traced in the disassembly and cross-checked against the six cart
- * files in `test/roms/`, which hold FIVE distinct carts: `magic.sfc` is
+ * files in the corpus, which hold FIVE distinct carts: `magic.sfc` is
  * `vanilla.sfc` plus a 512-byte copier header and is byte-identical once it
  * is stripped. No emulator was used, so no claim here is dynamically
  * verified; they are static-trace claims over a five-cart corpus.
@@ -406,7 +406,7 @@ export type DrawRoutine =
  *
  * Addresses from `SMWDisX/SMW_U.sym`, cross-checked against the `JSR
  * SubSprGfx1` at `bank_01.asm:8529`, whose operand all six carts in
- * `test/roms/` hold as $9D67.
+ * the corpus holds as $9D67.
  *
  * The alternate entries `SubSprGfx0Entry1` ($9CF5) and `SubSprGfx2Entry0`
  * ($9F09) are deliberately absent: they take different arguments, and no
@@ -676,7 +676,7 @@ export const SPRITE_DRAW_DESCRIPTORS: readonly SpriteDrawDescriptor[] = [
     spriteId: 0x1f,
     // Every address below is `{ mainOff }`: a byte offset past the MAIN
     // pointer the cart holds at entry $1F, which is $BDD6 on all six carts in
-    // `test/roms/`. Offsets, not addresses, so a hack that relocates the
+    // the corpus. Offsets, not addresses, so a hack that relocates the
     // handler still resolves. The absolute addresses they correspond to on
     // vanilla are in docs/sprites/sprite-engine-divergence.md section 9.
     routine: 'sub1',

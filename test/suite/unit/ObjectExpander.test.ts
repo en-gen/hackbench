@@ -1,6 +1,4 @@
 import { beforeAll, describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import {
   expandMap,
   createGrid,
@@ -97,6 +95,7 @@ import {
   handle_0DF06C,
 } from '../../../src/rom/objectHandlers/standardHandlers'
 import { RomFile } from '../../../src/rom/RomFile'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
 /** Page-1 tile IDs are stored as 0x100 | lowByte -- see cursor.ts for why. */
 const P1 = (b: number) => 0x100 | b
@@ -1383,12 +1382,12 @@ describe('handle_0DB2CA (dragon coin, ext 0x41)', () => {
 })
 
 // ── Integration: real SMW ROM, level $105 (Yoshi's Island 1) ─────────────────
-// These tests require test/roms/Super Mario World (USA).vanilla.sfc to be present.
+// These tests require the corpus vanilla ROM to be present.
 // They confirm the ported handlers produce non-empty tile grids for a known
 // reference level.
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 // `describe.skipIf`, not an early `return`: the return registered one
 // placeholder and dropped all 13 integration cases, which is invisible in a

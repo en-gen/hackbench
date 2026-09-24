@@ -23,19 +23,59 @@ This affects how the test suite is organized:
 Do not submit PRs that add ROM data, decompressed game resources, or
 fixtures derived from the ROM. These will be rejected.
 
+## Where the corpus lives
+
+The ROM corpus is **outside the repo**, beside the clone:
+
+```
+<projects>/
+  hackbench/              the clone (and <projects>/.worktrees/hackbench/* )
+  hackbench-tools/
+    roms/                 the cartridges
+    mesen/                Mesen.exe, Saves/, Debugger/, GameConfig/
+    magic/  fixtures/  dispel/  spcplay/
+```
+
+It used to be `test/roms/` and `tools/mesen/` inside the checkout. Both
+were gitignored, which stops a commit but not a `git clean -x`: that
+command deletes ignored files, and these are cartridges and captures that
+cannot be downloaded again. Outside the repo, git cannot reach them at all.
+`tools/mesen/*.lua` and its README stay tracked in the repo; only the
+gitignored payload moved.
+
+Nothing in the suite hardcodes any of this. `test/suite/support/corpus.cjs`
+resolves the corpus directory for both the Vitest suites (through
+`corpus.ts`) and the Playwright specs:
+
+1. `HACKBENCH_ROMS`, returned as given, even if it does not exist: an
+   explicit override that names nothing should make the suites skip, not
+   fall through to some other corpus. `HACKBENCH_TOOLS/roms` likewise.
+2. The nearest ancestor of the repo root holding `hackbench-tools/roms`,
+   walked to the filesystem root, so every worktree layout resolves it.
+3. `<repo root>/test/roms`, the old layout, so a clone that has not moved
+   its corpus still runs.
+
+When none exist it returns a path that does not, so `hasRom` reads false
+and the suites SKIP rather than throwing during collection.
+
+The PowerShell runners under `tools/scripts/` take `-ToolsRoot` or read
+`HACKBENCH_TOOLS`, defaulting to `C:/Projects/hackbench-tools`, and name
+that location when the emulator or the cartridge is missing.
+
 ## Getting a ROM (locally)
 
 You can play the ROM-dependent tests if you own a legal copy of
 _Super Mario World (USA)_. We validate against a specific dump:
 
-|          |                                                 |
-| -------- | ----------------------------------------------- |
-| Filename | `test/roms/Super Mario World (USA).vanilla.sfc` |
-| Size     | 524,288 bytes (no copier header)                |
-| SHA-1    | `6B47BB75D16514B6A476AA0C73A683A2A4C18765`      |
+|          |                                            |
+| -------- | ------------------------------------------ |
+| Filename | `Super Mario World (USA).vanilla.sfc`      |
+| Size     | 524,288 bytes (no copier header)           |
+| SHA-1    | `6B47BB75D16514B6A476AA0C73A683A2A4C18765` |
 
-Drop your vanilla ROM at that path. The `test/roms/` directory is
-gitignored, so the ROM will never be accidentally committed.
+Drop your vanilla ROM in the corpus directory above, or set
+`HACKBENCH_ROMS` to wherever you keep it. Either way it is outside the
+repo, so it cannot be committed by accident or removed by `git clean -x`.
 
 **A ROM modified by Lunar Magic is not suitable.** LM rewrites parts of
 the ROM on save and shifts some addresses, producing silent mismatches
@@ -74,13 +114,25 @@ That spelling is not a style preference, it is the whole mechanism: see
   expected sizes and pixel counts for specific GFX files.
 - `PaletteLoader (requires ROM)` - verifies CGRAM assembly for level $104.
 
-These skip cleanly when `test/roms/Super Mario World (USA).vanilla.sfc`
-is missing. If you've dropped your ROM in place, they run automatically.
+These skip cleanly when `Super Mario World (USA).vanilla.sfc` is not in the
+corpus directory. If you've dropped your ROM in place, they run
+automatically. Ask for it with the helper, never by building a path:
+
+```ts
+import { VANILLA, hasRom, romPath } from '../support/corpus'
+
+describe.skipIf(!hasRom(VANILLA))('...', () => {
+  it('...', () => {
+    // Inside the case: a describe body still runs at collection time.
+    const rom = SmwRom.open(romPath(VANILLA))
+  })
+})
+```
 
 ### Gate with skipIf, never by discovery
 
 A case that is absent is not a case that is skipped. Measured on the suite
-at 830be6f by running it twice, once with `test/roms/` attached and once
+at 830be6f by running it twice, once with the corpus attached and once
 without, and diffing the TEST COUNTS rather than the skip counts: 154 cases
 existed with the corpus and did not exist without it. None was reported as
 skipped, because none was ever registered. CI has no ROM, so that was
@@ -214,7 +266,7 @@ red when `loromToOffset` stops refusing, which was confirmed separately.
 
 ### Map16 tile editor - the write gate, the palettes and the preview tabs
 
-Run with `test/roms/` ABSENT and the `theia/` workspace absent, which is
+Run with the corpus ABSENT and the `theia/` workspace absent, which is
 what CI has. Every case below registers and runs in that state except where
 noted, which is the point: an earlier version of the write-path suite
 imported `Map16ServiceImpl`, could not resolve

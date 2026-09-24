@@ -1,6 +1,6 @@
 /**
  * Mechanical equivalence harness: the table-driven engine versus the shipped
- * bespoke path, across every cart file in `test/roms/`.
+ * bespoke path, across every cart file in the corpus.
  *
  * SIX FILES, FIVE CARTS. `Super Mario World (USA).magic.sfc` is
  * `Super Mario World (USA).vanilla.sfc` plus a 512-byte copier header and is
@@ -32,15 +32,12 @@
  * Per-sprite value pinning lives in `SpriteEngineCartReads.test.ts` and
  * `SpriteEngineWalkCycle.test.ts`.
  *
- * Evidence scope: six carts in `test/roms/`, static traces against
+ * Evidence scope: six carts in the corpus, static traces against
  * `C:\Projects\SMWDisX`, no emulator. Nothing here is verified against live
  * hardware.
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
-import { RomFile } from '../../../../src/rom/RomFile'
 import { buildSpriteLayout, readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
   SPRITE_DRAW_DESCRIPTORS,
@@ -60,29 +57,19 @@ import {
   type EnginePart,
   type PaletteNote,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
-
-const ROM_DIR = resolve(__dirname, '../../../roms')
+import { CORPUS, freshRom, hasRom, hasRoms } from '../../support/corpus'
 
 /** The corpus. `vanilla` is the reference; the other four are shipped hacks.
  *  Note `Seven_Vanilla_Levels` is a HACK despite its name, which is exactly
- *  the trap that produced a wrong reference ROM during this investigation. */
-const ROM_FILES = [
-  'Super Mario World (USA).vanilla.sfc',
-  'Super Mario World (USA).magic.sfc',
-  'Grand Poo World 2 1.1.sfc',
-  'GrandPooWorld_V1.2.sfc',
-  'Invictus 1.0.sfc',
-  'Seven_Vanilla_Levels.sfc',
-] as const
-
-const romPaths = ROM_FILES.map(f => resolve(ROM_DIR, f))
-/** Module-scope existence check only. All ROM I/O stays inside `it()`, because
+ *  the trap that produced a wrong reference ROM during this investigation.
+ *
+ *  Module-scope existence check only. All ROM I/O stays inside `it()`, because
  *  `describe.skipIf` does NOT guard a describe body: it still executes during
  *  collection and a read there would fail the suite before any skip applies. */
-const romsPresent = romPaths.every(existsSync)
+const romsPresent = hasRoms()
 
 function openRoms() {
-  return ROM_FILES.map((name, i) => ({ name, rom: RomFile.load(romPaths[i]) }))
+  return CORPUS.map(name => ({ name, rom: freshRom(name) }))
 }
 
 /** Normalise for comparison: the two paths agree or they do not, field by field. */
@@ -323,7 +310,7 @@ const ADJUDICATION: Record<number, { verdict: string; why: string; pin: Pin }> =
 
 describe.skipIf(!romsPresent)('sprite engine vs shipped bespoke path (5 carts, 6 files)', () => {
   it('the corpus is the six files this harness claims to cover', () => {
-    expect(romPaths.filter(existsSync)).toHaveLength(ROM_FILES.length)
+    expect(CORPUS.filter(n => hasRom(n))).toHaveLength(CORPUS.length)
   })
 
   it('every descriptor diverges from the shipped path exactly where adjudicated', () => {

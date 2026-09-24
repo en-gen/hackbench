@@ -13,24 +13,14 @@
  * but it must be explained.
  */
 import { describe, it, expect, beforeAll } from 'vitest'
-import { existsSync } from 'fs'
-import * as os from 'os'
-import * as path from 'path'
 import { SmwRom, isOverworldLevel } from '../../../src/rom/SmwRom'
 import { buildLevelSubtree, LevelTreeNode } from '../../../src/rom/LevelTree'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_DIR = path.resolve(__dirname, '../../roms')
 // Same resolution as exitGraphReach.test.ts, so this does not skip in a worktree.
-const VANILLA = [
-  process.env.ROM_PATH,
-  path.join(ROM_DIR, 'Super Mario World (USA).vanilla.sfc'),
-  path.join(os.homedir(), 'OneDrive', 'hackbench-fixtures', 'Super Mario World (USA).vanilla.sfc'),
-  path.join(os.homedir(), 'Super Mario World (USA).vanilla.sfc'),
-]
-  .filter((p): p is string => !!p)
-  .find(existsSync)
+const VANILLA_ROM = romPath(VANILLA)
 
-// test/roms/ is gitignored and absent in CI. One case per ROM, so an absent
+// The corpus is outside the repo and absent in CI. One case per ROM, so an absent
 // ROM skips rather than vanishing (CLAUDE.md, Quality gates).
 //
 // maxRootNodes is the largest expansion under any single root, which is the
@@ -98,13 +88,13 @@ function statsForRom(rom: SmwRom): Stats {
   return s
 }
 
-describe.skipIf(!VANILLA)('buildLevelSubtree -- vanilla nesting', () => {
+describe.skipIf(!hasRom(VANILLA))('buildLevelSubtree -- vanilla nesting', () => {
   let rom: SmwRom
   let graph: Map<number, number[]>
   let stats: Stats
 
   beforeAll(() => {
-    rom = SmwRom.open(VANILLA!)
+    rom = SmwRom.open(VANILLA_ROM)
     graph = rom.buildLevelExitGraph()
     stats = statsForRom(rom)
   })
@@ -178,11 +168,10 @@ describe('buildLevelSubtree -- measured expansion sizes', () => {
   // The caps in LevelTree.ts are sized against maxRootNodes; these pins are what
   // say how much headroom the six ROMs actually leave.
   for (const c of CORPUS) {
-    const romPath = path.join(ROM_DIR, c.name)
-    it.skipIf(!existsSync(romPath))(
+    it.skipIf(!hasRom(c.name))(
       `${c.name} peaks at ${c.maxRootNodes} nodes under one root, ${c.loops} loops, depth ${c.maxDepth}`,
       () => {
-        const s = statsForRom(SmwRom.open(romPath))
+        const s = statsForRom(SmwRom.open(romPath(c.name)))
         expect({ maxRootNodes: s.maxRootNodes, loops: s.loops, maxDepth: s.maxDepth }).toEqual({
           maxRootNodes: c.maxRootNodes,
           loops: c.loops,

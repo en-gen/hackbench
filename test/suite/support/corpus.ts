@@ -1,0 +1,53 @@
+/**
+ * The ROM corpus, for the Vitest suites. Resolution lives in `corpus.cjs`,
+ * shared with the Playwright specs; this adds types and the `RomFile` helper.
+ *
+ * Ask for a cart through here, never by building a path: gate with
+ * `describe.skipIf(!hasRom(VANILLA))`, then read `romPath(VANILLA)`.
+ */
+
+import { existsSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { RomFile } from '../../../src/rom/RomFile'
+import * as core from './corpus.cjs'
+
+type Env = Record<string, string | undefined>
+type Exists = (p: string) => boolean
+
+export const CORPUS: readonly string[] = core.CORPUS
+export const VANILLA: string = core.VANILLA
+export const MAGIC: string = core.MAGIC
+export const INVICTUS: string = core.INVICTUS
+export const ROM_DIR: string = core.ROM_DIR
+
+export const resolveRomDir: (env: Env, repoRoot: string, exists: Exists) => string =
+  core.resolveRomDir
+export const resolveToolsRoot: (env: Env, repoRoot: string, exists: Exists) => string =
+  core.resolveToolsRoot
+
+/** Full path to a corpus ROM, whether or not it is on this machine. */
+export const romPath = (name: string): string => join(ROM_DIR, name)
+
+/** True when that ROM is on this machine. */
+export const hasRom = (name: string): boolean => existsSync(romPath(name))
+
+/** True when every named ROM is here. False for an empty list, which
+ *  `[].every(...)` is not: that let a sweep over nothing pass. */
+export const hasRoms = (names: readonly string[] = CORPUS): boolean =>
+  names.length > 0 && names.every(hasRom)
+
+/** A freshly loaded copy, safe to plant bytes into. */
+export const freshRom = (name: string = VANILLA): RomFile => RomFile.load(romPath(name))
+
+/** Every cart file in the corpus directory. For membership tripwires read
+ *  inside a case; iterating it to register cases is banned by the gate. */
+export function romsOnDisk(): string[] {
+  if (!existsSync(ROM_DIR)) return []
+  return readdirSync(ROM_DIR)
+    .filter(f => /\.(sfc|smc)$/i.test(f))
+    .sort()
+}
+
+/** A Mesen debugger dump, used as render ground truth. */
+export const mesenDumpPath = (name: string): string =>
+  join(core.TOOLS_ROOT, 'mesen', 'Debugger', name)

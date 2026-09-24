@@ -24,14 +24,12 @@
  *
  * Evidence scope: planted-byte tests run on
  * `Super Mario World (USA).vanilla.sfc`; the "vanilla holds N" tests run on
- * all six carts in `test/roms/`. Static traces against `C:\Projects\SMWDisX`,
+ * all six carts in the corpus. Static traces against `C:\Projects\SMWDisX`,
  * line numbers checked by opening `bank_01.asm` at each one. No emulator was
  * run, so nothing here is verified against live hardware.
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
@@ -51,20 +49,9 @@ import {
   type EnginePart,
   type EngineResult,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
+import { CORPUS, freshRom, hasRoms } from '../../support/corpus'
 
-const ROM_DIR = resolve(__dirname, '../../../roms')
-const ROM_FILES = [
-  'Super Mario World (USA).vanilla.sfc',
-  'Super Mario World (USA).magic.sfc',
-  'Grand Poo World 2 1.1.sfc',
-  'GrandPooWorld_V1.2.sfc',
-  'Invictus 1.0.sfc',
-  'Seven_Vanilla_Levels.sfc',
-] as const
-const romsPresent = ROM_FILES.every(f => existsSync(resolve(ROM_DIR, f)))
-
-const freshRom = (name: (typeof ROM_FILES)[number] = ROM_FILES[0]) =>
-  RomFile.load(resolve(ROM_DIR, name))
+const romsPresent = hasRoms()
 
 const desc = (id: number): SpriteDrawDescriptor =>
   SPRITE_DRAW_DESCRIPTORS.find(d => d.spriteId === id)!
@@ -124,7 +111,7 @@ const topDy = (p: readonly EnginePart[]) => Math.min(...p.map(q => q.dy))
 describe.skipIf(!romsPresent)('the walk family renders at all', () => {
   const FAMILY = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0f, 0x11, 0x13]
 
-  it.each(ROM_FILES)('%s: every member draws two DISTINCT frames', name => {
+  it.each(CORPUS)('%s: every member draws two DISTINCT frames', name => {
     const rom = freshRom(name)
     for (const id of FAMILY) {
       const a = poseKey(parts(rom, id, 0))
@@ -134,7 +121,7 @@ describe.skipIf(!romsPresent)('the walk family renders at all', () => {
     }
   })
 
-  it.each(ROM_FILES)('%s: $00-$03 draw one 16x16 and $04-$07 two stacked', name => {
+  it.each(CORPUS)('%s: $00-$03 draw one 16x16 and $04-$07 two stacked', name => {
     const rom = freshRom(name)
     for (const id of [0x00, 0x01, 0x02, 0x03, 0x0f, 0x11, 0x13]) {
       expect(parts(rom, id, 0), `$${id.toString(16)}`).toHaveLength(4)
@@ -157,7 +144,7 @@ describe.skipIf(!romsPresent)('SetAnimationFrame is read, not recorded', () => {
   const animOf = (rom: RomFile, id: number) =>
     resolveAnim(rom, desc(id).anim, resolveHandlerBase(rom, desc(id)))!
 
-  it.each(ROM_FILES)('%s: the shift is a run of three LSR A', name => {
+  it.each(CORPUS)('%s: the shift is a run of three LSR A', name => {
     const rom = freshRom(name)
     for (const id of [SHELLESS, SHELLED]) {
       const sc = (desc(id).anim as { shiftAt: Parameters<typeof readShiftCount>[1] }).shiftAt
@@ -168,7 +155,7 @@ describe.skipIf(!romsPresent)('SetAnimationFrame is read, not recorded', () => {
     }
   })
 
-  it.each(ROM_FILES)('%s: both handlers resolve the SAME shift and mask', name => {
+  it.each(CORPUS)('%s: both handlers resolve the SAME shift and mask', name => {
     // $00 hops through its own carried-pose `JSR` (bank_01.asm:1407) and $04
     // through the walk path's (bank_01.asm:1691). Different anchors, one
     // routine, so they must agree.
@@ -215,14 +202,14 @@ describe.skipIf(!romsPresent)('SetAnimationFrame is read, not recorded', () => {
 // ── 3. The routine choice, read out of the property table and the JSRs ──────
 
 describe.skipIf(!romsPresent)('the 16x16 / 16x32 choice is read per cart', () => {
-  it.each(ROM_FILES)('%s: the property table operand resolves to $01:88F0', name => {
+  it.each(CORPUS)('%s: the property table operand resolves to $01:88F0', name => {
     const rom = freshRom(name)
     const operand = selAt(rom, SHELLESS, s => s.propOperandAddr)
     const b = rom.readAt(operand, 2)!
     expect(b[0] | (b[1] << 8)).toBe(0x88f0)
   })
 
-  it.each(ROM_FILES)('%s: the selecting bit is $40', name => {
+  it.each(CORPUS)('%s: the selecting bit is $40', name => {
     const rom = freshRom(name)
     expect(
       rom.readAt(
@@ -314,7 +301,7 @@ describe.skipIf(!romsPresent)('the 16x16 / 16x32 choice is read per cart', () =>
 // ── 4. The 1 px walk bob on the 16x32 branch ────────────────────────────────
 
 describe.skipIf(!romsPresent)('the bob is the SBC operand plus a carry', () => {
-  it.each(ROM_FILES)('%s: vanilla holds SBC #$0F and a single LSR A', name => {
+  it.each(CORPUS)('%s: vanilla holds SBC #$0F and a single LSR A', name => {
     const rom = freshRom(name)
     expect(
       rom.readAt(
@@ -332,7 +319,7 @@ describe.skipIf(!romsPresent)('the bob is the SBC operand plus a carry', () => {
     ).toBe(1)
   })
 
-  it.each(ROM_FILES)('%s: frame 1 sits exactly one pixel below frame 0', name => {
+  it.each(CORPUS)('%s: frame 1 sits exactly one pixel below frame 0', name => {
     const rom = freshRom(name)
     expect(topDy(parts(rom, SHELLED, 1)) - topDy(parts(rom, SHELLED, 0))).toBe(1)
     // And the 16x16 branch has no adjust at all, because it never runs the
@@ -364,7 +351,7 @@ describe.skipIf(!romsPresent)('the bob is the SBC operand plus a carry', () => {
     expect(topDy(parts(rom, SHELLED, 1))).toBe(topDy(parts(rom, SHELLED, 0)))
   })
 
-  it.each(ROM_FILES)('%s: both branches sit where the ASM puts them, absolutely', name => {
+  it.each(CORPUS)('%s: both branches sit where the ASM puts them, absolutely', name => {
     // The relative assertions above survive an anchoring error that moves the
     // whole family; these do not. Derived from the trace, not read back:
     //
@@ -448,7 +435,7 @@ describe.skipIf(!romsPresent)('every ref is anchored past the cart pointer', () 
     expect(poseKey(parts(rom, SHELLESS, 1))).toBe(before)
   })
 
-  it.each(ROM_FILES)('%s: the stepped-over instruction really is a 3-byte JSR', name => {
+  it.each(CORPUS)('%s: the stepped-over instruction really is a 3-byte JSR', name => {
     // `shellessKoopa`'s `gfxJsr` is `{ via: { mainOff: $2A }, off: 3 }`, and
     // that 3 is an instruction LENGTH, not a position: it clears the
     // `JSR SubSprSprInteract` at `CODE_018B03` (bank_01.asm:1655) to reach
@@ -498,7 +485,7 @@ describe.skipIf(!romsPresent)('the wing tail is read, not assumed', () => {
     return refAt(rom, pick(d.routineSelect!.setBranchTailCall!), resolveHandlerBase(rom, d))
   }
 
-  it.each(ROM_FILES)('%s: the threshold is $08 and the gated call is a JSR', name => {
+  it.each(CORPUS)('%s: the threshold is $08 and the gated call is a JSR', name => {
     const rom = freshRom(name)
     expect(
       rom.readAt(

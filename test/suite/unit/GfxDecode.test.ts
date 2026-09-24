@@ -10,8 +10,6 @@
  * fail-closed path at all.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   GFX_FILE_COUNT,
@@ -26,9 +24,10 @@ import {
   listGfxFileInfos,
   GFX_TILES_PER_ROW,
 } from '../../../theia/extension/src/node/gfx-decode'
+import { CORPUS, INVICTUS, VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 describe.skipIf(!romPresent)('gfx-decode (ROM-only)', () => {
   it('listGfxFileInfos returns every file GfxLoader reports, each with a real tile count', () => {
@@ -184,8 +183,8 @@ describe.skipIf(!romPresent)('gfx-decode (ROM-only)', () => {
     // Invictus file $0E is 29 bytes; forced to 4bpp (32 bytes/tile) that is
     // zero tiles. A canvas cannot be sized for a zero-height ImageData, so
     // the refusal has to happen here, not in the widget that paints it.
-    const invictusPath = resolve(__dirname, '../../roms/Invictus 1.0.sfc')
-    if (!existsSync(invictusPath)) return
+    const invictusPath = romPath(INVICTUS)
+    if (!hasRom(INVICTUS)) return
     const rom = SmwRom.open(invictusPath)
     expect(() => decodeGfxSheet(rom, 0x0e, 4)).toThrow(/shorter than one tile/i)
   })
@@ -237,18 +236,11 @@ describe.skipIf(!romPresent)('gfx-decode (ROM-only)', () => {
 // removed the absent carts from the loop below, so on a clone without the
 // corpus the six cases were never registered at all. Keeping every cart in
 // the list and gating each one with `skipIf` makes the skip count name them.
-const CORPUS = [
-  'Super Mario World (USA).vanilla.sfc',
-  'Super Mario World (USA).magic.sfc',
-  'Grand Poo World 2 1.1.sfc',
-  'GrandPooWorld_V1.2.sfc',
-  'Invictus 1.0.sfc',
-  'Seven_Vanilla_Levels.sfc',
-].map(name => ({ name, path: resolve(__dirname, '../../roms', name) }))
+const CARTS = CORPUS.map(name => ({ name, path: romPath(name) }))
 
 describe('gfx-decode corpus sweep', () => {
-  for (const { name, path } of CORPUS) {
-    it.skipIf(!existsSync(path))(
+  for (const { name, path } of CARTS) {
+    it.skipIf(!hasRom(name))(
       `${name}: every file's availability is honest (tileCount null iff defaultBpp null)`,
       () => {
         const rom = SmwRom.open(path)
@@ -272,43 +264,40 @@ describe('gfx-decode corpus sweep', () => {
   }
 })
 
-describe.skipIf(!existsSync(resolve(__dirname, '../../roms/Invictus 1.0.sfc')))(
-  'gfx-decode (Invictus, relocated GFX)',
-  () => {
-    const INVICTUS_PATH = resolve(__dirname, '../../roms/Invictus 1.0.sfc')
+describe.skipIf(!hasRom(INVICTUS))('gfx-decode (Invictus, relocated GFX)', () => {
+  const INVICTUS_PATH = romPath(INVICTUS)
 
-    it('reports most files unavailable rather than a fabricated 128-tile placeholder', () => {
-      const rom = SmwRom.open(INVICTUS_PATH)
-      const files = listGfxFileInfos(rom)
-      const unavailable = files.filter(f => f.defaultBpp === null)
-      // Measured directly on this cart: 49 of 50. Asserted as "most", not the
-      // exact figure, so a harmless future re-dump does not make this brittle.
-      expect(unavailable.length).toBeGreaterThan(40)
-      for (const f of unavailable) {
-        expect(f.tileCount).toBeNull()
-        expect(f.byteLength).toBeGreaterThanOrEqual(0)
-      }
-    })
+  it('reports most files unavailable rather than a fabricated 128-tile placeholder', () => {
+    const rom = SmwRom.open(INVICTUS_PATH)
+    const files = listGfxFileInfos(rom)
+    const unavailable = files.filter(f => f.defaultBpp === null)
+    // Measured directly on this cart: 49 of 50. Asserted as "most", not the
+    // exact figure, so a harmless future re-dump does not make this brittle.
+    expect(unavailable.length).toBeGreaterThan(40)
+    for (const f of unavailable) {
+      expect(f.tileCount).toBeNull()
+      expect(f.byteLength).toBeGreaterThanOrEqual(0)
+    }
+  })
 
-    it("refuses to decode an unavailable file by default rather than painting loadGfxFile's blank sheet", () => {
-      const rom = SmwRom.open(INVICTUS_PATH)
-      const files = listGfxFileInfos(rom)
-      const target = files.find(f => f.defaultBpp === null)
-      expect(target).toBeDefined()
-      expect(() => decodeGfxSheet(rom, target!.index)).toThrow()
-    })
+  it("refuses to decode an unavailable file by default rather than painting loadGfxFile's blank sheet", () => {
+    const rom = SmwRom.open(INVICTUS_PATH)
+    const files = listGfxFileInfos(rom)
+    const target = files.find(f => f.defaultBpp === null)
+    expect(target).toBeDefined()
+    expect(() => decodeGfxSheet(rom, target!.index)).toThrow()
+  })
 
-    it('still honours an explicit bpp override on an unavailable file, since forcing a read is the point of it', () => {
-      const rom = SmwRom.open(INVICTUS_PATH)
-      const files = listGfxFileInfos(rom)
-      const target = files.find(f => f.defaultBpp === null && f.byteLength >= 24)
-      expect(target).toBeDefined()
-      const sheet = decodeGfxSheet(rom, target!.index, 3)
-      expect(sheet.bpp).toBe(3)
-      expect(sheet.tileCount).toBeGreaterThan(0)
-    })
-  },
-)
+  it('still honours an explicit bpp override on an unavailable file, since forcing a read is the point of it', () => {
+    const rom = SmwRom.open(INVICTUS_PATH)
+    const files = listGfxFileInfos(rom)
+    const target = files.find(f => f.defaultBpp === null && f.byteLength >= 24)
+    expect(target).toBeDefined()
+    const sheet = decodeGfxSheet(rom, target!.index, 3)
+    expect(sheet.bpp).toBe(3)
+    expect(sheet.tileCount).toBeGreaterThan(0)
+  })
+})
 
 function hex2(n: number): string {
   return n.toString(16).toUpperCase().padStart(2, '0')

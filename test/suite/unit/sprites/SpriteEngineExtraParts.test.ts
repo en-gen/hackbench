@@ -14,13 +14,11 @@
  *   planted defects           - every oracle above, proven able to go red
  *
  * Evidence scope: static traces against `C:\Projects\SMWDisX`, verified byte
- * for byte against the 6 carts in `test/roms/`. No emulator was run, so no
+ * for byte against the 6 carts in the corpus. No emulator was run, so no
  * claim here is dynamically verified.
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
@@ -39,6 +37,7 @@ import {
   unionExtents,
   type EnginePart,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
+import { CORPUS, VANILLA, freshRom, hasRoms } from '../../support/corpus'
 
 // ── Synthetic fixtures ──────────────────────────────────────────────────────
 
@@ -288,17 +287,7 @@ describe('unionExtents', () => {
 
 // ── $1F on the cart ─────────────────────────────────────────────────────────
 
-const ROM_DIR = resolve(__dirname, '../../../roms')
-const ROM_FILES = [
-  'Super Mario World (USA).vanilla.sfc',
-  'Super Mario World (USA).magic.sfc',
-  'Grand Poo World 2 1.1.sfc',
-  'GrandPooWorld_V1.2.sfc',
-  'Invictus 1.0.sfc',
-  'Seven_Vanilla_Levels.sfc',
-] as const
-const romPaths = ROM_FILES.map(f => resolve(ROM_DIR, f))
-const romsPresent = romPaths.every(existsSync)
+const romsPresent = hasRoms()
 
 const MAGIKOOPA = SPRITE_DRAW_DESCRIPTORS.find(d => d.spriteId === 0x1f)!
 
@@ -329,18 +318,18 @@ describe.skipIf(!romsPresent)('$1F Magikoopa, extra part and state-timer pose cy
   const FACING_RIGHT = 200
   const FACING_LEFT = 0
 
-  it.each(ROM_FILES)('%s: the state-2 timer seeds at a value the cart holds', name => {
-    const rom = RomFile.load(resolve(ROM_DIR, name))
+  it.each(CORPUS)('%s: the state-2 timer seeds at a value the cart holds', name => {
+    const rom = freshRom(name)
     const seed = resolveStateTimerSeed(rom, MAGIKOOPA.anim, resolveHandlerBase(rom, MAGIKOOPA))
     expect(seed).not.toBeNull()
     // `frames` must span the whole countdown or later indices never render.
     expect(MAGIKOOPA.frames).toBe(seed! + 1)
   })
 
-  it.each(ROM_FILES)(
+  it.each(CORPUS)(
     '%s: the wand is drawn on the cast poses and absent on the wind-up poses',
     name => {
-      const rom = RomFile.load(resolve(ROM_DIR, name))
+      const rom = freshRom(name)
       const seed = resolveStateTimerSeed(rom, MAGIKOOPA.anim, resolveHandlerBase(rom, MAGIKOOPA))!
       const counts = new Set<number>()
       let withWand = 0,
@@ -358,8 +347,8 @@ describe.skipIf(!romsPresent)('$1F Magikoopa, extra part and state-timer pose cy
     },
   )
 
-  it.each(ROM_FILES)('%s: the wand sits OUTSIDE the body box and is drawn behind it', name => {
-    const rom = RomFile.load(resolve(ROM_DIR, name))
+  it.each(CORPUS)('%s: the wand sits OUTSIDE the body box and is drawn behind it', name => {
+    const rom = freshRom(name)
     const cast = drawAt(rom, MAGIKOOPA, 0, FACING_LEFT)
     const extras = outside(cast.parts)
     expect(extras).toHaveLength(1)
@@ -370,8 +359,8 @@ describe.skipIf(!romsPresent)('$1F Magikoopa, extra part and state-timer pose cy
     expect(cast.parts[0]).toBe(extras[0])
   })
 
-  it.each(ROM_FILES)('%s: the wand sits on the bottom large OBJ row, not below the body', name => {
-    const rom = RomFile.load(resolve(ROM_DIR, name))
+  it.each(CORPUS)('%s: the wand sits on the bottom large OBJ row, not below the body', name => {
+    const rom = freshRom(name)
     const cast = drawAt(rom, MAGIKOOPA, 0, FACING_LEFT)
     const wand = outside(cast.parts)[0]
     const bodyRows = [...new Set(cast.parts.filter(p => p !== wand).map(p => p.dy))].sort(
@@ -387,10 +376,10 @@ describe.skipIf(!romsPresent)('$1F Magikoopa, extra part and state-timer pose cy
     expect(wand.dy).toBeLessThanOrEqual(bodyRows[3])
   })
 
-  it.each(ROM_FILES)(
+  it.each(CORPUS)(
     '%s: the wand switches sides with the facing, and is not double-mirrored',
     name => {
-      const rom = RomFile.load(resolve(ROM_DIR, name))
+      const rom = freshRom(name)
       const left = outside(drawAt(rom, MAGIKOOPA, 0, FACING_LEFT).parts)[0]
       const right = outside(drawAt(rom, MAGIKOOPA, 0, FACING_RIGHT).parts)[0]
       expect(left.dx).toBeLessThan(BODY_X0)
@@ -402,28 +391,25 @@ describe.skipIf(!romsPresent)('$1F Magikoopa, extra part and state-timer pose cy
     },
   )
 
-  it.each(ROM_FILES)(
-    '%s: the wand char comes from the cart immediate, not a literal here',
-    name => {
-      const rom = RomFile.load(resolve(ROM_DIR, name))
-      const parts = drawAt(rom, MAGIKOOPA, 0, FACING_LEFT).parts
-      const wand = outside(parts)[0]
-      const body = parts.filter(p => p !== wand).map(p => p.charNum)
-      expect(body).not.toContain(wand.charNum)
+  it.each(CORPUS)('%s: the wand char comes from the cart immediate, not a literal here', name => {
+    const rom = freshRom(name)
+    const parts = drawAt(rom, MAGIKOOPA, 0, FACING_LEFT).parts
+    const wand = outside(parts)[0]
+    const body = parts.filter(p => p !== wand).map(p => p.charNum)
+    expect(body).not.toContain(wand.charNum)
 
-      // Re-derive the char from the operand the descriptor points at. The
-      // number itself stays in the cart: what is pinned is that the engine
-      // READ it, and read it from the right address.
-      const src = MAGIKOOPA.extraParts![0].char as Extract<ExtraByteSource, { kind: 'immediateAt' }>
-      const imm = rom.readAt(resolveRef(rom, src.addr, resolveHandlerBase(rom, MAGIKOOPA))!, 1)![0]
-      const attr = readSpriteTileTables(rom)!.spriteAttr[0x1f]
-      const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
-      expect(wand.charNum).toBe(0x400 + charHigh + (imm & 0x1ff))
-    },
-  )
+    // Re-derive the char from the operand the descriptor points at. The
+    // number itself stays in the cart: what is pinned is that the engine
+    // READ it, and read it from the right address.
+    const src = MAGIKOOPA.extraParts![0].char as Extract<ExtraByteSource, { kind: 'immediateAt' }>
+    const imm = rom.readAt(resolveRef(rom, src.addr, resolveHandlerBase(rom, MAGIKOOPA))!, 1)![0]
+    const attr = readSpriteTileTables(rom)!.spriteAttr[0x1f]
+    const charHigh = (attr & 0x01) !== 0 ? 0x100 : 0
+    expect(wand.charNum).toBe(0x400 + charHigh + (imm & 0x1ff))
+  })
 
-  it.each(ROM_FILES)('%s: the pose cycle is three poses, wind-up plus the two cast poses', name => {
-    const rom = RomFile.load(resolve(ROM_DIR, name))
+  it.each(CORPUS)('%s: the pose cycle is three poses, wind-up plus the two cast poses', name => {
+    const rom = freshRom(name)
     const seed = resolveStateTimerSeed(rom, MAGIKOOPA.anim, resolveHandlerBase(rom, MAGIKOOPA))!
     const key = (p: readonly EnginePart[]) => p.map(q => `${q.charNum}@${q.dx},${q.dy}`).join('|')
     const poses = new Set<string>()
@@ -434,8 +420,8 @@ describe.skipIf(!romsPresent)('$1F Magikoopa, extra part and state-timer pose cy
     expect(poses.size).toBe(3)
   })
 
-  it.each(ROM_FILES)('%s: the union box covers the wand even on the frames that lack it', name => {
-    const rom = RomFile.load(resolve(ROM_DIR, name))
+  it.each(CORPUS)('%s: the union box covers the wand even on the frames that lack it', name => {
+    const rom = freshRom(name)
     const seed = resolveStateTimerSeed(rom, MAGIKOOPA.anim, resolveHandlerBase(rom, MAGIKOOPA))!
     const frames: EnginePart[][] = []
     for (let f = 0; f <= seed; f++) frames.push([...drawAt(rom, MAGIKOOPA, f, FACING_LEFT).parts])
@@ -446,8 +432,8 @@ describe.skipIf(!romsPresent)('$1F Magikoopa, extra part and state-timer pose cy
     expect(union.x0).toBe(Math.min(...frames.flat().map(p => p.dx)))
   })
 
-  it.each(ROM_FILES)('%s: the runtime palette is reported and its colours are readable', name => {
-    const rom = RomFile.load(resolve(ROM_DIR, name))
+  it.each(CORPUS)('%s: the runtime palette is reported and its colours are readable', name => {
+    const rom = freshRom(name)
     const note = drawAt(rom, MAGIKOOPA, 0, FACING_LEFT).paletteNote!
     expect(note.kind).toBe('dynamicCgram')
     // Only PART of the row is overwritten, so the caller must composite.
@@ -479,7 +465,7 @@ describe.skipIf(!romsPresent)('planted defects make the $1F oracles fail', () =>
   // tests, so loading eagerly threw ENOENT at collection time on a runner
   // with no cart.
   let sharedRom: RomFile | null = null
-  const rom = (): RomFile => (sharedRom ??= RomFile.load(romPaths[0]))
+  const rom = (): RomFile => (sharedRom ??= freshRom(VANILLA))
   const FACING_LEFT = 0
   const wandOf = (d: SpriteDrawDescriptor, frame = 0) =>
     outside(drawAt(rom(), d, frame, FACING_LEFT).parts)[0]

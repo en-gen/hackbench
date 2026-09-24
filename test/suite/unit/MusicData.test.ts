@@ -1,14 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   readLevelMusicTable,
   getAllLevelBgmTracks,
   LEVEL_MUSIC_COUNT,
 } from '../../../src/rom/MusicData'
-
-const ROMS_DIR = resolve(__dirname, '../../roms')
+import { hasRom, romPath } from '../support/corpus'
 
 /**
  * Pinned per-ROM rather than cross-checked against SpcBuilder.countBankSongs:
@@ -35,15 +32,15 @@ const EXPECTED_TRACK_COUNT: Record<string, number> = {
   'Invictus 1.0.sfc': 0,
 }
 
-describe('MusicData track enumeration (requires test/roms/*.sfc)', () => {
+describe('MusicData track enumeration (requires the ROM corpus)', () => {
   for (const file of Object.keys(EXPECTED_TRACK_COUNT)) {
-    const present = existsSync(resolve(ROMS_DIR, file))
+    const present = hasRom(file)
     const expectedCount = EXPECTED_TRACK_COUNT[file]
 
     // skipIf per file: with the corpus absent these must still be
     // REGISTERED and reported skipped, not silently cease to exist.
     describe.skipIf(!present)(file, () => {
-      const openRom = () => SmwRom.open(resolve(ROMS_DIR, file)).rom
+      const openRom = () => SmwRom.open(romPath(file)).rom
 
       it('readLevelMusicTable always has exactly 8 entries, indices 0-7', () => {
         const table = readLevelMusicTable(openRom())

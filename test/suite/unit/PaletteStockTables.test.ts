@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { RomFile } from '../../../src/rom/RomFile'
 import {
   buildStockTables,
@@ -8,15 +6,16 @@ import {
   AttributedGroup,
 } from '../../../src/rom/PaletteStockTables'
 import { loadRomPalettes, loadBackAreaColors, ADDR_BACK_AREA } from '../../../src/rom/PaletteLoader'
+import { INVICTUS, VANILLA, hasRom, romPath } from '../support/corpus'
 
-const ROM_PATH = resolve(__dirname, '../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 // A real Lunar Magic hack, for the one positive case a vanilla-only corpus
 // cannot give countCustomPaletteLevels: not part of the standard fixture
 // set (gitignored either way), so this is skipped rather than required.
-const HACK_ROM_PATH = resolve(__dirname, '../../roms/Invictus 1.0.sfc')
-const hackRomPresent = existsSync(HACK_ROM_PATH)
+const HACK_ROM_PATH = romPath(INVICTUS)
+const hackRomPresent = hasRom(INVICTUS)
 
 // Loaded lazily inside each it(), matching GfxLoader.test.ts's convention, so
 // describe.skipIf's block body never touches the filesystem at collection

@@ -35,7 +35,7 @@
  *     - static: unaffected by tickAnimation, and never the mound quads
  *     - $4E (fromParts) gets no annotation
  *     - INSIDE hitRect: clicking the ghost picks the sprite
- *   vanilla ROM (skipped when test/roms/ is absent)
+ *   vanilla ROM (skipped when the corpus is absent)
  *     - the emerged frame is SprTilemap[base + $02] and is none of the
  *       other three SubSprGfx2 frames nor either mound quad
  *     - the emerged composite is mirror-symmetric in sprite set 5 ONLY;
@@ -49,8 +49,6 @@
  * hack ROM or a table-reader change is noticed. They are not oracles.
  */
 
-import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { describe, expect, it } from 'vitest'
 import { Char } from '../../../../src/rom/model/chars/Char'
 import {
@@ -77,6 +75,7 @@ import { buildSprites } from '../../../../src/rom/model/SpriteFactory'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import type { Tile } from '../../../../src/rom/model/tiles/Tile'
 import type { MapStore } from '../../../../src/rom/model/stores/mapStore'
+import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
 const OBJ_BASE = 0x400
 const MOLE = 0x4d
@@ -561,8 +560,8 @@ describe('MontyMoleAppearance.renderAboveL1', () => {
 
 // ── vanilla ROM ──────────────────────────────────────────────────────────────
 
-const ROM_PATH = resolve(__dirname, '../../../roms/Super Mario World (USA).vanilla.sfc')
-const romPresent = existsSync(ROM_PATH)
+const ROM_PATH = romPath(VANILLA)
+const romPresent = hasRom(VANILLA)
 
 describe.skipIf(!romPresent)('MontyMoleAppearance - vanilla ROM (ROM-only)', () => {
   function romTables(): SpriteTileTables {

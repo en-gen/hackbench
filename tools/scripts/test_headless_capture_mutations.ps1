@@ -35,9 +35,16 @@
     ./tools/scripts/test_headless_capture_mutations.ps1
 #>
 param(
-  [string]$MesenExe = "C:/Projects/hackbench/tools/mesen/Mesen.exe",
-  [string]$Rom      = "C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc",
-  [string]$SramPath = "C:/Projects/hackbench/tools/mesen/Saves/Super Mario World (USA).vanilla.srm",
+  # The emulator, its Saves/ and the ROM corpus live OUTSIDE the repo: they
+  # are non-redistributable binaries and copyrighted cartridge bytes, so
+  # keeping them out of the checkout means `git clean -x` can no longer reach
+  # them. Override with the HACKBENCH_TOOLS environment variable, or pass
+  # -ToolsRoot. HACKBENCH_ROMS overrides the corpus directory on its own.
+  [string]$ToolsRoot = $(if ($env:HACKBENCH_TOOLS) { $env:HACKBENCH_TOOLS } else { "C:/Projects/hackbench-tools" }),
+  [string]$RomDir    = $(if ($env:HACKBENCH_ROMS) { $env:HACKBENCH_ROMS } else { Join-Path $ToolsRoot "roms" }),
+  [string]$MesenExe = (Join-Path $ToolsRoot "mesen/Mesen.exe"),
+  [string]$Rom      = (Join-Path $RomDir "Super Mario World (USA).vanilla.sfc"),
+  [string]$SramPath = (Join-Path $ToolsRoot "mesen/Saves/Super Mario World (USA).vanilla.srm"),
   [int]$TimeoutSec  = 120
 )
 
@@ -45,7 +52,7 @@ $ErrorActionPreference = "Stop"
 $EXIT_SKIP_NO_ROM_OR_EMULATOR = 77  # documented here; not an oracle exit code
 
 if (-not (Test-Path $MesenExe) -or -not (Test-Path $Rom)) {
-  Write-Host "SKIP: Mesen.exe or the ROM is not present locally (see docs/testing.md). Not a pass or a failure."
+  Write-Host "SKIP: Mesen.exe ($MesenExe) or the ROM ($Rom) is not present locally. Both live outside the repo under `$ToolsRoot; set HACKBENCH_TOOLS or HACKBENCH_ROMS to point elsewhere (see docs/testing.md). Not a pass or a failure."
   exit $EXIT_SKIP_NO_ROM_OR_EMULATOR
 }
 

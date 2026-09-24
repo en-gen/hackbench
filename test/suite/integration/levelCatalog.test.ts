@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import { existsSync } from 'fs'
-import * as path from 'path'
 import { SmwRom, LEVEL_COUNT } from '../../../src/rom/SmwRom'
 import { buildLevelCatalog, type LevelCatalog } from '../../../src/rom/LevelCatalog'
 import {
@@ -9,6 +7,7 @@ import {
   BROKEN_VARIANT_NAMES,
   buildBrokenCatalogVariants,
 } from '../support/catalogAcceptance'
+import { hasRom, romPath } from '../support/corpus'
 
 // Measured baseline -- see docs/ideas/level-classification.md Tier 1.
 // Every ROM in the corpus now parses its catalog in full (parseable == real).
@@ -26,17 +25,17 @@ const CORPUS: Array<{ file: string; real: number; parseable: number }> = [
 ]
 
 for (const { file, real, parseable } of CORPUS) {
-  const romPath = path.resolve(__dirname, '../../roms', file)
-  const romPresent = existsSync(romPath)
+  const romFile = romPath(file)
+  const romPresent = hasRom(file)
 
   // "matches the measured real/parseable counts" was folded away here: it
   // was a strict subset of the acceptance gate below (same two expectations,
   // among others) -- see the gate's own real/parseable checks.
-  describe.skipIf(!romPresent)(`buildLevelCatalog (requires test/roms/${file})`, () => {
+  describe.skipIf(!romPresent)(`buildLevelCatalog (requires ${file})`, () => {
     let catalog: LevelCatalog
 
     it('never marks a filler-pointer slot real (complement of realCount)', () => {
-      catalog ??= buildLevelCatalog(SmwRom.open(romPath))
+      catalog ??= buildLevelCatalog(SmwRom.open(romFile))
       const fillerSlots = catalog.entries.filter(e => e.l1Pointer === catalog.fillerPointer)
       expect(fillerSlots.length).toBe(LEVEL_COUNT - real)
       expect(fillerSlots.every(e => !e.isReal)).toBe(true)
@@ -47,14 +46,14 @@ for (const { file, real, parseable } of CORPUS) {
     // matching the note's English wording (see catalogAcceptance.ts, and
     // MUST-FIX 8 in the level-catalog review).
     it('reports a note exactly when parseable < real', () => {
-      catalog ??= buildLevelCatalog(SmwRom.open(romPath))
+      catalog ??= buildLevelCatalog(SmwRom.open(romFile))
       const hasGap = catalog.realCount - catalog.parseableCount > 0
       expect(hasGap).toBe(parseable < real)
       expect(catalog.notes.length > 0).toBe(hasGap)
     })
 
     it('passes the full acceptance gate', () => {
-      catalog ??= buildLevelCatalog(SmwRom.open(romPath))
+      catalog ??= buildLevelCatalog(SmwRom.open(romFile))
       expect(catalog.entries).toHaveLength(LEVEL_COUNT)
       expect(catalog.realCount).toBe(real)
       expect(catalog.parseableCount).toBe(parseable)
@@ -73,12 +72,12 @@ for (const { file, real, parseable } of CORPUS) {
 // skip, they ceased to exist, and the skip count still read a tidy 6.
 describe('teeth: acceptance gate rejects broken catalogs (six-ROM sweep)', () => {
   for (const { file, real, parseable } of CORPUS) {
-    const romPath = path.resolve(__dirname, '../../roms', file)
-    const romPresent = existsSync(romPath)
+    const romFile = romPath(file)
+    const romPresent = hasRom(file)
 
     for (const variantName of BROKEN_VARIANT_NAMES) {
       it.skipIf(!romPresent)(`${file}: "${variantName}" fails the gate`, () => {
-        const variants = buildBrokenCatalogVariants(buildLevelCatalog(SmwRom.open(romPath)))
+        const variants = buildBrokenCatalogVariants(buildLevelCatalog(SmwRom.open(romFile)))
         assertVariantNames(variants)
         expect(() => assertCatalogAcceptance(variants[variantName], real, parseable)).toThrow()
       })
