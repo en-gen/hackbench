@@ -59,6 +59,13 @@ export type SongResult =
 
 const MAX_TRACK_BYTES = 0x2000
 const MAX_BLOCK_STEPS = 512
+/**
+ * Distinct bytes one song may read. Sections and subroutines are parsed once
+ * each, so a real song reads less than sound RAM holds; random bytes read as
+ * a block list can reach hundreds of sections and millions of events, which
+ * exhausted a 4 GB heap scanning ALTTP's bank candidates.
+ */
+const MAX_SONG_BYTES = 0x10000
 
 class ParseError extends Error {
   constructor(
@@ -73,8 +80,10 @@ class Reader {
   constructor(
     private image: SoundImage,
     public at: number,
+    private budget: { left: number },
   ) {}
   byte(): number {
+    if (--this.budget.left < 0) throw new ParseError('song reads more bytes than sound RAM holds')
     if (this.at > 0xffff || !this.image.written[this.at])
       throw new ParseError(`reads unwritten RAM at $${this.at.toString(16)}`, 'unwritten')
     return this.image.aram[this.at++]
@@ -86,6 +95,18 @@ class Reader {
   }
 }
 
+/**
+ * Shared by every reader in one song: parsed subroutines and the byte budget.
+ * Subroutines are keyed by address AND incoming duration, because duration
+ * is per-voice driver state (SMW keeps it at $0200+X, set only by a duration
+ * byte; APU_0C7A, bank_0E.asm:1055) that carries across sections and into
+ * a subroutine. ALTTP's tracks routinely start with a bare note.
+ */
+interface SongContext {
+  subs: Map<string, { events: NspcEvent[]; duration: number }>
+  budget: { left: number }
+}
+
 function callOp(engine: NspcEngine): number {
   // CALL sits at the same slot in both dialects: SMW's $E9 is $DA+$0F
   // (VCmdPtrs, bank_0E.asm:1525), Standard's $EF is $E0+$0F (VGMTrans loadStandardVcmdMap).
@@ -95,14 +116,15 @@ function callOp(engine: NspcEngine): number {
 function parseEvents(
   image: SoundImage,
   addr: number,
-  subs: Map<number, NspcEvent[]>,
+  ctx: SongContext,
   inSub: boolean,
-): { events: NspcEvent[]; ticks: number } {
+  startDuration: number,
+): { events: NspcEvent[]; ticks: number; duration: number } {
   const e = image.engine
-  const r = new Reader(image, addr)
+  const r = new Reader(image, addr, ctx.budget)
   const events: NspcEvent[] = []
   let ticks = 0
-  let duration = 0
+  let duration = startDuration
   const start = addr
   for (;;) {
     if (r.at - start > MAX_TRACK_BYTES) throw new ParseError('track too long')
@@ -123,13 +145,16 @@ function parseEvents(
         if (inSub) throw new ParseError('nested subroutine call')
         const target = params[0] | (params[1] << 8)
         const count = params[2]
-        let body = subs.get(target)
-        if (!body) {
-          body = parseEvents(image, target, subs, true).events
-          subs.set(target, body)
+        const key = `${target}:${duration}`
+        let sub = ctx.subs.get(key)
+        if (!sub) {
+          const parsed = parseEvents(image, target, ctx, true, duration)
+          sub = { events: parsed.events, duration: parsed.duration }
+          ctx.subs.set(key, sub)
         }
-        events.push({ k: 'call', addr: target, count, body })
-        ticks += count * sumTicks(body)
+        events.push({ k: 'call', addr: target, count, body: sub.events })
+        ticks += count * sumTicks(sub.events)
+        duration = sub.duration
       } else {
         events.push({ k: 'vcmd', op: b, params })
       }
@@ -144,7 +169,7 @@ function parseEvents(
     else events.push({ k: 'rest', ticks: duration, q })
     ticks += duration
   }
-  return { events, ticks }
+  return { events, ticks, duration }
 }
 
 export function sumTicks(events: NspcEvent[]): number {
@@ -156,12 +181,14 @@ export function sumTicks(events: NspcEvent[]): number {
   return t
 }
 
+/** Parse a section with each voice's incoming duration; `durations` is updated to the outgoing ones. */
 function parseSection(
   image: SoundImage,
   addr: number,
-  subs: Map<number, NspcEvent[]>,
+  ctx: SongContext,
+  durations: number[],
 ): NspcSection {
-  const r = new Reader(image, addr)
+  const r = new Reader(image, addr, ctx.budget)
   const tracks: (NspcTrack | null)[] = []
   for (let v = 0; v < 8; v++) {
     const ptr = r.byte() | (r.byte() << 8)
@@ -169,7 +196,8 @@ function parseSection(
       tracks.push(null)
       continue
     }
-    const { events, ticks } = parseEvents(image, ptr, subs, false)
+    const { events, ticks, duration } = parseEvents(image, ptr, ctx, false, durations[v])
+    durations[v] = duration
     tracks.push({ addr: ptr, events, ticks })
   }
   const active = tracks.filter((t): t is NspcTrack => t !== null)
@@ -179,11 +207,13 @@ function parseSection(
 
 export function parseSong(image: SoundImage, addr: number): SongResult {
   try {
-    const subs = new Map<number, NspcEvent[]>()
-    const sections = new Map<number, NspcSection>()
+    const ctx: SongContext = { subs: new Map(), budget: { left: MAX_SONG_BYTES } }
+    // Keyed by address and the voices' incoming durations, with the outgoing ones.
+    const sections = new Map<string, { section: NspcSection; out: number[] }>()
+    let durations = new Array<number>(8).fill(0)
     const order: NspcSection[] = []
     const seen = new Map<string, number>()
-    const r = new Reader(image, addr)
+    const r = new Reader(image, addr, ctx.budget)
     let counter = 0
     let loopIndex: number | null = null
 
@@ -201,12 +231,16 @@ export function parseSong(image: SoundImage, addr: number): SongResult {
           break
         }
         seen.set(state, order.length)
-        let s = sections.get(w)
-        if (!s) {
-          s = parseSection(image, w, subs)
-          sections.set(w, s)
+        const key = `${w}:${durations.join()}`
+        let s = sections.get(key)
+        if (s) durations = s.out.slice()
+        else {
+          const incoming = durations.slice()
+          const section = parseSection(image, w, ctx, durations)
+          s = { section, out: durations.slice() }
+          sections.set(`${w}:${incoming.join()}`, s)
         }
-        order.push(s)
+        order.push(s.section)
         continue
       }
       if (w === 0) break

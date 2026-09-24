@@ -2,7 +2,8 @@
  * The scanner against vanilla SMW, whose driver is fully disassembled, so
  * every located address can be checked against SMWDisX bank_0E.asm.
  * Skips when the ROM is absent (always, in CI). HB_TEST_ROMS points a
- * worktree at a ROM folder outside it.
+ * worktree at a ROM folder outside it (the corpus now lives in
+ * C:/Projects/hackbench-tools/roms).
  */
 import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'fs'
@@ -16,9 +17,11 @@ const path = resolve(dir, 'Super Mario World (USA).vanilla.sfc')
 describe.skipIf(!existsSync(path))('scanRom on vanilla SMW (requires the ROM)', () => {
   const r = existsSync(path) ? scanRom(readFileSync(path)) : null!
 
-  it('finds exactly the five uploads the game code loads', () => {
+  it('finds exactly the five uploads SMW makes, by content', () => {
     // Engine $0E8000, samples $0F8000, banks $0E98B1, $0EAED6, $03E400 (SpcBuilder's upload routines).
-    expect(r.chains.map(c => c.fileOffset)).toEqual([0x1e400, 0x70000, 0x718b1, 0x72ed6, 0x78000])
+    expect(r.chains.map(c => c.fileOffset).sort((a, b) => a - b)).toEqual([
+      0x1e400, 0x70000, 0x718b1, 0x72ed6, 0x78000,
+    ])
   })
 
   it('locates the driver tables SMWDisX names', () => {

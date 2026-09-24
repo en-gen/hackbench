@@ -82,4 +82,20 @@ describe('locateEngine', () => {
     const r = locateEngine(s.aram)
     expect(r.ok && r.engine.percMin).toBe(0xd2)
   })
+
+  it('refuses a length table in memory no upload filled, even when it reads as zeros', () => {
+    const s = syntheticEarlier()
+    expect(locateEngine(s.aram, s.written).ok).toBe(true)
+    s.written.fill(0, SYN.lens, SYN.lens + 4)
+    expect(locateEngine(s.aram, s.written)).toEqual({
+      ok: false,
+      reason: expect.stringContaining('length table'),
+    })
+  })
+
+  it('refuses a uniform table: all ones is what zeros plus the carry become', () => {
+    const s = syntheticEarlier()
+    s.put(SYN.lens, Array(25).fill(1))
+    expect(locateEngine(s.aram).ok).toBe(false)
+  })
 })

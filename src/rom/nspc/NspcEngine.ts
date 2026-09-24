@@ -39,7 +39,7 @@ export interface NspcEngine {
 export type EngineResult = { ok: true; engine: NspcEngine } | { ok: false; reason: string }
 
 /** Pattern bytes; -1 is a wildcard. */
-type Pattern = number[]
+export type Pattern = number[]
 const _ = -1
 
 function matchesAt(aram: Uint8Array, at: number, p: Pattern): boolean {
@@ -75,15 +75,34 @@ function unique(
   return values.values().next().value as number
 }
 
-export function locateEngine(aram: Uint8Array): EngineResult {
-  // Read the next block-list word through a direct-page pointer (SMW APU_0BF0,
-  // bank_0E.asm:967; VGMTrans ptnIncSectionPtr). Gives that pointer's address.
-  const sectionDp = unique(
-    aram,
-    [0x8d, 0x00, 0xf7, _, 0x3a, _, 0x2d, 0xf7, _, 0x3a, _, 0xfd, 0xae],
-    at => aram[at + 3],
-    'section pointer',
-  )
+/**
+ * Read the next block-list word through a direct-page pointer (SMW APU_0BF0,
+ * bank_0E.asm:967; VGMTrans ptnIncSectionPtr). Common to every N-SPC driver
+ * seen, so it is also how the driver is found in a ROM.
+ */
+export const SECTION_POINTER_PATTERN: Pattern = [
+  0x8d,
+  0x00,
+  0xf7,
+  _,
+  0x3a,
+  _,
+  0x2d,
+  0xf7,
+  _,
+  0x3a,
+  _,
+  0xfd,
+  0xae,
+]
+
+/**
+ * `written`, when given, marks the bytes an upload filled; tables read from
+ * anywhere else are refused, since unfilled memory reads as zeros and zeros
+ * pass for a Standard length table.
+ */
+export function locateEngine(aram: Uint8Array, written?: Uint8Array): EngineResult {
+  const sectionDp = unique(aram, SECTION_POINTER_PATTERN, at => aram[at + 3], 'section pointer')
   if (typeof sectionDp === 'string') return { ok: false, reason: sectionDp }
 
   // Song start: `ASL A; MOV Y,A; MOV A,table+Y; MOV dp,A; MOV A,table+1+Y; MOV dp+1,A`
@@ -165,22 +184,43 @@ export function locateEngine(aram: Uint8Array): EngineResult {
   // Voice command lengths, read where the driver's readahead skips a command:
   // `CMP A,#first; BCC; PUSH Y; MOV Y,A; POP A; [CLRC;] ADC A,lens-first+Y`
   // (SMW APU_10BF, bank_0E.asm:1683-1690; VGMTrans ptnBranchForVcmdReadahead).
+  // With CLRC the table holds whole lengths (SMW). Without it the carry the
+  // CMP just set adds one, so the table holds parameter counts (Standard,
+  // VGMTrans kStandardVcmdLengthTable); either way the sum is the length.
   const lensHits = [
     ...findAll(aram, [0x68, _, 0x90, _, 0x6d, 0xfd, 0xae, 0x60, 0x96, _, _]).map(at => ({
       first: aram[at + 1],
       base: word(aram, at + 9),
+      carry: 0,
     })),
     ...findAll(aram, [0x68, _, 0x90, _, 0x6d, 0xfd, 0xae, 0x96, _, _]).map(at => ({
       first: aram[at + 1],
       base: word(aram, at + 8),
+      carry: 1,
     })),
   ]
-  const lensKeys = new Set(lensHits.map(h => `${h.first}:${h.base}`))
+  const lensKeys = new Set(lensHits.map(h => `${h.first}:${h.base}:${h.carry}`))
   if (lensKeys.size !== 1)
     return { ok: false, reason: `voice command lengths: ${lensKeys.size} candidates` }
   const vcmdFirst = lensHits[0].first
   const lensAt = (lensHits[0].base + vcmdFirst) & 0xffff
-  const vcmdLens = Array.from(aram.subarray(lensAt, lensAt + (0x100 - vcmdFirst)))
+  const vcmdLens = Array.from(aram.subarray(lensAt, lensAt + (0x100 - vcmdFirst))).map(
+    n => n + lensHits[0].carry,
+  )
+  // The code patterns match wherever the driver's bytes land, so they cannot
+  // tell a correct placement from a shifted one; the table they point at can.
+  // Every defined command is 1-5 bytes long (SMW VCmdLens, bank_0E.asm:1537;
+  // VGMTrans's Standard map), and garbage passes that for 25 entries in a row
+  // with odds far below one in a billion. ALTTP gave 386 placements that all
+  // matched the patterns before this check.
+  const defined = dialect === 'earlier' ? 25 : 27
+  const lens = vcmdLens.slice(0, defined)
+  if (
+    lens.some(n => n < 1 || n > 5) ||
+    new Set(lens).size < 3 ||
+    (written && !written.subarray(lensAt, lensAt + defined).every(w => w === 1))
+  )
+    return { ok: false, reason: 'voice command lengths do not read as a length table' }
 
   // Note layout. Earlier: `CMP A,#percMin; BCS; CMP A,#tie; BCC` (SMW HandleVCmd, bank_0E.asm:131-135).
   // Standard's is not a single readable site; its layout is VGMTrans's (NinSnesProfile.cpp).

@@ -2,9 +2,10 @@
 import { describe, it, expect } from 'vitest'
 import { detectHeader } from '../../../../src/rom/nspc/RomHeader'
 import {
-  findUploadChains,
+  chainsHolding,
+  chainsWriting,
+  indexChainStarts,
   parseChain,
-  findPointerLoads,
 } from '../../../../src/rom/nspc/UploadChains'
 import { buildSnapshot } from '../../../../src/rom/nspc/SpcSnapshot'
 import { syntheticEarlier, SYN } from '../../support/syntheticNspc'
@@ -74,19 +75,23 @@ describe('upload chains', () => {
     expect(parseChain(rom, 0)).toBeNull()
   })
 
-  it('finds a chain only when code loads its address (8-bit and 16-bit forms)', () => {
-    const rom = new Uint8Array(0x10000)
-    rom.set(chainBytes, 0x4000) // LoROM $00:C000
-    rom.set(chainBytes, 0x5000) // not referenced by any code: must not be found
-    // LDA #$00 : STA $00 : LDA #$C0 : STA $01 : LDA #$00 : STA $02
-    rom.set([0xa9, 0x00, 0x85, 0x00, 0xa9, 0xc0, 0x85, 0x01, 0xa9, 0x00, 0x85, 0x02], 0x100)
-    const chains = findUploadChains(rom, 'lorom')
-    expect(chains.map(c => c.fileOffset)).toEqual([0x4000])
+  it('indexes every well-formed chain start in one pass', () => {
+    const rom = new Uint8Array(64).fill(0xff)
+    rom.set(chainBytes, 8)
+    const starts = indexChainStarts(rom)
+    expect(starts[8]).toBe(2)
+    // Offset 9 would read a size of $0000 followed by garbage: a terminator, not a chain.
+    expect([...starts.keys()].filter(i => starts[i] === 2)).toEqual([8])
+  })
 
-    // 16-bit: LDA #$D000 : STA $00 : LDA #$00 : STA $02 (the $5000 chain).
-    rom.set([0xa9, 0x00, 0xd0, 0x85, 0x00, 0xa9, 0x00, 0x85, 0x02], 0x200)
-    expect(findPointerLoads(rom).has(0x00d000)).toBe(true)
-    expect(findUploadChains(rom, 'lorom').map(c => c.fileOffset)).toEqual([0x4000, 0x5000])
+  it('finds the chain whose first block writes an address, and the one holding a file offset', () => {
+    const rom = new Uint8Array(0x100).fill(0xff)
+    rom.set(chainBytes, 0x40)
+    const starts = indexChainStarts(rom)
+    expect(chainsWriting(rom, starts, 0x0501, 0x0503)).toEqual([0x40])
+    expect(chainsWriting(rom, starts, 0x0503, 0x0505)).toEqual([])
+    expect(chainsHolding(rom, starts, 0x46)).toEqual([0x40])
+    expect(chainsHolding(rom, starts, 0x48)).toEqual([])
   })
 })
 
