@@ -203,6 +203,10 @@ test('a port 3 effect plays, so the port really is carried through', async ({ pa
 test('an AddmusicK ROM reports unavailable with a reason, not an empty folder', async ({
   page,
 }) => {
+  test.skip(
+    !fs.existsSync(ROM_ADDMUSICK),
+    `ROM fixture not present on this machine (${ROM_ADDMUSICK})`,
+  )
   // The point of the whole feature. Listing the stock 42 and 52 here would
   // name effects this ROM does not have and play none of them.
   const result = await load(page, path.join(tmp, 'Amk'), ROM_ADDMUSICK)
@@ -216,6 +220,10 @@ test('an AddmusicK ROM reports unavailable with a reason, not an empty folder', 
 })
 
 test('no snapshot is built for an unavailable ROM', async ({ page }) => {
+  test.skip(
+    !fs.existsSync(ROM_ADDMUSICK),
+    `ROM fixture not present on this machine (${ROM_ADDMUSICK})`,
+  )
   const result = await load(page, path.join(tmp, 'Amk'), ROM_ADDMUSICK)
 
   const built = await page.evaluate(

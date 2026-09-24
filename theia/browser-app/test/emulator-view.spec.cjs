@@ -1088,27 +1088,46 @@ test('pressing Start on the title screen opens the player-select menu', async ({
   })
   await bootAndWaitForFrames(page, 30)
 
+  // White counts only where it holds across two captures 30 frames apart.
+  // The attract demo moves white sprites through this band: a raw count read
+  // 236 idle on a CI runner, and 597 with Start never pressed, which the old
+  // comparison would have passed. The menu text does not move. Measured on
+  // one Windows machine, 8 runs: stable idle at most 30, pressed at least 408.
   const menuWhite = () =>
     page.evaluate(async () => {
       const w = await getWidget('hackbench.emulator-view')
-      const png = await w.driver.screenshotPng()
-      const bitmap = await createImageBitmap(new Blob([png], { type: 'image/png' }))
-      const c = document.createElement('canvas')
-      c.width = bitmap.width
-      c.height = bitmap.height
-      const cx = c.getContext('2d')
-      cx.drawImage(bitmap, 0, 0)
-      // The menu band, as a fraction of the frame so a 2x capture reads the same.
-      const x0 = Math.round(c.width * 0.25)
-      const y0 = Math.round(c.height * 0.54)
-      const d = cx.getImageData(x0, y0, Math.round(c.width * 0.5), Math.round(c.height * 0.14)).data
-      let white = 0
-      let lit = 0
-      for (let i = 0; i < d.length; i += 4) {
-        if (d[i] > 230 && d[i + 1] > 230 && d[i + 2] > 230) white++
-        if (d[i] + d[i + 1] + d[i + 2] > 60) lit++
+      const band = async () => {
+        const png = await w.driver.screenshotPng()
+        const bitmap = await createImageBitmap(new Blob([png], { type: 'image/png' }))
+        const c = document.createElement('canvas')
+        c.width = bitmap.width
+        c.height = bitmap.height
+        const cx = c.getContext('2d')
+        cx.drawImage(bitmap, 0, 0)
+        // The menu band, as a fraction of the frame so a 2x capture reads the same.
+        const x0 = Math.round(c.width * 0.25)
+        const y0 = Math.round(c.height * 0.54)
+        const box = [x0, y0, Math.round(c.width * 0.5), Math.round(c.height * 0.14)]
+        return cx.getImageData(...box).data
       }
-      return { white, lit, frame: w.driver.frameCount() }
+      const isWhite = (d, i) => d[i] > 230 && d[i + 1] > 230 && d[i + 2] > 230
+      const a = await band()
+      const start = w.driver.frameCount()
+      const deadline = Date.now() + 2000
+      while (w.driver.frameCount() < start + 30 && Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 16))
+      }
+      const apart = w.driver.frameCount() - start
+      const b = await band()
+      let white = 0
+      let rawWhite = 0
+      let lit = 0
+      for (let i = 0; i < b.length; i += 4) {
+        if (isWhite(b, i)) rawWhite++
+        if (isWhite(a, i) && isWhite(b, i)) white++
+        if (b[i] + b[i + 1] + b[i + 2] > 60) lit++
+      }
+      return { white, rawWhite, lit, apart, frame: w.driver.frameCount() }
     })
 
   // Wait for the title screen proper (the band lit, not a fade), then
@@ -1135,6 +1154,9 @@ test('pressing Start on the title screen opens the player-select menu', async ({
     pressed = await menuWhite()
   }
   console.log('menu band white pixels', { idleSamples, pressed })
+  // Two captures of one frozen frame agree everywhere, so "stable" means
+  // nothing unless the core ran between them.
+  for (const s of [...idleSamples, pressed]) expect(s.apart).toBeGreaterThanOrEqual(30)
   expect(idle.white, 'the title screen left alone already shows white there').toBeLessThan(200)
   expect(pressed.white, 'Start did not bring up the player-select menu').toBeGreaterThan(
     idle.white + 200,

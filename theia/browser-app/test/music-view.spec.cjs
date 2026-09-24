@@ -434,6 +434,10 @@ test('a project whose ROM is not on this machine asks for it', async ({ page }) 
 test('a ROM whose banks cannot be read says why and still lists what the maps ask for', async ({
   page,
 }) => {
+  test.skip(
+    !fs.existsSync(ROM_UNREADABLE_BANK),
+    `ROM fixture not present on this machine (${ROM_UNREADABLE_BANK})`,
+  )
   const result = await loadMusic(page, path.join(tmp, 'Unreadable'), ROM_UNREADABLE_BANK)
   expect(result.error).toBeUndefined()
 
@@ -453,6 +457,10 @@ test('a ROM whose banks cannot be read says why and still lists what the maps as
 })
 
 test('no transport is offered on a ROM where nothing can play', async ({ page }) => {
+  test.skip(
+    !fs.existsSync(ROM_UNREADABLE_BANK),
+    `ROM fixture not present on this machine (${ROM_UNREADABLE_BANK})`,
+  )
   // A row of buttons that cannot work is a worse answer than none; the
   // refusal in the footer is what explains it.
   await loadMusic(page, path.join(tmp, 'Unreadable'), ROM_UNREADABLE_BANK)
