@@ -49,7 +49,7 @@ describe.skipIf(!hasRom(VANILLA))('vanilla level and exit counts', () => {
 
   beforeAll(() => {
     rom = SmwRom.open(VANILLA_ROM)
-    const g = rom.buildLevelExitGraph()
+    const g = rom.buildLevelExitGraph().graph
     const idx = deriveOverworldEntrances(rom)
     const sp = (i: number) => {
       const p = rom.getLevelSpritePointer(i)

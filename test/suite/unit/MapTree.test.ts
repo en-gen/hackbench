@@ -28,6 +28,9 @@ import { CORPUS, INVICTUS, VANILLA, freshRom, hasRom, hasRoms } from '../support
  */
 const CARTS = [...CORPUS].sort()
 
+/** The four hacks replace the submap-flag code, so the graph is declined (#486). */
+const DECLINED = new Set(CORPUS.slice(2))
+
 function load(file: string): SmwRom {
   return new SmwRom(freshRom(file))
 }
@@ -99,12 +102,19 @@ describe('buildMapTree', () => {
         }
       })
 
-      it('nests sub-areas rather than flattening them', () => {
+      it('nests sub-areas, or says why it cannot', () => {
         const tree = buildMapTree(load(file))
         const deepest = Math.max(0, ...tree.overworld.map(n => depthOf(n)))
+        if (DECLINED.has(file)) {
+          // A patched submap-flag routine: flat, and the note says so (#486).
+          expect(deepest).toBe(0)
+          expect(tree.notes.join(' ')).toMatch(/hierarchy unavailable/i)
+          return
+        }
         // A flattening bug produces a correct map COUNT with every node at
         // depth 0, which the coverage assertion above cannot see.
         expect(deepest).toBeGreaterThan(0)
+        expect(tree.notes.join(' ')).not.toMatch(/hierarchy unavailable/i)
       })
 
       it('reports the grouping it could not do instead of implying none was lost', () => {

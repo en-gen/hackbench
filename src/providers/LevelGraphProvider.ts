@@ -60,7 +60,7 @@ export class LevelGraphProvider implements vscode.CustomReadonlyEditorProvider {
       const rom = resolveRom(descriptor.romPath)
       const slug = descriptor.slug
 
-      const exitGraph = rom.buildLevelExitGraph()
+      const exitGraph = rom.buildLevelExitGraph().graph
 
       // Collect all level IDs referenced by at least one edge
       const referenced = new Set<number>()

@@ -117,7 +117,7 @@ const ROLE_ORDER: SpecialRole[] = ['title-screen', 'new-game']
 export function buildMapTree(rom: SmwRom): MapTree {
   const catalog = buildLevelCatalog(rom)
   const maps = new Set(catalog.entries.filter(e => e.isReal).map(e => e.index))
-  const exitGraph = rom.buildLevelExitGraph()
+  const { graph: exitGraph, unavailable } = rom.buildLevelExitGraph()
   const notes = [...catalog.notes]
 
   const name = (index: number): string | null => rom.getLevelName(index)
@@ -173,7 +173,9 @@ export function buildMapTree(rom: SmwRom): MapTree {
   // flag; an orphan is never reached, so it contributes no edges and its own
   // sub-areas cannot be grouped under it. That is the fail-closed behaviour
   // SmwRom documents, and inferring a flag here would be a ROM-behaviour
-  // claim this module is not the place to make. Tracked separately.
+  // claim this module is not the place to make. Tracked separately. When the
+  // graph is unavailable every non-root map lands here, which is still
+  // complete coverage.
   const unassigned = [...maps]
     .filter(i => !placed.has(i))
     .sort((a, b) => a - b)
@@ -185,7 +187,13 @@ export function buildMapTree(rom: SmwRom): MapTree {
       children: [],
     }))
 
-  if (unassigned.length > 0) {
+  if (unavailable) {
+    notes.push(
+      `Map hierarchy unavailable: ${unavailable} This ROM decides where an exit leads ` +
+        'with code HackBench does not decode, so sub areas are listed unassigned rather ' +
+        'than grouped by the stock rule. Every map is still listed and editable.',
+    )
+  } else if (unassigned.length > 0) {
     notes.push(
       `${unassigned.length} of ${maps.size} maps are unassigned: no overworld root ` +
         'reaches them through the exit graph. They are listed flat because an ' +

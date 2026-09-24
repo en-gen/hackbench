@@ -18,10 +18,12 @@ import {
   deriveOverworldEntrances,
   decodeBufferIndex,
   warpPrecursorTiles,
-  OW_PATCH_PROBE_ADDR,
-  OW_PATCH_PROBE_STOCK_BYTE,
   SUBMAP_BUFFER_BASE,
 } from '../../../src/rom/OverworldEntrances'
+import { plantStockSubmapCode } from '../support/syntheticRom'
+
+/** The overworld-entry BEQ (bank_05.asm:7224), literal so a wrong constant goes red. */
+const OW_ENTRY_BEQ = 0x05d8b1
 
 const BUF_SIZE = 0x80000
 const off = (snes: number): number => loromToOffset(snes, BUF_SIZE)!
@@ -39,7 +41,7 @@ interface RomOpts {
 
 /**
  * Synthetic LoROM carrying just what the derivation reads: the map-mode
- * byte, the L1 pointer table, the stock $05D8B1 probe byte, the overworld
+ * byte, the L1 pointer table, the stock code SubmapFlagGate checks, the overworld
  * Layer-1 Map16 stream, and optionally the event tile-swap tables. Every
  * slot gets a distinct real pointer unless listed in `fillerSlots`, so
  * `isMap` is under test control.
@@ -47,7 +49,8 @@ interface RomOpts {
 function buildRom(tiles: Record<number, number>, opts: RomOpts = {}): SmwRom {
   const buf = Buffer.alloc(BUF_SIZE, 0)
   buf[0x7fd5] = 0x20
-  buf[off(OW_PATCH_PROBE_ADDR)] = opts.probe ?? OW_PATCH_PROBE_STOCK_BYTE
+  plantStockSubmapCode(new RomFile('synthetic.sfc', buf))
+  if (opts.probe !== undefined) buf[off(OW_ENTRY_BEQ)] = opts.probe
 
   // Half the slots share FILLER so LevelCatalog's mode heuristic finds it.
   const filler = new Set(opts.fillerSlots ?? [])
@@ -288,6 +291,15 @@ describe('deriveOverworldEntrances: fail closed', () => {
     expect(result.notes[0]).toContain('unmodified ROM')
   })
 
+  it.each([
+    ['the JSL into CODE_05D796', 0x0096f7, 0x06],
+    ['the JMP to CODE_05D83E', 0x05d7b0, 0x5c],
+  ])('reports the derivation unavailable when %s is replaced', (_what, at, byte) => {
+    const rom = buildRom({ 0x00: 0x6e })
+    rom.rom.writeAt(at, [byte])
+    expect(deriveOverworldEntrances(rom).overworldReadable).toBe(false)
+  })
+
   it('treats an unreadable probe byte as a failed probe, not as a read stream', () => {
     // A 64 KB image is a valid LoROM header-wise but has neither bank $05
     // nor bank $0C, so readByte($05D8B1) is null. This test used to claim
@@ -296,14 +308,17 @@ describe('deriveOverworldEntrances: fail closed', () => {
     // stops that going unnoticed again.
     const buf = Buffer.alloc(0x10000, 0)
     buf[0x7fd5] = 0x20
+    // The stock JSL at $0096F4 is in bank $00, so the check reaches bank $05.
+    buf.set([0x22, 0x96, 0xd7, 0x05], 0x16f4)
     const rom = new SmwRom(new RomFile('tiny.sfc', buf))
-    expect(rom.rom.readByte(OW_PATCH_PROBE_ADDR)).toBeNull()
+    expect(rom.rom.readByte(OW_ENTRY_BEQ)).toBeNull()
     const result = deriveOverworldEntrances(rom)
     expect(result.overworldReadable).toBe(false)
     expect(result.entrances).toEqual([])
     expect(result.entryMaps).toEqual([])
     expect(result.notes).toHaveLength(1)
     expect(result.notes[0]).toContain('another editor')
+    expect(result.notes[0]).toContain('nothing readable')
   })
 
   it('reports the derivation unavailable when the tile stream cannot be read', () => {
@@ -312,9 +327,9 @@ describe('deriveOverworldEntrances: fail closed', () => {
     // is out of range. Anything smaller trips the probe branch instead.
     const buf = Buffer.alloc(0x40000, 0)
     buf[0x7fd5] = 0x20
-    buf[off(OW_PATCH_PROBE_ADDR)] = OW_PATCH_PROBE_STOCK_BYTE
+    plantStockSubmapCode(new RomFile('truncated.sfc', buf))
     const rom = new SmwRom(new RomFile('truncated.sfc', buf))
-    expect(rom.rom.readByte(OW_PATCH_PROBE_ADDR)).toBe(OW_PATCH_PROBE_STOCK_BYTE)
+    expect(rom.rom.readByte(OW_ENTRY_BEQ)).toBe(0xf0)
     const result = deriveOverworldEntrances(rom)
     expect(result.overworldReadable).toBe(false)
     expect(result.entrances).toEqual([])
