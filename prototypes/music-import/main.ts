@@ -1,6 +1,6 @@
 // Throwaway harness. The portable parts live in src/rom/nspc/; this file only wires them to a page.
 import { scanRom, ScanResult, ScannedSong } from '../../src/rom/nspc/SourceScan'
-import { exportSong } from '../../src/rom/nspc/AmkExport'
+import { exportSong, songSeconds } from '../../src/rom/nspc/AmkExport'
 import { buildSnapshot, defaultCommandPort } from '../../src/rom/nspc/SpcSnapshot'
 import { spcPlayback } from '../../theia/extension/src/browser/spc-playback'
 import { zip } from './zip'
@@ -78,12 +78,18 @@ function render() {
           songs
             .map(s => {
               const i = scan!.songs.indexOf(s)
-              const secs = s.song.order.length
+              const t = songSeconds(s.image, s.song)
+              const secs =
+                t === null
+                  ? '?'
+                  : t < 60
+                    ? `${Math.round(t)}s`
+                    : `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}`
               return `<div class="song ${s === selected ? 'sel' : ''}" data-i="${i}">
                 <button class="play ${s === playing ? 'on' : ''}" data-play="${i}" title="${s === playing ? 'Stop' : 'Play the original'}">${s === playing ? '&#9632;' : '&#9654;'}</button>
                 <span class="mono muted">${hex(s.command)}</span>
                 <span>Song ${s.command}</span>
-                <span class="muted">${secs} sec${s.song.loopIndex === null ? '' : ', loops'}</span></div>`
+                <span class="muted">${secs}${s.song.loopIndex === null ? '' : ' + loop'}</span></div>`
             })
             .join(''),
       )

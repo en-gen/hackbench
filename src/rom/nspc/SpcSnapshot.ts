@@ -42,6 +42,13 @@ export function buildSnapshot(image: SoundImage, command: number, port: number):
     }
   for (const at of sites) aram[at] &= ~CONTROL_PORT_CLEAR
 
+  // Some drivers start a song by first receiving its data from the SNES
+  // (F-Zero: the song start CALLs $11D1, which writes $AA/$BB to the ports
+  // and waits for $CC). A snapshot has no SNES to answer, so the driver
+  // would wait for ever. The data is already in the image; the CALL is
+  // replaced by `MOV A,#song : NOP`, which is what the receiver returns.
+  const received = patchReceiverCalls(aram, command)
+
   aram.fill(0, 0xf0, 0x100)
   aram[0xf4 + port] = command
 
@@ -55,5 +62,29 @@ export function buildSnapshot(image: SoundImage, command: number, port: number):
   spc[0x26] = image.entry >> 8
   spc[0x2b] = 0xef // SP; the driver sets its own
   spc.set(aram, HEADER)
-  return { ok: true, spc, patchedAt: sites }
+  return { ok: true, spc, patchedAt: [...sites, ...received] }
+}
+
+/** The IPL-style handshake a receiver opens with: `MOV A,#$AA : MOV $F4,A : MOV A,#$BB : MOV $F5,A`. */
+const HANDSHAKE = [0xe8, 0xaa, 0xc5, 0xf4, 0x00, 0xe8, 0xbb, 0xc5, 0xf5, 0x00]
+/** How far before its table lookup a song start may call the receiver (F-Zero: 14 bytes). */
+const RECEIVER_REACH = 24
+
+function patchReceiverCalls(aram: Uint8Array, command: number): number[] {
+  const lookups = [
+    ...findAll(aram, [0x1c, 0xfd, 0xf6]),
+    ...findAll(aram, [0x1c, 0x5d, 0xf5]),
+    ...findAll(aram, [0x1c, 0xfd, 0xf5]),
+  ]
+  const patched: number[] = []
+  for (const at of lookups) {
+    for (let c = at - 3; c >= at - RECEIVER_REACH && c >= 0; c--) {
+      if (aram[c] !== 0x3f) continue
+      const target = aram[c + 1] | (aram[c + 2] << 8)
+      if (!HANDSHAKE.every((b, i) => aram[target + i] === b)) continue
+      aram.set([0xe8, command, 0x00], c)
+      patched.push(c)
+    }
+  }
+  return patched
 }

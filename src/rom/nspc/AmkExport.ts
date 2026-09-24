@@ -131,6 +131,51 @@ const AMK_OP: Partial<Record<Exclude<Meaning, null>, number>> = {
 }
 
 const FIRST_CUSTOM_INSTRUMENT = 30
+
+/**
+ * Seconds for one pass through the song, or null when it never sets a tempo
+ * or the driver's timer cannot be read. Timer 0 counts at 8 kHz and fires
+ * every `period` counts (SMW writes $10: APU_Start, bank_0E.asm:57); each
+ * firing adds the tempo to an 8-bit accumulator and a carry is one tick
+ * (APU_Loop, bank_0E.asm:78-83).
+ */
+export function songSeconds(image: SoundImage, song: NspcSong): number | null {
+  const period = readTimerPeriod(image.aram)
+  if (!period) return null
+  const meanings = DIALECT_MEANINGS[image.engine.dialect]
+  let tempo = 0
+  let seconds = 0
+  const scan = (events: NspcEvent[]) => {
+    for (const ev of events) {
+      if (ev.k === 'vcmd' && meanings[ev.op - image.engine.vcmdFirst] === 'tempo')
+        tempo = ev.params[0]
+      else if (ev.k === 'call') scan(ev.body)
+    }
+  }
+  for (const section of song.order) {
+    for (const t of section.tracks) if (t) scan(t.events)
+    if (!tempo) return null
+    seconds += section.ticks / ((8000 / period) * (tempo / 256))
+  }
+  return seconds
+}
+
+function readTimerPeriod(aram: Uint8Array): number | null {
+  const periods = new Set<number>()
+  // `MOV A,#p : MOV !$00FA,A` and `MOV $FA,#p`.
+  for (let at = 0; at + 5 <= aram.length; at++) {
+    if (
+      aram[at] === 0xe8 &&
+      aram[at + 2] === 0xc5 &&
+      aram[at + 3] === 0xfa &&
+      aram[at + 4] === 0x00
+    )
+      periods.add(aram[at + 1])
+    if (aram[at] === 0x8f && aram[at + 2] === 0xfa) periods.add(aram[at + 1])
+  }
+  periods.delete(0)
+  return periods.size === 1 ? [...periods][0] : null
+}
 const NOTE_NAMES = ['c', 'c+', 'd', 'd+', 'e', 'f', 'f+', 'g', 'g+', 'a', 'a+', 'b']
 /** Longest single rest/tie emitted; longer spans are split. */
 const MAX_TICKS = 96

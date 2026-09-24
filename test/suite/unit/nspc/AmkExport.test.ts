@@ -1,7 +1,7 @@
 /** Translation to AddmusicK MML: by meaning, transposes baked, loops and samples. */
 import { describe, it, expect } from 'vitest'
 import { parseSong } from '../../../../src/rom/nspc/NspcSong'
-import { exportSong } from '../../../../src/rom/nspc/AmkExport'
+import { exportSong, songSeconds } from '../../../../src/rom/nspc/AmkExport'
 import { syntheticEarlier, putSection, SYN, Synthetic } from '../../support/syntheticNspc'
 
 const OPTS = { folder: 'src', title: 't', game: 'g' }
@@ -59,5 +59,26 @@ describe('exportSong', () => {
     s.put(SYN.lens + (0xed - 0xda), [2])
     const ex = song(s, [0xed, 0x10, 0x18, 0xa4, 0x00])
     expect(ex.warnings.join()).toContain('$ED')
+  })
+
+  it('estimates play time from the tempo and the timer period read from the driver', () => {
+    const s = syntheticEarlier()
+    s.put(0x0400, [0xe8, 0x10, 0xc5, 0xfa, 0x00]) // timer 0 period $10: 500 firings a second
+    // Tempo $40 ($E2 in the Earlier dialect): 500 * 64/256 = 125 ticks a second; 250 ticks = 2 s.
+    s.put(0x6000, [0xe2, 0x40, 0x7d, 0xa4, 0x7d, 0xa4, 0x00])
+    putSection(s, 0x5000, [0x6000])
+    s.put(0x7000, [0x00, 0x50, 0x00, 0x00])
+    const r = parseSong(s.image(), 0x7000)
+    expect(r.ok && songSeconds(s.image(), r.song)).toBeCloseTo(2, 5)
+  })
+
+  it('gives no estimate when the song never sets a tempo', () => {
+    const s = syntheticEarlier()
+    s.put(0x0400, [0xe8, 0x10, 0xc5, 0xfa, 0x00])
+    s.put(0x6000, [0x18, 0xa4, 0x00])
+    putSection(s, 0x5000, [0x6000])
+    s.put(0x7000, [0x00, 0x50, 0x00, 0x00])
+    const r = parseSong(s.image(), 0x7000)
+    expect(r.ok && songSeconds(s.image(), r.song)).toBeNull()
   })
 })

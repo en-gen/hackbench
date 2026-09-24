@@ -118,4 +118,31 @@ describe('buildSnapshot', () => {
     s.aram[at + 1] = 0x01
     expect(buildSnapshot(s.image(), 5, 2).ok).toBe(false)
   })
+
+  it('replaces a song start CALL to an upload receiver with the song number, only in the preview', () => {
+    const s = syntheticEarlier()
+    // Receiver: the handshake a driver opens with before waiting for the SNES.
+    s.put(0x2000, [0xe8, 0xaa, 0xc5, 0xf4, 0x00, 0xe8, 0xbb, 0xc5, 0xf5, 0x00])
+    const lookup = s.aram.findIndex(
+      (_, i) => s.aram[i] === 0x1c && s.aram[i + 1] === 0xfd && s.aram[i + 2] === 0xf6,
+    )
+    s.put(lookup - 3, [0x3f, 0x00, 0x20])
+    const r = buildSnapshot(s.image(), 9, 0)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const ram = r.spc.subarray(256, 256 + 0x10000)
+    expect(Array.from(ram.subarray(lookup - 3, lookup))).toEqual([0xe8, 9, 0x00])
+    expect(s.aram[lookup - 3]).toBe(0x3f)
+  })
+
+  it('leaves a CALL to anything that is not a receiver alone', () => {
+    const s = syntheticEarlier()
+    s.put(0x2000, [0xe8, 0xaa, 0xc5, 0xf4, 0x00, 0xe8, 0xbc, 0xc5, 0xf5, 0x00])
+    const lookup = s.aram.findIndex(
+      (_, i) => s.aram[i] === 0x1c && s.aram[i + 1] === 0xfd && s.aram[i + 2] === 0xf6,
+    )
+    s.put(lookup - 3, [0x3f, 0x00, 0x20])
+    const r = buildSnapshot(s.image(), 9, 0)
+    expect(r.ok && r.spc[256 + lookup - 3]).toBe(0x3f)
+  })
 })
