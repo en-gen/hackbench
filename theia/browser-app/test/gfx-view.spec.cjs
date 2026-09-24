@@ -17,7 +17,8 @@ const ROM =
   process.env.HB_ROM || 'C:/Projects/hackbench/test/roms/Super Mario World (USA).vanilla.sfc'
 /** A hack with a relocated GFX arrangement: 49 of its 50 files fit no bit
  * depth GfxLoader recognises (review C1), unlike every vanilla-derived cart. */
-const INVICTUS_ROM = 'C:/Projects/hackbench/test/roms/Invictus 1.0.sfc'
+const INVICTUS_ROM =
+  process.env.HB_ROM_INVICTUS || 'C:/Projects/hackbench/test/roms/Invictus 1.0.sfc'
 
 /**
  * GfxLoader.GFX_FILE_COUNT for vanilla: GFXFilesHigh ($00B9C4) minus
