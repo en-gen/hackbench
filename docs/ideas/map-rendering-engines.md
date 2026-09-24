@@ -252,7 +252,7 @@ engine does.**
 | File | Tier | Why |
 |---|---|---|
 | `addressing.ts`, `LcLz2.ts`, `GraphicsDecoder.ts` | service | pure, no ROM identity, no arbitration |
-| `GfxLoader.loadGfxRaw/loadGfxFile/readGfxAssignment/getLayer3GfxRange` | service | ROM in, sheet out, no state |
+| `GfxLoader.readGfxFile/loadGfxFile/readGfxAssignment/getLayer3GfxRange` | service | ROM in, sheet out, no state |
 | `GfxLoader.loadVram` | resource engine, static-load step | assigns slots; the first contributor |
 | `GfxLoader.getGfxBinDir/loadGfxFileBin` | neither | `fs` reads of an external editor's export folder; impure and outside the ROM; should not sit in `src/rom/` |
 | `AnimationLoader`, `ExAnimationLoader` | resource contributors | later writers to the same slots |

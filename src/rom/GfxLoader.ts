@@ -24,40 +24,56 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { RomFile } from './RomFile'
-import { BytePattern, WILD, findPattern } from './BytePattern'
+import { BytePattern, WILD, findPattern, matchesAt } from './BytePattern'
+import { loromToOffset } from './addressing'
 import { decodeTilesBatch, PIXELS_PER_TILE } from './GraphicsDecoder'
 import { decompress } from './LcLz2'
 import { hex2 } from './hex'
+import { CompressionCheck, GFX_FILE_COUNT, checkStockCompression, gfxFileAddress } from './GfxArena'
 
-// ── GFX pointer tables (bank_00.asm lines 6415-6569) ──────────────────────────
-// Split lo/hi/bank byte tables, one byte per GFX file.
-// GFXFilesLow at $00B992, GFXFilesHigh at $00B9C4, GFXFilesBank at $00B9F6.
-export const GFX_PTR_LO = 0x00b992 // bank_00.asm line 6415
-export const GFX_PTR_HI = 0x00b9c4 // bank_00.asm line 6467
-export const GFX_PTR_BANK = 0x00b9f6 // bank_00.asm line 6519
-
-// Number of GFX files = gap between lo and hi tables
-// $B9C4 - $B992 = $32 = 50 entries (GFX00-GFX31 hex)
-export const GFX_FILE_COUNT = GFX_PTR_HI - GFX_PTR_LO // 50
+export { GFX_FILE_COUNT } // tables come from PrepareGraphicsFile via readGfxFile
 
 export const GFX_TILES = 128 // tiles per standard file
 
-// ── Layer 3 GFX (2BPP) - CODE_00A993 (bank_00.asm line 5287) ────────────────
-// The Layer 3 upload routine loads a contiguous range of GFX files as raw 2BPP
-// (no 3→4bpp conversion). The start index and count are immediate operands:
-//   $A99B: LDA #$03   → count-1 (operand at $A99C)
-//   $A99F: LDA #$28   → start file index (operand at $A9A0)
-const L3_GFX_COUNT_ADDR = 0x00a99c // immediate byte: count - 1
-const L3_GFX_START_ADDR = 0x00a9a0 // immediate byte: starting file index
+// ── Layer 3 GFX (2BPP) - CODE_00A993 (bank_00.asm:5287-5297) ────────────────
+// The L3 (overlay) upload loads a contiguous run of GFX files as raw 2BPP: the
+// count-1 and first file are LDA #imm operands stored to _F/_E
+// (bank_00.asm:5291-5294, rammap.asm:23-24), then _E is handed to
+// PrepareGraphicsFile. The routine is pinned from its entry through the JSL,
+// and both of its callers (bank_00.asm:2243, 2493) must still JSR to it: a
+// hack that repoints either leaves these bytes intact but no longer run.
+const L3_ROUTINE = 0x00a993
+// prettier-ignore
+const L3_ROUTINE_PATTERN: BytePattern = [
+  0x9c, 0x16, 0x21, 0xa9, 0x40, 0x8d, 0x17, 0x21, // STZ VMADD / LDA #$40 / STA VMADD+1
+  0xa9, WILD, 0x85, 0x0f, 0xa9, WILD, 0x85, 0x0e, // LDA #count-1 / STA _F / LDA #first / STA _E
+  0xa5, 0x0e, 0xa8, 0x22, // LDA _E / TAY / JSL PrepareGraphicsFile
+]
+const L3_COUNT_OFF = 9
+const L3_START_OFF = 13
+const L3_CALLERS = [0x009397, 0x0095a1] // GM00LoadPresents, GM1DLoadThankYou
+const L3_CALL: BytePattern = [0x20, L3_ROUTINE & 0xff, (L3_ROUTINE >> 8) & 0xff]
 
 /**
- * Read the Layer 3 GFX file range from CODE_00A993.
- * Returns { start, end } inclusive file indices that should be decoded as 2BPP.
+ * The inclusive run of GFX files CODE_00A993 uploads as 2BPP, or null when
+ * the routine or either call into it is not there to read. Never the vanilla
+ * $28..$2B.
  */
-export function getLayer3GfxRange(rom: RomFile): { start: number; end: number } {
-  const start = rom.readByte(L3_GFX_START_ADDR) ?? 0x28
-  const countMinus1 = rom.readByte(L3_GFX_COUNT_ADDR) ?? 3
-  return { start, end: start + countMinus1 }
+export function getLayer3GfxRange(rom: RomFile): { start: number; end: number } | null {
+  const at = (snes: number): number | null => loromToOffset(snes, rom.romSize)
+  const reached = L3_CALLERS.every(c => at(c) !== null && matchesAt(rom, at(c)!, L3_CALL))
+  const routineAt = at(L3_ROUTINE)
+  const site = routineAt === null ? null : matchesAt(rom, routineAt, L3_ROUTINE_PATTERN)
+  if (!reached || !site) return null
+  return { start: site[L3_START_OFF]!, end: site[L3_START_OFF]! + site[L3_COUNT_OFF]! }
+}
+
+/** Why a file inferGfxBpp could not place has no depth, when the reason is
+ *  the unreadable L3 range rather than the file's length. */
+export function l3DepthUnknown(rom: RomFile, byteLength: number): string | null {
+  return byteLength > 0 && byteLength % BYTES_PER_2BPP_TILE === 0 && !getLayer3GfxRange(rom)
+    ? 'the L3 (overlay) GFX range could not be read from CODE_00A993, so whether it is 2bpp is unknown'
+    : null
 }
 
 // GFX20 hex (decimal 32) = Mario/Luigi sprites
@@ -312,30 +328,43 @@ export function loadGfxFileBin(binDir: string, fileIndex: number): GfxSheet | nu
 
 // ── Core loader ──────────────────────────────────────────────────────────────
 
-/**
- * Read the SNES address of a GFX file from the pointer tables.
- * PrepareGraphicsFile (bank_00.asm lines 6571-6591):
- *   LDA GFXFilesLow,Y / LDA GFXFilesHigh,Y / LDA GFXFilesBank,Y
- */
-function getGfxFileAddress(rom: RomFile, fileIndex: number): number | null {
-  if (fileIndex >= GFX_FILE_COUNT) return null
-  const lo = rom.readByte(GFX_PTR_LO + fileIndex)
-  const hi = rom.readByte(GFX_PTR_HI + fileIndex)
-  const bank = rom.readByte(GFX_PTR_BANK + fileIndex)
-  if (lo === null || hi === null || bank === null) return null
-  return (bank << 16) | (hi << 8) | lo
+export type GfxRead = { ok: true; bytes: Uint8Array } | { ok: false; reason: string }
+
+// One pattern scan per ROM version rather than per file; same keying and
+// caveat as _creditsCache above.
+const _sourceCache = new WeakMap<RomFile, { version: number; result: CompressionCheck }>()
+
+/** The pointer tables PrepareGraphicsFile names, when the decompressor it
+ *  calls is still the stock LC_LZ2 one; otherwise why GFX cannot be read. */
+export function gfxSource(rom: RomFile): CompressionCheck {
+  const cached = _sourceCache.get(rom)
+  if (cached && cached.version === rom.version) return cached.result
+  const result = checkStockCompression(rom)
+  _sourceCache.set(rom, { version: rom.version, result })
+  return result
 }
 
 /**
- * Read a single GFX file as raw decompressed bytes.
- * Returns the LC_LZ2 decompressed data.
+ * One GFX file, decompressed the way PrepareGraphicsFile does it
+ * (bank_00.asm:6571-6591), or the reason it cannot be. A ROM that replaced
+ * the decompressor is refused outright: decoding its data as LC_LZ2 yields
+ * a sheet of plausible garbage.
  */
-export function loadGfxRaw(rom: RomFile, fileIndex: number): Uint8Array {
-  const addr = getGfxFileAddress(rom, fileIndex)
-  if (addr === null) return new Uint8Array(0)
+export function readGfxFile(rom: RomFile, fileIndex: number): GfxRead {
+  const source = gfxSource(rom)
+  if (!source.ok) return source
+  if (!Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex >= GFX_FILE_COUNT) {
+    return { ok: false, reason: `there is no GFX file ${fileIndex}` }
+  }
+  const addr = gfxFileAddress(rom, source.sites, fileIndex)
+  if (addr === null) {
+    return { ok: false, reason: 'the GFX pointer tables do not resolve to ROM data' }
+  }
   const compressed = rom.readAt(addr, GFX_MAX_COMPRESSED)
-  if (!compressed) return new Uint8Array(0)
-  return decompress(compressed)
+  if (!compressed) {
+    return { ok: false, reason: `GFX file $${hex2(fileIndex)} points outside the ROM` }
+  }
+  return { ok: true, bytes: decompress(compressed) }
 }
 
 /**
@@ -347,16 +376,19 @@ export function loadGfxRaw(rom: RomFile, fileIndex: number): Uint8Array {
  * as 3BPP, falling back to 4BPP for the LM export format. Size alone cannot
  * separate 2BPP from 4BPP: both divide 1024.
  *
- * Returns null when the length fits no tile size.
+ * Returns null when the length fits no tile size, or fits 2BPP while the L3
+ * range is unreadable.
  */
 export function inferGfxBpp(rom: RomFile, fileIndex: number, byteLength: number): 2 | 3 | 4 | null {
   if (byteLength === 0) return null
 
-  const l3 = getLayer3GfxRange(rom)
-  const credits = findCreditsGfxFile(rom)
-  const isRawUpload =
-    (fileIndex >= l3.start && fileIndex <= l3.end) || credits?.fileIndex === fileIndex
-  if (isRawUpload && byteLength % BYTES_PER_2BPP_TILE === 0) return 2
+  if (byteLength % BYTES_PER_2BPP_TILE === 0) {
+    if (findCreditsGfxFile(rom)?.fileIndex === fileIndex) return 2
+    // Without the L3 range any file that fits 2BPP might be an L3 file.
+    const l3 = getLayer3GfxRange(rom)
+    if (!l3) return null
+    if (fileIndex >= l3.start && fileIndex <= l3.end) return 2
+  }
 
   // 3BPP first: 3072 divides by 32 as well, and ROM data is 3BPP.
   if (byteLength % BYTES_PER_3BPP_TILE === 0) return 3
@@ -364,14 +396,17 @@ export function inferGfxBpp(rom: RomFile, fileIndex: number, byteLength: number)
   return null
 }
 
-/** Load and decode a single GFX file by index. */
-export function loadGfxFile(rom: RomFile, fileIndex: number): GfxSheet {
-  if (fileIndex >= GFX_FILE_COUNT) return _emptySheet(GFX_TILES)
-
-  const data = loadGfxRaw(rom, fileIndex)
+function decodeGfxBytes(rom: RomFile, fileIndex: number, data: Uint8Array): GfxSheet {
   const bpp = inferGfxBpp(rom, fileIndex, data.length)
   if (bpp === null) return _emptySheet(GFX_TILES)
   return decodeTilesBatch(data, bpp)
+}
+
+/** Load and decode a single GFX file by index; a blank sheet when it cannot
+ *  be read. */
+export function loadGfxFile(rom: RomFile, fileIndex: number): GfxSheet {
+  const read = readGfxFile(rom, fileIndex)
+  return read.ok ? decodeGfxBytes(rom, fileIndex, read.bytes) : _emptySheet(GFX_TILES)
 }
 
 function _emptySheet(tileCount: number): GfxSheet {
@@ -504,7 +539,10 @@ export function loadVram(rom: RomFile, tilesetId: number, spriteSet = 0): VramSt
   for (const slot of VRAM_SLOT_NAMES) {
     const fileIndex = assignment[slot]
     if (fileIndex !== undefined && fileIndex < GFX_FILE_COUNT) {
-      let sheet = loadGfxFile(rom, fileIndex)
+      // An unreadable file leaves its slot empty rather than blank-but-present.
+      const read = readGfxFile(rom, fileIndex)
+      if (!read.ok) continue
+      let sheet = decodeGfxBytes(rom, fileIndex, read.bytes)
       if (isFilterSomeRamFile(fileIndex, tilesetId)) {
         sheet = applyFilterSomeRamTransform(sheet)
       }
@@ -548,7 +586,9 @@ export function getCharPixels(vram: VramState, charNum: number): Uint8Array | nu
  * Each 2BPP char is 8 words; 128 chars × 4 files = 512 chars total.
  */
 export function loadL3Chars(rom: RomFile): GfxSheet[] {
-  const { start, end } = getLayer3GfxRange(rom)
+  const range = getLayer3GfxRange(rom)
+  if (!range) return []
+  const { start, end } = range
   const sheets: GfxSheet[] = []
   for (let i = start; i <= end; i++) {
     sheets.push(loadGfxFile(rom, i))

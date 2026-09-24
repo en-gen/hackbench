@@ -28,6 +28,20 @@ export function uploadGfxFileSite(tilesMinusOne = 0x7f): number[] {
 }
 export const UPLOAD_GFX_AT = 0x2a00
 
+/** CODE_00A993 from its entry through the JSL (bank_00.asm:5287-5297), and
+ *  the two JSRs that reach it (bank_00.asm:2243, 2493). */
+export const L3_ROUTINE = 0x00a993
+export const L3_CALLERS = [0x009397, 0x0095a1]
+export const L3_CALL = [0x20, 0x93, 0xa9]
+export function layer3Routine(countMinus1 = 3, start = 0x28): number[] {
+  // prettier-ignore
+  return [
+    0x9c, 0x16, 0x21, 0xa9, 0x40, 0x8d, 0x17, 0x21,
+    0xa9, countMinus1, 0x85, 0x0f, 0xa9, start, 0x85, 0x0e,
+    0xa5, 0x0e, 0xa8, 0x22,
+  ]
+}
+
 /** PrepareGraphicsFile as the 65816 encodes it: three table loads, the
  *  decompression call, and the frame around them (bank_00.asm:6571-6591). */
 export function prepareGraphicsFile(
@@ -104,6 +118,8 @@ export interface CartOptions {
   routine?: number[]
   /** The tile-count site, or null to leave it out entirely. */
   uploadSite?: number[] | null
+  /** The L3 (overlay) upload routine, or null to leave it and its callers out. */
+  l3Routine?: number[] | null
   /**
    * Prepend a 512-byte copier header, making this the headered twin of the
    * same cartridge. CART_SIZE is a whole number of KB, so adding the header
@@ -130,10 +146,16 @@ export function gfxStreams(size = 96): Uint8Array[] {
 
 export function buildCart(opts: CartOptions = {}): SyntheticCart {
   const buf = Buffer.alloc(CART_SIZE, 0x00)
+  buf[0x7fd5] = 0x20 // LoROM map mode, so SmwRom accepts it
   buf.set(opts.routine ?? prepareGraphicsFile(), ROUTINE_AT)
   buf.set(opts.entryBytes ?? STOCK_LCLZ2_ENTRY, DECOMP_ENTRY - 0x8000)
   const uploadSite = opts.uploadSite === undefined ? uploadGfxFileSite() : opts.uploadSite
   if (uploadSite) buf.set(uploadSite, UPLOAD_GFX_AT)
+  const l3Routine = opts.l3Routine === undefined ? layer3Routine() : opts.l3Routine
+  if (l3Routine) {
+    buf.set(l3Routine, L3_ROUTINE - 0x8000)
+    for (const c of L3_CALLERS) buf.set(L3_CALL, c - 0x8000)
+  }
 
   const streams = opts.streams ?? gfxStreams()
   const offsets: number[] = []
@@ -158,6 +180,15 @@ export function buildCart(opts: CartOptions = {}): SyntheticCart {
   // off-by-512 read look plausible instead of obviously wrong.
   const header = Buffer.alloc(COPIER_HEADER_SIZE, 0x5a)
   return { rom: new RomFile('synthetic.smc', Buffer.concat([header, buf])), offsets }
+}
+
+/** Give a ROM built for some other test the GFX read path: PrepareGraphicsFile
+ *  naming the tables at TABLE_*, a stock decompressor entry, and the L3 loads. */
+export function plantGfxReadPath(rom: RomFile): void {
+  rom.writeAt(0x8000 + ROUTINE_AT, prepareGraphicsFile())
+  rom.writeAt(DECOMP_ENTRY, [...STOCK_LCLZ2_ENTRY])
+  rom.writeAt(L3_ROUTINE, layer3Routine())
+  for (const c of L3_CALLERS) rom.writeAt(c, L3_CALL)
 }
 
 /** Apply an arena plan to a copy of the cart, the way the working copy will. */

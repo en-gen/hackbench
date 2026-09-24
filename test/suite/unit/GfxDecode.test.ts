@@ -15,8 +15,9 @@ import {
   GFX_FILE_COUNT,
   GFX_MARIO_3BPP_INDEX,
   getLayer3GfxRange,
-  loadGfxRaw,
+  readGfxFile,
 } from '../../../src/rom/GfxLoader'
+import { RomFile } from '../../../src/rom/RomFile'
 import { decode4bpp } from '../../../src/rom/GraphicsDecoder'
 import {
   decodeGfxSheet,
@@ -25,6 +26,15 @@ import {
   GFX_TILES_PER_ROW,
 } from '../../../theia/extension/src/node/gfx-decode'
 import { CORPUS, INVICTUS, VANILLA, hasRom, romPath } from '../support/corpus'
+import { buildCart, gfxStreams } from '../support/syntheticGfxCart'
+import { encode } from '../../../src/rom/LcLz2'
+
+/** File bytes on a ROM the read gate must accept; a refusal fails the test. */
+function gfxBytes(rom: RomFile, index: number): Uint8Array {
+  const r = readGfxFile(rom, index)
+  if (!r.ok) throw new Error(r.reason)
+  return r.bytes
+}
 
 const ROM_PATH = romPath(VANILLA)
 const romPresent = hasRom(VANILLA)
@@ -55,14 +65,14 @@ describe.skipIf(!romPresent)('gfx-decode (ROM-only)', () => {
 
   it('infers 3bpp for a standard file (file 0)', () => {
     const rom = SmwRom.open(ROM_PATH)
-    const raw = loadGfxRaw(rom.rom, 0)
+    const raw = gfxBytes(rom.rom, 0)
     expect(inferDefaultBpp(rom.rom, 0, raw.length)).toBe(3)
   })
 
   it('infers 2bpp for the Layer 3 range GfxLoader itself reports', () => {
     const rom = SmwRom.open(ROM_PATH)
-    const l3 = getLayer3GfxRange(rom.rom)
-    const raw = loadGfxRaw(rom.rom, l3.start)
+    const l3 = getLayer3GfxRange(rom.rom)!
+    const raw = gfxBytes(rom.rom, l3.start)
 
     // The precondition inferDefaultBpp's Layer 3 branch requires. If this
     // fails the test below is not exercising the branch it claims to.
@@ -72,7 +82,7 @@ describe.skipIf(!romPresent)('gfx-decode (ROM-only)', () => {
 
   it('infers 3bpp for the Mario sprite file (GFX20 hex)', () => {
     const rom = SmwRom.open(ROM_PATH)
-    const raw = loadGfxRaw(rom.rom, GFX_MARIO_3BPP_INDEX)
+    const raw = gfxBytes(rom.rom, GFX_MARIO_3BPP_INDEX)
     expect(inferDefaultBpp(rom.rom, GFX_MARIO_3BPP_INDEX, raw.length)).toBe(3)
   })
 
@@ -166,7 +176,7 @@ describe.skipIf(!romPresent)('gfx-decode (ROM-only)', () => {
 
   it('the reported bpp always matches the bytes actually decoded, not the raw request', () => {
     const rom = SmwRom.open(ROM_PATH)
-    const raw = loadGfxRaw(rom.rom, 0)
+    const raw = gfxBytes(rom.rom, 0)
     for (const requested of [undefined, 2, 3, 4] as const) {
       const sheet = decodeGfxSheet(rom, 0, requested)
       const bytesPerTile = sheet.bpp === 4 ? 32 : sheet.bpp === 3 ? 24 : 16
@@ -177,16 +187,6 @@ describe.skipIf(!romPresent)('gfx-decode (ROM-only)', () => {
       expect(sheet.tileCount).toBe(Math.floor(raw.length / bytesPerTile))
       if (requested !== undefined) expect(sheet.bpp).toBe(requested)
     }
-  })
-
-  it('a bit-depth override producing zero tiles is refused, not a zero-height sheet', () => {
-    // Invictus file $0E is 29 bytes; forced to 4bpp (32 bytes/tile) that is
-    // zero tiles. A canvas cannot be sized for a zero-height ImageData, so
-    // the refusal has to happen here, not in the widget that paints it.
-    const invictusPath = romPath(INVICTUS)
-    if (!hasRom(INVICTUS)) return
-    const rom = SmwRom.open(invictusPath)
-    expect(() => decodeGfxSheet(rom, 0x0e, 4)).toThrow(/shorter than one tile/i)
   })
 
   /**
@@ -264,38 +264,30 @@ describe('gfx-decode corpus sweep', () => {
   }
 })
 
-describe.skipIf(!hasRom(INVICTUS))('gfx-decode (Invictus, relocated GFX)', () => {
+describe('gfx-decode (synthetic)', () => {
+  it('a bit-depth override producing zero tiles is refused, not a zero-height sheet', () => {
+    // 29 bytes forced to 4bpp (32 bytes/tile) is zero tiles. A canvas cannot
+    // be sized for a zero-height ImageData, so the refusal has to happen
+    // here, not in the widget that paints it.
+    const streams = gfxStreams()
+    streams[0x0e] = encode(new Uint8Array(29).fill(0x11))
+    const rom = buildCart({ streams }).rom
+    expect(() => decodeGfxSheet(new SmwRom(rom), 0x0e, 4)).toThrow(/shorter than one tile/i)
+  })
+})
+
+describe.skipIf(!hasRom(INVICTUS))('gfx-decode (Invictus, replaced decompressor)', () => {
   const INVICTUS_PATH = romPath(INVICTUS)
 
-  it('reports most files unavailable rather than a fabricated 128-tile placeholder', () => {
-    const rom = SmwRom.open(INVICTUS_PATH)
-    const files = listGfxFileInfos(rom)
-    const unavailable = files.filter(f => f.defaultBpp === null)
-    // Measured directly on this cart: 49 of 50. Asserted as "most", not the
-    // exact figure, so a harmless future re-dump does not make this brittle.
-    expect(unavailable.length).toBeGreaterThan(40)
-    for (const f of unavailable) {
-      expect(f.tileCount).toBeNull()
-      expect(f.byteLength).toBeGreaterThanOrEqual(0)
+  // Invictus 1.0 replaces the LC_LZ2 entry, so every file is refused by the
+  // read gate before any length rule runs.
+  it('reports every file unavailable, with no bytes and no depth', () => {
+    const files = listGfxFileInfos(SmwRom.open(INVICTUS_PATH))
+    expect(files.length).toBe(GFX_FILE_COUNT)
+    for (const f of files) {
+      expect(f).toMatchObject({ byteLength: 0, defaultBpp: null, tileCount: null })
+      expect(f.unavailable).toMatch(/LC_LZ2/)
     }
-  })
-
-  it("refuses to decode an unavailable file by default rather than painting loadGfxFile's blank sheet", () => {
-    const rom = SmwRom.open(INVICTUS_PATH)
-    const files = listGfxFileInfos(rom)
-    const target = files.find(f => f.defaultBpp === null)
-    expect(target).toBeDefined()
-    expect(() => decodeGfxSheet(rom, target!.index)).toThrow()
-  })
-
-  it('still honours an explicit bpp override on an unavailable file, since forcing a read is the point of it', () => {
-    const rom = SmwRom.open(INVICTUS_PATH)
-    const files = listGfxFileInfos(rom)
-    const target = files.find(f => f.defaultBpp === null && f.byteLength >= 24)
-    expect(target).toBeDefined()
-    const sheet = decodeGfxSheet(rom, target!.index, 3)
-    expect(sheet.bpp).toBe(3)
-    expect(sheet.tileCount).toBeGreaterThan(0)
   })
 })
 

@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
-  loadGfxRaw,
+  readGfxFile,
   loadGfxFile,
   findCreditsGfxFile,
   readGfxAssignment,
@@ -30,14 +30,13 @@ const LEVEL_104 = 0x104
 describe.skipIf(!romPresent)('GfxLoader (ROM-only)', () => {
   it('returns non-empty raw bytes for GFX file 0', () => {
     const rom = SmwRom.open(ROM_PATH)
-    const raw = loadGfxRaw(rom.rom, 0)
-    expect(raw.length).toBeGreaterThan(0)
+    const read = readGfxFile(rom.rom, 0)
+    expect(read.ok && read.bytes.length).toBeGreaterThan(0)
   })
 
-  it('returns empty array for out-of-range file index', () => {
+  it('refuses an out-of-range file index', () => {
     const rom = SmwRom.open(ROM_PATH)
-    const raw = loadGfxRaw(rom.rom, GFX_FILE_COUNT + 10)
-    expect(raw.length).toBe(0)
+    expect(readGfxFile(rom.rom, GFX_FILE_COUNT + 10).ok).toBe(false)
   })
 
   it('loadGfxFile decodes GFX file 0 to exactly 128 tiles of 64 pixels', () => {

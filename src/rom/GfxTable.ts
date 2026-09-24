@@ -15,7 +15,7 @@
 import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern } from './BytePattern'
 import { bytesPerTile, decodeTilesBatch, setTilePixel } from './GraphicsDecoder'
-import { inferGfxBpp } from './GfxLoader'
+import { inferGfxBpp, l3DepthUnknown } from './GfxLoader'
 import { decompress, encode } from './LcLz2'
 import {
   ArenaResult,
@@ -67,6 +67,8 @@ export interface GfxFileState {
   /** Null when the length fits no tile size: such a file is read-only until
    *  the user asserts a depth, matching the viewer's manual override. */
   bpp: 2 | 3 | 4 | null
+  /** Set when `bpp` is null because the L3 range is unreadable, not the length. */
+  depthUnknown?: string
   tileCount: number
   dirty: boolean
 }
@@ -93,6 +95,7 @@ export class GfxTable {
         bytes,
         template,
         bpp,
+        ...(bpp === null && { depthUnknown: l3DepthUnknown(rom, bytes.length) ?? undefined }),
         tileCount: bpp === null ? 0 : Math.floor(bytes.length / bytesPerTile(bpp)),
         dirty: false,
       }
@@ -118,7 +121,7 @@ export class GfxTable {
     if (f.bpp === null) {
       return {
         status: 'refused',
-        reason: `GFX ${op.file} is ${f.bytes.length} bytes, which fits no tile size, so it is read-only until a depth is asserted`,
+        reason: `GFX ${op.file} is read-only until a depth is asserted: ${f.depthUnknown ?? `${f.bytes.length} bytes fits no tile size`}`,
       }
     }
     if (!Number.isInteger(op.tile) || op.tile < 0 || op.tile >= f.tileCount) {

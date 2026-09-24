@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { parseLevelObjects } from '../../../src/rom/LevelParser'
-import { loadGfxRaw } from '../../../src/rom/GfxLoader'
+import { readGfxFile } from '../../../src/rom/GfxLoader'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 
 const ROM_PATH = romPath(VANILLA)
@@ -51,7 +51,7 @@ describe.skipIf(!romPresent)('SmwRom integration (requires the corpus vanilla RO
 
   it('GFX file 0 decompresses to non-empty bytes', () => {
     rom ??= SmwRom.open(ROM_PATH)
-    const raw = loadGfxRaw(rom.rom, 0)
-    expect(raw.length).toBeGreaterThan(0)
+    const read = readGfxFile(rom.rom, 0)
+    expect(read.ok && read.bytes.length).toBeGreaterThan(0)
   })
 })

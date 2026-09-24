@@ -32,6 +32,7 @@ import {
   SubTile,
 } from '../../../../src/rom/Map16'
 import {
+  gfxSource,
   loadVram,
   readGfxAssignment,
   VramState,
@@ -456,6 +457,10 @@ export function decodeMap16Sheet(
   paletteVariant: Map16PaletteVariantDto,
 ): DecodeMap16Result {
   requireValidTileset(tileset)
+
+  // Every character comes from GFX; without them the atlas is blank tiles.
+  const gfx = gfxSource(rom.rom)
+  if (!gfx.ok) return { status: 'unavailable', reason: `GFX cannot be read: ${gfx.reason}` }
 
   const extent = map16LayerExtent(rom.rom, layer)
   if ('reason' in extent) return { status: 'unavailable', reason: extent.reason }

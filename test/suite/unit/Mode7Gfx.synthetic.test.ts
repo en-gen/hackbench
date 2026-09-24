@@ -10,7 +10,8 @@
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import { GFX_FILE_COUNT, GFX_PTR_BANK, GFX_PTR_HI, GFX_PTR_LO } from '../../../src/rom/GfxLoader'
+import { GFX_FILE_COUNT } from '../../../src/rom/GfxLoader'
+import { TABLE_BANK, TABLE_HI, TABLE_LO, plantGfxReadPath } from '../support/syntheticGfxCart'
 import { decodeTilesBatch } from '../../../src/rom/GraphicsDecoder'
 import { decodeMode7Tiles, findMode7GfxFiles } from '../../../src/rom/Mode7Gfx'
 import {
@@ -76,7 +77,9 @@ function writeMode7Load(rom: RomFile, layout: Layout = {}): void {
 function makeRom(): RomFile {
   const buf = Buffer.alloc(0x100000, 0x00)
   buf[0x7fd5] = 0x20 // LoROM
-  return new RomFile('mock.smc', buf)
+  const rom = new RomFile('mock.smc', buf)
+  plantGfxReadPath(rom)
+  return rom
 }
 
 function vanillaShaped(): RomFile {
@@ -277,9 +280,9 @@ function romWithFile27(length: number): SmwRom {
   const rom = vanillaShaped()
   const data = Array.from({ length }, (_, i) => [0x05, 0x39, 0x77][i % 3]!)
   const addr = 0x108000
-  rom.writeAt(GFX_PTR_LO + 0x27, [addr & 0xff])
-  rom.writeAt(GFX_PTR_HI + 0x27, [(addr >> 8) & 0xff])
-  rom.writeAt(GFX_PTR_BANK + 0x27, [addr >> 16])
+  rom.writeAt(TABLE_LO + 0x27, [addr & 0xff])
+  rom.writeAt(TABLE_HI + 0x27, [(addr >> 8) & 0xff])
+  rom.writeAt(TABLE_BANK + 0x27, [addr >> 16])
   rom.writeAt(addr, lz2Copy(data))
   return new SmwRom(rom)
 }

@@ -15,8 +15,8 @@ const { romPath, VANILLA, INVICTUS } = require('../../../test/suite/support/corp
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
-/** A hack with a relocated GFX arrangement: 49 of its 50 files fit no bit
- * depth GfxLoader recognises (review C1), unlike every vanilla-derived cart. */
+/** A hack that replaced the LC_LZ2 decompressor, so the read gate refuses
+ * every GFX file (#487), unlike every other ROM in the corpus. */
 const INVICTUS_ROM = process.env.HB_ROM_INVICTUS || romPath(INVICTUS)
 
 /**
@@ -66,13 +66,13 @@ test.afterEach(() => {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-async function createProject(page, dir, name = 'MyHack') {
+async function createProject(page, dir, name = 'MyHack', rom = ROM) {
   return page.evaluate(
     async ({ romPath, directory, projectName }) => {
       const svc = getSvc('Symbol(ProjectService)')
       return svc.createProject({ romPath, name: projectName, directory })
     },
-    { romPath: ROM, directory: dir, projectName: name },
+    { romPath: rom, directory: dir, projectName: name },
   )
 }
 
@@ -84,8 +84,8 @@ async function createProject(page, dir, name = 'MyHack') {
  * `rows` filtered to `kind === 'file'`, which is what every GFX-file-only
  * assertion in this spec actually wants.
  */
-async function loadGfx(page, dir) {
-  const project = await createProject(page, dir)
+async function loadGfx(page, dir, rom = ROM) {
+  const project = await createProject(page, dir, 'MyHack', rom)
   const result = await page.evaluate(async manifestPath => {
     const w = await getWidget('hackbench.gfx-explorer')
     await w.load(manifestPath)
@@ -231,97 +231,34 @@ test('closing and reopening the Graphics view still wires row clicks', async ({ 
 })
 
 /**
- * A relocated GFX arrangement (Invictus 1.0), where GfxLoader itself cannot
- * place most files at any bit depth. The row must say so honestly, not
- * report loadGfxFile's 128-tile blank-sheet placeholder as a real count, and
- * opening one by default must refuse rather than paint that blank sheet
- * labelled as real tile data (review C1).
+ * Invictus 1.0 replaced the decompressor, so no file can be read as LC_LZ2
+ * (#487). The explorer row must carry the gate's reason, and opening a file
+ * must show it in the view, with or without a forced depth, rather than
+ * paint garbage labelled as tile data. The zero-tile override refusal is
+ * covered by GfxDecode.test.ts on a synthetic ROM, since no corpus ROM reaches it.
  */
-test('a relocated GFX arrangement is reported unavailable, not fabricated', async ({ page }) => {
+test('a ROM with a replaced decompressor shows every file unavailable, with the reason', async ({
+  page,
+}) => {
   test.skip(!fs.existsSync(INVICTUS_ROM), 'Invictus fixture not present on this machine')
 
-  const dir = path.join(tmp, 'InvictusHack')
-  const project = await page.evaluate(
-    async ({ romPath, directory }) => {
-      const svc = getSvc('Symbol(ProjectService)')
-      return svc.createProject({ romPath, name: 'InvictusHack', directory })
-    },
-    { romPath: INVICTUS_ROM, directory: dir },
-  )
+  const result = await loadGfx(page, path.join(tmp, 'InvictusHack'), INVICTUS_ROM)
+  expect(result.fileRows.length).toBe(50)
+  for (const r of result.fileRows) expect(r.bpp).toBeNull()
 
-  const state = await page.evaluate(async manifestPath => {
-    const svc = getSvc('Symbol(GfxService)')
-    const res = await svc.listGfxFiles(manifestPath)
-    return res.status === 'ok'
-      ? { status: res.status, files: res.files }
-      : { status: res.status, files: [] }
-  }, project.manifestPath)
+  await revealGfx(page)
+  const row = firstGfxFileRow(page)
+  await expect(row.locator('.hb-gfx-meta')).toHaveText('unavailable')
+  await expect(row.locator('.hb-gfx-meta')).toHaveAttribute('title', /LC_LZ2/)
 
-  expect(state.status).toBe('ok')
-  const unavailable = state.files.filter(f => f.defaultBpp === null)
-  const available = state.files.filter(f => f.defaultBpp !== null)
-  // Measured on this cart: 49 of 50. Asserted loosely so a harmless re-dump
-  // of the same hack does not make this brittle.
-  expect(unavailable.length).toBeGreaterThan(40)
-  for (const f of unavailable) expect(f.tileCount).toBeNull()
-  for (const f of available) expect(f.tileCount).toBeGreaterThan(0)
+  await row.click()
+  const error = page.locator('.hb-gfx-view-error')
+  await expect(error).toContainText('LC_LZ2', { timeout: 15000 })
 
-  const target = unavailable[0]
-  const openError = await page.evaluate(
-    async ({ manifestPath, index }) => {
-      const svc = getSvc('Symbol(GfxService)')
-      try {
-        await svc.gfxSheet(manifestPath, index)
-        return null
-      } catch (err) {
-        return err.message
-      }
-    },
-    { manifestPath: project.manifestPath, index: target.index },
-  )
-
-  expect(openError).toBeTruthy()
-})
-
-/**
- * H4: an explicit bit-depth override can legitimately yield zero tiles (a
- * short file forced to a deep bpp). Before the fix this reached the canvas
- * as a zero-height ImageData, which Chromium's ImageData constructor throws
- * an uncaught IndexSizeError on -- outside reload()'s try/catch, so the page
- * crashes silently instead of showing an error message.
- */
-test('a bit-depth override yielding zero tiles is refused, not a page crash', async ({ page }) => {
-  test.skip(!fs.existsSync(INVICTUS_ROM), 'Invictus fixture not present on this machine')
-
-  const pageErrors = []
-  page.on('pageerror', err => pageErrors.push(err.message))
-
-  const dir = path.join(tmp, 'InvictusShort')
-  const project = await page.evaluate(
-    async ({ romPath, directory }) => {
-      const svc = getSvc('Symbol(ProjectService)')
-      return svc.createProject({ romPath, name: 'InvictusShort', directory })
-    },
-    { romPath: INVICTUS_ROM, directory: dir },
-  )
-
-  // File $0E is 29 bytes; forced to 4bpp (32 bytes/tile) that is zero tiles.
-  const result = await page.evaluate(
-    async ({ manifestPath, index }) => {
-      const svc = getSvc('Symbol(GfxService)')
-      try {
-        await svc.gfxSheet(manifestPath, index, 4)
-        return { ok: true }
-      } catch (err) {
-        return { ok: false, message: err.message }
-      }
-    },
-    { manifestPath: project.manifestPath, index: 0x0e },
-  )
-
-  expect(result.ok).toBe(false)
-  expect(result.message).toMatch(/shorter than one tile/i)
-  expect(pageErrors).toEqual([])
+  await page.selectOption('#hb-gfx-bpp-select', '3')
+  await page.waitForTimeout(500)
+  await expect(error).toContainText('LC_LZ2')
+  await expect(page.locator('.hb-gfx-view-canvas')).toHaveCount(0)
 })
 
 test('switching bit depth re-decodes the sheet, not just its label', async ({ page }) => {
