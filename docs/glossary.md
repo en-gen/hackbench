@@ -110,14 +110,16 @@ tiles.
 
 ## Words to avoid
 
-| Avoid                       | Because                                 | Say             |
-| --------------------------- | --------------------------------------- | --------------- |
-| "Map" for the overworld     | collides with map-the-editable-unit     | "overworld"     |
-| "Maps" for levels           | the tree's folders are levels, not maps | "levels"        |
-| "area" for a submap         | collides with sub area                  | "submap"        |
-| "level" for a slot or a map | a level is composed of maps             | "slot" or "map" |
-| "extras" or "unlinked"      | vague; says what it is not              | "orphaned map"  |
-| bare "exit" for the object  | collides with the 96 counter            | "screen exit"   |
+| Avoid                       | Because                                 | Say                                   |
+| --------------------------- | --------------------------------------- | ------------------------------------- |
+| "Map" for the overworld     | collides with map-the-editable-unit     | "overworld"                           |
+| "Maps" for levels           | the tree's folders are levels, not maps | "levels"                              |
+| "area" for a submap         | collides with sub area                  | "submap"                              |
+| "level" for a slot or a map | a level is composed of maps             | "slot" or "map"                       |
+| "extras" or "unlinked"      | vague; says what it is not              | "orphaned map"                        |
+| bare "exit" for the object  | collides with the 96 counter            | "screen exit"                         |
+| "Layer 1/2/3" in the UI     | numbers invert image-editor stacking    | "Foreground", "Background", "Effects" |
+| bare "layer" for graphics   | collides with an op layer               | "graphics layer" or the role name     |
 
 `Map16` is exempt. It is the standard SMW name for the tile format and does
 not collide in practice.
@@ -144,6 +146,41 @@ The rest of that table is the level-completion swap set (`$6E`->`$66`,
 
 So a `$5A` tile never enters a level, and the two launch tiles named STAR ROAD
 that hold real map data (`$016`, `$108`) are not levels.
+
+## The graphics words
+
+A map is drawn as four graphics layers. The UI names them by ROLE and never
+by number.
+
+| UI name        | ROM name     | What it is                                                                                                                                                       |
+| -------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Foreground** | Layer 1, BG1 | The terrain the player walks on, built from the map's object stream through Map16.                                                                               |
+| **Background** | Layer 2, BG2 | Behind the foreground. Either a preset pattern that repeats across the map, or built from its own object stream like the foreground, with its own screen stride. |
+| **Effects**    | Layer 3, BG3 | A fixed image chosen per level (none, or one of three per tileset). Drawn 2bpp, and never through Map16.                                                         |
+| **Sprites**    | OAM          | Objects placed at free positions rather than on a grid.                                                                                                          |
+
+**Why roles, not numbers.** SNES numbers its layers by PPU channel, not by
+depth, and Layer 1 is the FRONT one. Anyone who thinks in image-editor
+stacking reads "Layer 1" as the bottom, the owner included. Veterans of other
+editors read it correctly. A role name misleads neither group, so the number
+never appears as a label. It may appear in a tooltip, because two decades of
+tutorials and patch readmes say "Layer 2" and a user following one needs the
+bridge: shown, never required, per `docs/ui-conventions.md`.
+
+**Why Effects has no depth in its name.** A bit in the level header decides
+whether Effects draws behind everything or in front of everything, sprites
+included (`bank_05.asm:588-598` shifts it into `MainBGMode`,
+`bank_00.asm:464-465` writes that to `$2105`). "Overlay" is wrong whenever
+the bit is clear. Effects names the content, which stays true either way.
+
+**Graphics layer.** The umbrella for the four above. Say it in full: a bare
+"layer" is an op layer, defined under Editing below.
+
+**Priority plane.** Half of a graphics layer, split by the priority bit in
+each 8x8 subtile word (bit 13). Priority is per QUADRANT, not per 16x16
+tile: one Map16 tile can have two quadrants in front of sprites and two
+behind. This is how part of a pipe draws over the player while the rest does
+not.
 
 ## Editing
 
