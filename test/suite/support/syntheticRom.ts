@@ -1,6 +1,7 @@
 import * as path from 'path'
 import { RomFile } from '../../../src/rom/RomFile'
 import { ADDR, LEVEL_COUNT } from '../../../src/rom/SmwRom'
+import { OVERWORLD_ENTRY, SCREEN_EXIT } from '../../../src/rom/SubmapFlagGate'
 
 // 256 KB: `size % 1024 !== 512`, so RomFile reads no copier header (+512).
 const BUF_SIZE = 0x40000
@@ -17,6 +18,15 @@ const FILLER_PTR = 0x038000
 const FIRST_ROOM_PTR = 0x018000
 const ROOM_STRIDE = 0x100
 
+/**
+ * The stock code SubmapFlagGate checks, so a synthetic image is not declined.
+ * Written from the gate's own constants: tests that must catch a wrong
+ * constant plant their refusals at literal addresses instead.
+ */
+export function plantStockSubmapCode(rom: RomFile): void {
+  for (const c of [...OVERWORLD_ENTRY, ...SCREEN_EXIT]) rom.writeAt(c.addr, [...c.bytes])
+}
+
 const ptrBytes = (ptr: number): number[] => [ptr & 0xff, (ptr >> 8) & 0xff, (ptr >> 16) & 0xff]
 
 /**
@@ -25,7 +35,8 @@ const ptrBytes = (ptr: number): number[] => [ptr & 0xff, (ptr >> 8) & 0xff, (ptr
  *
  * Nintendo owns every byte of a real ROM, so tests build their own. Only the
  * structures `SmwRom.buildLevelExitGraph` reads are present: the map-mode byte,
- * the Layer-1 pointer table, and one object stream per room.
+ * the stock submap-flag BEQs, the Layer-1 pointer table, and one object stream
+ * per room.
  */
 export function writeSyntheticRom(dir: string, rooms: Map<number, number[]>): string {
   const buf = Buffer.alloc(BUF_SIZE, 0)
@@ -34,6 +45,7 @@ export function writeSyntheticRom(dir: string, rooms: Map<number, number[]>): st
   const file = path.join(dir, 'synthetic.sfc')
   const rom = new RomFile(file, buf)
   rom.writeAt(ADDR.ROM_NAME, Buffer.from('HACKBENCH SYNTHETIC  ', 'ascii'))
+  plantStockSubmapCode(rom)
 
   // The filler room terminates before its first object, so `levelHasObjects`
   // rejects it and no unclaimed slot can become a level or an exit target.

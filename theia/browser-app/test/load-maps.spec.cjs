@@ -12,6 +12,7 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
+const { maxDepth } = require('./tree-depth.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
@@ -63,8 +64,8 @@ test.afterEach(() => {
 })
 
 /** Create a project and load its maps, returning what the widget holds. */
-async function loadMaps(page, dir) {
-  return page.evaluate(
+async function loadMaps(page, dir, rom = ROM) {
+  const result = await page.evaluate(
     async ({ romPath, directory }) => {
       const svc = getSvc('Symbol(ProjectService)')
       if (!svc) return { error: 'ProjectService not resolvable from the frontend' }
@@ -97,16 +98,15 @@ async function loadMaps(page, dir) {
             .map(n => n.index)
             .filter(i => i >= 0),
         ).size,
-        deepest: Math.max(
-          0,
-          ...(group('overworld')?.children || []).map(function d(n, depth = 0) {
-            return n.children.length ? Math.max(...n.children.map(c => d(c, depth + 1))) : depth
-          }),
-        ),
+        // Shape only, measured in Node by maxDepth.
+        overworldShape: (group('overworld')?.children || []).map(function shape(n) {
+          return { children: (n.children || []).map(c => shape(c)) }
+        }),
       }
     },
-    { romPath: ROM, directory: dir },
+    { romPath: rom, directory: dir },
   )
+  return result.error ? result : { ...result, deepest: maxDepth(result.overworldShape) }
 }
 
 test('a new project loads every map its cartridge holds', async ({ page }) => {
@@ -119,6 +119,29 @@ test('a new project loads every map its cartridge holds', async ({ page }) => {
   expect(result.mapCount).toBe(VANILLA_MAPS)
   // Every map has to be reachable in the tree, not merely counted.
   expect(result.distinct).toBe(VANILLA_MAPS)
+})
+
+test('a ROM whose screen-exit routine is patched lists every map flat, and says why', async ({
+  page,
+}) => {
+  // $05D7CE is the BEQ that picks an exit's high byte (bank_05.asm:7108); the
+  // four edited corpus ROMs hold a JSL there. Planted into vanilla so this runs
+  // wherever vanilla does. Headerless LoROM: $05D7CE is file offset $2D7CE.
+  const patched = path.join(tmp, 'patched.sfc')
+  const bytes = fs.readFileSync(ROM)
+  expect(bytes[0x2d7ce]).toBe(0xf0)
+  bytes[0x2d7ce] = 0x22
+  fs.writeFileSync(patched, bytes)
+
+  const result = await loadMaps(page, path.join(tmp, 'Patched'), patched)
+  expect(result.error).toBeUndefined()
+  expect(result.mapCount).toBe(VANILLA_MAPS)
+  expect(result.distinct).toBe(VANILLA_MAPS)
+  // Vanilla nests (see the grouping test); the patched copy must not.
+  expect(result.deepest).toBe(0)
+  await expect
+    .poll(() => page.evaluate(() => document.body.innerText), { timeout: 10000 })
+    .toContain('Map hierarchy unavailable: $05D7CB')
 })
 
 test('the maps are grouped, not dumped in a flat list', async ({ page }) => {

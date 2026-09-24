@@ -25,7 +25,7 @@ describe.skipIf(!hasRom(VANILLA))('buildLevelExitGraph -- vanilla acceptance', (
 
   beforeAll(() => {
     rom = SmwRom.open(VANILLA_ROM)
-    graph = rom.buildLevelExitGraph()
+    graph = rom.buildLevelExitGraph().graph
   })
 
   it('$113 resolves to $1BB, not the $0BB filler', () => {
@@ -97,7 +97,7 @@ describe('buildLevelExitGraph -- AC2 and AC6 across the full ROM corpus', () => 
         const rom = SmwRom.open(romPath(name))
         let graph: Map<number, number[]> = new Map()
         expect(() => {
-          graph = rom.buildLevelExitGraph()
+          graph = rom.buildLevelExitGraph().graph
         }).not.toThrow()
 
         // Recompute the filler pointer the same way SmwRom does, to assert no

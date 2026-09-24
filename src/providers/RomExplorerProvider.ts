@@ -278,7 +278,7 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
     if (element instanceof RomInfoItem) {
       // Under ROM: Overworld folder first, then one LevelFolder per overworld level.
       const { overworld } = rom.classifyLevels()
-      const exitGraph = rom.buildLevelExitGraph()
+      const exitGraph = rom.buildLevelExitGraph().graph
 
       const folders = overworld.map(
         index =>

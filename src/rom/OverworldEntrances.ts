@@ -101,7 +101,8 @@
  * the `BEQ` opcode $F0 in a stock ROM (bank_05.asm:7224) and $22 (JSL) once
  * patched. Measured over this repo's six-ROM corpus, the two stock ROMs hold
  * $F0 and the four edited ones hold $22 -- an empirical corpus observation,
- * not an ASM claim. On any ROM where that byte is not $F0 the translevel ->
+ * not an ASM claim. SubmapFlagGate.ts checks that instruction and the path
+ * into it. On any ROM where they are not stock the translevel ->
  * slot mapping is computed by code this module does not decode, so the
  * derivation reports itself unavailable and emits nothing. No map can then
  * be identified as an entry map; every map stays unclassified and fully
@@ -112,6 +113,7 @@ import type { RomFile } from './RomFile'
 import type { SmwRom } from './SmwRom'
 import { buildLevelCatalog, type LevelCatalog } from './LevelCatalog'
 import { loadOverworldEvents } from './OverworldEvents'
+import { OVERWORLD_ENTRY, stockCodeMismatch } from './SubmapFlagGate'
 import {
   OW_ADDR,
   OW_L1_MAP16_BYTES,
@@ -133,9 +135,6 @@ export const TRANSLEVEL_BIAS = 0x24
 export const SUBMAP_SLOT_BASE = 0x100
 /** Buffer index at which the sub-map half of `OWLayer1Translevel` starts. */
 export const SUBMAP_BUFFER_BASE = 0x400
-/** `$05D8B1`: `BEQ` in a stock ROM, `JSL` once an overworld editor patched it. */
-export const OW_PATCH_PROBE_ADDR = 0x05d8b1
-export const OW_PATCH_PROBE_STOCK_BYTE = 0xf0
 
 /**
  * What happens when the player presses A on this tile.
@@ -290,12 +289,11 @@ export function deriveOverworldEntrances(
   rom: SmwRom,
   catalog?: LevelCatalog,
 ): OverworldEntranceIndex {
-  const probe = rom.rom.readByte(OW_PATCH_PROBE_ADDR)
-  if (probe !== OW_PATCH_PROBE_STOCK_BYTE) {
+  const patched = stockCodeMismatch(rom.rom, OVERWORLD_ENTRY)
+  if (patched) {
     return unavailable([
-      `Overworld not readable: $${OW_PATCH_PROBE_ADDR.toString(16).toUpperCase()} holds ` +
-        `0x${(probe ?? 0).toString(16).padStart(2, '0')}, not the stock 0xF0. This ROM's ` +
-        'overworld was rebuilt by another editor, which replaces the translevel-to-slot ' +
+      `Overworld not readable: ${patched} This ROM's overworld was rebuilt by another ` +
+        'editor, which replaces the translevel-to-slot ' +
         'mapping with code HackBench does not decode. No entry maps can be identified, so ' +
         'every map is left unclassified and stays fully editable. To get the overworld ' +
         'grouping, start from an unmodified ROM.',

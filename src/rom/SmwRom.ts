@@ -28,6 +28,7 @@
 import { RomFile } from './RomFile'
 import { parseLevelObjects } from './LevelParser'
 import { getLevelNameByIndex } from './SmwLevelNames'
+import { OVERWORLD_ENTRY, SCREEN_EXIT, stockCodeMismatch } from './SubmapFlagGate'
 
 /** SNES addresses for SMW ROM structures. */
 export const ADDR = {
@@ -89,6 +90,12 @@ export const LEVEL_COUNT = 0x200
  */
 export function isOverworldLevel(index: number): boolean {
   return (index >= 0x000 && index <= 0x024) || (index >= 0x101 && index <= 0x13b)
+}
+
+/** `unavailable` names why the graph could not be built; `graph` is then empty. */
+export interface LevelExitGraph {
+  graph: Map<number, number[]>
+  unavailable: string | null
 }
 
 export interface RomSummary {
@@ -340,18 +347,15 @@ export class SmwRom {
    * low byte (lines 7111-7112, 7162). Filler rejection: see
    * _findFillerL1Pointer().
    *
-   * Scope limit on edited ROMs: every ASM site above is patched out on some
-   * hacked ROMs. Stock, SNES address $05D8B1 is the `BEQ +` opcode $F0 that
-   * selects the destination high byte (bank_05.asm:7224; counting bytes from
-   * CODE_05D8A2 lands exactly on the CODE_05D8B7 label, which confirms the
-   * address). The patched value is an empirical corpus observation, not ASM:
-   * of this repo's 6 local ROMs, the 2 stock ones hold $F0 there and the 4
-   * edited ones hold $22 (JSL). Not a regression: the pre-fix code was equally
-   * blind to this and additionally wrong on vanilla. The resulting
-   * under-count on patched ROMs is the fail-closed behavior this repo
-   * prefers over a confidently wrong graph.
+   * Edited ROMs: the root's flag assumes the overworld-entry code and
+   * propagation the screen-exit code. When SubmapFlagGate.ts finds either
+   * replaced, the graph is empty and `unavailable` says why, rather than a
+   * stock-shaped graph from a table the ROM may no longer index this way.
    */
-  buildLevelExitGraph(): Map<number, number[]> {
+  buildLevelExitGraph(): LevelExitGraph {
+    const unavailable = stockCodeMismatch(this.rom, [...OVERWORLD_ENTRY, ...SCREEN_EXIT])
+    if (unavailable) return { graph: new Map(), unavailable }
+
     // The map universe comes from pointer identity, the same test
     // buildLevelCatalog applies. classifyLevels is deliberately NOT used here:
     // it dedupes by L1 pointer, and it gates on levelHasObjects(). Between them
@@ -374,7 +378,12 @@ export class SmwRom {
     const validDestinations = new Set(realMaps.filter(idx => !isOverworldLevel(idx)))
 
     const destTable = this.rom.readAt(ADDR.SEC_EXIT_DEST, ADDR.SEC_ENTRANCE_COUNT)
-    if (!destTable) return new Map()
+    if (!destTable) {
+      return {
+        graph: new Map(),
+        unavailable: 'The secondary-exit table DATA_05F800 is unreadable.',
+      }
+    }
 
     // Parse every level's screen-exit objects once. Resolution is deferred
     // to the BFS below because it needs each level's submap flag, which is
@@ -442,7 +451,7 @@ export class SmwRom {
       if (dests.length > 0) graph.set(cur, dests)
     }
 
-    return graph
+    return { graph, unavailable: null }
   }
 
   /** Get level name from ROM (decoded via SmwLevelNames). */

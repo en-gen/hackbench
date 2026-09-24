@@ -30,10 +30,12 @@ const VANILLA_ROM = romPath(VANILLA)
 const CORPUS = [
   { name: 'Super Mario World (USA).vanilla.sfc', maxRootNodes: 118, loops: 81, maxDepth: 6 },
   { name: 'Super Mario World (USA).magic.sfc', maxRootNodes: 118, loops: 81, maxDepth: 6 },
-  { name: 'Grand Poo World 2 1.1.sfc', maxRootNodes: 23, loops: 20, maxDepth: 5 },
-  { name: 'GrandPooWorld_V1.2.sfc', maxRootNodes: 118, loops: 80, maxDepth: 6 },
-  { name: 'Invictus 1.0.sfc', maxRootNodes: 44, loops: 13, maxDepth: 5 },
-  { name: 'Seven_Vanilla_Levels.sfc', maxRootNodes: 118, loops: 76, maxDepth: 6 },
+  // These four replace the submap-flag BEQs, so the graph is declined (#486).
+  // Their old pins measured a stock-shaped graph the ROM may not use.
+  { name: 'Grand Poo World 2 1.1.sfc', declined: true },
+  { name: 'GrandPooWorld_V1.2.sfc', declined: true },
+  { name: 'Invictus 1.0.sfc', declined: true },
+  { name: 'Seven_Vanilla_Levels.sfc', declined: true },
 ]
 
 const hex = (n: number) => '$' + n.toString(16).toUpperCase().padStart(3, '0')
@@ -68,7 +70,7 @@ function walk(node: LevelTreeNode, depth: number, s: Stats): void {
 }
 
 function statsForRom(rom: SmwRom): Stats {
-  const graph = rom.buildLevelExitGraph()
+  const graph = rom.buildLevelExitGraph().graph
   const s: Stats = {
     nodes: 0,
     loops: 0,
@@ -95,7 +97,7 @@ describe.skipIf(!hasRom(VANILLA))('buildLevelSubtree -- vanilla nesting', () => 
 
   beforeAll(() => {
     rom = SmwRom.open(VANILLA_ROM)
-    graph = rom.buildLevelExitGraph()
+    graph = rom.buildLevelExitGraph().graph
     stats = statsForRom(rom)
   })
 
@@ -168,6 +170,14 @@ describe('buildLevelSubtree -- measured expansion sizes', () => {
   // The caps in LevelTree.ts are sized against maxRootNodes; these pins are what
   // say how much headroom the six ROMs actually leave.
   for (const c of CORPUS) {
+    if ('declined' in c) {
+      it.skipIf(!hasRom(c.name))(`${c.name} declines the exit graph`, () => {
+        const result = SmwRom.open(romPath(c.name)).buildLevelExitGraph()
+        expect(result.unavailable).toMatch(/, not the stock /)
+        expect(result.graph.size).toBe(0)
+      })
+      continue
+    }
     it.skipIf(!hasRom(c.name))(
       `${c.name} peaks at ${c.maxRootNodes} nodes under one root, ${c.loops} loops, depth ${c.maxDepth}`,
       () => {
