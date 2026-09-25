@@ -13,11 +13,14 @@
  */
 import { describe, it, expect } from 'vitest'
 import { encode } from '../../../src/rom/LcLz2'
+import { loromFromOffset } from '../../../src/rom/addressing'
+import { RomFile } from '../../../src/rom/RomFile'
 import {
   GFX_FILE_COUNT,
   STOCK_LCLZ2_ENTRY,
   checkStockCompression,
   layoutArena,
+  matchesHook,
   planRegions,
   readGfxFileTable,
   readGfxPointerSites,
@@ -28,12 +31,47 @@ import {
   CART_SIZE,
   DECOMP_ENTRY,
   gfxStreams as freshStreams,
+  HOOK_EXGFX_OPERANDS,
+  HOOK_RANGE_A_LENGTH,
+  HOOK_RANGE_A_OFFSET,
+  HOOK_RANGE_B_LENGTH,
+  HOOK_RANGE_B_OFFSET,
+  HOOK_TABLE_OFFSET,
+  HOOK_TAIL_OFFSET,
+  jsl,
   OPERAND_POSITIONS,
+  plantHookSignature,
   prepareGraphicsFile,
+  ROUTINE_AT,
   TABLE_BANK,
   TABLE_HI,
   TABLE_LO,
 } from '../support/syntheticGfxCart'
+
+// Pinned by literal, not imported from GfxArena: a wrong LEVEL_GFX_CALLERS
+// constant must not be able to hide behind the synthetic ROM using it too.
+const PRIMARY_CALLER = 0x00aa6b
+const SPECIAL_WORLD_CALLER = 0x00aa7a
+const HOOK_AT = 0x019000 // bank 1, unused by any other fixture in this file
+
+/** The 3-byte spans `matchesHook`'s fingerprint masks: not part of "every
+ *  byte flipped must refuse", since the ROM is free to vary them. */
+const HOOK_MASKED_SPANS: readonly [number, number][] = [
+  [HOOK_TABLE_OFFSET + 4, HOOK_TABLE_OFFSET + 7],
+  [HOOK_TABLE_OFFSET + 10, HOOK_TABLE_OFFSET + 13],
+  [HOOK_TABLE_OFFSET + 16, HOOK_TABLE_OFFSET + 19],
+  [HOOK_TAIL_OFFSET + 9, HOOK_TAIL_OFFSET + 12],
+  ...HOOK_EXGFX_OPERANDS.map((o): [number, number] => [o, o + 3]),
+]
+const isHookMasked = (offset: number): boolean =>
+  HOOK_MASKED_SPANS.some(([start, end]) => offset >= start && offset < end)
+
+// Erases whatever buildCart's default plant left near the real call sites,
+// so a test's own literal-addressed write is what the resolver actually
+// finds, not a coincidence of the default landing nearby too.
+function clearCallers(rom: RomFile): void {
+  rom.writeAt(0x00aa50, new Array(0x40).fill(0xea))
+}
 
 describe('readGfxPointerSites', () => {
   it('reads the pointer tables and the decompressor entry out of the routine', () => {
@@ -83,6 +121,134 @@ describe('readGfxPointerSites', () => {
     }
     expect(survived).toEqual([])
   })
+
+  it("resolves the tables and decompressor entry in the routine's own relocated bank", () => {
+    const streams = freshStreams()
+    const { rom } = buildCart({ bank: 1, streams, filler: 64 })
+    const sites = readGfxPointerSites(rom)
+    expect(sites).not.toBeNull()
+    const banks = [sites!.lo, sites!.hi, sites!.bank, sites!.decompressorEntry].map(a => a >>> 16)
+    expect(banks).toEqual([1, 1, 1, 1])
+
+    const r = layoutArena(rom, streams)
+    expect(r.status).toBe('ok')
+    if (r.status !== 'ok') return
+    for (const w of r.plan.writes.slice(-3)) expect(w.offset).toBeGreaterThanOrEqual(0x8000)
+  })
+
+  it('accepts a primary call reaching the matched routine directly through the FastROM mirror', () => {
+    const { rom } = buildCart()
+    clearCallers(rom)
+    const mirrored = loromFromOffset(ROUTINE_AT)! | 0x800000
+    rom.writeAt(PRIMARY_CALLER, jsl(mirrored))
+    expect(readGfxPointerSites(rom)).not.toBeNull()
+  })
+
+  it('refuses when the primary call points elsewhere, even though the special-world call reaches the routine', () => {
+    // The special-world call alone proves nothing about normal levels: it
+    // only runs for one case (bank_00.asm:5403-5406).
+    const { rom } = buildCart()
+    clearCallers(rom)
+    const matched = loromFromOffset(ROUTINE_AT)!
+    rom.writeAt(PRIMARY_CALLER, jsl(0x008000)) // neither the routine nor the hook
+    rom.writeAt(SPECIAL_WORLD_CALLER, jsl(matched))
+    expect(readGfxPointerSites(rom)).toBeNull()
+  })
+})
+
+describe('matchesHook', () => {
+  it('accepts a synthetic hook signature whose own fingerprint is passed in, tables and JML agreeing', () => {
+    const { rom } = buildCart()
+    const jsrAt = loromFromOffset(ROUTINE_AT)! + 0x1f
+    const fingerprint = plantHookSignature(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt)
+    expect(matchesHook(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt, [fingerprint])).toBe(
+      true,
+    )
+  })
+
+  it('accepts a hook whose JML operand reaches the JSR through the FastROM mirror', () => {
+    const { rom } = buildCart()
+    const jsrAt = loromFromOffset(ROUTINE_AT)! + 0x1f
+    const fingerprint = plantHookSignature(
+      rom,
+      HOOK_AT,
+      TABLE_LO,
+      TABLE_HI,
+      TABLE_BANK,
+      jsrAt | 0x800000,
+    )
+    expect(matchesHook(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt, [fingerprint])).toBe(
+      true,
+    )
+  })
+
+  it('refuses a hook-shaped signature whose fingerprint is not a recognized one', () => {
+    // No override: falls back to the real, corpus-measured table, which a
+    // synthetic (all-NOP) signature cannot hash to.
+    const { rom } = buildCart()
+    const jsrAt = loromFromOffset(ROUTINE_AT)! + 0x1f
+    plantHookSignature(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt)
+    expect(matchesHook(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt)).toBe(false)
+  })
+
+  it('refuses a hook whose table operand was relocated', () => {
+    const { rom } = buildCart()
+    const jsrAt = loromFromOffset(ROUTINE_AT)! + 0x1f
+    const fingerprint = plantHookSignature(
+      rom,
+      HOOK_AT,
+      TABLE_LO + 0x40,
+      TABLE_HI,
+      TABLE_BANK,
+      jsrAt,
+    )
+    expect(matchesHook(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt, [fingerprint])).toBe(
+      false,
+    )
+  })
+
+  it('refuses a hook whose JML target is wrong', () => {
+    const { rom } = buildCart()
+    const matched = loromFromOffset(ROUTINE_AT)!
+    const fingerprint = plantHookSignature(
+      rom,
+      HOOK_AT,
+      TABLE_LO,
+      TABLE_HI,
+      TABLE_BANK,
+      matched + 0x20,
+    )
+    expect(
+      matchesHook(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, matched + 0x1f, [fingerprint]),
+    ).toBe(false)
+  })
+
+  it('refuses on a planted defect at every byte of both ranges, except the masked operands', () => {
+    // The defect this exists to catch: a fixed offset confirms bytes exist
+    // there but never checks the path between them, so a retargeted hop or
+    // a changed branch anywhere else in the hook survived undetected.
+    const { rom } = buildCart()
+    const jsrAt = loromFromOffset(ROUTINE_AT)! + 0x1f
+    const fingerprint = plantHookSignature(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt)
+    const survived: number[] = []
+    for (const [rangeOffset, rangeLength] of [
+      [HOOK_RANGE_A_OFFSET, HOOK_RANGE_A_LENGTH],
+      [HOOK_RANGE_B_OFFSET, HOOK_RANGE_B_LENGTH],
+    ] as const) {
+      for (let i = 0; i < rangeLength; i++) {
+        const offset = rangeOffset + i
+        if (isHookMasked(offset)) continue
+        const at = HOOK_AT + offset
+        const original = rom.readAt(at, 1)![0]!
+        rom.writeAt(at, [(original + 1) & 0xff])
+        if (matchesHook(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt, [fingerprint])) {
+          survived.push(offset)
+        }
+        rom.writeAt(at, [original])
+      }
+    }
+    expect(survived).toEqual([])
+  })
 })
 
 describe('checkStockCompression', () => {
@@ -115,6 +281,17 @@ describe('checkStockCompression', () => {
     // Existing is not the same as reached: the entry can be pristine while
     // nothing calls it, so with no resolvable call site this fails closed.
     expect(checkStockCompression(buildCart({ routine: [0x60] }).rom).ok).toBe(false)
+  })
+
+  it('names the call site and its target when the primary call cannot reach it', () => {
+    const { rom } = buildCart()
+    clearCallers(rom)
+    rom.writeAt(PRIMARY_CALLER, jsl(0x008000))
+    const r = checkStockCompression(rom)
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.reason).toMatch(/\$00AA6B/i)
+    expect(r.reason).toMatch(/\$008000/i)
   })
 })
 

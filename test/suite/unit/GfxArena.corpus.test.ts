@@ -11,7 +11,14 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { GFX_FILE_COUNT, planRegions, readGfxFileTable } from '../../../src/rom/GfxArena'
+import {
+  GFX_FILE_COUNT,
+  HOOK_FINGERPRINTS,
+  LEVEL_GFX_CALLERS,
+  computeHookFingerprint,
+  planRegions,
+  readGfxFileTable,
+} from '../../../src/rom/GfxArena'
 import { GfxTable, planGfxSave, readTilesPerFile } from '../../../src/rom/GfxTable'
 import { COPIER_HEADER_SIZE } from '../../../src/rom/addressing'
 import { hasRom, romPath } from '../support/corpus'
@@ -25,6 +32,28 @@ const CARTS = [
   { name: 'GrandPooWorld_V1.2.sfc', regions: 4, used: 115981, slack: 0 },
   { name: 'Grand Poo World 2 1.1.sfc', regions: 4, used: 115965, slack: 0 },
 ]
+
+/** The 4 corpus ROMs whose primary level-GFX call is the Lunar Magic ExGFX
+ *  hook rather than PrepareGraphicsFile directly. Invictus is here too,
+ *  even though it fails the separate decompressor check, since the hook
+ *  fingerprint is unrelated to that gate. */
+const HOOKED = [
+  'GrandPooWorld_V1.2.sfc',
+  'Grand Poo World 2 1.1.sfc',
+  'Invictus 1.0.sfc',
+  'Seven_Vanilla_Levels.sfc',
+]
+
+for (const name of HOOKED) {
+  describe.skipIf(!hasRom(name))(`${name}: ExGFX hook`, () => {
+    it('fingerprints to a known hook build', () => {
+      const rom = RomFile.load(romPath(name))
+      const jsl = rom.readAt(LEVEL_GFX_CALLERS[0]!, 4)!
+      const target = (jsl[1]! | (jsl[2]! << 8) | (jsl[3]! << 16)) & 0x7fffff
+      expect(HOOK_FINGERPRINTS).toContain(computeHookFingerprint(rom, target))
+    })
+  })
+}
 
 for (const cart of CARTS) {
   const path = romPath(cart.name)

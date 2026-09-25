@@ -31,9 +31,10 @@
  * test/suite/unit/GfxArena.header.test.ts plants the mistake and proves the
  * headered and headerless twins diverge under it.
  */
+import * as crypto from 'crypto'
 import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern } from './BytePattern'
-import { LOROM_BANK_SIZE, loromFromOffset, loromToOffset } from './addressing'
+import { LOROM_BANK_SIZE, formatAddr, loromFromOffset, loromToOffset } from './addressing'
 import { parseStream } from './LcLz2'
 
 /**
@@ -121,36 +122,152 @@ export interface GfxPointerSites {
   lo: number
   hi: number
   bank: number
-  /** Bank-0 address the routine calls to decompress. */
+  /** SNES address the routine calls to decompress. */
   decompressorEntry: number
+}
+
+export type CompressionCheck = { ok: true; sites: GfxPointerSites } | { ok: false; reason: string }
+
+/** JSL PrepareGraphicsFile in UploadGFXFile: the level FG/BG loader
+ *  (bank_00.asm:5402) and its post-special-world variant (bank_00.asm:5408).
+ *  Only the first drives acceptance below. */
+export const LEVEL_GFX_CALLERS = [0x00aa6b, 0x00aa7a]
+
+/** The 24-bit JSL target at `snes`, bank bit 7 folded for the FastROM
+ *  mirror, or null off a JSL opcode or off the ROM. */
+function jslTarget(rom: RomFile, snes: number): number | null {
+  const bytes = rom.readAt(snes, 4)
+  if (!bytes || bytes[0] !== 0x22) return null
+  return (bytes[1]! | (bytes[2]! << 8) | (bytes[3]! << 16)) & 0x7fffff
+}
+
+/**
+ * The Lunar Magic ExGFX hook seen on 4 of 6 corpus ROMs, as two byte ranges
+ * relative to the hook's own resolved address: the entry dispatcher and the
+ * output-buffer setup through the table lookup and its JML tail. A single
+ * fixed offset cannot stand for the hook by itself, because nothing then
+ * checks the path between offsets; hashing the whole span catches a
+ * retargeted hop or a changed branch the same as a changed operand.
+ *
+ * Measured byte-identical, entry through tail, on GPW 1.2, GPW2, Invictus
+ * and Seven Vanilla Levels, except the operands masked below.
+ */
+const HOOK_RANGE_A_OFFSET = 0x000
+const HOOK_RANGE_A_LENGTH = 0x07f
+const HOOK_RANGE_B_OFFSET = 0x6e0
+const HOOK_RANGE_B_LENGTH = 0x12f
+
+const HOOK_TABLE_OFFSET = 0x7b4 // three LDA long,X operands, at +4, +10, +16
+const HOOK_TAIL_OFFSET = 0x7fa // the JML operand, at +9
+/** The hook's JML lands on PrepareGraphicsFile's JSR to the decompressor. */
+const HOOK_JSR_INSTRUCTION_OFFSET = OFF_JSR_TARGET - 1
+const HOOK_OPERAND_WIDTH = 3
+/** Every 3-byte operand masked out before hashing: the three GFX tables,
+ *  the JML target, and the hack's extended-GFX data pointers (two used only for
+ *  files $100 and up, one in unreachable bytes); none decides a normal load. */
+const HOOK_MASKED_OFFSETS = [
+  HOOK_TABLE_OFFSET + 4,
+  HOOK_TABLE_OFFSET + 10,
+  HOOK_TABLE_OFFSET + 16,
+  HOOK_TAIL_OFFSET + 9,
+  0x713,
+  0x7d7,
+  0x7dd,
+]
+
+/**
+ * SHA-256 of the hook's two ranges at `primary` with the operands above
+ * zeroed, or null off the ROM. Long recognized code is fingerprinted rather
+ * than committed literally: comparing a hash instead of ~430 bytes.
+ */
+export function computeHookFingerprint(rom: RomFile, primary: number): string | null {
+  const a = rom.readAt(primary + HOOK_RANGE_A_OFFSET, HOOK_RANGE_A_LENGTH)
+  const b = rom.readAt(primary + HOOK_RANGE_B_OFFSET, HOOK_RANGE_B_LENGTH)
+  if (!a || !b) return null
+  const masked = Buffer.concat([a, b])
+  for (const off of HOOK_MASKED_OFFSETS) {
+    const at = HOOK_RANGE_A_LENGTH + (off - HOOK_RANGE_B_OFFSET)
+    masked.fill(0, at, at + HOOK_OPERAND_WIDTH)
+  }
+  return crypto.createHash('sha256').update(masked).digest('hex')
+}
+
+/** Fingerprints of every hook build this tool recognizes. A parameter on
+ *  `matchesHook` below, not baked into it, so a synthetic ROM's own
+ *  fingerprint can stand in for it in tests. */
+export const HOOK_FINGERPRINTS: readonly string[] = [
+  'a780fbfc92025e5cae072b8f9a520ef19b4c1b184be4da3c7f57af1bb54f3e83',
+]
+
+/** True when `primary`'s masked fingerprint is recognized, its three table
+ *  operands equal the matched routine's own, and its JML lands on the
+ *  matched routine's JSR, bank bit 7 folded as `jslTarget` folds it. */
+export function matchesHook(
+  rom: RomFile,
+  primary: number,
+  lo: number,
+  hi: number,
+  bank: number,
+  jsrAt: number,
+  fingerprints: readonly string[] = HOOK_FINGERPRINTS,
+): boolean {
+  const fp = computeHookFingerprint(rom, primary)
+  if (fp === null || !fingerprints.includes(fp)) return false
+  const table = rom.readAt(primary + HOOK_TABLE_OFFSET, 23)
+  const tail = rom.readAt(primary + HOOK_TAIL_OFFSET, 12)
+  if (!table || !tail) return false
+  const long = (buf: Buffer, o: number): number =>
+    buf[o]! | (buf[o + 1]! << 8) | (buf[o + 2]! << 16)
+  if (long(table, 4) !== lo || long(table, 10) !== hi || long(table, 16) !== bank) return false
+  return (long(tail, 9) & 0x7fffff) === (jsrAt & 0x7fffff)
 }
 
 /** The pointer tables and decompression call this cartridge actually uses,
  *  or null when PrepareGraphicsFile cannot be resolved to exactly one site. */
 export function readGfxPointerSites(rom: RomFile): GfxPointerSites | null {
+  const r = resolveGfxPointerSites(rom)
+  return r.ok ? r.sites : null
+}
+
+/** As `readGfxPointerSites`, but keeps the reason a caller can surface. */
+function resolveGfxPointerSites(rom: RomFile): CompressionCheck {
+  const unresolved = 'PrepareGraphicsFile does not resolve to exactly one site on this ROM'
   const hits = findPattern(rom, PREPARE_GFX_PATTERN, 2)
-  if (hits.length !== 1) return null
+  if (hits.length !== 1) return { ok: false, reason: unresolved }
   const site = rom.readAtFileOffset(hits[0]!, PREPARE_GFX_PATTERN.length)
-  if (!site) return null
-  const word = (off: number): number => site[off]! | (site[off + 1]! << 8)
+  const matched = loromFromOffset(hits[0]!)
+  if (!site || matched === null) return { ok: false, reason: unresolved }
+  // PHK/PLB (bank_00.asm:6574-6575) sets the data bank for the three table
+  // reads; the JSR target resolves in the program bank, the same bank here.
+  const bank = matched & 0xff0000
+  const word = (off: number): number => bank | site[off]! | (site[off + 1]! << 8)
   const lo = word(OFF_TABLE_LO)
   const hi = word(OFF_TABLE_HI)
-  const bank = word(OFF_TABLE_BANK)
+  const tableBank = word(OFF_TABLE_BANK)
   // The gap between the three tables IS the file count, and the cart states
   // it. Refuse when it disagrees with GFX_FILE_COUNT rather than writing 50
   // pointers into a table sized for something else: too few leaves the tail
   // pointing at data the repack overwrote, too many spills into the next
   // table. Both are silent, and both corrupt a cartridge that still loads.
-  if (hi - lo !== GFX_FILE_COUNT || bank - hi !== GFX_FILE_COUNT) return null
-  return {
-    lo,
-    hi,
-    bank,
-    decompressorEntry: word(OFF_JSR_TARGET),
+  if (hi - lo !== GFX_FILE_COUNT || tableBank - hi !== GFX_FILE_COUNT)
+    return { ok: false, reason: unresolved }
+  const primary = LEVEL_GFX_CALLERS[0]!
+  const target = jslTarget(rom, primary)
+  const direct = target === matched
+  const hooked =
+    target !== null &&
+    matchesHook(rom, target, lo, hi, tableBank, matched + HOOK_JSR_INSTRUCTION_OFFSET)
+  if (!direct && !hooked) {
+    return {
+      ok: false,
+      reason:
+        `the level GFX loader's call at ${formatAddr(primary)} targets ` +
+        `${target === null ? 'something that is not a JSL' : formatAddr(target)}, ` +
+        'not PrepareGraphicsFile or its recognized hook',
+    }
   }
+  return { ok: true, sites: { lo, hi, bank: tableBank, decompressorEntry: word(OFF_JSR_TARGET) } }
 }
-
-export type CompressionCheck = { ok: true; sites: GfxPointerSites } | { ok: false; reason: string }
 
 /** The SNES address the pointer tables give file `index`, or null. */
 export function gfxFileAddress(rom: RomFile, sites: GfxPointerSites, index: number): number | null {
@@ -169,15 +286,9 @@ export function gfxFileAddress(rom: RomFile, sites: GfxPointerSites, index: numb
  * first because that is where the entry address comes from.
  */
 export function checkStockCompression(rom: RomFile): CompressionCheck {
-  const sites = readGfxPointerSites(rom)
-  if (!sites) {
-    return {
-      ok: false,
-      reason:
-        'PrepareGraphicsFile does not resolve to exactly one site on this ROM, ' +
-        'so there is no readable path to the decompressor',
-    }
-  }
+  const resolved = resolveGfxPointerSites(rom)
+  if (!resolved.ok) return resolved
+  const sites = resolved.sites
   const entry = rom.readAt(sites.decompressorEntry, STOCK_LCLZ2_ENTRY.length)
   if (!entry) {
     return { ok: false, reason: `the decompressor entry does not resolve to ROM data` }
