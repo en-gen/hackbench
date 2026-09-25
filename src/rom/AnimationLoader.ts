@@ -45,7 +45,7 @@
  *
  * ── ROM addresses ─────────────────────────────────────────────────────────────
  *
- * GFX33 pointer:       $00B882 (3-byte little-endian SNES address)
+ * GFX33/GFX32 sources: immediates in CODE_00B888, reached from $009414
  * AnimatedTileData:    $05B999 (table of 2-byte pointers into AnimatedTiles RAM)
  * VRAM dest tables:    $05B93B, $05B93D, $05B93F
  * Tile behavior table: $05B96B (0=static, 1=P-switch/ON-OFF, 2=tileset-dependent)
@@ -57,13 +57,30 @@
 
 import { RomFile } from './RomFile'
 import { decompress } from './LcLz2'
+import { loromToOffset } from './addressing'
+import { matchesAt, WILD, type BytePattern } from './BytePattern'
 import { PIXELS_PER_TILE } from './GraphicsDecoder'
 import { framesToMs } from './timing'
 
 // ── ROM addresses ────────────────────────────────────────────────────────────
 
-/** 3-byte LE pointer to the compressed GFX33 data in ROM ($00B882). */
-const GFX33_PTR_ADDR = 0x00b882
+// GM01Presents' `JSR CODE_00B888` (bank_00.asm:2300); the routine is found through it.
+const GFX_LOAD_CALL = 0x009414
+// REP #$10 / LDY #GFX33 / STY GraphicsCompPtr / LDA #bank / STA GraphicsCompPtr+2
+// (bank_00.asm:6250-6254).
+const GFX33_LOAD: BytePattern = [0xc2, 0x10, 0xa0, WILD, WILD, 0x84, 0x8a, 0xa9, WILD, 0x85, 0x8c]
+// CODE_00B8D7's LDA #$8000 / STA GraphicsCompPtr / SEP #$20, $4F bytes into the
+// routine (bank_00.asm:6290-6292). The bank byte is left as GFX33 set it.
+const GFX32_LOAD_OFFSET = 0x4f
+const GFX32_LOAD: BytePattern = [0xa9, WILD, WILD, 0x85, 0x8a, 0xe2, 0x20]
+// CODE_00B8C4's BMI CODE_00B8D7 (bank_00.asm:6283): the expansion loop's only exit, so
+// a BMI at +$44 landing on +$4F makes the checked LDA the one that runs next.
+const EXPAND_EXIT_OFFSET = 0x44
+const EXPAND_EXIT: BytePattern = [0x30, GFX32_LOAD_OFFSET - EXPAND_EXIT_OFFSET - 2]
+
+// The level-play `JSL CODE_05BB39` (bank_00.asm:4508), four JSLs past CODE_00A28A's `+`.
+const LEVEL_ANIM_CALL = 0x00a2a5
+const STOCK_ANIM_ROUTINE = 0x05bb39 // CODE_05BB39, bank_05.asm:4383
 
 /** Maximum compressed size to read for GFX33 decompression. */
 const GFX33_MAX_COMPRESSED = 0x4000
@@ -213,13 +230,39 @@ function expand3bppTo4bpp(data3bpp: Uint8Array): Uint8Array {
 
 // ── Core loader ──────────────────────────────────────────────────────────────
 
-/**
- * Read the GFX33 pointer from ROM at $00B882 (3-byte LE SNES address).
- */
-function readGfx33Pointer(rom: RomFile): number {
-  const buf = rom.readAt(GFX33_PTR_ADDR, 3)
-  if (!buf) return 0
-  return buf[0] | (buf[1] << 8) | (buf[2] << 16)
+export type AnimGfxSources =
+  { ok: true; gfx33: number; gfx32Offset: number } | { ok: false; reason: string }
+
+/** GFX33's address and GFX32's in-bank offset, from CODE_00B888's own immediates. */
+export function readAnimGfxSources(rom: RomFile): AnimGfxSources {
+  const at = (snes: number): number | null => loromToOffset(snes, rom.romSize)
+  const callAt = at(GFX_LOAD_CALL)
+  const call = callAt === null ? null : matchesAt(rom, callAt, [0x20, WILD, WILD])
+  if (!call)
+    return { ok: false, reason: '$009414 no longer calls the GFX33/GFX32 loader with a JSR' }
+  const routineAt = at(call[1]! | (call[2]! << 8))
+  const head = routineAt === null ? null : matchesAt(rom, routineAt, GFX33_LOAD)
+  if (!head) return { ok: false, reason: 'the GFX33 load in CODE_00B888 is not LDY/LDA #imm' }
+  const tail = matchesAt(rom, routineAt! + GFX32_LOAD_OFFSET, GFX32_LOAD)
+  const exit = matchesAt(rom, routineAt! + EXPAND_EXIT_OFFSET, EXPAND_EXIT)
+  if (!tail || !exit) return { ok: false, reason: 'the GFX32 load in CODE_00B888 is not LDA #imm' }
+  const bank = (head[8]! & 0x7f) << 16
+  return {
+    ok: true,
+    gfx33: bank | head[3]! | (head[4]! << 8),
+    gfx32Offset: tail[1]! | (tail[2]! << 8),
+  }
+}
+
+/** The level animation call's other target, or why it cannot be read; null while it reaches CODE_05BB39. */
+export function stockAnimationUnreached(
+  rom: RomFile,
+): { target: number } | { reason: string } | null {
+  const callAt = loromToOffset(LEVEL_ANIM_CALL, rom.romSize)
+  const jsl = callAt === null ? null : matchesAt(rom, callAt, [0x22, WILD, WILD, WILD])
+  if (!jsl) return { reason: 'the level animation call at $00A2A5 is no longer a JSL' }
+  const target = (jsl[1]! | (jsl[2]! << 8) | (jsl[3]! << 16)) & 0x7fffff
+  return target === STOCK_ANIM_ROUTINE ? null : { target }
 }
 
 /**
@@ -240,7 +283,7 @@ function readGfx33Pointer(rom: RomFile): number {
 function loadAnimatedTileBuffer(rom: RomFile): Uint8Array | null {
   // Replicate CODE_00B888 (bank_00.asm lines 6250-6302):
   //
-  // Step 1: Decompress GFX33 from $00B882 pointer into MarioGraphics ($2000).
+  // Step 1: Decompress GFX33 (from CODE_00B888's immediates) into MarioGraphics ($2000).
   //         This is a SPECIAL oversized GFX33 (not the same as the pointer table entry).
   //         Decompresses to much more than 9216 bytes - fills $2000 to ~$7B00+.
   //
@@ -253,12 +296,13 @@ function loadAnimatedTileBuffer(rom: RomFile): Uint8Array | null {
   //
   // Our buffer covers $2000-$ACFE, indexed from MARIO_GRAPHICS_RAM_BASE ($2000).
 
-  const gfx33Ptr = readGfx33Pointer(rom)
-  if (gfx33Ptr === 0) return null
-  const gfx33Compressed = rom.readAt(gfx33Ptr, GFX33_MAX_COMPRESSED)
+  const sources = readAnimGfxSources(rom)
+  if (!sources.ok) return null
+  const gfx33Compressed = rom.readAt(sources.gfx33, GFX33_MAX_COMPRESSED)
   if (!gfx33Compressed) return null
-  const gfx33Decompressed = decompress(gfx33Compressed)
-  if (gfx33Decompressed.length === 0) return null
+  const meter = { consumed: 0, terminated: false }
+  const gfx33Decompressed = decompress(gfx33Compressed, 0, undefined, meter)
+  if (gfx33Decompressed.length === 0 || !meter.terminated) return null
 
   // Expand ALL decompressed bytes from 3bpp → 4bpp.
   // CODE_00B888 starts LDX at #$23FF and processes source bytes from X down to 0.
@@ -267,13 +311,10 @@ function loadAnimatedTileBuffer(rom: RomFile): Uint8Array | null {
   // output is larger than just the AnimatedTiles region.
   const gfx33Expanded = expand3bppTo4bpp(gfx33Decompressed)
 
-  // Decompress GFX32 (Mario sprites) - CODE_00B8D7 continues decompression
-  // from the same bank as GFX33 at offset $8000. This is a LARGE version of GFX32
-  // (23,808 bytes), NOT the same as the GFX pointer table entry (3,072 bytes).
-  // It overwrites $2000+ with the full Mario sprite tileset including berry data.
-  const gfx33Bank = (gfx33Ptr >> 16) & 0xff
-  const gfx32Ptr = (gfx33Bank << 16) | 0x8000 // CODE_00B8D7: LDA #$8000; STA GraphicsCompPtr
-  const gfx32Compressed = rom.readAt(gfx32Ptr, GFX33_MAX_COMPRESSED)
+  // ReadByte steps into the next bank past $FFFF, terminator included (bank_00.asm:6405-6412),
+  // and CODE_00B8D7 sets only the low word, so GFX32 sits in the bank GFX33's stream ended in.
+  const endBank = (sources.gfx33 >> 16) + (((sources.gfx33 & 0x7fff) + meter.consumed) >> 15)
+  const gfx32Compressed = rom.readAt((endBank << 16) | sources.gfx32Offset, GFX33_MAX_COMPRESSED)
   // Pre-fill the output buffer with the expanded GFX33 data at the correct offset.
   // The game decompresses GFX32 into RAM that already contains GFX33 expanded data
   // at $7D00+ ($5D00+ in our buffer). Backreferences in GFX32 can read from this data.
@@ -441,7 +482,6 @@ export function loadAnimationData(rom: RomFile, tilesetId: number): AnimationDat
           continue
         }
 
-        const charBase = vramAddrToChar(vramDest)
         const tiles = decodeTilesAt(buffer, bufferOffset)
 
         // Blue-P-switch alt pixel data: for behavior=1 slots whose
@@ -459,19 +499,7 @@ export function loadAnimationData(rom: RomFile, tilesetId: number): AnimationDat
           }
         }
 
-        // Special case: VRAM dest $0800 (berry tiles) - the DMA at CODE_00A3F0
-        // (bank_00.asm line ~4649) splits the 128-byte transfer into two 64-byte
-        // halves: first 2 tiles → VRAM $0800, next 2 tiles → VRAM $0900.
-        // This places the berry's TL/BL at chars $080-$081 and TR/BR at $090-$091,
-        // creating the correct 2×2 layout in the 16-wide VRAM char grid.
-        if (vramDest === 0x0800) {
-          // Berry slots are behavior=2 (tileset-dependent), never P-switch,
-          // so altTiles is always undefined here.
-          frameSlots.push({ charBase, tiles: tiles.slice(0, 2) })
-          frameSlots.push({ charBase: vramAddrToChar(0x0900), tiles: tiles.slice(2, 4) })
-        } else {
-          frameSlots.push({ charBase, tiles, altTiles })
-        }
+        frameSlots.push(...destSlots(vramDest, tiles, altTiles))
       }
     }
 
@@ -483,6 +511,38 @@ export function loadAnimationData(rom: RomFile, tilesetId: number): AnimationDat
     frames,
     intervalMs: ANIM_INTERVAL_MS,
   }
+}
+
+/**
+ * The slots one transfer fills. The DMA at CODE_00A3F0 (bank_00.asm ~4649) splits
+ * the berry's $0800 transfer: 2 tiles to $0800 and 2 to $0900, a 2x2 in the grid.
+ * Berry slots are behavior 2, never P-switch, so they carry no altTiles.
+ */
+function destSlots(
+  vramDest: number,
+  tiles: Uint8Array[],
+  altTiles?: Uint8Array[],
+): AnimFrameSlot[] {
+  const charBase = vramAddrToChar(vramDest)
+  if (vramDest !== 0x0800) return [{ charBase, tiles, altTiles }]
+  return [
+    { charBase, tiles: tiles.slice(0, 2) },
+    { charBase: vramAddrToChar(0x0900), tiles: tiles.slice(2, 4) },
+  ]
+}
+
+/** Every character the stock routine writes, from its destination tables alone. */
+export function stockAnimatedChars(rom: RomFile): Set<number> {
+  const chars = new Set<number>()
+  const tiles = Array.from({ length: TILES_PER_TRANSFER }, () => new Uint8Array(0))
+  // DATA_05B93B/3D/3F overlap, so slot t's destination is the word at $05B93B + 2t.
+  for (let t = 0; t < TILE_GROUP_COUNT * 3; t++) {
+    const dest = readVramDest(rom, VRAM_DEST_TABLE_C, t * 2)
+    if (dest === 0) continue
+    for (const slot of destSlots(dest, tiles))
+      slot.tiles.forEach((_, i) => chars.add(slot.charBase + i))
+  }
+  return chars
 }
 
 /**

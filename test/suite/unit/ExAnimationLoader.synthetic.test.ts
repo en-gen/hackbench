@@ -11,7 +11,11 @@
 
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { isLmExAnimInstalled, loadExAnimData } from '../../../src/rom/ExAnimationLoader'
+import {
+  isLmExAnimInstalled,
+  loadExAnimData,
+  readExAnimLevel,
+} from '../../../src/rom/ExAnimationLoader'
 
 /**
  * Hand-built LC_LZ2 stream that decompresses to 128 bytes of $42, terminated
@@ -25,7 +29,6 @@ const LZ2_128_BYTES_OF_42 = [0xe4, 0x7f, 0x42, 0xff]
 
 /** SNES addresses ExAnimationLoader watches. */
 const ANIMATION_JSL_ADDR = 0x00a2a5
-const VANILLA_ANIM_TARGET = 0x05bb39
 const ANIM_SETTINGS_TABLE = 0x03fe00
 const EXANIM_LEVEL_TABLE_PTR = 0x0583ae
 const EXGFX_LO_TABLE_ADDR = 0x0ff600
@@ -44,7 +47,7 @@ function write3(rom: RomFile, snesAddr: number, value: number): void {
   rom.writeAt(snesAddr, [value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff])
 }
 
-/** Patch the JSL at $00A2A5 to a non-vanilla target so isLmExAnimInstalled returns true. */
+/** Redirect the JSL at $00A2A5 to a non-stock target. */
 function installLmJsl(rom: RomFile, target: number = 0x108000): void {
   rom.writeAt(ANIMATION_JSL_ADDR, [
     0x22,
@@ -57,27 +60,11 @@ function installLmJsl(rom: RomFile, target: number = 0x108000): void {
 // ── isLmExAnimInstalled ───────────────────────────────────────────────────────
 
 describe('isLmExAnimInstalled', () => {
-  it('returns false when JSL opcode is missing', () => {
-    const rom = makeMockRom()
-    rom.writeAt(ANIMATION_JSL_ADDR, [0xea, 0x00, 0x00, 0x00]) // NOP, not JSL
-    expect(isLmExAnimInstalled(rom)).toBe(false)
-  })
-
-  it('returns false when JSL still targets vanilla CODE_05BB39', () => {
-    const rom = makeMockRom()
-    rom.writeAt(ANIMATION_JSL_ADDR, [
-      0x22,
-      VANILLA_ANIM_TARGET & 0xff,
-      (VANILLA_ANIM_TARGET >> 8) & 0xff,
-      (VANILLA_ANIM_TARGET >> 16) & 0xff,
-    ])
-    expect(isLmExAnimInstalled(rom)).toBe(false)
-  })
-
-  it('returns true when JSL target is changed (LM-patched)', () => {
+  // Goes red if detection by negation (any non-stock JSL target) comes back (#491).
+  it('returns false when the JSL targets some other routine', () => {
     const rom = makeMockRom()
     installLmJsl(rom, 0x108000)
-    expect(isLmExAnimInstalled(rom)).toBe(true)
+    expect(isLmExAnimInstalled(rom)).toBe(false)
   })
 })
 
@@ -91,38 +78,33 @@ describe('loadExAnimData - guard paths', () => {
 
   it('returns null when level-disable bit (0x20) is set in ANIM_SETTINGS_TABLE', () => {
     const rom = makeMockRom()
-    installLmJsl(rom)
     rom.writeAt(ANIM_SETTINGS_TABLE + 5, [0x20]) // level 5 has disable bit
-    expect(loadExAnimData(rom, 5)).toBeNull()
+    expect(readExAnimLevel(rom, 5)).toBeNull()
   })
 
   it('returns null when level-table base pointer is $FFFFFF (read3 sentinel)', () => {
     const rom = makeMockRom()
-    installLmJsl(rom)
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0xffffff)
-    expect(loadExAnimData(rom, 0)).toBeNull()
+    expect(readExAnimLevel(rom, 0)).toBeNull()
   })
 
   it('returns null when blockPtrBuf[1] === 0 (sentinel for "no ExAnim for this level")', () => {
     const rom = makeMockRom()
-    installLmJsl(rom)
     // level table at SNES $108000, level 0's 3-byte slot has hi-byte 0
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0x108000)
     rom.writeAt(0x108000, [0x12, 0x00, 0x10]) // hi=0 → no data
-    expect(loadExAnimData(rom, 0)).toBeNull()
+    expect(readExAnimLevel(rom, 0)).toBeNull()
   })
 
   it('returns null when blockAddr resolves to $FFFFFF', () => {
     const rom = makeMockRom()
-    installLmJsl(rom)
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0x108000)
     rom.writeAt(0x108000, [0xff, 0xff, 0xff]) // all-FF → invalid
-    expect(loadExAnimData(rom, 0)).toBeNull()
+    expect(readExAnimLevel(rom, 0)).toBeNull()
   })
 
   it('returns null when blockAddr resolves to 0 (with non-zero hi to bypass earlier guard)', () => {
     const rom = makeMockRom()
-    installLmJsl(rom)
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0x108000)
     // hi=0 triggers "no ExAnim for level"; can't actually hit blockAddr===0
     // through this combination - that branch protects against malformed data.
@@ -130,63 +112,58 @@ describe('loadExAnimData - guard paths', () => {
     // a 3-byte ptr of [0xFF, 0x01, 0x00] leaves the function reading at SNES $0001FF
     // (not ROM-mapped), which makes blockFixed null.
     rom.writeAt(0x108000, [0xff, 0x01, 0x00])
-    expect(loadExAnimData(rom, 0)).toBeNull()
+    expect(readExAnimLevel(rom, 0)).toBeNull()
   })
 
   it('returns null when ExGFX source-file lookup returns null (level list ptr is $FFFFFF)', () => {
     const rom = makeMockRom()
-    installLmJsl(rom)
     // Level table → block at $108100 with valid header; ExGFX list ptr is invalid
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0x108000)
     rom.writeAt(0x108000, [0x00, 0x81, 0x10]) // → block at $108100
     rom.writeAt(0x108100, [0x01, 0x00]) // SS=1 slot, EE=0
     write3(rom, EXGFX_LEVEL_LIST_PTR, 0xffffff)
-    expect(loadExAnimData(rom, 0)).toBeNull()
+    expect(readExAnimLevel(rom, 0)).toBeNull()
   })
 
   it('returns null when EE-slot in ExGFX list is $FFFF (unset)', () => {
     const rom = makeMockRom()
-    installLmJsl(rom)
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0x108000)
     rom.writeAt(0x108000, [0x00, 0x81, 0x10])
     rom.writeAt(0x108100, [0x01, 0x00])
     write3(rom, EXGFX_LEVEL_LIST_PTR, 0x108200)
     rom.writeAt(0x108200, [0xff, 0xff]) // level 0, slot 0 = $FFFF → unset
-    expect(loadExAnimData(rom, 0)).toBeNull()
+    expect(readExAnimLevel(rom, 0)).toBeNull()
   })
 
   it('returns null when EE-slot value is 0 (unused)', () => {
     const rom = makeMockRom()
-    installLmJsl(rom)
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0x108000)
     rom.writeAt(0x108000, [0x00, 0x81, 0x10])
     rom.writeAt(0x108100, [0x01, 0x00])
     write3(rom, EXGFX_LEVEL_LIST_PTR, 0x108200)
     rom.writeAt(0x108200, [0x00, 0x00]) // unused
-    expect(loadExAnimData(rom, 0)).toBeNull()
+    expect(readExAnimLevel(rom, 0)).toBeNull()
   })
 
   it('returns null when fileNum < 0x80 (loadExGfxFile rejects low IDs)', () => {
     const rom = makeMockRom()
-    installLmJsl(rom)
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0x108000)
     rom.writeAt(0x108000, [0x00, 0x81, 0x10])
     rom.writeAt(0x108100, [0x01, 0x00])
     write3(rom, EXGFX_LEVEL_LIST_PTR, 0x108200)
     rom.writeAt(0x108200, [0x10, 0x00]) // fileNum = $0010 < $80 → null
-    expect(loadExAnimData(rom, 0)).toBeNull()
+    expect(readExAnimLevel(rom, 0)).toBeNull()
   })
 
   it('returns null when ExGFX pointer-table entry is 0 (file slot empty)', () => {
     const rom = makeMockRom()
-    installLmJsl(rom)
     write3(rom, EXANIM_LEVEL_TABLE_PTR, 0x108000)
     rom.writeAt(0x108000, [0x00, 0x81, 0x10])
     rom.writeAt(0x108100, [0x01, 0x00])
     write3(rom, EXGFX_LEVEL_LIST_PTR, 0x108200)
     rom.writeAt(0x108200, [0x80, 0x00]) // fileNum = $80 → look in LO table
     write3(rom, EXGFX_LO_TABLE_ADDR + (0x80 - 0x80) * 3, 0x000000) // ptr is 0
-    expect(loadExAnimData(rom, 0)).toBeNull()
+    expect(readExAnimLevel(rom, 0)).toBeNull()
   })
 })
 
@@ -260,34 +237,36 @@ describe('loadExAnimData - happy paths', () => {
 
   it('returns AnimationData with one frame for a single GFX slot', () => {
     const rom = buildExAnimRom({ fileNum: 0x80 })
-    const data = loadExAnimData(rom, 0)
+    const data = readExAnimLevel(rom, 0)
     expect(data).not.toBeNull()
     expect(data!.frameCount).toBe(1)
     expect(data!.frames.length).toBe(1)
     expect(data!.frames[0].length).toBe(1)
     expect(data!.frames[0][0].charBase).toBe(4) // vramWord $0040 >> 4
     expect(data!.frames[0][0].tiles.length).toBe(4) // EXANIM_TILES_PER_SLOT
+    // A parseable block behind a redirected JSL is still not installed.
+    expect(loadExAnimData(rom, 0)).toBeNull()
   })
 
   it('handles fileNum >= $100 via the HI table (different lookup branch)', () => {
     const rom = buildExAnimRom({ fileNum: 0x108 })
-    const data = loadExAnimData(rom, 0)
+    const data = readExAnimLevel(rom, 0)
     expect(data).not.toBeNull()
     expect(data!.frameCount).toBe(1)
   })
 
   it('returns null when the only slot is a palette slot (filtered out)', () => {
     const rom = buildExAnimRom({ paletteOnly: true })
-    expect(loadExAnimData(rom, 0)).toBeNull()
+    expect(readExAnimLevel(rom, 0)).toBeNull()
   })
 
   it('returns null when block header has SS = 0', () => {
     const rom = buildExAnimRom({ slotCount: 0 })
-    expect(loadExAnimData(rom, 0)).toBeNull()
+    expect(readExAnimLevel(rom, 0)).toBeNull()
   })
 
   it('returns null when block header has SS > 64 (corrupt)', () => {
     const rom = buildExAnimRom({ badSlotCount: true })
-    expect(loadExAnimData(rom, 0)).toBeNull()
+    expect(readExAnimLevel(rom, 0)).toBeNull()
   })
 })

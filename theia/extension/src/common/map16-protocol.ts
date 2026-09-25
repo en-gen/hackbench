@@ -347,6 +347,8 @@ export interface Map16SheetDto {
   /** See `Map16CharAnimationDto`'s own doc comment - present only when this
    * tileset's VRAM has real, cart-derived animated chars. */
   charAnimation?: Map16CharAnimationDto
+  /** Why the stock animated characters are drawn blank on this ROM; absent when they are not. */
+  animationNote?: string
   /**
    * Always true today: tiles $133-$13A cycle through 4 palette variants per
    * screen at runtime (MAP16_APP_TABLE in src/rom/Map16.ts) and this view
