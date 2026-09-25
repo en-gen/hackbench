@@ -9,9 +9,15 @@
  */
 import { RomFile } from '../../../src/rom/RomFile'
 import { encode } from '../../../src/rom/LcLz2'
-import { COPIER_HEADER_SIZE, loromFromOffset } from '../../../src/rom/addressing'
+import { COPIER_HEADER_SIZE, LOROM_BANK_SIZE, loromFromOffset } from '../../../src/rom/addressing'
 import { WILD } from '../../../src/rom/BytePattern'
-import { GFX_FILE_COUNT, PREPARE_GFX_PATTERN, STOCK_LCLZ2_ENTRY } from '../../../src/rom/GfxArena'
+import {
+  computeHookFingerprint,
+  GFX_FILE_COUNT,
+  LEVEL_GFX_CALLERS,
+  PREPARE_GFX_PATTERN,
+  STOCK_LCLZ2_ENTRY,
+} from '../../../src/rom/GfxArena'
 
 export const CART_SIZE = 0x18000 // three LoROM banks: tables, routine, arena
 export const TABLE_LO = 0xb992
@@ -20,6 +26,47 @@ export const TABLE_BANK = 0xb9f6
 export const DECOMP_ENTRY = 0xb8de
 export const ROUTINE_AT = 0x3a46 // bank 0, clear of both tables
 export const ARENA_AT = 0x10000
+
+/** JSL to `target`, 4 bytes, the encoding a hijacked call site overwrites. */
+export function jsl(target: number): number[] {
+  return [0x22, target & 0xff, (target >> 8) & 0xff, (target >> 16) & 0xff]
+}
+
+/**
+ * The recognized ExGFX hook (src/rom/GfxArena.ts HOOK_RANGE_*), as a
+ * synthetic signature: both ranges filled with NOP, which never jumps
+ * anywhere, so the fixture is coherent rather than landing on whatever a
+ * sparse fixture leaves at $00 $00 (BRK). The operands the resolver reads
+ * are planted in place; everything else is deliberately arithmetic, not
+ * copied from a ROM. Returns this exact signature's own fingerprint, for a
+ * test to pass back in rather than needing the real corpus hash.
+ */
+export const HOOK_RANGE_A_OFFSET = 0x000
+export const HOOK_RANGE_A_LENGTH = 0x07f
+export const HOOK_RANGE_B_OFFSET = 0x6e0
+export const HOOK_RANGE_B_LENGTH = 0x12f
+export const HOOK_TABLE_OFFSET = 0x7b4
+export const HOOK_TAIL_OFFSET = 0x7fa
+export const HOOK_EXGFX_OPERANDS = [0x713, 0x7d7, 0x7dd]
+
+export function plantHookSignature(
+  rom: RomFile,
+  primary: number,
+  lo: number,
+  hi: number,
+  bank: number,
+  jml: number,
+): string {
+  rom.writeAt(primary + HOOK_RANGE_A_OFFSET, new Array<number>(HOOK_RANGE_A_LENGTH).fill(0xea))
+  rom.writeAt(primary + HOOK_RANGE_B_OFFSET, new Array<number>(HOOK_RANGE_B_LENGTH).fill(0xea))
+  const long = (a: number): number[] => [a & 0xff, (a >> 8) & 0xff, (a >> 16) & 0xff]
+  rom.writeAt(primary + HOOK_TABLE_OFFSET + 4, long(lo))
+  rom.writeAt(primary + HOOK_TABLE_OFFSET + 10, long(hi))
+  rom.writeAt(primary + HOOK_TABLE_OFFSET + 16, long(bank))
+  rom.writeAt(primary + HOOK_TAIL_OFFSET + 9, long(jml))
+  for (const off of HOOK_EXGFX_OPERANDS) rom.writeAt(primary + off, long(0))
+  return computeHookFingerprint(rom, primary)!
+}
 
 /** The tile-count loop's `LDY.B #$7F` and the two bytes either side of it
  *  (bank_00.asm:5431-5433), which is what `readTilesPerFile` matches on. */
@@ -116,6 +163,8 @@ export interface CartOptions {
   /** Bytes of $FF filler after the cluster. */
   filler?: number
   routine?: number[]
+  /** LoROM bank the routine and its tables sit in; 0 is vanilla. */
+  bank?: number
   /** The tile-count site, or null to leave it out entirely. */
   uploadSite?: number[] | null
   /** The L3 (overlay) upload routine, or null to leave it and its callers out. */
@@ -147,8 +196,11 @@ export function gfxStreams(size = 96): Uint8Array[] {
 export function buildCart(opts: CartOptions = {}): SyntheticCart {
   const buf = Buffer.alloc(CART_SIZE, 0x00)
   buf[0x7fd5] = 0x20 // LoROM map mode, so SmwRom accepts it
-  buf.set(opts.routine ?? prepareGraphicsFile(), ROUTINE_AT)
-  buf.set(opts.entryBytes ?? STOCK_LCLZ2_ENTRY, DECOMP_ENTRY - 0x8000)
+  const bankAt = (opts.bank ?? 0) * LOROM_BANK_SIZE
+  buf.set(opts.routine ?? prepareGraphicsFile(), bankAt + ROUTINE_AT)
+  buf.set(opts.entryBytes ?? STOCK_LCLZ2_ENTRY, bankAt + DECOMP_ENTRY - 0x8000)
+  const routineSnes = loromFromOffset(bankAt + ROUTINE_AT)!
+  for (const c of LEVEL_GFX_CALLERS) buf.set(jsl(routineSnes), c - 0x8000)
   const uploadSite = opts.uploadSite === undefined ? uploadGfxFileSite() : opts.uploadSite
   if (uploadSite) buf.set(uploadSite, UPLOAD_GFX_AT)
   const l3Routine = opts.l3Routine === undefined ? layer3Routine() : opts.l3Routine
@@ -171,9 +223,9 @@ export function buildCart(opts: CartOptions = {}): SyntheticCart {
 
   for (let i = 0; i < GFX_FILE_COUNT; i++) {
     const snes = loromFromOffset(offsets[i] ?? offsets[0]!)!
-    buf[TABLE_LO - 0x8000 + i] = snes & 0xff
-    buf[TABLE_HI - 0x8000 + i] = (snes >> 8) & 0xff
-    buf[TABLE_BANK - 0x8000 + i] = (snes >> 16) & 0xff
+    buf[bankAt + TABLE_LO - 0x8000 + i] = snes & 0xff
+    buf[bankAt + TABLE_HI - 0x8000 + i] = (snes >> 8) & 0xff
+    buf[bankAt + TABLE_BANK - 0x8000 + i] = (snes >> 16) & 0xff
   }
   if (!opts.headered) return { rom: new RomFile('synthetic.sfc', buf), offsets }
   // Junk in the header, not zeroes: a header full of $00 would let an
@@ -187,6 +239,8 @@ export function buildCart(opts: CartOptions = {}): SyntheticCart {
 export function plantGfxReadPath(rom: RomFile): void {
   rom.writeAt(0x8000 + ROUTINE_AT, prepareGraphicsFile())
   rom.writeAt(DECOMP_ENTRY, [...STOCK_LCLZ2_ENTRY])
+  const routineSnes = 0x8000 + ROUTINE_AT
+  for (const c of LEVEL_GFX_CALLERS) rom.writeAt(c, jsl(routineSnes))
   rom.writeAt(L3_ROUTINE, layer3Routine())
   for (const c of L3_CALLERS) rom.writeAt(c, L3_CALL)
 }
