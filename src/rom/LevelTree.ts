@@ -1,5 +1,3 @@
-import { isOverworldLevel } from './SmwRom'
-
 /** One row in a Level folder's sub-area tree; 'loop' and 'truncated' never expand. */
 export interface LevelTreeNode {
   index: number
@@ -27,7 +25,11 @@ export const MAX_SUBTREE_DEPTH = 24
  * nothing vanishes silently either: each child left unexpanded is emitted as a
  * 'truncated' marker at every level of the unwind.
  */
-export function buildLevelSubtree(root: number, exitGraph: Map<number, number[]>): LevelTreeNode {
+export function buildLevelSubtree(
+  root: number,
+  exitGraph: Map<number, number[]>,
+  isOverworld: (index: number) => boolean,
+): LevelTreeNode {
   const path = new Set<number>([root])
   let nodes = 1
 
@@ -35,7 +37,7 @@ export function buildLevelSubtree(root: number, exitGraph: Map<number, number[]>
     const children: LevelTreeNode[] = []
     for (const child of exitGraph.get(index) ?? []) {
       // An overworld child roots its own Level folder; it is not a sub-area here.
-      if (isOverworldLevel(child)) continue
+      if (isOverworld(child)) continue
       nodes++
       if (path.has(child)) {
         children.push({ index: child, children: [], kind: 'loop' })

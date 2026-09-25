@@ -22,6 +22,8 @@
  *    (SNES $0CF7DF, $800 bytes) into `Map16TilesLow` ($7EC800), then calls
  *    `CODE_04D7F2`.
  *
+ * Operands quoted in steps 2 and 3 are vanilla's; this module reads each one.
+ *
  * 2. `CODE_04D7F2` (bank_04.asm:5263) seeds a counter to 1
  *    (`LDY #$0001 / STY _0`, bank_04.asm:5285-5286) and walks all $800
  *    bytes in buffer order. A byte in `[$56,$80]` (`CMP #$56 / BCC skip`,
@@ -75,11 +77,11 @@
  * paired `DATA_04DA33` byte back (:5424-5425). A FROM tile whose TO tile is
  * a warp tile is a warp node in its pre-activation state and never starts a
  * map. The pairing is read per ROM through {@link warpPrecursorTiles},
- * never hardcoded: across this repo's six carts the only such pair is
- * $5A -> $5F, but a hack may choose others and this follows the cart.
+ * never hardcoded: across this repo's six ROMs the only such pair is
+ * $5A -> $5F, but a hack may choose others and this follows the ROM.
  *
  * Corroboration from a second, independently authored table, measured on
- * `Super Mario World (USA).vanilla.sfc`, one cart, this revision: each of
+ * `Super Mario World (USA).vanilla.sfc`, one ROM, this revision: each of
  * its 7 pristine $5A tiles is a registered star-warp SOURCE position in the
  * paired `DATA_048431` / `DATA_048467` (bank_04.asm:491, :500) that
  * `CODE_048509` (bank_04.asm:527) searches from the $5F and $82/$5B
@@ -87,10 +89,10 @@
  * listed in `DATA_04D85D`. Both tables agree on all 7. Per-tile evidence
  * and the warp-table accounting: docs/ideas/level-classification.md.
  *
- * Not settled by the cart: whether every one of those events is triggered
+ * Not settled by the ROM: whether every one of those events is triggered
  * in normal play, since activation lives in save state. The classification
  * does not rest on it. 5 of the 7 slots a $5A tile would name hold this
- * cart's filler L1 pointer, against 2 of the 79 tiles that do start a map.
+ * ROM's filler L1 pointer, against 2 of the 79 tiles that do start a map.
  *
  * Translevel numbering is unaffected by any of this, because step 2 runs on
  * the pristine copy before the event pass on every overworld load.
@@ -110,31 +112,193 @@
  */
 
 import type { RomFile } from './RomFile'
-import type { SmwRom } from './SmwRom'
+import type { SmwRom, OverworldLevelBounds } from './SmwRom'
 import { buildLevelCatalog, type LevelCatalog } from './LevelCatalog'
 import { loadOverworldEvents } from './OverworldEvents'
-import { OVERWORLD_ENTRY, stockCodeMismatch } from './SubmapFlagGate'
 import {
-  OW_ADDR,
+  OVERWORLD_ENTRY,
+  OVERWORLD_INDEX_BODY,
+  readSubmapHigh,
+  stockCodeMismatch,
+} from './SubmapFlagGate'
+import { findUnique, matchesAt, WILD, type BytePattern } from './BytePattern'
+import { fingerprint } from './Fingerprint'
+import {
   OW_L1_MAP16_BYTES,
   OW_SUBAREA_TILES_W,
   OW_SUBAREA_TILES_H,
   loadOverworldAreas,
 } from './OverworldLoader'
 
-/** Map16 tile numbers that `CODE_04D7F2` grants a translevel, inclusive. */
-export const TRANSLEVEL_TILE_MIN = 0x56
-export const TRANSLEVEL_TILE_MAX = 0x80
-/** `OWPU_ABXY` diverts these two before `OWPU_EnterLevel`. */
-export const STAR_WARP_TILE = 0x5f
-export const PIPE_WARP_TILE = 0x5b
-/** `CODE_05D8A2`'s low-byte gate. */
-export const TRANSLEVEL_BIAS_THRESHOLD = 0x25
-export const TRANSLEVEL_BIAS = 0x24
-/** Slot offset applied when the player is on a sub-map. */
-export const SUBMAP_SLOT_BASE = 0x100
 /** Buffer index at which the sub-map half of `OWLayer1Translevel` starts. */
 export const SUBMAP_BUFFER_BASE = 0x400
+
+/** CODE_04DC09's copy into Map16TilesLow and its call to the walk (bank_04.asm:5674-5681). */
+// prettier-ignore
+const WALK_CALL: BytePattern = [
+  0xa9, 0xff, 0x07, // LDA #$07FF
+  0xa2, WILD, WILD, // LDX #OWL1TileData
+  0xa0, 0x00, 0xc8, // LDY #Map16TilesLow
+  0x54, 0x7e, WILD, // MVN $7E,bank
+  0xab,             // PLB
+  0x20, WILD, WILD, // JSR CODE_04D7F2
+  0xe2, 0x30,       // SEP #$30
+  0x6b,             // RTL
+]
+const WALK_CALL_JSR = 13
+
+/** CODE_04D7F2's pointer setup, entry to `LDY #start` (bank_04.asm:5264-5284),
+ *  fingerprinted because it is 43 bytes. */
+export const WALK_PROLOGUE_LENGTH = 43
+
+/** Recognized builds of the two fingerprinted spans. Vanilla only, measured:
+ *  the magic ROM matches both, the four hacks match neither. */
+export interface OverworldFingerprints {
+  entry: readonly string[]
+  walk: readonly string[]
+}
+export const STOCK_OVERWORLD_FINGERPRINTS: OverworldFingerprints = Object.freeze({
+  entry: OVERWORLD_INDEX_BODY.fingerprints,
+  walk: Object.freeze(['8a2e57ea61a4f9e4e33c7fc744d91212eed592270a2e12c257b636745abb748e']),
+})
+
+/** The rest of the path to the tile-range compare (bank_04.asm:5285-5300). */
+// prettier-ignore
+const WALK: BytePattern = [
+  0xa0, WILD, WILD, // LDY #start
+  0x84, 0x00,       // STY _0
+  0xa0, 0xff, 0x07, // LDY #$07FF
+  0xa9, 0x00,       // LDA #$00
+  0x97, 0x0a,       // - STA [_A],Y
+  0x97, 0x0d,       // STA [_D],Y
+  0x88,             // DEY
+  0x10, 0xf9,       // BPL -
+  0xa0, 0x00, 0x00, // LDY #$0000
+  0xbb,             // TYX
+  0xb7, 0x04,       // LDA [_4],Y
+  0xc9, WILD,       // CMP #min
+  0x90, 0x11,       // BCC +
+  0xc9, WILD,       // CMP #max+1
+  0xb0, 0x0d,       // BCS +
+]
+
+/** What the compare branches over, and the loop bound (bank_04.asm:5301-5309). */
+// prettier-ignore
+const WALK_BODY: BytePattern = [
+  0xa5, 0x00,             // LDA _0
+  0x97, 0x0d,             // STA [_D],Y
+  0xaa,                   // TAX
+  0xbf, WILD, WILD, WILD, // LDA.L DATA_04D678,X
+  0x97, 0x0a,             // STA [_A],Y
+  0xe6, 0x00,             // INC _0
+  0xc8,                   // + INY
+  0xc0, WILD, WILD,       // CPY #bound
+  0xd0, 0xe3,             // BNE CODE_04D832
+]
+
+/** CODE_049132's `BRA +` over the debug warp (bank_04.asm:1730-1735). */
+// prettier-ignore
+const DEBUG_SKIP: BytePattern = [
+  0xa5, 0x16,       // LDA byetudlrFrame
+  0x29, 0x20,       // AND #$20
+  0x80, WILD,       // BRA +
+]
+
+/** The L/R block the skip lands on, falling into STAR_TILE (bank_04.asm:1737-1743). */
+// prettier-ignore
+const LR_BLOCK: BytePattern = [
+  0xa5, 0x17,       // LDA axlr0000Hold
+  0x29, 0x30,       // AND #$30
+  0xc9, 0x30,       // CMP #$30
+  0xd0, 0x07,       // BNE +
+  0xad, 0xc1, 0x13, // LDA OverworldLayer1Tile
+  0xc9, 0x81,       // CMP #$81
+  0xf0, WILD,       // BEQ OWPU_EnterLevel
+]
+
+/** OWPU_ABXY and the button test that branches into it (bank_04.asm:1745-1754). */
+// prettier-ignore
+const STAR_TILE: BytePattern = [
+  0xa5, 0x16,       // LDA byetudlrFrame
+  0x05, 0x18,       // ORA axlr0000Frame
+  0x29, 0xc0,       // AND #$C0
+  0xd0, 0x03,       // BNE OWPU_ABXY
+  0x82, WILD, WILD, // BRL CODE_0491E9
+  0x9c, 0x9e, 0x1b, // OWPU_ABXY: STZ SwapOverworldMusic
+  0xad, 0xc1, 0x13, // LDA OverworldLayer1Tile
+  0xc9, WILD,       // CMP #star
+  0xd0, WILD,       // BNE OWPU_NotOnStar
+]
+
+/** OWPU_NotOnStar, read at STAR_TILE's branch target (bank_04.asm:1767-1771). */
+// prettier-ignore
+const PIPE_TILE: BytePattern = [
+  0xad, 0xc1, 0x13, // LDA OverworldLayer1Tile
+  0xc9, 0x82,       // CMP #$82
+  0xf0, 0x04,       // BEQ OWPU_IsOnPipe
+  0xc9, WILD,       // CMP #pipe
+  0xd0, 0x11,       // BNE OWPU_NotOnPipe
+]
+
+const byteAt = (rom: RomFile, at: number): number => rom.readAtFileOffset(at, 1)![0]!
+
+interface Walk {
+  /** SNES address of the stream CODE_04DC09 copies, from its LDX and MVN operands. */
+  stream: number
+  /** Bytes walked, from `CPY #bound`. */
+  length: number
+  start: number
+  min: number
+  max: number
+}
+
+/** The walk's stream, tile range and starting number, read only where the call reaches them.
+ *  Hack-fragility point: CODE_04DC09's own callers (bank_00.asm:2639, :4321) are not checked. */
+function readWalk(rom: RomFile, prologueFingerprints: readonly string[]): Walk | null {
+  const call = findUnique(rom, WALK_CALL)
+  if (call === null) return null
+  const word = (at: number): number => byteAt(rom, at) | (byteAt(rom, at + 1) << 8)
+  const operand = word(call + WALK_CALL_JSR + 1)
+  if (operand < 0x8000) return null
+  const entry = (call & ~0x7fff) | (operand & 0x7fff)
+  const prologue = fingerprint(rom.readAtFileOffset(entry, WALK_PROLOGUE_LENGTH))
+  if (prologue === null || !prologueFingerprints.includes(prologue)) return null
+  const walk = matchesAt(rom, entry + WALK_PROLOGUE_LENGTH, WALK)
+  const body = matchesAt(rom, entry + WALK_PROLOGUE_LENGTH + WALK.length, WALK_BODY)
+  if (!walk || !body) return null
+  // OWLayer1Translevel is $800 bytes; a bound of 0 or past it is not a walk we can model.
+  const length = body[15]! | (body[16]! << 8)
+  if (length === 0 || length > OW_L1_MAP16_BYTES) return null
+  return {
+    stream: (byteAt(rom, call + 11) << 16) | word(call + 4),
+    length,
+    start: walk[1]!,
+    min: walk[24]!,
+    max: walk[28]! - 1,
+  }
+}
+
+export interface WarpTiles {
+  starWarpTile: number
+  pipeWarpTile: number
+}
+
+/** OWPU_ABXY's two warp tiles, verified from CODE_049132's debug skip onward:
+ *  through the L/R block into the star compare, whose branch target holds the
+ *  pipe compare. Hack-fragility point: the route from CODE_049120 into
+ *  CODE_049132 (bank_04.asm:1720-1726) is not checked. */
+export function readWarpTiles(rom: RomFile): WarpTiles | null {
+  const skip = findUnique(rom, DEBUG_SKIP)
+  if (skip === null) return null
+  const lr = skip + DEBUG_SKIP.length + ((byteAt(rom, skip + 5) << 24) >> 24)
+  if (!matchesAt(rom, lr, LR_BLOCK)) return null
+  const star = lr + LR_BLOCK.length
+  if (!matchesAt(rom, star, STAR_TILE)) return null
+  const notOnStar = star + STAR_TILE.length + ((byteAt(rom, star + 20) << 24) >> 24)
+  const pipe = matchesAt(rom, notOnStar, PIPE_TILE)
+  if (!pipe) return null
+  return { starWarpTile: byteAt(rom, star + 18), pipeWarpTile: pipe[8]! }
+}
 
 /**
  * What happens when the player presses A on this tile.
@@ -183,6 +347,10 @@ export interface OverworldEntranceIndex {
   /** False means the derivation is blind; both lists are then empty. */
   overworldReadable: boolean
   notes: string[]
+  /** `isOverworldLevel`'s root ranges, from the slots the walk produced
+   *  (docs/rom/smw-translevel-formula.md). Needs only the walk and the bias,
+   *  so it can survive a failed warp-tile read; null when those are unreadable. */
+  levelBounds: OverworldLevelBounds | null
 }
 
 /** Invert `CODE_05D83E`'s index formula (bank_05.asm:7170-7195). */
@@ -209,12 +377,12 @@ export function decodeBufferIndex(bufferIndex: number): {
  * One step only: a tile swapped into a warp precursor rather than into a
  * warp is not followed. Vanilla has no such chain.
  */
-export function warpPrecursorTiles(rom: RomFile): Map<number, number> {
-  const { fromTiles, toTiles } = loadOverworldEvents(rom)
+export function warpPrecursorTiles(rom: RomFile, tiles: WarpTiles): Map<number, number> {
   const out = new Map<number, number>()
+  const { fromTiles, toTiles } = loadOverworldEvents(rom)
   for (let i = 0; i < fromTiles.length; i++) {
     const to = toTiles[i]
-    if (to === STAR_WARP_TILE || to === PIPE_WARP_TILE) out.set(fromTiles[i]!, to)
+    if (to === tiles.starWarpTile || to === tiles.pipeWarpTile) out.set(fromTiles[i]!, to)
   }
   return out
 }
@@ -263,15 +431,35 @@ function submapForTile(windows: SubmapWindow[], tileX: number, tileY: number): n
   return null
 }
 
-function classifyTile(tile: number, precursors: Map<number, number>): EntranceAction {
-  if (tile === STAR_WARP_TILE) return 'starWarp'
-  if (tile === PIPE_WARP_TILE) return 'pipeWarp'
+function classifyTile(
+  tile: number,
+  precursors: Map<number, number>,
+  starWarpTile: number,
+  pipeWarpTile: number,
+): EntranceAction {
+  if (tile === starWarpTile) return 'starWarp'
+  if (tile === pipeWarpTile) return 'pipeWarp'
   if (precursors.has(tile)) return 'pendingWarp'
   return 'map'
 }
 
-function unavailable(notes: string[]): OverworldEntranceIndex {
-  return { entrances: [], entryMaps: [], overworldReadable: false, notes }
+function unavailable(
+  notes: string[],
+  levelBounds: OverworldLevelBounds | null = null,
+): OverworldEntranceIndex {
+  return { entrances: [], entryMaps: [], overworldReadable: false, notes, levelBounds }
+}
+
+/** Each layout's slot range; an empty one has max < min. Main starts at 0, the
+ *  index origin, as the ranges always have. */
+function boundsOf(walked: { layout: 0 | 1; slot: number }[]): OverworldLevelBounds {
+  const main = walked.filter(e => e.layout === 0).map(e => e.slot)
+  const sub = walked.filter(e => e.layout === 1).map(e => e.slot)
+  return {
+    mainMax: main.length ? Math.max(...main) : -1,
+    subMin: sub.length ? Math.min(...sub) : 0,
+    subMax: sub.length ? Math.max(...sub) : -1,
+  }
 }
 
 /**
@@ -288,64 +476,104 @@ function unavailable(notes: string[]): OverworldEntranceIndex {
 export function deriveOverworldEntrances(
   rom: SmwRom,
   catalog?: LevelCatalog,
+  fingerprints: OverworldFingerprints = STOCK_OVERWORLD_FINGERPRINTS,
 ): OverworldEntranceIndex {
-  const patched = stockCodeMismatch(rom.rom, OVERWORLD_ENTRY)
+  const patched = stockCodeMismatch(rom.rom, OVERWORLD_ENTRY, fingerprints.entry)
   if (patched) {
     return unavailable([
       `Overworld not readable: ${patched} This ROM's overworld was rebuilt by another ` +
-        'editor, which replaces the translevel-to-slot ' +
-        'mapping with code HackBench does not decode. No entry maps can be identified, so ' +
+        'editor, whose translevel-to-slot ' +
+        'mapping is code HackBench does not decode. No entry maps can be identified, so ' +
         'every map is left unclassified and stays fully editable. To get the overworld ' +
         'grouping, start from an unmodified ROM.',
     ])
   }
 
-  const stream = rom.rom.readAt(OW_ADDR.L1_TILEDATA, OW_L1_MAP16_BYTES)
+  // All three sit on the path OVERWORLD_ENTRY just proved stock.
+  const biasThreshold = rom.rom.readByte(0x05d8a3)!
+  const bias = rom.rom.readByte(0x05d8a8)!
+  const submapHigh = readSubmapHigh(rom.rom, 0x05d8b4)
+  if (typeof submapHigh === 'string') {
+    return unavailable([`Overworld not readable: ${submapHigh} No entry maps can be identified.`])
+  }
+  // A bias above the threshold makes the 8-bit SBC wrap translevels into $Cx-$Fx, far
+  // above the main-map range, which one contiguous root range cannot hold (#548).
+  if (bias > biasThreshold) {
+    return unavailable([
+      `Overworld not readable: CODE_05D8A2 subtracts $${bias.toString(16).toUpperCase()} ` +
+        `from translevels >= $${biasThreshold.toString(16).toUpperCase()}, so some wrap past ` +
+        '$FF (bank_05.asm:7217-7220). The overworld root ranges cannot describe that.',
+    ])
+  }
+  const walk = readWalk(rom.rom, fingerprints.walk)
+  if (!walk) {
+    return unavailable([
+      'Overworld not readable: CODE_04D7F2, the translevel walk, is not reached from its ' +
+        'call in CODE_04DC09 through stock code (bank_04.asm:5264-5309, :5679). No entry ' +
+        'maps can be identified.',
+    ])
+  }
+
+  const stream = rom.rom.readAt(walk.stream, walk.length)
   if (!stream) {
     return unavailable([
       'Overworld not readable: the Layer-1 tile stream at SNES ' +
-        `$${OW_ADDR.L1_TILEDATA.toString(16).toUpperCase()} could not be read ` +
-        `(${OW_L1_MAP16_BYTES} bytes). No entry maps can be identified, so every map is ` +
+        `$${walk.stream.toString(16).toUpperCase()} could not be read ` +
+        `(${walk.length} bytes). No entry maps can be identified, so every map is ` +
         'left unclassified.',
     ])
   }
 
-  const cat = catalog ?? buildLevelCatalog(rom)
-  const windows = submapWindows(rom.rom)
-  const precursors = warpPrecursorTiles(rom.rom)
-  const entrances: OverworldEntrance[] = []
-  let counter = 1
+  const walked: { bufferIndex: number; translevel: number; layout: 0 | 1; slot: number }[] = []
+  let counter = walk.start
   let wrapped = false
-  let mainMapBiased = 0
-
-  for (let bufferIndex = 0; bufferIndex < OW_L1_MAP16_BYTES; bufferIndex++) {
-    const map16Tile = stream[bufferIndex]!
-    if (map16Tile < TRANSLEVEL_TILE_MIN || map16Tile > TRANSLEVEL_TILE_MAX) continue
-
-    const translevel = counter & 0xff
+  for (let bufferIndex = 0; bufferIndex < walk.length; bufferIndex++) {
+    const tile = stream[bufferIndex]!
+    if (tile < walk.min || tile > walk.max) continue
+    const translevel = counter
     counter = (counter + 1) & 0xff
     if (counter === 0) wrapped = true
+    const layout: 0 | 1 = bufferIndex >= SUBMAP_BUFFER_BASE ? 1 : 0
+    const biased = translevel >= biasThreshold ? translevel - bias : translevel
+    walked.push({ bufferIndex, translevel, layout, slot: layout * (submapHigh << 8) + biased })
+  }
+  const levelBounds = boundsOf(walked)
 
-    const { layout, tileX, tileY } = decodeBufferIndex(bufferIndex)
-    const biased = translevel >= TRANSLEVEL_BIAS_THRESHOLD
-    if (biased && layout === 0) mainMapBiased++
-    const slot =
-      (layout === 1 ? SUBMAP_SLOT_BASE : 0) + (biased ? translevel - TRANSLEVEL_BIAS : translevel)
+  const warpTiles = readWarpTiles(rom.rom)
+  if (!warpTiles) {
+    return unavailable(
+      [
+        "Overworld not readable: OWPU_ABXY's warp-tile compares are not reached through " +
+          'stock code (bank_04.asm:1745-1771), so which tiles start a map is unknown. The ' +
+          'overworld root ranges are still read.',
+      ],
+      levelBounds,
+    )
+  }
 
-    entrances.push({
+  const cat = catalog ?? buildLevelCatalog(rom)
+  const windows = submapWindows(rom.rom)
+  const precursors = warpPrecursorTiles(rom.rom, warpTiles)
+  const entrances: OverworldEntrance[] = walked.map(({ bufferIndex, translevel, layout, slot }) => {
+    const { tileX, tileY } = decodeBufferIndex(bufferIndex)
+    const map16Tile = stream[bufferIndex]!
+    return {
       slot,
       translevel,
       bufferIndex,
-      tileDataAddress: OW_ADDR.L1_TILEDATA + bufferIndex,
+      tileDataAddress: walk.stream + bufferIndex,
       layout,
       tileX,
       tileY,
       submap: layout === 0 ? 0 : submapForTile(windows, tileX, tileY),
       map16Tile,
-      action: classifyTile(map16Tile, precursors),
+      action: classifyTile(map16Tile, precursors, warpTiles.starWarpTile, warpTiles.pipeWarpTile),
       isMap: cat.entries[slot]?.isReal ?? false,
-    })
-  }
+    }
+  })
+  const mainMapBiased = entrances.filter(
+    e => e.layout === 0 && e.translevel >= biasThreshold,
+  ).length
 
   const launching = entrances.filter(e => e.action === 'map')
   const entryMaps = [...new Set(launching.filter(e => e.isMap).map(e => e.slot))].sort(
@@ -385,13 +613,15 @@ export function deriveOverworldEntrances(
     )
   }
   if (mainMapBiased > 0) {
+    const thr = `$${biasThreshold.toString(16).toUpperCase()}`
     notes.push(
-      `${mainMapBiased} main-map entrances have a translevel >= $25, so CODE_05D8A2's ` +
-        'low-byte gate subtracts $24 while its high-byte gate keeps them on the main map. ' +
-        'Their slots collide with low-translevel main-map entrances. The two gates are ' +
+      `${mainMapBiased} main-map entrances have a translevel >= ${thr}, so CODE_05D8A2's ` +
+        `low-byte gate subtracts $${bias.toString(16).toUpperCase()} while its high-byte gate keeps them on the main map. ` +
+        'Each lands on translevel minus the bias, which can be the slot of a lower ' +
+        'main-map translevel. The two gates are ' +
         'independent (bank_05.asm:7217-7226); this is what the ROM does.',
     )
   }
 
-  return { entrances, entryMaps, overworldReadable: true, notes }
+  return { entrances, entryMaps, overworldReadable: true, notes, levelBounds }
 }

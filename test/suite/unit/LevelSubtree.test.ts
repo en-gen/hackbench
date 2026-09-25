@@ -8,6 +8,7 @@ import {
 
 // Overworld ranges are $000-$024 and $101-$13B, so $0C0-$0FF and $1C0-$1FF are
 // safely outside them and stand in for sub-areas here.
+const isOverworld = (i: number): boolean => (i >= 0 && i <= 0x024) || (i >= 0x101 && i <= 0x13b)
 
 /** Compact `index[children]`, with `!` marking a loop and `~` a truncation marker. */
 function shape(node: LevelTreeNode): string {
@@ -57,6 +58,7 @@ describe('buildLevelSubtree', () => {
         [0x0c0, [0x0c1]],
         [0x0c1, [0x0c2]],
       ]),
+      isOverworld,
     )
     expect(shape(tree)).toBe('$001[$0C0[$0C1[$0C2]]]')
   })
@@ -74,6 +76,7 @@ describe('buildLevelSubtree', () => {
         [0x0e8, [0x0e7]],
         [0x0e7, [0x0c0]],
       ]),
+      isOverworld,
     )
     expect(shape(tree)).toBe('$007[$0E6[$0E7[$0C0]] $0E8[$0E7[$0C0]]]')
     expect(countKind(tree, 'loop')).toBe(0)
@@ -87,6 +90,7 @@ describe('buildLevelSubtree', () => {
         [0x0c0, [0x0c1]],
         [0x0c1, [0x0c0]],
       ]),
+      isOverworld,
     )
     expect(shape(tree)).toBe('$001[$0C0[$0C1[$0C0!]]]')
     expect(countKind(tree, 'loop')).toBe(1)
@@ -101,6 +105,7 @@ describe('buildLevelSubtree', () => {
         [0x0c0, [0x0c1]],
         [0x0c1, [0x0c0]],
       ]),
+      isOverworld,
     )
     expect(shape(tree)).toBe('$0C0[$0C1[$0C0!]]')
   })
@@ -112,6 +117,7 @@ describe('buildLevelSubtree', () => {
         [0x001, [0x0c0]],
         [0x0c0, [0x0c0]],
       ]),
+      isOverworld,
     )
     expect(shape(tree)).toBe('$001[$0C0[$0C0!]]')
     expect(countKind(tree, 'loop')).toBe(1)
@@ -125,17 +131,18 @@ describe('buildLevelSubtree', () => {
         [0x001, [0x0c0, 0x002]],
         [0x0c0, [0x101, 0x0c1]],
       ]),
+      isOverworld,
     )
     expect(shape(tree)).toBe('$001[$0C0[$0C1]]')
   })
 
   it('leaves a sibling pair unnested when neither leads to the other', () => {
-    const tree = buildLevelSubtree(0x002, new Map([[0x002, [0x0d0, 0x0d1]]]))
+    const tree = buildLevelSubtree(0x002, new Map([[0x002, [0x0d0, 0x0d1]]]), isOverworld)
     expect(shape(tree)).toBe('$002[$0D0 $0D1]')
   })
 
   it('returns a childless root when the graph has no exits for it', () => {
-    const tree = buildLevelSubtree(0x001, new Map())
+    const tree = buildLevelSubtree(0x001, new Map(), isOverworld)
     expect(tree).toEqual({ index: 0x001, children: [], kind: 'room' })
   })
 })
@@ -145,7 +152,7 @@ describe('buildLevelSubtree -- expansion caps', () => {
     // 2^20 root-to-leaf paths from 61 graph nodes, all of them legal sub-area
     // indices. Uncapped this expands to 4,194,301 nodes (measured once, this
     // machine, by removing the node cap; see the commit message).
-    const tree = buildLevelSubtree(0x0c0, diamondChain(20))
+    const tree = buildLevelSubtree(0x0c0, diamondChain(20), isOverworld)
     expect(countNodes(tree)).toBe(1004)
     expect(countNodes(tree)).toBeLessThanOrEqual(MAX_SUBTREE_NODES + 2 * MAX_SUBTREE_DEPTH)
     expect(countKind(tree, 'truncated')).toBeGreaterThan(0)
@@ -153,7 +160,7 @@ describe('buildLevelSubtree -- expansion caps', () => {
   })
 
   it('stops a long chain at the depth cap and marks where it stopped', () => {
-    const tree = buildLevelSubtree(0x0c0, chain(40))
+    const tree = buildLevelSubtree(0x0c0, chain(40), isOverworld)
     expect(maxDepth(tree)).toBe(MAX_SUBTREE_DEPTH)
     expect(countNodes(tree)).toBe(MAX_SUBTREE_DEPTH + 1)
     expect(countKind(tree, 'truncated')).toBe(1)
@@ -163,7 +170,7 @@ describe('buildLevelSubtree -- expansion caps', () => {
   })
 
   it('leaves a graph well under the caps untouched', () => {
-    const tree = buildLevelSubtree(0x0c0, diamondChain(3))
+    const tree = buildLevelSubtree(0x0c0, diamondChain(3), isOverworld)
     expect(countKind(tree, 'truncated')).toBe(0)
     expect(countNodes(tree)).toBe(29)
   })

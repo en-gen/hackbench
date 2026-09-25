@@ -93,25 +93,34 @@ describe('new SmwRom - map-mode validation', () => {
 
 // ── isOverworldLevel ─────────────────────────────────────────────────────────
 
+// A stand-in for what OverworldEntrances.deriveOverworldEntrances derives;
+// this file tests the range check itself, not the derivation.
+const BOUNDS = { mainMax: 0x024, subMin: 0x101, subMax: 0x13b }
+
 describe('isOverworldLevel', () => {
   it('main map range $000-$024 is overworld', () => {
-    expect(isOverworldLevel(0x000)).toBe(true)
-    expect(isOverworldLevel(0x024)).toBe(true)
+    expect(isOverworldLevel(0x000, BOUNDS)).toBe(true)
+    expect(isOverworldLevel(0x024, BOUNDS)).toBe(true)
   })
 
-  it('first sub-area $025 is NOT in either overworld range', () => {
-    expect(isOverworldLevel(0x025)).toBe(false)
-    expect(isOverworldLevel(0x100)).toBe(false)
+  it('the byte past mainMax is NOT in either range', () => {
+    expect(isOverworldLevel(0x025, BOUNDS)).toBe(false)
+    expect(isOverworldLevel(0x100, BOUNDS)).toBe(false)
   })
 
-  it('submap range $101-$13B is overworld', () => {
-    expect(isOverworldLevel(0x101)).toBe(true)
-    expect(isOverworldLevel(0x13b)).toBe(true)
+  it('the submap range is overworld, inclusive of both ends', () => {
+    expect(isOverworldLevel(0x101, BOUNDS)).toBe(true)
+    expect(isOverworldLevel(0x13b, BOUNDS)).toBe(true)
   })
 
-  it('above $13B is sub-area', () => {
-    expect(isOverworldLevel(0x13c)).toBe(false)
-    expect(isOverworldLevel(0x1ff)).toBe(false)
+  it('past subMax is sub-area', () => {
+    expect(isOverworldLevel(0x13c, BOUNDS)).toBe(false)
+    expect(isOverworldLevel(0x1ff, BOUNDS)).toBe(false)
+  })
+
+  it('null bounds (overworld unreadable) names no index overworld', () => {
+    expect(isOverworldLevel(0x000, null)).toBe(false)
+    expect(isOverworldLevel(0x111, null)).toBe(false)
   })
 })
 

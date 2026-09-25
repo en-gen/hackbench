@@ -3,6 +3,8 @@ import { RomSession } from '../RomSession'
 import { GFX_FILE_COUNT } from '../rom/GfxLoader'
 import { loadRomPalettes } from '../rom/PaletteLoader'
 import { buildLevelSubtree, LevelTreeNode } from '../rom/LevelTree'
+import { isOverworldLevel } from '../rom/SmwRom'
+import { deriveOverworldEntrances } from '../rom/OverworldEntrances'
 import { roomRow, roomRowForNode, RoomRow } from './levelTreeRows'
 import { loadOverworldAreas, OwArea } from '../rom/OverworldLoader'
 import { hex2, hex3 } from '../rom/hex'
@@ -277,15 +279,16 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
 
     if (element instanceof RomInfoItem) {
       // Under ROM: Overworld folder first, then one LevelFolder per overworld level.
-      const { overworld } = rom.classifyLevels()
-      const exitGraph = rom.buildLevelExitGraph().graph
+      const bounds = deriveOverworldEntrances(rom).levelBounds
+      const { overworld } = rom.classifyLevels(bounds)
+      const exitGraph = rom.buildLevelExitGraph(bounds).graph
 
       const folders = overworld.map(
         index =>
           new LevelFolder(
             index,
             slug,
-            buildLevelSubtree(index, exitGraph),
+            buildLevelSubtree(index, exitGraph, i => isOverworldLevel(i, bounds)),
             rom.getLevelName(index) ?? undefined,
           ),
       )

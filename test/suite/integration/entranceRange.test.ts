@@ -44,12 +44,12 @@ describe.skipIf(!NAMES.some(n => hasRom(n)))(
         }
 
         // Entry maps the ROM says exist but the range predicate rejects.
-        const missed = index.entryMaps.filter(s => !isOverworldLevel(s))
+        const missed = index.entryMaps.filter(s => !isOverworldLevel(s, index.levelBounds))
         // Slots the predicate accepts that no launch tile actually starts.
         const entrySet = new Set(index.entryMaps)
         const phantom: number[] = []
         for (let s = 0; s <= 0x1ff; s++)
-          if (isOverworldLevel(s) && !entrySet.has(s)) phantom.push(s)
+          if (isOverworldLevel(s, index.levelBounds) && !entrySet.has(s)) phantom.push(s)
 
         report.push(
           `${name}\n` +

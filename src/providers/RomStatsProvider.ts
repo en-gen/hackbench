@@ -14,6 +14,7 @@ import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
 import { parseLevelHeader } from '../rom/LevelParser'
 import { buildLevelCatalog } from '../rom/LevelCatalog'
+import { deriveOverworldEntrances } from '../rom/OverworldEntrances'
 import { readDescriptor } from './webviewUtils'
 import { hex2 } from '../rom/hex'
 
@@ -62,7 +63,7 @@ interface RomStats {
 
 function gatherStats(rom: ReturnType<typeof resolveRom>): RomStats {
   const summary = rom.getSummary()
-  const { overworld, subarea } = rom.classifyLevels()
+  const { overworld, subarea } = rom.classifyLevels(deriveOverworldEntrances(rom).levelBounds)
   const catalog = buildLevelCatalog(rom)
   const allSlots = rom.enumerateAllLevels()
   const validSlots = allSlots.filter(s => s.hasData)

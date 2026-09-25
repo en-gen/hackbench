@@ -17,7 +17,7 @@
  *   awards          OWLevelExitMode per docs/rom/smw-overworld-levels.md
  */
 import { describe, it, expect, beforeAll } from 'vitest'
-import { SmwRom } from '../../../src/rom/SmwRom'
+import { SmwRom, isOverworldLevel } from '../../../src/rom/SmwRom'
 import { buildLevelSubtree } from '../../../src/rom/LevelTree'
 import { parseLevelSprites } from '../../../src/rom/LevelParser'
 import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
@@ -49,8 +49,8 @@ describe.skipIf(!hasRom(VANILLA))('vanilla level and exit counts', () => {
 
   beforeAll(() => {
     rom = SmwRom.open(VANILLA_ROM)
-    const g = rom.buildLevelExitGraph().graph
     const idx = deriveOverworldEntrances(rom)
+    const g = rom.buildLevelExitGraph(idx.levelBounds).graph
     const sp = (i: number) => {
       const p = rom.getLevelSpritePointer(i)
       if (!p) return []
@@ -82,7 +82,7 @@ describe.skipIf(!hasRom(VANILLA))('vanilla level and exit counts', () => {
         if (n.kind === 'room') chain.add(n.index)
         n.children.forEach(f)
       }
-      f(buildLevelSubtree(room, g))
+      f(buildLevelSubtree(room, g, i => isOverworldLevel(i, idx.levelBounds)))
       let normal = 0,
         secret = 0,
         side = false
