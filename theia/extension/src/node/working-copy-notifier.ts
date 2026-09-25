@@ -1,17 +1,23 @@
 /**
  * Bridges WorkingRom's in-process change event to a JSON-RPC client.
  *
- * Every `*ServiceImpl` that reads a project's working copy uses one of
- * these to push "something changed, re-fetch" to its own frontend widget.
- * `watch` is idempotent per `WorkingRom` instance (a `WeakSet`, not a flag
- * keyed by manifest path) because `WorkingRomRegistry.get()` is called on
- * every request - without it, each call would add another subscriber and
- * a single edit would fire the client once per RPC call ever made.
+ * One instance per CONNECTION, not per service: the `*-backend-module.ts`
+ * files bind each `*ServiceImpl` inside a `ConnectionContainerModule`, so a
+ * second window gets its own instance rather than sharing one whose
+ * `client` field the next connection would overwrite. `watch` stays
+ * idempotent per `WorkingRom` (keyed by the instance, not a manifest-path
+ * flag) because `WorkingRomRegistry.get()` runs on every request.
  *
- * This is server-to-frontend, over JSON-RPC. Server-to-server (gfx-server.ts
- * reacting to a palette edit) is a DIFFERENT subscription, added directly
- * against the shared `WorkingRom` instance both services get from the same
- * `WorkingRomRegistry` - see gfx-server.ts.
+ * `setClient(undefined)` also reports a closed connection (wired to the
+ * client proxy's `onDidCloseConnection` in each backend module) and releases
+ * every subscription this instance made, so a closed window's dead proxy is
+ * never called again.
+ *
+ * A palette edit reaching an open GFX view is not a separate mechanism:
+ * gfx-server.ts's own connection has its own notifier instance, `watch`ing
+ * the same shared `WorkingRom` and pushing to its own client exactly as
+ * palette-server.ts's does. This is the only `WorkingRom.onDidChange`
+ * subscriber under `theia/extension/src/node`.
  */
 import { WorkingRom } from '../../../../src/project/WorkingRom'
 
@@ -21,16 +27,22 @@ export interface WorkingCopyClient {
 
 export class WorkingCopyNotifier<Client extends WorkingCopyClient> {
   private client: Client | undefined
-  private readonly subscribed = new WeakSet<WorkingRom>()
+  private readonly subscriptions = new Map<WorkingRom, () => void>()
 
   setClient(client: Client | undefined): void {
     this.client = client
+    if (!client) {
+      for (const unsubscribe of this.subscriptions.values()) unsubscribe()
+      this.subscriptions.clear()
+    }
   }
 
   /** Subscribes `working` to notify this service's current client, tagged with `manifestPath`. */
   watch(manifestPath: string, working: WorkingRom): void {
-    if (this.subscribed.has(working)) return
-    this.subscribed.add(working)
-    working.onDidChange(() => this.client?.onWorkingCopyChanged(manifestPath))
+    if (this.subscriptions.has(working)) return
+    this.subscriptions.set(
+      working,
+      working.onDidChange(() => this.client?.onWorkingCopyChanged(manifestPath)),
+    )
   }
 }

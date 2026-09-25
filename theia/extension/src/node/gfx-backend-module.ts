@@ -1,22 +1,23 @@
 import { ContainerModule } from '@theia/core/shared/inversify'
-import { ConnectionHandler, RpcConnectionHandler } from '@theia/core/lib/common/messaging'
+import { ConnectionContainerModule } from '@theia/core/lib/node/messaging/connection-container-module'
 import { GFX_SERVICE_PATH, GfxService, GfxServiceClient } from '../common/gfx-protocol'
 import { GfxServiceImpl } from './gfx-server'
 
-export default new ContainerModule(bind => {
+// One GfxServiceImpl per CONNECTION - see palette-backend-module.ts.
+const gfxConnectionModule = ConnectionContainerModule.create(({ bind, bindBackendService }) => {
   bind(GfxServiceImpl).toSelf().inSingletonScope()
   bind(GfxService).toService(GfxServiceImpl)
-  bind(ConnectionHandler)
-    .toDynamicValue(
-      ctx =>
-        // Registering the client is what lets a palette edit (or any other
-        // change to this project's WorkingRom) push "re-render" to whatever
-        // GFX view is open, without the view polling or the user reloading.
-        new RpcConnectionHandler<GfxServiceClient>(GFX_SERVICE_PATH, client => {
-          const server = ctx.container.get<GfxService>(GfxService)
-          server.setClient(client)
-          return server
-        }),
-    )
-    .inSingletonScope()
+  bindBackendService<GfxService, GfxServiceClient>(
+    GFX_SERVICE_PATH,
+    GfxService,
+    (server, client) => {
+      server.setClient(client)
+      client.onDidCloseConnection(() => server.setClient(undefined))
+      return server
+    },
+  )
+})
+
+export default new ContainerModule(bind => {
+  bind(ConnectionContainerModule).toConstantValue(gfxConnectionModule)
 })
