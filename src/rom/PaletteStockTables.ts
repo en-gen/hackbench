@@ -22,12 +22,15 @@
 import { RomFile } from './RomFile'
 import { RgbaColor, bgr555ToRgba } from './GraphicsDecoder'
 import { ROM_WRITTEN_INDICES } from './CgramOracle'
+import { stockCodeMismatch, StockCode } from './SubmapFlagGate'
+import { WILD } from './BytePattern'
 import {
   loadRomPalettes,
   loadBackAreaColors,
   loadCustomLevelPalette,
   PaletteGroup,
   RomPalettes,
+  STOCK_COL1,
   PALETTE_ROW_COLORS,
   BG_SECONDARY_COLORS,
   BG_SECONDARY_COL_START,
@@ -65,21 +68,19 @@ export interface AttributedGroup {
   variants: AttributedVariant[]
 }
 
-// ── Column 1: LoadCol8Pal, not a table ──────────────────────────────────────
+// ── Column 1: LoadCol8Pal, not a table (#492) ───────────────────────────────
 //
-// bank_00.asm:5595-5604 (LoadPalette) runs LoadCol8Pal before any per-group
-// table load, writing column 1 of every CGRAM row from an LDA #imm operand:
-// $7FDD for rows 0-7, $7FFF for rows 8-15. Read the operand at its own
-// address rather than hardcode it (CLAUDE.md's ASM-is-reference recipe): a
-// hack that recolours column 1 changes exactly these bytes, and gating on
-// the opcode means a hack that replaces the routine reports unavailable
-// instead of the vanilla constant.
+// LoadPalette runs LoadCol8Pal before any per-group table load, writing
+// column 1 of every CGRAM row from an LDA #imm operand: bank_00.asm:5597
+// (BG rows 0-7) and :5601 (OBJ rows 8-15). Read the operands rather than
+// hardcode them; gating on the opcode reports unavailable instead of the
+// vanilla constant when the routine is replaced.
 
 const OPCODE_LDA_IMM = 0xa9
 /** LDA #$7FDD, bank_00.asm:5597. */
-const ADDR_COL1_BG_LDA = 0x00abef
+export const ADDR_COL1_BG_LDA = 0x00abef
 /** LDA #$7FFF, bank_00.asm:5601. */
-const ADDR_COL1_OBJ_LDA = 0x00abfa
+export const ADDR_COL1_OBJ_LDA = 0x00abfa
 
 function readLdaImmWord(rom: RomFile, opcodeAddr: number): number | null {
   const buf = rom.readAt(opcodeAddr, 3)
@@ -97,6 +98,72 @@ function col1Cell(rom: RomFile, cgramRow: number): AttributedCell {
     table: 'LoadPalette (LoadCol8Pal)',
     romAddr: addr,
   }
+}
+
+/**
+ * Column 1's reach, byte-counted from LoadPalette ($00ABED, bank_00.asm:5595):
+ * the level-load JSR into it, its own entry (REP #$30), and both LoadCol8Pal
+ * dispatches. A BRA planted at $ABED would skip the BG write while $ABEF's
+ * bytes stay intact and still read as "written", so reach is proven
+ * separately from the opcode gate below.
+ * Hack-fragility: the Mode 7 boss path reaches LoadPalette differently, or
+ * not at all (CODE_0097BC, bank_00.asm:4861-4864, :5816); this checks a
+ * normal level only.
+ */
+export const PALETTE_COL1_PATH: readonly StockCode[] = [
+  {
+    addr: 0x00a5bc,
+    bytes: [0x20, 0xed, 0xab],
+    what: 'JSR LoadPalette (level load)',
+    cite: 'bank_00.asm:4868',
+  },
+  {
+    addr: 0x00abed,
+    bytes: [0xc2, 0x30],
+    what: 'LoadPalette entry (REP #$30)',
+    cite: 'bank_00.asm:5596',
+  },
+  {
+    addr: 0x00abf7,
+    bytes: [0x20, WILD, WILD],
+    what: 'JSR LoadCol8Pal (BG)',
+    cite: 'bank_00.asm:5600',
+  },
+  {
+    addr: 0x00ac02,
+    bytes: [0x20, WILD, WILD],
+    what: 'JSR LoadCol8Pal (OBJ)',
+    cite: 'bank_00.asm:5604',
+  },
+]
+
+/** LoadPalette's column-1 words, gated on PALETTE_COL1_PATH, or a refusal reason. */
+export function readLevelCol1(rom: RomFile): { bg: number; obj: number } | { reason: string } {
+  const reach = stockCodeMismatch(rom, PALETTE_COL1_PATH)
+  if (reach) return { reason: reach }
+  const bg = readLdaImmWord(rom, ADDR_COL1_BG_LDA)
+  const obj = readLdaImmWord(rom, ADDR_COL1_OBJ_LDA)
+  if (bg === null || obj === null) {
+    return { reason: 'LoadPalette column 1 LDA #imm ($00ABEF/$00ABFA) is not the stock opcode.' }
+  }
+  return { bg, obj }
+}
+
+/**
+ * Plants PALETTE_COL1_PATH's reach bytes plus a stock LDA #imm at each value
+ * site, so a fixture that only needs column 1 out of the way does not have
+ * to know its addresses.
+ */
+export function plantStockPaletteCol1(rom: RomFile): void {
+  for (const c of PALETTE_COL1_PATH) {
+    rom.writeAt(
+      c.addr,
+      c.bytes.map(b => (b === WILD ? 0 : b)),
+    )
+  }
+  const ldaImm = (word: number): number[] => [OPCODE_LDA_IMM, word & 0xff, (word >> 8) & 0xff]
+  rom.writeAt(ADDR_COL1_BG_LDA, ldaImm(STOCK_COL1.bg))
+  rom.writeAt(ADDR_COL1_OBJ_LDA, ldaImm(STOCK_COL1.obj))
 }
 
 // ── Secondary tables: real bytes, not the group's own (narrower) row ───────

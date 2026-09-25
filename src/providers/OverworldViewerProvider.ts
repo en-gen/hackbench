@@ -48,7 +48,7 @@ import {
   serializePaletteAnimData,
 } from '../rom/PaletteAnimationLoader'
 import { loadVram, VRAM_SLOT_NAMES, VRAM_CHAR_BASE, VramSlotName } from '../rom/GfxLoader'
-import { loadRomPalettes, buildLevelCgram, RgbaRow } from '../rom/PaletteLoader'
+import { loadRomPalettes, buildLevelCgram, STOCK_COL1, RgbaRow } from '../rom/PaletteLoader'
 
 /** Pack the loaded VRAM into one flat tile array indexed by SNES char number. */
 function buildVramTileArray(vram: Partial<Record<VramSlotName, Uint8Array[]>>): number[][] {
@@ -152,6 +152,7 @@ export class OverworldViewerProvider implements vscode.CustomReadonlyEditorProvi
         baselineHeader?.bgPalette ?? 0,
         baselineHeader?.fgPalette ?? 0,
         baselineHeader?.spritePalette ?? 0,
+        STOCK_COL1,
       ).rows
       const owCgram = loadAreaPalette(rom, area, false)
 

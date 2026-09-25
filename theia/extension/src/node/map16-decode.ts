@@ -45,6 +45,7 @@ import {
   loadRomPalettes,
   type ActiveLevelPalette,
 } from '../../../../src/rom/PaletteLoader'
+import { readLevelCol1 } from '../../../../src/rom/PaletteStockTables'
 import { buildTileAtlas } from '../../../../src/rom/TileRenderer'
 import {
   getAnimatedChars,
@@ -507,10 +508,14 @@ export function decodeMap16Sheet(
   const frameZero = frameZeroChars(rom.rom, tileset, rawVram)
   const vram = frameZero?.vram ?? rawVram
   const palettes = loadRomPalettes(rom.rom)
+  const col1 = readLevelCol1(rom.rom)
+  if ('reason' in col1) {
+    return { status: 'unavailable', reason: `Palette column 1 is unavailable: ${col1.reason}` }
+  }
   // Sprite param fixed at 0: buildLevelCgram's sprite variant only reaches
   // CGRAM rows 14-15, which a 3-bit color-row field (0-7) can never select
   // - see Map16PaletteVariantDto's own doc comment.
-  const cgram = buildLevelCgram(palettes, paletteVariant.bg, paletteVariant.fg, 0)
+  const cgram = buildLevelCgram(palettes, paletteVariant.bg, paletteVariant.fg, 0, col1)
 
   // Ticking starts from the raw VRAM the Chars were built against; phase 0
   // of that walk is `vram` above, which is why the still sheet and the

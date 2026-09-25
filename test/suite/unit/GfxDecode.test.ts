@@ -18,12 +18,13 @@ import {
   readGfxFile,
 } from '../../../src/rom/GfxLoader'
 import { RomFile } from '../../../src/rom/RomFile'
-import { decode4bpp } from '../../../src/rom/GraphicsDecoder'
+import { decode4bpp, bgr555ToRgba } from '../../../src/rom/GraphicsDecoder'
 import {
   decodeGfxSheet,
   inferDefaultBpp,
   listGfxFileInfos,
   GFX_TILES_PER_ROW,
+  DEFAULT_PALETTE_ROW,
 } from '../../../theia/extension/src/node/gfx-decode'
 import { CORPUS, INVICTUS, VANILLA, hasRom, romPath } from '../support/corpus'
 import { buildCart, gfxStreams } from '../support/syntheticGfxCart'
@@ -273,6 +274,36 @@ describe('gfx-decode (synthetic)', () => {
     streams[0x0e] = encode(new Uint8Array(29).fill(0x11))
     const rom = buildCart({ streams }).rom
     expect(() => decodeGfxSheet(new SmwRom(rom), 0x0e, 4)).toThrow(/shorter than one tile/i)
+  })
+
+  // Column 1 wiring (#492): buildCart plants a stock reach+opcode path by
+  // default, so these prove the view actually calls the gated reader rather
+  // than swallowing its refusal or falling back to a hardcoded constant -
+  // neither would fail without this pair, corpus or no corpus.
+  describe('column 1 wiring', () => {
+    // One 4bpp tile, every pixel at color index 1 - column 1's own slot in
+    // the composited row - so the rendered pixel is a direct read of it.
+    const solidIndex1Tile = (() => {
+      const t = new Uint8Array(32)
+      for (let row = 0; row < 8; row++) t[row * 2] = 0xff
+      return t
+    })()
+
+    it('refuses when the level-load path no longer reaches LoadPalette', () => {
+      const { rom } = buildCart()
+      rom.writeAt(0x00a5bc, [0x4c, 0xed, 0xab]) // JMP, not JSR: a hijacked call site
+      expect(() => decodeGfxSheet(new SmwRom(rom), 0)).toThrow(/Palette column 1 is unavailable/)
+    })
+
+    it('renders a non-stock column-1 immediate, not the vanilla $7FDD', () => {
+      const streams = gfxStreams()
+      streams[0] = encode(solidIndex1Tile)
+      const { rom } = buildCart({ streams })
+      rom.writeAt(0x00abef, [0xa9, 0x34, 0x12]) // LDA #$1234, still a valid opcode
+      const sheet = decodeGfxSheet(new SmwRom(rom), 0, 4, DEFAULT_PALETTE_ROW)
+      const rgba = Buffer.from(sheet.rgbaBase64, 'base64')
+      expect([rgba[0], rgba[1], rgba[2], rgba[3]]).toEqual(bgr555ToRgba(0x1234))
+    })
   })
 })
 

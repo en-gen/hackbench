@@ -23,6 +23,7 @@ import {
   loadRomPalettes,
   buildLevelCgram,
   loadCustomLevelPalette,
+  STOCK_COL1,
 } from '../../../src/rom/PaletteLoader'
 import { bgr555ToRgba } from '../../../src/rom/GraphicsDecoder'
 import { parseLevelObjects } from '../../../src/rom/LevelParser'
@@ -56,7 +57,7 @@ describe.skipIf(!romPresent)('PaletteLoader (requires ROM)', () => {
   it('buildLevelCgram returns 256 colors (16 rows × 16)', () => {
     const rom = SmwRom.open(ROM_PATH)
     const pal = loadRomPalettes(rom.rom)
-    const cgram = buildLevelCgram(pal, 0, 0, 0)
+    const cgram = buildLevelCgram(pal, 0, 0, 0, STOCK_COL1)
     expect(cgram.colors.length).toBe(256)
     expect(cgram.rows.length).toBe(16)
   })
@@ -64,7 +65,7 @@ describe.skipIf(!romPresent)('PaletteLoader (requires ROM)', () => {
   it('col 0 of every CGRAM row is transparent [0,0,0,0]', () => {
     const rom = SmwRom.open(ROM_PATH)
     const pal = loadRomPalettes(rom.rom)
-    const cgram = buildLevelCgram(pal, 0, 0, 0)
+    const cgram = buildLevelCgram(pal, 0, 0, 0, STOCK_COL1)
     for (let r = 0; r < 16; r++) {
       const col0 = cgram.colors[r * 16]
       expect(col0[3]).toBe(0)
@@ -74,7 +75,7 @@ describe.skipIf(!romPresent)('PaletteLoader (requires ROM)', () => {
   it('col 1 of rows 0–7 is $7FDD (SMW hardcoded); rows 8–15 is $7FFF (pure white)', () => {
     const rom = SmwRom.open(ROM_PATH)
     const pal = loadRomPalettes(rom.rom)
-    const cgram = buildLevelCgram(pal, 0, 0, 0, 0)
+    const cgram = buildLevelCgram(pal, 0, 0, 0, STOCK_COL1, 0)
     // SMW hardcodes col 1: $7FDD for BG rows, $7FFF for OBJ rows
     // BGR555 $7FDD = R=29,G=30,B=31 → bit-replicated: R=239,G=247,B=255
     const COL1_BG = [239, 247, 255]
@@ -108,7 +109,8 @@ describe.skipIf(!romPresent)('PaletteLoader (requires ROM)', () => {
       // Try custom LM palette first (same as MapEditorProvider)
       const customPalette = loadCustomLevelPalette(rom.rom, LEVEL_104)
       const pal = loadRomPalettes(rom.rom, backAreaVariant)
-      const cgram = customPalette ?? buildLevelCgram(pal, bgPaletteRow, fgVariant, spritePalette, 0)
+      const cgram =
+        customPalette ?? buildLevelCgram(pal, bgPaletteRow, fgVariant, spritePalette, STOCK_COL1, 0)
 
       const dump = readFileSync(CGRAM_DMP)
       let matches = 0,

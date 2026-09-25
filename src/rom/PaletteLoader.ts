@@ -347,10 +347,20 @@ export interface ActiveLevelPalette {
 }
 
 /**
+ * LoadPalette's own LDA #imm operands for column 1 (bank_00.asm:5597,
+ * :5601), for callers with no ROM in scope to read them from -
+ * PaletteStockTables.readLevelCol1 is the live, gated read (#492). Not a
+ * default: keeping this out of buildLevelCgram's signature would let a
+ * shipping view silently render vanilla-shaped output for a hack that
+ * recolours column 1.
+ */
+export const STOCK_COL1 = { bg: 0x7fdd, obj: 0x7fff } as const
+
+/**
  * Build the full 16-row CGRAM for a specific level configuration.
  *
  * Follows the exact LoadPalette order from bank_00.asm:
- *   1. Color 1 = $7FDD (BG) / $7FFF (OBJ) -- LoadCol8Pal
+ *   1. Color 1 = col1.bg (rows 0-7) / col1.obj (rows 8-15) -- LoadCol8Pal
  *   2. StatusBarColors → rows 0-1 cols 8-15
  *   3. StandardColors → rows 4-13 cols 2-7
  *   4. ForegroundPalettes[variant] → rows 2-3 cols 2-7
@@ -364,6 +374,7 @@ export function buildLevelCgram(
   bgVariant: number,
   fgVariant: number,
   spritePalette: number,
+  col1: { bg: number; obj: number },
   marioVariant = 0,
 ): ActiveLevelPalette {
   const rows: RgbaRow[] = Array.from({ length: 16 }, emptyRow)
@@ -446,10 +457,9 @@ export function buildLevelCgram(
     }
   }
 
-  // Color 1: $7FDD for BG rows 0-7, $7FFF for OBJ rows 8-15
-  // LoadPalette lines 5597-5604: LoadCol8Pal
-  const COL1_BG: RgbaColor = bgr555ToRgba(0x7fdd)
-  const COL1_OBJ: RgbaColor = bgr555ToRgba(0x7fff)
+  // Color 1: caller-supplied, read from LoadPalette's own operands (LoadCol8Pal).
+  const COL1_BG: RgbaColor = bgr555ToRgba(col1.bg)
+  const COL1_OBJ: RgbaColor = bgr555ToRgba(col1.obj)
   for (let r = 0; r < 8; r++) rows[r][1] = COL1_BG
   for (let r = 8; r < 16; r++) rows[r][1] = COL1_OBJ
 
@@ -472,7 +482,7 @@ export function loadBackAreaColors(rom: RomFile): RgbaColor[] {
 
 export function loadLevelPalette(rom: RomFile): { colors: RgbaColor[]; rows: RgbaRow[] } {
   const palettes = loadRomPalettes(rom)
-  const cgram = buildLevelCgram(palettes, 0, 0, 0)
+  const cgram = buildLevelCgram(palettes, 0, 0, 0, STOCK_COL1)
   return { colors: cgram.colors, rows: cgram.rows }
 }
 

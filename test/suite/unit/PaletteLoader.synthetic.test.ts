@@ -13,6 +13,7 @@ import {
   loadLevelPalette,
   loadCustomLevelPalette,
   getPaletteColor,
+  STOCK_COL1,
   ADDR_BACK_AREA,
   ADDR_BG_PAIR,
   ADDR_CUSTOM_PALETTE_TABLE,
@@ -101,7 +102,7 @@ describe('buildLevelCgram', () => {
   it('returns 256 colors and 16 rows from a clean ROM', () => {
     const rom = make4MbRom()
     const pal = loadRomPalettes(rom)
-    const cgram = buildLevelCgram(pal, 0, 0, 0, 0)
+    const cgram = buildLevelCgram(pal, 0, 0, 0, STOCK_COL1, 0)
     expect(cgram.colors.length).toBe(256)
     expect(cgram.rows.length).toBe(16)
   })
@@ -110,7 +111,7 @@ describe('buildLevelCgram', () => {
     const rom = make4MbRom()
     const pal = loadRomPalettes(rom)
     // bgVariant=99 → clamped to 7; doesn't crash
-    const cgram = buildLevelCgram(pal, 99, 99, 99, 99)
+    const cgram = buildLevelCgram(pal, 99, 99, 99, STOCK_COL1, 99)
     expect(cgram.bgVariantIndex).toBe(99) // raw param echoed
     expect(cgram.colors.length).toBe(256)
   })
@@ -118,14 +119,14 @@ describe('buildLevelCgram', () => {
   it('col 0 of every row is transparent', () => {
     const rom = make4MbRom()
     const pal = loadRomPalettes(rom)
-    const cgram = buildLevelCgram(pal, 0, 0, 0, 0)
+    const cgram = buildLevelCgram(pal, 0, 0, 0, STOCK_COL1, 0)
     for (let r = 0; r < 16; r++) expect(cgram.colors[r * 16][3]).toBe(0)
   })
 
-  it('col 1 of rows 0-7 is BG sentinel $7FDD; rows 8-15 is OBJ sentinel $7FFF', () => {
+  it('col 1 of rows 0-7 is caller-supplied col1.bg; rows 8-15 is col1.obj, at the row-7/8 boundary', () => {
     const rom = make4MbRom()
     const pal = loadRomPalettes(rom)
-    const cgram = buildLevelCgram(pal, 0, 0, 0, 0)
+    const cgram = buildLevelCgram(pal, 0, 0, 0, STOCK_COL1, 0)
     // BGR555 $7FDD: R=29, G=30, B=31 → bit-replicated: 239, 247, 255
     expect(cgram.colors[0 * 16 + 1]).toEqual([239, 247, 255, 255])
     expect(cgram.colors[7 * 16 + 1]).toEqual([239, 247, 255, 255])
@@ -140,7 +141,7 @@ describe('getPaletteColor', () => {
   it('returns the indexed color', () => {
     const rom = make4MbRom()
     const pal = loadRomPalettes(rom)
-    const cgram = buildLevelCgram(pal, 0, 0, 0)
+    const cgram = buildLevelCgram(pal, 0, 0, 0, STOCK_COL1)
     expect(getPaletteColor(cgram, 0, 0)).toEqual(cgram.colors[0])
     expect(getPaletteColor(cgram, 5, 7)).toEqual(cgram.colors[5 * 16 + 7])
   })

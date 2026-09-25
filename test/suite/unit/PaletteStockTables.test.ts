@@ -3,10 +3,13 @@ import { RomFile } from '../../../src/rom/RomFile'
 import {
   buildStockTables,
   countCustomPaletteLevels,
+  readLevelCol1,
   AttributedGroup,
 } from '../../../src/rom/PaletteStockTables'
 import { loadRomPalettes, loadBackAreaColors, ADDR_BACK_AREA } from '../../../src/rom/PaletteLoader'
+import { bgr555ToRgba } from '../../../src/rom/GraphicsDecoder'
 import { INVICTUS, VANILLA, hasRom, romPath } from '../support/corpus'
+import { plantPaletteCol1ReachPath } from '../support/syntheticGfxCart'
 
 const ROM_PATH = romPath(VANILLA)
 const romPresent = hasRom(VANILLA)
@@ -217,21 +220,75 @@ describe.skipIf(!hackRomPresent)('countCustomPaletteLevels (real hack cart)', ()
 })
 
 describe('col1 opcode gate', () => {
-  it('fails closed (reports unwritten) when the opcode at the cited address is not LDA #imm', () => {
-    // A minimal synthetic ROM with $22 (JSL) planted at the LDA #$7FDD site,
-    // matching how CLAUDE.md describes a hijacked routine: same address,
-    // different opcode. Does not need a real cart, so it always runs.
-    const buf = Buffer.alloc(0x200000, 0)
-    buf[0x7fd5] = 0x20 // LoROM header byte
-    buf[0x00abef] = 0x22 // planted: JSL instead of LDA #imm
-    const rom = new RomFile('synthetic', buf)
-    const bg = buildStockTables(rom).find(g => g.id === 'bg')!
-    expect(bg.variants[0].rows[0][1]).toEqual({
-      written: false,
-      color: null,
-      table: null,
-      romAddr: null,
-    })
+  // A raw `buf[0x00abef] =` write is a FILE offset, not the SNES address
+  // col1Cell reads; rom.writeAt converts, so it cannot drift the same way.
+  it('reads the ROM value (not a hardcoded fallback), then fails closed when the opcode is replaced', () => {
+    const rom = new RomFile('synthetic', Buffer.alloc(0x200000, 0))
+    rom.writeAt(0x00ffd5, [0x20]) // LoROM header byte (SNES $00:FFD5 -> file $7FD5)
+    rom.writeAt(0x00abef, [0xa9, 0x34, 0x12]) // LDA #$1234: a non-stock immediate
+    const before = buildStockTables(rom).find(g => g.id === 'bg')!.variants[0].rows[0][1]
+    expect(before).toMatchObject({ written: true, color: bgr555ToRgba(0x1234) })
+
+    rom.writeAt(0x00abef, [0x22, 0x34, 0x12]) // planted: JSL instead of LDA #imm
+    const after = buildStockTables(rom).find(g => g.id === 'bg')!.variants[0].rows[0][1]
+    expect(after).toEqual({ written: false, color: null, table: null, romAddr: null })
+  })
+
+  it('CGRAM row 7 reads the BG address, row 8 the OBJ address - the col1Cell boundary', () => {
+    const rom = new RomFile('synthetic', Buffer.alloc(0x200000, 0))
+    rom.writeAt(0x00ffd5, [0x20])
+    rom.writeAt(0x00abef, [0xa9, 0x34, 0x12]) // BG: LDA #$1234
+    rom.writeAt(0x00abfa, [0xa9, 0x78, 0x56]) // OBJ: LDA #$5678
+    // sprite_sets covers CGRAM rows 4-13: rows[3] is row 7, rows[4] is row 8.
+    const rows = buildStockTables(rom).find(g => g.id === 'sprite_sets')!.variants[0].rows
+    expect(rows[3][1]).toMatchObject({ color: bgr555ToRgba(0x1234) })
+    expect(rows[4][1]).toMatchObject({ color: bgr555ToRgba(0x5678) })
+  })
+})
+
+describe('readLevelCol1', () => {
+  function stockRom(): RomFile {
+    const rom = new RomFile('synthetic', Buffer.alloc(0x200000, 0))
+    rom.writeAt(0x00ffd5, [0x20])
+    plantPaletteCol1ReachPath(rom)
+    return rom
+  }
+
+  it('refuses when the level-load path no longer reaches LoadPalette', () => {
+    const rom = stockRom()
+    rom.writeAt(0x00a5bc, [0x4c, 0xed, 0xab]) // JMP, not JSR: a hijacked call site
+    const result = readLevelCol1(rom)
+    expect('reason' in result && result.reason).toMatch(/JSR LoadPalette/)
+  })
+
+  it('refuses when LoadPalette itself is bypassed (REP #$30 replaced)', () => {
+    const rom = stockRom()
+    rom.writeAt(0x00abed, [0x80, 0x18]) // BRA +$18: skips the BG write while $ABEF stays intact
+    const result = readLevelCol1(rom)
+    expect('reason' in result && result.reason).toMatch(/REP #\$30/)
+  })
+
+  it('refuses when a LoadCol8Pal dispatch is bypassed', () => {
+    const rom = stockRom()
+    rom.writeAt(0x00abf7, [0x80, 0x03, 0x00]) // BRA over the BG JSR
+    const result = readLevelCol1(rom)
+    expect('reason' in result && result.reason).toMatch(/LoadCol8Pal \(BG\)/)
+  })
+
+  it('refuses when the column-1 LDA #imm opcode is replaced', () => {
+    const rom = stockRom()
+    rom.writeAt(0x00abef, [0x22, 0xdd, 0x7f])
+    const result = readLevelCol1(rom)
+    expect('reason' in result && result.reason).toMatch(/opcode/)
+  })
+
+  it('reads a non-stock immediate: the value comes from ROM, not STOCK_COL1', () => {
+    const rom = stockRom()
+    rom.writeAt(0x00abef, [0xa9, 0x34, 0x12]) // recolored BG column 1, still LDA #imm
+    const result = readLevelCol1(rom)
+    if ('reason' in result) throw new Error(result.reason)
+    expect(result.bg).toBe(0x1234)
+    expect(result.obj).toBe(0x7fff) // OBJ untouched by this edit
   })
 })
 

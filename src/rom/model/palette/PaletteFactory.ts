@@ -1,7 +1,12 @@
 import type { RgbaColor } from '../../GraphicsDecoder'
 import type { LevelHeader } from '../../LevelParser'
 import { loadPaletteAnimData } from '../../PaletteAnimationLoader'
-import { buildLevelCgram, loadBackAreaColors, loadRomPalettes } from '../../PaletteLoader'
+import {
+  buildLevelCgram,
+  loadBackAreaColors,
+  loadRomPalettes,
+  STOCK_COL1,
+} from '../../PaletteLoader'
 import type { RomFile } from '../../RomFile'
 import { Color } from './Color'
 import { Palette } from './Palette'
@@ -25,6 +30,7 @@ export function buildPalette(rom: RomFile, header: LevelHeader): Palette {
     header.bgPalette,
     header.fgPalette,
     header.spritePalette,
+    STOCK_COL1,
   )
 
   const animByCgramIdx = collectPaletteAnimFrames(rom)
