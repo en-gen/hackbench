@@ -1594,6 +1594,55 @@ test('the preview follows the selection and the current animation phase', async 
   await page.locator(ctl('play-toggle')).click()
 })
 
+/** The RGBA bytes of one tile's 16x16 region of the strip. */
+async function tilePixels(page, tileId) {
+  const { x, y } = tileOrigin(tileId)
+  return page.evaluate(
+    ({ x, y, tilePx, sel }) => {
+      const canvas = document.querySelector(`${sel} .hb-map16-canvas`)
+      return Array.from(canvas.getContext('2d').getImageData(x, y, tilePx, tilePx).data)
+    },
+    { x, y, tilePx: TILE_PX, sel: FG },
+  )
+}
+
+/**
+ * #491: a ROM whose level JSL at $00A2A5 no longer reaches CODE_05BB39 must
+ * not be shown stock frames. Built from vanilla so it runs without the hacks.
+ */
+test('a ROM that runs its own animation code gets blank stock characters and a note', async ({
+  page,
+}) => {
+  const QUESTION_BLOCK = 0x11f // all four quadrants cite $060-$063
+  const patched = path.join(tmp, 'own-anim.sfc')
+  const buf = fs.readFileSync(ROM)
+  const base = buf.length % 1024 === COPIER_HEADER ? COPIER_HEADER : 0
+  expect([...buf.subarray(base + 0x22a5, base + 0x22a9)]).toEqual([0x22, 0x39, 0xbb, 0x05])
+  buf.set([0x22, 0x77, 0xac, 0x13], base + 0x22a5)
+  fs.writeFileSync(patched, buf)
+
+  await loadGfxExplorer(page, path.join(tmp, 'Stock'))
+  await openMap16(page, 'fg')
+  await expect(page.locator(`${FG} [data-note="animation"]`)).toHaveCount(0)
+  const stockBlock = await tilePixels(page, QUESTION_BLOCK)
+  const stockStatic = await tilePixels(page, STATIC_TILE_ID)
+  await closeMap16Views(page)
+
+  await loadGfxExplorer(page, path.join(tmp, 'OwnAnim'), patched)
+  await openMap16(page, 'fg')
+  const note = page.locator(`${FG} [data-note="animation"]`)
+  await expect(note).toBeVisible()
+  expect(await note.textContent()).toContain('$13AC77')
+  await expect(page.locator(ctl('play-toggle'))).toBeDisabled()
+
+  const block = await tilePixels(page, QUESTION_BLOCK)
+  const colors = new Set()
+  for (let i = 0; i < block.length; i += 4) colors.add(block.slice(i, i + 4).join(','))
+  expect(colors.size).toBe(1)
+  expect(block).not.toEqual(stockBlock)
+  expect(await tilePixels(page, STATIC_TILE_ID)).toEqual(stockStatic)
+})
+
 test('the Map16 view speaks of ROMs, never cartridges', async ({ page }) => {
   await loadGfxExplorer(page, path.join(tmp, 'Words'))
   await openMap16(page)

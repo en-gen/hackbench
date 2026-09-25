@@ -45,6 +45,7 @@ export function decompress(
   src: Buffer | Uint8Array,
   srcOffset = 0,
   initialBuffer?: Uint8Array,
+  meter?: { consumed: number; terminated: boolean },
 ): Uint8Array {
   // initialBuffer: optional pre-filled output buffer. The decompressor writes starting at
   // position 0, overwriting the beginning while higher offsets remain intact. Backreferences
@@ -61,7 +62,10 @@ export function decompress(
 
   while (i < src.length) {
     const header = src[i++]
-    if (header === 0xff) break // terminator
+    if (header === 0xff) {
+      if (meter) meter.terminated = true
+      break
+    }
 
     let cmd = (header >> 5) & 7
     let len: number
@@ -124,6 +128,7 @@ export function decompress(
     }
   }
 
+  if (meter) meter.consumed = i - srcOffset // terminator included
   return new Uint8Array(out)
 }
 

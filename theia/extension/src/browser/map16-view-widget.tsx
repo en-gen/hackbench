@@ -900,6 +900,11 @@ export class Map16ViewWidget extends ReactWidget {
               <span className={`codicon ${this.playing ? 'codicon-debug-stop' : 'codicon-play'}`} />
             </button>
           </div>
+          {sheet.animationNote && (
+            <span className="hb-map16-note" data-note="animation">
+              {sheet.animationNote}
+            </span>
+          )}
           {sheet.layer === 'bg' && (
             <span className="hb-map16-note">
               This is the ONE global Layer 2 preset table - it does not vary by tileset. The tileset

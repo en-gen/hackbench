@@ -37,6 +37,7 @@ import {
   readGfxAssignment,
   VramState,
   VRAM_CHAR_BASE,
+  VRAM_SLOT_NAMES,
   type GfxSheet,
 } from '../../../../src/rom/GfxLoader'
 import {
@@ -48,6 +49,9 @@ import { buildTileAtlas } from '../../../../src/rom/TileRenderer'
 import {
   getAnimatedChars,
   loadAnimationData,
+  readAnimGfxSources,
+  stockAnimatedChars,
+  stockAnimationUnreached,
   type AnimationData,
 } from '../../../../src/rom/AnimationLoader'
 import { buildChars, vramFromChars } from '../../../../src/rom/model/chars/CharFactory'
@@ -237,10 +241,15 @@ function gfxFileLabel(fileIndex: number): string {
  * be different pixels. `animated` is resolved against the cartridge's own
  * animation data rather than the slot name, and `maxColorIndex` is scanned
  * PER SHEET - see Map16CharSheetDto's own doc comments for both.
+ * `animData` is frameZeroChars' own, so a ROM whose stock characters are blank marks none animated.
  */
-function buildCharSheets(rom: RomFile, tileset: number, vram: VramState): Map16CharSheetDto[] {
+function buildCharSheets(
+  rom: RomFile,
+  tileset: number,
+  vram: VramState,
+  animData: AnimationData | undefined,
+): Map16CharSheetDto[] {
   const assignment = readGfxAssignment(rom, tileset, 0)
-  const animData = loadAnimationData(rom, tileset)
   const animatedChars = animData ? getAnimatedChars(animData) : new Set<number>()
 
   const sheets: Map16CharSheetDto[] = []
@@ -420,17 +429,45 @@ function cgramRowsFor(cgram: ActiveLevelPalette, cited: number[]): Map16CgramRow
  * function exists so every surface has ONE source and there is no second
  * chance to make that mistake one surface over.
  */
-function frameZeroChars(
+export function frameZeroChars(
   rom: RomFile,
   tileset: number,
   vram: VramState,
-): { animData: AnimationData; chars: Map<number, Char>; vram: VramState } | undefined {
+):
+  | { animData: AnimationData; chars: Map<number, Char>; vram: VramState; note?: undefined }
+  | { animData?: undefined; vram: VramState; note: string }
+  | undefined {
+  // Stock frames on a ROM that no longer runs the stock routine would be confidently wrong (#491).
+  const note = stockAnimationNote(rom)
+  if (note) return { vram: blankChars(vram, stockAnimatedChars(rom)), note }
   const animData = loadAnimationData(rom, tileset)
   if (!animData) return undefined
   if (getAnimatedChars(animData).size === 0) return undefined
   // Nothing has ticked yet, so this snapshot IS phase 0 by construction.
   const chars = buildChars(vram, animData)
   return { animData, chars, vram: vramFromChars(vram, chars) }
+}
+
+function stockAnimationNote(rom: RomFile): string | null {
+  const unreached = stockAnimationUnreached(rom)
+  if (unreached && 'target' in unreached) {
+    const hex = unreached.target.toString(16).toUpperCase().padStart(6, '0')
+    return `This ROM decides per level whether the stock animation runs (the level calls $${hex}), so these characters are left blank.`
+  }
+  const sources = readAnimGfxSources(rom)
+  const reason = unreached?.reason ?? (sources.ok ? null : sources.reason)
+  return reason ? `These characters are left blank: ${reason}.` : null
+}
+
+function blankChars(vram: VramState, chars: Set<number>): VramState {
+  const out: VramState = { ...vram }
+  for (const slot of VRAM_SLOT_NAMES) {
+    const base = VRAM_CHAR_BASE[slot]
+    const sheet = vram[slot]
+    if (sheet)
+      out[slot] = sheet.map((px, i) => (chars.has(base + i) ? new Uint8Array(px.length) : px))
+  }
+  return out
 }
 
 /**
@@ -481,7 +518,7 @@ export function decodeMap16Sheet(
   // Ticking starts from the raw VRAM the Chars were built against; phase 0
   // of that walk is `vram` above, which is why the still sheet and the
   // palettes agree with `phases[0]` by construction rather than by care.
-  const animation = frameZero
+  const animation = frameZero?.animData
     ? buildCharAnimation(frameZero.animData, frameZero.chars, entries, rawVram, cgram)
     : undefined
 
@@ -531,13 +568,14 @@ export function decodeMap16Sheet(
       tileCountSource: extent.source,
       citedColorRows,
       cgramRows: cgramRowsFor(cgram, citedColorRows),
-      charSheets: buildCharSheets(rom.rom, tileset, vram),
+      charSheets: buildCharSheets(rom.rom, tileset, vram, frameZero?.animData),
       tilesPerRow: MAP16_TILES_PER_ROW,
       width: atlasWidth,
       height: atlasHeight,
       rgbaBase64,
       tiles,
       charAnimation: animation?.dto,
+      animationNote: frameZero?.note,
       pipeVariantsIgnored: true,
     },
   }

@@ -4,9 +4,6 @@
  * ExAnimation is LM's extension to SMW's vanilla animation system.
  * It adds per-level animated tile overrides driven by ExGFX files.
  *
- * Detection: LM patches the JSL at SNES $00A2A5 from vanilla target
- * $05BB39 (CODE_05BB39) to its own handler. If unchanged, no ExAnim.
- *
  * Data layout (bank $0F LM free space, $FF in vanilla):
  *   $0FF7FF - 3-byte ptr → per-level ExGFX file list
  *             (16 × 2-byte file nums per level, 32 bytes/level)
@@ -49,13 +46,6 @@ import type { RomFile } from './RomFile'
 
 // ── ROM constants ─────────────────────────────────────────────────────────────
 
-/** JSL opcode ($22), 3 bytes of target follow. */
-const JSL_OPCODE = 0x22
-/** SNES address of the animation-dispatch JSL patched by LM. */
-const ANIMATION_JSL_ADDR = 0x00a2a5
-/** Target address of the vanilla animation JSL (CODE_05BB39). */
-const VANILLA_ANIM_TARGET = 0x05bb39
-
 /** Animation settings table: 1 byte per level, patched by LM. */
 const ANIM_SETTINGS_TABLE = 0x03fe00
 /** Bit set in the settings byte when level ExAnim is disabled (bit 5). */
@@ -85,17 +75,12 @@ const EXGFX_MAX_COMPRESSED = 0x10000
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Returns true when Lunar Magic's ExAnimation handler is installed.
- * Checks that the JSL at SNES $00A2A5 no longer targets vanilla CODE_05BB39.
- * Always returns false for vanilla (unmodified) ROMs.
+ * Whether the $00A2A5 JSL reaches a handler that reads the tables below. None
+ * is known: the corpus handler reads only $7F:C0xx, and $0583AE and $0FF7FF
+ * are operands of LM code, not table pointers, so this reports not installed (#491).
  */
-export function isLmExAnimInstalled(rom: RomFile): boolean {
-  const opcode = rom.readByte(ANIMATION_JSL_ADDR)
-  if (opcode !== JSL_OPCODE) return false
-  const buf = rom.readAt(ANIMATION_JSL_ADDR + 1, 3)
-  if (!buf) return false
-  const target = buf[0] | (buf[1] << 8) | (buf[2] << 16)
-  return target !== VANILLA_ANIM_TARGET
+export function isLmExAnimInstalled(_rom: RomFile): boolean {
+  return false
 }
 
 /**
@@ -112,8 +97,11 @@ export function isLmExAnimInstalled(rom: RomFile): boolean {
  * arrays have holes when processed by `collectAnimFrames`.
  */
 export function loadExAnimData(rom: RomFile, levelIndex: number): AnimationData | null {
-  if (!isLmExAnimInstalled(rom)) return null
+  return isLmExAnimInstalled(rom) ? readExAnimLevel(rom, levelIndex) : null
+}
 
+/** loadExAnimData without the install check. #528 decides whether it is deleted or re-anchored. */
+export function readExAnimLevel(rom: RomFile, levelIndex: number): AnimationData | null {
   const settings = rom.readByte(ANIM_SETTINGS_TABLE + levelIndex)
   if (settings !== null && settings & ANIM_SETTINGS_DISABLE_LEVEL_EXANIM) return null
 
