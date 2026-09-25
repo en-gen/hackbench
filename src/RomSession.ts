@@ -39,6 +39,7 @@ export function resolveRom(romPath: string): SmwRom {
 
 export interface Map16WithVariants {
   tiles: Map16Tile[]
+  /** Empty when the ROM does not cycle pipe colors. */
   pipeVariants: Map16Tile[][]
 }
 

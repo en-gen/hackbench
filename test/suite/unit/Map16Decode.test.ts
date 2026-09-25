@@ -10,6 +10,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
+import type { RomFile } from '../../../src/rom/RomFile'
 import { decodeSubTileWord, MAP16_TOTAL_TILES } from '../../../src/rom/Map16'
 import { loadVram, VRAM_SLOT_NAMES } from '../../../src/rom/GfxLoader'
 import { loadAnimationData } from '../../../src/rom/AnimationLoader'
@@ -17,16 +18,30 @@ import { buildChars, vramFromChars } from '../../../src/rom/model/chars/CharFact
 import {
   decodeMap16Sheet,
   nextQuadrantWord,
-  quadrantWordAddress,
+  gateQuadrantWrite,
 } from '../../../theia/extension/src/node/map16-decode'
 import {
+  Map16Layer,
   Map16PaletteVariantDto,
+  Map16QuadrantKey,
   MAP16_TILES_PER_ROW,
-  MAP16_TILESET_COUNT,
 } from '../../../theia/extension/src/common/map16-protocol'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 
 const ROM_PATH = romPath(VANILLA)
+
+/** The address a write to this quadrant would land at. */
+function wordAddress(
+  rom: RomFile,
+  tileset: number,
+  layer: Map16Layer,
+  id: number,
+  which: Map16QuadrantKey,
+): number {
+  const gate = gateQuadrantWrite(rom, tileset, layer, id, which, 'charNum', 0)
+  if (gate.status !== 'ok') throw new Error(gate.reason)
+  return gate.write.romAddr
+}
 const romPresent = hasRom(VANILLA)
 
 const DEFAULT_VARIANT: Map16PaletteVariantDto = { bg: 0, fg: 0 }
@@ -92,12 +107,12 @@ describe.skipIf(!romPresent)('map16-decode (ROM-only)', () => {
     expect(() => decodeMap16Sheet(rom, 15, 'fg', DEFAULT_VARIANT)).toThrow()
   })
 
-  it('quadrantWordAddress agrees with decodeMap16Sheet for the same tile/corner', () => {
+  it('the write gate addresses agree with decodeMap16Sheet for the same tile/corner', () => {
     const rom = SmwRom.open(ROM_PATH)
     const sheet = sheetOf(rom, 0, 'fg')
     const tile = sheet.tiles[0x100]!
-    expect(quadrantWordAddress(rom.rom, 0, 'fg', 0x100, 'tl')).toBe(tile.tl.romAddr)
-    expect(quadrantWordAddress(rom.rom, 0, 'fg', 0x100, 'br')).toBe(tile.br.romAddr)
+    expect(wordAddress(rom.rom, 0, 'fg', 0x100, 'tl')).toBe(tile.tl.romAddr)
+    expect(wordAddress(rom.rom, 0, 'fg', 0x100, 'br')).toBe(tile.br.romAddr)
   })
 
   /**
@@ -169,10 +184,10 @@ describe.skipIf(!romPresent)('map16-decode (ROM-only)', () => {
       expect(bgAt0.rgbaBase64).not.toBe(bgAt3.rgbaBase64)
     })
 
-    it('quadrantWordAddress for bg ignores tileset for the address, matching decodeMap16Sheet', () => {
+    it('the write gate for bg ignores tileset for the address, matching decodeMap16Sheet', () => {
       const rom = SmwRom.open(ROM_PATH)
-      const addr0 = quadrantWordAddress(rom.rom, 0, 'bg', 0x100, 'tl')
-      const addr1 = quadrantWordAddress(rom.rom, 7, 'bg', 0x100, 'tl')
+      const addr0 = wordAddress(rom.rom, 0, 'bg', 0x100, 'tl')
+      const addr1 = wordAddress(rom.rom, 7, 'bg', 0x100, 'tl')
       expect(addr0).toBe(addr1)
       const sheet = sheetOf(rom, 0, 'bg')
       expect(addr0).toBe(sheet.tiles[0x100]!.tl.romAddr)
@@ -426,56 +441,5 @@ describe('nextQuadrantWord', () => {
 
   it('refuses a field name the union does not carry, rather than returning undefined', () => {
     expect(nextQuadrantWord(0, 'wat' as never, 1).status).toBe('refused')
-  })
-})
-
-/**
- * The two refusal paths, WITHOUT a cartridge.
- *
- * Both bounds checks were previously exercised only inside the corpus-gated
- * describe above, so on CI - where the corpus is gitignored and absent -
- * neither was proven at all. That is precisely the case CLAUDE.md's "CI has
- * no cartridge" rule exists for: a safeguard proven only by a corpus test is
- * unproven where it actually runs.
- *
- * No cart is needed. `requireValidTileset` throws before touching the ROM,
- * and the `bg` layer resolves its pointers through
- * `buildL2Map16PointerTable()`, which takes no ROM argument at all - so a
- * stub stands in for the reader on every path these tests reach.
- *
- * Each assertion goes red if its check is deleted: remove the tileset guard
- * and the call returns an address instead of throwing; remove the tile-id
- * guard and `base + offset` yields NaN rather than refusing.
- */
-describe('map16-decode refusals (no cartridge)', () => {
-  // Never dereferenced on these paths - see this block's own comment.
-  const noRom = {} as never
-
-  it('refuses a tileset below range, naming the bound', () => {
-    expect(() => quadrantWordAddress(noRom, -1, 'bg', 0, 'tl')).toThrow(
-      /tileset out of range 0\.\.14/,
-    )
-  })
-
-  it('refuses a tileset above range, naming the bound', () => {
-    expect(() => quadrantWordAddress(noRom, MAP16_TILESET_COUNT, 'bg', 0, 'tl')).toThrow(
-      /tileset out of range 0\.\.14/,
-    )
-  })
-
-  it('refuses a negative tile id', () => {
-    expect(() => quadrantWordAddress(noRom, 0, 'bg', -1, 'tl')).toThrow(
-      /tile id out of range 0\.\.511/,
-    )
-  })
-
-  it('refuses a tile id past the last tile', () => {
-    expect(() => quadrantWordAddress(noRom, 0, 'bg', MAP16_TOTAL_TILES, 'tl')).toThrow(
-      /tile id out of range 0\.\.511/,
-    )
-  })
-
-  it('accepts the last valid tile id, so the bound is off-by-one correct', () => {
-    expect(() => quadrantWordAddress(noRom, 0, 'bg', MAP16_TOTAL_TILES - 1, 'br')).not.toThrow()
   })
 })

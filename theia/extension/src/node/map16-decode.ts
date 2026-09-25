@@ -18,14 +18,14 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import { FULL_WORD_MASK } from '../../../../src/rom/PaletteOp'
 import type { SetWordRequest } from '../../../../src/project/WorkingRomRegistry'
 import {
-  buildL2Map16PointerTable,
-  buildMap16PointerTable,
   decodeSubTileWord,
   encodeSubTileWord,
-  loadAllMap16,
-  loadAllMap16BG,
+  loadMap16Tiles,
+  readL2Map16Table,
+  readMap16Common,
+  readMap16Table,
   readMap16TileCount,
-  MAP16_COMMON,
+  type Map16Read,
   MAP16_TILE_BYTES,
   MAP16_TOTAL_TILES,
   Map16Tile,
@@ -113,7 +113,7 @@ const CHAR_PIXELS = 64
  * Column-major per Map16.ts: word0=TL, word1=BL, word2=TR, word3=BR. */
 const QUADRANT_WORD_OFFSET: Record<Map16QuadrantKey, number> = { tl: 0, bl: 2, tr: 4, br: 6 }
 
-/** A decoded sheet, or the reason this cartridge's Map16 cannot be shown in
+/** A decoded sheet, or the reason this ROM's Map16 cannot be shown in
  * full - see `decodeMap16Sheet`. */
 export type DecodeMap16Result =
   { status: 'ok'; sheet: Map16SheetDto } | { status: 'unavailable'; reason: string }
@@ -129,53 +129,46 @@ function requireValidTileset(tileset: number): void {
 }
 
 /**
- * The tiles for a layer: `fg` is the tileset's own object table
- * (bitmap-driven, common tiles interleaved with tileset-specific ones);
- * `bg` is the global Layer 2 preset table - one fixed table, `tileset` plays
- * no part in choosing IT (only in resolving VRAM for its charNums). See
- * Map16Layer's own doc comment in map16-protocol.ts.
+ * The pointer table backing a layer: `fg` is the tileset's own object table;
+ * `bg` is the global L2 (background) table, which `tileset` does not choose.
+ * See Map16Layer's own doc comment in map16-protocol.ts.
  */
-function loadTiles(rom: RomFile, tileset: number, layer: Map16Layer): Map16Tile[] {
-  return layer === 'bg' ? loadAllMap16BG(rom) : loadAllMap16(rom, tileset)
+function layerTable(rom: RomFile, tileset: number, layer: Map16Layer): Map16Read<number[]> {
+  return layer === 'bg' ? readL2Map16Table(rom) : readMap16Table(rom, tileset)
 }
 
-/** The pointer table backing a layer - same fg/bg split as `loadTiles`, kept
- * as its own function so an address lookup never has to also load tiles. */
-function loadPointers(rom: RomFile, tileset: number, layer: Map16Layer): number[] {
-  return layer === 'bg' ? buildL2Map16PointerTable() : buildMap16PointerTable(rom, tileset)
-}
-
-/** A layer's usable extent, with where the number came from, or the reason
- * this decoder may present none of it. */
-export type Map16Extent = { count: number; source: 'rom' | 'fixed-bg-table' } | { reason: string }
+/** A layer's usable extent, or the reason this decoder may present none of it. */
+export type Map16Extent = { count: number } | { reason: string }
 
 /**
  * How many tiles of a layer this decoder may present, or the reason it may
- * present none.
- *
- * The two layers are answered SEPARATELY; see `Map16SheetDto.tileCountSource`
- * in map16-protocol.ts for why, and for what the UI then says about it.
+ * present none. Each layer answers from its own fill loop.
  */
 export function map16LayerExtent(rom: RomFile, layer: Map16Layer): Map16Extent {
   if (layer === 'bg') {
-    return { count: buildL2Map16PointerTable().length, source: 'fixed-bg-table' }
+    const table = readL2Map16Table(rom)
+    if (!table.ok)
+      return { reason: `This ROM's L2 (background) Map16 cannot be located: ${table.reason}.` }
+    const count = table.value.length
+    if (count > MAP16_TOTAL_TILES)
+      return {
+        reason: `This ROM's L2 (background) Map16 holds ${count} tiles, more than the ${MAP16_TOTAL_TILES} this view can read (en-gen/hackbench#102).`,
+      }
+    return { count }
   }
-  const counted = map16TileCapacity(rom)
-  return 'reason' in counted ? counted : { count: counted.count, source: 'rom' }
+  return map16TileCapacity(rom)
 }
 
 /**
- * How many tiles this cartridge's FOREGROUND Map16 holds, or the reason it
+ * How many tiles this ROM's FOREGROUND Map16 holds, or the reason it
  * cannot be said.
  *
  * The count is READ (`readMap16TileCount` walks the fill loop's `CPX`
- * immediate, bank_05.asm:229-237), never assumed. A cart that does not say
- * is unavailable, not vanilla. A cart that says MORE than the loader here
- * can walk is also unavailable: `loadAllMap16` still reads 512 entries, so
- * showing those 512 for a 2048-tile table would be the silent truncation
- * en-gen/hackbench#102 exists to prevent.
- *
- * FG only; see `Map16SheetDto.tileCountSource`.
+ * immediate, bank_05.asm:229-237), never assumed. A ROM that does not say
+ * is unavailable, not vanilla. A ROM that says MORE than the loader here
+ * can walk is also unavailable: `readMap16Table` builds at most 512 entries,
+ * so showing those for a 2048-tile table would be the silent truncation
+ * en-gen/hackbench#102 exists to prevent. L1 (foreground) only.
  */
 export function map16TileCapacity(rom: RomFile): { count: number } | { reason: string } {
   const count = readMap16TileCount(rom)
@@ -483,8 +476,8 @@ function blankChars(vram: VramState, chars: Set<number>): VramState {
  * load; rows 4-7 (StandardColors) are unaffected by either.
  *
  * Pipe-variant palettes ($133-$13A cycling per screen, FG-only - the BG
- * table has no such tiles) are NOT applied: `loadAllMap16` is called with no
- * `pipeVariantIdx`, which renders the bitmap-default pointers. See
+ * table has no such tiles) are NOT applied: the sheet renders the
+ * bitmap-default pointers `readMap16Table` builds. See
  * Map16SheetDto.pipeVariantsIgnored.
  */
 export function decodeMap16Sheet(
@@ -502,8 +495,12 @@ export function decodeMap16Sheet(
   const extent = map16LayerExtent(rom.rom, layer)
   if ('reason' in extent) return { status: 'unavailable', reason: extent.reason }
 
-  const pointers = loadPointers(rom.rom, tileset, layer)
-  const entries = loadTiles(rom.rom, tileset, layer).slice(0, extent.count)
+  const table = layerTable(rom.rom, tileset, layer)
+  if (!table.ok)
+    return { status: 'unavailable', reason: `This ROM's Map16 cannot be located: ${table.reason}.` }
+  const pointers = table.value.slice(0, extent.count)
+  const isShared = sharedTileTest(rom.rom, layer)
+  const entries = loadMap16Tiles(rom.rom, pointers)
   const rawVram = loadVram(rom.rom, tileset)
   // ONE source for every surface - the atlas, the frames and the character
   // palettes all composite from this. See frameZeroChars.
@@ -547,9 +544,7 @@ export function decodeMap16Sheet(
       // Read from the resolved pointer, never inferred from the layer: a
       // tile is shared exactly when its entry falls in the Map16Common
       // run. See Map16TileDto.shared.
-      shared:
-        layer === 'bg' ||
-        (base >= MAP16_COMMON && base < MAP16_COMMON + MAP16_TOTAL_TILES * MAP16_TILE_BYTES),
+      shared: isShared(base),
       tl: toQuadrantDto(tile.tl, base + QUADRANT_WORD_OFFSET.tl),
       bl: toQuadrantDto(tile.bl, base + QUADRANT_WORD_OFFSET.bl),
       tr: toQuadrantDto(tile.tr, base + QUADRANT_WORD_OFFSET.tr),
@@ -565,7 +560,6 @@ export function decodeMap16Sheet(
       layer,
       tileset,
       paletteVariant,
-      tileCountSource: extent.source,
       citedColorRows,
       cgramRows: cgramRowsFor(cgram, citedColorRows),
       charSheets: buildCharSheets(rom.rom, tileset, vram, frameZero?.animData),
@@ -581,21 +575,16 @@ export function decodeMap16Sheet(
   }
 }
 
-/** The ROM address of one quadrant's own 16-bit word, for a given layer/tileset/tile/corner. */
-export function quadrantWordAddress(
-  rom: RomFile,
-  tileset: number,
-  layer: Map16Layer,
-  tileId: number,
-  which: Map16QuadrantKey,
-): number {
-  requireValidTileset(tileset)
-  const pointers = loadPointers(rom, tileset, layer)
-  const base = pointers[tileId]
-  if (base === undefined) {
-    throw new Error(`Map16 tile id out of range 0..${pointers.length - 1}: ${tileId}`)
-  }
-  return base + QUADRANT_WORD_OFFSET[which]
+/**
+ * Whether a tile's entry is shared beyond this tileset: every L2 (background)
+ * entry, and an L1 (foreground) entry inside the Map16Common run this ROM names.
+ */
+export function sharedTileTest(rom: RomFile, layer: Map16Layer): (base: number) => boolean {
+  if (layer === 'bg') return () => true
+  const common = readMap16Common(rom)
+  if (!common.ok) return () => false
+  const end = common.value + MAP16_TOTAL_TILES * MAP16_TILE_BYTES
+  return base => base >= common.value && base < end
 }
 
 /** The word a field edit produces, or the reason it will not be written. */
@@ -637,8 +626,7 @@ export function gateQuadrantWrite(
   value: number | boolean,
 ): Map16WriteGate {
   // Every refusal below is a REFUSAL, never a throw: this is the RPC
-  // surface, and the click path cannot produce any of these. An unchecked
-  // tileset reached `quadrantWordAddress`, which throws.
+  // surface, and the click path cannot produce any of these.
   if (!isValidTileset(tileset)) {
     return {
       status: 'refused',
@@ -653,26 +641,39 @@ export function gateQuadrantWrite(
       reason: `Character $${value.toString(16).toUpperCase()} is tilemap space, not character space ($000-$${(MAP16_CHAR_SPACE_END - 1).toString(16).toUpperCase()}), so nothing was written.`,
     }
   }
-  // Gated BEFORE the write, not just on the reload after it: a cartridge
+  // Gated BEFORE the write, not just on the reload after it: a ROM
   // whose Map16 this view refuses to present is one whose tile ids it
   // cannot resolve either, and a write landing at a guessed address is
-  // worse than a refused edit. Per LAYER; see `Map16SheetDto.tileCountSource`.
+  // worse than a refused edit. Per LAYER.
   const extent = map16LayerExtent(rom, layer)
   if ('reason' in extent) return { status: 'unavailable', reason: extent.reason }
-  if (!Number.isInteger(tileId) || tileId < 0 || tileId >= extent.count) {
+  const table = layerTable(rom, tileset, layer)
+  if (!table.ok)
+    return {
+      status: 'unavailable',
+      reason: `This ROM's Map16 cannot be located: ${table.reason}, so nothing was written.`,
+    }
+  const count = Math.min(extent.count, table.value.length)
+  if (!Number.isInteger(tileId) || tileId < 0 || tileId >= count) {
     return {
       status: 'refused',
-      reason: `Tile $${Number(tileId).toString(16)} is outside the ${extent.count} tiles this ${
+      reason: `Tile $${Number(tileId).toString(16)} is outside the ${count} tiles this ${
         layer === 'bg' ? 'Layer 2 preset table' : "ROM's Map16 table"
       } holds, so nothing was written.`,
     }
   }
-  const romAddr = quadrantWordAddress(rom, tileset, layer, tileId, which)
+  const romAddr = table.value[tileId]! + QUADRANT_WORD_OFFSET[which]
   // Read the word straight from the working copy: `old` must be exactly
   // what is committed right now, not a re-encode of a decoded struct, or a
   // lossy codec would send a wrong `old` and every stale-check would be
   // comparing against the wrong thing (see WorkingRom.append).
-  const oldWord = rom.readWord(romAddr) ?? 0
+  const oldWord = rom.readWord(romAddr)
+  if (oldWord === null) {
+    return {
+      status: 'refused',
+      reason: `Tile $${tileId.toString(16)} points at $${romAddr.toString(16).toUpperCase()}, which is not ROM, so nothing was written.`,
+    }
+  }
   const next = nextQuadrantWord(oldWord, field, value)
   if (next.status !== 'ok') return next
   return {

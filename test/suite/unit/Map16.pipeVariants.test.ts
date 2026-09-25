@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import {
-  MAP16_APP_TABLE,
   MAP16_TILE_BYTES,
   PIPE_VARIANT_TILE_START,
   PIPE_VARIANT_TILE_COUNT,
@@ -25,12 +24,10 @@ import { VANILLA, hasRom, romPath } from '../support/corpus'
  */
 
 const ROM_PATH = romPath(VANILLA)
+/** Any four pointers; the ROM read itself is pinned in Map16.tableRead.test.ts. */
+const MAP16_APP_TABLE = [0x0d8ab0, 0x0d84e0, 0x0d8af0, 0x0d8b30]
 
 describe('Map16 pipe palette variants', () => {
-  it('MAP16_APP_TABLE matches the 4 ROM pointers in bank_05.asm:884', () => {
-    expect(MAP16_APP_TABLE).toEqual([0x0d8ab0, 0x0d84e0, 0x0d8af0, 0x0d8b30])
-  })
-
   it('pipeVariantIndex replicates (scroll >> 3) & 6 then >> 1', () => {
     // bank_05.asm:119-124 / 910-915: `LSR A LSR A LSR A / AND #$0006 / TAX`
     // produces a byte offset of 0/2/4/6 into MAP16AppTable. We divide by 2
@@ -54,11 +51,11 @@ describe('Map16 pipe palette variants', () => {
 
   it('applyPipePaletteVariant redirects tiles $133..$13A to the variant block', () => {
     const pointers: number[] = new Array(512).fill(0)
-    applyPipePaletteVariant(pointers, 0)
+    applyPipePaletteVariant(pointers, MAP16_APP_TABLE, 0)
     for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) {
       expect(pointers[PIPE_VARIANT_TILE_START + i]).toBe(MAP16_APP_TABLE[0] + i * MAP16_TILE_BYTES)
     }
-    applyPipePaletteVariant(pointers, 3)
+    applyPipePaletteVariant(pointers, MAP16_APP_TABLE, 3)
     expect(pointers[0x133]).toBe(MAP16_APP_TABLE[3])
     expect(pointers[0x13a]).toBe(MAP16_APP_TABLE[3] + 7 * MAP16_TILE_BYTES)
   })
@@ -66,7 +63,7 @@ describe('Map16 pipe palette variants', () => {
   it('applyPipePaletteVariant does not touch pointers outside $133..$13A', () => {
     const before = new Array(512).fill(0).map((_, i) => 0x0d0000 | (i * 8))
     const after = [...before]
-    applyPipePaletteVariant(after, 2)
+    applyPipePaletteVariant(after, MAP16_APP_TABLE, 2)
     for (let i = 0; i < 512; i++) {
       if (i < PIPE_VARIANT_TILE_START || i >= PIPE_VARIANT_TILE_START + PIPE_VARIANT_TILE_COUNT) {
         expect(after[i]).toBe(before[i])

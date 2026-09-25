@@ -120,7 +120,6 @@ function sheetWith(rows: number[], charSheets: Map16CharSheetDto[] = []): Map16S
     tileset: 0,
     paletteVariant: { bg: 0, fg: 0 },
     citedColorRows: rows,
-    tileCountSource: 'rom',
     charSheets,
     tilesPerRow: 16,
     width: 256,

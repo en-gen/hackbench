@@ -31,6 +31,7 @@ import { loromToOffset } from '../../../src/rom/addressing'
 import { RomFile } from '../../../src/rom/RomFile'
 import { MAP16_BG_TILES, MAP16_TILE_BYTES } from '../../../src/rom/Map16'
 import { GFX_TILES, VRAM_CHAR_BASE } from '../../../src/rom/GfxLoader'
+import { map16Stub } from '../support/syntheticMap16'
 import {
   gateQuadrantWrite,
   type Map16WriteGate,
@@ -48,39 +49,13 @@ const theiaInstalled = existsSync(
 )
 
 /**
- * A 512 KB stub carrying the Map16 pointer-fill loop's tail with
- * `pointerBytes` as its `CPX` immediate (bank_05.asm:229-237), plus the
- * LoROM map-mode byte SmwRom validates on.
- *
- * Same fixture shape as Map16Decode.charSheets.test.ts's, duplicated rather
- * than shared because that file pins what the DECODER does with the
- * reader's answer and this one pins what the WRITE path does with it; a
- * shared helper would let one file's edit quietly change the other's
- * fixture.
+ * A 512 KB stub with the Map16 engine code planted and `pointerBytes` as the
+ * fill loops' `CPX` bound (bank_05.asm:237). `null` adds a second count site
+ * that disagrees, so the L1 (foreground) count is unresolvable while the L2
+ * (background) table still reads 512.
  */
 function stubRomBytes(pointerBytes: number | null): Uint8Array {
-  const buf = Buffer.alloc(0x80000, 0x00)
-  buf[0xffd5] = 0x20 // LoROM, so SmwRom's own validation passes
-  if (pointerBytes !== null) {
-    buf.set(
-      [
-        0x69,
-        0x08,
-        0x00,
-        0x85,
-        0x65,
-        0xe8,
-        0xe8,
-        0xe0,
-        pointerBytes & 0xff,
-        (pointerBytes >> 8) & 0xff,
-        0xd0,
-        0xf3,
-      ],
-      0x1000,
-    )
-  }
-  return new Uint8Array(buf)
+  return map16Stub(pointerBytes === null ? { extraCount: 0x200 } : { bgBound: pointerBytes })
 }
 
 function gate(
@@ -140,9 +115,9 @@ describe('gateQuadrantWrite: the capacity gate', () => {
 })
 
 describe('gateQuadrantWrite: the two layers are gated separately', () => {
-  // The finding this file was written for; see `Map16SheetDto.tileCountSource`.
+  // Each layer is gated on its own table.
   it('writes to the Layer 2 table on a cartridge whose FOREGROUND table is refused', () => {
-    const bytes = stubRomBytes(0x1000)
+    const bytes = map16Stub({}, ['slopes'])
     expect(gate(bytes, 'fg', 0).status).toBe('unavailable')
 
     const write = writeOf(gate(bytes, 'bg', 400, 'charNum', 0x123))
@@ -155,8 +130,7 @@ describe('gateQuadrantWrite: the two layers are gated separately', () => {
   })
 
   it('still refuses a tile id past the Layer 2 table own extent', () => {
-    // Named for what it is: this bound is the stock engine's, not something
-    // read off this cartridge.
+    // The bound is the L2 (background) fill loop's own CPX immediate.
     const reason = reasonOf(gate(stubRomBytes(0x0400), 'bg', 512), 'refused')
     expect(reason).toContain('Layer 2 preset table')
   })

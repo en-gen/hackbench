@@ -17,7 +17,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { readFileSync } from 'fs'
 import { hasCopierHeader, loromToOffset } from '../../../src/rom/addressing'
 import {
-  buildL2Map16PointerTable,
+  readL2Map16Table,
   buildMap16PointerTable,
   loadAllMap16,
   loadAllMap16BG,
@@ -123,16 +123,22 @@ describe.runIf(romPresent)('Map16 pointer-table addresses against real cart byte
   })
 
   /**
-   * The BG/Layer 2 table (Map16BGTiles, $0D9100, bank_0D.asm:551): a
-   * single fixed run of 512 entries, 8 bytes apart, with NO bitmap walk
-   * and no tileset argument at all (buildL2Map16PointerTable takes none).
+   * The BG/Layer 2 table (Map16BGTiles, $0D9100, bank_0D.asm:551): on a
+   * stock ROM a run of 512 entries, 8 bytes apart, with no bitmap walk and
+   * no tileset argument.
    * Same independence rule as the FG tests above: read raw fs bytes at
    * the address the arithmetic predicts, decode them here by hand, and
    * only then compare against the production path (loadAllMap16BG).
    */
-  describe('BG/Layer 2 table (buildL2Map16PointerTable)', () => {
+  describe('BG/Layer 2 table (readL2Map16Table)', () => {
+    const bgPointers = (): number[] => {
+      const t = readL2Map16Table(SmwRom.open(ROM_PATH).rom)
+      if (!t.ok) throw new Error(t.reason)
+      return t.value
+    }
+
     it('tile $000 sits at exactly MAP16_BG_TILES, verified against real bytes on disk', () => {
-      const pointers = buildL2Map16PointerTable()
+      const pointers = bgPointers()
       expect(pointers[0]).toBe(MAP16_BG_TILES)
 
       const rawTile0 = rawBytesAt(MAP16_BG_TILES, MAP16_TILE_BYTES)
@@ -144,7 +150,7 @@ describe.runIf(romPresent)('Map16 pointer-table addresses against real cart byte
     })
 
     it('tile $100 is a flat linear offset from MAP16_BG_TILES, not the bitmap-walked FG address', () => {
-      const pointers = buildL2Map16PointerTable()
+      const pointers = bgPointers()
       const expectedAddr = MAP16_BG_TILES + 0x100 * MAP16_TILE_BYTES
       expect(pointers[0x100]).toBe(expectedAddr)
       // Confirmed different from the FG table's address for the same id
@@ -162,7 +168,7 @@ describe.runIf(romPresent)('Map16 pointer-table addresses against real cart byte
     })
 
     it('every pointer is exactly 8 bytes apart with no gaps, across all 512 entries', () => {
-      const pointers = buildL2Map16PointerTable()
+      const pointers = bgPointers()
       for (let i = 1; i < pointers.length; i++) {
         expect(pointers[i]).toBe(pointers[i - 1]! + MAP16_TILE_BYTES)
       }

@@ -20,50 +20,24 @@
  */
 
 import { RomFile } from './RomFile'
-import { BytePattern, WILD, findPattern } from './BytePattern'
+import { BytePattern, WILD, findPattern, matchesAt } from './BytePattern'
+import { loromFromOffset, loromToOffset } from './addressing'
 
 // ── ROM addresses (from SMW_U.sym) ────────────────────────────────────────────
-/** Map16Common: $0D8000 -- shared (common) Map16 tile data */
+/** Map16Common on a stock ROM; `readMap16Table` reads the operand. */
 export const MAP16_COMMON = 0x0d8000 // bank_0D.asm line 2
 
-/** Map16BGTiles: $0D9100 -- L2 preset background Map16 tile data */
+/** Map16BGTiles on a stock ROM, a cross-check only: `readL2Map16Table` reads the operand. */
 export const MAP16_BG_TILES = 0x0d9100 // bank_0D.asm line 551
 
-/** TilesetMAP16Loc: $058000 -- 15 word entries pointing to tileset-specific data */
+/** TilesetMAP16Loc on a stock ROM, a cross-check only. */
 export const TILESET_MAP16_LOC = 0x058000 // bank_05.asm line 2
 
-/** DATA_0581BB: $0581BB -- 64-byte bitmap for common/tileset assignment */
+/** DATA_0581BB on a stock ROM, a cross-check only. */
 export const MAP16_BITMAP_ADDR = 0x0581bb // bank_05.asm line 243
 
 /** Number of tileset entries in TilesetMAP16Loc */
 export const TILESET_COUNT = 15 // bank_05.asm lines 3-17
-
-/**
- * MAP16AppTable at SNES `$058776` (bank_05.asm line 884):
- *   db $B0,$8A,$E0,$84,$F0,$8A,$30,$8B
- *
- * Four 16-bit pointers (bank $0D) to four palette variants of the pipe
- * tile block `$133..$13A`:
- *   idx 0 → $0D8AB0 - palette 3 (FG pal row 3; grey in FG pal 0)
- *   idx 1 → $0D84E0 - palette 5 (StandardColors green)
- *   idx 2 → $0D8AF0 - palette 6 (StandardColors yellow/brown)
- *   idx 3 → $0D8B30 - palette 7 (StandardColors blue/purple)
- *
- * CODE_0580BD (level load, bank_05.asm lines 110-143) and CODE_05877E
- * (scroll-triggered, bank_05.asm lines 900-929) both select one of these
- * variants via `(Layer1TileDown >> 3) & 6` and rewrite Map16Pointers[$133..$13A]
- * to redirect tiles $133..$13A to the chosen variant's 8-tile block.
- *
- * Effect: the same Map16 RAM tile ID can render as any of four colors
- * depending on which screen/scroll-position it was uploaded at. This is how
- * vanilla SMW produces the cycling pipe colors across screens.
- */
-export const MAP16_APP_TABLE: readonly number[] = [
-  0x0d8ab0, // variant 0: palette 3 (grey)
-  0x0d84e0, // variant 1: palette 5 (green)
-  0x0d8af0, // variant 2: palette 6 (yellow)
-  0x0d8b30, // variant 3: palette 7 (blue/purple)
-] as const
 
 /** Tile IDs `$133..$13A` are the 8 consecutive pipe tiles the app-table redirects. */
 export const PIPE_VARIANT_TILE_START = 0x133
@@ -227,10 +201,10 @@ function readTileAt(rom: RomFile, addr: number, id: number): Map16Tile {
     return { id, tl: EMPTY_SUBTILE, tr: EMPTY_SUBTILE, bl: EMPTY_SUBTILE, br: EMPTY_SUBTILE }
   }
   // Column-major word order: TL(0), BL(2), TR(4), BR(6)
-  const w0 = buf.readUInt16LE(0) // TL
-  const w1 = buf.readUInt16LE(2) // BL
-  const w2 = buf.readUInt16LE(4) // TR
-  const w3 = buf.readUInt16LE(6) // BR
+  const w0 = le16(buf, 0) // TL
+  const w1 = le16(buf, 2) // BL
+  const w2 = le16(buf, 4) // TR
+  const w3 = le16(buf, 6) // BR
   return {
     id,
     tl: decodeSubTileWord(w0),
@@ -240,130 +214,348 @@ function readTileAt(rom: RomFile, addr: number, id: number): Map16Tile {
   }
 }
 
-/**
- * Build the Map16 pointer table for a given object tileset.
- *
- * Algorithm from CODE_0581FB (bank_05.asm lines 253-358):
- *   - Read 64-byte bitmap from DATA_0581BB ($0581BB)
- *   - Process each byte MSB-first (8 bits per byte, 64 bytes = 512 bits = 512 tile slots)
- *   - For each bit:
- *     - bit=1 (carry set after ASL): use Map16Common pointer, advance common pointer by 8
- *     - bit=0 (carry clear after ASL): use tileset-specific pointer, advance tileset pointer by 8
- *   - Result: array of 512 SNES addresses, one per Map16 tile
- *
- * @param rom       ROM file
- * @param tileset   Object tileset index (0-14, from level header byte 4 bits 3-0)
- */
-export function buildMap16PointerTable(rom: RomFile, tileset: number): number[] {
-  // Read the tileset-specific address from TilesetMAP16Loc
-  // bank_05.asm line 268-269: LDA.L TilesetMAP16Loc,X (X = tileset*2)
-  const tilesetWord = rom.readWord(TILESET_MAP16_LOC + (tileset & 0x0f) * 2)
-  // This is a 16-bit address in bank $0D
-  let tilesetPtr = 0x0d0000 | (tilesetWord ?? 0x8b70)
+/** A value read from the ROM, or why this ROM does not say. */
+export type Map16Read<T> = { ok: true; value: T } | { ok: false; reason: string }
 
-  // Common pointer starts at Map16Common ($0D8000)
-  // bank_05.asm line 270-271: LDA.W #Map16Common -> STA.B _2
-  let commonPtr = MAP16_COMMON
+const le16 = (b: Uint8Array, at: number): number => b[at]! | (b[at + 1]! << 8)
+const le24 = (b: Uint8Array, at: number): number => le16(b, at) | (b[at + 2]! << 16)
+const s8 = (v: number): number => (v << 24) >> 24
+const s16 = (v: number): number => (v << 16) >> 16
+const refuse = (reason: string): { ok: false; reason: string } => ({ ok: false, reason })
+const snesHex = (at: number): string => `$${(loromFromOffset(at) ?? at).toString(16).toUpperCase()}`
 
-  // Read the 64-byte bitmap from ROM
-  // bank_05.asm line 272-273: LDA.W #DATA_0581BB -> STA.B _D
-  const bitmap = rom.readAt(MAP16_BITMAP_ADDR, 64)
-
-  const pointers: number[] = new Array(512)
-
-  // bank_05.asm CODE_058237 (line 281) through line 316:
-  // Y iterates 0..63 (64 bitmap bytes), for each byte:
-  //   _C = bitmap[Y]; then 8 iterations of ASL _C
-  let tileIdx = 0
-  for (let byteIdx = 0; byteIdx < 64; byteIdx++) {
-    let bitmapByte = bitmap ? (bitmap[byteIdx] ?? 0) : 0
-
-    for (let bit = 0; bit < 8; bit++) {
-      // ASL _C: shift left, carry = MSB
-      const carry = (bitmapByte & 0x80) !== 0
-      bitmapByte = (bitmapByte << 1) & 0xff
-
-      if (carry) {
-        // bit=1: common tile (line 288-294)
-        pointers[tileIdx] = commonPtr
-        commonPtr += MAP16_TILE_BYTES
-      } else {
-        // bit=0: tileset-specific tile (line 297-303)
-        pointers[tileIdx] = tilesetPtr
-        tilesetPtr += MAP16_TILE_BYTES
-      }
-      tileIdx++
-    }
+// Code scans cost ~10 ms on a 512 KB ROM and MapBuilder asks per level.
+const _scans = new WeakMap<RomFile, { version: number; values: Map<string, unknown> }>()
+function scanOnce<T>(rom: RomFile, key: string, scan: () => T): T {
+  let entry = _scans.get(rom)
+  if (!entry || entry.version !== rom.version) {
+    entry = { version: rom.version, values: new Map() }
+    _scans.set(rom, entry)
   }
+  if (!entry.values.has(key)) entry.values.set(key, scan())
+  return entry.values.get(key) as T
+}
 
-  // CODE_058281 (bank_05.asm line 321): tilesets 0 and 7 overwrite the
-  // pointers for tiles $1C4-$1C7 and $1EC-$1EF with a special run of 8
-  // consecutive Map16 entries starting at $0D8A70. These are the diagonal
-  // slope-pipe tiles (green-pipe variant, palette 5) that replace the
-  // common-bank browns that the bitmap walk would otherwise point at.
-  if (tileset === 0 || tileset === 7) {
-    let slopePtr = 0x0d8a70
-    for (const t of [0x1c4, 0x1c5, 0x1c6, 0x1c7, 0x1ec, 0x1ed, 0x1ee, 0x1ef]) {
-      pointers[t] = slopePtr
-      slopePtr += MAP16_TILE_BYTES
-    }
-  }
+function soleMatch(rom: RomFile, p: BytePattern): number | null {
+  const hits = findPattern(rom, p, 2)
+  return hits.length === 1 ? hits[0]! : null
+}
 
-  return pointers
+/** The bank Map16 pointers are dereferenced in; with `extent`, tile ids from it up bypass the table. */
+export interface Map16Bank {
+  bank: number
+  extent?: number
+}
+
+const byteAt = (rom: RomFile, at: number): number => rom.readAtFileOffset(at, 1)![0]!
+
+interface ReadSite {
+  setter: BytePattern
+  bankAt: number
+  window: number
+  stock: BytePattern
+  hooked?: BytePattern
+  viaWrapper?: boolean
+  /** How many setters a stock ROM holds; fewer means one was diverted. */
+  count?: number
 }
 
 /**
- * Apply the MAP16AppTable pipe-palette override to a pointer table in place.
- *
- * Tiles `$133..$13A` get their pointers redirected to `MAP16_APP_TABLE[variantIdx]`,
- * which references an 8-tile block whose Map16 data has a different palette row
- * baked in. Matches the runtime behavior of CODE_0580BD / CODE_05877E.
- *
- * @param pointers     Pointer table produced by `buildMap16PointerTable`.
- * @param variantIdx   0..3 selecting grey/green/yellow/blue pipe variant.
- *                     Out-of-range values are masked to the lower 2 bits.
+ * Level `Map16Pointers` read sites: a bank setter, then the stock read or a JSL
+ * to the hook. bank_00.asm:7515-7520 and :7625-7630 (bank into _6, via a
+ * wrapper when hooked); bank_05.asm:1196-1216 and siblings :1339, :1460, :1593.
  */
-export function applyPipePaletteVariant(pointers: number[], variantIdx: number): void {
-  const base = MAP16_APP_TABLE[variantIdx & 0x03]
+// prettier-ignore
+const LEVEL_SITES: ReadSite[] = [
+  { setter: [0xa9, 0xff, 0x9f, WILD, WILD, 0x7f, 0xa9, WILD, 0x85, 0x06], bankAt: 7, window: 0,
+    stock: [0xc2, 0x20, 0xb9, 0xbe, 0x0f, 0x85, 0x04], hooked: [0x22, WILD, WILD, WILD, 0xea, 0x85, 0x04],
+    viaWrapper: true, count: 2 },
+  { setter: [0xa0, WILD, 0xad, 0x31, 0x19, 0xc9, 0x10, 0x30, 0x02, 0xa0, WILD, 0x84, 0x0c], bankAt: 1,
+    window: 0x30, stock: [0xb9, 0xbe, 0x0f, 0x85, 0x0a], hooked: [0x22, WILD, WILD, WILD, 0x85, 0x0a],
+    viaWrapper: false, count: 4 },
+]
+/**
+ * The credits reader, bank_0C.asm:816-838: it must agree, but is not a level
+ * path. Its read sits $25 bytes past the setter, the widest stock span.
+ */
+const CREDITS: ReadSite = {
+  setter: [0xa9, WILD, 0x85, 0x6a],
+  bankAt: 1,
+  window: 0x30,
+  stock: [0xbd, 0xbe, 0x0f, 0x85, 0x68],
+}
+
+/**
+ * Lunar Magic's hook: `CMP #bound / BCC` to the low-tile path, which is the
+ * whole path a tile below `bound` runs, so matching it byte for byte is enough.
+ */
+const HOOK_ENTRY: BytePattern = [0xc9, WILD, WILD, 0x90, WILD]
+// prettier-ignore
+const HOOK_LOW: BytePattern = [
+  0xa8, 0xad, 0x30, 0x19, 0xc9, 0x00, 0x10, 0x90, 0x05, 0xa9, 0x00, WILD, 0x80, 0x03,
+  0xa9, 0x00, WILD, 0x85, 0x0b, 0xb9, 0xbe, 0x0f, 0x6b,
+]
+/** Wrappers that call the hook and return its bank in _6; PER lands the RTL on `LDY $0B`. */
+// prettier-ignore
+const WRAPPERS: { p: BytePattern; to: (b: Uint8Array) => number }[] = [
+  { p: [0xc2, 0x20, 0x98, 0xd4, 0x0b, 0x4b, 0x62, 0x02, 0x00, 0x82, WILD, WILD, 0xa4, 0x0b, 0x84, 0x05,
+    0x7a, 0x84, 0x0b, 0x6b], to: b => 12 + s16(le16(b, 10)) },
+  { p: [0xc2, 0x20, 0x98, 0xd4, 0x0b, 0x4b, 0x62, 0x01, 0x00, 0x80, WILD, 0xa4, 0x0b, 0x84, 0x05, 0x7a,
+    0x84, 0x0b, 0x6b], to: b => 11 + s8(b[10]!) },
+]
+
+function readHook(rom: RomFile, snes: number, viaWrapper: boolean): Map16Bank | null {
+  let at = loromToOffset(snes, rom.romSize)
+  if (at === null) return null
+  if (viaWrapper) {
+    const wrap = WRAPPERS.map(w => ({ w, b: matchesAt(rom, at!, w.p) })).find(m => m.b)
+    if (!wrap) return null
+    at += wrap.w.to(wrap.b!)
+  }
+  const entry = matchesAt(rom, at, HOOK_ENTRY)
+  const low = entry && matchesAt(rom, at + 5 + s8(entry[4]!), HOOK_LOW)
+  if (!entry || !low) return null
+  const extent = Math.min(le16(entry, 1) >> 1, MAP16_TOTAL_TILES)
+  return extent > 0 ? { bank: low[16]!, extent } : null
+}
+
+export function readMap16Bank(rom: RomFile): Map16Read<Map16Bank> {
+  return scanOnce(rom, 'bank', () => scanMap16Bank(rom))
+}
+
+function resolveSite(rom: RomFile, site: ReadSite, at: number): Map16Bank | null {
+  const from = at + site.setter.length
+  for (let k = from; k <= from + site.window; k++) {
+    if (matchesAt(rom, k, site.stock)) {
+      return { bank: byteAt(rom, at + site.bankAt) }
+    }
+    const jsl = site.hooked && matchesAt(rom, k, site.hooked)
+    if (jsl) return readHook(rom, le24(jsl, 1), site.viaWrapper === true)
+  }
+  return null
+}
+
+/** Every level site must resolve, stock or hooked, and every bank must agree. */
+function scanMap16Bank(rom: RomFile): Map16Read<Map16Bank> {
+  const found: Map16Bank[] = []
+  for (const site of LEVEL_SITES) {
+    const setters = findPattern(rom, site.setter)
+    if (setters.length !== site.count) {
+      return refuse(
+        `${setters.length} of the ${site.count} stock Map16Pointers bank setters of one shape remain`,
+      )
+    }
+    for (const at of setters) {
+      const resolved = resolveSite(rom, site, at)
+      if (!resolved) {
+        return refuse(
+          `the Map16Pointers read after ${snesHex(at)} is neither stock nor the recognized hook`,
+        )
+      }
+      found.push(resolved)
+    }
+  }
+  for (const at of findPattern(rom, CREDITS.setter)) {
+    const resolved = resolveSite(rom, CREDITS, at)
+    if (resolved) found.push(resolved)
+  }
+  const banks = new Set(found.map(f => f.bank))
+  if (banks.size > 1) {
+    const list = [...banks].map(b => `$${b.toString(16).toUpperCase()}`).join(', ')
+    return refuse(`the Map16Pointers readers disagree on the data bank (${list})`)
+  }
+  const bounds = found.flatMap(f => (f.extent === undefined ? [] : [f.extent]))
+  const bank = [...banks][0]! << 16
+  return { ok: true, value: bounds.length ? { bank, extent: Math.min(...bounds) } : { bank } }
+}
+
+/**
+ * CODE_0581FB's setup, bank_05.asm:254-274: the bitmap's bank, then
+ * TilesetMAP16Loc, Map16Common and DATA_0581BB as operands.
+ */
+// prettier-ignore
+const FG_SETUP: BytePattern = [
+  0xe2, 0x30, 0xad, 0x31, 0x19, 0x0a, 0xaa, 0xa9, WILD, 0x85, 0x0f, 0xa9, WILD, 0x85, 0x84, 0xa9,
+  WILD, 0x8d, 0x30, 0x14, 0xa9, WILD, 0x8d, 0x31, 0x14, 0xc2, 0x20, 0xa9, WILD, WILD, 0x85, 0x82,
+  0xbf, WILD, WILD, WILD, 0x85, 0x00, 0xa9, WILD, WILD, 0x85, 0x02, 0xa9, WILD, WILD, 0x85, 0x0d,
+]
+
+/**
+ * CODE_0581FB's tile override, bank_05.asm:315-355, from the bitmap loop's
+ * closing CPY / BNE so the block is the one that loop falls into.
+ */
+// prettier-ignore
+const RUN: BytePattern = [
+  0xa2, WILD, WILD, 0xa5, 0x00, 0x99, 0xbe, 0x0f, 0x18, 0x69, WILD, WILD, 0x85, 0x00, 0xc8, 0xc8,
+  0xca, 0x10, 0xf0,
+]
+// prettier-ignore
+const SLOPE_OVERRIDE: BytePattern = [
+  0xc0, 0x40, 0x00, 0xd0, WILD, 0xad, 0x31, 0x19, 0xf0, 0x04, 0xc9, WILD, 0xd0, WILD, 0xa9, 0xff,
+  0x8d, 0x30, 0x14, 0x8d, 0x31, 0x14, 0xc2, 0x30, 0xa9, WILD, WILD, 0x85, 0x82, 0xa9, WILD, WILD,
+  0x0a, 0xa8, 0xa9, WILD, WILD, 0x85, 0x00, ...RUN, 0xa9, WILD, WILD, 0x0a, 0xa8, ...RUN,
+]
+/** [tile start, LDX operand, ADC operand] offsets of the two runs. */
+// prettier-ignore
+const SLOPE_RUNS = [[30, 40, 49], [59, 64, 73]] as const
+
+/**
+ * The Map16 pointer table for an object tileset, as CODE_0581FB builds it
+ * (bank_05.asm:253-355): the bitmap interleaves Map16Common with the
+ * tileset's own run, then CODE_058281 overrides two short runs.
+ */
+export function readMap16Table(rom: RomFile, tileset: number): Map16Read<number[]> {
+  const setupAt = scanOnce(rom, 'fgSetup', () => soleMatch(rom, FG_SETUP))
+  if (setupAt === null) return refuse('the CODE_0581FB setup is not found exactly once')
+  const setup = rom.readAtFileOffset(setupAt, FG_SETUP.length)!
+  // Level headers mask the tileset with AND #$0F (bank_05.asm:625); $10 and up is the overworld.
+  const tilesetWord = rom.readWord(le24(setup, 33) + (tileset & 0x0f) * 2)
+  if (tilesetWord === null) return refuse(`TilesetMAP16Loc has no entry for tileset ${tileset}`)
+  const bitmap = rom.readAt((setup[8]! << 16) | le16(setup, 44), 64)
+  if (!bitmap) return refuse('the DATA_0581BB bitmap cannot be read')
+  const bank = readMap16Bank(rom)
+  if (!bank.ok) return bank
+  const at = scanOnce(rom, 'slopes', () => soleMatch(rom, SLOPE_OVERRIDE))
+  if (at === null) return refuse('the CODE_058281 tile override is not found exactly once')
+
+  const pointers: number[] = new Array(MAP16_TOTAL_TILES)
+  let own = tilesetWord
+  let common = le16(setup, 39)
+  for (let i = 0; i < MAP16_TOTAL_TILES; i++) {
+    const isCommon = (bitmap[i >> 3]! << (i & 7)) & 0x80
+    pointers[i] = bank.value.bank | (isCommon ? common : own)
+    if (isCommon) common = (common + MAP16_TILE_BYTES) & 0xffff
+    else own = (own + MAP16_TILE_BYTES) & 0xffff
+  }
+
+  const code = rom.readAtFileOffset(at, SLOPE_OVERRIDE.length)!
+  // BEQ takes tileset 0 without a compare; the CMP immediate names the other.
+  if ((tileset & 0x0f) === 0 || (tileset & 0x0f) === code[11]) {
+    let src = le16(code, 35)
+    for (const [startAt, countAt, strideAt] of SLOPE_RUNS) {
+      const start = le16(code, startAt)
+      const count = le16(code, countAt) + 1 // DEX / BPL runs X+1 times
+      if (start + count > MAP16_TOTAL_TILES)
+        return refuse('the CODE_058281 override runs past the table')
+      for (let i = 0; i < count; i++) {
+        pointers[start + i] = bank.value.bank | src
+        src = (src + le16(code, strideAt)) & 0xffff
+      }
+    }
+  }
+  return { ok: true, value: pointers.slice(0, bank.value.extent ?? MAP16_TOTAL_TILES) }
+}
+
+/** Where the shared Map16Common run starts, as CODE_0581FB's operand names it. */
+export function readMap16Common(rom: RomFile): Map16Read<number> {
+  const setupAt = scanOnce(rom, 'fgSetup', () => soleMatch(rom, FG_SETUP))
+  if (setupAt === null) return refuse('the CODE_0581FB setup is not found exactly once')
+  const bank = readMap16Bank(rom)
+  if (!bank.ok) return bank
+  return { ok: true, value: bank.value.bank | le16(rom.readAtFileOffset(setupAt + 39, 2)!, 0) }
+}
+
+function orThrow<T>(read: Map16Read<T>): T {
+  if (!read.ok) throw new Error(`Map16 table unavailable: ${read.reason}`)
+  return read.value
+}
+
+/** Reference-era adapter over `readMap16Table`: throws where it declines. */
+export function buildMap16PointerTable(rom: RomFile, tileset: number): number[] {
+  return orThrow(readMap16Table(rom, tileset))
+}
+
+/** CODE_0580BD's and CODE_05877E's pipe-variant loads, bank_05.asm:124-138 and :914-928. */
+// prettier-ignore
+const APP_READ: BytePattern = [
+  0x29, 0x06, 0x00, 0xaa, 0xa9, 0x33, 0x01, 0x0a, 0xa8, 0xa9, 0x07, 0x00, 0x85, 0x00, 0xbf, WILD,
+  WILD, WILD, 0x99, 0xbe, 0x0f, 0xc8, 0xc8, 0x18, 0x69, 0x08, 0x00, 0xc6, 0x00, 0x10, 0xf3,
+]
+/** The instructions that compute each reader's index, bank_05.asm:118-123 and :906-913. */
+// prettier-ignore
+const APP_LEADINS: BytePattern[] = [
+  [0xe2, 0x30, 0xa5, 0x47, 0x4a, 0x4a, 0x4a, 0xc2, 0x30],
+  [0xe2, 0x30, 0xa5, 0x55, 0xaa, 0xb5, 0x45, 0x4a, 0x4a, 0x4a, 0xc2, 0x30],
+]
+
+/** Skipped by a JMP to just past it, else reached through an intact lead-in, else neither. */
+function appReaderPath(rom: RomFile, hit: number): 'reached' | 'skipped' | null {
+  const here = loromFromOffset(hit)!
+  for (let k = hit - 16; k <= hit - 3; k++) {
+    const jmp = matchesAt(rom, k, [0x4c, WILD, WILD])
+    const to = jmp ? (here & 0xff0000) | le16(jmp, 1) : -1
+    if (to >= here + APP_READ.length && to <= here + APP_READ.length + 3) return 'skipped'
+  }
+  return APP_LEADINS.some(l => matchesAt(rom, hit - l.length, l)) ? 'reached' : null
+}
+
+/**
+ * MAP16AppTable's four pipe-variant pointers, read where both loaders' LDA.L
+ * points; `null` when both loaders jump over their reader, so pipes never cycle.
+ */
+export function readMap16AppTable(rom: RomFile): Map16Read<number[] | null> {
+  const read = scanOnce(rom, 'app', () => scanMap16AppTable(rom))
+  return read.ok && read.value ? { ok: true, value: [...read.value] } : read
+}
+
+function scanMap16AppTable(rom: RomFile): Map16Read<number[] | null> {
+  const hits = findPattern(rom, APP_READ, 3)
+  const named = new Set(hits.map(at => le24(rom.readAtFileOffset(at + 15, 3)!, 0)))
+  if (hits.length !== 2 || named.size !== 1) {
+    return refuse('the two MAP16AppTable readers are not both present and in agreement')
+  }
+  const paths = new Set(hits.map(at => appReaderPath(rom, at)))
+  if (paths.size === 1 && paths.has('skipped')) return { ok: true, value: null }
+  if (paths.size !== 1 || !paths.has('reached')) {
+    return refuse('the MAP16AppTable readers are neither both reached nor both jumped over')
+  }
+  const bank = readMap16Bank(rom)
+  if (!bank.ok) return bank
+  if (
+    (bank.value.extent ?? MAP16_TOTAL_TILES) <
+    PIPE_VARIANT_TILE_START + PIPE_VARIANT_TILE_COUNT
+  ) {
+    return refuse('the pipe tiles lie past the Map16 table extent')
+  }
+  const table = rom.readAt([...named][0]!, 8)
+  if (!table) return refuse('MAP16AppTable cannot be read')
+  return { ok: true, value: [0, 2, 4, 6].map(i => bank.value.bank | le16(table, i)) }
+}
+
+/**
+ * Redirect tiles `$133..$13A` through `appTable[variantIdx]`, as CODE_0580BD /
+ * CODE_05877E do per screen.
+ */
+export function applyPipePaletteVariant(
+  pointers: number[],
+  appTable: readonly number[],
+  variantIdx: number,
+): void {
+  const base = appTable[variantIdx & 0x03]!
   for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) {
     pointers[PIPE_VARIANT_TILE_START + i] = base + i * MAP16_TILE_BYTES
   }
 }
 
+/** The tiles a pointer table names, in id order. */
+export function loadMap16Tiles(rom: RomFile, pointers: readonly number[]): Map16Tile[] {
+  return pointers.map((addr, i) => readTileAt(rom, addr, i))
+}
+
 /**
- * Load all 512 Map16 tiles using the bitmap-driven pointer table.
- *
- * This is the correct algorithm from the game -- tiles are NOT simply
- * page 0 ($0D8000) + page 1 ($0DC000). The bitmap at DATA_0581BB
- * interleaves common and tileset-specific tiles.
- *
- * If `pipeVariantIdx` is supplied, tiles `$133..$13A` are redirected through
- * MAP16_APP_TABLE to that palette variant (matches CODE_0580BD behavior).
- * Omit the argument for the bitmap-default pointers (equivalent to variant 1 /
- * green).
+ * All Map16 tiles for a tileset. With `pipeVariantIdx`, tiles `$133..$13A`
+ * take that MAP16AppTable variant when the ROM cycles pipes at all.
  */
 export function loadAllMap16(rom: RomFile, tileset = 0, pipeVariantIdx?: number): Map16Tile[] {
   const pointers = buildMap16PointerTable(rom, tileset)
   if (pipeVariantIdx !== undefined) {
-    applyPipePaletteVariant(pointers, pipeVariantIdx)
+    const appTable = orThrow(readMap16AppTable(rom))
+    if (appTable) applyPipePaletteVariant(pointers, appTable, pipeVariantIdx)
   }
-  const tiles: Map16Tile[] = new Array(512)
-  for (let i = 0; i < 512; i++) {
-    tiles[i] = readTileAt(rom, pointers[i], i)
-  }
-  return tiles
+  return loadMap16Tiles(rom, pointers)
 }
 
-/**
- * Load the tileset's Map16 table PLUS the four pipe-variant tile blocks
- * ($133..$13A) in a single pass.
- *
- * Vanilla callers (the map editor) need both the default table (for all
- * non-pipe tiles) and the per-screen palette variants for $133..$13A. Calling
- * `loadAllMap16` five times (default + 4 variants) re-runs the bitmap walk
- * from scratch each time even though only 8 pointers differ. This reuses the
- * pointer table and reads only what actually changes.
- */
+/** The tileset's table plus the pipe-variant blocks, none when the ROM does not cycle pipes. */
 export function loadMap16WithPipeVariants(
   rom: RomFile,
   tileset: number,
@@ -371,20 +563,12 @@ export function loadMap16WithPipeVariants(
   tiles: Map16Tile[]
   pipeVariants: Map16Tile[][]
 } {
-  const pointers = buildMap16PointerTable(rom, tileset)
-  const tiles: Map16Tile[] = new Array(512)
-  for (let i = 0; i < 512; i++) {
-    tiles[i] = readTileAt(rom, pointers[i], i)
-  }
-  const pipeVariants: Map16Tile[][] = new Array(4)
-  for (let v = 0; v < 4; v++) {
-    const base = MAP16_APP_TABLE[v]
-    const variant: Map16Tile[] = new Array(PIPE_VARIANT_TILE_COUNT)
-    for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) {
-      variant[i] = readTileAt(rom, base + i * MAP16_TILE_BYTES, PIPE_VARIANT_TILE_START + i)
-    }
-    pipeVariants[v] = variant
-  }
+  const tiles = loadMap16Tiles(rom, buildMap16PointerTable(rom, tileset))
+  const pipeVariants = (orThrow(readMap16AppTable(rom)) ?? []).map(base =>
+    Array.from({ length: PIPE_VARIANT_TILE_COUNT }, (_, i) =>
+      readTileAt(rom, base + i * MAP16_TILE_BYTES, PIPE_VARIANT_TILE_START + i),
+    ),
+  )
   return { tiles, pipeVariants }
 }
 
@@ -393,7 +577,7 @@ export function loadMap16WithPipeVariants(
  */
 export function loadMap16Tile(rom: RomFile, tileId: number, tileset = 0): Map16Tile {
   const pointers = buildMap16PointerTable(rom, tileset)
-  if (tileId < 0 || tileId >= 512) {
+  if (tileId < 0 || tileId >= pointers.length) {
     return {
       id: tileId,
       tl: EMPTY_SUBTILE,
@@ -402,35 +586,63 @@ export function loadMap16Tile(rom: RomFile, tileId: number, tileset = 0): Map16T
       br: EMPTY_SUBTILE,
     }
   }
-  return readTileAt(rom, pointers[tileId], tileId)
+  return readTileAt(rom, pointers[tileId]!, tileId)
 }
 
+/** CODE_058126's closing fill loop, bank_05.asm:225-240, through its PLP / RTS. */
+// prettier-ignore
+const BG_FILL: BytePattern = [
+  0xc2, 0x20, 0xa9, WILD, WILD, 0x85, 0x00, 0xa2, 0x00, 0x00, 0xa5, 0x00, 0x9d, 0xbe, 0x0f, 0xa5,
+  0x00, 0x18, 0x69, WILD, WILD, 0x85, 0x00, 0xe8, 0xe8, 0xe0, WILD, WILD, 0xd0, 0xec, 0x28, 0x60,
+]
 /**
- * Build the Map16 pointer table for L2 preset backgrounds.
- *
- * From CODE_058126 ending (bank_05.asm lines 225-238):
- *   After L2 preset decompression, Map16Pointers are filled sequentially
- *   from Map16BGTiles ($0D9100), each entry 8 bytes apart, for 512 entries
- *   (X iterates 0..0x3FF by 2 = 512 pointer words).
+ * The level loader's `JSR CODE_058126`, bank_05.asm:52-55. Hack-fragility point:
+ * a Lunar Magic `JML` at $05803B decides whether it runs, and is not traced.
  */
-export function buildL2Map16PointerTable(): number[] {
-  const pointers: number[] = new Array(512)
-  let addr = MAP16_BG_TILES
-  for (let i = 0; i < 512; i++) {
-    pointers[i] = addr
-    addr += MAP16_TILE_BYTES
+const BG_CALL: BytePattern = [0xa2, 0x00, 0xb9, 0x86, 0x0d, 0xc2, 0x20, 0x20, WILD, WILD]
+
+/**
+ * The L2 (background) table: base, stride and count from the fill loop's
+ * operands, reached from the level loader. bank_0C holds a credits copy of
+ * the loop that ends in a bare RTS, which the PLP here excludes.
+ */
+export function readL2Map16Table(rom: RomFile): Map16Read<number[]> {
+  const table = scanOnce(rom, 'l2', () => scanL2Map16Table(rom))
+  return table.ok ? { ok: true, value: [...table.value] } : table
+}
+
+function scanL2Map16Table(rom: RomFile): Map16Read<number[]> {
+  const loop = soleMatch(rom, BG_FILL)
+  if (loop === null) return refuse('the L2 (background) Map16 fill loop is not found exactly once')
+  const loopSnes = loromFromOffset(loop)!
+  // A JSR stays in its own bank; its target opens with the PHP the loop's PLP closes.
+  const calls = findPattern(rom, BG_CALL).filter(at => {
+    const from = loromFromOffset(at)
+    if (from === null || from >> 16 !== loopSnes >> 16) return false
+    const target = (from & 0xff0000) | le16(rom.readAtFileOffset(at + 8, 2)!, 0)
+    const entry = loromToOffset(target, rom.romSize)
+    return entry !== null && entry < loop && matchesAt(rom, entry, [0x08]) !== null
+  })
+  if (calls.length !== 1) {
+    return refuse(
+      'no single level-load JSR reaches the routine holding the L2 (background) fill loop',
+    )
   }
-  return pointers
+  const bank = readMap16Bank(rom)
+  if (!bank.ok) return bank
+  const code = rom.readAtFileOffset(loop, BG_FILL.length)!
+  const bound = le16(code, 26)
+  if (bound === 0 || bound % 2 !== 0)
+    return refuse('the L2 (background) fill loop bound is not a pointer count')
+  const [base, stride] = [le16(code, 3), le16(code, 19)]
+  const pointers = Array.from(
+    { length: Math.min(bound / 2, bank.value.extent ?? bound / 2) },
+    (_, i) => bank.value.bank | ((base + i * stride) & 0xffff),
+  )
+  return { ok: true, value: pointers }
 }
 
-/**
- * Load all 512 Map16 tiles from the L2 BG tile table.
- */
+/** Reference-era adapter over `readL2Map16Table`: throws where it declines. */
 export function loadAllMap16BG(rom: RomFile): Map16Tile[] {
-  const pointers = buildL2Map16PointerTable()
-  const tiles: Map16Tile[] = new Array(512)
-  for (let i = 0; i < 512; i++) {
-    tiles[i] = readTileAt(rom, pointers[i], i)
-  }
-  return tiles
+  return loadMap16Tiles(rom, orThrow(readL2Map16Table(rom)))
 }
