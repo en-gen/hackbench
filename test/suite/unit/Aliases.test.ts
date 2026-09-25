@@ -38,6 +38,20 @@ afterEach(() => {
 const readManifest = (): Record<string, unknown> =>
   JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
 
+const aliasesFile = (): string => path.join(path.dirname(manifestPath), 'meta', 'aliases.json')
+const readAliasesFile = (): Record<string, unknown> | undefined =>
+  fs.existsSync(aliasesFile())
+    ? (JSON.parse(fs.readFileSync(aliasesFile(), 'utf8')) as Record<string, unknown>)
+    : undefined
+const writeAliasesFile = (value: unknown): void => {
+  fs.mkdirSync(path.dirname(aliasesFile()), { recursive: true })
+  fs.writeFileSync(aliasesFile(), JSON.stringify(value, null, 2))
+}
+const writeAliasesFileRaw = (raw: string): void => {
+  fs.mkdirSync(path.dirname(aliasesFile()), { recursive: true })
+  fs.writeFileSync(aliasesFile(), raw)
+}
+
 describe('aliasKey', () => {
   it('renders a byte as two uppercase hex digits', () => {
     expect(aliasKey(0x01)).toBe('01')
@@ -81,9 +95,7 @@ describe('readAliases', () => {
   })
 
   it('tolerates a hand-edited key written with a $ or an odd width', () => {
-    const m = readManifest()
-    m.aliases = { 'music.level': { $0b: 'Boss', '1': 'First', '1D': 'Last' } }
-    fs.writeFileSync(manifestPath, JSON.stringify(m, null, 2))
+    writeAliasesFile({ 'music.level': { $0b: 'Boss', '1': 'First', '1D': 'Last' } })
 
     expect(readAliases(manifestPath, 'music.level')).toEqual({
       '0B': 'Boss',
@@ -93,9 +105,7 @@ describe('readAliases', () => {
   })
 
   it('ignores a non-string value rather than putting it in front of the user', () => {
-    const m = readManifest()
-    m.aliases = { 'music.level': { '01': 42, '02': 'Real' } }
-    fs.writeFileSync(manifestPath, JSON.stringify(m, null, 2))
+    writeAliasesFile({ 'music.level': { '01': 42, '02': 'Real' } })
 
     expect(readAliases(manifestPath, 'music.level')).toEqual({ '02': 'Real' })
   })
@@ -126,10 +136,17 @@ describe('setAlias', () => {
     expect(readAliases(manifestPath, 'music.level')).toEqual({})
   })
 
-  it('drops an emptied namespace rather than leaving a husk in the manifest', () => {
+  it('drops an emptied namespace rather than leaving a husk on disk', () => {
     setAlias(manifestPath, 'music.level', 0x05, 'Boss')
     setAlias(manifestPath, 'music.level', 0x05, '')
 
+    expect(readAliasesFile()).toEqual({})
+  })
+
+  it('stores the name in meta/aliases.json, not the manifest', () => {
+    setAlias(manifestPath, 'music.level', 0x05, 'Boss fight')
+
+    expect(readAliasesFile()).toEqual({ 'music.level': { '05': 'Boss fight' } })
     expect(readManifest().aliases).toBeUndefined()
   })
 
@@ -192,32 +209,60 @@ describe('setAlias', () => {
     fs.writeFileSync(manifestPath, JSON.stringify(m, null, 2))
 
     expect(() => setAlias(manifestPath, 'music.level', 0x05, 'Boss')).toThrow(/schema version/i)
-    expect(readManifest().aliases).toBeUndefined()
+    expect(readAliasesFile()).toBeUndefined()
   })
 
   it('overwrites a hand-written key rather than storing a second spelling', () => {
     // `$05` and `05` are the same track. Writing the canonical key without
     // clearing the other leaves two entries, and which one wins on read is
     // then down to object key order.
-    const m = readManifest()
-    m.aliases = { 'music.level': { $05: 'Old name' } }
-    fs.writeFileSync(manifestPath, JSON.stringify(m, null, 2))
+    writeAliasesFile({ 'music.level': { $05: 'Old name' } })
 
     setAlias(manifestPath, 'music.level', 0x05, 'New name')
 
     expect(readAliases(manifestPath, 'music.level')).toEqual({ '05': 'New name' })
-    expect(Object.keys((readManifest().aliases as Record<string, object>)['music.level'])).toEqual([
+    expect(Object.keys((readAliasesFile() as Record<string, object>)['music.level'])).toEqual([
       '05',
     ])
   })
 
   it('clears a hand-written key when the name is emptied', () => {
-    const m = readManifest()
-    m.aliases = { 'music.level': { $05: 'Old name' } }
-    fs.writeFileSync(manifestPath, JSON.stringify(m, null, 2))
+    writeAliasesFile({ 'music.level': { $05: 'Old name' } })
 
     setAlias(manifestPath, 'music.level', 0x05, '')
 
     expect(readAliases(manifestPath, 'music.level')).toEqual({})
+  })
+
+  it('refuses a meta/aliases.json that is not valid JSON, and leaves it untouched', () => {
+    writeAliasesFileRaw('{ not json')
+
+    expect(() => setAlias(manifestPath, 'music.level', 0x05, 'Boss')).toThrow()
+    expect(fs.readFileSync(aliasesFile(), 'utf8')).toBe('{ not json')
+  })
+
+  it('refuses a meta/aliases.json that parses to something other than an object', () => {
+    writeAliasesFile([])
+
+    expect(() => setAlias(manifestPath, 'music.level', 0x05, 'Boss')).toThrow(/not an object/i)
+    expect(readAliasesFile()).toEqual([])
+  })
+})
+
+describe('a namespace that is not itself an object', () => {
+  it('readAliases empties it rather than walking its indices as ids', () => {
+    // A hand-edited scalar in place of the namespace's table. Object.entries
+    // on a string would otherwise yield keys "0".."3", one per character.
+    writeAliasesFile({ 'music.level': 'oops' })
+
+    expect(readAliases(manifestPath, 'music.level')).toEqual({})
+  })
+
+  it('setAlias replaces it instead of spreading its indices into the new table', () => {
+    writeAliasesFile({ 'music.level': 'oops' })
+
+    setAlias(manifestPath, 'music.level', 0x05, 'Boss')
+
+    expect(readAliases(manifestPath, 'music.level')).toEqual({ '05': 'Boss' })
   })
 })
