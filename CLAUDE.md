@@ -385,6 +385,26 @@ Do not build scaffolding for phases that have not been approved.
 
 ## Agent workflow
 
+The top-level session is the orchestrator and works from
+@docs/agents/orchestrator.md. An agent launched with a brief is an
+implementer or reviewer and follows these rules instead:
+
+- Write the test first and see it fail on the old code before the fix lands.
+- Write Playwright specs where the brief asks; do NOT run them. Your gates
+  are lint, `format:check`, `test:unit` and the Theia build. The orchestrator
+  runs Playwright.
+- Report exact test counts, passed and skipped.
+- A mutation sweep you design is a smoke test, not coverage evidence. Run it
+  against the full suite, and never write "all killed" in a commit message:
+  three implementer tables that claimed it each failed independent review.
+- If the work batches (captures, sweeps, bulk generation), deliver ONE sample
+  and stop for the owner's sign-off. A 100-level sweep was redone after the
+  first look at a single capture found three defects.
+- Launched processes run hidden and never steal focus. Scratch files go in
+  your session scratchpad, not `/tmp`, which other agents share. One-off
+  probe scripts are not committed.
+- Use `smw-mcp` before raw ASM or ad-hoc ROM scripts.
+- Push your branch; do not open the PR or merge.
 - One agent per worktree. Two agents in one worktree produced a review whose findings referenced files another agent was editing underneath it.
 - Worktrees go in `C:/Projects/.worktrees/<repo>/<task>`, never inside the repo and never as a sibling.
 - The implementer never certifies its own work. Every non-trivial change gets two fresh-agent reviews against the diff, adversarial and simplification, and the orchestrator independently builds and runs before accepting.
