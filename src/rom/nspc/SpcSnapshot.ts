@@ -49,8 +49,23 @@ export function buildSnapshot(image: SoundImage, command: number, port: number):
   // replaced by `MOV A,#song : NOP`, which is what the receiver returns.
   const received = patchReceiverCalls(aram, command)
 
+  // Some song starts take the song number from memory for one command:
+  // F-Zero's does `CMP A,#6 : BNE : MOV A,!$07FE`, and each course upload
+  // sets $07FE to that course's theme (SNES side, file $0077E0). Only
+  // commands 1-7 reach the table directly, since the song tick reads the
+  // port as `port & 7`; songs 8 and up exist only through this indirection.
+  // Traced (local SPC700 tracer, 4M instructions from boot): command 6 with
+  // $07FE = 9, 12 or 16 keys on 91-136 notes across five voices, the block
+  // pointer advancing inside that song's own list.
+  const indirect = findIndirectSongStart(aram)
+  let portValue = command
+  if (indirect) {
+    aram[indirect.address] = command
+    portValue = indirect.command
+  }
+
   aram.fill(0, 0xf0, 0x100)
-  aram[0xf4 + port] = command
+  aram[0xf4 + port] = portValue
 
   const spc = new Uint8Array(HEADER + 0x10000 + 128 + 64)
   for (let i = 0; i < SIGNATURE.length; i++) spc[i] = SIGNATURE.charCodeAt(i)
@@ -87,4 +102,31 @@ function patchReceiverCalls(aram: Uint8Array, command: number): number[] {
     }
   }
   return patched
+}
+
+/**
+ * `CMP A,#k : BNE +3 : MOV A,!abs` within reach of a song start's table
+ * lookup. More than one distinct pair is a refusal: we cannot say which runs.
+ */
+function findIndirectSongStart(aram: Uint8Array): { command: number; address: number } | null {
+  const lookups = [
+    ...findAll(aram, [0x1c, 0xfd, 0xf6]),
+    ...findAll(aram, [0x1c, 0x5d, 0xf5]),
+    ...findAll(aram, [0x1c, 0xfd, 0xf5]),
+  ]
+  const found = new Map<string, { command: number; address: number }>()
+  for (const at of lookups) {
+    for (let c = at - 7; c >= at - RECEIVER_REACH && c >= 0; c--) {
+      if (
+        aram[c] === 0x68 &&
+        aram[c + 2] === 0xd0 &&
+        aram[c + 3] === 0x03 &&
+        aram[c + 4] === 0xe5
+      ) {
+        const hit = { command: aram[c + 1], address: aram[c + 5] | (aram[c + 6] << 8) }
+        found.set(`${hit.command}:${hit.address}`, hit)
+      }
+    }
+  }
+  return found.size === 1 ? [...found.values()][0] : null
 }

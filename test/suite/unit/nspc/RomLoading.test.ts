@@ -145,4 +145,21 @@ describe('buildSnapshot', () => {
     const r = buildSnapshot(s.image(), 9, 0)
     expect(r.ok && r.spc[256 + lookup - 3]).toBe(0x3f)
   })
+
+  it('sends the indirect command and stores the song where the song start reads it', () => {
+    const s = syntheticEarlier()
+    // CMP A,#6 : BNE +3 : MOV A,!$07FE, then a song-table lookup, in unused memory.
+    s.put(0x0f00, [0x68, 0x06, 0xd0, 0x03, 0xe5, 0xfe, 0x07, 0x1c, 0xfd, 0xf6, 0x00, 0x10])
+    const r = buildSnapshot(s.image(), 12, 0)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const ram = r.spc.subarray(256, 256 + 0x10000)
+    expect(ram[0xf4]).toBe(6)
+    expect(ram[0x07fe]).toBe(12)
+  })
+
+  it('sends the song number itself when the song start has no indirection', () => {
+    const r = buildSnapshot(syntheticEarlier().image(), 12, 0)
+    expect(r.ok && r.spc[256 + 0xf4]).toBe(12)
+  })
 })
