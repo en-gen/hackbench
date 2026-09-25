@@ -5,14 +5,22 @@
  * registered and unreachable, which this project has shipped before (#379),
  * so the view command is menu-contributed rather than only bound.
  */
-import { injectable } from '@theia/core/shared/inversify'
-import { AbstractViewContribution } from '@theia/core/lib/browser'
+import { inject, injectable } from '@theia/core/shared/inversify'
+import {
+  AbstractViewContribution,
+  QuickInputService,
+  SingleTextInputDialog,
+} from '@theia/core/lib/browser'
 import {
   TabBarToolbarContribution,
   TabBarToolbarRegistry,
 } from '@theia/core/lib/browser/shell/tab-bar-toolbar'
-import { Command, CommandRegistry } from '@theia/core/lib/common'
-import { MapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
+import { Command, CommandRegistry, MenuModelRegistry, MenuPath } from '@theia/core/lib/common'
+import {
+  MapExplorerWidget,
+  MAP_EXPLORER_CONTEXT_MENU,
+  MAP_EXPLORER_ID,
+} from './map-explorer-widget'
 
 export const ShowMapExplorerCommand: Command = {
   id: 'hackbench.maps.focus',
@@ -41,11 +49,33 @@ export const CollapseAllMapsCommand: Command = {
   iconClass: 'codicon codicon-collapse-all',
 }
 
+export const AddToGroupCommand: Command = {
+  id: 'hackbench.maps.addToGroup',
+  label: 'Add to Group...',
+}
+export const RemoveFromGroupCommand: Command = {
+  id: 'hackbench.maps.removeFromGroup',
+  label: 'Remove from Group',
+}
+export const RenameGroupCommand: Command = {
+  id: 'hackbench.maps.renameGroup',
+  label: 'Rename Group...',
+}
+export const DeleteGroupCommand: Command = {
+  id: 'hackbench.maps.deleteGroup',
+  label: 'Delete Group',
+}
+
+/** Marks the QuickPick's own "New Group..." entry, distinct from any group actually named that. */
+const NEW_GROUP = Symbol('new-group')
+
 @injectable()
 export class MapExplorerContribution
   extends AbstractViewContribution<MapExplorerWidget>
   implements TabBarToolbarContribution
 {
+  @inject(QuickInputService) protected readonly quickInput!: QuickInputService
+
   constructor() {
     super({
       widgetId: MAP_EXPLORER_ID,
@@ -71,6 +101,81 @@ export class MapExplorerContribution
         isVisible: w => w instanceof MapExplorerWidget,
       })
     }
+
+    const when = (pred: (w: MapExplorerWidget) => boolean) => (): boolean => {
+      const w = this.tryGetWidget()
+      return !!w && pred(w)
+    }
+
+    commands.registerCommand(AddToGroupCommand, {
+      execute: () => this.withWidget(w => this.promptAddToGroup(w)),
+      isEnabled: when(w => w.canAddToGroup()),
+      isVisible: when(w => w.canAddToGroup()),
+    })
+    commands.registerCommand(RemoveFromGroupCommand, {
+      execute: () => this.withWidget(w => w.removeSelectionFromGroup()),
+      isEnabled: when(w => w.canRemoveFromGroup()),
+      isVisible: when(w => w.canRemoveFromGroup()),
+    })
+    commands.registerCommand(RenameGroupCommand, {
+      execute: () => this.withWidget(w => this.promptRename(w)),
+      isEnabled: when(w => w.selectedGroupName() !== undefined),
+      isVisible: when(w => w.selectedGroupName() !== undefined),
+    })
+    commands.registerCommand(DeleteGroupCommand, {
+      execute: () => this.withWidget(w => this.deleteSelectedGroup(w)),
+      isEnabled: when(w => w.selectedGroupName() !== undefined),
+      isVisible: when(w => w.selectedGroupName() !== undefined),
+    })
+  }
+
+  /** Existing groups, then New Group...: one static list, nothing to register or tear down. */
+  protected async promptAddToGroup(widget: MapExplorerWidget): Promise<void> {
+    const items = [
+      ...widget
+        .groupNames()
+        .map(name => ({ label: name, group: name as string | typeof NEW_GROUP })),
+      { label: 'New Group...', group: NEW_GROUP as string | typeof NEW_GROUP },
+    ]
+    const picked = await this.quickInput.showQuickPick(items, { placeholder: 'Add to group' })
+    if (!picked) return
+    if (picked.group === NEW_GROUP) await this.promptNewGroup(widget)
+    else await widget.addSelectionToGroup(picked.group as string)
+  }
+
+  protected async promptNewGroup(widget: MapExplorerWidget): Promise<void> {
+    const dialog = new SingleTextInputDialog({
+      title: 'New Group',
+      placeholder: 'Group name',
+      validate: name => widget.validateGroupName(name) ?? '',
+    })
+    const name = await dialog.open()
+    if (name) await widget.addSelectionToGroup(name.trim())
+  }
+
+  protected async promptRename(widget: MapExplorerWidget): Promise<void> {
+    const oldName = widget.selectedGroupName()
+    if (!oldName) return
+    const dialog = new SingleTextInputDialog({
+      title: 'Rename Group',
+      initialValue: oldName,
+      validate: name => widget.validateGroupName(name, oldName) ?? '',
+    })
+    const name = await dialog.open()
+    if (name) await widget.renameGroup(oldName, name.trim())
+  }
+
+  protected async deleteSelectedGroup(widget: MapExplorerWidget): Promise<void> {
+    const name = widget.selectedGroupName()
+    if (name) await widget.deleteGroup(name)
+  }
+
+  registerMenus(menus: MenuModelRegistry): void {
+    const path: MenuPath = MAP_EXPLORER_CONTEXT_MENU
+    menus.registerMenuAction(path, { commandId: AddToGroupCommand.id, order: '0' })
+    menus.registerMenuAction(path, { commandId: RemoveFromGroupCommand.id, order: '1' })
+    menus.registerMenuAction(path, { commandId: RenameGroupCommand.id, order: '2' })
+    menus.registerMenuAction(path, { commandId: DeleteGroupCommand.id, order: '3' })
   }
 
   registerToolbarItems(registry: TabBarToolbarRegistry): void {

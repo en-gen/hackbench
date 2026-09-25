@@ -20,9 +20,6 @@ const ROM = process.env.HB_ROM || romPath(VANILLA)
 /** Vanilla's documented map count, from docs/glossary.md. */
 const VANILLA_MAPS = 235
 
-/** Vanilla's launch tiles carrying a translevel, from docs/glossary.md. */
-const VANILLA_ENTRANCES = 92
-
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary
   for (const k of d._map.keys()) {
@@ -63,50 +60,64 @@ test.afterEach(() => {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-/** Create a project and load its maps, returning what the widget holds. */
+/**
+ * Create a project and load its maps, returning what the widget holds.
+ *
+ * Writes meta/groups.json = [] before the load, so a vanilla ROM (this
+ * file's default) does not get its groups seeded: this suite is about the
+ * plain, ungrouped tree, and map-groups.spec.cjs owns the seeded one.
+ */
 async function loadMaps(page, dir, rom = ROM) {
-  const result = await page.evaluate(
+  const created = await page.evaluate(
     async ({ romPath, directory }) => {
       const svc = getSvc('Symbol(ProjectService)')
       if (!svc) return { error: 'ProjectService not resolvable from the frontend' }
       const project = await svc.createProject({ romPath, name: 'MyHack', directory })
-      const w = await getWidget('hackbench.map-explorer')
-      await w.load(project.manifestPath)
-
-      const walk = n => [n, ...(n.children || []).flatMap(walk)]
-      const roots = w.model.root.children || []
-      // By stable id, never by label: a label carries a count that moves with
-      // the cartridge, and a miss here kills every caller with one TypeError
-      // that names none of them.
-      const group = id => roots.find(r => r.id === `group:${id}`)
-      return {
-        mapCount: w.mapCount,
-        groups: roots.map(r => r.name),
-        // Identity and order, neither of which moves when a label gains a count.
-        rootIds: roots.map(r => r.id),
-        overworldTop: (group('overworld')?.children || []).length,
-        unassignedTop: (group('unassigned')?.children || []).length,
-        specialSlots: roots
-          .filter(r => r.category === 'title-screen' || r.category === 'new-game')
-          .map(r => r.index),
-        // Walk the roots themselves, not just their children: Title Screen and
-        // New Game ARE maps rather than folders, so descending past them would
-        // drop two real maps from the count.
-        distinct: new Set(
-          roots
-            .flatMap(walk)
-            .map(n => n.index)
-            .filter(i => i >= 0),
-        ).size,
-        // Shape only, measured in Node by maxDepth.
-        overworldShape: (group('overworld')?.children || []).map(function shape(n) {
-          return { children: (n.children || []).map(c => shape(c)) }
-        }),
-      }
+      return { manifestPath: project.manifestPath }
     },
     { romPath: rom, directory: dir },
   )
-  return result.error ? result : { ...result, deepest: maxDepth(result.overworldShape) }
+  if (created.error) return created
+
+  fs.mkdirSync(path.join(dir, 'meta'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'meta', 'groups.json'), '[]\n')
+
+  const result = await page.evaluate(async manifestPath => {
+    const w = await getWidget('hackbench.map-explorer')
+    await w.load(manifestPath)
+
+    const walk = n => [n, ...(n.children || []).flatMap(walk)]
+    const roots = w.model.root.children || []
+    // By stable id, never by label: a label carries a count that moves with
+    // the cartridge, and a miss here kills every caller with one TypeError
+    // that names none of them.
+    const group = id => roots.find(r => r.id === `group:${id}`)
+    return {
+      mapCount: w.mapCount,
+      groups: roots.map(r => r.name),
+      // Identity and order, neither of which moves when a label gains a count.
+      rootIds: roots.map(r => r.id),
+      // Entry maps and orphans in ONE folder: there is no separate Overworld.
+      unassignedTop: (group('unassigned')?.children || []).length,
+      specialSlots: roots
+        .filter(r => r.category === 'title-screen' || r.category === 'new-game')
+        .map(r => r.index),
+      // Walk the roots themselves, not just their children: Title Screen and
+      // New Game ARE maps rather than folders, so descending past them would
+      // drop two real maps from the count.
+      distinct: new Set(
+        roots
+          .flatMap(walk)
+          .map(n => n.index)
+          .filter(i => i >= 0),
+      ).size,
+      // Shape only, measured in Node by maxDepth.
+      unassignedShape: (group('unassigned')?.children || []).map(function shape(n) {
+        return { children: (n.children || []).map(c => shape(c)) }
+      }),
+    }
+  }, created.manifestPath)
+  return result.error ? result : { ...result, deepest: maxDepth(result.unassignedShape) }
 }
 
 test('a new project loads every map its cartridge holds', async ({ page }) => {
@@ -193,16 +204,12 @@ test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
   const result = await loadMaps(page, path.join(tmp, 'MyHack'))
 
   // Player-interaction order: what you see first, then what starts a file,
-  // then the overworld and whatever it does not reach. Asserted on the ids,
-  // which name the four groups without pinning the text of their labels; the
-  // labels are asserted for what they SAY in the next test.
-  expect(result.rootIds).toEqual([
-    'special:title-screen',
-    'special:new-game',
-    'group:overworld',
-    'group:unassigned',
-  ])
-  expect(result.overworldTop).toBeGreaterThan(0)
+  // then everything else. Asserted on the ids, which name the three rows
+  // without pinning the text of their labels; the label is asserted for
+  // what it SAYS in the next test. There is no separate Overworld folder:
+  // every top-level map, entry map or orphan, is Unassigned.
+  expect(result.rootIds).toEqual(['special:title-screen', 'special:new-game', 'group:unassigned'])
+  expect(result.unassignedTop).toBeGreaterThan(0)
   // A flattening bug yields the right COUNT with everything at depth 0, which
   // the count assertions above cannot see.
   expect(result.deepest).toBeGreaterThan(0)
@@ -213,33 +220,22 @@ test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
 })
 
 /**
- * What the group labels SAY. MapTree.test.ts asserts the counts themselves;
- * nothing asserted that a label carries the right one.
+ * What the Unassigned label SAYS: rows actually listed under it, not a
+ * derived ROM figure (a map that moves into a user group no longer counts
+ * here; see map-groups.spec.cjs for that side of it).
  *
- * Both numbers are checked against something other than themselves, because
- * a label that merely holds A number is not the behaviour.
+ * Checked against the rows themselves, because a label that merely holds A
+ * number is not the behaviour.
  */
-test('the group labels count what they claim to count', async ({ page }) => {
+test('the Unassigned label counts what it claims to count', async ({ page }) => {
   const result = await loadMaps(page, path.join(tmp, 'MyHack'))
 
   // The two singletons take no number: there is implicitly one of each.
   expect(result.groups[0]).toBe('Title Screen')
   expect(result.groups[1]).toBe('New Game')
 
-  // An entrance is a launch tile the overworld grants a translevel, derived
-  // from the cart. 92 on vanilla, which docs/glossary.md documents.
-  expect(result.groups[2]).toBe(`Overworld (${VANILLA_ENTRANCES})`)
-  // And it is emphatically NOT the number of rows in the group: vanilla shows
-  // 80 overworld roots against 92 entrances, so an implementation that counted
-  // its own children would be wrong by 12 and fails here. Paired with a
-  // positive row count, or an empty tree would satisfy the negative.
-  expect(result.overworldTop).toBeGreaterThan(0)
-  expect(result.overworldTop).not.toBe(VANILLA_ENTRANCES)
-
-  // The unassigned number IS its rows, so a label that drifts from its own
-  // contents fails, whatever cartridge this runs against.
   expect(result.unassignedTop).toBeGreaterThan(0)
-  expect(result.groups[3]).toBe(`Unassigned (${result.unassignedTop})`)
+  expect(result.groups[2]).toBe(`Unassigned (${result.unassignedTop})`)
 })
 
 test('the map rows are rendered and reachable, not just in the model', async ({ page }) => {
@@ -342,7 +338,7 @@ test('rows are iconised by category and only expandable rows show a chevron', as
         const expandable = r.classList.contains('theia-ExpandableTreeNode')
         return hasChevron(r) && !expandable
       }).length,
-      groupIcon: byId['group:overworld'] && byId['group:overworld'].icon,
+      groupIcon: byId['group:unassigned'] && byId['group:unassigned'].icon,
     }
   })
 
@@ -395,8 +391,8 @@ test('the icon column is straight across expandable and leaf rows', async ({ pag
     const w = await getWidget('hackbench.map-explorer')
     // Expand a few levels so leaves and folders share a depth. By id, for the
     // reason the loadMaps helper is: the label carries a count.
-    const overworld = w.model.root.children.find(r => r.id === 'group:overworld')
-    const roots = overworld.children
+    const unassigned = w.model.root.children.find(r => r.id === 'group:unassigned')
+    const roots = unassigned.children
     for (const n of roots.slice(0, 10)) if (n.children.length) await w.model.expandNode(n)
     await new Promise(r => setTimeout(r, 1200))
 
@@ -471,9 +467,9 @@ test('expand all and collapse all change what the tree shows', async ({ page }) 
   await run('hackbench.maps.collapseAll')
   const collapsed = await expandedCount()
   expect(collapsed, 'collapsing should close them again').toBeLessThan(expanded)
-  // The grouping folders stay open: they are containers, not content, and a
+  // The grouping folder stays open: it is a container, not content, and a
   // view that collapses to nothing reads as a project that failed to load.
-  expect(collapsed, 'the grouping folders should survive a collapse').toBeGreaterThanOrEqual(2)
+  expect(collapsed, 'the grouping folder should survive a collapse').toBeGreaterThanOrEqual(1)
   await page.waitForSelector('#hackbench\\.map-explorer .theia-TreeNode', { timeout: 5000 })
 })
 

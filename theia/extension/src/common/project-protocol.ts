@@ -84,6 +84,35 @@ export interface MapTreeDto {
   notes: string[]
 }
 
+/** A user-named group and the slots it holds. Order is not meaningful. */
+export interface MapGroupDto {
+  name: string
+  slots: number[]
+}
+
+/**
+ * A map at the top of a group, or of the single Unassigned folder. `orphan`
+ * carries the reachability marking regardless of which folder holds it.
+ */
+export interface GroupedMapNodeDto extends MapNodeDto {
+  orphan: boolean
+}
+
+/**
+ * The explorer's tree once meta/groups.json has pulled some top-level maps
+ * out of the top level into their groups. There is no separate Overworld
+ * folder: every top-level map not in a user group, entry map or orphan
+ * alike, is Unassigned.
+ */
+export interface GroupedMapTreeDto {
+  special: SpecialMapNodeDto[]
+  unassigned: GroupedMapNodeDto[]
+  mapCount: number
+  counts: MapTreeCountsDto
+  notes: string[]
+  groups: { name: string; maps: GroupedMapNodeDto[] }[]
+}
+
 /**
  * Why loading maps is a result rather than a throw.
  *
@@ -92,10 +121,28 @@ export interface MapTreeDto {
  * by asking the user to locate it. Modelling it as an error would leave the
  * frontend matching on message strings across JSON-RPC to tell it apart from
  * a genuine failure.
+ *
+ * `rawGroups` is the file's own list (not rebuilt from the resolved tree), so
+ * the frontend can edit and send it back without losing a slot the current
+ * ROM no longer resolves. `groupsError` is set when meta/groups.json exists
+ * but fails validation; `tree` is still the full, ungrouped map list, and
+ * `rawGroups` is empty.
  */
 export type LoadMapsResult =
-  | { status: 'ok'; tree: MapTreeDto; romPath: string }
+  | {
+      status: 'ok'
+      tree: GroupedMapTreeDto
+      rawGroups: MapGroupDto[]
+      romPath: string
+      groupsError?: string
+    }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
+/** Result of writing meta/groups.json. The caller reloads to see the effect. */
+export type SetMapGroupsResult =
+  | { status: 'ok' }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+  | { status: 'invalid'; reason: string }
 
 /** An entry in the recent-projects list. Per-machine, never in a project. */
 export interface RecentProjectDto {
@@ -249,6 +296,15 @@ export interface ProjectService {
    * than failing when this machine has not been told where it is.
    */
   loadMaps(manifestPath: string): Promise<LoadMapsResult>
+
+  /**
+   * Replace meta/groups.json wholesale and return the regrouped tree.
+   *
+   * Validated before writing (unique non-empty names, in-range slots, no
+   * slot in two groups); `invalid` reports the refusal and leaves the file
+   * untouched.
+   */
+  setMapGroups(manifestPath: string, groups: MapGroupDto[]): Promise<SetMapGroupsResult>
 
   /**
    * Diff the working copy against the base cartridge and write an .ips into

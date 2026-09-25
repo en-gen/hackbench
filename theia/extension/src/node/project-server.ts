@@ -16,15 +16,28 @@ import { RomRegistry } from '../../../../src/project/RomRegistry'
 import { RecentProjects } from '../../../../src/project/RecentProjects'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
-import { buildMapTree } from '../../../../src/rom/MapTree'
+import { buildMapTree, MapTree } from '../../../../src/rom/MapTree'
 import { WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
 import { exportPatch } from '../../../../src/project/ExportPatch'
+import {
+  admitGroups,
+  applyGroups,
+  GroupsRead,
+  MapGroup,
+  readGroups,
+  resolveGroups,
+  staleSlots,
+  topLevelSlots,
+  VANILLA_SHA256,
+  writeGroups,
+} from '../../../../src/project/MapGroups'
 import * as fs from 'fs'
 import {
   CreateProjectRequest,
   EditStackResult,
   ExportPatchResult,
+  GroupedMapTreeDto,
   HackMetadataDto,
   LoadMapsResult,
   MapDetailsDto,
@@ -33,6 +46,7 @@ import {
   ProjectServiceClient,
   RecentProjectDto,
   RomIdentityDto,
+  SetMapGroupsResult,
 } from '../common/project-protocol'
 import { WorkingCopyNotifier } from './working-copy-notifier'
 
@@ -115,7 +129,79 @@ export class ProjectServiceImpl implements ProjectService {
     }
 
     const rom = new SmwRom(RomFile.load(romPath))
-    return { status: 'ok', tree: buildMapTree(rom), romPath }
+    const tree = buildMapTree(rom)
+
+    // A bad groups.json must not hide the maps: fall back to the ungrouped
+    // tree and report why, rather than throwing the whole view away. The
+    // decision (use / seed / error) is pure (resolveGroups); only the read
+    // and the seed write touch disk.
+    const decision = resolveGroups(
+      this.readGroupsSafely(manifestPath),
+      project.baseRom.sha256 === VANILLA_SHA256,
+    )
+    let groups: MapGroup[]
+    let groupsError: string | undefined
+    if (decision.action === 'error') {
+      groups = []
+      groupsError = decision.groupsError
+    } else {
+      groups = decision.groups
+      if (decision.action === 'seed') {
+        try {
+          writeGroups(manifestPath, decision.groups)
+        } catch (err) {
+          // Reported distinctly from a READ failure: there is no bad file to
+          // point at here, the write itself (a read-only folder, say) failed.
+          groups = []
+          groupsError = `Could not seed groups.json: ${err instanceof Error ? err.message : String(err)}`
+        }
+      }
+    }
+
+    const stale = staleSlots(tree, groups)
+    const notes = [...tree.notes]
+    if (stale.length > 0) {
+      notes.push(
+        `${stale.length} grouped slots are not maps in this ROM and are kept in meta/groups.json.`,
+      )
+    }
+
+    return {
+      status: 'ok',
+      tree: toGroupedDto(tree, groups, notes),
+      rawGroups: groups,
+      romPath,
+      groupsError,
+    }
+  }
+
+  async setMapGroups(manifestPath: string, groups: MapGroup[]): Promise<SetMapGroupsResult> {
+    const project = openProject(manifestPath)
+    const romPath = this.registry.resolve(project.baseRom.sha256)
+    if (!romPath) {
+      return { status: 'rom-not-located', baseRom: project.baseRom }
+    }
+
+    const rom = new SmwRom(RomFile.load(romPath))
+    const topLevel = topLevelSlots(buildMapTree(rom))
+    const admitted = admitGroups(groups, this.readGroupsSafely(manifestPath), topLevel)
+    if (admitted.status === 'invalid') return admitted
+
+    try {
+      writeGroups(manifestPath, groups)
+    } catch (err) {
+      return { status: 'invalid', reason: err instanceof Error ? err.message : String(err) }
+    }
+    return { status: 'ok' }
+  }
+
+  /** Reads meta/groups.json, turning a throw into a `GroupsRead` so admission and load decisions stay pure. */
+  private readGroupsSafely(manifestPath: string): GroupsRead {
+    try {
+      return { status: 'ok', groups: readGroups(manifestPath) }
+    } catch (err) {
+      return { status: 'invalid', reason: err instanceof Error ? err.message : String(err) }
+    }
   }
 
   /**
@@ -156,6 +242,19 @@ export class ProjectServiceImpl implements ProjectService {
 
   async redo(manifestPath: string): Promise<EditStackResult> {
     return this.workingRoms.redo(manifestPath)
+  }
+}
+
+/** Applies groups.json to the raw tree and puts the result on the wire. */
+function toGroupedDto(tree: MapTree, groups: MapGroup[], notes: string[]): GroupedMapTreeDto {
+  const grouped = applyGroups(tree, groups)
+  return {
+    special: tree.special,
+    unassigned: grouped.unassigned,
+    mapCount: tree.mapCount,
+    counts: tree.counts,
+    notes,
+    groups: grouped.groups.map(g => ({ name: g.name, maps: g.maps })),
   }
 }
 

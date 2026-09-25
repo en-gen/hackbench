@@ -80,6 +80,16 @@
   color: var(--theia-descriptionForeground);
 }
 
+/*
+ * An orphan inside a group keeps its reachability marking: dimmed and
+ * italic, same as it would read directly under Unassigned. Reachability
+ * belongs to the map, not to which folder currently holds it.
+ */
+.hb-map-row-orphan {
+  opacity: 0.65;
+  font-style: italic;
+}
+
 /* ── New Project dialog ─────────────────────────────────────────────────── */
 
 .hb-dialog-row {
