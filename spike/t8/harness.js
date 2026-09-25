@@ -191,7 +191,7 @@ T0.status = () => ({
 // === T4: route around the WRAM blocker (see spike/t1/evidence/wram-base-
 // investigation.txt) by patching the ROM's own title-screen force-load
 // mechanism instead of writing live WRAM. Spec: TRACED MECHANISM block in
-// tools/mesen/headless_capture.lua, tracing bank_05.asm:7216-7227.
+// hackbench-validation capture/mesen/headless_capture.lua, tracing bank_05.asm:7216-7227.
 // Independently transcribed, not copy-pasted, from spike/qa/contract.ts's
 // decodeOverride so a slip here can't coincidentally agree with a slip
 // there; findViolations()-equivalent round-trip is exercised at call time

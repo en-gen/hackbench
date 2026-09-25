@@ -1,6 +1,7 @@
 // Contract test for encodeOverride(levelId), written from the spec in
-// tools/mesen/headless_capture.lua (the "TRACED MECHANISM" comment block and
-// the encodeOverride() reference implementation beneath it), NOT from T1's
+// capture/mesen/headless_capture.lua in en-gen/hackbench-validation (the
+// "TRACED MECHANISM" comment block and the encodeOverride() reference
+// implementation beneath it), NOT from T1's
 // implementation in spike/t1/. T1 is building the real thing concurrently;
 // this file must never import from spike/t1/.
 //

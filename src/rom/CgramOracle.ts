@@ -3,10 +3,10 @@
  * palette derivation.
  *
  * The capture is 512 bytes of hardware CGRAM read out of Mesen
- * (tools/mesen/headless_capture.lua). It is not derived from our ROM tables
- * and not read back out of MainPalette ($7E0703, rammap.asm:1175, the game's
- * own WRAM staging buffer), so comparing buildLevelCgram against it is not
- * circular.
+ * (capture/mesen/headless_capture.lua in en-gen/hackbench-validation). It is
+ * not derived from our ROM tables and not read back out of MainPalette
+ * ($7E0703, rammap.asm:1175, the game's own WRAM staging buffer), so
+ * comparing buildLevelCgram against it is not circular.
  *
  * Index buckets and the ROM citations behind them: docs/spikes/cgram-oracle.md.
  */
