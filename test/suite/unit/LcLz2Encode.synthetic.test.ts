@@ -19,7 +19,7 @@
  * edit did not touch come back out identical, back-references included.
  */
 import { describe, it, expect } from 'vitest'
-import { decompress, encode, parseStream } from '../../../src/rom/LcLz2'
+import { decompress, encode, parseStream, tryDecompress } from '../../../src/rom/LcLz2'
 
 const hdr = (cmd: number, len: number): number => ((cmd & 7) << 5) | ((len - 1) & 0x1f)
 const hdrExt = (cmd: number, len: number): [number, number] => [
@@ -38,7 +38,9 @@ const TEMPLATES: Record<string, number[]> = {
   'word fill': [hdr(2, 9), 0x12, 0x34, FF],
   'increasing fill': [hdr(3, 6), 0xf0, FF],
   'back-reference': [hdr(0, 4), 9, 8, 7, 6, hdr(4, 4), 0x00, 0x00, FF],
-  'back-reference past the write head reads zero': [hdr(0, 2), 5, 6, hdr(4, 3), 0x00, 0x40, FF],
+  // Self-referential: addr sits inside this command's own span, so the read
+  // at each step sees what the previous step just wrote (an RLE idiom).
+  'back-reference repeats through its own write head': [hdr(0, 2), 5, 6, hdr(4, 4), 0x00, 0x01, FF],
   'extended literal run': [...hdrExt(0, 40), ...Array.from({ length: 40 }, (_, i) => i), FF],
   'extended byte fill': [...hdrExt(1, 300), 0x5a, FF],
   'every command in one stream': [
@@ -117,6 +119,13 @@ describe('encode round trip', () => {
     const src = bytes(TEMPLATES[name]!)
     const out = decompress(src)
     expect(arr(decompress(encode(out, src)))).toEqual(arr(out))
+  })
+
+  it('a template back-reference reading its own write position is re-encoded, not copied', () => {
+    // Its output matches the data only because it reads the byte it is about to write.
+    const template = bytes([hdr(0, 1), 0xaa, hdr(4, 1), 0x00, 0x01, FF])
+    const data = bytes([0xaa, 0xaa])
+    expect(arr(decompress(encode(data, template)))).toEqual(arr(data))
   })
 })
 
@@ -211,7 +220,10 @@ describe('the round-trip oracle goes red on a planted defect', () => {
     for (let at = 0; at < clean.length - 1; at++) {
       const bad = Uint8Array.from(clean)
       bad[at] = (bad[at]! + 1) & 0xff
-      if (arr(decompress(bad)).join() === arr(data).join()) survived.push(at)
+      // A refusal is the decoder catching the mutation outright, which is
+      // not "surviving" either: only a silent, matching decode counts.
+      const result = tryDecompress(bad)
+      if (result.ok && arr(result.bytes).join() === arr(data).join()) survived.push(at)
     }
     expect(survived).toEqual([])
   })
@@ -219,6 +231,6 @@ describe('the round-trip oracle goes red on a planted defect', () => {
   it('a truncated encode fails the round trip', () => {
     const data = new Uint8Array(200).fill(0x20)
     const truncated = encode(data).subarray(0, 2)
-    expect(decompress(truncated).length).not.toBe(data.length)
+    expect(() => decompress(truncated)).toThrow(/did not terminate/i)
   })
 })

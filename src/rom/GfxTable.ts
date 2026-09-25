@@ -16,7 +16,7 @@ import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern } from './BytePattern'
 import { bytesPerTile, decodeTilesBatch, setTilePixel } from './GraphicsDecoder'
 import { inferGfxBpp, l3DepthUnknown } from './GfxLoader'
-import { decompress, encode } from './LcLz2'
+import { tryDecompress, encode } from './LcLz2'
 import {
   ArenaResult,
   GFX_FILE_COUNT,
@@ -69,6 +69,9 @@ export interface GfxFileState {
   bpp: 2 | 3 | 4 | null
   /** Set when `bpp` is null because the L3 range is unreadable, not the length. */
   depthUnknown?: string
+  /** Why `bytes` is empty: an unreadable pointer table entry, or the reason
+   *  `tryDecompress` gave. Unset when the file read cleanly. */
+  readError?: string
   tileCount: number
   dirty: boolean
 }
@@ -88,7 +91,10 @@ export class GfxTable {
       const template = readable
         ? new Uint8Array(rom.readAtFileOffset(f.offset!, f.byteLength)!)
         : new Uint8Array(0)
-      const bytes = readable ? decompress(template) : new Uint8Array(0)
+      const decoded = readable
+        ? tryDecompress(template)
+        : { ok: false as const, reason: 'the pointer table entry could not be read' }
+      const bytes = decoded.ok ? decoded.bytes : new Uint8Array(0)
       const bpp = bytes.length > 0 ? inferGfxBpp(rom, f.index, bytes.length) : null
       return {
         index: f.index,
@@ -96,6 +102,7 @@ export class GfxTable {
         template,
         bpp,
         ...(bpp === null && { depthUnknown: l3DepthUnknown(rom, bytes.length) ?? undefined }),
+        ...(!decoded.ok && { readError: decoded.reason }),
         tileCount: bpp === null ? 0 : Math.floor(bytes.length / bytesPerTile(bpp)),
         dirty: false,
       }
@@ -185,7 +192,14 @@ export function planGfxSave(
         reason: `GFX ${i} did not re-encode: ${(err as Error).message}`,
       }
     }
-    const back = decompress(stream)
+    const decoded = tryDecompress(stream)
+    if (!decoded.ok) {
+      return {
+        status: 'unavailable',
+        reason: `GFX ${i} re-encoded to a stream that fails to decompress: ${decoded.reason}`,
+      }
+    }
+    const back = decoded.bytes
     if (Buffer.compare(Buffer.from(back), Buffer.from(f.bytes)) !== 0) {
       return {
         status: 'unavailable',

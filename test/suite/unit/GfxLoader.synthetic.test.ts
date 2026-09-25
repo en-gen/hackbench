@@ -93,6 +93,16 @@ describe('readGfxFile', () => {
     const read = readGfxFile(rom, 0)
     expect(read.ok && Array.from(read.bytes)).toEqual(new Array(48).fill(0x33))
   })
+
+  it('refuses a stream that never terminates, rather than crashing or returning ok', () => {
+    const rom = make4MbRom()
+    writeAddr(rom, 0, 0x108000)
+    // cmd1 len32, one fill byte, no $FF: runs off the read window instead.
+    rom.writeAt(0x108000, [(1 << 5) | 0x1f, 0x33])
+    const read = readGfxFile(rom, 0)
+    expect(read.ok).toBe(false)
+    if (!read.ok) expect(read.reason).toMatch(/did not terminate/i)
+  })
 })
 
 /**

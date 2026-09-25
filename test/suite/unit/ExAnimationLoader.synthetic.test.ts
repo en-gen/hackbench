@@ -184,6 +184,7 @@ describe('loadExAnimData - happy paths', () => {
       paletteOnly?: boolean // first slot has bit 7 set
       slotCount?: number
       badSlotCount?: boolean
+      streamBytes?: number[]
     } = {},
   ): RomFile {
     const fileNum = opts.fileNum ?? 0x80
@@ -223,7 +224,7 @@ describe('loadExAnimData - happy paths', () => {
     rom.writeAt(0x108300, [fileNum & 0xff, (fileNum >> 8) & 0xff])
 
     // Stamp a hand-built LZ2 stream that decompresses to 128 bytes (4 tiles).
-    rom.writeAt(0x10a000, LZ2_128_BYTES_OF_42)
+    rom.writeAt(0x10a000, opts.streamBytes ?? LZ2_128_BYTES_OF_42)
 
     // Point the ExGFX pointer-table entry to the compressed buffer.
     const tableAddr =
@@ -267,6 +268,12 @@ describe('loadExAnimData - happy paths', () => {
 
   it('returns null when block header has SS > 64 (corrupt)', () => {
     const rom = buildExAnimRom({ badSlotCount: true })
+    expect(readExAnimLevel(rom, 0)).toBeNull()
+  })
+
+  it('returns null rather than throwing or garbage tiles when the ExGFX stream fails to decompress', () => {
+    // Same 4-byte stream with its $FF terminator dropped.
+    const rom = buildExAnimRom({ streamBytes: LZ2_128_BYTES_OF_42.slice(0, -1) })
     expect(readExAnimLevel(rom, 0)).toBeNull()
   })
 })

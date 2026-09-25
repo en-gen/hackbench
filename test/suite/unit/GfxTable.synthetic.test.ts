@@ -167,6 +167,17 @@ describe('GfxTable', () => {
       table.setPixel({ kind: 'gfxPixel', file: 0, tile: 0, x: 0, y: 0, value: 1 }).status,
     ).toBe('refused')
   })
+
+  it('carries the decode reason when a stream is structurally terminated but decompress refuses it', () => {
+    // cmd4 len1 addr=$FFFF (out of range), then $FF: parseStream sees a
+    // valid terminated structure, so this is not caught by `readable`
+    // alone; tryDecompress is what refuses the back-reference.
+    const streams = gfxStreams()
+    streams[0] = Uint8Array.from([0x80, 0xff, 0xff, 0xff])
+    const table = GfxTable.load(buildCart({ streams }).rom)
+    expect(table.files[0]!.bytes.length).toBe(0)
+    expect(table.files[0]!.readError).toMatch(/back-reference/i)
+  })
 })
 
 describe('planGfxSave', () => {

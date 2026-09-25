@@ -40,7 +40,7 @@
 
 import type { AnimationData, AnimFrameSlot } from './AnimationLoader'
 import { ANIM_INTERVAL_MS } from './AnimationLoader'
-import { decompress } from './LcLz2'
+import { tryDecompress } from './LcLz2'
 import { decode4bpp, PIXELS_PER_TILE } from './GraphicsDecoder'
 import type { RomFile } from './RomFile'
 
@@ -237,8 +237,8 @@ function loadExGfxFile(rom: RomFile, fileNum: number): Uint8Array | null {
 
   const compressed = rom.readAt(addr, EXGFX_MAX_COMPRESSED)
   if (!compressed) return null
-  const data = decompress(compressed)
-  return data.length > 0 ? data : null
+  const result = tryDecompress(compressed)
+  return result.ok && result.bytes.length > 0 ? result.bytes : null
 }
 
 /**

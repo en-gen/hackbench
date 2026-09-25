@@ -25,17 +25,9 @@ const TABLE_PTR_WORD = 0x04d803
 const TABLE_PTR_BANK = 0x04d808
 const EXPECTED_TABLE_SIZE = 4096
 
-// Invictus 1.0.sfc decompresses this same pointer to 174 bytes, both before
-// and after the addressing fix (identical offset $105DD from either
-// converter, since its bank ($82 -> effective $02) was never touched by the
-// bug). That proves the mismatch is NOT an addressing defect - most likely
-// Invictus's LM version or freespace layout doesn't place the compressed
-// translevel table at this fixed hook, unlike the other three hacks. Pinning
-// the diagnosed value (instead of skipping the ROM) keeps this a real
-// regression oracle for that ROM rather than silently dropping coverage.
-const EXPECTED_SIZE_OVERRIDE: Record<string, number> = {
-  'Invictus 1.0.sfc': 174,
-}
+// Invictus 1.0.sfc replaces the LC_LZ2 decompressor (#526), so whatever
+// sits at this hook is not a real LC_LZ2 stream; it now correctly refuses.
+const NOT_A_REAL_TABLE = new Set(['Invictus 1.0.sfc'])
 
 describe('Acceptance A: LM compressed translevel table decompresses to 4096 bytes', () => {
   const hackRoms = [
@@ -45,11 +37,10 @@ describe('Acceptance A: LM compressed translevel table decompresses to 4096 byte
     'Invictus 1.0.sfc',
   ]
   for (const name of hackRoms) {
-    const expected = EXPECTED_SIZE_OVERRIDE[name] ?? EXPECTED_TABLE_SIZE
     // `it.skipIf`, not a ternary choosing between the two spellings of `it`.
     // Both register the case here, but the ternary is one edit away from the
     // shape that drops cases entirely, and it states the gate twice.
-    it.skipIf(!hasRom(name))(`${name} table decompresses to ${expected} bytes`, () => {
+    it.skipIf(!hasRom(name))(`${name} table decompresses as expected`, () => {
       const smw = SmwRom.open(romPath(name))
       const rom = smw.rom
       expect(rom.readByte(LM_PATCH_PROBE)).toBe(0x22) // sanity: is actually LM-patched
@@ -60,8 +51,12 @@ describe('Acceptance A: LM compressed translevel table decompresses to 4096 byte
       const ptr = ((bank as number) << 16) | (word as number)
       const offset = loromToOffset(ptr, rom.romSize, rom.hasHeader)
       expect(offset).not.toBeNull()
+      if (NOT_A_REAL_TABLE.has(name)) {
+        expect(() => decompress(rom.buffer, offset as number)).toThrow(/back-reference/i)
+        return
+      }
       const out = decompress(rom.buffer, offset as number)
-      expect(out.length).toBe(expected)
+      expect(out.length).toBe(EXPECTED_TABLE_SIZE)
     })
   }
 })

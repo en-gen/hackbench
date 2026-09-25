@@ -56,7 +56,7 @@
  */
 
 import { RomFile } from './RomFile'
-import { decompress } from './LcLz2'
+import { tryDecompress } from './LcLz2'
 import { loromToOffset } from './addressing'
 import { matchesAt, WILD, type BytePattern } from './BytePattern'
 import { PIXELS_PER_TILE } from './GraphicsDecoder'
@@ -280,7 +280,9 @@ export function stockAnimationUnreached(
  * Berry animations reference $6D80-$7C80 (GFX32 3bpp region).
  * Standard animations reference $7D00-$ACFE (GFX33 expanded 4bpp region).
  */
-function loadAnimatedTileBuffer(rom: RomFile): Uint8Array | null {
+function loadAnimatedTileBuffer(
+  rom: RomFile,
+): { ok: true; buffer: Uint8Array } | { ok: false; reason: string } {
   // Replicate CODE_00B888 (bank_00.asm lines 6250-6302):
   //
   // Step 1: Decompress GFX33 (from CODE_00B888's immediates) into MarioGraphics ($2000).
@@ -297,19 +299,20 @@ function loadAnimatedTileBuffer(rom: RomFile): Uint8Array | null {
   // Our buffer covers $2000-$ACFE, indexed from MARIO_GRAPHICS_RAM_BASE ($2000).
 
   const sources = readAnimGfxSources(rom)
-  if (!sources.ok) return null
+  if (!sources.ok) return sources
   const gfx33Compressed = rom.readAt(sources.gfx33, GFX33_MAX_COMPRESSED)
-  if (!gfx33Compressed) return null
+  if (!gfx33Compressed) return { ok: false, reason: 'GFX33 points outside the ROM' }
   const meter = { consumed: 0, terminated: false }
-  const gfx33Decompressed = decompress(gfx33Compressed, 0, undefined, meter)
-  if (gfx33Decompressed.length === 0 || !meter.terminated) return null
+  const gfx33 = tryDecompress(gfx33Compressed, { meter })
+  if (!gfx33.ok) return gfx33
+  if (gfx33.bytes.length === 0) return { ok: false, reason: 'GFX33 decompressed to no bytes' }
 
   // Expand ALL decompressed bytes from 3bpp → 4bpp.
   // CODE_00B888 starts LDX at #$23FF and processes source bytes from X down to 0.
   // The destination starts at $ACFE and writes downward. Mesen confirms the expansion
   // writes well below $7D00 (e.g., $6D80 for berry data), meaning the full expanded
   // output is larger than just the AnimatedTiles region.
-  const gfx33Expanded = expand3bppTo4bpp(gfx33Decompressed)
+  const gfx33Expanded = expand3bppTo4bpp(gfx33.bytes)
 
   // ReadByte steps into the next bank past $FFFF, terminator included (bank_00.asm:6405-6412),
   // and CODE_00B8D7 sets only the low word, so GFX32 sits in the bank GFX33's stream ended in.
@@ -321,19 +324,27 @@ function loadAnimatedTileBuffer(rom: RomFile): Uint8Array | null {
   const ANIM_TILES_BUF_OFFSET = ANIMATED_TILES_RAM_BASE - MARIO_GRAPHICS_RAM_BASE // $5D00
   const preFilled = new Uint8Array(ANIM_TILES_BUF_OFFSET + gfx33Expanded.length)
   preFilled.set(gfx33Expanded, ANIM_TILES_BUF_OFFSET)
-  let gfx32Decompressed: Uint8Array = preFilled
-  if (gfx32Compressed) {
-    gfx32Decompressed = decompress(gfx32Compressed, 0, preFilled)
-  }
+  if (!gfx32Compressed) return { ok: false, reason: 'GFX32 points outside the ROM' }
+  const gfx32 = tryDecompress(gfx32Compressed, { initialBuffer: preFilled })
+  if (!gfx32.ok) return gfx32
+  const buffer = gfx32.bytes
 
-  // The decompressed GFX32 output already includes the pre-filled GFX33 expanded data.
-  // It's the full MarioGraphics buffer matching the game's RAM layout:
-  //   buffer[0..$5CFF]: GFX32 4bpp data (from decompression)
-  //   buffer[$5D00+]: GFX33 expanded 4bpp data (from pre-fill, preserved by GFX32 decompression)
-  const buffer =
-    gfx32Decompressed instanceof Uint8Array ? gfx32Decompressed : new Uint8Array(gfx32Decompressed)
+  // buffer[0..$5CFF]: GFX32 4bpp data (from decompression)
+  // buffer[$5D00+]: GFX33 expanded 4bpp data (from pre-fill, preserved by GFX32 decompression)
+  return { ok: true, buffer }
+}
 
-  return buffer
+/**
+ * Why `loadAnimationData` found nothing to animate with, when that cause is
+ * a failed GFX33/GFX32 decode rather than an unreached routine (already
+ * covered by `stockAnimationUnreached`) or a tileset with no animation data.
+ * Tileset-independent, so a caller can check this once after
+ * `loadAnimationData` returns null, to route a genuine decode failure
+ * through the same "blank with a note" path as an unreached routine.
+ */
+export function animationGfxFailure(rom: RomFile): string | null {
+  const result = loadAnimatedTileBuffer(rom)
+  return result.ok ? null : result.reason
 }
 
 /**
@@ -417,8 +428,9 @@ function decodeTilesAt(buffer: Uint8Array, offset: number): Uint8Array[] {
  * @returns AnimationData with frame replacements, or null if GFX33 can't be loaded
  */
 export function loadAnimationData(rom: RomFile, tilesetId: number): AnimationData | null {
-  const buffer = loadAnimatedTileBuffer(rom)
-  if (!buffer) return null
+  const result = loadAnimatedTileBuffer(rom)
+  if (!result.ok) return null
+  const buffer = result.buffer
 
   // Read the behavior and tileset offset tables.
   // The behavior table (DATA_05B96B) has 18 explicit entries, but the SNES reads it
