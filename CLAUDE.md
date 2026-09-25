@@ -265,6 +265,8 @@ In practice:
 
 **Pillar 2 - Context Budgeting**: Load domain knowledge on demand using `@C:\Projects\SMWDisX\<bank_xx>\MEMO.md` syntax. Never read entire bank folders speculatively; load only the MEMO.md for the bank(s) directly relevant to the current task.
 
+**Pillar 2a - Ask smw-mcp before spelunking**: ROM and disassembly questions (level entrances, pointer tables, sprite lists, which levels use a tile) go through the `smw-mcp` server's tools first. If you have queried the same kind of ROM data more than 3 times by hand (ad-hoc scripts, repeated table reads, grepping the disassembly for the same answer), add it to `C:\Projects\smw-mcp` as a tool with tests and SMWDisX citations, then use the tool. Spelunking the ROM repeatedly spends tokens a tool would save.
+
 **Pillar 3 - Memory Snapshot Protocol**: After resolving a complex SNES logic problem (multi-routine control flow, OAM layout, palette tricks), propose a Memory Snapshot: a concise summary for `SMWDisX/<bank_xx>/MEMO.md`. Include the address range covered, the behavior decoded, non-obvious invariants, and the PR that exercised it. Only propose a snapshot when the analysis is non-trivial - single-table lookups do not warrant one.
 
 ## Files never to commit
