@@ -78,7 +78,7 @@ npx vitest run test/suite/unit/GraphicsDecoder.test.ts     # one file
 
 The Playwright end-to-end specs live **here**, under
 `theia/browser-app/test/`. What lives in the private
-`en-gen/hackbench-playwright` repo is the ROM and the runner: `e2e-dispatch`
+`en-gen/hackbench-validation` repo is the ROM and the runner: `e2e-dispatch`
 passes a `hackbench_ref` and the remote run checks out these specs against
 it. That is why the suite does not run in `ci.yml`, where there is no ROM,
 and why a full Theia install and frontend bundle does not block an ordinary
