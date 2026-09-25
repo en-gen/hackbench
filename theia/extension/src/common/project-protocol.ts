@@ -118,9 +118,15 @@ export interface MapDetailsDto {
   /** The five header bytes, so the user can check the decode themselves. */
   headerBytes: number[]
   screens: number
-  isVertical: boolean
   objectCount: number
-  spriteCount: number
+  /** Absent when VerticalTable could not be read; see `orientationUnavailable`. */
+  isVertical?: boolean
+  /** Why `isVertical` is absent. Set only when it is. */
+  orientationUnavailable?: string
+  /** Absent when the sprite stream could not be read; see `spriteUnavailable`. */
+  spriteCount?: number
+  /** Why `spriteCount` is absent. Set only when it is. */
+  spriteUnavailable?: string
   /** Decoded header fields, label and value, in header-byte order. */
   header: Array<{ label: string; value: string }>
 }
@@ -216,14 +222,6 @@ export interface ProjectService {
    * about the project rather than opinions, and are not editable.
    */
   updateProject(manifestPath: string, changes: Partial<HackMetadataDto>): Promise<ProjectDto>
-
-  /**
-   * Read one map out of the project's base cartridge.
-   *
-   * Throws when the slot holds no readable level data, which is a real answer
-   * rather than an empty map: an empty map looks like one that lost its work.
-   */
-  mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto>
 
   /**
    * Read one map out of the project's base cartridge.

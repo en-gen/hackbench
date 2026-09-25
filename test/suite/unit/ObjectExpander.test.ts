@@ -1402,7 +1402,7 @@ describe.skipIf(!romPresent)('expandMap integration (real SMW ROM)', () => {
   function expandLevelByIndex(index: number) {
     const rawL1 = rom.getLevelRawData(index)
     if (!rawL1) throw new Error(`Level $${index.toString(16)} has no data`)
-    const { header, objects } = parseLevelObjects(rawL1)
+    const { header, objects } = parseLevelObjects(rawL1, rom.requireVerticalTable())
     const screens = header.levelLength
     const grid = expandMap(
       objects,

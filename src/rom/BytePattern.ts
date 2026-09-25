@@ -38,10 +38,37 @@ export function findPattern(rom: RomFile, pattern: BytePattern, limit = Infinity
   return findInBytes(rom.buffer, pattern, base, base + rom.romSize, limit).map(at => at - base)
 }
 
+/** Do `bytes` (from any read, including a null one) match `p`? */
+export function matchesBytes(bytes: Uint8Array | Buffer | null, p: BytePattern): boolean {
+  return (
+    bytes !== null && bytes.length >= p.length && p.every((b, i) => b === WILD || bytes[i] === b)
+  )
+}
+
 /** The bytes at cart-relative `at` when they match `p`, else null. */
 export function matchesAt(rom: RomFile, at: number, p: BytePattern): Buffer | null {
   const bytes = rom.readAtFileOffset(at, p.length)
-  return bytes && p.every((b, i) => b === WILD || bytes[i] === b) ? bytes : null
+  return matchesBytes(bytes, p) ? bytes : null
+}
+
+export type SiteResult = { ok: true; offset: number } | { ok: false; reason: string }
+
+/**
+ * `findPattern`, requiring exactly one match: more than one means which one
+ * runs is unknown, and none means the read is not on this ROM. `what` names
+ * the read in the refusal reason, e.g. "the sprite pointer read
+ * (bank_05.asm:7253-7258)".
+ */
+export function findExactlyOneSite(rom: RomFile, pattern: BytePattern, what: string): SiteResult {
+  const hits = findPattern(rom, pattern, 2)
+  if (hits.length === 1) return { ok: true, offset: hits[0]! }
+  return {
+    ok: false,
+    reason:
+      hits.length === 0
+        ? `${what} is not present on this ROM`
+        : `${what} matches more than once, so which one runs is unknown`,
+  }
 }
 
 /**

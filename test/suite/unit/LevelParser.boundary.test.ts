@@ -20,6 +20,7 @@ import {
   getSpriteStreamLength,
   isLevelModeVerticalL2,
 } from '../../../src/rom/LevelParser'
+import { SYNTHETIC_VERTICAL_TABLE } from '../support/verticalTable'
 
 const ZERO_HEADER: [number, number, number, number, number] = [0, 0, 0, 0, 0]
 const makeLevel = (header: [number, number, number, number, number], body: number[]): Buffer =>
@@ -28,17 +29,18 @@ const makeLevel = (header: [number, number, number, number, number], body: numbe
 // ── isLevelModeVerticalL2 ────────────────────────────────────────────────────
 
 describe('isLevelModeVerticalL2', () => {
-  it('matches VerticalTable bit-1 entries (modes where L2 is vertical)', () => {
-    // Per the table in LevelParser.ts: modes 5 ($02), 6 ($82), 7 ($03), 8 ($83)
-    // have bit 1 set → L2 vertical.
-    const expected = new Set([5, 6, 7, 8])
-    for (let m = 0; m < 32; m++) {
-      expect(isLevelModeVerticalL2(m)).toBe(expected.has(m))
-    }
+  it('is set only when the entry has bit 1 set, independent of bit 7', () => {
+    const table = [0x00, 0x01, 0x02, 0x03, 0x80, 0x81, 0x82, 0x83]
+    const expectedVerticalL2 = [false, false, true, true, false, false, true, true]
+    table.forEach((_entry, mode) => {
+      expect(isLevelModeVerticalL2(mode, table)).toBe(expectedVerticalL2[mode])
+    })
   })
 
   it('mask handles values >= 32 by AND $1F', () => {
-    expect(isLevelModeVerticalL2(0x25)).toBe(isLevelModeVerticalL2(0x05))
+    const table = Array.from({ length: 32 }, (_, i) => (i === 5 ? 0x02 : 0x00))
+    expect(isLevelModeVerticalL2(0x05, table)).toBe(true)
+    expect(isLevelModeVerticalL2(0x25, table)).toBe(isLevelModeVerticalL2(0x05, table))
   })
 })
 
@@ -50,7 +52,7 @@ describe('parseLevelObjects - screen-exit objects (ext, settings == 0)', () => {
     // b1 = 0 → highBit=0, secondaryFlag=0 (primary)
     // extra = $42 → screenExitDest = $042
     const buf = makeLevel(ZERO_HEADER, [0x00, 0x00, 0x00, 0x42])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects).toHaveLength(1)
     expect(objects[0].type).toBe('extended')
     expect(objects[0].screenExitDest).toBe(0x042)
@@ -61,7 +63,7 @@ describe('parseLevelObjects - screen-exit objects (ext, settings == 0)', () => {
     // b1 = 0x01 → highBit = 1, secondaryFlag = 0
     // extra = $35 → dest = $135
     const buf = makeLevel(ZERO_HEADER, [0x00, 0x01, 0x00, 0x35])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects[0].screenExitDest).toBe(0x135)
     expect(objects[0].screenExitIsSecondary).toBe(false)
   })
@@ -69,7 +71,7 @@ describe('parseLevelObjects - screen-exit objects (ext, settings == 0)', () => {
   it('marks secondary exit when b1 >> 1 != 0', () => {
     // b1 = 0x02 → highBit=0, secondary flag=1 (exit is index into DATA_05F800)
     const buf = makeLevel(ZERO_HEADER, [0x00, 0x02, 0x00, 0x10])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects[0].screenExitDest).toBe(0x010)
     expect(objects[0].screenExitIsSecondary).toBe(true)
   })
@@ -77,7 +79,7 @@ describe('parseLevelObjects - screen-exit objects (ext, settings == 0)', () => {
   it('does NOT consume an extra byte for a non-screen-exit extended object', () => {
     // Ext but settings != 0 → no extra byte
     const buf = makeLevel(ZERO_HEADER, [0x00, 0x00, 0x12, 0x00, 0x10, 0x00])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects).toHaveLength(2)
     expect(objects[0].screenExitDest).toBeUndefined()
     expect(objects[1].objectNumber).toBe(1) // second object parsed correctly
@@ -87,7 +89,7 @@ describe('parseLevelObjects - screen-exit objects (ext, settings == 0)', () => {
     // 5-byte header + 3-byte ext-exit, total 8 bytes. After parsing the object,
     // pos === data.length → the `pos < data.length` guard prevents over-read.
     const buf = Buffer.from([0, 0, 0, 0, 0, 0x00, 0x00, 0x00])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects).toHaveLength(1)
     expect(objects[0].screenExitDest).toBeUndefined()
   })
@@ -99,14 +101,14 @@ describe('parseLevelObjects - truncation safety', () => {
   it('stops cleanly when only 2 bytes are available after the header', () => {
     // header (5) + 2 partial bytes; no terminator.
     const buf = Buffer.from([0, 0, 0, 0, 0, 0x00, 0x10])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects).toHaveLength(0)
   })
 
   it('returns immediately when the byte right after the header is undefined', () => {
     // 5-byte buffer = pure header, no object area. Loop condition pos < length
     // exits before reading b0.
-    const { objects } = parseLevelObjects(Buffer.from([0, 0, 0, 0, 0]))
+    const { objects } = parseLevelObjects(Buffer.from([0, 0, 0, 0, 0]), SYNTHETIC_VERTICAL_TABLE)
     expect(objects).toHaveLength(0)
   })
 })

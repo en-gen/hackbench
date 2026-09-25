@@ -95,7 +95,7 @@ describe.skipIf(!romPresent)('PaletteLoader (requires ROM)', () => {
 
       // Read level header to get the actual palette parameters for level $104
       const rawL1 = rom.getLevelRawData(LEVEL_104)!
-      const { header } = parseLevelObjects(rawL1)
+      const { header } = parseLevelObjects(rawL1, rom.requireVerticalTable())
       const backAreaVariant = header.bgColor
       const bgPaletteRow = header.bgPalette
       const spriteSet = header.spriteSet

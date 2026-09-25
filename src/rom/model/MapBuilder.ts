@@ -67,10 +67,11 @@ export function buildMapWithGraph(
 ): BuiltMap {
   const raw = rom.getLevelRawData(levelId)
   if (!raw) throw new Error(`Level $${levelId.toString(16)} has no L1 data`)
+  const verticalTable = rom.requireVerticalTable()
 
   const rawHeader = parseLevelHeader(raw)
-  const parsed = parseLevelObjects(raw)
-  const isVertical = isLevelModeVertical(rawHeader.levelMode)
+  const parsed = parseLevelObjects(raw, verticalTable)
+  const isVertical = isLevelModeVertical(rawHeader.levelMode, verticalTable)
   const orientation = isVertical ? 'vertical' : 'horizontal'
   const screens = rawHeader.levelLength
 
@@ -194,6 +195,7 @@ export function buildMapWithGraph(
     bgTiles,
     layer1ScrollCmd,
     initialCameraYPx,
+    verticalTable,
   )
   const l3 = buildL3(rom.rom, levelId, tileset, l3Chars, screens, isVertical, rawHeader.timeLimit)
 

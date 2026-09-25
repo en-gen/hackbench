@@ -20,7 +20,7 @@ const levelNum = parseInt(arg, 16)
 
 const rom = SmwRom.open(ROM_PATH)
 const raw = rom.getLevelRawData(levelNum)!
-const { header, objects } = parseLevelObjects(raw)
+const { header, objects } = parseLevelObjects(raw, rom.requireVerticalTable())
 const ourGrid = expandMap(
   objects,
   header.levelLength,

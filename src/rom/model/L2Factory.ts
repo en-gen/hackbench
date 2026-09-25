@@ -96,6 +96,8 @@ export function buildL2(
   layer1ScrollCmd: number | null,
   /** Initial Layer1YPos at level start - needed for scroll-range pixel math. */
   initialCameraYPx: number,
+  /** VerticalTable's 32 bytes, from LevelTableGate.readVerticalTable. */
+  verticalTable: readonly number[],
 ): L2Layer | null {
   const ptr = readL2Pointer(rom, levelId) ?? 0
   if (ptr === 0) return null
@@ -124,7 +126,7 @@ export function buildL2(
   }
 
   // Object-stream L2 reuses L1's Map16 table + orientation.
-  const isVerticalL2 = isLevelModeVerticalL2(header.levelMode)
+  const isVerticalL2 = isLevelModeVerticalL2(header.levelMode, verticalTable)
   const objL2 = loadL2Objects(rom, ptr, screens, header.objectTileset, isVerticalL2)
   if (!objL2) return null
 

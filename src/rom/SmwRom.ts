@@ -29,6 +29,12 @@ import { RomFile } from './RomFile'
 import { parseLevelObjects } from './LevelParser'
 import { getLevelNameByIndex } from './SmwLevelNames'
 import { OVERWORLD_ENTRY, SCREEN_EXIT, stockCodeMismatch } from './SubmapFlagGate'
+import {
+  readSpritePointerSite,
+  readVerticalTable,
+  SpritePointerSite,
+  VerticalTableSite,
+} from './LevelTableGate'
 
 /** SNES addresses for SMW ROM structures. */
 export const ADDR = {
@@ -46,11 +52,6 @@ export const ADDR = {
   // Layer 2 pointer table: same 3-byte layout.
   // bank_05.asm line 8194: Layer2Ptrs at $05E600.
   LEVEL_L2_PTR: 0x05e600,
-
-  // Sprite pointer table: 2-byte entries (lo, hi), bank always $07.
-  // bank_05.asm line 8708: Ptrs05EC00 at $05EC00.
-  LEVEL_SPR_PTR: 0x05ec00,
-  LEVEL_SPR_LOW: 0x05ec00,
 
   // Map16 tile data
   MAP16_LOW: 0x0d8000,
@@ -190,14 +191,41 @@ export class SmwRom {
    *
    * From CODE_05D8B7 (bank_05.asm lines 7248-7258):
    *   Y = levelNumber * 2 (each entry is 2 bytes: lo, hi)
-   *   bank is always $07 (line 7257: LDA #$07 / STA SpriteDataPtr+2)
+   *   table address and bank source are read from the routine's own operands
+   *   by LevelTableGate.readSpritePointerSite, including the recognized
+   *   Lunar Magic hooks that read the bank per level.
    */
   getLevelSpritePointer(index: number): number | null {
-    const base = ADDR.LEVEL_SPR_PTR + index * 2
+    const site = readSpritePointerSite(this.rom)
+    if (!site.ok) return null
+    const base = site.tableAddr + index * 2
     const lo = this.rom.readByte(base)
     const hi = this.rom.readByte(base + 1)
     if (lo === null || hi === null) return null
-    return (0x07 << 16) | (hi << 8) | lo
+    const bank =
+      site.bank.kind === 'fixed' ? site.bank.bank : this.rom.readByte(site.bank.tableAddr + index)
+    if (bank === null) return null
+    return (bank << 16) | (hi << 8) | lo
+  }
+
+  /** VerticalTable's 32 bytes (bank_05.asm:552), carrying a reason when the
+   *  read that names it is not present or not recognized on this ROM. */
+  getVerticalTable(): VerticalTableSite {
+    return readVerticalTable(this.rom)
+  }
+
+  /** The sprite pointer table and bank source, carrying a reason when the
+   *  read that names them is not present or not recognized on this ROM. */
+  getSpritePointerSite(): SpritePointerSite {
+    return readSpritePointerSite(this.rom)
+  }
+
+  /** `getVerticalTable`, thrown as the gate's own reason for a caller that
+   *  cannot proceed without it. */
+  requireVerticalTable(): readonly number[] {
+    const site = this.getVerticalTable()
+    if (!site.ok) throw new Error(site.reason)
+    return site.table
   }
 
   getAllLevelPointers(): Array<{ index: number; address: number | null }> {
@@ -394,7 +422,10 @@ export class SmwRom {
       if (!rawL1 || rawL1.length < 6) continue
       let parsed
       try {
-        parsed = parseLevelObjects(rawL1)
+        // isVertical only steers object x/y (see parseLevelObjects), which this
+        // method never reads -- only screenExitDest/screenExitIsSecondary. An
+        // empty table is a documented no-op input here, not a vanilla fallback.
+        parsed = parseLevelObjects(rawL1, [])
       } catch {
         continue
       }

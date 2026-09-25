@@ -293,7 +293,7 @@ describe('the oracle can fail', () => {
 function parseLevel(rom: SmwRom, levelId: number) {
   const rawL1 = rom.getLevelRawData(levelId)
   if (!rawL1) throw new Error(`Level $${levelId.toString(16)} has no data`)
-  return parseLevelObjects(rawL1)
+  return parseLevelObjects(rawL1, rom.requireVerticalTable())
 }
 
 function expandLevel(rom: SmwRom, levelId: number) {

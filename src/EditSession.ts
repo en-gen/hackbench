@@ -182,19 +182,21 @@ export class EditSession {
 
 /** Turn one op into a layer by reading the ROM it applies to. */
 function deriveLayer(smw: SmwRom, op: EditOp, id: string): PatchLayer {
+  const verticalTable = smw.requireVerticalTable()
+
   if (op.kind === 'moveObjectX') {
     const raw = smw.getLevelRawData(op.level)
     const ptr = smw.getLevelL1Pointer(op.level)
     const off = ptr === null ? null : smw.rom.fileOffsetOf(ptr)
     if (!raw || off === null) throw new Error(`level $${op.level.toString(16)} has no Layer 1 data`)
-    return moveObjectX(raw, off, op.index, op.dx, id)
+    return moveObjectX(raw, off, op.index, op.dx, verticalTable, id)
   }
 
   const ptr = smw.getLevelSpritePointer(op.level)
   const off = ptr === null ? null : smw.rom.fileOffsetOf(ptr)
   const raw = ptr === null ? null : smw.rom.readAt(ptr, 0x200)
   if (!raw || off === null) throw new Error(`level $${op.level.toString(16)} has no sprite data`)
-  const vertical = isLevelVertical(smw, op.level)
+  const vertical = isLevelVertical(smw, op.level, verticalTable)
   return op.kind === 'deleteSprite'
     ? deleteSprite(raw, off, op.index, vertical, id)
     : moveSpriteX(raw, off, op.index, op.dx, vertical, id)
@@ -229,8 +231,8 @@ export function levelsSharingSprites(smw: SmwRom, level: number): number[] {
 }
 
 /** Orientation decides which byte holds a sprite's X, so it is read, not assumed. */
-function isLevelVertical(smw: SmwRom, level: number): boolean {
+function isLevelVertical(smw: SmwRom, level: number, verticalTable: readonly number[]): boolean {
   const raw = smw.getLevelRawData(level)
   if (!raw || raw.length < 5) return false
-  return isLevelModeVertical(parseLevelHeader(raw).levelMode)
+  return isLevelModeVertical(parseLevelHeader(raw).levelMode, verticalTable)
 }

@@ -314,6 +314,7 @@ function parseFixture(text: string): Fixture {
 
 // ── Main loop ───────────────────────────────────────────────────────────────
 const rom = SmwRom.open(ROM_PATH)
+const verticalTable = rom.requireVerticalTable()
 
 // Optional --level <hex> filter to iterate faster on one level.
 const args = process.argv.slice(2)
@@ -347,7 +348,7 @@ for (const name of folders) {
     continue
   }
 
-  const { header, objects, isVertical } = parseLevelObjects(rawL1)
+  const { header, objects, isVertical } = parseLevelObjects(rawL1, verticalTable)
   const ourGrid = expandMap(
     objects,
     header.levelLength,

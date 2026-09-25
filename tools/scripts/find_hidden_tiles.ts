@@ -25,6 +25,7 @@ const LABEL: Record<number, string> = {
 }
 
 const rom = SmwRom.open(ROM_PATH)
+const verticalTable = rom.requireVerticalTable()
 
 type Hit = { count: number; cells: string[] }
 const byMap = new Map<number, Map<number, Hit>>()
@@ -35,7 +36,7 @@ for (let lv = 0; lv < 0x200; lv++) {
   if (!raw) continue
   let grid
   try {
-    const { header, objects } = parseLevelObjects(raw)
+    const { header, objects } = parseLevelObjects(raw, verticalTable)
     grid = expandMap(
       objects,
       header.levelLength,

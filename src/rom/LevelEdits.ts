@@ -30,17 +30,19 @@ import { PatchLayer } from './PatchLayer'
  *
  * @param rawL1        the level's raw Layer-1 data, header included
  * @param l1FileOffset file offset that rawL1 was read from
- * @param objectIndex  index into parseLevelObjects(rawL1).objects
+ * @param objectIndex  index into parseLevelObjects(rawL1, verticalTable).objects
  * @param dx           tiles to move; negative moves left
+ * @param verticalTable VerticalTable's 32 bytes, from LevelTableGate.readVerticalTable
  */
 export function moveObjectX(
   rawL1: Buffer | Uint8Array,
   l1FileOffset: number,
   objectIndex: number,
   dx: number,
+  verticalTable: readonly number[],
   id = `move-obj-${objectIndex}-by-${dx}`,
 ): PatchLayer {
-  const { objects, isVertical } = parseLevelObjects(rawL1)
+  const { objects, isVertical } = parseLevelObjects(rawL1, verticalTable)
   const obj = objects[objectIndex]
   if (!obj) {
     throw new RangeError(`object ${objectIndex} does not exist; level has ${objects.length}`)

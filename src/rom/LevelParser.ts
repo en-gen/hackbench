@@ -19,31 +19,31 @@ export const SCREEN_H_VERT = 16
 export const SCREEN_W_VERT = 32
 
 /**
- * VerticalTable from bank_05.asm line 480-484 - indexed by 5-bit levelMode.
- *   Format per entry: ?uuuuu?v  (v=bit 0 = Layer 1 vertical, bit 1 = Layer 2 vertical,
- *   bit 7 = "special" flag set for boss levels; we only care about bit 0 here).
- * The game loads this into ScreenMode ($7E:005B) in CODE_0584E3; rammap.asm:481
- * confirms `!ScrMode_Layer1Vert = %01`.
+ * True if a level's Layer 1 is vertical, per VerticalTable bit 0
+ * (CODE_0584E3, bank_05.asm:552, `LDA.L VerticalTable,X`; format per entry
+ * `?uuuuu?v`, v=bit 0 = L1 vertical, bit 1 = L2 vertical, bit 7 = a
+ * boss-level flag this project does not use). `verticalTable` is read from
+ * the ROM by LevelTableGate.readVerticalTable, never transcribed, so a
+ * relocated table still resolves and a replaced read is refused rather than
+ * answered from the vanilla layout. The game loads this entry into
+ * ScreenMode ($7E:005B); rammap.asm:481 confirms `!ScrMode_Layer1Vert = %01`.
  */
-const LEVEL_MODE_VERTICAL_TABLE: readonly number[] = [
-  0x00, 0x00, 0x80, 0x01, 0x81, 0x02, 0x82, 0x03, 0x83, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80,
-]
-
-/** True if a level's Layer 1 is vertical, per the ROM's VerticalTable (bit 0). */
-export function isLevelModeVertical(levelMode: number): boolean {
-  const entry = LEVEL_MODE_VERTICAL_TABLE[levelMode & 0x1f] ?? 0
+export function isLevelModeVertical(levelMode: number, verticalTable: readonly number[]): boolean {
+  const entry = verticalTable[levelMode & 0x1f] ?? 0
   return (entry & 0x01) !== 0
 }
 
 /**
- * True if a level's Layer 2 is vertical, per the ROM's VerticalTable (bit 1).
+ * True if a level's Layer 2 is vertical, per VerticalTable bit 1.
  * Per bank_05.asm LoadLevelData (lines 707-715): when LayerProcessing=1 (L2)
  * the game right-shifts ScreenMode once before AND #$01, so L2's vertical bit
  * lives at position 1 of the same table entry.
  */
-export function isLevelModeVerticalL2(levelMode: number): boolean {
-  const entry = LEVEL_MODE_VERTICAL_TABLE[levelMode & 0x1f] ?? 0
+export function isLevelModeVerticalL2(
+  levelMode: number,
+  verticalTable: readonly number[],
+): boolean {
+  const entry = verticalTable[levelMode & 0x1f] ?? 0
   return (entry & 0x02) !== 0
 }
 
@@ -238,12 +238,17 @@ export function parseLevelHeader(data: Buffer | Uint8Array): LevelHeader {
  *   horizontal: X = screen*16 + b1_low,        Y = b0_low + (16 if highCoord)
  *   vertical:   X = b0_low + (16 if highCoord), Y = screen*16 + b1_low
  *
- * We detect verticality via isLevelModeVertical(header.levelMode) and emit
- * absolute (x, y) coordinates in a 32 × (screens*16) grid.
+ * We detect verticality via isLevelModeVertical(header.levelMode, verticalTable)
+ * and emit absolute (x, y) coordinates in a 32 × (screens*16) grid.
+ *
+ * @param verticalTable  VerticalTable's 32 bytes, from LevelTableGate.readVerticalTable.
  */
-export function parseLevelObjects(data: Buffer | Uint8Array): Omit<ParsedLevel, 'sprites'> {
+export function parseLevelObjects(
+  data: Buffer | Uint8Array,
+  verticalTable: readonly number[],
+): Omit<ParsedLevel, 'sprites'> {
   const header = parseLevelHeader(data)
-  const isVertical = isLevelModeVertical(header.levelMode)
+  const isVertical = isLevelModeVertical(header.levelMode, verticalTable)
 
   const objects: LevelObject[] = []
   let pos = HEADER_SIZE // Object data begins after 5-byte header (line 645-651)
