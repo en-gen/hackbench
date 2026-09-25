@@ -320,6 +320,51 @@ same move `previewId` and `gateQuadrantWrite` made. A grep over source text
 passes when the bug returns under a different spelling and fails on an
 innocent rename, which is the wrong failure mode twice over.
 
+## Viewing Mesen per-map captures
+
+The Mesen capture harness (`en-gen/hackbench-validation`, under
+`capture/`) writes one capture per map, usually as a zip per map
+(`001.zip` holding `001/...`). `capture:render` turns a folder of them,
+zips or extracted folders alike, into one HTML page per map plus an index:
+
+```bash
+npm run capture:render -- <captures-dir> <out-dir>
+```
+
+Both arguments are required; nothing defaults to OneDrive, a temp folder
+or the repo, and relative paths are taken from where you ran npm. The
+captures folder is only read. The pages embed ROM-derived bytes, so
+`<out-dir>` is refused when it is inside the repo, or is, contains or
+lies inside the captures folder.
+
+A map's result comes from its Foreground, Background and Effects checks;
+Sprites are informational and never decide it. Exit codes:
+
+- 0: every map is `pass` or `weak`. `weak` means every check matched, but
+  the map's tiles were too uniform for the Foreground check to catch every
+  misplacement it tries (a shifted or re-strided grid would also have
+  matched); Checks names which.
+- 1: at least one map is `fail`: a map check or a drawing-code check
+  differs.
+- 2: nothing failed, but at least one map is `unavailable` (its capture
+  could not be read or was refused) or `incomplete` (one of its deciding
+  checks compared nothing, or its Background was refused). The index
+  gives the reason per map.
+
+To view, serve the output folder and open the index:
+
+```bash
+cd <out-dir> && python -m http.server 8000   # then http://localhost:8000/
+```
+
+Each map page draws Foreground, Background, Effects and Sprites from
+load-time data, with a hover readout and a Checks section: map data
+against the SNES tilemap (the BG1 oracle), and our drawing code against
+Mesen's per-layer pictures. The code is `tools/scripts/render_capture.ts`
+and `capture_render.ts`; its tests are `test/suite/unit/Capture*.test.ts`,
+synthetic only. The evidence behind the checks is in
+[capture-viewer.md](capture-viewer.md).
+
 ## Commands
 
 ```bash

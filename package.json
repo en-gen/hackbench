@@ -196,7 +196,8 @@
     "test": "tsc -p tsconfig.test.json && vitest run",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "typecheck:theia": "yarn --cwd theia/extension typecheck"
+    "typecheck:theia": "yarn --cwd theia/extension typecheck",
+    "capture:render": "npx tsx tools/scripts/render_capture.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
