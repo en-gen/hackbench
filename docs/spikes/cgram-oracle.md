@@ -7,7 +7,9 @@ only, so a wrong palette passes silently.
 
 ## Why hardware CGRAM, and why it is not circular
 
-`tools/mesen/headless_capture.lua` dumps 512 bytes of PPU CGRAM
+`capture/mesen/headless_capture.lua` in
+[en-gen/hackbench-validation](https://github.com/en-gen/hackbench-validation)
+dumps 512 bytes of PPU CGRAM
 (`emu.memType.snesCgRam`) at each sample frame. That is what the PPU held,
 not a re-derivation of our own ROM tables, so comparing `buildLevelCgram`
 (`src/rom/PaletteLoader.ts`) against it tests the derivation rather than
@@ -83,8 +85,9 @@ indices agree", not as "239 independent checks passed".
 ## Running it
 
 ```powershell
-# capture (writes only to the directory you name; never to OneDrive)
-./tools/scripts/run_headless_capture.ps1 -OutputDir <scratch>/11e -LevelId 0x11E
+# capture, from an en-gen/hackbench-validation checkout
+# (writes only to the directory you name; never to OneDrive)
+./capture/scripts/run_headless_capture.ps1 -OutputDir <scratch>/11e -LevelId 0x11E
 ```
 
 ```bash

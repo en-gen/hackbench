@@ -2,8 +2,9 @@
  * Palette regression verdict: compare our buildLevelCgram derivation against
  * the PPU CGRAM that Mesen actually held at level entry.
  *
- * Input is a capture root produced by tools/scripts/run_headless_capture.ps1
- * (one <hex> subdirectory per level, each holding frame_0000_cgram.bin).
+ * Input is a capture root produced by capture/scripts/run_headless_capture.ps1
+ * in en-gen/hackbench-validation (one <hex> subdirectory per level, each
+ * holding frame_0000_cgram.bin).
  * Nothing is written anywhere; this only reads and prints.
  *
  *   npx tsx tools/scripts/check_cgram.ts <capture-root> [--frame 0000] [--verbose]

@@ -53,7 +53,7 @@ factory({
     for(let j=1;j<64;j++) if(H()[i+j]!==sig[j]) continue outer2; romOff=i; break; }
   console.log('ROM at 0x'+romOff.toString(16));
 
-  // Force-load LEVEL: encodeOverride per tools/mesen/headless_capture.lua.
+  // Force-load LEVEL: encodeOverride per hackbench-validation capture/mesen/headless_capture.lua.
   const lo=LEVEL&0xFF, submap=LEVEL>=0x100?1:0;
   const ov = lo<0x25 ? lo : lo+0x24;
   H()[romOff+0x16CC]=ov; H()[romOff+0x16CE]=submap;

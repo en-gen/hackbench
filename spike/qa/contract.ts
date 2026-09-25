@@ -4,9 +4,13 @@
 // planted defect), so the two files cannot silently drift onto different
 // definitions of "correct".
 //
-// Spec: tools/mesen/headless_capture.lua, the "TRACED MECHANISM" comment
-// block and the encodeOverride() reference implementation beneath it.
-// ROM decode cited there to SMWDisX bank_05.asm:7216-7227.
+// Spec: capture/mesen/headless_capture.lua in en-gen/hackbench-validation,
+// the "TRACED MECHANISM" comment block and the encodeOverride() reference
+// implementation beneath it. ROM decode cited there to SMWDisX
+// bank_05.asm:7216-7227.
+//
+// hackbench-validation's capture/scripts/list_sweep_levels.ts imports
+// buildReachableSet from this file; keep its path and exports stable.
 
 export type EncodeResult = { overrideByte: number; submapFlag: 0 | 1 } | null
 export type EncodeFn = (levelId: number) => EncodeResult

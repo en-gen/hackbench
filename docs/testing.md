@@ -40,8 +40,10 @@ It used to be `test/roms/` and `tools/mesen/` inside the checkout. Both
 were gitignored, which stops a commit but not a `git clean -x`: that
 command deletes ignored files, and these are cartridges and captures that
 cannot be downloaded again. Outside the repo, git cannot reach them at all.
-`tools/mesen/*.lua` and its README stay tracked in the repo; only the
-gitignored payload moved.
+The interactive dump scripts `tools/mesen/*.lua` and their README stay
+tracked in the repo; only the gitignored payload moved. The headless
+per-layer capture harness and its PowerShell runners are not here: they
+live in `en-gen/hackbench-validation` under `capture/`.
 
 Nothing in the suite hardcodes any of this. `test/suite/support/corpus.cjs`
 resolves the corpus directory for both the Vitest suites (through
@@ -57,10 +59,6 @@ resolves the corpus directory for both the Vitest suites (through
 
 When none exist it returns a path that does not, so `hasRom` reads false
 and the suites SKIP rather than throwing during collection.
-
-The PowerShell runners under `tools/scripts/` take `-ToolsRoot` or read
-`HACKBENCH_TOOLS`, defaulting to `C:/Projects/hackbench-tools`, and name
-that location when the emulator or the cartridge is missing.
 
 ## Getting a ROM (locally)
 

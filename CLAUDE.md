@@ -280,13 +280,16 @@ Gitignoring stops a commit; it does not stop `git clean -x`, which deletes
 ignored files, and these are cartridges and captures that cannot be
 downloaded again. Outside the repo, git cannot reach them.
 
-`tools/mesen/*.lua` and `tools/mesen/README.md` stay tracked here.
+The interactive dump scripts `tools/mesen/l1_dump.lua`, `l2_dump.lua`,
+`l3_dump.lua` and `tools/mesen/README.md` stay tracked here. The headless
+per-layer capture harness (`headless_capture.lua`, its PowerShell wrappers,
+the sweep and the mutation test) lives in `en-gen/hackbench-validation`
+under `capture/`, not here.
 
 Nothing hardcodes the new location. Tests ask `test/suite/support/corpus.ts`
 (`romPath`, `hasRom`, `freshRom`, `CORPUS`, `VANILLA`), which reads
 `HACKBENCH_ROMS`, then walks up for `hackbench-tools/roms`, then falls back
-to the legacy `test/roms`. The PowerShell runners read `HACKBENCH_TOOLS`.
-See [docs/testing.md](docs/testing.md).
+to the legacy `test/roms`. See [docs/testing.md](docs/testing.md).
 
 # Quality gates
 
