@@ -1,5 +1,5 @@
 import { ContainerModule } from '@theia/core/shared/inversify'
-import { ConnectionHandler, RpcConnectionHandler } from '@theia/core/lib/common/messaging'
+import { ConnectionContainerModule } from '@theia/core/lib/node/messaging/connection-container-module'
 import {
   PROJECT_SERVICE_PATH,
   ProjectService,
@@ -8,29 +8,30 @@ import {
 import { ProjectServiceImpl } from './project-server'
 import { WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
 
+// One ProjectServiceImpl per CONNECTION: see working-copy-notifier.ts for
+// why a shared instance is the wrong shape for a service that pushes.
+const projectConnectionModule = ConnectionContainerModule.create(({ bind, bindBackendService }) => {
+  bind(ProjectServiceImpl).toSelf().inSingletonScope()
+  bind(ProjectService).toService(ProjectServiceImpl)
+  bindBackendService<ProjectService, ProjectServiceClient>(
+    PROJECT_SERVICE_PATH,
+    ProjectService,
+    (server, client) => {
+      // onDidCloseConnection is this connection's own close event.
+      server.setClient(client)
+      client.onDidCloseConnection(() => server.setClient(undefined))
+      return server
+    },
+  )
+})
+
 export default new ContainerModule(bind => {
-  // One shared instance for the whole backend: palette-server.ts writes
-  // through it, gfx-server.ts reads through it, and project-server.ts
-  // exports through it. `toDynamicValue` rather than `toSelf()` because
-  // WorkingRomRegistry is plain TypeScript (src/project/ carries zero Theia
-  // imports) and so is not `@injectable()`.
+  // `toDynamicValue` rather than `toSelf()`: WorkingRomRegistry is plain
+  // TypeScript, not `@injectable()`. Bound in the PARENT container - the
+  // per-connection services above still resolve it from here.
   bind(WorkingRomRegistry)
     .toDynamicValue(() => new WorkingRomRegistry())
     .inSingletonScope()
 
-  bind(ProjectServiceImpl).toSelf().inSingletonScope()
-  bind(ProjectService).toService(ProjectServiceImpl)
-  bind(ConnectionHandler)
-    .toDynamicValue(
-      ctx =>
-        // The client is this connection's proxy back to the frontend, same
-        // shape as the palette handler: it is what lets an edit made in any
-        // view refresh the Edit menu's undo/redo enablement.
-        new RpcConnectionHandler<ProjectServiceClient>(PROJECT_SERVICE_PATH, client => {
-          const server = ctx.container.get<ProjectService>(ProjectService)
-          server.setClient(client)
-          return server
-        }),
-    )
-    .inSingletonScope()
+  bind(ConnectionContainerModule).toConstantValue(projectConnectionModule)
 })

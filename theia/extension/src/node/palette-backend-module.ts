@@ -1,5 +1,5 @@
 import { ContainerModule } from '@theia/core/shared/inversify'
-import { ConnectionHandler, RpcConnectionHandler } from '@theia/core/lib/common/messaging'
+import { ConnectionContainerModule } from '@theia/core/lib/node/messaging/connection-container-module'
 import {
   PALETTE_SERVICE_PATH,
   PaletteService,
@@ -7,21 +7,22 @@ import {
 } from '../common/palette-protocol'
 import { PaletteServiceImpl } from './palette-server'
 
-export default new ContainerModule(bind => {
+// One PaletteServiceImpl per CONNECTION - see hackbench-backend-module.ts.
+// WorkingRomRegistry still resolves from the parent container.
+const paletteConnectionModule = ConnectionContainerModule.create(({ bind, bindBackendService }) => {
   bind(PaletteServiceImpl).toSelf().inSingletonScope()
   bind(PaletteService).toService(PaletteServiceImpl)
-  bind(ConnectionHandler)
-    .toDynamicValue(
-      ctx =>
-        // The client passed to the handler's factory is THIS connection's proxy
-        // back to the frontend; registering it is what lets setColor's own
-        // writer (and, via WorkingRomRegistry, any other service touching the
-        // same project) push "re-render" to the widget that opened it.
-        new RpcConnectionHandler<PaletteServiceClient>(PALETTE_SERVICE_PATH, client => {
-          const server = ctx.container.get<PaletteService>(PaletteService)
-          server.setClient(client)
-          return server
-        }),
-    )
-    .inSingletonScope()
+  bindBackendService<PaletteService, PaletteServiceClient>(
+    PALETTE_SERVICE_PATH,
+    PaletteService,
+    (server, client) => {
+      server.setClient(client)
+      client.onDidCloseConnection(() => server.setClient(undefined))
+      return server
+    },
+  )
+})
+
+export default new ContainerModule(bind => {
+  bind(ConnectionContainerModule).toConstantValue(paletteConnectionModule)
 })

@@ -70,23 +70,33 @@ back.
 
 ## How a service is wired
 
-Each backend module binds the implementation as a singleton and registers an
-`RpcConnectionHandler` on its service path. The client handed to that
-handler's factory is **this connection's proxy back to the frontend**.
-Registering it is what lets a write push "re-render" to the widget that
-opened it.
+hackbench, palette, GFX and Map16 - the four services that push to a
+client - bind their `*ServiceImpl` inside a `ConnectionContainerModule`
+(`@theia/core/lib/node/messaging/connection-container-module`), not as a
+plain backend-container singleton. Theia gives every top-level connection
+(one browser tab, one window) its own CHILD container built from that
+module, so each connection resolves its own `*ServiceImpl` instance and its
+own client - **this connection's own proxy back to the frontend**, never
+shared with another window. `WorkingRomRegistry` is the one thing these
+still share: it stays bound in the PARENT container, and the per-connection
+child resolves it there, which is what keeps an edit made through one
+window visible to every other window and view on the same project.
+
+`music` and `emulator` never push to a client (no `setClient` in their
+protocol) and hold only machine-scoped, file-backed state (`CoreRegistry`,
+`WorkingRomRegistry`), so they stay ordinary backend-container singletons.
 
 ```mermaid
 sequenceDiagram
     participant W as widget
-    participant H as RpcConnectionHandler
+    participant CC as per-connection container
     participant S as PaletteServiceImpl
     participant R as WorkingRomRegistry
 
-    W->>H: connect(PALETTE_SERVICE_PATH)
-    H->>S: setClient(proxy to W)
+    W->>CC: connect(PALETTE_SERVICE_PATH)
+    CC->>S: new PaletteServiceImpl(), setClient(proxy to W)
     W->>S: setColor(...)
-    S->>R: get(manifestPath)
+    S->>R: get(manifestPath) - resolved from the PARENT container
     R-->>S: the shared WorkingRom
     S-->>W: onWorkingCopyChanged
 ```
@@ -96,15 +106,23 @@ sequenceDiagram
 This catches people out, so it is worth stating plainly.
 
 **Server to frontend** goes over JSON-RPC via `WorkingCopyNotifier`. Its
-`watch` is idempotent per `WorkingRom` instance, keyed by a `WeakSet` rather
-than a flag on the manifest path. `WorkingRomRegistry.get()` runs on every
-request, so without that guard each call would add another subscriber and a
-single edit would fire the client once per RPC call ever made.
+`watch` is idempotent per `WorkingRom` instance, keyed by a `Map` from that
+instance to its unsubscribe function, rather than a flag on the manifest
+path. `WorkingRomRegistry.get()` runs on every request, so without that
+guard each call would add another subscriber and a single edit would fire
+the client once per RPC call ever made. `setClient` doubles as the
+disconnect signal: passing `undefined` (wired to the client proxy's
+`onDidCloseConnection` in each `*-backend-module.ts`) calls every stored
+unsubscribe function and clears the map, so a closed window's dead proxy is
+never called again.
 
-**Server to server** is a different mechanism: a direct subscription against
-the shared `WorkingRom` that both services get from the same registry. This
-is how the GFX server learns about a palette edit and repaints an open sheet
-with no round trip through the frontend.
+**Server to server** is not a separate mechanism. `WorkingCopyNotifier` is
+the only `WorkingRom.onDidChange` subscriber under `theia/extension/src/node`:
+an open GFX or Map16 view has its own connection's instance `watch`ing the
+same shared `WorkingRom` palette-server.ts writes through, and pushes to its
+own client exactly as palette-server.ts's does. A palette edit repainting an
+open GFX sheet is that instance's ordinary push, not a direct call between
+servers.
 
 ## Views
 

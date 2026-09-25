@@ -11,11 +11,17 @@
  * would take every other suite down with it. Skips without the ROM fixture.
  */
 const { test, expect } = require('@playwright/test')
-const { spawn, execSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
+const {
+  snapshotRegistry,
+  restoreRegistry,
+  startBackend,
+  stopBackend,
+  waitForBackend,
+} = require('./own-backend.cjs')
 
 const PORT = Number(process.env.HB_RECONNECT_PORT || 3100)
 const APP = `http://127.0.0.1:${PORT}`
@@ -31,71 +37,17 @@ const GET_SVC = `function getSvc(name) {
   return null
 }`
 
-// Same per-machine state isolation as emulator-view.spec.cjs: creating a
-// project touches recent-projects.json and rom-registry.json.
-function appDataDir() {
-  const home = os.homedir()
-  if (process.platform === 'win32') {
-    return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'hackbench')
-  }
-  if (process.platform === 'darwin') {
-    return path.join(home, 'Library', 'Application Support', 'hackbench')
-  }
-  return path.join(process.env.XDG_DATA_HOME || path.join(home, '.local', 'share'), 'hackbench')
-}
-const REGISTRY_FILES = ['rom-registry.json', 'recent-projects.json']
-const snapshot = {}
-
 let backend
 let tmp
-
-function startBackend() {
-  const child = spawn(
-    process.execPath,
-    ['lib/backend/main.js', '--port', String(PORT), '--hostname', '127.0.0.1'],
-    { cwd: path.resolve(__dirname, '..'), stdio: 'ignore' },
-  )
-  return child
-}
-
-function stopBackend(child) {
-  if (!child || child.exitCode !== null) return
-  // The backend forks helpers (file watchers); take the whole tree down.
-  if (process.platform === 'win32')
-    execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' })
-  else child.kill('SIGKILL')
-}
-
-async function waitForBackend(up) {
-  await expect
-    .poll(
-      async () => {
-        try {
-          await fetch(APP)
-          return true
-        } catch {
-          return false
-        }
-      },
-      { timeout: 120000, intervals: [500] },
-    )
-    .toBe(up)
-}
+let snapshot
 
 test.beforeAll(() => {
-  for (const name of REGISTRY_FILES) {
-    const p = path.join(appDataDir(), name)
-    snapshot[name] = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null
-  }
+  snapshot = snapshotRegistry()
 })
 
 test.afterAll(() => {
   stopBackend(backend)
-  for (const name of REGISTRY_FILES) {
-    const p = path.join(appDataDir(), name)
-    if (snapshot[name] === null) fs.rmSync(p, { force: true })
-    else fs.writeFileSync(p, snapshot[name], 'utf8')
-  }
+  restoreRegistry(snapshot)
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
@@ -106,8 +58,8 @@ test('a backend restart under an open project reconnects without reloading the p
   test.setTimeout(300000)
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-reconnect-'))
 
-  backend = startBackend()
-  await waitForBackend(true)
+  backend = startBackend(PORT)
+  await waitForBackend(APP, true)
   await page.goto(APP, { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
   await page.waitForTimeout(4000)
@@ -136,9 +88,9 @@ test('a backend restart under an open project reconnects without reloading the p
   expect(before.status).toBe('ok')
 
   stopBackend(backend)
-  await waitForBackend(false)
-  backend = startBackend()
-  await waitForBackend(true)
+  await waitForBackend(APP, false)
+  backend = startBackend(PORT)
+  await waitForBackend(APP, true)
 
   // The frontend reconnects on its own: poll a real call until it answers.
   await expect
