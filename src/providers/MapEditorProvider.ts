@@ -19,7 +19,7 @@ import {
   serializePaletteAnimData,
 } from '../rom/PaletteAnimationLoader'
 import { readInitialLayer1YPos, readL3RoutineSummary, classifyL3Routine } from '../rom/L3Loader'
-import { getAllLevelBgmTracks, readLevelMusicTable } from '../rom/MusicData'
+import { getAllLevelBgmTracks, readLevelMusicTableIfReadable } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
 import { expandMap } from '../rom/ObjectExpander'
 import {
@@ -524,14 +524,19 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       const allBgmTracks = getAllLevelBgmTracks(rom.rom)
       // After a rerender, overrides.music is already a bgmCommand (the webview
       // sends the selected option value, which is a bgmCommand). On initial load
-      // (no override) look it up from the 3-bit header index via the level music table.
+      // (no override) look it up from the 3-bit header index via the level music
+      // table. When the table itself cannot be verified, that index names
+      // nothing - not track 0 or command 1, which would be a guess dressed as
+      // the header's actual selection - so it stays undefined.
+      const musicTable = readLevelMusicTableIfReadable(rom.rom)
       const currentBgmCommand =
         overrides.music !== undefined
           ? overrides.music
-          : (readLevelMusicTable(rom.rom).find(e => e.index === musicEff)?.bgmCommand ??
-            allBgmTracks[0]?.bgmCommand ??
-            1)
-      const spcRaw = buildSpc(rom.rom, currentBgmCommand, 'level')
+          : musicTable.status === 'ok'
+            ? musicTable.table.commands[musicEff]
+            : undefined
+      const spcRaw =
+        currentBgmCommand !== undefined ? buildSpc(rom.rom, currentBgmCommand, 'level') : null
       const spcData = spcRaw ? Array.from(spcRaw) : null
 
       const timeLimitEff = overrides.timeLimit ?? header.timeLimit

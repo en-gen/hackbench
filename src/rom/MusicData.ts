@@ -25,48 +25,8 @@ import { buildLevelCatalog } from './LevelCatalog'
 import { BytePattern, WILD, findPattern } from './BytePattern'
 import { getLevelMusicBankAddr, countBankSongs } from './SpcBuilder'
 
-// ── ROM addresses ────────────────────────────────────────────────────────────
-
-/** LevelMusicTable: 8-byte table mapping 3-bit header index → BGM command.
- *  bank_05.asm line 513, verified at SNES $0584DB. */
-export const ADDR_LEVEL_MUSIC_TABLE = 0x0584db
-
 /** Number of entries in the LevelMusicTable (3-bit index → 8 values). */
 export const LEVEL_MUSIC_COUNT = 8
-
-// ── Types ────────────────────────────────────────────────────────────────────
-
-export interface LevelMusicEntry {
-  /** 3-bit index (0-7) from level header byte 2 bits 6:4. */
-  index: number
-  /** SPC BGM command byte read from LevelMusicTable[index]. */
-  bgmCommand: number
-}
-
-// ── Public API ───────────────────────────────────────────────────────────────
-
-/**
- * Read the full LevelMusicTable from ROM.
- * Returns 8 entries mapping header index → BGM command byte.
- */
-export function readLevelMusicTable(rom: RomFile): LevelMusicEntry[] {
-  const buf = rom.readAt(ADDR_LEVEL_MUSIC_TABLE, LEVEL_MUSIC_COUNT)
-  if (!buf) return []
-  return Array.from({ length: LEVEL_MUSIC_COUNT }, (_, i) => ({
-    index: i,
-    bgmCommand: buf[i],
-  }))
-}
-
-/**
- * Get the BGM command byte for a given 3-bit music index.
- * Returns the raw SPC command value, or 0 if the table can't be read.
- */
-export function getLevelMusicBgm(rom: RomFile, musicIndex: number): number {
-  if (musicIndex < 0 || musicIndex >= LEVEL_MUSIC_COUNT) return 0
-  const byte = rom.readByte(ADDR_LEVEL_MUSIC_TABLE + musicIndex)
-  return byte ?? 0
-}
 
 // ── Gated read ───────────────────────────────────────────────────────────────
 
@@ -75,8 +35,7 @@ export function getLevelMusicBgm(rom: RomFile, musicIndex: number): number {
  *
  * The three wildcards are the table's 24-bit address, which is an OPERAND
  * rather than a constant we supply. Reading it is how a relocated table is
- * still found, and it is the reason this does not hardcode
- * ADDR_LEVEL_MUSIC_TABLE the way `readLevelMusicTable` above does.
+ * still found, instead of hardcoding the vanilla address.
  *
  * The mask is part of the pattern, not a wildcard. Two instructions further
  * on, the same routine decodes the tileset with AND #$1F : TAX : LDA.L
@@ -124,9 +83,8 @@ function snesAddress(offset: number): number {
 /**
  * The level music table, or a refusal saying why it could not be read.
  *
- * Differs from `readLevelMusicTable` in two ways that matter on a hack.
- * It finds the table through the instruction that reads it rather than at
- * a fixed address, so relocation is covered. And it REFUSES rather than
+ * Unlike a fixed-address read, this finds the table through the instruction
+ * that reads it, so relocation is covered. And it REFUSES rather than
  * returning eight plausible bytes when the decode is not there: the stock
  * address holds something on every cartridge, and reporting whatever that
  * is as the level music table is the confidently-wrong answer this exists
@@ -176,6 +134,13 @@ export function readLevelMusicTableIfReadable(rom: RomFile): LevelMusicTableResu
     status: 'ok',
     table: { address, commands: Array.from(bytes), foundAt: snesAddress(site) },
   }
+}
+
+/** Level header slots (0-7) selecting `command`, ascending; empty when `table` is unavailable. */
+export function slotsFor(table: LevelMusicTableResult, command: number): number[] {
+  return table.status === 'ok'
+    ? table.table.commands.flatMap((c, slot) => (c === command ? [slot] : []))
+    : []
 }
 
 // ── Which maps play which track ──────────────────────────────────────────────

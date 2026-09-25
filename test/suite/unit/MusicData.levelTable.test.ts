@@ -79,7 +79,7 @@ const vanillaShaped = (
   table = VANILLA_TABLE,
 ): RomFile => rom({ at: site, bytes: decodeSite(table) }, { at: table, bytes: commands })
 
-describe('readLevelMusicTable', () => {
+describe('readLevelMusicTableIfReadable', () => {
   it('reads the eight commands from the address the LDA.L operand names', () => {
     const result = readLevelMusicTableIfReadable(vanillaShaped())
 

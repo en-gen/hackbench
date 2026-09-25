@@ -16,7 +16,7 @@
 
 import * as vscode from 'vscode'
 import { resolveRom } from '../RomSession'
-import { getAllLevelBgmTracks, readLevelMusicTable } from '../rom/MusicData'
+import { getAllLevelBgmTracks, readLevelMusicTableIfReadable, slotsFor } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
 import {
   getNonce,
@@ -72,7 +72,7 @@ export class MusicPlayerProvider implements vscode.CustomReadonlyEditorProvider 
 
       // Get all track info
       const allTracks = getAllLevelBgmTracks(rom.rom)
-      const levelTable = readLevelMusicTable(rom.rom)
+      const levelTable = readLevelMusicTableIfReadable(rom.rom)
 
       // Build SPC files for each track
       const spcFiles: Record<number, number[]> = {}
@@ -89,7 +89,7 @@ export class MusicPlayerProvider implements vscode.CustomReadonlyEditorProvider 
           bgmCommand: t.bgmCommand,
           bgmHex: hex2(t.bgmCommand),
           // Which level music indices map to this track
-          levelIndices: levelTable.filter(e => e.bgmCommand === t.bgmCommand).map(e => e.index),
+          levelIndices: slotsFor(levelTable, t.bgmCommand),
         })),
         spcFiles,
       })
