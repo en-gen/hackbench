@@ -24,6 +24,7 @@ import {
   RgbaColor,
 } from '../../../../src/rom/GraphicsDecoder'
 import { buildLevelCgram, loadRomPalettes } from '../../../../src/rom/PaletteLoader'
+import { readLevelCol1 } from '../../../../src/rom/PaletteStockTables'
 import { hex2 } from '../../../../src/rom/hex'
 import {
   BYTES_PER_MODE7_TILE,
@@ -184,11 +185,14 @@ export function decodeGfxSheet(
 
   const rowIdx = resolvePaletteRow(paletteRow)
   const palettes = loadRomPalettes(rom.rom)
+  const col1 = readLevelCol1(rom.rom)
+  if ('reason' in col1) throw new Error(`Palette column 1 is unavailable: ${col1.reason}`)
   const cgram = buildLevelCgram(
     palettes,
     PALETTE_VARIANT.bg,
     PALETTE_VARIANT.fg,
     PALETTE_VARIANT.sprite,
+    col1,
   )
   const row = cgram.rows[rowIdx] ?? []
   const { rgba, width, height } = tilesToRgba(tiles, row as RgbaColor[], GFX_TILES_PER_ROW)

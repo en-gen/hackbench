@@ -17,7 +17,7 @@ import { readdirSync, readFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { SmwRom } from '../../src/rom/SmwRom'
 import { parseLevelObjects } from '../../src/rom/LevelParser'
-import { loadRomPalettes, buildLevelCgram } from '../../src/rom/PaletteLoader'
+import { loadRomPalettes, buildLevelCgram, STOCK_COL1 } from '../../src/rom/PaletteLoader'
 import { bgr555ToRgba } from '../../src/rom/GraphicsDecoder'
 import {
   compareCgram,
@@ -71,6 +71,7 @@ for (const hex of levels) {
     header.bgPalette,
     header.fgPalette,
     header.spritePalette,
+    STOCK_COL1,
   )
   const captured = parseCgramCapture(readFileSync(join(root, hex, `frame_${frame}_cgram.bin`)))
   const c = compareCgram(captured, derived.colors, bgr555ToRgba)

@@ -25,6 +25,7 @@ vi.mock('../../../../src/rom/PaletteLoader', () => ({
   loadRomPalettes: vi.fn(() => ({})),
   buildLevelCgram: vi.fn(),
   loadBackAreaColors: vi.fn(() => [] as RgbaColor[]),
+  STOCK_COL1: { bg: 0x7fdd, obj: 0x7fff },
 }))
 vi.mock('../../../../src/rom/PaletteAnimationLoader', () => ({
   loadPaletteAnimData: vi.fn(() => null),

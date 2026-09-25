@@ -26,6 +26,7 @@ import {
   loadRomPalettes,
   buildLevelCgram,
   loadCustomLevelPalette,
+  STOCK_COL1,
   RgbaRow,
 } from '../rom/PaletteLoader'
 import {
@@ -128,7 +129,7 @@ export class GfxViewerProvider implements vscode.CustomReadonlyEditorProvider {
       // Base CGRAM (variant 0 for all groups)
       const baseCgram = customPalette
         ? customPalette.rows
-        : buildLevelCgram(romPalettes, 0, 0, 0).rows
+        : buildLevelCgram(romPalettes, 0, 0, 0, STOCK_COL1).rows
       const paletteRows = baseCgram.map(row => row.map(c => Array.from(c)))
 
       // FG variants: rows 2 and 3 for each variant

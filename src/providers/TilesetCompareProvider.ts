@@ -31,7 +31,7 @@ import {
 } from './webviewUtils'
 import { loadAllMap16, TILESET_COUNT, type Map16Tile } from '../rom/Map16'
 import { loadVram, VRAM_CHAR_BASE, VRAM_SLOT_NAMES, type VramState } from '../rom/GfxLoader'
-import { loadRomPalettes, buildLevelCgram } from '../rom/PaletteLoader'
+import { loadRomPalettes, buildLevelCgram, STOCK_COL1 } from '../rom/PaletteLoader'
 import { renderMap16Tile } from '../rom/TileRenderer'
 import { loadAnimationData, getAnimatedChars, type AnimFrameSlot } from '../rom/AnimationLoader'
 
@@ -146,7 +146,7 @@ export class TilesetCompareProvider implements vscode.CustomReadonlyEditorProvid
       const tilesA = loadAllMap16(rom.rom, tilesetA)
       const tilesB = loadAllMap16(rom.rom, tilesetB)
       const palettes = loadRomPalettes(rom.rom)
-      const cgram = buildLevelCgram(palettes, 0, 0, 0)
+      const cgram = buildLevelCgram(palettes, 0, 0, 0, STOCK_COL1)
 
       const baseVramA = loadVram(rom.rom, tilesetA)
       const baseVramB = loadVram(rom.rom, tilesetB)
@@ -235,7 +235,7 @@ export class TilesetCompareProvider implements vscode.CustomReadonlyEditorProvid
       const animData = loadAnimationData(rom.rom, tilesetId)
       const vram = animData ? patchVramForFrame(baseVram, animData.frames[0] ?? []) : baseVram
       const palettes = loadRomPalettes(rom.rom)
-      const cgram = buildLevelCgram(palettes, 0, 0, 0)
+      const cgram = buildLevelCgram(palettes, 0, 0, 0, STOCK_COL1)
 
       const renders: { row: number; rgba: number[] }[] = []
       for (let row = 0; row < 8; row++) {

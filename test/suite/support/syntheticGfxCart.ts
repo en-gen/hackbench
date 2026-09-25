@@ -18,6 +18,17 @@ import {
   PREPARE_GFX_PATTERN,
   STOCK_LCLZ2_ENTRY,
 } from '../../../src/rom/GfxArena'
+import {
+  PALETTE_COL1_PATH,
+  ADDR_COL1_BG_LDA,
+  ADDR_COL1_OBJ_LDA,
+  plantStockPaletteCol1,
+} from '../../../src/rom/PaletteStockTables'
+import { STOCK_COL1 } from '../../../src/rom/PaletteLoader'
+
+/** A StockCode entry's bytes with WILD positions filled, for planting rather than matching. */
+const concreteBytes = (bytes: readonly number[]): number[] => bytes.map(b => (b === WILD ? 0 : b))
+const ldaImm = (word: number): number[] => [0xa9, word & 0xff, (word >> 8) & 0xff]
 
 export const CART_SIZE = 0x18000 // three LoROM banks: tables, routine, arena
 export const TABLE_LO = 0xb992
@@ -208,6 +219,11 @@ export function buildCart(opts: CartOptions = {}): SyntheticCart {
     buf.set(l3Routine, L3_ROUTINE - 0x8000)
     for (const c of L3_CALLERS) buf.set(L3_CALL, c - 0x8000)
   }
+  // Column 1's level-load reach and opcode gate (#492), stock-shaped so a
+  // GFX-focused test does not have to know palette machinery exists.
+  for (const c of PALETTE_COL1_PATH) buf.set(concreteBytes(c.bytes), c.addr & 0x7fff)
+  buf.set(ldaImm(STOCK_COL1.bg), ADDR_COL1_BG_LDA & 0x7fff)
+  buf.set(ldaImm(STOCK_COL1.obj), ADDR_COL1_OBJ_LDA & 0x7fff)
 
   const streams = opts.streams ?? gfxStreams()
   const offsets: number[] = []
@@ -244,6 +260,11 @@ export function plantGfxReadPath(rom: RomFile): void {
   rom.writeAt(L3_ROUTINE, layer3Routine())
   for (const c of L3_CALLERS) rom.writeAt(c, L3_CALL)
 }
+
+/** Give a ROM built for some other test column 1's level-load reach and
+ *  opcode gate (#492), stock-shaped so a GFX/Map16-focused test does not
+ *  have to know palette machinery exists. */
+export const plantPaletteCol1ReachPath = plantStockPaletteCol1
 
 /** Apply an arena plan to a copy of the cart, the way the working copy will. */
 export function applyWrites(

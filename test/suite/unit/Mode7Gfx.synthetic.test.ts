@@ -11,7 +11,13 @@ import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { GFX_FILE_COUNT } from '../../../src/rom/GfxLoader'
-import { TABLE_BANK, TABLE_HI, TABLE_LO, plantGfxReadPath } from '../support/syntheticGfxCart'
+import {
+  TABLE_BANK,
+  TABLE_HI,
+  TABLE_LO,
+  plantGfxReadPath,
+  plantPaletteCol1ReachPath,
+} from '../support/syntheticGfxCart'
 import { decodeTilesBatch } from '../../../src/rom/GraphicsDecoder'
 import { decodeMode7Tiles, findMode7GfxFiles } from '../../../src/rom/Mode7Gfx'
 import {
@@ -79,6 +85,7 @@ function makeRom(): RomFile {
   buf[0x7fd5] = 0x20 // LoROM
   const rom = new RomFile('mock.smc', buf)
   plantGfxReadPath(rom)
+  plantPaletteCol1ReachPath(rom)
   return rom
 }
 

@@ -12,9 +12,11 @@
  * diverts inside it passes this gate.
  */
 import type { RomFile } from './RomFile'
+import { WILD } from './BytePattern'
 
 export interface StockCode {
   addr: number
+  /** WILD (BytePattern.ts) matches any byte: an operand whose value does not matter to the check. */
   bytes: readonly number[]
   /** A bank byte, compared with bit 7 masked: a FastROM mirror is the same bank. */
   bankAt?: number
@@ -58,14 +60,14 @@ export const SCREEN_EXIT: readonly StockCode[] = [
 ]
 
 const hex = (bytes: Iterable<number>): string =>
-  [...bytes].map(b => b.toString(16).padStart(2, '0')).join(' ')
+  [...bytes].map(b => (b === WILD ? '??' : b.toString(16).padStart(2, '0'))).join(' ')
 
 /** A sentence naming the first run that is not stock, or null when all are. */
 export function stockCodeMismatch(rom: RomFile, checks: readonly StockCode[]): string | null {
   for (const c of new Set(checks)) {
     const found = rom.readAt(c.addr, c.bytes.length)
     const same = (b: number, i: number): boolean =>
-      i === c.bankAt ? ((found![i]! ^ b) & 0x7f) === 0 : found![i] === b
+      b === WILD ? true : i === c.bankAt ? ((found![i]! ^ b) & 0x7f) === 0 : found![i] === b
     if (found && c.bytes.every(same)) continue
     return (
       `$${c.addr.toString(16).toUpperCase().padStart(6, '0')} (${c.what}, ${c.cite}) holds ` +

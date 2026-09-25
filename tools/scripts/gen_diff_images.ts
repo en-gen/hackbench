@@ -17,7 +17,7 @@ import { expandMap, TILE_EMPTY } from '../../src/rom/ObjectExpander'
 import { loadVram } from '../../src/rom/GfxLoader'
 import { loadAllMap16 } from '../../src/rom/Map16'
 import { renderMap16Tile } from '../../src/rom/TileRenderer'
-import { loadRomPalettes, buildLevelCgram } from '../../src/rom/PaletteLoader'
+import { loadRomPalettes, buildLevelCgram, STOCK_COL1 } from '../../src/rom/PaletteLoader'
 import { getLevelNameByIndex } from '../../src/rom/SmwLevelNames'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
@@ -363,7 +363,13 @@ for (const name of folders) {
   try {
     vram = loadVram(rom.rom, header.objectTileset, header.spriteSet ?? 0)
     const allPal = loadRomPalettes(rom.rom, header.bgPalette)
-    const cg = buildLevelCgram(allPal, header.bgPalette, header.fgPalette, header.spriteSet ?? 0)
+    const cg = buildLevelCgram(
+      allPal,
+      header.bgPalette,
+      header.fgPalette,
+      header.spriteSet ?? 0,
+      STOCK_COL1,
+    )
     cgram = { colors: cg.colors }
     tiles = loadAllMap16(rom.rom, header.objectTileset)
   } catch (e) {

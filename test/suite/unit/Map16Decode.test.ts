@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import type { RomFile } from '../../../src/rom/RomFile'
+import { RomFile } from '../../../src/rom/RomFile'
 import { decodeSubTileWord, MAP16_TOTAL_TILES } from '../../../src/rom/Map16'
 import { loadVram, VRAM_SLOT_NAMES } from '../../../src/rom/GfxLoader'
 import { loadAnimationData } from '../../../src/rom/AnimationLoader'
@@ -27,6 +27,9 @@ import {
   MAP16_TILES_PER_ROW,
 } from '../../../theia/extension/src/common/map16-protocol'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
+import { plantGfxReadPath, plantPaletteCol1ReachPath } from '../support/syntheticGfxCart'
+import { map16Stub } from '../support/syntheticMap16'
+import { bgr555ToRgba } from '../../../src/rom/GraphicsDecoder'
 
 const ROM_PATH = romPath(VANILLA)
 
@@ -441,5 +444,40 @@ describe('nextQuadrantWord', () => {
 
   it('refuses a field name the union does not carry, rather than returning undefined', () => {
     expect(nextQuadrantWord(0, 'wat' as never, 1).status).toBe('refused')
+  })
+})
+// Column 1 wiring (#492), on a synthetic cart: a combined stub plants a
+// stock GFX read path, Map16 'bg' engine code (#489's map16Stub - the
+// background table is ROM-read, not fixed, since #532) and column 1's own
+// reach+opcode path, so these prove the view calls the gated reader rather
+// than swallowing its refusal or falling back to a hardcoded constant -
+// neither would fail without this pair, corpus or no corpus.
+describe('column 1 wiring (no cartridge)', () => {
+  function stubRom(): RomFile {
+    const rom = new RomFile('stub.sfc', Buffer.from(map16Stub()))
+    rom.writeAt(0x00ffd5, [0x20]) // LoROM header byte (SNES $00:FFD5 -> file $7FD5)
+    plantGfxReadPath(rom)
+    plantPaletteCol1ReachPath(rom)
+    return rom
+  }
+
+  it('refuses when the level-load path no longer reaches LoadPalette', () => {
+    const rom = stubRom()
+    rom.writeAt(0x00a5bc, [0x4c, 0xed, 0xab]) // JMP, not JSR: a hijacked call site
+    const result = decodeMap16Sheet(new SmwRom(rom), 0, 'bg', DEFAULT_VARIANT)
+    expect(result).toMatchObject({
+      status: 'unavailable',
+      reason: expect.stringContaining('Palette column 1 is unavailable'),
+    })
+  })
+
+  it('renders a non-stock column-1 immediate in the cited CGRAM row, not the vanilla $7FDD', () => {
+    const rom = stubRom()
+    rom.writeAt(0x00abef, [0xa9, 0x34, 0x12]) // LDA #$1234, still a valid opcode
+    const result = decodeMap16Sheet(new SmwRom(rom), 0, 'bg', DEFAULT_VARIANT)
+    if (result.status !== 'ok') throw new Error(result.reason)
+    const [r, g, b] = bgr555ToRgba(0x1234)
+    const hex = '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
+    expect(result.sheet.cgramRows.find(row => row.row === 0)?.colors[1]).toBe(hex)
   })
 })
