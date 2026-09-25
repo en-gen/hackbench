@@ -85,7 +85,13 @@ function resolveSpriteIndex(
 ): number {
   const rawL1 = rom.getLevelRawData(level)
   if (!rawL1) return -1
-  const { isVertical } = parseLevelObjects(rawL1)
+  let verticalTable: readonly number[]
+  try {
+    verticalTable = rom.requireVerticalTable()
+  } catch {
+    return -1
+  }
+  const { isVertical } = parseLevelObjects(rawL1, verticalTable)
   const ptr = rom.getLevelSpritePointer(level)
   if (ptr === null) return -1
   const data = rom.rom.readAt(ptr, 0x200)
@@ -314,7 +320,13 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
       // ── Parse level ───────────────────────────────────────────────────────
       const rawL1 = rom.getLevelRawData(index)
-      if (!rawL1) {
+      let verticalTable: readonly number[] | undefined
+      try {
+        verticalTable = rawL1 ? rom.requireVerticalTable() : undefined
+      } catch {
+        verticalTable = undefined
+      }
+      if (!rawL1 || !verticalTable) {
         webview.postMessage({
           type: 'error',
           message: `Map $${index.toString(16).toUpperCase()} has no data`,
@@ -322,7 +334,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         return
       }
 
-      const { header, objects, isVertical } = parseLevelObjects(rawL1)
+      const { header, objects, isVertical } = parseLevelObjects(rawL1, verticalTable)
       const screens = header.levelLength
 
       const sprPtr = rom.getLevelSpritePointer(index)

@@ -28,8 +28,7 @@ if (!raw) {
   console.error('No L1 data for level')
   process.exit(1)
 }
-
-const { header, objects } = parseLevelObjects(raw)
+const { header, objects } = parseLevelObjects(raw, rom.requireVerticalTable())
 
 console.log(
   `Level $${arg.toUpperCase()}  header bytes: ${header.raw.map(b => b.toString(16).padStart(2, '0')).join(' ')}`,

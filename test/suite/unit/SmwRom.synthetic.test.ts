@@ -11,6 +11,57 @@ import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom, ADDR, LEVEL_COUNT, isOverworldLevel } from '../../../src/rom/SmwRom'
 
+// CODE_05D8B7's sprite-pointer read (bank_05.asm:7248-7258), written from the
+// 65816 encoding at an arbitrary address with a relocated table and a
+// non-vanilla bank (not $05EC00/$07): this proves the pattern match, not a
+// coincidence with the real ROM. findPattern locates the lead-in by shape.
+const SPRITE_SITE_AT = 0x05d000
+const SPRITE_TABLE_ADDR = 0x9100
+const SPRITE_BANK = 0x09
+const b16 = (a: number): number[] => [a & 0xff, (a >> 8) & 0xff]
+const b24 = (a: number): number[] => [a & 0xff, (a >> 8) & 0xff, (a >> 16) & 0xff]
+
+function plantSpritePointerSite(rom: RomFile): void {
+  rom.writeAt(SPRITE_SITE_AT - 9, [0xa5, 0x0e, 0x0a, 0xa8]) // index (vanilla)
+  rom.writeAt(SPRITE_SITE_AT - 5, [0xa9, 0x00, 0x00, 0xe2, 0x20]) // mid (vanilla)
+  rom.writeAt(SPRITE_SITE_AT, [
+    0xb9,
+    ...b16(SPRITE_TABLE_ADDR),
+    0x85,
+    0xce,
+    0xb9,
+    ...b16(SPRITE_TABLE_ADDR + 1),
+    0x85,
+    0xcf,
+  ])
+  rom.writeAt(SPRITE_SITE_AT + 10, [0xa9, SPRITE_BANK, 0x85, 0xd0]) // tail: fixed bank
+}
+
+// The recognized per-level sprite-bank routine (bank_05.asm:7257 hook):
+// PHB/PHK/PLB, LDY LevelNumber, LDA <table>,Y, STA SpriteDataPtr+2, PLB, RTL.
+function bankRoutineBytes(tableOperand: number): number[] {
+  return [0x8b, 0x4b, 0xab, 0xa4, 0x0e, 0xb9, ...b16(tableOperand), 0x85, 0xd0, 0xab, 0x6b]
+}
+
+/** Plants a full sprite-pointer read whose tail JSLs to a per-level bank
+ *  routine at `routineAt`, naming `tableOperand` (NOT the stock $F100). */
+function plantPerLevelBankSite(rom: RomFile, routineAt: number, tableOperand: number): void {
+  rom.writeAt(SPRITE_SITE_AT - 9, [0xa5, 0x0e, 0x0a, 0xa8])
+  rom.writeAt(SPRITE_SITE_AT - 5, [0xa9, 0x00, 0x00, 0xe2, 0x20])
+  rom.writeAt(SPRITE_SITE_AT, [
+    0xb9,
+    ...b16(SPRITE_TABLE_ADDR),
+    0x85,
+    0xce,
+    0xb9,
+    ...b16(SPRITE_TABLE_ADDR + 1),
+    0x85,
+    0xcf,
+  ])
+  rom.writeAt(SPRITE_SITE_AT + 10, [0x22, ...b24(routineAt)])
+  rom.writeAt(routineAt, bankRoutineBytes(tableOperand))
+}
+
 function make4MbRom(): RomFile {
   const buf = Buffer.alloc(0x400000, 0x00)
   buf[0x7fd5] = 0x20 // LoROM map mode
@@ -84,12 +135,59 @@ describe('getLevel*Pointer', () => {
     expect(smw.getLevelL2Pointer(5)).toBe(0xff3412)
   })
 
-  it('sprite pointer is 2 bytes; bank is implicit $07', () => {
+  it('sprite pointer table and bank are read from CODE_05D8B7 own operands', () => {
     const rom = make4MbRom()
     rom.writeAt(ADDR.ROM_SPEED_MAP, [0x20])
-    rom.writeAt(ADDR.LEVEL_SPR_PTR + 3 * 2, [0xab, 0xcd])
+    plantSpritePointerSite(rom)
+    rom.writeAt((0x05 << 16) | (SPRITE_TABLE_ADDR + 3 * 2), [0xab, 0xcd])
     const smw = new SmwRom(rom)
-    expect(smw.getLevelSpritePointer(3)).toBe(0x07cdab)
+    expect(smw.getLevelSpritePointer(3)).toBe((SPRITE_BANK << 16) | 0xcdab)
+  })
+
+  // Distinct banks at consecutive levels: reading at index*2 instead of
+  // index (level 1 would see table[2]) or ignoring the table for a
+  // hardcoded $07 both stay green against a single repeated bank; only
+  // DIFFERENT banks per level expose either mutation.
+  it('reads a distinct per-level bank for each of several levels', () => {
+    const rom = make4MbRom()
+    rom.writeAt(ADDR.ROM_SPEED_MAP, [0x20])
+    const routineAt = 0x0ef300
+    const tableOperand = 0xf100
+    plantPerLevelBankSite(rom, routineAt, tableOperand)
+    const bankTableAddr = (routineAt & 0xff0000) | tableOperand
+    rom.writeAt(bankTableAddr, [0x09, 0x0a, 0x0b, 0x0c])
+    rom.writeAt((0x05 << 16) | (SPRITE_TABLE_ADDR + 0 * 2), [0x00, 0x80])
+    rom.writeAt((0x05 << 16) | (SPRITE_TABLE_ADDR + 1 * 2), [0x00, 0x81])
+    rom.writeAt((0x05 << 16) | (SPRITE_TABLE_ADDR + 2 * 2), [0x00, 0x82])
+    rom.writeAt((0x05 << 16) | (SPRITE_TABLE_ADDR + 3 * 2), [0x00, 0x83])
+    const smw = new SmwRom(rom)
+    expect(smw.getLevelSpritePointer(0)).toBe(0x098000)
+    expect(smw.getLevelSpritePointer(1)).toBe(0x0a8100)
+    expect(smw.getLevelSpritePointer(2)).toBe(0x0b8200)
+    expect(smw.getLevelSpritePointer(3)).toBe(0x0c8300)
+  })
+
+  // The routine and its table operand are both NOT at their stock addresses
+  // ($0EF300 / $F100): only reading them dynamically, rather than assuming
+  // either, resolves this correctly.
+  it('reads the per-level bank table from a relocated routine and operand', () => {
+    const rom = make4MbRom()
+    rom.writeAt(ADDR.ROM_SPEED_MAP, [0x20])
+    const routineAt = 0x0ca100
+    const tableOperand = 0x9200
+    plantPerLevelBankSite(rom, routineAt, tableOperand)
+    const bankTableAddr = (routineAt & 0xff0000) | tableOperand
+    rom.writeAt(bankTableAddr + 5, [0x11])
+    rom.writeAt((0x05 << 16) | (SPRITE_TABLE_ADDR + 5 * 2), [0x34, 0x12])
+    const smw = new SmwRom(rom)
+    expect(smw.getLevelSpritePointer(5)).toBe(0x111234)
+  })
+
+  it('sprite pointer is null when the read is not present on this ROM', () => {
+    const rom = make4MbRom()
+    rom.writeAt(ADDR.ROM_SPEED_MAP, [0x20])
+    const smw = new SmwRom(rom)
+    expect(smw.getLevelSpritePointer(3)).toBeNull()
   })
 
   it('returns null when reads fall outside ROM bounds', () => {

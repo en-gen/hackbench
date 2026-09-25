@@ -61,7 +61,7 @@ describe.skipIf(!romPresent)('GfxLoader (ROM-only)', () => {
   it('readGfxAssignment returns valid file indices for level $104', () => {
     const rom = SmwRom.open(ROM_PATH)
     const rawL1 = rom.getLevelRawData(LEVEL_104)!
-    const { header } = parseLevelObjects(rawL1)
+    const { header } = parseLevelObjects(rawL1, rom.requireVerticalTable())
     // Use header.objectTileset (header byte 4 bits 3-0) - same path MapEditorProvider
     // uses at runtime. rom.getGfxTilesetId() returns TILESETID_TABLE[spriteSet], a
     // different ROM lookup that isn't always a valid ObjectGfxList index.

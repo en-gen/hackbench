@@ -92,10 +92,23 @@ export class MapViewWidget extends ReactWidget {
         </h2>
 
         <div className="hb-map-view-summary">
-          {d.screens} screens, {d.isVertical ? 'vertical' : 'horizontal'}
+          {d.screens} screens,{' '}
+          {d.isVertical !== undefined ? (
+            d.isVertical ? (
+              'vertical'
+            ) : (
+              'horizontal'
+            )
+          ) : (
+            <span title={d.orientationUnavailable}>orientation unavailable</span>
+          )}
           {' · '}
           {d.objectCount} objects{' · '}
-          {d.spriteCount} sprites
+          {d.spriteCount !== undefined ? (
+            `${d.spriteCount} sprites`
+          ) : (
+            <span title={d.spriteUnavailable}>sprites unavailable</span>
+          )}
         </div>
 
         <table className="hb-map-view-table">

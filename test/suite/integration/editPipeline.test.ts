@@ -37,6 +37,7 @@ describe.skipIf(!hasRom(VANILLA))('edit pipeline against a real ROM', () => {
 
   /** Levels that actually have a sprite with room to move. */
   function movableLevels(smw: SmwRom, want: number): Level[] {
+    const verticalTable = smw.requireVerticalTable()
     const out: Level[] = []
     for (let id = 0x001; id < 0x200 && out.length < want; id++) {
       const l1 = smw.getLevelRawData(id)
@@ -45,7 +46,7 @@ describe.skipIf(!hasRom(VANILLA))('edit pipeline against a real ROM', () => {
       const offset = smw.rom.fileOffsetOf(ptr)
       const data = smw.rom.readAt(ptr, 0x200)
       if (offset === null || !data) continue
-      const isVertical = isLevelModeVertical(parseLevelHeader(l1).levelMode)
+      const isVertical = isLevelModeVertical(parseLevelHeader(l1).levelMode, verticalTable)
       const sprites = parseLevelSprites(data, isVertical)
       // Needs a sprite whose X nibble can move right without leaving its screen.
       const byteIndex = isVertical ? 0 : 1
@@ -149,7 +150,7 @@ describe.skipIf(!hasRom(VANILLA))('edit pipeline against a real ROM', () => {
     const id = 0x105
     const raw = smw.getLevelRawData(id)!
     const off = smw.rom.fileOffsetOf(smw.getLevelL1Pointer(id)!)!
-    const layer = moveObjectX(raw, off, 0, 1)
+    const layer = moveObjectX(raw, off, 0, 1, smw.requireVerticalTable())
     const patched = applyPatches(new Uint8Array(smw.rom.buffer), layer.patches)
     expect(patched[layer.patches[0].offset]).not.toBe(smw.rom.buffer[layer.patches[0].offset])
   })

@@ -38,7 +38,7 @@ describe.skipIf(!romPresent)('SmwRom integration (requires the corpus vanilla RO
     rom ??= SmwRom.open(ROM_PATH)
     const data = rom.getLevelRawData(0x000)
     expect(data).not.toBeNull()
-    const { objects, screens } = parseLevelObjects(data!)
+    const { objects, screens } = parseLevelObjects(data!, rom.requireVerticalTable())
     expect(screens).toBeGreaterThanOrEqual(1)
     expect(objects.length).toBeGreaterThan(0)
   })

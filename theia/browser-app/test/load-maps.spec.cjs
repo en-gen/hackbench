@@ -144,6 +144,51 @@ test('a ROM whose screen-exit routine is patched lists every map flat, and says 
     .toContain('Map hierarchy unavailable: $05D7CB')
 })
 
+/** Create a project against `rom` and open the map view for `index`, returning its shown text. */
+async function openMapView(page, rom, dir, index = 0x105) {
+  const manifestPath = path.join(dir, `${path.basename(dir)}.hbproj`)
+  await page.evaluate(
+    async ({ romPath, directory, name }) => {
+      const svc = getSvc('Symbol(ProjectService)')
+      await svc.createProject({ romPath, name, directory })
+    },
+    { romPath: rom, directory: dir, name: path.basename(dir) },
+  )
+  await page.evaluate(
+    async ({ mp, index, label }) => {
+      const w = await getWidget('hackbench.map-view')
+      await w.open({ manifestPath: mp, index, label, iconClass: '' })
+      const shell = getSvc('ApplicationShell')
+      await shell.addWidget(w, { area: 'main' })
+      await shell.activateWidget(w.id)
+    },
+    { mp: manifestPath, index, label: index.toString(16) },
+  )
+  await page.waitForSelector('.hb-map-view-body', { timeout: 15000 })
+  return shownWords(page, '.hb-map-view-body')
+}
+
+test('the map view shows a sprite count on an unpatched ROM', async ({ page }) => {
+  const view = await openMapView(page, ROM, path.join(tmp, 'Unpatched'))
+  expect(view).toMatch(/\d+ sprites/)
+})
+
+test('a ROM whose sprite-pointer read is patched shows sprites unavailable, with why', async ({
+  page,
+}) => {
+  // $05D8F5 is the `LDA.B #$07` opcode in CODE_05D8B7 (bank_05.asm:7257);
+  // headerless LoROM file offset $2D8F5.
+  const patched = path.join(tmp, 'sprite-patched.sfc')
+  const bytes = fs.readFileSync(ROM)
+  expect(bytes[0x2d8f5]).toBe(0xa9)
+  bytes[0x2d8f5] = 0x00
+  fs.writeFileSync(patched, bytes)
+
+  const view = await openMapView(page, patched, path.join(tmp, 'SpritePatched'))
+  expect(view).toMatch(/sprites unavailable/i)
+  expect(view).toMatch(/neither vanilla nor a recognized hook/i)
+})
+
 test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
   const result = await loadMaps(page, path.join(tmp, 'MyHack'))
 

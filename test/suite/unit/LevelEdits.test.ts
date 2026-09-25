@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { deleteSprite, moveObjectX } from '../../../src/rom/LevelEdits'
 import { applyPatches, build, invertLayer } from '../../../src/rom/PatchLayer'
 import { parseLevelObjects, parseLevelSprites } from '../../../src/rom/LevelParser'
+import { SYNTHETIC_VERTICAL_TABLE as VT } from '../support/verticalTable'
 
 /**
  * A minimal Layer-1 buffer: 5-byte header, then 3-byte objects, then $FF.
@@ -27,20 +28,20 @@ describe('moveObjectX, horizontal level', () => {
   const data = l1(0, [[0x00, 0x35, 0x01]])
 
   it('reads X from byte 1 and patches that byte', () => {
-    const l = moveObjectX(data, L1_AT, 0, 2)
+    const l = moveObjectX(data, L1_AT, 0, 2, VT)
     expect(l.patches).toEqual([{ offset: L1_AT + 5 + 1, value: 0x37 }])
   })
 
   it('preserves the object number in the high nibble', () => {
-    const [p] = moveObjectX(data, L1_AT, 0, -5).patches
+    const [p] = moveObjectX(data, L1_AT, 0, -5, VT).patches
     expect(p.value & 0xf0).toBe(0x30)
     expect(p.value & 0x0f).toBe(0)
   })
 
   it('actually moves the object when applied and re-parsed', () => {
-    const moved = applyPatches(romWith(data), moveObjectX(data, L1_AT, 0, 3).patches)
-    const reparsed = parseLevelObjects(moved.subarray(L1_AT, L1_AT + data.length))
-    expect(parseLevelObjects(data).objects[0].x).toBe(5)
+    const moved = applyPatches(romWith(data), moveObjectX(data, L1_AT, 0, 3, VT).patches)
+    const reparsed = parseLevelObjects(moved.subarray(L1_AT, L1_AT + data.length), VT)
+    expect(parseLevelObjects(data, VT).objects[0].x).toBe(5)
     expect(reparsed.objects[0].x).toBe(8)
   })
 })
@@ -50,8 +51,8 @@ describe('moveObjectX, vertical level', () => {
   const data = l1(3, [[0x05, 0x30, 0x01]])
 
   it('reads X from byte 0 and patches that byte', () => {
-    expect(parseLevelObjects(data).isVertical).toBe(true)
-    expect(moveObjectX(data, L1_AT, 0, 2).patches).toEqual([{ offset: L1_AT + 5, value: 0x07 }])
+    expect(parseLevelObjects(data, VT).isVertical).toBe(true)
+    expect(moveObjectX(data, L1_AT, 0, 2, VT).patches).toEqual([{ offset: L1_AT + 5, value: 0x07 }])
   })
 })
 
@@ -61,11 +62,11 @@ describe('moveObjectX refuses what a byte patch cannot express', () => {
     ['off the left edge', 0x00, -1],
   ])('throws when the move leaves the screen: %s', (_why, x, dx) => {
     const data = l1(0, [[0x00, 0x30 | x, 0x01]])
-    expect(() => moveObjectX(data, L1_AT, 0, dx)).toThrow(/leaves its screen/)
+    expect(() => moveObjectX(data, L1_AT, 0, dx, VT)).toThrow(/leaves its screen/)
   })
 
   it('throws for an object index that does not exist', () => {
-    expect(() => moveObjectX(l1(0, [[0, 0x35, 1]]), L1_AT, 7, 1)).toThrow(RangeError)
+    expect(() => moveObjectX(l1(0, [[0, 0x35, 1]]), L1_AT, 7, 1, VT)).toThrow(RangeError)
   })
 })
 
@@ -77,14 +78,14 @@ describe('an edit is undoable as a layer', () => {
 
   it('drops back to the original bytes when inverted', () => {
     const rom = romWith(data)
-    const edit = moveObjectX(data, L1_AT, 1, 4)
+    const edit = moveObjectX(data, L1_AT, 1, 4, VT)
     expect(build(rom, [edit])).not.toEqual(rom)
     expect(build(rom, [edit, invertLayer(rom, edit)])).toEqual(rom)
   })
 
   it('stacks two edits, later one winning on the same byte', () => {
     const rom = romWith(data)
-    const out = build(rom, [moveObjectX(data, L1_AT, 0, 1), moveObjectX(data, L1_AT, 0, 3)])
+    const out = build(rom, [moveObjectX(data, L1_AT, 0, 1, VT), moveObjectX(data, L1_AT, 0, 3, VT)])
     expect(out[L1_AT + 6] & 0x0f).toBe(8) // 5 + 3, not 5 + 1 and not 5 + 4
   })
 })
@@ -99,7 +100,7 @@ describe('the oracle can fail', () => {
     const data = l1(0, [[0x00, 0x35, 0x01]])
     const wrong = [{ offset: L1_AT + 5 + 1, value: (0x35 & 0x0f) | 0x70 }]
     const moved = applyPatches(romWith(data), wrong)
-    const reparsed = parseLevelObjects(moved.subarray(L1_AT, L1_AT + data.length))
+    const reparsed = parseLevelObjects(moved.subarray(L1_AT, L1_AT + data.length), VT)
     expect(reparsed.objects[0].x).toBe(5) // unmoved, so the round-trip test would fail
     expect(reparsed.objects[0].objectNumber).not.toBe(3) // and it corrupted the object
   })
@@ -112,10 +113,10 @@ describe('the oracle can fail', () => {
       [0x00, 0x00, 0x00, 0x05],
       [0x00, 0x35, 0x01],
     ])
-    const { objects } = parseLevelObjects(data)
+    const { objects } = parseLevelObjects(data, VT)
     expect(objects[1].streamOffset).toBe(5 + 4)
     expect(objects[1].streamOffset).not.toBe(5 + 3)
-    expect(moveObjectX(data, L1_AT, 1, 1).patches[0].offset).toBe(L1_AT + 5 + 4 + 1)
+    expect(moveObjectX(data, L1_AT, 1, 1, VT).patches[0].offset).toBe(L1_AT + 5 + 4 + 1)
   })
 })
 

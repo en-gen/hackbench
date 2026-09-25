@@ -4,6 +4,7 @@ import {
   parseLevelSprites,
   isLevelModeVertical,
 } from '../../../src/rom/LevelParser'
+import { SYNTHETIC_VERTICAL_TABLE } from '../support/verticalTable'
 
 /**
  * Build a minimal valid level buffer.
@@ -36,7 +37,7 @@ describe('parseLevelObjects - header', () => {
     // byte3 = 0x99 = 0b10011001 → timeLimit = bits 7-6 = 2, spritePalette = bits 5-3 = 3, fgPalette = bits 2-0 = 1
     // byte4 = 0x67 = 0b01100111 → itemMemory = bits 7-6 = 1, verticalScroll = bits 5-4 = 2, objectTileset = bits 3-0 = 7
     const buf = makeLevel([0xaa, 0x66, 0xb8, 0x99, 0x67], [])
-    const { header } = parseLevelObjects(buf)
+    const { header } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(header.raw).toEqual([0xaa, 0x66, 0xb8, 0x99, 0x67])
     expect(header.bgPalette).toBe(5)
     expect(header.levelLength).toBe(11) // (0x0A & 0x1F) + 1 = 10 + 1 = 11
@@ -64,7 +65,7 @@ describe('parseLevelObjects - 3-byte objects', () => {
     // $0B = 0b0010_0101 = 0x25 (objNo high nibble=2, x=5)
     // $59 = 0x10 (settings)
     const buf = makeLevel(ZERO_HEADER, [0x03, 0x25, 0x10])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects).toHaveLength(1)
     const obj = objects[0]
     expect(obj.type).toBe('standard')
@@ -84,7 +85,7 @@ describe('parseLevelObjects - 3-byte objects', () => {
     // $0B = 0x03 (objNo=0, x=3)
     // $59 = 0x12 (extended type)
     const buf = makeLevel(ZERO_HEADER, [0x05, 0x03, 0x12])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects).toHaveLength(1)
     const obj = objects[0]
     expect(obj.type).toBe('extended')
@@ -97,7 +98,7 @@ describe('parseLevelObjects - 3-byte objects', () => {
   it('parses multiple objects', () => {
     // Two 3-byte objects
     const buf = makeLevel(ZERO_HEADER, [0x00, 0x10, 0x05, 0x01, 0x20, 0x03])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects).toHaveLength(2)
   })
 })
@@ -109,7 +110,7 @@ describe('parseLevelObjects - new screen flag', () => {
     // Second object: new screen flag (bit 7 set)
     // $0A=0x80, $0B=0x10, $59=0x00 → objNo=1, screen=1
     const buf = makeLevel(ZERO_HEADER, [0x00, 0x10, 0x00, 0x80, 0x10, 0x00])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects).toHaveLength(2)
     expect(objects[0].screen).toBe(0)
     expect(objects[1].screen).toBe(1)
@@ -128,7 +129,7 @@ describe('parseLevelObjects - new screen flag', () => {
       0x13,
       0x00, // screen 2 (new screen), y=5, x=3
     ])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects[1].screen).toBe(2)
     expect(objects[1].x).toBe(2 * 16 + 3)
   })
@@ -151,7 +152,7 @@ describe('parseLevelObjects - extended object $01 screen jump', () => {
       0x10,
       0x00, // std objNo=1, no NS → screen 10
     ])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects).toHaveLength(3)
     expect(objects[0].screen).toBe(0)
     expect(objects[1].screen).toBe(0) // ext $01 itself reports pre-jump screen
@@ -170,7 +171,7 @@ describe('parseLevelObjects - extended object $01 screen jump', () => {
       0x10,
       0x00, // NS → screen 11 (0x0B)
     ])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects[0].screen).toBe(1)
     expect(objects[1].screen).toBe(1)
     expect(objects[2].screen).toBe(11)
@@ -185,7 +186,7 @@ describe('parseLevelObjects - extended object $01 screen jump', () => {
       0x10,
       0x00, // std -- still on screen 0
     ])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects[1].screen).toBe(0)
   })
 })
@@ -193,25 +194,30 @@ describe('parseLevelObjects - extended object $01 screen jump', () => {
 describe('parseLevelObjects - terminator', () => {
   it('stops at 0xFF immediately after header', () => {
     const buf = Buffer.from([0, 0, 0, 0, 0, 0xff])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects).toHaveLength(0)
   })
 })
 
 describe('isLevelModeVertical - VerticalTable bit 0', () => {
-  it('matches bank_05.asm:480 VerticalTable entries with bit 0 set', () => {
-    // Modes with bit-0 set per the table: 3 ($01), 4 ($81), 7 ($03), 8 ($83),
-    // 10 ($01), 13 ($01). Every other mode is horizontal for L1.
-    const expectedVertical = new Set([3, 4, 7, 8, 10, 13])
-    for (let mode = 0; mode < 32; mode++) {
-      expect(isLevelModeVertical(mode)).toBe(expectedVertical.has(mode))
-    }
+  it('is set only when the entry has bit 0 set, independent of bit 7', () => {
+    const table = [0x00, 0x01, 0x02, 0x03, 0x80, 0x81, 0x82, 0x83]
+    const expectedVertical = [false, true, false, true, false, true, false, true]
+    table.forEach((_entry, mode) => {
+      expect(isLevelModeVertical(mode, table)).toBe(expectedVertical[mode])
+    })
+  })
+
+  it('masks the level mode to 5 bits before indexing', () => {
+    const table = Array.from({ length: 32 }, (_, i) => (i === 5 ? 0x01 : 0x00))
+    expect(isLevelModeVertical(0x05, table)).toBe(true)
+    expect(isLevelModeVertical(0x25, table)).toBe(isLevelModeVertical(0x05, table))
   })
 })
 
 describe('parseLevelObjects - vertical level layout', () => {
   it('places object at 32-wide column + screen*16 row when levelMode is vertical (mode 3)', () => {
-    // levelMode = 3 → VerticalTable[3] = $01 → L1 vertical.
+    // levelMode = 3 → SYNTHETIC_VERTICAL_TABLE[3] has bit 0 set → L1 vertical.
     // Header byte 1 low 5 bits = levelMode = 3.
     const vertHeader: [number, number, number, number, number] = [0, 3, 0, 0, 0]
 
@@ -221,7 +227,7 @@ describe('parseLevelObjects - vertical level layout', () => {
     //                    y_local = 7
     // In vertical mode: x_abs = 5, y_abs = screen(0)*16 + 7 = 7
     const buf = makeLevel(vertHeader, [0x05, 0x17, 0x00])
-    const { objects, isVertical } = parseLevelObjects(buf)
+    const { objects, isVertical } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(isVertical).toBe(true)
     expect(objects).toHaveLength(1)
     expect(objects[0].x).toBe(5)
@@ -233,7 +239,7 @@ describe('parseLevelObjects - vertical level layout', () => {
     // $0A = 0x15 = 0001_0101 → highCoord=1 (bit 4), low nibble = 5 (x within screen)
     // $0B = 0x17 → low nibble = 7 (y within screen)
     const buf = makeLevel(vertHeader, [0x15, 0x17, 0x00])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects[0].x).toBe(5 + 16) // right half
     expect(objects[0].y).toBe(7)
   })
@@ -248,17 +254,17 @@ describe('parseLevelObjects - vertical level layout', () => {
       0x14,
       0x00, // NS → screen 1, x=2, y=4  → y_abs = 16 + 4 = 20
     ])
-    const { objects } = parseLevelObjects(buf)
+    const { objects } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(objects[1].screen).toBe(1)
     expect(objects[1].x).toBe(2)
     expect(objects[1].y).toBe(16 + 4)
   })
 
   it('leaves horizontal levels unchanged (mode 0)', () => {
-    // levelMode = 0 → VerticalTable[0] = $00 → not vertical.
-    // Same encoding as before my change: x = screen*16 + x_local, y = b0 low nibble.
+    // levelMode = 0 → SYNTHETIC_VERTICAL_TABLE[0] is 0x00 → not vertical.
+    // Horizontal encoding: x = screen*16 + x_local, y = b0 low nibble.
     const buf = makeLevel([0, 0, 0, 0, 0], [0x03, 0x25, 0x10])
-    const { objects, isVertical } = parseLevelObjects(buf)
+    const { objects, isVertical } = parseLevelObjects(buf, SYNTHETIC_VERTICAL_TABLE)
     expect(isVertical).toBe(false)
     expect(objects[0].x).toBe(5) // screen 0, x = 5 (low of $25)
     expect(objects[0].y).toBe(3) // y = 3 (low of $03, no highCoord)

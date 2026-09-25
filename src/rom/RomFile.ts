@@ -180,3 +180,21 @@ export class RomFile {
     fs.writeFileSync(destPath, this.buffer)
   }
 }
+
+/**
+ * Memoizes a per-`RomFile` computation, keyed on `version` so a `writeAt`
+ * (which bumps it) invalidates the cache instead of a gate answering a scan
+ * made before the write. A caller that re-derives the same site once per
+ * level -- 512 times over -- would otherwise re-scan a multi-MB ROM 512 times.
+ */
+export function cachedByVersion<T>(
+  cache: WeakMap<RomFile, { version: number; value: T }>,
+  rom: RomFile,
+  compute: () => T,
+): T {
+  const hit = cache.get(rom)
+  if (hit && hit.version === rom.version) return hit.value
+  const value = compute()
+  cache.set(rom, { version: rom.version, value })
+  return value
+}

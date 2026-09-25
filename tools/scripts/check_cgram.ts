@@ -44,6 +44,7 @@ if (!root || !existsSync(root)) {
 }
 
 const rom = SmwRom.open(romPath)
+const verticalTable = rom.requireVerticalTable()
 const levels = readdirSync(root)
   .filter(n => /^[0-9a-f]{3}$/i.test(n))
   .filter(n => existsSync(join(root, n, `frame_${frame}_cgram.bin`)))
@@ -64,7 +65,7 @@ for (const hex of levels) {
     failed++
     continue
   }
-  const { header } = parseLevelObjects(raw)
+  const { header } = parseLevelObjects(raw, verticalTable)
   const derived = buildLevelCgram(
     loadRomPalettes(rom.rom, header.bgPalette),
     header.bgPalette,
