@@ -54,12 +54,19 @@ MyHack/
   export/            .ips output from Export Patch
   saves/             the emulator's save game (SRAM: the game's own progress
                      data, not ROM content; see SaveStore.ts)
+  meta/              user metadata, one JSON file per concern
+    aliases.json     user-supplied names (ROM ids to names; see Aliases.ts)
 ```
 
-`ops/` and `export/` are created on first use. `levels/` and `snapshots/`
-are created when the project is created; `levels/` currently doubles as the
-sentinel that tells `openProject` the manifest has not been moved away from
-its data. Neither holds layer content today: the live stack is `ops/`.
+`ops/`, `export/` and `meta/` are created on first use. `levels/` and
+`snapshots/` are created when the project is created; `levels/` currently
+doubles as the sentinel that tells `openProject` the manifest has not been
+moved away from its data. Neither holds layer content today: the live stack
+is `ops/`.
+
+The manifest holds project identity: the base ROM plus the hack's name,
+title, summary, authors and version. `meta/` holds user metadata that never
+becomes ROM bytes, one JSON file per concern, through `ProjectMeta.ts`.
 
 ## What a layer looks like
 

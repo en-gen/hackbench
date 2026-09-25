@@ -22,10 +22,12 @@
  *                        progress data, not ROM content; see SaveStore.ts)
  *     levels/            reserved for per-level layers
  *     snapshots/         reserved for squashed save points
+ *     meta/              user metadata that never becomes ROM bytes, one
+ *                        JSON file per concern; see ProjectMeta.ts
  *
  * Only `levels/` and `snapshots/` are created here, at creation time.
- * `ops/`, `export/` and `saves/` are created on first use by OpsStore.ts,
- * ExportPatch.ts and SaveStore.ts, which own them.
+ * `ops/`, `export/`, `saves/` and `meta/` are created on first use by
+ * OpsStore.ts, ExportPatch.ts, SaveStore.ts and ProjectMeta.ts, which own them.
  *
  * `levels/` and `snapshots/` hold no layer content today: the live stack is
  * `ops/`. They are still created, and `levels/` additionally serves as the

@@ -20,14 +20,12 @@
  * the level bank and DONUTPLAINS in the overworld bank; with one flat table
  * naming either would rename both.
  *
- * Stored in the project manifest, merged onto what is on disk the same way
- * `updateProject` does, so fields written by a newer build survive a rename
- * made by an older one.
+ * Stored in meta/aliases.json (see ProjectMeta.ts), not the manifest: it is
+ * user metadata, not project identity.
  *
  * No VS Code or Theia imports, same rule as the rest of src/project/.
  */
-import * as fs from 'fs'
-import { openProject, ProjectManifest } from './Project'
+import { readMeta, writeMeta } from './ProjectMeta'
 
 /**
  * Which kind of thing is being named.
@@ -41,8 +39,8 @@ export type AliasNamespace = 'music.level' | 'music.overworld' | 'music.credits'
 export type AliasTable = Record<string, string>
 
 /**
- * Long enough for a descriptive track name, short enough that the manifest
- * stays readable and a paste accident is refused rather than stored.
+ * Long enough for a descriptive track name, short enough that the alias
+ * file stays readable and a paste accident is refused rather than stored.
  */
 export const ALIAS_MAX_LENGTH = 64
 
@@ -61,8 +59,8 @@ export function aliasKey(id: number): string {
 /**
  * Normalise a key as it was found on disk.
  *
- * Tolerant on read because the manifest is a plain JSON file people edit by
- * hand: `$0B`, `0x0b`, `b` and `0B` are all the same track, and silently
+ * Tolerant on read because the alias file is a plain JSON file people edit
+ * by hand: `$0B`, `0x0b`, `b` and `0B` are all the same track, and silently
  * dropping three of those spellings would look like the name was lost.
  */
 function normaliseKey(raw: string): string | null {
@@ -88,18 +86,21 @@ function cleanAlias(alias: string): string {
   return cleaned
 }
 
-/** The manifest's alias block, as it sits on disk. */
+/** The alias file's shape, as it sits on disk. */
 type AliasBlock = Partial<Record<AliasNamespace, Record<string, unknown>>>
 
-interface ManifestWithAliases extends ProjectManifest {
-  aliases?: AliasBlock
+/** `Object.entries` on a string or array walks its indices, which is not a namespace's table. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function readManifest(manifestPath: string): ManifestWithAliases {
-  // Round-trips through openProject first so a manifest that is unreadable,
-  // orphaned or from a future schema is refused BEFORE anything is written.
-  openProject(manifestPath)
-  return JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as ManifestWithAliases
+function readAliasBlock(manifestPath: string): AliasBlock {
+  const raw = readMeta(manifestPath, 'aliases')
+  if (raw === undefined) return {}
+  if (!isPlainObject(raw)) {
+    throw new Error(`meta/aliases.json is not an object of namespaces: ${manifestPath}`)
+  }
+  return raw as AliasBlock
 }
 
 /**
@@ -107,11 +108,13 @@ function readManifest(manifestPath: string): ManifestWithAliases {
  *
  * Entries whose value is not a string are dropped rather than coerced: a
  * hand-edited `42` is a mistake, and rendering it as a track name would
- * present that mistake as the user's own choice.
+ * present that mistake as the user's own choice. A namespace whose own
+ * value is not an object (a hand-edited `"oops"`) is treated the same way,
+ * emptied rather than iterated: a string's character indices are not names.
  */
 export function readAliases(manifestPath: string, ns: AliasNamespace): AliasTable {
-  const raw = readManifest(manifestPath).aliases?.[ns]
-  if (!raw) return {}
+  const raw = readAliasBlock(manifestPath)[ns]
+  if (!isPlainObject(raw)) return {}
 
   const table: AliasTable = {}
   for (const [key, value] of Object.entries(raw)) {
@@ -128,10 +131,8 @@ export function readAliases(manifestPath: string, ns: AliasNamespace): AliasTabl
  * Returns the namespace as it now stands, so a caller can re-render without
  * a second read.
  *
- * Emptied namespaces and an emptied alias block are removed rather than
- * left as `{}`: a project that has named nothing should look like one, and
- * an empty husk in the manifest invites the question of what used to be
- * there.
+ * Emptied namespaces are removed rather than left as `{}`: a project that
+ * has named nothing in a namespace should look like one.
  */
 export function setAlias(
   manifestPath: string,
@@ -140,10 +141,12 @@ export function setAlias(
   alias: string,
 ): AliasTable {
   const cleaned = cleanAlias(alias)
-  const manifest = readManifest(manifestPath)
+  const aliases = readAliasBlock(manifestPath)
 
-  const aliases: AliasBlock = { ...manifest.aliases }
-  const table: Record<string, unknown> = { ...aliases[ns] }
+  // A hand-edited non-object namespace (`"oops"`) is replaced, not spread:
+  // spreading a string copies its character indices in as fake entries.
+  const existingNs = aliases[ns]
+  const table: Record<string, unknown> = isPlainObject(existingNs) ? { ...existingNs } : {}
 
   // Delete every spelling of this id, not just the canonical one, or a
   // hand-written `$05` would survive a clear and reappear on the next read.
@@ -156,10 +159,6 @@ export function setAlias(
   if (Object.keys(table).length > 0) aliases[ns] = table
   else delete aliases[ns]
 
-  const merged: ManifestWithAliases = { ...manifest }
-  if (Object.keys(aliases).length > 0) merged.aliases = aliases
-  else delete merged.aliases
-
-  fs.writeFileSync(manifestPath, `${JSON.stringify(merged, null, 2)}\n`, 'utf8')
+  writeMeta(manifestPath, 'aliases', aliases)
   return readAliases(manifestPath, ns)
 }

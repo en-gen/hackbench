@@ -364,9 +364,13 @@ test('naming a track persists it and shows it in the row', async ({ page }) => {
   expect(named.alias).toBe('Boss fight')
   expect(named.name).toBe('Boss fight')
 
-  // And it is on disk, not just in the widget.
+  // And it is on disk, not just in the widget - in meta/, not the manifest.
+  const metaPath = path.join(path.dirname(result.manifestPath), 'meta', 'aliases.json')
+  const aliases = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+  expect(aliases['music.level']['05']).toBe('Boss fight')
+
   const manifest = JSON.parse(fs.readFileSync(result.manifestPath, 'utf8'))
-  expect(manifest.aliases['music.level']['05']).toBe('Boss fight')
+  expect(manifest.aliases).toBeUndefined()
 })
 
 test('a name given in one bank does not rename the same command in another', async ({ page }) => {
