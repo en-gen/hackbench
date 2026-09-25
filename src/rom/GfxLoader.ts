@@ -27,7 +27,7 @@ import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern, matchesAt } from './BytePattern'
 import { loromToOffset } from './addressing'
 import { decodeTilesBatch, PIXELS_PER_TILE } from './GraphicsDecoder'
-import { decompress } from './LcLz2'
+import { tryDecompress } from './LcLz2'
 import { hex2 } from './hex'
 import { CompressionCheck, GFX_FILE_COUNT, checkStockCompression, gfxFileAddress } from './GfxArena'
 
@@ -364,7 +364,7 @@ export function readGfxFile(rom: RomFile, fileIndex: number): GfxRead {
   if (!compressed) {
     return { ok: false, reason: `GFX file $${hex2(fileIndex)} points outside the ROM` }
   }
-  return { ok: true, bytes: decompress(compressed) }
+  return tryDecompress(compressed)
 }
 
 /**

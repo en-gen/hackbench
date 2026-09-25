@@ -23,10 +23,15 @@
  *   2  Word fill        - read 2 bytes; alternate-write them `len` total bytes
  *   3  Increasing fill  - read 1 byte; write it then increment, `len` times
  *   4  Back-reference   - read 2-byte big-endian index into output; copy `len` bytes
- *   5  (unused in SMW)
- *   6  (unused in SMW)
  *
- * Terminator: 0xFF ends the stream.
+ * Commands 5, 6 and extended-7's real command all decode as command 4 on
+ * hardware: `PLA / BEQ / BMI CODE_00B966` (bank_00.asm:6329-6331) branches on
+ * the command's sign bit, set for 4-7 alike, into the shared back-reference
+ * handler at bank_00.asm:6383. The encoder still refuses to emit them (see
+ * `parseStream` below).
+ *
+ * Terminator: 0xFF ends the stream; see `decompress` below for what happens
+ * when one is missing.
  *
  * References:
  *   - SMWCentral / DataCrystal GFX format docs
@@ -35,10 +40,25 @@
 
 /**
  * Decompress LC_LZ2-compressed data starting at `srcOffset`.
- * Reads until the 0xFF terminator or end of buffer.
+ *
+ * Throws when the stream ends without the 0xFF terminator, a back-reference
+ * reads past what has been decoded so far, or output would exceed
+ * `maxOutput`. Each caller turns that into its own refusal shape, most
+ * simply via `tryDecompress` below; see `GfxLoader.readGfxFile` for the
+ * pattern.
+ *
+ * A missing terminator is reported against `src.length - srcOffset`, the
+ * window the caller actually handed in, not some notion of "the ROM's
+ * stream": `GfxLoader` and `AnimationLoader` each read a fixed-size slice
+ * starting at the compressed data, so a stream longer than that slice looks
+ * identical to a genuinely truncated one, and the message should not blame
+ * the ROM for a window it did not choose.
  *
  * @param src        The compressed data buffer (may be larger than needed)
  * @param srcOffset  Byte offset within `src` to start reading (default 0)
+ * @param maxOutput  Output byte cap. Defaults to one 64 KB bank (`MAX_OUTPUT`,
+ *                   declared with the encoder below), a safety bound rather
+ *                   than a vanilla value.
  * @returns          Decompressed bytes as a Uint8Array
  */
 export function decompress(
@@ -46,6 +66,7 @@ export function decompress(
   srcOffset = 0,
   initialBuffer?: Uint8Array,
   meter?: { consumed: number; terminated: boolean },
+  maxOutput: number = MAX_OUTPUT,
 ): Uint8Array {
   // initialBuffer: optional pre-filled output buffer. The decompressor writes starting at
   // position 0, overwriting the beginning while higher offsets remain intact. Backreferences
@@ -53,6 +74,7 @@ export function decompress(
   const out: number[] = initialBuffer ? Array.from(initialBuffer) : []
   let i = srcOffset
   let wp = 0 // write position (always starts at 0)
+  const window = src.length - srcOffset
 
   function writeByte(b: number): void {
     if (wp < out.length) out[wp] = b
@@ -60,11 +82,20 @@ export function decompress(
     wp++
   }
 
+  function fail(reason: string): never {
+    throw new Error(`LC_LZ2: ${reason}`)
+  }
+
+  const noTerminator = (): never => fail(`stream did not terminate within ${window} bytes`)
+
   while (i < src.length) {
     const header = src[i++]
     if (header === 0xff) {
-      if (meter) meter.terminated = true
-      break
+      if (meter) {
+        meter.consumed = i - srcOffset // terminator included
+        meter.terminated = true
+      }
+      return new Uint8Array(out)
     }
 
     let cmd = (header >> 5) & 7
@@ -72,32 +103,32 @@ export function decompress(
 
     if (cmd === 7) {
       // Extended header - one extra byte encodes a longer length
-      if (i >= src.length) break
+      if (i >= src.length) noTerminator()
       const ext = src[i++]
       cmd = (header >> 2) & 7
       len = (((header & 3) << 8) | ext) + 1
     } else {
       len = (header & 0x1f) + 1
     }
+    if (wp + len > maxOutput) fail(`output exceeds the ${maxOutput}-byte cap`)
 
     switch (cmd) {
       case 0: {
         // Direct copy: len bytes from input → output
-        for (let n = 0; n < len && i < src.length; n++) {
-          writeByte(src[i++])
-        }
+        if (i + len > src.length) noTerminator()
+        for (let n = 0; n < len; n++) writeByte(src[i++])
         break
       }
       case 1: {
         // Byte fill: one input byte repeated len times
-        if (i >= src.length) break
+        if (i >= src.length) noTerminator()
         const b = src[i++]
         for (let n = 0; n < len; n++) writeByte(b)
         break
       }
       case 2: {
         // Word fill: two input bytes alternated across len output bytes
-        if (i + 1 >= src.length) break
+        if (i + 1 >= src.length) noTerminator()
         const b0 = src[i++]
         const b1 = src[i++]
         for (let n = 0; n < len; n++) writeByte(n % 2 === 0 ? b0 : b1)
@@ -105,31 +136,67 @@ export function decompress(
       }
       case 3: {
         // Increasing fill: one input byte, written then incremented each step
-        if (i >= src.length) break
+        if (i >= src.length) noTerminator()
         let b = src[i++]
         for (let n = 0; n < len; n++) writeByte(b++ & 0xff)
         break
       }
-      case 4: {
-        // Back-reference: 2-byte big-endian index into the output buffer
-        // Can read from ANY position including pre-filled data beyond current write pos
-        if (i + 1 >= src.length) break
+      default: {
+        // Back-reference (commands 4-7 alike): 2-byte big-endian index into
+        // the output buffer. Checked per byte, not once up front, because a
+        // self-referential run (addr inside this same command's span) is a
+        // hardware-valid RLE idiom: out.length grows as the loop writes.
+        if (i + 1 >= src.length) noTerminator()
         const addrHi = src[i++]
         const addrLo = src[i++]
         const addr = (addrHi << 8) | addrLo
         for (let n = 0; n < len; n++) {
-          writeByte(addr + n < out.length ? out[addr + n] : 0)
+          if (addr + n >= out.length) {
+            fail(
+              `back-reference reads offset ${addr + n}, past the ${out.length} bytes decoded so far`,
+            )
+          }
+          writeByte(out[addr + n])
         }
         break
       }
-      default:
-        // Commands 5 & 6 are unused in SMW - skip gracefully
-        break
     }
   }
 
-  if (meter) meter.consumed = i - srcOffset // terminator included
-  return new Uint8Array(out)
+  return noTerminator()
+}
+
+export type DecompressResult = { ok: true; bytes: Uint8Array } | { ok: false; reason: string }
+
+export interface DecompressOptions {
+  srcOffset?: number
+  initialBuffer?: Uint8Array
+  meter?: { consumed: number; terminated: boolean }
+  maxOutput?: number
+}
+
+/**
+ * `decompress`, with its throw folded into a result so a caller can return
+ * or fold it into its own refusal shape without a try/catch of its own.
+ */
+export function tryDecompress(
+  src: Buffer | Uint8Array,
+  options?: DecompressOptions,
+): DecompressResult {
+  try {
+    return {
+      ok: true,
+      bytes: decompress(
+        src,
+        options?.srcOffset,
+        options?.initialBuffer,
+        options?.meter,
+        options?.maxOutput,
+      ),
+    }
+  } catch (err) {
+    return { ok: false, reason: (err as Error).message }
+  }
 }
 
 // ── Encoder ─────────────────────────────────────────────────────────────────
@@ -154,7 +221,9 @@ export const MAX_RUN = 1024
 /** Short-header ceiling: 5 bits of length, so 1..32. */
 export const MAX_SHORT_RUN = 32
 /** Command 4's operand is a 16-bit output index, so nothing past this is
- *  addressable and emitting into it would be a stream the game cannot read. */
+ *  addressable and emitting into it would be a stream the game cannot read.
+ *  Also `decompress`'s default output cap: one WRAM bank, the most any
+ *  decompression destination can hold. */
 export const MAX_OUTPUT = 0x10000
 
 /** One command as the decompressor reads it, with where it sits and what it
@@ -223,19 +292,13 @@ export function parseStream(src: Buffer | Uint8Array, srcOffset = 0): LcLz2Strea
     } else {
       len = (header & 0x1f) + 1
     }
-    // Commands 5 and 6 are NOT inert. `PLA / BEQ / BMI CODE_00B966`
-    // (bank_00.asm:6329-6331) branches on bit 7 of the command bits shifted
-    // left five, which is set for 4, 5, 6 and 7 alike, so all of them reach
-    // the back-reference handler at bank_00.asm:6383, read two operand
-    // bytes and write `len` bytes. On hardware 5 and 6 behave exactly as 4.
-    //
-    // We still refuse them, because this encoder has no test fixture for a
-    // stream that uses one and none of the 6 corpus carts contains one
-    // (measured: zero commands >= 5 across all six). Refusing an untested
-    // shape is the safe direction: the editor declines to save the file
-    // rather than re-encoding it against semantics it has never exercised.
-    // Treating them as command 4 is the correct fix when a cart turns up
-    // that needs it, and it needs a fixture first.
+    // Commands 5 and 6 are NOT inert (see `decompress` above, which reads
+    // them as command 4 to match hardware). This encoder still refuses to
+    // EMIT them: no test fixture exercises the write direction and none of
+    // the 6-ROM corpus contains one (measured: zero commands >= 5 across
+    // all six). Refusing an untested shape is the safe direction: the editor
+    // declines to save the file rather than re-encoding it against semantics
+    // it has never exercised.
     if (cmd >= 5) break
 
     const opAt = i
@@ -292,10 +355,6 @@ export function encode(data: Uint8Array, template?: Buffer | Uint8Array): Uint8A
 /**
  * Would this command, run against `data` as the output buffer, write exactly
  * the bytes `data` already holds there?
- *
- * Mirrors `decompress`'s own semantics, including the one non-obvious case:
- * a back-reference whose source index is at or past the write head reads
- * zeroes, because the output array has not grown that far yet.
  */
 function reproduces(c: LcLz2Command, data: Uint8Array, template: Buffer | Uint8Array): boolean {
   const wp = c.outStart
@@ -321,9 +380,11 @@ function reproduces(c: LcLz2Command, data: Uint8Array, template: Buffer | Uint8A
     }
     default: {
       const addr = (template[c.opAt]! << 8) | template[c.opAt + 1]!
-      const live = addr < wp
+      // An out-of-range source can never reproduce real data: decompress
+      // refuses such a command, so any span built from one always re-encodes.
+      if (addr >= wp) return false
       for (let n = 0; n < c.len; n++) {
-        if (data[wp + n] !== (live ? data[addr + n] : 0)) return false
+        if (data[wp + n] !== data[addr + n]) return false
       }
       return true
     }

@@ -19,13 +19,15 @@
  *   2 = word fill (alternating two bytes)
  *   3 = increasing fill
  *   4 = back-reference (2-byte big-endian index into output so far)
+ *   5, 6, and extended-7's real command = decode as command 4 (see LcLz2.ts)
  *   7 = extended-header escape (for lengths > 32)
  *
- * Stream terminator: 0xFF.
+ * Stream terminator: 0xFF. A stream that ends without one, a back-reference
+ * past what has been decoded, or output past the caller's cap all throw.
  */
 
 import { describe, it, expect } from 'vitest'
-import { decompress } from '../../../src/rom/LcLz2'
+import { decompress, MAX_OUTPUT } from '../../../src/rom/LcLz2'
 
 // Helper: build a command header byte for non-extended commands.
 //   cmd in 0..6, lenMinusOne in 0..31
@@ -164,64 +166,92 @@ describe('LC_LZ2 decompress - synthetic vectors', () => {
   })
 })
 
-describe('LC_LZ2 decompress - unused commands and edge cases', () => {
-  // Commands 5 and 6 are not used by SMW. The decoder hits the
-  // `default: break` branch and produces no output for that command.
+describe('LC_LZ2 decompress - commands 4-7 all decode as a back-reference', () => {
+  // bank_00.asm:6329-6331 branches into the back-reference handler on the
+  // command's sign bit, set for 4-7 alike, so all four read the same
+  // operand shape: 2-byte big-endian index, copy `len` bytes. Command 4 is
+  // the control row: it was never broken, so it must keep passing too.
+  const backrefLayout = [0xa1, 0xa2, 0xa3, 0xa4] // written first via cmd 0
+  const expected = [0xa1, 0xa2, 0xa3, 0xa4, 0xa2, 0xa3, 0xa4] // + 3 bytes from index 1
 
-  it('command 5 (0xA0 header) is silently skipped - no output, no throw', () => {
-    // 0xA0 → cmd=(0xA0>>5)&7=5, len=(0xA0&0x1F)+1=1; default: break; 0xFF terminates
-    expect(() => decompress(toBytes([0xa0, FF]))).not.toThrow()
-    expect(toArr(decompress(toBytes([0xa0, FF])))).toEqual([])
+  it.each([
+    ['4 (control)', [hdr(4, 2)]],
+    ['5', [hdr(5, 2)]],
+    ['6', [hdr(6, 2)]],
+    ['extended 7', hdrExt(7, 3)],
+  ])('command %s decodes as a back-reference', (_, header) => {
+    const input = toBytes([hdr(0, 3), ...backrefLayout, ...header, 0x00, 0x01, FF])
+    expect(toArr(decompress(input))).toEqual(expected)
+  })
+})
+
+describe('LC_LZ2 decompress - refusals', () => {
+  it('a stream that runs out before the terminator throws, naming the window it was given', () => {
+    const input = toBytes([hdr(0, 2), 0xaa, 0xbb, 0xcc]) // no FF
+    // The window is `input.length`, not some notion of "the ROM's stream":
+    // the message must not blame the ROM for a slice the caller chose (#494).
+    expect(() => decompress(input)).toThrow(/did not terminate within 4 bytes/i)
   })
 
-  it('command 6 (0xC0 header) is silently skipped - no output, no throw', () => {
-    // 0xC0 → cmd=6, len=1; default: break
-    expect(() => decompress(toBytes([0xc0, FF]))).not.toThrow()
-    expect(toArr(decompress(toBytes([0xc0, FF])))).toEqual([])
+  it('a stream that breaks off mid-command still names the whole window', () => {
+    const input = toBytes([hdr(0, 5), 0xaa, 0xbb]) // direct copy of 6, only 2 present
+    expect(() => decompress(input)).toThrow(/did not terminate within 3 bytes/i)
   })
 
-  it('command 5 followed by a real command: real command still executes', () => {
-    // cmd 5 (no-op), then cmd 1 byte-fill 2 × 0xAA
-    const input = toBytes([0xa0, hdr(1, 1), 0xaa, FF])
-    expect(toArr(decompress(input))).toEqual([0xaa, 0xaa])
+  it('extended header with no ext byte throws', () => {
+    expect(() => decompress(toBytes([0xe0]))).toThrow(/did not terminate/i)
   })
 
-  it('extended header (cmd 7) with no ext byte terminates gracefully', () => {
-    // 0xE0 → cmd=7; i advances past header but ext byte is missing → break
-    expect(() => decompress(toBytes([0xe0]))).not.toThrow()
-    expect(toArr(decompress(toBytes([0xe0])))).toEqual([])
+  it('word fill with only one fill byte available throws', () => {
+    expect(() => decompress(toBytes([0x40, 0xaa]))).toThrow(/did not terminate/i)
   })
 
-  it('word fill (cmd 2) with only one fill byte available is skipped', () => {
-    // 0x40 → cmd=2, len=1; needs 2 fill bytes but only 1 remains → break
-    expect(toArr(decompress(toBytes([0x40, 0xaa])))).toEqual([])
+  it('the window is measured from srcOffset, not the whole buffer', () => {
+    const input = toBytes([0x00, 0x00, hdr(0, 2), 0xaa, 0xbb, 0xcc]) // 2 leading bytes, no FF
+    expect(() => decompress(input, 2)).toThrow(/did not terminate within 4 bytes/i)
   })
 
-  it('back-reference beyond current write position produces zeros', () => {
-    // Write 1 byte (0xAA) via byte-fill, then back-ref addr=5 (beyond) len=2 → zeros
-    // hdr(1,0) = cmd1 len1; 0x81 = cmd4 len2
-    const input = toBytes([hdr(1, 0), 0xaa, 0x81, 0x00, 0x05, FF])
-    const result = toArr(decompress(input))
-    expect(result[0]).toBe(0xaa)
-    expect(result[1]).toBe(0)
-    expect(result[2]).toBe(0)
+  it('a back-reference past the current write position throws', () => {
+    // Write 1 byte via byte-fill, then back-ref addr=5 (beyond) len=2.
+    const input = toBytes([hdr(1, 0), 0xaa, hdr(4, 1), 0x00, 0x05, FF])
+    expect(() => decompress(input)).toThrow(/back-reference/i)
   })
 
   it('initialBuffer: back-reference reads pre-filled data before write position', () => {
-    // No bytes written yet (wp=0). initialBuffer=[0xAA, 0xBB].
-    // back-ref addr=0 len=2 → reads initialBuffer[0] and [1].
-    // 0x81 → cmd=(0x81>>5)&7=4, len=(0x81&0x1F)+1=2
+    // No bytes written yet (wp=0). Reading inside initialBuffer's own length is valid.
     const init = new Uint8Array([0xaa, 0xbb])
-    const result = toArr(decompress(toBytes([0x81, 0x00, 0x00, FF]), 0, init))
-    expect(result[0]).toBe(0xaa)
-    expect(result[1]).toBe(0xbb)
+    const result = toArr(decompress(toBytes([hdr(4, 1), 0x00, 0x00, FF]), 0, init))
+    expect(result).toEqual([0xaa, 0xbb])
   })
 
-  it('initialBuffer: data beyond initialBuffer length still produces zeros', () => {
-    // initialBuffer=[0x55]; back-ref addr=1 (just outside) len=1 → 0
+  it('initialBuffer: a back-reference past the pre-filled data throws', () => {
     const init = new Uint8Array([0x55])
-    const result = toArr(decompress(toBytes([0x80, 0x00, 0x01, FF]), 0, init))
-    // 0x80 → cmd=4, len=1; addr=0x0001; 0+1=1 >= out.length(1) → writeByte(0)
-    expect(result[0]).toBe(0)
+    const input = toBytes([hdr(4, 0), 0x00, 0x01, FF]) // addr=1, just outside init
+    expect(() => decompress(input, 0, init)).toThrow(/back-reference/i)
+  })
+
+  it('output past the caller cap throws', () => {
+    const input = toBytes([hdr(1, 4), 0xaa, FF]) // 5 bytes
+    expect(() => decompress(input, 0, undefined, undefined, 4)).toThrow(/exceeds/i)
+  })
+
+  it('output landing exactly on the cap is not a refusal', () => {
+    const input = toBytes([hdr(1, 3), 0xaa, FF]) // 4 bytes
+    expect(toArr(decompress(input, 0, undefined, undefined, 4))).toEqual([0xaa, 0xaa, 0xaa, 0xaa])
+  })
+
+  it('the default cap is MAX_OUTPUT (one 64 KB bank), not unbounded', () => {
+    // 64 extended byte-fills of 1024 bytes each = MAX_OUTPUT exactly.
+    const fillBurst = (total: number, fillByte: number): number[] => {
+      const out: number[] = []
+      for (let left = total; left > 0; left -= 1024) {
+        out.push(...hdrExt(1, Math.min(left, 1024)), fillByte)
+      }
+      return out
+    }
+    expect(decompress(toBytes([...fillBurst(MAX_OUTPUT, 0x11), FF])).length).toBe(MAX_OUTPUT)
+
+    const oneOver = toBytes([...fillBurst(MAX_OUTPUT, 0x11), hdr(1, 0), 0x11, FF])
+    expect(() => decompress(oneOver)).toThrow(/exceeds/i)
   })
 })

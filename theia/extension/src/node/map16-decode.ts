@@ -48,6 +48,7 @@ import {
 import { readLevelCol1 } from '../../../../src/rom/PaletteStockTables'
 import { buildTileAtlas } from '../../../../src/rom/TileRenderer'
 import {
+  animationGfxFailure,
   getAnimatedChars,
   loadAnimationData,
   readAnimGfxSources,
@@ -435,12 +436,21 @@ export function frameZeroChars(
   const note = stockAnimationNote(rom)
   if (note) return { vram: blankChars(vram, stockAnimatedChars(rom)), note }
   const animData = loadAnimationData(rom, tileset)
-  if (!animData) return undefined
+  if (!animData) {
+    // Tileset-independent, so a GFX33/GFX32 decode failure fails identically
+    // for every tileset; blank with a note rather than leaving stock chars
+    // in place as if nothing were wrong (#494).
+    const reason = animationGfxFailure(rom)
+    if (reason) return { vram: blankChars(vram, stockAnimatedChars(rom)), note: leftBlank(reason) }
+    return undefined
+  }
   if (getAnimatedChars(animData).size === 0) return undefined
   // Nothing has ticked yet, so this snapshot IS phase 0 by construction.
   const chars = buildChars(vram, animData)
   return { animData, chars, vram: vramFromChars(vram, chars) }
 }
+
+const leftBlank = (reason: string): string => `These characters are left blank: ${reason}.`
 
 function stockAnimationNote(rom: RomFile): string | null {
   const unreached = stockAnimationUnreached(rom)
@@ -450,7 +460,7 @@ function stockAnimationNote(rom: RomFile): string | null {
   }
   const sources = readAnimGfxSources(rom)
   const reason = unreached?.reason ?? (sources.ok ? null : sources.reason)
-  return reason ? `These characters are left blank: ${reason}.` : null
+  return reason ? leftBlank(reason) : null
 }
 
 function blankChars(vram: VramState, chars: Set<number>): VramState {

@@ -44,6 +44,7 @@ interface RomOpts {
   jsl?: number[]
   gfx33At?: number
   gfx33Stream?: Uint8Array
+  gfx32Stream?: Uint8Array
 }
 
 function animRom(o: RomOpts = {}): RomFile {
@@ -62,7 +63,7 @@ function animRom(o: RomOpts = {}): RomFile {
   const endBank = (off(gfx33) + stream.length) >> 15
   put(((gfx33 >> 16) << 16) | 0x8000, encode(tiles4bpp(8)))
   put(((gfx33 >> 16) << 16) | 0x9000, encode(tiles4bpp(8)))
-  put((endBank << 16) | 0x9000, encode(tiles4bpp(4)))
+  put((endBank << 16) | 0x9000, o.gfx32Stream ?? encode(tiles4bpp(4)))
   put(gfx33, stream)
   // The unreferenced `dl` word points at different pixels, so reading it shows.
   put(0x00b882, [0x00, 0xa0, 0x01])
@@ -182,6 +183,26 @@ describe('frameZeroChars', () => {
       /decides per level.*\$13AC77/,
     ],
     ['the GFX sources cannot be read', { jsr: [0xea, 0xea, 0xea] }, /\$009414/],
+    [
+      'the GFX33 stream fails to decompress',
+      { gfx33Stream: GFX33_STREAM.slice(0, -1) }, // drops the $FF terminator
+      /left blank.*did not terminate/i,
+    ],
+    [
+      'the GFX32 stream fails to decompress',
+      // An out-of-range back-reference fails within its own 5 bytes, unlike
+      // a dropped terminator: `animRom` plants other streams later in this
+      // read window (the $9000 decoy, the dl word's stream at $01A000), so
+      // a truncation here would run past this write and find one of theirs.
+      { gfx32Stream: Uint8Array.from([0x00, 0x11, 0x80, 0xff, 0xff]) },
+      /left blank.*back-reference/i,
+    ],
+    [
+      'GFX32 points outside the ROM',
+      // $05:F000 is file offset $2F000; its read window runs past the ROM's end.
+      { gfx33At: 0x05c000, tail: tail(0xf000) },
+      /left blank.*GFX32 points outside the ROM/,
+    ],
   ])('blanks the stock characters and carries a note when %s', (_, opts, note) => {
     const r = frameZeroChars(animRom(opts as RomOpts), 0, rawVram())!
     expect(r.animData).toBeUndefined()
