@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { SmwRom, isOverworldLevel } from '../../../src/rom/SmwRom'
 import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
+import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
 import { CORPUS, VANILLA, hasRom, romPath } from '../support/corpus'
 
 // Same resolution as exitGraphReach.test.ts, so this does not skip in a worktree.
@@ -23,9 +24,12 @@ describe.skipIf(!hasRom(VANILLA))('buildLevelExitGraph -- vanilla acceptance', (
   let rom: SmwRom
   let graph: Map<number, number[]>
 
+  let bounds: ReturnType<typeof deriveOverworldEntrances>['levelBounds']
+
   beforeAll(() => {
     rom = SmwRom.open(VANILLA_ROM)
-    graph = rom.buildLevelExitGraph().graph
+    bounds = deriveOverworldEntrances(rom).levelBounds
+    graph = rom.buildLevelExitGraph(bounds).graph
   })
 
   it('$113 resolves to $1BB, not the $0BB filler', () => {
@@ -55,7 +59,7 @@ describe.skipIf(!hasRom(VANILLA))('buildLevelExitGraph -- vanilla acceptance', (
 
   beforeAll(() => {
     subareas = buildLevelCatalog(rom)
-      .entries.filter(e => e.isReal && !isOverworldLevel(e.index))
+      .entries.filter(e => e.isReal && !isOverworldLevel(e.index, bounds))
       .map(e => e.index)
     reached = new Set([...graph.values()].flat())
   })
@@ -95,9 +99,10 @@ describe('buildLevelExitGraph -- AC2 and AC6 across the full ROM corpus', () => 
       `no edge points at the filler L1 pointer, and the graph builds without throwing: ${name}`,
       () => {
         const rom = SmwRom.open(romPath(name))
+        const bounds = deriveOverworldEntrances(rom).levelBounds
         let graph: Map<number, number[]> = new Map()
         expect(() => {
-          graph = rom.buildLevelExitGraph().graph
+          graph = rom.buildLevelExitGraph(bounds).graph
         }).not.toThrow()
 
         // Recompute the filler pointer the same way SmwRom does, to assert no
@@ -121,7 +126,7 @@ describe('buildLevelExitGraph -- AC2 and AC6 across the full ROM corpus', () => 
           for (const d of dests) {
             expect(rom.getLevelL1Pointer(d)).not.toBe(fillerPtr)
             // Every destination must be a genuine sub-area, never an overworld node.
-            expect(isOverworldLevel(d)).toBe(false)
+            expect(isOverworldLevel(d, bounds)).toBe(false)
           }
         }
       },

@@ -51,6 +51,12 @@ export function matchesAt(rom: RomFile, at: number, p: BytePattern): Buffer | nu
   return matchesBytes(bytes, p) ? bytes : null
 }
 
+/** ROM-relative offset of `pattern`'s one match, or null when absent or ambiguous. */
+export function findUnique(rom: RomFile, pattern: BytePattern): number | null {
+  const hits = findPattern(rom, pattern, 2)
+  return hits.length === 1 ? hits[0]! : null
+}
+
 export type SiteResult = { ok: true; offset: number } | { ok: false; reason: string }
 
 /**

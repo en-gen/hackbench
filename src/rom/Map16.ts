@@ -20,7 +20,7 @@
  */
 
 import { RomFile } from './RomFile'
-import { BytePattern, WILD, findPattern, matchesAt } from './BytePattern'
+import { BytePattern, WILD, findPattern, findUnique, matchesAt } from './BytePattern'
 import { loromFromOffset, loromToOffset } from './addressing'
 
 // ── ROM addresses (from SMW_U.sym) ────────────────────────────────────────────
@@ -236,11 +236,6 @@ function scanOnce<T>(rom: RomFile, key: string, scan: () => T): T {
   return entry.values.get(key) as T
 }
 
-function soleMatch(rom: RomFile, p: BytePattern): number | null {
-  const hits = findPattern(rom, p, 2)
-  return hits.length === 1 ? hits[0]! : null
-}
-
 /** The bank Map16 pointers are dereferenced in; with `extent`, tile ids from it up bypass the table. */
 export interface Map16Bank {
   bank: number
@@ -405,7 +400,7 @@ const SLOPE_RUNS = [[30, 40, 49], [59, 64, 73]] as const
  * tileset's own run, then CODE_058281 overrides two short runs.
  */
 export function readMap16Table(rom: RomFile, tileset: number): Map16Read<number[]> {
-  const setupAt = scanOnce(rom, 'fgSetup', () => soleMatch(rom, FG_SETUP))
+  const setupAt = scanOnce(rom, 'fgSetup', () => findUnique(rom, FG_SETUP))
   if (setupAt === null) return refuse('the CODE_0581FB setup is not found exactly once')
   const setup = rom.readAtFileOffset(setupAt, FG_SETUP.length)!
   // Level headers mask the tileset with AND #$0F (bank_05.asm:625); $10 and up is the overworld.
@@ -415,7 +410,7 @@ export function readMap16Table(rom: RomFile, tileset: number): Map16Read<number[
   if (!bitmap) return refuse('the DATA_0581BB bitmap cannot be read')
   const bank = readMap16Bank(rom)
   if (!bank.ok) return bank
-  const at = scanOnce(rom, 'slopes', () => soleMatch(rom, SLOPE_OVERRIDE))
+  const at = scanOnce(rom, 'slopes', () => findUnique(rom, SLOPE_OVERRIDE))
   if (at === null) return refuse('the CODE_058281 tile override is not found exactly once')
 
   const pointers: number[] = new Array(MAP16_TOTAL_TILES)
@@ -448,7 +443,7 @@ export function readMap16Table(rom: RomFile, tileset: number): Map16Read<number[
 
 /** Where the shared Map16Common run starts, as CODE_0581FB's operand names it. */
 export function readMap16Common(rom: RomFile): Map16Read<number> {
-  const setupAt = scanOnce(rom, 'fgSetup', () => soleMatch(rom, FG_SETUP))
+  const setupAt = scanOnce(rom, 'fgSetup', () => findUnique(rom, FG_SETUP))
   if (setupAt === null) return refuse('the CODE_0581FB setup is not found exactly once')
   const bank = readMap16Bank(rom)
   if (!bank.ok) return bank
@@ -612,7 +607,7 @@ export function readL2Map16Table(rom: RomFile): Map16Read<number[]> {
 }
 
 function scanL2Map16Table(rom: RomFile): Map16Read<number[]> {
-  const loop = soleMatch(rom, BG_FILL)
+  const loop = findUnique(rom, BG_FILL)
   if (loop === null) return refuse('the L2 (background) Map16 fill loop is not found exactly once')
   const loopSnes = loromFromOffset(loop)!
   // A JSR stays in its own bank; its target opens with the PHP the loop's PLP closes.

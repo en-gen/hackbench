@@ -146,7 +146,7 @@ describe.skipIf(!hasRom(VANILLA))('buildMapTree, on the vanilla cart', () => {
    */
   it('excludes the filler slot that classifyLevels reports as a level', () => {
     const rom = load(VANILLA)
-    expect(rom.classifyLevels().overworld).toContain(0x012)
+    expect(rom.classifyLevels(deriveOverworldEntrances(rom).levelBounds).overworld).toContain(0x012)
     expect(indicesIn(buildMapTree(rom)).has(0x012)).toBe(false)
   })
 
@@ -157,7 +157,7 @@ describe.skipIf(!hasRom(VANILLA))('buildMapTree, on the vanilla cart', () => {
    */
   it('keeps real maps that share an L1 pointer with an earlier slot', () => {
     const rom = load(VANILLA)
-    const { overworld, subarea } = rom.classifyLevels()
+    const { overworld, subarea } = rom.classifyLevels(deriveOverworldEntrances(rom).levelBounds)
     const classified = new Set([...overworld, ...subarea])
     const shown = indicesIn(buildMapTree(rom))
 

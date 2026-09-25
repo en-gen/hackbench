@@ -12,7 +12,7 @@
  *     RoomItem` branch keeps descending on re-expansion;
  *   - a RoomRow becomes a TreeItem with the right command and URI.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -23,6 +23,32 @@ import * as stub from '../support/vscodeStub'
 import { writeSyntheticRom } from '../support/syntheticRom'
 
 type Item = ReturnType<MapsProvider['getChildren']>[number]
+
+// The provider reads with the stock fingerprints, which refuse the synthetic
+// ROM's NOP-filled spans (syntheticRom.ts). Scoped to this file, the two readers
+// get the synthetic ones instead; no module state is written.
+vi.mock('../../../src/rom/SubmapFlagGate', async importOriginal => {
+  const real = await importOriginal<typeof import('../../../src/rom/SubmapFlagGate')>()
+  const { fingerprint } = await import('../../../src/rom/Fingerprint')
+  const entry = [fingerprint(Buffer.alloc(real.OVERWORLD_INDEX_BODY.length, 0xea))!]
+  return {
+    ...real,
+    stockCodeMismatch: (...[rom, checks, fp]: Parameters<typeof real.stockCodeMismatch>) =>
+      real.stockCodeMismatch(rom, checks, fp ?? entry),
+  }
+})
+vi.mock('../../../src/rom/OverworldEntrances', async importOriginal => {
+  const real = await importOriginal<typeof import('../../../src/rom/OverworldEntrances')>()
+  const { fingerprint } = await import('../../../src/rom/Fingerprint')
+  const nopHash = (n: number): string[] => [fingerprint(Buffer.alloc(n, 0xea))!]
+  const fp = { entry: nopHash(0x64), walk: nopHash(real.WALK_PROLOGUE_LENGTH) }
+  return {
+    ...real,
+    deriveOverworldEntrances: (
+      ...[rom, catalog]: Parameters<typeof real.deriveOverworldEntrances>
+    ) => real.deriveOverworldEntrances(rom, catalog, fp),
+  }
+})
 
 /**
  * Exit graph built into the synthetic ROM. Two roots, one from each range

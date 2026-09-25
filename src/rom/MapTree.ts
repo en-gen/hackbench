@@ -35,7 +35,11 @@ import { SmwRom, isOverworldLevel } from './SmwRom'
 import { buildLevelCatalog } from './LevelCatalog'
 import { buildLevelSubtree, LevelTreeNode } from './LevelTree'
 import { findSpecialMaps, SpecialRole } from './SpecialMaps'
-import { deriveOverworldEntrances } from './OverworldEntrances'
+import {
+  deriveOverworldEntrances,
+  STOCK_OVERWORLD_FINGERPRINTS,
+  type OverworldFingerprints,
+} from './OverworldEntrances'
 
 export interface MapNode {
   /** Pointer-table slot, $000-$1FF. */
@@ -113,19 +117,33 @@ const ROLE_ORDER: SpecialRole[] = ['title-screen', 'new-game']
  * is expanded under both, matching how a player navigates rather than the
  * graph's node set (see LevelTree.buildLevelSubtree), so deeper duplicates
  * are intended; only the top level of each root is unique.
+ *
+ * @param fingerprints Replaces the stock overworld fingerprints; for a synthetic ROM.
  */
-export function buildMapTree(rom: SmwRom): MapTree {
+export function buildMapTree(
+  rom: SmwRom,
+  fingerprints: OverworldFingerprints = STOCK_OVERWORLD_FINGERPRINTS,
+): MapTree {
   const catalog = buildLevelCatalog(rom)
   const maps = new Set(catalog.entries.filter(e => e.isReal).map(e => e.index))
-  const { graph: exitGraph, unavailable } = rom.buildLevelExitGraph()
   const notes = [...catalog.notes]
+
+  // Launch tiles the overworld grants a translevel, which is what a hacker
+  // means by an entrance, and the source of the root range below. Traced in
+  // OverworldEntrances; unreadable on a ROM whose overworld another editor
+  // rebuilt, and reported as unknown.
+  const entranceIndex = deriveOverworldEntrances(rom, catalog, fingerprints)
+  const bounds = entranceIndex.levelBounds
+  const isRoot = (index: number): boolean => isOverworldLevel(index, bounds)
+
+  const { graph: exitGraph, unavailable } = rom.buildLevelExitGraph(bounds, fingerprints.entry)
 
   const name = (index: number): string | null => rom.getLevelName(index)
   const aliasesOf = (index: number): number[] => catalog.entries[index]?.l1Aliases ?? []
 
   // Roots come from the map set, not from classifyLevels, so a slot the
   // latter deduped away still heads its own folder.
-  const roots = [...maps].filter(isOverworldLevel).sort((a, b) => a - b)
+  const roots = [...maps].filter(isRoot).sort((a, b) => a - b)
 
   const placed = new Set<number>()
   const adopt = (node: LevelTreeNode): MapNode => {
@@ -143,7 +161,7 @@ export function buildMapTree(rom: SmwRom): MapTree {
     }
   }
 
-  const overworld = roots.map(root => adopt(buildLevelSubtree(root, exitGraph)))
+  const overworld = roots.map(root => adopt(buildLevelSubtree(root, exitGraph, isRoot)))
 
   // The title screen and the new-game intro. Read from the cart, and only
   // adopted when the slot they name actually holds a real map: a routine that
@@ -189,9 +207,8 @@ export function buildMapTree(rom: SmwRom): MapTree {
 
   if (unavailable) {
     notes.push(
-      `Map hierarchy unavailable: ${unavailable} This ROM decides where an exit leads ` +
-        'with code HackBench does not decode, so sub areas are listed unassigned rather ' +
-        'than grouped by the stock rule. Every map is still listed and editable.',
+      `Map hierarchy unavailable: ${unavailable} Sub areas are listed unassigned rather ` +
+        'than grouped by a rule this ROM may not follow. Every map is still listed and editable.',
     )
   } else if (unassigned.length > 0) {
     notes.push(
@@ -201,10 +218,6 @@ export function buildMapTree(rom: SmwRom): MapTree {
     )
   }
 
-  // Launch tiles the overworld grants a translevel, which is what a hacker
-  // means by an entrance. Traced in OverworldEntrances; unreadable on a ROM
-  // whose overworld another editor rebuilt, and reported as unknown.
-  const entranceIndex = deriveOverworldEntrances(rom, catalog)
   if (!entranceIndex.overworldReadable) notes.push(...entranceIndex.notes)
 
   const counts: MapTreeCounts = {

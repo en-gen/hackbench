@@ -18,7 +18,11 @@ import { describe, it, expect } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { getAllLevelNames } from '../../../src/rom/SmwLevelNames'
 import { loadOverworldEvents } from '../../../src/rom/OverworldEvents'
-import { deriveOverworldEntrances, warpPrecursorTiles } from '../../../src/rom/OverworldEntrances'
+import {
+  deriveOverworldEntrances,
+  readWarpTiles,
+  warpPrecursorTiles,
+} from '../../../src/rom/OverworldEntrances'
 import { MAGIC, VANILLA, hasRom, romPath } from '../support/corpus'
 
 const HEADERED = MAGIC
@@ -105,7 +109,7 @@ describe.skipIf(!haveVanilla)('deriveOverworldEntrances on vanilla SMW', () => {
 
   it('reads $5A -> $5F as the only warp-producing event swap', () => {
     const rom = SmwRom.open(romPath(VANILLA)).rom
-    expect([...warpPrecursorTiles(rom).entries()]).toEqual([[0x5a, 0x5f]])
+    expect([...warpPrecursorTiles(rom, readWarpTiles(rom)!).entries()]).toEqual([[0x5a, 0x5f]])
   })
 
   it('diverts the six live $5F star-warp tiles', () => {

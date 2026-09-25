@@ -24,6 +24,7 @@ import {
   buildWebviewHtml,
 } from './webviewUtils'
 import { hex3 } from '../rom/hex'
+import { deriveOverworldEntrances } from '../rom/OverworldEntrances'
 
 export class LevelGraphProvider implements vscode.CustomReadonlyEditorProvider {
   constructor(private readonly context: vscode.ExtensionContext) {}
@@ -60,7 +61,8 @@ export class LevelGraphProvider implements vscode.CustomReadonlyEditorProvider {
       const rom = resolveRom(descriptor.romPath)
       const slug = descriptor.slug
 
-      const exitGraph = rom.buildLevelExitGraph().graph
+      const bounds = deriveOverworldEntrances(rom).levelBounds
+      const exitGraph = rom.buildLevelExitGraph(bounds).graph
 
       // Collect all level IDs referenced by at least one edge
       const referenced = new Set<number>()
@@ -73,7 +75,7 @@ export class LevelGraphProvider implements vscode.CustomReadonlyEditorProvider {
         return
       }
 
-      const { overworld } = rom.classifyLevels()
+      const { overworld } = rom.classifyLevels(bounds)
       const overworldSet = new Set(overworld)
 
       const nodes = Array.from(referenced).map(id => ({

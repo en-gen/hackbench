@@ -1,15 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import {
-  deriveOverworldEntrances,
-  TRANSLEVEL_TILE_MIN,
-  TRANSLEVEL_TILE_MAX,
-  STAR_WARP_TILE,
-  PIPE_WARP_TILE,
-} from '../../../src/rom/OverworldEntrances'
+import { deriveOverworldEntrances, readWarpTiles } from '../../../src/rom/OverworldEntrances'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 
 const VANILLA_ROM = romPath(VANILLA)
+
+// Vanilla's operands, typed in here as an independent cross-check of what
+// OverworldEntrances reads (bank_04.asm:1752-1771, 5297-5300).
+const TRANSLEVEL_TILE_MIN = 0x56
+const TRANSLEVEL_TILE_MAX = 0x80
+const STAR_WARP_TILE = 0x5f
+const PIPE_WARP_TILE = 0x5b
 
 // CODE_04DC09 (bank_04.asm:5637) MVN-copies OWL1TileData from $0CF7DF, $800 bytes.
 const OWL1_TILE_DATA = 0x0cf7df
@@ -59,5 +60,9 @@ describe.skipIf(!hasRom(VANILLA))('launch tile count, direct scan', () => {
         .join(' ')}`,
     )
     expect(count).toBe(index.entrances.length)
+    expect(readWarpTiles(rom.rom)).toEqual({
+      starWarpTile: STAR_WARP_TILE,
+      pipeWarpTile: PIPE_WARP_TILE,
+    })
   })
 })

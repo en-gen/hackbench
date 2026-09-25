@@ -7,12 +7,13 @@
  * machine): empirical, not an ASM claim. A mismatch means code HackBench does
  * not decode, so callers decline rather than assume the stock rule.
  *
- * Hack-fragility point: the body of CODE_05D83E (bank_05.asm:7164-7215) is
- * not checked. The JMP into it and the BEQ after it are, so a patch that
- * diverts inside it passes this gate.
+ * The overworld entry is checked contiguously from the JMP target through
+ * `STA _F`: CODE_05D83E's 100-byte body as a fingerprint, then CODE_05D8A2
+ * literally.
  */
 import type { RomFile } from './RomFile'
 import { WILD } from './BytePattern'
+import { fingerprint } from './Fingerprint'
 
 export interface StockCode {
   addr: number
@@ -20,6 +21,16 @@ export interface StockCode {
   bytes: readonly number[]
   /** A bank byte, compared with bit 7 masked: a FastROM mirror is the same bank. */
   bankAt?: number
+  what: string
+  cite: string
+}
+
+/** A span too long to commit literally, recognized by the SHA-256 of its bytes. */
+export interface StockSpan {
+  addr: number
+  length: number
+  /** The recognized builds; a caller may pass its own to `stockCodeMismatch`. */
+  fingerprints: readonly string[]
   what: string
   cite: string
 }
@@ -32,14 +43,36 @@ const REACH: StockCode = {
   cite: 'bank_00.asm:2644',
 }
 
-export const OVERWORLD_ENTRY: readonly StockCode[] = [
+/** Vanilla only, measured: the magic ROM matches it; the four hacks do not. */
+export const OVERWORLD_INDEX_BODY: StockSpan = Object.freeze({
+  addr: 0x05d83e,
+  length: 0x64,
+  fingerprints: Object.freeze(['db1c8ea21ff4fdb26c78dcb5b9386c8fa5ef059fcb1dacd0a2b2d71b514a93d2']),
+  what: 'CODE_05D83E, the OWLayer1Translevel index',
+  cite: 'bank_05.asm:7164-7215',
+})
+
+export const OVERWORLD_ENTRY: readonly (StockCode | StockSpan)[] = [
   REACH,
   { addr: 0x05d7b0, bytes: [0x4c, 0x3e, 0xd8], what: 'JMP CODE_05D83E', cite: 'bank_05.asm:7093' },
+  OVERWORLD_INDEX_BODY,
   {
-    addr: 0x05d8ae,
-    bytes: [0xb9, 0x11, 0x1f, 0xf0, 0x02],
-    what: 'overworld entry high byte',
-    cite: 'bank_05.asm:7223-7224',
+    addr: 0x05d8a2,
+    // prettier-ignore
+    bytes: [
+      0xc9, WILD,       // CMP #threshold
+      0x90, 0x03,       // BCC +
+      0x38,             // SEC
+      0xe9, WILD,       // SBC #bias
+      0x8d, 0xbb, 0x17, // + STA LoadingLevelNumber
+      0x85, 0x0e,       // STA _E
+      0xb9, 0x11, 0x1f, // LDA OWPlayerSubmap,Y
+      0xf0, 0x02,       // BEQ +
+      0xa9, WILD,       // LDA #submapHigh
+      0x85, 0x0f,       // + STA _F
+    ],
+    what: 'CODE_05D8A2, the translevel bias and high byte',
+    cite: 'bank_05.asm:7217-7226',
   },
 ]
 
@@ -47,9 +80,15 @@ export const SCREEN_EXIT: readonly StockCode[] = [
   REACH,
   {
     addr: 0x05d7cb,
-    bytes: [0xb9, 0x11, 0x1f, 0xf0, 0x02],
+    // prettier-ignore
+    bytes: [
+      0xb9, 0x11, 0x1f, // LDA OWPlayerSubmap,Y
+      0xf0, 0x02,       // BEQ +
+      0xa9, WILD,       // LDA #submapHigh
+      0x85, 0x0f,       // + STA _F
+    ],
     what: 'screen exit high byte',
-    cite: 'bank_05.asm:7107-7108',
+    cite: 'bank_05.asm:7107-7110',
   },
   {
     addr: 0x05d7e2,
@@ -59,12 +98,41 @@ export const SCREEN_EXIT: readonly StockCode[] = [
   },
 ]
 
+/**
+ * The high byte `LDA #imm` at `at` loads for a submap, or a refusal: the
+ * pointer table has $200 slots, so only 0 and 1 name one.
+ */
+export function readSubmapHigh(rom: RomFile, at: number): number | string {
+  const high = rom.readByte(at)!
+  if (high <= 1) return high
+  return (
+    `$${at.toString(16).toUpperCase().padStart(6, '0')} loads submap high byte ` +
+    `$${high.toString(16).toUpperCase()}, which names no slot: the pointer table ends at $1FF.`
+  )
+}
+
 const hex = (bytes: Iterable<number>): string =>
   [...bytes].map(b => (b === WILD ? '??' : b.toString(16).padStart(2, '0'))).join(' ')
 
-/** A sentence naming the first run that is not stock, or null when all are. */
-export function stockCodeMismatch(rom: RomFile, checks: readonly StockCode[]): string | null {
+/**
+ * A sentence naming the first run that is not stock, or null when all are.
+ *
+ * @param spanFingerprints Replaces every span's own list; for a synthetic ROM.
+ */
+export function stockCodeMismatch(
+  rom: RomFile,
+  checks: readonly (StockCode | StockSpan)[],
+  spanFingerprints?: readonly string[],
+): string | null {
   for (const c of new Set(checks)) {
+    if ('fingerprints' in c) {
+      const fp = fingerprint(rom.readAt(c.addr, c.length))
+      if (fp !== null && (spanFingerprints ?? c.fingerprints).includes(fp)) continue
+      return (
+        `$${c.addr.toString(16).toUpperCase().padStart(6, '0')} (${c.what}, ${c.cite}) is ` +
+        `${fp ? 'not a recognized build of that code' : 'not readable'}.`
+      )
+    }
     const found = rom.readAt(c.addr, c.bytes.length)
     const same = (b: number, i: number): boolean =>
       b === WILD ? true : i === c.bankAt ? ((found![i]! ^ b) & 0x7f) === 0 : found![i] === b

@@ -1,10 +1,17 @@
 import * as path from 'path'
 import { RomFile } from '../../../src/rom/RomFile'
 import { ADDR, LEVEL_COUNT } from '../../../src/rom/SmwRom'
-import { OVERWORLD_ENTRY, SCREEN_EXIT } from '../../../src/rom/SubmapFlagGate'
+import { OVERWORLD_ENTRY, OVERWORLD_INDEX_BODY, SCREEN_EXIT } from '../../../src/rom/SubmapFlagGate'
+import { OW_ADDR } from '../../../src/rom/OverworldLoader'
+import {
+  WALK_PROLOGUE_LENGTH,
+  type OverworldFingerprints,
+} from '../../../src/rom/OverworldEntrances'
+import { fingerprint } from '../../../src/rom/Fingerprint'
 
-// 256 KB: `size % 1024 !== 512`, so RomFile reads no copier header (+512).
-const BUF_SIZE = 0x40000
+// 512 KB: `size % 1024 !== 512`, so RomFile reads no copier header (+512).
+// Large enough to reach bank $0C, where the overworld tile stream lives.
+const BUF_SIZE = 0x80000
 
 // Stamped into the raw buffer before RomFile exists: RomFile picks its
 // addressing mode from this byte in its constructor, and every writeAt below
@@ -18,13 +25,59 @@ const FILLER_PTR = 0x038000
 const FIRST_ROOM_PTR = 0x018000
 const ROOM_STRIDE = 0x100
 
+const NOP = 0xea
+const nops = (length: number): Buffer => Buffer.alloc(length, NOP)
+
 /**
- * The stock code SubmapFlagGate checks, so a synthetic image is not declined.
- * Written from the gate's own constants: tests that must catch a wrong
- * constant plant their refusals at literal addresses instead.
+ * The fingerprinted spans are vanilla code and never committed (CLAUDE.md),
+ * so a synthetic ROM fills them with NOPs. Pass this to the reader under test;
+ * the stock defaults refuse it.
+ */
+export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
+  entry: Object.freeze([fingerprint(nops(OVERWORLD_INDEX_BODY.length))!]),
+  walk: Object.freeze([fingerprint(nops(WALK_PROLOGUE_LENGTH))!]),
+})
+
+/**
+ * The stock code SubmapFlagGate and OverworldEntrances check, at vanilla's
+ * addresses, so a synthetic image is not declined. Tests that must catch a
+ * wrong constant plant their own bytes at literal addresses instead.
  */
 export function plantStockSubmapCode(rom: RomFile): void {
-  for (const c of [...OVERWORLD_ENTRY, ...SCREEN_EXIT]) rom.writeAt(c.addr, [...c.bytes])
+  for (const c of [...OVERWORLD_ENTRY, ...SCREEN_EXIT]) {
+    if ('fingerprints' in c) rom.writeAt(c.addr, nops(c.length))
+    else rom.writeAt(c.addr, [...c.bytes])
+  }
+  rom.writeAt(0x05d8a2, [0xc9, 0x25, 0x90, 0x03, 0x38, 0xe9, 0x24])
+  rom.writeAt(0x05d8b4, [0x01])
+  rom.writeAt(0x05d7d1, [0x01])
+  // CODE_04DC09's call, CODE_04D7F2's prologue and walk, OWPU_ABXY. Operands
+  // nothing reads (and the tile-range floor, $50 here) differ from vanilla, so
+  // no run of vanilla bytes longer than 32 is committed.
+  rom.writeAt(0x04dc57, [0xa9, 0xff, 0x07, 0xa2, 0xdf, 0xf7, 0xa0, 0x00, 0xc8])
+  rom.writeAt(0x04dc60, [0x54, 0x7e, 0x0c, 0xab, 0x20, 0xf2, 0xd7, 0xe2, 0x30, 0x6b])
+  rom.writeAt(0x04d7f2, nops(WALK_PROLOGUE_LENGTH))
+  rom.writeAt(0x04d81d, [0xa0, 0x01, 0xff, 0x84, 0x00, 0xa0, 0xff, 0x07, 0xa9, 0x00, 0x97])
+  rom.writeAt(0x04d828, [0x0a, 0x97, 0x0d, 0x88, 0x10, 0xf9, 0xa0, 0x00, 0x00, 0xbb])
+  rom.writeAt(0x04d832, [0xb7, 0x04, 0xc9, 0x50, 0x90, 0x11, 0xc9, 0x81, 0xb0, 0x0d])
+  rom.writeAt(0x04d83c, [0xa5, 0x00, 0x97, 0x0d, 0xaa, 0xbf, 0x00, 0x00, 0x00, 0x97])
+  rom.writeAt(0x04d846, [0x0a, 0xe6, 0x00, 0xc8, 0xc0, 0x00, 0x08, 0xd0, 0xe3])
+  rom.writeAt(0x049132, [0xa5, 0x16, 0x29, 0x20, 0x80, 0x09])
+  rom.writeAt(0x049141, [0xa5, 0x17, 0x29, 0x30, 0xc9, 0x30, 0xd0, 0x07, 0xad, 0xc1, 0x13])
+  rom.writeAt(0x04914c, [0xc9, 0x81, 0xf0, 0x00])
+  rom.writeAt(0x049150, [0xa5, 0x16, 0x05, 0x18, 0x29, 0xc0, 0xd0, 0x03, 0x82, 0x00, 0x00])
+  rom.writeAt(0x04915b, [0x9c, 0x9e, 0x1b, 0xad, 0xc1, 0x13, 0xc9, 0x5f, 0xd0, 0x18])
+  rom.writeAt(0x04917d, [0xad, 0xc1, 0x13, 0xc9, 0x82, 0xf0, 0x04, 0xc9, 0x5b, 0xd0, 0x11])
+}
+
+/**
+ * $24 main-map and 28 sub-map launch tiles: with the stock bias the derived
+ * ranges are $000-$024 and $101-$11C, past any submap root a test names and
+ * short of any submap destination ($140 and up).
+ */
+export function plantOverworldTiles(rom: RomFile): void {
+  for (let i = 0; i < 0x24; i++) rom.writeAt(OW_ADDR.L1_TILEDATA + i, [0x6e])
+  for (let i = 0; i < 28; i++) rom.writeAt(OW_ADDR.L1_TILEDATA + 0x400 + i, [0x6e])
 }
 
 const ptrBytes = (ptr: number): number[] => [ptr & 0xff, (ptr >> 8) & 0xff, (ptr >> 16) & 0xff]
@@ -46,6 +99,7 @@ export function writeSyntheticRom(dir: string, rooms: Map<number, number[]>): st
   const rom = new RomFile(file, buf)
   rom.writeAt(ADDR.ROM_NAME, Buffer.from('HACKBENCH SYNTHETIC  ', 'ascii'))
   plantStockSubmapCode(rom)
+  plantOverworldTiles(rom)
 
   // The filler room terminates before its first object, so `levelHasObjects`
   // rejects it and no unclaimed slot can become a level or an exit target.
