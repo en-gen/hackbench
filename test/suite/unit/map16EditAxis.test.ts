@@ -26,7 +26,6 @@ function sheetFrom(tileset: number, layer: Map16Layer, bg: number, fg: number): 
     layer,
     tileset,
     paletteVariant: { bg, fg },
-    tileCountSource: 'rom',
     citedColorRows: [],
     charSheets: [],
     tilesPerRow: 16,

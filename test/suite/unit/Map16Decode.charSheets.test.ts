@@ -15,7 +15,8 @@
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import { buildL2Map16PointerTable, MAP16_TOTAL_TILES } from '../../../src/rom/Map16'
+import { MAP16_TOTAL_TILES } from '../../../src/rom/Map16'
+import { map16Stub } from '../support/syntheticMap16'
 import {
   getCharPixels,
   loadVram,
@@ -46,39 +47,10 @@ const ROM_PATH = romPath(VANILLA)
 const romPresent = hasRom(VANILLA)
 const DEFAULT_VARIANT: Map16PaletteVariantDto = { bg: 0, fg: 0 }
 
-/**
- * A 64 KB stub carrying the Map16 pointer-fill loop's tail with
- * `pointerBytes` as its `CPX` immediate (bank_05.asm:229-237). Filled with
- * $00 so nothing else in the buffer can match the pattern.
- *
- * Same shape as Map16.tileCount.test.ts's own stub, duplicated rather than
- * shared because that file pins the READER and this one pins what the VIEW
- * does with the reader's answer; a shared helper would let one file's edit
- * quietly change the other's fixture.
- */
+/** A stub whose fill loops claim `pointerBytes`; `null` adds a disagreeing count site. */
 function stubRom(pointerBytes: number | null): RomFile {
-  const buf = Buffer.alloc(0x10000, 0x00)
-  if (pointerBytes !== null) {
-    const o = 0x1000
-    buf.set(
-      [
-        0x69,
-        0x08,
-        0x00,
-        0x85,
-        0x65,
-        0xe8,
-        0xe8,
-        0xe0,
-        pointerBytes & 0xff,
-        (pointerBytes >> 8) & 0xff,
-        0xd0,
-        0xf3,
-      ],
-      o,
-    )
-  }
-  return RomFile.fromBytes('stub.sfc', new Uint8Array(buf))
+  const bytes = map16Stub(pointerBytes === null ? { extraCount: 0x200 } : { bgBound: pointerBytes })
+  return RomFile.fromBytes('stub.sfc', bytes)
 }
 
 describe('map16TileCapacity (no cartridge)', () => {
@@ -118,44 +90,24 @@ describe('map16TileCapacity (no cartridge)', () => {
   })
 })
 
-/**
- * The two layers are counted SEPARATELY; see `Map16SheetDto.tileCountSource`
- * for why. Every fixture here is synthetic: CI has no cartridge, and a gate
- * proven only by a corpus test is unproven where it actually runs.
- */
+/** Each layer answers from its own fill loop; every fixture is synthetic. */
 describe('map16LayerExtent (no cartridge)', () => {
-  it('reads the foreground extent off this cartridge own fill loop', () => {
-    expect(map16LayerExtent(stubRom(0x0400), 'fg')).toEqual({ count: 512, source: 'rom' })
-    expect(map16LayerExtent(stubRom(0x0200), 'fg')).toEqual({ count: 256, source: 'rom' })
+  it('reads the foreground extent off this ROM own fill loop', () => {
+    expect(map16LayerExtent(stubRom(0x0400), 'fg')).toEqual({ count: 512 })
+    expect(map16LayerExtent(stubRom(0x0200), 'fg')).toEqual({ count: 256 })
   })
 
-  it('does NOT gate the background on the foreground count', () => {
-    // A cart whose FG loop says 2048: the FG table is refused, because
-    // loadAllMap16 cannot walk it. The BG table is untouched by that fact.
-    const rom = stubRom(0x1000)
-    expect('reason' in map16LayerExtent(rom, 'fg')).toBe(true)
-    expect(map16LayerExtent(rom, 'bg')).toEqual({
-      count: buildL2Map16PointerTable().length,
-      source: 'fixed-bg-table',
-    })
-  })
-
-  it('presents the background even when the foreground loop cannot be found at all', () => {
+  it('presents the background when the foreground count is unresolvable', () => {
     const rom = stubRom(null)
     expect('reason' in map16LayerExtent(rom, 'fg')).toBe(true)
-    const bg = map16LayerExtent(rom, 'bg')
-    expect('reason' in bg).toBe(false)
-    expect(bg).toEqual({ count: 512, source: 'fixed-bg-table' })
+    expect(map16LayerExtent(rom, 'bg')).toEqual({ count: 512 })
   })
 
-  it('never claims the background extent was read from the cartridge', () => {
-    // The provenance is what the view says out loud, so a `cartridge` here
-    // would be a confident claim nothing supports. Expansion of the Layer 2
-    // table is en-gen/hackbench#102.
-    for (const bytes of [0x0400, 0x0200, 0x1000]) {
-      const bg = map16LayerExtent(stubRom(bytes), 'bg')
-      expect(bg).toEqual({ count: 512, source: 'fixed-bg-table' })
-    }
+  it('reads the background extent off its own fill loop, or refuses (#489)', () => {
+    const rom = (bytes: Uint8Array): RomFile => RomFile.fromBytes('stub.sfc', bytes)
+    expect(map16LayerExtent(rom(map16Stub({ bgBound: 0x200 })), 'bg')).toEqual({ count: 256 })
+    expect('reason' in map16LayerExtent(rom(map16Stub({ bgBound: 0x1000 })), 'bg')).toBe(true)
+    expect('reason' in map16LayerExtent(rom(map16Stub({}, ['bgLoop'])), 'bg')).toBe(true)
   })
 })
 

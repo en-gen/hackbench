@@ -467,7 +467,6 @@ async function readCommittedTile(page, manifestPath, tileset, layer, tileId) {
       return {
         status: 'ok',
         tileCount: r.sheet.tiles.length,
-        tileCountSource: r.sheet.tileCountSource,
         charLabels: r.sheet.charSheets.map(s => `${s.slot} - ${s.fileLabel}`),
         tl: pick(t.tl),
         tr: pick(t.tr),
@@ -549,27 +548,49 @@ test('opening a row shows a real sheet of the count the cartridge reports', asyn
   expect(note).toContain('en-gen/hackbench#102')
 })
 
-/**
- * The Layer 2 table's extent is NOT the foreground loop's answer, and the
- * view says so. `buildL2Map16PointerTable` takes no ROM and hardcodes 512,
- * so presenting it as something read off the cartridge would be the
- * confident kind of wrong. Backed by Map16Decode.charSheets.test.ts and
- * Map16Server.test.ts, which prove the decoupling itself on synthetic
- * bytes; this is the half the user can see.
- */
-test('the Background tab says its extent is not read from the cartridge', async ({ page }) => {
-  const project = await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+/** The L2 (background) count comes from that layer's own fill-loop bound. */
+test('the Background tab says its extent is read from this ROM', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
   await openMap16(page, 'bg')
 
   const note = await page.locator(`${BG} .hb-map16-browser-note`).textContent()
-  expect(note).toContain('does not yet read the Layer 2 table extent from the ROM')
-  expect(note).toContain('en-gen/hackbench#102')
-  expect(note).not.toContain('read from this ROM.')
+  expect(note).toContain('read from this ROM')
+})
 
-  const bg = await readCommittedTile(page, project.manifestPath, 0, 'bg', 0)
-  expect(bg.tileCountSource).toBe('fixed-bg-table')
-  const fg = await readCommittedTile(page, project.manifestPath, 0, 'fg', 0)
-  expect(fg.tileCountSource).toBe('rom')
+/**
+ * A copy of `src` whose L2 (background) fill loop no longer ends in the PLP
+ * that marks the level loader's copy (bank_05.asm:239), so the loop cannot
+ * be located. Returns how many sites were patched.
+ */
+function romWithoutL2FillLoop(src, dest) {
+  const buf = fs.readFileSync(src)
+  const tail = [0x00, 0x04, 0xd0, 0xec, 0x28, 0x60]
+  const sites = []
+  for (let at = 0; at <= buf.length - tail.length; at++) {
+    if (tail.every((b, k) => buf[at + k] === b)) sites.push(at)
+  }
+  for (const at of sites) buf[at + 4] = 0xea
+  fs.writeFileSync(dest, buf)
+  return sites.length
+}
+
+test('a Background table the ROM does not locate is refused, and Foreground still renders', async ({
+  page,
+}) => {
+  const patched = path.join(tmp, 'no-l2-loop.sfc')
+  expect(romWithoutL2FillLoop(ROM, patched), 'the L2 loop tail must match once').toBe(1)
+
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'), patched)
+  await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
+  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(ROW_OF.bg).dblclick()
+  const refusal = page.locator(`${BG} .hb-map16-unavailable`)
+  await expect(refusal).toBeVisible({ timeout: 15000 })
+  expect(await refusal.textContent()).toContain('L2 (background)')
+  await expect(page.locator(`${BG} .hb-map16-canvas`)).toHaveCount(0)
+  await expect(page.locator(`${BG} .hb-map16-edit-pane`)).toHaveCount(0)
+
+  await openMap16(page, 'fg')
+  await expect(page.locator(`${FG} .hb-map16-canvas`)).toHaveCount(1, { timeout: 15000 })
 })
 
 /**

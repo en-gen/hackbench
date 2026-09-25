@@ -120,6 +120,8 @@ export function buildTiles(
 ): Map<number, Tile> {
   const placeholder = makePlaceholderChar()
   const { tiles: baseTiles, pipeVariants } = loadMap16WithPipeVariants(rom, tileset)
+  // Empty when the ROM jumps over its pipe-cycle readers; pipe tiles are then static.
+  const cycles = pipeVariants.length > 0
   const actsLike = readActsLikeTable(rom)
   const slopeTable = readSlopeTable(rom)
   const marioTables = readMarioDispatchTables(rom)
@@ -337,7 +339,7 @@ export function buildTiles(
   const paraKoopaChars = PARAKOOPA_CHAR_NUMS.map(i => chars.get(i) ?? null)
 
   for (const m16 of baseTiles) {
-    if (isPipeTile(m16.id)) continue // handled below
+    if (cycles && isPipeTile(m16.id)) continue // handled below
     if (isSwitchPalaceTile(m16.id)) continue // handled below
     if (P_SWITCH_REVEALS.has(m16.id)) continue // handled below
     if (INVISIBLE_BLOCK_REVEALS.has(m16.id)) continue // handled below
@@ -439,7 +441,7 @@ export function buildTiles(
     )
   }
 
-  for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) {
+  for (let i = 0; cycles && i < PIPE_VARIANT_TILE_COUNT; i++) {
     const id = PIPE_VARIANT_TILE_START + i
     const variantQuads: SubtileQuad[] = pipeVariants.map(variant =>
       quadFromMap16(variant[i], chars, placeholder),

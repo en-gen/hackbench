@@ -29,9 +29,8 @@ export const MAP16_TILES_PER_ROW = 16
 /**
  * There are two SEPARATE Map16 tables (MapEditorProvider.ts:388-390 loads
  * both for a level): `fg` is the per-tileset object/terrain table
- * (`buildMap16PointerTable` + `loadAllMap16`); `bg` is the GLOBAL Layer 2
- * preset table (`buildL2Map16PointerTable` + `loadAllMap16BG`, one fixed
- * table, no tileset). They share nothing - tile `$100` is a different entry
+ * (`readMap16Table`); `bg` is the GLOBAL Layer 2 preset table
+ * (`readL2Map16Table`, one table, no tileset). They share nothing - tile `$100` is a different entry
  * in each. `tileset` still applies to `bg` sheets for VRAM/GFX-assignment
  * purposes, and NOT merely nominally: `readGfxAssignment` yields 13 distinct
  * assignments across the 15 vanilla tilesets in the `fg3`/`an1` slots alone
@@ -212,9 +211,9 @@ export interface Map16TileDto {
    * Whether this tile's bytes are SHARED rather than private to the
    * current tileset, so an edit reaches more than the tileset on screen.
    *
-   * `buildMap16PointerTable` interleaves per-tileset entries with the
-   * shared `Map16Common` run at `$0D8000`, driven by the bitmap at
-   * `$0581BB`, so "which tileset owns this tile" varies BY TILE and
+   * `readMap16Table` interleaves per-tileset entries with the
+   * shared `Map16Common` run CODE_0581FB's operand names, driven by its
+   * bitmap, so "which tileset owns this tile" varies BY TILE and
    * cannot be answered per sheet. Measured on the vanilla cart: 326 of 512
    * FG ids resolve to a byte-identical address on all 15 tilesets, 63.7%,
    * and every one of them lies inside the common run. The inspector said
@@ -312,19 +311,6 @@ export interface Map16SheetDto {
   tileset: number
   paletteVariant: Map16PaletteVariantDto
   /**
-   * Where `tiles.length` came from, so the view can say which it is rather
-   * than presenting two different facts in one shape.
-   *
-   * `rom` means `readMap16TileCount` walked this ROM's own pointer-fill
-   * loop (bank_05.asm:229-237) and this is what it said.
-   * `fixed-bg-table` means the count is `buildL2Map16PointerTable`'s own
-   * length, which takes no ROM and is not derived from this one at all:
-   * the Layer 2 preset table's extent has no equivalent read, so the FG
-   * loop's answer is NOT borrowed for it. Reading the BG extent is
-   * post-MVP, tracked as en-gen/hackbench#102.
-   */
-  tileCountSource: 'rom' | 'fixed-bg-table'
-  /**
    * The distinct CGRAM rows (0-7) any character's `colorRow` field in THIS
    * sheet actually cites - scanned from the loaded table, never assumed.
    * Vanilla measurement (all 6 corpus carts, identical): the BG table cites
@@ -351,7 +337,7 @@ export interface Map16SheetDto {
   animationNote?: string
   /**
    * Always true today: tiles $133-$13A cycle through 4 palette variants per
-   * screen at runtime (MAP16_APP_TABLE in src/rom/Map16.ts) and this view
+   * screen at runtime (readMap16AppTable in src/rom/Map16.ts) and this view
    * renders only the bitmap-default pointers, not any variant. Carried on
    * the DTO (rather than left implicit) so the view can say so rather than
    * silently pretending those 8 tiles are the whole story. FG-layer only:

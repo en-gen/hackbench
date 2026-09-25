@@ -986,14 +986,6 @@ export class Map16ViewWidget extends ReactWidget {
   /** The tile browser strip: which tile the preview is showing. */
   protected renderBrowser(sheet: Map16SheetDto): React.ReactNode {
     const pages = Math.ceil(sheet.tiles.length / TILES_PER_PAGE)
-    // Where the count CAME FROM, said in place. The foreground count is
-    // read off this cartridge's own pointer-fill loop; the Layer 2 table's
-    // extent is not read from the cartridge at all, and presenting the two
-    // as one fact would be the confident kind of wrong.
-    const provenance =
-      sheet.tileCountSource === 'rom'
-        ? 'read from this ROM. More pages need an expanded Map16 table (en-gen/hackbench#102).'
-        : 'the fixed size the stock engine indexes. This view does not yet read the Layer 2 table extent from the ROM (en-gen/hackbench#102).'
     return (
       <div className={'hb-map16-browser' + (this.browserOpen ? '' : ' hb-map16-browser-closed')}>
         <div className="hb-map16-browser-head">
@@ -1011,7 +1003,7 @@ export class Map16ViewWidget extends ReactWidget {
             Tiles
           </button>
           <span className="hb-map16-browser-note">
-            {`${sheet.tiles.length} tiles, ${pages} ${pages === 1 ? 'page' : 'pages'}: ${provenance}`}
+            {`${sheet.tiles.length} tiles, ${pages} ${pages === 1 ? 'page' : 'pages'}: read from this ROM. More pages need an expanded Map16 table (en-gen/hackbench#102).`}
           </span>
         </div>
         {this.browserOpen && (
