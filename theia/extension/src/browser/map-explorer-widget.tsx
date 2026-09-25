@@ -1,12 +1,18 @@
 /**
  * The map explorer: every map in the project's cartridge, grouped.
  *
- *   Overworld
+ *   1. Yoshi's Island
  *   |- $105 YOSHI'S ISLAND 1
  *   |   \- $0C5
  *   \- ...
  *   Unassigned
- *   \- $0D3
+ *   |- $0D3 (an entry map)
+ *   \- $0D8 (an orphan: not reached from the overworld, dimmed)
+ *
+ * There is no separate Overworld folder. Every top-level map not in a user
+ * group, entry map or orphan alike, lands in Unassigned, sorted by slot: an
+ * entry map moved there is exactly as "unassigned" as an orphan is, the row
+ * just says which by its icon and (for an orphan) its dimming.
  *
  * "Map" is the glossary's term (docs/glossary.md): a pointer-table slot
  * holding real data, and the editable unit. Vanilla has 235 of them, and the
@@ -34,27 +40,35 @@ import {
   CompositeTreeNode,
   ExpandableTreeNode,
   SelectableTreeNode,
+  TreeSelection,
   createTreeContainer,
 } from '@theia/core/lib/browser'
 import { Emitter, MessageService } from '@theia/core/lib/common'
-import { MapNodeDto, ProjectService, SpecialMapNodeDto } from '../common/project-protocol'
+import {
+  GroupedMapNodeDto,
+  GroupedMapTreeDto,
+  MapGroupDto,
+  MapNodeDto,
+  ProjectService,
+  SpecialMapNodeDto,
+} from '../common/project-protocol'
 
 export const MAP_EXPLORER_ID = 'hackbench.map-explorer'
+
+/** Registered in map-explorer-contribution.ts; named here to avoid a circular import. */
+export const MAP_EXPLORER_CONTEXT_MENU = ['map-explorer-context-menu']
 
 /**
  * What a row IS, in the glossary's terms (docs/glossary.md).
  *
- * Drives the icon. The distinction the icons are actually carrying is the one
- * the glossary insists on: an ENTRY MAP is what a launch tile starts, a SUB
- * AREA is reachable only from another map, and an ORPHANED map is reachable
- * from neither. Those are three different things and a tree that draws them
- * identically makes the user infer the difference from indentation.
+ * An ENTRY MAP is what a launch tile starts, a SUB AREA is reachable only
+ * from another map, and an ORPHANED map is reachable from neither.
  */
 export type MapCategory =
   | 'title-screen'
   | 'new-game'
-  | 'overworld-group'
   | 'unassigned-group'
+  | 'user-group'
   | 'entry'
   | 'subarea'
   | 'orphan'
@@ -63,7 +77,7 @@ export type MapCategory =
   | 'message'
 
 /**
- * A map, or one of the two grouping folders.
+ * A map, or one of the grouping folders.
  *
  * `expanded` is OPTIONAL and deliberately absent on leaves. Theia decides
  * whether to draw an expansion chevron with `ExpandableTreeNode.is`, which
@@ -79,28 +93,18 @@ export interface MapTreeNode extends CompositeTreeNode, SelectableTreeNode {
   expanded?: boolean
 }
 
-/**
- * Codicons, the icon font VS Code uses and Theia bundles, so the tree matches
- * the rest of the shell rather than introducing a second icon vocabulary.
- */
 export const CATEGORY_ICONS: Record<MapCategory, string> = {
-  // The first thing a player sees.
   'title-screen': 'codicon-device-desktop',
-  // The intro cutscene that runs when a file is started.
   'new-game': 'codicon-play-circle',
-  'overworld-group': 'codicon-globe',
   // Deliberately the same mark as the orphans it contains: the folder is not
   // a different kind of thing from its children, it is just where they sit.
   'unassigned-group': 'codicon-question',
+  'user-group': 'codicon-folder',
   // What a launch tile starts: the way into a level.
-  entry: 'codicon-home',
-  // Reached only from another map, which is what a branch is.
+  entry: 'codicon-map',
   subarea: 'codicon-git-branch',
-  // Real map data no overworld root reaches.
   orphan: 'codicon-question',
-  // A back edge to a map already on the path from this root.
   loop: 'codicon-sync',
-  // A subtree left unexpanded by LevelTree's caps.
   truncated: 'codicon-ellipsis',
   message: 'codicon-info',
 }
@@ -116,15 +120,32 @@ export class MapExplorerWidget extends TreeWidget {
   /** Exposed for tests: the count the backend reported for this cartridge. */
   mapCount = 0
 
-  /** The project currently loaded, needed to open a map from a row. */
   protected manifestPath = ''
 
   /**
-   * Fired when a row is clicked, carrying the map it names.
-   *
-   * An event rather than a direct call so the tree stays a view: it knows
-   * which map was asked for and nothing about what opening one means.
+   * The raw meta/groups.json list, as the server last read it: not rebuilt
+   * from the resolved tree, so a slot the current ROM cannot resolve (a
+   * stale group member) survives an edit instead of being dropped.
    */
+  protected groups: MapGroupDto[] = []
+
+  /** Set when meta/groups.json failed to read; group editing is refused while set. */
+  protected groupsError: string | undefined
+
+  /** Chains group writes so a second edit always starts from the first one's result. */
+  protected writeQueue: Promise<void> = Promise.resolve()
+
+  /**
+   * Bumped on every `load()` call; a response is applied only if it is still
+   * the latest one requested. Without this, switching projects while an
+   * older `load()` is still in flight could let it resolve AFTER the newer
+   * one and overwrite the view with the wrong project's tree.
+   */
+  protected loadGeneration = 0
+
+  /** True while restoreSelectionAndExpansion is rebuilding a multi-selection. */
+  protected restoringSelection = false
+
   protected readonly onMapOpenedEmitter = new Emitter<{
     index: number
     label: string
@@ -151,12 +172,13 @@ export class MapExplorerWidget extends TreeWidget {
     super.init()
     this.setRoot([])
 
-    // Selection drives the preview, not the click: the arrow keys change
-    // selection without tapping, so binding to the click left the keyboard
-    // moving the highlight and nothing else.
+    // A multi-row selection (Ctrl/Shift+click) opens nothing: it is there to
+    // build a group from, not to preview.
     this.toDispose.push(
-      this.model.onSelectionChanged(() => {
-        this.fireOpen(this.model.selectedNodes[0] as MapTreeNode | undefined, false)
+      this.model.onSelectionChanged(nodes => {
+        if (!this.restoringSelection && nodes.length === 1) {
+          this.fireOpen(nodes[0] as MapTreeNode, false)
+        }
       }),
     )
   }
@@ -164,16 +186,39 @@ export class MapExplorerWidget extends TreeWidget {
   /**
    * Load a project's maps.
    *
-   * A cartridge this machine cannot locate is an ordinary first-run state,
-   * not a failure: the project names its ROM by hash so it can be shared, and
-   * the answer is to ask the user where theirs is.
+   * manifestPath is committed only once the load actually succeeds: setting
+   * it eagerly left a failed load pointing the NEXT edit at a project whose
+   * tree and groups still belonged to whatever was open before.
+   *
+   * Guarded by `loadGeneration`: if a second `load()` starts before this one
+   * resolves (switching projects quickly), the first one's response is
+   * dropped rather than applied after the second one's, which would leave
+   * project A's tree on screen while project B is actually open.
    */
   async load(manifestPath: string): Promise<void> {
+    const generation = ++this.loadGeneration
+    let result
+    try {
+      result = await this.projects.loadMaps(manifestPath)
+    } catch (err) {
+      if (generation !== this.loadGeneration) return
+      this.manifestPath = ''
+      this.mapCount = 0
+      this.groups = []
+      this.groupsError = undefined
+      const reason = err instanceof Error ? err.message : String(err)
+      this.setRoot([this.message(`Could not load maps: ${reason}`)])
+      this.messages.error(reason)
+      return
+    }
+    if (generation !== this.loadGeneration) return
+
     this.manifestPath = manifestPath
-    const result = await this.projects.loadMaps(manifestPath)
 
     if (result.status === 'rom-not-located') {
       this.mapCount = 0
+      this.groups = []
+      this.groupsError = undefined
       this.setRoot([
         this.message(`Locate ${result.baseRom.title || 'the base ROM'} to load its maps`),
       ])
@@ -181,26 +226,19 @@ export class MapExplorerWidget extends TreeWidget {
     }
 
     this.mapCount = result.tree.mapCount
-    const counts = result.tree.counts
-    // Listed in the order a player meets them: title screen, new game, then
-    // the overworld and whatever it does not reach.
-    this.setRoot([
-      ...result.tree.special.map(s => this.specialNode(s)),
-      this.group(
-        'overworld',
-        // A null entrance count means the overworld could not be read, so the
-        // label carries no number rather than implying zero.
-        counts.entrances === null ? 'Overworld' : `Overworld (${counts.entrances})`,
-        'overworld-group',
-        result.tree.overworld,
-      ),
-      this.group(
-        'unassigned',
-        `Unassigned (${counts.unassigned})`,
-        'unassigned-group',
-        result.tree.unassigned,
-      ),
-    ])
+    this.groups = result.rawGroups
+    this.groupsError = result.groupsError
+
+    const rows: MapTreeNode[] = [...result.tree.special.map(s => this.specialNode(s))]
+    if (this.groupsError) {
+      rows.push(this.message(`Groups unavailable: ${this.groupsError}`))
+      this.messages.error(`meta/groups.json: ${this.groupsError}`)
+    }
+    rows.push(...result.tree.groups.map(g => this.userGroupNode(g)))
+    // The count is rows actually listed under the folder, not a derived ROM
+    // figure: a map that moved into a group no longer counts here.
+    rows.push(this.unassignedNode(result.tree.unassigned))
+    this.setRoot(rows)
 
     // Notes carry what the grouping could not do (unassigned maps, a ROM
     // whose filler could not be identified confidently). Surfacing them beats
@@ -246,29 +284,45 @@ export class MapExplorerWidget extends TreeWidget {
     this.model.root = root
   }
 
-  /** `id` is stable and lowercase; `label` is what the user reads. */
-  protected group(
-    id: string,
-    label: string,
-    category: MapCategory,
-    maps: MapNodeDto[],
-  ): MapTreeNode {
+  /**
+   * The single structural folder: every top-level map not in a user group,
+   * sorted by slot, each carrying its own entry/orphan marking (there is no
+   * separate Overworld folder to infer it from position).
+   */
+  protected unassignedNode(maps: GroupedMapNodeDto[]): MapTreeNode {
     const node: MapTreeNode = {
-      id: `group:${id}`,
-      name: label,
+      id: 'group:unassigned',
+      name: `Unassigned (${maps.length})`,
       index: -1,
       mapName: null,
       kind: 'group',
-      category,
+      category: 'unassigned-group',
       parent: undefined,
       children: [],
       selected: false,
     }
-    // A map directly under Overworld is an ENTRY MAP; one directly under
-    // Unassigned is ORPHANED. Everything deeper is a sub area either way.
-    const top: MapCategory = category === 'overworld-group' ? 'entry' : 'orphan'
-    node.children = maps.map(m => this.toNode(m, node, top))
-    // An empty group gets no chevron either, for the same reason.
+    node.children = maps.map(m => this.toNode(m, node, m.orphan ? 'orphan' : 'entry'))
+    if (node.children.length > 0) node.expanded = true
+    return node
+  }
+
+  /** `group:user:<name>`, distinct from the structural `group:unassigned`. */
+  protected userGroupNode(g: GroupedMapTreeDto['groups'][number]): MapTreeNode {
+    const node: MapTreeNode = {
+      id: `group:user:${g.name}`,
+      name: `${g.name} (${g.maps.length})`,
+      index: -1,
+      mapName: null,
+      kind: 'group',
+      category: 'user-group',
+      parent: undefined,
+      children: [],
+      selected: false,
+    }
+    node.children = g.maps.map((m: GroupedMapNodeDto) =>
+      this.toNode(m, node, m.orphan ? 'orphan' : 'entry'),
+    )
+    // Empty group still shows, as an empty folder with no chevron.
     if (node.children.length > 0) node.expanded = true
     return node
   }
@@ -295,11 +349,7 @@ export class MapExplorerWidget extends TreeWidget {
       children: [],
       selected: false,
     }
-    // Anything below a top-level map is reachable only from another map,
-    // which is the glossary's definition of a sub area.
     node.children = dto.children.map(c => this.toNode(c, node, 'subarea'))
-    // Only a node with somewhere to go is expandable. A loop or a truncation
-    // never expands by definition and never has children here.
     if (node.children.length > 0) node.expanded = false
     return node
   }
@@ -311,7 +361,6 @@ export class MapExplorerWidget extends TreeWidget {
   protected specialNode(dto: SpecialMapNodeDto): MapTreeNode {
     return {
       id: `special:${dto.role}`,
-      // The label the user reads; the slot still shows in the caption.
       name: dto.role === 'title-screen' ? 'Title Screen' : 'New Game',
       index: dto.index,
       mapName: dto.name,
@@ -323,21 +372,6 @@ export class MapExplorerWidget extends TreeWidget {
     }
   }
 
-  /**
-   * A click selects and OPENS; only the chevron expands.
-   *
-   * Theia's default toggles expansion on a row click as well, which means a
-   * folder cannot be opened without also collapsing it. The container sets
-   * expandOnlyOnExpansionToggleClick to stop that, and this adds the open.
-   */
-  protected override tapNode(node: TreeNode | undefined): void {
-    super.tapNode(node)
-  }
-
-  /**
-   * Double click pins. Theia fires tapNode for the first click of the pair,
-   * so the preview opens and is then promoted, which is what VS Code does.
-   */
   protected override handleDblClickEvent(
     node: TreeNode | undefined,
     event: React.MouseEvent<HTMLElement>,
@@ -352,8 +386,6 @@ export class MapExplorerWidget extends TreeWidget {
     this.onMapOpenedEmitter.fire({
       index: map.index,
       pinned,
-      // The tab wears the row's own mark, so a map is the same thing in the
-      // tree and in the tab bar.
       iconClass: `codicon ${CATEGORY_ICONS[map.category]}`,
       label:
         map.category === 'title-screen' || map.category === 'new-game'
@@ -364,9 +396,7 @@ export class MapExplorerWidget extends TreeWidget {
 
   /**
    * Rows belong to a project, and nothing is open on a fresh load, so none of
-   * them are persisted. Theia's TreeWidget serialises its whole model by
-   * default, which restores a populated tree over an empty ProjectContext:
-   * the view then lists maps from a cartridge the session has not opened.
+   * them are persisted.
    */
   override storeState(): object {
     return {}
@@ -374,6 +404,239 @@ export class MapExplorerWidget extends TreeWidget {
 
   override restoreState(_state: object): void {
     // Intentionally empty; load() repopulates when a project opens.
+  }
+
+  /**
+   * A map that can belong to a group: an entry map or an orphan, the tree's
+   * two top-level categories. Excludes sub areas, loops, truncated rows and
+   * the Title Screen/New Game rows.
+   */
+  protected groupable(node: MapTreeNode): boolean {
+    return node.kind === 'map' && (node.category === 'entry' || node.category === 'orphan')
+  }
+
+  protected selected(): MapTreeNode[] {
+    return this.model.selectedNodes as MapTreeNode[]
+  }
+
+  /** Add to Group is refused when the selection contains anything ungroupable. */
+  canAddToGroup(): boolean {
+    if (this.groupsError) return false
+    const selected = this.selected()
+    return selected.length > 0 && selected.every(m => this.groupable(m))
+  }
+
+  canRemoveFromGroup(): boolean {
+    if (this.groupsError) return false
+    return this.selected()
+      .filter(m => this.groupable(m))
+      .some(m => this.groupAncestor(m) !== undefined)
+  }
+
+  protected groupAncestor(node: MapTreeNode): MapTreeNode | undefined {
+    let n: TreeNode | undefined = node.parent
+    while (n) {
+      if ((n as MapTreeNode).category === 'user-group') return n as MapTreeNode
+      n = (n as MapTreeNode).parent
+    }
+    return undefined
+  }
+
+  groupNames(): string[] {
+    return this.groups.map(g => g.name)
+  }
+
+  isUserGroupNode(node: TreeNode | undefined): node is MapTreeNode {
+    return !!node && (node as MapTreeNode).category === 'user-group'
+  }
+
+  /** The single selected group folder's name, or undefined when that is not the selection. */
+  selectedGroupName(): string | undefined {
+    const selected = this.model.selectedNodes
+    if (selected.length !== 1) return undefined
+    const node = selected[0] as MapTreeNode
+    return this.isUserGroupNode(node) ? node.name!.replace(/ \(\d+\)$/, '') : undefined
+  }
+
+  /** Trimmed, non-empty, unique ignoring case: same rule the write path enforces. */
+  validateGroupName(name: string, ignoring?: string): string | undefined {
+    const trimmed = name.trim()
+    if (!trimmed) return 'Group name cannot be empty'
+    const clash = this.groups.some(
+      g => g.name.toLowerCase() === trimmed.toLowerCase() && g.name !== ignoring,
+    )
+    if (clash) return `A group named "${trimmed}" already exists`
+    return undefined
+  }
+
+  async addSelectionToGroup(name: string): Promise<void> {
+    const slots = this.selected()
+      .filter(m => this.groupable(m))
+      .map(m => m.index)
+    await this.queueEdit(current => mergeIntoGroup(current, name, slots))
+  }
+
+  async removeSelectionFromGroup(): Promise<void> {
+    const slots = this.selected()
+      .filter(m => this.groupable(m))
+      .map(m => m.index)
+    await this.queueEdit(current => withoutSlots(current, slots))
+  }
+
+  async renameGroup(oldName: string, newName: string): Promise<void> {
+    const trimmed = newName.trim()
+    await this.queueEdit(current =>
+      current.map(g => (g.name === oldName ? { ...g, name: trimmed } : g)),
+    )
+  }
+
+  async deleteGroup(name: string): Promise<void> {
+    await this.queueEdit(current => current.filter(g => g.name !== name))
+  }
+
+  /**
+   * Runs `mutate` against the CURRENT server-held list, chained after every
+   * write already queued, so a second edit started before the first one's
+   * reload finishes still sees its result rather than stale local state.
+   *
+   * `manifestPath` is captured NOW, at queue time, not read from `this` when
+   * the write finally runs: the project the edit was meant for is fixed the
+   * moment the user asks for it, and if a different project is open by the
+   * time this edit's turn comes up (or while its RPC call is in flight),
+   * `performWrite` drops it rather than writing project B's file with an
+   * edit meant for project A, or reloading A's tree over B's.
+   */
+  protected queueEdit(mutate: (current: MapGroupDto[]) => MapGroupDto[]): Promise<void> {
+    const manifestPath = this.manifestPath
+    const task = this.writeQueue.then(() => {
+      if (this.manifestPath !== manifestPath) return undefined
+      return this.performWrite(manifestPath, mutate(this.groups))
+    })
+    this.writeQueue = task.catch(() => {})
+    return task
+  }
+
+  protected async performWrite(manifestPath: string, next: MapGroupDto[]): Promise<void> {
+    if (this.groupsError) {
+      this.messages.error(`Fix meta/groups.json before editing groups: ${this.groupsError}`)
+      return
+    }
+
+    const selectedIndices = new Set(
+      this.selected()
+        .filter(n => this.isTopLevelMap(n))
+        .map(n => n.index),
+    )
+    const selectedFolderIds = new Set(
+      this.selected()
+        .filter(n => n.kind === 'group')
+        .map(n => n.id),
+    )
+    const expanded = new Set(this.collectExpandedSlots())
+    // Group folders default to expanded on every rebuild; a folder the user
+    // had collapsed is tracked separately so the rebuild does not reopen it.
+    const collapsedGroups = this.collectCollapsedGroupIds()
+
+    const result = await this.projects.setMapGroups(manifestPath, next)
+    if (this.manifestPath !== manifestPath) return // switched projects mid-write; drop the reload
+    if (result.status !== 'ok') {
+      this.messages.error(
+        result.status === 'invalid'
+          ? result.reason
+          : 'The base ROM for this project is not on this machine',
+      )
+      return
+    }
+
+    await this.load(manifestPath)
+    if (this.manifestPath !== manifestPath) return
+    this.restoreSelectionAndExpansion(selectedIndices, selectedFolderIds, expanded)
+    await this.restoreCollapsedGroups(collapsedGroups)
+  }
+
+  /** A row directly under a folder (a group or Unassigned), as opposed to a nested sub area. */
+  protected isTopLevelMap(node: MapTreeNode): boolean {
+    return node.kind === 'map' && !!node.parent && (node.parent as MapTreeNode).kind === 'group'
+  }
+
+  protected collectCollapsedGroupIds(): Set<string> {
+    const ids = new Set<string>()
+    const root = this.model.root
+    if (CompositeTreeNode.is(root)) {
+      for (const child of root.children) {
+        const node = child as MapTreeNode
+        if (node.kind === 'group' && ExpandableTreeNode.is(node) && !node.expanded) ids.add(node.id)
+      }
+    }
+    return ids
+  }
+
+  protected async restoreCollapsedGroups(ids: Set<string>): Promise<void> {
+    const root = this.model.root
+    if (!CompositeTreeNode.is(root)) return
+    for (const child of root.children) {
+      const node = child as MapTreeNode
+      if (ids.has(node.id) && ExpandableTreeNode.is(node) && node.expanded) {
+        await this.model.collapseNode(node)
+      }
+    }
+  }
+
+  protected forEachNode(run: (node: MapTreeNode) => void): void {
+    const root = this.model.root
+    if (!CompositeTreeNode.is(root)) return
+    const walk = (n: TreeNode): void => {
+      run(n as MapTreeNode)
+      if (CompositeTreeNode.is(n)) n.children.forEach(walk)
+    }
+    root.children.forEach(walk)
+  }
+
+  protected collectExpandedSlots(): number[] {
+    const slots: number[] = []
+    this.forEachNode(node => {
+      if (node.expanded && node.index >= 0) slots.push(node.index)
+    })
+    return slots
+  }
+
+  /**
+   * Restores selection and expansion by SLOT, not by node id: a grouped
+   * map's id changes with its parent. Only the group folders that WERE
+   * expanded are re-expanded; a group the user had collapsed stays that way.
+   *
+   * `clearSelection()` runs first: Theia can carry a selection over across a
+   * model reset for a node whose id did not change, so TOGGLE-ing it back in
+   * would instead toggle it OFF. Restored selection is also restricted to
+   * top-level map rows and folders: a sub area can share its slot with an
+   * unrelated top-level row elsewhere in the tree (see the spec), and
+   * selecting both from one index would select a row Add to Group must
+   * refuse without the user having asked for it.
+   */
+  protected restoreSelectionAndExpansion(
+    selectedIndices: Set<number>,
+    selectedFolderIds: Set<string>,
+    expanded: Set<number>,
+  ): void {
+    this.model.clearSelection()
+
+    const toSelect: MapTreeNode[] = []
+    this.forEachNode(node => {
+      if (expanded.has(node.index) && ExpandableTreeNode.is(node)) void this.model.expandNode(node)
+      if (node.kind === 'group' && selectedFolderIds.has(node.id)) toSelect.push(node)
+      else if (this.isTopLevelMap(node) && selectedIndices.has(node.index)) toSelect.push(node)
+    })
+
+    // TOGGLE each in turn (no single call sets a whole selection at once),
+    // guarded so the intermediate one-node states do not each open a preview.
+    this.restoringSelection = true
+    try {
+      for (const node of toSelect) {
+        this.model.addSelection({ node, type: TreeSelection.SelectionType.TOGGLE })
+      }
+    } finally {
+      this.restoringSelection = false
+    }
   }
 
   protected message(text: string): MapTreeNode {
@@ -390,25 +653,110 @@ export class MapExplorerWidget extends TreeWidget {
     }
   }
 
+  /** Nodes being dragged; null when the drag is invalid (any dragged node ungroupable). */
+  protected dragNodes: MapTreeNode[] | null = null
+
+  protected dragAttributes(node: MapTreeNode): React.HTMLAttributes<HTMLElement> {
+    if (this.groupable(node)) {
+      return {
+        draggable: true,
+        onDragStart: () => {
+          const selected = this.selected()
+          const dragging = selected.includes(node) ? selected : [node]
+          // Loops, truncated rows and special maps refuse the WHOLE drag,
+          // not just their own row.
+          this.dragNodes = dragging.every(n => this.groupable(n)) ? dragging : null
+        },
+        onDragEnd: () => (this.dragNodes = null),
+      }
+    }
+    if (node.category === 'user-group' || node.category === 'unassigned-group') {
+      return {
+        // Theia's shell cancels every dragover on the page to accept file
+        // drops, so only dropEffect can show a refusal cursor here.
+        onDragOver: event => {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = this.canDrop(node) ? 'move' : 'none'
+        },
+        onDrop: event => {
+          event.preventDefault()
+          if (this.canDrop(node)) void this.handleDrop(node)
+          this.dragNodes = null
+        },
+      }
+    }
+    // Sub areas, loops, truncated rows and special maps: never a drag
+    // source. Still clears dragNodes on their own dragstart, so a stray or
+    // synthetic event landing here cannot leave a PRIOR valid drag's nodes
+    // sitting around for a later dragover to accept by mistake.
+    return { onDragStart: () => (this.dragNodes = null) }
+  }
+
   /**
-   * One icon per category, from the Codicon set Theia bundles.
-   *
-   * Overridden rather than set per node through `iconClass`, because Theia's
-   * default only renders an icon when a decorator supplies one and this tree
-   * has no decorator.
+   * Onto a user group: every dragged node must be groupable (already true by
+   * construction of dragNodes). Onto Unassigned, the one structural folder:
+   * every dragged node must currently be grouped, since Unassigned is every
+   * grouped map's structural parent regardless of entry/orphan.
    */
+  protected canDrop(target: MapTreeNode): boolean {
+    const dragged = this.dragNodes
+    if (!dragged || dragged.length === 0 || this.groupsError) return false
+    if (target.category === 'user-group') return true
+    return dragged.every(n => this.groupAncestor(n) !== undefined)
+  }
+
+  protected async handleDrop(target: MapTreeNode): Promise<void> {
+    const dragged = this.dragNodes
+    if (!dragged) return
+    const slots = dragged.map(n => n.index)
+
+    if (target.category === 'user-group') {
+      // Every group node's name is set at construction and carries its own
+      // row count; strip it back to the bare name before writing.
+      const name = target.name!.replace(/ \(\d+\)$/, '')
+      await this.queueEdit(current => mergeIntoGroup(current, name, slots))
+    } else {
+      await this.queueEdit(current => withoutSlots(current, slots))
+    }
+  }
+
   protected override renderIcon(node: TreeNode, _props: NodeProps): React.ReactNode {
     const category = (node as MapTreeNode).category
     if (!category) return undefined
     return <span className={`hb-map-icon codicon ${CATEGORY_ICONS[category]}`} />
   }
 
+  /** Orphan rows get their dim/italic marking and tooltip here, on the whole row. */
+  protected override createNodeClassNames(node: TreeNode, props: NodeProps): string[] {
+    const classNames = super.createNodeClassNames(node, props)
+    if ((node as MapTreeNode).category === 'orphan') classNames.push('hb-map-row-orphan')
+    return classNames
+  }
+
+  protected override createNodeAttributes(
+    node: TreeNode,
+    props: NodeProps,
+  ): React.Attributes & React.HTMLAttributes<HTMLElement> {
+    const attrs = super.createNodeAttributes(node, props)
+    const map = node as MapTreeNode
+    if (map.category === 'orphan') attrs.title = 'Not reached from the overworld'
+    // Theia's own default caption only carries the node id on expandable
+    // rows (via the toggle element); a leaf map row otherwise has no DOM
+    // marker at all. The same slot can appear twice in the tree (a sub area
+    // reachable from one root while also being a root of its own), so a
+    // caller (a test, most reliably) that needs THIS exact row rather than
+    // whichever one text search finds first needs this on every row.
+    return {
+      ...attrs,
+      ...this.dragAttributes(map),
+      ...({ 'data-node-id': node.id } as Record<string, string>),
+    }
+  }
+
   protected override renderCaption(node: TreeNode, props: NodeProps): React.ReactNode {
     const map = node as MapTreeNode
     if (map.kind === 'group' || map.kind === 'message') return super.renderCaption(node, props)
 
-    // A special map leads with its purpose and follows with its slot: the
-    // user looks for "Title Screen", not for $0C7.
     if (map.category === 'title-screen' || map.category === 'new-game') {
       return [
         <span key="label">{map.name}</span>,
@@ -418,13 +766,8 @@ export class MapExplorerWidget extends TreeWidget {
       ]
     }
 
-    // The slot is the identity; the name is a convenience that many maps do
-    // not have. Showing the slot first keeps rows aligned and keeps the thing
-    // the user actually addresses in the leading column.
     const suffix =
       map.kind === 'loop' ? ' (loops back)' : map.kind === 'truncated' ? ' (not expanded)' : ''
-    // Classes only. Styling lives in style/index.css so the active theme can
-    // override it; an inline style would outrank every theme rule.
     return [
       <span key="slot" className="hb-map-slot">
         {map.name}
@@ -443,6 +786,20 @@ export class MapExplorerWidget extends TreeWidget {
   }
 }
 
+/** A map belongs to at most one group, so it is dropped from every other before joining this one. */
+function mergeIntoGroup(groups: MapGroupDto[], name: string, slots: number[]): MapGroupDto[] {
+  const next = withoutSlots(groups, slots)
+  const target = next.find(g => g.name === name)
+  if (target) target.slots.push(...slots)
+  else next.push({ name, slots })
+  return next
+}
+
+function withoutSlots(groups: MapGroupDto[], slots: number[]): MapGroupDto[] {
+  const drop = new Set(slots)
+  return groups.map(g => ({ name: g.name, slots: g.slots.filter(s => !drop.has(s)) }))
+}
+
 export function createMapExplorerWidget(parent: interfaces.Container): MapExplorerWidget {
   const child: Container = createTreeContainer(parent, {
     widget: MapExplorerWidget,
@@ -450,16 +807,15 @@ export function createMapExplorerWidget(parent: interfaces.Container): MapExplor
       // Without this a row click toggles expansion as well as selecting, so a
       // folder cannot be opened without collapsing it.
       expandOnlyOnExpansionToggleClick: true,
-      // Opening a map is a single click here, not a double: the tree is the
-      // application's primary navigation, not a file browser.
       globalSelection: true,
       // Theia already indents rows that have no expansion chevron, so their
       // icons line up with the expandable ones. Its default of 22px is 2px
-      // wider than the toggle actually occupies (measured: an expandable
-      // row's icon sits at x+68 with no padding, a non-expandable one at
-      // x+48 plus this value), which left the icon column visibly ragged
-      // wherever leaves and folders are siblings.
+      // wider than the toggle actually occupies (measured), which left the
+      // icon column visibly ragged wherever leaves and folders are siblings.
       expansionTogglePadding: 20,
+      // Ctrl+click toggles a row, Shift+click selects a range, per the spec.
+      multiSelect: true,
+      contextMenuPath: MAP_EXPLORER_CONTEXT_MENU,
     },
   })
   return child.get(MapExplorerWidget)
