@@ -37,7 +37,7 @@ import {
   getBankBlockSize,
   readBankSongPointers,
 } from './SpcBuilder'
-import { readLevelMusicTableIfReadable, readLevelMusicUsage } from './MusicData'
+import { readLevelMusicTableIfReadable, readLevelMusicUsage, slotsFor } from './MusicData'
 
 export type MusicBankName = 'level' | 'overworld' | 'credits'
 
@@ -148,10 +148,7 @@ export function readMusicCatalog(smw: SmwRom, bank: MusicBankName): MusicCatalog
     bgmCommand: p.bgmCommand,
     aramPointer: p.aramPointer,
     sharedWith: (byPointer.get(p.aramPointer) ?? []).filter(c => c !== p.bgmCommand),
-    levelSlots:
-      table?.status === 'ok'
-        ? table.table.commands.flatMap((c, slot) => (c === p.bgmCommand ? [slot] : []))
-        : [],
+    levelSlots: table ? slotsFor(table, p.bgmCommand) : [],
     maps: usage?.mapsByCommand.get(p.bgmCommand) ?? [],
   }))
 

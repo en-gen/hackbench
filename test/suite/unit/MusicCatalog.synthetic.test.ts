@@ -51,6 +51,29 @@ const uploadRoutine = (romAddr: number): number[] => [
 const jsr = (target: number): number[] => [0x20, target & 0xff, (target >> 8) & 0xff]
 const u16 = (n: number): number[] => [n & 0xff, (n >> 8) & 0xff]
 
+/**
+ * UploadLevelMusic's conditional header up to the early-return BNE
+ * (bank_00.asm:165-173), matching src/rom/SpcBuilder.ts's
+ * UPLOAD_LEVEL_MUSIC_HEADER: BNE +$0F and BEQ +$08 both reach the routine
+ * 20 bytes on; the final BNE -$15 reaches SPCUploadReturn, one byte before
+ * this header (see buildRom). Every other operand is dummy: opcodes and
+ * these three displacements gate the checked path, not those.
+ */
+// prettier-ignore
+const levelMusicHeader = (): number[] => [
+  0xad, 0x00, 0x00,  0xd0, 0x0f,  0xad, 0x00, 0x00,  0xc9, 0x00,  0xf0, 0x08,
+  0x0d, 0x00, 0x00,  0x0d, 0x00, 0x00,  0xd0, 0xeb,
+]
+
+/** BRA at `at` reaching `target` (bank_00.asm:181). */
+const braTo = (at: number, target: number): number[] => [0x80, (target - (at + 2)) & 0xff]
+
+/** StartMusicUpload's own body (bank_00.asm:152-154): LDA #$FF / STA $2141 / JSR (wildcarded). */
+const startMusicUploadBody = (): number[] => [0xa9, 0xff, 0x8d, 0x41, 0x21, 0x20, 0x00, 0x00]
+
+/** How far past a level-bank routine the BRA's target body sits. */
+const BODY_OFFSET = 20
+
 /** TXA : LSR A x4 : AND #$07 : TAX : LDA.L table,X  (bank_05.asm:576-582) */
 const decodeSite = (table: number): number[] => [
   0x8a,
@@ -106,10 +129,11 @@ function buildRom(bank: MusicBankName, opts: Options = {}): SmwRom {
   if (!unreachable) {
     buf.set(jsr(site.guard ?? site.routine), off(site.callSite))
     if (site.guard) {
-      // UploadLevelMusic: LDA.W abs : BNE +disp, landing on the routine
-      // (bank_00.asm:166-167).
-      const disp = site.routine - (site.guard + 5)
-      buf.set([0xad, 0x00, 0x14, 0xd0, disp & 0xff], off(site.guard))
+      buf.set([0x60], off(site.guard - 1)) // SPCUploadReturn: RTS, the early-return target
+      buf.set(levelMusicHeader(), off(site.guard))
+      const bodyAddr = site.routine + BODY_OFFSET
+      buf.set(braTo(site.routine + 15, bodyAddr), off(site.routine + 15))
+      buf.set(startMusicUploadBody(), off(bodyAddr))
     }
     buf.set(uploadRoutine(BANK_ROM_ADDR), off(site.routine))
   }

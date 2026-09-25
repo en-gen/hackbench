@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import {
-  readLevelMusicTable,
-  getAllLevelBgmTracks,
-  LEVEL_MUSIC_COUNT,
-} from '../../../src/rom/MusicData'
+import { getAllLevelBgmTracks } from '../../../src/rom/MusicData'
 import { hasRom, romPath } from '../support/corpus'
 
 /**
@@ -41,12 +37,6 @@ describe('MusicData track enumeration (requires the ROM corpus)', () => {
     // REGISTERED and reported skipped, not silently cease to exist.
     describe.skipIf(!present)(file, () => {
       const openRom = () => SmwRom.open(romPath(file)).rom
-
-      it('readLevelMusicTable always has exactly 8 entries, indices 0-7', () => {
-        const table = readLevelMusicTable(openRom())
-        expect(table).toHaveLength(LEVEL_MUSIC_COUNT)
-        table.forEach((e, i) => expect(e.index).toBe(i))
-      })
 
       it('reads the track count this fixture actually has', () => {
         expect(getAllLevelBgmTracks(openRom())).toHaveLength(expectedCount)

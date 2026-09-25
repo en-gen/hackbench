@@ -25,6 +25,8 @@
  */
 
 import { RomFile } from './RomFile'
+import { BytePattern, WILD, matchesAt } from './BytePattern'
+import { loromToOffset } from './addressing'
 
 // ── Upload routine addresses (from SMW_U.sym) ────────────────────────────────
 // Each routine loads a 24-bit ROM address into _0/_1/_2 via three LDA #imm
@@ -283,6 +285,7 @@ const OPCODE_LDA_W = 0xad
 const OPCODE_BNE = 0xd0
 const OPCODE_LDA_IMM = 0xa9
 const OPCODE_STA_W = 0x8d
+const OPCODE_BRA = 0x80
 
 /**
  * The unique `JSR UploadLevelMusic` in the level-load flow (bank_00.asm:2650,
@@ -329,9 +332,10 @@ function uploadRoutineIntact(rom: RomFile, routineAddr: number): boolean {
  * target fails and the shape gate refuses. A guard here would be dead code
  * with a test that could not go red.
  *
- * Measured across the six-cartridge corpus: the three stock carts hold JSR
- * at each of the three music call sites, and all three AddmusicK carts hold
- * $80 (BRA) at every one of them.
+ * Measured across the six-ROM corpus: the three stock ROMs hold JSR at each
+ * of the three music call sites. The three AddmusicK ROMs hold $80 (BRA) at
+ * the overworld and credits sites, but $EA $EA $EA (NOP) at the level site,
+ * $009702 - not a branch there.
  */
 function calleeOf(rom: RomFile, callSite: number): number | null {
   if (rom.readByte(callSite) !== OPCODE_JSR) return null
@@ -341,28 +345,110 @@ function calleeOf(rom: RomFile, callSite: number): number | null {
   return (callSite & 0xff0000) | (hi << 8) | lo
 }
 
+const OPCODE_BEQ = 0xf0
+const OPCODE_RTS = 0x60
+
+/**
+ * StartMusicUpload's own body (bank_00.asm:152-155): `LDA.B #-1` (opcode
+ * $A9 - the immediate is always $FF, not an operand that varies) then
+ * `STA.W HW_APUIO1` ($2141, a fixed hardware register) then `JSR
+ * UploadDataToSPC`. The JSR's own target is wildcarded; the rest proves the
+ * BRA below lands IN this body and not in a replacement that happens to
+ * share its address - a kept BRA into a hijacked body must still refuse.
+ */
+const START_MUSIC_UPLOAD_BODY: BytePattern = [0xa9, 0xff, 0x8d, 0x41, 0x21, OPCODE_JSR, WILD, WILD]
+
+/**
+ * UploadLevelMusic's conditional header (bank_00.asm:165-173). The BNE at
+ * the head is the BONUS-GAME edge; loading a new level takes none of these
+ * three branches and falls straight through into UploadOverworldMusic
+ * (:174). Opcodes are pinned. Every operand this reads - the two WRAM
+ * addresses, the CMP immediate, both ORA.W addresses - only selects at
+ * runtime between two destinations locateLevelMusicUploadRoutine verifies
+ * independently below (the routine, and the RTS an early return lands on),
+ * never a third one, so none of them can move where the code goes and stay
+ * wildcarded. The three branch displacements are NOT wildcarded away here
+ * because the pattern only proves their opcode; locateLevelMusicUploadRoutine
+ * reads and checks where each one actually lands.
+ */
+const UPLOAD_LEVEL_MUSIC_HEADER: BytePattern = [
+  OPCODE_LDA_W,
+  WILD,
+  WILD, // LDA.W BonusGameActivate
+  OPCODE_BNE,
+  WILD,
+  OPCODE_LDA_W,
+  WILD,
+  WILD, // LDA.W OverworldOverride
+  0xc9,
+  WILD, // CMP.B #imm
+  OPCODE_BEQ,
+  WILD,
+  0x0d,
+  WILD,
+  WILD, // ORA.W SublevelCount
+  0x0d,
+  WILD,
+  WILD, // ORA.W ShowMarioStart
+  OPCODE_BNE,
+  WILD,
+]
+
+/** The 3 × (LDA.B #imm + STA.W abs) that follow the header, at `routine`. */
+const UPLOAD_TRIPLE_LENGTH = 15
+
+/**
+ * The absolute target of a PC-relative branch at `at`, or null when the
+ * opcode there is not `opcode`. Shared by BNE, BEQ and BRA: all three
+ * encode a signed 8-bit displacement from the byte after the instruction.
+ */
+function relBranchTarget(rom: RomFile, at: number, opcode: number): number | null {
+  if (rom.readByte(at) !== opcode) return null
+  const displacement = rom.readByte(at + 1)
+  if (displacement === null) return null
+  const signed = displacement > 0x7f ? displacement - 0x100 : displacement
+  return ((at + 2 + signed) & 0xffff) | (at & 0xff0000)
+}
+
 /**
  * Locate the level music bank's upload routine by tracing the actual call
- * path from LEVEL_LOAD_MUSIC_CALL_SITE, gating on the opcode at every hop,
- * rather than trusting a fixed address for the routine itself: a routine a
- * hack relocates but leaves otherwise intact is still found this way. See
- * docs/spikes/music-bank-song-table.md.
+ * path from LEVEL_LOAD_MUSIC_CALL_SITE and checking the whole run through to
+ * the BRA that hands off to StartMusicUpload (bank_00.asm:165-181) - not
+ * just the bonus-game BNE at the head.
  */
 function locateLevelMusicUploadRoutine(rom: RomFile): number | null {
   const uploadLevelMusic = calleeOf(rom, LEVEL_LOAD_MUSIC_CALL_SITE)
   if (uploadLevelMusic === null) return null
 
-  // UploadLevelMusic opens LDA.W BonusGameActivate; BNE takes the common
-  // "loading a new level" path straight to the upload routine
-  // (bank_00.asm:166-167).
-  if (rom.readByte(uploadLevelMusic) !== OPCODE_LDA_W) return null
-  if (rom.readByte(uploadLevelMusic + 3) !== OPCODE_BNE) return null
-  const displacement = rom.readByte(uploadLevelMusic + 4)
-  if (displacement === null) return null
-  const signed = displacement > 0x7f ? displacement - 0x100 : displacement
-  const routine = ((uploadLevelMusic + 5 + signed) & 0xffff) | (uploadLevelMusic & 0xff0000)
+  // loromToOffset, not rom.fileOffsetOf: matchesAt wants the CART-RELATIVE
+  // offset readAtFileOffset takes, and fileOffsetOf already adds the copier
+  // header on a headered ROM, which double-counts it here.
+  const headerOffset = loromToOffset(uploadLevelMusic, rom.romSize)
+  if (headerOffset === null) return null
+  if (!matchesAt(rom, headerOffset, UPLOAD_LEVEL_MUSIC_HEADER)) return null
 
-  return uploadRoutineIntact(rom, routine) ? routine : null
+  // The header's opcodes are the only way through to here on an ordinary
+  // level load, so the routine sits exactly one header past its start.
+  const routine = uploadLevelMusic + UPLOAD_LEVEL_MUSIC_HEADER.length
+  if (!uploadRoutineIntact(rom, routine)) return null
+
+  // Both the bonus-game BNE and the intro-level BEQ must reach the SAME
+  // UploadOverworldMusic entry this function just verified - if either
+  // targets somewhere else, that edge has been diverted.
+  if (relBranchTarget(rom, uploadLevelMusic + 3, OPCODE_BNE) !== routine) return null
+  if (relBranchTarget(rom, uploadLevelMusic + 10, OPCODE_BEQ) !== routine) return null
+
+  // The "already uploaded, don't re-upload" BNE must land on an RTS. Not a
+  // hardcoded address: the displacement is read from this ROM's own bytes,
+  // and only the opcode at wherever it lands is asserted.
+  const earlyReturn = relBranchTarget(rom, uploadLevelMusic + 18, OPCODE_BNE)
+  if (earlyReturn === null || rom.readByte(earlyReturn) !== OPCODE_RTS) return null
+
+  const braTarget = relBranchTarget(rom, routine + UPLOAD_TRIPLE_LENGTH, OPCODE_BRA)
+  if (braTarget === null) return null
+  const bodyOffset = loromToOffset(braTarget, rom.romSize)
+  if (bodyOffset === null) return null
+  return matchesAt(rom, bodyOffset, START_MUSIC_UPLOAD_BODY) ? routine : null
 }
 
 /**

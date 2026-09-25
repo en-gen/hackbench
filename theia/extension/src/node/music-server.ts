@@ -9,7 +9,7 @@
 import { inject, injectable } from '@theia/core/shared/inversify'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
-import { readLevelMusicTable } from '../../../../src/rom/MusicData'
+import { readLevelMusicTableIfReadable, slotsFor } from '../../../../src/rom/MusicData'
 import {
   getLevelMusicBankAddrIfReadable,
   getBankBlockSize,
@@ -78,12 +78,12 @@ export class MusicServiceImpl implements MusicService {
       return { status: 'bank-unreadable' }
     }
 
-    const levelTable = readLevelMusicTable(rom)
+    const levelTable = readLevelMusicTableIfReadable(rom)
     const tracks: MusicTrackDto[] = readBankSongPointers(rom, bankRomAddr).map(p => ({
       bgmCommand: p.bgmCommand,
       bgmHex: hex(p.bgmCommand),
       // Which level-header music indices (0-7) select this track.
-      levelIndices: levelTable.filter(e => e.bgmCommand === p.bgmCommand).map(e => e.index),
+      levelIndices: slotsFor(levelTable, p.bgmCommand),
     }))
 
     const list: MusicListDto = { tracks, trackCount: tracks.length }
@@ -103,12 +103,12 @@ export class MusicServiceImpl implements MusicService {
       throw new Error(`No track ${hex(bgmCommand)} in the level music bank`)
     }
 
-    const levelTable = readLevelMusicTable(rom)
+    const levelTable = readLevelMusicTableIfReadable(rom)
 
     return {
       bgmCommand: entry.bgmCommand,
       bgmHex: hex(entry.bgmCommand),
-      levelIndices: levelTable.filter(e => e.bgmCommand === entry.bgmCommand).map(e => e.index),
+      levelIndices: slotsFor(levelTable, entry.bgmCommand),
       bankRomAddr: hex(bankRomAddr, 6),
       bankSize: getBankBlockSize(rom, bankRomAddr),
       aramPointer: hex(entry.aramPointer, 4),
