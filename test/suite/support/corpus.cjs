@@ -64,6 +64,16 @@ const CORPUS = [
 const ROM_DIR = resolveRomDir(process.env, REPO_ROOT, fs.existsSync)
 const TOOLS_ROOT = resolveToolsRoot(process.env, REPO_ROOT, fs.existsSync)
 
+/**
+ * Where the `layers_v5` Mesen captures live (en-gen/hackbench#421): an
+ * explicit override wins unchecked, else `<tools root>/captures/layers_v5`.
+ * Read-only; never written to, since it is a shared OneDrive folder.
+ */
+function resolveCaptureDir(env, toolsRoot) {
+  return env.HACKBENCH_CAPTURES ?? path.join(toolsRoot, 'captures', 'layers_v5')
+}
+const CAPTURE_DIR = resolveCaptureDir(process.env, TOOLS_ROOT)
+
 module.exports = {
   CORPUS,
   VANILLA: CORPUS[0],
@@ -73,7 +83,9 @@ module.exports = {
   REPO_ROOT,
   ROM_DIR,
   TOOLS_ROOT,
+  CAPTURE_DIR,
   resolveRomDir,
   resolveToolsRoot,
+  resolveCaptureDir,
   romPath: name => path.join(ROM_DIR, name),
 }

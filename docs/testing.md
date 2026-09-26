@@ -365,6 +365,51 @@ and `capture_render.ts`; its tests are `test/suite/unit/Capture*.test.ts`,
 synthetic only. The evidence behind the checks is in
 [capture-viewer.md](capture-viewer.md).
 
+### The L1 (foreground) data gate
+
+`tools/scripts/capture_gate.ts` (en-gen/hackbench#421) builds the Map16
+grid, defs, per-strip pipe sets, L1 chars and palette from the ROM's
+working copy and checks each byte for byte against a `layers_v5` capture,
+over the committed 143-map roster (`tools/scripts/fgGateMaps.ts`). It reads
+captures the same `<captures-dir>/<map>` or `<map>.zip` way
+`capture:render` does, from a **second, separate directory variable**:
+
+```
+HACKBENCH_CAPTURES
+```
+
+Set it to the `layers_v5` capture folder (an explicit override, unchecked,
+same shape as `HACKBENCH_ROMS`); without it, `test/suite/support/corpus.cjs`
+falls back to `<tools root>/captures/layers_v5`. If the ROM is present but
+this resolves to nothing, `CaptureGate.corpus.test.ts` prints one console
+warning naming the variable and skips - a captures folder kept outside the
+tools root (OneDrive, say) needs the variable set explicitly, same as a ROM
+corpus kept somewhere other than `hackbench-tools/roms`.
+
+```bash
+npm run capture:gate -- [captures-dir] [--maps 105,1bd] [--rom <path>] [--known <file>]
+```
+
+Without `[captures-dir]`, uses the resolved `HACKBENCH_CAPTURES` location.
+`--known test/suite/unit/fixtures/fgKnownFailures.json` makes a map whose
+mismatches match that fixture's committed count and hash, table for table,
+exit 0 instead of 1 - the shape a nightly job needs, since the roster is
+not fully clean (three filed HackBench defects, not this gate's to fix, are
+tracked in the fixture by issue number).
+
+Pipes are the one exception handled inside the gate rather than the known-
+failure fixture: `checkPipes` allows exactly the vanilla #571 pipe-color
+bug (bank_05.asm:103,110-143,899-929,931-945), reporting it as a per-map
+`allowed: {rule, count}` entry rather than a mismatch, so 0 pipe mismatches
+is the expected result across the whole roster. The load's own first build
+of its first strip is not ROM-predictable to just two values - the stale
+`Layer1ScrollDir` it reads indexes Direct Page (bank_05.asm:907-909) and can
+land on any of the ROM's own MAP16AppTable variants - so it is allowed
+against all 4 of them, read from the ROM and never hardcoded, split in the
+report by "matched f(s0+$1F)" (the common case) versus "other variant"
+(`$108`'s own first strip, the one measured instance) so the rarer case
+stays visible rather than disappearing into the same bucket.
+
 ## Commands
 
 ```bash

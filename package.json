@@ -197,7 +197,8 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "typecheck:theia": "yarn --cwd theia/extension typecheck",
-    "capture:render": "npx tsx tools/scripts/render_capture.ts"
+    "capture:render": "npx tsx tools/scripts/render_capture.ts",
+    "capture:gate": "npx tsx tools/scripts/capture_gate_cli.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
