@@ -50,7 +50,7 @@ describe.skipIf(!hasRom(VANILLA))('vanilla level and exit counts', () => {
   beforeAll(() => {
     rom = SmwRom.open(VANILLA_ROM)
     const idx = deriveOverworldEntrances(rom)
-    const g = rom.buildLevelExitGraph(idx.levelBounds).graph
+    const g = rom.buildLevelExitGraph(idx.roots).graph
     const sp = (i: number) => {
       const p = rom.getLevelSpritePointer(i)
       if (!p) return []
@@ -82,7 +82,7 @@ describe.skipIf(!hasRom(VANILLA))('vanilla level and exit counts', () => {
         if (n.kind === 'room') chain.add(n.index)
         n.children.forEach(f)
       }
-      f(buildLevelSubtree(room, g, i => isOverworldLevel(i, idx.levelBounds)))
+      f(buildLevelSubtree(room, g, i => isOverworldLevel(i, idx.roots)))
       let normal = 0,
         secret = 0,
         side = false

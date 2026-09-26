@@ -65,8 +65,7 @@ export const MAP_EXPLORER_CONTEXT_MENU = ['map-explorer-context-menu']
  * from another map, and an ORPHANED map is reachable from neither.
  */
 export type MapCategory =
-  | 'title-screen'
-  | 'new-game'
+  | SpecialMapNodeDto['role']
   | 'unassigned-group'
   | 'user-group'
   | 'entry'
@@ -93,9 +92,21 @@ export interface MapTreeNode extends CompositeTreeNode, SelectableTreeNode {
   expanded?: boolean
 }
 
+/** What each special row is labeled with: how the player reaches it, in plain words. */
+const SPECIAL_LABELS: Record<SpecialMapNodeDto['role'], string> = {
+  'title-screen': 'Title Screen',
+  'new-game': 'New Game',
+  'bonus-game': 'Bonus game (after a level, with enough bonus stars)',
+  'yoshi-wings': 'Yoshi wings',
+}
+
+const isSpecial = (category: MapCategory): boolean => category in SPECIAL_LABELS
+
 export const CATEGORY_ICONS: Record<MapCategory, string> = {
   'title-screen': 'codicon-device-desktop',
   'new-game': 'codicon-play-circle',
+  'bonus-game': 'codicon-star-empty',
+  'yoshi-wings': 'codicon-arrow-up',
   // Deliberately the same mark as the orphans it contains: the folder is not
   // a different kind of thing from its children, it is just where they sit.
   'unassigned-group': 'codicon-question',
@@ -360,8 +371,8 @@ export class MapExplorerWidget extends TreeWidget {
    */
   protected specialNode(dto: SpecialMapNodeDto): MapTreeNode {
     return {
-      id: `special:${dto.role}`,
-      name: dto.role === 'title-screen' ? 'Title Screen' : 'New Game',
+      id: `special:${dto.role}:${dto.index}`,
+      name: SPECIAL_LABELS[dto.role],
       index: dto.index,
       mapName: dto.name,
       kind: 'map',
@@ -387,10 +398,9 @@ export class MapExplorerWidget extends TreeWidget {
       index: map.index,
       pinned,
       iconClass: `codicon ${CATEGORY_ICONS[map.category]}`,
-      label:
-        map.category === 'title-screen' || map.category === 'new-game'
-          ? (map.name ?? slotLabel(map.index))
-          : `${slotLabel(map.index)}${map.mapName ? ` ${map.mapName}` : ''}`,
+      label: isSpecial(map.category)
+        ? (map.name ?? slotLabel(map.index))
+        : `${slotLabel(map.index)}${map.mapName ? ` ${map.mapName}` : ''}`,
     })
   }
 
@@ -757,7 +767,7 @@ export class MapExplorerWidget extends TreeWidget {
     const map = node as MapTreeNode
     if (map.kind === 'group' || map.kind === 'message') return super.renderCaption(node, props)
 
-    if (map.category === 'title-screen' || map.category === 'new-game') {
+    if (isSpecial(map.category)) {
       return [
         <span key="label">{map.name}</span>,
         <span key="slot" className="hb-map-slot hb-map-trailing">

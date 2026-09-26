@@ -94,31 +94,20 @@ describe('new SmwRom - map-mode validation', () => {
 // ── isOverworldLevel ─────────────────────────────────────────────────────────
 
 // A stand-in for what OverworldEntrances.deriveOverworldEntrances derives;
-// this file tests the range check itself, not the derivation.
-const BOUNDS = { mainMax: 0x024, subMin: 0x101, subMax: 0x13b }
+// this file tests the membership check itself, not the derivation.
+const ROOTS = { main: new Set([0x001, 0x003]), sub: new Set([0x101, 0x13b]) }
 
 describe('isOverworldLevel', () => {
-  it('main map range $000-$024 is overworld', () => {
-    expect(isOverworldLevel(0x000, BOUNDS)).toBe(true)
-    expect(isOverworldLevel(0x024, BOUNDS)).toBe(true)
+  it('names exactly the listed slots of each half', () => {
+    for (const s of [0x001, 0x003, 0x101, 0x13b]) expect(isOverworldLevel(s, ROOTS)).toBe(true)
   })
 
-  it('the byte past mainMax is NOT in either range', () => {
-    expect(isOverworldLevel(0x025, BOUNDS)).toBe(false)
-    expect(isOverworldLevel(0x100, BOUNDS)).toBe(false)
+  it('a slot inside the span of the listed ones, or $000, is not a root', () => {
+    for (const s of [0x000, 0x002, 0x100, 0x102, 0x13c])
+      expect(isOverworldLevel(s, ROOTS)).toBe(false)
   })
 
-  it('the submap range is overworld, inclusive of both ends', () => {
-    expect(isOverworldLevel(0x101, BOUNDS)).toBe(true)
-    expect(isOverworldLevel(0x13b, BOUNDS)).toBe(true)
-  })
-
-  it('past subMax is sub-area', () => {
-    expect(isOverworldLevel(0x13c, BOUNDS)).toBe(false)
-    expect(isOverworldLevel(0x1ff, BOUNDS)).toBe(false)
-  })
-
-  it('null bounds (overworld unreadable) names no index overworld', () => {
+  it('null roots (overworld unreadable) names no index overworld', () => {
     expect(isOverworldLevel(0x000, null)).toBe(false)
     expect(isOverworldLevel(0x111, null)).toBe(false)
   })

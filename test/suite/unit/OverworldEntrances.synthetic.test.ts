@@ -326,13 +326,13 @@ describe('deriveOverworldEntrances: constants read from ROM, not hardcoded', () 
     ['INC _1 in place of INC _0', 0x04d848, 0x01],
     ['a loop bound past the $800 buffer', 0x04d84c, 0x09],
     ['a loop bound of 0', 0x04d84c, 0x00],
-  ])('reports no bounds when %s is not stock', (_what, at, byte) => {
+  ])('reports no roots when %s is not stock', (_what, at, byte) => {
     const rom = buildRom({ 0x00: 0x6e })
     rom.rom.writeAt(at, [byte])
     const result = derive(rom)
     expect(result.overworldReadable).toBe(false)
     expect(result.entrances).toEqual([])
-    expect(result.levelBounds).toBeNull()
+    expect(result.roots).toBeNull()
   })
 
   it('refuses a tile-range compare the call does not reach, even when one exists', () => {
@@ -340,10 +340,10 @@ describe('deriveOverworldEntrances: constants read from ROM, not hardcoded', () 
     const rom = buildRom({ 0x00: 0x6e })
     rom.rom.writeAt(0x04e000, [...rom.rom.readAt(0x04d7f2, 43 + 31 + 19)!])
     rom.rom.writeAt(0x04d832, [0xea])
-    expect(derive(rom).levelBounds).toBeNull()
+    expect(derive(rom).roots).toBeNull()
     // Point the JSR at the copy and the same bytes are now reached.
     rom.rom.writeAt(0x04dc65, [0x00, 0xe0])
-    expect(derive(rom).levelBounds).not.toBeNull()
+    expect(derive(rom).roots).not.toBeNull()
   })
 
   it.each([
@@ -354,11 +354,11 @@ describe('deriveOverworldEntrances: constants read from ROM, not hardcoded', () 
     ['a JML inside CODE_05D83E', 0x05d842, 0x5c],
     ['LDA abs in place of LDA #submapHigh', 0x05d8b3, 0xad],
     ['STA abs in place of STA _F', 0x05d8b5, 0x8d],
-  ])('reports no bounds when the bias path has %s', (_what, at, byte) => {
+  ])('reports no roots when the bias path has %s', (_what, at, byte) => {
     const rom = buildRom({ 0x00: 0x6e })
     rom.rom.writeAt(at, [byte])
     const result = derive(rom)
-    expect(result.levelBounds).toBeNull()
+    expect(result.roots).toBeNull()
     expect(result.notes[0]).toMatch(/\$05D8A2|\$05D83E/)
   })
 
@@ -370,13 +370,13 @@ describe('deriveOverworldEntrances: constants read from ROM, not hardcoded', () 
     ['the debug skip, closed to fall into the warp', 0x049137, 0x00],
     ['a BEQ in place of the debug BRA', 0x049136, 0xf0],
     ['the L/R block', 0x049141, 0xea],
-  ])('keeps the bounds but classifies nothing when %s is not stock', (_what, at, byte) => {
+  ])('keeps the roots but classifies nothing when %s is not stock', (_what, at, byte) => {
     const rom = buildRom({ 0x00: 0x6e, 0x400: 0x6e })
     rom.rom.writeAt(at, [byte])
     const result = derive(rom)
     expect(result.overworldReadable).toBe(false)
     expect(result.entrances).toEqual([])
-    expect(result.levelBounds).toEqual({ mainMax: 0x001, subMin: 0x102, subMax: 0x102 })
+    expect(result.roots).toEqual({ main: new Set([0x001]), sub: new Set([0x102]) })
   })
 })
 
@@ -410,19 +410,8 @@ describe('deriveOverworldEntrances: read where the code says, not where vanilla 
     const rom = buildRom({ 0x400: 0x6e })
     rom.rom.writeAt(0x05d8b4, [high])
     const result = derive(rom)
-    expect(result.levelBounds).toBeNull()
+    expect(result.roots).toBeNull()
     expect(result.notes[0]).toContain('$05D8B4')
-  })
-
-  it('refuses a bias above its threshold, where the 8-bit SBC wraps', () => {
-    // Threshold $10, bias $24: translevels $10 and $11 would wrap to $EC and $ED.
-    const tiles: Record<number, number> = {}
-    for (let i = 0; i < 0x11; i++) tiles[i] = 0x6e
-    const rom = buildRom(tiles)
-    rom.rom.writeAt(0x05d8a3, [0x10])
-    const result = derive(rom)
-    expect(result.levelBounds).toBeNull()
-    expect(result.notes[0]).toMatch(/wrap past \$FF/)
   })
 
   it('follows CODE_04DC09 and the walk into another bank', () => {
@@ -440,18 +429,18 @@ describe('deriveOverworldEntrances: read where the code says, not where vanilla 
     }
     const rom = buildRom({ 0x00: 0x6e })
     const entry = deriveOverworldEntrances(rom)
-    expect(entry.levelBounds).toBeNull()
+    expect(entry.roots).toBeNull()
     expect(entry.notes[0]).toContain('$05D83E')
     const walk = deriveOverworldEntrances(rom, undefined, {
       entry: SYNTHETIC_FINGERPRINTS.entry,
       walk: STOCK_OVERWORLD_FINGERPRINTS.walk,
     })
-    expect(walk.levelBounds).toBeNull()
+    expect(walk.roots).toBeNull()
     expect(walk.notes[0]).toContain('CODE_04D7F2')
   })
 })
 
-describe('deriveOverworldEntrances: levelBounds', () => {
+describe('deriveOverworldEntrances: roots', () => {
   const tiles = (main: number, sub: number): Record<number, number> => {
     const out: Record<number, number> = {}
     for (let i = 0; i < main; i++) out[i] = 0x6e
@@ -466,47 +455,58 @@ describe('deriveOverworldEntrances: levelBounds', () => {
       undefined,
       SYNTHETIC_FINGERPRINTS,
     )
-    expect(result.levelBounds).toEqual({ mainMax: 0x005, subMin: 0x106, subMax: 0x108 })
+    expect(result.roots).toEqual({
+      main: new Set([1, 2, 3, 4, 5]),
+      sub: new Set([0x106, 0x107, 0x108]),
+    })
   })
 
   it('applies the bias the ROM holds, not the stock $25/$24', () => {
     // Threshold $04, bias $03: sub translevels 3,4,5,6 -> $103,$101,$102,$103.
     const rom = buildRom(tiles(2, 4))
     rom.rom.writeAt(0x05d8a2, [0xc9, 0x04, 0x90, 0x03, 0x38, 0xe9, 0x03])
-    expect(derive(rom).levelBounds).toEqual({
-      mainMax: 0x002,
-      subMin: 0x101,
-      subMax: 0x103,
+    expect(derive(rom).roots).toEqual({
+      main: new Set([1, 2]),
+      sub: new Set([0x101, 0x102, 0x103]),
     })
   })
 
   it('roots sub-map tiles numbered below the bias threshold', () => {
     // No main-map tiles: 20 sub translevels 1-20 -> $101-$114, none biased.
-    const bounds = deriveOverworldEntrances(
+    const roots = deriveOverworldEntrances(
       buildRom(tiles(0, 20)),
       undefined,
       SYNTHETIC_FINGERPRINTS,
-    ).levelBounds
-    expect(bounds).toEqual({ mainMax: -1, subMin: 0x101, subMax: 0x114 })
-    for (let s = 0x101; s <= 0x114; s++) expect(isOverworldLevel(s, bounds)).toBe(true)
-    expect(isOverworldLevel(0x000, bounds)).toBe(false)
+    ).roots
+    expect(roots!.main.size).toBe(0)
+    for (let s = 0x101; s <= 0x114; s++) expect(isOverworldLevel(s, roots)).toBe(true)
+    expect(isOverworldLevel(0x000, roots)).toBe(false)
   })
 
   it('keeps main-map translevels out of the submap range, and leaves it empty without sub tiles', () => {
-    const bounds = deriveOverworldEntrances(
+    const roots = deriveOverworldEntrances(
       buildRom(tiles(50, 0)),
       undefined,
       SYNTHETIC_FINGERPRINTS,
-    ).levelBounds
-    expect(bounds!.mainMax).toBe(0x024)
-    for (let s = 0x100; s < 0x200; s++) expect(isOverworldLevel(s, bounds)).toBe(false)
+    ).roots
+    expect(Math.max(...roots!.main)).toBe(0x024)
+    for (let s = 0x100; s < 0x200; s++) expect(isOverworldLevel(s, roots)).toBe(false)
   })
 
-  it('reports levelBounds null, never the stock range, when the overworld is unreadable', () => {
+  it('roots only the walked slots: slot $000 and a gap in the numbering are not roots', () => {
+    // Threshold $03, bias $FE: translevels 1-4 land on $001, $002, $005, $006.
+    const rom = buildRom(tiles(4, 0))
+    rom.rom.writeAt(0x05d8a2, [0xc9, 0x03, 0x90, 0x03, 0x38, 0xe9, 0xfe])
+    const roots = derive(rom).roots
+    expect(roots!.main).toEqual(new Set([1, 2, 5, 6]))
+    for (const s of [0x000, 0x003, 0x004]) expect(isOverworldLevel(s, roots)).toBe(false)
+  })
+
+  it('reports roots null, never the stock range, when the overworld is unreadable', () => {
     const rom = buildRom({ 0x00: 0x6e }, { probe: 0x22 })
     const result = derive(rom)
     expect(result.overworldReadable).toBe(false)
-    expect(result.levelBounds).toBeNull()
+    expect(result.roots).toBeNull()
   })
 })
 

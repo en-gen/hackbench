@@ -42,7 +42,7 @@ describe.skipIf(!hasRom(VANILLA))('exit graph reachability', () => {
   beforeAll(() => {
     rom = SmwRom.open(VANILLA_ROM)
     const entranceIndex = deriveOverworldEntrances(rom)
-    graph = rom.buildLevelExitGraph(entranceIndex.levelBounds).graph
+    graph = rom.buildLevelExitGraph(entranceIndex.roots).graph
     const catalog = buildLevelCatalog(rom)
     entryMaps = new Set(entranceIndex.entryMaps)
 
@@ -102,9 +102,7 @@ describe.skipIf(!hasRom(VANILLA))('exit graph reachability', () => {
     // Guards against a "fix" that widens destinations by disabling the filter.
     expect(graph.size).toBeGreaterThan(50)
     expect(realMaps.length).toBe(235)
-    expect(rom.buildLevelExitGraph(deriveOverworldEntrances(rom).levelBounds).graph.size).toBe(
-      graph.size,
-    )
+    expect(rom.buildLevelExitGraph(deriveOverworldEntrances(rom).roots).graph.size).toBe(graph.size)
   })
 
   it('sees the Front Door and Back Door converge', () => {

@@ -6,7 +6,7 @@ independent gates.
 ## Formula
 
 ```
-low  = translevel >= biasThreshold ? translevel - bias : translevel   # bank_05.asm:7217-7220
+low  = translevel >= biasThreshold ? (translevel - bias) & $FF : translevel   # bank_05.asm:7217-7220
 high = OWPlayerSubmap != 0 ? 1 : 0                                    # bank_05.asm:7223-7226
 slot = (high << 8) | low
 ```
@@ -21,21 +21,22 @@ Statically, the submap flag is the buffer half a launch tile sits in:
 `CODE_05D83E` adds $400 to the `OWLayer1Translevel` index when
 `OWPlayerSubmap` is non-zero (bank_05.asm:7205-7212).
 
-## Overworld-accessible ranges
+## Overworld roots
 
-Read from the slots the translevel walk (CODE_04D7F2, bank_04.asm:5295-5309)
-actually produces, per buffer half:
+The roots are exactly the slots the translevel walk (CODE_04D7F2,
+bank_04.asm:5295-5309) produces, per buffer half. They are a set, not a
+range: a gap in a hack's numbering is not a root, and neither is slot $000,
+which vanilla's walk never produces because its numbering starts at 1. $000
+and $100 are the bonus game room, and $0C8 and $1C8 the Yoshi wings sub
+areas; `src/rom/BonusEntrances.ts` reads those from `CODE_05DBAC`.
 
-- **Main map: $000 to the highest main-half slot**
-- **Submaps: the lowest to the highest sub-half slot**; empty when no
-  sub-half tile carries a translevel
-
-On vanilla these are $000-$024 and $101-$138 (one ROM, measured). No compare
-in `CODE_05D8A2` caps the submap range, so the data is the only bound.
+The low-byte subtract is 8-bit: when the bias exceeds the threshold, a
+translevel from the threshold up to bias - 1 lands on $100 + translevel - bias,
+at the top of its half. A set holds those slots as they are.
 
 ## Implementation
 
-`isOverworldLevel(index, bounds)` in `src/rom/SmwRom.ts`, with `bounds` from
-`deriveOverworldEntrances(rom).levelBounds`. That is `null` when the entry
+`isOverworldLevel(index, roots)` in `src/rom/SmwRom.ts`, with `roots` from
+`deriveOverworldEntrances(rom).roots`. That is `null` when the entry
 code, the walk or its call are not stock, and `null` names no root: there is
-no fallback to the vanilla ranges.
+no fallback to the vanilla slots.

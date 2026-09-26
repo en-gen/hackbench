@@ -31,6 +31,8 @@ export interface StockSpan {
   length: number
   /** The recognized builds; a caller may pass its own to `stockCodeMismatch`. */
   fingerprints: readonly string[]
+  /** Offsets zeroed before hashing: operands the caller reads and checks itself. */
+  mask?: readonly number[]
   what: string
   cite: string
 }
@@ -76,6 +78,9 @@ export const OVERWORLD_ENTRY: readonly (StockCode | StockSpan)[] = [
   },
 ]
 
+/** The screen-exit path's own `LDA #imm` submap high byte (bank_05.asm:7109). */
+export const SCREEN_EXIT_HIGH_AT = 0x05d7d1
+
 export const SCREEN_EXIT: readonly StockCode[] = [
   REACH,
   {
@@ -111,6 +116,17 @@ export function readSubmapHigh(rom: RomFile, at: number): number | string {
   )
 }
 
+/** SHA-256 of `bytes` with `mask`'s offsets zeroed, or null for a failed read. */
+export function spanFingerprint(
+  bytes: Uint8Array | null,
+  mask: readonly number[] = [],
+): string | null {
+  if (!bytes) return null
+  const copy = Uint8Array.from(bytes)
+  for (const i of mask) copy[i] = 0
+  return fingerprint(copy)
+}
+
 const hex = (bytes: Iterable<number>): string =>
   [...bytes].map(b => (b === WILD ? '??' : b.toString(16).padStart(2, '0'))).join(' ')
 
@@ -126,7 +142,7 @@ export function stockCodeMismatch(
 ): string | null {
   for (const c of new Set(checks)) {
     if ('fingerprints' in c) {
-      const fp = fingerprint(rom.readAt(c.addr, c.length))
+      const fp = spanFingerprint(rom.readAt(c.addr, c.length), c.mask)
       if (fp !== null && (spanFingerprints ?? c.fingerprints).includes(fp)) continue
       return (
         `$${c.addr.toString(16).toUpperCase().padStart(6, '0')} (${c.what}, ${c.cite}) is ` +

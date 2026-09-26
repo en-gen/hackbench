@@ -112,7 +112,7 @@
  */
 
 import type { RomFile } from './RomFile'
-import type { SmwRom, OverworldLevelBounds } from './SmwRom'
+import type { SmwRom, OverworldRoots } from './SmwRom'
 import { buildLevelCatalog, type LevelCatalog } from './LevelCatalog'
 import { loadOverworldEvents } from './OverworldEvents'
 import {
@@ -156,6 +156,8 @@ export const WALK_PROLOGUE_LENGTH = 43
 export interface OverworldFingerprints {
   entry: readonly string[]
   walk: readonly string[]
+  /** BonusEntrances' CODE_05D796 span; its own stock builds when absent. */
+  bonus?: readonly string[]
 }
 export const STOCK_OVERWORLD_FINGERPRINTS: OverworldFingerprints = Object.freeze({
   entry: OVERWORLD_INDEX_BODY.fingerprints,
@@ -347,10 +349,10 @@ export interface OverworldEntranceIndex {
   /** False means the derivation is blind; both lists are then empty. */
   overworldReadable: boolean
   notes: string[]
-  /** `isOverworldLevel`'s root ranges, from the slots the walk produced
-   *  (docs/rom/smw-translevel-formula.md). Needs only the walk and the bias,
-   *  so it can survive a failed warp-tile read; null when those are unreadable. */
-  levelBounds: OverworldLevelBounds | null
+  /** `isOverworldLevel`'s roots: exactly the slots the walk produced, so a gap
+   *  in a hack's numbering is not one. Needs only the walk and the bias, so it
+   *  survives a failed warp-tile read; null when those are unreadable. */
+  roots: OverworldRoots | null
 }
 
 /** Invert `CODE_05D83E`'s index formula (bank_05.asm:7170-7195). */
@@ -443,23 +445,14 @@ function classifyTile(
   return 'map'
 }
 
-function unavailable(
-  notes: string[],
-  levelBounds: OverworldLevelBounds | null = null,
-): OverworldEntranceIndex {
-  return { entrances: [], entryMaps: [], overworldReadable: false, notes, levelBounds }
+function unavailable(notes: string[], roots: OverworldRoots | null = null): OverworldEntranceIndex {
+  return { entrances: [], entryMaps: [], overworldReadable: false, notes, roots }
 }
 
-/** Each layout's slot range; an empty one has max < min. Main starts at 0, the
- *  index origin, as the ranges always have. */
-function boundsOf(walked: { layout: 0 | 1; slot: number }[]): OverworldLevelBounds {
-  const main = walked.filter(e => e.layout === 0).map(e => e.slot)
-  const sub = walked.filter(e => e.layout === 1).map(e => e.slot)
-  return {
-    mainMax: main.length ? Math.max(...main) : -1,
-    subMin: sub.length ? Math.min(...sub) : 0,
-    subMax: sub.length ? Math.max(...sub) : -1,
-  }
+function rootsOf(walked: { layout: 0 | 1; slot: number }[]): OverworldRoots {
+  const half = (layout: 0 | 1): Set<number> =>
+    new Set(walked.filter(e => e.layout === layout).map(e => e.slot))
+  return { main: half(0), sub: half(1) }
 }
 
 /**
@@ -496,15 +489,6 @@ export function deriveOverworldEntrances(
   if (typeof submapHigh === 'string') {
     return unavailable([`Overworld not readable: ${submapHigh} No entry maps can be identified.`])
   }
-  // A bias above the threshold makes the 8-bit SBC wrap translevels into $Cx-$Fx, far
-  // above the main-map range, which one contiguous root range cannot hold (#548).
-  if (bias > biasThreshold) {
-    return unavailable([
-      `Overworld not readable: CODE_05D8A2 subtracts $${bias.toString(16).toUpperCase()} ` +
-        `from translevels >= $${biasThreshold.toString(16).toUpperCase()}, so some wrap past ` +
-        '$FF (bank_05.asm:7217-7220). The overworld root ranges cannot describe that.',
-    ])
-  }
   const walk = readWalk(rom.rom, fingerprints.walk)
   if (!walk) {
     return unavailable([
@@ -534,10 +518,11 @@ export function deriveOverworldEntrances(
     counter = (counter + 1) & 0xff
     if (counter === 0) wrapped = true
     const layout: 0 | 1 = bufferIndex >= SUBMAP_BUFFER_BASE ? 1 : 0
-    const biased = translevel >= biasThreshold ? translevel - bias : translevel
+    // SBC is 8-bit: a translevel below the bias wraps to $100 + translevel - bias.
+    const biased = translevel >= biasThreshold ? (translevel - bias) & 0xff : translevel
     walked.push({ bufferIndex, translevel, layout, slot: layout * (submapHigh << 8) + biased })
   }
-  const levelBounds = boundsOf(walked)
+  const roots = rootsOf(walked)
 
   const warpTiles = readWarpTiles(rom.rom)
   if (!warpTiles) {
@@ -545,9 +530,9 @@ export function deriveOverworldEntrances(
       [
         "Overworld not readable: OWPU_ABXY's warp-tile compares are not reached through " +
           'stock code (bank_04.asm:1745-1771), so which tiles start a map is unknown. The ' +
-          'overworld root ranges are still read.',
+          'overworld roots are still read.',
       ],
-      levelBounds,
+      roots,
     )
   }
 
@@ -623,5 +608,5 @@ export function deriveOverworldEntrances(
     )
   }
 
-  return { entrances, entryMaps, overworldReadable: true, notes, levelBounds }
+  return { entrances, entryMaps, overworldReadable: true, notes, roots }
 }
