@@ -1628,10 +1628,49 @@ async function tilePixels(page, tileId) {
 }
 
 /**
- * #491: a ROM whose level JSL at $00A2A5 no longer reaches CODE_05BB39 must
- * not be shown stock frames. Built from vanilla so it runs without the hacks.
+ * `selector`'s resolved text color, a plain `.hb-map16-note`'s color for
+ * comparison, and the WCAG contrast ratio against the element's effective
+ * (nearest non-transparent ancestor) background.
  */
-test('a ROM that runs its own animation code gets blank stock characters and a note', async ({
+async function errorContrast(page, selector) {
+  return page.evaluate(sel => {
+    const el = document.querySelector(sel)
+    const probe = document.createElement('span')
+    probe.className = 'hb-map16-note'
+    el.parentElement.appendChild(probe)
+    const noteColor = getComputedStyle(probe).color
+    probe.remove()
+    const color = getComputedStyle(el).color
+    let bgNode = el
+    let bgColor = 'rgba(0, 0, 0, 0)'
+    while (bgNode) {
+      bgColor = getComputedStyle(bgNode).backgroundColor
+      if (!/^(rgba\(0, ?0, ?0, ?0\)|transparent)$/.test(bgColor)) break
+      bgNode = bgNode.parentElement
+    }
+    const parse = s =>
+      s
+        .match(/[\d.]+/g)
+        .slice(0, 3)
+        .map(Number)
+    const luminance = ([r, g, b]) =>
+      [r, g, b]
+        .map(c => c / 255)
+        .map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+        .reduce((sum, c, i) => sum + [0.2126, 0.7152, 0.0722][i] * c, 0)
+    const [l1, l2] = [luminance(parse(color)), luminance(parse(bgColor))]
+    const [lighter, darker] = l1 > l2 ? [l1, l2] : [l2, l1]
+    return { color, noteColor, ratio: (lighter + 0.05) / (darker + 0.05) }
+  }, selector)
+}
+
+/**
+ * A ROM whose level JSL at $00A2A5 no longer reaches CODE_05BB39 still has
+ * real stock animation data, so the view composites it (unverified) and
+ * shows a visible error, instead of blanking those characters. Built from
+ * vanilla so it runs without the hacks.
+ */
+test('a ROM that skips its own animation code still shows stock frames, with a visible error', async ({
   page,
 }) => {
   const QUESTION_BLOCK = 0x11f // all four quadrants cite $060-$063
@@ -1651,16 +1690,20 @@ test('a ROM that runs its own animation code gets blank stock characters and a n
 
   await loadGfxExplorer(page, path.join(tmp, 'OwnAnim'), patched)
   await openMap16(page, 'fg')
-  const note = page.locator(`${FG} [data-note="animation"]`)
-  await expect(note).toBeVisible()
-  expect(await note.textContent()).toContain('$13AC77')
+  const error = page.locator(`${FG} [data-note="animation"]`)
+  await expect(error).toBeVisible()
+  const errorText = await error.textContent()
+  expect(errorText).toContain("couldn't be loaded")
+  expect(errorText).toContain('$13AC77')
+  expect(errorText).not.toMatch(CART)
   await expect(page.locator(ctl('play-toggle'))).toBeDisabled()
 
-  const block = await tilePixels(page, QUESTION_BLOCK)
-  const colors = new Set()
-  for (let i = 0; i < block.length; i += 4) colors.add(block.slice(i, i + 4).join(','))
-  expect(colors.size).toBe(1)
-  expect(block).not.toEqual(stockBlock)
+  const contrast = await errorContrast(page, `${FG} [data-note="animation"]`)
+  expect(contrast.color).not.toBe(contrast.noteColor)
+  expect(contrast.ratio).toBeGreaterThanOrEqual(4.5)
+
+  // Composited from the same stock data the routine would have used, matching the Stock ROM's own frame 0 pixel for pixel.
+  expect(await tilePixels(page, QUESTION_BLOCK)).toEqual(stockBlock)
   expect(await tilePixels(page, STATIC_TILE_ID)).toEqual(stockStatic)
 })
 

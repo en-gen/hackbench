@@ -37,7 +37,6 @@ import {
   readGfxAssignment,
   VramState,
   VRAM_CHAR_BASE,
-  VRAM_SLOT_NAMES,
   type GfxSheet,
 } from '../../../../src/rom/GfxLoader'
 import {
@@ -48,11 +47,8 @@ import {
 import { readLevelCol1 } from '../../../../src/rom/PaletteStockTables'
 import { buildTileAtlas } from '../../../../src/rom/TileRenderer'
 import {
-  animationGfxFailure,
   getAnimatedChars,
-  loadAnimationData,
-  readAnimGfxSources,
-  stockAnimatedChars,
+  loadAnimationDataOrReason,
   stockAnimationUnreached,
   type AnimationData,
 } from '../../../../src/rom/AnimationLoader'
@@ -233,10 +229,11 @@ function gfxFileLabel(fileIndex: number): string {
  *
  * They come from the same decoded VRAM the atlas was composited from, so a
  * character in a palette section and the same character in a tile can never
- * be different pixels. `animated` is resolved against the cartridge's own
+ * be different pixels. `animated` is resolved against this ROM's own
  * animation data rather than the slot name, and `maxColorIndex` is scanned
  * PER SHEET - see Map16CharSheetDto's own doc comments for both.
- * `animData` is frameZeroChars' own, so a ROM whose stock characters are blank marks none animated.
+ * `animData` is frameZeroChars' own, so a ROM with no stock frames to
+ * composite marks none animated.
  */
 function buildCharSheets(
   rom: RomFile,
@@ -404,8 +401,16 @@ function cgramRowsFor(cgram: ActiveLevelPalette, cited: number[]): Map16CgramRow
   }))
 }
 
+/** `frameZeroChars`'s result: `animData`/`chars` present whenever real stock
+ * frame data exists to composite; `error` set whenever that data is
+ * unverified or does not exist at all, and absent otherwise. */
+export type FrameZeroChars =
+  | { animData: AnimationData; chars: Map<number, Char>; vram: VramState; error?: string }
+  | { animData?: undefined; vram: VramState; error: string }
+  | undefined
+
 /**
- * The VRAM every surface of this view composites from: the cartridge's own
+ * The VRAM every surface of this view composites from: this ROM's own
  * animation FRAME 0, not the raw bytes of the four GFX files.
  *
  * The two are not the same picture. Measured on vanilla tileset 0, 75 of
@@ -424,54 +429,45 @@ function cgramRowsFor(cgram: ActiveLevelPalette, cited: number[]): Map16CgramRow
  * function exists so every surface has ONE source and there is no second
  * chance to make that mistake one surface over.
  */
-export function frameZeroChars(
-  rom: RomFile,
-  tileset: number,
-  vram: VramState,
-):
-  | { animData: AnimationData; chars: Map<number, Char>; vram: VramState; note?: undefined }
-  | { animData?: undefined; vram: VramState; note: string }
-  | undefined {
-  // Stock frames on a ROM that no longer runs the stock routine would be confidently wrong (#491).
-  const note = stockAnimationNote(rom)
-  if (note) return { vram: blankChars(vram, stockAnimatedChars(rom)), note }
-  const animData = loadAnimationData(rom, tileset)
-  if (!animData) {
-    // Tileset-independent, so a GFX33/GFX32 decode failure fails identically
-    // for every tileset; blank with a note rather than leaving stock chars
-    // in place as if nothing were wrong (#494).
-    const reason = animationGfxFailure(rom)
-    if (reason) return { vram: blankChars(vram, stockAnimatedChars(rom)), note: leftBlank(reason) }
-    return undefined
+export function frameZeroChars(rom: RomFile, tileset: number, vram: VramState): FrameZeroChars {
+  const loaded = loadAnimationDataOrReason(rom, tileset)
+  if (!loaded.ok) {
+    // No stock frames exist to composite: leave this level's own GFX
+    // exactly as loaded rather than guess at pixels there is no data for.
+    return { vram, error: framesError(loaded.reason, false) }
   }
-  if (getAnimatedChars(animData).size === 0) return undefined
+  const animData = loaded.data
+  // Checked before the animated-char count: a ROM that skips its own
+  // routine must always report, even on a tileset with nothing to animate.
+  const unreached = stockAnimationUnreached(rom)
+  if (getAnimatedChars(animData).size === 0 && !unreached) return undefined
   // Nothing has ticked yet, so this snapshot IS phase 0 by construction.
   const chars = buildChars(vram, animData)
-  return { animData, chars, vram: vramFromChars(vram, chars) }
+  const composited = { animData, chars, vram: vramFromChars(vram, chars) }
+  if (!unreached) return composited
+  // The level's own code never reaches the stock routine: this tileset's
+  // stock data is real, but unverified - shown for reference, not as proof
+  // of what this ROM actually draws.
+  return { ...composited, error: framesError(unreachedReason(unreached), true) }
 }
 
-const leftBlank = (reason: string): string => `These characters are left blank: ${reason}.`
-
-function stockAnimationNote(rom: RomFile): string | null {
-  const unreached = stockAnimationUnreached(rom)
-  if (unreached && 'target' in unreached) {
-    const hex = unreached.target.toString(16).toUpperCase().padStart(6, '0')
-    return `This ROM decides per level whether the stock animation runs (the level calls $${hex}), so these characters are left blank.`
-  }
-  const sources = readAnimGfxSources(rom)
-  const reason = unreached?.reason ?? (sources.ok ? null : sources.reason)
-  return reason ? leftBlank(reason) : null
+/** The animation data safe to play back, or undefined when frame 0 came
+ * from an unverified or unavailable source - only a still frame is shown. */
+export function playableAnimation(frameZero: FrameZeroChars): AnimationData | undefined {
+  return frameZero?.animData && !frameZero.error ? frameZero.animData : undefined
 }
 
-function blankChars(vram: VramState, chars: Set<number>): VramState {
-  const out: VramState = { ...vram }
-  for (const slot of VRAM_SLOT_NAMES) {
-    const base = VRAM_CHAR_BASE[slot]
-    const sheet = vram[slot]
-    if (sheet)
-      out[slot] = sheet.map((px, i) => (chars.has(base + i) ? new Uint8Array(px.length) : px))
-  }
-  return out
+const framesError = (reason: string, hasStockFrames: boolean): string =>
+  `Animation frames couldn't be loaded: ${reason}. ${
+    hasStockFrames
+      ? 'Showing stock frames.'
+      : "These characters are shown as this ROM's own GFX loaded them."
+  }`
+
+function unreachedReason(unreached: { target: number } | { reason: string }): string {
+  if ('reason' in unreached) return unreached.reason
+  const hex = unreached.target.toString(16).toUpperCase().padStart(6, '0')
+  return `this ROM decides per level whether the stock animation runs (the level calls $${hex})`
 }
 
 /**
@@ -530,9 +526,10 @@ export function decodeMap16Sheet(
   // Ticking starts from the raw VRAM the Chars were built against; phase 0
   // of that walk is `vram` above, which is why the still sheet and the
   // palettes agree with `phases[0]` by construction rather than by care.
-  const animation = frameZero?.animData
-    ? buildCharAnimation(frameZero.animData, frameZero.chars, entries, rawVram, cgram)
-    : undefined
+  const animation =
+    frameZero?.animData && playableAnimation(frameZero)
+      ? buildCharAnimation(frameZero.animData, frameZero.chars, entries, rawVram, cgram)
+      : undefined
 
   // Frame 0 IS the still sheet - an explicit, documented choice (see
   // buildCharAnimation), not an accident of which atlas happened to be
@@ -584,7 +581,7 @@ export function decodeMap16Sheet(
       rgbaBase64,
       tiles,
       charAnimation: animation?.dto,
-      animationNote: frameZero?.note,
+      animationNote: frameZero?.error,
       pipeVariantsIgnored: true,
     },
   }

@@ -335,19 +335,6 @@ function loadAnimatedTileBuffer(
 }
 
 /**
- * Why `loadAnimationData` found nothing to animate with, when that cause is
- * a failed GFX33/GFX32 decode rather than an unreached routine (already
- * covered by `stockAnimationUnreached`) or a tileset with no animation data.
- * Tileset-independent, so a caller can check this once after
- * `loadAnimationData` returns null, to route a genuine decode failure
- * through the same "blank with a note" path as an unreached routine.
- */
-export function animationGfxFailure(rom: RomFile): string | null {
-  const result = loadAnimatedTileBuffer(rom)
-  return result.ok ? null : result.reason
-}
-
-/**
  * Read a 16-bit LE word from the AnimatedTileData table at $05B999.
  * @param byteOffset - byte offset into the table (already accounts for 2-byte entries)
  * The table stores WRAM addresses; we subtract AnimatedTiles base to get buffer offsets.
@@ -417,19 +404,23 @@ function decodeTilesAt(buffer: Uint8Array, offset: number): Uint8Array[] {
   return tiles
 }
 
+export type LoadAnimationResult = { ok: true; data: AnimationData } | { ok: false; reason: string }
+
 /**
- * Load animation data for a given tileset.
+ * Load animation data for a given tileset, or the reason nothing could be
+ * built: GFX33/GFX32 unreadable (same cause `loadAnimatedTileBuffer`
+ * reports), or the behavior/tileset-offset/P-switch tables run past the end
+ * of the ROM.
  *
  * Replicates the logic of CODE_05BB39 to determine which tiles are animated
  * and what graphics data to use for each of the 4 animation frames.
  *
  * @param rom        - ROM file to read from
  * @param tilesetId  - object tileset index (0–15) from the level header
- * @returns AnimationData with frame replacements, or null if GFX33 can't be loaded
  */
-export function loadAnimationData(rom: RomFile, tilesetId: number): AnimationData | null {
+export function loadAnimationDataOrReason(rom: RomFile, tilesetId: number): LoadAnimationResult {
   const result = loadAnimatedTileBuffer(rom)
-  if (!result.ok) return null
+  if (!result.ok) return result
   const buffer = result.buffer
 
   // Read the behavior and tileset offset tables.
@@ -443,7 +434,11 @@ export function loadAnimationData(rom: RomFile, tilesetId: number): AnimationDat
   // behavior byte is 1 matter (slots 6..13), but reading 24 bytes matches
   // the SNES memory layout in case of out-of-range reads.
   const pSwitchSelectorBuf = rom.readAt(PSWITCH_SELECTOR_TABLE, TILE_GROUP_COUNT * 3)
-  if (!behaviorBuf || !tilesetOffsetBuf || !pSwitchSelectorBuf) return null
+  if (!behaviorBuf || !tilesetOffsetBuf || !pSwitchSelectorBuf)
+    return {
+      ok: false,
+      reason: 'the animation behavior tables at $05B96B run past the end of the ROM',
+    }
 
   const frames: AnimFrameSlot[][] = []
 
@@ -519,10 +514,15 @@ export function loadAnimationData(rom: RomFile, tilesetId: number): AnimationDat
   }
 
   return {
-    frameCount: ANIM_FRAME_COUNT,
-    frames,
-    intervalMs: ANIM_INTERVAL_MS,
+    ok: true,
+    data: { frameCount: ANIM_FRAME_COUNT, frames, intervalMs: ANIM_INTERVAL_MS },
   }
+}
+
+/** Thin wrapper over `loadAnimationDataOrReason` that discards the reason. */
+export function loadAnimationData(rom: RomFile, tilesetId: number): AnimationData | null {
+  const result = loadAnimationDataOrReason(rom, tilesetId)
+  return result.ok ? result.data : null
 }
 
 /**
@@ -541,20 +541,6 @@ function destSlots(
     { charBase, tiles: tiles.slice(0, 2) },
     { charBase: vramAddrToChar(0x0900), tiles: tiles.slice(2, 4) },
   ]
-}
-
-/** Every character the stock routine writes, from its destination tables alone. */
-export function stockAnimatedChars(rom: RomFile): Set<number> {
-  const chars = new Set<number>()
-  const tiles = Array.from({ length: TILES_PER_TRANSFER }, () => new Uint8Array(0))
-  // DATA_05B93B/3D/3F overlap, so slot t's destination is the word at $05B93B + 2t.
-  for (let t = 0; t < TILE_GROUP_COUNT * 3; t++) {
-    const dest = readVramDest(rom, VRAM_DEST_TABLE_C, t * 2)
-    if (dest === 0) continue
-    for (const slot of destSlots(dest, tiles))
-      slot.tiles.forEach((_, i) => chars.add(slot.charBase + i))
-  }
-  return chars
 }
 
 /**
