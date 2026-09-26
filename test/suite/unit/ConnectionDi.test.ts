@@ -8,7 +8,7 @@
  * install the theia/ workspace, and a test that reaches it fails to LOAD
  * there while passing on any machine that has the workspace installed.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 import { WorkingRom, Layer } from '../../../src/project/WorkingRom'
@@ -36,6 +36,15 @@ const layer = (id: string, oldW: string, newW: string): Layer => ({
 })
 
 describe.skipIf(!theiaInstalled)('the connection-container wiring', () => {
+  // Importing Theia's module graph took up to 4.8 s under a loaded full run, against the
+  // test's 5 s default; warm the cache here so the test times only the wiring.
+  beforeAll(async () => {
+    await import('../../../theia/node_modules/reflect-metadata')
+    await import('../../../theia/extension/src/node/hackbench-backend-module')
+    await import('../../../theia/extension/src/node/palette-backend-module')
+    await import(T + 'lib/common/messaging')
+  }, 20000)
+
   it('per-connection instances, one shared registry, close releases the subscription', async () => {
     await import('../../../theia/node_modules/reflect-metadata')
     const { Container } = await import(T + 'shared/inversify')
