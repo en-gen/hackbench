@@ -30,6 +30,9 @@
 
 import { RomFile } from '../RomFile'
 
+/** Map16 RAM bytes per horizontal-level screen: 27 rows x 16 cols. */
+export const MAP16_BYTES_PER_SCREEN_H = 0x1b0
+
 /** A 2D tile grid; grid[row][col] = 9-bit Map16 tile ID (page << 8 | low). */
 export type TileGrid = number[][]
 

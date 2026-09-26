@@ -198,8 +198,8 @@ describe.skipIf(!corpusReady)('L1 data gate: the 143-map roster', () => {
     // #571 (the vanilla pipe-color bug) is no longer a known failure: the
     // gate's own `checkPipes` now allows exactly that bug (ALLOWED_PIPE_BUG),
     // so it never reaches this fixture.
-    expect(new Set(KNOWN.entries.map(e => e.issue))).toEqual(new Set([567, 569, 570]))
-    expect(new Set(KNOWN.examples.map(e => e.issue))).toEqual(new Set([567, 569, 570]))
+    expect(new Set(KNOWN.entries.map(e => e.issue))).toEqual(new Set([567, 570, 587]))
+    expect(new Set(KNOWN.examples.map(e => e.issue))).toEqual(new Set([567, 570, 587]))
     for (const ex of KNOWN.examples) {
       const r = results.find(x => idToHex(x.id) === ex.map)!
       expect(r.mismatches).toContainEqual({ table: ex.table, cell: ex.cell, expected: ex.expected, actual: ex.actual }) // prettier-ignore
