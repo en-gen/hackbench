@@ -179,13 +179,14 @@ export interface MapDetailsDto {
   header: Array<{ label: string; value: string }>
 }
 
+/** 'bps' is the default: SMW Central's Hacks section no longer accepts IPS. */
+export type PatchFormatDto = 'bps' | 'ips'
+
 /**
- * Result of exporting the working copy as an .ips patch.
+ * Result of exporting the working copy as a patch file.
  *
- * `hasCopierHeader` describes the BASE cartridge the patch's offsets are
- * relative to: an .ips generated against a headered dump will not line up
- * against a headerless one of the same game, so the user needs to know
- * which variant to apply it to.
+ * `hasCopierHeader` matters only for IPS: which base variant the patch's
+ * offsets are relative to. BPS always targets the unheadered ROM.
  */
 export type ExportPatchResult =
   | { status: 'ok'; path: string; hasCopierHeader: boolean; opCount: number }
@@ -308,11 +309,11 @@ export interface ProjectService {
   setMapGroups(manifestPath: string, groups: MapGroupDto[]): Promise<SetMapGroupsResult>
 
   /**
-   * Diff the working copy against the base cartridge and write an .ips into
-   * `<project>/export/`. Includes every persisted edit layer; a live preview
-   * layer (mid-drag) is never part of an export.
+   * Diff the working copy against the base cartridge and write a patch into
+   * `<project>/export/`, BPS by default or IPS. Includes every persisted
+   * edit layer; a live preview layer (mid-drag) is never part of an export.
    */
-  exportPatch(manifestPath: string): Promise<ExportPatchResult>
+  exportPatch(manifestPath: string, format?: PatchFormatDto): Promise<ExportPatchResult>
 
   /**
    * What undo/redo can do for this project right now, without moving

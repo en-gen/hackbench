@@ -79,7 +79,7 @@ const editStack = (page, manifestPath) =>
  */
 async function committedRed(page, manifestPath) {
   const result = await page.evaluate(
-    mp => getSvc('Symbol(ProjectService)').exportPatch(mp),
+    mp => getSvc('Symbol(ProjectService)').exportPatch(mp, 'ips'),
     manifestPath,
   )
   expect(result.status).toBe('ok')

@@ -19,7 +19,12 @@ import {
   QuickInputService,
   WidgetManager,
 } from '@theia/core/lib/browser'
-import { ProjectDto, ProjectService, RecentProjectDto } from '../common/project-protocol'
+import {
+  PatchFormatDto,
+  ProjectDto,
+  ProjectService,
+  RecentProjectDto,
+} from '../common/project-protocol'
 import { NewProjectDialog } from './new-project-dialog'
 import { MapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
 import { PreviewTabs } from './preview-tabs'
@@ -69,6 +74,13 @@ export const ProjectPropertiesCommand: Command = {
 export const ExportPatchCommand: Command = {
   id: 'hackbench.project.exportPatch',
   label: 'Export Patch',
+  category: 'HackBench',
+}
+
+/** BPS is what `ExportPatchCommand` writes by default; this is the IPS escape hatch. */
+export const ExportPatchAsIpsCommand: Command = {
+  id: 'hackbench.project.exportPatchAsIps',
+  label: 'Export Patch as IPS',
   category: 'HackBench',
 }
 
@@ -148,7 +160,11 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
       isEnabled: () => !!this.context.current,
     })
     registry.registerCommand(ExportPatchCommand, {
-      execute: () => this.exportPatch(),
+      execute: () => this.exportPatch('bps'),
+      isEnabled: () => !!this.context.current,
+    })
+    registry.registerCommand(ExportPatchAsIpsCommand, {
+      execute: () => this.exportPatch('ips'),
       isEnabled: () => !!this.context.current,
     })
   }
@@ -178,6 +194,11 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
       commandId: ExportPatchCommand.id,
       label: ExportPatchCommand.label,
       order: '4',
+    })
+    menus.registerMenuAction(CommonMenus.FILE, {
+      commandId: ExportPatchAsIpsCommand.id,
+      label: ExportPatchAsIpsCommand.label,
+      order: '5',
     })
 
     // Strip what a workspace IDE offers and a ROM editor does not have.
@@ -408,13 +429,8 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
     }
   }
 
-  /**
-   * Diff the working copy against the base cartridge and write an .ips into
-   * `<project>/export/`. The copier-header note is what tells the user which
-   * variant of the base cartridge (headered or not) the patch's offsets
-   * assume - applying it to the other one silently lands on the wrong bytes.
-   */
-  protected async exportPatch(): Promise<void> {
+  /** IPS's copier-header note is dropped for BPS, which always targets the unheadered ROM. */
+  protected async exportPatch(format: PatchFormatDto): Promise<void> {
     const open = this.context.current
     if (!open) {
       this.messages.info('Open a project first')
@@ -422,7 +438,7 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
     }
 
     try {
-      const result = await this.projects.exportPatch(open.manifestPath)
+      const result = await this.projects.exportPatch(open.manifestPath, format)
       if (result.status === 'rom-not-located') {
         this.messages.error(`Locate ${result.baseRom.title || 'the base ROM'} first`)
         return
@@ -431,10 +447,13 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
         this.messages.error(result.reason)
         return
       }
-      const header = result.hasCopierHeader ? 'has a copier header' : 'has no copier header'
+      const suffix =
+        format === 'ips'
+          ? ` (base ROM ${result.hasCopierHeader ? 'has a copier header' : 'has no copier header'})`
+          : ''
       this.messages.info(
         `Exported ${result.opCount} changed byte${result.opCount === 1 ? '' : 's'} to ` +
-          `${result.path} (base ROM ${header})`,
+          `${result.path}${suffix}`,
       )
     } catch (err) {
       this.messages.error(`Could not export patch: ${(err as Error).message}`)

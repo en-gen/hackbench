@@ -1,21 +1,20 @@
 /**
- * Turn a WorkingRom's edits into a real .ips patch file.
- *
- * Diffs the base cartridge against the EXPORTABLE working copy (edit layers
- * only - a preview layer mid-drag must never ship, same rule as
- * src/rom/PatchLayer.ts's `exportable`), byte by byte, and hands the result
- * to encodeIps. Offsets are FILE offsets from the start of the base file
- * (copier header included when the cart has one, same convention RomFile
- * itself writes at), so the patch applies to the SAME file variant
- * (headered or not) the project's base cartridge is.
+ * Turn a WorkingRom's edits into a real patch file, BPS by default (what
+ * SMW Central's Hacks section requires) or IPS. BPS strips a copier header
+ * from both sides before diffing, so the patch always applies to the
+ * unheadered ROM SMW Central expects, regardless of which variant the
+ * project's base is; IPS keeps its offsets against the base file as before.
  */
 import * as fs from 'fs'
 import * as path from 'path'
 import { Patch } from '../rom/PatchLayer'
 import { encodeIps } from '../rom/Ips'
+import { encodeBps } from '../rom/Bps'
+import { COPIER_HEADER_SIZE } from '../rom/addressing'
 import { WorkingRom } from './WorkingRom'
 
 export const EXPORT_DIR = 'export'
+export type PatchFormat = 'bps' | 'ips'
 
 function diffPatches(base: Uint8Array, edited: Uint8Array): Patch[] {
   const patches: Patch[] = []
@@ -30,21 +29,33 @@ export interface ExportedPatch {
   path: string
   hasCopierHeader: boolean
   opCount: number
+  format: PatchFormat
 }
 
-/** Writes `<projectDirectory>/export/<name>.ips`, creating the directory if needed. */
+/** Writes `<projectDirectory>/export/<name>.bps` (default) or `.ips`, creating the directory if needed. */
 export function exportPatch(
   projectDirectory: string,
   name: string,
   working: WorkingRom,
+  format: PatchFormat = 'bps',
 ): ExportedPatch {
-  const patches = diffPatches(working.baseBytes(), working.exportableBytes())
-  const ips = encodeIps(patches)
-
   const dir = path.join(projectDirectory, EXPORT_DIR)
   fs.mkdirSync(dir, { recursive: true })
-  const filePath = path.join(dir, `${name}.ips`)
-  fs.writeFileSync(filePath, ips)
 
-  return { path: filePath, hasCopierHeader: working.hasCopierHeader, opCount: patches.length }
+  const strip = format === 'bps' && working.hasCopierHeader ? COPIER_HEADER_SIZE : 0
+  const source = working.baseBytes().subarray(strip)
+  const target = working.exportableBytes().subarray(strip)
+  const patches = diffPatches(source, target)
+  const bytes = format === 'ips' ? encodeIps(patches) : encodeBps(source, target)
+
+  const filePath = path.join(dir, `${name}.${format}`)
+  fs.writeFileSync(filePath, bytes)
+  return {
+    path: filePath,
+    hasCopierHeader: working.hasCopierHeader,
+    // diffPatches only compares up to the shorter length; count a size
+    // change too, against the day a working copy can grow past the base.
+    opCount: patches.length + Math.abs(source.length - target.length),
+    format,
+  }
 }
