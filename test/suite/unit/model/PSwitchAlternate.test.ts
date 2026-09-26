@@ -73,7 +73,10 @@ describe('PSwitchAlternateBehavior behavior', () => {
     const slotFor = (f: number): AnimFrameSlot => ({
       charBase: 0x054,
       tiles: [normalFrame(f), new Uint8Array(64), new Uint8Array(64), new Uint8Array(64)],
-      altTiles: [altFrame(f), new Uint8Array(64), new Uint8Array(64), new Uint8Array(64)],
+      alt: {
+        switch: 'blue',
+        tiles: [altFrame(f), new Uint8Array(64), new Uint8Array(64), new Uint8Array(64)],
+      },
     })
     const animData: AnimationData = {
       frameCount: 4,

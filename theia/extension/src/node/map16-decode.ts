@@ -440,15 +440,17 @@ export function frameZeroChars(rom: RomFile, tileset: number, vram: VramState): 
   // Checked before the animated-char count: a ROM that skips its own
   // routine must always report, even on a tileset with nothing to animate.
   const unreached = stockAnimationUnreached(rom)
-  if (getAnimatedChars(animData).size === 0 && !unreached) return undefined
+  // A reached routine that cannot be read served the vanilla tables: unverified the same way.
+  const unverified = unreached ? unreachedReason(unreached) : animData.unverified
+  if (getAnimatedChars(animData).size === 0 && !unverified) return undefined
   // Nothing has ticked yet, so this snapshot IS phase 0 by construction.
   const chars = buildChars(vram, animData)
   const composited = { animData, chars, vram: vramFromChars(vram, chars) }
-  if (!unreached) return composited
+  if (!unverified) return composited
   // The level's own code never reaches the stock routine: this tileset's
   // stock data is real, but unverified - shown for reference, not as proof
   // of what this ROM actually draws.
-  return { ...composited, error: framesError(unreachedReason(unreached), true) }
+  return { ...composited, error: framesError(unverified, true) }
 }
 
 /** The animation data safe to play back, or undefined when frame 0 came

@@ -10,8 +10,12 @@ import { encode } from '../../../src/rom/LcLz2'
 import { loromToOffset } from '../../../src/rom/addressing'
 import {
   loadAnimationData,
+  loadAnimationDataOrReason,
   readAnimGfxSources,
+  readAnimRoutine,
+  slotTiles,
   stockAnimationUnreached,
+  switchesForChars,
   type AnimationData,
 } from '../../../src/rom/AnimationLoader'
 import { VRAM_SLOT_NAMES, type VramState } from '../../../src/rom/GfxLoader'
@@ -49,6 +53,39 @@ const head = (gfx33: number): number[] => [
 const tail = (gfx32: number): number[] => [0xa9, gfx32 & 0xff, gfx32 >> 8, 0x85, 0x8a, 0xe2, 0x20]
 const GFX33_STREAM = encode(tiles3bpp(1))
 
+const w = (v: number): number[] => [v & 0xff, (v >> 8) & 0xff]
+
+interface RoutineOpts {
+  c?: number
+  b?: number
+  a?: number
+  beh?: number
+  sel?: number
+  timer?: number
+  shift?: number
+  ts?: number
+  atd?: number
+}
+// CODE_05BB39 through its AnimatedTileData read (bank_05.asm:4384-4436), operands as parameters.
+// prettier-ignore
+const stockRoutine = (o: RoutineOpts = {}): number[] => [
+  0x8b, 0x4b, 0xab, 0xa5, 0x14, 0x29, 0x07, 0x85, 0x00, 0x0a, 0x65, 0x00, 0xa8,
+  0x0a, 0xaa, 0xc2, 0x20, 0xa5, 0x14, 0x29, 0x18, 0x00, 0x4a, 0x4a, 0x85, 0x00,
+  0xbd, ...w(o.c ?? 0xb93b), 0x8d, 0x80, 0x0d, 0xbd, ...w(o.b ?? 0xb93d), 0x8d, 0x7e, 0x0d,
+  0xbd, ...w(o.a ?? 0xb93f), 0x8d, 0x7c, 0x0d, 0xa2, 0x04,
+  0x5a, 0xda, 0xe2, 0x20, 0x98,
+  0xbe, ...w(o.beh ?? 0xb96b), 0xf0, 0x17, 0xca, 0xd0, 0x0d,
+  0xbe, ...w(o.sel ?? 0xb97d), 0xbc, ...w(o.timer ?? 0x14ad), 0xf0, 0x0c, 0x18, 0x69, o.shift ?? 0x26, 0x80, 0x07,
+  0xac, ...w(0x1931), 0x18, 0x79, ...w(o.ts ?? 0xb98b),
+  0xc2, 0x30, 0x29, 0xff, 0x00, 0x0a, 0x0a, 0x0a, 0x05, 0x00, 0xa8, 0xb9, ...w(o.atd ?? 0xb999),
+  0xe2, 0x10, 0xfa, 0x9d, 0x76, 0x0d, 0x7a, 0xc8, 0xca, 0xca, 0x10, 0xc5, 0xe2, 0x20, 0xab, 0x6b,
+]
+// Offsets of the operands the loader reads; every other byte of the routine is gated.
+// prettier-ignore
+const READ_OPERANDS = new Set([
+  0x1b, 0x1c, 0x21, 0x22, 0x27, 0x28, 0x34, 0x35, 0x3c, 0x3d, 0x3f, 0x40, 0x45, 0x4d, 0x4e, 0x5b, 0x5c,
+])
+
 interface RomOpts {
   routineAt?: number
   head?: number[]
@@ -59,6 +96,7 @@ interface RomOpts {
   gfx33At?: number
   gfx33Stream?: Uint8Array
   gfx32Stream?: Uint8Array
+  anim?: number[]
   /** ROM size in bytes; smaller than default lets a later table land off the end. */
   size?: number
   /** Skip the VRAM destination table, so no character animates at all. */
@@ -86,6 +124,7 @@ function plantAnim(rom: RomFile, o: RomOpts = {}): void {
   put(routine + 0x44, o.bmi ?? [0x30, 0x09]) // CODE_00B8C4's exit to +$4F
   put(routine + 0x4f, o.tail ?? tail(0x9000))
   put(0x00a2a5, o.jsl ?? [0x22, 0x39, 0xbb, 0x05])
+  put(0x05bb39, o.anim ?? stockRoutine())
   // GFX32 where the stream ends, decoys where a start-bank or $8000 read would look.
   const endBank = (loromToOffset(gfx33, size)! + stream.length) >> 15
   put(((gfx33 >> 16) << 16) | 0x8000, encode(tiles4bpp(8)))
@@ -188,11 +227,12 @@ describe('stockAnimationUnreached', () => {
   })
 })
 
+const rawVram = (): VramState =>
+  Object.fromEntries(
+    VRAM_SLOT_NAMES.map(s => [s, Array.from({ length: 128 }, () => new Uint8Array(64).fill(7))]),
+  )
+
 describe('frameZeroChars', () => {
-  const rawVram = (): VramState =>
-    Object.fromEntries(
-      VRAM_SLOT_NAMES.map(s => [s, Array.from({ length: 128 }, () => new Uint8Array(64).fill(7))]),
-    )
   const charAt = (vram: VramState, c: number): number[] =>
     Array.from([...vram.fg1!, ...vram.fg2!][c]!)
 
@@ -201,6 +241,16 @@ describe('frameZeroChars', () => {
     expect(r.error).toBeUndefined()
     expect(r.animData).toBeDefined()
     expect(charAt(r.vram, 0x60)).toEqual(new Array(64).fill(1))
+  })
+
+  it('shows stock frames still, with the reason, when the reached routine cannot be read', () => {
+    const anim = stockRoutine()
+    anim.splice(0, 4, 0x5c, 0x00, 0x80, 0x02) // JML over CODE_05BB39's entry
+    const r = frameZeroChars(animRom({ anim }), 0, rawVram())!
+    expect(r.animData?.unverified).toMatch(/set-up .* is replaced/)
+    expect(r.error).toMatch(/couldn't be loaded: CODE_05BB39's set-up .*Showing stock frames/)
+    expect(charAt(r.vram, 0x60)).toEqual(new Array(64).fill(1))
+    expect(playableAnimation(r)).toBeUndefined()
   })
 
   it('reports nothing for a tileset with no stock data to animate when the routine is reached', () => {
@@ -316,5 +366,302 @@ describe('decodeMap16Sheet', () => {
     })
     if (result.status !== 'ok') throw new Error(result.reason)
     expect(result.sheet.animationNote).toMatch(/couldn't be loaded.*\$13AC77/)
+  })
+})
+
+// The #573 research table: slot -> [char base, selector, switch].
+const SWITCH_SLOTS: [number, number, number, string][] = [
+  [6, 0x50, 0, 'blue'],
+  [7, 0x54, 0, 'blue'],
+  [8, 0x58, 0, 'blue'],
+  [9, 0x5c, 1, 'silver'],
+  [10, 0x78, 0, 'blue'],
+  [11, 0x7c, 2, 'onOff'],
+  [12, 0xda, 2, 'onOff'],
+  [13, 0x6c, 0, 'blue'],
+]
+// Four 3bpp tiles solid in color c: bitplanes 0/1 interleaved, then bitplane 2.
+const solid3bpp = (c: number): number[] =>
+  Array.from({ length: 96 }, (_, k) => ((c >> (k % 24 < 16 ? k % 2 : 2)) & 1 ? 0xff : 0))
+// GFX33 groups at $7D00 + $80n in colors 1, 2, 3, 5, 6; GFX32 at $2000 is color 4.
+const SWITCH_GFX33 = encode(Uint8Array.from([1, 2, 3, 5, 6].flatMap(solid3bpp)))
+const ALT_COLORS = [2, 3, 5, 6]
+const bank5 = (a: number): number => 0x050000 | a
+const entry = (rom: RomFile, atd: number, slot: number, f: number, ram: number): void =>
+  rom.writeAt(bank5(atd) + slot * 8 + f * 2, w(ram))
+
+// Switch slots per the table, a behavior-2 slot 3 at $048, and every slot below 14 given a
+// distinct switched frame, so a slot tagged by mistake would carry pixels too.
+function switchRom(o: RoutineOpts = {}, extra: RomOpts = {}): RomFile {
+  const rom = animRom({ gfx33Stream: SWITCH_GFX33, anim: stockRoutine(o), ...extra })
+  const atd = o.atd ?? 0xb999
+  rom.writeAt(0x05b93b + 3 * 2, w(0x0480))
+  rom.writeAt(bank5(o.beh ?? 0xb96b) + 3, [2])
+  for (let f = 0; f < 4; f++) {
+    entry(rom, atd, 3, f, 0x7d00)
+    for (let slot = 0; slot < 14; slot++) entry(rom, atd, slot + 0x26, f, 0x7d80 + f * 0x80)
+  }
+  for (const [slot, char, sel] of SWITCH_SLOTS) {
+    rom.writeAt(0x05b93b + slot * 2, w(char * 16))
+    rom.writeAt(bank5(o.beh ?? 0xb96b) + slot, [1])
+    if ((o.sel ?? 0xb97d) >= 0x8000) rom.writeAt(bank5(o.sel ?? 0xb97d) + slot, [sel])
+    for (let f = 0; f < 4; f++) entry(rom, atd, slot, f, 0x7d00)
+  }
+  return rom
+}
+const frame0 = (rom: RomFile) => loadAnimationData(rom, 0)!.frames[0]!
+const at = (rom: RomFile, char: number) => frame0(rom).find(s => s.charBase === char)!
+
+describe('readAnimRoutine', () => {
+  it('reads every table, the timer base and the shift from the routine operands', () => {
+    expect(readAnimRoutine(switchRom())).toEqual({
+      ok: true,
+      vramDest: [0x05b93b, 0x05b93d, 0x05b93f],
+      behaviorTable: 0x05b96b,
+      selectorTable: 0x05b97d,
+      timerBase: 0x14ad,
+      shift: 0x26,
+      tilesetOffsetTable: 0x05b98b,
+      animatedTileData: 0x05b999,
+    })
+  })
+
+  it('reads a mutated ADC operand as the shift', () => {
+    const r = readAnimRoutine(switchRom({ shift: 0x27 }))
+    expect(r.ok && r.shift).toBe(0x27)
+  })
+
+  it.each([...stockRoutine().keys()].filter(i => !READ_OPERANDS.has(i)))(
+    'refuses when gated byte +$%s is changed',
+    i => {
+      const rom = switchRom()
+      rom.writeAt(0x05bb39 + i, [stockRoutine()[i]! ^ 0xff])
+      const r = readAnimRoutine(rom)
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.reason).toMatch(/CODE_05BB39's .* is replaced/)
+      const data = loadAnimationData(rom, 0)!
+      expect(data.frames.flat().some(s => s.alt)).toBe(false)
+      expect(data.switchUnavailable).toMatch(/is replaced/)
+    },
+  )
+
+  it('refuses a JSL over the upload, which reads the table but never uses it', () => {
+    const rom = switchRom()
+    rom.writeAt(0x05bb39 + 0x5d, [0x22, 0x00, 0x80, 0x02])
+    const r = readAnimRoutine(rom)
+    expect(!r.ok && r.reason).toMatch(/upload and loop close/)
+  })
+
+  it.each(['c', 'b', 'a', 'beh', 'ts', 'atd'] as const)(
+    'refuses the %s table in WRAM or across its bank end',
+    key => {
+      for (const addr of [0x1000, 0xffff]) {
+        const r = readAnimRoutine(animRom({ anim: stockRoutine({ [key]: addr }) }))
+        expect(!r.ok && r.reason).toMatch(addr < 0x8000 ? /is in WRAM/ : /crosses its bank end/)
+      }
+    },
+  )
+
+  it.each(['c', 'b', 'a', 'beh', 'ts', 'atd'] as const)(
+    'accepts the %s table at $8000 and refuses it a byte below',
+    key => {
+      const read = (addr: number) =>
+        readAnimRoutine(animRom({ anim: stockRoutine({ [key]: addr }) }))
+      expect([read(0x8000).ok, read(0x7fff).ok]).toEqual([true, false])
+    },
+  )
+
+  it.each([
+    ['c', 0xffd4],
+    ['beh', 0xffe8],
+    ['ts', 0xfff0],
+    ['atd', 0xf800],
+  ] as const)('accepts the %s table ending on its bank end, not a byte past', (key, last) => {
+    const read = (addr: number) => readAnimRoutine(animRom({ anim: stockRoutine({ [key]: addr }) }))
+    expect([read(last).ok, read(last + 1).ok]).toEqual([true, false])
+  })
+
+  it('refuses a JML over the entry even with the rest intact', () => {
+    const rom = switchRom()
+    rom.writeAt(0x05bb39, [0x5c, 0x00, 0x80, 0x02])
+    expect(readAnimRoutine(rom).ok).toBe(false)
+  })
+
+  it('ignores a dead copy elsewhere, which never runs', () => {
+    const rom = switchRom()
+    rom.writeAt(0x02c000, stockRoutine({ shift: 0x30 }))
+    const r = readAnimRoutine(rom)
+    expect(r.ok && r.shift).toBe(0x26)
+  })
+
+  it.each([
+    ['the level JSL skips CODE_05BB39', { jsl: [0x22, 0x77, 0xac, 0x13] }, /\$13AC77/],
+    ['$00A2A5 is not a JSL', { jsl: [0xea, 0xea, 0xea, 0xea] }, /\$00A2A5/],
+  ])('refuses when %s', (_, opts, reason) => {
+    const rom = switchRom({}, opts)
+    const r = readAnimRoutine(rom)
+    expect(!r.ok && r.reason).toMatch(reason)
+    expect(loadAnimationData(rom, 0)!.switchUnavailable).toMatch(reason)
+  })
+})
+
+describe('animation tables read from the routine', () => {
+  it.each([
+    ['C', 0, 'c'],
+    ['B', 1, 'b'],
+    ['A', 2, 'a'],
+  ] as const)('follows a moved VRAM destination table %s', (_, k, key) => {
+    const rom = switchRom({ [key]: 0xc600 })
+    rom.writeAt(0x05c600, w(0x0440))
+    for (let f = 0; f < 4; f++) entry(rom, 0xb999, k, f, 0x7d00)
+    const r = readAnimRoutine(rom)
+    expect(r.ok && r.vramDest[k]).toBe(0x05c600)
+    expect(at(rom, 0x44).tiles[0]![0]).toBe(1)
+  })
+
+  it('follows a moved tileset offset table, and behavior 3 takes the tileset path', () => {
+    const rom = switchRom({ ts: 0xc400 })
+    rom.writeAt(0x05c400, [0x10])
+    rom.writeAt(0x05b96b + 4, [3])
+    rom.writeAt(0x05b93b + 4 * 2, w(0x04c0))
+    for (let f = 0; f < 4; f++) {
+      entry(rom, 0xb999, 4, f, 0x7d00)
+      for (const slot of [19, 20]) entry(rom, 0xb999, slot, f, 0x7e00)
+    }
+    expect([at(rom, 0x48), at(rom, 0x4c)].map(s => s.tiles[0]![0])).toEqual([3, 3])
+  })
+
+  it('adds the offset of the tileset being loaded', () => {
+    const rom = switchRom({ ts: 0xc400 })
+    rom.writeAt(0x05c400 + 5, [0x10])
+    for (let f = 0; f < 4; f++) entry(rom, 0xb999, 19, f, 0x7e00)
+    const color = (ts: number) =>
+      loadAnimationData(rom, ts)!.frames[0]!.find(s => s.charBase === 0x48)!.tiles[0]![0]
+    expect([color(0), color(5)]).toEqual([1, 3])
+  })
+
+  it('wraps the tileset-adjusted slot to 8 bits: offset $F0 on slot 23 reads slot 7', () => {
+    const rom = switchRom()
+    rom.writeAt(0x05b98b, [0xf0])
+    rom.writeAt(0x05b96b + 23, [2])
+    rom.writeAt(0x05b93b + 23 * 2, w(0x0d00))
+    for (let f = 0; f < 4; f++) entry(rom, 0xb999, 23, f, 0x2000)
+    expect(at(rom, 0xd0).tiles[0]![0]).toBe(1)
+  })
+
+  it('reads each frame from its own AnimatedTileData entry', () => {
+    const rom = switchRom()
+    for (let f = 0; f < 4; f++) entry(rom, 0xb999, 0, f, 0x7d00 + f * 0x80)
+    const frames = loadAnimationData(rom, 0)!.frames
+    expect(frames.map(fr => fr.find(s => s.charBase === 0x60)!.tiles[0]![0])).toEqual([1, 2, 3, 5])
+  })
+
+  it('reads the unswitched frames from a moved AnimatedTileData', () => {
+    const rom = switchRom({ atd: 0xd000 })
+    for (let f = 0; f < 4; f++) entry(rom, 0xd000, 0, f, 0x7e00)
+    expect(at(rom, 0x60).tiles[0]![0]).toBe(3)
+  })
+})
+
+describe('switch alternates', () => {
+  it('tags exactly the table-listed slots, with each frame its own switched pixels', () => {
+    const data = loadAnimationData(switchRom(), 0)!
+    expect(data.switchUnavailable).toBeUndefined()
+    data.frames.forEach((frame, f) => {
+      const tagged = frame
+        .filter(s => s.alt)
+        .map(s => [s.charBase, s.alt!.switch, s.alt!.tiles[0]![0]])
+      expect(tagged).toEqual(SWITCH_SLOTS.map(([, c, , k]) => [c, k, ALT_COLORS[f]]))
+    })
+  })
+
+  it('follows moved behavior and selector tables', () => {
+    const rom = switchRom({ beh: 0xc800, sel: 0xc900 })
+    const r = readAnimRoutine(rom)
+    expect(r.ok && [r.behaviorTable, r.selectorTable]).toEqual([0x05c800, 0x05c900])
+    expect(frame0(rom).filter(s => s.alt)).toHaveLength(8)
+  })
+
+  it('names switches from a moved timer base, and leaves an unknown RAM byte untagged', () => {
+    const data = loadAnimationData(switchRom({ timer: 0x14ae }), 0)!
+    const tag = (c: number) => data.frames[0]!.find(s => s.charBase === c)!.alt?.switch
+    expect([tag(0x50), tag(0x5c), tag(0x7c)]).toEqual(['silver', 'onOff', undefined])
+    expect(data.switchUnavailable).toMatch(/slot 11 follows RAM \$14B0/)
+  })
+
+  it('leaves a selector of 3 untagged and says why', () => {
+    const rom = switchRom()
+    rom.writeAt(0x05b97d + 6, [3])
+    const data = loadAnimationData(rom, 0)!
+    expect(data.frames[0]!.find(s => s.charBase === 0x50)!.alt).toBeUndefined()
+    expect(data.frames[0]!.filter(s => s.alt)).toHaveLength(7)
+    expect(data.switchUnavailable).toMatch(/slot 6 follows RAM \$14B0/)
+  })
+
+  it('wraps the shifted slot to 8 bits: ADC #$F0 on slot 23 reads slot 7', () => {
+    const rom = switchRom({ shift: 0xf0, beh: 0xc800, sel: 0xc900 })
+    rom.writeAt(0x05c800 + 23, [1])
+    rom.writeAt(0x05b93b + 23 * 2, w(0x0d00))
+    for (let f = 0; f < 4; f++) entry(rom, 0xb999, 23, f, 0x2000)
+    const slot = at(rom, 0xd0)
+    expect([slot.tiles[0]![0], slot.alt?.tiles[0]![0]]).toEqual([4, 1])
+  })
+
+  it.each([
+    ['$05FFF0', 0xfff0, /selector table \$05FFF0 crosses its bank end/],
+    ['$057FF0', 0x7ff0, /selector table \$057FF0 is in WRAM/],
+  ])('keeps the frames when the selector table at %s cannot be ROM', (_, sel, reason) => {
+    // Bank 6 exists, so a file read past $05FFFF would succeed where the SNES wraps.
+    const rom = switchRom({ sel }, { size: 0x38000 })
+    const data = loadAnimationData(rom, 0)!
+    expect(data.frames[0]!.find(s => s.charBase === 0x50)!.tiles[0]![0]).toBe(1)
+    expect(data.frames.flat().some(s => s.alt)).toBe(false)
+    expect(data.switchUnavailable).toMatch(reason)
+    // A switch-only fault leaves the frames verified and playable.
+    const frameZero = frameZeroChars(rom, 0, rawVram())
+    expect(frameZero?.error).toBeUndefined()
+    expect(playableAnimation(frameZero)).toBeDefined()
+  })
+
+  it.each([
+    ['behavior', 'beh'],
+    ['tileset offset', 'ts'],
+  ] as const)('names the %s table the routine read when it runs off the ROM', (name, key) => {
+    // The routine sits below $05C000 and reads fine; $05E000 is past this ROM's end.
+    const rom = animRom({ anim: stockRoutine({ [key]: 0xe000 }), size: 0x2c000 })
+    expect(readAnimRoutine(rom).ok).toBe(true)
+    const r = loadAnimationDataOrReason(rom, 0)
+    expect(!r.ok && r.reason).toBe(
+      `the animation ${name} table at $05E000 runs past the end of the ROM`,
+    )
+  })
+
+  it('refuses an alternate on the $0800 berry split, saying why', () => {
+    const rom = switchRom()
+    rom.writeAt(0x05b93b + 6 * 2, w(0x0800))
+    const data = loadAnimationData(rom, 0)!
+    expect(data.frames[0]!.filter(s => s.alt)).toHaveLength(7)
+    expect(data.switchUnavailable).toMatch(/slot 6 writes the \$0800 split/)
+  })
+
+  it('drops a switched frame that points outside the animated tiles, saying why', () => {
+    const rom = switchRom()
+    entry(rom, 0xb999, 6 + 0x26, 0, 0x0000)
+    const data = loadAnimationData(rom, 0)!
+    expect(data.frames[0]!.find(s => s.charBase === 0x50)!.alt).toBeUndefined()
+    expect(data.switchUnavailable).toMatch(/slot 6's switched frame is out of range/)
+  })
+
+  it('names the switches that affect a set of chars', () => {
+    const data = loadAnimationData(switchRom(), 0)!
+    expect([...switchesForChars(data, [0x5d, 0xdb, 0x60])].sort()).toEqual(['onOff', 'silver'])
+    expect(switchesForChars(data, [0x60, 0x48, 0x80]).size).toBe(0)
+  })
+
+  it('picks pixels per caller switch state', () => {
+    const slot = at(switchRom(), 0x5c)
+    const off = { blue: true, silver: false, onOff: true }
+    expect(slotTiles(slot, off)[0]![0]).toBe(1)
+    expect(slotTiles(slot, { ...off, silver: true })[0]![0]).toBe(2)
   })
 })

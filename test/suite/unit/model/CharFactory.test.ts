@@ -68,8 +68,8 @@ describe('buildChars - altTiles present in all frames: PSwitchAlternateBehavior'
       frameCount: 2,
       intervalMs: 133,
       frames: [
-        [{ charBase: 0x000, tiles: [PIXELS], altTiles: [ALT_PIXELS] }],
-        [{ charBase: 0x000, tiles: [PIXELS], altTiles: [ALT_PIXELS] }],
+        [{ charBase: 0x000, tiles: [PIXELS], alt: { switch: 'blue', tiles: [ALT_PIXELS] } }],
+        [{ charBase: 0x000, tiles: [PIXELS], alt: { switch: 'blue', tiles: [ALT_PIXELS] } }],
       ],
     }
     const chars = buildChars(VRAM, animData)
@@ -169,11 +169,22 @@ describe('buildChars - altFrames hole in frame 1: altFrames dropped', () => {
       frameCount: 2,
       intervalMs: 133,
       frames: [
-        [{ charBase: 0x000, tiles: [PIXELS], altTiles: [ALT_PIXELS] }],
+        [{ charBase: 0x000, tiles: [PIXELS], alt: { switch: 'blue', tiles: [ALT_PIXELS] } }],
         [{ charBase: 0x000, tiles: [PIXELS] }], // no altTiles on frame 1
       ],
     }
     const chars = buildChars(VRAM, animData)
     expect(chars.get(0x000)?.behavior).toBeInstanceOf(AnimatedPixelsBehavior)
   })
+})
+
+describe('buildChars - silver and ON/OFF alternates: not bound to the blue toggle', () => {
+  it.each(['silver', 'onOff'] as const)(
+    'a %s slot animates without PSwitchAlternateBehavior',
+    k => {
+      const slot = { charBase: 0x000, tiles: [PIXELS], alt: { switch: k, tiles: [ALT_PIXELS] } }
+      const chars = buildChars(VRAM, { frameCount: 2, intervalMs: 133, frames: [[slot], [slot]] })
+      expect(chars.get(0x000)?.behavior).toBeInstanceOf(AnimatedPixelsBehavior)
+    },
+  )
 })
