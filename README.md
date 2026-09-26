@@ -3,6 +3,8 @@
 > A Super Mario World ROM editor. Desktop app, non-destructive, patch-first.
 
 [![CI](https://github.com/en-gen/hackbench/actions/workflows/ci.yml/badge.svg)](https://github.com/en-gen/hackbench/actions/workflows/ci.yml)
+[![Nightly e2e](https://github.com/en-gen/hackbench-validation/actions/workflows/e2e-playwright.yml/badge.svg?event=schedule)](https://github.com/en-gen/hackbench-validation/actions/workflows/e2e-playwright.yml?query=event%3Aschedule)
+[![Capture harness](https://github.com/en-gen/hackbench-validation/actions/workflows/capture-harness.yml/badge.svg?branch=main&event=push)](https://github.com/en-gen/hackbench-validation/actions/workflows/capture-harness.yml?query=branch%3Amain)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 HackBench opens a Super Mario World ROM and lets you browse and edit
