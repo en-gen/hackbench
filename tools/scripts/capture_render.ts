@@ -20,6 +20,7 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import * as zlib from 'zlib'
 import { inflateRawSync, inflateSync } from 'zlib'
+import { buildSync } from 'esbuild'
 import * as D from './capture_decode'
 import * as Draw from './capture_draw'
 import type { GridMeta, Mismatch, PipeInfo } from './capture_decode'
@@ -987,11 +988,42 @@ list places each sprite. A dotted pink box was never seen alive in any captured 
 <li>Hover anywhere to see the tile number and how it is built.</li>
 </ul></details>`
 
-/** The page's script: every export of capture_draw.ts (functions as source, constants as JSON), then the viewer. */
+/**
+ * capture_draw.ts's whole module, real-bundled with esbuild into one IIFE
+ * (#421 step 2 round 3). capture_draw.ts re-exports its 8x8 pixel
+ * primitives from the core (src/rom/render/TileResolver.ts) instead of
+ * defining them itself, so `foreground`/`drawBg` call an imported binding.
+ * `Function.prototype.toString` on such a function reflects whatever the
+ * HOST bundler rewrote that call to (tsx/esbuild: `(0,import_X.f)(...)`;
+ * Vite's SSR transform: `__vite_ssr_import_0__.f(...)`) - a reference
+ * meaningless outside that bundler's own module scope, which broke every
+ * generated page (#421 step 2 round 3, confirmed on $0C3). A real bundle
+ * has no such artifact: esbuild resolves the import itself and the output
+ * references nothing outside the IIFE. Built once and cached, since
+ * `runCapture` calls `page()` once per map.
+ */
+let captureDrawBundle: string | undefined
+function bundleCaptureDraw(): string {
+  if (captureDrawBundle === undefined) {
+    const result = buildSync({
+      entryPoints: [join(__dirname, 'capture_draw.ts')],
+      bundle: true,
+      write: false,
+      format: 'iife',
+      globalName: '__CaptureDraw',
+      platform: 'browser',
+      target: 'es2020',
+    })
+    captureDrawBundle = result.outputFiles[0].text
+  }
+  return captureDrawBundle
+}
+
+/** The page's script: the real capture_draw.ts bundle, its exports unpacked to their own names (so `viewer`'s bare references to them still resolve), then the viewer. */
 function pageScript(v: ViewerData) {
-  const decls = Object.entries(Draw).map(([k, f]) => (typeof f === 'function' ? f.toString() : `var ${k}=${JSON.stringify(f)};`)) // prettier-ignore
+  const decls = Object.keys(Draw).map(k => `var ${k} = __CaptureDraw.${k};`)
   const json = JSON.stringify(v).replace(/</g, '\\u003c')
-  return `var __name=function(f){return f};\n${decls.join('\n')}\n(${viewer.toString()})(${json})`
+  return `${bundleCaptureDraw()}\n${decls.join('\n')}\nvar __name=function(f){return f};\n(${viewer.toString()})(${json})`
 }
 
 export function page(L: Level): string {

@@ -4,8 +4,9 @@
  * The pipeline for a single Map16 tile:
  *   1. For each of the 4 subtiles (TL, TR, BL, BR):
  *      a. Look up charNum in VRAM → 64 palette indices
- *      b. Apply X/Y flip
- *      c. Look up palette row + index → RGBA color
+ *      b. Apply X/Y flip, look up palette row + index → RGBA color, via the
+ *         core's `composeTile` (src/rom/render/TileResolver.ts, #421 step 2
+ *         - see its header).
  *   2. Composite 4 subtiles into a 16×16 RGBA block
  *
  * Color index 0 in any palette row is transparent.
@@ -15,6 +16,7 @@ import { Map16Tile, SubTile } from './Map16'
 import { VramState, getCharPixels } from './GfxLoader'
 import { getPaletteColor } from './PaletteLoader'
 import { RgbaColor } from './GraphicsDecoder'
+import { composeTile } from './render/TileResolver'
 
 const TILE_PX = 8 // 8×8 pixels per subtile
 const MAP16_PX = 16 // 16×16 pixels per Map16 tile
@@ -25,6 +27,9 @@ export type TileRgba = Uint8ClampedArray
 /**
  * Render one 8×8 subtile into an RGBA block.
  * `dest` is a 64-pixel (256-byte) buffer, written in row-major order.
+ * Index 0 relies on `dest` starting fresh (zeroed): `composeTile` never
+ * calls `put` for it, so those bytes are only correct because
+ * `renderMap16Tile` always hands this a newly allocated buffer.
  */
 function renderSubTile(
   sub: SubTile,
@@ -35,30 +40,33 @@ function renderSubTile(
   destStride: number, // bytes per destination row (4 * MAP16_PX)
 ): void {
   const pixels = getCharPixels(vram, sub.charNum)
-  const paletteRow = sub.palette
-
-  for (let py = 0; py < TILE_PX; py++) {
-    const srcY = sub.flipY ? TILE_PX - 1 - py : py
-    for (let px = 0; px < TILE_PX; px++) {
-      const srcX = sub.flipX ? TILE_PX - 1 - px : px
-      const paletteIdx = pixels ? pixels[srcY * TILE_PX + srcX] : 0
-      const dest4 = destOffset + py * destStride + px * 4
-
-      if (paletteIdx === 0) {
-        // Color 0 = transparent; write magenta placeholder for empty VRAM
-        dest[dest4] = pixels ? 0 : 255
-        dest[dest4 + 1] = 0
-        dest[dest4 + 2] = pixels ? 0 : 255
-        dest[dest4 + 3] = pixels ? 0 : 128
-      } else {
-        const color: RgbaColor = getPaletteColor(palette, paletteRow, paletteIdx)
-        dest[dest4] = color[0]
-        dest[dest4 + 1] = color[1]
-        dest[dest4 + 2] = color[2]
-        dest[dest4 + 3] = 255
+  if (!pixels) {
+    // A char missing from VRAM entirely: magenta placeholder over the whole
+    // subtile, not just its transparent pixels - there is no real index 0 to
+    // distinguish it from.
+    for (let py = 0; py < TILE_PX; py++)
+      for (let px = 0; px < TILE_PX; px++) {
+        const d = destOffset + py * destStride + px * 4
+        dest[d] = 255
+        dest[d + 1] = 0
+        dest[d + 2] = 255
+        dest[d + 3] = 128
       }
-    }
+    return
   }
+  const fields = { char: sub.charNum, flipX: sub.flipX ? 1 : 0, flipY: sub.flipY ? 1 : 0 }
+  composeTile(
+    fields,
+    (_ch, x, y) => pixels[y * TILE_PX + x],
+    (px, py, v) => {
+      const color: RgbaColor = getPaletteColor(palette, sub.palette, v)
+      const d = destOffset + py * destStride + px * 4
+      dest[d] = color[0]
+      dest[d + 1] = color[1]
+      dest[d + 2] = color[2]
+      dest[d + 3] = 255
+    },
+  )
 }
 
 /** Render a single Map16 tile to a 16×16 RGBA block (1024 bytes). */
