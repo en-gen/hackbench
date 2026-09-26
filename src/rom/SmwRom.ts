@@ -27,7 +27,8 @@
 
 import { RomFile } from './RomFile'
 import { parseLevelObjects } from './LevelParser'
-import { getLevelNameByIndex } from './SmwLevelNames'
+import { levelNameForSlot } from './SmwLevelNames'
+import { deriveOverworldEntrances, type OverworldEntranceIndex } from './OverworldEntrances'
 import {
   OVERWORLD_ENTRY,
   SCREEN_EXIT,
@@ -521,13 +522,17 @@ export class SmwRom {
     return { graph, unavailable: null }
   }
 
-  /** Get level name from ROM (decoded via SmwLevelNames). */
-  getLevelName(index: number): string | null {
-    return getLevelNameByIndex(this.rom, index)
+  /** Name for `index`, from the overworld walk's own entrances, not a bias
+   *  formula. Pass a precomputed `entrances` when naming many slots. */
+  getLevelName(index: number, entrances?: OverworldEntranceIndex): string | null {
+    return levelNameForSlot(this.rom, entrances ?? deriveOverworldEntrances(this), index).name
   }
 
   /** Enumerate all 512 pointer table slots, returning metadata for each. */
-  enumerateAllLevels(): Array<{ index: number; hasData: boolean; name: string | null }> {
+  enumerateAllLevels(
+    entrances?: OverworldEntranceIndex,
+  ): Array<{ index: number; hasData: boolean; name: string | null }> {
+    const idx = entrances ?? deriveOverworldEntrances(this)
     const results: Array<{ index: number; hasData: boolean; name: string | null }> = []
     for (let i = 0; i < 0x200; i++) {
       const ptr = this.getLevelL1Pointer(i)
@@ -539,7 +544,7 @@ export class SmwRom {
           hasData = mode <= 0x1f && data[5] !== undefined
         }
       }
-      results.push({ index: i, hasData, name: hasData ? this.getLevelName(i) : null })
+      results.push({ index: i, hasData, name: hasData ? this.getLevelName(i, idx) : null })
     }
     return results
   }

@@ -140,7 +140,7 @@ export function buildMapTree(
     fingerprints.entry,
   )
 
-  const name = (index: number): string | null => rom.getLevelName(index)
+  const name = (index: number): string | null => rom.getLevelName(index, entranceIndex)
   const aliasesOf = (index: number): number[] => catalog.entries[index]?.l1Aliases ?? []
 
   // Roots come from the map set, not from classifyLevels, so a slot the

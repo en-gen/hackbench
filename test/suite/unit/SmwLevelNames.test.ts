@@ -11,13 +11,8 @@
 
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import {
-  decodeLevelName,
-  getAllLevelNames,
-  getLevelNameByIndex,
-  pointerIndexToTranslevel,
-  translevelToPointerIndex,
-} from '../../../src/rom/SmwLevelNames'
+import { decodeLevelName, getAllLevelNames, levelNameForSlot } from '../../../src/rom/SmwLevelNames'
+import type { OverworldEntrance, OverworldEntranceIndex } from '../../../src/rom/OverworldEntrances'
 
 const ADDR_LEVEL_NAME_STRINGS = 0x049ac5
 const ADDR_PREFIX_TABLE = 0x049c91
@@ -47,49 +42,25 @@ function packLetters(letters: string): number[] {
   return bytes
 }
 
-// ── Index conversions ────────────────────────────────────────────────────────
-
-describe('translevelToPointerIndex', () => {
-  it('translevels 0–$24 map to themselves (main overworld)', () => {
-    expect(translevelToPointerIndex(0)).toBe(0)
-    expect(translevelToPointerIndex(0x24)).toBe(0x24)
-  })
-
-  it('translevel $25 maps to pointer $101 (first submap level)', () => {
-    expect(translevelToPointerIndex(0x25)).toBe(0x101)
-  })
-
-  it('translevel $5F maps to pointer $13B (last named submap level)', () => {
-    expect(translevelToPointerIndex(0x5f)).toBe(0x13b)
-  })
-})
-
-describe('pointerIndexToTranslevel', () => {
-  it('main map range $000–$024 round-trips through translevel = same value', () => {
-    expect(pointerIndexToTranslevel(0)).toBe(0)
-    expect(pointerIndexToTranslevel(0x24)).toBe(0x24)
-  })
-
-  it('submap range $101–$13B converts back via subtract-$100 + add-$24', () => {
-    expect(pointerIndexToTranslevel(0x101)).toBe(0x25)
-    expect(pointerIndexToTranslevel(0x13b)).toBe(0x5f)
-  })
-
-  it('returns null for indices outside both ranges', () => {
-    expect(pointerIndexToTranslevel(0x025)).toBeNull()
-    expect(pointerIndexToTranslevel(0x100)).toBeNull()
-    expect(pointerIndexToTranslevel(0x13c)).toBeNull()
-    expect(pointerIndexToTranslevel(0x1ff)).toBeNull()
-  })
-})
-
 // ── decodeLevelName guards ───────────────────────────────────────────────────
 
 describe('decodeLevelName - guard paths', () => {
-  it('returns null for negative or out-of-range translevel', () => {
+  it('returns null for negative or 8-bit-out-of-range translevel', () => {
     const rom = make4MbRom()
     expect(decodeLevelName(rom, -1)).toBeNull()
-    expect(decodeLevelName(rom, 96)).toBeNull()
+    expect(decodeLevelName(rom, 256)).toBeNull()
+  })
+
+  it('decodes past the stock 96-entry table: the index is 8-bit with no further bound', () => {
+    const rom = make4MbRom()
+    writeWord(rom, ADDR_LEVEL_NAMES + 200 * 2, 0x0001)
+    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x00, packLetters('AB'))
+    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x10, [0x9f, 0x80])
+    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x20, [0x9a])
+    writeWord(rom, ADDR_PREFIX_TABLE + 0, 0x00)
+    writeWord(rom, ADDR_TYPE_TABLE + 0, 0x10)
+    writeWord(rom, ADDR_SUFFIX_TABLE + 2, 0x20)
+    expect(decodeLevelName(rom, 200)).toBe('AB')
   })
 
   it('returns null when the LevelNames entry is $0000 (empty)', () => {
@@ -196,7 +167,7 @@ describe('decodeLevelName - packed substring decode', () => {
   })
 })
 
-// ── getAllLevelNames + getLevelNameByIndex ───────────────────────────────────
+// ── getAllLevelNames ─────────────────────────────────────────────────────────
 
 describe('getAllLevelNames', () => {
   it('returns an empty Map when the LevelNames table is all zeros', () => {
@@ -224,23 +195,68 @@ describe('getAllLevelNames', () => {
   })
 })
 
-describe('getLevelNameByIndex', () => {
-  it('returns null when the pointer index is not an overworld translevel', () => {
-    expect(getLevelNameByIndex(make4MbRom(), 0x025)).toBeNull()
+// ── levelNameForSlot: pure branching over a given entrance list ─────────────
+
+describe('levelNameForSlot', () => {
+  const entrance = (translevel: number, slot: number): OverworldEntrance => ({
+    slot,
+    translevel,
+    bufferIndex: 0,
+    tileDataAddress: 0,
+    layout: 0,
+    tileX: 0,
+    tileY: 0,
+    submap: 0,
+    map16Tile: 0,
+    action: 'map',
+    isMap: true,
+  })
+  const readable = (entrances: OverworldEntrance[]): OverworldEntranceIndex => ({
+    entrances,
+    entryMaps: [],
+    overworldReadable: true,
+    notes: [],
+    roots: null,
   })
 
-  it('delegates to decodeLevelName when index is in the overworld range', () => {
-    const rom = make4MbRom()
-    writeWord(rom, ADDR_LEVEL_NAMES + 1 * 2, 0x0001)
-    // Plant prefix only; type & suffix are skip-markers (single bit-7 byte).
-    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x00, packLetters('AB'))
-    // Type substring: first byte $9F → type-skip sentinel.
+  /** Plants a two-letter name at `translevel`, in its own prefix-table slot
+   *  so two calls can name the same slot differently. Type/suffix are shared
+   *  skip-markers, reused across calls on the same rom. */
+  function plantName(rom: RomFile, translevel: number, tableSlot: number, letters: string): void {
+    const off = 0x100 + tableSlot * 0x10
+    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + off, packLetters(letters))
     rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x10, [0x9f, 0x80])
-    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x20, [0x9a]) // tile $1A → '' (skipped)
-    writeWord(rom, ADDR_PREFIX_TABLE + 0, 0x00)
+    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x20, [0x9a])
+    writeWord(rom, ADDR_PREFIX_TABLE + tableSlot * 2, off)
     writeWord(rom, ADDR_TYPE_TABLE + 0, 0x10)
-    writeWord(rom, ADDR_SUFFIX_TABLE + 2, 0x20)
-    // Pointer index 1 → translevel 1
-    expect(getLevelNameByIndex(rom, 1)).toBe('AB')
+    writeWord(rom, ADDR_SUFFIX_TABLE + 0, 0x20)
+    writeWord(rom, ADDR_LEVEL_NAMES + translevel * 2, (0x80 | tableSlot) << 8)
+  }
+
+  it('returns the one name that reaches the slot; no entrance gives null', () => {
+    const rom = make4MbRom()
+    plantName(rom, 1, 0, 'AB')
+    const idx = readable([entrance(1, 0x001)])
+    expect(levelNameForSlot(rom, idx, 0x001)).toEqual({ name: 'AB' })
+    expect(levelNameForSlot(rom, idx, 0x002).name).toBeNull()
+  })
+
+  it('returns the shared name when several translevels reaching a slot agree', () => {
+    const rom = make4MbRom()
+    plantName(rom, 1, 0, 'AB')
+    plantName(rom, 2, 0, 'AB')
+    const idx = readable([entrance(1, 0x001), entrance(2, 0x001)])
+    expect(levelNameForSlot(rom, idx, 0x001).name).toBe('AB')
+  })
+
+  it('refuses, naming the translevels, when they decode to different names', () => {
+    const rom = make4MbRom()
+    plantName(rom, 1, 0, 'AB')
+    plantName(rom, 2, 1, 'CD')
+    const idx = readable([entrance(1, 0x001), entrance(2, 0x001)])
+    const result = levelNameForSlot(rom, idx, 0x001)
+    expect(result.name).toBeNull()
+    expect(result.reason).toContain('$1')
+    expect(result.reason).toContain('$2')
   })
 })

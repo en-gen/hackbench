@@ -22,7 +22,10 @@ import { resolve, join } from 'path'
 import * as os from 'os'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom, ADDR } from '../../../src/rom/SmwRom'
+import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
+import { OW_ADDR } from '../../../src/rom/OverworldLoader'
 import { buildMapDetails } from '../../../theia/extension/src/node/map-details'
+import { plantStockSubmapCode, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
 
 /** A minimal ROM: LoROM header, one level's L1 pointer, one object, no
  *  VerticalTable or sprite-pointer pattern anywhere. */
@@ -45,6 +48,51 @@ describe('buildMapDetails - orientation unavailable', () => {
     expect(details.headerBytes).toEqual([0, 0, 0, 0, 0])
     expect(details.screens).toBe(1)
     expect(details.objectCount).toBe(1)
+  })
+})
+
+describe('buildMapDetails - name unavailable', () => {
+  it('carries the reason instead of a name when the overworld gate is not stock', () => {
+    // syntheticRom plants no submap-gate code, so the walk name resolution
+    // depends on is unreadable, the same way it is for a real edited ROM.
+    const details = buildMapDetails(syntheticRom(), 0x105)
+
+    expect(details.name).toBeNull()
+    expect(details.nameUnavailable).toMatch(/rebuilt by another editor/)
+  })
+})
+
+/** Negative control for the case above: a ROM whose overworld gate IS stock
+ *  and whose walk reaches slot $001, with a name planted there. Without
+ *  this, a version of `buildMapDetails` that always nulls the name, or
+ *  always reports a reason, would still pass every other test in this file. */
+function namedStockRom(): SmwRom {
+  const buf = Buffer.alloc(0x80000, 0x00)
+  buf[0x7fd5] = 0x20
+  const rom = new RomFile('stock.sfc', buf)
+  plantStockSubmapCode(rom)
+  rom.writeAt(OW_ADDR.L1_TILEDATA, [0x6e]) // one main-map launch tile -> translevel 1, slot $001
+  rom.writeAt(ADDR.LEVEL_L1_PTR + 0x001 * 3, [0x00, 0x80, 0x06]) // -> SNES $068000
+  rom.writeAt(0x068000, [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x35, 0x01, 0xff])
+  // Name table entry for translevel 1: prefix table 0 -> "AB", type/suffix skipped.
+  rom.writeAt(0x049ac5, [0x00, 0x81]) // 'A' then 'B', terminated
+  rom.writeAt(0x049ac5 + 0x10, [0x9f, 0x80]) // type skip-marker
+  rom.writeAt(0x049ac5 + 0x20, [0x9a]) // suffix, empty
+  rom.writeAt(0x049c91, [0x00, 0x00]) // prefix table 0 -> offset $00
+  rom.writeAt(0x049ccf, [0x10, 0x00]) // type table 0 -> offset $10
+  rom.writeAt(0x049ced, [0x20, 0x00]) // suffix table 0 -> offset $20
+  rom.writeAt(0x04a0fc + 1 * 2, [0x00, 0x80]) // LevelNames[1], byte1=$80 selects prefix 0
+  return new SmwRom(rom)
+}
+
+describe('buildMapDetails - stock name present (negative control)', () => {
+  it('returns the real name and no nameUnavailable when the overworld gate is stock', () => {
+    const rom = namedStockRom()
+    const entrances = deriveOverworldEntrances(rom, undefined, SYNTHETIC_FINGERPRINTS)
+    const details = buildMapDetails(rom, 0x001, entrances)
+
+    expect(details.name).toBe('AB')
+    expect(details.nameUnavailable).toBeUndefined()
   })
 })
 

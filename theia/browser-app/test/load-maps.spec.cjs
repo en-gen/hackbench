@@ -182,6 +182,16 @@ test('the map view shows a sprite count on an unpatched ROM', async ({ page }) =
   expect(view).toMatch(/\d+ sprites/)
 })
 
+test('the map view shows the real name on an unpatched ROM, not "name unavailable"', async ({
+  page,
+}) => {
+  // $105 is Yoshi's Island 1; the negative control for the two patched-ROM
+  // name-unavailable cases below.
+  const view = await openMapView(page, ROM, path.join(tmp, 'Unpatched'))
+  expect(view).toMatch(/YOSHI'S ISLAND 1/i)
+  expect(view).not.toMatch(/name unavailable/i)
+})
+
 test('a ROM whose sprite-pointer read is patched shows sprites unavailable, with why', async ({
   page,
 }) => {
@@ -196,6 +206,23 @@ test('a ROM whose sprite-pointer read is patched shows sprites unavailable, with
   const view = await openMapView(page, patched, path.join(tmp, 'SpritePatched'))
   expect(view).toMatch(/sprites unavailable/i)
   expect(view).toMatch(/neither vanilla nor a recognized hook/i)
+})
+
+test('a ROM whose overworld entry code is patched shows the name unavailable, with why', async ({
+  page,
+}) => {
+  // $05D8B1 is the BEQ CODE_05D8A2 reads for the submap high byte
+  // (bank_05.asm:7224); the four edited corpus ROMs hold a JSL there.
+  // Headerless LoROM file offset $2D8B1.
+  const patched = path.join(tmp, 'name-patched.sfc')
+  const bytes = fs.readFileSync(ROM)
+  expect(bytes[0x2d8b1]).toBe(0xf0)
+  bytes[0x2d8b1] = 0x22
+  fs.writeFileSync(patched, bytes)
+
+  const view = await openMapView(page, patched, path.join(tmp, 'NamePatched'))
+  expect(view).toMatch(/name unavailable/i)
+  expect(view).toMatch(/rebuilt by another editor/i)
 })
 
 test('the maps are grouped, not dumped in a flat list', async ({ page }) => {

@@ -118,8 +118,9 @@ import { loadOverworldEvents } from './OverworldEvents'
 import {
   OVERWORLD_ENTRY,
   OVERWORLD_INDEX_BODY,
-  readSubmapHigh,
+  readTranslevelBias,
   stockCodeMismatch,
+  translevelToPointerIndex,
 } from './SubmapFlagGate'
 import { findUnique, matchesAt, WILD, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
@@ -482,12 +483,12 @@ export function deriveOverworldEntrances(
     ])
   }
 
-  // All three sit on the path OVERWORLD_ENTRY just proved stock.
-  const biasThreshold = rom.rom.readByte(0x05d8a3)!
-  const bias = rom.rom.readByte(0x05d8a8)!
-  const submapHigh = readSubmapHigh(rom.rom, 0x05d8b4)
-  if (typeof submapHigh === 'string') {
-    return unavailable([`Overworld not readable: ${submapHigh} No entry maps can be identified.`])
+  // Already proved stock above; this only reads the three operands.
+  const mapping = readTranslevelBias(rom.rom, fingerprints.entry)
+  if (!mapping.ok) {
+    return unavailable([
+      `Overworld not readable: ${mapping.reason} No entry maps can be identified.`,
+    ])
   }
   const walk = readWalk(rom.rom, fingerprints.walk)
   if (!walk) {
@@ -518,9 +519,8 @@ export function deriveOverworldEntrances(
     counter = (counter + 1) & 0xff
     if (counter === 0) wrapped = true
     const layout: 0 | 1 = bufferIndex >= SUBMAP_BUFFER_BASE ? 1 : 0
-    // SBC is 8-bit: a translevel below the bias wraps to $100 + translevel - bias.
-    const biased = translevel >= biasThreshold ? (translevel - bias) & 0xff : translevel
-    walked.push({ bufferIndex, translevel, layout, slot: layout * (submapHigh << 8) + biased })
+    const slot = translevelToPointerIndex(mapping, translevel, layout)
+    walked.push({ bufferIndex, translevel, layout, slot })
   }
   const roots = rootsOf(walked)
 
@@ -557,7 +557,7 @@ export function deriveOverworldEntrances(
     }
   })
   const mainMapBiased = entrances.filter(
-    e => e.layout === 0 && e.translevel >= biasThreshold,
+    e => e.layout === 0 && e.translevel >= mapping.threshold,
   ).length
 
   const launching = entrances.filter(e => e.action === 'map')
@@ -598,10 +598,10 @@ export function deriveOverworldEntrances(
     )
   }
   if (mainMapBiased > 0) {
-    const thr = `$${biasThreshold.toString(16).toUpperCase()}`
+    const thr = `$${mapping.threshold.toString(16).toUpperCase()}`
     notes.push(
       `${mainMapBiased} main-map entrances have a translevel >= ${thr}, so CODE_05D8A2's ` +
-        `low-byte gate subtracts $${bias.toString(16).toUpperCase()} while its high-byte gate keeps them on the main map. ` +
+        `low-byte gate subtracts $${mapping.bias.toString(16).toUpperCase()} while its high-byte gate keeps them on the main map. ` +
         'Each lands on translevel minus the bias, which can be the slot of a lower ' +
         'main-map translevel. The two gates are ' +
         'independent (bank_05.asm:7217-7226); this is what the ROM does.',

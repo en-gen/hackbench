@@ -18,7 +18,7 @@ import { loadVram } from '../../src/rom/GfxLoader'
 import { loadAllMap16 } from '../../src/rom/Map16'
 import { renderMap16Tile } from '../../src/rom/TileRenderer'
 import { loadRomPalettes, buildLevelCgram, STOCK_COL1 } from '../../src/rom/PaletteLoader'
-import { getLevelNameByIndex } from '../../src/rom/SmwLevelNames'
+import { deriveOverworldEntrances } from '../../src/rom/OverworldEntrances'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
 const MAPS_DIR = `${process.env.USERPROFILE ?? process.env.HOME}/OneDrive/hackbench-fixtures/maps`
@@ -315,6 +315,8 @@ function parseFixture(text: string): Fixture {
 // ── Main loop ───────────────────────────────────────────────────────────────
 const rom = SmwRom.open(ROM_PATH)
 const verticalTable = rom.requireVerticalTable()
+// Computed once: the walk, not once per fixture in the loop below.
+const entrances = deriveOverworldEntrances(rom)
 
 // Optional --level <hex> filter to iterate faster on one level.
 const args = process.argv.slice(2)
@@ -516,7 +518,7 @@ for (const name of folders) {
   fillRect(img, imgW, 0, 0, imgW, imgH, 20, 20, 30)
   fillRect(img, imgW, oursLabelX, oursLabelY, oursLabelW, LABEL_H, 60, 100, 60) // ours (TS port) = green
   fillRect(img, imgW, fxLabelX, fxLabelY, fxLabelW, LABEL_H, 60, 60, 100) // fixture (Mesen) = blue
-  const levelName = getLevelNameByIndex(rom.rom, levelNum)
+  const levelName = rom.getLevelName(levelNum, entrances)
   const nameSuffix = levelName ? ` - ${levelName}` : ''
   drawText(
     img,

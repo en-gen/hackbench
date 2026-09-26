@@ -388,24 +388,30 @@ describe('SmwRom.enumerateAllLevels', () => {
 
   it('decodes the level name when hasData is true (overworld-range only)', () => {
     const rom = make4MbRom()
-    setL1Ptr(rom, 0x000, 0x068000)
+    // plantOverworldTiles's first main tile is translevel 1, at slot $001
+    // (the counter starts at 1, so slot $000 is never an overworld slot).
+    setL1Ptr(rom, 0x001, 0x068000)
     setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0x42])
-    // Plant a name for translevel 0 (= pointer index 0).
-    // Use the same packed-byte trick as SmwLevelNames.test.ts.
     const ADDR_LEVEL_NAME_STRINGS = 0x049ac5
     const ADDR_PREFIX_TABLE = 0x049c91
     const ADDR_TYPE_TABLE = 0x049ccf
     const ADDR_SUFFIX_TABLE = 0x049ced
     const ADDR_LEVEL_NAMES = 0x04a0fc
-    rom.writeAt(ADDR_LEVEL_NAMES, [0x01, 0x00]) // pack
+    rom.writeAt(ADDR_LEVEL_NAMES + 1 * 2, [0x01, 0x00]) // pack, translevel 1
     rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x00, [0x00, 0x81]) // "AB"
     rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x10, [0x9f, 0x80]) // type skip
-    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x20, [0x9a]) // suffix → ''
+    rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x20, [0x9a]) // suffix -> ''
     rom.writeAt(ADDR_PREFIX_TABLE + 0, [0x00, 0x00])
     rom.writeAt(ADDR_TYPE_TABLE + 0, [0x10, 0x00])
     rom.writeAt(ADDR_SUFFIX_TABLE + 2, [0x20, 0x00])
     const smw = new SmwRom(rom)
-    const all = smw.enumerateAllLevels()
-    expect(all[0].name).toBe('AB')
+    // make4MbRom's overworld span is NOP-filled (CLAUDE.md: no ROM bytes
+    // committed), so the walk needs the synthetic fingerprint to read as stock.
+    const entrances = deriveOverworldEntrances(smw, undefined, {
+      entry: SYNTHETIC_FINGERPRINTS.entry,
+      walk: SYNTHETIC_FINGERPRINTS.walk,
+    })
+    const all = smw.enumerateAllLevels(entrances)
+    expect(all[1].name).toBe('AB')
   })
 })
