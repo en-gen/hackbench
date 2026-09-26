@@ -242,45 +242,62 @@ export function parsePipeWrites(rawWrites: unknown, rawSummary: unknown): PipeWr
  * en-gen/hackbench#421's allowed pipe differences: a vanilla SMW bug (owner
  * ruling 2026-09-26, not a HackBench defect - the pipe color is intended PER
  * SCREEN everywhere, and `pipeVariantIndex(strip)` is correct). The capture
- * faithfully records the bug, so the gate must allow exactly it:
- *   - the load's OWN first build of its first strip s0 (bank_05.asm:103's
- *     pre-loop `JSR CODE_05877E`) reads `Layer1TileUp,X` with X the stale
- *     `Layer1ScrollDir` left over from whatever ran before (:907-909) -
- *     not a ROM-predictable value, since X can be anything, not only the
- *     0 or 2 any level's own steady state ever writes there. It is allowed
- *     against ANY of the ROM's 4 MAP16AppTable variants (read from the ROM,
- *     never hardcoded): matching f(s0+$1F) is the common, citable case
- *     (round 5b measured 27 of ~130 horizontal maps; the other ~103 use the
- *     same mechanism but it is invisible there because f(s0) and f(s0+$1F)
- *     coincide); matching a variant that is neither f(s0) nor f(s0+$1F) is
- *     the rarer one ($108's own s0 is the one measured instance). Only
- *     words matching NO variant are still a mismatch. A later rebuild of
- *     strip s0 (scrolling back to it after the load) is not this build and
- *     gets no exemption of its own.
- *   - a vertical level's builds outside the load PASS, in EITHER direction
- *     or on an already-visited in-window strip (bank_05.asm:931-945,
- *     `CODE_0587CB` writes no set), keep whatever was resident at the load
- *     loop's end, f(s0+$20), REPLACING f(strip) as the correct value.
+ * faithfully records the bug, so the gate must allow exactly it, tightly
+ * (round 5c's "any of the 4 variants" widening rested on a misdiagnosis of
+ * $108 and is gone):
+ *   - H_S0: a HORIZONTAL level's load's OWN first build of its first strip
+ *     s0 (bank_05.asm:889-891 does NOT branch away for a horizontal level,
+ *     so :907-909's pick runs) reads `Layer1TileUp,X` with X =
+ *     `Layer1ScrollDir`, a WORD index: 0 gives f(s0) (not an exemption -
+ *     matches "as today" directly), 2 gives f(s0+$1F) (exempt). Measured:
+ *     all 136 of 136 horizontal s0 builds are one of exactly these two: no
+ *     other variant was observed. Any other variant is a mismatch, meaning
+ *     a stale index outside 0 or 2, which fails closed rather than
+ *     widening again.
+ *   - V_S0_DEFAULT: a VERTICAL level's load never runs the pick at all -
+ *     bank_05.asm:889-891 (`LDA ScreenMode` / `BNE CODE_0587CB`) branches
+ *     away BEFORE it, since `ScreenMode` is loaded from `VerticalTable`
+ *     (:552-553). Its s0 build keeps whatever CODE_0581FB's own compiled
+ *     Map16 defaults are for ids $133-$13A (the `JSR` at :429, the
+ *     `DATA_0581BB` read at :273, its load loop at :281-316) - the SAME
+ *     bytes `loadMap16`/`loadMap16WithPipeVariants` already produce for
+ *     those ids, read from the ROM here too, never hardcoded. Exempt only
+ *     when that default differs from f(s0) (measured: 6 of 7 vertical
+ *     maps); when it equals f(s0) outright the build is already an
+ *     ordinary "as today" match (measured: 1 of 7, no exemption needed).
+ *   - VERTICAL (post-load): a vertical level's builds outside the load
+ *     PASS, in EITHER direction or on an already-visited in-window strip
+ *     (bank_05.asm:931-945, `CODE_0587CB` writes no set), keep whatever was
+ *     resident at the load loop's end, f(s0+$20), REPLACING f(strip).
  * The load loop itself (s0+1..s0+$1F, bank_05.asm:110-143) and a
  * horizontal level's scroll builds (:899-929) get f(strip), no exemption.
+ * A build's exemption applies only to the load's OWN first write of s0,
+ * identified by object (chronologically, sorted by frame then strip within
+ * one frame - $0D0 builds 247-250 together in frame 452), never by strip
+ * VALUE: a later rebuild of the same strip number gets none of the above.
+ * The load PASS itself - the first 32 chronological builds forming exactly
+ * s0..s0+$1F - is checked directly: a capture whose first 32 builds are not
+ * that exact run reports one `load-pass` mismatch (both orientations),
+ * since every other rule above assumes that shape holds.
  */
-export const ALLOWED_PIPE_BUG_S0_ALT = '#571 first strip matches f(s0+$1F) (bank_05.asm:907-909)'
-export const ALLOWED_PIPE_BUG_S0_OTHER =
-  '#571 first strip matches a ROM variant that is neither f(s0) nor f(s0+$1F) (bank_05.asm:889-891,907-909 - stale Layer1ScrollDir indexes Direct Page)' // prettier-ignore
+export const ALLOWED_PIPE_BUG_H_S0 = '#571 H_S0: first strip matches f(s0+$1F) (bank_05.asm:907-909)' // prettier-ignore
+export const ALLOWED_PIPE_BUG_V_S0_DEFAULT =
+  '#571 V_S0_DEFAULT: first strip matches the ROM-compiled default for $133-$13A, not f(s0) (bank_05.asm:889-891,273,281-316,429)' // prettier-ignore
 export const ALLOWED_PIPE_BUG_VERTICAL =
-  '#571 vertical post-load frozen at f(s0+$20) (bank_05.asm:931-945)'
+  '#571 VERTICAL: post-load frozen at f(s0+$20) (bank_05.asm:931-945)'
 
 export interface AllowedDifference {
   rule: string
   count: number
 }
 
-/** Table 3: `pipeVariantIndex(strip)` vs the words the capture recorded for that strip's build, with the one allowed divergence above; anything else is a mismatch, as today. */ // prettier-ignore
+/** Table 3: `pipeVariantIndex(strip)` vs the words the capture recorded for that strip's build, with the allowed divergences above; anything else is a mismatch, as today. */ // prettier-ignore
 export function checkPipes(
   pipeVariants: Map16Tile[][],
   writes: PipeWrites,
   citesPipeRange: boolean,
   isVertical: boolean,
+  tiles: readonly Map16Tile[] = [],
 ): { mismatches: GateMismatch[]; allowed: AllowedDifference[] } {
   if (writes.lo !== PIPE_LO || writes.hi !== PIPE_HI) {
     return {
@@ -304,6 +321,10 @@ export function checkPipes(
   const wordsFor = (strip: number): number[] | undefined => variantWords[pipeVariantIndex(strip)]
   const sameWords = (a?: number[], b?: number[]): boolean =>
     !!a && !!b && a.length === b.length && a.every((w, i) => w === b[i])
+  // CODE_0581FB's own compiled Map16 defaults for $133-$13A (bank_05.asm:
+  // 273,281-316,429), read straight from the ROM's main table - never
+  // hardcoded - for V_S0_DEFAULT.
+  const compiledDefault = tiles.length > PIPE_HI ? tiles.slice(PIPE_LO, PIPE_HI + 1).flatMap(quadWords) : undefined // prettier-ignore
 
   // s0: the load's lowest strip. The load loop writes exactly $20
   // consecutive strips, s0, s0+1, .., s0+$1F, one per iteration - so the
@@ -327,8 +348,15 @@ export function checkPipes(
     expectedStrip++
     if (expectedStrip > loadLoopEnd) break
   }
+  if (loadPass.size < 32) {
+    // Every rule above assumes the load's first 32 chronological builds are
+    // exactly s0..s0+$1F; a capture that never completes that run cannot be
+    // judged by them at all, so this is reported directly rather than left
+    // to surface as confusing per-strip mismatches downstream.
+    mismatches.push({ table: 'pipes', cell: 'load-pass', expected: `a contiguous run of $20 strips from s0=${s0}`, actual: `${loadPass.size} of 32` }) // prettier-ignore
+  }
   const s0Build = byTime[0]
-  const altVariant = wordsFor(loadLoopEnd) // f(s0+$1F): the common, citable s0 pick
+  const altVariant = wordsFor(loadLoopEnd) // f(s0+$1F): the horizontal pick's exempt candidate
 
   const allowedCounts = new Map<string, number>()
   const bump = (rule: string) => allowedCounts.set(rule, (allowedCounts.get(rule) ?? 0) + 1)
@@ -341,27 +369,29 @@ export function checkPipes(
     }
     let expected = naive
     let allowedRule: string | undefined
-    if (b === s0Build) {
-      // The s0 exemption (CODE_05877E's stale Layer1ScrollDir pick,
-      // bank_05.asm:907-909) applies only to the load's OWN, very first
-      // build of strip s0, identified by object, not by strip value: a
-      // later rebuild of the same strip number is not this build and gets
-      // no exemption of its own here. bank_05.asm:889-891 branches to
-      // CODE_0587CB (no Map16Pointers write at all) before the pick when
-      // ScreenMode's Layer1Vert bit is set, which is not the same gate as
-      // this level's overall vertical/horizontal classification - 5 of the
-      // 6 known vertical maps' own s0 still show the pick, so it is NOT
-      // gated on `isVertical` here. Widened (round 5c): the stale
-      // Layer1ScrollDir indexes Direct Page, so it is not guaranteed to
-      // land on just the two "normal" values (0 or 2) - allow ANY of the
-      // ROM's own MAP16AppTable variants, split by which one for
-      // visibility ($108's own s0 is the "other variant" case).
-      if (!sameWords(b.words, naive)) {
-        const matched = variantWords.find(v => sameWords(b.words, v))
-        if (matched) {
-          expected = matched
-          allowedRule = sameWords(matched, altVariant) ? ALLOWED_PIPE_BUG_S0_ALT : ALLOWED_PIPE_BUG_S0_OTHER // prettier-ignore
+    if (b === s0Build && isVertical) {
+      // V_S0_DEFAULT: the pick never runs (bank_05.asm:889-891 branches
+      // away first), so s0 keeps CODE_0581FB's own compiled default - the
+      // ORIENTATION split runs first, before any f(s0) check, so f(s0) is
+      // never accepted on its own merit here: the only acceptable value is
+      // the compiled default, whether or not it happens to equal f(s0) too
+      // (round 5e - checking f(s0) first let a vertical s0 pass even when
+      // its compiled default genuinely differed).
+      if (compiledDefault) {
+        expected = compiledDefault
+        if (!sameWords(compiledDefault, naive) && sameWords(b.words, compiledDefault)) {
+          allowedRule = ALLOWED_PIPE_BUG_V_S0_DEFAULT
         }
+      }
+    } else if (b === s0Build && !isVertical) {
+      // H_S0 (bank_05.asm:907-909): f(s0) itself is "as today", no
+      // exemption needed; only f(s0+$1F) is exempt; anything else is a
+      // stale index outside {0, 2} and stays a mismatch.
+      if (sameWords(b.words, naive)) {
+        // matches f(s0) directly - ordinary, no exemption
+      } else if (altVariant && sameWords(b.words, altVariant)) {
+        expected = altVariant
+        allowedRule = ALLOWED_PIPE_BUG_H_S0
       }
     } else if (isVertical && !loadPass.has(b)) {
       // CODE_0587CB writes no set for any build once the load pass is over,
@@ -578,7 +608,7 @@ export function gateMap(
   const cited = citedWords(romGrid, isVertical, map16.tiles, map16.pipeVariants)
 
   const grade = checkGrid(romGrid, grid, draw.meta, levelExtent(header.levelLength, header.levelMode), isVertical) // prettier-ignore
-  const pipes = checkPipes(map16.pipeVariants, writes, cited.citesPipeRange, isVertical)
+  const pipes = checkPipes(map16.pipeVariants, writes, cited.citesPipeRange, isVertical, map16.tiles) // prettier-ignore
   const perTable: Record<Table, GateMismatch[]> = {
     grid: grade.mismatches,
     defs: checkDefs(
