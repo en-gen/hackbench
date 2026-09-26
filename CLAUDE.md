@@ -21,6 +21,18 @@ Work is non-destructive and project-based. A `.hbproj` project references a ROM 
 
 Do not add `Co-Authored-By: Claude` lines to commits. Do not add "Generated with Claude Code" footers or any AI attribution to PR bodies or commit messages.
 
+## Issues
+
+Every issue gets a GitHub issue type: `Bug`, `Feature` or `Task`. The
+templates set it; `gh` does not, so pass it: `gh issue create --type Bug`.
+Use the type, not a `bug` or `enhancement` label.
+
+Work is tracked on the [HackBench board](https://github.com/orgs/en-gen/projects/1).
+Its Status is the claim: Backlog, Ready, In progress, In review, Done.
+Before starting an issue, check it is not In progress, then move it there;
+move it to In review when the branch is pushed. File new issues with
+`--project HackBench`. Touch only `en-gen` repos and projects.
+
 ## Commands
 
 From the repo root:
