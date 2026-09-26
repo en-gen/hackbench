@@ -20,16 +20,22 @@
  *
  * Pipes are clean: #571 (the vanilla pipe-color bug, bank_05.asm:103,
  * 110-143, 899-929, 931-945) is no longer a known failure, because
- * `checkPipes` now allows exactly that bug (ALLOWED_PIPE_BUG_S0_ALT,
- * ALLOWED_PIPE_BUG_S0_OTHER, ALLOWED_PIPE_BUG_VERTICAL) instead of
+ * `checkPipes` now allows exactly that bug, tightly (ALLOWED_PIPE_BUG_H_S0,
+ * ALLOWED_PIPE_BUG_V_S0_DEFAULT, ALLOWED_PIPE_BUG_VERTICAL) instead of
  * skipping it, so 0 pipe mismatches is the expected result on every map.
  */
 import { beforeAll, describe, it, expect } from 'vitest'
 import { hasCaptures, hasRom, romPath, CAPTURE_DIR, VANILLA } from '../support/corpus'
 import { FG_GATE_MAPS, idToHex } from '../../../tools/scripts/fgGateMaps'
-import { runGate, hashMismatches, type GateMismatch, type GateResult } from '../../../tools/scripts/capture_gate' // prettier-ignore
-import { SmwRom } from '../../../src/rom/SmwRom'
-import { parseLevelHeader, isLevelModeVertical } from '../../../src/rom/LevelParser'
+import {
+  runGate,
+  hashMismatches,
+  ALLOWED_PIPE_BUG_H_S0,
+  ALLOWED_PIPE_BUG_V_S0_DEFAULT,
+  ALLOWED_PIPE_BUG_VERTICAL,
+  type GateMismatch,
+  type GateResult,
+} from '../../../tools/scripts/capture_gate'
 import knownFailures from './fixtures/fgKnownFailures.json'
 
 const corpusReady = hasRom(VANILLA) && hasCaptures()
@@ -201,14 +207,14 @@ describe.skipIf(!corpusReady)('L1 data gate: the 143-map roster', () => {
   })
 
   it(
-    // #571, round 5c: the s0 exemption widened to ANY of the ROM's 4
-    // MAP16AppTable variants (read from the ROM, never hardcoded), not just
-    // f(s0) or f(s0+$1F). $108's own s0 (strip 4, frame 444) - the one
-    // un-modeled build round 5b reported - is exactly this case: a third
-    // ROM variant, neither f(s0) nor f(s0+$1F), now correctly allowed
-    // (ALLOWED_PIPE_BUG_S0_OTHER) rather than reported as a mismatch. 0
-    // pipe mismatches across the full 143-map roster.
-    '#571: 0 pipe mismatches across the full roster (round 5c widens the s0 rule to any ROM variant, closing $108)',
+    // #571, round 5d: round 5c's "any of the 4 variants" widening rested on
+    // a misdiagnosis of $108 and is gone. The tight rules (H_S0: f(s0) or
+    // f(s0+$1F) only; V_S0_DEFAULT: the ROM-read compiled default for
+    // $133-$13A, read here too, never hardcoded; VERTICAL: the unchanged
+    // post-load freeze) still reach 0 pipe mismatches across the full
+    // 143-map roster - $108's own s0 is CODE_0581FB's compiled default
+    // ($84E0, variant 1 on vanilla), not a stale-DP third variant.
+    '#571: 0 pipe mismatches across the full roster with the tightened (round 5d) rules',
     () => {
       expect(results.reduce((n, r) => n + r.totals.pipes, 0)).toBe(0)
     },
@@ -216,42 +222,24 @@ describe.skipIf(!corpusReady)('L1 data gate: the 143-map roster', () => {
   )
 
   it(
-    // Measured directly against the real corpus (round 5b/5c): 27 horizontal
-    // maps show their s0 matching f(s0+$1F) rather than f(s0), each with a
-    // clean, gap-free 32-strip load pass (verified by walking the actual
-    // build order, not assumed) - not the reviewer's stated 9. Every one of
-    // these 27 is a genuine, ASM-explained instance of bank_05.asm:907-909's
-    // DP-indexed pick (`LDA Layer1TileUp,X`, X = the stale Layer1ScrollDir);
-    // many of the other ~103 horizontal maps in the roster exercise the same
-    // mechanism but are invisible here because f(s0) and f(s0+$1F) happen to
-    // be the SAME variant for their s0 (pipeVariantIndex changes only every
-    // 16 strips), so the divergence never shows. This count is asserted as
-    // measured, not adjusted to match a target this investigation could not
-    // independently derive from the ASM - flagged for the round's requester.
-    '#571 data points (round-2 reviewer target was 9; this corpus run measures 27, each confirmed with a full 32-strip load pass)',
+    // Per-rule counts, measured against the real corpus (round 5d):
+    // H_S0=27 (horizontal maps whose s0 matches f(s0+$1F), each confirmed
+    // with a full 32-strip load pass - bank_05.asm:907-909's DP-indexed
+    // pick with X=2); V_S0_DEFAULT=6 (vertical maps whose s0 keeps
+    // CODE_0581FB's compiled default rather than f(s0) - the 7th vertical
+    // map's default equals f(s0) outright, so it needs no exemption and is
+    // not counted here); VERTICAL=655 (post-load builds outside the load
+    // pass, frozen at f(s0+$20)). Asserted per rule, not as an aggregate,
+    // so a rule attributing its count to the wrong bucket is caught.
+    '#571 per-rule counts (round 5d): H_S0=27, V_S0_DEFAULT=6, VERTICAL=655',
     () => {
-      const rom = SmwRom.open(romPath(VANILLA))
-      const verticalTable = rom.requireVerticalTable()
-      const isVertical = (id: number): boolean => {
-        const raw = rom.getLevelRawData(id)!
-        return isLevelModeVertical(parseLevelHeader(raw).levelMode, verticalTable)
-      }
-      const horizontalWithAllowed: string[] = []
-      let verticalAllowedTotal = 0
+      const counts = new Map<string, number>()
       for (const r of results) {
-        const count = r.allowed.reduce((n, a) => n + a.count, 0)
-        if (count === 0) continue
-        if (isVertical(r.id)) verticalAllowedTotal += count
-        else horizontalWithAllowed.push(idToHex(r.id))
+        for (const a of r.allowed) counts.set(a.rule, (counts.get(a.rule) ?? 0) + a.count)
       }
-      expect(horizontalWithAllowed.length).toBe(27)
-      // Reviewer target was 833 across 6 of 6 vertical maps; round 5b
-      // measured 660 across all 7, with $108's own s0 not yet counted (it
-      // was still a mismatch then). Round 5c's widened rule now allows that
-      // build too (ALLOWED_PIPE_BUG_S0_OTHER), so the total is 661 - one
-      // more than round 5b reported, reported as measured rather than kept
-      // at the earlier number.
-      expect(verticalAllowedTotal).toBe(661)
+      expect(counts.get(ALLOWED_PIPE_BUG_H_S0) ?? 0).toBe(27)
+      expect(counts.get(ALLOWED_PIPE_BUG_V_S0_DEFAULT) ?? 0).toBe(6)
+      expect(counts.get(ALLOWED_PIPE_BUG_VERTICAL) ?? 0).toBe(655)
     },
     TIMEOUT,
   )

@@ -402,13 +402,17 @@ failure fixture: `checkPipes` allows exactly the vanilla #571 pipe-color
 bug (bank_05.asm:103,110-143,899-929,931-945), reporting it as a per-map
 `allowed: {rule, count}` entry rather than a mismatch, so 0 pipe mismatches
 is the expected result across the whole roster. The load's own first build
-of its first strip is not ROM-predictable to just two values - the stale
-`Layer1ScrollDir` it reads indexes Direct Page (bank_05.asm:907-909) and can
-land on any of the ROM's own MAP16AppTable variants - so it is allowed
-against all 4 of them, read from the ROM and never hardcoded, split in the
-report by "matched f(s0+$1F)" (the common case) versus "other variant"
-(`$108`'s own first strip, the one measured instance) so the rarer case
-stays visible rather than disappearing into the same bucket.
+of its first strip splits by orientation, both read from the ROM and never
+hardcoded: a HORIZONTAL level runs bank_05.asm:907-909's pick (X =
+`Layer1ScrollDir`, a word index into `Layer1TileUp`/`TileDown`), allowed
+only for f(s0) itself (not an exemption) or f(s0+$1F) (exempt) - any other
+value is a mismatch; a VERTICAL level never runs that pick at all
+(bank_05.asm:889-891 branches away first, since `ScreenMode` comes from
+`VerticalTable`), so its s0 keeps CODE_0581FB's own compiled Map16 default
+for $133-$13A instead, exempt only when that default differs from f(s0). A
+capture whose first 32 chronological builds are not exactly s0..s0+$1F
+cannot be judged by either rule and is reported as a `load-pass` mismatch
+directly.
 
 ## Commands
 
