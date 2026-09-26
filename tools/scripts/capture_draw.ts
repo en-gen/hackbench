@@ -4,21 +4,30 @@
  * (functions by Function.toString, constants as JSON), so each may reference
  * only the others and builtins. The checks are in capture_decode.ts.
  *
- * Written fresh on purpose: these validate captures that in turn validate
- * src/rom/, so importing its decoders would let one bug hide on both sides.
+ * The 8x8 pixel primitives and the shared hardware-boundary composer moved
+ * to the core (`src/rom/render/TileResolver.ts`, #421 step 2 - see its
+ * header) and are re-exported here unchanged; `foreground()`/`drawBg()`
+ * below call them. Everything else here (grid/pipe/sprite bookkeeping,
+ * renderLevel) stays written fresh on purpose: these validate captures that
+ * in turn validate src/rom/, so importing its higher-level loops would let
+ * one bug hide on both sides.
  * Formats: PPU register layouts per SMWDisX hardware_registers.asm (OBJSEL
  * :19-37, BGMODE :59-76, BGnSC :90-101, BG12NBA :146-153); tilemap word,
  * planar 2bpp/4bpp, BGR555, OAM and the mode 1 layer order per the Super
  * Famicom Development Wiki (docs/references.md:29).
  */
+import {
+  bgr555,
+  charPixel,
+  composeTile,
+  decodeWord,
+  palette,
+  resolveTilePixel,
+} from '../../src/rom/render/TileResolver'
+import type { CharSource, WordFields } from '../../src/rom/render/TileResolver'
 
-export interface WordFields {
-  char: number
-  pal: number
-  prio: number
-  flipX: number
-  flipY: number
-}
+export type { CharSource, WordFields }
+export { decodeWord, charPixel, bgr555, palette, resolveTilePixel, composeTile }
 
 export interface GridMeta {
   orientation: string
@@ -64,11 +73,6 @@ export function hex(n: number, w = 0, prefix = '$') {
 /** A tile word, or `no def` for a Map16 id past the defs. */
 export function hexWord(w: number) {
   return w < 0 ? 'no def' : hex(w)
-}
-
-export function decodeWord(w: number): WordFields {
-  // prettier-ignore
-  return { char: w & 0x3ff, pal: (w >> 10) & 7, prio: (w >> 13) & 1, flipX: (w >> 14) & 1, flipY: (w >> 15) & 1 }
 }
 
 export function gridDims(m: GridMeta): { cols: number; rows: number } {
@@ -139,12 +143,11 @@ export function foreground(vram: Uint8Array, grid: Uint8Array, defs: Uint8Array,
         const cw = cellWord(defs, order, p, id, stripOf(meta, c, r), q)
         if (cw.guess && q === 0) guesses.push({ c, r, kind: 'pipe', reason: 'Guess: pipe color. This column was not drawn during capture; showing the variant resident at capture.' })
         const f = decodeWord(cw.word | (meta.wordOr ?? 0))
-        for (let y = 0; y < 8; y++)
-          for (let x = 0; x < 8; x++) {
-            const v = charPixel(vram, base, 4, f.char, f.flipX ? 7 - x : x, f.flipY ? 7 - y : y)
-            const i = (r * 16 + (q >> 1) * 8 + y) * W + c * 16 + (q & 1) * 8 + x
-            if (v) [idx[i], pri[i]] = [f.pal * 16 + v, f.prio]
-          }
+        composeTile(f, (ch, cx, cy) => charPixel(vram, base, 4, ch, cx, cy), (x, y, v) => { // prettier-ignore
+          const i = (r * 16 + (q >> 1) * 8 + y) * W + c * 16 + (q & 1) * 8 + x
+          idx[i] = f.pal * 16 + v
+          pri[i] = f.prio
+        })
       }
     }
   return { idx, pri, guesses }
@@ -158,32 +161,6 @@ export function tilemapWordAddr(sc: number, tx: number, ty: number): number {
   const y = ty & (tall ? 63 : 31)
   const screen = (x >> 5) + (y >> 5) * (wide ? 2 : 1)
   return (((sc & 0xfc) << 8) + screen * 0x400 + (y & 31) * 32 + (x & 31)) & 0x7fff
-}
-
-/** Color index 0-15 of pixel (x, y) in a planar char; baseWord is the BG/OBJ name base. */
-// prettier-ignore
-export function charPixel(vram: Uint8Array, baseWord: number, bpp: number, ch: number, x: number, y: number) {
-  const a = (baseWord * 2 + ch * bpp * 8) & 0xffff
-  const bit = 7 - x
-  let v = ((vram[a + y * 2] >> bit) & 1) | (((vram[a + y * 2 + 1] >> bit) & 1) << 1)
-  if (bpp === 4) {
-    const b = (a + 16) & 0xffff
-    v |= (((vram[b + y * 2] >> bit) & 1) << 2) | (((vram[b + y * 2 + 1] >> bit) & 1) << 3)
-  }
-  return v
-}
-
-/** CGRAM entry as RGB, 5-bit channels widened the way Mesen's PNGs show them. */
-export function bgr555(cgram: Uint8Array, i: number): number[] {
-  const w = cgram[i * 2] | (cgram[i * 2 + 1] << 8)
-  return [w & 31, (w >> 5) & 31, (w >> 10) & 31].map(c => (c << 3) | (c >> 2))
-}
-
-/** All 256 CGRAM colors as RGB triples. */
-export function palette(cgram: Uint8Array) {
-  const p = new Uint8Array(768)
-  for (let i = 0; i < 256; i++) p.set(bgr555(cgram, i), i * 3)
-  return p
 }
 
 /**
@@ -277,26 +254,76 @@ export function spriteLayer(spawns: Spawn[], vram: Uint8Array, W: number, H: num
 }
 
 /**
+ * The screen-space breakpoints in [lo, hi) where the wrapped source tile
+ * (tilemap cell) changes: every 8 pixels, phase-shifted by `off`. `tw`/`th`
+ * (256 or 512) are themselves multiples of 8, so the wrap-around point is
+ * always ALSO an 8-aligned breakpoint - no special case at the seam.
+ */
+function tileBreaks(lo: number, hi: number, off: number): number[] {
+  const b = [lo]
+  const phase = (((lo + off) % 8) + 8) % 8
+  for (let x = phase === 0 ? lo + 8 : lo + (8 - phase); x < hi; x += 8) b.push(x)
+  b.push(hi)
+  return b
+}
+
+/**
  * Fill `idx`/`pri` (W wide) over rect [x0, x1) x [y0, y1) from a BG
  * tilemap: pixel (x, y) shows tilemap pixel (x + ox, y + oy), wrapped.
+ *
+ * Draws one source tile at a time through `composeTile` - the Mesen pixel
+ * comparison (capture_decode.ts's windowLayer) runs this function, so
+ * composeTile's own loop bounds and index-0-transparent skip, the part the
+ * app's TileRenderer.renderSubTile also runs, are what gets checked (#421
+ * step 2 round 3). `tileBreaks` finds each chunk's screen-space bounds; a
+ * chunk always maps to exactly one wrapped tilemap cell (see `tileBreaks`),
+ * so decoding its word once and composing it once is exact, not an
+ * approximation - unlike the old per-pixel loop, this is also exercised
+ * once per tile instead of once per pixel.
  */
-// prettier-ignore
-export function drawBg(vram: Uint8Array, sc: number, nbaWord: number, bpp: number, rect: number[], ox: number, oy: number, idx: Uint8Array, pri: Uint8Array, W: number, hide?: Set<number>, hidden?: Uint8Array) {
+export function drawBg(
+  vram: Uint8Array,
+  sc: number,
+  nbaWord: number,
+  bpp: number,
+  rect: number[],
+  ox: number,
+  oy: number,
+  idx: Uint8Array,
+  pri: Uint8Array,
+  W: number,
+  hide?: Set<number>,
+  hidden?: Uint8Array,
+) {
+  // prettier-ignore
   const [tw, th] = [sc & 1 ? 512 : 256, sc & 2 ? 512 : 256]
-  for (let y = rect[2]; y < rect[3]; y++)
-    for (let x = rect[0]; x < rect[1]; x++) {
-      const px = (((x + ox) % tw) + tw) % tw
-      const py = (((y + oy) % th) + th) % th
+  const wrap = (v: number, m: number) => ((v % m) + m) % m
+  const cs: CharSource = (ch, cx, cy) => charPixel(vram, nbaWord, bpp, ch, cx, cy)
+  const ys = tileBreaks(rect[2], rect[3], oy)
+  const xs = tileBreaks(rect[0], rect[1], ox)
+  for (let yi = 0; yi < ys.length - 1; yi++) {
+    const [y0, y1] = [ys[yi], ys[yi + 1]]
+    const py = wrap(y0 + oy, th)
+    for (let xi = 0; xi < xs.length - 1; xi++) {
+      const [x0, x1] = [xs[xi], xs[xi + 1]]
+      const px = wrap(x0 + ox, tw)
       // A hidden tilemap cell (64-wide cell index) is left out, and marked.
       if (hide?.has((py >> 3) * 64 + (px >> 3))) {
-        if (hidden) hidden[y * W + x] = 1
+        if (hidden) for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) hidden[y * W + x] = 1 // prettier-ignore
         continue
       }
       const a = tilemapWordAddr(sc, px >> 3, py >> 3) * 2
       const f = decodeWord(vram[a] | (vram[a + 1] << 8))
-      const c = charPixel(vram, nbaWord, bpp, f.char, f.flipX ? 7 - (px & 7) : px & 7, f.flipY ? 7 - (py & 7) : py & 7)
-      if (c) [idx[y * W + x], pri[y * W + x]] = [f.pal * (1 << bpp) + c, f.prio]
+      const [lx0, ly0] = [px & 7, py & 7]
+      composeTile(f, cs, (lx, ly, v) => {
+        const x = x0 + lx - lx0
+        const y = y0 + ly - ly0
+        if (x < x0 || x >= x1 || y < y0 || y >= y1) return
+        idx[y * W + x] = f.pal * (1 << bpp) + v
+        pri[y * W + x] = f.prio
+      })
     }
+  }
 }
 
 /** Base64 to bytes, in the page and in Node alike. */

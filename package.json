@@ -24,7 +24,7 @@
     "commands": [
       {
         "command": "hackbench.openRom",
-        "title": "Open ROM\u2026",
+        "title": "Open ROM…",
         "category": "HackBench"
       },
       {
@@ -180,7 +180,7 @@
     "viewsWelcome": [
       {
         "view": "hackbench.romExplorerWelcome",
-        "contents": "No ROM open.\n[Open ROM\u2026](command:hackbench.openRom)\nOpen a Super Mario World .sfc or .smc file to begin."
+        "contents": "No ROM open.\n[Open ROM…](command:hackbench.openRom)\nOpen a Super Mario World .sfc or .smc file to begin."
       }
     ]
   },
@@ -211,6 +211,7 @@
     "@vscode/codicons": "^0.0.45",
     "copy-webpack-plugin": "^14.0.0",
     "css-loader": "^7.1.4",
+    "esbuild": "^0.28.2",
     "eslint": "^10.3.0",
     "globals": "^17.6.0",
     "prettier": "^3.9.8",

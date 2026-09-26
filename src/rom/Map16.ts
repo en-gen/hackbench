@@ -22,6 +22,7 @@
 import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern, findUnique, matchesAt } from './BytePattern'
 import { loromFromOffset, loromToOffset } from './addressing'
+import { decodeWord } from './render/TileResolver'
 
 // ── ROM addresses (from SMW_U.sym) ────────────────────────────────────────────
 /** Map16Common on a stock ROM; `readMap16Table` reads the operand. */
@@ -160,14 +161,20 @@ export interface Map16Tile {
   br: SubTile // bottom-right (word 3, column-major)
 }
 
-/** Unpacks one 16-bit SNES BG tile-attribute word into its five fields. */
+/**
+ * Unpacks one 16-bit SNES BG tile-attribute word into its five fields.
+ * Delegates the bit arithmetic to the core resolver (`render/TileResolver.ts`,
+ * #421 step 2) - the same decode Mesen-checked capture drawing uses - and
+ * only renames/retypes its fields to this module's own `SubTile` shape.
+ */
 export function decodeSubTileWord(word: number): SubTile {
+  const w = decodeWord(word)
   return {
-    charNum: word & 0x3ff,
-    palette: (word >> 10) & 0x7,
-    priority: ((word >> 13) & 1) === 1,
-    flipX: ((word >> 14) & 1) === 1,
-    flipY: ((word >> 15) & 1) === 1,
+    charNum: w.char,
+    palette: w.pal,
+    priority: w.prio === 1,
+    flipX: w.flipX === 1,
+    flipY: w.flipY === 1,
   }
 }
 
