@@ -17,7 +17,7 @@ interface CharAnim {
  * Build a char graph from a loaded VRAM state.
  *
  * Behavior selection per char, in order of precedence:
- *   1. If the char's animation slot provides `altTiles` (blue-P-switch
+ *   1. If the char's animation slot is a blue `alt` (blue-P-switch
  *      DMA pair from bank_05.asm:4417-4422), wrap in
  *      `PSwitchAlternateBehavior` over the normal and alt animated pixel
  *      behaviors.
@@ -90,7 +90,8 @@ function collectAnimFrames(animData: AnimationData | undefined): Map<number, Cha
           out.set(charNum, anim)
         }
         anim.frames[f] = tile
-        const altTile = slot.altTiles?.[i]
+        // PSwitchAlternateBehavior follows the blue toggle only; silver and ON/OFF wait for #574.
+        const altTile = slot.alt?.switch === 'blue' ? slot.alt.tiles[i] : undefined
         if (altTile) {
           if (!anim.altFrames) {
             anim.altFrames = new Array<Uint8Array>(frameCount).fill(

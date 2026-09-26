@@ -48,7 +48,7 @@
  * GFX33/GFX32 sources: immediates in CODE_00B888, reached from $009414
  * AnimatedTileData:    $05B999 (table of 2-byte pointers into AnimatedTiles RAM)
  * VRAM dest tables:    $05B93B, $05B93D, $05B93F
- * Tile behavior table: $05B96B (0=static, 1=P-switch/ON-OFF, 2=tileset-dependent)
+ * Tile behavior table: $05B96B (0=static, 1=switched, any other=tileset-dependent)
  * Tileset offset table:$05B98B (per-tileset offset into AnimatedTileData)
  * P-switch index table:$05B97D
  *
@@ -57,7 +57,7 @@
 
 import { RomFile } from './RomFile'
 import { tryDecompress } from './LcLz2'
-import { loromToOffset } from './addressing'
+import { formatAddr, loromToOffset } from './addressing'
 import { matchesAt, WILD, type BytePattern } from './BytePattern'
 import { PIXELS_PER_TILE } from './GraphicsDecoder'
 import { framesToMs } from './timing'
@@ -85,33 +85,79 @@ const STOCK_ANIM_ROUTINE = 0x05bb39 // CODE_05BB39, bank_05.asm:4383
 /** Maximum compressed size to read for GFX33 decompression. */
 const GFX33_MAX_COMPRESSED = 0x4000
 
-/** AnimatedTileData table in bank_05 - 2-byte pointers into AnimatedTiles RAM. */
-const ANIMATED_TILE_DATA_ADDR = 0x05b999
+/** The tables CODE_05BB39 reads, as SNES addresses. */
+interface AnimTables {
+  /** DATA_05B93B/3D/3F, the C/B/A destinations of each group's three slots. */
+  vramDest: number[]
+  behaviorTable: number
+  tilesetOffsetTable: number
+  animatedTileData: number
+}
 
-/** VRAM destination address tables (each entry is 2 bytes LE). */
-const VRAM_DEST_TABLE_C = 0x05b93b
-const VRAM_DEST_TABLE_B = 0x05b93d
-const VRAM_DEST_TABLE_A = 0x05b93f
+// Vanilla addresses (#576), used only when CODE_05BB39 cannot be read: the frames they give
+// carry `unverified`, so the Map16 view shows them still, with the error, and never plays
+// them. Switch alternates never come from here.
+const LEGACY_TABLES: AnimTables = {
+  vramDest: [0x05b93b, 0x05b93d, 0x05b93f],
+  behaviorTable: 0x05b96b,
+  tilesetOffsetTable: 0x05b98b,
+  animatedTileData: 0x05b999,
+}
 
-/** Tile behavior type table - one byte per tile index (18 entries). */
-const TILE_BEHAVIOR_TABLE = 0x05b96b
+// CODE_05BB39 is checked from its entry, at fixed offsets, so a JML over any part refuses.
+// Set-up (bank_05.asm:4384-4400): straight-line code, nothing read from it.
+// prettier-ignore
+const ROUTINE_SETUP: BytePattern = [
+  0x8b, 0x4b, 0xab, 0xa5, 0x14, 0x29, 0x07, 0x85, 0x00, 0x0a, 0x65, 0x00, 0xa8,
+  0x0a, 0xaa, 0xc2, 0x20, 0xa5, 0x14, 0x29, 0x18, 0x00, 0x4a, 0x4a, 0x85, 0x00,
+]
+// LDA.W DATA_05B93B/3D/3F,X into Gfx33DestAddrC/B/A, then LDX #$04 (bank_05.asm:4401-4407).
+const DEST_LOADS_OFFSET = 0x1a
+// prettier-ignore
+const DEST_LOADS: BytePattern = [
+  0xbd, WILD, WILD, 0x8d, 0x80, 0x0d, 0xbd, WILD, WILD, 0x8d, 0x7e, 0x0d,
+  0xbd, WILD, WILD, 0x8d, 0x7c, 0x0d, 0xa2, 0x04,
+]
+// CODE_05BB67's slot loop to the tileset add (bank_05.asm:4408-4427). Both BEQs and the
+// BRA must land on the tail at +$21, the BNE on the tileset add at +$1A.
+const SLOT_LOOP_OFFSET = 0x2e
+// prettier-ignore
+const SLOT_LOOP: BytePattern = [
+  0x5a, 0xda, 0xe2, 0x20, 0x98, 0xbe, WILD, WILD, 0xf0, 0x17, 0xca, 0xd0, 0x0d,
+  0xbe, WILD, WILD, 0xbc, WILD, WILD, 0xf0, 0x0c, 0x18, 0x69, WILD, 0x80, 0x07,
+  0xac, 0x31, 0x19, 0x18, 0x79, WILD, WILD,
+]
+// CODE_05BB88 through LDA.W AnimatedTileData,Y (bank_05.asm:4429-4436).
+const SLOT_TAIL_OFFSET = 0x4f
+// prettier-ignore
+const SLOT_TAIL: BytePattern = [0xc2, 0x30, 0x29, 0xff, 0x00, 0x0a, 0x0a, 0x0a, 0x05, 0x00, 0xa8, 0xb9, WILD, WILD]
+// SEP #$10 / PLX / STA Gfx33SrcAddrA,X / PLY / INY / DEX / DEX / BPL CODE_05BB67 / SEP #$20
+// / PLB / RTL (bank_05.asm:4437-4447): the loaded address reaches the upload and the loop.
+const SLOT_CLOSE_OFFSET = 0x5d
+// prettier-ignore
+const SLOT_CLOSE: BytePattern = [
+  0xe2, 0x10, 0xfa, 0x9d, 0x76, 0x0d, 0x7a, 0xc8, 0xca, 0xca, 0x10, 0xc5, 0xe2, 0x20, 0xab, 0x6b,
+]
+const ROUTINE_PARTS: [number, BytePattern, string][] = [
+  [0, ROUTINE_SETUP, 'set-up (bank_05.asm:4384-4400)'],
+  [DEST_LOADS_OFFSET, DEST_LOADS, 'destination loads (bank_05.asm:4401-4407)'],
+  [SLOT_LOOP_OFFSET, SLOT_LOOP, 'slot loop (bank_05.asm:4408-4427)'],
+  [SLOT_TAIL_OFFSET, SLOT_TAIL, 'AnimatedTileData read (bank_05.asm:4429-4436)'],
+  [SLOT_CLOSE_OFFSET, SLOT_CLOSE, 'upload and loop close (bank_05.asm:4437-4447)'],
+]
+// Bytes each table is read over: X up to 21*2 for the destinations, the 8-bit slot << 3
+// with the frame bits for AnimatedTileData, 16 tilesets.
+const TABLE_SPAN = {
+  vramDest: 44,
+  behavior: 24,
+  selector: 24,
+  tileset: 16,
+  animatedTileData: 0x800,
+}
 
-/** Per-slot P-switch/ON-OFF selector for behavior=1 slots (0=blue, 1=silver, 2=ON/OFF). */
-const PSWITCH_SELECTOR_TABLE = 0x05b97d
-
-/** Per-tileset offset into AnimatedTileData for behavior type 2. */
-const TILESET_OFFSET_TABLE = 0x05b98b
-
-/**
- * Slot-index shift applied by the animation routine when a P-switch/ON-OFF is
- * active (bank_05.asm:4421: `CLC; ADC #$26`). Treats the active slot as if it
- * were slot + 0x26 when indexing AnimatedTileData, loading different pixels
- * into the same VRAM chars.
- */
-const PSWITCH_SLOT_SHIFT = 0x26
-
-/** PSWITCH_SELECTOR_TABLE value meaning "track the blue P-switch timer". */
-const PSWITCH_SELECTOR_BLUE = 0
+// Hack-fragility point: switches are named by RAM identity (rammap.asm:1665-1667), not from
+// CODE_00F545, which reads only blue and silver (bank_00.asm:13416,13453) and never ON/OFF.
+const SWITCH_RAM: Record<number, SwitchKind> = { 0x14ad: 'blue', 0x14ae: 'silver', 0x14af: 'onOff' }
 
 /** Number of animation frames in one complete cycle. */
 export const ANIM_FRAME_COUNT = 4
@@ -169,16 +215,13 @@ export interface AnimFrameSlot {
   charBase: number
   /** 4 tiles of pixel data, each PIXELS_PER_TILE palette indices. */
   tiles: Uint8Array[]
-  /**
-   * Alternate pixel data loaded into the same VRAM chars when the blue
-   * P-switch is active. Populated only for slots whose
-   * `DATA_05B96B` behavior byte is 1 and `DATA_05B97D` selector is 0
-   * (blue). Undefined otherwise. bank_05.asm:4417-4422 reads the slot
-   * index shifted by 0x26 into `AnimatedTileData` while the P-switch
-   * timer is non-zero, so the same VRAM chars render different pixels.
-   */
-  altTiles?: Uint8Array[]
+  /** Pixels loaded into the same chars while `switch`'s RAM byte is nonzero (bank_05.asm:4417-4421). */
+  alt?: { switch: SwitchKind; tiles: Uint8Array[] }
 }
+
+export type SwitchKind = 'blue' | 'silver' | 'onOff'
+/** Per-caller input to char resolution, never to the Map16 grid. */
+export type SwitchState = Record<SwitchKind, boolean>
 
 /**
  * Complete animation data for a level's tileset.
@@ -191,6 +234,10 @@ export interface AnimationData {
   frames: AnimFrameSlot[][]
   /** Recommended interval between frames in milliseconds. */
   intervalMs: number
+  /** Why the frames are unverified: the routine read failed and the vanilla tables served. */
+  unverified?: string
+  /** Why some or all switch alternates are missing; absent when every one was read. */
+  switchUnavailable?: string
 }
 
 // ── 3bpp → 4bpp expansion ────────────────────────────────────────────────────
@@ -264,6 +311,63 @@ export function stockAnimationUnreached(
   const target = (jsl[1]! | (jsl[2]! << 8) | (jsl[3]! << 16)) & 0x7fffff
   return target === STOCK_ANIM_ROUTINE ? null : { target }
 }
+
+/** CODE_05BB39's tables, timer base and shift, from its own operands. */
+export function readAnimRoutine(
+  rom: RomFile,
+):
+  | ({ ok: true; selectorTable: number; timerBase: number; shift: number } & AnimTables)
+  | { ok: false; reason: string } {
+  const unreached = stockAnimationUnreached(rom)
+  if (unreached)
+    return {
+      ok: false,
+      reason:
+        'reason' in unreached
+          ? unreached.reason
+          : `the level animation call reaches ${formatAddr(unreached.target)}, not CODE_05BB39`,
+    }
+  const entry = loromToOffset(STOCK_ANIM_ROUTINE, rom.romSize)
+  const parts = ROUTINE_PARTS.map(([o, p]) =>
+    entry === null ? null : matchesAt(rom, entry + o, p),
+  )
+  const broken = parts.findIndex(b => !b)
+  if (broken >= 0)
+    return { ok: false, reason: `CODE_05BB39's ${ROUTINE_PARTS[broken]![2]} is replaced` }
+  const [, dest, loop, tail] = parts as Buffer[]
+  // PHK/PLB (bank_05.asm:4385-4386): absolute operands are in the routine's own bank.
+  const abs = (b: Buffer, i: number): number =>
+    (STOCK_ANIM_ROUTINE & 0xff0000) | b[i]! | (b[i + 1]! << 8)
+  const read = {
+    vramDest: [abs(dest!, 1), abs(dest!, 7), abs(dest!, 13)],
+    behaviorTable: abs(loop!, 6),
+    selectorTable: abs(loop!, 0xe),
+    timerBase: loop![0x11]! | (loop![0x12]! << 8),
+    shift: loop![0x17]!,
+    tilesetOffsetTable: abs(loop!, 0x1f),
+    animatedTileData: abs(tail!, 12),
+  }
+  const fault = [
+    ...read.vramDest.map(a => tableFault('VRAM destination', a, TABLE_SPAN.vramDest)),
+    tableFault('behavior', read.behaviorTable, TABLE_SPAN.behavior),
+    tableFault('tileset offset', read.tilesetOffsetTable, TABLE_SPAN.tileset),
+    tableFault('AnimatedTileData', read.animatedTileData, TABLE_SPAN.animatedTileData),
+  ].find(f => f)
+  return fault ? { ok: false, reason: fault } : { ok: true, ...read }
+}
+
+/**
+ * Why an abs,Y table cannot be read as ROM: below $8000 is the WRAM mirror, and a read
+ * past $xxFFFF wraps within the data bank into WRAM, where a file read would run on.
+ */
+function tableFault(name: string, addr: number, span: number): string | null {
+  if ((addr & 0xffff) < 0x8000) return `the ${name} table ${formatAddr(addr)} is in WRAM`
+  if ((addr & 0xffff) + span > 0x10000)
+    return `the ${name} table ${formatAddr(addr)} crosses its bank end`
+  return null
+}
+
+const ramAddr = (a: number): string => '$' + a.toString(16).toUpperCase().padStart(4, '0')
 
 /**
  * Build the full MarioGraphics RAM region as the game does in CODE_00B888.
@@ -339,8 +443,8 @@ function loadAnimatedTileBuffer(
  * @param byteOffset - byte offset into the table (already accounts for 2-byte entries)
  * The table stores WRAM addresses; we subtract AnimatedTiles base to get buffer offsets.
  */
-function readAnimatedTileDataEntry(rom: RomFile, byteOffset: number): number {
-  const addr = ANIMATED_TILE_DATA_ADDR + byteOffset
+function readAnimatedTileDataEntry(rom: RomFile, table: number, byteOffset: number): number {
+  const addr = table + byteOffset
   const buf = rom.readAt(addr, 2)
   if (!buf) return 0
   const ramAddr = buf[0] | (buf[1] << 8)
@@ -409,8 +513,7 @@ export type LoadAnimationResult = { ok: true; data: AnimationData } | { ok: fals
 /**
  * Load animation data for a given tileset, or the reason nothing could be
  * built: GFX33/GFX32 unreadable (same cause `loadAnimatedTileBuffer`
- * reports), or the behavior/tileset-offset/P-switch tables run past the end
- * of the ROM.
+ * reports), or the behavior or tileset-offset table runs past the end of the ROM.
  *
  * Replicates the logic of CODE_05BB39 to determine which tiles are animated
  * and what graphics data to use for each of the 4 animation frames.
@@ -423,99 +526,81 @@ export function loadAnimationDataOrReason(rom: RomFile, tilesetId: number): Load
   if (!result.ok) return result
   const buffer = result.buffer
 
-  // Read the behavior and tileset offset tables.
-  // The behavior table (DATA_05B96B) has 18 explicit entries, but the SNES reads it
-  // for all 24 tile indices (TILE_GROUP_COUNT * 3). Indices 18-23 overflow into
-  // DATA_05B97D territory; DATA_05B97D[0] = $02 (tileset-dependent), so tileIdx 18
-  // must be treated as behavior 2. Reading 24 bytes replicates the SNES memory layout.
-  const behaviorBuf = rom.readAt(TILE_BEHAVIOR_TABLE, TILE_GROUP_COUNT * 3)
-  const tilesetOffsetBuf = rom.readAt(TILESET_OFFSET_TABLE, 16)
-  // PSWITCH_SELECTOR_TABLE has 14 bytes in vanilla; only indices where the
-  // behavior byte is 1 matter (slots 6..13), but reading 24 bytes matches
-  // the SNES memory layout in case of out-of-range reads.
-  const pSwitchSelectorBuf = rom.readAt(PSWITCH_SELECTOR_TABLE, TILE_GROUP_COUNT * 3)
-  if (!behaviorBuf || !tilesetOffsetBuf || !pSwitchSelectorBuf)
-    return {
-      ok: false,
-      reason: 'the animation behavior tables at $05B96B run past the end of the ROM',
-    }
+  const routine = readAnimRoutine(rom)
+  const t = routine.ok ? routine : LEGACY_TABLES
+  // The SNES reads the behavior table for all 24 slots; 18-23 overflow into the selector table.
+  const behaviorBuf = rom.readAt(t.behaviorTable, TABLE_SPAN.behavior)
+  const tilesetOffsetBuf = rom.readAt(t.tilesetOffsetTable, TABLE_SPAN.tileset)
+  const unread = (name: string, addr: number): LoadAnimationResult => ({
+    ok: false,
+    reason: `the animation ${name} table at ${formatAddr(addr)} runs past the end of the ROM`,
+  })
+  if (!behaviorBuf) return unread('behavior', t.behaviorTable)
+  if (!tilesetOffsetBuf) return unread('tileset offset', t.tilesetOffsetTable)
+
+  const reasons = new Set<string>()
+  let sw: { selector: Uint8Array; timerBase: number; shift: number } | null = null
+  if (!routine.ok) reasons.add(routine.reason)
+  else {
+    const fault = tableFault('switch selector', routine.selectorTable, TABLE_SPAN.selector)
+    const selector = fault ? null : rom.readAt(routine.selectorTable, TABLE_SPAN.selector)
+    if (selector) sw = { selector, timerBase: routine.timerBase, shift: routine.shift }
+    else
+      reasons.add(
+        fault ?? `the switch selector table ${formatAddr(routine.selectorTable)} is unreadable`,
+      )
+  }
+  const fits = (at: number): boolean => at >= 0 && at + TILES_PER_TRANSFER * 32 <= buffer.length
 
   const frames: AnimFrameSlot[][] = []
-
   for (let frame = 0; frame < ANIM_FRAME_COUNT; frame++) {
     const frameSlots: AnimFrameSlot[] = []
     // TILE_DATA_INDEX_PART = frame << 1 (values 0, 2, 4, 6)
     const tileDataIndexPart = frame << 1
 
     for (let group = 0; group < TILE_GROUP_COUNT; group++) {
-      // GFX_TILE_IDX = group * 3 (each group has 3 sub-slots)
       const baseTileIdx = group * 3
-      // X register in the disassembly: GFX_TILE_IDX * 2 (byte offset for 16-bit reads)
-      const xOffset = baseTileIdx * 2
-
-      // Read VRAM destination addresses for this group.
-      // DATA_05B93B/3D/3F are overlapping views into one contiguous block:
-      //   C = DATA_05B93B[X], B = DATA_05B93D[X], A = DATA_05B93F[X]
-      const vramDestC = readVramDest(rom, VRAM_DEST_TABLE_C, xOffset)
-      const vramDestB = readVramDest(rom, VRAM_DEST_TABLE_B, xOffset)
-      const vramDestA = readVramDest(rom, VRAM_DEST_TABLE_A, xOffset)
-      const vramDests = [vramDestC, vramDestB, vramDestA]
-
       for (let sub = 0; sub < 3; sub++) {
         const tileIdx = baseTileIdx + sub
-        const vramDest = vramDests[sub]
-
-        // Skip if VRAM dest is 0 (no DMA for this slot)
+        // X = GFX_TILE_IDX * 2 into each of the C/B/A tables (bank_05.asm:4393-4406).
+        const vramDest = readVramDest(rom, t.vramDest[sub]!, baseTileIdx * 2)
         if (vramDest === 0) continue
 
-        // Determine which AnimatedTileData entry to use based on behavior type
-        let adjustedIdx = tileIdx
-        const behavior = behaviorBuf[tileIdx] ?? 0
-
-        if (behavior === 1) {
-          // P-switch/ON-OFF dependent - use default state (no P-switch active)
-        } else if (behavior === 2) {
-          // Tileset-dependent - add tileset offset
-          const offset = tilesetId < 16 ? tilesetOffsetBuf[tilesetId] : 0
-          adjustedIdx = tileIdx + offset
-        }
-
-        // Compute AnimatedTileData table index:
-        // index = ((adjustedIdx & 0xFF) << 3) | tileDataIndexPart
+        // LDX / BEQ / DEX / BNE (bank_05.asm:4413-4416): 0 static, 1 switched, any other tileset.
+        const behavior = behaviorBuf[tileIdx]!
+        const adjustedIdx = behavior >= 2 ? tileIdx + (tilesetOffsetBuf[tilesetId] ?? 0) : tileIdx
         const dataTableIdx = ((adjustedIdx & 0xff) << 3) | tileDataIndexPart
-        const bufferOffset = readAnimatedTileDataEntry(rom, dataTableIdx)
-
-        if (bufferOffset < 0 || bufferOffset + TILES_PER_TRANSFER * 32 > buffer.length) {
-          continue
-        }
-
+        const bufferOffset = readAnimatedTileDataEntry(rom, t.animatedTileData, dataTableIdx)
+        if (!fits(bufferOffset)) continue
         const tiles = decodeTilesAt(buffer, bufferOffset)
 
-        // Blue-P-switch alt pixel data: for behavior=1 slots whose
-        // selector is 0 (blue), load the +0x26 shifted slot too. Same
-        // VRAM chars, different pixels. Silver and ON/OFF variants use
-        // different timers and are ignored for now -- the editor
-        // currently only toggles blue.
-        let altTiles: Uint8Array[] | undefined
-        if (behavior === 1 && pSwitchSelectorBuf[tileIdx] === PSWITCH_SELECTOR_BLUE) {
-          const altIdx = (tileIdx + PSWITCH_SLOT_SHIFT) & 0xff
-          const altDataTableIdx = (altIdx << 3) | tileDataIndexPart
-          const altBufferOffset = readAnimatedTileDataEntry(rom, altDataTableIdx)
-          if (altBufferOffset >= 0 && altBufferOffset + TILES_PER_TRANSFER * 32 <= buffer.length) {
-            altTiles = decodeTilesAt(buffer, altBufferOffset)
-          }
+        let alt: AnimFrameSlot['alt']
+        if (sw && behavior === 1) {
+          const timer = sw.timerBase + sw.selector[tileIdx]!
+          const kind = SWITCH_RAM[timer]
+          const altIdx = (((tileIdx + sw.shift) & 0xff) << 3) | tileDataIndexPart
+          const altOffset = readAnimatedTileDataEntry(rom, t.animatedTileData, altIdx)
+          if (!kind) reasons.add(`slot ${tileIdx} follows RAM ${ramAddr(timer)}, no known switch`)
+          else if (vramDest === 0x0800)
+            reasons.add(`switched slot ${tileIdx} writes the $0800 split`)
+          else if (!fits(altOffset)) reasons.add(`slot ${tileIdx}'s switched frame is out of range`)
+          else alt = { switch: kind, tiles: decodeTilesAt(buffer, altOffset) }
         }
-
-        frameSlots.push(...destSlots(vramDest, tiles, altTiles))
+        frameSlots.push(...destSlots(vramDest, tiles, alt))
       }
     }
-
     frames.push(frameSlots)
   }
 
   return {
     ok: true,
-    data: { frameCount: ANIM_FRAME_COUNT, frames, intervalMs: ANIM_INTERVAL_MS },
+    data: {
+      frameCount: ANIM_FRAME_COUNT,
+      frames,
+      intervalMs: ANIM_INTERVAL_MS,
+      ...(routine.ok ? {} : { unverified: routine.reason }),
+      ...(reasons.size ? { switchUnavailable: [...reasons].join('; ') } : {}),
+    },
   }
 }
 
@@ -528,19 +613,36 @@ export function loadAnimationData(rom: RomFile, tilesetId: number): AnimationDat
 /**
  * The slots one transfer fills. The DMA at CODE_00A3F0 (bank_00.asm ~4649) splits
  * the berry's $0800 transfer: 2 tiles to $0800 and 2 to $0900, a 2x2 in the grid.
- * Berry slots are behavior 2, never P-switch, so they carry no altTiles.
+ * A switched slot there is refused by the caller, so the split never carries an alternate.
  */
 function destSlots(
   vramDest: number,
   tiles: Uint8Array[],
-  altTiles?: Uint8Array[],
+  alt?: AnimFrameSlot['alt'],
 ): AnimFrameSlot[] {
   const charBase = vramAddrToChar(vramDest)
-  if (vramDest !== 0x0800) return [{ charBase, tiles, altTiles }]
+  if (vramDest !== 0x0800) return [{ charBase, tiles, ...(alt && { alt }) }]
   return [
     { charBase, tiles: tiles.slice(0, 2) },
     { charBase: vramAddrToChar(0x0900), tiles: tiles.slice(2, 4) },
   ]
+}
+
+/** The switches whose state changes any of `chars`, e.g. the chars a Map16 def cites. */
+export function switchesForChars(
+  animData: AnimationData,
+  chars: Iterable<number>,
+): Set<SwitchKind> {
+  const wanted = new Set(chars)
+  const out = new Set<SwitchKind>()
+  for (const { alt, charBase, tiles } of animData.frames.flat())
+    if (alt && tiles.some((_, i) => wanted.has(charBase + i))) out.add(alt.switch)
+  return out
+}
+
+/** The pixels a slot loads under the caller's switch state. */
+export function slotTiles(slot: AnimFrameSlot, state: SwitchState): Uint8Array[] {
+  return slot.alt && state[slot.alt.switch] ? slot.alt.tiles : slot.tiles
 }
 
 /**

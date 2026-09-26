@@ -10,6 +10,7 @@ import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   getAnimatedChars,
   loadAnimationData,
+  readAnimRoutine,
   serializeAnimationData,
 } from '../../../src/rom/AnimationLoader'
 import { loadVram, VRAM_CHAR_BASE, VRAM_SLOT_NAMES } from '../../../src/rom/GfxLoader'
@@ -87,6 +88,57 @@ for (const [name, target] of REDIRECTS) {
       )
       expect(r.sheet.charAnimation).toBeUndefined() // no playback from an unverified source
       if (name !== NO_STOCK_DATA) expect(r.sheet.charSheets.some(c => c.animated)).toBe(true)
+    })
+  })
+}
+
+// The #573 research table: switched slots 6-13, their char bases and switches.
+const VANILLA_SWITCHES = [
+  [0x50, 'blue'],
+  [0x54, 'blue'],
+  [0x58, 'blue'],
+  [0x5c, 'silver'],
+  [0x78, 'blue'],
+  [0x7c, 'onOff'],
+  [0xda, 'onOff'],
+  [0x6c, 'blue'],
+]
+
+for (const name of [VANILLA, MAGIC]) {
+  describe.skipIf(!hasRom(name))(`${name}: switch alternates`, () => {
+    it('reads the vanilla tables, timer base and shift from the slot loop', () => {
+      expect(readAnimRoutine(SmwRom.open(romPath(name)).rom)).toEqual({
+        ok: true,
+        vramDest: [0x05b93b, 0x05b93d, 0x05b93f],
+        behaviorTable: 0x05b96b,
+        selectorTable: 0x05b97d,
+        timerBase: 0x14ad,
+        shift: 0x26,
+        tilesetOffsetTable: 0x05b98b,
+        animatedTileData: 0x05b999,
+      })
+    })
+
+    it('tags exactly the research table slots on tilesets 0-14', () => {
+      const rom = SmwRom.open(romPath(name)).rom
+      for (let ts = 0; ts < 15; ts++) {
+        const data = loadAnimationData(rom, ts)!
+        expect(data.switchUnavailable).toBeUndefined()
+        for (const frame of data.frames) {
+          const tagged = frame.filter(s => s.alt)
+          expect(tagged.map(s => [s.charBase, s.alt!.switch])).toEqual(VANILLA_SWITCHES)
+          expect(tagged.every(s => s.alt!.tiles.length === 4)).toBe(true)
+        }
+      }
+    })
+  })
+}
+
+for (const [name, target] of REDIRECTS) {
+  describe.skipIf(!hasRom(name))(`${name}: switch read`, () => {
+    it('is unavailable, naming the JSL target', () => {
+      const r = readAnimRoutine(SmwRom.open(romPath(name)).rom)
+      expect(!r.ok && r.reason).toContain(`$${target}`)
     })
   })
 }
