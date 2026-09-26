@@ -52,8 +52,12 @@ export function buildPalette(rom: RomFile, header: LevelHeader): Palette {
  * Transpose level-mode palette animation data (per-frame patch list)
  * into per-cell frame lists. Only cells with all frames populated are
  * returned - partial entries fall back to static rendering.
+ *
+ * Exported for tools/scripts/capture_gate.ts (en-gen/hackbench#421), which
+ * needs the same ROM-derived candidate colors per CGRAM index without the
+ * `Color`/`CyclingColorBehavior`/`editorStore` view-layer machinery.
  */
-function collectPaletteAnimFrames(rom: RomFile): Map<number, RgbaColor[]> {
+export function collectPaletteAnimFrames(rom: RomFile): Map<number, RgbaColor[]> {
   const out = new Map<number, RgbaColor[]>()
   const anim = loadPaletteAnimData(rom, 'level')
   if (!anim) return out

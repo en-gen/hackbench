@@ -50,7 +50,7 @@ const IF_LINE = /^\s*if\s*\(/
  * `CORPUS.filter(hasRom)` asks the disk as surely as `.filter(existsSync)`.
  * Without these names, moving a suite onto the helper would exempt it.
  */
-const HELPER_ASKS = String.raw`\b(?:hasRoms?|romsOnDisk|hasMesenFixture)\b`
+const HELPER_ASKS = String.raw`\b(?:hasRoms?|romsOnDisk|hasMesenFixture|hasCaptures)\b`
 
 /** Any spelling of "ask the disk", raw or through the helper. */
 const ASKS_DISK = new RegExp(`existsSync|readdirSync|${HELPER_ASKS}`)

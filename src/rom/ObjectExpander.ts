@@ -171,7 +171,7 @@ export function expandObject(
  * (offset X+$1B0).  We therefore create a 2-screen grid for these modes so
  * the second half of the arena is visible.
  */
-const BOSS_ARENA_SCREENS = 2
+export const BOSS_ARENA_SCREENS = 2
 
 /**
  * Pre-fill tiles for Mode-9 boss arenas (Roy / Morton / Ludwig / Reznor).

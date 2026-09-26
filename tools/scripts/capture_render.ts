@@ -201,7 +201,9 @@ function list(v: unknown, what: string): Rec[] {
 
 /** One build of a strip: the frame and the words its pipe tiles took. */
 type Build = { frame: number; words: number[] }
-export type Pipes = PipeInfo & { builds: Record<string, Build[]> }
+/** A build `includeNegative` kept from the default drop, but could not resolve: no words, or a NaN frame/strip. */ // prettier-ignore
+export type UnresolvedBuild = { strip: number; frame: number }
+export type Pipes = PipeInfo & { builds: Record<string, Build[]>; unresolved: UnresolvedBuild[] }
 
 /**
  * The pipe words of every strip build map16_pipe_writes.json lists: pointer
@@ -211,7 +213,11 @@ export type Pipes = PipeInfo & { builds: Record<string, Build[]> }
  * first build, the map as first seen. Null unless the sidecar states the
  * range, the word order, the defs and the builds.
  */
-export function pipeInfo(writes: unknown, loadFrame = -Infinity): Pipes | null {
+export function pipeInfo(
+  writes: unknown,
+  loadFrame = -Infinity,
+  opts: { includeNegative?: boolean } = {},
+): Pipes | null {
   const w = (writes ?? {}) as {
     entryPointers?: string
     defs?: Record<string, unknown[]>
@@ -227,15 +233,29 @@ export function pipeInfo(writes: unknown, loadFrame = -Infinity): Pipes | null {
     return ptrs.length === hi - lo + 1 && q4.every(q => q.length === 4 && !q.some(Number.isNaN)) ? q4.flatMap(q => [0, 1, 2, 3].map(k => q[order.indexOf(k)])) : null // prettier-ignore
   }
   const builds: Record<string, Build[]> = {}
+  const unresolved: UnresolvedBuild[] = []
   for (const b of list(w.stripBuilds, 'map16_pipe_writes.json stripBuilds')) {
     const ptrs = list(b.pointers, 'map16_pipe_writes.json stripBuilds pointers').map(String)
     const [st, frame, words] = [Number(b.strip), Number(b.frame), wordsOf(ptrs)]
-    if (st < 0 || !words || Number.isNaN(frame) || frame < loadFrame) continue
+    if (!opts.includeNegative) {
+      // Exactly the original condition: default behavior is unchanged.
+      if (st < 0 || !words || Number.isNaN(frame) || frame < loadFrame) continue
+      ;(builds[st] ??= []).push({ frame, words })
+      continue
+    }
+    // Through the opt-in only: a build with unresolved pointers or a NaN
+    // frame/strip is surfaced in `unresolved` rather than silently dropped
+    // (frame < loadFrame stays a deliberate drop - it belongs to another room).
+    if (frame < loadFrame) continue
+    if (Number.isNaN(st) || Number.isNaN(frame) || !words) {
+      unresolved.push({ strip: st, frame })
+      continue
+    }
     ;(builds[st] ??= []).push({ frame, words })
   }
   for (const l of Object.values(builds)) l.sort((a, b) => a.frame - b.frame)
   const strips = Object.fromEntries(Object.entries(builds).map(([st, l]) => [st, l[0].words]))
-  return { lo, hi, strips, builds }
+  return { lo, hi, strips, builds, unresolved }
 }
 
 /**
@@ -1074,7 +1094,7 @@ export function unzip(zip: Buffer): Map<string, () => Buffer> {
 }
 
 /** A map's reader and window names, from its folder or its zip. */
-function openMap(path: string, name: string): { read: Reader; windows: string[] } {
+export function openMap(path: string, name: string): { read: Reader; windows: string[] } {
   let read: Reader
   let files: string[]
   if (statSync(path).isDirectory()) {

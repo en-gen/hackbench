@@ -19,11 +19,18 @@ export const VANILLA: string = core.VANILLA
 export const MAGIC: string = core.MAGIC
 export const INVICTUS: string = core.INVICTUS
 export const ROM_DIR: string = core.ROM_DIR
+export const TOOLS_ROOT: string = core.TOOLS_ROOT
+/** Where the `layers_v5` Mesen captures live (en-gen/hackbench#421); read-only. */
+export const CAPTURE_DIR: string = core.CAPTURE_DIR
 
 export const resolveRomDir: (env: Env, repoRoot: string, exists: Exists) => string =
   core.resolveRomDir
 export const resolveToolsRoot: (env: Env, repoRoot: string, exists: Exists) => string =
   core.resolveToolsRoot
+export const resolveCaptureDir: (env: Env, toolsRoot: string) => string = core.resolveCaptureDir
+
+/** True when the `layers_v5` capture directory is on this machine. */
+export const hasCaptures = (dir: string = CAPTURE_DIR): boolean => existsSync(dir)
 
 /** Full path to a corpus ROM, whether or not it is on this machine. */
 export const romPath = (name: string): string => join(ROM_DIR, name)
