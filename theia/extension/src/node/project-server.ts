@@ -41,6 +41,7 @@ import {
   HackMetadataDto,
   LoadMapsResult,
   MapDetailsDto,
+  PatchFormatDto,
   ProjectDto,
   ProjectService,
   ProjectServiceClient,
@@ -204,18 +205,14 @@ export class ProjectServiceImpl implements ProjectService {
     }
   }
 
-  /**
-   * Diff the working copy against the base cartridge and write an .ips.
-   *
-   * Uses the SAME WorkingRomRegistry instance palette-server.ts writes
-   * through, so this exports whatever edits are actually live in this run,
-   * not a re-read of ops/ from disk (which would also be correct, but would
-   * silently miss an unflushed in-memory state if one ever existed).
-   */
-  async exportPatch(manifestPath: string): Promise<ExportPatchResult> {
+  /** Exports whatever edits are live in this run's WorkingRomRegistry, not a re-read of ops/ from disk. */
+  async exportPatch(
+    manifestPath: string,
+    format: PatchFormatDto = 'bps',
+  ): Promise<ExportPatchResult> {
     const r = this.workingRoms.get(manifestPath)
     if (r.status !== 'ok') return r
-    const written = exportPatch(r.project.directory, r.project.name, r.working)
+    const written = exportPatch(r.project.directory, r.project.name, r.working, format)
     return {
       status: 'ok',
       path: written.path,
