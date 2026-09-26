@@ -1,23 +1,37 @@
 /**
  * Where the stock tile animation reads its GFX from, and whether the level
- * still runs it (#491). Every ROM here is built in the test from the 65816
+ * still runs it. Every ROM here is built in the test from the 65816
  * encoding; the graphics are arithmetic.
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
+import { SmwRom } from '../../../src/rom/SmwRom'
 import { encode } from '../../../src/rom/LcLz2'
 import { loromToOffset } from '../../../src/rom/addressing'
 import {
   loadAnimationData,
   readAnimGfxSources,
-  stockAnimatedChars,
   stockAnimationUnreached,
+  type AnimationData,
 } from '../../../src/rom/AnimationLoader'
 import { VRAM_SLOT_NAMES, type VramState } from '../../../src/rom/GfxLoader'
-import { frameZeroChars } from '../../../theia/extension/src/node/map16-decode'
+import {
+  decodeMap16Sheet,
+  frameZeroChars,
+  playableAnimation,
+  type FrameZeroChars,
+} from '../../../theia/extension/src/node/map16-decode'
+import { map16Stub } from '../support/syntheticMap16'
+import {
+  gfxStreams,
+  plantGfxReadPath,
+  plantPaletteCol1ReachPath,
+  TABLE_BANK,
+  TABLE_HI,
+  TABLE_LO,
+} from '../support/syntheticGfxCart'
 
 const ROM_SIZE = 0x30000
-const off = (snes: number): number => loromToOffset(snes, ROM_SIZE)!
 
 // Four 3bpp tiles whose bitplane 0 is solid, so every pixel decodes to `index`.
 const tiles3bpp = (index: 1 | 2): Uint8Array =>
@@ -45,12 +59,25 @@ interface RomOpts {
   gfx33At?: number
   gfx33Stream?: Uint8Array
   gfx32Stream?: Uint8Array
+  /** ROM size in bytes; smaller than default lets a later table land off the end. */
+  size?: number
+  /** Skip the VRAM destination table, so no character animates at all. */
+  emptyDestTable?: boolean
 }
 
-function animRom(o: RomOpts = {}): RomFile {
-  const buf = Buffer.alloc(ROM_SIZE, 0)
-  buf[0x7fd5] = 0x20
-  const put = (snes: number, bytes: ArrayLike<number>): void => buf.set(bytes, off(snes))
+/**
+ * Plants the JSR/JSL, GFX33/GFX32 and destination-table bytes onto `rom`,
+ * skipping any write that would land off the end of it - so a small `rom`
+ * leaves its later tables genuinely unreadable rather than corrupting
+ * whatever sits at file offset 0. Shared with the `decodeMap16Sheet` stub
+ * below, so a Map16-capable ROM carries real animation data too.
+ */
+function plantAnim(rom: RomFile, o: RomOpts = {}): void {
+  const size = rom.romSize
+  const put = (snes: number, bytes: ArrayLike<number>): void => {
+    const at = loromToOffset(snes, size)
+    if (at !== null && at + bytes.length <= rom.buffer.length) rom.buffer.set(bytes, at)
+  }
   const routine = o.routineAt ?? 0x00b888
   const gfx33 = o.gfx33At ?? 0x01c000
   const stream = o.gfx33Stream ?? GFX33_STREAM
@@ -60,7 +87,7 @@ function animRom(o: RomOpts = {}): RomFile {
   put(routine + 0x4f, o.tail ?? tail(0x9000))
   put(0x00a2a5, o.jsl ?? [0x22, 0x39, 0xbb, 0x05])
   // GFX32 where the stream ends, decoys where a start-bank or $8000 read would look.
-  const endBank = (off(gfx33) + stream.length) >> 15
+  const endBank = (loromToOffset(gfx33, size)! + stream.length) >> 15
   put(((gfx33 >> 16) << 16) | 0x8000, encode(tiles4bpp(8)))
   put(((gfx33 >> 16) << 16) | 0x9000, encode(tiles4bpp(8)))
   put((endBank << 16) | 0x9000, o.gfx32Stream ?? encode(tiles4bpp(4)))
@@ -68,11 +95,19 @@ function animRom(o: RomOpts = {}): RomFile {
   // The unreferenced `dl` word points at different pixels, so reading it shows.
   put(0x00b882, [0x00, 0xa0, 0x01])
   put(0x01a000, encode(tiles3bpp(2)))
+  if (o.emptyDestTable) return
   put(0x05b93b, [0x00, 0x06, 0x00, 0x08]) // slot 0 -> $0600, slot 1 -> $0800 (berry split)
   put(0x05b93b + 18 * 2, [0x00, 0x0c]) // slot 18 -> $0C00
   for (let i = 0; i < 4; i++) put(0x05b999 + i * 2, [0x00, 0x7d]) // slot 0 from GFX33
   for (let i = 4; i < 8; i++) put(0x05b999 + i * 2, [0x00, 0x20]) // slot 1 from GFX32
-  return new RomFile('anim.sfc', buf)
+}
+
+function animRom(o: RomOpts = {}): RomFile {
+  const buf = Buffer.alloc(o.size ?? ROM_SIZE, 0)
+  buf[0x7fd5] = 0x20
+  const rom = new RomFile('anim.sfc', buf)
+  plantAnim(rom, o)
+  return rom
 }
 
 describe('readAnimGfxSources', () => {
@@ -153,14 +188,6 @@ describe('stockAnimationUnreached', () => {
   })
 })
 
-describe('stockAnimatedChars', () => {
-  it('is every character the destination tables write, berry split and late slots included', () => {
-    expect([...stockAnimatedChars(animRom())].sort((a, b) => a - b)).toEqual([
-      0x60, 0x61, 0x62, 0x63, 0x80, 0x81, 0x90, 0x91, 0xc0, 0xc1, 0xc2, 0xc3,
-    ])
-  })
-})
-
 describe('frameZeroChars', () => {
   const rawVram = (): VramState =>
     Object.fromEntries(
@@ -171,9 +198,23 @@ describe('frameZeroChars', () => {
 
   it('composites frame 0 when the stock routine is reached', () => {
     const r = frameZeroChars(animRom(), 0, rawVram())!
-    expect(r.note).toBeUndefined()
+    expect(r.error).toBeUndefined()
     expect(r.animData).toBeDefined()
     expect(charAt(r.vram, 0x60)).toEqual(new Array(64).fill(1))
+  })
+
+  it('reports nothing for a tileset with no stock data to animate when the routine is reached', () => {
+    expect(frameZeroChars(animRom({ emptyDestTable: true }), 0, rawVram())).toBeUndefined()
+  })
+
+  it('still reports when the routine is unreached, even with nothing to animate', () => {
+    const r = frameZeroChars(
+      animRom({ jsl: [0x22, 0x77, 0xac, 0x13], emptyDestTable: true }),
+      0,
+      rawVram(),
+    )!
+    expect(r.animData).toBeDefined()
+    expect(r.error).toMatch(/couldn't be loaded/)
   })
 
   it.each([
@@ -182,11 +223,25 @@ describe('frameZeroChars', () => {
       { jsl: [0x22, 0x77, 0xac, 0x13] },
       /decides per level.*\$13AC77/,
     ],
+    [
+      'the level animation call is no longer a JSL',
+      { jsl: [0xea, 0xea, 0xea, 0xea] },
+      /\$00A2A5 is no longer a JSL/,
+    ],
+  ])('composites frame 0 from the stock data, unverified, when %s', (_, opts, reason) => {
+    const r = frameZeroChars(animRom(opts as RomOpts), 0, rawVram())!
+    expect(r.animData).toBeDefined()
+    expect(r.error).toMatch(/couldn't be loaded/)
+    expect(r.error).toMatch(reason)
+    expect(charAt(r.vram, 0x60)).toEqual(new Array(64).fill(1))
+  })
+
+  it.each([
     ['the GFX sources cannot be read', { jsr: [0xea, 0xea, 0xea] }, /\$009414/],
     [
       'the GFX33 stream fails to decompress',
       { gfx33Stream: GFX33_STREAM.slice(0, -1) }, // drops the $FF terminator
-      /left blank.*did not terminate/i,
+      /did not terminate/i,
     ],
     [
       'the GFX32 stream fails to decompress',
@@ -195,20 +250,71 @@ describe('frameZeroChars', () => {
       // read window (the $9000 decoy, the dl word's stream at $01A000), so
       // a truncation here would run past this write and find one of theirs.
       { gfx32Stream: Uint8Array.from([0x00, 0x11, 0x80, 0xff, 0xff]) },
-      /left blank.*back-reference/i,
+      /back-reference/i,
     ],
     [
       'GFX32 points outside the ROM',
       // $05:F000 is file offset $2F000; its read window runs past the ROM's end.
       { gfx33At: 0x05c000, tail: tail(0xf000) },
-      /left blank.*GFX32 points outside the ROM/,
+      /GFX32 points outside the ROM/,
     ],
-  ])('blanks the stock characters and carries a note when %s', (_, opts, note) => {
+    [
+      "the animation behavior tables can't be read",
+      { size: 0x20000 }, // GFX33/GFX32 fit; $05B96B and later do not
+      /\$05B96B/,
+    ],
+  ])('leaves characters as loaded and reports why when %s', (_, opts, reason) => {
     const r = frameZeroChars(animRom(opts as RomOpts), 0, rawVram())!
     expect(r.animData).toBeUndefined()
-    expect(r.note).toMatch(note)
+    expect(r.error).toMatch(/couldn't be loaded/)
+    expect(r.error).toMatch(reason)
     for (const c of [0x60, 0x63, 0x80, 0x91, 0xc3])
-      expect(charAt(r.vram, c)).toEqual(new Array(64).fill(0))
-    expect(charAt(r.vram, 0x64)).toEqual(new Array(64).fill(7))
+      expect(charAt(r.vram, c)).toEqual(new Array(64).fill(7))
+  })
+})
+
+describe('playableAnimation', () => {
+  const animData = { frameCount: 4, frames: [], intervalMs: 133 } as unknown as AnimationData
+  const asFrameZero = (v: object | undefined): FrameZeroChars => v as unknown as FrameZeroChars
+
+  it('returns the data when the source is verified', () => {
+    const frameZero = asFrameZero({ animData, chars: new Map(), vram: {} })
+    expect(playableAnimation(frameZero)).toBe(animData)
+  })
+
+  it.each([
+    ['composited but unverified', { animData, chars: new Map(), vram: {}, error: 'x' }],
+    ['no stock data to composite at all', { vram: {}, error: 'x' }],
+    ['frameZeroChars found nothing to report', undefined],
+  ])('returns undefined when %s', (_, frameZero) => {
+    expect(playableAnimation(asFrameZero(frameZero))).toBeUndefined()
+  })
+})
+
+describe('decodeMap16Sheet', () => {
+  function stubAnimRom(o: RomOpts = {}): SmwRom {
+    const rom = new RomFile('map16-anim-stub.sfc', Buffer.from(map16Stub()))
+    rom.writeAt(0x00ffd5, [0x20])
+    plantGfxReadPath(rom)
+    plantPaletteCol1ReachPath(rom)
+    plantAnim(rom, o)
+    // A real (if arbitrary) GFX0 stream, so the sheet actually decodes
+    // instead of reporting every character sheet unavailable.
+    const [stream] = gfxStreams()
+    const streamAt = 0x02c000
+    rom.writeAt(streamAt, Array.from(stream!))
+    rom.writeAt(TABLE_LO, [streamAt & 0xff])
+    rom.writeAt(TABLE_HI, [(streamAt >> 8) & 0xff])
+    rom.writeAt(TABLE_BANK, [(streamAt >> 16) & 0xff])
+    return new SmwRom(rom)
+  }
+
+  it('carries the error when the level JSL is redirected', () => {
+    const result = decodeMap16Sheet(stubAnimRom({ jsl: [0x22, 0x77, 0xac, 0x13] }), 0, 'fg', {
+      bg: 0,
+      fg: 0,
+    })
+    if (result.status !== 'ok') throw new Error(result.reason)
+    expect(result.sheet.animationNote).toMatch(/couldn't be loaded.*\$13AC77/)
   })
 })

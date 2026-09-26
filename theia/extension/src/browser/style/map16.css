@@ -66,6 +66,13 @@
   flex-basis: 100%;
 }
 
+/* Higher specificity than .hb-map16-note alone, so an animation error reads
+   as an error (plain weight, error color) and not as a stylistic aside. */
+.hb-map16-note.hb-map16-error {
+  font-style: normal;
+  color: var(--theia-errorForeground);
+}
+
 /* ── Layout: preview, then the edit pane, browser strip below ─────────── */
 
 .hb-map16-main {

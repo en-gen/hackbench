@@ -331,9 +331,10 @@ export interface Map16SheetDto {
   rgbaBase64: string
   tiles: Map16TileDto[]
   /** See `Map16CharAnimationDto`'s own doc comment - present only when this
-   * tileset's VRAM has real, cart-derived animated chars. */
+   * tileset has real, ROM-derived animated chars from a verified source;
+   * absent for unverified frames too, not just a missing one. */
   charAnimation?: Map16CharAnimationDto
-  /** Why the stock animated characters are drawn blank on this ROM; absent when they are not. */
+  /** Why animation frames couldn't be loaded; the widget renders this as an error. */
   animationNote?: string
   /**
    * Always true today: tiles $133-$13A cycle through 4 palette variants per

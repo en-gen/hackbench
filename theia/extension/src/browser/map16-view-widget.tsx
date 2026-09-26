@@ -901,7 +901,7 @@ export class Map16ViewWidget extends ReactWidget {
             </button>
           </div>
           {sheet.animationNote && (
-            <span className="hb-map16-note" data-note="animation">
+            <span className="hb-map16-note hb-map16-error" data-note="animation">
               {sheet.animationNote}
             </span>
           )}

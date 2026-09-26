@@ -1,15 +1,16 @@
 /**
- * #491 on the corpus: vanilla and its LM resave keep the frames they had
- * before the source read changed, and the four ROMs whose level JSL skips
- * CODE_05BB39 get blank stock characters and a note instead of stock frames.
+ * On the corpus: vanilla and its LM resave keep the frames they had before
+ * the source read changed, and the four ROMs whose level JSL skips
+ * CODE_05BB39 still get real stock frames, composited and marked unverified
+ * with an error, rather than blanked.
  */
 import { describe, it, expect } from 'vitest'
 import { createHash } from 'node:crypto'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
+  getAnimatedChars,
   loadAnimationData,
   serializeAnimationData,
-  stockAnimatedChars,
 } from '../../../src/rom/AnimationLoader'
 import { loadVram, VRAM_CHAR_BASE, VRAM_SLOT_NAMES } from '../../../src/rom/GfxLoader'
 import { decodeMap16Sheet, frameZeroChars } from '../../../theia/extension/src/node/map16-decode'
@@ -38,14 +39,6 @@ for (const name of [VANILLA, MAGIC]) {
       expect(anim.digest('hex')).toBe(ANIM_DIGEST)
       expect(phases.digest('hex')).toBe(PHASES_DIGEST)
     })
-
-    it('the stock routine writes 76 characters: $040-$07F, the berry 2x2, $0DA-$0DD, $0EA-$0ED', () => {
-      const run = (from: number, n: number): number[] =>
-        Array.from({ length: n }, (_, i) => from + i)
-      const expected = [...run(0x40, 64), 0x80, 0x81, 0x90, 0x91, ...run(0xda, 4), ...run(0xea, 4)]
-      const chars = stockAnimatedChars(SmwRom.open(romPath(name)).rom)
-      expect([...chars].sort((a, b) => a - b)).toEqual(expected)
-    })
   })
 }
 
@@ -57,28 +50,43 @@ const REDIRECTS: [string, string][] = [
   [CORPUS[5]!, '13C1C2'],
 ]
 
+// Invictus replaces the stock LC_LZ2 decompressor, so its GFX33/GFX32 do not
+// decode as stock format even though its JSL is also redirected: there is no
+// stock data to composite, unlike the other three redirected ROMs.
+const NO_STOCK_DATA = CORPUS[4]
+
 for (const [name, target] of REDIRECTS) {
   describe.skipIf(!hasRom(name))(`${name}: level JSL goes to $${target}`, () => {
-    it('blanks every stock animated character and says why', () => {
+    it('is unverified, names the target, and shows stock frames when the stock data itself reads', () => {
       const rom = SmwRom.open(romPath(name))
       const r = frameZeroChars(rom.rom, 0, loadVram(rom.rom, 0))!
-      expect(r.animData).toBeUndefined()
-      expect(r.note).toContain(`$${target}`)
-      const chars = stockAnimatedChars(rom.rom)
+      expect(r.error).toMatch(/couldn't be loaded/)
+      if (name === NO_STOCK_DATA) {
+        expect(r.animData).toBeUndefined()
+        return
+      }
+      expect(r.animData).toBeDefined()
+      expect(r.error).toContain(`$${target}`)
+      const chars = getAnimatedChars(r.animData!)
       expect(chars.size).toBeGreaterThan(0)
+      // At least one animated character actually changed from a blank read.
+      let anyNonBlank = false
       for (const slot of VRAM_SLOT_NAMES) {
         r.vram[slot]?.forEach((px, i) => {
-          if (chars.has(VRAM_CHAR_BASE[slot] + i)) expect(px.every(p => p === 0)).toBe(true)
+          if (chars.has(VRAM_CHAR_BASE[slot] + i) && px.some(p => p !== 0)) anyNonBlank = true
         })
       }
+      expect(anyNonBlank).toBe(true)
     })
 
-    it('the sheet, where it renders, carries the note and no stock animation', () => {
+    it('the sheet, where it renders, carries the error and no playback', () => {
       const r = decodeMap16Sheet(SmwRom.open(romPath(name)), 0, 'fg', { bg: 0, fg: 0 })
       if (r.status !== 'ok') return expect(r.reason).toMatch(/GFX cannot be read/)
-      expect(r.sheet.animationNote).toContain(`$${target}`)
-      expect(r.sheet.charAnimation).toBeUndefined()
-      expect(r.sheet.charSheets.filter(c => c.animated)).toEqual([])
+      expect(r.sheet.animationNote).toContain(
+        name === NO_STOCK_DATA ? "couldn't be loaded" : `$${target}`,
+      )
+      expect(r.sheet.charAnimation).toBeUndefined() // no playback from an unverified source
+      if (name !== NO_STOCK_DATA) expect(r.sheet.charSheets.some(c => c.animated)).toBe(true)
     })
   })
 }
