@@ -276,9 +276,17 @@ In practice:
 
 **Pillar 2 - Context Budgeting**: Load domain knowledge on demand using `@C:\Projects\SMWDisX\<bank_xx>\MEMO.md` syntax. Never read entire bank folders speculatively; load only the MEMO.md for the bank(s) directly relevant to the current task.
 
-**Pillar 2a - Ask smw-mcp before spelunking**: ROM and disassembly questions (level entrances, pointer tables, sprite lists, which levels use a tile) go through the `smw-mcp` server's tools first. If you have queried the same kind of ROM data more than 3 times by hand (ad-hoc scripts, repeated table reads, grepping the disassembly for the same answer), add it to `C:\Projects\smw-mcp` as a tool with tests and SMWDisX citations, then use the tool. Spelunking the ROM repeatedly spends tokens a tool would save.
+**Pillar 2a - Ask smw-mcp before spelunking**: ROM and disassembly questions (level entrances, pointer tables, sprite lists, which levels use a tile, what a routine does, whether a citation is right) go through the `smw-mcp` server's tools first. `smw-mcp` is ours to change as the work needs.
 
-**Pillar 3 - Memory Snapshot Protocol**: After resolving a complex SNES logic problem (multi-routine control flow, OAM layout, palette tricks), propose a Memory Snapshot: a concise summary for `SMWDisX/<bank_xx>/MEMO.md`. Include the address range covered, the behavior decoded, non-obvious invariants, and the PR that exercised it. Only propose a snapshot when the analysis is non-trivial - single-table lookups do not warrant one.
+- **Codify repeats.** Log every question answered by hand in `smw-mcp/docs/query-log.md`. That includes ad-hoc ROM scripts, repeated table reads, raw `sed`/`grep`/`Read` of `.asm` line ranges, and hand-checked `file:line` citations. Past 3 of a kind, add it to `smw-mcp` as a tool, with tests and SMWDisX citations, then use the tool.
+- **Tune what does not help.** Log a result that was not useful in the same file's Effectiveness section, then fix the tool: output far larger than the question needed, a missing field that forced a follow-up, a wrong answer, an error. Falling back to raw reads because a tool is broken counts; fix the tool.
+
+**Pillar 3 - Memory Snapshot Protocol**: SMWDisX is our fork (`en-gen/SMWDisX`) and our tool. Whenever a detail of the disassembly is learned or confirmed, record it in `SMWDisX/<bank_xx>/MEMO.md` for the bank where the routine lives. This covers a multi-routine trace, a single table's meaning, one flag bit, or which index a lookup uses. Delegated research counts: the orchestrator writes the memo from a subagent's findings after checking the citations.
+
+- **Content:** the address range, the behavior decoded, the non-obvious invariants, and the issue or PR that exercised it.
+- **Wrong memos:** correct them in place, and say what was corrected and why.
+- **Publishing:** write, commit and push; no proposal step. Stage only the memo files you changed.
+- **Never edit the disassembly code.** Its instructions, labels, data and addresses are reference SMW. Annotations, comments, memos and docs that help development are welcome.
 
 ## Files never to commit
 
