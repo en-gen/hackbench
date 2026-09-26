@@ -297,16 +297,9 @@
     {
       "map": "$021",
       "table": "grid",
-      "issue": 569,
+      "issue": 587,
       "count": 7,
       "sha256": "9927a5eec90b1d39762053a0557b6c01a50ecf59863eafd3f951a259f068d2d8"
-    },
-    {
-      "map": "$1D2",
-      "table": "grid",
-      "issue": 569,
-      "count": 512,
-      "sha256": "14717699a2fc82b01cee315a029202f1874cb02dae3d01d655799a3cd8eb89d6"
     },
     {
       "map": "$0C3",
@@ -326,11 +319,11 @@
       "actual": "$16B"
     },
     {
-      "issue": 569,
-      "map": "$1D2",
+      "issue": 587,
+      "map": "$021",
       "table": "grid",
-      "cell": "0,6",
-      "expected": "$73",
+      "cell": "159,0",
+      "expected": "$154",
       "actual": "$25"
     },
     {

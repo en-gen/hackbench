@@ -102,6 +102,7 @@ import {
   handle_0DEFA8,
   handle_0DF066,
   handle_0DF06C,
+  handle_0DDF3A,
 } from './standardHandlers'
 import {
   handle_0DA512,
@@ -233,6 +234,7 @@ export const STANDARD_HANDLERS: Record<number, HandlerFn> = {
   0x0defa8: handle_0DEFA8,
   0x0df066: handle_0DF066,
   0x0df06c: handle_0DF06C,
+  0x0ddf3a: handle_0DDF3A,
 }
 
 export const EXTENDED_HANDLERS: Record<number, HandlerFn> = {

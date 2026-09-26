@@ -381,5 +381,5 @@ Each refusal gets a planted-defect proof.
 - **How much of `src/rom/model/` reads `editorStore`.** `L3Layer.ts` is
   confirmed. The phase 1 refactor must enumerate the rest before claiming
   view state is fully parameterized.
-- **`$1d2` renders tiles the ROM leaves empty.** Open from the earlier
-  oracle sweep, direction opposite to the `CODE_05801E` family.
+- **`$1d2` renders tiles the ROM leaves empty.** Resolved by #569: the
+  cells were drawn by `CODE_0DDF3A`, which was unported and so left empty.

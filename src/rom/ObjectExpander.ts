@@ -16,7 +16,13 @@
 
 import { LevelObject, SCREEN_W, SCREEN_H, SCREEN_W_VERT, SCREEN_H_VERT } from './LevelParser'
 import { RomFile } from './RomFile'
-import { makeCursor, OWNER_NONE, OwnerGrid, TileGrid } from './objectHandlers/cursor'
+import {
+  makeCursor,
+  MAP16_BYTES_PER_SCREEN_H,
+  OWNER_NONE,
+  OwnerGrid,
+  TileGrid,
+} from './objectHandlers/cursor'
 import { dispatchStandard, dispatchExtended } from './objectHandlers/dispatch'
 
 /** Empty tile = $25 (bank_05.asm CODE_05801E fills the level map with #$25). */
@@ -50,7 +56,6 @@ export type { TileGrid, OwnerGrid } from './objectHandlers/cursor'
 export { OWNER_NONE } from './objectHandlers/cursor'
 
 const MAP16_OW_L1_VRAM_BUFFER_OFFSET = 0x1c00 // OWLayer1VramBuffer − Map16TilesLow
-const MAP16_BYTES_PER_SCREEN_H = 0x1b0 // 27 rows × 16 cols
 
 /**
  * CODE_00A045 (bank_00.asm) zeroes OWLayer1VramBuffer in batches.  Each batch

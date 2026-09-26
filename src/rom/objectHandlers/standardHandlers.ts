@@ -40,6 +40,7 @@ import {
   writeTileMergeCODE_0DB198,
   readLongOperand,
   readImmByte,
+  MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
 // No ADDR_DATA_* imports: every handler resolves its table addresses and
 // immediate tile IDs dynamically from its own bytecode via cur.handlerAddr.
@@ -4753,5 +4754,226 @@ export function handle_0DF06C(cur: Cursor): void {
   setPage1(cur)
   for (let i = 0; i < count; i++) {
     writeTileAdvance(cur, tile)
+  }
+}
+
+// ── CODE_0DDF3A: castle wall stamped on screen 0, then block-copied ──────────
+
+/** Map16TilesLow / Map16TilesHigh sit at $7EC800 / $7FC800 (rammap.asm). */
+const MAP16_BASE = 0xc800
+/** LDA #imm for the cap width; the INX run before it must end here. */
+const CAP_W_AT = 159
+
+type WallSite = readonly [name: string, off: number, opcode: number, width: number, expect?: number]
+
+/**
+ * Every operand CODE_0DDF3A reads, by offset from the handler start. The
+ * opcode is checked before reading; `expect` pins operands the port cannot
+ * follow elsewhere (another bank would be RAM this grid does not model).
+ */
+const WALL_SITES = [
+  ['mask', 2, 0x29, 1], // AND #$0F on LvlLoadObjSize
+  ['rowStart', 9, 0xa0, 1], // LDY #$50
+  ['cols', 13, 0xa9, 1],
+  ['rows', 17, 0xa9, 1],
+  ['fill', 26, 0xa9, 1],
+  ['stride', 40, 0x69, 1], // ADC #$40
+  ['ptrLow', 54, 0xa9, 1], // LDA #$00 -> Map16LowPtr, _4
+  ['stampStart', 62, 0xa9, 1], // LDA #$00 -> _0
+  ['stamps', 66, 0xa9, 1],
+  ['midRows', 70, 0xa9, 1],
+  ['posTbl', 76, 0xbf, 3], // DATA_0DDEEA
+  ['posHi', 83, 0xbf, 3], // DATA_0DDEF2
+  ['topW', 93, 0xa9, 1],
+  ['xStart', 97, 0xa2, 1], // LDX #$00
+  ['top', 102, 0xbf, 3], // DATA_0DDEDC
+  ['midA', 123, 0xbf, 3], // DATA_0DDEDC
+  ['midB', 133, 0xbf, 3], // DATA_0DDEDD
+  ['midC', 143, 0xbf, 3], // DATA_0DDEDE
+  ['capW', CAP_W_AT, 0xa9, 1],
+  ['cap', 166, 0xbf, 3],
+  ['baseW', 181, 0xa9, 1],
+  ['base', 191, 0xbf, 3],
+  ['copyStart', 212, 0xa9, 1], // LDA #$01 -> _8
+  ['copyStartHi', 216, 0xa9, 1], // LDA #$00 -> _9
+  ['dstLo', 226, 0xbf, 3], // DATA_0DDEFA
+  ['dstHi', 232, 0xbf, 3], // DATA_0DDF1A
+  ['lenLo', 238, 0xa9, 2], // LDA.W #$01B0
+  ['srcLo', 243, 0xa9, 2], // LDA.W #$C800
+  ['banksLo', 255, 0x54, 2, 0x7e7e], // MVN $7E,$7E
+  ['lenHi', 259, 0xa9, 2],
+  ['srcHi', 264, 0xa9, 2],
+  ['banksHi', 276, 0x54, 2, 0x7f7f], // MVN $7F,$7F
+] as const satisfies readonly WallSite[]
+
+/**
+ * Every JSR, with the stock subroutine it must reach. Their semantics are
+ * ported in cursor.ts rather than read, so a hijacked call must refuse.
+ */
+const WALL_CALLS = [
+  [6, 0xa6b1], [23, 0xaa08], [28, 0xa95b], [34, 0xa6ba], [47, 0xa987], [99, 0xaa08],
+  [106, 0xa95b], [114, 0xa6ba], [117, 0xa97d], [120, 0xaa0d], [127, 0xa95b], [130, 0xaa0d],
+  [137, 0xa95b], [140, 0xaa0d], [149, 0xa97d], [163, 0xaa08], [170, 0xa95b], [178, 0xa6ba],
+  [185, 0xa97d], [188, 0xaa0d], [195, 0xa95b],
+] as const // prettier-ignore
+/** STA [Map16LowPtr],Y: the mid rows' third write, with no INY after it. */
+const WALL_RAW_STA_AT = 147
+/** The INX run that skips X past the mid-row index. */
+const WALL_INX_AT = 156
+
+type WallKey = (typeof WALL_SITES)[number][0] | 'skip'
+
+function readWallSites(cur: Cursor): Record<WallKey, number> | null {
+  /** The `width`-byte operand after `opcode` at `off`, or null if the opcode differs. */
+  const operand = (off: number, opcode: number, width: number): number | null => {
+    const addr = cur.handlerAddr + off
+    if (cur.rom.readByte(addr) !== opcode) return null
+    let v = 0
+    for (let i = width; i >= 1; i--) v = (v << 8) | readImmByte(cur, addr + i)
+    return v
+  }
+  for (const [off, target] of WALL_CALLS) if (operand(off, 0x20, 2) !== target) return null
+  if (operand(WALL_RAW_STA_AT, 0x97, 0) === null) return null
+  let skip = 0
+  // Capped one past the expected end, so a gate fault refuses rather than hangs.
+  while (skip <= CAP_W_AT - WALL_INX_AT && operand(WALL_INX_AT + skip, 0xe8, 0) !== null) skip++
+  if (WALL_INX_AT + skip !== CAP_W_AT) return null
+  const out = { skip } as Record<WallKey, number>
+  for (const [name, off, opcode, width, expect] of WALL_SITES as readonly WallSite[]) {
+    const v = operand(off, opcode, width)
+    if (v === null || (expect !== undefined && v !== expect)) return null
+    out[name as WallKey] = v
+  }
+  return out
+}
+
+/** Body runs of a `DEC; BPL` loop entered with `n` (8-bit). */
+function bplCount(n: number): number {
+  let count = 1
+  for (let v = (n - 1) & 0xff; !(v & 0x80); v = (v - 1) & 0xff) count++
+  return count
+}
+
+/** Point the cursor at the cell holding a Map16 RAM address; false below the buffer. */
+function seekMap16(cur: Cursor, addr: number): boolean {
+  const o = addr - MAP16_BASE
+  if (o < 0) return false
+  const rem = o % MAP16_BYTES_PER_SCREEN_H
+  cur.row = rem >> 4
+  cur.col = Math.floor(o / MAP16_BYTES_PER_SCREEN_H) * 16 + (rem & 0x0f)
+  return true
+}
+
+function peekMap16(cur: Cursor, addr: number): number {
+  return seekMap16(cur, addr) ? (cur.grid[cur.row][cur.col] ?? 0x25) : 0x25
+}
+
+function pokeMap16(cur: Cursor, addr: number, page: number, low: number): void {
+  if (!seekMap16(cur, addr)) return
+  cur.page = page
+  writeTile(cur, low)
+}
+
+/**
+ * CODE_0DDF3A (bank_0D.asm:7107-7242; lower half per bank_05.asm:778-782) --
+ * castle wall, standard object $37 in tilesets 3/9/10/11/14. What each phase
+ * draws: SMWDisX/bank_0D/MEMO.md, "Castle wall object".
+ *
+ * Tracks the game's own registers (Map16LowPtr, its _4/_5 bookmark,
+ * LevelLoadPos, Y) as 16-bit RAM addresses, because two of its three phases
+ * ignore the object's position.
+ *
+ * Declines (draws nothing) on a vertical level, whose Map16 layout this does
+ * not model, when any opcode it reads through is not the expected one, or
+ * when a JSR does not reach the stock subroutine the port models.
+ */
+export function handle_0DDF3A(cur: Cursor): void {
+  if (cur.grid.length !== 27) return
+  const k = readWallSites(cur)
+  if (!k) return
+  const word = (addr: number): number => (readImmByte(cur, addr + 1) << 8) | readImmByte(cur, addr)
+  const screenPtr =
+    MAP16_BASE + Math.floor(cur.col / 16) * MAP16_BYTES_PER_SCREEN_H + (cur.row >= 16 ? 0x100 : 0)
+  let ptr = screenPtr
+  let mark = screenPtr // CODE_0DA6B1
+  let pos = k.rowStart
+  let y = pos
+
+  const sta = (page: number, low: number): void => pokeMap16(cur, ptr + y, page, low)
+  // CODE_0DA95D
+  const iny = (): void => {
+    y = (y + 1) & 0xff
+    if (y & 0x0f) return
+    ptr += MAP16_BYTES_PER_SCREEN_H
+    y = pos & 0xf0
+  }
+  const restore = (): void => void (ptr = mark) // CODE_0DA6BA
+  // CODE_0DA97D / CODE_0DA987: carry bumps the pointer's high byte into _5.
+  const down = (step: number): void => {
+    const sum = pos + step
+    pos = y = sum & 0xff
+    if (sum < 0x100) return
+    ptr += 0x100
+    mark = (mark & 0x00ff) | (ptr & 0xff00)
+  }
+
+  for (let r = bplCount(k.rows); r > 0; r--) {
+    for (let c = bplCount(k.cols); c > 0; c--) {
+      sta(1, k.fill)
+      iny()
+    }
+    restore()
+    down(k.stride)
+  }
+
+  ptr = (ptr & 0xff00) | k.ptrLow
+  mark = (mark & 0xff00) | k.ptrLow
+  for (let n = bplCount(k.stamps), i = k.stampStart; n > 0; n--, i = (i + 1) & 0xff) {
+    pos = y = readImmByte(cur, k.posTbl + i)
+    const hi = readImmByte(cur, k.posHi + i) << 8
+    ptr = hi | (ptr & 0xff)
+    mark = hi | (mark & 0xff)
+    let x = k.xStart
+    for (let c = bplCount(k.topW); c > 0; c--, x++) {
+      sta(1, readImmByte(cur, k.top + x))
+      iny()
+    }
+    restore()
+    down(0x10)
+    for (let r = bplCount(k.midRows); r > 0; r--) {
+      sta(0, readImmByte(cur, k.midA + x))
+      iny()
+      sta(0, readImmByte(cur, k.midB + x))
+      iny()
+      sta(0, readImmByte(cur, k.midC + x))
+      down(0x10)
+    }
+    x += k.skip
+    for (let c = bplCount(k.capW); c > 0; c--, x++) {
+      sta(1, readImmByte(cur, k.cap + x))
+      iny()
+    }
+    restore()
+    down(0x10)
+    for (let c = bplCount(k.baseW); c > 0; c--, x++) {
+      sta(0, readImmByte(cur, k.base + x))
+      iny()
+    }
+  }
+
+  let left = cur.size & k.mask
+  for (let s = k.copyStart; ; s = (s + 1) & 0xff) {
+    const xi = (((k.copyStartHi << 8) | s) * 2) & 0xffff // REP #$30; LDA _8; ASL
+    const dLo = word(k.dstLo + xi)
+    const dHi = word(k.dstHi + xi)
+    for (let i = 0; i <= k.lenLo; i++) {
+      const d = peekMap16(cur, dLo + i)
+      pokeMap16(cur, dLo + i, d >> 8, peekMap16(cur, k.srcLo + i))
+    }
+    for (let i = 0; i <= k.lenHi; i++) {
+      pokeMap16(cur, dHi + i, peekMap16(cur, k.srcHi + i) >> 8, peekMap16(cur, dHi + i))
+    }
+    left = (left - 1) & 0xff
+    if (left === 0) break
   }
 }
