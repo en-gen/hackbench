@@ -63,7 +63,7 @@ interface RomStats {
 
 function gatherStats(rom: ReturnType<typeof resolveRom>): RomStats {
   const summary = rom.getSummary()
-  const { overworld, subarea } = rom.classifyLevels(deriveOverworldEntrances(rom).levelBounds)
+  const { overworld, subarea } = rom.classifyLevels(deriveOverworldEntrances(rom).roots)
   const catalog = buildLevelCatalog(rom)
   const allSlots = rom.enumerateAllLevels()
   const validSlots = allSlots.filter(s => s.hasData)

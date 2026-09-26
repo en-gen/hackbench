@@ -1,7 +1,13 @@
 import * as path from 'path'
 import { RomFile } from '../../../src/rom/RomFile'
 import { ADDR, LEVEL_COUNT } from '../../../src/rom/SmwRom'
-import { OVERWORLD_ENTRY, OVERWORLD_INDEX_BODY, SCREEN_EXIT } from '../../../src/rom/SubmapFlagGate'
+import {
+  OVERWORLD_ENTRY,
+  OVERWORLD_INDEX_BODY,
+  SCREEN_EXIT,
+  spanFingerprint,
+} from '../../../src/rom/SubmapFlagGate'
+import { BONUS_CALL } from '../../../src/rom/BonusEntrances'
 import { OW_ADDR } from '../../../src/rom/OverworldLoader'
 import {
   WALK_PROLOGUE_LENGTH,
@@ -28,6 +34,14 @@ const ROOM_STRIDE = 0x100
 const NOP = 0xea
 const nops = (length: number): Buffer => Buffer.alloc(length, NOP)
 
+/** BONUS_CALL as planted: NOPs around OVERWORLD_ENTRY's `JMP CODE_05D83E` and the JSR operand. */
+function syntheticCall(): Buffer {
+  const span = nops(BONUS_CALL.length)
+  span.set([0x00, 0xe8], 19)
+  span.set([0x4c, 0x3e, 0xd8], 26)
+  return span
+}
+
 /**
  * The fingerprinted spans are vanilla code and never committed (CLAUDE.md),
  * so a synthetic ROM fills them with NOPs. Pass this to the reader under test;
@@ -36,6 +50,7 @@ const nops = (length: number): Buffer => Buffer.alloc(length, NOP)
 export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
   entry: Object.freeze([fingerprint(nops(OVERWORLD_INDEX_BODY.length))!]),
   walk: Object.freeze([fingerprint(nops(WALK_PROLOGUE_LENGTH))!]),
+  bonus: Object.freeze([spanFingerprint(syntheticCall(), BONUS_CALL.mask)!]),
 })
 
 /**
@@ -68,6 +83,22 @@ export function plantStockSubmapCode(rom: RomFile): void {
   rom.writeAt(0x049150, [0xa5, 0x16, 0x05, 0x18, 0x29, 0xc0, 0xd0, 0x03, 0x82, 0x00, 0x00])
   rom.writeAt(0x04915b, [0x9c, 0x9e, 0x1b, 0xad, 0xc1, 0x13, 0xc9, 0x5f, 0xd0, 0x18])
   rom.writeAt(0x04917d, [0xad, 0xc1, 0x13, 0xc9, 0x82, 0xf0, 0x04, 0xc9, 0x5b, 0xd0, 0x11])
+}
+
+/** CODE_05DBAC and the primary-exit landing, both off vanilla's addresses to split vanilla runs. */
+export const SYNTHETIC_PICK_AT = 0x05e800
+export const SYNTHETIC_LANDING = 0x05d809
+
+/** CODE_05D796 through the DATA_05F800 load, and CODE_05DBAC, as the bonus reader checks them. */
+export function plantBonusCode(rom: RomFile): void {
+  rom.writeAt(BONUS_CALL.addr, syntheticCall())
+  rom.writeAt(0x05d7d4, [0xad, 0x93, 0x1b, 0xf0, 0x30, 0xc2, 0x30, 0xa9, 0x00, 0x00, 0xe2, 0x20])
+  rom.writeAt(0x05d7e0, [0xa4, 0x0e])
+  rom.writeAt(SYNTHETIC_LANDING, [0x4c, 0xb7, 0xd8])
+  rom.writeAt(0x05dba9, [0x00, 0xc8, 0x00])
+  // prettier-ignore
+  rom.writeAt(SYNTHETIC_PICK_AT, [0xa0, 0x00, 0xad, 0x95, 0x1b, 0xf0, 0x02, 0xa0, 0x01, 0xa6, 0x95,
+    0xa5, 0x5b, 0x29, 0x01, 0xf0, 0x02, 0xa6, 0x97, 0xb9, 0xa9, 0xdb, 0x9d, 0xb8, 0x19, 0xee, 0x1a, 0x14, 0x60])
 }
 
 /**

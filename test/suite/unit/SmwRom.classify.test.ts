@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { SmwRom, ADDR, type OverworldLevelBounds } from '../../../src/rom/SmwRom'
+import { SmwRom, ADDR, type OverworldRoots } from '../../../src/rom/SmwRom'
 import { buildMapTree } from '../../../src/rom/MapTree'
 import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
 import {
@@ -25,14 +25,14 @@ function make4MbRom(): RomFile {
   return rom
 }
 
-/** This file's SmwRom instances always carry the derivable stock bounds. */
-function boundsOf(smw: SmwRom): OverworldLevelBounds | null {
-  return deriveOverworldEntrances(smw, undefined, SYNTHETIC_FINGERPRINTS).levelBounds
+/** This file's SmwRom instances always carry the derivable stock roots. */
+function rootsOf(smw: SmwRom): OverworldRoots | null {
+  return deriveOverworldEntrances(smw, undefined, SYNTHETIC_FINGERPRINTS).roots
 }
 
 /** The exit graph under the synthetic ROM's NOP-span fingerprints. */
 function graphOf(smw: SmwRom): ReturnType<SmwRom['buildLevelExitGraph']> {
-  return smw.buildLevelExitGraph(boundsOf(smw), SYNTHETIC_FINGERPRINTS.entry)
+  return smw.buildLevelExitGraph(rootsOf(smw), SYNTHETIC_FINGERPRINTS.entry)
 }
 
 /** Stamp a 3-byte L1 pointer for the given level index. */
@@ -55,27 +55,27 @@ describe('SmwRom.classifyLevels', () => {
   it('returns empty arrays when every level has zero pointer', () => {
     const rom = make4MbRom()
     const smw = new SmwRom(rom)
-    const result = smw.classifyLevels(boundsOf(smw))
+    const result = smw.classifyLevels(rootsOf(smw))
     expect(result.overworld).toEqual([])
     expect(result.subarea).toEqual([])
   })
 
-  it('puts indices in main-map range $000-$024 into overworld', () => {
+  it('puts a walked main-map slot into overworld', () => {
     const rom = make4MbRom()
     setL1Ptr(rom, 0x010, 0x068000)
     setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0x42, 0xff]) // valid + has objects
     const smw = new SmwRom(rom)
-    const result = smw.classifyLevels(boundsOf(smw))
+    const result = smw.classifyLevels(rootsOf(smw))
     expect(result.overworld).toEqual([0x010])
     expect(result.subarea).toEqual([])
   })
 
-  it('puts indices outside overworld ranges into subarea', () => {
+  it('puts a slot the walk did not produce into subarea', () => {
     const rom = make4MbRom()
     setL1Ptr(rom, 0x150, 0x068000)
     setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0x42, 0xff])
     const smw = new SmwRom(rom)
-    const result = smw.classifyLevels(boundsOf(smw))
+    const result = smw.classifyLevels(rootsOf(smw))
     expect(result.subarea).toEqual([0x150])
     expect(result.overworld).toEqual([])
   })
@@ -87,7 +87,7 @@ describe('SmwRom.classifyLevels', () => {
     setL1Ptr(rom, 0x011, 0x068000)
     setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0x42, 0xff])
     const smw = new SmwRom(rom)
-    const result = smw.classifyLevels(boundsOf(smw))
+    const result = smw.classifyLevels(rootsOf(smw))
     expect(result.overworld).toEqual([0x010]) // 0x011 dropped as dup
   })
 
@@ -96,7 +96,7 @@ describe('SmwRom.classifyLevels', () => {
     setL1Ptr(rom, 0x010, 0x068000)
     setLevelData(rom, 0x068000, [0, 0x1f, 0, 0, 0, 0x42, 0xff]) // mode = 31
     const smw = new SmwRom(rom)
-    expect(smw.classifyLevels(boundsOf(smw)).overworld).toEqual([])
+    expect(smw.classifyLevels(rootsOf(smw)).overworld).toEqual([])
   })
 
   it('skips levels whose first object byte is the immediate $FF terminator', () => {
@@ -104,7 +104,7 @@ describe('SmwRom.classifyLevels', () => {
     setL1Ptr(rom, 0x010, 0x068000)
     setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, 0xff]) // empty stream
     const smw = new SmwRom(rom)
-    expect(smw.classifyLevels(boundsOf(smw)).overworld).toEqual([])
+    expect(smw.classifyLevels(rootsOf(smw)).overworld).toEqual([])
   })
 })
 
@@ -348,17 +348,17 @@ describe('exit graph submap-flag gate', () => {
     expect(notes).not.toMatch(/by design/)
   })
 
-  it('declines the graph when the overworld root range is null', () => {
+  it('declines the graph when the overworld roots are null', () => {
     const result = gatedRom().buildLevelExitGraph(null, SYNTHETIC_FINGERPRINTS.entry)
     expect(result.graph.size).toBe(0)
-    expect(result.unavailable).toMatch(/root range/)
+    expect(result.unavailable).toMatch(/roots could not be read/)
   })
 
   it('names no root at all when the walk is unreadable, not the stock range', () => {
     const tree = buildMapTree(gatedRom({ at: 0x04d832, byte: 0xea }), SYNTHETIC_FINGERPRINTS)
     expect(tree.overworld).toEqual([])
     expect(tree.unassigned.map(n => n.index)).toEqual([0x105, 0x177])
-    expect(tree.notes.join(' ')).toMatch(/root range could not be read/)
+    expect(tree.notes.join(' ')).toMatch(/roots could not be read/)
   })
 
   it('keeps the roots and the hierarchy when only the warp-tile read fails', () => {

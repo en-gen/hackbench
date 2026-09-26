@@ -28,7 +28,13 @@
 import { RomFile } from './RomFile'
 import { parseLevelObjects } from './LevelParser'
 import { getLevelNameByIndex } from './SmwLevelNames'
-import { OVERWORLD_ENTRY, SCREEN_EXIT, readSubmapHigh, stockCodeMismatch } from './SubmapFlagGate'
+import {
+  OVERWORLD_ENTRY,
+  SCREEN_EXIT,
+  SCREEN_EXIT_HIGH_AT,
+  readSubmapHigh,
+  stockCodeMismatch,
+} from './SubmapFlagGate'
 import {
   readSpritePointerSite,
   readVerticalTable,
@@ -81,19 +87,15 @@ export const ADDR = {
 const SMW_ROM_NAME = 'SUPER MARIOWORLD'
 export const LEVEL_COUNT = 0x200
 
-/** The overworld root ranges (docs/rom/smw-translevel-formula.md); null when unreadable. */
-export interface OverworldLevelBounds {
-  mainMax: number
-  subMin: number
-  subMax: number
+/** The slots the overworld walk produces, per buffer half (docs/rom/smw-translevel-formula.md). */
+export interface OverworldRoots {
+  main: ReadonlySet<number>
+  sub: ReadonlySet<number>
 }
 
-/** No typed-in range when `bounds` is null: an unreadable overworld names no roots. */
-export function isOverworldLevel(index: number, bounds: OverworldLevelBounds | null): boolean {
-  if (!bounds) return false
-  return (
-    (index >= 0 && index <= bounds.mainMax) || (index >= bounds.subMin && index <= bounds.subMax)
-  )
+/** No typed-in range when `roots` is null: an unreadable overworld names no roots. */
+export function isOverworldLevel(index: number, roots: OverworldRoots | null): boolean {
+  return roots !== null && (roots.main.has(index) || roots.sub.has(index))
 }
 
 /** `unavailable` names why the graph could not be built; `graph` is then empty. */
@@ -296,9 +298,9 @@ export class SmwRom {
    * For the lower-level question of which of the 512 pointer-table slots
    * hold real (non-filler) data at all, see buildLevelCatalog in LevelCatalog.ts.
    *
-   * @param bounds deriveOverworldEntrances(this).levelBounds; null puts every slot in `subarea`.
+   * @param roots deriveOverworldEntrances(this).roots; null puts every slot in `subarea`.
    */
-  classifyLevels(bounds: OverworldLevelBounds | null): { overworld: number[]; subarea: number[] } {
+  classifyLevels(roots: OverworldRoots | null): { overworld: number[]; subarea: number[] } {
     const overworld: number[] = []
     const subarea: number[] = []
     const seenPointers = new Set<number>()
@@ -311,7 +313,7 @@ export class SmwRom {
       if (!this.levelHasObjects(i)) continue
       seenPointers.add(ptr)
 
-      if (isOverworldLevel(i, bounds)) {
+      if (isOverworldLevel(i, roots)) {
         overworld.push(i)
       } else {
         subarea.push(i)
@@ -360,7 +362,7 @@ export class SmwRom {
    * runtime from OWPlayerSubmap (bank_05.asm 7103-7110, 7206-7226), never
    * from ExitTableHigh or DATA_05FE00 bit 3 (see header). Static
    * equivalent: every level reached from overworld root R inherits R's
-   * flag -- 1 if R is in `bounds`' submap range, 0 in its main-map range.
+   * flag -- 1 if R is a submap root, 0 if a main-map root.
    *
    * The flag can never collide across roots: every propagated destination
    * is (flag<<8)|destLow with destLow in [0,255], so flag-0 nodes live
@@ -384,11 +386,11 @@ export class SmwRom {
    * replaced, the graph is empty and `unavailable` says why, rather than a
    * stock-shaped graph from a table the ROM may no longer index this way.
    *
-   * @param bounds deriveOverworldEntrances(this).levelBounds; null makes the graph unavailable.
+   * @param roots deriveOverworldEntrances(this).roots; null makes the graph unavailable.
    * @param entryFingerprints Replaces the stock CODE_05D83E fingerprints; for a synthetic ROM.
    */
   buildLevelExitGraph(
-    bounds: OverworldLevelBounds | null,
+    roots: OverworldRoots | null,
     entryFingerprints?: readonly string[],
   ): LevelExitGraph {
     const unavailable = stockCodeMismatch(
@@ -405,11 +407,11 @@ export class SmwRom {
         unavailable: 'The secondary-exit table DATA_05F800 is unreadable.',
       }
     }
-    if (!bounds) {
-      return { graph: new Map(), unavailable: 'The overworld root range could not be read.' }
+    if (!roots) {
+      return { graph: new Map(), unavailable: 'The overworld roots could not be read.' }
     }
     // The screen-exit path's own LDA #imm (bank_05.asm:7109), past SCREEN_EXIT's gate.
-    const screenHigh = readSubmapHigh(this.rom, 0x05d7d1)
+    const screenHigh = readSubmapHigh(this.rom, SCREEN_EXIT_HIGH_AT)
     if (typeof screenHigh === 'string') return { graph: new Map(), unavailable: screenHigh }
     // A root's flag is modeled as `root >= $100`, which is its layout only while
     // submap entrances load high byte 1. With 0 they land in $0xx, yet their exits
@@ -443,8 +445,8 @@ export class SmwRom {
       if (!ptr || ptr === fillerPtr) continue
       realMaps.push(i)
     }
-    const overworld = realMaps.filter(idx => isOverworldLevel(idx, bounds))
-    const validDestinations = new Set(realMaps.filter(idx => !isOverworldLevel(idx, bounds)))
+    const overworld = realMaps.filter(idx => isOverworldLevel(idx, roots))
+    const validDestinations = new Set(realMaps.filter(idx => !isOverworldLevel(idx, roots)))
 
     // Parse every level's screen-exit objects once. Resolution is deferred
     // to the BFS below because it needs each level's submap flag, which is

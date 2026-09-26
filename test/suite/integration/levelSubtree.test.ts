@@ -13,7 +13,7 @@
  * but it must be explained.
  */
 import { describe, it, expect, beforeAll } from 'vitest'
-import { SmwRom, isOverworldLevel, type OverworldLevelBounds } from '../../../src/rom/SmwRom'
+import { SmwRom, isOverworldLevel, type OverworldRoots } from '../../../src/rom/SmwRom'
 import { buildLevelSubtree, LevelTreeNode } from '../../../src/rom/LevelTree'
 import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
@@ -70,9 +70,9 @@ function walk(node: LevelTreeNode, depth: number, s: Stats): void {
   }
 }
 
-function statsForRom(rom: SmwRom, bounds: OverworldLevelBounds | null): Stats {
-  const graph = rom.buildLevelExitGraph(bounds).graph
-  const isRoot = (i: number): boolean => isOverworldLevel(i, bounds)
+function statsForRom(rom: SmwRom, roots: OverworldRoots | null): Stats {
+  const graph = rom.buildLevelExitGraph(roots).graph
+  const isRoot = (i: number): boolean => isOverworldLevel(i, roots)
   const s: Stats = {
     nodes: 0,
     loops: 0,
@@ -100,10 +100,10 @@ describe.skipIf(!hasRom(VANILLA))('buildLevelSubtree -- vanilla nesting', () => 
 
   beforeAll(() => {
     rom = SmwRom.open(VANILLA_ROM)
-    const bounds = deriveOverworldEntrances(rom).levelBounds
-    isRoot = (i: number): boolean => isOverworldLevel(i, bounds)
-    graph = rom.buildLevelExitGraph(bounds).graph
-    stats = statsForRom(rom, bounds)
+    const roots = deriveOverworldEntrances(rom).roots
+    isRoot = (i: number): boolean => isOverworldLevel(i, roots)
+    graph = rom.buildLevelExitGraph(roots).graph
+    stats = statsForRom(rom, roots)
   })
 
   // Three separate diamonds, not one: a fix tuned to the shape of $007 alone
@@ -178,7 +178,7 @@ describe('buildLevelSubtree -- measured expansion sizes', () => {
     if ('declined' in c) {
       it.skipIf(!hasRom(c.name))(`${c.name} declines the exit graph`, () => {
         const rom = SmwRom.open(romPath(c.name))
-        const result = rom.buildLevelExitGraph(deriveOverworldEntrances(rom).levelBounds)
+        const result = rom.buildLevelExitGraph(deriveOverworldEntrances(rom).roots)
         expect(result.unavailable).toMatch(/, not the stock |not a recognized build/)
         expect(result.graph.size).toBe(0)
       })
@@ -188,7 +188,7 @@ describe('buildLevelSubtree -- measured expansion sizes', () => {
       `${c.name} peaks at ${c.maxRootNodes} nodes under one root, ${c.loops} loops, depth ${c.maxDepth}`,
       () => {
         const rom = SmwRom.open(romPath(c.name))
-        const s = statsForRom(rom, deriveOverworldEntrances(rom).levelBounds)
+        const s = statsForRom(rom, deriveOverworldEntrances(rom).roots)
         expect({ maxRootNodes: s.maxRootNodes, loops: s.loops, maxDepth: s.maxDepth }).toEqual({
           maxRootNodes: c.maxRootNodes,
           loops: c.loops,

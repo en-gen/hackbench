@@ -320,7 +320,7 @@ test('a vanilla project seeds its groups, numbered in world order, and "8. Star 
   const tree = await snapshot(page)
 
   expect(tree.userGroups.map(g => g.name)).toContain('8. Star World')
-  expect(tree.rootIds[0]).toBe('special:title-screen')
+  expect(tree.rootIds[0]).toBe('special:title-screen:199')
   expect(tree.rootIds).toContain('group:user:8. Star World')
   // No separate Overworld folder: Unassigned is the last row.
   expect(tree.rootIds[tree.rootIds.length - 1]).toBe('group:unassigned')

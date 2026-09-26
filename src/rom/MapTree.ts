@@ -3,6 +3,8 @@
  *
  *   Title Screen  $0C7
  *   New Game      $0C5
+ *   Bonus game    $000, $100  entered after a level, not from a tile
+ *   Yoshi wings   $0C8, $1C8
  *   overworld
  *   |- $105  entry map for a level
  *   |   |- $0C5  sub area
@@ -35,6 +37,7 @@ import { SmwRom, isOverworldLevel } from './SmwRom'
 import { buildLevelCatalog } from './LevelCatalog'
 import { buildLevelSubtree, LevelTreeNode } from './LevelTree'
 import { findSpecialMaps, SpecialRole } from './SpecialMaps'
+import { findBonusEntrances } from './BonusEntrances'
 import {
   deriveOverworldEntrances,
   STOCK_OVERWORLD_FINGERPRINTS,
@@ -90,10 +93,10 @@ export interface MapTreeCounts {
 
 export interface MapTree {
   /**
-   * The title screen and the new-game intro, in the order a player meets
-   * them. Either may be absent: on a ROM whose loader has been replaced the
-   * slot cannot be read, and the map stays among the unassigned rather than
-   * being guessed at.
+   * The title screen, the new-game intro, the bonus game room and the Yoshi
+   * wings sub areas, in the order a player meets them. Any may be absent: on
+   * a ROM whose loader has been replaced the slot cannot be read, and the map
+   * stays among the unassigned rather than being guessed at.
    */
   special: SpecialMapNode[]
   /** Maps the overworld can start, each with its sub-areas beneath it. */
@@ -105,9 +108,6 @@ export interface MapTree {
   counts: MapTreeCounts
   notes: string[]
 }
-
-/** Player-interaction order, which is the order the explorer lists them in. */
-const ROLE_ORDER: SpecialRole[] = ['title-screen', 'new-game']
 
 /**
  * Group every map in the ROM.
@@ -129,14 +129,16 @@ export function buildMapTree(
   const notes = [...catalog.notes]
 
   // Launch tiles the overworld grants a translevel, which is what a hacker
-  // means by an entrance, and the source of the root range below. Traced in
+  // means by an entrance, and the source of the roots below. Traced in
   // OverworldEntrances; unreadable on a ROM whose overworld another editor
   // rebuilt, and reported as unknown.
   const entranceIndex = deriveOverworldEntrances(rom, catalog, fingerprints)
-  const bounds = entranceIndex.levelBounds
-  const isRoot = (index: number): boolean => isOverworldLevel(index, bounds)
+  const isRoot = (index: number): boolean => isOverworldLevel(index, entranceIndex.roots)
 
-  const { graph: exitGraph, unavailable } = rom.buildLevelExitGraph(bounds, fingerprints.entry)
+  const { graph: exitGraph, unavailable } = rom.buildLevelExitGraph(
+    entranceIndex.roots,
+    fingerprints.entry,
+  )
 
   const name = (index: number): string | null => rom.getLevelName(index)
   const aliasesOf = (index: number): number[] => catalog.entries[index]?.l1Aliases ?? []
@@ -163,16 +165,16 @@ export function buildMapTree(
 
   const overworld = roots.map(root => adopt(buildLevelSubtree(root, exitGraph, isRoot)))
 
-  // The title screen and the new-game intro. Read from the cart, and only
-  // adopted when the slot they name actually holds a real map: a routine that
-  // has been repointed could name a filler slot, and listing that would
-  // invent a map.
+  // Read from the ROM, and only adopted when the slot named actually holds a
+  // real map: a routine that has been repointed could name a filler slot,
+  // and listing that would invent a map.
   const special: SpecialMapNode[] = []
   const found = findSpecialMaps(rom.rom)
-  notes.push(...found.notes)
-  for (const role of ROLE_ORDER) {
-    const hit = found.maps.find(m => m.role === role)
-    if (!hit || !maps.has(hit.index) || placed.has(hit.index)) continue
+  const bonus = findBonusEntrances(rom.rom, fingerprints.bonus)
+  notes.push(...found.notes, ...bonus.notes)
+  // Construction order is play order: title, intro, then what follows a level.
+  for (const hit of [...found.maps, ...bonus.maps]) {
+    if (!maps.has(hit.index) || placed.has(hit.index)) continue
     placed.add(hit.index)
     special.push({
       index: hit.index,
