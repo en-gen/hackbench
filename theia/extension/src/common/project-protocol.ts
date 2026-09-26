@@ -163,6 +163,9 @@ export interface RecentProjectDto {
 export interface MapDetailsDto {
   index: number
   name: string | null
+  /** Why `name` is null when the translevel mapping itself is unreadable,
+   *  rather than the slot simply having no name. */
+  nameUnavailable?: string
   /** The five header bytes, so the user can check the decode themselves. */
   headerBytes: number[]
   screens: number

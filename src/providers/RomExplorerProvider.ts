@@ -279,7 +279,8 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
 
     if (element instanceof RomInfoItem) {
       // Under ROM: Overworld folder first, then one LevelFolder per overworld level.
-      const bounds = deriveOverworldEntrances(rom).roots
+      const entrances = deriveOverworldEntrances(rom)
+      const bounds = entrances.roots
       const { overworld } = rom.classifyLevels(bounds)
       const exitGraph = rom.buildLevelExitGraph(bounds).graph
 
@@ -289,7 +290,7 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
             index,
             slug,
             buildLevelSubtree(index, exitGraph, i => isOverworldLevel(i, bounds)),
-            rom.getLevelName(index) ?? undefined,
+            rom.getLevelName(index, entrances) ?? undefined,
           ),
       )
       return [new OverworldFolder(slug), ...folders]
@@ -314,8 +315,9 @@ export class MapsProvider implements vscode.TreeDataProvider<MapsTreeItem> {
 
   private roomsFor(nodes: LevelTreeNode[], slug: string): RoomItem[] {
     const rom = this.session!.rom
+    const entrances = deriveOverworldEntrances(rom)
     return nodes.map(
-      n => new RoomItem(roomRowForNode(n, rom.getLevelName(n.index)), slug, n.children),
+      n => new RoomItem(roomRowForNode(n, rom.getLevelName(n.index, entrances)), slug, n.children),
     )
   }
 }

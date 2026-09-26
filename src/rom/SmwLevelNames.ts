@@ -28,12 +28,13 @@
  *   Entry[i] = packed (nameByte0, nameByte1) that encodes prefix+type+suffix
  *   indices for translevel i.
  *
- * The translevel indices 0–95 map to overworld pointer table slots:
- *   0x00–0x24 (translevels 0–36) → main overworld
- *   0x25–0x5F (translevels 37–95) → submaps: slot = translevel - 0x24 + 0x100
+ * A slot's name comes from `levelNameForSlot`, below, via the overworld
+ * walk's own entrances -- a bias/threshold formula alone cannot say which
+ * translevel reaches a slot.
  */
 
 import { RomFile } from './RomFile'
+import type { OverworldEntranceIndex } from './OverworldEntrances'
 
 // ── Fixed ROM addresses (same in all vanilla/LM-edited US ROMs) ───────────
 
@@ -52,8 +53,10 @@ const ADDR_SUFFIX_TABLE = 0x049ced
 /** 96 × 2-byte entries: packed name descriptor per translevel. */
 const ADDR_LEVEL_NAMES = 0x04a0fc
 
-/** Number of translevel entries in the LevelNames table. */
-const TRANSLEVEL_COUNT = 96
+/** Translevel is an 8-bit index with no further bound (bank_04.asm:1345-1349,
+ *  :2258-2262); past the stock table's 93 entries it reads $FFFF fill
+ *  (:3497-3524), which `decodeLevelName` already refuses on its own. */
+const TRANSLEVEL_INDEX_WIDTH = 256
 
 // ── Tile-index → ASCII mapping ────────────────────────────────────────────
 //
@@ -170,7 +173,7 @@ function readTableOffset(rom: RomFile, tableAddr: number, index: number): number
 }
 
 /**
- * Decode the display name for a single translevel number (0–95).
+ * Decode the display name for a single translevel number (8-bit index).
  *
  * Mirrors the US version of CODE_049D07:
  *   Part 1 (prefix):  byte1 & 0x7F → DATA_049C91 index → LevelNameStrings
@@ -180,11 +183,11 @@ function readTableOffset(rom: RomFile, tableAddr: number, index: number): number
  *   Part 3 (suffix):  (byte0 & 0x0F) << 1 → DATA_049CED index → LevelNameStrings
  *
  * @param rom         The loaded ROM file.
- * @param translevel  Translevel index 0–95.
- * @returns Decoded name string, or null if the entry is empty ($0000).
+ * @param translevel  Translevel index, 0-255.
+ * @returns Decoded name string, or null if the entry is empty ($0000 or $FFFF).
  */
 export function decodeLevelName(rom: RomFile, translevel: number): string | null {
-  if (translevel < 0 || translevel >= TRANSLEVEL_COUNT) return null
+  if (translevel < 0 || translevel >= TRANSLEVEL_INDEX_WIDTH) return null
 
   const packed = rom.readWord(ADDR_LEVEL_NAMES + translevel * 2)
   if (packed === null || packed === 0 || packed === 0xffff) return null
@@ -241,14 +244,14 @@ export function decodeLevelName(rom: RomFile, translevel: number): string | null
 }
 
 /**
- * Decode all 96 translevel names from the ROM.
+ * Decode every translevel name the ROM defines.
  *
- * @returns Map from translevel index (0–95) to decoded name string.
- *          Entries with empty/null names are omitted.
+ * @returns Map from translevel index to decoded name string. Entries with
+ *          empty/null names (including the stock table's $FFFF fill) are omitted.
  */
 export function getAllLevelNames(rom: RomFile): Map<number, string> {
   const names = new Map<number, string>()
-  for (let i = 0; i < TRANSLEVEL_COUNT; i++) {
+  for (let i = 0; i < TRANSLEVEL_INDEX_WIDTH; i++) {
     const name = decodeLevelName(rom, i)
     if (name) {
       names.set(i, name)
@@ -257,38 +260,36 @@ export function getAllLevelNames(rom: RomFile): Map<number, string> {
   return names
 }
 
-/**
- * Convert a translevel index (0–95) to the level pointer table index.
- *
- * From bank_05 CODE_05D796:
- *   TranslevelNo >= $25 → LoadingLevelNumber = TranslevelNo - $24
- *   Then if on submap: high byte = 1 → actual = LoadingLevelNumber + $100
- *
- * For our purposes, the LevelNames table is indexed by translevel (0–95).
- * Translevels 0x00–0x24 map to pointer table indices $000–$024 (main map).
- * Translevels 0x25–0x5F map to pointer table indices $101–$13B (submaps).
- */
-export function translevelToPointerIndex(translevel: number): number {
-  if (translevel <= 0x24) return translevel
-  return translevel - 0x24 + 0x100
+export interface LevelNameResult {
+  name: string | null
+  /** Set only when the overworld is unreadable, or `index` is reached by
+   *  translevels that decode to different names; `name` is then null. */
+  reason?: string
 }
 
-/**
- * Convert a pointer table index back to a translevel number, or null
- * if the index does not correspond to any overworld translevel.
- */
-export function pointerIndexToTranslevel(index: number): number | null {
-  if (index >= 0x000 && index <= 0x024) return index
-  if (index >= 0x101 && index <= 0x13b) return index - 0x100 + 0x24
-  return null
-}
-
-/**
- * Get the decoded ROM name for a pointer table level index.
- * Converts the index to a translevel, then decodes the name.
- */
-export function getLevelNameByIndex(rom: RomFile, index: number): string | null {
-  const translevel = pointerIndexToTranslevel(index)
-  if (translevel === null) return null
-  return decodeLevelName(rom, translevel)
+/** The name for slot `index`, from the entrances that actually reach it
+ *  (`entrances.entrances`, keyed by `.slot`), not a static bias formula. */
+export function levelNameForSlot(
+  rom: RomFile,
+  entrances: OverworldEntranceIndex,
+  index: number,
+): LevelNameResult {
+  if (!entrances.overworldReadable) {
+    return { name: null, reason: entrances.notes[0] }
+  }
+  const translevels = [
+    ...new Set(entrances.entrances.filter(e => e.slot === index).map(e => e.translevel)),
+  ]
+  // An empty decode counts as its own value: agreeing on "no name" resolves,
+  // but one translevel naming the slot while another decodes to nothing is
+  // still a disagreement, not the named one winning by default.
+  const names = new Set(translevels.map(t => decodeLevelName(rom, t)))
+  if (names.size <= 1) return { name: [...names][0] ?? null }
+  const list = translevels.map(t => `$${t.toString(16).toUpperCase()}`).join(', ')
+  return {
+    name: null,
+    reason:
+      `Slot $${index.toString(16).toUpperCase().padStart(3, '0')} is reached by translevels ` +
+      `${list}, which decode to different names.`,
+  }
 }

@@ -88,7 +88,11 @@ export class MapViewWidget extends ReactWidget {
       <div className="hb-map-view-body">
         <h2 className="hb-map-view-title">
           <span className="hb-map-slot">{slotLabel(d.index)}</span>
-          {d.name ? <span className="hb-map-name">{d.name}</span> : null}
+          {d.name ? (
+            <span className="hb-map-name">{d.name}</span>
+          ) : d.nameUnavailable ? (
+            <span title={d.nameUnavailable}>name unavailable</span>
+          ) : null}
         </h2>
 
         <div className="hb-map-view-summary">

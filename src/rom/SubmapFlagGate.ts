@@ -116,6 +116,42 @@ export function readSubmapHigh(rom: RomFile, at: number): number | string {
   )
 }
 
+/** CODE_05D8A2's own operands: translevels at or above `threshold` are
+ *  biased by `bias`, and a submap tile's slot carries `submapHigh` in its
+ *  high byte (bank_05.asm:7217-7226). */
+export interface TranslevelBias {
+  threshold: number
+  bias: number
+  submapHigh: number
+}
+
+export type TranslevelBiasSite = ({ ok: true } & TranslevelBias) | { ok: false; reason: string }
+
+/** Reads `TranslevelBias`, reusing the stock-code gate OverworldEntrances checks. */
+export function readTranslevelBias(
+  rom: RomFile,
+  spanFingerprints?: readonly string[],
+): TranslevelBiasSite {
+  const patched = stockCodeMismatch(rom, OVERWORLD_ENTRY, spanFingerprints)
+  if (patched) return { ok: false, reason: patched }
+  const threshold = rom.readByte(0x05d8a3)!
+  const bias = rom.readByte(0x05d8a8)!
+  const submapHigh = readSubmapHigh(rom, 0x05d8b4)
+  if (typeof submapHigh === 'string') return { ok: false, reason: submapHigh }
+  return { ok: true, threshold, bias, submapHigh }
+}
+
+/** CODE_05D8A2's formula. `layout` (which buffer half assigned the
+ *  translevel) decides the high byte; a bare translevel cannot give it. */
+export function translevelToPointerIndex(
+  mapping: TranslevelBias,
+  translevel: number,
+  layout: 0 | 1,
+): number {
+  const biased = translevel >= mapping.threshold ? (translevel - mapping.bias) & 0xff : translevel
+  return layout === 1 ? (mapping.submapHigh << 8) | biased : biased
+}
+
 /** SHA-256 of `bytes` with `mask`'s offsets zeroed, or null for a failed read. */
 export function spanFingerprint(
   bytes: Uint8Array | null,

@@ -10,6 +10,11 @@
  */
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { parseLevelObjects, parseLevelSprites } from '../../../../src/rom/LevelParser'
+import { levelNameForSlot } from '../../../../src/rom/SmwLevelNames'
+import {
+  deriveOverworldEntrances,
+  type OverworldEntranceIndex,
+} from '../../../../src/rom/OverworldEntrances'
 import type { MapDetailsDto } from '../common/project-protocol'
 
 const hex = (n: number, w = 2): string => `$${n.toString(16).toUpperCase().padStart(w, '0')}`
@@ -19,7 +24,11 @@ const hex = (n: number, w = 2): string => `$${n.toString(16).toUpperCase().padSt
  * level data, which is a real answer rather than an empty map (see
  * MapDetailsDto's own doc comment).
  */
-export function buildMapDetails(rom: SmwRom, index: number): MapDetailsDto {
+export function buildMapDetails(
+  rom: SmwRom,
+  index: number,
+  entrances?: OverworldEntranceIndex,
+): MapDetailsDto {
   const raw = rom.getLevelRawData(index)
   if (!raw) {
     throw new Error(`No readable level data at slot ${hex(index, 3)}`)
@@ -57,9 +66,13 @@ export function buildMapDetails(rom: SmwRom, index: number): MapDetailsDto {
     }
   }
 
+  // Read once so "no name" and "mapping unreadable" stay distinguishable,
+  // the same shape as verticalTable and the sprite site above.
+  const nameResult = levelNameForSlot(rom.rom, entrances ?? deriveOverworldEntrances(rom), index)
   return {
     index,
-    name: rom.getLevelName(index),
+    name: nameResult.name,
+    nameUnavailable: nameResult.reason,
     headerBytes: h.raw,
     screens: parsed.screens,
     isVertical: verticalTable.ok ? parsed.isVertical : undefined,
