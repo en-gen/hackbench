@@ -208,6 +208,17 @@ features got this wrong before review caught them, so it is written out:
    whose header holds a sane `blockSize` and whose pointer table terminates is
    evidence; one that lands on filler is not.
 
+**Scope each issue to vanilla plus refusal.** A fix is done when it is correct
+on vanilla and refuses a hack it does not recognize, with a reason. Recognizing
+a particular hack's code (a Lunar Magic hook, a relocated routine) is its own
+issue, ranked by how often the SMW Central sweep (#543) meets it. Adding hack
+support inside a correctness fix is what roughly doubled #488-#490.
+
+**Viewers draw; they do not blank.** Where a view cannot verify what it draws,
+it draws the best data it has, marks it unverified and says why. That is not a
+vanilla fallback: the data still comes from this ROM, and the view says it is
+unverified instead of presenting it as fact.
+
 ## Knowledge Integration (External Disassembly)
 
 Domain library: `C:\Projects\SMWDisX`. SMW ROM constants, handler ports, and ASM-behavior questions are authoritative there - not in this file. This section is the router; `SMWDisX` is the store.
