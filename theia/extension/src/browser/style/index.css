@@ -201,11 +201,6 @@
   border-bottom: 1px solid var(--theia-editorWidget-border);
 }
 
-.hb-map-view-toolbar-label {
-  margin-right: 4px;
-  color: var(--theia-descriptionForeground);
-}
-
 .hb-map-view-facts {
   display: flex;
   align-items: baseline;

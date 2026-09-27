@@ -37,7 +37,7 @@ import { readLevelCol1 } from '../PaletteStockTables'
 import { bgr555ToRgba } from '../GraphicsDecoder'
 import { detectPaletteAnimation, type PaletteAnimContext } from '../PaletteAnimationDetect'
 import { findUnique, WILD, type BytePattern } from '../BytePattern'
-import { hiddenArt, tileAlternates } from '../SwitchAlternates'
+import { hiddenArt, tileAlternates, type TileAlternate } from '../SwitchAlternates'
 
 /**
  * LoadLevel's boss-mode exit, bank_05.asm:431-437: `LDA.W LevelModeSetting`
@@ -83,7 +83,7 @@ export interface L1Inputs {
   /** CGRAM color 0, the backdrop the PPU shows where every layer is transparent. */
   backArea: RgbaColor
   /** Each hidden tile's switched-on art (#621), read from its own chars, as the Map16 sheet shows it. */
-  hidden: Map<number, Uint8ClampedArray>
+  hidden: Map<number, TileAlternate>
 }
 
 export type L1InputsResult = { ok: true; inputs: L1Inputs } | { ok: false; reason: string }

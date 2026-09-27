@@ -58,13 +58,21 @@ function isFullyTransparent(rgba: Uint8ClampedArray): boolean {
   return true
 }
 
+/** `vram` with every char a switch in `kinds` changes swapped to its frame-0 switched pixels. */
+export function switchedVram(
+  animData: AnimationData,
+  vram: VramState,
+  kinds: ReadonlySet<SwitchKind>,
+): VramState {
+  return vramFromChars(vram, switchCharPixels(animData.frames[0] ?? [], kinds))
+}
+
 export function tileAlternates(
   animData: AnimationData,
   entries: readonly Map16Tile[],
   vram: VramState,
   palette: { colors: RgbaColor[] },
 ): Map<number, TileAlternate[]> {
-  const frameZeroSlots = animData.frames[0] ?? []
   const patchedBySet = new Map<string, VramState>()
   const perTile = new Map<number, TileAlternate[]>()
   for (const tile of entries) {
@@ -78,7 +86,7 @@ export function tileAlternates(
       const key = subset.join('+')
       let patched = patchedBySet.get(key)
       if (!patched) {
-        patched = vramFromChars(vram, switchCharPixels(frameZeroSlots, new Set(subset)))
+        patched = switchedVram(animData, vram, new Set(subset))
         patchedBySet.set(key, patched)
       }
       const rgba = renderMap16Tile(tile, patched, palette)
@@ -91,13 +99,11 @@ export function tileAlternates(
 }
 
 /** Each hidden tile's picture with no switch on (`firstHiddenSingle`, the inspector's rule too). */
-export function hiddenArt(
-  alternates: Map<number, TileAlternate[]>,
-): Map<number, Uint8ClampedArray> {
-  const out = new Map<number, Uint8ClampedArray>()
+export function hiddenArt(alternates: Map<number, TileAlternate[]>): Map<number, TileAlternate> {
+  const out = new Map<number, TileAlternate>()
   for (const [id, alts] of alternates) {
     const hidden = firstHiddenSingle(alts)
-    if (hidden) out.set(id, hidden.rgba)
+    if (hidden) out.set(id, hidden)
   }
   return out
 }

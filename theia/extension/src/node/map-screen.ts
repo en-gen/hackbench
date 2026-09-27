@@ -26,7 +26,21 @@ import {
 import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
 import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
 import { renderCell } from '../../../../src/rom/render/CellRenderer'
-import type { MapScreenResult, PalaceIconsResult, SwitchFlagsDto } from '../common/project-protocol'
+import type {
+  MapScreenResult,
+  PalaceIconsResult,
+  SwitchButtonsResult,
+  SwitchFlagsDto,
+  SwitchStateDto,
+} from '../common/project-protocol'
+import type { Map16TileAlternateDto } from '../common/map16-protocol'
+import type { VramState } from '../../../../src/rom/GfxLoader'
+import type { SwitchKind } from '../../../../src/rom/AnimationLoader'
+import { switchedVram, tileAlternates } from '../../../../src/rom/SwitchAlternates'
+import { buildSwitchButtonArt } from './map16-decode'
+
+type SwitchButtonsReply = Exclude<SwitchButtonsResult, { status: 'rom-not-located' }>
+const ONOFF_TILE = 0x112
 
 /** A screen's size in tiles: 16 x 27 horizontal, two 16-wide halves x 16 vertical. */
 export function screenTiles(isVertical: boolean): { w: number; h: number } {
@@ -47,8 +61,33 @@ function cellDef(model: L1Inputs, id: number, screen: number): Map16Tile | undef
   return model.map16.tiles[id]
 }
 
-/** One screen as RGBA: each cell's `renderCell` picture laid over the backdrop. */
-export function drawL1Screen(model: L1Inputs, screen: number): Uint8ClampedArray {
+export const SWITCHES_OFF: SwitchStateDto = { blue: false, silver: false, onOff: false }
+
+const switchedVrams = new WeakMap<L1Inputs, Map<string, VramState>>()
+
+/** The chars as the switches that are on leave them (#573): a char input, never a grid remap. */
+function vramFor(model: L1Inputs, on: ReadonlySet<SwitchKind>): VramState {
+  if (on.size === 0 || !model.anim) return model.vram
+  let byKey = switchedVrams.get(model)
+  if (!byKey) switchedVrams.set(model, (byKey = new Map()))
+  const key = [...on].sort().join('+')
+  let vram = byKey.get(key)
+  if (!vram) byKey.set(key, (vram = switchedVram(model.anim, model.vram, on)))
+  return vram
+}
+
+/**
+ * One screen as RGBA: each cell's `renderCell` picture, with the switches
+ * that are on, laid over the backdrop. A hidden tile's 25% overlay applies
+ * only while its own switch is off; on, its chars draw it in full.
+ */
+export function drawL1Screen(
+  model: L1Inputs,
+  screen: number,
+  switches: SwitchStateDto = SWITCHES_OFF,
+): Uint8ClampedArray {
+  const on = new Set((Object.keys(switches) as SwitchKind[]).filter(k => switches[k]))
+  const vram = vramFor(model, on)
   const { w, h } = screenTiles(model.isVertical)
   const x0 = model.isVertical ? 0 : screen * w
   const y0 = model.isVertical ? screen * h : 0
@@ -61,7 +100,9 @@ export function drawL1Screen(model: L1Inputs, screen: number): Uint8ClampedArray
       const id = model.grid[y0 + y]?.[x0 + x]
       const def = id === undefined ? undefined : cellDef(model, id, screen)
       if (!def) continue
-      const cell = renderCell(def, model.vram, palette, model.hidden.get(def.id))
+      const hidden = model.hidden.get(def.id)
+      const overlay = hidden && !hidden.kinds.some(k => on.has(k)) ? hidden.rgba : undefined
+      const cell = renderCell(def, vram, palette, overlay)
       for (let py = 0; py < 16; py++)
         for (let px = 0; px < 16; px++) {
           const s = (py * 16 + px) * 4
@@ -81,7 +122,11 @@ const base64 = (b: Uint8ClampedArray) =>
 type ScreenReply = Exclude<MapScreenResult, { status: 'rom-not-located' }>
 
 /** One screen for the wire, bounded by the map's own screen count. */
-export function screenResult(model: L1Inputs, screen: number): ScreenReply {
+export function screenResult(
+  model: L1Inputs,
+  screen: number,
+  switches: SwitchStateDto = SWITCHES_OFF,
+): ScreenReply {
   if (!Number.isInteger(screen) || screen < 0 || screen >= model.screenCount) {
     return {
       status: 'unavailable',
@@ -96,7 +141,7 @@ export function screenResult(model: L1Inputs, screen: number): ScreenReply {
     orientation: model.isVertical ? 'vertical' : 'horizontal',
     width: w * 16,
     height: h * 16,
-    rgbaBase64: base64(drawL1Screen(model, screen)),
+    rgbaBase64: base64(drawL1Screen(model, screen, switches)),
     note: model.animNote,
   }
 }
@@ -163,9 +208,26 @@ export function mapScreen(
   index: number,
   screen: number,
   flags: SwitchFlagsDto,
+  switches: SwitchStateDto = SWITCHES_OFF,
 ): ScreenReply {
   const built = cache.get(bytes, romPath, index, flags)
   return built.ok
-    ? screenResult(built.inputs, screen)
+    ? screenResult(built.inputs, screen, switches)
     : { status: 'unavailable', reason: built.reason }
+}
+
+/**
+ * The switch toggles' art for this map: the Map16 inspector's own
+ * (`buildSwitchButtonArt`), from the map's chars and palette. The ON/OFF
+ * block, $112, is defined alike in all 15 vanilla tilesets from FG2 chars.
+ */
+export function switchButtonsOf(rom: RomFile, model: L1Inputs): SwitchButtonsReply {
+  const onOff = model.map16.tiles.filter(t => t?.id === ONOFF_TILE)
+  const alternates = new Map<number, Map16TileAlternateDto[]>()
+  if (model.anim) {
+    for (const [id, alts] of tileAlternates(model.anim, onOff, model.vram, { colors: model.colors })) // prettier-ignore
+      alternates.set(id, alts.map(a => ({ kinds: a.kinds, altRgbaBase64: base64(a.rgba), hidden: a.hidden }))) // prettier-ignore
+  }
+  const { art, unavailable } = buildSwitchButtonArt(rom, onOff, alternates, model.vram, { colors: model.colors }) // prettier-ignore
+  return { status: 'ok', art, unavailable }
 }

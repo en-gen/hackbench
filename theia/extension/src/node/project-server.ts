@@ -22,7 +22,8 @@ import {
   WorkingRomResult,
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
-import { L1ModelCache, mapScreen, palaceIconsOf } from './map-screen'
+import { L1ModelCache, mapScreen, palaceIconsOf, switchButtonsOf } from './map-screen'
+import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
 import {
   admitGroups,
@@ -54,7 +55,9 @@ import {
   RecentProjectDto,
   RomIdentityDto,
   SetMapGroupsResult,
+  SwitchButtonsResult,
   SwitchFlagsDto,
+  SwitchStateDto,
 } from '../common/project-protocol'
 import { WorkingCopyNotifier } from './working-copy-notifier'
 
@@ -106,12 +109,22 @@ export class ProjectServiceImpl implements ProjectService {
     index: number,
     screen: number,
     switchFlags: SwitchFlagsDto,
+    switches: SwitchStateDto,
   ): Promise<MapScreenResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     // An edit made in any view must repaint an open map.
     this.notifier.watch(manifestPath, r.working)
-    return mapScreen(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags)
+    return mapScreen(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags, switches) // prettier-ignore
+  }
+
+  async mapSwitchButtons(manifestPath: string, index: number): Promise<SwitchButtonsResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    const bytes = r.working.bytes()
+    const built = this.screens.get(bytes, r.romPath, index, SWITCH_FLAGS_UNCLEARED)
+    if (!built.ok) return { status: 'unavailable', reason: built.reason }
+    return switchButtonsOf(RomFile.fromBytes(r.romPath, Buffer.from(bytes)), built.inputs)
   }
 
   async mapPalaceIcons(manifestPath: string, _index: number): Promise<PalaceIconsResult> {

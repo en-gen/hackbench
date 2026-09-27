@@ -39,6 +39,7 @@ import {
   VRAM_CHAR_BASE,
   type GfxSheet,
 } from '../../../../src/rom/GfxLoader'
+import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import {
   buildLevelCgram,
   loadRomPalettes,
@@ -437,7 +438,7 @@ const BUTTON_FRAME_PX = 16
  */
 export function renderPSwitchButtonImages(
   vram: VramState,
-  palette: ActiveLevelPalette,
+  palette: { colors: RgbaColor[] },
   art: PSwitchButtonArt,
   pswitchPal: number,
 ): Map16SwitchButtonImages {
@@ -476,7 +477,7 @@ export function buildSwitchButtonArt(
   entries: readonly Map16Tile[],
   alternates: ReadonlyMap<number, Map16TileAlternateDto[]>,
   vram: VramState,
-  palette: ActiveLevelPalette,
+  palette: { colors: RgbaColor[] },
 ): {
   art: Partial<Record<SwitchKind, Map16SwitchButtonImages>>
   unavailable: Partial<Record<SwitchKind, string>>

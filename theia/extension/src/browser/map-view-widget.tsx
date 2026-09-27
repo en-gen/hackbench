@@ -20,9 +20,12 @@ import {
   PalaceIconDto,
   ProjectService,
   SwitchFlagsDto,
+  SwitchStateDto,
 } from '../common/project-protocol'
 import { ProjectFrontendClient } from './project-push-client'
 import { decodeRgba } from './map16-pixels'
+import { PALACES, screenKey, SWITCHES } from './map-view-model'
+import { SWITCH_LABELS } from './map16-view-model'
 import { PixelImageButton, type FrameImage } from './pixel-image-button'
 import { slotLabel } from './map-explorer-widget'
 
@@ -40,18 +43,15 @@ export interface MapViewOptions {
 
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
 type Palace = keyof SwitchFlagsDto
+type Switch = keyof SwitchStateDto
+type SwitchArt = { off: FrameImage; on: FrameImage } | { reason: string }
 
-const PALACES: Palace[] = ['yellow', 'green', 'red', 'blue']
 const ZOOMS = [1, 2, 3, 4]
 /** Screens fetched beyond each edge of the view. */
 const MARGIN = 1
 const ICON_FRAME = { width: 16, height: 16 }
 
 const title = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
-
-/** The palace bits a screen was drawn for, yellow green red blue: `1000` is yellow pressed. */
-export const palaceKey = (f: SwitchFlagsDto): string =>
-  PALACES.map(p => (f[p] ? '1' : '0')).join('')
 
 @injectable()
 export class MapViewWidget extends ReactWidget {
@@ -67,6 +67,9 @@ export class MapViewWidget extends ReactWidget {
   protected icons = new Map<Palace, { uncleared: FrameImage; cleared: FrameImage } | { reason: string }>() // prettier-ignore
 
   protected flags: SwitchFlagsDto = { yellow: false, green: false, red: false, blue: false }
+  protected switches: SwitchStateDto = { blue: false, silver: false, onOff: false }
+  /** The switch toggles' art (#574's), or why a kind has none. */
+  protected switchArt = new Map<Switch, SwitchArt>()
   /** Undefined until the user zooms: the strip then fits the view. */
   protected userZoom: number | undefined
   protected fitZoom = 1
@@ -147,11 +150,20 @@ export class MapViewWidget extends ReactWidget {
         ? { uncleared: image(i.uncleared), cleared: image(i.cleared) }
         : { reason: i.unavailable }
     this.icons = new Map(r?.status === 'ok' ? r.icons.map(i => [i.palace, decoded(i)]) : [])
+    const b = await this.projects.mapSwitchButtons(o.manifestPath, o.index).catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message })) // prettier-ignore
+    this.switchArt = new Map(
+      SWITCHES.map((k): [Switch, SwitchArt] => {
+        const art = b.status === 'ok' ? b.art[k] : undefined
+        if (art) return [k, { off: image(art.offRgba), on: image(art.onRgba) }]
+        const why = b.status === 'ok' ? b.unavailable[k] : b.status === 'unavailable' ? b.reason : 'the base ROM is not on this machine' // prettier-ignore
+        return [k, { reason: why ?? 'no art' }]
+      }),
+    )
     this.update()
   }
 
   protected key(screen: number): string {
-    return `${palaceKey(this.flags)}:${screen}`
+    return screenKey(this.flags, this.switches, screen)
   }
 
   /** The screens in view, plus MARGIN either side; screen 0 before the layout is known. */
@@ -180,7 +192,7 @@ export class MapViewWidget extends ReactWidget {
     const generation = this.generation
     let r: MapScreenResult
     try {
-      r = await this.projects.mapScreen(o.manifestPath, o.index, screen, { ...this.flags })
+      r = await this.projects.mapScreen(o.manifestPath, o.index, screen, { ...this.flags }, { ...this.switches }) // prettier-ignore
     } catch (err) {
       r = { status: 'unavailable', reason: (err as Error).message }
     }
@@ -256,6 +268,12 @@ export class MapViewWidget extends ReactWidget {
     this.requestVisible()
   }
 
+  protected toggleSwitch(k: Switch): void {
+    this.switches = { ...this.switches, [k]: !this.switches[k] }
+    this.update()
+    this.requestVisible()
+  }
+
   protected stepZoom(dir: 1 | -1): void {
     const z = this.zoom
     const next =
@@ -281,8 +299,8 @@ export class MapViewWidget extends ReactWidget {
     return (
       <div className="hb-map-view-main">
         <div className="hb-map-view-toolbar">
-          <span className="hb-map-view-toolbar-label">Switch palaces</span>
           {PALACES.map(p => this.renderToggle(p))}
+          {SWITCHES.map(k => this.renderSwitch(k))}
           <span className="hb-toolbar-spacer" />
           <button
             type="button"
@@ -349,6 +367,25 @@ export class MapViewWidget extends ReactWidget {
         pressed={pressed}
         onClick={() => this.togglePalace(p)}
         data={{ control: `palace-${p}` }}
+      />
+    )
+  }
+
+  /** A char switch (#573), on the same PixelImageButton and art as the Map16 inspector's. */
+  protected renderSwitch(k: Switch): React.ReactNode {
+    const art = this.switchArt.get(k)
+    const pressed = this.switches[k]
+    return (
+      <PixelImageButton
+        key={k}
+        frame={ICON_FRAME}
+        scale={1}
+        image={art && 'on' in art ? (pressed ? art.on : art.off) : undefined}
+        label={SWITCH_LABELS[k]}
+        reason={art && 'reason' in art ? art.reason : undefined}
+        pressed={pressed}
+        onClick={() => this.toggleSwitch(k)}
+        data={{ control: `switch-${k}` }}
       />
     )
   }
