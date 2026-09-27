@@ -68,12 +68,19 @@
   color: var(--theia-foreground);
 }
 
+/* `center` rather than `baseline` (#651): the zoom stepper's 24px icon
+   buttons sit too low next to label text aligned by baseline - same fix as
+   Map16's own toolbar, see style/map16.css. */
 .hb-gfx-view-toolbar {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   gap: 1em;
   margin-bottom: 1em;
+}
+
+.hb-gfx-view-toolbar-spacer {
+  flex: 1 1 auto;
 }
 
 .hb-gfx-view-title {

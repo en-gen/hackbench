@@ -15,7 +15,7 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
-import { Emitter } from '@theia/core/lib/common'
+import { Disposable } from '@theia/core/lib/common'
 import {
   GFX_FORMATS,
   GfxFormat,
@@ -25,6 +25,8 @@ import {
   gfxFormatLabel,
 } from '../common/gfx-protocol'
 import { GfxFrontendClient } from './gfx-push-client'
+import { ZoomController } from './zoom-controller'
+import { ZoomStepper } from './zoom-stepper'
 
 export const GFX_VIEW_ID = 'hackbench.gfx-view'
 
@@ -46,10 +48,12 @@ const DEFAULT_ZOOM = 4
  * Zoom is a property of how the user is READING sheets, not of one sheet, so
  * it is shared: set 8x on any tab and every open sheet follows, including
  * ones opened later. Module scope rather than a service because nothing
- * outside this view has any use for it.
+ * outside this view has any use for it. One `ZoomController` for the whole
+ * module (#651) replaces the old `sharedZoom`/`zoomChangedEmitter` pair -
+ * each widget still binds Ctrl + wheel on its OWN scroll node and disposes
+ * that binding independently, but they all drive and observe this one value.
  */
-let sharedZoom = DEFAULT_ZOOM
-const zoomChangedEmitter = new Emitter<number>()
+const sharedZoomController = new ZoomController(ZOOM_OPTIONS, DEFAULT_ZOOM)
 
 /** Decodes the base64 RGBA payload back into bytes a canvas can paint. */
 function decodeRgba(base64: string): Uint8ClampedArray {
@@ -71,6 +75,8 @@ export class GfxViewWidget extends ReactWidget {
   protected bppChoice: GfxFormat | undefined
   protected paletteRowChoice: number | undefined
   protected canvasEl: HTMLCanvasElement | null = null
+  protected canvasWrapEl: HTMLElement | null = null
+  protected wheelDisposable: Disposable | undefined
   /** Bumped on every reload; a response is applied only if it is still current,
    * so two rapid control changes cannot have the slower one overwrite the newer. */
   protected reloadToken = 0
@@ -81,7 +87,8 @@ export class GfxViewWidget extends ReactWidget {
     this.title.closable = true
     this.node.tabIndex = 0
     // Every open sheet redraws when any one of them changes the zoom.
-    this.toDispose.push(zoomChangedEmitter.event(() => this.update()))
+    this.toDispose.push(sharedZoomController.onDidChange(() => this.update()))
+    this.toDispose.push(Disposable.create(() => this.wheelDisposable?.dispose()))
     // A palette edit (or anything else touching this project's working
     // copy) re-decodes this sheet, which is what makes an edit visibly
     // recolour an already-open GFX view without the user reopening it.
@@ -90,6 +97,27 @@ export class GfxViewWidget extends ReactWidget {
         if (manifestPath === this.options?.manifestPath) void this.reload()
       }),
     )
+  }
+
+  /** Stable ref identity so React binds Ctrl + wheel once per DOM node
+   * rather than on every render. Each open sheet binds its OWN scroll node
+   * to the one SHARED controller above. */
+  protected readonly bindCanvasWrap = (el: HTMLDivElement | null): void => {
+    this.wheelDisposable?.dispose()
+    this.wheelDisposable = undefined
+    this.canvasWrapEl = el
+    if (el) this.wheelDisposable = sharedZoomController.bindWheel(el)
+  }
+
+  /** Keeps the content pixel under the cursor fixed across a wheel-driven
+   * zoom step. A no-op unless the last zoom change came from `bindWheel`. */
+  protected applyPendingZoomAnchor(): void {
+    if (!this.canvasWrapEl) return
+    const anchor = sharedZoomController.takePendingAnchor(this.canvasWrapEl)
+    if (!anchor) return
+    const zoom = sharedZoomController.value
+    this.canvasWrapEl.scrollLeft = anchor.contentX * zoom - anchor.offsetX
+    this.canvasWrapEl.scrollTop = anchor.contentY * zoom - anchor.offsetY
   }
 
   async open(options: GfxViewOptions): Promise<void> {
@@ -148,20 +176,17 @@ export class GfxViewWidget extends ReactWidget {
   protected paintCanvas(): void {
     if (!this.canvasEl || !this.sheet || this.sheet.height === 0) return
     const { width, height, rgbaBase64 } = this.sheet
+    const zoom = sharedZoomController.value
     this.canvasEl.width = width
     this.canvasEl.height = height
     // Zoom is CSS only, so the bitmap stays 1:1 with the ROM's pixels and
     // putImageData never has to resample.
-    this.canvasEl.style.width = `${width * sharedZoom}px`
-    this.canvasEl.style.height = `${height * sharedZoom}px`
+    this.canvasEl.style.width = `${width * zoom}px`
+    this.canvasEl.style.height = `${height * zoom}px`
+    this.applyPendingZoomAnchor()
     const ctx = this.canvasEl.getContext('2d')
     if (!ctx) return
     ctx.putImageData(new ImageData(decodeRgba(rgbaBase64), width, height), 0, 0)
-  }
-
-  protected handleZoomChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
-    sharedZoom = Number(e.target.value)
-    zoomChangedEmitter.fire(sharedZoom)
   }
 
   protected handleBppChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
@@ -223,23 +248,12 @@ export class GfxViewWidget extends ReactWidget {
               ))}
             </select>
           </label>
-          <label className="hb-gfx-view-control">
-            Zoom
-            <select
-              id="hb-gfx-zoom-select"
-              className="theia-select"
-              value={sharedZoom}
-              onChange={this.handleZoomChange}
-            >
-              {ZOOM_OPTIONS.map(z => (
-                <option key={z} value={z}>{`${z}x`}</option>
-              ))}
-            </select>
-          </label>
+          <span className="hb-gfx-view-toolbar-spacer" />
+          <ZoomStepper controller={sharedZoomController} />
         </div>
         {this.error && <div className="hb-gfx-view-error">{this.error}</div>}
         {s && s.height > 0 && (
-          <div className="hb-gfx-view-canvas-wrap">
+          <div className="hb-gfx-view-canvas-wrap" ref={this.bindCanvasWrap}>
             <canvas
               className="hb-gfx-view-canvas"
               ref={el => {
