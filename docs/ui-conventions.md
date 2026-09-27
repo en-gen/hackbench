@@ -139,9 +139,12 @@ border box and take no layout space.
   exactly what the ROM says.
 - A hidden tile (blank until a switch is on, e.g. vanilla `$027-$02A`) is
   drawn with its switched-on art at 25% opacity, in color, never blank
-  (`HIDDEN_TILE_OPACITY`, one value for both surfaces): in the
-  inspector preview while its toggle is off, and in the Map16 sheet always,
-  frame 0 held through animation (#574, #621). This is an editor deviation:
+  (`HIDDEN_TILE_OPACITY` in `src/rom/render/HiddenTiles.ts`, one value and
+  one rule for every surface): in the inspector preview while its toggle is
+  off, in the Map16 sheet always, and on the map tab always, over the
+  level's backdrop, frame 0 held through animation (#574, #621). The map tab
+  draws each cell with the sheet's own renderer (`renderCell`), so the two
+  cannot disagree. This is an editor deviation:
   the ROM shows nothing there. It is derived from the tile's `hidden`
   alternate, never a tile-id list, and a toggle in the inspector never
   changes the sheet. Unlike the overlays above, the sheet's copy is baked

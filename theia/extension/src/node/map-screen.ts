@@ -3,92 +3,37 @@
  *
  * Pure, so it is unit tested in CI; `ProjectServiceImpl` only resolves the
  * working copy and delegates here. The inputs come from the core's
- * `buildL1Inputs`, the same function the L1 data gate checks. Cells are
- * drawn through `Tile.render` -> `BufferRenderTarget` -> `composeTile`, in
- * the order `RenderPass` gives L1's two priority planes, over the backdrop.
- *
- * Tiles are plain Map16 quads, not `TileFactory.buildTiles`, whose editor
- * annotations read the `editorStore` singleton; the switch-palace state is
- * already in the grid, where `expandMap` picked the page.
+ * `buildL1Inputs`, the same function the L1 data gate checks. Every cell is
+ * drawn by `renderCell`, the Map16 sheet's own renderer and hidden-tile rule,
+ * so the map has no drawing logic of its own; cells are then laid over the
+ * backdrop. L1's two priority planes need no ordering while L1 is drawn
+ * alone: its quadrants never overlap each other.
  */
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SCREEN_H, SCREEN_W, SCREEN_W_VERT, SCREEN_H_VERT } from '../../../../src/rom/LevelParser'
-import { type SwitchFlags, type TileGrid } from '../../../../src/rom/ObjectExpander'
+import { type SwitchFlags } from '../../../../src/rom/ObjectExpander'
 import {
   pipeVariantIndex,
   PIPE_VARIANT_TILE_COUNT,
   PIPE_VARIANT_TILE_START,
+  type Map16Tile,
 } from '../../../../src/rom/Map16'
-import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { buildL1Inputs, type L1Inputs } from '../../../../src/rom/model/L1Model'
-import {
-  PALACES,
-  switchBlockTile,
-  type SwitchBlockTile,
-} from '../../../../src/rom/SwitchBlockTiles'
-import { Tile } from '../../../../src/rom/model/tiles/Tile'
-import { makePlaceholderBoxChar, quadFromMap16 } from '../../../../src/rom/model/tiles/TileFactory'
-import { StaticQuadBehavior } from '../../../../src/rom/model/tiles/behaviors/StaticQuadBehavior'
-import { PipeVariantsBehavior } from '../../../../src/rom/model/tiles/behaviors/PipeVariantsBehavior'
-import { Palette } from '../../../../src/rom/model/palette/Palette'
-import { Color } from '../../../../src/rom/model/palette/Color'
-import { StaticColorBehavior } from '../../../../src/rom/model/palette/behaviors/StaticColorBehavior'
-import { createMapStore, type MapStore } from '../../../../src/rom/model/stores/mapStore'
-import { cellBoxOf, type Phase, type RenderTarget } from '../../../../src/rom/model/RenderTarget'
-import { ppuDrawOrder } from '../../../../src/rom/model/RenderPass'
-import { BufferRenderTarget } from '../../../../src/rom/render/BufferRenderTarget'
+import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
+import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
+import { renderCell } from '../../../../src/rom/render/CellRenderer'
 import type { MapScreenResult, PalaceIconsResult, SwitchFlagsDto } from '../common/project-protocol'
 
-/** Everything one map's screens are drawn from. */
-export interface L1Model {
-  grid: TileGrid
-  tiles: Map<number, Tile>
-  mapStore: MapStore
-  isVertical: boolean
-  screenCount: number
-  backArea: RgbaColor
-  note?: string
-  palaceTiles?: Record<string, SwitchBlockTile>
-  /** What the tiles were built from, for the atlas cross-check in tests. */
-  inputs?: L1Inputs
-}
+/** Everything one map's screens are drawn from: the L1 inputs, as the data gate reads them. */
+export type L1Model = L1Inputs
 
 export type BuildL1Result = { status: 'ok'; model: L1Model } | { status: 'unavailable'; reason: string } // prettier-ignore
-
-/** The drawable model for a set of inputs: plain quads, pipe sets per screen, a static palette. */
-export function modelFromInputs(inputs: L1Inputs): L1Model {
-  const { map16, chars, colors, isVertical, screenCount } = inputs
-  const placeholder = makePlaceholderBoxChar()
-  const tiles = new Map<number, Tile>()
-  for (const m16 of map16.tiles) {
-    const pipe = m16.id - PIPE_VARIANT_TILE_START
-    const behavior =
-      pipe >= 0 && pipe < PIPE_VARIANT_TILE_COUNT && map16.pipeVariants.length > 0
-        ? new PipeVariantsBehavior(map16.pipeVariants.map(v => quadFromMap16(v[pipe]!, chars, placeholder))) // prettier-ignore
-        : new StaticQuadBehavior(quadFromMap16(m16, chars, placeholder))
-    tiles.set(m16.id, new Tile(m16.id, behavior))
-  }
-  const cell = (c: RgbaColor) => new Color(new StaticColorBehavior(c))
-  const rows = Array.from({ length: 16 }, (_, r) => colors.slice(r * 16, r * 16 + 16).map(cell))
-  const mapStore = createMapStore({
-    palette: new Palette(rows, cell(inputs.backArea)),
-    levelOrientation: isVertical ? 'vertical' : 'horizontal',
-    // MAP16AppTable is picked by the strip counter (bank_05.asm:119-124);
-    // a screen is 16 strips, so one pipe set per screen.
-    screenPipeVariantIdx: Array.from({ length: screenCount }, (_, s) => pipeVariantIndex(s * 16)),
-  })
-  return { grid: inputs.grid, tiles, mapStore, isVertical, screenCount, backArea: inputs.backArea, note: inputs.animNote, inputs } // prettier-ignore
-}
 
 /** A map's L1 model, or why it cannot be drawn. Never an empty model. */
 export function buildL1Model(rom: SmwRom, index: number, flags: SwitchFlags): BuildL1Result {
   const built = buildL1Inputs(rom, index, flags)
-  if (!built.ok) return { status: 'unavailable', reason: built.reason }
-  const model = modelFromInputs(built.inputs)
-  const tileset = built.inputs.header.objectTileset
-  model.palaceTiles = Object.fromEntries(PALACES.map(p => [p, switchBlockTile(rom.rom, tileset, p)])) // prettier-ignore
-  return { status: 'ok', model }
+  return built.ok ? { status: 'ok', model: built.inputs } : { status: 'unavailable', reason: built.reason } // prettier-ignore
 }
 
 /** A screen's size in tiles: 16 x 27 horizontal, two 16-wide halves x 16 vertical. */
@@ -96,40 +41,46 @@ export function screenTiles(isVertical: boolean): { w: number; h: number } {
   return isVertical ? { w: SCREEN_W_VERT, h: SCREEN_H_VERT } : { w: SCREEN_W, h: SCREEN_H }
 }
 
-/** L1's planes, back to front, as `RenderPass` orders them. */
-const L1_PHASES: readonly Phase[] = ppuDrawOrder(false)
-  .filter(p => p.layer === 'l1')
-  .map(p => (p.priority === 1 ? 'priority' : 'nonPriority'))
-
 /**
- * One screen as RGBA over the backdrop. Cells are handed to `Tile.render`
- * at their MAP position, so the pipe set resolves per screen; the target
- * shifts them into the screen.
+ * The definition a cell draws: its own, or for the pipe tiles the set
+ * MAP16AppTable picks by the strip counter (bank_05.asm:119-124), one per
+ * screen since a screen is 16 strips.
  */
-export function drawL1Screen(
-  model: L1Model,
-  screen: number,
-  phases: readonly Phase[] = L1_PHASES,
-): Uint8ClampedArray {
+function cellDef(model: L1Model, id: number, screen: number): Map16Tile | undefined {
+  const pipe = id - PIPE_VARIANT_TILE_START
+  const sets = model.map16.pipeVariants
+  if (pipe >= 0 && pipe < PIPE_VARIANT_TILE_COUNT && sets.length > 0) {
+    return sets[pipeVariantIndex(screen * 16)]?.[pipe]
+  }
+  return model.map16.tiles[id]
+}
+
+/** One screen as RGBA: each cell's `renderCell` picture laid over the backdrop. */
+export function drawL1Screen(model: L1Model, screen: number): Uint8ClampedArray {
   const { w, h } = screenTiles(model.isVertical)
   const x0 = model.isVertical ? 0 : screen * w
   const y0 = model.isVertical ? screen * h : 0
-  const target = new BufferRenderTarget(w * 16, h * 16)
-  target.fillRect({ x: 0, y: 0 }, { w: w * 16, h: h * 16 }, model.backArea)
-  const shifted: RenderTarget = {
-    blit8x8: (pixels, pos, row, fx, fy, alpha) =>
-      target.blit8x8(pixels, { x: pos.x - x0 * 16, y: pos.y - y0 * 16 }, row, fx, fy, alpha),
-    fillRect: (pos, size, color) =>
-      target.fillRect({ x: pos.x - x0 * 16, y: pos.y - y0 * 16 }, size, color),
-  }
-  for (const phase of phases)
-    for (let y = y0; y < y0 + h; y++)
-      for (let x = x0; x < x0 + w; x++) {
-        const id = model.grid[y]?.[x]
-        if (id === undefined) continue
-        model.tiles.get(id)?.render(shifted, cellBoxOf(x, y), model.mapStore, phase)
-      }
-  return target.buf
+  const width = w * 16
+  const out = new Uint8ClampedArray(width * h * 16 * 4)
+  for (let i = 0; i < out.length; i += 4) out.set(model.backArea, i)
+  const palette = { colors: model.colors }
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const id = model.grid[y0 + y]?.[x0 + x]
+      const def = id === undefined ? undefined : cellDef(model, id, screen)
+      if (!def) continue
+      const cell = renderCell(def, model.vram, palette, model.hidden.get(def.id))
+      for (let py = 0; py < 16; py++)
+        for (let px = 0; px < 16; px++) {
+          const s = (py * 16 + px) * 4
+          const a = cell[s + 3]!
+          if (a === 0) continue
+          const d = ((y * 16 + py) * width + x * 16 + px) * 4
+          for (let c = 0; c < 3; c++) out[d + c] = Math.round((cell[s + c]! * a + out[d + c]! * (255 - a)) / 255) // prettier-ignore
+          out[d + 3] = 255
+        }
+    }
+  return out
 }
 
 const base64 = (b: Uint8ClampedArray) =>
@@ -154,27 +105,21 @@ export function screenResult(model: L1Model, screen: number): ScreenReply {
     width: w * 16,
     height: h * 16,
     rgbaBase64: base64(drawL1Screen(model, screen)),
-    note: model.note,
+    note: model.animNote,
   }
 }
 
-/** One Map16 tile as 16x16 RGBA, through the same path as a map cell. */
-function drawTile(model: L1Model, id: number): string {
-  const target = new BufferRenderTarget(16, 16)
-  for (const phase of L1_PHASES) model.tiles.get(id)?.render(target, cellBoxOf(0, 0), model.mapStore, phase) // prettier-ignore
-  return base64(target.buf)
-}
-
+/** Each palace's block for the wire: per ROM, so the same on every map. */
 export function palaceIconsOf(
-  model: L1Model,
+  art: Record<Palace, PalaceArt>,
 ): Exclude<PalaceIconsResult, { status: 'rom-not-located' }> {
   return {
     status: 'ok',
     icons: PALACES.map(palace => {
-      const t = model.palaceTiles?.[palace] ?? { reason: 'not read' }
-      return 'reason' in t
-        ? { palace, unavailable: t.reason }
-        : { palace, uncleared: drawTile(model, t.uncleared), cleared: drawTile(model, t.cleared) }
+      const a = art[palace]
+      return 'reason' in a
+        ? { palace, unavailable: a.reason }
+        : { palace, uncleared: base64(a.uncleared), cleared: base64(a.cleared) }
     }),
   }
 }
@@ -188,6 +133,7 @@ const flagsKey = (f: SwitchFlagsDto) => `${+f.green}${+f.yellow}${+f.blue}${+f.r
  */
 export class L1ModelCache {
   private readonly byBytes = new WeakMap<Uint8Array, Map<string, BuildL1Result>>()
+  private readonly arts = new WeakMap<Uint8Array, Record<Palace, PalaceArt>>()
 
   constructor(private readonly build: typeof buildL1Model = buildL1Model) {}
 
@@ -207,6 +153,14 @@ export class L1ModelCache {
       models.set(key, built)
     }
     return built
+  }
+
+  /** The ROM's palace art, once per working-copy bytes. */
+  art(bytes: Uint8Array, romPath: string): Record<Palace, PalaceArt> {
+    let art = this.arts.get(bytes)
+    if (!art)
+      this.arts.set(bytes, (art = palaceArt(RomFile.fromBytes(romPath, Buffer.from(bytes)))))
+    return art
   }
 }
 

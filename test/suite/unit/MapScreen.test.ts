@@ -26,13 +26,16 @@ import {
 import {
   PIPE_VARIANT_TILE_COUNT,
   PIPE_VARIANT_TILE_START,
+  loadMap16WithPipeVariants,
   pipeVariantIndex,
   type Map16Tile,
 } from '../../../src/rom/Map16'
-import { renderMap16Tile } from '../../../src/rom/TileRenderer'
+import { buildTileAtlas } from '../../../src/rom/TileRenderer'
+import { loadVram, type VramState } from '../../../src/rom/GfxLoader'
+import { renderCell, HIDDEN_TILE_OPACITY } from '../../../src/rom/render/CellRenderer'
+import { majority, palaceArt } from '../../../src/rom/SwitchArt'
+import { withHiddenTiles } from '../../../theia/extension/src/browser/map16-view-model'
 import { ADDR_CUSTOM_PALETTE_TABLE } from '../../../src/rom/PaletteLoader'
-import { Char } from '../../../src/rom/model/chars/Char'
-import { StaticPixelsBehavior } from '../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import {
   applyPaletteFrame0,
   assembleL1Inputs,
@@ -62,7 +65,6 @@ import {
   drawL1Screen,
   L1ModelCache,
   mapScreen,
-  modelFromInputs,
   palaceIconsOf,
   screenResult,
   type L1Model,
@@ -81,40 +83,44 @@ const BACKDROP: RgbaColor = [250, 9, 9, 255]
 
 // ── Synthetic inputs ─────────────────────────────────────────────────────────
 
-/** A solid char whose every pixel is color index `v`. */
-const solid = (v: number) => new Char(v, new StaticPixelsBehavior(new Uint8Array(64).fill(v)))
-const sub = (charNum: number, palette = 0, priority = false) => ({ charNum, palette, priority, flipX: false, flipY: false }) // prettier-ignore
+const sub = (charNum: number, palette = 0) => ({ charNum, palette, priority: false, flipX: false, flipY: false }) // prettier-ignore
 const tile = (id: number, q: ReturnType<typeof sub>[]): Map16Tile => ({ id, tl: q[0]!, tr: q[1]!, bl: q[2]!, br: q[3]! }) // prettier-ignore
+/** fg1 chars 0-4, each solid in its own color index (char 0 transparent). */
+const VRAM: VramState = { fg1: [0, 1, 2, 3, 4].map(v => new Uint8Array(64).fill(v)) }
 
 /** Color index c of row r is [r * 16 + c, 100, 200]; index 0 is transparent. */
 const COLORS: RgbaColor[] = Array.from({ length: 256 }, (_, i) => (i % 16 === 0 ? [0, 0, 0, 0] : [i, 100, 200, 255])) // prettier-ignore
 
 /**
- * Inputs with tile 1 (chars 1-4, one per quadrant), an empty tile 0, and the
- * eight pipe tiles whose variant v draws char 1 in palette row v.
+ * Inputs with tile 1 (chars 1-4, one per quadrant), empty tiles 0 and 2
+ * (tile 2 hidden: its switched-on art is solid color 3), and the eight
+ * pipe tiles whose variant v draws char 1 in palette row v. Tiles sit at
+ * their own ids, as the Map16 table does.
  */
 function inputs(grid: number[][], isVertical: boolean, screenCount: number): L1Inputs {
-  const tiles = [
-    tile(0, [sub(0), sub(0), sub(0), sub(0)]),
-    tile(1, [sub(1), sub(2), sub(3), sub(4)]),
-  ]
+  const tiles: Map16Tile[] = []
+  const put = (t: Map16Tile) => (tiles[t.id] = t)
+  put(tile(0, [sub(0), sub(0), sub(0), sub(0)]))
+  put(tile(1, [sub(1), sub(2), sub(3), sub(4)]))
+  put(tile(2, [sub(0), sub(0), sub(0), sub(0)]))
   const pipeVariants = [0, 1, 2, 3].map(
     v =>
     Array.from({ length: PIPE_VARIANT_TILE_COUNT }, (_, i) => tile(PIPE_VARIANT_TILE_START + i, [sub(1, v), sub(1, v), sub(1, v), sub(1, v)])), // prettier-ignore
   )
-  for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) tiles.push(tile(PIPE_VARIANT_TILE_START + i, [sub(0), sub(0), sub(0), sub(0)])) // prettier-ignore
+  for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) put(tile(PIPE_VARIANT_TILE_START + i, [sub(0), sub(0), sub(0), sub(0)])) // prettier-ignore
   return {
     header: parseLevelHeader([0, 0, 0, 0, 0]),
     isVertical,
     screenCount,
     grid,
     map16: { tiles, pipeVariants },
-    rawVram: {},
+    rawVram: VRAM,
     anim: null,
-    vram: {},
-    chars: new Map([0, 1, 2, 3, 4].map(v => [v, solid(v)])),
+    vram: VRAM,
+    chars: new Map(),
     colors: COLORS,
     backArea: BACKDROP,
+    hidden: new Map([[2, renderCell(tile(2, [sub(3), sub(3), sub(3), sub(3)]), VRAM, { colors: COLORS })]]), // prettier-ignore
   }
 }
 
@@ -125,34 +131,60 @@ const vGrid = (screens: number) => Array.from({ length: screens * 16 }, () => ne
 const px = (buf: Uint8ClampedArray, width: number, x: number, y: number) =>
   Array.from(buf.subarray((y * width + x) * 4, (y * width + x) * 4 + 4))
 
-describe('drawL1Screen - priority planes (synthetic)', () => {
-  // tl and br carry the priority bit; tr and bl do not.
-  const i = inputs(hGrid(1), false, 1)
-  i.map16.tiles[1] = tile(1, [sub(1, 0, true), sub(2), sub(3), sub(4, 0, true)])
-  i.grid[0]![0] = 1
-  const model = modelFromInputs(i)
-  const drawn = (buf: Uint8ClampedArray) =>
-    [px(buf, 256, 3, 3), px(buf, 256, 11, 3), px(buf, 256, 3, 11), px(buf, 256, 11, 11)].map(
-      p => p[0] !== BACKDROP[0],
-    )
+describe('one renderer for the sheet and the map (synthetic)', () => {
+  const blend = (fg: number, bg: number, a: number) => Math.round((fg * a + bg * (255 - a)) / 255)
 
-  it('the priority plane holds exactly the two flagged quadrants', () => {
-    expect(drawn(drawL1Screen(model, 0, ['priority']))).toEqual([true, false, false, true])
-  })
-
-  it('the non-priority plane holds the other two', () => {
-    expect(drawn(drawL1Screen(model, 0, ['nonPriority']))).toEqual([false, true, true, false])
-  })
-
-  it('the composite draws both, each quadrant in its own color', () => {
-    const buf = drawL1Screen(model, 0)
+  it('each quadrant draws its own color', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.grid[0]![0] = 1
+    const buf = drawL1Screen(i, 0)
     expect([px(buf, 256, 3, 3)[0], px(buf, 256, 11, 3)[0], px(buf, 256, 3, 11)[0], px(buf, 256, 11, 11)[0]]).toEqual([1, 2, 3, 4]) // prettier-ignore
+  })
+
+  it('a hidden cell is its switched-on art at 25% over the backdrop', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.grid[0]![0] = 2
+    const a = Math.round(255 * HIDDEN_TILE_OPACITY)
+    expect(HIDDEN_TILE_OPACITY).toBe(0.25)
+    expect(px(drawL1Screen(i, 0), 256, 5, 5)).toEqual([blend(3, BACKDROP[0], a), blend(100, BACKDROP[1], a), blend(200, BACKDROP[2], a), 255]) // prettier-ignore
+  })
+
+  it('a sheet atlas cell and a map cell are the same bytes, hidden art included', () => {
+    const i = inputs(hGrid(1), false, 1)
+    const def = { ...i.map16.tiles[2]!, id: 0 }
+    const alt = i.hidden.get(2)!
+    const b64 = (b: Uint8ClampedArray) => Buffer.from(b).toString('base64')
+    const { atlas, atlasWidth } = buildTileAtlas([def], VRAM, { colors: COLORS })
+    const alternates = [{ kinds: ['blue' as const], altRgbaBase64: b64(alt), hidden: true }]
+    const sheet = { width: atlasWidth, tilesPerRow: 16, tiles: [{ id: 0, alternates }] }
+    const browsed = withHiddenTiles(atlas, sheet, s => new Uint8ClampedArray(Buffer.from(s, 'base64'))) // prettier-ignore
+    const cell = new Uint8ClampedArray(16 * 16 * 4)
+    for (let y = 0; y < 16; y++) cell.set(browsed.subarray(y * atlasWidth * 4, y * atlasWidth * 4 + 64), y * 64) // prettier-ignore
+    expect(b64(cell)).toBe(b64(renderCell(def, VRAM, { colors: COLORS }, alt)))
+    expect(cell[3]).toBe(Math.round(255 * HIDDEN_TILE_OPACITY)) // not the bare transparent tile
+  })
+})
+
+describe('palace art (synthetic)', () => {
+  it('takes the picture more than half the tilesets agree on, or refuses', () => {
+    const id = (v: string) => v
+    expect(majority(['a', 'a', 'b'], id)).toEqual({ pick: 'a', count: 2 })
+    expect(majority(['a', 'b', undefined, 'a'], id)).toEqual({ reason: expect.stringMatching(/more than half of the 4/) }) // prettier-ignore
+    expect(majority(['a', 'b'], id)).toMatchObject({ reason: expect.any(String) })
+  })
+
+  it('an unreadable palace falls back to its reason', () => {
+    const px16 = new Uint8ClampedArray(1024).fill(9)
+    const r = palaceIconsOf({ yellow: { uncleared: px16, cleared: px16 }, green: { reason: 'nope' }, red: { reason: 'r' }, blue: { reason: 'b' } }) // prettier-ignore
+    if (r.status !== 'ok') throw new Error('no icons')
+    expect(r.icons[0]).toMatchObject({ palace: 'yellow', uncleared: expect.any(String) })
+    expect(r.icons[1]).toEqual({ palace: 'green', unavailable: 'nope' })
   })
 })
 
 describe('screens (synthetic)', () => {
   it('fills the backdrop where L1 is transparent', () => {
-    const buf = drawL1Screen(modelFromInputs(inputs(hGrid(1), false, 1)), 0)
+    const buf = drawL1Screen(inputs(hGrid(1), false, 1), 0)
     expect(px(buf, 256, 100, 300)).toEqual([...BACKDROP])
   })
 
@@ -160,7 +192,7 @@ describe('screens (synthetic)', () => {
     const g = hGrid(2)
     g[26]![15] = 1
     g[26]![16] = 1
-    const m = modelFromInputs(inputs(g, false, 2))
+    const m = inputs(g, false, 2)
     const s0 = drawL1Screen(m, 0)
     const s1 = drawL1Screen(m, 1)
     expect(px(s0, 256, 255, 26 * 16 + 15)[0]).toBe(4) // br of col 15
@@ -173,7 +205,7 @@ describe('screens (synthetic)', () => {
     const g = vGrid(2)
     g[15]![31] = 1
     g[16]![0] = 1
-    const m = modelFromInputs(inputs(g, true, 2))
+    const m = inputs(g, true, 2)
     const s0 = drawL1Screen(m, 0)
     const s1 = drawL1Screen(m, 1)
     expect(px(s0, 512, 511, 255)[0]).toBe(4)
@@ -184,7 +216,7 @@ describe('screens (synthetic)', () => {
   it('each screen draws the pipe set MAP16AppTable gives its strips', () => {
     const g = hGrid(5)
     for (let s = 0; s < 5; s++) g[0]![s * 16] = PIPE_VARIANT_TILE_START
-    const m = modelFromInputs(inputs(g, false, 5))
+    const m = inputs(g, false, 5)
     // Variant v draws palette row v, whose color 1 has red channel v*16+1.
     const rows = [0, 1, 2, 3, 4].map(s => (px(drawL1Screen(m, s), 256, 0, 0)[0]! - 1) / 16)
     expect(rows).toEqual([0, 1, 2, 3, 0])
@@ -193,22 +225,14 @@ describe('screens (synthetic)', () => {
 
   it('bounds the screen index by the map screen count, not the grid width', () => {
     // A handler that wrote past the end leaves a grid wider than the map.
-    const m = modelFromInputs(inputs(hGrid(3), false, 2))
+    const m = inputs(hGrid(3), false, 2)
     expect(screenResult(m, 1)).toMatchObject({ status: 'ok', screenCount: 2, width: 256, height: 432 }) // prettier-ignore
     for (const bad of [2, -1, 0.5]) {
       const r = screenResult(m, bad)
       expect(r.status).toBe('unavailable')
       if (r.status === 'unavailable') expect(r.reason).toMatch(/2 screens/)
     }
-    expect(screenResult(modelFromInputs(inputs(vGrid(1), true, 1)), 0)).toMatchObject({ width: 512, height: 256, orientation: 'vertical' }) // prettier-ignore
-  })
-
-  it('an unreadable palace tile falls back to its reason', () => {
-    const m: L1Model = { ...modelFromInputs(inputs(hGrid(1), false, 1)), palaceTiles: { yellow: { uncleared: 1, cleared: 0 }, green: { reason: 'nope' } } } // prettier-ignore
-    const icons = palaceIconsOf(m).status === 'ok' ? (palaceIconsOf(m) as { icons: object[] }).icons : [] // prettier-ignore
-    expect(icons[0]).toMatchObject({ palace: 'yellow' })
-    expect(icons[0]).toHaveProperty('cleared')
-    expect(icons[1]).toEqual({ palace: 'green', unavailable: 'nope' })
+    expect(screenResult((inputs(vGrid(1), true, 1)), 0)).toMatchObject({ width: 512, height: 256, orientation: 'vertical' }) // prettier-ignore
   })
 })
 
@@ -370,6 +394,26 @@ describe('assembleL1Inputs (synthetic)', () => {
     expect(noStock.animNote).toMatch(/GFX33 unreadable/)
   })
 
+  it('reads each hidden tile its switched-on art from its own chars', () => {
+    const blank = () => new Uint8Array(64)
+    const lit = () => new Uint8Array(64).fill(1)
+    const switched = { charBase: 0x10, tiles: [0, 1, 2, 3].map(blank), alt: { switch: 'blue' as const, tiles: [0, 1, 2, 3].map(lit) } } // prettier-ignore
+    // Dense, as a Map16 table is: every id up to 6 defined.
+    const tiles = Array.from({ length: 7 }, (_, id) => tile(id, [sub(0), sub(0), sub(0), sub(0)]))
+    tiles[5] = tile(5, [sub(0x10), sub(0x11), sub(0x12), sub(0x13)])
+    tiles[6] = tile(6, [sub(0x1), sub(0x1), sub(0x1), sub(0x1)])
+    const r = assembleL1Inputs(
+      readings({
+        rawVram: { fg1: Array.from({ length: 0x20 }, blank) },
+        stockAnim: { ok: true, data: { frameCount: 1, intervalMs: 100, frames: [[switched]] } },
+        exAnim: null,
+        map16: { tiles, pipeVariants: [] },
+      }),
+    )
+    expect([...r.hidden.keys()]).toEqual([5])
+    expect(r.hidden.get(5)![3]).toBe(255)
+  })
+
   it('counts screens from the header, not the grid', () => {
     expect(assembleL1Inputs(readings()).screenCount).toBe(2)
   })
@@ -388,7 +432,7 @@ describe('palette animation frame 0 (synthetic)', () => {
     const i = inputs(hGrid(1), false, 1)
     i.grid[0]![0] = 1 // tl is char 1, color index 1, palette row 0
     i.colors = applyPaletteFrame0(COLORS, level).colors
-    const buf = drawL1Screen(modelFromInputs(i), 0)
+    const buf = drawL1Screen(i, 0)
     expect(px(buf, 256, 3, 3)).toEqual([...bgr555ToRgba(0x03e0)])
     expect(px(buf, 256, 11, 3)[0]).toBe(2) // an unanimated color is untouched
   })
@@ -492,7 +536,7 @@ function atlasScreen(
   const grid = Expander.expandMap(objects, header.levelLength, rom.rom, header.objectTileset, vertical, header.levelMode, undefined, flags) // prettier-ignore
   const [w, h] = vertical ? [32, 16] : [16, 27]
   const [x0, y0] = vertical ? [0, screen * 16] : [screen * 16, 0]
-  const { vram, colors, map16, backArea } = model.inputs!
+  const { vram, colors, map16, backArea, hidden } = model
   const out = new Uint8ClampedArray(w * 16 * h * 16 * 4)
   for (let i = 0; i < out.length; i += 4) out.set(backArea, i)
   for (let y = 0; y < h; y++)
@@ -503,12 +547,14 @@ function atlasScreen(
         pipe >= 0 && pipe < PIPE_VARIANT_TILE_COUNT && map16.pipeVariants.length > 0
           ? map16.pipeVariants[pipeVariantIndex(vertical ? y0 + y : x0 + x)]![pipe]!
           : map16.tiles[id]!
-      const p = renderMap16Tile(def, vram, { colors })
+      const p = renderCell(def, vram, { colors }, hidden.get(def.id))
       for (let py = 0; py < 16; py++)
         for (let pxl = 0; pxl < 16; pxl++) {
           const s = (py * 16 + pxl) * 4
-          if (p[s + 3] === 0) continue
-          out.set(p.subarray(s, s + 4), ((y * 16 + py) * w * 16 + x * 16 + pxl) * 4)
+          const a = p[s + 3]!
+          if (a === 0) continue
+          const d = ((y * 16 + py) * w * 16 + x * 16 + pxl) * 4
+          for (let c = 0; c < 3; c++) out[d + c] = Math.round((p[s + c]! * a + out[d + c]! * (255 - a)) / 255) // prettier-ignore
         }
     }
   return out
@@ -519,6 +565,9 @@ function distinctColors(buf: Uint8ClampedArray): number {
   for (let i = 0; i < buf.length; i += 4) seen.add((buf[i]! << 16) | (buf[i + 1]! << 8) | buf[i + 2]!) // prettier-ignore
   return seen.size
 }
+
+const buildTiles16 = (t: number) => loadMap16WithPipeVariants(freshRomFile(), t).tiles
+const freshRomFile = () => RomFile.load(romPath(VANILLA))
 
 describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
   const bytes = romPresent ? new Uint8Array(fs.readFileSync(romPath(VANILLA))) : new Uint8Array()
@@ -564,7 +613,7 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
       { uncleared: 0x06d, cleared: 0x16d },
       { uncleared: 0x06c, cleared: 0x16c },
     ])
-    const icons = palaceIconsOf(model(0x105))
+    const icons = palaceIconsOf(palaceArt(rom.rom))
     if (icons.status !== 'ok') throw new Error('no icons')
     for (const i of icons.icons) {
       if (!('cleared' in i)) throw new Error(i.unavailable)
@@ -618,6 +667,38 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     expect(cell.has(frame0)).toBe(true)
     expect(stored.colors[0x64]!.join(',')).not.toBe(frame0)
     expect(cell.has(stored.colors[0x64]!.join(','))).toBe(false)
+  })
+
+  it('a hidden $02A cell on $014 is its switched-on art at 25% over the backdrop', () => {
+    const m = model(0x014)
+    expect(m.grid[13]![1]).toBe(0x02a) // screen 0, local column 1
+    const alt = m.hidden.get(0x02a)!
+    const own = renderCell(m.map16.tiles[0x02a]!, m.vram, { colors: m.colors })
+    const buf = drawL1Screen(m, 0)
+    const a = Math.round(255 * HIDDEN_TILE_OPACITY)
+    let checked = 0
+    for (let y = 0; y < 16; y++)
+      for (let x = 0; x < 16; x++) {
+        const s = (y * 16 + x) * 4
+        if (own[s + 3] !== 0 || alt[s + 3] === 0) continue
+        const want = [0, 1, 2].map(c => Math.round((alt[s + c]! * a + m.backArea[c]! * (255 - a)) / 255)) // prettier-ignore
+        expect(px(buf, 256, 16 + x, 13 * 16 + y).slice(0, 3)).toEqual(want)
+        checked++
+      }
+    expect(checked).toBeGreaterThan(0)
+  })
+
+  it('palace icons are per ROM: the normal block on $014 too, never tileset 4 letters', () => {
+    const art = palaceArt(rom.rom)
+    const yellow = art.yellow
+    if ('reason' in yellow) throw new Error(yellow.reason)
+    const pal = { colors: buildLevelCgram(loadRomPalettes(rom.rom), 0, 0, 0, STOCK_COL1).colors }
+    const drawnIn = (t: number) => renderCell(buildTiles16(t)[0x16b]!, loadVram(rom.rom, t), pal)
+    // $105 is tileset 7; $014 is tileset 4, whose $16B is the palace's letters.
+    expect(Buffer.from(yellow.cleared).equals(Buffer.from(drawnIn(7)))).toBe(true)
+    expect(Buffer.from(yellow.cleared).equals(Buffer.from(drawnIn(4)))).toBe(false)
+    const b64 = (p: ReturnType<typeof palaceIconsOf>) => JSON.stringify(p)
+    expect(b64(palaceIconsOf(palaceArt(rom.rom)))).toBe(b64(palaceIconsOf(art)))
   })
 
   it('refuses a vanilla boss arena', () => {

@@ -39,6 +39,7 @@ import { readLevelCol1 } from '../PaletteStockTables'
 import { bgr555ToRgba } from '../GraphicsDecoder'
 import { detectPaletteAnimation, type PaletteAnimContext } from '../PaletteAnimationDetect'
 import { findUnique, WILD, type BytePattern } from '../BytePattern'
+import { hiddenArt, tileAlternates } from '../SwitchAlternates'
 
 /**
  * LoadLevel's boss-mode exit, bank_05.asm:431-437: `LDA.W LevelModeSetting`
@@ -84,6 +85,8 @@ export interface L1Inputs {
   colors: RgbaColor[]
   /** CGRAM color 0, the backdrop the PPU shows where every layer is transparent. */
   backArea: RgbaColor
+  /** Each hidden tile's switched-on art (#621), read from its own chars, as the Map16 sheet shows it. */
+  hidden: Map<number, Uint8ClampedArray>
 }
 
 export type L1InputsResult = { ok: true; inputs: L1Inputs } | { ok: false; reason: string }
@@ -166,6 +169,7 @@ export function assembleL1Inputs(r: L1Readings): L1Inputs {
   const stored = levelColorsFrom(r)
   const palette = applyPaletteFrame0(stored.colors, r.paletteAnim)
   const notes = [frameZero?.error, palette.note].filter(Boolean)
+  const anim = frameZero?.animData
   return {
     header: r.header,
     isVertical: r.isVertical,
@@ -179,6 +183,7 @@ export function assembleL1Inputs(r: L1Readings): L1Inputs {
     animNote: notes.length > 0 ? notes.join(' ') : undefined,
     colors: palette.colors,
     backArea: stored.backArea,
+    hidden: anim ? hiddenArt(tileAlternates(anim, r.map16.tiles, vram, palette)) : new Map(),
   }
 }
 

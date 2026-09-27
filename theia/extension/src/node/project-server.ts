@@ -23,7 +23,6 @@ import {
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapScreen, palaceIconsOf } from './map-screen'
-import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
 import {
   admitGroups,
@@ -115,11 +114,10 @@ export class ProjectServiceImpl implements ProjectService {
     return mapScreen(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags)
   }
 
-  async mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult> {
+  async mapPalaceIcons(manifestPath: string, _index: number): Promise<PalaceIconsResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    const built = this.screens.get(r.working.bytes(), r.romPath, index, SWITCH_FLAGS_UNCLEARED)
-    return built.status === 'ok' ? palaceIconsOf(built.model) : built
+    return palaceIconsOf(this.screens.art(r.working.bytes(), r.romPath))
   }
 
   async updateProject(
