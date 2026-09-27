@@ -258,27 +258,35 @@ describe('toggleKinds', () => {
 })
 
 describe('previewAlternate', () => {
-  const alt = (kinds: ('blue' | 'silver' | 'onOff')[], hidden = false) => ({
-    kinds,
-    altRgbaBase64: kinds.join('+'),
-    hidden,
-  })
+  // Named 16x16 pictures: a blank one, and solid ones.
+  const pic = (v: number) => new Uint8ClampedArray(16 * 16 * 4).fill(v)
+  const pics: Record<string, Uint8ClampedArray> = { none: pic(0), B: pic(1), S: pic(2), BS: pic(3), own: pic(9) } // prettier-ignore
+  const decode = (b: string) => pics[b]!
+  const alt = (kinds: ('blue' | 'silver' | 'onOff')[], art: string) => ({ kinds, altRgbaBase64: art, hidden: false }) // prettier-ignore
+  const on = (...k: ('blue' | 'silver' | 'onOff')[]) => new Set(k)
 
   it('ignores a switch left on from a tile state that no longer has it', () => {
     // Blue was turned on, then the tileset changed and this tile follows only silver.
-    const alternates = [alt(['silver'])]
-    const active = new Set(['blue', 'silver'] as const)
-    expect(activeFor(alternates, active)).toEqual(['silver'])
-    expect(previewAlternate(alternates, active)).toEqual({ alt: alternates[0], opacity: 1 })
+    const alternates = [alt(['silver'], 'S')]
+    expect(activeFor(alternates, on('blue', 'silver'))).toEqual(['silver'])
+    expect(previewAlternate(alternates, on('blue', 'silver'), pics.own!, decode)).toEqual({ pixels: pics.S, opacity: 1 }) // prettier-ignore
   })
 
-  it('matches a combo by set, and falls back to a hidden single at HIDDEN_TILE_OPACITY', () => {
-    const alternates = [alt(['blue'], true), alt(['silver']), alt(['blue', 'silver'])]
-    expect(previewAlternate(alternates, new Set(['silver', 'blue'] as const))?.alt).toBe(
-      alternates[2],
-    )
-    expect(previewAlternate(alternates, new Set())).toEqual({ alt: alternates[0], opacity: 0.25 })
-    expect(previewAlternate([alt(['silver'])], new Set())).toBeUndefined()
+  it('matches a combo by set, and shows the tile itself with no switch on', () => {
+    const alternates = [alt(['blue'], 'B'), alt(['silver'], 'S'), alt(['blue', 'silver'], 'BS')]
+    expect(previewAlternate(alternates, on('silver', 'blue'), pics.own!, decode).pixels).toBe(pics.BS) // prettier-ignore
+    expect(previewAlternate(alternates, on(), pics.own!, decode)).toEqual({ pixels: pics.own, opacity: 1 }) // prettier-ignore
+  })
+
+  it('a tile blank with no switch on shows its first drawn single at HIDDEN_TILE_OPACITY', () => {
+    const alternates = [alt(['silver'], 'none'), alt(['blue'], 'B')]
+    expect(previewAlternate(alternates, on(), pics.none!, decode)).toEqual({ pixels: pics.B, opacity: 0.25 }) // prettier-ignore
+  })
+
+  it('a tile its switch blanks shows its own picture at HIDDEN_TILE_OPACITY', () => {
+    const alternates = [alt(['onOff'], 'none')]
+    expect(previewAlternate(alternates, on('onOff'), pics.own!, decode)).toEqual({ pixels: pics.own, opacity: 0.25 }) // prettier-ignore
+    expect(previewAlternate([alt(['silver'], 'none')], on(), pics.none!, decode)).toEqual({ pixels: pics.none, opacity: 1 }) // prettier-ignore
   })
 })
 
@@ -290,12 +298,15 @@ describe('withHiddenTiles', () => {
   const width = TPR * 16
   const art = new Uint8ClampedArray(16 * 16 * 4)
   art.set([10, 20, 30, 255], (1 * 16 + 3) * 4)
-  const alt = (hidden: boolean) => [{ kinds: ['blue' as const], altRgbaBase64: 'art', hidden }]
+  // A tile whose alternate is blank has nothing to show faintly.
+  const alt = (hidden: boolean) => [{ kinds: ['blue' as const], altRgbaBase64: hidden ? 'art' : 'none', hidden }] // prettier-ignore
   const sheetOf = (hidden: boolean) => ({
     width,
     tilesPerRow: TPR,
     tiles: [2, 3].map(id => ({ id, alternates: alt(hidden && id === 3) })),
   })
+  const blank = new Uint8ClampedArray(16 * 16 * 4)
+  const decodeArt = (b: string) => (b === 'art' ? art : blank)
   const at = (px: Uint8ClampedArray, x: number, y: number): number[] => [
     ...px.subarray((y * width + x) * 4, (y * width + x) * 4 + 4),
   ]
@@ -304,7 +315,7 @@ describe('withHiddenTiles', () => {
 
   it("draws a hidden tile's switched-on art at 25% alpha, exactly in place, and nothing else", () => {
     const atlas = new Uint8ClampedArray(width * 32 * 4)
-    const out = withHiddenTiles(atlas, sheetOf(true), () => art)
+    const out = withHiddenTiles(atlas, sheetOf(true), decodeArt)
     expect(at(out, 16 + 3, 16 + 1)).toEqual([10, 20, 30, 64])
     expect(drawn(out)).toBe(1)
     expect(drawn(atlas)).toBe(0) // the decoded phase itself is never written
@@ -313,7 +324,7 @@ describe('withHiddenTiles', () => {
   it('never covers a pixel an animation frame draws', () => {
     const atlas = new Uint8ClampedArray(width * 32 * 4)
     atlas.set([1, 2, 3, 255], ((16 + 1) * width + 16 + 3) * 4)
-    const out = withHiddenTiles(atlas, sheetOf(true), () => art)
+    const out = withHiddenTiles(atlas, sheetOf(true), decodeArt)
     expect(at(out, 16 + 3, 16 + 1)).toEqual([1, 2, 3, 255])
   })
 })
@@ -325,9 +336,9 @@ describe('BrowsedSheetCache', () => {
   const sheetOf = (hidden: boolean) => ({
     width,
     tilesPerRow: TPR,
-    tiles: [{ id: 0, alternates: [{ kinds: ['blue' as const], altRgbaBase64: 'art', hidden }] }],
+    tiles: [{ id: 0, alternates: [{ kinds: ['blue' as const], altRgbaBase64: hidden ? 'art' : 'none', hidden }] }], // prettier-ignore
   })
-  const decode = (b: string) => (b === 'art' ? art : new Uint8ClampedArray(width * 16 * 4))
+  const decode = (b: string) => (b === 'art' ? art : new Uint8ClampedArray(16 * 16 * 4))
 
   it('shows the NEW overlay after a reload whose still atlas is byte-identical', () => {
     const cache = new BrowsedSheetCache()

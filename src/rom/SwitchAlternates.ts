@@ -18,7 +18,6 @@ import type { RgbaColor } from './GraphicsDecoder'
 import type { Map16Tile } from './Map16'
 import { renderMap16Tile } from './TileRenderer'
 import { vramFromChars } from './model/chars/CharFactory'
-import { firstHiddenSingle } from './render/HiddenTiles'
 
 export interface TileAlternate {
   kinds: SwitchKind[]
@@ -76,6 +75,7 @@ export function tileAlternates(
   const patchedBySet = new Map<string, VramState>()
   const perTile = new Map<number, TileAlternate[]>()
   for (const tile of entries) {
+    if (!tile) continue
     const chars = [tile.tl.charNum, tile.tr.charNum, tile.bl.charNum, tile.br.charNum]
     const kinds = [...switchesForChars(animData, chars)].sort()
     if (kinds.length === 0) continue
@@ -98,12 +98,22 @@ export function tileAlternates(
   return perTile
 }
 
-/** Each hidden tile's picture with no switch on (`firstHiddenSingle`, the inspector's rule too). */
-export function hiddenArt(alternates: Map<number, TileAlternate[]>): Map<number, TileAlternate> {
-  const out = new Map<number, TileAlternate>()
-  for (const [id, alts] of alternates) {
-    const hidden = firstHiddenSingle(alts)
-    if (hidden) out.set(id, hidden)
+/** A tile that follows a switch: its switches-off picture and its alternates. */
+export interface TileSwitchArt {
+  off: Uint8ClampedArray
+  alts: TileAlternate[]
+}
+
+/** Every switch-following tile's pictures, from its own chars, for `ghostOf`. */
+export function switchArtOf(
+  animData: AnimationData,
+  entries: readonly Map16Tile[],
+  vram: VramState,
+  palette: { colors: RgbaColor[] },
+): Map<number, TileSwitchArt> {
+  const out = new Map<number, TileSwitchArt>()
+  for (const [id, alts] of tileAlternates(animData, entries, vram, palette)) {
+    out.set(id, { off: renderMap16Tile(entries[id]!, vram, palette), alts })
   }
   return out
 }
