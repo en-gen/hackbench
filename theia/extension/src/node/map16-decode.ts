@@ -62,14 +62,11 @@ export type { FrameZeroChars } from '../../../../src/rom/FrameZero'
 import {
   getAnimatedChars,
   getSwitchedChars,
-  slotTiles,
-  switchesForChars,
   type AnimationData,
-  type AnimFrameSlot,
   type SwitchKind,
-  type SwitchState,
 } from '../../../../src/rom/AnimationLoader'
 import { vramFromChars } from '../../../../src/rom/model/chars/CharFactory'
+import { tileAlternates } from '../../../../src/rom/SwitchAlternates'
 import type { Char } from '../../../../src/rom/model/chars/Char'
 import {
   Map16TileDto,
@@ -399,78 +396,21 @@ export function tileCitesAny(tile: Map16Tile, chars: ReadonlySet<number> | undef
   return [tile.tl, tile.tr, tile.bl, tile.br].some(q => chars.has(q.charNum))
 }
 
-/** Frame 0's alternate pixels for every char a switch in `kinds` changes, under all of them at once. */
-function switchCharPixels(
-  frameZeroSlots: readonly AnimFrameSlot[],
-  kinds: ReadonlySet<SwitchKind>,
-): Map<number, Uint8Array> {
-  const state: SwitchState = {
-    blue: kinds.has('blue'),
-    silver: kinds.has('silver'),
-    onOff: kinds.has('onOff'),
-  }
-  const out = new Map<number, Uint8Array>()
-  for (const slot of frameZeroSlots) {
-    if (!slot.alt || !kinds.has(slot.alt.switch)) continue
-    slotTiles(slot, state).forEach((px, i) => out.set(slot.charBase + i, px))
-  }
-  return out
-}
-
-/** Every non-empty subset of `kinds`, in `kinds`' order: at most 7 for 3 switches. */
-function nonEmptySubsets<T>(kinds: readonly T[]): T[][] {
-  const subsets: T[][] = []
-  for (let mask = 1; mask < 1 << kinds.length; mask++)
-    subsets.push(kinds.filter((_, i) => mask & (1 << i)))
-  return subsets
-}
-
-function isFullyTransparent(rgba: Uint8ClampedArray): boolean {
-  for (let i = 3; i < rgba.length; i += 4) if (rgba[i] !== 0) return false
-  return true
-}
-
-/**
- * Per-tile switch alternates (#574): one frame-0 picture for every non-empty
- * set of the switches the tile's own chars follow (`switchesForChars`, never a
- * tile-id list), kinds sorted. A single switch whose picture equals the tile's
- * own is dropped, since its toggle would change nothing. `vram` must be the
- * vram the sheet itself was drawn from, so the off picture and the comparison agree.
- */
+/** `tileAlternates` (src/rom/SwitchAlternates.ts, shared with the map tab), for the wire. */
 export function buildTileAlternates(
   animData: AnimationData,
   entries: readonly Map16Tile[],
   vram: VramState,
   palette: ActiveLevelPalette,
 ): Map<number, Map16TileAlternateDto[]> {
-  const frameZeroSlots = animData.frames[0] ?? []
-  const patchedBySet = new Map<string, VramState>()
-  const perTile = new Map<number, Map16TileAlternateDto[]>()
-  for (const tile of entries) {
-    const chars = [tile.tl.charNum, tile.tr.charNum, tile.bl.charNum, tile.br.charNum]
-    const kinds = [...switchesForChars(animData, chars)].sort()
-    if (kinds.length === 0) continue
-    const off = renderMap16Tile(tile, vram, palette)
-    const offBlank = isFullyTransparent(off)
-    const alternates: Map16TileAlternateDto[] = []
-    for (const subset of nonEmptySubsets(kinds)) {
-      const key = subset.join('+')
-      let patched = patchedBySet.get(key)
-      if (!patched) {
-        patched = vramFromChars(vram, switchCharPixels(frameZeroSlots, new Set(subset)))
-        patchedBySet.set(key, patched)
-      }
-      const alt = renderMap16Tile(tile, patched, palette)
-      if (subset.length === 1 && Buffer.from(alt).equals(Buffer.from(off))) continue
-      alternates.push({
-        kinds: subset,
-        altRgbaBase64: toBase64(alt),
-        hidden: offBlank && !isFullyTransparent(alt),
-      })
-    }
-    perTile.set(tile.id, alternates)
+  const out = new Map<number, Map16TileAlternateDto[]>()
+  for (const [id, alts] of tileAlternates(animData, entries, vram, palette)) {
+    out.set(
+      id,
+      alts.map(a => ({ kinds: a.kinds, altRgbaBase64: toBase64(a.rgba), hidden: a.hidden })),
+    )
   }
-  return perTile
+  return out
 }
 
 /**

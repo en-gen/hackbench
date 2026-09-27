@@ -16,6 +16,7 @@ import {
   Map16TileDto,
 } from '../common/map16-protocol'
 import { TILE_PX } from './map16-pixels'
+import { HIDDEN_TILE_OPACITY, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
 
 /** Which sheet an edit is written against: the tile table, the graphics and
  * the colors it resolves. */
@@ -163,9 +164,8 @@ export function activeFor(
   return toggleKinds(alternates).filter(k => active.has(k))
 }
 
-/** How strongly a hidden tile's switched-on art is drawn, in color, in both the
- * inspector preview and the sheet (#621, owner's choice): one value, so they cannot drift. */
-export const HIDDEN_TILE_OPACITY = 0.25
+// One value and one rule for the sheet, the inspector and the map tab (#621).
+export { HIDDEN_TILE_OPACITY }
 
 /**
  * What the preview draws (#574): the alternate matching the tile's own active
@@ -205,18 +205,10 @@ export function withHiddenTiles(
   for (const tile of sheet.tiles) {
     const shown = previewAlternate(tile.alternates, NO_SWITCHES)
     if (!shown) continue
-    const alt = decode(shown.alt.altRgbaBase64)
     out ??= atlas.slice()
     const x0 = (tile.id % sheet.tilesPerRow) * TILE_PX
     const y0 = Math.floor(tile.id / sheet.tilesPerRow) * TILE_PX
-    for (let y = 0; y < TILE_PX; y++)
-      for (let x = 0; x < TILE_PX; x++) {
-        const s = (y * TILE_PX + x) * 4
-        const d = ((y0 + y) * sheet.width + x0 + x) * 4
-        if (out[d + 3] !== 0 || alt[s + 3] === 0) continue
-        out.set(alt.subarray(s, s + 3), d)
-        out[d + 3] = Math.round(alt[s + 3]! * shown.opacity)
-      }
+    overlayHidden(out, sheet.width, x0, y0, decode(shown.alt.altRgbaBase64), shown.opacity)
   }
   return out ?? atlas
 }

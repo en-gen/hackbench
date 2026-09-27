@@ -366,6 +366,62 @@ test('each palace toggle shows its own block, dotted then solid', async ({ page 
   )
 })
 
+/**
+ * $014 is a switch-palace map (tileset 4), with 470 hidden $02A cells, one at
+ * column 1, row 13. The map draws each cell with the Map16 sheet's own
+ * renderer, so a hidden cell shows its switched-on art at 25% over the
+ * backdrop, as the sheet does, never blank. Measured on vanilla: that cell
+ * holds the backdrop plus 5 blended colors.
+ */
+test('hidden cells on $014 show their art at 25% over the backdrop', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x014)
+  const screen = await readScreen(page, 0x014, 0)
+  const cell = []
+  for (let y = 13 * 16; y < 14 * 16; y++)
+    for (let x = 16; x < 32; x++)
+      cell.push(screen.rgba.slice((y * 256 + x) * 4, (y * 256 + x) * 4 + 4))
+  const counts = new Map()
+  for (const p of cell) counts.set(p.join(','), (counts.get(p.join(',')) ?? 0) + 1)
+  const backdrop = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])[0][0]
+    .split(',')
+    .map(Number)
+  // Blank before the shared renderer: one color, the backdrop.
+  expect(counts.size).toBeGreaterThan(2)
+  for (const p of cell) {
+    expect(p[3]).toBe(255)
+    // At 25% a channel moves at most 64 away from the backdrop.
+    for (let c = 0; c < 3; c++) expect(Math.abs(p[c] - backdrop[c])).toBeLessThanOrEqual(64)
+  }
+})
+
+/**
+ * The palace icons are the ROM's normal blocks on every map. Before, $014
+ * drew them through its own tileset 4, which gives the cleared blocks the
+ * palace's letters and routes no object to the blue and red blocks.
+ */
+test('palace icons on switch-palace map $014 equal those on $105', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const icons = async index => {
+    await openMap(page, project.manifestPath, index)
+    const out = {}
+    for (const p of ['yellow', 'green', 'red', 'blue']) {
+      const button = page.locator(`${root(index)} [data-control="palace-${p}"]`)
+      const read = () =>
+        button.locator('canvas').evaluate(c => checksumOf(c.getContext('2d').getImageData(0, 0, c.width, c.height).data)) // prettier-ignore
+      await expect(button.locator('canvas')).toHaveCount(1)
+      const off = await read()
+      await button.click()
+      await expect.poll(read).not.toBe(off)
+      out[p] = [off, await read()]
+    }
+    return out
+  }
+  const normal = await icons(0x105)
+  expect(await icons(0x014)).toEqual(normal)
+})
+
 test('two map tabs keep their own palaces', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x106)
