@@ -10,8 +10,6 @@ import type { RgbaColor } from '../GraphicsDecoder'
 import { renderMap16Tile, type TileRgba } from '../TileRenderer'
 import { overlayHidden } from './HiddenTiles'
 
-export { HIDDEN_TILE_OPACITY, overlayHidden } from './HiddenTiles'
-
 export function renderCell(
   def: Map16Tile,
   vram: VramState,

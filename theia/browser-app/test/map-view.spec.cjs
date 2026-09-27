@@ -229,7 +229,7 @@ function expectEveryVisibleScreenDrawn(view) {
  */
 // A spread, not the reported maps only: the defect was in the widget, so it
 // hit every map. $109 is vertical.
-for (const index of [0x009, 0x013, 0x105, 0x12c, 0x109]) {
+for (const index of [0x009, 0x013, 0x105, 0x106, 0x12c, 0x109]) {
   test(`at open, screen 0 of $${index.toString(16).padStart(3, '0')} is painted, not blank`, async ({
     page,
   }) => {
@@ -244,6 +244,31 @@ for (const index of [0x009, 0x013, 0x105, 0x12c, 0x109]) {
     expectEveryVisibleScreenDrawn(await readViewport(page, index))
   })
 }
+
+/**
+ * A preview tab is ONE widget reused for the next single-clicked map. Two
+ * horizontal maps fit alike, so no later render follows the sizing reply:
+ * screen 0 must be painted by that reply itself (review of 4e932c3c; the
+ * owner saw $106's screen 0 blank this way on d8500dd0).
+ */
+test('a reused tab paints screen 0 of the next map', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await page.evaluate(async mp => {
+    const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261')
+    await w.open({ manifestPath: mp, index: 0x106, label: '106', iconClass: '' })
+  }, project.manifestPath)
+  opened.push('hackbench.map-view:262')
+  await expect(page.locator(`${root(0x106)} canvas[data-screen="0"]`)).toHaveAttribute(
+    'data-drawn',
+    drawn(0),
+    { timeout: 15000 },
+  )
+  const px = await readScreen(page, 0x106, 0)
+  expect(px.rgba.filter((v, i) => i % 4 === 3 && v !== 255)).toHaveLength(0)
+  expect(px.distinct).toBeGreaterThan(1)
+  expectEveryVisibleScreenDrawn(await readViewport(page, 0x106))
+})
 
 test('opening a map draws real pixels, and two maps differ', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))

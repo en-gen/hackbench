@@ -19,8 +19,8 @@ import {
   previewAlternate,
   withHiddenTiles,
   BrowsedSheetCache,
-  HIDDEN_TILE_OPACITY,
 } from '../../../theia/extension/src/browser/map16-view-model'
+import { HIDDEN_TILE_OPACITY } from '../../../src/rom/render/HiddenTiles'
 import {
   compositeIndices,
   cropRegion,

@@ -1,6 +1,5 @@
 /**
- * Per-tile switch alternates (#574), moved from the Map16 view's decoder so
- * the map tab reads the same pictures: one frame-0 picture for every
+ * Per-tile switch alternates (#574), for the Map16 view and the map tab: one frame-0 picture for every
  * non-empty set of the switches a tile's own chars follow
  * (`switchesForChars`, never a tile-id list), kinds sorted. A single switch
  * whose picture equals the tile's own is dropped, since its toggle would
@@ -19,6 +18,7 @@ import type { RgbaColor } from './GraphicsDecoder'
 import type { Map16Tile } from './Map16'
 import { renderMap16Tile } from './TileRenderer'
 import { vramFromChars } from './model/chars/CharFactory'
+import { firstHiddenSingle } from './render/HiddenTiles'
 
 export interface TileAlternate {
   kinds: SwitchKind[]
@@ -90,13 +90,13 @@ export function tileAlternates(
   return perTile
 }
 
-/** The picture a hidden tile shows with no switch on: its first single hidden alternate (the inspector's `previewAlternate`). */
+/** Each hidden tile's picture with no switch on (`firstHiddenSingle`, the inspector's rule too). */
 export function hiddenArt(
   alternates: Map<number, TileAlternate[]>,
 ): Map<number, Uint8ClampedArray> {
   const out = new Map<number, Uint8ClampedArray>()
   for (const [id, alts] of alternates) {
-    const hidden = alts.find(a => a.kinds.length === 1 && a.hidden)
+    const hidden = firstHiddenSingle(alts)
     if (hidden) out.set(id, hidden.rgba)
   }
   return out

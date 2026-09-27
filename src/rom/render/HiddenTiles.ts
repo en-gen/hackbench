@@ -24,3 +24,10 @@ export function overlayHidden(
       dst[d + 3] = Math.round(alt[s + 3]! * opacity)
     }
 }
+
+/** What a hidden tile shows with no switch on: its first single-switch alternate that is hidden. */
+export function firstHiddenSingle<T extends { kinds: readonly unknown[]; hidden: boolean }>(
+  alternates: readonly T[] | undefined,
+): T | undefined {
+  return alternates?.find(a => a.kinds.length === 1 && a.hidden)
+}

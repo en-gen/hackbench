@@ -16,7 +16,11 @@ import {
   Map16TileDto,
 } from '../common/map16-protocol'
 import { TILE_PX } from './map16-pixels'
-import { HIDDEN_TILE_OPACITY, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
+import {
+  firstHiddenSingle,
+  HIDDEN_TILE_OPACITY,
+  overlayHidden,
+} from '../../../../src/rom/render/HiddenTiles'
 
 /** Which sheet an edit is written against: the tile table, the graphics and
  * the colors it resolves. */
@@ -164,9 +168,6 @@ export function activeFor(
   return toggleKinds(alternates).filter(k => active.has(k))
 }
 
-// One value and one rule for the sheet, the inspector and the map tab (#621).
-export { HIDDEN_TILE_OPACITY }
-
 /**
  * What the preview draws (#574): the alternate matching the tile's own active
  * switches at full strength, else a hidden tile's first single at
@@ -180,7 +181,7 @@ export function previewAlternate(
   const key = activeFor(alternates, active).sort().join('+')
   const match = key ? alternates?.find(a => a.kinds.join('+') === key) : undefined
   if (match) return { alt: match, opacity: 1 }
-  const hidden = alternates?.find(a => a.kinds.length === 1 && a.hidden)
+  const hidden = firstHiddenSingle(alternates)
   return hidden && { alt: hidden, opacity: HIDDEN_TILE_OPACITY }
 }
 
