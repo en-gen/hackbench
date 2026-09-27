@@ -293,7 +293,10 @@ test('each palace toggle shows its own block, dotted then solid', async ({ page 
       const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
       return checksumOf(d)
     })
-  const blank = await page.evaluate(() => checksumOf(new Uint8ClampedArray(16 * 16 * 4)))
+  // Blank at the canvas's own size: PixelImageButton scales the 16x16 art.
+  const blank = await page
+    .locator(`${root(0x105)} [data-control="palace-yellow"] canvas`)
+    .evaluate(c => checksumOf(new Uint8ClampedArray(c.width * c.height * 4)))
 
   const before = {}
   for (const p of ['yellow', 'green', 'red', 'blue']) {
