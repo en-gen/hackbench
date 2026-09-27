@@ -118,12 +118,12 @@ function byteAt(rom: RomFile, addr: number): number | null {
   return b ? b[0] : null
 }
 
-function toSigned8(b: number): number {
+export function toSigned8(b: number): number {
   return b > 0x7f ? b - 0x100 : b
 }
 
 /** Target of a two-byte relative branch whose opcode sits at `addr`. */
-function branchTarget(rel: number, addr: number): number {
+export function branchTarget(rel: number, addr: number): number {
   return (addr & 0xff0000) | ((addr + 2 + toSigned8(rel)) & 0xffff)
 }
 

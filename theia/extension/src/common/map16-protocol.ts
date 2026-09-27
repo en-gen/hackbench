@@ -228,6 +228,29 @@ export interface Map16TileDto {
   tr: Map16QuadrantDto
   bl: Map16QuadrantDto
   br: Map16QuadrantDto
+  /** Frame-0 art per set of the switches its chars follow; a single that changes nothing is dropped. */
+  alternates?: Map16TileAlternateDto[]
+  /** Why this tile's switches could not be read, when it cites a switched char. */
+  switchesUnavailable?: string
+}
+
+/** Matches `SwitchKind` in src/rom/AnimationLoader.ts; declared fresh, see the module comment. */
+export type Map16SwitchKind = 'blue' | 'silver' | 'onOff'
+
+/** One tile's art with every switch in `kinds` on. */
+export interface Map16TileAlternateDto {
+  /** Sorted, so the view matches by set. */
+  kinds: Map16SwitchKind[]
+  /** One composited 16x16 RGBA tile, base64. */
+  altRgbaBase64: string
+  /** Blank while off and not blank while on; drawn at half opacity while off. */
+  hidden: boolean
+}
+
+/** A toggle button's two 16x16 RGBA pictures, base64. */
+export interface Map16SwitchButtonImages {
+  offRgba: string
+  onRgba: string
 }
 
 /**
@@ -336,6 +359,12 @@ export interface Map16SheetDto {
   charAnimation?: Map16CharAnimationDto
   /** Why animation frames couldn't be loaded; the widget renders this as an error. */
   animationNote?: string
+  /** Why some or all switch alternates could not be read (AnimationData.switchUnavailable). */
+  switchUnavailable?: string
+  /** Each switch toggle button's own art (docs/rom/pswitch-button-art.md); absent per kind when unread. */
+  switchButtonArt?: Partial<Record<Map16SwitchKind, Map16SwitchButtonImages>>
+  /** Why a kind has no button art. */
+  switchButtonUnavailable?: Partial<Record<Map16SwitchKind, string>>
   /**
    * Always true today: tiles $133-$13A cycle through 4 palette variants per
    * screen at runtime (readMap16AppTable in src/rom/Map16.ts) and this view

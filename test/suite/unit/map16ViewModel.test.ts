@@ -13,6 +13,10 @@ import {
   rowColorsFor,
   swatchCountFor,
   tileFrameCount,
+  toggleKinds,
+  SWITCH_ORDER,
+  activeFor,
+  previewAlternate,
 } from '../../../theia/extension/src/browser/map16-view-model'
 import {
   compositeIndices,
@@ -221,5 +225,56 @@ describe('cropRegion / QUADRANT_ORIGIN', () => {
     const bl = cropRegion(atlas, 16, QUADRANT_ORIGIN.bl!.x, QUADRANT_ORIGIN.bl!.y, 8, 8)
     expect(bl[0]).toBe((8 * 16) & 0xff)
     expect(tr).toHaveLength(8 * 8 * 4)
+  })
+})
+
+describe('toggleKinds', () => {
+  const alt = (...kinds: ('blue' | 'silver' | 'onOff')[]) => ({
+    kinds,
+    altRgbaBase64: '',
+    hidden: false,
+  })
+
+  it('lists single switches blue, silver, ON/OFF, whatever order they arrive in', () => {
+    // Sorted by name, as the combo keys are: blue, onOff, silver.
+    const alternates = [
+      alt('blue'),
+      alt('onOff'),
+      alt('blue', 'onOff'),
+      alt('silver'),
+      alt('blue', 'silver'),
+    ]
+    expect(toggleKinds(alternates)).toEqual(['blue', 'silver', 'onOff'])
+    expect(SWITCH_ORDER).toEqual(['blue', 'silver', 'onOff'])
+  })
+
+  it('never lists a combo as a toggle', () => {
+    expect(toggleKinds([alt('blue', 'silver')])).toEqual([])
+    expect(toggleKinds(undefined)).toEqual([])
+  })
+})
+
+describe('previewAlternate', () => {
+  const alt = (kinds: ('blue' | 'silver' | 'onOff')[], hidden = false) => ({
+    kinds,
+    altRgbaBase64: kinds.join('+'),
+    hidden,
+  })
+
+  it('ignores a switch left on from a tile state that no longer has it', () => {
+    // Blue was turned on, then the tileset changed and this tile follows only silver.
+    const alternates = [alt(['silver'])]
+    const active = new Set(['blue', 'silver'] as const)
+    expect(activeFor(alternates, active)).toEqual(['silver'])
+    expect(previewAlternate(alternates, active)).toEqual({ alt: alternates[0], opacity: 1 })
+  })
+
+  it('matches a combo by set, and falls back to a hidden single at half strength', () => {
+    const alternates = [alt(['blue'], true), alt(['silver']), alt(['blue', 'silver'])]
+    expect(previewAlternate(alternates, new Set(['silver', 'blue'] as const))?.alt).toBe(
+      alternates[2],
+    )
+    expect(previewAlternate(alternates, new Set())).toEqual({ alt: alternates[0], opacity: 0.5 })
+    expect(previewAlternate([alt(['silver'])], new Set())).toBeUndefined()
   })
 })

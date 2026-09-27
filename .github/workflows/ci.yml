@@ -56,8 +56,11 @@ jobs:
       - name: Type-check test stub and provider tests
         run: npx tsc -p tsconfig.test.json
 
+      # 10 webpack configs share one process and sit at the runner's ~2 GB default heap (#617).
       - name: Compile extension
         run: npm run compile
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
       - name: Unit tests with coverage
         run: npm run test:unit -- --coverage

@@ -1714,3 +1714,233 @@ test('the Map16 view speaks of ROMs, never cartridges', async ({ page }) => {
   expect(words).toMatch(/Tileset/)
   expect(words).not.toMatch(CART)
 })
+
+/**
+ * #574: the tile inspector shows one toggle per switch (blue/silver
+ * P-switch, ON/OFF) that changes the SELECTED tile's own art. Ids confirmed on
+ * the real ROM by Map16Switches.corpus.test.ts, tileset 0: $02B follows blue
+ * and is not hidden; $025 no switch touches.
+ */
+const BLUE_SWITCH_TILE_ID = 0x02b
+const NO_SWITCH_TILE_ID = 0x025
+const SILVER_SWITCH_TILE_ID = 0x12f
+const ONOFF_SWITCH_TILE_ID = 0x112
+const HIDDEN_TILE_ID = 0x027
+/** SNES $01:A1B0 under LoROM is file offset $A1B0: the CMP #$3E PSwitchButtonArt.ts gates on. */
+const PSWITCH_DISPATCH_FILE_OFFSET = 0xa1b0
+
+const switchToggle = kind => `${FG} [data-control="switch-toggle"][data-switch="${kind}"]`
+
+/** A copy of the ROM whose sprite-stun dispatch no longer compares sprite $3E. */
+function romWithoutPSwitchArt(name) {
+  const patched = path.join(tmp, name)
+  const buf = fs.readFileSync(ROM)
+  const base = buf.length % 1024 === COPIER_HEADER ? COPIER_HEADER : 0
+  expect(buf[base + PSWITCH_DISPATCH_FILE_OFFSET]).toBe(0xc9) // CMP #imm, the opcode gated on
+  buf[base + PSWITCH_DISPATCH_FILE_OFFSET] = 0xea
+  fs.writeFileSync(patched, buf)
+  return patched
+}
+
+test('selecting a switched tile shows its toggle beside the preview, and flipping it repaints both', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'SwitchToggle'))
+  await openMap16(page, 'fg')
+  await clickTile(page, BLUE_SWITCH_TILE_ID)
+
+  const toggle = page.locator(switchToggle('blue'))
+  await expect(toggle).toBeVisible()
+  await expect(toggle).toHaveAttribute('aria-label', 'Blue P-switch')
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  // Only the one switch this tile actually has - never every switch kind.
+  await expect(page.locator(`${FG} [data-control="switch-toggle"]`)).toHaveCount(1)
+
+  // Visible without scrolling in the default layout: inside .hb-map16-main's viewport.
+  const main = page.locator(`${FG} .hb-map16-main`)
+  expect(await main.evaluate(el => el.scrollTop)).toBe(0)
+  const mainBox = await main.boundingBox()
+  const firstBox = await toggle.boundingBox()
+  expect(firstBox.y + firstBox.height).toBeLessThanOrEqual(mainBox.y + mainBox.height)
+
+  const previewSel = `${FG} .hb-map16-preview-canvas`
+  const buttonSel = `${switchToggle('blue')} canvas`
+  await toggle.scrollIntoViewIfNeeded()
+  const boxBefore = await toggle.boundingBox()
+  const previewOff = await readCanvasChecksum(page, previewSel)
+  const buttonOff = await readCanvasChecksum(page, buttonSel)
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  expect(await readCanvasChecksum(page, previewSel)).not.toBe(previewOff)
+  expect(await readCanvasChecksum(page, buttonSel)).not.toBe(buttonOff)
+  expect(await toggle.boundingBox()).toEqual(boxBefore)
+
+  // Flipping back restores the earlier pixels: a toggle is view state, not an edit.
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(await readCanvasChecksum(page, previewSel)).toBe(previewOff)
+})
+
+/**
+ * The pressed P-switch keeps the ROM's own +8 Y offset, so it sits on the
+ * BOTTOM edge of its 16x16 frame: its top half stays transparent.
+ */
+test("the P-switch button's pressed picture sits on the bottom edge, never centered", async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'SwitchButtonSeat'))
+  await openMap16(page, 'fg')
+  await clickTile(page, BLUE_SWITCH_TILE_ID)
+
+  const canvasSel = `${switchToggle('blue')} canvas`
+  const readRows = async () =>
+    page.evaluate(sel => {
+      const c = document.querySelector(sel)
+      const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      const rowOpaque = []
+      for (let y = 0; y < c.height; y++) {
+        let opaque = false
+        for (let x = 0; x < c.width && !opaque; x++) opaque = data[(y * c.width + x) * 4 + 3] > 0
+        rowOpaque.push(opaque)
+      }
+      return rowOpaque
+    }, canvasSel)
+
+  const offRows = await readRows()
+  await page.locator(switchToggle('blue')).click()
+  const onRows = await readRows()
+
+  const half = onRows.length / 2
+  expect(onRows.slice(0, half).some(Boolean)).toBe(false)
+  expect(onRows.slice(half).some(Boolean)).toBe(true)
+  expect(offRows[offRows.length - 1]).toBe(true)
+  expect(onRows[onRows.length - 1]).toBe(true)
+})
+
+/**
+ * A picture-less button falls back to its text label, with the reason in the
+ * tooltip, in exactly the footprint of an image button (the ON/OFF one, whose
+ * art this patch does not touch), and its label is not clipped.
+ */
+test('a P-switch button with no readable art falls back to its text label, same size as an image button', async ({
+  page,
+}) => {
+  const patched = romWithoutPSwitchArt('no-pswitch-art.sfc')
+  await loadGfxExplorer(page, path.join(tmp, 'NoPSwitchArt'), patched)
+  await openMap16(page, 'fg')
+  await clickTile(page, BLUE_SWITCH_TILE_ID)
+
+  const toggle = page.locator(switchToggle('blue'))
+  await expect(toggle).toBeVisible()
+  await expect(toggle.locator('canvas')).toHaveCount(0)
+  await expect(toggle).toHaveText('Blue P-switch')
+  expect(await toggle.getAttribute('title')).toContain('CMP #$3E')
+  const overflows = await toggle
+    .locator('.hb-pixel-button-fallback')
+    .evaluate(el => el.scrollWidth > el.clientWidth)
+  expect(overflows).toBe(false)
+  const fallbackBox = await toggle.boundingBox()
+
+  await clickTile(page, ONOFF_SWITCH_TILE_ID)
+  const imageButton = page.locator(switchToggle('onOff'))
+  await expect(imageButton.locator('canvas')).toHaveCount(1)
+  const imageBox = await imageButton.boundingBox()
+  expect(fallbackBox.width).toBe(imageBox.width)
+  expect(fallbackBox.height).toBe(imageBox.height)
+})
+
+test('selecting a tile no switch affects shows no switch toggle', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'NoSwitchToggle'))
+  await openMap16(page, 'fg')
+  await clickTile(page, NO_SWITCH_TILE_ID)
+
+  await expect(page.locator(`${FG} [data-control="switch-toggle"]`)).toHaveCount(0)
+  await expect(page.locator(`${FG} [data-note="switch-unavailable"]`)).toHaveCount(0)
+})
+
+test('switching the selected tile clears the previous toggle rather than carrying it over', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'SwitchReset'))
+  await openMap16(page, 'fg')
+  await clickTile(page, BLUE_SWITCH_TILE_ID)
+  await page.locator(switchToggle('blue')).click()
+
+  await clickTile(page, NO_SWITCH_TILE_ID)
+  await expect(page.locator(`${FG} [data-control="switch-toggle"]`)).toHaveCount(0)
+
+  await clickTile(page, BLUE_SWITCH_TILE_ID)
+  await expect(page.locator(switchToggle('blue'))).toHaveAttribute('aria-pressed', 'false')
+})
+
+/**
+ * A toggle left on must not outlive a reload that takes the switch away. Measured on
+ * vanilla: $094 follows ON/OFF in tileset 2 and no switch in tileset 0.
+ */
+const TILESET_SWITCHED_TILE_ID = 0x094
+
+test('a tileset change that takes a switch away drops its toggle state', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'SwitchTilesetReload'))
+  await openMap16(page, 'fg')
+  await page.selectOption(ctl('tileset-select'), '2')
+  await clickTile(page, TILESET_SWITCHED_TILE_ID)
+
+  const toggle = page.locator(switchToggle('onOff'))
+  const previewSel = `${FG} .hb-map16-preview-canvas`
+  const off = await readCanvasChecksum(page, previewSel)
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+  await page.selectOption(ctl('tileset-select'), '0')
+  await expect(page.locator(`${FG} [data-control="switch-toggle"]`)).toHaveCount(0)
+  await page.selectOption(ctl('tileset-select'), '2')
+
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(await readCanvasChecksum(page, previewSel)).toBe(off)
+})
+
+for (const [kind, tileId] of [
+  ['silver', SILVER_SWITCH_TILE_ID],
+  ['onOff', ONOFF_SWITCH_TILE_ID],
+]) {
+  test(`the ${kind} switch button repaints when flipped`, async ({ page }) => {
+    await loadGfxExplorer(page, path.join(tmp, `${kind}ButtonArt`))
+    await openMap16(page, 'fg')
+    await clickTile(page, tileId)
+
+    const toggle = page.locator(switchToggle(kind))
+    await expect(toggle).toBeVisible()
+    const canvasSel = `${switchToggle(kind)} canvas`
+    const before = await readCanvasChecksum(page, canvasSel)
+    await toggle.click()
+    expect(await readCanvasChecksum(page, canvasSel)).not.toBe(before)
+  })
+}
+
+/**
+ * A hidden tile ($027, blank off-art but real on-art) draws its on-art at 50%
+ * opacity while its toggle is off, rather than nothing. Checked on pixel alpha.
+ */
+test('a hidden tile previews its on-art at 50% opacity while switched off', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'HiddenTilePreview'))
+  await openMap16(page, 'fg')
+  await clickTile(page, HIDDEN_TILE_ID)
+
+  const previewSel = `${FG} .hb-map16-preview-canvas`
+  const readCenterAlpha = () =>
+    page.evaluate(sel => {
+      const c = document.querySelector(sel)
+      const { width, height } = c
+      return c.getContext('2d').getImageData(Math.floor(width / 2), Math.floor(height / 2), 1, 1)
+        .data[3]
+    }, previewSel)
+
+  const offAlpha = await readCenterAlpha()
+  await page.locator(switchToggle('blue')).click()
+  const onAlpha = await readCenterAlpha()
+
+  expect(offAlpha).toBeGreaterThan(0)
+  expect(offAlpha).toBeLessThan(200)
+  expect(onAlpha).toBe(255)
+})

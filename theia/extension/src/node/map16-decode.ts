@@ -45,12 +45,26 @@ import {
   type ActiveLevelPalette,
 } from '../../../../src/rom/PaletteLoader'
 import { readLevelCol1 } from '../../../../src/rom/PaletteStockTables'
-import { buildTileAtlas } from '../../../../src/rom/TileRenderer'
+import {
+  bigObjTiles,
+  objAttrToCgramRow,
+  pSwitchTileAttrs,
+  readPSwitchButtonArt,
+  spriteCharNum,
+  type PSwitchButtonArt,
+} from '../../../../src/rom/PSwitchButtonArt'
+import { buildTileAtlas, renderMap16Tile, renderSubTile } from '../../../../src/rom/TileRenderer'
 import {
   getAnimatedChars,
+  getSwitchedChars,
   loadAnimationDataOrReason,
+  slotTiles,
   stockAnimationUnreached,
+  switchesForChars,
   type AnimationData,
+  type AnimFrameSlot,
+  type SwitchKind,
+  type SwitchState,
 } from '../../../../src/rom/AnimationLoader'
 import { buildChars, vramFromChars } from '../../../../src/rom/model/chars/CharFactory'
 import type { Char } from '../../../../src/rom/model/chars/Char'
@@ -66,6 +80,8 @@ import {
   Map16SheetDto,
   Map16CharSheetDto,
   Map16CharSlot,
+  Map16SwitchButtonImages,
+  Map16TileAlternateDto,
   MAP16_CHAR_SLOTS,
   MAP16_CHAR_SPACE_END,
   MAP16_TILES_PER_ROW,
@@ -472,6 +488,178 @@ function unreachedReason(unreached: { target: number } | { reason: string }): st
   return `this ROM decides per level whether the stock animation runs (the level calls $${hex})`
 }
 
+/** Whether any of `tile`'s 4 quadrants cites a char in `chars`. */
+export function tileCitesAny(tile: Map16Tile, chars: ReadonlySet<number> | undefined): boolean {
+  if (!chars) return false
+  return [tile.tl, tile.tr, tile.bl, tile.br].some(q => chars.has(q.charNum))
+}
+
+/** Frame 0's alternate pixels for every char a switch in `kinds` changes, under all of them at once. */
+function switchCharPixels(
+  frameZeroSlots: readonly AnimFrameSlot[],
+  kinds: ReadonlySet<SwitchKind>,
+): Map<number, Uint8Array> {
+  const state: SwitchState = {
+    blue: kinds.has('blue'),
+    silver: kinds.has('silver'),
+    onOff: kinds.has('onOff'),
+  }
+  const out = new Map<number, Uint8Array>()
+  for (const slot of frameZeroSlots) {
+    if (!slot.alt || !kinds.has(slot.alt.switch)) continue
+    slotTiles(slot, state).forEach((px, i) => out.set(slot.charBase + i, px))
+  }
+  return out
+}
+
+/** Every non-empty subset of `kinds`, in `kinds`' order: at most 7 for 3 switches. */
+function nonEmptySubsets<T>(kinds: readonly T[]): T[][] {
+  const subsets: T[][] = []
+  for (let mask = 1; mask < 1 << kinds.length; mask++)
+    subsets.push(kinds.filter((_, i) => mask & (1 << i)))
+  return subsets
+}
+
+function isFullyTransparent(rgba: Uint8ClampedArray): boolean {
+  for (let i = 3; i < rgba.length; i += 4) if (rgba[i] !== 0) return false
+  return true
+}
+
+/**
+ * Per-tile switch alternates (#574): one frame-0 picture for every non-empty
+ * set of the switches the tile's own chars follow (`switchesForChars`, never a
+ * tile-id list), kinds sorted. A single switch whose picture equals the tile's
+ * own is dropped, since its toggle would change nothing. `vram` must be the
+ * vram the sheet itself was drawn from, so the off picture and the comparison agree.
+ */
+export function buildTileAlternates(
+  animData: AnimationData,
+  entries: readonly Map16Tile[],
+  vram: VramState,
+  palette: ActiveLevelPalette,
+): Map<number, Map16TileAlternateDto[]> {
+  const frameZeroSlots = animData.frames[0] ?? []
+  const patchedBySet = new Map<string, VramState>()
+  const perTile = new Map<number, Map16TileAlternateDto[]>()
+  for (const tile of entries) {
+    const chars = [tile.tl.charNum, tile.tr.charNum, tile.bl.charNum, tile.br.charNum]
+    const kinds = [...switchesForChars(animData, chars)].sort()
+    if (kinds.length === 0) continue
+    const off = renderMap16Tile(tile, vram, palette)
+    const offBlank = isFullyTransparent(off)
+    const alternates: Map16TileAlternateDto[] = []
+    for (const subset of nonEmptySubsets(kinds)) {
+      const key = subset.join('+')
+      let patched = patchedBySet.get(key)
+      if (!patched) {
+        patched = vramFromChars(vram, switchCharPixels(frameZeroSlots, new Set(subset)))
+        patchedBySet.set(key, patched)
+      }
+      const alt = renderMap16Tile(tile, patched, palette)
+      if (subset.length === 1 && Buffer.from(alt).equals(Buffer.from(off))) continue
+      alternates.push({
+        kinds: subset,
+        altRgbaBase64: toBase64(alt),
+        hidden: offBlank && !isFullyTransparent(alt),
+      })
+    }
+    perTile.set(tile.id, alternates)
+  }
+  return perTile
+}
+
+/**
+ * Why each unresolved tile's switches are unavailable: a tile citing a char the
+ * behavior table marks switched says so rather than vanishing, while a resolved
+ * tile (alternates, even none) or one whose chars only animate never does.
+ */
+export function buildSwitchNotes(
+  animData: AnimationData,
+  entries: readonly Map16Tile[],
+  alternates: ReadonlyMap<number, Map16TileAlternateDto[]>,
+): Map<number, string> {
+  const notes = new Map<number, string>()
+  const reason = animData.switchUnavailable
+  if (!reason) return notes
+  const switched = getSwitchedChars(animData)
+  for (const tile of entries)
+    if (!alternates.has(tile.id) && tileCitesAny(tile, switched)) notes.set(tile.id, reason)
+  return notes
+}
+
+const BUTTON_FRAME_PX = 16
+
+/**
+ * The P-switch button's two pictures for one PSwitchPal byte: the unpressed
+ * 16x16 OBJ, and the pressed pair at the ROM's own displacement. Every
+ * attribute bit is read (docs/rom/pswitch-button-art.md).
+ */
+export function renderPSwitchButtonImages(
+  vram: VramState,
+  palette: ActiveLevelPalette,
+  art: PSwitchButtonArt,
+  pswitchPal: number,
+): Map16SwitchButtonImages {
+  const attrs = pSwitchTileAttrs(art, pswitchPal)
+  const sub = (tile: number, attr: number, flipX = false): SubTile => ({
+    charNum: spriteCharNum(tile, attr),
+    palette: objAttrToCgramRow(attr),
+    priority: false,
+    flipX,
+    flipY: false,
+  })
+  const [tl, tr, bl, br] = bigObjTiles(art.unpressedTile).map(t => sub(t, attrs.unpressed))
+  const off = renderMap16Tile({ id: 0, tl: tl!, tr: tr!, bl: bl!, br: br! }, vram, palette)
+
+  const stride = BUTTON_FRAME_PX * 4
+  const rowAt = art.yOffset * stride
+  const on = new Uint8ClampedArray(BUTTON_FRAME_PX * stride)
+  const tile2 = sub(art.pressedTile, attrs.pressed2, true)
+  renderSubTile(tile2, vram, palette, on, rowAt + art.xOffset * 4, stride)
+  // Tile 1 last: the lower OAM slot ($100) wins an overlap; index 0 is never written.
+  renderSubTile(sub(art.pressedTile, attrs.pressed1), vram, palette, on, rowAt, stride)
+
+  return { offRgba: toBase64(off), onRgba: toBase64(on) }
+}
+
+// The ON/OFF button is Map16 tile $112, the vanilla switch block: a hack-fragility point,
+// since a hack can move the ON/OFF block to another tile.
+const ONOFF_BUTTON_TILE_ID = 0x112
+
+/**
+ * Every switch toggle BUTTON'S OWN art, distinct from a tile's alternates, with
+ * the reason for each kind that has none. Blue and silver share one ROM read.
+ */
+export function buildSwitchButtonArt(
+  rom: RomFile,
+  entries: readonly Map16Tile[],
+  alternates: ReadonlyMap<number, Map16TileAlternateDto[]>,
+  vram: VramState,
+  palette: ActiveLevelPalette,
+): {
+  art: Partial<Record<SwitchKind, Map16SwitchButtonImages>>
+  unavailable: Partial<Record<SwitchKind, string>>
+} {
+  const art: Partial<Record<SwitchKind, Map16SwitchButtonImages>> = {}
+  const unavailable: Partial<Record<SwitchKind, string>> = {}
+  const pswitch = readPSwitchButtonArt(rom)
+  if (pswitch.ok) {
+    art.blue = renderPSwitchButtonImages(vram, palette, pswitch.art, pswitch.art.blueAttr)
+    art.silver = renderPSwitchButtonImages(vram, palette, pswitch.art, pswitch.art.silverAttr)
+  } else unavailable.blue = unavailable.silver = pswitch.reason
+
+  const tile = entries.find(t => t.id === ONOFF_BUTTON_TILE_ID)
+  const onOff = tile && alternates.get(tile.id)?.find(a => a.kinds.join() === 'onOff')
+  if (tile && onOff)
+    art.onOff = {
+      offRgba: toBase64(renderMap16Tile(tile, vram, palette)),
+      onRgba: onOff.altRgbaBase64,
+    }
+  else
+    unavailable.onOff = `Map16 tile $112 (the vanilla ON/OFF block) has no readable ON/OFF alternate on this ROM`
+  return { art, unavailable }
+}
+
 /**
  * Decode one Map16 sheet: one composited RGBA image (buildTileAtlas, 16
  * tiles per row), every tile's quadrant fields and addresses, the four GFX
@@ -550,8 +738,19 @@ export function decodeMap16Sheet(
     rgbaBase64 = toBase64(dims.atlas)
   }
 
+  // Frame-0 still-preview alternates (#574), only when this tileset's animation resolved.
+  const animData = frameZero?.animData
+  const alternates = animData
+    ? buildTileAlternates(animData, entries, vram, cgram)
+    : new Map<number, Map16TileAlternateDto[]>()
+  const notes = animData
+    ? buildSwitchNotes(animData, entries, alternates)
+    : new Map<number, string>()
+
   const tiles: Map16TileDto[] = entries.map((tile, i) => {
     const base = pointers[i]!
+    const tileAlternates = alternates.get(tile.id)
+    const note = notes.get(tile.id)
     return {
       id: tile.id,
       romAddr: base,
@@ -563,10 +762,13 @@ export function decodeMap16Sheet(
       bl: toQuadrantDto(tile.bl, base + QUADRANT_WORD_OFFSET.bl),
       tr: toQuadrantDto(tile.tr, base + QUADRANT_WORD_OFFSET.tr),
       br: toQuadrantDto(tile.br, base + QUADRANT_WORD_OFFSET.br),
+      ...(tileAlternates ? { alternates: tileAlternates } : {}),
+      ...(note ? { switchesUnavailable: note } : {}),
     }
   })
 
   const citedColorRows = scanCitedColorRows(entries)
+  const switchButtons = buildSwitchButtonArt(rom.rom, entries, alternates, vram, cgram)
 
   return {
     status: 'ok',
@@ -584,6 +786,9 @@ export function decodeMap16Sheet(
       tiles,
       charAnimation: animation?.dto,
       animationNote: frameZero?.error,
+      switchUnavailable: animData?.switchUnavailable,
+      switchButtonArt: switchButtons.art,
+      switchButtonUnavailable: switchButtons.unavailable,
       pipeVariantsIgnored: true,
     },
   }

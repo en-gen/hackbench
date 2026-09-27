@@ -1,0 +1,45 @@
+/* PixelImageButton (pixel-image-button.tsx), styled to match .hb-map16-toggle. */
+.hb-pixel-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 3px;
+  border: 1px solid var(--theia-editorWidget-border);
+  background: var(--theia-editorWidget-background);
+  cursor: pointer;
+}
+
+.hb-pixel-button:hover {
+  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.hb-pixel-button:focus-visible {
+  outline: 1px solid var(--theia-focusBorder, #5b9cf6);
+  outline-offset: 1px;
+}
+
+/* Same pressed convention as map16.css's .hb-map16-toggle-on. */
+.hb-pixel-button-on {
+  background: var(--theia-inputOption-activeBackground, rgba(91, 156, 246, 0.18));
+  box-shadow: inset 0 0 0 1px var(--theia-focusBorder, #5b9cf6);
+}
+
+.hb-pixel-button-on:hover {
+  background: var(--theia-inputOption-hoverBackground, rgba(91, 156, 246, 0.3));
+}
+
+.hb-pixel-button-canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.hb-pixel-button-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-foreground);
+  overflow: hidden;
+}

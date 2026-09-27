@@ -487,6 +487,16 @@ describe('readAnimRoutine', () => {
     expect(readAnimRoutine(rom).ok).toBe(false)
   })
 
+  it('still marks the behavior-1 slots switched when the routine is unreadable', () => {
+    const rom = switchRom()
+    rom.writeAt(0x05bb39, [0x5c, 0x00, 0x80, 0x02])
+    const slots = loadAnimationData(rom, 0)!.frames[0]!
+    expect(slots.filter(s => s.switched).map(s => s.charBase)).toEqual(
+      SWITCH_SLOTS.map(([, c]) => c),
+    )
+    expect(slots.find(s => s.charBase === 0x48)!.switched).toBeUndefined()
+  })
+
   it('ignores a dead copy elsewhere, which never runs', () => {
     const rom = switchRom()
     rom.writeAt(0x02c000, stockRoutine({ shift: 0x30 }))
@@ -642,6 +652,12 @@ describe('switch alternates', () => {
     const data = loadAnimationData(rom, 0)!
     expect(data.frames[0]!.filter(s => s.alt)).toHaveLength(7)
     expect(data.switchUnavailable).toMatch(/slot 6 writes the \$0800 split/)
+    // Both halves of the split stay marked switched, so their tiles still get the note (N20).
+    const halves = data.frames[0]!.filter(s => s.charBase === 0x80 || s.charBase === 0x90)
+    expect(halves.filter(s => s.switched).map(s => [s.charBase, s.switched])).toEqual([
+      [0x80, true],
+      [0x90, true],
+    ])
   })
 
   it('drops a switched frame that points outside the animated tiles, saying why', () => {

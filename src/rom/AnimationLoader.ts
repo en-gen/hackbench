@@ -217,6 +217,8 @@ export interface AnimFrameSlot {
   tiles: Uint8Array[]
   /** Pixels loaded into the same chars while `switch`'s RAM byte is nonzero (bank_05.asm:4417-4421). */
   alt?: { switch: SwitchKind; tiles: Uint8Array[] }
+  /** The behavior table marks this slot switched (1), whether or not `alt` could be read. */
+  switched?: true
 }
 
 export type SwitchKind = 'blue' | 'silver' | 'onOff'
@@ -586,7 +588,7 @@ export function loadAnimationDataOrReason(rom: RomFile, tilesetId: number): Load
           else if (!fits(altOffset)) reasons.add(`slot ${tileIdx}'s switched frame is out of range`)
           else alt = { switch: kind, tiles: decodeTilesAt(buffer, altOffset) }
         }
-        frameSlots.push(...destSlots(vramDest, tiles, alt))
+        frameSlots.push(...destSlots(vramDest, tiles, alt, behavior === 1))
       }
     }
     frames.push(frameSlots)
@@ -619,12 +621,14 @@ function destSlots(
   vramDest: number,
   tiles: Uint8Array[],
   alt?: AnimFrameSlot['alt'],
+  switched = false,
 ): AnimFrameSlot[] {
   const charBase = vramAddrToChar(vramDest)
-  if (vramDest !== 0x0800) return [{ charBase, tiles, ...(alt && { alt }) }]
+  const flag = switched ? { switched: true as const } : {}
+  if (vramDest !== 0x0800) return [{ charBase, tiles, ...(alt && { alt }), ...flag }]
   return [
-    { charBase, tiles: tiles.slice(0, 2) },
-    { charBase: vramAddrToChar(0x0900), tiles: tiles.slice(2, 4) },
+    { charBase, tiles: tiles.slice(0, 2), ...flag },
+    { charBase: vramAddrToChar(0x0900), tiles: tiles.slice(2, 4), ...flag },
   ]
 }
 
@@ -659,6 +663,14 @@ export function getAnimatedChars(animData: AnimationData): Set<number> {
       }
     }
   }
+  return chars
+}
+
+/** Chars in slots the behavior table marks switched, alternate read or not. */
+export function getSwitchedChars(animData: AnimationData): Set<number> {
+  const chars = new Set<number>()
+  for (const slot of animData.frames.flat())
+    if (slot.switched) slot.tiles.forEach((_, i) => chars.add(slot.charBase + i))
   return chars
 }
 
