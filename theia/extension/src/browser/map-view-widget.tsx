@@ -47,6 +47,12 @@ const ZOOMS = [1, 2, 3, 4]
 const MARGIN = 1
 const ICON_FRAME = { width: 16, height: 16 }
 
+/** Calls `run` after every commit of the tree it sits in: refs are attached by then. */
+function AfterCommit({ run }: { run: () => void }): null {
+  React.useLayoutEffect(run)
+  return null
+}
+
 const title = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
 /** The palace bits a screen was drawn for, yellow green red blue: `1000` is yellow pressed. */
@@ -272,16 +278,14 @@ export class MapViewWidget extends ReactWidget {
   }
 
   /**
-   * Repaints every screen canvas from the cache once React has committed, rather
-   * than trusting ref callbacks to fire: a canvas React keeps keeps its
-   * pixels, one it recreates starts blank, and this covers both.
+   * Repaints every screen canvas from the cache after each React commit (see
+   * `AfterCommit`): a canvas React keeps keeps its pixels, one it creates
+   * starts blank. The strip's canvases are created by the render that the
+   * FIRST reply triggers, after that reply was already cached, so a repaint
+   * timed any other way (the old requestAnimationFrame after an update
+   * request, which can run before React commits) left screen 0 blank.
    */
-  protected override onUpdateRequest(msg: Message): void {
-    super.onUpdateRequest(msg)
-    requestAnimationFrame(() => this.repaintAll())
-  }
-
-  protected repaintAll(): void {
+  protected readonly repaintAll = (): void => {
     for (const s of this.canvases.keys()) this.paint(s)
   }
 
@@ -294,6 +298,7 @@ export class MapViewWidget extends ReactWidget {
     const z = this.zoom
     return (
       <div className="hb-map-view-main">
+        <AfterCommit run={this.repaintAll} />
         <div className="hb-map-view-toolbar">
           <span className="hb-map-view-toolbar-label">Switch palaces</span>
           {PALACES.map(p => this.renderToggle(p))}

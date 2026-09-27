@@ -162,6 +162,7 @@ async function readViewport(page, index) {
     const visH = scroller.clientHeight
     const visW = scroller.clientWidth
     const distinct = new Set()
+    const screens = []
     let fullHeight = true
     for (const c of scroller.querySelectorAll('canvas[data-screen]')) {
       const r = c.getBoundingClientRect()
@@ -178,9 +179,17 @@ async function readViewport(page, index) {
       const w = Math.max(1, Math.floor((right - left) * sx))
       const h = Math.max(1, Math.floor((bottom - top) * sy))
       const data = c.getContext('2d').getImageData(x0, y0, w, h).data
-      for (let i = 0; i < data.length; i += 4) distinct.add(data.slice(i, i + 4).join(','))
+      const own = new Set()
+      let clear = 0
+      for (let i = 0; i < data.length; i += 4) {
+        const px = data.slice(i, i + 4).join(',')
+        distinct.add(px)
+        own.add(px)
+        if (data[i + 3] !== 255) clear++
+      }
+      screens.push({ screen: Number(c.dataset.screen), drawn: c.dataset.drawn ?? null, distinct: own.size, clear }) // prettier-ignore
     }
-    return { distinct: distinct.size, fullHeight }
+    return { distinct: distinct.size, fullHeight, screens }
   }, root(index))
 }
 
@@ -193,7 +202,48 @@ test('at open, the map fills the view and visible terrain is drawn', async ({ pa
   // defect this guards, and it reads 1 or 2 colors here.
   expect(view.fullHeight).toBe(true)
   expect(view.distinct).toBeGreaterThan(4)
+  // Per screen, not in total: the total passed while screen 0 was blank,
+  // because screen 1's terrain was in view too.
+  expectEveryVisibleScreenDrawn(view)
 })
+
+/**
+ * Every screen in view is painted: `data-drawn` set, the backdrop fills it
+ * (a blank canvas is transparent and shows the theme instead), and it holds
+ * more than one color.
+ */
+function expectEveryVisibleScreenDrawn(view) {
+  expect(view.screens.length).toBeGreaterThan(0)
+  for (const s of view.screens) {
+    expect(s.drawn, `screen ${s.screen} painted`).not.toBeNull()
+    expect(s.clear, `screen ${s.screen} transparent pixels`).toBe(0)
+    expect(s.distinct, `screen ${s.screen} colors`).toBeGreaterThan(1)
+  }
+}
+
+/**
+ * The screen the first (sizing) reply draws. Its canvas does not exist yet
+ * when that reply lands, and a repaint timed before React's commit left it
+ * blank on every map (owner: $009, $013, $12C on build c6e39a15). Screen 1
+ * is checked too.
+ */
+// A spread, not the reported maps only: the defect was in the widget, so it
+// hit every map. $109 is vertical.
+for (const index of [0x009, 0x013, 0x105, 0x12c, 0x109]) {
+  test(`at open, screen 0 of $${index.toString(16).padStart(3, '0')} is painted, not blank`, async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, index)
+    await page.waitForTimeout(500)
+    for (const screen of [0, 1]) {
+      const px = await readScreen(page, index, screen)
+      expect(px.rgba.filter((v, i) => i % 4 === 3 && v !== 255), `screen ${screen} transparent`).toHaveLength(0) // prettier-ignore
+      expect(px.distinct, `screen ${screen} colors`).toBeGreaterThan(1)
+    }
+    expectEveryVisibleScreenDrawn(await readViewport(page, index))
+  })
+}
 
 test('opening a map draws real pixels, and two maps differ', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
