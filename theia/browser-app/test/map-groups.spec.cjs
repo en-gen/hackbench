@@ -46,7 +46,8 @@ const ROM = process.env.HB_ROM || romPath(VANILLA)
  * cart) would look right at a glance but is stock SMW with a copier header:
  * its header-stripped sha256 IS the vanilla hash, so it correctly seeds.
  */
-const HACK_ROM = romPath(INVICTUS)
+const HACK_ROM = process.env.HB_ROM_INVICTUS || romPath(INVICTUS)
+const MAGIC_ROM = process.env.HB_ROM_MAGIC || romPath(MAGIC)
 
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary
@@ -347,9 +348,8 @@ test('a non-vanilla corpus ROM gets no groups at load', async ({ page }) => {
 test('the vanilla ROM and its Lunar Magic resave (a copier-headered copy) seed identically', async ({
   page,
 }) => {
-  const magic = romPath(MAGIC)
-  test.skip(!fs.existsSync(magic), 'no magic.sfc corpus ROM on this machine')
-  await openProject(page, path.join(tmp, 'Magic'), { rom: magic, seedEmpty: false })
+  test.skip(!fs.existsSync(MAGIC_ROM), 'no magic.sfc corpus ROM on this machine')
+  await openProject(page, path.join(tmp, 'Magic'), { rom: MAGIC_ROM, seedEmpty: false })
   const tree = await snapshot(page)
   expect(tree.userGroups.map(g => g.name)).toContain('8. Star World')
   expect(new Set(tree.userGroups.find(g => g.name === '8. Star World').slots)).toEqual(
