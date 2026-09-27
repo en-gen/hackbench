@@ -1946,6 +1946,265 @@ test('a hidden tile previews its on-art at 25% opacity while switched off', asyn
   expect(onAlpha).toBe(255)
 })
 
+// -- Layout: the preview column sits right of the tile grid (#623) -------
+
+/**
+ * Viewport boxes of the grid, its column, the preview column and what it
+ * holds. `scroll` is the view's own scrollers, none of which may scroll
+ * sideways; `strip` is the grid's strip, which may, when the grid is wider
+ * than the column left for it.
+ */
+async function layoutOf(page, root = FG) {
+  return page.evaluate(sel => {
+    const rootEl = document.querySelector(sel)
+    const q = s => rootEl.querySelector(s)
+    const box = el => (el ? el.getBoundingClientRect().toJSON() : null)
+    const scroller = el =>
+      el && { top: el.scrollTop, left: el.scrollLeft, overflowX: el.scrollWidth - el.clientWidth }
+    // The grid with its strip's scroll added back. A click on a tile outside
+    // the strip's viewport scrolls the strip to it, which moves the canvas
+    // rect by exactly the scroll while the layout stays put; measured raw,
+    // that read as a 191px jump.
+    const strip = q('.hb-map16-canvas-wrap')
+    const grid = box(q('.hb-map16-canvas'))
+    if (grid) {
+      for (const k of ['x', 'left', 'right']) grid[k] += strip.scrollLeft
+      for (const k of ['y', 'top', 'bottom']) grid[k] += strip.scrollTop
+    }
+    return {
+      root: box(rootEl),
+      grid,
+      browser: box(q('.hb-map16-browser')),
+      main: box(q('.hb-map16-main')),
+      preview: box(q('.hb-map16-preview')),
+      toggle: box(q('[data-control="switch-toggle"]')),
+      editPane: box(q('.hb-map16-edit-pane')),
+      palettes: box(q('.hb-map16-palettes')),
+      scroll: {
+        root: scroller(rootEl),
+        body: scroller(q('.hb-map16-body')),
+        panes: scroller(q('.hb-map16-panes')),
+        main: scroller(q('.hb-map16-main')),
+      },
+      strip: scroller(strip),
+    }
+  }, root)
+}
+
+/** Whether `inner` lies wholly inside `outer`, to within a sub-pixel. */
+function contains(outer, inner) {
+  return (
+    inner.x >= outer.x - 0.5 &&
+    inner.y >= outer.y - 0.5 &&
+    inner.right <= outer.right + 0.5 &&
+    inner.bottom <= outer.bottom + 0.5
+  )
+}
+
+/** Right of the grid's column, starting in the same row band rather than below it. */
+function besideGrid(l) {
+  return l.preview.x >= l.browser.right && Math.abs(l.preview.y - l.grid.y) < l.preview.height
+}
+
+function expectNoSidewaysScroll(l) {
+  for (const [name, s] of Object.entries(l.scroll)) {
+    expect({ name, overflowX: s.overflowX }).toEqual({ name, overflowX: 0 })
+  }
+}
+
+/** Applies a planted stylesheet for the length of `fn`, then removes it. */
+async function withPlanted(page, css, fn) {
+  const tag = await page.addStyleTag({ content: css })
+  try {
+    return await fn()
+  } finally {
+    await tag.evaluate(el => el.remove())
+  }
+}
+
+/** The first cut of #623: the row wrapped, so a grid too wide to share it
+ * pushed the preview column onto a second line, below a full-height grid. */
+const PLANT_WRAP = `
+  ${FG} .hb-map16-panes { flex-wrap: wrap; overflow-y: auto; }
+  ${FG} .hb-map16-browser { max-width: 100%; max-height: 100%; }
+  ${FG} .hb-map16-main { flex: 1 1 20em; min-width: 0; max-height: 100%; }`
+/** develop before #623: the preview column stacked above the grid, here sized by its content. */
+const PLANT_STACKED = `
+  ${FG} .hb-map16-panes { flex-direction: column; }
+  ${FG} .hb-map16-main { order: -1; flex: none; }`
+/** The preview column LEFT of the grid, as wide as its content. */
+const PLANT_CONTENT_LEFT = `${FG} .hb-map16-main { order: -1; flex: none; }`
+
+test('the preview sits right of the tile grid, and a new selection moves no part of the grid', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'Layout'))
+  await openMap16(page, 'fg')
+  await clickTile(page, NO_SWITCH_TILE_ID)
+
+  const first = await layoutOf(page)
+  expect(first.toggle).toBeNull()
+  expect(besideGrid(first)).toBe(true)
+
+  const previewSel = `${FG} .hb-map16-preview-canvas`
+  const pixelsBefore = await readCanvasChecksum(page, previewSel)
+  await clickTile(page, BLUE_SWITCH_TILE_ID)
+  const second = await layoutOf(page)
+  // The right column really changed: new pixels, and a switch toggle it did not have.
+  expect(await readCanvasChecksum(page, previewSel)).not.toBe(pixelsBefore)
+  expect(second.toggle).not.toBeNull()
+  // ...and the grid stayed exactly where it was.
+  expect(second.grid).toEqual(first.grid)
+  expect(second.browser).toEqual(first.browser)
+  expect(besideGrid(second)).toBe(true)
+
+  // Prove both checks can fail. A content-sized column beside the grid moves
+  // it on the same two selections...
+  await withPlanted(page, PLANT_CONTENT_LEFT, async () => {
+    await clickTile(page, NO_SWITCH_TILE_ID)
+    const before = (await layoutOf(page)).grid
+    await clickTile(page, BLUE_SWITCH_TILE_ID)
+    expect((await layoutOf(page)).grid, 'the planted layout must move the grid').not.toEqual(before)
+  })
+  // ...and the stacked layout develop drew is not beside the grid.
+  await withPlanted(page, PLANT_STACKED, async () => {
+    expect(besideGrid(await layoutOf(page)), 'a stacked layout must fail this check').toBe(false)
+  })
+  expect(await layoutOf(page)).toEqual(second)
+})
+
+test('at 1280x720 the grid, the preview and the switch toggles are all in view without scrolling', async ({
+  page,
+}) => {
+  // Bound to the size the claim is about, rather than whatever the default is.
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await loadGfxExplorer(page, path.join(tmp, 'LayoutDefault'))
+  await openMap16(page, 'fg')
+  await clickTile(page, BLUE_SWITCH_TILE_ID)
+
+  const l = await layoutOf(page)
+  expect(besideGrid(l)).toBe(true)
+  expect(contains(l.root, l.preview)).toBe(true)
+  expect(contains(l.root, l.toggle)).toBe(true)
+  // The grid is taller than the view and scrolls inside its own strip, so
+  // its full WIDTH and its top edge are what must be on screen. At this
+  // size and the default zoom the strip does not scroll sideways either.
+  expect(l.grid.right).toBeLessThanOrEqual(l.browser.right)
+  expect(l.grid.y).toBeGreaterThanOrEqual(l.root.y)
+  expect(l.grid.y).toBeLessThan(l.root.bottom)
+  for (const [name, s] of Object.entries({ ...l.scroll, strip: l.strip })) {
+    expect({ name, ...s }).toEqual({ name, top: 0, left: 0, overflowX: 0 })
+  }
+
+  // Prove the containment checks can fail: wrap the preview column onto its
+  // own line and both it and the toggle leave the view.
+  await withPlanted(page, `${PLANT_WRAP} ${FG} .hb-map16-main { flex-basis: 100%; }`, async () => {
+    const p = await layoutOf(page)
+    expect(contains(p.root, p.preview), 'a wrapped preview must read as out of view').toBe(false)
+    expect(contains(p.root, p.toggle), 'a wrapped toggle must read as out of view').toBe(false)
+  })
+})
+
+/**
+ * Where the grid cannot share the row at its full width, the row still does
+ * not wrap: the grid's column gives way and the grid strip scrolls sideways
+ * inside it. That strip is the ONLY thing allowed to scroll sideways.
+ */
+for (const { name, width, zoomIns } of [
+  { name: 'at 760x720', width: 760, zoomIns: 0 },
+  { name: 'at 1280x720 zoomed to 3x', width: 1280, zoomIns: 1 },
+  { name: 'at 1280x720 zoomed to 4x', width: 1280, zoomIns: 2 },
+]) {
+  test(`${name} the preview stays in view beside the grid column`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 720 })
+    await loadGfxExplorer(page, path.join(tmp, 'LayoutTight'))
+    await openMap16(page, 'fg')
+    // Selected BEFORE zooming, since clickTile aims at the default zoom.
+    await clickTile(page, BLUE_SWITCH_TILE_ID)
+    for (let i = 0; i < zoomIns; i++) await page.locator(ctl('zoom-in')).click()
+    await expect(page.locator(ctl('zoom-indicator'))).toHaveText(`${DEFAULT_ZOOM + zoomIns}x`)
+
+    const l = await layoutOf(page)
+    expect(contains(l.root, l.preview)).toBe(true)
+    expect(contains(l.root, l.toggle)).toBe(true)
+    expect(besideGrid(l)).toBe(true)
+    expectNoSidewaysScroll(l)
+    // Each size here is too tight for the grid at full width, and the strip
+    // is where the difference goes: it scrolls sideways, the view does not.
+    expect(l.strip.overflowX).toBeGreaterThan(0)
+
+    // Prove it can fail: with the wrapping row, the preview lands below the grid, out of view.
+    await withPlanted(page, PLANT_WRAP, async () => {
+      const p = await layoutOf(page)
+      expect(contains(p.root, p.preview), 'a wrapped preview must read as out of view').toBe(false)
+    })
+  })
+}
+
+test('collapsing the grid leaves a narrow bar, and expanding it restores the layout', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'LayoutCollapse'))
+  await openMap16(page, 'fg')
+  await clickTile(page, BLUE_SWITCH_TILE_ID)
+  const expanded = await layoutOf(page)
+
+  const toggle = page.locator(ctl('browser-toggle'))
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  const collapsed = await layoutOf(page)
+  expect(collapsed.browser.width).toBeLessThan(80)
+  expect(collapsed.main.x - collapsed.root.x).toBeLessThan(80)
+  expect(contains(collapsed.root, collapsed.preview)).toBe(true)
+
+  // Prove it can fail: keep the note showing at full width while collapsed,
+  // as the first cut of #623 did, and the bar is no longer narrow.
+  await withPlanted(
+    page,
+    `${FG} .hb-map16-browser-closed .hb-map16-browser-note { display: inline; contain: none; }`,
+    async () => {
+      expect((await layoutOf(page)).browser.width).toBeGreaterThanOrEqual(80)
+    },
+  )
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  expect(await layoutOf(page)).toEqual(expanded)
+})
+
+test('the edit pane and the character palettes open under the preview, in the right column', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'LayoutEdit'))
+  await openMap16(page, 'fg')
+  await clickTile(page, TARGET_TILE_ID)
+  const closed = await layoutOf(page)
+
+  await openEditPane(page)
+  await expandSheet(page, 'fg3')
+  const open = await layoutOf(page)
+
+  expect(open.editPane.x).toBeGreaterThanOrEqual(open.browser.right)
+  expect(open.editPane.y).toBeGreaterThanOrEqual(open.preview.bottom)
+  expect(open.palettes.x).toBeGreaterThanOrEqual(open.browser.right)
+  expect(open.palettes.y).toBeGreaterThanOrEqual(open.preview.bottom)
+  // Opening them grows the right column only: the grid did not move.
+  expect(open.grid).toEqual(closed.grid)
+  expectNoSidewaysScroll(open)
+
+  // Prove the grid check can fail: stacked under a content-sized preview
+  // column, closing the edit pane moves the grid.
+  await withPlanted(page, PLANT_STACKED, async () => {
+    const withPane = (await layoutOf(page)).grid
+    await page.locator(`${FG} .hb-map16-preview`).hover()
+    await page.locator(ctl('edit-toggle')).click()
+    await expect(page.locator(`${FG} .hb-map16-edit-pane`)).toHaveCount(0)
+    expect((await layoutOf(page)).grid, 'the planted layout must move the grid').not.toEqual(
+      withPane,
+    )
+  })
+})
+
 /**
  * #621: a hidden tile ($027, blank until the blue P-switch) shows in the SHEET
  * at 25%, still or playing, so it can be found; a blank tile no
