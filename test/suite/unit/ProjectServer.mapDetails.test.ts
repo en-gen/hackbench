@@ -23,6 +23,7 @@ import * as os from 'os'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom, ADDR } from '../../../src/rom/SmwRom'
 import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
+import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
 import { OW_ADDR } from '../../../src/rom/OverworldLoader'
 import { buildMapDetails } from '../../../theia/extension/src/node/map-details'
 import { plantStockSubmapCode, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
@@ -48,6 +49,78 @@ describe('buildMapDetails - orientation unavailable', () => {
     expect(details.headerBytes).toEqual([0, 0, 0, 0, 0])
     expect(details.screens).toBe(1)
     expect(details.objectCount).toBe(1)
+  })
+})
+
+/** syntheticRom with slot $105's L1 pointer moved to `ptr`, and `stream`
+ *  written there when given. The ROM is $40000 bytes, so it ends at $07FFFF. */
+function romWithL1(ptr: number, stream?: number[]): SmwRom {
+  const smw = syntheticRom()
+  smw.rom.writeAt(ADDR.LEVEL_L1_PTR + 0x105 * 3, [ptr & 0xff, (ptr >> 8) & 0xff, ptr >> 16])
+  if (stream) smw.rom.writeAt(ptr, stream)
+  return smw
+}
+const ONE_OBJECT = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x35, 0x01, 0xff]
+
+describe('buildMapDetails - level data in the last bytes of the ROM', () => {
+  it('reads a stream that ends before EOF, as the catalog already calls the slot real', () => {
+    const smw = romWithL1(0x07fff0, ONE_OBJECT)
+    expect(buildLevelCatalog(smw).entries[0x105]!.isReal).toBe(true)
+
+    const details = buildMapDetails(smw, 0x105)
+    expect(details.levelDataUnavailable).toBeUndefined()
+    expect(details.objectCount).toBe(1)
+    expect(buildLevelCatalog(smw).entries[0x105]!.parseable).toBe(true)
+  })
+
+  it('reads a tail longer than $100 bytes whose $FF is the last byte of the ROM', () => {
+    const objects = Array.from({ length: 90 }, () => [0x00, 0x35, 0x01]).flat()
+    const stream = [0x00, 0x00, 0x00, 0x00, 0x00, ...objects, 0xff] // 276 bytes
+    const details = buildMapDetails(romWithL1(0x080000 - stream.length, stream), 0x105)
+    expect(details.objectCount).toBe(90)
+  })
+
+  it('reads a tail of exactly the five header bytes, with no object count', () => {
+    const details = buildMapDetails(romWithL1(0x07fffb, [0x00, 0x00, 0x00, 0x00, 0x00]), 0x105)
+    expect(details.levelDataUnavailable).toBeUndefined()
+    expect(details.headerBytes).toEqual([0, 0, 0, 0, 0])
+    expect(details.objectCount).toBeUndefined()
+    expect(details.objectsUnavailable).toMatch(/\$FF terminator/)
+  })
+
+  it('refuses a tail too short to hold the five header bytes', () => {
+    const details = buildMapDetails(romWithL1(0x07fffc), 0x105)
+    expect(details.levelDataUnavailable).toMatch(/\$07FFFC does not address/)
+  })
+})
+
+describe('buildMapDetails - level data unavailable', () => {
+  it('returns the reason instead of throwing when the pointer is outside the ROM', () => {
+    const details = buildMapDetails(romWithL1(0x7eb215), 0x105)
+    expect(details.levelDataUnavailable).toMatch(/\$7EB215 does not address this ROM's data/)
+    expect(details.index).toBe(0x105)
+    expect(details.headerBytes).toBeUndefined()
+    expect(details.header).toBeUndefined()
+  })
+
+  it('keeps the name reason when the level data is unavailable', () => {
+    const details = buildMapDetails(romWithL1(0x7eb215), 0x105)
+    expect(details.name).toBeNull()
+    expect(details.nameUnavailable).toMatch(/rebuilt by another editor/)
+  })
+
+  it('says so when the slot has no pointer at all', () => {
+    expect(buildMapDetails(romWithL1(0), 0x105).levelDataUnavailable).toMatch(/no Layer 1 pointer/)
+  })
+})
+
+describe('buildMapDetails - objects unavailable', () => {
+  it('withholds the object count when the walk never reaches $FF', () => {
+    // Zero bytes decode as 4-byte screen exits, so the walk runs off the read.
+    const details = buildMapDetails(romWithL1(0x078000), 0x105)
+    expect(details.objectCount).toBeUndefined()
+    expect(details.objectsUnavailable).toMatch(/did not reach its \$FF terminator/)
+    expect(details.screens).toBe(1)
   })
 })
 
@@ -93,6 +166,16 @@ describe('buildMapDetails - stock name present (negative control)', () => {
 
     expect(details.name).toBe('AB')
     expect(details.nameUnavailable).toBeUndefined()
+  })
+
+  it('keeps the name when the level data is unavailable', () => {
+    const rom = namedStockRom()
+    rom.rom.writeAt(ADDR.LEVEL_L1_PTR + 0x001 * 3, [0x00, 0x00, 0x7e]) // -> WRAM
+    const entrances = deriveOverworldEntrances(rom, undefined, SYNTHETIC_FINGERPRINTS)
+    const details = buildMapDetails(rom, 0x001, entrances)
+
+    expect(details.levelDataUnavailable).toMatch(/\$7E0000/)
+    expect(details.name).toBe('AB')
   })
 })
 

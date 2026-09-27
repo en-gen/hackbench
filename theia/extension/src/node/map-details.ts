@@ -20,18 +20,28 @@ import type { MapDetailsDto } from '../common/project-protocol'
 const hex = (n: number, w = 2): string => `$${n.toString(16).toUpperCase().padStart(w, '0')}`
 
 /**
- * Read one map's details from `rom`. Throws when the slot holds no readable
- * level data, which is a real answer rather than an empty map (see
- * MapDetailsDto's own doc comment).
+ * Read one map's details from `rom`. A slot whose level data cannot be read
+ * returns its name and the reason, never an empty map (see MapDetailsDto).
  */
 export function buildMapDetails(
   rom: SmwRom,
   index: number,
   entrances?: OverworldEntranceIndex,
 ): MapDetailsDto {
+  // Read once so "no name" and "mapping unreadable" stay distinguishable,
+  // the same shape as verticalTable and the sprite site below.
+  const nameResult = levelNameForSlot(rom.rom, entrances ?? deriveOverworldEntrances(rom), index)
+  const named = { index, name: nameResult.name, nameUnavailable: nameResult.reason }
+
   const raw = rom.getLevelRawData(index)
   if (!raw) {
-    throw new Error(`No readable level data at slot ${hex(index, 3)}`)
+    const ptr = rom.getLevelL1Pointer(index)
+    return {
+      ...named,
+      levelDataUnavailable: ptr
+        ? `the Layer 1 pointer ${hex(ptr, 6)} does not address this ROM's data`
+        : `slot ${hex(index, 3)} has no Layer 1 pointer`,
+    }
   }
 
   // Header, screen count and object count never read isVertical (see
@@ -66,18 +76,16 @@ export function buildMapDetails(
     }
   }
 
-  // Read once so "no name" and "mapping unreadable" stay distinguishable,
-  // the same shape as verticalTable and the sprite site above.
-  const nameResult = levelNameForSlot(rom.rom, entrances ?? deriveOverworldEntrances(rom), index)
   return {
-    index,
-    name: nameResult.name,
-    nameUnavailable: nameResult.reason,
+    ...named,
     headerBytes: h.raw,
     screens: parsed.screens,
     isVertical: verticalTable.ok ? parsed.isVertical : undefined,
     orientationUnavailable: verticalTable.ok ? undefined : verticalTable.reason,
-    objectCount: parsed.objects.length,
+    objectCount: parsed.terminated ? parsed.objects.length : undefined,
+    objectsUnavailable: parsed.terminated
+      ? undefined
+      : 'the object stream did not reach its $FF terminator, so the count cannot be trusted',
     spriteCount,
     spriteUnavailable,
     // Labels match LevelParser's own field names so a reader can follow

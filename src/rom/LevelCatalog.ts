@@ -115,11 +115,10 @@ function findFillerPointer(pointers: readonly number[]): FillerAnalysis {
  * levelHasObjects(), which has its own documented, unrelated defect (see
  * SmwRom.ts) that this catalog does not need and does not route around. A
  * real slot is parseable when SmwRom.getLevelRawData can read it back at
- * all; the measured minimum size on every parseable slot across the six-ROM
- * corpus is 0x2000 bytes, so "readable at all" is the only threshold that
- * means anything here. Unparseable real slots are the observable symptom of
- * the expanded-ROM addressing gap on the two 4 MB ROMs in the corpus, out of
- * scope to fix here.
+ * all, which needs only the five header bytes before the ROM ends: editors
+ * can place a level in the ROM's last bytes. Unparseable real slots are the
+ * observable symptom of the expanded-ROM addressing gap on the two 4 MB ROMs
+ * in the corpus, out of scope to fix here.
  */
 export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
   const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => rom.getLevelL1Pointer(i) ?? 0)

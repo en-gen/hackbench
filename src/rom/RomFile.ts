@@ -96,6 +96,16 @@ export class RomFile {
     return this._copy(offset, length)
   }
 
+  /** Up to `max` bytes at `snesAddr`, fewer when the ROM ends first. */
+  readUpTo(snesAddr: number, max: number): Buffer | null {
+    const offset =
+      this.mapMode === 'hirom'
+        ? hiromToOffset(snesAddr, this.hasHeader)
+        : loromToOffset(snesAddr, this.romSize, this.hasHeader)
+    if (offset === null || offset >= this.buffer.length) return null
+    return this._copy(offset, Math.min(max, this.buffer.length - offset))
+  }
+
   /**
    * A detached copy of a byte range, never a view onto `buffer`.
    *

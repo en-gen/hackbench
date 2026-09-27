@@ -166,10 +166,16 @@ export interface MapDetailsDto {
   /** Why `name` is null when the translevel mapping itself is unreadable,
    *  rather than the slot simply having no name. */
   nameUnavailable?: string
+  /** Why the slot's level data could not be read. When set, every field
+   *  below it is absent, and nothing past the name is claimed. */
+  levelDataUnavailable?: string
   /** The five header bytes, so the user can check the decode themselves. */
-  headerBytes: number[]
-  screens: number
-  objectCount: number
+  headerBytes?: number[]
+  screens?: number
+  /** Absent when the object walk did not end on $FF; see `objectsUnavailable`. */
+  objectCount?: number
+  /** Why `objectCount` is absent when level data was read. */
+  objectsUnavailable?: string
   /** Absent when VerticalTable could not be read; see `orientationUnavailable`. */
   isVertical?: boolean
   /** Why `isVertical` is absent. Set only when it is. */
@@ -179,7 +185,7 @@ export interface MapDetailsDto {
   /** Why `spriteCount` is absent. Set only when it is. */
   spriteUnavailable?: string
   /** Decoded header fields, label and value, in header-byte order. */
-  header: Array<{ label: string; value: string }>
+  header?: Array<{ label: string; value: string }>
 }
 
 /** 'bps' is the default: SMW Central's Hacks section no longer accepts IPS. */

@@ -82,18 +82,31 @@ export class MapViewWidget extends ReactWidget {
     }
 
     const d = this.details
+    const title = (
+      <h2 className="hb-map-view-title">
+        <span className="hb-map-slot">{slotLabel(d.index)}</span>
+        {d.name ? (
+          <span className="hb-map-name">{d.name}</span>
+        ) : d.nameUnavailable ? (
+          <span title={d.nameUnavailable}>name unavailable</span>
+        ) : null}
+      </h2>
+    )
+    if (!d.headerBytes || !d.header) {
+      return (
+        <div className="hb-map-view-body">
+          {title}
+          <div className="hb-map-view-summary">
+            <span title={d.levelDataUnavailable}>level data unavailable</span>
+          </div>
+        </div>
+      )
+    }
     const bytes = d.headerBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ')
 
     return (
       <div className="hb-map-view-body">
-        <h2 className="hb-map-view-title">
-          <span className="hb-map-slot">{slotLabel(d.index)}</span>
-          {d.name ? (
-            <span className="hb-map-name">{d.name}</span>
-          ) : d.nameUnavailable ? (
-            <span title={d.nameUnavailable}>name unavailable</span>
-          ) : null}
-        </h2>
+        {title}
 
         <div className="hb-map-view-summary">
           {d.screens} screens,{' '}
@@ -107,7 +120,12 @@ export class MapViewWidget extends ReactWidget {
             <span title={d.orientationUnavailable}>orientation unavailable</span>
           )}
           {' · '}
-          {d.objectCount} objects{' · '}
+          {d.objectCount !== undefined ? (
+            `${d.objectCount} objects`
+          ) : (
+            <span title={d.objectsUnavailable}>objects unavailable</span>
+          )}
+          {' · '}
           {d.spriteCount !== undefined ? (
             `${d.spriteCount} sprites`
           ) : (

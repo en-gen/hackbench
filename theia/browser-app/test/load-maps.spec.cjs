@@ -225,6 +225,43 @@ test('a ROM whose overworld entry code is patched shows the name unavailable, wi
   expect(view).toMatch(/rebuilt by another editor/i)
 })
 
+test('a map whose level data is out of the ROM shows level data unavailable, with why', async ({
+  page,
+}) => {
+  // $05E311 is the bank byte of $105's Layer 1 pointer: Layer1Ptrs (bank_05.asm:7680)
+  // + $105 * 3 + 2. $7E moves it into WRAM. Headerless LoROM file offset $2E311.
+  const patched = path.join(tmp, 'level-data-patched.sfc')
+  const bytes = fs.readFileSync(ROM)
+  expect(bytes[0x2e311]).toBe(0x06)
+  bytes[0x2e311] = 0x7e
+  fs.writeFileSync(patched, bytes)
+
+  const view = await openMapView(page, patched, path.join(tmp, 'LevelDataPatched'))
+  expect(view).toMatch(/level data unavailable/i)
+  expect(view).toMatch(/\$7E88DD does not address this ROM's data/)
+  // The name does not come from the level data, so it still shows.
+  expect(view).toMatch(/YOSHI'S ISLAND 1/i)
+})
+
+test('a map whose object stream never reaches $FF shows objects unavailable, with why', async ({
+  page,
+}) => {
+  // Points $105's Layer 1 pointer ($05E30F, headerless offset $2E30F) at the
+  // ROM's last 16 bytes ($0FFFF0), filled with zeros: a header, then objects
+  // that run off the end of the ROM without a $FF terminator.
+  const patched = path.join(tmp, 'objects-patched.sfc')
+  const bytes = fs.readFileSync(ROM)
+  expect(bytes.length).toBe(0x80000)
+  bytes.fill(0x00, 0x7fff0)
+  bytes.set([0xf0, 0xff, 0x0f], 0x2e30f)
+  fs.writeFileSync(patched, bytes)
+
+  const view = await openMapView(page, patched, path.join(tmp, 'ObjectsPatched'))
+  expect(view).toMatch(/objects unavailable/i)
+  expect(view).toMatch(/did not reach its \$FF terminator/)
+  expect(view).not.toMatch(/\d+ objects/)
+})
+
 test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
   const result = await loadMaps(page, path.join(tmp, 'MyHack'))
 
