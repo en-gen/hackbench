@@ -15,13 +15,7 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
-const {
-  snapshotRegistry,
-  restoreRegistry,
-  startBackend,
-  stopBackend,
-  waitForBackend,
-} = require('./own-backend.cjs')
+const { startBackend, stopBackend, waitForBackend } = require('./own-backend.cjs')
 
 const PORT = Number(process.env.HB_RECONNECT_PORT || 3100)
 const APP = `http://127.0.0.1:${PORT}`
@@ -39,15 +33,9 @@ const GET_SVC = `function getSvc(name) {
 
 let backend
 let tmp
-let snapshot
-
-test.beforeAll(() => {
-  snapshot = snapshotRegistry()
-})
 
 test.afterAll(() => {
   stopBackend(backend)
-  restoreRegistry(snapshot)
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 

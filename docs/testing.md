@@ -436,6 +436,43 @@ quote one instruction's bytes; any longer run is elided. Neither file is
 committed. The sweep is hand-run, since CI has no store; its verdict and
 summary code is tested in `HackSweep.synthetic.test.ts`.
 
+## Playwright never touches your app data
+
+Specs create projects, which writes `recent-projects.json`, `rom-registry.json`
+and `core-registry.json` in per-machine app data (`src/project/appData.ts`:
+`APPDATA` on Windows, `XDG_DATA_HOME` on Linux). `playwright.config.cjs` points
+both at a per-run folder under the OS temp dir before any spec loads, which
+every process it starts inherits, and deletes it when the run exits. It never
+reuses a server already on port 3000, since that server's app data is unknown.
+
+The only supported way to run specs against a server you start yourself is
+`start-test-server.cjs`. It gives the server its own app data and
+`THEIA_CONFIG_DIR` under the temp dir, marks that folder with the port, and
+prints the two variables to export:
+
+```bash
+cd theia/browser-app
+node test/start-test-server.cjs 3457 &   # or `yarn test:server`; no port picks a free one
+export HB_APP_URL=http://127.0.0.1:3457 HB_TEST_APPDATA=<printed folder>
+npx playwright test new-project
+```
+
+With `HB_APP_URL` set, the config refuses to load unless `HB_TEST_APPDATA`
+holds that marker for the same port. That proves the pairing, not the
+server's environment: a server started any other way and handed a copied
+marker still writes wherever its own `APPDATA` points. The config also
+refuses an `HB_TEST_APPDATA` that no Playwright run created, and any folder
+outside the temp dir. macOS is refused outright, because `appData.ts`
+ignores the environment there.
+
+`test/suite/gates/playwrightAppDataGate.test.ts` checks, without a ROM: the
+config's folder is where the registries resolve; the webServer (through
+Playwright's env merge), `own-backend.cjs` and `start-test-server.cjs` spawn
+options hand it to a child process; `reuseExistingServer` is false; each
+refusal fires; a real `recent-projects.json` edited during a run comes out
+holding that edit. It plants a non-isolating harness and a snapshot/restore
+harness to show that last check can fail. It does not start a server.
+
 ## Commands
 
 ```bash
