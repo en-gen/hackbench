@@ -84,6 +84,7 @@ import {
   toggleKinds,
 } from './map16-view-model'
 import { decodeSwitchButton, type SwitchButtonImages } from './switch-toggle'
+import { ghostOf } from '../../../../src/rom/render/HiddenTiles'
 
 export { MAP16_VIEW_ID, map16WidgetId } from './map16-view-model'
 
@@ -768,9 +769,9 @@ export class Map16ViewWidget extends ReactWidget {
   }
 
   /**
-   * The preview canvas (#574): the alternate matching the active switch set
-   * wins; else a hidden tile's first single alternate in the screen door, rather
-   * than a blank preview; else the tile's own picture.
+   * The preview canvas (#574): the alternate matching the active switch set,
+   * or the tile's own picture; when that is blank, `ghostOf`'s picture in the
+   * screen door, the map tab's rule, both ways.
    */
   protected paintTilePreviewCanvas(
     tile: Map16TileDto,
@@ -781,10 +782,10 @@ export class Map16ViewWidget extends ReactWidget {
   ): void {
     if (!this.previewCanvasEl) return
     const own = cropRegion(pixels, atlasWidth, tileX, tileY, TILE_PX, TILE_PX)
-    const blank = (a: Uint8ClampedArray) => a.every((v, i) => i % 4 !== 3 || v === 0)
-    const shown = previewAlternate(tile.alternates, this.activeSwitches, a => blank(this.decoded(a.altRgbaBase64))) // prettier-ignore
-    const art = shown?.alt ? this.decoded(shown.alt.altRgbaBase64) : own
-    paintTilePreview(this.previewCanvasEl, shown?.hidden ? screenDoor(art) : art)
+    const picked = previewAlternate(tile.alternates, this.activeSwitches)
+    const shown = picked && !picked.hidden ? this.decoded(picked.alt.altRgbaBase64) : own
+    const ghost = ghostOf(shown, own, tile.alternates ?? [], a => this.decoded(a.altRgbaBase64))
+    paintTilePreview(this.previewCanvasEl, ghost ? screenDoor(ghost) : shown)
   }
 
   protected paintDetail(): void {

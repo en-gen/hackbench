@@ -1,11 +1,11 @@
 /**
  * How a tile blank in the switch state shown is drawn (#621, #643): its
  * picture from another state in a soft screen door, in color, only in the
- * pixels left transparent. One rule for the Map16 sheet, its inspector and the map
- * tab. No imports, so the browser can use it too.
+ * pixels left transparent, half of them at full strength and half at
+ * HIDDEN_TILE_DIM_ALPHA (the owner's choice over #621's flat 25%). One rule
+ * for the Map16 sheet, its inspector and the map tab. No imports, so the
+ * browser can use it too.
  */
-/** A hidden tile is drawn in a soft screen door (owner's choice over #621's flat 25%,
- * #643): half its pixels at full strength, the other half at this. */
 export const HIDDEN_TILE_DIM_ALPHA = 0.25
 
 /** The screen door at cell pixel (x, y): a checkerboard on the tile's own
@@ -36,7 +36,8 @@ export function overlayHidden(
     }
 }
 
-const isBlank = (rgba: Uint8ClampedArray) => {
+/** Whether an RGBA picture has no drawn pixel. */
+export function isBlank(rgba: Uint8ClampedArray): boolean {
   for (let i = 3; i < rgba.length; i += 4) if (rgba[i] !== 0) return false
   return true
 }

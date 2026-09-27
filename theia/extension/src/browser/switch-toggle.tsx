@@ -9,7 +9,7 @@ import { SWITCH_LABELS } from './map16-view-model'
 import { PixelImageButton, type FrameImage } from './pixel-image-button'
 
 /** Native size of every switch toggle's picture (Map16SwitchButtonImages). */
-export const SWITCH_BUTTON_PX = { width: 16, height: 16 }
+const SWITCH_BUTTON_PX = { width: 16, height: 16 }
 
 export interface SwitchButtonImages {
   off: FrameImage
