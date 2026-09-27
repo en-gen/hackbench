@@ -11,12 +11,8 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { encode } from '../../../src/rom/LcLz2'
 import { COPIER_HEADER_SIZE, LOROM_BANK_SIZE, loromFromOffset } from '../../../src/rom/addressing'
 import { WILD } from '../../../src/rom/BytePattern'
-import {
-  GFX_FILE_COUNT,
-  LEVEL_GFX_CALLERS,
-  PREPARE_GFX_PATTERN,
-  STOCK_LCLZ2_ENTRY,
-} from '../../../src/rom/GfxArena'
+import { GFX_FILE_COUNT, LEVEL_GFX_CALLERS, PREPARE_GFX_PATTERN } from '../../../src/rom/GfxArena'
+import { STOCK_LCLZ2_ENTRY } from '../../../src/rom/GfxDecompressor'
 import {
   PALETTE_COL1_PATH,
   ADDR_COL1_BG_LDA,
