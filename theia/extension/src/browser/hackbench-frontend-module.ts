@@ -29,9 +29,18 @@ import { EditStackContribution } from './edit-stack-contribution'
 import { ReconnectContribution } from './reconnect-contribution'
 import { OutlineViewContribution } from '@theia/outline-view/lib/browser/outline-view-contribution'
 import { HiddenOutlineViewContribution } from './hidden-outline-view-contribution'
+import { CommonFrontendContribution } from '@theia/core/lib/browser/common-frontend-contribution'
+import { SystemColorThemePicker } from './system-color-theme-picker'
+import { SystemColorThemeContribution } from './system-color-theme-contribution'
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   rebind(OutlineViewContribution).to(HiddenOutlineViewContribution).inSingletonScope()
+
+  // System Default color theme option (#665, #666): the picker row plus the
+  // contribution that keeps the resolved theme following the OS.
+  rebind(CommonFrontendContribution).to(SystemColorThemePicker).inSingletonScope()
+  bind(SystemColorThemeContribution).toSelf().inSingletonScope()
+  bind(FrontendApplicationContribution).toService(SystemColorThemeContribution)
 
   bind(ProjectFrontendClient).toSelf().inSingletonScope()
 
