@@ -47,12 +47,6 @@ const ZOOMS = [1, 2, 3, 4]
 const MARGIN = 1
 const ICON_FRAME = { width: 16, height: 16 }
 
-/** Calls `run` after every commit of the tree it sits in: refs are attached by then. */
-function AfterCommit({ run }: { run: () => void }): null {
-  React.useLayoutEffect(run)
-  return null
-}
-
 const title = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
 /** The palace bits a screen was drawn for, yellow green red blue: `1000` is yellow pressed. */
@@ -277,18 +271,6 @@ export class MapViewWidget extends ReactWidget {
     this.fitStrip()
   }
 
-  /**
-   * Repaints every screen canvas from the cache after each React commit (see
-   * `AfterCommit`): a canvas React keeps keeps its pixels, one it creates
-   * starts blank. The strip's canvases are created by the render that the
-   * FIRST reply triggers, after that reply was already cached, so a repaint
-   * timed any other way (the old requestAnimationFrame after an update
-   * request, which can run before React commits) left screen 0 blank.
-   */
-  protected readonly repaintAll = (): void => {
-    for (const s of this.canvases.keys()) this.paint(s)
-  }
-
   protected override onActivateRequest(msg: Message): void {
     super.onActivateRequest(msg)
     this.node.focus()
@@ -298,7 +280,6 @@ export class MapViewWidget extends ReactWidget {
     const z = this.zoom
     return (
       <div className="hb-map-view-main">
-        <AfterCommit run={this.repaintAll} />
         <div className="hb-map-view-toolbar">
           <span className="hb-map-view-toolbar-label">Switch palaces</span>
           {PALACES.map(p => this.renderToggle(p))}
@@ -404,8 +385,13 @@ export class MapViewWidget extends ReactWidget {
             height={l.height}
             style={{ width: l.width * this.zoom, height: l.height * this.zoom }}
             ref={el => {
-              if (el) this.canvases.set(s, el)
-              else if (this.canvases.get(s)?.isConnected === false) this.canvases.delete(s)
+              // A canvas React has just created starts blank: paint it from
+              // the cache here, keyed on the element, not on when this runs.
+              // The sizing reply lands before its canvas exists (#421).
+              if (el && this.canvases.get(s) !== el) {
+                this.canvases.set(s, el)
+                this.paint(s)
+              } else if (!el && this.canvases.get(s)?.isConnected === false) this.canvases.delete(s)
             }}
           />
         ))}

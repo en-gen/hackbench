@@ -19,12 +19,8 @@ import {
   type AnimationData,
 } from '../../../src/rom/AnimationLoader'
 import { VRAM_SLOT_NAMES, type VramState } from '../../../src/rom/GfxLoader'
-import {
-  decodeMap16Sheet,
-  frameZeroChars,
-  playableAnimation,
-  type FrameZeroChars,
-} from '../../../theia/extension/src/node/map16-decode'
+import { decodeMap16Sheet } from '../../../theia/extension/src/node/map16-decode'
+import { frameZeroChars, playableAnimation, type FrameZeroChars } from '../../../src/rom/FrameZero'
 import { map16Stub } from '../support/syntheticMap16'
 import {
   gfxStreams,

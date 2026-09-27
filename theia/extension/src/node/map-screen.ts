@@ -12,29 +12,21 @@
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SCREEN_H, SCREEN_W, SCREEN_W_VERT, SCREEN_H_VERT } from '../../../../src/rom/LevelParser'
-import { type SwitchFlags } from '../../../../src/rom/ObjectExpander'
 import {
   pipeVariantIndex,
   PIPE_VARIANT_TILE_COUNT,
   PIPE_VARIANT_TILE_START,
   type Map16Tile,
 } from '../../../../src/rom/Map16'
-import { buildL1Inputs, type L1Inputs } from '../../../../src/rom/model/L1Model'
+import {
+  buildL1Inputs,
+  type L1Inputs,
+  type L1InputsResult,
+} from '../../../../src/rom/model/L1Model'
 import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
 import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
 import { renderCell } from '../../../../src/rom/render/CellRenderer'
 import type { MapScreenResult, PalaceIconsResult, SwitchFlagsDto } from '../common/project-protocol'
-
-/** Everything one map's screens are drawn from: the L1 inputs, as the data gate reads them. */
-export type L1Model = L1Inputs
-
-export type BuildL1Result = { status: 'ok'; model: L1Model } | { status: 'unavailable'; reason: string } // prettier-ignore
-
-/** A map's L1 model, or why it cannot be drawn. Never an empty model. */
-export function buildL1Model(rom: SmwRom, index: number, flags: SwitchFlags): BuildL1Result {
-  const built = buildL1Inputs(rom, index, flags)
-  return built.ok ? { status: 'ok', model: built.inputs } : { status: 'unavailable', reason: built.reason } // prettier-ignore
-}
 
 /** A screen's size in tiles: 16 x 27 horizontal, two 16-wide halves x 16 vertical. */
 export function screenTiles(isVertical: boolean): { w: number; h: number } {
@@ -46,7 +38,7 @@ export function screenTiles(isVertical: boolean): { w: number; h: number } {
  * MAP16AppTable picks by the strip counter (bank_05.asm:119-124), one per
  * screen since a screen is 16 strips.
  */
-function cellDef(model: L1Model, id: number, screen: number): Map16Tile | undefined {
+function cellDef(model: L1Inputs, id: number, screen: number): Map16Tile | undefined {
   const pipe = id - PIPE_VARIANT_TILE_START
   const sets = model.map16.pipeVariants
   if (pipe >= 0 && pipe < PIPE_VARIANT_TILE_COUNT && sets.length > 0) {
@@ -56,7 +48,7 @@ function cellDef(model: L1Model, id: number, screen: number): Map16Tile | undefi
 }
 
 /** One screen as RGBA: each cell's `renderCell` picture laid over the backdrop. */
-export function drawL1Screen(model: L1Model, screen: number): Uint8ClampedArray {
+export function drawL1Screen(model: L1Inputs, screen: number): Uint8ClampedArray {
   const { w, h } = screenTiles(model.isVertical)
   const x0 = model.isVertical ? 0 : screen * w
   const y0 = model.isVertical ? screen * h : 0
@@ -89,7 +81,7 @@ const base64 = (b: Uint8ClampedArray) =>
 type ScreenReply = Exclude<MapScreenResult, { status: 'rom-not-located' }>
 
 /** One screen for the wire, bounded by the map's own screen count. */
-export function screenResult(model: L1Model, screen: number): ScreenReply {
+export function screenResult(model: L1Inputs, screen: number): ScreenReply {
   if (!Number.isInteger(screen) || screen < 0 || screen >= model.screenCount) {
     return {
       status: 'unavailable',
@@ -132,12 +124,12 @@ const flagsKey = (f: SwitchFlagsDto) => `${+f.green}${+f.yellow}${+f.blue}${+f.r
  * stale model and needs no invalidation of its own.
  */
 export class L1ModelCache {
-  private readonly byBytes = new WeakMap<Uint8Array, Map<string, BuildL1Result>>()
+  private readonly byBytes = new WeakMap<Uint8Array, Map<string, L1InputsResult>>()
   private readonly arts = new WeakMap<Uint8Array, Record<Palace, PalaceArt>>()
 
-  constructor(private readonly build: typeof buildL1Model = buildL1Model) {}
+  constructor(private readonly build: typeof buildL1Inputs = buildL1Inputs) {}
 
-  get(bytes: Uint8Array, romPath: string, index: number, flags: SwitchFlagsDto): BuildL1Result {
+  get(bytes: Uint8Array, romPath: string, index: number, flags: SwitchFlagsDto): L1InputsResult {
     let models = this.byBytes.get(bytes)
     if (!models) this.byBytes.set(bytes, (models = new Map()))
     const key = `${index}:${flagsKey(flags)}`
@@ -147,7 +139,7 @@ export class L1ModelCache {
       try {
         built = this.build(new SmwRom(RomFile.fromBytes(romPath, Buffer.from(bytes))), index, flags)
       } catch (err) {
-        built = { status: 'unavailable', reason: (err as Error).message }
+        built = { ok: false, reason: (err as Error).message }
       }
       if (models.size >= 8) models.delete(models.keys().next().value!)
       models.set(key, built)
@@ -173,5 +165,7 @@ export function mapScreen(
   flags: SwitchFlagsDto,
 ): ScreenReply {
   const built = cache.get(bytes, romPath, index, flags)
-  return built.status === 'ok' ? screenResult(built.model, screen) : built
+  return built.ok
+    ? screenResult(built.inputs, screen)
+    : { status: 'unavailable', reason: built.reason }
 }

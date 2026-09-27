@@ -27,6 +27,7 @@ import {
   type Map16Read,
   MAP16_TILE_BYTES,
   MAP16_TOTAL_TILES,
+  map16TileCapacity,
   Map16Tile,
   SubTile,
 } from '../../../../src/rom/Map16'
@@ -54,11 +55,6 @@ import {
 } from '../../../../src/rom/PSwitchButtonArt'
 import { buildTileAtlas, renderMap16Tile, renderSubTile } from '../../../../src/rom/TileRenderer'
 import { frameZeroChars, playableAnimation } from '../../../../src/rom/FrameZero'
-import { map16TileCapacity } from '../../../../src/rom/Map16'
-
-// Moved to the core in #421 step 3; re-exported for this view's callers.
-export { frameZeroChars, playableAnimation, map16TileCapacity }
-export type { FrameZeroChars } from '../../../../src/rom/FrameZero'
 import {
   getAnimatedChars,
   getSwitchedChars,

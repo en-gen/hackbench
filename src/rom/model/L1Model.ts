@@ -19,8 +19,6 @@ import { loadMap16WithPipeVariants, map16TileCapacity, type Map16Tile } from '..
 import { gfxSource, loadVram, type VramState } from '../GfxLoader'
 import { loadExAnimData } from '../ExAnimationLoader'
 import { frameZeroFrom } from '../FrameZero'
-import { buildChars } from './chars/CharFactory'
-import type { Char } from './chars/Char'
 import {
   loadAnimationDataOrReason,
   stockAnimationUnreached,
@@ -78,7 +76,6 @@ export interface L1Inputs {
   anim: AnimationData | null
   /** Frame 0 of that animation: what a still picture composites from. */
   vram: VramState
-  chars: Map<number, Char>
   /** Why the char or palette animation frames are unverified or absent, when they are. */
   animNote?: string
   /** CGRAM, 256 colors: any per-level override block, then the palette animation's representative frame (phase 0). */
@@ -179,7 +176,6 @@ export function assembleL1Inputs(r: L1Readings): L1Inputs {
     rawVram: r.rawVram,
     anim: frameZero?.animData ?? null,
     vram,
-    chars: frameZero?.animData ? frameZero.chars : buildChars(vram),
     animNote: notes.length > 0 ? notes.join(' ') : undefined,
     colors: palette.colors,
     backArea: stored.backArea,
