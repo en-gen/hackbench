@@ -206,12 +206,6 @@
   color: var(--theia-descriptionForeground);
 }
 
-.hb-map-view-toggle canvas {
-  width: 16px;
-  height: 16px;
-  image-rendering: pixelated;
-}
-
 .hb-map-view-facts {
   display: flex;
   align-items: baseline;

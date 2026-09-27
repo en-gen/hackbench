@@ -23,6 +23,7 @@ import {
 } from '../common/project-protocol'
 import { ProjectFrontendClient } from './project-push-client'
 import { decodeRgba } from './map16-pixels'
+import { PixelImageButton, type FrameImage } from './pixel-image-button'
 import { slotLabel } from './map-explorer-widget'
 
 export { slotLabel }
@@ -44,6 +45,7 @@ const PALACES: Palace[] = ['yellow', 'green', 'red', 'blue']
 const ZOOMS = [1, 2, 3, 4]
 /** Screens fetched beyond each edge of the view. */
 const MARGIN = 1
+const ICON_FRAME = { width: 16, height: 16 }
 
 const title = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
@@ -61,7 +63,8 @@ export class MapViewWidget extends ReactWidget {
   protected error: string | undefined
   protected mapLayout: Layout | undefined
   protected screenError: string | undefined
-  protected icons = new Map<Palace, PalaceIconDto>()
+  /** Each palace's block, decoded once per load, or why it cannot be drawn. */
+  protected icons = new Map<Palace, { uncleared: FrameImage; cleared: FrameImage } | { reason: string }>() // prettier-ignore
 
   protected flags: SwitchFlagsDto = { yellow: false, green: false, red: false, blue: false }
   /** Undefined until the user zooms: the strip then fits the view. */
@@ -70,7 +73,6 @@ export class MapViewWidget extends ReactWidget {
   protected readonly screens = new Map<string, ImageData>()
   protected readonly pending = new Set<string>()
   protected readonly canvases = new Map<number, HTMLCanvasElement>()
-  protected readonly iconCanvases = new Map<Palace, HTMLCanvasElement>()
   protected scroller: HTMLDivElement | null = null
   /** Refits when the strip's box changes, e.g. when the facts line arrives above it. */
   protected readonly resizes = new ResizeObserver(() => this.fitStrip())
@@ -139,7 +141,12 @@ export class MapViewWidget extends ReactWidget {
     const o = this.options
     if (!o) return
     const r = await this.projects.mapPalaceIcons(o.manifestPath, o.index).catch(() => undefined)
-    this.icons = new Map(r?.status === 'ok' ? r.icons.map(i => [i.palace, i]) : [])
+    const image = (b64: string): FrameImage => ({ width: 16, height: 16, rgba: decodeRgba(b64) })
+    const decoded = (i: PalaceIconDto) =>
+      'cleared' in i
+        ? { uncleared: image(i.uncleared), cleared: image(i.cleared) }
+        : { reason: i.unavailable }
+    this.icons = new Map(r?.status === 'ok' ? r.icons.map(i => [i.palace, decoded(i)]) : [])
     this.update()
   }
 
@@ -265,7 +272,7 @@ export class MapViewWidget extends ReactWidget {
   }
 
   /**
-   * Repaints every canvas from the cache once React has committed, rather
+   * Repaints every screen canvas from the cache once React has committed, rather
    * than trusting ref callbacks to fire: a canvas React keeps keeps its
    * pixels, one it recreates starts blank, and this covers both.
    */
@@ -276,12 +283,6 @@ export class MapViewWidget extends ReactWidget {
 
   protected repaintAll(): void {
     for (const s of this.canvases.keys()) this.paint(s)
-    for (const [p, canvas] of this.iconCanvases) {
-      const icon = this.icons.get(p)
-      if (!icon || !('cleared' in icon)) continue
-      const src = this.flags[p] ? icon.cleared : icon.uncleared
-      canvas.getContext('2d')?.putImageData(new ImageData(decodeRgba(src), 16, 16), 0, 0)
-    }
   }
 
   protected override onActivateRequest(msg: Message): void {
@@ -343,36 +344,26 @@ export class MapViewWidget extends ReactWidget {
     )
   }
 
-  /** The palace's own block, dotted or solid; its name when the ROM will not say which tile. */
+  /**
+   * The palace's own block, dotted or solid, on the shared PixelImageButton
+   * (the Map16 view's switch toggles use it too); its name when the ROM will
+   * not say which tile.
+   */
   protected renderToggle(p: Palace): React.ReactNode {
     const icon = this.icons.get(p)
     const pressed = this.flags[p]
-    const src = icon && 'cleared' in icon ? (pressed ? icon.cleared : icon.uncleared) : undefined
-    const why = icon && 'unavailable' in icon ? `: ${icon.unavailable}` : ''
     return (
-      <button
+      <PixelImageButton
         key={p}
-        type="button"
-        data-control={`palace-${p}`}
-        className={'hb-icon-btn hb-map-view-toggle' + (pressed ? ' hb-icon-btn-on' : '')}
-        aria-pressed={pressed}
-        aria-label={`${title(p)} switch palace`}
-        title={`${title(p)} switch palace${why}`}
+        frame={ICON_FRAME}
+        scale={1}
+        image={icon && 'cleared' in icon ? (pressed ? icon.cleared : icon.uncleared) : undefined}
+        label={`${title(p)} switch palace`}
+        reason={icon && 'reason' in icon ? icon.reason : undefined}
+        pressed={pressed}
         onClick={() => this.togglePalace(p)}
-      >
-        {src ? (
-          <canvas
-            width={16}
-            height={16}
-            ref={el => {
-              if (el) this.iconCanvases.set(p, el)
-              else this.iconCanvases.delete(p)
-            }}
-          />
-        ) : (
-          title(p)
-        )}
-      </button>
+        data={{ control: `palace-${p}` }}
+      />
     )
   }
 
