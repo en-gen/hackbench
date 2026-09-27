@@ -2,7 +2,7 @@
  * `workbench.colorTheme: 'system'` follows the OS instead of naming a Theme
  * (#665, #666). `SystemThemeService` teaches `ThemeService` the value at its
  * three seams (default resolution, persistence, its own enum rewrite);
- * `SystemColorThemePicker` only adds the row Settings shows for it.
+ * `SystemColorThemePicker` only adds its row to the Color Theme picker.
  */
 import { injectable } from '@theia/core/shared/inversify'
 import { ThemeService } from '@theia/core/lib/browser/theming'

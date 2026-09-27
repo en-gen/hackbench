@@ -164,6 +164,11 @@ test('picking Light through the picker pins it, and system resumes following onc
   await openPicker(page)
   await quickPickRow(page, 'Light (Theia)').click()
   await expect.poll(() => currentThemeId(page), { timeout: POLL_TIMEOUT }).toBe('light')
+  // Switch the OS only once the pin is saved AND upstream's 200ms debounced
+  // preview of the clicked row has fired: either one landing late re-applies
+  // Light and masks a listener that ignores the pin.
+  await expect.poll(() => colorThemePreference(page), { timeout: POLL_TIMEOUT }).toBe('light')
+  await page.waitForTimeout(400)
 
   await page.emulateMedia({ colorScheme: 'dark' })
   // No listener fires for a pinned theme; give one a chance to (wrongly) run.
