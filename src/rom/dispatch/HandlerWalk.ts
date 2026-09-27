@@ -41,9 +41,9 @@
 import type { RomFile } from '../RomFile'
 
 /** Operand width follows the M flag (8-bit accumulator immediates). */
-const M = -1
+export const M = -1
 /** Operand width follows the X flag (8-bit index immediates). */
-const X = -2
+export const X = -2
 
 /**
  * Total instruction length per opcode, or `M`/`X` where the immediate's
@@ -55,7 +55,7 @@ const X = -2
  * are kept correct as documentation, and no test can see a mutation to any
  * of them. `docs/sprites/sprite-gfx-routine-reading.md` section 8 lists them.
  */
-const INSN_LEN: readonly number[] = [
+export const INSN_LEN: readonly number[] = [
   2,
   2,
   2,
