@@ -188,6 +188,8 @@ export interface MapDetailsDto {
   spriteUnavailable?: string
   /** Decoded header fields, label and value, in header-byte order. */
   header?: Array<{ label: string; value: string }>
+  /** Why the GFX files the tileset and sprite set name may not be what loads. */
+  gfxAssignmentNote?: string
 }
 
 /**

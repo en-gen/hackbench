@@ -546,6 +546,12 @@ export class MapViewWidget extends ReactWidget {
             <span title={d.spriteUnavailable}>sprites unavailable</span>
           )}
         </div>
+        {/* With the facts, not in the folded header: it qualifies the picture. */}
+        {d.gfxAssignmentNote && (
+          <div className="hb-map-view-error hb-map-view-note" data-note="gfx-assignment">
+            {d.gfxAssignmentNote}
+          </div>
+        )}
       </div>
     )
   }

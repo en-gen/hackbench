@@ -23,13 +23,20 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
-import { RomFile } from './RomFile'
+import { RomFile, cachedByVersion } from './RomFile'
 import { BytePattern, WILD, findPattern, matchesAt } from './BytePattern'
 import { loromToOffset } from './addressing'
 import { decodeTilesBatch, PIXELS_PER_TILE } from './GraphicsDecoder'
 import { tryDecompress } from './LcLz2'
+import { FAST_LCLZ2, type FastRoutine, commandRefusal } from './GfxDecompressor'
 import { hex2 } from './hex'
-import { CompressionCheck, GFX_FILE_COUNT, checkStockCompression, gfxFileAddress } from './GfxArena'
+import {
+  CompressionCheck,
+  GFX_FILE_COUNT,
+  checkStockCompression,
+  gfxFileAddress,
+  readGfxPointerSites,
+} from './GfxArena'
 
 export { GFX_FILE_COUNT } // tables come from PrepareGraphicsFile via readGfxFile
 
@@ -344,14 +351,37 @@ export function gfxSource(rom: RomFile): CompressionCheck {
   return result
 }
 
+const _noteCache = new WeakMap<RomFile, { version: number; value: string | undefined }>()
+
+/** Why a level's GFX files may not be the ones the ROM loads, or undefined
+ *  when the level loader calls PrepareGraphicsFile itself. Independent of the
+ *  decompressor gate: a hooked ROM chooses per level either way, and a ROM
+ *  whose loader is not understood gets more caution, not less. */
+export function levelGfxAssignmentNote(rom: RomFile): string | undefined {
+  return cachedByVersion(_noteCache, rom, () => {
+    const sites = readGfxPointerSites(rom)
+    const shown = 'so the GFX files shown for these tilesets'
+    if (!sites) return `HackBench can't read how this ROM loads its GFX, ${shown} are unverified.`
+    if (!sites.hooked) return undefined
+    return (
+      "This ROM picks each level's FG/BG and sprite GFX files through Lunar Magic's list, " +
+      `which HackBench doesn't read yet, ${shown} are the stock ones, unverified.`
+    )
+  })
+}
+
 /**
  * One GFX file, decompressed the way PrepareGraphicsFile does it
  * (bank_00.asm:6571-6591), or the reason it cannot be. A ROM that replaced
  * the decompressor is refused outright: decoding its data as LC_LZ2 yields
  * a sheet of plausible garbage.
  */
-export function readGfxFile(rom: RomFile, fileIndex: number): GfxRead {
-  const source = gfxSource(rom)
+export function readGfxFile(
+  rom: RomFile,
+  fileIndex: number,
+  fast: readonly FastRoutine[] = FAST_LCLZ2,
+): GfxRead {
+  const source = fast === FAST_LCLZ2 ? gfxSource(rom) : checkStockCompression(rom, fast)
   if (!source.ok) return source
   if (!Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex >= GFX_FILE_COUNT) {
     return { ok: false, reason: `there is no GFX file ${fileIndex}` }
@@ -364,6 +394,8 @@ export function readGfxFile(rom: RomFile, fileIndex: number): GfxRead {
   if (!compressed) {
     return { ok: false, reason: `GFX file $${hex2(fileIndex)} points outside the ROM` }
   }
+  const refused = commandRefusal(source.kind, compressed)
+  if (refused) return { ok: false, reason: `GFX file $${hex2(fileIndex)}: ${refused}` }
   return tryDecompress(compressed)
 }
 
