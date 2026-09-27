@@ -18,6 +18,7 @@
  */
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
+const { expectCheckerboard } = require('./pixel-canvas.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -131,22 +132,41 @@ async function showScreen(page, index, screen, yellow = false) {
   })
 }
 
-/** One screen's pixels: a positional checksum, distinct colors, per-cell checksums, raw RGBA. */
+/**
+ * One screen's pixels as the user sees them, laid over the back area layer
+ * (L1 is clear where no tile draws): a positional checksum, distinct colors,
+ * per-cell checksums, raw RGBA.
+ */
 async function readScreen(page, index, screen) {
   return page.evaluate(
-    sel => {
+    ({ sel, rootSel }) => {
       const c = document.querySelector(sel)
-      const ctx = c.getContext('2d')
-      const data = ctx.getImageData(0, 0, c.width, c.height).data
+      const bg = getComputedStyle(document.querySelector(`${rootSel} [data-layer="back-area"]`))
+        .backgroundColor.match(/\d+/g)
+        .map(Number)
+      const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      for (let i = 0; i < data.length; i += 4) {
+        const a = data[i + 3]
+        for (let k = 0; k < 3; k++)
+          data[i + k] = Math.round((data[i + k] * a + bg[k] * (255 - a)) / 255)
+        data[i + 3] = 255
+      }
       const distinct = new Set()
       for (let i = 0; i < data.length; i += 4) distinct.add(data.slice(i, i + 4).join(','))
+      const cellOf = (cx, cy) => {
+        const out = new Uint8ClampedArray(16 * 16 * 4)
+        for (let y = 0; y < 16; y++) {
+          const from = ((cy * 16 + y) * c.width + cx * 16) * 4
+          out.set(data.subarray(from, from + 64), y * 64)
+        }
+        return out
+      }
       const cells = {}
       for (let cy = 0; cy < c.height / 16; cy++)
-        for (let cx = 0; cx < c.width / 16; cx++)
-          cells[`${cx},${cy}`] = checksumOf(ctx.getImageData(cx * 16, cy * 16, 16, 16).data)
+        for (let cx = 0; cx < c.width / 16; cx++) cells[`${cx},${cy}`] = checksumOf(cellOf(cx, cy))
       return { checksum: checksumOf(data), distinct: distinct.size, cells, rgba: Array.from(data) }
     },
-    `${root(index)} canvas[data-screen="${screen}"]`,
+    { sel: `${root(index)} canvas[data-screen="${screen}"]`, rootSel: root(index) },
   )
 }
 
@@ -182,14 +202,12 @@ async function readViewport(page, index) {
       const h = Math.max(1, Math.floor((bottom - top) * sy))
       const data = c.getContext('2d').getImageData(x0, y0, w, h).data
       const own = new Set()
-      let clear = 0
       for (let i = 0; i < data.length; i += 4) {
         const px = data.slice(i, i + 4).join(',')
         distinct.add(px)
         own.add(px)
-        if (data[i + 3] !== 255) clear++
       }
-      screens.push({ screen: Number(c.dataset.screen), drawn: c.dataset.drawn ?? null, distinct: own.size, clear }) // prettier-ignore
+      screens.push({ screen: Number(c.dataset.screen), drawn: c.dataset.drawn ?? null, distinct: own.size }) // prettier-ignore
     }
     return { distinct: distinct.size, fullHeight, screens }
   }, root(index))
@@ -210,9 +228,8 @@ test('at open, the map fills the view and visible terrain is drawn', async ({ pa
 })
 
 /**
- * Every screen in view is painted: `data-drawn` set, the backdrop fills it
- * (a blank canvas is transparent and shows the theme instead), and it holds
- * more than one color.
+ * Every screen in view is painted: `data-drawn` set and more than one color
+ * (a blank canvas is one color, all clear).
  */
 async function expectEveryVisibleScreenDrawn(page, index) {
   // Screens past the first arrive after the strip is laid out: wait for them.
@@ -225,7 +242,6 @@ async function expectEveryVisibleScreenDrawn(page, index) {
   expect(view.screens.length).toBeGreaterThan(0)
   for (const s of view.screens) {
     expect(s.drawn, `screen ${s.screen} painted`).not.toBeNull()
-    expect(s.clear, `screen ${s.screen} transparent pixels`).toBe(0)
     expect(s.distinct, `screen ${s.screen} colors`).toBeGreaterThan(1)
   }
 }
@@ -427,6 +443,26 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   await l1.click()
   await expect(l1).toHaveAttribute('aria-pressed', 'true')
   expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
+})
+
+/**
+ * The back area is a layer of its own, between the checkerboard and L1: L1
+ * is clear where no tile draws, so hiding the back area (as a layer toggle
+ * will) shows the checkerboard there, not a color baked into L1.
+ */
+test('the back area is its own layer, with the checkerboard beneath it', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showScreen(page, 0x105, 0)
+  const backArea = page.locator(`${root(0x105)} [data-layer="back-area"]`)
+  const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
+  await expect(backArea).toHaveCount(1)
+  // L1 hidden, only the back area shows: one color, the layer's own.
+  await page.locator(`${root(0x105)} [data-control="layer-l1"]`).click()
+  expect((await shownPixels(page, strip)).colors).toBe(1)
+  await page.locator(`${root(0x105)} [data-control="layer-l1"]`).click()
+  await backArea.evaluate(el => (el.style.display = 'none'))
+  await expectCheckerboard(expect, page, `${root(0x105)} canvas[data-screen="0"]`)
 })
 
 /**

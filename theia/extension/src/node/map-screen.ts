@@ -5,8 +5,9 @@
  * working copy and delegates here. The inputs come from the core's
  * `buildL1Inputs`, the same function the L1 data gate checks. Every cell is
  * drawn by `renderCell`, the Map16 sheet's own renderer and hidden-tile rule,
- * so the map has no drawing logic of its own; cells are then laid over the
- * backdrop. L1's two priority planes need no ordering while L1 is drawn
+ * so the map has no drawing logic of its own. The back area is not baked in:
+ * it is a layer of its own in the view, so it can be hidden like any other.
+ * L1's two priority planes need no ordering while L1 is drawn
  * alone: its quadrants never overlap each other.
  */
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -62,8 +63,8 @@ export const SWITCHES_OFF: SwitchStateDto = { blue: false, silver: false, onOff:
 
 /**
  * One screen as RGBA: each cell's `renderCell` picture, with the switches
- * that are on, laid over the backdrop. A hidden tile's 25% overlay applies
- * only while its own switch is off; on, its chars draw it in full.
+ * that are on, clear where no tile draws. A hidden tile's 25% overlay
+ * applies only while its own switch is off; on, its chars draw it in full.
  */
 export function drawL1Screen(
   model: L1Inputs,
@@ -78,7 +79,6 @@ export function drawL1Screen(
   const y0 = model.isVertical ? screen * h : 0
   const width = w * 16
   const out = new Uint8ClampedArray(width * h * 16 * 4)
-  for (let i = 0; i < out.length; i += 4) out.set(model.backArea, i)
   const palette = { colors: model.colors }
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
@@ -89,15 +89,9 @@ export function drawL1Screen(
       const art = model.switchArt.get(def.id)
       const ghost = art && ghostOf(cell, art.off, art.alts, x => x.rgba)
       if (ghost) overlayHidden(cell, 16, 0, 0, ghost)
+      // Cells never overlap, so each row is a straight copy.
       for (let py = 0; py < 16; py++)
-        for (let px = 0; px < 16; px++) {
-          const s = (py * 16 + px) * 4
-          const a = cell[s + 3]!
-          if (a === 0) continue
-          const d = ((y * 16 + py) * width + x * 16 + px) * 4
-          for (let c = 0; c < 3; c++) out[d + c] = Math.round((cell[s + c]! * a + out[d + c]! * (255 - a)) / 255) // prettier-ignore
-          out[d + 3] = 255
-        }
+        out.set(cell.subarray(py * 64, py * 64 + 64), ((y * 16 + py) * width + x * 16) * 4)
     }
   return out
 }
