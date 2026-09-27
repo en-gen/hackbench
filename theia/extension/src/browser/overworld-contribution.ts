@@ -55,17 +55,27 @@ export class OverworldLauncherWidget extends BaseWidget {
     this.openOverworld()
   }
 
+  protected scheduled = false
+
   /**
-   * Never awaits the view's activation and never drops a request. A guard
-   * held across `activateWidget` lost every show that arrived while it was
-   * pending, and that promise can take 2.25 s (a failed focus hand-off) or
-   * never settle (the view closed before it was revealed). A click sends two
-   * requests, show and activate; the contribution folds them into one widget.
+   * Collapses the panel, THEN opens and activates the view, so keyboard focus
+   * ends on the view: collapsing hides the focused launcher, which would drop
+   * focus from a view activated before it. Deferred out of the tab bar's own
+   * dispatch, where a show lands. A click sends two requests, show and
+   * activate, within one task; they fold into one run. The flag clears when
+   * the run starts, never across activateWidget, which can take 2.25 s or not
+   * settle at all (63dae5d8).
    */
   protected openOverworld(): void {
-    void this.commands.executeCommand(ShowOverworldCommand.id)
-    // Out of the tab bar's own currentChanged dispatch, which is where a show lands.
-    setTimeout(() => void this.shell.collapsePanel('left'))
+    if (this.scheduled) return
+    this.scheduled = true
+    setTimeout(async () => {
+      this.scheduled = false
+      // The collapse itself is synchronous (SidePanelHandler.collapse); its
+      // promise is only an animation frame, which never comes in a hidden window.
+      void this.shell.collapsePanel('left')
+      await this.commands.executeCommand(ShowOverworldCommand.id)
+    })
   }
 }
 

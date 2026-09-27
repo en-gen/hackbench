@@ -129,9 +129,10 @@ test('clicking the globe opens one Overworld widget in the main area; again focu
   await page.locator(GLOBE).click()
   await expect(page.locator(VIEW)).toBeVisible()
   expect(await overworldCount(page)).toBe(1)
-  expect(await page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id)).toBe(
-    'hackbench.overworld-view',
-  )
+  // The panel collapses before the view is activated, so this settles after the click.
+  await expect
+    .poll(() => page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id))
+    .toBe('hackbench.overworld-view')
 })
 
 /** Closes the Overworld widget, so a reopen is observable. */
