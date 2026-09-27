@@ -1919,10 +1919,10 @@ for (const [kind, tileId] of [
 }
 
 /**
- * A hidden tile ($027, blank off-art but real on-art) draws its on-art at 50%
+ * A hidden tile ($027, blank off-art but real on-art) draws its on-art at 25%
  * opacity while its toggle is off, rather than nothing. Checked on pixel alpha.
  */
-test('a hidden tile previews its on-art at 50% opacity while switched off', async ({ page }) => {
+test('a hidden tile previews its on-art at 25% opacity while switched off', async ({ page }) => {
   await loadGfxExplorer(page, path.join(tmp, 'HiddenTilePreview'))
   await openMap16(page, 'fg')
   await clickTile(page, HIDDEN_TILE_ID)
@@ -1941,6 +1941,66 @@ test('a hidden tile previews its on-art at 50% opacity while switched off', asyn
   const onAlpha = await readCenterAlpha()
 
   expect(offAlpha).toBeGreaterThan(0)
-  expect(offAlpha).toBeLessThan(200)
+  expect(offAlpha).toBeGreaterThanOrEqual(56) // 25% of 255 is ~64
+  expect(offAlpha).toBeLessThanOrEqual(72)
   expect(onAlpha).toBe(255)
+})
+
+/**
+ * #621: a hidden tile ($027, blank until the blue P-switch) shows in the SHEET
+ * at 25%, still or playing, so it can be found; a blank tile no
+ * switch touches ($025) stays transparent. Interior pixels only, and the
+ * pointer kept off the sheet, so neither the grid nor the hover dim counts.
+ */
+test('hidden tiles show in the sheet at 25%, playing or not; a blank tile stays blank', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'HiddenInSheet'))
+  await openMap16(page, 'fg')
+  await page.locator(`${FG} .hb-map16-browser-head`).hover()
+
+  const interiorAlphas = px => {
+    const alphas = []
+    for (let y = 1; y < TILE_PX - 1; y++)
+      for (let x = 1; x < TILE_PX - 1; x++) alphas.push(px[(y * TILE_PX + x) * 4 + 3])
+    return alphas
+  }
+  const expectCells = async () => {
+    const drawn = interiorAlphas(await tilePixels(page, HIDDEN_TILE_ID)).filter(a => a > 0)
+    expect(drawn.length).toBeGreaterThan(0)
+    for (const a of drawn) {
+      expect(a).toBeGreaterThanOrEqual(56) // 25% of 255 is ~64
+      expect(a).toBeLessThanOrEqual(72)
+    }
+    expect(interiorAlphas(await tilePixels(page, NO_SWITCH_TILE_ID)).every(a => a === 0)).toBe(true)
+  }
+
+  await expectCells()
+  await page.locator(ctl('play-toggle')).click()
+  await expect(page.locator(ctl('play-toggle'))).toHaveAttribute('aria-pressed', 'true')
+  // Across more than one full 4-frame cycle (~133ms a frame): no phase drops the overlay,
+  // and the animated $000 proves the phase really advanced between samples.
+  const phases = new Set()
+  for (let i = 0; i < 6; i++) {
+    await page.waitForTimeout(100)
+    await expectCells()
+    phases.add((await tilePixels(page, ANIMATED_TILE_ID)).join(','))
+  }
+  expect(phases.size).toBeGreaterThan(1)
+})
+
+test("turning an inspector switch on leaves the hidden tile's sheet cell unchanged", async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'HiddenSheetToggle'))
+  await openMap16(page, 'fg')
+  await clickTile(page, HIDDEN_TILE_ID)
+  await page.locator(`${FG} .hb-map16-browser-head`).hover()
+  const before = await tilePixels(page, HIDDEN_TILE_ID)
+
+  const toggle = page.locator(switchToggle('blue'))
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await page.locator(`${FG} .hb-map16-browser-head`).hover()
+  expect(await tilePixels(page, HIDDEN_TILE_ID)).toEqual(before)
 })

@@ -68,7 +68,7 @@ export function paintScaled(
   w: number,
   h: number,
   scale: number,
-  /** 0.5 draws a hidden tile's switched art rather than a blank (#574). */
+  /** Below 1 draws a hidden tile's switched art faintly rather than a blank (#574). */
   opacity = 1,
 ): void {
   canvas.width = w * scale
