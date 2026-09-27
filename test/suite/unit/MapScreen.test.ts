@@ -33,7 +33,17 @@ import { renderMap16Tile } from '../../../src/rom/TileRenderer'
 import { ADDR_CUSTOM_PALETTE_TABLE } from '../../../src/rom/PaletteLoader'
 import { Char } from '../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
-import { buildL1Inputs, levelColors, type L1Inputs } from '../../../src/rom/model/L1Model'
+import {
+  applyPaletteFrame0,
+  buildL1Inputs,
+  levelColors,
+  type L1Inputs,
+} from '../../../src/rom/model/L1Model'
+import {
+  detectPaletteAnimation,
+  type PaletteAnimContext,
+} from '../../../src/rom/PaletteAnimationDetect'
+import { bgr555ToRgba } from '../../../src/rom/GraphicsDecoder'
 import { switchBlockTile } from '../../../src/rom/SwitchBlockTiles'
 import type { RgbaColor } from '../../../src/rom/GraphicsDecoder'
 import {
@@ -249,6 +259,31 @@ describe('buildL1Inputs (synthetic)', () => {
   })
 })
 
+describe('palette animation frame 0 (synthetic)', () => {
+  // Row 0 color 1 is animated; its frame 0 is pure green, not the stored color.
+  const level = {
+    context: 'level',
+    available: true,
+    notes: [],
+    targets: [{ cgramIdx: 1, colors: [0x03e0, 0x001f] }],
+  } as unknown as PaletteAnimContext
+
+  it('a drawn pixel of an animated color shows frame 0, not the stored color', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.grid[0]![0] = 1 // tl is char 1, color index 1, palette row 0
+    i.colors = applyPaletteFrame0(COLORS, level).colors
+    const buf = drawL1Screen(modelFromInputs(i), 0)
+    expect(px(buf, 256, 3, 3)).toEqual([...bgr555ToRgba(0x03e0)])
+    expect(px(buf, 256, 11, 3)[0]).toBe(2) // an unanimated color is untouched
+  })
+
+  it('an unreadable routine keeps the stored colors and says so', () => {
+    const r = applyPaletteFrame0(COLORS, { ...level, available: false, targets: [], notes: ['hooked'] }) // prettier-ignore
+    expect(r.colors).toEqual(COLORS)
+    expect(r.note).toMatch(/hooked/)
+  })
+})
+
 describe('L1ModelCache (synthetic)', () => {
   it('keys on the bytes array, the map and the flags, and passes them to the builder', () => {
     const calls: [number, SwitchFlags][] = []
@@ -403,6 +438,22 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
   it('counts screens from the header, not a grid a handler wrote past the end of', () => {
     // $0BD's grid is 17 columns wide (a handler writes column 16); it has one screen.
     expect(mapScreen(new L1ModelCache(), bytes, romPath(VANILLA), 0x0bd, 0, UNCLEARED)).toMatchObject({ status: 'ok', screenCount: 1 }) // prettier-ignore
+  })
+
+  it('the Yoshi coin at column 17, rows 16-17 draws frame 0 of $64, not the stored color', () => {
+    const m = model(0x105)
+    expect([m.grid[16]![17], m.grid[17]![17]]).toEqual([0x02d, 0x02e])
+    const target = detectPaletteAnimation(rom.rom).level.targets.find(t => t.cgramIdx === 0x64)!
+    const frame0 = bgr555ToRgba(target.colors[0]!).join(',')
+    const stored = levelColors(rom.rom, 0x105, parseLevelHeader(rom.getLevelRawData(0x105)!), { bg: 0, obj: 0 }) // prettier-ignore
+    // Column 17 is screen 1, local column 1.
+    const buf = drawL1Screen(m, 1)
+    const cell = new Set<string>()
+    for (let y = 256; y < 288; y++)
+      for (let x = 16; x < 32; x++) cell.add(px(buf, 256, x, y).join(','))
+    expect(cell.has(frame0)).toBe(true)
+    expect(stored.colors[0x64]!.join(',')).not.toBe(frame0)
+    expect(cell.has(stored.colors[0x64]!.join(','))).toBe(false)
   })
 
   it('refuses a vanilla boss arena', () => {
