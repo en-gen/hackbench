@@ -27,7 +27,7 @@ The roots are exactly the slots the translevel walk (CODE_04D7F2,
 bank_04.asm:5295-5309) produces, per buffer half. They are a set, not a
 range: a gap in a hack's numbering is not a root, and neither is slot $000,
 which vanilla's walk never produces because its numbering starts at 1. $000
-and $100 are the bonus game room, and $0C8 and $1C8 the Yoshi wings sub
+and $100 are the Bonus Games room, and $0C8 and $1C8 the Yoshi Heaven sub
 areas; `src/rom/BonusEntrances.ts` reads those from `CODE_05DBAC`.
 
 The low-byte subtract is 8-bit: when the bias exceeds the threshold, a

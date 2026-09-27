@@ -49,11 +49,11 @@ import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern } from './BytePattern'
 
 /** What a special map is FOR, which is what the explorer labels it with. */
-export type SpecialRole = 'title-screen' | 'new-game' | 'bonus-game' | 'yoshi-wings'
+export type SpecialRole = 'title-screen' | 'new-game'
 
-export interface SpecialMap {
+export interface SpecialMap<R extends string = SpecialRole> {
   index: number
-  role: SpecialRole
+  role: R
   /** Where the immediate was read, for a citation the user can check. */
   foundAt: string
 }

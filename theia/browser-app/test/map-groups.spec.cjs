@@ -89,8 +89,9 @@ async function revealMaps(page) {
  * Create a project, reveal the explorer, and load it. `seedEmpty` writes
  * meta/groups.json = [] first, so a vanilla ROM does not seed: every test
  * but the seeding one wants a small, predictable, ROM-derived tree instead.
+ * `groupsJson` writes that exact text instead.
  */
-async function openProject(page, dir, { rom = ROM, seedEmpty = true } = {}) {
+async function openProject(page, dir, { rom = ROM, seedEmpty = true, groupsJson } = {}) {
   const manifestPath = await page.evaluate(
     async ({ romPath, directory }) => {
       const svc = getSvc('Symbol(ProjectService)')
@@ -99,9 +100,9 @@ async function openProject(page, dir, { rom = ROM, seedEmpty = true } = {}) {
     },
     { romPath: rom, directory: dir },
   )
-  if (seedEmpty) {
+  if (seedEmpty || groupsJson !== undefined) {
     fs.mkdirSync(path.join(dir, 'meta'), { recursive: true })
-    fs.writeFileSync(path.join(dir, 'meta', 'groups.json'), '[]\n')
+    fs.writeFileSync(path.join(dir, 'meta', 'groups.json'), groupsJson ?? '[]\n')
   }
   await page.evaluate(async mp => {
     const w = await getWidget('hackbench.map-explorer')
@@ -321,7 +322,12 @@ test('a vanilla project seeds its groups, numbered in world order, and "8. Star 
   const tree = await snapshot(page)
 
   expect(tree.userGroups.map(g => g.name)).toContain('8. Star World')
-  expect(tree.rootIds[0]).toBe('special:title-screen:199')
+  // Title Screen and New Game lead, and are the only special rows (#624).
+  expect(tree.rootIds.filter(id => id.startsWith('special:'))).toEqual([
+    'special:title-screen:199',
+    'special:new-game:197',
+  ])
+  expect(tree.rootIds.slice(0, 2)).toEqual(['special:title-screen:199', 'special:new-game:197'])
   expect(tree.rootIds).toContain('group:user:8. Star World')
   // No separate Overworld folder: Unassigned is the last row.
   expect(tree.rootIds[tree.rootIds.length - 1]).toBe('group:unassigned')
@@ -336,13 +342,126 @@ test('a vanilla project seeds its groups, numbered in world order, and "8. Star 
     const id = `group:user:8. Star World/$${slot.toString(16).toUpperCase().padStart(3, '0')}`
     await expect(await rowFor(page, id)).toBeVisible()
   }
+
+  // The maps entered after a level are two groups after the nine areas, drawn
+  // as bonus rows: their role's icon and tooltip, never dimmed.
+  expect(tree.userGroups.map(g => g.name).slice(-3)).toEqual([
+    '9. Special Zone',
+    'Bonus Games',
+    'Yoshi Heaven',
+  ])
+  expect(tree.userGroups.find(g => g.name === 'Bonus Games').slots).toEqual([0x000, 0x100])
+  expect(tree.userGroups.find(g => g.name === 'Yoshi Heaven').slots).toEqual([0x0c8, 0x1c8])
+  for (const [folder, slots] of [
+    ['Bonus Games', ['$000', '$100']],
+    ['Yoshi Heaven', ['$0C8', '$1C8']],
+  ]) {
+    await ensureExpanded(page, folder)
+    for (const slot of slots) await expectBonusRow(page, folder, slot)
+  }
 })
 
-test('a non-vanilla corpus ROM gets no groups at load', async ({ page }) => {
+/**
+ * The four maps DATA_05DBA9 names on vanilla (src/rom/BonusEntrances.ts), and
+ * how a bonus row must look: its role's icon and tooltip, never dimmed.
+ */
+const BONUS_GAME = { icon: 'codicon-star-empty', title: 'Entered after a level' }
+const YOSHI_HEAVEN = { icon: 'codicon-arrow-up', title: 'Entered by flying up on Yoshi wings' }
+const BONUS_LOOK = { $000: BONUS_GAME, $100: BONUS_GAME, $0C8: YOSHI_HEAVEN, $1C8: YOSHI_HEAVEN }
+const BONUS_SLOTS = [0x000, 0x100, 0x0c8, 0x1c8]
+
+/** Asserts a bonus row's model category and its rendered icon, tooltip and (lack of) dimming. */
+async function expectBonusRow(page, folder, slot) {
+  const id = `${folderId(folder)}/${slot}`
+  const look = await (
+    await rowFor(page, id)
+  ).evaluate(el => {
+    const cs = getComputedStyle(el)
+    const icon = [...(el.querySelector('.hb-map-icon')?.classList ?? [])]
+    return {
+      icon: icon.find(c => c.startsWith('codicon-')),
+      title: el.getAttribute('title'),
+      fontStyle: cs.fontStyle,
+      opacity: cs.opacity,
+    }
+  })
+  const node = (await snapshot(page)).allNodes.find(n => n.id === id)
+  expect({ category: node?.category, ...look }).toEqual({
+    category: 'bonus',
+    ...BONUS_LOOK[slot],
+    fontStyle: 'normal',
+    opacity: '1',
+  })
+}
+
+test('Bonus Games and Yoshi Heaven are ordinary groups: drag out, rename, delete', async ({
+  page,
+}) => {
+  await openProject(page, path.join(tmp, 'BonusOrdinary'), { seedEmpty: false })
+  const group = async name => (await snapshot(page)).userGroups.find(g => g.name === name)
+  const names = async () => (await snapshot(page)).userGroups.map(g => g.name)
+
+  await ensureExpanded(page, 'Bonus Games')
+  await dragRow(page, 'group:user:Bonus Games/$000', 'group:unassigned')
+  await expect.poll(async () => (await group('Bonus Games'))?.slots).toEqual([0x100])
+  await ensureExpanded(page, 'Unassigned')
+  await expectBonusRow(page, 'Unassigned', '$000')
+
+  await (await rowFor(page, 'group:user:Bonus Games')).click({ button: 'right' })
+  await rightClickMenuItem(page, 'Rename Group...')
+  await page.waitForSelector('.dialogBlock', { timeout: 5000 })
+  await typeInDialog(page, 'Bonus Rooms')
+  await acceptDialog(page)
+  await expect.poll(names).toContain('Bonus Rooms')
+  expect(await names()).not.toContain('Bonus Games')
+  expect((await group('Bonus Rooms')).slots).toEqual([0x100])
+
+  await (await rowFor(page, 'group:user:Yoshi Heaven')).click({ button: 'right' })
+  await rightClickMenuItem(page, 'Delete Group')
+  await expect.poll(names).not.toContain('Yoshi Heaven')
+  await expectBonusRow(page, 'Unassigned', '$0C8')
+  await expectBonusRow(page, 'Unassigned', '$1C8')
+})
+
+test('a groups.json written before the Bonus Games seed is left byte-identical', async ({
+  page,
+}) => {
+  const dir = path.join(tmp, 'OldSeed')
+  // One line, no trailing newline: a format writeGroups never produces, so any
+  // rewrite shows in the bytes.
+  const old = JSON.stringify([
+    { name: '8. Star World', slots: [0x134, 0x130, 0x132, 0x135, 0x136] },
+  ])
+  await openProject(page, dir, { groupsJson: old })
+
+  const tree = await snapshot(page)
+  expect(fs.readFileSync(path.join(dir, 'meta', 'groups.json'), 'utf8')).toBe(old)
+  expect(tree.userGroups.map(g => g.name)).toEqual(['8. Star World'])
+  // Not seeded into a group, the four maps sit in Unassigned, still bonus rows.
+  const bonus = tree.allNodes.filter(
+    n => n.id.startsWith('group:unassigned/') && BONUS_SLOTS.includes(n.index),
+  )
+  expect(bonus.map(n => n.category)).toEqual(['bonus', 'bonus', 'bonus', 'bonus'])
+})
+
+test('a non-vanilla corpus ROM gets no groups at load, and its refused bonus maps stay orphans', async ({
+  page,
+}) => {
   test.skip(!fs.existsSync(HACK_ROM), 'no non-vanilla corpus ROM on this machine')
   await openProject(page, path.join(tmp, 'Hack'), { rom: HACK_ROM, seedEmpty: false })
   const tree = await snapshot(page)
   expect(tree.userGroups).toEqual([])
+
+  // Measured on Invictus: the bonus read is refused and all four are real
+  // maps, so they are orphans in Unassigned, and the refusal is a toast.
+  expect(tree.orphans.filter(n => BONUS_SLOTS.includes(n.index)).map(n => n.index)).toEqual([
+    0x000, 0x0c8, 0x100, 0x1c8,
+  ])
+  // The toast list and the (hidden) notification center both hold the text.
+  const toast = page
+    .locator('.theia-notification-message')
+    .filter({ hasText: 'Bonus Games and Yoshi Heaven:', visible: true })
+  await expect(toast.first()).toBeVisible()
 })
 
 test('the vanilla ROM and its Lunar Magic resave (a copier-headered copy) seed identically', async ({

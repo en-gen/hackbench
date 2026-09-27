@@ -1,5 +1,5 @@
 /**
- * The bonus game and Yoshi wings entrances, read from CODE_05DBAC on
+ * The Bonus Games and Yoshi Heaven entrances, read from CODE_05DBAC on
  * synthetic ROMs (bank_05.asm:7085-7090, 7607-7620). No corpus needed.
  */
 import { describe, it, expect } from 'vitest'
@@ -17,6 +17,7 @@ import {
   findBonusEntrances,
 } from '../../../src/rom/BonusEntrances'
 import { SCREEN_EXIT } from '../../../src/rom/SubmapFlagGate'
+import { applyGroups, VANILLA_SEED } from '../../../src/project/MapGroups'
 import { WILD } from '../../../src/rom/BytePattern'
 import {
   plantBonusCode,
@@ -47,8 +48,10 @@ const withBytes = (at: number, bytes: number[], rom = bonusRom()): RomFile => {
 }
 
 describe('findBonusEntrances', () => {
-  it('reads the bonus room and the Yoshi wings sub area in both halves', () => {
-    expect(slots(bonusRom())).toBe('bonus-game 0, bonus-game 100, yoshi-wings c8, yoshi-wings 1c8')
+  it('reads the bonus room and the Yoshi Heaven sub area in both halves', () => {
+    expect(slots(bonusRom())).toBe(
+      'bonus-game 0, bonus-game 100, yoshi-heaven c8, yoshi-heaven 1c8',
+    )
     expect(find(bonusRom()).maps[2]!.foundAt).toBe('$05DBAA')
     expect(findBonusEntrances(bonusRom()).maps).toEqual([]) // the stock fingerprint refuses NOPs
   })
@@ -62,7 +65,7 @@ describe('findBonusEntrances', () => {
   it('follows a relocated table through the LDA operand, in the routine bank', () => {
     const rom = withBytes(0x05e000, [0x11, 0x22])
     rom.writeAt(P + 20, [0x00, 0xe0])
-    expect(slots(rom)).toBe('bonus-game 11, bonus-game 111, yoshi-wings 22, yoshi-wings 122')
+    expect(slots(rom)).toBe('bonus-game 11, bonus-game 111, yoshi-heaven 22, yoshi-heaven 122')
   })
 
   it('follows the JSR to a relocated CODE_05DBAC', () => {
@@ -79,7 +82,7 @@ describe('findBonusEntrances', () => {
   })
 
   it('takes the submap high byte from the screen-exit LDA #imm', () => {
-    expect(slots(withBytes(0x05d7d1, [0x00]))).toBe('bonus-game 0, yoshi-wings c8')
+    expect(slots(withBytes(0x05d7d1, [0x00]))).toBe('bonus-game 0, yoshi-heaven c8')
     expect(find(withBytes(0x05d7d1, [0x02])).notes[0]).toContain('$05D7D1')
   })
 
@@ -115,14 +118,16 @@ describe('every pinned byte refuses when changed', () => {
   it.each(pinned)('%s in %s', (_hex, _what, at) => {
     const found = find(withBytes(at, [bonusRom().readByte(at)! ^ 0xff]))
     expect(found.maps).toEqual([])
-    expect(found.notes[0]).toMatch(/^Bonus game and Yoshi wings: /)
+    expect(found.notes[0]).toMatch(/^Bonus Games and Yoshi Heaven: /)
   })
 })
 
 describe('the Maps tree', () => {
   const tree = (plant?: (rom: RomFile) => void): ReturnType<typeof buildMapTree> => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-bonus-'))
-    const rooms = [0x000, 0x001, 0x0c5, 0x0c7, 0x0c8, 0x1c8].map(s => [s, []] as [number, number[]])
+    const rooms = [0x000, 0x001, 0x0c5, 0x0c7, 0x0c8, 0x100, 0x1c8].map(
+      s => [s, []] as [number, number[]],
+    )
     const rom = RomFile.load(writeSyntheticRom(dir, new Map(rooms)))
     plantBonusCode(rom)
     rom.writeAt(0x01f000, [0xa9, 0xeb, 0xa0, 0x00, 0x8d, 0x09, 0x01]) // title: $EB - $24
@@ -131,28 +136,48 @@ describe('the Maps tree', () => {
     return buildMapTree(new SmwRom(rom), SYNTHETIC_FINGERPRINTS)
   }
 
-  it('lists $000 as the bonus room, after the title screen and the intro', () => {
+  it('reads the bonus maps into their own list, not the special rows or the orphans', () => {
     const t = tree()
     expect(t.overworld.map(n => n.index)).toEqual([0x001])
-    expect(names(t.special)).toBe(
-      'title-screen c7, new-game c5, bonus-game 0, yoshi-wings c8, yoshi-wings 1c8',
-    )
+    expect(names(t.special)).toBe('title-screen c7, new-game c5')
+    expect(names(t.bonus)).toBe('bonus-game 0, bonus-game 100, yoshi-heaven c8, yoshi-heaven 1c8')
     expect(t.unassigned).toEqual([])
+  })
+
+  it('the vanilla seed files them into Bonus Games and Yoshi Heaven, not orphaned', () => {
+    const grouped = applyGroups(tree(), VANILLA_SEED)
+    const group = (name: string): [number, boolean][] | undefined =>
+      grouped.groups.find(g => g.name === name)?.maps.map(m => [m.index, m.orphan])
+    expect(group('Bonus Games')).toEqual([
+      [0x000, false],
+      [0x100, false],
+    ])
+    expect(group('Yoshi Heaven')).toEqual([
+      [0x0c8, false],
+      [0x1c8, false],
+    ])
+  })
+
+  it('lists a slot both roles name once, under the first', () => {
+    const t = tree(rom => rom.writeAt(P + 8, [rom.readByte(P + 1)!])) // LDY #yoshi = LDY #bonus
+    expect(names(t.bonus)).toBe('bonus-game 0, bonus-game 100')
+    expect(t.unassigned.map(n => n.index)).toEqual([0x0c8, 0x1c8])
   })
 
   it('lists $000 once when the walk also roots it', () => {
     // Threshold $10, bias $24: translevel $24 wraps to slot $000.
     const t = tree(rom => rom.writeAt(0x05d8a3, [0x10]))
-    const top: MapNode[] = [...t.special, ...t.overworld, ...t.unassigned]
+    const top: MapNode[] = [...t.special, ...t.bonus, ...t.overworld, ...t.unassigned]
     expect(top.filter(n => n.index === 0x000)).toHaveLength(1)
     expect(t.overworld.map(n => n.index)).toContain(0x000)
   })
 
-  it('a broken path refuses only the special entrances', () => {
+  it('a broken path refuses only the bonus maps, which fall back to orphaned', () => {
     const t = tree(rom => rom.writeAt(0x05d7a9, [0xad]))
     expect(t.overworld.map(n => n.index)).toEqual([0x001])
     expect(names(t.special)).toBe('title-screen c7, new-game c5')
-    expect(t.unassigned.map(n => n.index)).toEqual([0x000, 0x0c8, 0x1c8])
-    expect(t.notes.join(' ')).toMatch(/Bonus game and Yoshi wings: /)
+    expect(t.bonus).toEqual([])
+    expect(t.unassigned.map(n => n.index)).toEqual([0x000, 0x0c8, 0x100, 0x1c8])
+    expect(t.notes.join(' ')).toMatch(/Bonus Games and Yoshi Heaven: /)
   })
 })

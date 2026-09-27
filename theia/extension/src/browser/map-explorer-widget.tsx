@@ -62,13 +62,15 @@ export const MAP_EXPLORER_CONTEXT_MENU = ['map-explorer-context-menu']
  * What a row IS, in the glossary's terms (docs/glossary.md).
  *
  * An ENTRY MAP is what a launch tile starts, a SUB AREA is reachable only
- * from another map, and an ORPHANED map is reachable from neither.
+ * from another map, and an ORPHANED map is reachable from neither. A BONUS
+ * map is entered after a level: reached, but by no launch tile.
  */
 export type MapCategory =
   | SpecialMapNodeDto['role']
   | 'unassigned-group'
   | 'user-group'
   | 'entry'
+  | 'bonus'
   | 'subarea'
   | 'orphan'
   | 'loop'
@@ -89,15 +91,28 @@ export interface MapTreeNode extends CompositeTreeNode, SelectableTreeNode {
   mapName: string | null
   kind: 'map' | 'loop' | 'truncated' | 'group' | 'message'
   category: MapCategory
+  /** Set on a 'bonus' row: which flag sends the player there. */
+  role?: BonusRole
   expanded?: boolean
 }
 
-/** What each special row is labeled with: how the player reaches it, in plain words. */
+type BonusRole = NonNullable<GroupedMapNodeDto['role']>
+
+/**
+ * Icon and tooltip per bonus role, from the flag CODE_05DBAC tests (see
+ * src/rom/BonusEntrances.ts). BonusGameActivate is set by HandleBonusStars
+ * (bank_00.asm:1717); YoshiHeavenFlag by YoshiWingsAni once the player has
+ * flown up off the screen (bank_00.asm:8295-8331).
+ */
+const BONUS_ROLES: Record<BonusRole, { icon: string; title: string }> = {
+  'bonus-game': { icon: 'codicon-star-empty', title: 'Entered after a level' },
+  'yoshi-heaven': { icon: 'codicon-arrow-up', title: 'Entered by flying up on Yoshi wings' },
+}
+
+/** What each special row is labeled with. */
 const SPECIAL_LABELS: Record<SpecialMapNodeDto['role'], string> = {
   'title-screen': 'Title Screen',
   'new-game': 'New Game',
-  'bonus-game': 'Bonus game (after a level, with enough bonus stars)',
-  'yoshi-wings': 'Yoshi wings',
 }
 
 const isSpecial = (category: MapCategory): boolean => category in SPECIAL_LABELS
@@ -105,20 +120,23 @@ const isSpecial = (category: MapCategory): boolean => category in SPECIAL_LABELS
 export const CATEGORY_ICONS: Record<MapCategory, string> = {
   'title-screen': 'codicon-device-desktop',
   'new-game': 'codicon-play-circle',
-  'bonus-game': 'codicon-star-empty',
-  'yoshi-wings': 'codicon-arrow-up',
   // Deliberately the same mark as the orphans it contains: the folder is not
   // a different kind of thing from its children, it is just where they sit.
   'unassigned-group': 'codicon-question',
   'user-group': 'codicon-folder',
   // What a launch tile starts: the way into a level.
   entry: 'codicon-map',
+  // Only when a row has no role; iconFor takes the role's own icon first.
+  bonus: 'codicon-star-empty',
   subarea: 'codicon-git-branch',
   orphan: 'codicon-question',
   loop: 'codicon-sync',
   truncated: 'codicon-ellipsis',
   message: 'codicon-info',
 }
+
+const iconFor = (node: MapTreeNode): string =>
+  node.role ? BONUS_ROLES[node.role].icon : CATEGORY_ICONS[node.category]
 
 export const slotLabel = (index: number): string =>
   `$${index.toString(16).toUpperCase().padStart(3, '0')}`
@@ -312,7 +330,7 @@ export class MapExplorerWidget extends TreeWidget {
       children: [],
       selected: false,
     }
-    node.children = maps.map(m => this.toNode(m, node, m.orphan ? 'orphan' : 'entry'))
+    node.children = maps.map(m => this.topNode(m, node))
     if (node.children.length > 0) node.expanded = true
     return node
   }
@@ -330,11 +348,16 @@ export class MapExplorerWidget extends TreeWidget {
       children: [],
       selected: false,
     }
-    node.children = g.maps.map((m: GroupedMapNodeDto) =>
-      this.toNode(m, node, m.orphan ? 'orphan' : 'entry'),
-    )
+    node.children = g.maps.map((m: GroupedMapNodeDto) => this.topNode(m, node))
     // Empty group still shows, as an empty folder with no chevron.
     if (node.children.length > 0) node.expanded = true
+    return node
+  }
+
+  /** A map at the top of a folder: bonus, orphan or entry, whichever folder holds it. */
+  protected topNode(m: GroupedMapNodeDto, parent: MapTreeNode): MapTreeNode {
+    const node = this.toNode(m, parent, m.role ? 'bonus' : m.orphan ? 'orphan' : 'entry')
+    if (m.role) node.role = m.role
     return node
   }
 
@@ -397,7 +420,7 @@ export class MapExplorerWidget extends TreeWidget {
     this.onMapOpenedEmitter.fire({
       index: map.index,
       pinned,
-      iconClass: `codicon ${CATEGORY_ICONS[map.category]}`,
+      iconClass: `codicon ${iconFor(map)}`,
       label: isSpecial(map.category)
         ? (map.name ?? slotLabel(map.index))
         : `${slotLabel(map.index)}${map.mapName ? ` ${map.mapName}` : ''}`,
@@ -417,12 +440,13 @@ export class MapExplorerWidget extends TreeWidget {
   }
 
   /**
-   * A map that can belong to a group: an entry map or an orphan, the tree's
-   * two top-level categories. Excludes sub areas, loops, truncated rows and
-   * the Title Screen/New Game rows.
+   * A map that can belong to a group: an entry map, a bonus map or an
+   * orphan, the tree's top-level categories. Excludes sub areas, loops,
+   * truncated rows and the Title Screen/New Game rows.
    */
   protected groupable(node: MapTreeNode): boolean {
-    return node.kind === 'map' && (node.category === 'entry' || node.category === 'orphan')
+    const { kind, category } = node
+    return kind === 'map' && (category === 'entry' || category === 'bonus' || category === 'orphan')
   }
 
   protected selected(): MapTreeNode[] {
@@ -731,9 +755,8 @@ export class MapExplorerWidget extends TreeWidget {
   }
 
   protected override renderIcon(node: TreeNode, _props: NodeProps): React.ReactNode {
-    const category = (node as MapTreeNode).category
-    if (!category) return undefined
-    return <span className={`hb-map-icon codicon ${CATEGORY_ICONS[category]}`} />
+    if (!(node as MapTreeNode).category) return undefined
+    return <span className={`hb-map-icon codicon ${iconFor(node as MapTreeNode)}`} />
   }
 
   /** Orphan rows get their dim/italic marking and tooltip here, on the whole row. */
@@ -750,6 +773,7 @@ export class MapExplorerWidget extends TreeWidget {
     const attrs = super.createNodeAttributes(node, props)
     const map = node as MapTreeNode
     if (map.category === 'orphan') attrs.title = 'Not reached from the overworld'
+    if (map.role) attrs.title = BONUS_ROLES[map.role].title
     // Theia's own default caption only carries the node id on expandable
     // rows (via the toggle element); a leaf map row otherwise has no DOM
     // marker at all. The same slot can appear twice in the tree (a sub area

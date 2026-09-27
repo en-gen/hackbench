@@ -43,6 +43,7 @@ function indicesIn(tree: MapTree): Set<number> {
     n.children.forEach(walk)
   }
   tree.special.forEach(walk)
+  tree.bonus.forEach(walk)
   tree.overworld.forEach(walk)
   tree.unassigned.forEach(walk)
   return out
@@ -83,7 +84,9 @@ describe('buildMapTree', () => {
         // both, so duplicates exist DEEPER in the tree. What must not happen
         // is the same map heading two folders, which would read as two
         // separate maps rather than one shared room.
-        const tops = [...tree.special, ...tree.overworld, ...tree.unassigned].map(n => n.index)
+        const tops = [...tree.special, ...tree.bonus, ...tree.overworld, ...tree.unassigned].map(
+          n => n.index,
+        )
         expect(new Set(tops).size).toBe(tops.length)
       })
 
@@ -96,6 +99,7 @@ describe('buildMapTree', () => {
         }
         tree.overworld.forEach(walk)
         tree.special.forEach(walk)
+        tree.bonus.forEach(walk)
         // Unassigned means exactly "no overworld root reaches this".
         for (const n of tree.unassigned) {
           expect(under.has(n.index), `$${n.index.toString(16)} is in both roots`).toBe(false)
@@ -239,11 +243,12 @@ describe.skipIf(!hasRom(VANILLA))('special maps', () => {
    * and its own data files are named 0C7_titlescreen.bin and
    * 0C5_introcutscene.bin (bank_06.asm:33, 35).
    */
-  it('finds the title screen, the new-game intro, the bonus room and Yoshi wings, in play order', () => {
+  it('finds the title screen and the new-game intro, then the bonus maps apart from them', () => {
     const tree = buildMapTree(load(VANILLA))
-    expect(tree.special.map(s => `${s.role} ${s.index.toString(16)}`).join()).toBe(
-      'title-screen c7,new-game c5,bonus-game 0,bonus-game 100,yoshi-wings c8,yoshi-wings 1c8',
-    )
+    const roles = (xs: { role: string; index: number }[]): string =>
+      xs.map(s => `${s.role} ${s.index.toString(16)}`).join()
+    expect(roles(tree.special)).toBe('title-screen c7,new-game c5')
+    expect(roles(tree.bonus)).toBe('bonus-game 0,bonus-game 100,yoshi-heaven c8,yoshi-heaven 1c8')
     expect(tree.overworld.map(n => n.index)).not.toContain(0x000)
   })
 
@@ -301,12 +306,12 @@ describe('special maps on edited ROMs', () => {
   })
 
   it.skipIf(!hasRoms(CORPUS.slice(2)))(
-    'refuses the bonus room and Yoshi wings on the four hacks, and says so',
+    'refuses the bonus room and Yoshi Heaven on the four hacks, and says so',
     () => {
       for (const file of CORPUS.slice(2)) {
         const tree = buildMapTree(load(file))
-        expect(tree.special.map(s => s.role)).not.toContain('bonus-game')
-        expect(tree.notes.join(' ')).toMatch(/Bonus game and Yoshi wings: \$05D7CB/)
+        expect(tree.bonus).toEqual([])
+        expect(tree.notes.join(' ')).toMatch(/Bonus Games and Yoshi Heaven: \$05D7CB/)
       }
     },
   )

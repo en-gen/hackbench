@@ -1,5 +1,5 @@
 /**
- * The bonus game room and the Yoshi wings sub areas: maps the game enters
+ * The Bonus Games room and the Yoshi Heaven sub areas: maps the game enters
  * after a level, not from an overworld tile.
  *
  * `CODE_05D796` tests `YoshiHeavenFlag` and `BonusGameActivate` and, when
@@ -25,6 +25,10 @@ import {
   type StockSpan,
 } from './SubmapFlagGate'
 import type { SpecialMap } from './SpecialMaps'
+
+/** Which flag sends the player there: `BonusGameActivate` or `YoshiHeavenFlag`. */
+export type BonusRole = 'bonus-game' | 'yoshi-heaven'
+type BonusMap = SpecialMap<BonusRole>
 
 /** CODE_05D796 through the screen exit low byte and TAY (bank_05.asm:7079-7106): 53
  *  bytes, so fingerprinted. The JSR operand is masked because it is read and followed.
@@ -86,10 +90,10 @@ const hex6 = (addr: number): string => `$${addr.toString(16).toUpperCase().padSt
 export function findBonusEntrances(
   rom: RomFile,
   fingerprints: readonly string[] = BONUS_CALL.fingerprints,
-): { maps: SpecialMap[]; notes: string[] } {
-  const refuse = (why: string): { maps: SpecialMap[]; notes: string[] } => ({
+): { maps: BonusMap[]; notes: string[] } {
+  const refuse = (why: string): { maps: BonusMap[]; notes: string[] } => ({
     maps: [],
-    notes: [`Bonus game and Yoshi wings: ${why} Their maps are still listed as unassigned.`],
+    notes: [`Bonus Games and Yoshi Heaven: ${why} Their maps are still listed as unassigned.`],
   })
   const patched = stockCodeMismatch(rom, [...SCREEN_EXIT, BONUS_CALL, BONUS_PRIMARY], fingerprints)
   if (patched) return refuse(patched)
@@ -107,10 +111,10 @@ export function findBonusEntrances(
 
   // PHK / PLB in CODE_05D796 sets the data bank, so the table sits in that bank.
   const table = bank | pick![TABLE]! | (pick![TABLE + 1]! << 8)
-  const maps: SpecialMap[] = []
+  const maps: BonusMap[] = []
   for (const [role, y] of [
     ['bonus-game', pick![BONUS_Y]!],
-    ['yoshi-wings', pick![YOSHI_Y]!],
+    ['yoshi-heaven', pick![YOSHI_Y]!],
   ] as const) {
     const low = rom.readByte(table + y)
     if (low === null) return refuse(`DATA_05DBA9 at ${hex6(table + y)} is not readable.`)
