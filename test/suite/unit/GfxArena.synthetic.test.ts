@@ -17,13 +17,13 @@ import { loromFromOffset } from '../../../src/rom/addressing'
 import { RomFile } from '../../../src/rom/RomFile'
 import {
   GFX_FILE_COUNT,
-  STOCK_LCLZ2_ENTRY,
   checkStockCompression,
   layoutArena,
   planRegions,
   readGfxFileTable,
   readGfxPointerSites,
 } from '../../../src/rom/GfxArena'
+import { STOCK_LCLZ2_ENTRY } from '../../../src/rom/GfxDecompressor'
 import {
   applyWrites,
   buildCart,

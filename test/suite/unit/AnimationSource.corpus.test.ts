@@ -51,21 +51,12 @@ const REDIRECTS: [string, string][] = [
   [CORPUS[5]!, '13C1C2'],
 ]
 
-// Invictus replaces the stock LC_LZ2 decompressor, so its GFX33/GFX32 do not
-// decode as stock format even though its JSL is also redirected: there is no
-// stock data to composite, unlike the other three redirected ROMs.
-const NO_STOCK_DATA = CORPUS[4]
-
 for (const [name, target] of REDIRECTS) {
   describe.skipIf(!hasRom(name))(`${name}: level JSL goes to $${target}`, () => {
     it('is unverified, names the target, and shows stock frames when the stock data itself reads', () => {
       const rom = SmwRom.open(romPath(name))
       const r = frameZeroChars(rom.rom, 0, loadVram(rom.rom, 0))!
       expect(r.error).toMatch(/couldn't be loaded/)
-      if (name === NO_STOCK_DATA) {
-        expect(r.animData).toBeUndefined()
-        return
-      }
       expect(r.animData).toBeDefined()
       expect(r.error).toContain(`$${target}`)
       const chars = getAnimatedChars(r.animData!)
@@ -83,11 +74,9 @@ for (const [name, target] of REDIRECTS) {
     it('the sheet, where it renders, carries the error and no playback', () => {
       const r = decodeMap16Sheet(SmwRom.open(romPath(name)), 0, 'fg', { bg: 0, fg: 0 })
       if (r.status !== 'ok') return expect(r.reason).toMatch(/GFX cannot be read/)
-      expect(r.sheet.animationNote).toContain(
-        name === NO_STOCK_DATA ? "couldn't be loaded" : `$${target}`,
-      )
+      expect(r.sheet.animationNote).toContain(`$${target}`)
       expect(r.sheet.charAnimation).toBeUndefined() // no playback from an unverified source
-      if (name !== NO_STOCK_DATA) expect(r.sheet.charSheets.some(c => c.animated)).toBe(true)
+      expect(r.sheet.charSheets.some(c => c.animated)).toBe(true)
     })
   })
 }

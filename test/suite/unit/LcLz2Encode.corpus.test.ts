@@ -10,26 +10,20 @@
  *
  * Reports no ROM bytes, only counts and lengths.
  *
- * A cartridge that has replaced the decompressor is asserted to be REFUSED
- * rather than skipped. Its GFX are not LC_LZ2 at all, so re-encoding them
- * would be meaningless, and quietly passing over it is how a gate stops
- * being tested.
+ * Every corpus ROM passes the decompressor gate since #603, so refusal of a
+ * replaced decompressor is proven synthetically (GfxDecompressor.synthetic).
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { decompress, encode, parseStream } from '../../../src/rom/LcLz2'
 import { checkStockCompression, readGfxFileTable } from '../../../src/rom/GfxArena'
-import { CORPUS, INVICTUS, MAGIC, hasRom, romPath, romsOnDisk } from '../support/corpus'
+import { CORPUS, MAGIC, hasRom, romPath, romsOnDisk } from '../support/corpus'
 
 const CARTS = romsOnDisk()
 
 /** Every cart the corpus may hold, named so the cases register and SKIP
  *  whether or not the files are present. */
 const EXPECTED_CARTS = CORPUS
-
-/** Invictus 1.0 replaces the LC_LZ2 entry at $00B8DE; every other cart in
- *  the corpus holds the stock prologue. Measured, 6 of 6, one machine. */
-const NON_STOCK_COMPRESSION = new Set<string>([INVICTUS])
 
 /** The corpus's headered dumps: 524,800 bytes, so `size % 1024 === 512`.
  *  A copier-header frame error reads identically on every other cart. */
@@ -38,9 +32,8 @@ const HEADERED = new Set<string>([MAGIC])
 for (const name of EXPECTED_CARTS) {
   const path = romPath(name)
   const present = hasRom(name)
-  const stock = !NON_STOCK_COMPRESSION.has(name)
 
-  describe.skipIf(!present || !stock)(`${name}: structure-preserving re-encode`, () => {
+  describe.skipIf(!present)(`${name}: structure-preserving re-encode`, () => {
     it('reproduces every GFX stream byte for byte', () => {
       const rom = RomFile.load(path)
       // Tripwire: the .magic dump is the corpus's only headered cart, and a
@@ -77,15 +70,6 @@ for (const name of EXPECTED_CARTS) {
         const src = rom.readAtFileOffset(f.offset!, f.byteLength)!
         expect(parseStream(src).outputLength, `file ${f.index}`).toBe(decompress(src).length)
       }
-    })
-  })
-
-  describe.skipIf(!present || stock)(`${name}: non-stock compression`, () => {
-    it('is refused rather than re-encoded', () => {
-      const r = checkStockCompression(RomFile.load(path))
-      expect(r.ok).toBe(false)
-      if (r.ok) return
-      expect(r.reason).toMatch(/LC_LZ2/i)
     })
   })
 }

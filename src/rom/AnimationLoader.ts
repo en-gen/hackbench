@@ -61,6 +61,14 @@ import { formatAddr, loromToOffset } from './addressing'
 import { matchesAt, WILD, type BytePattern } from './BytePattern'
 import { PIXELS_PER_TILE } from './GraphicsDecoder'
 import { framesToMs } from './timing'
+import {
+  FAST_LCLZ2,
+  type DecompressorKind,
+  type FastRoutine,
+  commandRefusal,
+  preludeKey,
+  readDecompressor,
+} from './GfxDecompressor'
 
 // ── ROM addresses ────────────────────────────────────────────────────────────
 
@@ -77,6 +85,10 @@ const GFX32_LOAD: BytePattern = [0xa9, WILD, WILD, 0x85, 0x8a, 0xe2, 0x20]
 // a BMI at +$44 landing on +$4F makes the checked LDA the one that runs next.
 const EXPAND_EXIT_OFFSET = 0x44
 const EXPAND_EXIT: BytePattern = [0x30, GFX32_LOAD_OFFSET - EXPAND_EXIT_OFFSET - 2]
+// GFX33's JSR CODE_00B8DE (bank_00.asm:6260), and CODE_00B8DE itself, which the GFX32
+// load's SEP #$20 falls into (bank_00.asm:6292-6294): both loads run the one entry.
+const GFX33_CALL_OFFSET = 0x14
+const DECOMPRESSOR_OFFSET = GFX32_LOAD_OFFSET + GFX32_LOAD.length
 
 // The level-play `JSL CODE_05BB39` (bank_00.asm:4508), four JSLs past CODE_00A28A's `+`.
 const LEVEL_ANIM_CALL = 0x00a2a5
@@ -280,10 +292,15 @@ function expand3bppTo4bpp(data3bpp: Uint8Array): Uint8Array {
 // ── Core loader ──────────────────────────────────────────────────────────────
 
 export type AnimGfxSources =
-  { ok: true; gfx33: number; gfx32Offset: number } | { ok: false; reason: string }
+  | { ok: true; gfx33: number; gfx32Offset: number; kind: DecompressorKind }
+  | { ok: false; reason: string }
 
-/** GFX33's address and GFX32's in-bank offset, from CODE_00B888's own immediates. */
-export function readAnimGfxSources(rom: RomFile): AnimGfxSources {
+/** GFX33's address and GFX32's in-bank offset, from CODE_00B888's own immediates, each
+ *  XORed with the decompressor's pointer key as its prelude would. */
+export function readAnimGfxSources(
+  rom: RomFile,
+  fast: readonly FastRoutine[] = FAST_LCLZ2,
+): AnimGfxSources {
   const at = (snes: number): number | null => loromToOffset(snes, rom.romSize)
   const callAt = at(GFX_LOAD_CALL)
   const call = callAt === null ? null : matchesAt(rom, callAt, [0x20, WILD, WILD])
@@ -295,11 +312,18 @@ export function readAnimGfxSources(rom: RomFile): AnimGfxSources {
   const tail = matchesAt(rom, routineAt! + GFX32_LOAD_OFFSET, GFX32_LOAD)
   const exit = matchesAt(rom, routineAt! + EXPAND_EXIT_OFFSET, EXPAND_EXIT)
   if (!tail || !exit) return { ok: false, reason: 'the GFX32 load in CODE_00B888 is not LDA #imm' }
+  const entry = (call[1]! | (call[2]! << 8)) + DECOMPRESSOR_OFFSET
+  if (!matchesAt(rom, routineAt! + GFX33_CALL_OFFSET, [0x20, entry & 0xff, entry >> 8]))
+    return { ok: false, reason: 'GFX33 is not decompressed by the routine GFX32 falls into' }
+  const d = readDecompressor(rom, entry, fast)
+  if (!d.ok) return d
+  const key = preludeKey(rom, entry)!
   const bank = (head[8]! & 0x7f) << 16
   return {
     ok: true,
-    gfx33: bank | head[3]! | (head[4]! << 8),
-    gfx32Offset: tail[1]! | (tail[2]! << 8),
+    gfx33: bank | ((head[3]! | (head[4]! << 8)) ^ key),
+    gfx32Offset: (tail[1]! | (tail[2]! << 8)) ^ key,
+    kind: d.kind,
   }
 }
 
@@ -388,6 +412,7 @@ const ramAddr = (a: number): string => '$' + a.toString(16).toUpperCase().padSta
  */
 function loadAnimatedTileBuffer(
   rom: RomFile,
+  fast: readonly FastRoutine[],
 ): { ok: true; buffer: Uint8Array } | { ok: false; reason: string } {
   // Replicate CODE_00B888 (bank_00.asm lines 6250-6302):
   //
@@ -404,10 +429,12 @@ function loadAnimatedTileBuffer(
   //
   // Our buffer covers $2000-$ACFE, indexed from MARIO_GRAPHICS_RAM_BASE ($2000).
 
-  const sources = readAnimGfxSources(rom)
+  const sources = readAnimGfxSources(rom, fast)
   if (!sources.ok) return sources
   const gfx33Compressed = rom.readAt(sources.gfx33, GFX33_MAX_COMPRESSED)
   if (!gfx33Compressed) return { ok: false, reason: 'GFX33 points outside the ROM' }
+  const refused = commandRefusal(sources.kind, gfx33Compressed)
+  if (refused) return { ok: false, reason: `GFX33: ${refused}` }
   const meter = { consumed: 0, terminated: false }
   const gfx33 = tryDecompress(gfx33Compressed, { meter })
   if (!gfx33.ok) return gfx33
@@ -431,6 +458,8 @@ function loadAnimatedTileBuffer(
   const preFilled = new Uint8Array(ANIM_TILES_BUF_OFFSET + gfx33Expanded.length)
   preFilled.set(gfx33Expanded, ANIM_TILES_BUF_OFFSET)
   if (!gfx32Compressed) return { ok: false, reason: 'GFX32 points outside the ROM' }
+  const refused32 = commandRefusal(sources.kind, gfx32Compressed)
+  if (refused32) return { ok: false, reason: `GFX32: ${refused32}` }
   const gfx32 = tryDecompress(gfx32Compressed, { initialBuffer: preFilled })
   if (!gfx32.ok) return gfx32
   const buffer = gfx32.bytes
@@ -523,8 +552,12 @@ export type LoadAnimationResult = { ok: true; data: AnimationData } | { ok: fals
  * @param rom        - ROM file to read from
  * @param tilesetId  - object tileset index (0–15) from the level header
  */
-export function loadAnimationDataOrReason(rom: RomFile, tilesetId: number): LoadAnimationResult {
-  const result = loadAnimatedTileBuffer(rom)
+export function loadAnimationDataOrReason(
+  rom: RomFile,
+  tilesetId: number,
+  fast: readonly FastRoutine[] = FAST_LCLZ2,
+): LoadAnimationResult {
+  const result = loadAnimatedTileBuffer(rom, fast)
   if (!result.ok) return result
   const buffer = result.buffer
 
