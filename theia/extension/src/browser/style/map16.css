@@ -73,7 +73,18 @@
   color: var(--theia-errorForeground);
 }
 
-/* ── Layout: preview, then the edit pane, browser strip below ─────────── */
+/* ── Layout: tile grid left, preview and edit pane right (#623) ───────── */
+
+/* Each column scrolls itself, so picking a tile or opening the edit pane
+   never moves the grid. The row never wraps: wrapping put the preview below
+   a full-height grid, out of view. When space is short the grid column
+   gives way and its strip scrolls sideways; the preview column does not. */
+.hb-map16-panes {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 
 .hb-map16-main {
   display: flex;
@@ -81,8 +92,8 @@
   align-items: flex-start;
   gap: 1em;
   padding: 1.2em;
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 0;
+  min-width: min-content;
   overflow: auto;
 }
 
@@ -204,8 +215,11 @@
   color: var(--theia-descriptionForeground);
 }
 
+/* The gutter is reserved up front so the column's width, which comes from
+   the canvas, does not change when the vertical scrollbar appears. */
 .hb-map16-canvas-wrap {
   overflow: auto;
+  scrollbar-gutter: stable;
   padding: 1.2em;
 }
 
@@ -510,15 +524,11 @@
 /* ── Tile browser strip ───────────────────────────────────────────────── */
 
 .hb-map16-browser {
-  border-top: 1px solid var(--theia-editorWidget-border);
+  border-right: 1px solid var(--theia-editorWidget-border);
   display: flex;
   flex-direction: column;
-  max-height: 45%;
-  min-height: 0;
-}
-
-.hb-map16-browser-closed {
-  max-height: none;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .hb-map16-browser-head {
@@ -539,9 +549,18 @@
   font-size: var(--theia-ui-font-size0);
 }
 
+/* Contained so the column is as wide as the grid, not as wide as this
+   sentence; the note wraps to fit instead. Collapsed, the strip is just
+   its toggle, and the preview column gets the width back. */
 .hb-map16-browser-note {
   font-size: 10px;
   color: var(--theia-descriptionForeground);
+  flex-grow: 1;
+  contain: inline-size;
+}
+
+.hb-map16-browser-closed .hb-map16-browser-note {
+  display: none;
 }
 
 /* Icon toolbar: zoom stepper, grid and animation toggles. Sits above the
@@ -571,8 +590,10 @@
 
 /* ── Switch toggles (#574) ─────────────────────────────────────────────── */
 
-/* Beside the preview, not below it: below, they fell under the fold of
-   .hb-map16-main in the default 1280x720 layout. */
+/* Beside the preview, never wrapped below it: below, they can fall out of
+   view. The row does not wrap, and .hb-map16-main is never narrower than
+   its min-content, so the pair always fits side by side; a long switch
+   note wraps inside its own column instead. */
 .hb-map16-preview-row {
   display: flex;
   align-items: flex-start;

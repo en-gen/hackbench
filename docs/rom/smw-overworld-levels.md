@@ -413,10 +413,10 @@ drop out by construction, because they never become entry maps.
   | Slots | What | Entered by |
   |---|---|---|
   | `$093`-`$09B`, `$193`-`$19B` (18) | Lemmy, Wendy, Reznor, Larry, Iggy, Ludwig, Roy, Morton and Bowser "Copy" scenes | game mode `$23`, `GM23PrepEnemyList` (`bank_00.asm:2508`), indexed by `CreditsScreenNumber` |
-  | `$000`, `$100` (2) | bonus game | `BonusGameActivate` (`bank_00.asm:8540`) |
+  | `$000`, `$100` (2) | Bonus Games | `BonusGameActivate` (`bank_00.asm:8540`) |
   | `$0C5` (1) | intro | game mode |
   | `$0C7` (1) | title screen | game mode |
-  | `$0C8`, `$1C8` (2) | Yoshi Wings | `YoshiHeavenFlag` (`bank_00.asm:5009`) |
+  | `$0C8`, `$1C8` (2) | Yoshi Heaven | `YoshiHeavenFlag` (`bank_00.asm:5009`) |
   | `$016` (1) | a third copy of `DP1Sprites015` that no launch tile starts | nothing |
   | `$108` (1) | `TestLevelSprites`, unused | nothing |
 

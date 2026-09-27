@@ -9,13 +9,24 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import { buildMapTree } from '../../../src/rom/MapTree'
+import { buildMapTree, type MapTree } from '../../../src/rom/MapTree'
+import type { BonusRole } from '../../../src/rom/BonusEntrances'
 import { createProject, romIdentity } from '../../../src/project/Project'
 import { VANILLA_SEED, VANILLA_SHA256, seedIfVanilla } from '../../../src/project/MapGroups'
 import { freshRom, hasRom, VANILLA, MAGIC } from '../support/corpus'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+
+/**
+ * Groups read from DATA_05DBA9 rather than the name table (see
+ * BonusEntrances.ts): their slots must be exactly what that read returns for
+ * the role, on this ROM.
+ */
+const READ_AFTER_A_LEVEL: Record<string, BonusRole> = {
+  'Bonus Games': 'bonus-game',
+  'Yoshi Heaven': 'yoshi-heaven',
+}
 
 /** Groups whose maps all carry a common word; checked as a substring. */
 const NAME_CONTAINS: Record<string, string> = {
@@ -70,12 +81,24 @@ describe.skipIf(!hasRom(VANILLA))('MapGroups seed table (vanilla corpus)', () =>
   // and CI has no ROM.
   let rom: SmwRom
   let topLevel: Set<number>
+  let bonus: MapTree['bonus']
   beforeAll(() => {
     rom = new SmwRom(freshRom(VANILLA))
-    topLevel = new Set(buildMapTree(rom).overworld.map(n => n.index))
+    const tree = buildMapTree(rom)
+    topLevel = new Set(tree.overworld.map(n => n.index))
+    bonus = tree.bonus
   })
 
-  for (const group of VANILLA_SEED) {
+  for (const [name, role] of Object.entries(READ_AFTER_A_LEVEL)) {
+    it(`${name} holds exactly the ${role} maps the ROM names`, () => {
+      const seeded = VANILLA_SEED.find(g => g.name === name)!.slots
+      const read = bonus.filter(b => b.role === role).map(b => b.index)
+      expect(read.length).toBeGreaterThan(0)
+      expect([...seeded].sort()).toEqual([...read].sort())
+    })
+  }
+
+  for (const group of VANILLA_SEED.filter(g => !(g.name in READ_AFTER_A_LEVEL))) {
     const expectedSubstring = NAME_CONTAINS[group.name]
     for (const slot of group.slots) {
       const hex = `$${slot.toString(16).toUpperCase().padStart(3, '0')}`

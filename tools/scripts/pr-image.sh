@@ -21,10 +21,16 @@ for file in "$@"; do
   [ -f "$file" ] || { echo "not a file: $file" >&2; exit 2; }
   name=$(basename "$file")
   path="$folder/$name"
-  sha=$(gh api "repos/$REPO/contents/$path" --jq .sha 2>/dev/null || true)
-  gh api -X PUT "repos/$REPO/contents/$path" \
-    -f message="$path" -f content="$(base64 -w0 "$file")" \
-    ${sha:+-f sha="$sha"} --silent
+  # gh prints the 404 body to stdout, so a failed lookup must clear it
+  sha=$(gh api "repos/$REPO/contents/$path" --jq .sha 2>/dev/null) || sha=
+  # The body goes on stdin: as an argument, base64 past ~24 KB of image
+  # exceeds the Windows command-line limit ("Argument list too long").
+  msg=$(printf '%s' "$path" | sed 's/[\\"]/\\&/g')
+  {
+    printf '{"message":"%s",%s"content":"' "$msg" "${sha:+\"sha\":\"$sha\",}"
+    base64 -w0 "$file"
+    printf '"}'
+  } | gh api -X PUT "repos/$REPO/contents/$path" --input - --silent
 done
 
 for file in "$@"; do

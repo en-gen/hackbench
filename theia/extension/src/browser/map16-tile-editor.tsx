@@ -97,12 +97,8 @@ export interface Map16TileEditorProps {
   editError: string | undefined
 }
 
-export function paintTilePreview(
-  canvas: HTMLCanvasElement,
-  pixels: Uint8ClampedArray,
-  opacity = 1,
-): void {
-  paintScaled(canvas, pixels, TILE_PX, TILE_PX, PREVIEW_SCALE, opacity)
+export function paintTilePreview(canvas: HTMLCanvasElement, pixels: Uint8ClampedArray): void {
+  paintScaled(canvas, pixels, TILE_PX, TILE_PX, PREVIEW_SCALE)
 }
 
 export function paintFrameQuadrant(canvas: HTMLCanvasElement, pixels: Uint8ClampedArray): void {

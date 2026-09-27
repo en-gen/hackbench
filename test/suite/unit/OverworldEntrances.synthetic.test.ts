@@ -22,7 +22,11 @@ import {
   SUBMAP_BUFFER_BASE,
 } from '../../../src/rom/OverworldEntrances'
 import { OVERWORLD_INDEX_BODY } from '../../../src/rom/SubmapFlagGate'
-import { plantStockSubmapCode, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
+import {
+  plantLmEntryHook,
+  plantStockSubmapCode,
+  SYNTHETIC_FINGERPRINTS,
+} from '../support/syntheticRom'
 
 /** The overworld-entry BEQ (bank_05.asm:7224), literal so a wrong constant goes red. */
 const OW_ENTRY_BEQ = 0x05d8b1
@@ -459,6 +463,31 @@ describe('deriveOverworldEntrances: roots', () => {
       main: new Set([1, 2, 3, 4, 5]),
       sub: new Set([0x106, 0x107, 0x108]),
     })
+  })
+
+  it("takes Lunar Magic's high byte from the translevel, with the routine's own bias", () => {
+    // Threshold $04, bias $01: main 1,2 -> $001,$002; sub 3 stays $003, sub 4,5 -> $103,$104.
+    const rom = buildRom(tiles(2, 3))
+    plantLmEntryHook(rom.rom, { threshold: 0x04, bias: 0x01 })
+    const result = derive(rom)
+    expect(result.entrances.map(e => [e.translevel, e.layout, e.slot])).toEqual([
+      [1, 0, 0x001],
+      [2, 0, 0x002],
+      [3, 1, 0x003],
+      [4, 1, 0x103],
+      [5, 1, 0x104],
+    ])
+    expect(result.roots).toEqual({ main: new Set([1, 2]), sub: new Set([3, 0x103, 0x104]) })
+  })
+
+  it('notes main-map entrances biased onto lower slots only for the stock high byte', () => {
+    const biasNote = (rom: SmwRom): boolean =>
+      derive(rom).notes.some(n => n.includes('main-map entrances have a translevel'))
+    const stock = buildRom(tiles(5, 0))
+    stock.rom.writeAt(0x05d8a2, [0xc9, 0x04])
+    const hooked = buildRom(tiles(5, 0))
+    plantLmEntryHook(hooked.rom, { threshold: 0x04, bias: 0x01 })
+    expect([biasNote(stock), biasNote(hooked)]).toEqual([true, false])
   })
 
   it('applies the bias the ROM holds, not the stock $25/$24', () => {

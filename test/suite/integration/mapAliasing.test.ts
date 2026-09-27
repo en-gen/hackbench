@@ -38,7 +38,7 @@ describe.skipIf(!hasRom(VANILLA))('map data aliasing', () => {
       if (!found.has(n.index)) found.set(n.index, n)
       n.children.forEach(walk)
     }
-    for (const n of [...tree.overworld, ...tree.special, ...tree.unassigned]) walk(n)
+    for (const n of [...tree.overworld, ...tree.special, ...tree.bonus, ...tree.unassigned]) walk(n)
     nodeAt = (index: number) => found.get(index)
   })
 
@@ -85,7 +85,8 @@ describe.skipIf(!hasRom(VANILLA))('map data aliasing', () => {
       n.children.forEach(check)
     }
     const tree = buildMapTree(SmwRom.open(VANILLA_ROM))
-    for (const n of [...tree.overworld, ...tree.special, ...tree.unassigned]) check(n)
+    for (const n of [...tree.overworld, ...tree.special, ...tree.bonus, ...tree.unassigned])
+      check(n)
   })
 
   it('never aliases filler slots to each other', () => {

@@ -3,8 +3,7 @@
  *
  *   Title Screen  $0C7
  *   New Game      $0C5
- *   Bonus game    $000, $100  entered after a level, not from a tile
- *   Yoshi wings   $0C8, $1C8
+ *   bonus         $000, $100, $0C8, $1C8  entered after a level, not from a tile
  *   overworld
  *   |- $105  entry map for a level
  *   |   |- $0C5  sub area
@@ -36,8 +35,8 @@
 import { SmwRom, isOverworldLevel } from './SmwRom'
 import { buildLevelCatalog } from './LevelCatalog'
 import { buildLevelSubtree, LevelTreeNode } from './LevelTree'
-import { findSpecialMaps, SpecialRole } from './SpecialMaps'
-import { findBonusEntrances } from './BonusEntrances'
+import { findSpecialMaps, type SpecialMap, type SpecialRole } from './SpecialMaps'
+import { findBonusEntrances, type BonusRole } from './BonusEntrances'
 import {
   deriveOverworldEntrances,
   STOCK_OVERWORLD_FINGERPRINTS,
@@ -72,9 +71,13 @@ export interface MapNode {
   children: MapNode[]
 }
 
-/** A map the game enters without the overworld, named by what it is for. */
-export interface SpecialMapNode extends MapNode {
-  role: SpecialRole
+/**
+ * A map the game enters without the overworld, named by what it is for. With
+ * a BonusRole it is one entered after a level: reached, so never orphaned,
+ * but not an entry map either.
+ */
+export interface SpecialMapNode<R extends string = SpecialRole> extends MapNode {
+  role: R
   /** The SNES address the slot was read from, for a citation the user can check. */
   foundAt: string
 }
@@ -93,12 +96,14 @@ export interface MapTreeCounts {
 
 export interface MapTree {
   /**
-   * The title screen, the new-game intro, the bonus game room and the Yoshi
-   * wings sub areas, in the order a player meets them. Any may be absent: on
-   * a ROM whose loader has been replaced the slot cannot be read, and the map
-   * stays among the unassigned rather than being guessed at.
+   * The title screen and the new-game intro, in the order a player meets
+   * them. Either may be absent: on a ROM whose loader has been replaced the
+   * slot cannot be read, and the map stays among the unassigned rather than
+   * being guessed at.
    */
   special: SpecialMapNode[]
+  /** Top-level like `overworld`, and absent the same way `special` is. */
+  bonus: SpecialMapNode<BonusRole>[]
   /** Maps the overworld can start, each with its sub-areas beneath it. */
   overworld: MapNode[]
   /** Real maps no overworld root reaches. Flat: see the note in build. */
@@ -168,24 +173,28 @@ export function buildMapTree(
   // Read from the ROM, and only adopted when the slot named actually holds a
   // real map: a routine that has been repointed could name a filler slot,
   // and listing that would invent a map.
-  const special: SpecialMapNode[] = []
   const found = findSpecialMaps(rom.rom)
-  const bonus = findBonusEntrances(rom.rom, fingerprints.bonus)
-  notes.push(...found.notes, ...bonus.notes)
-  // Construction order is play order: title, intro, then what follows a level.
-  for (const hit of [...found.maps, ...bonus.maps]) {
-    if (!maps.has(hit.index) || placed.has(hit.index)) continue
-    placed.add(hit.index)
-    special.push({
-      index: hit.index,
-      name: name(hit.index),
-      kind: 'map',
-      l1Aliases: aliasesOf(hit.index),
-      children: [],
-      role: hit.role,
-      foundAt: hit.foundAt,
+  const bonusRead = findBonusEntrances(rom.rom, fingerprints.bonus)
+  notes.push(...found.notes, ...bonusRead.notes)
+  // One pass, so a slot named twice (by two roles, on a hack) is placed once.
+  const adoptHits = <R extends string>(hits: SpecialMap<R>[]): SpecialMapNode<R>[] =>
+    hits.flatMap(hit => {
+      if (!maps.has(hit.index) || placed.has(hit.index)) return []
+      placed.add(hit.index)
+      const { index } = hit
+      return [
+        {
+          ...hit,
+          name: name(index),
+          kind: 'map' as const,
+          l1Aliases: aliasesOf(index),
+          children: [],
+        },
+      ]
     })
-  }
+  // Construction order is play order: title, intro, then what follows a level.
+  const special = adoptHits(found.maps)
+  const bonus = adoptHits(bonusRead.maps)
 
   // Flat by construction, not by omission. SmwRom.buildLevelExitGraph
   // resolves a map's exits only once its BFS reaches it from an overworld
@@ -227,5 +236,5 @@ export function buildMapTree(
     unassigned: unassigned.length,
   }
 
-  return { special, overworld, unassigned, mapCount: maps.size, counts, notes }
+  return { special, bonus, overworld, unassigned, mapCount: maps.size, counts, notes }
 }
