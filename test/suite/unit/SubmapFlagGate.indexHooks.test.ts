@@ -11,17 +11,20 @@ import {
   LOAD_HOOKS,
   MIDWAY_BUILDS,
   MIDWAY_HELPERS,
+  OVERWORLD_INDEX_GUARD,
+  OVERWORLD_INDEX_LOAD,
   entryPathMismatches,
   spanFingerprint,
   type MidwayHookBuild,
-  type SpanBuild,
 } from '../../../src/rom/SubmapFlagGate'
+import type { FastRoutine } from '../../../src/rom/GfxDecompressor'
+import { jsl } from '../support/syntheticGfxCart'
 import { blankStockRom, flip, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
 
-// Off bank $05, so a helper resolved in the wrong bank goes red.
+// Off bank $05, so a helper or loader resolved in the wrong bank goes red.
 const HOOK_AT = 0x06e900
 const HELPER_AT = 0x06ea00
-const LOADER_AT = 0x05eb00
+const LOADER_AT = 0x86eb00
 
 /** A made-up build: JSR helper, JML $05D847, JML $05D8A2, then filler the fingerprint pins. */
 // prettier-ignore
@@ -44,7 +47,7 @@ const HELPERS = [{ length: HELPER.length, fingerprint: fingerprint(Uint8Array.fr
 
 function midway(): RomFile {
   const rom = blankStockRom()
-  rom.writeAt(0x05d842, [0x5c, HOOK_AT & 0xff, (HOOK_AT >> 8) & 0xff, HOOK_AT >> 16])
+  rom.writeAt(0x05d842, [0x5c, ...jsl(HOOK_AT).slice(1)])
   rom.writeAt(HOOK_AT, HOOK)
   rom.writeAt(HELPER_AT, HELPER)
   return rom
@@ -60,7 +63,7 @@ const LOADERS = [
 
 function loader(i: number): RomFile {
   const rom = blankStockRom()
-  rom.writeAt(0x05d89b, [0x22, LOADER_AT & 0xff, (LOADER_AT >> 8) & 0xff, LOADER_AT >> 16])
+  rom.writeAt(0x05d89b, jsl(LOADER_AT))
   rom.writeAt(LOADER_AT, LOADERS[i]!)
   return rom
 }
@@ -68,7 +71,7 @@ function loader(i: number): RomFile {
 const failing = (
   rom: RomFile,
   builds: readonly MidwayHookBuild[] = [BUILD],
-  helpers: readonly SpanBuild[] = HELPERS,
+  helpers: readonly FastRoutine[] = HELPERS,
 ): string[] =>
   entryPathMismatches(rom, SYNTHETIC_FINGERPRINTS.entry, builds, helpers).flatMap(r => r ?? [])
 
@@ -93,11 +96,9 @@ describe('recognized builds', () => {
 })
 
 describe('the stock test and load around the fingerprint', () => {
-  // STZ _F / LDY #0 / LDA OverworldOverride / BNE; LDA.L OWLayer1Translevel,X / STA TranslevelNo.
-  const pinned = [
-    ...[0, 1, 2, 3, 4, 5, 6, 7, 8].map(i => 0x05d83e + i),
-    ...[0, 1, 2, 3, 4, 5, 6].map(i => 0x05d89b + i),
-  ]
+  const pinned = [OVERWORLD_INDEX_GUARD, OVERWORLD_INDEX_LOAD].flatMap(c =>
+    c.bytes.map((_, i) => c.addr + i),
+  )
   it.each(pinned)('refuses with $%s flipped', at => {
     const rom = blankStockRom()
     flip(rom, at)
@@ -127,12 +128,6 @@ describe("Lunar Magic's midway hook at $05D842", () => {
     expect(failing(rom).join()).toContain('does not return to $05D847 and $05D8A2')
   })
 
-  it('refuses a changed helper', () => {
-    const rom = midway()
-    flip(rom, HELPER_AT + 1)
-    expect(failing(rom).join()).toContain('helper at $06EA00 is not a recognized build')
-  })
-
   it.each([0, 1, 2, 3, 4])('refuses with site byte %i flipped', i => {
     const rom = midway()
     flip(rom, 0x05d83e + i)
@@ -146,21 +141,13 @@ describe("Lunar Magic's midway hook at $05D842", () => {
   it.each(HELPER.map((_, i) => i))('refuses with helper byte %i flipped', i => {
     const rom = midway()
     flip(rom, HELPER_AT + i)
-    expect(failing(rom)).not.toEqual([])
+    expect(failing(rom).join()).toContain('helper at $06EA00 is not a recognized build')
   })
 })
 
 describe('the JSL table loader at $05D89B', () => {
   it.each([0, 1])('passes the path with loader %i', i => {
     expect(failing(loader(i))).toEqual([])
-  })
-
-  it.each([0, 1])('refuses loader %i reading anything but OWLayer1Translevel,X', i => {
-    for (const at of LOADERS[i]!.flatMap((b, j) => (b === 0xbf ? [j] : []))) {
-      const rom = loader(i)
-      rom.writeAt(LOADER_AT + at + 1, [0x01])
-      expect(failing(rom).join()).toContain('not a recognized loader')
-    }
   })
 
   it('refuses a loader without the STA TranslevelNo after it', () => {
@@ -179,7 +166,7 @@ describe('the JSL table loader at $05D89B', () => {
     (i, j) => {
       const rom = loader(i)
       flip(rom, LOADER_AT + j)
-      expect(failing(rom)).not.toEqual([])
+      expect(failing(rom).join()).toContain('reaches $06EB00, which is not a recognized loader')
     },
   )
 })
