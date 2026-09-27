@@ -27,6 +27,7 @@ import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
 import { OW_ADDR } from '../../../src/rom/OverworldLoader'
 import { buildMapDetails } from '../../../theia/extension/src/node/map-details'
 import { plantStockSubmapCode, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
+import { PREPARE_GFX, jsl, plantGfxHook, plantGfxReadPath } from '../support/syntheticGfxCart'
 
 /** A minimal ROM: LoROM header, one level's L1 pointer, one object, no
  *  VerticalTable or sprite-pointer pattern anywhere. */
@@ -49,6 +50,19 @@ describe('buildMapDetails - orientation unavailable', () => {
     expect(details.headerBytes).toEqual([0, 0, 0, 0, 0])
     expect(details.screens).toBe(1)
     expect(details.objectCount).toBe(1)
+  })
+})
+
+describe('buildMapDetails - GFX assignment mark', () => {
+  it('marks a map on a ROM whose level GFX call goes through the hook, and not a stock one', () => {
+    const smw = syntheticRom()
+    plantGfxReadPath(smw.rom)
+    expect(buildMapDetails(smw, 0x105).gfxAssignmentNote).toBeUndefined()
+    plantGfxHook(smw.rom, 0x019000, PREPARE_GFX, 'direct')
+    smw.rom.writeAt(0x00aa6b, jsl(0x019000))
+    const details = buildMapDetails(smw, 0x105)
+    expect(details.gfxAssignmentNote).toMatch(/FG\/BG and sprite GFX files/)
+    expect(details.headerBytes).toEqual([0, 0, 0, 0, 0])
   })
 })
 

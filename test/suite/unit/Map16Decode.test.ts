@@ -27,8 +27,7 @@ import {
   MAP16_TILES_PER_ROW,
 } from '../../../theia/extension/src/common/map16-protocol'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
-import { plantGfxReadPath, plantPaletteCol1ReachPath } from '../support/syntheticGfxCart'
-import { map16Stub } from '../support/syntheticMap16'
+import { map16DecodeStub } from '../support/syntheticMap16'
 import { bgr555ToRgba } from '../../../src/rom/GraphicsDecoder'
 
 const ROM_PATH = romPath(VANILLA)
@@ -454,11 +453,7 @@ describe('nextQuadrantWord', () => {
 // neither would fail without this pair, corpus or no corpus.
 describe('column 1 wiring (no cartridge)', () => {
   function stubRom(): RomFile {
-    const rom = new RomFile('stub.sfc', Buffer.from(map16Stub()))
-    rom.writeAt(0x00ffd5, [0x20]) // LoROM header byte (SNES $00:FFD5 -> file $7FD5)
-    plantGfxReadPath(rom)
-    plantPaletteCol1ReachPath(rom)
-    return rom
+    return map16DecodeStub()
   }
 
   it('refuses when the level-load path no longer reaches LoadPalette', () => {

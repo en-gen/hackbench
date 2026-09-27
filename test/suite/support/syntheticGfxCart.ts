@@ -12,7 +12,6 @@ import { encode } from '../../../src/rom/LcLz2'
 import { COPIER_HEADER_SIZE, LOROM_BANK_SIZE, loromFromOffset } from '../../../src/rom/addressing'
 import { WILD } from '../../../src/rom/BytePattern'
 import {
-  computeHookFingerprint,
   GFX_FILE_COUNT,
   LEVEL_GFX_CALLERS,
   PREPARE_GFX_PATTERN,
@@ -36,6 +35,8 @@ export const TABLE_HI = 0xb9c4
 export const TABLE_BANK = 0xb9f6
 export const DECOMP_ENTRY = 0xb8de
 export const ROUTINE_AT = 0x3a46 // bank 0, clear of both tables
+/** PrepareGraphicsFile's SNES address on a bank-0 cart. */
+export const PREPARE_GFX = 0x8000 + ROUTINE_AT
 export const ARENA_AT = 0x10000
 
 /** JSL to `target`, 4 bytes, the encoding a hijacked call site overwrites. */
@@ -43,40 +44,47 @@ export function jsl(target: number): number[] {
   return [0x22, target & 0xff, (target >> 8) & 0xff, (target >> 16) & 0xff]
 }
 
-/**
- * The recognized ExGFX hook (src/rom/GfxArena.ts HOOK_RANGE_*), as a
- * synthetic signature: both ranges filled with NOP, which never jumps
- * anywhere, so the fixture is coherent rather than landing on whatever a
- * sparse fixture leaves at $00 $00 (BRK). The operands the resolver reads
- * are planted in place; everything else is deliberately arithmetic, not
- * copied from a ROM. Returns this exact signature's own fingerprint, for a
- * test to pass back in rather than needing the real corpus hash.
- */
-export const HOOK_RANGE_A_OFFSET = 0x000
-export const HOOK_RANGE_A_LENGTH = 0x07f
-export const HOOK_RANGE_B_OFFSET = 0x6e0
-export const HOOK_RANGE_B_LENGTH = 0x12f
-export const HOOK_TABLE_OFFSET = 0x7b4
-export const HOOK_TAIL_OFFSET = 0x7fa
-export const HOOK_EXGFX_OPERANDS = [0x713, 0x7d7, 0x7dd]
+/** Where `plantGfxHook` puts the default path, the loader and the dispatcher,
+ *  relative to the hook's entry. */
+export const HOOK_LANDING = 0x20
+export const HOOK_LOADER = 0x40
+export const HOOK_DISPATCHER = 0x80
 
-export function plantHookSignature(
+/**
+ * The ExGFX hook's shape (src/rom/GfxArena.ts HOOK_*), written from the 65816
+ * encoding: entry, BRA to a JSR/RTL, and either the older build's JSL to
+ * PrepareGraphicsFile or the newer stub's JSL to a dispatcher. The dispatcher
+ * is NOP-filled but for the operands the resolver reads; pass its own
+ * `dispatcherFingerprint` to recognize it.
+ */
+export function plantGfxHook(
   rom: RomFile,
-  primary: number,
-  lo: number,
-  hi: number,
-  bank: number,
-  jml: number,
-): string {
-  rom.writeAt(primary + HOOK_RANGE_A_OFFSET, new Array<number>(HOOK_RANGE_A_LENGTH).fill(0xea))
-  rom.writeAt(primary + HOOK_RANGE_B_OFFSET, new Array<number>(HOOK_RANGE_B_LENGTH).fill(0xea))
-  const long = (a: number): number[] => [a & 0xff, (a >> 8) & 0xff, (a >> 16) & 0xff]
-  rom.writeAt(primary + HOOK_TABLE_OFFSET + 4, long(lo))
-  rom.writeAt(primary + HOOK_TABLE_OFFSET + 10, long(hi))
-  rom.writeAt(primary + HOOK_TABLE_OFFSET + 16, long(bank))
-  rom.writeAt(primary + HOOK_TAIL_OFFSET + 9, long(jml))
-  for (const off of HOOK_EXGFX_OPERANDS) rom.writeAt(primary + off, long(0))
-  return computeHookFingerprint(rom, primary)!
+  entry: number,
+  prepareGfx: number,
+  loader: 'direct' | 'stub',
+  tables: readonly number[] = [TABLE_LO, TABLE_HI, TABLE_BANK],
+): void {
+  const bra = HOOK_LANDING - 13
+  rom.writeAt(entry, [0xa3, 0x04, 0xc9, 0x0a, 0xf0, 0x10, 0xc9, 0x4b, 0xf0, 0x03, 0x98, 0x80, bra])
+  const at = entry + HOOK_LOADER
+  rom.writeAt(entry + HOOK_LANDING, [0x20, at & 0xff, (at >> 8) & 0xff, 0x6b])
+  if (loader === 'direct') {
+    // PHX PHY PHP REP / AND #$FF / CMP #$7F BEQ / CMP #$80 BCS / TAY SEP JSL /
+    // BRA over two NOPs to PLP PLY PLX RTS
+    // prettier-ignore
+    rom.writeAt(at, [0xda, 0x5a, 0x08, 0xc2, 0x30, 0x29, 0xff, 0x00, 0xc9, 0x7f, 0x00, 0xf0, 0x0a,
+      0xc9, 0x80, 0x00, 0xb0, 0x05, 0xa8, 0xe2, 0x30, ...jsl(prepareGfx), 0x80, 0x02, 0xea, 0xea,
+      0x28, 0x7a, 0xfa, 0x60])
+    return
+  }
+  const d = entry + HOOK_DISPATCHER
+  // XBA STZ / $7EAD00 into $00-$02 / LDA #0 XBA / JSL dispatcher / RTS
+  // prettier-ignore
+  rom.writeAt(at, [0xeb, 0x64, 0x00, 0xa9, 0xad, 0x85, 0x01, 0xa9, 0x7e, 0x85, 0x02, 0xa9, 0x00,
+    0xeb, ...jsl(d), 0x60])
+  rom.writeAt(d, new Array<number>(0x6f).fill(0xea))
+  tables.forEach((t, i) => rom.writeAt(d + 0x17 + i * 6, [0xbf, ...jsl(t).slice(1)]))
+  rom.writeAt(d + 0x62, [0x5c, ...jsl(prepareGfx + 0x1f).slice(1)])
 }
 
 /** The tile-count loop's `LDY.B #$7F` and the two bytes either side of it
@@ -255,7 +263,7 @@ export function buildCart(opts: CartOptions = {}): SyntheticCart {
 export function plantGfxReadPath(rom: RomFile): void {
   rom.writeAt(0x8000 + ROUTINE_AT, prepareGraphicsFile())
   rom.writeAt(DECOMP_ENTRY, [...STOCK_LCLZ2_ENTRY])
-  const routineSnes = 0x8000 + ROUTINE_AT
+  const routineSnes = PREPARE_GFX
   for (const c of LEVEL_GFX_CALLERS) rom.writeAt(c, jsl(routineSnes))
   rom.writeAt(L3_ROUTINE, layer3Routine())
   for (const c of L3_CALLERS) rom.writeAt(c, L3_CALL)

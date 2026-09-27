@@ -11,6 +11,7 @@
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { parseLevelObjects, parseLevelSprites } from '../../../../src/rom/LevelParser'
 import { levelNameForSlot } from '../../../../src/rom/SmwLevelNames'
+import { levelGfxAssignmentNote } from '../../../../src/rom/GfxLoader'
 import {
   deriveOverworldEntrances,
   type OverworldEntranceIndex,
@@ -98,12 +99,13 @@ export function buildMapDetails(
       { label: 'FG palette', value: hex(h.fgPalette) },
       { label: 'BG palette', value: hex(h.bgPalette) },
       { label: 'Sprite palette', value: hex(h.spritePalette) },
-      { label: 'Back area colour', value: hex(h.bgColor) },
+      { label: 'Back area color', value: hex(h.bgColor) },
       { label: 'Music', value: hex(h.music) },
       { label: 'Time limit', value: hex(h.timeLimit) },
       { label: 'Item memory', value: hex(h.itemMemory) },
       { label: 'Vertical scroll', value: hex(h.verticalScroll) },
       { label: 'Layer 3 priority', value: h.layer3Priority ? 'yes' : 'no' },
     ],
+    gfxAssignmentNote: levelGfxAssignmentNote(rom.rom),
   }
 }

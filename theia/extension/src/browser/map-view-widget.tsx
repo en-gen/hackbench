@@ -133,6 +133,12 @@ export class MapViewWidget extends ReactWidget {
           )}
         </div>
 
+        {d.gfxAssignmentNote && (
+          <div className="hb-map-view-error hb-map-view-note" data-note="gfx-assignment">
+            {d.gfxAssignmentNote}
+          </div>
+        )}
+
         <table className="hb-map-view-table">
           <tbody>
             {d.header.map(f => (
