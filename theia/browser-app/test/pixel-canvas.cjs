@@ -1,3 +1,5 @@
+const { contrastRatio } = require('./palette-color.cjs')
+
 /**
  * What shows through a graphics canvas's transparent pixels, read from the
  * screen rather than from CSS: a class that is present but paints nothing,
@@ -10,8 +12,7 @@ const CHECKER_CELL_CSS_PX = 8
 /**
  * Screenshots the visible part of the canvas, then samples the on-screen
  * color at every native pixel whose alpha is 0, split by which checker
- * square it falls in. Returns each square's most common color and the
- * contrast ratio between the two.
+ * square it falls in. Returns each square's most common color.
  *
  * Split by square, not just "two colors seen": overlays (hover dim, handle
  * outlines) add colors of their own, which made a flat background pass.
@@ -80,18 +81,7 @@ async function transparentShowsThrough(page, selector) {
         }
       }
       const mode = m => [...m].sort((a, b) => b[1] - a[1])[0]?.[0]
-      const lum = rgb =>
-        rgb
-          .map(c => c / 255)
-          .map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
-          .reduce((sum, c, i) => sum + [0.2126, 0.7152, 0.0722][i] * c, 0)
-      const squares = counts.map(mode)
-      let ratio = 1
-      if (squares[0] && squares[1]) {
-        const [hi, lo] = squares.map(k => lum(k.split(',').map(Number))).sort((a, b) => b - a)
-        ratio = (hi + 0.05) / (lo + 0.05)
-      }
-      return { transparentPixels, squares, ratio }
+      return { transparentPixels, squares: counts.map(mode) }
     },
     { sel: selector, png, cell: CHECKER_CELL_CSS_PX, clip },
   )
@@ -102,7 +92,8 @@ async function expectCheckerboard(expect, page, selector) {
   const seen = await transparentShowsThrough(page, selector)
   expect(seen.transparentPixels, `${selector} has color-0 pixels to see through`).toBeGreaterThan(0)
   expect(seen.squares[0], `${selector} alternates tones`).not.toBe(seen.squares[1])
-  expect(seen.ratio, `${selector} tones are distinguishable`).toBeGreaterThan(1.1)
+  const [a, b] = seen.squares.map(k => k.split(',').map(Number))
+  expect(contrastRatio(a, b), `${selector} tones are distinguishable`).toBeGreaterThan(1.1)
 }
 
-module.exports = { transparentShowsThrough, expectCheckerboard }
+module.exports = { expectCheckerboard }

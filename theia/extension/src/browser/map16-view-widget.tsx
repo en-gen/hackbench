@@ -38,6 +38,7 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
+import { ThemeService } from '@theia/core/lib/browser/theming'
 import {
   BG_VARIANT_COLOR_ROWS,
   FG_VARIANT_COLOR_ROWS,
@@ -138,6 +139,7 @@ interface Selection {
 export class Map16ViewWidget extends ReactWidget {
   @inject(Map16Service) protected readonly map16!: Map16Service
   @inject(Map16FrontendClient) protected readonly pushClient!: Map16FrontendClient
+  @inject(ThemeService) protected readonly themes!: ThemeService
 
   protected options: Map16ViewOptions | undefined
   protected result: LoadMap16Result | undefined
@@ -216,6 +218,8 @@ export class Map16ViewWidget extends ReactWidget {
       }),
     )
     this.toDispose.push({ dispose: () => this.stopAnimation() })
+    // Page bands and grid lines are theme colors baked into the bitmap.
+    this.toDispose.push(this.themes.onDidColorThemeChange(() => this.update()))
   }
 
   protected layer(): Map16Layer {
@@ -674,23 +678,21 @@ export class Map16ViewWidget extends ReactWidget {
     if (!ctx) return
     const pixels = this.browsedSheet.pixels(sheet, this.activeBase64(sheet), b => this.decoded(b))
 
-    // Each page is blitted separately so a blank band sits between them.
-    // An offscreen canvas holds the decoded sheet because putImageData
-    // ignores clipping and cannot take a source rectangle.
+    // Each page is blitted separately so a band sits between them, painted
+    // in the panel's color: left clear it would show the transparency
+    // checkerboard and read as part of a page. An offscreen canvas holds the
+    // decoded sheet because putImageData ignores clipping and cannot take a
+    // source rectangle.
     const off = document.createElement('canvas')
     off.width = sheet.width
     off.height = sheet.height
     off.getContext('2d')?.putImageData(new ImageData(pixels, sheet.width, sheet.height), 0, 0)
-    // The bands are painted in the panel's color: left clear, they would show
-    // the transparency checkerboard and read as part of a page.
     ctx.fillStyle =
       getComputedStyle(this.node).getPropertyValue('--theia-editor-background').trim() || '#1e1e1e'
-    for (let page = 1; page < pages; page++) {
-      ctx.fillRect(0, page * (pageHeight + PAGE_GAP_PX) - PAGE_GAP_PX, sheet.width, PAGE_GAP_PX)
-    }
     for (let page = 0; page < pages; page++) {
       const srcY = page * pageHeight
       const sliceH = Math.min(pageHeight, sheet.height - srcY)
+      if (page > 0) ctx.fillRect(0, srcY + (page - 1) * PAGE_GAP_PX, sheet.width, PAGE_GAP_PX)
       ctx.drawImage(
         off,
         0,
