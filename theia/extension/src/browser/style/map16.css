@@ -634,14 +634,8 @@
   background: var(--theia-inputOption-hoverBackground, rgba(91, 156, 246, 0.3));
 }
 
-.hb-map16-zoom-indicator {
-  min-width: 26px;
-  text-align: center;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--theia-descriptionForeground);
-  user-select: none;
-}
+/* The zoom stepper itself is `ZoomStepper` (style/zoom.css, #651); this
+   toolbar only arranges it beside the grid/play icon buttons above. */
 
 /* ── Switch toggles (#574) ─────────────────────────────────────────────── */
 

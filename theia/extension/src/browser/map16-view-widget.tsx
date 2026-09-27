@@ -38,6 +38,9 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
+import { Disposable } from '@theia/core/lib/common'
+import { ZoomController } from './zoom-controller'
+import { ZoomStepper } from './zoom-stepper'
 import {
   BG_VARIANT_COLOR_ROWS,
   FG_VARIANT_COLOR_ROWS,
@@ -165,7 +168,11 @@ export class Map16ViewWidget extends ReactWidget {
   /** Which palette sections are expanded. All four are always listed. */
   protected expandedSheets = new Set<Map16CharSlot>()
   protected canvasEl: HTMLCanvasElement | null = null
-  protected zoom = DEFAULT_ZOOM
+  /** 1x-4x, driven by the toolbar stepper and by Ctrl + wheel over the
+   * browser strip (#651) - see `bindCanvasWrap` and `applyPendingZoomAnchor`. */
+  protected readonly zoomController = new ZoomController(ZOOM_OPTIONS, DEFAULT_ZOOM)
+  protected canvasWrapEl: HTMLElement | null = null
+  protected wheelDisposable: Disposable | undefined
   protected browserOpen = true
   /**
    * One optimistic value per in-flight field edit, keyed by
@@ -216,6 +223,29 @@ export class Map16ViewWidget extends ReactWidget {
       }),
     )
     this.toDispose.push({ dispose: () => this.stopAnimation() })
+    this.toDispose.push(this.zoomController.onDidChange(() => this.update()))
+    this.toDispose.push(Disposable.create(() => this.wheelDisposable?.dispose()))
+  }
+
+  /** Stable ref identity, so React binds the wheel listener once per DOM
+   * node rather than on every render - see `ZoomController.bindWheel`'s own
+   * doc comment on why Ctrl + wheel needs `{ passive: false }`. */
+  protected readonly bindCanvasWrap = (el: HTMLDivElement | null): void => {
+    this.wheelDisposable?.dispose()
+    this.wheelDisposable = undefined
+    this.canvasWrapEl = el
+    if (el) this.wheelDisposable = this.zoomController.bindWheel(el)
+  }
+
+  /** Keeps the content pixel under the cursor fixed across a wheel-driven
+   * zoom step. A no-op unless the last zoom change came from `bindWheel`. */
+  protected applyPendingZoomAnchor(): void {
+    if (!this.canvasWrapEl) return
+    const anchor = this.zoomController.takePendingAnchor(this.canvasWrapEl)
+    if (!anchor) return
+    const zoom = this.zoomController.value
+    this.canvasWrapEl.scrollLeft = anchor.contentX * zoom - anchor.offsetX
+    this.canvasWrapEl.scrollTop = anchor.contentY * zoom - anchor.offsetY
   }
 
   protected layer(): Map16Layer {
@@ -484,17 +514,6 @@ export class Map16ViewWidget extends ReactWidget {
     void this.reload()
   }
 
-  protected stepZoom(delta: number): void {
-    const i = ZOOM_OPTIONS.indexOf(this.zoom)
-    const next = ZOOM_OPTIONS[Math.min(ZOOM_OPTIONS.length - 1, Math.max(0, i + delta))]
-    if (next === undefined || next === this.zoom) return
-    this.zoom = next
-    this.update()
-  }
-
-  protected handleZoomIn = (): void => this.stepZoom(1)
-  protected handleZoomOut = (): void => this.stepZoom(-1)
-
   protected sheet(): Map16SheetDto | undefined {
     return this.result?.status === 'ok' ? this.result.sheet : undefined
   }
@@ -529,8 +548,8 @@ export class Map16ViewWidget extends ReactWidget {
     const sheet = this.sheet()
     if (!sheet) return undefined
     return tileAtPoint(
-      e.nativeEvent.offsetX / this.zoom,
-      e.nativeEvent.offsetY / this.zoom,
+      e.nativeEvent.offsetX / this.zoomController.value,
+      e.nativeEvent.offsetY / this.zoomController.value,
       sheet.tilesPerRow,
       sheet.tiles.length,
     )
@@ -666,10 +685,12 @@ export class Map16ViewWidget extends ReactWidget {
     const pageHeight = (TILES_PER_PAGE / sheet.tilesPerRow) * TILE_PX
     const pages = Math.ceil(sheet.tiles.length / TILES_PER_PAGE)
     const gapTotal = (pages - 1) * PAGE_GAP_PX
+    const zoom = this.zoomController.value
     this.canvasEl.width = sheet.width
     this.canvasEl.height = sheet.height + gapTotal
-    this.canvasEl.style.width = `${sheet.width * this.zoom}px`
-    this.canvasEl.style.height = `${(sheet.height + gapTotal) * this.zoom}px`
+    this.canvasEl.style.width = `${sheet.width * zoom}px`
+    this.canvasEl.style.height = `${(sheet.height + gapTotal) * zoom}px`
+    this.applyPendingZoomAnchor()
     const ctx = this.canvasEl.getContext('2d')
     if (!ctx) return
     const pixels = this.browsedSheet.pixels(sheet, this.activeBase64(sheet), b => this.decoded(b))
@@ -914,32 +935,7 @@ export class Map16ViewWidget extends ReactWidget {
           </label>
           <span className="hb-map16-toolbar-spacer" />
           <div className="hb-map16-toolbar-actions">
-            <button
-              data-control="zoom-out"
-              type="button"
-              className="hb-map16-icon-btn"
-              disabled={this.zoom === ZOOM_OPTIONS[0]}
-              title="Zoom out"
-              aria-label="Zoom out"
-              onClick={this.handleZoomOut}
-            >
-              <span className="codicon codicon-zoom-out" />
-            </button>
-            <span
-              data-control="zoom-indicator"
-              className="hb-map16-zoom-indicator"
-            >{`${this.zoom}x`}</span>
-            <button
-              data-control="zoom-in"
-              type="button"
-              className="hb-map16-icon-btn"
-              disabled={this.zoom === ZOOM_OPTIONS[ZOOM_OPTIONS.length - 1]}
-              title="Zoom in"
-              aria-label="Zoom in"
-              onClick={this.handleZoomIn}
-            >
-              <span className="codicon codicon-zoom-in" />
-            </button>
+            <ZoomStepper controller={this.zoomController} />
             <span className="hb-map16-toolbar-sep" />
             <button
               data-control="grid-toggle"
@@ -1087,7 +1083,7 @@ export class Map16ViewWidget extends ReactWidget {
           </span>
         </div>
         {this.browserOpen && (
-          <div className="hb-map16-canvas-wrap">
+          <div className="hb-map16-canvas-wrap" ref={this.bindCanvasWrap}>
             <canvas
               className="hb-map16-canvas"
               onClick={this.handleCanvasClick}

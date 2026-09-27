@@ -4,6 +4,7 @@
 // land back in src/.
 import 'hackbench-theia-extension/src/browser/style/map16.css'
 import 'hackbench-theia-extension/src/browser/style/pixel-button.css'
+import 'hackbench-theia-extension/src/browser/style/zoom.css'
 import { ContainerModule } from '@theia/core/shared/inversify'
 import { WidgetFactory } from '@theia/core/lib/browser'
 import {
