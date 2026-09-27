@@ -1,5 +1,5 @@
 /**
- * The Overworld view: the overworld's L1 (foreground) as one 1024x512 map.
+ * The Overworld view: the overworld's L1 (foreground), both halves side by side.
  *
  * One instance in the main area. Follows ProjectContext, and redraws when the
  * backend reports the working copy changed. A refusal shows its reason and
@@ -8,31 +8,17 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
-import { Emitter, Event } from '@theia/core/lib/common'
-import {
-  OverworldL1Dto,
-  OverworldService,
-  OverworldServiceClient,
-} from '../common/overworld-protocol'
+import { GfxService, OverworldL1Dto } from '../common/gfx-protocol'
+import { GfxFrontendClient } from './gfx-push-client'
 import { decodeRgba, paintScaled } from './map16-pixels'
 import { ProjectContext } from './project-context'
 
 export const OVERWORLD_VIEW_ID = 'hackbench.overworld-view'
 
-/** See palette-push-client.ts for why this is its own singleton. */
-@injectable()
-export class OverworldFrontendClient implements OverworldServiceClient {
-  private readonly emitter = new Emitter<string>()
-  readonly onChanged: Event<string> = this.emitter.event
-  onWorkingCopyChanged(manifestPath: string): void {
-    this.emitter.fire(manifestPath)
-  }
-}
-
 @injectable()
 export class OverworldViewWidget extends ReactWidget {
-  @inject(OverworldService) protected readonly overworld!: OverworldService
-  @inject(OverworldFrontendClient) protected readonly pushClient!: OverworldFrontendClient
+  @inject(GfxService) protected readonly gfx!: GfxService
+  @inject(GfxFrontendClient) protected readonly pushClient!: GfxFrontendClient
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
 
   protected manifestPath: string | undefined
@@ -65,7 +51,7 @@ export class OverworldViewWidget extends ReactWidget {
     let error: string | undefined
     if (manifestPath) {
       try {
-        l1 = await this.overworld.overworldL1(manifestPath)
+        l1 = await this.gfx.overworldL1(manifestPath)
       } catch (err) {
         error = (err as Error).message
       }
@@ -99,7 +85,8 @@ export class OverworldViewWidget extends ReactWidget {
           <span className="hb-gfx-view-title">Overworld: Foreground</span>
           {l1?.status === 'ok' && (
             <span className="hb-gfx-view-summary hb-overworld-note">
-              Drawn in the main map&apos;s tileset and palette; colors outside it may be wrong.
+              Drawn with area 0&apos;s tileset and palette; tiles and colors in the other half may
+              differ in game.
             </span>
           )}
         </div>

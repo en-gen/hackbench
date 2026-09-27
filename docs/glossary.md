@@ -82,12 +82,14 @@ ROM it is leftover data.
 
 ## The overworld words
 
-**Submap.** A camera window onto the overworld, which is ONE map: one
-64x32 grid of Map16 tiles (`Map16TilesLow`). The ROM's own word
-(`OWPlayerSubmap`, `CurrentSubmap`). It selects a camera position
-(`DATA_00A06B`/`DATA_00A079`, `bank_00.asm:4242-4248`) plus a tileset and a
-palette, not separate map data. Vanilla has 7, but that is a data
-convention, not an engine limit: no bounds check exists on the submap value.
+**Submap.** One of the overworld's regions. The ROM's own word
+(`OWPlayerSubmap`, `CurrentSubmap`). The overworld L1 is one $800-byte
+`Map16TilesLow` in two $400 halves, and a nonzero submap selects the second
+half (`bank_04.asm:2692-2698`, `5178-5184`; `bank_05.asm:7206-7212`). Area 0
+reads half 0; areas 1-6 are camera windows (`DATA_00A06B`/`DATA_00A079`,
+`bank_00.asm:4242-4248`) within half 1, each with its own tileset and
+palette. Vanilla has 7, but that is a data convention, not an engine limit:
+no bounds check exists on the submap value.
 
 **Launch tile.** An overworld tile that enters a level. Vanilla has 92
 carrying a translevel, of which 86 enter a level rather than warping.

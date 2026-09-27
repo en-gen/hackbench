@@ -1,10 +1,10 @@
 /**
  * The Overworld view (#676), end to end against the shell.
  *
- * The globe opens ONE main-area widget; the canvas is the whole L1 grid at
- * 1024x512; its pixels match the decode computed here in node from the ROM
- * file, outside the RPC, base64 and canvas path the view takes; a ROM whose
- * L1 reader is not stock shows the reason and no canvas.
+ * The globe opens ONE main-area widget, and every path that shows the globe
+ * does; the canvas is the whole L1 grid at 1024x512 and hashes to the pin the
+ * Vitest decode test also holds; a ROM whose L1 reader is not stock shows the
+ * reason and no canvas.
  */
 const { test, expect } = require('@playwright/test')
 const { createHash } = require('crypto')
@@ -12,12 +12,8 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
-const { RomFile } = require('../../extension/lib/src/rom/RomFile')
-const { SmwRom } = require('../../extension/lib/src/rom/SmwRom')
+const { VANILLA_OVERWORLD_CANVAS_SHA256 } = require('../../../test/suite/support/overworld-pin.cjs')
 const { loromToOffset } = require('../../extension/lib/src/rom/addressing')
-const {
-  decodeOverworldL1,
-} = require('../../extension/lib/theia/extension/src/node/overworld-decode')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
@@ -84,11 +80,23 @@ async function canvasSha(page) {
   return { width, height, sha }
 }
 
-function expectedSha(file) {
-  const dto = decodeOverworldL1(new SmwRom(RomFile.load(file)))
-  if (dto.status !== 'ok') throw new Error(dto.reason)
-  return createHash('sha256').update(Buffer.from(dto.rgbaBase64, 'base64')).digest('hex')
+/** Writes `rom` with `edit` applied to a copy in tmp, and returns its path. */
+function plantedRom(name, edit) {
+  const bytes = fs.readFileSync(ROM)
+  edit(bytes)
+  const file = path.join(tmp, name)
+  fs.writeFileSync(file, bytes)
+  return file
 }
+
+const leftExpanded = page => page.evaluate(() => getSvc('ApplicationShell').isExpanded('left'))
+const overworldCount = page =>
+  page.evaluate(
+    () =>
+      getSvc('ApplicationShell')
+        .getWidgets('main')
+        .filter(w => w.id === 'hackbench.overworld-view').length,
+  )
 
 test('the globe sits after Maps and before Graphics in the activity bar', async ({ page }) => {
   const ids = await page.evaluate(() =>
@@ -110,22 +118,49 @@ test('clicking the globe opens one Overworld widget in the main area; again focu
     .innerText()
   expect(title).toMatch(/Overworld/)
   // The sidebar slot holds nothing: the left panel collapses.
-  expect(await page.evaluate(() => getSvc('ApplicationShell').isExpanded('left'))).toBe(false)
+  await expect.poll(() => leftExpanded(page)).toBe(false)
 
   // Move focus away, then click again: the same widget comes back, no second.
   await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.gfx.focus'))
   await page.locator(GLOBE).click()
   await expect(page.locator(VIEW)).toBeVisible()
-  const count = await page.evaluate(
-    () =>
-      getSvc('ApplicationShell')
-        .getWidgets('main')
-        .filter(w => w.id === 'hackbench.overworld-view').length,
-  )
-  expect(count).toBe(1)
+  expect(await overworldCount(page)).toBe(1)
   expect(await page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id)).toBe(
     'hackbench.overworld-view',
   )
+})
+
+/** Closes the Overworld widget, so a reopen is observable. */
+const closeOverworld = page =>
+  page.evaluate(() =>
+    getSvc('ApplicationShell')
+      .getWidgets('main')
+      .find(w => w.id === 'hackbench.overworld-view')
+      .close(),
+  )
+
+test('clicking the globe again, after it was last shown, reopens the view', async ({ page }) => {
+  await page.locator(GLOBE).click()
+  await expect(page.locator(VIEW)).toBeVisible()
+  await closeOverworld(page)
+  await expect(page.locator(VIEW)).toHaveCount(0)
+  // Before the fix, the globe stayed current and this click collapsed the panel.
+  await page.locator(GLOBE).click()
+  await expect(page.locator(VIEW)).toBeVisible()
+  await expect.poll(() => leftExpanded(page)).toBe(false)
+  expect(await overworldCount(page)).toBe(1)
+})
+
+test('Toggle Left Panel with the globe last shown opens the view, not a blank sidebar', async ({
+  page,
+}) => {
+  await page.locator(GLOBE).click()
+  await expect(page.locator(VIEW)).toBeVisible()
+  await closeOverworld(page)
+  await page.evaluate(() => getSvc('CommandRegistry').executeCommand('core.toggle.left.panel'))
+  await expect(page.locator(VIEW)).toBeVisible()
+  await expect.poll(() => leftExpanded(page)).toBe(false)
+  await expect(page.locator('#hackbench\\.overworld-launcher')).toBeHidden()
 })
 
 test('the command is on the View menu and opens the same widget', async ({ page }) => {
@@ -134,7 +169,7 @@ test('the command is on the View menu and opens the same widget', async ({ page 
   await expect(page.locator(VIEW)).toBeVisible()
 })
 
-test('on vanilla the canvas is 1024x512 and matches the decode computed from the ROM', async ({
+test('on vanilla the canvas is 1024x512 and hashes to the pinned vanilla canvas', async ({
   page,
 }) => {
   await openProject(page, ROM)
@@ -143,26 +178,28 @@ test('on vanilla the canvas is 1024x512 and matches the decode computed from the
   await page.waitForTimeout(500)
   const got = await canvasSha(page)
   expect([got.width, got.height]).toEqual([1024, 512])
-  expect(got.sha).toBe(expectedSha(ROM))
-  await expect(page.locator('.hb-overworld-note')).toContainText(/colors outside it may be wrong/)
+  expect(got.sha).toBe(VANILLA_OVERWORLD_CANVAS_SHA256)
+  await expect(page.locator('.hb-overworld-note')).toContainText(/other half may differ in game/)
   await expect(page.locator('.hb-overworld-reason')).toHaveCount(0)
+})
 
-  // A planted defect: the same comparison against a different ROM must fail.
-  const planted = path.join(tmp, 'planted.sfc')
-  const bytes = fs.readFileSync(ROM)
-  bytes[fileOffset(bytes, 0x0cf7df + OPAQUE_CELL)] = 0
-  fs.writeFileSync(planted, bytes)
-  expect(expectedSha(planted)).not.toBe(got.sha)
+test('a one-tile edit draws a canvas that differs from the pin', async ({ page }) => {
+  const planted = plantedRom('planted.sfc', bytes => {
+    bytes[fileOffset(bytes, 0x0cf7df + OPAQUE_CELL)] = 0
+  })
+  await openProject(page, planted)
+  await page.locator(GLOBE).click()
+  await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
+  await page.waitForTimeout(500)
+  expect((await canvasSha(page)).sha).not.toBe(VANILLA_OVERWORLD_CANVAS_SHA256)
 })
 
 test('a ROM whose L1 reader is not stock shows the reason and no canvas', async ({ page }) => {
-  const planted = path.join(tmp, 'refused.sfc')
-  const bytes = fs.readFileSync(ROM)
-  bytes[fileOffset(bytes, L1_LDX_OPCODE)] ^= 0xff
-  fs.writeFileSync(planted, bytes)
-
+  const planted = plantedRom('refused.sfc', bytes => {
+    bytes[fileOffset(bytes, L1_LDX_OPCODE)] ^= 0xff
+  })
   await openProject(page, planted)
   await page.locator(GLOBE).click()
-  await expect(page.locator('.hb-overworld-reason')).toContainText(/not stock at \$04DC57/)
+  await expect(page.locator('.hb-overworld-reason')).toContainText(/not stock: \$04DC57/)
   await expect(page.locator('.hb-overworld-canvas')).toHaveCount(0)
 })

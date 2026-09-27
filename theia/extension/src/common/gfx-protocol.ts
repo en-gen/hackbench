@@ -103,6 +103,14 @@ export interface GfxSheetDto {
 }
 
 /**
+ * The Overworld view's L1 (foreground), or why it cannot be drawn. A refusal
+ * carries no pixels: the view shows the reason and no canvas.
+ */
+export type OverworldL1Dto =
+  | { status: 'ok'; width: number; height: number; rgbaBase64: string }
+  | { status: 'unavailable'; reason: string }
+
+/**
  * Pushed to the frontend when the WORKING COPY a project's sheets are
  * decoded from changes - a palette edit made through a different view, most
  * concretely. There is no payload beyond which project: the client re-fetches
@@ -144,4 +152,7 @@ export interface GfxService {
     bpp?: GfxFormat,
     paletteRow?: number,
   ): Promise<GfxSheetDto>
+
+  /** The overworld's L1 grid in area 0's tileset and palette (overworld-decode.ts). */
+  overworldL1(manifestPath: string): Promise<OverworldL1Dto>
 }
