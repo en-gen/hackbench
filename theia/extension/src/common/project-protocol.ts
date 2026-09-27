@@ -5,6 +5,7 @@
  * backend service the frontend calls over JSON-RPC, and this file is the
  * contract both ends compile against.
  */
+import type { Map16SwitchButtonImages, Map16SwitchKind } from './map16-protocol'
 
 /** Where the frontend reaches the backend. Must match the backend binding. */
 export const PROJECT_SERVICE_PATH = '/services/hackbench-project'
@@ -223,6 +224,22 @@ export type MapScreenResult =
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /** One palace's switch block as 16x16 RGBA, both states, or why it cannot be drawn. */
+/**
+ * Which char switches a map is drawn with (#573): the blue and silver
+ * P-switches and ON/OFF swap the chars they animate, not the grid. Per tab.
+ */
+export type SwitchStateDto = Record<Map16SwitchKind, boolean>
+
+/** The switch toggles' own art, shared with the Map16 inspector's (#574). */
+export type SwitchButtonsResult =
+  | {
+      status: 'ok'
+      art: Partial<Record<Map16SwitchKind, Map16SwitchButtonImages>>
+      unavailable: Partial<Record<Map16SwitchKind, string>>
+    }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
 export type PalaceIconDto = { palace: keyof SwitchFlagsDto } & (
   { uncleared: string; cleared: string } | { unavailable: string }
 )
@@ -339,10 +356,14 @@ export interface ProjectService {
     index: number,
     screen: number,
     switchFlags: SwitchFlagsDto,
+    switches: SwitchStateDto,
   ): Promise<MapScreenResult>
 
   /** Each switch palace's block, drawn in the map's own tileset and palette. */
   mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult>
+
+  /** The blue, silver and ON/OFF toggles' art, drawn for this map. */
+  mapSwitchButtons(manifestPath: string, index: number): Promise<SwitchButtonsResult>
 
   /**
    * Projects this user has opened, most recent first.

@@ -36,6 +36,7 @@ import { renderCell } from '../../../src/rom/render/CellRenderer'
 import { HIDDEN_TILE_OPACITY } from '../../../src/rom/render/HiddenTiles'
 import { choosePalaceArt, majority, palaceArt } from '../../../src/rom/SwitchArt'
 import { withHiddenTiles } from '../../../theia/extension/src/browser/map16-view-model'
+import { screenKey } from '../../../theia/extension/src/browser/map-view-model'
 import { ADDR_CUSTOM_PALETTE_TABLE } from '../../../src/rom/PaletteLoader'
 import {
   applyPaletteFrame0,
@@ -84,8 +85,10 @@ const BACKDROP: RgbaColor = [250, 9, 9, 255]
 
 const sub = (charNum: number, palette = 0) => ({ charNum, palette, priority: false, flipX: false, flipY: false }) // prettier-ignore
 const tile = (id: number, q: ReturnType<typeof sub>[]): Map16Tile => ({ id, tl: q[0]!, tr: q[1]!, bl: q[2]!, br: q[3]! }) // prettier-ignore
-/** fg1 chars 0-4, each solid in its own color index (char 0 transparent). */
-const VRAM: VramState = { fg1: [0, 1, 2, 3, 4].map(v => new Uint8Array(64).fill(v)) }
+/** fg1 chars 0-4, each solid in its own color index (char 0 transparent); char 5 blank. */
+const VRAM: VramState = { fg1: [0, 1, 2, 3, 4, 0].map(v => new Uint8Array(64).fill(v)) }
+/** The blue switch swaps chars 2-4 to solid color 7 and char 5's top half to color 7 (frame 0 as loaded when off). */
+const BLUE_SLOT = { charBase: 2, tiles: [2, 3, 4, 0].map(v => new Uint8Array(64).fill(v)), alt: { switch: 'blue' as const, tiles: [0, 1, 2, 3].map(i => new Uint8Array(64).fill(7, 0, i === 3 ? 32 : 64)) } } // prettier-ignore
 
 /** Color index c of row r is [r * 16 + c, 100, 200]; index 0 is transparent. */
 const COLORS: RgbaColor[] = Array.from({ length: 256 }, (_, i) => (i % 16 === 0 ? [0, 0, 0, 0] : [i, 100, 200, 255])) // prettier-ignore
@@ -101,7 +104,8 @@ function inputs(grid: number[][], isVertical: boolean, screenCount: number): L1I
   const put = (t: Map16Tile) => (tiles[t.id] = t)
   put(tile(0, [sub(0), sub(0), sub(0), sub(0)]))
   put(tile(1, [sub(1), sub(2), sub(3), sub(4)]))
-  put(tile(2, [sub(0), sub(0), sub(0), sub(0)]))
+  put(tile(2, [sub(5), sub(5), sub(5), sub(5)])) // hidden: blank until blue is on
+  put(tile(3, [sub(1), sub(1), sub(1), sub(1)])) // cites no switched char
   const pipeVariants = [0, 1, 2, 3].map(
     v =>
     Array.from({ length: PIPE_VARIANT_TILE_COUNT }, (_, i) => tile(PIPE_VARIANT_TILE_START + i, [sub(1, v), sub(1, v), sub(1, v), sub(1, v)])), // prettier-ignore
@@ -114,11 +118,11 @@ function inputs(grid: number[][], isVertical: boolean, screenCount: number): L1I
     grid,
     map16: { tiles, pipeVariants },
     rawVram: VRAM,
-    anim: null,
+    anim: { frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT]] },
     vram: VRAM,
     colors: COLORS,
     backArea: BACKDROP,
-    hidden: new Map([[2, renderCell(tile(2, [sub(3), sub(3), sub(3), sub(3)]), VRAM, { colors: COLORS })]]), // prettier-ignore
+    hidden: new Map([[2, { kinds: ['blue'], hidden: true, rgba: renderCell(tile(2, [sub(3), sub(3), sub(3), sub(3)]), VRAM, { colors: COLORS }) }]]), // prettier-ignore
   }
 }
 
@@ -149,7 +153,7 @@ describe('one renderer for the sheet and the map (synthetic)', () => {
   it('a sheet atlas cell and a map cell are the same bytes, hidden art included', () => {
     const i = inputs(hGrid(1), false, 1)
     const def = { ...i.map16.tiles[2]!, id: 0 }
-    const alt = i.hidden.get(2)!
+    const alt = i.hidden.get(2)!.rgba
     const b64 = (b: Uint8ClampedArray) => Buffer.from(b).toString('base64')
     const { atlas, atlasWidth } = buildTileAtlas([def], VRAM, { colors: COLORS })
     const alternates = [{ kinds: ['blue' as const], altRgbaBase64: b64(alt), hidden: true }]
@@ -159,6 +163,43 @@ describe('one renderer for the sheet and the map (synthetic)', () => {
     for (let y = 0; y < 16; y++) cell.set(browsed.subarray(y * atlasWidth * 4, y * atlasWidth * 4 + 64), y * 64) // prettier-ignore
     expect(b64(cell)).toBe(b64(renderCell(def, VRAM, { colors: COLORS }, alt)))
     expect(cell[3]).toBe(Math.round(255 * HIDDEN_TILE_OPACITY)) // not the bare transparent tile
+  })
+})
+
+describe('char switches on the map (synthetic)', () => {
+  const blueOn = { blue: true, silver: false, onOff: false }
+  const cells = (a: Uint8ClampedArray, b: Uint8ClampedArray) => {
+    const out = new Set<string>()
+    for (let i = 0; i < a.length; i += 4)
+      if (a[i] !== b[i]) out.add(`${Math.floor((i / 4) % 256 / 16)},${Math.floor(i / 4 / 256 / 16)}`) // prettier-ignore
+    return [...out]
+  }
+
+  it('blue on swaps exactly the cells whose chars it touches, and only those quadrants', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.grid[0]![0] = 1 // chars 1-4: tl stays, tr/bl/br are switched
+    i.grid[0]![1] = 3 // char 1 only
+    const off = drawL1Screen(i, 0)
+    const on = drawL1Screen(i, 0, blueOn)
+    expect(cells(off, on)).toEqual(['0,0'])
+    expect([px(on, 256, 3, 3)[0], px(on, 256, 11, 3)[0], px(on, 256, 3, 11)[0], px(on, 256, 11, 11)[0]]).toEqual([1, 7, 7, 7]) // prettier-ignore
+  })
+
+  it('a hidden tile goes from its 25% overlay to full art when its switch is on', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.grid[0]![0] = 2
+    expect(px(drawL1Screen(i, 0), 256, 5, 1)[0]).not.toBe(7) // the 25% overlay, not the chars
+    const on = drawL1Screen(i, 0, blueOn)
+    expect(px(on, 256, 5, 1)).toEqual([7, 100, 200, 255]) // the switched chars, in full
+    expect(px(on, 256, 5, 5)).toEqual([...BACKDROP]) // and no overlay where they are clear
+  })
+
+  it('palaces and switches both key a cached screen', () => {
+    const flags = { yellow: false, green: false, red: false, blue: false }
+    const none = { blue: false, silver: false, onOff: false }
+    expect(screenKey(flags, none, 3)).toBe('0000:000:3')
+    expect(screenKey(flags, blueOn, 3)).toBe('0000:100:3')
+    expect(screenKey({ ...flags, yellow: true }, { ...none, onOff: true }, 3)).toBe('1000:001:3')
   })
 })
 
@@ -437,7 +478,7 @@ describe('assembleL1Inputs (synthetic)', () => {
     )
     // Tile 6 has a switch alternate too, but is drawn without it: no overlay.
     expect([...r.hidden.keys()]).toEqual([5])
-    expect(r.hidden.get(5)![3]).toBe(255)
+    expect(r.hidden.get(5)!.rgba[3]).toBe(255)
   })
 
   it('counts screens from the header, not the grid', () => {
@@ -679,7 +720,7 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
   it('a hidden $02A cell on $014 is its switched-on art at 25% over the backdrop', () => {
     const m = model(0x014)
     expect(m.grid[13]![1]).toBe(0x02a) // screen 0, local column 1
-    const alt = m.hidden.get(0x02a)!
+    const alt = m.hidden.get(0x02a)!.rgba
     const own = renderCell(m.map16.tiles[0x02a]!, m.vram, { colors: m.colors })
     const buf = drawL1Screen(m, 0)
     const a = Math.round(255 * HIDDEN_TILE_OPACITY)

@@ -7,8 +7,9 @@
  * reads what is inside the VIEWPORT, not what is somewhere in the canvas.
  *
  * Each screen is its own canvas (`[data-screen=N]`) at native resolution,
- * carrying `data-drawn="<generation>:<palaces>:<screen>"` once the reply for
- * the current state is painted; palaces are yellow, green, red, blue bits.
+ * carrying `data-drawn="<generation>:<palaces>:<switches>:<screen>"` once the
+ * reply for the current state is painted; palaces are yellow, green, red,
+ * blue bits, switches blue P-switch, silver P-switch, ON/OFF.
  *
  * Measured on the vanilla ROM by expanding $105 with and without the yellow
  * palace (map-screen's unit test pins the same cells): exactly five cells
@@ -90,7 +91,8 @@ async function createProject(page, dir) {
 const root = index => `[id="hackbench.map-view:${index}"]`
 
 /** `data-drawn` for a screen painted with the given palaces pressed, any generation. */
-const drawn = (screen, yellow = false) => new RegExp(`^\\d+:${yellow ? 1 : 0}000:${screen}$`)
+const drawn = (screen, yellow = false, blue = false) =>
+  new RegExp(`^\\d+:${yellow ? 1 : 0}000:${blue ? 1 : 0}00:${screen}$`)
 
 /** Opens a map in its own tab (one widget per index, as a pin does). */
 async function openMap(page, manifestPath, index) {
@@ -421,6 +423,61 @@ test('hidden cells on $014 show their art at 25% over the backdrop', async ({ pa
   }
 })
 
+/** The pixels of $014's hidden $02A cell at column 1, row 13 (screen 0). */
+async function hiddenCell(page) {
+  const screen = await readScreen(page, 0x014, 0)
+  const cell = []
+  for (let y = 13 * 16; y < 14 * 16; y++)
+    for (let x = 16; x < 32; x++) cell.push(screen.rgba.slice((y * 256 + x) * 4, (y * 256 + x) * 4 + 4).join(',')) // prettier-ignore
+  return cell
+}
+
+/**
+ * The blue P-switch reveals $02A's chars (#573, a char swap): with it on the
+ * cell draws that art in full, not at 25%, and off restores the 25% picture.
+ * Measured on vanilla: 160 of its 256 pixels change, each more than 64 from
+ * the backdrop, which the 25% overlay can never reach.
+ */
+test('blue P-switch on draws $014 hidden cells in full, and off restores them', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x014)
+  const off = await hiddenCell(page)
+  const blue = page.locator(`${root(0x014)} [data-control="switch-blue"]`)
+  await blue.click()
+  await expect(blue).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"]`)).toHaveAttribute('data-drawn', drawn(0, false, true)) // prettier-ignore
+  const on = await hiddenCell(page)
+  const count = p => off.filter(q => q === p).length
+  const backdrop = [...off]
+    .sort((a, b) => count(b) - count(a))[0]
+    .split(',')
+    .map(Number)
+  const full = on.filter(p => p.split(',').slice(0, 3).some((v, c) => Math.abs(Number(v) - backdrop[c]) > 64)) // prettier-ignore
+  expect(full.length).toBeGreaterThan(0)
+  expect(on).not.toEqual(off)
+
+  await blue.click()
+  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"]`)).toHaveAttribute('data-drawn', drawn(0)) // prettier-ignore
+  expect(await hiddenCell(page)).toEqual(off)
+})
+
+test('the switch toggles show art, and two tabs keep their own switches', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x014)
+  for (const k of ['blue', 'silver', 'onOff']) {
+    // Art, not the text fallback, on the vanilla ROM.
+    await expect(page.locator(`${root(0x014)} [data-control="switch-${k}"] canvas`)).toHaveCount(1) // prettier-ignore
+  }
+  await page.locator(`${root(0x014)} [data-control="switch-blue"]`).click()
+  await openMap(page, project.manifestPath, 0x105)
+  await expect(page.locator(`${root(0x105)} [data-control="switch-blue"]`)).toHaveAttribute('aria-pressed', 'false') // prettier-ignore
+  await activate(page, 0x014)
+  await expect(page.locator(`${root(0x014)} [data-control="switch-blue"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
+  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"]`)).toHaveAttribute('data-drawn', drawn(0, false, true)) // prettier-ignore
+})
+
 /**
  * The palace icons are the ROM's normal blocks on every map. Before, $014
  * drew them through its own tileset 4, which gives the cleared blocks the
@@ -505,6 +562,6 @@ test('the map tab speaks of ROMs, never cartridges', async ({ page }) => {
   await openMap(page, project.manifestPath, 0x105)
   await page.locator(`${root(0x105)} [data-control="header-panel"] summary`).click()
   const words = await shownWords(page, root(0x105))
-  expect(words).toMatch(/Switch palaces/)
+  expect(words).toMatch(/Yellow switch palace/)
   expect(words).not.toMatch(CART)
 })
