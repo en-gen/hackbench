@@ -79,6 +79,9 @@ Never trust "done and green". On the branch yourself:
 - Every bug found gets its own issue, even when fixed in passing.
 - PRs target `develop`; the owner merges. The body relays each review finding
   and how it was resolved.
+- UI or rendering changes: brief the implementer to capture images (before
+  and after for a fix) and embed them with `tools/scripts/pr-image.sh`, per
+  CLAUDE.md "Pull requests show what they draw".
 - `detect_changes` before committing, `npm run gitnexus` after.
 - Handoff to the owner starts with the worktree path and branch.
 - Status to the owner: a one-line answer, then short headed sections with
