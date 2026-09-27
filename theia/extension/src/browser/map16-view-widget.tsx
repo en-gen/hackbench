@@ -79,6 +79,7 @@ import {
   editAxisFor,
   map16WidgetId,
   previewAlternate,
+  screenDoor,
   rowColorsFor,
   tileFrameCount,
   toggleKinds,
@@ -773,7 +774,7 @@ export class Map16ViewWidget extends ReactWidget {
 
   /**
    * The preview canvas (#574): the alternate matching the active switch set
-   * wins; else a hidden tile's first single alternate at HIDDEN_TILE_OPACITY, rather
+   * wins; else a hidden tile's first single alternate in the screen door, rather
    * than a blank preview; else the tile's own picture.
    */
   protected paintTilePreviewCanvas(
@@ -785,9 +786,10 @@ export class Map16ViewWidget extends ReactWidget {
   ): void {
     if (!this.previewCanvasEl) return
     const shown = previewAlternate(tile.alternates, this.activeSwitches)
-    if (shown)
-      paintTilePreview(this.previewCanvasEl, this.decoded(shown.alt.altRgbaBase64), shown.opacity)
-    else
+    if (shown) {
+      const art = this.decoded(shown.alt.altRgbaBase64)
+      paintTilePreview(this.previewCanvasEl, shown.hidden ? screenDoor(art) : art)
+    } else
       paintTilePreview(
         this.previewCanvasEl,
         cropRegion(pixels, atlasWidth, tileX, tileY, TILE_PX, TILE_PX),

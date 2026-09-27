@@ -138,8 +138,10 @@ border box and take no layout space.
   is a repaint, not a reload, and the bytes an export would use stay
   exactly what the ROM says.
 - A hidden tile (blank until a switch is on, e.g. vanilla `$027-$02A`) is
-  drawn with its switched-on art at 25% opacity, in color, never blank
-  (`HIDDEN_TILE_OPACITY`, one value for both surfaces): in the
+  drawn with its switched-on art in a soft screen door, in color, never
+  blank: a checkerboard on the tile's own pixel grid, full strength where
+  x + y is even and 25% (`HIDDEN_TILE_DIM_ALPHA`) where odd
+  (`hiddenPixelStrength`, one rule for both surfaces, #643): in the
   inspector preview while its toggle is off, and in the Map16 sheet always,
   frame 0 held through animation (#574, #621). This is an editor deviation:
   the ROM shows nothing there. It is derived from the tile's `hidden`

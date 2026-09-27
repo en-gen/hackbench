@@ -19,7 +19,9 @@ import {
   previewAlternate,
   withHiddenTiles,
   BrowsedSheetCache,
-  HIDDEN_TILE_OPACITY,
+  HIDDEN_TILE_DIM_ALPHA,
+  hiddenPixelStrength,
+  screenDoor,
 } from '../../../theia/extension/src/browser/map16-view-model'
 import {
   compositeIndices,
@@ -269,27 +271,29 @@ describe('previewAlternate', () => {
     const alternates = [alt(['silver'])]
     const active = new Set(['blue', 'silver'] as const)
     expect(activeFor(alternates, active)).toEqual(['silver'])
-    expect(previewAlternate(alternates, active)).toEqual({ alt: alternates[0], opacity: 1 })
+    expect(previewAlternate(alternates, active)).toEqual({ alt: alternates[0], hidden: false })
   })
 
-  it('matches a combo by set, and falls back to a hidden single at HIDDEN_TILE_OPACITY', () => {
+  it('matches a combo by set, and falls back to a hidden single, flagged hidden', () => {
     const alternates = [alt(['blue'], true), alt(['silver']), alt(['blue', 'silver'])]
     expect(previewAlternate(alternates, new Set(['silver', 'blue'] as const))?.alt).toBe(
       alternates[2],
     )
-    expect(previewAlternate(alternates, new Set())).toEqual({ alt: alternates[0], opacity: 0.25 })
+    expect(previewAlternate(alternates, new Set())).toEqual({ alt: alternates[0], hidden: true })
     expect(previewAlternate([alt(['silver'])], new Set())).toBeUndefined()
   })
 })
 
 describe('withHiddenTiles', () => {
   // 2 tiles a row, 2 rows. Tile 3 (row 2, column 2) is hidden; tile 2 beside it is blank
-  // and not hidden. The switched-on art is one opaque pixel at (3, 1), so a transposed,
-  // mis-rowed or channel-dropping copy lands somewhere else or in another color.
+  // and not hidden. The switched-on art is two opaque pixels, (3, 1) on the screen door's
+  // full squares and (4, 1) on its dim ones, so a transposed, mis-rowed, channel-dropping
+  // or parity-flipped copy lands somewhere else, in another color or at the other strength.
   const TPR = 2
   const width = TPR * 16
   const art = new Uint8ClampedArray(16 * 16 * 4)
   art.set([10, 20, 30, 255], (1 * 16 + 3) * 4)
+  art.set([40, 50, 60, 255], (1 * 16 + 4) * 4)
   const alt = (hidden: boolean) => [{ kinds: ['blue' as const], altRgbaBase64: 'art', hidden }]
   const sheetOf = (hidden: boolean) => ({
     width,
@@ -302,11 +306,12 @@ describe('withHiddenTiles', () => {
   const drawn = (px: Uint8ClampedArray): number =>
     px.filter((v, i) => i % 4 === 3 && v !== 0).length
 
-  it("draws a hidden tile's switched-on art at 25% alpha, exactly in place, and nothing else", () => {
+  it("draws a hidden tile's switched-on art in the soft screen door, exactly in place, and nothing else", () => {
     const atlas = new Uint8ClampedArray(width * 32 * 4)
     const out = withHiddenTiles(atlas, sheetOf(true), () => art)
-    expect(at(out, 16 + 3, 16 + 1)).toEqual([10, 20, 30, 64])
-    expect(drawn(out)).toBe(1)
+    expect(at(out, 16 + 3, 16 + 1)).toEqual([10, 20, 30, 255])
+    expect(at(out, 16 + 4, 16 + 1)).toEqual([40, 50, 60, 64])
+    expect(drawn(out)).toBe(2)
     expect(drawn(atlas)).toBe(0) // the decoded phase itself is never written
   })
 
@@ -333,7 +338,7 @@ describe('BrowsedSheetCache', () => {
     const cache = new BrowsedSheetCache()
     expect(cache.pixels(sheetOf(false), 'atlas', decode)[3]).toBe(0)
     // Same phase bytes, but the reload now marks tile 0 hidden.
-    expect(cache.pixels(sheetOf(true), 'atlas', decode)[3]).toBe(64)
+    expect(cache.pixels(sheetOf(true), 'atlas', decode)[3]).toBe(255)
   })
 
   it('reuses a phase within one sheet', () => {
@@ -343,8 +348,30 @@ describe('BrowsedSheetCache', () => {
   })
 })
 
-describe('HIDDEN_TILE_OPACITY', () => {
-  it('is 25%, the owner-chosen strength for hidden tiles in the sheet and the preview', () => {
-    expect(HIDDEN_TILE_OPACITY).toBe(0.25)
+describe('soft screen door', () => {
+  it("dims at 25%, the owner-chosen strength for a hidden tile's off pixels", () => {
+    expect(HIDDEN_TILE_DIM_ALPHA).toBe(0.25)
+  })
+
+  it('is a checkerboard on tile pixels, full where x + y is even', () => {
+    expect([0, 1, 2, 3].map(x => hiddenPixelStrength(x, 0))).toEqual([1, 0.25, 1, 0.25])
+    expect([0, 1, 2, 3].map(x => hiddenPixelStrength(x, 1))).toEqual([0.25, 1, 0.25, 1])
+  })
+
+  it('screenDoor keeps every color, scales only alpha, and leaves its input alone', () => {
+    const tile = new Uint8ClampedArray(16 * 16 * 4)
+    for (let i = 0; i < 16 * 16; i++) tile.set([i, 255 - i, 7, 255], i * 4)
+    const out = screenDoor(tile)
+    for (let y = 0; y < 16; y++)
+      for (let x = 0; x < 16; x++) {
+        const i = y * 16 + x
+        expect([...out.subarray(i * 4, i * 4 + 4)]).toEqual([
+          i,
+          255 - i,
+          7,
+          (x + y) % 2 === 0 ? 255 : 64,
+        ])
+      }
+    expect(tile[3 + 4]).toBe(255)
   })
 })

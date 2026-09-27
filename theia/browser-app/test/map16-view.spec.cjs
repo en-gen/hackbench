@@ -1918,32 +1918,65 @@ for (const [kind, tileId] of [
   })
 }
 
+/** A drawn tile pixel's alpha matches the soft screen door: full where x + y is even, ~25% where odd. */
+const expectScreenDoor = (alpha, x, y) => {
+  if ((x + y) % 2 === 0) expect(alpha, `(${x}, ${y}) full`).toBe(255)
+  else {
+    expect(alpha, `(${x}, ${y}) dim`).toBeGreaterThanOrEqual(56) // 25% of 255 is ~64
+    expect(alpha, `(${x}, ${y}) dim`).toBeLessThanOrEqual(72)
+  }
+}
+
 /**
- * A hidden tile ($027, blank off-art but real on-art) draws its on-art at 25%
- * opacity while its toggle is off, rather than nothing. Checked on pixel alpha.
+ * A hidden tile ($027, blank off-art but real on-art) draws its on-art in the
+ * soft screen door while its toggle is off, rather than nothing, and solid once
+ * on. Checked on pixel alpha at the center of every tile pixel.
  */
-test('a hidden tile previews its on-art at 25% opacity while switched off', async ({ page }) => {
+test('a hidden tile previews its on-art in the soft screen door while switched off', async ({
+  page,
+}) => {
   await loadGfxExplorer(page, path.join(tmp, 'HiddenTilePreview'))
   await openMap16(page, 'fg')
   await clickTile(page, HIDDEN_TILE_ID)
 
   const previewSel = `${FG} .hb-map16-preview-canvas`
-  const readCenterAlpha = () =>
-    page.evaluate(sel => {
-      const c = document.querySelector(sel)
-      const { width, height } = c
-      return c.getContext('2d').getImageData(Math.floor(width / 2), Math.floor(height / 2), 1, 1)
-        .data[3]
-    }, previewSel)
+  // One alpha per tile pixel, sampled at its center on the scaled canvas.
+  const readTileAlphas = () =>
+    page.evaluate(
+      ({ sel, n }) => {
+        const c = document.querySelector(sel)
+        const scale = c.width / n
+        const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+        const out = []
+        for (let y = 0; y < n; y++)
+          for (let x = 0; x < n; x++) {
+            const cx = Math.floor((x + 0.5) * scale)
+            const cy = Math.floor((y + 0.5) * scale)
+            out.push(data[(cy * c.width + cx) * 4 + 3])
+          }
+        return out
+      },
+      { sel: previewSel, n: TILE_PX },
+    )
 
-  const offAlpha = await readCenterAlpha()
+  const off = await readTileAlphas()
   await page.locator(switchToggle('blue')).click()
-  const onAlpha = await readCenterAlpha()
+  const on = await readTileAlphas()
 
-  expect(offAlpha).toBeGreaterThan(0)
-  expect(offAlpha).toBeGreaterThanOrEqual(56) // 25% of 255 is ~64
-  expect(offAlpha).toBeLessThanOrEqual(72)
-  expect(onAlpha).toBe(255)
+  const parities = new Set()
+  for (let i = 0; i < off.length; i++) {
+    if (on[i] === 0) {
+      expect(off[i]).toBe(0)
+      continue
+    }
+    const x = i % TILE_PX
+    const y = Math.floor(i / TILE_PX)
+    parities.add((x + y) % 2)
+    expect(on[i]).toBe(255)
+    expectScreenDoor(off[i], x, y)
+  }
+  // Both squares of the checkerboard, so a flat alpha at either strength fails.
+  expect(parities.size).toBe(2)
 })
 
 // -- Layout: the preview column sits right of the tile grid (#623) -------
@@ -2207,11 +2240,11 @@ test('the edit pane and the character palettes open under the preview, in the ri
 
 /**
  * #621: a hidden tile ($027, blank until the blue P-switch) shows in the SHEET
- * at 25%, still or playing, so it can be found; a blank tile no
+ * in the soft screen door, still or playing, so it can be found; a blank tile no
  * switch touches ($025) stays transparent. Interior pixels only, and the
  * pointer kept off the sheet, so neither the grid nor the hover dim counts.
  */
-test('hidden tiles show in the sheet at 25%, playing or not; a blank tile stays blank', async ({
+test('hidden tiles show in the sheet in the soft screen door, playing or not; a blank tile stays blank', async ({
   page,
 }) => {
   await loadGfxExplorer(page, path.join(tmp, 'HiddenInSheet'))
@@ -2221,17 +2254,18 @@ test('hidden tiles show in the sheet at 25%, playing or not; a blank tile stays 
   const interiorAlphas = px => {
     const alphas = []
     for (let y = 1; y < TILE_PX - 1; y++)
-      for (let x = 1; x < TILE_PX - 1; x++) alphas.push(px[(y * TILE_PX + x) * 4 + 3])
+      for (let x = 1; x < TILE_PX - 1; x++) alphas.push({ x, y, a: px[(y * TILE_PX + x) * 4 + 3] })
     return alphas
   }
   const expectCells = async () => {
-    const drawn = interiorAlphas(await tilePixels(page, HIDDEN_TILE_ID)).filter(a => a > 0)
-    expect(drawn.length).toBeGreaterThan(0)
-    for (const a of drawn) {
-      expect(a).toBeGreaterThanOrEqual(56) // 25% of 255 is ~64
-      expect(a).toBeLessThanOrEqual(72)
-    }
-    expect(interiorAlphas(await tilePixels(page, NO_SWITCH_TILE_ID)).every(a => a === 0)).toBe(true)
+    const drawn = interiorAlphas(await tilePixels(page, HIDDEN_TILE_ID)).filter(p => p.a > 0)
+    // Both squares of the checkerboard, so a flat alpha at either strength fails.
+    expect(drawn.some(p => (p.x + p.y) % 2 === 0)).toBe(true)
+    expect(drawn.some(p => (p.x + p.y) % 2 === 1)).toBe(true)
+    for (const p of drawn) expectScreenDoor(p.a, p.x, p.y)
+    expect(interiorAlphas(await tilePixels(page, NO_SWITCH_TILE_ID)).every(p => p.a === 0)).toBe(
+      true,
+    )
   }
 
   await expectCells()
