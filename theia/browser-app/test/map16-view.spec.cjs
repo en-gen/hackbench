@@ -2301,33 +2301,55 @@ test("turning an inspector switch on leaves the hidden tile's sheet cell unchang
 /**
  * Ctrl + wheel over an on-screen zoom control (#651): it steps the SAME
  * indicator/canvas the toolbar buttons drive, it clamps exactly where the
- * buttons clamp, it never touches the Chromium UI zoom level, and PLAIN
- * wheel is left doing what it always did (scrolling the strip).
+ * buttons clamp, keeps the same canvas pixel under the cursor, is cancelled
+ * everywhere in the shell (not just over a zoom control), and PLAIN wheel
+ * is left doing what it always did (scrolling the strip).
  *
  * `page.mouse.wheel` dispatches a real `wheel` event with `ctrlKey` set
  * from whatever modifier keys are currently held, so `keyboard.down/up`
  * around it is what makes this Ctrl + wheel rather than a plain scroll -
- * exactly the distinction `ZoomController.bindWheel` gates on.
+ * exactly the distinction `ZoomController.bindWheel` gates on. The "never
+ * page-zooms" case cannot be proven that way, though: a synthetic CDP wheel
+ * does not drive Chromium's real page-zoom feature, so that assertion would
+ * stay green even with no guard at all - see `assertCancelled` below, which
+ * checks `defaultPrevented` on a dispatched event instead.
  */
 
-/** The UI (Chromium page) zoom level, as something a test can compare
- * before/after - `visualViewport.scale` is 1 at 100% and changes with
- * Ctrl+=/Ctrl+- or Ctrl+wheel page zoom, independent of any on-screen
- * control's own CSS. */
-async function uiZoomFingerprint(page) {
-  return page.evaluate(() => ({
-    scale: window.visualViewport ? window.visualViewport.scale : 1,
-    htmlWidth: document.documentElement.getBoundingClientRect().width,
-  }))
-}
-
-async function ctrlWheel(page, locator, deltaY, steps = 1) {
+async function ctrlWheel(page, locator, deltaY) {
   const box = await locator.boundingBox()
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   await page.keyboard.down('Control')
-  for (let i = 0; i < steps; i++) await page.mouse.wheel(0, deltaY)
+  await page.mouse.wheel(0, deltaY)
   await page.keyboard.up('Control')
   await page.waitForTimeout(200)
+}
+
+/** Dispatches one wheel event on `selector` and returns whether it was
+ * cancelled - the CtrlWheelGuardContribution/ZoomController contract. */
+async function dispatchWheel(page, selector, ctrlKey) {
+  return page.evaluate(
+    ({ selector, ctrlKey }) => {
+      const el = document.querySelector(selector)
+      const e = new WheelEvent('wheel', { ctrlKey, cancelable: true, bubbles: true, deltaY: -100 })
+      el.dispatchEvent(e)
+      return e.defaultPrevented
+    },
+    { selector, ctrlKey },
+  )
+}
+
+/** The client-space point's CONTENT coordinate on the Map16 strip, computed
+ * from the canvas's own rendered box - not the wrap's padded one. */
+async function map16ContentPointAt(page, canvasSel, clientX, clientY) {
+  return page.evaluate(
+    ({ canvasSel, clientX, clientY }) => {
+      const canvas = document.querySelector(canvasSel)
+      const rect = canvas.getBoundingClientRect()
+      const zoom = rect.width / canvas.width
+      return { x: (clientX - rect.left) / zoom, y: (clientY - rect.top) / zoom }
+    },
+    { canvasSel, clientX, clientY },
+  )
 }
 
 test('Ctrl + wheel over the Map16 strip steps the zoom indicator and the canvas size', async ({
@@ -2366,23 +2388,50 @@ test('Ctrl + wheel clamps at the same limits as the zoom buttons', async ({ page
   await expect(page.locator(ctl('zoom-out'))).toBeDisabled()
 })
 
-test('Ctrl + wheel never changes the Chromium UI zoom level, over the sheet or elsewhere', async ({
+test('Ctrl + wheel keeps the same canvas pixel under the cursor, in and out, within 1px', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  const wrap = page.locator(`${FG} .hb-map16-canvas-wrap`)
+  const canvasSel = `${FG} .hb-map16-canvas`
+
+  // Scroll BOTH axes first - the padding/scroll offset this guards against
+  // is invisible at (0, 0).
+  await wrap.evaluate(el => {
+    el.scrollLeft = 20
+    el.scrollTop = 15
+  })
+  const box = await wrap.boundingBox()
+  const clientX = box.x + box.width / 2
+  const clientY = box.y + box.height / 2
+
+  const before = await map16ContentPointAt(page, canvasSel, clientX, clientY)
+
+  await ctrlWheel(page, wrap, -120) // one step in
+  const afterIn = await map16ContentPointAt(page, canvasSel, clientX, clientY)
+  expect(Math.abs(afterIn.x - before.x)).toBeLessThan(1)
+  expect(Math.abs(afterIn.y - before.y)).toBeLessThan(1)
+
+  await ctrlWheel(page, wrap, 120) // one step back out
+  const afterOut = await map16ContentPointAt(page, canvasSel, clientX, clientY)
+  expect(Math.abs(afterOut.x - before.x)).toBeLessThan(1)
+  expect(Math.abs(afterOut.y - before.y)).toBeLessThan(1)
+})
+
+test('Ctrl + wheel is cancelled everywhere in the shell, not only over a zoom control', async ({
   page,
 }) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
   await openMap16(page, 'fg')
 
-  const before = await uiZoomFingerprint(page)
+  expect(await dispatchWheel(page, `${FG} .hb-map16-canvas-wrap`, true)).toBe(true)
+  expect(await dispatchWheel(page, '#hackbench\\.gfx-explorer', true)).toBe(true)
+  expect(await dispatchWheel(page, 'body', true)).toBe(true)
 
-  const wrap = page.locator(`${FG} .hb-map16-canvas-wrap`)
-  await ctrlWheel(page, wrap, -120)
-  expect(await uiZoomFingerprint(page)).toEqual(before)
-
-  // Also over a plain area with no zoom control at all - the explorer tree -
-  // where the global guard contribution is the only thing stopping it.
-  const explorer = page.locator('#hackbench\\.gfx-explorer')
-  await ctrlWheel(page, explorer, -120)
-  expect(await uiZoomFingerprint(page)).toEqual(before)
+  // A plain wheel is untouched, on the sheet and off it alike.
+  expect(await dispatchWheel(page, `${FG} .hb-map16-canvas-wrap`, false)).toBe(false)
+  expect(await dispatchWheel(page, 'body', false)).toBe(false)
 })
 
 test('plain wheel still scrolls the Map16 strip and does not touch zoom', async ({ page }) => {

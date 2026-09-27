@@ -581,3 +581,102 @@ test('a second open GFX sheet follows a zoom change made on the first', async ({
   // Sheet 0 never received a wheel event, but the shared controller moved it too.
   await expect(indicatorFor(0)).toHaveText(await indicatorFor(1).textContent())
 })
+
+/** The client-space point's CONTENT coordinate on the GFX canvas. */
+async function gfxContentPointAt(page, canvasSel, clientX, clientY) {
+  return page.evaluate(
+    ({ canvasSel, clientX, clientY }) => {
+      const canvas = document.querySelector(canvasSel)
+      const rect = canvas.getBoundingClientRect()
+      const zoom = rect.width / canvas.width
+      return { x: (clientX - rect.left) / zoom, y: (clientY - rect.top) / zoom }
+    },
+    { canvasSel, clientX, clientY },
+  )
+}
+
+test('Ctrl + wheel keeps the same canvas pixel under the cursor, in and out, within 1px', async ({
+  page,
+}) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(300)
+
+  // `.hb-gfx-view` (not the canvas wrap) is the real scroll container -
+  // scroll it directly so the padding/border between it and the canvas is
+  // exercised, same as map16-view.spec.cjs's equivalent case.
+  const view = page.locator('.hb-gfx-view')
+  await view.evaluate(el => {
+    el.scrollLeft = 10
+    el.scrollTop = 10
+  })
+
+  const canvasSel = '.hb-gfx-view-canvas'
+  const canvasBox = await page.locator(canvasSel).boundingBox()
+  const clientX = canvasBox.x + canvasBox.width / 2
+  const clientY = canvasBox.y + canvasBox.height / 2
+
+  const before = await gfxContentPointAt(page, canvasSel, clientX, clientY)
+  await ctrlWheel(page, page.locator(canvasSel), -120) // one step in
+  const afterIn = await gfxContentPointAt(page, canvasSel, clientX, clientY)
+  expect(Math.abs(afterIn.x - before.x)).toBeLessThan(1)
+  expect(Math.abs(afterIn.y - before.y)).toBeLessThan(1)
+
+  await ctrlWheel(page, page.locator(canvasSel), 120) // one step back out
+  const afterOut = await gfxContentPointAt(page, canvasSel, clientX, clientY)
+  expect(Math.abs(afterOut.x - before.x)).toBeLessThan(1)
+  expect(Math.abs(afterOut.y - before.y)).toBeLessThan(1)
+})
+
+test('Ctrl + wheel over the GFX sheet is cancelled; a plain wheel is not', async ({ page }) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+
+  const dispatchWheel = (selector, ctrlKey) =>
+    page.evaluate(
+      ({ selector, ctrlKey }) => {
+        const el = document.querySelector(selector)
+        const e = new WheelEvent('wheel', {
+          ctrlKey,
+          cancelable: true,
+          bubbles: true,
+          deltaY: -100,
+        })
+        el.dispatchEvent(e)
+        return e.defaultPrevented
+      },
+      { selector, ctrlKey },
+    )
+
+  expect(await dispatchWheel('.hb-gfx-view-canvas', true)).toBe(true)
+  expect(await dispatchWheel('.hb-gfx-view-canvas', false)).toBe(false)
+})
+
+test('plain wheel still scrolls the GFX view and does not touch zoom', async ({ page }) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(300)
+
+  const canvas = page.locator('.hb-gfx-view-canvas')
+  // Zoom to the ceiling first so the canvas is tall enough to overflow the
+  // view and actually need scrolling.
+  await ctrlWheel(page, canvas, -2000)
+  await expect(page.locator('[data-control="zoom-indicator"]')).toHaveText('8x')
+
+  const view = page.locator('.hb-gfx-view')
+  const scrollBefore = await view.evaluate(el => el.scrollTop)
+  const box = await canvas.boundingBox()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.wheel(0, 400) // no Control held
+  await page.waitForTimeout(200)
+
+  const scrollAfter = await view.evaluate(el => el.scrollTop)
+  expect(scrollAfter).toBeGreaterThan(scrollBefore)
+  expect(await page.locator('[data-control="zoom-indicator"]').textContent()).toBe('8x')
+})
