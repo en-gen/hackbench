@@ -233,53 +233,63 @@ async function ensureExpanded(page, name) {
 }
 
 /**
- * A real HTML5 drag as a sequence of DragEvents sharing one DataTransfer,
- * dispatched directly rather than through Playwright's mouse-driven `dragTo`.
- * `dragTo` moves a real pointer and hit-tests along the way, which does not
- * hold up against this virtualised tree (rows mount and unmount under it);
- * dispatching the events the browser itself would fire does not depend on
- * anything staying in place between steps.
+ * Starts a REAL pointer drag on a row: the mouse goes down on it and moves a
+ * few pixels, past Chromium's drag threshold, so the browser itself fires
+ * dragstart. Playwright routes the drag through Chromium's own pipeline
+ * (CDP drag interception), so every later dragenter/dragover/drop is the
+ * browser's, with its real DataTransfer and its real dropEffect.
  *
- * `sourceId`/`targetId` are node ids, not locators: each one is revealed and
- * re-resolved right before ITS dispatch, source as well as target, because
- * the tree can scroll (or rebuild) between dragstart and the later steps.
+ * Synthetic DragEvents dispatched on the rows used to stand in for this, and
+ * passed while the real drag did nothing (#625): a constructed DataTransfer
+ * ignores writes to dropEffect, so it cannot see a dropEffect that some
+ * other listener resets before the browser decides whether to drop.
  */
-async function dragRow(page, sourceId, targetId) {
-  const dt = await page.evaluateHandle(() => new DataTransfer())
-  // dragend goes to the element the drag started on, as a browser sends it:
-  // after a successful drop that row has moved and its id no longer resolves.
-  const source = await (await rowFor(page, sourceId)).elementHandle()
-  await source.dispatchEvent('dragstart', { dataTransfer: dt })
-  await (await rowFor(page, targetId)).dispatchEvent('dragenter', { dataTransfer: dt })
-  await (await rowFor(page, targetId)).dispatchEvent('dragover', { dataTransfer: dt })
-  await (await rowFor(page, targetId)).dispatchEvent('drop', { dataTransfer: dt })
-  await source.dispatchEvent('dragend', { dataTransfer: dt })
+async function startDrag(page, sourceId) {
+  const s = await (await rowFor(page, sourceId)).boundingBox()
+  await page.mouse.move(s.x + s.width / 2, s.y + s.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(s.x + s.width / 2, s.y + s.height / 2 + 6, { steps: 3 })
 }
 
 /**
- * The same sequence as `dragRow`, returning whether the widget would accept
- * the drop at dragover time. Theia's shell cancels every dragover on the page
- * (for file drops), so `defaultPrevented` cannot tell, and a constructed
- * DataTransfer ignores writes to `dropEffect`; the widget's own verdict is
- * read instead. Callers also assert the tree is unchanged afterwards.
+ * Carries the drag started by `startDrag` onto a row. The target is revealed
+ * mid-drag, as a user would scroll to it: the tree virtualises, so source and
+ * target need not both be on screen at once.
+ */
+async function hoverDragOver(page, targetId) {
+  const t = await (await rowFor(page, targetId)).boundingBox()
+  await page.mouse.move(t.x + t.width / 2, t.y + t.height / 2, { steps: 8 })
+  await page.mouse.move(t.x + t.width / 2 + 4, t.y + t.height / 2, { steps: 2 })
+}
+
+/** A real pointer drag from one row (by node id) onto another, dropped there. */
+async function dragRow(page, sourceId, targetId) {
+  await startDrag(page, sourceId)
+  await hoverDragOver(page, targetId)
+  await page.mouse.up()
+}
+
+/**
+ * The same real drag as `dragRow`, returning whether the widget would accept
+ * the drop while hovering the target. Callers also assert the tree is
+ * unchanged afterwards, which is the behaviour that matters.
  */
 async function dragRowCheckingAccepted(page, sourceId, targetId) {
-  const dt = await page.evaluateHandle(() => new DataTransfer())
-  // dragend goes to the element the drag started on, as a browser sends it:
-  // after a successful drop that row has moved and its id no longer resolves.
-  const source = await (await rowFor(page, sourceId)).elementHandle()
-  await source.dispatchEvent('dragstart', { dataTransfer: dt })
-  await (await rowFor(page, targetId)).dispatchEvent('dragenter', { dataTransfer: dt })
-
-  await (await rowFor(page, targetId)).dispatchEvent('dragover', { dataTransfer: dt })
+  await startDrag(page, sourceId)
+  await hoverDragOver(page, targetId)
   const accepted = await page.evaluate(async id => {
     const w = await getWidget('hackbench.map-explorer')
     return w.canDrop(w.model.getNode(id))
   }, targetId)
-
-  await (await rowFor(page, targetId)).dispatchEvent('drop', { dataTransfer: dt })
-  await source.dispatchEvent('dragend', { dataTransfer: dt })
+  await page.mouse.up()
   return accepted
+}
+
+/** meta/groups.json as written to disk, read back from the manifest's project directory. */
+function groupsOnDisk(manifestPath) {
+  return JSON.parse(
+    fs.readFileSync(path.join(path.dirname(manifestPath), 'meta', 'groups.json'), 'utf8'),
+  )
 }
 
 async function rightClickMenuItem(page, label) {
@@ -529,6 +539,270 @@ test('dragging one row of a multi-selection moves the whole selection into a gro
       return [...(target?.slots ?? [])].sort((x, y) => x - y)
     })
     .toEqual([a.index, b.index, c.index].sort((x, y) => x - y))
+})
+
+/** Node ids of the rows currently drawn with the drop highlight. */
+async function highlightedIds(page) {
+  return page
+    .locator(`${EXPLORER} .theia-TreeNode.hb-map-drop-target`)
+    .evaluateAll(els => els.map(e => e.getAttribute('data-node-id')))
+}
+
+/** The theme's list.dropBackground, resolved to the rgb() a computed style reports. */
+async function themeDropColor(page) {
+  return page.evaluate(() => {
+    const probe = document.createElement('div')
+    probe.style.background = 'var(--theia-list-dropBackground)'
+    document.body.appendChild(probe)
+    const color = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    return color
+  })
+}
+
+async function rowBackground(page, id) {
+  return rowById(page, id).evaluate(el => getComputedStyle(el).backgroundColor)
+}
+
+/** Rewrites meta/groups.json and reloads the explorer, so a test starts from known groups without the menus. */
+async function reloadWithGroups(page, manifestPath, groups) {
+  fs.writeFileSync(
+    path.join(path.dirname(manifestPath), 'meta', 'groups.json'),
+    JSON.stringify(groups),
+  )
+  await page.evaluate(async mp => {
+    const w = await getWidget('hackbench.map-explorer')
+    await w.load(mp)
+    await w.collapseAll()
+  }, manifestPath)
+}
+
+/** The slots of user group `name` in the tree, or undefined when there is no such group. */
+async function groupSlots(page, name) {
+  return (await snapshot(page)).userGroups.find(g => g.name === name)?.slots
+}
+
+test('a real pointer drag moves an orphan into a group and back to Unassigned, on disk too', async ({
+  page,
+}) => {
+  const manifestPath = await openProject(page, path.join(tmp, 'RealDrag'))
+  await reloadWithGroups(page, manifestPath, [{ name: 'Target', slots: [] }])
+  const [orphan] = (await snapshot(page)).orphans
+  expect(orphan).toBeDefined()
+  await ensureExpanded(page, 'Unassigned')
+
+  await dragRow(page, orphan.id, 'group:user:Target')
+
+  await expect.poll(() => groupSlots(page, 'Target')).toEqual([orphan.index])
+  expect((await snapshot(page)).unassignedSlots).not.toContain(orphan.index)
+  expect(groupsOnDisk(manifestPath)).toEqual([{ name: 'Target', slots: [orphan.index] }])
+
+  await ensureExpanded(page, 'Target')
+  const grouped = (await snapshot(page)).allNodes.find(
+    n => n.index === orphan.index && n.id.startsWith('group:user:Target/'),
+  )
+  await dragRow(page, grouped.id, 'group:unassigned')
+
+  await expect
+    .poll(async () => (await snapshot(page)).unassignedSlots)
+    .toEqual(expect.arrayContaining([orphan.index]))
+  expect(await groupSlots(page, 'Target')).toEqual([])
+  expect(groupsOnDisk(manifestPath)).toEqual([{ name: 'Target', slots: [] }])
+})
+
+test('a real drag that reaches the group in one move and releases at once still drops', async ({
+  page,
+}) => {
+  const manifestPath = await openProject(page, path.join(tmp, 'OneStep'))
+  await reloadWithGroups(page, manifestPath, [{ name: 'Target', slots: [] }])
+  const [orphan] = (await snapshot(page)).orphans
+  await ensureExpanded(page, 'Unassigned')
+
+  await startDrag(page, orphan.id)
+  const t = await (await rowFor(page, 'group:user:Target')).boundingBox()
+  await page.mouse.move(t.x + t.width / 2, t.y + t.height / 2)
+  await page.mouse.up()
+
+  await expect.poll(() => groupSlots(page, 'Target')).toEqual([orphan.index])
+  expect(groupsOnDisk(manifestPath)).toEqual([{ name: 'Target', slots: [orphan.index] }])
+})
+
+test('a real drag onto a map row inside a group drops into that group', async ({ page }) => {
+  const manifestPath = await openProject(page, path.join(tmp, 'OntoChild'))
+  const [a, b] = (await snapshot(page)).orphans
+  expect(b).toBeDefined()
+  await reloadWithGroups(page, manifestPath, [{ name: 'Target', slots: [b.index] }])
+  await ensureExpanded(page, 'Unassigned')
+  await ensureExpanded(page, 'Target')
+  const child = (await snapshot(page)).allNodes.find(
+    n => n.index === b.index && n.id.startsWith('group:user:Target/'),
+  )
+
+  await dragRow(page, a.id, child.id)
+
+  await expect
+    .poll(async () => [...((await groupSlots(page, 'Target')) ?? [])].sort((x, y) => x - y))
+    .toEqual([a.index, b.index].sort((x, y) => x - y))
+  expect(new Set(groupsOnDisk(manifestPath)[0].slots)).toEqual(new Set([a.index, b.index]))
+})
+
+test('a live real drag of an ungrouped map onto Unassigned is refused', async ({ page }) => {
+  const manifestPath = await openProject(page, path.join(tmp, 'LiveRefusal'))
+  await reloadWithGroups(page, manifestPath, [{ name: 'Target', slots: [] }])
+  const before = await snapshot(page)
+  await ensureExpanded(page, 'Unassigned')
+
+  const accepted = await dragRowCheckingAccepted(page, before.orphans[0].id, 'group:unassigned')
+  expect(accepted).toBe(false)
+
+  // Settle first: an accepted drop writes asynchronously, so an immediate
+  // snapshot would pass even if the drop had been taken.
+  await page.waitForTimeout(1500)
+  const after = await snapshot(page)
+  expect(after.unassignedSlots).toEqual(before.unassignedSlots)
+  expect(after.userGroups).toEqual(before.userGroups)
+  expect(groupsOnDisk(manifestPath)).toEqual([{ name: 'Target', slots: [] }])
+})
+
+test('a drop this explorer did not start is refused, even with a stale drag still recorded', async ({
+  page,
+}) => {
+  const manifestPath = await openProject(page, path.join(tmp, 'ForeignDrop'))
+  await reloadWithGroups(page, manifestPath, [{ name: 'Target', slots: [] }])
+  const [orphan] = (await snapshot(page)).orphans
+  await ensureExpanded(page, 'Unassigned')
+
+  // A drag that never got its dragend (its source row unmounted mid-drag)
+  // leaves its maps recorded. Synthetic, as a real drag always ends.
+  const stale = await page.evaluateHandle(() => new DataTransfer())
+  await (await rowFor(page, orphan.id)).dispatchEvent('dragstart', { dataTransfer: stale })
+  const recorded = await page.evaluate(async () => {
+    const w = await getWidget('hackbench.map-explorer')
+    return w.dragNodes?.length ?? 0
+  })
+  expect(recorded).toBe(1)
+
+  // Then text from elsewhere is dropped on the group: no map-row type.
+  const foreign = await page.evaluateHandle(() => {
+    const dt = new DataTransfer()
+    dt.setData('text/plain', 'not a map')
+    return dt
+  })
+  const target = await rowFor(page, 'group:user:Target')
+  for (const type of ['dragenter', 'dragover', 'drop']) {
+    await target.dispatchEvent(type, { dataTransfer: foreign })
+  }
+
+  await page.waitForTimeout(1500)
+  expect(await groupSlots(page, 'Target')).toEqual([])
+  expect(groupsOnDisk(manifestPath)).toEqual([{ name: 'Target', slots: [] }])
+})
+
+test('an accepted real drag highlights the whole target folder in the theme drop color', async ({
+  page,
+}) => {
+  const manifestPath = await openProject(page, path.join(tmp, 'Highlight'))
+  const [a, b] = (await snapshot(page)).orphans
+  await reloadWithGroups(page, manifestPath, [{ name: 'Target', slots: [b.index] }])
+  await ensureExpanded(page, 'Unassigned')
+  await ensureExpanded(page, 'Target')
+  const child = (await snapshot(page)).allNodes.find(
+    n => n.index === b.index && n.id.startsWith('group:user:Target/'),
+  )
+  const dropColor = await themeDropColor(page)
+  expect(dropColor).not.toMatch(/^(|transparent|rgba\(0, 0, 0, 0\))$/)
+
+  await startDrag(page, a.id)
+  await hoverDragOver(page, 'group:user:Target')
+  // Header and its visible member, and nothing outside the folder.
+  await expect.poll(() => highlightedIds(page)).toEqual(['group:user:Target', child.id])
+  expect(await rowBackground(page, 'group:user:Target')).toBe(dropColor)
+  expect(await rowBackground(page, child.id)).toBe(dropColor)
+  expect(await rowBackground(page, 'group:unassigned')).not.toBe(dropColor)
+
+  // Hovering a row inside the folder highlights that folder, not the row alone.
+  await hoverDragOver(page, child.id)
+  await expect.poll(() => highlightedIds(page)).toEqual(['group:user:Target', child.id])
+
+  await page.mouse.up()
+  await expect.poll(() => groupSlots(page, 'Target')).toEqual([b.index, a.index])
+  await expect.poll(() => highlightedIds(page)).toEqual([])
+})
+
+test('a refused target shows no highlight, and Esc leaves none behind', async ({ page }) => {
+  const manifestPath = await openProject(page, path.join(tmp, 'NoHighlight'))
+  await reloadWithGroups(page, manifestPath, [{ name: 'Target', slots: [] }])
+  const [orphan] = (await snapshot(page)).orphans
+  await ensureExpanded(page, 'Unassigned')
+
+  await startDrag(page, orphan.id)
+  // An ungrouped map onto Unassigned: refused, so nothing lights up.
+  await hoverDragOver(page, 'group:unassigned')
+  await page.waitForTimeout(300)
+  expect(await highlightedIds(page)).toEqual([])
+
+  // The same live drag over a group that accepts it does light up...
+  await hoverDragOver(page, 'group:user:Target')
+  await expect.poll(() => highlightedIds(page)).toEqual(['group:user:Target'])
+  // ...and Esc cancels the drag and clears it.
+  await page.keyboard.press('Escape')
+  await expect.poll(() => highlightedIds(page)).toEqual([])
+  await page.mouse.up()
+  await page.waitForTimeout(1000)
+  expect(await groupSlots(page, 'Target')).toEqual([])
+})
+
+test('dropping maps on the group they are already in is refused and rewrites nothing', async ({
+  page,
+}) => {
+  const manifestPath = await openProject(page, path.join(tmp, 'OwnGroup'))
+  const [a, b] = (await snapshot(page)).orphans
+  await reloadWithGroups(page, manifestPath, [{ name: 'Target', slots: [a.index, b.index] }])
+  const file = path.join(path.dirname(manifestPath), 'meta', 'groups.json')
+  const bytes = fs.readFileSync(file)
+  await ensureExpanded(page, 'Target')
+  const member = (await snapshot(page)).allNodes.find(
+    n => n.index === a.index && n.id.startsWith('group:user:Target/'),
+  )
+
+  await startDrag(page, member.id)
+  await hoverDragOver(page, 'group:user:Target')
+  const accepted = await page.evaluate(async () => {
+    const w = await getWidget('hackbench.map-explorer')
+    return w.canDrop(w.model.getNode('group:user:Target'))
+  })
+  expect(accepted).toBe(false)
+  expect(await highlightedIds(page)).toEqual([])
+  await page.mouse.up()
+
+  await page.waitForTimeout(1500)
+  expect(fs.readFileSync(file).equals(bytes)).toBe(true)
+  expect(await groupSlots(page, 'Target')).toEqual([a.index, b.index])
+})
+
+test('a mixed selection dropped on a group adds only the maps outside it, in place', async ({
+  page,
+}) => {
+  const manifestPath = await openProject(page, path.join(tmp, 'Mixed'))
+  const [a, b, c] = (await snapshot(page)).orphans
+  expect(c).toBeDefined()
+  await reloadWithGroups(page, manifestPath, [{ name: 'Target', slots: [b.index, c.index] }])
+  await ensureExpanded(page, 'Unassigned')
+  await ensureExpanded(page, 'Target')
+  const member = (await snapshot(page)).allNodes.find(
+    n => n.index === b.index && n.id.startsWith('group:user:Target/'),
+  )
+
+  // a first, then b (already a member): a merge that re-added b would move it
+  // behind c, whichever order the selection is read in.
+  await (await rowFor(page, a.id)).click()
+  await (await rowFor(page, member.id)).click({ modifiers: ['Control'] })
+  await dragRow(page, a.id, 'group:user:Target')
+
+  await expect.poll(() => groupSlots(page, 'Target')).toEqual([b.index, c.index, a.index])
+  expect(groupsOnDisk(manifestPath)).toEqual([
+    { name: 'Target', slots: [b.index, c.index, a.index] },
+  ])
 })
 
 /**

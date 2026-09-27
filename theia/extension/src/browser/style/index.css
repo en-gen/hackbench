@@ -90,6 +90,14 @@
   font-style: italic;
 }
 
+/* The folder an accepted drag is over, as VS Code's explorer shows it. */
+/* The second selector outranks Theia's focused-selection rule, so a selected
+   row inside the folder shows the drop color too. */
+.theia-Tree .theia-TreeNode.hb-map-drop-target,
+.theia-Tree:focus-within .theia-TreeNode.theia-mod-selected.hb-map-drop-target {
+  background: var(--theia-list-dropBackground);
+}
+
 /* ── New Project dialog ─────────────────────────────────────────────────── */
 
 .hb-dialog-row {
