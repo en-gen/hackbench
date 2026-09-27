@@ -126,9 +126,20 @@
   color: var(--theia-descriptionForeground);
 }
 
+.hb-dialog-inputline {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.hb-dialog-inputline > .theia-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .hb-dialog-browse {
-  margin-top: 0.4em;
-  align-self: flex-start;
+  flex: none;
+  margin: 0;
 }
 
 /* The cartridge and dates: shown for confirmation, not for editing. */
