@@ -117,6 +117,9 @@ const SPECIAL_LABELS: Record<SpecialMapNodeDto['role'], string> = {
 
 const isSpecial = (category: MapCategory): boolean => category in SPECIAL_LABELS
 
+/** Marks a drag as one of this explorer's own map-row drags. */
+const MAP_ROWS_TYPE = 'application/vnd.hackbench.map-rows'
+
 export const CATEGORY_ICONS: Record<MapCategory, string> = {
   'title-screen': 'codicon-device-desktop',
   'new-game': 'codicon-play-circle',
@@ -691,51 +694,105 @@ export class MapExplorerWidget extends TreeWidget {
   protected dragNodes: MapTreeNode[] | null = null
 
   protected dragAttributes(node: MapTreeNode): React.HTMLAttributes<HTMLElement> {
-    if (this.groupable(node)) {
-      return {
-        draggable: true,
-        onDragStart: () => {
-          const selected = this.selected()
-          const dragging = selected.includes(node) ? selected : [node]
-          // Loops, truncated rows and special maps refuse the WHOLE drag,
-          // not just their own row.
-          this.dragNodes = dragging.every(n => this.groupable(n)) ? dragging : null
-        },
-        onDragEnd: () => (this.dragNodes = null),
-      }
+    // Sub areas, loops, truncated rows and special maps are never a drag
+    // source, but still clear dragNodes on their own dragstart.
+    const source: React.HTMLAttributes<HTMLElement> = this.groupable(node)
+      ? {
+          draggable: true,
+          onDragStart: event => {
+            const selected = this.selected()
+            const dragging = selected.includes(node) ? selected : [node]
+            // Loops, truncated rows and special maps refuse the WHOLE drag,
+            // not just their own row.
+            this.dragNodes = dragging.every(n => this.groupable(n)) ? dragging : null
+            event.dataTransfer.setData(MAP_ROWS_TYPE, '')
+          },
+          onDragEnd: () => {
+            this.dragNodes = null
+            this.setDropHighlight(undefined)
+          },
+        }
+      : { onDragStart: () => (this.dragNodes = null) }
+    const folder = this.dropFolder(node)
+    if (!folder) return source
+    // Theia's FrontendApplication resets dropEffect to 'none' on every
+    // dragenter/dragover that bubbles to the document (to refuse file drops),
+    // and the browser drops only if the FINAL dropEffect allows it. So the
+    // verdict has to stop here, as Theia's own FileTreeWidget does (#625).
+    const hover = (event: React.DragEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const accepted = this.accepts(event, folder)
+      event.dataTransfer.dropEffect = accepted ? 'move' : 'none'
+      this.setDropHighlight(accepted ? folder : undefined)
     }
-    if (node.category === 'user-group' || node.category === 'unassigned-group') {
-      return {
-        // Theia's shell cancels every dragover on the page to accept file
-        // drops, so only dropEffect can show a refusal cursor here.
-        onDragOver: event => {
-          event.preventDefault()
-          event.dataTransfer.dropEffect = this.canDrop(node) ? 'move' : 'none'
-        },
-        onDrop: event => {
-          event.preventDefault()
-          if (this.canDrop(node)) void this.handleDrop(node)
-          this.dragNodes = null
-        },
-      }
+    return {
+      ...source,
+      onDragEnter: event => {
+        this.dragEnteredRow = true
+        hover(event)
+      },
+      onDragOver: hover,
+      // The browser fires dragenter on the element entered BEFORE dragleave
+      // on the one left, so a leave with no enter just before it means the
+      // pointer left every folder row (or the drag was cancelled with Esc,
+      // which ends with a dragleave). Moving between rows or their child
+      // elements keeps the highlight the enter already set: no flicker.
+      onDragLeave: () => {
+        if (!this.dragEnteredRow) this.setDropHighlight(undefined)
+        this.dragEnteredRow = false
+      },
+      onDrop: event => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (this.accepts(event, folder)) void this.handleDrop(folder)
+        this.dragNodes = null
+        this.setDropHighlight(undefined)
+      },
     }
-    // Sub areas, loops, truncated rows and special maps: never a drag
-    // source. Still clears dragNodes on their own dragstart, so a stray or
-    // synthetic event landing here cannot leave a PRIOR valid drag's nodes
-    // sitting around for a later dragover to accept by mistake.
-    return { onDragStart: () => (this.dragNodes = null) }
+  }
+
+  /** The id of the folder an accepted drag is over, drawn with list.dropBackground. */
+  protected dropHighlight: string | undefined
+  /** Set by a folder row's dragenter, consumed by the dragleave that follows it. */
+  protected dragEnteredRow = false
+
+  protected setDropHighlight(folder: MapTreeNode | undefined): void {
+    if (this.dropHighlight === folder?.id) return
+    this.dropHighlight = folder?.id
+    this.update()
+  }
+
+  /** The folder a drop on this row lands in: the row itself, or the group or Unassigned holding it. */
+  protected dropFolder(node: MapTreeNode): MapTreeNode | undefined {
+    for (let n: MapTreeNode | undefined = node; n; n = n.parent as MapTreeNode | undefined) {
+      if (n.category === 'user-group' || n.category === 'unassigned-group') return n
+    }
+    return undefined
+  }
+
+  /**
+   * Only a drag this widget started carries MAP_ROWS_TYPE. Without the check,
+   * dragNodes left stale by a drag whose source row unmounted before dragend
+   * would let a later file or text drop move those maps.
+   */
+  protected accepts(event: React.DragEvent, folder: MapTreeNode): boolean {
+    return event.dataTransfer.types.includes(MAP_ROWS_TYPE) && this.canDrop(folder)
   }
 
   /**
    * Onto a user group: every dragged node must be groupable (already true by
-   * construction of dragNodes). Onto Unassigned, the one structural folder:
+   * construction of dragNodes), and at least one must be outside that group,
+   * or the drop would change nothing. Onto Unassigned, the one structural folder:
    * every dragged node must currently be grouped, since Unassigned is every
    * grouped map's structural parent regardless of entry/orphan.
    */
   protected canDrop(target: MapTreeNode): boolean {
     const dragged = this.dragNodes
     if (!dragged || dragged.length === 0 || this.groupsError) return false
-    if (target.category === 'user-group') return true
+    if (target.category === 'user-group') {
+      return dragged.some(n => this.groupAncestor(n)?.id !== target.id)
+    }
     return dragged.every(n => this.groupAncestor(n) !== undefined)
   }
 
@@ -763,6 +820,10 @@ export class MapExplorerWidget extends TreeWidget {
   protected override createNodeClassNames(node: TreeNode, props: NodeProps): string[] {
     const classNames = super.createNodeClassNames(node, props)
     if ((node as MapTreeNode).category === 'orphan') classNames.push('hb-map-row-orphan')
+    // The whole folder lights up, header and visible rows, as VS Code's does.
+    if (this.dropHighlight && this.dropFolder(node as MapTreeNode)?.id === this.dropHighlight) {
+      classNames.push('hb-map-drop-target')
+    }
     return classNames
   }
 
@@ -820,12 +881,18 @@ export class MapExplorerWidget extends TreeWidget {
   }
 }
 
-/** A map belongs to at most one group, so it is dropped from every other before joining this one. */
+/**
+ * A map belongs to at most one group, so it is dropped from every other before
+ * joining this one. Maps already in the group stay where they are: adding
+ * them again must not move them to the end.
+ */
 function mergeIntoGroup(groups: MapGroupDto[], name: string, slots: number[]): MapGroupDto[] {
-  const next = withoutSlots(groups, slots)
+  const members = new Set(groups.find(g => g.name === name)?.slots ?? [])
+  const joining = slots.filter(s => !members.has(s))
+  const next = withoutSlots(groups, joining)
   const target = next.find(g => g.name === name)
-  if (target) target.slots.push(...slots)
-  else next.push({ name, slots })
+  if (target) target.slots.push(...joining)
+  else next.push({ name, slots: joining })
   return next
 }
 
