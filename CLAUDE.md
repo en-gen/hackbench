@@ -33,6 +33,26 @@ Before starting an issue, check it is not In progress, then move it there;
 move it to In review when the branch is pushed. File new issues with
 `--project HackBench`. Touch only `en-gen` repos and projects.
 
+## Pull requests show what they draw
+
+A PR that changes UI or graphics rendering embeds images of the result
+inline in its description. A fix or improvement shows before and after:
+same view, same map, same data.
+
+Rendered SMW graphics are ROM-derived, so they never enter this repo's
+history. They go to the private `en-gen/hackbench-pr-assets` repo, and
+`gh` cannot attach files the way the web editor does, so upload with:
+
+```bash
+tools/scripts/pr-image.sh <branch-name> shot.png map.before.png map.after.png
+```
+
+It prints the markdown to paste into the PR body or a comment
+(`gh pr create --body-file`, `gh pr comment --body-file`). Files named
+`<x>.before.png` and `<x>.after.png` print as one side-by-side row. Capture
+images with launched processes hidden; implementers hand the files to the
+orchestrator, who attaches them.
+
 ## Commands
 
 From the repo root:
