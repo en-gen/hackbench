@@ -11,7 +11,7 @@ const { CART, shownWords, makeUntitledAndUnlocated } = require('./rom-words.cjs'
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
-const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
+const { romPath, VANILLA, GPW2 } = require('../../../test/suite/support/corpus.cjs')
 const { maxDepth } = require('./tree-depth.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
@@ -180,6 +180,53 @@ async function openMapView(page, rom, dir, index = 0x105) {
   await page.waitForSelector('.hb-map-view-body', { timeout: 15000 })
   return shownWords(page, '.hb-map-view-body')
 }
+
+/** WCAG contrast of `sel`'s text against its nearest opaque background. */
+async function textContrast(page, sel) {
+  return page.evaluate(sel => {
+    const el = document.querySelector(sel)
+    let node = el
+    let bg = 'rgba(0, 0, 0, 0)'
+    while (node) {
+      bg = getComputedStyle(node).backgroundColor
+      if (!/^(rgba\(0, ?0, ?0, ?0\)|transparent)$/.test(bg)) break
+      node = node.parentElement
+    }
+    const lum = s =>
+      s
+        .match(/[\d.]+/g)
+        .slice(0, 3)
+        .map(c => c / 255)
+        .map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+        .reduce((sum, c, i) => sum + [0.2126, 0.7152, 0.0722][i] * c, 0)
+    const [a, b] = [lum(getComputedStyle(el).color), lum(bg)]
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+  }, sel)
+}
+
+/**
+ * A ROM whose level GFX call goes through Lunar Magic's ExGFX hook picks its
+ * GFX files per level from a list this view does not read, so the tileset and
+ * sprite set it shows are marked. Needs the GPW2 corpus ROM.
+ */
+test('a ROM that picks GFX per level shows the map marked; a stock ROM is not marked', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(romPath(GPW2)), 'needs the GPW2 corpus ROM')
+  const NOTE = '.hb-map-view-body [data-note="gfx-assignment"]'
+  await openMapView(page, ROM, path.join(tmp, 'StockGfxMark'))
+  await expect(page.locator(NOTE)).toHaveCount(0)
+
+  await openMapView(page, romPath(GPW2), path.join(tmp, 'HookGfxMark'))
+  await expect(page.locator(NOTE)).toBeVisible()
+  const body = '.hb-map-view-body:has([data-note="gfx-assignment"])'
+  expect(await page.locator(NOTE).textContent()).toContain('FG/BG and sprite GFX files')
+  expect(await page.locator(NOTE).textContent()).not.toMatch(CART)
+  expect(await textContrast(page, NOTE)).toBeGreaterThanOrEqual(4.5)
+  // Shown, not blanked: the decoded header is still there.
+  expect(await shownWords(page, body)).toMatch(/\d+ screens/)
+  await expect(page.locator(`${body} .hb-map-view-table tr`)).not.toHaveCount(0)
+})
 
 test('the map view shows a sprite count on an unpatched ROM', async ({ page }) => {
   const view = await openMapView(page, ROM, path.join(tmp, 'Unpatched'))

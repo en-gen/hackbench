@@ -25,15 +25,8 @@ import {
   playableAnimation,
   type FrameZeroChars,
 } from '../../../theia/extension/src/node/map16-decode'
-import { map16Stub } from '../support/syntheticMap16'
-import {
-  gfxStreams,
-  plantGfxReadPath,
-  plantPaletteCol1ReachPath,
-  TABLE_BANK,
-  TABLE_HI,
-  TABLE_LO,
-} from '../support/syntheticGfxCart'
+import { map16DecodeStub } from '../support/syntheticMap16'
+import { gfxStreams, TABLE_BANK, TABLE_HI, TABLE_LO } from '../support/syntheticGfxCart'
 
 const ROM_SIZE = 0x30000
 
@@ -343,10 +336,7 @@ describe('playableAnimation', () => {
 
 describe('decodeMap16Sheet', () => {
   function stubAnimRom(o: RomOpts = {}): SmwRom {
-    const rom = new RomFile('map16-anim-stub.sfc', Buffer.from(map16Stub()))
-    rom.writeAt(0x00ffd5, [0x20])
-    plantGfxReadPath(rom)
-    plantPaletteCol1ReachPath(rom)
+    const rom = map16DecodeStub()
     plantAnim(rom, o)
     // A real (if arbitrary) GFX0 stream, so the sheet actually decodes
     // instead of reporting every character sheet unavailable.

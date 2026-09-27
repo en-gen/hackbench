@@ -23,13 +23,19 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
-import { RomFile } from './RomFile'
+import { RomFile, cachedByVersion } from './RomFile'
 import { BytePattern, WILD, findPattern, matchesAt } from './BytePattern'
 import { loromToOffset } from './addressing'
 import { decodeTilesBatch, PIXELS_PER_TILE } from './GraphicsDecoder'
 import { tryDecompress } from './LcLz2'
 import { hex2 } from './hex'
-import { CompressionCheck, GFX_FILE_COUNT, checkStockCompression, gfxFileAddress } from './GfxArena'
+import {
+  CompressionCheck,
+  GFX_FILE_COUNT,
+  checkStockCompression,
+  gfxFileAddress,
+  readGfxPointerSites,
+} from './GfxArena'
 
 export { GFX_FILE_COUNT } // tables come from PrepareGraphicsFile via readGfxFile
 
@@ -342,6 +348,25 @@ export function gfxSource(rom: RomFile): CompressionCheck {
   const result = checkStockCompression(rom)
   _sourceCache.set(rom, { version: rom.version, result })
   return result
+}
+
+const _noteCache = new WeakMap<RomFile, { version: number; value: string | undefined }>()
+
+/** Why a level's GFX files may not be the ones the ROM loads, or undefined
+ *  when the level loader calls PrepareGraphicsFile itself. Independent of the
+ *  decompressor gate: a hooked ROM chooses per level either way, and a ROM
+ *  whose loader is not understood gets more caution, not less. */
+export function levelGfxAssignmentNote(rom: RomFile): string | undefined {
+  return cachedByVersion(_noteCache, rom, () => {
+    const sites = readGfxPointerSites(rom)
+    const shown = 'so the GFX files shown for these tilesets'
+    if (!sites) return `HackBench can't read how this ROM loads its GFX, ${shown} are unverified.`
+    if (!sites.hooked) return undefined
+    return (
+      "This ROM picks each level's FG/BG and sprite GFX files through Lunar Magic's list, " +
+      `which HackBench doesn't read yet, ${shown} are the stock ones, unverified.`
+    )
+  })
 }
 
 /**

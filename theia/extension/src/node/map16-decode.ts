@@ -33,6 +33,7 @@ import {
 } from '../../../../src/rom/Map16'
 import {
   gfxSource,
+  levelGfxAssignmentNote,
   loadVram,
   readGfxAssignment,
   VramState,
@@ -786,6 +787,7 @@ export function decodeMap16Sheet(
       tiles,
       charAnimation: animation?.dto,
       animationNote: frameZero?.error,
+      gfxAssignmentNote: levelGfxAssignmentNote(rom.rom),
       switchUnavailable: animData?.switchUnavailable,
       switchButtonArt: switchButtons.art,
       switchButtonUnavailable: switchButtons.unavailable,

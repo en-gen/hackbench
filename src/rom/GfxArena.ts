@@ -31,11 +31,12 @@
  * test/suite/unit/GfxArena.header.test.ts plants the mistake and proves the
  * headered and headerless twins diverge under it.
  */
-import * as crypto from 'crypto'
 import { RomFile } from './RomFile'
-import { BytePattern, WILD, findPattern } from './BytePattern'
+import { BytePattern, WILD, findPattern, matchesBytes } from './BytePattern'
 import { LOROM_BANK_SIZE, formatAddr, loromFromOffset, loromToOffset } from './addressing'
 import { parseStream } from './LcLz2'
+import { fingerprint } from './Fingerprint'
+import { branchTarget } from './dispatch/DispatchChain'
 
 /**
  * $00B9C4 - $00B992 on a stock cart (bank_00.asm:6415,6467).
@@ -124,6 +125,9 @@ export interface GfxPointerSites {
   bank: number
   /** SNES address the routine calls to decompress. */
   decompressorEntry: number
+  /** True when the level loader reaches the tables through the ExGFX hook,
+   *  which also chooses each level's files from a list this tool does not read. */
+  hooked: boolean
 }
 
 export type CompressionCheck = { ok: true; sites: GfxPointerSites } | { ok: false; reason: string }
@@ -142,95 +146,147 @@ function jslTarget(rom: RomFile, snes: number): number | null {
 }
 
 /**
- * The Lunar Magic ExGFX hook seen on 4 of 6 corpus ROMs, as two byte ranges
- * relative to the hook's own resolved address: the entry dispatcher and the
- * output-buffer setup through the table lookup and its JML tail. A single
- * fixed offset cannot stand for the hook by itself, because nothing then
- * checks the path between offsets; hashing the whole span catches a
- * retargeted hop or a changed branch the same as a changed operand.
- *
- * Measured byte-identical, entry through tail, on GPW 1.2, GPW2, Invictus
- * and Seven Vanilla Levels, except the operands masked below.
+ * Lunar Magic's ExGFX hook. Its entry branches on the caller's JSR return
+ * byte: $0A, the sprite GFX loop (bank_00.asm:5349), and $4B, the FG/BG loop
+ * (5381), each pick files per level. Any other caller takes the default BRA
+ * straight to the loader, which is the path walked here: it proves which
+ * tables a file NUMBER resolves through, not which file a level loads.
  */
-const HOOK_RANGE_A_OFFSET = 0x000
-const HOOK_RANGE_A_LENGTH = 0x07f
-const HOOK_RANGE_B_OFFSET = 0x6e0
-const HOOK_RANGE_B_LENGTH = 0x12f
-
-const HOOK_TABLE_OFFSET = 0x7b4 // three LDA long,X operands, at +4, +10, +16
-const HOOK_TAIL_OFFSET = 0x7fa // the JML operand, at +9
-/** The hook's JML lands on PrepareGraphicsFile's JSR to the decompressor. */
-const HOOK_JSR_INSTRUCTION_OFFSET = OFF_JSR_TARGET - 1
-const HOOK_OPERAND_WIDTH = 3
-/** Every 3-byte operand masked out before hashing: the three GFX tables,
- *  the JML target, and the hack's extended-GFX data pointers (two used only for
- *  files $100 and up, one in unreachable bytes); none decides a normal load. */
-const HOOK_MASKED_OFFSETS = [
-  HOOK_TABLE_OFFSET + 4,
-  HOOK_TABLE_OFFSET + 10,
-  HOOK_TABLE_OFFSET + 16,
-  HOOK_TAIL_OFFSET + 9,
-  0x713,
-  0x7d7,
-  0x7dd,
+// prettier-ignore
+const HOOK_ENTRY: BytePattern = [
+  0xa3, 0x04, 0xc9, 0x0a, 0xf0, WILD, 0xc9, 0x4b, 0xf0, 0x03, 0x98, 0x80, WILD,
 ]
+const HOOK_BRA = 11
+/** Where the entry's BRA lands: JSR to the build's loader, then RTL. */
+const HOOK_CALL: BytePattern = [0x20, WILD, WILD, 0x6b]
+/** Newer builds' loader: the $7EAD00 output buffer, the file number widened
+ *  to 16 bits, and a JSL to the dispatcher. */
+// prettier-ignore
+const HOOK_STUB: BytePattern = [
+  0xeb, 0x64, 0x00, 0xa9, 0xad, 0x85, 0x01, 0xa9, 0x7e, 0x85, 0x02,
+  0xa9, 0x00, 0xeb, 0x22, WILD, WILD, WILD, 0x60,
+]
+const HOOK_STUB_JSL = 15
+/** The older build's loader: a file below $7F goes to PrepareGraphicsFile by
+ *  JSL, then a BRA to its PLP/PLY/PLX/RTS exit. */
+// prettier-ignore
+const HOOK_DIRECT: BytePattern = [
+  0xda, 0x5a, 0x08, 0xc2, 0x30, 0x29, 0xff, 0x00, 0xc9, 0x7f, 0x00, 0xf0, WILD,
+  0xc9, 0x80, 0x00, 0xb0, WILD, 0xa8, 0xe2, 0x30, 0x22, WILD, WILD, WILD, 0x80, WILD,
+]
+const HOOK_DIRECT_JSL = 22
+const HOOK_DIRECT_BRA = 25
+const HOOK_DIRECT_EXIT: BytePattern = [0x28, 0x7a, 0xfa, 0x60]
 
 /**
- * SHA-256 of the hook's two ranges at `primary` with the operands above
- * zeroed, or null off the ROM. Long recognized code is fingerprinted rather
- * than committed literally: comparing a hash instead of ~430 bytes.
+ * The newer builds' dispatcher, fingerprinted from its entry through its
+ * return: a file below $7F reads the three GFX tables by long address and
+ * JMLs onto PrepareGraphicsFile's JSR to the decompressor. Masked: the table
+ * operands, the extended-GFX pointers (files $100 and up, which vary per
+ * ROM) and the JML, all read or checked separately. Bank bit 7 of the other
+ * long operands is folded, so the FastROM form hashes the same.
  */
-export function computeHookFingerprint(rom: RomFile, primary: number): string | null {
-  const a = rom.readAt(primary + HOOK_RANGE_A_OFFSET, HOOK_RANGE_A_LENGTH)
-  const b = rom.readAt(primary + HOOK_RANGE_B_OFFSET, HOOK_RANGE_B_LENGTH)
-  if (!a || !b) return null
-  const masked = Buffer.concat([a, b])
-  for (const off of HOOK_MASKED_OFFSETS) {
-    const at = HOOK_RANGE_A_LENGTH + (off - HOOK_RANGE_B_OFFSET)
-    masked.fill(0, at, at + HOOK_OPERAND_WIDTH)
-  }
-  return crypto.createHash('sha256').update(masked).digest('hex')
+const DISPATCHER_LENGTH = 0x6f
+const DISPATCHER_TABLES = [0x18, 0x1e, 0x24]
+const DISPATCHER_JML = 0x63
+const DISPATCHER_MASKED = [...DISPATCHER_TABLES, 0x37, 0x3d, DISPATCHER_JML]
+/** Bank bytes of the two reads for files $80-$FF. */
+const DISPATCHER_FOLDED = [0x51, 0x57]
+/** The hook's JML lands on PrepareGraphicsFile's JSR to the decompressor. */
+const HOOK_JSR_INSTRUCTION_OFFSET = OFF_JSR_TARGET - 1
+
+export function dispatcherFingerprint(rom: RomFile, at: number): string | null {
+  const bytes = rom.readAt(at, DISPATCHER_LENGTH)
+  if (!bytes) return null
+  const masked = Buffer.from(bytes)
+  for (const off of DISPATCHER_MASKED) masked.fill(0, off, off + 3)
+  for (const off of DISPATCHER_FOLDED) masked[off]! &= 0x7f
+  return fingerprint(masked)
 }
 
-/** Fingerprints of every hook build this tool recognizes. A parameter on
- *  `matchesHook` below, not baked into it, so a synthetic ROM's own
- *  fingerprint can stand in for it in tests. */
-export const HOOK_FINGERPRINTS: readonly string[] = [
-  'a780fbfc92025e5cae072b8f9a520ef19b4c1b184be4da3c7f57af1bb54f3e83',
+/** Dispatcher builds this tool recognizes, measured on the hack store. A
+ *  parameter below so a synthetic plant's own fingerprint can stand in. */
+export const DISPATCHER_FINGERPRINTS: readonly string[] = [
+  '6a68ae67d6ee8b6978acfe37f81eb7e89a047c0033c97324bba347e8e63f340c',
 ]
 
-/** True when `primary`'s masked fingerprint is recognized, its three table
- *  operands equal the matched routine's own, and its JML lands on the
- *  matched routine's JSR, bank bit 7 folded as `jslTarget` folds it. */
-export function matchesHook(
+const long = (b: Uint8Array, o: number): number =>
+  (b[o]! | (b[o + 1]! << 8) | (b[o + 2]! << 16)) & 0x7fffff
+
+export interface GfxTables {
+  lo: number
+  hi: number
+  bank: number
+}
+
+/**
+ * Walk the hook at `entry` to the table reads a stock file number reaches,
+ * given the matched PrepareGraphicsFile at `prepareGfx` and the tables it
+ * names. A dispatcher naming other tables is refused: the stock callers that
+ * JSL PrepareGraphicsFile directly would read different files, and a save
+ * could keep only one set current.
+ */
+export function readLevelGfxHook(
   rom: RomFile,
-  primary: number,
-  lo: number,
-  hi: number,
-  bank: number,
-  jsrAt: number,
-  fingerprints: readonly string[] = HOOK_FINGERPRINTS,
-): boolean {
-  const fp = computeHookFingerprint(rom, primary)
-  if (fp === null || !fingerprints.includes(fp)) return false
-  const table = rom.readAt(primary + HOOK_TABLE_OFFSET, 23)
-  const tail = rom.readAt(primary + HOOK_TAIL_OFFSET, 12)
-  if (!table || !tail) return false
-  const long = (buf: Buffer, o: number): number =>
-    buf[o]! | (buf[o + 1]! << 8) | (buf[o + 2]! << 16)
-  if (long(table, 4) !== lo || long(table, 10) !== hi || long(table, 16) !== bank) return false
-  return (long(tail, 9) & 0x7fffff) === (jsrAt & 0x7fffff)
+  entry: number,
+  prepareGfx: number,
+  tables: GfxTables,
+  fingerprints: readonly string[],
+): { ok: true } | { ok: false; reason: string } {
+  const refuse = (reason: string): { ok: false; reason: string } => ({ ok: false, reason })
+  const head = rom.readAt(entry, HOOK_ENTRY.length)
+  if (!head || !matchesBytes(head, HOOK_ENTRY)) {
+    return refuse('its entry is not the recognized ExGFX hook')
+  }
+  const landing = branchTarget(head[HOOK_BRA + 1]!, entry + HOOK_BRA)
+  const call = rom.readAt(landing, HOOK_CALL.length)
+  if (!call || !matchesBytes(call, HOOK_CALL)) {
+    return refuse(`its default path at ${formatAddr(landing)} is not a JSR and RTL`)
+  }
+  const loader = (entry & 0xff0000) | call[1]! | (call[2]! << 8)
+  const code = rom.readAt(loader, HOOK_DIRECT.length)
+  if (code && matchesBytes(code, HOOK_DIRECT)) {
+    const exitAt = branchTarget(code[HOOK_DIRECT_BRA + 1]!, loader + HOOK_DIRECT_BRA)
+    const exit = rom.readAt(exitAt, HOOK_DIRECT_EXIT.length)
+    if (long(code, HOOK_DIRECT_JSL) !== prepareGfx || !matchesBytes(exit, HOOK_DIRECT_EXIT)) {
+      return refuse(`its loader at ${formatAddr(loader)} does not call PrepareGraphicsFile`)
+    }
+    return { ok: true }
+  }
+  if (!code || !matchesBytes(code, HOOK_STUB)) {
+    return refuse(`its loader at ${formatAddr(loader)} is not a recognized build`)
+  }
+  const dispatcher = long(code, HOOK_STUB_JSL)
+  const d = rom.readAt(dispatcher, DISPATCHER_LENGTH)
+  const fp = dispatcherFingerprint(rom, dispatcher)
+  if (!d || fp === null || !fingerprints.includes(fp)) {
+    return refuse(`its dispatcher at ${formatAddr(dispatcher)} is not a recognized build`)
+  }
+  if (long(d, DISPATCHER_JML) !== prepareGfx + HOOK_JSR_INSTRUCTION_OFFSET) {
+    return refuse("its dispatcher does not reach PrepareGraphicsFile's decompression call")
+  }
+  const read = DISPATCHER_TABLES.map(o => long(d, o))
+  if (read[0] !== tables.lo || read[1] !== tables.hi || read[2] !== tables.bank) {
+    return refuse(
+      `its dispatcher reads GFX tables at ${read.map(formatAddr).join(', ')}, ` +
+        "not PrepareGraphicsFile's own",
+    )
+  }
+  return { ok: true }
 }
 
 /** The pointer tables and decompression call this cartridge actually uses,
  *  or null when PrepareGraphicsFile cannot be resolved to exactly one site. */
-export function readGfxPointerSites(rom: RomFile): GfxPointerSites | null {
-  const r = resolveGfxPointerSites(rom)
+export function readGfxPointerSites(
+  rom: RomFile,
+  fingerprints: readonly string[] = DISPATCHER_FINGERPRINTS,
+): GfxPointerSites | null {
+  const r = resolveGfxPointerSites(rom, fingerprints)
   return r.ok ? r.sites : null
 }
 
 /** As `readGfxPointerSites`, but keeps the reason a caller can surface. */
-function resolveGfxPointerSites(rom: RomFile): CompressionCheck {
+function resolveGfxPointerSites(rom: RomFile, fingerprints: readonly string[]): CompressionCheck {
   const unresolved = 'PrepareGraphicsFile does not resolve to exactly one site on this ROM'
   const hits = findPattern(rom, PREPARE_GFX_PATTERN, 2)
   if (hits.length !== 1) return { ok: false, reason: unresolved }
@@ -241,32 +297,32 @@ function resolveGfxPointerSites(rom: RomFile): CompressionCheck {
   // reads; the JSR target resolves in the program bank, the same bank here.
   const bank = matched & 0xff0000
   const word = (off: number): number => bank | site[off]! | (site[off + 1]! << 8)
-  const lo = word(OFF_TABLE_LO)
-  const hi = word(OFF_TABLE_HI)
-  const tableBank = word(OFF_TABLE_BANK)
+  const tables = { lo: word(OFF_TABLE_LO), hi: word(OFF_TABLE_HI), bank: word(OFF_TABLE_BANK) }
   // The gap between the three tables IS the file count, and the cart states
   // it. Refuse when it disagrees with GFX_FILE_COUNT rather than writing 50
   // pointers into a table sized for something else: too few leaves the tail
   // pointing at data the repack overwrote, too many spills into the next
   // table. Both are silent, and both corrupt a cartridge that still loads.
-  if (hi - lo !== GFX_FILE_COUNT || tableBank - hi !== GFX_FILE_COUNT)
+  if (tables.hi - tables.lo !== GFX_FILE_COUNT || tables.bank - tables.hi !== GFX_FILE_COUNT)
     return { ok: false, reason: unresolved }
   const primary = LEVEL_GFX_CALLERS[0]!
   const target = jslTarget(rom, primary)
-  const direct = target === matched
-  const hooked =
-    target !== null &&
-    matchesHook(rom, target, lo, hi, tableBank, matched + HOOK_JSR_INSTRUCTION_OFFSET)
-  if (!direct && !hooked) {
+  const hook =
+    target === null || target === matched
+      ? null
+      : readLevelGfxHook(rom, target, matched, tables, fingerprints)
+  if (target === null || (hook && !hook.ok)) {
     return {
       ok: false,
       reason:
         `the level GFX loader's call at ${formatAddr(primary)} targets ` +
         `${target === null ? 'something that is not a JSL' : formatAddr(target)}, ` +
-        'not PrepareGraphicsFile or its recognized hook',
+        'not PrepareGraphicsFile or its recognized hook' +
+        (hook && !hook.ok ? `: ${hook.reason}` : ''),
     }
   }
-  return { ok: true, sites: { lo, hi, bank: tableBank, decompressorEntry: word(OFF_JSR_TARGET) } }
+  const decompressorEntry = word(OFF_JSR_TARGET)
+  return { ok: true, sites: { ...tables, decompressorEntry, hooked: hook !== null } }
 }
 
 /** The SNES address the pointer tables give file `index`, or null. */
@@ -286,7 +342,7 @@ export function gfxFileAddress(rom: RomFile, sites: GfxPointerSites, index: numb
  * first because that is where the entry address comes from.
  */
 export function checkStockCompression(rom: RomFile): CompressionCheck {
-  const resolved = resolveGfxPointerSites(rom)
+  const resolved = resolveGfxPointerSites(rom, DISPATCHER_FINGERPRINTS)
   if (!resolved.ok) return resolved
   const sites = resolved.sites
   const entry = rom.readAt(sites.decompressorEntry, STOCK_LCLZ2_ENTRY.length)
