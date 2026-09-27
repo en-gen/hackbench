@@ -68,7 +68,6 @@ import {
 import { paintCharSheet, renderCharPalettes } from './map16-char-palettes'
 import {
   QUADRANTS,
-  SWITCH_BUTTON_PX,
   paintFrameQuadrant,
   paintTilePreview,
   renderTileEditor,
@@ -83,7 +82,7 @@ import {
   tileFrameCount,
   toggleKinds,
 } from './map16-view-model'
-import type { FrameImage } from './pixel-image-button'
+import { decodeSwitchButton, type SwitchButtonImages } from './switch-toggle'
 
 export { MAP16_VIEW_ID, map16WidgetId } from './map16-view-model'
 
@@ -293,16 +292,12 @@ export class Map16ViewWidget extends ReactWidget {
    * alternate art. */
   protected switchButtonImages(
     sheet: Map16SheetDto,
-  ): Partial<Record<Map16SwitchKind, { off: FrameImage; on: FrameImage }>> {
-    const out: Partial<Record<Map16SwitchKind, { off: FrameImage; on: FrameImage }>> = {}
+  ): Partial<Record<Map16SwitchKind, SwitchButtonImages>> {
+    const out: Partial<Record<Map16SwitchKind, SwitchButtonImages>> = {}
     const art = sheet.switchButtonArt
     if (!art) return out
     for (const kind of Object.keys(art) as Map16SwitchKind[]) {
-      const images = art[kind]!
-      out[kind] = {
-        off: { ...SWITCH_BUTTON_PX, rgba: this.decoded(images.offRgba) },
-        on: { ...SWITCH_BUTTON_PX, rgba: this.decoded(images.onRgba) },
-      }
+      out[kind] = decodeSwitchButton(art[kind]!, b64 => this.decoded(b64))
     }
     return out
   }

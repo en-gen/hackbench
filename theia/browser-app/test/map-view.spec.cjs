@@ -272,6 +272,148 @@ test('a reused tab paints screen 0 of the next map', async ({ page }) => {
   expectEveryVisibleScreenDrawn(await readViewport(page, 0x106))
 })
 
+/** A reused tab starts the next map at its first screen, not where the last one was scrolled. */
+test('a reused tab resets the scroll for the next map', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showScreen(page, 0x105, 9)
+  const scroller = id => page.locator(`${root(id)} [data-control="map-scroller"]`)
+  const screenWidth = await page.locator(`${root(0x105)} canvas[data-screen="0"]`).evaluate(c => c.getBoundingClientRect().width) // prettier-ignore
+  expect(await scroller(0x105).evaluate(el => el.scrollLeft)).toBeGreaterThan(2 * screenWidth)
+  await page.evaluate(async mp => {
+    const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261')
+    await w.open({ manifestPath: mp, index: 0x106, label: '106', iconClass: '' })
+  }, project.manifestPath)
+  opened.push('hackbench.map-view:262')
+  await expect(page.locator(`${root(0x106)} canvas[data-screen="0"]`)).toHaveAttribute(
+    'data-drawn',
+    drawn(0),
+    { timeout: 15000 },
+  )
+  expect(await scroller(0x106).evaluate(el => [el.scrollLeft, el.scrollTop])).toEqual([0, 0])
+  expectEveryVisibleScreenDrawn(await readViewport(page, 0x106))
+})
+
+/** The pixels actually on screen inside `locator`, read from a screenshot. */
+async function shownPixels(page, locator) {
+  const png = (await locator.screenshot()).toString('base64')
+  return page.evaluate(async b64 => {
+    const img = new Image()
+    img.src = `data:image/png;base64,${b64}`
+    await img.decode()
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const data = ctx.getImageData(0, 0, c.width, c.height).data
+    const colors = new Set()
+    for (let i = 0; i < data.length; i += 4) colors.add(`${data[i]},${data[i + 1]},${data[i + 2]}`)
+    return { checksum: checksumOf(data), colors: colors.size }
+  }, png)
+}
+
+/**
+ * Every click paints the state it asks for, including a return to one
+ * already seen (a cached screen): on a003f6c5 only the first change of
+ * each toggle showed. Checked on the cell each toggle changes.
+ */
+for (const [index, control, screen, cell] of [
+  [0x105, 'palace-yellow', 9, '12,20'],
+  [0x014, 'palace-yellow', 0, null],
+  [0x014, 'switch-blue', 0, '1,13'],
+  [0x105, 'switch-blue', 0, null],
+]) {
+  test(`$${index.toString(16).padStart(3, '0')} ${control} paints every click, back and forth`, async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, index)
+    await showScreen(page, index, screen)
+    const button = page.locator(`${root(index)} [data-control="${control}"]`)
+    const canvas = page.locator(`${root(index)} canvas[data-screen="${screen}"]`)
+    const want = on => {
+      const palace = control === 'palace-yellow' && on ? 1 : 0
+      const blue = control === 'switch-blue' && on ? 1 : 0
+      return new RegExp(`^\\d+:${palace}000:${blue}00:${screen}$`)
+    }
+    const seen = {}
+    let on = false
+    for (let click = 0; click < 5; click++) {
+      if (click > 0) {
+        await button.click()
+        on = !on
+      }
+      await expect(button).toHaveAttribute('aria-pressed', String(on))
+      await expect(canvas).toHaveAttribute('data-drawn', want(on))
+      const px = await readScreen(page, index, screen)
+      if (seen[on] === undefined) seen[on] = px
+      // A return to a state shows that state's picture exactly.
+      else expect(px.checksum).toBe(seen[on].checksum)
+    }
+    if (cell) expect(seen[true].cells[cell]).not.toBe(seen[false].cells[cell])
+  })
+}
+
+/** A reused tab changing orientation ($105 horizontal to $109 vertical) draws screen 0, never the old map. */
+test('a reused tab going from a horizontal to a vertical map draws screen 0', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await page.evaluate(async mp => {
+    const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261')
+    await w.open({ manifestPath: mp, index: 0x109, label: '109', iconClass: '' })
+  }, project.manifestPath)
+  opened.push('hackbench.map-view:265')
+  await expect(page.locator(`${root(0x109)} canvas[data-screen="0"]`)).toHaveAttribute(
+    'data-drawn',
+    drawn(0),
+    { timeout: 15000 },
+  )
+  // Every canvas is blank or this map's: none holds a $105 picture.
+  const marks = await page.locator(`${root(0x109)} canvas[data-screen]`).evaluateAll(cs => cs.map(c => c.dataset.drawn ?? null)) // prettier-ignore
+  const current = await page.locator(`${root(0x109)} canvas[data-screen="0"]`).getAttribute('data-drawn') // prettier-ignore
+  const generation = current.split(':')[0]
+  for (const m of marks) if (m !== null) expect(m.split(':')[0]).toBe(generation)
+  const px = await readScreen(page, 0x109, 0)
+  expect(px.rgba.filter((v, i) => i % 4 === 3 && v !== 255)).toHaveLength(0)
+  expect(px.distinct).toBeGreaterThan(1)
+})
+
+/**
+ * The L1 (foreground) toggle: off shows only the level's backdrop (no L1
+ * pixel on screen, and not the theme), on shows exactly the picture again.
+ */
+test('the L1 toggle hides and restores the foreground, per tab', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await page.waitForTimeout(500)
+  const l1 = page.locator(`${root(0x105)} [data-control="layer-l1"]`)
+  const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
+  await expect(l1).toHaveAttribute('aria-pressed', 'true')
+  await expect(l1).toHaveAttribute('aria-label', 'L1 (foreground)')
+  // The owner's icon: three bars, the middle one in the button's own color.
+  const bars = await l1
+    .locator('svg rect')
+    .evaluateAll(rs => rs.map(r => ({ y: r.getAttribute('y'), fill: getComputedStyle(r).fill })))
+  const color = await l1.evaluate(b => getComputedStyle(b).color)
+  expect(bars.map(b => b.y)).toEqual(['1', '6', '11'])
+  expect(bars[1].fill).toBe(color)
+  expect(bars[0].fill).not.toBe(color)
+
+  const shown = await shownPixels(page, strip)
+  expect(shown.colors).toBeGreaterThan(4)
+  await l1.click()
+  await expect(l1).toHaveAttribute('aria-pressed', 'false')
+  expect((await shownPixels(page, strip)).colors).toBe(1)
+
+  await openMap(page, project.manifestPath, 0x106)
+  await expect(page.locator(`${root(0x106)} [data-control="layer-l1"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
+  await activate(page, 0x105)
+  await l1.click()
+  await expect(l1).toHaveAttribute('aria-pressed', 'true')
+  expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
+})
+
 test('opening a map draws real pixels, and two maps differ', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
@@ -298,6 +440,8 @@ test('a palette edit recolors exactly the pixels of that color, with no reload',
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   const before = await readScreen(page, 0x105, 0)
+  const screen0 = page.locator(`${root(0x105)} canvas[data-screen="0"]`)
+  const drawnBefore = await screen0.getAttribute('data-drawn')
 
   // The word the ROM holds now, read from the file rather than assumed.
   const rom = fs.readFileSync(ROM)
@@ -317,10 +461,11 @@ test('a palette edit recolors exactly the pixels of that color, with no reload',
   )
   expect(result.status).toBe('ok')
 
-  // No open() or refresh here: the working-copy push must repaint it.
+  // No open() or refresh here: the working-copy push must repaint it. The
+  // canvas blanks while the new reply is in flight, so wait for the new paint.
   await expect
-    .poll(async () => (await readScreen(page, 0x105, 0)).checksum, { timeout: 15000 })
-    .not.toBe(before.checksum)
+    .poll(() => screen0.getAttribute('data-drawn'), { timeout: 15000 })
+    .toMatch(new RegExp(`^(?!${drawnBefore}$)\\d+:0000:000:0$`))
   const after = await readScreen(page, 0x105, 0)
 
   let changed = 0

@@ -29,18 +29,14 @@ import { renderCell } from '../../../../src/rom/render/CellRenderer'
 import type {
   MapScreenResult,
   PalaceIconsResult,
-  SwitchButtonsResult,
+  PalaceIconDto,
   SwitchFlagsDto,
   SwitchStateDto,
 } from '../common/project-protocol'
 import type { Map16TileAlternateDto } from '../common/map16-protocol'
-import type { VramState } from '../../../../src/rom/GfxLoader'
 import type { SwitchKind } from '../../../../src/rom/AnimationLoader'
 import { switchedVram, tileAlternates } from '../../../../src/rom/SwitchAlternates'
-import { buildSwitchButtonArt } from './map16-decode'
-
-type SwitchButtonsReply = Exclude<SwitchButtonsResult, { status: 'rom-not-located' }>
-const ONOFF_TILE = 0x112
+import { buildSwitchButtonArt, ONOFF_BUTTON_TILE_ID } from './map16-decode'
 
 /** A screen's size in tiles: 16 x 27 horizontal, two 16-wide halves x 16 vertical. */
 export function screenTiles(isVertical: boolean): { w: number; h: number } {
@@ -63,19 +59,6 @@ function cellDef(model: L1Inputs, id: number, screen: number): Map16Tile | undef
 
 export const SWITCHES_OFF: SwitchStateDto = { blue: false, silver: false, onOff: false }
 
-const switchedVrams = new WeakMap<L1Inputs, Map<string, VramState>>()
-
-/** The chars as the switches that are on leave them (#573): a char input, never a grid remap. */
-function vramFor(model: L1Inputs, on: ReadonlySet<SwitchKind>): VramState {
-  if (on.size === 0 || !model.anim) return model.vram
-  let byKey = switchedVrams.get(model)
-  if (!byKey) switchedVrams.set(model, (byKey = new Map()))
-  const key = [...on].sort().join('+')
-  let vram = byKey.get(key)
-  if (!vram) byKey.set(key, (vram = switchedVram(model.anim, model.vram, on)))
-  return vram
-}
-
 /**
  * One screen as RGBA: each cell's `renderCell` picture, with the switches
  * that are on, laid over the backdrop. A hidden tile's 25% overlay applies
@@ -87,7 +70,8 @@ export function drawL1Screen(
   switches: SwitchStateDto = SWITCHES_OFF,
 ): Uint8ClampedArray {
   const on = new Set((Object.keys(switches) as SwitchKind[]).filter(k => switches[k]))
-  const vram = vramFor(model, on)
+  // A char input, never a grid remap (#573); L1ModelCache caches the costly part.
+  const vram = on.size > 0 && model.anim ? switchedVram(model.anim, model.vram, on) : model.vram
   const { w, h } = screenTiles(model.isVertical)
   const x0 = model.isVertical ? 0 : screen * w
   const y0 = model.isVertical ? screen * h : 0
@@ -143,22 +127,18 @@ export function screenResult(
     height: h * 16,
     rgbaBase64: base64(drawL1Screen(model, screen, switches)),
     note: model.animNote,
+    backdrop: [model.backArea[0], model.backArea[1], model.backArea[2]],
   }
 }
 
 /** Each palace's block for the wire: per ROM, so the same on every map. */
-export function palaceIconsOf(
-  art: Record<Palace, PalaceArt>,
-): Exclude<PalaceIconsResult, { status: 'rom-not-located' }> {
-  return {
-    status: 'ok',
-    icons: PALACES.map(palace => {
-      const a = art[palace]
-      return 'reason' in a
-        ? { palace, unavailable: a.reason }
-        : { palace, uncleared: base64(a.uncleared), cleared: base64(a.cleared) }
-    }),
-  }
+export function palaceIconsOf(art: Record<Palace, PalaceArt>): PalaceIconDto[] {
+  return PALACES.map(palace => {
+    const a = art[palace]
+    return 'reason' in a
+      ? { palace, unavailable: a.reason }
+      : { palace, uncleared: base64(a.uncleared), cleared: base64(a.cleared) }
+  })
 }
 
 const flagsKey = (f: SwitchFlagsDto) => `${+f.green}${+f.yellow}${+f.blue}${+f.red}`
@@ -217,17 +197,36 @@ export function mapScreen(
 }
 
 /**
- * The switch toggles' art for this map: the Map16 inspector's own
- * (`buildSwitchButtonArt`), from the map's chars and palette. The ON/OFF
- * block, $112, is defined alike in all 15 vanilla tilesets from FG2 chars.
+ * The toolbar's art for this map: each palace's block (per ROM) and each
+ * char switch's own, the Map16 inspector's (`buildSwitchButtonArt`), from
+ * the map's chars and palette. A map that cannot be built names why.
  */
-export function switchButtonsOf(rom: RomFile, model: L1Inputs): SwitchButtonsReply {
-  const onOff = model.map16.tiles.filter(t => t?.id === ONOFF_TILE)
-  const alternates = new Map<number, Map16TileAlternateDto[]>()
-  if (model.anim) {
-    for (const [id, alts] of tileAlternates(model.anim, onOff, model.vram, { colors: model.colors })) // prettier-ignore
-      alternates.set(id, alts.map(a => ({ kinds: a.kinds, altRgbaBase64: base64(a.rgba), hidden: a.hidden }))) // prettier-ignore
+export function toolbarArtOf(
+  rom: RomFile,
+  built: L1InputsResult,
+  art: Record<Palace, PalaceArt>,
+): Exclude<PalaceIconsResult, { status: 'rom-not-located' }> {
+  if (!built.ok) {
+    const unavailable = Object.fromEntries(
+      (['blue', 'silver', 'onOff'] as const).map(k => [k, built.reason]),
+    )
+    return {
+      status: 'ok',
+      icons: palaceIconsOf(art),
+      switchArt: {},
+      switchUnavailable: unavailable,
+    }
   }
-  const { art, unavailable } = buildSwitchButtonArt(rom, onOff, alternates, model.vram, { colors: model.colors }) // prettier-ignore
-  return { status: 'ok', art, unavailable }
+  const m = built.inputs
+  const onOff = m.map16.tiles.filter(t => t?.id === ONOFF_BUTTON_TILE_ID)
+  const alternates = new Map<number, Map16TileAlternateDto[]>()
+  for (const [id, alts] of m.anim ? tileAlternates(m.anim, onOff, m.vram, { colors: m.colors }) : []) // prettier-ignore
+    alternates.set(id, alts.map(a => ({ kinds: a.kinds, altRgbaBase64: base64(a.rgba), hidden: a.hidden }))) // prettier-ignore
+  const buttons = buildSwitchButtonArt(rom, onOff, alternates, m.vram, { colors: m.colors })
+  return {
+    status: 'ok',
+    icons: palaceIconsOf(art),
+    switchArt: buttons.art,
+    switchUnavailable: buttons.unavailable,
+  }
 }

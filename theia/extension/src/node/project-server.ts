@@ -22,7 +22,7 @@ import {
   WorkingRomResult,
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
-import { L1ModelCache, mapScreen, palaceIconsOf, switchButtonsOf } from './map-screen'
+import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
 import {
@@ -55,7 +55,6 @@ import {
   RecentProjectDto,
   RomIdentityDto,
   SetMapGroupsResult,
-  SwitchButtonsResult,
   SwitchFlagsDto,
   SwitchStateDto,
 } from '../common/project-protocol'
@@ -118,19 +117,13 @@ export class ProjectServiceImpl implements ProjectService {
     return mapScreen(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags, switches) // prettier-ignore
   }
 
-  async mapSwitchButtons(manifestPath: string, index: number): Promise<SwitchButtonsResult> {
+  async mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     const bytes = r.working.bytes()
     const built = this.screens.get(bytes, r.romPath, index, SWITCH_FLAGS_UNCLEARED)
-    if (!built.ok) return { status: 'unavailable', reason: built.reason }
-    return switchButtonsOf(RomFile.fromBytes(r.romPath, Buffer.from(bytes)), built.inputs)
-  }
-
-  async mapPalaceIcons(manifestPath: string, _index: number): Promise<PalaceIconsResult> {
-    const r = this.located(manifestPath)
-    if (r.status !== 'ok') return r
-    return palaceIconsOf(this.screens.art(r.working.bytes(), r.romPath))
+    const rom = RomFile.fromBytes(r.romPath, Buffer.from(bytes))
+    return toolbarArtOf(rom, built, this.screens.art(bytes, r.romPath))
   }
 
   async updateProject(
