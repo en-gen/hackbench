@@ -206,73 +206,89 @@
   color: var(--theia-descriptionForeground);
 }
 
-.hb-map-view-spacer {
+.hb-map-view-toggle canvas {
+  width: 16px;
+  height: 16px;
+  image-rendering: pixelated;
+}
+
+.hb-map-view-facts {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 1em;
+  padding: 4px 8px;
+}
+
+.hb-map-view-facts .hb-map-view-title {
+  margin: 0;
+  font-size: var(--theia-ui-font-size1);
+}
+
+.hb-map-view-facts .hb-map-view-summary {
+  margin: 0;
+}
+
+.hb-map-view-note {
+  padding: 2px 8px;
+  color: var(--theia-editorWarning-foreground);
+}
+
+/* ── Toolbar controls shared by the map and Map16 views ─────────────── */
+
+.hb-toolbar-spacer {
   flex: 1 1 auto;
 }
 
-.hb-map-view-toggle,
-.hb-map-view-icon-btn {
+.hb-icon-btn {
   display: flex;
   align-items: center;
-  height: 22px;
-  padding: 0 6px;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: var(--theia-foreground);
+  color: var(--theia-icon-foreground);
   cursor: pointer;
 }
 
-/* A dot in the palace's own color, so the four read at a glance. */
-.hb-map-view-toggle::before {
-  content: '';
-  width: 8px;
-  height: 8px;
-  margin-right: 5px;
-  border-radius: 50%;
-  background: var(--hb-palace);
-}
-.hb-palace-yellow {
-  --hb-palace: #e8c000;
-}
-.hb-palace-green {
-  --hb-palace: #30b050;
-}
-.hb-palace-red {
-  --hb-palace: #d04040;
-}
-.hb-palace-blue {
-  --hb-palace: #4080e0;
-}
-
-.hb-map-view-toggle:hover:not(:disabled),
-.hb-map-view-icon-btn:hover:not(:disabled) {
+.hb-icon-btn:hover:not(:disabled) {
   background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
 }
 
-/* Same pressed look as the Map16 view's toggles. */
-.hb-map-view-toggle.hb-on {
-  background: var(--theia-inputOption-activeBackground, rgba(91, 156, 246, 0.18));
-  box-shadow: inset 0 0 0 1px var(--theia-focusBorder, #5b9cf6);
-}
-
-.hb-map-view-icon-btn {
-  width: 24px;
-  justify-content: center;
-  padding: 0;
-  color: var(--theia-icon-foreground);
-}
-
-.hb-map-view-icon-btn:disabled {
+.hb-icon-btn:disabled {
   opacity: 0.4;
   cursor: default;
 }
 
-.hb-map-view-zoom {
+/* Pressed state for the two toggles, so "grid on" and "playing" are
+   readable at a glance rather than only via the tooltip.
+   Follows the VS Code extension's own toolbar convention - an ACCENT
+   FOREGROUND on the glyph (`.iconBtn.on { color: #5b9cf6 }`,
+   webview/mapEditor/main.ts:1428) - with a tinted fill and inset outline
+   added, since a 24px codicon recolored alone is easy to miss. */
+.hb-icon-btn-on {
+  color: var(--theia-focusBorder, #5b9cf6);
+  background: var(--theia-inputOption-activeBackground, rgba(91, 156, 246, 0.18));
+  box-shadow: inset 0 0 0 1px var(--theia-focusBorder, #5b9cf6);
+}
+
+/* Needed because `.hb-icon-btn:hover:not(:disabled)` above outranks
+   a single class, so without this the fill vanished on hover - the button
+   looked UNSET exactly while the pointer was on it. */
+.hb-icon-btn-on:hover:not(:disabled) {
+  background: var(--theia-inputOption-hoverBackground, rgba(91, 156, 246, 0.3));
+}
+
+.hb-zoom-indicator {
   min-width: 26px;
   text-align: center;
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
   color: var(--theia-descriptionForeground);
+  user-select: none;
 }
 
 .hb-map-view-scroller {
@@ -280,11 +296,16 @@
   min-height: 0;
   display: flex;
   align-items: flex-start;
-  overflow: auto;
+  /* Scrollbar always reserved along the scroll axis, so fitting the other
+     axis cannot make it appear and change the fit again. */
+  overflow-x: scroll;
+  overflow-y: auto;
 }
 
 .hb-map-view-scroller.hb-vertical {
   flex-direction: column;
+  overflow-x: auto;
+  overflow-y: scroll;
 }
 
 .hb-map-view-screen {
@@ -303,10 +324,6 @@
 .hb-map-view-header > summary {
   cursor: pointer;
   color: var(--theia-descriptionForeground);
-}
-
-.hb-map-view-body {
-  padding: 0.8em 0;
 }
 
 .hb-map-view-empty,

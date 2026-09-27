@@ -14,21 +14,18 @@
 import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { SmwRom } from '../../src/rom/SmwRom'
-import { isLevelModeVertical, parseLevelHeader, parseLevelObjects } from '../../src/rom/LevelParser'
-import { expandMap, BOSS_ARENA_SCREENS } from '../../src/rom/ObjectExpander'
+import { BOSS_ARENA_SCREENS, SWITCH_FLAGS_UNCLEARED } from '../../src/rom/ObjectExpander'
+import { buildL1Inputs } from '../../src/rom/model/L1Model'
 import {
   decodeSubTileWord,
   encodeSubTileWord,
-  loadMap16WithPipeVariants,
   pipeVariantIndex,
   PIPE_VARIANT_TILE_START,
   PIPE_VARIANT_TILE_COUNT,
   type Map16Tile,
 } from '../../src/rom/Map16'
-import { loadAnimationData, type AnimationData } from '../../src/rom/AnimationLoader'
-import { loadExAnimData, mergeAnimationData } from '../../src/rom/ExAnimationLoader'
-import { getCharPixels, loadVram, type VramState } from '../../src/rom/GfxLoader'
-import { buildLevelCgram, loadCustomLevelPalette, loadRomPalettes, STOCK_COL1 } from '../../src/rom/PaletteLoader' // prettier-ignore
+import type { AnimationData } from '../../src/rom/AnimationLoader'
+import { getCharPixels, type VramState } from '../../src/rom/GfxLoader'
 import { collectPaletteAnimFrames } from '../../src/rom/model/palette/PaletteFactory'
 import type { RgbaColor } from '../../src/rom/GraphicsDecoder'
 import { openMap, loadLevel, pipeInfo, type Reader } from './capture_render'
@@ -571,40 +568,18 @@ export function gateMap(
   const writes = parsePipeWrites(JSON.parse(writesRaw.toString('utf8')), summaryRaw && JSON.parse(summaryRaw.toString('utf8'))) // prettier-ignore
   if (!writes) return unavailable(id, 'map16_pipe_writes.json unreadable')
 
-  const verticalTable = rom.requireVerticalTable()
-  const header = parseLevelHeader(raw)
-  const parsed = parseLevelObjects(raw, verticalTable)
-  const isVertical = isLevelModeVertical(header.levelMode, verticalTable)
-  const tileset = header.objectTileset
-  // Omits levelNum, matching MapBuilder.buildMapWithGraph's own call; switchFlags
-  // stays at its default (all uncleared, #567) to match the ROM's fresh-save
-  // state that `layers_v5` was captured in - MapBuilder pins all-cleared instead.
-  const romGrid = expandMap(parsed.objects, header.levelLength, rom.rom, tileset, isVertical, header.levelMode) // prettier-ignore
-
-  let map16: { tiles: Map16Tile[]; pipeVariants: Map16Tile[][] }
-  try {
-    map16 = loadMap16WithPipeVariants(rom.rom, tileset)
-  } catch (e) {
-    return unavailable(
-      id,
-      `Map16 table unavailable for tileset ${tileset}: ${(e as Error).message}`,
-    )
-  }
-  const vanillaAnim = loadAnimationData(rom.rom, tileset)
-  const exAnim = loadExAnimData(rom.rom, id)
-  const anim =
-    vanillaAnim && exAnim ? mergeAnimationData(vanillaAnim, exAnim) : (vanillaAnim ?? exAnim)
-  const vram = loadVram(rom.rom, tileset, header.spriteSet)
+  // The same inputs the map tab draws from (src/rom/model/L1Model.ts), with
+  // the switch palaces uncleared: the fresh-save state `layers_v5` was taken in.
+  const built = buildL1Inputs(rom, id, SWITCH_FLAGS_UNCLEARED)
+  if (!built.ok) return unavailable(id, built.reason)
+  const { header, isVertical, map16, anim, colors } = built.inputs
+  const romGrid = built.inputs.grid
+  const vram = built.inputs.rawVram
 
   const grid = D.unb64(draw.grid)
   const defs = D.unb64(draw.defs)
   const capVram = D.unb64(draw.vram)
   const cgram = D.unb64(level.data.cgram)
-
-  const romPalettes = loadRomPalettes(rom.rom, header.bgPalette)
-  const base = buildLevelCgram(romPalettes, header.bgPalette, header.fgPalette, header.spritePalette, STOCK_COL1) // prettier-ignore
-  const custom = loadCustomLevelPalette(rom.rom, id)
-  const colors = custom ? custom.colors : base.colors
 
   const cited = citedWords(romGrid, isVertical, map16.tiles, map16.pipeVariants)
 

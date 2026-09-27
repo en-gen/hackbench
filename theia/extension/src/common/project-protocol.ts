@@ -203,7 +203,7 @@ export interface SwitchFlagsDto {
 /**
  * One screen of a map's L1 (foreground), drawn by the backend from the
  * working copy. Horizontal maps have 16 x 27 tile screens; vertical maps
- * 32 x 16 (two 16-wide halves). Transparent where L1 draws nothing.
+ * 32 x 16 (two 16-wide halves). The back-area color shows where L1 draws nothing.
  * `screenCount` and `orientation` let the tab size itself from any screen.
  */
 export type MapScreenResult =
@@ -216,7 +216,19 @@ export type MapScreenResult =
       width: number
       height: number
       rgbaBase64: string
+      /** Why the animated tiles are drawn from unverified or no frames, when they are. */
+      note?: string
     }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
+/** One palace's switch block as 16x16 RGBA, both states, or why it cannot be drawn. */
+export type PalaceIconDto = { palace: keyof SwitchFlagsDto } & (
+  { uncleared: string; cleared: string } | { unavailable: string }
+)
+
+export type PalaceIconsResult =
+  | { status: 'ok'; icons: PalaceIconDto[] }
   | { status: 'unavailable'; reason: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
@@ -328,6 +340,9 @@ export interface ProjectService {
     screen: number,
     switchFlags: SwitchFlagsDto,
   ): Promise<MapScreenResult>
+
+  /** Each switch palace's block, drawn in the map's own tileset and palette. */
+  mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult>
 
   /**
    * Projects this user has opened, most recent first.

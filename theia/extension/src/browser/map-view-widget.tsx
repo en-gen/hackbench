@@ -1,6 +1,6 @@
 /**
  * One map, opened from the explorer: its L1 (foreground), drawn by the
- * backend a screen at a time (#421 step 3), over the header decode.
+ * backend a screen at a time (#421 step 3), with the header decode below.
  *
  * The strip requests only the screens in view plus one either side, and
  * caches them in THIS tab, keyed by screen and switch-palace state. Every
@@ -8,9 +8,8 @@
  * open maps never share toggles. A working-copy push drops the cache and
  * re-fetches, so an edit in any view repaints the map.
  *
- * The header decode is the secondary panel, unchanged: every field traces
- * to an ASM citation in src/rom/LevelParser.ts, shown beside the raw bytes
- * it was read from.
+ * The header's key facts stay in view; the full decode is a secondary
+ * panel, every field traced to src/rom/LevelParser.ts, beside its bytes.
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
@@ -18,12 +17,15 @@ import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
 import {
   MapDetailsDto,
   MapScreenResult,
+  PalaceIconDto,
   ProjectService,
   SwitchFlagsDto,
 } from '../common/project-protocol'
 import { ProjectFrontendClient } from './project-push-client'
 import { decodeRgba } from './map16-pixels'
+import { slotLabel } from './map-explorer-widget'
 
+export { slotLabel }
 export const MAP_VIEW_ID = 'hackbench.map-view'
 
 /** Identifies which map a widget instance shows. */
@@ -35,9 +37,6 @@ export interface MapViewOptions {
   iconClass?: string
 }
 
-export const slotLabel = (index: number): string =>
-  `$${index.toString(16).toUpperCase().padStart(3, '0')}`
-
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
 type Palace = keyof SwitchFlagsDto
 
@@ -47,6 +46,10 @@ const ZOOMS = [1, 2, 3, 4]
 const MARGIN = 1
 
 const title = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
+
+/** The palace bits a screen was drawn for, yellow green red blue: `1000` is yellow pressed. */
+export const palaceKey = (f: SwitchFlagsDto): string =>
+  PALACES.map(p => (f[p] ? '1' : '0')).join('')
 
 @injectable()
 export class MapViewWidget extends ReactWidget {
@@ -58,13 +61,18 @@ export class MapViewWidget extends ReactWidget {
   protected error: string | undefined
   protected mapLayout: Layout | undefined
   protected screenError: string | undefined
+  protected icons = new Map<Palace, PalaceIconDto>()
 
   protected flags: SwitchFlagsDto = { yellow: false, green: false, red: false, blue: false }
-  protected zoom = 2
+  /** Undefined until the user zooms: the strip then fits the view. */
+  protected userZoom: number | undefined
+  protected fitZoom = 1
   protected readonly screens = new Map<string, ImageData>()
   protected readonly pending = new Set<string>()
   protected readonly canvases = new Map<number, HTMLCanvasElement>()
   protected scroller: HTMLDivElement | null = null
+  /** Refits when the strip's box changes, e.g. when the facts line arrives above it. */
+  protected readonly resizes = new ResizeObserver(() => this.fitStrip())
   /** Bumped on every invalidation, so a reply to an older request is dropped. */
   protected generation = 0
 
@@ -73,6 +81,7 @@ export class MapViewWidget extends ReactWidget {
     this.addClass('hb-map-view')
     this.title.closable = true
     this.node.tabIndex = 0
+    this.toDispose.push({ dispose: () => this.resizes.disconnect() })
     this.toDispose.push(
       this.pushClient.onChanged(manifestPath => {
         if (manifestPath === this.options?.manifestPath) this.refresh()
@@ -89,7 +98,6 @@ export class MapViewWidget extends ReactWidget {
     this.details = undefined
     this.error = undefined
     this.mapLayout = undefined
-    this.screenError = undefined
     this.update()
     this.refresh()
   }
@@ -99,12 +107,18 @@ export class MapViewWidget extends ReactWidget {
     return this.options?.index === index
   }
 
+  protected get zoom(): number {
+    return this.userZoom ?? this.fitZoom
+  }
+
   /** Drops every cached screen and reads the map again from the working copy. */
   protected refresh(): void {
     this.generation++
     this.screens.clear()
     this.pending.clear()
+    this.screenError = undefined
     void this.loadDetails()
+    void this.loadIcons()
     this.requestVisible()
   }
 
@@ -120,9 +134,16 @@ export class MapViewWidget extends ReactWidget {
     this.update()
   }
 
+  protected async loadIcons(): Promise<void> {
+    const o = this.options
+    if (!o) return
+    const r = await this.projects.mapPalaceIcons(o.manifestPath, o.index).catch(() => undefined)
+    this.icons = new Map(r?.status === 'ok' ? r.icons.map(i => [i.palace, i]) : [])
+    this.update()
+  }
+
   protected key(screen: number): string {
-    const f = this.flags
-    return `${+f.yellow}${+f.green}${+f.red}${+f.blue}:${screen}`
+    return `${palaceKey(this.flags)}:${screen}`
   }
 
   /** The screens in view, plus MARGIN either side; screen 0 before the layout is known. */
@@ -163,47 +184,81 @@ export class MapViewWidget extends ReactWidget {
         r.status === 'rom-not-located'
           ? `The base ROM ${r.baseRom.title} is not on this machine.`
           : r.reason
+      // Never leave an older picture standing as if it were current.
+      for (const s of this.canvases.keys()) this.paint(s)
       this.update()
       return
     }
     this.screens.set(key, new ImageData(decodeRgba(r.rgbaBase64), r.width, r.height))
     const l = this.mapLayout
-    if (!l || l.screenCount !== r.screenCount || l.orientation !== r.orientation) {
+    if (
+      !l ||
+      l.screenCount !== r.screenCount ||
+      l.orientation !== r.orientation ||
+      l.note !== r.note
+    ) {
       // The first reply sizes the strip; the screens in view follow once it is laid out.
       this.mapLayout = r
+      this.update()
+      requestAnimationFrame(() => this.fitStrip())
+    }
+    if (this.screenError) {
       this.screenError = undefined
       this.update()
-      requestAnimationFrame(() => this.requestVisible())
     }
     this.paint(screen)
   }
 
+  /** Paints a screen's cached picture, or clears one left from an older state or a failed fetch. */
   protected paint(screen: number): void {
     const canvas = this.canvases.get(screen)
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
     const img = this.screens.get(this.key(screen))
-    // A screen not yet fetched for the current palaces keeps what it shows:
-    // the reply replaces it, rather than flashing blank.
-    if (!canvas || !img) return
-    canvas.getContext('2d')?.putImageData(img, 0, 0)
-    canvas.dataset.drawn = this.key(screen)
+    if (img) {
+      ctx?.putImageData(img, 0, 0)
+      canvas.dataset.drawn = `${this.generation}:${this.key(screen)}`
+    } else if (this.screenError || canvas.dataset.drawn?.split(':')[0] !== `${this.generation}`) {
+      ctx?.clearRect(0, 0, canvas.width, canvas.height)
+      delete canvas.dataset.drawn
+    }
+  }
+
+  /** Fits the map's cross axis to the view unless the user has zoomed. */
+  protected fitStrip(): void {
+    const l = this.mapLayout
+    const el = this.scroller
+    if (l && el && this.userZoom === undefined) {
+      const vertical = l.orientation === 'vertical'
+      const avail = vertical ? el.clientWidth : el.clientHeight
+      const fit = Math.min(4, Math.max(0.25, avail / (vertical ? l.width : l.height)))
+      if (avail > 0 && Math.abs(fit - this.fitZoom) > 0.001) {
+        this.fitZoom = fit
+        this.update()
+      }
+    }
+    requestAnimationFrame(() => this.requestVisible())
   }
 
   protected togglePalace(p: Palace): void {
     this.flags = { ...this.flags, [p]: !this.flags[p] }
     this.update()
-    for (const s of this.canvases.keys()) this.paint(s)
     this.requestVisible()
   }
 
-  protected setZoom(zoom: number): void {
-    this.zoom = zoom
+  protected stepZoom(dir: 1 | -1): void {
+    const z = this.zoom
+    const next =
+      dir > 0 ? ZOOMS.find(s => s > z + 0.001) : [...ZOOMS].reverse().find(s => s < z - 0.001)
+    if (next === undefined) return
+    this.userZoom = next
     this.update()
     requestAnimationFrame(() => this.requestVisible())
   }
 
   protected override onResize(msg: Widget.ResizeMessage): void {
     super.onResize(msg)
-    this.requestVisible()
+    this.fitStrip()
   }
 
   protected override onActivateRequest(msg: Message): void {
@@ -212,55 +267,88 @@ export class MapViewWidget extends ReactWidget {
   }
 
   protected render(): React.ReactNode {
-    const zi = ZOOMS.indexOf(this.zoom)
+    const z = this.zoom
     return (
       <div className="hb-map-view-main">
         <div className="hb-map-view-toolbar">
           <span className="hb-map-view-toolbar-label">Switch palaces</span>
-          {PALACES.map(p => (
-            <button
-              key={p}
-              type="button"
-              data-control={`palace-${p}`}
-              className={`hb-map-view-toggle hb-palace-${p}` + (this.flags[p] ? ' hb-on' : '')}
-              aria-pressed={this.flags[p]}
-              title={`${title(p)} switch palace pressed`}
-              onClick={() => this.togglePalace(p)}
-            >
-              {title(p)}
-            </button>
-          ))}
-          <span className="hb-map-view-spacer" />
+          {PALACES.map(p => this.renderToggle(p))}
+          <span className="hb-toolbar-spacer" />
           <button
             type="button"
             data-control="zoom-out"
-            className="hb-map-view-icon-btn"
-            disabled={zi <= 0}
+            className="hb-icon-btn"
+            disabled={z <= ZOOMS[0]!}
             title="Zoom out"
             aria-label="Zoom out"
-            onClick={() => this.setZoom(ZOOMS[zi - 1]!)}
+            onClick={() => this.stepZoom(-1)}
           >
             <span className="codicon codicon-zoom-out" />
           </button>
-          <span data-control="zoom-indicator" className="hb-map-view-zoom">{`${this.zoom}x`}</span>
+          <span data-control="zoom-indicator" className="hb-zoom-indicator">
+            {`${Math.round(z * 100)}%`}
+          </span>
           <button
             type="button"
             data-control="zoom-in"
-            className="hb-map-view-icon-btn"
-            disabled={zi >= ZOOMS.length - 1}
+            className="hb-icon-btn"
+            disabled={z >= ZOOMS[ZOOMS.length - 1]!}
             title="Zoom in"
             aria-label="Zoom in"
-            onClick={() => this.setZoom(ZOOMS[zi + 1]!)}
+            onClick={() => this.stepZoom(1)}
           >
             <span className="codicon codicon-zoom-in" />
           </button>
         </div>
+        {this.renderFacts()}
+        {this.mapLayout?.note && (
+          <div className="hb-map-view-note" data-control="map-note">
+            {this.mapLayout.note}
+          </div>
+        )}
+        {this.screenError && this.mapLayout && (
+          <div className="hb-map-view-note hb-map-view-error" data-control="map-error">
+            {this.screenError}
+          </div>
+        )}
         {this.renderStrip()}
         <details className="hb-map-view-header" data-control="header-panel">
           <summary>Header</summary>
-          {this.renderDetails()}
+          {this.renderDecode()}
         </details>
       </div>
+    )
+  }
+
+  /** The palace's own block, dotted or solid; its name when the ROM will not say which tile. */
+  protected renderToggle(p: Palace): React.ReactNode {
+    const icon = this.icons.get(p)
+    const pressed = this.flags[p]
+    const src = icon && 'cleared' in icon ? (pressed ? icon.cleared : icon.uncleared) : undefined
+    const why = icon && 'unavailable' in icon ? `: ${icon.unavailable}` : ''
+    return (
+      <button
+        key={p}
+        type="button"
+        data-control={`palace-${p}`}
+        className={'hb-icon-btn hb-map-view-toggle' + (pressed ? ' hb-icon-btn-on' : '')}
+        aria-pressed={pressed}
+        aria-label={`${title(p)} switch palace`}
+        title={`${title(p)} switch palace${why}`}
+        onClick={() => this.togglePalace(p)}
+      >
+        {src ? (
+          <canvas
+            width={16}
+            height={16}
+            ref={el => {
+              el?.getContext('2d')?.putImageData(new ImageData(decodeRgba(src), 16, 16), 0, 0)
+            }}
+          />
+        ) : (
+          title(p)
+        )}
+      </button>
     )
   }
 
@@ -280,7 +368,10 @@ export class MapViewWidget extends ReactWidget {
         className={'hb-map-view-scroller' + (l.orientation === 'vertical' ? ' hb-vertical' : '')}
         data-control="map-scroller"
         ref={el => {
+          if (el === this.scroller) return
+          if (this.scroller) this.resizes.unobserve(this.scroller)
           this.scroller = el
+          if (el) this.resizes.observe(el)
         }}
         onScroll={() => this.requestVisible()}
       >
@@ -304,15 +395,15 @@ export class MapViewWidget extends ReactWidget {
     )
   }
 
-  protected renderDetails(): React.ReactNode {
+  /** What a reader wants at a glance: which map, how big, and what is unavailable and why. */
+  protected renderFacts(): React.ReactNode {
     if (this.error) {
-      return <div className="hb-map-view-error">{this.error}</div>
+      return (
+        <div className="hb-map-view-body hb-map-view-facts hb-map-view-error">{this.error}</div>
+      )
     }
-    if (!this.details) {
-      return <div className="hb-map-view-empty">Reading the ROM...</div>
-    }
-
     const d = this.details
+    if (!d) return null
     const title = (
       <h2 className="hb-map-view-title">
         <span className="hb-map-slot">{slotLabel(d.index)}</span>
@@ -323,9 +414,9 @@ export class MapViewWidget extends ReactWidget {
         ) : null}
       </h2>
     )
-    if (!d.headerBytes || !d.header) {
+    if (d.levelDataUnavailable) {
       return (
-        <div className="hb-map-view-body">
+        <div className="hb-map-view-body hb-map-view-facts">
           {title}
           <div className="hb-map-view-summary">
             <span title={d.levelDataUnavailable}>level data unavailable</span>
@@ -333,12 +424,9 @@ export class MapViewWidget extends ReactWidget {
         </div>
       )
     }
-    const bytes = d.headerBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ')
-
     return (
-      <div className="hb-map-view-body">
+      <div className="hb-map-view-body hb-map-view-facts">
         {title}
-
         <div className="hb-map-view-summary">
           {d.screens} screens,{' '}
           {d.isVertical !== undefined ? (
@@ -363,7 +451,23 @@ export class MapViewWidget extends ReactWidget {
             <span title={d.spriteUnavailable}>sprites unavailable</span>
           )}
         </div>
+      </div>
+    )
+  }
 
+  protected renderDecode(): React.ReactNode {
+    const d = this.details
+    if (!d) return <div className="hb-map-view-empty">{this.error ?? 'Reading the ROM...'}</div>
+    if (!d.headerBytes || !d.header) {
+      return (
+        <div className="hb-map-view-empty">
+          <span title={d.levelDataUnavailable}>level data unavailable</span>
+        </div>
+      )
+    }
+    const bytes = d.headerBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ')
+    return (
+      <>
         <table className="hb-map-view-table">
           <tbody>
             {d.header.map(f => (
@@ -380,7 +484,7 @@ export class MapViewWidget extends ReactWidget {
           <span>Header bytes</span>
           <code>{bytes}</code>
         </div>
-      </div>
+      </>
     )
   }
 }

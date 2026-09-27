@@ -1,16 +1,19 @@
 /**
  * The map tab draws the L1 (foreground), en-gen/hackbench#421 step 3.
  *
- * Every assertion reads PIXELS back from the tab's canvases, never the mere
- * presence of one: a blank canvas is on screen too. Each screen is its own
- * canvas (`[data-screen=N]`), drawn at native resolution, and carries
- * `data-drawn="<palaces>:<screen>"` once the backend's reply for the
- * current switch-palace state is painted, which is what the waits key on.
+ * Every assertion reads PIXELS back, never the mere presence of a canvas: a
+ * blank canvas is on screen too, and the first build of this tab passed six
+ * presence-flavored checks while the user saw only sky. So the first test
+ * reads what is inside the VIEWPORT, not what is somewhere in the canvas.
+ *
+ * Each screen is its own canvas (`[data-screen=N]`) at native resolution,
+ * carrying `data-drawn="<generation>:<palaces>:<screen>"` once the reply for
+ * the current state is painted; palaces are yellow, green, red, blue bits.
  *
  * Measured on the vanilla ROM by expanding $105 with and without the yellow
- * palace pressed (map-screen's unit test pins the same cells): exactly five
- * cells change, one of them column 156, row 20, which is screen 9, local
- * column 12. $106 has its own at column 39, row 20 (screen 2, column 7).
+ * palace (map-screen's unit test pins the same cells): exactly five cells
+ * change, one of them column 156, row 20 (screen 9, local column 12). $106
+ * has its own at column 39, row 20 (screen 2, column 7). $0BD is one screen.
  */
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
@@ -24,9 +27,8 @@ const ROM = process.env.HB_ROM || romPath(VANILLA)
 
 /**
  * ForegroundPalettes variant 0, row 2 color 2 (PaletteLoader ADDR_FG_PAIR,
- * bank_00.asm:6141). Found by changing each palette word in turn and
- * keeping one that moves pixels on $105's first screen, so the edit below
- * cannot pass by recoloring a color the map never draws.
+ * bank_00.asm:6141). Found by changing each palette word in turn and keeping
+ * one that moves pixels on $105's first screen.
  */
 const FG_COLOR_ADDR = 0x00b194
 const NEW_HEX = '$03E0'
@@ -87,6 +89,9 @@ async function createProject(page, dir) {
 /** A tab CSS selector for one map; its id is `hackbench.map-view:<index>`. */
 const root = index => `[id="hackbench.map-view:${index}"]`
 
+/** `data-drawn` for a screen painted with the given palaces pressed, any generation. */
+const drawn = (screen, yellow = false) => new RegExp(`^\\d+:${yellow ? 1 : 0}000:${screen}$`)
+
 /** Opens a map in its own tab (one widget per index, as a pin does). */
 async function openMap(page, manifestPath, index) {
   await page.evaluate(
@@ -101,7 +106,11 @@ async function openMap(page, manifestPath, index) {
     { mp: manifestPath, index },
   )
   opened.push(`hackbench.map-view:${index}`)
-  await page.waitForSelector(`${root(index)} canvas[data-screen="0"][data-drawn]`, { timeout: 30000 }) // prettier-ignore
+  await expect(page.locator(`${root(index)} canvas[data-screen="0"]`)).toHaveAttribute(
+    'data-drawn',
+    drawn(0),
+    { timeout: 30000 },
+  )
 }
 
 async function activate(page, index) {
@@ -111,31 +120,29 @@ async function activate(page, index) {
   await page.waitForTimeout(300)
 }
 
-/** The palace key a screen is drawn for: yellow, green, red, blue bits. */
-const drawnKey = (screen, yellow = false) => `${yellow ? 1 : 0}000:${screen}`
-
-/** Scrolls a screen into view and waits until it is painted for `key`. */
-async function showScreen(page, index, screen, key = drawnKey(screen)) {
+/** Scrolls a screen into view and waits until it is painted for the given palaces. */
+async function showScreen(page, index, screen, yellow = false) {
   const sel = `${root(index)} canvas[data-screen="${screen}"]`
   await page.locator(sel).evaluate(el => el.scrollIntoView({ inline: 'start', block: 'nearest' }))
-  await expect(page.locator(sel)).toHaveAttribute('data-drawn', key, { timeout: 15000 })
+  await expect(page.locator(sel)).toHaveAttribute('data-drawn', drawn(screen, yellow), {
+    timeout: 15000,
+  })
 }
 
-/** One screen's pixels: a positional checksum, distinct colors, and per-cell checksums. */
+/** One screen's pixels: a positional checksum, distinct colors, per-cell checksums, raw RGBA. */
 async function readScreen(page, index, screen) {
   return page.evaluate(
     sel => {
       const c = document.querySelector(sel)
-      const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      const ctx = c.getContext('2d')
+      const data = ctx.getImageData(0, 0, c.width, c.height).data
       const distinct = new Set()
       for (let i = 0; i < data.length; i += 4) distinct.add(data.slice(i, i + 4).join(','))
       const cells = {}
       for (let cy = 0; cy < c.height / 16; cy++)
-        for (let cx = 0; cx < c.width / 16; cx++) {
-          const cell = c.getContext('2d').getImageData(cx * 16, cy * 16, 16, 16).data
-          cells[`${cx},${cy}`] = checksumOf(cell)
-        }
-      return { checksum: checksumOf(data), distinct: distinct.size, cells }
+        for (let cx = 0; cx < c.width / 16; cx++)
+          cells[`${cx},${cy}`] = checksumOf(ctx.getImageData(cx * 16, cy * 16, 16, 16).data)
+      return { checksum: checksumOf(data), distinct: distinct.size, cells, rgba: Array.from(data) }
     },
     `${root(index)} canvas[data-screen="${screen}"]`,
   )
@@ -143,11 +150,55 @@ async function readScreen(page, index, screen) {
 
 const changedCells = (a, b) => Object.keys(a.cells).filter(k => a.cells[k] !== b.cells[k])
 
+/**
+ * The pixels the user can actually SEE: every screen canvas clipped to the
+ * scroller's visible box, read at native resolution. Also whether the whole
+ * height (horizontal map) of the map is inside that box.
+ */
+async function readViewport(page, index) {
+  return page.evaluate(sel => {
+    const scroller = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    const view = scroller.getBoundingClientRect()
+    const visH = scroller.clientHeight
+    const visW = scroller.clientWidth
+    const distinct = new Set()
+    let fullHeight = true
+    for (const c of scroller.querySelectorAll('canvas[data-screen]')) {
+      const r = c.getBoundingClientRect()
+      const left = Math.max(r.left, view.left)
+      const right = Math.min(r.right, view.left + visW)
+      const top = Math.max(r.top, view.top)
+      const bottom = Math.min(r.bottom, view.top + visH)
+      if (right <= left || bottom <= top) continue
+      if (r.bottom > view.top + visH + 1 || r.top < view.top - 1) fullHeight = false
+      const sx = c.width / r.width
+      const sy = c.height / r.height
+      const x0 = Math.floor((left - r.left) * sx)
+      const y0 = Math.floor((top - r.top) * sy)
+      const w = Math.max(1, Math.floor((right - left) * sx))
+      const h = Math.max(1, Math.floor((bottom - top) * sy))
+      const data = c.getContext('2d').getImageData(x0, y0, w, h).data
+      for (let i = 0; i < data.length; i += 4) distinct.add(data.slice(i, i + 4).join(','))
+    }
+    return { distinct: distinct.size, fullHeight }
+  }, root(index))
+}
+
+test('at open, the map fills the view and visible terrain is drawn', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await page.waitForTimeout(500) // the fit runs on the next frame
+  const view = await readViewport(page, 0x105)
+  // $105's top 120 rows are one sky color: a view showing only them is the
+  // defect this guards, and it reads 1 or 2 colors here.
+  expect(view.fullHeight).toBe(true)
+  expect(view.distinct).toBeGreaterThan(4)
+})
+
 test('opening a map draws real pixels, and two maps differ', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   const a = await readScreen(page, 0x105, 0)
-  // Not uniform: a blank or single-color canvas would pass a presence check.
   expect(a.distinct).toBeGreaterThan(4)
 
   await openMap(page, project.manifestPath, 0x106)
@@ -156,7 +207,17 @@ test('opening a map draws real pixels, and two maps differ', async ({ page }) =>
   expect(b.checksum).not.toBe(a.checksum)
 })
 
-test('a palette edit repaints the open map, with no reload', async ({ page }) => {
+test('a one-screen map draws its one screen and asks for no other', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x0bd)
+  await expect(page.locator(`${root(0x0bd)} canvas[data-screen]`)).toHaveCount(1)
+  expect((await readScreen(page, 0x0bd, 0)).distinct).toBeGreaterThan(4)
+  await expect(page.locator(`${root(0x0bd)} [data-control="map-error"]`)).toHaveCount(0)
+})
+
+test('a palette edit recolors exactly the pixels of that color, with no reload', async ({
+  page,
+}) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   const before = await readScreen(page, 0x105, 0)
@@ -165,9 +226,12 @@ test('a palette edit repaints the open map, with no reload', async ({ page }) =>
   const rom = fs.readFileSync(ROM)
   const base = rom.length % 1024 === 512 ? 512 : 0
   const at = base + (FG_COLOR_ADDR & 0x7fff)
-  const oldWord = rom[at] | (rom[at + 1] << 8)
-  const oldHex = '$' + oldWord.toString(16).toUpperCase().padStart(4, '0')
+  const word = rom[at] | (rom[at + 1] << 8)
+  const oldHex = '$' + word.toString(16).toUpperCase().padStart(4, '0')
   expect(oldHex).not.toBe(NEW_HEX)
+  const expand = w => [w & 31, (w >> 5) & 31, (w >> 10) & 31].map(c => (c << 3) | (c >> 2))
+  const oldRgb = expand(word).join(',')
+  const newRgb = expand(parseInt(NEW_HEX.slice(1), 16)).join(',')
 
   const result = await page.evaluate(
     async ({ mp, addr, oldHex, newHex }) =>
@@ -180,6 +244,19 @@ test('a palette edit repaints the open map, with no reload', async ({ page }) =>
   await expect
     .poll(async () => (await readScreen(page, 0x105, 0)).checksum, { timeout: 15000 })
     .not.toBe(before.checksum)
+  const after = await readScreen(page, 0x105, 0)
+
+  let changed = 0
+  for (let i = 0; i < before.rgba.length; i += 4) {
+    const was = before.rgba.slice(i, i + 3).join(',')
+    const now = after.rgba.slice(i, i + 3).join(',')
+    if (was === now) continue
+    changed++
+    // Only pixels of the edited color move, and they all become the new one.
+    expect(was).toBe(oldRgb)
+    expect(now).toBe(newRgb)
+  }
+  expect(changed).toBeGreaterThan(0)
 })
 
 test('toggling the yellow palace on $105 changes exactly the switch-block cells', async ({
@@ -195,7 +272,7 @@ test('toggling the yellow palace on $105 changes exactly the switch-block cells'
 
   await yellow.click()
   await expect(yellow).toHaveAttribute('aria-pressed', 'true')
-  await showScreen(page, 0x105, 9, drawnKey(9, true))
+  await showScreen(page, 0x105, 9, true)
   const after = await readScreen(page, 0x105, 9)
 
   // Column 156 is screen 9's local column 12; nothing else on it moves,
@@ -203,10 +280,37 @@ test('toggling the yellow palace on $105 changes exactly the switch-block cells'
   expect(changedCells(before, after)).toEqual(['12,20'])
   expect(after.cells['0,20']).toBe(before.cells['0,20'])
 
-  // And back: toggling off restores the original pixels.
   await yellow.click()
-  await showScreen(page, 0x105, 9, drawnKey(9))
+  await showScreen(page, 0x105, 9)
   expect((await readScreen(page, 0x105, 9)).checksum).toBe(before.checksum)
+})
+
+test('each palace toggle shows its own block, dotted then solid', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const icon = p =>
+    page.locator(`${root(0x105)} [data-control="palace-${p}"] canvas`).evaluate(c => {
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      return checksumOf(d)
+    })
+  const blank = await page.evaluate(() => checksumOf(new Uint8ClampedArray(16 * 16 * 4)))
+
+  const before = {}
+  for (const p of ['yellow', 'green', 'red', 'blue']) {
+    await expect(page.locator(`${root(0x105)} [data-control="palace-${p}"] canvas`)).toHaveCount(1)
+    before[p] = await icon(p)
+    expect(before[p]).not.toBe(blank)
+  }
+  // Four palaces, four different blocks.
+  expect(new Set(Object.values(before)).size).toBe(4)
+
+  await page.locator(`${root(0x105)} [data-control="palace-yellow"]`).click()
+  await expect.poll(() => icon('yellow')).not.toBe(before.yellow)
+  expect(await icon('green')).toBe(before.green)
+  await expect(page.locator(`${root(0x105)} [data-control="palace-yellow"]`)).toHaveAttribute(
+    'title',
+    /Yellow/,
+  )
 })
 
 test('two map tabs keep their own palaces', async ({ page }) => {
@@ -217,7 +321,7 @@ test('two map tabs keep their own palaces', async ({ page }) => {
 
   await openMap(page, project.manifestPath, 0x105)
   await page.locator(`${root(0x105)} [data-control="palace-yellow"]`).click()
-  await showScreen(page, 0x105, 9, drawnKey(9, true))
+  await showScreen(page, 0x105, 9, true)
 
   await activate(page, 0x106)
   await expect(page.locator(`${root(0x106)} [data-control="palace-yellow"]`)).toHaveAttribute(
@@ -227,23 +331,29 @@ test('two map tabs keep their own palaces', async ({ page }) => {
   // $106's own yellow block (screen 2, column 7, row 20) is still unpressed.
   await expect(page.locator(`${root(0x106)} canvas[data-screen="2"]`)).toHaveAttribute(
     'data-drawn',
-    drawnKey(2),
+    drawn(2),
   )
   const still = await readScreen(page, 0x106, 2)
   expect(still.cells['7,20']).toBe(other.cells['7,20'])
+
   // Pressing yellow HERE changes this tab's block, proving the cell is live.
   await page.locator(`${root(0x106)} [data-control="palace-yellow"]`).click()
-  await showScreen(page, 0x106, 2, drawnKey(2, true))
+  await showScreen(page, 0x106, 2, true)
   expect(changedCells(still, await readScreen(page, 0x106, 2))).toEqual(['7,20'])
 })
 
-test('the header panel opens and shows the decode beside its ROM bytes', async ({ page }) => {
+test('the header facts are in view, and the decode panel opens with its ROM bytes', async ({
+  page,
+}) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
+  const facts = page.locator(`${root(0x105)} .hb-map-view-facts`)
+  await expect(facts).toBeVisible()
+  await expect(facts).toContainText(/20 screens/)
+
   const panel = page.locator(`${root(0x105)} [data-control="header-panel"]`)
   const table = panel.locator('.hb-map-view-table')
   await expect(table).toBeHidden()
-
   await panel.locator('summary').click()
   await expect(panel).toHaveJSProperty('open', true)
   await expect(table).toBeVisible()

@@ -910,12 +910,12 @@ export class Map16ViewWidget extends ReactWidget {
               ))}
             </select>
           </label>
-          <span className="hb-map16-toolbar-spacer" />
+          <span className="hb-toolbar-spacer" />
           <div className="hb-map16-toolbar-actions">
             <button
               data-control="zoom-out"
               type="button"
-              className="hb-map16-icon-btn"
+              className="hb-icon-btn"
               disabled={this.zoom === ZOOM_OPTIONS[0]}
               title="Zoom out"
               aria-label="Zoom out"
@@ -925,12 +925,12 @@ export class Map16ViewWidget extends ReactWidget {
             </button>
             <span
               data-control="zoom-indicator"
-              className="hb-map16-zoom-indicator"
+              className="hb-zoom-indicator"
             >{`${this.zoom}x`}</span>
             <button
               data-control="zoom-in"
               type="button"
-              className="hb-map16-icon-btn"
+              className="hb-icon-btn"
               disabled={this.zoom === ZOOM_OPTIONS[ZOOM_OPTIONS.length - 1]}
               title="Zoom in"
               aria-label="Zoom in"
@@ -942,7 +942,7 @@ export class Map16ViewWidget extends ReactWidget {
             <button
               data-control="grid-toggle"
               type="button"
-              className={'hb-map16-icon-btn' + (this.showGrid ? ' hb-map16-icon-btn-on' : '')}
+              className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : '')}
               aria-pressed={this.showGrid}
               title={this.showGrid ? 'Hide grid' : 'Show grid'}
               aria-label={this.showGrid ? 'Hide grid' : 'Show grid'}
@@ -953,7 +953,7 @@ export class Map16ViewWidget extends ReactWidget {
             <button
               data-control="play-toggle"
               type="button"
-              className={'hb-map16-icon-btn' + (this.playing ? ' hb-map16-icon-btn-on' : '')}
+              className={'hb-icon-btn' + (this.playing ? ' hb-icon-btn-on' : '')}
               disabled={!sheet.charAnimation}
               aria-pressed={this.playing}
               title={
