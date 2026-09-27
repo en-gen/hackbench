@@ -1,28 +1,168 @@
 /**
- * Proof that the content gate (issue #678) can fail, in all three modes it
- * runs in, plus the pre-push hook. Rules and rationale: docs/testing.md.
+ * Proof that the content gate (issue #678, node rewrite) can fail, in
+ * every mode, against every adversarial witness from the design review.
+ * Rules and rationale: docs/testing.md ("The content gate").
  *
- * Modeled on lintGate.test.ts: this drives the real CLI (bash + the real
- * script), not a reimplementation of its rules, so a change that quietly
- * defangs a rule fails these tests instead of just the ones next to it.
- *
- * Every case builds a throwaway git repo under the OS temp dir (never this
- * repo, and never a ROM byte - all fixtures are synthetic). Each offending
- * fixture must exit 1 in staged, range AND history modes; a clean control
- * must exit 0, so the gate is not simply always red.
+ * Two layers:
+ *  - a rules table calling checkPath/checkBlob in-process (no git, no
+ *    subprocess - fast unit coverage of the pure functions);
+ *  - CLI-level cases that drive the real script against a throwaway git
+ *    repo per case (never this repo, never a ROM byte), across staged,
+ *    range and history modes, plus push/shallow/tag-at-blob edge cases
+ *    that only make sense in their own mode.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { execFileSync } from 'child_process'
+import { execFileSync, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { checkBlob, checkPath } from '../../../tools/scripts/check-content.mjs'
 
 const repoRoot = path.resolve(__dirname, '../../..')
-const realScript = path.join(repoRoot, 'tools/scripts/check-staged-content.sh')
-const realHook = path.join(repoRoot, '.githooks/pre-push')
-
+const realScript = path.join(repoRoot, 'tools/scripts/check-content.mjs')
 const CLI_TIMEOUT_MS = 30000
+
+// ---------------------------------------------------------------------------
+// Layer 1: rules table, in-process
+// ---------------------------------------------------------------------------
+
+function rule(hits: { rule: string }[]): string[] {
+  return hits.map(h => h.rule)
+}
+
+describe('checkPath: hard-blocked extensions, never allow-listed', () => {
+  it.each([
+    ['x.smc', 'rom-ext'],
+    ['x.sfc', 'rom-ext'],
+    ['x.ips', 'rom-ext'],
+    ['x.bps', 'rom-ext'],
+    ['x.wasm', 'native-ext'],
+    ['x.dll', 'native-ext'],
+    ['x.asm', 'asm-ext'],
+    ['x.s', 'asm-ext'],
+    ['x.inc', 'asm-ext'],
+    ['tools/mesen/dump.txt', 'mesen-trace'],
+    ['test/fixtures/lvl.json', 'fixture'],
+  ])('%s -> %s', (p, expected) => {
+    expect(rule(checkPath(p))).toContain(expected)
+  })
+
+  it('build/icons/smw.sfc is still blocked: the allow-list never overrides a hard block', () => {
+    expect(rule(checkPath('build/icons/smw.sfc'))).toContain('rom-ext')
+  })
+
+  it('theia/no-native/core.wasm is still blocked the same way', () => {
+    expect(rule(checkPath('theia/no-native/core.wasm'))).toContain('native-ext')
+  })
+
+  it('tools/mesen/*.lua and README.md are exempt', () => {
+    expect(checkPath('tools/mesen/l1_dump.lua')).toEqual([])
+    expect(checkPath('tools/mesen/README.md')).toEqual([])
+  })
+
+  it('test/fixtures/README.md is exempt', () => {
+    expect(checkPath('test/fixtures/README.md')).toEqual([])
+  })
+})
+
+describe('checkPath: allow-list scope', () => {
+  it('build/icons/*.png passes; build/*.png (not under icons/) is blocked', () => {
+    expect(checkPath('build/icons/x.png')).toEqual([])
+    expect(rule(checkPath('build/x.png'))).toContain('image-ext')
+  })
+
+  it('theia/no-native/*.node passes; the same extension elsewhere is blocked', () => {
+    expect(checkPath('theia/no-native/core.node')).toEqual([])
+    expect(rule(checkPath('src/core.node'))).toEqual([]) // .node isn't an image/dump ext
+  })
+
+  it('a decoded image extension outside any allow-list is blocked', () => {
+    for (const ext of ['ppm', 'bmp', 'gif', 'chr', 'raw', 'dmp', 'gfx']) {
+      expect(rule(checkPath(`scripts/x.${ext}`))).toContain('image-ext')
+    }
+  })
+})
+
+describe('checkBlob: binary detection', () => {
+  it('a NUL in the first 8000 bytes is binary, regardless of extension', () => {
+    const buf = Buffer.concat([Buffer.from('abc'), Buffer.from([0]), Buffer.from('def')])
+    expect(rule(checkBlob('x.dat2', buf))).toContain('binary')
+  })
+
+  it('an allow-listed icon path is exempt from the binary rule', () => {
+    const buf = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0])
+    expect(checkBlob('build/icons/x.png', buf)).toEqual([])
+  })
+
+  it("a NUL past byte 8000 is not detected (matches git's own heuristic)", () => {
+    const buf = Buffer.concat([Buffer.alloc(8001, 0x41), Buffer.from([0])])
+    expect(rule(checkBlob('x.dat2', buf))).not.toContain('binary')
+  })
+})
+
+describe('checkBlob: content sniffing', () => {
+  it('a base64 blob over ~300 chars blocks; under it passes', () => {
+    expect(rule(checkBlob('x.ts', Buffer.from(`'${'A'.repeat(310)}'`)))).toContain('base64')
+    expect(rule(checkBlob('x.ts', Buffer.from(`'sha512-${'A'.repeat(86)}=='`)))).not.toContain(
+      'base64',
+    )
+  })
+
+  it('a data:*;base64, URI with a payload blocks; a placeholder passes', () => {
+    expect(
+      rule(checkBlob('x.html', Buffer.from(`data:image/png;base64,${'B'.repeat(60)}`))),
+    ).toContain('data-uri')
+    expect(checkBlob('x.html', Buffer.from('data:image/png;base64,__B64__'))).toEqual([])
+  })
+
+  it('a run of over 1024 byte-tokens blocks; isolated ASM citations never count', () => {
+    const big = Array.from(
+      { length: 1100 },
+      (_, i) => `0x${(i % 256).toString(16).padStart(2, '0')}`,
+    ).join(', ')
+    expect(rule(checkBlob('x.ts', Buffer.from(`[${big}]`)))).toContain('byte-tokens')
+
+    const citations = Array.from(
+      { length: 2000 },
+      (_, i) => `AND #$0F ; 0x${(i % 256).toString(16)}`,
+    ).join('\n')
+    expect(rule(checkBlob('x.ts', Buffer.from(citations)))).not.toContain('byte-tokens')
+  })
+
+  it('a disassembly listing (20+ matching lines) blocks, in any text file', () => {
+    const listing = Array.from(
+      { length: 25 },
+      (_, i) => `81/${(0x8000 + i).toString(16)}:\tBD8815  \tlda $1588,X`,
+    ).join('\n')
+    expect(rule(checkBlob('docs/x.md', Buffer.from(listing)))).toContain('disasm-listing')
+
+    const listing2 = Array.from(
+      { length: 25 },
+      (_, i) => `${(0x058800 + i).toString(16).padStart(6, '0')}:  LDA [$65],Y`,
+    ).join('\n')
+    expect(rule(checkBlob('docs/x.s', Buffer.from(listing2)))).toContain('disasm-listing')
+  })
+
+  it('the content-gate: allow pragma exempts one file from one content rule only', () => {
+    const big = Array.from(
+      { length: 1100 },
+      (_, i) => `0x${(i % 256).toString(16).padStart(2, '0')}`,
+    ).join(', ')
+    const text = `// content-gate: allow byte-tokens -- CPU opcode-length spec table\n[${big}]`
+    expect(checkBlob('x.ts', Buffer.from(text))).toEqual([])
+    // never exempts path/binary rules
+    expect(rule(checkPath('x.asm'))).toContain('asm-ext')
+  })
+
+  it('lockfiles are never content-sniffed', () => {
+    expect(checkBlob('package-lock.json', Buffer.from(`"${'A'.repeat(400)}"`))).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Layer 2: CLI, throwaway git repos
+// ---------------------------------------------------------------------------
 
 let dir: string
 
@@ -31,8 +171,9 @@ beforeEach(() => {
   run('git', ['init', '-q'])
   run('git', ['config', 'user.email', 'test@example.com'])
   run('git', ['config', 'user.name', 'Test'])
+  run('git', ['config', 'color.ui', 'always']) // must not leak ANSI into our parsing
   fs.mkdirSync(path.join(dir, 'tools/scripts'), { recursive: true })
-  fs.copyFileSync(realScript, path.join(dir, 'tools/scripts/check-staged-content.sh'))
+  fs.copyFileSync(realScript, path.join(dir, 'tools/scripts/check-content.mjs'))
   writeFile('README.md', 'clean control file\n')
   run('git', ['add', 'README.md'])
   run('git', ['commit', '-q', '-m', 'base'])
@@ -52,10 +193,27 @@ function writeFile(rel: string, content: string | Buffer): void {
   fs.writeFileSync(p, content)
 }
 
+function head(): string {
+  return run('git', ['rev-parse', 'HEAD']).trim()
+}
+
 function gateExit(mode: string, ...args: string[]): number {
   try {
-    execFileSync('bash', ['tools/scripts/check-staged-content.sh', mode, ...args], {
+    execFileSync('node', ['tools/scripts/check-content.mjs', mode, ...args], {
       cwd: dir,
+      stdio: 'pipe',
+    })
+    return 0
+  } catch (err) {
+    return (err as { status?: number }).status ?? -1
+  }
+}
+
+function gateExitWithInput(mode: string, input: string, ...args: string[]): number {
+  try {
+    execFileSync('node', ['tools/scripts/check-content.mjs', mode, ...args], {
+      cwd: dir,
+      input,
       stdio: 'pipe',
     })
     return 0
@@ -66,7 +224,7 @@ function gateExit(mode: string, ...args: string[]): number {
 
 function gateOutput(mode: string, ...args: string[]): string {
   try {
-    return execFileSync('bash', ['tools/scripts/check-staged-content.sh', mode, ...args], {
+    return execFileSync('node', ['tools/scripts/check-content.mjs', mode, ...args], {
       cwd: dir,
       stdio: 'pipe',
     }).toString()
@@ -75,230 +233,255 @@ function gateOutput(mode: string, ...args: string[]): string {
   }
 }
 
-/**
- * Writes a fixture (staged, uncommitted), asserts staged mode blocks it,
- * commits it, asserts range(base..head) blocks it, and asserts history
- * mode blocks it too (content still committed).
- */
 function expectBlockedEverywhere(relPath: string, content: string | Buffer): void {
-  const base = run('git', ['rev-parse', 'HEAD']).trim()
+  const base = head()
   writeFile(relPath, content)
   run('git', ['add', relPath])
   expect(gateExit('staged')).not.toBe(0)
 
   run('git', ['commit', '-q', '-m', `add ${relPath}`])
-  const head = run('git', ['rev-parse', 'HEAD']).trim()
-  expect(gateExit('range', base, head)).not.toBe(0)
+  expect(gateExit('range', base, head())).not.toBe(0)
   expect(gateExit('history')).not.toBe(0)
 }
 
 function expectCleanEverywhere(relPath: string, content: string | Buffer): void {
-  const base = run('git', ['rev-parse', 'HEAD']).trim()
+  const base = head()
   writeFile(relPath, content)
   run('git', ['add', relPath])
   expect(gateExit('staged')).toBe(0)
 
   run('git', ['commit', '-q', '-m', `add ${relPath}`])
-  const head = run('git', ['rev-parse', 'HEAD']).trim()
-  expect(gateExit('range', base, head)).toBe(0)
+  expect(gateExit('range', base, head())).toBe(0)
   expect(gateExit('history')).toBe(0)
 }
 
-function hexArray(n: number): string {
-  const tokens = Array.from({ length: n }, (_, i) => `0x${(i % 256).toString(16).padStart(2, '0')}`)
-  return `export const t = [${tokens.join(', ')}]\n`
-}
-
-describe('content gate: clean control', () => {
-  it(
-    'a plain source file passes in every mode',
-    () => {
+describe(
+  'content gate CLI: clean control and basics',
+  () => {
+    it('a plain source file passes in every mode', () => {
       expectCleanEverywhere('src/plain.ts', 'export const add = (a: number, b: number) => a + b\n')
-    },
-    CLI_TIMEOUT_MS,
-  )
-})
+    })
 
-describe('content gate: binary allow-list', () => {
-  it(
-    'blocks a binary .ppm (P6 header)',
-    () => {
+    it('a binary .ppm blocks in every mode', () => {
       const bytes = Buffer.concat([Buffer.from('P6\n2 2\n255\n'), Buffer.from([0, 1, 2, 3, 4, 5])])
       expectBlockedEverywhere('scripts/x.ppm', bytes)
-    },
-    CLI_TIMEOUT_MS,
-  )
+    })
 
-  it(
-    'blocks an ASCII (P3) .ppm too - text does not exempt a decoded sheet',
-    () => {
-      expectBlockedEverywhere(
-        'scripts/ascii.ppm',
-        'P3\n2 2\n255\n255 0 0 0 255 0 0 0 255 255 255 0\n',
-      )
-    },
-    CLI_TIMEOUT_MS,
-  )
+    it('rom_ext without a NUL byte still blocks on extension alone (x.ips = plain text)', () => {
+      expectBlockedEverywhere('patches/x.ips', 'PATCH000000000EOF')
+    })
+  },
+  CLI_TIMEOUT_MS,
+)
 
-  it(
-    'blocks a PNG outside the allow-list',
-    () => {
-      const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d])
-      expectBlockedEverywhere('scripts/img.png', bytes)
-    },
-    CLI_TIMEOUT_MS,
-  )
+describe(
+  'content gate CLI: rename witnesses',
+  () => {
+    it('a rename onto a blocked extension is caught (--no-renames shows it as add+delete)', () => {
+      const base = head()
+      writeFile('clean.txt', 'hello\n')
+      run('git', ['add', 'clean.txt'])
+      run('git', ['commit', '-q', '-m', 'add clean'])
+      run('git', ['mv', 'clean.txt', 'clean.asm'])
+      run('git', ['add', '-A'])
+      expect(gateExit('staged')).not.toBe(0)
+      run('git', ['commit', '-q', '-m', 'rename to asm'])
+      expect(gateExit('range', base, head())).not.toBe(0)
+    })
 
-  it(
-    'lets a PNG inside build/icons/ through',
-    () => {
-      const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d])
-      expectCleanEverywhere('build/icons/icon.png', bytes)
-    },
-    CLI_TIMEOUT_MS,
-  )
+    it('a rename away from a blocked extension (a.ppm -> a.txt) is judged on the new path', () => {
+      writeFile('a.ppm', 'P3\n1 1\n255\n255 0 0\n')
+      run('git', ['add', 'a.ppm'])
+      run('git', ['commit', '-q', '-m', 'add ppm'])
+      run('git', ['mv', 'a.ppm', 'a.txt'])
+      run('git', ['add', '-A'])
+      expect(gateExit('staged')).toBe(0) // extension rule no longer applies; content is clean text
+    })
+  },
+  CLI_TIMEOUT_MS,
+)
 
-  it(
-    'blocks binary bytes under an unrecognised extension',
-    () => {
+describe(
+  'content gate CLI: filenames and git quirks',
+  () => {
+    it('a non-ASCII filename is handled (core.quotePath=false, -z parsing)', () => {
+      expectBlockedEverywhere('tiles-é.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0]))
+    })
+
+    it('color.ui=always does not corrupt our diff/log parsing', () => {
+      // beforeEach already set color.ui=always; this just proves a normal
+      // add-then-check still works cleanly with it on.
+      expectCleanEverywhere('src/x.ts', 'export const x = 1\n')
+    })
+
+    it('a .gitattributes marking *.dat as diff=text does not defeat our own binary check', () => {
+      writeFile('.gitattributes', '*.dat diff\n')
+      run('git', ['add', '.gitattributes'])
+      run('git', ['commit', '-q', '-m', 'attrs'])
       const bytes = Buffer.concat([Buffer.from('abc'), Buffer.from([0, 1, 2]), Buffer.from('def')])
-      expectBlockedEverywhere('scripts/foo.dat2', bytes)
-    },
-    CLI_TIMEOUT_MS,
-  )
-})
+      expectBlockedEverywhere('x.dat', bytes)
+    })
 
-describe('content gate: disassembly excerpts', () => {
-  it(
-    'blocks .asm outright',
-    () => {
-      expectBlockedEverywhere('docs/excerpt.asm', 'LDA #$00\nSTA $0100\n')
-    },
-    CLI_TIMEOUT_MS,
-  )
-})
-
-describe('content gate: content sniffing on added lines', () => {
-  it(
-    'blocks a base64 blob over ~300 chars in a .ts file',
-    () => {
-      expectBlockedEverywhere('src/blob.ts', `export const data = '${'A'.repeat(310)}'\n`)
-    },
-    CLI_TIMEOUT_MS,
-  )
-
-  it(
-    'lets a short base64 string (88-char integrity-hash length) through',
-    () => {
-      expectCleanEverywhere(
-        'src/hash.ts',
-        `export const integrity = 'sha512-${'A'.repeat(86)}=='\n`,
-      )
-    },
-    CLI_TIMEOUT_MS,
-  )
-
-  it(
-    'blocks a data:image;base64 URI carrying a real payload',
-    () => {
-      const payload = 'B'.repeat(60)
-      expectBlockedEverywhere('docs/pic.html', `<img src="data:image/png;base64,${payload}">\n`)
-    },
-    CLI_TIMEOUT_MS,
-  )
-
-  it(
-    'lets a data:image;base64 template placeholder through',
-    () => {
-      expectCleanEverywhere('docs/placeholder.html', '<img src="data:image/png;base64,__B64__">\n')
-    },
-    CLI_TIMEOUT_MS,
-  )
-
-  it(
-    'blocks a 300-entry 0x.. byte array',
-    () => {
-      expectBlockedEverywhere('src/hex300.ts', hexArray(300))
-    },
-    CLI_TIMEOUT_MS,
-  )
-
-  it(
-    'lets a 110-entry 0x.. byte array through (SlopeResolver.test.ts shape)',
-    () => {
-      expectCleanEverywhere('src/hex110.ts', hexArray(110))
-    },
-    CLI_TIMEOUT_MS,
-  )
-})
-
-describe('content gate: pre-push hook', () => {
-  it(
-    'blocks a push whose range carries a --no-verify-committed defect',
-    () => {
-      fs.mkdirSync(path.join(dir, '.githooks'), { recursive: true })
-      fs.copyFileSync(realHook, path.join(dir, '.githooks/pre-push'))
-
-      // Simulate a remote that already has "base" (HEAD at repo creation).
-      const base = run('git', ['rev-parse', 'HEAD']).trim()
-      run('git', ['remote', 'add', 'origin', dir])
-      run('git', ['update-ref', 'refs/remotes/origin/develop', base])
-
-      // A commit made with --no-verify (no hook is installed in this throwaway
-      // repo, so a plain commit already stands in for that).
-      writeFile('docs/sneaky.asm', 'LDA #$00\n')
-      run('git', ['add', 'docs/sneaky.asm'])
-      run('git', ['commit', '-q', '-m', 'sneaky asm add'])
-      const head = run('git', ['rev-parse', 'HEAD']).trim()
-
-      const stdinLine = `refs/heads/feature/x ${head} refs/heads/feature/x ${base}\n`
-      let status = 0
+    it('a symlink-to-file type change (T status) is walked without crashing', () => {
+      writeFile('target.txt', 'hi\n')
+      run('git', ['add', 'target.txt'])
+      run('git', ['commit', '-q', '-m', 'add target'])
+      writeFile('link.txt', 'placeholder\n')
+      run('git', ['add', 'link.txt'])
+      run('git', ['commit', '-q', '-m', 'add placeholder'])
+      const base = head()
+      fs.unlinkSync(path.join(dir, 'link.txt'))
       try {
-        execFileSync('bash', ['.githooks/pre-push'], { cwd: dir, input: stdinLine, stdio: 'pipe' })
-      } catch (err) {
-        status = (err as { status?: number }).status ?? -1
+        fs.symlinkSync('target.txt', path.join(dir, 'link.txt'))
+      } catch {
+        return // symlinks need elevation on some Windows configs; skip rather than fail the suite
       }
-      expect(status).not.toBe(0)
-    },
-    CLI_TIMEOUT_MS,
-  )
-})
-
-describe('content gate: history mode', () => {
-  it(
-    'still fails on a defect that was added then deleted in a later commit',
-    () => {
-      writeFile('scripts/gone.ppm', 'P3\n1 1\n255\n255 0 0\n')
-      run('git', ['add', 'scripts/gone.ppm'])
-      run('git', ['commit', '-q', '-m', 'add defect'])
-      run('git', ['rm', '-q', 'scripts/gone.ppm'])
-      run('git', ['commit', '-q', '-m', 'remove defect'])
-
-      // The working tree / current HEAD is clean; range and staged modes
-      // would both report nothing, which is exactly why history mode
-      // exists as the migration oracle.
+      run('git', ['add', 'link.txt'])
       expect(gateExit('staged')).toBe(0)
-      expect(gateExit('history')).not.toBe(0)
-    },
-    CLI_TIMEOUT_MS,
-  )
+      run('git', ['commit', '-q', '-m', 'symlink swap'])
+      expect(gateExit('range', base, head())).toBe(0)
+    })
+  },
+  CLI_TIMEOUT_MS,
+)
 
-  it(
-    'reports one parseable line per offender: BLOCKED (<rule>): <path> (first added in <sha>)',
-    () => {
+describe(
+  'content gate CLI: push mode',
+  () => {
+    it('add-then-delete within one push range is still caught', () => {
+      run('git', ['remote', 'add', 'origin', dir])
+      const base = head()
+      run('git', ['update-ref', 'refs/remotes/origin/develop', base])
+      writeFile('gone.ppm', 'P3\n1 1\n255\n255 0 0\n')
+      run('git', ['add', 'gone.ppm'])
+      run('git', ['commit', '-q', '-m', 'add defect'])
+      run('git', ['rm', '-q', 'gone.ppm'])
+      run('git', ['commit', '-q', '-m', 'remove defect'])
+      const line = `refs/heads/x ${head()} refs/heads/x ${base}\n`
+      expect(gateExitWithInput('push', line, 'origin')).not.toBe(0)
+    })
+
+    it('pushing known history to a brand-new, empty remote scans everything', () => {
+      run('git', ['remote', 'add', 'origin', dir]) // no refs/remotes/origin/* exist
+      writeFile('sneaky.asm', 'LDA #$00\n')
+      run('git', ['add', 'sneaky.asm'])
+      run('git', ['commit', '-q', '-m', 'sneaky'])
+      const zero = '0'.repeat(40)
+      const line = `refs/heads/x ${head()} refs/heads/x ${zero}\n`
+      expect(gateExitWithInput('push', line, 'origin')).not.toBe(0)
+    })
+
+    it('a delete line (local sha all zero) is skipped, not scanned', () => {
+      const zero = '0'.repeat(40)
+      const line = `refs/heads/x ${zero} refs/heads/x ${head()}\n`
+      expect(gateExitWithInput('push', line, 'origin')).toBe(0)
+    })
+
+    it('an unknown remote sha (simulated corruption) fails closed with exit 2', () => {
+      const line = `refs/heads/x ${head()} refs/heads/x ${'d'.repeat(40)}\n`
+      expect(gateExitWithInput('push', line, 'origin')).toBe(2)
+    })
+
+    it('a pushed sha that is not a commit fails closed with exit 2', () => {
+      const blobSha = run('git', ['rev-parse', 'HEAD:README.md']).trim()
+      const zero = '0'.repeat(40)
+      const line = `refs/heads/x ${blobSha} refs/heads/x ${zero}\n`
+      expect(gateExitWithInput('push', line, 'origin')).toBe(2)
+    })
+  },
+  CLI_TIMEOUT_MS,
+)
+
+describe(
+  'content gate CLI: history mode edge cases',
+  () => {
+    it('refuses a shallow clone', () => {
+      const shallow = fs.mkdtempSync(path.join(os.tmpdir(), 'contentgate-shallow-'))
+      spawnSync('git', ['clone', '--quiet', '--depth', '1', `file://${dir}`, shallow])
+      fs.mkdirSync(path.join(shallow, 'tools/scripts'), { recursive: true })
+      fs.copyFileSync(realScript, path.join(shallow, 'tools/scripts/check-content.mjs'))
+      const res = spawnSync('node', ['tools/scripts/check-content.mjs', 'history'], {
+        cwd: shallow,
+      })
+      expect(res.status).toBe(2)
+      fs.rmSync(shallow, { recursive: true, force: true })
+    })
+
+    it('a tag pointing directly at a blob fails closed (unreachable by any commit path)', () => {
+      const blobFile = fs.mkdtempSync(path.join(os.tmpdir(), 'contentgate-blob-'))
+      const p = path.join(blobFile, 'x')
+      fs.writeFileSync(p, 'untracked content\n')
+      const sha = run('git', ['hash-object', '-w', p]).trim()
+      run('git', ['tag', '-a', 'danglytag', '-m', 'tag at a blob', sha])
+      expect(gateExit('history')).toBe(2)
+      fs.rmSync(blobFile, { recursive: true, force: true })
+    })
+
+    it('a defect only on a side branch (not on the default branch) is still found', () => {
+      run('git', ['checkout', '-qb', 'side'])
+      writeFile('side-defect.asm', 'LDA #$00\n')
+      run('git', ['add', 'side-defect.asm'])
+      run('git', ['commit', '-q', '-m', 'side defect'])
+      run('git', ['checkout', '-q', 'master'])
+      const out = gateOutput('history')
+      expect(out).toMatch(/side-defect\.asm/)
+    })
+
+    it('a defect reachable only via an annotated tag on its commit is still found', () => {
+      writeFile('tagged-defect.asm', 'LDA #$00\n')
+      run('git', ['add', 'tagged-defect.asm'])
+      run('git', ['commit', '-q', '-m', 'tagged defect'])
+      run('git', ['tag', '-a', 'v-defect', '-m', 'annotated'])
+      run('git', ['reset', '-q', '--hard', 'HEAD~1']) // no branch points at the defect commit anymore
+      const out = gateOutput('history')
+      expect(out).toMatch(/tagged-defect\.asm/)
+    })
+
+    it('identical bytes at an allowed path and a blocked path are judged independently', () => {
+      const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0])
+      writeFile('build/icons/same.png', bytes)
+      writeFile('src/same.png', bytes)
+      run('git', ['add', '-A'])
+      run('git', ['commit', '-q', '-m', 'same bytes, two paths'])
+      const out = gateOutput('history')
+      expect(out).not.toMatch(/build\/icons\/same\.png/)
+      expect(out).toMatch(/src\/same\.png/)
+    })
+
+    it('reports one line per offender: BLOCKED (<rule>): <path> (first added in <sha>)', () => {
       writeFile('scripts/reported.ppm', 'P3\n1 1\n255\n255 0 0\n')
       run('git', ['add', 'scripts/reported.ppm'])
       run('git', ['commit', '-q', '-m', 'add reported defect'])
-      const addedSha = run('git', ['rev-parse', 'HEAD']).trim()
-
-      const output = gateOutput('history')
-      const line = output.split('\n').find(l => l.includes('scripts/reported.ppm'))
-      expect(line).toBeDefined()
+      const addedSha = head()
+      const line = gateOutput('history')
+        .split('\n')
+        .find(l => l.includes('scripts/reported.ppm'))
       expect(line).toMatch(
         /^BLOCKED \([^)]+\): scripts\/reported\.ppm \(first added in [0-9a-f]{40}\)$/,
       )
       expect(line).toContain(addedSha)
-    },
-    CLI_TIMEOUT_MS,
-  )
-})
+    })
+  },
+  CLI_TIMEOUT_MS,
+)
+
+describe(
+  'content gate CLI: em-dash (staged/range only)',
+  () => {
+    it('blocks an em-dash on an added line in staged and range, but not history', () => {
+      const emdash = Buffer.from([0xe2, 0x80, 0x94]).toString('utf8')
+      const base = head()
+      writeFile('docs/x.md', `clean\nthis has an em${emdash}dash\n`)
+      run('git', ['add', 'docs/x.md'])
+      expect(gateExit('staged')).not.toBe(0)
+      run('git', ['commit', '-q', '-m', 'add em-dash'])
+      expect(gateExit('range', base, head())).not.toBe(0)
+      expect(gateExit('history')).toBe(0) // history is rule 1 (copyright) only, by design
+    })
+
+    it('range refuses an unknown base with exit 2', () => {
+      expect(gateExit('range', 'd'.repeat(40), head())).toBe(2)
+    })
+  },
+  CLI_TIMEOUT_MS,
+)
