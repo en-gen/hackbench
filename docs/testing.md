@@ -414,6 +414,28 @@ capture whose first 32 chronological builds are not exactly s0..s0+$1F
 cannot be judged by either rule and is reported as a `load-pass` mismatch
 directly.
 
+## Sweeping the hack store
+
+`tools/scripts/hack-sweep.ts` runs the readers behind each view (map tree,
+map details for every real map, overworld, graphics, Map16, palettes, music,
+SFX) over every patched ROM in the hack store, and records `ok`, `unavailable`
+with every failing gate it can see, or `crash` with the error and its top
+frame. The summary ranks each gate by how many hacks it alone blocks. It also
+applies each patch to vanilla (`applyBps`, or `decodeIps` for IPS) and compares
+the SHA-256 with the store's index.
+
+```bash
+npx tsx tools/scripts/hack-sweep.ts
+```
+
+`HACKBENCH_HACKS` names the store (default `C:/Projects/hackbench-tools/hacks`),
+which the sweep only reads. `HACKBENCH_SWEEP_OUT` names the output directory
+(default `C:/Projects/hackbench-tools/sweep`), which gets `results.json` and
+`summary.md`. Both hold hashes, ids, names, verdicts and counts. A reason may
+quote one instruction's bytes; any longer run is elided. Neither file is
+committed. The sweep is hand-run, since CI has no store; its verdict and
+summary code is tested in `HackSweep.synthetic.test.ts`.
+
 ## Commands
 
 ```bash
