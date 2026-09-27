@@ -378,3 +378,17 @@
 .p-TabBar-tab.hb-preview-tab .theia-tab-icon-label {
   font-style: italic;
 }
+
+/* A layer's toolbar icon (layer-icon.tsx): its own bar in the foreground
+   color, the others dimmed; the whole button dims while the layer is hidden. */
+.hb-layer-icon rect {
+  fill: var(--theia-disabledForeground);
+}
+
+.hb-layer-icon rect[data-on='true'] {
+  fill: currentColor;
+}
+
+.hb-layer-btn:not(.hb-icon-btn-on) {
+  opacity: 0.4;
+}

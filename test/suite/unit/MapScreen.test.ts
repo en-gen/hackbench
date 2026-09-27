@@ -11,6 +11,7 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import * as fs from 'fs'
+import { createHash } from 'crypto'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import * as Expander from '../../../src/rom/ObjectExpander'
@@ -18,11 +19,7 @@ import {
   SWITCH_FLAGS_UNCLEARED as UNCLEARED,
   type SwitchFlags,
 } from '../../../src/rom/ObjectExpander'
-import {
-  isLevelModeVertical,
-  parseLevelHeader,
-  parseLevelObjects,
-} from '../../../src/rom/LevelParser'
+import { parseLevelHeader } from '../../../src/rom/LevelParser'
 import {
   PIPE_VARIANT_TILE_COUNT,
   PIPE_VARIANT_TILE_START,
@@ -67,6 +64,7 @@ import {
   L1ModelCache,
   mapScreen,
   palaceIconsOf,
+  toolbarArtOf,
   screenResult,
 } from '../../../theia/extension/src/node/map-screen'
 import { SYNTHETIC_VERTICAL_TABLE } from '../support/verticalTable'
@@ -182,6 +180,10 @@ describe('char switches on the map (synthetic)', () => {
     const off = drawL1Screen(i, 0)
     const on = drawL1Screen(i, 0, blueOn)
     expect(cells(off, on)).toEqual(['0,0'])
+    // And through the screen the wire carries.
+    const wire = (sw?: typeof blueOn) =>
+      (screenResult(i, 0, sw) as { rgbaBase64: string }).rgbaBase64
+    expect(wire(blueOn)).not.toBe(wire())
     expect([px(on, 256, 3, 3)[0], px(on, 256, 11, 3)[0], px(on, 256, 3, 11)[0], px(on, 256, 11, 11)[0]]).toEqual([1, 7, 7, 7]) // prettier-ignore
   })
 
@@ -194,12 +196,17 @@ describe('char switches on the map (synthetic)', () => {
     expect(px(on, 256, 5, 5)).toEqual([...BACKDROP]) // and no overlay where they are clear
   })
 
+  it('another switch leaves a blue-hidden tile at its 25% overlay', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.grid[0]![0] = 2
+    const silver = drawL1Screen(i, 0, { blue: false, silver: true, onOff: false })
+    expect(px(silver, 256, 5, 5)).toEqual(px(drawL1Screen(i, 0), 256, 5, 5))
+    expect(px(silver, 256, 5, 5)).not.toEqual([...BACKDROP])
+  })
+
   it('palaces and switches both key a cached screen', () => {
-    const flags = { yellow: false, green: false, red: false, blue: false }
-    const none = { blue: false, silver: false, onOff: false }
-    expect(screenKey(flags, none, 3)).toBe('0000:000:3')
-    expect(screenKey(flags, blueOn, 3)).toBe('0000:100:3')
-    expect(screenKey({ ...flags, yellow: true }, { ...none, onOff: true }, 3)).toBe('1000:001:3')
+    const flags = { yellow: true, green: false, red: false, blue: false }
+    expect(screenKey(flags, { blue: false, silver: false, onOff: true }, 3)).toBe('1000:001:3')
   })
 })
 
@@ -234,12 +241,27 @@ describe('palace art (synthetic)', () => {
     expect(choosePalaceArt('green', [vote(10, 4), vote(10, 4)])).toHaveProperty('cleared')
   })
 
+  const px16 = new Uint8ClampedArray(1024).fill(9)
+  const art = { yellow: { uncleared: px16, cleared: px16 }, green: { reason: 'nope' }, red: { reason: 'r' }, blue: { reason: 'b' } } // prettier-ignore
+
   it('an unreadable palace falls back to its reason', () => {
-    const px16 = new Uint8ClampedArray(1024).fill(9)
-    const r = palaceIconsOf({ yellow: { uncleared: px16, cleared: px16 }, green: { reason: 'nope' }, red: { reason: 'r' }, blue: { reason: 'b' } }) // prettier-ignore
-    if (r.status !== 'ok') throw new Error('no icons')
-    expect(r.icons[0]).toMatchObject({ palace: 'yellow', uncleared: expect.any(String) })
-    expect(r.icons[1]).toEqual({ palace: 'green', unavailable: 'nope' })
+    const icons = palaceIconsOf(art)
+    expect(icons[0]).toMatchObject({ palace: 'yellow', uncleared: expect.any(String) })
+    expect(icons[1]).toEqual({ palace: 'green', unavailable: 'nope' })
+  })
+
+  it('switch buttons with no readable art say why, and a map that cannot be built names its reason', () => {
+    const empty = new RomFile('e.sfc', Buffer.alloc(0x80000, 0))
+    // No P-switch routine, no animation (so no ON/OFF alternate) on this map.
+    const r = toolbarArtOf(empty, { ok: true, inputs: { ...inputs(hGrid(1), false, 1), anim: null } }, art) // prettier-ignore
+    if (r.status !== 'ok') throw new Error(r.status)
+    expect(r.switchArt).toEqual({})
+    expect(Object.keys(r.switchUnavailable).sort()).toEqual(['blue', 'onOff', 'silver'])
+    expect(r.switchUnavailable.onOff).toMatch(/ON\/OFF/)
+    const failed = toolbarArtOf(empty, { ok: false, reason: 'no level data' }, art)
+    if (failed.status !== 'ok') throw new Error(failed.status)
+    expect(failed.switchUnavailable).toEqual({ blue: 'no level data', silver: 'no level data', onOff: 'no level data' }) // prettier-ignore
+    expect(failed.icons[1]).toEqual({ palace: 'green', unavailable: 'nope' })
   })
 })
 
@@ -605,14 +627,18 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     return r.inputs
   }
 
-  it.each(['105', '109'])('map $%s: the grid is what expandMap gives', slot => {
-    const index = parseInt(slot, 16)
-    const raw = rom.getLevelRawData(index)!
-    const table = rom.requireVerticalTable()
-    const header = parseLevelHeader(raw)
-    const vertical = isLevelModeVertical(header.levelMode, table)
-    const objects = parseLevelObjects(raw, table).objects
-    expect(model(index).grid).toEqual(Expander.expandMap(objects, header.levelLength, rom.rom, header.objectTileset, vertical, header.levelMode, undefined, UNCLEARED)) // prettier-ignore
+  // A regression oracle independent of renderCell: SHA-256 of whole screens
+  // drawn by the pre-#421-shared-renderer tile path at c6e39a15 (Tile.render
+  // over BufferRenderTarget), hidden overlay off, switches off. Hashes only,
+  // never ROM bytes.
+  it.each([
+    ['105', 0, '225f7f91b26303b921afe60c72cc1e33dc54603029503056f3e9c2441f586b7e'],
+    ['105', 7, 'abd3c83754490966fd7c5de21138494a6b4b08167c0e1804a5b0da72f4392d89'],
+    ['109', 0, '52ebd71afcfbc0847f9309d31d01eae3754432e766b4412307202c25a1609010'],
+  ])('map $%s screen %i draws the same pixels as the old tile path', (slot, screen, sha) => {
+    const m = model(parseInt(slot, 16))
+    const buf = drawL1Screen({ ...m, hidden: new Map() }, screen)
+    expect(createHash('sha256').update(buf).digest('hex')).toBe(sha)
   })
 
   // $105 is horizontal, 20 screens: 7, 8 and 17 hold pipes, 17's not set 0.
@@ -661,9 +687,7 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
       { uncleared: 0x06d, cleared: 0x16d },
       { uncleared: 0x06c, cleared: 0x16c },
     ])
-    const icons = palaceIconsOf(palaceArt(rom.rom))
-    if (icons.status !== 'ok') throw new Error('no icons')
-    for (const i of icons.icons) {
+    for (const i of palaceIconsOf(palaceArt(rom.rom))) {
       if (!('cleared' in i)) throw new Error(i.unavailable)
       expect(i.cleared).not.toBe(i.uncleared)
     }

@@ -17,15 +17,16 @@ import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
 import {
   MapDetailsDto,
   MapScreenResult,
-  PalaceIconDto,
   ProjectService,
   SwitchFlagsDto,
   SwitchStateDto,
 } from '../common/project-protocol'
 import { ProjectFrontendClient } from './project-push-client'
 import { decodeRgba } from './map16-pixels'
-import { PALACES, screenKey, SWITCHES } from './map-view-model'
-import { SWITCH_LABELS } from './map16-view-model'
+import { PALACES, screenKey } from './map-view-model'
+import { SWITCH_ORDER } from './map16-view-model'
+import { decodeSwitchButton, SwitchToggle, type SwitchButtonImages } from './switch-toggle'
+import { LayerIcon } from './layer-icon'
 import { PixelImageButton, type FrameImage } from './pixel-image-button'
 import { slotLabel } from './map-explorer-widget'
 
@@ -44,12 +45,19 @@ export interface MapViewOptions {
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
 type Palace = keyof SwitchFlagsDto
 type Switch = keyof SwitchStateDto
-type SwitchArt = { off: FrameImage; on: FrameImage } | { reason: string }
 
 const ZOOMS = [1, 2, 3, 4]
 /** Screens fetched beyond each edge of the view. */
 const MARGIN = 1
 const ICON_FRAME = { width: 16, height: 16 }
+
+type PalaceIcon = { uncleared: FrameImage; cleared: FrameImage } | { reason: string }
+
+/** Runs `run` after every commit, placed after the strip: a backstop for `sync`. */
+function AfterCommit({ run }: { run: () => void }): null {
+  React.useLayoutEffect(run)
+  return null
+}
 
 const title = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
@@ -64,12 +72,15 @@ export class MapViewWidget extends ReactWidget {
   protected mapLayout: Layout | undefined
   protected screenError: string | undefined
   /** Each palace's block, decoded once per load, or why it cannot be drawn. */
-  protected icons = new Map<Palace, { uncleared: FrameImage; cleared: FrameImage } | { reason: string }>() // prettier-ignore
+  protected icons = new Map<Palace, PalaceIcon>()
 
   protected flags: SwitchFlagsDto = { yellow: false, green: false, red: false, blue: false }
   protected switches: SwitchStateDto = { blue: false, silver: false, onOff: false }
-  /** The switch toggles' art (#574's), or why a kind has none. */
-  protected switchArt = new Map<Switch, SwitchArt>()
+  /** The switch toggles' art (#574's), and why a kind has none. */
+  protected switchArt: Partial<Record<Switch, SwitchButtonImages>> = {}
+  protected switchWhy: Partial<Record<Switch, string>> = {}
+  /** L1 (foreground) shown; off leaves the backdrop, drawn by the strip itself. */
+  protected showL1 = true
   /** Undefined until the user zooms: the strip then fits the view. */
   protected userZoom: number | undefined
   protected fitZoom = 1
@@ -104,6 +115,12 @@ export class MapViewWidget extends ReactWidget {
     this.details = undefined
     this.error = undefined
     this.mapLayout = undefined
+    // A reused (preview) tab keeps its strip across maps: blank it, and start at screen 0.
+    for (const c of this.canvases.values()) {
+      c.getContext('2d')?.clearRect(0, 0, c.width, c.height)
+      delete c.dataset.drawn
+    }
+    this.scroller?.scrollTo(0, 0)
     this.update()
     this.refresh()
   }
@@ -143,22 +160,24 @@ export class MapViewWidget extends ReactWidget {
   protected async loadIcons(): Promise<void> {
     const o = this.options
     if (!o) return
-    const r = await this.projects.mapPalaceIcons(o.manifestPath, o.index).catch(() => undefined)
+    const generation = this.generation
+    const r = await this.projects
+      .mapPalaceIcons(o.manifestPath, o.index)
+      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+    // An older map's or edit's art must not land over a newer one.
+    if (generation !== this.generation) return
     const image = (b64: string): FrameImage => ({ width: 16, height: 16, rgba: decodeRgba(b64) })
-    const decoded = (i: PalaceIconDto) =>
-      'cleared' in i
-        ? { uncleared: image(i.uncleared), cleared: image(i.cleared) }
-        : { reason: i.unavailable }
-    this.icons = new Map(r?.status === 'ok' ? r.icons.map(i => [i.palace, decoded(i)]) : [])
-    const b = await this.projects.mapSwitchButtons(o.manifestPath, o.index).catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message })) // prettier-ignore
-    this.switchArt = new Map(
-      SWITCHES.map((k): [Switch, SwitchArt] => {
-        const art = b.status === 'ok' ? b.art[k] : undefined
-        if (art) return [k, { off: image(art.offRgba), on: image(art.onRgba) }]
-        const why = b.status === 'ok' ? b.unavailable[k] : b.status === 'unavailable' ? b.reason : 'the base ROM is not on this machine' // prettier-ignore
-        return [k, { reason: why ?? 'no art' }]
+    const why = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
+    this.icons = new Map(
+      PALACES.map((p): [Palace, PalaceIcon] => {
+        const i = r.status === 'ok' ? r.icons.find(x => x.palace === p) : undefined
+        if (i && 'cleared' in i) return [p, { uncleared: image(i.uncleared), cleared: image(i.cleared) }] // prettier-ignore
+        return [p, { reason: i && 'unavailable' in i ? i.unavailable : (why ?? 'no art') }]
       }),
     )
+    const art = r.status === 'ok' ? r.switchArt : {}
+    this.switchArt = Object.fromEntries(SWITCH_ORDER.filter(k => art[k]).map(k => [k, decodeSwitchButton(art[k]!, decodeRgba)])) // prettier-ignore
+    this.switchWhy = r.status === 'ok' ? r.switchUnavailable : Object.fromEntries(SWITCH_ORDER.map(k => [k, why])) // prettier-ignore
     this.update()
   }
 
@@ -181,6 +200,7 @@ export class MapViewWidget extends ReactWidget {
   }
 
   protected requestVisible(): void {
+    this.sync()
     for (const s of this.visibleScreens()) void this.fetchScreen(s)
   }
 
@@ -204,8 +224,7 @@ export class MapViewWidget extends ReactWidget {
         r.status === 'rom-not-located'
           ? `The base ROM ${r.baseRom.title} is not on this machine.`
           : r.reason
-      // Never leave an older picture standing as if it were current.
-      for (const s of this.canvases.keys()) this.paint(s)
+      this.sync()
       this.update()
       return
     }
@@ -226,23 +245,29 @@ export class MapViewWidget extends ReactWidget {
       this.screenError = undefined
       this.update()
     }
-    this.paint(screen)
+    this.sync()
   }
 
-  /** Paints a screen's cached picture, or clears it after a failed fetch. */
-  protected paint(screen: number): void {
-    const canvas = this.canvases.get(screen)
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    const img = this.screens.get(this.key(screen))
-    if (img) {
-      ctx?.putImageData(img, 0, 0)
-      canvas.dataset.drawn = `${this.generation}:${this.key(screen)}`
-    } else if (this.screenError) {
-      // A failed fetch: an older picture must not stand as if it were current.
-      // Otherwise it stays until the reply lands, marked by its old generation.
-      ctx?.clearRect(0, 0, canvas.width, canvas.height)
-      delete canvas.dataset.drawn
+  /**
+   * Brings every canvas to what it should show, whatever event asked: the
+   * cached picture for the current state, or blank, never a previous map's
+   * or state's. It owns the canvas size, so no React commit can clear a
+   * painted canvas; `data-drawn` records what a canvas holds.
+   */
+  protected readonly sync = (): void => {
+    for (const [s, canvas] of this.canvases) {
+      const want = `${this.generation}:${this.key(s)}`
+      if (canvas.dataset.drawn === want) continue
+      const img = this.screens.get(this.key(s))
+      if (img) {
+        if (canvas.width !== img.width) canvas.width = img.width
+        if (canvas.height !== img.height) canvas.height = img.height
+        canvas.getContext('2d')?.putImageData(img, 0, 0)
+        canvas.dataset.drawn = want
+      } else if (canvas.dataset.drawn) {
+        canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
+        delete canvas.dataset.drawn
+      }
     }
   }
 
@@ -274,6 +299,11 @@ export class MapViewWidget extends ReactWidget {
     this.requestVisible()
   }
 
+  protected toggleL1(): void {
+    this.showL1 = !this.showL1
+    this.update()
+  }
+
   protected stepZoom(dir: 1 | -1): void {
     const z = this.zoom
     const next =
@@ -299,8 +329,30 @@ export class MapViewWidget extends ReactWidget {
     return (
       <div className="hb-map-view-main">
         <div className="hb-map-view-toolbar">
+          <button
+            type="button"
+            data-control="layer-l1"
+            className={'hb-icon-btn hb-layer-btn' + (this.showL1 ? ' hb-icon-btn-on' : '')}
+            aria-pressed={this.showL1}
+            title="L1 (foreground)"
+            aria-label="L1 (foreground)"
+            onClick={() => this.toggleL1()}
+          >
+            <LayerIcon highlight="middle" />
+          </button>
           {PALACES.map(p => this.renderToggle(p))}
-          {SWITCHES.map(k => this.renderSwitch(k))}
+          {SWITCH_ORDER.map(k => (
+            <SwitchToggle
+              key={k}
+              kind={k}
+              images={this.switchArt[k]}
+              pressed={this.switches[k]}
+              reason={this.switchWhy[k]}
+              scale={1}
+              data={{ control: `switch-${k}` }}
+              onClick={() => this.toggleSwitch(k)}
+            />
+          ))}
           <span className="hb-toolbar-spacer" />
           <button
             type="button"
@@ -340,6 +392,7 @@ export class MapViewWidget extends ReactWidget {
           </div>
         )}
         {this.renderStrip()}
+        <AfterCommit run={this.sync} />
         <details className="hb-map-view-header" data-control="header-panel">
           <summary>Header</summary>
           {this.renderDecode()}
@@ -371,25 +424,6 @@ export class MapViewWidget extends ReactWidget {
     )
   }
 
-  /** A char switch (#573), on the same PixelImageButton and art as the Map16 inspector's. */
-  protected renderSwitch(k: Switch): React.ReactNode {
-    const art = this.switchArt.get(k)
-    const pressed = this.switches[k]
-    return (
-      <PixelImageButton
-        key={k}
-        frame={ICON_FRAME}
-        scale={1}
-        image={art && 'on' in art ? (pressed ? art.on : art.off) : undefined}
-        label={SWITCH_LABELS[k]}
-        reason={art && 'reason' in art ? art.reason : undefined}
-        pressed={pressed}
-        onClick={() => this.toggleSwitch(k)}
-        data={{ control: `switch-${k}` }}
-      />
-    )
-  }
-
   protected renderStrip(): React.ReactNode {
     const l = this.mapLayout
     if (!l) {
@@ -405,6 +439,7 @@ export class MapViewWidget extends ReactWidget {
       <div
         className={'hb-map-view-scroller' + (l.orientation === 'vertical' ? ' hb-vertical' : '')}
         data-control="map-scroller"
+        style={{ background: `rgb(${l.backdrop.join(',')})` }}
         ref={el => {
           if (el === this.scroller) return
           if (this.scroller) this.resizes.unobserve(this.scroller)
@@ -418,16 +453,12 @@ export class MapViewWidget extends ReactWidget {
             key={s}
             className="hb-map-view-screen"
             data-screen={s}
-            width={l.width}
-            height={l.height}
-            style={{ width: l.width * this.zoom, height: l.height * this.zoom }}
+            style={{ width: l.width * this.zoom, height: l.height * this.zoom, visibility: this.showL1 ? undefined : 'hidden' }} // prettier-ignore
             ref={el => {
-              // A canvas React has just created starts blank: paint it from
-              // the cache here, keyed on the element, not on when this runs.
-              // The sizing reply lands before its canvas exists (#421).
+              // A new canvas starts blank: bring it to its state now (#421).
               if (el && this.canvases.get(s) !== el) {
                 this.canvases.set(s, el)
-                this.paint(s)
+                this.sync()
               } else if (!el && this.canvases.get(s)?.isConnected === false) this.canvases.delete(s)
             }}
           />

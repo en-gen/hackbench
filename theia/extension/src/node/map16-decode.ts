@@ -466,7 +466,7 @@ export function renderPSwitchButtonImages(
 
 // The ON/OFF button is Map16 tile $112, the vanilla switch block: a hack-fragility point,
 // since a hack can move the ON/OFF block to another tile.
-const ONOFF_BUTTON_TILE_ID = 0x112
+export const ONOFF_BUTTON_TILE_ID = 0x112
 
 /**
  * Every switch toggle BUTTON'S OWN art, distinct from a tile's alternates, with

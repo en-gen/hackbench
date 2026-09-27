@@ -141,20 +141,21 @@ border box and take no layout space.
   drawn with its switched-on art at 25% opacity, in color, never blank
   (`HIDDEN_TILE_OPACITY` in `src/rom/render/HiddenTiles.ts`, one value and
   one rule for every surface): in the inspector preview while its toggle is
-  off, in the Map16 sheet always, and on the map tab always, over the
-  level's backdrop, frame 0 held through animation (#574, #621). The map tab
-  draws each cell with the sheet's own renderer (`renderCell`), so the two
-  cannot disagree.
+  off, in the Map16 sheet always, and on the map tab while its switch is
+  off, over the level's backdrop (with the switch on, its switched chars
+  draw it in full), frame 0 held through animation (#574, #621). The map
+  tab draws each cell with the sheet's own renderer (`renderCell`), so the
+  two cannot disagree. This is an editor deviation: the ROM shows nothing
+  there. It is derived from the tile's `hidden` alternate, never a tile-id
+  list, and a toggle in the inspector never changes the sheet. Unlike the
+  overlays above, the sheet's copy is baked into a cached copy of each
+  decoded phase while painting is prepared (`BrowsedSheetCache`), not
+  stroked on top: that keeps it a pure function with a unit test, and the
+  decoded phase other surfaces crop is untouched.
 - The map tab's switch-palace icons are per-ROM art (`src/rom/SwitchArt.ts`:
   the block most tilesets draw, in the ROM's stock palette and raw GFX), not
   the open map's own rendering: on a ROM with per-level palette overrides the
-  icon can differ from the block on the map. This is an editor deviation:
-  the ROM shows nothing there. It is derived from the tile's `hidden`
-  alternate, never a tile-id list, and a toggle in the inspector never
-  changes the sheet. Unlike the overlays above, the sheet's copy is baked
-  into a cached copy of each decoded phase while painting is prepared
-  (`BrowsedSheetCache`), not stroked on top: that keeps it a pure function
-  with a unit test, and the decoded phase other surfaces crop is untouched.
+  icon can differ from the block on the map.
 
 ## Hover
 

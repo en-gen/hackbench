@@ -219,33 +219,32 @@ export type MapScreenResult =
       rgbaBase64: string
       /** Why the animated tiles are drawn from unverified or no frames, when they are. */
       note?: string
+      /** The backdrop (CGRAM color 0), RGB, for showing the map with L1 hidden. */
+      backdrop: [number, number, number]
     }
   | { status: 'unavailable'; reason: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
-/** One palace's switch block as 16x16 RGBA, both states, or why it cannot be drawn. */
 /**
  * Which char switches a map is drawn with (#573): the blue and silver
  * P-switches and ON/OFF swap the chars they animate, not the grid. Per tab.
  */
 export type SwitchStateDto = Record<Map16SwitchKind, boolean>
 
-/** The switch toggles' own art, shared with the Map16 inspector's (#574). */
-export type SwitchButtonsResult =
-  | {
-      status: 'ok'
-      art: Partial<Record<Map16SwitchKind, Map16SwitchButtonImages>>
-      unavailable: Partial<Record<Map16SwitchKind, string>>
-    }
-  | { status: 'unavailable'; reason: string }
-  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
-
+/** One palace's switch block as 16x16 RGBA, both states, or why it cannot be drawn. */
 export type PalaceIconDto = { palace: keyof SwitchFlagsDto } & (
   { uncleared: string; cleared: string } | { unavailable: string }
 )
 
+/** The map toolbar's art: each palace's block (per ROM) and each char switch's own (#574's). */
 export type PalaceIconsResult =
-  | { status: 'ok'; icons: PalaceIconDto[] }
+  | {
+      status: 'ok'
+      icons: PalaceIconDto[]
+      switchArt: Partial<Record<Map16SwitchKind, Map16SwitchButtonImages>>
+      /** Why a switch has no art. */
+      switchUnavailable: Partial<Record<Map16SwitchKind, string>>
+    }
   | { status: 'unavailable'; reason: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
@@ -359,11 +358,8 @@ export interface ProjectService {
     switches: SwitchStateDto,
   ): Promise<MapScreenResult>
 
-  /** Each switch palace's block, drawn in the map's own tileset and palette. */
+  /** The map toolbar's art: the palace blocks and the char switches' buttons. */
   mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult>
-
-  /** The blue, silver and ON/OFF toggles' art, drawn for this map. */
-  mapSwitchButtons(manifestPath: string, index: number): Promise<SwitchButtonsResult>
 
   /**
    * Projects this user has opened, most recent first.
