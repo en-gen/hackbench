@@ -137,23 +137,29 @@ border box and take no layout space.
   top at paint time and never baked into the decoded pixels. Toggling one
   is a repaint, not a reload, and the bytes an export would use stay
   exactly what the ROM says.
-- A tile blank in the switch state shown, but drawn in another, is never
-  simply gone: it shows that other picture at 25% opacity, in color
-  (`ghostOf` and `HIDDEN_TILE_OPACITY` in `src/rom/render/HiddenTiles.ts`,
-  one rule for the Map16 sheet, the inspector preview and the map tab, over
-  the level's backdrop there). The other picture is the switches-off one if
-  it is drawn, else the first single switch's that is. So a tile a switch
-  reveals (vanilla `$027-$02A`, blue) shows faintly with the switch off,
-  and one a switch blanks (vanilla `$094`, ON/OFF, in tilesets 2, 6 and 8)
-  shows faintly with it on; frame 0 is held through animation (#574, #621). The map
-  tab draws each cell with the sheet's own renderer (`renderCell`), so the
-  two cannot disagree. This is an editor deviation: the ROM shows nothing
-  there. It is derived from the tile's `hidden` alternate, never a tile-id
-  list, and a toggle in the inspector never changes the sheet. Unlike the
-  overlays above, the sheet's copy is baked into a cached copy of each
-  decoded phase while painting is prepared (`BrowsedSheetCache`), not
-  stroked on top: that keeps it a pure function with a unit test, and the
-  decoded phase other surfaces crop is untouched.
+- A hidden tile (blank until a switch is on, e.g. vanilla `$027-$02A`) is
+  drawn with its switched-on art in a soft screen door, in color, never
+  blank: a checkerboard on the tile's own pixel grid, full strength where
+  x + y is even and 25% (`HIDDEN_TILE_DIM_ALPHA`) where odd
+  (`hiddenPixelStrength`, one rule for both surfaces, #643): in the
+  inspector preview while its toggle is off, and in the Map16 sheet always,
+  frame 0 held through animation (#574, #621). This is an editor deviation:
+  the ROM shows nothing there. It is derived from the tile's `hidden`
+  alternate, never a tile-id list, and a toggle in the inspector never
+  changes the sheet. Unlike the overlays above, the sheet's copy is baked
+  into a cached copy of each decoded phase while painting is prepared
+  (`BrowsedSheetCache`), not stroked on top: that keeps it a pure function
+  with a unit test, and the decoded phase other surfaces crop is untouched.
+  The map tab draws hidden tiles by the same rule (`hiddenPixelStrength` in
+  `src/rom/render/HiddenTiles.ts`, where the rule now lives, over the
+  level's backdrop, parity from the pixel's place in its own 16x16 cell),
+  and there it works both ways: a tile blank in the switch state shown but
+  drawn in another (`ghostOf`) shows that other picture in the screen door,
+  the switches-off one if drawn, else the first single switch's. So vanilla
+  `$027-$02A` (blue) show with blue off, and `$094` (ON/OFF, tilesets 2, 6
+  and 8) with ON/OFF on; the inspector preview follows it for its selected
+  switches. The map tab draws each cell with the sheet's own renderer
+  (`renderCell`), so the two cannot disagree.
 - The map tab's switch-palace icons are per-ROM art (`src/rom/SwitchArt.ts`:
   the block most tilesets draw, in the ROM's stock palette and raw GFX), not
   the open map's own rendering: on a ROM with per-level palette overrides the

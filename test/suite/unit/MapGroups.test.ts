@@ -53,12 +53,13 @@ function mapNode(index: number, children: MapNode[] = []): MapNode {
   return { index, name: null, kind: 'map', l1Aliases: [], children }
 }
 
-function fakeTree(overworld: MapNode[], unassigned: MapNode[]): MapTree {
+function fakeTree(overworld: MapNode[], unassigned: MapNode[], bonus: MapNode[] = []): MapTree {
   return {
     special: [],
+    bonus: bonus.map(n => ({ ...n, role: 'bonus-game' as const, foundAt: '$05DBA9' })),
     overworld,
     unassigned,
-    mapCount: overworld.length + unassigned.length,
+    mapCount: overworld.length + unassigned.length + bonus.length,
     counts: { entrances: overworld.length, unassigned: unassigned.length },
     notes: [],
   }
@@ -227,12 +228,38 @@ describe('applyGroups', () => {
     ])
     expect(result.groups.map(g => g.name)).toEqual(['2. Two', '9. Nine', '10. Ten'])
   })
+
+  it('groups a bonus map like any other, and never marks it orphaned, in a group or out', () => {
+    const tree = fakeTree([], [mapNode(0x0d3)], [mapNode(0x000), mapNode(0x0c8)])
+
+    const result = applyGroups(tree, [{ name: 'Bonus Games', slots: [0x000] }])
+
+    expect(result.groups[0]!.maps).toMatchObject([
+      { index: 0x000, orphan: false, role: 'bonus-game' },
+    ])
+    expect(result.unassigned.map(n => [n.index, n.orphan, n.role])).toEqual([
+      [0x0c8, false, 'bonus-game'],
+      [0x0d3, true, undefined],
+    ])
+  })
+})
+
+describe('VANILLA_SEED', () => {
+  it('sorts both after the nine numbered areas', () => {
+    const slots = VANILLA_SEED.flatMap(g => g.slots)
+    const tree = fakeTree(
+      slots.map(s => mapNode(s)),
+      [],
+    )
+    const names = applyGroups(tree, VANILLA_SEED).groups.map(g => g.name)
+    expect(names.slice(-3)).toEqual(['9. Special Zone', 'Bonus Games', 'Yoshi Heaven'])
+  })
 })
 
 describe('topLevelSlots', () => {
-  it('is every overworld and unassigned index, not sub areas', () => {
-    const tree = fakeTree([mapNode(0x105, [mapNode(0x0c5)])], [mapNode(0x0d3)])
-    expect(topLevelSlots(tree)).toEqual(new Set([0x105, 0x0d3]))
+  it('is every overworld, bonus and unassigned index, not sub areas', () => {
+    const tree = fakeTree([mapNode(0x105, [mapNode(0x0c5)])], [mapNode(0x0d3)], [mapNode(0x100)])
+    expect(topLevelSlots(tree)).toEqual(new Set([0x105, 0x0d3, 0x100]))
   })
 })
 

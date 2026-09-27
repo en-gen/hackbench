@@ -62,13 +62,15 @@ export const MAP_EXPLORER_CONTEXT_MENU = ['map-explorer-context-menu']
  * What a row IS, in the glossary's terms (docs/glossary.md).
  *
  * An ENTRY MAP is what a launch tile starts, a SUB AREA is reachable only
- * from another map, and an ORPHANED map is reachable from neither.
+ * from another map, and an ORPHANED map is reachable from neither. A BONUS
+ * map is entered after a level: reached, but by no launch tile.
  */
 export type MapCategory =
   | SpecialMapNodeDto['role']
   | 'unassigned-group'
   | 'user-group'
   | 'entry'
+  | 'bonus'
   | 'subarea'
   | 'orphan'
   | 'loop'
@@ -89,36 +91,55 @@ export interface MapTreeNode extends CompositeTreeNode, SelectableTreeNode {
   mapName: string | null
   kind: 'map' | 'loop' | 'truncated' | 'group' | 'message'
   category: MapCategory
+  /** Set on a 'bonus' row: which flag sends the player there. */
+  role?: BonusRole
   expanded?: boolean
 }
 
-/** What each special row is labeled with: how the player reaches it, in plain words. */
+type BonusRole = NonNullable<GroupedMapNodeDto['role']>
+
+/**
+ * Icon and tooltip per bonus role, from the flag CODE_05DBAC tests (see
+ * src/rom/BonusEntrances.ts). BonusGameActivate is set by HandleBonusStars
+ * (bank_00.asm:1717); YoshiHeavenFlag by YoshiWingsAni once the player has
+ * flown up off the screen (bank_00.asm:8295-8331).
+ */
+const BONUS_ROLES: Record<BonusRole, { icon: string; title: string }> = {
+  'bonus-game': { icon: 'codicon-star-empty', title: 'Entered after a level' },
+  'yoshi-heaven': { icon: 'codicon-arrow-up', title: 'Entered by flying up on Yoshi wings' },
+}
+
+/** What each special row is labeled with. */
 const SPECIAL_LABELS: Record<SpecialMapNodeDto['role'], string> = {
   'title-screen': 'Title Screen',
   'new-game': 'New Game',
-  'bonus-game': 'Bonus game (after a level, with enough bonus stars)',
-  'yoshi-wings': 'Yoshi wings',
 }
 
 const isSpecial = (category: MapCategory): boolean => category in SPECIAL_LABELS
 
+/** Marks a drag as one of this explorer's own map-row drags. */
+const MAP_ROWS_TYPE = 'application/vnd.hackbench.map-rows'
+
 export const CATEGORY_ICONS: Record<MapCategory, string> = {
   'title-screen': 'codicon-device-desktop',
   'new-game': 'codicon-play-circle',
-  'bonus-game': 'codicon-star-empty',
-  'yoshi-wings': 'codicon-arrow-up',
   // Deliberately the same mark as the orphans it contains: the folder is not
   // a different kind of thing from its children, it is just where they sit.
   'unassigned-group': 'codicon-question',
   'user-group': 'codicon-folder',
   // What a launch tile starts: the way into a level.
   entry: 'codicon-map',
+  // Only when a row has no role; iconFor takes the role's own icon first.
+  bonus: 'codicon-star-empty',
   subarea: 'codicon-git-branch',
   orphan: 'codicon-question',
   loop: 'codicon-sync',
   truncated: 'codicon-ellipsis',
   message: 'codicon-info',
 }
+
+const iconFor = (node: MapTreeNode): string =>
+  node.role ? BONUS_ROLES[node.role].icon : CATEGORY_ICONS[node.category]
 
 export const slotLabel = (index: number): string =>
   `$${index.toString(16).toUpperCase().padStart(3, '0')}`
@@ -312,7 +333,7 @@ export class MapExplorerWidget extends TreeWidget {
       children: [],
       selected: false,
     }
-    node.children = maps.map(m => this.toNode(m, node, m.orphan ? 'orphan' : 'entry'))
+    node.children = maps.map(m => this.topNode(m, node))
     if (node.children.length > 0) node.expanded = true
     return node
   }
@@ -330,11 +351,16 @@ export class MapExplorerWidget extends TreeWidget {
       children: [],
       selected: false,
     }
-    node.children = g.maps.map((m: GroupedMapNodeDto) =>
-      this.toNode(m, node, m.orphan ? 'orphan' : 'entry'),
-    )
+    node.children = g.maps.map((m: GroupedMapNodeDto) => this.topNode(m, node))
     // Empty group still shows, as an empty folder with no chevron.
     if (node.children.length > 0) node.expanded = true
+    return node
+  }
+
+  /** A map at the top of a folder: bonus, orphan or entry, whichever folder holds it. */
+  protected topNode(m: GroupedMapNodeDto, parent: MapTreeNode): MapTreeNode {
+    const node = this.toNode(m, parent, m.role ? 'bonus' : m.orphan ? 'orphan' : 'entry')
+    if (m.role) node.role = m.role
     return node
   }
 
@@ -397,7 +423,7 @@ export class MapExplorerWidget extends TreeWidget {
     this.onMapOpenedEmitter.fire({
       index: map.index,
       pinned,
-      iconClass: `codicon ${CATEGORY_ICONS[map.category]}`,
+      iconClass: `codicon ${iconFor(map)}`,
       label: isSpecial(map.category)
         ? (map.name ?? slotLabel(map.index))
         : `${slotLabel(map.index)}${map.mapName ? ` ${map.mapName}` : ''}`,
@@ -417,12 +443,13 @@ export class MapExplorerWidget extends TreeWidget {
   }
 
   /**
-   * A map that can belong to a group: an entry map or an orphan, the tree's
-   * two top-level categories. Excludes sub areas, loops, truncated rows and
-   * the Title Screen/New Game rows.
+   * A map that can belong to a group: an entry map, a bonus map or an
+   * orphan, the tree's top-level categories. Excludes sub areas, loops,
+   * truncated rows and the Title Screen/New Game rows.
    */
   protected groupable(node: MapTreeNode): boolean {
-    return node.kind === 'map' && (node.category === 'entry' || node.category === 'orphan')
+    const { kind, category } = node
+    return kind === 'map' && (category === 'entry' || category === 'bonus' || category === 'orphan')
   }
 
   protected selected(): MapTreeNode[] {
@@ -667,51 +694,105 @@ export class MapExplorerWidget extends TreeWidget {
   protected dragNodes: MapTreeNode[] | null = null
 
   protected dragAttributes(node: MapTreeNode): React.HTMLAttributes<HTMLElement> {
-    if (this.groupable(node)) {
-      return {
-        draggable: true,
-        onDragStart: () => {
-          const selected = this.selected()
-          const dragging = selected.includes(node) ? selected : [node]
-          // Loops, truncated rows and special maps refuse the WHOLE drag,
-          // not just their own row.
-          this.dragNodes = dragging.every(n => this.groupable(n)) ? dragging : null
-        },
-        onDragEnd: () => (this.dragNodes = null),
-      }
+    // Sub areas, loops, truncated rows and special maps are never a drag
+    // source, but still clear dragNodes on their own dragstart.
+    const source: React.HTMLAttributes<HTMLElement> = this.groupable(node)
+      ? {
+          draggable: true,
+          onDragStart: event => {
+            const selected = this.selected()
+            const dragging = selected.includes(node) ? selected : [node]
+            // Loops, truncated rows and special maps refuse the WHOLE drag,
+            // not just their own row.
+            this.dragNodes = dragging.every(n => this.groupable(n)) ? dragging : null
+            event.dataTransfer.setData(MAP_ROWS_TYPE, '')
+          },
+          onDragEnd: () => {
+            this.dragNodes = null
+            this.setDropHighlight(undefined)
+          },
+        }
+      : { onDragStart: () => (this.dragNodes = null) }
+    const folder = this.dropFolder(node)
+    if (!folder) return source
+    // Theia's FrontendApplication resets dropEffect to 'none' on every
+    // dragenter/dragover that bubbles to the document (to refuse file drops),
+    // and the browser drops only if the FINAL dropEffect allows it. So the
+    // verdict has to stop here, as Theia's own FileTreeWidget does (#625).
+    const hover = (event: React.DragEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const accepted = this.accepts(event, folder)
+      event.dataTransfer.dropEffect = accepted ? 'move' : 'none'
+      this.setDropHighlight(accepted ? folder : undefined)
     }
-    if (node.category === 'user-group' || node.category === 'unassigned-group') {
-      return {
-        // Theia's shell cancels every dragover on the page to accept file
-        // drops, so only dropEffect can show a refusal cursor here.
-        onDragOver: event => {
-          event.preventDefault()
-          event.dataTransfer.dropEffect = this.canDrop(node) ? 'move' : 'none'
-        },
-        onDrop: event => {
-          event.preventDefault()
-          if (this.canDrop(node)) void this.handleDrop(node)
-          this.dragNodes = null
-        },
-      }
+    return {
+      ...source,
+      onDragEnter: event => {
+        this.dragEnteredRow = true
+        hover(event)
+      },
+      onDragOver: hover,
+      // The browser fires dragenter on the element entered BEFORE dragleave
+      // on the one left, so a leave with no enter just before it means the
+      // pointer left every folder row (or the drag was cancelled with Esc,
+      // which ends with a dragleave). Moving between rows or their child
+      // elements keeps the highlight the enter already set: no flicker.
+      onDragLeave: () => {
+        if (!this.dragEnteredRow) this.setDropHighlight(undefined)
+        this.dragEnteredRow = false
+      },
+      onDrop: event => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (this.accepts(event, folder)) void this.handleDrop(folder)
+        this.dragNodes = null
+        this.setDropHighlight(undefined)
+      },
     }
-    // Sub areas, loops, truncated rows and special maps: never a drag
-    // source. Still clears dragNodes on their own dragstart, so a stray or
-    // synthetic event landing here cannot leave a PRIOR valid drag's nodes
-    // sitting around for a later dragover to accept by mistake.
-    return { onDragStart: () => (this.dragNodes = null) }
+  }
+
+  /** The id of the folder an accepted drag is over, drawn with list.dropBackground. */
+  protected dropHighlight: string | undefined
+  /** Set by a folder row's dragenter, consumed by the dragleave that follows it. */
+  protected dragEnteredRow = false
+
+  protected setDropHighlight(folder: MapTreeNode | undefined): void {
+    if (this.dropHighlight === folder?.id) return
+    this.dropHighlight = folder?.id
+    this.update()
+  }
+
+  /** The folder a drop on this row lands in: the row itself, or the group or Unassigned holding it. */
+  protected dropFolder(node: MapTreeNode): MapTreeNode | undefined {
+    for (let n: MapTreeNode | undefined = node; n; n = n.parent as MapTreeNode | undefined) {
+      if (n.category === 'user-group' || n.category === 'unassigned-group') return n
+    }
+    return undefined
+  }
+
+  /**
+   * Only a drag this widget started carries MAP_ROWS_TYPE. Without the check,
+   * dragNodes left stale by a drag whose source row unmounted before dragend
+   * would let a later file or text drop move those maps.
+   */
+  protected accepts(event: React.DragEvent, folder: MapTreeNode): boolean {
+    return event.dataTransfer.types.includes(MAP_ROWS_TYPE) && this.canDrop(folder)
   }
 
   /**
    * Onto a user group: every dragged node must be groupable (already true by
-   * construction of dragNodes). Onto Unassigned, the one structural folder:
+   * construction of dragNodes), and at least one must be outside that group,
+   * or the drop would change nothing. Onto Unassigned, the one structural folder:
    * every dragged node must currently be grouped, since Unassigned is every
    * grouped map's structural parent regardless of entry/orphan.
    */
   protected canDrop(target: MapTreeNode): boolean {
     const dragged = this.dragNodes
     if (!dragged || dragged.length === 0 || this.groupsError) return false
-    if (target.category === 'user-group') return true
+    if (target.category === 'user-group') {
+      return dragged.some(n => this.groupAncestor(n)?.id !== target.id)
+    }
     return dragged.every(n => this.groupAncestor(n) !== undefined)
   }
 
@@ -731,15 +812,18 @@ export class MapExplorerWidget extends TreeWidget {
   }
 
   protected override renderIcon(node: TreeNode, _props: NodeProps): React.ReactNode {
-    const category = (node as MapTreeNode).category
-    if (!category) return undefined
-    return <span className={`hb-map-icon codicon ${CATEGORY_ICONS[category]}`} />
+    if (!(node as MapTreeNode).category) return undefined
+    return <span className={`hb-map-icon codicon ${iconFor(node as MapTreeNode)}`} />
   }
 
   /** Orphan rows get their dim/italic marking and tooltip here, on the whole row. */
   protected override createNodeClassNames(node: TreeNode, props: NodeProps): string[] {
     const classNames = super.createNodeClassNames(node, props)
     if ((node as MapTreeNode).category === 'orphan') classNames.push('hb-map-row-orphan')
+    // The whole folder lights up, header and visible rows, as VS Code's does.
+    if (this.dropHighlight && this.dropFolder(node as MapTreeNode)?.id === this.dropHighlight) {
+      classNames.push('hb-map-drop-target')
+    }
     return classNames
   }
 
@@ -750,6 +834,7 @@ export class MapExplorerWidget extends TreeWidget {
     const attrs = super.createNodeAttributes(node, props)
     const map = node as MapTreeNode
     if (map.category === 'orphan') attrs.title = 'Not reached from the overworld'
+    if (map.role) attrs.title = BONUS_ROLES[map.role].title
     // Theia's own default caption only carries the node id on expandable
     // rows (via the toggle element); a leaf map row otherwise has no DOM
     // marker at all. The same slot can appear twice in the tree (a sub area
@@ -796,12 +881,18 @@ export class MapExplorerWidget extends TreeWidget {
   }
 }
 
-/** A map belongs to at most one group, so it is dropped from every other before joining this one. */
+/**
+ * A map belongs to at most one group, so it is dropped from every other before
+ * joining this one. Maps already in the group stay where they are: adding
+ * them again must not move them to the end.
+ */
 function mergeIntoGroup(groups: MapGroupDto[], name: string, slots: number[]): MapGroupDto[] {
-  const next = withoutSlots(groups, slots)
+  const members = new Set(groups.find(g => g.name === name)?.slots ?? [])
+  const joining = slots.filter(s => !members.has(s))
+  const next = withoutSlots(groups, joining)
   const target = next.find(g => g.name === name)
-  if (target) target.slots.push(...slots)
-  else next.push({ name, slots })
+  if (target) target.slots.push(...joining)
+  else next.push({ name, slots: joining })
   return next
 }
 

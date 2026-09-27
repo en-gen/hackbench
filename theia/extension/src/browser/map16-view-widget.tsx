@@ -78,6 +78,7 @@ import {
   editAxisFor,
   map16WidgetId,
   previewAlternate,
+  screenDoor,
   rowColorsFor,
   tileFrameCount,
   toggleKinds,
@@ -768,7 +769,7 @@ export class Map16ViewWidget extends ReactWidget {
 
   /**
    * The preview canvas (#574): the alternate matching the active switch set
-   * wins; else a hidden tile's first single alternate at HIDDEN_TILE_OPACITY, rather
+   * wins; else a hidden tile's first single alternate in the screen door, rather
    * than a blank preview; else the tile's own picture.
    */
   protected paintTilePreviewCanvas(
@@ -780,8 +781,10 @@ export class Map16ViewWidget extends ReactWidget {
   ): void {
     if (!this.previewCanvasEl) return
     const own = cropRegion(pixels, atlasWidth, tileX, tileY, TILE_PX, TILE_PX)
-    const shown = previewAlternate(tile.alternates, this.activeSwitches, own, b => this.decoded(b))
-    paintTilePreview(this.previewCanvasEl, shown.pixels, shown.opacity)
+    const blank = (a: Uint8ClampedArray) => a.every((v, i) => i % 4 !== 3 || v === 0)
+    const shown = previewAlternate(tile.alternates, this.activeSwitches, a => blank(this.decoded(a.altRgbaBase64))) // prettier-ignore
+    const art = shown?.alt ? this.decoded(shown.alt.altRgbaBase64) : own
+    paintTilePreview(this.previewCanvasEl, shown?.hidden ? screenDoor(art) : art)
   }
 
   protected paintDetail(): void {
@@ -974,11 +977,13 @@ export class Map16ViewWidget extends ReactWidget {
           )}
         </div>
 
-        <div className="hb-map16-main">
-          {tile ? this.renderTile(sheet, tile) : this.renderNoTile()}
+        {/* Grid on the left, the selected tile to its right (#623). */}
+        <div className="hb-map16-panes">
+          {this.renderBrowser(sheet)}
+          <div className="hb-map16-main">
+            {tile ? this.renderTile(sheet, tile) : this.renderNoTile()}
+          </div>
         </div>
-
-        {this.renderBrowser(sheet)}
       </div>
     )
   }

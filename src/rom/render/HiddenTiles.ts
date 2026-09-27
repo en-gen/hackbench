@@ -1,19 +1,30 @@
 /**
- * How a tile blank in the switch state shown is drawn (#621): its picture
- * from another state at HIDDEN_TILE_OPACITY, in color, only in the pixels
- * left transparent. One rule for the Map16 sheet, its inspector and the map
+ * How a tile blank in the switch state shown is drawn (#621, #643): its
+ * picture from another state in a soft screen door, in color, only in the
+ * pixels left transparent. One rule for the Map16 sheet, its inspector and the map
  * tab. No imports, so the browser can use it too.
  */
-export const HIDDEN_TILE_OPACITY = 0.25
+/** A hidden tile is drawn in a soft screen door (owner's choice over #621's flat 25%,
+ * #643): half its pixels at full strength, the other half at this. */
+export const HIDDEN_TILE_DIM_ALPHA = 0.25
 
-/** Writes 16x16 `alt` into `dst` (row width `dstWidth` px) at (x0, y0), where `dst` is still transparent. */
+/** The screen door at cell pixel (x, y): a checkerboard on the tile's own
+ * pixel grid, not the screen's, so it looks the same at every zoom. */
+export function hiddenPixelStrength(x: number, y: number): number {
+  return (x + y) % 2 === 0 ? 1 : HIDDEN_TILE_DIM_ALPHA
+}
+
+/**
+ * Writes 16x16 `alt` into `dst` (row width `dstWidth` px) at (x0, y0) in the
+ * screen door, where `dst` is still transparent. Parity is the pixel's place
+ * in its own cell, which equals a 16-aligned strip's or sheet's.
+ */
 export function overlayHidden(
   dst: Uint8ClampedArray,
   dstWidth: number,
   x0: number,
   y0: number,
   alt: Uint8ClampedArray,
-  opacity = HIDDEN_TILE_OPACITY,
 ): void {
   for (let y = 0; y < 16; y++)
     for (let x = 0; x < 16; x++) {
@@ -21,7 +32,7 @@ export function overlayHidden(
       const d = ((y0 + y) * dstWidth + x0 + x) * 4
       if (dst[d + 3] !== 0 || alt[s + 3] === 0) continue
       dst.set(alt.subarray(s, s + 3), d)
-      dst[d + 3] = Math.round(alt[s + 3]! * opacity)
+      dst[d + 3] = Math.round(alt[s + 3]! * hiddenPixelStrength(x, y))
     }
 }
 

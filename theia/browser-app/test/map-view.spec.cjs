@@ -432,11 +432,11 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
 /**
  * The rule both ways (#621): $12C's $094 cells are drawn with ON/OFF off and
  * blank with it on, so on they show their off picture at 25% over the
- * backdrop. Measured on vanilla: 38 such cells; the one at column 85, row 5
- * (screen 5, local column 5) changes 16 pixels, each within 64 of the
- * backdrop.
+ * backdrop in the screen door. Measured on vanilla: 38 such cells; the one
+ * at column 85, row 5 (screen 5, local column 5) changes 16 pixels, all on
+ * the dim squares, each within 64 of the backdrop.
  */
-test('a tile ON/OFF blanks shows faintly on $12C with ON/OFF on', async ({ page }) => {
+test('a tile ON/OFF blanks shows in the screen door on $12C with ON/OFF on', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x12c)
   await showScreen(page, 0x12c, 5)
@@ -458,11 +458,13 @@ test('a tile ON/OFF blanks shows faintly on $12C with ON/OFF on', async ({ page 
     .split(',')
     .map(Number)
   expect(new Set(on).size).toBeGreaterThan(1) // not simply gone
-  for (const p of on) {
-    const v = p.split(',').map(Number)
-    expect(v[3]).toBe(255)
-    for (let c = 0; c < 3; c++) expect(Math.abs(v[c] - backdrop[c])).toBeLessThanOrEqual(64)
-  }
+  // $094 is a one-pixel diagonal whose 16 pixels all fall on odd squares
+  // (measured), so here the screen door shows only its dim half.
+  expectScreenDoor(
+    on.map(p => p.split(',').map(Number)),
+    backdrop,
+    false,
+  )
 })
 
 test('opening a map draws real pixels, and two maps differ', async ({ page }) => {
@@ -596,7 +598,26 @@ test('each palace toggle shows its own block, dotted then solid', async ({ page 
  * backdrop, as the sheet does, never blank. Measured on vanilla: that cell
  * holds the backdrop plus 5 blended colors.
  */
-test('hidden cells on $014 show their art at 25% over the backdrop', async ({ page }) => {
+/**
+ * The screen door (#643, and the map tab since #421): in a faint cell,
+ * pixels where the cell's own x + y is odd are the art at 25% over the
+ * backdrop (a channel moves at most 64), and even ones are the art in full
+ * (some at least farther than that). `cell` is 256 RGBA arrays, row-major.
+ */
+function expectScreenDoor(cell, backdrop, needFull = true) {
+  let full = 0
+  cell.forEach((p, k) => {
+    expect(p[3]).toBe(255)
+    const far = [0, 1, 2].some(c => Math.abs(p[c] - backdrop[c]) > 64)
+    if (((k % 16) + Math.floor(k / 16)) % 2 === 1) expect(far, `dim pixel ${k}`).toBe(false)
+    else if (far) full++
+  })
+  if (needFull) expect(full).toBeGreaterThan(0)
+}
+
+test('hidden cells on $014 show their art in the screen door over the backdrop', async ({
+  page,
+}) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x014)
   const screen = await readScreen(page, 0x014, 0)
@@ -612,11 +633,7 @@ test('hidden cells on $014 show their art at 25% over the backdrop', async ({ pa
     .map(Number)
   // Blank before the shared renderer: one color, the backdrop.
   expect(counts.size).toBeGreaterThan(2)
-  for (const p of cell) {
-    expect(p[3]).toBe(255)
-    // At 25% a channel moves at most 64 away from the backdrop.
-    for (let c = 0; c < 3; c++) expect(Math.abs(p[c] - backdrop[c])).toBeLessThanOrEqual(64)
-  }
+  expectScreenDoor(cell, backdrop)
 })
 
 /** The pixels of $014's hidden $02A cell at column 1, row 13 (screen 0). */
@@ -631,8 +648,8 @@ async function hiddenCell(page) {
 /**
  * The blue P-switch reveals $02A's chars (#573, a char swap): with it on the
  * cell draws that art in full, not at 25%, and off restores the 25% picture.
- * Measured on vanilla: 160 of its 256 pixels change, each more than 64 from
- * the backdrop, which the 25% overlay can never reach.
+ * Measured on vanilla: 80 of its dim squares go from within 64 of the
+ * backdrop to farther than that, which the screen door never does off.
  */
 test('blue P-switch on draws $014 hidden cells in full, and off restores them', async ({
   page,
@@ -650,8 +667,10 @@ test('blue P-switch on draws $014 hidden cells in full, and off restores them', 
     .sort((a, b) => count(b) - count(a))[0]
     .split(',')
     .map(Number)
-  const full = on.filter(p => p.split(',').slice(0, 3).some((v, c) => Math.abs(Number(v) - backdrop[c]) > 64)) // prettier-ignore
-  expect(full.length).toBeGreaterThan(0)
+  // Off, the dim squares stay within 64 of the backdrop; on, the art is drawn in full there too.
+  const dimFar = cell => cell.filter((p, k) => ((k % 16) + Math.floor(k / 16)) % 2 === 1 && p.split(',').slice(0, 3).some((v, c) => Math.abs(Number(v) - backdrop[c]) > 64)).length // prettier-ignore
+  expect(dimFar(off)).toBe(0)
+  expect(dimFar(on)).toBeGreaterThan(0)
   expect(on).not.toEqual(off)
 
   await blue.click()

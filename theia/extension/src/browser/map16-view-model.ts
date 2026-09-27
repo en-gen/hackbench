@@ -15,8 +15,8 @@ import {
   Map16TileAlternateDto,
   Map16TileDto,
 } from '../common/map16-protocol'
-import { cropRegion, TILE_PX } from './map16-pixels'
-import { ghostOf, HIDDEN_TILE_OPACITY, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
+import { TILE_PX } from './map16-pixels'
+import { hiddenPixelStrength, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
 
 /** Which sheet an edit is written against: the tile table, the graphics and
  * the colors it resolves. */
@@ -164,33 +164,49 @@ export function activeFor(
   return toggleKinds(alternates).filter(k => active.has(k))
 }
 
+/** A copy of one 16x16 RGBA tile in the screen door; colors are untouched. */
+export function screenDoor(tile: Uint8ClampedArray): Uint8ClampedArray {
+  const out = tile.slice()
+  for (let y = 0; y < TILE_PX; y++)
+    for (let x = 0; x < TILE_PX; x++) {
+      const a = (y * TILE_PX + x) * 4 + 3
+      out[a] = Math.round(tile[a]! * hiddenPixelStrength(x, y))
+    }
+  return out
+}
+
 /**
- * What the preview draws (#574) for the tile's own active switches: the
- * matching alternate, or the tile's own picture (`own`), in full; and when
- * that picture is blank, the tile's picture from another state at
- * HIDDEN_TILE_OPACITY (`ghostOf`, the map's rule too).
+ * What the preview draws (#574): the alternate matching the tile's own active
+ * switches as is, else a hidden tile's first single, flagged `hidden` so it is
+ * drawn in the screen door, else undefined for the tile's own picture. When
+ * the matching alternate is blank (`isBlank`, e.g. $094 under ON/OFF), the
+ * switch blanks the tile: `alt` is undefined and `hidden` set, meaning the
+ * tile's own picture in the screen door (`ghostOf`'s rule, both ways).
  */
 export function previewAlternate(
   alternates: readonly Map16TileAlternateDto[] | undefined,
   active: ReadonlySet<Map16SwitchKind>,
-  own: Uint8ClampedArray,
-  decode: (base64: string) => Uint8ClampedArray,
-): { pixels: Uint8ClampedArray; opacity: number } {
+  isBlank: (alt: Map16TileAlternateDto) => boolean = () => false,
+): { alt: Map16TileAlternateDto | undefined; hidden: boolean } | undefined {
   const key = activeFor(alternates, active).sort().join('+')
   const match = key ? alternates?.find(a => a.kinds.join('+') === key) : undefined
-  const shown = match ? decode(match.altRgbaBase64) : own
-  const ghost = ghostOf(shown, own, alternates ?? [], a => decode(a.altRgbaBase64))
-  return ghost ? { pixels: ghost, opacity: HIDDEN_TILE_OPACITY } : { pixels: shown, opacity: 1 }
+  if (match)
+    return isBlank(match) ? { alt: undefined, hidden: true } : { alt: match, hidden: false }
+  const hidden = alternates?.find(a => a.kinds.length === 1 && a.hidden)
+  return hidden && { alt: hidden, hidden: true }
 }
+
+const NO_SWITCHES: ReadonlySet<Map16SwitchKind> = new Set()
 
 type BrowsedSheet = Pick<Map16SheetDto, 'width' | 'tilesPerRow'> & {
   tiles: readonly Pick<Map16TileDto, 'id' | 'alternates'>[]
 }
 
 /**
- * The sheet as browsed (#621), all switches off: a blank tile's picture from
- * another state at HIDDEN_TILE_OPACITY, in the pixels its cell leaves blank,
- * by `ghostOf`, the rule the inspector and the map use too. Returns a copy; the decoded phase other surfaces crop is never written.
+ * The sheet as browsed (#621): every hidden tile's switched-on art in the
+ * preview's own screen door, in the pixels its cell leaves blank. The same
+ * `previewAlternate` the inspector uses with no switch on, so the two never
+ * disagree. Returns a copy; the decoded phase other surfaces crop is never written.
  */
 export function withHiddenTiles(
   atlas: Uint8ClampedArray,
@@ -199,14 +215,12 @@ export function withHiddenTiles(
 ): Uint8ClampedArray {
   let out: Uint8ClampedArray | undefined
   for (const tile of sheet.tiles) {
-    if (!tile.alternates?.length) continue
+    const shown = previewAlternate(tile.alternates, NO_SWITCHES)
+    if (!shown?.alt) continue
+    out ??= atlas.slice()
     const x0 = (tile.id % sheet.tilesPerRow) * TILE_PX
     const y0 = Math.floor(tile.id / sheet.tilesPerRow) * TILE_PX
-    const own = cropRegion(atlas, sheet.width, x0, y0, TILE_PX, TILE_PX)
-    const ghost = ghostOf(own, own, tile.alternates, a => decode(a.altRgbaBase64))
-    if (!ghost) continue
-    out ??= atlas.slice()
-    overlayHidden(out, sheet.width, x0, y0, ghost)
+    overlayHidden(out, sheet.width, x0, y0, decode(shown.alt.altRgbaBase64))
   }
   return out ?? atlas
 }

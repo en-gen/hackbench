@@ -6,6 +6,10 @@
  */
 import { readMeta, writeMeta } from './ProjectMeta'
 import type { MapNode, MapTree } from '../rom/MapTree'
+import type { BonusRole } from '../rom/BonusEntrances'
+
+/** A top-level map as grouped; `role` is set on a map entered after a level. */
+export type GroupedMapNode = MapNode & { orphan: boolean; role?: BonusRole }
 
 export interface MapGroup {
   name: string
@@ -25,6 +29,10 @@ export const VANILLA_SHA256 = '0838e531fe22c077528febe14cb3ff7c492f1f5fa8de35419
  * Names carry their area number ("1. Yoshi's Island") so the default,
  * alphabetic-by-name sort lands them in world order instead of alphabetical
  * order (Chocolate Island before Donut Plains, etc).
+ *
+ * Bonus Games and Yoshi Heaven are the vanilla ROM's DATA_05DBA9 read by
+ * BonusEntrances, in both submap halves; unnumbered, so they sort after the
+ * areas. MapGroups.corpus.test.ts checks every slot against the ROM.
  */
 export const VANILLA_SEED: MapGroup[] = [
   { name: "1. Yoshi's Island", slots: [0x104, 0x105, 0x106, 0x103, 0x102, 0x101, 0x014] },
@@ -51,6 +59,8 @@ export const VANILLA_SEED: MapGroup[] = [
   },
   { name: '8. Star World', slots: [0x134, 0x130, 0x132, 0x135, 0x136] },
   { name: '9. Special Zone', slots: [0x12a, 0x12b, 0x12c, 0x12d, 0x128, 0x127, 0x126, 0x125] },
+  { name: 'Bonus Games', slots: [0x000, 0x100] },
+  { name: 'Yoshi Heaven', slots: [0x0c8, 0x1c8] },
 ]
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -136,7 +146,7 @@ export function seedIfVanilla(
 
 export interface UserGroup {
   name: string
-  maps: (MapNode & { orphan: boolean })[]
+  maps: GroupedMapNode[]
 }
 
 /**
@@ -149,7 +159,7 @@ export interface UserGroup {
  */
 export interface GroupedMapTree {
   groups: UserGroup[]
-  unassigned: (MapNode & { orphan: boolean })[]
+  unassigned: GroupedMapNode[]
 }
 
 /**
@@ -160,16 +170,18 @@ export interface GroupedMapTree {
  * not errored: the caller owns whether to keep them in the file.
  */
 export function applyGroups(tree: MapTree, groups: MapGroup[]): GroupedMapTree {
-  const overworldByIndex = new Map(tree.overworld.map(n => [n.index, n]))
+  // Bonus maps are reached (after a level), so never orphaned, like entry maps.
+  const reached = [...tree.overworld, ...tree.bonus]
+  const reachedByIndex = new Map(reached.map(n => [n.index, n]))
   const unassignedByIndex = new Map(tree.unassigned.map(n => [n.index, n]))
   const claimed = new Set<number>()
 
   const userGroups: UserGroup[] = groups
     .map(g => {
-      const maps: (MapNode & { orphan: boolean })[] = []
+      const maps: GroupedMapNode[] = []
       for (const slot of g.slots) {
         if (claimed.has(slot)) continue
-        const entry = overworldByIndex.get(slot)
+        const entry = reachedByIndex.get(slot)
         if (entry) {
           maps.push({ ...entry, orphan: false })
           claimed.add(slot)
@@ -187,16 +199,16 @@ export function applyGroups(tree: MapTree, groups: MapGroup[]): GroupedMapTree {
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
 
   const unassigned = [
-    ...tree.overworld.filter(n => !claimed.has(n.index)).map(n => ({ ...n, orphan: false })),
+    ...reached.filter(n => !claimed.has(n.index)).map(n => ({ ...n, orphan: false })),
     ...tree.unassigned.filter(n => !claimed.has(n.index)).map(n => ({ ...n, orphan: true })),
   ].sort((a, b) => a.index - b.index)
 
   return { groups: userGroups, unassigned }
 }
 
-/** Every slot that currently names a top-level map (entry or orphan). */
+/** Every slot that currently names a top-level map (entry, bonus or orphan). */
 export function topLevelSlots(tree: MapTree): Set<number> {
-  return new Set([...tree.overworld, ...tree.unassigned].map(n => n.index))
+  return new Set([...tree.overworld, ...tree.bonus, ...tree.unassigned].map(n => n.index))
 }
 
 /** Slots a group list names that `applyGroups` could not resolve against a tree. */

@@ -99,6 +99,10 @@ async function loadMaps(page, dir, rom = ROM) {
       rootIds: roots.map(r => r.id),
       // Entry maps and orphans in ONE folder: there is no separate Overworld.
       unassignedTop: (group('unassigned')?.children || []).length,
+      unassignedRows: (group('unassigned')?.children || []).map(n => ({
+        index: n.index,
+        category: n.category,
+      })),
       specialSlots: roots.filter(r => r.id.startsWith('special:')).map(r => r.index),
       // Walk the roots themselves, not just their children: Title Screen and
       // New Game ARE maps rather than folders, so descending past them would
@@ -269,14 +273,11 @@ test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
   // then everything else. Asserted on the ids, which name the three rows
   // without pinning the text of their labels; the label is asserted for
   // what it SAYS in the next test. There is no separate Overworld folder:
-  // every top-level map, entry map or orphan, is Unassigned.
+  // every top-level map, entry map or orphan, is Unassigned. The bonus maps
+  // are not special rows (#624): ungrouped, they are Unassigned too.
   expect(result.rootIds).toEqual([
     'special:title-screen:199',
     'special:new-game:197',
-    'special:bonus-game:0',
-    'special:bonus-game:256',
-    'special:yoshi-wings:200',
-    'special:yoshi-wings:456',
     'group:unassigned',
   ])
   expect(result.unassignedTop).toBeGreaterThan(0)
@@ -285,9 +286,18 @@ test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
   expect(result.deepest).toBeGreaterThan(0)
 
   // Read from the ROM, not hardcoded: $0C7 and $0C5 on vanilla, which the
-  // disassembly's own data files are named after (bank_06.asm:33, 35), then
-  // DATA_05DBA9's bonus room and Yoshi wings slots in each half.
-  expect(result.specialSlots).toEqual([0x0c7, 0x0c5, 0x000, 0x100, 0x0c8, 0x1c8])
+  // disassembly's own data files are named after (bank_06.asm:33, 35).
+  expect(result.specialSlots).toEqual([0x0c7, 0x0c5])
+
+  // DATA_05DBA9's Bonus Games and Yoshi Heaven slots, in each half: listed
+  // once, as bonus rows (reached, so not orphaned, but no entry map either).
+  const bonus = result.unassignedRows.filter(r => [0x000, 0x100, 0x0c8, 0x1c8].includes(r.index))
+  expect(bonus).toEqual([
+    { index: 0x000, category: 'bonus' },
+    { index: 0x0c8, category: 'bonus' },
+    { index: 0x100, category: 'bonus' },
+    { index: 0x1c8, category: 'bonus' },
+  ])
 })
 
 /**
@@ -304,16 +314,9 @@ test('the Unassigned label counts what it claims to count', async ({ page }) => 
   // The two singletons take no number: there is implicitly one of each.
   expect(result.groups[0]).toBe('Title Screen')
   expect(result.groups[1]).toBe('New Game')
-  // Labeled by how the player reaches them; the trailing slot tells the halves apart.
-  expect(result.groups.slice(2, 6)).toEqual([
-    'Bonus game (after a level, with enough bonus stars)',
-    'Bonus game (after a level, with enough bonus stars)',
-    'Yoshi wings',
-    'Yoshi wings',
-  ])
 
   expect(result.unassignedTop).toBeGreaterThan(0)
-  expect(result.groups[6]).toBe(`Unassigned (${result.unassignedTop})`)
+  expect(result.groups[2]).toBe(`Unassigned (${result.unassignedTop})`)
 })
 
 test('the map rows are rendered and reachable, not just in the model', async ({ page }) => {

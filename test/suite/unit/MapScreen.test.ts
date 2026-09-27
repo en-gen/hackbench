@@ -30,7 +30,7 @@ import {
 import { buildTileAtlas } from '../../../src/rom/TileRenderer'
 import { loadVram, type VramState } from '../../../src/rom/GfxLoader'
 import { renderCell } from '../../../src/rom/render/CellRenderer'
-import { HIDDEN_TILE_OPACITY } from '../../../src/rom/render/HiddenTiles'
+import { HIDDEN_TILE_DIM_ALPHA, hiddenPixelStrength } from '../../../src/rom/render/HiddenTiles'
 import { choosePalaceArt, majority, palaceArt } from '../../../src/rom/SwitchArt'
 import { withHiddenTiles } from '../../../theia/extension/src/browser/map16-view-model'
 import { switchArtOf } from '../../../src/rom/SwitchAlternates'
@@ -133,6 +133,8 @@ const vGrid = (screens: number) => Array.from({ length: screens * 16 }, () => ne
 
 /** One channel of `fg` drawn at alpha `a` over `bg`, as the map composites. */
 const blend = (fg: number, bg: number, a: number) => Math.round((fg * a + bg * (255 - a)) / 255)
+/** A color on the screen door's dim squares, over the synthetic backdrop. */
+const dim = (rgb: number[]) => [...rgb.map((v, c) => blend(v, BACKDROP[c]!, Math.round(255 * HIDDEN_TILE_DIM_ALPHA))), 255] // prettier-ignore
 
 /** RGBA of pixel (x, y) in a screen buffer of `width` pixels. */
 const px = (buf: Uint8ClampedArray, width: number, x: number, y: number) =>
@@ -146,11 +148,12 @@ describe('one renderer for the sheet and the map (synthetic)', () => {
     expect([px(buf, 256, 3, 3)[0], px(buf, 256, 11, 3)[0], px(buf, 256, 3, 11)[0], px(buf, 256, 11, 11)[0]]).toEqual([1, 2, 3, 4]) // prettier-ignore
   })
 
-  it('a hidden cell is its switched-on art at 25% over the backdrop', () => {
+  it('a hidden cell is its switched-on art in the screen door over the backdrop', () => {
     const i = inputs(hGrid(1), false, 1)
     i.grid[0]![0] = 2
-    const a = Math.round(255 * HIDDEN_TILE_OPACITY)
-    expect(px(drawL1Screen(i, 0), 256, 5, 1)).toEqual([blend(7, BACKDROP[0], a), blend(100, BACKDROP[1], a), blend(200, BACKDROP[2], a), 255]) // prettier-ignore
+    const buf = drawL1Screen(i, 0)
+    expect(px(buf, 256, 5, 1)).toEqual([7, 100, 200, 255]) // x + y even: full strength
+    expect(px(buf, 256, 6, 1)).toEqual(dim([7, 100, 200])) // odd: 25% over the backdrop
   })
 
   it('a sheet atlas cell and a map cell are the same bytes, hidden art included', () => {
@@ -165,7 +168,7 @@ describe('one renderer for the sheet and the map (synthetic)', () => {
     const cell = new Uint8ClampedArray(16 * 16 * 4)
     for (let y = 0; y < 16; y++) cell.set(browsed.subarray(y * atlasWidth * 4, y * atlasWidth * 4 + 64), y * 64) // prettier-ignore
     expect(b64(cell)).toBe(b64(renderCell(def, VRAM, { colors: COLORS }, alt)))
-    expect(cell[3]).toBe(Math.round(255 * HIDDEN_TILE_OPACITY)) // not the bare transparent tile
+    expect([cell[3], cell[7]]).toEqual([255, 64]) // the screen door, not the bare transparent tile
   })
 })
 
@@ -192,16 +195,16 @@ describe('char switches on the map (synthetic)', () => {
     expect([px(on, 256, 3, 3)[0], px(on, 256, 11, 3)[0], px(on, 256, 3, 11)[0], px(on, 256, 11, 11)[0]]).toEqual([1, 7, 7, 7]) // prettier-ignore
   })
 
-  it('a hidden tile goes from its 25% overlay to full art when its switch is on', () => {
+  it('a hidden tile goes from its screen door to full art when its switch is on', () => {
     const i = inputs(hGrid(1), false, 1)
     i.grid[0]![0] = 2
-    expect(px(drawL1Screen(i, 0), 256, 5, 1)[0]).not.toBe(7) // the 25% overlay, not the chars
+    expect(px(drawL1Screen(i, 0), 256, 6, 1)).toEqual(dim([7, 100, 200])) // a dim square, off
     const on = drawL1Screen(i, 0, blueOn)
-    expect(px(on, 256, 5, 1)).toEqual([7, 100, 200, 255]) // the switched chars, in full
+    expect(px(on, 256, 6, 1)).toEqual([7, 100, 200, 255]) // the switched chars, in full
     expect(px(on, 256, 5, 5)).toEqual([...BACKDROP]) // and no overlay where they are clear
   })
 
-  it('another switch leaves a blue-hidden tile at its 25% overlay', () => {
+  it('another switch leaves a blue-hidden tile in its screen door', () => {
     const i = inputs(hGrid(1), false, 1)
     i.grid[0]![0] = 2
     const silver = drawL1Screen(i, 0, { blue: false, silver: true, onOff: false })
@@ -209,12 +212,12 @@ describe('char switches on the map (synthetic)', () => {
     expect(px(silver, 256, 5, 1)).not.toEqual([...BACKDROP])
   })
 
-  it('a tile its switch blanks shows its switches-off art at 25%', () => {
+  it('a tile its switch blanks shows its switches-off art in the screen door', () => {
     const i = inputs(hGrid(1), false, 1)
     i.grid[0]![0] = 4
-    const a = Math.round(255 * HIDDEN_TILE_OPACITY)
     const onOff = drawL1Screen(i, 0, { blue: false, silver: false, onOff: true })
-    expect(px(onOff, 256, 5, 5)).toEqual([blend(4, BACKDROP[0], a), blend(100, BACKDROP[1], a), blend(200, BACKDROP[2], a), 255]) // prettier-ignore
+    expect(px(onOff, 256, 5, 5)).toEqual([4, 100, 200, 255])
+    expect(px(onOff, 256, 6, 5)).toEqual(dim([4, 100, 200]))
   })
 
   it('with its switch off, or another on, that tile is drawn as it is', () => {
@@ -770,18 +773,18 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     expect(cell.has(stored.colors[0x64]!.join(','))).toBe(false)
   })
 
-  it('a hidden $02A cell on $014 is its switched-on art at 25% over the backdrop', () => {
+  it('a hidden $02A cell on $014 is its switched-on art in the screen door over the backdrop', () => {
     const m = model(0x014)
     expect(m.grid[13]![1]).toBe(0x02a) // screen 0, local column 1
     const alt = m.switchArt.get(0x02a)!.alts.find(x => x.kinds.join() === 'blue')!.rgba
     const own = renderCell(m.map16.tiles[0x02a]!, m.vram, { colors: m.colors })
     const buf = drawL1Screen(m, 0)
-    const a = Math.round(255 * HIDDEN_TILE_OPACITY)
     let checked = 0
     for (let y = 0; y < 16; y++)
       for (let x = 0; x < 16; x++) {
         const s = (y * 16 + x) * 4
         if (own[s + 3] !== 0 || alt[s + 3] === 0) continue
+        const a = Math.round(255 * hiddenPixelStrength(x, y))
         const want = [0, 1, 2].map(c => Math.round((alt[s + c]! * a + m.backArea[c]! * (255 - a)) / 255)) // prettier-ignore
         expect(px(buf, 256, 16 + x, 13 * 16 + y).slice(0, 3)).toEqual(want)
         checked++
