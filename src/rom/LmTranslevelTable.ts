@@ -8,7 +8,14 @@ import type { RomFile } from './RomFile'
 import { WILD, matchesAt, type BytePattern } from './BytePattern'
 import { tryDecompress } from './LcLz2'
 import { hex6 } from './hex'
-import { stockCodeMismatch, type StockCode, type StockSpan } from './SubmapFlagGate'
+import { stockCodeMismatch, type StockCode } from './SubmapFlagGate'
+import {
+  FAST_LCLZ2,
+  commandRefusal,
+  preludeKey,
+  readDecompressor,
+  type FastRoutine,
+} from './GfxDecompressor'
 
 const PROLOGUE: BytePattern = [0xc2, 0x30, 0xa9, 0x00, 0x00, 0xe2, 0x20]
 /** LDX #$D000 / STX _0 / LDA #$7E / STA _2: the destination is OWLayer1Translevel. */
@@ -21,7 +28,7 @@ const SOURCES: [BytePattern, number, number, number][] = [
   [[0xa9, WILD, 0x85, 0x8c, 0xa2, WILD, WILD, 0x86, 0x8a], 5, 6, 1],
 ]
 /** PHP / PHK / PER +6 / PEA $804C / JML $00B8DE / PLP: the decompressor's RTS
- *  lands on $00804D, an RTL, which returns to the PLP. */
+ *  lands on $00804D, an RTL, which returns to the PLP. The JML target is pinned. */
 // prettier-ignore
 const CALL: BytePattern = [
   0x08, 0x4b, 0x62, 0x06, 0x00, 0xf4, 0x4c, 0x80, 0x5c, 0xde, 0xb8, WILD, 0x28,
@@ -36,14 +43,8 @@ const RETURN: StockCode = {
   what: 'the RTL the decompressor call returns through',
   cite: 'bank_00.asm:36',
 }
-/** CODE_00B8DE through ReadByte's RTS, the LC_LZ2 LcLz2.ts decodes. */
-export const DECOMPRESSOR: StockSpan = Object.freeze({
-  addr: 0x00b8de,
-  length: 0xb4,
-  fingerprints: Object.freeze(['5369c9a968738a2f3b402fe4480c2dcd6103e306832409962ad0bf9361d75fca']),
-  what: 'CODE_00B8DE, the LC_LZ2 decompressor',
-  cite: 'bank_00.asm:6294-6413',
-})
+const DECOMPRESSOR_ENTRY = 0x00b8de
+const UNDECODED = 'The stored translevel table cannot be decoded.'
 
 /**
  * The translevel per OWL1 buffer index, or why not; null when `entry` (a ROM
@@ -52,7 +53,7 @@ export const DECOMPRESSOR: StockSpan = Object.freeze({
 export function readLmTranslevels(
   rom: RomFile,
   entry: number,
-  decompressorFingerprints?: readonly string[],
+  fast: readonly FastRoutine[] = FAST_LCLZ2,
 ): Uint8Array | string | null {
   let at = entry
   const take = (p: BytePattern): Uint8Array | null => {
@@ -79,13 +80,21 @@ export function readLmTranslevels(
   const bra = take([0x80, WILD])
   if (!bra || !matchesAt(rom, at + ((bra[1]! << 24) >> 24), TAIL)) return null
 
-  const patched = stockCodeMismatch(rom, [RETURN, DECOMPRESSOR], decompressorFingerprints)
-  if (patched) return `${patched} The stored translevel table cannot be decoded.`
-  const data = rom.readUpTo(src, 0x10000)
+  const patched = stockCodeMismatch(rom, [RETURN])
+  if (patched) return `${patched} ${UNDECODED}`
+  const d = readDecompressor(rom, DECOMPRESSOR_ENTRY, fast)
+  if (!d.ok) return `${d.reason}. ${UNDECODED}`
+  // A prelude EORs its key into $8A-$8B, never $8C, before ReadByte loads through
+  // [$8A] (bank_00.asm:6406). This call enters at the prelude with the pointer the
+  // caller stored there, so that pointer is the keyed one.
+  const addr = src ^ preludeKey(rom, DECOMPRESSOR_ENTRY)!
+  const data = rom.readUpTo(addr, 0x10000)
+  const refused = data && commandRefusal(d.kind, data)
+  if (refused) return `the translevel table at $${hex6(addr)} does not decode: ${refused}.`
   const table = data ? tryDecompress(data) : { ok: false as const, reason: 'unreadable' }
-  if (!table.ok) return `the translevel table at $${hex6(src)} does not decode: ${table.reason}`
+  if (!table.ok) return `the translevel table at $${hex6(addr)} does not decode: ${table.reason}`
   if (table.bytes.length < 0x800) {
-    return `the translevel table at $${hex6(src)} decodes to ${table.bytes.length} bytes, short of $800.`
+    return `the translevel table at $${hex6(addr)} decodes to ${table.bytes.length} bytes, short of $800.`
   }
   return table.bytes
 }

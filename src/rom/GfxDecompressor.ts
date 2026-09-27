@@ -79,7 +79,12 @@ export function readDecompressor(
     ok: false,
     reason: replacedReason(entry, what),
   })
-  if (preludeKey(rom, entry) === null) return replaced('an unrecognized entry')
+  if (preludeKey(rom, entry) === null) {
+    const target = jslTarget(rom, entry)
+    return replaced(
+      `an unrecognized entry${target === null ? '' : ` that calls ${formatAddr(target)}`}`,
+    )
+  }
   if (matchesBytes(head.subarray(BODY_AT), STOCK_LCLZ2_ENTRY.slice(BODY_AT))) {
     return { ok: true, kind: 'stock' }
   }
