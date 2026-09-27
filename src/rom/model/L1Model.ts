@@ -29,6 +29,8 @@ import {
   loadRomPalettes,
 } from '../PaletteLoader'
 import { readLevelCol1 } from '../PaletteStockTables'
+import { bgr555ToRgba } from '../GraphicsDecoder'
+import { detectPaletteAnimation, type PaletteAnimContext } from '../PaletteAnimationDetect'
 
 /** Level modes whose L1 the game never loads: LoadLevel returns before the
  *  object stream for $09, $0B and $10 (bank_05.asm:431-437). */
@@ -47,9 +49,9 @@ export interface L1Inputs {
   /** Frame 0 of that animation: what a still picture composites from. */
   vram: VramState
   chars: Map<number, Char>
-  /** Why the animation frames are unverified or absent, when they are. */
+  /** Why the char or palette animation frames are unverified or absent, when they are. */
   animNote?: string
-  /** CGRAM, 256 colors, with any per-level override block applied. */
+  /** CGRAM, 256 colors, with any per-level override block and palette-animation frame 0 applied. */
   colors: RgbaColor[]
   /** CGRAM color 0, the backdrop the PPU shows where every layer is transparent. */
   backArea: RgbaColor
@@ -74,6 +76,29 @@ export function levelColors(
     colors: cgram.colors,
     backArea: loadBackAreaColors(rom)[header.bgColor] ?? [0, 0, 0, 255],
   }
+}
+
+/**
+ * CGRAM as the player first sees it: the level's palette animation writes
+ * its frame 0 over the stored color before a frame is shown (the level NMI
+ * path, e.g. `$64`; PaletteAnimationDetect.ts). When the routine cannot be
+ * read, the stored colors stand and the note says so.
+ */
+export function applyPaletteFrame0(
+  colors: readonly RgbaColor[],
+  level: PaletteAnimContext,
+): { colors: RgbaColor[]; note?: string } {
+  const out = [...colors]
+  if (!level.available) {
+    return {
+      colors: out,
+      note: `Palette animation couldn't be read: ${level.notes.join(' ')} Animated colors are shown as stored.`,
+    }
+  }
+  for (const t of level.targets) {
+    if (t.colors.length > 0) out[t.cgramIdx] = bgr555ToRgba(t.colors[0]!)
+  }
+  return { colors: out }
 }
 
 /** Read one map's L1 inputs, or why they cannot be read. Never a partial set. */
@@ -106,6 +131,9 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
     const frameZero = frameZeroChars(rom.rom, tileset, rawVram, loadExAnimData(rom.rom, index))
     const vram = frameZero?.vram ?? rawVram
     const chars = frameZero?.animData ? frameZero.chars : buildChars(vram)
+    const stored = levelColors(rom.rom, index, header, col1)
+    const palette = applyPaletteFrame0(stored.colors, detectPaletteAnimation(rom.rom).level)
+    const notes = [frameZero?.error, palette.note].filter(Boolean)
     return {
       ok: true,
       inputs: {
@@ -118,8 +146,9 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
         anim: frameZero?.animData ?? null,
         vram,
         chars,
-        animNote: frameZero?.error,
-        ...levelColors(rom.rom, index, header, col1),
+        animNote: notes.length > 0 ? notes.join(' ') : undefined,
+        colors: palette.colors,
+        backArea: stored.backArea,
       },
     }
   } catch (err) {
