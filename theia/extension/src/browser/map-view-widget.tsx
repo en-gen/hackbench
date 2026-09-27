@@ -70,6 +70,7 @@ export class MapViewWidget extends ReactWidget {
   protected readonly screens = new Map<string, ImageData>()
   protected readonly pending = new Set<string>()
   protected readonly canvases = new Map<number, HTMLCanvasElement>()
+  protected readonly iconCanvases = new Map<Palace, HTMLCanvasElement>()
   protected scroller: HTMLDivElement | null = null
   /** Refits when the strip's box changes, e.g. when the facts line arrives above it. */
   protected readonly resizes = new ResizeObserver(() => this.fitStrip())
@@ -209,7 +210,7 @@ export class MapViewWidget extends ReactWidget {
     this.paint(screen)
   }
 
-  /** Paints a screen's cached picture, or clears one left from an older state or a failed fetch. */
+  /** Paints a screen's cached picture, or clears it after a failed fetch. */
   protected paint(screen: number): void {
     const canvas = this.canvases.get(screen)
     if (!canvas) return
@@ -218,7 +219,9 @@ export class MapViewWidget extends ReactWidget {
     if (img) {
       ctx?.putImageData(img, 0, 0)
       canvas.dataset.drawn = `${this.generation}:${this.key(screen)}`
-    } else if (this.screenError || canvas.dataset.drawn?.split(':')[0] !== `${this.generation}`) {
+    } else if (this.screenError) {
+      // A failed fetch: an older picture must not stand as if it were current.
+      // Otherwise it stays until the reply lands, marked by its old generation.
       ctx?.clearRect(0, 0, canvas.width, canvas.height)
       delete canvas.dataset.drawn
     }
@@ -259,6 +262,26 @@ export class MapViewWidget extends ReactWidget {
   protected override onResize(msg: Widget.ResizeMessage): void {
     super.onResize(msg)
     this.fitStrip()
+  }
+
+  /**
+   * Repaints every canvas from the cache once React has committed, rather
+   * than trusting ref callbacks to fire: a canvas React keeps keeps its
+   * pixels, one it recreates starts blank, and this covers both.
+   */
+  protected override onUpdateRequest(msg: Message): void {
+    super.onUpdateRequest(msg)
+    requestAnimationFrame(() => this.repaintAll())
+  }
+
+  protected repaintAll(): void {
+    for (const s of this.canvases.keys()) this.paint(s)
+    for (const [p, canvas] of this.iconCanvases) {
+      const icon = this.icons.get(p)
+      if (!icon || !('cleared' in icon)) continue
+      const src = this.flags[p] ? icon.cleared : icon.uncleared
+      canvas.getContext('2d')?.putImageData(new ImageData(decodeRgba(src), 16, 16), 0, 0)
+    }
   }
 
   protected override onActivateRequest(msg: Message): void {
@@ -342,7 +365,8 @@ export class MapViewWidget extends ReactWidget {
             width={16}
             height={16}
             ref={el => {
-              el?.getContext('2d')?.putImageData(new ImageData(decodeRgba(src), 16, 16), 0, 0)
+              if (el) this.iconCanvases.set(p, el)
+              else this.iconCanvases.delete(p)
             }}
           />
         ) : (
@@ -384,10 +408,8 @@ export class MapViewWidget extends ReactWidget {
             height={l.height}
             style={{ width: l.width * this.zoom, height: l.height * this.zoom }}
             ref={el => {
-              if (!el) return void this.canvases.delete(s)
-              const fresh = this.canvases.get(s) !== el
-              this.canvases.set(s, el)
-              if (fresh) this.paint(s)
+              if (el) this.canvases.set(s, el)
+              else if (this.canvases.get(s)?.isConnected === false) this.canvases.delete(s)
             }}
           />
         ))}
