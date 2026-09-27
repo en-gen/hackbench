@@ -1,13 +1,8 @@
 /**
- * Stops Ctrl + wheel from ever reaching Chromium's own page-zoom (#651).
- *
- * A view's `ZoomController.bindWheel` already preventDefault's Ctrl + wheel
- * over its own scroll node, which is enough while the pointer is over a
- * zoom-aware view. Elsewhere - the explorer, a panel with no zoom control,
- * the gap between widgets - nothing does, so Chromium still zooms the whole
- * window. This contribution is the backstop: a bubble-phase (not capture)
- * window listener, so a view's own handler runs first and can still decide
- * what to do; this one just guarantees SOME handler always preventDefault's.
+ * Cancels Ctrl + wheel everywhere in the shell (#651): only a zoom
+ * stepper's own `ZoomController.bindWheel` ever acts on it. Capture phase,
+ * so this runs before a bubble-phase handler deeper in the DOM (Monaco
+ * stops propagation on its own) can swallow the event first.
  */
 import { injectable } from '@theia/core/shared/inversify'
 import { FrontendApplicationContribution } from '@theia/core/lib/browser'
@@ -20,7 +15,7 @@ export class CtrlWheelGuardContribution implements FrontendApplicationContributi
       e => {
         if (e.ctrlKey) e.preventDefault()
       },
-      { passive: false },
+      { passive: false, capture: true },
     )
   }
 }

@@ -2,6 +2,7 @@
 // compiles with rootDir at the repo root (see tsconfig.json, #391), so a
 // relative path from lib/ would not land back in src/.
 import 'hackbench-theia-extension/src/browser/style/index.css'
+import 'hackbench-theia-extension/src/browser/style/zoom.css'
 import { ContainerModule } from '@theia/core/shared/inversify'
 import { CommandContribution, MenuContribution } from '@theia/core/lib/common'
 import {
@@ -78,9 +79,6 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   bind(BrandContribution).toSelf().inSingletonScope()
   bind(FrontendApplicationContribution).toService(BrandContribution)
 
-  // Ctrl + wheel drives on-screen zoom controls and nothing else (#651) - see
-  // the contribution's own doc comment for why this is a bubble-phase backstop
-  // rather than the thing that decides what Ctrl + wheel does.
   bind(CtrlWheelGuardContribution).toSelf().inSingletonScope()
   bind(FrontendApplicationContribution).toService(CtrlWheelGuardContribution)
 
