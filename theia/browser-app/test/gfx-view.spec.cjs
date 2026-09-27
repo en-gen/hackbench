@@ -113,6 +113,16 @@ function firstGfxFileRow(page) {
   return page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(MAP16_ROW_COUNT)
 }
 
+/** The `n`th GFX FILE row (0-based), same offset as `firstGfxFileRow`. */
+function gfxFileRow(page, n) {
+  return page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(MAP16_ROW_COUNT + n)
+}
+
+/** One GFX view widget's dom root, keyed by file index - GFX_VIEW_ID in gfx-view-widget.tsx. */
+function gfxViewRoot(index) {
+  return `[id="hackbench.gfx-view:${index}"]`
+}
+
 test('the graphics view has nothing to show until a project is open', async ({ page }) => {
   await revealGfx(page)
 
@@ -488,4 +498,86 @@ test('the graphics explorer and GFX view speak of ROMs, never cartridges', async
   const explorer = () => shownWords(page, '[id="hackbench.gfx-explorer"]')
   await expect.poll(explorer).toContain('Locate the base ROM')
   expect(await explorer()).not.toMatch(CART)
+})
+
+/**
+ * Ctrl + wheel over the GFX sheet (#651), mirroring map16-view.spec.cjs's
+ * own coverage. The GFX zoom stepper reads the SAME shared `ZoomController`
+ * every open sheet does (gfx-view-widget.tsx's `sharedZoomController`), so
+ * the interesting case here is the SECOND part: does a wheel-driven step on
+ * one sheet also move a sheet that never received the event.
+ */
+async function ctrlWheel(page, locator, deltaY) {
+  const box = await locator.boundingBox()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, deltaY)
+  await page.keyboard.up('Control')
+  await page.waitForTimeout(200)
+}
+
+test('Ctrl + wheel over the GFX sheet steps its zoom indicator and canvas size', async ({
+  page,
+}) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(300)
+
+  const canvas = page.locator('.hb-gfx-view-canvas')
+  const wrap = page.locator('.hb-gfx-view-canvas-wrap')
+  const widthBefore = await canvas.evaluate(el => el.getBoundingClientRect().width)
+  const indicator = page.locator('[data-control="zoom-indicator"]')
+  const before = await indicator.textContent()
+
+  await ctrlWheel(page, wrap, -120)
+
+  const after = await indicator.textContent()
+  expect(after).not.toBe(before)
+  const widthAfter = await canvas.evaluate(el => el.getBoundingClientRect().width)
+  expect(widthAfter).toBeGreaterThan(widthBefore)
+})
+
+test('Ctrl + wheel on the GFX sheet clamps at 1x and 8x', async ({ page }) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(300)
+
+  const wrap = page.locator('.hb-gfx-view-canvas-wrap')
+  const indicator = page.locator('[data-control="zoom-indicator"]')
+
+  await ctrlWheel(page, wrap, -2000)
+  await expect(indicator).toHaveText('8x')
+  await expect(page.locator('[data-control="zoom-in"]')).toBeDisabled()
+
+  await ctrlWheel(page, wrap, 2000)
+  await expect(indicator).toHaveText('1x')
+  await expect(page.locator('[data-control="zoom-out"]')).toBeDisabled()
+})
+
+test('a second open GFX sheet follows a zoom change made on the first', async ({ page }) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
+
+  await gfxFileRow(page, 0).dblclick() // pin file 0
+  await gfxFileRow(page, 1).dblclick() // pin file 1 as a second, independent widget
+  await page.waitForSelector(`${gfxViewRoot(1)} .hb-gfx-view-canvas`, { timeout: 15000 })
+  await page.waitForTimeout(300)
+
+  const indicatorFor = index =>
+    page.locator(`${gfxViewRoot(index)} [data-control="zoom-indicator"]`)
+  const before0 = await indicatorFor(0).textContent()
+  const before1 = await indicatorFor(1).textContent()
+  expect(before1).toBe(before0) // shared controller: both open at the same zoom
+
+  const wrap1 = page.locator(`${gfxViewRoot(1)} .hb-gfx-view-canvas-wrap`)
+  await ctrlWheel(page, wrap1, -120) // wheel over sheet 1 only
+
+  await expect(indicatorFor(1)).not.toHaveText(before1)
+  // Sheet 0 never received a wheel event, but the shared controller moved it too.
+  await expect(indicatorFor(0)).toHaveText(await indicatorFor(1).textContent())
 })

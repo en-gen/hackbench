@@ -2297,3 +2297,106 @@ test("turning an inspector switch on leaves the hidden tile's sheet cell unchang
   await page.locator(`${FG} .hb-map16-browser-head`).hover()
   expect(await tilePixels(page, HIDDEN_TILE_ID)).toEqual(before)
 })
+
+/**
+ * Ctrl + wheel over an on-screen zoom control (#651): it steps the SAME
+ * indicator/canvas the toolbar buttons drive, it clamps exactly where the
+ * buttons clamp, it never touches the Chromium UI zoom level, and PLAIN
+ * wheel is left doing what it always did (scrolling the strip).
+ *
+ * `page.mouse.wheel` dispatches a real `wheel` event with `ctrlKey` set
+ * from whatever modifier keys are currently held, so `keyboard.down/up`
+ * around it is what makes this Ctrl + wheel rather than a plain scroll -
+ * exactly the distinction `ZoomController.bindWheel` gates on.
+ */
+
+/** The UI (Chromium page) zoom level, as something a test can compare
+ * before/after - `visualViewport.scale` is 1 at 100% and changes with
+ * Ctrl+=/Ctrl+- or Ctrl+wheel page zoom, independent of any on-screen
+ * control's own CSS. */
+async function uiZoomFingerprint(page) {
+  return page.evaluate(() => ({
+    scale: window.visualViewport ? window.visualViewport.scale : 1,
+    htmlWidth: document.documentElement.getBoundingClientRect().width,
+  }))
+}
+
+async function ctrlWheel(page, locator, deltaY, steps = 1) {
+  const box = await locator.boundingBox()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.keyboard.down('Control')
+  for (let i = 0; i < steps; i++) await page.mouse.wheel(0, deltaY)
+  await page.keyboard.up('Control')
+  await page.waitForTimeout(200)
+}
+
+test('Ctrl + wheel over the Map16 strip steps the zoom indicator and the canvas size', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+
+  const wrap = page.locator(`${FG} .hb-map16-canvas-wrap`)
+  const canvas = page.locator(`${FG} .hb-map16-canvas`)
+  const widthBefore = await canvas.evaluate(el => el.getBoundingClientRect().width)
+  expect(await page.locator(ctl('zoom-indicator')).textContent()).toBe(`${DEFAULT_ZOOM}x`)
+
+  // One notch (~100px of accumulated delta) is one step, same as one click
+  // of the zoom-in button.
+  await ctrlWheel(page, wrap, -120)
+
+  await expect(page.locator(ctl('zoom-indicator'))).toHaveText(`${DEFAULT_ZOOM + 1}x`)
+  const widthAfter = await canvas.evaluate(el => el.getBoundingClientRect().width)
+  expect(widthAfter).toBeGreaterThan(widthBefore)
+})
+
+test('Ctrl + wheel clamps at the same limits as the zoom buttons', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  const wrap = page.locator(`${FG} .hb-map16-canvas-wrap`)
+
+  // Zoom in far past the 4x ceiling with one big scroll.
+  await ctrlWheel(page, wrap, -1000)
+  await expect(page.locator(ctl('zoom-indicator'))).toHaveText('4x')
+  await expect(page.locator(ctl('zoom-in'))).toBeDisabled()
+
+  // And back down past the 1x floor.
+  await ctrlWheel(page, wrap, 2000)
+  await expect(page.locator(ctl('zoom-indicator'))).toHaveText('1x')
+  await expect(page.locator(ctl('zoom-out'))).toBeDisabled()
+})
+
+test('Ctrl + wheel never changes the Chromium UI zoom level, over the sheet or elsewhere', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+
+  const before = await uiZoomFingerprint(page)
+
+  const wrap = page.locator(`${FG} .hb-map16-canvas-wrap`)
+  await ctrlWheel(page, wrap, -120)
+  expect(await uiZoomFingerprint(page)).toEqual(before)
+
+  // Also over a plain area with no zoom control at all - the explorer tree -
+  // where the global guard contribution is the only thing stopping it.
+  const explorer = page.locator('#hackbench\\.gfx-explorer')
+  await ctrlWheel(page, explorer, -120)
+  expect(await uiZoomFingerprint(page)).toEqual(before)
+})
+
+test('plain wheel still scrolls the Map16 strip and does not touch zoom', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  const wrap = page.locator(`${FG} .hb-map16-canvas-wrap`)
+
+  const scrollBefore = await wrap.evaluate(el => el.scrollTop)
+  const box = await wrap.boundingBox()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.wheel(0, 400) // no Control held
+  await page.waitForTimeout(200)
+
+  const scrollAfter = await wrap.evaluate(el => el.scrollTop)
+  expect(scrollAfter).toBeGreaterThan(scrollBefore)
+  expect(await page.locator(ctl('zoom-indicator')).textContent()).toBe(`${DEFAULT_ZOOM}x`)
+})
