@@ -16,6 +16,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
+import { RomFile } from '../../../src/rom/RomFile'
+import { readTranslevelBias } from '../../../src/rom/SubmapFlagGate'
 import { getAllLevelNames } from '../../../src/rom/SmwLevelNames'
 import { loadOverworldEvents } from '../../../src/rom/OverworldEvents'
 import {
@@ -26,11 +28,17 @@ import {
 import { MAGIC, VANILLA, hasRom, romPath } from '../support/corpus'
 
 const HEADERED = MAGIC
-const REBUILT_OVERWORLD = [
-  'Seven_Vanilla_Levels.sfc',
-  'GrandPooWorld_V1.2.sfc',
-  'Grand Poo World 2 1.1.sfc',
-  'Invictus 1.0.sfc',
+/** Edited corpus ROMs whose CODE_05D83E is not a recognized build. */
+const REBUILT_OVERWORLD: [string, string][] = [
+  ['Grand Poo World 2 1.1.sfc', 'rebuilt by another editor'],
+  ['Invictus 1.0.sfc', 'rebuilt by another editor'],
+]
+
+/** Lunar Magic ROMs read through the entry hook and the stored table, with one
+ *  entrance each traced by hand: [bufferIndex, translevel, slot]. */
+const LM_OVERWORLD: [string, number, [number, number, number]][] = [
+  ['GrandPooWorld_V1.2.sfc', 44, [0x36, 0x26, 0x102]],
+  ['Seven_Vanilla_Levels.sfc', 18, [0x42a, 0x07, 0x007]],
 ]
 
 /** Measured on vanilla: the 77 entry maps an overworld launch tile starts. */
@@ -238,7 +246,7 @@ describe.skipIf(!haveVanilla || !hasRom(HEADERED))(
   },
 )
 
-for (const name of REBUILT_OVERWORLD) {
+for (const [name, gate] of REBUILT_OVERWORLD) {
   describe.skipIf(!hasRom(name))(`fail closed: ${name}`, () => {
     it('reports the derivation unavailable instead of a vanilla-shaped list', () => {
       const result = deriveOverworldEntrances(SmwRom.open(romPath(name)))
@@ -246,8 +254,33 @@ for (const name of REBUILT_OVERWORLD) {
       expect(result.entryMaps).toEqual([])
       expect(result.entrances).toEqual([])
       expect(result.notes).toHaveLength(1)
-      expect(result.notes[0]).toContain('rebuilt by another editor')
-      expect(result.notes[0]).toContain('unmodified ROM')
+      expect(result.notes[0]).toContain(gate)
+    })
+  })
+}
+
+for (const [name, count, traced] of LM_OVERWORLD) {
+  describe.skipIf(!hasRom(name))(`stored translevels: ${name}`, () => {
+    it('reads the entrances from the stored table', () => {
+      const result = deriveOverworldEntrances(SmwRom.open(romPath(name)))
+      expect(result.overworldReadable).toBe(true)
+      expect(result.entrances).toHaveLength(count)
+      const [bufferIndex, translevel, slot] = traced
+      expect(result.entrances.find(e => e.bufferIndex === bufferIndex)).toMatchObject({
+        translevel,
+        slot,
+      })
+    })
+  })
+  describe.skipIf(!hasRom(name))(`entry hook: ${name}`, () => {
+    it("reads the mapping from Lunar Magic's routine", () => {
+      expect(readTranslevelBias(RomFile.load(romPath(name)))).toEqual({
+        ok: true,
+        threshold: 0x25,
+        bias: 0x24,
+        submapHigh: 1,
+        high: 'translevel',
+      })
     })
   })
 }

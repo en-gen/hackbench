@@ -99,16 +99,10 @@
  *
  * ── Fail-closed on ROMs built with another editor ───────────────────────
  *
- * Third-party overworld editors replace the high-byte gate: `$05D8B1` holds
- * the `BEQ` opcode $F0 in a stock ROM (bank_05.asm:7224) and $22 (JSL) once
- * patched. Measured over this repo's six-ROM corpus, the two stock ROMs hold
- * $F0 and the four edited ones hold $22 -- an empirical corpus observation,
- * not an ASM claim. SubmapFlagGate.ts checks that instruction and the path
- * into it. On any ROM where they are not stock the translevel ->
- * slot mapping is computed by code this module does not decode, so the
- * derivation reports itself unavailable and emits nothing. No map can then
- * be identified as an entry map; every map stays unclassified and fully
- * editable, which is the point of ordering the tiers this way.
+ * Lunar Magic's entry hook (SubmapFlagGate.ts) and stored translevel table
+ * (LmTranslevelTable.ts) are read. On any other code the derivation reports
+ * itself unavailable and emits nothing, so every map stays unclassified and
+ * fully editable, which is the point of ordering the tiers this way.
  */
 
 import type { RomFile } from './RomFile'
@@ -116,14 +110,13 @@ import type { SmwRom, OverworldRoots } from './SmwRom'
 import { buildLevelCatalog, type LevelCatalog } from './LevelCatalog'
 import { loadOverworldEvents } from './OverworldEvents'
 import {
-  OVERWORLD_ENTRY,
   OVERWORLD_INDEX_BODY,
   readTranslevelBias,
-  stockCodeMismatch,
   translevelToPointerIndex,
 } from './SubmapFlagGate'
 import { findUnique, matchesAt, WILD, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
+import { readLmTranslevels } from './LmTranslevelTable'
 import {
   OW_L1_MAP16_BYTES,
   OW_SUBAREA_TILES_W,
@@ -157,6 +150,8 @@ export const WALK_PROLOGUE_LENGTH = 43
 export interface OverworldFingerprints {
   entry: readonly string[]
   walk: readonly string[]
+  /** CODE_00B8DE, for Lunar Magic's stored table; its stock builds when absent. */
+  decompressor?: readonly string[]
   /** BonusEntrances' CODE_05D796 span; its own stock builds when absent. */
   bonus?: readonly string[]
 }
@@ -243,9 +238,17 @@ const PIPE_TILE: BytePattern = [
   0xd0, 0x11,       // BNE OWPU_NotOnPipe
 ]
 
+/** OWPU_NotOnPipe: tiles from $81 up do not start a map (bank_04.asm:1788-1790). */
+// prettier-ignore
+export const ENTER_COMPARE: BytePattern = [
+  0xc9, 0x81, // CMP #$81
+  0xf0, WILD, // BEQ CODE_0491E9
+  0xb0, WILD, // BCS CODE_0491E9
+]
+
 const byteAt = (rom: RomFile, at: number): number => rom.readAtFileOffset(at, 1)![0]!
 
-interface Walk {
+export interface Walk {
   /** SNES address of the stream CODE_04DC09 copies, from its LDX and MVN operands. */
   stream: number
   /** Bytes walked, from `CPY #bound`. */
@@ -253,27 +256,43 @@ interface Walk {
   start: number
   min: number
   max: number
+  /** Lunar Magic's stored translevel per buffer index, in place of counting. */
+  translevels?: Uint8Array
 }
+
+const NOT_STOCK_WALK =
+  'CODE_04D7F2, the translevel walk, is not reached from its call in CODE_04DC09 through ' +
+  'stock code (bank_04.asm:5264-5309, :5679).'
 
 /** The walk's stream, tile range and starting number, read only where the call reaches them.
  *  Hack-fragility point: CODE_04DC09's own callers (bank_00.asm:2639, :4321) are not checked. */
-function readWalk(rom: RomFile, prologueFingerprints: readonly string[]): Walk | null {
+export function readWalk(
+  rom: RomFile,
+  prologueFingerprints: readonly string[] = STOCK_OVERWORLD_FINGERPRINTS.walk,
+  decompressorFingerprints?: readonly string[],
+): Walk | string {
   const call = findUnique(rom, WALK_CALL)
-  if (call === null) return null
+  if (call === null) return NOT_STOCK_WALK
   const word = (at: number): number => byteAt(rom, at) | (byteAt(rom, at + 1) << 8)
   const operand = word(call + WALK_CALL_JSR + 1)
-  if (operand < 0x8000) return null
+  if (operand < 0x8000) return NOT_STOCK_WALK
   const entry = (call & ~0x7fff) | (operand & 0x7fff)
+  const stream = (byteAt(rom, call + 11) << 16) | word(call + 4)
   const prologue = fingerprint(rom.readAtFileOffset(entry, WALK_PROLOGUE_LENGTH))
-  if (prologue === null || !prologueFingerprints.includes(prologue)) return null
+  if (prologue === null || !prologueFingerprints.includes(prologue)) {
+    const lm = readLmTranslevels(rom, entry, decompressorFingerprints)
+    if (!(lm instanceof Uint8Array)) return lm ?? NOT_STOCK_WALK
+    // The MVN count ($07FF, pinned) copies $800 tiles; the table past them is directions.
+    return { stream, length: OW_L1_MAP16_BYTES, start: 0, min: 0, max: 0, translevels: lm }
+  }
   const walk = matchesAt(rom, entry + WALK_PROLOGUE_LENGTH, WALK)
   const body = matchesAt(rom, entry + WALK_PROLOGUE_LENGTH + WALK.length, WALK_BODY)
-  if (!walk || !body) return null
+  if (!walk || !body) return NOT_STOCK_WALK
   // OWLayer1Translevel is $800 bytes; a bound of 0 or past it is not a walk we can model.
   const length = body[15]! | (body[16]! << 8)
-  if (length === 0 || length > OW_L1_MAP16_BYTES) return null
+  if (length === 0 || length > OW_L1_MAP16_BYTES) return NOT_STOCK_WALK
   return {
-    stream: (byteAt(rom, call + 11) << 16) | word(call + 4),
+    stream,
     length,
     start: walk[1]!,
     min: walk[24]!,
@@ -284,6 +303,9 @@ function readWalk(rom: RomFile, prologueFingerprints: readonly string[]): Walk |
 export interface WarpTiles {
   starWarpTile: number
   pipeWarpTile: number
+  /** Why OWPU_NotOnPipe's tile compare is not the stock one, so `action: 'map'`
+   *  is the tile's best reading rather than what the ROM decides; null when stock. */
+  enterUnverified: string | null
 }
 
 /** OWPU_ABXY's two warp tiles, verified from CODE_049132's debug skip onward:
@@ -300,7 +322,12 @@ export function readWarpTiles(rom: RomFile): WarpTiles | null {
   const notOnStar = star + STAR_TILE.length + ((byteAt(rom, star + 20) << 24) >> 24)
   const pipe = matchesAt(rom, notOnStar, PIPE_TILE)
   if (!pipe) return null
-  return { starWarpTile: byteAt(rom, star + 18), pipeWarpTile: pipe[8]! }
+  const notOnPipe = notOnStar + PIPE_TILE.length + pipe[10]!
+  const enterUnverified = matchesAt(rom, notOnPipe, ENTER_COMPARE)
+    ? null
+    : 'OWPU_NotOnPipe (bank_04.asm:1788-1790) does not hold the stock tile compare, so ' +
+      'whether this tile starts a map is decided by code HackBench does not read.'
+  return { starWarpTile: byteAt(rom, star + 18), pipeWarpTile: pipe[8]!, enterUnverified }
 }
 
 /**
@@ -323,7 +350,7 @@ export interface OverworldEntrance {
   bufferIndex: number
   /** SNES address of the `OWL1TileData` byte -- the byte an editor rewrites. */
   tileDataAddress: number
-  /** 0 = main-map buffer half, 1 = sub-map half. This IS the high-byte gate. */
+  /** 0 = main-map buffer half, 1 = sub-map half: the stock high-byte gate. */
   layout: 0 | 1
   /** Tile column 0-31 within the layout's 32x32 Map16 grid. */
   tileX: number
@@ -339,6 +366,8 @@ export interface OverworldEntrance {
   action: EntranceAction
   /** True when `slot` holds real data, i.e. is a map rather than filler. */
   isMap: boolean
+  /** Set when `action` is drawn from the tile alone because the ROM decides it elsewhere. */
+  actionUnverified?: string
 }
 
 export interface OverworldEntranceIndex {
@@ -472,31 +501,18 @@ export function deriveOverworldEntrances(
   catalog?: LevelCatalog,
   fingerprints: OverworldFingerprints = STOCK_OVERWORLD_FINGERPRINTS,
 ): OverworldEntranceIndex {
-  const patched = stockCodeMismatch(rom.rom, OVERWORLD_ENTRY, fingerprints.entry)
-  if (patched) {
-    return unavailable([
-      `Overworld not readable: ${patched} This ROM's overworld was rebuilt by another ` +
-        'editor, whose translevel-to-slot ' +
-        'mapping is code HackBench does not decode. No entry maps can be identified, so ' +
-        'every map is left unclassified and stays fully editable. To get the overworld ' +
-        'grouping, start from an unmodified ROM.',
-    ])
-  }
-
-  // Already proved stock above; this only reads the three operands.
   const mapping = readTranslevelBias(rom.rom, fingerprints.entry)
   if (!mapping.ok) {
     return unavailable([
-      `Overworld not readable: ${mapping.reason} No entry maps can be identified.`,
+      `Overworld not readable: ${mapping.reason} This ROM's overworld was rebuilt by ` +
+        'another editor, whose translevel-to-slot mapping is code HackBench does not ' +
+        'decode. No entry maps can be identified, so every map is left unclassified and ' +
+        'stays fully editable. To get the overworld grouping, start from an unmodified ROM.',
     ])
   }
-  const walk = readWalk(rom.rom, fingerprints.walk)
-  if (!walk) {
-    return unavailable([
-      'Overworld not readable: CODE_04D7F2, the translevel walk, is not reached from its ' +
-        'call in CODE_04DC09 through stock code (bank_04.asm:5264-5309, :5679). No entry ' +
-        'maps can be identified.',
-    ])
+  const walk = readWalk(rom.rom, fingerprints.walk, fingerprints.decompressor)
+  if (typeof walk === 'string') {
+    return unavailable([`Overworld not readable: ${walk} No entry maps can be identified.`])
   }
 
   const stream = rom.rom.readAt(walk.stream, walk.length)
@@ -513,11 +529,17 @@ export function deriveOverworldEntrances(
   let counter = walk.start
   let wrapped = false
   for (let bufferIndex = 0; bufferIndex < walk.length; bufferIndex++) {
-    const tile = stream[bufferIndex]!
-    if (tile < walk.min || tile > walk.max) continue
-    const translevel = counter
-    counter = (counter + 1) & 0xff
-    if (counter === 0) wrapped = true
+    let translevel: number
+    if (walk.translevels) {
+      translevel = walk.translevels[bufferIndex]!
+      if (translevel === 0) continue
+    } else {
+      const tile = stream[bufferIndex]!
+      if (tile < walk.min || tile > walk.max) continue
+      translevel = counter
+      counter = (counter + 1) & 0xff
+      if (counter === 0) wrapped = true
+    }
     const layout: 0 | 1 = bufferIndex >= SUBMAP_BUFFER_BASE ? 1 : 0
     const slot = translevelToPointerIndex(mapping, translevel, layout)
     walked.push({ bufferIndex, translevel, layout, slot })
@@ -554,10 +576,11 @@ export function deriveOverworldEntrances(
       map16Tile,
       action: classifyTile(map16Tile, precursors, warpTiles.starWarpTile, warpTiles.pipeWarpTile),
       isMap: cat.entries[slot]?.isReal ?? false,
+      ...(warpTiles.enterUnverified && { actionUnverified: warpTiles.enterUnverified }),
     }
   })
   const mainMapBiased = entrances.filter(
-    e => e.layout === 0 && e.translevel >= mapping.threshold,
+    e => mapping.high === 'submap' && e.layout === 0 && e.translevel >= mapping.threshold,
   ).length
 
   const launching = entrances.filter(e => e.action === 'map')
@@ -595,6 +618,14 @@ export function deriveOverworldEntrances(
       'The translevel counter wrapped past $FF (`INC.B _0`, bank_04.asm:5306 is an 8-bit ' +
         'increment). Slots after the wrap collide with earlier ones, exactly as they would ' +
         'in-game.',
+    )
+  }
+  if (warpTiles.enterUnverified) notes.push(`Unverified: ${warpTiles.enterUnverified}`)
+  if (mapping.high === 'translevel') {
+    notes.push(
+      "Lunar Magic's routine at $05D8B1 takes the high byte from the translevel, not the " +
+        `submap: translevels from $${mapping.threshold.toString(16).toUpperCase()} land in $1xx ` +
+        'on either map, and the rest in $0xx.',
     )
   }
   if (mainMapBiased > 0) {

@@ -2,6 +2,7 @@ import * as path from 'path'
 import { RomFile } from '../../../src/rom/RomFile'
 import { ADDR, LEVEL_COUNT } from '../../../src/rom/SmwRom'
 import {
+  LM_ENTRY_HOOK,
   OVERWORLD_ENTRY,
   OVERWORLD_INDEX_BODY,
   SCREEN_EXIT,
@@ -14,6 +15,8 @@ import {
   type OverworldFingerprints,
 } from '../../../src/rom/OverworldEntrances'
 import { fingerprint } from '../../../src/rom/Fingerprint'
+import { DECOMPRESSOR } from '../../../src/rom/LmTranslevelTable'
+import { WILD } from '../../../src/rom/BytePattern'
 
 // 512 KB: `size % 1024 !== 512`, so RomFile reads no copier header (+512).
 // Large enough to reach bank $0C, where the overworld tile stream lives.
@@ -50,6 +53,7 @@ function syntheticCall(): Buffer {
 export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
   entry: Object.freeze([fingerprint(nops(OVERWORLD_INDEX_BODY.length))!]),
   walk: Object.freeze([fingerprint(nops(WALK_PROLOGUE_LENGTH))!]),
+  decompressor: Object.freeze([fingerprint(nops(DECOMPRESSOR.length))!]),
   bonus: Object.freeze([spanFingerprint(syntheticCall(), BONUS_CALL.mask)!]),
 })
 
@@ -83,6 +87,30 @@ export function plantStockSubmapCode(rom: RomFile): void {
   rom.writeAt(0x049150, [0xa5, 0x16, 0x05, 0x18, 0x29, 0xc0, 0xd0, 0x03, 0x82, 0x00, 0x00])
   rom.writeAt(0x04915b, [0x9c, 0x9e, 0x1b, 0xad, 0xc1, 0x13, 0xc9, 0x5f, 0xd0, 0x18])
   rom.writeAt(0x04917d, [0xad, 0xc1, 0x13, 0xc9, 0x82, 0xf0, 0x04, 0xc9, 0x5b, 0xd0, 0x11])
+  rom.writeAt(0x049199, [0xc9, 0x81, 0xf0, 0x4c, 0xb0, 0x4a])
+}
+
+/** A blank 512 KB LoROM image carrying the stock code above. */
+export function blankStockRom(): RomFile {
+  const buf = Buffer.alloc(BUF_SIZE, 0)
+  buf[MAP_MODE_OFFSET] = 0x20
+  const rom = new RomFile('synthetic.sfc', buf)
+  plantStockSubmapCode(rom)
+  return rom
+}
+
+/** Lunar Magic's JSL at $05D8B1 into its routine at `at`, with the routine's
+ *  own CMP and SBC operands. The stock site keeps its stock operands. */
+export function plantLmEntryHook(
+  rom: RomFile,
+  { at = 0x05dcd0, threshold = 0x25, bias = 0x24 } = {},
+): void {
+  rom.writeAt(0x05d8b1, [0x22, at & 0xff, (at >> 8) & 0xff, at >> 16])
+  const operands = [threshold, bias]
+  rom.writeAt(
+    at,
+    LM_ENTRY_HOOK.map(b => (b === WILD ? operands.shift()! : b)),
+  )
 }
 
 /** CODE_05DBAC and the primary-exit landing, both off vanilla's addresses to split vanilla runs. */

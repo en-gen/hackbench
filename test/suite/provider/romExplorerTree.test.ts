@@ -35,6 +35,8 @@ vi.mock('../../../src/rom/SubmapFlagGate', async importOriginal => {
     ...real,
     stockCodeMismatch: (...[rom, checks, fp]: Parameters<typeof real.stockCodeMismatch>) =>
       real.stockCodeMismatch(rom, checks, fp ?? entry),
+    readTranslevelBias: (...[rom, fp]: Parameters<typeof real.readTranslevelBias>) =>
+      real.readTranslevelBias(rom, fp ?? entry),
   }
 })
 vi.mock('../../../src/rom/OverworldEntrances', async importOriginal => {

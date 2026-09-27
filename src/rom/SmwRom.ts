@@ -30,10 +30,10 @@ import { parseLevelObjects } from './LevelParser'
 import { levelNameForSlot } from './SmwLevelNames'
 import { deriveOverworldEntrances, type OverworldEntranceIndex } from './OverworldEntrances'
 import {
-  OVERWORLD_ENTRY,
   SCREEN_EXIT,
   SCREEN_EXIT_HIGH_AT,
   readSubmapHigh,
+  readTranslevelBias,
   stockCodeMismatch,
 } from './SubmapFlagGate'
 import {
@@ -392,11 +392,9 @@ export class SmwRom {
     roots: OverworldRoots | null,
     entryFingerprints?: readonly string[],
   ): LevelExitGraph {
-    const unavailable = stockCodeMismatch(
-      this.rom,
-      [...OVERWORLD_ENTRY, ...SCREEN_EXIT],
-      entryFingerprints,
-    )
+    const entry = readTranslevelBias(this.rom, entryFingerprints)
+    if (!entry.ok) return { graph: new Map(), unavailable: entry.reason }
+    const unavailable = stockCodeMismatch(this.rom, SCREEN_EXIT)
     if (unavailable) return { graph: new Map(), unavailable }
 
     const destTable = this.rom.readAt(ADDR.SEC_EXIT_DEST, ADDR.SEC_ENTRANCE_COUNT)
@@ -416,7 +414,7 @@ export class SmwRom {
     // submap entrances load high byte 1. With 0 they land in $0xx, yet their exits
     // still take the screen-exit byte (OWPlayerSubmap is set), so a $0xx root's
     // layout is unknown here.
-    if (this.rom.readByte(0x05d8b4) === 0 && screenHigh !== 0) {
+    if (entry.high === 'submap' && entry.submapHigh === 0 && screenHigh !== 0) {
       return {
         graph: new Map(),
         unavailable:
@@ -483,10 +481,16 @@ export class SmwRom {
     const queue: number[] = []
     for (const root of overworld) {
       if (submapFlag.has(root)) continue
-      // Bit 8 of the pointer-table index. Written as a ternary rather than
-      // `(root >> 8) as 0 | 1`: that cast asserts a range nothing here
-      // enforces, so a root >= $200 would silently yield a flag of 2 or more.
-      submapFlag.set(root, root >= 0x100 ? 1 : 0)
+      if (entry.high === 'translevel' && roots.main.has(root) && roots.sub.has(root)) {
+        return {
+          graph: new Map(),
+          unavailable: `Slot $${root.toString(16).toUpperCase()} is entered from both maps, so its exits' submap flag is unknown.`,
+        }
+      }
+      // Bit 8 of the pointer-table index under the stock code; the hook
+      // decouples the two, and the flag is then the tile's own map.
+      const flag = entry.high === 'translevel' ? roots.sub.has(root) : root >= 0x100
+      submapFlag.set(root, flag ? 1 : 0)
       queue.push(root)
     }
 
