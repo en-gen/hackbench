@@ -147,7 +147,12 @@ export class GfxViewWidget extends ReactWidget {
     this.node.focus()
   }
 
-  /** React has committed the DOM by the time super returns, so the canvas element is current. */
+  /** Stable, so React does not detach and re-attach the canvas on every commit. */
+  protected readonly bindCanvas = (el: HTMLCanvasElement | null): void => {
+    this.canvasEl = el
+    this.paintCanvas()
+  }
+
   protected override onUpdateRequest(msg: Message): void {
     super.onUpdateRequest(msg)
     this.paintCanvas()
@@ -240,13 +245,7 @@ export class GfxViewWidget extends ReactWidget {
         {this.error && <div className="hb-gfx-view-error">{this.error}</div>}
         {s && s.height > 0 && (
           <div className="hb-gfx-view-canvas-wrap">
-            <canvas
-              className="hb-gfx-view-canvas"
-              ref={el => {
-                this.canvasEl = el
-                this.paintCanvas()
-              }}
-            />
+            <canvas className="hb-gfx-view-canvas" ref={this.bindCanvas} />
           </div>
         )}
       </div>

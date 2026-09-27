@@ -2175,6 +2175,11 @@ test('collapsing the grid leaves a narrow bar, and expanding it restores the lay
   expect(collapsed.main.x - collapsed.root.x).toBeLessThan(80)
   expect(contains(collapsed.root, collapsed.preview)).toBe(true)
 
+  // Prove it can fail: a collapsed column that keeps a floor width is no bar.
+  await withPlanted(page, `${FG} .hb-map16-browser { min-width: 200px; }`, async () => {
+    expect((await layoutOf(page)).browser.width).toBeGreaterThanOrEqual(80)
+  })
+
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   expect(await layoutOf(page)).toEqual(expanded)

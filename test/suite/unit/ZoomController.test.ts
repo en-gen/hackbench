@@ -50,19 +50,21 @@ interface FakeWheelEvent {
   deltaY: number
   clientX: number
   clientY: number
+  timeStamp?: number
   preventDefault: () => void
   prevented: boolean
 }
 
 function wheelEvent(
   deltaY: number,
-  opts: Partial<Pick<FakeWheelEvent, 'ctrlKey' | 'clientX' | 'clientY'>> = {},
+  opts: Partial<Pick<FakeWheelEvent, 'ctrlKey' | 'clientX' | 'clientY' | 'timeStamp'>> = {},
 ): FakeWheelEvent {
   const e: FakeWheelEvent = {
     ctrlKey: opts.ctrlKey ?? true,
     deltaY,
     clientX: opts.clientX ?? 0,
     clientY: opts.clientY ?? 0,
+    timeStamp: opts.timeStamp,
     prevented: false,
     preventDefault(): void {
       e.prevented = true
@@ -329,5 +331,44 @@ describe('ZoomController - anchoring', () => {
     // (latest) notch's client position.
     expect(Math.abs((secondX - after.left) / c.value - 40)).toBeLessThan(1)
     expect(Math.abs((secondY - after.top) / c.value - 40)).toBeLessThan(1)
+  })
+})
+
+describe('ZoomController.bindWheel - gesture boundaries', () => {
+  it.each([
+    { gapMs: 100, expected: 3 },
+    { gapMs: 1000, expected: 2 },
+  ])('leftover credit survives a $gapMs ms gap: $expected', ({ gapMs, expected }) => {
+    const c = new ZoomController(MAP16_LEVELS, 2)
+    const node = new FakeNode()
+    bind(c, node)
+    node.dispatch(wheelEvent(-60, { timeStamp: 1000 }))
+    node.dispatch(wheelEvent(-60, { timeStamp: 1000 + gapMs }))
+    expect(c.value).toBe(expected)
+  })
+
+  it('a plain wheel cancels the pending follow-up correction, and so does dispose', () => {
+    const cancel = vi.fn()
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn(() => 7),
+    )
+    vi.stubGlobal('cancelAnimationFrame', cancel)
+    try {
+      const c = new ZoomController(MAP16_LEVELS, 2)
+      const node = new FakeNode()
+      const binding = bind(c, node)
+      node.dispatch(wheelEvent(-100))
+      binding.restoreAnchor()
+      node.dispatch(wheelEvent(50, { ctrlKey: false }))
+      expect(cancel).toHaveBeenCalledWith(7)
+      cancel.mockClear()
+      node.dispatch(wheelEvent(-100))
+      binding.restoreAnchor()
+      binding.dispose()
+      expect(cancel).toHaveBeenCalledWith(7)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

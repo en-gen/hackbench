@@ -10,6 +10,8 @@
 
 /** deltaY per wheel notch in this app's one target, Chromium/Electron. */
 const WHEEL_STEP_PX = 100
+/** A pause this long ends a wheel gesture. */
+const WHEEL_IDLE_MS = 400
 
 export interface Disposable {
   dispose(): void
@@ -46,6 +48,7 @@ export class ZoomController implements Disposable {
    * reset on a direction reversal so stale credit never carries across. */
   private accum = 0
   private sign: -1 | 0 | 1 = 0
+  private lastWheel = -Infinity
 
   constructor(
     private readonly levels: readonly number[],
@@ -99,12 +102,22 @@ export class ZoomController implements Disposable {
    */
   bindWheel(node: HTMLElement, canvasOf: () => HTMLElement | null): WheelBinding {
     let pending: PendingAnchor | undefined
+    let followUp: number | undefined
+    const cancelFollowUp = (): void => {
+      if (followUp !== undefined) cancelAnimationFrame(followUp)
+      followUp = undefined
+    }
 
     const listener = (e: WheelEvent): void => {
-      if (!e.ctrlKey) return
+      // A plain scroll landing in the follow-up's frame (Ctrl released
+      // mid-spin) must not be yanked back to the anchor.
+      if (!e.ctrlKey) return cancelFollowUp()
       e.preventDefault()
       if (e.deltaY === 0) return
       const dir: -1 | 1 = e.deltaY < 0 ? 1 : -1
+      // Leftover credit from a gesture that ended is not part of this one.
+      if (e.timeStamp - this.lastWheel > WHEEL_IDLE_MS) this.accum = 0
+      this.lastWheel = e.timeStamp
       if (dir !== this.sign) {
         this.sign = dir
         this.accum = 0
@@ -167,7 +180,10 @@ export class ZoomController implements Disposable {
     }
 
     return {
-      dispose: () => node.removeEventListener('wheel', listener),
+      dispose: () => {
+        cancelFollowUp()
+        node.removeEventListener('wheel', listener)
+      },
       restoreAnchor: () => {
         const anchor = pending
         pending = undefined
@@ -181,8 +197,10 @@ export class ZoomController implements Disposable {
         // correction next frame catches that; skipped if a newer step has
         // since taken over (`this.value` no longer matches). Guarded for
         // `ZoomController.test.ts`, which runs with no DOM/rAF at all.
+        cancelFollowUp()
         if (typeof requestAnimationFrame === 'function') {
-          requestAnimationFrame(() => {
+          followUp = requestAnimationFrame(() => {
+            followUp = undefined
             if (anchor.zoom === this.value) apply(anchor)
           })
         }
