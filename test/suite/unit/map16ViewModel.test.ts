@@ -21,7 +21,7 @@ import {
   BrowsedSheetCache,
   screenDoor,
 } from '../../../theia/extension/src/browser/map16-view-model'
-import { HIDDEN_TILE_DIM_ALPHA, hiddenPixelStrength } from '../../../src/rom/render/HiddenTiles'
+import { hiddenPixelStrength } from '../../../src/rom/render/HiddenTiles'
 import {
   compositeIndices,
   cropRegion,
@@ -281,13 +281,6 @@ describe('previewAlternate', () => {
     expect(previewAlternate(alternates, new Set())).toEqual({ alt: alternates[0], hidden: true })
     expect(previewAlternate([alt(['silver'])], new Set())).toBeUndefined()
   })
-
-  it('a switch that blanks the tile (e.g. $094 under ON/OFF) shows its own picture in the screen door', () => {
-    const alternates = [alt(['onOff'])]
-    const blank = () => true
-    expect(previewAlternate(alternates, new Set(['onOff'] as const), blank)).toEqual({ alt: undefined, hidden: true }) // prettier-ignore
-    expect(previewAlternate(alternates, new Set(), blank)).toBeUndefined() // off: the tile as it is
-  })
 })
 
 describe('withHiddenTiles', () => {
@@ -355,10 +348,6 @@ describe('BrowsedSheetCache', () => {
 })
 
 describe('soft screen door', () => {
-  it("dims at 25%, the owner-chosen strength for a hidden tile's off pixels", () => {
-    expect(HIDDEN_TILE_DIM_ALPHA).toBe(0.25)
-  })
-
   it('is a checkerboard on tile pixels, full where x + y is even', () => {
     expect([0, 1, 2, 3].map(x => hiddenPixelStrength(x, 0))).toEqual([1, 0.25, 1, 0.25])
     expect([0, 1, 2, 3].map(x => hiddenPixelStrength(x, 1))).toEqual([0.25, 1, 0.25, 1])

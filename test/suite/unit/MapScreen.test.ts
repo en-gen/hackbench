@@ -27,10 +27,13 @@ import {
   pipeVariantIndex,
   type Map16Tile,
 } from '../../../src/rom/Map16'
-import { buildTileAtlas } from '../../../src/rom/TileRenderer'
+import { buildTileAtlas, renderMap16Tile } from '../../../src/rom/TileRenderer'
 import { loadVram, type VramState } from '../../../src/rom/GfxLoader'
-import { renderCell } from '../../../src/rom/render/CellRenderer'
-import { HIDDEN_TILE_DIM_ALPHA, hiddenPixelStrength } from '../../../src/rom/render/HiddenTiles'
+import {
+  ghostOf,
+  HIDDEN_TILE_DIM_ALPHA,
+  hiddenPixelStrength,
+} from '../../../src/rom/render/HiddenTiles'
 import { choosePalaceArt, majority, palaceArt } from '../../../src/rom/SwitchArt'
 import { withHiddenTiles } from '../../../theia/extension/src/browser/map16-view-model'
 import { switchArtOf } from '../../../src/rom/SwitchAlternates'
@@ -156,19 +159,27 @@ describe('one renderer for the sheet and the map (synthetic)', () => {
     expect(px(buf, 256, 6, 1)).toEqual(dim([7, 100, 200])) // odd: 25% over the backdrop
   })
 
-  it('a sheet atlas cell and a map cell are the same bytes, hidden art included', () => {
+  it('the map draws a hidden cell as the sheet does, laid over the backdrop', () => {
     const i = inputs(hGrid(1), false, 1)
-    const def = { ...i.map16.tiles[2]!, id: 0 }
+    i.grid[0]![0] = 2
     const alt = i.switchArt.get(2)!.alts[0]!.rgba
     const b64 = (b: Uint8ClampedArray) => Buffer.from(b).toString('base64')
-    const { atlas, atlasWidth } = buildTileAtlas([def], VRAM, { colors: COLORS })
+    const { atlas, atlasWidth } = buildTileAtlas([{ ...i.map16.tiles[2]!, id: 0 }], VRAM, { colors: COLORS }) // prettier-ignore
     const alternates = [{ kinds: ['blue' as const], altRgbaBase64: b64(alt), hidden: true }]
     const sheet = { width: atlasWidth, tilesPerRow: 16, tiles: [{ id: 0, alternates }] }
     const browsed = withHiddenTiles(atlas, sheet, s => new Uint8ClampedArray(Buffer.from(s, 'base64'))) // prettier-ignore
-    const cell = new Uint8ClampedArray(16 * 16 * 4)
-    for (let y = 0; y < 16; y++) cell.set(browsed.subarray(y * atlasWidth * 4, y * atlasWidth * 4 + 64), y * 64) // prettier-ignore
-    expect(b64(cell)).toBe(b64(renderCell(def, VRAM, { colors: COLORS }, alt)))
-    expect([cell[3], cell[7]]).toEqual([255, 64]) // the screen door, not the bare transparent tile
+    const map = drawL1Screen(i, 0)
+    let faint = 0
+    for (let y = 0; y < 16; y++)
+      for (let x = 0; x < 16; x++) {
+        const s = (y * atlasWidth + x) * 4
+        const a = browsed[s + 3]!
+        if (a > 0) faint++
+        // The sheet's pixel, composited over the map's backdrop, is the map's pixel.
+        const want = [0, 1, 2].map(c => blend(browsed[s + c]!, BACKDROP[c]!, a))
+        expect(px(map, 256, x, y)).toEqual([...want, 255])
+      }
+    expect(faint).toBeGreaterThan(0) // not the bare transparent tile
   })
 })
 
@@ -230,8 +241,22 @@ describe('char switches on the map (synthetic)', () => {
   it('a tile blank in every state stays blank', () => {
     const i = inputs(hGrid(1), false, 1)
     i.grid[0]![0] = 0
+    // Through ghostOf: a switch entry whose every picture is blank.
+    const none = new Uint8ClampedArray(16 * 16 * 4)
+    i.switchArt.set(0, { off: none, alts: [{ kinds: ['blue'], rgba: none, hidden: false }] })
     for (const sw of [undefined, blueOn, { blue: false, silver: false, onOff: true }])
       expect(px(drawL1Screen(i, 0, sw), 256, 5, 5)).toEqual([...BACKDROP])
+  })
+
+  it('ghostOf takes the switches-off picture over an alternate, and counts single switches only', () => {
+    const pic = (v: number) => new Uint8ClampedArray(16 * 16 * 4).fill(v)
+    const [blank, off, single, combo] = [pic(0), pic(1), pic(2), pic(3)]
+    const alt = (kinds: string[], rgba: Uint8ClampedArray) => ({ kinds, rgba })
+    const rgba = (a: { rgba: Uint8ClampedArray }) => a.rgba
+    expect(ghostOf(blank, off, [alt(['blue'], single)], rgba)).toBe(off)
+    expect(ghostOf(blank, blank, [alt(['blue', 'silver'], combo)], rgba)).toBeUndefined()
+    expect(ghostOf(blank, blank, [alt(['blue', 'silver'], combo), alt(['blue'], single)], rgba)).toBe(single) // prettier-ignore
+    expect(ghostOf(off, blank, [alt(['blue'], single)], rgba)).toBeUndefined() // drawn: nothing faint
   })
 
   it('palaces and switches both key a cached screen', () => {
@@ -659,7 +684,7 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     return r.inputs
   }
 
-  // A regression oracle independent of renderCell: SHA-256 of whole screens
+  // A regression oracle independent of the current renderer: SHA-256 of whole screens
   // drawn by the pre-#421-shared-renderer tile path at c6e39a15 (Tile.render
   // over BufferRenderTarget), hidden overlay off, switches off. Hashes only,
   // never ROM bytes.
@@ -695,7 +720,9 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
         if (pipe < 0 || pipe >= PIPE_VARIANT_TILE_COUNT) continue
         // The strip counter's own set for this cell's column (row, vertical).
         const set = pipeVariantIndex(m.isVertical ? y0 + y : x0 + x)
-        const cell = renderCell(m.map16.pipeVariants[set]![pipe]!, m.vram, { colors: m.colors })
+        const cell = renderMap16Tile(m.map16.pipeVariants[set]![pipe]!, m.vram, {
+          colors: m.colors,
+        })
         for (let i = 0; i < 256; i++) {
           if (cell[i * 4 + 3] !== 255) continue
           const at = ((y * 16 + (i >> 4)) * w * 16 + x * 16 + (i & 15)) * 4
@@ -777,7 +804,7 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     const m = model(0x014)
     expect(m.grid[13]![1]).toBe(0x02a) // screen 0, local column 1
     const alt = m.switchArt.get(0x02a)!.alts.find(x => x.kinds.join() === 'blue')!.rgba
-    const own = renderCell(m.map16.tiles[0x02a]!, m.vram, { colors: m.colors })
+    const own = renderMap16Tile(m.map16.tiles[0x02a]!, m.vram, { colors: m.colors })
     const buf = drawL1Screen(m, 0)
     let checked = 0
     for (let y = 0; y < 16; y++)
@@ -797,7 +824,8 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     const yellow = art.yellow
     if ('reason' in yellow) throw new Error(yellow.reason)
     const pal = { colors: buildLevelCgram(loadRomPalettes(rom.rom), 0, 0, 0, STOCK_COL1).colors }
-    const drawnIn = (t: number) => renderCell(buildTiles16(t)[0x16b]!, loadVram(rom.rom, t), pal)
+    const drawnIn = (t: number) =>
+      renderMap16Tile(buildTiles16(t)[0x16b]!, loadVram(rom.rom, t), pal)
     // $105 is tileset 7; $014 is tileset 4, whose $16B is the palace's letters.
     expect(Buffer.from(yellow.cleared).equals(Buffer.from(drawnIn(7)))).toBe(true)
     expect(Buffer.from(yellow.cleared).equals(Buffer.from(drawnIn(4)))).toBe(false)

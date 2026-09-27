@@ -18,6 +18,7 @@ import type { RgbaColor } from './GraphicsDecoder'
 import type { Map16Tile } from './Map16'
 import { renderMap16Tile } from './TileRenderer'
 import { vramFromChars } from './model/chars/CharFactory'
+import { isBlank } from './render/HiddenTiles'
 
 export interface TileAlternate {
   kinds: SwitchKind[]
@@ -52,11 +53,6 @@ function nonEmptySubsets<T>(kinds: readonly T[]): T[][] {
   return subsets
 }
 
-function isFullyTransparent(rgba: Uint8ClampedArray): boolean {
-  for (let i = 3; i < rgba.length; i += 4) if (rgba[i] !== 0) return false
-  return true
-}
-
 /** `vram` with every char a switch in `kinds` changes swapped to its frame-0 switched pixels. */
 export function switchedVram(
   animData: AnimationData,
@@ -66,22 +62,29 @@ export function switchedVram(
   return vramFromChars(vram, switchCharPixels(animData.frames[0] ?? [], kinds))
 }
 
-export function tileAlternates(
+/** A tile that follows a switch: its switches-off picture and its alternates. */
+export interface TileSwitchArt {
+  off: Uint8ClampedArray
+  alts: TileAlternate[]
+}
+
+/** Every switch-following tile's switches-off picture and alternates, from its own chars. */
+export function switchArtOf(
   animData: AnimationData,
   entries: readonly Map16Tile[],
   vram: VramState,
   palette: { colors: RgbaColor[] },
-): Map<number, TileAlternate[]> {
+): Map<number, TileSwitchArt> {
   const patchedBySet = new Map<string, VramState>()
-  const perTile = new Map<number, TileAlternate[]>()
+  const perTile = new Map<number, TileSwitchArt>()
   for (const tile of entries) {
     if (!tile) continue
     const chars = [tile.tl.charNum, tile.tr.charNum, tile.bl.charNum, tile.br.charNum]
     const kinds = [...switchesForChars(animData, chars)].sort()
     if (kinds.length === 0) continue
     const off = renderMap16Tile(tile, vram, palette)
-    const offBlank = isFullyTransparent(off)
-    const alternates: TileAlternate[] = []
+    const offBlank = isBlank(off)
+    const alts: TileAlternate[] = []
     for (const subset of nonEmptySubsets(kinds)) {
       const key = subset.join('+')
       let patched = patchedBySet.get(key)
@@ -91,29 +94,19 @@ export function tileAlternates(
       }
       const rgba = renderMap16Tile(tile, patched, palette)
       if (subset.length === 1 && Buffer.from(rgba).equals(Buffer.from(off))) continue
-      alternates.push({ kinds: subset, rgba, hidden: offBlank && !isFullyTransparent(rgba) })
+      alts.push({ kinds: subset, rgba, hidden: offBlank && !isBlank(rgba) })
     }
-    perTile.set(tile.id, alternates)
+    perTile.set(tile.id, { off, alts })
   }
   return perTile
 }
 
-/** A tile that follows a switch: its switches-off picture and its alternates. */
-export interface TileSwitchArt {
-  off: Uint8ClampedArray
-  alts: TileAlternate[]
-}
-
-/** Every switch-following tile's pictures, from its own chars, for `ghostOf`. */
-export function switchArtOf(
+/** `switchArtOf`'s alternates alone, for the Map16 view's wire form. */
+export function tileAlternates(
   animData: AnimationData,
   entries: readonly Map16Tile[],
   vram: VramState,
   palette: { colors: RgbaColor[] },
-): Map<number, TileSwitchArt> {
-  const out = new Map<number, TileSwitchArt>()
-  for (const [id, alts] of tileAlternates(animData, entries, vram, palette)) {
-    out.set(id, { off: renderMap16Tile(entries[id]!, vram, palette), alts })
-  }
-  return out
+): Map<number, TileAlternate[]> {
+  return new Map([...switchArtOf(animData, entries, vram, palette)].map(([id, a]) => [id, a.alts]))
 }
