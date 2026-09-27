@@ -984,11 +984,13 @@ export class Map16ViewWidget extends ReactWidget {
           )}
         </div>
 
-        <div className="hb-map16-main">
-          {tile ? this.renderTile(sheet, tile) : this.renderNoTile()}
+        {/* Grid on the left, the selected tile to its right (#623). */}
+        <div className="hb-map16-panes">
+          {this.renderBrowser(sheet)}
+          <div className="hb-map16-main">
+            {tile ? this.renderTile(sheet, tile) : this.renderNoTile()}
+          </div>
         </div>
-
-        {this.renderBrowser(sheet)}
       </div>
     )
   }
