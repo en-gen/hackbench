@@ -198,6 +198,7 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl.mapDetails - wiring', () =>
     const { ProjectServiceImpl } = await import('../../../theia/extension/src/node/project-server')
     const { RomRegistry } = await import('../../../src/project/RomRegistry')
     const { RecentProjects } = await import('../../../src/project/RecentProjects')
+    const { WorkingRomRegistry } = await import('../../../src/project/WorkingRomRegistry')
 
     const tmp = fs.mkdtempSync(join(os.tmpdir(), 'hb-mapdetails-'))
     try {
@@ -215,8 +216,8 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl.mapDetails - wiring', () =>
       // the class directly keeps this a unit test rather than a container
       // test; temp-file-backed instances so it cannot touch this machine's
       // real application data, which the real constructors default to.
-      const s = service as unknown as { registry: unknown; recent: unknown }
-      s.registry = new RomRegistry(path.join(tmp, 'registry.json'))
+      const s = service as unknown as { workingRoms: unknown; recent: unknown }
+      s.workingRoms = new WorkingRomRegistry(new RomRegistry(path.join(tmp, 'registry.json')))
       s.recent = new RecentProjects(path.join(tmp, 'recent.json'))
 
       const project = await service.createProject({
@@ -229,6 +230,13 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl.mapDetails - wiring', () =>
       expect(details.isVertical).toBeUndefined()
       expect(details.orientationUnavailable).toMatch(/VerticalTable/)
       expect(details.objectCount).toBe(1)
+
+      // The map tab's screen goes through the same working copy, and an
+      // unbuildable map answers with a reason rather than an empty image.
+      const flags = { green: false, yellow: false, blue: false, red: false }
+      const screen = await service.mapScreen(project.manifestPath, 0x105, 0, flags)
+      expect(screen).toMatchObject({ status: 'unavailable' })
+      if (screen.status === 'unavailable') expect(screen.reason).toMatch(/VerticalTable/)
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true })
     }

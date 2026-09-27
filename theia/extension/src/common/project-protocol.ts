@@ -188,6 +188,38 @@ export interface MapDetailsDto {
   header?: Array<{ label: string; value: string }>
 }
 
+/**
+ * Which switch palaces a map is drawn as pressed, in the ROM's own
+ * SwitchBlockFlags terms (bank_0D.asm:3739-3747, :4226-4232). A pressed
+ * palace draws its blocks solid. Per map tab, never global.
+ */
+export interface SwitchFlagsDto {
+  green: boolean
+  yellow: boolean
+  blue: boolean
+  red: boolean
+}
+
+/**
+ * One screen of a map's L1 (foreground), drawn by the backend from the
+ * working copy. Horizontal maps have 16 x 27 tile screens; vertical maps
+ * 32 x 16 (two 16-wide halves). Transparent where L1 draws nothing.
+ * `screenCount` and `orientation` let the tab size itself from any screen.
+ */
+export type MapScreenResult =
+  | {
+      status: 'ok'
+      screen: number
+      screenCount: number
+      orientation: 'horizontal' | 'vertical'
+      /** Pixels. */
+      width: number
+      height: number
+      rgbaBase64: string
+    }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
 /** 'bps' is the default: SMW Central's Hacks section no longer accepts IPS. */
 export type PatchFormatDto = 'bps' | 'ips'
 
@@ -282,12 +314,20 @@ export interface ProjectService {
   updateProject(manifestPath: string, changes: Partial<HackMetadataDto>): Promise<ProjectDto>
 
   /**
-   * Read one map out of the project's base cartridge.
+   * Read one map out of the project's working copy.
    *
    * Throws when the slot holds no readable level data, which is a real answer
    * rather than an empty map: an empty map looks like one that lost its work.
    */
   mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto>
+
+  /** Draw one screen of a map's L1 (foreground) from the working copy. */
+  mapScreen(
+    manifestPath: string,
+    index: number,
+    screen: number,
+    switchFlags: SwitchFlagsDto,
+  ): Promise<MapScreenResult>
 
   /**
    * Projects this user has opened, most recent first.
@@ -301,7 +341,7 @@ export interface ProjectService {
   clearRecentProjects(): Promise<void>
 
   /**
-   * Every map in the project's base cartridge, grouped for display.
+   * Every map in the project's working copy, grouped for display.
    *
    * Resolves the ROM through the registry; reports `rom-not-located` rather
    * than failing when this machine has not been told where it is.
