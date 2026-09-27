@@ -1,10 +1,4 @@
-/**
- * The zoom-out / indicator / zoom-in trio, lifted from the Map16 sheet's own
- * toolbar (#651) so the GFX sheet gets the identical control instead of its
- * own `<select>`, and both get Ctrl + wheel through the shared
- * `ZoomController` alone. `data-control` values are unchanged so the
- * existing Playwright specs still find these buttons.
- */
+/** Zoom-out / indicator / zoom-in, shared by Map16 and GFX (#651). */
 import * as React from '@theia/core/shared/react'
 import { ZoomController } from './zoom-controller'
 
@@ -18,7 +12,7 @@ export function ZoomStepper({ controller }: ZoomStepperProps): React.ReactElemen
       <button
         data-control="zoom-out"
         type="button"
-        className="hb-zoom-btn"
+        className="hb-icon-btn"
         disabled={!controller.canZoomOut}
         title="Zoom out"
         aria-label="Zoom out"
@@ -33,7 +27,7 @@ export function ZoomStepper({ controller }: ZoomStepperProps): React.ReactElemen
       <button
         data-control="zoom-in"
         type="button"
-        className="hb-zoom-btn"
+        className="hb-icon-btn"
         disabled={!controller.canZoomIn}
         title="Zoom in"
         aria-label="Zoom in"
