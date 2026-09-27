@@ -644,18 +644,38 @@ describe(
     })
 
     it('a git replace object does not hide what actually gets pushed', () => {
+      // The replacement must run the OTHER way from a naive read: replace
+      // the BAD commit with a CLEAN one, so that without --no-replace-objects
+      // every read of the bad commit's sha (log walk, cat-file) transparently
+      // returns the clean commit's content instead - hiding the defect from
+      // anyone who resolves it through the replace ref, which is exactly
+      // what git does by default. If the earlier direction (replacing the
+      // clean decoy with the real one) is used instead, the real commit is
+      // still an ordinary ANCESTOR reachable by a normal walk regardless of
+      // any replace, so the test proves nothing - that was the actual gap.
+      const base = head()
       writeFile('real.asm', 'LDA #$00\n')
       run('git', ['add', 'real.asm'])
-      run('git', ['commit', '-q', '-m', 'has a real defect']) // the actual pushed content
-      const realHead = head()
-      writeFile('replacement.txt', 'looks clean\n')
-      run('git', ['add', '-A'])
-      run('git', ['rm', '-q', 'real.asm'])
-      run('git', ['commit', '-q', '-m', 'decoy commit, not what gets pushed'])
-      const decoyHead = head()
-      run('git', ['replace', decoyHead, realHead]) // decoy's sha now resolves to the real content
-      const out = gateOutput('history')
-      expect(out).toMatch(/real\.asm/)
+      run('git', ['commit', '-q', '-m', 'has a real defect']) // this sha is what the branch ref keeps
+      const badSha = head()
+
+      run('git', ['branch', 'decoy-branch', base])
+      run('git', ['checkout', '-q', 'decoy-branch'])
+      writeFile('clean.txt', 'looks clean\n')
+      run('git', ['add', 'clean.txt'])
+      run('git', ['commit', '-q', '-m', 'clean decoy, same parent'])
+      const cleanSha = head()
+      run('git', ['checkout', '-q', 'master'])
+      run('git', ['branch', '-D', 'decoy-branch'])
+
+      run('git', ['replace', badSha, cleanSha]) // reading badSha now transparently yields cleanSha
+
+      expect(gateExit('range', base, badSha)).not.toBe(0)
+      expect(gateExit('history')).not.toBe(0)
+      const bare = addBareRemote('origin')
+      const line = `refs/heads/x ${badSha} refs/heads/x ${'0'.repeat(40)}\n`
+      expect(gateExitWithInput('push', line, 'origin')).not.toBe(0)
+      fs.rmSync(bare, { recursive: true, force: true })
     })
 
     it('base64url in a string is caught (- and _ instead of + and /)', () => {
@@ -682,9 +702,19 @@ describe(
     })
 
     it('an oversize blob is blocked with rule oversize, not sniffed', () => {
-      writeFile('huge.ts', 'a'.repeat(9 * 1024 * 1024))
+      // Genuine prose - spaces and punctuation break any base64/byte-token
+      // run, so this trips ONLY the size check, never another rule. That
+      // is the point: a mutant that disables the oversize check outright
+      // must not survive by accident on a base64-alphabet filler string.
+      const sentence = 'The quick brown fox jumps over the lazy dog, again and again. '
+      const prose = sentence.repeat(Math.ceil((9 * 1024 * 1024) / sentence.length))
+      writeFile('huge.ts', prose)
       run('git', ['add', 'huge.ts'])
       expect(gateExit('staged')).not.toBe(0)
+      const hugeLines = gateOutput('staged')
+        .split('\n')
+        .filter(l => l.includes('huge.ts'))
+      expect(hugeLines).toEqual(['BLOCKED (oversize): huge.ts'])
     })
 
     it('a base64 commit message is caught in range/push/history', () => {
