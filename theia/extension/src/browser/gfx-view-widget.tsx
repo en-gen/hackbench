@@ -241,7 +241,7 @@ export class GfxViewWidget extends ReactWidget {
         {s && s.height > 0 && (
           <div className="hb-gfx-view-canvas-wrap">
             <canvas
-              className="hb-gfx-view-canvas"
+              className="hb-gfx-view-canvas hb-pixel-canvas"
               ref={el => {
                 this.canvasEl = el
                 this.paintCanvas()
