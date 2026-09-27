@@ -745,3 +745,42 @@ describe(
   },
   CLI_TIMEOUT_MS,
 )
+
+describe(
+  'content gate: cat-file --batch boundary parsing',
+  () => {
+    // Each case puts the boundary blob in the SAME batch call as a second,
+    // ordinary file, so a mis-parse of one blob's header/body boundary
+    // would corrupt the read of whatever comes after it - the shape every
+    // one of these actually guards against.
+    it('body one byte short: the only NUL is the last byte of a 4-byte blob', () => {
+      writeFile('boundary-a.dat2', Buffer.from([0x61, 0x62, 0x63, 0x00])) // "abc\0"
+      writeFile('boundary-a-sibling.ts', 'export const ok = 1\n')
+      run('git', ['add', '-A'])
+      expect(gateOutput('staged')).toMatch(/BLOCKED \(binary\): boundary-a\.dat2/)
+    })
+
+    it('body cut at first \\n: NUL sits after an embedded newline in the body', () => {
+      writeFile('boundary-b.dat2', Buffer.from([0x61, 0x62, 0x63, 0x0a, 0x78, 0x00])) // "abc\nx\0"
+      writeFile('boundary-b-sibling.ts', 'export const ok = 1\n')
+      run('git', ['add', '-A'])
+      expect(gateOutput('staged')).toMatch(/BLOCKED \(binary\): boundary-b\.dat2/)
+    })
+
+    it('a 9000-byte clean blob (over the old 8000-byte window) does not misalign the next blob in the batch', () => {
+      writeFile('a-boundary-big.txt', 'x'.repeat(9000)) // sorts first: read before the offender
+      writeFile('b-boundary-offender.asm', 'LDA #$00\n')
+      run('git', ['add', '-A'])
+      expect(gateExit('staged')).not.toBe(0)
+      expect(gateOutput('staged')).toMatch(/b-boundary-offender\.asm/)
+    })
+
+    it('a 0-byte blob next to an offender does not misalign the batch either', () => {
+      writeFile('a-boundary-empty.txt', '')
+      writeFile('b-boundary-offender2.asm', 'LDA #$00\n')
+      run('git', ['add', '-A'])
+      expect(gateOutput('staged')).toMatch(/b-boundary-offender2\.asm/)
+    })
+  },
+  CLI_TIMEOUT_MS,
+)
