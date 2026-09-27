@@ -17,6 +17,16 @@ updates:
     # @types/vscode) is all devDependencies, so a production-only filter left
     # almost the whole surface unwatched.
     groups:
+      # vitest and its plugins pin each other exactly (@vitest/coverage-v8
+      # 5.0.2 peers vitest 5.0.2), so separate major bumps can never install.
+      vitest:
+        patterns:
+          - vitest
+          - "@vitest/*"
+      typescript-eslint:
+        patterns:
+          - typescript-eslint
+          - "@typescript-eslint/*"
       minor-and-patch:
         update-types:
           - minor
