@@ -1570,7 +1570,7 @@ test('play cycles the sheet through real animation frames; stop leaves it stable
   const frame0 = await readCanvas(page)
   await playButton.click()
   await expect(playButton).toHaveAttribute('title', 'Stop animation')
-  await expect(playButton).toHaveClass(/hb-map16-icon-btn-on/)
+  await expect(playButton).toHaveClass(/hb-icon-btn-on/)
 
   // Native interval is ~133ms on vanilla; poll rather than sleep a guess.
   await expect

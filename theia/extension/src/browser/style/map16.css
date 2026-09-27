@@ -562,66 +562,11 @@
   gap: 2px;
 }
 
-.hb-map16-toolbar-spacer {
-  flex: 1 1 auto;
-}
-
 .hb-map16-toolbar-sep {
   width: 1px;
   align-self: stretch;
   margin: 2px 4px;
   background: var(--theia-menu-separatorBackground, rgba(128, 128, 128, 0.35));
-}
-
-.hb-map16-icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--theia-icon-foreground);
-  cursor: pointer;
-}
-
-.hb-map16-icon-btn:hover:not(:disabled) {
-  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
-}
-
-.hb-map16-icon-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-/* Pressed state for the two toggles, so "grid on" and "playing" are
-   readable at a glance rather than only via the tooltip.
-   Follows the VS Code extension's own toolbar convention - an ACCENT
-   FOREGROUND on the glyph (`.iconBtn.on { color: #5b9cf6 }`,
-   webview/mapEditor/main.ts:1428) - with a tinted fill and inset outline
-   added, since a 24px codicon recolored alone is easy to miss. */
-.hb-map16-icon-btn-on {
-  color: var(--theia-focusBorder, #5b9cf6);
-  background: var(--theia-inputOption-activeBackground, rgba(91, 156, 246, 0.18));
-  box-shadow: inset 0 0 0 1px var(--theia-focusBorder, #5b9cf6);
-}
-
-/* Needed because `.hb-map16-icon-btn:hover:not(:disabled)` above outranks
-   a single class, so without this the fill vanished on hover - the button
-   looked UNSET exactly while the pointer was on it. */
-.hb-map16-icon-btn-on:hover:not(:disabled) {
-  background: var(--theia-inputOption-hoverBackground, rgba(91, 156, 246, 0.3));
-}
-
-.hb-map16-zoom-indicator {
-  min-width: 26px;
-  text-align: center;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--theia-descriptionForeground);
-  user-select: none;
 }
 
 /* ── Switch toggles (#574) ─────────────────────────────────────────────── */

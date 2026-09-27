@@ -22,7 +22,8 @@ import {
   WorkingRomResult,
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
-import { L1ModelCache, mapScreen } from './map-screen'
+import { L1ModelCache, mapScreen, palaceIconsOf } from './map-screen'
+import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
 import {
   admitGroups,
@@ -46,6 +47,7 @@ import {
   LoadMapsResult,
   MapDetailsDto,
   MapScreenResult,
+  PalaceIconsResult,
   PatchFormatDto,
   ProjectDto,
   ProjectService,
@@ -95,13 +97,8 @@ export class ProjectServiceImpl implements ProjectService {
   }
 
   async mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto> {
-    const r = this.workingRoms.get(manifestPath)
-    if (r.status === 'rom-not-located') {
-      throw new Error(
-        `The base ROM for ${r.baseRom.title || 'this project'} is not on this machine`,
-      )
-    }
-    if (r.status !== 'ok') throw new Error(r.reason)
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') throw new Error(`The base ROM ${r.baseRom.title} is not on this machine`)
     return buildMapDetails(romOf(r), index)
   }
 
@@ -111,12 +108,18 @@ export class ProjectServiceImpl implements ProjectService {
     screen: number,
     switchFlags: SwitchFlagsDto,
   ): Promise<MapScreenResult> {
-    const r = this.workingRoms.get(manifestPath)
-    if (r.status === 'rom-not-located') return r
-    if (r.status !== 'ok') throw new Error(r.reason)
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
     // An edit made in any view must repaint an open map.
     this.notifier.watch(manifestPath, r.working)
     return mapScreen(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags)
+  }
+
+  async mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    const built = this.screens.get(r.working.bytes(), r.romPath, index, SWITCH_FLAGS_UNCLEARED)
+    return built.status === 'ok' ? palaceIconsOf(built.model) : built
   }
 
   async updateProject(

@@ -648,3 +648,30 @@ function scanL2Map16Table(rom: RomFile): Map16Read<number[]> {
 export function loadAllMap16BG(rom: RomFile): Map16Tile[] {
   return loadMap16Tiles(rom, orThrow(readL2Map16Table(rom)))
 }
+
+/**
+ * How many tiles this ROM's FOREGROUND Map16 holds, or the reason it
+ * cannot be said.
+ *
+ * The count is READ (`readMap16TileCount` walks the fill loop's `CPX`
+ * immediate, bank_05.asm:229-237), never assumed. A ROM that does not say
+ * is unavailable, not vanilla. A ROM that says MORE than the loader here
+ * can walk is also unavailable: `readMap16Table` builds at most 512 entries,
+ * so showing those for a 2048-tile table would be the silent truncation
+ * en-gen/hackbench#102 exists to prevent. L1 (foreground) only.
+ */
+export function map16TileCapacity(rom: RomFile): { count: number } | { reason: string } {
+  const count = readMap16TileCount(rom)
+  if (count === null) {
+    return {
+      reason:
+        "This ROM's Map16 pointer-fill loop could not be resolved, so how many tiles it holds is unknown. The view will not guess at 512.",
+    }
+  }
+  if (count > MAP16_TOTAL_TILES) {
+    return {
+      reason: `This ROM's Map16 holds ${count} tiles, more than the ${MAP16_TOTAL_TILES} this view can read. Showing the first ${MAP16_TOTAL_TILES} would hide the rest, so nothing is shown. Expanded Map16 is tracked as en-gen/hackbench#102.`,
+    }
+  }
+  return { count }
+}
