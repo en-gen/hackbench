@@ -29,9 +29,10 @@ export type TileRgba = Uint8ClampedArray
  * `dest` is a 64-pixel (256-byte) buffer, written in row-major order.
  * Index 0 relies on `dest` starting fresh (zeroed): `composeTile` never
  * calls `put` for it, so those bytes are only correct because
- * `renderMap16Tile` always hands this a newly allocated buffer.
+ * `renderMap16Tile` always hands this a newly allocated buffer. Exported for
+ * 8x8 tiles placed off the Map16 quadrant grid (the P-switch button).
  */
-function renderSubTile(
+export function renderSubTile(
   sub: SubTile,
   vram: VramState,
   palette: { colors: RgbaColor[] },

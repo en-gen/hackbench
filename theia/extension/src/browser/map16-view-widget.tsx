@@ -50,6 +50,7 @@ import {
   Map16QuadrantKey,
   Map16Service,
   Map16SheetDto,
+  Map16SwitchKind,
   Map16TileDto,
   MAP16_PALETTE_VARIANT_COUNT,
   MAP16_TILESET_COUNT,
@@ -67,12 +68,21 @@ import {
 import { paintCharSheet, renderCharPalettes } from './map16-char-palettes'
 import {
   QUADRANTS,
+  SWITCH_BUTTON_PX,
   paintFrameQuadrant,
   paintTilePreview,
   renderTileEditor,
   renderTilePreview,
 } from './map16-tile-editor'
-import { editAxisFor, map16WidgetId, rowColorsFor, tileFrameCount } from './map16-view-model'
+import {
+  editAxisFor,
+  map16WidgetId,
+  previewAlternate,
+  rowColorsFor,
+  tileFrameCount,
+  toggleKinds,
+} from './map16-view-model'
+import type { FrameImage } from './pixel-image-button'
 
 export { MAP16_VIEW_ID, map16WidgetId } from './map16-view-model'
 
@@ -140,6 +150,13 @@ export class Map16ViewWidget extends ReactWidget {
   protected bgPaletteVariant = 0
   protected fgPaletteVariant = 0
   protected selection: Selection | undefined
+  /**
+   * Which of the SELECTED tile's own switches (#574) are toggled ON, so the
+   * preview shows their alternate art. Per-widget view state, never an edit
+   * - see `handleCanvasClick`, which clears it on every new selection so a
+   * toggle never leaks onto an unrelated tile.
+   */
+  protected activeSwitches = new Set<Map16SwitchKind>()
   /** Whether the edit pane is open. False on open: the view is for looking
    * at a tile until the user says otherwise. */
   protected editing = false
@@ -267,6 +284,26 @@ export class Map16ViewWidget extends ReactWidget {
     return buf
   }
 
+  /** The switch toggle buttons' own pictures (owner addendum to #574),
+   * decoded from Map16SheetDto.switchButtonArt through the same cache every
+   * other surface uses - a fixed 16x16 frame per state, never a tile's
+   * alternate art. */
+  protected switchButtonImages(
+    sheet: Map16SheetDto,
+  ): Partial<Record<Map16SwitchKind, { off: FrameImage; on: FrameImage }>> {
+    const out: Partial<Record<Map16SwitchKind, { off: FrameImage; on: FrameImage }>> = {}
+    const art = sheet.switchButtonArt
+    if (!art) return out
+    for (const kind of Object.keys(art) as Map16SwitchKind[]) {
+      const images = art[kind]!
+      out[kind] = {
+        off: { ...SWITCH_BUTTON_PX, rgba: this.decoded(images.offRgba) },
+        on: { ...SWITCH_BUTTON_PX, rgba: this.decoded(images.onRgba) },
+      }
+    }
+    return out
+  }
+
   /** Which image is active for painting the TILES: the animation's current
    * phase while playing, otherwise the sheet's own still image. The palette
    * sections never read this - they stay at frame 0. */
@@ -287,6 +324,7 @@ export class Map16ViewWidget extends ReactWidget {
     this.error = undefined
     this.editError = undefined
     this.selection = undefined
+    this.activeSwitches.clear()
     this.editing = false
     this.expandedSheets.clear()
     this.pendingEdits.clear()
@@ -346,6 +384,9 @@ export class Map16ViewWidget extends ReactWidget {
     this.decodedCache.clear()
     this.syncAnimationToSheet()
     this.syncSelectionToSheet()
+    // A reload can change which switches the selected tile follows; drop any it no longer has.
+    const kinds = toggleKinds(this.selectedTile()?.alternates)
+    for (const k of [...this.activeSwitches]) if (!kinds.includes(k)) this.activeSwitches.delete(k)
   }
 
   protected syncAnimationToSheet(): void {
@@ -468,6 +509,15 @@ export class Map16ViewWidget extends ReactWidget {
     // browser strip compares the same corner tile after tile.
     this.selection = { tileId, quadrant: this.selection?.quadrant ?? 'tl' }
     this.editError = undefined
+    // A toggle is a fact about the PREVIOUS tile's own switches; carrying it
+    // onto a new selection could turn on a switch that tile does not have.
+    this.activeSwitches.clear()
+    this.update()
+  }
+
+  protected toggleSwitch = (kind: Map16SwitchKind): void => {
+    if (this.activeSwitches.has(kind)) this.activeSwitches.delete(kind)
+    else this.activeSwitches.add(kind)
     this.update()
   }
 
@@ -718,6 +768,29 @@ export class Map16ViewWidget extends ReactWidget {
     return `${frame}:${quadrant}`
   }
 
+  /**
+   * The preview canvas (#574): the alternate matching the active switch set
+   * wins; else a hidden tile's first single alternate at half opacity, rather
+   * than a blank preview; else the tile's own picture.
+   */
+  protected paintTilePreviewCanvas(
+    tile: Map16TileDto,
+    pixels: Uint8ClampedArray,
+    atlasWidth: number,
+    tileX: number,
+    tileY: number,
+  ): void {
+    if (!this.previewCanvasEl) return
+    const shown = previewAlternate(tile.alternates, this.activeSwitches)
+    if (shown)
+      paintTilePreview(this.previewCanvasEl, this.decoded(shown.alt.altRgbaBase64), shown.opacity)
+    else
+      paintTilePreview(
+        this.previewCanvasEl,
+        cropRegion(pixels, atlasWidth, tileX, tileY, TILE_PX, TILE_PX),
+      )
+  }
+
   protected paintDetail(): void {
     const sheet = this.sheet()
     const tile = this.selectedTile()
@@ -727,12 +800,7 @@ export class Map16ViewWidget extends ReactWidget {
     const tileX = (tile.id % sheet.tilesPerRow) * TILE_PX
     const tileY = Math.floor(tile.id / sheet.tilesPerRow) * TILE_PX
 
-    if (this.previewCanvasEl) {
-      paintTilePreview(
-        this.previewCanvasEl,
-        cropRegion(pixels, sheet.width, tileX, tileY, TILE_PX, TILE_PX),
-      )
-    }
+    if (this.previewCanvasEl) this.paintTilePreviewCanvas(tile, pixels, sheet.width, tileX, tileY)
     if (!this.editing) return
 
     // One strip of frames: frame 0 of a still tile is whatever is on screen
@@ -940,6 +1008,11 @@ export class Map16ViewWidget extends ReactWidget {
             this.previewCanvasEl = el
             if (attached) this.schedulePaintDetail()
           },
+          activeSwitches: this.activeSwitches,
+          onToggleSwitch: this.toggleSwitch,
+          switchUnavailable: sheet.switchUnavailable,
+          buttonImages: this.switchButtonImages(sheet),
+          buttonUnavailable: sheet.switchButtonUnavailable,
         })}
         {this.editing && (
           <div className="hb-map16-edit-pane">

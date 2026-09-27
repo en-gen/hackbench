@@ -11,6 +11,8 @@ import {
   Map16Layer,
   Map16PaletteVariantDto,
   Map16SheetDto,
+  Map16SwitchKind,
+  Map16TileAlternateDto,
 } from '../common/map16-protocol'
 
 /** Which sheet an edit is written against: the tile table, the graphics and
@@ -130,4 +132,47 @@ export function swatchCountFor(
 export function tileFrameCount(sheet: Map16SheetDto, tileId: number): number {
   const anim = sheet.charAnimation
   return anim && anim.animatedTileIds.includes(tileId) ? anim.frameCount : 1
+}
+
+/** Plain words for a switch kind, per "approachable over powerful" - never
+ * the ROM's own RAM-address vocabulary. */
+export const SWITCH_LABELS: Record<Map16SwitchKind, string> = {
+  blue: 'Blue P-switch',
+  silver: 'Silver P-switch',
+  onOff: 'ON/OFF switch',
+}
+
+/** The order every list of switch kinds is shown in. Combo keys sort by name instead. */
+export const SWITCH_ORDER: readonly Map16SwitchKind[] = ['blue', 'silver', 'onOff']
+
+/** A tile's toggles: its single-switch alternates, in SWITCH_ORDER. */
+export function toggleKinds(
+  alternates: readonly Map16TileAlternateDto[] | undefined,
+): Map16SwitchKind[] {
+  const singles = new Set((alternates ?? []).flatMap(a => (a.kinds.length === 1 ? a.kinds : [])))
+  return SWITCH_ORDER.filter(k => singles.has(k))
+}
+
+/** The switches on for this tile: `active` pruned to the tile's own toggles, in SWITCH_ORDER. */
+export function activeFor(
+  alternates: readonly Map16TileAlternateDto[] | undefined,
+  active: ReadonlySet<Map16SwitchKind>,
+): Map16SwitchKind[] {
+  return toggleKinds(alternates).filter(k => active.has(k))
+}
+
+/**
+ * What the preview draws (#574): the alternate matching the tile's own active
+ * switches at full strength, else a hidden tile's first single at half, else
+ * undefined for the tile's own picture.
+ */
+export function previewAlternate(
+  alternates: readonly Map16TileAlternateDto[] | undefined,
+  active: ReadonlySet<Map16SwitchKind>,
+): { alt: Map16TileAlternateDto; opacity: number } | undefined {
+  const key = activeFor(alternates, active).sort().join('+')
+  const match = key ? alternates?.find(a => a.kinds.join('+') === key) : undefined
+  if (match) return { alt: match, opacity: 1 }
+  const hidden = alternates?.find(a => a.kinds.length === 1 && a.hidden)
+  return hidden && { alt: hidden, opacity: 0.5 }
 }

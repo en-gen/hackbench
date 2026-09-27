@@ -20,10 +20,28 @@
  * the character itself.
  */
 import * as React from '@theia/core/shared/react'
-import { Map16Field, Map16QuadrantKey, Map16SheetDto, Map16TileDto } from '../common/map16-protocol'
+import {
+  Map16Field,
+  Map16QuadrantKey,
+  Map16SheetDto,
+  Map16SwitchKind,
+  Map16TileDto,
+} from '../common/map16-protocol'
 import { CHAR_PX, HOVER_DIM, TILE_PX, paintScaled } from './map16-pixels'
-import { charSourceLabel, formatCharNum, swatchCountFor } from './map16-view-model'
+import {
+  activeFor,
+  charSourceLabel,
+  formatCharNum,
+  SWITCH_LABELS,
+  swatchCountFor,
+  toggleKinds,
+} from './map16-view-model'
 import { formatRomAddr } from './palette-color-format'
+import { PixelImageButton, type FrameImage } from './pixel-image-button'
+
+/** Native size of every switch toggle's picture (Map16SwitchButtonImages). */
+export const SWITCH_BUTTON_PX = { width: 16, height: 16 }
+const SWITCH_BUTTON_SCALE = 2
 
 /** 12x: a 16x16 tile becomes a 192px preview, the view's dominant element. */
 export const PREVIEW_SCALE = 12
@@ -50,6 +68,15 @@ export interface Map16TilePreviewProps {
   editing: boolean
   onToggleEdit(): void
   previewCanvasRef(el: HTMLCanvasElement | null): void
+  /** Which of this tile's switches are on: view state, never an edit. */
+  activeSwitches: ReadonlySet<Map16SwitchKind>
+  onToggleSwitch(kind: Map16SwitchKind): void
+  /** Sheet-level reason some switch alternates could not be read. */
+  switchUnavailable: string | undefined
+  /** Each toggle button's own pictures; a missing kind falls back to its text label. */
+  buttonImages: Partial<Record<Map16SwitchKind, { off: FrameImage; on: FrameImage }>>
+  /** Why a kind has no button picture. */
+  buttonUnavailable: Partial<Record<Map16SwitchKind, string>> | undefined
 }
 
 export interface Map16TileEditorProps {
@@ -73,8 +100,12 @@ export interface Map16TileEditorProps {
   editError: string | undefined
 }
 
-export function paintTilePreview(canvas: HTMLCanvasElement, pixels: Uint8ClampedArray): void {
-  paintScaled(canvas, pixels, TILE_PX, TILE_PX, PREVIEW_SCALE)
+export function paintTilePreview(
+  canvas: HTMLCanvasElement,
+  pixels: Uint8ClampedArray,
+  opacity = 1,
+): void {
+  paintScaled(canvas, pixels, TILE_PX, TILE_PX, PREVIEW_SCALE, opacity)
 }
 
 export function paintFrameQuadrant(canvas: HTMLCanvasElement, pixels: Uint8ClampedArray): void {
@@ -93,26 +124,70 @@ export function renderTilePreview(props: Map16TilePreviewProps): React.ReactNode
   const label = props.editing ? 'Stop editing this tile' : 'Edit this tile'
   return (
     <div className="hb-map16-preview-wrap">
-      <div className="hb-map16-preview">
-        <canvas className="hb-map16-preview-canvas" ref={props.previewCanvasRef} />
-        <div className="hb-map16-preview-overlay" style={{ background: HOVER_DIM }}>
-          <button
-            type="button"
-            data-control="edit-toggle"
-            className={'hb-map16-preview-edit' + (props.editing ? ' hb-map16-preview-edit-on' : '')}
-            aria-pressed={props.editing}
-            title={label}
-            aria-label={label}
-            onClick={props.onToggleEdit}
-          >
-            <span className="codicon codicon-edit" />
-          </button>
+      <div className="hb-map16-preview-row">
+        <div className="hb-map16-preview">
+          <canvas className="hb-map16-preview-canvas" ref={props.previewCanvasRef} />
+          <div className="hb-map16-preview-overlay" style={{ background: HOVER_DIM }}>
+            <button
+              type="button"
+              data-control="edit-toggle"
+              className={
+                'hb-map16-preview-edit' + (props.editing ? ' hb-map16-preview-edit-on' : '')
+              }
+              aria-pressed={props.editing}
+              title={label}
+              aria-label={label}
+              onClick={props.onToggleEdit}
+            >
+              <span className="codicon codicon-edit" />
+            </button>
+          </div>
         </div>
+        {renderSwitchToggles(props)}
       </div>
       <div className="hb-map16-preview-caption">
         <span className="hb-map16-editor-tile-id">{`Tile ${formatCharNum(props.tile.id)}`}</span>
         <span className="hb-map16-addr">{formatRomAddr(props.tile.romAddr)}</span>
       </div>
+    </div>
+  )
+}
+
+/**
+ * One toggle per switch this tile's chars follow (#574), beside the preview so
+ * it shows without scrolling; absent for a tile no switch affects. The sheet's
+ * reason shows once alongside resolved toggles, the tile's own when none resolved.
+ */
+function renderSwitchToggles(props: Map16TilePreviewProps): React.ReactNode {
+  const switches = toggleKinds(props.tile.alternates)
+  const on = activeFor(props.tile.alternates, props.activeSwitches)
+  const note = switches.length === 0 ? props.tile.switchesUnavailable : props.switchUnavailable
+  if (switches.length === 0 && !note) return null
+
+  return (
+    <div className="hb-map16-switches" role="group" aria-label="Switch states">
+      {switches.map(kind => {
+        const pressed = on.includes(kind)
+        const images = props.buttonImages[kind]
+        return (
+          <PixelImageButton
+            key={kind}
+            data={{ control: 'switch-toggle', switch: kind }}
+            frame={SWITCH_BUTTON_PX}
+            scale={SWITCH_BUTTON_SCALE}
+            image={images && (pressed ? images.on : images.off)}
+            label={SWITCH_LABELS[kind]}
+            pressed={pressed}
+            reason={images ? undefined : props.buttonUnavailable?.[kind]}
+            onClick={() => props.onToggleSwitch(kind)}
+          />
+        )
+      })}
+      {note && (
+        <div className="hb-map16-switch-note" data-note="switch-unavailable">
+          {`Switch states are unavailable: ${note}`}
+        </div>
+      )}
     </div>
   )
 }

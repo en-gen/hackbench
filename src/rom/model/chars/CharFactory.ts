@@ -151,8 +151,14 @@ function collectAnimFrames(animData: AnimationData | undefined): Map<number, Cha
  * single `tickAnimation()` call - see Map16Decode.test.ts's
  * "vanilla tileset 0, phase 0" pin, which is the oracle that catches a
  * regression back to rendering raw, un-animated VRAM.
+ *
+ * An entry may also be a bare `Uint8Array`: a still switch preview has no
+ * Char to tick, only the alternate pixels `AnimationLoader.slotTiles` resolved.
  */
-export function vramFromChars(base: VramState, chars: Map<number, Char>): VramState {
+export function vramFromChars(
+  base: VramState,
+  chars: ReadonlyMap<number, Char | Uint8Array>,
+): VramState {
   const out: VramState = { ...base }
   for (const slot of VRAM_SLOT_NAMES) {
     const sheet = base[slot]
@@ -160,9 +166,9 @@ export function vramFromChars(base: VramState, chars: Map<number, Char>): VramSt
     const slotBase = VRAM_CHAR_BASE[slot]
     let patched: GfxSheet | undefined
     for (let i = 0; i < sheet.length; i++) {
-      const char = chars.get(slotBase + i)
-      if (!char) continue
-      const pixels = char.getPixels()
+      const entry = chars.get(slotBase + i)
+      if (!entry) continue
+      const pixels = entry instanceof Uint8Array ? entry : entry.getPixels()
       if (pixels === sheet[i]) continue
       if (!patched) patched = sheet.slice()
       patched[i] = pixels

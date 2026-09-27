@@ -623,3 +623,26 @@
   color: var(--theia-descriptionForeground);
   user-select: none;
 }
+
+/* ── Switch toggles (#574) ─────────────────────────────────────────────── */
+
+/* Beside the preview, not below it: below, they fell under the fold of
+   .hb-map16-main in the default 1280x720 layout. */
+.hb-map16-preview-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8em;
+}
+
+.hb-map16-switches {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 22em;
+}
+
+.hb-map16-switch-note {
+  font-size: var(--theia-ui-font-size0);
+  color: var(--theia-descriptionForeground);
+}

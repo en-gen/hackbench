@@ -71,7 +71,7 @@ export const WRAPPER_BRA = 0x06f5a3
 export const BANK00_SITES = [0x00c170, 0x00c252]
 export const BANK05_SITES = [0x058a3c, 0x058b18, 0x058c0a, 0x058cfd]
 
-const w = (v: number): number[] => [v & 0xff, (v >> 8) & 0xff]
+export const w = (v: number): number[] => [v & 0xff, (v >> 8) & 0xff]
 const jsl = (to: number): number[] => [0x22, ...w(to), to >> 16]
 
 /** A 512 KB LoROM stub with the Map16 engine code planted, minus `omit`. */
