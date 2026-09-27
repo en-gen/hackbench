@@ -79,10 +79,6 @@
   margin-bottom: 1em;
 }
 
-.hb-gfx-view-toolbar-spacer {
-  flex: 1 1 auto;
-}
-
 .hb-gfx-view-title {
   font-family: var(--theia-code-font-family);
   font-size: var(--theia-ui-font-size3);
@@ -103,12 +99,13 @@
 
 /*
  * Shrink-wrapped: the frame marks where the sheet ends, so it has to hug the
- * canvas rather than stretch across the panel.
+ * canvas rather than stretch across the panel. No `overflow` of its own -
+ * `.hb-gfx-view` above is the actual scroll container in both axes (#651),
+ * so a wheel binding and an anchor restore that targets `.hb-gfx-view`
+ * lands on a real scroller instead of a wrap that never gets one.
  */
 .hb-gfx-view-canvas-wrap {
   display: inline-block;
-  max-width: 100%;
-  overflow: auto;
   border: 1px solid var(--theia-editorWidget-border);
 }
 

@@ -3,7 +3,6 @@
 // repo root (see tsconfig.json, #391), so a relative path from lib/ would not
 // land back in src/.
 import 'hackbench-theia-extension/src/browser/style/gfx.css'
-import 'hackbench-theia-extension/src/browser/style/zoom.css'
 import { ContainerModule } from '@theia/core/shared/inversify'
 import {
   bindViewContribution,
