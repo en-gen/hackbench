@@ -148,11 +148,9 @@ Details, including the two distinct change-notification paths, in
 [docs/architecture/theia-shell.md](docs/architecture/theia-shell.md).
 
 An on-screen zoom control uses `ZoomController` + `ZoomStepper`
-(`theia/extension/src/browser/zoom-controller.ts`, `zoom-stepper.tsx`), so
-Ctrl + wheel drives it, anchored on the cursor. Nothing else responds to
-Ctrl + wheel: a `FrontendApplicationContribution`
-(`ctrl-wheel-guard-contribution.ts`) preventDefault's it everywhere else so
-the shell never falls back to Chromium's own page zoom (#651).
+(`theia/extension/src/browser/`), anchored on the cursor. Ctrl + wheel is
+cancelled shell-wide, so `build:browser` never page-zooms and editors don't
+scroll on it (#651).
 
 ### Reference only: the VS Code extension
 
