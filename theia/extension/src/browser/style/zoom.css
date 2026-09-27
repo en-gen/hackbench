@@ -1,0 +1,46 @@
+/*
+ * ZoomStepper (#651): the zoom-out / indicator / zoom-in trio shared by the
+ * Map16 sheet and the GFX sheet, so both toolbars read identically.
+ *
+ * Classes are generic (`hb-zoom-*`, not `hb-map16-*`) because a second view
+ * uses them unmodified - the whole point of lifting the control out of
+ * Map16 in the first place.
+ */
+
+.hb-zoom-stepper {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.hb-zoom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--theia-icon-foreground);
+  cursor: pointer;
+}
+
+.hb-zoom-btn:hover:not(:disabled) {
+  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.hb-zoom-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.hb-zoom-indicator {
+  min-width: 26px;
+  text-align: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--theia-descriptionForeground);
+  user-select: none;
+}
