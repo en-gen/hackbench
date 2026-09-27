@@ -205,7 +205,7 @@ not an architecture.
   become the renderer.
   **Amended 2026-09-27 (#664):** the owner allowed a bounded interpreter
   for L1 object handlers only, where hand-modelled shapes had produced
-  #652 and eight more confirmed mis-ports (#668-#675). The sprite/OAM tier
+  #652 and nine more confirmed mis-ports (#668-#675, #689). The sprite/OAM tier
   above stays cut. Its rules are in `docs/rom/level-rendering.md`.
 - Tier 4, human override in `<romfile>.hackbench.json`: the sidecar exists
   only on the unmerged `feature/map-alias-sidecar` branch

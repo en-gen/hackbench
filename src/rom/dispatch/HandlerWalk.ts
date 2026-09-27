@@ -41,21 +41,23 @@
 import type { RomFile } from '../RomFile'
 
 /** Operand width follows the M flag (8-bit accumulator immediates). */
-export const M = -1
+const M = -1
 /** Operand width follows the X flag (8-bit index immediates). */
-export const X = -2
+const X = -2
 
 /**
  * Total instruction length per opcode, or `M`/`X` where the immediate's
  * width is flag-dependent. The 65816 defines all 256 opcodes, so a decode
  * never meets an unknown byte; the only way to lose sync is a wrong flag.
  *
- * Twenty-three entries are never read: the returns, halts, jumps, branches
- * and `REP`/`SEP` all set the next address or add a literal instead. They
- * are kept correct as documentation, and no test can see a mutation to any
- * of them. `docs/sprites/sprite-gfx-routine-reading.md` section 8 lists them.
+ * This walk never reads twenty-three entries: the returns, halts, jumps,
+ * branches and `REP`/`SEP` all set the next address or add a literal
+ * instead (`docs/sprites/sprite-gfx-routine-reading.md` section 8). The L1
+ * handler interpreter (`objectHandlers/interpret.ts`) reads every entry for
+ * the opcodes it evaluates, through `instructionLength`, so its synthetic
+ * tests see a mutation to those.
  */
-export const INSN_LEN: readonly number[] = [
+const INSN_LEN: readonly number[] = [
   2,
   2,
   2,
@@ -465,12 +467,22 @@ interface Decoded {
   readonly bytes: Uint8Array
 }
 
+/** Length of `op` with the accumulator (`m8`) and index (`x8`) widths given. */
+export function instructionLength(op: number, m8: boolean, x8: boolean): number {
+  const raw = INSN_LEN[op]
+  return raw === M ? (m8 ? 2 : 3) : raw === X ? (x8 ? 2 : 3) : raw
+}
+
+/** True for an immediate whose width follows M or X (`LDA #`, `LDX #`, ...). */
+export function hasFlagSizedImmediate(op: number): boolean {
+  return INSN_LEN[op] === M || INSN_LEN[op] === X
+}
+
 function decode(rom: RomFile, addr: number, m: boolean, x: boolean): Decoded | null {
   const bytes = rom.readAt(addr, 4)
   if (!bytes) return null
   const op = bytes[0]
-  const raw = INSN_LEN[op]
-  return { op, len: raw === M ? (m ? 2 : 3) : raw === X ? (x ? 2 : 3) : raw, bytes }
+  return { op, len: instructionLength(op, m, x), bytes }
 }
 
 /** `JSR abs` stays in the current bank; `JSL long` names its own. */

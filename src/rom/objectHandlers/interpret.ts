@@ -8,10 +8,10 @@
  * Bounded, not an emulator. It evaluates only the opcode+mode pairs the vanilla
  * handlers were measured to use (the 65 cases of the switch below), touches
  * only the direct page, a few named WRAM cells, named game-state inputs and
- * the two Map16 buffers, and refuses anything else. Values carry UNKNOWN (null): the interpreter
- * refuses only when an unknown reaches a branch, an index, a pointer or a tile
- * write, which is how the dead `LDA $AA0D` (bank_0D.asm:4031) passes and a
- * real dependence does not.
+ * the two Map16 buffers, and refuses anything else. Values carry UNKNOWN
+ * (null): the interpreter refuses only when an unknown reaches a branch, an
+ * index, a pointer or a tile write, which is how the dead `LDA $AA0D`
+ * (bank_0D.asm:4031) passes and a real dependence does not.
  *
  * Two primitives, nothing else modelled:
  *   - ExecutePtrLong (bank_00.asm:864-884), recognized by the SHA-256 of its
@@ -21,14 +21,15 @@
  * inline, so a hack that edits one is read as edited.
  *
  * Assumptions, both the game's own: D = $0000, and DB maps $0000-$1FFF to WRAM
- * (the handlers address $1928 with `.W`). DB itself is UNKNOWN, so an absolute
- * read at $2000 or above is unknown and a write there refuses.
- * docs/rom/level-rendering.md, "The L1 handler interpreter".
+ * (the handlers address $1928 with `.W`). DB itself is UNKNOWN until an MVN or
+ * PLB sets it, so an absolute read at $2000 or above is unknown and a write
+ * there refuses. docs/rom/level-rendering.md, "The L1 handler interpreter".
  */
 
-import type { RomFile } from '../RomFile'
+import { cachedByVersion, type RomFile } from '../RomFile'
 import { fingerprint } from '../Fingerprint'
-import { INSN_LEN, M, X } from '../dispatch/HandlerWalk'
+import { TILE_EMPTY } from '../ObjectExpander'
+import { hasFlagSizedImmediate, instructionLength } from '../dispatch/HandlerWalk'
 import { readLongPointer } from './romData'
 import {
   MAP16_BYTES_PER_SCREEN_H,
@@ -49,7 +50,7 @@ export const EXECUTE_PTR_LONG_SHA256 =
   '9269f0bdf61255bd04b61dbb8aa17533389a25d3932f9478941cb387ff736a9d'
 const EXECUTE_PTR_LONG_LEN = 36
 
-/** Vanilla's largest in-range run is 99,776 steps and 13,470 writes. */
+/** Vanilla's largest completed run is 99,776 steps and 13,470 writes. */
 export const STEP_BUDGET = 250_000
 export const WRITE_BUDGET = 16_384
 
@@ -57,10 +58,6 @@ export const WRITE_BUDGET = 16_384
 const BUF_LO = 0x7ec800
 const BUF_HI = 0x7fc800
 const BUF_LEN = 0x3800
-const TILE_EMPTY = 0x25
-
-/** The immediate-operand opcodes among the ones the switch in `interpret` evaluates. */
-const IMMEDIATE = new Set([0xa9, 0xa2, 0xa0, 0xe0, 0x29, 0x69, 0xc9, 0xe9, 0x09, 0x49])
 
 /** Game-state RAM a handler may read (rammap.asm), each defaulting to 0. */
 // prettier-ignore
@@ -73,6 +70,8 @@ const SWITCH_BLOCK_FLAGS = 0x1f27
 const LEVEL_LOAD_OBJECT = 0x1928 // current screen; ext $01 writes it (bank_0D.asm:1444)
 const LEVEL_LOAD_OBJECT_TILE = 0x1ba1
 const OBJECT_TILESET = 0x1931
+/** Layer1DataPtr ($65-$67): the loader's stream pointer, not a handler's to move. */
+const LAYER1_DATA_PTR = 0x65
 
 /** The loader's direct-page inputs (bank_05.asm:677-782). */
 export interface Placement {
@@ -99,8 +98,6 @@ export interface InterpretEnv {
   switchFlags?: SwitchFlags
   /** Any other GAME_STATE byte, by WRAM address. Unset reads are 0. */
   ram?: ReadonlyMap<number, number>
-  /** What earlier objects left in the buffer (merge reads). Unset: $25 low, $00 high. */
-  prior?: (addr: number) => number | undefined
 }
 
 export interface InterpretOptions {
@@ -108,6 +105,10 @@ export interface InterpretOptions {
   writeBudget?: number
   /** Overrides EXECUTE_PTR_LONG_SHA256; synthetic tests pass their own. */
   dispatchFingerprint?: string
+  /** How `entry` is called, which decides the return that ends the run.
+   *  The loader JSLs both real entries; a test entering a handler directly
+   *  passes 'jsr'. */
+  entryCall?: 'jsl' | 'jsr'
 }
 
 export interface BufferWrite {
@@ -125,10 +126,13 @@ export interface InterpretResult {
 }
 
 type V = number | null
-type Frame = { call: 'jsr' | 'jsl' | 'entry'; ret: number } | { call: null; v: V }
+type Frame = { call: 'jsr' | 'jsl'; ret: number | null } | { call: null; v: V }
+
+/** Per cart: whether the JSL target at an address matches a fingerprint. */
+const SIG_CACHE = new WeakMap<RomFile, { version: number; value: Map<string, boolean> }>()
 
 class Refusal extends Error {}
-const refuse = (reason: string): never => {
+function refuse(reason: string): never {
   throw new Refusal(reason)
 }
 const hex = (v: number, n = 6): string => '$' + v.toString(16).toUpperCase().padStart(n, '0')
@@ -146,7 +150,7 @@ export function interpret(
   const sig = opts.dispatchFingerprint ?? EXECUTE_PTR_LONG_SHA256
   const flags = env.switchFlags ?? SWITCH_FLAGS_UNCLEARED
   const switches = [flags.green, flags.yellow, flags.blue, flags.red]
-  const sigSeen = new Map<number, boolean>()
+  const sigSeen = cachedByVersion(SIG_CACHE, rom, () => new Map<string, boolean>())
 
   const dp: V[] = new Array(256).fill(null)
   const set = (at: number, bytes: number[]) => bytes.forEach((b, i) => (dp[at + i] = b & 0xff))
@@ -172,13 +176,10 @@ export function interpret(
   let n: boolean | null = null
   let z: boolean | null = null
   let c: boolean | null = null
-  const stack: Frame[] = [{ call: 'entry', ret: 0 }]
+  // The entry's own frame: its return (ret null) ends the run.
+  const stack: Frame[] = [{ call: opts.entryCall ?? 'jsl', ret: null }]
 
   // ── bus ──
-  const romByte = (a: number): number | null => {
-    const o = rom.fileOffsetOf(a & 0xffffff)
-    return o === null || o >= rom.buffer.length ? null : rom.buffer[o]
-  }
   /** WRAM offset of a 24-bit address, or null when it is not WRAM. */
   const wram = (a: number): number | null => {
     const bank = a >>> 16
@@ -187,31 +188,46 @@ export function interpret(
     if (bank === 0x7f) return 0x10000 | lo
     return (bank & 0x7f) < 0x40 && lo < 0x2000 ? lo : null
   }
+  /** A cart byte, read only from the $8000-$FFFF half of a bank (below it sit
+   *  registers, SRAM at $70-$7D and unmapped space), and never from WRAM. The
+   *  LoROM case is inlined from `loromToOffset`: this is the hot path. */
+  const header = rom.hasHeader ? rom.buffer.length - rom.romSize : 0
+  const cart = (a: number): number | null => {
+    const bank = (a >>> 16) & 0xff
+    if ((a & 0xffff) < 0x8000 || bank === 0x7e || bank === 0x7f) return null
+    const o =
+      rom.mapMode === 'hirom'
+        ? (rom.fileOffsetOf(a & 0xffffff) ?? rom.buffer.length) - header
+        : (bank & 0x7f) * 0x8000 + (a & 0x7fff)
+    return o < rom.romSize ? rom.buffer[o + header] : null
+  }
   const bufferAddr = (w: number): number | null => {
     const a = 0x7e0000 + w
     return (a >= BUF_LO && a < BUF_LO + BUF_LEN) || (a >= BUF_HI && a < BUF_HI + BUF_LEN) ? a : null
   }
   const gameState = (w: number): boolean => GAME_STATE.some(([s, l]) => w >= s && w < s + l)
 
-  /** Executable ROM: backed by the cart, not WRAM, not the $0000-$7FFF system half. */
-  const isCode = (a: number): boolean =>
-    romByte(a) !== null && wram(a) === null && (a & 0xffff) >= 0x8000
   const read8 = (a: number): V => {
     const w = wram(a)
-    if (w === null) return romByte(a) ?? refuse(`read of unmodelled address ${hex(a)}`)
+    if (w === null) return cart(a) ?? refuse(`read of unmodelled address ${hex(a)}`)
     if (w < 0x100) return dp[w]
     const buf = bufferAddr(w)
-    if (buf !== null) return buffer.get(buf) ?? env.prior?.(buf) ?? (buf < BUF_HI ? TILE_EMPTY : 0)
-    if (cells.has(w)) return cells.get(w)!
+    if (buf !== null) return buffer.get(buf) ?? (buf < BUF_HI ? TILE_EMPTY : 0)
+    const cell = cells.get(w)
+    if (cell !== undefined) return cell
     if (w === OBJECT_TILESET) return env.tileset & 0xff
     if (w >= SWITCH_BLOCK_FLAGS && w < SWITCH_BLOCK_FLAGS + 4)
       return switches[w - SWITCH_BLOCK_FLAGS] ? 1 : 0
     if (gameState(w)) return env.ram?.get(w) ?? 0
     return refuse(`read of unmodelled RAM ${hex(0x7e0000 + w)}`)
   }
-  const write8 = (a: number, v: V): void => {
-    const w = a < 0 ? null : wram(a)
+  const write8 = (a: number, v: V, dpMode = false): void => {
+    if (a < 0) refuse('write through an unknown data bank')
+    const w = wram(a)
     if (w !== null && w < 0x100) {
+      if (!dpMode) refuse(`write into the direct page at ${hex(a)} through a pointer`)
+      if (w >= LAYER1_DATA_PTR && w < LAYER1_DATA_PTR + 3)
+        refuse(`write to the loader's Layer1DataPtr at ${hex(w, 2)}`)
       dp[w] = v
       return
     }
@@ -220,8 +236,8 @@ export function interpret(
       return
     }
     const buf = w === null ? null : bufferAddr(w)
-    if (buf === null) return refuse(`write outside the tile buffer at ${hex(a < 0 ? 0 : a)}`)
-    if (v === null) return refuse('unknown value written to the tile buffer')
+    if (buf === null) refuse(`write outside the tile buffer at ${hex(a)}`)
+    if (v === null) refuse('unknown value written to the tile buffer')
     if (out.writes.length >= writeBudget) refuse('write budget')
     buffer.set(buf, v)
     out.writes.push({ addr: buf, value: v })
@@ -233,17 +249,21 @@ export function interpret(
     const h = read8(a + 1)
     return l === null || h === null ? null : l | (h << 8)
   }
-  const write = (a: number, v: V, wide: boolean): void => {
-    write8(a, v === null ? null : v & 0xff)
-    if (wide) write8(a + 1, v === null ? null : (v >> 8) & 0xff)
+  const write = (a: number, v: V, wide: boolean, dpMode = false): void => {
+    write8(a, v === null ? null : v & 0xff, dpMode)
+    if (wide) write8(a + 1, v === null ? null : (v >> 8) & 0xff, dpMode)
   }
   /** DB-relative address; -1 stands for "above $1FFF in an unknown bank". */
   const dbAddr = (a16: number): number =>
     db !== null ? ((db << 16) + a16) & 0xffffff : a16 < 0x2000 ? a16 : -1
+  /** Native mode: `[dp]` at $FF reads $FF, $100, $101, not a wrap to $00. */
   const pointer = (d: number, len: 2 | 3): number => {
     let p = 0
-    for (let i = 0; i < len; i++)
-      p |= known(dp[(d + i) & 0xff], `pointer byte at ${hex(d, 2)}`) << (8 * i)
+    for (let i = 0; i < len; i++) {
+      const v = read8(d + i)
+      if (v === null) refuse(`unknown pointer byte at ${hex(d, 2)}`)
+      p |= v << (8 * i)
+    }
     return p
   }
 
@@ -274,75 +294,88 @@ export function interpret(
     const ret = jslAt + 3
     const t = readLongPointer(rom, (ret + 1 + idx * 3) & 0xffffff)
     if (t === null || !isCode(t)) refuse(`dispatch target ${hex(t ?? 0)} is not ROM`)
-    set(0, [t!, t! >> 8, t! >> 16, ret >> 8, ret >> 16])
+    set(0, [t, t >> 8, t >> 16, ret >> 8, ret >> 16])
     dp[5] = y === null ? null : y & 0xff
-    aLo = (t! >> 8) & 0xff
-    aHi = t! >> 16
+    aLo = (t >> 8) & 0xff
+    aHi = t >> 16
     m8 = x8 = true
     c = false
     nz(y, false)
-    out.dispatches.push(t!)
-    return t!
+    out.dispatches.push(t)
+    return t
   }
   const isDispatch = (t: number): boolean => {
-    let hit = sigSeen.get(t)
+    const key = `${sig}@${t}`
+    let hit = sigSeen.get(key)
     if (hit === undefined) {
       hit = fingerprint(rom.readAt(t, EXECUTE_PTR_LONG_LEN)) === sig
-      sigSeen.set(t, hit)
+      sigSeen.set(key, hit)
     }
     return hit
   }
+  const isCode = (a: number): boolean => cart(a) !== null
 
+  // The instruction being evaluated. Hoisted so the helpers below are built once.
   let pc = entry
+  let op = 0
+  let next = 0
+  let imm = 0
+  let abs = 0
+  let long = 0
+  const b = [0, 0, 0, 0]
+  /** True when the last `ea()` was direct-page mode: only that may write the direct page. */
+  let direct = false
+  const ix = (): number => known(x, 'index X')
+  const iy = (): number => known(y, 'index Y')
+  /** Effective address of a memory operand, by addressing mode (low 5 opcode bits). */
+  // prettier-ignore
+  const ea = (): number => {
+    direct = false
+    switch (op & 0x1f) {
+      case 0x04: case 0x05: case 0x06: direct = true; return b[1] // dp
+      case 0x0d: case 0x0e: return dbAddr(abs) // abs
+      case 0x1d: return dbAddr(abs + ix()) // abs,X
+      case 0x19: return dbAddr(abs + iy()) // abs,Y
+      case 0x1f: return (long + ix()) & 0xffffff // long,X
+      case 0x17: return (pointer(b[1], 3) + iy()) & 0xffffff // [dp],Y
+      case 0x11: return dbAddr(pointer(b[1], 2) + iy()) // (dp),Y
+    }
+    return refuse(`addressing mode of ${hex(op, 2)}`)
+  }
+  const operand = (wide: boolean): V => (hasFlagSizedImmediate(op) ? imm : read(ea(), wide))
+  const branch = (cond: boolean | null): number => {
+    if (cond === null) refuse('unknown value reached a branch')
+    const d = b[1] > 0x7f ? b[1] - 0x100 : b[1]
+    return cond ? (pc & 0xff0000) | ((next + d) & 0xffff) : next
+  }
+  const cmp = (reg: V, wide: boolean): void => {
+    const v = operand(wide)
+    if (reg === null || v === null) return void (c = n = z = null)
+    c = reg >= v
+    nz((reg - v) & (wide ? 0xffff : 0xff), wide)
+  }
+  const step = (r: V, d: number, wide: boolean): V => {
+    const v = r === null ? null : (r + d) & (wide ? 0xffff : 0xff)
+    nz(v, wide)
+    return v
+  }
+
   try {
     for (;;) {
       if (++out.steps > stepBudget) refuse('step budget')
-      if (!isCode(pc)) refuse(`execution left ROM at ${hex(pc)}`)
-      const op = romByte(pc)!
-      const raw = INSN_LEN[op]
-      const len = raw === M ? (m8 ? 2 : 3) : raw === X ? (x8 ? 2 : 3) : raw
-      const b: number[] = [op]
-      for (let i = 1; i < len; i++)
-        b.push(romByte(pc + i) ?? refuse(`execution left ROM at ${hex(pc)}`))
-      const next = (pc & 0xff0000) | ((pc + len) & 0xffff)
-      const imm = len === 3 ? b[1] | (b[2] << 8) : b[1]
-      const abs = b[1] | (b[2] << 8)
-      const long = abs | (b[3] << 16)
-      const ix = (): number => known(x, 'index X')
-      const iy = (): number => known(y, 'index Y')
+      const fetched = cart(pc)
+      if (fetched === null) refuse(`execution left ROM at ${hex(pc)}`)
+      op = fetched
+      const len = instructionLength(op, m8, x8)
+      b[0] = op
+      for (let i = 1; i < 4; i++)
+        b[i] = i < len ? (cart(pc + i) ?? refuse(`execution left ROM at ${hex(pc)}`)) : 0
+      next = (pc & 0xff0000) | ((pc + len) & 0xffff)
+      imm = len === 3 ? b[1] | (b[2] << 8) : b[1]
+      abs = b[1] | (b[2] << 8)
+      long = abs | (b[3] << 16)
       const wA = !m8
       const wX = !x8
-      /** Effective address of a memory operand, by addressing mode (low 5 opcode bits). */
-      // prettier-ignore
-      const ea = (): number => {
-        switch (op & 0x1f) {
-          case 0x04: case 0x05: case 0x06: return b[1] // dp
-          case 0x0d: case 0x0e: return dbAddr(abs) // abs
-          case 0x1d: return db === null && abs + ix() >= 0x2000 ? -1 : dbAddr(abs + ix()) // abs,X
-          case 0x19: return db === null && abs + iy() >= 0x2000 ? -1 : dbAddr(abs + iy()) // abs,Y
-          case 0x1f: return (long + ix()) & 0xffffff // long,X
-          case 0x17: return (pointer(b[1], 3) + iy()) & 0xffffff // [dp],Y
-          case 0x11: return dbAddr(pointer(b[1], 2) + iy()) // (dp),Y
-        }
-        return refuse(`addressing mode of ${hex(op, 2)}`)
-      }
-      const operand = (wide: boolean): V => (IMMEDIATE.has(op) ? imm : read(ea(), wide))
-      const branch = (cond: boolean | null): number => {
-        if (cond === null) refuse('unknown value reached a branch')
-        const d = b[1] > 0x7f ? b[1] - 0x100 : b[1]
-        return cond ? (pc & 0xff0000) | ((next + d) & 0xffff) : next
-      }
-      const cmp = (reg: V, wide: boolean): void => {
-        const v = operand(wide)
-        if (reg === null || v === null) return void (c = n = z = null)
-        c = reg >= v
-        nz((reg - v) & (wide ? 0xffff : 0xff), wide)
-      }
-      const step = (r: V, d: number, wide: boolean): V => {
-        const v = r === null ? null : (r + d) & (wide ? 0xffff : 0xff)
-        nz(v, wide)
-        return v
-      }
 
       // The allowed set: the 65 opcode+mode pairs measured on the 147 vanilla
       // entries. Anything else reaches `default` and refuses.
@@ -367,10 +400,10 @@ export function interpret(
         case 0x60: case 0x6b: { // RTS, RTL
           const f = pop()
           const name = op === 0x60 ? 'RTS' : 'RTL'
-          if (f.call === null || (f.call !== 'entry' && f.call !== (op === 0x60 ? 'jsr' : 'jsl')))
-            refuse(`${name}: return over pushed data or the wrong call kind`)
-          if (f.call === 'entry') return out
-          pc = (f as { ret: number }).ret
+          if (f.call === null) refuse(`${name}: return over pushed data`)
+          if (f.call !== (op === 0x60 ? 'jsr' : 'jsl')) refuse(`${name} returns from a ${f.call.toUpperCase()}`)
+          if (f.ret === null) return out
+          pc = f.ret
           continue
         }
         case 0x48: // PHA
@@ -412,7 +445,7 @@ export function interpret(
         case 0x88: y = step(y, -1, wX); break // DEY
         case 0xe6: case 0xee: case 0xc6: case 0xce: { // INC, DEC
           const a = ea()
-          write(a, step(read(a, wA), op >= 0xe0 ? 1 : -1, wA), wA)
+          write(a, step(read(a, wA), op >= 0xe0 ? 1 : -1, wA), wA, direct)
           break
         }
         case 0x0a: case 0x4a: { // ASL A, LSR A
@@ -426,9 +459,9 @@ export function interpret(
           setA(operand(wA)); nz(getA(), wA); break // LDA
         case 0xa2: case 0xa6: case 0xae: x = operand(wX); nz(x, wX); break // LDX
         case 0xa0: case 0xa4: y = operand(wX); nz(y, wX); break // LDY
-        case 0x85: case 0x8d: case 0x9d: case 0x97: write(ea(), getA(), wA); break // STA
-        case 0x86: write(ea(), x, wX); break // STX
-        case 0x84: write(ea(), y, wX); break // STY
+        case 0x85: case 0x8d: case 0x9d: case 0x97: write(ea(), getA(), wA, direct); break // STA
+        case 0x86: write(ea(), x, wX, direct); break // STX
+        case 0x84: write(ea(), y, wX, direct); break // STY
         case 0x29: case 0x3f: case 0x09: case 0x49: { // AND, ORA, EOR
           const v = operand(wA)
           const a = getA()
@@ -493,18 +526,14 @@ export function horizontalPlacement(
 }
 
 /**
- * Apply writes to a grid the way cursor.ts's writeTile stores a tile:
- * (high byte << 8) | low byte, rows growing up to $200 columns.
+ * Apply writes to a horizontal-level grid the way cursor.ts's writeTile
+ * stores a tile: (high byte << 8) | low byte, rows growing up to $200 columns.
  */
-export function applyWrites(
-  grid: TileGrid,
-  writes: readonly BufferWrite[],
-  stride = MAP16_BYTES_PER_SCREEN_H,
-): void {
+export function applyWrites(grid: TileGrid, writes: readonly BufferWrite[]): void {
   for (const { addr, value } of writes) {
     const o = (addr & 0xffff) - (BUF_LO & 0xffff)
-    const screen = Math.floor(o / stride)
-    const rem = o % stride
+    const screen = Math.floor(o / MAP16_BYTES_PER_SCREEN_H)
+    const rem = o % MAP16_BYTES_PER_SCREEN_H
     const row = grid[rem >> 4]
     const col = screen * 16 + (rem & 0x0f)
     if (!row || col >= 0x200) continue
