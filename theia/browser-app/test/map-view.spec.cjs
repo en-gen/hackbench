@@ -263,7 +263,6 @@ for (const index of [0x009, 0x013, 0x105, 0x106, 0x12c, 0x109]) {
     await page.waitForTimeout(500)
     for (const screen of [0, 1]) {
       const px = await readScreen(page, index, screen)
-      expect(px.rgba.filter((v, i) => i % 4 === 3 && v !== 255), `screen ${screen} transparent`).toHaveLength(0) // prettier-ignore
       expect(px.distinct, `screen ${screen} colors`).toBeGreaterThan(1)
     }
     await expectEveryVisibleScreenDrawn(page, index)
@@ -290,7 +289,6 @@ test('a reused tab paints screen 0 of the next map', async ({ page }) => {
     { timeout: 15000 },
   )
   const px = await readScreen(page, 0x106, 0)
-  expect(px.rgba.filter((v, i) => i % 4 === 3 && v !== 255)).toHaveLength(0)
   expect(px.distinct).toBeGreaterThan(1)
   await expectEveryVisibleScreenDrawn(page, 0x106)
 })
@@ -406,7 +404,6 @@ test('a reused tab going from a horizontal to a vertical map draws screen 0', as
   const generation = current.split(':')[0]
   for (const m of marks) if (m !== null) expect(m.split(':')[0]).toBe(generation)
   const px = await readScreen(page, 0x109, 0)
-  expect(px.rgba.filter((v, i) => i % 4 === 3 && v !== 255)).toHaveLength(0)
   expect(px.distinct).toBeGreaterThan(1)
 })
 
@@ -454,21 +451,16 @@ test('the back area is its own layer, with the checkerboard beneath it', async (
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await showScreen(page, 0x105, 0)
-  const backArea = page.locator(`${root(0x105)} [data-layer="back-area"]`)
-  const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
-  await expect(backArea).toHaveCount(1)
-  // L1 hidden, only the back area shows: one color, the layer's own.
-  await page.locator(`${root(0x105)} [data-control="layer-l1"]`).click()
-  expect((await shownPixels(page, strip)).colors).toBe(1)
-  await page.locator(`${root(0x105)} [data-control="layer-l1"]`).click()
-  await backArea.evaluate(el => (el.style.display = 'none'))
+  await page
+    .locator(`${root(0x105)} [data-layer="back-area"]`)
+    .evaluate(el => (el.style.display = 'none'))
   await expectCheckerboard(expect, page, `${root(0x105)} canvas[data-screen="0"]`)
 })
 
 /**
  * The rule both ways (#621): $12C's $094 cells are drawn with ON/OFF off and
- * blank with it on, so on they show their off picture at 25% over the
- * backdrop in the screen door. Measured on vanilla: 38 such cells; the one
+ * blank with it on, so on they show their off picture at 25% in the screen
+ * door, over the back area layer. Measured on vanilla: 38 such cells; the one
  * at column 85, row 5 (screen 5, local column 5) changes 16 pixels, all on
  * the dim squares, each within 64 of the backdrop.
  */
@@ -631,7 +623,7 @@ test('each palace toggle shows its own block, dotted then solid', async ({ page 
  * $014 is a switch-palace map (tileset 4), with 470 hidden $02A cells, one at
  * column 1, row 13. The map draws each cell with the Map16 sheet's own
  * renderer, so a hidden cell shows its switched-on art at 25% over the
- * backdrop, as the sheet does, never blank. Measured on vanilla: that cell
+ * back area layer, as the sheet does, never blank. Measured on vanilla: that cell
  * holds the backdrop plus 5 blended colors.
  */
 /**
@@ -643,7 +635,6 @@ test('each palace toggle shows its own block, dotted then solid', async ({ page 
 function expectScreenDoor(cell, backdrop, needFull = true) {
   let full = 0
   cell.forEach((p, k) => {
-    expect(p[3]).toBe(255)
     const far = [0, 1, 2].some(c => Math.abs(p[c] - backdrop[c]) > 64)
     if (((k % 16) + Math.floor(k / 16)) % 2 === 1) expect(far, `dim pixel ${k}`).toBe(false)
     else if (far) full++

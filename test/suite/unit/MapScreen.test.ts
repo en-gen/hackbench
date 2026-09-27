@@ -135,11 +135,13 @@ const vGrid = (screens: number) => Array.from({ length: screens * 16 }, () => ne
 const dim = (rgb: number[]) => [...rgb, Math.round(255 * HIDDEN_TILE_DIM_ALPHA)]
 /** Where L1 draws nothing: clear, so the back area layer beneath shows. */
 const CLEAR = [0, 0, 0, 0]
+/** One channel of `fg` drawn at alpha `a` over `bg`, as the browser composites. */
+const blend = (fg: number, bg: number, a: number) => Math.round((fg * a + bg * (255 - a)) / 255)
 /** A screen as the view shows it: laid over its back area layer. */
 const overBackArea = (buf: Uint8ClampedArray, bg: RgbaColor) => {
   const out = new Uint8ClampedArray(buf.length)
   for (let i = 0; i < buf.length; i += 4) {
-    for (let c = 0; c < 3; c++) out[i + c] = Math.round((buf[i + c]! * buf[i + 3]! + bg[c]! * (255 - buf[i + 3]!)) / 255) // prettier-ignore
+    for (let c = 0; c < 3; c++) out[i + c] = blend(buf[i + c]!, bg[c]!, buf[i + 3]!)
     out[i + 3] = 255
   }
   return out
@@ -794,7 +796,7 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
         const s = (y * 16 + x) * 4
         if (own[s + 3] !== 0 || alt[s + 3] === 0) continue
         const a = Math.round(255 * hiddenPixelStrength(x, y))
-        const want = [0, 1, 2].map(c => Math.round((alt[s + c]! * a + m.backArea[c]! * (255 - a)) / 255)) // prettier-ignore
+        const want = [0, 1, 2].map(c => blend(alt[s + c]!, m.backArea[c]!, a))
         expect(px(buf, 256, 16 + x, 13 * 16 + y).slice(0, 3)).toEqual(want)
         checked++
       }
