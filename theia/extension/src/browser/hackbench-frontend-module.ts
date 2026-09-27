@@ -29,6 +29,7 @@ import { EditStackContribution } from './edit-stack-contribution'
 import { ReconnectContribution } from './reconnect-contribution'
 import { OutlineViewContribution } from '@theia/outline-view/lib/browser/outline-view-contribution'
 import { HiddenOutlineViewContribution } from './hidden-outline-view-contribution'
+import { CtrlWheelGuardContribution } from './ctrl-wheel-guard-contribution'
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   rebind(OutlineViewContribution).to(HiddenOutlineViewContribution).inSingletonScope()
@@ -76,6 +77,12 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
 
   bind(BrandContribution).toSelf().inSingletonScope()
   bind(FrontendApplicationContribution).toService(BrandContribution)
+
+  // Ctrl + wheel drives on-screen zoom controls and nothing else (#651) - see
+  // the contribution's own doc comment for why this is a bubble-phase backstop
+  // rather than the thing that decides what Ctrl + wheel does.
+  bind(CtrlWheelGuardContribution).toSelf().inSingletonScope()
+  bind(FrontendApplicationContribution).toService(CtrlWheelGuardContribution)
 
   // One widget per map, keyed by slot, so reopening a map focuses the one
   // already on screen instead of stacking duplicates.
