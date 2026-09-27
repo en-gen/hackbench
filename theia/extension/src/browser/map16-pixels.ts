@@ -68,8 +68,6 @@ export function paintScaled(
   w: number,
   h: number,
   scale: number,
-  /** Below 1 draws a hidden tile's switched art faintly rather than a blank (#574). */
-  opacity = 1,
 ): void {
   canvas.width = w * scale
   canvas.height = h * scale
@@ -82,8 +80,6 @@ export function paintScaled(
   if (!nativeCtx) return
   nativeCtx.putImageData(new ImageData(pixels, w, h), 0, 0)
   ctx.imageSmoothingEnabled = false
-  // Resizing above cleared the bitmap, and every call sets globalAlpha, so nothing leaks.
-  ctx.globalAlpha = opacity
   ctx.drawImage(native, 0, 0, w, h, 0, 0, canvas.width, canvas.height)
 }
 

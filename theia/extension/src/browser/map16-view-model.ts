@@ -163,25 +163,42 @@ export function activeFor(
   return toggleKinds(alternates).filter(k => active.has(k))
 }
 
-/** How strongly a hidden tile's switched-on art is drawn, in color, in both the
- * inspector preview and the sheet (#621, owner's choice): one value, so they cannot drift. */
-export const HIDDEN_TILE_OPACITY = 0.25
+/** A hidden tile's switched-on art is drawn in a soft screen door, in both the
+ * inspector preview and the sheet (owner's choice over #621's flat 25% alpha): half
+ * its pixels at full strength, the other half at this. One rule, so they cannot drift. */
+export const HIDDEN_TILE_DIM_ALPHA = 0.25
+
+/** The screen door at tile pixel (x, y): a checkerboard on the tile's own pixel
+ * grid, not the screen's, so it looks the same at every zoom. */
+export function hiddenPixelStrength(x: number, y: number): number {
+  return (x + y) % 2 === 0 ? 1 : HIDDEN_TILE_DIM_ALPHA
+}
+
+/** A copy of one 16x16 RGBA tile in the screen door; colors are untouched. */
+export function screenDoor(tile: Uint8ClampedArray): Uint8ClampedArray {
+  const out = tile.slice()
+  for (let y = 0; y < TILE_PX; y++)
+    for (let x = 0; x < TILE_PX; x++) {
+      const a = (y * TILE_PX + x) * 4 + 3
+      out[a] = Math.round(tile[a]! * hiddenPixelStrength(x, y))
+    }
+  return out
+}
 
 /**
  * What the preview draws (#574): the alternate matching the tile's own active
- * switches at full strength, else a hidden tile's first single at
- * HIDDEN_TILE_OPACITY, else
- * undefined for the tile's own picture.
+ * switches as is, else a hidden tile's first single, flagged `hidden` so it is
+ * drawn in the screen door, else undefined for the tile's own picture.
  */
 export function previewAlternate(
   alternates: readonly Map16TileAlternateDto[] | undefined,
   active: ReadonlySet<Map16SwitchKind>,
-): { alt: Map16TileAlternateDto; opacity: number } | undefined {
+): { alt: Map16TileAlternateDto; hidden: boolean } | undefined {
   const key = activeFor(alternates, active).sort().join('+')
   const match = key ? alternates?.find(a => a.kinds.join('+') === key) : undefined
-  if (match) return { alt: match, opacity: 1 }
+  if (match) return { alt: match, hidden: false }
   const hidden = alternates?.find(a => a.kinds.length === 1 && a.hidden)
-  return hidden && { alt: hidden, opacity: HIDDEN_TILE_OPACITY }
+  return hidden && { alt: hidden, hidden: true }
 }
 
 const NO_SWITCHES: ReadonlySet<Map16SwitchKind> = new Set()
@@ -191,8 +208,8 @@ type BrowsedSheet = Pick<Map16SheetDto, 'width' | 'tilesPerRow'> & {
 }
 
 /**
- * The sheet as browsed (#621): every hidden tile's switched-on art at the
- * preview's own HIDDEN_TILE_OPACITY, in the pixels its cell leaves blank. The same
+ * The sheet as browsed (#621): every hidden tile's switched-on art in the
+ * preview's own screen door, in the pixels its cell leaves blank. The same
  * `previewAlternate` the inspector uses with no switch on, so the two never
  * disagree. Returns a copy; the decoded phase other surfaces crop is never written.
  */
@@ -215,7 +232,7 @@ export function withHiddenTiles(
         const d = ((y0 + y) * sheet.width + x0 + x) * 4
         if (out[d + 3] !== 0 || alt[s + 3] === 0) continue
         out.set(alt.subarray(s, s + 3), d)
-        out[d + 3] = Math.round(alt[s + 3]! * shown.opacity)
+        out[d + 3] = Math.round(alt[s + 3]! * hiddenPixelStrength(x, y))
       }
   }
   return out ?? atlas

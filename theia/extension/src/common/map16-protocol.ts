@@ -243,7 +243,7 @@ export interface Map16TileAlternateDto {
   kinds: Map16SwitchKind[]
   /** One composited 16x16 RGBA tile, base64. */
   altRgbaBase64: string
-  /** Blank while off and not blank while on; drawn faintly while off (HIDDEN_TILE_OPACITY). */
+  /** Blank while off and not blank while on; drawn in a soft screen door while off (hiddenPixelStrength). */
   hidden: boolean
 }
 
