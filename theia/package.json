@@ -23,12 +23,18 @@
     "start:electron": "yarn --cwd electron-app start"
   },
   "devDependencies": {
-    "lerna": "^8.0.0"
+    "lerna": "^10.0.1"
   },
   "resolutions": {
     "drivelist": "file:./no-native/drivelist",
     "native-keymap": "file:./no-native/native-keymap",
     "@vscode/windows-ca-certs": "file:./no-native/windows-ca-certs",
-    "@theia/ffmpeg": "file:./no-native/theia-ffmpeg"
+    "@theia/ffmpeg": "file:./no-native/theia-ffmpeg",
+    "dompurify": "^3.4.15",
+    "js-yaml": "^4.3.2",
+    "pacote": "^21.5.1",
+    "diff": "^8.0.3",
+    "serialize-javascript": "^7.0.5",
+    "uuid": "^11.1.1"
   }
 }
