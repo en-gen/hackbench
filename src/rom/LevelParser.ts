@@ -246,7 +246,7 @@ export function parseLevelHeader(data: Buffer | Uint8Array): LevelHeader {
 export function parseLevelObjects(
   data: Buffer | Uint8Array,
   verticalTable: readonly number[],
-): Omit<ParsedLevel, 'sprites'> {
+): Omit<ParsedLevel, 'sprites'> & { terminated: boolean } {
   const header = parseLevelHeader(data)
   const isVertical = isLevelModeVertical(header.levelMode, verticalTable)
 
@@ -352,7 +352,10 @@ export function parseLevelObjects(
     }
   }
 
-  return { header, objects, screens: header.levelLength, isVertical }
+  // False when the walk ran off the buffer instead of stopping on $FF, which
+  // means it lost sync with the stream and the object list is not trustworthy.
+  const terminated = data[pos] === 0xff
+  return { header, objects, screens: header.levelLength, isVertical, terminated }
 }
 
 /**

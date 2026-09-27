@@ -245,19 +245,17 @@ export class SmwRom {
    * Read enough of a level's Layer-1 stream to cover the object data AND
    * the LM per-screen exit table after the $FF terminator. LM-extended
    * streams can exceed a fixed 512 bytes (sublevel $103 is ~655 bytes of
-   * objects alone), so read a generous ceiling and fall back smaller near
-   * EOF; parseLevelObjects/parseLevelScreenExits both stop at the first
-   * $FF regardless, so over-reading is harmless.
+   * objects alone), so read a generous ceiling and fall back to whatever
+   * remains before EOF; parseLevelObjects/parseLevelScreenExits both stop
+   * at the first $FF regardless, so over-reading is harmless.
    */
   getLevelRawData(index: number): Buffer | null {
     const ptr = this.getLevelL1Pointer(index)
     if (!ptr) return null
-    // Try a generous ceiling first, then fall back for pointers near EOF.
-    for (const len of [0x2000, 0x1000, 0x800, 0x400, 0x200]) {
-      const buf = this.rom.readAt(ptr, len)
-      if (buf) return buf
-    }
-    return null
+    // A tail shorter than 0x2000 is still level data: 4 maps on 4 hacks in
+    // the SMW Central sweep sit in the ROM's last bytes. Only the header must fit.
+    const buf = this.rom.readUpTo(ptr, 0x2000)
+    return buf && buf.length >= 5 ? buf : null
   }
 
   /**
