@@ -130,10 +130,10 @@ may not import anything that touches a file.
 | `RomRegistry.ts`, `CoreRegistry.ts` | per-machine paths to the ROM and the libretro core          |
 
 A view that shows ROM content must read the WORKING COPY, never the base
-bytes, or an edit in one view is invisible in another. Palette, GFX and
-Map16 comply; the Maps view does not yet, and
-`test/suite/gates/workingCopyGate.test.ts` exempts `project-server.ts` by
-name. It is a rule with one known exception, not a description.
+bytes, or an edit in one view is invisible in another. Every backend server
+complies, the Maps view included since #421 step 3, and
+`test/suite/gates/workingCopyGate.test.ts` enforces it with no exemptions.
+Only `WorkingRomRegistry` loads the base bytes.
 
 ### The Theia shell (`theia/`)
 

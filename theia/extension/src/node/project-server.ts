@@ -12,13 +12,17 @@ import {
   romIdentity,
   updateProject,
 } from '../../../../src/project/Project'
-import { RomRegistry } from '../../../../src/project/RomRegistry'
 import { RecentProjects } from '../../../../src/project/RecentProjects'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMapTree, MapTree } from '../../../../src/rom/MapTree'
-import { WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
+import {
+  WorkingRomEntry,
+  WorkingRomRegistry,
+  WorkingRomResult,
+} from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
+import { L1ModelCache, mapScreen } from './map-screen'
 import { exportPatch } from '../../../../src/project/ExportPatch'
 import {
   admitGroups,
@@ -41,6 +45,7 @@ import {
   HackMetadataDto,
   LoadMapsResult,
   MapDetailsDto,
+  MapScreenResult,
   PatchFormatDto,
   ProjectDto,
   ProjectService,
@@ -48,15 +53,16 @@ import {
   RecentProjectDto,
   RomIdentityDto,
   SetMapGroupsResult,
+  SwitchFlagsDto,
 } from '../common/project-protocol'
 import { WorkingCopyNotifier } from './working-copy-notifier'
 
 @injectable()
 export class ProjectServiceImpl implements ProjectService {
-  private readonly registry = new RomRegistry()
   private readonly recent = new RecentProjects()
   @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
   private readonly notifier = new WorkingCopyNotifier<ProjectServiceClient>()
+  private readonly screens = new L1ModelCache()
 
   setClient(client: ProjectServiceClient | undefined): void {
     this.notifier.setClient(client)
@@ -67,7 +73,7 @@ export class ProjectServiceImpl implements ProjectService {
     // The user has just pointed at their cartridge, which is the only moment
     // we are certain where it is. Recording it here is what lets the project
     // itself stay path-free.
-    this.registry.register(req.romPath)
+    this.workingRoms.register(req.romPath)
     this.recent.remember(p)
     return toDto(p)
   }
@@ -89,22 +95,28 @@ export class ProjectServiceImpl implements ProjectService {
   }
 
   async mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto> {
-    return buildMapDetails(this.romFor(manifestPath), index)
+    const r = this.workingRoms.get(manifestPath)
+    if (r.status === 'rom-not-located') {
+      throw new Error(
+        `The base ROM for ${r.baseRom.title || 'this project'} is not on this machine`,
+      )
+    }
+    if (r.status !== 'ok') throw new Error(r.reason)
+    return buildMapDetails(romOf(r), index)
   }
 
-  /**
-   * The cartridge behind a project, or a refusal.
-   *
-   * Opened per call rather than cached: the registry re-verifies the hash, and
-   * a cart the user swapped under us must not keep resolving to the old one.
-   */
-  private romFor(manifestPath: string): SmwRom {
-    const project = openProject(manifestPath)
-    const romPath = this.registry.resolve(project.baseRom.sha256)
-    if (!romPath) {
-      throw new Error(`The base ROM for ${project.name} is not on this machine`)
-    }
-    return new SmwRom(RomFile.load(romPath))
+  async mapScreen(
+    manifestPath: string,
+    index: number,
+    screen: number,
+    switchFlags: SwitchFlagsDto,
+  ): Promise<MapScreenResult> {
+    const r = this.workingRoms.get(manifestPath)
+    if (r.status === 'rom-not-located') return r
+    if (r.status !== 'ok') throw new Error(r.reason)
+    // An edit made in any view must repaint an open map.
+    this.notifier.watch(manifestPath, r.working)
+    return mapScreen(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags)
   }
 
   async updateProject(
@@ -119,17 +131,14 @@ export class ProjectServiceImpl implements ProjectService {
   }
 
   async registerRom(romPath: string): Promise<RomIdentityDto> {
-    return this.registry.register(romPath)
+    return this.workingRoms.register(romPath)
   }
 
   async loadMaps(manifestPath: string): Promise<LoadMapsResult> {
-    const project = openProject(manifestPath)
-    const romPath = this.registry.resolve(project.baseRom.sha256)
-    if (!romPath) {
-      return { status: 'rom-not-located', baseRom: project.baseRom }
-    }
-
-    const rom = new SmwRom(RomFile.load(romPath))
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    const { project, romPath } = r
+    const rom = romOf(r)
     const tree = buildMapTree(rom)
 
     // A bad groups.json must not hide the maps: fall back to the ungrouped
@@ -177,14 +186,9 @@ export class ProjectServiceImpl implements ProjectService {
   }
 
   async setMapGroups(manifestPath: string, groups: MapGroup[]): Promise<SetMapGroupsResult> {
-    const project = openProject(manifestPath)
-    const romPath = this.registry.resolve(project.baseRom.sha256)
-    if (!romPath) {
-      return { status: 'rom-not-located', baseRom: project.baseRom }
-    }
-
-    const rom = new SmwRom(RomFile.load(romPath))
-    const topLevel = topLevelSlots(buildMapTree(rom))
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    const topLevel = topLevelSlots(buildMapTree(romOf(r)))
     const admitted = admitGroups(groups, this.readGroupsSafely(manifestPath), topLevel)
     if (admitted.status === 'invalid') return admitted
 
@@ -194,6 +198,13 @@ export class ProjectServiceImpl implements ProjectService {
       return { status: 'invalid', reason: err instanceof Error ? err.message : String(err) }
     }
     return { status: 'ok' }
+  }
+
+  /** The working copy, `rom-not-located`, or a throw for an unreadable project. */
+  private located(manifestPath: string): Exclude<WorkingRomResult, { status: 'unreadable' }> {
+    const r = this.workingRoms.get(manifestPath)
+    if (r.status === 'unreadable') throw new Error(r.reason)
+    return r
   }
 
   /** Reads meta/groups.json, turning a throw into a `GroupsRead` so admission and load decisions stay pure. */
@@ -240,6 +251,11 @@ export class ProjectServiceImpl implements ProjectService {
   async redo(manifestPath: string): Promise<EditStackResult> {
     return this.workingRoms.redo(manifestPath)
   }
+}
+
+/** The working copy as a ROM, over a copy of its shared bytes. */
+function romOf(entry: WorkingRomEntry): SmwRom {
+  return new SmwRom(RomFile.fromBytes(entry.romPath, Buffer.from(entry.working.bytes())))
 }
 
 /** Applies groups.json to the raw tree and puts the result on the wire. */
