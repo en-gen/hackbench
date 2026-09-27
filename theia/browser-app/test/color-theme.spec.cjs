@@ -69,12 +69,33 @@ const inspectDefault = page =>
     COLOR_THEME_KEY,
   )
 
-const openPicker = page =>
-  page.evaluate(() => getSvc('CommandRegistry').executeCommand('workbench.action.selectTheme'))
+// Click into the input so the arrow keys activateRow presses land there.
+async function openPicker(page) {
+  await page.evaluate(() =>
+    getSvc('CommandRegistry').executeCommand('workbench.action.selectTheme'),
+  )
+  await page.locator('.quick-input-box input').click()
+}
+// Exact label match: 'Light (Theia)' is also a substring of 'High Contrast
+// Light (Theia)'.
 const quickPickRow = (page, text) =>
   text
-    ? page.locator('.quick-input-list-entry', { hasText: text })
+    ? page.locator('.quick-input-list-entry').filter({ has: page.getByText(text, { exact: true }) })
     : page.locator('.quick-input-list-entry').first()
+// Preview follows the ACTIVE row, which hover does not move; arrow keys do.
+// Theia's quick-input arrow keybindings register a few seconds after the
+// shell paints, so keep pressing, spaced out, until the row is reached.
+async function activateRow(page, text, key) {
+  const focused = page.locator('.quick-input-list .monaco-list-row.focused')
+  for (let i = 0; i < 60; i++) {
+    if ((await focused.innerText()).split('\n')[0].trim() === text) return
+    await page.keyboard.press(key)
+    await page.waitForTimeout(250)
+  }
+  throw new Error(
+    `no quick pick row "${text}" reached with ${key}: ${JSON.stringify(await focused.allInnerTexts())}`,
+  )
+}
 
 test.beforeEach(async ({ page }) => {
   await boot(page)
@@ -197,7 +218,7 @@ test('Escape after previewing a real theme restores system and its resolved them
   await expect.poll(() => currentThemeId(page), { timeout: POLL_TIMEOUT }).toBe('dark')
 
   await openPicker(page)
-  await quickPickRow(page, 'Light (Theia)').hover()
+  await activateRow(page, 'Light (Theia)', 'ArrowDown')
   // Past the 200ms preview debounce upstream's selectColorTheme still uses.
   await expect.poll(() => currentThemeId(page), { timeout: POLL_TIMEOUT }).toBe('light')
 
@@ -212,7 +233,7 @@ test('Escape after previewing System Default never persists it (#666)', async ({
   await expect.poll(() => currentThemeId(page), { timeout: POLL_TIMEOUT }).toBe('light')
 
   await openPicker(page)
-  await quickPickRow(page).hover()
+  await activateRow(page, 'System Default (Dark)', 'ArrowUp')
   await expect.poll(() => currentThemeId(page), { timeout: POLL_TIMEOUT }).toBe('dark')
 
   await page.keyboard.press('Escape')
