@@ -243,34 +243,27 @@ test('closing and reopening the Graphics view still wires row clicks', async ({ 
 })
 
 /**
- * Invictus 1.0 replaced the decompressor, so no file can be read as LC_LZ2
- * (#487). The explorer row must carry the gate's reason, and opening a file
- * must show it in the view, with or without a forced depth, rather than
- * paint garbage labelled as tile data. The zero-tile override refusal is
- * covered by GfxDecode.test.ts on a synthetic ROM, since no corpus ROM reaches it.
+ * Invictus 1.0 XORs every GFX pointer with a key read from its decompressor
+ * prelude, then decodes with a fast LC_LZ2 routine (#603). Every file must
+ * list with a depth and open as tile data, with no error. Before #603 all
+ * 50 were refused.
  */
-test('a ROM with a replaced decompressor shows every file unavailable, with the reason', async ({
-  page,
-}) => {
+test('a ROM with a keyed, fast decompressor lists and draws every file', async ({ page }) => {
   test.skip(!fs.existsSync(INVICTUS_ROM), 'Invictus fixture not present on this machine')
 
   const result = await loadGfx(page, path.join(tmp, 'InvictusHack'), INVICTUS_ROM)
   expect(result.fileRows.length).toBe(50)
-  for (const r of result.fileRows) expect(r.bpp).toBeNull()
+  for (const r of result.fileRows) expect(r.bpp).not.toBeNull()
 
   await revealGfx(page)
   const row = firstGfxFileRow(page)
-  await expect(row.locator('.hb-gfx-meta')).toHaveText('unavailable')
-  await expect(row.locator('.hb-gfx-meta')).toHaveAttribute('title', /LC_LZ2/)
+  await expect(row.locator('.hb-gfx-meta')).not.toHaveText('unavailable')
 
   await row.click()
-  const error = page.locator('.hb-gfx-view-error')
-  await expect(error).toContainText('LC_LZ2', { timeout: 15000 })
-
-  await page.selectOption('#hb-gfx-bpp-select', '3')
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
   await page.waitForTimeout(500)
-  await expect(error).toContainText('LC_LZ2')
-  await expect(page.locator('.hb-gfx-view-canvas')).toHaveCount(0)
+  await expect(page.locator('.hb-gfx-view-error')).toHaveCount(0)
+  expect((await readCanvas(page)).distinctColors).toBeGreaterThan(1)
 })
 
 test('switching bit depth re-decodes the sheet, not just its label', async ({ page }) => {

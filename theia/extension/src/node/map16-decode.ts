@@ -33,6 +33,7 @@ import {
 } from '../../../../src/rom/Map16'
 import {
   gfxSource,
+  levelGfxAssignmentNote,
   loadVram,
   readGfxAssignment,
   VramState,
@@ -398,7 +399,7 @@ export function buildTileAlternates(
   animData: AnimationData,
   entries: readonly Map16Tile[],
   vram: VramState,
-  palette: ActiveLevelPalette,
+  palette: { colors: RgbaColor[] },
 ): Map<number, Map16TileAlternateDto[]> {
   const out = new Map<number, Map16TileAlternateDto[]>()
   for (const [id, alts] of tileAlternates(animData, entries, vram, palette)) {
@@ -628,6 +629,7 @@ export function decodeMap16Sheet(
       tiles,
       charAnimation: animation?.dto,
       animationNote: frameZero?.error,
+      gfxAssignmentNote: levelGfxAssignmentNote(rom.rom),
       switchUnavailable: animData?.switchUnavailable,
       switchButtonArt: switchButtons.art,
       switchButtonUnavailable: switchButtons.unavailable,

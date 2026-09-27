@@ -405,6 +405,10 @@
   color: var(--theia-errorForeground);
 }
 
+.hb-map-view-note {
+  margin-bottom: 1.2em;
+}
+
 /*
  * Preview tab, matching VS Code: a tab opened by a single click is italic
  * until it is pinned. Theia has no preview concept of its own, so the class

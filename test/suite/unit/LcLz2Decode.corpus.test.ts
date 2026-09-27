@@ -4,16 +4,19 @@
  * the fix changes output only for the streams it targets, not for real ROM
  * data. Evidence scope: one machine, this corpus, captured 2026-09-25.
  *
- * Invictus is excluded: its GFX are not LC_LZ2 at all (#526), and its
- * pointer-readable files no longer all decompress to pinned garbage; the
- * #526 gate is what actually protects shipping callers.
+ * Invictus is checked apart: it runs a replacement LC_LZ2 routine behind a
+ * pointer XOR prelude (#603), so its streams decode only through the key.
  */
 import { createHash } from 'node:crypto'
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { decompress, tryDecompress } from '../../../src/rom/LcLz2'
-import { readGfxFileTable, checkStockCompression } from '../../../src/rom/GfxArena'
-import { INVICTUS, hasRom, romPath } from '../support/corpus'
+import {
+  readGfxFileTable,
+  readGfxPointerSites,
+  checkStockCompression,
+} from '../../../src/rom/GfxArena'
+import { CORPUS, INVICTUS, hasRom, romPath } from '../support/corpus'
 
 const FILES = 50
 const VANILLA_HASH = '15462611a20fb7e3863edf99ea51b5a7942d561bbd800f4a375a533c1826847e'
@@ -44,21 +47,26 @@ for (const [name, hash] of Object.entries(STOCK)) {
   })
 }
 
-describe.skipIf(!hasRom(INVICTUS))('Invictus: not LC_LZ2, excluded above', () => {
-  it('the #526 gate refuses it before any shipping caller reaches decompress', () => {
-    expect(checkStockCompression(RomFile.load(romPath(INVICTUS))).ok).toBe(false)
-  })
-
-  it('some, not all, of its pointer-readable files also fail this decoder directly', () => {
-    // The #526 gate is what actually protects shipping callers; this is
-    // corroborating evidence, not a claim that decompress alone catches
-    // every file in a hack that replaced it.
+describe.skipIf(!hasRom(INVICTUS))('Invictus: fast LC_LZ2 behind a pointer key', () => {
+  it('the gate accepts it, and every file decodes through the key', () => {
     const rom = RomFile.load(romPath(INVICTUS))
+    const gate = checkStockCompression(rom)
+    expect(gate.ok && gate.kind).toBe('fast')
+    expect(gate.ok && gate.sites.key).not.toBe(0)
     const readable = readableFiles(rom)
-    expect(readable.length).toBeGreaterThan(0)
-    const refused = readable.filter(
-      f => !tryDecompress(rom.readAtFileOffset(f.offset!, f.byteLength)!).ok,
-    )
-    expect(refused.length).toBeGreaterThan(0)
+    expect(readable.length).toBe(FILES)
+    for (const f of readable) {
+      expect(tryDecompress(rom.readAtFileOffset(f.offset!, f.byteLength)!).ok).toBe(true)
+    }
   })
 })
+
+for (const name of CORPUS) {
+  describe.skipIf(!hasRom(name))(`${name}: pointer key`, () => {
+    it(name === INVICTUS ? 'is keyed' : 'is not keyed', () => {
+      const sites = readGfxPointerSites(RomFile.load(romPath(name)))
+      expect(sites).not.toBeNull()
+      expect(sites!.key !== 0).toBe(name === INVICTUS)
+    })
+  })
+}

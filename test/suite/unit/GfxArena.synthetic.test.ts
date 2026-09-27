@@ -17,30 +17,21 @@ import { loromFromOffset } from '../../../src/rom/addressing'
 import { RomFile } from '../../../src/rom/RomFile'
 import {
   GFX_FILE_COUNT,
-  STOCK_LCLZ2_ENTRY,
   checkStockCompression,
   layoutArena,
-  matchesHook,
   planRegions,
   readGfxFileTable,
   readGfxPointerSites,
 } from '../../../src/rom/GfxArena'
+import { STOCK_LCLZ2_ENTRY } from '../../../src/rom/GfxDecompressor'
 import {
   applyWrites,
   buildCart,
   CART_SIZE,
   DECOMP_ENTRY,
   gfxStreams as freshStreams,
-  HOOK_EXGFX_OPERANDS,
-  HOOK_RANGE_A_LENGTH,
-  HOOK_RANGE_A_OFFSET,
-  HOOK_RANGE_B_LENGTH,
-  HOOK_RANGE_B_OFFSET,
-  HOOK_TABLE_OFFSET,
-  HOOK_TAIL_OFFSET,
   jsl,
   OPERAND_POSITIONS,
-  plantHookSignature,
   prepareGraphicsFile,
   ROUTINE_AT,
   TABLE_BANK,
@@ -52,19 +43,6 @@ import {
 // constant must not be able to hide behind the synthetic ROM using it too.
 const PRIMARY_CALLER = 0x00aa6b
 const SPECIAL_WORLD_CALLER = 0x00aa7a
-const HOOK_AT = 0x019000 // bank 1, unused by any other fixture in this file
-
-/** The 3-byte spans `matchesHook`'s fingerprint masks: not part of "every
- *  byte flipped must refuse", since the ROM is free to vary them. */
-const HOOK_MASKED_SPANS: readonly [number, number][] = [
-  [HOOK_TABLE_OFFSET + 4, HOOK_TABLE_OFFSET + 7],
-  [HOOK_TABLE_OFFSET + 10, HOOK_TABLE_OFFSET + 13],
-  [HOOK_TABLE_OFFSET + 16, HOOK_TABLE_OFFSET + 19],
-  [HOOK_TAIL_OFFSET + 9, HOOK_TAIL_OFFSET + 12],
-  ...HOOK_EXGFX_OPERANDS.map((o): [number, number] => [o, o + 3]),
-]
-const isHookMasked = (offset: number): boolean =>
-  HOOK_MASKED_SPANS.some(([start, end]) => offset >= start && offset < end)
 
 // Erases whatever buildCart's default plant left near the real call sites,
 // so a test's own literal-addressed write is what the resolver actually
@@ -153,101 +131,6 @@ describe('readGfxPointerSites', () => {
     rom.writeAt(PRIMARY_CALLER, jsl(0x008000)) // neither the routine nor the hook
     rom.writeAt(SPECIAL_WORLD_CALLER, jsl(matched))
     expect(readGfxPointerSites(rom)).toBeNull()
-  })
-})
-
-describe('matchesHook', () => {
-  it('accepts a synthetic hook signature whose own fingerprint is passed in, tables and JML agreeing', () => {
-    const { rom } = buildCart()
-    const jsrAt = loromFromOffset(ROUTINE_AT)! + 0x1f
-    const fingerprint = plantHookSignature(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt)
-    expect(matchesHook(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt, [fingerprint])).toBe(
-      true,
-    )
-  })
-
-  it('accepts a hook whose JML operand reaches the JSR through the FastROM mirror', () => {
-    const { rom } = buildCart()
-    const jsrAt = loromFromOffset(ROUTINE_AT)! + 0x1f
-    const fingerprint = plantHookSignature(
-      rom,
-      HOOK_AT,
-      TABLE_LO,
-      TABLE_HI,
-      TABLE_BANK,
-      jsrAt | 0x800000,
-    )
-    expect(matchesHook(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt, [fingerprint])).toBe(
-      true,
-    )
-  })
-
-  it('refuses a hook-shaped signature whose fingerprint is not a recognized one', () => {
-    // No override: falls back to the real, corpus-measured table, which a
-    // synthetic (all-NOP) signature cannot hash to.
-    const { rom } = buildCart()
-    const jsrAt = loromFromOffset(ROUTINE_AT)! + 0x1f
-    plantHookSignature(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt)
-    expect(matchesHook(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt)).toBe(false)
-  })
-
-  it('refuses a hook whose table operand was relocated', () => {
-    const { rom } = buildCart()
-    const jsrAt = loromFromOffset(ROUTINE_AT)! + 0x1f
-    const fingerprint = plantHookSignature(
-      rom,
-      HOOK_AT,
-      TABLE_LO + 0x40,
-      TABLE_HI,
-      TABLE_BANK,
-      jsrAt,
-    )
-    expect(matchesHook(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt, [fingerprint])).toBe(
-      false,
-    )
-  })
-
-  it('refuses a hook whose JML target is wrong', () => {
-    const { rom } = buildCart()
-    const matched = loromFromOffset(ROUTINE_AT)!
-    const fingerprint = plantHookSignature(
-      rom,
-      HOOK_AT,
-      TABLE_LO,
-      TABLE_HI,
-      TABLE_BANK,
-      matched + 0x20,
-    )
-    expect(
-      matchesHook(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, matched + 0x1f, [fingerprint]),
-    ).toBe(false)
-  })
-
-  it('refuses on a planted defect at every byte of both ranges, except the masked operands', () => {
-    // The defect this exists to catch: a fixed offset confirms bytes exist
-    // there but never checks the path between them, so a retargeted hop or
-    // a changed branch anywhere else in the hook survived undetected.
-    const { rom } = buildCart()
-    const jsrAt = loromFromOffset(ROUTINE_AT)! + 0x1f
-    const fingerprint = plantHookSignature(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt)
-    const survived: number[] = []
-    for (const [rangeOffset, rangeLength] of [
-      [HOOK_RANGE_A_OFFSET, HOOK_RANGE_A_LENGTH],
-      [HOOK_RANGE_B_OFFSET, HOOK_RANGE_B_LENGTH],
-    ] as const) {
-      for (let i = 0; i < rangeLength; i++) {
-        const offset = rangeOffset + i
-        if (isHookMasked(offset)) continue
-        const at = HOOK_AT + offset
-        const original = rom.readAt(at, 1)![0]!
-        rom.writeAt(at, [(original + 1) & 0xff])
-        if (matchesHook(rom, HOOK_AT, TABLE_LO, TABLE_HI, TABLE_BANK, jsrAt, [fingerprint])) {
-          survived.push(offset)
-        }
-        rom.writeAt(at, [original])
-      }
-    }
-    expect(survived).toEqual([])
   })
 })
 

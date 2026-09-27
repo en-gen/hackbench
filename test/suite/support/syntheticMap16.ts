@@ -4,6 +4,7 @@
  * a site holds, so a test can plant a non-stock value or drop the site.
  */
 import { RomFile } from '../../../src/rom/RomFile'
+import { plantGfxReadPath, plantPaletteCol1ReachPath } from './syntheticGfxCart'
 
 export interface Map16Code {
   bank: number
@@ -81,6 +82,16 @@ export function map16Stub(code: Partial<Map16Code> = {}, omit: Map16Site[] = [])
   const rom = RomFile.fromBytes('map16-stub.sfc', bytes)
   plantMap16Code(rom, { ...STOCK_SHAPE, ...code }, omit)
   return bytes
+}
+
+/** `map16Stub` plus the GFX read path and palette column 1, enough for
+ *  `decodeMap16Sheet` to return a sheet. */
+export function map16DecodeStub(): RomFile {
+  const rom = new RomFile('map16-decode-stub.sfc', Buffer.from(map16Stub()))
+  rom.writeAt(0x00ffd5, [0x20]) // LoROM map mode, at file $7FD5
+  plantGfxReadPath(rom)
+  plantPaletteCol1ReachPath(rom)
+  return rom
 }
 
 export function plantMap16Code(rom: RomFile, c: Map16Code, omit: Map16Site[]): void {

@@ -359,6 +359,8 @@ export interface Map16SheetDto {
   charAnimation?: Map16CharAnimationDto
   /** Why animation frames couldn't be loaded; the widget renders this as an error. */
   animationNote?: string
+  /** Why this tileset's GFX files are unverified; the sheet is still drawn from them. */
+  gfxAssignmentNote?: string
   /** Why some or all switch alternates could not be read (AnimationData.switchUnavailable). */
   switchUnavailable?: string
   /** Each switch toggle button's own art (docs/rom/pswitch-button-art.md); absent per kind when unread. */

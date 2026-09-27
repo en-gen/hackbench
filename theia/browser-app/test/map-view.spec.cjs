@@ -338,7 +338,7 @@ async function shownPixels(page, locator) {
     const data = ctx.getImageData(0, 0, c.width, c.height).data
     const colors = new Set()
     for (let i = 0; i < data.length; i += 4) colors.add(`${data[i]},${data[i + 1]},${data[i + 2]}`)
-    return { checksum: checksumOf(data), colors: colors.size }
+    return { checksum: checksumOf(data), colors: colors.size, color: [...colors][0] }
   }, png)
 }
 
@@ -414,7 +414,7 @@ test('a reused tab going from a horizontal to a vertical map draws screen 0', as
 test('the L1 toggle hides and restores the foreground, per tab', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
-  await page.waitForTimeout(500)
+  await expectEveryVisibleScreenDrawn(page, 0x105)
   const l1 = page.locator(`${root(0x105)} [data-control="layer-l1"]`)
   const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
   await expect(l1).toHaveAttribute('aria-pressed', 'true')
@@ -430,9 +430,13 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
 
   const shown = await shownPixels(page, strip)
   expect(shown.colors).toBeGreaterThan(4)
+  // $105's first screen is mostly sky: its dominant pixel is the level's backdrop.
+  const backdrop = dominant((await readScreen(page, 0x105, 0)).rgba)
   await l1.click()
   await expect(l1).toHaveAttribute('aria-pressed', 'false')
-  expect((await shownPixels(page, strip)).colors).toBe(1)
+  const hidden = await shownPixels(page, strip)
+  expect(hidden.colors).toBe(1)
+  expect(hidden.color).toBe(backdrop)
 
   await openMap(page, project.manifestPath, 0x106)
   await expect(page.locator(`${root(0x106)} [data-control="layer-l1"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
@@ -495,6 +499,64 @@ test('a tile ON/OFF blanks shows in the screen door on $12C with ON/OFF on', asy
   )
 })
 
+/** The most common RGB of an RGBA array, as "r,g,b". */
+function dominant(rgba) {
+  const counts = new Map()
+  for (let i = 0; i < rgba.length; i += 4) {
+    const k = `${rgba[i]},${rgba[i + 1]},${rgba[i + 2]}`
+    counts.set(k, (counts.get(k) ?? 0) + 1)
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0]
+}
+
+/**
+ * A Back Area palette edit reaches the strip's own background, which is what
+ * shows with L1 hidden. $105 uses back-area color 2, the word at $00B0A4
+ * (PaletteLoader ADDR_BACK_AREA plus 2 x 2; vanilla $5D80, measured).
+ */
+test('a back-area color edit repaints the strip behind a hidden L1', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const screen0 = page.locator(`${root(0x105)} canvas[data-screen="0"]`)
+  const drawnBefore = await screen0.getAttribute('data-drawn')
+  const rom = fs.readFileSync(ROM)
+  const at = (rom.length % 1024 === 512 ? 512 : 0) + (0x00b0a4 & 0x7fff)
+  const oldHex = '$' + (rom[at] | (rom[at + 1] << 8)).toString(16).toUpperCase().padStart(4, '0')
+  expect(oldHex).not.toBe('$03E0')
+  const result = await page.evaluate(
+    async ({ mp, oldHex }) =>
+      getSvc('Symbol(PaletteService)').setColor(mp, 0x00b0a4, oldHex, '$03E0'),
+    { mp: project.manifestPath, oldHex },
+  )
+  expect(result.status).toBe('ok')
+  await expect
+    .poll(() => screen0.getAttribute('data-drawn'), { timeout: 15000 })
+    .not.toBe(drawnBefore)
+  await page.locator(`${root(0x105)} [data-control="layer-l1"]`).click()
+  const hidden = await shownPixels(
+    page,
+    page.locator(`${root(0x105)} [data-control="map-scroller"]`),
+  )
+  expect(hidden.colors).toBe(1)
+  expect(hidden.color).toBe('0,255,0') // $03E0, BGR555 green, widened as the app does
+})
+
+/**
+ * A toggle keeps the current picture up until the new one lands: sampled
+ * right after the click, before the new `data-drawn`, the screen is never
+ * blank (transparent) or backdrop-only.
+ */
+test('a palace toggle never flashes the screen blank', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showScreen(page, 0x105, 9)
+  await page.locator(`${root(0x105)} [data-control="palace-yellow"]`).click()
+  const px = await readScreen(page, 0x105, 9)
+  expect(px.rgba.filter((v, i) => i % 4 === 3 && v !== 255)).toHaveLength(0)
+  expect(px.distinct).toBeGreaterThan(2)
+  await showScreen(page, 0x105, 9, true)
+})
+
 test('opening a map draws real pixels, and two maps differ', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
@@ -542,8 +604,8 @@ test('a palette edit recolors exactly the pixels of that color, with no reload',
   )
   expect(result.status).toBe('ok')
 
-  // No open() or refresh here: the working-copy push must repaint it. The
-  // canvas blanks while the new reply is in flight, so wait for the new paint.
+  // No open() or refresh here: the working-copy push must repaint it. The old
+  // picture stays up while the reply is in flight, so wait for the new paint.
   await expect
     .poll(() => screen0.getAttribute('data-drawn'), { timeout: 15000 })
     .toMatch(new RegExp(`^(?!${drawnBefore}$)\\d+:0000:000:0$`))

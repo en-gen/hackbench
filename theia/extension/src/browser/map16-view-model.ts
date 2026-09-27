@@ -16,7 +16,7 @@ import {
   Map16TileDto,
 } from '../common/map16-protocol'
 import { TILE_PX } from './map16-pixels'
-import { hiddenPixelStrength, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
+import { overlayHidden } from '../../../../src/rom/render/HiddenTiles'
 
 /** Which sheet an edit is written against: the tile table, the graphics and
  * the colors it resolves. */
@@ -164,34 +164,25 @@ export function activeFor(
   return toggleKinds(alternates).filter(k => active.has(k))
 }
 
-/** A copy of one 16x16 RGBA tile in the screen door; colors are untouched. */
+/** One 16x16 RGBA tile in the screen door (`overlayHidden` into a blank tile); colors untouched. */
 export function screenDoor(tile: Uint8ClampedArray): Uint8ClampedArray {
-  const out = tile.slice()
-  for (let y = 0; y < TILE_PX; y++)
-    for (let x = 0; x < TILE_PX; x++) {
-      const a = (y * TILE_PX + x) * 4 + 3
-      out[a] = Math.round(tile[a]! * hiddenPixelStrength(x, y))
-    }
+  const out = new Uint8ClampedArray(TILE_PX * TILE_PX * 4)
+  overlayHidden(out, TILE_PX, 0, 0, tile)
   return out
 }
 
 /**
  * What the preview draws (#574): the alternate matching the tile's own active
  * switches as is, else a hidden tile's first single, flagged `hidden` so it is
- * drawn in the screen door, else undefined for the tile's own picture. When
- * the matching alternate is blank (`isBlank`, e.g. $094 under ON/OFF), the
- * switch blanks the tile: `alt` is undefined and `hidden` set, meaning the
- * tile's own picture in the screen door (`ghostOf`'s rule, both ways).
+ * drawn in the screen door, else undefined for the tile's own picture.
  */
 export function previewAlternate(
   alternates: readonly Map16TileAlternateDto[] | undefined,
   active: ReadonlySet<Map16SwitchKind>,
-  isBlank: (alt: Map16TileAlternateDto) => boolean = () => false,
-): { alt: Map16TileAlternateDto | undefined; hidden: boolean } | undefined {
+): { alt: Map16TileAlternateDto; hidden: boolean } | undefined {
   const key = activeFor(alternates, active).sort().join('+')
   const match = key ? alternates?.find(a => a.kinds.join('+') === key) : undefined
-  if (match)
-    return isBlank(match) ? { alt: undefined, hidden: true } : { alt: match, hidden: false }
+  if (match) return { alt: match, hidden: false }
   const hidden = alternates?.find(a => a.kinds.length === 1 && a.hidden)
   return hidden && { alt: hidden, hidden: true }
 }
@@ -216,7 +207,7 @@ export function withHiddenTiles(
   let out: Uint8ClampedArray | undefined
   for (const tile of sheet.tiles) {
     const shown = previewAlternate(tile.alternates, NO_SWITCHES)
-    if (!shown?.alt) continue
+    if (!shown) continue
     out ??= atlas.slice()
     const x0 = (tile.id % sheet.tilesPerRow) * TILE_PX
     const y0 = Math.floor(tile.id / sheet.tilesPerRow) * TILE_PX

@@ -12,7 +12,7 @@ import { loadVram } from './GfxLoader'
 import { buildLevelCgram, loadRomPalettes } from './PaletteLoader'
 import { readLevelCol1 } from './PaletteStockTables'
 import { PALACES, switchBlockTile, type Palace } from './SwitchBlockTiles'
-import { renderCell } from './render/CellRenderer'
+import { renderMap16Tile } from './TileRenderer'
 
 export type PalaceArt = { uncleared: Uint8ClampedArray; cleared: Uint8ClampedArray } | { reason: string } // prettier-ignore
 
@@ -75,7 +75,7 @@ export function palaceArt(rom: RomFile): Record<Palace, PalaceArt> {
       if (!ts || !ids || 'reason' in ids) return undefined
       const defs = [ts.tiles[ids.uncleared], ts.tiles[ids.cleared]]
       if (defs.some(d => !d)) return undefined
-      return defs.map(d => ({ def: d!, rgba: renderCell(d!, ts.vram, palette) }))
+      return defs.map(d => ({ def: d!, rgba: renderMap16Tile(d!, ts.vram, palette) }))
     })
     out[p] = choosePalaceArt(p, votes, absentWhy)
   }

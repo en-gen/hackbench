@@ -22,7 +22,7 @@ import {
   SwitchStateDto,
 } from '../common/project-protocol'
 import { ProjectFrontendClient } from './project-push-client'
-import { decodeRgba } from './map16-pixels'
+import { decodeRgba, TILE_PX } from './map16-pixels'
 import { PALACES, screenKey } from './map-view-model'
 import { SWITCH_ORDER } from './map16-view-model'
 import { decodeSwitchButton, SwitchToggle, type SwitchButtonImages } from './switch-toggle'
@@ -49,7 +49,7 @@ type Switch = keyof SwitchStateDto
 const ZOOMS = [1, 2, 3, 4]
 /** Screens fetched beyond each edge of the view. */
 const MARGIN = 1
-const ICON_FRAME = { width: 16, height: 16 }
+const ICON_FRAME = { width: TILE_PX, height: TILE_PX }
 
 type PalaceIcon = { uncleared: FrameImage; cleared: FrameImage } | { reason: string }
 
@@ -59,7 +59,7 @@ function AfterCommit({ run }: { run: () => void }): null {
   return null
 }
 
-const title = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
+const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
 @injectable()
 export class MapViewWidget extends ReactWidget {
@@ -87,6 +87,7 @@ export class MapViewWidget extends ReactWidget {
   protected readonly screens = new Map<string, ImageData>()
   protected readonly pending = new Set<string>()
   protected readonly canvases = new Map<number, HTMLCanvasElement>()
+  protected readonly canvasRefs = new Map<number, (el: HTMLCanvasElement | null) => void>()
   protected scroller: HTMLDivElement | null = null
   /** Refits when the strip's box changes, e.g. when the facts line arrives above it. */
   protected readonly resizes = new ResizeObserver(() => this.fitStrip())
@@ -148,12 +149,18 @@ export class MapViewWidget extends ReactWidget {
   protected async loadDetails(): Promise<void> {
     const o = this.options
     if (!o) return
+    const generation = this.generation
+    let details: MapDetailsDto | undefined
+    let error: string | undefined
     try {
-      this.details = await this.projects.mapDetails(o.manifestPath, o.index)
-      this.error = undefined
+      details = await this.projects.mapDetails(o.manifestPath, o.index)
     } catch (err) {
-      this.error = (err as Error).message
+      error = (err as Error).message
     }
+    // An older map's or edit's reply must not land over a newer one.
+    if (generation !== this.generation) return
+    this.details = details
+    this.error = error
     this.update()
   }
 
@@ -234,7 +241,8 @@ export class MapViewWidget extends ReactWidget {
       !l ||
       l.screenCount !== r.screenCount ||
       l.orientation !== r.orientation ||
-      l.note !== r.note
+      l.note !== r.note ||
+      l.backdrop.join() !== r.backdrop.join()
     ) {
       // The first reply sizes the strip; the screens in view follow once it is laid out.
       this.mapLayout = r
@@ -250,9 +258,11 @@ export class MapViewWidget extends ReactWidget {
 
   /**
    * Brings every canvas to what it should show, whatever event asked: the
-   * cached picture for the current state, or blank, never a previous map's
-   * or state's. It owns the canvas size, so no React commit can clear a
-   * painted canvas; `data-drawn` records what a canvas holds.
+   * cached picture for the current state. A toggle or an edit keeps the
+   * current picture up until the new one lands, with no blank flash; only a
+   * failed reply clears (and `open`, so a reused tab never shows the old
+   * map). It owns the canvas size, so no React commit can clear a painted
+   * canvas; `data-drawn` records only what a canvas was painted with.
    */
   protected readonly sync = (): void => {
     for (const [s, canvas] of this.canvases) {
@@ -264,11 +274,35 @@ export class MapViewWidget extends ReactWidget {
         if (canvas.height !== img.height) canvas.height = img.height
         canvas.getContext('2d')?.putImageData(img, 0, 0)
         canvas.dataset.drawn = want
-      } else if (canvas.dataset.drawn) {
+      } else if (this.screenError && canvas.dataset.drawn) {
         canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
         delete canvas.dataset.drawn
       }
     }
+  }
+
+  /**
+   * One stable ref per screen: React calls it only when that screen's canvas
+   * mounts or unmounts, and on unmount it removes only its own canvas, never
+   * a replacement. A new canvas starts blank, so it is synced at once (#421).
+   */
+  protected canvasRef(s: number): (el: HTMLCanvasElement | null) => void {
+    let ref = this.canvasRefs.get(s)
+    if (!ref) {
+      let mine: HTMLCanvasElement | null = null
+      ref = el => {
+        if (el) {
+          mine = el
+          this.canvases.set(s, el)
+          this.sync()
+        } else {
+          if (this.canvases.get(s) === mine) this.canvases.delete(s)
+          mine = null
+        }
+      }
+      this.canvasRefs.set(s, ref)
+    }
+    return ref
   }
 
   /** Fits the map's cross axis to the view unless the user has zoomed. */
@@ -401,11 +435,6 @@ export class MapViewWidget extends ReactWidget {
     )
   }
 
-  /**
-   * The palace's own block, dotted or solid, on the shared PixelImageButton
-   * (the Map16 view's switch toggles use it too); its name when the ROM will
-   * not say which tile.
-   */
   protected renderToggle(p: Palace): React.ReactNode {
     const icon = this.icons.get(p)
     const pressed = this.flags[p]
@@ -415,7 +444,7 @@ export class MapViewWidget extends ReactWidget {
         frame={ICON_FRAME}
         scale={1}
         image={icon && 'cleared' in icon ? (pressed ? icon.cleared : icon.uncleared) : undefined}
-        label={`${title(p)} switch palace`}
+        label={`${palaceName(p)} switch palace`}
         reason={icon && 'reason' in icon ? icon.reason : undefined}
         pressed={pressed}
         onClick={() => this.togglePalace(p)}
@@ -461,14 +490,7 @@ export class MapViewWidget extends ReactWidget {
               className="hb-map-view-screen"
               data-screen={s}
               style={{ width: l.width * this.zoom, height: l.height * this.zoom, visibility: this.showL1 ? undefined : 'hidden' }} // prettier-ignore
-              ref={el => {
-                // A new canvas starts blank: bring it to its state now (#421).
-                if (el && this.canvases.get(s) !== el) {
-                  this.canvases.set(s, el)
-                  this.sync()
-                } else if (!el && this.canvases.get(s)?.isConnected === false)
-                  this.canvases.delete(s)
-              }}
+              ref={this.canvasRef(s)}
             />
           ))}
         </div>
@@ -532,6 +554,12 @@ export class MapViewWidget extends ReactWidget {
             <span title={d.spriteUnavailable}>sprites unavailable</span>
           )}
         </div>
+        {/* With the facts, not in the folded header: it qualifies the picture. */}
+        {d.gfxAssignmentNote && (
+          <div className="hb-map-view-error hb-map-view-note" data-note="gfx-assignment">
+            {d.gfxAssignmentNote}
+          </div>
+        )}
       </div>
     )
   }

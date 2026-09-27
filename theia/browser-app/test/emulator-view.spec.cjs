@@ -15,11 +15,6 @@
  * Reaches the widget's `driver`/`meter` fields directly (TypeScript
  * `protected`, plain properties at runtime), the same way load-maps.spec.cjs
  * reaches `w.model`: no test-only global hook duplicating that surface.
- *
- * Does not leave real per-machine state behind: the whole suite snapshots and
- * restores core-registry.json, rom-registry.json and recent-projects.json in
- * application data, so running it does not silently forget whatever core or
- * projects the developer running it had registered.
  */
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords, makeUntitledAndUnlocated } = require('./rom-words.cjs')
@@ -60,40 +55,6 @@ async function revealEmulator() {
   await contribution.openView({ activate: true, reveal: true })
   return getWidget('hackbench.emulator-view')
 }`
-
-// ── per-machine state isolation ──────────────────────────────────────────
-// Mirrors src/project/appData.ts exactly (there is no way to reach that
-// TypeScript from a .cjs Playwright spec without a build step).
-function appDataDir() {
-  const home = os.homedir()
-  if (process.platform === 'win32') {
-    return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'hackbench')
-  }
-  if (process.platform === 'darwin') {
-    return path.join(home, 'Library', 'Application Support', 'hackbench')
-  }
-  return path.join(process.env.XDG_DATA_HOME || path.join(home, '.local', 'share'), 'hackbench')
-}
-const REGISTRY_FILES = ['core-registry.json', 'rom-registry.json', 'recent-projects.json']
-let registrySnapshot = {}
-
-test.beforeAll(() => {
-  const dir = appDataDir()
-  for (const name of REGISTRY_FILES) {
-    const p = path.join(dir, name)
-    registrySnapshot[name] = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null
-  }
-})
-
-test.afterAll(() => {
-  const dir = appDataDir()
-  for (const name of REGISTRY_FILES) {
-    const p = path.join(dir, name)
-    const original = registrySnapshot[name]
-    if (original === null) fs.rmSync(p, { force: true })
-    else fs.writeFileSync(p, original, 'utf8')
-  }
-})
 
 let tmp
 

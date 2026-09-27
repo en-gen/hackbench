@@ -3,6 +3,7 @@
  * still runs it. Every ROM here is built in the test from the 65816
  * encoding; the graphics are arithmetic.
  */
+import { createHash } from 'node:crypto'
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
@@ -21,15 +22,10 @@ import {
 import { VRAM_SLOT_NAMES, type VramState } from '../../../src/rom/GfxLoader'
 import { decodeMap16Sheet } from '../../../theia/extension/src/node/map16-decode'
 import { frameZeroChars, playableAnimation, type FrameZeroChars } from '../../../src/rom/FrameZero'
-import { map16Stub } from '../support/syntheticMap16'
-import {
-  gfxStreams,
-  plantGfxReadPath,
-  plantPaletteCol1ReachPath,
-  TABLE_BANK,
-  TABLE_HI,
-  TABLE_LO,
-} from '../support/syntheticGfxCart'
+import { map16DecodeStub } from '../support/syntheticMap16'
+import { flip } from '../support/syntheticRom'
+import { gfxStreams, TABLE_BANK, TABLE_HI, TABLE_LO } from '../support/syntheticGfxCart'
+import { STOCK_LCLZ2_ENTRY, type FastRoutine } from '../../../src/rom/GfxDecompressor'
 
 const ROM_SIZE = 0x30000
 
@@ -89,6 +85,9 @@ interface RomOpts {
   bmi?: number[]
   jsr?: number[]
   jsl?: number[]
+  /** GFX33's JSR to the decompressor, and the decompressor entry GFX32 falls into. */
+  gfx33Call?: number[]
+  entry?: readonly number[]
   gfx33At?: number
   gfx33Stream?: Uint8Array
   gfx32Stream?: Uint8Array
@@ -118,7 +117,9 @@ function plantAnim(rom: RomFile, o: RomOpts = {}): void {
   put(0x009414, o.jsr ?? [0x20, routine & 0xff, (routine >> 8) & 0xff])
   put(routine, o.head ?? head(gfx33))
   put(routine + 0x44, o.bmi ?? [0x30, 0x09]) // CODE_00B8C4's exit to +$4F
+  put(routine + 0x14, o.gfx33Call ?? [0x20, (routine + 0x56) & 0xff, (routine + 0x56) >> 8])
   put(routine + 0x4f, o.tail ?? tail(0x9000))
+  put(routine + 0x56, o.entry ?? STOCK_LCLZ2_ENTRY)
   put(0x00a2a5, o.jsl ?? [0x22, 0x39, 0xbb, 0x05])
   put(0x05bb39, o.anim ?? stockRoutine())
   // GFX32 where the stream ends, decoys where a start-bank or $8000 read would look.
@@ -151,18 +152,24 @@ describe('readAnimGfxSources', () => {
       ok: true,
       gfx33: 0x01c000,
       gfx32Offset: 0x9000,
+      kind: 'stock',
     })
   })
 
   it('folds the FastROM mirror bit out of the bank', () => {
     const r = readAnimGfxSources(animRom({ head: head(0x81c000) }))
-    expect(r).toEqual({ ok: true, gfx33: 0x01c000, gfx32Offset: 0x9000 })
+    expect(r).toEqual({ ok: true, gfx33: 0x01c000, gfx32Offset: 0x9000, kind: 'stock' })
   })
 
   it('follows the JSR operand to a relocated routine', () => {
     const rom = animRom({ routineAt: 0x00c100 })
     rom.writeAt(0x00b888, new Array<number>(11).fill(0xea))
-    expect(readAnimGfxSources(rom)).toEqual({ ok: true, gfx33: 0x01c000, gfx32Offset: 0x9000 })
+    expect(readAnimGfxSources(rom)).toEqual({
+      ok: true,
+      gfx33: 0x01c000,
+      gfx32Offset: 0x9000,
+      kind: 'stock',
+    })
   })
 
   it.each([
@@ -202,6 +209,79 @@ describe('loadAnimationData sources', () => {
 
   it('refuses a GFX33 stream with no terminator', () => {
     expect(loadAnimationData(animRom({ gfx33Stream: GFX33_STREAM.slice(0, -1) }), 0)).toBeNull()
+  })
+})
+
+// The decompressor both loads reach (#603, #655): keyed, fast, or unrecognized.
+describe('animation GFX through the decompressor', () => {
+  const ENTRY = 0x00b8de
+  const PRELUDE_AT = 0x02f000
+  const FAST_AT = 0x03f000
+  // prettier-ignore
+  const prelude = (key: number): number[] => [
+    0x08, 0xc2, 0x30, 0xa5, 0x8a, 0x49, key & 0xff, key >> 8, 0x85, 0x8a, 0x28, 0xc2, 0x10, 0xa0,
+    0x00, 0x00, 0x6b,
+  ]
+  const keyedRom = (key: number): RomFile => {
+    const rom = animRom({
+      head: head(0x010000 | (0xc000 ^ key)),
+      tail: tail(0x9000 ^ key),
+      entry: [0x22, 0x00, 0xf0, 0x02, 0xea, ...STOCK_LCLZ2_ENTRY.slice(5)],
+    })
+    rom.writeAt(PRELUDE_AT, prelude(key))
+    return rom
+  }
+  const fastRom = (o: RomOpts = {}): { rom: RomFile; fast: FastRoutine[] } => {
+    const body = Array.from({ length: 0x40 }, (_, i) => (i * 29 + 3) & 0xff)
+    const rom = animRom({
+      ...o,
+      entry: [...STOCK_LCLZ2_ENTRY.slice(0, 5), 0x22, 0x00, 0xf0, 0x03, 0x60],
+    })
+    rom.writeAt(FAST_AT, body)
+    const fingerprint = createHash('sha256').update(Buffer.from(body)).digest('hex')
+    return { rom, fast: [{ length: body.length, fingerprint }] }
+  }
+
+  it('applies the prelude key to both immediates, for two keys', () => {
+    const stock = loadAnimationData(animRom(), 0)
+    for (const key of [0x0300, 0x5aa5]) {
+      expect(readAnimGfxSources(keyedRom(key))).toMatchObject({
+        gfx33: 0x01c000,
+        gfx32Offset: 0x9000,
+      })
+      expect(loadAnimationData(keyedRom(key), 0), `key ${key}`).toEqual(stock)
+    }
+  })
+
+  it('decodes through the fast routine, and refuses a command it reads differently', () => {
+    const ok = fastRom()
+    expect(loadAnimationDataOrReason(ok.rom, 0, ok.fast).ok).toBe(true)
+    expect(loadAnimationDataOrReason(ok.rom, 0).ok).toBe(false) // not a shipped routine
+    const bad = fastRom({ gfx33Stream: Uint8Array.from([0x00, 0x11, 0xc0, 0x00, 0x00, 0xff]) })
+    const r = loadAnimationDataOrReason(bad.rom, 0, bad.fast)
+    expect(!r.ok && r.reason).toMatch(/GFX33: .*reads differently/)
+    const bad32 = fastRom({ gfx32Stream: Uint8Array.from([0x00, 0x11, 0xc0, 0x00, 0x00, 0xff]) })
+    const r32 = loadAnimationDataOrReason(bad32.rom, 0, bad32.fast)
+    expect(!r32.ok && r32.reason).toMatch(/GFX32: .*reads differently/)
+  })
+
+  it('refuses an unrecognized decompressor, naming it', () => {
+    const r = loadAnimationDataOrReason(animRom({ entry: [0x22, 0x00, 0x80, 0x04, 0x60] }), 0)
+    expect(!r.ok && r.reason).toMatch(/replaced the LC_LZ2 decompressor at \$00B8DE/)
+  })
+
+  it('refuses when GFX33 is not decompressed by the entry GFX32 falls into', () => {
+    const r = readAnimGfxSources(animRom({ gfx33Call: [0x20, (ENTRY + 1) & 0xff, ENTRY >> 8] }))
+    expect(!r.ok && r.reason).toMatch(/GFX33 is not decompressed/)
+  })
+
+  it('refuses when any byte of the GFX33 call is flipped', () => {
+    const survived = [0, 1, 2].filter(i => {
+      const rom = animRom()
+      flip(rom, 0x00b888 + 0x14 + i)
+      return readAnimGfxSources(rom).ok
+    })
+    expect(survived).toEqual([])
   })
 })
 
@@ -339,10 +419,7 @@ describe('playableAnimation', () => {
 
 describe('decodeMap16Sheet', () => {
   function stubAnimRom(o: RomOpts = {}): SmwRom {
-    const rom = new RomFile('map16-anim-stub.sfc', Buffer.from(map16Stub()))
-    rom.writeAt(0x00ffd5, [0x20])
-    plantGfxReadPath(rom)
-    plantPaletteCol1ReachPath(rom)
+    const rom = map16DecodeStub()
     plantAnim(rom, o)
     // A real (if arbitrary) GFX0 stream, so the sheet actually decodes
     // instead of reporting every character sheet unavailable.

@@ -13,9 +13,7 @@ import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import {
   GFX_FILE_COUNT,
-  HOOK_FINGERPRINTS,
-  LEVEL_GFX_CALLERS,
-  computeHookFingerprint,
+  readGfxPointerSites,
   planRegions,
   readGfxFileTable,
 } from '../../../src/rom/GfxArena'
@@ -46,11 +44,8 @@ const HOOKED = [
 
 for (const name of HOOKED) {
   describe.skipIf(!hasRom(name))(`${name}: ExGFX hook`, () => {
-    it('fingerprints to a known hook build', () => {
-      const rom = RomFile.load(romPath(name))
-      const jsl = rom.readAt(LEVEL_GFX_CALLERS[0]!, 4)!
-      const target = (jsl[1]! | (jsl[2]! << 8) | (jsl[3]! << 16)) & 0x7fffff
-      expect(HOOK_FINGERPRINTS).toContain(computeHookFingerprint(rom, target))
+    it('resolves through a recognized hook build', () => {
+      expect(readGfxPointerSites(RomFile.load(romPath(name)))?.hooked).toBe(true)
     })
   })
 }
