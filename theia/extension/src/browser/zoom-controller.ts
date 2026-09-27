@@ -18,23 +18,24 @@ export interface Disposable {
 export interface WheelBinding extends Disposable {
   /**
    * Applies the anchor from the last wheel-driven step, once the widget has
-   * resized its canvas for the new zoom. A no-op with nothing pending, or
-   * if the zoom has moved since the step (another wheel binding, a button)
-   * - the pending anchor is for a zoom level that is no longer current.
+   * resized its canvas for the new zoom. Re-reads the canvas's CURRENT box
+   * rather than trusting anything measured at wheel time, so it corrects
+   * for the canvas having moved for ANY reason since - a scroll clamp, or a
+   * sibling reflowing (Map16's browser column widens with the canvas and
+   * its note text re-wraps, #651) - not only the zoom step itself. A no-op
+   * with nothing pending, or if the zoom has moved since the step (another
+   * wheel binding, a button) - the pending anchor is for a zoom level that
+   * is no longer current.
    */
   restoreAnchor(): void
 }
 
-/** Keeps one content pixel under the cursor across a zoom change. Captured
- * in the scroll container's own coordinate space, not the controller's -
- * see `bindWheel`. */
+/** One content pixel to keep under the cursor across a zoom change. */
 interface PendingAnchor {
   readonly contentX: number
   readonly contentY: number
-  readonly canvasOffsetX: number
-  readonly canvasOffsetY: number
-  readonly cursorOffsetX: number
-  readonly cursorOffsetY: number
+  readonly clientX: number
+  readonly clientY: number
   readonly zoom: number
 }
 
@@ -94,7 +95,7 @@ export class ZoomController implements Disposable {
    * controller and preventDefault's; plain wheel is untouched. `canvasOf`
    * locates the bitmap being zoomed, so the anchor is measured against the
    * CANVAS's own box rather than the scroll container's padded or bordered
-   * one, which would otherwise drift by exactly that padding/border.
+   * one.
    */
   bindWheel(node: HTMLElement, canvasOf: () => HTMLElement | null): WheelBinding {
     let pending: PendingAnchor | undefined
@@ -109,49 +110,61 @@ export class ZoomController implements Disposable {
         this.accum = 0
       }
       this.accum += Math.abs(e.deltaY)
-      if (this.accum < WHEEL_STEP_PX) return
-      this.accum = 0 // one notch is one step; any remainder is discarded
+      // One physical notch is ~100-120px and is one step; a single EVENT
+      // can still carry several notches' worth (a fast spin, or a huge
+      // synthetic delta) and steps that many times, capped by the clamp.
+      // The sub-100 remainder is kept, not discarded, so it still counts
+      // toward the next event.
+      const steps = Math.floor(this.accum / WHEEL_STEP_PX)
+      if (steps === 0) return
+      this.accum -= steps * WHEEL_STEP_PX
 
       const zoomBefore = this.value
-      const scrollerRect = node.getBoundingClientRect()
-      const cursorOffsetX = e.clientX - scrollerRect.left
-      const cursorOffsetY = e.clientY - scrollerRect.top
 
       // A burst of notches faster than the widget repaints keeps the FIRST
-      // notch's content point: recomputing it here would read geometry an
-      // earlier step in this burst already committed to but the DOM has not
-      // caught up with yet (the canvas has not resized).
+      // notch's content point (recomputing it from CURRENT geometry here
+      // would read a canvas that has not resized for the earlier steps in
+      // this burst yet) but always the LATEST notch's cursor position.
       let contentX = pending?.contentX
       let contentY = pending?.contentY
-      let canvasOffsetX = pending?.canvasOffsetX
-      let canvasOffsetY = pending?.canvasOffsetY
       if (contentX === undefined) {
         const canvas = canvasOf()
         if (canvas) {
-          const canvasRect = canvas.getBoundingClientRect()
-          contentX = (e.clientX - canvasRect.left) / zoomBefore
-          contentY = (e.clientY - canvasRect.top) / zoomBefore
-          canvasOffsetX = canvasRect.left - scrollerRect.left + node.scrollLeft
-          canvasOffsetY = canvasRect.top - scrollerRect.top + node.scrollTop
+          const rect = canvas.getBoundingClientRect()
+          contentX = (e.clientX - rect.left) / zoomBefore
+          contentY = (e.clientY - rect.top) / zoomBefore
         }
       }
 
-      if (!this.step(dir)) return // clamped: `pending`, if any, is still valid as-is
+      let moved = false
+      for (let i = 0; i < steps; i++) if (this.step(dir)) moved = true
+      if (!moved) return // fully clamped this event: `pending`, if any, is still valid as-is
 
       pending =
-        contentX === undefined || canvasOffsetX === undefined
+        contentX === undefined
           ? undefined // nothing to anchor against (canvas not painted yet)
           : {
               contentX,
               contentY: contentY!,
-              canvasOffsetX,
-              canvasOffsetY: canvasOffsetY!,
-              cursorOffsetX,
-              cursorOffsetY,
+              clientX: e.clientX,
+              clientY: e.clientY,
               zoom: this.value,
             }
     }
     node.addEventListener('wheel', listener, { passive: false })
+
+    // Re-measures the canvas's CURRENT box rather than trusting anything
+    // from wheel time, so it corrects for the canvas having moved for ANY
+    // reason - a scroll clamp, or a sibling reflowing (Map16's browser
+    // column widens with the canvas, #651) - not only the resize the step
+    // itself caused.
+    const apply = (anchor: PendingAnchor): void => {
+      const canvas = canvasOf()
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      node.scrollLeft += rect.left - (anchor.clientX - anchor.contentX * anchor.zoom)
+      node.scrollTop += rect.top - (anchor.clientY - anchor.contentY * anchor.zoom)
+    }
 
     return {
       dispose: () => node.removeEventListener('wheel', listener),
@@ -159,9 +172,20 @@ export class ZoomController implements Disposable {
         const anchor = pending
         pending = undefined
         if (!anchor || anchor.zoom !== this.value) return
-        node.scrollLeft =
-          anchor.canvasOffsetX + anchor.contentX * anchor.zoom - anchor.cursorOffsetX
-        node.scrollTop = anchor.canvasOffsetY + anchor.contentY * anchor.zoom - anchor.cursorOffsetY
+        apply(anchor)
+        // The widget's OWN re-render (the indicator's new text, a toolbar
+        // that reflows with it) can still commit and shift the canvas
+        // again on the SAME frame, after this synchronous correction -
+        // measured on the GFX sheet, where the correct scroll value was
+        // set and then overwritten before the next paint. One more
+        // correction next frame catches that; skipped if a newer step has
+        // since taken over (`this.value` no longer matches). Guarded for
+        // `ZoomController.test.ts`, which runs with no DOM/rAF at all.
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => {
+            if (anchor.zoom === this.value) apply(anchor)
+          })
+        }
       },
     }
   }

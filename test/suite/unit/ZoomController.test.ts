@@ -7,13 +7,20 @@
 import { describe, it, expect, vi } from 'vitest'
 import { ZoomController } from '../../../theia/extension/src/browser/zoom-controller'
 
-/** Minimal stand-in for the scroll container `bindWheel` listens on. */
+/** Minimal stand-in for the scroll container `bindWheel` listens on, and
+ * for the canvas `canvasOf` returns - `rect` is public and mutable so a
+ * test can move it BETWEEN the wheel event and `restoreAnchor()`, modelling
+ * a layout shift (a sibling reflowing, a scroll clamp) that happens for a
+ * reason other than the zoom step itself. */
 class FakeNode {
   scrollLeft = 0
   scrollTop = 0
+  rect: { left: number; top: number }
   private readonly handlers: Array<(e: FakeWheelEvent) => void> = []
 
-  constructor(private readonly rect = { left: 0, top: 0 }) {}
+  constructor(rect = { left: 0, top: 0 }) {
+    this.rect = rect
+  }
 
   addEventListener(type: string, fn: (e: FakeWheelEvent) => void): void {
     if (type === 'wheel') this.handlers.push(fn)
@@ -121,16 +128,32 @@ describe('ZoomController.bindWheel - threshold, direction, ctrlKey', () => {
       initial: 1,
       deltas: [-40, -40, -40, -40],
       expectValue: 2,
-      why: 'remainder discarded, not carried',
+      why: 'only ONE crossing happened - the 60px left over stays credit, not a second step',
     },
     { initial: 1, deltas: [-100], expectValue: 2, why: 'negative deltaY zooms in' },
     { initial: 4, deltas: [100], expectValue: 3, why: 'positive deltaY zooms out' },
+    {
+      initial: 1,
+      deltas: [-350],
+      expectValue: 4,
+      why: 'one EVENT carrying several notches worth of delta steps that many times, capped',
+    },
   ])('$why', ({ initial, deltas, expectValue }) => {
     const c = new ZoomController(MAP16_LEVELS, initial)
     const node = new FakeNode()
     bind(c, node)
     for (const d of deltas) node.dispatch(wheelEvent(d))
     expect(c.value).toBe(expectValue)
+  })
+
+  it("a multi-step event's leftover credit (not a full 100px) carries to the next event", () => {
+    const c = new ZoomController(GFX_LEVELS, 1)
+    const node = new FakeNode()
+    bind(c, node)
+    node.dispatch(wheelEvent(-350)) // 3 steps (1->2->3->4), 50px left over
+    expect(c.value).toBe(4)
+    node.dispatch(wheelEvent(-80)) // 50 + 80 = 130px: one more step
+    expect(c.value).toBe(6)
   })
 
   it('resets the accumulator on a direction reversal, rather than carrying stale credit across', () => {
@@ -177,49 +200,84 @@ describe('ZoomController.bindWheel - threshold, direction, ctrlKey', () => {
 })
 
 describe('ZoomController - anchoring', () => {
-  /** A wrap with padding and scroll, and a canvas whose box is NOT the
-   * scroller's own box - the shape `restoreAnchor`'s math has to survive. */
-  function paddedLayout() {
+  /**
+   * `node` and `canvas` are otherwise independent fakes, so `canvas`'s
+   * getBoundingClientRect() is wired to move opposite `node.scrollLeft/Top`
+   * from here on - the same relationship a real scrolled child has to its
+   * scroll container. `canvas.rect` still sets the BASE box, so a test can
+   * additionally move it to model a layout shift that has nothing to do
+   * with scrolling (see the reflow-absorption test below).
+   */
+  function layout() {
     const node = new FakeNode({ left: 10, top: 5 }) // scroller's own border box
     node.scrollLeft = 50
     node.scrollTop = 20
-    const canvas = new FakeNode({ left: 10 + 19 - 50, top: 5 + 19 - 20 }) // 19px padding, minus scroll
+    const baseScrollLeft = node.scrollLeft
+    const baseScrollTop = node.scrollTop
+    const canvas = new FakeNode({ left: -21, top: -16 }) // canvas box need not match the scroller's
+    const baseRect = canvas.getBoundingClientRect.bind(canvas)
+    canvas.getBoundingClientRect = () => {
+      const r = baseRect()
+      return {
+        ...r,
+        left: r.left - (node.scrollLeft - baseScrollLeft),
+        top: r.top - (node.scrollTop - baseScrollTop),
+      }
+    }
     return { node, canvas }
   }
 
-  it('restores scroll so the same canvas pixel sits under the cursor, within 1px, through padding/scroll offset', () => {
+  it('restores scroll so the same canvas pixel sits under the cursor, within 1px', () => {
     const c = new ZoomController(MAP16_LEVELS, 2) // starts at 2x
-    const { node, canvas } = paddedLayout()
+    const { node, canvas } = layout()
     const binding = bind(c, node, canvas)
     const canvasRect = canvas.getBoundingClientRect()
-    const scrollerRect = node.getBoundingClientRect()
-    const scrollLeftBefore = node.scrollLeft
-    const scrollTopBefore = node.scrollTop
 
-    const clientX = canvasRect.left + 100 // 100px into the canvas, at 2x
+    const clientX = canvasRect.left + 100 // 100px into the canvas, at 2x -> content (50, 50)
     const clientY = canvasRect.top + 100
     node.dispatch(wheelEvent(-120, { clientX, clientY }))
     expect(c.value).toBe(3)
 
     binding.restoreAnchor()
 
-    // Content point (50, 50) - (100, 100) at the OLD 2x zoom - must sit
-    // back under the same client point at the NEW 3x zoom. The independent
-    // check: convert the new scroll position back to a canvas-space point
-    // and confirm it is (50, 50) again, within 1px.
-    const canvasOffsetX = canvasRect.left - scrollerRect.left + scrollLeftBefore
-    const canvasOffsetY = canvasRect.top - scrollerRect.top + scrollTopBefore
-    const cursorOffsetX = clientX - scrollerRect.left
-    const cursorOffsetY = clientY - scrollerRect.top
-    const resultContentX = (node.scrollLeft - canvasOffsetX + cursorOffsetX) / c.value
-    const resultContentY = (node.scrollTop - canvasOffsetY + cursorOffsetY) / c.value
-    expect(Math.abs(resultContentX - 50)).toBeLessThan(1)
-    expect(Math.abs(resultContentY - 50)).toBeLessThan(1)
+    // Independent check: read the canvas's box back (unchanged in this
+    // test - nothing here moves it) and convert the client point back to a
+    // canvas-space coordinate at the NEW zoom. It must be (50, 50) again.
+    const after = canvas.getBoundingClientRect()
+    expect(Math.abs((clientX - after.left) / c.value - 50)).toBeLessThan(1)
+    expect(Math.abs((clientY - after.top) / c.value - 50)).toBeLessThan(1)
+  })
+
+  it('absorbs a canvas box that moved for a reason OTHER than the zoom step between the wheel event and the repaint', () => {
+    // Models Map16's own reflow (#651): the browser column widens with the
+    // canvas, its note text re-wraps to fewer lines, and that pulls the
+    // canvas wrap - and so the canvas - up the page. restoreAnchor must
+    // correct for THAT too, not only for the resize it expects.
+    const c = new ZoomController(MAP16_LEVELS, 2)
+    const { node, canvas } = layout()
+    const binding = bind(c, node, canvas)
+    const canvasRect = canvas.getBoundingClientRect()
+
+    const clientX = canvasRect.left + 100
+    const clientY = canvasRect.top + 100
+    node.dispatch(wheelEvent(-120, { clientX, clientY }))
+    expect(c.value).toBe(3)
+
+    // The reflow: the canvas's box moves by an amount that has nothing to
+    // do with scroll or zoom, discovered only when restoreAnchor re-reads
+    // it.
+    canvas.rect = { left: canvasRect.left - 10, top: canvasRect.top + 6 }
+
+    binding.restoreAnchor()
+
+    const after = canvas.getBoundingClientRect()
+    expect(Math.abs((clientX - after.left) / c.value - 50)).toBeLessThan(1)
+    expect(Math.abs((clientY - after.top) / c.value - 50)).toBeLessThan(1)
   })
 
   it('produces no anchor at a clamp, so restoreAnchor is a no-op', () => {
     const c = new ZoomController(MAP16_LEVELS, 4) // already at the top
-    const { node, canvas } = paddedLayout()
+    const { node, canvas } = layout()
     const binding = bind(c, node, canvas)
     const before = { scrollLeft: node.scrollLeft, scrollTop: node.scrollTop }
     node.dispatch(wheelEvent(-500)) // tries to zoom in past the clamp
@@ -231,7 +289,7 @@ describe('ZoomController - anchoring', () => {
 
   it('a button step (not wheel-driven) invalidates a pending wheel anchor', () => {
     const c = new ZoomController(MAP16_LEVELS, 2)
-    const { node, canvas } = paddedLayout()
+    const { node, canvas } = layout()
     const binding = bind(c, node, canvas)
     node.dispatch(wheelEvent(-120)) // wheel step to 3x, anchor pending for 3x
     expect(c.value).toBe(3)
@@ -244,14 +302,11 @@ describe('ZoomController - anchoring', () => {
     expect(node.scrollTop).toBe(before.scrollTop)
   })
 
-  it("consecutive notches before a repaint keep the FIRST notch's content point, refreshing only the cursor offset", () => {
+  it("consecutive notches before a repaint keep the FIRST notch's content point, but the LATEST cursor position", () => {
     const c = new ZoomController(GFX_LEVELS, 1)
-    const { node, canvas } = paddedLayout()
+    const { node, canvas } = layout()
     const binding = bind(c, node, canvas)
     const canvasRect = canvas.getBoundingClientRect()
-    const scrollerRect = node.getBoundingClientRect()
-    const initialScrollLeft = node.scrollLeft
-    const initialScrollTop = node.scrollTop
 
     // First notch at zoom 1x: content point (40, 40) from the canvas origin.
     const firstX = canvasRect.left + 40
@@ -269,14 +324,10 @@ describe('ZoomController - anchoring', () => {
 
     binding.restoreAnchor()
 
-    const canvasOffsetX = canvasRect.left - scrollerRect.left + initialScrollLeft
-    const canvasOffsetY = canvasRect.top - scrollerRect.top + initialScrollTop
-    // The LAST notch's cursor position is what the point should land under.
-    const cursorOffsetX = secondX - scrollerRect.left
-    const cursorOffsetY = secondY - scrollerRect.top
-    const expectedLeft = canvasOffsetX + 40 * c.value - cursorOffsetX
-    const expectedTop = canvasOffsetY + 40 * c.value - cursorOffsetY
-    expect(node.scrollLeft).toBeCloseTo(expectedLeft, 5)
-    expect(node.scrollTop).toBeCloseTo(expectedTop, 5)
+    const after = canvas.getBoundingClientRect()
+    // The FIRST notch's content point (40, 40) must land under the SECOND
+    // (latest) notch's client position.
+    expect(Math.abs((secondX - after.left) / c.value - 40)).toBeLessThan(1)
+    expect(Math.abs((secondY - after.top) / c.value - 40)).toBeLessThan(1)
   })
 })

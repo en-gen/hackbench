@@ -509,7 +509,15 @@ test('the graphics explorer and GFX view speak of ROMs, never cartridges', async
  */
 async function ctrlWheel(page, locator, deltaY) {
   const box = await locator.boundingBox()
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await ctrlWheelAt(page, box.x + box.width / 2, box.y + box.height / 2, deltaY)
+}
+
+/** Same as `ctrlWheel`, but at a client point the caller already knows,
+ * rather than re-measuring `locator`'s CURRENT box - needed for anchoring
+ * checks, where the point has to match exactly what the content-coordinate
+ * comparison uses. */
+async function ctrlWheelAt(page, clientX, clientY, deltaY) {
+  await page.mouse.move(clientX, clientY)
   await page.keyboard.down('Control')
   await page.mouse.wheel(0, deltaY)
   await page.keyboard.up('Control')
@@ -598,33 +606,62 @@ async function gfxContentPointAt(page, canvasSel, clientX, clientY) {
 test('Ctrl + wheel keeps the same canvas pixel under the cursor, in and out, within 1px', async ({
   page,
 }) => {
+  // A viewport this small guarantees the canvas overflows `.hb-gfx-view` at
+  // EVERY zoom level this test uses - anchoring can only be proven where
+  // there is scrollable range for it to actually act on. At the default
+  // viewport the 128x64 sheet stayed entirely inside the view through 4x
+  // and 6x, so scrollLeft/scrollTop stayed clamped to 0 the whole time and
+  // the "anchor" was a no-op: the point drifted exactly as fast as an
+  // un-anchored zoom from a fixed top-left corner would.
+  await page.setViewportSize({ width: 500, height: 450 })
   await loadGfx(page, path.join(tmp, 'MyHack'))
   await revealGfx(page)
   await firstGfxFileRow(page).click()
   await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
   await page.waitForTimeout(300)
 
-  // `.hb-gfx-view` (not the canvas wrap) is the real scroll container -
-  // scroll it directly so the padding/border between it and the canvas is
-  // exercised, same as map16-view.spec.cjs's equivalent case.
-  const view = page.locator('.hb-gfx-view')
-  await view.evaluate(el => {
-    el.scrollLeft = 10
-    el.scrollTop = 10
-  })
-
   const canvasSel = '.hb-gfx-view-canvas'
-  const canvasBox = await page.locator(canvasSel).boundingBox()
-  const clientX = canvasBox.x + canvasBox.width / 2
-  const clientY = canvasBox.y + canvasBox.height / 2
+  const view = page.locator('.hb-gfx-view')
+  // A SMALL, off-center scroll, not the middle of the overflow range:
+  // scrolled to dead center, this spec could not tell restoreAnchor() apart
+  // from having none at all (proven by disabling it and seeing this spec
+  // stay green) - a symmetric resize from a symmetric scroll position keeps
+  // the visible center roughly stable on its own. A small, asymmetric
+  // offset does not get that free ride.
+  await view.evaluate(el => {
+    el.scrollLeft = 15
+    el.scrollTop = 15
+  })
+  const overflow = await view.evaluate(el => ({
+    x: el.scrollWidth - el.clientWidth,
+    y: el.scrollHeight - el.clientHeight,
+  }))
+  expect(overflow.x).toBeGreaterThan(10) // the setup itself must produce overflow
+  expect(overflow.y).toBeGreaterThan(10)
+
+  // A point near the VIEW's own bottom-left corner, never the canvas's own
+  // boundingBox(): that is the canvas's full, UNCLIPPED layout box, which -
+  // once it is much bigger than the viewport - can put "30px into the
+  // canvas" outside the visible viewport entirely, where mouse events
+  // cannot land (measured: a 512x256 canvas in a 100x131 visible pane put
+  // that point ~130px below the bottom of the actual window). `.hb-gfx-
+  // view`'s own box IS the visible, clipped viewport, and the canvas fills
+  // it entirely below the toolbar, so a point near its bottom-left lands on
+  // the canvas.
+  const viewBox = await view.boundingBox()
+  const clientX = viewBox.x + 20
+  const clientY = viewBox.y + viewBox.height - 20
 
   const before = await gfxContentPointAt(page, canvasSel, clientX, clientY)
-  await ctrlWheel(page, page.locator(canvasSel), -120) // one step in
+  // ctrlWheelAt, not ctrlWheel(page, locator, ...): re-deriving the point
+  // from a fresh boundingBox() after a re-render could wheel somewhere
+  // other than clientX/clientY, which is what `before`/`afterIn` compare.
+  await ctrlWheelAt(page, clientX, clientY, -120) // one step in
   const afterIn = await gfxContentPointAt(page, canvasSel, clientX, clientY)
   expect(Math.abs(afterIn.x - before.x)).toBeLessThan(1)
   expect(Math.abs(afterIn.y - before.y)).toBeLessThan(1)
 
-  await ctrlWheel(page, page.locator(canvasSel), 120) // one step back out
+  await ctrlWheelAt(page, clientX, clientY, 120) // one step back out
   const afterOut = await gfxContentPointAt(page, canvasSel, clientX, clientY)
   expect(Math.abs(afterOut.x - before.x)).toBeLessThan(1)
   expect(Math.abs(afterOut.y - before.y)).toBeLessThan(1)
@@ -657,22 +694,39 @@ test('Ctrl + wheel over the GFX sheet is cancelled; a plain wheel is not', async
 })
 
 test('plain wheel still scrolls the GFX view and does not touch zoom', async ({ page }) => {
+  // A small viewport plus the ceiling zoom guarantees real vertical
+  // overflow - at the default (larger) viewport, 8x (1024x512) barely
+  // overflowed horizontally and not at all vertically, so scrollTop never
+  // moved for a reason that had nothing to do with the wheel handling.
+  await page.setViewportSize({ width: 260, height: 220 })
   await loadGfx(page, path.join(tmp, 'MyHack'))
   await revealGfx(page)
   await firstGfxFileRow(page).click()
   await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
   await page.waitForTimeout(300)
 
-  const canvas = page.locator('.hb-gfx-view-canvas')
+  const view = page.locator('.hb-gfx-view')
+  // A point inside the VIEW's own (viewport-sized) box, never the canvas's -
+  // once zoomed, the canvas is far bigger than the viewport and can scroll
+  // to where its own boundingBox() center sits outside the visible area,
+  // which would move the mouse somewhere Playwright can't actually hit.
+  const viewBox = await view.boundingBox()
+  const pointX = viewBox.x + viewBox.width / 2
+  const pointY = viewBox.y + viewBox.height / 2
+
   // Zoom to the ceiling first so the canvas is tall enough to overflow the
   // view and actually need scrolling.
-  await ctrlWheel(page, canvas, -2000)
+  await page.mouse.move(pointX, pointY)
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, -2000)
+  await page.keyboard.up('Control')
+  await page.waitForTimeout(200)
   await expect(page.locator('[data-control="zoom-indicator"]')).toHaveText('8x')
 
-  const view = page.locator('.hb-gfx-view')
+  const overflowY = await view.evaluate(el => el.scrollHeight - el.clientHeight)
+  expect(overflowY).toBeGreaterThan(10) // the setup itself must produce overflow
   const scrollBefore = await view.evaluate(el => el.scrollTop)
-  const box = await canvas.boundingBox()
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.move(pointX, pointY)
   await page.mouse.wheel(0, 400) // no Control held
   await page.waitForTimeout(200)
 

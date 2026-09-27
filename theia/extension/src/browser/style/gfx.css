@@ -62,8 +62,13 @@
 
 /* ── GFX view ────────────────────────────────────────────────────────────── */
 
+/* `overflow-anchor: none` (#651): Chromium's own scroll anchoring would
+   otherwise ALSO react to the canvas resizing on every zoom step, fighting
+   ZoomController's own restoreAnchor() over the same scroll position with
+   its own (cursor-unaware) heuristic. */
 .hb-gfx-view {
   overflow: auto;
+  overflow-anchor: none;
   padding: 1.2em 1.4em;
   color: var(--theia-foreground);
 }
