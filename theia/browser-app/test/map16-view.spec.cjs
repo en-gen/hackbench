@@ -54,6 +54,7 @@
  */
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
+const { expectCheckerboard } = require('./pixel-canvas.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -519,19 +520,30 @@ test('opening a row shows a real sheet of the count the cartridge reports', asyn
   expect(info.height).toBe(
     (VANILLA_TILE_COUNT / TILES_PER_ROW) * TILE_PX + (pages - 1) * PAGE_GAP_PX,
   )
-  // The band is really blank and sits where tileOrigin puts page 1's top,
-  // so tileHasColor and clickTile address the tile they name.
-  const opaqueInBand = await page.evaluate(
+  // The band is one solid color and sits where tileOrigin puts page 1's top,
+  // so tileHasColor and clickTile address the tile they name. Solid, not
+  // clear: a clear band would show the transparency checkerboard and read
+  // as part of a page.
+  const band = await page.evaluate(
     ({ sel, top, height }) => {
       const canvas = document.querySelector(`${sel} .hb-map16-canvas`)
-      const data = canvas.getContext('2d').getImageData(0, top, canvas.width, height).data
-      let opaque = 0
-      for (let i = 3; i < data.length; i += 4) if (data[i] !== 0) opaque++
-      return opaque
+      const ctx = canvas.getContext('2d')
+      const colors = rows => {
+        const data = ctx.getImageData(0, rows[0], canvas.width, rows[1]).data
+        const set = new Set()
+        for (let i = 0; i < data.length; i += 4) {
+          set.add(`${data[i]},${data[i + 1]},${data[i + 2]},${data[i + 3]}`)
+        }
+        return [...set]
+      }
+      return { inBand: colors([top, height]), below: colors([top + height, 1]) }
     },
     { sel: FG, top: tileOrigin(TILES_PER_PAGE).y - PAGE_GAP_PX, height: PAGE_GAP_PX },
   )
-  expect(opaqueInBand).toBe(0)
+  expect(band.inBand).toHaveLength(1)
+  expect(band.inBand[0].endsWith(',255')).toBe(true)
+  // Page 1's first row is tile art, not more band.
+  expect(band.below).not.toEqual(band.inBand)
   // Real tile art, not a blank or single-color sheet.
   expect(info.distinctColors).toBeGreaterThan(1)
 
@@ -890,6 +902,21 @@ test('the accordion shows exactly four sheets, headed by slot and the file this 
   await expect(
     page.locator(`${FG} .hb-map16-sheet[data-slot="fg3"] .hb-map16-char`).first(),
   ).toBeVisible()
+})
+
+/** Same checkerboard as the GFX view, on a character sheet and the strip. */
+test('color 0 shows a transparency checkerboard', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await clickTile(page, TARGET_TILE_ID)
+  await openEditPane(page)
+  await expandSheet(page, 'fg3')
+  await expectCheckerboard(
+    expect,
+    page,
+    `${FG} .hb-map16-sheet[data-slot="fg3"] .hb-map16-sheet-canvas`,
+  )
+  await expectCheckerboard(expect, page, `${FG} .hb-map16-canvas`)
 })
 
 test('switching tileset changes both the sheet headers and the rendered characters', async ({

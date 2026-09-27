@@ -119,7 +119,10 @@ export function renderTilePreview(props: Map16TilePreviewProps): React.ReactNode
     <div className="hb-map16-preview-wrap">
       <div className="hb-map16-preview-row">
         <div className="hb-map16-preview">
-          <canvas className="hb-map16-preview-canvas" ref={props.previewCanvasRef} />
+          <canvas
+            className="hb-map16-preview-canvas hb-pixel-canvas"
+            ref={props.previewCanvasRef}
+          />
           <div className="hb-map16-preview-overlay" style={{ background: HOVER_DIM }}>
             <button
               type="button"
@@ -258,7 +261,7 @@ function renderFrame(props: Map16TileEditorProps, frame: number): React.ReactNod
             }}
           >
             <canvas
-              className="hb-map16-quad-canvas"
+              className="hb-map16-quad-canvas hb-pixel-canvas"
               ref={el => props.quadrantCanvasRef(frame, q.key, el)}
             />
           </div>

@@ -676,6 +676,13 @@ export class Map16ViewWidget extends ReactWidget {
     off.width = sheet.width
     off.height = sheet.height
     off.getContext('2d')?.putImageData(new ImageData(pixels, sheet.width, sheet.height), 0, 0)
+    // The bands are painted in the panel's color: left clear, they would show
+    // the transparency checkerboard and read as part of a page.
+    ctx.fillStyle =
+      getComputedStyle(this.node).getPropertyValue('--theia-editor-background').trim() || '#1e1e1e'
+    for (let page = 1; page < pages; page++) {
+      ctx.fillRect(0, page * (pageHeight + PAGE_GAP_PX) - PAGE_GAP_PX, sheet.width, PAGE_GAP_PX)
+    }
     for (let page = 0; page < pages; page++) {
       const srcY = page * pageHeight
       const sliceH = Math.min(pageHeight, sheet.height - srcY)
@@ -1080,7 +1087,7 @@ export class Map16ViewWidget extends ReactWidget {
         {this.browserOpen && (
           <div className="hb-map16-canvas-wrap">
             <canvas
-              className="hb-map16-canvas"
+              className="hb-map16-canvas hb-pixel-canvas"
               onClick={this.handleCanvasClick}
               onMouseMove={this.handleCanvasMouseMove}
               onMouseLeave={this.handleCanvasMouseLeave}
