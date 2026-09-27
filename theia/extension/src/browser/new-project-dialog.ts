@@ -46,7 +46,7 @@ export class NewProjectDialog extends AbstractDialog<CreateProjectRequest | unde
 
     const romRow = this.field('Base ROM', this.romField, 'Super Mario World (USA).sfc')
     this.romField.readOnly = true
-    romRow.appendChild(this.browseButton('Browse...', () => this.pickRom()))
+    this.addBrowse(this.romField, () => this.pickRom())
     this.contentNode.appendChild(romRow)
 
     // Identity, shown back so the user can confirm they picked the right cart
@@ -55,7 +55,7 @@ export class NewProjectDialog extends AbstractDialog<CreateProjectRequest | unde
     this.contentNode.appendChild(this.romInfo)
 
     const dirRow = this.field('Location', this.dirField, 'where the project folder goes')
-    dirRow.appendChild(this.browseButton('Browse...', () => this.pickDirectory()))
+    this.addBrowse(this.dirField, () => this.pickDirectory())
     this.contentNode.appendChild(dirRow)
 
     // The project gets its OWN folder under the chosen location, so show the
@@ -84,13 +84,17 @@ export class NewProjectDialog extends AbstractDialog<CreateProjectRequest | unde
     return row
   }
 
-  protected browseButton(text: string, onClick: () => void): HTMLElement {
+  /** Put a Browse button on the same line as `input`, to its right. */
+  protected addBrowse(input: HTMLInputElement, onClick: () => void): void {
+    const line = document.createElement('div')
+    line.className = 'hb-dialog-inputline'
+    input.replaceWith(line)
+    line.appendChild(input)
     const b = document.createElement('button')
-    b.className = 'theia-button secondary'
-    b.textContent = text
-    b.classList.add('hb-dialog-browse')
+    b.className = 'theia-button secondary hb-dialog-browse'
+    b.textContent = 'Browse...'
     b.onclick = onClick
-    return b
+    line.appendChild(b)
   }
 
   protected async pickRom(): Promise<void> {
@@ -142,8 +146,9 @@ export class NewProjectDialog extends AbstractDialog<CreateProjectRequest | unde
   protected updatePreview(): void {
     const name = this.nameField.value.trim()
     const parent = this.dirField.value.trim()
+    const sep = parent.includes('\\') ? '\\' : '/'
     this.pathPreview.textContent =
-      name && parent ? `Creates ${parent}\${name}\${name}${PROJECT_EXT}` : ''
+      name && parent ? `Creates ${parent}${sep}${name}${sep}${name}${PROJECT_EXT}` : ''
   }
 
   get value(): CreateProjectRequest | undefined {
