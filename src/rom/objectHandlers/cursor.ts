@@ -55,6 +55,39 @@ export type OwnerGrid = number[][]
 /** No object drew this cell. */
 export const OWNER_NONE = -1
 
+/**
+ * Which of the four switch palaces have been pressed (cleared), in the ROM's
+ * own SwitchBlockFlags index order: green=0, yellow=1, blue=2, red=3
+ * ($7E1F27-$7E1F2A; bank_0D.asm:3739 reads `SwitchBlockFlags,X` for
+ * green/yellow, :4229 reads `SwitchBlockFlags+2,X` for blue/red). A pressed
+ * flag selects the Map16 page-1 (cleared) tile; unpressed selects page 0.
+ */
+export interface SwitchFlags {
+  green: boolean
+  yellow: boolean
+  blue: boolean
+  red: boolean
+}
+
+/**
+ * Default switch state: all four uncleared, matching a fresh save and the
+ * `layers_v5` Mesen captures (#567).
+ */
+export const SWITCH_FLAGS_UNCLEARED: SwitchFlags = Object.freeze({
+  green: false,
+  yellow: false,
+  blue: false,
+  red: false,
+})
+
+/** All four palaces pressed - the pre-#567 behavior, pinned where callers need it unchanged. */
+export const SWITCH_FLAGS_CLEARED: SwitchFlags = Object.freeze({
+  green: true,
+  yellow: true,
+  blue: true,
+  red: true,
+})
+
 /** Mirrors the game's object-handler execution state. */
 export interface Cursor {
   grid: TileGrid
@@ -98,6 +131,8 @@ export interface Cursor {
   owners: OwnerGrid | null
   /** Index into the level's object stream of the object being expanded. */
   owner: number
+  /** Switch-palace state the switch-block handlers gate on (#567). */
+  switchFlags: SwitchFlags
 }
 
 export function makeCursor(
@@ -110,6 +145,7 @@ export function makeCursor(
   size: number,
   owners: OwnerGrid | null = null,
   owner: number = OWNER_NONE,
+  switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED,
 ): Cursor {
   return {
     grid,
@@ -125,6 +161,7 @@ export function makeCursor(
     handlerAddr: 0, // filled in by dispatcher right before calling handler
     owners,
     owner,
+    switchFlags,
   }
 }
 
@@ -146,6 +183,20 @@ export function readLongOperand(cur: Cursor, snesAddr: number): number {
  */
 export function readImmByte(cur: Cursor, snesAddr: number): number {
   return cur.rom.readByte(snesAddr) ?? 0
+}
+
+/**
+ * Read an `LDA.L addr,X` operand at `cur.handlerAddr + offset`, gated on the
+ * `$BF` opcode still sitting one byte earlier. Returns null instead of a
+ * table address when a hack has relocated or replaced the instruction there,
+ * so a caller with two candidate tables (e.g. the switch-palace blocks) can
+ * decline rather than silently decode a wrong operand (CLAUDE.md: gate on
+ * the opcode before trusting what it points to).
+ */
+export function readGatedLongOperand(cur: Cursor, offset: number): number | null {
+  const opcodeAddr = cur.handlerAddr + offset - 1
+  if (cur.rom.readByte(opcodeAddr) !== 0xbf) return null
+  return readLongOperand(cur, opcodeAddr + 1)
 }
 
 /**
