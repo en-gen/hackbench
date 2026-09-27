@@ -39,6 +39,7 @@ import {
   writeTileMergeCODE_0DB114,
   writeTileMergeCODE_0DB198,
   readLongOperand,
+  readGatedLongOperand,
   readImmByte,
   MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
@@ -1909,37 +1910,42 @@ export function handle_0DD145(cur: Cursor): void {
  *
  * Counterpart to the extended green/yellow handlers (CODE_0DB58B/0DB583) but
  * as a rectangular *standard* object. Size byte: HHHHWWWW. Iterates (W+1) by
- * (H+1) tiles, writing DATA_0DB91A[X] at each. The shared body (entered via
- * BEQ +) branches on SwitchBlockFlags+2,X (X=0 blue, X=1 red at $7E1F29/$7E1F2A):
- *   DATA_0DB91A[0] = $6C page 0 -> Map16 $06C (blue uncleared, dotted outline)
- *   DATA_0DB91C[0] = $6C page 1 -> Map16 $16C (blue cleared, solid)
+ * (H+1) tiles. The shared body branches on SwitchBlockFlags+2,X (X=0 blue,
+ * X=1 red at $7E1F29/$7E1F2A):
+ *   DATA_0DB91A[0] = $6C page 0 -> Map16 $06C, uncleared (bank_0D.asm:4227)
+ *   DATA_0DB91C[0] = $6C page 1 -> Map16 $16C, cleared   (bank_0D.asm:4232,
+ *   taken when :4229 `LDA.W SwitchBlockFlags+2,X` / :4230 `BEQ +` branches)
  *
- * We emit the cleared ($16C, page 1) variant to match Mesen fixtures, which
- * run with switches pressed in the save state. The webview's
- * `applySwitchPalaceState` re-applies the page bit per the UI toggle.
+ * Reads whichever table `cur.switchFlags.blue` (#567) says the ROM would
+ * have read, gated on the `$BF` opcode - see `writeSwitchBlockRect`.
  */
 export function handle_0DB916(cur: Cursor): void {
-  writeSwitchBlockRect(cur, 37)
+  writeSwitchBlockRect(cur, 37, 51, cur.switchFlags.blue)
 }
 
 /**
  * CODE_0DB91E (bank_0D.asm line 4209) -- red switch-palace block (rectangular).
- *
- * Sibling of CODE_0DB916 entered 8 bytes later (after the two shared data
- * tables); LDX #$01 selects index 1 -> DATA_0DB91A[1] = $6D -> Map16 $16D on
- * page 1. LDA.L operand offset relative to this entry point is 37 - 8 = 29.
+ * Sibling of CODE_0DB916 entered 8 bytes later - see its comment; gates on
+ * `cur.switchFlags.red`. Operand offsets are 8 less: 29 (uncleared), 43 (cleared).
  */
 export function handle_0DB91E(cur: Cursor): void {
-  writeSwitchBlockRect(cur, 29)
+  writeSwitchBlockRect(cur, 29, 43, cur.switchFlags.red)
 }
 
-function writeSwitchBlockRect(cur: Cursor, ldaOperandOffset: number): void {
+function writeSwitchBlockRect(
+  cur: Cursor,
+  unclearedOffset: number,
+  clearedOffset: number,
+  cleared: boolean,
+): void {
   const W = cur.size & 0x0f
   const H = (cur.size >> 4) & 0x0f
   const X = readImmByte(cur, cur.handlerAddr + 1)
-  const tableAddr = readLongOperand(cur, cur.handlerAddr + ldaOperandOffset)
+  const tableAddr = readGatedLongOperand(cur, cleared ? clearedOffset : unclearedOffset)
+  if (tableAddr === null) return
   const tile = cur.rom.readByte(tableAddr + X) ?? 0
-  setPage1(cur)
+  if (cleared) setPage1(cur)
+  else setPage0(cur)
   const origCol = cur.col
   const origRow = cur.row
   for (let r = 0; r <= H; r++) {

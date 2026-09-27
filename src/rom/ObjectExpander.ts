@@ -21,6 +21,8 @@ import {
   MAP16_BYTES_PER_SCREEN_H,
   OWNER_NONE,
   OwnerGrid,
+  SWITCH_FLAGS_UNCLEARED,
+  SwitchFlags,
   TileGrid,
 } from './objectHandlers/cursor'
 import { dispatchStandard, dispatchExtended } from './objectHandlers/dispatch'
@@ -52,8 +54,8 @@ export function readLayer3Setting(rom: RomFile, levelNum: number): number {
   return (byte & 0xc0) >> 6
 }
 
-export type { TileGrid, OwnerGrid } from './objectHandlers/cursor'
-export { OWNER_NONE } from './objectHandlers/cursor'
+export type { TileGrid, OwnerGrid, SwitchFlags } from './objectHandlers/cursor'
+export { OWNER_NONE, SWITCH_FLAGS_UNCLEARED, SWITCH_FLAGS_CLEARED } from './objectHandlers/cursor'
 
 const MAP16_OW_L1_VRAM_BUFFER_OFFSET = 0x1c00 // OWLayer1VramBuffer − Map16TilesLow
 
@@ -134,6 +136,7 @@ export function expandObject(
   tileset: number,
   owners: OwnerGrid | null = null,
   owner: number = OWNER_NONE,
+  switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED,
 ): void {
   if (obj.type === 'extended') {
     // For extended objects, LevelParser stores the extended type in `objectNumber`
@@ -149,6 +152,7 @@ export function expandObject(
       obj.settings,
       owners,
       owner,
+      switchFlags,
     )
     dispatchExtended(cur)
   } else {
@@ -162,6 +166,7 @@ export function expandObject(
       obj.settings,
       owners,
       owner,
+      switchFlags,
     )
     dispatchStandard(cur)
   }
@@ -221,6 +226,10 @@ function applyMode11BossArena(grid: TileGrid): void {
  * pre-fills for modes 9 and 11.  Pass `levelNum` to read the Level3Setting
  * flag from DATA_05F200, which controls whether the OW Layer1 VRAM buffer is
  * zeroed (needed for correct tile output in maps like $002 and $127).
+ *
+ * Pass `switchFlags` to pick which page the four switch-palace blocks draw
+ * from (#567); defaults to all uncleared, matching a fresh save and the
+ * `layers_v5` captures.
  */
 export function expandMap(
   objects: LevelObject[],
@@ -230,8 +239,18 @@ export function expandMap(
   isVertical = false,
   levelMode?: number,
   levelNum?: number,
+  switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED,
 ): TileGrid {
-  return expandMapOwned(objects, screens, rom, tileset, isVertical, levelMode, levelNum).grid
+  return expandMapOwned(
+    objects,
+    screens,
+    rom,
+    tileset,
+    isVertical,
+    levelMode,
+    levelNum,
+    switchFlags,
+  ).grid
 }
 
 /** A tile grid plus the record of which object drew each of its cells. */
@@ -258,6 +277,7 @@ export function expandMapOwned(
   isVertical = false,
   levelMode?: number,
   levelNum?: number,
+  switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED,
 ): ExpandedMap {
   // Boss-arena modes override the header screen count.
   const effectiveScreens = levelMode === 9 || levelMode === 11 ? BOSS_ARENA_SCREENS : screens
@@ -271,7 +291,7 @@ export function expandMapOwned(
   const owners: OwnerGrid = grid.map(row => new Array<number>(row.length).fill(OWNER_NONE))
 
   for (let i = 0; i < objects.length; i++) {
-    expandObject(grid, objects[i], rom, tileset, owners, i)
+    expandObject(grid, objects[i], rom, tileset, owners, i, switchFlags)
   }
   return { grid, owners }
 }

@@ -19,6 +19,7 @@ import {
   nextRow,
   peekExistingLow,
   readLongOperand,
+  readGatedLongOperand,
   readImmByte,
 } from './cursor'
 
@@ -296,37 +297,42 @@ export function handle_0DDAA2(cur: Cursor): void {
  * X=1 (LDX #$01) selects index 1 in the shared data tables. Falls through to
  * the common body at CODE_0DB58B+2. SMW picks between:
  *   DATA_0DB589[1] = $6B on page 0 when SwitchBlockFlags[1] is zero (uncleared)
+ *     (bank_0D.asm:3739 `LDA.W SwitchBlockFlags,X`, :3740 `BNE +`, :3742 `LDA.L DATA_0DB589,X`)
  *   DATA_0DB587[1] = $6B on page 1 when the yellow switch has been pressed
+ *     (:3747 `LDA.L DATA_0DB587,X`, taken branch)
  *
- * We emit the cleared ($16B, page 1) variant so fixtures captured from Mesen -
- * which runs with the switches already pressed in the save state - match
- * byte-exact. The webview's `applySwitchPalaceState` re-applies the page bit
- * per the UI toggle, so the on-screen dormant/cleared state is unaffected.
+ * Reads whichever table `cur.switchFlags.yellow` (#567) says the ROM would
+ * have read, gated on the `$BF` opcode still being there at each offset -
+ * a single-table read that assumed the two tables agree would silently pick
+ * the wrong tile the day they don't.
  */
 export function handle_0DB583(cur: Cursor): void {
-  // LDX #$01 at +0 → X at +1. LDA.L DATA_0DB587 operand at +31 inside the
-  // shared body (the cleared-path LDA.L that runs after BNE + was taken).
+  // LDX #$01 at +0 → X at +1. DATA_0DB589 (uncleared) operand at +21;
+  // DATA_0DB587 (cleared) operand at +31 (the shared body's taken-branch LDA.L).
   const X = readImmByte(cur, cur.handlerAddr + 1)
-  const tableAddr = readLongOperand(cur, cur.handlerAddr + 31)
-  setPage1(cur)
+  const cleared = cur.switchFlags.yellow
+  const tableAddr = readGatedLongOperand(cur, cleared ? 31 : 21)
+  if (tableAddr === null) return
+  if (cleared) setPage1(cur)
+  else setPage0(cur)
   writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
 }
 
 /**
  * CODE_0DB58B (bank_0D.asm line 3736) -- green switch-palace block (single tile).
- *
- * Sibling of CODE_0DB583; enters the shared body directly with X=0 via LDX #$00.
- * DATA_0DB589[0] = $6A (green uncleared) → Map16 $06A.
- * DATA_0DB587[0] = $6A (green cleared)   → Map16 $16A.
- * Emits the cleared ($16A, page 1) variant - see the CODE_0DB583 comment.
+ * Sibling of CODE_0DB583, entered 8 bytes earlier with X=0 - see its comment;
+ * gates on `cur.switchFlags.green`.
  */
 export function handle_0DB58B(cur: Cursor): void {
-  // LDX #$00 at +0 → X at +1. CODE_0DB58B enters the shared body 8 bytes
-  // before CODE_0DB583's equivalent offset, so LDA.L DATA_0DB587 operand
-  // lands at +23 (= 31 - 8).
+  // CODE_0DB58B enters the shared body 8 bytes before CODE_0DB583's
+  // equivalent offsets: DATA_0DB589 operand at +13 (21-8), DATA_0DB587 at
+  // +23 (31-8).
   const X = readImmByte(cur, cur.handlerAddr + 1)
-  const tableAddr = readLongOperand(cur, cur.handlerAddr + 23)
-  setPage1(cur)
+  const cleared = cur.switchFlags.green
+  const tableAddr = readGatedLongOperand(cur, cleared ? 23 : 13)
+  if (tableAddr === null) return
+  if (cleared) setPage1(cur)
+  else setPage0(cur)
   writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
 }
 

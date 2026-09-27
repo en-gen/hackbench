@@ -576,8 +576,9 @@ export function gateMap(
   const parsed = parseLevelObjects(raw, verticalTable)
   const isVertical = isLevelModeVertical(header.levelMode, verticalTable)
   const tileset = header.objectTileset
-  // Matches MapBuilder.buildMapWithGraph's own call exactly (no levelNum): that
-  // is the app's real feed path, so the gate must diverge with it, not "fix" it.
+  // Omits levelNum, matching MapBuilder.buildMapWithGraph's own call; switchFlags
+  // stays at its default (all uncleared, #567) to match the ROM's fresh-save
+  // state that `layers_v5` was captured in - MapBuilder pins all-cleared instead.
   const romGrid = expandMap(parsed.objects, header.levelLength, rom.rom, tileset, isVertical, header.levelMode) // prettier-ignore
 
   let map16: { tiles: Map16Tile[]; pipeVariants: Map16Tile[][] }

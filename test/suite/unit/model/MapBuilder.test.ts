@@ -63,4 +63,14 @@ describe.skipIf(!hasRom(VANILLA))('MapBuilder end-to-end (vanilla ROM)', () => {
     expect(map.mapStore.screenPipeVariantIdx).toEqual(map.screenPipeVariantIdx)
     expect(map.mapStore.marioSpawnX).toBe(map.header.marioStartPx?.x ?? 0)
   })
+
+  it('pins switch-palace blocks to the cleared ($16x) range regardless of #567 (reference webview only)', () => {
+    // $105 col 156/row 20 is a yellow switch block (ObjectExpander.test.ts's
+    // #567 regression case): the ROM itself draws it uncleared ($06B), but
+    // this reference-only path must keep reporting the pre-fix $16B so its
+    // serialized/owner-click ids never move under it.
+    const rom = SmwRom.open(ROM_PATH)
+    const map = buildMap(rom, 0x105)
+    expect(map.l1[20][156]).toBe(0x100 | 0x6b)
+  })
 })

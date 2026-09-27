@@ -7,7 +7,7 @@ import {
   parseLevelObjects,
   parseLevelSprites,
 } from '../LevelParser'
-import { TILE_EMPTY, expandMap } from '../ObjectExpander'
+import { TILE_EMPTY, expandMap, SWITCH_FLAGS_CLEARED } from '../ObjectExpander'
 import type { SmwRom } from '../SmwRom'
 import type { Char } from './chars/Char'
 import { buildChars } from './chars/CharFactory'
@@ -106,7 +106,17 @@ export function buildMapWithGraph(
   // hold ids that resolve against this shared map at render time.
   const bgTiles = buildBgTiles(rom.rom, chars)
 
-  const grid = expandMap(parsed.objects, screens, rom.rom, tileset, isVertical, rawHeader.levelMode)
+  // Reference webview only (#567): pin the pre-fix always-cleared grid.
+  const grid = expandMap(
+    parsed.objects,
+    screens,
+    rom.rom,
+    tileset,
+    isVertical,
+    rawHeader.levelMode,
+    undefined,
+    SWITCH_FLAGS_CLEARED,
+  )
   // L1 tilemap as ids - resolve against `tiles` (aka l1Tiles) at render
   // time. Empty cells survive as null.
   const l1: (number | null)[][] = grid.map(row => row.map(id => (id === TILE_EMPTY ? null : id)))

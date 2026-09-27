@@ -25,6 +25,9 @@ import {
   restoreBookmark,
   advanceCol,
   TileGrid,
+  Cursor,
+  SwitchFlags,
+  SWITCH_FLAGS_CLEARED,
 } from '../../../src/rom/objectHandlers/cursor'
 import {
   handle_0DA8C3,
@@ -1399,7 +1402,7 @@ describe.skipIf(!romPresent)('expandMap integration (real SMW ROM)', () => {
   })
 
   /** Load and expand a level by translevel index (passes levelNum for layer3 overflow). */
-  function expandLevelByIndex(index: number) {
+  function expandLevelByIndex(index: number, switchFlags?: SwitchFlags) {
     const rawL1 = rom.getLevelRawData(index)
     if (!rawL1) throw new Error(`Level $${index.toString(16)} has no data`)
     const { header, objects } = parseLevelObjects(rawL1, rom.requireVerticalTable())
@@ -1412,6 +1415,7 @@ describe.skipIf(!romPresent)('expandMap integration (real SMW ROM)', () => {
       false,
       header.levelMode,
       index,
+      switchFlags,
     )
     return { grid, header, objects, screens }
   }
@@ -1434,6 +1438,15 @@ describe.skipIf(!romPresent)('expandMap integration (real SMW ROM)', () => {
     // Stubbed expanders yielded fewer than 20; a working expander should
     // produce an order of magnitude more.
     expect(nonEmpty).toBeGreaterThan(200)
+  })
+
+  it('level $105 col 156 row 20: yellow switch block is $06B by default, $16B when cleared (#567)', () => {
+    // The reference capture (#567 comment) shows this cell uncleared ($6B)
+    // in the game and HackBench previously always drew it cleared ($16B).
+    const uncleared = expandLevelByIndex(0x105)
+    expect(uncleared.grid[20][156]).toBe(0x6b)
+    const cleared = expandLevelByIndex(0x105, SWITCH_FLAGS_CLEARED)
+    expect(cleared.grid[20][156]).toBe(0x100 | 0x6b)
   })
 
   it('level $105 has a ground-like run somewhere in the lower half', () => {
@@ -1632,127 +1645,99 @@ describe('handle_0DB7AA (pyramid/hill slope, object 58)', () => {
   })
 })
 
-// ── Switch-palace blocks: all 4 colors render in their cleared (pressed) state ──
-// Green/yellow are extended single-tile handlers; blue/red are standard
-// rectangular handlers. All four write the page-1 Map16 tile so fixtures
-// captured from Mesen (which runs with switches pressed) match byte-exact; the
-// webview's `applySwitchPalaceState` re-applies the page bit per the UI toggle.
+// ── Switch-palace blocks: which table is read is picked by cur.switchFlags
+// (#567). Green/yellow are extended single-tile handlers; blue/red are
+// standard rectangular handlers (`rect`). Each color has its own uncleared
+// table and cleared table at distinct ROM offsets - bank_0D.asm:3739
+// (green/yellow's `SwitchBlockFlags,X`) and :4229 (blue/red's
+// `SwitchBlockFlags+2,X`) - so every case stamps the two tables with
+// DIFFERENT bytes: a handler that reads only one table, or the wrong one
+// for the state, fails immediately instead of passing by coincidence.
+interface SwitchBlockCase {
+  name: string
+  handler: (cur: Cursor) => void
+  handlerAddr: number
+  unclearedOffset: number
+  clearedOffset: number
+  ldx: number
+  colorKey: keyof SwitchFlags
+  rect: boolean
+}
 
-describe('handle_0DB58B (green switch-palace block, ext)', () => {
-  const HANDLER_ADDR = 0x0db58b
-  const TABLE_ADDR = 0x0db587
+const SWITCH_BLOCK_CASES: SwitchBlockCase[] = [
+  // See CODE_0DB583 (extendedHandlers.ts) for the shared-body offset math.
+  { name: 'green', handler: handle_0DB58B, handlerAddr: 0x0db58b, unclearedOffset: 13, clearedOffset: 23, ldx: 0, colorKey: 'green', rect: false }, // prettier-ignore
+  { name: 'yellow', handler: handle_0DB583, handlerAddr: 0x0db583, unclearedOffset: 21, clearedOffset: 31, ldx: 1, colorKey: 'yellow', rect: false }, // prettier-ignore
+  // See CODE_0DB916 (standardHandlers.ts) for the shared-body offset math.
+  { name: 'blue', handler: handle_0DB916, handlerAddr: 0x0db916, unclearedOffset: 37, clearedOffset: 51, ldx: 0, colorKey: 'blue', rect: true }, // prettier-ignore
+  { name: 'red', handler: handle_0DB91E, handlerAddr: 0x0db91e, unclearedOffset: 29, clearedOffset: 43, ldx: 1, colorKey: 'red', rect: true }, // prettier-ignore
+]
 
-  it('writes $16A (green cleared) at cursor', () => {
+describe.each(SWITCH_BLOCK_CASES)('$name switch-palace block (#567)', c => {
+  const UNCLEARED_ADDR = c.handlerAddr + 0x1000
+  const CLEARED_ADDR = c.handlerAddr + 0x2000
+  const UNCLEARED_LOW = 0x50 // deliberately unlike CLEARED_LOW
+  const CLEARED_LOW = 0x99
+
+  function setup(): { rom: RomFile; grid: TileGrid } {
+    const at = (low: number): number[] => (c.ldx === 0 ? [low, 0] : [0, low])
     const rom = makeMockRom({
-      [TABLE_ADDR]: [0x6a, 0x6b], // DATA_0DB587[0]=$6A (green), [1]=$6B (yellow)
-      [HANDLER_ADDR + 1]: [0x00], // LDX #$00 immediate
+      [UNCLEARED_ADDR]: at(UNCLEARED_LOW),
+      [CLEARED_ADDR]: at(CLEARED_LOW),
+      [c.handlerAddr + 1]: [c.ldx],
+      // $BF (LDA.L abs,X) one byte before each operand, gated by readGatedLongOperand.
+      [c.handlerAddr + c.unclearedOffset - 1]: [0xbf],
+      [c.handlerAddr + c.clearedOffset - 1]: [0xbf],
     })
-    stampLongOperand(rom, HANDLER_ADDR, 23, TABLE_ADDR)
-    const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 10, 0, 0x87)
-    handle_0DB58B(cur)
-    expect(grid[10][5]).toBe(P1(0x6a)) // page 1 | $6A
-  })
-})
-
-describe('handle_0DB583 (yellow switch-palace block, ext)', () => {
-  const HANDLER_ADDR = 0x0db583
-  const TABLE_ADDR = 0x0db587
-
-  it('writes $16B (yellow cleared) at cursor', () => {
-    const rom = makeMockRom({
-      [TABLE_ADDR]: [0x6a, 0x6b],
-      [HANDLER_ADDR + 1]: [0x01], // LDX #$01 immediate
-    })
-    stampLongOperand(rom, HANDLER_ADDR, 31, TABLE_ADDR)
-    const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 10, 0, 0x8e)
-    handle_0DB583(cur)
-    expect(grid[10][5]).toBe(P1(0x6b))
-  })
-})
-
-describe('handle_0DB916 (blue switch-palace block, standard rect)', () => {
-  const HANDLER_ADDR = 0x0db916
-  const TABLE_ADDR = 0x0db91a
-
-  function setupRom(): RomFile {
-    const rom = makeMockRom({
-      [TABLE_ADDR]: [0x6c, 0x6d], // DATA_0DB91A[0]=$6C (blue), [1]=$6D (red)
-      [HANDLER_ADDR + 1]: [0x00], // LDX #$00 immediate
-    })
-    stampLongOperand(rom, HANDLER_ADDR, 37, TABLE_ADDR)
-    return rom
+    stampLongOperand(rom, c.handlerAddr, c.unclearedOffset, UNCLEARED_ADDR)
+    stampLongOperand(rom, c.handlerAddr, c.clearedOffset, CLEARED_ADDR)
+    return { rom, grid: createGrid(1) }
   }
 
-  it('size $00 writes a single $16C at cursor', () => {
-    const rom = setupRom()
-    const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 30, 0x00)
-    handle_0DB916(cur)
-    expect(grid[10][3]).toBe(P1(0x6c))
-    // Ensure no accidental spill into neighbors.
-    expect(grid[10][2]).toBe(TILE_EMPTY)
-    expect(grid[10][4]).toBe(TILE_EMPTY)
-    expect(grid[11][3]).toBe(TILE_EMPTY)
+  it('reads the uncleared table by default, not the cleared one', () => {
+    const { rom, grid } = setup()
+    const cur = makeCursorForHandler(c.handlerAddr, grid, rom, 0, 5, 10, 0, 0x00)
+    c.handler(cur)
+    expect(grid[10][5]).toBe(UNCLEARED_LOW) // page 0
+    expect(grid[10][4]).toBe(TILE_EMPTY) // no spill into neighbors
+    expect(grid[10][6]).toBe(TILE_EMPTY)
+    expect(grid[11][5]).toBe(TILE_EMPTY)
   })
 
-  it('size $23 fills a 4-wide x 3-tall rect of $16C', () => {
-    const rom = setupRom()
-    const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 2, 10, 30, 0x23)
-    handle_0DB916(cur)
+  it('reads the cleared table once its flag is set, not the uncleared one', () => {
+    const { rom, grid } = setup()
+    const cur = makeCursorForHandler(c.handlerAddr, grid, rom, 0, 5, 10, 0, 0x00)
+    cur.switchFlags = { ...cur.switchFlags, [c.colorKey]: true }
+    c.handler(cur)
+    expect(grid[10][5]).toBe(0x100 | CLEARED_LOW) // page 1
+  })
+
+  it("declines to write when the needed table's LDA.L opcode has been replaced", () => {
+    const { rom, grid } = setup()
+    rom.writeAt(c.handlerAddr + c.unclearedOffset - 1, [0x22]) // JSL, not $BF
+    const cur = makeCursorForHandler(c.handlerAddr, grid, rom, 0, 5, 10, 0, 0x00)
+    c.handler(cur)
+    expect(grid[10][5]).toBe(TILE_EMPTY)
+  })
+
+  it.skipIf(!c.rect)('cleared fills the full WxH rect, not just one tile', () => {
+    const { rom, grid } = setup()
+    const cur = makeCursorForHandler(c.handlerAddr, grid, rom, 0, 2, 10, 0, 0x23) // 4 wide x 3 tall
+    cur.switchFlags = { ...cur.switchFlags, [c.colorKey]: true }
+    c.handler(cur)
     for (let r = 10; r <= 12; r++) {
-      for (let c = 2; c <= 5; c++) {
-        expect(grid[r][c]).toBe(P1(0x6c))
-      }
+      for (let col = 2; col <= 5; col++) expect(grid[r][col]).toBe(0x100 | CLEARED_LOW)
     }
-    // One past the right edge must remain empty.
-    expect(grid[10][6]).toBe(TILE_EMPTY)
-    expect(grid[13][2]).toBe(TILE_EMPTY)
+    expect(grid[10][6]).toBe(TILE_EMPTY) // one past the right edge
+    expect(grid[13][2]).toBe(TILE_EMPTY) // one past the bottom edge
   })
 
   it('restores cursor col/row after writing', () => {
-    const rom = setupRom()
-    const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 7, 10, 30, 0x12)
-    handle_0DB916(cur)
+    const { rom, grid } = setup()
+    const cur = makeCursorForHandler(c.handlerAddr, grid, rom, 0, 7, 10, 0, 0x12)
+    c.handler(cur)
     expect(cur.col).toBe(7)
     expect(cur.row).toBe(10)
-  })
-})
-
-describe('handle_0DB91E (red switch-palace block, standard rect)', () => {
-  const HANDLER_ADDR = 0x0db91e
-  const TABLE_ADDR = 0x0db91a
-
-  it('writes $16D (red cleared) - single tile at size $00', () => {
-    const rom = makeMockRom({
-      [TABLE_ADDR]: [0x6c, 0x6d],
-      [HANDLER_ADDR + 1]: [0x01], // LDX #$01 immediate
-    })
-    stampLongOperand(rom, HANDLER_ADDR, 29, TABLE_ADDR)
-    const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 8, 10, 30, 0x00)
-    handle_0DB91E(cur)
-    expect(grid[10][8]).toBe(P1(0x6d))
-  })
-
-  it('size $11 fills a 2x2 rect of $16D', () => {
-    const rom = makeMockRom({
-      [TABLE_ADDR]: [0x6c, 0x6d],
-      [HANDLER_ADDR + 1]: [0x01],
-    })
-    stampLongOperand(rom, HANDLER_ADDR, 29, TABLE_ADDR)
-    const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 4, 12, 30, 0x11)
-    handle_0DB91E(cur)
-    expect(grid[12][4]).toBe(P1(0x6d))
-    expect(grid[12][5]).toBe(P1(0x6d))
-    expect(grid[13][4]).toBe(P1(0x6d))
-    expect(grid[13][5]).toBe(P1(0x6d))
-    expect(grid[12][6]).toBe(TILE_EMPTY)
-    expect(grid[14][4]).toBe(TILE_EMPTY)
   })
 })
 

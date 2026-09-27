@@ -21,7 +21,7 @@ import {
 import { readInitialLayer1YPos, readL3RoutineSummary, classifyL3Routine } from '../rom/L3Loader'
 import { getAllLevelBgmTracks, readLevelMusicTableIfReadable } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
-import { expandMap } from '../rom/ObjectExpander'
+import { expandMap, SWITCH_FLAGS_CLEARED } from '../rom/ObjectExpander'
 import {
   readL2Pointer,
   isPresetPtr,
@@ -349,6 +349,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       // and thus which handler set is used. Must be passed so standard-object
       // dispatch reads the correct per-tileset handler pointer table.
       // Vertical levels flip the grid shape to 32 × (screens*16).
+      // Reference-only extension (#567): pin the pre-fix always-cleared grid.
       const tileGrid = expandMap(
         objects,
         screens,
@@ -356,6 +357,8 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         header.objectTileset,
         isVertical,
         header.levelMode,
+        undefined,
+        SWITCH_FLAGS_CLEARED,
       )
 
       // ── Build L2 tile grid ────────────────────────────────────────────────
