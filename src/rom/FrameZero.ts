@@ -10,6 +10,7 @@ import {
   loadAnimationDataOrReason,
   stockAnimationUnreached,
   type AnimationData,
+  type LoadAnimationResult,
 } from './AnimationLoader'
 import { mergeAnimationData } from './ExAnimationLoader'
 import { buildChars, vramFromChars } from './model/chars/CharFactory'
@@ -50,6 +51,16 @@ export function frameZeroChars(
   exAnim?: AnimationData | null,
 ): FrameZeroChars {
   const loaded = loadAnimationDataOrReason(rom, tileset)
+  return frameZeroFrom(loaded, loaded.ok ? stockAnimationUnreached(rom) : null, vram, exAnim)
+}
+
+/** `frameZeroChars` over readings already taken: no ROM access, so a caller can test the logic. */
+export function frameZeroFrom(
+  loaded: LoadAnimationResult,
+  unreached: { target: number } | { reason: string } | null,
+  vram: VramState,
+  exAnim?: AnimationData | null,
+): FrameZeroChars {
   if (!loaded.ok) {
     // No stock frames exist to composite: leave this level's own GFX
     // exactly as loaded rather than guess at pixels there is no data for,
@@ -63,7 +74,6 @@ export function frameZeroChars(
   const animData = exAnim ? mergeAnimationData(loaded.data, exAnim) : loaded.data
   // Checked before the animated-char count: a ROM that skips its own
   // routine must always report, even on a tileset with nothing to animate.
-  const unreached = stockAnimationUnreached(rom)
   // A reached routine that cannot be read served the vanilla tables: unverified the same way.
   const unverified = unreached ? unreachedReason(unreached) : loaded.data.unverified
   if (getAnimatedChars(animData).size === 0 && !unverified) return undefined

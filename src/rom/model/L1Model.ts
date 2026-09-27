@@ -18,23 +18,52 @@ import { expandMap, type SwitchFlags, type TileGrid } from '../ObjectExpander'
 import { loadMap16WithPipeVariants, map16TileCapacity, type Map16Tile } from '../Map16'
 import { gfxSource, loadVram, type VramState } from '../GfxLoader'
 import { loadExAnimData } from '../ExAnimationLoader'
-import { frameZeroChars } from '../FrameZero'
+import { frameZeroFrom } from '../FrameZero'
 import { buildChars } from './chars/CharFactory'
 import type { Char } from './chars/Char'
-import type { AnimationData } from '../AnimationLoader'
+import {
+  loadAnimationDataOrReason,
+  stockAnimationUnreached,
+  type AnimationData,
+  type LoadAnimationResult,
+} from '../AnimationLoader'
 import {
   buildLevelCgram,
   loadBackAreaColors,
   loadCustomLevelPalette,
   loadRomPalettes,
+  type CustomLevelPalette,
+  type RomPalettes,
 } from '../PaletteLoader'
 import { readLevelCol1 } from '../PaletteStockTables'
 import { bgr555ToRgba } from '../GraphicsDecoder'
 import { detectPaletteAnimation, type PaletteAnimContext } from '../PaletteAnimationDetect'
+import { findUnique, WILD, type BytePattern } from '../BytePattern'
 
-/** Level modes whose L1 the game never loads: LoadLevel returns before the
- *  object stream for $09, $0B and $10 (bank_05.asm:431-437). */
-export const NO_L1_MODES: ReadonlySet<number> = new Set([0x09, 0x0b, 0x10])
+/**
+ * LoadLevel's boss-mode exit, bank_05.asm:431-437: `LDA.W LevelModeSetting`
+ * then three `CMP #imm / BEQ LoadLevelDone`. The immediates are the level
+ * modes whose L1 the game never loads ($09, $0B, $10 on a stock ROM).
+ */
+const NO_L1_CHECK: BytePattern = [0xad, 0x25, 0x19, 0xc9, WILD, 0xf0, WILD, 0xc9, WILD, 0xf0, WILD, 0xc9, WILD, 0xf0, WILD] // prettier-ignore
+
+/**
+ * The level modes LoadLevel returns for before reading the object stream,
+ * read from its own `CMP` operands. Gated: exactly one match, and all three
+ * branches reaching one target, or the answer is unavailable.
+ */
+export function readNoL1Modes(rom: RomFile): { modes: ReadonlySet<number> } | { reason: string } {
+  const unreadable = {
+    reason:
+      "LoadLevel's boss-mode check (bank_05.asm:431-437) is not the stock shape, so whether the game loads this map's L1 (foreground) cannot be read",
+  }
+  const at = findUnique(rom, NO_L1_CHECK)
+  const bytes = at === null ? null : rom.readAtFileOffset(at, NO_L1_CHECK.length)
+  if (!bytes) return unreadable
+  const target = (branchAt: number) => branchAt + 2 + ((bytes[branchAt + 1]! << 24) >> 24)
+  if (target(5) !== target(9) || target(9) !== target(13)) return unreadable
+  return { modes: new Set([bytes[4]!, bytes[8]!, bytes[12]!]) }
+}
 
 export interface L1Inputs {
   header: LevelHeader
@@ -51,7 +80,7 @@ export interface L1Inputs {
   chars: Map<number, Char>
   /** Why the char or palette animation frames are unverified or absent, when they are. */
   animNote?: string
-  /** CGRAM, 256 colors, with any per-level override block and palette-animation frame 0 applied. */
+  /** CGRAM, 256 colors: any per-level override block, then the palette animation's representative frame (phase 0). */
   colors: RgbaColor[]
   /** CGRAM color 0, the backdrop the PPU shows where every layer is transparent. */
   backArea: RgbaColor
@@ -61,28 +90,57 @@ export type L1InputsResult = { ok: true; inputs: L1Inputs } | { ok: false; reaso
 
 const hex3 = (n: number) => `$${n.toString(16).toUpperCase().padStart(3, '0')}`
 
-/** A level's CGRAM and backdrop: the header's palettes, or its override block. */
+/** Everything `assembleL1Inputs` needs, read from the ROM and nothing else. */
+export interface L1Readings {
+  header: LevelHeader
+  isVertical: boolean
+  grid: TileGrid
+  map16: { tiles: Map16Tile[]; pipeVariants: Map16Tile[][] }
+  rawVram: VramState
+  stockAnim: LoadAnimationResult
+  unreached: { target: number } | { reason: string } | null
+  exAnim: AnimationData | null
+  custom: CustomLevelPalette | null
+  romPalettes: RomPalettes
+  backAreas: RgbaColor[]
+  col1: { bg: number; obj: number }
+  paletteAnim: PaletteAnimContext
+}
+
+/** A level's CGRAM and backdrop: its override block, else the header's palettes and back-area color. */
+export function levelColorsFrom(
+  r: Pick<L1Readings, 'header' | 'custom' | 'romPalettes' | 'backAreas' | 'col1'>,
+): { colors: RgbaColor[]; backArea: RgbaColor } {
+  if (r.custom) return { colors: r.custom.colors, backArea: r.custom.backAreaColor }
+  const { bgPalette, fgPalette, spritePalette, bgColor } = r.header
+  const cgram = buildLevelCgram(r.romPalettes, bgPalette, fgPalette, spritePalette, r.col1)
+  return { colors: cgram.colors, backArea: r.backAreas[bgColor] ?? [0, 0, 0, 255] }
+}
+
+/** `levelColorsFrom` over this ROM's own tables. */
 export function levelColors(
   rom: RomFile,
   index: number,
   header: LevelHeader,
   col1: { bg: number; obj: number },
 ): { colors: RgbaColor[]; backArea: RgbaColor } {
-  const custom = loadCustomLevelPalette(rom, index)
-  if (custom) return { colors: custom.colors, backArea: custom.backAreaColor }
-  const palettes = loadRomPalettes(rom, header.bgPalette)
-  const cgram = buildLevelCgram(palettes, header.bgPalette, header.fgPalette, header.spritePalette, col1) // prettier-ignore
-  return {
-    colors: cgram.colors,
-    backArea: loadBackAreaColors(rom)[header.bgColor] ?? [0, 0, 0, 255],
-  }
+  return levelColorsFrom({
+    header,
+    col1,
+    custom: loadCustomLevelPalette(rom, index),
+    romPalettes: loadRomPalettes(rom, header.bgPalette),
+    backAreas: loadBackAreaColors(rom),
+  })
 }
 
 /**
- * CGRAM as the player first sees it: the level's palette animation writes
- * its frame 0 over the stored color before a frame is shown (the level NMI
- * path, e.g. `$64`; PaletteAnimationDetect.ts). When the routine cannot be
- * read, the stored colors stand and the note says so.
+ * The palette at its REPRESENTATIVE frame, phase 0 of the level's palette
+ * animation (e.g. `$64`; PaletteAnimationDetect.ts), by the owner's
+ * first-frame-by-default convention. Not necessarily the first frame the
+ * player sees: CODE_00A5F9 (bank_00.asm:4891-4899) leaves EffFrame so the
+ * first shown phase is 2, 4, 6 or 0 by runtime state. The stored color is
+ * never shown in-game, which is why a phase replaces it. When the routine
+ * cannot be read, the stored colors stand and the note says so.
  */
 export function applyPaletteFrame0(
   colors: readonly RgbaColor[],
@@ -101,6 +159,29 @@ export function applyPaletteFrame0(
   return { colors: out }
 }
 
+/** The wiring from readings to inputs. Pure: no ROM access, so every step is testable in CI. */
+export function assembleL1Inputs(r: L1Readings): L1Inputs {
+  const frameZero = frameZeroFrom(r.stockAnim, r.unreached, r.rawVram, r.exAnim)
+  const vram = frameZero?.vram ?? r.rawVram
+  const stored = levelColorsFrom(r)
+  const palette = applyPaletteFrame0(stored.colors, r.paletteAnim)
+  const notes = [frameZero?.error, palette.note].filter(Boolean)
+  return {
+    header: r.header,
+    isVertical: r.isVertical,
+    screenCount: r.header.levelLength,
+    grid: r.grid,
+    map16: r.map16,
+    rawVram: r.rawVram,
+    anim: frameZero?.animData ?? null,
+    vram,
+    chars: frameZero?.animData ? frameZero.chars : buildChars(vram),
+    animNote: notes.length > 0 ? notes.join(' ') : undefined,
+    colors: palette.colors,
+    backArea: stored.backArea,
+  }
+}
+
 /** Read one map's L1 inputs, or why they cannot be read. Never a partial set. */
 export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L1InputsResult {
   const refuse = (reason: string): L1InputsResult => ({ ok: false, reason })
@@ -109,7 +190,9 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
   const table = rom.getVerticalTable()
   if (!table.ok) return refuse(table.reason)
   const header = parseLevelHeader(raw)
-  if (NO_L1_MODES.has(header.levelMode)) {
+  const noL1 = readNoL1Modes(rom.rom)
+  if ('reason' in noL1) return refuse(noL1.reason)
+  if (noL1.modes.has(header.levelMode)) {
     return refuse(`Map ${hex3(index)} is a boss arena: the game never loads its L1 (foreground)`)
   }
   try {
@@ -126,31 +209,23 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
     const col1 = readLevelCol1(rom.rom)
     if ('reason' in col1) return refuse(`Palette column 1 is unavailable: ${col1.reason}`)
 
-    const map16 = loadMap16WithPipeVariants(rom.rom, tileset)
-    const rawVram = loadVram(rom.rom, tileset, header.spriteSet)
-    const frameZero = frameZeroChars(rom.rom, tileset, rawVram, loadExAnimData(rom.rom, index))
-    const vram = frameZero?.vram ?? rawVram
-    const chars = frameZero?.animData ? frameZero.chars : buildChars(vram)
-    const stored = levelColors(rom.rom, index, header, col1)
-    const palette = applyPaletteFrame0(stored.colors, detectPaletteAnimation(rom.rom).level)
-    const notes = [frameZero?.error, palette.note].filter(Boolean)
-    return {
-      ok: true,
-      inputs: {
-        header,
-        isVertical,
-        screenCount: header.levelLength,
-        grid,
-        map16,
-        rawVram,
-        anim: frameZero?.animData ?? null,
-        vram,
-        chars,
-        animNote: notes.length > 0 ? notes.join(' ') : undefined,
-        colors: palette.colors,
-        backArea: stored.backArea,
-      },
-    }
+    const stockAnim = loadAnimationDataOrReason(rom.rom, tileset)
+    const inputs = assembleL1Inputs({
+      header,
+      isVertical,
+      grid,
+      map16: loadMap16WithPipeVariants(rom.rom, tileset),
+      rawVram: loadVram(rom.rom, tileset, header.spriteSet),
+      stockAnim,
+      unreached: stockAnim.ok ? stockAnimationUnreached(rom.rom) : null,
+      exAnim: loadExAnimData(rom.rom, index),
+      custom: loadCustomLevelPalette(rom.rom, index),
+      romPalettes: loadRomPalettes(rom.rom, header.bgPalette),
+      backAreas: loadBackAreaColors(rom.rom),
+      col1,
+      paletteAnim: detectPaletteAnimation(rom.rom).level,
+    })
+    return { ok: true, inputs }
   } catch (err) {
     return refuse(`Map ${hex3(index)} could not be read: ${(err as Error).message}`)
   }

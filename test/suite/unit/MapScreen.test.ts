@@ -35,16 +35,27 @@ import { Char } from '../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import {
   applyPaletteFrame0,
+  assembleL1Inputs,
   buildL1Inputs,
   levelColors,
+  readNoL1Modes,
   type L1Inputs,
+  type L1Readings,
 } from '../../../src/rom/model/L1Model'
+import { buildLevelCgram, loadRomPalettes, STOCK_COL1 } from '../../../src/rom/PaletteLoader'
 import {
   detectPaletteAnimation,
   type PaletteAnimContext,
 } from '../../../src/rom/PaletteAnimationDetect'
 import { bgr555ToRgba } from '../../../src/rom/GraphicsDecoder'
-import { switchBlockTile } from '../../../src/rom/SwitchBlockTiles'
+import { switchBlockTile, PALACES } from '../../../src/rom/SwitchBlockTiles'
+import { objectsDispatchedTo } from '../../../src/rom/objectHandlers/dispatch'
+import { handle_0DB583 } from '../../../src/rom/objectHandlers/extendedHandlers'
+import { handle_0DB916 } from '../../../src/rom/objectHandlers/standardHandlers'
+import {
+  ADDR_EXTENDED_DISPATCH,
+  ADDR_TILESET_DISPATCH,
+} from '../../../src/rom/objectHandlers/romData'
 import type { RgbaColor } from '../../../src/rom/GraphicsDecoder'
 import {
   buildL1Model,
@@ -203,10 +214,17 @@ describe('screens (synthetic)', () => {
 
 // ── Synthetic ROM reads ──────────────────────────────────────────────────────
 
+/**
+ * LoadLevel's boss-mode check shape (bank_05.asm:431-437), synthetic bytes:
+ * three CMP #imm / BEQ, every branch landing at +15.
+ */
+const noL1Check = (m = [0x09, 0x0b, 0x10], disp = [0x08, 0x04, 0x00]) => [0xad, 0x25, 0x19, 0xc9, m[0]!, 0xf0, disp[0]!, 0xc9, m[1]!, 0xf0, disp[1]!, 0xc9, m[2]!, 0xf0, disp[2]!] // prettier-ignore
+
 /** A fake SmwRom: one level's raw bytes, a synthetic VerticalTable, an empty ROM behind it. */
 function fakeRom(levelMode: number): SmwRom {
   const buf = Buffer.alloc(0x40000, 0)
   buf[0x7fd5] = 0x20
+  buf.set(noL1Check(), 0x1000)
   const raw = Buffer.from([0x00, levelMode, 0, 0, 0, 0xff])
   return {
     rom: new RomFile('fake.sfc', buf),
@@ -253,9 +271,107 @@ describe('buildL1Inputs (synthetic)', () => {
     expect(colors[2 * 16 + 5]!.slice(0, 3)).toEqual([0, 255, 0])
   })
 
+  it('a palace routine that declines its tile refuses rather than drawing empty', () => {
+    // Dispatch reaches the yellow routine, but its LDA.L opcode is gone.
+    const rom = new RomFile('d.sfc', Buffer.alloc(0x80000, 0))
+    rom.writeAt(ADDR_EXTENDED_DISPATCH + 5 * 3, [0x83, 0xb5, 0x0d])
+    expect(switchBlockTile(rom, 0, 'yellow')).toEqual({ reason: expect.stringMatching(/not the stock one/) }) // prettier-ignore
+  })
+
   it('a ROM that routes no object to a palace routine names why', () => {
     const t = switchBlockTile(new RomFile('e.sfc', Buffer.alloc(0x80000, 0)), 0, 'yellow')
     expect(t).toEqual({ reason: expect.stringMatching(/yellow/) })
+  })
+})
+
+describe('readNoL1Modes (synthetic)', () => {
+  const romWith = (...sites: number[][]) => {
+    const buf = Buffer.alloc(0x40000, 0)
+    buf[0x7fd5] = 0x20
+    sites.forEach((b, i) => buf.set(b, 0x1000 + i * 0x100))
+    return new RomFile('m.sfc', buf)
+  }
+  it('reads the modes from the CMP operands, not a constant', () => {
+    expect(readNoL1Modes(romWith(noL1Check()))).toEqual({ modes: new Set([0x09, 0x0b, 0x10]) })
+    expect(readNoL1Modes(romWith(noL1Check([0x0a, 0x0c, 0x11])))).toEqual({ modes: new Set([0x0a, 0x0c, 0x11]) }) // prettier-ignore
+  })
+  it.each([
+    ['absent', romWith()],
+    ['twice', romWith(noL1Check(), noL1Check())],
+    ['branches to different places', romWith(noL1Check(undefined, [0x08, 0x05, 0x00]))],
+  ])('refuses when the check is %s', (_, rom) => {
+    expect(readNoL1Modes(rom)).toEqual({ reason: expect.stringMatching(/bank_05.asm:431-437/) })
+  })
+  it('a ROM whose check cannot be read refuses the map', () => {
+    const rom = fakeRom(0)
+    rom.rom.buffer.fill(0, 0x1000, 0x1010)
+    expect(buildL1Inputs(rom, 0x105, UNCLEARED)).toEqual({ ok: false, reason: expect.stringMatching(/431-437/) }) // prettier-ignore
+  })
+})
+
+describe('assembleL1Inputs (synthetic)', () => {
+  // Every palette word distinct, so any swapped argument changes the CGRAM.
+  const palRom = new RomFile('p.sfc', Buffer.alloc(0x40000, 0))
+  for (let a = 0x00b0a0; a < 0x00b700; a += 2) palRom.writeAt(a, [(a * 37) & 0xff, ((a * 37) >> 8) & 0x7f]) // prettier-ignore
+  const header = { ...parseLevelHeader([0, 0, 0, 0, 0]), levelLength: 2, bgPalette: 1, fgPalette: 2, spritePalette: 3, bgColor: 5 } // prettier-ignore
+  const col1 = { bg: 0x1234, obj: 0x0421 }
+  const backAreas: RgbaColor[] = Array.from({ length: 8 }, (_, i) => [i * 30, 7, 7, 255])
+  const slot = (charBase: number) => ({ charBase, tiles: [0, 1, 2, 3].map(() => new Uint8Array(64).fill(1)) }) // prettier-ignore
+  const anim = (charBase: number) => ({
+    frameCount: 1,
+    intervalMs: 100,
+    frames: [[slot(charBase)]],
+  })
+  const readings = (over: Partial<L1Readings> = {}): L1Readings => ({
+    header,
+    isVertical: false,
+    grid: hGrid(3), // wider than the header's 2 screens
+    map16: { tiles: [], pipeVariants: [] },
+    rawVram: {},
+    stockAnim: { ok: true, data: anim(0x10) },
+    unreached: null,
+    exAnim: anim(0x20),
+    custom: null,
+    romPalettes: loadRomPalettes(palRom, 1),
+    backAreas,
+    col1,
+    paletteAnim: { context: 'level', available: true, notes: [], targets: [{ cgramIdx: 0x21, colors: [0x03e0] }] } as unknown as PaletteAnimContext, // prettier-ignore
+    ...over,
+  })
+  const pal = loadRomPalettes(palRom, 1)
+  const withFrame0 = (c: RgbaColor[]) => c.map((v, i) => (i === 0x21 ? bgr555ToRgba(0x03e0) : v))
+
+  it('builds CGRAM from BG, FG and sprite palettes in that order, with the read column 1', () => {
+    const got = assembleL1Inputs(readings()).colors
+    expect(got).toEqual(withFrame0(buildLevelCgram(pal, 1, 2, 3, col1).colors))
+    expect(got).not.toEqual(withFrame0(buildLevelCgram(pal, 2, 1, 3, col1).colors))
+    expect(got).not.toEqual(withFrame0(buildLevelCgram(pal, 1, 2, 3, STOCK_COL1).colors))
+  })
+
+  it('indexes the backdrop by the back-area color, or takes the override block', () => {
+    expect(assembleL1Inputs(readings()).backArea).toEqual(backAreas[5])
+    const custom = { backAreaColor: [9, 8, 7, 255] as RgbaColor, rows: [], colors: COLORS }
+    const r = assembleL1Inputs(readings({ custom }))
+    expect(r.backArea).toEqual([9, 8, 7, 255])
+    expect(r.colors).toEqual(withFrame0(COLORS))
+  })
+
+  it('applies palette frame 0 only when the routine was read, noting it otherwise', () => {
+    expect(assembleL1Inputs(readings()).colors[0x21]).toEqual(bgr555ToRgba(0x03e0))
+    const blind = assembleL1Inputs(readings({ paletteAnim: { context: 'level', available: false, targets: [], notes: ['hooked'] } as unknown as PaletteAnimContext })) // prettier-ignore
+    expect(blind.colors).toEqual(buildLevelCgram(pal, 1, 2, 3, col1).colors)
+    expect(blind.animNote).toMatch(/hooked/)
+  })
+
+  it('merges ExAnimation into the stock frames, and carries a frames error into the note', () => {
+    const r = assembleL1Inputs(readings())
+    expect(r.anim!.frames[0]!.map(s => s.charBase)).toEqual([0x10, 0x20])
+    const noStock = assembleL1Inputs(readings({ stockAnim: { ok: false, reason: 'GFX33 unreadable' }, exAnim: null })) // prettier-ignore
+    expect(noStock.animNote).toMatch(/GFX33 unreadable/)
+  })
+
+  it('counts screens from the header, not the grid', () => {
+    expect(assembleL1Inputs(readings()).screenCount).toBe(2)
   })
 })
 
@@ -281,6 +397,54 @@ describe('palette animation frame 0 (synthetic)', () => {
     const r = applyPaletteFrame0(COLORS, { ...level, available: false, targets: [], notes: ['hooked'] }) // prettier-ignore
     expect(r.colors).toEqual(COLORS)
     expect(r.note).toMatch(/hooked/)
+  })
+})
+
+describe('switch-block tiles from the ROM own dispatch (synthetic)', () => {
+  /**
+   * The four routines at their stock addresses, sharing their bodies as the
+   * ROM does (bank_0D.asm:3736-3748, :4209-4232), with each palace's X and
+   * each state's table distinct: tables hold 4 different low bytes per state.
+   */
+  function palaceRom(): RomFile {
+    const rom = new RomFile('s.sfc', Buffer.alloc(0x80000, 0))
+    const lda = (at: number, table: number) => rom.writeAt(at, [0xbf, table & 0xff, (table >> 8) & 0xff, table >> 16]) // prettier-ignore
+    // Extended objects 5 (yellow) and 6 (green).
+    rom.writeAt(ADDR_EXTENDED_DISPATCH + 5 * 3, [0x83, 0xb5, 0x0d])
+    rom.writeAt(ADDR_EXTENDED_DISPATCH + 6 * 3, [0x8b, 0xb5, 0x0d])
+    rom.writeAt(0x0db58c, [0x00]) // green: LDX #$00
+    rom.writeAt(0x0db584, [0x01]) // yellow: LDX #$01
+    lda(0x0db583 + 20, 0x0e8000) // uncleared table
+    lda(0x0db583 + 30, 0x0e8010) // cleared table
+    rom.writeAt(0x0e8000, [0x40, 0x41])
+    rom.writeAt(0x0e8010, [0x50, 0x51])
+    // Tileset 0's dispatcher at $0E9000; standard objects 7 (blue), 8 (red).
+    rom.writeAt(ADDR_TILESET_DISPATCH, [0x00, 0x90, 0x0e])
+    rom.writeAt(0x0e9000 + 10 + 6 * 3, [0x16, 0xb9, 0x0d])
+    rom.writeAt(0x0e9000 + 10 + 7 * 3, [0x1e, 0xb9, 0x0d])
+    rom.writeAt(0x0db917, [0x00]) // blue: LDX #$00
+    rom.writeAt(0x0db91f, [0x01]) // red: LDX #$01
+    lda(0x0db916 + 36, 0x0e8020)
+    lda(0x0db916 + 50, 0x0e8030)
+    rom.writeAt(0x0e8020, [0x60, 0x61])
+    rom.writeAt(0x0e8030, [0x70, 0x71])
+    return rom
+  }
+
+  it('finds the objects the tables route to each routine, by their own numbers', () => {
+    const rom = palaceRom()
+    expect(objectsDispatchedTo(rom, 0, handle_0DB583)).toEqual([{ type: 'extended', objectNumber: 5 }]) // prettier-ignore
+    expect(objectsDispatchedTo(rom, 0, handle_0DB916)).toEqual([{ type: 'standard', objectNumber: 7 }]) // prettier-ignore
+  })
+
+  it('reads each palace its own tile, page 0 uncleared and page 1 cleared', () => {
+    const rom = palaceRom()
+    expect(PALACES.map(p => switchBlockTile(rom, 0, p))).toEqual([
+      { uncleared: 0x041, cleared: 0x151 }, // yellow
+      { uncleared: 0x040, cleared: 0x150 }, // green
+      { uncleared: 0x061, cleared: 0x171 }, // red
+      { uncleared: 0x060, cleared: 0x170 }, // blue
+    ])
   })
 })
 
