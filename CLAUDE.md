@@ -147,6 +147,13 @@ rather than the runtime. `node/` is the only side allowed to touch the ROM.
 Details, including the two distinct change-notification paths, in
 [docs/architecture/theia-shell.md](docs/architecture/theia-shell.md).
 
+An on-screen zoom control uses `ZoomController` + `ZoomStepper`
+(`theia/extension/src/browser/zoom-controller.ts`, `zoom-stepper.tsx`), so
+Ctrl + wheel drives it, anchored on the cursor. Nothing else responds to
+Ctrl + wheel: a `FrontendApplicationContribution`
+(`ctrl-wheel-guard-contribution.ts`) preventDefault's it everywhere else so
+the shell never falls back to Chromium's own page zoom (#651).
+
 ### Reference only: the VS Code extension
 
 `src/providers/`, `src/webview/`, `src/extension.ts` and its `src/`-root
