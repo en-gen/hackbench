@@ -206,7 +206,7 @@ test('at open, the map fills the view and visible terrain is drawn', async ({ pa
   expect(view.distinct).toBeGreaterThan(4)
   // Per screen, not in total: the total passed while screen 0 was blank,
   // because screen 1's terrain was in view too.
-  expectEveryVisibleScreenDrawn(view)
+  await expectEveryVisibleScreenDrawn(page, 0x105)
 })
 
 /**
@@ -214,7 +214,14 @@ test('at open, the map fills the view and visible terrain is drawn', async ({ pa
  * (a blank canvas is transparent and shows the theme instead), and it holds
  * more than one color.
  */
-function expectEveryVisibleScreenDrawn(view) {
+async function expectEveryVisibleScreenDrawn(page, index) {
+  // Screens past the first arrive after the strip is laid out: wait for them.
+  await expect
+    .poll(async () => (await readViewport(page, index)).screens.every(s => s.drawn !== null), {
+      timeout: 15000,
+    }) // prettier-ignore
+    .toBe(true)
+  const view = await readViewport(page, index)
   expect(view.screens.length).toBeGreaterThan(0)
   for (const s of view.screens) {
     expect(s.drawn, `screen ${s.screen} painted`).not.toBeNull()
@@ -243,7 +250,7 @@ for (const index of [0x009, 0x013, 0x105, 0x106, 0x12c, 0x109]) {
       expect(px.rgba.filter((v, i) => i % 4 === 3 && v !== 255), `screen ${screen} transparent`).toHaveLength(0) // prettier-ignore
       expect(px.distinct, `screen ${screen} colors`).toBeGreaterThan(1)
     }
-    expectEveryVisibleScreenDrawn(await readViewport(page, index))
+    await expectEveryVisibleScreenDrawn(page, index)
   })
 }
 
@@ -269,7 +276,7 @@ test('a reused tab paints screen 0 of the next map', async ({ page }) => {
   const px = await readScreen(page, 0x106, 0)
   expect(px.rgba.filter((v, i) => i % 4 === 3 && v !== 255)).toHaveLength(0)
   expect(px.distinct).toBeGreaterThan(1)
-  expectEveryVisibleScreenDrawn(await readViewport(page, 0x106))
+  await expectEveryVisibleScreenDrawn(page, 0x106)
 })
 
 /** A reused tab starts the next map at its first screen, not where the last one was scrolled. */
@@ -291,12 +298,20 @@ test('a reused tab resets the scroll for the next map', async ({ page }) => {
     { timeout: 15000 },
   )
   expect(await scroller(0x106).evaluate(el => [el.scrollLeft, el.scrollTop])).toEqual([0, 0])
-  expectEveryVisibleScreenDrawn(await readViewport(page, 0x106))
+  await expectEveryVisibleScreenDrawn(page, 0x106)
 })
 
-/** The pixels actually on screen inside `locator`, read from a screenshot. */
+/**
+ * The pixels actually on screen inside `locator`'s content box, read from a
+ * screenshot: its scrollbar track and border are the theme's, not the map's,
+ * so they are left out (inset 1px for the widget's focus outline).
+ */
 async function shownPixels(page, locator) {
-  const png = (await locator.screenshot()).toString('base64')
+  const box = await locator.evaluate(el => {
+    const r = el.getBoundingClientRect()
+    return { x: r.left + el.clientLeft + 1, y: r.top + el.clientTop + 1, width: el.clientWidth - 2, height: el.clientHeight - 2 } // prettier-ignore
+  })
+  const png = (await page.screenshot({ clip: box })).toString('base64')
   return page.evaluate(async b64 => {
     const img = new Image()
     img.src = `data:image/png;base64,${b64}`
@@ -412,6 +427,42 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   await l1.click()
   await expect(l1).toHaveAttribute('aria-pressed', 'true')
   expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
+})
+
+/**
+ * The rule both ways (#621): $12C's $094 cells are drawn with ON/OFF off and
+ * blank with it on, so on they show their off picture at 25% over the
+ * backdrop. Measured on vanilla: 38 such cells; the one at column 85, row 5
+ * (screen 5, local column 5) changes 16 pixels, each within 64 of the
+ * backdrop.
+ */
+test('a tile ON/OFF blanks shows faintly on $12C with ON/OFF on', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x12c)
+  await showScreen(page, 0x12c, 5)
+  const cell = async () => {
+    const px = await readScreen(page, 0x12c, 5)
+    const out = []
+    for (let y = 5 * 16; y < 6 * 16; y++)
+      for (let x = 5 * 16; x < 6 * 16; x++) out.push(px.rgba.slice((y * 256 + x) * 4, (y * 256 + x) * 4 + 4).join(',')) // prettier-ignore
+    return out
+  }
+  const off = await cell()
+  await page.locator(`${root(0x12c)} [data-control="switch-onOff"]`).click()
+  await expect(page.locator(`${root(0x12c)} canvas[data-screen="5"]`)).toHaveAttribute('data-drawn', /^\d+:0000:001:5$/) // prettier-ignore
+  const on = await cell()
+  expect(on).not.toEqual(off)
+  const count = p => on.filter(q => q === p).length
+  const backdrop = [...on]
+    .sort((a, b) => count(b) - count(a))[0]
+    .split(',')
+    .map(Number)
+  expect(new Set(on).size).toBeGreaterThan(1) // not simply gone
+  for (const p of on) {
+    const v = p.split(',').map(Number)
+    expect(v[3]).toBe(255)
+    for (let c = 0; c < 3; c++) expect(Math.abs(v[c] - backdrop[c])).toBeLessThanOrEqual(64)
+  }
 })
 
 test('opening a map draws real pixels, and two maps differ', async ({ page }) => {

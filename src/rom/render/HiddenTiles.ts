@@ -1,8 +1,8 @@
 /**
- * How a hidden tile (blank until a switch is on, #621) is drawn: its
- * switched-on art at HIDDEN_TILE_OPACITY, in color, only in the pixels its own
- * picture leaves transparent. One rule for the Map16 sheet, its inspector and
- * the map tab. No imports, so the browser can use it too.
+ * How a tile blank in the switch state shown is drawn (#621): its picture
+ * from another state at HIDDEN_TILE_OPACITY, in color, only in the pixels
+ * left transparent. One rule for the Map16 sheet, its inspector and the map
+ * tab. No imports, so the browser can use it too.
  */
 export const HIDDEN_TILE_OPACITY = 0.25
 
@@ -25,9 +25,30 @@ export function overlayHidden(
     }
 }
 
-/** What a hidden tile shows with no switch on: its first single-switch alternate that is hidden. */
-export function firstHiddenSingle<T extends { kinds: readonly unknown[]; hidden: boolean }>(
-  alternates: readonly T[] | undefined,
-): T | undefined {
-  return alternates?.find(a => a.kinds.length === 1 && a.hidden)
+const isBlank = (rgba: Uint8ClampedArray) => {
+  for (let i = 3; i < rgba.length; i += 4) if (rgba[i] !== 0) return false
+  return true
+}
+
+/**
+ * What a cell blank in the switch state shown draws faintly (#621, both
+ * ways): a tile a switch reveals, or one a switch blanks, is never simply
+ * gone. The switches-off picture if it is drawn, else the first
+ * single-switch alternate that is; undefined when the cell is drawn, or
+ * blank in every state.
+ */
+export function ghostOf<T extends { kinds: readonly unknown[] }>(
+  shown: Uint8ClampedArray,
+  off: Uint8ClampedArray,
+  alternates: readonly T[],
+  rgbaOf: (alternate: T) => Uint8ClampedArray,
+): Uint8ClampedArray | undefined {
+  if (!isBlank(shown)) return undefined
+  if (!isBlank(off)) return off
+  for (const a of alternates) {
+    if (a.kinds.length !== 1) continue
+    const rgba = rgbaOf(a)
+    if (!isBlank(rgba)) return rgba
+  }
+  return undefined
 }

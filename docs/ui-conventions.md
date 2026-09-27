@@ -137,13 +137,15 @@ border box and take no layout space.
   top at paint time and never baked into the decoded pixels. Toggling one
   is a repaint, not a reload, and the bytes an export would use stay
   exactly what the ROM says.
-- A hidden tile (blank until a switch is on, e.g. vanilla `$027-$02A`) is
-  drawn with its switched-on art at 25% opacity, in color, never blank
-  (`HIDDEN_TILE_OPACITY` in `src/rom/render/HiddenTiles.ts`, one value and
-  one rule for every surface): in the inspector preview while its toggle is
-  off, in the Map16 sheet always, and on the map tab while its switch is
-  off, over the level's backdrop (with the switch on, its switched chars
-  draw it in full), frame 0 held through animation (#574, #621). The map
+- A tile blank in the switch state shown, but drawn in another, is never
+  simply gone: it shows that other picture at 25% opacity, in color
+  (`ghostOf` and `HIDDEN_TILE_OPACITY` in `src/rom/render/HiddenTiles.ts`,
+  one rule for the Map16 sheet, the inspector preview and the map tab, over
+  the level's backdrop there). The other picture is the switches-off one if
+  it is drawn, else the first single switch's that is. So a tile a switch
+  reveals (vanilla `$027-$02A`, blue) shows faintly with the switch off,
+  and one a switch blanks (vanilla `$094`, ON/OFF, in tilesets 2, 6 and 8)
+  shows faintly with it on; frame 0 is held through animation (#574, #621). The map
   tab draws each cell with the sheet's own renderer (`renderCell`), so the
   two cannot disagree. This is an editor deviation: the ROM shows nothing
   there. It is derived from the tile's `hidden` alternate, never a tile-id

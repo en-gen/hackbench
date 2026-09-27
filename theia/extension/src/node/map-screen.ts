@@ -26,6 +26,7 @@ import {
 import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
 import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
 import { renderCell } from '../../../../src/rom/render/CellRenderer'
+import { ghostOf, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
 import type {
   MapScreenResult,
   PalaceIconsResult,
@@ -84,9 +85,10 @@ export function drawL1Screen(
       const id = model.grid[y0 + y]?.[x0 + x]
       const def = id === undefined ? undefined : cellDef(model, id, screen)
       if (!def) continue
-      const hidden = model.hidden.get(def.id)
-      const overlay = hidden && !hidden.kinds.some(k => on.has(k)) ? hidden.rgba : undefined
-      const cell = renderCell(def, vram, palette, overlay)
+      const cell = renderCell(def, vram, palette)
+      const art = model.switchArt.get(def.id)
+      const ghost = art && ghostOf(cell, art.off, art.alts, x => x.rgba)
+      if (ghost) overlayHidden(cell, 16, 0, 0, ghost)
       for (let py = 0; py < 16; py++)
         for (let px = 0; px < 16; px++) {
           const s = (py * 16 + px) * 4

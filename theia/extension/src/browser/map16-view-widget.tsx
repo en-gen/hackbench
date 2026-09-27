@@ -779,14 +779,9 @@ export class Map16ViewWidget extends ReactWidget {
     tileY: number,
   ): void {
     if (!this.previewCanvasEl) return
-    const shown = previewAlternate(tile.alternates, this.activeSwitches)
-    if (shown)
-      paintTilePreview(this.previewCanvasEl, this.decoded(shown.alt.altRgbaBase64), shown.opacity)
-    else
-      paintTilePreview(
-        this.previewCanvasEl,
-        cropRegion(pixels, atlasWidth, tileX, tileY, TILE_PX, TILE_PX),
-      )
+    const own = cropRegion(pixels, atlasWidth, tileX, tileY, TILE_PX, TILE_PX)
+    const shown = previewAlternate(tile.alternates, this.activeSwitches, own, b => this.decoded(b))
+    paintTilePreview(this.previewCanvasEl, shown.pixels, shown.opacity)
   }
 
   protected paintDetail(): void {
