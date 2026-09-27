@@ -38,8 +38,7 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
-import { Disposable } from '@theia/core/lib/common'
-import { ZoomController } from './zoom-controller'
+import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
 import {
   BG_VARIANT_COLOR_ROWS,
@@ -168,11 +167,9 @@ export class Map16ViewWidget extends ReactWidget {
   /** Which palette sections are expanded. All four are always listed. */
   protected expandedSheets = new Set<Map16CharSlot>()
   protected canvasEl: HTMLCanvasElement | null = null
-  /** 1x-4x, driven by the toolbar stepper and by Ctrl + wheel over the
-   * browser strip (#651) - see `bindCanvasWrap` and `applyPendingZoomAnchor`. */
   protected readonly zoomController = new ZoomController(ZOOM_OPTIONS, DEFAULT_ZOOM)
   protected canvasWrapEl: HTMLElement | null = null
-  protected wheelDisposable: Disposable | undefined
+  protected wheelBinding: WheelBinding | undefined
   protected browserOpen = true
   /**
    * One optimistic value per in-flight field edit, keyed by
@@ -224,28 +221,15 @@ export class Map16ViewWidget extends ReactWidget {
     )
     this.toDispose.push({ dispose: () => this.stopAnimation() })
     this.toDispose.push(this.zoomController.onDidChange(() => this.update()))
-    this.toDispose.push(Disposable.create(() => this.wheelDisposable?.dispose()))
+    this.toDispose.push(this.zoomController)
   }
 
   /** Stable ref identity, so React binds the wheel listener once per DOM
-   * node rather than on every render - see `ZoomController.bindWheel`'s own
-   * doc comment on why Ctrl + wheel needs `{ passive: false }`. */
+   * node instead of on every render. */
   protected readonly bindCanvasWrap = (el: HTMLDivElement | null): void => {
-    this.wheelDisposable?.dispose()
-    this.wheelDisposable = undefined
+    this.wheelBinding?.dispose()
     this.canvasWrapEl = el
-    if (el) this.wheelDisposable = this.zoomController.bindWheel(el)
-  }
-
-  /** Keeps the content pixel under the cursor fixed across a wheel-driven
-   * zoom step. A no-op unless the last zoom change came from `bindWheel`. */
-  protected applyPendingZoomAnchor(): void {
-    if (!this.canvasWrapEl) return
-    const anchor = this.zoomController.takePendingAnchor(this.canvasWrapEl)
-    if (!anchor) return
-    const zoom = this.zoomController.value
-    this.canvasWrapEl.scrollLeft = anchor.contentX * zoom - anchor.offsetX
-    this.canvasWrapEl.scrollTop = anchor.contentY * zoom - anchor.offsetY
+    this.wheelBinding = el ? this.zoomController.bindWheel(el, () => this.canvasEl) : undefined
   }
 
   protected layer(): Map16Layer {
@@ -681,7 +665,14 @@ export class Map16ViewWidget extends ReactWidget {
   /** The tile browser strip: every tile the cartridge holds, paged. */
   protected paintCanvas(): void {
     const sheet = this.sheet()
-    if (!this.canvasEl || !sheet) return
+    if (!this.canvasEl || !sheet) {
+      // Nothing to resize this call, so any anchor waiting on a resize that
+      // is not happening would otherwise sit pending and misapply against a
+      // later, unrelated canvas - see restoreAnchor's own staleness check,
+      // which this sidesteps entirely by discarding it now.
+      this.wheelBinding?.restoreAnchor()
+      return
+    }
     const pageHeight = (TILES_PER_PAGE / sheet.tilesPerRow) * TILE_PX
     const pages = Math.ceil(sheet.tiles.length / TILES_PER_PAGE)
     const gapTotal = (pages - 1) * PAGE_GAP_PX
@@ -690,7 +681,7 @@ export class Map16ViewWidget extends ReactWidget {
     this.canvasEl.height = sheet.height + gapTotal
     this.canvasEl.style.width = `${sheet.width * zoom}px`
     this.canvasEl.style.height = `${(sheet.height + gapTotal) * zoom}px`
-    this.applyPendingZoomAnchor()
+    this.wheelBinding?.restoreAnchor()
     const ctx = this.canvasEl.getContext('2d')
     if (!ctx) return
     const pixels = this.browsedSheet.pixels(sheet, this.activeBase64(sheet), b => this.decoded(b))
@@ -933,14 +924,14 @@ export class Map16ViewWidget extends ReactWidget {
               ))}
             </select>
           </label>
-          <span className="hb-map16-toolbar-spacer" />
+          <span className="hb-toolbar-spacer" />
           <div className="hb-map16-toolbar-actions">
             <ZoomStepper controller={this.zoomController} />
             <span className="hb-map16-toolbar-sep" />
             <button
               data-control="grid-toggle"
               type="button"
-              className={'hb-map16-icon-btn' + (this.showGrid ? ' hb-map16-icon-btn-on' : '')}
+              className={'hb-icon-btn' + (this.showGrid ? ' hb-map16-icon-btn-on' : '')}
               aria-pressed={this.showGrid}
               title={this.showGrid ? 'Hide grid' : 'Show grid'}
               aria-label={this.showGrid ? 'Hide grid' : 'Show grid'}
@@ -951,7 +942,7 @@ export class Map16ViewWidget extends ReactWidget {
             <button
               data-control="play-toggle"
               type="button"
-              className={'hb-map16-icon-btn' + (this.playing ? ' hb-map16-icon-btn-on' : '')}
+              className={'hb-icon-btn' + (this.playing ? ' hb-map16-icon-btn-on' : '')}
               disabled={!sheet.charAnimation}
               aria-pressed={this.playing}
               title={
