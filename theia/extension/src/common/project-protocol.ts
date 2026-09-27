@@ -60,7 +60,7 @@ export interface MapNodeDto {
 
 /** A map the game enters without the overworld, named by what it is for. */
 export interface SpecialMapNodeDto extends MapNodeDto {
-  role: 'title-screen' | 'new-game' | 'bonus-game' | 'yoshi-wings'
+  role: 'title-screen' | 'new-game'
   /** The SNES address the slot was read from, for a citation the user can check. */
   foundAt: string
 }
@@ -73,9 +73,8 @@ export interface MapTreeCountsDto {
 
 export interface MapTreeDto {
   /**
-   * The title screen, the new-game intro, the bonus game room and the Yoshi
-   * wings sub areas, in the order a player meets them. Any may be absent
-   * when the code that loads it has been replaced.
+   * The title screen and the new-game intro, in the order a player meets
+   * them. Either may be absent when the code that loads it has been replaced.
    */
   special: SpecialMapNodeDto[]
   overworld: MapNodeDto[]
@@ -97,6 +96,8 @@ export interface MapGroupDto {
  */
 export interface GroupedMapNodeDto extends MapNodeDto {
   orphan: boolean
+  /** Set on a map entered after a level (Bonus Games, Yoshi Heaven): reached, but not an entry map. */
+  role?: 'bonus-game' | 'yoshi-heaven'
 }
 
 /**
