@@ -23,6 +23,46 @@ This affects how the test suite is organized:
 Do not submit PRs that add ROM data, decompressed game resources, or
 fixtures derived from the ROM. These will be rejected.
 
+## The content gate
+
+`tools/scripts/check-staged-content.sh` (issue #678) enforces the rule above
+mechanically, since the repo is public and a push is publication:
+
+- Any binary file is blocked outright unless it sits under `build/icons/` or
+  `theia/no-native/`. A fixed extension list (`.ppm`, `.png`, `.bin`, `.chr`,
+  `.raw`, `.dmp`, and more - a decoded ROM sheet often lands as one of
+  these) is blocked the same way even when git reads the file as text, since
+  an ASCII (P3) `.ppm` is still a decoded GFX sheet.
+- `.asm` is blocked outright: disassembly excerpts belong in SMWDisX, never
+  copied into this repo.
+- Text content is sniffed for a base64 blob over ~300 characters, a
+  `data:image/...;base64,` URI carrying a real payload, and a hex/byte-array
+  literal over 256 bytes.
+
+It runs in three modes, sharing the same rule functions:
+
+- `staged` - the pre-commit hook (`.githooks/pre-commit`).
+- `range BASE HEAD` - CI, and `.githooks/pre-push` (which computes the
+  range per pushed ref, including new branches).
+- `history` - every blob reachable from every ref
+  (`git rev-list --objects --all`), whole file content rather than just
+  added lines. This is the oracle for the repo migration: content that was
+  added and later deleted still reached GitHub's history (and its
+  `refs/pull/*` copies) the moment it was first pushed, so it still has to
+  be reported. Output is one machine-readable line per offender:
+  `BLOCKED (<rule>): <path> (first added in <sha>)`. CI runs this against
+  full history once the repo goes public (`.github/workflows/ci.yml`);
+  it is skipped while private because the pre-migration history still
+  holds known offenders that get purged at migration, not fixed in CI.
+
+`npm install` sets `core.hooksPath` to `.githooks` automatically
+(`tools/scripts/set-hooks-path.sh`, run via the `prepare` lifecycle script),
+so both hooks are wired up without a manual `git config` step. The
+pre-commit hook can still be bypassed with `git commit --no-verify`; the
+pre-push hook then catches it anyway, as long as the push itself does not
+also pass `--no-verify` (which skips every hook - nothing at the hook level
+can stop that).
+
 ## Where the corpus lives
 
 The ROM corpus is **outside the repo**, beside the clone:
