@@ -13,7 +13,9 @@ import {
   Map16SheetDto,
   Map16SwitchKind,
   Map16TileAlternateDto,
+  Map16TileDto,
 } from '../common/map16-protocol'
+import { TILE_PX } from './map16-pixels'
 
 /** Which sheet an edit is written against: the tile table, the graphics and
  * the colors it resolves. */
@@ -161,9 +163,14 @@ export function activeFor(
   return toggleKinds(alternates).filter(k => active.has(k))
 }
 
+/** How strongly a hidden tile's switched-on art is drawn, in color, in both the
+ * inspector preview and the sheet (#621, owner's choice): one value, so they cannot drift. */
+export const HIDDEN_TILE_OPACITY = 0.25
+
 /**
  * What the preview draws (#574): the alternate matching the tile's own active
- * switches at full strength, else a hidden tile's first single at half, else
+ * switches at full strength, else a hidden tile's first single at
+ * HIDDEN_TILE_OPACITY, else
  * undefined for the tile's own picture.
  */
 export function previewAlternate(
@@ -174,5 +181,69 @@ export function previewAlternate(
   const match = key ? alternates?.find(a => a.kinds.join('+') === key) : undefined
   if (match) return { alt: match, opacity: 1 }
   const hidden = alternates?.find(a => a.kinds.length === 1 && a.hidden)
-  return hidden && { alt: hidden, opacity: 0.5 }
+  return hidden && { alt: hidden, opacity: HIDDEN_TILE_OPACITY }
+}
+
+const NO_SWITCHES: ReadonlySet<Map16SwitchKind> = new Set()
+
+type BrowsedSheet = Pick<Map16SheetDto, 'width' | 'tilesPerRow'> & {
+  tiles: readonly Pick<Map16TileDto, 'id' | 'alternates'>[]
+}
+
+/**
+ * The sheet as browsed (#621): every hidden tile's switched-on art at the
+ * preview's own HIDDEN_TILE_OPACITY, in the pixels its cell leaves blank. The same
+ * `previewAlternate` the inspector uses with no switch on, so the two never
+ * disagree. Returns a copy; the decoded phase other surfaces crop is never written.
+ */
+export function withHiddenTiles(
+  atlas: Uint8ClampedArray,
+  sheet: BrowsedSheet,
+  decode: (base64: string) => Uint8ClampedArray,
+): Uint8ClampedArray {
+  let out: Uint8ClampedArray | undefined
+  for (const tile of sheet.tiles) {
+    const shown = previewAlternate(tile.alternates, NO_SWITCHES)
+    if (!shown) continue
+    const alt = decode(shown.alt.altRgbaBase64)
+    out ??= atlas.slice()
+    const x0 = (tile.id % sheet.tilesPerRow) * TILE_PX
+    const y0 = Math.floor(tile.id / sheet.tilesPerRow) * TILE_PX
+    for (let y = 0; y < TILE_PX; y++)
+      for (let x = 0; x < TILE_PX; x++) {
+        const s = (y * TILE_PX + x) * 4
+        const d = ((y0 + y) * sheet.width + x0 + x) * 4
+        if (out[d + 3] !== 0 || alt[s + 3] === 0) continue
+        out.set(alt.subarray(s, s + 3), d)
+        out[d + 3] = Math.round(alt[s + 3]! * shown.opacity)
+      }
+  }
+  return out ?? atlas
+}
+
+/**
+ * Each phase's browsed pixels, cached by the phase's base64. That key alone would
+ * go stale: a reload can change `alternates` while the still atlas stays
+ * byte-identical, so a new sheet DTO (every reload makes one) starts afresh.
+ */
+export class BrowsedSheetCache {
+  private sheet: BrowsedSheet | undefined
+  private readonly phases = new Map<string, Uint8ClampedArray>()
+
+  pixels(
+    sheet: BrowsedSheet,
+    base64: string,
+    decode: (base64: string) => Uint8ClampedArray,
+  ): Uint8ClampedArray {
+    if (sheet !== this.sheet) {
+      this.phases.clear()
+      this.sheet = sheet
+    }
+    let buf = this.phases.get(base64)
+    if (!buf) {
+      buf = withHiddenTiles(decode(base64), sheet, decode)
+      this.phases.set(base64, buf)
+    }
+    return buf
+  }
 }

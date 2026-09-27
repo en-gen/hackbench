@@ -75,6 +75,7 @@ import {
   renderTilePreview,
 } from './map16-tile-editor'
 import {
+  BrowsedSheetCache,
   editAxisFor,
   map16WidgetId,
   previewAlternate,
@@ -199,6 +200,8 @@ export class Map16ViewWidget extends ReactWidget {
    * once and every surface shares it.
    */
   protected readonly decodedCache = new Map<string, Uint8ClampedArray>()
+  /** The sheet pixels as browsed, hidden tiles drawn in; resets itself per sheet. */
+  protected readonly browsedSheet = new BrowsedSheetCache()
 
   @postConstruct()
   protected init(): void {
@@ -668,7 +671,7 @@ export class Map16ViewWidget extends ReactWidget {
     this.canvasEl.style.height = `${(sheet.height + gapTotal) * this.zoom}px`
     const ctx = this.canvasEl.getContext('2d')
     if (!ctx) return
-    const pixels = this.decoded(this.activeBase64(sheet))
+    const pixels = this.browsedSheet.pixels(sheet, this.activeBase64(sheet), b => this.decoded(b))
 
     // Each page is blitted separately so a blank band sits between them.
     // An offscreen canvas holds the decoded sheet because putImageData
@@ -770,7 +773,7 @@ export class Map16ViewWidget extends ReactWidget {
 
   /**
    * The preview canvas (#574): the alternate matching the active switch set
-   * wins; else a hidden tile's first single alternate at half opacity, rather
+   * wins; else a hidden tile's first single alternate at HIDDEN_TILE_OPACITY, rather
    * than a blank preview; else the tile's own picture.
    */
   protected paintTilePreviewCanvas(

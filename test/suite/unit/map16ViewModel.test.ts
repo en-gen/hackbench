@@ -17,6 +17,9 @@ import {
   SWITCH_ORDER,
   activeFor,
   previewAlternate,
+  withHiddenTiles,
+  BrowsedSheetCache,
+  HIDDEN_TILE_OPACITY,
 } from '../../../theia/extension/src/browser/map16-view-model'
 import {
   compositeIndices,
@@ -269,12 +272,79 @@ describe('previewAlternate', () => {
     expect(previewAlternate(alternates, active)).toEqual({ alt: alternates[0], opacity: 1 })
   })
 
-  it('matches a combo by set, and falls back to a hidden single at half strength', () => {
+  it('matches a combo by set, and falls back to a hidden single at HIDDEN_TILE_OPACITY', () => {
     const alternates = [alt(['blue'], true), alt(['silver']), alt(['blue', 'silver'])]
     expect(previewAlternate(alternates, new Set(['silver', 'blue'] as const))?.alt).toBe(
       alternates[2],
     )
-    expect(previewAlternate(alternates, new Set())).toEqual({ alt: alternates[0], opacity: 0.5 })
+    expect(previewAlternate(alternates, new Set())).toEqual({ alt: alternates[0], opacity: 0.25 })
     expect(previewAlternate([alt(['silver'])], new Set())).toBeUndefined()
+  })
+})
+
+describe('withHiddenTiles', () => {
+  // 2 tiles a row, 2 rows. Tile 3 (row 2, column 2) is hidden; tile 2 beside it is blank
+  // and not hidden. The switched-on art is one opaque pixel at (3, 1), so a transposed,
+  // mis-rowed or channel-dropping copy lands somewhere else or in another color.
+  const TPR = 2
+  const width = TPR * 16
+  const art = new Uint8ClampedArray(16 * 16 * 4)
+  art.set([10, 20, 30, 255], (1 * 16 + 3) * 4)
+  const alt = (hidden: boolean) => [{ kinds: ['blue' as const], altRgbaBase64: 'art', hidden }]
+  const sheetOf = (hidden: boolean) => ({
+    width,
+    tilesPerRow: TPR,
+    tiles: [2, 3].map(id => ({ id, alternates: alt(hidden && id === 3) })),
+  })
+  const at = (px: Uint8ClampedArray, x: number, y: number): number[] => [
+    ...px.subarray((y * width + x) * 4, (y * width + x) * 4 + 4),
+  ]
+  const drawn = (px: Uint8ClampedArray): number =>
+    px.filter((v, i) => i % 4 === 3 && v !== 0).length
+
+  it("draws a hidden tile's switched-on art at 25% alpha, exactly in place, and nothing else", () => {
+    const atlas = new Uint8ClampedArray(width * 32 * 4)
+    const out = withHiddenTiles(atlas, sheetOf(true), () => art)
+    expect(at(out, 16 + 3, 16 + 1)).toEqual([10, 20, 30, 64])
+    expect(drawn(out)).toBe(1)
+    expect(drawn(atlas)).toBe(0) // the decoded phase itself is never written
+  })
+
+  it('never covers a pixel an animation frame draws', () => {
+    const atlas = new Uint8ClampedArray(width * 32 * 4)
+    atlas.set([1, 2, 3, 255], ((16 + 1) * width + 16 + 3) * 4)
+    const out = withHiddenTiles(atlas, sheetOf(true), () => art)
+    expect(at(out, 16 + 3, 16 + 1)).toEqual([1, 2, 3, 255])
+  })
+})
+
+describe('BrowsedSheetCache', () => {
+  const TPR = 2
+  const width = TPR * 16
+  const art = new Uint8ClampedArray(16 * 16 * 4).fill(255)
+  const sheetOf = (hidden: boolean) => ({
+    width,
+    tilesPerRow: TPR,
+    tiles: [{ id: 0, alternates: [{ kinds: ['blue' as const], altRgbaBase64: 'art', hidden }] }],
+  })
+  const decode = (b: string) => (b === 'art' ? art : new Uint8ClampedArray(width * 16 * 4))
+
+  it('shows the NEW overlay after a reload whose still atlas is byte-identical', () => {
+    const cache = new BrowsedSheetCache()
+    expect(cache.pixels(sheetOf(false), 'atlas', decode)[3]).toBe(0)
+    // Same phase bytes, but the reload now marks tile 0 hidden.
+    expect(cache.pixels(sheetOf(true), 'atlas', decode)[3]).toBe(64)
+  })
+
+  it('reuses a phase within one sheet', () => {
+    const cache = new BrowsedSheetCache()
+    const sheet = sheetOf(true)
+    expect(cache.pixels(sheet, 'atlas', decode)).toBe(cache.pixels(sheet, 'atlas', decode))
+  })
+})
+
+describe('HIDDEN_TILE_OPACITY', () => {
+  it('is 25%, the owner-chosen strength for hidden tiles in the sheet and the preview', () => {
+    expect(HIDDEN_TILE_OPACITY).toBe(0.25)
   })
 })

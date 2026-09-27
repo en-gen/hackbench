@@ -137,6 +137,17 @@ border box and take no layout space.
   top at paint time and never baked into the decoded pixels. Toggling one
   is a repaint, not a reload, and the bytes an export would use stay
   exactly what the ROM says.
+- A hidden tile (blank until a switch is on, e.g. vanilla `$027-$02A`) is
+  drawn with its switched-on art at 25% opacity, in color, never blank
+  (`HIDDEN_TILE_OPACITY`, one value for both surfaces): in the
+  inspector preview while its toggle is off, and in the Map16 sheet always,
+  frame 0 held through animation (#574, #621). This is an editor deviation:
+  the ROM shows nothing there. It is derived from the tile's `hidden`
+  alternate, never a tile-id list, and a toggle in the inspector never
+  changes the sheet. Unlike the overlays above, the sheet's copy is baked
+  into a cached copy of each decoded phase while painting is prepared
+  (`BrowsedSheetCache`), not stroked on top: that keeps it a pure function
+  with a unit test, and the decoded phase other surfaces crop is untouched.
 
 ## Hover
 
