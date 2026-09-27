@@ -63,6 +63,7 @@ describe.skipIf(!hasRom(VANILLA))('launch tile count, direct scan', () => {
     expect(readWarpTiles(rom.rom)).toEqual({
       starWarpTile: STAR_WARP_TILE,
       pipeWarpTile: PIPE_WARP_TILE,
+      enterUnverified: null,
     })
   })
 })

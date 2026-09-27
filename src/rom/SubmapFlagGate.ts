@@ -12,8 +12,9 @@
  * literally.
  */
 import type { RomFile } from './RomFile'
-import { WILD } from './BytePattern'
+import { WILD, matchesBytes, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
+import { hex6 } from './hex'
 
 export interface StockCode {
   addr: number
@@ -116,40 +117,105 @@ export function readSubmapHigh(rom: RomFile, at: number): number | string {
   )
 }
 
-/** CODE_05D8A2's own operands: translevels at or above `threshold` are
- *  biased by `bias`, and a submap tile's slot carries `submapHigh` in its
- *  high byte (bank_05.asm:7217-7226). */
+const ENTRY_PATH = OVERWORLD_ENTRY.slice(0, -1)
+const ENTRY_SITE = OVERWORLD_ENTRY[OVERWORLD_ENTRY.length - 1] as StockCode
+/** The stock site's `LDA OWPlayerSubmap,Y` ends here; the hook's JSL follows. */
+const SITE_KEPT = 15
+
+/** CODE_05D8A2 as Lunar Magic leaves it: a JSL, followed, in place of `BEQ + /
+ *  LDA #submapHigh`, returning to the stock `STA _F`. */
+export const LM_ENTRY_SITE: StockCode = {
+  addr: ENTRY_SITE.addr,
+  bytes: [...ENTRY_SITE.bytes.slice(0, SITE_KEPT), 0x22, WILD, WILD, WILD, 0x85, 0x0f],
+  what: "CODE_05D8A2 with Lunar Magic's high-byte JSL",
+  cite: ENTRY_SITE.cite,
+}
+
+/** The JSL's routine. Off the override path it recomputes the level number
+ *  from TranslevelNo and takes the high byte from the translevel, not the submap. */
+// prettier-ignore
+export const LM_ENTRY_HOOK: BytePattern = [
+  0xa8,             // TAY
+  0xad, 0x09, 0x01, // LDA OverworldOverride
+  0xf0, 0x06,       // BEQ tile
+  0x98,             // TYA: an override keeps the submap high byte
+  0xf0, 0x02,       // BEQ +
+  0xa9, 0x01,       // LDA #$01
+  0x6b,             // + RTL
+  0xa8,             // tile: TAY, so Y is 0
+  0xad, 0xbf, 0x13, // LDA TranslevelNo
+  0xc9, WILD,       // CMP #threshold
+  0x90, 0x03,       // BCC +
+  0xe9, WILD,       // SBC #bias
+  0xc8,             // INY: high byte 1
+  0x8d, 0xbb, 0x17, // + STA LoadingLevelNumber
+  0x85, 0x0e,       // STA _E
+  0x98,             // TYA
+  0x6b,             // RTL
+]
+
+/** The routine's own threshold and bias, or why the site is not the hook. */
+function lmEntryHook(rom: RomFile): { threshold: number; bias: number } | string {
+  const site = stockCodeMismatch(rom, [LM_ENTRY_SITE])
+  if (site) return site
+  const b = rom.readAt(LM_ENTRY_SITE.addr + SITE_KEPT + 1, 3)!
+  const at = b[0]! | (b[1]! << 8) | (b[2]! << 16)
+  const routine = rom.readAt(at, LM_ENTRY_HOOK.length)
+  if (!matchesBytes(routine, LM_ENTRY_HOOK)) {
+    return `the JSL at $05D8B1 reaches $${hex6(at)}, which is not Lunar Magic's high-byte routine.`
+  }
+  return { threshold: routine![17]!, bias: routine![21]! }
+}
+
+/** The operands of the code that maps a translevel to a slot: translevels at or
+ *  above `threshold` are biased by `bias`. The high byte is `submapHigh` on a
+ *  submap tile for stock code, and at or above the threshold for the hook. */
 export interface TranslevelBias {
   threshold: number
   bias: number
   submapHigh: number
+  high: 'submap' | 'translevel'
 }
 
 export type TranslevelBiasSite = ({ ok: true } & TranslevelBias) | { ok: false; reason: string }
 
-/** Reads `TranslevelBias`, reusing the stock-code gate OverworldEntrances checks. */
+/** CODE_05D8A2's operands, stock or through the recognized hook. */
+export function readEntrySite(rom: RomFile): TranslevelBiasSite {
+  const stock = stockCodeMismatch(rom, [ENTRY_SITE])
+  if (stock) {
+    const hook = lmEntryHook(rom)
+    if (typeof hook === 'string') {
+      return { ok: false, reason: `${stock} Nor is it Lunar Magic's hook: ${hook}` }
+    }
+    return { ok: true, ...hook, submapHigh: 1, high: 'translevel' }
+  }
+  const submapHigh = readSubmapHigh(rom, 0x05d8b4)
+  if (typeof submapHigh === 'string') return { ok: false, reason: submapHigh }
+  const threshold = rom.readByte(0x05d8a3)!
+  const bias = rom.readByte(0x05d8a8)!
+  return { ok: true, threshold, bias, submapHigh, high: 'submap' }
+}
+
+/** `TranslevelBias` once the path into CODE_05D8A2 is stock. */
 export function readTranslevelBias(
   rom: RomFile,
   spanFingerprints?: readonly string[],
 ): TranslevelBiasSite {
-  const patched = stockCodeMismatch(rom, OVERWORLD_ENTRY, spanFingerprints)
-  if (patched) return { ok: false, reason: patched }
-  const threshold = rom.readByte(0x05d8a3)!
-  const bias = rom.readByte(0x05d8a8)!
-  const submapHigh = readSubmapHigh(rom, 0x05d8b4)
-  if (typeof submapHigh === 'string') return { ok: false, reason: submapHigh }
-  return { ok: true, threshold, bias, submapHigh }
+  const path = stockCodeMismatch(rom, ENTRY_PATH, spanFingerprints)
+  return path ? { ok: false, reason: path } : readEntrySite(rom)
 }
 
-/** CODE_05D8A2's formula. `layout` (which buffer half assigned the
- *  translevel) decides the high byte; a bare translevel cannot give it. */
+/** The recognized code's formula. `layout` (which buffer half assigned the
+ *  translevel) decides the stock high byte; the hook ignores it. */
 export function translevelToPointerIndex(
   mapping: TranslevelBias,
   translevel: number,
   layout: 0 | 1,
 ): number {
-  const biased = translevel >= mapping.threshold ? (translevel - mapping.bias) & 0xff : translevel
-  return layout === 1 ? (mapping.submapHigh << 8) | biased : biased
+  const over = translevel >= mapping.threshold
+  const biased = over ? (translevel - mapping.bias) & 0xff : translevel
+  const high = mapping.high === 'translevel' ? over : layout === 1
+  return high ? (mapping.submapHigh << 8) | biased : biased
 }
 
 /** SHA-256 of `bytes` with `mask`'s offsets zeroed, or null for a failed read. */
