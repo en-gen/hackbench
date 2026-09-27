@@ -11,7 +11,17 @@ import { SmwRom } from '../../../src/rom/SmwRom'
 import { encode } from '../../../src/rom/LcLz2'
 import { ENTER_COMPARE, deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
 import { WILD } from '../../../src/rom/BytePattern'
+import { STOCK_LCLZ2_ENTRY } from '../../../src/rom/GfxDecompressor'
 import { blankStockRom, flip, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
+import {
+  DECOMP_ENTRY,
+  FAST_DIVERGENT_COMMANDS,
+  PRELUDE_KEY_BYTES,
+  plantFast,
+  plantPrelude,
+  syntheticRoutine,
+  xorPrelude,
+} from '../support/syntheticGfxCart'
 
 const ENTRY = 0x04d7f2
 const TABLE_AT = 0x0e8000
@@ -56,26 +66,16 @@ function lmEntry(bankFirst: boolean, blocks: 1 | 2, fastRom = false, key = 0) {
   return { bytes, pinned }
 }
 
-/** Restated, not imported: CODE_00B8DE's entry (bank_00.asm:6294-6300), and the
- *  XOR prelude and fast LC_LZ2 call #663 recognizes. */
-const DECOMP = 0x00b8de
-const STOCK_ENTRY = [0xc2, 0x10, 0xa0, 0x00, 0x00, 0x20, 0x83, 0xb9, 0xc9, 0xff]
-// prettier-ignore
-const PRELUDE = (key: number): number[] => [
-  0x08, 0xc2, 0x30, 0xa5, 0x8a, 0x49, key & 0xff, key >> 8, 0x85, 0x8a, 0x28, 0xc2, 0x10, 0xa0,
-  0x00, 0x00, 0x6b,
-]
 const PRELUDE_AT = 0x018000
 const FAST_AT = 0x019000
 const FAST_LENGTH = 0x1bc
-const FAST_BODY = Array.from({ length: FAST_LENGTH }, (_, i) => (i * 37 + 11) & 0xff)
-const FAST = [
-  {
-    length: FAST_LENGTH,
-    fingerprint: createHash('sha256').update(Buffer.from(FAST_BODY)).digest('hex'),
-  },
-]
-const jsl = (at: number): number[] => [0x22, at & 0xff, (at >> 8) & 0xff, at >> 16]
+/** CODE_00B8DE's $AF-byte body from entry+5: the stock entry's tail, then arithmetic. */
+const BODY_AT = DECOMP_ENTRY + 5
+const BODY = [...STOCK_LCLZ2_ENTRY.slice(5), ...syntheticRoutine(0xaf - 5, 3).bytes]
+const KNOWN = {
+  stockBody: [createHash('sha256').update(Buffer.from(BODY)).digest('hex')],
+  fast: [{ length: FAST_LENGTH, fingerprint: syntheticRoutine(FAST_LENGTH).sha }],
+}
 
 interface Decomp {
   /** The prelude's key; the caller's operand is keyed with `stored`. */
@@ -96,22 +96,17 @@ function build(
   rom.writeAt(ENTRY, entry.bytes)
   rom.writeAt(ENTRY + entry.bytes.length + 0x10, [0x64, 0x0f, 0x20, 0x49, 0xda])
   rom.writeAt(0x00804d, [0x6b])
-  rom.writeAt(DECOMP, STOCK_ENTRY)
-  if (key !== undefined) {
-    rom.writeAt(PRELUDE_AT, PRELUDE(key))
-    rom.writeAt(DECOMP, [...jsl(PRELUDE_AT), 0xea])
-  }
-  if (fast) {
-    rom.writeAt(FAST_AT, FAST_BODY)
-    rom.writeAt(DECOMP + 5, [...jsl(FAST_AT), 0x60])
-  }
+  rom.writeAt(DECOMP_ENTRY, STOCK_LCLZ2_ENTRY)
+  rom.writeAt(BODY_AT, BODY)
+  if (key !== undefined) plantPrelude(rom, PRELUDE_AT, key)
+  if (fast) plantFast(rom, FAST_AT, FAST_LENGTH)
   rom.writeAt(TABLE_AT, raw ?? [...encode(table)])
   return rom
 }
 const derive = (rom: RomFile) =>
   deriveOverworldEntrances(new SmwRom(rom), undefined, {
     ...SYNTHETIC_FINGERPRINTS,
-    decompressor: FAST,
+    decompressor: KNOWN,
   })
 const tableOf = (entries: Record<number, number>): Uint8Array => {
   const t = new Uint8Array(0x1000)
@@ -204,19 +199,23 @@ describe('deriveOverworldEntrances: Lunar Magic stored translevels', () => {
     expect(walked(build(t, undefined, { fast: true, key: 0x0300 }))).toEqual([[0x07, 9, 0x009]])
   })
 
-  it('refuses a command above 4 on the fast routine and reads it on stock', () => {
-    // A literal, then short command 5 (a copy on stock), then the table.
-    const raw = [0x00, 0x11, 0xa0, 0x00, 0x00, ...encode(tableOf({ 0x07: 9 }))]
-    expect(derive(build(new Uint8Array(), undefined, { raw })).overworldReadable).toBe(true)
-    const fast = derive(build(new Uint8Array(), undefined, { raw, fast: true }))
-    expect(fast.overworldReadable).toBe(false)
-    expect(fast.notes[0]).toMatch(/reads differently from stock/)
-  })
+  it.each(FAST_DIVERGENT_COMMANDS)(
+    'refuses %s on the fast routine and reads it on stock',
+    (_, command) => {
+      // A literal, the command (a copy on stock), then the table.
+      const raw = [0x00, 0x11, ...command, ...encode(tableOf({ 0x07: 9 }))]
+      expect(derive(build(new Uint8Array(), undefined, { raw })).overworldReadable).toBe(true)
+      const fast = derive(build(new Uint8Array(), undefined, { raw, fast: true }))
+      expect(fast.overworldReadable).toBe(false)
+      expect(fast.notes[0]).toMatch(/reads differently from stock/)
+    },
+  )
 
   it.each([
     ['an entry JSL to something else', { key: 0x0300 }, PRELUDE_AT, /\$00B8DE.*calls \$018000/],
     ['a JSL body that is not a known routine', { fast: true }, FAST_AT, /calls \$019000/],
-    ['a stock entry with another body', {}, DECOMP + 5, /\$00B8DE.*unrecognized body/],
+    ['a stock entry with another body', {}, BODY_AT, /\$00B8DE.*unrecognized body/],
+    ['a stock entry with an unknown build', {}, BODY_AT + 0x20, /body is not a recognized build/],
   ] as const)('refuses %s, naming it', (_what, opts, at, reason) => {
     const rom = build(tableOf({ 0x01: 1 }), undefined, opts)
     flip(rom, at)
@@ -225,17 +224,18 @@ describe('deriveOverworldEntrances: Lunar Magic stored translevels', () => {
     expect(result.notes[0]).toMatch(reason)
   })
 
-  // Every byte the recognizer pins, on each build it accepts: the stock entry, the
-  // JSL / NOP into the prelude and the prelude less its key, the JSL / RTS into the
-  // fast body and the body itself.
-  const sweep: [string, Decomp, number][] = [
-    ...STOCK_ENTRY.map((_, i) => ['stock', {}, DECOMP + i] as [string, Decomp, number]),
-    ...[0, 1, 2, 3, 4].map(i => ['keyed', { key: 0x0300 }, DECOMP + i] as [string, Decomp, number]),
-    ...PRELUDE(0)
-      .flatMap((_, i) => (i === 6 || i === 7 ? [] : [i]))
-      .map(i => ['keyed', { key: 0x0300 }, PRELUDE_AT + i] as [string, Decomp, number]),
-    ...[5, 6, 7, 8, 9].map(i => ['fast', { fast: true }, DECOMP + i] as [string, Decomp, number]),
-    ...FAST_BODY.map((_, i) => ['fast', { fast: true }, FAST_AT + i] as [string, Decomp, number]),
+  // Every pinned byte on each accepted build: entry, prelude less its key, stock body, fast body.
+  type Case = [what: string, opts: Decomp, at: number]
+  const span = (what: string, opts: Decomp, at: number, n: number, skip: number[] = []): Case[] =>
+    [...Array(n).keys()].filter(i => !skip.includes(i)).map(i => [what, opts, at + i])
+  const keyed = { key: 0x0300 }
+  const sweep: Case[] = [
+    ...span('stock', {}, DECOMP_ENTRY, 5 + 0xaf),
+    ...span('keyed', keyed, DECOMP_ENTRY, 5),
+    ...span('keyed', keyed, PRELUDE_AT, xorPrelude(0).length, PRELUDE_KEY_BYTES),
+    ...span('keyed', keyed, BODY_AT, 0xaf),
+    ...span('fast', { fast: true }, BODY_AT, 5),
+    ...span('fast', { fast: true }, FAST_AT, FAST_LENGTH),
   ]
   it('refuses with any pinned decompressor byte flipped', () => {
     const survived = sweep.flatMap(([what, opts, at]) => {
@@ -244,9 +244,9 @@ describe('deriveOverworldEntrances: Lunar Magic stored translevels', () => {
       flip(rom, at)
       return derive(rom).overworldReadable ? [`${what} $${at.toString(16)}`] : []
     })
-    expect(sweep.length).toBe(10 + 5 + 15 + 5 + FAST_LENGTH)
+    expect(sweep.length).toBe(0xb4 + 5 + 15 + 0xaf + 5 + FAST_LENGTH)
     expect(survived).toEqual([])
-  })
+  }, 30_000) // ~800 derives; the default 5 s is too tight under a full parallel run
 
   it('refuses a table shorter than the $800 tiles', () => {
     const rom = build(new Uint8Array(0x7ff))

@@ -116,8 +116,7 @@ import {
 } from './SubmapFlagGate'
 import { findUnique, matchesAt, WILD, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
-import { readLmTranslevels } from './LmTranslevelTable'
-import type { FastRoutine } from './GfxDecompressor'
+import { readLmTranslevels, type LmDecompressors } from './LmTranslevelTable'
 import {
   OW_L1_MAP16_BYTES,
   OW_SUBAREA_TILES_W,
@@ -151,8 +150,8 @@ export const WALK_PROLOGUE_LENGTH = 43
 export interface OverworldFingerprints {
   entry: readonly string[]
   walk: readonly string[]
-  /** Fast LC_LZ2 bodies for Lunar Magic's stored table; the shipped ones when absent. */
-  decompressor?: readonly FastRoutine[]
+  /** Decompressor builds for Lunar Magic's stored table; the shipped ones when absent. */
+  decompressor?: LmDecompressors
   /** BonusEntrances' CODE_05D796 span; its own stock builds when absent. */
   bonus?: readonly string[]
 }
@@ -270,7 +269,7 @@ const NOT_STOCK_WALK =
 export function readWalk(
   rom: RomFile,
   prologueFingerprints: readonly string[] = STOCK_OVERWORLD_FINGERPRINTS.walk,
-  fast?: readonly FastRoutine[],
+  decompressors?: LmDecompressors,
 ): Walk | string {
   const call = findUnique(rom, WALK_CALL)
   if (call === null) return NOT_STOCK_WALK
@@ -281,7 +280,7 @@ export function readWalk(
   const stream = (byteAt(rom, call + 11) << 16) | word(call + 4)
   const prologue = fingerprint(rom.readAtFileOffset(entry, WALK_PROLOGUE_LENGTH))
   if (prologue === null || !prologueFingerprints.includes(prologue)) {
-    const lm = readLmTranslevels(rom, entry, fast)
+    const lm = readLmTranslevels(rom, entry, decompressors)
     if (!(lm instanceof Uint8Array)) return lm ?? NOT_STOCK_WALK
     // The MVN count ($07FF, pinned) copies $800 tiles; the table past them is directions.
     return { stream, length: OW_L1_MAP16_BYTES, start: 0, min: 0, max: 0, translevels: lm }

@@ -8,12 +8,13 @@ import type { RomFile } from './RomFile'
 import { WILD, matchesAt, type BytePattern } from './BytePattern'
 import { tryDecompress } from './LcLz2'
 import { hex6 } from './hex'
+import { fingerprint } from './Fingerprint'
 import { stockCodeMismatch, type StockCode } from './SubmapFlagGate'
 import {
   FAST_LCLZ2,
   commandRefusal,
-  preludeKey,
   readDecompressor,
+  replacedReason,
   type FastRoutine,
 } from './GfxDecompressor'
 
@@ -46,6 +47,19 @@ const RETURN: StockCode = {
 const DECOMPRESSOR_ENTRY = 0x00b8de
 const UNDECODED = 'The stored translevel table cannot be decoded.'
 
+/** Recognized decompressor builds; the shipped ones where a field is absent. */
+export interface LmDecompressors {
+  /** SHA-256 of CODE_00B8DE's $AF bytes from entry+5, past a prelude's reach,
+   *  through ReadByte's RTS (bank_00.asm:6296-6413). */
+  stockBody?: readonly string[]
+  fast?: readonly FastRoutine[]
+}
+/** One build across all 69 store and corpus ROMs read as stock, keyed or not. */
+export const STOCK_LCLZ2_BODY: readonly string[] = Object.freeze([
+  'da8cac1e47c273012ef1e7e3c34aa59e45f1879f1f1f27c8edad12e29e1104d9',
+])
+const STOCK_BODY = { at: DECOMPRESSOR_ENTRY + 5, length: 0xaf }
+
 /**
  * The translevel per OWL1 buffer index, or why not; null when `entry` (a ROM
  * offset) is not shaped like Lunar Magic's walk at all.
@@ -53,7 +67,7 @@ const UNDECODED = 'The stored translevel table cannot be decoded.'
 export function readLmTranslevels(
   rom: RomFile,
   entry: number,
-  fast: readonly FastRoutine[] = FAST_LCLZ2,
+  known: LmDecompressors = {},
 ): Uint8Array | string | null {
   let at = entry
   const take = (p: BytePattern): Uint8Array | null => {
@@ -82,19 +96,24 @@ export function readLmTranslevels(
 
   const patched = stockCodeMismatch(rom, [RETURN])
   if (patched) return `${patched} ${UNDECODED}`
-  const d = readDecompressor(rom, DECOMPRESSOR_ENTRY, fast)
+  const d = readDecompressor(rom, DECOMPRESSOR_ENTRY, known.fast ?? FAST_LCLZ2)
   if (!d.ok) return `${d.reason}. ${UNDECODED}`
-  // A prelude EORs its key into $8A-$8B, never $8C, before ReadByte loads through
-  // [$8A] (bank_00.asm:6406). This call enters at the prelude with the pointer the
-  // caller stored there, so that pointer is the keyed one.
-  const addr = src ^ preludeKey(rom, DECOMPRESSOR_ENTRY)!
-  const data = rom.readUpTo(addr, 0x10000)
-  const refused = data && commandRefusal(d.kind, data)
-  if (refused) return `the translevel table at $${hex6(addr)} does not decode: ${refused}.`
-  const table = data ? tryDecompress(data) : { ok: false as const, reason: 'unreadable' }
-  if (!table.ok) return `the translevel table at $${hex6(addr)} does not decode: ${table.reason}`
-  if (table.bytes.length < 0x800) {
-    return `the translevel table at $${hex6(addr)} decodes to ${table.bytes.length} bytes, short of $800.`
+  const body = fingerprint(rom.readAt(STOCK_BODY.at, STOCK_BODY.length)) ?? ''
+  if (d.kind === 'stock' && !(known.stockBody ?? STOCK_LCLZ2_BODY).includes(body)) {
+    return `${replacedReason(DECOMPRESSOR_ENTRY, 'its LC_LZ2 body is not a recognized build')}. ${UNDECODED}`
   }
+  // The prelude keys $8A-$8B, never $8C, before ReadByte loads through [$8A]
+  // (bank_00.asm:6406); this call stores its operand there, so it is keyed.
+  const addr = src ^ d.key
+  const data = rom.readUpTo(addr, 0x10000)
+  const table = data ? tryDecompress(data) : { ok: false as const, reason: 'unreadable' }
+  const why =
+    (data && commandRefusal(d.kind, data)) ??
+    (!table.ok
+      ? table.reason
+      : table.bytes.length < 0x800
+        ? `only ${table.bytes.length} bytes, short of $800`
+        : null)
+  if (why || !table.ok) return `the translevel table at $${hex6(addr)} does not decode: ${why}.`
   return table.bytes
 }
