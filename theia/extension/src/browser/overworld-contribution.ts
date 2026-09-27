@@ -33,7 +33,6 @@ export const ShowOverworldCommand: Command = {
 export class OverworldLauncherWidget extends BaseWidget {
   @inject(CommandService) protected readonly commands!: CommandService
   @inject(ApplicationShell) protected readonly shell!: ApplicationShell
-  protected opening = false
 
   constructor() {
     super()
@@ -47,25 +46,26 @@ export class OverworldLauncherWidget extends BaseWidget {
 
   protected override onAfterShow(msg: Message): void {
     super.onAfterShow(msg)
-    void this.openOverworld()
+    this.openOverworld()
   }
 
   protected override onActivateRequest(msg: Message): void {
     super.onActivateRequest(msg)
     this.node.focus()
-    void this.openOverworld()
+    this.openOverworld()
   }
 
-  /** A click both shows and activates the globe; one open covers both. */
-  protected async openOverworld(): Promise<void> {
-    if (this.opening) return
-    this.opening = true
-    try {
-      await this.commands.executeCommand(ShowOverworldCommand.id)
-      await this.shell.collapsePanel('left')
-    } finally {
-      this.opening = false
-    }
+  /**
+   * Never awaits the view's activation and never drops a request. A guard
+   * held across `activateWidget` lost every show that arrived while it was
+   * pending, and that promise can take 2.25 s (a failed focus hand-off) or
+   * never settle (the view closed before it was revealed). A click sends two
+   * requests, show and activate; the contribution folds them into one widget.
+   */
+  protected openOverworld(): void {
+    void this.commands.executeCommand(ShowOverworldCommand.id)
+    // Out of the tab bar's own currentChanged dispatch, which is where a show lands.
+    setTimeout(() => void this.shell.collapsePanel('left'))
   }
 }
 
@@ -85,12 +85,21 @@ export class OverworldContribution extends AbstractViewContribution<OverworldLau
     await this.openView({ activate: false, reveal: false })
   }
 
+  protected attaching: Promise<OverworldViewWidget> | undefined
+
   /** Opens the Overworld widget, or focuses the one already open. */
   async openOverworld(): Promise<OverworldViewWidget> {
+    // Concurrent calls share one create-and-attach, so the view is added once.
+    this.attaching ??= this.attachOverworld().finally(() => (this.attaching = undefined))
+    const view = await this.attaching
+    await this.shell.activateWidget(view.id)
+    return view
+  }
+
+  protected async attachOverworld(): Promise<OverworldViewWidget> {
     // The factory hands back the live instance, or a fresh one once closed.
     const view = await this.widgetManager.getOrCreateWidget<OverworldViewWidget>(OVERWORLD_VIEW_ID)
     if (!view.isAttached) await this.shell.addWidget(view, { area: 'main' })
-    await this.shell.activateWidget(view.id)
     return view
   }
 

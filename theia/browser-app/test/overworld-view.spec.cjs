@@ -121,7 +121,11 @@ test('clicking the globe opens one Overworld widget in the main area; again focu
   await expect.poll(() => leftExpanded(page)).toBe(false)
 
   // Move focus away, then click again: the same widget comes back, no second.
-  await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.gfx.focus'))
+  await page.evaluate(() =>
+    getSvc('CommandRegistry')
+      .executeCommand('hackbench.gfx.focus')
+      .then(() => undefined),
+  )
   await page.locator(GLOBE).click()
   await expect(page.locator(VIEW)).toBeVisible()
   expect(await overworldCount(page)).toBe(1)
