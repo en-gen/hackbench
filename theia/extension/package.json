@@ -49,6 +49,10 @@
     {
       "frontend": "lib/theia/extension/src/browser/map16-frontend-module",
       "backend": "lib/theia/extension/src/node/map16-backend-module"
+    },
+    {
+      "frontend": "lib/theia/extension/src/browser/overworld-frontend-module",
+      "backend": "lib/theia/extension/src/node/overworld-backend-module"
     }
   ],
   "keywords": [
