@@ -9,6 +9,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
+import { flip } from '../support/syntheticRom'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { GFX_FILE_COUNT } from '../../../src/rom/GfxLoader'
 import {
@@ -111,8 +112,6 @@ const UNPACK_PINNED = allBut(unpackBytes(0, 0, 0).length, [1, 3, 4, 5, 12, 13, .
 const HELPER_PINNED = allBut(HELPER.length, [])
 // JSR operand, STA abs,X operand.
 const CALL_PINNED = allBut(callSiteBytes(0).length, [3, 4, 10, 11])
-
-const flip = (rom: RomFile, addr: number): void => rom.writeAt(addr, [rom.readByte(addr)! ^ 0xff])
 
 describe('findMode7GfxFiles', () => {
   it('reads the file index and byte length from the operands', () => {

@@ -970,6 +970,11 @@ export class Map16ViewWidget extends ReactWidget {
               {sheet.animationNote}
             </span>
           )}
+          {sheet.gfxAssignmentNote && (
+            <span className="hb-map16-note hb-map16-error" data-note="gfx-assignment">
+              {sheet.gfxAssignmentNote}
+            </span>
+          )}
           {sheet.layer === 'bg' && (
             <span className="hb-map16-note">
               This is the ONE global Layer 2 preset table - it does not vary by tileset. The tileset

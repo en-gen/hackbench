@@ -11,13 +11,7 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
-const {
-  snapshotRegistry,
-  restoreRegistry,
-  startBackend,
-  stopBackend,
-  waitForBackend,
-} = require('./own-backend.cjs')
+const { startBackend, stopBackend, waitForBackend } = require('./own-backend.cjs')
 const { bgr555ToRgbTriplet, parseRgbTriplet } = require('./palette-color.cjs')
 
 const PORT = Number(process.env.HB_MULTIWINDOW_PORT || 3101)
@@ -36,7 +30,6 @@ const GET_SVC = `function getSvc(name) {
 
 let backend
 let tmp
-let snapshot
 
 const sel = id => '#' + id.replace(/[.:]/g, m => '\\' + m)
 
@@ -83,13 +76,8 @@ async function expectSwatchColor(swatch, word) {
     .toEqual(bgr555ToRgbTriplet(word))
 }
 
-test.beforeAll(() => {
-  snapshot = snapshotRegistry()
-})
-
 test.afterAll(() => {
   stopBackend(backend)
-  restoreRegistry(snapshot)
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
