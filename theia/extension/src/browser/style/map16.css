@@ -554,20 +554,6 @@
   font-size: var(--theia-ui-font-size0);
 }
 
-/* Contained so the column is as wide as the grid, not as wide as this
-   sentence; the note wraps to fit instead. Collapsed, the strip is just
-   its toggle, and the preview column gets the width back. */
-.hb-map16-browser-note {
-  font-size: 10px;
-  color: var(--theia-descriptionForeground);
-  flex-grow: 1;
-  contain: inline-size;
-}
-
-.hb-map16-browser-closed .hb-map16-browser-note {
-  display: none;
-}
-
 /* Icon toolbar: zoom stepper, grid and animation toggles. Sits above the
    data selectors so shell-style actions and form fields do not interleave. */
 /* Keeps the base toolbar's 1em gap between the TEXT items (title,

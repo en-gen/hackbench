@@ -975,7 +975,7 @@ export class Map16ViewWidget extends ReactWidget {
 
         {/* Grid on the left, the selected tile to its right (#623). */}
         <div className="hb-map16-panes">
-          {this.renderBrowser(sheet)}
+          {this.renderBrowser()}
           <div className="hb-map16-main">
             {tile ? this.renderTile(sheet, tile) : this.renderNoTile()}
           </div>
@@ -1051,10 +1051,9 @@ export class Map16ViewWidget extends ReactWidget {
   }
 
   /** The tile browser strip: which tile the preview is showing. */
-  protected renderBrowser(sheet: Map16SheetDto): React.ReactNode {
-    const pages = Math.ceil(sheet.tiles.length / TILES_PER_PAGE)
+  protected renderBrowser(): React.ReactNode {
     return (
-      <div className={'hb-map16-browser' + (this.browserOpen ? '' : ' hb-map16-browser-closed')}>
+      <div className="hb-map16-browser">
         <div className="hb-map16-browser-head">
           <button
             data-control="browser-toggle"
@@ -1069,9 +1068,6 @@ export class Map16ViewWidget extends ReactWidget {
             />
             Tiles
           </button>
-          <span className="hb-map16-browser-note">
-            {`${sheet.tiles.length} tiles, ${pages} ${pages === 1 ? 'page' : 'pages'}: read from this ROM. More pages need an expanded Map16 table (en-gen/hackbench#102).`}
-          </span>
         </div>
         {this.browserOpen && (
           <div className="hb-map16-canvas-wrap" ref={this.bindCanvasWrap}>
