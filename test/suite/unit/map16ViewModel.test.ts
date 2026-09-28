@@ -19,10 +19,9 @@ import {
   previewAlternate,
   withHiddenTiles,
   BrowsedSheetCache,
-  HIDDEN_TILE_DIM_ALPHA,
-  hiddenPixelStrength,
   screenDoor,
 } from '../../../theia/extension/src/browser/map16-view-model'
+import { hiddenPixelStrength } from '../../../src/rom/render/HiddenTiles'
 import {
   compositeIndices,
   cropRegion,
@@ -349,10 +348,6 @@ describe('BrowsedSheetCache', () => {
 })
 
 describe('soft screen door', () => {
-  it("dims at 25%, the owner-chosen strength for a hidden tile's off pixels", () => {
-    expect(HIDDEN_TILE_DIM_ALPHA).toBe(0.25)
-  })
-
   it('is a checkerboard on tile pixels, full where x + y is even', () => {
     expect([0, 1, 2, 3].map(x => hiddenPixelStrength(x, 0))).toEqual([1, 0.25, 1, 0.25])
     expect([0, 1, 2, 3].map(x => hiddenPixelStrength(x, 1))).toEqual([0.25, 1, 0.25, 1])

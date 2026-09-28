@@ -1,0 +1,32 @@
+/*
+ * The one rule every canvas that draws ROM graphics shares: GFX sheets and
+ * all Map16 canvases. `.hb-checkerboard` is the same backdrop for an element
+ * that holds several canvases, so the pattern runs unbroken across them.
+ *
+ * The bitmap stays native and zoom is CSS only, so `pixelated` is what keeps
+ * a magnified tile crisp instead of blurred.
+ *
+ * Color 0 decodes transparent, so it shows whatever sits behind the canvas.
+ * A checkerboard says "nothing here" the way image editors do, where a flat
+ * panel color reads as a color the ROM holds. It is a CSS background, never
+ * painted into the bitmap, so the pixels stay exactly what the ROM says. Both
+ * squares are mixed from the theme so the board tracks light and dark.
+ */
+.hb-pixel-canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.hb-pixel-canvas,
+.hb-checkerboard {
+  --hb-checker-a: color-mix(in srgb, var(--theia-foreground) 10%, var(--theia-editor-background));
+  --hb-checker-b: color-mix(in srgb, var(--theia-foreground) 20%, var(--theia-editor-background));
+  background-color: var(--hb-checker-a);
+  background-image: conic-gradient(
+    var(--hb-checker-b) 25%,
+    transparent 0 50%,
+    var(--hb-checker-b) 0 75%,
+    transparent 0
+  );
+  background-size: 16px 16px;
+}

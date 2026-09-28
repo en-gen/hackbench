@@ -200,9 +200,161 @@
 /* ── Map view ────────────────────────────────────────── */
 
 .hb-map-view {
-  overflow: auto;
-  padding: 1.2em 1.4em;
+  display: flex;
+  flex-direction: column;
   color: var(--theia-foreground);
+}
+
+.hb-map-view-main {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.hb-map-view-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--theia-editorWidget-border);
+}
+
+.hb-map-view-facts {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 1em;
+  padding: 4px 8px;
+}
+
+.hb-map-view-facts .hb-map-view-title {
+  margin: 0;
+  font-size: var(--theia-ui-font-size1);
+}
+
+.hb-map-view-facts .hb-map-view-summary {
+  margin: 0;
+}
+
+.hb-map-view-note {
+  padding: 2px 8px;
+  color: var(--theia-editorWarning-foreground);
+}
+
+/* ── Toolbar controls shared by the map and Map16 views ─────────────── */
+
+.hb-toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.hb-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--theia-icon-foreground);
+  cursor: pointer;
+}
+
+.hb-icon-btn:hover:not(:disabled) {
+  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.hb-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Pressed state for the two toggles, so "grid on" and "playing" are
+   readable at a glance rather than only via the tooltip.
+   Follows the VS Code extension's own toolbar convention - an ACCENT
+   FOREGROUND on the glyph (`.iconBtn.on { color: #5b9cf6 }`,
+   webview/mapEditor/main.ts:1428) - with a tinted fill and inset outline
+   added, since a 24px codicon recolored alone is easy to miss. */
+.hb-icon-btn-on {
+  color: var(--theia-focusBorder, #5b9cf6);
+  background: var(--theia-inputOption-activeBackground, rgba(91, 156, 246, 0.18));
+  box-shadow: inset 0 0 0 1px var(--theia-focusBorder, #5b9cf6);
+}
+
+/* Needed because `.hb-icon-btn:hover:not(:disabled)` above outranks
+   a single class, so without this the fill vanished on hover - the button
+   looked UNSET exactly while the pointer was on it. */
+.hb-icon-btn-on:hover:not(:disabled) {
+  background: var(--theia-inputOption-hoverBackground, rgba(91, 156, 246, 0.3));
+}
+
+.hb-zoom-indicator {
+  min-width: 26px;
+  text-align: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--theia-descriptionForeground);
+  user-select: none;
+}
+
+.hb-map-view-scroller {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  /* Scrollbar always reserved along the scroll axis, so fitting the other
+     axis cannot make it appear and change the fit again. */
+  overflow-x: scroll;
+  overflow-y: auto;
+}
+
+.hb-map-view-scroller.hb-vertical {
+  flex-direction: column;
+  overflow-x: auto;
+  overflow-y: scroll;
+}
+
+/* Exactly the map's extent, so the layers stop where the map does. */
+.hb-map-view-strip {
+  position: relative;
+  flex: none;
+  display: flex;
+}
+
+.hb-vertical > .hb-map-view-strip {
+  flex-direction: column;
+}
+
+.hb-map-view-back-area {
+  position: absolute;
+  inset: 0;
+}
+
+.hb-map-view-screen {
+  position: relative;
+  flex: none;
+  image-rendering: pixelated;
+}
+
+.hb-map-view-header {
+  flex: none;
+  max-height: 50%;
+  overflow: auto;
+  padding: 0.4em 1.4em;
+  border-top: 1px solid var(--theia-editorWidget-border);
+}
+
+.hb-map-view-header > summary {
+  cursor: pointer;
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-map-view-empty,
+.hb-map-view-main > .hb-map-view-error {
+  flex: 1 1 auto;
+  padding: 1.2em 1.4em;
 }
 
 .hb-map-view-title {
@@ -265,4 +417,18 @@
 .lm-TabBar-tab.hb-preview-tab .theia-tab-icon-label,
 .p-TabBar-tab.hb-preview-tab .theia-tab-icon-label {
   font-style: italic;
+}
+
+/* A layer's toolbar icon (layer-icon.tsx): its own bar in the foreground
+   color, the others dimmed; the whole button dims while the layer is hidden. */
+.hb-layer-icon rect {
+  fill: var(--theia-disabledForeground);
+}
+
+.hb-layer-icon rect[data-on='true'] {
+  fill: currentColor;
+}
+
+.hb-layer-btn:not(.hb-icon-btn-on) {
+  opacity: 0.4;
 }

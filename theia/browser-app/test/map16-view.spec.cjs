@@ -54,6 +54,8 @@
  */
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
+const { expectCheckerboard } = require('./pixel-canvas.cjs')
+const { parseRgbTriplet } = require('./palette-color.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -519,19 +521,30 @@ test('opening a row shows a real sheet of the count the cartridge reports', asyn
   expect(info.height).toBe(
     (VANILLA_TILE_COUNT / TILES_PER_ROW) * TILE_PX + (pages - 1) * PAGE_GAP_PX,
   )
-  // The band is really blank and sits where tileOrigin puts page 1's top,
-  // so tileHasColor and clickTile address the tile they name.
-  const opaqueInBand = await page.evaluate(
+  // The band is one solid color and sits where tileOrigin puts page 1's top,
+  // so tileHasColor and clickTile address the tile they name. Solid, not
+  // clear: a clear band would show the transparency checkerboard and read
+  // as part of a page.
+  const band = await page.evaluate(
     ({ sel, top, height }) => {
       const canvas = document.querySelector(`${sel} .hb-map16-canvas`)
-      const data = canvas.getContext('2d').getImageData(0, top, canvas.width, height).data
-      let opaque = 0
-      for (let i = 3; i < data.length; i += 4) if (data[i] !== 0) opaque++
-      return opaque
+      const ctx = canvas.getContext('2d')
+      const colors = (y, h) => {
+        const data = ctx.getImageData(0, y, canvas.width, h).data
+        const set = new Set()
+        for (let i = 0; i < data.length; i += 4) {
+          set.add(`${data[i]},${data[i + 1]},${data[i + 2]},${data[i + 3]}`)
+        }
+        return [...set]
+      }
+      return { inBand: colors(top, height), below: colors(top + height, 1) }
     },
     { sel: FG, top: tileOrigin(TILES_PER_PAGE).y - PAGE_GAP_PX, height: PAGE_GAP_PX },
   )
-  expect(opaqueInBand).toBe(0)
+  expect(band.inBand).toHaveLength(1)
+  expect(band.inBand[0].endsWith(',255')).toBe(true)
+  // Page 1's first row is tile art, not more band.
+  expect(band.below).not.toEqual(band.inBand)
   // Real tile art, not a blank or single-color sheet.
   expect(info.distinctColors).toBeGreaterThan(1)
 
@@ -890,6 +903,104 @@ test('the accordion shows exactly four sheets, headed by slot and the file this 
   await expect(
     page.locator(`${FG} .hb-map16-sheet[data-slot="fg3"] .hb-map16-char`).first(),
   ).toBeVisible()
+})
+
+/** Same checkerboard as the GFX view, on a character sheet and the strip. */
+test('color 0 shows a transparency checkerboard', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await clickTile(page, TARGET_TILE_ID)
+  await openEditPane(page)
+  await expandSheet(page, 'fg3')
+  await expectCheckerboard(
+    expect,
+    page,
+    `${FG} .hb-map16-sheet[data-slot="fg3"] .hb-map16-sheet-canvas`,
+  )
+  await expectCheckerboard(expect, page, `${FG} .hb-map16-canvas`)
+})
+
+/**
+ * The quad's outline is drawn over its canvas: the canvas's checkerboard
+ * once painted over the quad's own inset shadow, and only aria-pressed
+ * still said which quadrant was selected.
+ */
+test('the selected quadrant shows its outline on screen', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await clickTile(page, TARGET_TILE_ID)
+  await openEditPane(page)
+  await selectQuadrant(page, 'tr')
+  const focus = await page.evaluate(() => {
+    const probe = document.createElement('span')
+    probe.style.color = 'var(--theia-focusBorder, #5b9cf6)'
+    document.body.appendChild(probe)
+    const c = getComputedStyle(probe).color
+    probe.remove()
+    return c
+  })
+  // One pixel in from the left edge, halfway down: inside the 2px outline.
+  const edgePixel = async key => {
+    const quad = page.locator(
+      `${FG} .hb-map16-frame[data-frame="0"] .hb-map16-quad[data-quadrant="${key}"]`,
+    )
+    const box = await quad.boundingBox()
+    const clip = { x: box.x + 1, y: box.y + Math.floor(box.height / 2), width: 1, height: 1 }
+    const png = (await page.screenshot({ clip })).toString('base64')
+    return page.evaluate(async b64 => {
+      const img = new Image()
+      img.src = `data:image/png;base64,${b64}`
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = img.width
+      c.height = img.height
+      const ctx = c.getContext('2d')
+      ctx.drawImage(img, 0, 0)
+      return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3))
+    }, png)
+  }
+  expect(await edgePixel('tr')).toEqual(parseRgbTriplet(focus))
+  expect(await edgePixel('tl')).not.toEqual(parseRgbTriplet(focus))
+})
+
+/** The page bands are a theme color baked into the bitmap, so a theme switch repaints them. */
+test('the strip page bands follow a theme switch', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  const top = tileOrigin(TILES_PER_PAGE).y - PAGE_GAP_PX
+  const band = () =>
+    page.evaluate(
+      ({ sel, y }) => {
+        const c = document.querySelector(`${sel} .hb-map16-canvas`)
+        return Array.from(c.getContext('2d').getImageData(0, y, 1, 1).data.slice(0, 3))
+      },
+      { sel: FG, y: top },
+    )
+  const editorBackground = () =>
+    page.evaluate(() => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--theia-editor-background)'
+      document.body.appendChild(probe)
+      const c = getComputedStyle(probe).color
+      probe.remove()
+      return c
+    })
+  const setTheme = async id => {
+    await page.evaluate(t => getSvc('ThemeService').setCurrentTheme(t, false), id)
+    await page.waitForTimeout(600)
+  }
+  const original = await page.evaluate(() => getSvc('ThemeService').getCurrentTheme().id)
+  try {
+    await setTheme('light')
+    const light = await band()
+    expect(light).toEqual(parseRgbTriplet(await editorBackground()))
+    await setTheme('dark')
+    const dark = await band()
+    expect(dark).toEqual(parseRgbTriplet(await editorBackground()))
+    expect(dark).not.toEqual(light)
+  } finally {
+    await setTheme(original)
+  }
 })
 
 test('switching tileset changes both the sheet headers and the rendered characters', async ({
@@ -1570,7 +1681,7 @@ test('play cycles the sheet through real animation frames; stop leaves it stable
   const frame0 = await readCanvas(page)
   await playButton.click()
   await expect(playButton).toHaveAttribute('title', 'Stop animation')
-  await expect(playButton).toHaveClass(/hb-map16-icon-btn-on/)
+  await expect(playButton).toHaveClass(/hb-icon-btn-on/)
 
   // Native interval is ~133ms on vanilla; poll rather than sleep a guess.
   await expect

@@ -2,13 +2,41 @@
 # CodeRabbit is the approving reviewer on develop (CLAUDE.md "Merging"): it
 # approves once its comments are resolved, and a PR with auto-merge on then
 # merges on green CI. Assertive, because for most PRs it is the only reviewer.
+# Each instruction restates a rule in CLAUDE.md or docs/, so a new rule goes
+# there first.
 language: en-US
+tone_instructions: >-
+  Plain words. Every finding cites file:line and names the concrete input or
+  scenario that makes it fail. No praise, no restating the diff. Name the
+  CLAUDE.md or docs/ rule a finding rests on.
 reviews:
   profile: assertive
   request_changes_workflow: true
   high_level_summary: true
   poem: false
   review_status: true
+  # These re-include files CodeRabbit skips by default. Images, dumps, archives
+  # and audio are the shapes ROM-derived bytes take, and a skipped file is
+  # approved unseen. Lockfiles too: the repo is public and CI installs them
+  # frozen, so a changed resolved URL or integrity hash matters.
+  path_filters:
+    - '**/*.png'
+    - '**/*.jpg'
+    - '**/*.jpeg'
+    - '**/*.gif'
+    - '**/*.bmp'
+    - '**/*.ico'
+    - '**/*.bin'
+    - '**/*.zip'
+    - '**/*.7z'
+    - '**/*.gz'
+    - '**/*.tar'
+    - '**/*.wav'
+    - '**/*.mp3'
+    - '**/*.ogg'
+    - '**/*.flac'
+    - '**/package-lock.json'
+    - '**/yarn.lock'
   auto_review:
     enabled: true
     drafts: false
@@ -21,17 +49,147 @@ reviews:
       - develop
       - feature/.*
   path_instructions:
+    - path: '**/*'
+      instructions: >-
+        No ROM-derived bytes may be committed: ROMs, dumps, decompressed
+        graphics or audio, byte slices of any size, or images rendered from ROM
+        graphics (docs/testing.md "Legal position"; CLAUDE.md "Files never to
+        commit" and "Pull requests show what they draw"). Flag any added binary
+        file or large data fixture; the only allowed binaries are build/icons/**
+        PNG/ICO/ICNS of 512 KB or less (docs/testing.md "The content gate").
+        Flag a `content-gate: allow` pragma whose reason does not hold. No
+        em-dashes in added lines.
+    - path: '**/*.{ts,tsx,js,cjs,mjs}'
+      instructions: >-
+        Comments say WHY, not WHAT. The house comment-to-code signal is near
+        0.60; much above that is narration (CLAUDE.md "Size budgets"). A long
+        ROM derivation belongs in docs/ with a one-line citation in the code
+        (docs/agents/orchestrator.md "Review").
     - path: 'src/rom/**'
       instructions: >-
         ROM behaviour must be read from the ROM's tables and bytes, never
         hardcoded from the vanilla game, and must fail closed with a reason on
         an unrecognized hack. Flag any vanilla fallback, any fixed address used
         without checking the opcode or bytes there, and any SMWDisX citation
-        without a file:line.
+        without a file:line. Per CLAUDE.md "The ROM is a collection of lookup
+        tables" and "Knowledge Integration", also flag: reading an operand
+        without first gating on its opcode; a fixed address where a byte
+        pattern would find a relocated routine, or taking the first of several
+        pattern matches; stock constants used as a default rather than a
+        documented cross-check; a check anchored only on a callee when the
+        vector, branch or call site that reaches it is unchecked; support for a
+        particular hack added inside a correctness fix (scope is vanilla plus
+        refusal); a per-sprite value at an absolute address instead of an
+        offset from the ROM-resolved handler pointer; evaluating ROM code
+        outside src/rom/objectHandlers/interpret.ts; assembly copied into
+        source instead of cited.
+    - path: 'src/{rom,project}/**'
+      instructions: >-
+        The core is plain TypeScript with no shell imports: flag any import of
+        Theia or VS Code (CLAUDE.md "The core"). A view reads the working copy,
+        never the base bytes, so code that feeds a view must work on the
+        working copy's bytes. Op layers are append-only; flag removal from the
+        middle of the stack (docs/glossary.md "Editing").
+    - path: 'theia/extension/src/browser/**'
+      instructions: >-
+        Browser code never reads a file or imports anything that does; it asks
+        the node side over JSON-RPC (CLAUDE.md "The Theia shell"). Apply
+        docs/ui-conventions.md, in particular: a user may SEE a hex value, id
+        or address but must never have to type or understand one to proceed;
+        colors use Theia variables with a literal fallback; US spelling
+        "color"; copy says what the app does ("Save", not "Save to ROM");
+        emphasis must not change an element's box. A view that cannot verify
+        what it draws draws its best data and marks it unverified with a
+        reason, never blank and never a vanilla substitute (CLAUDE.md "Viewers
+        draw; they do not blank"). UI names graphics layers Foreground,
+        Background, Effects, never Layer 1/2/3 (docs/glossary.md). New
+        user-facing behaviour needs a Playwright spec under
+        theia/browser-app/test (CLAUDE.md "Every feature ships with a
+        Playwright test").
+    - path: 'theia/extension/src/node/**'
+      instructions: >-
+        Node is the only side allowed to touch the ROM. Every *-server.ts reads
+        the ROM through WorkingRomRegistry, not RomFile.load; project-server.ts
+        is the one known exception and a new one is a defect (docs/glossary.md
+        "Working copy", test/suite/gates/workingCopyGate.test.ts).
+    - path: 'theia/extension/src/common/**'
+      instructions: >-
+        Each frontend/backend pair shares a service interface and SERVICE_PATH
+        here so a protocol change breaks the compile, not the runtime (CLAUDE.md
+        "The Theia shell"). Flag a protocol that escapes the type checker:
+        untyped payloads, `any`, or a service path string repeated outside
+        common/.
     - path: 'test/**'
       instructions: >-
         A test that reports a verdict must be able to fail. Flag tests
         generated from a corpus listing (they vanish when the corpus is absent;
-        use describe.skipIf) and safeguards tested only with a ROM.
+        use describe.skipIf) and safeguards tested only with a ROM. Per
+        CLAUDE.md "Oracles must be proven able to fail" and docs/testing.md,
+        also flag: a gate, refusal or bounds check with no SYNTHETIC fixture
+        built in the test; the banned spellings (readdirSync then a loop over
+        it, `.filter(existsSync)` before a loop, `cond ? describe :
+        describe.skip`, bare `.skip`/`.todo`, `if (romPresent) { it(...) }`); a
+        ROM path built by hand instead of asked of test/suite/support/corpus; a
+        listing read inside a case with no tripwire against an empty list; a
+        single-case acceptance test where the input has a range to sweep; a
+        committed fixture holding ROM-derived bytes.
+    - path: 'theia/browser-app/test/**'
+      instructions: >-
+        Per CLAUDE.md "Every feature ships with a Playwright test": assertions
+        check behaviour, not presence (a click opens the menu; a contrast
+        ratio, not visibility); a spec must be able to go red; a performance
+        assertion reads the measured thing itself (the core's frame counter)
+        and checks a frozen span separately from an average. Per
+        docs/testing.md "Playwright never touches your app data": nothing may
+        write the user's real app data or ~/.theia; app data and
+        THEIA_CONFIG_DIR go to the per-run temp folder, reuseExistingServer
+        stays false, and an external server is started only through
+        start-test-server.cjs.
+    - path: '{tools/scripts,.githooks}/**'
+      instructions: >-
+        Gate scripts (check-content.mjs, check-staged-*.sh, capture_gate) are
+        oracles: a change to one needs a committed test that goes red on a
+        planted defect (CLAUDE.md "Oracles must be proven able to fail"). A
+        script that writes ROM-derived output refuses an output directory
+        inside the repo, as capture:render does (docs/testing.md). The corpus
+        is found through test/suite/support/corpus.* or an env var, not a path
+        built by hand (CLAUDE.md "Files never to commit"). One-off probe
+        scripts are not committed (CLAUDE.md "Agent workflow").
+    - path: '{src/providers,src/webview}/**'
+      instructions: >-
+        Reference only: the original VS Code extension, not a shipping target
+        (CLAUDE.md "Reference only"). Flag any new feature or capability here;
+        it belongs in theia/ and the core.
+    - path: '**/*.md'
+      instructions: >-
+        Use docs/glossary.md words exactly: slot, map, level, entry map, sub
+        area, orphaned map, submap, launch tile, translevel, screen exit. Not
+        "level" for a slot or map, not "area" for a submap, not a bare "exit"
+        for the object. Every claim states its evidence scope, and ROM
+        behaviour is cited to SMWDisX file:line, never copied as assembly
+        (CLAUDE.md "Claim discipline").
+    - path: '.github/workflows/**'
+      instructions: >-
+        CI has no ROM (CLAUDE.md "Oracles must be proven able to fail"): flag a
+        step that needs the corpus, or one that runs Playwright specs that
+        open a ROM, which would skip every assertion and report green (ci.yml).
+        Keep the content-policy, lint, format and unit-test steps, and keep
+        feature/** in the pull_request branches (ci.yml).
+    - path: 'package.json'
+      instructions: >-
+        The lint and format:check scripts keep the flags that let them fail
+        (`--max-warnings 0`, `prettier --check`); lintGate.test.ts asserts
+        them (CLAUDE.md "Enforced mechanically").
 chat:
   auto_reply: true
+knowledge_base:
+  code_guidelines:
+    # Root CLAUDE.md and AGENTS.md are default patterns. A guideline under
+    # docs/ otherwise governs only docs/, so map each to the code it covers.
+    filePatterns:
+      - files: 'docs/glossary.md'
+        applyTo: '**/*'
+      - files: 'docs/testing.md'
+        applyTo: 'test/**,theia/browser-app/test/**,tools/scripts/**,.github/workflows/**'
+      - files: 'docs/ui-conventions.md'
+        applyTo: 'theia/extension/src/browser/**'
