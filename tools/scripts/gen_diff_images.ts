@@ -21,7 +21,12 @@ import { loadRomPalettes, buildLevelCgram, STOCK_COL1 } from '../../src/rom/Pale
 import { deriveOverworldEntrances } from '../../src/rom/OverworldEntrances'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
-const MAPS_DIR = `${process.env.USERPROFILE ?? process.env.HOME}/OneDrive/hackbench-fixtures/maps`
+// HB_MAPS_DIR lets a run point at a scratch copy. The default writes
+// diff.png into the shared OneDrive fixture store, which leaks one
+// branch's output into every other run.
+const MAPS_DIR =
+  process.env.HB_MAPS_DIR ??
+  `${process.env.USERPROFILE ?? process.env.HOME}/OneDrive/hackbench-fixtures/maps`
 const TILE_PX = 16
 
 // ── Minimal PNG encoder (no deps) ───────────────────────────────────────────
