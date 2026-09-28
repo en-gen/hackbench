@@ -21,6 +21,12 @@ import {
   plantStockPaletteCol1,
 } from '../../../src/rom/PaletteStockTables'
 import { STOCK_COL1 } from '../../../src/rom/PaletteLoader'
+import {
+  FILTER_BODY_LENGTH,
+  UPLOAD_GFX_CALLERS,
+  UPLOAD_GFX_DISPATCH,
+  UPLOAD_GFX_OPERANDS,
+} from '../../../src/rom/GfxLoader'
 
 /** A StockCode entry's bytes with WILD positions filled, for planting rather than matching. */
 const concreteBytes = (bytes: readonly number[]): number[] => bytes.map(b => (b === WILD ? 0 : b))
@@ -310,6 +316,43 @@ export function plantGfxReadPath(rom: RomFile): void {
   for (const c of LEVEL_GFX_CALLERS) rom.writeAt(c, jsl(routineSnes))
   rom.writeAt(L3_ROUTINE, layer3Routine())
   for (const c of L3_CALLERS) rom.writeAt(c, L3_CALL)
+  plantFilterSomeRam(rom)
+}
+
+/** An arithmetic FilterSomeRAM body, and the fingerprint to pass the gate as stock. */
+export const FILTER_BODY = Array.from({ length: FILTER_BODY_LENGTH }, (_, i) => (i * 37 + 5) & 0xff)
+export const FILTER_BODY_SHA = [createHash('sha256').update(Buffer.from(FILTER_BODY)).digest('hex')]
+export const FILTER_BODY_AT = 0x00ab02
+export const UPLOAD_GFX_ENTRY = LEVEL_GFX_CALLERS[0]!
+
+export interface FilterOperands {
+  tilesetMin: number
+  tilesetFile: number
+  anyFile: number
+}
+export const VANILLA_FILTER: FilterOperands = { tilesetMin: 0x11, tilesetFile: 0x08, anyFile: 0x1e }
+
+/** UploadGFXFile's dispatch built from the gate's own pattern, operands filled in. */
+export function filterDispatch(o = VANILLA_FILTER, bodyAt = FILTER_BODY_AT): number[] {
+  const b = concreteBytes(UPLOAD_GFX_DISPATCH)
+  for (const at of [0, 15]) b.splice(at, 4, ...jsl(PREPARE_GFX))
+  const { tilesetMin, tilesetFile, anyFile, jmp } = UPLOAD_GFX_OPERANDS
+  b[tilesetMin] = o.tilesetMin
+  b[tilesetFile] = o.tilesetFile
+  b[anyFile] = o.anyFile
+  b.splice(jmp, 2, bodyAt & 0xff, (bodyAt >> 8) & 0xff)
+  return b
+}
+
+/** The dispatch at `entry`, both upload loops' JSRs to it, and the synthetic body. */
+export function plantFilterSomeRam(
+  rom: RomFile,
+  o = VANILLA_FILTER,
+  entry = UPLOAD_GFX_ENTRY,
+): void {
+  rom.writeAt(entry, filterDispatch(o))
+  for (const c of UPLOAD_GFX_CALLERS) rom.writeAt(c, [0x20, entry & 0xff, (entry >> 8) & 0xff])
+  rom.writeAt(FILTER_BODY_AT, FILTER_BODY)
 }
 
 /** Give a ROM built for some other test column 1's level-load reach and

@@ -64,6 +64,13 @@ describe('buildMapDetails - GFX assignment mark', () => {
     expect(details.gfxAssignmentNote).toMatch(/FG\/BG and sprite GFX files/)
     expect(details.headerBytes).toEqual([0, 0, 0, 0, 0])
   })
+
+  it("carries why the GFX upload filter can't be verified", () => {
+    const smw = syntheticRom()
+    plantGfxReadPath(smw.rom)
+    smw.rom.writeAt(0x00aa49, [0x20, 0x00, 0x90]) // JSR UploadGFXFile, FG/BG loop
+    expect(buildMapDetails(smw, 0x105).gfxAssignmentNote).toMatch(/drawn as stored, unverified/)
+  })
 })
 
 /** syntheticRom with slot $105's L1 pointer moved to `ptr`, and `stream`
