@@ -24,8 +24,10 @@ are archive numbers (`C:/Projects/hackbench-tools/issue-map.tsv` maps issues).
 
 ## Merging
 
-A PR merges itself: `develop` requires green CI plus one approving review,
-and CodeRabbit approves once its comments are resolved (`.coderabbit.yaml`).
+A PR merges itself: `develop` requires green CI plus one approving review
+from anyone with write access. In practice that is CodeRabbit, which approves
+once its comments are resolved (`.coderabbit.yaml`); GitHub cannot require
+the approval to be CodeRabbit's, so a human approval merges it too.
 
 - After opening a PR, turn on auto-merge:
   `gh pr merge <n> -R en-gen/hackbench --auto --squash`.

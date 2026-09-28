@@ -12,6 +12,9 @@ reviews:
   auto_review:
     enabled: true
     drafts: false
+    # The default pauses auto-review after 5 reviewed commits, which would leave
+    # a long PR's latest push unapproved and its auto-merge stuck.
+    auto_pause_after_reviewed_commits: 0
     base_branches:
       - develop
       - feature/.*
