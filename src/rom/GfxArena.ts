@@ -500,7 +500,9 @@ export function layoutArena(
   if (!gate.ok) return { status: 'unavailable', reason: gate.reason }
 
   for (let i = 0; i < GFX_FILE_COUNT; i++) {
-    if (!streams[i]) {
+    // Empty too: that is a file the ROM could not be read back for, and
+    // laying it out as zero bytes would point it at the next file.
+    if (!streams[i]?.length) {
       return { status: 'unavailable', reason: `no encoded stream for GFX file ${i}` }
     }
   }

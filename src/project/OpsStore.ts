@@ -81,13 +81,21 @@ function pixel(p: { x: number; y: number; value: number }): {
 const isInt = (v: unknown): boolean => Number.isInteger(v)
 
 /**
- * With `lenient`, a gfx layer this build cannot read comes back as an
- * `unreadable` layer rather than throwing. That is for `ops/redo/` only,
- * where it refuses when redone and the project still opens.
+ * With `lenient`, a file that is not JSON, or a gfx layer this build cannot
+ * read, comes back as an `unreadable` layer rather than throwing. That is
+ * for `ops/redo/` only, where it refuses when redone and the project still
+ * opens.
  */
 function loadFrom(dir: string, lenient = false): Layer[] {
   return layerFiles(dir).map(f => {
-    const parsed = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as Record<string, unknown>
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as Record<string, unknown>
+    } catch (err) {
+      if (!lenient) throw err
+      const reason = `${path.join(dir, f)} is not valid JSON: ${(err as Error).message}`
+      return { id: f, label: f, kind: 'unreadable', reason }
+    }
     const id = parsed.id as string
     const label = parsed.label as string
     if (parsed.kind !== 'gfx') return { id, label, ops: parsed.ops as Op[] }
@@ -98,6 +106,7 @@ function loadFrom(dir: string, lenient = false): Layer[] {
       isInt(parsed.file) &&
       isInt(parsed.tile) &&
       Array.isArray(pixels) &&
+      pixels.length > 0 && // a layer that changes nothing is not an edit
       pixels.every(
         p => typeof p === 'object' && p !== null && isInt(p.x) && isInt(p.y) && isInt(p.value),
       )

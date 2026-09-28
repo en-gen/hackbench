@@ -21,12 +21,11 @@
  * layers, which folds into one re-encode per file; the fold is built so the
  * result equals applying the run's characters one at a time.
  *
- * COST. A gfx fold decodes all 50 files, so nothing here replays the whole
- * stack for an ordinary edit: a new layer is applied onto a copy of the
- * cached bytes, undoing a word write restores the bytes it overwrote, and
- * undoing a gfx layer replays from a snapshot taken where its run began.
- * That costs one ROM-sized snapshot per gfx run, kept while the run is on
- * the stack.
+ * COST. A gfx fold decodes all 50 files, so nothing here replays the stack
+ * for an ordinary edit. A new layer is applied onto a copy of the cached
+ * bytes, and each application keeps the bytes it overwrote, so undo is a
+ * revert. The one fold an undo can need is inside a run `restore` folded as
+ * a whole: reverting that run and refolding all but its top layer.
  *
  * Pure orchestration: no fs, no Theia, no VS Code. Persisting layers to disk
  * is a separate concern (src/project/OpsStore.ts).
@@ -40,7 +39,7 @@ import {
   Op,
 } from '../rom/PaletteOp'
 import { COPIER_HEADER_SIZE } from '../rom/addressing'
-import { GfxBase, GfxCharEdit, foldGfxRun, readGfxBase } from '../rom/GfxLayer'
+import { GfxBase, GfxCharEdit, Overwritten, foldGfxRun, readGfxBase } from '../rom/GfxLayer'
 import { GfxEncoder } from '../rom/GfxTable'
 import { encode } from '../rom/LcLz2'
 
@@ -100,22 +99,27 @@ export interface WorkingRomChange {
   layer: Layer
 }
 
-/** A byte offset and the two bytes a word write found there. */
-type Overwritten = [offset: number, lo: number, hi: number]
+/**
+ * What applying the stack layers `from..k` replaced, recorded against layer
+ * `k`. `from` is `k` itself except for a gfx run `restore` folded as a whole,
+ * whose one record sits on its top layer.
+ */
+interface Applied {
+  from: number
+  replaced: Overwritten[]
+}
 
 export class WorkingRom {
   private readonly romSize: number
   private readonly layerStack: Layer[] = []
   /** Layers taken off by `undo`, kept so `redo` can put them back. */
   private readonly redoLayers: Layer[] = []
-  /** Never mutated once set, so it may also be held as a snapshot. */
+  /** Never mutated once set: every change builds a new array. */
   private cached: Uint8Array | null = null
   private readonly listeners = new Set<(change: WorkingRomChange) => void>()
   private gfxBase: GfxBase | null = null
-  /** Bytes after the first `k` layers, for each `k` where a gfx run begins. */
-  private readonly snapshots = new Map<number, Uint8Array>()
-  /** For the word layer at stack index `k`, what its writes overwrote. */
-  private readonly overwritten = new Map<number, Overwritten[]>()
+  /** Keyed by stack index; see `Applied`. */
+  private readonly applied = new Map<number, Applied>()
 
   /**
    * @param base        Cartridge file bytes exactly as loaded from disk
@@ -153,7 +157,12 @@ export class WorkingRom {
    * contract, not an accident of how they happen to be written.
    */
   bytes(): Uint8Array {
-    if (!this.cached) this.cached = this.prefix(this.layerStack.length)
+    if (!this.cached) {
+      // Every change sets the cache, so this is the untouched copy.
+      const out = new Uint8Array(this.base)
+      this.replay(out, this.layerStack, 0, this.layerStack.length, false)
+      this.cached = out
+    }
     return this.cached
   }
 
@@ -193,19 +202,14 @@ export class WorkingRom {
   /**
    * Replace an EMPTY stack with `layers` in one validated pass: what opening
    * a project does. Every gfx run folds once, where appending the layers one
-   * by one would refold the stack below each. Throws, leaving the stack
+   * by one would fold each layer separately. Throws, leaving the stack
    * empty, if any layer would refuse. Fires no change: nothing can be
    * watching a copy that is still being opened.
    */
   restore(layers: readonly Layer[]): void {
     if (this.layerStack.length > 0) throw new Error('restore needs an empty stack')
     const out = new Uint8Array(this.base)
-    try {
-      this.replay(out, layers, 0, layers.length, true)
-    } catch (err) {
-      this.forgetFrom(0)
-      throw err
-    }
+    this.replay(out, layers, 0, layers.length, true)
     this.layerStack.push(...layers)
     this.redoLayers.length = 0
     this.cached = out
@@ -221,8 +225,11 @@ export class WorkingRom {
    * User-facing undo is `undo()`.
    */
   pop(): Layer | undefined {
-    const layer = this.layerStack.pop()
-    if (layer) this.invalidate({ kind: 'pop', layer }, this.afterPop())
+    const layer = this.layerStack[this.layerStack.length - 1]
+    if (!layer) return undefined
+    const next = this.withoutTop()
+    this.layerStack.pop()
+    this.invalidate({ kind: 'pop', layer }, next)
     return layer
   }
 
@@ -237,12 +244,18 @@ export class WorkingRom {
    * Reported as a `pop` change, because that is what happened to the working
    * copy - a subscriber re-reading `bytes()` cannot tell, and should not
    * have to care, whether the layer was kept.
+   *
+   * Throws, with the layer left in place, when the stack below cannot be
+   * built on its own: `restore` accepts a run as a whole, so a run whose
+   * lower layers overflow the arena without the top one is possible.
    */
   undo(): Layer | undefined {
-    const layer = this.layerStack.pop()
+    const layer = this.layerStack[this.layerStack.length - 1]
     if (!layer) return undefined
+    const next = this.withoutTop()
+    this.layerStack.pop()
     this.redoLayers.push(layer)
-    this.invalidate({ kind: 'pop', layer }, this.afterPop())
+    this.invalidate({ kind: 'pop', layer }, next)
     return layer
   }
 
@@ -290,8 +303,7 @@ export class WorkingRom {
     return () => this.listeners.delete(fn)
   }
 
-  /** `next` is the post-change bytes when they are already known. */
-  private invalidate(change: WorkingRomChange, next: Uint8Array | null): void {
+  private invalidate(change: WorkingRomChange, next: Uint8Array): void {
     this.cached = next // set BEFORE fan-out: a handler's bytes() call recomputes, not re-enters
     for (const fn of this.listeners) fn(change)
   }
@@ -317,56 +329,54 @@ export class WorkingRom {
     return `Re-encodes the GFX arena: ${n} ${n === 1 ? 'byte' : 'bytes'} of the ROM changed, not just this character.`
   }
 
-  /** The bytes with `layer` on top of the current stack; throws if it refuses. */
+  /**
+   * The bytes with `layer` on top of the current stack, recording what it
+   * replaced against the index it will take. Throws if it refuses.
+   */
   private applyOnTop(layer: Layer): Uint8Array {
-    const k = this.layerStack.length
-    const before = this.bytes()
-    const next = new Uint8Array(before)
-    if (layer.kind === 'gfx') {
-      this.fold(next, [layer])
-      if (this.layerStack[k - 1]?.kind !== 'gfx') this.snapshots.set(k, before)
-    } else {
-      this.applyWords(next, layer, k, true)
-    }
+    const next = new Uint8Array(this.bytes())
+    const replaced =
+      layer.kind === 'gfx' ? this.fold(next, [layer]) : this.applyWords(next, layer, true)
+    this.applied.set(this.layerStack.length, { from: this.layerStack.length, replaced })
     return next
   }
 
-  /** After a pop to the current length: the bytes, when cheaply known. */
-  private afterPop(): Uint8Array | null {
-    const k = this.layerStack.length
-    const undone = this.overwritten.get(k)
-    let next: Uint8Array | null = this.snapshots.get(k) ?? null
-    if (!next && undone && this.cached) {
-      next = new Uint8Array(this.cached)
-      for (const [o, lo, hi] of [...undone].reverse()) {
-        next[o] = lo
-        next[o + 1] = hi
-      }
+  /**
+   * The bytes without the top layer: its record reverted, and for the top of
+   * a run `restore` folded whole, the rest of that run refolded. Throws, with
+   * nothing changed, when that refold refuses.
+   */
+  private withoutTop(): Uint8Array {
+    const k = this.layerStack.length - 1
+    const top = this.applied.get(k)!
+    const next = new Uint8Array(this.bytes())
+    revert(next, top.replaced)
+    if (top.from < k) {
+      const rest = this.layerStack.slice(top.from, k) as GfxLayer[]
+      this.applied.set(k - 1, { from: top.from, replaced: this.fold(next, rest) })
     }
-    this.forgetFrom(k)
+    this.applied.delete(k)
     return next
   }
 
-  /** Drop what was recorded for stack indices above `k` layers. */
-  private forgetFrom(k: number): void {
-    for (const i of this.snapshots.keys()) if (i > k) this.snapshots.delete(i)
-    for (const i of this.overwritten.keys()) if (i >= k) this.overwritten.delete(i)
-  }
-
-  /** Bytes after the first `n` stack layers, replayed from the nearest snapshot. */
+  /** Bytes after the first `n` stack layers: records reverted from the top down. */
   private prefix(n: number): Uint8Array {
-    let from = 0
-    for (const k of this.snapshots.keys()) if (k <= n && k > from) from = k
-    const out = new Uint8Array(this.snapshots.get(from) ?? this.base)
-    this.replay(out, this.layerStack, from, n, true)
+    const out = new Uint8Array(this.bytes())
+    let k = this.layerStack.length
+    while (k > n) {
+      const top = this.applied.get(k - 1)!
+      revert(out, top.replaced)
+      k = top.from
+    }
+    this.replay(out, this.layerStack, k, n, false) // what remains of a restored run
     return out
   }
 
   /**
    * Replay `layers[from, to)` onto `out`. A run of consecutive gfx layers
-   * folds into ONE pass. With `record`, the indices are stack indices: a
-   * snapshot is kept where each run begins, and what each word layer
-   * overwrote, and word layers are validated as `append` would.
+   * folds into ONE pass. With `record`, the indices are stack indices, word
+   * layers are validated as `append` would, and what each layer or run
+   * replaced is recorded.
    */
   private replay(
     out: Uint8Array,
@@ -376,42 +386,52 @@ export class WorkingRom {
     record: boolean,
   ): void {
     let run: GfxCharEdit[] = []
-    const flush = (): void => {
-      if (run.length > 0) this.fold(out, run)
+    let runFrom = from
+    const flush = (end: number): void => {
+      if (run.length === 0) return
+      const replaced = this.fold(out, run)
+      if (record) this.applied.set(end - 1, { from: runFrom, replaced })
       run = []
     }
     for (let i = from; i < to; i++) {
       const layer = layers[i]!
       if (layer.kind === 'gfx') {
-        if (record && run.length === 0 && !this.snapshots.has(i)) {
-          this.snapshots.set(i, new Uint8Array(out))
-        }
+        if (run.length === 0) runFrom = i
         run.push(layer)
         continue
       }
-      flush()
-      this.applyWords(out, layer, i, record)
+      flush(i)
+      const replaced = this.applyWords(out, layer, record)
+      if (record) this.applied.set(i, { from: i, replaced })
     }
-    flush()
+    flush(to)
   }
 
-  private fold(out: Uint8Array, run: readonly GfxCharEdit[]): void {
-    this.gfxBase ??= readGfxBase(this.base)
-    foldGfxRun(out, this.hasHeader, this.gfxBase, run, this.options.gfxEncoder ?? encode)
+  private gfx(): GfxBase {
+    return (this.gfxBase ??= readGfxBase(this.base))
+  }
+
+  private fold(out: Uint8Array, run: readonly GfxCharEdit[]): Overwritten[] {
+    return foldGfxRun(out, this.hasHeader, this.gfx(), run, this.options.gfxEncoder ?? encode)
   }
 
   /**
-   * Apply a word layer at stack index `k`. With `check`, it first throws
-   * unless every op still matches `out`, and records what it overwrites so
-   * an undo can put it back without a replay.
+   * Apply a word layer and return what it overwrote. With `check`, it first
+   * throws unless every op still matches `out` and lands outside the bytes a
+   * gfx layer rewrites.
    */
-  private applyWords(out: Uint8Array, layer: Layer, k: number, check: boolean): void {
+  private applyWords(out: Uint8Array, layer: Layer, check: boolean): Overwritten[] {
     if (layer.kind === 'unreadable') throw new Error(layer.reason)
     if (layer.kind === 'gfx') throw new Error('a gfx layer is not a word layer')
     const offsets = layer.ops.map(op => {
       const offset = opFileOffset(op, this.romSize, this.hasHeader)
       if (offset === null) throw new Error(`address ${op.address} is outside the ROM`)
       if (!check) return offset
+      if (this.gfx().guarded.some(([s, e]) => offset < e && offset + 2 > s)) {
+        throw new Error(
+          `${op.address} is in the GFX arena or its pointer tables, which the next gfx layer rewrites`,
+        )
+      }
       const mask = op.mask ?? BGR555_MASK
       const current = readBgr555Word(out, offset) & mask
       const expected = parseBgr555Word(op.old) & mask
@@ -424,11 +444,16 @@ export class WorkingRom {
       parseBgr555Word(op.new) // validated eagerly so a bad layer never reaches the stack
       return offset
     })
-    const overwritten: Overwritten[] = []
-    layer.ops.forEach((op, i) => {
-      overwritten.push([offsets[i]!, out[offsets[i]!]!, out[offsets[i]! + 1]!])
+    return layer.ops.map((op, i) => {
+      const at = offsets[i]!
+      const old = out.slice(at, at + 2)
       applyOp(out, op, this.romSize, this.hasHeader)
+      return { at, old }
     })
-    if (check) this.overwritten.set(k, overwritten)
   }
+}
+
+/** Undo `replaced`, last write first: two writes to one address must unwind in order. */
+function revert(out: Uint8Array, replaced: readonly Overwritten[]): void {
+  for (let i = replaced.length - 1; i >= 0; i--) out.set(replaced[i]!.old, replaced[i]!.at)
 }

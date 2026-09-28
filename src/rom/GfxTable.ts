@@ -122,23 +122,29 @@ export class GfxTable {
     )
   }
 
-  setPixel(op: GfxPixelOp): SetPixelResult {
-    const f = this.files[op.file]
-    if (!f) return { status: 'refused', reason: `there is no GFX file ${op.file}` }
+  /** Whether `tile` of `file` exists and can be painted at all. */
+  checkTile(file: number, tile: number): SetPixelResult {
+    const f = this.files[file]
+    if (!f) return { status: 'refused', reason: `there is no GFX file ${file}` }
     if (f.bpp === null) {
       return {
         status: 'refused',
-        reason: `GFX ${op.file} is read-only until a depth is asserted: ${f.depthUnknown ?? `${f.bytes.length} bytes fits no tile size`}`,
+        reason: `GFX ${file} is read-only until a depth is asserted: ${f.depthUnknown ?? `${f.bytes.length} bytes fits no tile size`}`,
       }
     }
-    if (!Number.isInteger(op.tile) || op.tile < 0 || op.tile >= f.tileCount) {
-      return {
-        status: 'refused',
-        reason: `GFX ${op.file} has ${f.tileCount} tiles, not tile ${op.tile}`,
-      }
+    if (!Number.isInteger(tile) || tile < 0 || tile >= f.tileCount) {
+      return { status: 'refused', reason: `GFX ${file} has ${f.tileCount} tiles, not tile ${tile}` }
     }
+    return { status: 'ok' }
+  }
+
+  setPixel(op: GfxPixelOp): SetPixelResult {
+    const checked = this.checkTile(op.file, op.tile)
+    if (checked.status === 'refused') return checked
+    const f = this.files[op.file]!
+    const bpp = f.bpp! // checkTile refused a null depth
     try {
-      setTilePixel(f.bytes, op.tile * bytesPerTile(f.bpp), f.bpp, op.x, op.y, op.value)
+      setTilePixel(f.bytes, op.tile * bytesPerTile(bpp), bpp, op.x, op.y, op.value)
     } catch (err) {
       return { status: 'refused', reason: (err as Error).message }
     }

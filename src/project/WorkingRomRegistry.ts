@@ -282,7 +282,12 @@ export class WorkingRomRegistry {
     if (r.status !== 'ok') return r
     const { working, project } = r
 
-    const layer = working.undo()
+    let layer: Layer | undefined
+    try {
+      layer = working.undo() // refuses when the stack below cannot be built on its own
+    } catch (err) {
+      return { status: 'stale', reason: (err as Error).message }
+    }
     if (!layer) return { status: 'ok', ...stateOf(working) }
 
     try {

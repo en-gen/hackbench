@@ -13,8 +13,14 @@
  * folding a run and applying its characters one at a time agree.
  */
 import { RomFile } from './RomFile'
-import { COPIER_HEADER_SIZE } from './addressing'
-import { checkStockCompression, layoutArena, readGfxFileTable } from './GfxArena'
+import { COPIER_HEADER_SIZE, loromToOffset } from './addressing'
+import {
+  GFX_FILE_COUNT,
+  checkStockCompression,
+  layoutArena,
+  planRegions,
+  readGfxFileTable,
+} from './GfxArena'
 import { GfxEncoder, GfxTable, encodeChecked } from './GfxTable'
 import { encode } from './LcLz2'
 
@@ -53,22 +59,50 @@ export interface GfxBase {
   rom: RomFile
   /** Each file's stream in the base; empty where it cannot be read. */
   templates: Uint8Array[]
+  /**
+   * Buffer-absolute `[start, end)` ranges a fold rewrites: every region's
+   * whole capacity and the three pointer tables. A word write there would be
+   * silently undone by the next gfx layer. Empty when no gfx layer can apply.
+   */
+  guarded: [number, number][]
 }
 
 export function readGfxBase(base: Uint8Array): GfxBase {
   const rom = view(base)
-  const templates = readGfxFileTable(rom).map(f =>
+  const table = readGfxFileTable(rom)
+  const templates = table.map(f =>
     f.offset !== null && f.terminated
       ? new Uint8Array(rom.readAtFileOffset(f.offset, f.byteLength)!)
       : new Uint8Array(0),
   )
-  return { rom, templates }
+  const gate = checkStockCompression(rom)
+  const hdr = rom.hasHeader ? COPIER_HEADER_SIZE : 0
+  const guarded: [number, number][] = []
+  if (gate.ok) {
+    for (const r of planRegions(rom, table))
+      guarded.push([hdr + r.start, hdr + r.start + r.capacity])
+    for (const site of [gate.sites.lo, gate.sites.hi, gate.sites.bank]) {
+      const o = loromToOffset(site, rom.romSize)
+      if (o !== null) guarded.push([hdr + o, hdr + o + GFX_FILE_COUNT])
+    }
+  }
+  return { rom, templates, guarded }
+}
+
+/** Bytes a write replaced: putting `old` back at `at` undoes it. */
+export interface Overwritten {
+  /** Buffer-absolute. */
+  at: number
+  old: Uint8Array
 }
 
 /**
- * Apply `edits`, in order, to `out` in place. Throws GfxRefusal, leaving
- * `out` untouched, for a replaced decompressor, an unknown bit depth, a bad
- * pixel, a stream that does not round trip, or an arena that overflows.
+ * Apply `edits`, in order, to `out` in place, and return what the writes
+ * replaced (only the span of each write that actually changed). Throws
+ * GfxRefusal, leaving `out` untouched, for a replaced decompressor, a missing
+ * file or character, an unknown bit depth, a bad pixel, a stream that does
+ * not round trip, a file the working copy cannot read, or an arena that
+ * overflows.
  */
 export function foldGfxRun(
   out: Uint8Array,
@@ -76,7 +110,7 @@ export function foldGfxRun(
   base: GfxBase,
   edits: readonly GfxCharEdit[],
   encoder: GfxEncoder = encode,
-): void {
+): Overwritten[] {
   const rom = view(out)
   const gate = checkStockCompression(rom)
   if (!gate.ok) throw new GfxRefusal(gate.reason)
@@ -84,6 +118,8 @@ export function foldGfxRun(
   const table = GfxTable.load(rom)
   const order: number[] = [] // dirty files, first touched first
   for (const e of edits) {
+    const t = table.checkTile(e.file, e.tile)
+    if (t.status === 'refused') throw new GfxRefusal(`GFX ${e.file} char ${e.tile}: ${t.reason}`)
     for (const p of e.pixels) {
       const r = table.setPixel({ kind: 'gfxPixel', file: e.file, tile: e.tile, ...p })
       if (r.status === 'refused') throw new GfxRefusal(`GFX ${e.file} char ${e.tile}: ${r.reason}`)
@@ -102,5 +138,15 @@ export function foldGfxRun(
   if (plan.status === 'overflow') throw new GfxRefusal(plan.reason, plan.overage)
   if (plan.status !== 'ok') throw new GfxRefusal(plan.reason)
   const at = hasHeader ? COPIER_HEADER_SIZE : 0 // ArenaWrite.offset excludes the copier header
-  for (const w of plan.plan.writes) out.set(w.bytes, at + w.offset)
+  const replaced: Overwritten[] = []
+  for (const w of plan.plan.writes) {
+    const p = at + w.offset
+    let i = 0
+    let j = w.bytes.length - 1
+    while (i <= j && out[p + i] === w.bytes[i]) i++
+    while (j >= i && out[p + j] === w.bytes[j]) j--
+    if (i <= j) replaced.push({ at: p + i, old: out.slice(p + i, p + j + 1) })
+    out.set(w.bytes, p)
+  }
+  return replaced
 }

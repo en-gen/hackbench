@@ -16,7 +16,7 @@ import { GFX_FILE_COUNT, readGfxFileTable } from '../../../src/rom/GfxArena'
 import { GfxTable, planGfxSave } from '../../../src/rom/GfxTable'
 import { setTilePixel } from '../../../src/rom/GraphicsDecoder'
 import { RomFile } from '../../../src/rom/RomFile'
-import { COPIER_HEADER_SIZE, loromToOffset } from '../../../src/rom/addressing'
+import { COPIER_HEADER_SIZE, loromFromOffset, loromToOffset } from '../../../src/rom/addressing'
 import { GfxCharEdit, GfxRefusal, foldGfxRun, readGfxBase } from '../../../src/rom/GfxLayer'
 import { GfxLayer, Layer, OpsLayer, WorkingRom } from '../../../src/project/WorkingRom'
 import { appendLayer, loadLayers } from '../../../src/project/OpsStore'
@@ -301,6 +301,39 @@ describe('undo and redo', () => {
     expect(sameBytes(w.bytes(), withC)).toBe(true)
   })
 
+  // Both ops check against the bytes before the layer, so the second
+  // overwrites the first; undo must put them back last-first.
+  it('undoes a word layer that writes one address twice', () => {
+    const base = romBytes()
+    const w = build(base, [
+      {
+        id: 'twice',
+        label: 'twice',
+        ops: [
+          { address: '$00F000', old: '$0000', new: '$0001' },
+          { address: '$00F000', old: '$0000', new: '$0002' },
+        ],
+      },
+    ])
+    w.undo()
+    expect(sameBytes(w.bytes(), base)).toBe(true)
+  })
+
+  it('refuses a word write where a gfx layer would later overwrite it', () => {
+    const base = romBytes()
+    const used = streamsFor().reduce((n, s) => n + s.length, 0)
+    const word = (offset: number): OpsLayer => {
+      const snes = loromFromOffset(offset)!
+      const at = `$${snes.toString(16).padStart(6, '0')}`
+      const old = `$${(base[offset]! | (base[offset + 1]! << 8)).toString(16)}`
+      return { id: at, label: at, ops: [{ address: at, old, new: '$0000', mask: 0xffff }] }
+    }
+    for (const offset of [ARENA_AT + 10, ARENA_AT + used + 20, (TABLE_BANK & 0x7fff) + 3]) {
+      expect(() => build(base, [word(offset)])).toThrow(/GFX/)
+    }
+    expect(build(base, [word(0x7000)]).stack).toHaveLength(1)
+  })
+
   it('planted: the checker sees an undo that restored nothing', () => {
     const base = romBytes()
     const before = build(base, [A, C]).bytes()
@@ -393,6 +426,44 @@ describe('refusals leave the stack and the cache untouched', () => {
     expect(sameBytes(out, base)).toBe(true)
   })
 
+  // An empty stream is truthy, so a file the working copy cannot read was
+  // laid out as zero bytes and the next file took its place.
+  it('a file the working copy cannot read back', () => {
+    const base = romBytes()
+    const out = new Uint8Array(base)
+    out[(TABLE_BANK & 0x7fff) + 5] = 0x7e // file 5 now points at WRAM
+    const before = new Uint8Array(out)
+    expect(() => foldGfxRun(out, false, readGfxBase(base), [asEdit(A)])).toThrow(/GFX file 5/)
+    expect(sameBytes(out, before)).toBe(true)
+  })
+
+  it.each([
+    ['a file that does not exist', gfx(99, 0, [])],
+    ['a character past the end of the file', gfx(2, 99, [])],
+  ])('%s, even with no pixels', (_name, layer) => {
+    expect(() => new WorkingRom(romBytes(), false).append(layer)).toThrow(GfxRefusal)
+  })
+
+  // restore folds a run as a whole, so a run whose first layer could not
+  // stand alone is accepted; undoing the second must not leave a stack that
+  // cannot be built.
+  it('an undo into a run that cannot be built refuses, and keeps the layer', () => {
+    const base = romBytes({ filler: 0, files: flat })
+    const back = gfx(
+      0,
+      0,
+      noisyPixels.map(([x, y]) => [x, y, 0]),
+    )
+    const w = new WorkingRom(base, false)
+    w.restore([noisy, back])
+    const before = w.bytes()
+    expect(sameBytes(before, base)).toBe(true)
+    expect(() => w.undo()).toThrow(GfxRefusal)
+    expect(w.stack).toEqual([noisy, back])
+    expect(w.redoStack).toHaveLength(0)
+    expect(w.bytes()).toBe(before)
+  })
+
   it('planted: each refusal fixture is accepted once its one defect is removed', () => {
     for (const [base, layer] of [
       [romBytes({ files: flat }), noisy],
@@ -424,6 +495,7 @@ describe('OpsStore persists a gfx layer', () => {
     ['a fractional file number', (t: string) => t.replace(/"file": \d+/, '"file": 2.5')],
     ['a missing character number', (t: string) => t.replace(/ {2}"tile": \d+,\n/, '')],
     ['pixels that are not a list', (t: string) => t.replace(/"pixels": \[[^\]]*\]/, '"pixels": 3')],
+    ['no pixels at all', (t: string) => t.replace(/"pixels": \[[^\]]*\]/, '"pixels": []')],
   ])('refuses a layer file with %s', (_name, damage) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-gfxops-'))
     try {

@@ -378,25 +378,31 @@ describe('WorkingRomRegistry', () => {
 
     // ops/redo/ is not validated on open for word layers (a stale one opens
     // and refuses on redo). A damaged gfx layer there gets the same policy.
-    it('opens with a damaged gfx layer in ops/redo/, and refuses only that redo', () => {
+    it.each([
+      ['a bad shape', (t: string) => t.replace('"x":0', '"x":0.5'), /gfx layer/],
+      ['truncated JSON', (t: string) => t.slice(0, 40), /0000\.json/],
+    ])('opens with a gfx layer in ops/redo/ that has %s, and refuses only that redo', (...c) => {
+      const [, damage, reason] = c
       const { manifestPath, dir } = gfxProject()
       pushRedoLayer(dir, gfxLayer('bad', 1))
       const file = path.join(dir, 'ops', 'redo', '0000.json')
-      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('"x":0', '"x":0.5'))
+      fs.writeFileSync(file, damage(fs.readFileSync(file, 'utf8')))
 
       expect(working.get(manifestPath).status).toBe('ok')
       expect(working.editStack(manifestPath)).toMatchObject({ canRedo: true })
       const r = working.redo(manifestPath)
       expect(r.status).toBe('stale')
-      expect(r.status === 'stale' && r.reason).toMatch(/gfx layer/)
+      expect(r.status === 'stale' && r.reason).toMatch(reason)
       expect(opened(manifestPath).w.stack).toHaveLength(0)
     })
 
-    it('reopens 40 gfx and 40 word layers with one table decode per gfx run', () => {
+    // Runs of ten, so replaying per layer (40 decodes) and per run (4) differ.
+    it('reopens 4 runs of 10 gfx layers with one table decode per run', () => {
       const { manifestPath, dir } = gfxProject()
       for (let i = 0; i < 40; i++) {
         appendLayer(dir, { ...gfxLayer(`g${i}`, 1 + (i % 7)), file: i })
-        const [o, n] = [i, i + 1].map(v => `$${v.toString(16)}`)
+        if (i % 10 !== 9) continue
+        const [o, n] = [(i - 9) / 10, (i + 1) / 10].map(v => `$${v.toString(16)}`)
         appendLayer(dir, {
           id: `p${i}`,
           label: 'p',
@@ -406,7 +412,7 @@ describe('WorkingRomRegistry', () => {
       const loads = vi.spyOn(GfxTable, 'load')
       try {
         expect(new WorkingRomRegistry(romRegistry).get(manifestPath).status).toBe('ok')
-        expect(loads).toHaveBeenCalledTimes(40)
+        expect(loads).toHaveBeenCalledTimes(4)
       } finally {
         loads.mockRestore()
       }
