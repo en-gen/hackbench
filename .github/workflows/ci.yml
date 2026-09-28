@@ -78,6 +78,16 @@ jobs:
       - name: Unit tests with coverage
         run: npm run test:unit -- --coverage
 
+      # Runs when the tests FAIL too: that is the run worth having. Informational
+      # only; Codecov being down never reds CI.
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/lcov.info
+          fail_ci_if_error: false
+
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v7
         with:
