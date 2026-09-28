@@ -29,9 +29,16 @@ import { EditStackContribution } from './edit-stack-contribution'
 import { ReconnectContribution } from './reconnect-contribution'
 import { OutlineViewContribution } from '@theia/outline-view/lib/browser/outline-view-contribution'
 import { HiddenOutlineViewContribution } from './hidden-outline-view-contribution'
+import { CommonFrontendContribution } from '@theia/core/lib/browser/common-frontend-contribution'
+import { ThemeService } from '@theia/core/lib/browser/theming'
+import { SystemColorThemePicker, SystemThemeService } from './system-color-theme'
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   rebind(OutlineViewContribution).to(HiddenOutlineViewContribution).inSingletonScope()
+
+  // System Default color theme option (#665, #666).
+  rebind(ThemeService).to(SystemThemeService).inSingletonScope()
+  rebind(CommonFrontendContribution).to(SystemColorThemePicker).inSingletonScope()
 
   bind(ProjectFrontendClient).toSelf().inSingletonScope()
 
