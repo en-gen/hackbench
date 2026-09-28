@@ -28,6 +28,7 @@ import { BytePattern, WILD, findPattern, matchesAt } from './BytePattern'
 import { loromToOffset } from './addressing'
 import { decodeTilesBatch, PIXELS_PER_TILE } from './GraphicsDecoder'
 import { tryDecompress } from './LcLz2'
+import { FAST_LCLZ2, type FastRoutine, commandRefusal } from './GfxDecompressor'
 import { hex2 } from './hex'
 import {
   CompressionCheck,
@@ -375,8 +376,12 @@ export function levelGfxAssignmentNote(rom: RomFile): string | undefined {
  * the decompressor is refused outright: decoding its data as LC_LZ2 yields
  * a sheet of plausible garbage.
  */
-export function readGfxFile(rom: RomFile, fileIndex: number): GfxRead {
-  const source = gfxSource(rom)
+export function readGfxFile(
+  rom: RomFile,
+  fileIndex: number,
+  fast: readonly FastRoutine[] = FAST_LCLZ2,
+): GfxRead {
+  const source = fast === FAST_LCLZ2 ? gfxSource(rom) : checkStockCompression(rom, fast)
   if (!source.ok) return source
   if (!Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex >= GFX_FILE_COUNT) {
     return { ok: false, reason: `there is no GFX file ${fileIndex}` }
@@ -389,6 +394,8 @@ export function readGfxFile(rom: RomFile, fileIndex: number): GfxRead {
   if (!compressed) {
     return { ok: false, reason: `GFX file $${hex2(fileIndex)} points outside the ROM` }
   }
+  const refused = commandRefusal(source.kind, compressed)
+  if (refused) return { ok: false, reason: `GFX file $${hex2(fileIndex)}: ${refused}` }
   return tryDecompress(compressed)
 }
 

@@ -1,22 +1,33 @@
 /**
  * Lunar Magic's stored translevel table on synthetic ROMs: each layout reads,
  * translevels come from the table rather than a count, every pinned byte of
- * the walk entry is load-bearing, and a replaced decompressor refuses.
+ * the walk entry is load-bearing, the two recognized replacement decompressors
+ * read (the key applied, fast-only commands refused), and any other refuses.
  */
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { encode } from '../../../src/rom/LcLz2'
-import { DECOMPRESSOR } from '../../../src/rom/LmTranslevelTable'
 import { ENTER_COMPARE, deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
 import { WILD } from '../../../src/rom/BytePattern'
-import { blankStockRom, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
+import { STOCK_LCLZ2_ENTRY } from '../../../src/rom/GfxDecompressor'
+import { blankStockRom, flip, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
+import {
+  DECOMP_ENTRY,
+  FAST_DIVERGENT_COMMANDS,
+  PRELUDE_KEY_BYTES,
+  plantFast,
+  plantPrelude,
+  syntheticRoutine,
+  xorPrelude,
+} from '../support/syntheticGfxCart'
 
 const ENTRY = 0x04d7f2
 const TABLE_AT = 0x0e8000
 
 /** The walk entry as Lunar Magic lays it out, from its parts; `pinned` marks bytes the reader checks. */
-function lmEntry(bankFirst: boolean, blocks: 1 | 2, fastRom = false) {
+function lmEntry(bankFirst: boolean, blocks: 1 | 2, fastRom = false, key = 0) {
   const bytes: number[] = []
   const pinned: boolean[] = []
   const put = (b: number[], pin = true): void => {
@@ -44,28 +55,59 @@ function lmEntry(bankFirst: boolean, blocks: 1 | 2, fastRom = false) {
     put([0x08, 0x4b, 0x62, 0x06, 0x00, 0xf4, 0x4c, 0x80, 0x5c, 0xde, 0xb8, fastRom ? 0x80 : 0, 0x28])
   put([0xc2, 0x30, 0xa9, 0x00, 0x00, 0xe2, 0x20])
   put([0xa2, 0x00, 0xd0, 0x86, 0x00, 0xa9, 0x7e, 0x85, 0x02])
-  source(TABLE_AT)
+  source(TABLE_AT ^ key)
   call()
   if (blocks === 2) {
     put([0xa2, 0x00, 0xc8, 0x86, 0x00, 0xa9, 0x7f, 0x85, 0x02])
-    source(TABLE_AT)
+    source(TABLE_AT ^ key)
     call()
   }
   put([0x80, 0x10])
   return { bytes, pinned }
 }
 
-function build(table: Uint8Array, entry = lmEntry(false, 2)): RomFile {
+const PRELUDE_AT = 0x018000
+const FAST_AT = 0x019000
+const FAST_LENGTH = 0x1bc
+/** CODE_00B8DE's $AF-byte body from entry+5: the stock entry's tail, then arithmetic. */
+const BODY_AT = DECOMP_ENTRY + 5
+const BODY = [...STOCK_LCLZ2_ENTRY.slice(5), ...syntheticRoutine(0xaf - 5, 3).bytes]
+const KNOWN = {
+  stockBody: [createHash('sha256').update(Buffer.from(BODY)).digest('hex')],
+  fast: [{ length: FAST_LENGTH, fingerprint: syntheticRoutine(FAST_LENGTH).sha }],
+}
+
+interface Decomp {
+  /** The prelude's key; the caller's operand is keyed with `stored`. */
+  key?: number
+  stored?: number
+  fast?: boolean
+  /** The stored stream as is, in place of `table` encoded. */
+  raw?: number[]
+}
+
+function build(
+  table: Uint8Array,
+  entry?: ReturnType<typeof lmEntry>,
+  { key, stored = key, fast, raw }: Decomp = {},
+): RomFile {
+  entry ??= lmEntry(false, 2, false, stored)
   const rom = blankStockRom()
   rom.writeAt(ENTRY, entry.bytes)
   rom.writeAt(ENTRY + entry.bytes.length + 0x10, [0x64, 0x0f, 0x20, 0x49, 0xda])
   rom.writeAt(0x00804d, [0x6b])
-  rom.writeAt(DECOMPRESSOR.addr, Buffer.alloc(DECOMPRESSOR.length, 0xea))
-  rom.writeAt(TABLE_AT, [...encode(table)])
+  rom.writeAt(DECOMP_ENTRY, STOCK_LCLZ2_ENTRY)
+  rom.writeAt(BODY_AT, BODY)
+  if (key !== undefined) plantPrelude(rom, PRELUDE_AT, key)
+  if (fast) plantFast(rom, FAST_AT, FAST_LENGTH)
+  rom.writeAt(TABLE_AT, raw ?? [...encode(table)])
   return rom
 }
 const derive = (rom: RomFile) =>
-  deriveOverworldEntrances(new SmwRom(rom), undefined, SYNTHETIC_FINGERPRINTS)
+  deriveOverworldEntrances(new SmwRom(rom), undefined, {
+    ...SYNTHETIC_FINGERPRINTS,
+    decompressor: KNOWN,
+  })
 const tableOf = (entries: Record<number, number>): Uint8Array => {
   const t = new Uint8Array(0x1000)
   for (const [i, tl] of Object.entries(entries)) t[Number(i)] = tl
@@ -138,13 +180,80 @@ describe('deriveOverworldEntrances: Lunar Magic stored translevels', () => {
     expect(derive(rom).overworldReadable).toBe(false)
   })
 
-  it('refuses a replaced decompressor, naming its site', () => {
-    const rom = build(tableOf({ 0x01: 1 }))
-    rom.writeAt(DECOMPRESSOR.addr, [0x22])
+  it('reads through the XOR prelude, for two keys, and only with the key it holds', () => {
+    const t = tableOf({ 0x10: 3, 0x420: 0x30 })
+    for (const key of [0x0300, 0x5aa5]) {
+      expect(walked(build(t, undefined, { key })), `key ${key}`).toEqual([
+        [0x10, 3, 0x003],
+        [0x420, 0x30, 0x10c],
+      ])
+    }
+    expect(derive(build(t, undefined, { key: 0x5aa5, stored: 0x0300 })).overworldReadable).toBe(
+      false,
+    )
+  })
+
+  it('reads through the fast routine, and behind the prelude', () => {
+    const t = tableOf({ 0x07: 9 })
+    expect(walked(build(t, undefined, { fast: true }))).toEqual([[0x07, 9, 0x009]])
+    expect(walked(build(t, undefined, { fast: true, key: 0x0300 }))).toEqual([[0x07, 9, 0x009]])
+  })
+
+  it.each(FAST_DIVERGENT_COMMANDS)(
+    'refuses %s on the fast routine and reads it on stock',
+    (_, command) => {
+      // A literal, the command (a copy on stock), then the table.
+      const raw = [0x00, 0x11, ...command, ...encode(tableOf({ 0x07: 9 }))]
+      expect(derive(build(new Uint8Array(), undefined, { raw })).overworldReadable).toBe(true)
+      const fast = derive(build(new Uint8Array(), undefined, { raw, fast: true }))
+      expect(fast.overworldReadable).toBe(false)
+      expect(fast.notes[0]).toMatch(/reads differently from stock/)
+    },
+  )
+
+  it.each([
+    ['an entry JSL to something else', { key: 0x0300 }, PRELUDE_AT, /\$00B8DE.*calls \$018000/],
+    ['a JSL body that is not a known routine', { fast: true }, FAST_AT, /calls \$019000/],
+    ['a stock entry with another body', {}, BODY_AT, /\$00B8DE.*unrecognized body/],
+    [
+      'a stock entry with an unknown build',
+      {},
+      BODY_AT + 0x20,
+      /the translevel decompressor at \$00B8DE .*body is not a recognized build/,
+    ],
+  ] as const)('refuses %s, naming it', (_what, opts, at, reason) => {
+    const rom = build(tableOf({ 0x01: 1 }), undefined, opts)
+    flip(rom, at)
     const result = derive(rom)
     expect(result.overworldReadable).toBe(false)
-    expect(result.notes[0]).toContain('$00B8DE')
+    expect(result.notes[0]).toMatch(reason)
+    // Only the translevel table is refused; this check says nothing about GFX.
+    if (at === BODY_AT + 0x20) expect(result.notes[0]).not.toMatch(/GFX/)
   })
+
+  // Every pinned byte on each accepted build: entry, prelude less its key, stock body, fast body.
+  type Case = [what: string, opts: Decomp, at: number]
+  const span = (what: string, opts: Decomp, at: number, n: number, skip: number[] = []): Case[] =>
+    [...Array(n).keys()].filter(i => !skip.includes(i)).map(i => [what, opts, at + i])
+  const keyed = { key: 0x0300 }
+  const sweep: Case[] = [
+    ...span('stock', {}, DECOMP_ENTRY, 5 + 0xaf),
+    ...span('keyed', keyed, DECOMP_ENTRY, 5),
+    ...span('keyed', keyed, PRELUDE_AT, xorPrelude(0).length, PRELUDE_KEY_BYTES),
+    ...span('keyed', keyed, BODY_AT, 0xaf),
+    ...span('fast', { fast: true }, BODY_AT, 5),
+    ...span('fast', { fast: true }, FAST_AT, FAST_LENGTH),
+  ]
+  it('refuses with any pinned decompressor byte flipped', () => {
+    const survived = sweep.flatMap(([what, opts, at]) => {
+      const rom = build(tableOf({ 0x01: 1 }), undefined, opts)
+      if (!derive(rom).overworldReadable) return [`${what} unflipped refused`]
+      flip(rom, at)
+      return derive(rom).overworldReadable ? [`${what} $${at.toString(16)}`] : []
+    })
+    expect(sweep.length).toBe(0xb4 + 5 + 15 + 0xaf + 5 + FAST_LENGTH)
+    expect(survived).toEqual([])
+  }, 30_000) // ~800 derives; the default 5 s is too tight under a full parallel run
 
   it('refuses a table shorter than the $800 tiles', () => {
     const rom = build(new Uint8Array(0x7ff))

@@ -13,6 +13,7 @@ import { spawnSync, type SpawnOptions } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { fileURLToPath } from 'url'
 import { appDataDir } from '../../../src/project/appData'
 import { RecentProjects, defaultRecentPath } from '../../../src/project/RecentProjects'
 import { defaultRegistryPath } from '../../../src/project/RomRegistry'
@@ -26,6 +27,11 @@ const { backendSpawnArgs } = nodeRequire(path.join(BROWSER_APP, 'test/own-backen
 const { prepareTestServer, MARKER } = nodeRequire(
   path.join(BROWSER_APP, 'test/start-test-server.cjs'),
 )
+// Theia is installed only locally and in CI's theia-typecheck job, which sets
+// HB_REQUIRE_THEIA so a missing install fails there instead of skipping.
+const SKIP_THEIA =
+  !process.env.HB_REQUIRE_THEIA &&
+  !fs.existsSync(path.resolve(BROWSER_APP, '../node_modules/@theia/core'))
 
 const ENV_KEYS = [
   'APPDATA',
@@ -76,6 +82,34 @@ const isUnder = (child: string, parent: string) => {
   const rel = path.relative(parent, child)
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
 }
+
+/** Output of `script` run by a child process spawned with these options. */
+function inChild(options: SpawnOptions, script: string): string {
+  const r = spawnSync(process.execPath, ['-e', script], {
+    ...options,
+    stdio: 'pipe',
+    encoding: 'utf8',
+  })
+  if (r.status !== 0) throw new Error(String(r.stderr))
+  return String(r.stdout)
+}
+
+/**
+ * The config dir Theia's own code resolves for a backend spawned with these
+ * options (@theia/core/lib/node/env-variables/env-variables-server.js,
+ * createConfigDirUri).
+ */
+function theiaResolves(options: SpawnOptions): string {
+  const uri = inChild(
+    { cwd: BROWSER_APP, ...options },
+    `require('@theia/core/lib/node/backend-application-config-provider').BackendApplicationConfigProvider.set({});
+     require('@theia/core/lib/node/env-variables/env-variables-server').EnvVariablesServerImpl.prototype
+       .createConfigDirUri.call({ pathExistenceCache: {} }).then(u => process.stdout.write(u))`,
+  )
+  return fileURLToPath(uri)
+}
+
+const samePath = (a: string, b: string) => path.relative(a, b) === ''
 
 interface Harness {
   setup(): void
@@ -147,21 +181,45 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
   })
 
   it('the webServer and own-backend servers inherit the per-run folder', () => {
+    // A user who exports THEIA_CONFIG_DIR for their own setup must not keep it.
+    process.env.THEIA_CONFIG_DIR = path.join(fakeHome, '.theia')
     const { config } = loadConfig()
     const root = process.env.HB_TEST_APPDATA!
     expect(config.webServer.reuseExistingServer).toBe(false)
     const wsEnv = config.webServer.env ?? {}
-    for (const k of ['APPDATA', 'XDG_DATA_HOME', 'HB_TEST_APPDATA'])
+    for (const k of ['APPDATA', 'XDG_DATA_HOME', 'HB_TEST_APPDATA', 'THEIA_CONFIG_DIR'])
       expect(wsEnv).not.toHaveProperty(k)
+    const t = path.join(root, 'theia-config')
     // Playwright's own merge for the webServer process.
-    expect(childEnv({ env: { ...process.env, ...wsEnv } })).toMatchObject({ a: root, x: root })
+    expect(childEnv({ env: { ...process.env, ...wsEnv } })).toEqual({ a: root, x: root, t })
     const [, , options] = backendSpawnArgs(3999)
-    expect(childEnv(options)).toMatchObject({ a: root, x: root })
+    expect(childEnv(options)).toEqual({ a: root, x: root, t })
   })
+
+  it.skipIf(SKIP_THEIA)(
+    "Theia's own resolution puts both servers' config dir under the run's folder",
+    () => {
+      const { config } = loadConfig()
+      const t = path.join(process.env.HB_TEST_APPDATA!, 'theia-config')
+      const ws = { env: { ...process.env, ...(config.webServer.env ?? {}) } }
+      expect(samePath(theiaResolves(ws), t)).toBe(true)
+      expect(samePath(theiaResolves(backendSpawnArgs(3999)[2]), t)).toBe(true)
+      // Unset, Theia falls back to the user's ~/.theia: what the isolation prevents.
+      const unset = { ...ws.env }
+      delete unset.THEIA_CONFIG_DIR
+      expect(samePath(theiaResolves({ env: unset }), path.join(fakeHome, '.theia'))).toBe(true)
+    },
+    // Three node children each load @theia/core; 5 s timed out once under load.
+    30_000,
+  )
 
   it("a worker reloading the config shares the runner's folder and does not delete it", () => {
     const runner = loadConfig().iso
     const root = process.env.HB_TEST_APPDATA!
+    // The owner file keeps a run lasting over a day safe from another run's sweep.
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'hb-owner.json'), 'utf8')).pid).toBe(
+      process.pid,
+    )
     const worker = loadConfig().iso
     expect(process.env.HB_TEST_APPDATA).toBe(root)
     worker.cleanupAppData()
@@ -194,6 +252,7 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
     process.env.HB_TEST_APPDATA = root
     loadConfig().iso.cleanupAppData()
     expect(appDataDir()).toBe(path.join(root, 'hackbench'))
+    expect(childEnv(backendSpawnArgs(3999)[2]).t).toBe(path.join(root, 'theia-config'))
     expect(fs.existsSync(root)).toBe(true)
   })
 
@@ -203,34 +262,49 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
       expect(isUnder(root, os.tmpdir())).toBe(true)
       expect(JSON.parse(fs.readFileSync(path.join(root, MARKER), 'utf8')).port).toBe(3999)
       const [, , options] = backendSpawnArgs(3999, { env })
-      const seen = childEnv(options)
-      expect(seen).toMatchObject({ a: root, x: root })
-      expect(isUnder(seen.t!, root)).toBe(true)
+      expect(childEnv(options)).toEqual({ a: root, x: root, t: path.join(root, 'theia-config') })
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
   })
 
   it('stale per-run folders older than a day are swept, and nothing else', () => {
-    const mk = (name: string, ageDays: number) => {
+    const mk = (name: string, ageDays: number, pid?: number, file = MARKER) => {
       const p = path.join(os.tmpdir(), name)
       fs.mkdirSync(p, { recursive: true })
+      if (pid !== undefined) fs.writeFileSync(path.join(p, file), JSON.stringify({ port: 1, pid }))
       const t = Date.now() / 1000 - ageDays * 86400
       fs.utimesSync(p, t, t)
       return p
     }
-    const stale = mk(`hb-appdata-stale${process.pid}`, 2)
-    const fresh = mk(`hb-appdata-fresh${process.pid}`, 0)
-    const other = mk(`hb-other-old${process.pid}`, 2)
+    const all = [
+      mk(`hb-appdata-stale${process.pid}`, 2),
+      mk(`hb-testserver-stale${process.pid}`, 2),
+      mk(`hb-appdata-fresh${process.pid}`, 0),
+      mk(`hb-testserver-fresh${process.pid}`, 0),
+      mk(`hb-other-old${process.pid}`, 2),
+      // A server still running after a day keeps its folder; a dead one's goes.
+      mk(`hb-testserver-live${process.pid}`, 2, process.pid),
+      mk(`hb-testserver-dead${process.pid}`, 2, 2147483646),
+      // Same for a Playwright run's own folder, by its owner file.
+      mk(`hb-appdata-live${process.pid}`, 2, process.pid, 'hb-owner.json'),
+      mk(`hb-appdata-dead${process.pid}`, 2, 2147483646, 'hb-owner.json'),
+    ]
     try {
       loadConfig().iso.cleanupAppData()
-      expect([fs.existsSync(stale), fs.existsSync(fresh), fs.existsSync(other)]).toEqual([
+      expect(all.map(p => fs.existsSync(p))).toEqual([
+        false,
         false,
         true,
         true,
+        true,
+        true,
+        false,
+        true,
+        false,
       ])
     } finally {
-      for (const p of [stale, fresh, other]) fs.rmSync(p, { recursive: true, force: true })
+      for (const p of all) fs.rmSync(p, { recursive: true, force: true })
     }
   })
 

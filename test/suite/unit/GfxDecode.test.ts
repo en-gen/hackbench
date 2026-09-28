@@ -307,17 +307,15 @@ describe('gfx-decode (synthetic)', () => {
   })
 })
 
-describe.skipIf(!hasRom(INVICTUS))('gfx-decode (Invictus, replaced decompressor)', () => {
-  const INVICTUS_PATH = romPath(INVICTUS)
-
-  // Invictus 1.0 replaces the LC_LZ2 entry, so every file is refused by the
-  // read gate before any length rule runs.
-  it('reports every file unavailable, with no bytes and no depth', () => {
-    const files = listGfxFileInfos(SmwRom.open(INVICTUS_PATH))
+describe.skipIf(!hasRom(INVICTUS))('gfx-decode (Invictus, keyed fast LC_LZ2)', () => {
+  // Invictus 1.0 runs a replacement LC_LZ2 routine behind a pointer key (#603).
+  it('reports every file available, with bytes and a depth', () => {
+    const files = listGfxFileInfos(SmwRom.open(romPath(INVICTUS)))
     expect(files.length).toBe(GFX_FILE_COUNT)
     for (const f of files) {
-      expect(f).toMatchObject({ byteLength: 0, defaultBpp: null, tileCount: null })
-      expect(f.unavailable).toMatch(/LC_LZ2/)
+      expect(f.unavailable, `file ${f.index}`).toBeUndefined()
+      expect(f.byteLength).toBeGreaterThan(0)
+      expect(f.defaultBpp).not.toBeNull()
     }
   })
 })

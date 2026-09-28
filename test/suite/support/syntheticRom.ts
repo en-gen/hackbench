@@ -15,7 +15,6 @@ import {
   type OverworldFingerprints,
 } from '../../../src/rom/OverworldEntrances'
 import { fingerprint } from '../../../src/rom/Fingerprint'
-import { DECOMPRESSOR } from '../../../src/rom/LmTranslevelTable'
 import { WILD } from '../../../src/rom/BytePattern'
 
 // 512 KB: `size % 1024 !== 512`, so RomFile reads no copier header (+512).
@@ -37,6 +36,10 @@ const ROOM_STRIDE = 0x100
 const NOP = 0xea
 const nops = (length: number): Buffer => Buffer.alloc(length, NOP)
 
+/** Invert the byte at `snes`: a planted defect for a byte-flip sweep. */
+export const flip = (rom: RomFile, snes: number): void =>
+  rom.writeAt(snes, [rom.readByte(snes)! ^ 0xff])
+
 /** BONUS_CALL as planted: NOPs around OVERWORLD_ENTRY's `JMP CODE_05D83E` and the JSR operand. */
 function syntheticCall(): Buffer {
   const span = nops(BONUS_CALL.length)
@@ -53,7 +56,6 @@ function syntheticCall(): Buffer {
 export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
   entry: Object.freeze([fingerprint(nops(OVERWORLD_INDEX_BODY.length))!]),
   walk: Object.freeze([fingerprint(nops(WALK_PROLOGUE_LENGTH))!]),
-  decompressor: Object.freeze([fingerprint(nops(DECOMPRESSOR.length))!]),
   bonus: Object.freeze([spanFingerprint(syntheticCall(), BONUS_CALL.mask)!]),
 })
 

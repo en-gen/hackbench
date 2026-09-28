@@ -3,9 +3,9 @@
  *
  * Scope: vanilla only. `Super Mario World (USA).magic.sfc` is the same ROM
  * with a copier header and is included purely to prove the derivation is
- * offset-correct; it must produce an identical result. The four ROMs whose
- * overworld was rebuilt by another editor are here only to prove the
- * fail-closed path, never as count oracles.
+ * offset-correct; it must produce an identical result. The Lunar Magic ROMs
+ * each carry one entrance traced by hand; the fail-closed path is proven by
+ * synthetic tests, since no corpus ROM refuses any more.
  *
  * Every number below is a measurement taken from
  * `Super Mario World (USA).vanilla.sfc`, one file, this ROM revision.
@@ -28,17 +28,15 @@ import {
 import { MAGIC, VANILLA, hasRom, romPath } from '../support/corpus'
 
 const HEADERED = MAGIC
-/** Edited corpus ROMs whose CODE_05D83E is not a recognized build. */
-const REBUILT_OVERWORLD: [string, string][] = [
-  ['Grand Poo World 2 1.1.sfc', 'rebuilt by another editor'],
-  ['Invictus 1.0.sfc', 'rebuilt by another editor'],
-]
-
 /** Lunar Magic ROMs read through the entry hook and the stored table, with one
  *  entrance each traced by hand: [bufferIndex, translevel, slot]. */
 const LM_OVERWORLD: [string, number, [number, number, number]][] = [
   ['GrandPooWorld_V1.2.sfc', 44, [0x36, 0x26, 0x102]],
+  // Through Lunar Magic's midway hook; translevel $38 is VALLEY GHOST HOUSE in its name table.
+  ['Grand Poo World 2 1.1.sfc', 40, [0x12, 0x38, 0x114]],
   ['Seven_Vanilla_Levels.sfc', 18, [0x42a, 0x07, 0x007]],
+  // XOR-keyed prelude plus fast LC_LZ2; translevel $2A is YOSHI'S ISLAND 2 in its name table.
+  ['Invictus 1.0.sfc', 59, [0x18d, 0x2a, 0x106]],
 ]
 
 /** Measured on vanilla: the 77 entry maps an overworld launch tile starts. */
@@ -245,19 +243,6 @@ describe.skipIf(!haveVanilla || !hasRom(HEADERED))(
     })
   },
 )
-
-for (const [name, gate] of REBUILT_OVERWORLD) {
-  describe.skipIf(!hasRom(name))(`fail closed: ${name}`, () => {
-    it('reports the derivation unavailable instead of a vanilla-shaped list', () => {
-      const result = deriveOverworldEntrances(SmwRom.open(romPath(name)))
-      expect(result.overworldReadable).toBe(false)
-      expect(result.entryMaps).toEqual([])
-      expect(result.entrances).toEqual([])
-      expect(result.notes).toHaveLength(1)
-      expect(result.notes[0]).toContain(gate)
-    })
-  })
-}
 
 for (const [name, count, traced] of LM_OVERWORLD) {
   describe.skipIf(!hasRom(name))(`stored translevels: ${name}`, () => {
