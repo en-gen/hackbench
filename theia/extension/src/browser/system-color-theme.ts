@@ -7,6 +7,7 @@
 import { injectable } from '@theia/core/shared/inversify'
 import { ThemeService } from '@theia/core/lib/browser/theming'
 import { CommonFrontendContribution } from '@theia/core/lib/browser/common-frontend-contribution'
+import { FrontendApplicationConfigProvider } from '@theia/core/lib/browser/frontend-application-config-provider'
 import {
   QuickInputService,
   QuickPickItem,
@@ -45,6 +46,16 @@ export class SystemThemeService extends ThemeService {
     // preference-changed round trip `persist` below queues up.
     super.setCurrentTheme(osThemeId(), false)
     if (persist) this.preferences.updateValue(COLOR_THEME_PREFERENCE_KEY, SYSTEM_COLOR_THEME_ID)
+  }
+
+  // Upstream persists `defaultTheme.id`, which for an unregistered `system`
+  // is the resolved dark/light, so Reset Workbench Layout would pin it.
+  override reset(): void {
+    if (FrontendApplicationConfigProvider.get().defaultTheme === SYSTEM_COLOR_THEME_ID) {
+      this.setCurrentTheme(SYSTEM_COLOR_THEME_ID)
+    } else {
+      super.reset()
+    }
   }
 
   // `doUpdateColorThemePreference` rebuilds the preference's enum from

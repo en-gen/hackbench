@@ -192,6 +192,21 @@ test('choosing system through Settings, with no picker, resumes following the OS
   await expect.poll(() => currentThemeId(page), { timeout: POLL_TIMEOUT }).toBe('dark')
 })
 
+// Reset Workbench Layout calls ThemeService.reset(), which upstream persists
+// as the resolved default id and so would pin dark/light instead of system.
+test('resetting the theme returns to system, not the resolved mode (#666)', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await setColorThemePreference(page, 'light')
+  await expect.poll(() => currentThemeId(page), { timeout: POLL_TIMEOUT }).toBe('light')
+
+  await page.evaluate(() => getSvc('ThemeService').reset())
+  await expect.poll(() => colorThemePreference(page), { timeout: POLL_TIMEOUT }).toBe('system')
+  await expect.poll(() => currentThemeId(page), { timeout: POLL_TIMEOUT }).toBe('dark')
+
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect.poll(() => currentThemeId(page), { timeout: POLL_TIMEOUT }).toBe('light')
+})
+
 test.describe('the picker leads with System Default (#666)', () => {
   for (const [scheme, label] of [
     ['dark', 'System Default (Dark)'],
