@@ -532,6 +532,10 @@ function reviewedMessages() {
     if (!line || line.startsWith('#')) continue
     const m = /^([0-9a-f]{40}) ([a-z0-9-]+) -- \S.*$/.exec(line)
     if (!m) throw new GateError(`content-gate-reviewed.txt: malformed line "${line}"`)
+    // A misspelled rule would otherwise exempt nothing, silently.
+    if (!EXEMPTABLE_RULES.has(m[2])) {
+      throw new GateError(`content-gate-reviewed.txt: unknown rule "${m[2]}" in "${line}"`)
+    }
     out.add(`${m[1]} ${m[2]}`)
   }
   return out

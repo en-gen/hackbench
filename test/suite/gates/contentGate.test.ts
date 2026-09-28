@@ -740,6 +740,8 @@ describe(
       expect(gateOutput('history')).toContain(`<commit message ${sha}>`)
       reviewed(`${sha} base64\n`) // no reason
       expect(gateExit('history')).toBe(2)
+      reviewed(`${sha} base-64 -- misspelled rule\n`)
+      expect(gateExit('history')).toBe(2)
       // The same commit adding a base64 file stays blocked: files are never exempt.
       writeFile('blob.ts', `export const s = '${'C'.repeat(400)}'\n`)
       run('git', ['add', 'blob.ts'])
