@@ -44,11 +44,6 @@ interface PendingAnchor {
 export class ZoomController implements Disposable {
   private readonly listeners: Array<(value: number) => void> = []
   private index: number
-  /** Toward the next step; same sign as the wheel direction it is tracking,
-   * reset on a direction reversal so stale credit never carries across. */
-  private accum = 0
-  private sign: -1 | 0 | 1 = 0
-  private lastWheel = -Infinity
 
   constructor(
     private readonly levels: readonly number[],
@@ -102,6 +97,11 @@ export class ZoomController implements Disposable {
    */
   bindWheel(node: HTMLElement, canvasOf: () => HTMLElement | null): WheelBinding {
     let pending: PendingAnchor | undefined
+    // Per binding, not per controller: GFX sheets share one controller, and a
+    // partial gesture on one sheet must not lend credit to another.
+    let accum = 0
+    let sign: -1 | 0 | 1 = 0
+    let lastWheel = -Infinity
     let followUp: number | undefined
     const cancelFollowUp = (): void => {
       if (followUp !== undefined) cancelAnimationFrame(followUp)
@@ -116,21 +116,21 @@ export class ZoomController implements Disposable {
       if (e.deltaY === 0) return
       const dir: -1 | 1 = e.deltaY < 0 ? 1 : -1
       // Leftover credit from a gesture that ended is not part of this one.
-      if (e.timeStamp - this.lastWheel > WHEEL_IDLE_MS) this.accum = 0
-      this.lastWheel = e.timeStamp
-      if (dir !== this.sign) {
-        this.sign = dir
-        this.accum = 0
+      if (e.timeStamp - lastWheel > WHEEL_IDLE_MS) accum = 0
+      lastWheel = e.timeStamp
+      if (dir !== sign) {
+        sign = dir
+        accum = 0
       }
-      this.accum += Math.abs(e.deltaY)
+      accum += Math.abs(e.deltaY)
       // One physical notch is ~100-120px and is one step; a single EVENT
       // can still carry several notches' worth (a fast spin, or a huge
       // synthetic delta) and steps that many times, capped by the clamp.
       // The sub-100 remainder is kept, not discarded, so it still counts
       // toward the next event.
-      const steps = Math.floor(this.accum / WHEEL_STEP_PX)
+      const steps = Math.floor(accum / WHEEL_STEP_PX)
       if (steps === 0) return
-      this.accum -= steps * WHEEL_STEP_PX
+      accum -= steps * WHEEL_STEP_PX
 
       const zoomBefore = this.value
 

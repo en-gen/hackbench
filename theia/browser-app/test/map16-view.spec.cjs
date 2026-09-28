@@ -2327,6 +2327,16 @@ async function ctrlWheel(page, locator, deltaY) {
   await ctrlWheelAt(page, box.x + box.width / 2, box.y + box.height / 2, deltaY)
 }
 
+/** Settles a wheel: the widget's update frame, then the anchor's follow-up frame. */
+async function afterWheel(page) {
+  await page.evaluate(
+    () =>
+      new Promise(r =>
+        requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))),
+      ),
+  )
+}
+
 /** Same as `ctrlWheel`, but at a client point the caller already knows,
  * rather than re-measuring `locator`'s CURRENT box. An anchoring check needs
  * this: `.hb-map16-canvas-wrap`'s own page position can shift a few px
@@ -2339,7 +2349,7 @@ async function ctrlWheelAt(page, clientX, clientY, deltaY) {
   await page.keyboard.down('Control')
   await page.mouse.wheel(0, deltaY)
   await page.keyboard.up('Control')
-  await page.waitForTimeout(200)
+  await afterWheel(page)
 }
 
 /** Dispatches one wheel event on `selector` and returns whether it was

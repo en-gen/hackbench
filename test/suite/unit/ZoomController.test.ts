@@ -372,3 +372,16 @@ describe('ZoomController.bindWheel - gesture boundaries', () => {
     }
   })
 })
+
+describe('ZoomController.bindWheel - per-binding credit', () => {
+  it('a partial gesture on one bound node lends no credit to another sharing the controller', () => {
+    const c = new ZoomController(GFX_LEVELS, 4)
+    const a = new FakeNode()
+    const b = new FakeNode()
+    bind(c, a)
+    bind(c, b)
+    a.dispatch(wheelEvent(-60))
+    b.dispatch(wheelEvent(-60))
+    expect(c.value).toBe(4)
+  })
+})

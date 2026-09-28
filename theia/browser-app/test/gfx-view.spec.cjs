@@ -505,6 +505,16 @@ async function ctrlWheel(page, locator, deltaY) {
   await ctrlWheelAt(page, box.x + box.width / 2, box.y + box.height / 2, deltaY)
 }
 
+/** Settles a wheel: the widget's update frame, then the anchor's follow-up frame. */
+async function afterWheel(page) {
+  await page.evaluate(
+    () =>
+      new Promise(r =>
+        requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))),
+      ),
+  )
+}
+
 /** Same as `ctrlWheel`, but at a client point the caller already knows,
  * rather than re-measuring `locator`'s CURRENT box - needed for anchoring
  * checks, where the point has to match exactly what the content-coordinate
@@ -514,7 +524,7 @@ async function ctrlWheelAt(page, clientX, clientY, deltaY) {
   await page.keyboard.down('Control')
   await page.mouse.wheel(0, deltaY)
   await page.keyboard.up('Control')
-  await page.waitForTimeout(200)
+  await afterWheel(page)
 }
 
 test('Ctrl + wheel over the GFX sheet steps its zoom indicator and canvas size', async ({
@@ -713,7 +723,7 @@ test('plain wheel still scrolls the GFX view and does not touch zoom', async ({ 
   await page.keyboard.down('Control')
   await page.mouse.wheel(0, -2000)
   await page.keyboard.up('Control')
-  await page.waitForTimeout(200)
+  await afterWheel(page)
   await expect(page.locator('[data-control="zoom-indicator"]')).toHaveText('8x')
 
   const overflowY = await view.evaluate(el => el.scrollHeight - el.clientHeight)
