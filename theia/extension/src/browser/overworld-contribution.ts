@@ -11,15 +11,14 @@
  * The command is menu-contributed, not only bound (#379, see
  * map-explorer-contribution.ts).
  */
-import { inject, injectable } from '@theia/core/shared/inversify'
+import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import {
   AbstractViewContribution,
   ApplicationShell,
   BaseWidget,
   Message,
-  SidePanel,
 } from '@theia/core/lib/browser'
-import { Command, CommandRegistry, CommandService } from '@theia/core/lib/common'
+import { Command, CommandRegistry, CommandService, Disposable } from '@theia/core/lib/common'
 import { OverworldViewWidget, OVERWORLD_VIEW_ID } from './overworld-view-widget'
 
 export const OVERWORLD_LAUNCHER_ID = 'hackbench.overworld-launcher'
@@ -45,41 +44,60 @@ export class OverworldLauncherWidget extends BaseWidget {
     this.node.tabIndex = 0
   }
 
-  protected override onAfterShow(msg: Message): void {
-    super.onAfterShow(msg)
-    // The panel opening onto the globe is a request. The tab bar falling back
-    // to the globe when a sibling closes ('select-previous-tab') leaves the
-    // panel already expanded: that show only collapses.
-    const opening =
-      this.shell.leftPanelHandler.state.expansion === SidePanel.ExpansionState.expanding
-    this.schedule(opening)
+  /**
+   * Set when a left-side widget is removed, cleared two tasks later. Closing a
+   * sibling makes the globe current through the tab bar's
+   * 'select-previous-tab', synchronously inside the removal; the dock panel's
+   * own selection can show the globe before `widgetRemoved` emits. So the
+   * mark is read when the deferred run starts, one task on, when it is set
+   * whichever came first, and cleared only after that run.
+   */
+  protected sawRemoval = false
+
+  @postConstruct()
+  protected init(): void {
+    const removed = this.shell.leftPanelHandler.dockPanel.widgetRemoved
+    const mark = (): void => {
+      this.sawRemoval = true
+      setTimeout(() => setTimeout(() => (this.sawRemoval = false)))
+    }
+    removed.connect(mark)
+    this.toDispose.push(Disposable.create(() => removed.disconnect(mark)))
   }
 
+  /** The panel opening onto the globe opens the view; a removal fallback only collapses. */
+  protected override onAfterShow(msg: Message): void {
+    super.onAfterShow(msg)
+    this.shown = true
+    this.schedule()
+  }
+
+  /** A click on the globe. */
   protected override onActivateRequest(msg: Message): void {
     super.onActivateRequest(msg)
     this.node.focus()
-    this.schedule(true)
+    this.activated = true
+    this.schedule()
   }
 
   protected scheduled = false
-  protected wantsOpen = false
+  protected shown = false
+  protected activated = false
 
   /**
    * Collapses the panel, THEN opens and activates the view, so keyboard focus
    * ends on the view: collapsing hides the focused launcher, which would drop
    * focus from a view activated before it. Deferred out of the tab bar's own
    * dispatch, where a show lands. A click sends a show and an activate within
-   * one task; they fold into one run that opens if either asked. The flag
-   * clears when the run starts, never across activateWidget, which can take
-   * 2.25 s or not settle at all.
+   * one task; they fold into one run. The flags clear when the run starts,
+   * never across activateWidget, which can take 2.25 s or not settle at all.
    */
-  protected schedule(open: boolean): void {
-    this.wantsOpen ||= open
+  protected schedule(): void {
     if (this.scheduled) return
     this.scheduled = true
     setTimeout(async () => {
-      const opens = this.wantsOpen
-      this.scheduled = this.wantsOpen = false
+      const opens = this.activated || (this.shown && !this.sawRemoval)
+      this.scheduled = this.shown = this.activated = false
       // Synchronous (SidePanelHandler.collapse); its promise is only an
       // animation frame, which never comes in a hidden window.
       void this.shell.collapsePanel('left')
