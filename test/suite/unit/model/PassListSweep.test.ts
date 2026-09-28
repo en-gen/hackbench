@@ -52,17 +52,9 @@ describe.skipIf(!hasRom(VANILLA))('pass list over all 512 level ids', () => {
   let slots: Slot[]
 
   /**
-   * One build for the whole file, not one per case: five separate `sweep()`
-   * calls meant five full 512-level builds per run, which is what pushed the
-   * first case's timeout past vitest's 5s default.
-   *
-   * The reset has to precede the build: `passes()` is not purely ROM-derived,
-   * because `l1Phases` resolves each tile through `Tile.quadAt`, and
-   * `SwitchPalaceAlternateBehavior.selectQuad` reads `editorStore`. It is the
-   * only such reader reachable from here, and flipping all four palace toggles
-   * changes 0 of 512 pass lists on this ROM, so the shared build is safe --
-   * but a test that mutates the store and expects `slots` to follow would be
-   * reading data built before the mutation.
+   * One build for the whole file: a sweep per case cost five 512-slot builds.
+   * Reset first, because `passes()` reads the switch-palace toggles in
+   * `editorStore`; a case that changes the store would not see `slots` follow.
    */
   beforeAll(() => {
     resetEditorStore()
