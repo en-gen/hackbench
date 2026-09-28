@@ -2337,6 +2337,14 @@ async function afterWheel(page) {
   )
 }
 
+/** The canvas's on-screen zoom, from its laid-out width, so a wait can see the repaint land. */
+function canvasZoom(page, sel) {
+  return page.evaluate(s => {
+    const c = document.querySelector(s)
+    return c.getBoundingClientRect().width / c.width
+  }, sel)
+}
+
 /** Same as `ctrlWheel`, but at a client point the caller already knows,
  * rather than re-measuring `locator`'s CURRENT box. An anchoring check needs
  * this: `.hb-map16-canvas-wrap`'s own page position can shift a few px
@@ -2460,12 +2468,17 @@ test('Ctrl + wheel keeps the same canvas pixel under the cursor, in and out, wit
   // point from a fresh boundingBox() after the widget re-renders could
   // wheel at a different point than clientX/clientY, which is what the
   // content-coordinate check below actually compares against.
+  const zoomBefore = await canvasZoom(page, canvasSel)
   await ctrlWheelAt(page, clientX, clientY, -120) // one step in
+  await expect.poll(() => canvasZoom(page, canvasSel)).toBeGreaterThan(zoomBefore)
+  await afterWheel(page)
   const afterIn = await map16ContentPointAt(page, canvasSel, clientX, clientY)
   expect(Math.abs(afterIn.x - before.x)).toBeLessThan(1)
   expect(Math.abs(afterIn.y - before.y)).toBeLessThan(1)
 
   await ctrlWheelAt(page, clientX, clientY, 120) // one step back out
+  await expect.poll(() => canvasZoom(page, canvasSel)).toBe(zoomBefore)
+  await afterWheel(page)
   const afterOut = await map16ContentPointAt(page, canvasSel, clientX, clientY)
   expect(Math.abs(afterOut.x - before.x)).toBeLessThan(1)
   expect(Math.abs(afterOut.y - before.y)).toBeLessThan(1)

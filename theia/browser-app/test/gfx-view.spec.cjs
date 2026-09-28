@@ -515,6 +515,14 @@ async function afterWheel(page) {
   )
 }
 
+/** The canvas's on-screen zoom, from its laid-out width, so a wait can see the repaint land. */
+function canvasZoom(page, sel) {
+  return page.evaluate(s => {
+    const c = document.querySelector(s)
+    return c.getBoundingClientRect().width / c.width
+  }, sel)
+}
+
 /** Same as `ctrlWheel`, but at a client point the caller already knows,
  * rather than re-measuring `locator`'s CURRENT box - needed for anchoring
  * checks, where the point has to match exactly what the content-coordinate
@@ -659,12 +667,17 @@ test('Ctrl + wheel keeps the same canvas pixel under the cursor, in and out, wit
   // ctrlWheelAt, not ctrlWheel(page, locator, ...): re-deriving the point
   // from a fresh boundingBox() after a re-render could wheel somewhere
   // other than clientX/clientY, which is what `before`/`afterIn` compare.
+  const zoomBefore = await canvasZoom(page, canvasSel)
   await ctrlWheelAt(page, clientX, clientY, -120) // one step in
+  await expect.poll(() => canvasZoom(page, canvasSel)).toBeGreaterThan(zoomBefore)
+  await afterWheel(page)
   const afterIn = await gfxContentPointAt(page, canvasSel, clientX, clientY)
   expect(Math.abs(afterIn.x - before.x)).toBeLessThan(1)
   expect(Math.abs(afterIn.y - before.y)).toBeLessThan(1)
 
   await ctrlWheelAt(page, clientX, clientY, 120) // one step back out
+  await expect.poll(() => canvasZoom(page, canvasSel)).toBe(zoomBefore)
+  await afterWheel(page)
   const afterOut = await gfxContentPointAt(page, canvasSel, clientX, clientY)
   expect(Math.abs(afterOut.x - before.x)).toBeLessThan(1)
   expect(Math.abs(afterOut.y - before.y)).toBeLessThan(1)
