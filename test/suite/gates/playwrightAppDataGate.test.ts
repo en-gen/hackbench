@@ -13,6 +13,7 @@ import { spawnSync, type SpawnOptions } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { fileURLToPath } from 'url'
 import { appDataDir } from '../../../src/project/appData'
 import { RecentProjects, defaultRecentPath } from '../../../src/project/RecentProjects'
 import { defaultRegistryPath } from '../../../src/project/RomRegistry'
@@ -26,6 +27,8 @@ const { backendSpawnArgs } = nodeRequire(path.join(BROWSER_APP, 'test/own-backen
 const { prepareTestServer, MARKER } = nodeRequire(
   path.join(BROWSER_APP, 'test/start-test-server.cjs'),
 )
+// Theia is installed only locally and in the type-check job, not in this one.
+const HAS_THEIA = fs.existsSync(path.resolve(BROWSER_APP, '../node_modules/@theia/core'))
 
 const ENV_KEYS = [
   'APPDATA',
@@ -38,6 +41,7 @@ const ENV_KEYS = [
   'THEIA_CONFIG_DIR',
 ]
 const BEFORE = JSON.stringify({ version: 1, projects: [] })
+const USER_SETTINGS = '{ "workbench.colorTheme": "mine" }'
 const USER_EDIT = JSON.stringify({
   version: 1,
   projects: [{ manifestPath: 'C:/mine/Mine.hbproj', name: 'Mine', title: 'Mine', lastOpened: '' }],
@@ -76,6 +80,50 @@ const isUnder = (child: string, parent: string) => {
   const rel = path.relative(parent, child)
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
 }
+
+/** Output of `script` run by a child process spawned with these options. */
+function inChild(options: SpawnOptions, script: string): string {
+  const r = spawnSync(process.execPath, ['-e', script], {
+    ...options,
+    stdio: 'pipe',
+    encoding: 'utf8',
+  })
+  if (r.status !== 0) throw new Error(String(r.stderr))
+  return String(r.stdout)
+}
+
+/**
+ * A spec changing a setting: a child with the server's options writes
+ * settings.json where Theia would, THEIA_CONFIG_DIR or else ~/.theia
+ * (@theia/core/lib/node/env-variables/env-variables-server.js,
+ * createConfigDirUri). Returns the fake real file afterwards and where the write went.
+ */
+function specChangesASetting(options: SpawnOptions) {
+  const real = path.join(fakeHome, '.theia', 'settings.json')
+  fs.mkdirSync(path.dirname(real), { recursive: true })
+  fs.writeFileSync(real, USER_SETTINGS)
+  const wrote = inChild(
+    options,
+    `const fs=require('fs'),os=require('os'),path=require('path');
+     const d=process.env.THEIA_CONFIG_DIR||path.join(os.homedir(),'.theia');
+     fs.mkdirSync(d,{recursive:true});fs.writeFileSync(path.join(d,'settings.json'),'{"spec":1}');
+     process.stdout.write(path.join(d,'settings.json'))`,
+  )
+  return { wrote, real: fs.readFileSync(real, 'utf8') }
+}
+
+/** The config dir Theia's own code resolves for a backend spawned with these options. */
+function theiaResolves(options: SpawnOptions): string {
+  const uri = inChild(
+    { cwd: BROWSER_APP, ...options },
+    `require('@theia/core/lib/node/backend-application-config-provider').BackendApplicationConfigProvider.set({});
+     require('@theia/core/lib/node/env-variables/env-variables-server').EnvVariablesServerImpl.prototype
+       .createConfigDirUri.call({ pathExistenceCache: {} }).then(u => process.stdout.write(u))`,
+  )
+  return fileURLToPath(uri)
+}
+
+const samePath = (a: string, b: string) => path.relative(a, b) === ''
 
 interface Harness {
   setup(): void
@@ -151,13 +199,43 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
     const root = process.env.HB_TEST_APPDATA!
     expect(config.webServer.reuseExistingServer).toBe(false)
     const wsEnv = config.webServer.env ?? {}
-    for (const k of ['APPDATA', 'XDG_DATA_HOME', 'HB_TEST_APPDATA'])
+    for (const k of ['APPDATA', 'XDG_DATA_HOME', 'HB_TEST_APPDATA', 'THEIA_CONFIG_DIR'])
       expect(wsEnv).not.toHaveProperty(k)
+    const t = path.join(root, 'theia-config')
     // Playwright's own merge for the webServer process.
-    expect(childEnv({ env: { ...process.env, ...wsEnv } })).toMatchObject({ a: root, x: root })
+    expect(childEnv({ env: { ...process.env, ...wsEnv } })).toEqual({ a: root, x: root, t })
     const [, , options] = backendSpawnArgs(3999)
-    expect(childEnv(options)).toMatchObject({ a: root, x: root })
+    expect(childEnv(options)).toEqual({ a: root, x: root, t })
   })
+
+  it('a setting a spec changes through either server leaves a real ~/.theia/settings.json byte-identical', () => {
+    // A user who exports THEIA_CONFIG_DIR for their own setup must not keep it.
+    process.env.THEIA_CONFIG_DIR = path.join(fakeHome, '.theia')
+    const { config, iso } = loadConfig()
+    const root = process.env.HB_TEST_APPDATA!
+    const ws = { env: { ...process.env, ...(config.webServer.env ?? {}) } }
+    for (const options of [ws, backendSpawnArgs(3999)[2]]) {
+      const r = specChangesASetting(options)
+      expect(isUnder(r.wrote, root)).toBe(true)
+      expect(r.real).toBe(USER_SETTINGS)
+    }
+    iso.cleanupAppData()
+  })
+
+  it.skipIf(!HAS_THEIA)(
+    "Theia's own resolution puts both servers' config dir under the run's folder",
+    () => {
+      const { config } = loadConfig()
+      const t = path.join(process.env.HB_TEST_APPDATA!, 'theia-config')
+      const ws = { env: { ...process.env, ...(config.webServer.env ?? {}) } }
+      expect(samePath(theiaResolves(ws), t)).toBe(true)
+      expect(samePath(theiaResolves(backendSpawnArgs(3999)[2]), t)).toBe(true)
+      // Grounds specChangesASetting's rule: unset, Theia falls back to ~/.theia.
+      const unset = { ...ws.env }
+      delete unset.THEIA_CONFIG_DIR
+      expect(samePath(theiaResolves({ env: unset }), path.join(fakeHome, '.theia'))).toBe(true)
+    },
+  )
 
   it("a worker reloading the config shares the runner's folder and does not delete it", () => {
     const runner = loadConfig().iso
@@ -203,9 +281,7 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
       expect(isUnder(root, os.tmpdir())).toBe(true)
       expect(JSON.parse(fs.readFileSync(path.join(root, MARKER), 'utf8')).port).toBe(3999)
       const [, , options] = backendSpawnArgs(3999, { env })
-      const seen = childEnv(options)
-      expect(seen).toMatchObject({ a: root, x: root })
-      expect(isUnder(seen.t!, root)).toBe(true)
+      expect(childEnv(options)).toEqual({ a: root, x: root, t: path.join(root, 'theia-config') })
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
@@ -252,6 +328,15 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
     const r = runOverlapping({ setup() {}, teardown() {} })
     expect(r.specWroteTo).toBe(realFile)
     expect(r.after).not.toBe(USER_EDIT)
+  })
+
+  it('planted: a server that drops THEIA_CONFIG_DIR overwrites the real settings.json', () => {
+    loadConfig()
+    const env = { ...backendSpawnArgs(3999)[2].env }
+    delete env.THEIA_CONFIG_DIR
+    const r = specChangesASetting({ env })
+    expect(r.wrote).toBe(path.join(fakeHome, '.theia', 'settings.json'))
+    expect(r.real).not.toBe(USER_SETTINGS)
   })
 
   it('planted: snapshot and restore of the real folder turns the oracle red', () => {

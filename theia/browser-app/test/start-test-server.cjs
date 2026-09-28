@@ -12,6 +12,8 @@ const path = require('path')
 const { startBackend, stopBackend } = require('./own-backend.cjs')
 
 const MARKER = 'hb-test-server.json'
+// Theia's settings.json and recentworkspace.json; the default is ~/.theia.
+const THEIA_CONFIG = 'theia-config'
 
 /** Creates the folder and its marker; returns the env the server must run with. */
 function prepareTestServer(port) {
@@ -20,7 +22,7 @@ function prepareTestServer(port) {
   const env = {
     APPDATA: root,
     XDG_DATA_HOME: root,
-    THEIA_CONFIG_DIR: path.join(root, 'theia-config'),
+    THEIA_CONFIG_DIR: path.join(root, THEIA_CONFIG),
   }
   return { root, env }
 }
@@ -50,4 +52,4 @@ async function main() {
 
 if (require.main === module) main()
 
-module.exports = { prepareTestServer, MARKER }
+module.exports = { prepareTestServer, MARKER, THEIA_CONFIG }

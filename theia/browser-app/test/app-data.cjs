@@ -1,11 +1,12 @@
 /**
- * Gives each Playwright run its own app data under the OS temp dir, so specs
- * never touch the user's (#637). docs/testing.md, "Playwright never touches your app data".
+ * Gives each Playwright run its own app data and Theia config dir under the OS
+ * temp dir, so specs never touch the user's (#637, #343). docs/testing.md,
+ * "Playwright never touches your app data".
  */
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { MARKER } = require('./start-test-server.cjs')
+const { MARKER, THEIA_CONFIG } = require('./start-test-server.cjs')
 
 const PREFIX = 'hb-appdata-'
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -49,9 +50,10 @@ function sweepStale() {
 }
 
 /**
- * Points this process's APPDATA and XDG_DATA_HOME at the run's folder. The
- * runner creates it; its workers reload the config and inherit it. With
- * HB_APP_URL the folder is the one start-test-server.cjs made for that port.
+ * Points this process's APPDATA, XDG_DATA_HOME and THEIA_CONFIG_DIR at the
+ * run's folder. The runner creates it; its workers reload the config and
+ * inherit it. With HB_APP_URL the folder is the one start-test-server.cjs
+ * made for that port.
  */
 function isolateAppData() {
   const env = process.env
@@ -81,6 +83,7 @@ function isolateAppData() {
   }
   if (!isUnder(root, os.tmpdir())) throw refuse(root, 'it is not under the OS temp dir')
   env.APPDATA = env.XDG_DATA_HOME = root
+  env.THEIA_CONFIG_DIR = path.join(root, THEIA_CONFIG)
 }
 
 /** Removes the folder this process created; a worker's or a caller's is left alone. */
