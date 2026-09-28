@@ -12,12 +12,32 @@ Work is non-destructive and project-based. A `.hbproj` project references a ROM 
 
 ## Branch strategy
 
-- `main` - reserved for releases. Sits at the repo's initial commit
-  `afbc580` and has received nothing since. Never commit or PR here;
-  it moves only when a release is cut from `develop`.
+- `main` - reserved for releases. It does not exist in this repo yet; it is
+  created when the first release is cut from `develop`. Never PR to it.
 - `develop` - default branch and integration base; all PRs target here
 - `feature/*` - branch off `develop`, one concern per branch
 - After merging a PR: `git checkout develop && git pull origin develop && git checkout -b feature/<next>`
+
+The repo went public on 2026-09-27 with rewritten history. The old repo is
+the private `en-gen/hackbench-archive`; issue and PR numbers from before then
+are archive numbers (`C:/Projects/hackbench-tools/issue-map.tsv` maps issues).
+
+## Merging
+
+A PR merges itself: `develop` requires green CI plus one approving review
+from anyone with write access. In practice that is CodeRabbit, which approves
+once its comments are resolved (`.coderabbit.yaml`); GitHub cannot require
+the approval to be CodeRabbit's, so a human approval merges it too.
+
+- After opening a PR, turn on auto-merge:
+  `gh pr merge <n> -R en-gen/hackbench --auto --squash`.
+- A PR that changes UI or graphics rendering gets the `needs-owner` label
+  instead, and auto-merge stays off. Those carry images the owner looks at,
+  and CI cannot run Playwright (no ROM).
+- Resolve CodeRabbit's comments by fixing them or replying why not; an
+  unresolved thread withholds its approval. A new push dismisses the old
+  approval, so every merged commit was reviewed.
+- Repo admins can bypass the approval; agents never do.
 
 Do not add `Co-Authored-By: Claude` lines to commits. Do not add "Generated with Claude Code" footers or any AI attribution to PR bodies or commit messages.
 
