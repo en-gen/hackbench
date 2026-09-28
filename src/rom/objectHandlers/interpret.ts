@@ -1,5 +1,5 @@
 /**
- * interpret.ts -- a bounded interpreter for Layer-1 object handlers (en-gen/hackbench#664).
+ * interpret.ts -- a bounded interpreter for Layer-1 object handlers (en-gen/hackbench#351).
  *
  * Runs a handler's own bytes from the ROM and returns the tile-buffer writes it
  * makes, in order, or a refusal with a reason. The hand ports in

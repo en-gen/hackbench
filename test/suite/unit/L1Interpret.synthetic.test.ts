@@ -1,5 +1,5 @@
 /**
- * The bounded L1 object-handler interpreter (en-gen/hackbench#664), on
+ * The bounded L1 object-handler interpreter (en-gen/hackbench#351), on
  * synthetic carts only, so every refusal rule is proven where CI runs.
  *
  * Each refusal sits beside a control that differs by as little as possible
@@ -388,7 +388,7 @@ describe('interpret: inline-table dispatch (ExecutePtrLong)', () => {
   })
 })
 
-describe('interpret: a CODE_0DADEB-shaped staircase (bank_0D.asm:2671, #652)', () => {
+describe('interpret: a CODE_0DADEB-shaped staircase (bank_0D.asm:2671, #342)', () => {
   // Helpers written from bank_0D.asm:1635-1651 and 1996-2031, 2107-2115.
   // They run inline, as the stock ones do. Tile values are invented.
   function staircase(step = 0x04, stop = 0x07): RomFile {

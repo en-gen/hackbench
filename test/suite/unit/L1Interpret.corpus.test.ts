@@ -1,6 +1,6 @@
 /**
  * Differential: the L1 handler interpreter against the hand ports, on vanilla
- * (en-gen/hackbench#664). Every standard object x size x tileset dispatcher,
+ * (en-gen/hackbench#351). Every standard object x size x tileset dispatcher,
  * and every extended object, at columns 0, 3 and 15 of screen 5, each on a row
  * where it fits (test/suite/support/l1Differential.ts).
  *
@@ -25,7 +25,7 @@ import { tally, KNOWN_DISAGREEMENTS, KNOWN_REFUSALS, type Tally } from '../suppo
 /** ExecutePtrLong in the vanilla cart (bank_00.asm:864). */
 const EXECUTE_PTR_LONG = 0x0086fa
 
-describe.skipIf(!hasRom(VANILLA))('interpret vs the ports, vanilla (#664)', () => {
+describe.skipIf(!hasRom(VANILLA))('interpret vs the ports, vanilla (#351)', () => {
   let runs: DiffRun[] = []
   let t: Tally
 

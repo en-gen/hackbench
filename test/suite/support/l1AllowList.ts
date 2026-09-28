@@ -1,5 +1,5 @@
 /**
- * What the #664 differential is allowed to find, and exactly how much of it.
+ * What the #351 differential is allowed to find, and exactly how much of it.
  *
  * Each disagreement entry names a routine (the last one dispatched to), the
  * cases it covers, why, and three measured numbers: the disagreeing cases it
@@ -29,7 +29,7 @@ const all = () => true
 const row = (routine: number, when: Known['when'], why: Known['why'], expect: Known['expect']): Known =>
   ({ routine, when, why, expect }) // prettier-ignore
 
-/** In-range game behavior the ports do not follow (#690). */
+/** In-range game behavior the ports do not follow (#369). */
 const UMBRELLA = 690
 const DRIFT =
   'no bookmark restore: once a row crosses a screen edge the next row starts a screen right'
@@ -47,7 +47,7 @@ export const KNOWN_DISAGREEMENTS: Known[] = [
   row(0x0dc3d8, all, 674, [768, 768, 'be6f199c89']),
   row(0x0de971, all, 675, [3, 3, '577db2276d']),
   row(0x0da68e, r => r.col === 0, 689, [1, 1, '1ac3aaa57d']),
-  // #690: a zero nibble wraps a DEC/BNE counter to 256.
+  // #369: a zero nibble wraps a DEC/BNE counter to 256.
   ...([
     [0x0daa26, [195, 240, 'd73c1e0be0']],
     [0x0db224, [240, 240, '47589a6414']],
@@ -70,13 +70,13 @@ export const KNOWN_DISAGREEMENTS: Known[] = [
     [0x0def45, [48, 48, '0be4a28f6f']],
   ] as [number, Known['expect']][]).map(([a, e]) => row(a, r => lo(r) === 0, UMBRELLA, e)),
   row(0x0defa8, r => hi(r) === 0 || lo(r) === 0, UMBRELLA, [90, 90, '831d0cedfe']),
-  // #690: the size indexes past a data table.
+  // #369: the size indexes past a data table.
   row(0x0daab4, r => hi(r) >= 4, UMBRELLA, [2880, 2880, '3f57d102a1']),
   row(0x0daab4, r => lo(r) === 0, UMBRELLA, [30, 240, '480bbabd66']),
   row(0x0dcef2, r => hi(r) >= 2, UMBRELLA, [672, 672, '5765de9705']),
   row(0x0dd1d9, r => lo(r) >= 4, UMBRELLA, [576, 576, 'a0bcf50c14']),
   row(0x0ddac8, r => lo(r) >= 2, UMBRELLA, [666, 672, '641b5fed57']),
-  // #690: too big to fit in 27 rows anywhere.
+  // #369: too big to fit in 27 rows anywhere.
   ...([
     [0x0db7aa, [63, 64, '13fdb9f80c']],
     [0x0db863, [63, 63, '9fc190c1da']],

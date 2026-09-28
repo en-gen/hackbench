@@ -133,7 +133,7 @@ SMW assigns these rows per layer type:
 
 ## The L1 handler interpreter
 
-`src/rom/objectHandlers/interpret.ts` (#664) runs an object handler's own
+`src/rom/objectHandlers/interpret.ts` (#351) runs an object handler's own
 bytes and returns its Map16 buffer writes, or a refusal with a reason. Phase 1
 only compares it with the hand ports; the ports still render.
 
