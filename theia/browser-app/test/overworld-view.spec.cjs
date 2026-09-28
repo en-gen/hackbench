@@ -298,6 +298,8 @@ test('a ROM whose L1 reader is not stock shows the reason and no canvas', async 
   })
   await openProject(page, planted)
   await page.locator(GLOBE).click()
-  await expect(page.locator('.hb-overworld-reason')).toContainText(/not stock: \$04DC57/)
+  await expect(page.locator('.hb-overworld-reason')).toContainText(
+    /not stock: \$04DC4C .* holds (?:\S+ ){14}5d /,
+  )
   await expect(page.locator('.hb-overworld-canvas')).toHaveCount(0)
 })
