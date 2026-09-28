@@ -73,6 +73,8 @@ cited to the disassembly.
 - [rom/level-rendering.md](rom/level-rendering.md) - the level rendering pipeline
 - [rom/obj-priority.md](rom/obj-priority.md) - OBJ priority and the
   compositor pass list
+- [rom/map-data-mechanics.md](rom/map-data-mechanics.md) - how maps grow,
+  relocate and share pointers; sprite-stream limits; acts-like
 
 ## Sprites
 

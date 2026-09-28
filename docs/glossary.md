@@ -14,7 +14,10 @@ pointers, not one:
 | -------------- | --------------------- |
 | L1, terrain    | `$05E000 + index * 3` |
 | L2, background | `$05E600 + index * 3` |
-| sprites        | `$05EC00 + index * 3` |
+| sprites        | `$05EC00 + index * 2` |
+
+The sprite entry is 2 bytes; stock code supplies bank `$07` as a literal
+([map-data-mechanics.md](rom/map-data-mechanics.md)).
 
 **Empty slot.** A slot whose L1 pointer is the ROM's filler value. On vanilla
 that is `$068000`, shared by 277 slots. The filler is computed per ROM as the
