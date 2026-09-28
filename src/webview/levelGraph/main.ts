@@ -260,7 +260,11 @@ function setupZoomPan(
 // ── Message handling ──────────────────────────────────────────────────────────
 
 function showError(container: HTMLElement, msg: string): void {
-  container.innerHTML = `<p style="color:var(--vscode-errorForeground,red);padding:16px">${msg}</p>`
+  // textContent: the message can carry ROM-derived text, which must not parse as HTML.
+  const p = document.createElement('p')
+  p.style.cssText = 'color:var(--vscode-errorForeground,red);padding:16px'
+  p.textContent = msg
+  container.replaceChildren(p)
 }
 
 function showLoading(container: HTMLElement): void {

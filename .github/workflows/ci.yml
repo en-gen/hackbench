@@ -12,6 +12,10 @@ on:
     branches: [develop]
   workflow_dispatch:
 
+# Read-only token: no job writes to the repo (CodeQL actions/missing-workflow-permissions).
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

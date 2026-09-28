@@ -23,6 +23,9 @@ concurrency:
   group: e2e-dispatch-${{ inputs.hackbench_ref || github.sha }}
   cancel-in-progress: true
 
+# GITHUB_TOKEN is unused: the dispatch authenticates with E2E_DISPATCH_TOKEN.
+permissions: {}
+
 env:
   TARGET_REPO: en-gen/hackbench-validation
   TARGET_WORKFLOW: e2e-playwright.yml
