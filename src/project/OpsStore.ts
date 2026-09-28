@@ -96,9 +96,20 @@ function loadFrom(dir: string, lenient = false): Layer[] {
       const reason = `${path.join(dir, f)} is not valid JSON: ${(err as Error).message}`
       return { id: f, label: f, kind: 'unreadable', reason }
     }
+    const refuse = (reason: string, id = f, label = f): Layer => {
+      if (lenient) return { id, label, kind: 'unreadable', reason }
+      throw new Error(reason)
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return refuse(`${path.join(dir, f)} is not a layer object`)
+    }
     const id = parsed.id as string
     const label = parsed.label as string
-    if (parsed.kind !== 'gfx') return { id, label, ops: parsed.ops as Op[] }
+    if (parsed.kind !== 'gfx') {
+      if (!Array.isArray(parsed.ops))
+        return refuse(`${path.join(dir, f)} has no ops list`, id, label)
+      return { id, label, ops: parsed.ops as Op[] }
+    }
     // Refused whole rather than half-read: a pixel that parses to something
     // else would paint a character the user never drew.
     const pixels = parsed.pixels as { x: number; y: number; value: number }[]
@@ -110,11 +121,8 @@ function loadFrom(dir: string, lenient = false): Layer[] {
       pixels.every(
         p => typeof p === 'object' && p !== null && isInt(p.x) && isInt(p.y) && isInt(p.value),
       )
-    if (!ok) {
-      const reason = `${path.join(dir, f)} is not a gfx layer this build understands`
-      if (lenient) return { id, label, kind: 'unreadable', reason }
-      throw new Error(reason)
-    }
+    if (!ok)
+      return refuse(`${path.join(dir, f)} is not a gfx layer this build understands`, id, label)
     return {
       id,
       label,

@@ -381,6 +381,8 @@ describe('WorkingRomRegistry', () => {
     it.each([
       ['a bad shape', (t: string) => t.replace('"x":0', '"x":0.5'), /gfx layer/],
       ['truncated JSON', (t: string) => t.slice(0, 40), /0000\.json/],
+      ['JSON null', () => 'null', /0000\.json/],
+      ['word ops that are not a list', () => '{"id":"bad","label":"b","ops":3}', /0000\.json/],
     ])('opens with a gfx layer in ops/redo/ that has %s, and refuses only that redo', (...c) => {
       const [, damage, reason] = c
       const { manifestPath, dir } = gfxProject()

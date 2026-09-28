@@ -112,8 +112,13 @@ function walk(seed: number, headered: boolean, steps: number): string[] {
 }
 
 describe('the incremental working copy equals a full replay', () => {
-  it.each([false, true])('headered %s, three seeds', headered => {
-    const problems = [11, 23, 37].flatMap(seed => walk(seed + (headered ? 1 : 0), headered, 40))
-    expect(problems).toEqual([])
-  })
+  it.each([false, true])(
+    'headered %s, three seeds',
+    headered => {
+      const problems = [11, 23, 37].flatMap(seed => walk(seed + (headered ? 1 : 0), headered, 40))
+      expect(problems).toEqual([])
+      // A crash guard, not a budget: about 1.5 s locally, 5.4 s on a CI runner.
+    },
+    60_000,
+  )
 })
