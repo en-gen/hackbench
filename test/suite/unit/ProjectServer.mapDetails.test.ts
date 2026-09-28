@@ -248,7 +248,8 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl.mapDetails - wiring', () =>
       // The map tab's screen goes through the same working copy, and an
       // unbuildable map answers with a reason rather than an empty image.
       const flags = { green: false, yellow: false, blue: false, red: false }
-      const screen = await service.mapScreen(project.manifestPath, 0x105, 0, flags)
+      const switches = { blue: false, silver: false, onOff: false }
+      const screen = await service.mapScreen(project.manifestPath, 0x105, 0, flags, switches)
       expect(screen).toMatchObject({ status: 'unavailable' })
       if (screen.status === 'unavailable') expect(screen.reason).toMatch(/VerticalTable/)
     } finally {
