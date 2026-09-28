@@ -252,7 +252,10 @@ window.addEventListener('message', event => {
     renderTrackList()
     updateUI()
   } else if (msg.type === 'error') {
-    trackListEl.innerHTML = `<div class="loading">${msg.message}</div>`
+    const div = document.createElement('div')
+    div.className = 'loading'
+    div.textContent = String(msg.message) // ROM-derived text must not parse as HTML
+    trackListEl.replaceChildren(div)
   }
 })
 
