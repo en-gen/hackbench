@@ -734,6 +734,7 @@ describe(
       const sha = head()
       expect(gateExit('history')).not.toBe(0)
       reviewed(`${sha} base64 -- prose, checked by hand\n`)
+      expect(gateExit('history')).toBe(0) // not just absent output: a crash prints nothing too
       expect(gateOutput('history')).not.toContain(sha)
       reviewed(`${sha} disasm-listing -- wrong rule\n`)
       expect(gateOutput('history')).toContain(`<commit message ${sha}>`)
