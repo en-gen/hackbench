@@ -107,6 +107,15 @@ export class WorkingRomRegistry {
   constructor(private readonly registry: RomRegistry = new RomRegistry()) {}
 
   /**
+   * Remember where a ROM lives on this machine. Here rather than in a
+   * server so no server holds a RomRegistry, the precursor to reading the
+   * base bytes behind the working copy's back (workingCopyGate.test.ts).
+   */
+  register(romPath: string): RomIdentity {
+    return this.registry.register(romPath)
+  }
+
+  /**
    * The working copy for a project, loading and replaying its persisted
    * layers on first access. The point of this class is that in-memory state
    * (which services share it with) survives between calls in the same

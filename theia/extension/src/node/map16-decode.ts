@@ -24,10 +24,10 @@ import {
   readL2Map16Table,
   readMap16Common,
   readMap16Table,
-  readMap16TileCount,
   type Map16Read,
   MAP16_TILE_BYTES,
   MAP16_TOTAL_TILES,
+  map16TileCapacity,
   Map16Tile,
   SubTile,
 } from '../../../../src/rom/Map16'
@@ -40,6 +40,7 @@ import {
   VRAM_CHAR_BASE,
   type GfxSheet,
 } from '../../../../src/rom/GfxLoader'
+import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import {
   buildLevelCgram,
   loadRomPalettes,
@@ -55,19 +56,15 @@ import {
   type PSwitchButtonArt,
 } from '../../../../src/rom/PSwitchButtonArt'
 import { buildTileAtlas, renderMap16Tile, renderSubTile } from '../../../../src/rom/TileRenderer'
+import { frameZeroChars, playableAnimation } from '../../../../src/rom/FrameZero'
 import {
   getAnimatedChars,
   getSwitchedChars,
-  loadAnimationDataOrReason,
-  slotTiles,
-  stockAnimationUnreached,
-  switchesForChars,
   type AnimationData,
-  type AnimFrameSlot,
   type SwitchKind,
-  type SwitchState,
 } from '../../../../src/rom/AnimationLoader'
-import { buildChars, vramFromChars } from '../../../../src/rom/model/chars/CharFactory'
+import { vramFromChars } from '../../../../src/rom/model/chars/CharFactory'
+import { tileAlternates } from '../../../../src/rom/SwitchAlternates'
 import type { Char } from '../../../../src/rom/model/chars/Char'
 import {
   Map16TileDto,
@@ -172,33 +169,6 @@ export function map16LayerExtent(rom: RomFile, layer: Map16Layer): Map16Extent {
     return { count }
   }
   return map16TileCapacity(rom)
-}
-
-/**
- * How many tiles this ROM's FOREGROUND Map16 holds, or the reason it
- * cannot be said.
- *
- * The count is READ (`readMap16TileCount` walks the fill loop's `CPX`
- * immediate, bank_05.asm:229-237), never assumed. A ROM that does not say
- * is unavailable, not vanilla. A ROM that says MORE than the loader here
- * can walk is also unavailable: `readMap16Table` builds at most 512 entries,
- * so showing those for a 2048-tile table would be the silent truncation
- * en-gen/hackbench#102 exists to prevent. L1 (foreground) only.
- */
-export function map16TileCapacity(rom: RomFile): { count: number } | { reason: string } {
-  const count = readMap16TileCount(rom)
-  if (count === null) {
-    return {
-      reason:
-        "This ROM's Map16 pointer-fill loop could not be resolved, so how many tiles it holds is unknown. The view will not guess at 512.",
-    }
-  }
-  if (count > MAP16_TOTAL_TILES) {
-    return {
-      reason: `This ROM's Map16 holds ${count} tiles, more than the ${MAP16_TOTAL_TILES} this view can read. Showing the first ${MAP16_TOTAL_TILES} would hide the rest, so nothing is shown. Expanded Map16 is tracked as en-gen/hackbench#102.`,
-    }
-  }
-  return { count }
 }
 
 function toQuadrantDto(sub: SubTile, romAddr: number): Map16QuadrantDto {
@@ -418,155 +388,27 @@ function cgramRowsFor(cgram: ActiveLevelPalette, cited: number[]): Map16CgramRow
   }))
 }
 
-/** `frameZeroChars`'s result: `animData`/`chars` present whenever real stock
- * frame data exists to composite; `error` set whenever that data is
- * unverified or does not exist at all, and absent otherwise. */
-export type FrameZeroChars =
-  | { animData: AnimationData; chars: Map<number, Char>; vram: VramState; error?: string }
-  | { animData?: undefined; vram: VramState; error: string }
-  | undefined
-
-/**
- * The VRAM every surface of this view composites from: this ROM's own
- * animation FRAME 0, not the raw bytes of the four GFX files.
- *
- * The two are not the same picture. Measured on vanilla tileset 0, 75 of
- * the 80 animated characters differ - $040-$07F bar $078, $080-$081,
- * $090-$091, $0DA-$0DD and $0EA-$0ED - and every one of the 89
- * tileset/ROM combinations in the corpus that carries animation data
- * diverges (GPW2: 60 of 64). Those characters are the coins, the `?`
- * blocks and the water.
- *
- * So this is not a rendering nicety. A palette section drawn from raw VRAM
- * beside a tile drawn from frame 0 shows the user a coin, takes the click
- * and paints something else, and the whole design rests on recognition
- * coming from the picture. Map16Decode.test.ts already pins that the STILL
- * SHEET composites from here rather than from raw VRAM, and warns in as
- * many words that reintroducing the raw source is the original bug; this
- * function exists so every surface has ONE source and there is no second
- * chance to make that mistake one surface over.
- */
-export function frameZeroChars(rom: RomFile, tileset: number, vram: VramState): FrameZeroChars {
-  const loaded = loadAnimationDataOrReason(rom, tileset)
-  if (!loaded.ok) {
-    // No stock frames exist to composite: leave this level's own GFX
-    // exactly as loaded rather than guess at pixels there is no data for.
-    return { vram, error: framesError(loaded.reason, false) }
-  }
-  const animData = loaded.data
-  // Checked before the animated-char count: a ROM that skips its own
-  // routine must always report, even on a tileset with nothing to animate.
-  const unreached = stockAnimationUnreached(rom)
-  // A reached routine that cannot be read served the vanilla tables: unverified the same way.
-  const unverified = unreached ? unreachedReason(unreached) : animData.unverified
-  if (getAnimatedChars(animData).size === 0 && !unverified) return undefined
-  // Nothing has ticked yet, so this snapshot IS phase 0 by construction.
-  const chars = buildChars(vram, animData)
-  const composited = { animData, chars, vram: vramFromChars(vram, chars) }
-  if (!unverified) return composited
-  // The level's own code never reaches the stock routine: this tileset's
-  // stock data is real, but unverified - shown for reference, not as proof
-  // of what this ROM actually draws.
-  return { ...composited, error: framesError(unverified, true) }
-}
-
-/** The animation data safe to play back, or undefined when frame 0 came
- * from an unverified or unavailable source - only a still frame is shown. */
-export function playableAnimation(frameZero: FrameZeroChars): AnimationData | undefined {
-  return frameZero?.animData && !frameZero.error ? frameZero.animData : undefined
-}
-
-const framesError = (reason: string, hasStockFrames: boolean): string =>
-  `Animation frames couldn't be loaded: ${reason}. ${
-    hasStockFrames
-      ? 'Showing stock frames.'
-      : "These characters are shown as this ROM's own GFX loaded them."
-  }`
-
-function unreachedReason(unreached: { target: number } | { reason: string }): string {
-  if ('reason' in unreached) return unreached.reason
-  const hex = unreached.target.toString(16).toUpperCase().padStart(6, '0')
-  return `this ROM decides per level whether the stock animation runs (the level calls $${hex})`
-}
-
 /** Whether any of `tile`'s 4 quadrants cites a char in `chars`. */
 export function tileCitesAny(tile: Map16Tile, chars: ReadonlySet<number> | undefined): boolean {
   if (!chars) return false
   return [tile.tl, tile.tr, tile.bl, tile.br].some(q => chars.has(q.charNum))
 }
 
-/** Frame 0's alternate pixels for every char a switch in `kinds` changes, under all of them at once. */
-function switchCharPixels(
-  frameZeroSlots: readonly AnimFrameSlot[],
-  kinds: ReadonlySet<SwitchKind>,
-): Map<number, Uint8Array> {
-  const state: SwitchState = {
-    blue: kinds.has('blue'),
-    silver: kinds.has('silver'),
-    onOff: kinds.has('onOff'),
-  }
-  const out = new Map<number, Uint8Array>()
-  for (const slot of frameZeroSlots) {
-    if (!slot.alt || !kinds.has(slot.alt.switch)) continue
-    slotTiles(slot, state).forEach((px, i) => out.set(slot.charBase + i, px))
-  }
-  return out
-}
-
-/** Every non-empty subset of `kinds`, in `kinds`' order: at most 7 for 3 switches. */
-function nonEmptySubsets<T>(kinds: readonly T[]): T[][] {
-  const subsets: T[][] = []
-  for (let mask = 1; mask < 1 << kinds.length; mask++)
-    subsets.push(kinds.filter((_, i) => mask & (1 << i)))
-  return subsets
-}
-
-function isFullyTransparent(rgba: Uint8ClampedArray): boolean {
-  for (let i = 3; i < rgba.length; i += 4) if (rgba[i] !== 0) return false
-  return true
-}
-
-/**
- * Per-tile switch alternates (#574): one frame-0 picture for every non-empty
- * set of the switches the tile's own chars follow (`switchesForChars`, never a
- * tile-id list), kinds sorted. A single switch whose picture equals the tile's
- * own is dropped, since its toggle would change nothing. `vram` must be the
- * vram the sheet itself was drawn from, so the off picture and the comparison agree.
- */
+/** `tileAlternates` (src/rom/SwitchAlternates.ts, shared with the map tab), for the wire. */
 export function buildTileAlternates(
   animData: AnimationData,
   entries: readonly Map16Tile[],
   vram: VramState,
-  palette: ActiveLevelPalette,
+  palette: { colors: RgbaColor[] },
 ): Map<number, Map16TileAlternateDto[]> {
-  const frameZeroSlots = animData.frames[0] ?? []
-  const patchedBySet = new Map<string, VramState>()
-  const perTile = new Map<number, Map16TileAlternateDto[]>()
-  for (const tile of entries) {
-    const chars = [tile.tl.charNum, tile.tr.charNum, tile.bl.charNum, tile.br.charNum]
-    const kinds = [...switchesForChars(animData, chars)].sort()
-    if (kinds.length === 0) continue
-    const off = renderMap16Tile(tile, vram, palette)
-    const offBlank = isFullyTransparent(off)
-    const alternates: Map16TileAlternateDto[] = []
-    for (const subset of nonEmptySubsets(kinds)) {
-      const key = subset.join('+')
-      let patched = patchedBySet.get(key)
-      if (!patched) {
-        patched = vramFromChars(vram, switchCharPixels(frameZeroSlots, new Set(subset)))
-        patchedBySet.set(key, patched)
-      }
-      const alt = renderMap16Tile(tile, patched, palette)
-      if (subset.length === 1 && Buffer.from(alt).equals(Buffer.from(off))) continue
-      alternates.push({
-        kinds: subset,
-        altRgbaBase64: toBase64(alt),
-        hidden: offBlank && !isFullyTransparent(alt),
-      })
-    }
-    perTile.set(tile.id, alternates)
+  const out = new Map<number, Map16TileAlternateDto[]>()
+  for (const [id, alts] of tileAlternates(animData, entries, vram, palette)) {
+    out.set(
+      id,
+      alts.map(a => ({ kinds: a.kinds, altRgbaBase64: toBase64(a.rgba), hidden: a.hidden })),
+    )
   }
-  return perTile
+  return out
 }
 
 /**
@@ -597,7 +439,7 @@ const BUTTON_FRAME_PX = 16
  */
 export function renderPSwitchButtonImages(
   vram: VramState,
-  palette: ActiveLevelPalette,
+  palette: { colors: RgbaColor[] },
   art: PSwitchButtonArt,
   pswitchPal: number,
 ): Map16SwitchButtonImages {
@@ -625,7 +467,7 @@ export function renderPSwitchButtonImages(
 
 // The ON/OFF button is Map16 tile $112, the vanilla switch block: a hack-fragility point,
 // since a hack can move the ON/OFF block to another tile.
-const ONOFF_BUTTON_TILE_ID = 0x112
+export const ONOFF_BUTTON_TILE_ID = 0x112
 
 /**
  * Every switch toggle BUTTON'S OWN art, distinct from a tile's alternates, with
@@ -636,7 +478,7 @@ export function buildSwitchButtonArt(
   entries: readonly Map16Tile[],
   alternates: ReadonlyMap<number, Map16TileAlternateDto[]>,
   vram: VramState,
-  palette: ActiveLevelPalette,
+  palette: { colors: RgbaColor[] },
 ): {
   art: Partial<Record<SwitchKind, Map16SwitchButtonImages>>
   unavailable: Partial<Record<SwitchKind, string>>

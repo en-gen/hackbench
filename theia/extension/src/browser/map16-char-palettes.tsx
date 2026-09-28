@@ -138,7 +138,10 @@ function renderSection(props: Map16CharPalettesProps, sheet: Map16CharSheetDto):
           className="hb-map16-sheet-grid"
           style={{ width: `${CHARS_PER_ROW * CELL_PX}px`, height: `${rows * CELL_PX}px` }}
         >
-          <canvas className="hb-map16-sheet-canvas" ref={el => props.canvasRef(sheet.slot, el)} />
+          <canvas
+            className="hb-map16-sheet-canvas hb-pixel-canvas"
+            ref={el => props.canvasRef(sheet.slot, el)}
+          />
           <div
             className="hb-map16-sheet-handles"
             style={{

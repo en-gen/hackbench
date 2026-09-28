@@ -5,6 +5,7 @@
  * backend service the frontend calls over JSON-RPC, and this file is the
  * contract both ends compile against.
  */
+import type { Map16SwitchButtonImages, Map16SwitchKind } from './map16-protocol'
 
 /** Where the frontend reaches the backend. Must match the backend binding. */
 export const PROJECT_SERVICE_PATH = '/services/hackbench-project'
@@ -191,6 +192,65 @@ export interface MapDetailsDto {
   gfxAssignmentNote?: string
 }
 
+/**
+ * Which switch palaces a map is drawn as pressed, in the ROM's own
+ * SwitchBlockFlags terms (bank_0D.asm:3739-3747, :4226-4232). A pressed
+ * palace draws its blocks solid. Per map tab, never global.
+ */
+export interface SwitchFlagsDto {
+  green: boolean
+  yellow: boolean
+  blue: boolean
+  red: boolean
+}
+
+/**
+ * One screen of a map's L1 (foreground), drawn by the backend from the
+ * working copy. Horizontal maps have 16 x 27 tile screens; vertical maps
+ * 32 x 16 (two 16-wide halves). The back-area color shows where L1 draws nothing.
+ * `screenCount` and `orientation` let the tab size itself from any screen.
+ */
+export type MapScreenResult =
+  | {
+      status: 'ok'
+      screen: number
+      screenCount: number
+      orientation: 'horizontal' | 'vertical'
+      /** Pixels. */
+      width: number
+      height: number
+      rgbaBase64: string
+      /** Why the animated tiles are drawn from unverified or no frames, when they are. */
+      note?: string
+      /** The back area (CGRAM color 0), RGB: its own layer under L1. */
+      backdrop: [number, number, number]
+    }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
+/**
+ * Which char switches a map is drawn with (#573): the blue and silver
+ * P-switches and ON/OFF swap the chars they animate, not the grid. Per tab.
+ */
+export type SwitchStateDto = Record<Map16SwitchKind, boolean>
+
+/** One palace's switch block as 16x16 RGBA, both states, or why it cannot be drawn. */
+export type PalaceIconDto = { palace: keyof SwitchFlagsDto } & (
+  { uncleared: string; cleared: string } | { unavailable: string }
+)
+
+/** The map toolbar's art: each palace's block (per ROM) and each char switch's own (#574's). */
+export type PalaceIconsResult =
+  | {
+      status: 'ok'
+      icons: PalaceIconDto[]
+      switchArt: Partial<Record<Map16SwitchKind, Map16SwitchButtonImages>>
+      /** Why a switch has no art. */
+      switchUnavailable: Partial<Record<Map16SwitchKind, string>>
+    }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
 /** 'bps' is the default: SMW Central's Hacks section no longer accepts IPS. */
 export type PatchFormatDto = 'bps' | 'ips'
 
@@ -285,12 +345,24 @@ export interface ProjectService {
   updateProject(manifestPath: string, changes: Partial<HackMetadataDto>): Promise<ProjectDto>
 
   /**
-   * Read one map out of the project's base cartridge.
+   * Read one map out of the project's working copy.
    *
    * Throws when the slot holds no readable level data, which is a real answer
    * rather than an empty map: an empty map looks like one that lost its work.
    */
   mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto>
+
+  /** Draw one screen of a map's L1 (foreground) from the working copy. */
+  mapScreen(
+    manifestPath: string,
+    index: number,
+    screen: number,
+    switchFlags: SwitchFlagsDto,
+    switches: SwitchStateDto,
+  ): Promise<MapScreenResult>
+
+  /** The map toolbar's art: the palace blocks and the char switches' buttons. */
+  mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult>
 
   /**
    * Projects this user has opened, most recent first.
@@ -304,7 +376,7 @@ export interface ProjectService {
   clearRecentProjects(): Promise<void>
 
   /**
-   * Every map in the project's base cartridge, grouped for display.
+   * Every map in the project's working copy, grouped for display.
    *
    * Resolves the ROM through the registry; reports `rom-not-located` rather
    * than failing when this machine has not been told where it is.
