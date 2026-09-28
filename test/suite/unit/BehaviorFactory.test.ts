@@ -72,7 +72,7 @@ describe('buildMovementBehavior - retired ids fall through to default', () => {
       const hex = id.toString(16).toUpperCase().padStart(2, '0')
       it(`$${hex} (formerly ${className}) → plain object, kind=sprite_${id.toString(16)}`, () => {
         const b = buildMovementBehavior(id, META)
-        expect(b).not.toBeInstanceOf(SuperKoopaBehavior)
+        expect(Object.getPrototypeOf(b)).toBe(Object.prototype)
         expect(b.kind).toBe(`sprite_${id.toString(16)}`)
       })
     }
@@ -101,7 +101,7 @@ describe('buildMovementBehavior - default (unknown or redundant sprite id)', () 
     // LineBrownPlatBehavior instance carrying extra fields nothing reads.
     const meta = { displayName: 'Brown Platform', spawns: 1 }
     const b = buildMovementBehavior(0x62, meta)
-    expect(b).toEqual({
+    expect(b).toStrictEqual({
       kind: 'sprite_62',
       displayName: 'Brown Platform',
       spawns: 1,
