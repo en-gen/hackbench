@@ -348,13 +348,9 @@ These exist because each one corresponds to a defect that actually reached revie
 
 ## Enforced mechanically
 
-Enable the hooks once per clone:
-
-```bash
-git config core.hooksPath .githooks
-```
-
-Two scripts run on pre-commit and in CI.
+`npm install` sets `core.hooksPath` to `.githooks` automatically
+(`tools/scripts/set-hooks-path.cjs`, run via the `prepare` script); nothing
+to do per clone. Two gates run on pre-commit, pre-push and in CI.
 
 `tools/scripts/check-staged-style.sh` runs ESLint at `--max-warnings 0` and
 Prettier in check mode over the staged JS/TS/CSS. Warnings are fatal: the
@@ -363,7 +359,13 @@ tree it looked at. `test/suite/gates/lintGate.test.ts` plants a defect per
 rule and proves both halves go red, and asserts the package.json scripts
 still carry the flags that make them able to fail.
 
-`tools/scripts/check-staged-content.sh` runs on pre-commit and in CI. It blocks ROM-derived bytes (the copyright rule in `docs/testing.md`, previously guarded only by `.gitignore`, which `git add -f` silently defeats) and em-dashes in newly added lines. Override with `git commit --no-verify` only with a stated reason in the PR.
+`tools/scripts/check-content.mjs` (issue #678) blocks ROM-derived bytes
+(the copyright rule in `docs/testing.md`, previously guarded only by
+`.gitignore`, which `git add -f` silently defeats) and em-dashes in newly
+added lines, in `staged`/`range`/`push`/`history` modes. Override with
+`git commit --no-verify` only with a stated reason in the PR; `.githooks/
+pre-push` still catches a `--no-verify`'d commit unless the push itself
+also skips hooks.
 
 ## Claim discipline
 
