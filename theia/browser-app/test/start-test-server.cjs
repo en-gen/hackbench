@@ -12,12 +12,14 @@ const path = require('path')
 const { startBackend, stopBackend } = require('./own-backend.cjs')
 
 const MARKER = 'hb-test-server.json'
-// Theia's settings.json and recentworkspace.json; the default is ~/.theia.
+const PREFIX = 'hb-testserver-'
+// Theia's settings, recent and untitled workspaces, workspace metadata; the
+// default is ~/.theia.
 const THEIA_CONFIG = 'theia-config'
 
 /** Creates the folder and its marker; returns the env the server must run with. */
 function prepareTestServer(port) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-testserver-'))
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), PREFIX))
   fs.writeFileSync(path.join(root, MARKER), JSON.stringify({ port, pid: process.pid }))
   const env = {
     APPDATA: root,
@@ -52,4 +54,4 @@ async function main() {
 
 if (require.main === module) main()
 
-module.exports = { prepareTestServer, MARKER, THEIA_CONFIG }
+module.exports = { prepareTestServer, MARKER, PREFIX, THEIA_CONFIG }

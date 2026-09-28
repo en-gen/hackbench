@@ -473,9 +473,10 @@ every process it starts inherits, and deletes it when the run exits. It never
 reuses a server already on port 3000, since that server's app data is unknown.
 
 The same folder holds the run's Theia config dir. The backend keeps user
-`settings.json`, `recentworkspace.json` and `backend-settings.json` in
-`THEIA_CONFIG_DIR`, else `~/.theia`, so the config sets `THEIA_CONFIG_DIR`,
-overriding any value already exported. The saved layout is not there: the
+`settings.json`, `recentworkspace.json`, `backend-settings.json`,
+`workspace-metadata/` and untitled `workspaces/` in `THEIA_CONFIG_DIR`, else
+`~/.theia`, so the config sets `THEIA_CONFIG_DIR`, overriding any value
+already exported. The saved layout is not there: the
 browser app keeps it in `localStorage`, and each Playwright test gets a fresh
 browser context, so no spec inherits or changes the user's layout.
 
@@ -497,19 +498,21 @@ server's environment: a server started any other way and handed a copied
 marker still writes wherever its own `APPDATA` points. The config also
 refuses an `HB_TEST_APPDATA` that no Playwright run created, and any folder
 outside the temp dir. macOS is refused outright, because `appData.ts`
-ignores the environment there.
+ignores the environment there. Each run also deletes `hb-appdata-*` and
+`hb-testserver-*` folders in the temp dir untouched for over a day, which a
+crashed run or server left behind.
 
 `test/suite/gates/playwrightAppDataGate.test.ts` checks, without a ROM: the
 config's folder is where the registries resolve; the webServer (through
 Playwright's env merge), `own-backend.cjs` and `start-test-server.cjs` spawn
-options hand it, and `THEIA_CONFIG_DIR` inside it, to a child process; a
-setting a spec writes through either server leaves a real
-`~/.theia/settings.json` byte-identical; where Theia is installed, Theia's own
-resolution agrees; `reuseExistingServer` is false; each
-refusal fires; a real `recent-projects.json` edited during a run comes out
-holding that edit. It plants a non-isolating harness, a snapshot/restore
-harness and a server that drops `THEIA_CONFIG_DIR` to show the overlap checks
-can fail. It does not start a server.
+options hand it, and `THEIA_CONFIG_DIR` inside it, to a child process, even
+when the user already exported one; Theia's own resolution agrees (CI's
+`theia-typecheck` job runs the gate with `HB_REQUIRE_THEIA=1`, so a missing
+Theia install fails there instead of skipping); `reuseExistingServer` is
+false; each refusal fires; stale folders are swept and nothing else; a real
+`recent-projects.json` edited during a run comes out holding that edit. It
+plants a non-isolating harness and a snapshot/restore harness to show that
+last check can fail. It does not start a server.
 
 ## Commands
 

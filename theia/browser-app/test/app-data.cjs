@@ -6,7 +6,7 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { MARKER, THEIA_CONFIG } = require('./start-test-server.cjs')
+const { MARKER, PREFIX: SERVER_PREFIX, THEIA_CONFIG } = require('./start-test-server.cjs')
 
 const PREFIX = 'hb-appdata-'
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -34,11 +34,11 @@ function markedFor(root, url) {
   }
 }
 
-/** Runs that crashed before their exit handler left folders behind. */
+/** Runs and test servers that crashed before their exit handler left folders behind. */
 function sweepStale() {
   const tmp = os.tmpdir()
   for (const name of fs.readdirSync(tmp)) {
-    if (!name.startsWith(PREFIX)) continue
+    if (!name.startsWith(PREFIX) && !name.startsWith(SERVER_PREFIX)) continue
     const p = path.join(tmp, name)
     try {
       if (Date.now() - fs.statSync(p).mtimeMs > DAY_MS)
