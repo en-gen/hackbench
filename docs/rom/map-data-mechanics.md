@@ -148,8 +148,8 @@ offset in the stream, which is where the screen counter bites.
 ### Screens are a running counter, not an index
 
 There is no per-screen table and no per-screen offset. Bit 7 of byte 0 is a
-"new screen" flag, and the game accumulates it: `LDA _A / AND #$80 / ASL A /
-ADC LevelLoadObject / STA LevelLoadObject` (`bank_05.asm:754-758`). An
+"new screen" flag, and the game accumulates it: the parser shifts that bit
+into carry and adds it to the running screen counter (`bank_05.asm:754-758`). An
 object's screen is whatever the running total is when the parser reaches
 it. Extended object `$01` sets the counter to an arbitrary value instead
 (`CODE_0DA53D`, `bank_0D.asm:1441-1446`).
@@ -161,9 +161,11 @@ Consequences for any drag interaction:
    its record into a different run of the stream.
 2. Moving a record that carries the new-screen bit shifts every later object
    by one screen. Insert and delete have the same hazard.
-3. Because the counter only increments (absent extended `$01`), the stream
-   is implicitly sorted by screen. An editor must keep that sort as an
-   invariant and recompute the new-screen bits after any structural edit.
+3. Between extended `$01` records the counter only increments, so each
+   segment of the stream is sorted by screen. A `$01` can set the counter
+   lower, starting a new segment. An editor must keep each segment sorted,
+   keep every `$01` reset where it is relative to the objects around it, and
+   recompute the new-screen bits after any structural edit.
 4. Reordering _within_ a screen is safe and is the draw-order operation.
    Reordering _across_ screens is a move plus a re-flag.
 
@@ -226,15 +228,10 @@ GrandPooWorld_V1.2 names the same targets through bank `$06` rather than
 its `$86` mirror. All four stubs open with `JSR $F608`. The shared routine,
 read from Seven_Vanilla_Levels at `$86F608` (file `$37608`), does this,
 simplified (it also guards on `$0D9B` to fall back to the stock routine, and
-branches to a second table when the doubled index is negative):
-
-```
-LDA $1693          ; 16-bit Map16 tile number
-ASL A : TAX        ; index = tile * 2
-LDA.l base,X       ; the acts-like table
-CMP #$0200 : BCS   ; a result of $200 or more is looked up again
-STA $1693          ; write back the translated tile number
-```
+branches to a second table when the doubled index is negative): it takes
+the 16-bit Map16 tile number from `$1693`, doubles it to index a table of
+16-bit entries, and looks the result up again while it is `$200` or more.
+The final value is written back to `$1693` as the translated tile number.
 
 Acts-like on these ROMs is **a 16-bit value per Map16 tile, in a flat table
 indexed by tile number times two, 16384 entries in one 32 KB bank**. The

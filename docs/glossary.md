@@ -16,7 +16,9 @@ pointers, not one:
 | L2, background | `$05E600 + index * 3` |
 | sprites        | `$05EC00 + index * 2` |
 
-The sprite entry is 2 bytes; stock code supplies bank `$07` as a literal
+The sprite entry is 2 bytes; stock code doubles the index, reads the word
+from the table and supplies bank `$07` as a literal (`bank_05.asm:7247-7258`).
+That is stock code only: hacks can replace the literal with a per-slot bank
 ([map-data-mechanics.md](rom/map-data-mechanics.md)).
 
 **Empty slot.** A slot whose L1 pointer is the ROM's filler value. On vanilla
