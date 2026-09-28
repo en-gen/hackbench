@@ -22,6 +22,8 @@ const VIEW = '#theia-main-content-panel #hackbench\\.overworld-view'
 
 /** LDX #OWL1TileData's opcode in CODE_04DC09 (bank_04.asm:5675), pinned by the reader. */
 const L1_LDX_OPCODE = 0x04dc5a
+/** `JSR CODE_04DABA`'s opcode for the high stream (bank_04.asm:5704), pinned by the L2 reader. */
+const L2_JSR_OPCODE = 0x04dc99
 /** Tile data byte for grid (row 1, col 55): map16ByteOffset(1, 1, 23). Opaque on vanilla. */
 const OPAQUE_CELL = 0x517
 
@@ -209,6 +211,7 @@ test('on vanilla the canvas is 1024x512 and hashes to the pinned vanilla canvas'
   expect(got.sha).toBe(VANILLA_OVERWORLD_CANVAS_SHA256)
   await expect(page.locator('.hb-overworld-note')).toContainText(/other half may differ in game/)
   await expect(page.locator('.hb-overworld-reason')).toHaveCount(0)
+  await expect(page.locator('.hb-overworld-l2-reason')).toHaveCount(0)
 })
 
 test('a one-tile edit draws a canvas that differs from the pin', async ({ page }) => {
@@ -220,6 +223,22 @@ test('a one-tile edit draws a canvas that differs from the pin', async ({ page }
   await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
   await page.waitForTimeout(500)
   expect((await canvasSha(page)).sha).not.toBe(VANILLA_OVERWORLD_CANVAS_SHA256)
+})
+
+test('a ROM whose L2 reader is not stock draws L1 alone and says why', async ({ page }) => {
+  const planted = plantedRom('no-l2.sfc', bytes => {
+    bytes[fileOffset(bytes, L2_JSR_OPCODE)] ^= 0xff
+  })
+  await openProject(page, planted)
+  await page.locator(GLOBE).click()
+  await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
+  await expect(page.locator('.hb-overworld-l2-reason')).toContainText(
+    /^L2 \(background\) unavailable: the L2 decompressor is not stock: \$04DC91/,
+  )
+  await page.waitForTimeout(500)
+  const got = await canvasSha(page)
+  expect([got.width, got.height]).toEqual([1024, 512])
+  expect(got.sha).not.toBe(VANILLA_OVERWORLD_CANVAS_SHA256)
 })
 
 test('a ROM whose L1 reader is not stock shows the reason and no canvas', async ({ page }) => {

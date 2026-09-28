@@ -1,7 +1,8 @@
 /**
  * Pure decode for the Overworld view, shaped like gfx-decode.ts: no Theia.
  * Area 0's tileset and CGRAM for the whole canvas (docs/rom/overworld-l1.md).
- * Anything it cannot interpret is refused with a reason, palette seed included.
+ * An L1 (foreground) or palette it cannot interpret refuses the view with a
+ * reason; an unreadable L2 (background) is left out, with its reason.
  */
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { gfxSource, loadVram } from '../../../../src/rom/GfxLoader'
@@ -10,18 +11,16 @@ import { readLevelCol1 } from '../../../../src/rom/PaletteStockTables'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { findSpecialMaps } from '../../../../src/rom/SpecialMaps'
 import { overworldCgram } from '../../../../src/rom/OverworldLoader'
-import {
-  OW_L1_COLS,
-  composeOverworldL1Grid,
-  readOverworldL1,
-} from '../../../../src/rom/OverworldL1'
-import { buildTileAtlas } from '../../../../src/rom/TileRenderer'
+import { composeOverworldL1Grid, readOverworldL1 } from '../../../../src/rom/OverworldL1'
+import { drawOverworld, readOverworldL2 } from '../../../../src/rom/OverworldL2'
+import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import type { OverworldL1Dto } from '../common/gfx-protocol'
 
 const unavailable = (reason: string): OverworldL1Dto => ({ status: 'unavailable', reason })
 
-/** LoadPalette's result for the title screen map, which CODE_00AD25 draws over. */
-function titleCgram(rom: SmwRom): RgbaRow[] | string {
+/** LoadPalette's result for the title screen map, which CODE_00AD25 draws over,
+ *  and its back area color as the backdrop (CGRAM color 0). */
+function titleCgram(rom: SmwRom): { rows: RgbaRow[]; backdrop: RgbaColor } | string {
   const special = findSpecialMaps(rom.rom)
   const title = special.maps.find(m => m.role === 'title-screen')
   if (!title) return special.notes.find(n => n.startsWith('Title')) ?? 'No title screen map.'
@@ -30,15 +29,18 @@ function titleCgram(rom: SmwRom): RgbaRow[] | string {
   const col1 = readLevelCol1(rom.rom)
   if ('reason' in col1) return `Palette column 1 is unavailable: ${col1.reason}`
   const h = parseLevelHeader(raw)
-  return buildLevelCgram(loadRomPalettes(rom.rom), h.bgPalette, h.fgPalette, h.spritePalette, col1)
-    .rows
+  const palettes = loadRomPalettes(rom.rom, h.bgColor)
+  const { rows } = buildLevelCgram(palettes, h.bgPalette, h.fgPalette, h.spritePalette, col1)
+  return { rows, backdrop: palettes.backAreaColor }
 }
 
-/** @param cgramFingerprints Replaces CODE_00AD25's recognized builds; for a synthetic ROM. */
-export function decodeOverworldL1(
-  rom: SmwRom,
-  cgramFingerprints?: readonly string[],
-): OverworldL1Dto {
+/** Replacement recognized builds, for a synthetic ROM. */
+export interface OverworldFingerprints {
+  cgram?: readonly string[]
+  l2?: readonly string[]
+}
+
+export function decodeOverworldL1(rom: SmwRom, fps: OverworldFingerprints = {}): OverworldL1Dto {
   const l1 = readOverworldL1(rom.rom)
   if (!l1.ok) return unavailable(l1.reason)
   const gfx = gfxSource(rom.rom)
@@ -52,21 +54,24 @@ export function decodeOverworldL1(
   }
   const base = titleCgram(rom)
   if (typeof base === 'string') return unavailable(base)
-  const cgram = overworldCgram(rom.rom, l1.objectTileset, base, cgramFingerprints)
+  const cgram = overworldCgram(rom.rom, l1.objectTileset, base.rows, fps.cgram)
   if (typeof cgram === 'string') return unavailable(cgram)
 
+  const l2 = readOverworldL2(rom.rom, fps.l2)
   const vram = loadVram(rom.rom, l1.objectTileset, l1.spriteTileset)
   const grid = composeOverworldL1Grid(l1.tileData, l1.charData)
-  const { atlas, atlasWidth, atlasHeight } = buildTileAtlas(
+  const px = drawOverworld(
     grid,
+    l2.ok ? l2.tilemap : null,
     vram,
     { colors: cgram.flat() },
-    OW_L1_COLS,
+    base.backdrop,
   )
   return {
     status: 'ok',
-    width: atlasWidth,
-    height: atlasHeight,
-    rgbaBase64: Buffer.from(atlas.buffer, atlas.byteOffset, atlas.byteLength).toString('base64'),
+    width: 1024,
+    height: 512,
+    rgbaBase64: Buffer.from(px.buffer, px.byteOffset, px.byteLength).toString('base64'),
+    ...(l2.ok ? {} : { l2Unavailable: l2.reason }),
   }
 }

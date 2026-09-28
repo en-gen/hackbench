@@ -107,7 +107,14 @@ export interface GfxSheetDto {
  * carries no pixels: the view shows the reason and no canvas.
  */
 export type OverworldL1Dto =
-  | { status: 'ok'; width: number; height: number; rgbaBase64: string }
+  | {
+      status: 'ok'
+      width: number
+      height: number
+      rgbaBase64: string
+      /** Why L2 (background) is left out; absent when it is drawn. */
+      l2Unavailable?: string
+    }
   | { status: 'unavailable'; reason: string }
 
 /**
@@ -153,6 +160,6 @@ export interface GfxService {
     paletteRow?: number,
   ): Promise<GfxSheetDto>
 
-  /** The overworld's L1 grid in area 0's tileset and palette (overworld-decode.ts). */
+  /** The overworld's L2 and L1 in area 0's tileset and palette (overworld-decode.ts). */
   overworldL1(manifestPath: string): Promise<OverworldL1Dto>
 }

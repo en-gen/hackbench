@@ -32,7 +32,7 @@ describe('readOverworldL1 on a synthetic ROM', () => {
     expect([r.objectTileset, r.spriteTileset]).toEqual([0x12, 0x13])
     expect(r.tileData[map16ByteOffset(1, 3, 5)]).toBe(tileAt(3, 37))
     expect(r.charData.length).toBe(256 * 8)
-    expect(r.charData[8 * 9 + 2]).toBe((9 * 4 + 1) & 0x7f)
+    expect(r.charData[8 * 9 + 2]).toBe((9 * 4 + 1) & 0x3f)
   })
 
   it('refuses when any pinned byte changes: every byte, flipped one at a time', () => {
@@ -58,7 +58,7 @@ describe('readOverworldL1 on a synthetic ROM', () => {
   it('picks the low bank when the tileset is below the CMP threshold', () => {
     const rom = syntheticOverworldRom()
     for (const at of BANK_SELECTS) plantBankSelect(rom, at, CHAR_DATA >> 16, 0x20, 0x05)
-    expect(read(rom).charData[8 * 9 + 2]).toBe((9 * 4 + 1) & 0x7f)
+    expect(read(rom).charData[8 * 9 + 2]).toBe((9 * 4 + 1) & 0x3f)
   })
 
   it('refuses when the bank selects disagree, or are absent', () => {
@@ -90,7 +90,7 @@ describe('readOverworldL1 on a synthetic ROM', () => {
     expect(tile.id).toBe(tileAt(17, 40))
     // decodeOwMap16's order: TL, BL, TR, BR words.
     expect([tile.tl, tile.bl, tile.tr, tile.br].map(s => s.charNum)).toEqual(
-      [0, 1, 2, 3].map(q => (tile.id * 4 + q) & 0x7f),
+      [0, 1, 2, 3].map(q => (tile.id * 4 + q) & 0x3f),
     )
   })
 })

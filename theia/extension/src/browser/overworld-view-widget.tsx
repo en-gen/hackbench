@@ -1,5 +1,5 @@
 /**
- * The Overworld view: the overworld's L1 (foreground), both halves side by side.
+ * The Overworld view: L2 (background) under L1 (foreground), half 0 left of half 1.
  *
  * One instance in the main area. Follows ProjectContext, and redraws when the
  * backend reports the working copy changed. A refusal shows its reason and
@@ -89,7 +89,7 @@ export class OverworldViewWidget extends ReactWidget {
     return (
       <div className="hb-gfx-view-body">
         <div className="hb-gfx-view-toolbar">
-          <span className="hb-gfx-view-title">Overworld: Foreground</span>
+          <span className="hb-gfx-view-title">Overworld</span>
           {l1?.status === 'ok' && (
             <span className="hb-gfx-view-summary hb-overworld-note">
               Drawn with area 0&apos;s tileset and palette; tiles and colors in the other half may
@@ -98,6 +98,11 @@ export class OverworldViewWidget extends ReactWidget {
           )}
         </div>
         {reason && <div className="hb-gfx-view-error hb-overworld-reason">{reason}</div>}
+        {l1?.status === 'ok' && l1.l2Unavailable && (
+          <div className="hb-gfx-view-error hb-overworld-l2-reason">
+            {`L2 (background) unavailable: ${l1.l2Unavailable}`}
+          </div>
+        )}
         {l1?.status === 'ok' && (
           <div className="hb-gfx-view-canvas-wrap">
             <canvas
