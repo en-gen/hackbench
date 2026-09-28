@@ -10,10 +10,11 @@
  * built, 0 failures. Every number below is measured, not predicted.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMap } from '../../../../src/rom/model/MapBuilder'
 import { ppuDrawOrder, type RenderPass } from '../../../../src/rom/model/RenderPass'
+import type { Sprite } from '../../../../src/rom/model/sprites/Sprite'
 import { resetEditorStore } from '../fixtures/stores'
 import { VANILLA, hasRom, romPath } from '../../support/corpus'
 
@@ -24,26 +25,46 @@ const key = (p: RenderPass): string => `${p.layer}.${p.priority}`
 /** Levels ranked by Layer-1 priority cell count: 923, 630 and 462 cells. */
 const DENSE_L1_PRIORITY = [0x10a, 0x1ec, 0x11e]
 
+type Slot = { id: number; passes: RenderPass[]; bg3: boolean; sprites: Sprite[] }
+
+const sweep = (): Slot[] => {
+  const rom = SmwRom.open(ROM_PATH)
+  return Array.from({ length: 512 }, (_, id) => {
+    const map = buildMap(rom, id)
+    return {
+      id,
+      passes: map.passes(),
+      bg3: map.header.layer3Priority ?? false,
+      sprites: map.sprites,
+    }
+  })
+}
+
+/**
+ * A timeout is a crash guard here, not a performance budget: the sweep is
+ * synchronous, so vitest can only raise this after the build has already
+ * returned. Nothing in this repo bounds `buildMap`'s cost and this hook is
+ * not the place to start one.
+ */
+const SWEEP_TIMEOUT_MS = 30_000
+
 describe.skipIf(!hasRom(VANILLA))('pass list over all 512 level ids', () => {
-  beforeEach(resetEditorStore)
+  let slots: Slot[]
 
-  const sweep = (): { id: number; passes: RenderPass[]; bg3: boolean }[] => {
-    const rom = SmwRom.open(ROM_PATH)
-    return Array.from({ length: 512 }, (_, id) => {
-      const map = buildMap(rom, id)
-      return { id, passes: map.passes(), bg3: map.header.layer3Priority ?? false }
-    })
-  }
+  /**
+   * One build for the whole file: a sweep per case cost five 512-slot builds.
+   * Reset first, because `passes()` reads the switch-palace toggles in
+   * `editorStore`; a case that changes the store would not see `slots` follow.
+   */
+  beforeAll(() => {
+    resetEditorStore()
+    slots = sweep()
+  }, SWEEP_TIMEOUT_MS)
 
-  // 30s, not vitest's default 5s. This case is the first of four to call
-  // `sweep()`, so it pays for the cold build of all 512 maps: measured at
-  // 5.2-5.5s in a full `npm run test:unit`, and under 5s when the file runs
-  // alone. It was already at the edge and went over when this branch added
-  // cases to the run. No assertion below is changed; only the budget is.
   it('every level emits a duplicate-free subsequence of the PPU order', () => {
     // The structural invariant that matters: the compositor may drop
     // passes a level does not occupy, never reorder or repeat them.
-    for (const { id, passes, bg3 } of sweep()) {
+    for (const { id, passes, bg3 } of slots) {
       const full = ppuDrawOrder(bg3).map(key)
       const got = passes.map(key)
       expect(new Set(got).size, `level $${id.toString(16)}`).toBe(got.length)
@@ -54,13 +75,13 @@ describe.skipIf(!hasRom(VANILLA))('pass list over all 512 level ids', () => {
         at = next
       }
     }
-  }, 30_000)
+  })
 
   it('the three densest Layer-1 priority levels each split Layer 1 in two', () => {
     // 666 vanilla cells mix priority and non-priority subtiles inside one
     // 16x16, which is what genuinely forces two L1 passes at one grid
     // position. These are the levels with the most such cells.
-    const byId = new Map(sweep().map(s => [s.id, s.passes.map(key)]))
+    const byId = new Map(slots.map(s => [s.id, s.passes.map(key)]))
     for (const id of DENSE_L1_PRIORITY) {
       expect(byId.get(id), `level $${id.toString(16)}`).toContain('l1.0')
       expect(byId.get(id), `level $${id.toString(16)}`).toContain('l1.1')
@@ -71,9 +92,7 @@ describe.skipIf(!hasRom(VANILLA))('pass list over all 512 level ids', () => {
     // $10A is both the densest L1-priority level and one of the 17 that
     // carry an OBJ.1 sprite, so it exercises the bug on real level data:
     // the old fixed order drew those sprites after l1.0.
-    const passes = sweep()
-      .find(s => s.id === 0x10a)!
-      .passes.map(key)
+    const passes = slots.find(s => s.id === 0x10a)!.passes.map(key)
     expect(passes).toContain('sprites.1')
     expect(passes.indexOf('sprites.1')).toBeLessThan(passes.indexOf('l1.0'))
     expect(passes.indexOf('sprites.1')).toBeLessThan(passes.indexOf('l2.0'))
@@ -85,7 +104,7 @@ describe.skipIf(!hasRom(VANILLA))('pass list over all 512 level ids', () => {
     // passes at separate stack positions rather than two positions for one
     // layer, and sprites split three ways.
     const hist = new Map<number, number>()
-    for (const { passes } of sweep()) hist.set(passes.length, (hist.get(passes.length) ?? 0) + 1)
+    for (const { passes } of slots) hist.set(passes.length, (hist.get(passes.length) ?? 0) + 1)
     expect([...hist.entries()].sort((a, b) => a[0] - b[0])).toEqual([
       [2, 294],
       [3, 83],
@@ -97,10 +116,9 @@ describe.skipIf(!hasRom(VANILLA))('pass list over all 512 level ids', () => {
   })
 
   it('every sprite on the cart resolves to a priority in 0..3', () => {
-    const rom = SmwRom.open(ROM_PATH)
     const sources = new Map<string, number>()
-    for (let id = 0; id < 512; id++) {
-      for (const s of buildMap(rom, id).sprites) {
+    for (const { id, sprites } of slots) {
+      for (const s of sprites) {
         expect(
           s.priority.value,
           `level $${id.toString(16)} sprite $${s.id.toString(16)}`,

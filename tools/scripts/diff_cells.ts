@@ -9,7 +9,10 @@ import { parseLevelObjects, SCREEN_W } from '../../src/rom/LevelParser'
 import { expandMap, TILE_EMPTY } from '../../src/rom/ObjectExpander'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
-const MAPS_DIR = `${process.env.USERPROFILE ?? process.env.HOME}/OneDrive/hackbench-fixtures/maps`
+// HB_MAPS_DIR lets a run point at a scratch copy, matching gen_diff_images.
+const MAPS_DIR =
+  process.env.HB_MAPS_DIR ??
+  `${process.env.USERPROFILE ?? process.env.HOME}/OneDrive/hackbench-fixtures/maps`
 const arg = process.argv[2]
 const max = Number(process.argv[3] ?? 40)
 if (!arg) {
