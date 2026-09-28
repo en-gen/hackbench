@@ -1,0 +1,8 @@
+# LF in the repo and in every checkout: tools, hooks and tests assume it,
+# and Windows checkouts otherwise warn on every commit.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary
+*.icns binary
+*.node binary
