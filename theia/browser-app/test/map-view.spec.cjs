@@ -1,5 +1,5 @@
 /**
- * The map tab draws the L1 (foreground), en-gen/hackbench#421 step 3.
+ * The map tab draws the L1 (foreground), en-gen/hackbench#205 step 3.
  *
  * Every assertion reads PIXELS back, never the mere presence of a canvas: a
  * blank canvas is on screen too, and the first build of this tab passed six

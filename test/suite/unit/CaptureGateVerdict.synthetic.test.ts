@@ -1,6 +1,6 @@
 /**
  * Verdict and CLI tests for the L1 (foreground) data gate
- * (en-gen/hackbench#421). No real ROM needed: `runGate`'s missing-capture
+ * (en-gen/hackbench#205). No real ROM needed: `runGate`'s missing-capture
  * path returns before `loadRom` is ever called (a spy proves it); the
  * multi-map integration tests use a zero-filled synthetic buffer that only
  * satisfies `SmwRom`'s own LoROM header check, never a real cart; the

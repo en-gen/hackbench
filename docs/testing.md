@@ -46,6 +46,12 @@ remote-tracking refs), and `history` (every blob reachable from every ref
   shallow clone, a grafts file, and a tag/ref pointing at a blob or tree
   outside any commit's tree).
 
+A commit MESSAGE already on protected `develop` cannot be amended, so a false
+positive there would red `history` mode forever. Such a message goes in
+`tools/scripts/content-gate-reviewed.txt` as `<sha> <rule> -- <reason>`,
+after a person checks it. It exempts that message for that rule only; file
+content is never exempt, and a malformed line or unknown rule exits 2.
+
 `npm install` sets `core.hooksPath` to `.githooks` automatically
 (`tools/scripts/set-hooks-path.cjs`). The only bypass is
 `git commit --no-verify` / `git push --no-verify`.
@@ -394,7 +400,7 @@ synthetic only. The evidence behind the checks is in
 
 ### The L1 (foreground) data gate
 
-`tools/scripts/capture_gate.ts` (en-gen/hackbench#421) builds the Map16
+`tools/scripts/capture_gate.ts` (en-gen/hackbench#205) builds the Map16
 grid, defs, per-strip pipe sets, L1 chars and palette from the ROM's
 working copy and checks each byte for byte against a `layers_v5` capture,
 over the committed 143-map roster (`tools/scripts/fgGateMaps.ts`). It reads

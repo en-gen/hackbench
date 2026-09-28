@@ -1,6 +1,6 @@
 /**
  * Synthetic tests for the L1 (foreground) data gate's table checks
- * (tools/scripts/capture_gate.ts, en-gen/hackbench#421). Each check is a
+ * (tools/scripts/capture_gate.ts, en-gen/hackbench#205). Each check is a
  * pure function over plain arrays/bytes, so these need no ROM and no
  * capture on disk - the corpus-backed suite (CaptureGate.corpus.test.ts)
  * exercises the real thing.

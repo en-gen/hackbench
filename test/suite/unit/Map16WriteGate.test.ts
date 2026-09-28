@@ -100,7 +100,7 @@ describe('gateQuadrantWrite: the capacity gate', () => {
   it('refuses when the table is larger than the loader can walk', () => {
     const reason = reasonOf(gate(stubRomBytes(0x1000), 'fg', 0), 'unavailable') // 2048 tiles
     expect(reason).toContain('2048')
-    expect(reason).toContain('en-gen/hackbench#102')
+    expect(reason).toContain('en-gen/hackbench#41')
   })
 
   it('refuses a tile id past the count this cartridge actually reports', () => {

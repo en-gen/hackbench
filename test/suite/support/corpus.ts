@@ -20,7 +20,7 @@ export const MAGIC: string = core.MAGIC
 export const INVICTUS: string = core.INVICTUS
 export const ROM_DIR: string = core.ROM_DIR
 export const TOOLS_ROOT: string = core.TOOLS_ROOT
-/** Where the `layers_v5` Mesen captures live (en-gen/hackbench#421); read-only. */
+/** Where the `layers_v5` Mesen captures live (en-gen/hackbench#205); read-only. */
 export const CAPTURE_DIR: string = core.CAPTURE_DIR
 
 export const resolveRomDir: (env: Env, repoRoot: string, exists: Exists) => string =

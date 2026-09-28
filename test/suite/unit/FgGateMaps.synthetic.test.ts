@@ -1,5 +1,5 @@
 /**
- * Pins the Foreground data gate's committed roster (en-gen/hackbench#421):
+ * Pins the Foreground data gate's committed roster (en-gen/hackbench#205):
  * 143 maps, no duplicates, disjoint from the 18 named empty-Layer-1 maps,
  * and together they make the 161 `layers_v5` maps with viewer data. Needs
  * no ROM and no capture on disk - this is a property of the committed

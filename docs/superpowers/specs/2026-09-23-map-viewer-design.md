@@ -18,7 +18,7 @@ needs them.
 | Effects    | Layer 3, BG3 |
 | Sprites    | OAM          |
 
-Closes the rendering half of en-gen/hackbench#421, "Map tab should render
+Closes the rendering half of en-gen/hackbench#205, "Map tab should render
 the level, not a header decode".
 
 ## What already exists

@@ -4,7 +4,7 @@
  * `src/rom/Map16.ts` hardcoded 512 in nine places. Vanilla does hold 512,
  * so on this corpus the constant and the truth agree and nothing catches
  * the difference. On a cart carrying Lunar Magic's expanded-Map16 patch
- * (en-gen/hackbench#102) they diverge, and a hardcoded 512 would present
+ * (en-gen/hackbench#41) they diverge, and a hardcoded 512 would present
  * the first two pages as though they were the whole table: correct-looking
  * output that silently omits the rest.
  *

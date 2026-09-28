@@ -69,7 +69,7 @@ full.
 edit overflows.** A 20-pixel doodle overflows. One noise tile overflows. The
 only edit that fits is one that makes the file more compressible. For any
 ROM whose GFX region is already packed to its own end, the painter is
-unusable until en-gen/hackbench#446 (ROM expansion) lands, and two of the
+unusable until en-gen/hackbench#218 (ROM expansion) lands, and two of the
 four editable ROMs in this corpus are in that state.
 
 ## What a save costs an exported patch

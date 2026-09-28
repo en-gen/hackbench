@@ -311,7 +311,7 @@ describe('planGfxSave', () => {
     expect(r.status).toBe('overflow')
     if (r.status !== 'overflow') return
     expect(r.overage).toBeGreaterThan(0)
-    expect(r.reason).toMatch(/446/)
+    expect(r.reason).toMatch(/hackbench#218/)
   })
 })
 

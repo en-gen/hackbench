@@ -164,7 +164,7 @@ export function map16LayerExtent(rom: RomFile, layer: Map16Layer): Map16Extent {
     const count = table.value.length
     if (count > MAP16_TOTAL_TILES)
       return {
-        reason: `This ROM's L2 (background) Map16 holds ${count} tiles, more than the ${MAP16_TOTAL_TILES} this view can read (en-gen/hackbench#102).`,
+        reason: `This ROM's L2 (background) Map16 holds ${count} tiles, more than the ${MAP16_TOTAL_TILES} this view can read (en-gen/hackbench#41).`,
       }
     return { count }
   }

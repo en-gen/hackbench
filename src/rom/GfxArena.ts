@@ -526,7 +526,7 @@ export function layoutArena(rom: RomFile, streams: readonly Uint8Array[]): Arena
         reason:
           `the repacked graphics need ${needed} bytes where the ROM has ${region.capacity}, ` +
           `${needed - region.capacity} too many. Making room needs ROM expansion, ` +
-          'en-gen/hackbench#446, which this build does not do.',
+          'en-gen/hackbench#218, which this build does not do.',
       }
     }
 

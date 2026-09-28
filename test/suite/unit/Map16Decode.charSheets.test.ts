@@ -73,7 +73,7 @@ describe('map16TileCapacity (no cartridge)', () => {
     // user cannot tell a refusal from a bug.
     expect(reason).toContain('2048')
     expect(reason).toContain(String(MAP16_TOTAL_TILES))
-    expect(reason).toContain('en-gen/hackbench#102')
+    expect(reason).toContain('en-gen/hackbench#41')
   })
 
   it('refuses a cartridge whose fill loop cannot be found, rather than falling back to 512', () => {
