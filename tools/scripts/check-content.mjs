@@ -503,12 +503,38 @@ function evaluateEntries(entries, messages = []) {
     for (const hit of evaluateEntry(e.path, buf))
       hits.push({ ...hit, commit: e.commit, blob: e.blob })
   }
+  const reviewed = reviewedMessages()
   for (const msg of messages) {
     for (const hit of checkTextContent(`<commit message ${msg.commit}>`, msg.text)) {
+      if (reviewed.has(`${msg.commit} ${hit.rule}`)) continue
       hits.push({ ...hit, commit: msg.commit })
     }
   }
   return hits
+}
+
+/** Commit messages already on protected history that a person reviewed and
+ * found clean, as `<sha> <rule> -- <reason>` lines. Messages only: file
+ * content is never exempt. A message cannot be amended once it is on
+ * develop, so without this one false positive would red history mode forever. */
+function reviewedMessages() {
+  const file = new URL('content-gate-reviewed.txt', import.meta.url)
+  let text
+  try {
+    text = readFileSync(file, 'utf8')
+  } catch (err) {
+    if (err.code === 'ENOENT') return new Set()
+    throw err
+  }
+  const out = new Set()
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const m = /^([0-9a-f]{40}) ([a-z0-9-]+) -- \S.*$/.exec(line)
+    if (!m) throw new GateError(`content-gate-reviewed.txt: malformed line "${line}"`)
+    out.add(`${m[1]} ${m[2]}`)
+  }
+  return out
 }
 
 /** Annotated tag bodies (lightweight tags carry no message). One extra
