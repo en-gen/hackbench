@@ -316,7 +316,24 @@
   overflow-y: scroll;
 }
 
+/* Exactly the map's extent, so the layers stop where the map does. */
+.hb-map-view-strip {
+  position: relative;
+  flex: none;
+  display: flex;
+}
+
+.hb-vertical > .hb-map-view-strip {
+  flex-direction: column;
+}
+
+.hb-map-view-back-area {
+  position: absolute;
+  inset: 0;
+}
+
 .hb-map-view-screen {
+  position: relative;
   flex: none;
   image-rendering: pixelated;
 }

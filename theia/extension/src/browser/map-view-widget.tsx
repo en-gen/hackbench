@@ -79,7 +79,7 @@ export class MapViewWidget extends ReactWidget {
   /** The switch toggles' art (#574's), and why a kind has none. */
   protected switchArt: Partial<Record<Switch, SwitchButtonImages>> = {}
   protected switchWhy: Partial<Record<Switch, string>> = {}
-  /** L1 (foreground) shown; off leaves the backdrop, drawn by the strip itself. */
+  /** L1 (foreground) shown; off leaves the back area layer beneath it. */
   protected showL1 = true
   /** Undefined until the user zooms: the strip then fits the view. */
   protected userZoom: number | undefined
@@ -468,7 +468,6 @@ export class MapViewWidget extends ReactWidget {
       <div
         className={'hb-map-view-scroller' + (l.orientation === 'vertical' ? ' hb-vertical' : '')}
         data-control="map-scroller"
-        style={{ background: `rgb(${l.backdrop.join(',')})` }}
         ref={el => {
           if (el === this.scroller) return
           if (this.scroller) this.resizes.unobserve(this.scroller)
@@ -477,15 +476,24 @@ export class MapViewWidget extends ReactWidget {
         }}
         onScroll={() => this.requestVisible()}
       >
-        {Array.from({ length: l.screenCount }, (_, s) => (
-          <canvas
-            key={s}
-            className="hb-map-view-screen"
-            data-screen={s}
-            style={{ width: l.width * this.zoom, height: l.height * this.zoom, visibility: this.showL1 ? undefined : 'hidden' }} // prettier-ignore
-            ref={this.canvasRef(s)}
+        {/* Bottom to top: the checkerboard, the back area, then the screens,
+            so hiding a layer shows what is under it, down to nothing. */}
+        <div className="hb-map-view-strip hb-checkerboard">
+          <div
+            className="hb-map-view-back-area"
+            data-layer="back-area"
+            style={{ background: `rgb(${l.backdrop.join(',')})` }}
           />
-        ))}
+          {Array.from({ length: l.screenCount }, (_, s) => (
+            <canvas
+              key={s}
+              className="hb-map-view-screen"
+              data-screen={s}
+              style={{ width: l.width * this.zoom, height: l.height * this.zoom, visibility: this.showL1 ? undefined : 'hidden' }} // prettier-ignore
+              ref={this.canvasRef(s)}
+            />
+          ))}
+        </div>
       </div>
     )
   }

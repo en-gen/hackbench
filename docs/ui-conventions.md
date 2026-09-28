@@ -152,7 +152,7 @@ border box and take no layout space.
   with a unit test, and the decoded phase other surfaces crop is untouched.
   The map tab draws hidden tiles by the same rule (`hiddenPixelStrength` in
   `src/rom/render/HiddenTiles.ts`, where the rule now lives, over the
-  level's backdrop, parity from the pixel's place in its own 16x16 cell),
+  back area layer, parity from the pixel's place in its own 16x16 cell),
   and there it works both ways: a tile blank in the switch state shown but
   drawn in another (`ghostOf`) shows that other picture in the screen door,
   the switches-off one if drawn, else the first single switch's. So vanilla

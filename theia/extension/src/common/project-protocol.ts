@@ -222,7 +222,7 @@ export type MapScreenResult =
       rgbaBase64: string
       /** Why the animated tiles are drawn from unverified or no frames, when they are. */
       note?: string
-      /** The backdrop (CGRAM color 0), RGB, for showing the map with L1 hidden. */
+      /** The back area (CGRAM color 0), RGB: its own layer under L1. */
       backdrop: [number, number, number]
     }
   | { status: 'unavailable'; reason: string }

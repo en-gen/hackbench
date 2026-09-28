@@ -134,10 +134,21 @@ function inputs(grid: number[][], isVertical: boolean, screenCount: number): L1I
 const hGrid = (screens: number) => Array.from({ length: 27 }, () => new Array<number>(screens * 16).fill(0)) // prettier-ignore
 const vGrid = (screens: number) => Array.from({ length: screens * 16 }, () => new Array<number>(32).fill(0)) // prettier-ignore
 
-/** One channel of `fg` drawn at alpha `a` over `bg`, as the map composites. */
+/** A color on the screen door's dim squares: the art at 25%, left for the browser to lay over the back area. */
+const dim = (rgb: number[]) => [...rgb, Math.round(255 * HIDDEN_TILE_DIM_ALPHA)]
+/** Where L1 draws nothing: clear, so the back area layer beneath shows. */
+const CLEAR = [0, 0, 0, 0]
+/** One channel of `fg` drawn at alpha `a` over `bg`, as the browser composites. */
 const blend = (fg: number, bg: number, a: number) => Math.round((fg * a + bg * (255 - a)) / 255)
-/** A color on the screen door's dim squares, over the synthetic backdrop. */
-const dim = (rgb: number[]) => [...rgb.map((v, c) => blend(v, BACKDROP[c]!, Math.round(255 * HIDDEN_TILE_DIM_ALPHA))), 255] // prettier-ignore
+/** A screen as the view shows it: laid over its back area layer. */
+const overBackArea = (buf: Uint8ClampedArray, bg: RgbaColor) => {
+  const out = new Uint8ClampedArray(buf.length)
+  for (let i = 0; i < buf.length; i += 4) {
+    for (let c = 0; c < 3; c++) out[i + c] = blend(buf[i + c]!, bg[c]!, buf[i + 3]!)
+    out[i + 3] = 255
+  }
+  return out
+}
 
 /** RGBA of pixel (x, y) in a screen buffer of `width` pixels. */
 const px = (buf: Uint8ClampedArray, width: number, x: number, y: number) =>
@@ -151,15 +162,15 @@ describe('one renderer for the sheet and the map (synthetic)', () => {
     expect([px(buf, 256, 3, 3)[0], px(buf, 256, 11, 3)[0], px(buf, 256, 3, 11)[0], px(buf, 256, 11, 11)[0]]).toEqual([1, 2, 3, 4]) // prettier-ignore
   })
 
-  it('a hidden cell is its switched-on art in the screen door over the backdrop', () => {
+  it('a hidden cell is its switched-on art in the screen door', () => {
     const i = inputs(hGrid(1), false, 1)
     i.grid[0]![0] = 2
     const buf = drawL1Screen(i, 0)
     expect(px(buf, 256, 5, 1)).toEqual([7, 100, 200, 255]) // x + y even: full strength
-    expect(px(buf, 256, 6, 1)).toEqual(dim([7, 100, 200])) // odd: 25% over the backdrop
+    expect(px(buf, 256, 6, 1)).toEqual(dim([7, 100, 200])) // odd: 25%
   })
 
-  it('the map draws a hidden cell as the sheet does, laid over the backdrop', () => {
+  it('the map draws a hidden cell as the sheet does, pixel for pixel', () => {
     const i = inputs(hGrid(1), false, 1)
     i.grid[0]![0] = 2
     const alt = i.switchArt.get(2)!.alts[0]!.rgba
@@ -175,9 +186,8 @@ describe('one renderer for the sheet and the map (synthetic)', () => {
         const s = (y * atlasWidth + x) * 4
         const a = browsed[s + 3]!
         if (a > 0) faint++
-        // The sheet's pixel, composited over the map's backdrop, is the map's pixel.
-        const want = [0, 1, 2].map(c => blend(browsed[s + c]!, BACKDROP[c]!, a))
-        expect(px(map, 256, x, y)).toEqual([...want, 255])
+        // Both lie over their own backdrop layer, so the bytes match exactly.
+        expect(px(map, 256, x, y)).toEqual(Array.from(browsed.subarray(s, s + 4)))
       }
     expect(faint).toBeGreaterThan(0) // not the bare transparent tile
   })
@@ -212,7 +222,7 @@ describe('char switches on the map (synthetic)', () => {
     expect(px(drawL1Screen(i, 0), 256, 6, 1)).toEqual(dim([7, 100, 200])) // a dim square, off
     const on = drawL1Screen(i, 0, blueOn)
     expect(px(on, 256, 6, 1)).toEqual([7, 100, 200, 255]) // the switched chars, in full
-    expect(px(on, 256, 5, 5)).toEqual([...BACKDROP]) // and no overlay where they are clear
+    expect(px(on, 256, 5, 5)).toEqual(CLEAR) // and no overlay where they are clear
   })
 
   it('another switch leaves a blue-hidden tile in its screen door', () => {
@@ -220,7 +230,7 @@ describe('char switches on the map (synthetic)', () => {
     i.grid[0]![0] = 2
     const silver = drawL1Screen(i, 0, { blue: false, silver: true, onOff: false })
     expect(px(silver, 256, 5, 1)).toEqual(px(drawL1Screen(i, 0), 256, 5, 1))
-    expect(px(silver, 256, 5, 1)).not.toEqual([...BACKDROP])
+    expect(px(silver, 256, 5, 1)).not.toEqual(CLEAR)
   })
 
   it('a tile its switch blanks shows its switches-off art in the screen door', () => {
@@ -245,7 +255,7 @@ describe('char switches on the map (synthetic)', () => {
     const none = new Uint8ClampedArray(16 * 16 * 4)
     i.switchArt.set(0, { off: none, alts: [{ kinds: ['blue'], rgba: none, hidden: false }] })
     for (const sw of [undefined, blueOn, { blue: false, silver: false, onOff: true }])
-      expect(px(drawL1Screen(i, 0, sw), 256, 5, 5)).toEqual([...BACKDROP])
+      expect(px(drawL1Screen(i, 0, sw), 256, 5, 5)).toEqual(CLEAR)
   })
 
   it('ghostOf takes the switches-off picture over an alternate, and counts single switches only', () => {
@@ -321,9 +331,9 @@ describe('palace art (synthetic)', () => {
 })
 
 describe('screens (synthetic)', () => {
-  it('fills the backdrop where L1 is transparent', () => {
+  it('leaves L1 clear where no tile draws: the back area is its own layer', () => {
     const buf = drawL1Screen(inputs(hGrid(1), false, 1), 0)
-    expect(px(buf, 256, 100, 300)).toEqual([...BACKDROP])
+    expect(px(buf, 256, 100, 300)).toEqual(CLEAR)
   })
 
   it('a horizontal seam: column 15 ends screen 0, column 16 starts screen 1', () => {
@@ -334,9 +344,9 @@ describe('screens (synthetic)', () => {
     const s0 = drawL1Screen(m, 0)
     const s1 = drawL1Screen(m, 1)
     expect(px(s0, 256, 255, 26 * 16 + 15)[0]).toBe(4) // br of col 15
-    expect(px(s0, 256, 239, 26 * 16)[0]).toBe(BACKDROP[0]) // col 14 empty
+    expect(px(s0, 256, 239, 26 * 16)[3]).toBe(0) // col 14 empty
     expect(px(s1, 256, 0, 26 * 16)[0]).toBe(1) // tl of col 16
-    expect(px(s1, 256, 16, 26 * 16)[0]).toBe(BACKDROP[0]) // col 17 empty
+    expect(px(s1, 256, 16, 26 * 16)[3]).toBe(0) // col 17 empty
   })
 
   it('a vertical seam: row 15 ends screen 0, row 16 starts screen 1, 32 columns wide', () => {
@@ -348,7 +358,7 @@ describe('screens (synthetic)', () => {
     const s1 = drawL1Screen(m, 1)
     expect(px(s0, 512, 511, 255)[0]).toBe(4)
     expect(px(s1, 512, 0, 0)[0]).toBe(1)
-    expect(px(s1, 512, 511, 255)[0]).toBe(BACKDROP[0])
+    expect(px(s1, 512, 511, 255)[3]).toBe(0)
   })
 
   it('each screen draws the pipe set MAP16AppTable gives its strips', () => {
@@ -694,7 +704,7 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     ['109', 0, '52ebd71afcfbc0847f9309d31d01eae3754432e766b4412307202c25a1609010'],
   ])('map $%s screen %i draws the same pixels as the old tile path', (slot, screen, sha) => {
     const m = model(parseInt(slot, 16))
-    const buf = drawL1Screen({ ...m, switchArt: new Map() }, screen)
+    const buf = overBackArea(drawL1Screen({ ...m, switchArt: new Map() }, screen), m.backArea)
     expect(createHash('sha256').update(buf).digest('hex')).toBe(sha)
   })
 
@@ -800,19 +810,19 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     expect(cell.has(stored.colors[0x64]!.join(','))).toBe(false)
   })
 
-  it('a hidden $02A cell on $014 is its switched-on art in the screen door over the backdrop', () => {
+  it('a hidden $02A cell on $014 is its switched-on art in the screen door over the back area', () => {
     const m = model(0x014)
     expect(m.grid[13]![1]).toBe(0x02a) // screen 0, local column 1
     const alt = m.switchArt.get(0x02a)!.alts.find(x => x.kinds.join() === 'blue')!.rgba
     const own = renderMap16Tile(m.map16.tiles[0x02a]!, m.vram, { colors: m.colors })
-    const buf = drawL1Screen(m, 0)
+    const buf = overBackArea(drawL1Screen(m, 0), m.backArea)
     let checked = 0
     for (let y = 0; y < 16; y++)
       for (let x = 0; x < 16; x++) {
         const s = (y * 16 + x) * 4
         if (own[s + 3] !== 0 || alt[s + 3] === 0) continue
         const a = Math.round(255 * hiddenPixelStrength(x, y))
-        const want = [0, 1, 2].map(c => Math.round((alt[s + c]! * a + m.backArea[c]! * (255 - a)) / 255)) // prettier-ignore
+        const want = [0, 1, 2].map(c => blend(alt[s + c]!, m.backArea[c]!, a))
         expect(px(buf, 256, 16 + x, 13 * 16 + y).slice(0, 3)).toEqual(want)
         checked++
       }

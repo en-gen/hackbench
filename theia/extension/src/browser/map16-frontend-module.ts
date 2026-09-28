@@ -3,6 +3,7 @@
 // repo root (see tsconfig.json, #391), so a relative path from lib/ would not
 // land back in src/.
 import 'hackbench-theia-extension/src/browser/style/map16.css'
+import 'hackbench-theia-extension/src/browser/style/pixel-canvas.css'
 import 'hackbench-theia-extension/src/browser/style/pixel-button.css'
 import { ContainerModule } from '@theia/core/shared/inversify'
 import { WidgetFactory } from '@theia/core/lib/browser'
