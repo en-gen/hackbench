@@ -131,6 +131,52 @@ SMW assigns these rows per layer type:
 
 ---
 
+## The L1 handler interpreter
+
+`src/rom/objectHandlers/interpret.ts` (#351) runs an object handler's own
+bytes and returns its Map16 buffer writes, or a refusal with a reason. Phase 1
+only compares it with the hand ports; the ports still render.
+
+**State.** A, X, Y (8- or 16-bit, with M/X), N, Z, C, DB, the direct page,
+and a typed stack of call frames and data bytes. Any value may be UNKNOWN.
+The loader's direct-page inputs are set as `bank_05.asm:677-782` leaves them:
+`_A`/`_B`, `$57`, `$59`, `$5A`, `$6B`, `$6E`. Other inputs are named:
+`$1928`/`$1BA1` (screen), `$1931` (tileset), switch palace flags, and the
+game-state bytes (item memory, coins, 1-ups, moons, midway), which default to 0.
+Buffer reads see this object's own writes, else `$25` low / `$00` high; what
+earlier objects left is a phase 2 input. Writes come back as buffer addresses;
+`applyWrites` turns them into a horizontal-level grid.
+
+**Primitives.** Only two. `JSL` to a routine whose 36 bytes hash to
+ExecutePtrLong (`bank_00.asm:864-884`) reads the inline `dl` table and leaves
+`_0`-`_5`, A, Y, C and M/X as the routine does. `MVN` copies inside one
+Map16 buffer. Every shared helper (page select, write+advance, row+1,
+bookmark, merges) runs inline from the ROM.
+
+**Refusals.** An opcode+mode outside the 65 measured on vanilla; `JSL` to
+anything but the dispatch; a return over pushed data, or of the wrong kind
+(the loader JSLs the entry, so it must end in `RTL`); execution or a dispatch
+target outside the $8000-$FFFF half of a ROM bank; a read of unmodelled RAM,
+SRAM or unmapped space; an UNKNOWN value at a branch, an index, a pointer or a
+buffer write; a write outside the buffers, the direct page (direct-page mode
+only, and never the loader's `$65`-`$67`) and `$1BA1`, so ext `$00`/`$01`
+refuse (the parser owns screen exits and jumps); an absolute write while DB is
+unknown; the budgets.
+
+**Budgets.** 250,000 steps and 16,384 buffer writes per object. Vanilla's
+largest completed run needs 99,776 steps (CODE_0DBADC) and 13,470 writes
+(the castle wall, CODE_0DDF3A), measured at screen 1, row 2, column 3.
+
+**Differential.** `test/suite/unit/L1Interpret.corpus.test.ts` runs every
+object, size and tileset dispatcher on vanilla against the ports, at columns
+0, 3 and 15 of screen 5, each on a row where the object fits (moving it down a
+row moves every write down a row). Each known disagreement is allow-listed by
+routine (`test/suite/support/l1AllowList.ts`) with an issue number or the
+quirk it is, plus the exact number of cases it absorbs and a digest of the
+interpreter's output, so an entry cannot quietly widen.
+
+---
+
 ## Known Gaps / Not Yet Implemented
 
 | Gap | File | Status |

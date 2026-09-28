@@ -320,6 +320,11 @@ In practice:
   the byte scan it replaced reported a ROM as animating a slot the hack had
   disabled. A walk that refuses conditional branches fails closed; a scan
   that takes the first plausible match fails confident.
+- One bounded exception, for L1 object handlers only (#351):
+  `src/rom/objectHandlers/interpret.ts` evaluates a handler's bytes over a
+  fixed opcode set, a named memory surface and step/write budgets, and
+  refuses anything else with a reason. Do not extend it to other subsystems
+  without a decision of the same kind.
 - A derivation that truly cannot be read must be NAMED as a hack-fragility
   point and paired with honest degradation: compare the handler against its
   vanilla bytes and DECLINE TO ASSERT when it diverges, rather than rendering

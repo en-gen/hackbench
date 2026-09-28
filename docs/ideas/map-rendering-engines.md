@@ -203,6 +203,10 @@ not an architecture.
   interpreter would serve is the 86 BESPOKE ids plus 46 hybrids; that is
   most of the ROM, which is the argument for it and also why it would
   become the renderer.
+  **Amended 2026-09-27 (#351):** the owner allowed a bounded interpreter
+  for L1 object handlers only, where hand-modelled shapes had produced
+  #342 and nine more confirmed mis-ports (#355-#362, #368). The sprite/OAM tier
+  above stays cut. Its rules are in `docs/rom/level-rendering.md`.
 - Tier 4, human override in `<romfile>.hackbench.json`: the sidecar exists
   only on the unmerged `feature/map-alias-sidecar` branch
   (`src/metadata/MapAliasStore.ts`) **verified**. The memory note
