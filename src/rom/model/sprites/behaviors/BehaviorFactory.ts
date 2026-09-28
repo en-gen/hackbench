@@ -1,18 +1,7 @@
 import type { BehaviorMeta } from '../MovementBehavior'
 import type { SpriteBehavior } from '../SpriteBehavior'
-import { BouncingKoopaBehavior } from './BouncingKoopaBehavior'
-import { FlyingLeftKoopaBehavior } from './FlyingLeftKoopaBehavior'
-import { HopFlameBehavior } from './HopFlameBehavior'
-import { KoopaWalkBehavior, propsFromSpriteId } from './KoopaWalkBehavior'
-import { BlurpBehavior } from './BlurpBehavior'
 import { LineBrownPlatBehavior } from './LineBrownPlatBehavior'
-import { RipVanFishBehavior } from './RipVanFishBehavior'
-import { SinusoidalParaKoopaBehavior } from './SinusoidalParaKoopaBehavior'
 import { SuperKoopaBehavior } from './SuperKoopaBehavior'
-import { FlyingBlockBehavior } from './FlyingBlockBehavior'
-import { ThwimpBounceBehavior } from './ThwimpBounceBehavior'
-import { WingedGoombaBehavior } from './WingedGoombaBehavior'
-import { SumoBrotherBehavior } from './SumoBrotherBehavior'
 
 /**
  * Single dispatch site that builds the `SpriteBehavior` for a given sprite
@@ -30,6 +19,22 @@ import { SumoBrotherBehavior } from './SumoBrotherBehavior'
  * id here. When the editor starts supporting re-assignable behaviors
  * (user can change a sprite's behavior post-load), this registry becomes
  * the name→class map the UI hands out.
+ *
+ * Sprite ids that only ever needed the plain metadata object (no method
+ * an Appearance calls) fall through to `default`. Ten `MovementBehavior`
+ * subclasses used to be registered here - `KoopaWalkBehavior`,
+ * `WingedGoombaBehavior`, `FlyingLeftKoopaBehavior`, `BouncingKoopaBehavior`,
+ * `SinusoidalParaKoopaBehavior`, `HopFlameBehavior`, `ThwimpBounceBehavior`,
+ * `RipVanFishBehavior`, `BlurpBehavior`, `SumoBrotherBehavior` - each
+ * carrying a movement simulator that no Appearance ever read (the overlays
+ * that would have called them were removed; see
+ * `docs/sprites/sprite-overlay-removal.md`). `Object.assign(instance, common)`
+ * below overwrites every one of those instances' `kind` with `common.kind`
+ * regardless, and `serialize.ts` only ever persists the `common` fields, so
+ * dropping the classes and returning `common` directly is observationally
+ * identical for every live caller. Removed by the sprite-movement-sim
+ * cleanup (issue #409); see `RipVanFishBehavior.ts` for the one constant
+ * that turned out to still be live appearance data.
  */
 export function buildMovementBehavior(spriteId: number, meta: BehaviorMeta): SpriteBehavior {
   const common = {
@@ -40,50 +45,12 @@ export function buildMovementBehavior(spriteId: number, meta: BehaviorMeta): Spr
     reactRangeDy: meta.reactRangeDy,
   }
   switch (spriteId) {
-    case 0x00:
-    case 0x01:
-    case 0x02:
-    case 0x03:
-    case 0x04:
-    case 0x05:
-    case 0x06:
-    case 0x07:
-    case 0x0c:
-    case 0x0f:
-    case 0x30:
-    case 0x32: {
-      const behavior = new KoopaWalkBehavior(propsFromSpriteId(spriteId), meta)
-      return Object.assign(behavior, common)
-    }
-    case 0x10:
-      return Object.assign(new WingedGoombaBehavior(meta), common)
-    case 0x08:
-      return Object.assign(new FlyingLeftKoopaBehavior(meta), common)
-    case 0x09:
-      return Object.assign(new BouncingKoopaBehavior(meta), common)
-    case 0x0a:
-      return Object.assign(new SinusoidalParaKoopaBehavior({ axis: 'vertical' }, meta), common)
-    case 0x0b:
-      return Object.assign(new SinusoidalParaKoopaBehavior({ axis: 'horizontal' }, meta), common)
-    case 0x1d:
-      return Object.assign(new HopFlameBehavior(meta), common)
-    case 0x27:
-      return Object.assign(new ThwimpBounceBehavior(meta), common)
-    case 0x3d:
-      return Object.assign(new RipVanFishBehavior(meta), common)
-    case 0xc2:
-      return Object.assign(new BlurpBehavior(meta), common)
     case 0x62:
       return Object.assign(new LineBrownPlatBehavior(meta), common)
-    case 0x83:
-    case 0x84:
-      return Object.assign(new FlyingBlockBehavior(spriteId as 0x83 | 0x84, meta), common)
     case 0x71:
     case 0x72:
     case 0x73:
       return Object.assign(new SuperKoopaBehavior(spriteId), common)
-    case 0x9a:
-      return Object.assign(new SumoBrotherBehavior(meta), common)
     default:
       return common
   }
