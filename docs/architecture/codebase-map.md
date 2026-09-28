@@ -114,18 +114,15 @@ gate has a test that plants a defect per rule and proves both halves fail.
 
 ## Commit gates
 
-Enable the hooks once per clone:
-
-```bash
-git config core.hooksPath .githooks
-```
-
-Two scripts run on pre-commit and in CI:
+`npm install` sets `core.hooksPath` to `.githooks` automatically
+(`tools/scripts/set-hooks-path.cjs`); nothing to do per clone. Two gates
+run on pre-commit, pre-push and in CI:
 
 - `tools/scripts/check-staged-style.sh` runs ESLint at `--max-warnings 0`
   and Prettier in check mode over staged JS/TS/CSS. Warnings are fatal.
-- `tools/scripts/check-staged-content.sh` blocks ROM-derived bytes and
-  em-dashes in newly added lines.
+- `tools/scripts/check-content.mjs` (issue #678) blocks ROM-derived bytes
+  and em-dashes in newly added lines, in `staged`/`range`/`push`/`history`
+  modes.
 
 ## Everyday commands
 

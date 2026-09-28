@@ -35,6 +35,15 @@ import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern, matchesBytes } from './BytePattern'
 import { LOROM_BANK_SIZE, formatAddr, loromFromOffset, loromToOffset } from './addressing'
 import { parseStream } from './LcLz2'
+import {
+  FAST_LCLZ2,
+  type DecompressorKind,
+  type FastRoutine,
+  jslTarget,
+  preludeKey,
+  readDecompressor,
+  replacedReason,
+} from './GfxDecompressor'
 import { fingerprint } from './Fingerprint'
 import { branchTarget } from './dispatch/DispatchChain'
 
@@ -106,18 +115,6 @@ const OFF_TABLE_HI = 10
 const OFF_TABLE_BANK = 15
 const OFF_JSR_TARGET = 32
 
-/**
- * The first ten bytes of the stock LC_LZ2 entry (CODE_00B8DE,
- * bank_00.asm:6294-6300): REP #$10 / LDY #$0000 / JSR ReadByte / CMP #$FF.
- * Kept as a documented cross-check of what we read, never as a default to
- * fall back to. Invictus 1.0 holds two JSLs and an RTS here instead, so
- * control never reaches the stock loop and an LC_LZ2 stream written to that
- * cart would corrupt it while the editor reported success.
- */
-export const STOCK_LCLZ2_ENTRY: readonly number[] = [
-  0xc2, 0x10, 0xa0, 0x00, 0x00, 0x20, 0x83, 0xb9, 0xc9, 0xff,
-]
-
 export interface GfxPointerSites {
   /** SNES addresses of the three split pointer tables. */
   lo: number
@@ -125,25 +122,21 @@ export interface GfxPointerSites {
   bank: number
   /** SNES address the routine calls to decompress. */
   decompressorEntry: number
+  /** What that entry's prelude XORs into each pointer's low word; 0 without one. */
+  key: number
   /** True when the level loader reaches the tables through the ExGFX hook,
    *  which also chooses each level's files from a list this tool does not read. */
   hooked: boolean
 }
 
-export type CompressionCheck = { ok: true; sites: GfxPointerSites } | { ok: false; reason: string }
+export type CompressionCheck =
+  { ok: true; sites: GfxPointerSites; kind: DecompressorKind } | { ok: false; reason: string }
+type SitesCheck = { ok: true; sites: GfxPointerSites } | { ok: false; reason: string }
 
 /** JSL PrepareGraphicsFile in UploadGFXFile: the level FG/BG loader
  *  (bank_00.asm:5402) and its post-special-world variant (bank_00.asm:5408).
  *  Only the first drives acceptance below. */
 export const LEVEL_GFX_CALLERS = [0x00aa6b, 0x00aa7a]
-
-/** The 24-bit JSL target at `snes`, bank bit 7 folded for the FastROM
- *  mirror, or null off a JSL opcode or off the ROM. */
-function jslTarget(rom: RomFile, snes: number): number | null {
-  const bytes = rom.readAt(snes, 4)
-  if (!bytes || bytes[0] !== 0x22) return null
-  return (bytes[1]! | (bytes[2]! << 8) | (bytes[3]! << 16)) & 0x7fffff
-}
 
 /**
  * Lunar Magic's ExGFX hook. Its entry branches on the caller's JSR return
@@ -210,7 +203,8 @@ export const DISPATCHER_FINGERPRINTS: readonly string[] = [
   '6a68ae67d6ee8b6978acfe37f81eb7e89a047c0033c97324bba347e8e63f340c',
 ]
 
-const long = (b: Uint8Array, o: number): number =>
+/** A 24-bit little-endian operand at `o`, FastROM bit dropped. */
+export const long = (b: Uint8Array, o: number): number =>
   (b[o]! | (b[o + 1]! << 8) | (b[o + 2]! << 16)) & 0x7fffff
 
 export interface GfxTables {
@@ -286,7 +280,7 @@ export function readGfxPointerSites(
 }
 
 /** As `readGfxPointerSites`, but keeps the reason a caller can surface. */
-function resolveGfxPointerSites(rom: RomFile, fingerprints: readonly string[]): CompressionCheck {
+function resolveGfxPointerSites(rom: RomFile, fingerprints: readonly string[]): SitesCheck {
   const unresolved = 'PrepareGraphicsFile does not resolve to exactly one site on this ROM'
   const hits = findPattern(rom, PREPARE_GFX_PATTERN, 2)
   if (hits.length !== 1) return { ok: false, reason: unresolved }
@@ -322,15 +316,20 @@ function resolveGfxPointerSites(rom: RomFile, fingerprints: readonly string[]): 
     }
   }
   const decompressorEntry = word(OFF_JSR_TARGET)
-  return { ok: true, sites: { ...tables, decompressorEntry, hooked: hook !== null } }
+  const key = preludeKey(rom, decompressorEntry)
+  if (key === null)
+    return { ok: false, reason: replacedReason(decompressorEntry, 'an unrecognized entry') }
+  return { ok: true, sites: { ...tables, decompressorEntry, key, hooked: hook !== null } }
 }
 
-/** The SNES address the pointer tables give file `index`, or null. */
+/** The SNES address the pointer tables give file `index`, key applied, or null. */
 export function gfxFileAddress(rom: RomFile, sites: GfxPointerSites, index: number): number | null {
   const lo = rom.readByte(sites.lo + index)
   const hi = rom.readByte(sites.hi + index)
   const bank = rom.readByte(sites.bank + index)
-  return lo === null || hi === null || bank === null ? null : (bank << 16) | (hi << 8) | lo
+  return lo === null || hi === null || bank === null
+    ? null
+    : ((bank << 16) | (hi << 8) | lo) ^ sites.key
 }
 
 /**
@@ -341,25 +340,14 @@ export function gfxFileAddress(rom: RomFile, sites: GfxPointerSites, index: numb
  * nothing calls is not a decompressor that runs, and the caller is checked
  * first because that is where the entry address comes from.
  */
-export function checkStockCompression(rom: RomFile): CompressionCheck {
+export function checkStockCompression(
+  rom: RomFile,
+  fast: readonly FastRoutine[] = FAST_LCLZ2,
+): CompressionCheck {
   const resolved = resolveGfxPointerSites(rom, DISPATCHER_FINGERPRINTS)
   if (!resolved.ok) return resolved
-  const sites = resolved.sites
-  const entry = rom.readAt(sites.decompressorEntry, STOCK_LCLZ2_ENTRY.length)
-  if (!entry) {
-    return { ok: false, reason: `the decompressor entry does not resolve to ROM data` }
-  }
-  for (let i = 0; i < STOCK_LCLZ2_ENTRY.length; i++) {
-    if (entry[i] !== STOCK_LCLZ2_ENTRY[i]) {
-      return {
-        ok: false,
-        reason:
-          'this ROM has replaced the LC_LZ2 decompressor, so its GFX are not ' +
-          'LC_LZ2 streams this editor can read or write',
-      }
-    }
-  }
-  return { ok: true, sites }
+  const d = readDecompressor(rom, resolved.sites.decompressorEntry, fast)
+  return d.ok ? { ok: true, sites: resolved.sites, kind: d.kind } : d
 }
 
 export interface GfxFileExtent {
@@ -600,7 +588,8 @@ function pointerWrites(
   const hi = new Uint8Array(GFX_FILE_COUNT)
   const bank = new Uint8Array(GFX_FILE_COUNT)
   for (let i = 0; i < GFX_FILE_COUNT; i++) {
-    const snes = loromFromOffset(placed.get(i)!)!
+    // Stored the way the prelude reads them, or the ROM loads the wrong file.
+    const snes = loromFromOffset(placed.get(i)!)! ^ sites.key
     lo[i] = snes & 0xff
     hi[i] = (snes >> 8) & 0xff
     bank[i] = (snes >> 16) & 0xff

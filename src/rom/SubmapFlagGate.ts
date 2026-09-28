@@ -8,12 +8,15 @@
  * not decode, so callers decline rather than assume the stock rule.
  *
  * The overworld entry is checked contiguously from the JMP target through
- * `STA _F`: CODE_05D83E's 100-byte body as a fingerprint, then CODE_05D8A2
- * literally.
+ * `STA _F`: CODE_05D83E's index as a fingerprint between its literal
+ * OverworldOverride test and table load, then CODE_05D8A2 literally. The test
+ * and the load each also accept a recognized hook.
  */
 import type { RomFile } from './RomFile'
 import { WILD, matchesBytes, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
+import { long } from './GfxArena'
+import { jslTarget, type FastRoutine } from './GfxDecompressor'
 import { hex6 } from './hex'
 
 export interface StockCode {
@@ -46,19 +49,37 @@ const REACH: StockCode = {
   cite: 'bank_00.asm:2644',
 }
 
-/** Vanilla only, measured: the magic ROM matches it; the four hacks do not. */
-export const OVERWORLD_INDEX_BODY: StockSpan = Object.freeze({
+/** STZ _F / LDY #0 / LDA OverworldOverride / BNE CODE_05D8A2. */
+export const OVERWORLD_INDEX_GUARD: StockCode = {
   addr: 0x05d83e,
-  length: 0x64,
-  fingerprints: Object.freeze(['db1c8ea21ff4fdb26c78dcb5b9386c8fa5ef059fcb1dacd0a2b2d71b514a93d2']),
+  bytes: [0x64, 0x0f, 0xa0, 0x00, 0xad, 0x09, 0x01, 0xd0, 0x5b],
+  what: "CODE_05D83E's OverworldOverride test",
+  cite: 'bank_05.asm:7164-7168',
+}
+
+/** The index computation up to the table load. Vanilla only, measured. */
+export const OVERWORLD_INDEX_BODY: StockSpan = Object.freeze({
+  addr: 0x05d847,
+  length: 0x54,
+  fingerprints: Object.freeze(['ab9d13cbee1de3f1f850dc3a60d98f23db85ea307afe430922ada36ac2aee7ed']),
   what: 'CODE_05D83E, the OWLayer1Translevel index',
-  cite: 'bank_05.asm:7164-7215',
+  cite: 'bank_05.asm:7169-7213',
 })
+
+/** LDA.L OWLayer1Translevel,X / STA TranslevelNo. */
+export const OVERWORLD_INDEX_LOAD: StockCode = {
+  addr: 0x05d89b,
+  bytes: [0xbf, 0x00, 0xd0, 0x7e, 0x8d, 0xbf, 0x13],
+  what: 'the OWLayer1Translevel load',
+  cite: 'bank_05.asm:7214-7215',
+}
 
 export const OVERWORLD_ENTRY: readonly (StockCode | StockSpan)[] = [
   REACH,
   { addr: 0x05d7b0, bytes: [0x4c, 0x3e, 0xd8], what: 'JMP CODE_05D83E', cite: 'bank_05.asm:7093' },
+  OVERWORLD_INDEX_GUARD,
   OVERWORLD_INDEX_BODY,
+  OVERWORLD_INDEX_LOAD,
   {
     addr: 0x05d8a2,
     // prettier-ignore
@@ -196,12 +217,117 @@ export function readEntrySite(rom: RomFile): TranslevelBiasSite {
   return { ok: true, threshold, bias, submapHigh, high: 'submap' }
 }
 
-/** `TranslevelBias` once the path into CODE_05D8A2 is stock. */
+/** A build of Lunar Magic's midway hook: offsets of its JSR and of the JMLs
+ *  that leave for the index and for CODE_05D8A2, all masked from `fingerprint`. */
+export interface MidwayHookBuild {
+  length: number
+  helperAt: number
+  indexAt: number
+  overrideAt: number
+  fingerprint: string
+}
+
+// prettier-ignore
+export const MIDWAY_BUILDS: readonly MidwayHookBuild[] = [
+  { length: 83, helperAt: 15, indexAt: 51, overrideAt: 55, fingerprint: '68a4ef896c9733c485c8d324623a63bd02aeb0710307264c5d78abde8a345d9a' },
+  { length: 91, helperAt: 23, indexAt: 59, overrideAt: 63, fingerprint: '992b39151651c1909d6817595de7d23b0edb01b0a38f03d7930760917e65fc07' },
+  { length: 112, helperAt: 44, indexAt: 80, overrideAt: 84, fingerprint: '40bd680d20247be983bad917e8510595a94b10ebca7fd0c264ade1f651af7862' },
+  { length: 115, helperAt: 15, indexAt: 72, overrideAt: 76, fingerprint: '293008f1233ad979f3bb176a5d838100f8ae9f7a788f2f6f7e5c711d2d0533fc' },
+  { length: 108, helperAt: 48, indexAt: 84, overrideAt: 36, fingerprint: '37e3b1095ba0e2387d0bfee5a0c11a3f4b8853e9c404b8f02ab7f957cbd7307d' },
+  { length: 125, helperAt: 48, indexAt: 101, overrideAt: 36, fingerprint: '666ae121229d3d6b1ca989657470ab3d4ed0a460e663d8da189f78caf35871f5' },
+]
+
+/** The JSR'd helper that looks up TranslevelNo, run on the default path. */
+// prettier-ignore
+export const MIDWAY_HELPERS: readonly FastRoutine[] = [
+  { length: 55, fingerprint: 'bd376469488b88004a0560305a4204240f228b197666c6931ca136f066a0d25e' },
+  { length: 72, fingerprint: 'd59a371c9deb23c7fc60c827fb8a8a40a9db3ac8426d302f108ce347daccbf43' },
+]
+
+/** STZ _F / LDY #0 / JML: Lunar Magic's midway hook in place of the OverworldOverride test. */
+const MIDWAY_HOOK_SITE: BytePattern = [0x64, 0x0f, 0xa0, 0x00, 0x5c, WILD, WILD, WILD]
+
+/**
+ * Why $05D842 is not Lunar Magic's midway hook, or null when it is. Its midway
+ * branch depends on game state (OWLevelTileSettings bit 6); the editor shows
+ * the non-midway entry by design, a runtime-state default.
+ */
+function midwayHookMismatch(
+  rom: RomFile,
+  builds: readonly MidwayHookBuild[] = MIDWAY_BUILDS,
+  helpers: readonly FastRoutine[] = MIDWAY_HELPERS,
+): string | null {
+  const site = rom.readAt(OVERWORLD_INDEX_GUARD.addr, MIDWAY_HOOK_SITE.length)
+  if (!matchesBytes(site, MIDWAY_HOOK_SITE)) return '$05D83E holds no STZ _F / LDY #0 / JML.'
+  const at = long(site!, 5)
+  for (const b of builds) {
+    const code = rom.readAt(at, b.length)
+    const mask = [
+      b.helperAt + 1,
+      b.helperAt + 2,
+      ...[b.indexAt, b.overrideAt].flatMap(e => [e + 1, e + 2, e + 3]),
+    ]
+    if (spanFingerprint(code, mask) !== b.fingerprint) continue
+    if (long(code!, b.indexAt + 1) !== 0x05d847 || long(code!, b.overrideAt + 1) !== 0x05d8a2) {
+      return `the hook at $${hex6(at)} does not return to $05D847 and $05D8A2.`
+    }
+    const helper = (at & 0xff0000) | code![b.helperAt + 1]! | (code![b.helperAt + 2]! << 8)
+    const known = helpers.some(h => spanFingerprint(rom.readAt(helper, h.length)) === h.fingerprint)
+    return known ? null : `its helper at $${hex6(helper)} is not a recognized build.`
+  }
+  return `the JML reaches $${hex6(at)}, which is not a recognized build of the hook.`
+}
+
+/** JSL loader / STA TranslevelNo: a hook in place of the table load. */
+const LOAD_HOOK_SITE: BytePattern = [0x22, WILD, WILD, WILD, 0x8d, 0xbf, 0x13]
+
+/** Loaders that return OWLayer1Translevel,X. The second returns save byte $70035C for translevel
+ *  1; first boot sets it to 1 at $A0F20F, the table's value, the runtime-state default. */
+// prettier-ignore
+export const LOAD_HOOKS: readonly BytePattern[] = [
+  [0x08, 0xc2, 0x30, 0xbf, 0x00, 0xd0, 0x7e, 0x29, 0xff, 0x00, 0x8d, 0xbf, 0x13, 0x28, 0x6b],
+  [0x8b, 0x4b, 0xab, 0xbf, 0x00, 0xd0, 0x7e, 0xc9, 0x01, 0xd0, 0x0a, 0xaf, 0x5c, 0x03, 0x70,
+    0xd0, 0x04, 0xbf, 0x00, 0xd0, 0x7e, 0xab, 0x6b],
+]
+
+/** Why $05D89B is not a recognized load hook, or null when it is. */
+function loadHookMismatch(rom: RomFile): string | null {
+  const at = jslTarget(rom, OVERWORLD_INDEX_LOAD.addr)
+  const site = rom.readAt(OVERWORLD_INDEX_LOAD.addr, LOAD_HOOK_SITE.length)
+  if (at === null || !matchesBytes(site, LOAD_HOOK_SITE)) {
+    return '$05D89B holds no JSL before STA TranslevelNo.'
+  }
+  if (LOAD_HOOKS.some(p => matchesBytes(rom.readAt(at, p.length), p))) return null
+  return `the JSL reaches $${hex6(at)}, which is not a recognized loader.`
+}
+
+/** The recognized hooks each stock check also accepts, and what to call them. */
+const HOOKS = new Map<StockCode | StockSpan, [string, (rom: RomFile, h: Hooks) => string | null]>([
+  [OVERWORLD_INDEX_GUARD, ["Lunar Magic's midway hook", (rom, h) => midwayHookMismatch(rom, ...h)]],
+  [OVERWORLD_INDEX_LOAD, ['a recognized load hook', rom => loadHookMismatch(rom)]],
+])
+type Hooks = [builds?: readonly MidwayHookBuild[], helpers?: readonly FastRoutine[]]
+
+/** Each check on the path into CODE_05D8A2 on its own: null where it holds. */
+export function entryPathMismatches(
+  rom: RomFile,
+  spanFingerprints?: readonly string[],
+  ...hooks: Hooks
+): (string | null)[] {
+  return ENTRY_PATH.map(c => {
+    const stock = stockCodeMismatch(rom, [c], spanFingerprints)
+    const hook = HOOKS.get(c)
+    const why = stock && hook ? hook[1](rom, hooks) : null
+    return hook ? why && `${stock} Nor is it ${hook[0]}: ${why}` : stock
+  })
+}
+
+/** `TranslevelBias` once the path into CODE_05D8A2 is stock or recognized. */
 export function readTranslevelBias(
   rom: RomFile,
   spanFingerprints?: readonly string[],
 ): TranslevelBiasSite {
-  const path = stockCodeMismatch(rom, ENTRY_PATH, spanFingerprints)
+  const path = entryPathMismatches(rom, spanFingerprints).find(r => r !== null)
   return path ? { ok: false, reason: path } : readEntrySite(rom)
 }
 
