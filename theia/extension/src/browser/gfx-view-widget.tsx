@@ -245,7 +245,7 @@ export class GfxViewWidget extends ReactWidget {
         {this.error && <div className="hb-gfx-view-error">{this.error}</div>}
         {s && s.height > 0 && (
           <div className="hb-gfx-view-canvas-wrap">
-            <canvas className="hb-gfx-view-canvas" ref={this.bindCanvas} />
+            <canvas className="hb-gfx-view-canvas hb-pixel-canvas" ref={this.bindCanvas} />
           </div>
         )}
       </div>

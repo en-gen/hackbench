@@ -14,6 +14,7 @@
  */
 
 import { Cursor } from './cursor'
+import type { RomFile } from '../RomFile'
 import {
   ADDR_EXTENDED_DISPATCH,
   EXTENDED_DISPATCH_COUNT,
@@ -348,4 +349,33 @@ export function dispatchStandard(cur: Cursor): void {
     handler(cur)
   }
   // else: unmapped handler -- silently no-op.
+}
+
+/**
+ * Every object this ROM's own dispatch tables route to `handler`, for one
+ * tileset: extended numbers from the extended table, standard numbers from
+ * the tileset's dispatcher table. Additive and read-only, the same reads the
+ * two dispatchers above make, so a caller can ask what an object DRAWS
+ * without knowing which number the ROM gives it.
+ */
+export function objectsDispatchedTo(
+  rom: RomFile,
+  tileset: number,
+  handler: HandlerFn,
+): { type: 'extended' | 'standard'; objectNumber: number }[] {
+  const out: { type: 'extended' | 'standard'; objectNumber: number }[] = []
+  for (let i = 0; i < EXTENDED_DISPATCH_COUNT; i++) {
+    const addr = readLongPointer(rom, ADDR_EXTENDED_DISPATCH + i * 3)
+    if (addr && EXTENDED_HANDLERS[addr & 0xffffff] === handler) {
+      out.push({ type: 'extended', objectNumber: i })
+    }
+  }
+  const t = tileset & 0x0f
+  const dispatcher = t < TILESET_DISPATCH_COUNT ? readLongPointer(rom, ADDR_TILESET_DISPATCH + t * 3) : null // prettier-ignore
+  if (dispatcher === null) return out
+  const table = readLongPointerTable(rom, (dispatcher & 0xffffff) + DISPATCHER_PREAMBLE_SIZE, STANDARD_HANDLER_COUNT) // prettier-ignore
+  table.forEach((addr, i) => {
+    if (STANDARD_HANDLERS[addr & 0xffffff] === handler) out.push({ type: 'standard', objectNumber: i + 1 }) // prettier-ignore
+  })
+  return out
 }

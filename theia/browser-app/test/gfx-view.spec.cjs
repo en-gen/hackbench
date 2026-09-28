@@ -8,6 +8,7 @@
  */
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords, makeUntitledAndUnlocated } = require('./rom-words.cjs')
+const { expectCheckerboard } = require('./pixel-canvas.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -195,6 +196,17 @@ test('clicking a row opens a canvas with real, non-uniform pixel data', async ({
   // like a number.
   const summary = await page.locator('.hb-gfx-view-summary').textContent()
   expect(summary).toMatch(/\d+ tiles/)
+})
+
+/** Color 0 is transparent; what shows through is a checkerboard, not a flat panel color. */
+test('color 0 shows a transparency checkerboard', async ({ page }) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(500)
+  await expectCheckerboard(expect, page, '.hb-gfx-view-canvas')
 })
 
 /**

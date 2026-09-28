@@ -3,6 +3,9 @@
 // relative path from lib/ would not land back in src/.
 import 'hackbench-theia-extension/src/browser/style/index.css'
 import 'hackbench-theia-extension/src/browser/style/zoom.css'
+import 'hackbench-theia-extension/src/browser/style/pixel-canvas.css'
+// The map tab's palace toggles are PixelImageButtons, as the Map16 view's switch toggles are.
+import 'hackbench-theia-extension/src/browser/style/pixel-button.css'
 import { ContainerModule } from '@theia/core/shared/inversify'
 import { CommandContribution, MenuContribution } from '@theia/core/lib/common'
 import {

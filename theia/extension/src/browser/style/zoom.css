@@ -1,48 +1,7 @@
-/*
- * Shared toolbar bits (#651): `.hb-icon-btn` is Map16's grid/play toggles
- * AND the zoom stepper's own buttons - one look for every toolbar icon
- * button in the shell. `.hb-toolbar-spacer` was duplicated identically in
- * map16.css and gfx.css; this is the one copy.
- */
-
-.hb-toolbar-spacer {
-  flex: 1 1 auto;
-}
-
-.hb-icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--theia-icon-foreground);
-  cursor: pointer;
-}
-
-.hb-icon-btn:hover:not(:disabled) {
-  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
-}
-
-.hb-icon-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
+/* The shared zoom stepper (#341); its buttons use index.css's `.hb-icon-btn`. */
 
 .hb-zoom-stepper {
   display: flex;
   align-items: center;
   gap: 2px;
-}
-
-.hb-zoom-indicator {
-  min-width: 26px;
-  text-align: center;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--theia-descriptionForeground);
-  user-select: none;
 }

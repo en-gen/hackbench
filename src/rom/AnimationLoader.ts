@@ -66,7 +66,6 @@ import {
   type DecompressorKind,
   type FastRoutine,
   commandRefusal,
-  preludeKey,
   readDecompressor,
 } from './GfxDecompressor'
 
@@ -317,7 +316,7 @@ export function readAnimGfxSources(
     return { ok: false, reason: 'GFX33 is not decompressed by the routine GFX32 falls into' }
   const d = readDecompressor(rom, entry, fast)
   if (!d.ok) return d
-  const key = preludeKey(rom, entry)!
+  const key = d.key
   const bank = (head[8]! & 0x7f) << 16
   return {
     ok: true,

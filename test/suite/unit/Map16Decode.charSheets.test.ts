@@ -33,9 +33,9 @@ import {
 import {
   decodeMap16Sheet,
   map16LayerExtent,
-  map16TileCapacity,
   slotCharCount,
 } from '../../../theia/extension/src/node/map16-decode'
+import { map16TileCapacity } from '../../../src/rom/Map16'
 import {
   MAP16_CHAR_SLOTS,
   MAP16_CHAR_SPACE_END,

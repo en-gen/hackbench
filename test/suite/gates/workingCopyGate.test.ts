@@ -13,16 +13,18 @@
  * banned in a server too. A server with no way to resolve that path cannot
  * read it by any spelling.
  *
- * `project-server.ts` is the sole exception: it is what RESOLVES the
- * cartridge in the first place (via WorkingRomRegistry, which itself calls
- * `RomFile.load` exactly once per project, on first access).
+ * There is no exception. `project-server.ts` was one until #421 step 3: its
+ * map tree and map details read the base cartridge, so a map view would
+ * not have shown an edit. It now goes through WorkingRomRegistry like every
+ * other server, and registering a ROM's location is WorkingRomRegistry's
+ * `register`. WorkingRomRegistry itself (src/project/) is the one place
+ * that loads the base bytes, once per project.
  */
 import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
 
 const nodeDir = path.resolve(__dirname, '../../../theia/extension/src/node')
-const EXEMPT = new Set(['project-server.ts'])
 
 /**
  * Matches an import OF `RomRegistry` without matching `WorkingRomRegistry`,
@@ -31,7 +33,7 @@ const EXEMPT = new Set(['project-server.ts'])
 const BASE_ROM_REGISTRY_IMPORT = /from '[^']*\/RomRegistry'/
 
 describe('working copy gate', () => {
-  it('no backend server reads the base cartridge directly, except project-server.ts', () => {
+  it('no backend server reads the base cartridge directly', () => {
     const files = fs.readdirSync(nodeDir).filter(f => f.endsWith('-server.ts'))
     // Tripwire: if the naming convention changes and this glob stops
     // matching anything, the gate would pass by finding nothing to check.
@@ -39,7 +41,6 @@ describe('working copy gate', () => {
 
     const offenders: string[] = []
     for (const file of files) {
-      if (EXEMPT.has(file)) continue
       const text = fs.readFileSync(path.join(nodeDir, file), 'utf8')
       if (text.includes('RomFile.load(')) offenders.push(`${file} (RomFile.load)`)
       if (BASE_ROM_REGISTRY_IMPORT.test(text)) offenders.push(`${file} (RomRegistry)`)
@@ -66,11 +67,10 @@ describe('working copy gate', () => {
     expect(BASE_ROM_REGISTRY_IMPORT.test(ok)).toBe(false)
   })
 
-  it('the exempt file is actually exempt because it still resolves a real cartridge', () => {
-    // Guards the gate itself against someone widening EXEMPT to hide a
-    // regression: project-server.ts must still be doing real ROM resolution
-    // work, not merely be named as an escape hatch.
-    const text = fs.readFileSync(path.join(nodeDir, 'project-server.ts'), 'utf8')
-    expect(text).toContain('RomFile.load(')
+  it('checks project-server.ts, which used to be exempt', () => {
+    // Guards against the exemption creeping back as a filename filter: the
+    // project server must be among the files the first case scans.
+    const files = fs.readdirSync(nodeDir).filter(f => f.endsWith('-server.ts'))
+    expect(files).toContain('project-server.ts')
   })
 })

@@ -325,6 +325,11 @@ In practice:
   the byte scan it replaced reported a ROM as animating a slot the hack had
   disabled. A walk that refuses conditional branches fails closed; a scan
   that takes the first plausible match fails confident.
+- One bounded exception, for L1 object handlers only (#351):
+  `src/rom/objectHandlers/interpret.ts` evaluates a handler's bytes over a
+  fixed opcode set, a named memory surface and step/write budgets, and
+  refuses anything else with a reason. Do not extend it to other subsystems
+  without a decision of the same kind.
 - A derivation that truly cannot be read must be NAMED as a hack-fragility
   point and paired with honest degradation: compare the handler against its
   vanilla bytes and DECLINE TO ASSERT when it diverges, rather than rendering
@@ -498,7 +503,7 @@ implementer or reviewer and follows these rules instead:
 <!-- gitnexus:start -->
 # GitNexus - Code Intelligence
 
-This project is indexed by GitNexus as **hackbench** (12760 symbols, 34151 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hackbench** (12964 symbols, 34883 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root - it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

@@ -5,9 +5,9 @@
  *   - LevelLoadPos ($7E:0057, rammap.asm line 454) holds Y-register position within the
  *     current screen. Low nibble = column (0-15), high nibble = row (0-15). Rows 16-26
  *     extend via bank-carry (TYA wraps past 256).
- *   - Map16LowPtr ($7E:0065, rammap.asm line 553) is a 3-byte pointer into Map16TilesLow
+ *   - Map16LowPtr ($7E:006B, SMW_E0.sym; rammap.asm line 553) is a 3-byte pointer into Map16TilesLow
  *     which backs the Layer-1 tile grid. Each screen occupies $1B0 bytes (432 = 16×27).
- *   - Map16HighPtr ($7E:0068) backs a parallel byte array that acts as the *page
+ *   - Map16HighPtr ($7E:006E) backs a parallel byte array that acts as the *page
  *     selector* for each tile slot: 0 = page 0 (tiles $000-$0FF), 1 = page 1
  *     (tiles $100-$1FF). Handlers set it via Sta1To6ePointer (page 1) / StzTo6ePointer
  *     (page 0) immediately before each low-byte write.

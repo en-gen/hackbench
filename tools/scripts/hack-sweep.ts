@@ -18,7 +18,7 @@ import { decodeIps } from '../../src/rom/Ips'
 import { buildMapTree } from '../../src/rom/MapTree'
 import { buildLevelCatalog } from '../../src/rom/LevelCatalog'
 import { deriveOverworldEntrances, readWalk, readWarpTiles } from '../../src/rom/OverworldEntrances'
-import { OVERWORLD_ENTRY, readEntrySite, stockCodeMismatch } from '../../src/rom/SubmapFlagGate'
+import { entryPathMismatches, readEntrySite } from '../../src/rom/SubmapFlagGate'
 import { buildStockTables, countCustomPaletteLevels } from '../../src/rom/PaletteStockTables'
 import { detectPaletteAnimation } from '../../src/rom/PaletteAnimationDetect'
 import { MUSIC_BANKS, readMusicCatalog, readTrackUsage } from '../../src/rom/MusicCatalog'
@@ -53,7 +53,7 @@ const refuse = (...reasons: string[]): ReaderOutcome => ({ verdict: 'unavailable
 
 /** The overworld reader stops at its first failing gate; this checks each known gate on its own. */
 function overworldGates(smw: SmwRom): string[] {
-  const failing = OVERWORLD_ENTRY.slice(0, -1).flatMap(c => stockCodeMismatch(smw.rom, [c]) ?? [])
+  const failing = entryPathMismatches(smw.rom).flatMap(r => r ?? [])
   const site = readEntrySite(smw.rom)
   if (!site.ok) failing.push(site.reason)
   const walk = readWalk(smw.rom)

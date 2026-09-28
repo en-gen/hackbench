@@ -114,16 +114,6 @@
   border: 1px solid var(--theia-editorWidget-border);
 }
 
-/*
- * The canvas BITMAP stays native (width/height come from the decoded sheet);
- * zoom scales it through CSS only. `pixelated` is what makes that safe - a
- * ROM tile magnified with smoothing is a blur, not data.
- */
-.hb-gfx-view-canvas {
-  display: block;
-  image-rendering: pixelated;
-}
-
 .hb-gfx-view-empty {
   color: var(--theia-descriptionForeground);
 }
