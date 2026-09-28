@@ -305,7 +305,7 @@ describe('layoutArena', () => {
     expect(r.status).toBe('overflow')
     if (r.status !== 'overflow') return
     expect(r.overage).toBe(3)
-    expect(r.reason).toMatch(/446/)
+    expect(r.reason).toMatch(/hackbench#218/)
   })
 
   it('refuses a cartridge whose decompressor has been replaced', () => {

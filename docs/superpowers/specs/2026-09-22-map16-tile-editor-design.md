@@ -77,8 +77,8 @@ is the size of the structure the ENGINE indexes. Exceeding it means
 patching the routine that reads it, which is what LM's expansion patch
 does, plus ROM expansion for the data to live in.
 
-**Out of scope for this editor.** Tracked as en-gen/hackbench#102, which
-depends on en-gen/hackbench#446. When the user asks for a page, say what it
+**Out of scope for this editor.** Tracked as en-gen/hackbench#41, which
+depends on en-gen/hackbench#218. When the user asks for a page, say what it
 needs rather than offering a control that cannot work.
 
 **The two layers are counted separately.** `readMap16TileCount` walks the
@@ -88,7 +88,7 @@ loop's answer says nothing about it and gating BG on it would refuse or
 truncate an ordinary Layer 2 edit on the wrong evidence. The owner's
 ruling: decouple them. BG is presented at its own extent, and the view
 states in place that the extent is not derived from the cartridge. Reading
-it is post-MVP, en-gen/hackbench#102.
+it is post-MVP, en-gen/hackbench#41.
 
 **In scope:** read and present whatever tiles a cart HAS, rather than
 assuming 512. `src/rom/Map16.ts` hardcodes 512 in nine places, so a cart
@@ -242,7 +242,7 @@ gate needs a synthetic fixture built in the test.
 - **Where does an LM-expanded cart keep its extra tiles?** Nothing in the
   corpus exercises this: all 6 carts hold exactly 512 tiles. An LM v1.70+
   cart is needed before the page-count path can be written against
-  anything real. See en-gen/hackbench#102.
+  anything real. See en-gen/hackbench#41.
 - **Do the character palettes need their own zoom?** 32px per character is
   a comfortable click target and fits 8 per row. Unmeasured against a real
   8x8 sheet.

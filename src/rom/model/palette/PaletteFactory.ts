@@ -53,7 +53,7 @@ export function buildPalette(rom: RomFile, header: LevelHeader): Palette {
  * into per-cell frame lists. Only cells with all frames populated are
  * returned - partial entries fall back to static rendering.
  *
- * Exported for tools/scripts/capture_gate.ts (en-gen/hackbench#421), which
+ * Exported for tools/scripts/capture_gate.ts (en-gen/hackbench#205), which
  * needs the same ROM-derived candidate colors per CGRAM index without the
  * `Color`/`CyclingColorBehavior`/`editorStore` view-layer machinery.
  */

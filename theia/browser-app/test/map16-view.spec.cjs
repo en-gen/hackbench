@@ -1323,7 +1323,7 @@ test('a Map16 the view cannot present in full is refused with a reason, not trun
   const reason = await refusal.textContent()
   expect(reason).toContain('2048')
   expect(reason).toContain('512')
-  expect(reason).toContain('en-gen/hackbench#102')
+  expect(reason).toContain('en-gen/hackbench#41')
 
   // Nothing plausible-looking rendered in its place. Two pages of an
   // expanded table would look exactly right and be wrong.

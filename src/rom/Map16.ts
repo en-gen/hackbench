@@ -109,7 +109,7 @@ const MAP16_COUNT_OPERAND_OFFSET = 8
  * does not say.
  *
  * Read rather than assumed: Lunar Magic's expanded-Map16 patch
- * (en-gen/hackbench#102) raises this past the stock 512, and a hardcoded
+ * (en-gen/hackbench#41) raises this past the stock 512, and a hardcoded
  * constant would present the first two pages as though they were the whole
  * table. That is the failure CLAUDE.md's "never fall back to the vanilla
  * value" rule exists to prevent, so a cartridge whose loop cannot be
@@ -658,7 +658,7 @@ export function loadAllMap16BG(rom: RomFile): Map16Tile[] {
  * is unavailable, not vanilla. A ROM that says MORE than the loader here
  * can walk is also unavailable: `readMap16Table` builds at most 512 entries,
  * so showing those for a 2048-tile table would be the silent truncation
- * en-gen/hackbench#102 exists to prevent. L1 (foreground) only.
+ * en-gen/hackbench#41 exists to prevent. L1 (foreground) only.
  */
 export function map16TileCapacity(rom: RomFile): { count: number } | { reason: string } {
   const count = readMap16TileCount(rom)
@@ -670,7 +670,7 @@ export function map16TileCapacity(rom: RomFile): { count: number } | { reason: s
   }
   if (count > MAP16_TOTAL_TILES) {
     return {
-      reason: `This ROM's Map16 holds ${count} tiles, more than the ${MAP16_TOTAL_TILES} this view can read. Showing the first ${MAP16_TOTAL_TILES} would hide the rest, so nothing is shown. Expanded Map16 is tracked as en-gen/hackbench#102.`,
+      reason: `This ROM's Map16 holds ${count} tiles, more than the ${MAP16_TOTAL_TILES} this view can read. Showing the first ${MAP16_TOTAL_TILES} would hide the rest, so nothing is shown. Expanded Map16 is tracked as en-gen/hackbench#41.`,
     }
   }
   return { count }

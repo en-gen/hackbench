@@ -381,7 +381,7 @@ export interface Map16SheetDto {
 /**
  * `unavailable` is the refusal this view owes a cartridge whose Map16 it
  * cannot present IN FULL - see `readMap16TileCount` in src/rom/Map16.ts and
- * en-gen/hackbench#102. Rendering the first two pages of an expanded table
+ * en-gen/hackbench#41. Rendering the first two pages of an expanded table
  * would be confidently wrong, which is worse than saying so.
  */
 export type LoadMap16Result =

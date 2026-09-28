@@ -1,5 +1,5 @@
 /**
- * Run the L1 (foreground) data gate (en-gen/hackbench#421) from the
+ * Run the L1 (foreground) data gate (en-gen/hackbench#205) from the
  * command line.
  *
  *   npm run capture:gate -- [captures-dir] [--maps 105,1bd] [--rom <path>] [--known <file>]

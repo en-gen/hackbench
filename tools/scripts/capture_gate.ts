@@ -1,5 +1,5 @@
 /**
- * The L1 (foreground) data gate (en-gen/hackbench#421 phase 1): for each
+ * The L1 (foreground) data gate (en-gen/hackbench#205 phase 1): for each
  * map, build the Map16 grid, the Map16 definitions (with per-strip pipe
  * sets) and the L1 chars and palette from the ROM's working copy, and
  * check each one byte for byte against a Mesen capture. A mismatch names
@@ -236,7 +236,7 @@ export function parsePipeWrites(rawWrites: unknown, rawSummary: unknown): PipeWr
 }
 
 /**
- * en-gen/hackbench#421's allowed pipe differences: a vanilla SMW bug (owner
+ * en-gen/hackbench#205's allowed pipe differences: a vanilla SMW bug (owner
  * ruling 2026-09-26, not a HackBench defect - the pipe color is intended PER
  * SCREEN everywhere, and `pipeVariantIndex(strip)` is correct). The capture
  * faithfully records the bug, so the gate must allow exactly it, tightly

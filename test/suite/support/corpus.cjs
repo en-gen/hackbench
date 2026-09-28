@@ -65,7 +65,7 @@ const ROM_DIR = resolveRomDir(process.env, REPO_ROOT, fs.existsSync)
 const TOOLS_ROOT = resolveToolsRoot(process.env, REPO_ROOT, fs.existsSync)
 
 /**
- * Where the `layers_v5` Mesen captures live (en-gen/hackbench#421): an
+ * Where the `layers_v5` Mesen captures live (en-gen/hackbench#205): an
  * explicit override wins unchecked, else `<tools root>/captures/layers_v5`.
  * Read-only; never written to, since it is a shared OneDrive folder.
  */

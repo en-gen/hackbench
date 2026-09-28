@@ -30,13 +30,22 @@ once its comments are resolved (`.coderabbit.yaml`); GitHub cannot require
 the approval to be CodeRabbit's, so a human approval merges it too.
 
 - After opening a PR, turn on auto-merge:
-  `gh pr merge <n> -R en-gen/hackbench --auto --squash`.
+  `gh pr merge <n> -R en-gen/hackbench --auto --squash`, then confirm it took
+  (`gh pr view <n> --json autoMergeRequest`); the command has failed silently.
 - A PR that changes UI or graphics rendering gets the `needs-owner` label
   instead, and auto-merge stays off. Those carry images the owner looks at,
   and CI cannot run Playwright (no ROM).
-- Resolve CodeRabbit's comments by fixing them or replying why not; an
-  unresolved thread withholds its approval. A new push dismisses the old
-  approval, so every merged commit was reviewed.
+- The agent that opened a PR owns it until it merges. Answer every CodeRabbit
+  review, including a "changes requested" one, without being asked: fix a
+  valid finding, or reply with the reason when it is wrong, then resolve the
+  thread. An unresolved thread withholds approval; a new push dismisses the
+  old approval, so every merged commit was reviewed.
+- CodeRabbit re-reviews each push by itself. Do not comment
+  `@coderabbitai review` or `full review` (the free open-source plan has an
+  hourly review limit) and never `@coderabbitai approve`.
+- A CI re-run reuses the PR's original merge commit. When the fix is on
+  `develop`, merge `develop` into the branch (never rebase or force-push)
+  instead of re-running.
 - Repo admins can bypass the approval; agents never do.
 
 Do not add `Co-Authored-By: Claude` lines to commits. Do not add "Generated with Claude Code" footers or any AI attribution to PR bodies or commit messages.

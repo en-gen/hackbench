@@ -91,4 +91,4 @@ carried in source or test code.
   every branch above; a masked-hash match needs no ROM, because
   masking makes the hash indifferent to the operand values a test
   fixture chooses.
-- en-gen/hackbench#490.
+- en-gen/hackbench#231.

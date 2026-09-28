@@ -1,7 +1,7 @@
 /**
  * CODE_0DDF3A (bank_0D.asm:7107), standard object $37 in tilesets 3/9/10/11/14:
  * the castle wall that stamps screen 0 and then block-copies it to later
- * screens (en-gen/hackbench#569).
+ * screens (en-gen/hackbench#291).
  *
  * Synthetic cart only, so this runs in CI where the corpus is absent. The
  * cart holds only what the port reads: opcodes, the JSR targets it gates
