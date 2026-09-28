@@ -16,6 +16,7 @@ import {
   Map16TileDto,
 } from '../common/map16-protocol'
 import { TILE_PX } from './map16-pixels'
+import { overlayHidden } from '../../../../src/rom/render/HiddenTiles'
 
 /** Which sheet an edit is written against: the tile table, the graphics and
  * the colors it resolves. */
@@ -163,25 +164,10 @@ export function activeFor(
   return toggleKinds(alternates).filter(k => active.has(k))
 }
 
-/** A hidden tile's switched-on art is drawn in a soft screen door, in both the
- * inspector preview and the sheet (owner's choice over #621's flat 25% alpha): half
- * its pixels at full strength, the other half at this. One rule, so they cannot drift. */
-export const HIDDEN_TILE_DIM_ALPHA = 0.25
-
-/** The screen door at tile pixel (x, y): a checkerboard on the tile's own pixel
- * grid, not the screen's, so it looks the same at every zoom. */
-export function hiddenPixelStrength(x: number, y: number): number {
-  return (x + y) % 2 === 0 ? 1 : HIDDEN_TILE_DIM_ALPHA
-}
-
-/** A copy of one 16x16 RGBA tile in the screen door; colors are untouched. */
+/** One 16x16 RGBA tile in the screen door (`overlayHidden` into a blank tile); colors untouched. */
 export function screenDoor(tile: Uint8ClampedArray): Uint8ClampedArray {
-  const out = tile.slice()
-  for (let y = 0; y < TILE_PX; y++)
-    for (let x = 0; x < TILE_PX; x++) {
-      const a = (y * TILE_PX + x) * 4 + 3
-      out[a] = Math.round(tile[a]! * hiddenPixelStrength(x, y))
-    }
+  const out = new Uint8ClampedArray(TILE_PX * TILE_PX * 4)
+  overlayHidden(out, TILE_PX, 0, 0, tile)
   return out
 }
 
@@ -222,18 +208,10 @@ export function withHiddenTiles(
   for (const tile of sheet.tiles) {
     const shown = previewAlternate(tile.alternates, NO_SWITCHES)
     if (!shown) continue
-    const alt = decode(shown.alt.altRgbaBase64)
     out ??= atlas.slice()
     const x0 = (tile.id % sheet.tilesPerRow) * TILE_PX
     const y0 = Math.floor(tile.id / sheet.tilesPerRow) * TILE_PX
-    for (let y = 0; y < TILE_PX; y++)
-      for (let x = 0; x < TILE_PX; x++) {
-        const s = (y * TILE_PX + x) * 4
-        const d = ((y0 + y) * sheet.width + x0 + x) * 4
-        if (out[d + 3] !== 0 || alt[s + 3] === 0) continue
-        out.set(alt.subarray(s, s + 3), d)
-        out[d + 3] = Math.round(alt[s + 3]! * hiddenPixelStrength(x, y))
-      }
+    overlayHidden(out, sheet.width, x0, y0, decode(shown.alt.altRgbaBase64))
   }
   return out ?? atlas
 }

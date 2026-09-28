@@ -225,7 +225,9 @@ test('a ROM that picks GFX per level shows the map marked; a stock ROM is not ma
   expect(await textContrast(page, NOTE)).toBeGreaterThanOrEqual(4.5)
   // Shown, not blanked: the decoded header is still there.
   expect(await shownWords(page, body)).toMatch(/\d+ screens/)
-  await expect(page.locator(`${body} .hb-map-view-table tr`)).not.toHaveCount(0)
+  // The decoded header sits in the tab's folded Header panel, beside the facts.
+  const tab = '.hb-map-view-main:has([data-note="gfx-assignment"])'
+  await expect(page.locator(`${tab} .hb-map-view-table tr`)).not.toHaveCount(0)
 })
 
 test('the map view shows a sprite count on an unpatched ROM', async ({ page }) => {

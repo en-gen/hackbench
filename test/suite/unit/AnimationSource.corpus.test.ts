@@ -14,7 +14,8 @@ import {
   serializeAnimationData,
 } from '../../../src/rom/AnimationLoader'
 import { loadVram, VRAM_CHAR_BASE, VRAM_SLOT_NAMES } from '../../../src/rom/GfxLoader'
-import { decodeMap16Sheet, frameZeroChars } from '../../../theia/extension/src/node/map16-decode'
+import { decodeMap16Sheet } from '../../../theia/extension/src/node/map16-decode'
+import { frameZeroChars } from '../../../src/rom/FrameZero'
 import { CORPUS, MAGIC, VANILLA, hasRom, romPath } from '../support/corpus'
 
 // sha256 of the output on develop at 999592d, before the change.

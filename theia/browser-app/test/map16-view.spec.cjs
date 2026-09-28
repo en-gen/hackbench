@@ -989,16 +989,17 @@ test('the strip page bands follow a theme switch', async ({ page }) => {
     await page.evaluate(t => getSvc('ThemeService').setCurrentTheme(t, false), id)
     await page.waitForTimeout(600)
   }
-  await setTheme('light')
-  const light = await band()
-  expect(light).toEqual(parseRgbTriplet(await editorBackground()))
+  const original = await page.evaluate(() => getSvc('ThemeService').getCurrentTheme().id)
   try {
+    await setTheme('light')
+    const light = await band()
+    expect(light).toEqual(parseRgbTriplet(await editorBackground()))
     await setTheme('dark')
     const dark = await band()
     expect(dark).toEqual(parseRgbTriplet(await editorBackground()))
     expect(dark).not.toEqual(light)
   } finally {
-    await setTheme('light')
+    await setTheme(original)
   }
 })
 
@@ -1680,7 +1681,7 @@ test('play cycles the sheet through real animation frames; stop leaves it stable
   const frame0 = await readCanvas(page)
   await playButton.click()
   await expect(playButton).toHaveAttribute('title', 'Stop animation')
-  await expect(playButton).toHaveClass(/hb-map16-icon-btn-on/)
+  await expect(playButton).toHaveClass(/hb-icon-btn-on/)
 
   // Native interval is ~133ms on vanilla; poll rather than sleep a guess.
   await expect

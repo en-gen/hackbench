@@ -32,15 +32,12 @@ import {
   activeFor,
   charSourceLabel,
   formatCharNum,
-  SWITCH_LABELS,
   swatchCountFor,
   toggleKinds,
 } from './map16-view-model'
 import { formatRomAddr } from './palette-color-format'
-import { PixelImageButton, type FrameImage } from './pixel-image-button'
+import { SwitchToggle, type SwitchButtonImages } from './switch-toggle'
 
-/** Native size of every switch toggle's picture (Map16SwitchButtonImages). */
-export const SWITCH_BUTTON_PX = { width: 16, height: 16 }
 const SWITCH_BUTTON_SCALE = 2
 
 /** 12x: a 16x16 tile becomes a 192px preview, the view's dominant element. */
@@ -74,7 +71,7 @@ export interface Map16TilePreviewProps {
   /** Sheet-level reason some switch alternates could not be read. */
   switchUnavailable: string | undefined
   /** Each toggle button's own pictures; a missing kind falls back to its text label. */
-  buttonImages: Partial<Record<Map16SwitchKind, { off: FrameImage; on: FrameImage }>>
+  buttonImages: Partial<Record<Map16SwitchKind, SwitchButtonImages>>
   /** Why a kind has no button picture. */
   buttonUnavailable: Partial<Record<Map16SwitchKind, string>> | undefined
 }
@@ -169,15 +166,14 @@ function renderSwitchToggles(props: Map16TilePreviewProps): React.ReactNode {
         const pressed = on.includes(kind)
         const images = props.buttonImages[kind]
         return (
-          <PixelImageButton
+          <SwitchToggle
             key={kind}
-            data={{ control: 'switch-toggle', switch: kind }}
-            frame={SWITCH_BUTTON_PX}
-            scale={SWITCH_BUTTON_SCALE}
-            image={images && (pressed ? images.on : images.off)}
-            label={SWITCH_LABELS[kind]}
+            kind={kind}
+            images={images}
             pressed={pressed}
-            reason={images ? undefined : props.buttonUnavailable?.[kind]}
+            reason={props.buttonUnavailable?.[kind]}
+            scale={SWITCH_BUTTON_SCALE}
+            data={{ control: 'switch-toggle', switch: kind }}
             onClick={() => props.onToggleSwitch(kind)}
           />
         )

@@ -1,0 +1,15 @@
+# Coverage is collected by Vitest (v8) over the core, src/rom and src/project,
+# and uploaded by ci.yml. Status checks stay informational until a few develop
+# runs establish a baseline; then set targets here and drop `informational`.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: 'condensed_header, diff, flags, files'
+  require_changes: true

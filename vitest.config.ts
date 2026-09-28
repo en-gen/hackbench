@@ -18,10 +18,14 @@ export default defineConfig({
     environment: 'node',
     coverage: {
       provider: 'v8',
-      reporter: ['text-summary', 'json-summary', 'html'],
-      include: ['src/rom/**/*.ts'],
+      // lcov is what Codecov ingests; the rest are for reading locally.
+      reporter: ['text-summary', 'json-summary', 'html', 'lcov'],
+      // The core is both trees; the shells and the reference extension are not measured.
+      include: ['src/rom/**/*.ts', 'src/project/**/*.ts'],
       exclude: ['**/*.test.ts', '**/*.d.ts'],
       reportsDirectory: 'coverage',
+      // A red run still reports, so Codecov sees the coverage of the run that broke.
+      reportOnFailure: true,
     },
   },
 })

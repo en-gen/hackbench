@@ -150,6 +150,21 @@ border box and take no layout space.
   into a cached copy of each decoded phase while painting is prepared
   (`BrowsedSheetCache`), not stroked on top: that keeps it a pure function
   with a unit test, and the decoded phase other surfaces crop is untouched.
+  The map tab draws hidden tiles by the same rule (`hiddenPixelStrength` in
+  `src/rom/render/HiddenTiles.ts`, where the rule now lives, over the
+  back area layer, parity from the pixel's place in its own 16x16 cell),
+  and there it works both ways: a tile blank in the switch state shown but
+  drawn in another (`ghostOf`) shows that other picture in the screen door,
+  the switches-off one if drawn, else the first single switch's. So vanilla
+  `$027-$02A` (blue) show with blue off, and `$094` (ON/OFF; vanilla,
+  measured: tilesets 2, 6 and 8) with ON/OFF on. The map tab and the
+  inspector preview both decide with `ghostOf`, the preview for its selected
+  switches, and the map draws each cell with the sheet's own tile renderer
+  (`renderMap16Tile`), so they cannot disagree.
+- The map tab's switch-palace icons are per-ROM art (`src/rom/SwitchArt.ts`:
+  the block most tilesets draw, in the ROM's stock palette and raw GFX), not
+  the open map's own rendering: on a ROM with per-level palette overrides the
+  icon can differ from the block on the map.
 
 ## Hover
 

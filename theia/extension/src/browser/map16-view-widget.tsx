@@ -69,7 +69,6 @@ import {
 import { paintCharSheet, renderCharPalettes } from './map16-char-palettes'
 import {
   QUADRANTS,
-  SWITCH_BUTTON_PX,
   paintFrameQuadrant,
   paintTilePreview,
   renderTileEditor,
@@ -85,7 +84,8 @@ import {
   tileFrameCount,
   toggleKinds,
 } from './map16-view-model'
-import type { FrameImage } from './pixel-image-button'
+import { decodeSwitchButton, type SwitchButtonImages } from './switch-toggle'
+import { ghostOf } from '../../../../src/rom/render/HiddenTiles'
 
 export { MAP16_VIEW_ID, map16WidgetId } from './map16-view-model'
 
@@ -298,16 +298,12 @@ export class Map16ViewWidget extends ReactWidget {
    * alternate art. */
   protected switchButtonImages(
     sheet: Map16SheetDto,
-  ): Partial<Record<Map16SwitchKind, { off: FrameImage; on: FrameImage }>> {
-    const out: Partial<Record<Map16SwitchKind, { off: FrameImage; on: FrameImage }>> = {}
+  ): Partial<Record<Map16SwitchKind, SwitchButtonImages>> {
+    const out: Partial<Record<Map16SwitchKind, SwitchButtonImages>> = {}
     const art = sheet.switchButtonArt
     if (!art) return out
     for (const kind of Object.keys(art) as Map16SwitchKind[]) {
-      const images = art[kind]!
-      out[kind] = {
-        off: { ...SWITCH_BUTTON_PX, rgba: this.decoded(images.offRgba) },
-        on: { ...SWITCH_BUTTON_PX, rgba: this.decoded(images.onRgba) },
-      }
+      out[kind] = decodeSwitchButton(art[kind]!, b64 => this.decoded(b64))
     }
     return out
   }
@@ -782,9 +778,9 @@ export class Map16ViewWidget extends ReactWidget {
   }
 
   /**
-   * The preview canvas (#574): the alternate matching the active switch set
-   * wins; else a hidden tile's first single alternate in the screen door, rather
-   * than a blank preview; else the tile's own picture.
+   * The preview canvas (#574): the alternate matching the active switch set,
+   * or the tile's own picture; when that is blank, `ghostOf`'s picture in the
+   * screen door, the map tab's rule, both ways.
    */
   protected paintTilePreviewCanvas(
     tile: Map16TileDto,
@@ -794,15 +790,11 @@ export class Map16ViewWidget extends ReactWidget {
     tileY: number,
   ): void {
     if (!this.previewCanvasEl) return
-    const shown = previewAlternate(tile.alternates, this.activeSwitches)
-    if (shown) {
-      const art = this.decoded(shown.alt.altRgbaBase64)
-      paintTilePreview(this.previewCanvasEl, shown.hidden ? screenDoor(art) : art)
-    } else
-      paintTilePreview(
-        this.previewCanvasEl,
-        cropRegion(pixels, atlasWidth, tileX, tileY, TILE_PX, TILE_PX),
-      )
+    const own = cropRegion(pixels, atlasWidth, tileX, tileY, TILE_PX, TILE_PX)
+    const picked = previewAlternate(tile.alternates, this.activeSwitches)
+    const shown = picked && !picked.hidden ? this.decoded(picked.alt.altRgbaBase64) : own
+    const ghost = ghostOf(shown, own, tile.alternates ?? [], a => this.decoded(a.altRgbaBase64))
+    paintTilePreview(this.previewCanvasEl, ghost ? screenDoor(ghost) : shown)
   }
 
   protected paintDetail(): void {
@@ -921,12 +913,12 @@ export class Map16ViewWidget extends ReactWidget {
               ))}
             </select>
           </label>
-          <span className="hb-map16-toolbar-spacer" />
+          <span className="hb-toolbar-spacer" />
           <div className="hb-map16-toolbar-actions">
             <button
               data-control="zoom-out"
               type="button"
-              className="hb-map16-icon-btn"
+              className="hb-icon-btn"
               disabled={this.zoom === ZOOM_OPTIONS[0]}
               title="Zoom out"
               aria-label="Zoom out"
@@ -936,12 +928,12 @@ export class Map16ViewWidget extends ReactWidget {
             </button>
             <span
               data-control="zoom-indicator"
-              className="hb-map16-zoom-indicator"
+              className="hb-zoom-indicator"
             >{`${this.zoom}x`}</span>
             <button
               data-control="zoom-in"
               type="button"
-              className="hb-map16-icon-btn"
+              className="hb-icon-btn"
               disabled={this.zoom === ZOOM_OPTIONS[ZOOM_OPTIONS.length - 1]}
               title="Zoom in"
               aria-label="Zoom in"
@@ -953,7 +945,7 @@ export class Map16ViewWidget extends ReactWidget {
             <button
               data-control="grid-toggle"
               type="button"
-              className={'hb-map16-icon-btn' + (this.showGrid ? ' hb-map16-icon-btn-on' : '')}
+              className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : '')}
               aria-pressed={this.showGrid}
               title={this.showGrid ? 'Hide grid' : 'Show grid'}
               aria-label={this.showGrid ? 'Hide grid' : 'Show grid'}
@@ -964,7 +956,7 @@ export class Map16ViewWidget extends ReactWidget {
             <button
               data-control="play-toggle"
               type="button"
-              className={'hb-map16-icon-btn' + (this.playing ? ' hb-map16-icon-btn-on' : '')}
+              className={'hb-icon-btn' + (this.playing ? ' hb-icon-btn-on' : '')}
               disabled={!sheet.charAnimation}
               aria-pressed={this.playing}
               title={
