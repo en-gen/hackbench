@@ -24,8 +24,15 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { RomFile, cachedByVersion } from './RomFile'
-import { BytePattern, WILD, findExactlyOneSite, findPattern, matchesAt } from './BytePattern'
-import { loromFromOffset, loromToOffset } from './addressing'
+import {
+  BytePattern,
+  WILD,
+  findExactlyOneSite,
+  findPattern,
+  findUnique,
+  matchesAt,
+} from './BytePattern'
+import { LOROM_BANK_SIZE, loromFromOffset, loromToOffset } from './addressing'
 import { fingerprint } from './Fingerprint'
 import { decodeTilesBatch, PIXELS_PER_TILE } from './GraphicsDecoder'
 import { tryDecompress } from './LcLz2'
@@ -34,6 +41,7 @@ import { hex2 } from './hex'
 import {
   CompressionCheck,
   GFX_FILE_COUNT,
+  PREPARE_GFX_PATTERN,
   checkStockCompression,
   gfxFileAddress,
   readGfxPointerSites,
@@ -520,10 +528,13 @@ export function readGfxAssignment(
 //   - `JMP FilterSomeRAM` (bank_00.asm:5422)
 // The pattern runs from the routine's entry, pinning the branches that reach
 // the dispatch, so a hijacked entry refuses rather than reads stale operands.
-// It is matched anywhere, and more than one match refuses. FilterSomeRAM itself
-// (bank_00.asm:5480-5513) is recognized by fingerprint at the JMP target; the
-// three retargeting hacks rewrite it, so a trigger file on a ROM whose body is
-// not stock is refused rather than given the stock transform.
+// It is matched anywhere; more than one match, or one straddling a bank,
+// refuses. Both loops that call it must still JSR to the match, and its first
+// JSL must reach the stock PrepareGraphicsFile, whose PHY/PLY
+// (bank_00.asm:6573, 6589) is what keeps the file index in Y for the CPYs.
+// FilterSomeRAM itself (bank_00.asm:5480-5513) is recognized by fingerprint at
+// the JMP target; the retargeting hacks rewrite it, so a trigger file on a ROM
+// whose body is not stock is refused rather than given the stock transform.
 // prettier-ignore
 export const UPLOAD_GFX_DISPATCH: BytePattern = [
   0x22, WILD, WILD, WILD, 0xc0, 0x01, 0xd0, 0x0d, // JSL PrepareGraphicsFile / CPY #$01 / BNE
@@ -534,9 +545,17 @@ export const UPLOAD_GFX_DISPATCH: BytePattern = [
   0xc0, WILD, 0xf0, 0x02, 0xd0, 0x03, 0x4c, WILD, WILD, // CPY #file / BEQ / BNE / JMP
 ]
 export const UPLOAD_GFX_OPERANDS = { tilesetMin: 30, tilesetFile: 34, anyFile: 38, jmp: 44 }
+/** `JSR UploadGFXFile` in UploadSpriteGFX (bank_00.asm:5349) and in the FG/BG
+ *  loop CODE_00AA35 (bank_00.asm:5381), the two loops loadVram models. */
+export const UPLOAD_GFX_CALLERS = [0x00aa08, 0x00aa49]
 /** FilterSomeRAM from its entry through its RTS. */
 export const FILTER_BODY_LENGTH = 64
-const STOCK_FILTER_BODY = ['3c27399a66cd78f876cbad9284f076bfe160c70747f0cc648638b793af8cea54']
+// SHA-256 of the vanilla ROM's FilterSomeRAM. Evidence: matched on 3 of the 6
+// corpus ROMs (vanilla, magic, Seven_Vanilla_Levels), measured with the corpus
+// only; CI has no ROM and exercises the gate with a synthetic body instead.
+export const STOCK_FILTER_BODY = [
+  '3c27399a66cd78f876cbad9284f076bfe160c70747f0cc648638b793af8cea54',
+]
 
 type FilterDispatch =
   | { ok: true; tilesetMin: number; tilesetFile: number; anyFile: number; body: string | null }
@@ -544,18 +563,36 @@ type FilterDispatch =
 
 const _filterCache = new WeakMap<RomFile, { version: number; value: FilterDispatch }>()
 
+const inOneBank = (offset: number, length: number): boolean =>
+  offset % LOROM_BANK_SIZE <= LOROM_BANK_SIZE - length
+
 function readFilterDispatch(rom: RomFile): FilterDispatch {
   return cachedByVersion(_filterCache, rom, () => {
     const what = "UploadGFXFile's FilterSomeRAM dispatch (bank_00.asm:5401-5422)"
     const site = findExactlyOneSite(rom, UPLOAD_GFX_DISPATCH, what)
     if (!site.ok) return site
+    const refuse = (why: string): FilterDispatch => ({ ok: false, reason: `${what} ${why}` })
+    const at = loromFromOffset(site.offset)
+    if (at === null || !inOneBank(site.offset, UPLOAD_GFX_DISPATCH.length))
+      return refuse('straddles a bank boundary')
+    const jsr = [0x20, at & 0xff, (at >> 8) & 0xff]
+    const reached = UPLOAD_GFX_CALLERS.every(c => {
+      const o = loromToOffset(c, rom.romSize)
+      return (at & 0xff0000) === 0 && o !== null && matchesAt(rom, o, jsr) !== null
+    })
+    if (!reached) return refuse('is not what the sprite and FG/BG upload loops call')
     const b = rom.readAtFileOffset(site.offset, UPLOAD_GFX_DISPATCH.length)!
+    const snes = (i: number, bank: number): number => bank | b[i]! | (b[i + 1]! << 8)
+    const prepare = findUnique(rom, PREPARE_GFX_PATTERN)
+    if (prepare === null || loromToOffset(snes(1, b[3]! << 16), rom.romSize) !== prepare)
+      return refuse('does not call the stock PrepareGraphicsFile, which keeps the file index in Y')
     const { tilesetMin, tilesetFile, anyFile, jmp } = UPLOAD_GFX_OPERANDS
     // JMP abs stays in the dispatch's own bank.
-    const at = loromFromOffset(site.offset)
-    const jmpTo = at === null ? null : (at & 0xff0000) | b[jmp]! | (b[jmp + 1]! << 8)
-    const target = jmpTo === null ? null : loromToOffset(jmpTo, rom.romSize)
-    const body = target === null ? null : rom.readAtFileOffset(target, FILTER_BODY_LENGTH)
+    const target = loromToOffset(snes(jmp, at & 0xff0000), rom.romSize)
+    const body =
+      target === null || !inOneBank(target, FILTER_BODY_LENGTH)
+        ? null
+        : rom.readAtFileOffset(target, FILTER_BODY_LENGTH)
     return {
       ok: true,
       tilesetMin: b[tilesetMin]!,
@@ -591,6 +628,27 @@ export function filterSomeRamPath(
 }
 
 /**
+ * Why some GFX files for this tileset and sprite set are drawn without
+ * knowing whether the ROM filters them on upload, or undefined when every
+ * file's upload path was read. loadVram still draws them, as decoded.
+ */
+export function filterSomeRamNote(
+  rom: RomFile,
+  tilesetId: number,
+  spriteSet = 0,
+  stockBody: readonly string[] = STOCK_FILTER_BODY,
+): string | undefined {
+  const reasons = new Set<string>()
+  for (const file of Object.values(readGfxAssignment(rom, tilesetId, spriteSet))) {
+    if (file >= GFX_FILE_COUNT) continue // loadVram does not draw it
+    const path = filterSomeRamPath(rom, file, tilesetId, stockBody)
+    if (!path.ok) reasons.add(path.reason)
+  }
+  if (reasons.size === 0) return undefined
+  return `HackBench can't verify how this ROM uploads some of these GFX files, so they are drawn as stored, unverified: ${[...reasons].join('; ')}.`
+}
+
+/**
  * Apply the FilterSomeRAM plane-3 OR transform to a decoded GFX sheet:
  * non-zero pixels gain plane 3 = 1, zero pixels stay zero. This
  * reproduces the VRAM state the upload routine actually writes, so a
@@ -618,7 +676,12 @@ export function applyFilterSomeRamTransform(sheet: GfxSheet): GfxSheet {
  * Static tileset: GFX20 → AN2 (chars $200-$27F), GFX21 → BG1 (chars $280-$2FF)
  * (bank_00.asm lines 6247-6248: GFX33 then GFX32 loaded at CODE_00B888)
  */
-export function loadVram(rom: RomFile, tilesetId: number, spriteSet = 0): VramState {
+export function loadVram(
+  rom: RomFile,
+  tilesetId: number,
+  spriteSet = 0,
+  stockFilterBody: readonly string[] = STOCK_FILTER_BODY,
+): VramState {
   const assignment = readGfxAssignment(rom, tilesetId, spriteSet)
   const vram: VramState = {}
   for (const slot of VRAM_SLOT_NAMES) {
@@ -628,8 +691,8 @@ export function loadVram(rom: RomFile, tilesetId: number, spriteSet = 0): VramSt
       const read = readGfxFile(rom, fileIndex)
       if (!read.ok) continue
       let sheet = decodeGfxBytes(rom, fileIndex, read.bytes)
-      // A refused gate draws the file as decoded: best data, not the stock guess.
-      const filter = filterSomeRamPath(rom, fileIndex, tilesetId)
+      // A refused gate draws the file as decoded, and filterSomeRamNote says why.
+      const filter = filterSomeRamPath(rom, fileIndex, tilesetId, stockFilterBody)
       if (filter.ok && filter.filtered) {
         sheet = applyFilterSomeRamTransform(sheet)
       }

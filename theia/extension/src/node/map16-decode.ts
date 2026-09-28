@@ -33,6 +33,7 @@ import {
 } from '../../../../src/rom/Map16'
 import {
   gfxSource,
+  filterSomeRamNote,
   levelGfxAssignmentNote,
   loadVram,
   readGfxAssignment,
@@ -629,7 +630,10 @@ export function decodeMap16Sheet(
       tiles,
       charAnimation: animation?.dto,
       animationNote: frameZero?.error,
-      gfxAssignmentNote: levelGfxAssignmentNote(rom.rom),
+      gfxAssignmentNote:
+        [levelGfxAssignmentNote(rom.rom), filterSomeRamNote(rom.rom, tileset)]
+          .filter(Boolean)
+          .join(' ') || undefined,
       switchUnavailable: animData?.switchUnavailable,
       switchButtonArt: switchButtons.art,
       switchButtonUnavailable: switchButtons.unavailable,
