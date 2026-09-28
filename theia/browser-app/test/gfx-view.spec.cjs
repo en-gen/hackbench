@@ -564,10 +564,10 @@ test('Ctrl + wheel over the GFX sheet steps its zoom indicator and canvas size',
 
   await ctrlWheel(page, wrap, -120)
 
-  const after = await indicator.textContent()
-  expect(after).not.toBe(before)
-  const widthAfter = await canvas.evaluate(el => el.getBoundingClientRect().width)
-  expect(widthAfter).toBeGreaterThan(widthBefore)
+  await expect(indicator).not.toHaveText(before)
+  await expect
+    .poll(() => canvas.evaluate(el => el.getBoundingClientRect().width))
+    .toBeGreaterThan(widthBefore)
 })
 
 test('Ctrl + wheel on the GFX sheet clamps at 1x and 8x', async ({ page }) => {

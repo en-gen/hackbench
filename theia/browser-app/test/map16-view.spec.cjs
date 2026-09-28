@@ -2515,8 +2515,9 @@ test('Ctrl + wheel over the Map16 strip steps the zoom indicator and the canvas 
   await ctrlWheel(page, wrap, -120)
 
   await expect(page.locator(ctl('zoom-indicator'))).toHaveText(`${DEFAULT_ZOOM + 1}x`)
-  const widthAfter = await canvas.evaluate(el => el.getBoundingClientRect().width)
-  expect(widthAfter).toBeGreaterThan(widthBefore)
+  await expect
+    .poll(() => canvas.evaluate(el => el.getBoundingClientRect().width))
+    .toBeGreaterThan(widthBefore)
 })
 
 test('Ctrl + wheel clamps at the same limits as the zoom buttons', async ({ page }) => {
