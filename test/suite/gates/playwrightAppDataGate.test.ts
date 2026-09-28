@@ -209,6 +209,8 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
       delete unset.THEIA_CONFIG_DIR
       expect(samePath(theiaResolves({ env: unset }), path.join(fakeHome, '.theia'))).toBe(true)
     },
+    // Three node children each load @theia/core; 5 s timed out once under load.
+    30_000,
   )
 
   it("a worker reloading the config shares the runner's folder and does not delete it", () => {
@@ -263,9 +265,11 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
   })
 
   it('stale per-run folders older than a day are swept, and nothing else', () => {
-    const mk = (name: string, ageDays: number) => {
+    const mk = (name: string, ageDays: number, markerPid?: number) => {
       const p = path.join(os.tmpdir(), name)
       fs.mkdirSync(p, { recursive: true })
+      if (markerPid !== undefined)
+        fs.writeFileSync(path.join(p, MARKER), JSON.stringify({ port: 1, pid: markerPid }))
       const t = Date.now() / 1000 - ageDays * 86400
       fs.utimesSync(p, t, t)
       return p
@@ -276,10 +280,13 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
       mk(`hb-appdata-fresh${process.pid}`, 0),
       mk(`hb-testserver-fresh${process.pid}`, 0),
       mk(`hb-other-old${process.pid}`, 2),
+      // A server still running after a day keeps its folder; a dead one's goes.
+      mk(`hb-testserver-live${process.pid}`, 2, process.pid),
+      mk(`hb-testserver-dead${process.pid}`, 2, 2147483646),
     ]
     try {
       loadConfig().iso.cleanupAppData()
-      expect(all.map(p => fs.existsSync(p))).toEqual([false, false, true, true, true])
+      expect(all.map(p => fs.existsSync(p))).toEqual([false, false, true, true, true, true, false])
     } finally {
       for (const p of all) fs.rmSync(p, { recursive: true, force: true })
     }

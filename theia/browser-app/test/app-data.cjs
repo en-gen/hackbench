@@ -34,6 +34,16 @@ function markedFor(root, url) {
   }
 }
 
+/** True while the start-test-server process that wrote this folder's marker still runs. */
+function serverAlive(root) {
+  try {
+    process.kill(JSON.parse(fs.readFileSync(path.join(root, MARKER), 'utf8')).pid, 0)
+    return true
+  } catch (e) {
+    return e.code === 'EPERM'
+  }
+}
+
 /** Runs and test servers that crashed before their exit handler left folders behind. */
 function sweepStale() {
   const tmp = os.tmpdir()
@@ -41,8 +51,10 @@ function sweepStale() {
     if (!name.startsWith(PREFIX) && !name.startsWith(SERVER_PREFIX)) continue
     const p = path.join(tmp, name)
     try {
-      if (Date.now() - fs.statSync(p).mtimeMs > DAY_MS)
-        fs.rmSync(p, { recursive: true, force: true })
+      if (Date.now() - fs.statSync(p).mtimeMs <= DAY_MS) continue
+      // A test server can outlive a day; its folder goes only once its pid is gone.
+      if (name.startsWith(SERVER_PREFIX) && serverAlive(p)) continue
+      fs.rmSync(p, { recursive: true, force: true })
     } catch {
       // In use by another run, or already gone.
     }
