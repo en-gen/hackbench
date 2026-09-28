@@ -56,13 +56,27 @@ export class OverworldLauncherWidget extends BaseWidget {
 
   @postConstruct()
   protected init(): void {
-    const removed = this.shell.leftPanelHandler.dockPanel.widgetRemoved
+    const { dockPanel, tabBar } = this.shell.leftPanelHandler
     const mark = (): void => {
       this.sawRemoval = true
       setTimeout(() => setTimeout(() => (this.sawRemoval = false)))
     }
-    removed.connect(mark)
-    this.toDispose.push(Disposable.create(() => removed.disconnect(mark)))
+    // A click on the globe. Theia also re-activates the new current tab after
+    // a removal, so onActivateRequest cannot tell a click from a fallback;
+    // the tab bar's own request fires only for a click (measured, #363).
+    const click = (_: unknown, args: { title: { owner: unknown } }): void => {
+      if (args.title.owner !== this) return
+      this.clicked = true
+      this.schedule()
+    }
+    dockPanel.widgetRemoved.connect(mark)
+    tabBar.tabActivateRequested.connect(click)
+    this.toDispose.push(
+      Disposable.create(() => {
+        dockPanel.widgetRemoved.disconnect(mark)
+        tabBar.tabActivateRequested.disconnect(click)
+      }),
+    )
   }
 
   /** The panel opening onto the globe opens the view; a removal fallback only collapses. */
@@ -72,32 +86,29 @@ export class OverworldLauncherWidget extends BaseWidget {
     this.schedule()
   }
 
-  /** A click on the globe. */
   protected override onActivateRequest(msg: Message): void {
     super.onActivateRequest(msg)
     this.node.focus()
-    this.activated = true
-    this.schedule()
   }
 
   protected scheduled = false
   protected shown = false
-  protected activated = false
+  protected clicked = false
 
   /**
    * Collapses the panel, THEN opens and activates the view, so keyboard focus
    * ends on the view: collapsing hides the focused launcher, which would drop
    * focus from a view activated before it. Deferred out of the tab bar's own
-   * dispatch, where a show lands. A click sends a show and an activate within
-   * one task; they fold into one run. The flags clear when the run starts,
+   * dispatch, where a show lands. A click sends a show and a tab request
+   * within one task; they fold into one run. The flags clear when the run starts,
    * never across activateWidget, which can take 2.25 s or not settle at all.
    */
   protected schedule(): void {
     if (this.scheduled) return
     this.scheduled = true
     setTimeout(async () => {
-      const opens = this.activated || (this.shown && !this.sawRemoval)
-      this.scheduled = this.shown = this.activated = false
+      const opens = this.clicked || (this.shown && !this.sawRemoval)
+      this.scheduled = this.shown = this.clicked = false
       // Synchronous (SidePanelHandler.collapse); its promise is only an
       // animation frame, which never comes in a hidden window.
       void this.shell.collapsePanel('left')
