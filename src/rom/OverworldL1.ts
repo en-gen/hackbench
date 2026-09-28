@@ -1,41 +1,45 @@
 /**
  * The overworld's L1 (foreground) grid, read through CODE_04DC09's own
- * operands. Trace: docs/rom/overworld-l1.md.
+ * operands. Trace: docs/rom/overworld.md.
  */
 import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern } from './BytePattern'
 import { decodeOwMap16, map16ByteOffset } from './OverworldLoader'
 import { stockCodeMismatch, type StockCode } from './SubmapFlagGate'
 import type { Map16Tile } from './Map16'
+import { isLoRomRomAddress } from './addressing'
 import { hex6 } from './hex'
 
 export const OW_L1_COLS = 64
 export const OW_L1_ROWS = 32
+/** The view's canvas: the L1 grid of 16px tiles, L2 drawn to the same size. */
+export const OW_CANVAS_W = OW_L1_COLS * 16
+export const OW_CANVAS_H = OW_L1_ROWS * 16
 /** Byte indices only (Map16TilesHigh is zeroed), 8 bytes per entry. */
 const OW_L1_CHAR_BYTES = 256 * 8
 const OW_L1_TILE_BYTES = 0x800
 
-const pin = (addr: number, bytes: number[], what: string, cite: string): StockCode => ({
-  addr,
-  bytes,
-  what,
-  cite,
-})
-
-/** Opcodes and the constant operands this reading depends on. */
+/**
+ * CODE_04DC09 from the tileset load through the MVN, as three WILD-spanning
+ * runs of at most 32 bytes. The WILDs are the operands read below.
+ */
 // prettier-ignore
 export const OW_L1_READER: readonly StockCode[] = [
-  { ...pin(0x00a126, [0x22, 0x09, 0xdc, 0x04], 'JSL CODE_04DC09', 'bank_00.asm:4321'), bankAt: 3 },
-  pin(0x04dc15, [0xbf], 'LDA.L DATA_04DC02,X', 'bank_04.asm:5645'),
-  pin(0x04dc19, [0x8d, 0x31, 0x19, 0xa9], 'STA ObjectTileset : LDA #imm', 'bank_04.asm:5646-5647'),
-  pin(0x04dc2c, [0xa2, 0x00, 0x00, 0x8a, 0x20, 0x70, 0xd7, 0xe0, 0xb0, 0x01],
-    'LDX #0 : TXA : JSR CODE_04D770 : CPX #$01B0', 'bank_04.asm:5654-5657'),
-  pin(0x04dc3a, [0xa9], 'LDA.W #OWL1CharData', 'bank_04.asm:5660'),
-  pin(0x04dc44, [0x9d, 0xbe, 0x0f], 'STA Map16Pointers,X', 'bank_04.asm:5664'),
-  pin(0x04dc4a, [0x69, 0x08, 0x00], 'ADC.W #$0008', 'bank_04.asm:5667'),
-  pin(0x04dc51, [0xe0, 0x00, 0x04], 'CPX.W #$0400', 'bank_04.asm:5671'),
-  pin(0x04dc57, [0xa9, 0xff, 0x07, 0xa2], 'LDA #$07FF : LDX', 'bank_04.asm:5674-5675'),
-  pin(0x04dc5d, [0xa0, 0x00, 0xc8, 0x54, 0x7e], 'LDY #Map16TilesLow : MVN $7E', 'bank_04.asm:5676-5677'),
+  { addr: 0x00a126, bytes: [0x22, 0x09, 0xdc, 0x04], bankAt: 3,
+    what: 'JSL CODE_04DC09', cite: 'bank_00.asm:4321' },
+  { addr: 0x04dc15,
+    bytes: [0xbf, WILD, WILD, WILD, 0x8d, 0x31, 0x19, 0xa9, WILD, 0x8d, 0x2b, 0x19,
+      0xa9, 0x07, 0x8d, 0x25, 0x19, 0xa9, 0x03, 0x85, 0x5b, 0xc2, 0x10],
+    what: 'LDA.L DATA_04DC02,X through REP #$10', cite: 'bank_04.asm:5645-5653' },
+  { addr: 0x04dc2c,
+    bytes: [0xa2, 0x00, 0x00, 0x8a, 0x20, 0x70, 0xd7, 0xe0, 0xb0, 0x01, 0xd0, 0xf8,
+      0xc2, 0x30, 0xa9, WILD, WILD, 0x85, 0x00, 0xa2, 0x00, 0x00, 0xa5, 0x00,
+      0x9d, 0xbe, 0x0f, 0xa5, 0x00, 0x18, 0x69, 0x08],
+    what: 'JSR CODE_04D770 through ADC #$0008', cite: 'bank_04.asm:5654-5667' },
+  { addr: 0x04dc4c,
+    bytes: [0x00, 0x85, 0x00, 0xe8, 0xe8, 0xe0, 0x00, 0x04, 0xd0, 0xec, 0x8b, 0xa9,
+      0xff, 0x07, 0xa2, WILD, WILD, 0xa0, 0x00, 0xc8, 0x54, 0x7e, WILD],
+    what: 'CPX #$0400 through MVN', cite: 'bank_04.asm:5667-5677' },
 ]
 
 /** bank_05.asm:1196-1201: the Map16Pointers bank, chosen by ObjectTileset. */
@@ -54,9 +58,6 @@ export type OwL1Read = ({ ok: true } & OwL1Source) | { ok: false; reason: string
 
 const refuse = (reason: string): OwL1Read => ({ ok: false, reason })
 
-/** A LoROM address the cartridge maps, rather than RAM a static read cannot see. */
-const isRomAddress = (snes: number): boolean => snes >> 16 < 0x7e && (snes & 0xffff) >= 0x8000
-
 /** The bank the L1 upload reads Map16Pointers in, for `objectTileset`, or why not. */
 function charBank(rom: RomFile, objectTileset: number): number | string {
   const hits = findPattern(rom, CHAR_BANK_SELECT, 8)
@@ -74,11 +75,12 @@ function charBank(rom: RomFile, objectTileset: number): number | string {
 
 /** The L1 tile data, char data and tilesets area 0 loads, or why they cannot be read. */
 export function readOverworldL1(rom: RomFile): OwL1Read {
+  if (rom.mapMode !== 'lorom') return refuse('The overworld L1 reader reads LoROM only.')
   const mismatch = stockCodeMismatch(rom, OW_L1_READER)
   if (mismatch) return refuse(`The overworld L1 reader is not stock: ${mismatch}`)
   const tilesetTable = rom.readAt(0x04dc16, 3)!
   const tilesetAddr = tilesetTable[0]! | (tilesetTable[1]! << 8) | (tilesetTable[2]! << 16)
-  const objectTileset = isRomAddress(tilesetAddr) ? rom.readByte(tilesetAddr) : null
+  const objectTileset = isLoRomRomAddress(tilesetAddr) ? rom.readByte(tilesetAddr) : null
   if (objectTileset === null) {
     return refuse(`The object tileset table at $${hex6(tilesetAddr)} is not in the ROM.`)
   }
@@ -88,7 +90,11 @@ export function readOverworldL1(rom: RomFile): OwL1Read {
   if (typeof bank === 'string') return refuse(`Overworld L1 char data: ${bank}.`)
   const charAddr = (bank << 16) | rom.readWord(0x04dc3b)!
   const tileAddr = (rom.readByte(0x04dc62)! << 16) | rom.readWord(0x04dc5b)!
-  const notRom = !isRomAddress(charAddr) ? 'char' : !isRomAddress(tileAddr) ? 'tile' : null
+  const notRom = !isLoRomRomAddress(charAddr)
+    ? 'char'
+    : !isLoRomRomAddress(tileAddr)
+      ? 'tile'
+      : null
   if (notRom) return refuse(`The overworld L1 ${notRom} data is not read from the ROM.`)
 
   const tileData = rom.readAt(tileAddr, OW_L1_TILE_BYTES)

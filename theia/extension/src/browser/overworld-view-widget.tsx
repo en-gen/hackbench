@@ -4,13 +4,19 @@
  * One instance in the main area. Follows ProjectContext, and redraws when the
  * backend reports the working copy changed. A refusal shows its reason and
  * no canvas. Styling reuses the Graphics view's classes (style/gfx.css).
+ * The layer toggles re-compose the layers already fetched, with no round trip.
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
-import { GfxService, OverworldL1Dto } from '../common/gfx-protocol'
+import { GfxService, OverworldDto, OverworldLayerDto } from '../common/gfx-protocol'
+import {
+  compositeOverworld,
+  type OwLayerPixels,
+} from '../../../../src/rom/render/OverworldComposite'
 import { GfxFrontendClient } from './gfx-push-client'
-import { decodeRgba, paintScaled } from './map16-pixels'
+import { LayerToggle } from './layer-icon'
+import { decodeBase64Bytes, decodeRgba, paintScaled } from './map16-pixels'
 import { ProjectContext } from './project-context'
 
 export const OVERWORLD_VIEW_ID = 'hackbench.overworld-view'
@@ -22,7 +28,9 @@ export class OverworldViewWidget extends ReactWidget {
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
 
   protected manifestPath: string | undefined
-  protected l1: OverworldL1Dto | undefined
+  protected dto: OverworldDto | undefined
+  protected layers: { l1: OwLayerPixels; l2: OwLayerPixels | null } | undefined
+  protected visible = { l1: true, l2: true }
   protected error: string | undefined
   protected canvasEl: HTMLCanvasElement | null = null
   protected reloadToken = 0
@@ -48,17 +56,23 @@ export class OverworldViewWidget extends ReactWidget {
   async load(manifestPath: string | undefined): Promise<void> {
     this.manifestPath = manifestPath
     const token = ++this.reloadToken
-    let l1: OverworldL1Dto | undefined
+    let dto: OverworldDto | undefined
     let error: string | undefined
     if (manifestPath) {
       try {
-        l1 = await this.gfx.overworldL1(manifestPath)
+        dto = await this.gfx.overworld(manifestPath)
       } catch (err) {
         error = (err as Error).message
       }
     }
     if (token !== this.reloadToken) return
-    this.l1 = l1
+    this.dto = dto
+    const pixels = (l: OverworldLayerDto): OwLayerPixels => ({
+      rgba: decodeRgba(l.rgbaBase64),
+      prio: decodeBase64Bytes(l.prioBase64),
+    })
+    this.layers =
+      dto?.status === 'ok' ? { l1: pixels(dto.l1), l2: dto.l2 ? pixels(dto.l2) : null } : undefined
     this.error = error
     this.update()
   }
@@ -75,35 +89,71 @@ export class OverworldViewWidget extends ReactWidget {
   }
 
   protected paintCanvas(): void {
-    if (!this.canvasEl || this.l1?.status !== 'ok') return
-    const { width, height, rgbaBase64 } = this.l1
-    paintScaled(this.canvasEl, decodeRgba(rgbaBase64), width, height, 1)
+    if (!this.canvasEl || this.dto?.status !== 'ok' || !this.layers) return
+    const { width, height, backdrop } = this.dto
+    const { l1, l2 } = this.layers
+    const px = compositeOverworld(
+      width,
+      height,
+      backdrop,
+      this.visible.l2 ? l2 : null,
+      this.visible.l1 ? l1 : null,
+    )
+    paintScaled(this.canvasEl, px, width, height, 1)
+  }
+
+  protected toggle(layer: 'l1' | 'l2'): void {
+    this.visible[layer] = !this.visible[layer]
+    this.update()
   }
 
   protected render(): React.ReactNode {
     if (!this.manifestPath) {
       return <div className="hb-gfx-view-empty">Open a project to see its overworld.</div>
     }
-    const l1 = this.l1
-    const reason = this.error ?? (l1?.status === 'unavailable' ? l1.reason : undefined)
+    const dto = this.dto
+    const reason = this.error ?? (dto?.status === 'unavailable' ? dto.reason : undefined)
     return (
       <div className="hb-gfx-view-body">
         <div className="hb-gfx-view-toolbar">
           <span className="hb-gfx-view-title">Overworld</span>
-          {l1?.status === 'ok' && (
+          <LayerToggle
+            highlight="top"
+            label="L3 (overlay) not drawn yet"
+            pressed={false}
+            disabled
+            control="layer-l3"
+            onClick={() => undefined}
+          />
+          <LayerToggle
+            highlight="middle"
+            label="L1 (foreground)"
+            pressed={this.visible.l1}
+            control="layer-l1"
+            onClick={() => this.toggle('l1')}
+          />
+          <LayerToggle
+            highlight="bottom"
+            label="L2 (background)"
+            pressed={this.visible.l2}
+            disabled={dto?.status === 'ok' && !dto.l2}
+            control="layer-l2"
+            onClick={() => this.toggle('l2')}
+          />
+          {dto?.status === 'ok' && (
             <span className="hb-gfx-view-summary hb-overworld-note">
-              Drawn with area 0&apos;s tileset and palette; tiles and colors in the other half may
-              differ in game.
+              Map data before any event; drawn with area 0&apos;s tileset and palette, so the right
+              half may differ in game.
             </span>
           )}
         </div>
         {reason && <div className="hb-gfx-view-error hb-overworld-reason">{reason}</div>}
-        {l1?.status === 'ok' && l1.l2Unavailable && (
+        {dto?.status === 'ok' && dto.l2Unavailable && (
           <div className="hb-gfx-view-error hb-overworld-l2-reason">
-            {`L2 (background) unavailable: ${l1.l2Unavailable}`}
+            {`L2 (background) unavailable: ${dto.l2Unavailable}`}
           </div>
         )}
-        {l1?.status === 'ok' && (
+        {dto?.status === 'ok' && (
           <div className="hb-gfx-view-canvas-wrap">
             <canvas
               className="hb-gfx-view-canvas hb-overworld-canvas"

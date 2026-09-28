@@ -173,8 +173,10 @@ export const OW_BG_TILE_WIDTH = 0x40
  * The asm decoder writes one byte per command iteration to `OWLayer2Tilemap,X`
  * and advances X by 2 (`INX INX`), so the same routine is called twice with
  * different starting X values to interleave low/high byte streams into a
- * single 16-bit tilemap. The loop terminates when the destination index
- * reaches `_E` (`$4000`); there is no in-stream terminator.
+ * single 16-bit tilemap. The loop stops once a command ends at or past `_E`
+ * (`$4000`, `CPX _E : BCC`, bank_04.asm:5481-5482); there is no in-stream
+ * terminator. Returns the destination index reached, so a caller can tell a
+ * stream that ran out of source before `_E` from one that finished.
  *
  * Command byte format (FLLLLLLL):
  *   F=0 (bit 7 clear): LITERAL - emit (L+1) bytes copied from input
@@ -212,7 +214,7 @@ export function decompressOwRleStream(
       }
     }
   }
-  return pos - sourceStart
+  return d
 }
 
 /** Decompress + interleave the two L2 RLE streams into a 16-bit tilemap. */
@@ -492,7 +494,7 @@ export function loadAreaPalette(rom: RomFile, area: OwArea, useSpecial: boolean)
 }
 
 /** CODE_00AD25 and its call. The fingerprint fixes every table operand the
- *  function below reads through OW_ADDR (docs/rom/overworld-l1.md). */
+ *  function below reads through OW_ADDR (docs/rom/overworld.md). */
 export const OW_CGRAM_CODE: readonly (StockCode | StockSpan)[] = [
   { addr: 0x00a14d, bytes: [0x20, 0x25, 0xad], what: 'JSR CODE_00AD25', cite: 'bank_00.asm:4337' },
   {
@@ -710,7 +712,7 @@ function decodeTilemapWord(lo: number, hi: number): OwSubTile {
   }
 }
 
-/** Subtile layout matches CODE_04DCB6's 2x2 expansion (bank_04.asm:5764-5784). */
+/** Subtile layout matches CODE_04DCB6's 2x2 expansion (bank_04.asm:5718). */
 export function decodeOwMap16(charData: Uint8Array, index: number): OwMap16 {
   const off = index * 8
   return {

@@ -1,20 +1,31 @@
 /**
- * OverworldL1's reader gate and grid on synthetic bytes. No ROM: CI has none,
- * so every refusal is proven here. See support/syntheticOverworld.ts.
+ * The overworld L1 and L2 readers' gates on synthetic bytes. No ROM: CI has
+ * none, so every refusal is proven here. See support/syntheticOverworld.ts.
  */
 import { describe, it, expect } from 'vitest'
 import { OW_L1_READER, composeOverworldL1Grid, readOverworldL1 } from '../../../src/rom/OverworldL1'
+import { OW_L2_READER, readOverworldL2 } from '../../../src/rom/OverworldL2'
 import { map16ByteOffset } from '../../../src/rom/OverworldLoader'
+import { RomFile } from '../../../src/rom/RomFile'
 import { flip } from '../support/syntheticRom'
 import {
   BANK_SELECTS,
   CHAR_DATA,
+  L2_HI,
+  L2_STREAM_BYTES,
+  SYNTHETIC_FPS,
+  l2Tilemap,
   plantBankSelect,
+  plantL2,
+  pinnedFlips,
   syntheticOverworldRom,
   tileAt,
 } from '../support/syntheticOverworld'
 import { CORPUS, VANILLA, freshRom, hasRom, hasRoms } from '../support/corpus'
-import type { RomFile } from '../../../src/rom/RomFile'
+
+/** Building a synthetic ROM is slow; the sweeps plant into copies of one. */
+const BASE = syntheticOverworldRom()
+const copy = (): RomFile => RomFile.fromBytes('copy.sfc', Buffer.from(BASE.buffer))
 
 const read = (rom: RomFile) => {
   const r = readOverworldL1(rom)
@@ -36,17 +47,19 @@ describe('readOverworldL1 on a synthetic ROM', () => {
   })
 
   it('refuses when any pinned byte changes: every byte, flipped one at a time', () => {
-    const pinned = OW_L1_READER.flatMap(p =>
-      p.bytes.map((_, i) => ({ addr: p.addr + i, bank: i === p.bankAt })),
-    )
-    expect(pinned.length).toBe(38)
-    for (const { addr, bank } of pinned) {
-      const rom = syntheticOverworldRom()
-      flip(rom, addr)
-      // A bank byte ignores bit 7 (FastROM), so its flip keeps bit 7.
-      if (bank) rom.writeAt(addr, [rom.readByte(addr)! ^ 0x80])
+    const flips = pinnedFlips(OW_L1_READER)
+    expect(flips.length).toBe(73)
+    for (const { addr, value } of flips) {
+      const rom = copy()
+      rom.writeAt(addr, [value])
       expect(refusal(rom), `flip at $${addr.toString(16)}`).toMatch(/not stock: \$[0-9A-F]{6} \(/)
     }
+  })
+
+  it('refuses a ROM that is not LoROM', () => {
+    const rom = copy()
+    Object.assign(rom, { mapMode: 'hirom' })
+    expect(refusal(rom)).toMatch(/LoROM only/)
   })
 
   it('accepts the FastROM mirror of the JSL CODE_04DC09 bank', () => {
@@ -92,6 +105,64 @@ describe('readOverworldL1 on a synthetic ROM', () => {
     expect([tile.tl, tile.bl, tile.tr, tile.br].map(s => s.charNum)).toEqual(
       [0, 1, 2, 3].map(q => (tile.id * 4 + q) & 0x3f),
     )
+  })
+})
+
+describe('readOverworldL2 on a synthetic ROM', () => {
+  const read2 = (rom: RomFile, fps: readonly string[] = SYNTHETIC_FPS.l2): string => {
+    const r = readOverworldL2(rom, fps)
+    return r.ok ? 'read' : r.reason
+  }
+
+  it('reads both streams through the operands, into interleaved words', () => {
+    const r = readOverworldL2(BASE, SYNTHETIC_FPS.l2)
+    if (!r.ok) throw new Error(r.reason)
+    expect(Array.from(r.tilemap)).toEqual(Array.from(l2Tilemap()))
+  })
+
+  it('refuses when any pinned byte changes, and an unrecognized decoder', () => {
+    const flips = pinnedFlips(OW_L2_READER)
+    expect(flips.length).toBe(79)
+    for (const { addr, value } of flips) {
+      const rom = copy()
+      rom.writeAt(addr, [value])
+      expect(read2(rom), `flip at $${addr.toString(16)}`).toMatch(
+        /^the L2 decompressor is not stock: \$[0-9A-F]{6} \(/,
+      )
+    }
+    expect(read2(BASE, [])).toMatch(/\$04DABA/)
+  })
+
+  it('accepts the FastROM mirror of both JSL DecompressOverworldL2 banks', () => {
+    const rom = copy()
+    rom.writeAt(0x009e16, [0x84])
+    rom.writeAt(0x00a104, [0x84])
+    expect(read2(rom)).toBe('read')
+  })
+
+  it("reads a stream that ends on its bank's last byte, and refuses one that runs past it", () => {
+    const lo = 0x0d0000 - L2_STREAM_BYTES // $0C:DFC0 .. $0C:FFFF
+    const exact = copy()
+    plantL2(exact, l2Tilemap(), lo, L2_HI)
+    expect(read2(exact)).toBe('read')
+    const past = copy()
+    plantL2(past, l2Tilemap(), lo + 1, L2_HI)
+    expect(read2(past)).toMatch(/ends before \$4000 bytes/)
+  })
+
+  it('refuses a stream no static read can see: below $8000, in any bank', () => {
+    for (const bank of [0x0c, 0x40, 0x70]) {
+      const rom = copy()
+      rom.writeAt(0x04dc72, [0x00, 0x10])
+      rom.writeAt(0x04dc79, [bank])
+      expect(read2(rom), `bank $${bank.toString(16)}`).toMatch(/is not in the ROM/)
+    }
+  })
+
+  it('refuses a ROM that is not LoROM', () => {
+    const rom = copy()
+    Object.assign(rom, { mapMode: 'hirom' })
+    expect(read2(rom)).toMatch(/LoROM only/)
   })
 })
 

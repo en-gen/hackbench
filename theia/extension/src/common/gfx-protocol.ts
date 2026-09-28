@@ -102,17 +102,27 @@ export interface GfxSheetDto {
   rgbaBase64: string
 }
 
+/** One overworld layer: RGBA on a clear canvas, and a priority byte per 8x8 cell. */
+export interface OverworldLayerDto {
+  rgbaBase64: string
+  prioBase64: string
+}
+
 /**
- * The Overworld view's L1 (foreground), or why it cannot be drawn. A refusal
- * carries no pixels: the view shows the reason and no canvas.
+ * The Overworld view's layers, composed in the browser (OverworldComposite)
+ * so a layer toggle needs no round trip, or why it cannot be drawn. A
+ * refusal carries no pixels: the view shows the reason and no canvas.
  */
-export type OverworldL1Dto =
+export type OverworldDto =
   | {
       status: 'ok'
       width: number
       height: number
-      rgbaBase64: string
-      /** Why L2 (background) is left out; absent when it is drawn. */
+      /** CGRAM color 0, RGBA. */
+      backdrop: number[]
+      l1: OverworldLayerDto
+      /** Absent exactly when `l2Unavailable` says why. */
+      l2?: OverworldLayerDto
       l2Unavailable?: string
     }
   | { status: 'unavailable'; reason: string }
@@ -161,5 +171,5 @@ export interface GfxService {
   ): Promise<GfxSheetDto>
 
   /** The overworld's L2 and L1 in area 0's tileset and palette (overworld-decode.ts). */
-  overworldL1(manifestPath: string): Promise<OverworldL1Dto>
+  overworld(manifestPath: string): Promise<OverworldDto>
 }

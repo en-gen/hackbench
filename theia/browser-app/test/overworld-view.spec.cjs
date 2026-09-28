@@ -1,10 +1,12 @@
 /**
- * The Overworld view (#676), end to end against the shell.
+ * The Overworld view (en-gen/hackbench#363), end to end against the shell.
  *
  * The globe opens ONE main-area widget, and every path that shows the globe
- * does; the canvas is the whole L1 grid at 1024x512 and hashes to the pin the
- * Vitest decode test also holds; a ROM whose L1 reader is not stock shows the
- * reason and no canvas.
+ * does. The canvas is L2 (background) under L1 (foreground) at 1024x512 and
+ * hashes to the pins the Vitest decode test also holds, per layer set: the
+ * layer toggles and a refused L2 land on those same pins. A ROM whose L1
+ * reader is not stock shows the reason and no canvas. The Map tab's L1
+ * toggle, now the shared LayerToggle, is covered by map-view.spec.cjs.
  */
 const { test, expect } = require('@playwright/test')
 const { createHash } = require('crypto')
@@ -12,7 +14,11 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
-const { VANILLA_OVERWORLD_CANVAS_SHA256 } = require('../../../test/suite/support/overworld-pin.cjs')
+const {
+  VANILLA_OVERWORLD_CANVAS_SHA256,
+  VANILLA_OVERWORLD_L1_SHA256,
+  VANILLA_OVERWORLD_L2_SHA256,
+} = require('../../../test/suite/support/overworld-pin.cjs')
 const { loromToOffset } = require('../../extension/lib/src/rom/addressing')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
@@ -209,7 +215,9 @@ test('on vanilla the canvas is 1024x512 and hashes to the pinned vanilla canvas'
   const got = await canvasSha(page)
   expect([got.width, got.height]).toEqual([1024, 512])
   expect(got.sha).toBe(VANILLA_OVERWORLD_CANVAS_SHA256)
-  await expect(page.locator('.hb-overworld-note')).toContainText(/other half may differ in game/)
+  await expect(page.locator('.hb-overworld-note')).toContainText(
+    /Map data before any event.*right half may differ in game/,
+  )
   await expect(page.locator('.hb-overworld-reason')).toHaveCount(0)
   await expect(page.locator('.hb-overworld-l2-reason')).toHaveCount(0)
 })
@@ -238,7 +246,50 @@ test('a ROM whose L2 reader is not stock draws L1 alone and says why', async ({ 
   await page.waitForTimeout(500)
   const got = await canvasSha(page)
   expect([got.width, got.height]).toEqual([1024, 512])
-  expect(got.sha).not.toBe(VANILLA_OVERWORLD_CANVAS_SHA256)
+  // Exactly the L1-alone canvas: every L1 pixel drawn, the backdrop where L2 would be.
+  expect(got.sha).toBe(VANILLA_OVERWORLD_L1_SHA256)
+  await expect(page.locator('[data-control="layer-l2"]')).toBeDisabled()
+})
+
+test('each layer toggle hides its layer, and toggling back restores the pin', async ({ page }) => {
+  await openProject(page, ROM)
+  await page.locator(GLOBE).click()
+  await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
+  await page.waitForTimeout(500)
+  expect((await canvasSha(page)).sha).toBe(VANILLA_OVERWORLD_CANVAS_SHA256)
+  const view = page.locator(VIEW)
+  for (const [control, alone] of [
+    ['layer-l2', VANILLA_OVERWORLD_L1_SHA256],
+    ['layer-l1', VANILLA_OVERWORLD_L2_SHA256],
+  ]) {
+    const button = view.locator(`[data-control="${control}"]`)
+    await expect(button).toHaveAttribute('aria-pressed', 'true')
+    await button.click()
+    await expect(button).toHaveAttribute('aria-pressed', 'false')
+    // The other layer alone: the pixels changed, to that layer's own pin.
+    await expect.poll(async () => (await canvasSha(page)).sha).toBe(alone)
+    await button.click()
+    await expect(button).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(async () => (await canvasSha(page)).sha).toBe(VANILLA_OVERWORLD_CANVAS_SHA256)
+  }
+})
+
+test('the L3 (overlay) toggle is disabled and says why', async ({ page }) => {
+  await openProject(page, ROM)
+  await page.locator(GLOBE).click()
+  await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
+  const l3 = page.locator(`${VIEW} [data-control="layer-l3"]`)
+  await expect(l3).toBeDisabled()
+  await expect(l3).toHaveAttribute('title', 'L3 (overlay) not drawn yet')
+  await expect(l3).toHaveAttribute('aria-pressed', 'false')
+  // The icon marks the top bar: three bars, only the first in the button's color.
+  const ys = await l3
+    .locator('svg rect[data-on="true"]')
+    .evaluateAll(rs => rs.map(r => r.getAttribute('y')))
+  expect(ys).toEqual(['1'])
+  const before = (await canvasSha(page)).sha
+  await l3.click({ force: true })
+  expect((await canvasSha(page)).sha).toBe(before)
 })
 
 test('a ROM whose L1 reader is not stock shows the reason and no canvas', async ({ page }) => {

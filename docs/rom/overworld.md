@@ -38,24 +38,30 @@ is a view choice, not a ROM fact.
 
 `OWLayer2Tilemap` is $4000 bytes: two 64x64 layouts of tilemap words, layout 0
 for the hub and layout 1 for half 1 (areas 1-6), each drawn under its L1 half
-(`tilemapByteOffset`). `DecompressOverworldL2` (bank_04.asm:5440), reached by
-`JSL` at bank_00.asm:3744, runs `CODE_04DC6A` (:5683-5713). That sets the
-stream pointer to `#OWTileNumbers` with its bank, and runs the RLE decoder
-`CODE_04DABA` (:5452-5483) into the low bytes, then points at `#OWTilemap`,
-keeping the same bank, for the high bytes. The decoder stops when the output
-index reaches `_E` = $4000. It reads through `[_0],Y`, so a stream that runs
-off the end of its bank is refused.
+(`tilemapByteOffset`). Layout 1 belongs to half 1 because, on a submap, the
+L2 upload's DMA source high byte is `$60` (`LDA #$60 : STA HW_DMAADDR+$11`,
+bank_04.asm:5219-5222 and bank_00.asm:4809-4812). `DecompressOverworldL2`
+(bank_04.asm:5440), reached by `JSL` at bank_00.asm:3744 and :4301, runs
+`CODE_04DC6A` (:5683-5713). That sets the stream pointer to `#OWTileNumbers`
+with its bank, and runs the RLE decoder `CODE_04DABA` (:5452-5483) into the
+low bytes, then points at `#OWTilemap`, keeping the same bank, for the high
+bytes. The decoder stops once a command ends at or past `_E` = $4000
+(`CPX _E : BCC`, :5481-5482). It reads through `[_0],Y`, so a stream that
+runs off the end of its bank is refused; one that ends exactly on the bank's
+last byte is read.
 
-The reader pins the opcodes and constant operands of both, fingerprints the
-53-byte decoder, and reads the two stream addresses and their bank from the
-operands. GPW 1.2 moves both streams to bank $10 with the code intact, which
+The reader pins both calls, both DMA selects and the opcodes and constant
+operands of `CODE_04DC6A`, fingerprints the 53-byte decoder, and reads the two
+stream addresses and their bank from the operands. It reads LoROM only. GPW 1.2 moves both streams to bank $10 with the code intact, which
 is read. An L2 that cannot be read leaves L1 drawn alone, with the reason.
 
-`CODE_04E453`, run afterwards for each event, applies completed events' tile
-changes; the view draws the tilemap before any event.
+`CODE_04DC6A` then runs `CODE_04E453` for each event (:5705-5712), applying
+completed events' tile changes before first display. The view draws the
+tilemap before any event, and its note says so.
 
 Layers compose in SNES mode 1 order from each word's priority bit: L2 low,
-L1 low, L2 high, L1 high. Color 0 is transparent in both, over a backdrop of
+L1 low, L2 high, L1 high (`src/rom/render/OverworldComposite.ts`, run in the
+browser so the layer toggles need no round trip). Color 0 is transparent in both, over a backdrop of
 the title screen map's back area color, which is part of the same seed choice
 as the CGRAM below.
 

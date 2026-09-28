@@ -23,6 +23,17 @@ export function hasCopierHeader(fileSize: number): boolean {
 }
 
 /**
+ * Whether a LoROM code operand names cartridge ROM rather than something a
+ * static read cannot see: WRAM ($7E/$7F), or the low half of a bank
+ * (registers, the WRAM mirror, or open bus). Banks $80-$FF are FastROM
+ * mirrors and count; $FE/$FF mirror ROM, not WRAM.
+ */
+export function isLoRomRomAddress(snes: number): boolean {
+  const bank = snes >>> 16
+  return bank !== 0x7e && bank !== 0x7f && bank <= 0xff && (snes & 0xffff) >= 0x8000
+}
+
+/**
  * Convert a 24-bit SNES LoROM address to a ROM file byte offset.
  *
  * @param snesAddr    24-bit SNES address (bank << 16 | addr).

@@ -1,7 +1,7 @@
 /**
  * The overworld's L2 (background) tilemap, read through CODE_04DC6A's own
- * operands, and the two layers drawn in SNES mode 1 order.
- * Trace: docs/rom/overworld-l1.md.
+ * operands, and each layer drawn to pixels for OverworldComposite.
+ * Trace: docs/rom/overworld.md.
  */
 import { RomFile } from './RomFile'
 import { WILD } from './BytePattern'
@@ -11,7 +11,9 @@ import { decodeSubTileWord, type Map16Tile, type SubTile } from './Map16'
 import type { VramState } from './GfxLoader'
 import type { RgbaColor } from './GraphicsDecoder'
 import { renderSubTile } from './TileRenderer'
-import { OW_L1_COLS } from './OverworldL1'
+import { OW_CANVAS_H, OW_CANVAS_W, OW_L1_COLS } from './OverworldL1'
+import type { OwLayerPixels } from './render/OverworldComposite'
+import { isLoRomRomAddress } from './addressing'
 import { hex6 } from './hex'
 
 /** Opcodes and constant operands; the stream operands are WILD and read below. */
@@ -19,6 +21,13 @@ import { hex6 } from './hex'
 export const OW_L2_READER: readonly (StockCode | StockSpan)[] = [
   { addr: 0x009e13, bytes: [0x22, 0xad, 0xda, 0x04], bankAt: 3,
     what: 'JSL DecompressOverworldL2', cite: 'bank_00.asm:3744' },
+  { addr: 0x00a101, bytes: [0x22, 0xad, 0xda, 0x04], bankAt: 3,
+    what: 'JSL DecompressOverworldL2', cite: 'bank_00.asm:4301' },
+  // Layout 1 belongs to half 1: on a submap the L2 DMA source high byte is $60.
+  { addr: 0x00a54b, bytes: [0xbd, 0x11, 0x1f, 0xf0, 0x05, 0xa9, 0x60, 0x8d, 0x13, 0x43],
+    what: 'LDA OWPlayerSubmap,X : BEQ : LDA #$60 : STA HW_DMAADDR+$11', cite: 'bank_00.asm:4809-4812' },
+  { addr: 0x04d760, bytes: [0xbd, 0x11, 0x1f, 0xf0, 0x05, 0xa9, 0x60, 0x8d, 0x13, 0x43],
+    what: 'LDA OWPlayerSubmap,X : BEQ : LDA #$60 : STA HW_DMAADDR+$11', cite: 'bank_04.asm:5219-5222' },
   { addr: 0x04daad, bytes: [0x08, 0x20, 0x6a, 0xdc, 0x28, 0x6b],
     what: 'DecompressOverworldL2', cite: 'bank_04.asm:5440-5444' },
   { addr: 0x04dc6a,
@@ -41,14 +50,15 @@ export type OwL2Read = { ok: true; tilemap: Uint8Array } | { ok: false; reason: 
 /** One stream, decoded into every other byte of `dest`, or why it ran out. */
 function decodeStream(rom: RomFile, addr: number, dest: Uint8Array, start: number): string | null {
   // [_0],Y carries into the next bank, which in LoROM is not ROM: stop at the bank end.
-  const src = (addr & 0xffff) >= 0x8000 ? rom.readUpTo(addr, 0x10000 - (addr & 0xffff)) : null
+  const src = isLoRomRomAddress(addr) ? rom.readUpTo(addr, 0x10000 - (addr & 0xffff)) : null
   if (!src) return `the stream at $${hex6(addr)} is not in the ROM`
-  const used = decompressOwRleStream(src, 0, dest, start, 2)
-  return used < src.length ? null : `the stream at $${hex6(addr)} ends before $4000 bytes`
+  const written = decompressOwRleStream(src, 0, dest, start, 2)
+  return written >= dest.length ? null : `the stream at $${hex6(addr)} ends before $4000 bytes`
 }
 
 /** The $4000-byte L2 tilemap, two 64x64 layouts of words, before any event is applied. */
 export function readOverworldL2(rom: RomFile, spanFingerprints?: readonly string[]): OwL2Read {
+  if (rom.mapMode !== 'lorom') return { ok: false, reason: 'the L2 reader reads LoROM only' }
   const code = stockCodeMismatch(rom, OW_L2_READER, spanFingerprints)
   if (code) return { ok: false, reason: `the L2 decompressor is not stock: ${code}` }
   const bank = rom.readByte(0x04dc79)! << 16
@@ -59,42 +69,60 @@ export function readOverworldL2(rom: RomFile, spanFingerprints?: readonly string
   return why ? { ok: false, reason: why } : { ok: true, tilemap }
 }
 
-const W = 1024
-const H = 512
-
 /**
- * Both layers over the backdrop, half 0 left of half 1 (a view choice), in
- * mode 1 order: L2 low, L1 low, L2 high, L1 high. Color 0 is transparent.
+ * One layer's pixels on a clear canvas, plus each 8x8 cell's priority bit.
+ * Subtiles within a layer never overlap, so draw order does not matter here;
+ * OverworldComposite interleaves the two layers by priority.
  */
-export function drawOverworld(
+function drawLayer(
+  cells: (put: (sub: SubTile, x: number, y: number) => void) => void,
+  vram: VramState,
+  palette: { colors: RgbaColor[] },
+): OwLayerPixels {
+  const stride = OW_CANVAS_W * 4
+  const rgba = new Uint8ClampedArray(stride * OW_CANVAS_H)
+  const cellsW = OW_CANVAS_W >> 3
+  const prio = new Uint8Array(cellsW * (OW_CANVAS_H >> 3))
+  cells((sub, x, y) => {
+    renderSubTile(sub, vram, palette, rgba, y * stride + x * 4, stride)
+    prio[(y >> 3) * cellsW + (x >> 3)] = sub.priority ? 1 : 0
+  })
+  return { rgba, prio }
+}
+
+/** L1 and, when readable, L2, half 0 left of half 1 (a view choice). */
+export function drawOverworldLayers(
   l1: Map16Tile[],
   l2: Uint8Array | null,
   vram: VramState,
   palette: { colors: RgbaColor[] },
-  backdrop: RgbaColor,
-): Uint8ClampedArray {
-  const stride = W * 4
-  const out = new Uint8ClampedArray(stride * H)
-  for (let i = 0; i < out.length; i += 4) out.set(backdrop, i)
-  const put = (sub: SubTile, x: number, y: number, prio: boolean): void => {
-    if (sub.priority === prio) renderSubTile(sub, vram, palette, out, y * stride + x * 4, stride)
+): { l1: OwLayerPixels; l2: OwLayerPixels | null } {
+  return {
+    l1: drawLayer(
+      put =>
+        l1.forEach((t, i) => {
+          const x = (i % OW_L1_COLS) * 16
+          const y = Math.floor(i / OW_L1_COLS) * 16
+          put(t.tl, x, y)
+          put(t.tr, x + 8, y)
+          put(t.bl, x, y + 8)
+          put(t.br, x + 8, y + 8)
+        }),
+      vram,
+      palette,
+    ),
+    l2:
+      l2 &&
+      drawLayer(
+        put => {
+          for (let y = 0; y < 64; y++)
+            for (let x = 0; x < 128; x++) {
+              const at = tilemapByteOffset((x >> 6) as 0 | 1, y, x & 63)
+              put(decodeSubTileWord(l2[at]! | (l2[at + 1]! << 8)), x * 8, y * 8)
+            }
+        },
+        vram,
+        palette,
+      ),
   }
-  for (const prio of [false, true]) {
-    if (l2) {
-      for (let y = 0; y < 64; y++)
-        for (let x = 0; x < 128; x++) {
-          const at = tilemapByteOffset((x >> 6) as 0 | 1, y, x & 63)
-          put(decodeSubTileWord(l2[at]! | (l2[at + 1]! << 8)), x * 8, y * 8, prio)
-        }
-    }
-    l1.forEach((t, i) => {
-      const x = (i % OW_L1_COLS) * 16
-      const y = Math.floor(i / OW_L1_COLS) * 16
-      put(t.tl, x, y, prio)
-      put(t.tr, x + 8, y, prio)
-      put(t.bl, x, y + 8, prio)
-      put(t.br, x + 8, y + 8, prio)
-    })
-  }
-  return out
 }
