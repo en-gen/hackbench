@@ -23,6 +23,33 @@ This affects how the test suite is organized:
 Do not submit PRs that add ROM data, decompressed game resources, or
 fixtures derived from the ROM. These will be rejected.
 
+## The content gate
+
+`tools/scripts/check-content.mjs` (issue #678) blocks: ROM/save/patch and
+native/wasm extensions, `.asm`-family disassembly, and any binary file (a
+NUL byte, or content that isn't valid UTF-8, anywhere in the blob) except
+a `build/icons/**` PNG/ICO/ICNS whose magic bytes match its extension and
+is 512 KB or smaller; plus, on text content, base64 blobs, `data:...;
+base64,` payloads, oversized hex/byte-token counts (xxd dumps, `db`/`dw`/
+`.byte` directives, `\x` escapes), and disassembly-shaped listings. Text
+over 8 MB is blocked outright as `oversize`, never sniffed. Commit
+messages and annotated tag bodies get the same text-content rules. An
+in-file `content-gate: allow <rule> -- <reason>` pragma, only at the
+start of a comment line, exempts one file from one content rule.
+
+Modes: `staged` (pre-commit), `range BASE HEAD` (CI), `push REMOTE`
+(`.githooks/pre-push`, reading stdin ref-updates and querying the remote
+live via `git ls-remote` rather than trusting local, possibly stale,
+remote-tracking refs), and `history` (every blob reachable from every ref
+
+- the repo-migration oracle, run in CI only once public; also refuses a
+  shallow clone, a grafts file, and a tag/ref pointing at a blob or tree
+  outside any commit's tree).
+
+`npm install` sets `core.hooksPath` to `.githooks` automatically
+(`tools/scripts/set-hooks-path.cjs`). The only bypass is
+`git commit --no-verify` / `git push --no-verify`.
+
 ## Where the corpus lives
 
 The ROM corpus is **outside the repo**, beside the clone:

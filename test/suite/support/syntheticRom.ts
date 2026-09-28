@@ -37,6 +37,10 @@ const ROOM_STRIDE = 0x100
 const NOP = 0xea
 const nops = (length: number): Buffer => Buffer.alloc(length, NOP)
 
+/** Invert the byte at `snes`: a planted defect for a byte-flip sweep. */
+export const flip = (rom: RomFile, snes: number): void =>
+  rom.writeAt(snes, [rom.readByte(snes)! ^ 0xff])
+
 /** BONUS_CALL as planted: NOPs around OVERWORLD_ENTRY's `JMP CODE_05D83E` and the JSR operand. */
 function syntheticCall(): Buffer {
   const span = nops(BONUS_CALL.length)
