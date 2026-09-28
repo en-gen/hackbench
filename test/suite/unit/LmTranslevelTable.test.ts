@@ -215,13 +215,20 @@ describe('deriveOverworldEntrances: Lunar Magic stored translevels', () => {
     ['an entry JSL to something else', { key: 0x0300 }, PRELUDE_AT, /\$00B8DE.*calls \$018000/],
     ['a JSL body that is not a known routine', { fast: true }, FAST_AT, /calls \$019000/],
     ['a stock entry with another body', {}, BODY_AT, /\$00B8DE.*unrecognized body/],
-    ['a stock entry with an unknown build', {}, BODY_AT + 0x20, /body is not a recognized build/],
+    [
+      'a stock entry with an unknown build',
+      {},
+      BODY_AT + 0x20,
+      /the translevel decompressor at \$00B8DE .*body is not a recognized build/,
+    ],
   ] as const)('refuses %s, naming it', (_what, opts, at, reason) => {
     const rom = build(tableOf({ 0x01: 1 }), undefined, opts)
     flip(rom, at)
     const result = derive(rom)
     expect(result.overworldReadable).toBe(false)
     expect(result.notes[0]).toMatch(reason)
+    // Only the translevel table is refused; this check says nothing about GFX.
+    if (at === BODY_AT + 0x20) expect(result.notes[0]).not.toMatch(/GFX/)
   })
 
   // Every pinned byte on each accepted build: entry, prelude less its key, stock body, fast body.

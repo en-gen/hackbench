@@ -10,13 +10,7 @@ import { tryDecompress } from './LcLz2'
 import { hex6 } from './hex'
 import { fingerprint } from './Fingerprint'
 import { stockCodeMismatch, type StockCode } from './SubmapFlagGate'
-import {
-  FAST_LCLZ2,
-  commandRefusal,
-  readDecompressor,
-  replacedReason,
-  type FastRoutine,
-} from './GfxDecompressor'
+import { FAST_LCLZ2, commandRefusal, readDecompressor, type FastRoutine } from './GfxDecompressor'
 
 const PROLOGUE: BytePattern = [0xc2, 0x30, 0xa9, 0x00, 0x00, 0xe2, 0x20]
 /** LDX #$D000 / STX _0 / LDA #$7E / STA _2: the destination is OWLayer1Translevel. */
@@ -100,7 +94,7 @@ export function readLmTranslevels(
   if (!d.ok) return `${d.reason}. ${UNDECODED}`
   const body = fingerprint(rom.readAt(STOCK_BODY.at, STOCK_BODY.length)) ?? ''
   if (d.kind === 'stock' && !(known.stockBody ?? STOCK_LCLZ2_BODY).includes(body)) {
-    return `${replacedReason(DECOMPRESSOR_ENTRY, 'its LC_LZ2 body is not a recognized build')}. ${UNDECODED}`
+    return `the translevel decompressor at $${hex6(DECOMPRESSOR_ENTRY)} has a stock entry, but its body is not a recognized build. ${UNDECODED}`
   }
   // The prelude keys $8A-$8B, never $8C, before ReadByte loads through [$8A]
   // (bank_00.asm:6406); this call stores its operand there, so it is keyed.
