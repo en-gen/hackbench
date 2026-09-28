@@ -15,15 +15,26 @@ reviews:
   high_level_summary: true
   poem: false
   review_status: true
-  # These re-include files CodeRabbit skips by default. Images, dumps, zipped
-  # captures and audio are the shapes ROM-derived bytes take, and a skipped
-  # file is approved unseen. Lockfiles too: the repo is public and CI installs
-  # them frozen, so a changed resolved URL or integrity hash matters.
+  # These re-include files CodeRabbit skips by default. Images, dumps, archives
+  # and audio are the shapes ROM-derived bytes take, and a skipped file is
+  # approved unseen. Lockfiles too: the repo is public and CI installs them
+  # frozen, so a changed resolved URL or integrity hash matters.
   path_filters:
     - '**/*.png'
+    - '**/*.jpg'
+    - '**/*.jpeg'
+    - '**/*.gif'
+    - '**/*.bmp'
+    - '**/*.ico'
     - '**/*.bin'
     - '**/*.zip'
+    - '**/*.7z'
+    - '**/*.gz'
+    - '**/*.tar'
     - '**/*.wav'
+    - '**/*.mp3'
+    - '**/*.ogg'
+    - '**/*.flac'
     - '**/package-lock.json'
     - '**/yarn.lock'
   auto_review:
