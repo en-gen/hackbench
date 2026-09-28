@@ -10,6 +10,8 @@
 
 /** deltaY per wheel notch in this app's one target, Chromium/Electron. */
 const WHEEL_STEP_PX = 100
+/** Pixels per deltaY unit by `deltaMode`: pixel, line, page. */
+const DELTA_MODE_PX = [1, WHEEL_STEP_PX / 3, WHEEL_STEP_PX]
 /** A pause this long ends a wheel gesture. */
 const WHEEL_IDLE_MS = 400
 
@@ -122,7 +124,9 @@ export class ZoomController implements Disposable {
         sign = dir
         accum = 0
       }
-      accum += Math.abs(e.deltaY)
+      // Non-pixel deltas: a notch is 3 lines, or 1 page (Windows "one
+      // screen at a time"), so either still takes one step.
+      accum += Math.abs(e.deltaY) * (DELTA_MODE_PX[e.deltaMode] ?? 1)
       // One physical notch is ~100-120px and is one step; a single EVENT
       // can still carry several notches' worth (a fast spin, or a huge
       // synthetic delta) and steps that many times, capped by the clamp.

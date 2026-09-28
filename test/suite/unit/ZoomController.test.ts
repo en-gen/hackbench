@@ -51,13 +51,16 @@ interface FakeWheelEvent {
   clientX: number
   clientY: number
   timeStamp?: number
+  deltaMode?: number
   preventDefault: () => void
   prevented: boolean
 }
 
 function wheelEvent(
   deltaY: number,
-  opts: Partial<Pick<FakeWheelEvent, 'ctrlKey' | 'clientX' | 'clientY' | 'timeStamp'>> = {},
+  opts: Partial<
+    Pick<FakeWheelEvent, 'ctrlKey' | 'clientX' | 'clientY' | 'timeStamp' | 'deltaMode'>
+  > = {},
 ): FakeWheelEvent {
   const e: FakeWheelEvent = {
     ctrlKey: opts.ctrlKey ?? true,
@@ -65,6 +68,7 @@ function wheelEvent(
     clientX: opts.clientX ?? 0,
     clientY: opts.clientY ?? 0,
     timeStamp: opts.timeStamp,
+    deltaMode: opts.deltaMode,
     prevented: false,
     preventDefault(): void {
       e.prevented = true
@@ -383,5 +387,18 @@ describe('ZoomController.bindWheel - per-binding credit', () => {
     a.dispatch(wheelEvent(-60))
     b.dispatch(wheelEvent(-60))
     expect(c.value).toBe(4)
+  })
+})
+
+describe('ZoomController.bindWheel - delta modes', () => {
+  it.each([
+    { mode: 'line', deltaMode: 1, deltaY: -3 },
+    { mode: 'page', deltaMode: 2, deltaY: -1 },
+  ])('one $mode notch takes one step', ({ deltaMode, deltaY }) => {
+    const c = new ZoomController(GFX_LEVELS, 4)
+    const node = new FakeNode()
+    bind(c, node)
+    node.dispatch(wheelEvent(deltaY, { deltaMode }))
+    expect(c.value).toBe(6)
   })
 })
