@@ -232,6 +232,9 @@ branches to a second table when the doubled index is negative): it takes
 the 16-bit Map16 tile number from `$1693`, doubles it to index a table of
 16-bit entries, and looks the result up again while it is `$200` or more.
 The final value is written back to `$1693` as the translated tile number.
+`$1693` is `Map16TileNumber`, which the stock caller fills just before the
+hooked call (`bank_00.asm:13346-13347`). The routine itself is hack code
+with no SMWDisX counterpart; this description comes from its ROM bytes.
 
 Acts-like on these ROMs is **a 16-bit value per Map16 tile, in a flat table
 indexed by tile number times two, 16384 entries in one 32 KB bank**. The
