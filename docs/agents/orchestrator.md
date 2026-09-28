@@ -80,8 +80,9 @@ Never trust "done and green". On the branch yourself:
 ## 5. Ship
 
 - Every bug found gets its own issue, even when fixed in passing.
-- PRs target `develop`; the owner merges. The body relays each review finding
-  and how it was resolved.
+- PRs target `develop` and auto-merge on green CI plus one approving review
+  from anyone with write access, CodeRabbit in practice (CLAUDE.md "Merging"). UI or rendering PRs get `needs-owner` and the owner
+  merges. The body relays each review finding and how it was resolved.
 - UI or rendering changes: brief the implementer to capture images (before
   and after for a fix) and embed them with `tools/scripts/pr-image.sh`, per
   CLAUDE.md "Pull requests show what they draw".

@@ -203,7 +203,8 @@ export const DISPATCHER_FINGERPRINTS: readonly string[] = [
   '6a68ae67d6ee8b6978acfe37f81eb7e89a047c0033c97324bba347e8e63f340c',
 ]
 
-const long = (b: Uint8Array, o: number): number =>
+/** A 24-bit little-endian operand at `o`, FastROM bit dropped. */
+export const long = (b: Uint8Array, o: number): number =>
   (b[o]! | (b[o + 1]! << 8) | (b[o + 2]! << 16)) & 0x7fffff
 
 export interface GfxTables {

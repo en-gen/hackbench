@@ -43,7 +43,7 @@ vi.mock('../../../src/rom/OverworldEntrances', async importOriginal => {
   const real = await importOriginal<typeof import('../../../src/rom/OverworldEntrances')>()
   const { fingerprint } = await import('../../../src/rom/Fingerprint')
   const nopHash = (n: number): string[] => [fingerprint(Buffer.alloc(n, 0xea))!]
-  const fp = { entry: nopHash(0x64), walk: nopHash(real.WALK_PROLOGUE_LENGTH) }
+  const fp = { entry: nopHash(0x54), walk: nopHash(real.WALK_PROLOGUE_LENGTH) }
   return {
     ...real,
     deriveOverworldEntrances: (

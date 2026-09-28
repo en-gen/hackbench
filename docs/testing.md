@@ -23,6 +23,33 @@ This affects how the test suite is organized:
 Do not submit PRs that add ROM data, decompressed game resources, or
 fixtures derived from the ROM. These will be rejected.
 
+## The content gate
+
+`tools/scripts/check-content.mjs` (issue #678) blocks: ROM/save/patch and
+native/wasm extensions, `.asm`-family disassembly, and any binary file (a
+NUL byte, or content that isn't valid UTF-8, anywhere in the blob) except
+a `build/icons/**` PNG/ICO/ICNS whose magic bytes match its extension and
+is 512 KB or smaller; plus, on text content, base64 blobs, `data:...;
+base64,` payloads, oversized hex/byte-token counts (xxd dumps, `db`/`dw`/
+`.byte` directives, `\x` escapes), and disassembly-shaped listings. Text
+over 8 MB is blocked outright as `oversize`, never sniffed. Commit
+messages and annotated tag bodies get the same text-content rules. An
+in-file `content-gate: allow <rule> -- <reason>` pragma, only at the
+start of a comment line, exempts one file from one content rule.
+
+Modes: `staged` (pre-commit), `range BASE HEAD` (CI), `push REMOTE`
+(`.githooks/pre-push`, reading stdin ref-updates and querying the remote
+live via `git ls-remote` rather than trusting local, possibly stale,
+remote-tracking refs), and `history` (every blob reachable from every ref
+
+- the repo-migration oracle, run in CI only once public; also refuses a
+  shallow clone, a grafts file, and a tag/ref pointing at a blob or tree
+  outside any commit's tree).
+
+`npm install` sets `core.hooksPath` to `.githooks` automatically
+(`tools/scripts/set-hooks-path.cjs`). The only bypass is
+`git commit --no-verify` / `git push --no-verify`.
+
 ## Where the corpus lives
 
 The ROM corpus is **outside the repo**, beside the clone:
@@ -445,6 +472,14 @@ both at a per-run folder under the OS temp dir before any spec loads, which
 every process it starts inherits, and deletes it when the run exits. It never
 reuses a server already on port 3000, since that server's app data is unknown.
 
+The same folder holds the run's Theia config dir. The backend keeps user
+`settings.json`, `recentworkspace.json`, `backend-settings.json`,
+`workspace-metadata/` and untitled `workspaces/` in `THEIA_CONFIG_DIR`, else
+`~/.theia`, so the config sets `THEIA_CONFIG_DIR`, overriding any value
+already exported. The saved layout is not there: the
+browser app keeps it in `localStorage`, and each Playwright test gets a fresh
+browser context, so no spec inherits or changes the user's layout.
+
 The only supported way to run specs against a server you start yourself is
 `start-test-server.cjs`. It gives the server its own app data and
 `THEIA_CONFIG_DIR` under the temp dir, marks that folder with the port, and
@@ -463,15 +498,21 @@ server's environment: a server started any other way and handed a copied
 marker still writes wherever its own `APPDATA` points. The config also
 refuses an `HB_TEST_APPDATA` that no Playwright run created, and any folder
 outside the temp dir. macOS is refused outright, because `appData.ts`
-ignores the environment there.
+ignores the environment there. Each run also deletes `hb-appdata-*` and
+`hb-testserver-*` folders in the temp dir untouched for over a day, which a
+crashed run or server left behind.
 
 `test/suite/gates/playwrightAppDataGate.test.ts` checks, without a ROM: the
 config's folder is where the registries resolve; the webServer (through
 Playwright's env merge), `own-backend.cjs` and `start-test-server.cjs` spawn
-options hand it to a child process; `reuseExistingServer` is false; each
-refusal fires; a real `recent-projects.json` edited during a run comes out
-holding that edit. It plants a non-isolating harness and a snapshot/restore
-harness to show that last check can fail. It does not start a server.
+options hand it, and `THEIA_CONFIG_DIR` inside it, to a child process, even
+when the user already exported one; Theia's own resolution agrees (CI's
+`theia-typecheck` job runs the gate with `HB_REQUIRE_THEIA=1`, so a missing
+Theia install fails there instead of skipping); `reuseExistingServer` is
+false; each refusal fires; stale folders are swept and nothing else; a real
+`recent-projects.json` edited during a run comes out holding that edit. It
+plants a non-isolating harness and a snapshot/restore harness to show that
+last check can fail. It does not start a server.
 
 ## Commands
 
