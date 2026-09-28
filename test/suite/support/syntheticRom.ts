@@ -15,7 +15,6 @@ import {
   type OverworldFingerprints,
 } from '../../../src/rom/OverworldEntrances'
 import { fingerprint } from '../../../src/rom/Fingerprint'
-import { DECOMPRESSOR } from '../../../src/rom/LmTranslevelTable'
 import { WILD } from '../../../src/rom/BytePattern'
 
 // 512 KB: `size % 1024 !== 512`, so RomFile reads no copier header (+512).
@@ -57,7 +56,6 @@ function syntheticCall(): Buffer {
 export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
   entry: Object.freeze([fingerprint(nops(OVERWORLD_INDEX_BODY.length))!]),
   walk: Object.freeze([fingerprint(nops(WALK_PROLOGUE_LENGTH))!]),
-  decompressor: Object.freeze([fingerprint(nops(DECOMPRESSOR.length))!]),
   bonus: Object.freeze([spanFingerprint(syntheticCall(), BONUS_CALL.mask)!]),
 })
 
