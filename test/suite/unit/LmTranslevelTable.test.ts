@@ -245,15 +245,27 @@ describe('deriveOverworldEntrances: Lunar Magic stored translevels', () => {
     ...span('fast', { fast: true }, FAST_AT, FAST_LENGTH),
   ]
   it('refuses with any pinned decompressor byte flipped', () => {
+    // One ROM per variant, each byte flipped and flipped back: building a ROM
+    // per byte took ~37 s under CI coverage (#385).
+    const roms = new Map<string, RomFile>()
     const survived = sweep.flatMap(([what, opts, at]) => {
-      const rom = build(tableOf({ 0x01: 1 }), undefined, opts)
-      if (!derive(rom).overworldReadable) return [`${what} unflipped refused`]
+      let rom = roms.get(what)
+      if (!rom) {
+        rom = build(tableOf({ 0x01: 1 }), undefined, opts)
+        if (!derive(rom).overworldReadable) return [`${what} unflipped refused`]
+        roms.set(what, rom)
+      }
       flip(rom, at)
-      return derive(rom).overworldReadable ? [`${what} $${at.toString(16)}`] : []
+      const readable = derive(rom).overworldReadable
+      flip(rom, at)
+      return readable ? [`${what} $${at.toString(16)}`] : []
     })
     expect(sweep.length).toBe(0xb4 + 5 + 15 + 0xaf + 5 + FAST_LENGTH)
     expect(survived).toEqual([])
-  }, 30_000) // ~800 derives; the default 5 s is too tight under a full parallel run
+    // Every flip was undone, so each variant still reads; a missed restore
+    // would refuse later bytes for the wrong reason and hide a survivor.
+    for (const [what, rom] of roms) expect(derive(rom).overworldReadable, what).toBe(true)
+  }, 30_000) // ~900 derives; the default 5 s is too tight under a full parallel run
 
   it('refuses a table shorter than the $800 tiles', () => {
     const rom = build(new Uint8Array(0x7ff))
