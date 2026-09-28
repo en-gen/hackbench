@@ -129,3 +129,11 @@ jobs:
       # checking with it would be checking the wrong compiler.
       - name: Type-check extension
         run: yarn --cwd theia/extension typecheck
+
+      # The one gate case that needs Theia: its own config-dir resolution
+      # must land under Playwright's per-run folder. HB_REQUIRE_THEIA turns
+      # the local skip into a failure if the install above is broken.
+      - name: Playwright app-data gate against Theia
+        run: npx vitest run test/suite/gates/playwrightAppDataGate.test.ts
+        env:
+          HB_REQUIRE_THEIA: '1'
