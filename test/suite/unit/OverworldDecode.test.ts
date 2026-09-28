@@ -14,7 +14,6 @@ import { OW_ADDR, map16ByteOffset, tilemapByteOffset } from '../../../src/rom/Ov
 import { compositeOverworld } from '../../../src/rom/render/OverworldComposite'
 import { WorkingRom } from '../../../src/project/WorkingRom'
 import { decodeOverworld } from '../../../theia/extension/src/node/overworld-decode'
-import { GfxServiceImpl } from '../../../theia/extension/src/node/gfx-server'
 import type { OverworldDto } from '../../../theia/extension/src/common/gfx-protocol'
 import { plantGfxHook } from '../support/syntheticGfxCart'
 import {
@@ -38,6 +37,13 @@ import {
 } from '../support/syntheticOverworld'
 import { VANILLA, freshRom, hasRom } from '../support/corpus'
 import * as pin from '../support/overworld-pin.cjs'
+import { existsSync } from 'fs'
+import { resolve } from 'path'
+
+/** GfxServiceImpl imports @theia/core, which CI's unit job does not install. */
+const theiaInstalled = existsSync(
+  resolve(__dirname, '../../../theia/node_modules/@theia/core/package.json'),
+)
 
 // The server passes no fingerprint override, and stock CODE_00AD25 and
 // CODE_04DABA bytes are not committable, so its decode recognizes the
@@ -266,20 +272,24 @@ describe('decodeOverworld on a synthetic ROM', () => {
     expect(px()).toEqual(BACKDROP)
   })
 
-  it('reads the working copy through GfxServiceImpl: an edit redraws, undo restores', async () => {
-    const rom = syntheticOverworldRom()
-    const working = new WorkingRom(Uint8Array.from(rom.buffer), false)
-    const svc = Object.assign(new GfxServiceImpl(), {
-      workingRoms: { get: () => ({ status: 'ok', working, romPath: 's.sfc', project: {} }) },
-    })
-    const draw = async () => pixelAt(compose(await svc.overworld('p.hbproj')), 2, 3)
-    const before = await draw()
-    expect(before).toEqual(expectedAt(2, 3, 0x12))
-    edit(working, TILE_DATA + map16ByteOffset(0, 2, 3), w => w ^ 1)
-    expect(await draw()).not.toEqual(before)
-    working.pop()
-    expect(await draw()).toEqual(before)
-  })
+  it.skipIf(!theiaInstalled)(
+    'reads the working copy through GfxServiceImpl: an edit redraws, undo restores',
+    async () => {
+      const { GfxServiceImpl } = await import('../../../theia/extension/src/node/gfx-server')
+      const rom = syntheticOverworldRom()
+      const working = new WorkingRom(Uint8Array.from(rom.buffer), false)
+      const svc = Object.assign(new GfxServiceImpl(), {
+        workingRoms: { get: () => ({ status: 'ok', working, romPath: 's.sfc', project: {} }) },
+      })
+      const draw = async () => pixelAt(compose(await svc.overworld('p.hbproj')), 2, 3)
+      const before = await draw()
+      expect(before).toEqual(expectedAt(2, 3, 0x12))
+      edit(working, TILE_DATA + map16ByteOffset(0, 2, 3), w => w ^ 1)
+      expect(await draw()).not.toEqual(before)
+      working.pop()
+      expect(await draw()).toEqual(before)
+    },
+  )
 })
 
 describe.skipIf(!hasRom(VANILLA))('decodeOverworld on vanilla', () => {
