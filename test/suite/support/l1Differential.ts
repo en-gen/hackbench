@@ -1,6 +1,6 @@
 /**
  * The #351 differential: every L1 object, size and tileset dispatcher, run
- * through the interpreter and the hand ports, at three columns of screen 1.
+ * through the interpreter and the hand ports, at three columns of screen 5.
  * Shared by the corpus test and by whoever regenerates its allow-list.
  *
  * Each case is placed on the first candidate row where it FITS: moving it one
@@ -38,7 +38,7 @@ export interface DiffRun {
   tileset: number
   obj: number
   size: number
-  /** Column within screen 1, and the row the case was compared at. */
+  /** Column within screen 5, and the row the case was compared at. */
   col: number
   row: number
   fits: boolean
