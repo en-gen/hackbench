@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Enabled by: git config core.hooksPath .githooks (set by `npm install`).
+root="$(git rev-parse --show-toplevel)"
+exec node "$root/tools/scripts/check-content.mjs" push "$1"

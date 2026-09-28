@@ -1,4 +1,9 @@
 const { defineConfig } = require('@playwright/test')
+const { isolateAppData } = require('./test/app-data.cjs')
+
+// Before anything resolves a path: this process, its workers and every server
+// it starts use a per-run app-data folder, never the user's (#637).
+isolateAppData()
 
 module.exports = defineConfig({
   testDir: './test',
@@ -27,7 +32,9 @@ module.exports = defineConfig({
         // Serves a bundle built earlier in the job, but Theia backend startup
         // and plugin deployment still overrun the 60s default on a runner.
         timeout: 300000,
-        reuseExistingServer: !process.env.CI,
+        // Never reuse: a server already on the port has its own APPDATA,
+        // likely the user's real one. Start one by hand and pass HB_APP_URL.
+        reuseExistingServer: false,
         stdout: 'pipe',
         stderr: 'pipe',
       },
