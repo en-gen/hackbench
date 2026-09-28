@@ -41,10 +41,13 @@ tools/*
 #   tools/scripts/  — first-party CLI helpers (.ts/.js/.py/.mjs)
 #   tools/vendor/   — vendored open-source libraries (each in its own subdir)
 #   tools/mesen/    — Mesen integration (*.lua kept, binaries + dumps ignored)
+#   tools/perf/     — perf gates: result format, detector, paired runner (#413)
 !tools/scripts/
 !tools/scripts/**
 !tools/vendor/
 !tools/vendor/**
+!tools/perf/
+!tools/perf/**
 # tools/mesen: unignore the directory first (git cannot re-include files
 # when a parent directory remains excluded), then re-ignore everything
 # inside except the *.lua scripts and this README.
