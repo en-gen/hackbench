@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Overworld view, opened from a globe in the activity bar. It draws the
+  overworld's Foreground and Background from the working copy, the
+  hub on the left and areas 1-6 on the right, with toolbar toggles to show or
+  hide each layer. It shows map data before any event, in area 0's tileset
+  and palette. On a ROM whose overworld code it cannot read, it shows the
+  reason instead of drawing.
 - Palette view is now editable. Click a swatch, change its colour through a
   colour picker or the BGR555 hex field, and the working copy updates live -
   a recolour of a written cell is visible in the GFX viewer too, since both
