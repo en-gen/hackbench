@@ -52,8 +52,8 @@ last byte is read.
 
 The reader pins both calls, both DMA selects and the opcodes and constant
 operands of `CODE_04DC6A`, fingerprints the 53-byte decoder, and reads the two
-stream addresses and their bank from the operands. It reads LoROM only. GPW 1.2 moves both streams to bank $10 with the code intact, which
-is read. An L2 that cannot be read leaves L1 drawn alone, with the reason.
+stream addresses and their bank from the operands. It reads LoROM only. On GPW 1.2, both streams sit in bank $10 with the code intact, and are read
+from there (measured on that one ROM of the 6-ROM corpus, 2026-09-28). An L2 that cannot be read leaves L1 drawn alone, with the reason.
 
 `CODE_04DC6A` then runs `CODE_04E453` for each event (:5705-5712), applying
 completed events' tile changes before first display. The view draws the

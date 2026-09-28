@@ -180,7 +180,8 @@ describe.skipIf(!hasRoms(CORPUS))('readOverworldL1 across the corpus', () => {
   it('reads the unhooked readers and refuses the ones whose overworld load is diverted', () => {
     // Measured: GPW2, Invictus and Seven Vanilla Levels no longer JSL CODE_04DC09.
     const drawn = CORPUS.filter(name => readOverworldL1(freshRom(name)).ok)
-    expect(drawn.length).toBe(3)
-    expect(drawn).toContain(VANILLA)
+    expect([...drawn].sort()).toEqual(
+      [VANILLA, 'Super Mario World (USA).magic.sfc', 'GrandPooWorld_V1.2.sfc'].sort(),
+    )
   })
 })

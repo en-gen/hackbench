@@ -119,7 +119,7 @@ export class OverworldViewWidget extends ReactWidget {
           <span className="hb-gfx-view-title">Overworld</span>
           <LayerToggle
             highlight="top"
-            label="L3 (overlay) not drawn yet"
+            label="Effects not drawn yet"
             pressed={false}
             disabled
             control="layer-l3"
@@ -127,14 +127,14 @@ export class OverworldViewWidget extends ReactWidget {
           />
           <LayerToggle
             highlight="middle"
-            label="L1 (foreground)"
+            label="Foreground"
             pressed={this.visible.l1}
             control="layer-l1"
             onClick={() => this.toggle('l1')}
           />
           <LayerToggle
             highlight="bottom"
-            label="L2 (background)"
+            label="Background"
             pressed={this.visible.l2}
             disabled={dto?.status === 'ok' && !dto.l2}
             control="layer-l2"
@@ -150,7 +150,7 @@ export class OverworldViewWidget extends ReactWidget {
         {reason && <div className="hb-gfx-view-error hb-overworld-reason">{reason}</div>}
         {dto?.status === 'ok' && dto.l2Unavailable && (
           <div className="hb-gfx-view-error hb-overworld-l2-reason">
-            {`L2 (background) unavailable: ${dto.l2Unavailable}`}
+            {`Background unavailable: ${dto.l2Unavailable}`}
           </div>
         )}
         {dto?.status === 'ok' && (

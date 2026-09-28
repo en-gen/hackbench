@@ -2,7 +2,7 @@
  * The Overworld view (en-gen/hackbench#363), end to end against the shell.
  *
  * The globe opens ONE main-area widget, and every path that shows the globe
- * does. The canvas is L2 (background) under L1 (foreground) at 1024x512 and
+ * does. The canvas is the Background under the Foreground at 1024x512 and
  * hashes to the pins the Vitest decode test also holds, per layer set: the
  * layer toggles and a refused L2 land on those same pins. A ROM whose L1
  * reader is not stock shows the reason and no canvas. The Map tab's L1
@@ -208,6 +208,7 @@ test('the command is on the View menu and opens the same widget', async ({ page 
 test('on vanilla the canvas is 1024x512 and hashes to the pinned vanilla canvas', async ({
   page,
 }) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
   await openProject(page, ROM)
   await page.locator(GLOBE).click()
   await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
@@ -223,6 +224,7 @@ test('on vanilla the canvas is 1024x512 and hashes to the pinned vanilla canvas'
 })
 
 test('a one-tile edit draws a canvas that differs from the pin', async ({ page }) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
   const planted = plantedRom('planted.sfc', bytes => {
     bytes[fileOffset(bytes, 0x0cf7df + OPAQUE_CELL)] = 0
   })
@@ -234,6 +236,7 @@ test('a one-tile edit draws a canvas that differs from the pin', async ({ page }
 })
 
 test('a ROM whose L2 reader is not stock draws L1 alone and says why', async ({ page }) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
   const planted = plantedRom('no-l2.sfc', bytes => {
     bytes[fileOffset(bytes, L2_JSR_OPCODE)] ^= 0xff
   })
@@ -241,7 +244,7 @@ test('a ROM whose L2 reader is not stock draws L1 alone and says why', async ({ 
   await page.locator(GLOBE).click()
   await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
   await expect(page.locator('.hb-overworld-l2-reason')).toContainText(
-    /^L2 \(background\) unavailable: the L2 decompressor is not stock: \$04DC91/,
+    /^Background unavailable: the L2 decompressor is not stock: \$04DC91/,
   )
   await page.waitForTimeout(500)
   const got = await canvasSha(page)
@@ -252,6 +255,7 @@ test('a ROM whose L2 reader is not stock draws L1 alone and says why', async ({ 
 })
 
 test('each layer toggle hides its layer, and toggling back restores the pin', async ({ page }) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
   await openProject(page, ROM)
   await page.locator(GLOBE).click()
   await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
@@ -274,13 +278,14 @@ test('each layer toggle hides its layer, and toggling back restores the pin', as
   }
 })
 
-test('the L3 (overlay) toggle is disabled and says why', async ({ page }) => {
+test('the Effects toggle is disabled and says why', async ({ page }) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
   await openProject(page, ROM)
   await page.locator(GLOBE).click()
   await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
   const l3 = page.locator(`${VIEW} [data-control="layer-l3"]`)
   await expect(l3).toBeDisabled()
-  await expect(l3).toHaveAttribute('title', 'L3 (overlay) not drawn yet')
+  await expect(l3).toHaveAttribute('title', 'Effects not drawn yet')
   await expect(l3).toHaveAttribute('aria-pressed', 'false')
   // The icon marks the top bar: three bars, only the first in the button's color.
   const ys = await l3
@@ -293,6 +298,7 @@ test('the L3 (overlay) toggle is disabled and says why', async ({ page }) => {
 })
 
 test('a ROM whose L1 reader is not stock shows the reason and no canvas', async ({ page }) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
   const planted = plantedRom('refused.sfc', bytes => {
     bytes[fileOffset(bytes, L1_LDX_OPCODE)] ^= 0xff
   })
