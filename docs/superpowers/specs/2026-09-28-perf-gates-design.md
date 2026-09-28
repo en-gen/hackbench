@@ -36,6 +36,7 @@ produced it:
   "schema": 1,
   "sha": "<commit>",
   "suite": "core" | "app",
+  "harness": "<sha256>",
   "results": [
     { "id": "core.lclz2.decompress.synthetic-64k", "unit": "ms", "better": "lower",
       "samples": [1.21, 1.19, 1.20] }
@@ -46,26 +47,50 @@ produced it:
 - `id` is stable and dotted: `<family>.<area>.<case>`. Families: `core`,
   `app`, `startup`, `heap`.
 - `unit` is `ms` or `bytes/cycle`. `better` is always `lower` in v1.
-- `samples` are per-iteration values after warm-up is discarded.
+- `samples` are per-iteration values after warm-up is discarded, produced by
+  a bounded batched sampler rather than a fixed wall-clock time budget (see
+  section 2's Core sampler note) - a fixed number of samples every time, so
+  a result file's size never depends on how fast the measured code happens
+  to be.
+- `harness` (design D1) is `computeHarness()`'s sha256 of the benchmark code
+  that produced this doc - `test/perf/**`, `vitest.perf.config.ts` and
+  `tools/perf/run-core.mjs`, relative to the directory that ran the suite.
+  `compare.mjs` refuses to compare two sides whose harness hashes differ.
 - Writer and reader live in `tools/perf/results.mjs`, with a schema check
-  that rejects an empty `results` array or a result with no samples. A
-  suite that measured nothing must fail, never report green.
+  that rejects an empty `results` array, a result with no samples, a missing
+  `harness`, or a non-positive `ms` sample. A suite that measured nothing
+  must fail, never report green.
 
 ## 2. Suites
 
 ### Core (`test/perf/core/*.bench.ts`)
 
-`vitest bench` (Vitest 5, tinybench), separate config
-`vitest.perf.config.ts` so `test:unit` never runs benchmarks. A custom
-reporter step converts Vitest's `--outputJson` into the result format.
+Vitest 5.0.2 (the version this repo installs) dropped the old top-level
+`bench()`/`describe` benchmarking API this section originally assumed, in
+favour of an in-test `bench` fixture backed by a pluggable provider. Rather
+than adopt that provider abstraction, `test/perf/support/perfCase.ts` is a
+small hand-rolled batched sampler: `perfCase(id, fn)` registers `id` with
+`it.skipIf(!shouldRun(id))`, so an id excluded by `HB_PERF_ONLY` shows up as
+skipped rather than silently absent. When it runs, it calibrates a batch
+size (doubling until one batch clears 1 ms), discards 3 warmup batches, then
+records exactly 20 timed batches divided by the batch size - a fixed sample
+count regardless of how fast the case is, which also sidesteps tinybench's
+own time-budget mode: it ran several of this suite's sub-millisecond cases
+into millions of iterations, large enough that `JSON.stringify` on the
+retained samples threw "Invalid string length" (measured while building
+this suite). Separate config `vitest.perf.config.ts` so `test:unit` never
+runs benchmarks; its `testTimeout` is 10 minutes (design D4) so a
+catastrophic regression measures as a slow, honest sample instead of
+erroring out as a vitest timeout.
 
 - Synthetic cases build their input in the file (content rule: no ROM bytes
   in the repo) and run anywhere, including hackbench CI.
 - Corpus cases use `test/suite/support/corpus.ts` and gate with
   `describe.skipIf(!hasRom(...))`, never by looping over a corpus listing.
-- v1 set, about 8-12 cases: LC_LZ2 decompress, 4bpp tile decode, palette
-  load, level parse + object expand for a small and a large map, working
-  copy build with N layers, IPS export.
+- v1 set, 12 synthetic cases plus one corpus-gated case: LC_LZ2 decompress
+  (4k/64k), 4bpp tile decode (tile/sheet), palette load, level parse +
+  object expand for a small and a large map, working copy build with 10 and
+  100 layers, IPS export, and a corpus-gated ROM load.
 
 ### App (`theia/browser-app/perf/*.perf.cjs`)
 
@@ -91,16 +116,29 @@ so the e2e run never collects these.
 ## 3. Paired runner (`tools/perf/paired.mjs`)
 
 ```
-node tools/perf/paired.mjs --base <dir> --cand <dir> --suite core|app
+node tools/perf/paired.mjs --base <dir> --cand <dir> --suite core
      [--rounds N] [--only id,id] [--plant <id>=<factor>] --out <file>
 ```
 
-- `<dir>` is a built checkout. The runner alternates base, cand, base, cand
-  for N rounds (default core 10, app 6), running the suite's command in
-  each dir, and collects each round's result file.
+- `<dir>` is a built checkout. The runner runs base and cand ABBA (design
+  D3: `base, cand, cand, base` in blocks of two rounds, rather than strict
+  alternation) for N rounds (minimum 5, design D2; default core 10, app 6
+  once PR 2 wires the app suite), running the suite's command in each dir,
+  and collects each round's result file. Rounds are still paired by index
+  regardless of execution order - ABBA just cancels a linear drift (the
+  machine warming up, thermal throttling) across the run instead of biasing
+  one side.
+- Design D1: before any round runs, the candidate's `test/perf/**`,
+  `vitest.perf.config.ts` and `tools/perf/run-core.mjs` are overlaid onto
+  the base directory, and restored afterwards, so base and cand always
+  measure with the SAME benchmark code. Without this, a renamed or newly
+  added case compares against stale harness code on one side, or simply
+  does not exist there - the exact hole a rename or a bisect that predates
+  the harness itself would fall into.
 - `--only` limits to named ids; the confirmation pass and bisect use it.
 - The same tool runs in CI and locally, so a bisect measures exactly what
-  the nightly measured.
+  the nightly measured. Only the `core` suite is wired in PR 1; `app` lands
+  in PR 2.
 
 ## 4. Detector (`tools/perf/compare.mjs`)
 
@@ -109,22 +147,47 @@ Per result id:
 1. Round value = median of that round's samples.
 2. Pair ratio `r_i = cand_i / base_i` for each round.
 3. Estimate = median of `r_i`; 95% interval by bootstrap over the pairs,
-   2000 resamples, seeded PRNG so the verdict is reproducible from the file.
+   2000 resamples (minimum 1000, `--resamples` validated), seeded PRNG
+   (`--seed`, a finite integer) so the verdict is reproducible from the
+   file.
 4. REGRESSION when the interval's lower bound exceeds `1 + threshold`.
-   Thresholds by family: `core` 0.10, `app` 0.15, `startup` 0.15.
+   Thresholds by family: `core` 0.10, `app` 0.15, `startup` 0.15. A family
+   outside this set is refused (`Object.hasOwn`, never a silent default),
+   as is a unit that does not match its family (`heap` must be
+   `bytes/cycle`, everything else `ms`).
    `heap` uses differences, not ratios, because a slope near zero makes a
    ratio meaningless: `d_i = cand_i - base_i`, bootstrap the median of
    `d_i`, and regress when the lower bound exceeds
    `max(0.25 * |median(base)|, 64 KiB)` per cycle.
 5. IMPROVEMENT is the mirror, reported but never actioned.
 6. An id present on one side only is reported as `added` / `removed`, not
-   compared.
+   compared. `removed` still fails the run (design D1): a benchmark that
+   vanished needs the owner's acknowledgement the same way a regression
+   does; `added` stays informational.
+7. Design D2: fewer than 5 paired rounds for an id, or base and cand
+   holding unequal round counts, is malformed input (exit 2) - the
+   bootstrap needs a real sample to resample from. So is a harness hash
+   (design D1) that differs between base and cand.
 
 Output: a JSON verdict and a Markdown table (id, base median, cand median,
-ratio, interval, verdict). Exit 0 clean, 1 regression, 2 malformed input.
+ratio, interval, verdict). Exit 0 clean, 1 regression or an unacknowledged
+removal, 2 malformed input.
 
 Confirmation: the workflow re-runs the paired runner with `--only` on every
 flagged id; an issue is filed only for ids that regress in BOTH passes.
+
+## Design decisions D1-D5 (adversarial review, PR 1)
+
+Settled during PR 1's review; the substance is woven into sections 1-4 and
+7 above, this is the index.
+
+| # | Decision |
+|---|---|
+| D1 | Harness parity: `paired.mjs` overlays the candidate's `test/perf/**`, `vitest.perf.config.ts` and `tools/perf/run-core.mjs` onto the base directory before running it (restored after), and every result doc carries a `harness` sha256 (section 1) that `compare.mjs` refuses to compare across a mismatch. Closes the hole where a renamed or newly added case would compare against stale code, or a bisect would predate the benchmark harness itself. `removed` (section 4, point 6) exits 1, needing the owner's acceptance the same as a regression. |
+| D2 | A minimum of 5 paired rounds per id, and equal round counts between base and cand, or `compare.mjs` exits 2 (section 4, point 7). `--resamples` validated as an integer >= 1000, `--seed` as a finite integer. `bisect.mjs`'s default round count is likewise >= 5. |
+| D3 | `paired.mjs` runs base and cand ABBA (`base, cand, cand, base` per block of two rounds) instead of strict alternation, cancelling a linear drift across the run; pairing stays by round index regardless of execution order. |
+| D4 | `vitest.perf.config.ts`'s `testTimeout` is 10 minutes, so a catastrophic regression measures as an honest (if very slow) sample instead of erroring out as a vitest timeout that the pipeline could mistake for a build failure. |
+| D5 | `bisect.mjs` worktrees default to `<parent-of-repo>/.worktrees/hackbench/perf-bisect-<id>-<good7>` (CLAUDE.md's placement convention) and are removed in a finally. Builds with `npm ci`; on Windows spawns `npm.cmd`. The `git bisect run` step is this file's own `--step` mode, not a generated source string - `exitCodeForStep` is a plain, directly-tested function (0 good, 1 bad, else skip). |
 
 ## 5. Nightly workflow (`en-gen/hackbench-validation`, `perf-nightly.yml`)
 
@@ -179,22 +242,40 @@ Per the oracle rule, each verdict has a committed test that plants a defect:
 
 - `compare.mjs` unit tests on synthetic rounds: a planted 20% slowdown is
   REGRESSION; A/A noise at 5% jitter is clean across 200 seeded trials with
-  at most 2 false positives; one-sided ids, empty results and a result with
-  no samples exit 2.
-- `results.mjs` rejects an empty or sample-less file.
-- `--plant <id>=<factor>` in the runner: for core it busy-waits inside the
-  measured function; for app it sets CDP `Emulation.setCPUThrottlingRate`
-  on the candidate, so the app's own marks genuinely slow. The workflow's
-  `plant` input runs the whole pipeline red end to end, without filing an
-  issue (a planted run reports to the step summary only).
+  at most 2 false positives; one-sided ids, empty results, a result with
+  no samples, unequal round counts, and a base/cand harness mismatch exit 2.
+  A set of adversarial witnesses (an upper-bound-only check, a point
+  estimate substituted for the interval, a dropped seed, an off-by-one in
+  the bootstrap index, a bootstrap that never resamples, unpaired rounds, an
+  ignored family threshold, a wrong threshold value, and CI-percentile and
+  improvement-bound mixups) each has a value set chosen so that specific bug
+  flips the verdict.
+- `results.mjs` rejects an empty or sample-less file, a missing `harness`,
+  and a non-positive `ms` sample.
+- `--plant <id>=<factor>` in the runner, applied only to the candidate side:
+  for core, `perfCase`'s sampler times a batch, then busy-waits once for
+  `elapsed * (factor - 1)` before taking the batch's end timestamp, so
+  calibration and sampling both see the scaled cost consistently rather
+  than padding each call; for app it sets CDP
+  `Emulation.setCPUThrottlingRate` on the candidate, so the app's own marks
+  genuinely slow. A factor below 1 or a non-numeric factor is refused, and
+  `run-core.mjs` fails if the planted id (or any `--only` id) produced no
+  result at all. The workflow's `plant` input runs the whole pipeline red
+  end to end, without filing an issue (a planted run reports to the step
+  summary only).
 - A heap unit test: a synthetic series with a planted slope regresses; a
-  flat one with noise does not.
+  flat one with noise does not; the 64 KiB floor holds even when the base
+  median is near zero.
+- `bisect.mjs`'s `git bisect run` step is `--step` mode of the same file
+  (design D5), not a generated source string, so `exitCodeForStep` (0 good,
+  1 bad, everything else - a build failure included - a skip) is a plain
+  function under test, not a string match on generated code.
 
 ## Work breakdown
 
 | PR | Repo | Contents | Size |
 |---|---|---|---|
-| 1 perf-core | hackbench | results.mjs, compare.mjs, paired.mjs, bisect.mjs, accept.sh, core benches, vitest perf config, npm scripts, unit tests | ~600 lines incl. tests |
+| 1 perf-core | hackbench | results.mjs, compare.mjs, paired.mjs, bisect.mjs, accept.sh, core benches, vitest perf config, npm scripts, unit tests | ~2,500 lines incl. tests - grew past the original ~600-line estimate mainly from D1-D5 plus adversarial-review witness tests added after two rounds of review (issue #413) |
 | 2 perf-app | hackbench | perf-marks.ts, marks in widgets, app/startup/heap perf specs, perf Playwright config | ~450 lines |
 | 3 perf-nightly | hackbench-validation | perf-nightly.yml, report script, perf-data branch | ~250 lines |
 | 4 fixer | local | scheduled task prompt; docs/testing.md section | small |

@@ -1,34 +1,13 @@
 /**
- * Runs one benchmark case and records it to the NDJSON scratch file named by
- * HB_PERF_RESULTS_FILE, one line per case, in the shape results.mjs expects
- * for a single `results[]` entry.
- *
- * Vitest 5 replaced the old top-level `bench()`/`describe` benchmarking mode
- * (see docs/superpowers/specs/2026-09-28-perf-gates-design.md section 2) with
- * an in-test `bench` fixture backed by a pluggable provider, and tinybench's
- * own time-budget mode ran several of this file's sub-millisecond cases into
- * millions of iterations, large enough that `JSON.stringify` on the samples
- * threw "Invalid string length" (measured while building this PR). Sampling
- * by hand, batched to clear timer resolution, keeps the same outcome -
- * vitest test files, `describe.skipIf` corpus gating, a fixed, bounded
- * sample count - without either dependency's surprises. Deviation from the
- * spec's exact CLI plumbing ("vitest bench", "--outputJson", "tinybench");
- * everything the spec actually cares about (schema 1 output, corpus gating,
- * separate config) is unchanged.
- *
- * HB_PERF_ONLY, a comma list of ids, restricts which ids actually run; a
- * case not named there is skipped so `--only` on the paired runner and
- * bisect's per-id runs stay cheap.
- *
- * HB_PERF_PLANT="id=factor" (design section 7) busy-waits inside the
- * measured function for the one named id, scaling it by `factor`. The extra
- * wait is a fraction of a quick calibration run of the real function, so the
- * plant scales the true cost rather than adding a fixed constant.
+ * Registers one benchmark case and, when it runs, appends its result to the
+ * NDJSON scratch file named by HB_PERF_RESULTS_FILE. `measureCase` is the
+ * pure sampler (batched, timer-resolution safe - see the git history of this
+ * file for why tinybench's own time-budget mode is not used); `perfCase`
+ * wraps it in `it.skipIf`, so an id excluded by HB_PERF_ONLY shows up as
+ * skipped rather than silently absent.
  */
 import { appendFileSync } from 'node:fs'
-
-export type Unit = 'ms' | 'bytes/cycle'
-export type Better = 'lower'
+import { it } from 'vitest'
 
 const WARMUP_BATCHES = 3
 const SAMPLE_BATCHES = 20
@@ -38,10 +17,12 @@ const MAX_CALIBRATION_REPS = 1_000_000
 function parsePlant(spec: string | undefined): { id: string; factor: number } | undefined {
   if (!spec) return undefined
   const eq = spec.lastIndexOf('=')
-  if (eq === -1) return undefined
+  if (eq === -1) throw new Error(`HB_PERF_PLANT must be "id=factor": ${spec}`)
   const id = spec.slice(0, eq)
   const factor = Number(spec.slice(eq + 1))
-  if (!Number.isFinite(factor)) return undefined
+  if (!Number.isFinite(factor)) throw new Error(`HB_PERF_PLANT factor is not a number: ${spec}`)
+  if (factor < 1)
+    throw new Error(`HB_PERF_PLANT factor must be >= 1, a plant only simulates a slowdown: ${spec}`)
   return { id, factor }
 }
 
@@ -54,6 +35,11 @@ function onlyList(): string[] | undefined {
     .filter(Boolean)
 }
 
+export function shouldRun(id: string): boolean {
+  const only = onlyList()
+  return !only || only.includes(id)
+}
+
 function busyWaitMs(ms: number): void {
   if (ms <= 0) return
   const end = performance.now() + ms
@@ -63,67 +49,67 @@ function busyWaitMs(ms: number): void {
   }
 }
 
-export function shouldRun(id: string): boolean {
-  const only = onlyList()
-  return !only || only.includes(id)
+function isPromiseLike(v: unknown): v is Promise<unknown> {
+  return v !== null && typeof v === 'object' && typeof (v as { then?: unknown }).then === 'function'
 }
 
-/** Batched call count needed for one batch to clear MIN_BATCH_MS, found by
- *  doubling. Bounded so a pathologically slow fn cannot blow the time budget. */
-async function calibrate(fn: () => void | Promise<void>): Promise<number> {
+/** One batch of `reps` calls, timed once. H1: the plant busy-waits ONCE
+ *  after the raw batch elapsed, scaling the whole batch by `plantFactor`
+ *  rather than padding each call - so calibration and sampling both see the
+ *  same scaled cost, and the timestamp taken at the very end (after the
+ *  wait) is what gets divided by `reps`. */
+async function timedBatch(
+  fn: () => unknown,
+  reps: number,
+  isAsync: boolean,
+  plantFactor: number | undefined,
+): Promise<number> {
+  const t0 = performance.now()
+  if (isAsync) {
+    for (let i = 0; i < reps; i++) await fn()
+  } else {
+    for (let i = 0; i < reps; i++) fn()
+  }
+  if (plantFactor !== undefined) busyWaitMs((performance.now() - t0) * (plantFactor - 1))
+  return performance.now() - t0
+}
+
+async function calibrate(
+  fn: () => unknown,
+  isAsync: boolean,
+  plantFactor: number | undefined,
+): Promise<number> {
   let reps = 1
   for (;;) {
-    const t0 = performance.now()
-    for (let i = 0; i < reps; i++) await fn()
-    const elapsed = performance.now() - t0
+    const elapsed = await timedBatch(fn, reps, isAsync, plantFactor)
     if (elapsed >= MIN_BATCH_MS || reps >= MAX_CALIBRATION_REPS) return reps
     reps *= 4
   }
 }
 
-/** Runs `fn` in batches of `reps` calls, timing each batch once and dividing,
- *  so a sample stays meaningful even for sub-millisecond functions without
- *  ever running an unbounded number of iterations. */
-async function sampleBatched(fn: () => void | Promise<void>, reps: number): Promise<number[]> {
-  for (let w = 0; w < WARMUP_BATCHES; w++) {
-    for (let i = 0; i < reps; i++) await fn()
-  }
+/** Runs and records one case's samples, bypassing vitest's `it` registration
+ *  so tests can call this directly (perfCase wraps it for real bench files). */
+export async function measureCase(id: string, fn: () => unknown): Promise<number[]> {
+  const plant = parsePlant(process.env.HB_PERF_PLANT)
+  const plantFactor = plant && plant.id === id ? plant.factor : undefined
+
+  const probe = fn()
+  const isAsync = isPromiseLike(probe)
+  if (isAsync) await probe
+
+  const reps = await calibrate(fn, isAsync, plantFactor)
+  for (let w = 0; w < WARMUP_BATCHES; w++) await timedBatch(fn, reps, isAsync, plantFactor)
   const samples: number[] = []
-  for (let s = 0; s < SAMPLE_BATCHES; s++) {
-    const t0 = performance.now()
-    for (let i = 0; i < reps; i++) await fn()
-    samples.push((performance.now() - t0) / reps)
+  for (let s = 0; s < SAMPLE_BATCHES; s++)
+    samples.push((await timedBatch(fn, reps, isAsync, plantFactor)) / reps)
+
+  const outPath = process.env.HB_PERF_RESULTS_FILE
+  if (outPath) {
+    appendFileSync(outPath, JSON.stringify({ id, unit: 'ms', better: 'lower', samples }) + '\n')
   }
   return samples
 }
 
-export async function perfCase(
-  id: string,
-  unit: Unit,
-  better: Better,
-  fn: () => void | Promise<void>,
-): Promise<void> {
-  if (!shouldRun(id)) return
-
-  const plant = parsePlant(process.env.HB_PERF_PLANT)
-  let measured = fn
-  if (plant && plant.id === id && plant.factor !== 1) {
-    const t0 = performance.now()
-    await fn()
-    const baselineMs = performance.now() - t0
-    const extraMs = baselineMs * (plant.factor - 1)
-    measured = async () => {
-      await fn()
-      busyWaitMs(extraMs)
-    }
-  }
-
-  const reps = await calibrate(measured)
-  const samples = await sampleBatched(measured, reps)
-
-  const outPath = process.env.HB_PERF_RESULTS_FILE
-  if (outPath) {
-    const line = JSON.stringify({ id, unit, better, samples })
-    appendFileSync(outPath, line + '\n')
-  }
+export function perfCase(id: string, fn: () => unknown): void {
+  it.skipIf(!shouldRun(id))(id, () => measureCase(id, fn))
 }

@@ -1,116 +1,160 @@
 #!/usr/bin/env node
 // Paired runner (design section 3).
 //
-//   node tools/perf/paired.mjs --base <dir> --cand <dir> --suite core|app
+//   node tools/perf/paired.mjs --base <dir> --cand <dir> --suite core
 //        [--rounds N] [--only id,id] [--plant <id>=<factor>] --out <file>
 //
-// Alternates base, cand, base, cand for N rounds, running the suite's own
-// command inside each built checkout (`<dir>/tools/perf/run-core.mjs` for
-// core), so the same tool measures exactly what CI measured: this script
-// never imports the suite directly, only shells out into each `<dir>`.
+// Runs base and cand ABBA (design D3: base,cand,cand,base,... in blocks of
+// two rounds) rather than strict alternation, so a linear drift across the
+// whole run (machine warming up, thermal throttling) cancels out instead of
+// biasing one side. Rounds are still paired by index: baseRounds[i] is
+// compared against candRounds[i] regardless of execution order.
+//
+// D1: before any round runs, the candidate's test/perf/**,
+// vitest.perf.config.ts and tools/perf/run-core.mjs are overlaid onto the
+// base directory (and restored afterwards), so base and cand always measure
+// with the SAME benchmark code - a renamed or newly added case would
+// otherwise compare against stale harness code on one side, or simply not
+// exist there. Only the `core` suite is wired; `app` lands in PR 2.
 
+import { parseArgs } from 'node:util'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { validate as validateResultDoc } from './results.mjs'
 
-export const DEFAULT_ROUNDS = { core: 10, app: 6 }
+export const CORE_DEFAULT_ROUNDS = 10
+export const MIN_ROUNDS = 5
+const HARNESS_PATHS = ['test/perf', 'vitest.perf.config.ts', join('tools', 'perf', 'run-core.mjs')]
 
-export function parseArgs(argv) {
-  const args = {}
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]
-    if (a === '--base') args.base = argv[++i]
-    else if (a === '--cand') args.cand = argv[++i]
-    else if (a === '--suite') args.suite = argv[++i]
-    else if (a === '--rounds') args.rounds = Number(argv[++i])
-    else if (a === '--only') args.only = argv[++i]
-    else if (a === '--plant') args.plant = argv[++i]
-    else if (a === '--out') args.out = argv[++i]
-  }
-  return args
-}
-
-/** One entry per known suite: how to run it inside a built checkout. Only
- *  `core` is wired; `app` is the hook PR 2 fills in (task item 3). */
-export const SUITE_HOOKS = {
-  core: (dir, { out, only, plant }) => {
-    const args = ['tools/perf/run-core.mjs', '--out', out]
-    if (only) args.push('--only', only)
-    if (plant) args.push('--plant', plant)
-    return { cmd: process.execPath, args, cwd: dir }
-  },
-  app: () => {
-    throw new Error(
-      'the app suite hook lands in PR 2 (perf-app); core is the only suite paired.mjs runs today',
-    )
-  },
-}
-
-function runSuiteOnce(suite, dir, opts) {
-  const hook = SUITE_HOOKS[suite]
-  if (!hook) throw new Error(`unknown suite: ${suite}`)
-  const { cmd, args, cwd } = hook(dir, opts)
-  const res = spawnSync(cmd, args, { cwd, encoding: 'utf8' })
+function runSuiteOnce(dir, { out, only, plant }) {
+  const args = ['tools/perf/run-core.mjs', '--out', out]
+  if (only) args.push('--only', only)
+  if (plant) args.push('--plant', plant)
+  const res = spawnSync(process.execPath, args, { cwd: dir, encoding: 'utf8' })
   if (res.status !== 0) {
     throw new Error(
-      `suite '${suite}' failed in ${dir} (exit ${res.status}):\n${res.stdout}\n${res.stderr}`,
+      `core suite failed in ${dir} (exit ${res.status}):\n${res.stdout}\n${res.stderr}`,
     )
   }
-  const text = readFileSync(opts.out, 'utf8')
-  const doc = JSON.parse(text)
+  const doc = JSON.parse(readFileSync(out, 'utf8'))
   validateResultDoc(doc)
   return doc
 }
 
-/** Runs N paired rounds, alternating base then cand each round. Returns the
- *  paired document compare.mjs expects. Throws on the first failed round;
- *  a paired run is only meaningful as a complete set. */
-export function runPaired({ base, cand, suite, rounds, only, plant }) {
-  if (!existsSync(base)) throw new Error(`--base directory does not exist: ${base}`)
-  if (!existsSync(cand)) throw new Error(`--cand directory does not exist: ${cand}`)
-  const n = rounds ?? DEFAULT_ROUNDS[suite] ?? DEFAULT_ROUNDS.core
+/** Overlays candDir's harness files onto baseDir (design D1) and returns a
+ *  restore function that puts baseDir back exactly as it was. A no-op when
+ *  the two directories are the same path. */
+function overlayHarness(baseDir, candDir) {
+  if (resolve(baseDir) === resolve(candDir)) return () => {}
 
-  const scratch = mkdtempSync(join(tmpdir(), 'hb-perf-paired-'))
-  try {
-    const baseRounds = []
-    const candRounds = []
-    for (let i = 0; i < n; i++) {
-      const baseOut = join(scratch, `base-${i}.json`)
-      baseRounds.push(runSuiteOnce(suite, base, { out: baseOut, only }))
-      const candOut = join(scratch, `cand-${i}.json`)
-      // Plant only applies to the candidate: it simulates a regression the
-      // candidate introduced, not one the baseline already had.
-      candRounds.push(runSuiteOnce(suite, cand, { out: candOut, only, plant }))
+  const backupDir = mkdtempSync(join(tmpdir(), 'hb-perf-harness-backup-'))
+  for (const rel of HARNESS_PATHS) {
+    const basePath = join(baseDir, rel)
+    if (existsSync(basePath)) {
+      cpSync(basePath, join(backupDir, rel), { recursive: true })
+      rmSync(basePath, { recursive: true, force: true })
     }
-    return {
-      schema: 1,
-      suite,
-      rounds: n,
-      generatedAt: new Date().toISOString(),
-      baseRounds,
-      candRounds,
+  }
+  for (const rel of HARNESS_PATHS) {
+    const candPath = join(candDir, rel)
+    if (existsSync(candPath)) cpSync(candPath, join(baseDir, rel), { recursive: true })
+  }
+
+  return function restore() {
+    for (const rel of HARNESS_PATHS) rmSync(join(baseDir, rel), { recursive: true, force: true })
+    for (const rel of HARNESS_PATHS) {
+      const backupPath = join(backupDir, rel)
+      if (existsSync(backupPath)) cpSync(backupPath, join(baseDir, rel), { recursive: true })
     }
-  } finally {
-    rmSync(scratch, { recursive: true, force: true })
+    rmSync(backupDir, { recursive: true, force: true })
   }
 }
 
-const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split(/[\\/]/).pop())
+/** ABBA execution order (design D3) as a flat list of {round, side}. Rounds
+ *  are grouped in twos: base_i, cand_i, cand_{i+1}, base_{i+1}. A trailing
+ *  unpaired round (odd `n`) just runs base then cand. */
+export function abbaSchedule(n) {
+  const schedule = []
+  let i = 0
+  while (i < n) {
+    if (i + 1 < n) {
+      schedule.push({ round: i, side: 'base' }, { round: i, side: 'cand' })
+      schedule.push({ round: i + 1, side: 'cand' }, { round: i + 1, side: 'base' })
+      i += 2
+    } else {
+      schedule.push({ round: i, side: 'base' }, { round: i, side: 'cand' })
+      i += 1
+    }
+  }
+  return schedule
+}
+
+/** Runs N paired rounds ABBA (design D3). Returns the paired document
+ *  compare.mjs expects. Throws on the first failed round; a paired run is
+ *  only meaningful as a complete set. */
+export function runPaired({ base, cand, suite, rounds, only, plant }) {
+  if (suite !== 'core')
+    throw new Error(`unsupported suite: ${suite} (only 'core' is wired; app lands in PR 2)`)
+  if (!existsSync(base)) throw new Error(`--base directory does not exist: ${base}`)
+  if (!existsSync(cand)) throw new Error(`--cand directory does not exist: ${cand}`)
+  const n = rounds ?? CORE_DEFAULT_ROUNDS
+  if (!Number.isInteger(n) || n < MIN_ROUNDS) {
+    throw new Error(
+      `--rounds must be an integer >= ${MIN_ROUNDS} (design D2), got ${JSON.stringify(rounds)}`,
+    )
+  }
+
+  const restoreHarness = overlayHarness(base, cand)
+  const scratch = mkdtempSync(join(tmpdir(), 'hb-perf-paired-'))
+  try {
+    const baseRounds = new Array(n)
+    const candRounds = new Array(n)
+    for (const { round, side } of abbaSchedule(n)) {
+      const dir = side === 'base' ? base : cand
+      const out = join(scratch, `${side}-${round}.json`)
+      // Plant only applies to the candidate: it simulates a regression the
+      // candidate introduced, not one the baseline already had.
+      const doc = runSuiteOnce(dir, { out, only, plant: side === 'cand' ? plant : undefined })
+      if (side === 'base') baseRounds[round] = doc
+      else candRounds[round] = doc
+    }
+    return { schema: 1, suite, rounds: n, baseRounds, candRounds }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+    restoreHarness()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+
+const CLI_OPTIONS = {
+  base: { type: 'string' },
+  cand: { type: 'string' },
+  suite: { type: 'string' },
+  rounds: { type: 'string' },
+  only: { type: 'string' },
+  plant: { type: 'string' },
+  out: { type: 'string' },
+}
+
+// Same invoked-directly test as tools/scripts/check-content.mjs.
+const isMain = /paired\.mjs$/i.test(process.argv[1] ?? '')
 if (isMain) {
-  const args = parseArgs(process.argv.slice(2))
-  if (!args.base || !args.cand || !args.suite || !args.out) {
+  const { values } = parseArgs({ args: process.argv.slice(2), options: CLI_OPTIONS, strict: true })
+  if (!values.base || !values.cand || !values.suite || !values.out) {
     console.error(
-      'usage: paired.mjs --base <dir> --cand <dir> --suite core|app [--rounds N] [--only id,id] [--plant id=factor] --out <file>',
+      'usage: paired.mjs --base <dir> --cand <dir> --suite core [--rounds N] [--only id,id] [--plant id=factor] --out <file>',
     )
     process.exit(2)
   }
   try {
-    const doc = runPaired(args)
-    const { writeFileSync } = await import('node:fs')
-    writeFileSync(args.out, JSON.stringify(doc, null, 2) + '\n')
-    console.log(`wrote ${args.out}: ${doc.rounds} rounds, suite ${doc.suite}`)
+    const doc = runPaired({ ...values, rounds: values.rounds ? Number(values.rounds) : undefined })
+    writeFileSync(values.out, JSON.stringify(doc, null, 2) + '\n')
+    console.log(`wrote ${values.out}: ${doc.rounds} rounds, suite ${doc.suite}`)
     process.exit(0)
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err))

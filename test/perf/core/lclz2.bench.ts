@@ -1,4 +1,4 @@
-import { describe, it } from 'vitest'
+import { describe } from 'vitest'
 import { encode, decompress } from '../../../src/rom/LcLz2'
 import { perfCase } from '../support/perfCase'
 
@@ -12,17 +12,9 @@ function syntheticBytes(size: number): Uint8Array {
 }
 
 describe('core.lclz2.decompress', () => {
-  it('synthetic-4k', async () => {
-    const compressed = encode(syntheticBytes(4 * 1024))
-    await perfCase('core.lclz2.decompress.synthetic-4k', 'ms', 'lower', () => {
-      decompress(compressed)
-    })
-  })
+  const c4k = encode(syntheticBytes(4 * 1024))
+  perfCase('core.lclz2.decompress.synthetic-4k', () => decompress(c4k))
 
-  it('synthetic-64k', async () => {
-    const compressed = encode(syntheticBytes(64 * 1024))
-    await perfCase('core.lclz2.decompress.synthetic-64k', 'ms', 'lower', () => {
-      decompress(compressed)
-    })
-  })
+  const c64k = encode(syntheticBytes(64 * 1024))
+  perfCase('core.lclz2.decompress.synthetic-64k', () => decompress(c64k))
 })

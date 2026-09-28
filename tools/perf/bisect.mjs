@@ -3,115 +3,177 @@
 // and --bad that regresses one benchmark id, using the same paired.mjs the
 // nightly workflow runs, so a bisect measures exactly what it measured.
 //
-//   node tools/perf/bisect.mjs --id <id> --good <sha> --bad <sha> [--dir <scratchDir>]
+//   node tools/perf/bisect.mjs --id <id> --good <sha> --bad <sha>
+//        [--dir <taskDir>] [--rounds N]
 //
-// Builds two git worktrees (good, fixed; bad..good range, walked by
-// `git bisect`) under the given dir or a fresh one under the OS temp dir,
-// then runs `git bisect run` with a small step script that pairs the good
-// worktree against the bisect HEAD and exits 0/1 the way `git bisect run`
-// expects (0 good, 1 bad).
+// Builds two git worktrees under <parent-of-repo>/.worktrees/hackbench/
+// perf-bisect-<id>-<good7> (design D5, CLAUDE.md's worktree-placement
+// convention), removed in a finally, then runs `git bisect run` against
+// `node tools/perf/bisect.mjs --step`, this file's own second mode: no
+// generated source file, so the step logic is covered by ordinary imports
+// and unit tests instead of a string template.
 
+import { parseArgs } from 'node:util'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { existsSync, rmSync } from 'node:fs'
+import { dirname, basename, join } from 'node:path'
 
-export function parseArgs(argv) {
-  const args = {}
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]
-    if (a === '--id') args.id = argv[++i]
-    else if (a === '--good') args.good = argv[++i]
-    else if (a === '--bad') args.bad = argv[++i]
-    else if (a === '--dir') args.dir = argv[++i]
-    else if (a === '--rounds') args.rounds = argv[++i]
+const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+
+/** The real repo root even when this process runs inside a linked worktree
+ *  (git-common-dir always points at the main checkout's .git). */
+export function mainRepoRoot(exec = execFileSync) {
+  const gitCommonDir = exec('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+    encoding: 'utf8',
+  }).trim()
+  return dirname(gitCommonDir)
+}
+
+/** <parent-of-repo>/.worktrees/<repo-name>/perf-bisect-<id>-<good7> (design D5). */
+export function defaultTaskDir(repoRoot, id, good) {
+  return join(
+    dirname(repoRoot),
+    '.worktrees',
+    basename(repoRoot),
+    `perf-bisect-${id}-${good.slice(0, 7)}`,
+  )
+}
+
+/** Maps compare.mjs's own exit code to what `git bisect run` expects: 0
+ *  good, 1 bad, anything else (malformed input, a build failure) skip. */
+export function exitCodeForStep(compareExitCode) {
+  if (compareExitCode === 0) return 0
+  if (compareExitCode === 1) return 1
+  return 125
+}
+
+function npmCi(cwd, exec) {
+  exec(NPM, ['ci', '--no-audit', '--no-fund'], { cwd, stdio: 'inherit' })
+}
+
+/** `git bisect run`'s step, run from inside the bisected worktree at HEAD:
+ *  build this commit, pair it against `goodDir`, and exit per
+ *  exitCodeForStep. A build or paired-run failure is 125 (skip), not 1
+ *  (bad): a commit that will not even build is not evidence the benchmark
+ *  regressed there. */
+export function runStep({ id, goodDir, rounds }, exec = execFileSync) {
+  const cwd = process.cwd()
+  try {
+    npmCi(cwd, exec)
+  } catch (e) {
+    console.error('build failed at this commit:', e.message)
+    return 125
   }
-  return args
+
+  const pairedOut = join(cwd, 'bisect-round.json')
+  try {
+    const args = [
+      'tools/perf/paired.mjs',
+      '--base',
+      goodDir,
+      '--cand',
+      cwd,
+      '--suite',
+      'core',
+      '--only',
+      id,
+      '--out',
+      pairedOut,
+    ]
+    if (rounds) args.push('--rounds', String(rounds))
+    exec(process.execPath, args, { cwd, stdio: 'inherit' })
+  } catch (e) {
+    console.error('paired run failed at this commit:', e.message)
+    return 125
+  }
+  if (!existsSync(pairedOut)) return 125
+
+  try {
+    exec(
+      process.execPath,
+      [join(cwd, 'tools', 'perf', 'compare.mjs'), '--in', pairedOut, '--seed', '1'],
+      {
+        cwd,
+        stdio: 'inherit',
+      },
+    )
+    return exitCodeForStep(0)
+  } catch (e) {
+    return exitCodeForStep(typeof e.status === 'number' ? e.status : 2)
+  }
 }
 
-/** The script `git bisect run` executes at each candidate commit. Builds the
- *  candidate in place (whatever `npm ci` the checkout needs), pairs it
- *  against the fixed `goodDir`, and forwards compare.mjs's own exit code -
- *  0 or 1 mean exactly what `git bisect run` wants; 2 (malformed) is
- *  remapped to git's "skip" code (125) since it says nothing about good/bad.
- */
-export function stepScriptSource({ repoRoot, goodDir, id, rounds }) {
-  const roundsArg = rounds ? `'--rounds', '${rounds}',` : ''
-  return `import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
-try {
-  execFileSync('npm', ['install', '--no-audit', '--no-fund'], { stdio: 'inherit' })
-} catch (e) {
-  console.error('build failed at this commit:', e.message)
-  process.exit(125)
-}
-const pairedOut = 'bisect-round.json'
-try {
-  execFileSync(process.execPath, [
-    ${JSON.stringify(join(repoRoot, 'tools', 'perf', 'paired.mjs'))},
-    '--base', ${JSON.stringify(goodDir)},
-    '--cand', process.cwd(),
-    '--suite', 'core',
-    ${roundsArg}
-    '--only', ${JSON.stringify(id)},
-    '--out', pairedOut,
-  ], { stdio: 'inherit' })
-} catch (e) {
-  console.error('paired run failed at this commit:', e.message)
-  process.exit(125)
-}
-if (!existsSync(pairedOut)) process.exit(125)
-try {
-  execFileSync(process.execPath, [
-    ${JSON.stringify(join(repoRoot, 'tools', 'perf', 'compare.mjs'))},
-    '--in', pairedOut,
-    '--seed', '1',
-  ], { stdio: 'inherit' })
-  process.exit(0)
-} catch (e) {
-  const code = e.status
-  process.exit(code === 1 ? 1 : 125)
-}
-`
-}
-
+/** Sets up the good/work worktrees and drives `git bisect run` between them.
+ *  Removes both worktrees in a finally regardless of outcome. */
 export function run({ id, good, bad, dir, rounds }, exec = execFileSync) {
   if (!id || !good || !bad) throw new Error('bisect.mjs needs --id, --good and --bad')
-  const repoRoot = exec('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
-  const scratch = dir ?? mkdtempSync(join(tmpdir(), 'hb-perf-bisect-'))
-  const goodDir = join(scratch, 'good')
-  const workDir = join(scratch, 'work')
+  const repoRoot = mainRepoRoot(exec)
+  const taskDir = dir ?? defaultTaskDir(repoRoot, id, good)
+  const goodDir = join(taskDir, 'good')
+  const workDir = join(taskDir, 'work')
 
-  if (!existsSync(goodDir))
-    exec('git', ['worktree', 'add', goodDir, good], { cwd: repoRoot, stdio: 'inherit' })
-  if (!existsSync(workDir))
-    exec('git', ['worktree', 'add', workDir, bad], { cwd: repoRoot, stdio: 'inherit' })
-  exec('npm', ['install', '--no-audit', '--no-fund'], { cwd: goodDir, stdio: 'inherit' })
-
-  const stepPath = join(scratch, 'step.mjs')
-  writeFileSync(stepPath, stepScriptSource({ repoRoot, goodDir, id, rounds }))
-
-  exec('git', ['bisect', 'start', bad, good], { cwd: workDir, stdio: 'inherit' })
+  exec('git', ['worktree', 'add', goodDir, good], { cwd: repoRoot, stdio: 'inherit' })
+  exec('git', ['worktree', 'add', workDir, bad], { cwd: repoRoot, stdio: 'inherit' })
   try {
-    const out = exec('git', ['bisect', 'run', process.execPath, stepPath], {
-      cwd: workDir,
-      encoding: 'utf8',
-    })
-    console.log(out)
-    return { scratch, goodDir, workDir, output: out }
+    npmCi(goodDir, exec)
+    exec('git', ['bisect', 'start', bad, good], { cwd: workDir, stdio: 'inherit' })
+    try {
+      const roundsArgs = rounds ? ['--rounds', String(rounds)] : []
+      const out = exec(
+        'git',
+        [
+          'bisect',
+          'run',
+          process.execPath,
+          'tools/perf/bisect.mjs',
+          '--step',
+          '--id',
+          id,
+          '--good-dir',
+          goodDir,
+          ...roundsArgs,
+        ],
+        { cwd: workDir, encoding: 'utf8' },
+      )
+      console.log(out)
+      return { taskDir, goodDir, workDir, output: out }
+    } finally {
+      exec('git', ['bisect', 'reset'], { cwd: workDir, stdio: 'inherit' })
+    }
   } finally {
-    exec('git', ['bisect', 'reset'], { cwd: workDir, stdio: 'inherit' })
+    exec('git', ['worktree', 'remove', '--force', workDir], { cwd: repoRoot, stdio: 'inherit' })
+    exec('git', ['worktree', 'remove', '--force', goodDir], { cwd: repoRoot, stdio: 'inherit' })
+    rmSync(taskDir, { recursive: true, force: true })
   }
 }
 
-const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split(/[\\/]/).pop())
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+
+const CLI_OPTIONS = {
+  id: { type: 'string' },
+  good: { type: 'string' },
+  bad: { type: 'string' },
+  dir: { type: 'string' },
+  rounds: { type: 'string' },
+  step: { type: 'boolean', default: false },
+  'good-dir': { type: 'string' },
+}
+
+// Same invoked-directly test as tools/scripts/check-content.mjs.
+const isMain = /bisect\.mjs$/i.test(process.argv[1] ?? '')
 if (isMain) {
-  const args = parseArgs(process.argv.slice(2))
-  try {
-    run(args)
-    process.exit(0)
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err))
-    process.exit(2)
+  const { values } = parseArgs({ args: process.argv.slice(2), options: CLI_OPTIONS, strict: true })
+  if (values.step) {
+    process.exit(runStep({ id: values.id, goodDir: values['good-dir'], rounds: values.rounds }))
+  } else {
+    try {
+      run(values)
+      process.exit(0)
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err))
+      process.exit(2)
+    }
   }
 }

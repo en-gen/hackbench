@@ -1,4 +1,4 @@
-import { describe, it } from 'vitest'
+import { describe } from 'vitest'
 import { decode4bpp, decodeTilesBatch, bytesPerTile } from '../../../src/rom/GraphicsDecoder'
 import { perfCase } from '../support/perfCase'
 
@@ -9,18 +9,10 @@ function syntheticTileBytes(tiles: number): Uint8Array {
 }
 
 describe('core.gfx.decode4bpp', () => {
-  it('synthetic-tile', async () => {
-    const data = syntheticTileBytes(1)
-    await perfCase('core.gfx.decode4bpp.synthetic-tile', 'ms', 'lower', () => {
-      decode4bpp(data, 0)
-    })
-  })
+  const oneTile = syntheticTileBytes(1)
+  perfCase('core.gfx.decode4bpp.synthetic-tile', () => decode4bpp(oneTile, 0))
 
-  it('synthetic-sheet', async () => {
-    // A full 16x16-tile GFX sheet, the unit GfxLoader decodes per file.
-    const data = syntheticTileBytes(256)
-    await perfCase('core.gfx.decode4bpp.synthetic-sheet', 'ms', 'lower', () => {
-      decodeTilesBatch(data, 4)
-    })
-  })
+  // A full 16x16-tile GFX sheet, the unit GfxLoader decodes per file.
+  const sheet = syntheticTileBytes(256)
+  perfCase('core.gfx.decode4bpp.synthetic-sheet', () => decodeTilesBatch(sheet, 4))
 })

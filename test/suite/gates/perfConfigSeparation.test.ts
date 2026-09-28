@@ -1,10 +1,12 @@
 /**
  * Proof that `npm run test:unit` never runs benchmarks (issue #413's
- * acceptance list), and that vitest.perf.config.ts stays the mirror image:
- * neither command's include list can match the other's files. A test that
- * only asserted "the perf config exists" could not go red if someone
- * widened test:unit's include glob to swallow test/perf, so this reads the
- * actual include arrays and checks them against real relative paths.
+ * acceptance list), and that vitest.perf.config.ts stays the mirror image.
+ * A test that only asserted "the include glob contains the substring
+ * test/perf" could not go red if someone widened test:unit's glob to
+ * `test/**\/*.ts` - that string still would not contain "test/perf" while
+ * matching every bench file anyway. This instead matches the REAL bench and
+ * suite files on disk against each config's include globs with a small glob
+ * matcher, so a widened glob is caught by what it would actually pick up.
  */
 import { describe, it, expect } from 'vitest'
 import * as fs from 'node:fs'
@@ -18,33 +20,86 @@ function includeArrayFrom(configSource: string): string[] {
   return Array.from(match[1].matchAll(/'([^']*)'/g)).map(m => m[1])
 }
 
+/** Minimal glob matcher for the patterns these two configs actually use:
+ *  literal segments, `*` within a segment, `**` across segments. Not a
+ *  general-purpose implementation - just enough to hold this gate to real
+ *  glob semantics instead of a substring check. */
+function globToRegExp(glob: string): RegExp {
+  let re = '^'
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i]
+    if (c === '*' && glob[i + 1] === '*') {
+      i++
+      if (glob[i + 1] === '/') {
+        re += '(?:.*/)?'
+        i++
+      } else {
+        re += '.*'
+      }
+    } else if (c === '*') {
+      re += '[^/]*'
+    } else if ('.+^${}()|[]\\'.includes(c)) {
+      re += '\\' + c
+    } else {
+      re += c
+    }
+  }
+  return new RegExp(re + '$')
+}
+
+function matchesAny(relPath: string, globs: string[]): boolean {
+  return globs.some(g => globToRegExp(g).test(relPath))
+}
+
+/** Collects files matching `suffix` under `dir`, skipping `__fixtures__`:
+ *  lintGate.test.ts creates and deletes real files there mid-run, and with
+ *  fileParallelism this walk can race it. Filtering to the real suffix (not
+ *  just skipping that one directory) keeps this robust to any other test's
+ *  scratch files too. */
+function walk(dir: string, suffix: string, out: string[]): void {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === '__fixtures__') continue
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) walk(full, suffix, out)
+    else if (entry.isFile() && entry.name.endsWith(suffix)) {
+      out.push(path.relative(repoRoot, full).split(path.sep).join('/'))
+    }
+  }
+}
+
 describe('vitest.config.ts and vitest.perf.config.ts do not overlap', () => {
   const unitConfig = fs.readFileSync(path.join(repoRoot, 'vitest.config.ts'), 'utf8')
   const perfConfig = fs.readFileSync(path.join(repoRoot, 'vitest.perf.config.ts'), 'utf8')
   const unitInclude = includeArrayFrom(unitConfig)
   const perfInclude = includeArrayFrom(perfConfig)
 
-  it('test:unit never mentions test/perf', () => {
-    for (const glob of unitInclude) expect(glob).not.toContain('test/perf')
+  const benchFiles: string[] = []
+  walk(path.join(repoRoot, 'test', 'perf', 'core'), '.bench.ts', benchFiles)
+  expect(benchFiles.length).toBeGreaterThan(0) // the gate below is meaningless over an empty list
+
+  const suiteFiles: string[] = []
+  walk(path.join(repoRoot, 'test', 'suite', 'gates'), '.test.ts', suiteFiles)
+  expect(suiteFiles.length).toBeGreaterThan(0)
+
+  it('every real bench file matches the perf config include list', () => {
+    for (const f of benchFiles) expect(matchesAny(f, perfInclude)).toBe(true)
   })
 
-  it('the perf config never mentions test/suite', () => {
-    for (const glob of perfInclude) expect(glob).not.toContain('test/suite')
+  it('no real bench file matches the unit config include list', () => {
+    for (const f of benchFiles) expect(matchesAny(f, unitInclude)).toBe(false)
   })
 
-  it('the perf config only matches .bench.ts files', () => {
-    for (const glob of perfInclude) expect(glob).toContain('.bench.ts')
+  it('every real gate test file matches the unit config include list', () => {
+    for (const f of suiteFiles) expect(matchesAny(f, unitInclude)).toBe(true)
+  })
+
+  it('no real gate test file matches the perf config include list', () => {
+    for (const f of suiteFiles) expect(matchesAny(f, perfInclude)).toBe(false)
   })
 
   it('binds the gate to the real script: test:unit runs plain vitest, not the perf config', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'))
     expect(pkg.scripts['test:unit']).toBe('vitest run')
     expect(pkg.scripts['test:unit']).not.toContain('perf')
-  })
-
-  it('a bench file actually exists where the perf config looks', () => {
-    const benchDir = path.join(repoRoot, 'test', 'perf', 'core')
-    const benchFiles = fs.readdirSync(benchDir).filter(f => f.endsWith('.bench.ts'))
-    expect(benchFiles.length).toBeGreaterThan(0)
   })
 })
