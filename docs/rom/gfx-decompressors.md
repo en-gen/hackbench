@@ -4,6 +4,8 @@
 CODE_00B8DE (`bank_00.asm:6294-6413`). PrepareGraphicsFile's `JSR` names the
 entry for GFX files; the animation loads in CODE_00B888 reach it by `JSR`
 (GFX33, `bank_00.asm:6260`) and by falling into it (GFX32, `:6290-6294`).
+Lunar Magic's CODE_04D7F2 reaches it by `JML $00B8DE` to decompress its stored
+translevel table (`LmTranslevelTable.ts`), so that source is keyed too.
 Survey scope: the 101-hack store, 2026-09-27, one machine, for #603.
 
 ## Pointer XOR prelude

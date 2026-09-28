@@ -7,12 +7,13 @@
  * That is what lets the GFX editor's gates and refusals be tested in CI,
  * where the corpus is absent by design.
  */
+import { createHash } from 'node:crypto'
 import { RomFile } from '../../../src/rom/RomFile'
 import { encode } from '../../../src/rom/LcLz2'
 import { COPIER_HEADER_SIZE, LOROM_BANK_SIZE, loromFromOffset } from '../../../src/rom/addressing'
 import { WILD } from '../../../src/rom/BytePattern'
 import { GFX_FILE_COUNT, LEVEL_GFX_CALLERS, PREPARE_GFX_PATTERN } from '../../../src/rom/GfxArena'
-import { STOCK_LCLZ2_ENTRY } from '../../../src/rom/GfxDecompressor'
+import { STOCK_LCLZ2_ENTRY, type FastRoutine } from '../../../src/rom/GfxDecompressor'
 import {
   PALETTE_COL1_PATH,
   ADDR_COL1_BG_LDA,
@@ -39,6 +40,52 @@ export const ARENA_AT = 0x10000
 export function jsl(target: number): number[] {
   return [0x22, target & 0xff, (target >> 8) & 0xff, (target >> 16) & 0xff]
 }
+
+/** PHP / REP #$30 / LDA $8A / EOR #key / STA $8A / PLP / REP #$10 / LDY #$0000 / RTL,
+ *  restated rather than imported so a change to XOR_PRELUDE cannot move the tests. */
+// prettier-ignore
+export const xorPrelude = (key: number): number[] => [
+  0x08, 0xc2, 0x30, 0xa5, 0x8a, 0x49, key & 0xff, key >> 8, 0x85, 0x8a, 0x28, 0xc2, 0x10, 0xa0,
+  0x00, 0x00, 0x6b,
+]
+export const PRELUDE_KEY_BYTES = [6, 7]
+
+/** The prelude holding `key` at `at`, and `JSL at / NOP` over the entry's first five bytes. */
+export function plantPrelude(rom: RomFile, at: number, key: number, entry = DECOMP_ENTRY): void {
+  rom.writeAt(at, xorPrelude(key))
+  rom.writeAt(entry, [...jsl(at), 0xea])
+}
+
+/** Arithmetic bytes, hashed as a recognized routine would be. */
+export function syntheticRoutine(length: number, seed = 11): { bytes: number[]; sha: string } {
+  const bytes = Array.from({ length }, (_, i) => (i * 37 + seed) & 0xff)
+  return { bytes, sha: createHash('sha256').update(Buffer.from(bytes)).digest('hex') }
+}
+
+/** A synthetic fast body of `length` at `at`, entered by `JSL at / RTS` at entry+5. */
+export function plantFast(
+  rom: RomFile,
+  at: number,
+  length: number,
+  entry = DECOMP_ENTRY,
+): FastRoutine {
+  const { bytes, sha } = syntheticRoutine(length)
+  rom.writeAt(at, bytes)
+  rom.writeAt(entry + 5, [...jsl(at), 0x60])
+  return { length, fingerprint: sha }
+}
+
+/** Header bytes above command 4, each followed by a zero offset or length byte. Stock
+ *  reads every one as a copy; the fast routine reads several as another long header. */
+export const FAST_DIVERGENT_COMMANDS: [string, number[]][] = [
+  ['short 5', [0xa0, 0x00, 0x00]],
+  ['short 6', [0xc0, 0x00, 0x00]],
+  ['inner 5', [0xf4, 0x00, 0x00, 0x00]],
+  ['inner 6', [0xf8, 0x00, 0x00, 0x00]],
+  ['inner 7, $FC', [0xfc, 0x00, 0x00, 0x00]],
+  ['inner 7, $FD', [0xfd, 0x00, 0x00, 0x00]],
+  ['inner 7, $FE', [0xfe, 0x00, 0x00, 0x00]],
+]
 
 /** Where `plantGfxHook` puts the default path, the loader and the dispatcher,
  *  relative to the hook's entry. */

@@ -5,7 +5,6 @@
  * restated here as literals rather than imported, so a change to the code
  * under test cannot move the test along with it.
  */
-import { createHash } from 'node:crypto'
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import {
@@ -18,23 +17,20 @@ import { FAST_LCLZ2, type FastRoutine } from '../../../src/rom/GfxDecompressor'
 import { readGfxFile } from '../../../src/rom/GfxLoader'
 import {
   DECOMP_ENTRY,
+  FAST_DIVERGENT_COMMANDS,
+  PRELUDE_KEY_BYTES,
   TABLE_HI,
   TABLE_LO,
   applyWrites,
   buildCart,
   gfxPayloads,
   gfxStreams,
-  jsl,
+  plantFast,
+  plantPrelude,
+  xorPrelude,
 } from '../support/syntheticGfxCart'
 import { flip } from '../support/syntheticRom'
 
-/** PHP / REP #$30 / LDA $8A / EOR #key / STA $8A / PLP / REP #$10 / LDY #$0000 / RTL */
-// prettier-ignore
-const PRELUDE = (key: number): number[] => [
-  0x08, 0xc2, 0x30, 0xa5, 0x8a, 0x49, key & 0xff, key >> 8, 0x85, 0x8a, 0x28, 0xc2, 0x10, 0xa0,
-  0x00, 0x00, 0x6b,
-]
-const PRELUDE_KEY_BYTES = [6, 7]
 const PRELUDE_AT = 0x018000
 const FAST_AT = 0x019000
 /** The shipped fingerprinted spans: [length, SHA-256], nothing masked. */
@@ -51,17 +47,13 @@ function keyedCart(key: number, stored = key): RomFile {
     rom.writeAt(TABLE_LO + i, [rom.readByte(TABLE_LO + i)! ^ (stored & 0xff)])
     rom.writeAt(TABLE_HI + i, [rom.readByte(TABLE_HI + i)! ^ (stored >> 8)])
   }
-  rom.writeAt(PRELUDE_AT, PRELUDE(key))
-  rom.writeAt(DECOMP_ENTRY, [...jsl(PRELUDE_AT), 0xea])
+  plantPrelude(rom, PRELUDE_AT, key)
   return rom
 }
 
 /** A synthetic routine of `length` arithmetic bytes, called as the fast body. */
 function fastCart(length: number, rom = buildCart().rom): { rom: RomFile; fp: string } {
-  const body = Array.from({ length }, (_, i) => (i * 37 + 11) & 0xff)
-  rom.writeAt(FAST_AT, body)
-  rom.writeAt(DECOMP_ENTRY + 5, [...jsl(FAST_AT), 0x60])
-  return { rom, fp: createHash('sha256').update(Buffer.from(body)).digest('hex') }
+  return { rom, fp: plantFast(rom, FAST_AT, length).fingerprint }
 }
 
 const decodesAll = (rom: RomFile, fast?: FastRoutine[]): boolean =>
@@ -84,7 +76,7 @@ describe('pointer XOR prelude', () => {
 
   it('refuses when any pinned prelude or entry byte is flipped', () => {
     const survived: string[] = []
-    for (let i = 0; i < PRELUDE(0).length; i++) {
+    for (let i = 0; i < xorPrelude(0).length; i++) {
       if (PRELUDE_KEY_BYTES.includes(i)) continue
       const rom = keyedCart(0x0300)
       flip(rom, PRELUDE_AT + i)
@@ -162,23 +154,16 @@ describe('fast LC_LZ2 body', () => {
     expect(decodesAll(rom, [{ length: 0x1bc, fingerprint: fp }])).toBe(true)
   })
 
-  // Header bytes above command 4, each followed by a zero offset or length byte. Stock
-  // reads every one as a copy; the fast routine reads several as another long header.
-  it.each([
-    ['short 5', [0xa0, 0x00, 0x00]],
-    ['short 6', [0xc0, 0x00, 0x00]],
-    ['inner 5', [0xf4, 0x00, 0x00, 0x00]],
-    ['inner 6', [0xf8, 0x00, 0x00, 0x00]],
-    ['inner 7, $FC', [0xfc, 0x00, 0x00, 0x00]],
-    ['inner 7, $FD', [0xfd, 0x00, 0x00, 0x00]],
-    ['inner 7, $FE', [0xfe, 0x00, 0x00, 0x00]],
-  ])('refuses %s on the fast routine and decodes it on stock', (_, command) => {
-    const streams = gfxStreams()
-    streams[0] = Uint8Array.from([0x00, 0x11, ...command, 0xff])
-    const { rom, fp } = fastCart(0x1bc, buildCart({ streams }).rom)
-    const known: FastRoutine[] = [{ length: 0x1bc, fingerprint: fp }]
-    expect(readGfxFile(rom, 0, known).ok).toBe(false)
-    expect(readGfxFile(rom, 1, known).ok).toBe(true)
-    expect(readGfxFile(buildCart({ streams }).rom, 0).ok).toBe(true)
-  })
+  it.each(FAST_DIVERGENT_COMMANDS)(
+    'refuses %s on the fast routine and decodes it on stock',
+    (_, command) => {
+      const streams = gfxStreams()
+      streams[0] = Uint8Array.from([0x00, 0x11, ...command, 0xff])
+      const { rom, fp } = fastCart(0x1bc, buildCart({ streams }).rom)
+      const known: FastRoutine[] = [{ length: 0x1bc, fingerprint: fp }]
+      expect(readGfxFile(rom, 0, known).ok).toBe(false)
+      expect(readGfxFile(rom, 1, known).ok).toBe(true)
+      expect(readGfxFile(buildCart({ streams }).rom, 0).ok).toBe(true)
+    },
+  )
 })
