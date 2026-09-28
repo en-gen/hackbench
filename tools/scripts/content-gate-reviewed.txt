@@ -1,0 +1,3 @@
+# Commit messages on protected history that a person reviewed and found clean.
+# One per line: <sha> <rule> -- <reason>. Messages only; file content is never exempt.
+d810db95d9cfb0090171feec0ff7ac2ecfb683d9 disasm-listing -- squash of #377's ~347 commit messages; the matches are prose citations (CODE_xxxxxx with bank_xx.asm:line), no ROM listing. Reviewed 2026-09-27.
