@@ -1,8 +1,11 @@
 /**
  * Unit tests for spriteCollisionFromL1 - the shared predicate bundle that
- * consolidates priority-filtered slope/ceiling/floor helpers previously
+ * consolidated priority-filtered slope/ceiling/floor helpers previously
  * duplicated across BouncingKoopaBehavior, WingedGoombaBehavior, and
- * KoopaAppearance (see GitHub issue #229).
+ * KoopaAppearance (see GitHub issue #229). The first two were deleted as
+ * dead movement-simulation code in issue #409, so this bundle has no
+ * production caller today; see docs/sprites/sprite-overlay-removal.md's
+ * update section.
  *
  * Test tree:
  *   slopeAt      air / priority / flat-solid / slope-with-profile

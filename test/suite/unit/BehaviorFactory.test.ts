@@ -7,27 +7,20 @@
  * confirms common metadata was merged in.
  *
  * Sprite ids covered:
- *   LineBrownPlt: 0x62
- *   SuperKoopa  : 0x71, 0x72, 0x73
- *   default     : everything else, including the ten sprite ids that used
- *     to construct a dead `MovementBehavior` subclass (see BehaviorFactory.ts
- *     doc comment and docs/sprites/sprite-overlay-removal.md).
+ *   SuperKoopa : 0x71, 0x72, 0x73 (the only registered class left)
+ *   default    : everything else, swept explicitly for the 24 sprite ids
+ *     that used to dispatch to one of the eleven now-deleted
+ *     `MovementBehavior` subclasses (see BehaviorFactory.ts's doc comment
+ *     and docs/sprites/sprite-overlay-removal.md's update section), plus
+ *     $62 separately (its `LineBrownPlatBehavior` case was dropped because
+ *     it produced output identical to `default`, not because it was dead).
  */
 
 import { describe, it, expect } from 'vitest'
 import { buildMovementBehavior } from '../../../src/rom/model/sprites/behaviors/BehaviorFactory'
-import { LineBrownPlatBehavior } from '../../../src/rom/model/sprites/behaviors/LineBrownPlatBehavior'
 import { SuperKoopaBehavior } from '../../../src/rom/model/sprites/behaviors/SuperKoopaBehavior'
 
 const META = {}
-
-// ── LineBrownPlat ($62) ───────────────────────────────────────────────────────
-
-describe('buildMovementBehavior - LineBrownPlat ($62)', () => {
-  it('$62 → LineBrownPlatBehavior', () => {
-    expect(buildMovementBehavior(0x62, META)).toBeInstanceOf(LineBrownPlatBehavior)
-  })
-})
 
 // ── SuperKoopa ($71 / $72 / $73) ─────────────────────────────────────────────
 
@@ -45,12 +38,53 @@ describe('buildMovementBehavior - SuperKoopa ($71 / $72 / $73)', () => {
   })
 })
 
-// ── default (plain-object fallback) ──────────────────────────────────────────
+// ── default: the 24 retired sprite ids ───────────────────────────────────────
 
-describe('buildMovementBehavior - default (unknown or retired sprite id)', () => {
-  it('$FF → plain object with kind=sprite_ff', () => {
+/**
+ * Every sprite id that used to construct one of the eleven deleted
+ * `MovementBehavior` subclasses. Grouped by the class that used to own
+ * them, matching the enumeration in docs/sprites/sprite-overlay-removal.md.
+ */
+const RETIRED_IDS: Record<string, readonly number[]> = {
+  KoopaWalkBehavior: [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0c, 0x0f, 0x30, 0x32],
+  WingedGoombaBehavior: [0x10],
+  FlyingLeftKoopaBehavior: [0x08],
+  BouncingKoopaBehavior: [0x09],
+  SinusoidalParaKoopaBehavior: [0x0a, 0x0b],
+  HopFlameBehavior: [0x1d],
+  ThwimpBounceBehavior: [0x27],
+  RipVanFishBehavior: [0x3d],
+  BlurpBehavior: [0xc2],
+  SumoBrotherBehavior: [0x9a],
+  FlyingBlockBehavior: [0x83, 0x84],
+}
+
+const RETIRED_ID_COUNT = Object.values(RETIRED_IDS).reduce((n, ids) => n + ids.length, 0)
+
+describe('buildMovementBehavior - retired ids fall through to default', () => {
+  it('the sweep table covers exactly the 24 ids the eleven deleted classes registered', () => {
+    expect(RETIRED_ID_COUNT).toBe(24)
+    expect(Object.keys(RETIRED_IDS)).toHaveLength(11)
+  })
+
+  for (const [className, ids] of Object.entries(RETIRED_IDS)) {
+    for (const id of ids) {
+      const hex = id.toString(16).toUpperCase().padStart(2, '0')
+      it(`$${hex} (formerly ${className}) → plain object, kind=sprite_${id.toString(16)}`, () => {
+        const b = buildMovementBehavior(id, META)
+        expect(b).not.toBeInstanceOf(SuperKoopaBehavior)
+        expect(b.kind).toBe(`sprite_${id.toString(16)}`)
+      })
+    }
+  }
+})
+
+// ── default: unregistered and redundant ids ──────────────────────────────────
+
+describe('buildMovementBehavior - default (unknown or redundant sprite id)', () => {
+  it('$FF → plain object with kind=sprite_ff (never registered)', () => {
     const b = buildMovementBehavior(0xff, META)
-    expect(b).not.toBeInstanceOf(LineBrownPlatBehavior)
+    expect(b).not.toBeInstanceOf(SuperKoopaBehavior)
     expect(b.kind).toBe('sprite_ff')
   })
 
@@ -59,9 +93,21 @@ describe('buildMovementBehavior - default (unknown or retired sprite id)', () =>
     expect(b.kind).toBe('sprite_50')
   })
 
-  it('$04 → plain object (Koopa Walk dispatch retired, falls to default)', () => {
-    const b = buildMovementBehavior(0x04, META)
-    expect(b.kind).toBe('sprite_4')
+  it('$62 → plain object, same shape `default` produces for any id (LineBrownPlat case dropped as redundant)', () => {
+    // LineBrownPlatBehavior's case was removed because Object.assign(instance,
+    // common) made its output indistinguishable from `default` for every
+    // field any live caller reads - not because it was dead code. This pins
+    // that: $62 is a plain object with exactly the common shape, not a
+    // LineBrownPlatBehavior instance carrying extra fields nothing reads.
+    const meta = { displayName: 'Brown Platform', spawns: 1 }
+    const b = buildMovementBehavior(0x62, meta)
+    expect(b).toEqual({
+      kind: 'sprite_62',
+      displayName: 'Brown Platform',
+      spawns: 1,
+      isGenerator: undefined,
+      reactRangeDy: undefined,
+    })
   })
 })
 
@@ -80,12 +126,12 @@ describe('buildMovementBehavior - common metadata merging', () => {
     expect(b.reactRangeDy).toBe(32)
   })
 
-  it('common metadata is also merged onto a constructed instance (LineBrownPlat)', () => {
+  it('common metadata is also merged onto a constructed instance (SuperKoopa)', () => {
     // buildMovementBehavior does Object.assign(instance, common) - kind
     // ends up as the common sprite_XX form even for a registered id.
-    const b = buildMovementBehavior(0x62, { displayName: 'Brown Platform' })
-    expect(b).toBeInstanceOf(LineBrownPlatBehavior)
-    expect(b.kind).toBe('sprite_62')
-    expect(b.displayName).toBe('Brown Platform')
+    const b = buildMovementBehavior(0x71, { displayName: 'Super Koopa' })
+    expect(b).toBeInstanceOf(SuperKoopaBehavior)
+    expect(b.kind).toBe('sprite_71')
+    expect(b.displayName).toBe('Super Koopa')
   })
 })

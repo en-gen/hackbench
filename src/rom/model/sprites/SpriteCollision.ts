@@ -33,14 +33,8 @@ export interface SpriteCollision {
   /**
    * Scan downward from `startRow` for the first row where `solidV` or a
    * non-priority slope tile is present.  Returns null if none found within
-   * `levelRows`.  Originally factored out of three identically-shaped
-   * spawn-snap loops in `BouncingKoopaBehavior` and `WingedGoombaBehavior`;
-   * both were removed as dead movement-simulation code (see
-   * docs/sprites/sprite-overlay-removal.md), so this predicate bundle is
-   * exercised only by its own tests today. Kept rather than deleted with
-   * them: it is a small, independently-testable predicate, not a
-   * simulation, and the next sprite that needs sprite-perspective floor
-   * detection can reach for it directly.
+   * `levelRows`.  No production caller today; see
+   * docs/sprites/sprite-overlay-removal.md's update section.
    */
   findFloorRowBelow(col: number, startRow: number, levelRows: number): number | null
 }

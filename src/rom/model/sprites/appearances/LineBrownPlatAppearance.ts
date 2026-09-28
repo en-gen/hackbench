@@ -6,9 +6,26 @@ import type { MapStore } from '../../stores/mapStore'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import type { SpritePart } from './StaticSpriteAppearance'
-import { LineBrownPlatBehavior } from '../behaviors/LineBrownPlatBehavior'
 
 const OBJ_CHAR_BASE = 0x400
+
+/**
+ * X shift from sprite spawn position to the left edge of the 3-tile strip.
+ *
+ * InitLinePlat (bank_01.asm:11774) reads bit 4 of SpriteXPosLow, XORs with
+ * 1, and stores the result in SpriteMisc1602:
+ *   bit4 clear (even-col spawn) → SpriteMisc1602=$10 → forward → xShift=$28=40px
+ *   bit4 set   (odd-col spawn)  → SpriteMisc1602=$00 → reverse → xShift=$18=24px
+ *
+ * CODE_01DAA2 (bank_01.asm:12323): SpriteMisc1602=$10 (forward) → _0=$28=40px;
+ * SpriteMisc1602=$00 (reverse) → _0=$18=24px. The resolved direction lives
+ * in `behavior.lineGuide.direction` (set by `resolveLineGuideAttachment` at
+ * level-load time); this converts that to the pixel shift so the Appearance
+ * doesn't embed the ASM constant twice.
+ */
+export function xShiftPx(direction: 'forward' | 'reverse'): number {
+  return direction === 'forward' ? 0x28 : 0x18
+}
 
 /**
  * $62 Brown Platform (line-guided) - direction-aware appearance.
@@ -32,7 +49,7 @@ export class LineBrownPlatAppearance implements SpriteAppearance {
     readonly platformParts: readonly SpritePart[],
     readonly direction: 'forward' | 'reverse',
   ) {
-    const xShift = LineBrownPlatBehavior.xShiftPx(direction)
+    const xShift = xShiftPx(direction)
     this.hitRect = { dx: -xShift, dy: -8, w: 48, h: 16 }
   }
 
@@ -78,7 +95,7 @@ export class LineBrownPlatAppearance implements SpriteAppearance {
     mapStore: MapStore,
   ): void {
     const direction = behavior.lineGuide?.direction ?? 'reverse'
-    const xShift = LineBrownPlatBehavior.xShiftPx(direction)
+    const xShift = xShiftPx(direction)
 
     for (const part of this.platformParts) {
       const pixels = part.char.getPixels()

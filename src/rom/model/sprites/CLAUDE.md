@@ -15,30 +15,11 @@ A `Sprite` is `id + (x, y) + Appearance + Behavior`:
   physics lives on a typed method an Appearance calls - the behavior is
   the single source of truth for it, never the Appearance.
 
-  **`sprites/behaviors/` does not hold a movement simulator today.** The
-  ten `MovementBehavior` subclasses that used to live here
-  (`KoopaWalkBehavior`, `HopFlameBehavior`, `BouncingKoopaBehavior`,
-  `FlyingLeftKoopaBehavior`, `SinusoidalParaKoopaBehavior`,
-  `ThwimpBounceBehavior`, `RipVanFishBehavior`, `BlurpBehavior`,
-  `SumoBrotherBehavior`, `FlyingBlockBehavior`) each ported one sprite's
-  physics for the sprite-overlay drawings removed in
-  `docs/sprites/sprite-overlay-removal.md`. Once that removal shipped, no
-  Appearance called any of their methods, so they were reached only from
-  their own tests - dead code, not a paused feature. They were deleted
-  (issue #409) rather than kept for issue #321's emulator-based rebuild,
-  because #321 replaces them with emulator-derived state, not with a
-  restored static port; see that document's update for the inventory.
-  `simulate.ts`, the shared stepping primitives those ten classes used,
-  was deleted with them - it had no reader outside the dead classes.
-
-  What's left in `behaviors/` is genuinely live: `SuperKoopaBehavior`
-  ($71-73) exposes `dropsFeather` for the cape-flash render, and
-  `LineBrownPlatBehavior` ($62) exposes `xShiftPx` for the platform's
-  direction-dependent draw offset. Both are called directly from their
-  Appearance's `render()`, not through the dead pattern above. If a new
-  sprite genuinely needs a movement simulator, write it fresh against the
-  emulator-based approach #321 is building, not by resurrecting this
-  layer's shape.
+  `sprites/behaviors/` does not hold a movement simulator today: eleven
+  dead `MovementBehavior` subclasses (a physics port with no Appearance
+  caller, reached only from their own tests) were deleted in issue #409.
+  See `docs/sprites/sprite-overlay-removal.md`'s update section for the
+  full inventory and what survived.
 
 The renderer is still dumb: `SmwMap` walks the sprite list and calls
 `sprite.render()` / `sprite.renderOverlay()`. No per-sprite-id switches
@@ -87,25 +68,26 @@ Rules:
    branch as a test case, with a `// ASM: bank_NN.asm:LINE — label`
    comment for each. Use the `buildSolidity` fixture for synthetic L1
    grids (string-grid → `{solidH, solidV, cols, rows, getL1}`).
-3. If the sprite needs a value an Appearance will actually call at
-   render time (see `SuperKoopaBehavior.dropsFeather`,
-   `LineBrownPlatBehavior.xShiftPx`), add a concrete class in
-   `sprites/behaviors/` extending `MovementBehavior` (or implementing
-   `SpriteBehavior` directly, if it doesn't need the shared metadata
-   fields). Do not add a class for physics nothing calls - that is
-   exactly the dead-simulator shape removed in issue #409. `simulate.ts`
-   (the shared per-frame stepping primitives) was deleted with the last
-   simulator that used it; recreate it only once a real caller needs it,
-   citing the ASM lines it steps.
+3. If the value an Appearance needs at render time is a pure function of
+   its arguments (no ROM-parsed or per-instance state), write it as a
+   plain function next to the Appearance - see `xShiftPx` in
+   `LineBrownPlatAppearance.ts`. Only add a class in `sprites/behaviors/`
+   when the value depends on state a plain function can't carry (see
+   `SuperKoopaBehavior.dropsFeather`, which needs the sprite's own id).
+   Do not add a class for physics nothing calls - that is exactly the
+   dead-simulator shape removed in issue #409. `simulate.ts` (the shared
+   per-frame stepping primitives) was deleted with the last simulator
+   that used it; recreate it only once a real caller needs it, citing the
+   ASM lines it steps.
 4. If the sprite needs a new visual (new animation frame dispatch,
    a new identity annotation), either add a branch to an existing
    Appearance or write a new `Appearance` subclass.
-5. Register the sprite id in `behaviors/BehaviorFactory.ts`'s
-   `buildMovementBehavior` dispatch and in `SpriteFactory` /
-   `rehydrate` for the Appearance. An id with no behavior class falls
-   through to the `default` case, which returns the plain metadata
-   object - that's correct for most sprites; only register a class when
-   step 3 gave it one.
+5. Only if step 3 gave the sprite a behavior class, register its id in
+   `behaviors/BehaviorFactory.ts`'s `buildMovementBehavior` dispatch and
+   in `SpriteFactory` / `rehydrate` for the Appearance. Every other id -
+   including one whose Appearance needs a plain function, not a class -
+   falls through to the `default` case, which returns the shared metadata
+   object; don't register a class just to reach that same object.
 
 ## Sprite annotations
 
@@ -146,32 +128,27 @@ filters the closure (locked by
 `solidityFromL1(getL1)` (`MovementBehavior.ts`) and `spriteCollisionFromL1`
 (`SpriteCollision.ts`) unpack those rules into `solidH(c, r) / solidV(c, r)`
 booleans and richer per-cell predicates. Don't reimplement this in a new
-behavior. Neither adapter has a production caller today - their last
-callers (`KoopaWalkBehavior` and others; `BouncingKoopaBehavior` and
-`WingedGoombaBehavior`) were deleted as dead code in issue #409 - but both
-are kept and tested, since the next behavior that needs sprite-perspective
-floor/wall detection is the expected consumer, not a reason to delete the
-adapter.
+behavior. Neither has a production caller today - see
+`docs/sprites/sprite-overlay-removal.md`'s update section for why they're
+kept anyway; whether that's still right is flagged as a separate,
+not-yet-filed follow-up (unrelated to issue #418 below).
 
 ## Current Behaviors
 
-| Class                    | Sprites   | What it exposes                                    |
-| ------------------------ | --------- | --------------------------------------------------- |
-| `SuperKoopaBehavior`     | $71-$73   | `dropsFeather(x)` - cape-flash render state          |
-| `LineBrownPlatBehavior`  | $62       | `xShiftPx(direction)` - direction-dependent draw offset |
+| Class                | Sprites | What it exposes                             |
+| --------------------- | ------- | -------------------------------------------- |
+| `SuperKoopaBehavior`  | $71-$73 | `dropsFeather(x)` - cape-flash render state  |
 
-Both are called directly from their Appearance's `render()`. Neither is a
-movement simulator: they expose a small, ROM-derived value an Appearance
-reads every frame, not a physics port. `RipVanFishBehavior.ts` also
-survives, but only as the `RIP_VAN_FISH_DETECT_HALF_PX` constant -
-`RipVanFishAppearance` imports it directly for pose selection; the class
-that used to wrap it had no reader and was deleted with the ten dead
-simulators (see "Core pattern" above).
+The only concrete class left in `sprites/behaviors/`. Every other sprite
+id - including $62 (`LineBrownPlatAppearance` now imports a plain
+`xShiftPx` function instead) and $3D (`RipVanFishAppearance` imports the
+`RIP_VAN_FISH_DETECT_HALF_PX` constant directly) - falls through
+`BehaviorFactory`'s `default` case to the shared metadata object (`kind`,
+`displayName`, `spawns`, `isGenerator`, `reactRangeDy`).
 
-Every other sprite id falls through `BehaviorFactory`'s `default` case to
-the plain metadata object (`kind`, `displayName`, `spawns`, `isGenerator`,
-`reactRangeDy`) - correct for any sprite whose Appearance doesn't call a
-behavior method.
+Issue #418 tracks turning `SuperKoopaBehavior` into a plain function the
+same way, and then deleting `MovementBehavior`, `BehaviorFactory`, and
+this directory once nothing needs a class for it.
 
 ## Factory pattern
 
@@ -193,9 +170,10 @@ Don't duplicate the dispatch in both SpriteFactory and rehydrate.
 - Canvas2D calls. Behaviors never draw.
 - Sprite-specific visual data (part offsets, palette rows, char nums).
   That's the Appearance's job.
-- Randomness. Simulators run in worst-case mode by default so results
-  are deterministic; if a sprite has per-instance randomness, expose it
-  as a config on the Behavior and pick the worst case at the call site.
+- Randomness. A future simulator should run in worst-case mode by default
+  so results are deterministic; if a sprite has per-instance randomness,
+  expose it as a config on the Behavior and pick the worst case at the
+  call site.
 
 ## What NOT to put in an Appearance
 
@@ -213,5 +191,6 @@ Don't duplicate the dispatch in both SpriteFactory and rehydrate.
 - Each `it(...)` names the ASM branch it locks.
 - Use `buildSolidity` for synthetic L1 grids. Never load a ROM byte in
   a test.
-- Never hardcode an amplitude/range that the simulator would produce;
-  let the simulator run and let the test assert a reasonable range.
+- If a future Behavior simulates physics, never hardcode an
+  amplitude/range the simulator would produce; let the simulator run and
+  let the test assert a reasonable range instead.

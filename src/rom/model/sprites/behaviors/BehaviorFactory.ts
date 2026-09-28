@@ -1,6 +1,5 @@
 import type { BehaviorMeta } from '../MovementBehavior'
 import type { SpriteBehavior } from '../SpriteBehavior'
-import { LineBrownPlatBehavior } from './LineBrownPlatBehavior'
 import { SuperKoopaBehavior } from './SuperKoopaBehavior'
 
 /**
@@ -20,21 +19,10 @@ import { SuperKoopaBehavior } from './SuperKoopaBehavior'
  * (user can change a sprite's behavior post-load), this registry becomes
  * the name→class map the UI hands out.
  *
- * Sprite ids that only ever needed the plain metadata object (no method
- * an Appearance calls) fall through to `default`. Ten `MovementBehavior`
- * subclasses used to be registered here - `KoopaWalkBehavior`,
- * `WingedGoombaBehavior`, `FlyingLeftKoopaBehavior`, `BouncingKoopaBehavior`,
- * `SinusoidalParaKoopaBehavior`, `HopFlameBehavior`, `ThwimpBounceBehavior`,
- * `RipVanFishBehavior`, `BlurpBehavior`, `SumoBrotherBehavior` - each
- * carrying a movement simulator that no Appearance ever read (the overlays
- * that would have called them were removed; see
- * `docs/sprites/sprite-overlay-removal.md`). `Object.assign(instance, common)`
- * below overwrites every one of those instances' `kind` with `common.kind`
- * regardless, and `serialize.ts` only ever persists the `common` fields, so
- * dropping the classes and returning `common` directly is observationally
- * identical for every live caller. Removed by the sprite-movement-sim
- * cleanup (issue #409); see `RipVanFishBehavior.ts` for the one constant
- * that turned out to still be live appearance data.
+ * 24 sprite ids across eleven now-deleted `MovementBehavior` subclasses,
+ * plus $62 (`LineBrownPlatBehavior`, converted to a plain function), used
+ * to be registered here; all fall through to `default` now. See
+ * `docs/sprites/sprite-overlay-removal.md`'s update section for why.
  */
 export function buildMovementBehavior(spriteId: number, meta: BehaviorMeta): SpriteBehavior {
   const common = {
@@ -45,8 +33,6 @@ export function buildMovementBehavior(spriteId: number, meta: BehaviorMeta): Spr
     reactRangeDy: meta.reactRangeDy,
   }
   switch (spriteId) {
-    case 0x62:
-      return Object.assign(new LineBrownPlatBehavior(meta), common)
     case 0x71:
     case 0x72:
     case 0x73:

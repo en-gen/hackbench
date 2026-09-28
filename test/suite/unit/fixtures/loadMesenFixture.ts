@@ -1,6 +1,7 @@
 /**
  * Load a stitched Mesen Map16 fixture (`map16.txt`) and build a Solidity
- * compatible with the bounce/walk simulators.
+ * pair (`solidH`/`solidV`) from it, for tests that need real captured
+ * level geometry rather than a synthetic grid.
  *
  * Format (one row per line, see tools/scripts/stitch_map16_dumps.py):
  *
@@ -35,13 +36,14 @@ import type { SlopeInfo } from '../../../../src/rom/SlopeResolver'
  *
  * The scrollSim suites used to hardcode this OneDrive root in eleven places,
  * spelled `C:/Users/<one developer>/...`, which no other machine has; they now
- * import it from here. The two behavior fixtures read `HACKBENCH_FIXTURES_DIR`
- * alone,
- * which nothing in this repo, its docs or its CI ever sets, so their seven
- * cases were dark on every machine including the one holding the captures.
- * The env var still wins where it is set; the default is simply the place the
- * rest of the suite already looks, spelled from `os.homedir()` so it is not
- * one developer's drive.
+ * import it from here. Two now-deleted movement-behavior fixture suites
+ * (`KoopaWalkBehavior.fixture.test.ts`, `WingedGoombaBehavior.fixture.test.ts`
+ * - removed as dead movement-simulation code in issue #409) used to read
+ * `HACKBENCH_FIXTURES_DIR` alone, which nothing in this repo, its docs or
+ * its CI ever sets, so their seven cases were dark on every machine
+ * including the one holding the captures. The env var still wins where it
+ * is set; the default is simply the place the rest of the suite already
+ * looks, spelled from `os.homedir()` so it is not one developer's drive.
  */
 export const MESEN_FIXTURES_DIR =
   process.env.HACKBENCH_FIXTURES_DIR ?? join(homedir(), 'OneDrive', 'hackbench-fixtures', 'maps')
