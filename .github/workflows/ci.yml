@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   # feature/** matters as much as develop: work here stacks onto an
   # integration branch and merges to develop in one umbrella PR, so a filter
