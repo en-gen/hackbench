@@ -171,10 +171,10 @@ reviews:
     - path: '.github/workflows/**'
       instructions: >-
         CI has no ROM (CLAUDE.md "Oracles must be proven able to fail"): flag a
-        step that needs the corpus, or one that runs the Playwright specs,
-        which would skip every assertion and report green (ci.yml). Keep the
-        content-policy, lint, format and unit-test steps, and keep feature/**
-        in the pull_request branches (ci.yml).
+        step that needs the corpus, or one that runs Playwright specs that
+        open a ROM, which would skip every assertion and report green (ci.yml).
+        Keep the content-policy, lint, format and unit-test steps, and keep
+        feature/** in the pull_request branches (ci.yml).
     - path: 'package.json'
       instructions: >-
         The lint and format:check scripts keep the flags that let them fail
