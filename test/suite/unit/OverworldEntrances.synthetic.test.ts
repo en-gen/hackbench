@@ -434,7 +434,7 @@ describe('deriveOverworldEntrances: read where the code says, not where vanilla 
     const rom = buildRom({ 0x00: 0x6e })
     const entry = deriveOverworldEntrances(rom)
     expect(entry.roots).toBeNull()
-    expect(entry.notes[0]).toContain('$05D83E')
+    expect(entry.notes[0]).toContain('CODE_05D83E')
     const walk = deriveOverworldEntrances(rom, undefined, {
       entry: SYNTHETIC_FINGERPRINTS.entry,
       walk: STOCK_OVERWORLD_FINGERPRINTS.walk,
