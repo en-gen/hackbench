@@ -30,14 +30,15 @@ import { MAGIC, VANILLA, hasRom, romPath } from '../support/corpus'
 const HEADERED = MAGIC
 /** Edited corpus ROMs whose CODE_05D83E is not a recognized build. */
 const REBUILT_OVERWORLD: [string, string][] = [
-  ['Grand Poo World 2 1.1.sfc', 'rebuilt by another editor'],
-  ['Invictus 1.0.sfc', 'rebuilt by another editor'],
+  ['Invictus 1.0.sfc', 'CODE_00B8DE, the LC_LZ2 decompressor'],
 ]
 
 /** Lunar Magic ROMs read through the entry hook and the stored table, with one
  *  entrance each traced by hand: [bufferIndex, translevel, slot]. */
 const LM_OVERWORLD: [string, number, [number, number, number]][] = [
   ['GrandPooWorld_V1.2.sfc', 44, [0x36, 0x26, 0x102]],
+  // Through Lunar Magic's midway hook; translevel $38 is VALLEY GHOST HOUSE in its name table.
+  ['Grand Poo World 2 1.1.sfc', 40, [0x12, 0x38, 0x114]],
   ['Seven_Vanilla_Levels.sfc', 18, [0x42a, 0x07, 0x007]],
 ]
 
