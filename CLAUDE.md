@@ -38,8 +38,9 @@ the approval to be CodeRabbit's, so a human approval merges it too.
 - The agent that opened a PR owns it until it merges. Answer every CodeRabbit
   review, including a "changes requested" one, without being asked: fix a
   valid finding, or reply with the reason when it is wrong, then resolve the
-  thread. An unresolved thread withholds approval; a new push dismisses the
-  old approval, so every merged commit was reviewed.
+  thread. An unresolved thread withholds approval. The `develop` ruleset
+  dismisses stale approvals on push, so a merged commit carries a review of
+  its final state; that holds only while the ruleset keeps that setting.
 - CodeRabbit re-reviews each push by itself. Do not comment
   `@coderabbitai review` or `full review` (the free open-source plan has an
   hourly review limit) and never `@coderabbitai approve`.
