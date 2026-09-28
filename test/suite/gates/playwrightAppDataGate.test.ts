@@ -216,6 +216,10 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
   it("a worker reloading the config shares the runner's folder and does not delete it", () => {
     const runner = loadConfig().iso
     const root = process.env.HB_TEST_APPDATA!
+    // The owner file keeps a run lasting over a day safe from another run's sweep.
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'hb-owner.json'), 'utf8')).pid).toBe(
+      process.pid,
+    )
     const worker = loadConfig().iso
     expect(process.env.HB_TEST_APPDATA).toBe(root)
     worker.cleanupAppData()
@@ -265,11 +269,10 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
   })
 
   it('stale per-run folders older than a day are swept, and nothing else', () => {
-    const mk = (name: string, ageDays: number, markerPid?: number) => {
+    const mk = (name: string, ageDays: number, pid?: number, file = MARKER) => {
       const p = path.join(os.tmpdir(), name)
       fs.mkdirSync(p, { recursive: true })
-      if (markerPid !== undefined)
-        fs.writeFileSync(path.join(p, MARKER), JSON.stringify({ port: 1, pid: markerPid }))
+      if (pid !== undefined) fs.writeFileSync(path.join(p, file), JSON.stringify({ port: 1, pid }))
       const t = Date.now() / 1000 - ageDays * 86400
       fs.utimesSync(p, t, t)
       return p
@@ -283,10 +286,23 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
       // A server still running after a day keeps its folder; a dead one's goes.
       mk(`hb-testserver-live${process.pid}`, 2, process.pid),
       mk(`hb-testserver-dead${process.pid}`, 2, 2147483646),
+      // Same for a Playwright run's own folder, by its owner file.
+      mk(`hb-appdata-live${process.pid}`, 2, process.pid, 'hb-owner.json'),
+      mk(`hb-appdata-dead${process.pid}`, 2, 2147483646, 'hb-owner.json'),
     ]
     try {
       loadConfig().iso.cleanupAppData()
-      expect(all.map(p => fs.existsSync(p))).toEqual([false, false, true, true, true, true, false])
+      expect(all.map(p => fs.existsSync(p))).toEqual([
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+        true,
+        false,
+      ])
     } finally {
       for (const p of all) fs.rmSync(p, { recursive: true, force: true })
     }
