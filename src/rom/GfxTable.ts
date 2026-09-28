@@ -177,38 +177,53 @@ export function planGfxSave(
   const streams: Uint8Array[] = []
   for (let i = 0; i < GFX_FILE_COUNT; i++) {
     const f = table.files[i]
-    if (!f || f.template.length === 0) {
-      return {
-        status: 'unavailable',
-        reason: `GFX ${i} could not be read back, so it cannot be re-encoded`,
-      }
-    }
-    let stream: Uint8Array
-    try {
-      stream = encoder(f.bytes, f.template)
-    } catch (err) {
-      return {
-        status: 'unavailable',
-        reason: `GFX ${i} did not re-encode: ${(err as Error).message}`,
-      }
-    }
-    const decoded = tryDecompress(stream)
-    if (!decoded.ok) {
-      return {
-        status: 'unavailable',
-        reason: `GFX ${i} re-encoded to a stream that fails to decompress: ${decoded.reason}`,
-      }
-    }
-    const back = decoded.bytes
-    if (Buffer.compare(Buffer.from(back), Buffer.from(f.bytes)) !== 0) {
-      return {
-        status: 'unavailable',
-        reason:
-          `GFX ${i} re-encoded to a stream that decompresses to ${back.length} bytes of ` +
-          `different content, not the ${f.bytes.length} bytes it was built from`,
-      }
-    }
-    streams.push(stream)
+    const r = encodeChecked(
+      i,
+      f?.bytes ?? new Uint8Array(0),
+      f?.template ?? new Uint8Array(0),
+      encoder,
+    )
+    if (!r.ok) return { status: 'unavailable', reason: r.reason }
+    streams.push(r.stream)
   }
   return layoutArena(rom, streams)
+}
+
+/**
+ * Encode file `index` against `template`, and prove the stream decompresses
+ * back to exactly `bytes`: one that does not must not reach the ROM,
+ * whatever its length.
+ */
+export function encodeChecked(
+  index: number,
+  bytes: Uint8Array,
+  template: Uint8Array,
+  encoder: GfxEncoder = encode,
+): { ok: true; stream: Uint8Array } | { ok: false; reason: string } {
+  if (template.length === 0) {
+    return { ok: false, reason: `GFX ${index} could not be read back, so it cannot be re-encoded` }
+  }
+  let stream: Uint8Array
+  try {
+    stream = encoder(bytes, template)
+  } catch (err) {
+    return { ok: false, reason: `GFX ${index} did not re-encode: ${(err as Error).message}` }
+  }
+  const decoded = tryDecompress(stream)
+  if (!decoded.ok) {
+    return {
+      ok: false,
+      reason: `GFX ${index} re-encoded to a stream that fails to decompress: ${decoded.reason}`,
+    }
+  }
+  const back = decoded.bytes
+  if (Buffer.compare(Buffer.from(back), Buffer.from(bytes)) !== 0) {
+    return {
+      ok: false,
+      reason:
+        `GFX ${index} re-encoded to a stream that decompresses to ${back.length} bytes of ` +
+        `different content, not the ${bytes.length} bytes it was built from`,
+    }
+  }
+  return { ok: true, stream }
 }

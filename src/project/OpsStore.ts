@@ -26,7 +26,7 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import { Layer } from './WorkingRom'
+import { Layer, Op } from './WorkingRom'
 
 export const OPS_DIR = 'ops'
 /** The undone-layer area, nested inside `ops/`. */
@@ -49,22 +49,60 @@ function layerFiles(dir: string): string[] {
     .sort()
 }
 
-/** One op per line, valid JSON: `JSON.parse` reads it back unchanged. */
+/**
+ * One op per line, valid JSON: `JSON.parse` reads it back unchanged. A gfx
+ * layer holds one pixel per line instead, and only the pixels the user
+ * changed, so it carries no artwork the user did not draw.
+ */
 function formatLayerFile(layer: Layer): string {
+  const head = `{\n  "id": ${JSON.stringify(layer.id)},\n  "label": ${JSON.stringify(layer.label)},\n`
+  if (layer.kind === 'gfx') {
+    const pixelLines = layer.pixels.map(p => `    ${JSON.stringify(pixel(p))}`).join(',\n')
+    return (
+      head +
+      `  "kind": "gfx",\n  "file": ${layer.file},\n  "tile": ${layer.tile},\n` +
+      `  "pixels": [\n${pixelLines}\n  ]\n}\n`
+    )
+  }
   const opLines = layer.ops.map(o => `    ${JSON.stringify(o)}`).join(',\n')
-  return (
-    `{\n` +
-    `  "id": ${JSON.stringify(layer.id)},\n` +
-    `  "label": ${JSON.stringify(layer.label)},\n` +
-    `  "ops": [\n${opLines}\n  ]\n` +
-    `}\n`
-  )
+  return head + `  "ops": [\n${opLines}\n  ]\n` + `}\n`
 }
+
+function pixel(p: { x: number; y: number; value: number }): {
+  x: number
+  y: number
+  value: number
+} {
+  return { x: p.x, y: p.y, value: p.value }
+}
+
+const isInt = (v: unknown): boolean => Number.isInteger(v)
 
 function loadFrom(dir: string): Layer[] {
   return layerFiles(dir).map(f => {
-    const parsed = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as Layer
-    return { id: parsed.id, label: parsed.label, ops: parsed.ops }
+    const parsed = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as Record<string, unknown>
+    const id = parsed.id as string
+    const label = parsed.label as string
+    if (parsed.kind !== 'gfx') return { id, label, ops: parsed.ops as Op[] }
+    // Refused whole rather than half-read: a pixel that parses to something
+    // else would paint a character the user never drew.
+    const pixels = parsed.pixels as { x: number; y: number; value: number }[]
+    const ok =
+      isInt(parsed.file) &&
+      isInt(parsed.tile) &&
+      Array.isArray(pixels) &&
+      pixels.every(
+        p => typeof p === 'object' && p !== null && isInt(p.x) && isInt(p.y) && isInt(p.value),
+      )
+    if (!ok) throw new Error(`${path.join(dir, f)} is not a gfx layer this build understands`)
+    return {
+      id,
+      label,
+      kind: 'gfx',
+      file: parsed.file as number,
+      tile: parsed.tile as number,
+      pixels: pixels.map(pixel),
+    }
   })
 }
 

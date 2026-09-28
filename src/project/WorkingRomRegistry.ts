@@ -375,7 +375,12 @@ function compensate(undoWrite: () => void): void {
 
 /** Layer-for-layer equal, ignoring `scope`, which OpsStore does not persist. */
 function sameLayers(a: readonly Layer[], b: readonly Layer[]): boolean {
-  const key = (l: Layer): string => JSON.stringify([l.id, l.label, l.ops])
+  const key = (l: Layer): string =>
+    JSON.stringify(
+      l.kind === 'gfx'
+        ? [l.id, l.label, l.kind, l.file, l.tile, l.pixels.map(p => [p.x, p.y, p.value])]
+        : [l.id, l.label, l.ops],
+    )
   return a.length === b.length && a.every((l, i) => key(l) === key(b[i]))
 }
 

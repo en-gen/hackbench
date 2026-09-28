@@ -8,8 +8,9 @@
  * edit in one view (a palette colour) never shows up in another (the GFX
  * sheet using that palette). See docs/glossary.md, "Working copy".
  *
- * The actual byte mutation is src/rom/PaletteOp.ts's `applyOp` - a pure
- * reducer, no I/O, no project, no cartridge on disk. This class is the
+ * The actual byte mutation is src/rom/PaletteOp.ts's `applyOp`, or for a gfx
+ * layer src/rom/GfxLayer.ts's `foldGfxRun` - pure reducers, no I/O, no
+ * project, no cartridge on disk. This class is the
  * orchestration around it: the layer stack, the cache, and change
  * notification. Views dispatch (append/pop); they never call `applyOp`
  * themselves or write bytes any other way.
@@ -35,18 +36,43 @@ import {
   Op,
 } from '../rom/PaletteOp'
 import { COPIER_HEADER_SIZE } from '../rom/addressing'
+import { GfxCharEdit, baseGfxTemplates, foldGfxRun } from '../rom/GfxLayer'
+import { GfxEncoder } from '../rom/GfxTable'
+import { encode } from '../rom/LcLz2'
 
 export type { Op } from '../rom/PaletteOp'
 
 export type LayerScope = 'edit' | 'preview'
 
-export interface Layer {
+interface LayerBase {
   /** Stable identity; used to persist and to report which layer failed. */
   id: string
   label: string
   /** Defaults to 'edit'. 'preview' layers never persist and never export. */
   scope?: LayerScope
+}
+
+/** Word writes: palette and Map16. Applied immediately, one per gesture. */
+export interface OpsLayer extends LayerBase {
+  kind?: undefined
   ops: Op[]
+}
+
+/**
+ * One 8x8 character's new pixels in one GFX file: the STAGED kind of
+ * docs/layer-previews.md. Consecutive gfx layers replay as one re-encode per
+ * file (src/rom/GfxLayer.ts), so the layer follows the user's edit and not
+ * the compressor's.
+ */
+export interface GfxLayer extends LayerBase, GfxCharEdit {
+  kind: 'gfx'
+}
+
+export type Layer = OpsLayer | GfxLayer
+
+export interface WorkingRomOptions {
+  /** Swappable only so a test can count re-encodes. */
+  gfxEncoder?: GfxEncoder
 }
 
 /**
@@ -76,9 +102,14 @@ export class WorkingRom {
   constructor(
     private readonly base: Uint8Array,
     private readonly hasHeader: boolean,
+    private readonly options: WorkingRomOptions = {},
   ) {
     this.romSize = base.length - (hasHeader ? COPIER_HEADER_SIZE : 0)
   }
+
+  /** The base ROM's GFX streams, the re-encode template for every gfx layer.
+   *  Read once, on the first gfx layer, since the base never changes. */
+  private gfxTemplates: Uint8Array[] | null = null
 
   /** The unedited cartridge, never mutated by anything in this class. */
   baseBytes(): Uint8Array {
@@ -123,16 +154,17 @@ export class WorkingRom {
    * Refuses (throws, does not partially apply) if any op's `old` no longer
    * matches what is actually at that address in the CURRENT working copy:
    * a stale op would silently overwrite something other than what the user
-   * looked at when they made the edit.
+   * looked at when they made the edit. A gfx layer the ROM cannot take
+   * (src/rom/GfxLayer.ts GfxRefusal) refuses the same way.
    */
   append(layer: Layer): void {
-    this.validate(layer)
+    const next = this.validate(layer)
     this.layerStack.push(layer)
     // A new edit ends the redo future. Standard editor behaviour, and also
     // the only thing keeping a held layer's `old` meaningful: redoing across
     // a divergent edit would write over bytes the user never looked at.
     this.redoLayers.length = 0
-    this.invalidate({ kind: 'append', layer })
+    this.invalidate({ kind: 'append', layer }, next)
   }
 
   /**
@@ -181,10 +213,10 @@ export class WorkingRom {
   redo(): Layer | undefined {
     const layer = this.redoLayers[this.redoLayers.length - 1]
     if (!layer) return undefined
-    this.validate(layer)
+    const next = this.validate(layer)
     this.redoLayers.pop()
     this.layerStack.push(layer)
-    this.invalidate({ kind: 'append', layer })
+    this.invalidate({ kind: 'append', layer }, next)
     return layer
   }
 
@@ -200,8 +232,13 @@ export class WorkingRom {
     this.redoLayers.push(...layers)
   }
 
-  /** Throws unless every op still matches the working copy it would apply to. */
-  private validate(layer: Layer): void {
+  /**
+   * Throws unless every op still matches the working copy it would apply to.
+   * A gfx layer has no `old` to check; it is validated by replaying it, and
+   * the replay's bytes are returned so they need not be computed twice.
+   */
+  private validate(layer: Layer): Uint8Array | null {
+    if (layer.kind === 'gfx') return this.computeBytes([...this.layerStack, layer])
     const before = this.bytes()
     for (const op of layer.ops) {
       const offset = opFileOffset(op, this.romSize, this.hasHeader)
@@ -219,6 +256,7 @@ export class WorkingRom {
       }
       parseBgr555Word(op.new) // validated eagerly so a bad layer never reaches the stack
     }
+    return null
   }
 
   /**
@@ -235,16 +273,57 @@ export class WorkingRom {
     return () => this.listeners.delete(fn)
   }
 
-  private invalidate(change: WorkingRomChange): void {
-    this.cached = null // cleared BEFORE fan-out: a handler's bytes() call recomputes, not re-enters
+  /** `next` is the post-change bytes when validation already computed them. */
+  private invalidate(change: WorkingRomChange, next: Uint8Array | null = null): void {
+    this.cached = next // set BEFORE fan-out: a handler's bytes() call recomputes, not re-enters
     for (const fn of this.listeners) fn(change)
   }
 
+  /**
+   * How many ROM bytes the layer at `index` changed, against the snapshot
+   * directly below it. For a gfx layer that is the whole arena shift, which
+   * is the user's real budget, not the character's 64 pixels.
+   */
+  bytesChangedBy(index: number): number {
+    const before = this.computeBytes(this.layerStack.slice(0, index))
+    const after = this.computeBytes(this.layerStack.slice(0, index + 1))
+    let n = 0
+    for (let i = 0; i < after.length; i++) if (before[i] !== after[i]) n++
+    return n
+  }
+
+  /** The preview's scope line (docs/layer-previews.md): required for gfx,
+   *  none for a word write. */
+  scopeLine(index: number): string | null {
+    if (this.layerStack[index]?.kind !== 'gfx') return null
+    const n = this.bytesChangedBy(index)
+    return `Re-encodes the GFX arena: ${n} ${n === 1 ? 'byte' : 'bytes'} of the ROM changed, not just this character.`
+  }
+
+  /**
+   * Replay `layers` over the base. A run of consecutive gfx layers folds into
+   * ONE pass, so each file it touches is re-encoded once however many
+   * characters in it were edited.
+   */
   private computeBytes(layers: readonly Layer[]): Uint8Array {
     const out = new Uint8Array(this.base)
+    let run: GfxCharEdit[] = []
+    const flush = (): void => {
+      if (run.length === 0) return
+      this.gfxTemplates ??= baseGfxTemplates(this.base)
+      const encoder = this.options.gfxEncoder ?? encode
+      foldGfxRun(out, this.hasHeader, this.gfxTemplates, run, encoder)
+      run = []
+    }
     for (const layer of layers) {
+      if (layer.kind === 'gfx') {
+        run.push(layer)
+        continue
+      }
+      flush()
       for (const op of layer.ops) applyOp(out, op, this.romSize, this.hasHeader)
     }
+    flush()
     return out
   }
 }

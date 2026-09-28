@@ -18,8 +18,11 @@ import {
   loadRedoLayers,
   pushRedoLayer,
 } from '../../../src/project/OpsStore'
-import { Layer, WorkingRom } from '../../../src/project/WorkingRom'
+import { GfxLayer, Layer, WorkingRom } from '../../../src/project/WorkingRom'
 import { loromToOffset } from '../../../src/rom/addressing'
+import { GfxTable } from '../../../src/rom/GfxTable'
+import { RomFile } from '../../../src/rom/RomFile'
+import { buildCart } from '../support/syntheticGfxCart'
 
 /**
  * Fault injection for the write paths: `fsFault.hook`, when set, runs before
@@ -326,6 +329,34 @@ describe('WorkingRomRegistry', () => {
       fs.utimesSync(file, pinned, pinned)
 
       expect(redWord(opened(manifestPath).w)).toBe(0x7c00)
+    })
+
+    // A gfx layer has no `ops`, so a comparison keyed on them would call two
+    // different characters the same layer and keep the stale copy.
+    it('picks up a same-size gfx layer rewrite whose mtime was preserved', () => {
+      const romPath = path.join(tmp, 'gfx.sfc')
+      fs.writeFileSync(romPath, buildCart({ filler: 4096 }).rom.buffer)
+      romRegistry.register(romPath)
+      const dirPath = path.join(tmp, 'Gfx')
+      const { manifestPath } = createProject({ romPath, name: 'Gfx', directory: dirPath })
+      const { dir } = opened(manifestPath)
+      const layer: GfxLayer = { id: 'g', label: 'g', kind: 'gfx', file: 2, tile: 0, pixels: [] }
+      appendLayer(dir, { ...layer, pixels: [{ x: 0, y: 0, value: 1 }] })
+      const pixel = (): number | undefined => {
+        const bytes = Buffer.from(opened(manifestPath).w.bytes())
+        return GfxTable.load(new RomFile('w.sfc', bytes)).tile(2, 0)?.[0]
+      }
+      expect(pixel()).toBe(1)
+
+      const file = path.join(dir, 'ops', '0000.json')
+      const pinned = new Date('2026-01-01T00:00:00Z')
+      fs.utimesSync(file, pinned, pinned)
+      opened(manifestPath)
+      const text = fs.readFileSync(file, 'utf8')
+      fs.writeFileSync(file, text.replace('"value":1', '"value":2'))
+      fs.utimesSync(file, pinned, pinned)
+
+      expect(pixel()).toBe(2)
     })
 
     // Views hold the instance (working-copy-notifier.ts), so the copy's own
