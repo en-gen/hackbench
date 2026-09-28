@@ -35,6 +35,7 @@ export class OverworldViewWidget extends ReactWidget {
     this.title.iconClass = 'codicon codicon-globe'
     this.title.closable = true
     this.addClass('hb-gfx-view')
+    this.node.tabIndex = 0
     this.toDispose.push(this.projectContext.onChanged(p => void this.load(p?.manifestPath)))
     this.toDispose.push(
       this.pushClient.onChanged(path => {
@@ -60,6 +61,12 @@ export class OverworldViewWidget extends ReactWidget {
     this.l1 = l1
     this.error = error
     this.update()
+  }
+
+  /** Theia counts a widget active only once focus lands inside it. */
+  protected override onActivateRequest(msg: Message): void {
+    super.onActivateRequest(msg)
+    this.node.focus()
   }
 
   protected override onUpdateRequest(msg: Message): void {

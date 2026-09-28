@@ -168,6 +168,29 @@ test('Toggle Left Panel with the globe last shown opens the view, not a blank si
   await expect(page.locator('#hackbench\\.overworld-launcher')).toBeHidden()
 })
 
+test('closing Maps neither opens the Overworld nor leaves a blank globe panel', async ({
+  page,
+}) => {
+  // Maps current with no previous tab, so closing it falls back to the tab at
+  // its index, the globe ('select-previous-tab' with no previous title).
+  await page.evaluate(async () => {
+    const shell = getSvc('ApplicationShell')
+    await shell.collapsePanel('left')
+    await shell.activateWidget('hackbench.map-explorer')
+  })
+  await expect.poll(() => leftExpanded(page)).toBe(true)
+  await page.evaluate(() =>
+    getSvc('ApplicationShell')
+      .getWidgets('left')
+      .find(w => w.id === 'hackbench.map-explorer')
+      .close(),
+  )
+  await page.waitForTimeout(500)
+  expect(await overworldCount(page)).toBe(0)
+  await expect(page.locator(VIEW)).toHaveCount(0)
+  await expect(page.locator('#hackbench\\.overworld-launcher')).toBeHidden()
+})
+
 test('the command is on the View menu and opens the same widget', async ({ page }) => {
   await page.locator('.lm-MenuBar-itemLabel', { hasText: /^View$/ }).click()
   await page.locator('.lm-Menu .lm-Menu-item', { hasText: /^Overworld/ }).click()

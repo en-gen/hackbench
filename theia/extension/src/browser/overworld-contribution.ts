@@ -2,9 +2,9 @@
  * The globe in the activity bar, and `hackbench.overworld.focus`.
  *
  * Theia's activity bar holds only side-panel views, so the globe is an empty
- * launcher view. EVERY path that shows it - a click, View > Toggle Left Panel,
- * a restored layout with the globe current - opens or focuses the ONE
- * main-area Overworld widget and collapses the panel, so the slot never shows.
+ * launcher view. A click on it, or the panel opening onto it (View > Toggle
+ * Left Panel, a restored layout), opens or focuses the ONE main-area Overworld
+ * widget; any show collapses the panel, so the slot never shows.
  * Collapsing clears the side bar's current tab, so the next click activates
  * the globe again rather than collapsing an open panel.
  *
@@ -17,6 +17,7 @@ import {
   ApplicationShell,
   BaseWidget,
   Message,
+  SidePanel,
 } from '@theia/core/lib/browser'
 import { Command, CommandRegistry, CommandService } from '@theia/core/lib/common'
 import { OverworldViewWidget, OVERWORLD_VIEW_ID } from './overworld-view-widget'
@@ -46,35 +47,43 @@ export class OverworldLauncherWidget extends BaseWidget {
 
   protected override onAfterShow(msg: Message): void {
     super.onAfterShow(msg)
-    this.openOverworld()
+    // The panel opening onto the globe is a request. The tab bar falling back
+    // to the globe when a sibling closes ('select-previous-tab') leaves the
+    // panel already expanded: that show only collapses.
+    const opening =
+      this.shell.leftPanelHandler.state.expansion === SidePanel.ExpansionState.expanding
+    this.schedule(opening)
   }
 
   protected override onActivateRequest(msg: Message): void {
     super.onActivateRequest(msg)
     this.node.focus()
-    this.openOverworld()
+    this.schedule(true)
   }
 
   protected scheduled = false
+  protected wantsOpen = false
 
   /**
    * Collapses the panel, THEN opens and activates the view, so keyboard focus
    * ends on the view: collapsing hides the focused launcher, which would drop
    * focus from a view activated before it. Deferred out of the tab bar's own
-   * dispatch, where a show lands. A click sends two requests, show and
-   * activate, within one task; they fold into one run. The flag clears when
-   * the run starts, never across activateWidget, which can take 2.25 s or not
-   * settle at all (63dae5d8).
+   * dispatch, where a show lands. A click sends a show and an activate within
+   * one task; they fold into one run that opens if either asked. The flag
+   * clears when the run starts, never across activateWidget, which can take
+   * 2.25 s or not settle at all.
    */
-  protected openOverworld(): void {
+  protected schedule(open: boolean): void {
+    this.wantsOpen ||= open
     if (this.scheduled) return
     this.scheduled = true
     setTimeout(async () => {
-      this.scheduled = false
-      // The collapse itself is synchronous (SidePanelHandler.collapse); its
-      // promise is only an animation frame, which never comes in a hidden window.
+      const opens = this.wantsOpen
+      this.scheduled = this.wantsOpen = false
+      // Synchronous (SidePanelHandler.collapse); its promise is only an
+      // animation frame, which never comes in a hidden window.
       void this.shell.collapsePanel('left')
-      await this.commands.executeCommand(ShowOverworldCommand.id)
+      if (opens) await this.commands.executeCommand(ShowOverworldCommand.id)
     })
   }
 }

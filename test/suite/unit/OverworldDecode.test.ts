@@ -59,10 +59,14 @@ const reason = (rom: RomFile, fps = SYNTHETIC_CGRAM_FINGERPRINT) => {
  * model: char (id*4) & $7F in tileset t's file t, solid color (t % 7) + 1,
  * CGRAM row 4 + (id & 3) of palette block DATA_00AD1E[(t & $0F) - 1].
  */
-function expectedAt(row: number, col: number, tileset: number): number[] {
+function expectedAt(
+  row: number,
+  col: number,
+  tileset: number,
+  block = (tileset & 0x0f) - 1,
+): number[] {
   const id = tileAt(row, col)
   const v = (tileset % 7) + 1
-  const block = (tileset & 0x0f) - 1
   const k = (id & 3) * 7 + (v - 1)
   return [...bgr555ToRgba((block + 1) | ((k + 1) << 5))]
 }
@@ -94,6 +98,15 @@ describe('decodeOverworldL1 on a synthetic ROM', () => {
     expect(pixelAt(px, 5, 9)).not.toEqual(expectedAt(5, 9, 0x11))
   })
 
+  it('finds the palette block through DATA_00ABDF, not a uniform $38 stride', () => {
+    const rom = syntheticOverworldRom(0x12)
+    // Palette index 1's offset points at the block the synthetic ROM lays at +$70.
+    rom.writeAt(OW_ADDR.PALETTE_BLOCK_OFFSETS + 2, [0x70, 0x00])
+    const px = pixels(rom)
+    expect(pixelAt(px, 5, 9)).toEqual(expectedAt(5, 9, 0x12, 2))
+    expect(pixelAt(px, 5, 9)).not.toEqual(expectedAt(5, 9, 0x12))
+  })
+
   it('seeds the cells CODE_00AD25 leaves alone from the title screen map header', () => {
     const rom = syntheticOverworldRom()
     // ForegroundPalettes ($00B190) variant 1 is white; the title header names FG palette 1.
@@ -121,7 +134,7 @@ describe('decodeOverworldL1 on a synthetic ROM', () => {
     const hooked = syntheticOverworldRom()
     plantGfxHook(hooked, 0x0ff000, 0x00ba46, 'direct')
     hooked.writeAt(0x00aa6b, [0x22, 0x00, 0xf0, 0x0f])
-    expect(reason(hooked)).toMatch(/Lunar Magic's list/)
+    expect(reason(hooked)).toMatch(/overworld's GFX files through Lunar Magic's ExGFX hook/)
 
     const decompressor = syntheticOverworldRom()
     decompressor.writeAt(0x00b8de, [0x00])

@@ -46,15 +46,21 @@ four CGRAM blocks with `LoadColors` and clears nothing:
 | `OverworldHudColors`                 | 0-1  | 8-15 | 5780-5788 |
 
 `pal` is `DATA_00AD1E[(ObjectTileset & $0F) - 1]` (:5743-5747): indexed by
-the tileset, not the submap. The cells outside the four blocks hold what
-`LoadPalette` left for the title screen map, so the title map's header seeds
-`buildLevelCgram` first.
+the tileset, not the submap.
+
+The cells outside the four blocks hold whatever CGRAM the previous game mode
+left: the title screen map's after boot, the exited level's after a level.
+There is no one right answer, so the view CHOOSES the title screen map's
+`LoadPalette` result as its seed. That is a view choice, not a ROM fact.
 
 `CODE_00AD25` is 129 bytes, so it is recognized by SHA-256 rather than
 committed literally. Its fingerprint fixes every table operand, which is what
-lets the table addresses in `OW_ADDR` be read directly. GPW2, GPW 1.2 and
+lets the table addresses in `OW_ADDR` be read directly. `LoadColors`, the
+routine it calls to copy each block, is not fingerprinted: its JSR operand is
+fixed, but a hack that rewrites `LoadColors` in place is not detected. GPW2, GPW 1.2 and
 Invictus replace `STY _0 : LDA ObjectTileset` at $00AD32 with a JSL, and are
 refused.
 
 The GFX files come from `UploadSpriteGFX` (bank_00.asm:4334), which Lunar
-Magic's ExGFX hook replaces; a hooked or unreadable GFX loader is refused.
+Magic's ExGFX hook replaces; a hooked or unreadable GFX loader is refused, as
+the hook picks the overworld's files from a list HackBench does not read.

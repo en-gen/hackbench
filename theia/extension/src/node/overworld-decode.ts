@@ -4,7 +4,7 @@
  * Anything it cannot interpret is refused with a reason, palette seed included.
  */
 import { SmwRom } from '../../../../src/rom/SmwRom'
-import { gfxSource, levelGfxAssignmentNote, loadVram } from '../../../../src/rom/GfxLoader'
+import { gfxSource, loadVram } from '../../../../src/rom/GfxLoader'
 import { buildLevelCgram, loadRomPalettes, type RgbaRow } from '../../../../src/rom/PaletteLoader'
 import { readLevelCol1 } from '../../../../src/rom/PaletteStockTables'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
@@ -43,8 +43,13 @@ export function decodeOverworldL1(
   if (!l1.ok) return unavailable(l1.reason)
   const gfx = gfxSource(rom.rom)
   if (!gfx.ok) return unavailable(`The overworld GFX cannot be read: ${gfx.reason}`)
-  const note = levelGfxAssignmentNote(rom.rom)
-  if (note) return unavailable(note)
+  if (gfx.sites.hooked) {
+    return unavailable(
+      "This ROM loads the overworld's GFX files through Lunar Magic's ExGFX hook in " +
+        'UploadSpriteGFX (bank_00.asm:4334), which picks them from a list HackBench ' +
+        "doesn't read yet.",
+    )
+  }
   const base = titleCgram(rom)
   if (typeof base === 'string') return unavailable(base)
   const cgram = overworldCgram(rom.rom, l1.objectTileset, base, cgramFingerprints)
