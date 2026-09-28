@@ -62,13 +62,8 @@
 
 /* ── GFX view ────────────────────────────────────────────────────────────── */
 
-/* `overflow-anchor: none` (#651): Chromium's own scroll anchoring would
-   otherwise ALSO react to the canvas resizing on every zoom step, fighting
-   ZoomController's own restoreAnchor() over the same scroll position with
-   its own (cursor-unaware) heuristic. */
 .hb-gfx-view {
   overflow: auto;
-  overflow-anchor: none;
   padding: 1.2em 1.4em;
   color: var(--theia-foreground);
 }
@@ -109,7 +104,11 @@
  * so a wheel binding and an anchor restore that targets `.hb-gfx-view`
  * lands on a real scroller instead of a wrap that never gets one.
  */
+/* The canvas is never Chromium's scroll anchor: ZoomController anchors a
+   Ctrl + wheel resize itself (#341). The rest of the view keeps normal
+   anchoring. */
 .hb-gfx-view-canvas-wrap {
+  overflow-anchor: none;
   display: inline-block;
   border: 1px solid var(--theia-editorWidget-border);
 }
