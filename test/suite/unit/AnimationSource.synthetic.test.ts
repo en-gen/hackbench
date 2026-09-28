@@ -3,7 +3,6 @@
  * still runs it. Every ROM here is built in the test from the 65816
  * encoding; the graphics are arithmetic.
  */
-import { createHash } from 'node:crypto'
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
@@ -28,7 +27,14 @@ import {
 } from '../../../theia/extension/src/node/map16-decode'
 import { map16DecodeStub } from '../support/syntheticMap16'
 import { flip } from '../support/syntheticRom'
-import { gfxStreams, TABLE_BANK, TABLE_HI, TABLE_LO } from '../support/syntheticGfxCart'
+import {
+  gfxStreams,
+  plantFast,
+  plantPrelude,
+  TABLE_BANK,
+  TABLE_HI,
+  TABLE_LO,
+} from '../support/syntheticGfxCart'
 import { STOCK_LCLZ2_ENTRY, type FastRoutine } from '../../../src/rom/GfxDecompressor'
 
 const ROM_SIZE = 0x30000
@@ -221,29 +227,14 @@ describe('animation GFX through the decompressor', () => {
   const ENTRY = 0x00b8de
   const PRELUDE_AT = 0x02f000
   const FAST_AT = 0x03f000
-  // prettier-ignore
-  const prelude = (key: number): number[] => [
-    0x08, 0xc2, 0x30, 0xa5, 0x8a, 0x49, key & 0xff, key >> 8, 0x85, 0x8a, 0x28, 0xc2, 0x10, 0xa0,
-    0x00, 0x00, 0x6b,
-  ]
   const keyedRom = (key: number): RomFile => {
-    const rom = animRom({
-      head: head(0x010000 | (0xc000 ^ key)),
-      tail: tail(0x9000 ^ key),
-      entry: [0x22, 0x00, 0xf0, 0x02, 0xea, ...STOCK_LCLZ2_ENTRY.slice(5)],
-    })
-    rom.writeAt(PRELUDE_AT, prelude(key))
+    const rom = animRom({ head: head(0x010000 | (0xc000 ^ key)), tail: tail(0x9000 ^ key) })
+    plantPrelude(rom, PRELUDE_AT, key, ENTRY)
     return rom
   }
   const fastRom = (o: RomOpts = {}): { rom: RomFile; fast: FastRoutine[] } => {
-    const body = Array.from({ length: 0x40 }, (_, i) => (i * 29 + 3) & 0xff)
-    const rom = animRom({
-      ...o,
-      entry: [...STOCK_LCLZ2_ENTRY.slice(0, 5), 0x22, 0x00, 0xf0, 0x03, 0x60],
-    })
-    rom.writeAt(FAST_AT, body)
-    const fingerprint = createHash('sha256').update(Buffer.from(body)).digest('hex')
-    return { rom, fast: [{ length: body.length, fingerprint }] }
+    const rom = animRom(o)
+    return { rom, fast: [plantFast(rom, FAST_AT, 0x40, ENTRY)] }
   }
 
   it('applies the prelude key to both immediates, for two keys', () => {

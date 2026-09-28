@@ -43,7 +43,8 @@ export const FAST_LCLZ2: readonly FastRoutine[] = [
 ]
 
 export type DecompressorKind = 'stock' | 'fast'
-export type Decompressor = { ok: true; kind: DecompressorKind } | { ok: false; reason: string }
+export type Decompressor =
+  { ok: true; kind: DecompressorKind; key: number } | { ok: false; reason: string }
 
 /** The 24-bit JSL target at `snes`, bank bit 7 folded for the FastROM
  *  mirror, or null off a JSL opcode or off the ROM. */
@@ -79,14 +80,20 @@ export function readDecompressor(
     ok: false,
     reason: replacedReason(entry, what),
   })
-  if (preludeKey(rom, entry) === null) return replaced('an unrecognized entry')
+  const key = preludeKey(rom, entry)
+  if (key === null) {
+    const target = jslTarget(rom, entry)
+    return replaced(
+      `an unrecognized entry${target === null ? '' : ` that calls ${formatAddr(target)}`}`,
+    )
+  }
   if (matchesBytes(head.subarray(BODY_AT), STOCK_LCLZ2_ENTRY.slice(BODY_AT))) {
-    return { ok: true, kind: 'stock' }
+    return { ok: true, kind: 'stock', key }
   }
   const target = head[BODY_AT + 4] === 0x60 ? jslTarget(rom, entry + BODY_AT) : null // JSL / RTS
   if (target === null) return replaced('an unrecognized body')
   const known = fast.some(f => fingerprint(rom.readAt(target, f.length)) === f.fingerprint)
-  return known ? { ok: true, kind: 'fast' } : replaced(`it calls ${formatAddr(target)}`)
+  return known ? { ok: true, kind: 'fast', key } : replaced(`it calls ${formatAddr(target)}`)
 }
 
 /** Why `stream` has no single meaning on this decompressor, or null: the fast
