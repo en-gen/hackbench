@@ -38,6 +38,8 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
+import { WheelBinding, ZoomController } from './zoom-controller'
+import { ZoomStepper } from './zoom-stepper'
 import { ThemeService } from '@theia/core/lib/browser/theming'
 import {
   BG_VARIANT_COLOR_ROWS,
@@ -167,7 +169,9 @@ export class Map16ViewWidget extends ReactWidget {
   /** Which palette sections are expanded. All four are always listed. */
   protected expandedSheets = new Set<Map16CharSlot>()
   protected canvasEl: HTMLCanvasElement | null = null
-  protected zoom = DEFAULT_ZOOM
+  protected readonly zoomController = new ZoomController(ZOOM_OPTIONS, DEFAULT_ZOOM)
+  protected canvasWrapEl: HTMLElement | null = null
+  protected wheelBinding: WheelBinding | undefined
   protected browserOpen = true
   /**
    * One optimistic value per in-flight field edit, keyed by
@@ -220,6 +224,16 @@ export class Map16ViewWidget extends ReactWidget {
     this.toDispose.push({ dispose: () => this.stopAnimation() })
     // Page bands and grid lines are theme colors baked into the bitmap.
     this.toDispose.push(this.themes.onDidColorThemeChange(() => this.update()))
+    this.toDispose.push(this.zoomController.onDidChange(() => this.update()))
+    this.toDispose.push(this.zoomController)
+  }
+
+  /** Stable ref identity, so React binds the wheel listener once per DOM
+   * node instead of on every render. */
+  protected readonly bindCanvasWrap = (el: HTMLDivElement | null): void => {
+    this.wheelBinding?.dispose()
+    this.canvasWrapEl = el
+    this.wheelBinding = el ? this.zoomController.bindWheel(el, () => this.canvasEl) : undefined
   }
 
   protected layer(): Map16Layer {
@@ -484,17 +498,6 @@ export class Map16ViewWidget extends ReactWidget {
     void this.reload()
   }
 
-  protected stepZoom(delta: number): void {
-    const i = ZOOM_OPTIONS.indexOf(this.zoom)
-    const next = ZOOM_OPTIONS[Math.min(ZOOM_OPTIONS.length - 1, Math.max(0, i + delta))]
-    if (next === undefined || next === this.zoom) return
-    this.zoom = next
-    this.update()
-  }
-
-  protected handleZoomIn = (): void => this.stepZoom(1)
-  protected handleZoomOut = (): void => this.stepZoom(-1)
-
   protected sheet(): Map16SheetDto | undefined {
     return this.result?.status === 'ok' ? this.result.sheet : undefined
   }
@@ -529,8 +532,8 @@ export class Map16ViewWidget extends ReactWidget {
     const sheet = this.sheet()
     if (!sheet) return undefined
     return tileAtPoint(
-      e.nativeEvent.offsetX / this.zoom,
-      e.nativeEvent.offsetY / this.zoom,
+      e.nativeEvent.offsetX / this.zoomController.value,
+      e.nativeEvent.offsetY / this.zoomController.value,
       sheet.tilesPerRow,
       sheet.tiles.length,
     )
@@ -662,14 +665,23 @@ export class Map16ViewWidget extends ReactWidget {
   /** The tile browser strip: every tile the cartridge holds, paged. */
   protected paintCanvas(): void {
     const sheet = this.sheet()
-    if (!this.canvasEl || !sheet) return
+    if (!this.canvasEl || !sheet) {
+      // Nothing to resize this call, so any anchor waiting on a resize that
+      // is not happening would otherwise sit pending and misapply against a
+      // later, unrelated canvas - see restoreAnchor's own staleness check,
+      // which this sidesteps entirely by discarding it now.
+      this.wheelBinding?.restoreAnchor()
+      return
+    }
     const pageHeight = (TILES_PER_PAGE / sheet.tilesPerRow) * TILE_PX
     const pages = Math.ceil(sheet.tiles.length / TILES_PER_PAGE)
     const gapTotal = (pages - 1) * PAGE_GAP_PX
+    const zoom = this.zoomController.value
     this.canvasEl.width = sheet.width
     this.canvasEl.height = sheet.height + gapTotal
-    this.canvasEl.style.width = `${sheet.width * this.zoom}px`
-    this.canvasEl.style.height = `${(sheet.height + gapTotal) * this.zoom}px`
+    this.canvasEl.style.width = `${sheet.width * zoom}px`
+    this.canvasEl.style.height = `${(sheet.height + gapTotal) * zoom}px`
+    this.wheelBinding?.restoreAnchor()
     const ctx = this.canvasEl.getContext('2d')
     if (!ctx) return
     const pixels = this.browsedSheet.pixels(sheet, this.activeBase64(sheet), b => this.decoded(b))
@@ -915,32 +927,7 @@ export class Map16ViewWidget extends ReactWidget {
           </label>
           <span className="hb-toolbar-spacer" />
           <div className="hb-map16-toolbar-actions">
-            <button
-              data-control="zoom-out"
-              type="button"
-              className="hb-icon-btn"
-              disabled={this.zoom === ZOOM_OPTIONS[0]}
-              title="Zoom out"
-              aria-label="Zoom out"
-              onClick={this.handleZoomOut}
-            >
-              <span className="codicon codicon-zoom-out" />
-            </button>
-            <span
-              data-control="zoom-indicator"
-              className="hb-zoom-indicator"
-            >{`${this.zoom}x`}</span>
-            <button
-              data-control="zoom-in"
-              type="button"
-              className="hb-icon-btn"
-              disabled={this.zoom === ZOOM_OPTIONS[ZOOM_OPTIONS.length - 1]}
-              title="Zoom in"
-              aria-label="Zoom in"
-              onClick={this.handleZoomIn}
-            >
-              <span className="codicon codicon-zoom-in" />
-            </button>
+            <ZoomStepper controller={this.zoomController} />
             <span className="hb-map16-toolbar-sep" />
             <button
               data-control="grid-toggle"
@@ -994,7 +981,7 @@ export class Map16ViewWidget extends ReactWidget {
 
         {/* Grid on the left, the selected tile to its right (#623). */}
         <div className="hb-map16-panes">
-          {this.renderBrowser(sheet)}
+          {this.renderBrowser()}
           <div className="hb-map16-main">
             {tile ? this.renderTile(sheet, tile) : this.renderNoTile()}
           </div>
@@ -1070,10 +1057,9 @@ export class Map16ViewWidget extends ReactWidget {
   }
 
   /** The tile browser strip: which tile the preview is showing. */
-  protected renderBrowser(sheet: Map16SheetDto): React.ReactNode {
-    const pages = Math.ceil(sheet.tiles.length / TILES_PER_PAGE)
+  protected renderBrowser(): React.ReactNode {
     return (
-      <div className={'hb-map16-browser' + (this.browserOpen ? '' : ' hb-map16-browser-closed')}>
+      <div className="hb-map16-browser">
         <div className="hb-map16-browser-head">
           <button
             data-control="browser-toggle"
@@ -1088,12 +1074,9 @@ export class Map16ViewWidget extends ReactWidget {
             />
             Tiles
           </button>
-          <span className="hb-map16-browser-note">
-            {`${sheet.tiles.length} tiles, ${pages} ${pages === 1 ? 'page' : 'pages'}: read from this ROM. More pages need an expanded Map16 table (en-gen/hackbench#102).`}
-          </span>
         </div>
         {this.browserOpen && (
-          <div className="hb-map16-canvas-wrap">
+          <div className="hb-map16-canvas-wrap" ref={this.bindCanvasWrap}>
             <canvas
               className="hb-map16-canvas hb-pixel-canvas"
               onClick={this.handleCanvasClick}

@@ -15,7 +15,6 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
-import { Emitter } from '@theia/core/lib/common'
 import {
   GFX_FORMATS,
   GfxFormat,
@@ -25,6 +24,8 @@ import {
   gfxFormatLabel,
 } from '../common/gfx-protocol'
 import { GfxFrontendClient } from './gfx-push-client'
+import { WheelBinding, ZoomController } from './zoom-controller'
+import { ZoomStepper } from './zoom-stepper'
 
 export const GFX_VIEW_ID = 'hackbench.gfx-view'
 
@@ -46,10 +47,10 @@ const DEFAULT_ZOOM = 4
  * Zoom is a property of how the user is READING sheets, not of one sheet, so
  * it is shared: set 8x on any tab and every open sheet follows, including
  * ones opened later. Module scope rather than a service because nothing
- * outside this view has any use for it.
+ * outside this view has any use for it. Each widget still binds Ctrl +
+ * wheel on its own node and disposes that binding independently.
  */
-let sharedZoom = DEFAULT_ZOOM
-const zoomChangedEmitter = new Emitter<number>()
+const sharedZoomController = new ZoomController(ZOOM_OPTIONS, DEFAULT_ZOOM)
 
 /** Decodes the base64 RGBA payload back into bytes a canvas can paint. */
 function decodeRgba(base64: string): Uint8ClampedArray {
@@ -71,6 +72,7 @@ export class GfxViewWidget extends ReactWidget {
   protected bppChoice: GfxFormat | undefined
   protected paletteRowChoice: number | undefined
   protected canvasEl: HTMLCanvasElement | null = null
+  protected wheelBinding: WheelBinding | undefined
   /** Bumped on every reload; a response is applied only if it is still current,
    * so two rapid control changes cannot have the slower one overwrite the newer. */
   protected reloadToken = 0
@@ -81,7 +83,13 @@ export class GfxViewWidget extends ReactWidget {
     this.title.closable = true
     this.node.tabIndex = 0
     // Every open sheet redraws when any one of them changes the zoom.
-    this.toDispose.push(zoomChangedEmitter.event(() => this.update()))
+    this.toDispose.push(sharedZoomController.onDidChange(() => this.update()))
+    // `this.node` (`.hb-gfx-view`) is the widget's own scroll container in
+    // BOTH axes - the canvas wrap has no bounded height of its own, so it
+    // never scrolls itself. `this.node` exists for the widget's whole life,
+    // unlike the canvas, which only exists once a sheet has loaded.
+    this.wheelBinding = sharedZoomController.bindWheel(this.node, () => this.canvasEl)
+    this.toDispose.push(this.wheelBinding)
     // A palette edit (or anything else touching this project's working
     // copy) re-decodes this sheet, which is what makes an edit visibly
     // recolour an already-open GFX view without the user reopening it.
@@ -139,29 +147,37 @@ export class GfxViewWidget extends ReactWidget {
     this.node.focus()
   }
 
-  /** React has committed the DOM by the time super returns, so the canvas element is current. */
+  /** Stable, so React does not detach and re-attach the canvas on every commit. */
+  protected readonly bindCanvas = (el: HTMLCanvasElement | null): void => {
+    this.canvasEl = el
+    this.paintCanvas()
+  }
+
   protected override onUpdateRequest(msg: Message): void {
     super.onUpdateRequest(msg)
     this.paintCanvas()
   }
 
   protected paintCanvas(): void {
-    if (!this.canvasEl || !this.sheet || this.sheet.height === 0) return
+    if (!this.canvasEl || !this.sheet || this.sheet.height === 0) {
+      // No resize is happening this call; discard rather than let a
+      // wheel-driven anchor sit pending and misapply on a later, unrelated
+      // canvas - see the anchor's own staleness check in restoreAnchor.
+      this.wheelBinding?.restoreAnchor()
+      return
+    }
     const { width, height, rgbaBase64 } = this.sheet
+    const zoom = sharedZoomController.value
     this.canvasEl.width = width
     this.canvasEl.height = height
     // Zoom is CSS only, so the bitmap stays 1:1 with the ROM's pixels and
     // putImageData never has to resample.
-    this.canvasEl.style.width = `${width * sharedZoom}px`
-    this.canvasEl.style.height = `${height * sharedZoom}px`
+    this.canvasEl.style.width = `${width * zoom}px`
+    this.canvasEl.style.height = `${height * zoom}px`
+    this.wheelBinding?.restoreAnchor()
     const ctx = this.canvasEl.getContext('2d')
     if (!ctx) return
     ctx.putImageData(new ImageData(decodeRgba(rgbaBase64), width, height), 0, 0)
-  }
-
-  protected handleZoomChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
-    sharedZoom = Number(e.target.value)
-    zoomChangedEmitter.fire(sharedZoom)
   }
 
   protected handleBppChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
@@ -223,30 +239,13 @@ export class GfxViewWidget extends ReactWidget {
               ))}
             </select>
           </label>
-          <label className="hb-gfx-view-control">
-            Zoom
-            <select
-              id="hb-gfx-zoom-select"
-              className="theia-select"
-              value={sharedZoom}
-              onChange={this.handleZoomChange}
-            >
-              {ZOOM_OPTIONS.map(z => (
-                <option key={z} value={z}>{`${z}x`}</option>
-              ))}
-            </select>
-          </label>
+          <span className="hb-toolbar-spacer" />
+          <ZoomStepper controller={sharedZoomController} />
         </div>
         {this.error && <div className="hb-gfx-view-error">{this.error}</div>}
         {s && s.height > 0 && (
           <div className="hb-gfx-view-canvas-wrap">
-            <canvas
-              className="hb-gfx-view-canvas hb-pixel-canvas"
-              ref={el => {
-                this.canvasEl = el
-                this.paintCanvas()
-              }}
-            />
+            <canvas className="hb-gfx-view-canvas hb-pixel-canvas" ref={this.bindCanvas} />
           </div>
         )}
       </div>

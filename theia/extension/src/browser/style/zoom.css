@@ -1,0 +1,7 @@
+/* The shared zoom stepper (#341); its buttons use index.css's `.hb-icon-btn`. */
+
+.hb-zoom-stepper {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}

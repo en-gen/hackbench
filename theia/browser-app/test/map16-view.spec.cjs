@@ -553,21 +553,6 @@ test('opening a row shows a real sheet of the count the cartridge reports', asyn
   // "block" was this view's own invention; the community and
   // docs/glossary.md:137 both call a 16x16 Map16 entry a tile.
   expect(summary.toLowerCase()).not.toContain('block')
-
-  // Where the count came from, said in place. A page control that cannot
-  // work would be worse than saying what a further page needs.
-  const note = await page.locator(`${FG} .hb-map16-browser-note`).textContent()
-  expect(note).toContain('read from this ROM')
-  expect(note).toContain('en-gen/hackbench#102')
-})
-
-/** The L2 (background) count comes from that layer's own fill-loop bound. */
-test('the Background tab says its extent is read from this ROM', async ({ page }) => {
-  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-  await openMap16(page, 'bg')
-
-  const note = await page.locator(`${BG} .hb-map16-browser-note`).textContent()
-  expect(note).toContain('read from this ROM')
 })
 
 /**
@@ -2328,15 +2313,10 @@ test('collapsing the grid leaves a narrow bar, and expanding it restores the lay
   expect(collapsed.main.x - collapsed.root.x).toBeLessThan(80)
   expect(contains(collapsed.root, collapsed.preview)).toBe(true)
 
-  // Prove it can fail: keep the note showing at full width while collapsed,
-  // as the first cut of #623 did, and the bar is no longer narrow.
-  await withPlanted(
-    page,
-    `${FG} .hb-map16-browser-closed .hb-map16-browser-note { display: inline; contain: none; }`,
-    async () => {
-      expect((await layoutOf(page)).browser.width).toBeGreaterThanOrEqual(80)
-    },
-  )
+  // Prove it can fail: a collapsed column that keeps a floor width is no bar.
+  await withPlanted(page, `${FG} .hb-map16-browser { min-width: 200px; }`, async () => {
+    expect((await layoutOf(page)).browser.width).toBeGreaterThanOrEqual(80)
+  })
 
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-expanded', 'true')
@@ -2434,4 +2414,215 @@ test("turning an inspector switch on leaves the hidden tile's sheet cell unchang
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await page.locator(`${FG} .hb-map16-browser-head`).hover()
   expect(await tilePixels(page, HIDDEN_TILE_ID)).toEqual(before)
+})
+
+/**
+ * Ctrl + wheel over an on-screen zoom control (#651): it steps the SAME
+ * indicator/canvas the toolbar buttons drive, it clamps exactly where the
+ * buttons clamp, keeps the same canvas pixel under the cursor, is cancelled
+ * everywhere in the shell (not just over a zoom control), and PLAIN wheel
+ * is left doing what it always did (scrolling the strip).
+ *
+ * `page.mouse.wheel` dispatches a real `wheel` event with `ctrlKey` set
+ * from whatever modifier keys are currently held, so `keyboard.down/up`
+ * around it is what makes this Ctrl + wheel rather than a plain scroll -
+ * exactly the distinction `ZoomController.bindWheel` gates on. The "never
+ * page-zooms" case cannot be proven that way, though: a synthetic CDP wheel
+ * does not drive Chromium's real page-zoom feature, so that assertion would
+ * stay green even with no guard at all - see `assertCancelled` below, which
+ * checks `defaultPrevented` on a dispatched event instead.
+ */
+
+async function ctrlWheel(page, locator, deltaY) {
+  const box = await locator.boundingBox()
+  await ctrlWheelAt(page, box.x + box.width / 2, box.y + box.height / 2, deltaY)
+}
+
+/** Settles a wheel: the widget's update frame, then the anchor's follow-up frame. */
+async function afterWheel(page) {
+  await page.evaluate(
+    () =>
+      new Promise(r =>
+        requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))),
+      ),
+  )
+}
+
+/** The canvas's on-screen zoom, from its laid-out width, so a wait can see the repaint land. */
+function canvasZoom(page, sel) {
+  return page.evaluate(s => {
+    const c = document.querySelector(s)
+    return c.getBoundingClientRect().width / c.width
+  }, sel)
+}
+
+/** Same as `ctrlWheel`, but at a client point the caller already knows,
+ * rather than re-measuring `locator`'s CURRENT box. An anchoring check needs
+ * this: `.hb-map16-canvas-wrap`'s own page position can shift a few px
+ * between one render and the next (unrelated to scroll or zoom), so
+ * re-deriving the point from a fresh boundingBox() after that shift wheels
+ * at a DIFFERENT point than the one the content-coordinate check compares
+ * against - not a defect in the widget, a mismatch in the test. */
+async function ctrlWheelAt(page, clientX, clientY, deltaY) {
+  await page.mouse.move(clientX, clientY)
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, deltaY)
+  await page.keyboard.up('Control')
+  await afterWheel(page)
+}
+
+/** Dispatches one wheel event on `selector` and returns whether it was
+ * cancelled - the CtrlWheelGuardContribution/ZoomController contract. */
+async function dispatchWheel(page, selector, ctrlKey) {
+  return page.evaluate(
+    ({ selector, ctrlKey }) => {
+      const el = document.querySelector(selector)
+      const e = new WheelEvent('wheel', { ctrlKey, cancelable: true, bubbles: true, deltaY: -100 })
+      el.dispatchEvent(e)
+      return e.defaultPrevented
+    },
+    { selector, ctrlKey },
+  )
+}
+
+/** The client-space point's CONTENT coordinate on the Map16 strip, computed
+ * from the canvas's own rendered box - not the wrap's padded one. */
+async function map16ContentPointAt(page, canvasSel, clientX, clientY) {
+  return page.evaluate(
+    ({ canvasSel, clientX, clientY }) => {
+      const canvas = document.querySelector(canvasSel)
+      const rect = canvas.getBoundingClientRect()
+      const zoom = rect.width / canvas.width
+      return { x: (clientX - rect.left) / zoom, y: (clientY - rect.top) / zoom }
+    },
+    { canvasSel, clientX, clientY },
+  )
+}
+
+test('Ctrl + wheel over the Map16 strip steps the zoom indicator and the canvas size', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+
+  const wrap = page.locator(`${FG} .hb-map16-canvas-wrap`)
+  const canvas = page.locator(`${FG} .hb-map16-canvas`)
+  const widthBefore = await canvas.evaluate(el => el.getBoundingClientRect().width)
+  expect(await page.locator(ctl('zoom-indicator')).textContent()).toBe(`${DEFAULT_ZOOM}x`)
+
+  // One notch (~100px of accumulated delta) is one step, same as one click
+  // of the zoom-in button.
+  await ctrlWheel(page, wrap, -120)
+
+  await expect(page.locator(ctl('zoom-indicator'))).toHaveText(`${DEFAULT_ZOOM + 1}x`)
+  await expect
+    .poll(() => canvas.evaluate(el => el.getBoundingClientRect().width))
+    .toBeGreaterThan(widthBefore)
+})
+
+test('Ctrl + wheel clamps at the same limits as the zoom buttons', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  const wrap = page.locator(`${FG} .hb-map16-canvas-wrap`)
+
+  // Zoom in far past the 4x ceiling with one big scroll.
+  await ctrlWheel(page, wrap, -1000)
+  await expect(page.locator(ctl('zoom-indicator'))).toHaveText('4x')
+  await expect(page.locator(ctl('zoom-in'))).toBeDisabled()
+
+  // And back down past the 1x floor.
+  await ctrlWheel(page, wrap, 2000)
+  await expect(page.locator(ctl('zoom-indicator'))).toHaveText('1x')
+  await expect(page.locator(ctl('zoom-out'))).toBeDisabled()
+})
+
+/**
+ * `.hb-map16-browser` sizes itself to its content (`flex: 0 1 auto`), so it
+ * widens as the canvas widens with zoom, which can shift
+ * `.hb-map16-canvas-wrap`'s own page position for reasons that have
+ * nothing to do with the zoom step itself - measured against the tile
+ * browser's header note before its removal (#651). `restoreAnchor()`
+ * re-reads the canvas's box AFTER any such reflow rather than trusting
+ * anything measured at wheel time (see zoom-controller.ts), so this spec
+ * runs the real layout with no plant needed to suppress a reflow.
+ */
+test('Ctrl + wheel keeps the same canvas pixel under the cursor, in and out, within 1px', async ({
+  page,
+}) => {
+  // Narrow enough that the strip overflows horizontally too at the default zoom.
+  await page.setViewportSize({ width: 760, height: 720 })
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  const wrap = page.locator(`${FG} .hb-map16-canvas-wrap`)
+  const canvasSel = `${FG} .hb-map16-canvas`
+
+  // Scroll BOTH axes first - the padding/scroll offset this guards against
+  // is invisible at (0, 0). A SMALL scroll plus a point near the wrap's
+  // own corner, not its center: keeping the cursor's CONTENT coordinate
+  // small keeps the scroll shift a step needs small too, well inside
+  // whatever overflow this browser strip happens to have - a point at the
+  // wrap's center over a wide sheet needed a shift bigger than the
+  // horizontal overflow that zoom level actually had, which scroll-based
+  // anchoring cannot exceed regardless of how correct the math is.
+  await wrap.evaluate(el => {
+    el.scrollLeft = 20
+    el.scrollTop = 15
+  })
+  // Both offsets must have taken, or this is the unscrolled case in disguise.
+  expect(await wrap.evaluate(el => [el.scrollLeft, el.scrollTop])).toEqual([20, 15])
+  const box = await wrap.boundingBox()
+  const clientX = box.x + 30
+  const clientY = box.y + 30
+
+  const before = await map16ContentPointAt(page, canvasSel, clientX, clientY)
+
+  // ctrlWheelAt, not ctrlWheel(page, wrap, ...): re-deriving the wheel
+  // point from a fresh boundingBox() after the widget re-renders could
+  // wheel at a different point than clientX/clientY, which is what the
+  // content-coordinate check below actually compares against.
+  const zoomBefore = await canvasZoom(page, canvasSel)
+  await ctrlWheelAt(page, clientX, clientY, -120) // one step in
+  await expect.poll(() => canvasZoom(page, canvasSel)).toBeGreaterThan(zoomBefore)
+  await afterWheel(page)
+  const afterIn = await map16ContentPointAt(page, canvasSel, clientX, clientY)
+  expect(Math.abs(afterIn.x - before.x)).toBeLessThan(1)
+  expect(Math.abs(afterIn.y - before.y)).toBeLessThan(1)
+
+  await ctrlWheelAt(page, clientX, clientY, 120) // one step back out
+  await expect.poll(() => canvasZoom(page, canvasSel)).toBe(zoomBefore)
+  await afterWheel(page)
+  const afterOut = await map16ContentPointAt(page, canvasSel, clientX, clientY)
+  expect(Math.abs(afterOut.x - before.x)).toBeLessThan(1)
+  expect(Math.abs(afterOut.y - before.y)).toBeLessThan(1)
+})
+
+test('Ctrl + wheel is cancelled everywhere in the shell, not only over a zoom control', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+
+  expect(await dispatchWheel(page, `${FG} .hb-map16-canvas-wrap`, true)).toBe(true)
+  expect(await dispatchWheel(page, '#hackbench\\.gfx-explorer', true)).toBe(true)
+  expect(await dispatchWheel(page, 'body', true)).toBe(true)
+
+  // A plain wheel is untouched, on the sheet and off it alike.
+  expect(await dispatchWheel(page, `${FG} .hb-map16-canvas-wrap`, false)).toBe(false)
+  expect(await dispatchWheel(page, 'body', false)).toBe(false)
+})
+
+test('plain wheel still scrolls the Map16 strip and does not touch zoom', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  const wrap = page.locator(`${FG} .hb-map16-canvas-wrap`)
+
+  const scrollBefore = await wrap.evaluate(el => el.scrollTop)
+  const box = await wrap.boundingBox()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.wheel(0, 400) // no Control held
+  await page.waitForTimeout(200)
+
+  const scrollAfter = await wrap.evaluate(el => el.scrollTop)
+  expect(scrollAfter).toBeGreaterThan(scrollBefore)
+  expect(await page.locator(ctl('zoom-indicator')).textContent()).toBe(`${DEFAULT_ZOOM}x`)
 })

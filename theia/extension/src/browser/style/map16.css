@@ -211,9 +211,14 @@
 }
 
 /* The gutter is reserved up front so the column's width, which comes from
-   the canvas, does not change when the vertical scrollbar appears. */
+   the canvas, does not change when the vertical scrollbar appears.
+   `overflow-anchor: none` (#651): Chromium's own scroll anchoring would
+   otherwise ALSO react to the canvas resizing on every zoom step, fighting
+   ZoomController's own restoreAnchor() over the same scroll position with
+   its own (cursor-unaware) heuristic. */
 .hb-map16-canvas-wrap {
   overflow: auto;
+  overflow-anchor: none;
   scrollbar-gutter: stable;
   padding: 1.2em;
 }
@@ -534,20 +539,6 @@
   font-size: var(--theia-ui-font-size0);
 }
 
-/* Contained so the column is as wide as the grid, not as wide as this
-   sentence; the note wraps to fit instead. Collapsed, the strip is just
-   its toggle, and the preview column gets the width back. */
-.hb-map16-browser-note {
-  font-size: 10px;
-  color: var(--theia-descriptionForeground);
-  flex-grow: 1;
-  contain: inline-size;
-}
-
-.hb-map16-browser-closed .hb-map16-browser-note {
-  display: none;
-}
-
 /* Icon toolbar: zoom stepper, grid and animation toggles. Sits above the
    data selectors so shell-style actions and form fields do not interleave. */
 /* Keeps the base toolbar's 1em gap between the TEXT items (title,
@@ -559,7 +550,9 @@
   align-items: center;
 }
 
-/* The icon buttons themselves, packed tightly as one control group. */
+/* The icon buttons themselves, packed tightly as one control group.
+   `.hb-icon-btn` (style/zoom.css) supplies the button's own look, shared
+   with the zoom stepper's own buttons. */
 .hb-map16-toolbar-actions {
   display: flex;
   align-items: center;

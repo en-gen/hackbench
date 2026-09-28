@@ -114,6 +114,16 @@ function firstGfxFileRow(page) {
   return page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(MAP16_ROW_COUNT)
 }
 
+/** The `n`th GFX FILE row (0-based), same offset as `firstGfxFileRow`. */
+function gfxFileRow(page, n) {
+  return page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(MAP16_ROW_COUNT + n)
+}
+
+/** One GFX view widget's dom root, keyed by file index - GFX_VIEW_ID in gfx-view-widget.tsx. */
+function gfxViewRoot(index) {
+  return `[id="hackbench.gfx-view:${index}"]`
+}
+
 test('the graphics view has nothing to show until a project is open', async ({ page }) => {
   await revealGfx(page)
 
@@ -493,4 +503,262 @@ test('the graphics explorer and GFX view speak of ROMs, never cartridges', async
   const explorer = () => shownWords(page, '[id="hackbench.gfx-explorer"]')
   await expect.poll(explorer).toContain('Locate the base ROM')
   expect(await explorer()).not.toMatch(CART)
+})
+
+/**
+ * Ctrl + wheel over the GFX sheet (#651), mirroring map16-view.spec.cjs's
+ * own coverage. The GFX zoom stepper reads the SAME shared `ZoomController`
+ * every open sheet does (gfx-view-widget.tsx's `sharedZoomController`), so
+ * the interesting case here is the SECOND part: does a wheel-driven step on
+ * one sheet also move a sheet that never received the event.
+ */
+async function ctrlWheel(page, locator, deltaY) {
+  const box = await locator.boundingBox()
+  await ctrlWheelAt(page, box.x + box.width / 2, box.y + box.height / 2, deltaY)
+}
+
+/** Settles a wheel: the widget's update frame, then the anchor's follow-up frame. */
+async function afterWheel(page) {
+  await page.evaluate(
+    () =>
+      new Promise(r =>
+        requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))),
+      ),
+  )
+}
+
+/** The canvas's on-screen zoom, from its laid-out width, so a wait can see the repaint land. */
+function canvasZoom(page, sel) {
+  return page.evaluate(s => {
+    const c = document.querySelector(s)
+    return c.getBoundingClientRect().width / c.width
+  }, sel)
+}
+
+/** Same as `ctrlWheel`, but at a client point the caller already knows,
+ * rather than re-measuring `locator`'s CURRENT box - needed for anchoring
+ * checks, where the point has to match exactly what the content-coordinate
+ * comparison uses. */
+async function ctrlWheelAt(page, clientX, clientY, deltaY) {
+  await page.mouse.move(clientX, clientY)
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, deltaY)
+  await page.keyboard.up('Control')
+  await afterWheel(page)
+}
+
+test('Ctrl + wheel over the GFX sheet steps its zoom indicator and canvas size', async ({
+  page,
+}) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(300)
+
+  const canvas = page.locator('.hb-gfx-view-canvas')
+  const wrap = page.locator('.hb-gfx-view-canvas-wrap')
+  const widthBefore = await canvas.evaluate(el => el.getBoundingClientRect().width)
+  const indicator = page.locator('[data-control="zoom-indicator"]')
+  const before = await indicator.textContent()
+
+  await ctrlWheel(page, wrap, -120)
+
+  await expect(indicator).not.toHaveText(before)
+  await expect
+    .poll(() => canvas.evaluate(el => el.getBoundingClientRect().width))
+    .toBeGreaterThan(widthBefore)
+})
+
+test('Ctrl + wheel on the GFX sheet clamps at 1x and 8x', async ({ page }) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(300)
+
+  const wrap = page.locator('.hb-gfx-view-canvas-wrap')
+  const indicator = page.locator('[data-control="zoom-indicator"]')
+
+  await ctrlWheel(page, wrap, -2000)
+  await expect(indicator).toHaveText('8x')
+  await expect(page.locator('[data-control="zoom-in"]')).toBeDisabled()
+
+  await ctrlWheel(page, wrap, 2000)
+  await expect(indicator).toHaveText('1x')
+  await expect(page.locator('[data-control="zoom-out"]')).toBeDisabled()
+})
+
+test('a second open GFX sheet follows a zoom change made on the first', async ({ page }) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await page.waitForSelector('#hackbench\\.gfx-explorer .theia-TreeNode', { timeout: 15000 })
+
+  await gfxFileRow(page, 0).dblclick() // pin file 0
+  await gfxFileRow(page, 1).dblclick() // pin file 1 as a second, independent widget
+  await page.waitForSelector(`${gfxViewRoot(1)} .hb-gfx-view-canvas`, { timeout: 15000 })
+  await page.waitForTimeout(300)
+
+  const indicatorFor = index =>
+    page.locator(`${gfxViewRoot(index)} [data-control="zoom-indicator"]`)
+  const before0 = await indicatorFor(0).textContent()
+  const before1 = await indicatorFor(1).textContent()
+  expect(before1).toBe(before0) // shared controller: both open at the same zoom
+
+  const wrap1 = page.locator(`${gfxViewRoot(1)} .hb-gfx-view-canvas-wrap`)
+  await ctrlWheel(page, wrap1, -120) // wheel over sheet 1 only
+
+  await expect(indicatorFor(1)).not.toHaveText(before1)
+  // Sheet 0 never received a wheel event, but the shared controller moved it too.
+  await expect(indicatorFor(0)).toHaveText(await indicatorFor(1).textContent())
+})
+
+/** The client-space point's CONTENT coordinate on the GFX canvas. */
+async function gfxContentPointAt(page, canvasSel, clientX, clientY) {
+  return page.evaluate(
+    ({ canvasSel, clientX, clientY }) => {
+      const canvas = document.querySelector(canvasSel)
+      const rect = canvas.getBoundingClientRect()
+      const zoom = rect.width / canvas.width
+      return { x: (clientX - rect.left) / zoom, y: (clientY - rect.top) / zoom }
+    },
+    { canvasSel, clientX, clientY },
+  )
+}
+
+test('Ctrl + wheel keeps the same canvas pixel under the cursor, in and out, within 1px', async ({
+  page,
+}) => {
+  // A viewport this small guarantees the canvas overflows `.hb-gfx-view` at
+  // EVERY zoom level this test uses - anchoring can only be proven where
+  // there is scrollable range for it to actually act on. At the default
+  // viewport the 128x64 sheet stayed entirely inside the view through 4x
+  // and 6x, so scrollLeft/scrollTop stayed clamped to 0 the whole time and
+  // the "anchor" was a no-op: the point drifted exactly as fast as an
+  // un-anchored zoom from a fixed top-left corner would.
+  await page.setViewportSize({ width: 500, height: 450 })
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(300)
+
+  const canvasSel = '.hb-gfx-view-canvas'
+  const view = page.locator('.hb-gfx-view')
+  // A SMALL, off-center scroll, not the middle of the overflow range:
+  // scrolled to dead center, this spec could not tell restoreAnchor() apart
+  // from having none at all (proven by disabling it and seeing this spec
+  // stay green) - a symmetric resize from a symmetric scroll position keeps
+  // the visible center roughly stable on its own. A small, asymmetric
+  // offset does not get that free ride.
+  await view.evaluate(el => {
+    el.scrollLeft = 15
+    el.scrollTop = 15
+  })
+  const overflow = await view.evaluate(el => ({
+    x: el.scrollWidth - el.clientWidth,
+    y: el.scrollHeight - el.clientHeight,
+  }))
+  expect(overflow.x).toBeGreaterThan(10) // the setup itself must produce overflow
+  expect(overflow.y).toBeGreaterThan(10)
+
+  // A point near the VIEW's own bottom-left corner, never the canvas's own
+  // boundingBox(): that is the canvas's full, UNCLIPPED layout box, which -
+  // once it is much bigger than the viewport - can put "30px into the
+  // canvas" outside the visible viewport entirely, where mouse events
+  // cannot land (measured: a 512x256 canvas in a 100x131 visible pane put
+  // that point ~130px below the bottom of the actual window). `.hb-gfx-
+  // view`'s own box IS the visible, clipped viewport, and the canvas fills
+  // it entirely below the toolbar, so a point near its bottom-left lands on
+  // the canvas.
+  const viewBox = await view.boundingBox()
+  const clientX = viewBox.x + 20
+  const clientY = viewBox.y + viewBox.height - 20
+
+  const before = await gfxContentPointAt(page, canvasSel, clientX, clientY)
+  // ctrlWheelAt, not ctrlWheel(page, locator, ...): re-deriving the point
+  // from a fresh boundingBox() after a re-render could wheel somewhere
+  // other than clientX/clientY, which is what `before`/`afterIn` compare.
+  const zoomBefore = await canvasZoom(page, canvasSel)
+  await ctrlWheelAt(page, clientX, clientY, -120) // one step in
+  await expect.poll(() => canvasZoom(page, canvasSel)).toBeGreaterThan(zoomBefore)
+  await afterWheel(page)
+  const afterIn = await gfxContentPointAt(page, canvasSel, clientX, clientY)
+  expect(Math.abs(afterIn.x - before.x)).toBeLessThan(1)
+  expect(Math.abs(afterIn.y - before.y)).toBeLessThan(1)
+
+  await ctrlWheelAt(page, clientX, clientY, 120) // one step back out
+  await expect.poll(() => canvasZoom(page, canvasSel)).toBe(zoomBefore)
+  await afterWheel(page)
+  const afterOut = await gfxContentPointAt(page, canvasSel, clientX, clientY)
+  expect(Math.abs(afterOut.x - before.x)).toBeLessThan(1)
+  expect(Math.abs(afterOut.y - before.y)).toBeLessThan(1)
+})
+
+test('Ctrl + wheel over the GFX sheet is cancelled; a plain wheel is not', async ({ page }) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+
+  const dispatchWheel = (selector, ctrlKey) =>
+    page.evaluate(
+      ({ selector, ctrlKey }) => {
+        const el = document.querySelector(selector)
+        const e = new WheelEvent('wheel', {
+          ctrlKey,
+          cancelable: true,
+          bubbles: true,
+          deltaY: -100,
+        })
+        el.dispatchEvent(e)
+        return e.defaultPrevented
+      },
+      { selector, ctrlKey },
+    )
+
+  expect(await dispatchWheel('.hb-gfx-view-canvas', true)).toBe(true)
+  expect(await dispatchWheel('.hb-gfx-view-canvas', false)).toBe(false)
+})
+
+test('plain wheel still scrolls the GFX view and does not touch zoom', async ({ page }) => {
+  // A small viewport plus the ceiling zoom guarantees real vertical
+  // overflow - at the default (larger) viewport, 8x (1024x512) barely
+  // overflowed horizontally and not at all vertically, so scrollTop never
+  // moved for a reason that had nothing to do with the wheel handling.
+  await page.setViewportSize({ width: 260, height: 220 })
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(300)
+
+  const view = page.locator('.hb-gfx-view')
+  // A point inside the VIEW's own (viewport-sized) box, never the canvas's -
+  // once zoomed, the canvas is far bigger than the viewport and can scroll
+  // to where its own boundingBox() center sits outside the visible area,
+  // which would move the mouse somewhere Playwright can't actually hit.
+  const viewBox = await view.boundingBox()
+  const pointX = viewBox.x + viewBox.width / 2
+  const pointY = viewBox.y + viewBox.height / 2
+
+  // Zoom to the ceiling first so the canvas is tall enough to overflow the
+  // view and actually need scrolling.
+  await page.mouse.move(pointX, pointY)
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, -2000)
+  await page.keyboard.up('Control')
+  await afterWheel(page)
+  await expect(page.locator('[data-control="zoom-indicator"]')).toHaveText('8x')
+
+  const overflowY = await view.evaluate(el => el.scrollHeight - el.clientHeight)
+  expect(overflowY).toBeGreaterThan(10) // the setup itself must produce overflow
+  const scrollBefore = await view.evaluate(el => el.scrollTop)
+  await page.mouse.move(pointX, pointY)
+  await page.mouse.wheel(0, 400) // no Control held
+  await page.waitForTimeout(200)
+
+  const scrollAfter = await view.evaluate(el => el.scrollTop)
+  expect(scrollAfter).toBeGreaterThan(scrollBefore)
+  expect(await page.locator('[data-control="zoom-indicator"]').textContent()).toBe('8x')
 })

@@ -2,6 +2,7 @@
 // compiles with rootDir at the repo root (see tsconfig.json, #391), so a
 // relative path from lib/ would not land back in src/.
 import 'hackbench-theia-extension/src/browser/style/index.css'
+import 'hackbench-theia-extension/src/browser/style/zoom.css'
 import 'hackbench-theia-extension/src/browser/style/pixel-canvas.css'
 // The map tab's palace toggles are PixelImageButtons, as the Map16 view's switch toggles are.
 import 'hackbench-theia-extension/src/browser/style/pixel-button.css'
@@ -35,6 +36,7 @@ import { HiddenOutlineViewContribution } from './hidden-outline-view-contributio
 import { CommonFrontendContribution } from '@theia/core/lib/browser/common-frontend-contribution'
 import { ThemeService } from '@theia/core/lib/browser/theming'
 import { SystemColorThemePicker, SystemThemeService } from './system-color-theme'
+import { CtrlWheelGuardContribution } from './ctrl-wheel-guard-contribution'
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   rebind(OutlineViewContribution).to(HiddenOutlineViewContribution).inSingletonScope()
@@ -86,6 +88,9 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
 
   bind(BrandContribution).toSelf().inSingletonScope()
   bind(FrontendApplicationContribution).toService(BrandContribution)
+
+  bind(CtrlWheelGuardContribution).toSelf().inSingletonScope()
+  bind(FrontendApplicationContribution).toService(CtrlWheelGuardContribution)
 
   // One widget per map, keyed by slot, so reopening a map focuses the one
   // already on screen instead of stacking duplicates.

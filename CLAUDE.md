@@ -167,6 +167,11 @@ rather than the runtime. `node/` is the only side allowed to touch the ROM.
 Details, including the two distinct change-notification paths, in
 [docs/architecture/theia-shell.md](docs/architecture/theia-shell.md).
 
+An on-screen zoom control uses `ZoomController` + `ZoomStepper`
+(`theia/extension/src/browser/`), anchored on the cursor. Ctrl + wheel is
+cancelled shell-wide, so `build:browser` never page-zooms and editors don't
+scroll on it (#651).
+
 ### Reference only: the VS Code extension
 
 `src/providers/`, `src/webview/`, `src/extension.ts` and its `src/`-root
@@ -498,7 +503,7 @@ implementer or reviewer and follows these rules instead:
 <!-- gitnexus:start -->
 # GitNexus - Code Intelligence
 
-This project is indexed by GitNexus as **hackbench** (12964 symbols, 34883 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hackbench** (13241 symbols, 35638 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root - it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
