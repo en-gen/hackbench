@@ -8,10 +8,6 @@
  *     │   ASM: InitSuperKoopaFthr falls through → INC Misc1534, TweakerE stays $50
  *     └─ $73 odd slot (spritePx & $10 != 0) → false
  *         ASM: InitSuperKoopaFthr writes TweakerE=$10 clearing bit 6
- *
- *   isSwooping
- *     ├─ $71, $72 → false (InitSuperKoopa straight-flight init)
- *     └─ $73 → true (InitSuperKoopaFthr swoop init)
  */
 
 import { describe, expect, it } from 'vitest'
@@ -51,17 +47,5 @@ describe('SuperKoopaBehavior.dropsFeather', () => {
     expect(b.dropsFeather(0x50)).toBe(false)
     expect(b.dropsFeather(0x110)).toBe(false)
     expect(b.dropsFeather(0x130)).toBe(false)
-  })
-})
-
-describe('SuperKoopaBehavior.isSwooping', () => {
-  it('$71 is straight flight', () => {
-    expect(new SuperKoopaBehavior(0x71).isSwooping()).toBe(false)
-  })
-  it('$72 is straight flight', () => {
-    expect(new SuperKoopaBehavior(0x72).isSwooping()).toBe(false)
-  })
-  it('$73 is swooping', () => {
-    expect(new SuperKoopaBehavior(0x73).isSwooping()).toBe(true)
   })
 })

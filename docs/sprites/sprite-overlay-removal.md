@@ -647,6 +647,97 @@ They are input for issue #321, not defects of this change:
 - `FlyingBlockBehavior.computePath`
 - `BlurpBehavior.swimDirection`
 
-`SurfacePath` and `solidityFromL1` / `spriteCollisionFromL1` are still
-reached from `src/`, through the behaviors above and through the
-webview's `drawSurfaces` overlay.
+`SurfacePath` was reached from `src/` through the behaviors above; its
+only caller now is the reference-only `src/webview/mapEditor/overlays/
+drawSurfaces.ts` (via `buildSurfacePath` directly - `drawSurfaces` never
+called `solidityFromL1` / `spriteCollisionFromL1`, contrary to what an
+earlier draft of this section implied). `solidityFromL1` and
+`spriteCollisionFromL1` were reached only through the behaviors above;
+see the update below for what that means once those behaviors are gone.
+
+## Update 2026-09-28: the behaviors/ layer was deleted (issue #409)
+
+This section's own inventory, above, undercut its "kept for #321" framing
+without saying so: the eleven behavior methods it lists had zero callers
+outside their own tests *at the time this document was written*, not
+after some later drift - the overlays that used to call them were the
+ones removed in #328; nothing has called them since. Issue #409 acted on
+that finding and deleted the classes, rather than carrying them forward
+into #321 (the emulator-based rebuild) as working-but-unused code.
+
+Eleven classes removed outright, source and tests: `KoopaWalkBehavior`,
+`HopFlameBehavior`, `BouncingKoopaBehavior`, `FlyingLeftKoopaBehavior`,
+`SinusoidalParaKoopaBehavior`, `ThwimpBounceBehavior`, `BlurpBehavior`,
+`SumoBrotherBehavior`, `FlyingBlockBehavior`, `WingedGoombaBehavior`, and
+`RipVanFishBehavior`, plus the `simulate.ts` stepping primitives the first
+ten shared. That is every class this document names above.
+
+**`RipVanFishBehavior` was not on the original eleven-method list, and
+turned out to be a mixed case.** The class itself (a `detectHalfPx`
+getter wrapping `RIP_VAN_FISH_DETECT_HALF_PX`) had the same zero-caller
+shape as the other ten and was deleted. The constant it wrapped did not:
+`RipVanFishAppearance.render` reads `RIP_VAN_FISH_DETECT_HALF_PX` directly
+to pick the sleeping-versus-chasing pose from cursor proximity - exactly
+the "appearance data, not movement simulation" distinction this document
+draws in the Rip Van Fish row of the inventory table above. The constant
+survives, re-exported from the same file path; only the class shell is
+gone.
+
+**Two sprites this document's inventory never examined turned out to be
+genuinely live.** `SuperKoopaBehavior` ($71-$73) and `LineBrownPlatBehavior`
+($62) both predate this document (2026-04-24, `f3ec4ec2` and `04436106`) -
+they were simply never in scope for the overlay-removal audit above, not
+added afterward. `SuperKoopaBehavior.dropsFeather(x)` drives the
+cape-flash render in `SuperKoopaAppearance`, and `LineBrownPlatBehavior`'s
+`xShiftPx(direction)` set the direction-dependent draw offset in
+`LineBrownPlatAppearance`. Both call sites are ordinary per-frame render
+logic, not the removed overlay pattern - proof that "reached only from
+behaviors/" needs checking per class, not assumed for a whole directory
+an audit didn't actually cover.
+
+`SuperKoopaBehavior` stays (`dropsFeather` is its only method and is
+live). `LineBrownPlatBehavior` did not: `xShiftPx` is a pure function of
+its `direction` argument with no ROM-parsed state, so it moved to a plain
+function next to `LineBrownPlatAppearance`, and `BehaviorFactory`'s
+`case 0x62` was dropped - it produced an object identical to what the
+`default` case already returns for every field any live caller reads.
+`SuperKoopaBehavior.isSwooping()`, an unused sibling method next to the
+live `dropsFeather`, was deleted the same way as the eleven above: no
+caller anywhere outside its own test.
+
+**Sprite-perspective `TileCollision` fields have a live reader today, and
+it is not `SmwMap.renderSpriteOverlays`.** `renderSpriteOverlays`'s
+`getL1` closure only feeds the sprite-annotation `renderOverlay` hook,
+which has zero implementations (see "Sprite annotations" below) - it
+currently feeds nothing live. The actual live readers of
+`tile.collision.floor` are in `SpriteFactory.ts`: line 402 picks the
+Super Koopa's airborne-vs-grounded pose, and line 931 (inside
+`thwompReactRangeDy`) scans for the floor row below a Thwomp. Neither
+goes through `solidityFromL1` or `spriteCollisionFromL1` - both read
+`tile.collision.floor` directly off the parsed L1 tile.
+
+`solidityFromL1` (`MovementBehavior.ts`) and `spriteCollisionFromL1`
+(`SpriteCollision.ts`) lost their only production callers with this
+deletion (`KoopaWalkBehavior` and others; `BouncingKoopaBehavior` and
+`WingedGoombaBehavior`, respectively) and are exercised only by their own
+tests today. Kept rather than deleted, since they are small,
+independently-useful predicate bundles, not simulations - but that call
+was made without a deep look at whether keeping them is actually right,
+which is why it is a separately-flagged follow-up rather than a decision
+made here.
+
+With `LineBrownPlatBehavior` gone, `MovementBehavior` has zero concrete
+subclasses left in `src/`. `SuperKoopaBehavior` is the only class still
+registered in `BehaviorFactory`, and its one live method
+(`dropsFeather(x)`) is exactly as pure a function of its arguments as
+`xShiftPx` was - it just wasn't converted in this change, to keep the
+diff reviewable. **Follow-up (issue #418):** turn `SuperKoopaBehavior`
+into a plain function next to `SuperKoopaAppearance`, the same move made
+here for `LineBrownPlatBehavior`, and then delete `MovementBehavior`,
+`BehaviorFactory`, and the now-empty `sprites/behaviors/` directory - at
+that point nothing needs a `SpriteBehavior` subclass for anything beyond
+the shared metadata object `BehaviorFactory`'s `default` case already
+returns.
+
+See `src/rom/model/sprites/CLAUDE.md` for the current (post-deletion)
+description of the `behaviors/` layer.

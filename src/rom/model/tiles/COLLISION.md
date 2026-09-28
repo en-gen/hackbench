@@ -11,13 +11,12 @@ No folklore. No approximation. Every field cites an ASM line.
 fields so consumers can pick the view that matches their query:
 
 - **Sprite-perspective consumers** read `floor` / `ceiling` / `wall`:
-  they need to match `CODE_01928E` / `CODE_0192C9` runtime behavior.
-  Today those are the `sprites/behaviors/` simulators (through
-  `solidityFromL1`) and the `getL1` closure `SmwMap.renderSpriteOverlays`
-  hands to sprite annotations. The sprite overlays that used to be the
-  visible consumer (KoopaWalk patrol, HopFlame bounce, CheepCheep arc)
-  were removed; see `docs/sprites/sprite-overlay-removal.md`. The sprite fields
-  are not dead with them: the simulators still read them.
+  they need to match `CODE_01928E` / `CODE_0192C9` runtime behavior. Live
+  today via direct reads in `SpriteFactory.ts` (the Super Koopa airborne
+  check, `thwompReactRangeDy`), not through `SmwMap.renderSpriteOverlays`.
+  See `docs/sprites/sprite-overlay-removal.md`'s update section for the
+  movement-simulation classes removed in issue #409 that used to read
+  these fields.
 - **Editor overlays** ("Show surfaces", "Show walls") read
   `marioFloor` / `marioCeiling` / `marioWall` — the designer wants
   to see what the player experiences.

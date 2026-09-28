@@ -7,117 +7,20 @@
  * confirms common metadata was merged in.
  *
  * Sprite ids covered:
- *   KoopaWalk   : 0x00–0x07, 0x0C, 0x0F, 0x30, 0x32   (12 cases)
- *   WingedGoomba: 0x10
- *   FlyingLeft  : 0x08
- *   Bouncing    : 0x09
- *   Sinusoidal V: 0x0A
- *   Sinusoidal H: 0x0B
- *   HopFlame    : 0x1D
- *   Thwimp      : 0x27
- *   RipVanFish  : 0x3D
- *   Blurp       : 0xC2
- *   LineBrownPlt: 0x62
- *   FlyingBlock : 0x83, 0x84
- *   SuperKoopa  : 0x71, 0x72, 0x73
- *   SumoBrother : 0x9A
- *   default     : 0xFF (plain-object fallback)
+ *   SuperKoopa : 0x71, 0x72, 0x73 (the only registered class left)
+ *   default    : everything else, swept explicitly for the 24 sprite ids
+ *     that used to dispatch to one of the eleven now-deleted
+ *     `MovementBehavior` subclasses (see BehaviorFactory.ts's doc comment
+ *     and docs/sprites/sprite-overlay-removal.md's update section), plus
+ *     $62 separately (its `LineBrownPlatBehavior` case was dropped because
+ *     it produced output identical to `default`, not because it was dead).
  */
 
 import { describe, it, expect } from 'vitest'
 import { buildMovementBehavior } from '../../../src/rom/model/sprites/behaviors/BehaviorFactory'
-import { KoopaWalkBehavior } from '../../../src/rom/model/sprites/behaviors/KoopaWalkBehavior'
-import { WingedGoombaBehavior } from '../../../src/rom/model/sprites/behaviors/WingedGoombaBehavior'
-import { FlyingLeftKoopaBehavior } from '../../../src/rom/model/sprites/behaviors/FlyingLeftKoopaBehavior'
-import { BouncingKoopaBehavior } from '../../../src/rom/model/sprites/behaviors/BouncingKoopaBehavior'
-import { SinusoidalParaKoopaBehavior } from '../../../src/rom/model/sprites/behaviors/SinusoidalParaKoopaBehavior'
-import { HopFlameBehavior } from '../../../src/rom/model/sprites/behaviors/HopFlameBehavior'
-import { ThwimpBounceBehavior } from '../../../src/rom/model/sprites/behaviors/ThwimpBounceBehavior'
-import { RipVanFishBehavior } from '../../../src/rom/model/sprites/behaviors/RipVanFishBehavior'
-import { BlurpBehavior } from '../../../src/rom/model/sprites/behaviors/BlurpBehavior'
-import { LineBrownPlatBehavior } from '../../../src/rom/model/sprites/behaviors/LineBrownPlatBehavior'
-import { FlyingBlockBehavior } from '../../../src/rom/model/sprites/behaviors/FlyingBlockBehavior'
 import { SuperKoopaBehavior } from '../../../src/rom/model/sprites/behaviors/SuperKoopaBehavior'
-import { SumoBrotherBehavior } from '../../../src/rom/model/sprites/behaviors/SumoBrotherBehavior'
 
 const META = {}
-
-// ── KoopaWalkBehavior dispatch (12 case labels) ───────────────────────────────
-
-describe('buildMovementBehavior - KoopaWalk sprite ids', () => {
-  const KOOPA_WALK_IDS = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0c, 0x0f, 0x30, 0x32]
-
-  KOOPA_WALK_IDS.forEach(id => {
-    it(`$${id.toString(16).toUpperCase().padStart(2, '0')} → KoopaWalkBehavior`, () => {
-      const b = buildMovementBehavior(id, META)
-      expect(b).toBeInstanceOf(KoopaWalkBehavior)
-    })
-  })
-})
-
-// ── Single-id cases ───────────────────────────────────────────────────────────
-
-describe('buildMovementBehavior - single-id dispatch cases', () => {
-  it('$08 → FlyingLeftKoopaBehavior', () => {
-    expect(buildMovementBehavior(0x08, META)).toBeInstanceOf(FlyingLeftKoopaBehavior)
-  })
-
-  it('$09 → BouncingKoopaBehavior', () => {
-    expect(buildMovementBehavior(0x09, META)).toBeInstanceOf(BouncingKoopaBehavior)
-  })
-
-  it('$0A → SinusoidalParaKoopaBehavior (vertical axis)', () => {
-    const b = buildMovementBehavior(0x0a, META)
-    expect(b).toBeInstanceOf(SinusoidalParaKoopaBehavior)
-    expect((b as SinusoidalParaKoopaBehavior).axis).toBe('vertical')
-  })
-
-  it('$0B → SinusoidalParaKoopaBehavior (horizontal axis)', () => {
-    const b = buildMovementBehavior(0x0b, META)
-    expect(b).toBeInstanceOf(SinusoidalParaKoopaBehavior)
-    expect((b as SinusoidalParaKoopaBehavior).axis).toBe('horizontal')
-  })
-
-  it('$10 → WingedGoombaBehavior', () => {
-    expect(buildMovementBehavior(0x10, META)).toBeInstanceOf(WingedGoombaBehavior)
-  })
-
-  it('$1D → HopFlameBehavior', () => {
-    expect(buildMovementBehavior(0x1d, META)).toBeInstanceOf(HopFlameBehavior)
-  })
-
-  it('$27 → ThwimpBounceBehavior', () => {
-    expect(buildMovementBehavior(0x27, META)).toBeInstanceOf(ThwimpBounceBehavior)
-  })
-
-  it('$3D → RipVanFishBehavior', () => {
-    expect(buildMovementBehavior(0x3d, META)).toBeInstanceOf(RipVanFishBehavior)
-  })
-
-  it('$62 → LineBrownPlatBehavior', () => {
-    expect(buildMovementBehavior(0x62, META)).toBeInstanceOf(LineBrownPlatBehavior)
-  })
-
-  it('$9A → SumoBrotherBehavior', () => {
-    expect(buildMovementBehavior(0x9a, META)).toBeInstanceOf(SumoBrotherBehavior)
-  })
-
-  it('$C2 → BlurpBehavior', () => {
-    expect(buildMovementBehavior(0xc2, META)).toBeInstanceOf(BlurpBehavior)
-  })
-})
-
-// ── FlyingBlock ($83 / $84) ───────────────────────────────────────────────────
-
-describe('buildMovementBehavior - FlyingBlock ($83 / $84)', () => {
-  it('$83 → FlyingBlockBehavior', () => {
-    expect(buildMovementBehavior(0x83, META)).toBeInstanceOf(FlyingBlockBehavior)
-  })
-
-  it('$84 → FlyingBlockBehavior', () => {
-    expect(buildMovementBehavior(0x84, META)).toBeInstanceOf(FlyingBlockBehavior)
-  })
-})
 
 // ── SuperKoopa ($71 / $72 / $73) ─────────────────────────────────────────────
 
@@ -135,18 +38,76 @@ describe('buildMovementBehavior - SuperKoopa ($71 / $72 / $73)', () => {
   })
 })
 
-// ── default (plain-object fallback) ──────────────────────────────────────────
+// ── default: the 24 retired sprite ids ───────────────────────────────────────
 
-describe('buildMovementBehavior - default (unknown sprite id)', () => {
-  it('$FF → plain object with kind=sprite_ff', () => {
+/**
+ * Every sprite id that used to construct one of the eleven deleted
+ * `MovementBehavior` subclasses. Grouped by the class that used to own
+ * them, matching the enumeration in docs/sprites/sprite-overlay-removal.md.
+ */
+const RETIRED_IDS: Record<string, readonly number[]> = {
+  KoopaWalkBehavior: [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0c, 0x0f, 0x30, 0x32],
+  WingedGoombaBehavior: [0x10],
+  FlyingLeftKoopaBehavior: [0x08],
+  BouncingKoopaBehavior: [0x09],
+  SinusoidalParaKoopaBehavior: [0x0a, 0x0b],
+  HopFlameBehavior: [0x1d],
+  ThwimpBounceBehavior: [0x27],
+  RipVanFishBehavior: [0x3d],
+  BlurpBehavior: [0xc2],
+  SumoBrotherBehavior: [0x9a],
+  FlyingBlockBehavior: [0x83, 0x84],
+}
+
+const RETIRED_ID_COUNT = Object.values(RETIRED_IDS).reduce((n, ids) => n + ids.length, 0)
+
+describe('buildMovementBehavior - retired ids fall through to default', () => {
+  it('the sweep table covers exactly the 24 ids the eleven deleted classes registered', () => {
+    expect(RETIRED_ID_COUNT).toBe(24)
+    expect(Object.keys(RETIRED_IDS)).toHaveLength(11)
+  })
+
+  for (const [className, ids] of Object.entries(RETIRED_IDS)) {
+    for (const id of ids) {
+      const hex = id.toString(16).toUpperCase().padStart(2, '0')
+      it(`$${hex} (formerly ${className}) → plain object, kind=sprite_${id.toString(16)}`, () => {
+        const b = buildMovementBehavior(id, META)
+        expect(Object.getPrototypeOf(b)).toBe(Object.prototype)
+        expect(b.kind).toBe(`sprite_${id.toString(16)}`)
+      })
+    }
+  }
+})
+
+// ── default: unregistered and redundant ids ──────────────────────────────────
+
+describe('buildMovementBehavior - default (unknown or redundant sprite id)', () => {
+  it('$FF → plain object with kind=sprite_ff (never registered)', () => {
     const b = buildMovementBehavior(0xff, META)
-    expect(b).not.toBeInstanceOf(KoopaWalkBehavior)
+    expect(b).not.toBeInstanceOf(SuperKoopaBehavior)
     expect(b.kind).toBe('sprite_ff')
   })
 
   it('$50 → plain object (unregistered mid-range id)', () => {
     const b = buildMovementBehavior(0x50, META)
     expect(b.kind).toBe('sprite_50')
+  })
+
+  it('$62 → plain object, same shape `default` produces for any id (LineBrownPlat case dropped as redundant)', () => {
+    // LineBrownPlatBehavior's case was removed because Object.assign(instance,
+    // common) made its output indistinguishable from `default` for every
+    // field any live caller reads - not because it was dead code. This pins
+    // that: $62 is a plain object with exactly the common shape, not a
+    // LineBrownPlatBehavior instance carrying extra fields nothing reads.
+    const meta = { displayName: 'Brown Platform', spawns: 1 }
+    const b = buildMovementBehavior(0x62, meta)
+    expect(b).toStrictEqual({
+      kind: 'sprite_62',
+      displayName: 'Brown Platform',
+      spawns: 1,
+      isGenerator: undefined,
+      reactRangeDy: undefined,
+    })
   })
 })
 
@@ -165,9 +126,12 @@ describe('buildMovementBehavior - common metadata merging', () => {
     expect(b.reactRangeDy).toBe(32)
   })
 
-  it('kind override from common is set on KoopaWalk behavior', () => {
-    // buildMovementBehavior does Object.assign(behavior, common) - kind is sprite_4
-    const b = buildMovementBehavior(0x04, META)
-    expect(b.kind).toBe('sprite_4')
+  it('common metadata is also merged onto a constructed instance (SuperKoopa)', () => {
+    // buildMovementBehavior does Object.assign(instance, common) - kind
+    // ends up as the common sprite_XX form even for a registered id.
+    const b = buildMovementBehavior(0x71, { displayName: 'Super Koopa' })
+    expect(b).toBeInstanceOf(SuperKoopaBehavior)
+    expect(b.kind).toBe('sprite_71')
+    expect(b.displayName).toBe('Super Koopa')
   })
 })
