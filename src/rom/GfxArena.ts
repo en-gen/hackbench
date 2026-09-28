@@ -488,7 +488,14 @@ export type ArenaResult =
  * streams and not on which of them changed. The reclaimed tail of a region
  * is filled with $FF rather than left holding the old stream's bytes.
  */
-export function layoutArena(rom: RomFile, streams: readonly Uint8Array[]): ArenaResult {
+export function layoutArena(
+  rom: RomFile,
+  streams: readonly Uint8Array[],
+  /** Whose regions and capacities to lay out into. The working copy's own by
+   *  default; a staged gfx layer passes the base ROM, so its layout does not
+   *  depend on how earlier edits happened to be grouped. */
+  layout: RomFile = rom,
+): ArenaResult {
   const gate = checkStockCompression(rom)
   if (!gate.ok) return { status: 'unavailable', reason: gate.reason }
 
@@ -498,7 +505,7 @@ export function layoutArena(rom: RomFile, streams: readonly Uint8Array[]): Arena
     }
   }
 
-  const table = readGfxFileTable(rom)
+  const table = readGfxFileTable(layout)
   const unreadable = table.filter(f => f.offset === null || !f.terminated).map(f => f.index)
   if (unreadable.length > 0) {
     return {
@@ -508,7 +515,7 @@ export function layoutArena(rom: RomFile, streams: readonly Uint8Array[]): Arena
   }
 
   const sites = readGfxPointerSites(rom)!
-  const regions = planRegions(rom, table)
+  const regions = planRegions(layout, table)
   const placed = new Map<number, number>() // file index to new offset
   const writes: ArenaWrite[] = []
   const summary: ArenaPlan['regions'] = []
@@ -530,7 +537,9 @@ export function layoutArena(rom: RomFile, streams: readonly Uint8Array[]): Arena
       }
     }
 
-    const bytes = new Uint8Array(Math.max(needed, region.used)).fill(0xff)
+    // The whole capacity, not just what the base used: an earlier save may
+    // have grown this region into its filler, and that tail must go back to $FF.
+    const bytes = new Uint8Array(region.capacity).fill(0xff)
     let at = 0
     for (const block of blocks) {
       const stream = streams[block[0]!]!
@@ -592,7 +601,9 @@ function pointerWrites(
     const snes = loromFromOffset(placed.get(i)!)! ^ sites.key
     lo[i] = snes & 0xff
     hi[i] = (snes >> 8) & 0xff
-    bank[i] = (snes >> 16) & 0xff
+    // Keep the FastROM mirror bit the ROM already uses: it reads the same
+    // data either way, and dropping it rewrites every bank byte for nothing.
+    bank[i] = ((snes >> 16) & 0xff) | ((rom.readByte(sites.bank + i) ?? 0) & 0x80)
   }
   // Cart-relative, per OFFSET FRAME. These three are addresses to WRITE to,
   // so a frame error here is not a bad read, it is 150 bytes over whatever

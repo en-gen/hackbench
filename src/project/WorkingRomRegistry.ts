@@ -168,10 +168,8 @@ export class WorkingRomRegistry {
       const rom = RomFile.load(romPath)
       working = new WorkingRom(rom.buffer, rom.hasHeader)
       const persisted = persistedOps(project.directory)
-      for (const layer of persisted.applied) {
-        working.append(layer)
-      }
-      // AFTER the replay: `append` clears the redo future, so seeding first
+      working.restore(persisted.applied)
+      // AFTER the replay: `restore` clears the redo future, so seeding first
       // would wipe the very stack this is restoring.
       working.restoreRedo(persisted.redo)
     } catch (err) {
@@ -379,7 +377,9 @@ function sameLayers(a: readonly Layer[], b: readonly Layer[]): boolean {
     JSON.stringify(
       l.kind === 'gfx'
         ? [l.id, l.label, l.kind, l.file, l.tile, l.pixels.map(p => [p.x, p.y, p.value])]
-        : [l.id, l.label, l.ops],
+        : l.kind === 'unreadable'
+          ? [l.id, l.label, l.kind, l.reason]
+          : [l.id, l.label, l.ops],
     )
   return a.length === b.length && a.every((l, i) => key(l) === key(b[i]))
 }

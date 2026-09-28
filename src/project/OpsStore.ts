@@ -56,6 +56,8 @@ function layerFiles(dir: string): string[] {
  */
 function formatLayerFile(layer: Layer): string {
   const head = `{\n  "id": ${JSON.stringify(layer.id)},\n  "label": ${JSON.stringify(layer.label)},\n`
+  if (layer.kind === 'unreadable')
+    throw new Error(`${layer.id} was never read, so it cannot be written`)
   if (layer.kind === 'gfx') {
     const pixelLines = layer.pixels.map(p => `    ${JSON.stringify(pixel(p))}`).join(',\n')
     return (
@@ -78,7 +80,12 @@ function pixel(p: { x: number; y: number; value: number }): {
 
 const isInt = (v: unknown): boolean => Number.isInteger(v)
 
-function loadFrom(dir: string): Layer[] {
+/**
+ * With `lenient`, a gfx layer this build cannot read comes back as an
+ * `unreadable` layer rather than throwing. That is for `ops/redo/` only,
+ * where it refuses when redone and the project still opens.
+ */
+function loadFrom(dir: string, lenient = false): Layer[] {
   return layerFiles(dir).map(f => {
     const parsed = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as Record<string, unknown>
     const id = parsed.id as string
@@ -94,7 +101,11 @@ function loadFrom(dir: string): Layer[] {
       pixels.every(
         p => typeof p === 'object' && p !== null && isInt(p.x) && isInt(p.y) && isInt(p.value),
       )
-    if (!ok) throw new Error(`${path.join(dir, f)} is not a gfx layer this build understands`)
+    if (!ok) {
+      const reason = `${path.join(dir, f)} is not a gfx layer this build understands`
+      if (lenient) return { id, label, kind: 'unreadable', reason }
+      throw new Error(reason)
+    }
     return {
       id,
       label,
@@ -181,7 +192,7 @@ export function popLayer(projectDirectory: string, expectedId: string): void {
 
 /** Every undone layer, oldest-undone first; the LAST is what redo re-applies. */
 export function loadRedoLayers(projectDirectory: string): Layer[] {
-  return loadFrom(redoDir(projectDirectory))
+  return loadFrom(redoDir(projectDirectory), true)
 }
 
 /** Records a layer `undo` took off the stack, so redo can put it back. */
