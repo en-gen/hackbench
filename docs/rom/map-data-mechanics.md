@@ -56,8 +56,8 @@ On vanilla, all map data sits in banks `$06` and `$07`:
 | `$06` (`$068000-$06FFFF`) | 26443 B                 | 6325 B         | 2759 B at file `$37539` |
 | `$07` (`$078000-$07FFFF`) | 24576 B                 | 8192 B         | 6289 B at file `$3E76F` |
 
-14517 unreferenced bytes in total, in 19 runs, 8 of them 256 bytes or
-larger. **Unverified:** this checks only that no L1, L2 or sprite pointer
+14517 unreferenced bytes in total, in 20 runs (9 in bank `$06`, 11 in
+`$07`), 8 of them 256 bytes or larger. **Unverified:** this checks only that no L1, L2 or sprite pointer
 reaches these runs. It does not establish that nothing else in the ROM uses
 them, and the disassembly has no label at `$07E800`, so the 6289-byte tail
 is unidentified rather than confirmed free.
@@ -78,18 +78,26 @@ The L1 and L2 pointers are 3 bytes and the game dereferences them long
 (`bank_05.asm:7235-7246`), so they may target any bank. Counting slots whose
 L1 pointer leaves the vanilla `$06`/`$07` region (mirror bit ignored):
 
-| ROM                   | size   | L1 slots outside `$06-$07` | highest bank used |
-| --------------------- | ------ | -------------------------- | ----------------- |
-| vanilla               | 512 KB | 0 / 512                    | `$07`             |
-| Seven_Vanilla_Levels  | 1 MB   | 52 / 512                   | `$13`             |
-| GrandPooWorld_V1.2    | 2 MB   | 68 / 512                   | `$1E`             |
-| Grand Poo World 2 1.1 | 4 MB   | 168 / 512                  | `$7C`             |
-| Invictus 1.0          | 4 MB   | 199 / 512                  | `$7E`             |
+| ROM                   | size   | L1 slots outside `$06-$07` | highest bank byte, raw               |
+| --------------------- | ------ | -------------------------- | ------------------------------------ |
+| vanilla               | 512 KB | 0 / 512                    | `$07`                                |
+| Seven_Vanilla_Levels  | 1 MB   | 52 / 512                   | `$93` (the `$80`-up mirror of `$13`) |
+| GrandPooWorld_V1.2    | 2 MB   | 68 / 512                   | `$1E`                                |
+| Grand Poo World 2 1.1 | 4 MB   | 168 / 512                  | `$FC`                                |
+| Invictus 1.0          | 4 MB   | 199 / 512                  | `$FE`                                |
 
 Every edited ROM has moved map data into expanded space, the bigger the
 hack the more. Three of the four (all but Seven_Vanilla_Levels) show a
 median L1 slack of 8 bytes where vanilla shows 0, so the relocating tool
 also pads. Why 8 is not established; this measures output, not design.
+
+The walker reads the stock record format, which is what section 2
+describes; the hacks may use records it does not know. L1 blocks whose
+walked length runs past the start of the next block of any stream (sprite
+banks read from `$0EF100`): 0 of 194 on vanilla, 11 of 214 on
+Seven_Vanilla_Levels, 3 of 199 on GrandPooWorld_V1.2, 35 of 264 on Grand
+Poo World 2 (an independent review counted 36) and 62 of 320 on Invictus.
+So hack block lengths, and the slack derived from them, are approximate.
 
 **So extending a map is a ROM space-allocation problem, and an editor needs
 a free-space allocator (#57) before it needs object placement.**
@@ -97,10 +105,12 @@ a free-space allocator (#57) before it needs object placement.**
 ### Screens are free
 
 Adding or removing _screens_ is not the same operation as adding objects.
-`LevelScrLength` feeds only runtime bound checks: off-screen culling
+`LevelScrLength` feeds runtime bound checks: off-screen culling
 (`bank_02.asm:2391, 2442, 2764, 2825, 5008, 5073, 7688, 7735, 10695, 10757`),
 camera limits (`bank_01.asm:2866, 2934`) and block-touch bounds
-(`bank_00.asm:13299, 13326`). No table in ROM or RAM is sized by it.
+(`bank_00.asm:13299, 13326`). It is also copied into `LastScreenHoriz` and
+`LastScreenVert` at load (`bank_05.asm:555-561`), and a boss overwrites it
+with `$FF` (`bank_03.asm:9937`). No table in ROM or RAM is sized by it.
 Changing the screen count is an in-place edit of one header field, costs
 zero bytes and moves no data. The ceiling is 32 screens, because the field
 is 5 bits (`bank_05.asm:527-528`).
@@ -114,8 +124,10 @@ bytes and advances by three (`bank_05.asm:679-695`). The object number is
 `$5A = ($0B >> 4) | (($0A & $60) >> 1)` (`bank_05.asm:696-706`). When it is
 zero the record is an extended object, and extended object `$00` (a screen
 exit) consumes one further byte in its handler, `CODE_0DA512`
-(`bank_0D.asm:1416-1427`). So records are 3 or 4 bytes, and the width is
-only known after decoding the first two. The stream ends at `$FF`
+(`bank_0D.asm:1416-1427`). So in the stock format records are 3 or 4 bytes,
+and the width is only known after decoding all three: the first two give
+object number 0, and the third is the extended-object number that selects
+the handler (`bank_0D.asm:1058-1063`). The stream ends at `$FF`
 (`bank_05.asm:794`).
 
 An editor therefore cannot index the stream; it must re-walk it.
@@ -124,7 +136,7 @@ An editor therefore cannot index the stream; it must re-walk it.
 ### Order is draw order
 
 `LoadLevelData` handles one object at a time, each writing through
-`Map16LowPtr` into the same level buffer (`bank_05.asm:764-788`), so a later
+`Map16LowPtr` into the same map buffer (`bank_05.asm:764-788`), so a later
 object paints over an earlier one. `src/rom/ObjectExpander.ts` mirrors this
 by expanding the parsed objects in stream order.
 
@@ -164,15 +176,23 @@ section 1: the new stream is rarely the same length as the old one.
 
 ### In vanilla, acts-like is the Map16 tile number itself
 
-Map16 definitions carry no behavior byte. At level load, `Map16Pointers` is
+Map16 definitions carry no behavior byte. When a map loads, `Map16Pointers` is
 filled from `TilesetMAP16Loc` by advancing each source pointer 8 bytes per
 tile (`bank_05.asm:269-303`), four 8x8 subtiles of two bytes each. There is
 no ninth byte and no parallel behavior array in the load path.
 
-The dispatch reads the tile number straight out of the level's Map16 buffer
-and uses it as it is: `LDA [_0] : STA Map16TileNumber`
-(`bank_00.asm:13346-13347`). `CODE_00F127` (`bank_00.asm:12789`) then
-decides behavior with hardcoded comparisons (`CMP #$2F`, `#$59`, `#$5C`,
+The player's block check reads the tile number out of the map's Map16
+buffer (`LDA [_0] : STA Map16TileNumber`, `bank_00.asm:13346-13347`), then
+translates it through `JSL CODE_00F545` (`bank_00.asm:13351`, routine at
+`13410-13461`). That routine rewrites `Map16TileNumber` from game state: the
+invisible P-switch block and coins under the blue P-switch timer, the
+switch palace blocks, and the silver P-switch. The translation is code, not
+a table. The player's page-1 dispatch, `CODE_00F127` (`bank_00.asm:12789`),
+is reached only for page-1 tiles: the page byte's `BNE`
+(`bank_00.asm:12154-12155`) and `CPY #$11` / `CPY #$6E`
+(`bank_00.asm:12161-12164`) gate it, and its callers are the player's
+(`bank_00.asm:12193`, `12263`, and `12479` through `CODE_00F120`, which
+falls into it). It decides behavior with hardcoded comparisons (`CMP #$2F`, `#$59`, `#$5C`,
 `#$5D`, `#$66`, `#$6A`, `bank_00.asm:12790-12810`), followed by
 `SEC : SBC #$11 : CMP #$1D` (`bank_00.asm:12828-12831`) to index four
 parallel 36-byte tables at `$00F05C`, `$00F080`, `$00F0A4` and `$00F0C8`
@@ -181,8 +201,9 @@ parallel 36-byte tables at `$00F05C`, `$00F080`, `$00F0A4` and `$00F0C8`
 So vanilla behavior is range comparisons whose boundaries are immediate
 operands, plus data tables indexed by `low byte - $11`. **There is no ROM
 location to write that makes Map16 tile `$1A5` behave like tile `$11A`.**
-Editing one of the four tables changes every tile sharing that low byte. On
-a stock ROM, "reassign this block's acts-like" has nowhere to write.
+Editing one of the four tables changes only page-1 tiles, and only for the
+player. On a stock ROM, "reassign this block's acts-like" has nowhere to
+write.
 
 ### On the corpus hacks, the table is real and locatable
 
@@ -283,7 +304,12 @@ On vanilla, over all 512 slots:
 | sprite | 177             | 29                                  | 364            |
 
 Restricting to the 235 maps (L1 not the filler `$068000`): 63 share an L1
-pointer with another map, in 21 groups, matching the glossary's figures.
+pointer with another map, in 21 groups. Reading sprite pointers 2 bytes
+wide, 56 of the 63 share all three pointers with another map (`$015` and
+`$016` do; their sprite entries are both `DP1Sprites015`,
+`bank_05.asm:8730-8732`), 30 have a partner that differs in L2 or sprite,
+and 7 have an (L2, sprite) pair no other map in their group has. The 63
+hold 32 distinct pointer triples.
 
 ### So what does "clone" mean
 
@@ -292,11 +318,13 @@ Two operations, not variants of one:
 **Link (repoint).** Write slot B's pointers to equal slot A's: 8 bytes on
 a stock ROM, plus the bank byte at `$0EF100` on a hooked one. Needs no free
 space and cannot fail. The result is _not a copy_: editing either slot edits
-both. For 63 vanilla maps this is already the case, so an editor that does
-not model it will change maps the user did not open.
+both. On vanilla, 56 maps already share all three pointers with another
+map, and 63 share at least L1, so an editor that does not model sharing
+will change maps the user did not open.
 
 **Duplicate (copy bytes).** Allocate a free run for the L1 stream, one for
-the L2 stream if its bank byte is not `$FF`, and one for the sprite stream
+the L2 stream if its bank byte is not `$FF` (`$FF` means a background, not
+objects, `bank_05.asm:32-34`), and one for the sprite stream
 (in bank `$07` on a stock ROM), copy each, then write slot B's pointers.
 Costs `len(L1) + len(L2) + len(sprite)` bytes and can fail for lack of
 space. On vanilla the median L1 stream is 135 bytes and the largest 1204, so
@@ -407,12 +435,13 @@ The low byte is gated on the translevel and the high byte on the submap,
 and neither knows about the other. So on a stock ROM the slots reachable
 from the overworld are:
 
-- main overworld: `$000` to `$0DB`
-- submap: `$100` to `$1DB`
+- main overworld: `$001` to `$0DB`
+- submap: `$101` to `$1DB`
 
-440 slots. Slots `$0DC-$0FF` and `$1DC-$1FF` are unreachable from the
-overworld at any translevel value. **Unverified:** the 440 is derived from
-the two gates; no ROM with a main-overworld translevel above `$24` was
+438 slots. `$000` and `$100` need translevel `$00`, which the walk produces
+only if its 8-bit counter (`INC.B _0`, `bank_04.asm:5306`) wraps past `$FF`.
+Slots `$0DC-$0FF` and `$1DC-$1FF` are unreachable from the overworld at any
+translevel value. **Unverified:** the 438 is derived from the two gates; no ROM with a main-overworld translevel above `$24` was
 tested. Vanilla reaches far fewer only because of how its own translevels
 happen to be numbered and placed
 ([smw-overworld-levels.md](smw-overworld-levels.md)); that is data, not an
@@ -436,14 +465,14 @@ assignment exists, at the cost of rewriting a compressed block.
 
 ## Open questions
 
-| question                                                                   | what it would take                                                                                             |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Whether the 6289 unreferenced bytes at file `$3E76F` are free              | A full ROM coverage map, not just the three map pointer tables (#57).                                          |
-| Why relocated L1 blocks carry a median 8 bytes of slack                    | The padding distribution across more edited ROMs; the corpus has four.                                         |
-| How Grand Poo World 2 and Invictus load sprite data                        | Decode the `$05D8E6` detour ([level-table-gate.md](level-table-gate.md)).                                      |
-| What HackBench must write to expand a ROM file                             | The internal header's size byte and the mapper's expectations. Not investigated.                               |
-| Whether a main-overworld translevel above `$24` works on a stock ROM       | Run one. The derivation from `bank_05.asm:7216-7226` says yes; nothing tested it.                              |
-| Whether the four acts-like hooks are every path that reads a Map16 tile    | Enumerate every read of the level's Map16 buffer, not just those routed through `STA Map16TileNumber`.         |
-| What the compare ladder at `$86F663-$86F67C` dispatches to                 | Decode the handlers at `$86F690-$86F6E0`. Plainly the custom-block escape; no evidence for specific semantics. |
-| Whether the second acts-like table (the `LDA.l` at `$86F639`) is populated | Seven_Vanilla_Levels, Grand Poo World 2 and Invictus hold an operand there; contents not read on any ROM.      |
-| Whether the acts-like table format is stable across Lunar Magic versions   | ROMs with known, differing versions; none in the corpus carries version metadata.                              |
+| question                                                                   | what it would take                                                                                                                                                              |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Whether the 6289 unreferenced bytes at file `$3E76F` are free              | A full ROM coverage map, not just the three map pointer tables (#57).                                                                                                           |
+| Why relocated L1 blocks carry a median 8 bytes of slack                    | The padding distribution across more edited ROMs; the corpus has four.                                                                                                          |
+| How Grand Poo World 2 and Invictus load sprite data                        | Decode the `$05D8E6` detour ([level-table-gate.md](level-table-gate.md)).                                                                                                       |
+| What HackBench must write to expand a ROM file                             | The internal header's size byte and the mapper's expectations. Not investigated.                                                                                                |
+| Whether a main-overworld translevel above `$24` works on a stock ROM       | Run one. The derivation from `bank_05.asm:7216-7226` says yes; nothing tested it.                                                                                               |
+| Whether the four acts-like hooks are every path that reads a Map16 tile    | Enumerate every read of the map's Map16 buffer, not just those routed through `STA Map16TileNumber`.                                                                            |
+| What the compare ladder at `$86F663-$86F67C` dispatches to                 | Decode the handlers at `$86F690-$86F6E0`. The bytes show each stub comparing the value `JSR $F608` returns against immediates and branching; what each branch does is not read. |
+| Whether the second acts-like table (the `LDA.l` at `$86F639`) is populated | Seven_Vanilla_Levels, Grand Poo World 2 and Invictus hold an operand there; contents not read on any ROM.                                                                       |
+| Whether the acts-like table format is stable across Lunar Magic versions   | ROMs with known, differing versions; none in the corpus carries version metadata.                                                                                               |

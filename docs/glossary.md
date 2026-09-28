@@ -29,11 +29,16 @@ file opens. Vanilla has 235.
 
 > **A map's identity is its slot index, never its L1 pointer.**
 >
-> On vanilla, 63 maps share an L1 pointer with another map, and 61 of those
-> still differ in their L2 or sprite pointer. They are distinct maps reusing
-> the same terrain. Treating a shared L1 as "the same map" silently drops 61
-> real maps, which is exactly the defect that made `$016` and `$017` vanish
+> On vanilla, 63 maps share an L1 pointer with another map, in 21 groups,
+> holding 32 distinct (L1, L2, sprite) pointer triples. 30 of the 63 have a
+> partner that differs in L2 or sprite, and 56 share all three pointers
+> with another map, as `$015` and `$016` do; those are still separate maps,
+> because identity is the slot. Treating a shared L1 as "the same map"
+> collapses the 63 to 21, silently dropping 42 maps and 11 of the pointer
+> triples. That is exactly the defect that made `$016` and `$017` vanish
 > from the tree while `$015` survived, all three sharing L1 `$0691E5`.
+> (Measured 2026-09-28 on the vanilla ROM, sprite pointers read 2 bytes
+> wide.)
 
 **Level.** What the player enters from the overworld. A level is composed of
 maps: one entry map plus its sub areas.
