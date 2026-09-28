@@ -26,7 +26,7 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import { Layer } from './WorkingRom'
+import { Layer, Op } from './WorkingRom'
 
 export const OPS_DIR = 'ops'
 /** The undone-layer area, nested inside `ops/`. */
@@ -49,22 +49,88 @@ function layerFiles(dir: string): string[] {
     .sort()
 }
 
-/** One op per line, valid JSON: `JSON.parse` reads it back unchanged. */
+/**
+ * One op per line, valid JSON: `JSON.parse` reads it back unchanged. A gfx
+ * layer holds one pixel per line instead, and only the pixels the user
+ * changed, so it carries no artwork the user did not draw.
+ */
 function formatLayerFile(layer: Layer): string {
+  const head = `{\n  "id": ${JSON.stringify(layer.id)},\n  "label": ${JSON.stringify(layer.label)},\n`
+  if (layer.kind === 'unreadable')
+    throw new Error(`${layer.id} was never read, so it cannot be written`)
+  if (layer.kind === 'gfx') {
+    const pixelLines = layer.pixels.map(p => `    ${JSON.stringify(pixel(p))}`).join(',\n')
+    return (
+      head +
+      `  "kind": "gfx",\n  "file": ${layer.file},\n  "tile": ${layer.tile},\n` +
+      `  "pixels": [\n${pixelLines}\n  ]\n}\n`
+    )
+  }
   const opLines = layer.ops.map(o => `    ${JSON.stringify(o)}`).join(',\n')
-  return (
-    `{\n` +
-    `  "id": ${JSON.stringify(layer.id)},\n` +
-    `  "label": ${JSON.stringify(layer.label)},\n` +
-    `  "ops": [\n${opLines}\n  ]\n` +
-    `}\n`
-  )
+  return head + `  "ops": [\n${opLines}\n  ]\n` + `}\n`
 }
 
-function loadFrom(dir: string): Layer[] {
+function pixel(p: { x: number; y: number; value: number }): {
+  x: number
+  y: number
+  value: number
+} {
+  return { x: p.x, y: p.y, value: p.value }
+}
+
+const isInt = (v: unknown): boolean => Number.isInteger(v)
+
+/**
+ * With `lenient`, a file that is not JSON, or a gfx layer this build cannot
+ * read, comes back as an `unreadable` layer rather than throwing. That is
+ * for `ops/redo/` only, where it refuses when redone and the project still
+ * opens.
+ */
+function loadFrom(dir: string, lenient = false): Layer[] {
   return layerFiles(dir).map(f => {
-    const parsed = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as Layer
-    return { id: parsed.id, label: parsed.label, ops: parsed.ops }
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as Record<string, unknown>
+    } catch (err) {
+      if (!lenient) throw err
+      const reason = `${path.join(dir, f)} is not valid JSON: ${(err as Error).message}`
+      return { id: f, label: f, kind: 'unreadable', reason }
+    }
+    const refuse = (reason: string, id = f, label = f): Layer => {
+      if (lenient) return { id, label, kind: 'unreadable', reason }
+      throw new Error(reason)
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return refuse(`${path.join(dir, f)} is not a layer object`)
+    }
+    const id = parsed.id as string
+    const label = parsed.label as string
+    if (parsed.kind !== 'gfx') {
+      if (!Array.isArray(parsed.ops))
+        return refuse(`${path.join(dir, f)} has no ops list`, id, label)
+      return { id, label, ops: parsed.ops as Op[] }
+    }
+    // Refused whole rather than half-read: a pixel that parses to something
+    // else would paint a character the user never drew.
+    const pixels = parsed.pixels as { x: number; y: number; value: number }[]
+    const ok =
+      isInt(parsed.file) &&
+      isInt(parsed.tile) &&
+      Array.isArray(pixels) &&
+      pixels.length > 0 && // a layer that changes nothing is not an edit
+      pixels.every(
+        p => typeof p === 'object' && p !== null && isInt(p.x) && isInt(p.y) && isInt(p.value),
+      )
+    if (!ok)
+      return refuse(`${path.join(dir, f)} is not a gfx layer this build understands`, id, label)
+    return {
+      id,
+      label,
+      kind: 'gfx',
+      file: parsed.file as number,
+      tile: parsed.tile as number,
+      pixels: pixels.map(pixel),
+    }
   })
 }
 
@@ -143,7 +209,7 @@ export function popLayer(projectDirectory: string, expectedId: string): void {
 
 /** Every undone layer, oldest-undone first; the LAST is what redo re-applies. */
 export function loadRedoLayers(projectDirectory: string): Layer[] {
-  return loadFrom(redoDir(projectDirectory))
+  return loadFrom(redoDir(projectDirectory), true)
 }
 
 /** Records a layer `undo` took off the stack, so redo can put it back. */

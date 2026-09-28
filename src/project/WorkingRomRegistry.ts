@@ -168,10 +168,8 @@ export class WorkingRomRegistry {
       const rom = RomFile.load(romPath)
       working = new WorkingRom(rom.buffer, rom.hasHeader)
       const persisted = persistedOps(project.directory)
-      for (const layer of persisted.applied) {
-        working.append(layer)
-      }
-      // AFTER the replay: `append` clears the redo future, so seeding first
+      working.restore(persisted.applied)
+      // AFTER the replay: `restore` clears the redo future, so seeding first
       // would wipe the very stack this is restoring.
       working.restoreRedo(persisted.redo)
     } catch (err) {
@@ -284,7 +282,12 @@ export class WorkingRomRegistry {
     if (r.status !== 'ok') return r
     const { working, project } = r
 
-    const layer = working.undo()
+    let layer: Layer | undefined
+    try {
+      layer = working.undo() // refuses when the stack below cannot be built on its own
+    } catch (err) {
+      return { status: 'stale', reason: (err as Error).message }
+    }
     if (!layer) return { status: 'ok', ...stateOf(working) }
 
     try {
@@ -375,7 +378,14 @@ function compensate(undoWrite: () => void): void {
 
 /** Layer-for-layer equal, ignoring `scope`, which OpsStore does not persist. */
 function sameLayers(a: readonly Layer[], b: readonly Layer[]): boolean {
-  const key = (l: Layer): string => JSON.stringify([l.id, l.label, l.ops])
+  const key = (l: Layer): string =>
+    JSON.stringify(
+      l.kind === 'gfx'
+        ? [l.id, l.label, l.kind, l.file, l.tile, l.pixels.map(p => [p.x, p.y, p.value])]
+        : l.kind === 'unreadable'
+          ? [l.id, l.label, l.kind, l.reason]
+          : [l.id, l.label, l.ops],
+    )
   return a.length === b.length && a.every((l, i) => key(l) === key(b[i]))
 }
 
