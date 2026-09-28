@@ -2429,6 +2429,8 @@ test('Ctrl + wheel clamps at the same limits as the zoom buttons', async ({ page
 test('Ctrl + wheel keeps the same canvas pixel under the cursor, in and out, within 1px', async ({
   page,
 }) => {
+  // Narrow enough that the strip overflows horizontally too at the default zoom.
+  await page.setViewportSize({ width: 760, height: 720 })
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
   await openMap16(page, 'fg')
   const wrap = page.locator(`${FG} .hb-map16-canvas-wrap`)
@@ -2446,6 +2448,8 @@ test('Ctrl + wheel keeps the same canvas pixel under the cursor, in and out, wit
     el.scrollLeft = 20
     el.scrollTop = 15
   })
+  // Both offsets must have taken, or this is the unscrolled case in disguise.
+  expect(await wrap.evaluate(el => [el.scrollLeft, el.scrollTop])).toEqual([20, 15])
   const box = await wrap.boundingBox()
   const clientX = box.x + 30
   const clientY = box.y + 30
