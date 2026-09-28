@@ -37,9 +37,22 @@ jobs:
 
       - name: Content policy (no ROM-derived bytes)
         run: |
-          BASE="${{ github.event.pull_request.base.sha }}"
-          [ -z "$BASE" ] && BASE=$(git rev-parse HEAD~1 || git rev-parse HEAD)
-          bash tools/scripts/check-staged-content.sh range "$BASE" "${{ github.sha }}"
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          ZERO="0000000000000000000000000000000000000000"
+          if [ -z "$BASE" ] || [ "$BASE" = "$ZERO" ]; then
+            BASE=$(git rev-parse HEAD~1 || git rev-parse HEAD)
+          fi
+          node tools/scripts/check-content.mjs range "$BASE" "${{ github.sha }}"
+
+      # The oracle for the repo migration (issue #678): scans every blob
+      # reachable from every ref, not just this push's range. Skipped while
+      # the repo is private because the current history still holds known
+      # pre-gate offenders that get purged at the public migration, not
+      # fixed here - this step is what proves they are gone, once it can
+      # run without a guaranteed red build.
+      - name: Content policy - full history (public repo only)
+        if: ${{ !github.event.repository.private }}
+        run: node tools/scripts/check-content.mjs history
 
       - name: Lint
         run: npm run lint
@@ -116,3 +129,11 @@ jobs:
       # checking with it would be checking the wrong compiler.
       - name: Type-check extension
         run: yarn --cwd theia/extension typecheck
+
+      # The one gate case that needs Theia: its own config-dir resolution
+      # must land under Playwright's per-run folder. HB_REQUIRE_THEIA turns
+      # the local skip into a failure if the install above is broken.
+      - name: Playwright app-data gate against Theia
+        run: npx vitest run test/suite/gates/playwrightAppDataGate.test.ts
+        env:
+          HB_REQUIRE_THEIA: '1'
