@@ -726,6 +726,31 @@ describe(
       expect(gateExit('history')).not.toBe(0)
     })
 
+    it('a reviewed commit message is exempt for its one rule only, never its files', () => {
+      const reviewed = (line: string) => writeFile('tools/scripts/content-gate-reviewed.txt', line)
+      writeFile('clean4.ts', 'export const w = 4\n')
+      run('git', ['add', 'clean4.ts'])
+      run('git', ['commit', '-q', '-m', `payload ${'B'.repeat(400)}`])
+      const sha = head()
+      expect(gateExit('history')).not.toBe(0)
+      reviewed(`${sha} base64 -- prose, checked by hand\n`)
+      expect(gateExit('history')).toBe(0) // not just absent output: a crash prints nothing too
+      expect(gateOutput('history')).not.toContain(sha)
+      reviewed(`${sha} disasm-listing -- wrong rule\n`)
+      expect(gateOutput('history')).toContain(`<commit message ${sha}>`)
+      reviewed(`${sha} base64\n`) // no reason
+      expect(gateExit('history')).toBe(2)
+      reviewed(`${sha} base-64 -- misspelled rule\n`)
+      expect(gateExit('history')).toBe(2)
+      // The same commit adding a base64 file stays blocked: files are never exempt.
+      writeFile('blob.ts', `export const s = '${'C'.repeat(400)}'\n`)
+      run('git', ['add', 'blob.ts'])
+      run('git', ['commit', '-q', '-m', `again ${'D'.repeat(400)}`])
+      reviewed(`${head()} base64 -- message only\n`)
+      expect(gateOutput('history')).toContain('blob.ts')
+      fs.rmSync(path.join(dir, 'tools/scripts/content-gate-reviewed.txt'))
+    })
+
     it('pragma via evaluateEntry never exempts path or binary rules, even with a valid reason', () => {
       const buf = Buffer.concat([
         Buffer.from('// content-gate: allow binary -- please\n'),
