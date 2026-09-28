@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit is the approving reviewer on develop (CLAUDE.md "Merging"): it
+# approves once its comments are resolved, and a PR with auto-merge on then
+# merges on green CI. Assertive, because for most PRs it is the only reviewer.
+language: en-US
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+    # The default pauses auto-review after 5 reviewed commits, which would leave
+    # a long PR's latest push unapproved and its auto-merge stuck.
+    auto_pause_after_reviewed_commits: 0
+    # feature/* too: stacked PRs target an integration branch, the same reason
+    # ci.yml runs on feature/** (a develop-only filter left them unreviewed).
+    base_branches:
+      - develop
+      - feature/.*
+  path_instructions:
+    - path: 'src/rom/**'
+      instructions: >-
+        ROM behaviour must be read from the ROM's tables and bytes, never
+        hardcoded from the vanilla game, and must fail closed with a reason on
+        an unrecognized hack. Flag any vanilla fallback, any fixed address used
+        without checking the opcode or bytes there, and any SMWDisX citation
+        without a file:line.
+    - path: 'test/**'
+      instructions: >-
+        A test that reports a verdict must be able to fail. Flag tests
+        generated from a corpus listing (they vanish when the corpus is absent;
+        use describe.skipIf) and safeguards tested only with a ROM.
+chat:
+  auto_reply: true

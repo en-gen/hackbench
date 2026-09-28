@@ -12,12 +12,32 @@ Work is non-destructive and project-based. A `.hbproj` project references a ROM 
 
 ## Branch strategy
 
-- `main` - reserved for releases. Sits at the repo's initial commit
-  `afbc580` and has received nothing since. Never commit or PR here;
-  it moves only when a release is cut from `develop`.
+- `main` - reserved for releases. It does not exist in this repo yet; it is
+  created when the first release is cut from `develop`. Never PR to it.
 - `develop` - default branch and integration base; all PRs target here
 - `feature/*` - branch off `develop`, one concern per branch
 - After merging a PR: `git checkout develop && git pull origin develop && git checkout -b feature/<next>`
+
+The repo went public on 2026-09-27 with rewritten history. The old repo is
+the private `en-gen/hackbench-archive`; issue and PR numbers from before then
+are archive numbers (`C:/Projects/hackbench-tools/issue-map.tsv` maps issues).
+
+## Merging
+
+A PR merges itself: `develop` requires green CI plus one approving review
+from anyone with write access. In practice that is CodeRabbit, which approves
+once its comments are resolved (`.coderabbit.yaml`); GitHub cannot require
+the approval to be CodeRabbit's, so a human approval merges it too.
+
+- After opening a PR, turn on auto-merge:
+  `gh pr merge <n> -R en-gen/hackbench --auto --squash`.
+- A PR that changes UI or graphics rendering gets the `needs-owner` label
+  instead, and auto-merge stays off. Those carry images the owner looks at,
+  and CI cannot run Playwright (no ROM).
+- Resolve CodeRabbit's comments by fixing them or replying why not; an
+  unresolved thread withholds its approval. A new push dismisses the old
+  approval, so every merged commit was reviewed.
+- Repo admins can bypass the approval; agents never do.
 
 Do not add `Co-Authored-By: Claude` lines to commits. Do not add "Generated with Claude Code" footers or any AI attribution to PR bodies or commit messages.
 
@@ -353,13 +373,9 @@ These exist because each one corresponds to a defect that actually reached revie
 
 ## Enforced mechanically
 
-Enable the hooks once per clone:
-
-```bash
-git config core.hooksPath .githooks
-```
-
-Two scripts run on pre-commit and in CI.
+`npm install` sets `core.hooksPath` to `.githooks` automatically
+(`tools/scripts/set-hooks-path.cjs`, run via the `prepare` script); nothing
+to do per clone. Two gates run on pre-commit, pre-push and in CI.
 
 `tools/scripts/check-staged-style.sh` runs ESLint at `--max-warnings 0` and
 Prettier in check mode over the staged JS/TS/CSS. Warnings are fatal: the
@@ -368,7 +384,13 @@ tree it looked at. `test/suite/gates/lintGate.test.ts` plants a defect per
 rule and proves both halves go red, and asserts the package.json scripts
 still carry the flags that make them able to fail.
 
-`tools/scripts/check-staged-content.sh` runs on pre-commit and in CI. It blocks ROM-derived bytes (the copyright rule in `docs/testing.md`, previously guarded only by `.gitignore`, which `git add -f` silently defeats) and em-dashes in newly added lines. Override with `git commit --no-verify` only with a stated reason in the PR.
+`tools/scripts/check-content.mjs` (issue #678) blocks ROM-derived bytes
+(the copyright rule in `docs/testing.md`, previously guarded only by
+`.gitignore`, which `git add -f` silently defeats) and em-dashes in newly
+added lines, in `staged`/`range`/`push`/`history` modes. Override with
+`git commit --no-verify` only with a stated reason in the PR; `.githooks/
+pre-push` still catches a `--no-verify`'d commit unless the push itself
+also skips hooks.
 
 ## Claim discipline
 
@@ -476,7 +498,7 @@ implementer or reviewer and follows these rules instead:
 <!-- gitnexus:start -->
 # GitNexus - Code Intelligence
 
-This project is indexed by GitNexus as **hackbench** (12512 symbols, 33510 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hackbench** (12675 symbols, 33898 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root - it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

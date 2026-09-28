@@ -24,13 +24,16 @@
     "start": "theia start --port 3000 --hostname 127.0.0.1",
     "watch": "theia build --watch --mode development",
     "test:e2e": "playwright test",
+    "test:server": "node test/start-test-server.cjs",
     "test:demo": "node test/demo.cjs"
   },
   "theia": {
     "target": "browser",
     "frontend": {
       "config": {
-        "applicationName": "HackBench"
+        "applicationName": "HackBench",
+        "defaultTheme": "system",
+        "preferences": {}
       }
     }
   }

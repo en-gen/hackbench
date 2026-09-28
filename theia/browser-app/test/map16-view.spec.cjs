@@ -57,7 +57,7 @@ const { CART, shownWords } = require('./rom-words.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
-const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
+const { romPath, VANILLA, GPW2 } = require('../../../test/suite/support/corpus.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
@@ -1690,6 +1690,33 @@ test('a ROM that skips its own animation code still shows stock frames, with a v
   // Composited from the same stock data the routine would have used, matching the Stock ROM's own frame 0 pixel for pixel.
   expect(await tilePixels(page, QUESTION_BLOCK)).toEqual(stockBlock)
   expect(await tilePixels(page, STATIC_TILE_ID)).toEqual(stockStatic)
+})
+
+/**
+ * A ROM whose level GFX call goes through Lunar Magic's ExGFX hook picks files
+ * per level from a list this view does not read, so the sheet is drawn from
+ * the stock assignment and marked. Needs the GPW2 corpus ROM.
+ */
+test('a ROM that picks GFX per level is drawn and marked; a stock ROM is not marked', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(romPath(GPW2)), 'needs the GPW2 corpus ROM')
+  await loadGfxExplorer(page, path.join(tmp, 'StockMark'))
+  await openMap16(page, 'fg')
+  await expect(page.locator(`${FG} [data-note="gfx-assignment"]`)).toHaveCount(0)
+  await closeMap16Views(page)
+
+  await loadGfxExplorer(page, path.join(tmp, 'HookMark'), romPath(GPW2))
+  await openMap16(page, 'fg')
+  const note = page.locator(`${FG} [data-note="gfx-assignment"]`)
+  await expect(note).toBeVisible()
+  expect(await note.textContent()).toContain("Lunar Magic's list")
+  expect(await note.textContent()).not.toMatch(CART)
+  const contrast = await errorContrast(page, `${FG} [data-note="gfx-assignment"]`)
+  expect(contrast.ratio).toBeGreaterThanOrEqual(4.5)
+  // Drawn, not blanked: the static tile has opaque pixels.
+  const pixels = await tilePixels(page, STATIC_TILE_ID)
+  expect(pixels.some((v, i) => i % 4 === 3 && v > 0)).toBe(true)
 })
 
 test('the Map16 view speaks of ROMs, never cartridges', async ({ page }) => {

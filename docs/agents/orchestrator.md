@@ -69,16 +69,20 @@ Never trust "done and green". On the branch yourself:
 3. Playwright: only the specs the change touches, named explicitly for
    widget or backend changes. Offer the full suite on the remote runner:
    `gh workflow run e2e-playwright.yml -R en-gen/hackbench-validation -f hackbench_ref=<branch>`.
-4. Before a run: isolated `THEIA_CONFIG_DIR`, a random port, and confirm the
-   listener's command line is this worktree's server.
+4. Before a run: start the server with
+   `node theia/browser-app/test/start-test-server.cjs` (isolated app data and
+   `THEIA_CONFIG_DIR`, random port), export the `HB_APP_URL` and
+   `HB_TEST_APPDATA` it prints, and confirm the listener's command line is
+   this worktree's server. See `docs/testing.md`.
 5. See each new test go red on a planted defect, scoped with `-g`.
 6. Read the diff.
 
 ## 5. Ship
 
 - Every bug found gets its own issue, even when fixed in passing.
-- PRs target `develop`; the owner merges. The body relays each review finding
-  and how it was resolved.
+- PRs target `develop` and auto-merge on green CI plus one approving review
+  from anyone with write access, CodeRabbit in practice (CLAUDE.md "Merging"). UI or rendering PRs get `needs-owner` and the owner
+  merges. The body relays each review finding and how it was resolved.
 - UI or rendering changes: brief the implementer to capture images (before
   and after for a fix) and embed them with `tools/scripts/pr-image.sh`, per
   CLAUDE.md "Pull requests show what they draw".
