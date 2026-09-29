@@ -271,7 +271,7 @@ describe('step mode --rounds', () => {
   })
   it('forwards a defined rounds even when falsy', () => {
     const seen: string[][] = []
-    runStep({ id: 'x', goodDir: 'g', rounds: 0 }, ((_c: string, a: string[]) => {
+    runStep({ id: 'core.x', goodDir: 'g', rounds: 0 }, ((_c: string, a: string[]) => {
       seen.push(a)
       return ''
     }) as never)
