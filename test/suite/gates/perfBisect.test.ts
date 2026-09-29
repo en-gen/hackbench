@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { join, resolve, sep } from 'node:path'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import {
   defaultTaskDir,
@@ -222,7 +222,10 @@ describe('run: cleanup boundary', () => {
         ),
       ).toThrow(/rm failed/)
       expect(existsSync(taskDir)).toBe(true)
-      expect(calls.filter(c => c[2] === 'remove')).toHaveLength(2)
+      expect(calls.filter(c => c[2] === 'remove').map(c => c[4])).toEqual([
+        join(taskDir, 'work'),
+        join(taskDir, 'good'),
+      ])
     } finally {
       rmSync(taskDir, { recursive: true, force: true })
     }
@@ -276,5 +279,27 @@ describe('step mode --rounds', () => {
       return ''
     }) as never)
     expect(seen.some(a => a.includes('--rounds'))).toBe(true)
+  })
+
+  it('refuses a non-empty task directory before creating anything', () => {
+    const repo = join(sep, 'Projects', 'hackbench')
+    const taskDir = mkdtempSync(join(tmpdir(), 'bisect-nonempty-'))
+    writeFileSync(join(taskDir, 'keep.txt'), 'owner data')
+    const calls: string[][] = []
+    try {
+      expect(() =>
+        run({ id: 'core.x', good: 'a', bad: 'b', dir: taskDir }, ((cmd: string, args: string[]) => {
+          if (args[0] === 'rev-parse')
+            return `${join(repo, '.git')}
+`
+          calls.push([cmd, ...args])
+          return ''
+        }) as never),
+      ).toThrow(/not empty/)
+      expect(calls.some(c => c[1] === 'worktree')).toBe(false)
+      expect(readFileSync(join(taskDir, 'keep.txt'), 'utf8')).toBe('owner data')
+    } finally {
+      rmSync(taskDir, { recursive: true, force: true })
+    }
   })
 })
