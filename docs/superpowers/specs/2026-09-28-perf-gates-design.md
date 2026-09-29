@@ -53,9 +53,9 @@ produced it:
   a result file's size never depends on how fast the measured code happens
   to be.
 - `harness` (design D1) is `computeHarness()`'s sha256 of the benchmark code
-  that produced this doc - `test/perf/**`, `vitest.perf.config.ts` and
-  `tools/perf/run-core.mjs`, relative to the directory that ran the suite.
-  `compare.mjs` refuses to compare two sides whose harness hashes differ.
+  that produced this doc, over the files enumerated by `HARNESS_PATHS` in
+  `tools/perf/results.mjs`. `compare.mjs` exits 2 when the two sides'
+  harness hashes differ.
 - Writer and reader live in `tools/perf/results.mjs`, with a schema check
   that rejects an empty `results` array, a result with no samples, a missing
   `harness`, or a non-positive `ms` sample. A suite that measured nothing
@@ -144,9 +144,9 @@ node tools/perf/paired.mjs --base <dir> --cand <dir> --suite core
   regardless of execution order - ABBA just cancels a linear drift (the
   machine warming up, thermal throttling) across the run instead of biasing
   one side.
-- Design D1: before any round runs, the candidate's `test/perf/**`,
-  `vitest.perf.config.ts` and `tools/perf/run-core.mjs` are overlaid onto
-  the base directory, and restored afterwards, so base and cand always
+- Design D1: before any round runs, the candidate's harness files (those
+  enumerated by `HARNESS_PATHS` in `tools/perf/results.mjs`) are overlaid
+  onto the base directory, and restored afterwards, so base and cand always
   measure with the SAME benchmark code. Without this, a renamed or newly
   added case compares against stale harness code on one side, or simply
   does not exist there - the exact hole a rename or a bisect that predates
@@ -199,7 +199,7 @@ Settled during PR 1's review; the substance is woven into sections 1-4 and
 
 | # | Decision |
 |---|---|
-| D1 | Harness parity: `paired.mjs` overlays the candidate's `test/perf/**`, `vitest.perf.config.ts` and `tools/perf/run-core.mjs` onto the base directory before running it (restored after), and every result doc carries a `harness` sha256 (section 1) that `compare.mjs` refuses to compare across a mismatch. Closes the hole where a renamed or newly added case would compare against stale code, or a bisect would predate the benchmark harness itself. `removed` (section 4, point 6) exits 1, needing the owner's acceptance the same as a regression. |
+| D1 | Harness parity: `paired.mjs` overlays the candidate's harness files (those enumerated by `HARNESS_PATHS` in `tools/perf/results.mjs`) onto the base directory before running it (restored after), and every result doc carries a `harness` sha256 (section 1) that `compare.mjs` exits 2 on a mismatch. Closes the hole where a renamed or newly added case would compare against stale code, or a bisect would predate the benchmark harness itself. `removed` (section 4, point 6) exits 1, needing the owner's acceptance the same as a regression. |
 | D2 | A minimum of 5 paired rounds per id, and equal round counts between base and cand, or `compare.mjs` exits 2 (section 4, point 7). `--resamples` validated as an integer >= 1000, `--seed` as a finite integer. `bisect.mjs`'s default round count is likewise >= 5. |
 | D3 | `paired.mjs` runs base and cand ABBA (`base, cand, cand, base` per block of two rounds) instead of strict alternation, cancelling a linear drift across the run; pairing stays by round index regardless of execution order. |
 | D4 | `vitest.perf.config.ts`'s `testTimeout` is 10 minutes, so a catastrophic regression measures as an honest (if very slow) sample instead of erroring out as a vitest timeout that the pipeline could mistake for a build failure. |

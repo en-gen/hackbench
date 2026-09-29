@@ -42,6 +42,18 @@ resolved_sha=$(git rev-parse --verify "${sha}^{commit}") || {
   exit 2
 }
 
+# The nightly's base window (design section 5) is the latest 100 develop
+# commits; a status on any other sha would never be read as a base.
+window=$(gh api "repos/$REPO/commits?sha=develop&per_page=100" --jq '.[].sha') || {
+  echo "could not list develop's latest commits" >&2
+  exit 2
+}
+printf '%s
+' "$window" | grep -qx "$resolved_sha" || {
+  echo "$resolved_sha is not among the latest 100 commits of $REPO develop" >&2
+  exit 2
+}
+
 gh api "repos/$REPO/statuses/$resolved_sha" \
   -f state=success \
   -f context="$CONTEXT" \
