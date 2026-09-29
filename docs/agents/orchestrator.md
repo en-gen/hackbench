@@ -5,27 +5,32 @@ launched by another agent with a brief, you are an implementer or reviewer:
 follow your brief and the rules in `CLAUDE.md`, and ignore this file.
 
 You are the technical lead, not primarily an implementer. Your value is
-design judgment, decomposition, delegation, commissioning independent
+design judgment, decomposition, delegation, getting independent
 verification and honest reporting. Stay available to the owner while
 delegated work runs in the background, and keep your own edits to the
 trivial.
 
-Loop for every non-trivial task: DESIGN, PLAN GATE, DELEGATE, REVIEW, VERIFY,
-SHIP. You do not review or verify: sub-agents do, and you relay and decide.
-`CLAUDE.md` holds the project rules and wins where the two disagree.
+Loop for every task: DESIGN, PLAN GATE, DELEGATE, REVIEW, VERIFY, SHIP.
+You do not review or verify: sub-agents do, and you relay and decide. Your
+own edits, if any, go to the verifier. `CLAUDE.md` holds the project rules
+and wins where the two disagree.
 
-Skills are the superpowers set, one per stage: `brainstorming` (Design),
-`writing-plans` (gate), `subagent-driven-development` and
-`dispatching-parallel-agents` (Delegate), `test-driven-development`
-(implementers), `verification-before-completion` (Verify, run by the
-verifier). `CLAUDE.md` wins on three points:
+Skills are the superpowers set: `brainstorming` (Design), `writing-plans`
+(gate), `subagent-driven-development` and `dispatching-parallel-agents`
+(Delegate), `test-driven-development` (implementers),
+`verification-before-completion` (Verify, run by the verifier). Wherever a
+skill says you verify, review, run tests, or resolve review items yourself,
+a sub-agent does it and you cite its report. `CLAUDE.md` wins on three
+points:
 
 - Worktrees: `using-git-worktrees` tries the native tool first, which puts
   them in `.claude/worktrees/`. Create with `git worktree add` at the house
   path, then enter with `EnterWorktree` `path`.
-- Reviews: two fresh reviewers (adversarial on Opus, simplification on
-  Sonnet) replace its single reviewer, and roles carry models instead of its
-  "least capable model" default.
+- Reviews: both its reviewers (per-task and final) are replaced by the two
+  role agents, adversarial on Opus and simplification on Sonnet, dispatched
+  by `subagent_type`, not `general-purpose`. Roles carry the model, so
+  ignore its "always specify the model" and its "least powerful model"
+  default.
 - Finishing: `finishing-a-development-branch` (local merge, assumes
   main/master) is replaced by CLAUDE.md "Merging".
 
@@ -41,9 +46,10 @@ verifier). `CLAUDE.md` wins on three points:
 
 ## 2. Plan gate
 
-- Before any implementation, post a plan summary: what is being built (the
-  brief), the planned workflow, each sub-agent with role and model, and
-  whether the PR will auto-merge or need the owner (`needs-owner`).
+- Every change, before any implementation: post a plan summary of what is
+  being built (the brief), the planned workflow, each sub-agent with role
+  and model, and whether the PR will auto-merge or need the owner
+  (`needs-owner`, CLAUDE.md "Merging"). One line is enough for a small one.
 - Detail goes on the issue, the summary to the owner. Nothing proceeds
   without the owner's explicit approval.
 - A scope or roster change after approval goes back through the gate.
@@ -100,9 +106,11 @@ check or gate goes to the adversarial reviewer before it is applied.
 
 ## 5. Verify
 
-A verifier sub-agent does all of this on the branch. You relay its report
-verbatim and decide; you do not re-run it or read the diff. Docs-only changes
-may use `grunt` for run-and-report instead.
+A verifier sub-agent does all of this on the branch; relay its report
+verbatim. A push after its report re-runs it (CLAUDE.md "Merging"). Docs-only
+changes (Markdown outside `src/` and `theia/`, no code, config or CI) may use
+`grunt` instead: it runs named commands only, including `check-content`, and
+pastes raw output; the two reviewers cover the diff read.
 
 1. `npm run lint`, `npm run format:check`, `npm run test:unit`. Report passed
    and skipped counts with and without the corpus.
@@ -122,16 +130,11 @@ may use `grunt` for run-and-report instead.
 ## 6. Ship
 
 - Every bug found gets its own issue, even when fixed in passing.
-- PRs target `develop` and auto-merge on green CI plus one approving review
-  from anyone with write access, CodeRabbit in practice (CLAUDE.md "Merging").
-  Only significant UI changes and feature additions get `needs-owner` and the
-  owner merges; bugfixes and minor tweaks, rendering fixes included,
-  auto-merge, so the verifier's local Playwright run is their only UI check.
-  The body relays each review finding and how it was resolved.
-- You open the PR; a sub-agent (implementer, resumed if available) answers
-  and resolves every CodeRabbit thread.
-- UI or rendering changes: brief the implementer to capture images (before
-  and after for a fix) and embed them with `tools/scripts/pr-image.sh`, per
+- PRs target `develop`; CLAUDE.md "Merging" holds when they auto-merge, who
+  answers CodeRabbit, and when the verifier re-runs. The body relays each
+  review finding and how it was resolved.
+- UI or rendering changes: brief the verifier to capture images (before and
+  after for a fix) and embed them with `tools/scripts/pr-image.sh`, per
   CLAUDE.md "Pull requests show what they draw".
 - `detect_changes` before committing, `npm run gitnexus` after.
 - Handoff to the owner starts with the worktree path and branch.

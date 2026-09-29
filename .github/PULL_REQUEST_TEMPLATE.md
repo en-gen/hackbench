@@ -37,4 +37,5 @@ ones)? Which ROM? -->
 - [ ] Core logic stays in `src/rom/` / `src/project/` with no shell imports (no Theia, no VS Code)
 - [ ] No ROM-derived content (ROMs, patches, dumps, ripped graphics, disassembly); the content gate enforces this
 - [ ] User-facing changes noted in `CHANGELOG.md` under `[Unreleased]`
-- [ ] UI or rendering change: before/after images embedded, `needs-owner` label added, auto-merge left off
+- [ ] Significant UI change or feature addition: `needs-owner` label added, auto-merge left off
+- [ ] Rendering change: before/after images embedded
