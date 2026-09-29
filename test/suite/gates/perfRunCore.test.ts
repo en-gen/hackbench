@@ -67,4 +67,19 @@ describe('runCore, spawnSync mocked', () => {
     )
     expect(() => runCore({ plant: 'core.wanted=1.5' })).toThrow(/core.wanted.*no result/)
   })
+
+  it('empty components in --only are ignored', () => {
+    mockedSpawnSync.mockImplementation(
+      (_cmd: string, _args: string[], opts?: { env?: Record<string, string> }) => {
+        const file = opts?.env?.HB_PERF_RESULTS_FILE
+        if (file)
+          fs.appendFileSync(
+            file,
+            JSON.stringify({ id: 'core.a', unit: 'ms', better: 'lower', samples: [1] }) + '\n',
+          )
+        return { status: 0, stdout: '', stderr: '' }
+      },
+    )
+    expect(() => runCore({ only: 'core.a, ,' })).not.toThrow()
+  })
 })

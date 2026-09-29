@@ -26,7 +26,12 @@ import { validate as validateResultDoc } from './results.mjs'
 
 export const CORE_DEFAULT_ROUNDS = 10
 export const MIN_ROUNDS = 5
-const HARNESS_PATHS = ['test/perf', 'vitest.perf.config.ts', join('tools', 'perf', 'run-core.mjs')]
+const HARNESS_PATHS = [
+  'test/perf',
+  'vitest.perf.config.ts',
+  join('tools', 'perf', 'run-core.mjs'),
+  join('tools', 'perf', 'results.mjs'),
+]
 
 function runSuiteOnce(dir, { out, only, plant }) {
   const args = ['tools/perf/run-core.mjs', '--out', out]

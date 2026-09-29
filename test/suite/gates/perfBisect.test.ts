@@ -13,6 +13,7 @@ import {
   mainRepoRoot,
   run,
   runStep,
+  argsToOptions,
 } from '../../../tools/perf/bisect.mjs'
 
 describe('exitCodeForStep: the git bisect run mapping', () => {
@@ -113,5 +114,57 @@ describe('run: refuses bad input before creating any worktree', () => {
       run({ id: 'core.x', good: 'a', bad: 'b', dir: join('tmp', 'bisect') }, exec as never),
     ).toThrow()
     expect(added[0]).toBe(resolve(repo, 'tmp', 'bisect', 'good'))
+  })
+})
+
+describe('run: cleanup boundary', () => {
+  it('removes only the worktrees it created when the second add throws', () => {
+    const repo = join(sep, 'Projects', 'hackbench')
+    const calls: string[][] = []
+    const exec = (cmd: string, args: string[]) => {
+      if (args[0] === 'rev-parse')
+        return `${join(repo, '.git')}
+`
+      calls.push([cmd, ...args])
+      if (args[1] === 'add' && args[2].endsWith('work')) throw new Error('add failed')
+      return ''
+    }
+    expect(() =>
+      run({ id: 'core.x', good: 'a', bad: 'b', dir: join('tmp', 'bisect') }, exec as never),
+    ).toThrow(/add failed/)
+    const removed = calls.filter(c => c[2] === 'remove').map(c => c[4])
+    expect(removed).toEqual([resolve(repo, 'tmp', 'bisect', 'good')])
+  })
+
+  it('still removes goodDir when removing workDir throws', () => {
+    const repo = join(sep, 'Projects', 'hackbench')
+    const removed: string[] = []
+    const exec = (cmd: string, args: string[]) => {
+      if (args[0] === 'rev-parse')
+        return `${join(repo, '.git')}
+`
+      if (args[1] === 'remove') {
+        removed.push(args[4])
+        if (args[4].endsWith('work')) throw new Error('remove failed')
+      }
+      if (args[0] === 'bisect' && args[1] === 'start') throw new Error('stop')
+      return ''
+    }
+    expect(() =>
+      run({ id: 'core.x', good: 'a', bad: 'b', dir: join('tmp', 'bisect') }, exec as never),
+    ).toThrow()
+    expect(removed).toHaveLength(2)
+  })
+})
+
+describe('argsToOptions: CLI string rounds', () => {
+  it('parses --rounds to a number', () => {
+    expect(argsToOptions({ id: 'x', rounds: '5' }).rounds).toBe(5)
+  })
+  it('rejects a non-numeric --rounds', () => {
+    expect(() => argsToOptions({ rounds: 'abc' })).toThrow(/--rounds must be a number/)
+  })
+  it('leaves an omitted --rounds undefined', () => {
+    expect(argsToOptions({ id: 'x' }).rounds).toBeUndefined()
   })
 })

@@ -57,7 +57,14 @@ export function runCore({ out, only, plant } = {}) {
     }
     const results = lines.map(line => JSON.parse(line))
 
-    const expectedIds = new Set(only ? only.split(',').map(s => s.trim()) : [])
+    const expectedIds = new Set(
+      only
+        ? only
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean)
+        : [],
+    )
     if (plant) expectedIds.add(plant.slice(0, plant.lastIndexOf('=')))
     const gotIds = new Set(results.map(r => r.id))
     for (const id of expectedIds) {

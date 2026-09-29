@@ -116,7 +116,10 @@ so the e2e run never collects these.
   hash. The check is manual and explicit: before bisecting an app, startup
   or heap regression, the fixing agent runs
   `git log --oneline <base>..<cand> -G 'perf(Start|End|EndAfterPaint)\(' -- theia/extension/src`
-  and names any listed commit in the issue as a moved boundary, which is a
+  The output is candidates only. The agent inspects each listed commit's
+  marker and its consumer, and names a commit as a moved boundary only when
+  it changes the affected benchmark's own mark (same name as the id's
+  measure), stating that scope in the issue comment. A moved boundary is a
   measurement change, not a regression.
 - `startup.*`: fresh server and page per round, time from navigation to the
   shell's `hb:shell-ready` mark.

@@ -353,11 +353,29 @@ describe('CLI', () => {
 
   async function cli(body: unknown) {
     return runCli(['--in', 'x.json', '--seed', '1'], {
-      fs: fakeFs(JSON.stringify(body)),
+      fs: fakeFs(JSON.stringify({ schema: 1, suite: 'core', ...(body as object) })),
       log: () => {},
       err: () => {},
     })
   }
+
+  it('exits 2 on wrong or omitted schema or suite, or a mismatched round suite', async () => {
+    const ok = () => rounds('core.a', [1, 1, 1, 1, 1])
+    const base = {
+      baseRounds: ok(),
+      candRounds: ok(),
+      schema: 1,
+      suite: 'core',
+    }
+    expect(await cli(base)).toBe(0)
+    expect(await cli({ ...base, schema: undefined })).toBe(2)
+    expect(await cli({ ...base, schema: 2 })).toBe(2)
+    expect(await cli({ ...base, suite: undefined })).toBe(2)
+    expect(await cli({ ...base, suite: 'other' })).toBe(2)
+    expect(await cli({ ...base, suite: 'app' })).toBe(2)
+    const appRound = { ...roundDoc('core.a', 1), suite: 'app' }
+    expect(await cli({ ...base, candRounds: [appRound, ...ok().slice(1)] })).toBe(2)
+  })
 
   it('exits 2 when the file cannot be read', async () => {
     expect(

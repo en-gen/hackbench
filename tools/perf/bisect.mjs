@@ -119,9 +119,12 @@ export function run({ id, good, bad, dir, rounds }, exec = execFileSync) {
   const goodDir = join(taskDir, 'good')
   const workDir = join(taskDir, 'work')
 
-  exec('git', ['worktree', 'add', goodDir, good], { cwd: repoRoot, stdio: 'inherit' })
-  exec('git', ['worktree', 'add', workDir, bad], { cwd: repoRoot, stdio: 'inherit' })
+  const created = []
   try {
+    exec('git', ['worktree', 'add', goodDir, good], { cwd: repoRoot, stdio: 'inherit' })
+    created.push(goodDir)
+    exec('git', ['worktree', 'add', workDir, bad], { cwd: repoRoot, stdio: 'inherit' })
+    created.push(workDir)
     npmCi(goodDir, exec)
     exec('git', ['bisect', 'start', bad, good], { cwd: workDir, stdio: 'inherit' })
     try {
@@ -148,8 +151,14 @@ export function run({ id, good, bad, dir, rounds }, exec = execFileSync) {
       exec('git', ['bisect', 'reset'], { cwd: workDir, stdio: 'inherit' })
     }
   } finally {
-    exec('git', ['worktree', 'remove', '--force', workDir], { cwd: repoRoot, stdio: 'inherit' })
-    exec('git', ['worktree', 'remove', '--force', goodDir], { cwd: repoRoot, stdio: 'inherit' })
+    // Each removal is attempted even if an earlier one throws.
+    for (const d of created.reverse()) {
+      try {
+        exec('git', ['worktree', 'remove', '--force', d], { cwd: repoRoot, stdio: 'inherit' })
+      } catch (e) {
+        console.error(`could not remove worktree ${d}:`, e.message)
+      }
+    }
     rmSync(taskDir, { recursive: true, force: true })
   }
 }
@@ -168,15 +177,34 @@ const CLI_OPTIONS = {
   'good-dir': { type: 'string' },
 }
 
+/** parseArgs yields --rounds as a string; run() wants a number. */
+export function argsToOptions(values) {
+  const opts = { ...values }
+  if (values.rounds !== undefined) {
+    const n = Number(values.rounds)
+    if (values.rounds.trim() === '' || Number.isNaN(n)) {
+      throw new Error(`--rounds must be a number, got ${JSON.stringify(values.rounds)}`)
+    }
+    opts.rounds = n
+  }
+  return opts
+}
+
 // Same invoked-directly test as tools/scripts/check-content.mjs.
 const isMain = /bisect\.mjs$/i.test(process.argv[1] ?? '')
 if (isMain) {
   const { values } = parseArgs({ args: process.argv.slice(2), options: CLI_OPTIONS, strict: true })
   if (values.step) {
-    process.exit(runStep({ id: values.id, goodDir: values['good-dir'], rounds: values.rounds }))
+    process.exit(
+      runStep({
+        id: values.id,
+        goodDir: values['good-dir'],
+        rounds: values.rounds === undefined ? undefined : Number(values.rounds),
+      }),
+    )
   } else {
     try {
-      run(values)
+      run(argsToOptions(values))
       process.exit(0)
     } catch (err) {
       console.error(err instanceof Error ? err.message : String(err))
