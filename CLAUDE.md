@@ -49,7 +49,10 @@ the approval to be CodeRabbit's, so a human approval merges it too.
   its final state; that holds only while the ruleset keeps that setting.
 - Any push after the verifier's report, CodeRabbit fixes included, re-runs
   the verifier; a fix that changes logic or removes a check goes to the
-  adversarial reviewer first.
+  adversarial reviewer first. Before pushing a fix to a PR, disable
+  auto-merge (`gh pr merge <n> -R en-gen/hackbench --disable-auto`) so it
+  cannot race the re-run; re-enable it only after the verifier passes on the
+  new head.
 - CodeRabbit re-reviews each push by itself. Do not comment
   `@coderabbitai review` or `full review` (the free open-source plan has an
   hourly review limit) and never `@coderabbitai approve`.
@@ -491,8 +494,9 @@ Do not build scaffolding for phases that have not been approved.
 The top-level session is the orchestrator and works from
 @docs/agents/orchestrator.md. It reviews and verifies nothing itself: no
 change is implemented before the owner approves a plan summary (contents in
-that file), every change gets two fresh-agent reviews and a verifier, and it
-relays their reports and decides. Its own edits, if any, go to the verifier
+that file), every change gets two fresh-agent reviews and a verifier (grunt
+for docs-only changes, per docs/agents/orchestrator.md), and it relays their
+reports and decides. Its own edits, if any, go to the verifier
 too. An agent launched with a brief is an implementer or reviewer and
 follows these rules instead:
 

@@ -108,7 +108,8 @@ check or gate goes to the adversarial reviewer before it is applied.
 
 A verifier sub-agent does all of this on the branch; relay its report
 verbatim. A push after its report re-runs it (CLAUDE.md "Merging"). Docs-only
-changes (Markdown outside `src/` and `theia/`, no code, config or CI) may use
+changes (Markdown outside `src/` and `theia/`, no code, config or CI;
+`.claude/` Markdown is config, so excluded) may use
 `grunt` instead: it runs named commands only, including `check-content`, and
 pastes raw output; the two reviewers cover the diff read.
 
