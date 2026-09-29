@@ -46,23 +46,23 @@ function runSuiteOnce(dir, { suite, out, only, plant }) {
 /** Overlays candDir's harness files onto baseDir (design D1) and returns a
  *  restore function that puts baseDir back exactly as it was. A no-op when
  *  the two directories are the same path. */
-function overlayHarness(baseDir, candDir) {
+export function overlayHarness(baseDir, candDir) {
   if (resolve(baseDir) === resolve(candDir)) return () => {}
 
   const backupDir = mkdtempSync(join(tmpdir(), 'hb-perf-harness-backup-'))
-  for (const rel of HARNESS_PATHS) {
-    const basePath = join(baseDir, rel)
-    if (existsSync(basePath)) {
-      cpSync(basePath, join(backupDir, rel), { recursive: true })
-      rmSync(basePath, { recursive: true, force: true })
+  // Back up everything before touching baseDir, so a failed backup leaves the
+  // base exactly as it was.
+  try {
+    for (const rel of HARNESS_PATHS) {
+      const basePath = join(baseDir, rel)
+      if (existsSync(basePath)) cpSync(basePath, join(backupDir, rel), { recursive: true })
     }
-  }
-  for (const rel of HARNESS_PATHS) {
-    const candPath = join(candDir, rel)
-    if (existsSync(candPath)) cpSync(candPath, join(baseDir, rel), { recursive: true })
+  } catch (e) {
+    rmSync(backupDir, { recursive: true, force: true })
+    throw e
   }
 
-  return function restore() {
+  function restore() {
     for (const rel of HARNESS_PATHS) rmSync(join(baseDir, rel), { recursive: true, force: true })
     for (const rel of HARNESS_PATHS) {
       const backupPath = join(backupDir, rel)
@@ -70,6 +70,18 @@ function overlayHarness(baseDir, candDir) {
     }
     rmSync(backupDir, { recursive: true, force: true })
   }
+
+  try {
+    for (const rel of HARNESS_PATHS) rmSync(join(baseDir, rel), { recursive: true, force: true })
+    for (const rel of HARNESS_PATHS) {
+      const candPath = join(candDir, rel)
+      if (existsSync(candPath)) cpSync(candPath, join(baseDir, rel), { recursive: true })
+    }
+  } catch (e) {
+    restore()
+    throw e
+  }
+  return restore
 }
 
 /** ABBA execution order (design D3) as a flat list of {round, side}. Rounds

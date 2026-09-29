@@ -72,7 +72,7 @@ than adopt that provider abstraction, `test/perf/support/perfCase.ts` is a
 small hand-rolled batched sampler: `perfCase(id, fn)` registers `id` with
 `it.skipIf(!shouldRun(id))`, so an id excluded by `HB_PERF_ONLY` shows up as
 skipped rather than silently absent. When it runs, it calibrates a batch
-size (doubling until one batch clears 1 ms), discards 3 warmup batches, then
+size (quadrupling until one batch clears 1 ms), discards 3 warmup batches, then
 records exactly 20 timed batches divided by the batch size - a fixed sample
 count regardless of how fast the case is, which also sidesteps tinybench's
 own time-budget mode: it ran several of this suite's sub-millisecond cases
@@ -103,8 +103,21 @@ so the e2e run never collects these.
   `performance.measure` with a `hb:` prefix. Widgets place `perfEnd` where
   the work is actually done (canvas drawn, not widget attached). A spec
   reads `performance.getEntriesByType('measure')` via `page.evaluate`.
-- v1 cases: open project, open Maps / Map16 / Palette / GFX views, draw one
-  map, apply one edit, undo it.
+- v1 cases: open project, open Maps / Map16 / Palette / GFX views, apply one
+  edit, undo it. `app.open-maps` is cold only because the spec creates a new
+  project per sample: in the current backend a new manifest gets a new
+  `WorkingRom`, whose bytes array is a distinct object, and `L1ModelCache`
+  keys on that identity, so it misses. A cache keyed on content would make
+  this case warm without any test failing. It ends at the first screen
+  drawn; it is the "draw one map" case. `startup.shell` runs first on its
+  own server.
+- Marks are keyed by name and valid for single-view specs only. Moving a
+  mark's call site changes what is measured without changing the harness
+  hash. The check is manual and explicit: before bisecting an app, startup
+  or heap regression, the fixing agent runs
+  `git log --oneline <base>..<cand> -G 'perf(Start|End|EndAfterPaint)\(' -- theia/extension/src`
+  and names any listed commit in the issue as a moved boundary, which is a
+  measurement change, not a regression.
 - `startup.*`: fresh server and page per round, time from navigation to the
   shell's `hb:shell-ready` mark.
 - `heap.*`: open and close a view 20 times, forced GC through CDP
@@ -195,24 +208,37 @@ Settled during PR 1's review; the substance is woven into sections 1-4 and
   `hackbench_ref`, `base_ref` and `plant`.
 - Gate job: skip when develop's head already carries a `perf-nightly`
   status. Base = newest develop commit with a `perf-nightly` success status
-  in the last 50; none found means an A/A run (head against itself), which
-  also calibrates noise.
+  in the last 100. None found: an A/A run (head against itself) only when no
+  `perf-nightly` status of any state exists in that window (bootstrap);
+  otherwise the run fails closed ("base out of window") until the owner
+  runs `accept.sh`.
+- A separate job pulls the ROM with `RCLONE_CONF` and hands it over as a
+  one-day artifact, so the secret never shares a job with hackbench code.
 - Checks out hackbench at base and at candidate into two dirs, installs and
-  builds both, pulls the ROM with `RCLONE_CONF` as the e2e job does.
+  builds both. The app suite runs only when both sides have it.
+- A run that fails before a verdict posts `failure` on `perf-nightly-infra`,
+  never on `perf-nightly`, so one broken night cannot move or block the
+  base; the next scheduled run retries the same head.
 - Runs core then app through `paired.mjs`, then `compare.mjs`, then the
   confirmation pass.
-- Reports into hackbench with `HACKBENCH_REPORT_TOKEN`:
-  - commit status `perf-nightly` on the candidate: success when nothing is
-    confirmed, failure otherwise;
-  - on failure, one issue labelled `perf-regression`, type Bug, project
-    HackBench, with the table, base..cand compare link, the run link, and
-    the exact local repro command. An open `perf-regression` issue already
-    naming the same id gets a comment instead of a second issue.
+- Reports into hackbench with `HACKBENCH_REPORT_TOKEN`, only for a scheduled
+  run or a dispatch with no `base_ref` whose candidate is develop's head.
+  Any other dispatch posts context `perf-manual` and never files.
+  - one issue labelled `perf-regression`, type Bug, project HackBench, with
+    the table, base..cand compare link, the run link, and the exact local
+    repro command. Each id is marked `<!-- perf-id: <id> -->`; an open issue
+    carrying the exact marker gets a comment instead of a second issue;
+  - then commit status `perf-nightly` on the candidate: `success` only when
+    nothing was flagged, `error` ("unconfirmed") when pass 1 flagged ids the
+    confirmation pass cleared, `failure` on a confirmed regression.
+- Candidate code never sees a secret: checkouts keep no credentials, and
+  the rclone config is deleted once the ROM is copied.
 - Commits the raw rounds and verdict to the `perf-data` branch of
   hackbench-validation as `runs/<date>-<sha7>.json`.
 
-Because the base only advances on success, an unfixed regression keeps
-failing each run instead of silently becoming the new normal.
+Because the base only advances on a run that flagged nothing, an unfixed
+regression keeps failing each run instead of silently becoming the new
+normal, and one noisy confirmation pass cannot wave it through.
 
 ### Accepting an intended cost
 
@@ -230,7 +256,9 @@ Daily at 07:00 local on the owner's machine. The session:
    (`docs/agents/orchestrator.md`).
 3. Bisects between the issue's base and candidate SHAs with
    `tools/perf/bisect.mjs --id <id>` (git worktrees, paired runs,
-   `--only`), naming the first bad commit.
+   `--only`), naming the first bad commit. For an app, startup or heap id
+   it first runs the moved-boundary check in section 2 and stops with a
+   comment if a listed commit explains the change.
 4. Classifies: accidental cost, fix it; intended cost of a feature, comment
    the evidence and propose `accept.sh`, then stop.
 5. A fix ships as a normal PR: failing benchmark evidence before, paired
@@ -258,11 +286,14 @@ Per the oracle rule, each verdict has a committed test that plants a defect:
   calibration and sampling both see the scaled cost consistently rather
   than padding each call; for app it sets CDP
   `Emulation.setCPUThrottlingRate` on the candidate, so the app's own marks
-  genuinely slow. A factor below 1 or a non-numeric factor is refused, and
-  `run-core.mjs` fails if the planted id (or any `--only` id) produced no
-  result at all. The workflow's `plant` input runs the whole pipeline red
-  end to end, without filing an issue (a planted run reports to the step
-  summary only).
+  genuinely slow. Renderer throttling only proves render-bound cases, so
+  app plants are refused outside an explicit PLANTABLE list. For `heap.*`
+  the candidate page retains `factor x 64 KiB` per cycle. A factor below 1
+  or a non-numeric factor is refused, and the runners fail if the planted id
+  (or any `--only` id) produced no result at all.
+- The workflow's `plant` input runs the whole pipeline end to end and is
+  GREEN only when the plant id is confirmed, red otherwise, so the oracle
+  itself can fail. A planted run never files or posts `perf-nightly`.
 - A heap unit test: a synthetic series with a planted slope regresses; a
   flat one with noise does not; the 64 KiB floor holds even when the base
   median is near zero.

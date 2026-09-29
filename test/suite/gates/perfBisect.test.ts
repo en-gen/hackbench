@@ -6,11 +6,13 @@
  * default worktree path follows CLAUDE.md's placement convention.
  */
 import { describe, it, expect } from 'vitest'
+import { join, resolve, sep } from 'node:path'
 import {
   defaultTaskDir,
   exitCodeForStep,
   buildCommands,
   mainRepoRoot,
+  run,
   runStep,
   suiteOf,
 } from '../../../tools/perf/bisect.mjs'
@@ -33,15 +35,19 @@ describe('exitCodeForStep: the git bisect run mapping', () => {
 
 describe('defaultTaskDir: CLAUDE.md worktree placement', () => {
   it('is <parent-of-repo>/.worktrees/<repo-name>/perf-bisect-<id>-<good7>', () => {
-    const dir = defaultTaskDir('C:\\Projects\\hackbench', 'core.x.y', 'abcdef1234567')
-    expect(dir).toBe('C:\\Projects\\.worktrees\\hackbench\\perf-bisect-core.x.y-abcdef1')
+    // Built with node:path so the case holds on the Linux CI runner and on Windows.
+    const dir = defaultTaskDir(join(sep, 'Projects', 'hackbench'), 'core.x.y', 'abcdef1234567')
+    expect(dir).toBe(
+      join(sep, 'Projects', '.worktrees', 'hackbench', 'perf-bisect-core.x.y-abcdef1'),
+    )
   })
 })
 
 describe('mainRepoRoot: resolves through a linked worktree', () => {
   it('strips the trailing .git from git-common-dir', () => {
-    const exec = () => 'C:\\Projects\\hackbench\\.git\n'
-    expect(mainRepoRoot(exec as never)).toBe('C:\\Projects\\hackbench')
+    const repo = join(sep, 'Projects', 'hackbench')
+    const exec = () => `${join(repo, '.git')}\n`
+    expect(mainRepoRoot(exec as never)).toBe(repo)
   })
 })
 
@@ -118,5 +124,33 @@ describe('suite selection and build steps (D5)', () => {
     expect(runStep({ id: 'app.open-map16', goodDir: 'good' }, exec as never)).toBe(125) // paired wrote nothing
     expect(seen.some(c => c.includes('theia build:browser'))).toBe(true)
     expect(seen.some(c => c.includes('--suite app'))).toBe(true)
+  })
+})
+
+describe('run: refuses bad input before creating any worktree', () => {
+  it('refuses --rounds below the paired minimum, since every step would skip', () => {
+    const calls: string[][] = []
+    const exec = (cmd: string, args: string[]) => {
+      calls.push([cmd, ...args])
+      return `${join(sep, 'Projects', 'hackbench', '.git')}\n`
+    }
+    expect(() => run({ id: 'core.x', good: 'a', bad: 'b', rounds: 3 }, exec as never)).toThrow(
+      /--rounds must be an integer >= 5/,
+    )
+    expect(calls.some(c => c.includes('worktree'))).toBe(false)
+  })
+
+  it('resolves a relative --dir against the repo root', () => {
+    const repo = join(sep, 'Projects', 'hackbench')
+    const added: string[] = []
+    const exec = (cmd: string, args: string[]) => {
+      if (args[0] === 'rev-parse') return `${join(repo, '.git')}\n`
+      if (args[0] === 'worktree' && args[1] === 'add') added.push(args[2])
+      throw new Error('stop after worktree setup')
+    }
+    expect(() =>
+      run({ id: 'core.x', good: 'a', bad: 'b', dir: join('tmp', 'bisect') }, exec as never),
+    ).toThrow()
+    expect(added[0]).toBe(resolve(repo, 'tmp', 'bisect', 'good'))
   })
 })
