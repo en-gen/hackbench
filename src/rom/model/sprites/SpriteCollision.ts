@@ -14,6 +14,10 @@ import type { SlopeInfo } from '../../SlopeResolver'
  *   solidH    → CODE_01928E  (bank_01.asm:2613)
  *   solidV    → CODE_01933B  (bank_01.asm:2705)  full landing path
  *   ceilingV  → CODE_0192C9 Y=3  (bank_01.asm:2659-2668)
+ *
+ * No production caller. Kept only as a possible input for a later
+ * sprite-perspective view of the collision overlays; the #435 port reads
+ * the Mario fields and does not use it.
  */
 export interface SpriteCollision {
   solidH(c: number, r: number): boolean
