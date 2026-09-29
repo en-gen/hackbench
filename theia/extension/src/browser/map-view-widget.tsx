@@ -365,7 +365,7 @@ export class MapViewWidget extends ReactWidget {
         <div className="hb-map-view-toolbar">
           <LayerToggle
             highlight="middle"
-            label="L1 (foreground)"
+            label="Foreground"
             pressed={this.showL1}
             control="layer-l1"
             onClick={() => this.toggleL1()}
