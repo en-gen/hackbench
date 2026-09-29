@@ -16,7 +16,8 @@
 import { parseArgs } from 'node:util'
 import { execFileSync } from 'node:child_process'
 import { existsSync, rmSync } from 'node:fs'
-import { dirname, basename, join } from 'node:path'
+import { dirname, basename, join, resolve } from 'node:path'
+import { MIN_ROUNDS } from './paired.mjs'
 
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 
@@ -107,8 +108,14 @@ export function runStep({ id, goodDir, rounds }, exec = execFileSync) {
  *  Removes both worktrees in a finally regardless of outcome. */
 export function run({ id, good, bad, dir, rounds }, exec = execFileSync) {
   if (!id || !good || !bad) throw new Error('bisect.mjs needs --id, --good and --bad')
+  // paired.mjs refuses fewer rounds, and a refused step is a skip (125), so
+  // bisect would skip every commit and name no culprit. Refuse up front.
+  if (rounds !== undefined && !(Number.isInteger(rounds) && rounds >= MIN_ROUNDS)) {
+    throw new Error(`--rounds must be an integer >= ${MIN_ROUNDS}, got ${JSON.stringify(rounds)}`)
+  }
   const repoRoot = mainRepoRoot(exec)
-  const taskDir = dir ?? defaultTaskDir(repoRoot, id, good)
+  // Absolute, because git bisect runs each step from the work worktree.
+  const taskDir = resolve(repoRoot, dir ?? defaultTaskDir(repoRoot, id, good))
   const goodDir = join(taskDir, 'good')
   const workDir = join(taskDir, 'work')
 

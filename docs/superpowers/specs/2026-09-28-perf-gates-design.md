@@ -72,7 +72,7 @@ than adopt that provider abstraction, `test/perf/support/perfCase.ts` is a
 small hand-rolled batched sampler: `perfCase(id, fn)` registers `id` with
 `it.skipIf(!shouldRun(id))`, so an id excluded by `HB_PERF_ONLY` shows up as
 skipped rather than silently absent. When it runs, it calibrates a batch
-size (doubling until one batch clears 1 ms), discards 3 warmup batches, then
+size (quadrupling until one batch clears 1 ms), discards 3 warmup batches, then
 records exactly 20 timed batches divided by the batch size - a fixed sample
 count regardless of how fast the case is, which also sidesteps tinybench's
 own time-budget mode: it ran several of this suite's sub-millisecond cases
