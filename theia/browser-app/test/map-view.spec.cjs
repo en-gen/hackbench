@@ -870,3 +870,25 @@ test('the map tab speaks of ROMs, never cartridges', async ({ page }) => {
   expect(words).toMatch(/Yellow switch palace/)
   expect(words).not.toMatch(CART)
 })
+
+/**
+ * #342: $1E0's cloud slope (object $12, size $E5, CODE_0DADEB) is a staircase
+ * that steps four columns right per row from (8,8), not a 4-wide column under
+ * (8,8). Screen 0 holds the first step at (8,8) and the second at (12,9); each
+ * step's body sits under the lip before it, with fill left of the body.
+ * Compared by pixels per 16x16 cell.
+ */
+test('$1E0 screen 0 draws the cloud slope as a staircase, not a column', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x1e0)
+  const cells = (await readScreen(page, 0x1e0, 0)).cells
+  expect(new Set([8, 9, 10, 11].map(x => cells[`${x},8`])).size, 'four distinct lip tiles').toBe(4)
+  for (let c = 0; c < 4; c++) {
+    // The lip repeats one row down, four columns right, and its body sits under the first.
+    expect(cells[`${12 + c},9`], `second step, lip ${c}`).toBe(cells[`${8 + c},8`])
+    expect(cells[`${12 + c},10`], `body ${c}`).toBe(cells[`${8 + c},9`])
+  }
+  // The defect: body all the way down under (8,8). Two rows down is fill, all the way down.
+  expect(cells['8,9']).not.toBe(cells['8,10'])
+  expect(cells['8,10']).toBe(cells['8,20'])
+})

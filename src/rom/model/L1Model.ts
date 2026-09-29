@@ -76,7 +76,7 @@ export interface L1Inputs {
   anim: AnimationData | null
   /** Frame 0 of that animation: what a still picture composites from. */
   vram: VramState
-  /** Why the char or palette animation frames are unverified or absent, when they are. */
+  /** Why the char or palette animation frames, or an object's tiles, are unverified or absent, when they are. */
   animNote?: string
   /** CGRAM, 256 colors: any per-level override block, then the palette animation's representative frame (phase 0). */
   colors: RgbaColor[]
@@ -105,6 +105,8 @@ export interface L1Readings {
   backAreas: RgbaColor[]
   col1: { bg: number; obj: number }
   paletteAnim: PaletteAnimContext
+  /** Why the expander drew an object from a port the interpreter could not check (#342). */
+  unverified?: string[]
 }
 
 /** A level's CGRAM and backdrop: its override block, else the header's palettes and back-area color. */
@@ -165,7 +167,7 @@ export function assembleL1Inputs(r: L1Readings): L1Inputs {
   const vram = frameZero?.vram ?? r.rawVram
   const stored = levelColorsFrom(r)
   const palette = applyPaletteFrame0(stored.colors, r.paletteAnim)
-  const notes = [frameZero?.error, palette.note].filter(Boolean)
+  const notes = [...(r.unverified ?? []), frameZero?.error, palette.note].filter(Boolean)
   const anim = frameZero?.animData
   return {
     header: r.header,
@@ -201,7 +203,8 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
     const isVertical = isLevelModeVertical(header.levelMode, table.table)
     const tileset = header.objectTileset
     // No levelNum: the Layer 3 overflow screens are not this map's own.
-    const grid = expandMap(objects, header.levelLength, rom.rom, tileset, isVertical, header.levelMode, undefined, flags) // prettier-ignore
+    const unverified: string[] = []
+    const grid = expandMap(objects, header.levelLength, rom.rom, tileset, isVertical, header.levelMode, undefined, flags, unverified) // prettier-ignore
 
     const gfx = gfxSource(rom.rom)
     if (!gfx.ok) return refuse(`GFX cannot be read: ${gfx.reason}`)
@@ -225,6 +228,7 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
       backAreas: loadBackAreaColors(rom.rom),
       col1,
       paletteAnim: detectPaletteAnimation(rom.rom).level,
+      unverified,
     })
     return { ok: true, inputs }
   } catch (err) {

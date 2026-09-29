@@ -109,6 +109,9 @@ export interface InterpretOptions {
    *  The loader JSLs both real entries; a test entering a handler directly
    *  passes 'jsr'. */
   entryCall?: 'jsl' | 'jsr'
+  /** What a buffer cell holds before the handler writes it (a merge reads the
+   *  tile already there). Unset cells read as an empty level. */
+  seed?: (addr: number) => number | undefined
 }
 
 export interface BufferWrite {
@@ -212,7 +215,7 @@ export function interpret(
     if (w === null) return cart(a) ?? refuse(`read of unmodelled address ${hex(a)}`)
     if (w < 0x100) return dp[w]
     const buf = bufferAddr(w)
-    if (buf !== null) return buffer.get(buf) ?? (buf < BUF_HI ? TILE_EMPTY : 0)
+    if (buf !== null) return buffer.get(buf) ?? opts.seed?.(buf) ?? (buf < BUF_HI ? TILE_EMPTY : 0)
     const cell = cells.get(w)
     if (cell !== undefined) return cell
     if (w === OBJECT_TILESET) return env.tileset & 0xff
@@ -525,20 +528,41 @@ export function horizontalPlacement(
   }
 }
 
+/** The grid cell a buffer address is, on a horizontal level; null off the grid. */
+function gridCell(addr: number, cols: number): { row: number; col: number; high: boolean } | null {
+  const o = (addr & 0xffff) - (BUF_LO & 0xffff)
+  const screen = Math.floor(o / MAP16_BYTES_PER_SCREEN_H)
+  const rem = o % MAP16_BYTES_PER_SCREEN_H
+  const col = screen * 16 + (rem & 0x0f)
+  return o < 0 || col >= cols ? null : { row: rem >> 4, col, high: addr >>> 16 !== 0x7e }
+}
+
+/** A `seed` that reads the tiles a horizontal-level grid already holds. */
+export function seedFromGrid(grid: TileGrid): (addr: number) => number | undefined {
+  return addr => {
+    const c = gridCell(addr, 0x200)
+    const t = c ? grid[c.row]?.[c.col] : undefined
+    return c && t !== undefined ? (c.high ? t >> 8 : t & 0xff) : undefined
+  }
+}
+
 /**
  * Apply writes to a horizontal-level grid the way cursor.ts's writeTile
  * stores a tile: (high byte << 8) | low byte, rows growing up to $200 columns.
+ * `onCell` hears each cell written (the owner grid records it).
  */
-export function applyWrites(grid: TileGrid, writes: readonly BufferWrite[]): void {
+export function applyWrites(
+  grid: TileGrid,
+  writes: readonly BufferWrite[],
+  onCell?: (row: number, col: number) => void,
+): void {
   for (const { addr, value } of writes) {
-    const o = (addr & 0xffff) - (BUF_LO & 0xffff)
-    const screen = Math.floor(o / MAP16_BYTES_PER_SCREEN_H)
-    const rem = o % MAP16_BYTES_PER_SCREEN_H
-    const row = grid[rem >> 4]
-    const col = screen * 16 + (rem & 0x0f)
-    if (!row || col >= 0x200) continue
-    while (row.length < col) row.push(TILE_EMPTY)
-    const cell = row[col] ?? TILE_EMPTY
-    row[col] = addr >>> 16 === 0x7e ? (cell & ~0xff) | value : (value << 8) | (cell & 0xff)
+    const c = gridCell(addr, 0x200)
+    const row = c && grid[c.row]
+    if (!c || !row) continue
+    while (row.length < c.col) row.push(TILE_EMPTY)
+    const cell = row[c.col] ?? TILE_EMPTY
+    row[c.col] = c.high ? (value << 8) | (cell & 0xff) : (cell & ~0xff) | value
+    onCell?.(c.row, c.col)
   }
 }

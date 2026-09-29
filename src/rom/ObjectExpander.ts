@@ -26,6 +26,7 @@ import {
   TileGrid,
 } from './objectHandlers/cursor'
 import { dispatchStandard, dispatchExtended } from './objectHandlers/dispatch'
+import type { InterpretedDraw } from './objectHandlers/interpretedDraw'
 
 /** Empty tile = $25 (bank_05.asm CODE_05801E fills the level map with #$25). */
 export const TILE_EMPTY = 0x25
@@ -128,6 +129,7 @@ export function createGrid(screens: number, isVertical = false, layer3Setting = 
  *
  * Pass `owners` and `owner` to record which object drew each cell. Both are
  * optional: callers that only want tiles pay nothing for the bookkeeping.
+ * Pass `draw` to draw the interpreter-gated handlers from the interpreter.
  */
 export function expandObject(
   grid: TileGrid,
@@ -137,6 +139,7 @@ export function expandObject(
   owners: OwnerGrid | null = null,
   owner: number = OWNER_NONE,
   switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED,
+  draw?: InterpretedDraw,
 ): void {
   if (obj.type === 'extended') {
     // For extended objects, LevelParser stores the extended type in `objectNumber`
@@ -168,6 +171,7 @@ export function expandObject(
       owner,
       switchFlags,
     )
+    cur.draw = draw
     dispatchStandard(cur)
   }
 }
@@ -230,6 +234,9 @@ function applyMode11BossArena(grid: TileGrid): void {
  * Pass `switchFlags` to pick which page the four switch-palace blocks draw
  * from (#567); defaults to all uncleared, matching a fresh save and the
  * `layers_v5` captures.
+ *
+ * Pass `unverified` to draw the interpreter-gated handlers (#342) from the
+ * interpreter; a refusal draws the port and adds its reason to that array.
  */
 export function expandMap(
   objects: LevelObject[],
@@ -240,6 +247,7 @@ export function expandMap(
   levelMode?: number,
   levelNum?: number,
   switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED,
+  unverified?: string[],
 ): TileGrid {
   return expandMapOwned(
     objects,
@@ -250,6 +258,7 @@ export function expandMap(
     levelMode,
     levelNum,
     switchFlags,
+    unverified,
   ).grid
 }
 
@@ -278,6 +287,7 @@ export function expandMapOwned(
   levelMode?: number,
   levelNum?: number,
   switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED,
+  unverified?: string[],
 ): ExpandedMap {
   // Boss-arena modes override the header screen count.
   const effectiveScreens = levelMode === 9 || levelMode === 11 ? BOSS_ARENA_SCREENS : screens
@@ -290,8 +300,11 @@ export function expandMapOwned(
 
   const owners: OwnerGrid = grid.map(row => new Array<number>(row.length).fill(OWNER_NONE))
 
+  // Only a caller that takes the notes gets the interpreter path: the others
+  // (reference extension) would draw a port's output with nobody told.
+  const draw = unverified && { vertical: isVertical, unverified }
   for (let i = 0; i < objects.length; i++) {
-    expandObject(grid, objects[i], rom, tileset, owners, i, switchFlags)
+    expandObject(grid, objects[i], rom, tileset, owners, i, switchFlags, draw)
   }
   return { grid, owners }
 }

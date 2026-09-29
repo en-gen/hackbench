@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto'
 import type { RomFile } from '../../../src/rom/RomFile'
 import { createGrid, expandObject, TILE_EMPTY } from '../../../src/rom/ObjectExpander'
 import type { LevelObject } from '../../../src/rom/LevelParser'
-import type { TileGrid } from '../../../src/rom/objectHandlers/cursor'
+import { OWNER_NONE, type TileGrid } from '../../../src/rom/objectHandlers/cursor'
 import {
   ADDR_TILESET_DISPATCH,
   TILESET_DISPATCH_COUNT,
@@ -159,7 +159,10 @@ export function sweep(rom: RomFile): DiffRun[] {
       // #350: handle_0DB49E never returns at height 0. Not fixed here.
       if (r.refusal || (kind === 'standard' && obj === 0x1e && size < 0x10)) continue
       const object = { type: kind, objectNumber: obj, settings: size, x, y: row } as LevelObject
-      expandObject(port, object, rom, ts)
+      // As the map expander draws it: the gated handlers (#342) come from the
+      // interpreter, so for those this compares the expander's placement and
+      // seeding against the raw run, not a port.
+      expandObject(port, object, rom, ts, null, OWNER_NONE, undefined, { vertical: false, unverified: [] }) // prettier-ignore
       applyWrites(mine, r.writes)
       run.differs = !sameGrid(port, mine)
       if (run.differs || r.writes.length > 0)

@@ -7,6 +7,19 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
+import {
+  createGrid,
+  expandMapOwned,
+  expandObject,
+  TILE_EMPTY,
+} from '../../../src/rom/ObjectExpander'
+import type { LevelObject } from '../../../src/rom/LevelParser'
+import { OWNER_NONE, makeCursor } from '../../../src/rom/objectHandlers/cursor'
+import { STANDARD_HANDLERS } from '../../../src/rom/objectHandlers/dispatch'
+import {
+  ADDR_TILESET_DISPATCH,
+  STANDARD_HANDLER_COUNT,
+} from '../../../src/rom/objectHandlers/romData'
 import { fingerprint } from '../../../src/rom/Fingerprint'
 import {
   interpret,
@@ -388,40 +401,43 @@ describe('interpret: inline-table dispatch (ExecutePtrLong)', () => {
   })
 })
 
-describe('interpret: a CODE_0DADEB-shaped staircase (bank_0D.asm:2671, #342)', () => {
-  // Helpers written from bank_0D.asm:1635-1651 and 1996-2031, 2107-2115.
-  // They run inline, as the stock ones do. Tile values are invented.
-  function staircase(step = 0x04, stop = 0x07): RomFile {
-    const a = new Asm(CODE)
-    a.b(...LDY_POS, 0xa2, 0x03, 0x86, 0x02).call(0x20, 'save') // LDX #3; STX _2
-    a.b(0xa5, 0x59, 0x4a, 0x4a, 0x4a, 0x4a, 0x85, 0x00, 0xe6, 0x00).call(0x4c, 'lips')
-    a.at('fill').call(0x20, 'page0').b(0xa9, 0x11).call(0x20, 'write').b(0xca)
-    a.at('loop').b(0xe0, stop).br(0xd0, 'fill') // CPX #stop; BNE fill
-    for (const t of [0x21, 0x22, 0x23, 0x24]) a.call(0x20, 'page1').b(0xa9, t).call(0x20, 'write')
-    a.b(0xca, 0xca, 0xca, 0xca, 0xa5, 0x00).br(0xf0, 'done')
-    a.at('lips')
-    for (const t of [0x31, 0x32, 0x33, 0x34]) a.call(0x20, 'page1').b(0xa9, t).call(0x20, 'write')
-    a.call(0x20, 'restore').call(0x20, 'row')
-    a.b(0xa5, 0x02, 0x18, 0x69, step, 0x85, 0x02, 0xa6, 0x02, 0xc6, 0x00).br(0x10, 'more')
-    a.at('done').b(RTS)
-    a.at('more').call(0x4c, 'loop')
-    a.at('page0').b(0xa9, 0x00, 0x97, 0x6e, RTS)
-    a.at('page1').b(0xa9, 0x01, 0x97, 0x6e, RTS)
-    a.at('save').b(0xa5, 0x6b, 0x85, 0x04, 0xa5, 0x6c, 0x85, 0x05, RTS)
-    a.at('restore').b(0xa5, 0x04, 0x85, 0x6b, 0x85, 0x6e, 0xa5, 0x05, 0x85, 0x6c, 0x85, 0x6f)
-    a.b(0xad, 0x28, 0x19, 0x8d, 0xa1, 0x1b, RTS)
-    a.at('write')
-      .b(...STA_PTR_Y, 0xc8, 0x98, 0x29, 0x0f)
-      .br(0xd0, 'wdone')
-    a.b(0xa5, 0x6b, 0x18, 0x69, 0xb0, 0x85, 0x6b, 0x85, 0x6e, 0xa5, 0x6c, 0x69, 0x01, 0x85, 0x6c)
-    a.b(0x85, 0x6f, 0xee, 0xa1, 0x1b, 0xa5, 0x57, 0x29, 0xf0, 0xa8)
-    a.at('wdone').b(RTS)
-    a.at('row').b(0xa5, 0x57, 0x18, 0x69, 0x10, 0x85, 0x57, 0xa8).br(0x90, 'rdone')
-    a.b(0xa5, 0x6c, 0x69, 0x00, 0x85, 0x6c, 0x85, 0x6f, 0x85, 0x05)
-    a.at('rdone').b(RTS)
-    return cart(a.build())
-  }
+// Helpers written from bank_0D.asm:1635-1651 and 1996-2031, 2107-2115. Tile values are invented.
+/** The handler bytes only; `staircase` puts them in a cart at CODE. */
+function staircaseCode(org: number, step = 0x04, stop = 0x07): number[] {
+  const a = new Asm(org)
+  a.b(...LDY_POS, 0xa2, 0x03, 0x86, 0x02).call(0x20, 'save') // LDX #3; STX _2
+  a.b(0xa5, 0x59, 0x4a, 0x4a, 0x4a, 0x4a, 0x85, 0x00, 0xe6, 0x00).call(0x4c, 'lips')
+  a.at('fill').call(0x20, 'page0').b(0xa9, 0x11).call(0x20, 'write').b(0xca)
+  a.at('loop').b(0xe0, stop).br(0xd0, 'fill') // CPX #stop; BNE fill
+  for (const t of [0x21, 0x22, 0x23, 0x24]) a.call(0x20, 'page1').b(0xa9, t).call(0x20, 'write')
+  a.b(0xca, 0xca, 0xca, 0xca, 0xa5, 0x00).br(0xf0, 'done')
+  a.at('lips')
+  for (const t of [0x31, 0x32, 0x33, 0x34]) a.call(0x20, 'page1').b(0xa9, t).call(0x20, 'write')
+  a.call(0x20, 'restore').call(0x20, 'row')
+  a.b(0xa5, 0x02, 0x18, 0x69, step, 0x85, 0x02, 0xa6, 0x02, 0xc6, 0x00).br(0x10, 'more')
+  a.at('done').b(RTS)
+  a.at('more').call(0x4c, 'loop')
+  a.at('page0').b(0xa9, 0x00, 0x97, 0x6e, RTS)
+  a.at('page1').b(0xa9, 0x01, 0x97, 0x6e, RTS)
+  a.at('save').b(0xa5, 0x6b, 0x85, 0x04, 0xa5, 0x6c, 0x85, 0x05, RTS)
+  a.at('restore').b(0xa5, 0x04, 0x85, 0x6b, 0x85, 0x6e, 0xa5, 0x05, 0x85, 0x6c, 0x85, 0x6f)
+  a.b(0xad, 0x28, 0x19, 0x8d, 0xa1, 0x1b, RTS)
+  a.at('write')
+    .b(...STA_PTR_Y, 0xc8, 0x98, 0x29, 0x0f)
+    .br(0xd0, 'wdone')
+  a.b(0xa5, 0x6b, 0x18, 0x69, 0xb0, 0x85, 0x6b, 0x85, 0x6e, 0xa5, 0x6c, 0x69, 0x01, 0x85, 0x6c)
+  a.b(0x85, 0x6f, 0xee, 0xa1, 0x1b, 0xa5, 0x57, 0x29, 0xf0, 0xa8)
+  a.at('wdone').b(RTS)
+  a.at('row').b(0xa5, 0x57, 0x18, 0x69, 0x10, 0x85, 0x57, 0xa8).br(0x90, 'rdone')
+  a.b(0xa5, 0x6c, 0x69, 0x00, 0x85, 0x6c, 0x85, 0x6f, 0x85, 0x05)
+  a.at('rdone').b(RTS)
+  return a.build()
+}
 
+const staircase = (step?: number, stop?: number): RomFile => cart(staircaseCode(CODE, step, stop))
+
+describe('interpret: a CODE_0DADEB-shaped staircase (bank_0D.asm:2671, #342)', () => {
+  // They run inline, as the stock ones do. Tile values are invented.
   /** Row -> the columns holding the first lip tile ($131), relative to the object. */
   function lipColumns(rom: RomFile, size: number): Map<number, number[]> {
     const r = run(rom, size)
@@ -448,5 +464,111 @@ describe('interpret: a CODE_0DADEB-shaped staircase (bank_0D.asm:2671, #342)', (
   it('draws a different shape when the CPX #$07 stop is mutated', () => {
     // prettier-ignore
     expect(lipColumns(staircase(0x04, 0x06), 0x10)).toEqual(new Map([[2, [0]], [3, [5]]]))
+  })
+})
+
+describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
+  const HANDLER = 0x0dadeb
+  const PIPES = 0x0dab3e // object $12's routine; the size's low nibble picks the variant
+  const CLOUD = 0x12
+  const VARIANT = 5 // low nibble of size $E5
+  const SCREENS = 3
+
+  /** A cart whose object $12 reaches `code` at $0DADEB as pipe variant 5. */
+  function slopeCart(code: number[]): RomFile {
+    const table = new Array(STANDARD_HANDLER_COUNT * 3).fill(0)
+    table.splice((CLOUD - 1) * 3, 3, lo(PIPES), hi(PIPES), 0x0d)
+    const variants = new Array(30).fill(0)
+    variants.splice(VARIANT * 3, 3, lo(HANDLER), hi(HANDLER), 0x0d)
+    return cart(code, [
+      [HANDLER, code],
+      [ADDR_TILESET_DISPATCH, [lo(DISPATCH), hi(DISPATCH), 0x0d]],
+      [DISPATCH + 10, table],
+      [PIPES + 18, variants],
+    ])
+  }
+  const obj = (size: number): LevelObject => ({ type: 'standard', objectNumber: CLOUD, settings: size, x: 16, y: 2 }) as LevelObject // prettier-ignore
+  /** Expand one object, entering the interpreter at the handler (the synthetic cart has no ExecutePtrLong). */
+  function expand(rom: RomFile, size: number, options?: InterpretOptions) {
+    const unverified: string[] = []
+    const grid = createGrid(SCREENS)
+    expandObject(grid, obj(size), rom, 0, null, OWNER_NONE, undefined, { vertical: false, unverified, entry: HANDLER, options }) // prettier-ignore
+    return { grid, unverified }
+  }
+  /** What the port draws for the same object, straight from the port. */
+  function port(rom: RomFile, size: number): number[][] {
+    const grid = createGrid(SCREENS)
+    const cur = makeCursor(grid, rom, 0, 16, 2, CLOUD, size)
+    cur.handlerAddr = PIPES
+    STANDARD_HANDLERS[PIPES](cur)
+    return grid
+  }
+  /** Row -> columns (relative to the object) holding the first lip tile, $131. */
+  const lips = (grid: number[][]): Map<number, number[]> => {
+    const out = new Map<number, number[]>()
+    grid.forEach((row, y) =>
+      row.forEach((t, x) => t === 0x131 && out.set(y, [...(out.get(y) ?? []), x - 16])),
+    )
+    return out
+  }
+  const good = (step?: number, stop?: number) => slopeCart(staircaseCode(HANDLER, step, stop))
+
+  it('draws the staircase the handler bytes describe, not the port, and marks nothing', () => {
+    const r = expand(good(), 0x35)
+    // prettier-ignore
+    expect(lips(r.grid)).toEqual(new Map([[2, [0]], [3, [4]], [4, [8]], [5, [12]]]))
+    expect(r.unverified).toEqual([])
+    expect(r.grid).not.toEqual(port(good(), 0x35))
+  })
+
+  it('goes red when the ADC #$04 step is mutated', () => {
+    // prettier-ignore
+    expect(lips(expand(good(0x08), 0x15).grid)).toEqual(new Map([[2, [0]], [3, [8]]]))
+  })
+
+  it('goes red when a lip tile immediate is mutated', () => {
+    const code = staircaseCode(HANDLER)
+    code[code.indexOf(0x31)] = 0x35 // the first LDA #lip
+    const { grid } = expand(slopeCart(code), 0x35)
+    expect(lips(grid).size).toBe(0)
+    expect(grid[2][16]).toBe(0x135)
+  })
+
+  it('goes red when the CPX #$07 fill stop is mutated', () => {
+    // prettier-ignore
+    expect(lips(expand(good(0x04, 0x06), 0x15).grid)).toEqual(new Map([[2, [0]], [3, [5]]]))
+  })
+
+  it('draws the port and says why when the interpreter refuses', () => {
+    const bad = staircaseCode(HANDLER)
+    bad.splice(2, 0, 0xea) // NOP: outside the allowed opcodes
+    const r = expand(slopeCart(bad), 0x35)
+    expect(r.grid).toEqual(port(slopeCart(bad), 0x35))
+    expect(r.grid.flat().some(t => t !== TILE_EMPTY)).toBe(true) // never blank
+    expect(r.unverified).toHaveLength(1)
+    expect(r.unverified[0]).toMatch(/\$0DADEB .*not verified.*opcode \$EA.* at \$0DADED/)
+  })
+
+  it('does not mark a refusal-free run, so the note is not always on', () => {
+    expect(expand(good(), 0x15).unverified).toEqual([])
+  })
+
+  it('refuses a vertical level rather than placing it as a horizontal one', () => {
+    const unverified: string[] = []
+    const grid = createGrid(SCREENS)
+    expandObject(grid, obj(0x15), good(), 0, null, OWNER_NONE, undefined, { vertical: true, unverified, entry: HANDLER }) // prettier-ignore
+    expect(unverified[0]).toMatch(/vertical/)
+  })
+
+  it('the production entry refuses a cart without ExecutePtrLong, draws the port and notes it', () => {
+    const unverified: string[] = []
+    const { grid } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, false, undefined, undefined, undefined, unverified) // prettier-ignore
+    expect(unverified.join(' ')).toMatch(/\$0DADEB .*not verified/)
+    expect(grid).toEqual(port(good(), 0x35))
+  })
+
+  it('without a note sink the port draws and nothing is claimed', () => {
+    const { grid } = expandMapOwned([obj(0x35)], SCREENS, good(), 0)
+    expect(grid).toEqual(port(good(), 0x35))
   })
 })
