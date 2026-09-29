@@ -128,6 +128,7 @@ export class PaletteGroupViewWidget extends ReactWidget {
     const o = this.options
     if (!o) return
     const token = ++this.requestToken
+    const began = performance.now()
     try {
       const result = await this.palettes.loadPalettes(o.manifestPath)
       if (token !== this.requestToken) return
@@ -142,8 +143,9 @@ export class PaletteGroupViewWidget extends ReactWidget {
     this.title.caption = this.title.label
     this.update()
     if (g) perfEndAfterPaint('open-palette')
-    // An edit is pending: the new color is on screen once this fetch paints.
-    perfEndAfterPaint('edit')
+    // A pending edit/undo/redo is visible once a fetch that began after it
+    // has painted; one already in flight may have read the old color.
+    for (const m of ['edit', 'undo', 'redo']) perfEndAfterPaint(m, began)
   }
 
   protected group(): PaletteGroupDto | undefined {

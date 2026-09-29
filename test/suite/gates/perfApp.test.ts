@@ -25,6 +25,7 @@ import {
   perfEnd,
   perfEndAfterPaint,
   perfStart,
+  fetchPredates,
 } from '../../../theia/extension/src/common/perf-marks'
 
 const repoRoot = path.resolve(__dirname, '../../..')
@@ -56,6 +57,25 @@ describe('perf-marks', () => {
       expect(raf).not.toHaveBeenCalled()
       perfStart('t')
       perfEndAfterPaint('t')
+      expect(raf).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('a fetch that began before the start is stale and does not end the measure; a later one does', () => {
+    const raf = vi.fn()
+    vi.stubGlobal('requestAnimationFrame', raf)
+    try {
+      const before = performance.now()
+      perfStart('t')
+      const after = performance.now()
+      expect(fetchPredates('t', before)).toBe(true)
+      expect(fetchPredates('t', after)).toBe(false)
+      expect(fetchPredates('t', undefined)).toBe(false)
+      perfEndAfterPaint('t', before)
+      expect(raf).not.toHaveBeenCalled()
+      perfEndAfterPaint('t', after)
       expect(raf).toHaveBeenCalledTimes(1)
     } finally {
       vi.unstubAllGlobals()

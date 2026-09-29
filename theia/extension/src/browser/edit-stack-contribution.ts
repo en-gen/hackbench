@@ -21,7 +21,7 @@ import { EditStackDto, EditStackResult, ProjectService } from '../common/project
 import { ProjectContext } from './project-context'
 import { ProjectFrontendClient } from './project-push-client'
 import { handlesEditStack } from './edit-stack-gate'
-import { perfEnd, perfStart } from '../common/perf-marks'
+import { perfStart } from '../common/perf-marks'
 
 /** No project, or a project we could not read: nothing to undo or redo. */
 const NOTHING: EditStackDto = {
@@ -91,7 +91,7 @@ export class EditStackContribution implements CommandContribution {
 
     if (result.status === 'ok') {
       this.state = result
-      perfEnd(direction)
+      // Ends in the palette view's post-fetch paint, when the color is visible.
       return
     }
 

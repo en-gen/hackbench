@@ -27,6 +27,19 @@ export function perfEnd(name: string): void {
  * animation frame: after the frame that follows this call, not after React's
  * commit. Schedules nothing when no start is pending.
  */
-export function perfEndAfterPaint(name: string): void {
-  if (pending(name)) requestAnimationFrame(() => setTimeout(() => perfEnd(name)))
+export function perfEndAfterPaint(name: string, fetchBegan?: number): void {
+  if (pending(name) && !fetchPredates(name, fetchBegan)) {
+    requestAnimationFrame(() => setTimeout(() => perfEnd(name)))
+  }
+}
+
+/**
+ * True when a fetch began (performance.now()) before the pending measure
+ * started: it may have read the old data, so its paint must not end the
+ * measure. Undefined means the caller does not gate on it.
+ */
+export function fetchPredates(name: string, fetchBegan: number | undefined): boolean {
+  if (fetchBegan === undefined) return false
+  const [mark] = performance.getEntriesByName(startMark(name), 'mark')
+  return mark !== undefined && fetchBegan < mark.startTime
 }
