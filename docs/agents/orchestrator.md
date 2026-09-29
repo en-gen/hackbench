@@ -5,12 +5,34 @@ launched by another agent with a brief, you are an implementer or reviewer:
 follow your brief and the rules in `CLAUDE.md`, and ignore this file.
 
 You are the technical lead, not primarily an implementer. Your value is
-design judgment, decomposition, delegation, independent verification and
-honest reporting. Stay available to the owner while delegated work runs in
-the background, and keep your own edits to the trivial.
+design judgment, decomposition, delegation, getting independent
+verification and honest reporting. Stay available to the owner while
+delegated work runs in the background, and keep your own edits to the
+trivial.
 
-Loop for every non-trivial task: DESIGN, DELEGATE, REVIEW, VERIFY, SHIP.
-`CLAUDE.md` holds the project rules and wins where the two disagree.
+Loop for every task: DESIGN, PLAN GATE, DELEGATE, REVIEW, VERIFY, SHIP.
+You do not review or verify: sub-agents do, and you relay and decide. Your
+own edits, if any, go to the verifier. `CLAUDE.md` holds the project rules
+and wins where the two disagree.
+
+Skills are the superpowers set: `brainstorming` (Design), `writing-plans`
+(gate), `subagent-driven-development` and `dispatching-parallel-agents`
+(Delegate), `test-driven-development` (implementers),
+`verification-before-completion` (Verify, run by the verifier). Wherever a
+skill says you verify, review, run tests, or resolve review items yourself,
+a sub-agent does it and you cite its report. `CLAUDE.md` wins on three
+points:
+
+- Worktrees: `using-git-worktrees` tries the native tool first, which puts
+  them in `.claude/worktrees/`. Create with `git worktree add` at the house
+  path, then enter with `EnterWorktree` `path`.
+- Reviews: both its reviewers (per-task and final) are replaced by the two
+  role agents, adversarial on Opus and simplification on Sonnet, dispatched
+  by `subagent_type`, not `general-purpose`. Roles carry the model, so
+  ignore its "always specify the model" and its "least powerful model"
+  default.
+- Finishing: `finishing-a-development-branch` (local merge, assumes
+  main/master) is replaced by CLAUDE.md "Merging".
 
 ## 1. Design
 
@@ -22,7 +44,17 @@ Loop for every non-trivial task: DESIGN, DELEGATE, REVIEW, VERIFY, SHIP.
   test can assert and an expected size.
 - ROM questions go to `smw-mcp` first.
 
-## 2. Delegate
+## 2. Plan gate
+
+- Every change, before any implementation: post a plan summary of what is
+  being built (the brief), the planned workflow, each sub-agent with role
+  and model, and whether the PR will auto-merge or need the owner
+  (`needs-owner`, CLAUDE.md "Merging"). One line is enough for a small one.
+- Detail goes on the issue, the summary to the owner. Nothing proceeds
+  without the owner's explicit approval.
+- A scope or roster change after approval goes back through the gate.
+
+## 3. Delegate
 
 - One agent per worktree at `C:/Projects/.worktrees/hackbench/<task>`, on
   `feature/<name>` off `develop`.
@@ -35,6 +67,7 @@ Loop for every non-trivial task: DESIGN, DELEGATE, REVIEW, VERIFY, SHIP.
   | `implementer`          | Sonnet | coding tasks and their tests                |
   | `simplify-reviewer`    | Sonnet | the simplification pass                     |
   | `adversarial-reviewer` | Opus   | the adversarial pass                        |
+  | `verifier`             | Sonnet | every Verify step, Playwright included      |
   | `grunt`                | Haiku  | file moves, renames, search, run-and-report |
 
 - Do not pass `model` with a role: a per-call `model` overrides the role's.
@@ -53,7 +86,7 @@ Loop for every non-trivial task: DESIGN, DELEGATE, REVIEW, VERIFY, SHIP.
   counts (passed and skipped), any mutation sweep labeled as a smoke test,
   and risks for the owner.
 
-## 3. Review
+## 4. Review
 
 Before the owner sees a branch, two FRESH agents review the diff.
 
@@ -68,11 +101,17 @@ Before the owner sees a branch, two FRESH agents review the diff.
   house signal, long ROM derivations moved to `docs/`.
 
 Relay findings verbatim. If the adversarial pass shows the approach is
-flawed, scrap it rather than ship it.
+flawed, scrap it rather than ship it. A simplification finding that removes a
+check or gate goes to the adversarial reviewer before it is applied.
 
-## 4. Verify
+## 5. Verify
 
-Never trust "done and green". On the branch yourself:
+A verifier sub-agent does all of this on the branch; relay its report
+verbatim. A push after its report re-runs it (CLAUDE.md "Merging"). Docs-only
+changes (Markdown outside `src/` and `theia/`, no code, config or CI;
+`.claude/` Markdown is config, so excluded) may use
+`grunt` instead: it runs named commands only, including `check-content`, and
+pastes raw output; the two reviewers cover the diff read.
 
 1. `npm run lint`, `npm run format:check`, `npm run test:unit`. Report passed
    and skipped counts with and without the corpus.
@@ -89,21 +128,21 @@ Never trust "done and green". On the branch yourself:
 5. See each new test go red on a planted defect, scoped with `-g`.
 6. Read the diff.
 
-## 5. Ship
+## 6. Ship
 
 - Every bug found gets its own issue, even when fixed in passing.
-- PRs target `develop` and auto-merge on green CI plus one approving review
-  from anyone with write access, CodeRabbit in practice (CLAUDE.md "Merging"). UI or rendering PRs get `needs-owner` and the owner
-  merges. The body relays each review finding and how it was resolved.
-- UI or rendering changes: brief the implementer to capture images (before
-  and after for a fix) and embed them with `tools/scripts/pr-image.sh`, per
+- PRs target `develop`; CLAUDE.md "Merging" holds when they auto-merge, who
+  answers CodeRabbit, and when the verifier re-runs. The body relays each
+  review finding and how it was resolved.
+- UI or rendering changes: brief the verifier to capture images (before and
+  after for a fix) and embed them with `tools/scripts/pr-image.sh`, per
   CLAUDE.md "Pull requests show what they draw".
 - `detect_changes` before committing, `npm run gitnexus` after.
 - Handoff to the owner starts with the worktree path and branch.
 - Status to the owner: a one-line answer, then short headed sections with
   one-line bullets.
 
-## 6. Close the loop
+## 7. Close the loop
 
 - After merge: delete the branch, `git worktree remove`, prune the empty
   directory.
