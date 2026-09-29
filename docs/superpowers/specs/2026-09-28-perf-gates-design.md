@@ -104,12 +104,20 @@ so the e2e run never collects these.
   the work is actually done (canvas drawn, not widget attached). A spec
   reads `performance.getEntriesByType('measure')` via `page.evaluate`.
 - v1 cases: open project, open Maps / Map16 / Palette / GFX views, apply one
-  edit, undo it. `app.open-maps` is cold (a fresh project per sample, so the
-  backend's L1 model cache misses) and ends at the first screen drawn; it is
-  the "draw one map" case. `startup.shell` runs first on its own server.
+  edit, undo it. `app.open-maps` is cold only because the spec creates a new
+  project per sample: in the current backend a new manifest gets a new
+  `WorkingRom`, whose bytes array is a distinct object, and `L1ModelCache`
+  keys on that identity, so it misses. A cache keyed on content would make
+  this case warm without any test failing. It ends at the first screen
+  drawn; it is the "draw one map" case. `startup.shell` runs first on its
+  own server.
 - Marks are keyed by name and valid for single-view specs only. Moving a
   mark's call site changes what is measured without changing the harness
-  hash; that is a known limit, caught in review, not by the gate.
+  hash. The check is manual and explicit: before bisecting an app, startup
+  or heap regression, the fixing agent runs
+  `git log --oneline <base>..<cand> -G 'perf(Start|End|EndAfterPaint)\(' -- theia/extension/src`
+  and names any listed commit in the issue as a moved boundary, which is a
+  measurement change, not a regression.
 - `startup.*`: fresh server and page per round, time from navigation to the
   shell's `hb:shell-ready` mark.
 - `heap.*`: open and close a view 20 times, forced GC through CDP
@@ -248,7 +256,9 @@ Daily at 07:00 local on the owner's machine. The session:
    (`docs/agents/orchestrator.md`).
 3. Bisects between the issue's base and candidate SHAs with
    `tools/perf/bisect.mjs --id <id>` (git worktrees, paired runs,
-   `--only`), naming the first bad commit.
+   `--only`), naming the first bad commit. For an app, startup or heap id
+   it first runs the moved-boundary check in section 2 and stops with a
+   comment if a listed commit explains the change.
 4. Classifies: accidental cost, fix it; intended cost of a feature, comment
    the evidence and propose `accept.sh`, then stop.
 5. A fix ships as a normal PR: failing benchmark evidence before, paired
