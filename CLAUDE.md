@@ -79,9 +79,10 @@ move it to In review when the branch is pushed. File new issues with
 
 ## Pull requests show what they draw
 
-A PR that changes UI or graphics rendering embeds images of the result
-inline in its description. A fix or improvement shows before and after:
-same view, same map, same data.
+A PR that changes what the app shows (UI, graphics rendering, visible text
+or content) embeds before-and-after images inline in its description: same
+view, same map, same data. For a new view or feature, "before" is the same
+place without it.
 
 Rendered SMW graphics are ROM-derived, so they never enter this repo's
 history. They go to the private `en-gen/hackbench-pr-assets` repo, and
