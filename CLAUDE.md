@@ -29,13 +29,15 @@ from anyone with write access. In practice that is CodeRabbit, which approves
 once its comments are resolved (`.coderabbit.yaml`); GitHub cannot require
 the approval to be CodeRabbit's, so a human approval merges it too.
 
-- Once the verifier has passed (see the re-run rule below), turn on
-  auto-merge: `gh pr merge <n> -R en-gen/hackbench --auto --squash`, then
+- Once the verifier has passed, when one is required (re-run rule below), turn
+  on auto-merge: `gh pr merge <n> -R en-gen/hackbench --auto --squash`, then
   confirm it took (`gh pr view <n> --json autoMergeRequest`); the command has
   failed silently.
 - A significant UI change or a feature addition gets the `needs-owner` label
-  instead, and auto-merge stays off. Bugfixes and minor tweaks, rendering
-  fixes included, auto-merge. Unclear significance defaults to `needs-owner`.
+  instead, and auto-merge stays off. One that changes the UI also gets the
+  verified build launched for the owner (docs/agents/orchestrator.md "Ship").
+  Bugfixes and minor tweaks, rendering fixes included, auto-merge. Unclear
+  significance defaults to `needs-owner`.
   The plan-summary gate names which applies, so the owner can override it.
   CI cannot run Playwright (no ROM), so for an auto-merged rendering fix the
   verifier's local Playwright run is the only UI check.
@@ -77,9 +79,10 @@ move it to In review when the branch is pushed. File new issues with
 
 ## Pull requests show what they draw
 
-A PR that changes UI or graphics rendering embeds images of the result
-inline in its description. A fix or improvement shows before and after:
-same view, same map, same data.
+A PR that changes what the app shows (UI, graphics rendering, visible text
+or content) embeds before-and-after images inline in its description: same
+view, same map, same data. For a new view or feature, "before" is the same
+place without it.
 
 Rendered SMW graphics are ROM-derived, so they never enter this repo's
 history. They go to the private `en-gen/hackbench-pr-assets` repo, and
@@ -494,11 +497,14 @@ Do not build scaffolding for phases that have not been approved.
 The top-level session is the orchestrator and works from
 @docs/agents/orchestrator.md. It reviews and verifies nothing itself: no
 change is implemented before the owner approves a plan summary (contents in
-that file), every change gets two fresh-agent reviews and a verifier (grunt
-for docs-only changes, per docs/agents/orchestrator.md), and it relays their
-reports and decides. Its own edits, if any, go to the verifier
-too. An agent launched with a brief is an implementer or reviewer and
-follows these rules instead:
+that file), every code change to the application, tooling or CI gets two
+fresh-agent reviews and a verifier, and it relays their reports and decides.
+Operational Markdown (CLAUDE.md, `docs/`, `.claude/`, PR and issue templates)
+runs the machinery, not the app, so it skips both reviews and the verifier;
+hooks, pre-push and CI still check its content and style. `tools/`,
+`.githooks/` and `.github/workflows/` keep the reviews. Its own code edits go
+to the verifier too. An agent launched with a brief is an implementer or
+reviewer and follows these rules instead:
 
 - Write the test first and see it fail on the old code before the fix lands.
 - Write Playwright specs where the brief asks; do NOT run them. Your gates
