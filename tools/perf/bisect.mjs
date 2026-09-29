@@ -15,7 +15,7 @@
 
 import { parseArgs } from 'node:util'
 import { execFileSync } from 'node:child_process'
-import { existsSync, rmSync } from 'node:fs'
+import { existsSync, readdirSync, rmSync } from 'node:fs'
 import { dirname, basename, join, resolve } from 'node:path'
 import { MIN_ROUNDS } from './paired.mjs'
 
@@ -120,6 +120,10 @@ export function run({ id, good, bad, dir, rounds }, exec = execFileSync) {
   const repoRoot = mainRepoRoot(exec)
   // Absolute, because git bisect runs each step from the work worktree.
   const taskDir = resolve(repoRoot, dir ?? defaultTaskDir(repoRoot, id, good))
+  // Cleanup deletes taskDir, so it must hold nothing this run did not create.
+  if (existsSync(taskDir) && readdirSync(taskDir).length > 0) {
+    throw new Error(`task directory is not empty: ${taskDir} (remove it or pass another --dir)`)
+  }
   const goodDir = join(taskDir, 'good')
   const workDir = join(taskDir, 'work')
 
