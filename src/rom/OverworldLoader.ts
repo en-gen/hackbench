@@ -44,6 +44,8 @@
 import { RomFile } from './RomFile'
 import { bgr555ToRgba, RgbaColor } from './GraphicsDecoder'
 import type { RgbaRow } from './PaletteLoader'
+import { stockCodeMismatch, type StockCode, type StockSpan } from './SubmapFlagGate'
+import { hex2 } from './hex'
 
 // ── ROM addresses (the only "constants" - all data is read through them) ─────
 
@@ -171,8 +173,10 @@ export const OW_BG_TILE_WIDTH = 0x40
  * The asm decoder writes one byte per command iteration to `OWLayer2Tilemap,X`
  * and advances X by 2 (`INX INX`), so the same routine is called twice with
  * different starting X values to interleave low/high byte streams into a
- * single 16-bit tilemap. The loop terminates when the destination index
- * reaches `_E` (`$4000`); there is no in-stream terminator.
+ * single 16-bit tilemap. The loop stops once a command ends at or past `_E`
+ * (`$4000`, `CPX _E : BCC`, bank_04.asm:5481-5482); there is no in-stream
+ * terminator. Returns the destination index reached, so a caller can tell a
+ * stream that ran out of source before `_E` from one that finished.
  *
  * Command byte format (FLLLLLLL):
  *   F=0 (bit 7 clear): LITERAL - emit (L+1) bytes copied from input
@@ -210,7 +214,7 @@ export function decompressOwRleStream(
       }
     }
   }
-  return pos - sourceStart
+  return d
 }
 
 /** Decompress + interleave the two L2 RLE streams into a 16-bit tilemap. */
@@ -489,6 +493,59 @@ export function loadAreaPalette(rom: RomFile, area: OwArea, useSpecial: boolean)
   return rows
 }
 
+/** CODE_00AD25 and its call. The fingerprint fixes every table operand the
+ *  function below reads through OW_ADDR (docs/rom/overworld.md). */
+export const OW_CGRAM_CODE: readonly (StockCode | StockSpan)[] = [
+  { addr: 0x00a14d, bytes: [0x20, 0x25, 0xad], what: 'JSR CODE_00AD25', cite: 'bank_00.asm:4337' },
+  {
+    addr: 0x00ad25,
+    length: 0x81,
+    fingerprints: ['dd0ae8e86e0c74f775e7141b61f998b791822ab2b2c10c44012125bf92359f7f'],
+    what: 'CODE_00AD25, the overworld CGRAM load',
+    cite: 'bank_00.asm:5736-5790',
+  },
+]
+
+/** The cells CODE_00AD25 writes, [row0, row1, col0, col1] inclusive. */
+const OW_CGRAM_BLOCKS = [
+  [4, 7, 1, 7], // OverworldColors, bank_00.asm:5738-5761
+  [2, 7, 9, 15], // OWStdColors, :5762-5770
+  [8, 15, 1, 7], // OWStdColors2, :5771-5779
+  [0, 1, 8, 15], // OverworldHudColors, :5780-5788
+] as const
+
+/**
+ * The CGRAM the overworld load leaves for `objectTileset`: CODE_00AD25's four
+ * blocks over `base`, or why it cannot be read. The palette block is
+ * DATA_00AD1E[(tileset & $0F) - 1] (bank_00.asm:5743-5747), not the submap.
+ */
+export function overworldCgram(
+  rom: RomFile,
+  objectTileset: number,
+  base: RgbaRow[],
+  spanFingerprints?: readonly string[],
+): RgbaRow[] | string {
+  const code = stockCodeMismatch(rom, OW_CGRAM_CODE, spanFingerprints)
+  if (code) return `The overworld palette load is not stock: ${code}`
+  const slot = (objectTileset & 0x0f) - 1
+  const paletteIndex = slot < 0 ? null : rom.readByte(OW_ADDR.PALETTE_INDEX_TABLE + slot)
+  const offset =
+    paletteIndex === null ? null : rom.readWord(OW_ADDR.PALETTE_BLOCK_OFFSETS + paletteIndex * 2)
+  if (paletteIndex === null || offset === null) {
+    return `Object tileset $${hex2(objectTileset)} names no overworld palette (bank_00.asm:5743-5751).`
+  }
+  const area = {
+    ...loadOverworldAreas(rom)[0]!,
+    paletteIndex,
+    paletteAddrNormal: OW_ADDR.PALETTE_NORMAL_BASE + offset,
+  }
+  const ow = loadAreaPalette(rom, area, false)
+  const rows = base.map(r => r.slice())
+  for (const [r0, r1, c0, c1] of OW_CGRAM_BLOCKS)
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) rows[r]![c] = ow[r]![c]!
+  return rows
+}
+
 // ── Area → buffer region mapping ─────────────────────────────────────────────
 
 /**
@@ -655,7 +712,7 @@ function decodeTilemapWord(lo: number, hi: number): OwSubTile {
   }
 }
 
-/** Subtile layout matches CODE_04DCB6's 2x2 expansion (bank_04.asm:5764-5784). */
+/** Subtile layout matches CODE_04DCB6's 2x2 expansion (bank_04.asm:5718). */
 export function decodeOwMap16(charData: Uint8Array, index: number): OwMap16 {
   const off = index * 8
   return {

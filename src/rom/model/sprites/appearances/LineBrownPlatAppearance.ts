@@ -6,9 +6,17 @@ import type { MapStore } from '../../stores/mapStore'
 import type { HitRect, SpriteAppearance } from '../SpriteAppearance'
 import type { SpriteBehavior } from '../SpriteBehavior'
 import type { SpritePart } from './StaticSpriteAppearance'
-import { LineBrownPlatBehavior } from '../behaviors/LineBrownPlatBehavior'
 
 const OBJ_CHAR_BASE = 0x400
+
+/**
+ * X shift from spawn position to the strip's left edge, per direction
+ * (InitLinePlat bank_01.asm:11774, CODE_01DAA2 bank_01.asm:12323).
+ * Derivation: docs/sprites/sprite-62-line-platform.md.
+ */
+export function xShiftPx(direction: 'forward' | 'reverse'): number {
+  return direction === 'forward' ? 0x28 : 0x18
+}
 
 /**
  * $62 Brown Platform (line-guided) - direction-aware appearance.
@@ -32,7 +40,7 @@ export class LineBrownPlatAppearance implements SpriteAppearance {
     readonly platformParts: readonly SpritePart[],
     readonly direction: 'forward' | 'reverse',
   ) {
-    const xShift = LineBrownPlatBehavior.xShiftPx(direction)
+    const xShift = xShiftPx(direction)
     this.hitRect = { dx: -xShift, dy: -8, w: 48, h: 16 }
   }
 
@@ -78,7 +86,7 @@ export class LineBrownPlatAppearance implements SpriteAppearance {
     mapStore: MapStore,
   ): void {
     const direction = behavior.lineGuide?.direction ?? 'reverse'
-    const xShift = LineBrownPlatBehavior.xShiftPx(direction)
+    const xShift = xShiftPx(direction)
 
     for (const part of this.platformParts) {
       const pixels = part.char.getPixels()

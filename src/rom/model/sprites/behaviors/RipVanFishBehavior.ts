@@ -1,5 +1,3 @@
-import { MovementBehavior, type BehaviorMeta } from '../MovementBehavior'
-
 /**
  * $3D Rip Van Fish - `RipVanFishMain` (bank_02.asm:8462).
  *
@@ -27,20 +25,13 @@ import { MovementBehavior, type BehaviorMeta } from '../MovementBehavior'
  * Chuck-whistling override: when `ChuckIsWhistling != 0` the test is
  * skipped and the fish wakes immediately. Not modeled here - the
  * editor overlay reflects the static distance check only.
+ *
+ * This constant is appearance data, not movement simulation:
+ * `RipVanFishAppearance.render` reads it directly to pick the sleeping
+ * or chasing pose from cursor proximity. The `RipVanFishBehavior` class
+ * that used to wrap it had no reader beyond its own tests and was
+ * removed; see `docs/sprites/sprite-overlay-removal.md`.
  */
 
 /** Half-width of the wake-up zone in pixels (`$30` from the ASM). */
 export const RIP_VAN_FISH_DETECT_HALF_PX = 0x30
-
-export class RipVanFishBehavior extends MovementBehavior {
-  readonly kind = 'rip_van_fish'
-
-  constructor(meta?: BehaviorMeta) {
-    super(meta)
-  }
-
-  /** Per-axis half-width of the detection square. */
-  get detectHalfPx(): number {
-    return RIP_VAN_FISH_DETECT_HALF_PX
-  }
-}

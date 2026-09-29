@@ -138,7 +138,7 @@ describe('WingedSpriteAppearance.fromFlyingQBlock - layout=null', () => {
   })
 })
 
-// ── WingedGoombaBehavior points.length < 2 ───────────────────────────────────
+// ── WingedSpriteAppearance.fromParaKoopa - layout/placeholder branches ───────
 
 describe('WingedSpriteAppearance.fromParaKoopa - layout with tiles', () => {
   it('non-null layout: layout?.tiles defined branch + both chars.get ?? placeholder branches', () => {

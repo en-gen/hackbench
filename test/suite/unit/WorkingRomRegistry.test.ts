@@ -18,8 +18,11 @@ import {
   loadRedoLayers,
   pushRedoLayer,
 } from '../../../src/project/OpsStore'
-import { Layer, WorkingRom } from '../../../src/project/WorkingRom'
+import { GfxLayer, Layer, WorkingRom } from '../../../src/project/WorkingRom'
 import { loromToOffset } from '../../../src/rom/addressing'
+import { GfxTable } from '../../../src/rom/GfxTable'
+import { RomFile } from '../../../src/rom/RomFile'
+import { buildCart } from '../support/syntheticGfxCart'
 
 /**
  * Fault injection for the write paths: `fsFault.hook`, when set, runs before
@@ -235,6 +238,28 @@ describe('WorkingRomRegistry', () => {
       return { w: r.working, dir: r.project.directory }
     }
 
+    /** A project on a synthetic ROM with a GFX arena. */
+    function gfxProject(): { manifestPath: string; dir: string } {
+      const romPath = path.join(tmp, 'gfx.sfc')
+      fs.writeFileSync(romPath, buildCart({ filler: 4096 }).rom.buffer)
+      romRegistry.register(romPath)
+      const dirPath = path.join(tmp, 'Gfx')
+      const { manifestPath } = createProject({ romPath, name: 'Gfx', directory: dirPath })
+      return { manifestPath, dir: opened(manifestPath).dir }
+    }
+    const gfxLayer = (id: string, value: number): GfxLayer => ({
+      id,
+      label: id,
+      kind: 'gfx',
+      file: 2,
+      tile: 0,
+      pixels: [{ x: 0, y: 0, value }],
+    })
+    const gfxPixel = (manifestPath: string, tile: number): number | undefined => {
+      const bytes = Buffer.from(opened(manifestPath).w.bytes())
+      return GfxTable.load(new RomFile('w.sfc', bytes)).tile(2, tile)?.[0]
+    }
+
     it('picks up a layer file added on disk', () => {
       const { manifestPath } = makeProject()
       working.setWord(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex: '$391F', newHex: '$1000' })
@@ -326,6 +351,73 @@ describe('WorkingRomRegistry', () => {
       fs.utimesSync(file, pinned, pinned)
 
       expect(redWord(opened(manifestPath).w)).toBe(0x7c00)
+    })
+
+    // A gfx layer has no `ops`, so a comparison keyed on them would call two
+    // different characters the same layer and keep the stale copy.
+    it.each([
+      ['a pixel value', '"value":1', '"value":2', 0, 2],
+      ['the character number', '"tile": 0', '"tile": 1', 1, 1],
+    ])('picks up a same-size gfx layer rewrite of %s whose mtime was preserved', (...c) => {
+      const [, from, to, tile, value] = c
+      const { manifestPath, dir } = gfxProject()
+      appendLayer(dir, gfxLayer('g', 1))
+      expect(gfxPixel(manifestPath, 0)).toBe(1)
+      expect(gfxPixel(manifestPath, tile)).not.toBe(value) // the rewrite is visible
+
+      const file = path.join(dir, 'ops', '0000.json')
+      const pinned = new Date('2026-01-01T00:00:00Z')
+      fs.utimesSync(file, pinned, pinned)
+      opened(manifestPath)
+      const text = fs.readFileSync(file, 'utf8')
+      fs.writeFileSync(file, text.replace(from, to))
+      fs.utimesSync(file, pinned, pinned)
+
+      expect(gfxPixel(manifestPath, tile)).toBe(value)
+    })
+
+    // ops/redo/ is not validated on open for word layers (a stale one opens
+    // and refuses on redo). A damaged gfx layer there gets the same policy.
+    it.each([
+      ['a bad shape', (t: string) => t.replace('"x":0', '"x":0.5'), /gfx layer/],
+      ['truncated JSON', (t: string) => t.slice(0, 40), /0000\.json/],
+      ['JSON null', () => 'null', /0000\.json/],
+      ['word ops that are not a list', () => '{"id":"bad","label":"b","ops":3}', /0000\.json/],
+    ])('opens with a gfx layer in ops/redo/ that has %s, and refuses only that redo', (...c) => {
+      const [, damage, reason] = c
+      const { manifestPath, dir } = gfxProject()
+      pushRedoLayer(dir, gfxLayer('bad', 1))
+      const file = path.join(dir, 'ops', 'redo', '0000.json')
+      fs.writeFileSync(file, damage(fs.readFileSync(file, 'utf8')))
+
+      expect(working.get(manifestPath).status).toBe('ok')
+      expect(working.editStack(manifestPath)).toMatchObject({ canRedo: true })
+      const r = working.redo(manifestPath)
+      expect(r.status).toBe('stale')
+      expect(r.status === 'stale' && r.reason).toMatch(reason)
+      expect(opened(manifestPath).w.stack).toHaveLength(0)
+    })
+
+    // Runs of ten, so replaying per layer (40 decodes) and per run (4) differ.
+    it('reopens 4 runs of 10 gfx layers with one table decode per run', () => {
+      const { manifestPath, dir } = gfxProject()
+      for (let i = 0; i < 40; i++) {
+        appendLayer(dir, { ...gfxLayer(`g${i}`, 1 + (i % 7)), file: i })
+        if (i % 10 !== 9) continue
+        const [o, n] = [(i - 9) / 10, (i + 1) / 10].map(v => `$${v.toString(16)}`)
+        appendLayer(dir, {
+          id: `p${i}`,
+          label: 'p',
+          ops: [{ address: '$00F000', old: o!, new: n! }],
+        })
+      }
+      const loads = vi.spyOn(GfxTable, 'load')
+      try {
+        expect(new WorkingRomRegistry(romRegistry).get(manifestPath).status).toBe('ok')
+        expect(loads).toHaveBeenCalledTimes(4)
+      } finally {
+        loads.mockRestore()
+      }
     })
 
     // Views hold the instance (working-copy-notifier.ts), so the copy's own

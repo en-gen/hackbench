@@ -43,9 +43,4 @@ export class SuperKoopaBehavior implements SpriteBehavior {
     if (this.spriteId !== 0x73) return false
     return (spritePx & 0x10) === 0
   }
-
-  /** $73 uses the `InitSuperKoopaFthr` swoop init; $71/$72 use straight flight. */
-  isSwooping(): boolean {
-    return this.spriteId === 0x73
-  }
 }

@@ -14,7 +14,12 @@ pointers, not one:
 | -------------- | --------------------- |
 | L1, terrain    | `$05E000 + index * 3` |
 | L2, background | `$05E600 + index * 3` |
-| sprites        | `$05EC00 + index * 3` |
+| sprites        | `$05EC00 + index * 2` |
+
+The sprite entry is 2 bytes; stock code doubles the index, reads the word
+from the table and supplies bank `$07` as a literal (`bank_05.asm:7247-7258`).
+That is stock code only: hacks can replace the literal with a per-slot bank
+([map-data-mechanics.md](rom/map-data-mechanics.md)).
 
 **Empty slot.** A slot whose L1 pointer is the ROM's filler value. On vanilla
 that is `$068000`, shared by 277 slots. The filler is computed per ROM as the
@@ -26,11 +31,16 @@ file opens. Vanilla has 235.
 
 > **A map's identity is its slot index, never its L1 pointer.**
 >
-> On vanilla, 63 maps share an L1 pointer with another map, and 61 of those
-> still differ in their L2 or sprite pointer. They are distinct maps reusing
-> the same terrain. Treating a shared L1 as "the same map" silently drops 61
-> real maps, which is exactly the defect that made `$016` and `$017` vanish
+> On vanilla, 63 maps share an L1 pointer with another map, in 21 groups,
+> holding 32 distinct (L1, L2, sprite) pointer triples. 30 of the 63 have a
+> partner that differs in L2 or sprite, and 56 share all three pointers
+> with another map, as `$015` and `$016` do; those are still separate maps,
+> because identity is the slot. Treating a shared L1 as "the same map"
+> collapses the 63 to 21, silently dropping 42 maps and 11 of the pointer
+> triples. That is exactly the defect that made `$016` and `$017` vanish
 > from the tree while `$015` survived, all three sharing L1 `$0691E5`.
+> (Measured 2026-09-28 on the vanilla ROM, sprite pointers read 2 bytes
+> wide.)
 
 **Level.** What the player enters from the overworld. A level is composed of
 maps: one entry map plus its sub areas.
@@ -83,8 +93,13 @@ ROM it is leftover data.
 ## The overworld words
 
 **Submap.** One of the overworld's regions. The ROM's own word
-(`CurrentSubmap`). Vanilla has 7, but that is a data convention, not an
-engine limit: no bounds check exists on the submap value.
+(`OWPlayerSubmap`, `CurrentSubmap`). The overworld L1 is one $800-byte
+`Map16TilesLow` in two $400 halves, and a nonzero submap selects the second
+half (`bank_04.asm:2692-2698`, `5178-5184`; `bank_05.asm:7206-7212`). Area 0
+reads half 0; areas 1-6 are camera windows (`DATA_00A06B`/`DATA_00A079`,
+`bank_00.asm:4242-4248`) within half 1, each with its own tileset and
+palette. Vanilla has 7, but that is a data convention, not an engine limit:
+no bounds check exists on the submap value.
 
 **Launch tile.** An overworld tile that enters a level. Vanilla has 92
 carrying a translevel, of which 86 enter a level rather than warping.

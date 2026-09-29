@@ -27,12 +27,24 @@ Loop for every non-trivial task: DESIGN, DELEGATE, REVIEW, VERIFY, SHIP.
 - One agent per worktree at `C:/Projects/.worktrees/hackbench/<task>`, on
   `feature/<name>` off `develop`.
 - Run independent tasks in parallel.
-- Pass `model` explicitly; an omitted model inherits yours:
-  - Haiku: file moves, mechanical refactors, search, run-and-report.
-  - Sonnet: most implementation and tests.
-  - Opus: design, deep ASM tracing, and both review passes.
-- Right-size, do not cheap out. A hard ASM trace on a small model costs more
-  to fix than it saved.
+- You are the one Opus session: reasoning, planning, briefs. Delegate by
+  role with `subagent_type`; each role in `.claude/agents/` carries its model:
+
+  | Role                   | Model  | Work                                        |
+  | ---------------------- | ------ | ------------------------------------------- |
+  | `implementer`          | Sonnet | coding tasks and their tests                |
+  | `simplify-reviewer`    | Sonnet | the simplification pass                     |
+  | `adversarial-reviewer` | Opus   | the adversarial pass                        |
+  | `grunt`                | Haiku  | file moves, renames, search, run-and-report |
+
+- Do not pass `model` with a role: a per-call `model` overrides the role's.
+  Pass it only to escalate one task (a deep ASM trace to Opus) and say why in
+  the brief. Anything spawned without a role runs on Sonnet
+  (`CLAUDE_CODE_SUBAGENT_MODEL` in `.claude/settings.json`), never on your
+  Opus. Workflow scripts name `model` on every `agent()` call.
+- On Sep 24-25, 22 of 24 spawns passed no model and all inherited Opus.
+  Right-size, but do not cheap out either: a hard ASM trace on a small model
+  costs more to fix than it saved.
 - A brief states: scope, the settled design, what to reuse, what is out of
   scope, expected size, the worktree and branch, and the return format
   below. Standing rules are in `CLAUDE.md`; do not restate them, but do name
@@ -95,6 +107,13 @@ Never trust "done and green". On the branch yourself:
 
 - After merge: delete the branch, `git worktree remove`, prune the empty
   directory.
+- Start a fresh orchestrator session per issue or batch. Every call re-reads
+  the whole conversation: one session run to 966k context over 10,279 calls
+  read 3.5B cached tokens, most of a week's budget. Before a session passes
+  about 200k, write the state to the issue and hand off to a new one.
+- Keep bulk out of your context: agents return the brief's format, not logs;
+  Playwright runs relay the failures, not the run. Images are for PRs, not
+  for verification.
 - Durable decisions go on the issue, in `C:\Projects\hackbench-notes`, or in
   memory. Non-trivial ASM findings get a proposed `SMWDisX/<bank>/MEMO.md`
   snapshot.

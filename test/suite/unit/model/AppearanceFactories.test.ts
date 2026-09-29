@@ -1,8 +1,8 @@
 /**
- * Appearance factory methods + LineBrownPlatBehavior.xShiftPx - branch coverage.
+ * Appearance factory methods + LineBrownPlatAppearance's xShiftPx - branch coverage.
  *
  * Targets:
- *   LineBrownPlatBehavior.xShiftPx - direction ternary (2 branches)
+ *   xShiftPx (LineBrownPlatAppearance.ts) - direction ternary (2 branches)
  *   LineBrownPlatAppearance
  *     fromTables - chars.get()??placeholder (2 branches per call site)
  *     render     - behavior.lineGuide?.direction??'reverse' (4 branches total)
@@ -23,8 +23,10 @@ import type { RenderTarget } from '../../../../src/rom/model/RenderTarget'
 import type { MapStore } from '../../../../src/rom/model/stores/mapStore'
 import type { SpriteBehavior } from '../../../../src/rom/model/sprites/SpriteBehavior'
 import { Char } from '../../../../src/rom/model/chars/Char'
-import { LineBrownPlatBehavior } from '../../../../src/rom/model/sprites/behaviors/LineBrownPlatBehavior'
-import { LineBrownPlatAppearance } from '../../../../src/rom/model/sprites/appearances/LineBrownPlatAppearance'
+import {
+  LineBrownPlatAppearance,
+  xShiftPx,
+} from '../../../../src/rom/model/sprites/appearances/LineBrownPlatAppearance'
 import { VolcanoLotusAppearance } from '../../../../src/rom/model/sprites/appearances/VolcanoLotusAppearance'
 import { LineCheckerPlatAppearance } from '../../../../src/rom/model/sprites/appearances/LineCheckerPlatAppearance'
 import { CharginChuckAppearance } from '../../../../src/rom/model/sprites/appearances/CharginChuckAppearance'
@@ -41,15 +43,15 @@ const MOCK_MAP_STORE = { palette: { row: (_n: number) => new Array(16) } } as un
 
 const MOCK_BEHAVIOR: SpriteBehavior = { kind: 'mock' }
 
-// ── LineBrownPlatBehavior.xShiftPx ────────────────────────────────────────────
+// ── xShiftPx (LineBrownPlatAppearance.ts) ─────────────────────────────────────
 
-describe('LineBrownPlatBehavior.xShiftPx - direction ternary', () => {
+describe('xShiftPx - direction ternary', () => {
   it("'forward' → 0x28 = 40 px (CODE_01DAA2: SpriteMisc1602=$10 path)", () => {
-    expect(LineBrownPlatBehavior.xShiftPx('forward')).toBe(0x28)
+    expect(xShiftPx('forward')).toBe(0x28)
   })
 
   it("'reverse' → 0x18 = 24 px (CODE_01DAA2: SpriteMisc1602=$00 path)", () => {
-    expect(LineBrownPlatBehavior.xShiftPx('reverse')).toBe(0x18)
+    expect(xShiftPx('reverse')).toBe(0x18)
   })
 })
 

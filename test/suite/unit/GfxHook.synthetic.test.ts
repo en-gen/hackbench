@@ -14,7 +14,7 @@ import {
   readGfxPointerSites,
   readLevelGfxHook,
 } from '../../../src/rom/GfxArena'
-import { levelGfxAssignmentNote } from '../../../src/rom/GfxLoader'
+import { UPLOAD_GFX_CALLERS, levelGfxAssignmentNote } from '../../../src/rom/GfxLoader'
 import { decodeMap16Sheet } from '../../../theia/extension/src/node/map16-decode'
 import { map16DecodeStub } from '../support/syntheticMap16'
 import {
@@ -180,6 +180,12 @@ describe('GFX assignment mark', () => {
   it('marks the Map16 sheet drawn on a hooked ROM, naming both loops, and not a stock one', () => {
     expect(sheetNote(hookedStub())).toMatch(/FG\/BG and sprite GFX files.*Lunar Magic's list/)
     expect(sheetNote(map16DecodeStub())).toBeUndefined()
+  })
+
+  it("carries why the GFX upload filter can't be verified, and still draws", () => {
+    const rom = map16DecodeStub()
+    rom.writeAt(UPLOAD_GFX_CALLERS[0]!, [0x20, 0x00, 0x90])
+    expect(sheetNote(rom)).toMatch(/drawn as stored, unverified.*upload loops call/)
   })
 
   it('drops the mark once the ROM is written back to call PrepareGraphicsFile directly', () => {

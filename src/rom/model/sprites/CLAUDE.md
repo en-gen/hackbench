@@ -11,19 +11,15 @@ A `Sprite` is `id + (x, y) + Appearance + Behavior`:
   Appearances are free to compose whatever drawing makes sense for their
   sprite; there is no one-size-fits-all annotation schema.
 - **Behavior** owns **how the sprite moves**.
-  It never draws. It exposes *typed methods* an Appearance may call
-  (`computePatrolRange`, `simulateBounds`, `computeBouncePath`,
-  `computeFadeCorridor`, `computeSineBounds`, etc.). The behavior is the
-  single source of truth for any ASM-derived physics.
+  It never draws. When a sprite family needs ASM-derived physics, that
+  physics lives on a typed method an Appearance calls - the behavior is
+  the single source of truth for it, never the Appearance.
 
-  **No Appearance calls any of them today.** Those eleven methods had
-  their only non-behavior callers inside the removed sprite overlays, so
-  they are now reached only from their own tests. Doc comments across
-  `behaviors/` still describe "the overlay" as their live consumer; read
-  those as "the consumer this was built for, currently absent". The
-  methods and their tests are deliberately untouched - they are issue
-  #321's scope, not this layer's. Inventory in
-  `docs/sprites/sprite-overlay-removal.md`.
+  `sprites/behaviors/` does not hold a movement simulator today: eleven
+  dead `MovementBehavior` subclasses (a physics port with no Appearance
+  caller, reached only from their own tests) were deleted in issue #409.
+  See `docs/sprites/sprite-overlay-removal.md`'s update section for the
+  full inventory and what survived.
 
 The renderer is still dumb: `SmwMap` walks the sprite list and calls
 `sprite.render()` / `sprite.renderOverlay()`. No per-sprite-id switches
@@ -72,17 +68,26 @@ Rules:
    branch as a test case, with a `// ASM: bank_NN.asm:LINE — label`
    comment for each. Use the `buildSolidity` fixture for synthetic L1
    grids (string-grid → `{solidH, solidV, cols, rows, getL1}`).
-3. Add a concrete class in `sprites/behaviors/` extending
-   `MovementBehavior`. Subclasses have exactly one job: port the ASM.
-   Share `simulate.ts` primitives (`signed8`, `applyGravity`,
-   `simulateUntilStable`) and solidity callbacks from
-   `MovementBehavior.ts`.
+3. If the value an Appearance needs at render time is a pure function of
+   its arguments (no ROM-parsed or per-instance state), write it as a
+   plain function next to the Appearance - see `xShiftPx` in
+   `LineBrownPlatAppearance.ts`. Only add a class in `sprites/behaviors/`
+   when the value depends on state a plain function can't carry (see
+   `SuperKoopaBehavior.dropsFeather`, which needs the sprite's own id).
+   Do not add a class for physics nothing calls - that is exactly the
+   dead-simulator shape removed in issue #409. `simulate.ts` (the shared
+   per-frame stepping primitives) was deleted with the last simulator
+   that used it; recreate it only once a real caller needs it, citing the
+   ASM lines it steps.
 4. If the sprite needs a new visual (new animation frame dispatch,
    a new identity annotation), either add a branch to an existing
    Appearance or write a new `Appearance` subclass.
-5. Register the sprite id in `behaviors/BehaviorFactory.ts`'s
-   `buildMovementBehavior` dispatch and in `SpriteFactory` /
-   `rehydrate` for the Appearance.
+5. Only if step 3 gave the sprite a behavior class, register its id in
+   `behaviors/BehaviorFactory.ts`'s `buildMovementBehavior` dispatch and
+   in `SpriteFactory` / `rehydrate` for the Appearance. Every other id -
+   including one whose Appearance needs a plain function, not a class -
+   falls through to the `default` case, which returns the shared metadata
+   object; don't register a class just to reach that same object.
 
 ## Sprite annotations
 
@@ -120,22 +125,30 @@ filters the closure (locked by
   `$C4..$C9` window for "solid from above" tiles
   (`isActsLikeVertSolid`).
 
-The behaviors call `solidityFromL1(getL1)` to unpack those rules into
-`solidH(c, r) / solidV(c, r)` booleans. Don't reimplement this in each
-behavior.
+`solidityFromL1(getL1)` (`MovementBehavior.ts`) and `spriteCollisionFromL1`
+(`SpriteCollision.ts`) unpack those rules into `solidH(c, r) / solidV(c, r)`
+booleans and richer per-cell predicates. Don't reimplement this in a new
+behavior. Neither has a production caller today - see
+`docs/sprites/sprite-overlay-removal.md`'s update section for why they're
+kept anyway; whether that's still right is flagged as a separate,
+not-yet-filed follow-up (unrelated to issue #418 below).
 
 ## Current Behaviors
 
-| Class                          | Sprites              | ASM source                                |
-| ------------------------------ | -------------------- | ----------------------------------------- |
-| `HopFlameBehavior`             | $1D                  | `HoppingFlame` bank_01.asm:2187           |
-| `KoopaWalkBehavior`            | $04/$05/$06/$07/$0C, future $0F/$11/$13 | `Spr0to13Main` bank_01.asm:1659 |
-| `BouncingKoopaBehavior`        | $09                  | `GreenParaKoopa` branch bank_01.asm:1848  |
-| `FlyingLeftKoopaBehavior`      | $08                  | `GreenParaKoopa` branch bank_01.asm:1835  |
-| `SinusoidalParaKoopaBehavior`  | $0A, $0B             | `RedVertParaKoopa` bank_01.asm:1881       |
+| Class                | Sprites | What it exposes                             |
+| --------------------- | ------- | -------------------------------------------- |
+| `SuperKoopaBehavior`  | $71-$73 | `dropsFeather(x)` - cape-flash render state  |
 
-All behaviors share `simulate.ts` skeleton (`simulateUntilStable`,
-`applyGravity`, `signed8`) + the `solidH`/`solidV` callback contract.
+The only concrete class left in `sprites/behaviors/`. Every other sprite
+id - including $62 (`LineBrownPlatAppearance` now imports a plain
+`xShiftPx` function instead) and $3D (`RipVanFishAppearance` imports the
+`RIP_VAN_FISH_DETECT_HALF_PX` constant directly) - falls through
+`BehaviorFactory`'s `default` case to the shared metadata object (`kind`,
+`displayName`, `spawns`, `isGenerator`, `reactRangeDy`).
+
+Issue #418 tracks turning `SuperKoopaBehavior` into a plain function the
+same way, and then deleting `MovementBehavior`, `BehaviorFactory`, and
+this directory once nothing needs a class for it.
 
 ## Factory pattern
 
@@ -157,9 +170,10 @@ Don't duplicate the dispatch in both SpriteFactory and rehydrate.
 - Canvas2D calls. Behaviors never draw.
 - Sprite-specific visual data (part offsets, palette rows, char nums).
   That's the Appearance's job.
-- Randomness. Simulators run in worst-case mode by default so results
-  are deterministic; if a sprite has per-instance randomness, expose it
-  as a config on the Behavior and pick the worst case at the call site.
+- Randomness. A future simulator should run in worst-case mode by default
+  so results are deterministic; if a sprite has per-instance randomness,
+  expose it as a config on the Behavior and pick the worst case at the
+  call site.
 
 ## What NOT to put in an Appearance
 
@@ -177,5 +191,6 @@ Don't duplicate the dispatch in both SpriteFactory and rehydrate.
 - Each `it(...)` names the ASM branch it locks.
 - Use `buildSolidity` for synthetic L1 grids. Never load a ROM byte in
   a test.
-- Never hardcode an amplitude/range that the simulator would produce;
-  let the simulator run and let the test assert a reasonable range.
+- If a future Behavior simulates physics, never hardcode an
+  amplitude/range the simulator would produce; let the simulator run and
+  let the test assert a reasonable range instead.

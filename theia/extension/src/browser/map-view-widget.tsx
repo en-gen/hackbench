@@ -26,7 +26,7 @@ import { decodeRgba, TILE_PX } from './map16-pixels'
 import { PALACES, screenKey } from './map-view-model'
 import { SWITCH_ORDER } from './map16-view-model'
 import { decodeSwitchButton, SwitchToggle, type SwitchButtonImages } from './switch-toggle'
-import { LayerIcon } from './layer-icon'
+import { LayerToggle } from './layer-icon'
 import { PixelImageButton, type FrameImage } from './pixel-image-button'
 import { slotLabel } from './map-explorer-widget'
 
@@ -363,17 +363,13 @@ export class MapViewWidget extends ReactWidget {
     return (
       <div className="hb-map-view-main">
         <div className="hb-map-view-toolbar">
-          <button
-            type="button"
-            data-control="layer-l1"
-            className={'hb-icon-btn hb-layer-btn' + (this.showL1 ? ' hb-icon-btn-on' : '')}
-            aria-pressed={this.showL1}
-            title="L1 (foreground)"
-            aria-label="L1 (foreground)"
+          <LayerToggle
+            highlight="middle"
+            label="L1 (foreground)"
+            pressed={this.showL1}
+            control="layer-l1"
             onClick={() => this.toggleL1()}
-          >
-            <LayerIcon highlight="middle" />
-          </button>
+          />
           {PALACES.map(p => this.renderToggle(p))}
           {SWITCH_ORDER.map(k => (
             <SwitchToggle

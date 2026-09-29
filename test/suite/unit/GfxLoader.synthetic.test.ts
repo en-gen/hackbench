@@ -18,7 +18,6 @@ import {
   readGfxAssignment,
   loadVram,
   getCharPixels,
-  isFilterSomeRamFile,
   applyFilterSomeRamTransform,
   findCreditsGfxFile,
   inferGfxBpp,
@@ -433,7 +432,7 @@ describe('loadVram', () => {
     expect(vram).toEqual({})
   })
 
-  it('applies the FilterSomeRAM transform for file $1E', () => {
+  it('still draws file $1E when FilterSomeRAM cannot be read', () => {
     const rom = make4MbRom()
     // Place file $1E into the AN1 slot via the OBJECTGFXLIST.
     rom.writeAt(GFX_FGBG_TABLE, [0x00, 0x00, 0x00, 0x1e])
@@ -441,7 +440,7 @@ describe('loadVram', () => {
     writeAddr(rom, 0x1e, 0x108000)
     rom.writeAt(0x108000, [0xff]) // empty after decompress
     const vram = loadVram(rom, 0, 0)
-    // FilterSomeRAM was applied; even on empty sheet it doesn't error.
+    // No dispatch on this ROM: the gate refuses and the sheet is drawn as decoded.
     expect(vram.an1).toBeDefined()
     expect(vram.an1!.length).toBe(128)
   })
@@ -468,26 +467,6 @@ describe('getCharPixels', () => {
     const sheet = [new Uint8Array(64).fill(7)]
     const result = getCharPixels({ sp1: sheet }, VRAM_CHAR_BASE.sp1)
     expect(result?.[0]).toBe(7)
-  })
-})
-
-// ── isFilterSomeRamFile ──────────────────────────────────────────────────────
-
-describe('isFilterSomeRamFile', () => {
-  it('file $1E is always FilterSomeRAM regardless of tileset', () => {
-    expect(isFilterSomeRamFile(0x1e, 0)).toBe(true)
-    expect(isFilterSomeRamFile(0x1e, 0x15)).toBe(true)
-  })
-
-  it('file $08 takes the path only when tileset >= $11 (overworld)', () => {
-    expect(isFilterSomeRamFile(0x08, 0x10)).toBe(false)
-    expect(isFilterSomeRamFile(0x08, 0x11)).toBe(true)
-    expect(isFilterSomeRamFile(0x08, 0x17)).toBe(true)
-  })
-
-  it('other files never trigger FilterSomeRAM', () => {
-    expect(isFilterSomeRamFile(0x00, 0)).toBe(false)
-    expect(isFilterSomeRamFile(0x10, 0x15)).toBe(false)
   })
 })
 

@@ -39,8 +39,9 @@ import type { SpritePart } from './StaticSpriteAppearance'
  *               This OVERWRITES the InitWhistlinChuck face-derived
  *               Misc151C, so the head animation is decoupled from face
  *               direction (the body still mirrors via Misc157C).
- *             • sets ChuckIsWhistling - overrides the Rip Van Fish wake-up
- *               distance check ($3D RipVanFishBehavior).
+ *             • sets ChuckIsWhistling - overrides the $3D Rip Van Fish
+ *               wake-up distance check (`RIP_VAN_FISH_DETECT_HALF_PX` in
+ *               `RipVanFishBehavior.ts`, read by `RipVanFishAppearance`).
  *
  *   Pose $06 OAM emit (CODE_02C81A → CODE_02C88C / 02CA27 / 02CA9D):
  *

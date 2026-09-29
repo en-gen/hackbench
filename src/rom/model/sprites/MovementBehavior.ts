@@ -11,11 +11,10 @@ export type SolidV = (col: number, row: number) => boolean
  * filtering, plus the spawn and level bounds, for any `MovementBehavior`
  * method that queries tile solidity.
  *
- * `SmwMap.renderSpriteOverlays` builds the `getL1` closure these callbacks
- * come from, and an Appearance used to forward it into the behavior. No
- * Appearance does today: every sprite overlay was removed
- * (`docs/sprites/sprite-overlay-removal.md`), so the solidity-taking methods are
- * reached only from their tests. They are kept for issue #321.
+ * Currently unused: the movement-simulation classes that consumed this
+ * were deleted in issue #409 (see docs/sprites/sprite-overlay-removal.md's
+ * update section). Kept for a future sprite behavior, tracked in the
+ * follow-up issue about `MovementBehavior`'s own fate.
  */
 export interface BehaviorSimContext {
   spawnX: number
@@ -27,11 +26,19 @@ export interface BehaviorSimContext {
 }
 
 /**
- * Abstract base for sprite movement simulators. Each concrete subclass
- * encodes one sprite family's handler - its per-frame physics and the
+ * Abstract base for sprite movement simulators: a concrete subclass would
+ * encode one sprite family's handler - its per-frame physics and the
  * higher-level "where can it go" queries the Appearance draws.
  *
- * Why a class and not a plain object: behaviors need methods that close
+ * Zero classes extend this today. The eleven that did were dead
+ * movement-simulation code (no Appearance ever called them) and were
+ * deleted in issue #409; see docs/sprites/sprite-overlay-removal.md's
+ * update section. Whether this base class is still worth keeping - versus
+ * folding its metadata fields into a plain object, the way
+ * `BehaviorFactory`'s `default` case already does - is the follow-up
+ * issue filed alongside that cleanup.
+ *
+ * If a future subclass does appear: behaviors need methods that close
  * over SMW-specific constants (tables, magic speeds, gravity) without
  * leaking those into every Appearance. The Appearance calls a typed
  * method on the behavior; no `instanceof` juggling at the render site.

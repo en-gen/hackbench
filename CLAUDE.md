@@ -501,7 +501,11 @@ implementer or reviewer and follows these rules instead:
 - One agent per worktree. Two agents in one worktree produced a review whose findings referenced files another agent was editing underneath it.
 - Worktrees go in `C:/Projects/.worktrees/<repo>/<task>`, never inside the repo and never as a sibling.
 - The implementer never certifies its own work. Every non-trivial change gets two fresh-agent reviews against the diff, adversarial and simplification, and the orchestrator independently builds and runs before accepting.
-- Never use a small model for the adversarial gate.
+- Agents are right-sized by role (`.claude/agents/`): `implementer` and
+  `simplify-reviewer` on Sonnet, `adversarial-reviewer` on Opus, `grunt` on
+  Haiku. The orchestrator is the only Opus session that plans. An agent
+  spawned without a role runs on Sonnet, not the orchestrator's Opus.
+  Never use a small model for the adversarial gate.
 - Keep the GitNexus index fresh. A hook reports it stale after a commit; the
   refresh is `npm run gitnexus`, never a bare `gitnexus analyze`. The bare
   command rewrites the gitnexus-marked region of CLAUDE.md and AGENTS.md with
@@ -513,7 +517,7 @@ implementer or reviewer and follows these rules instead:
 <!-- gitnexus:start -->
 # GitNexus - Code Intelligence
 
-This project is indexed by GitNexus as **hackbench** (13421 symbols, 36003 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hackbench** (12998 symbols, 34955 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root - it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

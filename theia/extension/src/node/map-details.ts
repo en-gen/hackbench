@@ -11,7 +11,7 @@
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { parseLevelObjects, parseLevelSprites } from '../../../../src/rom/LevelParser'
 import { levelNameForSlot } from '../../../../src/rom/SmwLevelNames'
-import { levelGfxAssignmentNote } from '../../../../src/rom/GfxLoader'
+import { filterSomeRamNote, levelGfxAssignmentNote } from '../../../../src/rom/GfxLoader'
 import {
   deriveOverworldEntrances,
   type OverworldEntranceIndex,
@@ -106,6 +106,9 @@ export function buildMapDetails(
       { label: 'Vertical scroll', value: hex(h.verticalScroll) },
       { label: 'Layer 3 priority', value: h.layer3Priority ? 'yes' : 'no' },
     ],
-    gfxAssignmentNote: levelGfxAssignmentNote(rom.rom),
+    gfxAssignmentNote:
+      [levelGfxAssignmentNote(rom.rom), filterSomeRamNote(rom.rom, h.objectTileset, h.spriteSet)]
+        .filter(Boolean)
+        .join(' ') || undefined,
   }
 }

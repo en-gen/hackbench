@@ -93,9 +93,8 @@ export function drawSurfaces(
     return { id: tile.id, actsLike: 0, collision: tile.collision } as L1Cell
   }
 
-  // Floor surfaces come from SurfacePath with the Mario predicate.
-  // This is the SAME source of truth `KoopaWalkBehavior.scanBoundary`
-  // consumes - silhouette suppression, slope-vs-flat classification,
+  // Floor surfaces come from SurfacePath with the Mario predicate -
+  // silhouette suppression, slope-vs-flat classification, and
   // priority-decorative passthrough are all decided in one place.
   const path = buildSurfacePath(getL1, cols, rows, { hasFloor: MARIO_HAS_FLOOR })
 

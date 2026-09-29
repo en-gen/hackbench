@@ -28,8 +28,10 @@ import {
   GfxServiceClient,
   GfxSheetDto,
   LoadGfxFilesResult,
+  OverworldDto,
 } from '../common/gfx-protocol'
 import { decodeGfxSheet, listGfxFileInfos } from './gfx-decode'
+import { decodeOverworld } from './overworld-decode'
 import { WorkingCopyNotifier } from './working-copy-notifier'
 
 @injectable()
@@ -56,6 +58,10 @@ export class GfxServiceImpl implements GfxService {
     paletteRow?: number,
   ): Promise<GfxSheetDto> {
     return decodeGfxSheet(this.romFor(manifestPath), index, bpp, paletteRow)
+  }
+
+  async overworld(manifestPath: string): Promise<OverworldDto> {
+    return decodeOverworld(this.romFor(manifestPath))
   }
 
   /**

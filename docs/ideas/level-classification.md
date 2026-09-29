@@ -42,7 +42,8 @@ the editor still works. You lose organisation, not access.
 
 That matters today because Lunar Magic replaces the routines that build the
 overworld translevel table (see
-[lunar-magic-patches.md](../lunar-magic-patches.md)). On an LM-patched ROM we
+[map-data-mechanics.md](../rom/map-data-mechanics.md#on-the-corpus-hacks-the-table-is-stored) and
+[smw-translevel-formula.md](../rom/smw-translevel-formula.md)). On an LM-patched ROM we
 currently emit a confident level list in which entries point at the wrong
 level. Falling back to "everything is an Extra" is strictly better than being
 confidently wrong.
