@@ -24,7 +24,7 @@ const { loromToOffset } = require('../../extension/lib/src/rom/addressing')
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 const EXPLORER = '#hackbench\\.map-explorer'
-const ROW = `${EXPLORER} [data-node-id="special:overworld"]`
+const ROW = `${EXPLORER} [data-node-id="overworld"]`
 const VIEW = '#theia-main-content-panel #hackbench\\.overworld-view'
 
 /** LDX #OWL1TileData's opcode in CODE_04DC09 (bank_04.asm:5675), pinned by the reader. */
@@ -85,7 +85,9 @@ async function openProject(page, rom) {
 
 /** Skips without the ROM, opens a project on it, and waits for the Overworld row. */
 async function openVanillaWithRow(page) {
-  await openVanillaWithRow(page)
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
+  await openProject(page, ROM)
+  await page.waitForSelector(ROW, { timeout: 15000 })
 }
 
 /** SHA-256 of the canvas's RGBA, read back from the page. */
