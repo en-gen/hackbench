@@ -37,7 +37,8 @@ function walk(dir, out) {
 }
 
 /** sha256 of the benchmark harness rooted at `dir`: every file under
- *  test/perf, plus vitest.perf.config.ts and tools/perf/run-core.mjs,
+ *  test/perf, theia/browser-app/perf, plus vitest.perf.config.ts,
+ *  playwright.perf.config.cjs, tools/perf/run-core.mjs and run-app.mjs,
  *  hashed in a fixed (sorted, path-relative) order so it is stable across
  *  machines and checkouts. */
 export function computeHarness(dir) {
@@ -51,12 +52,21 @@ export function computeHarness(dir) {
   for (const f of [
     join(dir, 'vitest.perf.config.ts'),
     join(dir, 'tools', 'perf', 'run-core.mjs'),
+    join(dir, 'tools', 'perf', 'run-app.mjs'),
+    join(dir, 'theia', 'browser-app', 'playwright.perf.config.cjs'),
   ]) {
     try {
       if (statSync(f).isFile()) files.push(f)
     } catch {
       // missing harness file: absence is itself part of what gets hashed via its omission
     }
+  }
+  // The app suite's harness (design section 2): its specs and config.
+  const appPerf = join(dir, 'theia', 'browser-app', 'perf')
+  try {
+    if (statSync(appPerf).isDirectory()) walk(appPerf, files)
+  } catch {
+    // no app perf directory: absent, like the other missing harness files
   }
   files.sort()
   const hash = createHash('sha256')

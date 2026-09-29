@@ -103,6 +103,7 @@ coverage/
 # source; a real nightly run writes into hackbench-validation's perf-data
 # branch instead.
 /perf-core-results.json
+/perf-app-results.json
 bisect-round.json
 
 # Secrets / local env overrides

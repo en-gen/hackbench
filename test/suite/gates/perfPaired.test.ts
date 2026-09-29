@@ -169,9 +169,9 @@ describe('paired.mjs, spawnSync mocked', () => {
     ).not.toThrow()
   })
 
-  it('rejects any suite other than core (app lands in PR 2)', () => {
-    expect(() => runPaired({ base: baseDir, cand: candDir, suite: 'app', rounds: 5 })).toThrow(
-      /PR 2/,
+  it('rejects a suite that has no runner', () => {
+    expect(() => runPaired({ base: baseDir, cand: candDir, suite: 'nope', rounds: 5 })).toThrow(
+      /unsupported suite/,
     )
   })
 })

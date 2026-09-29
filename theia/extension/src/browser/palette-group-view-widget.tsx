@@ -23,6 +23,7 @@ import { PaletteFrontendClient } from './palette-push-client'
 import { PaletteSwatchRow } from './palette-swatch-row'
 import { EditableWord, PaletteInspector } from './palette-inspector'
 import { animatedColumns, cellTitle, tabTitle, targetFor, viewWidgetId } from './palette-view-model'
+import { perfEndAfterPaint, perfStart } from '../common/perf-marks'
 
 export interface PaletteGroupViewOptions {
   manifestPath: string
@@ -119,6 +120,7 @@ export class PaletteGroupViewWidget extends ReactWidget {
       this.selectedFrame = undefined
       this.editError = undefined
     }
+    perfStart('open-palette')
     await this.fetch()
   }
 
@@ -139,6 +141,7 @@ export class PaletteGroupViewWidget extends ReactWidget {
     this.title.label = g ? tabTitle(g, o.variant) : o.groupId
     this.title.caption = this.title.label
     this.update()
+    if (g) perfEndAfterPaint('open-palette')
   }
 
   protected group(): PaletteGroupDto | undefined {
@@ -150,6 +153,7 @@ export class PaletteGroupViewWidget extends ReactWidget {
   protected async commit(romAddr: number, oldHex: string, newHex: string): Promise<void> {
     const mp = this.options?.manifestPath
     if (!mp) return
+    perfStart('edit')
     // Shares fetch()'s token, but gates only the grid: the write fires the
     // working-copy push synchronously, so its fetch() always supersedes this
     // response. The edit's own outcome (error set or cleared) still applies.
@@ -171,6 +175,7 @@ export class PaletteGroupViewWidget extends ReactWidget {
       this.editError = undefined
     }
     this.update()
+    if (!this.editError) perfEndAfterPaint('edit')
   }
 
   protected render(): React.ReactNode {

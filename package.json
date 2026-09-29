@@ -201,6 +201,7 @@
     "capture:render": "npx tsx tools/scripts/render_capture.ts",
     "capture:gate": "npx tsx tools/scripts/capture_gate_cli.ts",
     "perf:core": "node tools/perf/run-core.mjs --out perf-core-results.json",
+    "perf:app": "node tools/perf/run-app.mjs --out perf-app-results.json",
     "perf:compare": "node tools/perf/compare.mjs",
     "perf:paired": "node tools/perf/paired.mjs"
   },

@@ -29,6 +29,7 @@ import { decodeSwitchButton, SwitchToggle, type SwitchButtonImages } from './swi
 import { LayerToggle } from './layer-icon'
 import { PixelImageButton, type FrameImage } from './pixel-image-button'
 import { slotLabel } from './map-explorer-widget'
+import { perfEnd, perfStart } from '../common/perf-marks'
 
 export { slotLabel }
 export const MAP_VIEW_ID = 'hackbench.map-view'
@@ -108,6 +109,7 @@ export class MapViewWidget extends ReactWidget {
   }
 
   async open(options: MapViewOptions): Promise<void> {
+    perfStart('open-maps')
     this.options = options
     this.id = `${MAP_VIEW_ID}:${options.index}`
     this.title.label = options.label
@@ -274,6 +276,7 @@ export class MapViewWidget extends ReactWidget {
         if (canvas.height !== img.height) canvas.height = img.height
         canvas.getContext('2d')?.putImageData(img, 0, 0)
         canvas.dataset.drawn = want
+        perfEnd('open-maps')
       } else if (this.screenError && canvas.dataset.drawn) {
         canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
         delete canvas.dataset.drawn

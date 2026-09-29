@@ -21,6 +21,7 @@ import { EditStackDto, EditStackResult, ProjectService } from '../common/project
 import { ProjectContext } from './project-context'
 import { ProjectFrontendClient } from './project-push-client'
 import { handlesEditStack } from './edit-stack-gate'
+import { perfEnd, perfStart } from '../common/perf-marks'
 
 /** No project, or a project we could not read: nothing to undo or redo. */
 const NOTHING: EditStackDto = {
@@ -75,6 +76,7 @@ export class EditStackContribution implements CommandContribution {
     // and naming it is the difference between an actionable message and a
     // bare error string.
     const label = direction === 'undo' ? this.state.undoLabel : this.state.redoLabel
+    if (direction === 'undo') perfStart('undo')
 
     let result: EditStackResult
     try {
@@ -89,6 +91,7 @@ export class EditStackContribution implements CommandContribution {
 
     if (result.status === 'ok') {
       this.state = result
+      if (direction === 'undo') perfEnd('undo')
       return
     }
 
