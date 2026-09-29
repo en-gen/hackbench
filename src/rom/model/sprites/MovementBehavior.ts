@@ -13,8 +13,7 @@ export type SolidV = (col: number, row: number) => boolean
  *
  * Currently unused: the movement-simulation classes that consumed this
  * were deleted in issue #409 (see docs/sprites/sprite-overlay-removal.md's
- * update section). Kept for a future sprite behavior, tracked in the
- * follow-up issue about `MovementBehavior`'s own fate.
+ * update section). It goes with this file when #418 deletes it.
  */
 export interface BehaviorSimContext {
   spawnX: number
@@ -35,8 +34,7 @@ export interface BehaviorSimContext {
  * deleted in issue #409; see docs/sprites/sprite-overlay-removal.md's
  * update section. Whether this base class is still worth keeping - versus
  * folding its metadata fields into a plain object, the way
- * `BehaviorFactory`'s `default` case already does - is the follow-up
- * issue filed alongside that cleanup.
+ * `BehaviorFactory`'s `default` case already does - is issue #418.
  *
  * If a future subclass does appear: behaviors need methods that close
  * over SMW-specific constants (tables, magic speeds, gravity) without
@@ -73,7 +71,9 @@ export interface BehaviorMeta {
 
 /**
  * Convenience adapter: wrap a `GetL1Tile`-style accessor into the pair
- * of solidity callbacks behaviors consume.
+ * of solidity callbacks behaviors consume. No production caller; its two
+ * predicates duplicate `spriteCollisionFromL1`'s, so it goes with this
+ * file when #418 deletes it.
  *
  *   `solidH(c, r)` → does this tile block horizontal motion? (wall)
  *                    Reads `tile.collision.wall` - CODE_01928E port

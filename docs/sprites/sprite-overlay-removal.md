@@ -39,9 +39,9 @@ Keep this boundary in mind before adding anything back:
   annotation that shows the mole inside it tells the user something the
   pixels cannot. These are wanted, and more are expected.
 
-## Relationship to issue #321
+## Relationship to issue #132
 
-Issue #321 records the earlier decision to remove sprite MOVEMENT
+Issue #132 records the earlier decision to remove sprite MOVEMENT
 SIMULATION and restore it in a later milestone. That is the
 `src/rom/model/sprites/behaviors/` layer: `KoopaWalkBehavior`,
 `HopFlameBehavior`, `SumoBrotherBehavior` and friends, which port the ASM
@@ -51,10 +51,10 @@ This change is the layer above it, and is deliberately narrower. Every
 class in `sprites/behaviors/`, every `compute*` method on them and every
 behavior test survives untouched, and all eleven of the solidity-taking
 methods are now reached only from their own tests (listed below). That is
-useful input for #321 but is not resolved here.
+useful input for #132 but is not resolved here.
 
 Order does not matter between the two: this change compiles and passes
-with the behavior layer present, and #321 can proceed afterwards.
+with the behavior layer present, and #132 can proceed afterwards.
 
 ### "It removes the drawings, not the simulations" is only half true
 
@@ -90,7 +90,7 @@ Every sprite that lost an overlay, and what remains of its ROM work:
 | `$B7`/`$B8` | `CarrotTopLift` | **none** | **gone** |
 
 For the eight rows marked "gone" the port and the drawing were the same
-code, so rebuilding them is not the cheap job the #321 framing implies:
+code, so rebuilding them is not the cheap job the #132 framing implies:
 their research was never in the behavior layer to begin with.
 
 That cost lands only on someone who REBUILDS. `git revert d1d6bcd`
@@ -208,7 +208,7 @@ leaves `$4D` unannotated on `develop` for however long #326 takes.
 | Tile and Map16 behavior overlays (`InvisibleBlockRevealBehavior`, `VineSourceBehavior`, `StarOneUpVineBlockBehavior`, `KeyCoinBalloonKoopaBlockBehavior`, `PaletteOrBehavior`) | Different hook (`TileBehavior.renderOverlay`), explicitly out of scope. |
 | `drawSurfaces` / `drawWalls` / L2 and L3 range overlays | Tile-collision debug overlays in the webview, not sprite annotations. |
 | `src/rom/model/OverlayContext.ts` | Still the type the hook is declared against, and `isPriorityDecorative` / the acts-like predicates are used by `SmwMap`, `SurfacePath` and the webview overlays. |
-| All of `sprites/behaviors/` | Issue #321's scope. |
+| All of `sprites/behaviors/` | Issue #132's scope. |
 | `ThwompAppearance`'s `ALERT_PX` / `AGGRESSIVE_PX` | Read by `render()` for the face-tile swap, so they are appearance data. Only the zone DRAWING went. |
 | `RipVanFishAppearance`'s `RIP_VAN_FISH_DETECT_HALF_PX` and `Z_TRAJECTORY` | Both read by `render()`: the wake square picks the pose, the Z trajectory places real sprite pixels. |
 | `CarrotTopLiftAppearance.spriteId`, `CheepCheepAppearance.vertical` | Variant identity, still constructed by the factory. |
@@ -375,7 +375,7 @@ appearance implements the hook.
 ## Corrections to this document and to the commit message
 
 Found by the adversarial review of this branch and fixed by the commit
-that added this section. The merge-order, issue-#321 and behavior-method
+that added this section. The merge-order, issue-#132 and behavior-method
 corrections are inline in those sections above.
 
 ### `mapStore.marioSpawnX` is dead, and this commit's own doc edit hid it
@@ -631,10 +631,10 @@ behavior layer (`computeBouncePath` from `computeBouncePolyline`,
 `simulateBounds` from `simulate.ts`)". Neither example holds:
 `BouncingKoopaBehavior.computeBouncePolyline` (`BouncingKoopaBehavior.ts:161`)
 calls `simulateCyclePolyline`, and `simulate.ts:12` is a comment. Since
-this list feeds the #321 decision, understating how dead these are is the
+this list feeds the #132 decision, understating how dead these are is the
 wrong direction to be wrong.
 
-They are input for issue #321, not defects of this change:
+They are input for issue #132, not defects of this change:
 
 - `KoopaWalkBehavior.computePatrolRange`
 - `HopFlameBehavior.simulateBounds`, `.computeBouncePath`
@@ -657,13 +657,13 @@ see the update below for what that means once those behaviors are gone.
 
 ## Update 2026-09-28: the behaviors/ layer was deleted (issue #409)
 
-This section's own inventory, above, undercut its "kept for #321" framing
+This section's own inventory, above, undercut its "kept for #132" framing
 without saying so: the eleven behavior methods it lists had zero callers
 outside their own tests *at the time this document was written*, not
 after some later drift - the overlays that used to call them were the
 ones removed in #328; nothing has called them since. Issue #409 acted on
 that finding and deleted the classes, rather than carrying them forward
-into #321 (the emulator-based rebuild) as working-but-unused code.
+into #132 (the emulator-based rebuild) as working-but-unused code.
 
 Eleven classes removed outright, source and tests: `KoopaWalkBehavior`,
 `HopFlameBehavior`, `BouncingKoopaBehavior`, `FlyingLeftKoopaBehavior`,
@@ -720,11 +720,16 @@ goes through `solidityFromL1` or `spriteCollisionFromL1` - both read
 (`SpriteCollision.ts`) lost their only production callers with this
 deletion (`KoopaWalkBehavior` and others; `BouncingKoopaBehavior` and
 `WingedGoombaBehavior`, respectively) and are exercised only by their own
-tests today. Kept rather than deleted, since they are small,
-independently-useful predicate bundles, not simulations - but that call
-was made without a deep look at whether keeping them is actually right,
-which is why it is a separately-flagged follow-up rather than a decision
-made here.
+tests today. The follow-up looked again (2026-09-29) and the owner kept
+them. The "Show surfaces" and "Show walls" overlays in the reference
+extension are being ported to the Theia map view (#435). Those overlays
+read the Mario fields directly and never used either adapter, but a
+sprite-perspective view of the same overlays would need exactly what
+`spriteCollisionFromL1` bundles: priority filtering plus the sprite
+`wall` / `floor` / `ceiling` / `slope` reads. `solidityFromL1` is a strict
+subset of it (its `solidH` / `solidV` are the same reads), so when #418
+deletes `MovementBehavior.ts` it can go with that file, along with the
+reader-less `BehaviorSimContext`.
 
 With `LineBrownPlatBehavior` gone, `MovementBehavior` has zero concrete
 subclasses left in `src/`. `SuperKoopaBehavior` is the only class still
