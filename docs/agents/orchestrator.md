@@ -132,9 +132,9 @@ for operational Markdown (scope in CLAUDE.md "Agent workflow").
 - PRs target `develop`; CLAUDE.md "Merging" holds when they auto-merge, who
   answers CodeRabbit, and when the verifier re-runs. The body relays each
   review finding and how it was resolved.
-- Any change to what the app shows: brief the verifier to capture the images
-  and embed them in the PR, per CLAUDE.md "Pull requests show what they
-  draw". You do not interpret them.
+- Any change to what the app shows: brief the verifier to capture before and
+  after screenshots and embed them in the PR, per CLAUDE.md "Pull requests
+  show what they draw". You do not interpret them.
 - Only a `needs-owner` PR (significant UI feature addition or update) also
   gets the verified build launched for the owner: random port, isolated app
   data (`start-test-server.cjs`), URL given. Minor changes and fixes are
