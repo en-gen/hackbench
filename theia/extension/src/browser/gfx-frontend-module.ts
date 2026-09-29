@@ -10,6 +10,7 @@ import {
   FrontendApplicationContribution,
   WidgetFactory,
 } from '@theia/core/lib/browser'
+import { CommandContribution, MenuContribution } from '@theia/core/lib/common'
 import {
   RemoteConnectionProvider,
   ServiceConnectionProvider,
@@ -19,11 +20,7 @@ import { GfxExplorerContribution } from './gfx-explorer-contribution'
 import { createGfxExplorerWidget, GFX_EXPLORER_ID } from './gfx-explorer-widget'
 import { GfxViewWidget, GFX_VIEW_ID } from './gfx-view-widget'
 import { GfxFrontendClient } from './gfx-push-client'
-import {
-  OverworldContribution,
-  OverworldLauncherWidget,
-  OVERWORLD_LAUNCHER_ID,
-} from './overworld-contribution'
+import { OverworldContribution } from './overworld-contribution'
 import { OverworldViewWidget, OVERWORLD_VIEW_ID } from './overworld-view-widget'
 
 export default new ContainerModule(bind => {
@@ -64,17 +61,14 @@ export default new ContainerModule(bind => {
   bind(FrontendApplicationContribution).toService(GfxExplorerContribution)
 
   // The Overworld view reads through GfxService too. WidgetManager caches by
-  // factory id, so there is one Overworld widget and one globe launcher.
+  // factory id, so there is one Overworld widget.
   bind(OverworldViewWidget).toSelf()
-  bind(OverworldLauncherWidget).toSelf()
-  for (const [id, widget] of [
-    [OVERWORLD_VIEW_ID, OverworldViewWidget],
-    [OVERWORLD_LAUNCHER_ID, OverworldLauncherWidget],
-  ] as const) {
+  for (const [id, widget] of [[OVERWORLD_VIEW_ID, OverworldViewWidget]] as const) {
     bind(WidgetFactory)
       .toDynamicValue(ctx => ({ id, createWidget: () => ctx.container.get(widget) }))
       .inSingletonScope()
   }
-  bindViewContribution(bind, OverworldContribution)
-  bind(FrontendApplicationContribution).toService(OverworldContribution)
+  bind(OverworldContribution).toSelf().inSingletonScope()
+  bind(CommandContribution).toService(OverworldContribution)
+  bind(MenuContribution).toService(OverworldContribution)
 })
