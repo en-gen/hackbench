@@ -170,7 +170,9 @@ test('opening the Overworld row opens one view; opening it again focuses that vi
   expect(await overworldCount(page)).toBe(1)
 
   // Move focus to the map explorer, then open the row again: the same widget, no second.
-  await page.evaluate(() => getSvc('ApplicationShell').activateWidget('hackbench.map-explorer'))
+  await page.evaluate(async () => {
+    await getSvc('ApplicationShell').activateWidget('hackbench.map-explorer')
+  })
   await openOverworldRow(page)
   await expect(page.locator(VIEW)).toBeVisible()
   expect(await overworldCount(page)).toBe(1)
