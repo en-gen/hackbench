@@ -113,16 +113,21 @@ export interface OverworldLayerDto {
  * so a layer toggle needs no round trip, or why it cannot be drawn. A
  * refusal carries no pixels: the view shows the reason and no canvas.
  */
+export interface OverworldHalfDto {
+  width: number
+  height: number
+  l1: OverworldLayerDto
+  /** Absent exactly when `l2Unavailable` says why. */
+  l2?: OverworldLayerDto
+}
+
 export type OverworldDto =
   | {
       status: 'ok'
-      width: number
-      height: number
       /** CGRAM color 0, RGBA. */
       backdrop: number[]
-      l1: OverworldLayerDto
-      /** Absent exactly when `l2Unavailable` says why. */
-      l2?: OverworldLayerDto
+      /** Half 0 (the hub), then half 1 (areas 1-6): independent layouts. */
+      halves: [OverworldHalfDto, OverworldHalfDto]
       l2Unavailable?: string
     }
   | { status: 'unavailable'; reason: string }

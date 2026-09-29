@@ -12,15 +12,19 @@ import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { findSpecialMaps } from '../../../../src/rom/SpecialMaps'
 import { overworldCgram } from '../../../../src/rom/OverworldLoader'
 import {
-  OW_CANVAS_H,
-  OW_CANVAS_W,
+  OW_HALF_H,
+  OW_HALF_W,
   composeOverworldL1Grid,
   readOverworldL1,
 } from '../../../../src/rom/OverworldL1'
-import { drawOverworldLayers, readOverworldL2 } from '../../../../src/rom/OverworldL2'
+import {
+  drawOverworldLayers,
+  readOverworldL2,
+  type OwHalfLayers,
+} from '../../../../src/rom/OverworldL2'
 import type { OwLayerPixels } from '../../../../src/rom/render/OverworldComposite'
 import type { RgbaColor } from '../../../../src/rom/GraphicsDecoder'
-import type { OverworldDto, OverworldLayerDto } from '../common/gfx-protocol'
+import type { OverworldDto, OverworldHalfDto, OverworldLayerDto } from '../common/gfx-protocol'
 
 const unavailable = (reason: string): OverworldDto => ({ status: 'unavailable', reason })
 const b64 = (a: Uint8Array | Uint8ClampedArray): string =>
@@ -28,6 +32,13 @@ const b64 = (a: Uint8Array | Uint8ClampedArray): string =>
 const layerDto = (px: OwLayerPixels): OverworldLayerDto => ({
   rgbaBase64: b64(px.rgba),
   prioBase64: b64(px.prio),
+})
+
+const halfDto = (h: OwHalfLayers): OverworldHalfDto => ({
+  width: OW_HALF_W,
+  height: OW_HALF_H,
+  l1: layerDto(h.l1),
+  ...(h.l2 ? { l2: layerDto(h.l2) } : {}),
 })
 
 /** LoadPalette's result for the title screen map, which CODE_00AD25 draws over,
@@ -77,11 +88,8 @@ export function decodeOverworld(rom: SmwRom, fps: OverworldViewFingerprints = {}
   })
   return {
     status: 'ok',
-    width: OW_CANVAS_W,
-    height: OW_CANVAS_H,
     backdrop: [...base.backdrop],
-    l1: layerDto(layers.l1),
-    ...(layers.l2 ? { l2: layerDto(layers.l2) } : {}),
+    halves: [halfDto(layers[0]), halfDto(layers[1])],
     ...(l2.ok ? {} : { l2Unavailable: l2.reason }),
   }
 }

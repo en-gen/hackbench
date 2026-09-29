@@ -48,17 +48,6 @@ export function cropRegion(
   return out
 }
 
-/** The left and right halves of a composed `width` x `height` image, or null when `width` is odd. */
-export function overworldHalves(
-  px: Uint8ClampedArray,
-  width: number,
-  height: number,
-): [Uint8ClampedArray, Uint8ClampedArray] | null {
-  if (width % 2 !== 0) return null
-  const half = width / 2
-  return [cropRegion(px, width, 0, 0, half, height), cropRegion(px, width, half, 0, half, height)]
-}
-
 /** Where a tile's quadrant sits inside that tile's own 16x16 region. */
 export const QUADRANT_ORIGIN: Record<string, { x: number; y: number }> = {
   tl: { x: 0, y: 0 },

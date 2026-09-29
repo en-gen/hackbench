@@ -11,7 +11,7 @@ import { decodeSubTileWord, type Map16Tile, type SubTile } from './Map16'
 import type { VramState } from './GfxLoader'
 import type { RgbaColor } from './GraphicsDecoder'
 import { renderSubTile } from './TileRenderer'
-import { OW_CANVAS_H, OW_CANVAS_W, OW_L1_COLS } from './OverworldL1'
+import { OW_HALF_COLS, OW_HALF_H, OW_HALF_W, OW_L1_COLS } from './OverworldL1'
 import type { OwLayerPixels } from './render/OverworldComposite'
 import { isLoRomRomAddress } from './addressing'
 import { hex6 } from './hex'
@@ -79,10 +79,10 @@ function drawLayer(
   vram: VramState,
   palette: { colors: RgbaColor[] },
 ): OwLayerPixels {
-  const stride = OW_CANVAS_W * 4
-  const rgba = new Uint8ClampedArray(stride * OW_CANVAS_H)
-  const cellsW = OW_CANVAS_W >> 3
-  const prio = new Uint8Array(cellsW * (OW_CANVAS_H >> 3))
+  const stride = OW_HALF_W * 4
+  const rgba = new Uint8ClampedArray(stride * OW_HALF_H)
+  const cellsW = OW_HALF_W >> 3
+  const prio = new Uint8Array(cellsW * (OW_HALF_H >> 3))
   cells((sub, x, y) => {
     renderSubTile(sub, vram, palette, rgba, y * stride + x * 4, stride)
     prio[(y >> 3) * cellsW + (x >> 3)] = sub.priority ? 1 : 0
@@ -90,18 +90,26 @@ function drawLayer(
   return { rgba, prio }
 }
 
-/** L1 and, when readable, L2, half 0 left of half 1 (a view choice). */
+/** One half's L1 and, when readable, L2, on its own 512x512 canvas. */
+export interface OwHalfLayers {
+  l1: OwLayerPixels
+  l2: OwLayerPixels | null
+}
+
+/** Half 0 (the hub) and half 1 (areas 1-6), each drawn from its own layout. */
 export function drawOverworldLayers(
   l1: Map16Tile[],
   l2: Uint8Array | null,
   vram: VramState,
   palette: { colors: RgbaColor[] },
-): { l1: OwLayerPixels; l2: OwLayerPixels | null } {
-  return {
+): [OwHalfLayers, OwHalfLayers] {
+  const half = (h: 0 | 1): OwHalfLayers => ({
     l1: drawLayer(
       put =>
         l1.forEach((t, i) => {
-          const x = (i % OW_L1_COLS) * 16
+          const col = i % OW_L1_COLS
+          if (Math.floor(col / OW_HALF_COLS) !== h) return
+          const x = (col % OW_HALF_COLS) * 16
           const y = Math.floor(i / OW_L1_COLS) * 16
           put(t.tl, x, y)
           put(t.tr, x + 8, y)
@@ -116,13 +124,14 @@ export function drawOverworldLayers(
       drawLayer(
         put => {
           for (let y = 0; y < 64; y++)
-            for (let x = 0; x < 128; x++) {
-              const at = tilemapByteOffset((x >> 6) as 0 | 1, y, x & 63)
+            for (let x = 0; x < 64; x++) {
+              const at = tilemapByteOffset(h, y, x)
               put(decodeSubTileWord(l2[at]! | (l2[at + 1]! << 8)), x * 8, y * 8)
             }
         },
         vram,
         palette,
       ),
-  }
+  })
+  return [half(0), half(1)]
 }

@@ -5,8 +5,8 @@
  * backend reports the working copy changed. A refusal shows its reason and
  * no canvas. Styling reuses the Graphics view's classes (style/gfx.css).
  * The layer toggles re-compose the layers already fetched, with no round trip.
- * Two canvases so the 16 px gap between the halves is CSS, not map pixels; the
- * composite is unchanged (#431).
+ * Two canvases, one per half: the halves are independent layouts, each drawn
+ * and composed on its own, and the 16 px gap between them is CSS, not map pixels (#431).
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
@@ -18,7 +18,7 @@ import {
 } from '../../../../src/rom/render/OverworldComposite'
 import { GfxFrontendClient } from './gfx-push-client'
 import { LayerToggle } from './layer-icon'
-import { decodeBase64Bytes, decodeRgba, overworldHalves, paintScaled } from './map16-pixels'
+import { decodeBase64Bytes, decodeRgba, paintScaled } from './map16-pixels'
 import { ProjectContext } from './project-context'
 
 export const OVERWORLD_VIEW_ID = 'hackbench.overworld-view'
@@ -31,7 +31,7 @@ export class OverworldViewWidget extends ReactWidget {
 
   protected manifestPath: string | undefined
   protected dto: OverworldDto | undefined
-  protected layers: { l1: OwLayerPixels; l2: OwLayerPixels | null } | undefined
+  protected layers: Array<{ l1: OwLayerPixels; l2: OwLayerPixels | null }> | undefined
   protected visible = { l1: true, l2: true }
   protected error: string | undefined
   protected readonly canvasEls: Array<HTMLCanvasElement | null> = [null, null]
@@ -78,7 +78,9 @@ export class OverworldViewWidget extends ReactWidget {
       prio: decodeBase64Bytes(l.prioBase64),
     })
     this.layers =
-      dto?.status === 'ok' ? { l1: pixels(dto.l1), l2: dto.l2 ? pixels(dto.l2) : null } : undefined
+      dto?.status === 'ok'
+        ? dto.halves.map(h => ({ l1: pixels(h.l1), l2: h.l2 ? pixels(h.l2) : null }))
+        : undefined
     this.error = error
     this.update()
   }
@@ -96,19 +98,19 @@ export class OverworldViewWidget extends ReactWidget {
 
   protected paintCanvas(): void {
     if (this.dto?.status !== 'ok' || !this.layers || !this.canvasEls.some(c => c)) return
-    const { width, height, backdrop } = this.dto
-    const { l1, l2 } = this.layers
-    const px = compositeOverworld(
-      width,
-      height,
-      backdrop,
-      this.visible.l2 ? l2 : null,
-      this.visible.l1 ? l1 : null,
-    )
-    const halves = overworldHalves(px, width, height)
-    if (!halves) return
+    const { backdrop, halves } = this.dto
     this.canvasEls.forEach((canvas, i) => {
-      if (canvas) paintScaled(canvas, halves[i]!, width / 2, height, 1)
+      if (!canvas) return
+      const half = halves[i]!
+      const { l1, l2 } = this.layers![i]!
+      const px = compositeOverworld(
+        half.width,
+        half.height,
+        backdrop,
+        this.visible.l2 ? l2 : null,
+        this.visible.l1 ? l1 : null,
+      )
+      paintScaled(canvas, px, half.width, half.height, 1)
     })
   }
 
@@ -122,13 +124,7 @@ export class OverworldViewWidget extends ReactWidget {
       return <div className="hb-gfx-view-empty">Open a project to see its overworld.</div>
     }
     const dto = this.dto
-    const oddWidth = dto?.status === 'ok' && dto.width % 2 !== 0
-    const reason =
-      this.error ??
-      (dto?.status === 'unavailable' ? dto.reason : undefined) ??
-      (oddWidth
-        ? `The overworld is ${dto.width} px wide and cannot split into two halves.`
-        : undefined)
+    const reason = this.error ?? (dto?.status === 'unavailable' ? dto.reason : undefined)
     return (
       <div className="hb-gfx-view-body">
         <div className="hb-gfx-view-toolbar">
@@ -152,7 +148,7 @@ export class OverworldViewWidget extends ReactWidget {
             highlight="bottom"
             label="Background"
             pressed={this.visible.l2}
-            disabled={dto?.status === 'ok' && !dto.l2}
+            disabled={dto?.status === 'ok' && !dto.halves[0].l2}
             control="layer-l2"
             onClick={() => this.toggle('l2')}
           />

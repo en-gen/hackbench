@@ -60,19 +60,29 @@ vi.mock('../../../theia/extension/src/node/overworld-decode', async importOrigin
 
 const b64 = (s: string): Uint8Array => Uint8Array.from(Buffer.from(s, 'base64'))
 
-/** The canvas the browser paints, with each layer shown or hidden. */
-function compose(dto: OverworldDto, show = { l1: true, l2: true }): Buffer {
+/** One half's canvas as the browser paints it, with each layer shown or hidden. */
+function composeHalf(dto: OverworldDto, i: 0 | 1, show = { l1: true, l2: true }): Buffer {
   if (dto.status !== 'ok') throw new Error(dto.reason)
+  const half = dto.halves[i]
   const layer = (l: { rgbaBase64: string; prioBase64: string } | undefined) =>
     l ? { rgba: new Uint8ClampedArray(b64(l.rgbaBase64)), prio: b64(l.prioBase64) } : null
   const px = compositeOverworld(
-    dto.width,
-    dto.height,
+    half.width,
+    half.height,
     dto.backdrop,
-    show.l2 ? layer(dto.l2) : null,
-    show.l1 ? layer(dto.l1) : null,
+    show.l2 ? layer(half.l2) : null,
+    show.l1 ? layer(half.l1) : null,
   )
   return Buffer.from(px)
+}
+/** Both halves joined row by row: the 1024x512 image the view used to paint as one canvas. */
+function compose(dto: OverworldDto, show = { l1: true, l2: true }): Buffer {
+  const halves = [composeHalf(dto, 0, show), composeHalf(dto, 1, show)]
+  const rowBytes = 512 * 4
+  const rows: Buffer[] = []
+  for (let y = 0; y < 512; y++)
+    for (const h of halves) rows.push(h.subarray(y * rowBytes, (y + 1) * rowBytes))
+  return Buffer.concat(rows)
 }
 const sha = (px: Buffer): string => createHash('sha256').update(px).digest('hex')
 
@@ -80,7 +90,11 @@ const decode = (rom: RomFile) => decodeOverworld(new SmwRom(rom), SYNTHETIC_FPS)
 const pixels = (rom: RomFile, show?: { l1: boolean; l2: boolean }): Buffer => {
   const dto = decode(rom)
   if (dto.status !== 'ok') throw new Error(dto.reason)
-  expect([dto.width, dto.height, dto.l2Unavailable]).toEqual([1024, 512, undefined])
+  expect(dto.halves.map(h => [h.width, h.height])).toEqual([
+    [512, 512],
+    [512, 512],
+  ])
+  expect(dto.l2Unavailable).toBeUndefined()
   return compose(dto, show)
 }
 const reason = (rom: RomFile, fps = SYNTHETIC_FPS) => {
@@ -128,6 +142,44 @@ describe('decodeOverworld on a synthetic ROM', () => {
     ] as const) {
       expect(pixelAt(px, row, col), `cell ${row},${col}`).toEqual(expectedAt(row, col, 0x12))
     }
+  })
+
+  it('draws each half from its own layout: a swap or a shifted column goes red', () => {
+    const dto = decode(syntheticOverworldRom(0x12))
+    if (dto.status !== 'ok') throw new Error(dto.reason)
+    const halves = [composeHalf(dto, 0), composeHalf(dto, 1)]
+    const local = (h: Buffer, row: number, col: number): number[] => {
+      const i = (row * 16 + 2) * 512 + col * 16 + 2
+      return [...h.subarray(i * 4, i * 4 + 4)]
+    }
+    // Local column c of half h is grid column 32 * h + c. Pick cells whose two halves paint
+    // different colors (they follow id & 3), so a swap or a 32-column shift cannot pass.
+    const cells: Array<[number, number]> = [0, 17, 31].map(row => {
+      const col = [...Array(32).keys()].find(
+        c => (tileAt(row, c) & 3) !== (tileAt(row, c + 32) & 3),
+      )
+      expect(col, `row ${row} has a differing column`).toBeDefined()
+      return [row, col!]
+    })
+    for (const [row, col] of cells) {
+      for (const h of [0, 1] as const) {
+        expect(local(halves[h]!, row, col), `half ${h} cell ${row},${col}`).toEqual(
+          expectedAt(row, 32 * h + col, 0x12),
+        )
+      }
+      expect(expectedAt(row, col, 0x12)).not.toEqual(expectedAt(row, col + 32, 0x12))
+    }
+    // L2 probes: [9, 70] is in layout 1, local cell (y 9, x 6); [3, 5] is in layout 0.
+    const l2At = (h: Buffer, y: number, x: number): number[] => {
+      const i = (y * 8 + 2) * 512 + x * 8 + 2
+      return [...h.subarray(i * 4, i * 4 + 4)]
+    }
+    const hi = L2_PROBES[4]!
+    expect(l2At(halves[1]!, hi.y, hi.x - 64)).toEqual(color(hi.row, 1))
+    expect(l2At(halves[0]!, hi.y, hi.x - 64)).not.toEqual(color(hi.row, 1))
+    const lo = L2_PROBES[0]!
+    expect(l2At(halves[0]!, lo.y, lo.x)).toEqual(color(lo.row, (0x12 % 7) + 1))
+    expect(l2At(halves[1]!, lo.y, lo.x)).not.toEqual(color(lo.row, (0x12 % 7) + 1))
   })
 
   it('area 0 tileset $13 loads its own GFX and DATA_00AD1E[2], not the submap entry', () => {
@@ -205,7 +257,11 @@ describe('decodeOverworld on a synthetic ROM', () => {
     clearL1(rom, 5, 9)
     const dto = decodeOverworld(new SmwRom(rom), { ...SYNTHETIC_FPS, l2: [] })
     if (dto.status !== 'ok') throw new Error(dto.reason)
-    expect([dto.l2, dto.l2Unavailable]).toEqual([undefined, expect.stringMatching(/\$04DABA/)])
+    expect([dto.halves[0].l2, dto.halves[1].l2, dto.l2Unavailable]).toEqual([
+      undefined,
+      undefined,
+      expect.stringMatching(/\$04DABA/),
+    ])
     const px = compose(dto)
     expect(pixelAt(px, 17, 40)).toEqual(expectedAt(17, 40, 0x12))
     expect(pixelAt(px, 5, 9)).toEqual(BACKDROP)
@@ -302,9 +358,18 @@ describe.skipIf(!hasRom(VANILLA))('decodeOverworld on vanilla', () => {
 
   it('draws the pinned canvas; each layer alone is its own pin, and an L1 edit differs', async () => {
     const dto = await vanilla(freshRom())
+    // The halves joined row by row are the old single 1024x512 image: no pixel moved.
     expect(sha(compose(dto))).toBe(pin.VANILLA_OVERWORLD_CANVAS_SHA256)
     expect(sha(compose(dto, { l1: true, l2: false }))).toBe(pin.VANILLA_OVERWORLD_L1_SHA256)
     expect(sha(compose(dto, { l1: false, l2: true }))).toBe(pin.VANILLA_OVERWORLD_L2_SHA256)
+    for (const [show, name] of [
+      [{ l1: true, l2: true }, 'BOTH'],
+      [{ l1: true, l2: false }, 'L1'],
+      [{ l1: false, l2: true }, 'L2'],
+    ] as const) {
+      const pins = pin.VANILLA_OVERWORLD_HALF_SHA256[name]
+      expect([sha(composeHalf(dto, 0, show)), sha(composeHalf(dto, 1, show))], name).toEqual(pins)
+    }
     const edited = freshRom()
     // Grid cell (row 1, col 55) draws an opaque L1 icon on vanilla; tile 0 draws nothing.
     edited.writeAt(0x0cf7df + map16ByteOffset(1, 1, 23), [0])
