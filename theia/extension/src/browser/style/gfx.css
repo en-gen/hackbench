@@ -120,3 +120,8 @@
 .hb-gfx-view-error {
   color: var(--theia-errorForeground);
 }
+
+.hb-overworld-halves {
+  display: inline-flex;
+  gap: 16px;
+}

@@ -6,6 +6,10 @@
  */
 
 /** One layer: RGBA on a clear canvas (alpha 0 is clear), and a priority byte per 8x8 cell. */
+/** One half's canvas, in pixels: 32 L1 columns of 16 px by 32 rows. */
+export const OW_HALF_W = 512
+export const OW_HALF_H = 512
+
 export interface OwLayerPixels {
   rgba: Uint8ClampedArray
   prio: Uint8Array

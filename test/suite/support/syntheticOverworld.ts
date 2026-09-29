@@ -95,7 +95,8 @@ export const PRIO = 0x2000
  * the asymmetric $3E, whose pixel (2,2) is index 1). (y, x) are 8x8 cells.
  */
 // prettier-ignore
-export const L2_PROBES = [[3, 5], [7, 44], [41, 13], [50, 58], [9, 70], [20, 101], [36, 83], [60, 120]]
+export const L2_PROBES = [[3, 5], [7, 44], [41, 13], [50, 58], [9, 70], [20, 101], [36, 83], [60, 120],
+  [63, 63], [63, 127]]
   .map(([y, x], i) => ({ y: y!, x: x!, row: 4 + (i & 3), char: i < 4 ? 0x3f : 0x3e }))
   .map(p => ({ ...p, word: p.char | (p.row << 10) | PRIO }))
 
@@ -140,8 +141,8 @@ export function plantL2(rom: RomFile, t: Uint8Array, lo = L2_LO, hi = L2_HI): vo
   rom.writeAt(0x04dc8d, le16(hi))
 }
 
-/** The tile index planted at grid (row 0-31, col 0-63), half 0 on the left. */
-export const tileAt = (row: number, col: number): number => (row * 7 + col) & 0xff
+/** The tile index planted at grid (row 0-31, col 0-63); half 1 (col 32+) is offset by one so the halves differ. */
+export const tileAt = (row: number, col: number): number => (row * 7 + col + (col >> 5)) & 0xff
 
 export function plantBankSelect(
   rom: RomFile,

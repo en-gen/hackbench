@@ -1,7 +1,8 @@
 # Overworld L1 and L2: how the view reads them
 
 The Overworld view (en-gen/hackbench#363) draws `Map16TilesLow` over
-`OWLayer2Tilemap` in one canvas. This page holds the ASM trace behind
+`OWLayer2Tilemap` in two canvases, the hub and half 1, 16 px apart, each drawn
+on its own. This page holds the ASM trace behind
 `src/rom/OverworldL1.ts`, `src/rom/OverworldL2.ts` and
 `OverworldLoader.overworldCgram`. Line numbers are SMWDisX.
 
@@ -28,11 +29,12 @@ table, sprite tileset, char data and tile data addresses from the operands.
 
 ## Which half is which
 
-`Map16TilesLow` is two $400 halves. The submap flag selects the half
-(bank_04.asm:2692-2698, 5178-5184; bank_05.asm:7206-7212). Area 0 reads half
+`Map16TilesLow` is two $400 halves. On a submap the tile
+position moves up by $400 (bank_04.asm:2692-2698). Area 0 reads half
 0, the hub; half 1 (areas 1-6) holds camera windows (`DATA_00A06B`/`DATA_00A079`,
-bank_00.asm:4242-4248). Drawing the halves side by side, half 0 on the left,
-is a view choice, not a ROM fact.
+bank_00.asm:4242-4248). The halves are independent layouts in both layers, so
+each is drawn as its own 512x512 image; showing them side by side, half 0 on
+the left, is a view choice, not a ROM fact.
 
 ## L2 (background)
 
