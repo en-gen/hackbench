@@ -1,7 +1,7 @@
 # Overworld L1 and L2: how the view reads them
 
 The Overworld view (en-gen/hackbench#363) draws `Map16TilesLow` over
-`OWLayer2Tilemap` in one canvas. This page holds the ASM trace behind
+`OWLayer2Tilemap` in two canvases, the hub and half 1, 16 px apart. This page holds the ASM trace behind
 `src/rom/OverworldL1.ts`, `src/rom/OverworldL2.ts` and
 `OverworldLoader.overworldCgram`. Line numbers are SMWDisX.
 

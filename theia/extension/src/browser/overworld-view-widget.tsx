@@ -1,12 +1,12 @@
 /**
  * The Overworld view: L2 (background) under L1 (foreground), half 0 left of half 1.
- * Two canvases in a row with a CSS gap (#431): the composite is one image, and
- * each half's slice is painted into its own canvas.
  *
  * One instance in the main area. Follows ProjectContext, and redraws when the
  * backend reports the working copy changed. A refusal shows its reason and
  * no canvas. Styling reuses the Graphics view's classes (style/gfx.css).
  * The layer toggles re-compose the layers already fetched, with no round trip.
+ * Two canvases so the 16 px gap between the halves is CSS, not map pixels; the
+ * composite is unchanged (#431).
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
@@ -18,7 +18,7 @@ import {
 } from '../../../../src/rom/render/OverworldComposite'
 import { GfxFrontendClient } from './gfx-push-client'
 import { LayerToggle } from './layer-icon'
-import { decodeBase64Bytes, decodeRgba, paintScaled } from './map16-pixels'
+import { decodeBase64Bytes, decodeRgba, overworldHalves, paintScaled } from './map16-pixels'
 import { ProjectContext } from './project-context'
 
 export const OVERWORLD_VIEW_ID = 'hackbench.overworld-view'
@@ -35,6 +35,10 @@ export class OverworldViewWidget extends ReactWidget {
   protected visible = { l1: true, l2: true }
   protected error: string | undefined
   protected readonly canvasEls: Array<HTMLCanvasElement | null> = [null, null]
+  protected readonly halfRefs = [0, 1].map(i => (el: HTMLCanvasElement | null) => {
+    this.canvasEls[i] = el
+    this.paintCanvas()
+  })
   protected reloadToken = 0
 
   @postConstruct()
@@ -91,7 +95,7 @@ export class OverworldViewWidget extends ReactWidget {
   }
 
   protected paintCanvas(): void {
-    if (this.dto?.status !== 'ok' || !this.layers) return
+    if (this.dto?.status !== 'ok' || !this.layers || !this.canvasEls.some(c => c)) return
     const { width, height, backdrop } = this.dto
     const { l1, l2 } = this.layers
     const px = compositeOverworld(
@@ -101,15 +105,10 @@ export class OverworldViewWidget extends ReactWidget {
       this.visible.l2 ? l2 : null,
       this.visible.l1 ? l1 : null,
     )
-    const half = width / 2
+    const halves = overworldHalves(px, width, height)
+    if (!halves) return
     this.canvasEls.forEach((canvas, i) => {
-      if (!canvas) return
-      const slice = new Uint8ClampedArray(half * height * 4)
-      for (let y = 0; y < height; y++) {
-        const from = (y * width + i * half) * 4
-        slice.set(px.subarray(from, from + half * 4), y * half * 4)
-      }
-      paintScaled(canvas, slice, half, height, 1)
+      if (canvas) paintScaled(canvas, halves[i]!, width / 2, height, 1)
     })
   }
 
@@ -123,7 +122,13 @@ export class OverworldViewWidget extends ReactWidget {
       return <div className="hb-gfx-view-empty">Open a project to see its overworld.</div>
     }
     const dto = this.dto
-    const reason = this.error ?? (dto?.status === 'unavailable' ? dto.reason : undefined)
+    const oddWidth = dto?.status === 'ok' && dto.width % 2 !== 0
+    const reason =
+      this.error ??
+      (dto?.status === 'unavailable' ? dto.reason : undefined) ??
+      (oddWidth
+        ? `The overworld is ${dto.width} px wide and cannot split into two halves.`
+        : undefined)
     return (
       <div className="hb-gfx-view-body">
         <div className="hb-gfx-view-toolbar">
@@ -167,15 +172,13 @@ export class OverworldViewWidget extends ReactWidget {
         {dto?.status === 'ok' && (
           <div className="hb-overworld-halves">
             {[0, 1].map(i => (
-              <canvas
-                key={i}
-                data-half={i}
-                className="hb-gfx-view-canvas hb-overworld-canvas"
-                ref={el => {
-                  this.canvasEls[i] = el
-                  this.paintCanvas()
-                }}
-              />
+              <div key={i} className="hb-gfx-view-canvas-wrap">
+                <canvas
+                  data-half={i}
+                  className="hb-gfx-view-canvas hb-overworld-canvas"
+                  ref={this.halfRefs[i]}
+                />
+              </div>
             ))}
           </div>
         )}

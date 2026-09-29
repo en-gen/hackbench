@@ -2,8 +2,9 @@
  * The Overworld view (en-gen/hackbench#363), end to end against the shell.
  *
  * The globe opens ONE main-area widget, and every path that shows the globe
- * does. The two half canvases (hub, then half 1, 16 px apart) together are the
- * Background under the Foreground at 1024x512 and hash to the pins the Vitest decode test also holds, per layer set: the
+ * does. The two half canvases (hub, then half 1, 16 px apart) together are
+ * the Background under the Foreground at 1024x512 and hash to the pins the
+ * Vitest decode test also holds, per layer set: the
  * layer toggles and a refused L2 land on those same pins. A ROM whose L1
  * reader is not stock shows the reason and no canvas. The Map tab's L1
  * toggle, now the shared LayerToggle, is covered by map-view.spec.cjs.
@@ -75,52 +76,42 @@ async function openProject(page, rom) {
   )
 }
 
-/** Both half canvases' RGBA, read back from the page, joined row by row into the 1024x512 composite. */
-async function canvasBytes(page) {
-  const { width, height, bytes } = await page.evaluate(() => {
-    const halves = [...document.querySelectorAll('.hb-overworld-canvas')].map(c => {
-      const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-      let s = ''
-      for (let i = 0; i < data.length; i++) s += String.fromCharCode(data[i])
-      return { w: c.width, h: c.height, s }
-    })
-    return {
-      halves: halves.length,
-      width: halves.reduce((n, h) => n + h.w, 0),
-      height: halves[0].h,
-      bytes: halves.map(h => btoa(h.s)),
-    }
-  })
-  const parts = bytes.map(b => Buffer.from(b, 'base64'))
-  const rows = []
-  const rowLen = (width / parts.length) * 4
-  for (let y = 0; y < height; y++)
-    for (const p of parts) rows.push(p.subarray(y * rowLen, (y + 1) * rowLen))
-  return { width, height, data: Buffer.concat(rows), parts }
-}
-
-/** SHA-256 of the composite (both canvases) and its size. */
-async function canvasSha(page) {
-  const { width, height, data } = await canvasBytes(page)
-  return { width, height, sha: createHash('sha256').update(data).digest('hex') }
-}
-
-/** Distinct RGBA values in one half canvas (0 = hub, 1 = half 1). */
-async function halfColors(page, half) {
-  return page.evaluate(h => {
+/** One half canvas's size and RGBA, read back from the page (0 = hub, 1 = half 1). */
+async function readHalf(page, half) {
+  const r = await page.evaluate(h => {
     const c = document.querySelector(`.hb-overworld-canvas[data-half="${h}"]`)
-    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-    const seen = new Set()
-    for (let i = 0; i < d.length; i += 4)
-      seen.add((d[i] << 24) | (d[i + 1] << 16) | (d[i + 2] << 8) | d[i + 3])
-    return seen.size
+    const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+    let s = ''
+    for (let i = 0; i < data.length; i++) s += String.fromCharCode(data[i])
+    return { width: c.width, height: c.height, bytes: btoa(s) }
   }, half)
+  return { width: r.width, height: r.height, data: Buffer.from(r.bytes, 'base64') }
+}
+
+/** SHA-256 of the two halves joined row by row into the 1024x512 composite, and its size. */
+async function canvasSha(page) {
+  const parts = [await readHalf(page, 0), await readHalf(page, 1)]
+  const rowLen = parts[0].width * 4
+  const rows = []
+  for (let y = 0; y < parts[0].height; y++)
+    for (const p of parts) rows.push(p.data.subarray(y * rowLen, (y + 1) * rowLen))
+  const sha = createHash('sha256').update(Buffer.concat(rows)).digest('hex')
+  return { width: parts[0].width + parts[1].width, height: parts[0].height, sha }
+}
+
+/** Distinct RGBA values in one half canvas. */
+async function halfColors(page, half) {
+  const { data } = await readHalf(page, half)
+  const seen = new Set()
+  for (let i = 0; i < data.length; i += 4) seen.add(data.readUInt32LE(i))
+  return seen.size
 }
 
 /** Hash of one half canvas. */
 async function halfSha(page, half) {
-  const { parts } = await canvasBytes(page)
-  return createHash('sha256').update(parts[half]).digest('hex')
+  return createHash('sha256')
+    .update((await readHalf(page, half)).data)
+    .digest('hex')
 }
 
 /** Writes `rom` with `edit` applied to a copy in tmp, and returns its path. */
@@ -273,9 +264,12 @@ test('the halves are two 512x512 canvases, hub first, 16 px apart, each drawn; F
     [512, 512],
     [512, 512],
   ])
-  const a = await canvases.nth(0).boundingBox()
-  const b = await canvases.nth(1).boundingBox()
-  expect(b.x - (a.x + a.width)).toBeGreaterThan(0)
+  // Displayed width is 512 (a scale transform goes red); the frames sit exactly 16 px apart.
+  for (const i of [0, 1]) expect((await canvases.nth(i).boundingBox()).width).toBeCloseTo(512, 0)
+  const wraps = page.locator('.hb-overworld-halves .hb-gfx-view-canvas-wrap')
+  const a = await wraps.nth(0).boundingBox()
+  const b = await wraps.nth(1).boundingBox()
+  expect(Math.abs(b.x - (a.x + a.width) - 16)).toBeLessThanOrEqual(0.5)
   expect(await halfColors(page, 0)).toBeGreaterThan(1)
   expect(await halfColors(page, 1)).toBeGreaterThan(1)
   const before = [await halfSha(page, 0), await halfSha(page, 1)]
