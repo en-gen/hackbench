@@ -63,11 +63,12 @@ export default new ContainerModule(bind => {
   // The Overworld view reads through GfxService too. WidgetManager caches by
   // factory id, so there is one Overworld widget.
   bind(OverworldViewWidget).toSelf()
-  for (const [id, widget] of [[OVERWORLD_VIEW_ID, OverworldViewWidget]] as const) {
-    bind(WidgetFactory)
-      .toDynamicValue(ctx => ({ id, createWidget: () => ctx.container.get(widget) }))
-      .inSingletonScope()
-  }
+  bind(WidgetFactory)
+    .toDynamicValue(ctx => ({
+      id: OVERWORLD_VIEW_ID,
+      createWidget: () => ctx.container.get(OverworldViewWidget),
+    }))
+    .inSingletonScope()
   bind(OverworldContribution).toSelf().inSingletonScope()
   bind(CommandContribution).toService(OverworldContribution)
   bind(MenuContribution).toService(OverworldContribution)

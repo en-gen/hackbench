@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Overworld view, opened from a globe in the activity bar. It draws the
+- Overworld view, opened from an Overworld row in the map explorer, after Title Screen
+  and New Game. It draws the
   overworld's Foreground and Background from the working copy, the
   hub on the left and areas 1-6 on the right, with toolbar toggles to show or
   hide each layer. It shows map data before any event, in area 0's tileset

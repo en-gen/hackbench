@@ -327,6 +327,7 @@ test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
   expect(result.rootIds).toEqual([
     'special:title-screen:199',
     'special:new-game:197',
+    'overworld',
     'group:unassigned',
   ])
   expect(result.unassignedTop).toBeGreaterThan(0)

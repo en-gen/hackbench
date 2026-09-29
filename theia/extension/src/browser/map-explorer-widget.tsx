@@ -49,7 +49,7 @@ import {
   createTreeContainer,
 } from '@theia/core/lib/browser'
 import { CommandService, Emitter, MessageService } from '@theia/core/lib/common'
-import { ShowOverworldCommand } from './overworld-contribution'
+import { OVERWORLD_FOCUS_COMMAND_ID } from './overworld-view-widget'
 import { orderSpecials } from './map-explorer-order'
 import {
   GroupedMapNodeDto,
@@ -155,6 +155,7 @@ export const slotLabel = (index: number): string =>
 
 @injectable()
 export class MapExplorerWidget extends TreeWidget {
+  @inject(CommandService) protected readonly commands!: CommandService
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(MessageService) protected readonly messages!: MessageService
 
@@ -186,8 +187,6 @@ export class MapExplorerWidget extends TreeWidget {
 
   /** True while restoreSelectionAndExpansion is rebuilding a multi-selection. */
   protected restoringSelection = false
-
-  @inject(CommandService) protected readonly commands!: CommandService
 
   protected readonly onMapOpenedEmitter = new Emitter<{
     index: number
@@ -426,7 +425,7 @@ export class MapExplorerWidget extends TreeWidget {
   /** Not a slot: opening it runs the Overworld command, so it needs no ROM read here. */
   protected overworldNode(): MapTreeNode {
     return {
-      id: 'special:overworld',
+      id: 'overworld',
       name: 'Overworld',
       index: -1,
       mapName: null,
@@ -449,7 +448,7 @@ export class MapExplorerWidget extends TreeWidget {
   /** Groups and messages name no map; a marker points at a row shown elsewhere. */
   protected fireOpen(map: MapTreeNode | undefined, pinned: boolean): void {
     if (map?.category === 'overworld') {
-      void this.commands.executeCommand(ShowOverworldCommand.id)
+      void this.commands.executeCommand(OVERWORLD_FOCUS_COMMAND_ID, { activate: pinned })
       return
     }
     if (!map || map.index < 0 || map.kind !== 'map' || !this.manifestPath) return

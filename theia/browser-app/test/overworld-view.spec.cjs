@@ -47,6 +47,9 @@ const GET_SVC = `function getSvc(name) {
     if (n === name) return window.theia.container.get(k)
   }
   return null
+}
+function getWidget(id) {
+  return getSvc('WidgetManager').getOrCreateWidget(id)
 }`
 
 let tmp
@@ -70,10 +73,19 @@ async function openProject(page, rom) {
       const projects = getSvc('Symbol(ProjectService)')
       const created = await projects.createProject({ romPath, name: 'MyHack', directory })
       getSvc('ProjectContext').current = await projects.openProject(created.manifestPath)
+      // Setting the context does not load the explorer; load it as map-groups.spec does.
+      const explorer = await getWidget('hackbench.map-explorer')
+      await explorer.load(created.manifestPath)
+      await getSvc('ApplicationShell').activateWidget('hackbench.map-explorer')
       return created.manifestPath
     },
     { romPath: rom, directory: path.join(tmp, 'MyHack') },
   )
+}
+
+/** Skips without the ROM, opens a project on it, and waits for the Overworld row. */
+async function openVanillaWithRow(page) {
+  await openVanillaWithRow(page)
 }
 
 /** SHA-256 of the canvas's RGBA, read back from the page. */
@@ -130,22 +142,17 @@ test('the activity bar has no Overworld or globe entry', async ({ page }) => {
 })
 
 test('the explorer starts Title Screen, New Game, Overworld, then the groups', async ({ page }) => {
-  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
-  await openProject(page, ROM)
-  await page.waitForSelector(`${EXPLORER} .theia-TreeNode`, { timeout: 15000 })
+  await openVanillaWithRow(page)
   const top = await page.evaluate(sel => {
     const rows = [...document.querySelectorAll(`${sel} .theia-TreeNode`)]
-    return rows.slice(0, 4).map(r => ({
-      id: r.querySelector('[data-node-id]')?.getAttribute('data-node-id') ?? r.textContent,
-      text: r.textContent,
-    }))
+    return rows.slice(0, 4).map(r => r.getAttribute('data-node-id'))
   }, EXPLORER)
-  expect(top.slice(0, 3).map(r => r.id)).toEqual([
+  expect(top.slice(0, 3)).toEqual([
     expect.stringMatching(/^special:title-screen:/),
     expect.stringMatching(/^special:new-game:/),
-    'special:overworld',
+    'overworld',
   ])
-  expect(top[3].id).not.toMatch(/^special:/)
+  expect(top[3]).toMatch(/^group:/)
   // No hex slot label, a globe icon, and not draggable.
   await expect(page.locator(`${ROW} .hb-map-slot`)).toHaveCount(0)
   await expect(page.locator(`${ROW} .codicon-globe`)).toHaveCount(1)
@@ -155,19 +162,13 @@ test('the explorer starts Title Screen, New Game, Overworld, then the groups', a
 test('opening the Overworld row opens one view; opening it again focuses that view', async ({
   page,
 }) => {
-  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
-  await openProject(page, ROM)
-  await page.waitForSelector(ROW, { timeout: 15000 })
+  await openVanillaWithRow(page)
   await openOverworldRow(page)
   await expect(page.locator(VIEW)).toBeVisible()
   expect(await overworldCount(page)).toBe(1)
 
-  // Move focus away, then open the row again: the same widget, no second.
-  await page.evaluate(() =>
-    getSvc('CommandRegistry')
-      .executeCommand('hackbench.gfx.focus')
-      .then(() => undefined),
-  )
+  // Move focus to the map explorer, then open the row again: the same widget, no second.
+  await page.evaluate(() => getSvc('ApplicationShell').activateWidget('hackbench.map-explorer'))
   await openOverworldRow(page)
   await expect(page.locator(VIEW)).toBeVisible()
   expect(await overworldCount(page)).toBe(1)
@@ -186,16 +187,15 @@ test('opening the Overworld row opens one view; opening it again focuses that vi
 test('opening the row keeps the explorer visible, and it survives an activity switch', async ({
   page,
 }) => {
-  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
-  await openProject(page, ROM)
-  await page.waitForSelector(ROW, { timeout: 15000 })
+  await openVanillaWithRow(page)
   await openOverworldRow(page)
   await expect(page.locator(VIEW)).toBeVisible()
   await expect.poll(() => leftExpanded(page)).toBe(true)
   await expect(page.locator(EXPLORER)).toBeVisible()
-  await page.evaluate(() => getSvc('ApplicationShell').activateWidget('hackbench.gfx-explorer'))
+  // Click the activity-bar tabs as a user would.
+  await page.locator('#shell-tab-hackbench\\.gfx-explorer').click()
   await expect(page.locator(EXPLORER)).toBeHidden()
-  await page.evaluate(() => getSvc('ApplicationShell').activateWidget('hackbench.map-explorer'))
+  await page.locator('#shell-tab-hackbench\\.map-explorer').click()
   await expect.poll(() => leftExpanded(page)).toBe(true)
   await expect(page.locator(EXPLORER)).toBeVisible()
 })
@@ -309,4 +309,13 @@ test('a ROM whose L1 reader is not stock shows the reason and no canvas', async 
     /not stock: \$04DC4C .* holds (?:\S+ ){14}5d /,
   )
   await expect(page.locator('.hb-overworld-canvas')).toHaveCount(0)
+})
+
+test('a single click on the row reveals the view without taking focus', async ({ page }) => {
+  await openVanillaWithRow(page)
+  await page.locator(ROW).click()
+  await expect(page.locator(VIEW)).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id))
+    .toBe('hackbench.map-explorer')
 })

@@ -20,6 +20,8 @@ import { decodeBase64Bytes, decodeRgba, paintScaled } from './map16-pixels'
 import { ProjectContext } from './project-context'
 
 export const OVERWORLD_VIEW_ID = 'hackbench.overworld-view'
+/** Opens or focuses the one Overworld view; the map explorer's Overworld row runs it. */
+export const OVERWORLD_FOCUS_COMMAND_ID = 'hackbench.overworld.focus'
 
 @injectable()
 export class OverworldViewWidget extends ReactWidget {

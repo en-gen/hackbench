@@ -9,6 +9,11 @@ describe('orderSpecials', () => {
     expect(orderSpecials([a, b])).toEqual([a, b])
   })
 
+  it('keeps unknown roles in arrival order among themselves', () => {
+    const [a, b] = [{ role: 'x2' }, { role: 'x1' }]
+    expect(orderSpecials([a, b])).toEqual([a, b])
+  })
+
   it('does not mutate its input and keeps unknown roles last, in arrival order', () => {
     const input = [{ role: 'x1' }, { role: 'new-game' }, { role: 'x2' }, { role: 'title-screen' }]
     const out = orderSpecials(input)

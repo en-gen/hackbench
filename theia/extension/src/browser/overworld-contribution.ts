@@ -15,10 +15,14 @@ import {
   MenuContribution,
   MenuModelRegistry,
 } from '@theia/core/lib/common'
-import { OverworldViewWidget, OVERWORLD_VIEW_ID } from './overworld-view-widget'
+import {
+  OverworldViewWidget,
+  OVERWORLD_FOCUS_COMMAND_ID,
+  OVERWORLD_VIEW_ID,
+} from './overworld-view-widget'
 
 export const ShowOverworldCommand: Command = {
-  id: 'hackbench.overworld.focus',
+  id: OVERWORLD_FOCUS_COMMAND_ID,
   label: 'Overworld',
   category: 'HackBench',
 }
@@ -31,11 +35,14 @@ export class OverworldContribution implements CommandContribution, MenuContribut
   protected attaching: Promise<OverworldViewWidget> | undefined
 
   /** Opens the Overworld widget, or focuses the one already open. */
-  async openOverworld(): Promise<OverworldViewWidget> {
+  async openOverworld(activate = true): Promise<OverworldViewWidget> {
     // Concurrent calls share one create-and-attach, so the view is added once.
     this.attaching ??= this.attachOverworld().finally(() => (this.attaching = undefined))
     const view = await this.attaching
-    await this.shell.activateWidget(view.id)
+    // A single click on the explorer row reveals without taking focus, so the
+    // arrow keys keep walking the list (preview-tabs.ts); a double-click activates.
+    if (activate) await this.shell.activateWidget(view.id)
+    else await this.shell.revealWidget(view.id)
     return view
   }
 
@@ -47,7 +54,9 @@ export class OverworldContribution implements CommandContribution, MenuContribut
   }
 
   registerCommands(commands: CommandRegistry): void {
-    commands.registerCommand(ShowOverworldCommand, { execute: () => this.openOverworld() })
+    commands.registerCommand(ShowOverworldCommand, {
+      execute: (opts?: { activate?: boolean }) => this.openOverworld(opts?.activate ?? true),
+    })
   }
 
   registerMenus(menus: MenuModelRegistry): void {
