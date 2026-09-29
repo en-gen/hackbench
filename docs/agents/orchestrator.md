@@ -135,10 +135,11 @@ for operational Markdown (scope in CLAUDE.md "Agent workflow").
 - Any change to what the app shows: brief the verifier to capture before and
   after screenshots and embed them in the PR, per CLAUDE.md "Pull requests
   show what they draw". You do not interpret them.
-- Only a `needs-owner` PR (significant UI feature addition or update) also
-  gets the verified build launched for the owner: random port, isolated app
-  data (`start-test-server.cjs`), URL given. Minor changes and fixes are
-  reviewed from the PR screenshots and auto-merge.
+- A `needs-owner` PR that changes the UI also gets the verified build
+  launched for the owner: random port, isolated app data
+  (`start-test-server.cjs`), URL given. A non-UI `needs-owner` PR gets owner
+  review without a launch. Minor changes and fixes are reviewed from the PR
+  screenshots and auto-merge.
 - `detect_changes` before committing, `npm run gitnexus` after.
 - Handoff to the owner starts with the worktree path and branch.
 - Status to the owner: a one-line answer, then short headed sections with

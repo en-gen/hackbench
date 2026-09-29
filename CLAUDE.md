@@ -34,9 +34,10 @@ the approval to be CodeRabbit's, so a human approval merges it too.
   confirm it took (`gh pr view <n> --json autoMergeRequest`); the command has
   failed silently.
 - A significant UI change or a feature addition gets the `needs-owner` label
-  instead, and auto-merge stays off. It also gets the verified build launched
-  for the owner (docs/agents/orchestrator.md "Ship"). Bugfixes and minor tweaks, rendering
-  fixes included, auto-merge. Unclear significance defaults to `needs-owner`.
+  instead, and auto-merge stays off. One that changes the UI also gets the
+  verified build launched for the owner (docs/agents/orchestrator.md "Ship").
+  Bugfixes and minor tweaks, rendering fixes included, auto-merge. Unclear
+  significance defaults to `needs-owner`.
   The plan-summary gate names which applies, so the owner can override it.
   CI cannot run Playwright (no ROM), so for an auto-merged rendering fix the
   verifier's local Playwright run is the only UI check.
