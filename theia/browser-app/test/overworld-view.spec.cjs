@@ -10,7 +10,6 @@
  * toggle, now the shared LayerToggle, is covered by map-view.spec.cjs.
  */
 const { test, expect } = require('@playwright/test')
-const { createHash } = require('crypto')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -74,36 +73,18 @@ async function openProject(page, rom) {
   )
 }
 
-/** One half canvas's size and RGBA, read back from the page (0 = hub, 1 = half 1). */
-async function readHalf(page, half) {
-  const r = await page.evaluate(h => {
-    const c = document.querySelector(`.hb-overworld-canvas[data-half="${h}"]`)
-    const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-    let s = ''
-    for (let i = 0; i < data.length; i++) s += String.fromCharCode(data[i])
-    return { width: c.width, height: c.height, bytes: btoa(s) }
-  }, half)
-  return { width: r.width, height: r.height, data: Buffer.from(r.bytes, 'base64') }
-}
-
-/** SHA-256 of each half canvas: [hub, half 1]. */
-async function halfShas(page) {
-  return Promise.all(
-    [0, 1].map(async i =>
-      createHash('sha256')
-        .update((await readHalf(page, i)).data)
-        .digest('hex'),
+/** SHA-256 of each half canvas's RGBA, hashed in the page: [hub, half 1]. */
+const halfShas = page =>
+  page.evaluate(() =>
+    Promise.all(
+      [0, 1].map(async h => {
+        const c = document.querySelector(`.hb-overworld-canvas[data-half="${h}"]`)
+        const rgba = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+        const digest = await crypto.subtle.digest('SHA-256', rgba)
+        return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
+      }),
     ),
   )
-}
-
-/** Distinct RGBA values in one half canvas. */
-async function halfColors(page, half) {
-  const { data } = await readHalf(page, half)
-  const seen = new Set()
-  for (let i = 0; i < data.length; i += 4) seen.add(data.readUInt32LE(i))
-  return seen.size
-}
 
 /** Writes `rom` with `edit` applied to a copy in tmp, and returns its path. */
 function plantedRom(name, edit) {
@@ -236,7 +217,7 @@ test('on vanilla each half canvas hashes to its pinned vanilla half', async ({ p
   await expect(page.locator('.hb-overworld-l2-reason')).toHaveCount(0)
 })
 
-test('the halves are two 512x512 canvases, hub first, 16 px apart, each drawn; Foreground off changes both', async ({
+test('the halves are two 512x512 canvases, hub first, 16 px apart, Foreground off changes both', async ({
   page,
 }) => {
   test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
@@ -255,13 +236,10 @@ test('the halves are two 512x512 canvases, hub first, 16 px apart, each drawn; F
   ])
   // Displayed width is 512 (a scale transform goes red).
   for (const i of [0, 1]) expect((await canvases.nth(i).boundingBox()).width).toBeCloseTo(512, 0)
-  // Canvas to canvas: the 16 px CSS gap plus each wrap's 1 px border on the facing sides,
-  // and no padding (.hb-gfx-view-canvas-wrap), so 18. Measured on the canvases themselves.
+  // 16 px CSS gap + 1 px wrap border on each facing side, no padding = 18, canvas to canvas.
   const a = await canvases.nth(0).boundingBox()
   const b = await canvases.nth(1).boundingBox()
   expect(Math.abs(b.x - (a.x + a.width) - 18)).toBeLessThanOrEqual(0.5)
-  expect(await halfColors(page, 0)).toBeGreaterThan(1)
-  expect(await halfColors(page, 1)).toBeGreaterThan(1)
   const before = await halfShas(page)
   await page.locator(`${VIEW} [data-control="layer-l1"]`).click()
   await expect.poll(async () => (await halfShas(page))[0]).not.toBe(before[0])
@@ -295,10 +273,12 @@ test('a ROM whose L2 reader is not stock draws L1 alone and says why', async ({ 
     /^Background unavailable: the L2 decompressor is not stock: \$04DC91/,
   )
   await page.waitForTimeout(500)
-  for (const i of [0, 1]) {
-    const half = await readHalf(page, i)
-    expect([half.width, half.height]).toEqual([512, 512])
-  }
+  expect(await page.$$eval('.hb-overworld-canvas', cs => cs.map(c => [c.width, c.height]))).toEqual(
+    [
+      [512, 512],
+      [512, 512],
+    ],
+  )
   // Exactly the L1-alone canvas: every L1 pixel drawn, the backdrop where L2 would be.
   expect(await halfShas(page)).toEqual(HALF.L1)
   await expect(page.locator('[data-control="layer-l2"]')).toBeDisabled()

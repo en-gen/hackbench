@@ -95,7 +95,8 @@ export const PRIO = 0x2000
  * the asymmetric $3E, whose pixel (2,2) is index 1). (y, x) are 8x8 cells.
  */
 // prettier-ignore
-export const L2_PROBES = [[3, 5], [7, 44], [41, 13], [50, 58], [9, 70], [20, 101], [36, 83], [60, 120]]
+export const L2_PROBES = [[3, 5], [7, 44], [41, 13], [50, 58], [9, 70], [20, 101], [36, 83], [60, 120],
+  [63, 63], [63, 127]]
   .map(([y, x], i) => ({ y: y!, x: x!, row: 4 + (i & 3), char: i < 4 ? 0x3f : 0x3e }))
   .map(p => ({ ...p, word: p.char | (p.row << 10) | PRIO }))
 

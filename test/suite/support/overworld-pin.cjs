@@ -5,10 +5,8 @@
  * alone. Hashes, not ROM bytes. They change only when the drawing is meant to
  * change; re-pin after the owner looks.
  *
- * The three single hashes are of the halves joined row by row into one
- * 1024x512 image, as the view drew it before the halves became two canvases
- * (#431); the decode test proves the joined halves still match them. The
- * per-half pins, [hub, half 1], are what each canvas is checked against.
+ * The three single hashes are the halves joined row by row (the pre-#431 canvas);
+ * VANILLA_OVERWORLD_HALF_SHA256 holds [hub, half 1] per layer set.
  */
 module.exports = {
   VANILLA_OVERWORLD_CANVAS_SHA256:

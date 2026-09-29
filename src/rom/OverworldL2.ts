@@ -11,8 +11,8 @@ import { decodeSubTileWord, type Map16Tile, type SubTile } from './Map16'
 import type { VramState } from './GfxLoader'
 import type { RgbaColor } from './GraphicsDecoder'
 import { renderSubTile } from './TileRenderer'
-import { OW_HALF_COLS, OW_HALF_H, OW_HALF_W, OW_L1_COLS } from './OverworldL1'
-import type { OwLayerPixels } from './render/OverworldComposite'
+import { OW_HALF_COLS, OW_L1_COLS, OW_L1_ROWS } from './OverworldL1'
+import { OW_HALF_H, OW_HALF_W, type OwLayerPixels } from './render/OverworldComposite'
 import { isLoRomRomAddress } from './addressing'
 import { hex6 } from './hex'
 
@@ -105,17 +105,18 @@ export function drawOverworldLayers(
 ): [OwHalfLayers, OwHalfLayers] {
   const half = (h: 0 | 1): OwHalfLayers => ({
     l1: drawLayer(
-      put =>
-        l1.forEach((t, i) => {
-          const col = i % OW_L1_COLS
-          if (Math.floor(col / OW_HALF_COLS) !== h) return
-          const x = (col % OW_HALF_COLS) * 16
-          const y = Math.floor(i / OW_L1_COLS) * 16
-          put(t.tl, x, y)
-          put(t.tr, x + 8, y)
-          put(t.bl, x, y + 8)
-          put(t.br, x + 8, y + 8)
-        }),
+      put => {
+        for (let row = 0; row < OW_L1_ROWS; row++)
+          for (let col = 0; col < OW_HALF_COLS; col++) {
+            const t = l1[row * OW_L1_COLS + h * OW_HALF_COLS + col]!
+            const x = col * 16
+            const y = row * 16
+            put(t.tl, x, y)
+            put(t.tr, x + 8, y)
+            put(t.bl, x, y + 8)
+            put(t.br, x + 8, y + 8)
+          }
+      },
       vram,
       palette,
     ),

@@ -14,6 +14,8 @@ import { ReactWidget, Message } from '@theia/core/lib/browser'
 import { GfxService, OverworldDto, OverworldLayerDto } from '../common/gfx-protocol'
 import {
   compositeOverworld,
+  OW_HALF_H,
+  OW_HALF_W,
   type OwLayerPixels,
 } from '../../../../src/rom/render/OverworldComposite'
 import { GfxFrontendClient } from './gfx-push-client'
@@ -98,19 +100,18 @@ export class OverworldViewWidget extends ReactWidget {
 
   protected paintCanvas(): void {
     if (this.dto?.status !== 'ok' || !this.layers || !this.canvasEls.some(c => c)) return
-    const { backdrop, halves } = this.dto
+    const { backdrop } = this.dto
     this.canvasEls.forEach((canvas, i) => {
       if (!canvas) return
-      const half = halves[i]!
       const { l1, l2 } = this.layers![i]!
       const px = compositeOverworld(
-        half.width,
-        half.height,
+        OW_HALF_W,
+        OW_HALF_H,
         backdrop,
         this.visible.l2 ? l2 : null,
         this.visible.l1 ? l1 : null,
       )
-      paintScaled(canvas, px, half.width, half.height, 1)
+      paintScaled(canvas, px, OW_HALF_W, OW_HALF_H, 1)
     })
   }
 
@@ -148,7 +149,7 @@ export class OverworldViewWidget extends ReactWidget {
             highlight="bottom"
             label="Background"
             pressed={this.visible.l2}
-            disabled={dto?.status === 'ok' && !dto.halves[0].l2}
+            disabled={dto?.status === 'ok' && !!dto.l2Unavailable}
             control="layer-l2"
             onClick={() => this.toggle('l2')}
           />

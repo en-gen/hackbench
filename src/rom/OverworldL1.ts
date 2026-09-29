@@ -14,9 +14,6 @@ export const OW_L1_COLS = 64
 export const OW_L1_ROWS = 32
 /** Each half is its own layout: half 0 the hub, half 1 areas 1-6, 32 of the 64 L1 columns each. */
 export const OW_HALF_COLS = OW_L1_COLS / 2
-/** One half's canvas: 16px tiles, L2 drawn to the same size. */
-export const OW_HALF_W = OW_HALF_COLS * 16
-export const OW_HALF_H = OW_L1_ROWS * 16
 /** Byte indices only (Map16TilesHigh is zeroed), 8 bytes per entry. */
 const OW_L1_CHAR_BYTES = 256 * 8
 const OW_L1_TILE_BYTES = 0x800

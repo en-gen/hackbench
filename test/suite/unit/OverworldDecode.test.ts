@@ -11,7 +11,11 @@ import { SmwRom } from '../../../src/rom/SmwRom'
 import { bgr555ToRgba } from '../../../src/rom/GraphicsDecoder'
 import { ADDR_FG_PAIR } from '../../../src/rom/PaletteLoader'
 import { OW_ADDR, map16ByteOffset, tilemapByteOffset } from '../../../src/rom/OverworldLoader'
-import { compositeOverworld } from '../../../src/rom/render/OverworldComposite'
+import {
+  compositeOverworld,
+  OW_HALF_H,
+  OW_HALF_W,
+} from '../../../src/rom/render/OverworldComposite'
 import { WorkingRom } from '../../../src/project/WorkingRom'
 import { decodeOverworld } from '../../../theia/extension/src/node/overworld-decode'
 import type { OverworldDto } from '../../../theia/extension/src/common/gfx-protocol'
@@ -67,8 +71,8 @@ function composeHalf(dto: OverworldDto, i: 0 | 1, show = { l1: true, l2: true })
   const layer = (l: { rgbaBase64: string; prioBase64: string } | undefined) =>
     l ? { rgba: new Uint8ClampedArray(b64(l.rgbaBase64)), prio: b64(l.prioBase64) } : null
   const px = compositeOverworld(
-    half.width,
-    half.height,
+    OW_HALF_W,
+    OW_HALF_H,
     dto.backdrop,
     show.l2 ? layer(half.l2) : null,
     show.l1 ? layer(half.l1) : null,
@@ -90,10 +94,7 @@ const decode = (rom: RomFile) => decodeOverworld(new SmwRom(rom), SYNTHETIC_FPS)
 const pixels = (rom: RomFile, show?: { l1: boolean; l2: boolean }): Buffer => {
   const dto = decode(rom)
   if (dto.status !== 'ok') throw new Error(dto.reason)
-  expect(dto.halves.map(h => [h.width, h.height])).toEqual([
-    [512, 512],
-    [512, 512],
-  ])
+  expect(dto.halves.map(h => b64(h.l1.rgbaBase64).length)).toEqual([512 * 512 * 4, 512 * 512 * 4])
   expect(dto.l2Unavailable).toBeUndefined()
   return compose(dto, show)
 }
@@ -211,7 +212,7 @@ describe('decodeOverworld on a synthetic ROM', () => {
   })
 
   it('orders L2 low, L1 low, L2 high, L1 high over the backdrop, in both halves', () => {
-    // Cells whose id & 3 = 0, so L1's row 4 color differs from L2's row 7: one per half.
+    // Cells whose id & 3 = 0 (tileAt), so L1's row 4 color differs from L2's row 7: one per half.
     for (const [r, c] of [
       [5, 9],
       [5, 41],

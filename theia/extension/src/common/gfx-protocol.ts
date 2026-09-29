@@ -108,19 +108,18 @@ export interface OverworldLayerDto {
   prioBase64: string
 }
 
-/**
- * The Overworld view's layers, composed in the browser (OverworldComposite)
- * so a layer toggle needs no round trip, or why it cannot be drawn. A
- * refusal carries no pixels: the view shows the reason and no canvas.
- */
+/** One half of the overworld, drawn on its own 512x512 canvas. */
 export interface OverworldHalfDto {
-  width: number
-  height: number
   l1: OverworldLayerDto
   /** Absent exactly when `l2Unavailable` says why. */
   l2?: OverworldLayerDto
 }
 
+/**
+ * The Overworld view's layers, composed in the browser (OverworldComposite)
+ * so a layer toggle needs no round trip, or why it cannot be drawn. A
+ * refusal carries no pixels: the view shows the reason and no canvas.
+ */
 export type OverworldDto =
   | {
       status: 'ok'

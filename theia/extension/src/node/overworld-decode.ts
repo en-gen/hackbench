@@ -11,12 +11,7 @@ import { readLevelCol1 } from '../../../../src/rom/PaletteStockTables'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { findSpecialMaps } from '../../../../src/rom/SpecialMaps'
 import { overworldCgram } from '../../../../src/rom/OverworldLoader'
-import {
-  OW_HALF_H,
-  OW_HALF_W,
-  composeOverworldL1Grid,
-  readOverworldL1,
-} from '../../../../src/rom/OverworldL1'
+import { composeOverworldL1Grid, readOverworldL1 } from '../../../../src/rom/OverworldL1'
 import {
   drawOverworldLayers,
   readOverworldL2,
@@ -35,8 +30,6 @@ const layerDto = (px: OwLayerPixels): OverworldLayerDto => ({
 })
 
 const halfDto = (h: OwHalfLayers): OverworldHalfDto => ({
-  width: OW_HALF_W,
-  height: OW_HALF_H,
   l1: layerDto(h.l1),
   ...(h.l2 ? { l2: layerDto(h.l2) } : {}),
 })
