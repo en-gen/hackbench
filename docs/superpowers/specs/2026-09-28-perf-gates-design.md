@@ -195,24 +195,32 @@ Settled during PR 1's review; the substance is woven into sections 1-4 and
   `hackbench_ref`, `base_ref` and `plant`.
 - Gate job: skip when develop's head already carries a `perf-nightly`
   status. Base = newest develop commit with a `perf-nightly` success status
-  in the last 50; none found means an A/A run (head against itself), which
-  also calibrates noise.
+  in the last 100. None found: an A/A run (head against itself) only when no
+  `perf-nightly` status of any state exists in that window (bootstrap);
+  otherwise the run fails closed ("base out of window") until the owner
+  runs `accept.sh`.
 - Checks out hackbench at base and at candidate into two dirs, installs and
   builds both, pulls the ROM with `RCLONE_CONF` as the e2e job does.
 - Runs core then app through `paired.mjs`, then `compare.mjs`, then the
   confirmation pass.
-- Reports into hackbench with `HACKBENCH_REPORT_TOKEN`:
-  - commit status `perf-nightly` on the candidate: success when nothing is
-    confirmed, failure otherwise;
-  - on failure, one issue labelled `perf-regression`, type Bug, project
-    HackBench, with the table, base..cand compare link, the run link, and
-    the exact local repro command. An open `perf-regression` issue already
-    naming the same id gets a comment instead of a second issue.
+- Reports into hackbench with `HACKBENCH_REPORT_TOKEN`, only for a scheduled
+  run or a dispatch with no `base_ref` whose candidate is develop's head.
+  Any other dispatch posts context `perf-manual` and never files.
+  - one issue labelled `perf-regression`, type Bug, project HackBench, with
+    the table, base..cand compare link, the run link, and the exact local
+    repro command. Each id is marked `<!-- perf-id: <id> -->`; an open issue
+    carrying the exact marker gets a comment instead of a second issue;
+  - then commit status `perf-nightly` on the candidate: `success` only when
+    nothing was flagged, `error` ("unconfirmed") when pass 1 flagged ids the
+    confirmation pass cleared, `failure` on a confirmed regression.
+- Candidate code never sees a secret: checkouts keep no credentials, and
+  the rclone config is deleted once the ROM is copied.
 - Commits the raw rounds and verdict to the `perf-data` branch of
   hackbench-validation as `runs/<date>-<sha7>.json`.
 
-Because the base only advances on success, an unfixed regression keeps
-failing each run instead of silently becoming the new normal.
+Because the base only advances on a run that flagged nothing, an unfixed
+regression keeps failing each run instead of silently becoming the new
+normal, and one noisy confirmation pass cannot wave it through.
 
 ### Accepting an intended cost
 
