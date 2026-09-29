@@ -103,8 +103,13 @@ so the e2e run never collects these.
   `performance.measure` with a `hb:` prefix. Widgets place `perfEnd` where
   the work is actually done (canvas drawn, not widget attached). A spec
   reads `performance.getEntriesByType('measure')` via `page.evaluate`.
-- v1 cases: open project, open Maps / Map16 / Palette / GFX views, draw one
-  map, apply one edit, undo it.
+- v1 cases: open project, open Maps / Map16 / Palette / GFX views, apply one
+  edit, undo it. `app.open-maps` is cold (a fresh project per sample, so the
+  backend's L1 model cache misses) and ends at the first screen drawn; it is
+  the "draw one map" case. `startup.shell` runs first on its own server.
+- Marks are keyed by name and valid for single-view specs only. Moving a
+  mark's call site changes what is measured without changing the harness
+  hash; that is a known limit, caught in review, not by the gate.
 - `startup.*`: fresh server and page per round, time from navigation to the
   shell's `hb:shell-ready` mark.
 - `heap.*`: open and close a view 20 times, forced GC through CDP
@@ -199,8 +204,13 @@ Settled during PR 1's review; the substance is woven into sections 1-4 and
   `perf-nightly` status of any state exists in that window (bootstrap);
   otherwise the run fails closed ("base out of window") until the owner
   runs `accept.sh`.
+- A separate job pulls the ROM with `RCLONE_CONF` and hands it over as a
+  one-day artifact, so the secret never shares a job with hackbench code.
 - Checks out hackbench at base and at candidate into two dirs, installs and
-  builds both, pulls the ROM with `RCLONE_CONF` as the e2e job does.
+  builds both. The app suite runs only when both sides have it.
+- A run that fails before a verdict posts `failure` on `perf-nightly-infra`,
+  never on `perf-nightly`, so one broken night cannot move or block the
+  base; the next scheduled run retries the same head.
 - Runs core then app through `paired.mjs`, then `compare.mjs`, then the
   confirmation pass.
 - Reports into hackbench with `HACKBENCH_REPORT_TOKEN`, only for a scheduled
@@ -266,11 +276,14 @@ Per the oracle rule, each verdict has a committed test that plants a defect:
   calibration and sampling both see the scaled cost consistently rather
   than padding each call; for app it sets CDP
   `Emulation.setCPUThrottlingRate` on the candidate, so the app's own marks
-  genuinely slow. A factor below 1 or a non-numeric factor is refused, and
-  `run-core.mjs` fails if the planted id (or any `--only` id) produced no
-  result at all. The workflow's `plant` input runs the whole pipeline red
-  end to end, without filing an issue (a planted run reports to the step
-  summary only).
+  genuinely slow. Renderer throttling only proves render-bound cases, so
+  app plants are refused outside an explicit PLANTABLE list. For `heap.*`
+  the candidate page retains `factor x 64 KiB` per cycle. A factor below 1
+  or a non-numeric factor is refused, and the runners fail if the planted id
+  (or any `--only` id) produced no result at all.
+- The workflow's `plant` input runs the whole pipeline end to end and is
+  GREEN only when the plant id is confirmed, red otherwise, so the oracle
+  itself can fail. A planted run never files or posts `perf-nightly`.
 - A heap unit test: a synthetic series with a planted slope regresses; a
   flat one with noise does not; the 64 KiB floor holds even when the base
   median is near zero.
