@@ -7,6 +7,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { join, resolve, sep } from 'node:path'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import {
   defaultTaskDir,
   exitCodeForStep,
@@ -14,6 +16,7 @@ import {
   run,
   runStep,
   argsToOptions,
+  stepOptions,
 } from '../../../tools/perf/bisect.mjs'
 
 describe('exitCodeForStep: the git bisect run mapping', () => {
@@ -144,8 +147,8 @@ describe('run: cleanup boundary', () => {
         return `${join(repo, '.git')}
 `
       if (args[1] === 'remove') {
-        removed.push(args[4])
-        if (args[4].endsWith('work')) throw new Error('remove failed')
+        removed.push(args[3])
+        if (args[3].endsWith('work')) throw new Error('remove failed')
       }
       if (args[0] === 'bisect' && args[1] === 'start') throw new Error('stop')
       return ''
@@ -153,7 +156,50 @@ describe('run: cleanup boundary', () => {
     expect(() =>
       run({ id: 'core.x', good: 'a', bad: 'b', dir: join('tmp', 'bisect') }, exec as never),
     ).toThrow()
-    expect(removed).toHaveLength(2)
+    const base = resolve(repo, 'tmp', 'bisect')
+    expect(removed).toEqual([join(base, 'work'), join(base, 'good')])
+  })
+
+  const cleanupExec = (repo: string, failOn: string | null, calls: string[][], stops = true) =>
+    ((cmd: string, args: string[]) => {
+      if (args[0] === 'rev-parse')
+        return `${join(repo, '.git')}
+`
+      calls.push([cmd, ...args])
+      if (args[1] === 'remove' && failOn && args[3].endsWith(failOn)) throw new Error('rm failed')
+      if (stops && args[0] === 'bisect' && args[1] === 'start') throw new Error('stop')
+      return ''
+    }) as never
+
+  it('keeps taskDir and rethrows when a worktree removal fails', () => {
+    const repo = join(sep, 'Projects', 'hackbench')
+    const taskDir = mkdtempSync(join(tmpdir(), 'bisect-keep-'))
+    const calls: string[][] = []
+    try {
+      expect(() =>
+        run(
+          { id: 'core.x', good: 'a', bad: 'b', dir: taskDir },
+          cleanupExec(repo, 'work', calls, false),
+        ),
+      ).toThrow(/rm failed/)
+      expect(existsSync(taskDir)).toBe(true)
+      expect(calls.filter(c => c[2] === 'remove')).toHaveLength(2)
+    } finally {
+      rmSync(taskDir, { recursive: true, force: true })
+    }
+  })
+
+  it('removes taskDir when every removal succeeds', () => {
+    const repo = join(sep, 'Projects', 'hackbench')
+    const taskDir = mkdtempSync(join(tmpdir(), 'bisect-rm-'))
+    try {
+      expect(() =>
+        run({ id: 'core.x', good: 'a', bad: 'b', dir: taskDir }, cleanupExec(repo, null, [])),
+      ).toThrow(/stop/)
+      expect(existsSync(taskDir)).toBe(false)
+    } finally {
+      rmSync(taskDir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -166,5 +212,30 @@ describe('argsToOptions: CLI string rounds', () => {
   })
   it('leaves an omitted --rounds undefined', () => {
     expect(argsToOptions({ id: 'x' }).rounds).toBeUndefined()
+  })
+})
+
+describe('step mode --rounds', () => {
+  for (const bad of ['abc', '0', '', '4'])
+    it(`refuses --rounds ${JSON.stringify(bad)}`, () => {
+      expect(() => stepOptions({ id: 'x', rounds: bad })).toThrow(/--rounds/)
+    })
+  it('accepts 5 and runStep forwards it to paired', () => {
+    expect(stepOptions({ id: 'x', rounds: '5' }).rounds).toBe(5)
+    const seen: string[][] = []
+    const exec = (_c: string, args: string[]) => {
+      seen.push(args)
+      return ''
+    }
+    runStep({ id: 'core.x', goodDir: 'good', rounds: 5 }, exec as never)
+    expect(seen.some(a => a.includes('--rounds') && a.includes('5'))).toBe(true)
+  })
+  it('forwards a defined rounds even when falsy', () => {
+    const seen: string[][] = []
+    runStep({ id: 'x', goodDir: 'g', rounds: 0 }, ((_c: string, a: string[]) => {
+      seen.push(a)
+      return ''
+    }) as never)
+    expect(seen.some(a => a.includes('--rounds'))).toBe(true)
   })
 })

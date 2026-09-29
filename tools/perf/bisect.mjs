@@ -81,7 +81,7 @@ export function runStep({ id, goodDir, rounds }, exec = execFileSync) {
       '--out',
       pairedOut,
     ]
-    if (rounds) args.push('--rounds', String(rounds))
+    if (rounds !== undefined) args.push('--rounds', String(rounds))
     exec(process.execPath, args, { cwd, stdio: 'inherit' })
   } catch (e) {
     console.error('paired run failed at this commit:', e.message)
@@ -104,15 +104,19 @@ export function runStep({ id, goodDir, rounds }, exec = execFileSync) {
   }
 }
 
+function checkRounds(rounds) {
+  if (rounds !== undefined && !(Number.isInteger(rounds) && rounds >= MIN_ROUNDS)) {
+    throw new Error(`--rounds must be an integer >= ${MIN_ROUNDS}, got ${JSON.stringify(rounds)}`)
+  }
+}
+
 /** Sets up the good/work worktrees and drives `git bisect run` between them.
  *  Removes both worktrees in a finally regardless of outcome. */
 export function run({ id, good, bad, dir, rounds }, exec = execFileSync) {
   if (!id || !good || !bad) throw new Error('bisect.mjs needs --id, --good and --bad')
   // paired.mjs refuses fewer rounds, and a refused step is a skip (125), so
   // bisect would skip every commit and name no culprit. Refuse up front.
-  if (rounds !== undefined && !(Number.isInteger(rounds) && rounds >= MIN_ROUNDS)) {
-    throw new Error(`--rounds must be an integer >= ${MIN_ROUNDS}, got ${JSON.stringify(rounds)}`)
-  }
+  checkRounds(rounds)
   const repoRoot = mainRepoRoot(exec)
   // Absolute, because git bisect runs each step from the work worktree.
   const taskDir = resolve(repoRoot, dir ?? defaultTaskDir(repoRoot, id, good))
@@ -120,6 +124,10 @@ export function run({ id, good, bad, dir, rounds }, exec = execFileSync) {
   const workDir = join(taskDir, 'work')
 
   const created = []
+  let result
+  let failure
+  let failed = false
+  let removeError
   try {
     exec('git', ['worktree', 'add', goodDir, good], { cwd: repoRoot, stdio: 'inherit' })
     created.push(goodDir)
@@ -128,7 +136,7 @@ export function run({ id, good, bad, dir, rounds }, exec = execFileSync) {
     npmCi(goodDir, exec)
     exec('git', ['bisect', 'start', bad, good], { cwd: workDir, stdio: 'inherit' })
     try {
-      const roundsArgs = rounds ? ['--rounds', String(rounds)] : []
+      const roundsArgs = rounds !== undefined ? ['--rounds', String(rounds)] : []
       const out = exec(
         'git',
         [
@@ -146,21 +154,29 @@ export function run({ id, good, bad, dir, rounds }, exec = execFileSync) {
         { cwd: workDir, encoding: 'utf8' },
       )
       console.log(out)
-      return { taskDir, goodDir, workDir, output: out }
+      result = { taskDir, goodDir, workDir, output: out }
     } finally {
       exec('git', ['bisect', 'reset'], { cwd: workDir, stdio: 'inherit' })
     }
+  } catch (e) {
+    failed = true
+    failure = e
   } finally {
-    // Each removal is attempted even if an earlier one throws.
+    // Each removal is attempted even if an earlier one throws. A failed
+    // removal keeps taskDir (it still holds a registered worktree).
     for (const d of created.reverse()) {
       try {
         exec('git', ['worktree', 'remove', '--force', d], { cwd: repoRoot, stdio: 'inherit' })
       } catch (e) {
         console.error(`could not remove worktree ${d}:`, e.message)
+        removeError ??= e
       }
     }
-    rmSync(taskDir, { recursive: true, force: true })
+    if (!removeError) rmSync(taskDir, { recursive: true, force: true })
   }
+  if (failed) throw failure
+  if (removeError) throw removeError
+  return result
 }
 
 // ---------------------------------------------------------------------------
@@ -190,18 +206,25 @@ export function argsToOptions(values) {
   return opts
 }
 
+/** Step mode takes the same --rounds validation as the run branch. */
+export function stepOptions(values) {
+  const opts = argsToOptions(values)
+  checkRounds(opts.rounds)
+  return opts
+}
+
 // Same invoked-directly test as tools/scripts/check-content.mjs.
 const isMain = /bisect\.mjs$/i.test(process.argv[1] ?? '')
 if (isMain) {
   const { values } = parseArgs({ args: process.argv.slice(2), options: CLI_OPTIONS, strict: true })
   if (values.step) {
-    process.exit(
-      runStep({
-        id: values.id,
-        goodDir: values['good-dir'],
-        rounds: values.rounds === undefined ? undefined : Number(values.rounds),
-      }),
-    )
+    try {
+      const { rounds } = stepOptions(values)
+      process.exit(runStep({ id: values.id, goodDir: values['good-dir'], rounds }))
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err))
+      process.exit(125)
+    }
   } else {
     try {
       run(argsToOptions(values))
