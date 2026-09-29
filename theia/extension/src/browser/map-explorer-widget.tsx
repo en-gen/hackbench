@@ -448,7 +448,13 @@ export class MapExplorerWidget extends TreeWidget {
   /** Groups and messages name no map; a marker points at a row shown elsewhere. */
   protected fireOpen(map: MapTreeNode | undefined, pinned: boolean): void {
     if (map?.category === 'overworld') {
-      void this.commands.executeCommand(OVERWORLD_FOCUS_COMMAND_ID, { activate: pinned })
+      this.commands
+        .executeCommand(OVERWORLD_FOCUS_COMMAND_ID, { activate: pinned })
+        .catch(err =>
+          this.messages.error(
+            `Could not open the Overworld: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        )
       return
     }
     if (!map || map.index < 0 || map.kind !== 'map' || !this.manifestPath) return

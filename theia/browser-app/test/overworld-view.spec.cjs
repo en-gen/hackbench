@@ -323,3 +323,17 @@ test('a single click on the row reveals the view without taking focus', async ({
     .poll(() => page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id))
     .toBe('hackbench.map-explorer')
 })
+
+test('arrowing onto the row reveals the view and keeps focus in the list', async ({ page }) => {
+  await openVanillaWithRow(page)
+  await page.locator(`${EXPLORER} [data-node-id^="special:title-screen"]`).click()
+  for (let i = 0; i < 3; i++) {
+    if (await page.locator(ROW).evaluate(el => el.classList.contains('theia-mod-selected'))) break
+    await page.keyboard.press('ArrowDown')
+  }
+  await expect(page.locator(ROW)).toHaveClass(/theia-mod-selected/)
+  await expect(page.locator(VIEW)).toBeVisible()
+  expect(await page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id)).toBe(
+    'hackbench.map-explorer',
+  )
+})
