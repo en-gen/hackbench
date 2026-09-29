@@ -32,13 +32,17 @@ the approval to be CodeRabbit's, so a human approval merges it too.
 - After opening a PR, turn on auto-merge:
   `gh pr merge <n> -R en-gen/hackbench --auto --squash`, then confirm it took
   (`gh pr view <n> --json autoMergeRequest`); the command has failed silently.
-- A PR that changes UI or graphics rendering gets the `needs-owner` label
-  instead, and auto-merge stays off. Those carry images the owner looks at,
-  and CI cannot run Playwright (no ROM).
-- The agent that opened a PR owns it until it merges. Answer every CodeRabbit
-  review, including a "changes requested" one, without being asked: fix a
-  valid finding, or reply with the reason when it is wrong, then resolve the
-  thread. An unresolved thread withholds approval. The `develop` ruleset
+- A significant UI change or a feature addition gets the `needs-owner` label
+  instead, and auto-merge stays off. Bugfixes and minor tweaks, rendering
+  fixes included, auto-merge. The plan-summary gate names which applies, so
+  the owner can override it. Rendering PRs still embed before/after images.
+  CI cannot run Playwright (no ROM), so for an auto-merged rendering fix the
+  verifier's local Playwright run is the only UI check.
+- The orchestrator opens the PR and owns it until it merges, but a sub-agent
+  answers the reviews: the implementer role, resumed if still available.
+  Answer every CodeRabbit review, including a "changes requested" one,
+  without being asked: fix a valid finding, or reply with the reason when it
+  is wrong, then resolve the thread. An unresolved thread withholds approval. The `develop` ruleset
   dismisses stale approvals on push, so a merged commit carries a review of
   its final state; that holds only while the ruleset keeps that setting.
 - CodeRabbit re-reviews each push by itself. Do not comment
@@ -484,7 +488,7 @@ implementer or reviewer and follows these rules instead:
 
 - Write the test first and see it fail on the old code before the fix lands.
 - Write Playwright specs where the brief asks; do NOT run them. Your gates
-  are lint, `format:check`, `test:unit` and the Theia build. The orchestrator
+  are lint, `format:check`, `test:unit` and the Theia build. The verifier
   runs Playwright.
 - Report exact test counts, passed and skipped.
 - A mutation sweep you design is a smoke test, not coverage evidence. Run it
@@ -500,10 +504,11 @@ implementer or reviewer and follows these rules instead:
 - Push your branch; do not open the PR or merge.
 - One agent per worktree. Two agents in one worktree produced a review whose findings referenced files another agent was editing underneath it.
 - Worktrees go in `C:/Projects/.worktrees/<repo>/<task>`, never inside the repo and never as a sibling.
-- The implementer never certifies its own work. Every non-trivial change gets two fresh-agent reviews against the diff, adversarial and simplification, and the orchestrator independently builds and runs before accepting.
+- The implementer never certifies its own work. Every non-trivial change gets two fresh-agent reviews against the diff, adversarial and simplification, and a verifier that independently builds and runs it. The orchestrator does none of these; it relays the reports and decides.
+- Nothing is implemented before the owner approves a plan summary: the brief, the workflow, each sub-agent with role and model, and auto-merge or `needs-owner`. A change to scope or roster goes back through it.
 - Agents are right-sized by role (`.claude/agents/`): `implementer` and
   `simplify-reviewer` on Sonnet, `adversarial-reviewer` on Opus, `grunt` on
-  Haiku. The orchestrator is the only Opus session that plans. An agent
+  Haiku, `verifier` on Sonnet. The orchestrator is the only Opus session that plans. An agent
   spawned without a role runs on Sonnet, not the orchestrator's Opus.
   Never use a small model for the adversarial gate.
 - Keep the GitNexus index fresh. A hook reports it stale after a commit; the
