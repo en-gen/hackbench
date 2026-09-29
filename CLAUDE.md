@@ -29,18 +29,30 @@ from anyone with write access. In practice that is CodeRabbit, which approves
 once its comments are resolved (`.coderabbit.yaml`); GitHub cannot require
 the approval to be CodeRabbit's, so a human approval merges it too.
 
-- After opening a PR, turn on auto-merge:
-  `gh pr merge <n> -R en-gen/hackbench --auto --squash`, then confirm it took
-  (`gh pr view <n> --json autoMergeRequest`); the command has failed silently.
-- A PR that changes UI or graphics rendering gets the `needs-owner` label
-  instead, and auto-merge stays off. Those carry images the owner looks at,
-  and CI cannot run Playwright (no ROM).
-- The agent that opened a PR owns it until it merges. Answer every CodeRabbit
+- Once the verifier has passed (see the re-run rule below), turn on
+  auto-merge: `gh pr merge <n> -R en-gen/hackbench --auto --squash`, then
+  confirm it took (`gh pr view <n> --json autoMergeRequest`); the command has
+  failed silently.
+- A significant UI change or a feature addition gets the `needs-owner` label
+  instead, and auto-merge stays off. Bugfixes and minor tweaks, rendering
+  fixes included, auto-merge. Unclear significance defaults to `needs-owner`.
+  The plan-summary gate names which applies, so the owner can override it.
+  CI cannot run Playwright (no ROM), so for an auto-merged rendering fix the
+  verifier's local Playwright run is the only UI check.
+- The orchestrator opens the PR and owns it until it merges, but a
+  sub-agent answers the reviews: the implementer if still available, else a
+  fresh implementer given the brief and the PR. Answer every CodeRabbit
   review, including a "changes requested" one, without being asked: fix a
   valid finding, or reply with the reason when it is wrong, then resolve the
   thread. An unresolved thread withholds approval. The `develop` ruleset
   dismisses stale approvals on push, so a merged commit carries a review of
   its final state; that holds only while the ruleset keeps that setting.
+- Any push after the verifier's report, CodeRabbit fixes included, re-runs
+  the verifier; a fix that changes logic or removes a check goes to the
+  adversarial reviewer first. Before pushing a fix to a PR, disable
+  auto-merge (`gh pr merge <n> -R en-gen/hackbench --disable-auto`) so it
+  cannot race the re-run; re-enable it only after the verifier passes on the
+  new head.
 - CodeRabbit re-reviews each push by itself. Do not comment
   `@coderabbitai review` or `full review` (the free open-source plan has an
   hourly review limit) and never `@coderabbitai approve`.
@@ -80,8 +92,9 @@ tools/scripts/pr-image.sh <branch-name> shot.png map.before.png map.after.png
 It prints the markdown to paste into the PR body or a comment
 (`gh pr create --body-file`, `gh pr comment --body-file`). Files named
 `<x>.before.png` and `<x>.after.png` print as one side-by-side row. Capture
-images with launched processes hidden; implementers hand the files to the
-orchestrator, who attaches them.
+images with launched processes hidden; the verifier captures them
+(implementers do not) and hands the files to the orchestrator, who attaches
+them.
 
 ## Commands
 
@@ -353,7 +366,7 @@ In practice:
 - **Codify repeats.** Log every question answered by hand in `smw-mcp/docs/query-log.md`. That includes ad-hoc ROM scripts, repeated table reads, raw `sed`/`grep`/`Read` of `.asm` line ranges, and hand-checked `file:line` citations. Past 3 of a kind, add it to `smw-mcp` as a tool, with tests and SMWDisX citations, then use the tool.
 - **Tune what does not help.** Log a result that was not useful in the same file's Effectiveness section, then fix the tool: output far larger than the question needed, a missing field that forced a follow-up, a wrong answer, an error. Falling back to raw reads because a tool is broken counts; fix the tool.
 
-**Pillar 3 - Memory Snapshot Protocol**: SMWDisX is our fork (`en-gen/SMWDisX`) and our tool. Whenever a detail of the disassembly is learned or confirmed, record it in `SMWDisX/<bank_xx>/MEMO.md` for the bank where the routine lives. This covers a multi-routine trace, a single table's meaning, one flag bit, or which index a lookup uses. Delegated research counts: the orchestrator writes the memo from a subagent's findings after checking the citations.
+**Pillar 3 - Memory Snapshot Protocol**: SMWDisX is our fork (`en-gen/SMWDisX`) and our tool. Whenever a detail of the disassembly is learned or confirmed, record it in `SMWDisX/<bank_xx>/MEMO.md` for the bank where the routine lives. This covers a multi-routine trace, a single table's meaning, one flag bit, or which index a lookup uses. Delegated research counts: a sub-agent confirms the citations, then writes the memo from the findings.
 
 - **Content:** the address range, the behavior decoded, the non-obvious invariants, and the issue or PR that exercised it.
 - **Wrong memos:** correct them in place, and say what was corrected and why.
@@ -479,12 +492,17 @@ Do not build scaffolding for phases that have not been approved.
 ## Agent workflow
 
 The top-level session is the orchestrator and works from
-@docs/agents/orchestrator.md. An agent launched with a brief is an
-implementer or reviewer and follows these rules instead:
+@docs/agents/orchestrator.md. It reviews and verifies nothing itself: no
+change is implemented before the owner approves a plan summary (contents in
+that file), every change gets two fresh-agent reviews and a verifier (grunt
+for docs-only changes, per docs/agents/orchestrator.md), and it relays their
+reports and decides. Its own edits, if any, go to the verifier
+too. An agent launched with a brief is an implementer or reviewer and
+follows these rules instead:
 
 - Write the test first and see it fail on the old code before the fix lands.
 - Write Playwright specs where the brief asks; do NOT run them. Your gates
-  are lint, `format:check`, `test:unit` and the Theia build. The orchestrator
+  are lint, `format:check`, `test:unit` and the Theia build. The verifier
   runs Playwright.
 - Report exact test counts, passed and skipped.
 - A mutation sweep you design is a smoke test, not coverage evidence. Run it
@@ -500,11 +518,12 @@ implementer or reviewer and follows these rules instead:
 - Push your branch; do not open the PR or merge.
 - One agent per worktree. Two agents in one worktree produced a review whose findings referenced files another agent was editing underneath it.
 - Worktrees go in `C:/Projects/.worktrees/<repo>/<task>`, never inside the repo and never as a sibling.
-- The implementer never certifies its own work. Every non-trivial change gets two fresh-agent reviews against the diff, adversarial and simplification, and the orchestrator independently builds and runs before accepting.
+- The implementer never certifies its own work.
 - Agents are right-sized by role (`.claude/agents/`): `implementer` and
   `simplify-reviewer` on Sonnet, `adversarial-reviewer` on Opus, `grunt` on
-  Haiku. The orchestrator is the only Opus session that plans. An agent
-  spawned without a role runs on Sonnet, not the orchestrator's Opus.
+  Haiku, `verifier` on Sonnet. The orchestrator is the only Opus session
+  that plans. An agent spawned without a role runs on Sonnet, not the
+  orchestrator's Opus.
   Never use a small model for the adversarial gate.
 - Keep the GitNexus index fresh. A hook reports it stale after a commit; the
   refresh is `npm run gitnexus`, never a bare `gitnexus analyze`. The bare
@@ -517,7 +536,7 @@ implementer or reviewer and follows these rules instead:
 <!-- gitnexus:start -->
 # GitNexus - Code Intelligence
 
-This project is indexed by GitNexus as **hackbench** (12998 symbols, 34955 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hackbench** (13349 symbols, 36106 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root - it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
