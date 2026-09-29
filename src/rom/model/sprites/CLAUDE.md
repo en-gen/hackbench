@@ -128,11 +128,14 @@ filters the closure (locked by
 `solidityFromL1(getL1)` (`MovementBehavior.ts`) and `spriteCollisionFromL1`
 (`SpriteCollision.ts`) unpack those rules into `solidH(c, r) / solidV(c, r)`
 booleans and richer per-cell predicates. Don't reimplement this in a new
-behavior. Neither has a production caller today. `spriteCollisionFromL1`
-is kept as the sprite-perspective input for a sprite view of the
-collision overlays being ported in #435. `solidityFromL1` duplicates its
-`solidH` / `solidV` and goes with `MovementBehavior.ts` when #418 deletes
-that file. See `docs/sprites/sprite-overlay-removal.md`'s update section.
+behavior. Neither has a production caller: at `develop` `ee0144c3`,
+`git grep` over `src/`, `theia/`, `test/` and `tools/` finds calls only in
+`test/`. The collision overlays being ported in #435 read the Mario fields
+and use neither. `spriteCollisionFromL1` is kept only as a possible input
+for a later sprite-perspective view of those overlays, which #435 leaves
+out of scope. `solidityFromL1` duplicates its `solidH` / `solidV` and goes
+with `MovementBehavior.ts` when #418 deletes that file. See
+`docs/sprites/sprite-overlay-removal.md`'s update section.
 
 ## Current Behaviors
 

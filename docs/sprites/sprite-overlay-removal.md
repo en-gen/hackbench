@@ -719,16 +719,23 @@ goes through `solidityFromL1` or `spriteCollisionFromL1` - both read
 `solidityFromL1` (`MovementBehavior.ts`) and `spriteCollisionFromL1`
 (`SpriteCollision.ts`) lost their only production callers with this
 deletion (`KoopaWalkBehavior` and others; `BouncingKoopaBehavior` and
-`WingedGoombaBehavior`, respectively) and are exercised only by their own
-tests today. The follow-up looked again (2026-09-29) and the owner kept
-them. The "Show surfaces" and "Show walls" overlays in the reference
-extension are being ported to the Theia map view (#435). Those overlays
-read the Mario fields directly and never used either adapter, but a
-sprite-perspective view of the same overlays would need exactly what
-`spriteCollisionFromL1` bundles: priority filtering plus the sprite
-`wall` / `floor` / `ceiling` / `slope` reads. `solidityFromL1` is a strict
-subset of it (its `solidH` / `solidV` are the same reads), so when #418
-deletes `MovementBehavior.ts` it can go with that file, along with the
+`WingedGoombaBehavior`, respectively). At `develop` `ee0144c3`, `git grep`
+over `src/`, `theia/`, `test/` and `tools/` finds them called only from
+`test/`: their own tests, `BranchCleanup.test.ts`, and the `buildSolidity`
+and `loadMesenFixture` fixtures. Everything else is the declarations and
+prose in comments and Markdown.
+
+The follow-up looked again (2026-09-29) and the owner kept them. The
+"Show surfaces" and "Show walls" overlays in the reference extension are
+being ported to the Theia map view (#435). Those overlays, and the port,
+read the Mario fields (`marioFloor`, `marioCeiling`, `marioWall`,
+`slope`) directly and use neither adapter. `spriteCollisionFromL1` is
+only a possible input for a later sprite-perspective view of the same
+overlays, which #435 lists as out of scope: that view would need what it
+bundles, priority filtering plus the sprite `wall` / `floor` / `ceiling`
+/ `slope` reads. `solidityFromL1` is a strict subset of it (its
+`solidH` / `solidV` are the same reads), so when #418 deletes
+`MovementBehavior.ts` it can go with that file, along with the
 reader-less `BehaviorSimContext`.
 
 With `LineBrownPlatBehavior` gone, `MovementBehavior` has zero concrete
