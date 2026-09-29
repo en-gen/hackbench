@@ -45,6 +45,7 @@ export const HARNESS_PATHS = [
   'test/perf',
   'vitest.perf.config.ts',
   'tools/perf/run-core.mjs',
+  'tools/perf/results.mjs',
   'tools/perf/run-app.mjs',
   'theia/browser-app/perf',
   'theia/browser-app/playwright.perf.config.cjs',
@@ -99,7 +100,14 @@ export function collectDoc({ suite, cwd, ndjson, only, plant }) {
   if (results.length === 0) {
     throw new Error(`perf:${suite} produced no results; a suite that measured nothing must fail`)
   }
-  const expected = new Set(only ? only.split(',').map(s => s.trim()) : [])
+  const expected = new Set(
+    only
+      ? only
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean)
+      : [],
+  )
   if (plant) expected.add(plant.slice(0, plant.lastIndexOf('=')))
   const got = new Set(results.map(r => r.id))
   for (const id of expected) {

@@ -60,4 +60,18 @@ describe('overlayHarness: failure recovery', () => {
     expect(readFileSync(join(base, 'vitest.perf.config.ts'), 'utf8')).toBe('base')
     expect(existsSync(join(base, 'test', 'perf', 'case.ts'))).toBe(true)
   })
+
+  it('puts tools/perf/results.mjs into a base that lacks it', () => {
+    tmp = mkdtempSync(join(tmpdir(), 'hb-overlay-test-'))
+    const base = join(tmp, 'base')
+    const cand = join(tmp, 'cand')
+    checkout(base, 'base')
+    checkout(cand, 'cand')
+    mkdirSync(join(cand, 'tools', 'perf'), { recursive: true })
+    writeFileSync(join(cand, 'tools', 'perf', 'results.mjs'), 'cand')
+    const restore = overlayHarness(base, cand)
+    expect(readFileSync(join(base, 'tools', 'perf', 'results.mjs'), 'utf8')).toBe('cand')
+    restore()
+    expect(existsSync(join(base, 'tools', 'perf', 'results.mjs'))).toBe(false)
+  })
 })

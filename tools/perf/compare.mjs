@@ -238,7 +238,16 @@ function validatePairedDoc(doc) {
       `baseRounds and candRounds must have equal length (design D2): ${doc.baseRounds.length} vs ${doc.candRounds.length}`,
     )
   }
-  for (const d of [...doc.baseRounds, ...doc.candRounds]) validateResultDoc(d)
+  if (doc.schema !== 1) throw new Error(`paired document schema must be 1, got ${doc.schema}`)
+  if (doc.suite !== 'core' && doc.suite !== 'app') {
+    throw new Error(`paired document suite must be 'core' or 'app', got ${doc.suite}`)
+  }
+  for (const d of [...doc.baseRounds, ...doc.candRounds]) {
+    validateResultDoc(d)
+    if (d.suite !== doc.suite) {
+      throw new Error(`round suite '${d.suite}' differs from document suite '${doc.suite}'`)
+    }
+  }
 
   const baseHarness = new Set(doc.baseRounds.map(d => d.harness))
   const candHarness = new Set(doc.candRounds.map(d => d.harness))
