@@ -418,7 +418,8 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   const l1 = page.locator(`${root(0x105)} [data-control="layer-l1"]`)
   const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
   await expect(l1).toHaveAttribute('aria-pressed', 'true')
-  await expect(l1).toHaveAttribute('aria-label', 'L1 (foreground)')
+  await expect(l1).toHaveAttribute('aria-label', 'Foreground')
+  await expect(l1).toHaveAttribute('title', 'Foreground')
   // The owner's icon: three bars, the middle one in the button's own color.
   const bars = await l1
     .locator('svg rect')
