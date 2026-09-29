@@ -76,7 +76,7 @@ export class EditStackContribution implements CommandContribution {
     // and naming it is the difference between an actionable message and a
     // bare error string.
     const label = direction === 'undo' ? this.state.undoLabel : this.state.redoLabel
-    if (direction === 'undo') perfStart('undo')
+    perfStart(direction)
 
     let result: EditStackResult
     try {
@@ -91,7 +91,7 @@ export class EditStackContribution implements CommandContribution {
 
     if (result.status === 'ok') {
       this.state = result
-      if (direction === 'undo') perfEnd('undo')
+      perfEnd(direction)
       return
     }
 

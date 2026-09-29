@@ -47,8 +47,35 @@ export function exitCodeForStep(compareExitCode) {
   return 125
 }
 
-function npmCi(cwd, exec) {
-  exec(NPM, ['ci', '--no-audit', '--no-fund'], { cwd, stdio: 'inherit' })
+const YARN = process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
+
+/** The suite an id belongs to: core.* runs the core suite, the rest the app suite. */
+export function suiteOf(id) {
+  if (id.startsWith('core.')) return 'core'
+  if (/^(app|startup|heap)\./.test(id)) return 'app'
+  throw new Error(`cannot tell which suite '${id}' belongs to`)
+}
+
+/** What building `cwd` for `suite` runs, in order. The app suite needs the
+ *  extension built BEFORE the browser bundle: the other order silently
+ *  bundles a stale backend. */
+export function buildCommands(suite, cwd, { theiaInstalled }) {
+  const cmds = [[NPM, ['ci', '--no-audit', '--no-fund']]]
+  if (suite === 'app') {
+    if (!theiaInstalled) cmds.push([YARN, ['--cwd', 'theia', 'install']])
+    cmds.push(
+      [YARN, ['--cwd', 'theia/extension', 'build']],
+      [YARN, ['--cwd', 'theia', 'build:browser']],
+    )
+  }
+  return cmds.map(([cmd, args]) => ({ cmd, args, cwd }))
+}
+
+function build(suite, cwd, exec) {
+  const theiaInstalled = existsSync(join(cwd, 'theia', 'node_modules'))
+  for (const { cmd, args } of buildCommands(suite, cwd, { theiaInstalled })) {
+    exec(cmd, args, { cwd, stdio: 'inherit', windowsHide: true })
+  }
 }
 
 /** `git bisect run`'s step, run from inside the bisected worktree at HEAD:
@@ -58,8 +85,9 @@ function npmCi(cwd, exec) {
  *  regressed there. */
 export function runStep({ id, goodDir, rounds }, exec = execFileSync) {
   const cwd = process.cwd()
+  const suite = suiteOf(id)
   try {
-    npmCi(cwd, exec)
+    build(suite, cwd, exec)
   } catch (e) {
     console.error('build failed at this commit:', e.message)
     return 125
@@ -74,7 +102,7 @@ export function runStep({ id, goodDir, rounds }, exec = execFileSync) {
       '--cand',
       cwd,
       '--suite',
-      'core',
+      suite,
       '--only',
       id,
       '--out',
@@ -115,7 +143,7 @@ export function run({ id, good, bad, dir, rounds }, exec = execFileSync) {
   exec('git', ['worktree', 'add', goodDir, good], { cwd: repoRoot, stdio: 'inherit' })
   exec('git', ['worktree', 'add', workDir, bad], { cwd: repoRoot, stdio: 'inherit' })
   try {
-    npmCi(goodDir, exec)
+    build(suiteOf(id), goodDir, exec)
     exec('git', ['bisect', 'start', bad, good], { cwd: workDir, stdio: 'inherit' })
     try {
       const roundsArgs = rounds ? ['--rounds', String(rounds)] : []

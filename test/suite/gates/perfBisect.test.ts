@@ -9,8 +9,10 @@ import { describe, it, expect } from 'vitest'
 import {
   defaultTaskDir,
   exitCodeForStep,
+  buildCommands,
   mainRepoRoot,
   runStep,
+  suiteOf,
 } from '../../../tools/perf/bisect.mjs'
 
 describe('exitCodeForStep: the git bisect run mapping', () => {
@@ -79,5 +81,42 @@ describe('runStep, exec mocked', () => {
     expect(
       runStep({ id: 'core.x', goodDir: 'good' }, fakeExec({ pairedFails: true }) as never),
     ).toBe(125)
+  })
+})
+
+describe('suite selection and build steps (D5)', () => {
+  it('picks the suite from the id prefix and refuses an unknown one', () => {
+    expect(suiteOf('core.lclz2.x')).toBe('core')
+    for (const id of ['app.open-map16', 'startup.shell', 'heap.gfx-reopen']) {
+      expect(suiteOf(id)).toBe('app')
+    }
+    expect(() => suiteOf('bogus.x')).toThrow(/cannot tell/)
+  })
+
+  it('core builds with npm ci only', () => {
+    const cmds = buildCommands('core', '/w', { theiaInstalled: true })
+    expect(cmds.map(c => c.args[0])).toEqual(['ci'])
+  })
+
+  it('app builds the extension BEFORE the browser bundle, installing theia only if missing', () => {
+    const steps = (installed: boolean) =>
+      buildCommands('app', '/w', { theiaInstalled: installed }).map(c => c.args.join(' '))
+    expect(steps(true)).toEqual([
+      'ci --no-audit --no-fund',
+      '--cwd theia/extension build',
+      '--cwd theia build:browser',
+    ])
+    expect(steps(false)[1]).toBe('--cwd theia install')
+  })
+
+  it('runStep for an app id runs paired with --suite app and the app build', () => {
+    const seen: string[] = []
+    const exec = (cmd: string, args: string[]) => {
+      seen.push([cmd, ...args].join(' '))
+      return ''
+    }
+    expect(runStep({ id: 'app.open-map16', goodDir: 'good' }, exec as never)).toBe(125) // paired wrote nothing
+    expect(seen.some(c => c.includes('theia build:browser'))).toBe(true)
+    expect(seen.some(c => c.includes('--suite app'))).toBe(true)
   })
 })

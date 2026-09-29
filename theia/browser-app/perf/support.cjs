@@ -71,17 +71,6 @@ function measureOf(entries, name) {
   return d
 }
 
-const readMeasures = page =>
-  page.evaluate(() =>
-    performance.getEntriesByType('measure').map(e => ({ name: e.name, duration: e.duration })),
-  )
-
-const clearMeasures = page =>
-  page.evaluate(() => {
-    performance.clearMeasures()
-    performance.clearMarks()
-  })
-
 /** Throttles the page's CPU by the plant factor while `fn` runs, when `id` is the planted case. */
 async function withPlant(page, id, fn) {
   const plant = parsePlant(process.env.HB_PERF_PLANT)
@@ -101,35 +90,52 @@ async function boot(page) {
   await page.addScriptTag({ content: GET_SVC })
 }
 
-/** A project on a fresh temp dir; returns it and the dir to remove. */
+const dirs = []
+
+/** A project on a fresh temp dir, removed by removeProjects(). */
 async function newProject(page) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-perf-'))
-  const project = await page.evaluate(
+  dirs.push(directory)
+  return page.evaluate(
     ({ romPath, directory }) =>
       getSvc('Symbol(ProjectService)').createProject({ romPath, name: 'Perf', directory }),
     { romPath: ROM, directory },
   )
-  return { project, directory }
 }
 
-/** Clears measures, runs `action`, waits for `hb:<name>` and returns its duration. */
-async function sample(page, name, action) {
-  await clearMeasures(page)
-  await action()
+function removeProjects() {
+  for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true })
+}
+
+/** Waits for the app's own `hb:<name>` measure and returns its duration (measureOf throws if it never came). */
+async function awaitMeasure(page, name) {
   await page
     .waitForFunction(n => performance.getEntriesByName(n, 'measure').length > 0, `hb:${name}`, {
       timeout: 30000,
     })
     .catch(() => {})
-  return measureOf(await readMeasures(page), name)
+  const entries = await page.evaluate(() =>
+    performance.getEntriesByType('measure').map(e => ({ name: e.name, duration: e.duration })),
+  )
+  return measureOf(entries, name)
 }
 
-/** WARMUP discarded runs, then SAMPLES recorded ones, each a fresh `action(i)`. */
-async function collect(page, name, action) {
+/** Clears the previous `hb:<name>` measure, runs `action`, returns the new measure. */
+async function sample(page, name, action) {
+  await page.evaluate(n => {
+    performance.clearMeasures(`hb:${n}`)
+    performance.clearMarks(`hb:${n}:start`)
+  }, name)
+  await action()
+  return awaitMeasure(page, name)
+}
+
+/** WARMUP discarded runs of `fn(i)`, then SAMPLES recorded results. */
+async function collect(fn) {
   const out = []
   for (let i = 0; i < WARMUP + SAMPLES; i++) {
-    const d = await sample(page, name, () => action(i))
-    if (i >= WARMUP) out.push(d)
+    const v = await fn(i)
+    if (i >= WARMUP) out.push(v)
   }
   return out
 }
@@ -175,11 +181,10 @@ function record(id, unit, samples) {
 
 module.exports = {
   APP,
-  ROM,
   SAMPLES,
   WARMUP,
+  awaitMeasure,
   boot,
-  clearMeasures,
   closeView,
   collect,
   heapSlope,
@@ -187,8 +192,8 @@ module.exports = {
   newProject,
   openView,
   parsePlant,
-  readMeasures,
   record,
+  removeProjects,
   sample,
   shouldRun,
   withPlant,

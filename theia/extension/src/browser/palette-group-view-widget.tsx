@@ -142,6 +142,8 @@ export class PaletteGroupViewWidget extends ReactWidget {
     this.title.caption = this.title.label
     this.update()
     if (g) perfEndAfterPaint('open-palette')
+    // An edit is pending: the new color is on screen once this fetch paints.
+    perfEndAfterPaint('edit')
   }
 
   protected group(): PaletteGroupDto | undefined {
@@ -175,7 +177,6 @@ export class PaletteGroupViewWidget extends ReactWidget {
       this.editError = undefined
     }
     this.update()
-    if (!this.editError) perfEndAfterPaint('edit')
   }
 
   protected render(): React.ReactNode {

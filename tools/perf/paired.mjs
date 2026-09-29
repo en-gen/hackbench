@@ -10,8 +10,7 @@
 // biasing one side. Rounds are still paired by index: baseRounds[i] is
 // compared against candRounds[i] regardless of execution order.
 //
-// D1: before any round runs, the candidate's test/perf/**,
-// vitest.perf.config.ts, the app perf specs and both runners are overlaid onto the
+// D1: before any round runs, the candidate's HARNESS_PATHS (results.mjs) are overlaid onto the
 // base directory (and restored afterwards), so base and cand always measure
 // with the SAME benchmark code - a renamed or newly added case would
 // otherwise compare against stale harness code on one side, or simply not
@@ -22,26 +21,18 @@ import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { validate as validateResultDoc } from './results.mjs'
+import { validate as validateResultDoc, HARNESS_PATHS } from './results.mjs'
 
 export const CORE_DEFAULT_ROUNDS = 10
 export const MIN_ROUNDS = 5
 export const APP_DEFAULT_ROUNDS = 6
-const HARNESS_PATHS = [
-  'test/perf',
-  'vitest.perf.config.ts',
-  join('tools', 'perf', 'run-core.mjs'),
-  join('tools', 'perf', 'run-app.mjs'),
-  join('theia', 'browser-app', 'perf'),
-  join('theia', 'browser-app', 'playwright.perf.config.cjs'),
-]
 const RUNNERS = { core: 'run-core.mjs', app: 'run-app.mjs' }
 
 function runSuiteOnce(dir, { suite, out, only, plant }) {
   const args = [join('tools', 'perf', RUNNERS[suite]), '--out', out]
   if (only) args.push('--only', only)
   if (plant) args.push('--plant', plant)
-  const res = spawnSync(process.execPath, args, { cwd: dir, encoding: 'utf8' })
+  const res = spawnSync(process.execPath, args, { cwd: dir, encoding: 'utf8', windowsHide: true })
   if (res.status !== 0) {
     throw new Error(
       `${suite} suite failed in ${dir} (exit ${res.status}):\n${res.stdout}\n${res.stderr}`,

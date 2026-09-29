@@ -10,6 +10,7 @@ import {
   validate,
   familyOf,
   computeHarness,
+  HARNESS_PATHS,
   writeResultFile,
   readResultFile,
 } from '../../../tools/perf/results.mjs'
@@ -133,5 +134,25 @@ describe('computeHarness', () => {
     const before = computeHarness(tmp)
     fs.writeFileSync(path.join(tmp, 'tools', 'perf', 'run-core.mjs'), 'runner-edited')
     expect(computeHarness(tmp)).not.toBe(before)
+  })
+
+  it.each([
+    ['theia/browser-app/perf/app.perf.cjs'],
+    ['tools/perf/run-app.mjs'],
+    ['theia/extension/src/common/perf-marks.ts'],
+    ['theia/browser-app/test/own-backend.cjs'],
+    ['test/suite/support/corpus.cjs'],
+  ])('changes when %s changes', rel => {
+    const file = path.join(tmp, ...rel.split('/'))
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, 'one')
+    const before = computeHarness(tmp)
+    fs.writeFileSync(file, 'two')
+    expect(computeHarness(tmp)).not.toBe(before)
+  })
+
+  it('every HARNESS_PATHS entry is a real path in this repo', () => {
+    const repo = path.resolve(__dirname, '../../..')
+    for (const rel of HARNESS_PATHS) expect(fs.existsSync(path.join(repo, rel))).toBe(true)
   })
 })

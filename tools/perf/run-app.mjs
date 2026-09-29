@@ -5,159 +5,124 @@
 //
 //   node tools/perf/run-app.mjs --out <file> [--only id,id] [--plant id=factor]
 //
-// It owns an isolated test server for the whole run: random port, its own
-// app data and THEIA_CONFIG_DIR (start-test-server.cjs's prepareTestServer),
-// no window (the backend is headless; Playwright's chromium runs headless).
-// --plant is a CPU-throttle factor the specs apply to that one id.
+// Two Playwright runs, each on its own fresh isolated server (random port,
+// own app data and THEIA_CONFIG_DIR): startup first, so it and a later
+// `--only` confirmation measure the same conditions, then the app and heap
+// specs. --plant is a factor the specs apply to one id: a CPU throttle for
+// the render-bound ids, retained memory for the heap ids.
 
-import { parseArgs } from 'node:util'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs'
-import { createServer } from 'node:net'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { writeResultFile, computeHarness, SCHEMA } from './results.mjs'
+import { writeResultFile, collectDoc, perfEnv, cliMain } from './results.mjs'
 
-function gitSha(cwd) {
-  const res = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' })
-  if (res.status !== 0) throw new Error(`git rev-parse HEAD failed in ${cwd}: ${res.stderr}`)
-  return res.stdout.trim()
-}
+/** Ids a plant can make slower honestly: a renderer CPU throttle only slows
+ *  render-bound work, and the heap ids retain memory in the page. Ids whose
+ *  time is spent in the backend are refused rather than planted in vain. */
+export const PLANTABLE = new Set([
+  'startup.shell',
+  'app.open-maps',
+  'app.open-map16',
+  'app.open-gfx',
+  'app.open-palette',
+  'heap.map16-reopen',
+  'heap.gfx-reopen',
+  'heap.palette-reopen',
+  'heap.maps-reopen',
+])
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const s = createServer().listen(0, '127.0.0.1', () => {
-      const { port } = s.address()
-      s.close(() => resolve(port))
-    })
-    s.on('error', reject)
-  })
-}
-
-async function waitUntilUp(url, timeoutMs = 120000) {
-  const deadline = Date.now() + timeoutMs
-  for (;;) {
-    try {
-      await fetch(url)
-      return
-    } catch {
-      if (Date.now() > deadline) throw new Error(`backend at ${url} did not come up`)
-      await new Promise(r => setTimeout(r, 500))
-    }
-  }
-}
+const PHASES = [
+  { files: ['startup.perf.cjs'], has: id => id.startsWith('startup.') },
+  { files: ['app.perf.cjs', 'heap.perf.cjs'], has: id => !id.startsWith('startup.') },
+]
 
 /** The isolated backend for `cwd`'s build. Injected in tests. */
 export async function startServer(cwd) {
   const req = createRequire(join(cwd, 'theia', 'browser-app', 'package.json'))
-  const { prepareTestServer } = req('./test/start-test-server.cjs')
-  const { startBackend, stopBackend } = req('./test/own-backend.cjs')
-  const port = await freePort()
-  const { root, env } = prepareTestServer(port)
-  const child = startBackend(port, { env })
-  const url = `http://127.0.0.1:${port}`
-  try {
-    await waitUntilUp(url)
-  } catch (err) {
-    stopBackend(child)
-    rmSync(root, { recursive: true, force: true })
-    throw err
-  }
-  return {
-    url,
-    root,
-    stop() {
-      stopBackend(child)
-      rmSync(root, { recursive: true, force: true, maxRetries: 5 })
-    },
-  }
+  return req('./test/start-test-server.cjs').startTestServer({ wait: true })
 }
 
-/** The environment the Playwright run needs; undefined options are left unset, never inherited. */
-export function appEnv({ base = process.env, url, root, ndjson, only, plant }) {
-  const env = { ...base, HB_APP_URL: url, HB_TEST_APPDATA: root, HB_PERF_RESULTS_FILE: ndjson }
-  delete env.HB_PERF_ONLY
-  delete env.HB_PERF_PLANT
-  if (only) env.HB_PERF_ONLY = only
-  if (plant) env.HB_PERF_PLANT = plant
-  return env
+function gitHead(cwd) {
+  const res = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8', windowsHide: true })
+  return res.status === 0 ? res.stdout.trim() : undefined
+}
+
+/** Refuses a bundle that was not built from this checkout's HEAD. */
+function checkStamp(cwd) {
+  let stamp
+  try {
+    const file = join(cwd, 'theia', 'browser-app', 'lib', 'hb-build-stamp.json')
+    stamp = JSON.parse(readFileSync(file, 'utf8')).sha
+  } catch {
+    throw new Error('no build stamp: run `yarn --cwd theia build:browser` in this checkout first')
+  }
+  const head = gitHead(cwd)
+  if (stamp !== head) {
+    throw new Error(`stale build: bundle built from ${stamp}, checkout is at ${head}; rebuild`)
+  }
 }
 
 export async function runApp({ out, only, plant } = {}, deps = {}) {
+  const plantId = plant?.slice(0, plant.lastIndexOf('='))
+  if (plant && !PLANTABLE.has(plantId)) {
+    throw new Error(
+      `cannot plant '${plantId}': a renderer throttle only proves render-bound ids ` +
+        `(${[...PLANTABLE].join(', ')})`,
+    )
+  }
   const cwd = process.cwd()
+  checkStamp(cwd)
   const start = deps.startServer ?? startServer
-  const scratch = mkdtempSync(join(tmpdir(), 'hb-perf-app-'))
-  const ndjson = join(scratch, 'results.ndjson')
-  const server = await start(cwd)
+  const appDir = join(cwd, 'theia', 'browser-app')
+  const cli =
+    deps.playwrightCli ??
+    createRequire(join(appDir, 'package.json')).resolve('@playwright/test/cli')
+  const ids = [...(only ? only.split(',').map(s => s.trim()) : []), ...(plant ? [plantId] : [])]
+
+  let scratch
+  const cleanup = () => scratch && rmSync(scratch, { recursive: true, force: true })
+  const onSigint = () => (cleanup(), process.exit(130))
+  process.once('SIGINT', onSigint)
   try {
-    const appDir = join(cwd, 'theia', 'browser-app')
-    const cli =
-      deps.playwrightCli ??
-      createRequire(join(appDir, 'package.json')).resolve('@playwright/test/cli')
-    const res = spawnSync(process.execPath, [cli, 'test', '-c', 'playwright.perf.config.cjs'], {
-      cwd: appDir,
-      env: appEnv({ url: server.url, root: server.root, ndjson, only, plant }),
-      encoding: 'utf8',
-      shell: false,
-    })
-    if (res.status !== 0) {
-      throw new Error(
-        `playwright perf run failed (exit ${res.status}):\n${res.stdout}\n${res.stderr}`,
-      )
+    scratch = mkdtempSync(join(tmpdir(), 'hb-perf-app-'))
+    const ndjson = join(scratch, 'results.ndjson')
+    writeFileSync(ndjson, '')
+    for (const phase of PHASES) {
+      if (ids.length > 0 && !ids.some(phase.has)) continue
+      const server = await start(cwd)
+      try {
+        const env = perfEnv({
+          ndjson,
+          only,
+          plant,
+          extra: { HB_APP_URL: server.url, HB_TEST_APPDATA: server.root },
+        })
+        const args = [cli, 'test', '-c', 'playwright.perf.config.cjs', ...phase.files]
+        const res = spawnSync(process.execPath, args, {
+          cwd: appDir,
+          env,
+          encoding: 'utf8',
+          shell: false,
+          windowsHide: true,
+        })
+        if (res.status !== 0) {
+          throw new Error(
+            `playwright perf run failed (exit ${res.status}):\n${res.stdout}\n${res.stderr}`,
+          )
+        }
+      } finally {
+        server.stop()
+      }
     }
-
-    const text = existsSync(ndjson) ? readFileSync(ndjson, 'utf8') : ''
-    const lines = text.split('\n').filter(Boolean)
-    if (lines.length === 0) {
-      throw new Error('perf:app produced no results; a suite that measured nothing must fail')
-    }
-    const results = lines.map(line => JSON.parse(line))
-
-    const expectedIds = new Set(only ? only.split(',').map(s => s.trim()) : [])
-    if (plant) expectedIds.add(plant.slice(0, plant.lastIndexOf('=')))
-    const gotIds = new Set(results.map(r => r.id))
-    for (const id of expectedIds) {
-      if (!gotIds.has(id)) throw new Error(`perf:app: requested id '${id}' produced no result`)
-    }
-
-    const doc = {
-      schema: SCHEMA,
-      sha: gitSha(cwd),
-      suite: 'app',
-      harness: computeHarness(cwd),
-      results,
-    }
+    const doc = collectDoc({ suite: 'app', cwd, ndjson, only, plant })
     if (out) writeResultFile(out, doc)
     return doc
   } finally {
-    server.stop()
-    rmSync(scratch, { recursive: true, force: true })
+    process.removeListener('SIGINT', onSigint)
+    cleanup()
   }
 }
 
-// ---------------------------------------------------------------------------
-// CLI
-// ---------------------------------------------------------------------------
-
-const CLI_OPTIONS = {
-  out: { type: 'string' },
-  only: { type: 'string' },
-  plant: { type: 'string' },
-}
-
-const isMain = /run-app\.mjs$/i.test(process.argv[1] ?? '')
-if (isMain) {
-  const { values } = parseArgs({ args: process.argv.slice(2), options: CLI_OPTIONS, strict: true })
-  if (!values.out) {
-    console.error('usage: run-app.mjs --out <file> [--only id,id] [--plant id=factor]')
-    process.exit(2)
-  }
-  try {
-    await runApp(values)
-    process.exit(0)
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err))
-    process.exit(2)
-  }
-}
+if (/run-app\.mjs$/i.test(process.argv[1] ?? '')) await cliMain('run-app.mjs', runApp)
