@@ -120,3 +120,14 @@
 .hb-gfx-view-error {
   color: var(--theia-errorForeground);
 }
+
+/* Overworld halves (#431): the gap is the editor background, not map pixels. */
+.hb-overworld-halves {
+  display: flex;
+  gap: 16px;
+  overflow-anchor: none;
+}
+
+.hb-overworld-canvas {
+  outline: 1px solid var(--theia-editorWidget-border);
+}

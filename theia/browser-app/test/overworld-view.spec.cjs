@@ -2,8 +2,8 @@
  * The Overworld view (en-gen/hackbench#363), end to end against the shell.
  *
  * The globe opens ONE main-area widget, and every path that shows the globe
- * does. The canvas is the Background under the Foreground at 1024x512 and
- * hashes to the pins the Vitest decode test also holds, per layer set: the
+ * does. The two half canvases (hub, then half 1, 16 px apart) together are the
+ * Background under the Foreground at 1024x512 and hash to the pins the Vitest decode test also holds, per layer set: the
  * layer toggles and a refused L2 land on those same pins. A ROM whose L1
  * reader is not stock shows the reason and no canvas. The Map tab's L1
  * toggle, now the shared LayerToggle, is covered by map-view.spec.cjs.
@@ -75,17 +75,52 @@ async function openProject(page, rom) {
   )
 }
 
-/** SHA-256 of the canvas's RGBA, read back from the page. */
-async function canvasSha(page) {
+/** Both half canvases' RGBA, read back from the page, joined row by row into the 1024x512 composite. */
+async function canvasBytes(page) {
   const { width, height, bytes } = await page.evaluate(() => {
-    const canvas = document.querySelector('.hb-overworld-canvas')
-    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data
-    let s = ''
-    for (let i = 0; i < data.length; i++) s += String.fromCharCode(data[i])
-    return { width: canvas.width, height: canvas.height, bytes: btoa(s) }
+    const halves = [...document.querySelectorAll('.hb-overworld-canvas')].map(c => {
+      const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      let s = ''
+      for (let i = 0; i < data.length; i++) s += String.fromCharCode(data[i])
+      return { w: c.width, h: c.height, s }
+    })
+    return {
+      halves: halves.length,
+      width: halves.reduce((n, h) => n + h.w, 0),
+      height: halves[0].h,
+      bytes: halves.map(h => btoa(h.s)),
+    }
   })
-  const sha = createHash('sha256').update(Buffer.from(bytes, 'base64')).digest('hex')
-  return { width, height, sha }
+  const parts = bytes.map(b => Buffer.from(b, 'base64'))
+  const rows = []
+  const rowLen = (width / parts.length) * 4
+  for (let y = 0; y < height; y++)
+    for (const p of parts) rows.push(p.subarray(y * rowLen, (y + 1) * rowLen))
+  return { width, height, data: Buffer.concat(rows), parts }
+}
+
+/** SHA-256 of the composite (both canvases) and its size. */
+async function canvasSha(page) {
+  const { width, height, data } = await canvasBytes(page)
+  return { width, height, sha: createHash('sha256').update(data).digest('hex') }
+}
+
+/** Distinct RGBA values in one half canvas (0 = hub, 1 = half 1). */
+async function halfColors(page, half) {
+  return page.evaluate(h => {
+    const c = document.querySelector(`.hb-overworld-canvas[data-half="${h}"]`)
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+    const seen = new Set()
+    for (let i = 0; i < d.length; i += 4)
+      seen.add((d[i] << 24) | (d[i + 1] << 16) | (d[i + 2] << 8) | d[i + 3])
+    return seen.size
+  }, half)
+}
+
+/** Hash of one half canvas. */
+async function halfSha(page, half) {
+  const { parts } = await canvasBytes(page)
+  return createHash('sha256').update(parts[half]).digest('hex')
 }
 
 /** Writes `rom` with `edit` applied to a copy in tmp, and returns its path. */
@@ -205,9 +240,7 @@ test('the command is on the View menu and opens the same widget', async ({ page 
   await expect(page.locator(VIEW)).toBeVisible()
 })
 
-test('on vanilla the canvas is 1024x512 and hashes to the pinned vanilla canvas', async ({
-  page,
-}) => {
+test('on vanilla the two half canvases join into the pinned 1024x512 canvas', async ({ page }) => {
   test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
   await openProject(page, ROM)
   await page.locator(GLOBE).click()
@@ -221,6 +254,34 @@ test('on vanilla the canvas is 1024x512 and hashes to the pinned vanilla canvas'
   )
   await expect(page.locator('.hb-overworld-reason')).toHaveCount(0)
   await expect(page.locator('.hb-overworld-l2-reason')).toHaveCount(0)
+})
+
+test('the halves are two 512x512 canvases, hub first, 16 px apart, each drawn; Foreground off changes both', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
+  await openProject(page, ROM)
+  await page.locator(GLOBE).click()
+  await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
+  await page.waitForTimeout(500)
+  const canvases = page.locator('.hb-overworld-canvas')
+  await expect(canvases).toHaveCount(2)
+  await expect(canvases.nth(0)).toHaveAttribute('data-half', '0')
+  await expect(canvases.nth(1)).toHaveAttribute('data-half', '1')
+  const sizes = await canvases.evaluateAll(cs => cs.map(c => [c.width, c.height]))
+  expect(sizes).toEqual([
+    [512, 512],
+    [512, 512],
+  ])
+  const a = await canvases.nth(0).boundingBox()
+  const b = await canvases.nth(1).boundingBox()
+  expect(b.x - (a.x + a.width)).toBeGreaterThan(0)
+  expect(await halfColors(page, 0)).toBeGreaterThan(1)
+  expect(await halfColors(page, 1)).toBeGreaterThan(1)
+  const before = [await halfSha(page, 0), await halfSha(page, 1)]
+  await page.locator(`${VIEW} [data-control="layer-l1"]`).click()
+  await expect.poll(async () => await halfSha(page, 0)).not.toBe(before[0])
+  await expect.poll(async () => await halfSha(page, 1)).not.toBe(before[1])
 })
 
 test('a one-tile edit draws a canvas that differs from the pin', async ({ page }) => {
