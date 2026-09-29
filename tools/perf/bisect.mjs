@@ -17,7 +17,12 @@ import { parseArgs } from 'node:util'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, rmSync } from 'node:fs'
 import { dirname, basename, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { MIN_ROUNDS } from './paired.mjs'
+
+// Every step runs THIS checkout's tools: a historical commit may predate them,
+// and a missing script exits 1, which git bisect would read as "bad".
+const TOOLS_DIR = dirname(fileURLToPath(import.meta.url))
 
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 
@@ -69,7 +74,7 @@ export function runStep({ id, goodDir, rounds }, exec = execFileSync) {
   const pairedOut = join(cwd, 'bisect-round.json')
   try {
     const args = [
-      'tools/perf/paired.mjs',
+      join(TOOLS_DIR, 'paired.mjs'),
       '--base',
       goodDir,
       '--cand',
@@ -90,14 +95,10 @@ export function runStep({ id, goodDir, rounds }, exec = execFileSync) {
   if (!existsSync(pairedOut)) return 125
 
   try {
-    exec(
-      process.execPath,
-      [join(cwd, 'tools', 'perf', 'compare.mjs'), '--in', pairedOut, '--seed', '1'],
-      {
-        cwd,
-        stdio: 'inherit',
-      },
-    )
+    exec(process.execPath, [join(TOOLS_DIR, 'compare.mjs'), '--in', pairedOut, '--seed', '1'], {
+      cwd,
+      stdio: 'inherit',
+    })
     return exitCodeForStep(0)
   } catch (e) {
     return exitCodeForStep(typeof e.status === 'number' ? e.status : 2)
@@ -147,7 +148,7 @@ export function run({ id, good, bad, dir, rounds }, exec = execFileSync) {
           'bisect',
           'run',
           process.execPath,
-          'tools/perf/bisect.mjs',
+          join(TOOLS_DIR, 'bisect.mjs'),
           '--step',
           '--id',
           id,

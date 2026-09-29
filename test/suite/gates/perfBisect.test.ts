@@ -264,3 +264,16 @@ describe('step mode --rounds', () => {
     }
   })
 })
+
+describe('step scripts come from the invoking checkout, not the bisected commit', () => {
+  it('runStep calls paired.mjs by absolute path in the invoking checkout', () => {
+    const toolsDir = resolve(__dirname, '../../../tools/perf')
+    const scripts: string[] = []
+    const exec = (_cmd: string, args: string[]) => {
+      if (String(args[0]).endsWith('.mjs')) scripts.push(args[0])
+      return ''
+    }
+    runStep({ id: 'core.x', goodDir: 'good' }, exec as never)
+    expect(scripts[0]).toBe(join(toolsDir, 'paired.mjs'))
+  })
+})
