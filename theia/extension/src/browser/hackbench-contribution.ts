@@ -33,6 +33,7 @@ import { ProjectPropertiesDialog } from './project-properties-dialog'
 import { ProjectContext } from './project-context'
 import { FileDialogService } from '@theia/filesystem/lib/browser'
 import { PROJECT_EXT } from '../../../../src/project/Project'
+import { perfEndAfterPaint, perfStart } from '../common/perf-marks'
 
 export const NewProjectCommand: Command = {
   id: 'hackbench.project.new',
@@ -268,6 +269,7 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
    * nobody notices until it is reported as data loss.
    */
   protected async show(project: ProjectDto): Promise<void> {
+    perfStart('open-project')
     this.context.current = project
     // Opening or creating a project reorders the recent list.
     void this.refreshRecentMenu()
@@ -278,6 +280,7 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
     // Activated, not merely revealed: the tree virtualises its rows, so a
     // background tab shows a loaded project as an empty view.
     await this.shell.activateWidget(MAP_EXPLORER_ID)
+    perfEndAfterPaint('open-project')
   }
 
   /**

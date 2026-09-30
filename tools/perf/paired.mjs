@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Paired runner (design section 3).
 //
-//   node tools/perf/paired.mjs --base <dir> --cand <dir> --suite core
+//   node tools/perf/paired.mjs --base <dir> --cand <dir> --suite core|app
 //        [--rounds N] [--only id,id] [--plant <id>=<factor>] --out <file>
 //
 // Runs base and cand ABBA (design D3: base,cand,cand,base,... in blocks of
@@ -10,37 +10,32 @@
 // biasing one side. Rounds are still paired by index: baseRounds[i] is
 // compared against candRounds[i] regardless of execution order.
 //
-// D1: before any round runs, the candidate's test/perf/**,
-// vitest.perf.config.ts and tools/perf/run-core.mjs are overlaid onto the
+// D1: before any round runs, the candidate's HARNESS_PATHS (results.mjs) are overlaid onto the
 // base directory (and restored afterwards), so base and cand always measure
 // with the SAME benchmark code - a renamed or newly added case would
 // otherwise compare against stale harness code on one side, or simply not
-// exist there. Only the `core` suite is wired; `app` lands in PR 2.
+// exist there.
 
 import { parseArgs } from 'node:util'
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { validate as validateResultDoc } from './results.mjs'
+import { validate as validateResultDoc, HARNESS_PATHS } from './results.mjs'
 
 export const CORE_DEFAULT_ROUNDS = 10
 export const MIN_ROUNDS = 5
-const HARNESS_PATHS = [
-  'test/perf',
-  'vitest.perf.config.ts',
-  join('tools', 'perf', 'run-core.mjs'),
-  join('tools', 'perf', 'results.mjs'),
-]
+export const APP_DEFAULT_ROUNDS = 6
+const RUNNERS = { core: 'run-core.mjs', app: 'run-app.mjs' }
 
-function runSuiteOnce(dir, { out, only, plant }) {
-  const args = ['tools/perf/run-core.mjs', '--out', out]
+function runSuiteOnce(dir, { suite, out, only, plant }) {
+  const args = [join('tools', 'perf', RUNNERS[suite]), '--out', out]
   if (only) args.push('--only', only)
   if (plant) args.push('--plant', plant)
-  const res = spawnSync(process.execPath, args, { cwd: dir, encoding: 'utf8' })
+  const res = spawnSync(process.execPath, args, { cwd: dir, encoding: 'utf8', windowsHide: true })
   if (res.status !== 0) {
     throw new Error(
-      `core suite failed in ${dir} (exit ${res.status}):\n${res.stdout}\n${res.stderr}`,
+      `${suite} suite failed in ${dir} (exit ${res.status}):\n${res.stdout}\n${res.stderr}`,
     )
   }
   const doc = JSON.parse(readFileSync(out, 'utf8'))
@@ -112,11 +107,10 @@ export function abbaSchedule(n) {
  *  compare.mjs expects. Throws on the first failed round; a paired run is
  *  only meaningful as a complete set. */
 export function runPaired({ base, cand, suite, rounds, only, plant }) {
-  if (suite !== 'core')
-    throw new Error(`unsupported suite: ${suite} (only 'core' is wired; app lands in PR 2)`)
+  if (!Object.hasOwn(RUNNERS, suite)) throw new Error(`unsupported suite: ${suite}`)
   if (!existsSync(base)) throw new Error(`--base directory does not exist: ${base}`)
   if (!existsSync(cand)) throw new Error(`--cand directory does not exist: ${cand}`)
-  const n = rounds ?? CORE_DEFAULT_ROUNDS
+  const n = rounds ?? (suite === 'app' ? APP_DEFAULT_ROUNDS : CORE_DEFAULT_ROUNDS)
   if (!Number.isInteger(n) || n < MIN_ROUNDS) {
     throw new Error(
       `--rounds must be an integer >= ${MIN_ROUNDS} (design D2), got ${JSON.stringify(rounds)}`,
@@ -133,7 +127,12 @@ export function runPaired({ base, cand, suite, rounds, only, plant }) {
       const out = join(scratch, `${side}-${round}.json`)
       // Plant only applies to the candidate: it simulates a regression the
       // candidate introduced, not one the baseline already had.
-      const doc = runSuiteOnce(dir, { out, only, plant: side === 'cand' ? plant : undefined })
+      const doc = runSuiteOnce(dir, {
+        suite,
+        out,
+        only,
+        plant: side === 'cand' ? plant : undefined,
+      })
       if (side === 'base') baseRounds[round] = doc
       else candRounds[round] = doc
     }
@@ -164,7 +163,7 @@ if (isMain) {
   const { values } = parseArgs({ args: process.argv.slice(2), options: CLI_OPTIONS, strict: true })
   if (!values.base || !values.cand || !values.suite || !values.out) {
     console.error(
-      'usage: paired.mjs --base <dir> --cand <dir> --suite core [--rounds N] [--only id,id] [--plant id=factor] --out <file>',
+      'usage: paired.mjs --base <dir> --cand <dir> --suite core|app [--rounds N] [--only id,id] [--plant id=factor] --out <file>',
     )
     process.exit(2)
   }

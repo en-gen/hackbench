@@ -6,16 +6,22 @@
 import { describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import * as path from 'node:path'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const script = path.join(repoRoot, 'tools', 'perf', 'accept.sh')
 
-function run(args: string[]): { status: number; output: string } {
+function run(
+  args: string[],
+  env: NodeJS.ProcessEnv = process.env,
+): { status: number; output: string } {
   try {
     const output = execFileSync('bash', [script, ...args], {
       cwd: repoRoot,
       encoding: 'utf8',
       stdio: 'pipe',
+      env,
     })
     return { status: 0, output }
   } catch (err) {
@@ -70,5 +76,54 @@ describe('accept.sh refuses before touching gh api', () => {
     expect(r.output).not.toMatch(/not a commit/)
     expect(r.output).not.toMatch(/whitespace/)
     expect(r.output).not.toMatch(/usage/)
+  })
+})
+
+describe('accept.sh only accepts a sha in the latest 100 develop commits', () => {
+  // A fake `gh` on PATH: the commits listing prints $FAKE_WINDOW, any other
+  // call is logged to $FAKE_LOG (so a post is observable).
+  const script_ = [
+    '#!/usr/bin/env bash',
+    'case "$2" in',
+    '  *commits*) printf "%s\n" "$FAKE_WINDOW";;',
+    '  *) echo "$@" >> "$FAKE_LOG";;',
+    'esac',
+    '',
+  ].join('\n')
+  const fwd = (p: string) => p.replaceAll(path.sep, '/')
+
+  function fakeGh(window: string): { env: NodeJS.ProcessEnv; log: string } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-fakegh-'))
+    const log = path.join(dir, 'calls.log')
+    fs.writeFileSync(path.join(dir, 'gh'), script_, { mode: 0o755 })
+    const sep = process.platform === 'win32' ? ';' : ':'
+    return {
+      env: {
+        ...process.env,
+        PATH: fwd(dir) + sep + process.env.PATH,
+        FAKE_WINDOW: window,
+        FAKE_LOG: fwd(log),
+      },
+      log,
+    }
+  }
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  }).trim()
+
+  it('refuses a sha outside the window and posts nothing', () => {
+    const { env, log } = fakeGh('0'.repeat(40))
+    const r = run([head, 'a reason'], env)
+    expect(r.status).toBe(2)
+    expect(r.output).toMatch(/latest 100 commits/)
+    expect(fs.existsSync(log)).toBe(false)
+  })
+
+  it('posts the status for a sha inside the window', () => {
+    const { env, log } = fakeGh(`${'0'.repeat(40)}\n${head}`)
+    const r = run([head, 'a reason'], env)
+    expect(r.status).toBe(0)
+    expect(fs.readFileSync(log, 'utf8')).toMatch(/statuses/)
   })
 })

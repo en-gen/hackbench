@@ -17,7 +17,7 @@ const MAX_CALIBRATION_REPS = 1_000_000
 function parsePlant(spec: string | undefined): { id: string; factor: number } | undefined {
   if (!spec) return undefined
   const eq = spec.lastIndexOf('=')
-  if (eq === -1) throw new Error(`HB_PERF_PLANT must be "id=factor": ${spec}`)
+  if (eq < 1) throw new Error(`HB_PERF_PLANT must be "id=factor": ${spec}`)
   const id = spec.slice(0, eq)
   const factor = Number(spec.slice(eq + 1))
   if (!Number.isFinite(factor)) throw new Error(`HB_PERF_PLANT factor is not a number: ${spec}`)

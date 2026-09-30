@@ -61,6 +61,11 @@ describe('H1: plant scales the measured cost by the stated factor', () => {
     process.env.HB_PERF_PLANT = 'test.sampler.x=notanumber'
     await expect(measureCase('test.sampler.x', () => 1)).rejects.toThrow(/not a number/)
   })
+
+  it('rejects an empty id ("=2")', async () => {
+    process.env.HB_PERF_PLANT = '=2'
+    await expect(measureCase('test.sampler.x', () => 1)).rejects.toThrow(/id=factor/)
+  })
 })
 
 describe('M33: measureCase records its samples to HB_PERF_RESULTS_FILE', () => {
