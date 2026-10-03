@@ -2362,26 +2362,36 @@ describe('handle_0DB49E (vertical pipe) bottom-merge fix', () => {
   })
 
   // DEC _0 / BNE counts in 8 bits, so a zero high nibble runs 256 body passes
-  // (bank_0D.asm:3611-3612, #350). The expected tiles come from the fixture:
-  // an $08 under the top is merged to DATA_0DB4D5[0] = $07, and every body row
-  // is DATA_0DB49C[0] = $0A, as far as the 27-row grid goes.
-  it('height 0 terminates after 256 passes and draws the column', () => {
+  // (bank_0D.asm:3611-3612, #350). The low nibble indexes the tables, so every
+  // size $00-$0F gets distinct fixture bytes: an $08 under the top merges to
+  // TOP_MERGED[X], and each body row is PIPE[X], as far as the 27-row grid goes.
+  it('height 0 terminates after 256 passes and draws the column, sizes $00-$0F', () => {
+    const PIPE_TABLE = 0x0da900
+    const TOP_TABLE = 0x0da910
+    const PIPE = Array.from({ length: 16 }, (_, i) => 0x10 + i)
+    const TOP_MERGED = Array.from({ length: 16 }, (_, i) => 0x40 + i)
     const rom = buildPipeRom()
-    const grid = createGrid(1)
-    grid[0][5] = 0x08
-    let gets = 0
-    // Turns a runaway loop into a failure instead of a hang.
-    const guarded = new Proxy(grid, {
-      get(t, k, r) {
-        if (++gets > 100_000) throw new Error('runaway body loop')
-        return Reflect.get(t, k, r)
-      },
-    })
-    const cur = makeCursorForHandler(HANDLER, guarded, rom, 1, 5, 0, 30, 0x00)
-    handle_0DB49E(cur)
-    expect(cur.row).toBe(256)
-    expect(grid[0][5]).toBe(0x07)
-    for (let r = 1; r <= 26; r++) expect(grid[r][5]).toBe(0x0a)
+    rom.writeAt(PIPE_TABLE, PIPE)
+    rom.writeAt(TOP_TABLE, TOP_MERGED)
+    stampLongOperand(rom, HANDLER, 16, PIPE_TABLE)
+    stampLongOperand(rom, TOP_MERGE, 9, TOP_TABLE)
+    for (let size = 0; size <= 0x0f; size++) {
+      const grid = createGrid(1)
+      grid[0][5] = 0x08
+      let gets = 0
+      // Turns a runaway loop into a failure instead of a hang.
+      const guarded = new Proxy(grid, {
+        get(t, k, r) {
+          if (++gets > 100_000) throw new Error('runaway body loop')
+          return Reflect.get(t, k, r)
+        },
+      })
+      const cur = makeCursorForHandler(HANDLER, guarded, rom, 1, 5, 0, 30, size)
+      handle_0DB49E(cur)
+      expect(cur.row).toBe(256)
+      expect(grid[0][5]).toBe(TOP_MERGED[size])
+      for (let r = 1; r <= 26; r++) expect(grid[r][5]).toBe(PIPE[size])
+    }
   })
 })
 
