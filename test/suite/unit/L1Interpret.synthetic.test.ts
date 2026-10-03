@@ -16,6 +16,7 @@ import {
 } from '../../../src/rom/ObjectExpander'
 import type { LevelObject } from '../../../src/rom/LevelParser'
 import { OWNER_NONE, makeCursor } from '../../../src/rom/objectHandlers/cursor'
+import { drawInterpreted } from '../../../src/rom/objectHandlers/interpretedDraw'
 import { STANDARD_HANDLERS } from '../../../src/rom/objectHandlers/dispatch'
 import {
   ADDR_TILESET_DISPATCH,
@@ -544,14 +545,14 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
     const unverified: string[] = []
     const grid = createGrid(SCREENS)
     prefill?.(grid)
-    expandObject(grid, obj(size), rom, 0, null, OWNER_NONE, undefined, { vertical: false, unverified, entry: HANDLER, options }) // prettier-ignore
+    expandObject(grid, obj(size), rom, 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: false, unverified, entry: HANDLER, options }) // prettier-ignore
     return { grid, unverified }
   }
   /** Expand one object through the production entry: the loader's JSL and the ROM's own dispatch. */
   function expandProd(rom: RomFile, size: number) {
     const unverified: string[] = []
     const grid = createGrid(SCREENS)
-    expandObject(grid, obj(size), rom, 0, null, OWNER_NONE, undefined, { vertical: false, unverified, options: SIG_OPTS }) // prettier-ignore
+    expandObject(grid, obj(size), rom, 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: false, unverified, options: SIG_OPTS }) // prettier-ignore
     return { grid, unverified }
   }
   /** What the port draws for the same object, straight from the port. */
@@ -633,7 +634,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
   it('records the object as the owner of every cell the interpreter drew, and no other', () => {
     const grid = createGrid(SCREENS)
     const owners = grid.map(row => new Array<number>(row.length).fill(OWNER_NONE))
-    expandObject(grid, obj(0x35), good(), 0, owners, 7, undefined, { vertical: false, unverified: [], entry: HANDLER }) // prettier-ignore
+    expandObject(grid, obj(0x35), good(), 0, owners, 7, undefined, { draw: drawInterpreted, vertical: false, unverified: [], entry: HANDLER }) // prettier-ignore
     const drawn = grid.flatMap((row, y) =>
       row.flatMap((t, x) => (t === TILE_EMPTY ? [] : [[y, x]])),
     )
@@ -645,20 +646,20 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
   it('refuses a vertical level rather than placing it as a horizontal one', () => {
     const unverified: string[] = []
     const grid = createGrid(SCREENS)
-    expandObject(grid, obj(0x15), good(), 0, null, OWNER_NONE, undefined, { vertical: true, unverified, entry: HANDLER }) // prettier-ignore
+    expandObject(grid, obj(0x15), good(), 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: true, unverified, entry: HANDLER }) // prettier-ignore
     expect(unverified[0]).toMatch(/vertical/)
   })
 
   it('the production entry refuses at the loader call site of a bare cart, draws the port and notes it', () => {
     const unverified: string[] = []
-    const { grid } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, unverified) // prettier-ignore
+    const { grid } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, { unverified, draw: drawInterpreted }) // prettier-ignore
     expect(unverified.join(' ')).toMatch(/\$0DADEB .*not verified/)
     expect(grid).toEqual(port(good(), 0x35))
   })
 
   it('expandMapOwned on a vertical level notes it and draws the port', () => {
     const unverified: string[] = []
-    const { grid } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, unverified) // prettier-ignore
+    const { grid } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, { unverified, draw: drawInterpreted }) // prettier-ignore
     expect(unverified).toHaveLength(1)
     expect(unverified[0]).toMatch(/vertical/)
     const { grid: viaPort } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, null) // prettier-ignore
@@ -669,7 +670,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
   it('two refused objects with one reason leave one note', () => {
     const unverified: string[] = []
     const two = [obj(0x35), { ...obj(0x25), x: 30 } as LevelObject]
-    expandMapOwned(two, SCREENS, good(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, unverified) // prettier-ignore
+    expandMapOwned(two, SCREENS, good(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, { unverified, draw: drawInterpreted }) // prettier-ignore
     expect(unverified).toHaveLength(1)
   })
 
@@ -678,7 +679,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       const rom = prodCart()
       const unverified: string[] = []
       const grid = createGrid(SCREENS)
-      expandObject(grid, obj(0x35), rom, 0, null, OWNER_NONE, undefined, { vertical: false, unverified }) // prettier-ignore
+      expandObject(grid, obj(0x35), rom, 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: false, unverified }) // prettier-ignore
       expect(unverified[0]).toMatch(/not the inline-table dispatch/)
       expect(grid).toEqual(port(rom, 0x35))
     })

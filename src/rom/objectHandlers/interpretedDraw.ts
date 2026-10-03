@@ -17,14 +17,7 @@ import {
   seedFromGrid,
   type InterpretOptions,
 } from './interpret'
-
-/** Standard-object handlers drawn by the interpreter. CODE_0DADEB is the cloud slope (bank_0D.asm:2671). */
-const INTERPRETED_HANDLERS: ReadonlySet<number> = new Set([0x0dadeb])
-
-/** The same ROM address in $00-$7F and its $80-$FF mirror compares equal. */
-const mirror = (a: number): number => a & 0x7fffff
-
-export const isInterpretedHandler = (a: number): boolean => INTERPRETED_HANDLERS.has(mirror(a))
+import { mirror } from './interpretedGate'
 
 /** LevLoadNrmObj: SEP #$30; JSL CODE_0DA40F; RTS (bank_05.asm:805-808). */
 const LOADER_ROUTINE = 0x0586ea
@@ -63,7 +56,14 @@ export interface InterpretedDraw {
   /** Test seam: enter here, with these options, instead of the loader's entry. */
   entry?: number
   options?: InterpretOptions
+  /** The drawing function itself, so the expander never imports it (see interpretedGate.ts). */
+  draw: DrawInterpreted
 }
+
+export type DrawInterpreted = (cur: Cursor, handler: number, ctx: InterpretedDraw) => boolean
+
+/** What a caller of expandMap hands over: the note sink and the function that fills it. */
+export type InterpretedSink = Pick<InterpretedDraw, 'unverified' | 'draw'>
 
 const hex6 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(6, '0')
 
@@ -91,7 +91,7 @@ export function drawInterpreted(cur: Cursor, handler: number, ctx: InterpretedDr
     },
   )
   if (r.refusal) return note(`${r.refusal.reason} at ${hex6(r.refusal.at)}`)
-  const reached = r.dispatches.at(-1) ?? 0
+  const reached = r.dispatches[r.dispatches.length - 1] ?? 0
   if (ctx.entry === undefined && mirror(reached) !== mirror(handler))
     return note(`the ROM's dispatch reaches ${hex6(reached)}`)
   applyWrites(cur.grid, r.writes, cur.owners, cur.owner)

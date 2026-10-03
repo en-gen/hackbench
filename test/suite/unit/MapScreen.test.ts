@@ -478,7 +478,7 @@ describe('buildL1Inputs (synthetic)', () => {
     const spy = vi.mocked(Expander.expandMap)
     const real = spy.getMockImplementation()!
     spy.mockImplementationOnce((...a) => {
-      ;(a[8] as string[]).push('NOTE FROM THE EXPANDER')
+      ;(a[8] as { unverified: string[] }).unverified.push('NOTE FROM THE EXPANDER')
       return real(...a)
     })
     const r = buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
@@ -491,7 +491,7 @@ describe('buildL1Inputs (synthetic)', () => {
     const spy = vi.mocked(Expander.expandMap)
     spy.mockClear()
     buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
-    expect(Array.isArray(spy.mock.calls[0]![8])).toBe(true)
+    expect(spy.mock.calls[0]![8]).toMatchObject({ unverified: [], draw: expect.any(Function) })
   })
 
   it.each([0x09, 0x0b, 0x10])(
@@ -792,7 +792,7 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     const spy = vi.mocked(Expander.expandMap)
     const real = spy.getMockImplementation()!
     spy.mockImplementationOnce((...a) => {
-      ;(a[8] as string[]).push('NOTE FROM THE EXPANDER')
+      ;(a[8] as { unverified: string[] }).unverified.push('NOTE FROM THE EXPANDER')
       return real(...a)
     })
     const m = model(0x105)

@@ -26,7 +26,7 @@ import {
   TileGrid,
 } from './objectHandlers/cursor'
 import { dispatchStandard, dispatchExtended } from './objectHandlers/dispatch'
-import type { InterpretedDraw } from './objectHandlers/interpretedDraw'
+import type { InterpretedDraw, InterpretedSink } from './objectHandlers/interpretedDraw'
 
 /** Empty tile = $25 (bank_05.asm CODE_05801E fills the level map with #$25). */
 export const TILE_EMPTY = 0x25
@@ -235,9 +235,9 @@ function applyMode11BossArena(grid: TileGrid): void {
  * from (#567); defaults to all uncleared, matching a fresh save and the
  * `layers_v5` captures.
  *
- * `unverified` is required: a caller that takes the notes gets the interpreter
- * path for the gated handlers (#342), and a refusal draws the port and adds
- * its reason to the array. `null` opts out (the port draws, nobody is told),
+ * `sink` is required: a caller that hands over a note array and the drawing
+ * function gets the interpreter path for the gated handlers (#342), and a
+ * refusal draws the port and adds its reason to the array. `null` opts out (the port draws, nobody is told),
  * for the reference extension and for callers that read a single tile.
  */
 export function expandMap(
@@ -249,7 +249,7 @@ export function expandMap(
   levelMode: number | undefined,
   levelNum: number | undefined,
   switchFlags: SwitchFlags,
-  unverified: string[] | null,
+  sink: InterpretedSink | null,
 ): TileGrid {
   return expandMapOwned(
     objects,
@@ -260,7 +260,7 @@ export function expandMap(
     levelMode,
     levelNum,
     switchFlags,
-    unverified,
+    sink,
   ).grid
 }
 
@@ -289,7 +289,7 @@ export function expandMapOwned(
   levelMode: number | undefined,
   levelNum: number | undefined,
   switchFlags: SwitchFlags,
-  unverified: string[] | null,
+  sink: InterpretedSink | null,
 ): ExpandedMap {
   // Boss-arena modes override the header screen count.
   const effectiveScreens = levelMode === 9 || levelMode === 11 ? BOSS_ARENA_SCREENS : screens
@@ -302,7 +302,7 @@ export function expandMapOwned(
 
   const owners: OwnerGrid = grid.map(row => new Array<number>(row.length).fill(OWNER_NONE))
 
-  const draw = unverified && { vertical: isVertical, unverified }
+  const draw = sink && { vertical: isVertical, ...sink }
   for (let i = 0; i < objects.length; i++) {
     expandObject(grid, objects[i], rom, tileset, owners, i, switchFlags, draw)
   }
