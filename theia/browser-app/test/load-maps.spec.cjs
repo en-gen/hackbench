@@ -17,8 +17,12 @@ const { maxDepth } = require('./tree-depth.cjs')
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 
-/** Vanilla's documented map count, from docs/glossary.md. */
-const VANILLA_MAPS = 235
+/**
+ * Vanilla's 235 real slots, grouped by shared L1 pointer, are 193 maps (#434).
+ * 194 distinct slots are shown: $000 and $100 are one map named by two bonus roles.
+ */
+const VANILLA_MAPS = 193
+const VANILLA_SHOWN_SLOTS = 194
 
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary
@@ -126,12 +130,11 @@ test('a new project loads every map its cartridge holds', async ({ page }) => {
   const result = await loadMaps(page, path.join(tmp, 'MyHack'))
 
   expect(result.error).toBeUndefined()
-  // The binding assertion. 235 is the glossary's documented figure for
-  // vanilla, and it is derived from the cart rather than assumed, so a hack
-  // would report its own number here.
+  // The binding assertion. The count is derived from the cart rather than
+  // assumed, so a hack would report its own number here.
   expect(result.mapCount).toBe(VANILLA_MAPS)
   // Every map has to be reachable in the tree, not merely counted.
-  expect(result.distinct).toBe(VANILLA_MAPS)
+  expect(result.distinct).toBe(VANILLA_SHOWN_SLOTS)
 })
 
 test('a ROM whose screen-exit routine is patched lists every map flat, and says why', async ({
@@ -149,12 +152,46 @@ test('a ROM whose screen-exit routine is patched lists every map flat, and says 
   const result = await loadMaps(page, path.join(tmp, 'Patched'), patched)
   expect(result.error).toBeUndefined()
   expect(result.mapCount).toBe(VANILLA_MAPS)
-  expect(result.distinct).toBe(VANILLA_MAPS)
+  expect(result.distinct).toBe(VANILLA_SHOWN_SLOTS)
   // Vanilla nests (see the grouping test); the patched copy must not.
   expect(result.deepest).toBe(0)
   await expect
     .poll(() => page.evaluate(() => document.body.innerText), { timeout: 10000 })
     .toContain('Map hierarchy unavailable: $05D7CB')
+})
+
+test('a map that several slots share is one node: $022 has exactly two children (#434)', async ({
+  page,
+}) => {
+  const created = await page.evaluate(
+    async ({ romPath, directory }) => {
+      const project = await getSvc('Symbol(ProjectService)').createProject({
+        romPath,
+        name: 'Chocolate',
+        directory,
+      })
+      return project.manifestPath
+    },
+    { romPath: ROM, directory: path.join(tmp, 'Chocolate') },
+  )
+  fs.mkdirSync(path.join(tmp, 'Chocolate', 'meta'), { recursive: true })
+  fs.writeFileSync(path.join(tmp, 'Chocolate', 'meta', 'groups.json'), '[]\n')
+
+  const kids = await page.evaluate(async manifestPath => {
+    const w = await getWidget('hackbench.map-explorer')
+    await w.load(manifestPath)
+    const roots = w.model.root.children || []
+    const top = (roots.find(r => r.id === 'group:unassigned')?.children || []).find(
+      n => n.index === 0x22,
+    )
+    return top ? top.children.map(c => ({ index: c.index, kind: c.kind })) : null
+  }, created)
+
+  // Map B ($0F5, shared with $0F6) and the room $0BE; $0D0/$0D1 are map A itself.
+  expect(kids).toEqual([
+    { index: 0x0f5, kind: 'map' },
+    { index: 0x0be, kind: 'map' },
+  ])
 })
 
 /** Create a project against `rom` and open the map view for `index`, returning its shown text. */

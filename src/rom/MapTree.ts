@@ -117,8 +117,10 @@ export interface MapTree {
 /**
  * Group every map in the ROM.
  *
- * Coverage is the contract: every real slot appears somewhere, either under
- * an overworld root or under unassigned. A sub-area reached from two levels
+ * A map is every real slot sharing one L1 pointer (#434), labelled by its
+ * lowest overworld-entrance slot, else its lowest slot. Coverage is the
+ * contract: every map appears somewhere, either under an overworld root or
+ * under unassigned; `mapCount` counts maps, not slots. A sub-area reached from two levels
  * is expanded under both, matching how a player navigates rather than the
  * graph's node set (see LevelTree.buildLevelSubtree), so deeper duplicates
  * are intended; only the top level of each root is unique.
@@ -130,7 +132,6 @@ export function buildMapTree(
   fingerprints: OverworldFingerprints = STOCK_OVERWORLD_FINGERPRINTS,
 ): MapTree {
   const catalog = buildLevelCatalog(rom)
-  const maps = new Set(catalog.entries.filter(e => e.isReal).map(e => e.index))
   const notes = [...catalog.notes]
 
   // Launch tiles the overworld grants a translevel, which is what a hacker
@@ -148,6 +149,35 @@ export function buildMapTree(
   const name = (index: number): string | null => rom.getLevelName(index, entranceIndex)
   const aliasesOf = (index: number): number[] => catalog.entries[index]?.l1Aliases ?? []
 
+  // A MAP is the set of real slots sharing one L1 pointer (the catalog's
+  // l1Aliases), on both sides of $100. It is labelled by its lowest
+  // overworld-entrance slot, else its lowest slot. The exit graph stays
+  // slot-based (each slot's destination high byte needs its own submap flag).
+  const mapOf = new Map<number, number>()
+  for (const e of catalog.entries) {
+    if (!e.isReal || mapOf.has(e.index)) continue
+    const members = [e.index, ...e.l1Aliases].sort((a, b) => a - b)
+    const label = members.find(isRoot) ?? members[0]!
+    for (const m of members) mapOf.set(m, label)
+  }
+  const maps = new Set(mapOf.values())
+
+  // Map -> map edges: the union over a map's slots of their resolved exits.
+  // Only slots the BFS reached have edges. Which exit leads to which entrance
+  // is dropped here (#444); a destination outside the map set is filler the
+  // exit data still points at, and self edges add nothing.
+  const mapGraph = new Map<number, number[]>()
+  for (const [slot, dests] of exitGraph) {
+    const from = mapOf.get(slot)
+    if (from === undefined) continue
+    const out = mapGraph.get(from) ?? []
+    for (const d of dests) {
+      const to = mapOf.get(d)
+      if (to !== undefined && to !== from && !out.includes(to)) out.push(to)
+    }
+    mapGraph.set(from, out)
+  }
+
   // Roots come from the map set, not from classifyLevels, so a slot the
   // latter deduped away still heads its own folder.
   const roots = [...maps].filter(isRoot).sort((a, b) => a - b)
@@ -162,13 +192,14 @@ export function buildMapTree(
       // the editable unit is 'map', and this module speaks the glossary.
       kind: node.kind === 'room' ? 'map' : node.kind,
       l1Aliases: aliasesOf(node.index),
-      // A destination outside the map set is filler the exit data still
-      // points at; showing it would invent a map.
-      children: node.children.filter(c => maps.has(c.index)).map(adopt),
+      children: node.children.map(adopt),
     }
   }
 
-  const overworld = roots.map(root => adopt(buildLevelSubtree(root, exitGraph, isRoot)))
+  // Another root map heads its own folder, but the current root is a loop target.
+  const overworld = roots.map(root =>
+    adopt(buildLevelSubtree(root, mapGraph, m => isRoot(m) && m !== root)),
+  )
 
   // Read from the ROM, and only adopted when the slot named actually holds a
   // real map: a routine that has been repointed could name a filler slot,
@@ -176,11 +207,18 @@ export function buildMapTree(
   const found = findSpecialMaps(rom.rom)
   const bonusRead = findBonusEntrances(rom.rom, fingerprints.bonus)
   notes.push(...found.notes, ...bonusRead.notes)
+  const treeMaps = new Set(placed)
+  const hitSlots = new Set<number>()
   // One pass, so a slot named twice (by two roles, on a hack) is placed once.
   const adoptHits = <R extends string>(hits: SpecialMap<R>[]): SpecialMapNode<R>[] =>
     hits.flatMap(hit => {
-      if (!maps.has(hit.index) || placed.has(hit.index)) return []
-      placed.add(hit.index)
+      const map = mapOf.get(hit.index)
+      // Two roles can name slots of one map ($000 and $100 on vanilla); both are
+      // listed, because the role is what the user reads. A map the overworld
+      // tree already holds is not listed again.
+      if (map === undefined || treeMaps.has(map) || hitSlots.has(hit.index)) return []
+      hitSlots.add(hit.index)
+      placed.add(map)
       const { index } = hit
       return [
         {

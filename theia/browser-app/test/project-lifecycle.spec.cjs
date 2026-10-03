@@ -200,7 +200,7 @@ test('a reopened project shows the same maps it showed when created', async ({ p
     { romPath: ROM, directory: dir },
   )
 
-  expect(counts.onCreate).toBe(235)
+  expect(counts.onCreate).toBe(193)
   expect(counts.onReopen).toBe(counts.onCreate)
   expect(counts.name).toBe('Reopened')
 })

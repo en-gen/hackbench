@@ -26,7 +26,8 @@ const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 const PACE = Number(process.argv[2] || 1600)
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
-const VANILLA_MAPS = 235
+const VANILLA_MAPS = 193 // maps (shared L1 pointer), from 235 slots
+const VANILLA_SHOWN_SLOTS = 194
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
@@ -124,7 +125,7 @@ async function main() {
   await say(
     '2. Load every map',
     'The count comes from the ROM, never from a constant: a hack with 354 maps',
-    'reports 354. docs/glossary.md documents vanilla as 235.',
+    'reports 354. the 235 real slots of vanilla are 193 maps.',
   )
 
   const loaded = await page.evaluate(async mp => {
@@ -146,7 +147,7 @@ async function main() {
   await say(
     '2. Load every map',
     `widget reports ${loaded.mapCount} maps; ${loaded.distinct} distinct slots are reachable in the tree`,
-    `expected ${VANILLA_MAPS}  ${ok(loaded.mapCount === VANILLA_MAPS && loaded.distinct === VANILLA_MAPS)}`,
+    `expected ${VANILLA_MAPS}  ${ok(loaded.mapCount === VANILLA_MAPS && loaded.distinct === VANILLA_SHOWN_SLOTS)}`,
   )
 
   // 3. Grouping. A correct count with a flat tree passes every count check.

@@ -75,7 +75,8 @@ describe.skipIf(!hasRom(VANILLA))('map data aliasing', () => {
     // Deriving it in the catalog is not enough: the tree is what a view walks,
     // so an alias the tree drops is an alias the user never gets warned about.
     expect(nodeAt(0x015)?.l1Aliases).toEqual([0x016, 0x017])
-    expect(nodeAt(0x017)?.l1Aliases).toEqual([0x015, 0x016])
+    // An alias slot is not its own node: the map is labelled by its lowest slot.
+    expect(nodeAt(0x017)).toBeUndefined()
     expect(nodeAt(0x105)?.l1Aliases).toEqual([])
 
     // Every node's aliases must agree with the catalog, including sub-area and

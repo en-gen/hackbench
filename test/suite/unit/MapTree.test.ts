@@ -64,18 +64,24 @@ describe('buildMapTree', () => {
        */
       it('covers every real map the catalog found, and invents none', () => {
         const rom = load(file)
-        const catalog = buildLevelCatalog(rom)
-        const expected = new Set(catalog.entries.filter(e => e.isReal).map(e => e.index))
+        const entries = buildLevelCatalog(rom).entries.filter(e => e.isReal)
+        const real = new Set(entries.map(e => e.index))
 
         const tree = buildMapTree(rom)
         const actual = indicesIn(tree)
 
-        const missing = [...expected].filter(i => !actual.has(i))
-        const invented = [...actual].filter(i => !expected.has(i))
+        // A map is every slot sharing one L1 pointer (#434), shown once under
+        // one label, so coverage is per map: some slot of each group appears.
+        const missing = entries.filter(e => ![e.index, ...e.l1Aliases].some(i => actual.has(i)))
+        const invented = [...actual].filter(i => !real.has(i))
+        const distinctMaps = new Set(entries.map(e => [e.index, ...e.l1Aliases].sort().join()))
 
-        expect(missing, 'maps the tree failed to place').toEqual([])
+        expect(
+          missing.map(e => e.index),
+          'maps the tree failed to place',
+        ).toEqual([])
         expect(invented, 'indices the tree shows that hold no real data').toEqual([])
-        expect(tree.mapCount).toBe(expected.size)
+        expect(tree.mapCount).toBe(distinctMaps.size)
       })
 
       it('places every map exactly once at the top level of one root', () => {
@@ -134,11 +140,11 @@ describe('buildMapTree', () => {
 describe.skipIf(!hasRom(VANILLA))('buildMapTree, on the vanilla cart', () => {
   /**
    * Vanilla's documented figure, from docs/glossary.md: 512 slots, 277 empty,
-   * 235 maps. Pinned because it is the number every other count in this
+   * 235 real slots. Pinned because it is the number every other count in this
    * project gets checked against.
    */
-  it('finds the 235 maps the glossary documents for vanilla', () => {
-    expect(buildMapTree(load(VANILLA)).mapCount).toBe(235)
+  it('finds 193 maps: the 235 real slots of the glossary, grouped by shared L1 pointer', () => {
+    expect(buildMapTree(load(VANILLA)).mapCount).toBe(193)
   })
 
   /**
@@ -268,13 +274,10 @@ describe.skipIf(!hasRom(VANILLA))('special maps', () => {
 
   it('still covers every map once they have been moved', () => {
     const rom = load(VANILLA)
-    const expected = new Set(
-      buildLevelCatalog(rom)
-        .entries.filter(e => e.isReal)
-        .map(e => e.index),
-    )
+    const entries = buildLevelCatalog(rom).entries.filter(e => e.isReal)
     const actual = indicesIn(buildMapTree(rom))
-    expect([...expected].filter(i => !actual.has(i))).toEqual([])
+    const missing = entries.filter(e => ![e.index, ...e.l1Aliases].some(i => actual.has(i)))
+    expect(missing.map(e => e.index)).toEqual([])
   })
 })
 
