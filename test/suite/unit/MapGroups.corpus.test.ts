@@ -114,12 +114,11 @@ describe.skipIf(!hasRom(VANILLA))('MapGroups seed table (vanilla corpus)', () =>
   }
 
   // $017 and $019 hold a leftover name and were deliberately left ungrouped
-  // (see the spec). Measured on this corpus: $017 shares its L1 pointer with
-  // $015 and $016, so it is a slot of map $015 and not a top-level map of its
-  // own (#434); $019 is not top-level at all.
-  it('$017 is a slot of map $015, not a top-level map', () => {
-    expect(topLevel.has(0x017)).toBe(false)
-    expect(topLevel.has(0x015)).toBe(true)
+  // (see the spec). Measured on this corpus: $017 IS a top-level map in
+  // buildMapTree (its own root, unreached by any launch tile); $019 is not
+  // top-level at all. Asserted as measured, not as originally guessed.
+  it('$017 is a top-level map (unreached by a launch tile, not grouped)', () => {
+    expect(topLevel.has(0x017)).toBe(true)
   })
   it('$019 is not a top-level map', () => {
     expect(topLevel.has(0x019)).toBe(false)
