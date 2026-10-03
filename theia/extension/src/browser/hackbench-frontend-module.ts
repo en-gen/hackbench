@@ -37,6 +37,7 @@ import { CommonFrontendContribution } from '@theia/core/lib/browser/common-front
 import { ThemeService } from '@theia/core/lib/browser/theming'
 import { SystemColorThemePicker, SystemThemeService } from './system-color-theme'
 import { CtrlWheelGuardContribution } from './ctrl-wheel-guard-contribution'
+import { PerfContribution } from './perf-contribution'
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   rebind(OutlineViewContribution).to(HiddenOutlineViewContribution).inSingletonScope()
@@ -88,6 +89,9 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
 
   bind(BrandContribution).toSelf().inSingletonScope()
   bind(FrontendApplicationContribution).toService(BrandContribution)
+
+  bind(PerfContribution).toSelf().inSingletonScope()
+  bind(FrontendApplicationContribution).toService(PerfContribution)
 
   bind(CtrlWheelGuardContribution).toSelf().inSingletonScope()
   bind(FrontendApplicationContribution).toService(CtrlWheelGuardContribution)

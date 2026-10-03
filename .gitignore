@@ -41,10 +41,27 @@ tools/*
 #   tools/scripts/  — first-party CLI helpers (.ts/.js/.py/.mjs)
 #   tools/vendor/   — vendored open-source libraries (each in its own subdir)
 #   tools/mesen/    — Mesen integration (*.lua kept, binaries + dumps ignored)
+#   tools/perf/     - perf gates: result format, detector, paired runner (#413)
 !tools/scripts/
 !tools/scripts/**
 !tools/vendor/
 !tools/vendor/**
+!tools/perf/
+!tools/perf/**
+# The blanket unignores above re-include anything placed inside these
+# directories, including a ROM or patch dropped there by accident - so the
+# copyright-sensitive extensions at the top of this file are re-ignored
+# here, scoped to these two trees, to close that hole.
+tools/scripts/**/*.smc
+tools/scripts/**/*.sfc
+tools/scripts/**/*.rom
+tools/scripts/**/*.ips
+tools/scripts/**/*.bps
+tools/perf/**/*.smc
+tools/perf/**/*.sfc
+tools/perf/**/*.rom
+tools/perf/**/*.ips
+tools/perf/**/*.bps
 # tools/mesen: unignore the directory first (git cannot re-include files
 # when a parent directory remains excluded), then re-ignore everything
 # inside except the *.lua scripts and this README.
@@ -80,6 +97,14 @@ yarn-error.log*
 # Coverage output (vitest/v8)
 coverage/
 *.lcov
+
+# Local perf-gate run artifacts (#413): `npm run perf:core`'s default --out
+# and bisect.mjs's per-commit paired-round file. Both are scratch output, not
+# source; a real nightly run writes into hackbench-validation's perf-data
+# branch instead.
+/perf-core-results.json
+/perf-app-results.json
+bisect-round.json
 
 # Secrets / local env overrides
 .env

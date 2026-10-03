@@ -108,6 +108,13 @@ export interface OverworldLayerDto {
   prioBase64: string
 }
 
+/** One half of the overworld, drawn on its own 512x512 canvas. */
+export interface OverworldHalfDto {
+  l1: OverworldLayerDto
+  /** Absent exactly when `l2Unavailable` says why. */
+  l2?: OverworldLayerDto
+}
+
 /**
  * The Overworld view's layers, composed in the browser (OverworldComposite)
  * so a layer toggle needs no round trip, or why it cannot be drawn. A
@@ -116,13 +123,10 @@ export interface OverworldLayerDto {
 export type OverworldDto =
   | {
       status: 'ok'
-      width: number
-      height: number
       /** CGRAM color 0, RGBA. */
       backdrop: number[]
-      l1: OverworldLayerDto
-      /** Absent exactly when `l2Unavailable` says why. */
-      l2?: OverworldLayerDto
+      /** Half 0 (the hub), then half 1 (areas 1-6): independent layouts. */
+      halves: [OverworldHalfDto, OverworldHalfDto]
       l2Unavailable?: string
     }
   | { status: 'unavailable'; reason: string }

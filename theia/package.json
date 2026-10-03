@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "prepare": "lerna run prepare",
-    "build:browser": "yarn --cwd browser-app bundle",
+    "build:browser": "yarn --cwd browser-app bundle && node browser-app/stamp-build.cjs",
     "start:browser": "yarn --cwd browser-app start",
     "watch:browser": "yarn --cwd browser-app watch",
     "build": "yarn --cwd electron-app bundle",

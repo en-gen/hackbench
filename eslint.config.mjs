@@ -70,7 +70,7 @@ export default [
   // Playwright specs: the callback bodies run in the page, so browser globals
   // are legal there.
   {
-    files: ['theia/browser-app/test/**/*.cjs'],
+    files: ['theia/browser-app/test/**/*.cjs', 'theia/browser-app/perf/**/*.cjs'],
     languageOptions: {
       globals: { ...globals.node, ...globals.browser, ...globals.es2020 },
     },
@@ -81,7 +81,7 @@ export default [
   // Node scope and real at page runtime. Declaring them is telling ESLint the
   // truth about where the code runs, not silencing a finding.
   {
-    files: ['theia/browser-app/test/**/*.cjs'],
+    files: ['theia/browser-app/test/**/*.cjs', 'theia/browser-app/perf/**/*.cjs'],
     languageOptions: {
       globals: { getSvc: 'readonly', getWidget: 'readonly', checksumOf: 'readonly' },
     },

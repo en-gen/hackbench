@@ -88,6 +88,7 @@ import {
 } from './map16-view-model'
 import { decodeSwitchButton, type SwitchButtonImages } from './switch-toggle'
 import { ghostOf } from '../../../../src/rom/render/HiddenTiles'
+import { perfEnd, perfStart } from '../common/perf-marks'
 
 export { MAP16_VIEW_ID, map16WidgetId } from './map16-view-model'
 
@@ -332,6 +333,7 @@ export class Map16ViewWidget extends ReactWidget {
   }
 
   async open(options: Map16ViewOptions): Promise<void> {
+    perfStart('open-map16')
     this.options = options
     this.id = map16WidgetId(options.layer)
     this.title.label = options.label
@@ -713,6 +715,8 @@ export class Map16ViewWidget extends ReactWidget {
         sliceH,
       )
     }
+
+    perfEnd('open-map16')
 
     if (this.hoverTileId !== undefined) {
       const { x, y } = tileOrigin(this.hoverTileId, sheet.tilesPerRow)
