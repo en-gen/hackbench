@@ -500,6 +500,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
   const BRANCH = 0x0586c5 // LDA $5A; BNE +6, ahead of the call (bank_05.asm:783-784)
   const CALL_SITE = 0x0586cf // JSR LevLoadNrmObj, in LoadLevelData (bank_05.asm:788)
   const STUB = 0x0d8800 // a dispatch target that is not the handler
+  const HOP = 0x0d8900 // a routine that dispatches once more
   const loaderBytes = (operand = [lo(ENTRY), hi(ENTRY), 0x0d]) => [0xe2, 0x30, 0x22, ...operand, 0x60] // prettier-ignore
 
   /** A cart whose object $12 reaches `code` at $0DADEB as pipe variant 5. */
@@ -525,12 +526,15 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       loader?: number[]
       branch?: number[]
       call?: number[]
+      /** Dispatch first to a hop that dispatches again, to `to`. */
+      hop?: boolean
     } = {},
   ): RomFile {
     const { to = HANDLER, bank = 0x0d, loader = loaderBytes(), call = [0x20, lo(LOADER), hi(LOADER)], branch = [0xa5, 0x5a, 0xd0, 0x06] } = o // prettier-ignore
-    const entry = [0xa9, 0, 0x22, lo(SIG_AT), hi(SIG_AT), 0x0d, lo(to), hi(to), bank]
+    const dispatchTo = (t: number) => [0xa9, 0, 0x22, lo(SIG_AT), hi(SIG_AT), 0x0d, lo(t), hi(t), bank] // prettier-ignore
+    const entry = dispatchTo(o.hop ? HOP : to)
     const handler = staircaseCode(HANDLER, undefined, undefined, RTL)
-    const extra: [number, number[]][] = [[ENTRY, entry], [SIG_AT, SIG], [LOADER, loader], [BRANCH, branch], [CALL_SITE, call], [STUB, [RTL]]] // prettier-ignore
+    const extra: [number, number[]][] = [[ENTRY, entry], [SIG_AT, SIG], [LOADER, loader], [BRANCH, branch], [CALL_SITE, call], [STUB, [RTL]], [HOP, dispatchTo(to)]] // prettier-ignore
     return slopeCart(handler, extra, o.variantBank ?? bank)
   }
   const obj = (size: number): LevelObject => ({ type: 'standard', objectNumber: CLOUD, settings: size, x: 16, y: 2 }) as LevelObject // prettier-ignore
@@ -688,6 +692,35 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       const r = expandProd(prodCart(), 0x35)
       expect(lips(r.grid)).toEqual(STAIRS)
       expect(r.unverified).toEqual([])
+    })
+
+    it('judges the LAST dispatch: a hop that dispatches again on to the handler is verified', () => {
+      const r = expandProd(prodCart({ hop: true }), 0x35)
+      expect(lips(r.grid)).toEqual(STAIRS)
+      expect(r.unverified).toEqual([])
+      // And a hop whose last dispatch is elsewhere is not.
+      const off = expandProd(prodCart({ hop: true, to: STUB }), 0x35)
+      expect(off.unverified[0]).toMatch(/dispatch reaches \$0D8800/)
+    })
+
+    it('ignores a widened sink: a vertical map is still refused and the loader still checked', () => {
+      const widened = (u: string[]) => ({ unverified: u, draw: drawInterpreted, vertical: false, entry: HANDLER }) as never // prettier-ignore
+      const v: string[] = []
+      expandMapOwned([obj(0x35)], SCREENS, prodCart(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, widened(v)) // prettier-ignore
+      expect(v[0]).toMatch(/vertical/)
+      const h: string[] = []
+      const bad = prodCart({ loader: [0, 0, 0, 0, 0, 0, 0] })
+      expandMapOwned([obj(0x35)], SCREENS, bad, 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, widened(h)) // prettier-ignore
+      expect(h[0]).toMatch(/loader/)
+    })
+
+    it('falls back to the port with a note, not a throw, when the sink has no draw function', () => {
+      const unverified: string[] = []
+      const rom = prodCart()
+      const { grid } = expandMapOwned([obj(0x35)], SCREENS, rom, 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, { unverified } as never) // prettier-ignore
+      expect(unverified).toHaveLength(1)
+      expect(unverified[0]).toMatch(/\$0DADEB .*not verified/)
+      expect(grid).toEqual(port(rom, 0x35))
     })
 
     it('draws the port and says so when the dispatch reaches another routine', () => {

@@ -13,6 +13,9 @@ import * as ts from 'typescript'
 const ROOT = path.resolve(__dirname, '../../..')
 const NODE_ONLY = /^(node:)?crypto$/
 
+const isLiteralSpec = (n: ts.Node): boolean =>
+  ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)
+
 /**
  * The module specifiers `text` pulls in at runtime, read from the AST: a
  * type-only import or export is erased, and a string or comment that merely
@@ -20,7 +23,13 @@ const NODE_ONLY = /^(node:)?crypto$/
  */
 function runtimeSpecifiers(file: string, text: string): string[] {
   const out: string[] = []
-  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const sf = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    /\.tsx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
   const visit = (n: ts.Node): void => {
     if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
       const c = n.importClause
@@ -53,7 +62,7 @@ function runtimeSpecifiers(file: string, text: string): string[] {
     } else if (
       ts.isCallExpression(n) &&
       n.arguments.length === 1 &&
-      ts.isStringLiteral(n.arguments[0]!)
+      isLiteralSpec(n.arguments[0]!)
     ) {
       // prettier-ignore
       const callee = n.expression
@@ -62,7 +71,7 @@ function runtimeSpecifiers(file: string, text: string): string[] {
         (ts.isIdentifier(callee) && callee.text === 'require')
       )
         // prettier-ignore
-        out.push((n.arguments[0] as ts.StringLiteral).text)
+        out.push((n.arguments[0] as ts.StringLiteral | ts.NoSubstitutionTemplateLiteral).text)
     }
     ts.forEachChild(n, visit)
   }
@@ -157,6 +166,12 @@ describe('ObjectExpander stays browser-bundle safe (#342)', () => {
   it('follows import { type A, b } and a default import beside type names', () => {
     expect(flagged("import { type A, b } from 'crypto'")).toBe(1)
     expect(flagged("import d, { type A } from 'crypto'")).toBe(1)
+  })
+
+  it('reads a .ts file as TS (angle-bracket assertion) and follows a template-literal specifier', () => {
+    expect(flagged("const x = <unknown>require('crypto')")).toBe(1)
+    expect(flagged('const m = await import(`crypto`)')).toBe(1)
+    expect(flagged('const c = require(`node:crypto`)')).toBe(1)
   })
 
   it('follows import x = require() and a .js-suffixed relative specifier', () => {

@@ -17,7 +17,7 @@ import {
   seedFromGrid,
   type InterpretOptions,
 } from './interpret'
-import { mirror } from './interpretedGate'
+import { mirror, noteUnverified } from './interpretedGate'
 
 /** LevLoadNrmObj: SEP #$30; JSL CODE_0DA40F; RTS (bank_05.asm:805-808). */
 const LOADER_ROUTINE = 0x0586ea
@@ -70,8 +70,7 @@ const hex6 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(
 /** True when the interpreter drew the object; false leaves it to the port, with the reason recorded. */
 export function drawInterpreted(cur: Cursor, handler: number, ctx: InterpretedDraw): boolean {
   const note = (why: string): false => {
-    const line = `Handler ${hex6(handler)} is drawn by the built-in model, not verified against this ROM: ${why}.`
-    if (!ctx.unverified.includes(line)) ctx.unverified.push(line)
+    noteUnverified(ctx.unverified, handler, why)
     return false
   }
   if (ctx.vertical) return note('vertical levels are not interpreted yet')

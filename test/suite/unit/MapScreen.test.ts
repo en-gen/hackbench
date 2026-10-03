@@ -30,6 +30,9 @@ import {
   type SwitchFlags,
 } from '../../../src/rom/ObjectExpander'
 import { parseLevelHeader } from '../../../src/rom/LevelParser'
+import * as ParserReal from '../../../src/rom/LevelParser'
+import type * as ParserMod from '../../../src/rom/LevelParser'
+import { drawInterpreted } from '../../../src/rom/objectHandlers/interpretedDraw'
 import {
   PIPE_VARIANT_TILE_COUNT,
   PIPE_VARIANT_TILE_START,
@@ -90,6 +93,10 @@ vi.mock('../../../src/rom/ObjectExpander', async importOriginal => {
 })
 
 // Pass-through wrappers, so one test can stub the readers a fake ROM cannot satisfy (#342).
+vi.mock('../../../src/rom/LevelParser', async importOriginal => {
+  const real = await importOriginal<typeof ParserMod>()
+  return { ...real, parseLevelObjects: vi.fn(real.parseLevelObjects) }
+})
 vi.mock('../../../src/rom/Map16', async importOriginal => {
   const real = await importOriginal<typeof Map16Mod>()
   return {
@@ -119,6 +126,7 @@ vi.mock('../../../src/rom/ExAnimationLoader', async importOriginal => {
 afterEach(() => {
   for (const f of [
     Expander.expandMap,
+    ParserReal.parseLevelObjects,
     Map16Real.loadMap16WithPipeVariants,
     Map16Real.map16TileCapacity,
     GfxReal.gfxSource,
@@ -487,11 +495,47 @@ describe('buildL1Inputs (synthetic)', () => {
     expect((screenResult(r.inputs, 0) as { note?: string }).note).toContain('NOTE FROM THE EXPANDER') // prettier-ignore
   })
 
+  // A cart whose object $12 reaches CODE_0DADEB as pipe variant 5 (via the tileset dispatch,
+  // as ObjectExpander reads it) and nothing else: the interpreter refuses at the loader.
+  const slopeObjectRom = (): SmwRom => {
+    const base = fakeRom(0)
+    const buf = Buffer.alloc(0x80000, 0)
+    buf[0x7fd5] = 0x20
+    buf.set(noL1Check(), 0x1000)
+    const rom = new RomFile('slope.sfc', buf)
+    const DISPATCH = 0x0d9000
+    const table = new Array(63 * 3).fill(0)
+    table.splice((0x12 - 1) * 3, 3, 0x3e, 0xab, 0x0d)
+    const variants = new Array(30).fill(0)
+    variants.splice(5 * 3, 3, 0xeb, 0xad, 0x0d)
+    rom.writeAt(ADDR_TILESET_DISPATCH, [DISPATCH & 0xff, (DISPATCH >> 8) & 0xff, 0x0d])
+    rom.writeAt(DISPATCH + 10, table)
+    rom.writeAt(0x0dab3e + 18, variants)
+    return { ...base, rom } as unknown as SmwRom
+  }
+
+  it('draws through the real drawInterpreted: a refusal reaches inputs.unverified and the wire note, without a ROM (#342)', () => {
+    vi.mocked(GfxReal.gfxSource).mockReturnValueOnce({ ok: true } as never)
+    vi.mocked(Map16Real.map16TileCapacity).mockReturnValueOnce({} as never)
+    vi.mocked(StockReal.readLevelCol1).mockReturnValueOnce({ bg: 0, obj: 0 } as never)
+    vi.mocked(AnimReal.loadAnimationDataOrReason).mockReturnValueOnce({ ok: false, reason: 'stub' })
+    vi.mocked(ExReal.loadExAnimData).mockReturnValueOnce(null)
+    vi.mocked(Map16Real.loadMap16WithPipeVariants).mockReturnValueOnce({ tiles: [], pipeVariants: [] } as never) // prettier-ignore
+    vi.mocked(GfxReal.loadVram).mockReturnValueOnce({} as never)
+    const slope = { type: 'standard', objectNumber: 0x12, settings: 0xe5, x: 16, y: 2 }
+    vi.mocked(ParserReal.parseLevelObjects).mockReturnValueOnce({ objects: [slope] } as never)
+    const r = buildL1Inputs(slopeObjectRom(), 0x105, UNCLEARED)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.inputs.unverified).toHaveLength(1)
+    expect(r.inputs.unverified[0]).toMatch(/\$0DADEB .*not verified.*loader/)
+    expect((screenResult(r.inputs, 0) as { note?: string }).note).toContain(r.inputs.unverified[0]!)
+  })
+
   it('hands expandMap a note sink, not an opt-out, so refusals can reach the inputs (#342)', () => {
     const spy = vi.mocked(Expander.expandMap)
     spy.mockClear()
     buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
-    expect(spy.mock.calls[0]![8]).toMatchObject({ unverified: [], draw: expect.any(Function) })
+    expect(spy.mock.calls[0]![8]).toMatchObject({ unverified: [], draw: drawInterpreted })
   })
 
   it.each([0x09, 0x0b, 0x10])(
