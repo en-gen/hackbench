@@ -461,14 +461,57 @@ function stagedEntries() {
   return entries
 }
 
+// Read budget (#461): sizes are checked with --batch-check before any content
+// is buffered, so a PR of many large files is refused instead of exhausting the
+// runner. Largest tracked file on develop 2026-10-03 is 340 KB (theia/yarn.lock);
+// 32 MiB per blob is ~100x that (above the 8 MB oversize rule, which still reports by name) and 128 MiB total is ~390x. Env overrides exist
+// for the tests, which cannot afford to write megabytes.
+const envBytes = (name, dflt) => (/^\d+$/.test(process.env[name] ?? '') ? +process.env[name] : dflt)
+const MAX_BLOB_BYTES = envBytes('CONTENT_GATE_MAX_BLOB_BYTES', 32 << 20)
+const MAX_TOTAL_BYTES = envBytes('CONTENT_GATE_MAX_TOTAL_BYTES', 128 << 20)
+
+/** Refuses any object over the per-blob limit, or a set over the total.
+ * `pathOf` (sha -> path) only improves the message. */
+function checkReadBudget(unique, pathOf) {
+  const res = spawnGit(['cat-file', '--batch-check'], {
+    input: unique.join('\n') + '\n',
+    maxBuffer: 1 << 26,
+  })
+  if (res.status !== 0) throw new GateError(`git cat-file --batch-check failed: ${res.stderr}`)
+  const lines = res.stdout
+    .toString('latin1')
+    .split('\n')
+    .filter(l => l.length)
+  let total = 0
+  for (const line of lines) {
+    const [sha, type, sizeStr] = line.split(' ')
+    if (type === 'missing') throw new GateError(`missing endpoint object: ${sha}`)
+    const size = +sizeStr
+    if (!Number.isFinite(size)) throw new GateError(`cat-file --batch-check: bad line "${line}"`)
+    if (size > MAX_BLOB_BYTES) {
+      throw new GateError(
+        `${pathOf?.get(sha) ?? sha} is ${size} bytes, over the ${MAX_BLOB_BYTES}-byte per-file limit`,
+      )
+    }
+    total += size
+  }
+  if (total > MAX_TOTAL_BYTES) {
+    throw new GateError(
+      `changed content totals ${total} bytes, over the ${MAX_TOTAL_BYTES}-byte total limit`,
+    )
+  }
+  return total
+}
+
 /** Batch-reads object content for every distinct sha in `shas` (any type),
- * in one pipe. Never one spawn per object. */
-function batchReadObjects(shas) {
+ * in one pipe, after the size check. Never one spawn per object. */
+function batchReadObjects(shas, pathOf) {
   const unique = [...new Set(shas)]
   if (unique.length === 0) return new Map()
+  const total = checkReadBudget(unique, pathOf)
   const res = spawnGit(['cat-file', '--batch'], {
     input: unique.join('\n') + '\n',
-    maxBuffer: 1 << 30,
+    maxBuffer: total + unique.length * 128 + 1024,
   })
   if (res.status !== 0) throw new GateError(`git cat-file --batch failed: ${res.stderr}`)
   const buf = res.stdout
@@ -495,7 +538,10 @@ function evaluateEntries(entries, messages = []) {
     const key = `${e.path}\0${e.blob}`
     if (!seen.has(key)) seen.set(key, e)
   }
-  const blobs = batchReadObjects([...seen.values()].map(e => e.blob))
+  const blobs = batchReadObjects(
+    [...seen.values()].map(e => e.blob),
+    new Map([...seen.values()].map(e => [e.blob, e.path])),
+  )
   const hits = []
   for (const e of seen.values()) {
     const buf = blobs.get(e.blob)

@@ -839,3 +839,50 @@ describe(
   },
   CLI_TIMEOUT_MS,
 )
+
+describe(
+  'content gate: read budget (#461)',
+  () => {
+    function gateWithLimits(maxBlob: number, maxTotal: number): { status: number; err: string } {
+      const res = spawnSync('node', ['tools/scripts/check-content.mjs', 'staged'], {
+        cwd: dir,
+        env: {
+          ...process.env,
+          CONTENT_GATE_MAX_BLOB_BYTES: String(maxBlob),
+          CONTENT_GATE_MAX_TOTAL_BYTES: String(maxTotal),
+        },
+      })
+      return { status: res.status ?? -1, err: res.stderr.toString() }
+    }
+
+    it('an ordinary change passes under small limits', () => {
+      writeFile('src/a.ts', 'export const a = 1\n')
+      writeFile('src/b.ts', 'export const b = 2\n')
+      run('git', ['add', 'src'])
+      expect(gateWithLimits(1000, 1000).status).toBe(0)
+    })
+
+    it('one blob over the per-blob limit is refused, naming its path', () => {
+      writeFile('src/huge.txt', 'x'.repeat(2000))
+      run('git', ['add', 'src'])
+      const r = gateWithLimits(1000, 1_000_000)
+      expect(r.status).toBe(2)
+      expect(r.err).toMatch(/src\/huge\.txt/)
+    })
+
+    it('many blobs each under the per-blob limit but over the total are refused', () => {
+      for (let i = 0; i < 10; i++) writeFile(`src/f${i}.txt`, `line ${i} `.repeat(50))
+      run('git', ['add', 'src'])
+      const r = gateWithLimits(1000, 3000)
+      expect(r.status).toBe(2)
+      expect(r.err).toMatch(/total/)
+    })
+
+    it('the same ten blobs pass when the total budget allows them', () => {
+      for (let i = 0; i < 10; i++) writeFile(`src/f${i}.txt`, `line ${i} `.repeat(50))
+      run('git', ['add', 'src'])
+      expect(gateWithLimits(1000, 10_000).status).toBe(0)
+    })
+  },
+  CLI_TIMEOUT_MS,
+)
