@@ -352,6 +352,11 @@ test('a single click on the row reveals the view without taking focus', async ({
   await expect
     .poll(() => page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id))
     .toBe('hackbench.map-explorer')
+  // The keys still drive the list: the next arrow moves the selection off the row.
+  await page.keyboard.press('ArrowUp')
+  await expect(page.locator(`${EXPLORER} [data-node-id^="special:new-game"]`)).toHaveClass(
+    /theia-mod-selected/,
+  )
 })
 
 test('arrowing onto the row reveals the view and keeps focus in the list', async ({ page }) => {
@@ -368,5 +373,10 @@ test('arrowing onto the row reveals the view and keeps focus in the list', async
   await expect(page.locator(VIEW)).toBeVisible()
   expect(await page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id)).toBe(
     'hackbench.map-explorer',
+  )
+  // The keys still drive the list: the next arrow moves the selection off the row.
+  await page.keyboard.press('ArrowUp')
+  await expect(page.locator(`${EXPLORER} [data-node-id^="special:new-game"]`)).toHaveClass(
+    /theia-mod-selected/,
   )
 })
