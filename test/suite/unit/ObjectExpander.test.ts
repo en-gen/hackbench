@@ -1,6 +1,7 @@
 import { beforeAll, describe, it, expect } from 'vitest'
 import {
   expandMap,
+  expandObject,
   createGrid,
   readLayer3Setting,
   TILE_EMPTY,
@@ -921,19 +922,31 @@ describe('handle_0DB547 (3-segment horizontal, object 33 - page 1)', () => {
   })
 })
 
-describe('handle_0DB571 (single-tile by size, objects 47-54)', () => {
+describe('handle_0DB571 (single-tile stamp, extended $68-$6F)', () => {
   const HANDLER_ADDR = 0x0db571
   const TABLE_ADDR = 0x0db569
+  const TABLE = [0x91, 0x92, 0x96, 0x97, 0x9a, 0x9b, 0x9f, 0xa0]
 
   it('stamps DATA_0DB569[size - $68]', () => {
-    const rom = makeMockRom({
-      [TABLE_ADDR]: [0x91, 0x92, 0x96, 0x97, 0x9a, 0x9b, 0x9f, 0xa0],
-    })
+    const rom = makeMockRom({ [TABLE_ADDR]: TABLE })
     stampLongOperand(rom, HANDLER_ADDR, 12, TABLE_ADDR)
     const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 47, 0x69)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 0x69, 0x69)
     handle_0DB571(cur)
     expect(grid[10][3]).toBe(0x92)
+  })
+
+  // The ROM's extended table routes $68-$6F here (bank_0D.asm:3715); it was
+  // registered as a standard handler, so dispatchExtended found nothing (#360).
+  it('is reached through the extended dispatch for every id $68-$6F', () => {
+    const rom = makeMockRom({ [TABLE_ADDR]: TABLE })
+    stampLongOperand(rom, HANDLER_ADDR, 12, TABLE_ADDR)
+    for (let id = 0x68; id <= 0x6f; id++) {
+      rom.writeAt(ADDR_EXTENDED_DISPATCH + id * 3, [0x71, 0xb5, 0x0d])
+      const grid = createGrid(1)
+      expandObject(grid, makeObj('extended', id, id, 3, 10), rom, 0)
+      expect(grid[10][3]).toBe(TABLE[id - 0x68])
+    }
   })
 })
 
@@ -2347,6 +2360,39 @@ describe('handle_0DB49E (vertical pipe) bottom-merge fix', () => {
     // Top merge: existing=$08 → trigger1 match → DATA_0DB4D5[0]=$07
     expect(grid[10][5]).toBe(0x07)
   })
+
+  // DEC _0 / BNE counts in 8 bits, so a zero high nibble runs 256 body passes
+  // (bank_0D.asm:3611-3612, #350). The low nibble indexes the tables, so every
+  // size $00-$0F gets distinct fixture bytes: an $08 under the top merges to
+  // TOP_MERGED[X], and each body row is PIPE[X], as far as the 27-row grid goes.
+  it('height 0 terminates after 256 passes and draws the column, sizes $00-$0F', () => {
+    const PIPE_TABLE = 0x0da900
+    const TOP_TABLE = 0x0da910
+    const PIPE = Array.from({ length: 16 }, (_, i) => 0x10 + i)
+    const TOP_MERGED = Array.from({ length: 16 }, (_, i) => 0x40 + i)
+    const rom = buildPipeRom()
+    rom.writeAt(PIPE_TABLE, PIPE)
+    rom.writeAt(TOP_TABLE, TOP_MERGED)
+    stampLongOperand(rom, HANDLER, 16, PIPE_TABLE)
+    stampLongOperand(rom, TOP_MERGE, 9, TOP_TABLE)
+    for (let size = 0; size <= 0x0f; size++) {
+      const grid = createGrid(1)
+      grid[0][5] = 0x08
+      let gets = 0
+      // Turns a runaway loop into a failure instead of a hang.
+      const guarded = new Proxy(grid, {
+        get(t, k, r) {
+          if (++gets > 100_000) throw new Error('runaway body loop')
+          return Reflect.get(t, k, r)
+        },
+      })
+      const cur = makeCursorForHandler(HANDLER, guarded, rom, 1, 5, 0, 30, size)
+      handle_0DB49E(cur)
+      expect(cur.row).toBe(256)
+      expect(grid[0][5]).toBe(TOP_MERGED[size])
+      for (let r = 1; r <= 26; r++) expect(grid[r][5]).toBe(PIPE[size])
+    }
+  })
 })
 
 // ── CODE_0DED12 (ghost-house horizontal strip, tileset-5 object $37) ──────────
@@ -3087,27 +3133,40 @@ describe('handle_0DEFA8 (bordered box)', () => {
 })
 
 describe('handle_0DF066 (rectangular fill via CODE_0DECCE)', () => {
-  it('fills a rectangle using tile from DATA_0DECC6[X]', () => {
-    const TARGET = 0x0decce // CODE_0DECCE
-    const TABLE = 0x0da200 // DATA_0DECC6
-    const HANDLER = 0x0df066
+  const TARGET = 0x0decce // CODE_0DECCE
+  const TABLE = 0x0da200 // DATA_0DECC6
+  const HANDLER = 0x0df066
+
+  // LDX #imm at +0..1, then JMP $abs at +2 with its operand at +3/+4 (bank_0D.asm:8475).
+  function buildRom(): RomFile {
     const rom = makeMockRom({ [TABLE]: [0x92, 0x5e, 0x82] })
-    // Patch JMP lo/hi at HANDLER+2,+3 to point to TARGET=$DECCE
-    rom.writeAt(HANDLER + 2, [0xce, 0xec]) // lo=$CE, hi=$EC → $0DECCE
-    // Patch LDA.L operand at TARGET+32
+    rom.writeAt(HANDLER + 1, [0x02])
+    rom.writeAt(HANDLER + 2, [0x4c, 0xce, 0xec])
     stampLongOperand(rom, TARGET, 32, TABLE)
+    return rom
+  }
+
+  it('fills a rectangle using tile from DATA_0DECC6[X]', () => {
     const grid = createGrid(2)
-    // X=2 (in LDX #$02 bytecode at handler+1); size=0x11 (w=1,h=1 → 2×2)
-    rom.writeAt(HANDLER + 1, [0x02]) // LDX immediate = 2
-    const cur = makeCursorForHandler(HANDLER, grid, rom, 0, 1, 2, 0x25, 0x11)
+    const cur = makeCursorForHandler(HANDLER, grid, buildRom(), 0, 1, 2, 0x25, 0x11)
     handle_0DF066(cur)
-    // X=2 → tile=TABLE[2]=$82; page0 (X≠1); widthM1=1, heightM1=1 → 2×2
     expect(cur.grid[2][1]).toBe(0x82)
     expect(cur.grid[2][2]).toBe(0x82)
     expect(cur.grid[3][1]).toBe(0x82)
     expect(cur.grid[3][2]).toBe(0x82)
     expect(cur.grid[2][3]).toBe(TILE_EMPTY)
     expect(cur.grid[4][1]).toBe(TILE_EMPTY)
+  })
+
+  it('draws tile $82 on page 0 at every size (#359)', () => {
+    const rom = buildRom()
+    for (let size = 0; size < 0x100; size++) {
+      const grid = createGrid(2)
+      handle_0DF066(makeCursorForHandler(HANDLER, grid, rom, 0, 1, 2, 0x25, size))
+      const cells = grid.flat().filter(t => t !== TILE_EMPTY)
+      expect(cells.length).toBe(((size & 0x0f) + 1) * ((size >> 4) + 1))
+      expect(new Set(cells)).toEqual(new Set([0x82]))
+    }
   })
 })
 
