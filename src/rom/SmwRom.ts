@@ -363,15 +363,14 @@ export class SmwRom {
    * equivalent: every level reached from overworld root R inherits R's
    * flag -- 1 if R is a submap root, 0 if a main-map root.
    *
-   * The flag can never collide across roots: every propagated destination
-   * is (flag<<8)|destLow with destLow in [0,255], so flag-0 nodes live
-   * entirely in $000-$0FF and flag-1 entirely in $100-$1FF -- disjoint by
-   * construction, so a sub-area shared by two roots always sees the same
-   * flag from both. The BFS's real job is a reachability gate, not flag
-   * propagation (the flag is recoverable from the destination range
-   * alone): a level's exits are resolved only once BFS reaches it from an
-   * overworld root, so an orphaned level's exit data never contributes an
-   * edge, and a level never reached gets no flag and no resolved exits.
+   * No slot is reached under two flags (static argument, not measured on a
+   * corpus; #451). Roots are excluded from `validDestinations`, so each root
+   * resolves once under its seeded flag, on the Lunar Magic hook path too. A
+   * non-root is only ever `(flag<<8)|destLow`: with screenHigh 1 its bit 8 IS
+   * its flag; with screenHigh 0 (hook only) both flags resolve identically;
+   * 2 or more lands outside the 512-slot table. The BFS's real job is a
+   * reachability gate: an orphaned level's exit data never contributes an
+   * edge, and a level never reached gets no resolved exits.
    *
    * Secondary-exit low byte: DATA_05F800 is two 256-entry halves selected
    * by the same flag (bank_05.asm 7113-7118, `LDY.B _E` reads the _E/_F
