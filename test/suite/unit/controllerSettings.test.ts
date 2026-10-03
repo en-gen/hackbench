@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { CONTROLLER_SVG } from '../../../theia/extension/src/browser/controller-art'
 import {
   DEFAULT_ASSIGNMENTS,
   assignKeyboard,
@@ -8,6 +9,7 @@ import {
   resolveRegion,
   resolveScheme,
   schemeForRegion,
+  SCHEME_COLORS,
 } from '../../../theia/extension/src/browser/controller-settings'
 
 describe('region to controller scheme', () => {
@@ -126,5 +128,37 @@ describe('parseControllerSettings', () => {
       ],
     })
     expect(p.players.map(a => a.pad)).toEqual([undefined, undefined])
+  })
+})
+
+describe('scheme colors', () => {
+  const artFallbacks = Object.fromEntries(
+    [...CONTROLLER_SVG.matchAll(/var\((--hb-pad-[a-z0-9-]+),(#[0-9a-f]{6})\)/g)].map(m => [
+      m[1],
+      m[2],
+    ]),
+  )
+
+  it('PAL is exactly the source art colors, for every property both define', () => {
+    expect(SCHEME_COLORS.pal).toEqual(artFallbacks)
+  })
+
+  it('both schemes set the same properties', () => {
+    expect(Object.keys(SCHEME_COLORS.na).sort()).toEqual(Object.keys(SCHEME_COLORS.pal).sort())
+  })
+
+  it.each([
+    ['--hb-pad-track', '#b9b9be', '#f4f4f1'],
+    ['--hb-pad-track-stroke', '#c4c4c9', '#fdfdfa'],
+    ['--hb-pad-dish-a', '#bdbdc2', '#dcdcdc'],
+    ['--hb-pad-dish-b', '#c9c9ce', '#eeeee9'],
+    ['--hb-pad-a', '#4e3a86', '#ff4856'],
+    ['--hb-pad-b', '#4e3a86', '#ffbb58'],
+    ['--hb-pad-x', '#b4a7d8', '#0075fa'],
+    ['--hb-pad-y-1', '#a99bd0', '#00dea5'],
+    ['--hb-pad-face', '#7a7a82', '#777f82'],
+  ])('%s is %s North American and %s PAL', (name, na, pal) => {
+    expect(SCHEME_COLORS.na[name]).toBe(na)
+    expect(SCHEME_COLORS.pal[name]).toBe(pal)
   })
 })

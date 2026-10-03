@@ -27,6 +27,50 @@ export const DEFAULT_ASSIGNMENTS: readonly PlayerAssignment[] = [
   { keyboard: false, pad: 1 },
 ]
 
+/**
+ * The drawing's colors per scheme, as the CSS custom properties controller-art
+ * reads. PAL is exactly the source SVG's own colors (a unit test pins it to the
+ * art's fallbacks); North American follows the owner-approved palette.
+ */
+export const SCHEME_COLORS: Readonly<Record<ControllerScheme, Readonly<Record<string, string>>>> = {
+  pal: {
+    '--hb-pad-a': '#ff4856',
+    '--hb-pad-a-stroke': '#c72b3e',
+    '--hb-pad-b': '#ffbb58',
+    '--hb-pad-b-stroke': '#ba853d',
+    '--hb-pad-x': '#0075fa',
+    '--hb-pad-x-stroke': '#0054b3',
+    '--hb-pad-y-1': '#00dea5',
+    '--hb-pad-y-2': '#00f8b9',
+    '--hb-pad-y-stroke': '#00ab7f',
+    '--hb-pad-face': '#777f82',
+    '--hb-pad-body-a': '#f6f6f4',
+    '--hb-pad-body-b': '#f3f3ef',
+    '--hb-pad-track': '#f4f4f1',
+    '--hb-pad-track-stroke': '#fdfdfa',
+    '--hb-pad-dish-a': '#dcdcdc',
+    '--hb-pad-dish-b': '#eeeee9',
+  },
+  na: {
+    '--hb-pad-a': '#4e3a86',
+    '--hb-pad-a-stroke': '#2f2356',
+    '--hb-pad-b': '#4e3a86',
+    '--hb-pad-b-stroke': '#2f2356',
+    '--hb-pad-x': '#b4a7d8',
+    '--hb-pad-x-stroke': '#7d70a8',
+    '--hb-pad-y-1': '#a99bd0',
+    '--hb-pad-y-2': '#bfb3e0',
+    '--hb-pad-y-stroke': '#7d70a8',
+    '--hb-pad-face': '#7a7a82',
+    '--hb-pad-body-a': '#d9d9dc',
+    '--hb-pad-body-b': '#cfcfd3',
+    '--hb-pad-track': '#b9b9be',
+    '--hb-pad-track-stroke': '#c4c4c9',
+    '--hb-pad-dish-a': '#bdbdc2',
+    '--hb-pad-dish-b': '#c9c9ce',
+  },
+}
+
 const NA_REGIONS = new Set(['US', 'CA', 'MX'])
 
 /** North American colors for the US, Canada and Mexico; everyone else gets PAL. */

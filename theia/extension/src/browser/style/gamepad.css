@@ -1,6 +1,6 @@
 /* The controllers fly-out in the emulator view, and the controller drawing.
-   The drawing's colors come from custom properties set per scheme; with none
-   set the SVG keeps the PAL colors it was drawn with. */
+   The drawing's colors come from custom properties set inline per scheme
+   (SCHEME_COLORS); with none set the SVG keeps the PAL colors it was drawn with. */
 
 .hb-pad-flyout {
   position: absolute;
@@ -70,22 +70,6 @@
   display: block;
   width: 100%;
   height: auto;
-}
-
-/* North American colors: purple A/B, lavender X/Y, gray face and body. */
-.hb-pad-na {
-  --hb-pad-a: #4e3a86;
-  --hb-pad-a-stroke: #2f2356;
-  --hb-pad-b: #4e3a86;
-  --hb-pad-b-stroke: #2f2356;
-  --hb-pad-x: #b4a7d8;
-  --hb-pad-x-stroke: #7d70a8;
-  --hb-pad-y-1: #a99bd0;
-  --hb-pad-y-2: #bfb3e0;
-  --hb-pad-y-stroke: #7d70a8;
-  --hb-pad-face: #7a7a82;
-  --hb-pad-body-a: #d9d9dc;
-  --hb-pad-body-b: #cfcfd3;
 }
 
 /* A part the player is holding. A filter, because most parts are painted

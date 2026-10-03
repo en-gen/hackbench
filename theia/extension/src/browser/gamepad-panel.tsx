@@ -9,6 +9,7 @@ import {
   ControllerScheme,
   ControllerSettings,
   ControllerStyle,
+  SCHEME_COLORS,
   PlayerAssignment,
 } from './controller-settings'
 
@@ -58,6 +59,7 @@ export function ControllerDrawing({
       className={`hb-pad-art hb-pad-${scheme}`}
       data-player={player + 1}
       data-scheme={scheme}
+      style={SCHEME_COLORS[scheme] as React.CSSProperties}
       dangerouslySetInnerHTML={html}
     />
   )
