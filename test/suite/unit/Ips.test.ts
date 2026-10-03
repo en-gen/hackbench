@@ -125,3 +125,39 @@ describe('the oracle can fail', () => {
     expect(decodeIps(good)).toEqual(p)
   })
 })
+
+describe('IPS decode budget', () => {
+  // RLE records of the maximum length, then EOF; offsets are irrelevant to the budget.
+  const rleIps = (records: number, lastLength = 0xffff): Uint8Array => {
+    const out: number[] = [0x50, 0x41, 0x54, 0x43, 0x48]
+    for (let r = 0; r < records; r++) {
+      const len = r === records - 1 ? lastLength : 0xffff
+      out.push(0, 0, 0, 0, 0, len >> 8, len & 0xff, 0x7f)
+    }
+    out.push(0x45, 0x4f, 0x46)
+    return Uint8Array.from(out)
+  }
+
+  it('rejects a patch whose decoded writes exceed the budget, without expanding it', () => {
+    const t = Date.now()
+    expect(decodeIps(rleIps(257))).toBeNull() // 257 * 65535 > 2^24
+    expect(Date.now() - t).toBeLessThan(500)
+  })
+
+  it('accepts a patch landing exactly on the budget and rejects one write more', () => {
+    const ips = rleIps(3, 100) // 2 * 65535 + 100 writes
+    const total = 2 * 0xffff + 100
+    expect(decodeIps(ips, total)!.length).toBe(total)
+    expect(decodeIps(ips, total - 1)).toBeNull()
+  })
+
+  it('applies the budget to literal records too', () => {
+    const ips = encodeIps([
+      { offset: 0, value: 1 },
+      { offset: 2, value: 2 },
+      { offset: 4, value: 3 },
+    ])
+    expect(decodeIps(ips, 3)).toHaveLength(3)
+    expect(decodeIps(ips, 2)).toBeNull()
+  })
+})

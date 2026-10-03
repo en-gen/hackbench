@@ -27,6 +27,8 @@ const EOF_MARKER = [0x45, 0x4f, 0x46] // "EOF"
 const EOF_AS_OFFSET = 0x454f46
 const MAX_OFFSET = 0xffffff
 const MAX_RECORD = 0xffff
+// Offsets are 24 bits, so 16 MiB of distinct writes is the format's own ceiling; more is overlapping garbage.
+const MAX_DECODED_WRITES = 1 << 24
 
 /** Consecutive patches collapse into one record; this is where that happens. */
 function toRuns(patches: readonly Patch[]): { offset: number; bytes: number[] }[] {
@@ -76,17 +78,20 @@ export function encodeIps(patches: readonly Patch[]): Uint8Array {
  *
  * Returns null for anything malformed rather than partial results. A patch
  * decoded halfway would apply halfway, and a half-applied ROM looks like a
- * mysterious rendering bug rather than a corrupt file.
+ * mysterious rendering bug rather than a corrupt file. Records that would
+ * expand past `budget` writes are rejected the same way, before expansion.
  */
-export function decodeIps(bytes: Uint8Array): Patch[] | null {
+export function decodeIps(bytes: Uint8Array, budget = MAX_DECODED_WRITES): Patch[] | null {
   if (bytes.length < MAGIC.length + EOF_MARKER.length) return null
   if (!MAGIC.every((b, i) => bytes[i] === b)) return null
 
-  const patches: Patch[] = []
+  // Pass 1 validates and totals without expanding; pass 2 expands once it is known to fit.
+  const records: { offset: number; length: number; at: number; rle: boolean }[] = []
   let i = MAGIC.length
+  let writes = 0
   for (;;) {
     if (i + 3 > bytes.length) return null
-    if (bytes[i] === 0x45 && bytes[i + 1] === 0x4f && bytes[i + 2] === 0x46) return patches
+    if (bytes[i] === 0x45 && bytes[i + 1] === 0x4f && bytes[i + 2] === 0x46) break
 
     if (i + 5 > bytes.length) return null
     const offset = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2]
@@ -96,16 +101,22 @@ export function decodeIps(bytes: Uint8Array): Patch[] | null {
     if (size === 0) {
       // RLE record: run length, then the single byte to repeat.
       if (i + 3 > bytes.length) return null
-      const runLength = (bytes[i] << 8) | bytes[i + 1]
-      const value = bytes[i + 2]
+      const length = (bytes[i] << 8) | bytes[i + 1]
+      if (length === 0 || (writes += length) > budget) return null
+      records.push({ offset, length, at: i + 2, rle: true })
       i += 3
-      if (runLength === 0) return null
-      for (let n = 0; n < runLength; n++) patches.push({ offset: offset + n, value })
-      continue
+    } else {
+      if (i + size > bytes.length || (writes += size) > budget) return null
+      records.push({ offset, length: size, at: i, rle: false })
+      i += size
     }
-
-    if (i + size > bytes.length) return null
-    for (let n = 0; n < size; n++) patches.push({ offset: offset + n, value: bytes[i + n] })
-    i += size
   }
+
+  const patches: Patch[] = []
+  for (const r of records) {
+    for (let n = 0; n < r.length; n++) {
+      patches.push({ offset: r.offset + n, value: bytes[r.rle ? r.at : r.at + n] })
+    }
+  }
+  return patches
 }
