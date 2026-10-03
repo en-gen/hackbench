@@ -135,7 +135,7 @@ export interface Cursor {
   /** Switch-palace state the switch-block handlers gate on (#567). */
   switchFlags: SwitchFlags
   /** Set by a caller that takes the interpreter's word for gated handlers (#342). */
-  draw?: InterpretedDraw
+  draw?: InterpretedDraw | null
 }
 
 export function makeCursor(

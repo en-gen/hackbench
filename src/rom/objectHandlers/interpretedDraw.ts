@@ -7,7 +7,8 @@
  * picture is never blank and never claims a verification it did not get.
  */
 
-import { OWNER_NONE, type Cursor } from './cursor'
+import type { Cursor } from './cursor'
+import type { RomFile } from '../RomFile'
 import {
   ENTRY_STANDARD,
   applyWrites,
@@ -18,7 +19,31 @@ import {
 } from './interpret'
 
 /** Standard-object handlers drawn by the interpreter. CODE_0DADEB is the cloud slope (bank_0D.asm:2671). */
-export const INTERPRETED_HANDLERS: ReadonlySet<number> = new Set([0x0dadeb])
+const INTERPRETED_HANDLERS: ReadonlySet<number> = new Set([0x0dadeb])
+
+/** The same ROM address in $00-$7F and its $80-$FF mirror compares equal. */
+const mirror = (a: number): number => a & 0x7fffff
+
+export const isInterpretedHandler = (a: number): boolean => INTERPRETED_HANDLERS.has(mirror(a))
+
+/** LevLoadNrmObj: SEP #$30; JSL CODE_0DA40F; RTS (bank_05.asm:805-808). */
+const LOADER_ROUTINE = 0x0586ea
+const LOADER_LEN = 7
+
+/**
+ * Why the loader no longer reaches ENTRY_STANDARD, or null when it does. The
+ * routine is read as bytes: SEP, JSL, RTS, with the JSL operand compared
+ * bank-mirror normalized. A hack that re-points the JSL is drawn from the port.
+ */
+function loaderProblem(rom: RomFile): string | null {
+  const b = rom.readAt(LOADER_ROUTINE, LOADER_LEN)
+  if (!b || b[0] !== 0xe2 || b[1] !== 0x30 || b[2] !== 0x22 || b[6] !== 0x60)
+    return `the loader's routine at ${hex6(LOADER_ROUTINE)} is not SEP, JSL, RTS`
+  const to = b[3] | (b[4] << 8) | (b[5] << 16)
+  return mirror(to) === mirror(ENTRY_STANDARD)
+    ? null
+    : `the loader's JSL at ${hex6(LOADER_ROUTINE + 2)} reaches ${hex6(to)}, not ${hex6(ENTRY_STANDARD)}`
+}
 
 export interface InterpretedDraw {
   vertical: boolean
@@ -39,6 +64,10 @@ export function drawInterpreted(cur: Cursor, handler: number, ctx: InterpretedDr
     return false
   }
   if (ctx.vertical) return note('vertical levels are not interpreted yet')
+  if (ctx.entry === undefined) {
+    const why = loaderProblem(cur.rom)
+    if (why) return note(why)
+  }
   const r = interpret(
     cur.rom,
     ctx.entry ?? ENTRY_STANDARD,
@@ -51,13 +80,9 @@ export function drawInterpreted(cur: Cursor, handler: number, ctx: InterpretedDr
     },
   )
   if (r.refusal) return note(`${r.refusal.reason} at ${hex6(r.refusal.at)}`)
-  if (ctx.entry === undefined && r.dispatches.at(-1) !== handler)
-    return note(`the ROM's dispatch reaches ${hex6(r.dispatches.at(-1) ?? 0)}`)
-  applyWrites(cur.grid, r.writes, (row, col) => {
-    const orow = cur.owners?.[row]
-    if (!orow) return
-    while (orow.length < col) orow.push(OWNER_NONE)
-    orow[col] = cur.owner
-  })
+  const reached = r.dispatches.at(-1) ?? 0
+  if (ctx.entry === undefined && mirror(reached) !== mirror(handler))
+    return note(`the ROM's dispatch reaches ${hex6(reached)}`)
+  applyWrites(cur.grid, r.writes, cur.owners, cur.owner)
   return true
 }

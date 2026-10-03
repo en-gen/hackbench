@@ -14,6 +14,7 @@ import {
   expandMap,
   expandMapOwned,
   expandObject,
+  SWITCH_FLAGS_UNCLEARED,
   TILE_EMPTY,
 } from '../../../src/rom/ObjectExpander'
 import {
@@ -75,13 +76,25 @@ describe('shape and defaults', () => {
       false,
       header.levelMode,
       0x105,
+      SWITCH_FLAGS_UNCLEARED,
+      null,
     )
     const { grid } = expandLevel(rom, 0x105)
     expect(grid).toEqual(plain)
   })
 
   it('an untouched grid is owned by nobody', () => {
-    const { owners } = expandMapOwned([], 1, stubRom(), 0)
+    const { owners } = expandMapOwned(
+      [],
+      1,
+      stubRom(),
+      0,
+      false,
+      undefined,
+      undefined,
+      SWITCH_FLAGS_UNCLEARED,
+      null,
+    )
     expect(ownedCount(owners)).toBe(0)
   })
 })
@@ -204,6 +217,9 @@ describe.skipIf(!romPresent)('cells no object drew stay unowned', () => {
       header.objectTileset,
       false,
       9,
+      undefined,
+      SWITCH_FLAGS_UNCLEARED,
+      null,
     )
     // Row 11 is the bridge floor MakeMode7BossArenaMap16 writes.
     for (let c = 0; c < 16; c++) {
@@ -306,6 +322,8 @@ function expandLevel(rom: SmwRom, levelId: number) {
     isVertical,
     header.levelMode,
     levelId,
+    SWITCH_FLAGS_UNCLEARED,
+    null,
   )
 }
 
@@ -320,6 +338,8 @@ function freshGrid(rom: SmwRom, levelId: number): TileGrid {
     isVertical,
     header.levelMode,
     levelId,
+    SWITCH_FLAGS_UNCLEARED,
+    null,
   ).grid
 }
 

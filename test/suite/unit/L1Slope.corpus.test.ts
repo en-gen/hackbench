@@ -14,11 +14,11 @@ import { freshRom, hasRom, VANILLA } from '../support/corpus'
 
 describe.skipIf(!hasRom(VANILLA))('cloud slope on map $1E0, vanilla (#342)', () => {
   let grid: number[][] = []
-  let animNote: string | undefined
+  let unverified: string[] = []
   beforeAll(() => {
     const built = buildL1Inputs(new SmwRom(freshRom(VANILLA)), 0x1e0, SWITCH_FLAGS_UNCLEARED)
     if (!built.ok) throw new Error(built.reason)
-    ;({ grid, animNote } = built.inputs)
+    ;({ grid, unverified } = built.inputs)
   })
   const at = (x: number, y: number) => grid[y][x]
   const lip = () => [8, 9, 10, 11].map(x => at(x, 8))
@@ -44,6 +44,21 @@ describe.skipIf(!hasRom(VANILLA))('cloud slope on map $1E0, vanilla (#342)', () 
   })
 
   it('notes nothing: the interpreter read this ROM without refusing', () => {
-    expect(animNote ?? '').not.toMatch(/0DADEB/)
+    expect(unverified).toEqual([])
+  })
+})
+
+/**
+ * The lip is written through CODE_0DABFD (bank_0D.asm:2388-2410), which adds
+ * 1/3/4 to it when the tile already there has low byte $3F/$01/$03. Map $024
+ * has a cloud slope at column 25, row 15 whose first lip lands on a $3F tile.
+ * Without the interpreter reading the grid it draws the unmerged base lip.
+ */
+describe.skipIf(!hasRom(VANILLA))('cloud slope lip merge on map $024, vanilla (#342)', () => {
+  it('draws the first lip at column 25, row 15 as $183, the base lip plus one', () => {
+    const built = buildL1Inputs(new SmwRom(freshRom(VANILLA)), 0x024, SWITCH_FLAGS_UNCLEARED)
+    if (!built.ok) throw new Error(built.reason)
+    expect(built.inputs.grid[15][25]).toBe(0x183)
+    expect(built.inputs.unverified).toEqual([])
   })
 })

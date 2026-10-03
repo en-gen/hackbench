@@ -359,6 +359,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
         header.levelMode,
         undefined,
         SWITCH_FLAGS_CLEARED,
+        null, // reference only: the port draws, no notes
       )
 
       // ── Build L2 tile grid ────────────────────────────────────────────────

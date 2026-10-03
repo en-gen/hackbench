@@ -33,7 +33,9 @@ import { hasFlagSizedImmediate, instructionLength } from '../dispatch/HandlerWal
 import { readLongPointer } from './romData'
 import {
   MAP16_BYTES_PER_SCREEN_H,
+  OWNER_NONE,
   SWITCH_FLAGS_UNCLEARED,
+  type OwnerGrid,
   type SwitchFlags,
   type TileGrid,
 } from './cursor'
@@ -549,12 +551,13 @@ export function seedFromGrid(grid: TileGrid): (addr: number) => number | undefin
 /**
  * Apply writes to a horizontal-level grid the way cursor.ts's writeTile
  * stores a tile: (high byte << 8) | low byte, rows growing up to $200 columns.
- * `onCell` hears each cell written (the owner grid records it).
+ * With `owners`, each cell written is recorded as drawn by `owner`.
  */
 export function applyWrites(
   grid: TileGrid,
   writes: readonly BufferWrite[],
-  onCell?: (row: number, col: number) => void,
+  owners: OwnerGrid | null = null,
+  owner: number = OWNER_NONE,
 ): void {
   for (const { addr, value } of writes) {
     const c = gridCell(addr, 0x200)
@@ -563,6 +566,10 @@ export function applyWrites(
     while (row.length < c.col) row.push(TILE_EMPTY)
     const cell = row[c.col] ?? TILE_EMPTY
     row[c.col] = c.high ? (value << 8) | (cell & 0xff) : (cell & ~0xff) | value
-    onCell?.(c.row, c.col)
+    const orow = owners?.[c.row]
+    if (orow) {
+      while (orow.length < c.col) orow.push(OWNER_NONE)
+      orow[c.col] = owner
+    }
   }
 }

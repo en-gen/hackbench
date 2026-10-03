@@ -122,7 +122,7 @@ export function screenResult(
     width: w * 16,
     height: h * 16,
     rgbaBase64: base64(drawL1Screen(model, screen, switches)),
-    note: model.animNote,
+    note: [...model.unverified, model.animNote].filter(Boolean).join(' ') || undefined,
     backdrop: [model.backArea[0], model.backArea[1], model.backArea[2]],
   }
 }

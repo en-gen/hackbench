@@ -76,8 +76,10 @@ export interface L1Inputs {
   anim: AnimationData | null
   /** Frame 0 of that animation: what a still picture composites from. */
   vram: VramState
-  /** Why the char or palette animation frames, or an object's tiles, are unverified or absent, when they are. */
+  /** Why the char or palette animation frames are unverified or absent, when they are. */
   animNote?: string
+  /** Why an object's tiles come from a hand port the interpreter could not check (#342); empty when none. */
+  unverified: string[]
   /** CGRAM, 256 colors: any per-level override block, then the palette animation's representative frame (phase 0). */
   colors: RgbaColor[]
   /** CGRAM color 0, the backdrop the PPU shows where every layer is transparent. */
@@ -106,7 +108,7 @@ export interface L1Readings {
   col1: { bg: number; obj: number }
   paletteAnim: PaletteAnimContext
   /** Why the expander drew an object from a port the interpreter could not check (#342). */
-  unverified?: string[]
+  unverified: string[]
 }
 
 /** A level's CGRAM and backdrop: its override block, else the header's palettes and back-area color. */
@@ -167,7 +169,7 @@ export function assembleL1Inputs(r: L1Readings): L1Inputs {
   const vram = frameZero?.vram ?? r.rawVram
   const stored = levelColorsFrom(r)
   const palette = applyPaletteFrame0(stored.colors, r.paletteAnim)
-  const notes = [...(r.unverified ?? []), frameZero?.error, palette.note].filter(Boolean)
+  const notes = [frameZero?.error, palette.note].filter(Boolean)
   const anim = frameZero?.animData
   return {
     header: r.header,
@@ -179,6 +181,7 @@ export function assembleL1Inputs(r: L1Readings): L1Inputs {
     anim: frameZero?.animData ?? null,
     vram,
     animNote: notes.length > 0 ? notes.join(' ') : undefined,
+    unverified: r.unverified,
     colors: palette.colors,
     backArea: stored.backArea,
     switchArt: anim ? switchArtOf(anim, r.map16.tiles, vram, palette) : new Map(),

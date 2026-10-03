@@ -127,6 +127,7 @@ function inputs(grid: number[][], isVertical: boolean, screenCount: number): L1I
     vram: VRAM,
     colors: COLORS,
     backArea: BACKDROP,
+    unverified: [],
     switchArt: switchArtOf({ frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }, tiles, VRAM, { colors: COLORS }), // prettier-ignore
   }
 }
@@ -507,6 +508,7 @@ describe('assembleL1Inputs (synthetic)', () => {
     backAreas,
     col1,
     paletteAnim: { context: 'level', available: true, notes: [], targets: [{ cgramIdx: 0x21, colors: [0x03e0] }] } as unknown as PaletteAnimContext, // prettier-ignore
+    unverified: [],
     ...over,
   })
   const pal = loadRomPalettes(palRom, 1)
@@ -532,6 +534,18 @@ describe('assembleL1Inputs (synthetic)', () => {
     const blind = assembleL1Inputs(readings({ paletteAnim: { context: 'level', available: false, targets: [], notes: ['hooked'] } as unknown as PaletteAnimContext })) // prettier-ignore
     expect(blind.colors).toEqual(buildLevelCgram(pal, 1, 2, 3, col1).colors)
     expect(blind.animNote).toMatch(/hooked/)
+  })
+
+  it('carries unverified notes in their own field, and into the wire note (#342)', () => {
+    const why = 'Handler $0DADEB is drawn by the built-in model, not verified against this ROM: x.'
+    expect(assembleL1Inputs(readings()).unverified).toEqual([])
+    const r = assembleL1Inputs(readings({ unverified: [why] }))
+    expect(r.unverified).toEqual([why])
+    expect(r.animNote ?? '').not.toContain('0DADEB')
+    expect((screenResult(r, 0) as { note?: string }).note).toContain(why)
+    expect(
+      (screenResult(assembleL1Inputs(readings()), 0) as { note?: string }).note,
+    ).toBeUndefined()
   })
 
   it('merges ExAnimation into the stock frames, and carries a frames error into the note', () => {

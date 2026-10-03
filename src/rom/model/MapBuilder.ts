@@ -116,6 +116,7 @@ export function buildMapWithGraph(
     rawHeader.levelMode,
     undefined,
     SWITCH_FLAGS_CLEARED,
+    null, // reference only: the port draws, no notes
   )
   // L1 tilemap as ids - resolve against `tiles` (aka l1Tiles) at render
   // time. Empty cells survive as null.

@@ -139,7 +139,7 @@ export function expandObject(
   owners: OwnerGrid | null = null,
   owner: number = OWNER_NONE,
   switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED,
-  draw?: InterpretedDraw,
+  draw: InterpretedDraw | null = null,
 ): void {
   if (obj.type === 'extended') {
     // For extended objects, LevelParser stores the extended type in `objectNumber`
@@ -235,8 +235,10 @@ function applyMode11BossArena(grid: TileGrid): void {
  * from (#567); defaults to all uncleared, matching a fresh save and the
  * `layers_v5` captures.
  *
- * Pass `unverified` to draw the interpreter-gated handlers (#342) from the
- * interpreter; a refusal draws the port and adds its reason to that array.
+ * `unverified` is required: a caller that takes the notes gets the interpreter
+ * path for the gated handlers (#342), and a refusal draws the port and adds
+ * its reason to the array. `null` opts out (the port draws, nobody is told),
+ * for the reference extension and for callers that read a single tile.
  */
 export function expandMap(
   objects: LevelObject[],
@@ -244,10 +246,10 @@ export function expandMap(
   rom: RomFile,
   tileset = 0,
   isVertical = false,
-  levelMode?: number,
-  levelNum?: number,
-  switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED,
-  unverified?: string[],
+  levelMode: number | undefined,
+  levelNum: number | undefined,
+  switchFlags: SwitchFlags,
+  unverified: string[] | null,
 ): TileGrid {
   return expandMapOwned(
     objects,
@@ -284,10 +286,10 @@ export function expandMapOwned(
   rom: RomFile,
   tileset = 0,
   isVertical = false,
-  levelMode?: number,
-  levelNum?: number,
-  switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED,
-  unverified?: string[],
+  levelMode: number | undefined,
+  levelNum: number | undefined,
+  switchFlags: SwitchFlags,
+  unverified: string[] | null,
 ): ExpandedMap {
   // Boss-arena modes override the header screen count.
   const effectiveScreens = levelMode === 9 || levelMode === 11 ? BOSS_ARENA_SCREENS : screens
@@ -300,8 +302,6 @@ export function expandMapOwned(
 
   const owners: OwnerGrid = grid.map(row => new Array<number>(row.length).fill(OWNER_NONE))
 
-  // Only a caller that takes the notes gets the interpreter path: the others
-  // (reference extension) would draw a port's output with nobody told.
   const draw = unverified && { vertical: isVertical, unverified }
   for (let i = 0; i < objects.length; i++) {
     expandObject(grid, objects[i], rom, tileset, owners, i, switchFlags, draw)
