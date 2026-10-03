@@ -647,7 +647,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
     expect(unverified[0]).toMatch(/vertical/)
   })
 
-  it('the production entry refuses a cart without ExecutePtrLong, draws the port and notes it', () => {
+  it('the production entry refuses at the loader call site of a bare cart, draws the port and notes it', () => {
     const unverified: string[] = []
     const { grid } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, unverified) // prettier-ignore
     expect(unverified.join(' ')).toMatch(/\$0DADEB .*not verified/)
@@ -672,6 +672,15 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
   })
 
   describe('through the production entry', () => {
+    it('refuses a valid loader whose dispatch is not ExecutePtrLong, drawing the port', () => {
+      const rom = prodCart()
+      const unverified: string[] = []
+      const grid = createGrid(SCREENS)
+      expandObject(grid, obj(0x35), rom, 0, null, OWNER_NONE, undefined, { vertical: false, unverified }) // prettier-ignore
+      expect(unverified[0]).toMatch(/not the inline-table dispatch/)
+      expect(grid).toEqual(port(rom, 0x35))
+    })
+
     it('draws from the interpreter when the loader and the dispatch both reach the handler', () => {
       const r = expandProd(prodCart(), 0x35)
       expect(lips(r.grid)).toEqual(STAIRS)
