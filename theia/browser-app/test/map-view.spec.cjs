@@ -888,7 +888,10 @@ test('$1E0 screen 0 draws the cloud slope as a staircase, not a column', async (
     expect(cells[`${12 + c},9`], `second step, lip ${c}`).toBe(cells[`${8 + c},8`])
     expect(cells[`${12 + c},10`], `body ${c}`).toBe(cells[`${8 + c},9`])
   }
-  // The defect: body all the way down under (8,8). Two rows down is fill, all the way down.
-  expect(cells['8,9']).not.toBe(cells['8,10'])
-  expect(cells['8,10']).toBe(cells['8,20'])
+  // The defect: body all the way down under (8,8). Body columns 8-10 draw as the fill, so only
+  // column 11 (its body is not pixel-identical to the fill) tells the renders apart: the fill
+  // reference is (8,20), the same pixels in both. Staircase: (11,9) is body, below it is fill.
+  const fill = cells['8,20']
+  expect(cells['11,9'], 'body under the first lip').not.toBe(fill)
+  for (const y of [10, 14, 20]) expect(cells[`11,${y}`], `(11,${y}) is fill`).toBe(fill)
 })
