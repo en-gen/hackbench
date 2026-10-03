@@ -14,6 +14,16 @@ import * as fs from 'fs'
 import { createHash } from 'crypto'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
+import type * as Map16Mod from '../../../src/rom/Map16'
+import type * as GfxMod from '../../../src/rom/GfxLoader'
+import type * as AnimMod from '../../../src/rom/AnimationLoader'
+import type * as StockMod from '../../../src/rom/PaletteStockTables'
+import type * as ExMod from '../../../src/rom/ExAnimationLoader'
+import * as Map16Real from '../../../src/rom/Map16'
+import * as GfxReal from '../../../src/rom/GfxLoader'
+import * as AnimReal from '../../../src/rom/AnimationLoader'
+import * as StockReal from '../../../src/rom/PaletteStockTables'
+import * as ExReal from '../../../src/rom/ExAnimationLoader'
 import * as Expander from '../../../src/rom/ObjectExpander'
 import {
   SWITCH_FLAGS_UNCLEARED as UNCLEARED,
@@ -77,6 +87,32 @@ import { VANILLA, hasRom, romPath } from '../support/corpus'
 vi.mock('../../../src/rom/ObjectExpander', async importOriginal => {
   const real = await importOriginal<typeof Expander>()
   return { ...real, expandMap: vi.fn(real.expandMap) }
+})
+
+// Pass-through wrappers, so one test can stub the readers a fake ROM cannot satisfy (#342).
+vi.mock('../../../src/rom/Map16', async importOriginal => {
+  const real = await importOriginal<typeof Map16Mod>()
+  return {
+    ...real,
+    loadMap16WithPipeVariants: vi.fn(real.loadMap16WithPipeVariants),
+    map16TileCapacity: vi.fn(real.map16TileCapacity),
+  }
+})
+vi.mock('../../../src/rom/GfxLoader', async importOriginal => {
+  const real = await importOriginal<typeof GfxMod>()
+  return { ...real, gfxSource: vi.fn(real.gfxSource), loadVram: vi.fn(real.loadVram) }
+})
+vi.mock('../../../src/rom/AnimationLoader', async importOriginal => {
+  const real = await importOriginal<typeof AnimMod>()
+  return { ...real, loadAnimationDataOrReason: vi.fn(real.loadAnimationDataOrReason) }
+})
+vi.mock('../../../src/rom/PaletteStockTables', async importOriginal => {
+  const real = await importOriginal<typeof StockMod>()
+  return { ...real, readLevelCol1: vi.fn(real.readLevelCol1) }
+})
+vi.mock('../../../src/rom/ExAnimationLoader', async importOriginal => {
+  const real = await importOriginal<typeof ExMod>()
+  return { ...real, loadExAnimData: vi.fn(real.loadExAnimData) }
 })
 
 const romPresent = hasRom(VANILLA)
@@ -412,6 +448,28 @@ describe('buildL1Inputs (synthetic)', () => {
     buildL1Inputs(fakeRom(0), 0x105, YELLOW)
     expect(spy).toHaveBeenCalledTimes(1)
     expect(spy.mock.calls[0]![7]).toEqual(YELLOW)
+  })
+
+  // No ROM needed: the readers a fake ROM cannot satisfy are stubbed for one build, so the
+  // note's path (expandMap sink -> readings -> inputs -> wire note) runs in CI.
+  it('carries a note the expander pushes into inputs.unverified and the wire note, without a ROM (#342)', () => {
+    vi.mocked(GfxReal.gfxSource).mockReturnValueOnce({ ok: true } as never)
+    vi.mocked(Map16Real.map16TileCapacity).mockReturnValueOnce({} as never)
+    vi.mocked(StockReal.readLevelCol1).mockReturnValueOnce({ bg: 0, obj: 0 } as never)
+    vi.mocked(AnimReal.loadAnimationDataOrReason).mockReturnValueOnce({ ok: false, reason: 'stub' })
+    vi.mocked(ExReal.loadExAnimData).mockReturnValueOnce(null)
+    vi.mocked(Map16Real.loadMap16WithPipeVariants).mockReturnValueOnce({ tiles: [], pipeVariants: [] } as never) // prettier-ignore
+    vi.mocked(GfxReal.loadVram).mockReturnValueOnce({} as never)
+    const spy = vi.mocked(Expander.expandMap)
+    const real = spy.getMockImplementation()!
+    spy.mockImplementationOnce((...a) => {
+      ;(a[8] as string[]).push('NOTE FROM THE EXPANDER')
+      return real(...a)
+    })
+    const r = buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.inputs.unverified).toEqual(['NOTE FROM THE EXPANDER'])
+    expect((screenResult(r.inputs, 0) as { note?: string }).note).toContain('NOTE FROM THE EXPANDER') // prettier-ignore
   })
 
   it('hands expandMap a note sink, not an opt-out, so refusals can reach the inputs (#342)', () => {
