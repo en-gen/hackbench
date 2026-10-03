@@ -16,6 +16,10 @@ export const MAX_SUBTREE_NODES = 1000
 export const MAX_SUBTREE_DEPTH = 24
 
 /**
+ * Used by the reference VS Code extension only; the Maps tree lists a root's
+ * sub areas flat with `reachableSlots` below (#434), because this expansion
+ * made vanilla $022 read 118 rows from 6 slots.
+ *
  * Expand every root-to-leaf path in the exit graph into a nested tree. A sub-area
  * with two parents (vanilla $007 -> $0E6 -> $0E7 alongside $007 -> $0E8 -> $0E7)
  * expands in full under each: this renders how a player navigates, not the graph's
@@ -53,4 +57,28 @@ export function buildLevelSubtree(
   }
 
   return expand(root, 0)
+}
+
+/**
+ * Every slot reachable from `root` through `exitGraph`, ascending, each once.
+ * A child for which `isBoundary` holds (another overworld root, which heads
+ * its own folder, or a slot that is no map) is neither listed nor entered, and
+ * nor is anything reached only through it. The root itself is excluded.
+ */
+export function reachableSlots(
+  root: number,
+  exitGraph: Map<number, number[]>,
+  isBoundary: (index: number) => boolean,
+): number[] {
+  const seen = new Set<number>([root])
+  const stack = [root]
+  while (stack.length > 0) {
+    for (const child of exitGraph.get(stack.pop()!) ?? []) {
+      if (seen.has(child) || isBoundary(child)) continue
+      seen.add(child)
+      stack.push(child)
+    }
+  }
+  seen.delete(root)
+  return [...seen].sort((a, b) => a - b)
 }

@@ -203,6 +203,32 @@ describe('SmwRom.buildLevelExitGraph', () => {
     expect(graphOf(smw).graph.get(0x106)).toEqual([0x141])
   })
 
+  // MapTree's walk boundary (`isRoot || !maps.has`) mirrors this exclusion, so this
+  // is the test that pins it: no edge may enter an overworld root or a non-real slot.
+  it('emits no edge into an overworld root or a non-real slot, even when a room names one', () => {
+    const rom = make4MbRom()
+    // $001 and $002 are real roots; $0C0 is a real sub area; $0C9 holds no pointer.
+    setL1Ptr(rom, 0x001, 0x068000)
+    setLevelData(rom, 0x068000, [
+      0,
+      0,
+      0,
+      0,
+      0,
+      ...exitObj(0xc0, false),
+      ...exitObj(0x02, false), // -> $002, a real root
+      ...exitObj(0xc9, false), // -> $0C9, not real
+      0xff,
+    ])
+    setL1Ptr(rom, 0x002, 0x069000)
+    setLevelData(rom, 0x069000, [0, 0, 0, 0, 0, 0x42, 0xff])
+    setL1Ptr(rom, 0x0c0, 0x06a000)
+    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, ...exitObj(0x01, false), 0xff]) // -> $001, a root
+    const graph = graphOf(new SmwRom(rom)).graph
+    expect(graph.get(0x001)).toEqual([0x0c0])
+    expect(graph.has(0x0c0)).toBe(false)
+  })
+
   it('drops exits whose resolved destination is not in the subarea set', () => {
     const rom = make4MbRom()
     setL1Ptr(rom, 0x010, 0x068000)
