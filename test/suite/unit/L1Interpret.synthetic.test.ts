@@ -11,6 +11,7 @@ import {
   createGrid,
   expandMapOwned,
   expandObject,
+  SWITCH_FLAGS_UNCLEARED,
   TILE_EMPTY,
 } from '../../../src/rom/ObjectExpander'
 import type { LevelObject } from '../../../src/rom/LevelParser'
@@ -495,6 +496,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
   const LOADER = 0x0586ea // LevLoadNrmObj: SEP #$30; JSL CODE_0DA40F; RTS (bank_05.asm:805-808)
   const ENTRY = 0x0da40f
   const SIG_AT = 0x0d9800
+  const CALL_SITE = 0x0586cf // JSR LevLoadNrmObj, in LoadLevelData (bank_05.asm:788)
   const STUB = 0x0d8800 // a dispatch target that is not the handler
   const loaderBytes = (operand = [lo(ENTRY), hi(ENTRY), 0x0d]) => [0xe2, 0x30, 0x22, ...operand, 0x60] // prettier-ignore
 
@@ -513,16 +515,20 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
     ])
   }
   /** A cart the production entry can walk: loader JSL, then ENTRY dispatching to `to` through the stand-in. */
-  function prodCart({
-    to = HANDLER,
-    bank = 0x0d,
-    variantBank = bank,
-    loader = loaderBytes(),
-  } = {}): RomFile {
-    // prettier-ignore
+  function prodCart(
+    o: {
+      to?: number
+      bank?: number
+      variantBank?: number
+      loader?: number[]
+      call?: number[]
+    } = {},
+  ): RomFile {
+    const { to = HANDLER, bank = 0x0d, loader = loaderBytes(), call = [0x20, lo(LOADER), hi(LOADER)] } = o // prettier-ignore
     const entry = [0xa9, 0, 0x22, lo(SIG_AT), hi(SIG_AT), 0x0d, lo(to), hi(to), bank]
     const handler = staircaseCode(HANDLER, undefined, undefined, RTL)
-    return slopeCart(handler, [[ENTRY, entry], [SIG_AT, SIG], [LOADER, loader], [STUB, [RTL]]], variantBank) // prettier-ignore
+    const extra: [number, number[]][] = [[ENTRY, entry], [SIG_AT, SIG], [LOADER, loader], [CALL_SITE, call], [STUB, [RTL]]] // prettier-ignore
+    return slopeCart(handler, extra, o.variantBank ?? bank)
   }
   const obj = (size: number): LevelObject => ({ type: 'standard', objectNumber: CLOUD, settings: size, x: 16, y: 2 }) as LevelObject // prettier-ignore
   /** Expand one object, entering the interpreter at the handler (the synthetic cart has no ExecutePtrLong). */
@@ -643,9 +649,26 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
 
   it('the production entry refuses a cart without ExecutePtrLong, draws the port and notes it', () => {
     const unverified: string[] = []
-    const { grid } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, false, undefined, undefined, undefined, unverified) // prettier-ignore
+    const { grid } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, unverified) // prettier-ignore
     expect(unverified.join(' ')).toMatch(/\$0DADEB .*not verified/)
     expect(grid).toEqual(port(good(), 0x35))
+  })
+
+  it('expandMapOwned on a vertical level notes it and draws the port', () => {
+    const unverified: string[] = []
+    const { grid } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, unverified) // prettier-ignore
+    expect(unverified).toHaveLength(1)
+    expect(unverified[0]).toMatch(/vertical/)
+    const { grid: viaPort } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, null) // prettier-ignore
+    expect(grid).toEqual(viaPort)
+    expect(grid.flat().some(t => t !== TILE_EMPTY)).toBe(true)
+  })
+
+  it('two refused objects with one reason leave one note', () => {
+    const unverified: string[] = []
+    const two = [obj(0x35), { ...obj(0x25), x: 30 } as LevelObject]
+    expandMapOwned(two, SCREENS, good(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, unverified) // prettier-ignore
+    expect(unverified).toHaveLength(1)
   })
 
   describe('through the production entry', () => {
@@ -687,17 +710,18 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       expect(expandProd(rom, 0x35).unverified).toEqual([])
     })
 
-    it('refuses when any byte of the loader routine differs, drawing the port and noting it', () => {
-      const stock = loaderBytes()
-      const passed: number[] = []
-      for (let i = 0; i < stock.length; i++) {
-        const loader = stock.slice()
-        loader[i] ^= 0x01 // a JSL operand byte, the JSL opcode, or the SEP/RTS around it
-        const rom = prodCart({ loader })
-        const r = expandProd(rom, 0x35)
-        const drawsPort = JSON.stringify(r.grid) === JSON.stringify(port(rom, 0x35))
-        if (!/loader/.test(r.unverified[0] ?? '') || !drawsPort) passed.push(i)
-      }
+    it('refuses when any byte of the loader routine or its call site differs, drawing the port and noting it', () => {
+      const stock = { loader: loaderBytes(), call: [0x20, lo(LOADER), hi(LOADER)] }
+      const passed: string[] = []
+      for (const part of ['loader', 'call'] as const)
+        for (let i = 0; i < stock[part].length; i++) {
+          const bytes = stock[part].slice()
+          bytes[i] ^= 0x01 // a JSL operand byte, the JSL opcode, or the bytes around it
+          const rom = prodCart({ [part]: bytes })
+          const r = expandProd(rom, 0x35)
+          const drawsPort = JSON.stringify(r.grid) === JSON.stringify(port(rom, 0x35))
+          if (!/loader/.test(r.unverified[0] ?? '') || !drawsPort) passed.push(`${part}[${i}]`)
+        }
       expect(passed).toEqual([])
     })
 

@@ -1443,7 +1443,7 @@ describe.skipIf(!romPresent)('expandMap integration (real SMW ROM)', () => {
   })
 
   /** Load and expand a level by translevel index (passes levelNum for layer3 overflow). */
-  function expandLevelByIndex(index: number, switchFlags?: SwitchFlags) {
+  function expandLevelByIndex(index: number, switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED) {
     const rawL1 = rom.getLevelRawData(index)
     if (!rawL1) throw new Error(`Level $${index.toString(16)} has no data`)
     const { header, objects } = parseLevelObjects(rawL1, rom.requireVerticalTable())

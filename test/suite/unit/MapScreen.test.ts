@@ -414,6 +414,13 @@ describe('buildL1Inputs (synthetic)', () => {
     expect(spy.mock.calls[0]![7]).toEqual(YELLOW)
   })
 
+  it('hands expandMap a note sink, not an opt-out, so refusals can reach the inputs (#342)', () => {
+    const spy = vi.mocked(Expander.expandMap)
+    spy.mockClear()
+    buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
+    expect(Array.isArray(spy.mock.calls[0]![8])).toBe(true)
+  })
+
   it.each([0x09, 0x0b, 0x10])(
     'refuses boss-arena mode $%s, whose L1 the game never loads',
     mode => {

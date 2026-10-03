@@ -29,13 +29,18 @@ export const isInterpretedHandler = (a: number): boolean => INTERPRETED_HANDLERS
 /** LevLoadNrmObj: SEP #$30; JSL CODE_0DA40F; RTS (bank_05.asm:805-808). */
 const LOADER_ROUTINE = 0x0586ea
 const LOADER_LEN = 7
+/** The `JSR LevLoadNrmObj` in LoadLevelData (bank_05.asm:788): where the loader reaches that routine. */
+const LOADER_CALL_SITE = 0x0586cf
 
 /**
  * Why the loader no longer reaches ENTRY_STANDARD, or null when it does. The
  * routine is read as bytes: SEP, JSL, RTS, with the JSL operand compared
- * bank-mirror normalized. A hack that re-points the JSL is drawn from the port.
+ * bank-mirror normalized, and so is the JSR that reaches it. A hack that re-points the JSL is drawn from the port.
  */
 function loaderProblem(rom: RomFile): string | null {
+  const call = rom.readAt(LOADER_CALL_SITE, 3)
+  if (!call || call[0] !== 0x20 || (call[1] | (call[2] << 8)) !== (LOADER_ROUTINE & 0xffff))
+    return `the loader's call at ${hex6(LOADER_CALL_SITE)} is not JSR ${hex6(LOADER_ROUTINE)}`
   const b = rom.readAt(LOADER_ROUTINE, LOADER_LEN)
   if (!b || b[0] !== 0xe2 || b[1] !== 0x30 || b[2] !== 0x22 || b[6] !== 0x60)
     return `the loader's routine at ${hex6(LOADER_ROUTINE)} is not SEP, JSL, RTS`
