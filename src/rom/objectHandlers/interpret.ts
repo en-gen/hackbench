@@ -50,7 +50,19 @@ export const ENTRY_EXTENDED = 0x0da100
  *  match in the cart). Stored as a hash: the routine is Nintendo's code. */
 export const EXECUTE_PTR_LONG_SHA256 =
   '9269f0bdf61255bd04b61dbb8aa17533389a25d3932f9478941cb387ff736a9d'
-const EXECUTE_PTR_LONG_LEN = 36
+
+/** A routine the interpreter recognizes by the hash of its bytes and models
+ *  instead of executing. `inline-table-dispatch` is ExecutePtrLong's contract. */
+export interface RecognizedPrimitive {
+  sha256: string
+  length: number
+  kind: 'inline-table-dispatch'
+}
+
+/** The primitives of a stock ROM. A caller supplies the table it trusts. */
+export const VANILLA_PRIMITIVES: readonly RecognizedPrimitive[] = Object.freeze([
+  { sha256: EXECUTE_PTR_LONG_SHA256, length: 36, kind: 'inline-table-dispatch' },
+])
 
 /** Vanilla's largest completed run is 99,776 steps and 13,470 writes. */
 export const STEP_BUDGET = 250_000
@@ -105,12 +117,8 @@ export interface InterpretEnv {
 export interface InterpretOptions {
   stepBudget?: number
   writeBudget?: number
-  /** Overrides EXECUTE_PTR_LONG_SHA256; synthetic tests pass their own. */
-  dispatchFingerprint?: string
-  /** How `entry` is called, which decides the return that ends the run.
-   *  The loader JSLs both real entries; a test entering a handler directly
-   *  passes 'jsr'. */
-  entryCall?: 'jsl' | 'jsr'
+  /** The routines a JSL may reach; default VANILLA_PRIMITIVES. */
+  primitives?: readonly RecognizedPrimitive[]
   /** What a buffer cell holds before the handler writes it (a merge reads the
    *  tile already there). Unset cells read as an empty level. */
   seed?: (addr: number) => number | undefined
@@ -133,8 +141,11 @@ export interface InterpretResult {
 type V = number | null
 type Frame = { call: 'jsr' | 'jsl'; ret: number | null } | { call: null; v: V }
 
-/** Per cart: whether the JSL target at an address matches a fingerprint. */
-const SIG_CACHE = new WeakMap<RomFile, { version: number; value: Map<string, boolean> }>()
+/** Per cart, per primitives table: whether the JSL target at an address is a recognized dispatch. */
+const SIG_CACHE = new WeakMap<
+  RomFile,
+  { version: number; value: Map<readonly RecognizedPrimitive[], Map<number, boolean>> }
+>()
 
 class Refusal extends Error {}
 function refuse(reason: string): never {
@@ -152,10 +163,15 @@ export function interpret(
 ): InterpretResult {
   const stepBudget = opts.stepBudget ?? STEP_BUDGET
   const writeBudget = opts.writeBudget ?? WRITE_BUDGET
-  const sig = opts.dispatchFingerprint ?? EXECUTE_PTR_LONG_SHA256
+  const primitives = opts.primitives ?? VANILLA_PRIMITIVES
   const flags = env.switchFlags ?? SWITCH_FLAGS_UNCLEARED
   const switches = [flags.green, flags.yellow, flags.blue, flags.red]
-  const sigSeen = cachedByVersion(SIG_CACHE, rom, () => new Map<string, boolean>())
+  const perTable = cachedByVersion(
+    SIG_CACHE,
+    rom,
+    () => new Map<readonly RecognizedPrimitive[], Map<number, boolean>>(),
+  )
+  const sigSeen = perTable.get(primitives) ?? perTable.set(primitives, new Map()).get(primitives)!
 
   const dp: V[] = new Array(256).fill(null)
   const set = (at: number, bytes: number[]) => bytes.forEach((b, i) => (dp[at + i] = b & 0xff))
@@ -181,8 +197,8 @@ export function interpret(
   let n: boolean | null = null
   let z: boolean | null = null
   let c: boolean | null = null
-  // The entry's own frame: its return (ret null) ends the run.
-  const stack: Frame[] = [{ call: opts.entryCall ?? 'jsl', ret: null }]
+  // The entry's own frame: the loader JSLs both real entries, and its return (ret null) ends the run.
+  const stack: Frame[] = [{ call: 'jsl', ret: null }]
 
   // ── bus ──
   /** WRAM offset of a 24-bit address, or null when it is not WRAM. */
@@ -310,11 +326,13 @@ export function interpret(
     return t
   }
   const isDispatch = (t: number): boolean => {
-    const key = `${sig}@${t}`
-    let hit = sigSeen.get(key)
+    let hit = sigSeen.get(t)
     if (hit === undefined) {
-      hit = fingerprint(rom.readAt(t, EXECUTE_PTR_LONG_LEN)) === sig
-      sigSeen.set(key, hit)
+      hit = primitives.some(
+        p =>
+          p.kind === 'inline-table-dispatch' && fingerprint(rom.readAt(t, p.length)) === p.sha256,
+      )
+      sigSeen.set(t, hit)
     }
     return hit
   }

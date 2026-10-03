@@ -19,10 +19,24 @@ import { OWNER_NONE, makeCursor } from '../../../src/rom/objectHandlers/cursor'
 import { drawInterpreted } from '../../../src/rom/objectHandlers/interpretedDraw'
 import { STANDARD_HANDLERS } from '../../../src/rom/objectHandlers/dispatch'
 import {
-  ADDR_TILESET_DISPATCH,
-  STANDARD_HANDLER_COUNT,
-} from '../../../src/rom/objectHandlers/romData'
-import { fingerprint } from '../../../src/rom/Fingerprint'
+  CLOUD,
+  CODE,
+  ENTRY,
+  DISPATCH,
+  HANDLER,
+  PIPES,
+  RTL,
+  STAND_IN,
+  STAND_IN_PRIMITIVES,
+  STOCK_PINS,
+  STUB,
+  cart,
+  hi,
+  lo,
+  loaderBytes,
+  productionCart,
+  type ProductionCartOptions,
+} from '../support/syntheticCart'
 import {
   interpret,
   horizontalPlacement,
@@ -30,14 +44,9 @@ import {
   type InterpretResult,
   type InterpretOptions,
   type InterpretEnv,
+  VANILLA_PRIMITIVES,
   type Placement,
 } from '../../../src/rom/objectHandlers/interpret'
-
-const CODE = 0x0d8000
-const DISPATCH = 0x0d9000
-const off = (snes: number): number => ((snes >> 16) & 0x7f) * 0x8000 + (snes & 0x7fff)
-const lo = (w: number): number => w & 0xff
-const hi = (w: number): number => (w >> 8) & 0xff
 
 /** A few-line assembler: bytes, labels, and 8-bit branch / 16-bit JSR fixups. */
 class Asm {
@@ -75,25 +84,22 @@ class Asm {
   }
 }
 
-/** A blank LoROM cart (all BRK, which is outside the allowed set) with `code` at CODE. */
-function cart(code: number[], extra: [number, number[]][] = [], size = 0x80000): RomFile {
-  const bytes = new Uint8Array(size)
-  bytes.set(code, off(CODE))
-  for (const [a, b] of extra) bytes.set(b, off(a))
-  return RomFile.fromBytes('synthetic', bytes)
-}
-
 /** Screen 1, row 2, column 0; tileset 0; size as given. */
 const place = (size = 0): Placement => horizontalPlacement('standard', 1, size, 16, 2)
 const BASE = 0x7ec800 + 0x1b0
-/** Tests enter the handler directly, so the entry frame is a JSR's. */
+/** Where a trampoline enters CODE: JSR CODE; RTL. The entry is JSL-framed, as the loader's is. */
+const TRAMP = 0x0d8f00
+/** Run code at CODE that ends in RTS, entered through the JSL-framed trampoline. */
 const run = (
   rom: RomFile,
   size = 0,
   opts: InterpretOptions = {},
   env: InterpretEnv = { tileset: 0 },
   at: Placement = place(size),
-): InterpretResult => interpret(rom, CODE, at, env, { entryCall: 'jsr', ...opts })
+): InterpretResult => {
+  rom.writeAt(TRAMP, [0x20, lo(CODE), hi(CODE), RTL])
+  return interpret(rom, TRAMP, at, env, opts)
+}
 const values = (r: InterpretResult): number[] => {
   expect(r.refusal).toBeNull()
   return r.writes.map(w => w.value)
@@ -149,7 +155,6 @@ const PAIRS: Pair[] = [
   ['a return over pushed data', [0x48, RTS], [0x48, 0x68, RTS], /pushed data/],
   // JSR sub; RTS; sub: RTL (or RTS).
   ['an RTL that pops a JSR frame', [0x20, lo(CODE + 4), hi(CODE + 4), RTS, 0x6b], [0x20, lo(CODE + 4), hi(CODE + 4), RTS, RTS], /RTL returns from a JSR/],
-  ['an RTS out of an entry reached by JSL', [RTS], [0x6b], /RTS returns from a JSL/, { entryCall: 'jsl' }, { entryCall: 'jsl' }],
   ['REP/SEP of flags other than M and X', [...SEP(0x08), RTS], [...SEP(0x30), RTS], /REP\/SEP/],
   ['the step budget', [0x4c, lo(CODE), hi(CODE)], [RTS], /step budget/, { stepBudget: 1000 }, { stepBudget: 1000 }],
   // Write the same cell 16 times: X counts down from $0F.
@@ -355,10 +360,10 @@ describe('interpret: arithmetic, flags, widths and block moves', () => {
   })
 })
 
-// A stand-in for the stock ExecutePtrLong: the interpreter never executes these
-// bytes, it recognizes their fingerprint and applies the modelled effect.
-const SIG = Array.from({ length: 36 }, (_, i) => (i * 37 + 11) & 0xff)
-const SIG_OPTS = { dispatchFingerprint: fingerprint(Uint8Array.from(SIG)) ?? '' }
+// The stand-in for ExecutePtrLong (support/syntheticCart.ts): the interpreter never
+// executes these bytes, it recognizes their fingerprint and applies the modelled effect.
+const SIG = STAND_IN
+const SIG_OPTS = { primitives: STAND_IN_PRIMITIVES }
 
 describe('interpret: inline-table dispatch (ExecutePtrLong)', () => {
   const TARGET = 0x0d8100
@@ -488,75 +493,22 @@ describe('interpret: a CODE_0DADEB-shaped staircase (bank_0D.asm:2671, #342)', (
 })
 
 describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
-  const HANDLER = 0x0dadeb
-  const PIPES = 0x0dab3e // object $12's routine; the size's low nibble picks the variant
-  const CLOUD = 0x12
-  const VARIANT = 5 // low nibble of size $E5
   const SCREENS = 3
-  const RTL = 0x6b
-  const LOADER = 0x0586ea // LevLoadNrmObj: SEP #$30; JSL CODE_0DA40F; RTS (bank_05.asm:805-808)
-  const ENTRY = 0x0da40f
-  const SIG_AT = 0x0d9800
-  const BRANCH = 0x0586c5 // LDA $5A; BNE +6, ahead of the call (bank_05.asm:783-784)
-  const CALL_SITE = 0x0586cf // JSR LevLoadNrmObj, in LoadLevelData (bank_05.asm:788)
-  const STUB = 0x0d8800 // a dispatch target that is not the handler
-  const HOP = 0x0d8900 // a routine that dispatches once more
-  const loaderBytes = (operand = [lo(ENTRY), hi(ENTRY), 0x0d]) => [0xe2, 0x30, 0x22, ...operand, 0x60] // prettier-ignore
+  /** The staircase as the loader reaches it: through ENTRY_STANDARD, the stand-in dispatcher and the table. */
+  const prodCart = (o: ProductionCartOptions = {}, handler = staircaseCode(HANDLER, undefined, undefined, RTL)) => productionCart(handler, o) // prettier-ignore
 
-  /** A cart whose object $12 reaches `code` at $0DADEB as pipe variant 5. */
-  function slopeCart(code: number[], extra: [number, number[]][] = [], bank = 0x0d): RomFile {
-    const table = new Array(STANDARD_HANDLER_COUNT * 3).fill(0)
-    table.splice((CLOUD - 1) * 3, 3, lo(PIPES), hi(PIPES), 0x0d)
-    const variants = new Array(30).fill(0)
-    variants.splice(VARIANT * 3, 3, lo(HANDLER), hi(HANDLER), bank)
-    return cart(code, [
-      [HANDLER, code],
-      [ADDR_TILESET_DISPATCH, [lo(DISPATCH), hi(DISPATCH), 0x0d]],
-      [DISPATCH + 10, table],
-      [PIPES + 18, variants],
-      ...extra,
-    ])
-  }
-  /** A cart the production entry can walk: loader JSL, then ENTRY dispatching to `to` through the stand-in. */
-  function prodCart(
-    o: {
-      to?: number
-      bank?: number
-      variantBank?: number
-      loader?: number[]
-      branch?: number[]
-      call?: number[]
-      /** Dispatch first to a hop that dispatches again, to `to`. */
-      hop?: boolean
-    } = {},
-  ): RomFile {
-    const { to = HANDLER, bank = 0x0d, loader = loaderBytes(), call = [0x20, lo(LOADER), hi(LOADER)], branch = [0xa5, 0x5a, 0xd0, 0x06] } = o // prettier-ignore
-    const dispatchTo = (t: number) => [0xa9, 0, 0x22, lo(SIG_AT), hi(SIG_AT), 0x0d, lo(t), hi(t), bank] // prettier-ignore
-    const entry = dispatchTo(o.hop ? HOP : to)
-    const handler = staircaseCode(HANDLER, undefined, undefined, RTL)
-    const extra: [number, number[]][] = [[ENTRY, entry], [SIG_AT, SIG], [LOADER, loader], [BRANCH, branch], [CALL_SITE, call], [STUB, [RTL]], [HOP, dispatchTo(to)]] // prettier-ignore
-    return slopeCart(handler, extra, o.variantBank ?? bank)
-  }
   const obj = (size: number): LevelObject => ({ type: 'standard', objectNumber: CLOUD, settings: size, x: 16, y: 2 }) as LevelObject // prettier-ignore
-  /** Expand one object, entering the interpreter at the handler (the synthetic cart has no ExecutePtrLong). */
+  /** Expand one object through the production entry: the loader's JSL and the cart's own dispatch. */
   function expand(
     rom: RomFile,
     size: number,
-    options?: InterpretOptions,
     prefill?: (g: number[][]) => void,
+    primitives = STAND_IN_PRIMITIVES,
   ) {
-    // prettier-ignore
     const unverified: string[] = []
     const grid = createGrid(SCREENS)
     prefill?.(grid)
-    expandObject(grid, obj(size), rom, 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: false, unverified, entry: HANDLER, options }) // prettier-ignore
-    return { grid, unverified }
-  }
-  /** Expand one object through the production entry: the loader's JSL and the ROM's own dispatch. */
-  function expandProd(rom: RomFile, size: number) {
-    const unverified: string[] = []
-    const grid = createGrid(SCREENS)
-    expandObject(grid, obj(size), rom, 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: false, unverified, options: SIG_OPTS }) // prettier-ignore
+    expandObject(grid, obj(size), rom, 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: false, unverified, primitives }) // prettier-ignore
     return { grid, unverified }
   }
   /** What the port draws for the same object, straight from the port. */
@@ -573,7 +525,8 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
     [4, [8]],
     [5, [12]],
   ]) // size $35: four lips
-  const good = (step?: number, stop?: number) => slopeCart(staircaseCode(HANDLER, step, stop))
+  const stairs = (step?: number, stop?: number) => staircaseCode(HANDLER, step, stop, RTL)
+  const good = (step?: number, stop?: number) => prodCart({}, stairs(step, stop))
 
   it('draws the staircase the handler bytes describe, not the port, and marks nothing', () => {
     const r = expand(good(), 0x35)
@@ -588,9 +541,9 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
   })
 
   it('goes red when a lip tile immediate is mutated', () => {
-    const code = staircaseCode(HANDLER)
+    const code = stairs()
     code[code.indexOf(0x31)] = 0x35 // the first LDA #lip
-    const { grid } = expand(slopeCart(code), 0x35)
+    const { grid } = expand(prodCart({}, code), 0x35)
     expect(lips(grid).size).toBe(0)
     expect(grid[2][16]).toBe(0x135)
   })
@@ -608,24 +561,30 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
     [0x03, 4],
   ])('merges a lip into the low byte %i already there: base + %i', (low, add) => {
     for (const page of [0, 0x100]) {
-      const { grid } = expand(good(), 0x35, undefined, g => (g[2][16] = page | low))
+      const { grid } = expand(good(), 0x35, g => (g[2][16] = page | low))
       expect(grid[2][16], `page ${page >> 8}`).toBe(0x100 | (0x31 + add))
     }
     expect(expand(good(), 0x35).grid[2][16]).toBe(0x131) // an empty cell merges nothing
   })
 
   it('places the object where the raw run puts it, at its column and row', () => {
-    const raw = run(good(), 0, {}, undefined, horizontalPlacement('standard', CLOUD, 0x35, 16, 2))
+    const raw = run(
+      cart(staircaseCode(CODE)),
+      0,
+      {},
+      undefined,
+      horizontalPlacement('standard', CLOUD, 0x35, 16, 2),
+    )
     const grid = createGrid(SCREENS)
     applyWrites(grid, raw.writes)
     expect(expand(good(), 0x35).grid).toEqual(grid)
   })
 
   it('draws the port and says why when the interpreter refuses', () => {
-    const bad = staircaseCode(HANDLER)
+    const bad = stairs()
     bad.splice(2, 0, 0xea) // NOP: outside the allowed opcodes
-    const r = expand(slopeCart(bad), 0x35)
-    expect(r.grid).toEqual(port(slopeCart(bad), 0x35))
+    const r = expand(prodCart({}, bad), 0x35)
+    expect(r.grid).toEqual(port(prodCart({}, bad), 0x35))
     expect(r.grid.flat().some(t => t !== TILE_EMPTY)).toBe(true) // never blank
     expect(r.unverified).toHaveLength(1)
     expect(r.unverified[0]).toMatch(/\$0DADEB .*not verified.*opcode \$EA.* at \$0DADED/)
@@ -638,7 +597,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
   it('records the object as the owner of every cell the interpreter drew, and no other', () => {
     const grid = createGrid(SCREENS)
     const owners = grid.map(row => new Array<number>(row.length).fill(OWNER_NONE))
-    expandObject(grid, obj(0x35), good(), 0, owners, 7, undefined, { draw: drawInterpreted, vertical: false, unverified: [], entry: HANDLER }) // prettier-ignore
+    expandObject(grid, obj(0x35), good(), 0, owners, 7, undefined, { draw: drawInterpreted, vertical: false, unverified: [], primitives: STAND_IN_PRIMITIVES }) // prettier-ignore
     const drawn = grid.flatMap((row, y) =>
       row.flatMap((t, x) => (t === TILE_EMPTY ? [] : [[y, x]])),
     )
@@ -650,20 +609,21 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
   it('refuses a vertical level rather than placing it as a horizontal one', () => {
     const unverified: string[] = []
     const grid = createGrid(SCREENS)
-    expandObject(grid, obj(0x15), good(), 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: true, unverified, entry: HANDLER }) // prettier-ignore
+    expandObject(grid, obj(0x15), good(), 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: true, unverified, primitives: STAND_IN_PRIMITIVES }) // prettier-ignore
     expect(unverified[0]).toMatch(/vertical/)
   })
 
   it('the production entry refuses at the loader call site of a bare cart, draws the port and notes it', () => {
     const unverified: string[] = []
-    const { grid } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, { unverified, draw: drawInterpreted }) // prettier-ignore
+    const bare = prodCart({ pins: false })
+    const { grid } = expandMapOwned([obj(0x35)], SCREENS, bare, 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, { unverified, draw: drawInterpreted, primitives: STAND_IN_PRIMITIVES }) // prettier-ignore
     expect(unverified.join(' ')).toMatch(/\$0DADEB .*not verified/)
-    expect(grid).toEqual(port(good(), 0x35))
+    expect(grid).toEqual(port(bare, 0x35))
   })
 
   it('expandMapOwned on a vertical level notes it and draws the port', () => {
     const unverified: string[] = []
-    const { grid } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, { unverified, draw: drawInterpreted }) // prettier-ignore
+    const { grid } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, { unverified, draw: drawInterpreted, primitives: STAND_IN_PRIMITIVES }) // prettier-ignore
     expect(unverified).toHaveLength(1)
     expect(unverified[0]).toMatch(/vertical/)
     const { grid: viaPort } = expandMapOwned([obj(0x35)], SCREENS, good(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, null) // prettier-ignore
@@ -674,37 +634,35 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
   it('two refused objects with one reason leave one note', () => {
     const unverified: string[] = []
     const two = [obj(0x35), { ...obj(0x25), x: 30 } as LevelObject]
-    expandMapOwned(two, SCREENS, good(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, { unverified, draw: drawInterpreted }) // prettier-ignore
+    expandMapOwned(two, SCREENS, good(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, { unverified, draw: drawInterpreted, primitives: STAND_IN_PRIMITIVES }) // prettier-ignore
     expect(unverified).toHaveLength(1)
   })
 
   describe('through the production entry', () => {
     it('refuses a valid loader whose dispatch is not ExecutePtrLong, drawing the port', () => {
       const rom = prodCart()
-      const unverified: string[] = []
-      const grid = createGrid(SCREENS)
-      expandObject(grid, obj(0x35), rom, 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: false, unverified }) // prettier-ignore
-      expect(unverified[0]).toMatch(/not the inline-table dispatch/)
-      expect(grid).toEqual(port(rom, 0x35))
+      const r = expand(rom, 0x35, undefined, VANILLA_PRIMITIVES) // the stand-in is not in the table this caller trusts
+      expect(r.unverified[0]).toMatch(/not the inline-table dispatch/)
+      expect(r.grid).toEqual(port(rom, 0x35))
     })
 
     it('draws from the interpreter when the loader and the dispatch both reach the handler', () => {
-      const r = expandProd(prodCart(), 0x35)
+      const r = expand(prodCart(), 0x35)
       expect(lips(r.grid)).toEqual(STAIRS)
       expect(r.unverified).toEqual([])
     })
 
     it('judges the LAST dispatch: a hop that dispatches again on to the handler is verified', () => {
-      const r = expandProd(prodCart({ hop: true }), 0x35)
+      const r = expand(prodCart({ hop: true }), 0x35)
       expect(lips(r.grid)).toEqual(STAIRS)
       expect(r.unverified).toEqual([])
       // And a hop whose last dispatch is elsewhere is not.
-      const off = expandProd(prodCart({ hop: true, to: STUB }), 0x35)
+      const off = expand(prodCart({ hop: true, to: STUB }), 0x35)
       expect(off.unverified[0]).toMatch(/dispatch reaches \$0D8800/)
     })
 
     it('ignores a widened sink: a vertical map is still refused and the loader still checked', () => {
-      const widened = (u: string[]) => ({ unverified: u, draw: drawInterpreted, vertical: false, entry: HANDLER }) as never // prettier-ignore
+      const widened = (u: string[]) => ({ unverified: u, draw: drawInterpreted, vertical: false, primitives: STAND_IN_PRIMITIVES, entry: HANDLER, options: {} }) as never // prettier-ignore
       const v: string[] = []
       expandMapOwned([obj(0x35)], SCREENS, prodCart(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, widened(v)) // prettier-ignore
       expect(v[0]).toMatch(/vertical/)
@@ -725,7 +683,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
 
     it('draws the port and says so when the dispatch reaches another routine', () => {
       const rom = prodCart({ to: STUB })
-      const r = expandProd(rom, 0x35)
+      const r = expand(rom, 0x35)
       expect(r.unverified).toHaveLength(1)
       expect(r.unverified[0]).toMatch(/dispatch reaches \$0D8800/)
       expect(r.grid).toEqual(port(rom, 0x35))
@@ -736,7 +694,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       ['$8DADEB', 'dispatch only', 0x8d, 0x0d],
       ['$8DADEB', 'pipe variant only', 0x0d, 0x8d],
     ])('reads %s as $0DADEB: %s', (_form, _where, bank, variantBank) => {
-      const r = expandProd(prodCart({ bank, variantBank }), 0x35)
+      const r = expand(prodCart({ bank, variantBank }), 0x35)
       expect(lips(r.grid)).toEqual(STAIRS)
       expect(r.unverified).toEqual([])
     })
@@ -744,7 +702,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
     it('draws the port, not a blank, when a $8D-form dispatch is refused', () => {
       const bad = prodCart({ bank: 0x8d, to: STUB })
       expect(
-        expandProd(bad, 0x35)
+        expand(bad, 0x35)
           .grid.flat()
           .some(t => t !== TILE_EMPTY),
       ).toBe(true)
@@ -752,14 +710,14 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
 
     it('accepts the loader JSL in its $8D mirror', () => {
       const rom = prodCart({ loader: loaderBytes([lo(ENTRY), hi(ENTRY), 0x8d]) })
-      expect(expandProd(rom, 0x35).unverified).toEqual([])
+      expect(expand(rom, 0x35).unverified).toEqual([])
     })
 
     it('refuses a JSL bank that is not $0D or its $8D mirror: one bit off $8D, bits 0-6', () => {
       const passed: number[] = []
       for (let k = 0; k < 7; k++) {
         const rom = prodCart({ loader: loaderBytes([lo(ENTRY), hi(ENTRY), 0x8d ^ (1 << k)]) })
-        const r = expandProd(rom, 0x35)
+        const r = expand(rom, 0x35)
         const drawsPort = JSON.stringify(r.grid) === JSON.stringify(port(rom, 0x35))
         if (!/loader/.test(r.unverified[0] ?? '') || !drawsPort) passed.push(k)
       }
@@ -767,11 +725,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
     })
 
     it('refuses when any bit of any pinned byte differs, drawing the port and noting it', () => {
-      const stock = {
-        branch: [0xa5, 0x5a, 0xd0, 0x06], // LDA $5A; BNE +6 (bank_05.asm:783-784)
-        call: [0x20, lo(LOADER), hi(LOADER)],
-        loader: loaderBytes(),
-      }
+      const stock = STOCK_PINS
       const passed: string[] = []
       for (const part of ['branch', 'call', 'loader'] as const)
         for (let i = 0; i < stock[part].length; i++)
@@ -781,7 +735,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
             const bytes = stock[part].slice()
             bytes[i] ^= 1 << bit
             const rom = prodCart({ [part]: bytes })
-            const r = expandProd(rom, 0x35)
+            const r = expand(rom, 0x35)
             const drawsPort = JSON.stringify(r.grid) === JSON.stringify(port(rom, 0x35))
             if (!/loader/.test(r.unverified[0] ?? '') || !drawsPort) passed.push(`${part}[${i}]^${bit}`) // prettier-ignore
           }
@@ -789,7 +743,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
     })
 
     it('refuses a cart where the loader routine is absent', () => {
-      const r = expandProd(prodCart({ loader: [0, 0, 0, 0, 0, 0, 0] }), 0x35)
+      const r = expand(prodCart({ loader: [0, 0, 0, 0, 0, 0, 0] }), 0x35)
       expect(r.unverified[0]).toMatch(/loader/)
     })
   })
