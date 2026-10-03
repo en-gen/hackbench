@@ -156,8 +156,7 @@ export function sweep(rom: RomFile): DiffRun[] {
         digest: digestOf(r.writes),
       }
       runs.push(run)
-      // #350: handle_0DB49E never returns at height 0. Not fixed here.
-      if (r.refusal || (kind === 'standard' && obj === 0x1e && size < 0x10)) continue
+      if (r.refusal) continue
       const object = { type: kind, objectNumber: obj, settings: size, x, y: row } as LevelObject
       expandObject(port, object, rom, ts)
       applyWrites(mine, r.writes)

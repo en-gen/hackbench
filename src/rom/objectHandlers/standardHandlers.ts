@@ -564,7 +564,7 @@ export function handle_0DB571(cur: Cursor): void {
 }
 
 /**
- * CODE_0DB49E (bank_0D.asm line 3585) -- vertical pipe (object 31 = std $1F).
+ * CODE_0DB49E (bank_0D.asm line 3585) -- vertical pipe (object 30 = std $1E).
  *
  * 1-wide vertical pipe of (_0+2) tiles: top merged, body, bottom merged. Tile
  * from DATA_0DB49C[X] where X = size low nibble; _0 = size high nibble = body
@@ -601,11 +601,12 @@ export function handle_0DB49E(cur: Cursor): void {
 
   // Middle rows. ASM flow: row++; DEC _0; BNE body; else fall through to
   // bottom merge. BNE exits when _0 reaches 0, so we break on _0 === 0 AFTER
-  // the decrement (before writing a body for that iteration).
+  // the decrement (before writing a body for that iteration). _0 is a byte,
+  // so a zero high nibble wraps to $FF and runs 256 passes (bank_0D.asm:3611).
   let _0 = middleCount
   for (;;) {
     cur.row += 1
-    _0 -= 1
+    _0 = (_0 - 1) & 0xff
     if (_0 === 0) break
     setPage0(cur)
     writeTile(cur, pipeTile)
@@ -4720,14 +4721,12 @@ export function handle_0DEFA8(cur: Cursor): void {
  * from bytecode rather than from the dispatched object number. Tile and page
  * are determined by DATA_0DECC6[X]; rectangle size from cur.size.
  *
- * X immediate at handler+1; JMP lo/hi at handler+2/3; DATA_0DECC6 operand at
+ * X immediate at handler+1; JMP opcode at +2, lo/hi at +3/+4; DATA_0DECC6 operand at
  * CODE_0DECCE+32 (= JMP target + 32).
  */
 export function handle_0DF066(cur: Cursor): void {
   const X = readImmByte(cur, cur.handlerAddr + 1)
-  const jmpLo = cur.rom.readByte(cur.handlerAddr + 2) ?? 0
-  const jmpHi = cur.rom.readByte(cur.handlerAddr + 3) ?? 0
-  const target = 0x0d0000 | (jmpHi << 8) | jmpLo // CODE_0DECCE
+  const target = resolveJmpTarget(cur, cur.handlerAddr + 2) // CODE_0DECCE
   const tableAddr = readLongOperand(cur, target + 32) // DATA_0DECC6
   const tile = cur.rom.readByte(tableAddr + X) ?? 0
   if (X === 1) setPage1(cur)

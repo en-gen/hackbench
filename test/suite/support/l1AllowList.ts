@@ -42,11 +42,11 @@ export const KNOWN_DISAGREEMENTS: Known[] = [
   row(0x0dba4c, all, 669, [768, 768, 'a92a2cea98']),
   row(0x0dee17, all, 670, [768, 768, 'f7955f3ec6']),
   row(0x0def67, all, 671, [768, 768, 'fa41e03940']),
-  row(0x0df066, all, 672, [768, 768, 'dfe7f9e1e6']),
-  row(0x0db571, all, 673, [24, 24, '28972e5f32']),
   row(0x0dc3d8, all, 674, [768, 768, 'be6f199c89']),
   row(0x0de971, all, 675, [3, 3, '577db2276d']),
   row(0x0da68e, r => r.col === 0, 689, [1, 1, '1ac3aaa57d']),
+  // #350 wraps the counter now; the 257 rows run past the 27-row screen, which is #300.
+  row(0x0db49e, r => hi(r) === 0, 300, [240, 240, '25441b371f']),
   // #369: a zero nibble wraps a DEC/BNE counter to 256.
   ...([
     [0x0daa26, [195, 240, 'd73c1e0be0']],
