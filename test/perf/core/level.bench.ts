@@ -1,6 +1,6 @@
 import { describe } from 'vitest'
 import { parseLevelObjects, LevelObject } from '../../../src/rom/LevelParser'
-import { expandMap } from '../../../src/rom/ObjectExpander'
+import { expandMap, SWITCH_FLAGS_UNCLEARED } from '../../../src/rom/ObjectExpander'
 import {
   ADDR_TILESET_DISPATCH,
   ADDR_TILESET0_HANDLERS,
@@ -69,11 +69,33 @@ function objectsAcross(screens: number, perScreen: number): LevelObject[] {
 describe('core.level.objectExpand', () => {
   const smallRom = makeMockRom()
   const smallObjects = objectsAcross(1, 10)
-  perfCase('core.level.objectExpand.synthetic-small', () => expandMap(smallObjects, 1, smallRom, 0))
+  perfCase('core.level.objectExpand.synthetic-small', () =>
+    expandMap(
+      smallObjects,
+      1,
+      smallRom,
+      0,
+      false,
+      undefined,
+      undefined,
+      SWITCH_FLAGS_UNCLEARED,
+      null,
+    ),
+  )
 
   const largeRom = makeMockRom()
   const largeObjects = objectsAcross(20, 10)
   perfCase('core.level.objectExpand.synthetic-large', () =>
-    expandMap(largeObjects, 20, largeRom, 0),
+    expandMap(
+      largeObjects,
+      20,
+      largeRom,
+      0,
+      false,
+      undefined,
+      undefined,
+      SWITCH_FLAGS_UNCLEARED,
+      null,
+    ),
   )
 })

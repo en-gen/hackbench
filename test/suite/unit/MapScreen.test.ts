@@ -9,17 +9,30 @@
  * the cache keys. The corpus cases then check the drawing against the Map16
  * atlas path (`renderMap16Tile`) on real screens.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as fs from 'fs'
 import { createHash } from 'crypto'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
+import type * as Map16Mod from '../../../src/rom/Map16'
+import type * as GfxMod from '../../../src/rom/GfxLoader'
+import type * as AnimMod from '../../../src/rom/AnimationLoader'
+import type * as StockMod from '../../../src/rom/PaletteStockTables'
+import type * as ExMod from '../../../src/rom/ExAnimationLoader'
+import * as Map16Real from '../../../src/rom/Map16'
+import * as GfxReal from '../../../src/rom/GfxLoader'
+import * as AnimReal from '../../../src/rom/AnimationLoader'
+import * as StockReal from '../../../src/rom/PaletteStockTables'
+import * as ExReal from '../../../src/rom/ExAnimationLoader'
 import * as Expander from '../../../src/rom/ObjectExpander'
 import {
   SWITCH_FLAGS_UNCLEARED as UNCLEARED,
   type SwitchFlags,
 } from '../../../src/rom/ObjectExpander'
 import { parseLevelHeader } from '../../../src/rom/LevelParser'
+import * as ParserReal from '../../../src/rom/LevelParser'
+import type * as ParserMod from '../../../src/rom/LevelParser'
+import { drawInterpreted } from '../../../src/rom/objectHandlers/interpretedDraw'
 import {
   PIPE_VARIANT_TILE_COUNT,
   PIPE_VARIANT_TILE_START,
@@ -79,6 +92,52 @@ vi.mock('../../../src/rom/ObjectExpander', async importOriginal => {
   return { ...real, expandMap: vi.fn(real.expandMap) }
 })
 
+// Pass-through wrappers, so one test can stub the readers a fake ROM cannot satisfy (#342).
+vi.mock('../../../src/rom/LevelParser', async importOriginal => {
+  const real = await importOriginal<typeof ParserMod>()
+  return { ...real, parseLevelObjects: vi.fn(real.parseLevelObjects) }
+})
+vi.mock('../../../src/rom/Map16', async importOriginal => {
+  const real = await importOriginal<typeof Map16Mod>()
+  return {
+    ...real,
+    loadMap16WithPipeVariants: vi.fn(real.loadMap16WithPipeVariants),
+    map16TileCapacity: vi.fn(real.map16TileCapacity),
+  }
+})
+vi.mock('../../../src/rom/GfxLoader', async importOriginal => {
+  const real = await importOriginal<typeof GfxMod>()
+  return { ...real, gfxSource: vi.fn(real.gfxSource), loadVram: vi.fn(real.loadVram) }
+})
+vi.mock('../../../src/rom/AnimationLoader', async importOriginal => {
+  const real = await importOriginal<typeof AnimMod>()
+  return { ...real, loadAnimationDataOrReason: vi.fn(real.loadAnimationDataOrReason) }
+})
+vi.mock('../../../src/rom/PaletteStockTables', async importOriginal => {
+  const real = await importOriginal<typeof StockMod>()
+  return { ...real, readLevelCol1: vi.fn(real.readLevelCol1) }
+})
+vi.mock('../../../src/rom/ExAnimationLoader', async importOriginal => {
+  const real = await importOriginal<typeof ExMod>()
+  return { ...real, loadExAnimData: vi.fn(real.loadExAnimData) }
+})
+
+// A test that refuses early leaves its `...Once` stubs queued; put every wrapper back to pass-through.
+afterEach(() => {
+  for (const f of [
+    Expander.expandMap,
+    ParserReal.parseLevelObjects,
+    Map16Real.loadMap16WithPipeVariants,
+    Map16Real.map16TileCapacity,
+    GfxReal.gfxSource,
+    GfxReal.loadVram,
+    AnimReal.loadAnimationDataOrReason,
+    StockReal.readLevelCol1,
+    ExReal.loadExAnimData,
+  ])
+    vi.mocked(f).mockReset()
+})
+
 const romPresent = hasRom(VANILLA)
 const YELLOW: SwitchFlags = { ...UNCLEARED, yellow: true }
 const BACKDROP: RgbaColor = [250, 9, 9, 255]
@@ -127,6 +186,7 @@ function inputs(grid: number[][], isVertical: boolean, screenCount: number): L1I
     vram: VRAM,
     colors: COLORS,
     backArea: BACKDROP,
+    unverified: [],
     switchArt: switchArtOf({ frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }, tiles, VRAM, { colors: COLORS }), // prettier-ignore
   }
 }
@@ -413,6 +473,71 @@ describe('buildL1Inputs (synthetic)', () => {
     expect(spy.mock.calls[0]![7]).toEqual(YELLOW)
   })
 
+  // No ROM needed: the readers a fake ROM cannot satisfy are stubbed for one build, so the
+  // note's path (expandMap sink -> readings -> inputs -> wire note) runs in CI.
+  it('carries a note the expander pushes into inputs.unverified and the wire note, without a ROM (#342)', () => {
+    vi.mocked(GfxReal.gfxSource).mockReturnValueOnce({ ok: true } as never)
+    vi.mocked(Map16Real.map16TileCapacity).mockReturnValueOnce({} as never)
+    vi.mocked(StockReal.readLevelCol1).mockReturnValueOnce({ bg: 0, obj: 0 } as never)
+    vi.mocked(AnimReal.loadAnimationDataOrReason).mockReturnValueOnce({ ok: false, reason: 'stub' })
+    vi.mocked(ExReal.loadExAnimData).mockReturnValueOnce(null)
+    vi.mocked(Map16Real.loadMap16WithPipeVariants).mockReturnValueOnce({ tiles: [], pipeVariants: [] } as never) // prettier-ignore
+    vi.mocked(GfxReal.loadVram).mockReturnValueOnce({} as never)
+    const spy = vi.mocked(Expander.expandMap)
+    const real = spy.getMockImplementation()!
+    spy.mockImplementationOnce((...a) => {
+      ;(a[8] as { unverified: string[] }).unverified.push('NOTE FROM THE EXPANDER')
+      return real(...a)
+    })
+    const r = buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.inputs.unverified).toEqual(['NOTE FROM THE EXPANDER'])
+    expect((screenResult(r.inputs, 0) as { note?: string }).note).toContain('NOTE FROM THE EXPANDER') // prettier-ignore
+  })
+
+  // A cart whose object $12 reaches CODE_0DADEB as pipe variant 5 (via the tileset dispatch,
+  // as ObjectExpander reads it) and nothing else: the interpreter refuses at the loader.
+  const slopeObjectRom = (): SmwRom => {
+    const base = fakeRom(0)
+    const buf = Buffer.alloc(0x80000, 0)
+    buf[0x7fd5] = 0x20
+    buf.set(noL1Check(), 0x1000)
+    const rom = new RomFile('slope.sfc', buf)
+    const DISPATCH = 0x0d9000
+    const table = new Array(63 * 3).fill(0)
+    table.splice((0x12 - 1) * 3, 3, 0x3e, 0xab, 0x0d)
+    const variants = new Array(30).fill(0)
+    variants.splice(5 * 3, 3, 0xeb, 0xad, 0x0d)
+    rom.writeAt(ADDR_TILESET_DISPATCH, [DISPATCH & 0xff, (DISPATCH >> 8) & 0xff, 0x0d])
+    rom.writeAt(DISPATCH + 10, table)
+    rom.writeAt(0x0dab3e + 18, variants)
+    return { ...base, rom } as unknown as SmwRom
+  }
+
+  it('draws through the real drawInterpreted: a refusal reaches inputs.unverified and the wire note, without a ROM (#342)', () => {
+    vi.mocked(GfxReal.gfxSource).mockReturnValueOnce({ ok: true } as never)
+    vi.mocked(Map16Real.map16TileCapacity).mockReturnValueOnce({} as never)
+    vi.mocked(StockReal.readLevelCol1).mockReturnValueOnce({ bg: 0, obj: 0 } as never)
+    vi.mocked(AnimReal.loadAnimationDataOrReason).mockReturnValueOnce({ ok: false, reason: 'stub' })
+    vi.mocked(ExReal.loadExAnimData).mockReturnValueOnce(null)
+    vi.mocked(Map16Real.loadMap16WithPipeVariants).mockReturnValueOnce({ tiles: [], pipeVariants: [] } as never) // prettier-ignore
+    vi.mocked(GfxReal.loadVram).mockReturnValueOnce({} as never)
+    const slope = { type: 'standard', objectNumber: 0x12, settings: 0xe5, x: 16, y: 2 }
+    vi.mocked(ParserReal.parseLevelObjects).mockReturnValueOnce({ objects: [slope] } as never)
+    const r = buildL1Inputs(slopeObjectRom(), 0x105, UNCLEARED)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.inputs.unverified).toHaveLength(1)
+    expect(r.inputs.unverified[0]).toMatch(/\$0DADEB .*not verified.*loader/)
+    expect((screenResult(r.inputs, 0) as { note?: string }).note).toContain(r.inputs.unverified[0]!)
+  })
+
+  it('hands expandMap a note sink, not an opt-out, so refusals can reach the inputs (#342)', () => {
+    const spy = vi.mocked(Expander.expandMap)
+    spy.mockClear()
+    buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
+    expect(spy.mock.calls[0]![8]).toMatchObject({ unverified: [], draw: drawInterpreted })
+  })
+
   it.each([0x09, 0x0b, 0x10])(
     'refuses boss-arena mode $%s, whose L1 the game never loads',
     mode => {
@@ -507,6 +632,7 @@ describe('assembleL1Inputs (synthetic)', () => {
     backAreas,
     col1,
     paletteAnim: { context: 'level', available: true, notes: [], targets: [{ cgramIdx: 0x21, colors: [0x03e0] }] } as unknown as PaletteAnimContext, // prettier-ignore
+    unverified: [],
     ...over,
   })
   const pal = loadRomPalettes(palRom, 1)
@@ -532,6 +658,18 @@ describe('assembleL1Inputs (synthetic)', () => {
     const blind = assembleL1Inputs(readings({ paletteAnim: { context: 'level', available: false, targets: [], notes: ['hooked'] } as unknown as PaletteAnimContext })) // prettier-ignore
     expect(blind.colors).toEqual(buildLevelCgram(pal, 1, 2, 3, col1).colors)
     expect(blind.animNote).toMatch(/hooked/)
+  })
+
+  it('carries unverified notes in their own field, and into the wire note (#342)', () => {
+    const why = 'Handler $0DADEB is drawn by the built-in model, not verified against this ROM: x.'
+    expect(assembleL1Inputs(readings()).unverified).toEqual([])
+    const r = assembleL1Inputs(readings({ unverified: [why] }))
+    expect(r.unverified).toEqual([why])
+    expect(r.animNote ?? '').not.toContain('0DADEB')
+    expect((screenResult(r, 0) as { note?: string }).note).toContain(why)
+    expect(
+      (screenResult(assembleL1Inputs(readings()), 0) as { note?: string }).note,
+    ).toBeUndefined()
   })
 
   it('merges ExAnimation into the stock frames, and carries a frames error into the note', () => {
@@ -693,6 +831,19 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     if (!r.ok) throw new Error(r.reason)
     return r.inputs
   }
+
+  it('carries a note the expander pushes into inputs.unverified and into the wire note (#342)', () => {
+    const spy = vi.mocked(Expander.expandMap)
+    const real = spy.getMockImplementation()!
+    spy.mockImplementationOnce((...a) => {
+      ;(a[8] as { unverified: string[] }).unverified.push('NOTE FROM THE EXPANDER')
+      return real(...a)
+    })
+    const m = model(0x105)
+    expect(m.unverified).toEqual(['NOTE FROM THE EXPANDER'])
+    expect((screenResult(m, 0) as { note?: string }).note).toContain('NOTE FROM THE EXPANDER')
+    expect(model(0x105).unverified).toEqual([]) // and nothing when the expander says nothing
+  })
 
   // A regression oracle independent of the current renderer: SHA-256 of whole screens
   // drawn by the pre-#421-shared-renderer tile path at c6e39a15 (Tile.render

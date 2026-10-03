@@ -4,6 +4,7 @@ import {
   expandObject,
   createGrid,
   readLayer3Setting,
+  SWITCH_FLAGS_UNCLEARED,
   TILE_EMPTY,
 } from '../../../src/rom/ObjectExpander'
 import { LevelObject, SCREEN_W, parseLevelObjects } from '../../../src/rom/LevelParser'
@@ -538,7 +539,7 @@ describe('handle_0DAB0D (vertical 3-segment - page 1)', () => {
 describe('expandMap (integration)', () => {
   it('empty object list produces all-empty grid', () => {
     const rom = makeMockRom()
-    const grid = expandMap([], 1, rom, 0)
+    const grid = expandMap([], 1, rom, 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, null)
     expect(grid[0][0]).toBe(TILE_EMPTY)
     expect(grid[26][15]).toBe(TILE_EMPTY)
   })
@@ -556,7 +557,17 @@ describe('expandMap (integration)', () => {
     })
     stampLongOperand(rom, 0x0da8c3, 108, 0x0da8b4)
     const obj = makeObj('standard', 1, 0x00, /*x*/ 5, /*y*/ 20)
-    const grid = expandMap([obj], 1, rom, 0)
+    const grid = expandMap(
+      [obj],
+      1,
+      rom,
+      0,
+      false,
+      undefined,
+      undefined,
+      SWITCH_FLAGS_UNCLEARED,
+      null,
+    )
     expect(grid[20][5]).toBe(0x02)
   })
 
@@ -569,7 +580,17 @@ describe('expandMap (integration)', () => {
     })
     stampLongOperand(rom, 0x0da57b, 69, 0x0da548)
     const obj = makeObj('extended', 0x10, 0, /*x*/ 7, /*y*/ 20)
-    const grid = expandMap([obj], 1, rom, 0)
+    const grid = expandMap(
+      [obj],
+      1,
+      rom,
+      0,
+      false,
+      undefined,
+      undefined,
+      SWITCH_FLAGS_UNCLEARED,
+      null,
+    )
     expect(grid[20][7]).toBe(0x1f)
   })
 
@@ -581,7 +602,17 @@ describe('expandMap (integration)', () => {
       [ADDR_TILESET0_HANDLERS]: [0xff, 0xff, 0x0d], // 0x0DFFFF (not ported)
     })
     const obj = makeObj('standard', 1, 0x00, 5, 20)
-    const grid = expandMap([obj], 1, rom, 0)
+    const grid = expandMap(
+      [obj],
+      1,
+      rom,
+      0,
+      false,
+      undefined,
+      undefined,
+      SWITCH_FLAGS_UNCLEARED,
+      null,
+    )
     expect(grid[20][5]).toBe(TILE_EMPTY)
   })
 
@@ -591,7 +622,17 @@ describe('expandMap (integration)', () => {
       [ADDR_TILESET_DISPATCH + 3]: [0x90, 0xc1, 0x0d],
     })
     const obj = makeObj('standard', 1, 0x00, 5, 20)
-    const grid = expandMap([obj], 1, rom, 1)
+    const grid = expandMap(
+      [obj],
+      1,
+      rom,
+      1,
+      false,
+      undefined,
+      undefined,
+      SWITCH_FLAGS_UNCLEARED,
+      null,
+    )
     expect(grid[20][5]).toBe(TILE_EMPTY)
   })
 })
@@ -1415,7 +1456,7 @@ describe.skipIf(!romPresent)('expandMap integration (real SMW ROM)', () => {
   })
 
   /** Load and expand a level by translevel index (passes levelNum for layer3 overflow). */
-  function expandLevelByIndex(index: number, switchFlags?: SwitchFlags) {
+  function expandLevelByIndex(index: number, switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED) {
     const rawL1 = rom.getLevelRawData(index)
     if (!rawL1) throw new Error(`Level $${index.toString(16)} has no data`)
     const { header, objects } = parseLevelObjects(rawL1, rom.requireVerticalTable())
@@ -1429,6 +1470,7 @@ describe.skipIf(!romPresent)('expandMap integration (real SMW ROM)', () => {
       header.levelMode,
       index,
       switchFlags,
+      null,
     )
     return { grid, header, objects, screens }
   }

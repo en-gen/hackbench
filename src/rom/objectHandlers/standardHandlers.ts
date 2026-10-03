@@ -43,6 +43,7 @@ import {
   readImmByte,
   MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
+import { isInterpretedHandler, noteUnverified } from './interpretedGate'
 // No ADDR_DATA_* imports: every handler resolves its table addresses and
 // immediate tile IDs dynamically from its own bytecode via cur.handlerAddr.
 // No RomFile / readByteTable imports either -- reads go through cur.rom directly.
@@ -886,10 +887,16 @@ export function handle_0DAB3E(cur: Cursor): void {
 
   // Run each variant handler with its own handlerAddr so that its LDA.L
   // and LDA # operands resolve correctly against its own bytecode.
+  // A gated variant is drawn from the interpreter; a refusal falls to the port.
+  if (cur.draw && isInterpretedHandler(target)) {
+    if (typeof cur.draw.draw !== 'function')
+      noteUnverified(cur.draw.unverified, target, 'no interpreter was supplied')
+    else if (cur.draw.draw(cur, target, cur.draw)) return
+  }
   const prevHandler = cur.handlerAddr
   cur.handlerAddr = target
   try {
-    PIPE_VARIANT_HANDLERS[target]?.(cur)
+    PIPE_VARIANT_HANDLERS[target & 0x7fffff]?.(cur)
   } finally {
     cur.handlerAddr = prevHandler
   }

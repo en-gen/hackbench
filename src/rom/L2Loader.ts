@@ -29,7 +29,8 @@
 import { RomFile } from './RomFile'
 import { decompressRle1 } from './LcRle1'
 import { parseL2Objects, SCREEN_W, SCREEN_H, type LevelSprite } from './LevelParser'
-import { expandObject, createGrid } from './ObjectExpander'
+import { expandObject, createGrid, SWITCH_FLAGS_UNCLEARED } from './ObjectExpander'
+import { OWNER_NONE } from './objectHandlers/cursor'
 import { findSecondaryEntranceForLevel } from './L3Loader'
 
 /** L2 pointer table base. 3 bytes per level: lo, hi, bank. */
@@ -190,7 +191,7 @@ export function loadL2Objects(
   const objects = parseL2Objects(raw, screens, isVertical)
   const grid = createGrid(screens, isVertical)
   for (const obj of objects) {
-    expandObject(grid, obj, rom, objectTileset)
+    expandObject(grid, obj, rom, objectTileset, null, OWNER_NONE, SWITCH_FLAGS_UNCLEARED, null) // L2 draws from the ports
   }
   return { grid }
 }
