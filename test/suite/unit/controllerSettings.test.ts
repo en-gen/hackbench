@@ -4,6 +4,7 @@ import {
   DEFAULT_ASSIGNMENTS,
   assignKeyboard,
   assignPad,
+  MAX_PAD_INDEX,
   localeRegion,
   parseControllerSettings,
   resolveRegion,
@@ -160,5 +161,47 @@ describe('scheme colors', () => {
   ])('%s is %s North American and %s PAL', (name, na, pal) => {
     expect(SCHEME_COLORS.na[name]).toBe(na)
     expect(SCHEME_COLORS.pal[name]).toBe(pal)
+  })
+})
+
+describe('parseControllerSettings: exclusivity and bounds', () => {
+  it('a contested keyboard and pad stay with the first player', () => {
+    const p = parseControllerSettings({
+      players: [
+        { keyboard: true, pad: 0 },
+        { keyboard: true, pad: 0 },
+      ],
+    })
+    expect(p.players).toEqual([
+      { keyboard: true, pad: 0 },
+      { keyboard: false, pad: undefined },
+    ])
+  })
+
+  it('accepts the highest pad index and rejects the next', () => {
+    const p = parseControllerSettings({
+      players: [
+        { keyboard: false, pad: MAX_PAD_INDEX },
+        { keyboard: false, pad: MAX_PAD_INDEX + 1 },
+      ],
+    })
+    expect(p.players.map(a => a.pad)).toEqual([MAX_PAD_INDEX, undefined])
+  })
+
+  it('needs exactly two players', () => {
+    for (const n of [0, 1, 3]) {
+      const players = Array.from({ length: n }, () => ({ keyboard: false, pad: 2 }))
+      expect(parseControllerSettings({ players }).players).toEqual(DEFAULT_ASSIGNMENTS)
+    }
+  })
+})
+
+describe('assignKeyboard off', () => {
+  it('turning it off for one player leaves the other as it was', () => {
+    const both = [
+      { keyboard: true, pad: undefined },
+      { keyboard: true, pad: undefined },
+    ]
+    expect(assignKeyboard(both, 0, false).map(a => a.keyboard)).toEqual([false, true])
   })
 })

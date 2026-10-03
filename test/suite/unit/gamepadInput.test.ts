@@ -54,6 +54,14 @@ describe('padButtons: standard mapping by position', () => {
     expect(padButtons(pad([], [0.4, -0.4])).size).toBe(0)
   })
 
+  it('the stick threshold is inclusive at 0.5 and exclusive just under', () => {
+    expect([...padButtons(pad([], [-0.5, 0]))]).toEqual([6])
+    expect([...padButtons(pad([], [0.5, 0]))]).toEqual([7])
+    expect([...padButtons(pad([], [0, -0.5]))]).toEqual([4])
+    expect([...padButtons(pad([], [0, 0.5]))]).toEqual([5])
+    expect(padButtons(pad([], [0.49, -0.49])).size).toBe(0)
+  })
+
   it('leaves a non-standard pad alone rather than guess its layout', () => {
     expect(padButtons({ ...pad([0, 1]), mapping: '' }).size).toBe(0)
   })

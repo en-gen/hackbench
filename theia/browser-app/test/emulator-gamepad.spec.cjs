@@ -205,31 +205,74 @@ test('a pad without the standard mapping sends nothing', async ({ page }) => {
   expect(await seen(page)).toEqual([])
 })
 
-test('window blur and Stop release held pad buttons', async ({ page }) => {
+test('losing focus releases held pad buttons and an unfocused window is not polled', async ({
+  page,
+}) => {
   test.setTimeout(120000)
   await bootWithSpy(page, 'Release')
   await page.evaluate(() => setPads(pad(0, [9])))
   await expect.poll(() => seen(page)).toEqual([[0, 3, 1]])
-  await page.evaluate(() => window.dispatchEvent(new Event('blur')))
+  // Gating reads document.hasFocus() each frame; blur only triggers the release.
+  await page.evaluate(() => {
+    document.hasFocus = () => false
+    window.dispatchEvent(new Event('blur'))
+  })
   await expect
     .poll(() => seen(page))
     .toEqual([
       [0, 3, 1],
       [0, 3, 0],
     ])
-  // Still held after blur, but not re-sent until the window has focus again.
   await page.waitForTimeout(300)
-  expect(await seen(page)).toHaveLength(2)
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
-  await expect.poll(() => seen(page)).toHaveLength(3)
-
-  await page.locator(`${VIEW} button[aria-label="Stop"]`).click()
-  // The core is gone; what matters is the next Start does not inherit a held button.
-  const held = await page.evaluate(async () => {
-    const w = await getWidget('hackbench.emulator-view')
-    return [...w.hub.pressed(0)]
+  expect(await seen(page), 'polled while unfocused').toHaveLength(2)
+  await page.evaluate(() => {
+    document.hasFocus = () => true
   })
-  expect(held).toEqual([])
+  await expect.poll(() => seen(page)).toHaveLength(3)
+})
+
+test('Stop releases a held key and a held pad button, so the next Start inherits nothing', async ({
+  page,
+}) => {
+  test.setTimeout(120000)
+  await bootWithSpy(page, 'StopRelease')
+  await page.keyboard.down('KeyZ')
+  await page.evaluate(() => setPads(null, pad(1, [3])))
+  await expect
+    .poll(() => seen(page))
+    .toEqual([
+      [0, 0, 1],
+      [1, 9, 1],
+    ])
+  await page.locator(`${VIEW} button[aria-label="Stop"]`).click()
+  // The spy sits on the core Stop discards, so it is the release the core
+  // received BEFORE it went that this asserts; read it from the recorded calls.
+  const calls = await seen(page)
+  expect(calls.slice(2).sort(), 'Stop did not release what was held').toEqual([
+    [0, 0, 0],
+    [1, 9, 0],
+  ])
+  await page.keyboard.up('KeyZ')
+  expect(
+    await page.evaluate(async () => [
+      ...(await getWidget('hackbench.emulator-view')).controllers.hub.pressed(0),
+    ]),
+  ).toEqual([])
+})
+
+test('a key held while the keyboard moves to player 2 is released on port 0', async ({ page }) => {
+  test.setTimeout(120000)
+  await bootWithSpy(page, 'KeyboardMove')
+  await openFlyout(page)
+  await page.evaluate(async () => (await getWidget('hackbench.emulator-view')).node.focus())
+  await page.keyboard.down('KeyZ')
+  expect(await seen(page)).toEqual([[0, 0, 1]])
+  await page.locator(`${VIEW} input[aria-label="Player 2 keyboard"]`).check()
+  expect(await seen(page), 'the held key stuck on port 0').toEqual([
+    [0, 0, 1],
+    [0, 0, 0],
+  ])
+  await page.keyboard.up('KeyZ')
 })
 
 test('the drawing lights what each player is sending, including d-pad, L/R and Start', async ({
@@ -320,7 +363,7 @@ test('pad assignment is chosen per player, exclusive, and survives a reload', as
   const stored = await page.evaluate(async () => {
     const w = await getWidget('hackbench.emulator-view')
     await new Promise(r => setTimeout(r, 500))
-    return w.controllers.players.map(a => a.pad)
+    return w.controllers.settings.players.map(a => a.pad)
   })
   expect(stored).toEqual([undefined, 0])
 })
@@ -337,33 +380,60 @@ test('controller colors follow the region, and the style override wins and persi
           document.querySelector('#hackbench\\.emulator-view [data-player="1"] [data-btn="8"]'),
         ).fill,
     )
-  const setLanguages = langs =>
-    page.evaluate(l => {
-      Object.defineProperty(navigator, 'languages', { get: () => l, configurable: true })
-    }, langs)
+  // The OS country (Electron's bridge; stubbed here since the browser build has none) wins.
+  const setCountry = code =>
+    page.evaluate(
+      async c => (await getWidget('hackbench.emulator-view')).controllers.setOsCountry(c),
+      code,
+    )
+  // The fallback reads navigator.language only, never the later navigator.languages.
+  const setLanguage = (language, languages = [language]) =>
+    page.evaluate(
+      ([lang, langs]) => {
+        Object.defineProperty(navigator, 'language', { get: () => lang, configurable: true })
+        Object.defineProperty(navigator, 'languages', { get: () => langs, configurable: true })
+      },
+      [language, languages],
+    )
   const scheme = () => page.locator(`${VIEW} [data-player="1"]`).getAttribute('data-scheme')
   const reopen = async () => {
     const b = page.locator(`${VIEW} button[aria-label="Controllers"]`)
     if (await page.locator(`${VIEW} .hb-pad-flyout`).count()) await b.click()
     await b.click()
   }
+  const NA = 'rgb(78, 58, 134)'
+  const PAL = 'rgb(255, 72, 86)'
 
-  for (const [langs, want, fill] of [
-    [['en-US'], 'na', 'rgb(78, 58, 134)'],
-    [['fr-CA', 'en'], 'na', 'rgb(78, 58, 134)'],
-    [['es-MX'], 'na', 'rgb(78, 58, 134)'],
-    [['ja-JP'], 'pal', 'rgb(255, 72, 86)'],
-    [['en-GB'], 'pal', 'rgb(255, 72, 86)'],
-    [['en'], 'pal', 'rgb(255, 72, 86)'],
+  for (const [country, want, fill] of [
+    ['US', 'na', NA],
+    ['CA', 'na', NA],
+    ['MX', 'na', NA],
+    ['JP', 'pal', PAL],
+    ['GB', 'pal', PAL],
   ]) {
-    await setLanguages(langs)
+    await setCountry(country)
     await reopen()
-    await expect.poll(scheme, { message: `languages ${langs}` }).toBe(want)
-    expect(await fillOfA(), `A button color for ${langs}`).toBe(fill)
+    await expect.poll(scheme, { message: `country ${country}` }).toBe(want)
+    expect(await fillOfA(), `A button color for ${country}`).toBe(fill)
+  }
+
+  // No OS country: fall back to navigator.language.
+  await setCountry('')
+  for (const [language, languages, want] of [
+    ['en-US', ['en-US'], 'na'],
+    ['fr-CA', ['fr-CA', 'en'], 'na'],
+    ['ja-JP', ['ja-JP'], 'pal'],
+    ['en', ['en'], 'pal'],
+    // A later tagged language says nothing about where the user is.
+    ['de', ['de', 'en-US'], 'pal'],
+  ]) {
+    await setLanguage(language, languages)
+    await reopen()
+    await expect.poll(scheme, { message: `language ${language}` }).toBe(want)
   }
 
   // Override: a Japanese locale forced to North American, then back to Auto.
-  await setLanguages(['ja-JP'])
+  await setLanguage('ja-JP')
   await reopen()
   const style = page.locator(`${VIEW} select[aria-label="Controller style"]`)
   await style.selectOption('na')
@@ -375,7 +445,7 @@ test('controller colors follow the region, and the style override wins and persi
   const persisted = await page.evaluate(async () => {
     const w = await getWidget('hackbench.emulator-view')
     await new Promise(r => setTimeout(r, 500))
-    return w.controllers.style
+    return w.controllers.settings.style
   })
   expect(persisted).toBe('na')
 })

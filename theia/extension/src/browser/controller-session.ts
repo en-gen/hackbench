@@ -20,10 +20,17 @@ import {
 export interface SessionDeps {
   send(port: number, button: number, pressed: boolean): void
   getPads(): ReadonlyArray<(PadLike & { id?: string }) | null>
-  languages: readonly string[]
+  /**
+   * navigator.language only: the first entry of navigator.languages is the one
+   * the user ranks highest, and later ones say nothing about where they are.
+   * Best effort anyway: Chromium folds es-MX to es-419 and en-CA to en-GB.
+   */
+  language: string
   save(settings: ControllerSettings): void
   /** The game is running in a visible panel. */
   isLive(): boolean
+  /** document.hasFocus(), read each frame: blur/focus events misfire around iframes. */
+  hasFocus(): boolean
   requestFrame(cb: () => void): number
   cancelFrame(handle: number): void
   listen(type: string, fn: () => void): () => void
@@ -39,7 +46,7 @@ export class ControllerSession {
   private readonly keyboard: HeldButtons
   private osCountry: string | undefined
   private touched = false
-  private blurred = false
+  private wasLive = false
   private frame: number | undefined
   private unlisten: Array<() => void> = []
 
@@ -55,17 +62,20 @@ export class ControllerSession {
   start(): void {
     const tick = (): void => {
       this.frame = this.deps.requestFrame(tick)
-      // Read only for a game someone can see, or while the fly-out shows the pads.
-      const live = !this.blurred && (this.deps.isLive() || this.padsOpen)
-      pollPads(this.hub, live ? this.deps.getPads() : [], this.settings.players)
+      // Read only for a focused window showing a running game, or the fly-out.
+      const live = this.deps.hasFocus() && (this.deps.isLive() || this.padsOpen)
+      if (!live) {
+        // Pause, Stop, hiding and losing focus all end here: let go once.
+        if (this.wasLive) this.releaseAll()
+        this.wasLive = false
+        return
+      }
+      this.wasLive = true
+      pollPads(this.hub, this.deps.getPads(), this.settings.players)
     }
     this.frame = this.deps.requestFrame(tick)
     this.unlisten = [
-      this.deps.listen('blur', () => {
-        this.blurred = true
-        this.releaseAll()
-      }),
-      this.deps.listen('focus', () => (this.blurred = false)),
+      this.deps.listen('blur', () => this.releaseAll()),
       this.deps.listen('gamepadconnected', () => this.padsOpen && this.onChange?.()),
       this.deps.listen('gamepaddisconnected', () => this.padsOpen && this.onChange?.()),
     ]
@@ -96,14 +106,18 @@ export class ControllerSession {
   /** Stored settings; ignored if the user already changed something this session. */
   load(raw: unknown): void {
     if (this.touched) return
+    // A key held while the stored assignment moves the keyboard would stick on its old port.
+    this.releaseAll()
     this.settings = parseControllerSettings(raw)
     this.onChange?.()
   }
 
-  connectedPads(): Array<{ index: number; id: string }> {
+  connectedPads(): Array<{ index: number; id: string; standard: boolean }> {
     return this.deps
       .getPads()
-      .flatMap((p, index) => (p?.connected ? [{ index, id: p.id ?? '' }] : []))
+      .flatMap((p, index) =>
+        p?.connected ? [{ index, id: p.id ?? '', standard: p.mapping === 'standard' }] : [],
+      )
   }
 
   /** The Electron OS country code, when the bridge answers; '' or undefined falls back to languages. */
@@ -113,7 +127,7 @@ export class ControllerSession {
   }
 
   scheme(): ControllerScheme {
-    return resolveScheme(this.settings.style, resolveRegion(this.osCountry, this.deps.languages))
+    return resolveScheme(this.settings.style, resolveRegion(this.osCountry, [this.deps.language]))
   }
 
   togglePads(open = !this.padsOpen): void {

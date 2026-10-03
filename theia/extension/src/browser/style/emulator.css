@@ -65,7 +65,7 @@
    side panel opened 196px wide in a 1280px window, narrower than one row of
    controls (264px), and the overflow put the volume button under the panel's
    scrollbar. */
-.hb-emulator-controls {
+.hb-emulator-controls.hb-map-view-toolbar {
   flex-wrap: wrap;
   flex: none;
   padding: 4px 0 0.5em;

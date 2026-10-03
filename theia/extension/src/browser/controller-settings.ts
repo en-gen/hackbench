@@ -20,7 +20,7 @@ export interface ControllerSettings {
 }
 
 export const PLAYER_COUNT = 2
-const MAX_PAD_INDEX = 3
+export const MAX_PAD_INDEX = 3
 
 export const DEFAULT_ASSIGNMENTS: readonly PlayerAssignment[] = [
   { keyboard: true, pad: 0 },
@@ -146,6 +146,21 @@ function parsePlayer(raw: unknown): PlayerAssignment | undefined {
   }
 }
 
+/** A contested keyboard or pad stays with the first player; a stored duplicate would leak it to two ports. */
+function exclusive(players: PlayerAssignment[]): PlayerAssignment[] {
+  const pads = new Set<number>()
+  let keyboard = false
+  return players.map(p => {
+    const mine = {
+      keyboard: p.keyboard && !keyboard,
+      pad: p.pad !== undefined && pads.has(p.pad) ? undefined : p.pad,
+    }
+    keyboard ||= mine.keyboard
+    if (mine.pad !== undefined) pads.add(mine.pad)
+    return mine
+  })
+}
+
 /** Anything stored that is not usable falls back to the defaults. */
 export function parseControllerSettings(raw: unknown): ControllerSettings {
   const fallback = { players: DEFAULT_ASSIGNMENTS.map(a => ({ ...a })), style: 'auto' as const }
@@ -154,7 +169,7 @@ export function parseControllerSettings(raw: unknown): ControllerSettings {
   const parsed = Array.isArray(players) ? players.map(parsePlayer) : []
   const ok = parsed.length === PLAYER_COUNT && parsed.every(p => p !== undefined)
   return {
-    players: ok ? (parsed as PlayerAssignment[]) : fallback.players,
+    players: ok ? exclusive(parsed as PlayerAssignment[]) : fallback.players,
     style: style === 'na' || style === 'pal' ? style : 'auto',
   }
 }

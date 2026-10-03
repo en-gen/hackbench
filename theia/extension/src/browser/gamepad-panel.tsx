@@ -31,6 +31,8 @@ function svgFor(player: number): string {
 export interface ConnectedPad {
   index: number
   id: string
+  /** Reports the standard mapping; others are not read until they can be remapped. */
+  standard: boolean
 }
 
 export interface ControllerDrawingProps {
@@ -161,6 +163,7 @@ function PlayerRow(props: PlayerRowProps): React.ReactElement {
           {pads.map(p => (
             <option key={p.index} value={p.index}>
               Gamepad {p.index + 1}: {p.id}
+              {p.standard ? '' : ' (layout not recognized)'}
             </option>
           ))}
         </select>
