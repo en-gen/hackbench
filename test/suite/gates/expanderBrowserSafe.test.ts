@@ -8,24 +8,77 @@
 import { describe, it, expect } from 'vitest'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import * as ts from 'typescript'
 
 const ROOT = path.resolve(__dirname, '../../..')
 const NODE_ONLY = /^(node:)?crypto$/
 
-// `import|export ... from 'x'` (also `export * from`), bare `import 'x'`, and literal
-// `import('x')` / `require('x')`. `import type` and `export type` are erased and skipped.
-const FROM_FORM = /^\s*(?:import|export)\s+(?!type\b)[^'"]*?from\s+['"]([^'"]+)['"]/gm
-const SIDE_EFFECT_IMPORT = /^\s*import\s+['"]([^'"]+)['"]/gm
-const CALL_FORM = /\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]\s*\)/g
+/**
+ * The module specifiers `text` pulls in at runtime, read from the AST: a
+ * type-only import or export is erased, and a string or comment that merely
+ * looks like an import is not one.
+ */
+function runtimeSpecifiers(file: string, text: string): string[] {
+  const out: string[] = []
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const visit = (n: ts.Node): void => {
+    if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
+      const c = n.importClause
+      const nb = c?.namedBindings
+      const onlyTypeNames =
+        c !== undefined &&
+        !c.name &&
+        nb !== undefined &&
+        ts.isNamedImports(nb) &&
+        nb.elements.length > 0 &&
+        nb.elements.every(e => e.isTypeOnly)
+      if (!c?.isTypeOnly && !onlyTypeNames) out.push(n.moduleSpecifier.text)
+    } else if (
+      ts.isExportDeclaration(n) &&
+      n.moduleSpecifier &&
+      ts.isStringLiteral(n.moduleSpecifier)
+    ) {
+      // prettier-ignore
+      const nb = n.exportClause
+      const onlyTypeNames = nb !== undefined && ts.isNamedExports(nb) && nb.elements.length > 0 && nb.elements.every(e => e.isTypeOnly) // prettier-ignore
+      if (!n.isTypeOnly && !onlyTypeNames) out.push(n.moduleSpecifier.text)
+    } else if (
+      ts.isImportEqualsDeclaration(n) &&
+      !n.isTypeOnly &&
+      ts.isExternalModuleReference(n.moduleReference) &&
+      ts.isStringLiteral(n.moduleReference.expression)
+    ) {
+      // prettier-ignore
+      out.push(n.moduleReference.expression.text)
+    } else if (
+      ts.isCallExpression(n) &&
+      n.arguments.length === 1 &&
+      ts.isStringLiteral(n.arguments[0]!)
+    ) {
+      // prettier-ignore
+      const callee = n.expression
+      if (
+        callee.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(callee) && callee.text === 'require')
+      )
+        // prettier-ignore
+        out.push((n.arguments[0] as ts.StringLiteral).text)
+    }
+    ts.forEachChild(n, visit)
+  }
+  visit(sf)
+  return out
+}
 
-/** The file a relative specifier names, trying .ts, .tsx, then a directory's index; fails if none reads. */
+/** The file a relative specifier names, trying .ts, .tsx (a .js suffix stands for them), then a directory's index; fails if none reads. */
 function resolveRelative(
   from: string,
   spec: string,
   read: (file: string) => string | null,
 ): string {
   const base = path.resolve(path.dirname(from), spec)
-  const tried = [base, base + '.ts', base + '.tsx', path.join(base, 'index.ts'), path.join(base, 'index.tsx')] // prettier-ignore
+  const bare = base.replace(/\.jsx?$/, '') // `./b.js` names b.ts under TypeScript's resolution
+  const tried = [base, bare + '.ts', bare + '.tsx', path.join(base, 'index.ts'), path.join(base, 'index.tsx')] // prettier-ignore
   const hit = tried.find(f => /\.tsx?$/.test(f) && read(f) !== null)
   if (hit === undefined) throw new Error(`unresolved relative import '${spec}' from ${from}`)
   return hit
@@ -42,8 +95,7 @@ export function reachable(
     const file = queue.shift()!
     const text = read(file)
     if (text === null) throw new Error(`unreadable module ${file}`)
-    const specs = [FROM_FORM, SIDE_EFFECT_IMPORT, CALL_FORM].flatMap(re => [...text.matchAll(re)].map(m => m[1]!)) // prettier-ignore
-    for (const spec of specs) {
+    for (const spec of runtimeSpecifiers(file, text)) {
       const target = spec.startsWith('.') ? resolveRelative(file, spec, read) : spec
       if (seen.has(target)) continue
       seen.set(target, [...seen.get(file)!, target])
@@ -91,6 +143,26 @@ describe('ObjectExpander stays browser-bundle safe (#342)', () => {
   it('goes red through a chain, and follows a directory index and .tsx', () => {
     const chain = { '/b/index.ts': "import '../c'", '/c.tsx': "require('crypto')" }
     expect(flagged("import { b } from './b'", chain)).toBe(1)
+  })
+
+  it.each([
+    ['a require() in a string', 'const s = "require(\'crypto\')"'],
+    ['a require() in a comment', "// require('crypto')\n/* import('crypto') */"],
+    ['export { type T } from', "export { type T } from './t'"],
+    ['import { type A, type B } from', "import { type A, type B } from 'crypto'"],
+  ])('does not follow %s', (_what, source) => {
+    expect(flagged(source, { '/t.ts': "import 'crypto'" })).toBe(0)
+  })
+
+  it('follows import { type A, b } and a default import beside type names', () => {
+    expect(flagged("import { type A, b } from 'crypto'")).toBe(1)
+    expect(flagged("import d, { type A } from 'crypto'")).toBe(1)
+  })
+
+  it('follows import x = require() and a .js-suffixed relative specifier', () => {
+    expect(flagged("import c = require('crypto')")).toBe(1)
+    expect(flagged("import { b } from './b.js'", { '/b.ts': "import 'crypto'" })).toBe(1)
+    expect(flagged("import type c = require('crypto')")).toBe(0)
   })
 
   it('ignores import type and export type', () => {
