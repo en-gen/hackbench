@@ -38,7 +38,7 @@ export function switchBlockTile(rom: RomFile, tileset: number, palace: Palace): 
     const grid = createGrid(1)
     const placed = { ...obj, x: 0, y: 0, screen: 0, settings: 0, raw: [] } as unknown as LevelObject
     const flags = { ...SWITCH_FLAGS_UNCLEARED, [palace]: cleared }
-    expandObject(grid, placed, rom, tileset, null, OWNER_NONE, flags)
+    expandObject(grid, placed, rom, tileset, null, OWNER_NONE, flags, null) // one tile, from the port
     return grid[0]![0]!
   }
   const uncleared = draw(false)

@@ -37,7 +37,8 @@ const DRIFT =
 // prettier-ignore
 export const KNOWN_DISAGREEMENTS: Known[] = [
   // Port bugs, one issue each.
-  row(0x0dadeb, all, 652, [450, 480, 'cfbc58f35e']),
+  // The port draws this only as the interpreter's refusal fallback; production draws it from the interpreter (#342).
+  row(0x0dadeb, all, 440, [450, 480, 'cfbc58f35e']),
   row(0x0dc3d8, all, 674, [768, 768, 'be6f199c89']),
   row(0x0de971, all, 675, [3, 3, '577db2276d']),
   row(0x0da68e, r => r.col === 0, 689, [1, 1, '1ac3aaa57d']),

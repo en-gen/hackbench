@@ -13,7 +13,7 @@ import { readdirSync, readFileSync, writeFileSync, existsSync } from 'fs'
 import { deflateSync } from 'zlib'
 import { SmwRom } from '../../src/rom/SmwRom'
 import { parseLevelObjects, SCREEN_W } from '../../src/rom/LevelParser'
-import { expandMap, TILE_EMPTY } from '../../src/rom/ObjectExpander'
+import { expandMap, SWITCH_FLAGS_UNCLEARED, TILE_EMPTY } from '../../src/rom/ObjectExpander'
 import { loadVram } from '../../src/rom/GfxLoader'
 import { loadAllMap16 } from '../../src/rom/Map16'
 import { renderMap16Tile } from '../../src/rom/TileRenderer'
@@ -364,6 +364,8 @@ for (const name of folders) {
     isVertical,
     header.levelMode,
     levelNum,
+    SWITCH_FLAGS_UNCLEARED,
+    null,
   )
 
   let vram, cgram, tiles

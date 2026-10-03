@@ -12,7 +12,7 @@
  */
 import { SmwRom } from '../../src/rom/SmwRom'
 import { parseLevelObjects } from '../../src/rom/LevelParser'
-import { expandMap } from '../../src/rom/ObjectExpander'
+import { expandMap, SWITCH_FLAGS_UNCLEARED } from '../../src/rom/ObjectExpander'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
 const TARGETS = [0x27, 0x28, 0x29, 0x2a, 0x2f]
@@ -44,6 +44,9 @@ for (let lv = 0; lv < 0x200; lv++) {
       header.objectTileset & 0x0f,
       false,
       header.levelMode,
+      undefined,
+      SWITCH_FLAGS_UNCLEARED,
+      null,
     )
   } catch {
     continue
