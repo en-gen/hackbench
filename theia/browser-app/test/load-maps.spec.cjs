@@ -157,6 +157,35 @@ test('a ROM whose screen-exit routine is patched lists every map flat, and says 
     .toContain('Map hierarchy unavailable: $05D7CB')
 })
 
+test('$022 lists its five sub areas flat, none expandable (#434)', async ({ page }) => {
+  const created = await page.evaluate(
+    async ({ romPath, directory }) => {
+      const project = await getSvc('Symbol(ProjectService)').createProject({
+        romPath,
+        name: 'Chocolate',
+        directory,
+      })
+      return project.manifestPath
+    },
+    { romPath: ROM, directory: path.join(tmp, 'Chocolate') },
+  )
+  fs.mkdirSync(path.join(tmp, 'Chocolate', 'meta'), { recursive: true })
+  fs.writeFileSync(path.join(tmp, 'Chocolate', 'meta', 'groups.json'), '[]\n')
+
+  const kids = await page.evaluate(async manifestPath => {
+    const w = await getWidget('hackbench.map-explorer')
+    await w.load(manifestPath)
+    const roots = w.model.root.children || []
+    const top = (roots.find(r => r.id === 'group:unassigned')?.children || []).find(
+      n => n.index === 0x22,
+    )
+    return top ? top.children.map(c => ({ index: c.index, kids: (c.children || []).length })) : null
+  }, created)
+
+  // Slots, not maps: $0D0/$0D1 and $0F5/$0F6 are separate rows, and nothing nests.
+  expect(kids).toEqual([0x0be, 0x0d0, 0x0d1, 0x0f5, 0x0f6].map(index => ({ index, kids: 0 })))
+})
+
 /** Create a project against `rom` and open the map view for `index`, returning its shown text. */
 async function openMapView(page, rom, dir, index = 0x105) {
   const manifestPath = path.join(dir, `${path.basename(dir)}.hbproj`)

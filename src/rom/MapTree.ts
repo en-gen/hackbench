@@ -34,7 +34,7 @@
  */
 import { SmwRom, isOverworldLevel } from './SmwRom'
 import { buildLevelCatalog } from './LevelCatalog'
-import { buildLevelSubtree, LevelTreeNode } from './LevelTree'
+import { reachableSlots } from './LevelTree'
 import { findSpecialMaps, type SpecialMap, type SpecialRole } from './SpecialMaps'
 import { findBonusEntrances, type BonusRole } from './BonusEntrances'
 import {
@@ -53,10 +53,9 @@ export interface MapNode {
    */
   name: string | null
   /**
-   * 'map' expands. 'loop' is a back edge to a map already on the path from
-   * this root, and 'truncated' is a subtree that hit LevelTree's caps;
-   * neither expands, and both are shown rather than dropped so nothing
-   * disappears silently.
+   * Always 'map' in this tree: a root's sub areas are a flat list, so nothing
+   * nests, loops or truncates. 'loop' and 'truncated' are kept in the type
+   * for the wire protocol.
    */
   kind: 'map' | 'loop' | 'truncated'
   /**
@@ -118,10 +117,10 @@ export interface MapTree {
  * Group every map in the ROM.
  *
  * Coverage is the contract: every real slot appears somewhere, either under
- * an overworld root or under unassigned. A sub-area reached from two levels
- * is expanded under both, matching how a player navigates rather than the
- * graph's node set (see LevelTree.buildLevelSubtree), so deeper duplicates
- * are intended; only the top level of each root is unique.
+ * an overworld root or under unassigned. A root's sub areas are every
+ * non-root slot reachable from it through the exit graph, listed once, flat
+ * and in slot order (LevelTree.reachableSlots). A sub area reached from two
+ * roots is listed under both.
  *
  * @param fingerprints Replaces the stock overworld fingerprints; for a synthetic ROM.
  */
@@ -153,22 +152,27 @@ export function buildMapTree(
   const roots = [...maps].filter(isRoot).sort((a, b) => a - b)
 
   const placed = new Set<number>()
-  const adopt = (node: LevelTreeNode): MapNode => {
-    placed.add(node.index)
+  const adopt = (index: number, children: MapNode[] = []): MapNode => {
+    placed.add(index)
     return {
-      index: node.index,
-      name: name(node.index),
-      // LevelTree says 'room' for an expandable node; the glossary's term for
-      // the editable unit is 'map', and this module speaks the glossary.
-      kind: node.kind === 'room' ? 'map' : node.kind,
-      l1Aliases: aliasesOf(node.index),
-      // A destination outside the map set is filler the exit data still
-      // points at; showing it would invent a map.
-      children: node.children.filter(c => maps.has(c.index)).map(adopt),
+      index,
+      name: name(index),
+      kind: 'map',
+      l1Aliases: aliasesOf(index),
+      children,
     }
   }
 
-  const overworld = roots.map(root => adopt(buildLevelSubtree(root, exitGraph, isRoot)))
+  // A destination outside the map set is filler the exit data still points
+  // at; showing it would invent a map.
+  const overworld = roots.map(root =>
+    adopt(
+      root,
+      reachableSlots(root, exitGraph, isRoot)
+        .filter(i => maps.has(i))
+        .map(i => adopt(i)),
+    ),
+  )
 
   // Read from the ROM, and only adopted when the slot named actually holds a
   // real map: a routine that has been repointed could name a filler slot,
