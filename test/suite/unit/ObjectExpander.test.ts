@@ -922,17 +922,16 @@ describe('handle_0DB547 (3-segment horizontal, object 33 - page 1)', () => {
   })
 })
 
-describe('handle_0DB571 (single-tile by size, objects 47-54)', () => {
+describe('handle_0DB571 (single-tile stamp, extended $68-$6F)', () => {
   const HANDLER_ADDR = 0x0db571
   const TABLE_ADDR = 0x0db569
+  const TABLE = [0x91, 0x92, 0x96, 0x97, 0x9a, 0x9b, 0x9f, 0xa0]
 
   it('stamps DATA_0DB569[size - $68]', () => {
-    const rom = makeMockRom({
-      [TABLE_ADDR]: [0x91, 0x92, 0x96, 0x97, 0x9a, 0x9b, 0x9f, 0xa0],
-    })
+    const rom = makeMockRom({ [TABLE_ADDR]: TABLE })
     stampLongOperand(rom, HANDLER_ADDR, 12, TABLE_ADDR)
     const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 47, 0x69)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 0x69, 0x69)
     handle_0DB571(cur)
     expect(grid[10][3]).toBe(0x92)
   })
@@ -940,15 +939,13 @@ describe('handle_0DB571 (single-tile by size, objects 47-54)', () => {
   // The ROM's extended table routes $68-$6F here (bank_0D.asm:3715); it was
   // registered as a standard handler, so dispatchExtended found nothing (#360).
   it('is reached through the extended dispatch for every id $68-$6F', () => {
-    const table = [0x91, 0x92, 0x96, 0x97, 0x9a, 0x9b, 0x9f, 0xa0]
-    const rom = makeMockRom({ [TABLE_ADDR]: table })
+    const rom = makeMockRom({ [TABLE_ADDR]: TABLE })
     stampLongOperand(rom, HANDLER_ADDR, 12, TABLE_ADDR)
-    for (let id = 0x68; id <= 0x6f; id++)
-      rom.writeAt(ADDR_EXTENDED_DISPATCH + id * 3, [0x71, 0xb5, 0x0d])
     for (let id = 0x68; id <= 0x6f; id++) {
+      rom.writeAt(ADDR_EXTENDED_DISPATCH + id * 3, [0x71, 0xb5, 0x0d])
       const grid = createGrid(1)
       expandObject(grid, makeObj('extended', id, id, 3, 10), rom, 0)
-      expect(grid[10][3]).toBe(table[id - 0x68])
+      expect(grid[10][3]).toBe(TABLE[id - 0x68])
     }
   })
 })
@@ -2365,21 +2362,26 @@ describe('handle_0DB49E (vertical pipe) bottom-merge fix', () => {
   })
 
   // DEC _0 / BNE counts in 8 bits, so a zero high nibble runs 256 body passes
-  // (bank_0D.asm:3611-3612, #350). The old code decremented past zero forever.
-  it('height 0 terminates after 256 passes instead of looping', () => {
+  // (bank_0D.asm:3611-3612, #350). The expected tiles come from the fixture:
+  // an $08 under the top is merged to DATA_0DB4D5[0] = $07, and every body row
+  // is DATA_0DB49C[0] = $0A, as far as the 27-row grid goes.
+  it('height 0 terminates after 256 passes and draws the column', () => {
     const rom = buildPipeRom()
     const grid = createGrid(1)
-    let reads = 0
+    grid[0][5] = 0x08
+    let gets = 0
+    // Turns a runaway loop into a failure instead of a hang.
     const guarded = new Proxy(grid, {
       get(t, k, r) {
-        if (k === 'length' && ++reads > 10_000) throw new Error('runaway body loop')
+        if (++gets > 100_000) throw new Error('runaway body loop')
         return Reflect.get(t, k, r)
       },
     })
     const cur = makeCursorForHandler(HANDLER, guarded, rom, 1, 5, 0, 30, 0x00)
     handle_0DB49E(cur)
     expect(cur.row).toBe(256)
-    expect(grid[26][5]).toBe(0x0a)
+    expect(grid[0][5]).toBe(0x07)
+    for (let r = 1; r <= 26; r++) expect(grid[r][5]).toBe(0x0a)
   })
 })
 

@@ -46,7 +46,7 @@ export interface DiffRun {
   leaf: number
   top: number
   refusal: string | null
-  /** Null when the port was not run (a refusal, or the #350 hang). */
+  /** Null when the port was not run (a refusal). */
   differs: boolean | null
   /** SHA-1 of the interpreter's writes, 12 hex digits. */
   digest: string

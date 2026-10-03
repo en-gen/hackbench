@@ -548,10 +548,9 @@ export function handle_0DB075(cur: Cursor): void {
 }
 
 /**
- * ADDR_0DB571 (bank_0D.asm line 3715) -- single-tile stamp by size byte (objects 47-54).
+ * ADDR_0DB571 (bank_0D.asm line 3715) -- single-tile stamp for extended objects $68-$6F.
  *
- * X = LvlLoadObjSize - $68. Writes DATA_0DB569[X] at the cursor. Used by the
- * 8 "question/misc" single-tile standard objects.
+ * X = size - $68. Writes DATA_0DB569[X] at the cursor.
  */
 export function handle_0DB571(cur: Cursor): void {
   const X = cur.size - 0x68
@@ -599,10 +598,8 @@ export function handle_0DB49E(cur: Cursor): void {
   // Top row: CODE_0DB4D9 context merge.
   writeVerticalPipeMerge(cur, topMergeAddr, X, pipeTile)
 
-  // Middle rows. ASM flow: row++; DEC _0; BNE body; else fall through to
-  // bottom merge. BNE exits when _0 reaches 0, so we break on _0 === 0 AFTER
-  // the decrement (before writing a body for that iteration). _0 is a byte,
-  // so a zero high nibble wraps to $FF and runs 256 passes (bank_0D.asm:3611).
+  // DEC _0 / BNE on a byte: a zero high nibble wraps to $FF and runs 256
+  // passes (bank_0D.asm:3611).
   let _0 = middleCount
   for (;;) {
     cur.row += 1
@@ -4721,8 +4718,8 @@ export function handle_0DEFA8(cur: Cursor): void {
  * from bytecode rather than from the dispatched object number. Tile and page
  * are determined by DATA_0DECC6[X]; rectangle size from cur.size.
  *
- * X immediate at handler+1; JMP opcode at +2, lo/hi at +3/+4; DATA_0DECC6 operand at
- * CODE_0DECCE+32 (= JMP target + 32).
+ * LDX #imm (imm at +1); JMP at +2, operand at +3/+4. DATA_0DECC6 operand at
+ * CODE_0DECCE+32.
  */
 export function handle_0DF066(cur: Cursor): void {
   const X = readImmByte(cur, cur.handlerAddr + 1)
