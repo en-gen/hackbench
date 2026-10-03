@@ -115,3 +115,6 @@ export function hiromToOffset(snesAddr: number, headerOffset = false): number | 
 export function formatAddr(addr: number): string {
   return '$' + hex6(addr)
 }
+
+/** The same ROM address in $00-$7F and its $80-$FF mirror compares equal. */
+export const mirror = (a: number): number => a & 0x7fffff

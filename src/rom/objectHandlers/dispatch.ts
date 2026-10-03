@@ -15,6 +15,7 @@
 
 import { Cursor } from './cursor'
 import type { RomFile } from '../RomFile'
+import { mirror } from '../addressing'
 import {
   ADDR_EXTENDED_DISPATCH,
   EXTENDED_DISPATCH_COUNT,
@@ -296,7 +297,7 @@ export function dispatchExtended(cur: Cursor): void {
   if (idx >= EXTENDED_DISPATCH_COUNT) return
   const addr = readLongPointer(cur.rom, ADDR_EXTENDED_DISPATCH + idx * 3)
   if (addr === null || addr === 0) return
-  const snesAddr = addr & 0xffffff
+  const snesAddr = mirror(addr)
   const handler = EXTENDED_HANDLERS[snesAddr]
   if (handler) {
     cur.handlerAddr = snesAddr
@@ -336,13 +337,13 @@ export function dispatchStandard(cur: Cursor): void {
   if (tilesetIdx >= TILESET_DISPATCH_COUNT) return
   const tilesetHandlerAddr = readLongPointer(cur.rom, ADDR_TILESET_DISPATCH + tilesetIdx * 3)
   if (tilesetHandlerAddr === null) return
-  const dispatcherSnesAddr = tilesetHandlerAddr & 0xffffff
+  const dispatcherSnesAddr = mirror(tilesetHandlerAddr)
 
   // Step 2: the handler pointer table lives immediately after the dispatcher's
   // 10-byte preamble. Look up this tileset's entry for the 1-based objNo.
   const handlerTableAddr = dispatcherSnesAddr + DISPATCHER_PREAMBLE_SIZE
   const handlerPtrTable = readLongPointerTable(cur.rom, handlerTableAddr, STANDARD_HANDLER_COUNT)
-  const handlerAddr = handlerPtrTable[cur.objNo - 1] & 0xffffff
+  const handlerAddr = mirror(handlerPtrTable[cur.objNo - 1])
   const handler = STANDARD_HANDLERS[handlerAddr]
   if (handler) {
     cur.handlerAddr = handlerAddr
@@ -366,16 +367,16 @@ export function objectsDispatchedTo(
   const out: { type: 'extended' | 'standard'; objectNumber: number }[] = []
   for (let i = 0; i < EXTENDED_DISPATCH_COUNT; i++) {
     const addr = readLongPointer(rom, ADDR_EXTENDED_DISPATCH + i * 3)
-    if (addr && EXTENDED_HANDLERS[addr & 0xffffff] === handler) {
+    if (addr && EXTENDED_HANDLERS[mirror(addr)] === handler) {
       out.push({ type: 'extended', objectNumber: i })
     }
   }
   const t = tileset & 0x0f
   const dispatcher = t < TILESET_DISPATCH_COUNT ? readLongPointer(rom, ADDR_TILESET_DISPATCH + t * 3) : null // prettier-ignore
   if (dispatcher === null) return out
-  const table = readLongPointerTable(rom, (dispatcher & 0xffffff) + DISPATCHER_PREAMBLE_SIZE, STANDARD_HANDLER_COUNT) // prettier-ignore
+  const table = readLongPointerTable(rom, mirror(dispatcher) + DISPATCHER_PREAMBLE_SIZE, STANDARD_HANDLER_COUNT) // prettier-ignore
   table.forEach((addr, i) => {
-    if (STANDARD_HANDLERS[addr & 0xffffff] === handler) out.push({ type: 'standard', objectNumber: i + 1 }) // prettier-ignore
+    if (STANDARD_HANDLERS[mirror(addr)] === handler) out.push({ type: 'standard', objectNumber: i + 1 }) // prettier-ignore
   })
   return out
 }
