@@ -693,7 +693,7 @@ function resolveJmpTarget(cur: Cursor, opcodeAddr: number): number {
  */
 export function handle_0DBA0A(cur: Cursor): void {
   const widthM1 = cur.size & 0x0f
-  let bodyRows = (cur.size >> 4) & 0x0f
+  const H = (cur.size >> 4) & 0x0f
 
   // LDA #$0E (top-row tile, page 1) immediate at handler +24 (opcode at +23)
   // LDA #$B8 (body-row tile, page 0) immediate at handler +38 (opcode at +37)
@@ -707,14 +707,13 @@ export function handle_0DBA0A(cur: Cursor): void {
     writeTileAdvance(cur, topTile)
   }
 
-  while (bodyRows > 0) {
+  for (let r = 0; r < H; r++) {
     restoreBookmark(cur)
     cur.row += 1
     for (let c = 0; c <= widthM1; c++) {
       setPage0(cur)
       writeTileAdvance(cur, bodyTile)
     }
-    bodyRows -= 1
   }
 }
 
@@ -3471,7 +3470,7 @@ export function handle_0DEDDB(cur: Cursor): void {
 }
 
 /**
- * CODE_0DEE17 (bank_0D.asm line 8139) -- tileset-4/5 standard object $3D:
+ * CODE_0DEE17 (bank_0D.asm line 8139) -- tileset-4/5/13 standard object $3D:
  * cave/underground floor + BG fill block.
  *
  * Size byte: HHHHWWWW
@@ -3664,7 +3663,7 @@ export function handle_0DED6B(cur: Cursor): void {
 }
 
 /**
- * CODE_0DEF67 (bank_0D.asm line 8334) -- tileset-5 standard object $32:
+ * CODE_0DEF67 (bank_0D.asm line 8334) -- tileset-4/5/13 standard object $32:
  * floor/ground strip with a top row of page-1 cap tiles and a solid body
  * of page-0 fill tiles below.
  *
@@ -3837,14 +3836,13 @@ export function handle_0DBA4C(cur: Cursor): void {
   setPage1(cur)
   writeTile(cur, topTile)
 
-  let count = (cur.size >> 4) & 0x0f
-  while (count > 0) {
+  const H = (cur.size >> 4) & 0x0f
+  for (let r = 0; r < H; r++) {
     advanceRowRaw(cur)
     // Body tile: page 1 only when X < 2 (CPX #$02 / BPL skip-page1).
     if (X < 2) setPage1(cur)
     else setPage0(cur)
     writeTile(cur, bodyTile)
-    count -= 1
   }
 }
 
