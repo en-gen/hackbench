@@ -37,10 +37,15 @@ describe("buildMapTree lists a root's sub areas flat", () => {
     room(rom, 0x0c1, 0x06a000, [0xc3, 0xc0]) // back edge to the top
     room(rom, 0x0c2, 0x06b000, [0xc3])
     room(rom, 0x0c3, 0x06c000, [0xc1]) // tail rejoins B: a cycle
-    const children = kids(treeOf(rom), 0x001)
+    room(rom, 0x0d0, 0x06d000, []) // reached by nothing
+    const tree = treeOf(rom)
+    const children = kids(tree, 0x001)
 
     expect(children.map(c => c.index)).toEqual([0x0c0, 0x0c1, 0x0c2, 0x0c3])
     expect(children.every(c => c.children.length === 0 && c.kind === 'map')).toBe(true)
+    // Placed under the root, so not also unassigned; only the orphan is.
+    expect(tree.unassigned.map(n => n.index)).toEqual([0x0d0])
+    expect(tree.mapCount).toBe(6)
   })
 
   it('lists a slot reached from two roots under both', () => {

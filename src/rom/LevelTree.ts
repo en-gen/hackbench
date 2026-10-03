@@ -61,21 +61,20 @@ export function buildLevelSubtree(
 
 /**
  * Every slot reachable from `root` through `exitGraph`, ascending, each once.
- * A child that is another overworld root heads its own folder and is not
- * entered, nor is anything reached only through it; the root itself is
- * excluded. This is the Maps tree's flat sub-area list, with no nesting, loop
- * or truncation markers to cap.
+ * A child for which `isBoundary` holds (another overworld root, which heads
+ * its own folder, or a slot that is no map) is neither listed nor entered, and
+ * nor is anything reached only through it. The root itself is excluded.
  */
 export function reachableSlots(
   root: number,
   exitGraph: Map<number, number[]>,
-  isOverworld: (index: number) => boolean,
+  isBoundary: (index: number) => boolean,
 ): number[] {
   const seen = new Set<number>([root])
   const stack = [root]
   while (stack.length > 0) {
     for (const child of exitGraph.get(stack.pop()!) ?? []) {
-      if (seen.has(child) || isOverworld(child)) continue
+      if (seen.has(child) || isBoundary(child)) continue
       seen.add(child)
       stack.push(child)
     }

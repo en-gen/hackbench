@@ -163,14 +163,14 @@ export function buildMapTree(
     }
   }
 
-  // A destination outside the map set is filler the exit data still points
-  // at; showing it would invent a map.
+  // The walk stops at a slot that is no map, as it stops at another root:
+  // listing it would invent a map. (The exit graph already keeps only real
+  // slots as destinations, so this guards a future change to that, not today.)
+  const stops = (i: number): boolean => isRoot(i) || !maps.has(i)
   const overworld = roots.map(root =>
     adopt(
       root,
-      reachableSlots(root, exitGraph, isRoot)
-        .filter(i => maps.has(i))
-        .map(i => adopt(i)),
+      reachableSlots(root, exitGraph, stops).map(i => adopt(i)),
     ),
   )
 

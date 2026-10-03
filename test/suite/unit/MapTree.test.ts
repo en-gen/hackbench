@@ -80,8 +80,8 @@ describe('buildMapTree', () => {
 
       it('places every map exactly once at the top level of one root', () => {
         const tree = buildMapTree(load(file))
-        // A sub-area reached from two levels is deliberately expanded under
-        // both, so duplicates exist DEEPER in the tree. What must not happen
+        // A sub-area reached from two roots is deliberately listed under
+        // both, so duplicates exist BELOW the top level. What must not happen
         // is the same map heading two folders, which would read as two
         // separate maps rather than one shared room.
         const tops = [...tree.special, ...tree.bonus, ...tree.overworld, ...tree.unassigned].map(

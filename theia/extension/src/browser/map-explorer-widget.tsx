@@ -379,8 +379,8 @@ export class MapExplorerWidget extends TreeWidget {
 
   /**
    * Node ids are path-scoped, not slot-scoped: a sub-area reachable from two
-   * levels is expanded under both (see src/rom/LevelTree.ts), and a tree that
-   * reused one id for both copies would collapse them into one row.
+   * roots is listed under both (see reachableSlots in src/rom/LevelTree.ts),
+   * and a tree that reused one id for both copies would collapse them into one row.
    */
   protected toNode(dto: MapNodeDto, parent: MapTreeNode, asCategory: MapCategory): MapTreeNode {
     // A loop or a truncation is what it is regardless of where it sits: both

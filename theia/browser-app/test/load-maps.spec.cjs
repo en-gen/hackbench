@@ -113,6 +113,12 @@ async function loadMaps(page, dir, rom = ROM) {
           .map(n => n.index)
           .filter(i => i >= 0),
       ).size,
+      // $022's rows, for the flat-list test.
+      chocolate: (group('unassigned')?.children || [])
+        .filter(n => n.index === 0x22)
+        .flatMap(n =>
+          (n.children || []).map(c => ({ index: c.index, kids: (c.children || []).length })),
+        ),
       // Shape only, measured in Node by maxDepth.
       unassignedShape: (group('unassigned')?.children || []).map(function shape(n) {
         return { children: (n.children || []).map(c => shape(c)) }
@@ -150,40 +156,41 @@ test('a ROM whose screen-exit routine is patched lists every map flat, and says 
   expect(result.error).toBeUndefined()
   expect(result.mapCount).toBe(VANILLA_MAPS)
   expect(result.distinct).toBe(VANILLA_MAPS)
-  // Vanilla nests (see the grouping test); the patched copy must not.
-  expect(result.deepest).toBe(0)
   await expect
     .poll(() => page.evaluate(() => document.body.innerText), { timeout: 10000 })
     .toContain('Map hierarchy unavailable: $05D7CB')
 })
 
 test('$022 lists its five sub areas flat, none expandable (#434)', async ({ page }) => {
-  const created = await page.evaluate(
-    async ({ romPath, directory }) => {
-      const project = await getSvc('Symbol(ProjectService)').createProject({
-        romPath,
-        name: 'Chocolate',
-        directory,
-      })
-      return project.manifestPath
-    },
-    { romPath: ROM, directory: path.join(tmp, 'Chocolate') },
-  )
-  fs.mkdirSync(path.join(tmp, 'Chocolate', 'meta'), { recursive: true })
-  fs.writeFileSync(path.join(tmp, 'Chocolate', 'meta', 'groups.json'), '[]\n')
-
-  const kids = await page.evaluate(async manifestPath => {
-    const w = await getWidget('hackbench.map-explorer')
-    await w.load(manifestPath)
-    const roots = w.model.root.children || []
-    const top = (roots.find(r => r.id === 'group:unassigned')?.children || []).find(
-      n => n.index === 0x22,
-    )
-    return top ? top.children.map(c => ({ index: c.index, kids: (c.children || []).length })) : null
-  }, created)
-
+  const result = await loadMaps(page, path.join(tmp, 'Chocolate'))
+  expect(result.error).toBeUndefined()
   // Slots, not maps: $0D0/$0D1 and $0F5/$0F6 are separate rows, and nothing nests.
-  expect(kids).toEqual([0x0be, 0x0d0, 0x0d1, 0x0f5, 0x0f6].map(index => ({ index, kids: 0 })))
+  expect(result.chocolate).toEqual(
+    [0x0be, 0x0d0, 0x0d1, 0x0f5, 0x0f6].map(index => ({ index, kids: 0 })),
+  )
+
+  // The rendered tree, not just the model: the five rows are drawn and none
+  // carries an expand chevron.
+  const rows = await page.evaluate(async () => {
+    const w = await getWidget('hackbench.map-explorer')
+    const top = w.model.root.children
+      .find(r => r.id === 'group:unassigned')
+      .children.find(n => n.index === 0x22)
+    await w.model.expandNode(top)
+    await w.model.selectNode(top.children[0])
+    await new Promise(r => setTimeout(r, 1200))
+    return top.children.map(c => {
+      const seg = document.querySelector(`[data-node-id="${c.id}"]`)
+      const row = seg && seg.closest('.theia-TreeNode')
+      return {
+        index: c.index,
+        drawn: !!row,
+        chevron: !!row?.querySelector('.theia-ExpansionToggle'),
+      }
+    })
+  })
+  expect(rows.map(r => r.index)).toEqual([0x0be, 0x0d0, 0x0d1, 0x0f5, 0x0f6])
+  expect(rows.every(r => r.drawn && !r.chevron)).toBe(true)
 })
 
 /** Create a project against `rom` and open the map view for `index`, returning its shown text. */
@@ -360,9 +367,10 @@ test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
     'group:unassigned',
   ])
   expect(result.unassignedTop).toBeGreaterThan(0)
-  // A flattening bug yields the right COUNT with everything at depth 0, which
-  // the count assertions above cannot see.
-  expect(result.deepest).toBeGreaterThan(0)
+  // Roots list their sub areas one level down and nothing nests further
+  // (#434). maxDepth scores a root with leaf children as 1; a tree with no
+  // hierarchy at all scores 0, which the count assertions cannot see.
+  expect(result.deepest).toBe(1)
 
   // Read from the ROM, not hardcoded: $0C7 and $0C5 on vanilla, which the
   // disassembly's own data files are named after (bank_06.asm:33, 35).
