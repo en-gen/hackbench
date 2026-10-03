@@ -163,6 +163,7 @@ test('a ROM whose screen-exit routine is patched lists every map flat, and says 
 
 test('$022 lists its five sub areas flat, none expandable (#434)', async ({ page }) => {
   const result = await loadMaps(page, path.join(tmp, 'Chocolate'))
+  await revealMaps(page)
   expect(result.error).toBeUndefined()
   // Slots, not maps: $0D0/$0D1 and $0F5/$0F6 are separate rows, and nothing nests.
   expect(result.chocolate).toEqual(

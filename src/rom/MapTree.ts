@@ -163,9 +163,9 @@ export function buildMapTree(
     }
   }
 
-  // The walk stops at a slot that is no map, as it stops at another root:
-  // listing it would invent a map. (The exit graph already keeps only real
-  // slots as destinations, so this guards a future change to that, not today.)
+  // Mirrors SmwRom.buildLevelExitGraph's `validDestinations` (no root, no
+  // non-real slot); SmwRom.classify.test.ts pins that invariant, so neither
+  // half is observable here.
   const stops = (i: number): boolean => isRoot(i) || !maps.has(i)
   const overworld = roots.map(root =>
     adopt(
