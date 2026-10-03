@@ -20,6 +20,8 @@
 }
 
 .hb-emulator-body {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -58,16 +60,15 @@
   image-rendering: pixelated;
 }
 
-/* Wraps rather than overflowing: the right side panel opened 196px wide in
-   a 1280px window, narrower than one row of controls (264px), and the
-   overflow put the volume button under the panel's scrollbar. */
+/* A toolbar in the map editor's style (.hb-map-view-toolbar, .hb-icon-btn):
+   more emulator actions will join it. Wraps rather than overflowing: the right
+   side panel opened 196px wide in a 1280px window, narrower than one row of
+   controls (264px), and the overflow put the volume button under the panel's
+   scrollbar. */
 .hb-emulator-controls {
-  display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 2px;
   flex: none;
-  padding-bottom: 0.5em;
+  padding: 4px 0 0.5em;
 }
 
 .hb-emulator-status {
@@ -76,31 +77,4 @@
   font-family: var(--theia-code-font-family);
   font-size: var(--theia-ui-font-size0);
   color: var(--theia-descriptionForeground);
-}
-
-/* Transport buttons. Icon buttons rather than labelled ones: three controls
-   in a row of text would crowd a 256px-wide stage, and the glyphs are the
-   same ones the Map16 view uses for playback. See docs/ui-conventions.md. */
-.hb-emulator-btn {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--theia-icon-foreground);
-  cursor: pointer;
-}
-
-.hb-emulator-btn:hover:not(:disabled) {
-  background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
-}
-
-.hb-emulator-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
 }

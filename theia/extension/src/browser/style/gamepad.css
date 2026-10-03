@@ -1,0 +1,95 @@
+/* The controllers fly-out in the emulator view, and the controller drawing.
+   The drawing's colors come from custom properties set per scheme; with none
+   set the SVG keeps the PAL colors it was drawn with. */
+
+.hb-pad-flyout {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+  box-sizing: border-box;
+  width: min(320px, 100%);
+  padding: 4px 8px 8px;
+  overflow-y: auto;
+  background: var(--theia-editorWidget-background);
+  border-left: 1px solid var(--theia-editorWidget-border);
+  box-shadow: -4px 0 8px rgba(0, 0, 0, 0.25);
+  animation: hb-pad-slide-in 0.15s ease-out;
+}
+
+@keyframes hb-pad-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hb-pad-flyout {
+    animation: none;
+  }
+}
+
+.hb-pad-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hb-pad-title,
+.hb-pad-player h4 {
+  margin: 0;
+  font-size: var(--theia-ui-font-size1);
+  font-weight: 600;
+}
+
+.hb-pad-player {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+
+.hb-pad-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.hb-pad-field select {
+  flex: 1;
+  min-width: 0;
+}
+
+.hb-pad-art svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* North American colors: purple A/B, lavender X/Y, gray face and body. */
+.hb-pad-na {
+  --hb-pad-a: #4e3a86;
+  --hb-pad-a-stroke: #2f2356;
+  --hb-pad-b: #4e3a86;
+  --hb-pad-b-stroke: #2f2356;
+  --hb-pad-x: #b4a7d8;
+  --hb-pad-x-stroke: #7d70a8;
+  --hb-pad-y-1: #a99bd0;
+  --hb-pad-y-2: #bfb3e0;
+  --hb-pad-y-stroke: #7d70a8;
+  --hb-pad-face: #7a7a82;
+  --hb-pad-body-a: #d9d9dc;
+  --hb-pad-body-b: #cfcfd3;
+}
+
+/* A part the player is holding. A filter, because most parts are painted
+   with gradients or live inside <use>, where a fill override cannot reach. */
+.hb-pad-art .hb-pad-on {
+  filter: brightness(2.4) saturate(1.3) drop-shadow(0 0 6px var(--theia-focusBorder, #5b9cf6));
+}

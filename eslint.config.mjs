@@ -96,6 +96,14 @@ export default [
     },
   },
 
+  // Same pattern: the gamepad spec's preamble also defines the pad stubs.
+  {
+    files: ['theia/browser-app/test/emulator-gamepad.spec.cjs'],
+    languageOptions: {
+      globals: { revealEmulator: 'readonly', pad: 'readonly', setPads: 'readonly' },
+    },
+  },
+
   // Tests reach for `any` to build partial fixtures and stub objects that
   // would otherwise need the whole shape spelled out. The rule stays on for
   // src/, which is where an untyped value actually costs something.
