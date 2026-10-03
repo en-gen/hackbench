@@ -496,6 +496,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
   const LOADER = 0x0586ea // LevLoadNrmObj: SEP #$30; JSL CODE_0DA40F; RTS (bank_05.asm:805-808)
   const ENTRY = 0x0da40f
   const SIG_AT = 0x0d9800
+  const BRANCH = 0x0586c5 // LDA $5A; BNE +6, ahead of the call (bank_05.asm:783-784)
   const CALL_SITE = 0x0586cf // JSR LevLoadNrmObj, in LoadLevelData (bank_05.asm:788)
   const STUB = 0x0d8800 // a dispatch target that is not the handler
   const loaderBytes = (operand = [lo(ENTRY), hi(ENTRY), 0x0d]) => [0xe2, 0x30, 0x22, ...operand, 0x60] // prettier-ignore
@@ -524,10 +525,10 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       call?: number[]
     } = {},
   ): RomFile {
-    const { to = HANDLER, bank = 0x0d, loader = loaderBytes(), call = [0x20, lo(LOADER), hi(LOADER)] } = o // prettier-ignore
+    const { to = HANDLER, bank = 0x0d, loader = loaderBytes(), call = [0x20, lo(LOADER), hi(LOADER)], branch = [0xa5, 0x5a, 0xd0, 0x06] } = o // prettier-ignore
     const entry = [0xa9, 0, 0x22, lo(SIG_AT), hi(SIG_AT), 0x0d, lo(to), hi(to), bank]
     const handler = staircaseCode(HANDLER, undefined, undefined, RTL)
-    const extra: [number, number[]][] = [[ENTRY, entry], [SIG_AT, SIG], [LOADER, loader], [CALL_SITE, call], [STUB, [RTL]]] // prettier-ignore
+    const extra: [number, number[]][] = [[ENTRY, entry], [SIG_AT, SIG], [LOADER, loader], [BRANCH, branch], [CALL_SITE, call], [STUB, [RTL]]] // prettier-ignore
     return slopeCart(handler, extra, o.variantBank ?? bank)
   }
   const obj = (size: number): LevelObject => ({ type: 'standard', objectNumber: CLOUD, settings: size, x: 16, y: 2 }) as LevelObject // prettier-ignore
@@ -719,18 +720,25 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       expect(expandProd(rom, 0x35).unverified).toEqual([])
     })
 
-    it('refuses when any byte of the loader routine or its call site differs, drawing the port and noting it', () => {
-      const stock = { loader: loaderBytes(), call: [0x20, lo(LOADER), hi(LOADER)] }
+    it('refuses when any bit of any pinned byte differs, drawing the port and noting it', () => {
+      const stock = {
+        branch: [0xa5, 0x5a, 0xd0, 0x06], // LDA $5A; BNE +6 (bank_05.asm:783-784)
+        call: [0x20, lo(LOADER), hi(LOADER)],
+        loader: loaderBytes(),
+      }
       const passed: string[] = []
-      for (const part of ['loader', 'call'] as const)
-        for (let i = 0; i < stock[part].length; i++) {
-          const bytes = stock[part].slice()
-          bytes[i] ^= 0x01 // a JSL operand byte, the JSL opcode, or the bytes around it
-          const rom = prodCart({ [part]: bytes })
-          const r = expandProd(rom, 0x35)
-          const drawsPort = JSON.stringify(r.grid) === JSON.stringify(port(rom, 0x35))
-          if (!/loader/.test(r.unverified[0] ?? '') || !drawsPort) passed.push(`${part}[${i}]`)
-        }
+      for (const part of ['branch', 'call', 'loader'] as const)
+        for (let i = 0; i < stock[part].length; i++)
+          for (let bit = 0; bit < 8; bit++) {
+            // The JSL's bank byte may be its $8D mirror: bit 7 of that byte is not a difference.
+            if (part === 'loader' && i === 5 && bit === 7) continue
+            const bytes = stock[part].slice()
+            bytes[i] ^= 1 << bit
+            const rom = prodCart({ [part]: bytes })
+            const r = expandProd(rom, 0x35)
+            const drawsPort = JSON.stringify(r.grid) === JSON.stringify(port(rom, 0x35))
+            if (!/loader/.test(r.unverified[0] ?? '') || !drawsPort) passed.push(`${part}[${i}]^${bit}`) // prettier-ignore
+          }
       expect(passed).toEqual([])
     })
 

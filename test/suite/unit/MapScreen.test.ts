@@ -719,6 +719,19 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
   // drawn by the pre-#421-shared-renderer tile path at c6e39a15 (Tile.render
   // over BufferRenderTarget), hidden overlay off, switches off. Hashes only,
   // never ROM bytes.
+  it('carries a note the expander pushes into inputs.unverified and into the wire note (#342)', () => {
+    const spy = vi.mocked(Expander.expandMap)
+    const real = spy.getMockImplementation()!
+    spy.mockImplementationOnce((...a) => {
+      ;(a[8] as string[]).push('NOTE FROM THE EXPANDER')
+      return real(...a)
+    })
+    const m = model(0x105)
+    expect(m.unverified).toEqual(['NOTE FROM THE EXPANDER'])
+    expect((screenResult(m, 0) as { note?: string }).note).toContain('NOTE FROM THE EXPANDER')
+    expect(model(0x105).unverified).toEqual([]) // and nothing when the expander says nothing
+  })
+
   it.each([
     ['105', 0, '225f7f91b26303b921afe60c72cc1e33dc54603029503056f3e9c2441f586b7e'],
     ['105', 7, 'abd3c83754490966fd7c5de21138494a6b4b08167c0e1804a5b0da72f4392d89'],

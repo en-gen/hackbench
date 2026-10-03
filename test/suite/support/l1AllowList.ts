@@ -39,9 +39,9 @@ export const KNOWN_DISAGREEMENTS: Known[] = [
   // Port bugs, one issue each.
   // The port draws this only as the interpreter's refusal fallback; production draws it from the interpreter (#342).
   row(0x0dadeb, all, 440, [450, 480, 'cfbc58f35e']),
-  row(0x0dba0a, all, 668, [768, 768, '45f265bda6']),
-  row(0x0dba4c, all, 669, [768, 768, 'a92a2cea98']),
-  row(0x0dee17, all, 670, [768, 768, 'f7955f3ec6']),
+  row(0x0dba0a, all, 355, [768, 768, '45f265bda6']),
+  row(0x0dba4c, all, 356, [768, 768, 'a92a2cea98']),
+  row(0x0dee17, all, 357, [768, 768, 'f7955f3ec6']),
   row(0x0def67, all, 671, [768, 768, 'fa41e03940']),
   row(0x0df066, all, 672, [768, 768, 'dfe7f9e1e6']),
   row(0x0db571, all, 673, [24, 24, '28972e5f32']),

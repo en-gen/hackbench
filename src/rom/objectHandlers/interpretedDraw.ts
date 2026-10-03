@@ -31,6 +31,9 @@ const LOADER_ROUTINE = 0x0586ea
 const LOADER_LEN = 7
 /** The `JSR LevLoadNrmObj` in LoadLevelData (bank_05.asm:788): where the loader reaches that routine. */
 const LOADER_CALL_SITE = 0x0586cf
+/** `LDA LvlLoadObjNo; BNE +6` (bank_05.asm:783-784): the branch that sends a standard object to that call. */
+const LOADER_BRANCH = 0x0586c5
+const LOADER_BRANCH_BYTES = [0xa5, 0x5a, 0xd0, 0x06]
 
 /**
  * Why the loader no longer reaches ENTRY_STANDARD, or null when it does. The
@@ -38,6 +41,9 @@ const LOADER_CALL_SITE = 0x0586cf
  * bank-mirror normalized, and so is the JSR that reaches it. A hack that re-points the JSL is drawn from the port.
  */
 function loaderProblem(rom: RomFile): string | null {
+  const branch = rom.readAt(LOADER_BRANCH, LOADER_BRANCH_BYTES.length)
+  if (!branch || LOADER_BRANCH_BYTES.some((v, i) => branch[i] !== v))
+    return `the loader's branch to its standard-object call at ${hex6(LOADER_BRANCH)} is not LDA $5A, BNE +6`
   const call = rom.readAt(LOADER_CALL_SITE, 3)
   if (!call || call[0] !== 0x20 || (call[1] | (call[2] << 8)) !== (LOADER_ROUTINE & 0xffff))
     return `the loader's call at ${hex6(LOADER_CALL_SITE)} is not JSR ${hex6(LOADER_ROUTINE)}`
