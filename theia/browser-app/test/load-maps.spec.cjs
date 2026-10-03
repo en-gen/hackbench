@@ -364,6 +364,7 @@ test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
   expect(result.rootIds).toEqual([
     'special:title-screen:199',
     'special:new-game:197',
+    'overworld',
     'group:unassigned',
   ])
   expect(result.unassignedTop).toBeGreaterThan(0)
@@ -397,12 +398,13 @@ test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
 test('the Unassigned label counts what it claims to count', async ({ page }) => {
   const result = await loadMaps(page, path.join(tmp, 'MyHack'))
 
-  // The two singletons take no number: there is implicitly one of each.
+  // The three singletons take no number: there is implicitly one of each.
   expect(result.groups[0]).toBe('Title Screen')
   expect(result.groups[1]).toBe('New Game')
+  expect(result.groups[2]).toBe('Overworld')
 
   expect(result.unassignedTop).toBeGreaterThan(0)
-  expect(result.groups[2]).toBe(`Unassigned (${result.unassignedTop})`)
+  expect(result.groups[3]).toBe(`Unassigned (${result.unassignedTop})`)
 })
 
 test('the map rows are rendered and reachable, not just in the model', async ({ page }) => {
