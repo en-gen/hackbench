@@ -51,6 +51,17 @@ export function localeRegion(languages: readonly string[]): string | undefined {
   return undefined
 }
 
+/**
+ * Where the user is: the OS country when Electron supplies one, else the
+ * region of the browser's languages. Undefined means unknown, which draws PAL.
+ */
+export function resolveRegion(
+  osCountry: string | undefined,
+  languages: readonly string[],
+): string | undefined {
+  return osCountry || localeRegion(languages)
+}
+
 export function resolveScheme(
   style: ControllerStyle,
   region: string | undefined,
@@ -64,7 +75,7 @@ export function assignKeyboard(
   player: number,
   on: boolean,
 ): PlayerAssignment[] {
-  return players.map((a, i) => ({ ...a, keyboard: i === player ? on : on ? false : a.keyboard }))
+  return players.map((a, i) => ({ ...a, keyboard: i === player ? on : a.keyboard && !on }))
 }
 
 /** A pad drives one player at a time, so choosing it here takes it from the other. */

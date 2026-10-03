@@ -5,6 +5,7 @@ import {
   assignPad,
   localeRegion,
   parseControllerSettings,
+  resolveRegion,
   resolveScheme,
   schemeForRegion,
 } from '../../../theia/extension/src/browser/controller-settings'
@@ -35,6 +36,24 @@ describe('localeRegion', () => {
     expect(localeRegion(['en', 'fr'])).toBeUndefined()
     expect(localeRegion(['not a tag!!'])).toBeUndefined()
     expect(localeRegion([])).toBeUndefined()
+  })
+})
+
+describe('resolveRegion: OS country, then languages, then unknown', () => {
+  it('the OS country wins over the languages', () => {
+    expect(resolveRegion('US', ['ja-JP'])).toBe('US')
+  })
+  it('an empty or missing country falls back to the languages', () => {
+    expect(resolveRegion('', ['en-CA'])).toBe('CA')
+    expect(resolveRegion(undefined, ['es-MX'])).toBe('MX')
+  })
+  it('with neither it is unknown, which draws PAL', () => {
+    expect(resolveRegion('', ['en'])).toBeUndefined()
+    expect(schemeForRegion(resolveRegion(undefined, []))).toBe('pal')
+  })
+  it('the full chain: JP country with US language is PAL; empty country with US language is NA', () => {
+    expect(schemeForRegion(resolveRegion('JP', ['en-US']))).toBe('pal')
+    expect(schemeForRegion(resolveRegion('', ['en-US']))).toBe('na')
   })
 })
 

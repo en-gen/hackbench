@@ -5,6 +5,7 @@
   "description": "HackBench as a Theia extension: the SMW editor shell.",
   "dependencies": {
     "@theia/core": "1.75.0",
+    "@theia/electron": "1.75.0",
     "@theia/filesystem": "1.75.0",
     "@theia/outline-view": "1.75.0",
     "@theia/workspace": "1.75.0"
@@ -44,6 +45,8 @@
     },
     {
       "frontend": "lib/theia/extension/src/browser/emulator-frontend-module",
+      "frontendElectron": "lib/theia/extension/src/electron-browser/os-locale-electron-frontend-module",
+      "electronMain": "lib/theia/extension/src/electron-main/os-locale-main-module",
       "backend": "lib/theia/extension/src/node/emulator-backend-module"
     },
     {

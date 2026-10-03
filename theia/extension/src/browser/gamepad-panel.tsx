@@ -1,7 +1,7 @@
 /**
  * The controllers fly-out: one live drawing per player, who drives it, and
- * the drawing's color style. Stateless; the emulator widget owns the settings
- * and the ControllerHub, so what is drawn is what is being sent.
+ * the drawing's color style. Stateless: ControllerSession owns the state, so
+ * what is drawn is what is being sent.
  */
 import * as React from '@theia/core/shared/react'
 import { CONTROLLER_SVG } from './controller-art'
@@ -51,7 +51,7 @@ export function ControllerDrawing({
     ref.current?.querySelectorAll('[data-btn]').forEach(el => {
       el.classList.toggle('hb-pad-on', pressed.has(Number(el.getAttribute('data-btn'))))
     })
-  })
+  }, [pressed])
   return (
     <div
       ref={ref}
@@ -91,7 +91,16 @@ export function GamepadPanel(props: GamepadPanelProps): React.ReactElement {
         </button>
       </div>
       {settings.players.map((player, i) => (
-        <PlayerRow key={i} index={i} player={player} {...props} scheme={scheme} pads={pads} />
+        <PlayerRow
+          key={i}
+          index={i}
+          player={player}
+          scheme={scheme}
+          pads={pads}
+          pressed={props.pressed(i)}
+          onKeyboard={props.onKeyboard}
+          onPad={props.onPad}
+        />
       ))}
       <label className="hb-pad-field">
         <span>Controller style</span>
@@ -109,16 +118,24 @@ export function GamepadPanel(props: GamepadPanelProps): React.ReactElement {
   )
 }
 
-function PlayerRow(
-  props: GamepadPanelProps & { index: number; player: PlayerAssignment },
-): React.ReactElement {
+interface PlayerRowProps {
+  index: number
+  player: PlayerAssignment
+  scheme: ControllerScheme
+  pads: ConnectedPad[]
+  pressed: ReadonlySet<number>
+  onKeyboard: GamepadPanelProps['onKeyboard']
+  onPad: GamepadPanelProps['onPad']
+}
+
+function PlayerRow(props: PlayerRowProps): React.ReactElement {
   const { index, player, pads } = props
   // A pad assigned but not plugged in stays selectable, so it is not silently dropped.
   const missing = player.pad !== undefined && !pads.some(p => p.index === player.pad)
   return (
     <section className="hb-pad-player" data-player-row={index + 1}>
       <h4>Player {index + 1}</h4>
-      <ControllerDrawing player={index} scheme={props.scheme} pressed={props.pressed(index)} />
+      <ControllerDrawing player={index} scheme={props.scheme} pressed={props.pressed} />
       <label className="hb-pad-field">
         <input
           type="checkbox"

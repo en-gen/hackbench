@@ -3,7 +3,7 @@ import {
   ControllerHub,
   PAD_TO_BUTTON,
   PadLike,
-  PadPoller,
+  pollPads,
   padButtons,
 } from '../../../theia/extension/src/browser/gamepad-input'
 import { DEFAULT_ASSIGNMENTS } from '../../../theia/extension/src/browser/controller-settings'
@@ -89,9 +89,8 @@ describe('ControllerHub', () => {
 
   it('releases a pad that disconnects', () => {
     const { sent, hub: h } = hub()
-    const poller = new PadPoller(h)
-    poller.poll([pad([0])], DEFAULT_ASSIGNMENTS)
-    poller.poll([null], DEFAULT_ASSIGNMENTS)
+    pollPads(h, [pad([0])], DEFAULT_ASSIGNMENTS)
+    pollPads(h, [null], DEFAULT_ASSIGNMENTS)
     expect(sent).toEqual([
       [0, 0, true],
       [0, 0, false],
@@ -126,10 +125,10 @@ describe('ControllerHub', () => {
   })
 })
 
-describe('PadPoller port routing', () => {
+describe('pollPads port routing', () => {
   it('sends pad 0 to port 0 and pad 1 to port 1 by default', () => {
     const { sent, hub: h } = hub()
-    new PadPoller(h).poll([pad([0]), pad([1])], DEFAULT_ASSIGNMENTS)
+    pollPads(h, [pad([0]), pad([1])], DEFAULT_ASSIGNMENTS)
     expect(sent).toEqual([
       [0, 0, true],
       [1, 8, true],
@@ -142,13 +141,13 @@ describe('PadPoller port routing', () => {
       { keyboard: true, pad: 1 },
       { keyboard: false, pad: undefined },
     ]
-    new PadPoller(h).poll([pad([0]), pad([1])], swapped)
+    pollPads(h, [pad([0]), pad([1])], swapped)
     expect(sent).toEqual([[0, 8, true]])
   })
 
   it('treats a pad reporting connected=false as absent', () => {
     const { sent, hub: h } = hub()
-    new PadPoller(h).poll([pad([0], [0, 0, 0, 0], false)], DEFAULT_ASSIGNMENTS)
+    pollPads(h, [pad([0], [0, 0, 0, 0], false)], DEFAULT_ASSIGNMENTS)
     expect(sent).toEqual([])
   })
 })

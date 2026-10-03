@@ -9,31 +9,22 @@
  * read the filesystem itself.
  */
 import * as React from '@theia/core/shared/react'
-import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
+import { inject, injectable, optional, postConstruct } from '@theia/core/shared/inversify'
 import { ConfirmDialog, ReactWidget, Message, StorageService } from '@theia/core/lib/browser'
 import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser'
 import { FileService } from '@theia/filesystem/lib/browser/file-service'
 import URI from '@theia/core/lib/common/uri'
 import { Disposable, MessageService } from '@theia/core/lib/common'
 import { EmulatorService, SaveSlotDto } from '../common/emulator-protocol'
+import { OsLocaleService } from '../common/os-locale-protocol'
 import { ProjectService } from '../common/project-protocol'
 import { ProjectContext } from './project-context'
 import { EmulatorDriver } from './emulator-driver'
 import { CoreFrameMeter } from './emulator-frame-meter'
 import { VolumeState, effectiveGain, parseVolumeState } from './audio-volume'
 import { VolumeSplitButton } from './volume-split-button'
-import { HeldButtons } from './emulator-input'
-import { ControllerHub, PadLike, PadPoller } from './gamepad-input'
-import {
-  ControllerSettings,
-  ControllerStyle,
-  assignKeyboard,
-  assignPad,
-  localeRegion,
-  parseControllerSettings,
-  resolveScheme,
-} from './controller-settings'
-import { ConnectedPad, GamepadPanel } from './gamepad-panel'
+import { ControllerSession } from './controller-session'
+import { GamepadPanel } from './gamepad-panel'
 import { SaveSlotPicker, SaveSlotView } from './save-slot-picker'
 import { ProjectFrontendClient } from './project-push-client'
 
@@ -70,27 +61,27 @@ export class EmulatorWidget extends ReactWidget {
   @inject(StorageService) protected readonly storage!: StorageService
   @inject(ProjectFrontendClient) protected readonly projectPush!: ProjectFrontendClient
   @inject(FileService) protected readonly files!: FileService
+  /** Bound only in the Electron build. */
+  @inject(OsLocaleService) @optional() protected readonly osLocale?: OsLocaleService
 
   protected readonly driver = new EmulatorDriver()
   protected readonly meter = new CoreFrameMeter()
   /** The driver puts a fresh canvas in here per boot; React renders nothing inside it. */
   protected readonly screenRef = React.createRef<HTMLDivElement>()
-  /** What each port is holding, whichever device it came from. */
-  protected readonly hub = new ControllerHub((port, b, pressed) =>
-    this.driver.setButton(b, pressed, port),
-  )
-  protected readonly padPoller = new PadPoller(this.hub)
-  /** The keyboard feeds whichever player it is assigned to. */
-  protected readonly buttons = new HeldButtons((b, pressed) => {
-    const port = this.keyboardPort()
-    if (port >= 0) this.hub.set(port, 'kb', b, pressed)
+  /** Controller assignments, input devices and the fly-out; see controller-session.ts. */
+  protected readonly controllers = new ControllerSession({
+    send: (port, b, pressed) => this.driver.setButton(b, pressed, port),
+    getPads: () => navigator.getGamepads?.() ?? [],
+    languages: navigator.languages?.length ? navigator.languages : [navigator.language],
+    save: settings => void this.storage.setData(CONTROLLERS_KEY, settings),
+    isLive: () => this.isVisible && this.driver.isRunning(),
+    requestFrame: cb => requestAnimationFrame(cb),
+    cancelFrame: h => cancelAnimationFrame(h),
+    listen: (type, fn) => {
+      window.addEventListener(type, fn)
+      return () => window.removeEventListener(type, fn)
+    },
   })
-  protected controllers: ControllerSettings = parseControllerSettings(undefined)
-  /** Set on the first user change, so a slow storage read cannot overwrite it. */
-  private controllersTouched = false
-  protected padsOpen = false
-  private windowBlurred = false
-  private padFrame: number | undefined
 
   protected state: ViewState = { kind: 'no-project' }
   protected romBytes: Uint8Array | undefined
@@ -170,13 +161,13 @@ export class EmulatorWidget extends ReactWidget {
       Disposable.create(() => {
         this.savesWatch?.dispose()
         clearTimeout(this.staleCheck)
-        if (this.padFrame !== undefined) cancelAnimationFrame(this.padFrame)
-        this.releaseInputs()
+        this.controllers.dispose()
         this.meter.stop()
         this.disposeCore()
       }),
     )
-    this.watchPads()
+    this.controllers.onChange = () => this.update()
+    this.controllers.start()
 
     // Clicking the screen gives the game the keyboard. Focus has to be taken
     // explicitly: the core's own canvas mousedown handler cancels the default,
@@ -195,72 +186,20 @@ export class EmulatorWidget extends ReactWidget {
     this.node.addEventListener('keyup', e => this.onKey(e, false))
     // A key still down when focus leaves never sees its keyup here.
     this.node.addEventListener('focusout', e => {
-      if (!this.node.contains(e.relatedTarget as Node | null)) this.buttons.releaseAll()
+      if (!this.node.contains(e.relatedTarget as Node | null)) this.controllers.releaseAll()
     })
 
     void this.refresh()
+    void this.osLocale?.countryCode().then(
+      code => this.controllers.setOsCountry(code),
+      () => undefined,
+    )
     void this.storage.getData<unknown>(CONTROLLERS_KEY).then(raw => {
-      if (this.controllersTouched) return
-      this.controllers = parseControllerSettings(raw)
-      this.update()
+      this.controllers.load(raw)
     })
     void this.storage.getData<unknown>(VOLUME_KEY).then(raw => {
       if (!this.volumeTouched) this.applyVolume(parseVolumeState(raw))
     })
-  }
-
-  protected keyboardPort(): number {
-    return this.controllers.players.findIndex(p => p.keyboard)
-  }
-
-  /** Let go of everything held, on every port and from every device. */
-  protected releaseInputs(): void {
-    this.buttons.releaseAll()
-    this.hub.releaseAll()
-  }
-
-  /**
-   * Poll the pads each animation frame, and keep the drawing live. Pads are
-   * read only while the game is running in a visible panel, or the fly-out is
-   * open; otherwise everything is released, so a pad never drives a game
-   * nobody is looking at. Disconnect, window blur and Stop all end in a release.
-   */
-  protected watchPads(): void {
-    this.hub.onChange = () => {
-      if (this.padsOpen) this.update()
-    }
-    const tick = (): void => {
-      this.padFrame = requestAnimationFrame(tick)
-      const live =
-        !this.windowBlurred && this.isVisible && (this.driver.isRunning() || this.padsOpen)
-      const pads = live && navigator.getGamepads ? navigator.getGamepads() : []
-      this.padPoller.poll(pads as ReadonlyArray<PadLike | null>, this.controllers.players)
-    }
-    this.padFrame = requestAnimationFrame(tick)
-    const on = (type: string, handler: () => void): void => {
-      window.addEventListener(type, handler)
-      this.toDispose.push(Disposable.create(() => window.removeEventListener(type, handler)))
-    }
-    on('blur', () => {
-      this.windowBlurred = true
-      this.releaseInputs()
-    })
-    on('focus', () => (this.windowBlurred = false))
-    // Listing pads for the fly-out; the poll above reads them itself.
-    on('gamepadconnected', () => this.padsOpen && this.update())
-    on('gamepaddisconnected', () => this.padsOpen && this.update())
-  }
-
-  protected connectedPads(): ConnectedPad[] {
-    const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : []
-    return pads.flatMap(p => (p?.connected ? [{ index: p.index, id: p.id }] : []))
-  }
-
-  protected changeControllers(next: Partial<ControllerSettings>): void {
-    this.controllersTouched = true
-    this.controllers = { ...this.controllers, ...next }
-    void this.storage.setData(CONTROLLERS_KEY, this.controllers)
-    this.update()
   }
 
   /**
@@ -273,12 +212,12 @@ export class EmulatorWidget extends ReactWidget {
     // Ctrl went down, or after focus moved to a button in this panel, would
     // otherwise stay held. key() ignores releases of keys it never pressed.
     if (!down) {
-      this.buttons.key(e.code, false)
+      this.controllers.key(e.code, false)
       return
     }
     if (e.target !== this.node || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return
-    if (!this.driver.isRunning() || this.keyboardPort() < 0) return
-    if (this.buttons.key(e.code, true)) {
+    if (!this.driver.isRunning() || !this.controllers.keyboardAssigned) return
+    if (this.controllers.key(e.code, true)) {
       e.preventDefault()
       e.stopPropagation()
     }
@@ -291,7 +230,7 @@ export class EmulatorWidget extends ReactWidget {
    * that is not awaited; the poll bounds what a lost one can cost.
    */
   protected disposeCore(): void {
-    this.releaseInputs()
+    this.controllers.releaseAll()
     this.persistSave()
     clearInterval(this.saveTimer)
     this.saveTimer = undefined
@@ -706,7 +645,7 @@ export class EmulatorWidget extends ReactWidget {
 
   /** Pause the core, keeping it booted with its frame counter intact. */
   protected pause(): void {
-    this.releaseInputs()
+    this.controllers.releaseAll()
     this.driver.stop()
     this.meter.stop()
     this.update()
@@ -864,14 +803,11 @@ export class EmulatorWidget extends ReactWidget {
           </span>
           <span className="hb-toolbar-spacer" />
           <button
-            className={`hb-icon-btn${this.padsOpen ? ' hb-icon-btn-on' : ''}`}
+            className={`hb-icon-btn${this.controllers.padsOpen ? ' hb-icon-btn-on' : ''}`}
             title="Controllers"
             aria-label="Controllers"
-            aria-pressed={this.padsOpen}
-            onClick={() => {
-              this.padsOpen = !this.padsOpen
-              this.update()
-            }}
+            aria-pressed={this.controllers.padsOpen}
+            onClick={() => this.controllers.togglePads()}
           >
             <span className="codicon codicon-game" />
           </button>
@@ -879,32 +815,16 @@ export class EmulatorWidget extends ReactWidget {
         <div className="hb-emulator-stage">
           <div ref={this.screenRef} className="hb-emulator-screen" />
         </div>
-        {this.padsOpen && (
+        {this.controllers.padsOpen && (
           <GamepadPanel
-            settings={this.controllers}
-            scheme={resolveScheme(
-              this.controllers.style,
-              localeRegion(
-                navigator.languages?.length ? navigator.languages : [navigator.language],
-              ),
-            )}
-            pads={this.connectedPads()}
-            pressed={port => this.hub.pressed(port)}
-            onKeyboard={(player, on) => {
-              // Before the assignment moves, so a held key is released on its old port.
-              this.buttons.releaseAll()
-              this.changeControllers({
-                players: assignKeyboard(this.controllers.players, player, on),
-              })
-            }}
-            onPad={(player, pad) =>
-              this.changeControllers({ players: assignPad(this.controllers.players, player, pad) })
-            }
-            onStyle={(style: ControllerStyle) => this.changeControllers({ style })}
-            onClose={() => {
-              this.padsOpen = false
-              this.update()
-            }}
+            settings={this.controllers.settings}
+            scheme={this.controllers.scheme()}
+            pads={this.controllers.connectedPads()}
+            pressed={port => this.controllers.hub.pressed(port)}
+            onKeyboard={(player, on) => this.controllers.setKeyboard(player, on)}
+            onPad={(player, pad) => this.controllers.setPad(player, pad)}
+            onStyle={style => this.controllers.setStyle(style)}
+            onClose={() => this.controllers.togglePads(false)}
           />
         )}
       </div>
