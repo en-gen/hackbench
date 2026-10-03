@@ -9,7 +9,7 @@
  * the cache keys. The corpus cases then check the drawing against the Map16
  * atlas path (`renderMap16Tile`) on real screens.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as fs from 'fs'
 import { createHash } from 'crypto'
 import { RomFile } from '../../../src/rom/RomFile'
@@ -113,6 +113,21 @@ vi.mock('../../../src/rom/PaletteStockTables', async importOriginal => {
 vi.mock('../../../src/rom/ExAnimationLoader', async importOriginal => {
   const real = await importOriginal<typeof ExMod>()
   return { ...real, loadExAnimData: vi.fn(real.loadExAnimData) }
+})
+
+// A test that refuses early leaves its `...Once` stubs queued; put every wrapper back to pass-through.
+afterEach(() => {
+  for (const f of [
+    Expander.expandMap,
+    Map16Real.loadMap16WithPipeVariants,
+    Map16Real.map16TileCapacity,
+    GfxReal.gfxSource,
+    GfxReal.loadVram,
+    AnimReal.loadAnimationDataOrReason,
+    StockReal.readLevelCol1,
+    ExReal.loadExAnimData,
+  ])
+    vi.mocked(f).mockReset()
 })
 
 const romPresent = hasRom(VANILLA)
@@ -773,10 +788,6 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     return r.inputs
   }
 
-  // A regression oracle independent of the current renderer: SHA-256 of whole screens
-  // drawn by the pre-#421-shared-renderer tile path at c6e39a15 (Tile.render
-  // over BufferRenderTarget), hidden overlay off, switches off. Hashes only,
-  // never ROM bytes.
   it('carries a note the expander pushes into inputs.unverified and into the wire note (#342)', () => {
     const spy = vi.mocked(Expander.expandMap)
     const real = spy.getMockImplementation()!
@@ -790,6 +801,10 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     expect(model(0x105).unverified).toEqual([]) // and nothing when the expander says nothing
   })
 
+  // A regression oracle independent of the current renderer: SHA-256 of whole screens
+  // drawn by the pre-#421-shared-renderer tile path at c6e39a15 (Tile.render
+  // over BufferRenderTarget), hidden overlay off, switches off. Hashes only,
+  // never ROM bytes.
   it.each([
     ['105', 0, '225f7f91b26303b921afe60c72cc1e33dc54603029503056f3e9c2441f586b7e'],
     ['105', 7, 'abd3c83754490966fd7c5de21138494a6b4b08167c0e1804a5b0da72f4392d89'],

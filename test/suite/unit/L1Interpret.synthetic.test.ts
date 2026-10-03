@@ -522,6 +522,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       bank?: number
       variantBank?: number
       loader?: number[]
+      branch?: number[]
       call?: number[]
     } = {},
   ): RomFile {
@@ -718,6 +719,17 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
     it('accepts the loader JSL in its $8D mirror', () => {
       const rom = prodCart({ loader: loaderBytes([lo(ENTRY), hi(ENTRY), 0x8d]) })
       expect(expandProd(rom, 0x35).unverified).toEqual([])
+    })
+
+    it('refuses a JSL bank that is not $0D or its $8D mirror: one bit off $8D, bits 0-6', () => {
+      const passed: number[] = []
+      for (let k = 0; k < 7; k++) {
+        const rom = prodCart({ loader: loaderBytes([lo(ENTRY), hi(ENTRY), 0x8d ^ (1 << k)]) })
+        const r = expandProd(rom, 0x35)
+        const drawsPort = JSON.stringify(r.grid) === JSON.stringify(port(rom, 0x35))
+        if (!/loader/.test(r.unverified[0] ?? '') || !drawsPort) passed.push(k)
+      }
+      expect(passed).toEqual([])
     })
 
     it('refuses when any bit of any pinned byte differs, drawing the port and noting it', () => {
