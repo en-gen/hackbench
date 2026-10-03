@@ -88,7 +88,8 @@ points:
 
 ## 4. Review
 
-Before the owner sees a branch, two FRESH agents review the diff.
+Before the owner sees a branch, two FRESH agents review the diff. Scope:
+CLAUDE.md "Agent workflow" (operational Markdown skips Review and Verify).
 
 - ADVERSARIAL: try to break it. Correctness, edge cases, silent behavior
   changes, gaps the tests miss. Brief it to:
@@ -107,11 +108,8 @@ check or gate goes to the adversarial reviewer before it is applied.
 ## 5. Verify
 
 A verifier sub-agent does all of this on the branch; relay its report
-verbatim. A push after its report re-runs it (CLAUDE.md "Merging"). Docs-only
-changes (Markdown outside `src/` and `theia/`, no code, config or CI;
-`.claude/` Markdown is config, so excluded) may use
-`grunt` instead: it runs named commands only, including `check-content`, and
-pastes raw output; the two reviewers cover the diff read.
+verbatim. A push after its report re-runs it (CLAUDE.md "Merging"). Skipped
+for operational Markdown (scope in CLAUDE.md "Agent workflow").
 
 1. `npm run lint`, `npm run format:check`, `npm run test:unit`. Report passed
    and skipped counts with and without the corpus.
@@ -134,9 +132,14 @@ pastes raw output; the two reviewers cover the diff read.
 - PRs target `develop`; CLAUDE.md "Merging" holds when they auto-merge, who
   answers CodeRabbit, and when the verifier re-runs. The body relays each
   review finding and how it was resolved.
-- UI or rendering changes: brief the verifier to capture images (before and
-  after for a fix) and embed them with `tools/scripts/pr-image.sh`, per
-  CLAUDE.md "Pull requests show what they draw".
+- Any change to what the app shows: brief the verifier to capture before and
+  after screenshots and embed them in the PR, per CLAUDE.md "Pull requests
+  show what they draw". You do not interpret them.
+- A `needs-owner` PR that changes the UI also gets the verified build
+  launched for the owner: random port, isolated app data
+  (`start-test-server.cjs`), URL given. A non-UI `needs-owner` PR gets owner
+  review without a launch. Minor changes and fixes are reviewed from the PR
+  screenshots and auto-merge.
 - `detect_changes` before committing, `npm run gitnexus` after.
 - Handoff to the owner starts with the worktree path and branch.
 - Status to the owner: a one-line answer, then short headed sections with

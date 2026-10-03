@@ -23,6 +23,7 @@ import { PaletteFrontendClient } from './palette-push-client'
 import { PaletteSwatchRow } from './palette-swatch-row'
 import { EditableWord, PaletteInspector } from './palette-inspector'
 import { animatedColumns, cellTitle, tabTitle, targetFor, viewWidgetId } from './palette-view-model'
+import { perfEndAfterPaint, perfStart } from '../common/perf-marks'
 
 export interface PaletteGroupViewOptions {
   manifestPath: string
@@ -119,6 +120,7 @@ export class PaletteGroupViewWidget extends ReactWidget {
       this.selectedFrame = undefined
       this.editError = undefined
     }
+    perfStart('open-palette')
     await this.fetch()
   }
 
@@ -126,6 +128,7 @@ export class PaletteGroupViewWidget extends ReactWidget {
     const o = this.options
     if (!o) return
     const token = ++this.requestToken
+    const began = performance.now()
     try {
       const result = await this.palettes.loadPalettes(o.manifestPath)
       if (token !== this.requestToken) return
@@ -139,6 +142,10 @@ export class PaletteGroupViewWidget extends ReactWidget {
     this.title.label = g ? tabTitle(g, o.variant) : o.groupId
     this.title.caption = this.title.label
     this.update()
+    if (g) perfEndAfterPaint('open-palette')
+    // A pending edit/undo/redo is visible once a fetch that began after it
+    // has painted; one already in flight may have read the old color.
+    for (const m of ['edit', 'undo', 'redo']) perfEndAfterPaint(m, began)
   }
 
   protected group(): PaletteGroupDto | undefined {
@@ -150,6 +157,7 @@ export class PaletteGroupViewWidget extends ReactWidget {
   protected async commit(romAddr: number, oldHex: string, newHex: string): Promise<void> {
     const mp = this.options?.manifestPath
     if (!mp) return
+    perfStart('edit')
     // Shares fetch()'s token, but gates only the grid: the write fires the
     // working-copy push synchronously, so its fetch() always supersedes this
     // response. The edit's own outcome (error set or cleared) still applies.

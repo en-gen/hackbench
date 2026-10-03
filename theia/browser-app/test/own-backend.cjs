@@ -16,6 +16,7 @@ function backendSpawnArgs(port, { capture = false, env = {} } = {}) {
       cwd: path.resolve(__dirname, '..'),
       env: { ...process.env, ...env },
       stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'ignore',
+      windowsHide: true,
     },
   ]
 }
@@ -38,7 +39,7 @@ function stopBackend(child) {
   if (!child || child.exitCode !== null) return
   // The backend forks helpers (file watchers); take the whole tree down.
   if (process.platform === 'win32')
-    execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' })
+    execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore', windowsHide: true })
   else child.kill('SIGKILL')
 }
 

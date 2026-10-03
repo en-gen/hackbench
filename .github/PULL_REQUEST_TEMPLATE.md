@@ -38,4 +38,4 @@ ones)? Which ROM? -->
 - [ ] No ROM-derived content (ROMs, patches, dumps, ripped graphics, disassembly); the content gate enforces this
 - [ ] User-facing changes noted in `CHANGELOG.md` under `[Unreleased]`
 - [ ] Significant UI change or feature addition: `needs-owner` label added, auto-merge left off
-- [ ] Rendering change: before/after images embedded
+- [ ] Change to what the app shows: before/after images embedded

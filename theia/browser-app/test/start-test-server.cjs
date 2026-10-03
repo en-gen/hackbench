@@ -39,19 +39,50 @@ function freePort() {
   })
 }
 
-async function main() {
-  const port = Number(process.argv[2]) || (await freePort())
+async function waitUntilUp(url, child, timeoutMs = 120000) {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    if (child.exitCode !== null)
+      throw new Error(`backend exited (${child.exitCode}) before ${url} came up`)
+    try {
+      await fetch(url)
+      return
+    } catch {
+      if (Date.now() > deadline) throw new Error(`backend at ${url} did not come up`)
+      await new Promise(r => setTimeout(r, 500))
+    }
+  }
+}
+
+/** A running backend on a free port with its own marked app data; stop() removes both. */
+async function startTestServer({ wait = false, port: fixed } = {}) {
+  const port = fixed || (await freePort())
   const { root, env } = prepareTestServer(port)
   const child = startBackend(port, { env })
+  const url = `http://127.0.0.1:${port}`
   const stop = () => {
     stopBackend(child)
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 5 })
   }
+  if (wait) {
+    try {
+      await waitUntilUp(url, child)
+    } catch (err) {
+      stop()
+      throw err
+    }
+  }
+  return { url, port, root, child, stop }
+}
+
+async function main() {
+  const { url, root, child, stop } = await startTestServer({ port: Number(process.argv[2]) })
   process.on('SIGINT', () => (stop(), process.exit(130)))
   child.on('exit', code => (stop(), process.exit(code ?? 1)))
-  console.log(`HB_APP_URL=http://127.0.0.1:${port}\nHB_TEST_APPDATA=${root}`)
+  console.log(`HB_APP_URL=${url}
+HB_TEST_APPDATA=${root}`)
 }
 
 if (require.main === module) main()
 
-module.exports = { prepareTestServer, MARKER, PREFIX, THEIA_CONFIG }
+module.exports = { startTestServer, prepareTestServer, MARKER, PREFIX, THEIA_CONFIG }

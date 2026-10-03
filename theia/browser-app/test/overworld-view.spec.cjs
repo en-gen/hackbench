@@ -2,22 +2,20 @@
  * The Overworld view (en-gen/hackbench#363), end to end against the shell.
  *
  * The globe opens ONE main-area widget, and every path that shows the globe
- * does. The canvas is the Background under the Foreground at 1024x512 and
- * hashes to the pins the Vitest decode test also holds, per layer set: the
+ * does. The two half canvases (hub, then half 1, 16 px apart) are
+ * the Background under the Foreground, each 512x512, and each hashes to its
+ * per-half pin, which the Vitest decode test also holds, per layer set: the
  * layer toggles and a refused L2 land on those same pins. A ROM whose L1
  * reader is not stock shows the reason and no canvas. The Map tab's L1
  * toggle, now the shared LayerToggle, is covered by map-view.spec.cjs.
  */
 const { test, expect } = require('@playwright/test')
-const { createHash } = require('crypto')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 const {
-  VANILLA_OVERWORLD_CANVAS_SHA256,
-  VANILLA_OVERWORLD_L1_SHA256,
-  VANILLA_OVERWORLD_L2_SHA256,
+  VANILLA_OVERWORLD_HALF_SHA256: HALF,
 } = require('../../../test/suite/support/overworld-pin.cjs')
 const { loromToOffset } = require('../../extension/lib/src/rom/addressing')
 
@@ -75,18 +73,18 @@ async function openProject(page, rom) {
   )
 }
 
-/** SHA-256 of the canvas's RGBA, read back from the page. */
-async function canvasSha(page) {
-  const { width, height, bytes } = await page.evaluate(() => {
-    const canvas = document.querySelector('.hb-overworld-canvas')
-    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data
-    let s = ''
-    for (let i = 0; i < data.length; i++) s += String.fromCharCode(data[i])
-    return { width: canvas.width, height: canvas.height, bytes: btoa(s) }
-  })
-  const sha = createHash('sha256').update(Buffer.from(bytes, 'base64')).digest('hex')
-  return { width, height, sha }
-}
+/** SHA-256 of each half canvas's RGBA, hashed in the page: [hub, half 1]. */
+const halfShas = page =>
+  page.evaluate(() =>
+    Promise.all(
+      [0, 1].map(async h => {
+        const c = document.querySelector(`.hb-overworld-canvas[data-half="${h}"]`)
+        const rgba = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+        const digest = await crypto.subtle.digest('SHA-256', rgba)
+        return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
+      }),
+    ),
+  )
 
 /** Writes `rom` with `edit` applied to a copy in tmp, and returns its path. */
 function plantedRom(name, edit) {
@@ -205,7 +203,21 @@ test('the command is on the View menu and opens the same widget', async ({ page 
   await expect(page.locator(VIEW)).toBeVisible()
 })
 
-test('on vanilla the canvas is 1024x512 and hashes to the pinned vanilla canvas', async ({
+test('on vanilla each half canvas hashes to its pinned vanilla half', async ({ page }) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
+  await openProject(page, ROM)
+  await page.locator(GLOBE).click()
+  await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
+  await page.waitForTimeout(500)
+  expect(await halfShas(page)).toEqual(HALF.BOTH)
+  await expect(page.locator('.hb-overworld-note')).toContainText(
+    /Map data before any event.*right half may differ in game/,
+  )
+  await expect(page.locator('.hb-overworld-reason')).toHaveCount(0)
+  await expect(page.locator('.hb-overworld-l2-reason')).toHaveCount(0)
+})
+
+test('the halves are two 512x512 canvases, hub first, 16 px apart, Foreground off changes both', async ({
   page,
 }) => {
   test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
@@ -213,14 +225,25 @@ test('on vanilla the canvas is 1024x512 and hashes to the pinned vanilla canvas'
   await page.locator(GLOBE).click()
   await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
   await page.waitForTimeout(500)
-  const got = await canvasSha(page)
-  expect([got.width, got.height]).toEqual([1024, 512])
-  expect(got.sha).toBe(VANILLA_OVERWORLD_CANVAS_SHA256)
-  await expect(page.locator('.hb-overworld-note')).toContainText(
-    /Map data before any event.*right half may differ in game/,
-  )
-  await expect(page.locator('.hb-overworld-reason')).toHaveCount(0)
-  await expect(page.locator('.hb-overworld-l2-reason')).toHaveCount(0)
+  const canvases = page.locator('.hb-overworld-canvas')
+  await expect(canvases).toHaveCount(2)
+  await expect(canvases.nth(0)).toHaveAttribute('data-half', '0')
+  await expect(canvases.nth(1)).toHaveAttribute('data-half', '1')
+  const sizes = await canvases.evaluateAll(cs => cs.map(c => [c.width, c.height]))
+  expect(sizes).toEqual([
+    [512, 512],
+    [512, 512],
+  ])
+  // Displayed width is 512 (a scale transform goes red).
+  for (const i of [0, 1]) expect((await canvases.nth(i).boundingBox()).width).toBeCloseTo(512, 0)
+  // 16 px CSS gap + 1 px wrap border on each facing side, no padding = 18, canvas to canvas.
+  const a = await canvases.nth(0).boundingBox()
+  const b = await canvases.nth(1).boundingBox()
+  expect(Math.abs(b.x - (a.x + a.width) - 18)).toBeLessThanOrEqual(0.5)
+  const before = await halfShas(page)
+  await page.locator(`${VIEW} [data-control="layer-l1"]`).click()
+  await expect.poll(async () => (await halfShas(page))[0]).not.toBe(before[0])
+  await expect.poll(async () => (await halfShas(page))[1]).not.toBe(before[1])
 })
 
 test('a one-tile edit draws a canvas that differs from the pin', async ({ page }) => {
@@ -232,7 +255,10 @@ test('a one-tile edit draws a canvas that differs from the pin', async ({ page }
   await page.locator(GLOBE).click()
   await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
   await page.waitForTimeout(500)
-  expect((await canvasSha(page)).sha).not.toBe(VANILLA_OVERWORLD_CANVAS_SHA256)
+  // Grid column 55 is in half 1; the hub is untouched.
+  const [hub, half1] = await halfShas(page)
+  expect(hub).toBe(HALF.BOTH[0])
+  expect(half1).not.toBe(HALF.BOTH[1])
 })
 
 test('a ROM whose L2 reader is not stock draws L1 alone and says why', async ({ page }) => {
@@ -247,10 +273,14 @@ test('a ROM whose L2 reader is not stock draws L1 alone and says why', async ({ 
     /^Background unavailable: the L2 decompressor is not stock: \$04DC91/,
   )
   await page.waitForTimeout(500)
-  const got = await canvasSha(page)
-  expect([got.width, got.height]).toEqual([1024, 512])
+  expect(await page.$$eval('.hb-overworld-canvas', cs => cs.map(c => [c.width, c.height]))).toEqual(
+    [
+      [512, 512],
+      [512, 512],
+    ],
+  )
   // Exactly the L1-alone canvas: every L1 pixel drawn, the backdrop where L2 would be.
-  expect(got.sha).toBe(VANILLA_OVERWORLD_L1_SHA256)
+  expect(await halfShas(page)).toEqual(HALF.L1)
   await expect(page.locator('[data-control="layer-l2"]')).toBeDisabled()
 })
 
@@ -260,21 +290,21 @@ test('each layer toggle hides its layer, and toggling back restores the pin', as
   await page.locator(GLOBE).click()
   await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
   await page.waitForTimeout(500)
-  expect((await canvasSha(page)).sha).toBe(VANILLA_OVERWORLD_CANVAS_SHA256)
+  expect(await halfShas(page)).toEqual(HALF.BOTH)
   const view = page.locator(VIEW)
   for (const [control, alone] of [
-    ['layer-l2', VANILLA_OVERWORLD_L1_SHA256],
-    ['layer-l1', VANILLA_OVERWORLD_L2_SHA256],
+    ['layer-l2', HALF.L1],
+    ['layer-l1', HALF.L2],
   ]) {
     const button = view.locator(`[data-control="${control}"]`)
     await expect(button).toHaveAttribute('aria-pressed', 'true')
     await button.click()
     await expect(button).toHaveAttribute('aria-pressed', 'false')
     // The other layer alone: the pixels changed, to that layer's own pin.
-    await expect.poll(async () => (await canvasSha(page)).sha).toBe(alone)
+    await expect.poll(async () => await halfShas(page)).toEqual(alone)
     await button.click()
     await expect(button).toHaveAttribute('aria-pressed', 'true')
-    await expect.poll(async () => (await canvasSha(page)).sha).toBe(VANILLA_OVERWORLD_CANVAS_SHA256)
+    await expect.poll(async () => await halfShas(page)).toEqual(HALF.BOTH)
   }
 })
 
@@ -292,9 +322,9 @@ test('the Effects toggle is disabled and says why', async ({ page }) => {
     .locator('svg rect[data-on="true"]')
     .evaluateAll(rs => rs.map(r => r.getAttribute('y')))
   expect(ys).toEqual(['1'])
-  const before = (await canvasSha(page)).sha
+  const before = await halfShas(page)
   await l3.click({ force: true })
-  expect((await canvasSha(page)).sha).toBe(before)
+  expect(await halfShas(page)).toEqual(before)
 })
 
 test('a ROM whose L1 reader is not stock shows the reason and no canvas', async ({ page }) => {

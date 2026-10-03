@@ -26,6 +26,7 @@ import {
 import { GfxFrontendClient } from './gfx-push-client'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
+import { perfEnd, perfStart } from '../common/perf-marks'
 
 export const GFX_VIEW_ID = 'hackbench.gfx-view'
 
@@ -101,6 +102,7 @@ export class GfxViewWidget extends ReactWidget {
   }
 
   async open(options: GfxViewOptions): Promise<void> {
+    perfStart('open-gfx')
     this.options = options
     this.id = `${GFX_VIEW_ID}:${options.index}`
     this.title.label = options.label
@@ -178,6 +180,7 @@ export class GfxViewWidget extends ReactWidget {
     const ctx = this.canvasEl.getContext('2d')
     if (!ctx) return
     ctx.putImageData(new ImageData(decodeRgba(rgbaBase64), width, height), 0, 0)
+    perfEnd('open-gfx')
   }
 
   protected handleBppChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {

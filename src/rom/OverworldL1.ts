@@ -12,9 +12,8 @@ import { hex6 } from './hex'
 
 export const OW_L1_COLS = 64
 export const OW_L1_ROWS = 32
-/** The view's canvas: the L1 grid of 16px tiles, L2 drawn to the same size. */
-export const OW_CANVAS_W = OW_L1_COLS * 16
-export const OW_CANVAS_H = OW_L1_ROWS * 16
+/** Each half is its own layout: half 0 the hub, half 1 areas 1-6, 32 of the 64 L1 columns each. */
+export const OW_HALF_COLS = OW_L1_COLS / 2
 /** Byte indices only (Map16TilesHigh is zeroed), 8 bytes per entry. */
 const OW_L1_CHAR_BYTES = 256 * 8
 const OW_L1_TILE_BYTES = 0x800
@@ -109,7 +108,7 @@ export function readOverworldL1(rom: RomFile): OwL1Read {
   }
 }
 
-/** The whole grid, row-major, 64 wide: half 0 on the left, half 1 on the right (a view choice). */
+/** The whole grid, row-major, 64 wide: columns 0-31 are half 0, 32-63 half 1 (drawn separately). */
 export function composeOverworldL1Grid(tileData: Uint8Array, charData: Uint8Array): Map16Tile[] {
   const grid: Map16Tile[] = []
   for (let row = 0; row < OW_L1_ROWS; row++) {
