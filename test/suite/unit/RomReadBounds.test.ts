@@ -416,3 +416,29 @@ describe('updateProject merges the bytes it validated', () => {
     }
   })
 })
+
+describe('updateProject refuses a parseable but malformed manifest', () => {
+  const cases: [string, Record<string, unknown>][] = [
+    ['title: 3', { title: 3 }],
+    ['summary: {}', { summary: {} }],
+    ['authors: [1]', { authors: [1] }],
+    ["baseRom.size: 'big'", { baseRom: { sha256: 'a', size: 'big', title: 't' } }],
+  ]
+  for (const [label, change] of cases) {
+    it(`${label}: same reason as openProject, file left byte-identical`, () => {
+      const p = createProject({ romPath: smallRom(), name: 'ok', directory: path.join(tmp, 'm') })
+      const raw = JSON.parse(fs.readFileSync(p.manifestPath, 'utf8'))
+      fs.writeFileSync(p.manifestPath, JSON.stringify({ ...raw, ...change }))
+      const before = fs.readFileSync(p.manifestPath)
+      let openMsg = ''
+      try {
+        openProject(p.manifestPath)
+      } catch (e) {
+        openMsg = (e as Error).message
+      }
+      expect(openMsg).toMatch(/^Project file is malformed \(/)
+      expect(() => updateProject(p.manifestPath, { title: 'new' })).toThrow(openMsg)
+      expect(fs.readFileSync(p.manifestPath).equals(before)).toBe(true)
+    })
+  }
+})
