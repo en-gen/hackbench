@@ -1,9 +1,13 @@
 /**
- * The overworld areas the ROM names: the hub (0) plus every source and
- * destination area in the path-transition and warp records (en-gen/hackbench#364).
- * It lists what the tables name; it does not prove a record is live. Each routine
+ * The overworld areas the ROM names: the hub (0) plus the areas of every live
+ * path-transition and warp record (en-gen/hackbench#364). A record is live when its
+ * source area is inside the camera table (a $FF-filled slot is not); its destination
+ * is then listed, marked invalid when the camera table cannot place it. Each routine
  * read is opcode-gated and so is the caller that makes it run; a failed gate
  * refuses with its address and nothing falls back to vanilla.
+ *
+ * The camera gate currently refuses most Lunar Magic edited ROMs: LM's `JSL $0F:FAB0` hook
+ * replaces `STA $20; SEP #$20` there (#522). The table reads themselves are unchanged.
  *
  * Hack-fragility points, not checked:
  * - DATA_00A06B is taken to be followed immediately by DATA_00A079 (bank_00.asm:4242-4246),
@@ -14,6 +18,7 @@
 import type { RomFile } from './RomFile'
 import { WILD, findUnique, type BytePattern } from './BytePattern'
 import { hex4 } from './hex'
+import { loromToOffset } from './addressing'
 
 export interface OverworldArea {
   area: number
@@ -110,8 +115,14 @@ export function deriveOverworldAreas(rom: RomFile): OverworldAreaSet {
   for (const c of CALLERS) {
     const call = findUnique(rom, c.call)
     const op = call === null ? 0 : u16(call + c.at)
-    const bankOf = call === null ? 0 : c.long ? u8(call + c.at + 2) << 15 : call
-    if (call === null || bankLocal(bankOf, op) !== at[c.to]) {
+    // A JSL target is a full address ($84 mirrors $04); a JSR stays in the caller's bank.
+    const target =
+      call === null
+        ? null
+        : c.long
+          ? loromToOffset((u8(call + c.at + 2) << 16) | op, rom.romSize)
+          : bankLocal(call, op)
+    if (call === null || target !== at[c.to]) {
       return no(
         `${c.what} does not call ${SITES[c.to].name}, so it is not reached through stock code.`,
       )
@@ -145,26 +156,39 @@ export function deriveOverworldAreas(rom: RomFile): OverworldAreaSet {
   const wSrc = table(at.scan, u16(at.scan + 18), warps * 2)
   const wDst = table(at.dest, u16(at.dest + 12), warps * 2)
   if (!src || !dst || !wSrc || !wDst) {
-    return no('A path or warp table is outside its bank (bank_04.asm:2784, :491, :509).')
+    return no(
+      'A path or warp table is outside its bank (DATA_049968, DATA_0499AE, DATA_048431, DATA_04849D).',
+    )
   }
 
-  const seen = new Set([0])
+  // The camera read's ASL runs with 8-bit A (bank_00.asm:4324), so the index is (area*2) & $FF.
+  const valid = (a: number): boolean => a < cameraCount && a < 0x80
+  const seen = new Map<number, string | undefined>([[0, undefined]])
+  const list = (area: number, label?: string): void => {
+    if (seen.has(area)) return
+    const tail =
+      area < cameraCount
+        ? `where the camera index (area*2) & $FF wraps`
+        : `past the camera table's ${cameraCount} entries (DATA_00A06B at $${hex4(cameraX)}, DATA_00A079 at $${hex4(cameraY)})`
+    seen.set(
+      area,
+      valid(area) ? undefined : `${label ?? 'A record'} leads to area ${area}, ${tail}.`,
+    )
+  }
+  const record = (label: string, from: number, to: number): void => {
+    if (!valid(from)) return
+    list(from)
+    list(to, label)
+  }
   for (let i = 0; i < records; i++) {
-    seen.add(src[i * PATH_STRIDE]!)
-    seen.add(dst[i * PATH_STRIDE]!)
+    record(`path record ${i}`, src[i * PATH_STRIDE]!, dst[i * PATH_STRIDE]!)
   }
   // The scan matches a word's high byte to the submap; the decode reads bits 9-12.
   for (let i = 0; i < warps; i++) {
-    seen.add(wSrc[i * 2 + 1]!)
-    seen.add((wDst.readUInt16LE(i * 2) >> 9) & 0xf)
+    record(`warp record ${i}`, wSrc[i * 2 + 1]!, (wDst.readUInt16LE(i * 2) >> 9) & 0xf)
   }
   const areas = [...seen]
-    .sort((p, q) => p - q)
-    .map(area => ({
-      area,
-      ...(area >= cameraCount && {
-        invalid: `Area ${area} is past the camera table's ${cameraCount} entries (DATA_00A06B at $${hex4(cameraX)}, DATA_00A079 at $${hex4(cameraY)}).`,
-      }),
-    }))
+    .sort(([p], [q]) => p - q)
+    .map(([area, invalid]) => ({ area, ...(invalid && { invalid }) }))
   return { areas }
 }
