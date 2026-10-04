@@ -83,7 +83,13 @@ export default [
   {
     files: ['theia/browser-app/test/**/*.cjs', 'theia/browser-app/perf/**/*.cjs'],
     languageOptions: {
-      globals: { getSvc: 'readonly', getWidget: 'readonly', checksumOf: 'readonly' },
+      globals: {
+        getSvc: 'readonly',
+        getWidget: 'readonly',
+        checksumOf: 'readonly',
+        planesOf: 'readonly',
+        composeCanvases: 'readonly',
+      },
     },
   },
 

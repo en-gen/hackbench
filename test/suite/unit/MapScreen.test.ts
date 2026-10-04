@@ -45,6 +45,7 @@ import { buildTileAtlas, renderMap16Tile } from '../../../src/rom/TileRenderer'
 import { loadVram, type VramState } from '../../../src/rom/GfxLoader'
 import {
   ghostOf,
+  overlayHidden,
   HIDDEN_TILE_DIM_ALPHA,
   hiddenPixelStrength,
 } from '../../../src/rom/render/HiddenTiles'
@@ -77,8 +78,11 @@ import {
   ADDR_TILESET_DISPATCH,
 } from '../../../src/rom/objectHandlers/romData'
 import type { RgbaColor } from '../../../src/rom/GraphicsDecoder'
+import { MAGIC } from '../support/corpus'
 import {
-  drawL1Screen,
+  cellDef,
+  drawL1Planes,
+  screenTiles,
   L1ModelCache,
   mapScreen,
   palaceIconsOf,
@@ -211,6 +215,19 @@ const overBackArea = (buf: Uint8ClampedArray, bg: RgbaColor) => {
   return out
 }
 
+/** The planes as one image. They are zero wherever the other draws, so OR is exact. */
+function drawL1Screen(
+  m: L1Inputs,
+  screen: number,
+  switches?: Parameters<typeof drawL1Planes>[2],
+): Uint8ClampedArray {
+  const { w, h } = screenTiles(m.isVertical)
+  const out = new Uint8ClampedArray(w * h * 16 * 16 * 4)
+  for (const plane of Object.values(drawL1Planes(m, screen, switches)))
+    plane?.forEach((v, i) => (out[i]! |= v))
+  return out
+}
+
 /** RGBA of pixel (x, y) in a screen buffer of `width` pixels. */
 const px = (buf: Uint8ClampedArray, width: number, x: number, y: number) =>
   Array.from(buf.subarray((y * width + x) * 4, (y * width + x) * 4 + 4))
@@ -254,6 +271,138 @@ describe('one renderer for the sheet and the map (synthetic)', () => {
   })
 })
 
+describe('L1 priority planes (synthetic)', () => {
+  const prio = (q: ReturnType<typeof sub>) => ({ ...q, priority: true })
+  const planeOf = (r: unknown, k: 'l1Low' | 'l1High') =>
+    (r as { planes: Record<string, string | null> }).planes[k]
+
+  it('a tile with the priority bit set draws in the high plane only', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.map16.tiles[1] = tile(
+      1,
+      [1, 2, 3, 4].map(c => prio(sub(c))),
+    )
+    i.grid[0]![0] = 1
+    const p = drawL1Planes(i, 0)
+    expect(px(p.l1High!, 256, 3, 3)[0]).toBe(1)
+    expect(p.l1Low).toBeNull()
+    const wire = screenResult(i, 0)
+    expect(planeOf(wire, 'l1Low')).toBeNull() // no image bytes sent
+    expect(planeOf(wire, 'l1High')).toBeTruthy()
+  })
+
+  it('an all-low screen flags the high plane empty and sends no image', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.grid[0]![0] = 1
+    const wire = screenResult(i, 0)
+    expect(planeOf(wire, 'l1High')).toBeNull()
+    expect(planeOf(wire, 'l1Low')).toBeTruthy()
+  })
+
+  it('a mixed tile splits per 8x8 subtile', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.map16.tiles[1] = tile(1, [prio(sub(1)), sub(2), sub(3), prio(sub(4))]) // tl and br high
+    i.grid[0]![0] = 1
+    const p = drawL1Planes(i, 0)
+    const at = (b: Uint8ClampedArray, x: number, y: number) => px(b, 256, x, y)[0]
+    expect([at(p.l1High!, 3, 3), at(p.l1High!, 11, 3), at(p.l1High!, 3, 11), at(p.l1High!, 11, 11)]).toEqual([1, 0, 0, 4]) // prettier-ignore
+    expect([at(p.l1Low!, 3, 3), at(p.l1Low!, 11, 3), at(p.l1Low!, 3, 11), at(p.l1Low!, 11, 11)]).toEqual([0, 2, 3, 0]) // prettier-ignore
+    expect([0, 1, 2, 3].map(k => px(drawL1Screen(i, 0), 256, 3 + 8 * (k % 2), 3 + 8 * (k >> 1))[0])).toEqual([1, 2, 3, 4]) // prettier-ignore
+  })
+
+  it('tr and bl route independently: only tr high puts tr in high and bl in low', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.map16.tiles[1] = tile(1, [sub(1), prio(sub(2)), sub(3), sub(4)])
+    i.grid[0]![0] = 1
+    const p = drawL1Planes(i, 0)
+    const at = (b: Uint8ClampedArray | null, x: number, y: number) => px(b!, 256, x, y)[0]
+    expect([at(p.l1High, 11, 3), at(p.l1High, 3, 11)]).toEqual([2, 0])
+    expect([at(p.l1Low, 11, 3), at(p.l1Low, 3, 11)]).toEqual([0, 3])
+  })
+
+  it('a plane with only R=0 opaque pixels (pure blue, opaque black) is not empty', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.colors = COLORS.map(c => [...c] as RgbaColor)
+    i.colors[5 * 16 + 1] = [0, 0, 255, 255]
+    i.colors[5 * 16 + 2] = [0, 0, 0, 255]
+    i.map16.tiles[5] = tile(5, [prio(sub(1, 5)), prio(sub(2, 5)), sub(0), sub(0)])
+    i.grid[0]![0] = 5
+    const p = drawL1Planes(i, 0)
+    expect(p.l1High).not.toBeNull()
+    expect(px(p.l1High!, 256, 3, 3)).toEqual([0, 0, 255, 255])
+    expect(px(p.l1High!, 256, 11, 3)).toEqual([0, 0, 0, 255])
+    expect(p.l1Low).toBeNull()
+  })
+
+  it('a subtile whose first row is clear and the rest opaque still flags its plane drawn', () => {
+    const i = inputs(hGrid(1), false, 1)
+    const fg1 = [...VRAM.fg1!, new Uint8Array(64).fill(1, 8)] // char 10: row 0 clear
+    i.vram = i.rawVram = { fg1 }
+    i.map16.tiles[6] = tile(
+      6,
+      [10, 10, 10, 10].map(c => prio(sub(c))),
+    )
+    i.grid[0]![0] = 6
+    const p = drawL1Planes(i, 0)
+    expect(p.l1High).not.toBeNull()
+    expect(px(p.l1High!, 256, 3, 0)).toEqual(CLEAR)
+    expect(px(p.l1High!, 256, 3, 1)[3]).toBe(255)
+  })
+
+  it('on the wire each key carries its own plane when both are drawn', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.map16.tiles[1] = tile(1, [sub(1), prio(sub(2)), sub(3), sub(4)]) // only tr high
+    i.grid[0]![0] = 1
+    const wire = (k: 'l1Low' | 'l1High') =>
+      new Uint8ClampedArray(Buffer.from(planeOf(screenResult(i, 0), k)!, 'base64'))
+    const opaque = (b: Uint8ClampedArray) => [3, 11].flatMap(y => [3, 11].map(x => px(b, 256, x, y)[3] === 255)) // prettier-ignore
+    expect(opaque(wire('l1High'))).toEqual([false, true, false, false]) // tl, tr, bl, br
+    expect(opaque(wire('l1Low'))).toEqual([true, false, true, true])
+  })
+
+  it('a drawn pipe variant routes by its own priority bits, not the base entry bits', () => {
+    const i = inputs(hGrid(1), false, 1)
+    const id = PIPE_VARIANT_TILE_START
+    i.map16.tiles[id] = tile(
+      id,
+      [0, 0, 0, 0].map(c => prio(sub(c))),
+    ) // base entry: high, blank
+    i.grid[0]![0] = id // the cell draws the low variant (char 1)
+    const p = drawL1Planes(i, 0)
+    expect(p.l1Low).not.toBeNull()
+    expect(p.l1High).toBeNull()
+  })
+
+  it('a hidden tile routes its screen door by its own priority, not the blank cell drawn', () => {
+    const i = inputs(hGrid(1), false, 1)
+    const id = PIPE_VARIANT_TILE_START
+    // The Map16 entry is the hidden, high-priority tile; the cell draws a blank, low variant.
+    i.map16.tiles[id] = tile(
+      id,
+      [5, 5, 5, 5].map(c => prio(sub(c))),
+    )
+    for (const set of i.map16.pipeVariants) set[0] = tile(id, [sub(0), sub(0), sub(0), sub(0)])
+    i.switchArt = switchArtOf({ frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }, i.map16.tiles, VRAM, { colors: COLORS }) // prettier-ignore
+    i.grid[0]![0] = id
+    const p = drawL1Planes(i, 0)
+    expect(px(p.l1High!, 256, 5, 1)).toEqual([7, 100, 200, 255])
+    expect(p.l1Low).toBeNull()
+  })
+
+  it('a hidden tile keeps its screen door in the plane it belongs to', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.map16.tiles[2] = tile(
+      2,
+      [5, 5, 5, 5].map(c => prio(sub(c))),
+    )
+    i.grid[0]![0] = 2
+    const p = drawL1Planes(i, 0)
+    expect(px(p.l1High!, 256, 5, 1)).toEqual([7, 100, 200, 255])
+    expect(px(p.l1High!, 256, 6, 1)).toEqual(dim([7, 100, 200]))
+    expect(p.l1Low).toBeNull()
+  })
+})
+
 describe('char switches on the map (synthetic)', () => {
   const blueOn = { blue: true, silver: false, onOff: false }
   const cells = (a: Uint8ClampedArray, b: Uint8ClampedArray) => {
@@ -272,7 +421,7 @@ describe('char switches on the map (synthetic)', () => {
     expect(cells(off, on)).toEqual(['0,0'])
     // And through the screen the wire carries.
     const wire = (sw?: typeof blueOn) =>
-      (screenResult(i, 0, sw) as { rgbaBase64: string }).rgbaBase64
+      JSON.stringify((screenResult(i, 0, sw) as { planes: unknown }).planes)
     expect(wire(blueOn)).not.toBe(wire())
     expect([px(on, 256, 3, 3)[0], px(on, 256, 11, 3)[0], px(on, 256, 3, 11)[0], px(on, 256, 11, 11)[0]]).toEqual([1, 7, 7, 7]) // prettier-ignore
   })
@@ -828,6 +977,94 @@ function distinctColors(buf: Uint8ClampedArray): number {
 const buildTiles16 = (t: number) => loadMap16WithPipeVariants(freshRomFile(), t).tiles
 const freshRomFile = () => RomFile.load(romPath(VANILLA))
 
+/** The single image L1 was before the planes: each cell drawn whole, ghosted, copied. */
+function wholeCellScreen(model: L1Inputs, screen: number): Uint8ClampedArray {
+  const { w, h } = screenTiles(model.isVertical)
+  const x0 = model.isVertical ? 0 : screen * w
+  const y0 = model.isVertical ? screen * h : 0
+  const out = new Uint8ClampedArray(w * 16 * h * 16 * 4)
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const id = model.grid[y0 + y]?.[x0 + x]
+      const def = id === undefined ? undefined : cellDef(model, id, screen)
+      if (!def) continue
+      const cell = renderMap16Tile(def, model.vram, { colors: model.colors })
+      const art = model.switchArt.get(def.id)
+      const ghost = art && ghostOf(cell, art.off, art.alts, c => c.rgba)
+      if (ghost) overlayHidden(cell, 16, 0, 0, ghost)
+      for (let py = 0; py < 16; py++)
+        out.set(cell.subarray(py * 64, py * 64 + 64), ((y * 16 + py) * w * 16 + x * 16) * 4)
+    }
+  return out
+}
+
+/**
+ * The reference split: the whole-cell image, each 8x8 quadrant sent to the plane its subtile's
+ * priority bit names. Quadrants are indexed by arithmetic here, not by the production tuple.
+ */
+function referencePlanes(model: L1Inputs, screen: number, whole: Uint8ClampedArray) {
+  const { w, h } = screenTiles(model.isVertical)
+  const x0 = model.isVertical ? 0 : screen * w
+  const y0 = model.isVertical ? screen * h : 0
+  const out = { low: new Uint8ClampedArray(whole.length), high: new Uint8ClampedArray(whole.length) } // prettier-ignore
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const id = model.grid[y0 + y]?.[x0 + x]
+      const def = id === undefined ? undefined : cellDef(model, id, screen)
+      if (!def) continue
+      // A switch tile's screen door is its Map16 entry's art.
+      const owner = model.switchArt.has(def.id) ? (model.map16.tiles[def.id] ?? def) : def
+      const subs = [owner.tl, owner.tr, owner.bl, owner.br]
+      for (let q = 0; q < 4; q++) {
+        const dest = subs[q]!.priority ? out.high : out.low
+        for (let py = 0; py < 8; py++) {
+          const at = ((y * 16 + (q >> 1) * 8 + py) * w * 16 + x * 16 + (q & 1) * 8) * 4
+          dest.set(whole.subarray(at, at + 32), at)
+        }
+      }
+    }
+  return out
+}
+
+const hasAlpha = (b: Uint8ClampedArray) => b.some((v, i) => i % 4 === 3 && v !== 0)
+
+// Every slot, every screen, no switches on. Only the two stock-shaped ROMs: the L1 model
+// refuses all 512 slots of the four hacks (boss-mode check), so they have no screens to draw.
+describe.each([VANILLA, MAGIC])('L1 planes rebuild the single image: %s', name => {
+  it.skipIf(!hasRom(name))(
+    'the planes OR to the whole-cell image on every screen of every slot',
+    () => {
+      const rom = new SmwRom(RomFile.load(romPath(name)))
+      let screens = 0
+      let high = 0
+      for (let index = 0; index < 0x200; index++) {
+        const r = buildL1Inputs(rom, index, UNCLEARED)
+        if (!r.ok) continue
+        for (let screen = 0; screen < r.inputs.screenCount; screen++) {
+          const ref = wholeCellScreen(r.inputs, screen)
+          if (!Buffer.from(drawL1Screen(r.inputs, screen)).equals(Buffer.from(ref))) throw new Error(`slot ${index} screen ${screen} differs`) // prettier-ignore
+          const got = drawL1Planes(r.inputs, screen)
+          const want = referencePlanes(r.inputs, screen, ref)
+          for (const [key, plane] of [
+            ['l1Low', want.low],
+            ['l1High', want.high],
+          ] as const) {
+            // prettier-ignore
+            // Null exactly when no pixel has alpha, and the bytes are the reference split's.
+            if ((got[key] === null) !== !hasAlpha(plane)) throw new Error(`slot ${index} screen ${screen} ${key} empty flag`) // prettier-ignore
+            if (!Buffer.from(got[key] ?? new Uint8ClampedArray(plane.length)).equals(Buffer.from(plane))) throw new Error(`slot ${index} screen ${screen} ${key} differs from the reference split`) // prettier-ignore
+          }
+          if (got.l1High) high++
+          screens++
+        }
+      }
+      expect(screens).toBeGreaterThan(100) // the sweep drew something
+      expect(high).toBeGreaterThan(0) // and some screen has a priority tile, so the split was exercised
+    },
+    600_000,
+  )
+})
+
 describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
   const bytes = romPresent ? new Uint8Array(fs.readFileSync(romPath(VANILLA))) : new Uint8Array()
   const rom = romPresent ? new SmwRom(RomFile.fromBytes(romPath(VANILLA), Buffer.from(bytes))) : null! // prettier-ignore
@@ -922,7 +1159,11 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
   function rpcScreen(index: number, screen: number, flags: SwitchFlags): Buffer {
     const r = mapScreen(new L1ModelCache(), bytes, romPath(VANILLA), index, screen, flags)
     if (r.status !== 'ok') throw new Error(r.status)
-    return Buffer.from(r.rgbaBase64, 'base64')
+    // The planes are zero where the other draws, so OR rebuilds the single image.
+    const out = Buffer.alloc(r.width * r.height * 4)
+    for (const b64 of Object.values(r.planes))
+      if (b64) Buffer.from(b64, 'base64').forEach((v, i) => (out[i]! |= v))
+    return out
   }
 
   /** The 16x16 cells (local col, row) whose pixels differ between two screens. */
