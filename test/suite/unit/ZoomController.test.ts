@@ -207,34 +207,34 @@ describe('ZoomController.bindWheel - threshold, direction, ctrlKey', () => {
   })
 })
 
-describe('ZoomController - anchoring', () => {
-  /**
-   * `node` and `canvas` are otherwise independent fakes, so `canvas`'s
-   * getBoundingClientRect() is wired to move opposite `node.scrollLeft/Top`
-   * from here on - the same relationship a real scrolled child has to its
-   * scroll container. `canvas.rect` still sets the BASE box, so a test can
-   * additionally move it to model a layout shift that has nothing to do
-   * with scrolling (see the reflow-absorption test below).
-   */
-  function layout() {
-    const node = new FakeNode({ left: 10, top: 5 }) // scroller's own border box
-    node.scrollLeft = 50
-    node.scrollTop = 20
-    const baseScrollLeft = node.scrollLeft
-    const baseScrollTop = node.scrollTop
-    const canvas = new FakeNode({ left: -21, top: -16 }) // canvas box need not match the scroller's
-    const baseRect = canvas.getBoundingClientRect.bind(canvas)
-    canvas.getBoundingClientRect = () => {
-      const r = baseRect()
-      return {
-        ...r,
-        left: r.left - (node.scrollLeft - baseScrollLeft),
-        top: r.top - (node.scrollTop - baseScrollTop),
-      }
+/**
+ * `node` and `canvas` are otherwise independent fakes, so `canvas`'s
+ * getBoundingClientRect() is wired to move opposite `node.scrollLeft/Top`
+ * from here on - the same relationship a real scrolled child has to its
+ * scroll container. `canvas.rect` still sets the BASE box, so a test can
+ * additionally move it to model a layout shift that has nothing to do
+ * with scrolling (see the reflow-absorption test below).
+ */
+function layout() {
+  const node = new FakeNode({ left: 10, top: 5 }) // scroller's own border box
+  node.scrollLeft = 50
+  node.scrollTop = 20
+  const baseScrollLeft = node.scrollLeft
+  const baseScrollTop = node.scrollTop
+  const canvas = new FakeNode({ left: -21, top: -16 }) // canvas box need not match the scroller's
+  const baseRect = canvas.getBoundingClientRect.bind(canvas)
+  canvas.getBoundingClientRect = () => {
+    const r = baseRect()
+    return {
+      ...r,
+      left: r.left - (node.scrollLeft - baseScrollLeft),
+      top: r.top - (node.scrollTop - baseScrollTop),
     }
-    return { node, canvas }
   }
+  return { node, canvas }
+}
 
+describe('ZoomController - anchoring', () => {
   it('restores scroll so the same canvas pixel sits under the cursor, within 1px', () => {
     const c = new ZoomController(MAP16_LEVELS, 2) // starts at 2x
     const { node, canvas } = layout()
@@ -544,5 +544,120 @@ describe('ZoomController - fit mode', () => {
     binding.restoreAnchor()
     expect(node.scrollLeft + node.clientWidth / 2).toBeCloseTo(content.x, 6)
     expect(node.scrollTop + node.clientHeight / 2).toBeCloseTo(content.y, 6)
+  })
+
+  it('actualSize notifies on a fit-flag-only change (zoom already 1)', () => {
+    const { c } = host(1)
+    c.enterFit()
+    const l = vi.fn()
+    c.onDidChange(l)
+    c.actualSize()
+    expect(l).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { fit: 3.9995, name: 'canZoomIn' },
+    { fit: 1.0005, name: 'canZoomOut' },
+  ])('$name and step agree at a fit within EPS of a level ($fit)', ({ fit, name }) => {
+    const dir = name === 'canZoomIn' ? 1 : -1
+    const { c } = host(fit)
+    c.enterFit()
+    const can = dir > 0 ? c.canZoomIn : c.canZoomOut
+    expect(c.step(dir)).toBe(can)
+  })
+
+  it('enterFit with an unmeasurable fit keeps the current zoom', () => {
+    const c = new ZoomController(MAPS, 2, () => undefined)
+    c.enterFit()
+    expect(c.value).toBe(2)
+    expect(c.fitting).toBe(true)
+  })
+
+  it('actualSize at 1 and not fitting arms no anchor: a later scroll is not undone', () => {
+    const c = new ZoomController(MAPS, 1, () => 1)
+    const { node, canvas } = layout()
+    const binding = bind(c, node, canvas)
+    c.actualSize()
+    c.actualSize()
+    node.scrollLeft = 250 // a plain user scroll after the no-op clicks
+    binding.restoreAnchor()
+    expect(node.scrollLeft).toBe(250)
+  })
+
+  it("one binding's dispose leaves another binding's centre anchor armed", () => {
+    const { h, c } = host(2)
+    void h
+    c.enterFit()
+    const a = layout()
+    const b = layout()
+    const first = bind(c, a.node, a.canvas)
+    const second = bind(c, b.node, b.canvas)
+    first.dispose()
+    b.node.scrollLeft = 100
+    c.actualSize()
+    b.node.scrollLeft = 0
+    second.restoreAnchor()
+    expect(b.node.scrollLeft).not.toBe(0)
+  })
+
+  describe('centreAnchored (Maps)', () => {
+    /** Scroller 400x200 scrolled to (100,40); the canvas moves opposite the scroll. */
+    function scroller(c: ZoomController) {
+      const node = new FakeNode({ left: 10, top: 5 })
+      node.scrollLeft = 100
+      node.scrollTop = 40
+      const canvas = new FakeNode()
+      canvas.getBoundingClientRect = () => ({
+        left: 10 - node.scrollLeft,
+        top: 5 - node.scrollTop,
+        right: 0,
+        bottom: 0,
+        width: 0,
+        height: 0,
+      })
+      return { node, binding: bind(c, node, canvas) }
+    }
+
+    it.each([1, -1] as const)('a button step (dir %i) keeps the centre point', dir => {
+      const c = new ZoomController(MAPS, 2)
+      c.centreAnchored = true
+      const { node, binding } = scroller(c)
+      const cx = (node.scrollLeft + node.clientWidth / 2) / 2
+      c.step(dir)
+      node.scrollLeft = 0
+      binding.restoreAnchor()
+      expect((node.scrollLeft + node.clientWidth / 2) / c.value).toBeCloseTo(cx, 6)
+    })
+
+    it('without the flag a button step leaves the scroll alone', () => {
+      const c = new ZoomController(MAPS, 2)
+      const { node, binding } = scroller(c)
+      c.step(1)
+      binding.restoreAnchor()
+      expect(node.scrollLeft).toBe(100)
+    })
+
+    it('the Fit button anchors; enterFit without the option (a map load) does not', () => {
+      for (const anchored of [true, false]) {
+        const c = new ZoomController(MAPS, 3, () => 1.5)
+        c.centreAnchored = true
+        const { node, binding } = scroller(c)
+        c.enterFit({ anchored })
+        binding.restoreAnchor()
+        expect(node.scrollLeft !== 100).toBe(anchored)
+      }
+    })
+
+    it('a refit on resize is not anchored', () => {
+      const h = { fit: 1.5 }
+      const c = new ZoomController(MAPS, 1, () => h.fit)
+      c.centreAnchored = true
+      c.enterFit()
+      const { node, binding } = scroller(c)
+      h.fit = 1.2
+      c.refit()
+      binding.restoreAnchor()
+      expect(node.scrollLeft).toBe(100)
+    })
   })
 })

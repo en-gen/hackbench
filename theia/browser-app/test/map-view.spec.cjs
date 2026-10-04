@@ -1165,6 +1165,48 @@ const zoomOf = (page, index) =>
     return c.getBoundingClientRect().width / c.width
   }, root(index))
 
+/** Waits until two successive frames report the same zoom: the fit has landed. */
+const settled = (page, index) =>
+  page.evaluate(
+    sel =>
+      new Promise(resolve => {
+        const read = () => {
+          const c = document.querySelector(`${sel} canvas[data-plane="l1Low"]`)
+          return c.getBoundingClientRect().width / c.width
+        }
+        let last = read()
+        let same = 0
+        const tick = () => {
+          const z = read()
+          same = Math.abs(z - last) < 1e-9 ? same + 1 : 0
+          last = z
+          if (same >= 5) resolve(z)
+          else requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      }),
+    root(index),
+  )
+
+/** The content pixel under the view centre, along the main axis, plus the zoom. */
+const probeView = (page, index) =>
+  page.evaluate(sel => {
+    const root = document.querySelector(sel)
+    const el = root.querySelector('[data-control="map-scroller"]')
+    const v = el.classList.contains('hb-vertical')
+    const r = el.getBoundingClientRect()
+    const strip = root.querySelector('.hb-map-view-strip').getBoundingClientRect()
+    const c = root.querySelector('canvas[data-plane="l1Low"]')
+    const z = c.getBoundingClientRect().width / c.width
+    const at = (fx, fy) => ({ x: r.left + r.width * fx, y: r.top + r.height * fy })
+    const content = (fx, fy) => {
+      const p = at(fx, fy)
+      return (v ? p.y - strip.top : p.x - strip.left) / z
+    }
+    return { v, z, centre: at(0.5, 0.5), edge: at(v ? 0.5 : 0.95, v ? 0.95 : 0.5), contentCentre: content(0.5, 0.5), contentEdge: content(v ? 0.5 : 0.95, v ? 0.95 : 0.5) } // prettier-ignore
+  }, root(index))
+
+const LEVELS = [1, 2, 3, 4]
 /** How far the strip's cross axis is from filling the scroller, in CSS pixels. */
 const crossSlack = (page, index) =>
   page.evaluate(sel => {
@@ -1181,7 +1223,7 @@ for (const index of [0x105, 0x109]) {
   const open = async page => {
     const project = await createProject(page, path.join(tmp, 'MyHack'))
     await openMap(page, project.manifestPath, index)
-    await page.waitForTimeout(500)
+    await settled(page, index)
     return zoomOf(page, index)
   }
   const click = (page, control) =>
@@ -1232,42 +1274,122 @@ for (const index of [0x105, 0x109]) {
 /**
  * Ctrl + wheel (#392) keeps the content point under the cursor. Judged on
  * the MAIN axis (x for a horizontal strip, y for a vertical one): the cross
- * axis is fitted, so it has nothing to scroll.
+ * axis is fitted, so it has nothing to scroll. Cases: one notch at the
+ * centre, three notches in one event, and one notch with the strip scrolled
+ * to its end and the cursor near it (the scroll clamp is in play).
  */
+const WHEELS = [
+  { name: 'one notch at the centre', notches: 1, atEnd: false },
+  { name: 'three notches in one event', notches: 3, atEnd: false },
+  { name: 'one notch near the strip end', notches: 1, atEnd: true },
+]
 for (const index of [0x105, 0x109]) {
-  test(`$${index.toString(16)}: Ctrl + wheel zooms in and keeps the point under the cursor`, async ({
-    page,
-  }) => {
+  for (const w of WHEELS) {
+    test(`$${index.toString(16)}: Ctrl + wheel, ${w.name}, keeps the point under the cursor`, async ({
+      page,
+    }) => {
+      const project = await createProject(page, path.join(tmp, 'MyHack'))
+      await openMap(page, project.manifestPath, index)
+      await settled(page, index)
+      await page.locator(`${root(index)} [data-control="zoom-actual"]`).click()
+      await expect.poll(() => zoomOf(page, index)).toBe(1)
+      if (w.atEnd) {
+        await page.evaluate(sel => {
+          const el = document.querySelector(`${sel} [data-control="map-scroller"]`)
+          el.scrollLeft = el.scrollWidth
+          el.scrollTop = el.scrollHeight
+        }, root(index))
+        await settled(page, index)
+      }
+      const before = await probeView(page, index)
+      const at = w.atEnd ? before.edge : before.centre
+      const want = w.atEnd ? before.contentEdge : before.contentCentre
+      await page.mouse.move(at.x, at.y)
+      await page.keyboard.down('Control')
+      await page.mouse.wheel(0, -120 * w.notches)
+      await page.keyboard.up('Control')
+      const zoomed = Math.min(4, 1 + w.notches)
+      await expect.poll(async () => (await probeView(page, index)).z).toBe(zoomed)
+      await settled(page, index)
+      const after = await probeView(page, index)
+      expect(Math.abs((w.atEnd ? after.contentEdge : after.contentCentre) - want)).toBeLessThan(1)
+      await expect(page.locator(`${root(index)} [data-control="zoom-fit"]`)).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      )
+    })
+  }
+
+  const click = (page, c) => page.locator(`${root(index)} [data-control="${c}"]`).click()
+
+  // Owner ruling (#526): every Maps button keeps the view centre fixed.
+  const ANCHORS = [
+    { control: 'zoom-actual', scroll: 0.6 },
+    { control: 'zoom-fit', scroll: 0.6 },
+    { control: 'zoom-in', scroll: 0.6 },
+    { control: 'zoom-out', scroll: 0.6 },
+    { control: 'zoom-out', scroll: 1, clamped: true },
+  ]
+  for (const a of ANCHORS) {
+    test(`$${index.toString(16)}: ${a.control} keeps the view centre${a.clamped ? ' (strip end, clamped)' : ''}`, async ({
+      page,
+    }) => {
+      const project = await createProject(page, path.join(tmp, 'MyHack'))
+      await openMap(page, project.manifestPath, index)
+      await settled(page, index)
+      for (let i = 0; i < 2; i++) await click(page, 'zoom-in')
+      await settled(page, index)
+      await page.evaluate(
+        ({ sel, f }) => {
+          const el = document.querySelector(`${sel} [data-control="map-scroller"]`)
+          el.scrollLeft = (el.scrollWidth - el.clientWidth) * f
+          el.scrollTop = (el.scrollHeight - el.clientHeight) * f
+        },
+        { sel: root(index), f: a.scroll },
+      )
+      await settled(page, index)
+      const before = await probeView(page, index)
+      await click(page, a.control)
+      await expect.poll(async () => (await probeView(page, index)).z).not.toBe(before.z)
+      await settled(page, index)
+      const after = await probeView(page, index)
+      const atLimit = await page.evaluate(sel => {
+        const el = document.querySelector(`${sel} [data-control="map-scroller"]`)
+        const v = el.classList.contains('hb-vertical')
+        const [pos, max] = v
+          ? [el.scrollTop, el.scrollHeight - el.clientHeight]
+          : [el.scrollLeft, el.scrollWidth - el.clientWidth]
+        return pos <= 1 || pos >= max - 1
+      }, root(index))
+      if (a.clamped) expect(atLimit, 'the strip edge limits the anchor').toBe(true)
+      else expect(Math.abs(after.contentCentre - before.contentCentre)).toBeLessThan(1)
+    })
+  }
+
+  const fitSteps = async (page, size) => {
+    if (size) await page.setViewportSize(size)
     const project = await createProject(page, path.join(tmp, 'MyHack'))
     await openMap(page, project.manifestPath, index)
-    await page.waitForTimeout(500)
-    await page.locator(`${root(index)} [data-control="zoom-actual"]`).click()
-    await expect.poll(() => zoomOf(page, index)).toBe(1)
-    const probe = () =>
-      page.evaluate(sel => {
-        const root = document.querySelector(sel)
-        const el = root.querySelector('[data-control="map-scroller"]')
-        const v = el.classList.contains('hb-vertical')
-        const r = el.getBoundingClientRect()
-        const strip = root.querySelector('.hb-map-view-strip').getBoundingClientRect()
-        const c = root.querySelector('canvas[data-plane="l1Low"]')
-        const z = c.getBoundingClientRect().width / c.width
-        const pos = v ? r.top + r.height / 2 : r.left + r.width / 2
-        return { v, x: r.left + r.width / 2, y: r.top + r.height / 2, z, content: (pos - (v ? strip.top : strip.left)) / z } // prettier-ignore
-      }, root(index))
-    const before = await probe()
-    await page.mouse.move(before.x, before.y)
-    await page.keyboard.down('Control')
-    await page.mouse.wheel(0, -120)
-    await page.keyboard.up('Control')
-    await expect.poll(async () => (await probe()).z).toBe(2)
-    await page.waitForTimeout(300)
-    const after = await probe()
-    expect(Math.abs(after.content - before.content)).toBeLessThan(1)
-    await expect(page.locator(`${root(index)} [data-control="zoom-fit"]`)).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    )
+    return settled(page, index)
+  }
+
+  test(`$${index.toString(16)}: zoom in from fit lands on the next level above the fit`, async ({
+    page,
+  }) => {
+    const fit = await fitSteps(page)
+    await click(page, 'zoom-in')
+    const want = LEVELS.find(l => l > fit + 0.001)
+    await expect.poll(() => zoomOf(page, index)).toBeCloseTo(want ?? fit, 6)
+  })
+
+  test(`$${index.toString(16)}: zoom out from a fit above 1 lands on the level below`, async ({
+    page,
+  }) => {
+    const fit = await fitSteps(page, { width: 1900, height: 1400 })
+    expect(fit, 'precondition: the larger window fits above 100%').toBeGreaterThan(1.05)
+    await click(page, 'zoom-out')
+    const want = [...LEVELS].reverse().find(l => l < fit - 0.001)
+    await expect.poll(() => zoomOf(page, index)).toBeCloseTo(want, 6)
   })
 }
 

@@ -31,7 +31,7 @@ export function ZoomStepper({ controller, fitControls }: ZoomStepperProps): Reac
           aria-pressed={controller.fitting}
           title="Fit to window"
           aria-label="Fit to window"
-          onClick={() => controller.enterFit()}
+          onClick={() => controller.enterFit({ anchored: true })}
         >
           <span className="codicon codicon-screen-full" />
         </button>

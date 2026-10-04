@@ -50,6 +50,12 @@ export class ZoomController implements Disposable {
   /** Any positive number: a fit value or 100% need not be one of `levels`. */
   private zoom: number
   private fit = false
+  /**
+   * Maps only (#526): every button-driven zoom keeps the view centre fixed.
+   * Off, buttons leave the scroll position alone, as GFX and Map16 do. Needs
+   * a wheel binding, whose `restoreAnchor` the host calls after its commit.
+   */
+  centreAnchored = false
   /** Set by `bindWheel`: keeps the view centre fixed across a jump to `target`. */
   private anchorCentre: ((target: number) => void) | undefined
 
@@ -112,9 +118,14 @@ export class ZoomController implements Disposable {
   }
 
   /** Starts (or resumes) fit mode. A no-op without a fit function. */
-  enterFit(): void {
+  enterFit(opts?: { anchored?: boolean }): void {
     if (!this.fitZoom) return
-    this.set(this.fitZoom() ?? this.zoom, true)
+    const target = this.fitZoom() ?? this.zoom
+    // `anchored` is for the Fit button; a map load (a new strip) must not anchor.
+    if (opts?.anchored && this.centreAnchored && Math.abs(target - this.zoom) > EPS) {
+      this.anchorCentre?.(target)
+    }
+    this.set(target, true)
   }
 
   /** The host reports its view resized: follows the fit value while fitting. */
@@ -126,7 +137,8 @@ export class ZoomController implements Disposable {
 
   /** Exactly 100%, anchored on the view centre once a wheel binding exists. */
   actualSize(): void {
-    this.anchorCentre?.(1)
+    // Armed only for a real jump: a stale anchor would snap a later scroll back.
+    if (this.fit || Math.abs(1 - this.zoom) > EPS) this.anchorCentre?.(1)
     this.set(1, false)
   }
 
@@ -141,6 +153,7 @@ export class ZoomController implements Disposable {
         ? this.levels.find(l => l > this.zoom + EPS)
         : [...this.levels].reverse().find(l => l < this.zoom - EPS)
     if (next === undefined) return false
+    if (this.centreAnchored) this.anchorCentre?.(next)
     return this.set(next, false)
   }
 
@@ -237,7 +250,7 @@ export class ZoomController implements Disposable {
       node.scrollTop += rect.top - (anchor.clientY - anchor.contentY * anchor.zoom)
     }
 
-    this.anchorCentre = target => {
+    const arm = (target: number): void => {
       const canvas = canvasOf()
       if (!canvas) return
       const rect = canvas.getBoundingClientRect()
@@ -253,10 +266,12 @@ export class ZoomController implements Disposable {
       }
     }
 
+    this.anchorCentre = arm
+
     return {
       dispose: () => {
         cancelFollowUp()
-        this.anchorCentre = undefined
+        if (this.anchorCentre === arm) this.anchorCentre = undefined
         node.removeEventListener('wheel', listener)
       },
       restoreAnchor: () => {

@@ -114,6 +114,7 @@ export class MapViewWidget extends ReactWidget {
     this.title.closable = true
     this.node.tabIndex = 0
     this.toDispose.push({ dispose: () => this.resizes.disconnect() })
+    this.zoomController.centreAnchored = true
     this.toDispose.push(this.zoomController)
     this.toDispose.push({ dispose: () => this.wheelBinding?.dispose() })
     this.toDispose.push(
@@ -292,6 +293,16 @@ export class MapViewWidget extends ReactWidget {
   }
 
   /**
+   * After a React commit only: the strip now has its new zoom's size, so the
+   * wheel/centre anchor can be put back. `sync` also runs from scrolls and
+   * replies, where restoring early would consume the anchor too soon.
+   */
+  protected readonly afterCommit = (): void => {
+    this.wheelBinding?.restoreAnchor()
+    this.sync()
+  }
+
+  /**
    * Brings every canvas to what it should show, whatever event asked: the
    * cached picture for the current state. A toggle or an edit keeps the
    * current picture up until the new one lands, with no blank flash; only a
@@ -300,8 +311,6 @@ export class MapViewWidget extends ReactWidget {
    * canvas; `data-drawn` records only what a canvas was painted with.
    */
   protected readonly sync = (): void => {
-    // The commit has laid the strip out at the new zoom: put the anchor back.
-    this.wheelBinding?.restoreAnchor()
     for (const [k, canvas] of this.canvases) {
       const [plane, s] = k.split(':') as [MapPlaneKey, string]
       const want = `${this.generation}:${this.key(Number(s))}`
@@ -449,7 +458,7 @@ export class MapViewWidget extends ReactWidget {
           </div>
         ))}
         {this.renderStrip()}
-        <AfterCommit run={this.sync} />
+        <AfterCommit run={this.afterCommit} />
         <details className="hb-map-view-header" data-control="header-panel">
           <summary>Header</summary>
           {this.renderDecode()}
@@ -476,6 +485,26 @@ export class MapViewWidget extends ReactWidget {
     )
   }
 
+  /**
+   * One stable ref: an inline arrow is re-called (null, then the element) on
+   * every render, which would rebuild the wheel binding and drop its pending
+   * anchor between the zoom and the commit that restores it.
+   */
+  protected readonly scrollerRef = (el: HTMLDivElement | null): void => {
+    if (el === this.scroller) return
+    if (this.scroller) this.resizes.unobserve(this.scroller)
+    this.scroller = el
+    this.wheelBinding?.dispose()
+    this.wheelBinding = undefined
+    if (el) {
+      this.resizes.observe(el)
+      // Anchored on the strip: it scrolls with the content, unlike the scroller.
+      this.wheelBinding = this.zoomController.bindWheel(el, () =>
+        el.querySelector<HTMLElement>('.hb-map-view-strip'),
+      )
+    }
+  }
+
   protected renderStrip(): React.ReactNode {
     const l = this.mapLayout
     if (!l) {
@@ -491,20 +520,7 @@ export class MapViewWidget extends ReactWidget {
       <div
         className={'hb-map-view-scroller' + (l.orientation === 'vertical' ? ' hb-vertical' : '')}
         data-control="map-scroller"
-        ref={el => {
-          if (el === this.scroller) return
-          if (this.scroller) this.resizes.unobserve(this.scroller)
-          this.scroller = el
-          this.wheelBinding?.dispose()
-          this.wheelBinding = undefined
-          if (el) {
-            this.resizes.observe(el)
-            // Anchored on the strip: it scrolls with the content, unlike the scroller.
-            this.wheelBinding = this.zoomController.bindWheel(el, () =>
-              el.querySelector<HTMLElement>('.hb-map-view-strip'),
-            )
-          }
-        }}
+        ref={this.scrollerRef}
         onScroll={() => this.requestVisible()}
       >
         {/* Bottom to top (planes by MAP_PLANE_KEYS): the checkerboard, the back area, then the screens,
