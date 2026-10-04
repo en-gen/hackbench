@@ -404,10 +404,13 @@ describe('updateProject merges the bytes it validated', () => {
       }
       return actual.openSync(file, ...rest)
     }) as typeof fs.openSync)
+    vi.mocked(fs.readFileSync).mockClear()
     try {
       const updated = updateProject(p.manifestPath, { title: 'new' })
       expect(updated.title).toBe('new')
       expect(reads).toBe(1)
+      const viaRead = vi.mocked(fs.readFileSync).mock.calls.map(c => String(c[0]))
+      expect(viaRead).not.toContain(p.manifestPath)
     } finally {
       vi.mocked(fs.openSync).mockImplementation(actual.openSync)
     }
