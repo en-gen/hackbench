@@ -114,7 +114,11 @@ class Hardening(unittest.TestCase):
         self.made.append(self.ev / "page.html")
         self.assertEqual(self.save("page.html", Origin=f"http://{self.me}"), 200)
         self.assertEqual((self.ev / "page.html").read_bytes(), b"x")
-        for url in ["/evidence/page.html", "/EVIDENCE/page.html"]:
+        # A case-insensitive FS (Windows, macOS) serves /EVIDENCE/ from the same dir,
+        # so it must still be an attachment; a case-sensitive one (Linux CI) 404s it.
+        folds = (self.mod.T0_DIR / "EVIDENCE" / "page.html").exists()
+        self.assertEqual(self.req("GET", "/EVIDENCE/page.html")[0], 200 if folds else 404)
+        for url in ["/evidence/page.html"] + (["/EVIDENCE/page.html"] if folds else []):
             st, r, body = self.req("GET", url)
             self.assertEqual(st, 200, url)
             self.assertEqual(body, b"x")
