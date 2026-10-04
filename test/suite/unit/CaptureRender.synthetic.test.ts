@@ -1133,6 +1133,17 @@ describe('PNG decode', () => {
     expect(unzip(zip([['s.bin', Buffer.from('hi')]])).get('s.bin')!().toString()).toBe('hi')
   })
 
+  it('refuses a folder file by its size before reading any of it', () => {
+    const dir = mkdtempSync(join(TMP, 'huge-'))
+    writeFileSync(join(dir, 'big.bin'), '')
+    truncateSync(join(dir, 'big.bin'), 3 * 2 ** 30) // sparse: reading it would fail or exhaust memory
+    try {
+      expect(() => openMap(dir, 'x').read('big.bin')).toThrow(/big\.bin states/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('holds a capture folder to the same entry cap and total', () => {
     const dir = mkdtempSync(join(TMP, 'budget-'))
     const sparse = (n: string, size: number) => {
