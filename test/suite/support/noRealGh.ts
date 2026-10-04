@@ -9,7 +9,8 @@
  *   keyring, and the global git credential helper is an absolute path to
  *   gh.exe, so an empty GH_CONFIG_DIR alone hides nothing: a reached gh
  *   (or `git credential fill`) sees only the sentinel, which GitHub rejects.
- * - Git credential helpers are cleared at command scope (GIT_CONFIG_*), and
+ * - Git credential helpers are cleared at command scope (GIT_CONFIG_* and
+ *   GIT_CONFIG_PARAMETERS, which `git -c` exports to children), and
  *   GIT_ASKPASS/SSH_ASKPASS are emptied, so `git credential fill` returns no
  *   password from a helper or an askpass program in the env. An askpass set
  *   by `-c core.askPass` on the command line is overridden by the empty
@@ -44,21 +45,28 @@ export function guardEnv(env: NodeJS.ProcessEnv, configDir: string): NodeJS.Proc
   }
   for (const v of TOKEN_VARS) out[v] = SENTINEL
   // An empty credential.helper resets the list, so no helper (gh.exe, manager) runs.
-  // Appended after any existing GIT_CONFIG_* entries, and only once: an empty
-  // helper anywhere in the parent's list is not enough, because a later entry
-  // would re-add one, so the append is skipped only when the LAST helper is empty.
+  // Appended after any existing GIT_CONFIG_* entries; a later entry would re-add
+  // a helper, so the append is skipped only when the LAST entry (n-1) is exactly
+  // an empty credential.helper. URL-scoped keys never count: they scope a helper
+  // to one host instead of resetting the list. Any case spelling of the key is
+  // accepted as exact, because git lowercases section and variable names.
   const raw = env.GIT_CONFIG_COUNT
   const n = raw === undefined || raw === '' ? 0 : Number(raw)
   if (!Number.isInteger(n) || n < 0 || n >= 1000) throw new Error('invalid GIT_CONFIG_COUNT')
-  let last: string | undefined
-  for (let i = 0; i < n; i++)
-    if (env[`GIT_CONFIG_KEY_${i}`] === 'credential.helper') last = env[`GIT_CONFIG_VALUE_${i}`]
-  const done = last === ''
+  const done =
+    n > 0 &&
+    env[`GIT_CONFIG_KEY_${n - 1}`]?.toLowerCase() === 'credential.helper' &&
+    env[`GIT_CONFIG_VALUE_${n - 1}`] === ''
   if (!done) {
     out[`GIT_CONFIG_KEY_${n}`] = 'credential.helper'
     out[`GIT_CONFIG_VALUE_${n}`] = ''
     out.GIT_CONFIG_COUNT = String(n + 1)
   }
+  // git reads GIT_CONFIG_PARAMETERS (what `git -c k=v` exports to children) AFTER
+  // GIT_CONFIG_*, so it can re-add a helper; append the reset there too, once.
+  const reset = "'credential.helper'=''"
+  const params = env.GIT_CONFIG_PARAMETERS ?? ''
+  if (!params.endsWith(reset)) out.GIT_CONFIG_PARAMETERS = params ? `${params} ${reset}` : reset
   return out
 }
 

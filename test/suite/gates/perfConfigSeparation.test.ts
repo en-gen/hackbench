@@ -112,9 +112,21 @@ describe('the gh guard reaches both configs and the paired base round', () => {
   const read = (f: string) => fs.readFileSync(path.join(repoRoot, f), 'utf8')
   const guard = 'test/suite/support/noRealGh.ts'
 
-  it('both vitest configs register the guard', () => {
-    expect(globalSetups(read('vitest.config.ts'))).toContain(guard)
-    expect(globalSetups(read('vitest.perf.config.ts'))).toContain(guard)
+  it('every vitest config in the repo registers the guard', () => {
+    // Found by walking the tree, not listed by hand: a new config must not escape.
+    const skip = new Set(['node_modules', '.git', 'out', 'dist', 'coverage'])
+    const found: string[] = []
+    const walk = (d: string) => {
+      for (const e of fs.readdirSync(path.join(repoRoot, d), { withFileTypes: true })) {
+        const rel = d ? `${d}/${e.name}` : e.name
+        if (e.isDirectory()) {
+          if (!skip.has(e.name)) walk(rel)
+        } else if (/^vitest(\..+)?\.config\.[mc]?[jt]s$/.test(e.name)) found.push(rel)
+      }
+    }
+    walk('')
+    expect(found.length).toBeGreaterThanOrEqual(3)
+    for (const f of found) expect(globalSetups(read(f)), f).toContain(guard)
   })
 
   it('every globalSetup the perf config names is a harness path', async () => {

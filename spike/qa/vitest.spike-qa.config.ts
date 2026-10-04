@@ -9,5 +9,6 @@ export default defineConfig({
   test: {
     include: ['spike/qa/**/*.test.ts'],
     environment: 'node',
+    globalSetup: ['test/suite/support/noRealGh.ts'],
   },
 })

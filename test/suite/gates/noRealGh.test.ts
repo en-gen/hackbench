@@ -10,6 +10,9 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import setup, { guardEnv, SENTINEL, TOKEN_VARS } from '../support/noRealGh'
 
+// Hardcoded on purpose: importing TOKEN_VARS would let a dropped name pass unseen.
+const FOUR_TOKENS = ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN']
+const LEAK_HELPER = '!f() { echo username=u; echo password=LEAK; }; f'
 const REAL_TOKEN = /gh[opsu]_|github_pat_/
 const isSentinel = (v: string | undefined) => v === SENTINEL
 const credFill = (env: NodeJS.ProcessEnv, args: string[] = []) =>
@@ -27,6 +30,34 @@ describe('guardEnv (pure)', () => {
   it('replaces all four tokens with the sentinel', () => {
     for (const v of TOKEN_VARS) expect(isSentinel(out[v])).toBe(true)
     expect(REAL_TOKEN.test(JSON.stringify(out))).toBe(false)
+  })
+  it('sets all four hardcoded token names to the sentinel', () => {
+    const o = guardEnv({}, '/cfg')
+    for (const v of FOUR_TOKENS) expect(isSentinel(o[v])).toBe(true)
+  })
+  it('appends the reset to GIT_CONFIG_PARAMETERS, keeping entries, once', () => {
+    const o = guardEnv({ GIT_CONFIG_PARAMETERS: "'a.b'='c'" }, '/cfg')
+    expect(o.GIT_CONFIG_PARAMETERS).toBe("'a.b'='c' 'credential.helper'=''")
+    expect(guardEnv(o, '/cfg').GIT_CONFIG_PARAMETERS).toBe(o.GIT_CONFIG_PARAMETERS)
+    expect(guardEnv({}, '/cfg').GIT_CONFIG_PARAMETERS).toBe("'credential.helper'=''")
+  })
+  it.each(['Credential.Helper', 'credential.HELPER', 'credential.https://github.com.helper'])(
+    'appends when the last entry is %j with an empty value',
+    key => {
+      const o = guardEnv(
+        { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: key, GIT_CONFIG_VALUE_0: '' },
+        '/cfg',
+      )
+      // Case spellings are the same variable to git, so only the URL-scoped one must append.
+      expect(o.GIT_CONFIG_COUNT).toBe(key.includes('://') ? '2' : '1')
+    },
+  )
+  it('skips the append only for an exact empty credential.helper as the last entry', () => {
+    const o = guardEnv(
+      { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'credential.helper', GIT_CONFIG_VALUE_0: '' },
+      '/cfg',
+    )
+    expect(o.GIT_CONFIG_COUNT).toBe('1')
   })
   it('appends to an existing GIT_CONFIG_COUNT and does not stack on a second pass', () => {
     const o = guardEnv(
@@ -118,12 +149,41 @@ describe('a reached gh is unauthenticated (no-shell spawn)', { timeout: 90000 },
   it('git credential fill finds no password even with a global helper that supplies one', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-home-'))
     try {
-      fs.writeFileSync(
-        path.join(home, '.gitconfig'),
-        '[credential]\n\thelper = "!f() { echo password=fake-helper-pw; }; f"\n',
-      )
+      fs.writeFileSync(path.join(home, '.gitconfig'), `[credential]\n\thelper = "${LEAK_HELPER}"\n`)
       const r = credFill({ ...process.env, HOME: home, USERPROFILE: home })
       expect(/^password=/m.test(r.stdout)).toBe(false)
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    [
+      'GIT_CONFIG_PARAMETERS (git -c exports this)',
+      { GIT_CONFIG_PARAMETERS: `'credential.helper'='${LEAK_HELPER}'` },
+    ],
+    [
+      'a URL-scoped helper as the last GIT_CONFIG entry',
+      {
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'credential.https://github.com.helper',
+        GIT_CONFIG_VALUE_0: LEAK_HELPER,
+      },
+    ],
+    [
+      'a mixed-case helper key as the last GIT_CONFIG entry',
+      {
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'Credential.Helper',
+        GIT_CONFIG_VALUE_0: LEAK_HELPER,
+      },
+    ],
+  ])('git credential fill gets no password from %s', (_n, extra) => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-home-'))
+    try {
+      const e = guardEnv({ ...process.env, HOME: home, USERPROFILE: home, ...extra }, home)
+      const r = credFill({ ...e, GCM_INTERACTIVE: 'never' })
+      expect(/^password=LEAK/m.test(r.stdout)).toBe(false)
     } finally {
       fs.rmSync(home, { recursive: true, force: true })
     }

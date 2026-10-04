@@ -469,6 +469,28 @@ quote one instruction's bytes; any longer run is elided. Neither file is
 committed. The sweep is hand-run, since CI has no store; its verdict and
 summary code is tested in `HackSweep.synthetic.test.ts`.
 
+## Unit tests cannot reach an authenticated gh
+
+`test/suite/support/noRealGh.ts` is a vitest `globalSetup` (#486: a test ran
+`accept.sh` and posted real perf-nightly statuses). It puts a failing `gh` shim
+first on PATH, sets the four GitHub token variables to a sentinel, points
+`GH_CONFIG_DIR` at an empty directory, empties `GIT_ASKPASS`/`SSH_ASKPASS`, and
+resets `credential.helper` through both `GIT_CONFIG_*` and
+`GIT_CONFIG_PARAMETERS` (what `git -c` exports to children). A reached `gh` or
+`git credential fill` then sees only a token GitHub rejects.
+
+Every vitest config in the repo must register it in `globalSetup`;
+`perfConfigSeparation.test.ts` finds the configs by glob and fails on a miss.
+`perfAccept.test.ts` also refuses to run when the guard is not active.
+
+Known limits, stated as such:
+
+- A test that blanks or deletes the token variables, or builds an env without
+  spreading `process.env`, is outside the guard.
+- A no-shell spawn of `gh` on win32 skips the shim and runs the real gh.exe;
+  it is unauthenticated through the env, but `gh auth token --user` may still
+  reach the OS keyring. PLACEHOLDER, wording pending the owner's decision.
+
 ## Playwright never touches your app data
 
 Specs create projects, which writes `recent-projects.json`, `rom-registry.json`
