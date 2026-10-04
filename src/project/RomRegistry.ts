@@ -22,6 +22,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { RomIdentity, romIdentity } from './Project'
+import { readRomBounded } from './BoundedRead'
 import { appDataDir } from './appData'
 
 export const REGISTRY_VERSION = 1
@@ -61,7 +62,7 @@ export class RomRegistry {
    */
   register(romPath: string): RomIdentity {
     const absolute = path.resolve(romPath)
-    const identity = romIdentity(new Uint8Array(fs.readFileSync(absolute)))
+    const identity = romIdentity(readRomBounded(absolute))
 
     const data = this.read()
     data.roms[identity.sha256] = {
@@ -88,7 +89,7 @@ export class RomRegistry {
 
     let actual: RomIdentity
     try {
-      actual = romIdentity(new Uint8Array(fs.readFileSync(entry.path)))
+      actual = romIdentity(readRomBounded(entry.path))
     } catch {
       return null
     }

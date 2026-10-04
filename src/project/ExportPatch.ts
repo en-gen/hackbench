@@ -12,6 +12,7 @@ import { encodeIps } from '../rom/Ips'
 import { encodeBps } from '../rom/Bps'
 import { COPIER_HEADER_SIZE } from '../rom/addressing'
 import { WorkingRom } from './WorkingRom'
+import { projectNameProblem } from './Project'
 
 export const EXPORT_DIR = 'export'
 export type PatchFormat = 'bps' | 'ips'
@@ -39,7 +40,16 @@ export function exportPatch(
   working: WorkingRom,
   format: PatchFormat = 'bps',
 ): ExportedPatch {
+  // Runtime checks: `format` and `name` cross RPC / come from a shared manifest.
+  if (format !== 'bps' && format !== 'ips')
+    throw new Error(`Unknown patch format: ${String(format)}`)
+  const problem = projectNameProblem(name)
+  if (problem) throw new Error(problem)
   const dir = path.join(projectDirectory, EXPORT_DIR)
+  const filePath = path.join(dir, `${name}.${format}`)
+  if (path.dirname(path.resolve(filePath)) !== path.resolve(dir)) {
+    throw new Error(`Export path escapes ${EXPORT_DIR}/: ${filePath}`)
+  }
   fs.mkdirSync(dir, { recursive: true })
 
   const strip = format === 'bps' && working.hasCopierHeader ? COPIER_HEADER_SIZE : 0
@@ -48,7 +58,6 @@ export function exportPatch(
   const patches = diffPatches(source, target)
   const bytes = format === 'ips' ? encodeIps(patches) : encodeBps(source, target)
 
-  const filePath = path.join(dir, `${name}.${format}`)
   fs.writeFileSync(filePath, bytes)
   return {
     path: filePath,

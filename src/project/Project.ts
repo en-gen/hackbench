@@ -45,6 +45,7 @@ import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
 import { COPIER_HEADER_SIZE, hasCopierHeader } from '../rom/addressing'
+import { readRomBounded } from './BoundedRead'
 
 export const PROJECT_EXT = '.hbproj'
 export const SCHEMA_VERSION = 1
@@ -136,6 +137,52 @@ export function romIdentity(bytes: Uint8Array): RomIdentity {
   return { sha256, size: cart.length, title }
 }
 
+const RESERVED_DEVICE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
+
+/**
+ * Why `name` cannot be a manifest filename stem, or null if it can. The name
+ * becomes a filename on create and in the export path, and arrives from a
+ * manifest other people wrote (#240), so it must be one plain path component
+ * that Windows accepts too.
+ */
+export function projectNameProblem(name: unknown): string | null {
+  if (typeof name !== 'string' || !name.trim()) return 'A project needs a name'
+  // eslint-disable-next-line no-control-regex
+  if (/[<>:"/\\|?*\x00-\x1f]/.test(name))
+    return `Project name has a character a filename cannot hold: ${name}`
+  if (name === '.' || name === '..' || /[. ]$/.test(name)) {
+    return `Project name cannot be "." or "..", or end in a dot or space: ${name}`
+  }
+  if (RESERVED_DEVICE.test(name)) return `Project name is a reserved device name: ${name}`
+  return null
+}
+
+function assertProjectName(name: unknown): asserts name is string {
+  const problem = projectNameProblem(name)
+  if (problem) throw new Error(problem)
+}
+
+/** Throws unless the parsed JSON has the fields every reader dereferences. */
+function assertManifestShape(m: unknown, manifestPath: string): asserts m is ProjectManifest {
+  const bad = (what: string): never => {
+    throw new Error(`Project file is malformed (${what}): ${manifestPath}`)
+  }
+  if (typeof m !== 'object' || m === null || Array.isArray(m)) bad('not an object')
+  const o = m as Record<string, unknown>
+  const problem = projectNameProblem(o.name)
+  if (problem) bad(problem)
+  const r = o.baseRom as Record<string, unknown> | null | undefined
+  if (
+    typeof r !== 'object' ||
+    r === null ||
+    typeof r.sha256 !== 'string' ||
+    typeof r.size !== 'number' ||
+    typeof r.title !== 'string'
+  ) {
+    bad('baseRom missing or not {sha256, size, title}')
+  }
+}
+
 export interface CreateOptions extends Partial<HackMetadata> {
   romPath: string
   name: string
@@ -176,9 +223,7 @@ export function createProject(opts: CreateOptions): Project {
   if (!fs.existsSync(romPath)) {
     throw new Error(`No ROM at ${romPath}`)
   }
-  if (!name.trim()) {
-    throw new Error('A project needs a name')
-  }
+  assertProjectName(name)
 
   // Refuse an occupied directory rather than merging into it: adopting files
   // that are not ours, and being unable to tell later which were, is worse
@@ -187,7 +232,7 @@ export function createProject(opts: CreateOptions): Project {
     throw new Error(`Directory is not empty: ${directory}`)
   }
 
-  const baseRom = romIdentity(new Uint8Array(fs.readFileSync(romPath)))
+  const baseRom = romIdentity(readRomBounded(romPath))
 
   const manifest: ProjectManifest = {
     schemaVersion: SCHEMA_VERSION,
@@ -235,6 +280,8 @@ export function openProject(manifestPath: string): Project {
   } catch (err) {
     throw new Error(`Project file is not readable JSON: ${manifestPath}`, { cause: err })
   }
+
+  assertManifestShape(manifest, manifestPath)
 
   // Refuse a newer schema rather than guessing at fields we do not know. A
   // project written by a later version may mean something different by the
