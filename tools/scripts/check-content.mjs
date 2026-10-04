@@ -885,7 +885,7 @@ if (invokedDirectly) {
     main(process.argv.slice(2))
   } catch (err) {
     if (err instanceof GateError) {
-      for (const h of err.hits) console.log(formatHit(h))
+      for (const h of dedupeReport(err.hits)) console.log(formatHit(h))
       process.stderr.write(`check-content: ${err.message}\n`)
       process.exit(2)
     }

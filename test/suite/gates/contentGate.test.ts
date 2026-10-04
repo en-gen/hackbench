@@ -22,6 +22,7 @@ import {
   checkPath,
   DEFAULT_MAX_BLOB_BYTES,
   DEFAULT_MAX_TOTAL_BYTES,
+  effectiveLimits,
 } from '../../../tools/scripts/check-content.mjs'
 
 const repoRoot = path.resolve(__dirname, '../../..')
@@ -865,7 +866,11 @@ describe(
     }
     const small = (i: number) => `line ${i} `.repeat(50)
 
-    it('defaults are 32 MiB per blob and 128 MiB total', () => {
+    it('defaults are 32 MiB per blob and 128 MiB total, and are the effective limits', () => {
+      expect(effectiveLimits()).toEqual({
+        blob: DEFAULT_MAX_BLOB_BYTES,
+        total: DEFAULT_MAX_TOTAL_BYTES,
+      })
       expect(DEFAULT_MAX_BLOB_BYTES).toBe(32 * 1024 * 1024)
       expect(DEFAULT_MAX_TOTAL_BYTES).toBe(128 * 1024 * 1024)
     })
@@ -1021,6 +1026,38 @@ describe(
       })
       expect(res.status).toBe(2)
       expect(res.stdout.toString()).toMatch(/early\.dat2/)
+    })
+
+    it('push: a hit printed by an earlier ref and again as a path hit is shown once', () => {
+      addBareRemote('origin')
+      writeFile('game.smc', 'not a rom')
+      run('git', ['add', 'game.smc'])
+      run('git', ['commit', '-q', '-m', 'a'])
+      const a = head()
+      writeFile('src/big.txt', 'y'.repeat(600))
+      run('git', ['add', 'src'])
+      run('git', ['commit', '-q', '-m', 'b'])
+      const zero = '0'.repeat(40)
+      const input = `refs/heads/a ${a} refs/heads/a ${zero}
+refs/heads/b ${head()} refs/heads/b ${zero}
+`
+      const res = spawnSync('node', ['tools/scripts/check-content.mjs', 'push', 'origin'], {
+        cwd: dir,
+        input,
+        env: {
+          ...process.env,
+          CONTENT_GATE_MAX_BLOB_BYTES: '500',
+        },
+      })
+      const out = res.stdout.toString()
+      expect(res.status).toBe(2)
+      expect(out.match(/game\.smc/g)?.length).toBe(1)
+    })
+
+    it('push to an empty remote reads annotated tag bodies under a tiny total', () => {
+      addBareRemote('origin')
+      for (let i = 0; i < 3; i++) run('git', ['tag', '-a', `t${i}`, '-m', `tag ${i} `.repeat(150)])
+      expect(pushGate(2000)).toBe(0)
     })
 
     it('an annotated tag body over the per-blob limit is refused in history mode', () => {
