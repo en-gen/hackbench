@@ -4,6 +4,7 @@
  * dispatching through a stand-in for ExecutePtrLong, the object dispatch
  * table and a handler, all at their real addresses. No Nintendo bytes.
  */
+import { loromToOffset } from '../../../src/rom/addressing'
 import { RomFile } from '../../../src/rom/RomFile'
 import { fingerprint } from '../../../src/rom/Fingerprint'
 import {
@@ -14,7 +15,7 @@ import type { RecognizedPrimitive } from '../../../src/rom/objectHandlers/interp
 
 export const CODE = 0x0d8000
 export const DISPATCH = 0x0d9000
-export const off = (snes: number): number => ((snes >> 16) & 0x7f) * 0x8000 + (snes & 0x7fff)
+const off = (snes: number): number => loromToOffset(snes, 0x400000)!
 export const lo = (w: number): number => w & 0xff
 export const hi = (w: number): number => (w >> 8) & 0xff
 
@@ -29,15 +30,15 @@ export function cart(code: number[], extra: [number, number[]][] = [], size = 0x
 export const HANDLER = 0x0dadeb
 export const PIPES = 0x0dab3e // object $12's routine; the size's low nibble picks the variant
 export const CLOUD = 0x12
-export const VARIANT = 5 // low nibble of size $E5
+const VARIANT = 5 // low nibble of size $E5
 export const RTL = 0x6b
-export const LOADER = 0x0586ea // LevLoadNrmObj (bank_05.asm:805-808)
+const LOADER = 0x0586ea // LevLoadNrmObj (bank_05.asm:805-808)
 export const ENTRY = 0x0da40f
-export const SIG_AT = 0x0d9800
-export const BRANCH = 0x0586c5 // LDA $5A; BNE +6 (bank_05.asm:783-784)
-export const CALL_SITE = 0x0586cf // JSR LevLoadNrmObj (bank_05.asm:788)
+const SIG_AT = 0x0d9800
+const BRANCH = 0x0586c5 // LDA $5A; BNE +6 (bank_05.asm:783-784)
+const CALL_SITE = 0x0586cf // JSR LevLoadNrmObj (bank_05.asm:788)
 export const STUB = 0x0d8800 // a dispatch target that is not the handler
-export const HOP = 0x0d8900 // a routine that dispatches once more
+const HOP = 0x0d8900 // a routine that dispatches once more
 
 /** A stand-in for ExecutePtrLong: the interpreter recognizes its hash and models the effect. */
 export const STAND_IN = Array.from({ length: 36 }, (_, i) => (i * 37 + 11) & 0xff)
@@ -45,7 +46,6 @@ export const STAND_IN_PRIMITIVES: readonly RecognizedPrimitive[] = [
   {
     sha256: fingerprint(Uint8Array.from(STAND_IN))!,
     length: STAND_IN.length,
-    kind: 'inline-table-dispatch',
   },
 ]
 

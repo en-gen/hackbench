@@ -16,7 +16,10 @@ import {
 } from '../../../src/rom/ObjectExpander'
 import type { LevelObject } from '../../../src/rom/LevelParser'
 import { OWNER_NONE, makeCursor } from '../../../src/rom/objectHandlers/cursor'
-import { drawInterpreted } from '../../../src/rom/objectHandlers/interpretedDraw'
+import {
+  drawInterpreted,
+  type InterpretedSink,
+} from '../../../src/rom/objectHandlers/interpretedDraw'
 import { STANDARD_HANDLERS } from '../../../src/rom/objectHandlers/dispatch'
 import {
   CLOUD,
@@ -93,12 +96,12 @@ const TRAMP = 0x0d8f00
 const run = (
   rom: RomFile,
   size = 0,
-  opts: InterpretOptions = {},
+  opts: Partial<InterpretOptions> = {},
   env: InterpretEnv = { tileset: 0 },
   at: Placement = place(size),
 ): InterpretResult => {
   rom.writeAt(TRAMP, [0x20, lo(CODE), hi(CODE), RTL])
-  return interpret(rom, TRAMP, at, env, opts)
+  return interpret(rom, TRAMP, at, env, { primitives: VANILLA_PRIMITIVES, ...opts })
 }
 const values = (r: InterpretResult): number[] => {
   expect(r.refusal).toBeNull()
@@ -115,7 +118,15 @@ const REP = (f: number) => [0xc2, f]
 const SEP = (f: number) => [0xe2, f]
 
 /** [name, refusing code, control code, reason, refusing opts, control opts, cart size] */
-type Pair = [string, number[], number[], RegExp, InterpretOptions?, InterpretOptions?, number?]
+type Pair = [
+  string,
+  number[],
+  number[],
+  RegExp,
+  Partial<InterpretOptions>?,
+  Partial<InterpretOptions>?,
+  number?,
+]
 // prettier-ignore
 const PAIRS: Pair[] = [
   ['an opcode outside the allowed set', [0xea, RTS], [0x18, RTS], /opcode \$EA/],
@@ -193,12 +204,19 @@ describe('interpret: refusal rules, each beside a control that completes', () =>
   it('refuses execution in the $0000-$7FFF half of a ROM-backed bank', () => {
     const big = new Uint8Array(0x240000)
     big.set([0x4c, 0x00, 0x00], 0x200000) // at $40:8000: JMP $0000
-    const r = interpret(RomFile.fromBytes('big', big), 0x408000, place(), { tileset: 0 })
+    const r = interpret(
+      RomFile.fromBytes('big', big),
+      0x408000,
+      place(),
+      { tileset: 0 },
+      { primitives: VANILLA_PRIMITIVES },
+    )
     expect(r.refusal?.reason).toMatch(/left ROM at \$400000/)
   })
 
   it('treats the entry as JSL-called by default, as the loader calls it', () => {
-    const plain = (code: number[]) => interpret(cart(code), CODE, place(), { tileset: 0 })
+    const plain = (code: number[]) =>
+      interpret(cart(code), CODE, place(), { tileset: 0 }, { primitives: VANILLA_PRIMITIVES })
     expect(plain([RTS]).refusal?.reason).toMatch(/RTS returns from a JSL/)
     expect(plain([0x6b]).refusal).toBeNull()
   })
@@ -661,8 +679,53 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       expect(off.unverified[0]).toMatch(/dispatch reaches \$0D8800/)
     })
 
+    /** Notes left by drawing one object through `rom`, trusting `primitives`. */
+    const viaObject = (rom: RomFile, primitives: typeof STAND_IN_PRIMITIVES) => {
+      const unverified: string[] = []
+      expandObject(createGrid(SCREENS), obj(0x35), rom, 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: false, unverified, primitives }) // prettier-ignore
+      return unverified
+    }
+    const NOT_DISPATCH = /not the inline-table dispatch/
+
+    it('keys the dispatch cache by primitive: one ROM, either table first', () => {
+      const rom = productionCart([RTL])
+      expect(viaObject(rom, STAND_IN_PRIMITIVES)).toEqual([])
+      expect(viaObject(rom, VANILLA_PRIMITIVES)[0]).toMatch(NOT_DISPATCH)
+      const other = productionCart([RTL])
+      expect(viaObject(other, VANILLA_PRIMITIVES)[0]).toMatch(NOT_DISPATCH)
+      expect(viaObject(other, STAND_IN_PRIMITIVES)).toEqual([])
+    })
+
+    it('a cached miss stays a miss', () => {
+      const rom = productionCart([RTL])
+      expect(viaObject(rom, VANILLA_PRIMITIVES)[0]).toMatch(NOT_DISPATCH)
+      expect(viaObject(rom, VANILLA_PRIMITIVES)[0]).toMatch(NOT_DISPATCH)
+    })
+
+    it('refuses a run that reaches no dispatch, with its own reason', () => {
+      const rom = productionCart([RTL])
+      rom.writeAt(ENTRY, [RTL])
+      expect(viaObject(rom, STAND_IN_PRIMITIVES)[0]).toMatch(/reached no dispatch/)
+    })
+
+    it('verifies when any one entry of a several-entry table matches', () => {
+      const both = [...VANILLA_PRIMITIVES, ...STAND_IN_PRIMITIVES]
+      expect(viaObject(productionCart([RTL]), both)).toEqual([])
+    })
+
+    it('honors the entry length: a shorter span hashes differently and refuses', () => {
+      const short = [{ ...STAND_IN_PRIMITIVES[0], length: 20 }]
+      expect(viaObject(productionCart([RTL]), short)[0]).toMatch(NOT_DISPATCH)
+    })
+
+    it('expandMapOwned forwards the sink`s primitives to the interpreter', () => {
+      const unverified: string[] = []
+      expandMapOwned([obj(0x35)], SCREENS, productionCart([RTL]), 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, { unverified, draw: drawInterpreted, primitives: STAND_IN_PRIMITIVES }) // prettier-ignore
+      expect(unverified).toEqual([])
+    })
+
     it('ignores a widened sink: a vertical map is still refused and the loader still checked', () => {
-      const widened = (u: string[]) => ({ unverified: u, draw: drawInterpreted, vertical: false, primitives: STAND_IN_PRIMITIVES, entry: HANDLER, options: {} }) as never // prettier-ignore
+      const widened = (u: string[]) => ({ unverified: u, draw: drawInterpreted, vertical: false, primitives: STAND_IN_PRIMITIVES }) as InterpretedSink // prettier-ignore
       const v: string[] = []
       expandMapOwned([obj(0x35)], SCREENS, prodCart(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, widened(v)) // prettier-ignore
       expect(v[0]).toMatch(/vertical/)
@@ -726,6 +789,8 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
 
     it('refuses when any bit of any pinned byte differs, drawing the port and noting it', () => {
       const stock = STOCK_PINS
+      // The note must name the site that was flipped, not just mention the loader.
+      const SITE_MESSAGE = { branch: /branch to its standard-object call/, call: /loader's call at/, loader: /routine at|JSL at/ } // prettier-ignore
       const passed: string[] = []
       for (const part of ['branch', 'call', 'loader'] as const)
         for (let i = 0; i < stock[part].length; i++)
@@ -737,7 +802,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
             const rom = prodCart({ [part]: bytes })
             const r = expand(rom, 0x35)
             const drawsPort = JSON.stringify(r.grid) === JSON.stringify(port(rom, 0x35))
-            if (!/loader/.test(r.unverified[0] ?? '') || !drawsPort) passed.push(`${part}[${i}]^${bit}`) // prettier-ignore
+            if (!SITE_MESSAGE[part].test(r.unverified[0] ?? '') || !drawsPort) passed.push(`${part}[${i}]^${bit}`) // prettier-ignore
           }
       expect(passed).toEqual([])
     })

@@ -86,7 +86,8 @@ export function drawInterpreted(cur: Cursor, handler: number, ctx: InterpretedDr
     },
   )
   if (r.refusal) return note(`${r.refusal.reason} at ${hex6(r.refusal.at)}`)
-  const reached = r.dispatches[r.dispatches.length - 1] ?? 0
+  const reached = r.dispatches[r.dispatches.length - 1]
+  if (reached === undefined) return note('the run reached no dispatch')
   if (mirror(reached) !== mirror(handler))
     return note(`the ROM's dispatch reaches ${hex6(reached)}`)
   applyWrites(cur.grid, r.writes, cur.owners, cur.owner)

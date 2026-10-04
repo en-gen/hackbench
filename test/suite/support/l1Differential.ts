@@ -22,6 +22,7 @@ import {
   readLongPointerTable,
 } from '../../../src/rom/objectHandlers/romData'
 import {
+  VANILLA_PRIMITIVES,
   interpret,
   horizontalPlacement,
   applyWrites,
@@ -124,6 +125,7 @@ export function sweep(rom: RomFile): DiffRun[] {
           kind === 'standard' ? ENTRY_STANDARD : ENTRY_EXTENDED,
           horizontalPlacement(kind, obj, size, x, y),
           { tileset: ts },
+          { primitives: VANILLA_PRIMITIVES },
         )
       // Compare at the first row that fits, else the first that completes, else rows[0].
       const first: [number, InterpretResult] = [rows[0], at(rows[0])]
