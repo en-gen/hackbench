@@ -45,10 +45,9 @@ export class ControllerSession {
   readonly hub: ControllerHub
   private readonly keyboard: HeldButtons
   private osCountry: string | undefined
-  private touched = false
   private loaded = false
-  /** A tab picked before the stored settings arrived; it wins over the stored one. */
-  private pendingTab: number | undefined
+  /** Changes made before the stored settings arrived, replayed over them at load. */
+  private pending: Array<(s: ControllerSettings) => ControllerSettings> = []
   private wasLive = false
   private frame: number | undefined
   private unlisten: Array<() => void> = []
@@ -105,18 +104,19 @@ export class ControllerSession {
     this.hub.releaseAll()
   }
 
-  /** Stored settings; ignored if the user already changed something this session. */
+  /**
+   * The stored settings. Changes made before this arrived are replayed over
+   * them and saved once, so an early click neither loses nor overwrites what
+   * was stored. Only the first call counts, and a failed read still calls it.
+   */
   load(raw: unknown): void {
-    if (this.touched) return
-    const first = !this.loaded
+    if (this.loaded) return
     this.loaded = true
     // A key held while the stored assignment moves the keyboard would stick on its old port.
     this.releaseAll()
-    this.settings = parseControllerSettings(raw)
-    if (first && this.pendingTab !== undefined) {
-      this.settings = { ...this.settings, selectedPlayer: this.pendingTab }
-      this.deps.save(this.settings)
-    }
+    this.settings = this.pending.reduce((s, edit) => edit(s), parseControllerSettings(raw))
+    if (this.pending.length > 0) this.deps.save(this.settings)
+    this.pending = []
     this.onChange?.()
   }
 
@@ -146,23 +146,16 @@ export class ControllerSession {
   setKeyboard(player: number, on: boolean): void {
     // Released first, so a held key lets go on the port it was pressed on.
     this.keyboard.releaseAll()
-    this.change({ players: assignKeyboard(this.settings.players, player, on) })
+    this.change(s => ({ ...s, players: assignKeyboard(s.players, player, on) }))
   }
 
   setPad(player: number, pad: number | undefined): void {
-    this.change({ players: assignPad(this.settings.players, player, pad) })
+    this.change(s => ({ ...s, players: assignPad(s.players, player, pad) }))
   }
 
   selectPlayer(player: number): void {
     const selectedPlayer = player === 1 ? 1 : 0
-    if (!this.loaded) {
-      // Saving now would write the defaults over what is still being read.
-      this.pendingTab = selectedPlayer
-      this.settings = { ...this.settings, selectedPlayer }
-      this.onChange?.()
-      return
-    }
-    this.change({ selectedPlayer })
+    this.change(s => ({ ...s, selectedPlayer }))
   }
 
   /** The player is sending something now, for the tab's activity dot. */
@@ -171,13 +164,14 @@ export class ControllerSession {
   }
 
   setStyle(style: ControllerStyle): void {
-    this.change({ style })
+    this.change(s => ({ ...s, style }))
   }
 
-  private change(next: Partial<ControllerSettings>): void {
-    this.touched = true
-    this.settings = { ...this.settings, ...next }
-    this.deps.save(this.settings)
+  /** Apply an edit now; before the stored settings load, also queue it and save nothing yet. */
+  private change(edit: (s: ControllerSettings) => ControllerSettings): void {
+    this.settings = edit(this.settings)
+    if (this.loaded) this.deps.save(this.settings)
+    else this.pending.push(edit)
     this.onChange?.()
   }
 }

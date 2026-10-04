@@ -108,15 +108,29 @@ export function GamepadPanel(props: GamepadPanelProps): React.ReactElement {
             className={`hb-pad-tab${settings.selectedPlayer === i ? ' hb-pad-tab-on' : ''}`}
             onClick={() => props.onSelect(i)}
             onKeyDown={e => {
-              if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+              const last = settings.players.length - 1
+              const to =
+                e.key === 'Home'
+                  ? 0
+                  : e.key === 'End'
+                    ? last
+                    : e.key === 'ArrowRight'
+                      ? (i + 1) % (last + 1)
+                      : e.key === 'ArrowLeft'
+                        ? (i + last) % (last + 1)
+                        : undefined
+              if (to === undefined) return
               e.preventDefault()
-              props.onSelect(1 - i)
-              document.getElementById(`hb-pad-tab-${1 - i}`)?.focus()
+              props.onSelect(to)
+              document.getElementById(`hb-pad-tab-${to}`)?.focus()
             }}
           >
             Player {i + 1}
             {props.active(i) && (
-              <span className="hb-pad-dot" data-active="true" aria-label="active" />
+              <>
+                <span className="hb-pad-dot" aria-hidden="true" />
+                <span className="hb-pad-sr"> (active)</span>
+              </>
             )}
           </button>
         ))}

@@ -222,13 +222,11 @@ describe('ControllerSession', () => {
     ])
   })
 
-  it('persists a change, and a late load does not overwrite it', () => {
+  it('persists a change after loading', () => {
     const { session, saved } = make()
+    session.load(undefined)
     session.setPad(1, undefined)
     expect(saved).toHaveLength(1)
-    session.load({ players: [{ keyboard: true, pad: 3 }, { keyboard: false }], style: 'pal' })
-    expect(session.settings.players[1].pad).toBeUndefined()
-    expect(session.settings.style).toBe('auto')
   })
 
   it('loads stored settings when nothing was changed first', () => {
@@ -303,6 +301,53 @@ describe('ControllerSession', () => {
     expect(session.settings.players[0].pad).toBe(2)
     expect(saved).toHaveLength(1)
     expect((saved[0] as { style: string }).style).toBe('pal')
+  })
+
+  it('device and style changes before load are replayed over the stored settings, saved once', () => {
+    const { session, saved } = make()
+    const stored = {
+      players: [
+        { keyboard: false, pad: 2 },
+        { keyboard: true, pad: 0 },
+      ],
+      style: 'pal',
+      selectedPlayer: 0,
+    }
+    session.setPad(1, undefined)
+    expect(saved, 'defaults saved over unread settings').toEqual([])
+    session.load(stored)
+    expect(saved).toHaveLength(1)
+    session.selectPlayer(1)
+    expect(saved).toHaveLength(2)
+    for (const s of [session.settings, saved.at(-1) as typeof session.settings]) {
+      expect(s.style).toBe('pal')
+      expect(s.players[0].pad).toBe(2)
+      expect(s.players[1].pad).toBeUndefined()
+      expect(s.selectedPlayer).toBe(1)
+    }
+  })
+
+  it('a failed read (load with undefined) still ends the loading state', () => {
+    const { session, saved } = make()
+    session.selectPlayer(1)
+    session.load(undefined)
+    session.selectPlayer(0)
+    expect(saved).toHaveLength(2)
+  })
+
+  it('switching tabs sends nothing to the core and changes no assignment', () => {
+    const { session, env, sent, frame } = make()
+    session.load(undefined)
+    env.pads = [pad([0]), null]
+    frame()
+    session.key('KeyZ', true)
+    const before = JSON.stringify(session.settings.players)
+    sent.length = 0
+    session.selectPlayer(1)
+    session.selectPlayer(0)
+    frame()
+    expect(sent).toEqual([])
+    expect(JSON.stringify(session.settings.players)).toBe(before)
   })
 
   it('a tab picked after loading saves normally', () => {
