@@ -121,7 +121,8 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
     const row = this.row(label, field, '')
     field.readOnly = true
     const button = document.createElement('button')
-    button.className = 'theia-button secondary'
+    // Same markup as the New Project dialog: field and button on one line.
+    button.className = 'theia-button secondary hb-dialog-browse'
     button.textContent = 'Browse...'
     // A rejected RPC (unreadable file, backend gone) shows inline rather than
     // vanishing as an unhandled rejection.
@@ -129,7 +130,10 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
       void browse().catch(err => {
         this.pathError.textContent = (err as Error).message
       })
-    row.appendChild(button)
+    const line = document.createElement('div')
+    line.className = 'hb-dialog-inputline'
+    field.replaceWith(line)
+    line.append(field, button)
     return row
   }
 
