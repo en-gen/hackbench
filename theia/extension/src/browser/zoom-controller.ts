@@ -23,14 +23,15 @@ export interface Disposable {
 
 export interface WheelBinding extends Disposable {
   /**
-   * Applies the anchor from the last wheel-driven step, once the widget has
-   * resized its canvas for the new zoom. Re-reads the canvas's CURRENT box
+   * Applies the pending anchor (from the last wheel step, or from a button
+   * when the controller is `centreAnchored`), once the widget has resized
+   * its canvas for the new zoom. Re-reads the canvas's CURRENT box
    * rather than trusting anything measured at wheel time, so it corrects
    * for the canvas having moved for ANY reason since - a scroll clamp, or a
    * sibling reflowing (Map16's browser column widens with the canvas and
    * its note text re-wraps, #651) - not only the zoom step itself. A no-op
    * with nothing pending, or if the zoom has moved since the step (another
-   * wheel binding, a button) - the pending anchor is for a zoom level that
+   * wheel binding, a button without `centreAnchored`) - the pending anchor is for a zoom level that
    * is no longer current.
    */
   restoreAnchor(): void
@@ -43,6 +44,10 @@ interface PendingAnchor {
   readonly clientX: number
   readonly clientY: number
   readonly zoom: number
+  /** Whose point it is: the cursor's (wheel) or the view centre's (button). */
+  readonly origin: 'wheel' | 'centre'
+  /** The zoom the canvas is still laid out at; it keeps that until the commit. */
+  readonly from: number
 }
 
 export class ZoomController implements Disposable {
@@ -51,9 +56,10 @@ export class ZoomController implements Disposable {
   private zoom: number
   private fit = false
   /**
-   * Maps only (#526): every button-driven zoom keeps the view centre fixed.
-   * Off, buttons leave the scroll position alone, as GFX and Map16 do. Needs
-   * a wheel binding, whose `restoreAnchor` the host calls after its commit.
+   * Maps only (#526): the + / - and Fit buttons keep the view centre fixed.
+   * Off, they leave the scroll position alone, as GFX and Map16 do. Actual
+   * size anchors on the centre either way. Needs a wheel binding, whose
+   * `restoreAnchor` the host calls after its commit.
    */
   centreAnchored = false
   /** Set by `bindWheel`: keeps the view centre fixed across a jump to `target`. */
@@ -209,14 +215,19 @@ export class ZoomController implements Disposable {
       // notch's content point (recomputing it from CURRENT geometry here
       // would read a canvas that has not resized for the earlier steps in
       // this burst yet) but always the LATEST notch's cursor position.
-      let contentX = pending?.contentX
-      let contentY = pending?.contentY
+      // A button's pending anchor holds the CENTRE's point, never the
+      // cursor's: that one is re-read from the canvas, which is still laid
+      // out at the zoom the button started from (`from`).
+      const burst = pending?.origin === 'wheel' ? pending : undefined
+      const from = pending?.from ?? zoomBefore
+      let contentX = burst?.contentX
+      let contentY = burst?.contentY
       if (contentX === undefined) {
         const canvas = canvasOf()
         if (canvas) {
           const rect = canvas.getBoundingClientRect()
-          contentX = (e.clientX - rect.left) / zoomBefore
-          contentY = (e.clientY - rect.top) / zoomBefore
+          contentX = (e.clientX - rect.left) / from
+          contentY = (e.clientY - rect.top) / from
         }
       }
 
@@ -233,6 +244,8 @@ export class ZoomController implements Disposable {
               clientX: e.clientX,
               clientY: e.clientY,
               zoom: this.value,
+              origin: 'wheel',
+              from,
             }
     }
     node.addEventListener('wheel', listener, { passive: false })
@@ -257,12 +270,16 @@ export class ZoomController implements Disposable {
       const box = node.getBoundingClientRect()
       const clientX = box.left + node.clientWidth / 2
       const clientY = box.top + node.clientHeight / 2
+      // Two presses before one commit: the canvas is still at the FIRST one's zoom.
+      const from = pending?.from ?? this.value
       pending = {
-        contentX: (clientX - rect.left) / this.value,
-        contentY: (clientY - rect.top) / this.value,
+        contentX: (clientX - rect.left) / from,
+        contentY: (clientY - rect.top) / from,
         clientX,
         clientY,
         zoom: target,
+        origin: 'centre',
+        from,
       }
     }
 

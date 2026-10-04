@@ -106,6 +106,8 @@ Rules learned the hard way:
   the host enables them (Maps). It is the near-universal convention and
   reads wrong any other way. The value is a percent (`100%`) in every
   editor, and Fit shows the pressed state while it is on.
+  In Maps, Fit, Actual size, + and - keep the view centre fixed; Ctrl +
+  wheel keeps the point under the cursor fixed.
 
 ## Toggle buttons
 

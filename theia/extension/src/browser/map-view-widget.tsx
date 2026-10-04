@@ -97,6 +97,8 @@ export class MapViewWidget extends ReactWidget {
   /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
   protected readonly zoomController = new ZoomController(ZOOMS, 1, () => this.measureFit())
   protected wheelBinding: WheelBinding | undefined
+  /** The zoom the last `render()` laid the strip out at. */
+  protected renderedZoom = 0
   protected readonly screens = new Map<string, ScreenImages>()
   protected readonly pending = new Set<string>()
   /** Keyed `<plane>:<screen>`. */
@@ -298,7 +300,9 @@ export class MapViewWidget extends ReactWidget {
    * replies, where restoring early would consume the anchor too soon.
    */
   protected readonly afterCommit = (): void => {
-    this.wheelBinding?.restoreAnchor()
+    // Only a commit that shows the CURRENT zoom: an older one still has the
+    // old layout, and restoring on it would consume the anchor early.
+    if (this.renderedZoom === this.zoomController.value) this.wheelBinding?.restoreAnchor()
     this.sync()
   }
 
@@ -407,6 +411,7 @@ export class MapViewWidget extends ReactWidget {
   }
 
   protected render(): React.ReactNode {
+    this.renderedZoom = this.zoomController.value
     return (
       <div className="hb-map-view-main">
         <div className="hb-map-view-toolbar">

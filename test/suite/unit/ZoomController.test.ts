@@ -648,6 +648,44 @@ describe('ZoomController - fit mode', () => {
       }
     })
 
+    it('a button press then a wheel before the commit anchors the CURSOR point (and is not the centre point)', () => {
+      const c = new ZoomController(MAPS, 2)
+      c.centreAnchored = true
+      const { node, binding } = scroller(c)
+      // Cursor off-centre: content point under client x=50 at 2x, scrollLeft 100.
+      const clientX = 50
+      const content = (clientX - (10 - node.scrollLeft)) / 2
+      c.step(1) // 3x, centre anchor armed, canvas not yet re-laid out
+      node.dispatch(wheelEvent(120, { clientX, clientY: 60 })) // out to 2x
+      expect(c.value).toBe(2)
+      node.scrollLeft = 0 // the commit clamps the scroll
+      binding.restoreAnchor()
+      // The cursor's content point is back under the cursor at the new zoom.
+      expect((clientX - (10 - node.scrollLeft)) / 2).toBeCloseTo(content, 6)
+    })
+
+    it('Fit pressed at the fitted value arms no anchor', () => {
+      const c = new ZoomController(MAPS, 1, () => 1.5)
+      c.centreAnchored = true
+      c.enterFit()
+      const { node, binding } = scroller(c)
+      c.enterFit({ anchored: true })
+      node.scrollLeft = 250
+      binding.restoreAnchor()
+      expect(node.scrollLeft).toBe(250)
+    })
+
+    it('a centre anchor never overrides the wheel content point with the centre one', () => {
+      const c = new ZoomController(MAPS, 1)
+      c.centreAnchored = true
+      const { node, binding } = scroller(c)
+      node.dispatch(wheelEvent(-120, { clientX: 40, clientY: 30 })) // 1x -> 2x at an off-centre cursor
+      const content = (40 - (10 - 100)) / 1
+      node.scrollLeft = 0
+      binding.restoreAnchor()
+      expect((40 - (10 - node.scrollLeft)) / 2).toBeCloseTo(content, 6)
+    })
+
     it('a refit on resize is not anchored', () => {
       const h = { fit: 1.5 }
       const c = new ZoomController(MAPS, 1, () => h.fit)
