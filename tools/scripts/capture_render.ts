@@ -39,8 +39,17 @@ type Regs = Record<(typeof REGS)[number], number>
 // The only tile-id rule and vertical in-screen layout map16Id/map16Index implement.
 export const TILE_ID_RULE = '(high & 1) * 256 + low'
 export const VERTICAL_RULE = '(col//16)*$100 + (row%16)*$10 + col%16'
+/** Charges one entry's declared size to a capture's budget, before it is read; `fail` throws. */
+const budget = (fail: (why: string) => never) => {
+  let total = 0
+  return (name: string, size: number) => {
+    if (size > MAX_ENTRY) fail(`${name} states ${size} bytes, over the ${MAX_ENTRY} this reads`)
+    total += size
+    if (total > MAX_TOTAL) fail(`${name} brings the entries read to ${total} bytes, over the ${MAX_TOTAL} a capture may expand to`) // prettier-ignore
+  }
+}
 const PIPE_RANGE = /Map16Pointers\[\$([0-9a-f]+)\.\.\$([0-9a-f]+)\]/i
-/** The largest zip entry read, far above any capture file (the largest is a 64 KiB VRAM dump or a layer PNG). */
+/** The largest entry read: ~160x the largest real one (sprite_spawns.json, ~410 KB, over 161 captures at layers_v5). */
 const MAX_ENTRY = 64 << 20
 /** All entries a capture may expand to together; a map's seven required files are well under 1 MiB. */
 const MAX_TOTAL = 128 << 20
@@ -1103,7 +1112,7 @@ export function unzip(zip: Buffer): Map<string, () => Buffer> {
   while (end >= 0 && zip.readUInt32LE(end) !== 0x06054b50) end--
   if (end < 0) fail('no end of central directory')
   const out = new Map<string, () => Buffer>()
-  let total = 0
+  const charge = budget(fail)
   let o = zip.readUInt32LE(end + 16)
   for (let k = zip.readUInt16LE(end + 10); k > 0; k--) {
     if (o + 46 > zip.length || zip.readUInt32LE(o) !== 0x02014b50) fail('bad central directory')
@@ -1116,9 +1125,7 @@ export function unzip(zip: Buffer): Map<string, () => Buffer> {
     out.set(name, () => (cached ??= read()))
     const read = () => {
       if (method !== 0 && method !== 8) fail(`${name} uses compression method ${method}`)
-      if (size > MAX_ENTRY) fail(`${name} states ${size} bytes, over the ${MAX_ENTRY} this reads`)
-      total += size
-      if (total > MAX_TOTAL) fail(`${name} brings the entries read to ${total} bytes, over the ${MAX_TOTAL} a capture may expand to`) // prettier-ignore
+      charge(name, size)
       if (local + 30 > zip.length || zip.readUInt32LE(local) !== 0x04034b50) fail(`${name} has no local header`) // prettier-ignore
       const at = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28)
       let data = zip.subarray(at, at + packed)
@@ -1140,7 +1147,18 @@ export function openMap(path: string, name: string): { read: Reader; windows: st
   let read: Reader
   let files: string[]
   if (statSync(path).isDirectory()) {
-    read = n => (existsSync(join(path, n)) ? readFileSync(join(path, n)) : null)
+    const charge = budget(why => {
+      throw new CaptureFileError(`a capture folder: ${why}`)
+    })
+    const seen = new Map<string, Buffer | null>()
+    read = n => {
+      if (!seen.has(n)) {
+        const f = join(path, n)
+        if (existsSync(f)) charge(n, statSync(f).size)
+        seen.set(n, existsSync(f) ? readFileSync(f) : null)
+      }
+      return seen.get(n) ?? null
+    }
     const w = join(path, 'windows')
     files = existsSync(w) ? readdirSync(w).filter(n => statSync(join(w, n)).isDirectory()).map(n => `windows/${n}/`) : [] // prettier-ignore
   } else {
