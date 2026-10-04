@@ -307,7 +307,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     expect(dy(0x03, 3)).toBe(0x20 - 0xc0) // F600 bit 5 clear: no high bytes, though the map is vertical
     expect(dy(0x23, 3, false)).toBe(0x320 - 0xc0)
     expect(dy(0x23, 1, false)).toBe(0x320 - 0x3c0) // L2's high byte follows F600 too
-    expect(dy(0x03, 1)).toBe(0x20 - 0xc0) // and is absent when bit 5 is clear, gate or no gate // bit 5 set: both, though the map is horizontal
+    expect(dy(0x03, 1)).toBe(0x20 - 0xc0) // and is absent when bit 5 is clear, gate or no gate
   })
 
   it('tileset 3 ORs palette bit 2 into every L2 object subtile, and no image tile', () => {
