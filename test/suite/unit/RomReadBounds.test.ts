@@ -6,6 +6,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import { execFileSync, spawnSync } from 'child_process'
+import { buildSync } from 'esbuild'
 import {
   readRomBounded,
   readManifestBounded,
@@ -71,6 +73,12 @@ describe('readRomBounded', () => {
   it('limit is 8 MiB plus the 512-byte header, and a file exactly there is read', () => {
     expect(MAX_ROM_FILE_BYTES).toBe(8 * 1024 * 1024 + 512)
     expect(readRomBounded(sparseFile(8 * 1024 * 1024 + 512)).length).toBe(8 * 1024 * 1024 + 512)
+  })
+  it('manifest cap is 1 MiB: a 2 MiB manifest is refused', () => {
+    expect(MAX_MANIFEST_BYTES).toBe(1024 * 1024)
+    const p = path.join(tmp, 'm2.hbproj')
+    fs.writeFileSync(p, Buffer.alloc(2 * 1024 * 1024))
+    expect(() => readManifestBounded(p)).toThrow(/too large/)
   })
   it('manifest reads are capped far lower', () => {
     const p = path.join(tmp, 'm.hbproj')
@@ -315,5 +323,69 @@ describe('exportPatch guards', () => {
     fs.symlinkSync(tmp, path.join(project, 'export', 'x.ips'), 'junction')
     expect(() => exportPatch(project, 'x', working(), 'ips')).toThrow(/link/)
     expect(fs.readFileSync(victim, 'utf8')).toBe('keep')
+  })
+})
+
+// The reader is bundled and run in a child because a FIFO open without
+// O_NONBLOCK blocks the whole thread: an in-process test could not time out.
+function readInChild(target: string): { status: number | null; stderr: string } {
+  const out = path.join(tmp, 'br.cjs')
+  buildSync({
+    entryPoints: [path.resolve(__dirname, '../../../src/project/BoundedRead.ts')],
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    outfile: out,
+    logLevel: 'silent',
+  })
+  const script = `try { require(${JSON.stringify(out)}).readRomBounded(${JSON.stringify(target)}) } catch (e) { console.error(e.message); process.exit(3) }`
+  const r = spawnSync(process.execPath, ['-e', script], { timeout: 5000, encoding: 'utf8' })
+  return { status: r.status, stderr: r.stderr }
+}
+
+describe('reader in a child process', () => {
+  it('refuses a directory (proves the harness)', () => {
+    const r = readInChild(tmp)
+    expect(r.status).toBe(3)
+    expect(r.stderr).toMatch(NOT_FILE)
+  })
+  describe.skipIf(process.platform === 'win32')('POSIX only', () => {
+    it('refuses a FIFO without hanging', () => {
+      const fifo = path.join(tmp, 'pipe')
+      execFileSync('mkfifo', [fifo])
+      const r = readInChild(fifo)
+      expect(r.status).toBe(3)
+      expect(r.stderr).toMatch(NOT_FILE)
+    })
+    it('export refuses a file symlink at the target', () => {
+      const project = path.join(tmp, 'proj3')
+      fs.mkdirSync(path.join(project, 'export'), { recursive: true })
+      const victim = path.join(tmp, 'victim3.txt')
+      fs.writeFileSync(victim, 'keep')
+      fs.symlinkSync(victim, path.join(project, 'export', 'x.ips'), 'file')
+      expect(() =>
+        exportPatch(project, 'x', new WorkingRom(new Uint8Array(0x80000), false), 'ips'),
+      ).toThrow(/link/)
+      expect(fs.readFileSync(victim, 'utf8')).toBe('keep')
+    })
+  })
+})
+
+describe('export over a hard link', () => {
+  it('replaces the link and leaves the file it pointed at unchanged', () => {
+    const project = path.join(tmp, 'proj4')
+    fs.mkdirSync(path.join(project, 'export'), { recursive: true })
+    const victim = path.join(tmp, 'victim4.txt')
+    fs.writeFileSync(victim, 'keep')
+    fs.linkSync(victim, path.join(project, 'export', 'x.ips'))
+    exportPatch(project, 'x', new WorkingRom(new Uint8Array(0x80000), false), 'ips')
+    expect(fs.readFileSync(victim, 'utf8')).toBe('keep')
+    expect(
+      fs
+        .readFileSync(path.join(project, 'export', 'x.ips'))
+        .subarray(0, 5)
+        .toString(),
+    ).toBe('PATCH')
+    expect(fs.readdirSync(path.join(project, 'export'))).toEqual(['x.ips'])
   })
 })

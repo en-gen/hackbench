@@ -65,7 +65,15 @@ export function exportPatch(
   const patches = diffPatches(source, target)
   const bytes = format === 'ips' ? encodeIps(patches) : encodeBps(source, target)
 
-  fs.writeFileSync(filePath, bytes)
+  // Temp file then rename: rename replaces a hard link at the target instead
+  // of writing through it to the file it points at.
+  const tmpPath = `${filePath}.tmp-${process.pid}`
+  try {
+    fs.writeFileSync(tmpPath, bytes, { flag: 'wx' })
+    fs.renameSync(tmpPath, filePath)
+  } finally {
+    fs.rmSync(tmpPath, { force: true })
+  }
   return {
     path: filePath,
     hasCopierHeader: working.hasCopierHeader,
