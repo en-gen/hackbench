@@ -120,12 +120,15 @@ export class WorkingRomRegistry {
     return this.registry.register(romPath)
   }
 
-  /** Where this machine says the cart with this hash is, re-verified; null if unknown. */
-  registeredPath(sha256: string): string | null {
-    return this.registry.resolve(sha256)
+  /**
+   * Where this machine keeps the project's base ROM, re-verified, or null.
+   * Only for the Local workstation display; views read `get()`, never a path.
+   */
+  workstationRomPath(manifestPath: string): string | null {
+    return this.registry.resolve(openProject(manifestPath).baseRom.sha256)
   }
 
-  /** Whether the cart at `romPath` is this project's base ROM. Registers nothing. */
+  /** Whether the ROM at `romPath` is this project's base ROM. Registers nothing. */
   checkRom(manifestPath: string, romPath: string): RomCheck {
     const expected = openProject(manifestPath).baseRom.sha256
     const picked = romIdentity(readRomBounded(romPath)).sha256
@@ -133,16 +136,34 @@ export class WorkingRomRegistry {
   }
 
   /**
-   * Point this machine at another copy of the project's own cart (#527). A
-   * different cart is refused: retargeting a project is out of scope. The
-   * cached working copy keeps its layers and only learns the new path.
+   * Point this machine at another copy of the project's own ROM (#527). A
+   * different ROM is refused: retargeting a project is out of scope.
+   *
+   * `register` hashes the file again, so its identity is compared too: a file
+   * swapped after `checkRom` must not be accepted on the strength of the
+   * earlier read. Every cached project on this ROM learns the new path; one
+   * whose copier-header state changed is dropped, so the next `get` rebuilds
+   * it (Export Patch depends on that state). Callers push a refresh after.
    */
   relocate(manifestPath: string, romPath: string): RomCheck {
     const check = this.checkRom(manifestPath, romPath)
     if (check.status !== 'ok') return check
-    this.registry.register(romPath)
-    const cached = this.cache.get(manifestPath)
-    if (cached) cached.romPath = path.resolve(romPath)
+    const expected = openProject(manifestPath).baseRom.sha256
+    const registered = this.registry.register(romPath)
+    if (registered.sha256 !== expected) {
+      return { status: 'mismatch', picked: registered.sha256, expected }
+    }
+    const absolute = path.resolve(romPath)
+    const headered = RomFile.fromBytes(absolute, Buffer.from(readRomBounded(absolute))).hasHeader
+    for (const [manifest, entry] of [...this.cache]) {
+      if (entry.project.baseRom.sha256 !== expected) continue
+      if (entry.working.hasCopierHeader !== headered) {
+        this.cache.delete(manifest)
+        this.stamps.delete(manifest)
+      } else {
+        entry.romPath = absolute
+      }
+    }
     return check
   }
 

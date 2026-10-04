@@ -363,7 +363,7 @@ export interface ProjectService {
   /** Hash a candidate ROM against the project's base ROM. Registers nothing. */
   checkRom(manifestPath: string, romPath: string): Promise<RomCheckDto>
 
-  /** Re-check, then register the ROM's new path. A different cart is refused. */
+  /** Re-check, then register the ROM's new path. A different ROM is refused. */
   relocateRom(manifestPath: string, romPath: string): Promise<RomCheckDto>
 
   /**

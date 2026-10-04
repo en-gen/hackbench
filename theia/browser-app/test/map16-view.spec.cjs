@@ -2626,3 +2626,35 @@ test('plain wheel still scrolls the Map16 strip and does not touch zoom', async 
   expect(scrollAfter).toBeGreaterThan(scrollBefore)
   expect(await page.locator(ctl('zoom-indicator')).textContent()).toBe(`${DEFAULT_ZOOM}x`)
 })
+
+test('a Map16 view waiting on a missing ROM repaints after Project Properties relocates it (#527)', async ({
+  page,
+}) => {
+  // The project's only registered copy is deleted before anything reads it,
+  // so the view opens in rom-not-located; Save on the dialog must revive it.
+  const gone = path.join(tmp, 'gone.sfc')
+  fs.copyFileSync(ROM, gone)
+  const project = await loadGfxExplorer(page, path.join(tmp, 'Revive'), gone)
+  fs.rmSync(gone)
+  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(ROW_OF.fg).dblclick()
+  await expect(page.locator(`${FG} .hb-map16-empty`)).toContainText('Locate')
+
+  const moved = path.join(tmp, 'moved.sfc')
+  fs.copyFileSync(ROM, moved)
+  await page.evaluate(
+    async ({ p, moved }) => {
+      getSvc('ProjectContext').current = p
+      const dlg = getSvc('ProjectPropertiesDialog')
+      dlg.fileDialog.showOpenDialog = async () => ({ path: { fsPath: () => moved } })
+      void getSvc('CommandRegistry').executeCommand('hackbench.project.properties')
+    },
+    { p: project, moved },
+  )
+  await page.waitForSelector('.hb-dialog-facts', { timeout: 15000 })
+  await page.locator('.dialogBlock button:has-text("Browse...")').first().click()
+  await expect
+    .poll(() => page.locator('.dialogBlock input[readonly]').first().inputValue())
+    .toBe(moved)
+  await page.locator('.dialogBlock .theia-button.main').click()
+  await page.waitForSelector(`${FG} .hb-map16-preview-canvas`, { timeout: 15000 })
+})

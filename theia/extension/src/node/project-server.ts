@@ -141,9 +141,8 @@ export class ProjectServiceImpl implements ProjectService {
   }
 
   async workstationPaths(manifestPath: string): Promise<WorkstationPathsDto> {
-    const sha256 = openProject(manifestPath).baseRom.sha256
     return {
-      romPath: this.workingRoms.registeredPath(sha256),
+      romPath: this.workingRoms.workstationRomPath(manifestPath),
       corePath: new CoreRegistry().current()?.jsPath ?? null,
     }
   }

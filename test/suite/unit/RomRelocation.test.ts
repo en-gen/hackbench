@@ -3,9 +3,9 @@
  *
  * The dialog browses first and persists only on OK, so the backend has two
  * halves: `checkRom` (read-only) and `relocate` (check, then register). The
- * assertion that matters is that a different cartridge is refused and leaves
+ * assertion that matters is that a different ROMridge is refused and leaves
  * the registry untouched; retargeting a project is out of scope.
- * Synthetic carts only: CI has no ROM.
+ * Synthetic ROMs only: CI has no ROM.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
@@ -47,21 +47,20 @@ function project(romPath: string): string {
 }
 
 describe('WorkingRomRegistry relocation', () => {
-  it('reports the registered path, or null for an unknown hash', () => {
+  it('reports the project ROM path from the registry, or null when not located', () => {
     const rom = put('a.sfc', fakeRom(31))
     const manifest = project(rom)
-    const sha = JSON.parse(fs.readFileSync(manifest, 'utf8')).baseRom.sha256
-    expect(working.registeredPath(sha)).toBe(rom)
-    expect(working.registeredPath('0'.repeat(64))).toBeNull()
+    expect(working.workstationRomPath(manifest)).toBe(rom)
+    registry.forget(JSON.parse(fs.readFileSync(manifest, 'utf8')).baseRom.sha256)
+    expect(working.workstationRomPath(manifest)).toBeNull()
   })
 
-  it('checkRom accepts the same cart at another path without registering it', () => {
+  it('checkRom accepts the same ROM at another path without registering it', () => {
     const rom = put('a.sfc', fakeRom(31))
     const manifest = project(rom)
     const copy = put('copy.sfc', fakeRom(31))
     expect(working.checkRom(manifest, copy)).toEqual({ status: 'ok' })
-    const sha = JSON.parse(fs.readFileSync(manifest, 'utf8')).baseRom.sha256
-    expect(working.registeredPath(sha)).toBe(rom)
+    expect(working.workstationRomPath(manifest)).toBe(rom)
   })
 
   it('relocate registers the new path and the working copy follows it', () => {
@@ -73,7 +72,7 @@ describe('WorkingRomRegistry relocation', () => {
     expect(working.get(manifest)).toMatchObject({ status: 'ok', romPath: copy })
   })
 
-  it('refuses a different cart naming both hashes, and registers nothing', () => {
+  it('refuses a different ROM naming both hashes, and registers nothing', () => {
     const rom = put('a.sfc', fakeRom(31))
     const manifest = project(rom)
     const other = put('other.sfc', fakeRom(33))
@@ -84,5 +83,51 @@ describe('WorkingRomRegistry relocation', () => {
     expect(r.picked).not.toBe(r.expected)
     expect(r.picked).toHaveLength(64)
     expect(registry.list().map(e => e.path)).toEqual([rom])
+  })
+
+  it('a headered copy of the same ROM rebuilds the cached working copy', () => {
+    const bare = fakeRom(31)
+    const manifest = project(put('a.sfc', bare))
+    expect(working.get(manifest)).toMatchObject({ status: 'ok' })
+    const headered = new Uint8Array(bare.length + 512)
+    headered.set(bare, 512)
+    const copy = put('headered.smc', headered)
+    expect(working.relocate(manifest, copy)).toEqual({ status: 'ok' })
+    const r = working.get(manifest)
+    if (r.status !== 'ok') throw new Error(r.status)
+    expect(r.working.hasCopierHeader).toBe(true)
+    expect(r.romPath).toBe(copy)
+  })
+
+  it('every cached project on the same ROM learns the new path', () => {
+    const rom = put('a.sfc', fakeRom(31))
+    const first = project(rom)
+    const second = createProject({
+      romPath: rom,
+      name: 'Q',
+      directory: path.join(tmp, 'proj2'),
+    }).manifestPath
+    working.get(first)
+    working.get(second)
+    const copy = put('copy.sfc', fakeRom(31))
+    working.relocate(first, copy)
+    expect(working.get(second)).toMatchObject({ status: 'ok', romPath: copy })
+  })
+
+  it('refuses when the file changes between the check and the registration', () => {
+    const rom = put('a.sfc', fakeRom(31))
+    const manifest = project(rom)
+    const swapped = put('swap.sfc', fakeRom(31))
+    // A registry whose register() sees a different ROM than checkRom hashed.
+    class Racy extends RomRegistry {
+      override register(romPath: string) {
+        fs.writeFileSync(romPath, fakeRom(33))
+        return super.register(romPath)
+      }
+    }
+    const racy = new WorkingRomRegistry(new Racy(path.join(tmp, 'rom-registry.json')))
+    const r = racy.relocate(manifest, swapped)
+    expect(r.status).toBe('mismatch')
+    expect(racy.workstationRomPath(manifest)).toBe(rom)
   })
 })

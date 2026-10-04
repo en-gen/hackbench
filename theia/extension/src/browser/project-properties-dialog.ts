@@ -7,7 +7,7 @@
  * exists, and change repeatedly after that.
  *
  * The base ROM and the creation date are shown but not editable: they are
- * facts about the project rather than opinions, and changing the cartridge
+ * facts about the project rather than opinions, and changing the ROM
  * would leave the patch layers pointed at a different game.
  */
 import { inject, injectable } from '@theia/core/shared/inversify'
@@ -16,8 +16,15 @@ import { FileDialogService } from '@theia/filesystem/lib/browser'
 import { EmulatorService } from '../common/emulator-protocol'
 import { HackMetadataDto, ProjectDto, ProjectService } from '../common/project-protocol'
 
-const ROM_FILTER = { 'SNES ROM': ['sfc', 'smc', 'rom'] }
-const CORE_FILTER = { 'Core script (Emscripten loader)': ['js'] }
+import { CORE_FILTER, ROM_FILTER } from './file-filters'
+
+/** Both hashes, shortened: the user needs to see they differ, not read 64 digits. */
+export function describeRomMismatch(check: { picked: string; expected: string }): string {
+  return (
+    `That is a different ROM (sha256 ${check.picked.slice(0, 12)}…); ` +
+    `this project needs ${check.expected.slice(0, 12)}…`
+  )
+}
 
 @injectable()
 export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | undefined> {
@@ -106,13 +113,22 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
     return section
   }
 
-  protected pathRow(label: string, field: HTMLInputElement, browse: () => void): HTMLElement {
+  protected pathRow(
+    label: string,
+    field: HTMLInputElement,
+    browse: () => Promise<void>,
+  ): HTMLElement {
     const row = this.row(label, field, '')
     field.readOnly = true
     const button = document.createElement('button')
     button.className = 'theia-button secondary'
     button.textContent = 'Browse...'
-    button.onclick = browse
+    // A rejected RPC (unreadable file, backend gone) shows inline rather than
+    // vanishing as an unhandled rejection.
+    button.onclick = () =>
+      void browse().catch(err => {
+        this.pathError.textContent = (err as Error).message
+      })
     row.appendChild(button)
     return row
   }
@@ -131,7 +147,7 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
     return uri?.path.fsPath()
   }
 
-  /** The base ROM only: a different cart is refused inline, the field unchanged. */
+  /** The base ROM only: a different ROM is refused inline, the field unchanged. */
   protected async browseRom(): Promise<void> {
     if (!this.project) return
     const picked = await this.pickFile("Locate this project's ROM", ROM_FILTER)
@@ -139,9 +155,7 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
     try {
       const check = await this.projects.checkRom(this.project.manifestPath, picked)
       if (check.status === 'mismatch') {
-        this.pathError.textContent =
-          `That is a different ROM (sha256 ${check.picked.slice(0, 12)}…); ` +
-          `this project needs ${check.expected.slice(0, 12)}…`
+        this.pathError.textContent = describeRomMismatch(check)
         return
       }
     } catch (err) {

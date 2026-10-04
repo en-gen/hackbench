@@ -348,22 +348,25 @@ async function openProps(page, project, picks) {
       const dlg = getSvc('ProjectPropertiesDialog')
       const queue = [...picks]
       dlg.fileDialog.showOpenDialog = async () => ({ path: { fsPath: () => queue.shift() } })
-      void getSvc('CommandRegistry').executeCommand('hackbench.project.properties')
+      // Kept so a test can wait for the Save to FINISH before asserting what
+      // did not change; an absence checked mid-save proves nothing.
+      window.__propsDone = getSvc('CommandRegistry').executeCommand('hackbench.project.properties')
     },
     { p: project, picks },
   )
   await page.waitForSelector('.hb-dialog-facts', { timeout: 15000 })
 }
 
+const saveDone = page => page.evaluate(() => window.__propsDone)
 const browse = (page, n) => page.locator('.dialogBlock button:has-text("Browse...")').nth(n).click()
 const fieldValues = page =>
   page.locator('.dialogBlock input[readonly]').evaluateAll(els => els.map(e => e.value))
 
-async function makeProject(page, name) {
+async function makeProject(page, name, rom = ROM) {
   return page.evaluate(
     async ({ romPath, directory, name }) =>
       getSvc('Symbol(ProjectService)').createProject({ romPath, name, directory }),
-    { romPath: ROM, directory: path.join(tmp, name), name },
+    { romPath: rom, directory: path.join(tmp, name), name },
   )
 }
 
@@ -382,7 +385,9 @@ test('Project Properties shows the registered ROM and core paths', async ({ page
 test('browsing to the same ROM at a new path and saving registers it, and the project opens from it', async ({
   page,
 }) => {
-  const project = await makeProject(page, 'Moved')
+  const orig = path.join(tmp, 'orig.sfc')
+  fs.copyFileSync(ROM, orig)
+  const project = await makeProject(page, 'Moved', orig)
   const moved = path.join(tmp, 'moved.sfc')
   fs.copyFileSync(ROM, moved)
   await openProps(page, project, [moved])
@@ -391,7 +396,16 @@ test('browsing to the same ROM at a new path and saving registers it, and the pr
   // Browsing alone persists nothing.
   expect(registeredRom(project.baseRom.sha256)).not.toBe(moved)
   await page.locator('.dialogBlock .theia-button.main').click()
-  await expect.poll(() => registeredRom(project.baseRom.sha256)).toBe(moved)
+  await saveDone(page)
+  expect(registeredRom(project.baseRom.sha256)).toBe(moved)
+  // Cold: the registry file and a fresh verified resolve, with the original
+  // copy gone, rather than the backend's cached working copy.
+  fs.rmSync(path.join(tmp, 'orig.sfc'), { force: true })
+  const cold = await page.evaluate(
+    mp => getSvc('Symbol(ProjectService)').workstationPaths(mp),
+    project.manifestPath,
+  )
+  expect(cold.romPath).toBe(moved)
 
   const result = await page.evaluate(async mp => {
     const r = await getSvc('Symbol(ProjectService)').loadMaps(mp)
@@ -416,8 +430,32 @@ test('a ROM with a different hash is refused inline, naming both hashes, and not
   expect((await error.innerText()).match(/[0-9a-f]{12}…/g)).toHaveLength(2)
   expect((await fieldValues(page))[0]).toBe(before)
   await page.locator('.dialogBlock .theia-button.main').click()
-  await expect(page.locator('.dialogBlock')).toHaveCount(0)
+  await saveDone(page)
   expect(registeredRom(project.baseRom.sha256)).toBe(before)
+})
+
+test('a ROM swapped after Browse is refused at Save: nothing applies and no Saved toast', async ({
+  page,
+}) => {
+  const project = await makeProject(page, 'Swapped')
+  const before = registeredRom(project.baseRom.sha256)
+  const copy = path.join(tmp, 'swap.sfc')
+  fs.copyFileSync(ROM, copy)
+  await openProps(page, project, [copy])
+  await browse(page, 0)
+  await expect.poll(() => fieldValues(page).then(v => v[0])).toBe(copy)
+  await page.locator('.dialogBlock input.theia-input').first().fill('Should Not Save')
+  const bytes = fs.readFileSync(ROM)
+  bytes[0x100] ^= 0xff
+  fs.writeFileSync(copy, bytes)
+  await page.locator('.dialogBlock .theia-button.main').click()
+  await saveDone(page)
+  await expect(page.locator('.theia-notification-list-item').last()).toContainText('different ROM')
+  await expect(page.locator('.theia-notification-list-item').last()).toContainText(
+    'Applied: nothing',
+  )
+  expect(registeredRom(project.baseRom.sha256)).toBe(before)
+  expect(readJson(project.manifestPath).title).not.toBe('Should Not Save')
 })
 
 test('Browse then Cancel leaves both registries unchanged', async ({ page }) => {
@@ -432,7 +470,7 @@ test('Browse then Cancel leaves both registries unchanged', async ({ page }) => 
   await browse(page, 1)
   await expect.poll(() => fieldValues(page).then(v => v[1])).toBe(core)
   await page.locator('.dialogBlock .theia-button.secondary:has-text("Cancel")').click()
-  await expect(page.locator('.dialogBlock')).toHaveCount(0)
+  await saveDone(page)
   expect(registeredRom(project.baseRom.sha256)).toBe(romBefore)
   expect(fs.existsSync(appDataFile('core-registry.json')) ? registeredCore() : undefined).toBe(
     coreBefore,
@@ -446,5 +484,6 @@ test('changing the core and saving registers the new core', async ({ page }) => 
   await browse(page, 1)
   await expect.poll(() => fieldValues(page).then(v => v[1])).toBe(core)
   await page.locator('.dialogBlock .theia-button.main').click()
-  await expect.poll(() => registeredCore()).toBe(core)
+  await saveDone(page)
+  expect(registeredCore()).toBe(core)
 })

@@ -27,11 +27,10 @@ import { ControllerSession } from './controller-session'
 import { GamepadPanel } from './gamepad-panel'
 import { SaveSlotPicker, SaveSlotView } from './save-slot-picker'
 import { ProjectFrontendClient } from './project-push-client'
+import { CORE_FILTER, ROM_FILTER } from './file-filters'
 
 export const EMULATOR_VIEW_ID = 'hackbench.emulator-view'
 
-const CORE_FILTER = { 'Core script (Emscripten loader)': ['js'] }
-const ROM_FILTER = { 'SNES ROM': ['sfc', 'smc', 'rom'] }
 const VOLUME_KEY = 'hackbench.emulator.volume'
 /** Per machine, not per project: pads and keyboards belong to the computer. */
 const CONTROLLERS_KEY = 'hackbench.emulator.controllers'
