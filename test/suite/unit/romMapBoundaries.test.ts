@@ -16,8 +16,9 @@ interface Result {
   reads: number
 }
 
-function loadParser(): (rom: Uint8Array) => Result {
-  const src = fs.readFileSync(path.resolve(__dirname, '../../../docs/mockups/rom-map.html'), 'utf8')
+const MOCKUP = path.resolve(__dirname, '../../../docs/mockups/rom-map.html')
+
+function loadParser(src = fs.readFileSync(MOCKUP, 'utf8')): (rom: Uint8Array) => Result {
   const a0 = src.indexOf('  function readRomByte(snes)')
   const b0 = src.indexOf('  function findBlockAt(')
   if (a0 < 0 || b0 < a0) throw new Error('rom-map.html parser region not found')
@@ -56,6 +57,15 @@ function makeRom(l1Snes: (i: number) => number): Uint8Array {
 }
 
 describe('rom-map computeLevelBoundaries', () => {
+  it('refuses a source whose read-counter anchor is missing', () => {
+    const src = [
+      '  function readRomByte(snes) {}',
+      '  function readRomByteFile(off) {}',
+      '  function findBlockAt() {}',
+    ].join(' ')
+    expect(() => loadParser(src)).toThrow('readRomByteFile signature changed')
+  })
+
   const run = loadParser()
 
   it('walks a stream shared by all 512 L1 pointers once and keeps every index', () => {
