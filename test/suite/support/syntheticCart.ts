@@ -34,11 +34,18 @@ const VARIANT = 5 // low nibble of size $E5
 export const RTL = 0x6b
 const LOADER = 0x0586ea // LevLoadNrmObj (bank_05.asm:805-808)
 export const ENTRY = 0x0da40f
-export const SIG_AT = 0x0d9800
+/** ExecutePtrLong's address, the JSL target the stock dispatch path pins (#302). */
+export const SIG_AT = 0x0086fa
+/** Where the dispatch stub lives: ENTRY jumps here, so it stays clear of the stock bytes at $0DA415. */
+const STUB_AT = 0x0d9900
+const HOP_AT = 0x0d8900
+/** The stock dispatch path the gate pins (#302; bank_0D.asm:1324-1327, 1345-1350). */
+const STOCK_TILESET_ENTRY = [0xe2, 0x30, 0xad, 0x31, 0x19, 0x22, 0xfa, 0x86, 0x00]
+const STOCK_EXTENDED_ENTRY = [0xe2, 0x30, 0xa5, 0x59, 0xaa, 0x22, 0xfa, 0x86, 0x00]
+const STOCK_PREAMBLE = [0xe2, 0x30, 0xa6, 0x5a, 0xca, 0x8a, 0x22, 0xfa, 0x86, 0x00]
 const BRANCH = 0x0586c5 // LDA $5A; BNE +6 (bank_05.asm:783-784)
 const CALL_SITE = 0x0586cf // JSR LevLoadNrmObj (bank_05.asm:788)
 export const STUB = 0x0d8800 // a dispatch target that is not the handler
-const HOP = 0x0d8900 // a routine that dispatches once more
 
 /** A stand-in for ExecutePtrLong: the interpreter recognizes its hash and models the effect. */
 export const STAND_IN = Array.from({ length: 36 }, (_, i) => (i * 37 + 11) & 0xff)
@@ -72,7 +79,7 @@ export interface ProductionCartOptions {
 /** Object $12 reaches `handler` at $0DADEB as pipe variant 5, entered as the loader enters it. */
 export function productionCart(handler: number[], o: ProductionCartOptions = {}): RomFile {
   const { to = HANDLER, bank = 0x0d, pins = true } = o
-  const dispatchTo = (t: number) => [0xa9, 0, 0x22, lo(SIG_AT), hi(SIG_AT), 0x0d, lo(t), hi(t), bank] // prettier-ignore
+  const dispatchTo = (t: number) => [0xa9, 0, 0x22, lo(SIG_AT), hi(SIG_AT), 0x00, lo(t), hi(t), bank] // prettier-ignore
   const table = new Array(STANDARD_HANDLER_COUNT * 3).fill(0)
   table.splice((CLOUD - 1) * 3, 3, lo(PIPES), hi(PIPES), 0x0d)
   const variants = new Array(30).fill(0)
@@ -84,13 +91,17 @@ export function productionCart(handler: number[], o: ProductionCartOptions = {})
     [],
     [
       [HANDLER, handler],
+      [0x0da415, STOCK_TILESET_ENTRY],
+      [0x0da106, STOCK_EXTENDED_ENTRY],
+      [DISPATCH, STOCK_PREAMBLE],
       [ADDR_TILESET_DISPATCH, [lo(DISPATCH), hi(DISPATCH), 0x0d]],
       [DISPATCH + 10, table],
       [PIPES + 18, variants],
-      [ENTRY, dispatchTo(o.hop ? HOP : to)],
+      [ENTRY, [0x4c, lo(STUB_AT), hi(STUB_AT)]], // JMP to the stub
+      [STUB_AT, dispatchTo(o.hop ? HOP_AT : to)],
       [SIG_AT, STAND_IN],
       [STUB, [RTL]],
-      [HOP, dispatchTo(to)],
+      [HOP_AT, dispatchTo(to)],
       ...sites,
     ],
   )

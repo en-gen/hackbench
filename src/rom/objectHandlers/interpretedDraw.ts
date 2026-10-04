@@ -17,7 +17,8 @@ import {
   seedFromGrid,
   type RecognizedPrimitive,
 } from './interpret'
-import { mirror, noteUnverified } from './interpretedGate'
+import { mirror } from '../addressing'
+import { noteUnverified } from './interpretedGate'
 
 /** LevLoadNrmObj: SEP #$30; JSL CODE_0DA40F; RTS (bank_05.asm:805-808). */
 const LOADER_ROUTINE = 0x0586ea

@@ -43,6 +43,7 @@ import {
   readImmByte,
   MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
+import { mirror } from '../addressing'
 import { isInterpretedHandler, noteUnverified } from './interpretedGate'
 // No ADDR_DATA_* imports: every handler resolves its table addresses and
 // immediate tile IDs dynamically from its own bytecode via cur.handlerAddr.
@@ -884,7 +885,7 @@ export function handle_0DAB3E(cur: Cursor): void {
   // immediately after the JSL. That table lives at cur.handlerAddr + 18.
   const variant = (cur.size & 0x0f) % 10
   const tableBase = cur.handlerAddr + 18
-  const target = readLongOperand(cur, tableBase + variant * 3) & 0xffffff
+  const target = mirror(readLongOperand(cur, tableBase + variant * 3))
 
   // Run each variant handler with its own handlerAddr so that its LDA.L
   // and LDA # operands resolve correctly against its own bytecode.
@@ -897,7 +898,7 @@ export function handle_0DAB3E(cur: Cursor): void {
   const prevHandler = cur.handlerAddr
   cur.handlerAddr = target
   try {
-    PIPE_VARIANT_HANDLERS[target & 0x7fffff]?.(cur)
+    PIPE_VARIANT_HANDLERS[target]?.(cur)
   } finally {
     cur.handlerAddr = prevHandler
   }
@@ -2420,7 +2421,7 @@ export function handle_0DC341(cur: Cursor): void {
   // dl CODE_0DC358, dl CODE_0DC3D8 table starts at handler +9 (after
   // SEP/LDA/AND/LSR/JSL = 9 bytes).
   const variantIdx = (cur.size >> 1) & 1
-  const target = readLongOperand(cur, cur.handlerAddr + 9 + variantIdx * 3) & 0xffffff
+  const target = mirror(readLongOperand(cur, cur.handlerAddr + 9 + variantIdx * 3))
 
   const prevHandler = cur.handlerAddr
   cur.handlerAddr = target
@@ -2604,7 +2605,7 @@ export function handle_0DCF53(cur: Cursor): void {
   // Byte layout verified by dumping $0DCF53:
   //   +0 A5 59 29 0F AA 22 FA 86 00   LDA size; AND #$0F; TAX; JSL ExecutePtrLong
   //   +9..+26   dl $0DCF6E, $0DCFB1, $0DCFF0, $0DD034, $0DCFB1, $0DD034
-  const target = readLongOperand(cur, cur.handlerAddr + 9 + X * 3) & 0xffffff
+  const target = mirror(readLongOperand(cur, cur.handlerAddr + 9 + X * 3))
   const prevHandler = cur.handlerAddr
   cur.handlerAddr = target
   try {
@@ -2739,7 +2740,7 @@ export function handle_0DD070(cur: Cursor): void {
   // Byte layout verified by dumping $0DD070:
   //   +0 A5 59 4A 4A 4A 4A 22 FA 86 00   LDA size; LSR×4; JSL ExecutePtrLong
   //   +10..+15   dl $0DD080, $0DD0C3
-  const target = readLongOperand(cur, cur.handlerAddr + 10 + sel * 3) & 0xffffff
+  const target = mirror(readLongOperand(cur, cur.handlerAddr + 10 + sel * 3))
   const prevHandler = cur.handlerAddr
   cur.handlerAddr = target
   try {
