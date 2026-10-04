@@ -66,17 +66,6 @@ describe('accept.sh refuses before touching gh api', () => {
     expect(r.status).toBe(2)
     expect(r.output).toMatch(/not a commit/)
   })
-
-  it('resolves a real ref (HEAD) before it would reach gh api', () => {
-    // No network/gh dependency here: HEAD resolves, then the script tries
-    // `gh api` and fails for lack of `gh`/auth in this environment - proving
-    // validation passed and execution moved past it, without asserting on
-    // the network call itself.
-    const r = run(['HEAD', 'a valid reason'])
-    expect(r.output).not.toMatch(/not a commit/)
-    expect(r.output).not.toMatch(/whitespace/)
-    expect(r.output).not.toMatch(/usage/)
-  })
 })
 
 describe('accept.sh only accepts a sha in the latest 100 develop commits', () => {
@@ -120,10 +109,41 @@ describe('accept.sh only accepts a sha in the latest 100 develop commits', () =>
     expect(fs.existsSync(log)).toBe(false)
   })
 
+  it('resolves a real ref (HEAD), gets past validation, and posts nothing when outside the window', () => {
+    const { env, log } = fakeGh('0'.repeat(40))
+    const r = run(['HEAD', 'a valid reason'], env)
+    expect(r.output).not.toMatch(/not a commit|whitespace|usage/)
+    expect(r.output).toMatch(/latest 100 commits/) // reached the window check
+    expect(fs.existsSync(log)).toBe(false) // no status POST
+  })
+
   it('posts the status for a sha inside the window', () => {
     const { env, log } = fakeGh(`${'0'.repeat(40)}\n${head}`)
     const r = run([head, 'a reason'], env)
     expect(r.status).toBe(0)
     expect(fs.readFileSync(log, 'utf8')).toMatch(/statuses/)
   })
+})
+
+describe('the suite-wide guard', () => {
+  it('resolves gh to the failing shim, never the real one', () => {
+    const r = run_('gh api repos/en-gen/hackbench/statuses/x')
+    expect(r.status).toBe(99)
+    expect(r.output).toMatch(/gh blocked/)
+    // msys rewrites the drive form, so compare the unique directory name
+    const shimName = path.basename(process.env.HB_NO_REAL_GH_DIR ?? '')
+    expect(run_('command -v gh').output.trim()).toContain(`${shimName}/gh`)
+  })
+
+  function run_(cmd: string): { status: number; output: string } {
+    try {
+      return {
+        status: 0,
+        output: execFileSync('bash', ['-c', cmd], { encoding: 'utf8', stdio: 'pipe' }),
+      }
+    } catch (err) {
+      const e = err as { status?: number; stderr?: string; stdout?: string }
+      return { status: e.status ?? -1, output: (e.stderr ?? '') + (e.stdout ?? '') }
+    }
+  }
 })
