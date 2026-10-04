@@ -154,6 +154,43 @@ export function loadL2Preset(rom: RomFile, ptr: number): L2PresetLoad | null {
 }
 
 /**
+ * Tileset(s) where SMW's L2 strip uploader OR's `$1000` (= palette bit 2)
+ * into every L2 subtile attribute. The check sits inline in the routine -
+ * `LDA.W ObjectTileset / CMP.B #$03` at bank_05.asm:1387-1391 + 1503-1507 -
+ * with no pointer table, so this is the entire set: tileset 3 only.
+ *
+ * The OR mask itself in tilemap-entry coords is `$1000` = bit 12 = palette
+ * index += 4 (the 3-bit palette field lives at bits 10-12 of a tilemap word).
+ * Expressed against our 0..7 `SubTile.palette` field, the mask is simply `4`.
+ */
+const L2_TILESET3_PALETTE_OR = 4
+
+/** Returns the value OR'd with each L2 subtile's palette for this tileset. */
+export function l2PaletteOrForTileset(objectTileset: number): number {
+  return objectTileset === 3 ? L2_TILESET3_PALETTE_OR : 0
+}
+
+/**
+ * The 32x27 preset pattern repeated over a map's footprint: horizontally by
+ * column, vertically by the 32-row BG2 plane, whose last 5 rows stay empty
+ * (null). Every byte draws, the $25 pre-init filler included: the upload loop
+ * (CODE_058D7A, bank_05.asm:1680-1705) indexes Map16BGTiles with it
+ * unconditionally and Map16BGTiles[$025] is a visible tile.
+ */
+export function tilePresetGrid(
+  preset: Pick<L2PresetLoad, 'grid'>,
+  cols: number,
+  rows: number,
+): (number | null)[][] {
+  return Array.from({ length: rows }, (_, r) =>
+    Array.from({ length: cols }, (_, c) => {
+      const rr = r % L2_BG_PLANE_ROWS
+      return rr >= L2_TILEMAP_ROWS ? null : preset.grid[rr]![c % L2_TILEMAP_COLS]!
+    }),
+  )
+}
+
+/**
  * Load an object-stream L2 tilemap (bank != $FF).
  *
  * Mirrors LoadLevel (bank_05.asm line 424) for `LayerProcessing == 1`:

@@ -1,5 +1,6 @@
 /**
- * The map tab draws the L1 (foreground), en-gen/hackbench#205 step 3.
+ * The map tab draws the L1 (foreground), en-gen/hackbench#205 step 3, and the
+ * L2 (background) under it, en-gen/hackbench#459.
  *
  * Every assertion reads PIXELS back, never the mere presence of a canvas: a
  * blank canvas is on screen too, and the first build of this tab passed six
@@ -172,11 +173,10 @@ async function readScreen(page, index, screen) {
   )
 }
 
-/** Both L1 planes of a screen: low, then high. */
-const planeLocators = (page, index, screen) =>
-  ['l1Low', 'l1High'].map(p =>
-    page.locator(`${root(index)} canvas[data-screen="${screen}"][data-plane="${p}"]`),
-  )
+/** The planes of a screen, L1's by default: low, then high. */
+const MAP_PLANES = ['l2Low', 'l1Low', 'l2High', 'l1High']
+const planeLocators = (page, index, screen, planes = ['l1Low', 'l1High']) =>
+  planes.map(p => page.locator(`${root(index)} canvas[data-screen="${screen}"][data-plane="${p}"]`))
 
 const changedCells = (a, b) => Object.keys(a.cells).filter(k => a.cells[k] !== b.cells[k])
 
@@ -435,13 +435,16 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
 
   const shown = await shownPixels(page, strip)
   expect(shown.colors).toBeGreaterThan(4)
-  // $105's first screen is mostly sky: its dominant pixel is the level's backdrop.
-  const backdrop = dominant((await readScreen(page, 0x105, 0)).rgba)
+  const backdrop = await backdropOf(page, 0x105)
   await l1.click()
   await expect(l1).toHaveAttribute('aria-pressed', 'false')
-  // Both L1 planes hide, not just the low one.
+  // Both L1 planes hide, not just the low one; the background's stay.
   for (const plane of planeLocators(page, 0x105, 0))
     await expect(plane).toHaveCSS('visibility', 'hidden')
+  for (const plane of planeLocators(page, 0x105, 0, ['l2Low', 'l2High']))
+    await expect(plane).toHaveCSS('visibility', 'visible')
+  // With the background off as well, only the back area is left.
+  await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
   const hidden = await shownPixels(page, strip)
   expect(hidden.colors).toBe(1)
   expect(hidden.color).toBe(backdrop)
@@ -450,8 +453,9 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   await expect(page.locator(`${root(0x106)} [data-control="layer-l1"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
   await activate(page, 0x105)
   await l1.click()
+  await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
   await expect(l1).toHaveAttribute('aria-pressed', 'true')
-  for (const plane of planeLocators(page, 0x105, 0))
+  for (const plane of planeLocators(page, 0x105, 0, MAP_PLANES))
     await expect(plane).toHaveCSS('visibility', 'visible')
   expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
 })
@@ -498,6 +502,156 @@ test('the high canvas shows the served l1High plane on a screen with priority ti
 })
 
 /**
+ * The background (L2) is its own pair of planes, hidden and restored by its
+ * own toggle, per tab. $105's background is an image, so its screen 0 has L2
+ * pixels the view must show and then stop showing.
+ */
+test('the Background toggle hides and restores both L2 canvases, per tab', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await expectEveryVisibleScreenDrawn(page, 0x105)
+  const l2 = page.locator(`${root(0x105)} [data-control="layer-l2"]`)
+  const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
+  await expect(l2).toHaveAttribute('aria-pressed', 'true')
+  await expect(l2).toHaveAttribute('aria-label', 'Background')
+  await expect(l2).toHaveAttribute('title', 'Background')
+  // Three bars, the bottom one in the button's own color.
+  const bars = await l2
+    .locator('svg rect')
+    .evaluateAll(rs => rs.map(r => ({ y: r.getAttribute('y'), fill: getComputedStyle(r).fill })))
+  const color = await l2.evaluate(b => getComputedStyle(b).color)
+  expect(bars[2].fill).toBe(color)
+  expect(bars[1].fill).not.toBe(color)
+  // Foreground, then Background, beside each other.
+  const order = await page
+    .locator(`${root(0x105)} .hb-map-view-toolbar [data-control^="layer-"]`)
+    .evaluateAll(bs => bs.map(b => b.dataset.control))
+  expect(order).toEqual(['layer-l1', 'layer-l2'])
+
+  const shown = await shownPixels(page, strip)
+  await l2.click()
+  await expect(l2).toHaveAttribute('aria-pressed', 'false')
+  for (const plane of planeLocators(page, 0x105, 0, ['l2Low', 'l2High']))
+    await expect(plane).toHaveCSS('visibility', 'hidden')
+  for (const plane of planeLocators(page, 0x105, 0, ['l1Low', 'l1High']))
+    await expect(plane).toHaveCSS('visibility', 'visible')
+  // The picture changed: the background really was on screen.
+  expect((await shownPixels(page, strip)).checksum).not.toBe(shown.checksum)
+
+  await openMap(page, project.manifestPath, 0x106)
+  await expect(page.locator(`${root(0x106)} [data-control="layer-l2"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
+  for (const plane of planeLocators(page, 0x106, 0, ['l2Low', 'l2High']))
+    await expect(plane).toHaveCSS('visibility', 'visible')
+  await activate(page, 0x105)
+  await l2.click()
+  await expect(l2).toHaveAttribute('aria-pressed', 'true')
+  for (const plane of planeLocators(page, 0x105, 0, ['l2Low', 'l2High']))
+    await expect(plane).toHaveCSS('visibility', 'visible')
+  expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
+})
+
+/**
+ * The color a pixel shows on screen: a 1 CSS px screenshot at its center,
+ * from a spot whose 3x3 native neighborhood is uniform so scaling cannot blend it.
+ */
+async function colorOnScreen(page, selector, x, y) {
+  const clip = await page.evaluate(
+    ({ sel, x, y }) => {
+      const c = document.querySelector(sel)
+      const r = c.getBoundingClientRect()
+      return { x: Math.floor(r.left + ((x + 0.5) * r.width) / c.width), y: Math.floor(r.top + ((y + 0.5) * r.height) / c.height), width: 1, height: 1 } // prettier-ignore
+    },
+    { sel: selector, x, y },
+  )
+  const png = (await page.screenshot({ clip })).toString('base64')
+  return page.evaluate(async b64 => {
+    const img = new Image()
+    img.src = `data:image/png;base64,${b64}`
+    await img.decode()
+    const c = document.createElement('canvas')
+    c.width = c.height = 1
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3))
+  }, png)
+}
+
+test('L2 shows under L1: a clear L1 pixel shows the background, not the back area', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showScreen(page, 0x105, 0)
+  const sel = p => `${root(0x105)} canvas[data-screen="0"][data-plane="${p}"]`
+  // A pixel where L2 is opaque and both L1 planes are clear, in a uniform 3x3.
+  const spot = await page.evaluate(
+    ({ l2, l1a, l1b }) => {
+      const px = s => {
+        const c = document.querySelector(s)
+        return { w: c.width, h: c.height, d: c.getContext('2d').getImageData(0, 0, c.width, c.height).data } // prettier-ignore
+      }
+      const [b, f1, f2] = [px(l2), px(l1a), px(l1b)]
+      const at = (g, x, y) => (y * g.w + x) * 4
+      for (let y = 40; y < b.h - 40; y += 7)
+        for (let x = 40; x < b.w - 40; x += 7) {
+          let ok = true
+          const first = [...b.d.slice(at(b, x, y), at(b, x, y) + 4)]
+          for (let dy = -1; dy <= 1 && ok; dy++)
+            for (let dx = -1; dx <= 1 && ok; dx++) {
+              const i = at(b, x + dx, y + dy)
+              ok = b.d[i + 3] === 255 && f1.d[i + 3] === 0 && f2.d[i + 3] === 0 && b.d[i] === first[0] && b.d[i + 1] === first[1] && b.d[i + 2] === first[2] // prettier-ignore
+            }
+          if (ok) return { x, y, rgb: first.slice(0, 3) }
+        }
+      return null
+    },
+    { l2: sel('l2Low'), l1a: sel('l1Low'), l1b: sel('l1High') },
+  )
+  expect(spot, '$105 screen 0 has a background pixel with L1 clear over it').not.toBeNull()
+  const backdrop = (await backdropOf(page, 0x105)).split(',').map(Number)
+  expect(spot.rgb, 'the background differs from the back area, or this proves nothing').not.toEqual(backdrop) // prettier-ignore
+  const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 2)
+  expect(near(await colorOnScreen(page, sel('l1Low'), spot.x, spot.y), spot.rgb)).toBe(true)
+  // With the background off the same pixel is the back area.
+  await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
+  expect(near(await colorOnScreen(page, sel('l1Low'), spot.x, spot.y), backdrop)).toBe(true)
+})
+
+/**
+ * BG mode 1 stacks BG1 high > BG2 high > BG1 low > BG2 low (map-screen's
+ * MAP_PLANE_KEYS). Read from the computed z-index, not the source order. No
+ * vanilla or magic-ROM slot draws an l2High pixel (swept: 0 of 488 maps each),
+ * so there is no corpus screen to check the order on pixels; the unit tests
+ * pin which plane a priority subtile lands in on synthetic data.
+ */
+test('the canvas stack is l2Low, l1Low, l2High, l1High, bottom to top', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const stack = await page
+    .locator(`${root(0x105)} canvas[data-screen="0"]`)
+    .evaluateAll(cs =>
+      cs
+        .map(c => ({ plane: c.dataset.plane, z: Number(getComputedStyle(c).zIndex) }))
+        .sort((a, b) => a.z - b.z),
+    )
+  expect(stack.map(c => c.plane)).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High'])
+  expect(new Set(stack.map(c => c.z)).size, 'four distinct levels').toBe(4)
+  expect(stack[0].z).toBeGreaterThan(0)
+})
+
+test('the details say the background is drawn at 1:1, with no parallax', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const note = page.locator(`${root(0x105)} [data-note="l2-no-parallax"]`)
+  await expect(note).toBeVisible()
+  await expect(note).toContainText('1:1')
+  await expect(note).toContainText('parallax')
+  // The vanilla ROM reads: no refusal and no unverified-order note.
+  await expect(page.locator(`${root(0x105)} [data-note="l2-unavailable"]`)).toHaveCount(0)
+  await expect(page.locator(`${root(0x105)} [data-note="layer-order"]`)).toHaveCount(0)
+})
+
+/**
  * The back area is a layer of its own, between the checkerboard and L1: L1
  * is clear where no tile draws, so hiding the back area (as a layer toggle
  * will) shows the checkerboard there, not a color baked into L1.
@@ -506,6 +660,8 @@ test('the back area is its own layer, with the checkerboard beneath it', async (
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await showScreen(page, 0x105, 0)
+  // The background image sits over the back area, so it goes too.
+  await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
   await page
     .locator(`${root(0x105)} [data-layer="back-area"]`)
     .evaluate(el => (el.style.display = 'none'))
@@ -555,22 +711,18 @@ test('a tile ON/OFF blanks shows in the screen door on $12C with ON/OFF on', asy
   )
 })
 
-/** The most common RGB of an RGBA array, as "r,g,b". */
-function dominant(rgba) {
-  const counts = new Map()
-  for (let i = 0; i < rgba.length; i += 4) {
-    const k = `${rgba[i]},${rgba[i + 1]},${rgba[i + 2]}`
-    counts.set(k, (counts.get(k) ?? 0) + 1)
-  }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0]
-}
+/** The back area layer's color, "r,g,b", as the view paints it. */
+const backdropOf = (page, index) =>
+  page
+    .locator(`${root(index)} [data-layer="back-area"]`)
+    .evaluate(el => getComputedStyle(el).backgroundColor.match(/\d+/g).slice(0, 3).join(','))
 
 /**
  * A Back Area palette edit reaches the strip's own background, which is what
  * shows with L1 hidden. $105 uses back-area color 2, the word at $00B0A4
  * (PaletteLoader ADDR_BACK_AREA plus 2 x 2; vanilla $5D80, measured).
  */
-test('a back-area color edit repaints the strip behind a hidden L1', async ({ page }) => {
+test('a back-area color edit repaints the strip behind a hidden L1 and L2', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   const screen0 = page.locator(`${root(0x105)} canvas[data-screen="0"][data-plane="l1Low"]`)
@@ -589,6 +741,7 @@ test('a back-area color edit repaints the strip behind a hidden L1', async ({ pa
     .poll(() => screen0.getAttribute('data-drawn'), { timeout: 15000 })
     .not.toBe(drawnBefore)
   await page.locator(`${root(0x105)} [data-control="layer-l1"]`).click()
+  await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
   const hidden = await shownPixels(
     page,
     page.locator(`${root(0x105)} [data-control="map-scroller"]`),

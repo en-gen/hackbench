@@ -205,10 +205,11 @@ export interface SwitchFlagsDto {
 }
 
 /**
- * The map's planes, bottom to top (the view's z-order). L1 is split by the
- * Map16 priority bit; BG mode 1 puts L2's planes between them (#459).
+ * The map's planes, bottom to top (the view's z-order): BG mode 1 stacks
+ * BG1 high > BG2 high > BG1 low > BG2 low, each layer split by its subtiles'
+ * priority bit (#459). L1 is BG1 (foreground), L2 BG2 (background).
  */
-export const MAP_PLANE_KEYS = ['l1Low', 'l1High'] as const
+export const MAP_PLANE_KEYS = ['l2Low', 'l1Low', 'l2High', 'l1High'] as const
 export type MapPlaneKey = (typeof MAP_PLANE_KEYS)[number]
 
 /**
@@ -230,6 +231,10 @@ export type MapScreenResult =
       planes: Record<MapPlaneKey, string | null>
       /** Why the animated tiles are drawn from unverified or no frames, when they are. */
       note?: string
+      /** Why the background is not drawn (its planes are then null), when it is not. */
+      l2Note?: string
+      /** Why the planes' stacking order is unverified for this ROM, when it is. */
+      orderNote?: string
       /** The back area (CGRAM color 0), RGB: its own layer under L1. */
       backdrop: [number, number, number]
     }
