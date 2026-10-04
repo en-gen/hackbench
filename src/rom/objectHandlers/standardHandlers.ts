@@ -44,7 +44,7 @@ import {
   MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
 import { mirror } from '../addressing'
-import { isInterpretedHandler, noteUnverified } from './interpretedGate'
+import { isInterpretedHandler, noteRefused, noteUnverified } from './interpretedGate'
 // No ADDR_DATA_* imports: every handler resolves its table addresses and
 // immediate tile IDs dynamically from its own bytecode via cur.handlerAddr.
 // No RomFile / readByteTable imports either -- reads go through cur.rom directly.
@@ -558,8 +558,13 @@ export function handle_0DB571(cur: Cursor): void {
   const X = cur.size - 0x68
   if (X < 0 || X > 7) return
 
-  // LDA.L DATA_0DB569,X at handler offset +11 (operand at +12).
-  const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
+  // LDA.L DATA_0DB569,X at handler offset +11 (operand at +12), gated on $BF (#452).
+  const tableAddr = readGatedLongOperand(cur, 12)
+  if (tableAddr === null) {
+    const at = cur.handlerAddr + 11
+    noteRefused(cur.draw?.unverified, cur.handlerAddr, at, 0xbf, cur.rom.readByte(at))
+    return
+  }
   setPage0(cur) // StzTo6ePointer
   writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
 }
@@ -592,6 +597,7 @@ export function handle_0DB49E(cur: Cursor): void {
   const dataTableAddr = readLongOperand(cur, base + 16)
   const topMergeAddr = resolveJsrTarget(cur, base + 19)
   const bottomMergeAddr = resolveJmpTarget(cur, base + 34 + 18)
+  if (topMergeAddr === null || bottomMergeAddr === null) return // opcode gate (#452)
 
   const middleCount = (cur.size >> 4) & 0x0f
   const X = cur.size & 0x0f
@@ -661,20 +667,37 @@ function readExistingLow(cur: Cursor): number {
 }
 
 /**
- * Resolve a JSR $XXXX (absolute, same-bank) target.
- * opcodeAddr points at the $20 opcode; the 2-byte operand follows at +1.
- * Bank comes from the calling handler (same bank for JSR).
+ * Resolve an absolute same-bank JSR/JMP target, or null when the byte at
+ * `opcodeAddr` is not `opcode`. A hack that rewrote the instruction (say as a
+ * JSL) leaves bytes that are not a 2-byte operand, and reading them draws from
+ * wherever they point (#452). Callers decline, as CODE_0DDF3A's gates do, until
+ * #301 gives the port a refusal channel, they record the reason in
+ * cur.draw.unverified.
  */
-function resolveJsrTarget(cur: Cursor, opcodeAddr: number): number {
+function resolveAbsTarget(cur: Cursor, opcodeAddr: number, opcode: number): number | null {
+  if (cur.rom.readByte(opcodeAddr) !== opcode) {
+    noteRefused(
+      cur.draw?.unverified,
+      cur.handlerAddr,
+      opcodeAddr,
+      opcode,
+      cur.rom.readByte(opcodeAddr),
+    )
+    return null
+  }
   const lo = cur.rom.readByte(opcodeAddr + 1) ?? 0
   const hi = cur.rom.readByte(opcodeAddr + 2) ?? 0
-  const bank = opcodeAddr & 0xff0000
-  return bank | (hi << 8) | lo
+  return (opcodeAddr & 0xff0000) | (hi << 8) | lo
 }
 
-/** Resolve a JMP $XXXX (absolute, same-bank) target. Same layout as JSR. */
-function resolveJmpTarget(cur: Cursor, opcodeAddr: number): number {
-  return resolveJsrTarget(cur, opcodeAddr)
+/** JSR $XXXX: opcode $20 (65816 JSR absolute), bank from the calling handler. */
+function resolveJsrTarget(cur: Cursor, opcodeAddr: number): number | null {
+  return resolveAbsTarget(cur, opcodeAddr, 0x20)
+}
+
+/** JMP $XXXX: opcode $4C (65816 JMP absolute). Same layout as JSR. */
+function resolveJmpTarget(cur: Cursor, opcodeAddr: number): number | null {
+  return resolveAbsTarget(cur, opcodeAddr, 0x4c)
 }
 
 /**
@@ -4736,6 +4759,7 @@ export function handle_0DEFA8(cur: Cursor): void {
 export function handle_0DF066(cur: Cursor): void {
   const X = readImmByte(cur, cur.handlerAddr + 1)
   const target = resolveJmpTarget(cur, cur.handlerAddr + 2) // CODE_0DECCE
+  if (target === null) return // opcode gate (#452)
   const tableAddr = readLongOperand(cur, target + 32) // DATA_0DECC6
   const tile = cur.rom.readByte(tableAddr + X) ?? 0
   if (X === 1) setPage1(cur)

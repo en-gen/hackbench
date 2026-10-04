@@ -18,3 +18,21 @@ export function noteUnverified(unverified: string[], handler: number, why: strin
   const line = `Handler ${hex6(handler)} is drawn by the built-in model, not verified against this ROM: ${why}.`
   if (!unverified.includes(line)) unverified.push(line)
 }
+
+/**
+ * Record, once, that a port refused to draw `handler` because the instruction
+ * it reads through is not the expected one (#452). Unlike noteUnverified the
+ * object is NOT drawn, so the viewer must not call it built-in-model drawn.
+ */
+export function noteRefused(
+  unverified: string[] | undefined,
+  handler: number,
+  opcodeAt: number,
+  expected: number,
+  found: number | null,
+): void {
+  const h2 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(2, '0')
+  const was = found === null ? 'nothing' : h2(found)
+  const line = `Handler ${hex6(handler)} refused: the byte at ${hex6(opcodeAt)} is ${was}, not the ${h2(expected)} opcode it reads through, so the object is not drawn.`
+  if (unverified && !unverified.includes(line)) unverified.push(line)
+}

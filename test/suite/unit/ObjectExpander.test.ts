@@ -970,6 +970,7 @@ describe('handle_0DB571 (single-tile stamp, extended $68-$6F)', () => {
 
   it('stamps DATA_0DB569[size - $68]', () => {
     const rom = makeMockRom({ [TABLE_ADDR]: TABLE })
+    rom.writeAt(HANDLER_ADDR + 11, [0xbf])
     stampLongOperand(rom, HANDLER_ADDR, 12, TABLE_ADDR)
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 0x69, 0x69)
@@ -981,6 +982,7 @@ describe('handle_0DB571 (single-tile stamp, extended $68-$6F)', () => {
   // registered as a standard handler, so dispatchExtended found nothing (#360).
   it('is reached through the extended dispatch for every id $68-$6F', () => {
     const rom = makeMockRom({ [TABLE_ADDR]: TABLE })
+    rom.writeAt(HANDLER_ADDR + 11, [0xbf])
     stampLongOperand(rom, HANDLER_ADDR, 12, TABLE_ADDR)
     for (let id = 0x68; id <= 0x6f; id++) {
       rom.writeAt(ADDR_EXTENDED_DISPATCH + id * 3, [0x71, 0xb5, 0x0d])
@@ -2328,7 +2330,8 @@ describe('handle_0DB49E (vertical pipe) bottom-merge fix', () => {
     rom.writeAt(DATA_49C, [0x0a, 0x0c])
     stampLongOperand(rom, HANDLER, 16, DATA_49C)
 
-    // JSR CODE_0DB4D9 at handler+19: stamp 2-byte target in same bank ($0D)
+    // JSR CODE_0DB4D9 at handler+19: opcode, then 2-byte target in same bank ($0D)
+    rom.writeAt(HANDLER + 19, [0x20])
     rom.writeAt(HANDLER + 20, [TOP_MERGE & 0xff, (TOP_MERGE >> 8) & 0xff])
 
     // JMP CODE_0DB4C0 at handler+22: 2-byte target
@@ -2338,6 +2341,7 @@ describe('handle_0DB49E (vertical pipe) bottom-merge fix', () => {
     //   TYA CLC ADC#$10 TAY BCC(+2) JSR_CODE_0DA987 DEC_0 BNE LDA.L JMP
     // We only need to stamp:
     //   JMP CODE_0DB4FE at BODY_LOOP+18 (opcode $4C), operand at +19..+20
+    rom.writeAt(BODY_LOOP + 18, [0x4c])
     rom.writeAt(BODY_LOOP + 19, [BOT_MERGE & 0xff, (BOT_MERGE >> 8) & 0xff])
 
     // Top merge helper CODE_0DB4D9:
