@@ -15,6 +15,8 @@ import { ZoomController } from '../../../theia/extension/src/browser/zoom-contro
 class FakeNode {
   scrollLeft = 0
   scrollTop = 0
+  clientWidth = 400
+  clientHeight = 200
   rect: { left: number; top: number }
   private readonly handlers: Array<(e: FakeWheelEvent) => void> = []
 
@@ -205,34 +207,34 @@ describe('ZoomController.bindWheel - threshold, direction, ctrlKey', () => {
   })
 })
 
-describe('ZoomController - anchoring', () => {
-  /**
-   * `node` and `canvas` are otherwise independent fakes, so `canvas`'s
-   * getBoundingClientRect() is wired to move opposite `node.scrollLeft/Top`
-   * from here on - the same relationship a real scrolled child has to its
-   * scroll container. `canvas.rect` still sets the BASE box, so a test can
-   * additionally move it to model a layout shift that has nothing to do
-   * with scrolling (see the reflow-absorption test below).
-   */
-  function layout() {
-    const node = new FakeNode({ left: 10, top: 5 }) // scroller's own border box
-    node.scrollLeft = 50
-    node.scrollTop = 20
-    const baseScrollLeft = node.scrollLeft
-    const baseScrollTop = node.scrollTop
-    const canvas = new FakeNode({ left: -21, top: -16 }) // canvas box need not match the scroller's
-    const baseRect = canvas.getBoundingClientRect.bind(canvas)
-    canvas.getBoundingClientRect = () => {
-      const r = baseRect()
-      return {
-        ...r,
-        left: r.left - (node.scrollLeft - baseScrollLeft),
-        top: r.top - (node.scrollTop - baseScrollTop),
-      }
+/**
+ * `node` and `canvas` are otherwise independent fakes, so `canvas`'s
+ * getBoundingClientRect() is wired to move opposite `node.scrollLeft/Top`
+ * from here on - the same relationship a real scrolled child has to its
+ * scroll container. `canvas.rect` still sets the BASE box, so a test can
+ * additionally move it to model a layout shift that has nothing to do
+ * with scrolling (see the reflow-absorption test below).
+ */
+function layout() {
+  const node = new FakeNode({ left: 10, top: 5 }) // scroller's own border box
+  node.scrollLeft = 50
+  node.scrollTop = 20
+  const baseScrollLeft = node.scrollLeft
+  const baseScrollTop = node.scrollTop
+  const canvas = new FakeNode({ left: -21, top: -16 }) // canvas box need not match the scroller's
+  const baseRect = canvas.getBoundingClientRect.bind(canvas)
+  canvas.getBoundingClientRect = () => {
+    const r = baseRect()
+    return {
+      ...r,
+      left: r.left - (node.scrollLeft - baseScrollLeft),
+      top: r.top - (node.scrollTop - baseScrollTop),
     }
-    return { node, canvas }
   }
+  return { node, canvas }
+}
 
+describe('ZoomController - anchoring', () => {
   it('restores scroll so the same canvas pixel sits under the cursor, within 1px', () => {
     const c = new ZoomController(MAP16_LEVELS, 2) // starts at 2x
     const { node, canvas } = layout()
@@ -400,5 +402,300 @@ describe('ZoomController.bindWheel - delta modes', () => {
     bind(c, node)
     node.dispatch(wheelEvent(deltaY, { deltaMode }))
     expect(c.value).toBe(6)
+  })
+})
+
+describe('ZoomController - fit mode', () => {
+  const MAPS = [1, 2, 3, 4]
+  /** A host whose fit value the test moves, like a resizing panel. */
+  const host = (fit: number | undefined) => {
+    const h = { fit }
+    return { h, c: new ZoomController(MAPS, 1, () => h.fit) }
+  }
+
+  it('without a fit function there is no fit mode, and enterFit is a no-op', () => {
+    const c = new ZoomController(MAPS, 2)
+    expect(c.canFit).toBe(false)
+    expect(c.fitting).toBe(false)
+    c.enterFit()
+    expect(c.fitting).toBe(false)
+    expect(c.value).toBe(2)
+  })
+
+  it.each([0.25, 0.6, 1, 1.37, 2.5, 3.99, 4])('enterFit takes fit value %s', fit => {
+    const { c } = host(fit)
+    c.enterFit()
+    expect(c.fitting).toBe(true)
+    expect(c.value).toBe(fit)
+  })
+
+  it('refit follows the host while fitting, and notifies only on a change', () => {
+    const { h, c } = host(1.5)
+    c.enterFit()
+    const l = vi.fn()
+    c.onDidChange(l)
+    c.refit()
+    expect(l).not.toHaveBeenCalled()
+    h.fit = 0.8
+    c.refit()
+    expect(c.value).toBe(0.8)
+    expect(l).toHaveBeenCalledTimes(1)
+  })
+
+  it('an unmeasurable fit (undefined) keeps the last value', () => {
+    const { h, c } = host(1.5)
+    c.enterFit()
+    h.fit = undefined
+    c.refit()
+    expect(c.value).toBe(1.5)
+    expect(c.fitting).toBe(true)
+  })
+
+  it.each([
+    { fit: 0.4, up: 1, down: undefined },
+    { fit: 1.37, up: 2, down: 1 },
+    { fit: 2.5, up: 3, down: 2 },
+    { fit: 3.99, up: 4, down: 3 },
+    { fit: 4, up: undefined, down: 3 },
+  ])('from fit $fit, steps go to the next level: up $up, down $down', ({ fit, up, down }) => {
+    for (const [dir, want] of [
+      [1, up],
+      [-1, down],
+    ] as const) {
+      const { c } = host(fit)
+      c.enterFit()
+      expect(c.step(dir)).toBe(want !== undefined)
+      expect(c.value).toBe(want ?? fit)
+      expect(c.fitting).toBe(want === undefined)
+    }
+  })
+
+  it('a manual step leaves fit mode: refit then keeps the zoom', () => {
+    const { h, c } = host(1.37)
+    c.enterFit()
+    c.step(1)
+    h.fit = 3
+    c.refit()
+    expect(c.value).toBe(2)
+  })
+
+  it('Ctrl + wheel from fit leaves fit mode', () => {
+    const { h, c } = host(1.37)
+    c.enterFit()
+    const node = new FakeNode()
+    bind(c, node)
+    node.dispatch(wheelEvent(-120))
+    expect(c.fitting).toBe(false)
+    expect(c.value).toBe(2)
+    h.fit = 4
+    c.refit()
+    expect(c.value).toBe(2)
+  })
+
+  it('canZoomIn/Out are judged from a fractional fit', () => {
+    const { c } = host(0.5)
+    c.enterFit()
+    expect(c.canZoomOut).toBe(false)
+    expect(c.canZoomIn).toBe(true)
+  })
+
+  it('actualSize is exactly 1, leaves fit mode, and notifies once', () => {
+    const { h, c } = host(2.2)
+    c.enterFit()
+    const l = vi.fn()
+    c.onDidChange(l)
+    c.actualSize()
+    expect(c.value).toBe(1)
+    expect(c.fitting).toBe(false)
+    expect(l).toHaveBeenCalledTimes(1)
+    h.fit = 3
+    c.refit()
+    expect(c.value).toBe(1)
+  })
+
+  it('actualSize at 1 in fit mode still leaves fit mode, even at the same value', () => {
+    const { c } = host(1)
+    c.enterFit()
+    c.actualSize()
+    expect(c.fitting).toBe(false)
+  })
+
+  it('actualSize keeps the view centre: the content point there stays put', () => {
+    const { c } = host(2)
+    c.enterFit()
+    const node = new FakeNode({ left: 10, top: 5 })
+    node.scrollLeft = 100
+    node.scrollTop = 40
+    const canvas = new FakeNode()
+    // The canvas box moves opposite the scroll, as in a real scroller.
+    canvas.getBoundingClientRect = () => ({
+      left: 10 - node.scrollLeft,
+      top: 5 - node.scrollTop,
+      right: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
+    })
+    const binding = bind(c, node, canvas)
+    const content = { x: (100 + 200) / 2, y: (40 + 100) / 2 } // centre point in content px at 2x
+    c.actualSize()
+    node.scrollLeft = 0 // the resized canvas clamped the scroll
+    node.scrollTop = 0
+    binding.restoreAnchor()
+    expect(node.scrollLeft + node.clientWidth / 2).toBeCloseTo(content.x, 6)
+    expect(node.scrollTop + node.clientHeight / 2).toBeCloseTo(content.y, 6)
+  })
+
+  it('actualSize notifies on a fit-flag-only change (zoom already 1)', () => {
+    const { c } = host(1)
+    c.enterFit()
+    const l = vi.fn()
+    c.onDidChange(l)
+    c.actualSize()
+    expect(l).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { fit: 3.9995, name: 'canZoomIn' },
+    { fit: 1.0005, name: 'canZoomOut' },
+  ])('$name and step agree at a fit within EPS of a level ($fit)', ({ fit, name }) => {
+    const dir = name === 'canZoomIn' ? 1 : -1
+    const { c } = host(fit)
+    c.enterFit()
+    const can = dir > 0 ? c.canZoomIn : c.canZoomOut
+    expect(c.step(dir)).toBe(can)
+  })
+
+  it('enterFit with an unmeasurable fit keeps the current zoom', () => {
+    const c = new ZoomController(MAPS, 2, () => undefined)
+    c.enterFit()
+    expect(c.value).toBe(2)
+    expect(c.fitting).toBe(true)
+  })
+
+  it('actualSize at 1 and not fitting arms no anchor: a later scroll is not undone', () => {
+    const c = new ZoomController(MAPS, 1, () => 1)
+    const { node, canvas } = layout()
+    const binding = bind(c, node, canvas)
+    c.actualSize()
+    c.actualSize()
+    node.scrollLeft = 250 // a plain user scroll after the no-op clicks
+    binding.restoreAnchor()
+    expect(node.scrollLeft).toBe(250)
+  })
+
+  it("one binding's dispose leaves another binding's centre anchor armed", () => {
+    const { h, c } = host(2)
+    void h
+    c.enterFit()
+    const a = layout()
+    const b = layout()
+    const first = bind(c, a.node, a.canvas)
+    const second = bind(c, b.node, b.canvas)
+    first.dispose()
+    b.node.scrollLeft = 100
+    c.actualSize()
+    b.node.scrollLeft = 0
+    second.restoreAnchor()
+    expect(b.node.scrollLeft).not.toBe(0)
+  })
+
+  describe('centreAnchored (Maps)', () => {
+    /** Scroller 400x200 scrolled to (100,40); the canvas moves opposite the scroll. */
+    function scroller(c: ZoomController) {
+      const node = new FakeNode({ left: 10, top: 5 })
+      node.scrollLeft = 100
+      node.scrollTop = 40
+      const canvas = new FakeNode()
+      canvas.getBoundingClientRect = () => ({
+        left: 10 - node.scrollLeft,
+        top: 5 - node.scrollTop,
+        right: 0,
+        bottom: 0,
+        width: 0,
+        height: 0,
+      })
+      return { node, binding: bind(c, node, canvas) }
+    }
+
+    it.each([1, -1] as const)('a button step (dir %i) keeps the centre point', dir => {
+      const c = new ZoomController(MAPS, 2)
+      c.centreAnchored = true
+      const { node, binding } = scroller(c)
+      const cx = (node.scrollLeft + node.clientWidth / 2) / 2
+      c.step(dir)
+      node.scrollLeft = 0
+      binding.restoreAnchor()
+      expect((node.scrollLeft + node.clientWidth / 2) / c.value).toBeCloseTo(cx, 6)
+    })
+
+    it('without the flag a button step leaves the scroll alone', () => {
+      const c = new ZoomController(MAPS, 2)
+      const { node, binding } = scroller(c)
+      c.step(1)
+      binding.restoreAnchor()
+      expect(node.scrollLeft).toBe(100)
+    })
+
+    it('the Fit button anchors; enterFit without the option (a map load) does not', () => {
+      for (const anchored of [true, false]) {
+        const c = new ZoomController(MAPS, 3, () => 1.5)
+        c.centreAnchored = true
+        const { node, binding } = scroller(c)
+        c.enterFit({ anchored })
+        binding.restoreAnchor()
+        expect(node.scrollLeft !== 100).toBe(anchored)
+      }
+    })
+
+    it('a button press then a wheel before the commit anchors the CURSOR point (and is not the centre point)', () => {
+      const c = new ZoomController(MAPS, 2)
+      c.centreAnchored = true
+      const { node, binding } = scroller(c)
+      // Cursor off-centre: content point under client x=50 at 2x, scrollLeft 100.
+      const clientX = 50
+      const content = (clientX - (10 - node.scrollLeft)) / 2
+      c.step(1) // 3x, centre anchor armed, canvas not yet re-laid out
+      node.dispatch(wheelEvent(120, { clientX, clientY: 60 })) // out to 2x
+      expect(c.value).toBe(2)
+      node.scrollLeft = 0 // the commit clamps the scroll
+      binding.restoreAnchor()
+      // The cursor's content point is back under the cursor at the new zoom.
+      expect((clientX - (10 - node.scrollLeft)) / 2).toBeCloseTo(content, 6)
+    })
+
+    it('Fit pressed at the fitted value arms no anchor', () => {
+      const c = new ZoomController(MAPS, 1, () => 1.5)
+      c.centreAnchored = true
+      c.enterFit()
+      const { node, binding } = scroller(c)
+      c.enterFit({ anchored: true })
+      node.scrollLeft = 250
+      binding.restoreAnchor()
+      expect(node.scrollLeft).toBe(250)
+    })
+
+    it('a centre anchor never overrides the wheel content point with the centre one', () => {
+      const c = new ZoomController(MAPS, 1)
+      c.centreAnchored = true
+      const { node, binding } = scroller(c)
+      node.dispatch(wheelEvent(-120, { clientX: 40, clientY: 30 })) // 1x -> 2x at an off-centre cursor
+      const content = (40 - (10 - 100)) / 1
+      node.scrollLeft = 0
+      binding.restoreAnchor()
+      expect((40 - (10 - node.scrollLeft)) / 2).toBeCloseTo(content, 6)
+    })
+
+    it('a refit on resize is not anchored', () => {
+      const h = { fit: 1.5 }
+      const c = new ZoomController(MAPS, 1, () => h.fit)
+      c.centreAnchored = true
+      c.enterFit()
+      const { node, binding } = scroller(c)
+      h.fit = 1.2
+      c.refit()
+      binding.restoreAnchor()
+      expect(node.scrollLeft).toBe(100)
+    })
   })
 })

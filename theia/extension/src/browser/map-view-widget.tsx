@@ -31,6 +31,8 @@ import { decodeSwitchButton, SwitchToggle, type SwitchButtonImages } from './swi
 import { LayerToggle } from './layer-icon'
 import { PixelImageButton, type FrameImage } from './pixel-image-button'
 import { slotLabel } from './map-explorer-widget'
+import { WheelBinding, ZoomController } from './zoom-controller'
+import { ZoomStepper } from './zoom-stepper'
 import { perfEnd, perfStart } from '../common/perf-marks'
 
 export { slotLabel }
@@ -92,9 +94,11 @@ export class MapViewWidget extends ReactWidget {
   /** L1 (foreground) and L2 (background) shown; off leaves what is beneath them. */
   protected showL1 = true
   protected showL2 = true
-  /** Undefined until the user zooms: the strip then fits the view. */
-  protected userZoom: number | undefined
-  protected fitZoom = 1
+  /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
+  protected readonly zoomController = new ZoomController(ZOOMS, 1, () => this.measureFit())
+  protected wheelBinding: WheelBinding | undefined
+  /** The zoom the last `render()` laid the strip out at. */
+  protected renderedZoom = 0
   protected readonly screens = new Map<string, ScreenImages>()
   protected readonly pending = new Set<string>()
   /** Keyed `<plane>:<screen>`. */
@@ -112,6 +116,16 @@ export class MapViewWidget extends ReactWidget {
     this.title.closable = true
     this.node.tabIndex = 0
     this.toDispose.push({ dispose: () => this.resizes.disconnect() })
+    this.zoomController.centreAnchored = true
+    this.toDispose.push(this.zoomController)
+    this.toDispose.push({ dispose: () => this.wheelBinding?.dispose() })
+    this.toDispose.push(
+      this.zoomController.onDidChange(() => {
+        this.update()
+        requestAnimationFrame(() => this.requestVisible())
+      }),
+    )
+    this.zoomController.enterFit()
     this.toDispose.push(
       this.pushClient.onChanged(manifestPath => {
         if (manifestPath === this.options?.manifestPath) this.refresh()
@@ -129,6 +143,8 @@ export class MapViewWidget extends ReactWidget {
     this.details = undefined
     this.error = undefined
     this.mapLayout = undefined
+    // A new map opens fitted, whatever zoom the last one was left at.
+    this.zoomController.enterFit()
     // A reused (preview) tab keeps its strip across maps: blank it, and start at screen 0.
     for (const c of this.canvases.values()) {
       c.getContext('2d')?.clearRect(0, 0, c.width, c.height)
@@ -145,7 +161,7 @@ export class MapViewWidget extends ReactWidget {
   }
 
   protected get zoom(): number {
-    return this.userZoom ?? this.fitZoom
+    return this.zoomController.value
   }
 
   /** Drops every cached screen and reads the map again from the working copy. */
@@ -279,6 +295,18 @@ export class MapViewWidget extends ReactWidget {
   }
 
   /**
+   * After a React commit only: the strip now has its new zoom's size, so the
+   * wheel/centre anchor can be put back. `sync` also runs from scrolls and
+   * replies, where restoring early would consume the anchor too soon.
+   */
+  protected readonly afterCommit = (): void => {
+    // Only a commit that shows the CURRENT zoom: an older one still has the
+    // old layout, and restoring on it would consume the anchor early.
+    if (this.renderedZoom === this.zoomController.value) this.wheelBinding?.restoreAnchor()
+    this.sync()
+  }
+
+  /**
    * Brings every canvas to what it should show, whatever event asked: the
    * cached picture for the current state. A toggle or an edit keeps the
    * current picture up until the new one lands, with no blank flash; only a
@@ -333,19 +361,20 @@ export class MapViewWidget extends ReactWidget {
     return ref
   }
 
-  /** Fits the map's cross axis to the view unless the user has zoomed. */
-  protected fitStrip(): void {
+  /** The zoom at which the map's cross axis fills the view; undefined until measurable. */
+  protected measureFit(): number | undefined {
     const l = this.mapLayout
     const el = this.scroller
-    if (l && el && this.userZoom === undefined) {
-      const vertical = l.orientation === 'vertical'
-      const avail = vertical ? el.clientWidth : el.clientHeight
-      const fit = Math.min(4, Math.max(0.25, avail / (vertical ? l.width : l.height)))
-      if (avail > 0 && Math.abs(fit - this.fitZoom) > 0.001) {
-        this.fitZoom = fit
-        this.update()
-      }
-    }
+    if (!l || !el) return undefined
+    const vertical = l.orientation === 'vertical'
+    const avail = vertical ? el.clientWidth : el.clientHeight
+    if (avail <= 0) return undefined
+    return Math.min(4, Math.max(0.25, avail / (vertical ? l.width : l.height)))
+  }
+
+  /** Refits while in fit mode; always asks for the screens now in view. */
+  protected fitStrip(): void {
+    this.zoomController.refit()
     requestAnimationFrame(() => this.requestVisible())
   }
 
@@ -371,16 +400,6 @@ export class MapViewWidget extends ReactWidget {
     this.update()
   }
 
-  protected stepZoom(dir: 1 | -1): void {
-    const z = this.zoom
-    const next =
-      dir > 0 ? ZOOMS.find(s => s > z + 0.001) : [...ZOOMS].reverse().find(s => s < z - 0.001)
-    if (next === undefined) return
-    this.userZoom = next
-    this.update()
-    requestAnimationFrame(() => this.requestVisible())
-  }
-
   protected override onResize(msg: Widget.ResizeMessage): void {
     super.onResize(msg)
     this.fitStrip()
@@ -392,7 +411,7 @@ export class MapViewWidget extends ReactWidget {
   }
 
   protected render(): React.ReactNode {
-    const z = this.zoom
+    this.renderedZoom = this.zoomController.value
     return (
       <div className="hb-map-view-main">
         <div className="hb-map-view-toolbar">
@@ -425,31 +444,7 @@ export class MapViewWidget extends ReactWidget {
             />
           ))}
           <span className="hb-toolbar-spacer" />
-          <button
-            type="button"
-            data-control="zoom-out"
-            className="hb-icon-btn"
-            disabled={z <= ZOOMS[0]!}
-            title="Zoom out"
-            aria-label="Zoom out"
-            onClick={() => this.stepZoom(-1)}
-          >
-            <span className="codicon codicon-zoom-out" />
-          </button>
-          <span data-control="zoom-indicator" className="hb-zoom-indicator">
-            {`${Math.round(z * 100)}%`}
-          </span>
-          <button
-            type="button"
-            data-control="zoom-in"
-            className="hb-icon-btn"
-            disabled={z >= ZOOMS[ZOOMS.length - 1]!}
-            title="Zoom in"
-            aria-label="Zoom in"
-            onClick={() => this.stepZoom(1)}
-          >
-            <span className="codicon codicon-zoom-in" />
-          </button>
+          <ZoomStepper controller={this.zoomController} fitControls />
         </div>
         {this.renderFacts()}
         {this.mapLayout?.note && (
@@ -468,7 +463,7 @@ export class MapViewWidget extends ReactWidget {
           </div>
         ))}
         {this.renderStrip()}
-        <AfterCommit run={this.sync} />
+        <AfterCommit run={this.afterCommit} />
         <details className="hb-map-view-header" data-control="header-panel">
           <summary>Header</summary>
           {this.renderDecode()}
@@ -495,6 +490,26 @@ export class MapViewWidget extends ReactWidget {
     )
   }
 
+  /**
+   * One stable ref: an inline arrow is re-called (null, then the element) on
+   * every render, which would rebuild the wheel binding and drop its pending
+   * anchor between the zoom and the commit that restores it.
+   */
+  protected readonly scrollerRef = (el: HTMLDivElement | null): void => {
+    if (el === this.scroller) return
+    if (this.scroller) this.resizes.unobserve(this.scroller)
+    this.scroller = el
+    this.wheelBinding?.dispose()
+    this.wheelBinding = undefined
+    if (el) {
+      this.resizes.observe(el)
+      // Anchored on the strip: it scrolls with the content, unlike the scroller.
+      this.wheelBinding = this.zoomController.bindWheel(el, () =>
+        el.querySelector<HTMLElement>('.hb-map-view-strip'),
+      )
+    }
+  }
+
   protected renderStrip(): React.ReactNode {
     const l = this.mapLayout
     if (!l) {
@@ -510,12 +525,7 @@ export class MapViewWidget extends ReactWidget {
       <div
         className={'hb-map-view-scroller' + (l.orientation === 'vertical' ? ' hb-vertical' : '')}
         data-control="map-scroller"
-        ref={el => {
-          if (el === this.scroller) return
-          if (this.scroller) this.resizes.unobserve(this.scroller)
-          this.scroller = el
-          if (el) this.resizes.observe(el)
-        }}
+        ref={this.scrollerRef}
         onScroll={() => this.requestVisible()}
       >
         {/* Bottom to top (planes by MAP_PLANE_KEYS): the checkerboard, the back area, then the screens,

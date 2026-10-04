@@ -14,6 +14,8 @@ const WHEEL_STEP_PX = 100
 const DELTA_MODE_PX = [1, WHEEL_STEP_PX / 3, WHEEL_STEP_PX]
 /** A pause this long ends a wheel gesture. */
 const WHEEL_IDLE_MS = 400
+/** Levels closer than this to the zoom count as the zoom itself. */
+const EPS = 0.001
 
 export interface Disposable {
   dispose(): void
@@ -21,14 +23,15 @@ export interface Disposable {
 
 export interface WheelBinding extends Disposable {
   /**
-   * Applies the anchor from the last wheel-driven step, once the widget has
-   * resized its canvas for the new zoom. Re-reads the canvas's CURRENT box
+   * Applies the pending anchor (from the last wheel step, or from a button
+   * when the controller is `centreAnchored`), once the widget has resized
+   * its canvas for the new zoom. Re-reads the canvas's CURRENT box
    * rather than trusting anything measured at wheel time, so it corrects
    * for the canvas having moved for ANY reason since - a scroll clamp, or a
    * sibling reflowing (Map16's browser column widens with the canvas and
    * its note text re-wraps, #651) - not only the zoom step itself. A no-op
    * with nothing pending, or if the zoom has moved since the step (another
-   * wheel binding, a button) - the pending anchor is for a zoom level that
+   * wheel binding, a button without `centreAnchored`) - the pending anchor is for a zoom level that
    * is no longer current.
    */
   restoreAnchor(): void
@@ -41,30 +44,61 @@ interface PendingAnchor {
   readonly clientX: number
   readonly clientY: number
   readonly zoom: number
+  /** Whose point it is: the cursor's (wheel) or the view centre's (button). */
+  readonly origin: 'wheel' | 'centre'
+  /** The zoom the canvas is still laid out at; it keeps that until the commit. */
+  readonly from: number
 }
 
 export class ZoomController implements Disposable {
   private readonly listeners: Array<(value: number) => void> = []
-  private index: number
+  /** Any positive number: a fit value or 100% need not be one of `levels`. */
+  private zoom: number
+  private fit = false
+  /**
+   * Maps only (#526): the + / - and Fit buttons keep the view centre fixed.
+   * Off, they leave the scroll position alone, as GFX and Map16 do. Actual
+   * size anchors on the centre either way. Needs a wheel binding, whose
+   * `restoreAnchor` the host calls after its commit.
+   */
+  centreAnchored = false
+  /** Set by `bindWheel`: keeps the view centre fixed across a jump to `target`. */
+  private anchorCentre: ((target: number) => void) | undefined
 
+  /**
+   * `fitZoom`, when given, enables fit mode (#526): the host's own "what zoom
+   * fits the view" - undefined while the view cannot be measured. It is the
+   * host's formula, so a second one never drifts from the load-time fit.
+   */
   constructor(
     private readonly levels: readonly number[],
     initial: number,
+    private readonly fitZoom?: () => number | undefined,
   ) {
     const i = levels.indexOf(initial)
-    this.index = i >= 0 ? i : 0
+    this.zoom = levels[i >= 0 ? i : 0]!
   }
 
   get value(): number {
-    return this.levels[this.index]!
+    return this.zoom
+  }
+
+  /** Whether the host supplied a fit function. */
+  get canFit(): boolean {
+    return this.fitZoom !== undefined
+  }
+
+  /** True while the zoom tracks the host's fit value. */
+  get fitting(): boolean {
+    return this.fit
   }
 
   get canZoomIn(): boolean {
-    return this.index < this.levels.length - 1
+    return this.levels.some(l => l > this.zoom + EPS)
   }
 
   get canZoomOut(): boolean {
-    return this.index > 0
+    return this.levels.some(l => l < this.zoom - EPS)
   }
 
   readonly onDidChange = (listener: (value: number) => void): Disposable => {
@@ -81,13 +115,52 @@ export class ZoomController implements Disposable {
     this.listeners.length = 0
   }
 
-  /** One level in `dir`, clamped. Returns whether the value actually moved. */
+  private set(value: number, fit: boolean): boolean {
+    const moved = Math.abs(value - this.zoom) > EPS || fit !== this.fit
+    this.zoom = value
+    this.fit = fit
+    if (moved) for (const l of [...this.listeners]) l(this.value)
+    return moved
+  }
+
+  /** Starts (or resumes) fit mode. A no-op without a fit function. */
+  enterFit(opts?: { anchored?: boolean }): void {
+    if (!this.fitZoom) return
+    const target = this.fitZoom() ?? this.zoom
+    // `anchored` is for the Fit button; a map load (a new strip) must not anchor.
+    if (opts?.anchored && this.centreAnchored && Math.abs(target - this.zoom) > EPS) {
+      this.anchorCentre?.(target)
+    }
+    this.set(target, true)
+  }
+
+  /** The host reports its view resized: follows the fit value while fitting. */
+  refit(): void {
+    if (!this.fit || !this.fitZoom) return
+    const f = this.fitZoom()
+    if (f !== undefined) this.set(f, true)
+  }
+
+  /** Exactly 100%, anchored on the view centre once a wheel binding exists. */
+  actualSize(): void {
+    // Armed only for a real jump: a stale anchor would snap a later scroll back.
+    if (this.fit || Math.abs(1 - this.zoom) > EPS) this.anchorCentre?.(1)
+    this.set(1, false)
+  }
+
+  /**
+   * One level in `dir`, clamped; from a fractional zoom (fit, 100% outside
+   * `levels`) that is the nearest level above or below it. Leaves fit mode
+   * only if it moves. Returns whether the value actually moved.
+   */
   step(dir: 1 | -1): boolean {
-    const next = Math.min(this.levels.length - 1, Math.max(0, this.index + dir))
-    if (next === this.index) return false
-    this.index = next
-    for (const l of [...this.listeners]) l(this.value)
-    return true
+    const next =
+      dir > 0
+        ? this.levels.find(l => l > this.zoom + EPS)
+        : [...this.levels].reverse().find(l => l < this.zoom - EPS)
+    if (next === undefined) return false
+    if (this.centreAnchored) this.anchorCentre?.(next)
+    return this.set(next, false)
   }
 
   /**
@@ -142,14 +215,19 @@ export class ZoomController implements Disposable {
       // notch's content point (recomputing it from CURRENT geometry here
       // would read a canvas that has not resized for the earlier steps in
       // this burst yet) but always the LATEST notch's cursor position.
-      let contentX = pending?.contentX
-      let contentY = pending?.contentY
+      // A button's pending anchor holds the CENTRE's point, never the
+      // cursor's: that one is re-read from the canvas, which is still laid
+      // out at the zoom the button started from (`from`).
+      const burst = pending?.origin === 'wheel' ? pending : undefined
+      const from = pending?.from ?? zoomBefore
+      let contentX = burst?.contentX
+      let contentY = burst?.contentY
       if (contentX === undefined) {
         const canvas = canvasOf()
         if (canvas) {
           const rect = canvas.getBoundingClientRect()
-          contentX = (e.clientX - rect.left) / zoomBefore
-          contentY = (e.clientY - rect.top) / zoomBefore
+          contentX = (e.clientX - rect.left) / from
+          contentY = (e.clientY - rect.top) / from
         }
       }
 
@@ -166,6 +244,8 @@ export class ZoomController implements Disposable {
               clientX: e.clientX,
               clientY: e.clientY,
               zoom: this.value,
+              origin: 'wheel',
+              from,
             }
     }
     node.addEventListener('wheel', listener, { passive: false })
@@ -183,9 +263,32 @@ export class ZoomController implements Disposable {
       node.scrollTop += rect.top - (anchor.clientY - anchor.contentY * anchor.zoom)
     }
 
+    const arm = (target: number): void => {
+      const canvas = canvasOf()
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      const box = node.getBoundingClientRect()
+      const clientX = box.left + node.clientWidth / 2
+      const clientY = box.top + node.clientHeight / 2
+      // Two presses before one commit: the canvas is still at the FIRST one's zoom.
+      const from = pending?.from ?? this.value
+      pending = {
+        contentX: (clientX - rect.left) / from,
+        contentY: (clientY - rect.top) / from,
+        clientX,
+        clientY,
+        zoom: target,
+        origin: 'centre',
+        from,
+      }
+    }
+
+    this.anchorCentre = arm
+
     return {
       dispose: () => {
         cancelFollowUp()
+        if (this.anchorCentre === arm) this.anchorCentre = undefined
         node.removeEventListener('wheel', listener)
       },
       restoreAnchor: () => {

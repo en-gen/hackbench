@@ -64,6 +64,8 @@ Codicons, the same set the rest of the shell uses. One meaning per glyph.
 | `table`                | toggle the tile grid            |
 | `play` / `debug-stop`  | start / stop animation playback |
 | `zoom-in` / `zoom-out` | step zoom                       |
+| `screen-full`          | fit to window (Maps)            |
+| `screen-normal`        | actual size, 100% (Maps)        |
 | `debug-pause`          | pause, leaving state intact     |
 | `refresh`              | discard and reload from source  |
 
@@ -100,8 +102,12 @@ Rules learned the hard way:
 - A row containing icon buttons uses `align-items: center`. The base
   toolbar aligns text baselines, which sits a 24px button too low next to
   the selects it shares a row with.
-- Zoom is `[-] [value] [+]`, in that order. It is the near-universal
-  convention and reads wrong any other way.
+- Zoom is `[actual] [fit] [-] [value] [+]`, the first two only where
+  the host enables them (Maps). It is the near-universal convention and
+  reads wrong any other way. The value is a percent (`100%`) in every
+  editor, and Fit shows the pressed state while it is on.
+  In Maps, Fit, Actual size, + and - keep the view centre fixed; Ctrl +
+  wheel keeps the point under the cursor fixed.
 
 ## Toggle buttons
 
