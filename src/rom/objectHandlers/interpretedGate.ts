@@ -29,10 +29,10 @@ export function noteRefused(
   handler: number,
   opcodeAt: number,
   expected: number,
-  found: number | undefined,
+  found: number | null,
 ): void {
   const h2 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(2, '0')
-  const was = found === undefined ? 'nothing' : h2(found)
+  const was = found === null ? 'nothing' : h2(found)
   const line = `Handler ${hex6(handler)} refused: the byte at ${hex6(opcodeAt)} is ${was}, not the ${h2(expected)} opcode it reads through, so the object is not drawn.`
   if (unverified && !unverified.includes(line)) unverified.push(line)
 }
