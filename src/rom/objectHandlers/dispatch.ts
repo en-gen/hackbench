@@ -287,12 +287,56 @@ export const EXTENDED_HANDLERS: Record<number, HandlerFn> = {
 }
 
 /**
+ * Literal pins on the dispatch path the tables hang off, so a table is only
+ * trusted while the code that reads it is still reached (#302). Reading bytes,
+ * not running them: a JML hook or a replaced preamble fails the pin and the
+ * map says so, while still drawing from the stock tables. Pins from
+ * bank_0D.asm: CODE_0DA106 (1056-1060), CODE_0DA415 (1324-1327), and the
+ * per-tileset dispatchers' shared preamble (CODE_0DA44B, 1345-1350). The
+ * trailing `22 FA 86 00` is JSL ExecutePtrLong (bank_00.asm:864), whose bank byte may be $80 (the same code through the FastROM mirror); $59/$5A
+ * are LvlLoadObjSize/LvlLoadObjNo and $1931 is ObjectTileset (rammap.asm).
+ */
+const PIN_EXTENDED = [0xe2, 0x30, 0xa5, 0x59, 0xaa, 0x22, 0xfa, 0x86, 0x00]
+const PIN_TILESET = [0xe2, 0x30, 0xad, 0x31, 0x19, 0x22, 0xfa, 0x86, 0x00]
+const PIN_DISPATCHER = [0xe2, 0x30, 0xa6, 0x5a, 0xca, 0x8a, 0x22, 0xfa, 0x86, 0x00]
+
+const pathChecks = new WeakMap<RomFile, { version: number; found: Map<number, string | null> }>()
+
+/** What differs from `pin` at `addr`, or null when it matches. Once per ROM version and address. */
+function pathFinding(rom: RomFile, addr: number, pin: number[]): string | null {
+  let c = pathChecks.get(rom)
+  if (!c || c.version !== rom.version) pathChecks.set(rom, (c = { version: rom.version, found: new Map() })) // prettier-ignore
+  const cached = c.found.get(addr)
+  if (cached !== undefined) return cached
+  const got = rom.readAt(addr, pin.length)
+  const bytes = got ? Array.from(got) : []
+  let found: string | null = null
+  if (
+    bytes.length !== pin.length ||
+    bytes.some((b, i) => (i === pin.length - 1 ? b & 0x7f : b) !== pin[i])
+  ) {
+    const h = (n: number): string => n.toString(16).toUpperCase().padStart(2, '0')
+    const target = bytes[0] === 0x5c ? ` (JML $${h(bytes[3])}${h(bytes[2])}${h(bytes[1])})` : ''
+    found = `Object dispatch at $${addr.toString(16).toUpperCase().padStart(6, '0')} is not the stock routine${target}, found ${bytes.map(h).join(' ') || 'nothing'}: objects are drawn from the stock tables, not verified against this ROM.` // prettier-ignore
+  }
+  c.found.set(addr, found)
+  return found
+}
+
+function notePath(cur: Cursor, addr: number, pin: number[]): void {
+  const found = pathFinding(cur.rom, addr, pin)
+  const sink = cur.draw?.unverified
+  if (found && sink && !sink.includes(found)) sink.push(found)
+}
+
+/**
  * Resolve an extended-object handler. The extended-object number is in
  * `cur.objNo` (for extended objects we store `settings` there per LevelParser).
  * Actually in the ASM, LvlLoadObjSize (settings byte) is the extended selector,
  * so the caller must place that in cur.objNo before dispatching.
  */
 export function dispatchExtended(cur: Cursor): void {
+  notePath(cur, 0x0da106, PIN_EXTENDED)
   const idx = cur.objNo & 0xff
   if (idx >= EXTENDED_DISPATCH_COUNT) return
   const addr = readLongPointer(cur.rom, ADDR_EXTENDED_DISPATCH + idx * 3)
@@ -338,6 +382,8 @@ export function dispatchStandard(cur: Cursor): void {
   const tilesetHandlerAddr = readLongPointer(cur.rom, ADDR_TILESET_DISPATCH + tilesetIdx * 3)
   if (tilesetHandlerAddr === null) return
   const dispatcherSnesAddr = tilesetHandlerAddr & 0xffffff
+  notePath(cur, 0x0da415, PIN_TILESET)
+  notePath(cur, dispatcherSnesAddr, PIN_DISPATCHER)
 
   // Step 2: the handler pointer table lives immediately after the dispatcher's
   // 10-byte preamble. Look up this tileset's entry for the 1-based objNo.

@@ -157,6 +157,7 @@ export function expandObject(
       owner,
       switchFlags,
     )
+    cur.draw = draw
     dispatchExtended(cur)
   } else {
     const cur = makeCursor(

@@ -511,6 +511,8 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
     variants.splice(VARIANT * 3, 3, lo(HANDLER), hi(HANDLER), bank)
     return cart(code, [
       [HANDLER, code],
+      [0x0da415, [0xe2, 0x30, 0xad, 0x31, 0x19, 0x22, 0xfa, 0x86, 0x00]], // stock dispatch path, so no #302 note
+      [DISPATCH, [0xe2, 0x30, 0xa6, 0x5a, 0xca, 0x8a, 0x22, 0xfa, 0x86, 0x00]],
       [ADDR_TILESET_DISPATCH, [lo(DISPATCH), hi(DISPATCH), 0x0d]],
       [DISPATCH + 10, table],
       [PIPES + 18, variants],
@@ -552,12 +554,15 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
     expandObject(grid, obj(size), rom, 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: false, unverified, entry: HANDLER, options }) // prettier-ignore
     return { grid, unverified }
   }
+  const noDispatchNote = (u: string[]): string[] => u.filter(x => !x.startsWith('Object dispatch at')) // prettier-ignore
   /** Expand one object through the production entry: the loader's JSL and the ROM's own dispatch. */
   function expandProd(rom: RomFile, size: number) {
     const unverified: string[] = []
     const grid = createGrid(SCREENS)
     expandObject(grid, obj(size), rom, 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: false, unverified, options: SIG_OPTS }) // prettier-ignore
-    return { grid, unverified }
+    // The stand-in entry occupies $0DA40F-$0DA417, over the stock bytes the #302 path
+    // pin reads at $0DA415, so that note is expected here and is not what these cases test.
+    return { grid, unverified: noDispatchNote(unverified) }
   }
   /** What the port draws for the same object, straight from the port. */
   function port(rom: RomFile, size: number): number[][] {
@@ -684,7 +689,7 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       const unverified: string[] = []
       const grid = createGrid(SCREENS)
       expandObject(grid, obj(0x35), rom, 0, null, OWNER_NONE, undefined, { draw: drawInterpreted, vertical: false, unverified }) // prettier-ignore
-      expect(unverified[0]).toMatch(/not the inline-table dispatch/)
+      expect(noDispatchNote(unverified)[0]).toMatch(/not the inline-table dispatch/)
       expect(grid).toEqual(port(rom, 0x35))
     })
 
@@ -707,19 +712,19 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       const widened = (u: string[]) => ({ unverified: u, draw: drawInterpreted, vertical: false, entry: HANDLER }) as never // prettier-ignore
       const v: string[] = []
       expandMapOwned([obj(0x35)], SCREENS, prodCart(), 0, true, undefined, undefined, SWITCH_FLAGS_UNCLEARED, widened(v)) // prettier-ignore
-      expect(v[0]).toMatch(/vertical/)
+      expect(noDispatchNote(v)[0]).toMatch(/vertical/)
       const h: string[] = []
       const bad = prodCart({ loader: [0, 0, 0, 0, 0, 0, 0] })
       expandMapOwned([obj(0x35)], SCREENS, bad, 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, widened(h)) // prettier-ignore
-      expect(h[0]).toMatch(/loader/)
+      expect(noDispatchNote(h)[0]).toMatch(/loader/)
     })
 
     it('falls back to the port with a note, not a throw, when the sink has no draw function', () => {
       const unverified: string[] = []
       const rom = prodCart()
       const { grid } = expandMapOwned([obj(0x35)], SCREENS, rom, 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, { unverified } as never) // prettier-ignore
-      expect(unverified).toHaveLength(1)
-      expect(unverified[0]).toMatch(/\$0DADEB .*not verified/)
+      expect(noDispatchNote(unverified)).toHaveLength(1)
+      expect(noDispatchNote(unverified)[0]).toMatch(/\$0DADEB .*not verified/)
       expect(grid).toEqual(port(rom, 0x35))
     })
 
