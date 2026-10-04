@@ -97,11 +97,14 @@ export function drawL1Planes(
       const art = model.switchArt.get(def.id)
       const ghost = art && ghostOf(cell, art.off, art.alts, x => x.rgba)
       if (ghost) overlayHidden(cell, 16, 0, 0, ghost)
+      // The screen door is the hidden tile's art (built from the Map16 entry), so its priority
+      // bits route it, not those of the blank cell drawn in its place.
+      const owner = ghost ? (model.map16.tiles[def.id] ?? def) : def
       for (const [qx, qy, sub] of [
-        [0, 0, def.tl],
-        [8, 0, def.tr],
-        [0, 8, def.bl],
-        [8, 8, def.br],
+        [0, 0, owner.tl],
+        [8, 0, owner.tr],
+        [0, 8, owner.bl],
+        [8, 8, owner.br],
       ] as const) {
         const plane = sub.priority ? 'l1High' : 'l1Low'
         for (let py = qy; py < qy + 8; py++) {

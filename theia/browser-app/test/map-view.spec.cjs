@@ -457,6 +457,46 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
 })
 
 /**
+ * The high plane is painted, not just present: $105 screen 9 has priority
+ * tiles ($105 draws screens 9 and 18 in the high plane, measured on vanilla),
+ * so the server's l1High has drawn pixels, and the high canvas must carry the
+ * same alpha. Alpha only: a canvas readback premultiplies colour.
+ */
+test('the high canvas shows the served l1High plane on a screen with priority tiles', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showScreen(page, 0x105, 9)
+  const flags = { green: false, yellow: false, blue: false, red: false }
+  const switches = { blue: false, silver: false, onOff: false }
+  const reply = await page.evaluate(
+    ({ mp }) => getSvc('Symbol(ProjectService)').mapScreen(mp, 0x105, 9, flags, switches),
+    { mp: project.manifestPath, flags, switches },
+  )
+  expect(reply.status).toBe('ok')
+  expect(reply.planes.l1High, 'the server draws a high plane on screen 9').not.toBeNull()
+  const sel = `${root(0x105)} canvas[data-screen="9"][data-plane="l1High"]`
+  await expect(page.locator(sel)).toHaveAttribute('data-drawn', drawn(9))
+  const { served, shown, drawnPx } = await page.evaluate(
+    ({ sel, b64 }) => {
+      const c = document.querySelector(sel)
+      const alpha = d => Array.from({ length: d.length / 4 }, (_, i) => d[i * 4 + 3])
+      const shown = alpha(c.getContext('2d').getImageData(0, 0, c.width, c.height).data)
+      const served = alpha(Uint8Array.from(atob(b64), ch => ch.charCodeAt(0)))
+      return {
+        served: served.join(','),
+        shown: shown.join(','),
+        drawnPx: shown.filter(a => a !== 0).length,
+      }
+    },
+    { sel, b64: reply.planes.l1High },
+  )
+  expect(drawnPx, 'the high canvas has drawn pixels').toBeGreaterThan(0)
+  expect(shown).toBe(served)
+})
+
+/**
  * The back area is a layer of its own, between the checkerboard and L1: L1
  * is clear where no tile draws, so hiding the back area (as a layer toggle
  * will) shows the checkerboard there, not a color baked into L1.
