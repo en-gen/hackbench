@@ -193,6 +193,7 @@
     "lint:fix": "eslint src test tools theia *.js *.mjs --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,css}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,css}\"",
+    "gen:icon": "node tools/scripts/gen-app-icon.mjs",
     "gitnexus": "bash tools/scripts/gitnexus-refresh.sh",
     "test": "tsc -p tsconfig.test.json && vitest run",
     "test:unit": "vitest run",
@@ -208,6 +209,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^26.6.2",
     "@types/vscode": "^1.138.0",
     "@typescript-eslint/eslint-plugin": "^8.70.1",
