@@ -42,18 +42,21 @@ function userText(source: string, fileName = 'x.tsx'): string[] {
   return found
 }
 
+/** `path: "text"` for every scanned user-facing literal matching `re`. */
+function offending(re: RegExp): string[] {
+  const files = SCANNED.flatMap(d => sourceFiles(path.join(ROOT, d)))
+  // Tripwire: a moved directory must not pass by scanning nothing.
+  expect(files.length).toBeGreaterThan(100)
+  return files.flatMap(f =>
+    userText(fs.readFileSync(f, 'utf8'), f)
+      .filter(s => re.test(s))
+      .map(s => `${path.relative(ROOT, f)}: ${JSON.stringify(s)}`),
+  )
+}
+
 describe('ROM terminology gate', () => {
   it('no user-facing string says cartridge or cart', () => {
-    const files = SCANNED.flatMap(d => sourceFiles(path.join(ROOT, d)))
-    // Tripwire: a moved directory must not pass by scanning nothing.
-    expect(files.length).toBeGreaterThan(100)
-
-    const offenders = files.flatMap(f =>
-      userText(fs.readFileSync(f, 'utf8'), f)
-        .filter(s => BANNED.test(s))
-        .map(s => `${path.relative(ROOT, f)}: ${JSON.stringify(s)}`),
-    )
-    expect(offenders).toEqual([])
+    expect(offending(BANNED)).toEqual([])
   })
 
   it('flags every literal shape, and never a comment or identifier', () => {
@@ -76,14 +79,7 @@ describe('ROM terminology gate', () => {
   })
 
   it('no user-facing string says colour (US spelling, #273)', () => {
-    const files = SCANNED.flatMap(d => sourceFiles(path.join(ROOT, d)))
-    expect(files.length).toBeGreaterThan(100)
-    const offenders = files.flatMap(f =>
-      userText(fs.readFileSync(f, 'utf8'), f)
-        .filter(s => UK_COLOR.test(s))
-        .map(s => `${path.relative(ROOT, f)}: ${JSON.stringify(s)}`),
-    )
-    expect(offenders).toEqual([])
+    expect(offending(UK_COLOR)).toEqual([])
   })
 
   it('colour check flags literals and template text, never a comment', () => {
