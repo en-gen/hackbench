@@ -36,15 +36,15 @@ at the top of its half. A set holds those slots as they are.
 
 ## Exit graph: the reaching flag
 
-No slot's resolved exits depend on which flag reached it (static
+No slot's resolved screen exits depend on which flag reached it (static
 argument, not measured on a corpus; #451). Roots are excluded from
 `validDestinations`, so each root resolves once under its seeded flag, on
 the Lunar Magic hook path too. A non-root is `(flag ? screenHigh : 0) << 8
 | destLow`: with screenHigh 1 its bit 8 IS its flag; with screenHigh 0
 (stock or hook) both flags resolve identically; readSubmapHigh refuses 2
 or more. The BFS's real job is a reachability gate: an orphaned map's
-exit data never contributes an edge, and a map never reached gets no
-resolved exits.
+data for its screen exits never contributes an edge, and a map never reached
+gets no resolved screen exits.
 
 The hook is Lunar Magic's replacement of the stock `BEQ` that picks the
 entry high byte from `OWPlayerSubmap` (stock BEQ at bank_05.asm:7224,

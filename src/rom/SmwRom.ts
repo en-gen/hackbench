@@ -363,7 +363,7 @@ export class SmwRom {
    * equivalent: every level reached from overworld root R inherits R's
    * flag -- 1 if R is a submap root, 0 if a main-map root.
    *
-   * Why no slot's exits depend on the reaching flag: see
+   * Why no slot's screen exits depend on the reaching flag: see
    * docs/rom/smw-translevel-formula.md, section "Exit graph: the reaching flag".
    *
    * Secondary-exit low byte: DATA_05F800 is two 256-entry halves selected
