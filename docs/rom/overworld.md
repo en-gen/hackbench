@@ -84,7 +84,7 @@ from there (measured on that one ROM of the 6-ROM corpus, 2026-09-28). An L2 tha
 
 `CODE_04DC6A` then runs `CODE_04E453` for each event (:5705-5712), applying
 completed events' tile changes before first display. The view draws the
-tilemap before any event, and its note says so.
+tilemap before any event.
 
 Layers compose in SNES mode 1 order from each word's priority bit: L2 low,
 L1 low, L2 high, L1 high (`src/rom/render/OverworldComposite.ts`, run in the

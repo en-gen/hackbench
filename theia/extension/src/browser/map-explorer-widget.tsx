@@ -484,7 +484,11 @@ export class MapExplorerWidget extends TreeWidget {
     node: TreeNode | undefined,
     event: React.MouseEvent<HTMLElement>,
   ): void {
-    super.handleDblClickEvent(node, event)
+    // The Overworld row is expandable (its areas), and Theia's default double-click opens the
+    // node by toggling it: opening it must not fold the area rows (the chevron still toggles).
+    if ((node as MapTreeNode | undefined)?.category !== 'overworld') {
+      super.handleDblClickEvent(node, event)
+    }
     this.fireOpen(node as MapTreeNode | undefined, true)
   }
 

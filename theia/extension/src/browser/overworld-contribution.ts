@@ -1,14 +1,15 @@
 /**
- * `hackbench.overworld.focus`: opens the ONE main-area Overworld view, or
- * focuses it when open. The map explorer's Overworld row runs it (#432), and
- * it is on the View menu so it is reachable without the explorer.
- * `hackbench.overworld.openArea` opens an area's own tab, or focuses it (#364).
+ * `hackbench.overworld.focus` shows the hub and `hackbench.overworld.openArea` an area, both
+ * through PreviewTabs like map rows (#364): not activating previews it in the one shared
+ * Overworld preview tab, activating pins it as its own tab and retires the matching preview.
+ * The explorer's rows run them (#432), and the hub is on the View menu so it is reachable
+ * without the explorer.
  *
  * The command is menu-contributed, not only bound (#379, see
  * map-explorer-contribution.ts).
  */
 import { inject, injectable } from '@theia/core/shared/inversify'
-import { ApplicationShell, CommonMenus, WidgetManager } from '@theia/core/lib/browser'
+import { CommonMenus } from '@theia/core/lib/browser'
 import {
   Command,
   CommandContribution,
@@ -18,11 +19,11 @@ import {
 } from '@theia/core/lib/common'
 import {
   OverworldViewWidget,
-  OVERWORLD_AREA_VIEW_ID,
   OVERWORLD_FOCUS_COMMAND_ID,
   OVERWORLD_OPEN_AREA_COMMAND_ID,
   OVERWORLD_VIEW_ID,
 } from './overworld-view-widget'
+import { PreviewTabs } from './preview-tabs'
 
 export const ShowOverworldCommand: Command = {
   id: OVERWORLD_FOCUS_COMMAND_ID,
@@ -32,52 +33,30 @@ export const ShowOverworldCommand: Command = {
 
 @injectable()
 export class OverworldContribution implements CommandContribution, MenuContribution {
-  @inject(ApplicationShell) protected readonly shell!: ApplicationShell
-  @inject(WidgetManager) protected readonly widgetManager!: WidgetManager
+  @inject(PreviewTabs) protected readonly previews!: PreviewTabs
 
-  protected attaching: Promise<OverworldViewWidget> | undefined
-
-  /** Opens the Overworld widget, or focuses the one already open. */
-  async openOverworld(activate = true): Promise<OverworldViewWidget> {
-    // Concurrent calls share one create-and-attach, so the view is added once.
-    this.attaching ??= this.attachOverworld().finally(() => (this.attaching = undefined))
-    return this.show(await this.attaching, activate)
-  }
-
-  /** A single click on the explorer row reveals without taking focus, so the
-   *  arrow keys keep walking the list (preview-tabs.ts); a double-click activates. */
-  protected async show(view: OverworldViewWidget, activate: boolean): Promise<OverworldViewWidget> {
-    if (activate) await this.shell.activateWidget(view.id)
-    else await this.shell.revealWidget(view.id)
-    return view
-  }
-
-  /** Opens area `area`'s tab, or focuses it; WidgetManager keys the tab by the area option. */
-  async openArea(area: number, activate = true): Promise<OverworldViewWidget> {
-    const view = await this.widgetManager.getOrCreateWidget<OverworldViewWidget>(
-      OVERWORLD_AREA_VIEW_ID,
+  /** Area `area` (0 is the hub), previewed or, when `pinned`, as its own tab. */
+  async show(area: number, pinned: boolean): Promise<OverworldViewWidget> {
+    const apply = (w: OverworldViewWidget): Promise<void> => w.open(area)
+    if (!pinned) return this.previews.preview<OverworldViewWidget>(OVERWORLD_VIEW_ID, apply)
+    return this.previews.pin<OverworldViewWidget>(
+      OVERWORLD_VIEW_ID,
       { area },
+      apply,
+      p => p.shows(area),
+      {},
     )
-    if (!view.isAttached) await this.shell.addWidget(view, { area: 'main' })
-    return this.show(view, activate)
-  }
-
-  protected async attachOverworld(): Promise<OverworldViewWidget> {
-    // The factory hands back the live instance, or a fresh one once closed.
-    const view = await this.widgetManager.getOrCreateWidget<OverworldViewWidget>(OVERWORLD_VIEW_ID)
-    if (!view.isAttached) await this.shell.addWidget(view, { area: 'main' })
-    return view
   }
 
   registerCommands(commands: CommandRegistry): void {
     commands.registerCommand(ShowOverworldCommand, {
-      execute: (opts?: { activate?: boolean }) => this.openOverworld(opts?.activate ?? true),
+      execute: (opts?: { activate?: boolean }) => this.show(0, opts?.activate ?? true),
     })
     commands.registerCommand(
       { id: OVERWORLD_OPEN_AREA_COMMAND_ID },
       {
         execute: (opts: { area: number; activate?: boolean }) =>
-          this.openArea(opts.area, opts.activate ?? true),
+          this.show(opts.area, opts.activate ?? true),
       },
     )
   }
