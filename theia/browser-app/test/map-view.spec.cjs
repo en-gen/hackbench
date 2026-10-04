@@ -471,7 +471,8 @@ test('the high canvas shows the served l1High plane on a screen with priority ti
   const flags = { green: false, yellow: false, blue: false, red: false }
   const switches = { blue: false, silver: false, onOff: false }
   const reply = await page.evaluate(
-    ({ mp }) => getSvc('Symbol(ProjectService)').mapScreen(mp, 0x105, 9, flags, switches),
+    ({ mp, flags, switches }) =>
+      getSvc('Symbol(ProjectService)').mapScreen(mp, 0x105, 9, flags, switches),
     { mp: project.manifestPath, flags, switches },
   )
   expect(reply.status).toBe('ok')

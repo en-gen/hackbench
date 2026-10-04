@@ -348,6 +348,30 @@ describe('L1 priority planes (synthetic)', () => {
     expect(px(p.l1High!, 256, 3, 1)[3]).toBe(255)
   })
 
+  it('on the wire each key carries its own plane when both are drawn', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.map16.tiles[1] = tile(1, [sub(1), prio(sub(2)), sub(3), sub(4)]) // only tr high
+    i.grid[0]![0] = 1
+    const wire = (k: 'l1Low' | 'l1High') =>
+      new Uint8ClampedArray(Buffer.from(planeOf(screenResult(i, 0), k)!, 'base64'))
+    const opaque = (b: Uint8ClampedArray) => [3, 11].flatMap(y => [3, 11].map(x => px(b, 256, x, y)[3] === 255)) // prettier-ignore
+    expect(opaque(wire('l1High'))).toEqual([false, true, false, false]) // tl, tr, bl, br
+    expect(opaque(wire('l1Low'))).toEqual([true, false, true, true])
+  })
+
+  it('a drawn pipe variant routes by its own priority bits, not the base entry bits', () => {
+    const i = inputs(hGrid(1), false, 1)
+    const id = PIPE_VARIANT_TILE_START
+    i.map16.tiles[id] = tile(
+      id,
+      [0, 0, 0, 0].map(c => prio(sub(c))),
+    ) // base entry: high, blank
+    i.grid[0]![0] = id // the cell draws the low variant (char 1)
+    const p = drawL1Planes(i, 0)
+    expect(p.l1Low).not.toBeNull()
+    expect(p.l1High).toBeNull()
+  })
+
   it('a hidden tile routes its screen door by its own priority, not the blank cell drawn', () => {
     const i = inputs(hGrid(1), false, 1)
     const id = PIPE_VARIANT_TILE_START
