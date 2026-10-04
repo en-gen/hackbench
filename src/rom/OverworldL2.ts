@@ -96,14 +96,15 @@ export interface OwHalfLayers {
   l2: OwLayerPixels | null
 }
 
-/** Half 0 (the hub) and half 1 (areas 1-6), each drawn from its own layout. */
-export function drawOverworldLayers(
+/** One half (0 the hub, 1 areas 1-6) drawn from its own layout, on its own 512x512 canvas. */
+export function drawOverworldHalf(
+  h: 0 | 1,
   l1: Map16Tile[],
   l2: Uint8Array | null,
   vram: VramState,
   palette: { colors: RgbaColor[] },
-): [OwHalfLayers, OwHalfLayers] {
-  const half = (h: 0 | 1): OwHalfLayers => ({
+): OwHalfLayers {
+  return {
     l1: drawLayer(
       put => {
         for (let row = 0; row < OW_L1_ROWS; row++)
@@ -133,6 +134,5 @@ export function drawOverworldLayers(
         vram,
         palette,
       ),
-  })
-  return [half(0), half(1)]
+  }
 }

@@ -207,8 +207,8 @@ function plantPalettes(rom: RomFile): void {
   rom.writeAt(OW_ADDR.PALETTE_INDEX_TABLE, [0, 1, 2, 3, 4, 5, 6])
 }
 
-/** A 512 KB ROM the Overworld view can draw, with area 0's tileset `tileset`. */
-export function syntheticOverworldRom(tileset = 0x12): RomFile {
+/** A 512 KB ROM the Overworld view can draw. `tileset` is area 0's; a list gives DATA_04DC02[i]. */
+export function syntheticOverworldRom(tileset: number | number[] = 0x12): RomFile {
   const buf = Buffer.alloc(0x80000, 0)
   buf[0x7fd5] = 0x20
   const rom = new RomFile('synthetic.sfc', buf)
@@ -218,7 +218,7 @@ export function syntheticOverworldRom(tileset = 0x12): RomFile {
   rom.writeAt(0x04dc3b, le16(CHAR_DATA))
   rom.writeAt(0x04dc5b, le16(TILE_DATA))
   rom.writeAt(0x04dc62, [TILE_DATA >> 16])
-  rom.writeAt(TILESET_TABLE, [tileset])
+  rom.writeAt(TILESET_TABLE, [tileset].flat())
   for (const at of BANK_SELECTS) plantBankSelect(rom, at, 0x0d, 0x10, CHAR_DATA >> 16)
   for (let row = 0; row < 32; row++)
     for (let col = 0; col < 64; col++)

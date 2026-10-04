@@ -92,7 +92,7 @@ describe('readOverworldL1 on a synthetic ROM', () => {
     expect(refusal(low)).toMatch(/char data/)
     const table = syntheticOverworldRom()
     table.writeAt(0x04dc16, [0x00, 0x00, 0x7e])
-    expect(refusal(table)).toMatch(/tileset table/)
+    expect(refusal(table)).toMatch(/object tileset/)
   })
 
   it('lays half 0 left of half 1, decoding each id through its char entry', () => {

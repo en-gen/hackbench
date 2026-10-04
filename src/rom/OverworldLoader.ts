@@ -442,7 +442,11 @@ function emptyRow(): RgbaRow {
  * land in cols 9-15 (OWStdColors range) or rows 8-15 (sprite range -
  * OWStdColors2). The user reported this for area 0's L1 icons.
  */
-export function loadAreaPalette(rom: RomFile, area: OwArea, useSpecial: boolean): RgbaRow[] {
+export function loadAreaPalette(
+  rom: RomFile,
+  area: Pick<OwArea, 'paletteAddrNormal' | 'paletteAddrSpecial'>,
+  useSpecial: boolean,
+): RgbaRow[] {
   const rows: RgbaRow[] = Array.from({ length: 16 }, emptyRow)
 
   // 1. Area-specific (4 rows × 7 cols starting at row 4 col 1)
@@ -534,12 +538,14 @@ export function overworldCgram(
   if (paletteIndex === null || offset === null) {
     return `Object tileset $${hex2(objectTileset)} names no overworld palette (bank_00.asm:5743-5751).`
   }
-  const area = {
-    ...loadOverworldAreas(rom)[0]!,
-    paletteIndex,
-    paletteAddrNormal: OW_ADDR.PALETTE_NORMAL_BASE + offset,
-  }
-  const ow = loadAreaPalette(rom, area, false)
+  const ow = loadAreaPalette(
+    rom,
+    {
+      paletteAddrNormal: OW_ADDR.PALETTE_NORMAL_BASE + offset,
+      paletteAddrSpecial: OW_ADDR.PALETTE_SPECIAL_BASE + offset,
+    },
+    false,
+  )
   const rows = base.map(r => r.slice())
   for (const [r0, r1, c0, c1] of OW_CGRAM_BLOCKS)
     for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) rows[r]![c] = ow[r]![c]!

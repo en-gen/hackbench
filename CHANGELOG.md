@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Map explorer lists Area 1..N under Overworld, each opening its own 256x224 tab drawn with that
+  area's tileset and palette; the Overworld view is the hub only (#364).
 - Map view draws L2 (background) behind and in front of L1 in priority planes, with a
   Background toggle in the toolbar. L2 comes from the working copy, image or object
   stream, placed at the level's start offset. A map whose L2 cannot be read draws L1

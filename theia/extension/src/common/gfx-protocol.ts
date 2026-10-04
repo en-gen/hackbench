@@ -102,33 +102,37 @@ export interface GfxSheetDto {
   rgbaBase64: string
 }
 
-/** One overworld layer: RGBA on a clear canvas, and a priority byte per 8x8 cell. */
+/** One overworld layer: RGBA on a clear canvas, and a priority byte per `prioCell` block. */
 export interface OverworldLayerDto {
   rgbaBase64: string
   prioBase64: string
 }
 
-/** One half of the overworld, drawn on its own 512x512 canvas. */
-export interface OverworldHalfDto {
-  l1: OverworldLayerDto
-  /** Absent exactly when `l2Unavailable` says why. */
-  l2?: OverworldLayerDto
-}
-
 /**
- * The Overworld view's layers, composed in the browser (OverworldComposite)
+ * An Overworld canvas's layers, composed in the browser (OverworldComposite)
  * so a layer toggle needs no round trip, or why it cannot be drawn. A
  * refusal carries no pixels: the view shows the reason and no canvas.
+ * The hub is half 0 at 512x512 with a priority byte per 8x8 cell; an area
+ * is its 256x224 camera window over half 1 with one per pixel.
  */
 export type OverworldDto =
   | {
       status: 'ok'
       /** CGRAM color 0, RGBA. */
       backdrop: number[]
-      /** Half 0 (the hub), then half 1 (areas 1-6): independent layouts. */
-      halves: [OverworldHalfDto, OverworldHalfDto]
+      width: number
+      height: number
+      prioCell: number
+      l1: OverworldLayerDto
+      /** Absent exactly when `l2Unavailable` says why. */
+      l2?: OverworldLayerDto
       l2Unavailable?: string
     }
+  | { status: 'unavailable'; reason: string }
+
+/** The explorer's area rows (area 0 is the Overworld row), or why there are none. */
+export type OverworldAreasDto =
+  | { status: 'ok'; areas: { area: number; invalid?: string }[] }
   | { status: 'unavailable'; reason: string }
 
 /**
@@ -174,6 +178,12 @@ export interface GfxService {
     paletteRow?: number,
   ): Promise<GfxSheetDto>
 
-  /** The overworld's L2 and L1 in area 0's tileset and palette (overworld-decode.ts). */
+  /** The hub: half 0's L2 and L1 in area 0's tileset and palette (overworld-decode.ts). */
   overworld(manifestPath: string): Promise<OverworldDto>
+
+  /** The areas the ROM names, for the explorer's child rows. */
+  overworldAreas(manifestPath: string): Promise<OverworldAreasDto>
+
+  /** Area `area`'s camera window over half 1; unavailable with a reason for an invalid area. */
+  overworldArea(manifestPath: string, area: number): Promise<OverworldDto>
 }

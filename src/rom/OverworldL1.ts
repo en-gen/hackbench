@@ -72,16 +72,20 @@ function charBank(rom: RomFile, objectTileset: number): number | string {
   return [...banks][0]!
 }
 
-/** The L1 tile data, char data and tilesets area 0 loads, or why they cannot be read. */
-export function readOverworldL1(rom: RomFile): OwL1Read {
+/**
+ * The L1 tile data, char data and tilesets `area` loads, or why they cannot be read:
+ * DATA_04DC02[OWPlayerSubmap] (bank_04.asm:5643-5646), no fallback when the byte is not in the ROM.
+ */
+export function readOverworldL1(rom: RomFile, area = 0): OwL1Read {
   if (rom.mapMode !== 'lorom') return refuse('The overworld L1 reader reads LoROM only.')
   const mismatch = stockCodeMismatch(rom, OW_L1_READER)
   if (mismatch) return refuse(`The overworld L1 reader is not stock: ${mismatch}`)
   const tilesetTable = rom.readAt(0x04dc16, 3)!
   const tilesetAddr = tilesetTable[0]! | (tilesetTable[1]! << 8) | (tilesetTable[2]! << 16)
-  const objectTileset = isLoRomRomAddress(tilesetAddr) ? rom.readByte(tilesetAddr) : null
+  const entry = tilesetAddr + area
+  const objectTileset = isLoRomRomAddress(entry) ? rom.readByte(entry) : null
   if (objectTileset === null) {
-    return refuse(`The object tileset table at $${hex6(tilesetAddr)} is not in the ROM.`)
+    return refuse(`Area ${area}'s object tileset at $${hex6(entry)} is not in the ROM.`)
   }
   const spriteTileset = rom.readByte(0x04dc1d)!
 

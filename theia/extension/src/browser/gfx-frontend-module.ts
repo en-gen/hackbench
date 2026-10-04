@@ -21,7 +21,12 @@ import { createGfxExplorerWidget, GFX_EXPLORER_ID } from './gfx-explorer-widget'
 import { GfxViewWidget, GFX_VIEW_ID } from './gfx-view-widget'
 import { GfxFrontendClient } from './gfx-push-client'
 import { OverworldContribution } from './overworld-contribution'
-import { OverworldViewWidget, OVERWORLD_VIEW_ID } from './overworld-view-widget'
+import {
+  OverworldAreaOptions,
+  OverworldViewWidget,
+  OVERWORLD_AREA_VIEW_ID,
+  OVERWORLD_VIEW_ID,
+} from './overworld-view-widget'
 
 export default new ContainerModule(bind => {
   bind(GfxFrontendClient).toSelf().inSingletonScope()
@@ -67,6 +72,19 @@ export default new ContainerModule(bind => {
     .toDynamicValue(ctx => ({
       id: OVERWORLD_VIEW_ID,
       createWidget: () => ctx.container.get(OverworldViewWidget),
+    }))
+    .inSingletonScope()
+  // One tab per area: WidgetManager keys it by `{ area }`, and the widget learns its area
+  // from a child container, so no hub load runs for it.
+  bind(WidgetFactory)
+    .toDynamicValue(ctx => ({
+      id: OVERWORLD_AREA_VIEW_ID,
+      createWidget: (options: OverworldAreaOptions) => {
+        const child = ctx.container.createChild()
+        child.bind(OverworldAreaOptions).toConstantValue({ area: options.area })
+        child.bind(OverworldViewWidget).toSelf()
+        return child.get(OverworldViewWidget)
+      },
     }))
     .inSingletonScope()
   bind(OverworldContribution).toSelf().inSingletonScope()

@@ -117,12 +117,8 @@ import {
 import { findUnique, matchesAt, WILD, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
 import { readLmTranslevels, type LmDecompressors } from './LmTranslevelTable'
-import {
-  OW_L1_MAP16_BYTES,
-  OW_SUBAREA_TILES_W,
-  OW_SUBAREA_TILES_H,
-  loadOverworldAreas,
-} from './OverworldLoader'
+import { OW_L1_MAP16_BYTES, OW_SUBAREA_TILES_W, OW_SUBAREA_TILES_H } from './OverworldLoader'
+import { deriveOverworldAreas } from './OverworldAreas'
 
 /** Buffer index at which the sub-map half of `OWLayer1Translevel` starts. */
 export const SUBMAP_BUFFER_BASE = 0x400
@@ -439,13 +435,21 @@ interface SubmapWindow {
  * This is the one inference in this module. It never feeds `slot`.
  */
 function submapWindows(rom: RomFile): SubmapWindow[] {
-  return loadOverworldAreas(rom)
-    .filter(area => area.index !== 0)
-    .map(area => ({
-      submap: area.index,
-      rowStart: Math.floor(Math.ceil(area.cameraY / 8) / 2),
-      colStart: Math.floor(Math.ceil(area.cameraX / 8) / 2),
-    }))
+  // The derived list, not fixed tables: a ROM whose camera read is not stock gives no windows,
+  // so the submap is unknown (null) instead of a vanilla guess (#523).
+  const set = deriveOverworldAreas(rom)
+  if ('unavailable' in set) return []
+  return set.areas.flatMap(area =>
+    area.area === 0 || area.cameraX === undefined || area.cameraY === undefined
+      ? []
+      : [
+          {
+            submap: area.area,
+            rowStart: Math.floor(Math.ceil(area.cameraY / 8) / 2),
+            colStart: Math.floor(Math.ceil(area.cameraX / 8) / 2),
+          },
+        ],
+  )
 }
 
 const WINDOW_COLS = OW_SUBAREA_TILES_W / 2
