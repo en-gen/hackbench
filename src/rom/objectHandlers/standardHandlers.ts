@@ -678,21 +678,23 @@ function resolveJmpTarget(cur: Cursor, opcodeAddr: number): number {
 }
 
 /**
- * CODE_0DBA0A (bank_0D.asm line 4346) -- wide vertical pipe (object 57 = std $39).
+ * CODE_0DBA0A (bank_0D.asm line 4346) -- wide vertical pipe (object 53 = std $35,
+ * the 53rd entry of the table at bank_0D.asm:1352).
  *
  * Size byte: HHHHWWWW
  *   W (low nibble)  = width-1
- *   H (high nibble) = height-1 (applies to body rows only; top row always drawn)
+ *   H (high nibble) = body row count (top row always drawn; H=0 draws none)
  *
  * Top row: $0E page 1 across (W+1) tiles.
- * Body rows: $B8 page 0 across (W+1) tiles, repeated (H+1) times.
+ * Body rows: $B8 page 0 across (W+1) tiles, repeated H times (DEC _1 / BPL
+ * runs before each row, bank_0D.asm:4375-4376).
  *
  * Unlike CODE_0DB49E this has no bottom cap - the body just extends and the
  * pipe meets whatever terrain follows below (ground, etc.).
  */
 export function handle_0DBA0A(cur: Cursor): void {
   const widthM1 = cur.size & 0x0f
-  let heightM1 = (cur.size >> 4) & 0x0f
+  const H = (cur.size >> 4) & 0x0f
 
   // LDA #$0E (top-row tile, page 1) immediate at handler +24 (opcode at +23)
   // LDA #$B8 (body-row tile, page 0) immediate at handler +38 (opcode at +37)
@@ -706,14 +708,13 @@ export function handle_0DBA0A(cur: Cursor): void {
     writeTileAdvance(cur, topTile)
   }
 
-  while (heightM1 >= 0) {
+  for (let r = 0; r < H; r++) {
     restoreBookmark(cur)
     cur.row += 1
     for (let c = 0; c <= widthM1; c++) {
       setPage0(cur)
       writeTileAdvance(cur, bodyTile)
     }
-    heightM1 -= 1
   }
 }
 
@@ -3470,21 +3471,21 @@ export function handle_0DEDDB(cur: Cursor): void {
 }
 
 /**
- * CODE_0DEE17 (bank_0D.asm line 8139) -- tileset-4/5 standard object $3D:
+ * CODE_0DEE17 (bank_0D.asm line 8139) -- tileset-4/5/13 standard object $3D:
  * cave/underground floor + BG fill block.
  *
  * Size byte: HHHHWWWW
  *   W (low nibble)  = width - 1.
  *   H (high nibble) = row count of $53 BG-fill BELOW the $5D floor row.
  *
- * Emits an (H+2) x (W+1) rectangle:
+ * Emits an (H+1) x (W+1) rectangle:
  *   row 0:       $15D floor top (page 1)
- *   rows 1..H+1: $153 BG fill (page 1)
+ *   rows 1..H:   $153 BG fill (page 1)
  *
  * Loop structure: first writes one $5D row (W+1 tiles); then jumps into the
- * shared end block (restore/advance/LDX/DEC/BPL) which then loops back into
- * the $53 writer. The outer BPL runs while _1 >= 0, so (H+1) iterations of
- * the $53 writer execute -- plus the initial $5D row = H+2 rows total.
+ * shared end block (restore/advance/LDX/DEC/BPL, bank_0D.asm:8164-8169) which
+ * decrements _1 BEFORE the branch, so the $53 writer runs H times (_1 = H-1
+ * down to 0) -- plus the initial $5D row = H+1 rows total.
  */
 export function handle_0DEE17(cur: Cursor): void {
   const W = cur.size & 0x0f
@@ -3499,7 +3500,7 @@ export function handle_0DEE17(cur: Cursor): void {
   setPage1(cur)
   saveBookmark(cur)
   for (let c = 0; c <= W; c++) writeTileAdvance(cur, floorTile)
-  for (let r = 0; r <= H; r++) {
+  for (let r = 0; r < H; r++) {
     restoreBookmark(cur)
     advanceRowRaw(cur)
     for (let c = 0; c <= W; c++) writeTileAdvance(cur, fillTile)
@@ -3663,7 +3664,7 @@ export function handle_0DED6B(cur: Cursor): void {
 }
 
 /**
- * CODE_0DEF67 (bank_0D.asm line 8334) -- tileset-5 standard object $32:
+ * CODE_0DEF67 (bank_0D.asm line 8334) -- tileset-4/5/13 standard object $32:
  * floor/ground strip with a top row of page-1 cap tiles and a solid body
  * of page-0 fill tiles below.
  *
@@ -3673,12 +3674,13 @@ export function handle_0DED6B(cur: Cursor): void {
  *
  * Layout:
  *   row 0:        (W+1) tiles of $010E (page 1, floor cap)
- *   rows 1..H+1:  (W+1) tiles of $00A3 (page 0, body fill) each
+ *   rows 1..H:    (W+1) tiles of $00A3 (page 0, body fill) each
  *
  * ASM control flow: JSR CODE_0DA6B1 saves the starting column, the first
  * inner loop runs LDX _0 / DEX / BPL for (W+1) writes, then CODE_0DEF87
- * decrements _1 and loops with JSR CODE_0DA6BA (restore column) + JSR
- * CODE_0DA97D (advance row) before the next row's (W+1) fill writes.
+ * decrements _1 and exits on minus (bank_0D.asm:8353-8354), else loops with
+ * JSR CODE_0DA6BA (restore column) + JSR CODE_0DA97D (advance row) before the
+ * next row's (W+1) fill writes: H body rows.
  */
 export function handle_0DEF67(cur: Cursor): void {
   const W = cur.size & 0x0f
@@ -3693,7 +3695,7 @@ export function handle_0DEF67(cur: Cursor): void {
   saveBookmark(cur)
   setPage1(cur)
   for (let c = 0; c <= W; c++) writeTileAdvance(cur, capTile)
-  for (let r = 0; r <= H; r++) {
+  for (let r = 0; r < H; r++) {
     restoreBookmark(cur)
     advanceRowRaw(cur)
     saveBookmark(cur)
@@ -3817,11 +3819,12 @@ export function handle_0DB9C0(cur: Cursor): void {
  *
  * Size byte: HHHHVVVV
  *   V (low nibble, X)  = variant index (0-3) selecting both tables.
- *   H (high nibble)    = count (H + 1 rows written below the top).
+ *   H (high nibble)    = count (H rows written below the top).
  *
- * ASM path: JSR Sta1To6ePointer once up-front, then STA top tile, JMP to loop
- * body. Each iteration in the body: CPX #$02 / BPL skip / JSR Sta1To6ePointer;
- * then STA body tile, advance row, DEC _0, BPL.
+ * ASM path: JSR Sta1To6ePointer once up-front, then STA top tile, JMP to
+ * CODE_0DBA74 (advance row, DEC _0, BPL; bank_0D.asm:4408-4411), which runs
+ * the body H times. Each body write: CPX #$02 / BPL skip / JSR Sta1To6ePointer,
+ * then STA body tile.
  */
 export function handle_0DBA4C(cur: Cursor): void {
   const X = cur.size & 0x0f
@@ -3834,14 +3837,13 @@ export function handle_0DBA4C(cur: Cursor): void {
   setPage1(cur)
   writeTile(cur, topTile)
 
-  let count = (cur.size >> 4) & 0x0f
-  while (count >= 0) {
+  const H = (cur.size >> 4) & 0x0f
+  for (let r = 0; r < H; r++) {
     advanceRowRaw(cur)
     // Body tile: page 1 only when X < 2 (CPX #$02 / BPL skip-page1).
     if (X < 2) setPage1(cur)
     else setPage0(cur)
     writeTile(cur, bodyTile)
-    count -= 1
   }
 }
 
