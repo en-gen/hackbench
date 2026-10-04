@@ -247,6 +247,12 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
     expect(deriveOverworldAreas(rom)).toHaveProperty('unavailable')
   })
 
+  it('refuses a camera Y table that runs past the end of its bank', () => {
+    const rom = stub()
+    setWord(rom, 'camera', 12, 0xfff1) // even distance from $A06B, but Y + count*2 > $10000
+    expect(deriveOverworldAreas(rom)).toHaveProperty('unavailable')
+  })
+
   it('refuses an odd or backwards camera distance, or a camera operand outside the bank', () => {
     for (const [index, v] of [
       [12, 0xa06b + 9],

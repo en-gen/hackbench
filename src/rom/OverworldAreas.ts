@@ -136,6 +136,9 @@ export function deriveOverworldAreas(rom: RomFile): OverworldAreaSet {
     return no(`${SITES.camera.name} reads two tables that are not an even distance apart.`)
   }
   const cameraCount = (cameraY - cameraX) / 2
+  if (!table(at.camera, cameraY, cameraCount * 2)) {
+    return no(`${SITES.camera.name} reads a Y table that runs past the end of its bank.`)
+  }
 
   // Each loop starts at `LDY #n` and drops one record while Y stays below $80 (BPL).
   const ldy = (site: number, stride: number): number | null => {
