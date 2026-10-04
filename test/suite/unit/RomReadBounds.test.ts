@@ -28,6 +28,7 @@ vi.mock('fs', async importOriginal => {
     default: actual,
     readdirSync: vi.fn(actual.readdirSync),
     readFileSync: vi.fn(actual.readFileSync),
+    openSync: vi.fn(actual.openSync),
   }
 })
 
@@ -387,5 +388,28 @@ describe('export over a hard link', () => {
         .toString(),
     ).toBe('PATCH')
     expect(fs.readdirSync(path.join(project, 'export'))).toEqual(['x.ips'])
+  })
+})
+
+describe('updateProject merges the bytes it validated', () => {
+  it('reads the manifest once, so a swap after validation cannot reach the write', async () => {
+    const p = createProject({ romPath: smallRom(), name: 'ok', directory: path.join(tmp, 'u') })
+    const actual = await vi.importActual<typeof import('fs')>('fs')
+    let reads = 0
+    vi.mocked(fs.openSync).mockImplementation(((file: fs.PathLike, ...rest: never[]) => {
+      if (String(file) === p.manifestPath && ++reads === 2) {
+        // The planted defect: a malformed manifest appears between reads.
+        const raw = JSON.parse(actual.readFileSync(p.manifestPath, 'utf8'))
+        actual.writeFileSync(p.manifestPath, JSON.stringify({ ...raw, title: 3, summary: {} }))
+      }
+      return actual.openSync(file, ...rest)
+    }) as typeof fs.openSync)
+    try {
+      const updated = updateProject(p.manifestPath, { title: 'new' })
+      expect(updated.title).toBe('new')
+      expect(reads).toBe(1)
+    } finally {
+      vi.mocked(fs.openSync).mockImplementation(actual.openSync)
+    }
   })
 })

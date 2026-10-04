@@ -284,6 +284,14 @@ export function createProject(opts: CreateOptions): Project {
  * project looks exactly like a hack that lost all its work.
  */
 export function openProject(manifestPath: string): Project {
+  return openValidated(manifestPath).project
+}
+
+/**
+ * The one read of a manifest: the project plus the parsed JSON that was
+ * validated, so a caller that rewrites it merges exactly those bytes.
+ */
+function openValidated(manifestPath: string): { project: Project; manifest: ProjectManifest } {
   if (!fs.existsSync(manifestPath)) {
     throw new Error(`No project at ${manifestPath}`)
   }
@@ -329,7 +337,7 @@ export function openProject(manifestPath: string): Project {
     )
   }
 
-  return toProject(manifestPath, manifest)
+  return { project: toProject(manifestPath, manifest), manifest }
 }
 
 function toProject(manifestPath: string, manifest: ProjectManifest): Project {
@@ -358,11 +366,10 @@ function toProject(manifestPath: string, manifest: ProjectManifest): Project {
  * the manifest describe a different thing.
  */
 export function updateProject(manifestPath: string, changes: Partial<HackMetadata>): Project {
-  // Round-trips through openProject first so a manifest that is unreadable,
-  // orphaned or from a future schema is refused BEFORE anything is written.
-  openProject(manifestPath)
-
-  const raw = JSON.parse(readManifestBounded(manifestPath)) as ProjectManifest
+  // Validated read first, so a manifest that is unreadable, orphaned, from a
+  // future schema or malformed is refused BEFORE anything is written. The
+  // merge uses those same validated bytes, not a second read.
+  const { manifest: raw } = openValidated(manifestPath)
   const merged: ProjectManifest = {
     ...raw,
     ...withMetadataDefaults({ ...raw, ...changes }, raw.name),
