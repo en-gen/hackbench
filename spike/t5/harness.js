@@ -9,7 +9,7 @@ const T0 = (window.T0 = { log: [], Module: null });
 // Push evidence bytes to serve.py's /save route instead of round-tripping
 // base64 through chat (that silently truncated a blob once already).
 T0.save = async (name, bytes) => {
-  const r = await fetch("/save?name=" + encodeURIComponent(name), { method: "POST", body: bytes });
+  const r = await fetch("/save?name=" + encodeURIComponent(name), { method: "POST", body: bytes, headers: { "X-Save-Token": window.SAVE_TOKEN } });
   return { ok: r.ok, status: r.status };
 };
 

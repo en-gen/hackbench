@@ -9,20 +9,22 @@
  * read the filesystem itself.
  */
 import * as React from '@theia/core/shared/react'
-import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
+import { inject, injectable, optional, postConstruct } from '@theia/core/shared/inversify'
 import { ConfirmDialog, ReactWidget, Message, StorageService } from '@theia/core/lib/browser'
 import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser'
 import { FileService } from '@theia/filesystem/lib/browser/file-service'
 import URI from '@theia/core/lib/common/uri'
 import { Disposable, MessageService } from '@theia/core/lib/common'
 import { EmulatorService, SaveSlotDto } from '../common/emulator-protocol'
+import { OsLocaleService } from '../common/os-locale-protocol'
 import { ProjectService } from '../common/project-protocol'
 import { ProjectContext } from './project-context'
 import { EmulatorDriver } from './emulator-driver'
 import { CoreFrameMeter } from './emulator-frame-meter'
 import { VolumeState, effectiveGain, parseVolumeState } from './audio-volume'
 import { VolumeSplitButton } from './volume-split-button'
-import { HeldButtons } from './emulator-input'
+import { ControllerSession } from './controller-session'
+import { GamepadPanel } from './gamepad-panel'
 import { SaveSlotPicker, SaveSlotView } from './save-slot-picker'
 import { ProjectFrontendClient } from './project-push-client'
 
@@ -31,6 +33,8 @@ export const EMULATOR_VIEW_ID = 'hackbench.emulator-view'
 const CORE_FILTER = { 'Core script (Emscripten loader)': ['js'] }
 const ROM_FILTER = { 'SNES ROM': ['sfc', 'smc', 'rom'] }
 const VOLUME_KEY = 'hackbench.emulator.volume'
+/** Per machine, not per project: pads and keyboards belong to the computer. */
+const CONTROLLERS_KEY = 'hackbench.emulator.controllers'
 const SAVE_POLL_MS = 5000
 const slotKey = (manifestPath: string): string => `hackbench.emulator.saveSlot:${manifestPath}`
 
@@ -57,12 +61,28 @@ export class EmulatorWidget extends ReactWidget {
   @inject(StorageService) protected readonly storage!: StorageService
   @inject(ProjectFrontendClient) protected readonly projectPush!: ProjectFrontendClient
   @inject(FileService) protected readonly files!: FileService
+  /** Bound only in the Electron build. */
+  @inject(OsLocaleService) @optional() protected readonly osLocale?: OsLocaleService
 
   protected readonly driver = new EmulatorDriver()
   protected readonly meter = new CoreFrameMeter()
   /** The driver puts a fresh canvas in here per boot; React renders nothing inside it. */
   protected readonly screenRef = React.createRef<HTMLDivElement>()
-  protected readonly buttons = new HeldButtons((b, pressed) => this.driver.setButton(b, pressed))
+  /** Controller assignments, input devices and the fly-out; see controller-session.ts. */
+  protected readonly controllers = new ControllerSession({
+    send: (port, b, pressed) => this.driver.setButton(b, pressed, port),
+    getPads: () => navigator.getGamepads?.() ?? [],
+    language: () => navigator.language,
+    save: settings => void this.storage.setData(CONTROLLERS_KEY, settings),
+    isLive: () => this.isVisible && this.driver.isRunning(),
+    hasFocus: () => document.hasFocus(),
+    requestFrame: cb => requestAnimationFrame(cb),
+    cancelFrame: h => cancelAnimationFrame(h),
+    listen: (type, fn) => {
+      window.addEventListener(type, fn)
+      return () => window.removeEventListener(type, fn)
+    },
+  })
 
   protected state: ViewState = { kind: 'no-project' }
   protected romBytes: Uint8Array | undefined
@@ -142,11 +162,13 @@ export class EmulatorWidget extends ReactWidget {
       Disposable.create(() => {
         this.savesWatch?.dispose()
         clearTimeout(this.staleCheck)
-        this.buttons.releaseAll()
+        this.controllers.dispose()
         this.meter.stop()
         this.disposeCore()
       }),
     )
+    this.controllers.onChange = () => this.update()
+    this.controllers.start()
 
     // Clicking the screen gives the game the keyboard. Focus has to be taken
     // explicitly: the core's own canvas mousedown handler cancels the default,
@@ -165,10 +187,17 @@ export class EmulatorWidget extends ReactWidget {
     this.node.addEventListener('keyup', e => this.onKey(e, false))
     // A key still down when focus leaves never sees its keyup here.
     this.node.addEventListener('focusout', e => {
-      if (!this.node.contains(e.relatedTarget as Node | null)) this.buttons.releaseAll()
+      if (!this.node.contains(e.relatedTarget as Node | null)) this.controllers.releaseAll()
     })
 
     void this.refresh()
+    void this.osLocale?.countryCode().then(
+      code => this.controllers.setOsCountry(code),
+      () => undefined,
+    )
+    void this.storage.getData<unknown>(CONTROLLERS_KEY).then(raw => {
+      this.controllers.load(raw)
+    })
     void this.storage.getData<unknown>(VOLUME_KEY).then(raw => {
       if (!this.volumeTouched) this.applyVolume(parseVolumeState(raw))
     })
@@ -184,12 +213,12 @@ export class EmulatorWidget extends ReactWidget {
     // Ctrl went down, or after focus moved to a button in this panel, would
     // otherwise stay held. key() ignores releases of keys it never pressed.
     if (!down) {
-      this.buttons.key(e.code, false)
+      this.controllers.key(e.code, false)
       return
     }
     if (e.target !== this.node || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return
-    if (!this.driver.isRunning()) return
-    if (this.buttons.key(e.code, true)) {
+    if (!this.driver.isRunning() || !this.controllers.keyboardAssigned) return
+    if (this.controllers.key(e.code, true)) {
       e.preventDefault()
       e.stopPropagation()
     }
@@ -202,6 +231,7 @@ export class EmulatorWidget extends ReactWidget {
    * that is not awaited; the poll bounds what a lost one can cost.
    */
   protected disposeCore(): void {
+    this.controllers.releaseAll()
     this.persistSave()
     clearInterval(this.saveTimer)
     this.saveTimer = undefined
@@ -616,7 +646,7 @@ export class EmulatorWidget extends ReactWidget {
 
   /** Pause the core, keeping it booted with its frame counter intact. */
   protected pause(): void {
-    this.buttons.releaseAll()
+    this.controllers.releaseAll()
     this.driver.stop()
     this.meter.stop()
     this.update()
@@ -624,7 +654,6 @@ export class EmulatorWidget extends ReactWidget {
 
   /** Discard the core entirely: its document, audio, canvas and memory. */
   protected stop(): void {
-    this.buttons.releaseAll()
     this.meter.stop()
     this.disposeCore()
     this.bootedDigest = undefined
@@ -704,12 +733,12 @@ export class EmulatorWidget extends ReactWidget {
             its panel, and the canvas is a fixed 256x224 that would otherwise
             push them out of view at small heights. Codicons per
             docs/ui-conventions.md. */}
-        <div className="hb-emulator-controls">
+        <div className="hb-emulator-controls hb-map-view-toolbar">
           {/* One toggle. Start boots; once booted, Pause and Resume keep the
               same core and frame counter. Stop and Reload are the controls
               that discard it. */}
           <button
-            className="hb-emulator-btn"
+            className="hb-icon-btn"
             disabled={this.busy}
             title={toggleLabel}
             aria-label={toggleLabel}
@@ -718,7 +747,7 @@ export class EmulatorWidget extends ReactWidget {
             <span className={`codicon ${running ? 'codicon-debug-pause' : 'codicon-play'}`} />
           </button>
           <button
-            className="hb-emulator-btn"
+            className="hb-icon-btn"
             disabled={this.busy || !this.driver.isBooted()}
             title="Stop"
             aria-label="Stop"
@@ -727,7 +756,7 @@ export class EmulatorWidget extends ReactWidget {
             <span className="codicon codicon-debug-stop" />
           </button>
           <button
-            className="hb-emulator-btn"
+            className="hb-icon-btn"
             disabled={this.busy || !this.stale || !this.driver.isBooted()}
             title="Reload from working copy"
             aria-label="Reload"
@@ -773,10 +802,34 @@ export class EmulatorWidget extends ReactWidget {
                   ? `${this.fps} fps`
                   : 'paused'}
           </span>
+          <span className="hb-toolbar-spacer" />
+          <button
+            className={`hb-icon-btn${this.controllers.padsOpen ? ' hb-icon-btn-on' : ''}`}
+            title="Controllers"
+            aria-label="Controllers"
+            aria-pressed={this.controllers.padsOpen}
+            onClick={() => this.controllers.togglePads()}
+          >
+            <span className="codicon codicon-game" />
+          </button>
         </div>
         <div className="hb-emulator-stage">
           <div ref={this.screenRef} className="hb-emulator-screen" />
         </div>
+        {this.controllers.padsOpen && (
+          <GamepadPanel
+            settings={this.controllers.settings}
+            scheme={this.controllers.scheme()}
+            pads={this.controllers.connectedPads()}
+            pressed={port => this.controllers.hub.pressed(port)}
+            active={player => this.controllers.isActive(player)}
+            onSelect={player => this.controllers.selectPlayer(player)}
+            onKeyboard={(player, on) => this.controllers.setKeyboard(player, on)}
+            onPad={(player, pad) => this.controllers.setPad(player, pad)}
+            onStyle={style => this.controllers.setStyle(style)}
+            onClose={() => this.controllers.togglePads(false)}
+          />
+        )}
       </div>
     )
   }

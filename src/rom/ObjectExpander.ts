@@ -303,8 +303,13 @@ export function expandMapOwned(
 
   const owners: OwnerGrid = grid.map(row => new Array<number>(row.length).fill(OWNER_NONE))
 
-  // Built field by field: a widened sink must not carry `vertical`, `entry` or `options` in.
-  const draw = sink && { vertical: isVertical, unverified: sink.unverified, draw: sink.draw }
+  // Built field by field: a widened sink must not carry `vertical` in.
+  const draw = sink && {
+    vertical: isVertical,
+    unverified: sink.unverified,
+    draw: sink.draw,
+    primitives: sink.primitives,
+  }
   for (let i = 0; i < objects.length; i++) {
     expandObject(grid, objects[i], rom, tileset, owners, i, switchFlags, draw)
   }

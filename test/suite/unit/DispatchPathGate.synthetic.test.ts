@@ -11,6 +11,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { createGrid, expandObject } from '../../../src/rom/ObjectExpander'
 import type { LevelObject } from '../../../src/rom/LevelParser'
+import { productionCart } from '../support/syntheticCart'
 import { makeCursor } from '../../../src/rom/objectHandlers/cursor'
 import type { InterpretedDraw } from '../../../src/rom/objectHandlers/interpretedDraw'
 import {
@@ -163,5 +164,16 @@ describe('dispatch path gate (#302)', () => {
     const notes = run(rom, 'standard')
     expect(notes).toHaveLength(1)
     expect(notes[0]).toContain('JML $92CCD2')
+  })
+
+  it('a stock productionCart builder lays out the stock path: no dispatch note, hop included', () => {
+    for (const hop of [false, true]) {
+      const unverified: string[] = []
+      const cur = makeCursor(createGrid(3), productionCart([0x6b], { hop }), 0, 16, 2, 0x12, 0)
+      cur.draw = { unverified } as InterpretedDraw
+      dispatchStandard(cur)
+      dispatchExtended(cur)
+      expect(unverified.filter(u => u.startsWith('Object dispatch at'))).toEqual([])
+    }
   })
 })

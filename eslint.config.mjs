@@ -83,7 +83,13 @@ export default [
   {
     files: ['theia/browser-app/test/**/*.cjs', 'theia/browser-app/perf/**/*.cjs'],
     languageOptions: {
-      globals: { getSvc: 'readonly', getWidget: 'readonly', checksumOf: 'readonly' },
+      globals: {
+        getSvc: 'readonly',
+        getWidget: 'readonly',
+        checksumOf: 'readonly',
+        planesOf: 'readonly',
+        composeCanvases: 'readonly',
+      },
     },
   },
 
@@ -93,6 +99,14 @@ export default [
     files: ['theia/browser-app/test/emulator-view.spec.cjs'],
     languageOptions: {
       globals: { revealEmulator: 'readonly' },
+    },
+  },
+
+  // Same pattern: the gamepad spec's preamble also defines the pad stubs.
+  {
+    files: ['theia/browser-app/test/emulator-gamepad.spec.cjs'],
+    languageOptions: {
+      globals: { revealEmulator: 'readonly', pad: 'readonly', setPads: 'readonly' },
     },
   },
 

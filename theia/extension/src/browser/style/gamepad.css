@@ -1,0 +1,120 @@
+/* The controllers fly-out in the emulator view, and the controller drawing.
+   The drawing's colors come from custom properties set inline per scheme
+   (SCHEME_COLORS); with none set the SVG keeps the PAL colors it was drawn with. */
+
+.hb-pad-flyout {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+  box-sizing: border-box;
+  width: min(320px, 100%);
+  padding: 4px 8px 8px;
+  overflow-y: auto;
+  /* Fallbacks are VS Code Dark Modern: editorWidget.background, editorWidget.border. */
+  background: var(--theia-editorWidget-background, #252526);
+  border-left: 1px solid var(--theia-editorWidget-border, #454545);
+  box-shadow: -4px 0 8px rgba(0, 0, 0, 0.25);
+  animation: hb-pad-slide-in 0.15s ease-out;
+}
+
+@keyframes hb-pad-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hb-pad-flyout {
+    animation: none;
+  }
+}
+
+.hb-pad-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hb-pad-title {
+  margin: 0;
+  font-size: var(--theia-ui-font-size1, 13px);
+  font-weight: 600;
+}
+
+.hb-pad-player {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+
+.hb-pad-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.hb-pad-field select {
+  flex: 1;
+  min-width: 0;
+}
+
+.hb-pad-art svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* A part the player is holding. A filter, because most parts are painted
+   with gradients or live inside <use>, where a fill override cannot reach. */
+.hb-pad-art .hb-pad-on {
+  filter: brightness(2.4) saturate(1.3) drop-shadow(0 0 6px var(--theia-focusBorder, #5b9cf6));
+}
+
+.hb-pad-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--theia-editorWidget-border, #454545);
+}
+
+.hb-pad-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--theia-descriptionForeground, #9d9d9d);
+  font: inherit;
+  cursor: pointer;
+}
+
+.hb-pad-tab:hover {
+  color: var(--theia-foreground, #cccccc);
+}
+
+.hb-pad-tab-on {
+  color: var(--theia-foreground, #cccccc);
+  border-bottom-color: var(--theia-focusBorder, #5b9cf6);
+}
+
+.hb-pad-tab:focus-visible {
+  outline: 1px solid var(--theia-focusBorder, #5b9cf6);
+  outline-offset: -1px;
+}
+
+/* Lit while that player has any button held. */
+.hb-pad-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--theia-focusBorder, #5b9cf6);
+}

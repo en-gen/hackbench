@@ -4,7 +4,7 @@
  * code follows the worst verdict, and a stale page cannot outlive its
  * capture. Synthetic captures only: CI has no ROM and no Mesen captures.
  */
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs' // prettier-ignore
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'fs' // prettier-ignore
 import { tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { runInNewContext } from 'vm'
@@ -25,7 +25,10 @@ import {
   pipeInfo,
   pngRgba,
   runCapture,
+  openMap,
+  readBounded,
   spriteFrame,
+  unzip,
 } from '../../../tools/scripts/capture_render'
 import { addr64, captureFiles, idAt, NAMES, POS } from './fixtures/captureFixture'
 
@@ -1045,6 +1048,135 @@ describe('PNG decode', () => {
     // A palette PNG reads each index through PLTE.
     const plte = Buffer.from([1, 2, 3, 4, 5, 6])
     expect([...pngRgba(png(2, 1, () => [], { rows: Buffer.from([0, 1, 0]), plte }))!.px]).toEqual([4, 5, 6, 255, 1, 2, 3, 255]) // prettier-ignore
+  })
+
+  it('refuses a PNG over the picture budget before inflating it, at the edges', () => {
+    // A garbage IDAT: only a check that runs before inflateSync says "states".
+    const bogus = (w: number, h: number) => {
+      const b = png(1, 1, () => [1, 2, 3])
+      b.fill(0xff, 41, 47)
+      b.writeUInt32BE(w, 16)
+      b.writeUInt32BE(h, 20)
+      return b
+    }
+    for (const [w, h] of [
+      [100000, 1],
+      [1, 100000],
+      [512, 513],
+      [1025, 1],
+      [0, 1000000],
+      [0, 1025],
+    ]) {
+      expect(() => pngRgba(bogus(w, h))).toThrow(`states ${w}x${h}`)
+    }
+    for (const [w, h] of [
+      [512, 512],
+      [1024, 256],
+      [0, 1024],
+    ]) {
+      expect(() => pngRgba(bogus(w, h))).toThrow('does not inflate')
+    }
+    expect(pngRgba(png(512, 478, () => [1, 2, 3]))!.w).toBe(512) // a hi-res interlaced frame still reads
+  })
+
+  it('bounds a PNG inflate by its stated size', () => {
+    const huge = png(2, 1, () => [], { rows: Buffer.alloc(20 << 20) }) // 2x1 stating 7 bytes, inflating to 20 MiB
+    expect(() => pngRgba(huge)).toThrow('does not inflate')
+  })
+
+  /** A zip of [name, stated size] entries, each a garbage deflate body: only a check before inflating avoids its error. */
+  const garbageZip = (entries: [string, number][]) => {
+    const z = zip(entries.map(([n]) => [n, Buffer.from('x')] as [string, Buffer]))
+    let o = firstEntry(z)
+    for (const [n, size] of entries) {
+      z.writeUInt32LE(size, o + 24)
+      const at = z.readUInt32LE(o + 42) + 30 + n.length
+      // the body stays the one byte deflate wrote, now not a stream
+      z[at] = 0xff
+      o += 46 + n.length
+    }
+    return z
+  }
+
+  it('refuses an entry over the entry cap, and a total over the budget, before inflating', () => {
+    const MiB = 1 << 20
+    expect(() => unzip(garbageZip([['big.bin', 64 * MiB + 1]])).get('big.bin')!()).toThrow(/big\.bin states \d+ bytes, over the 67108864/) // prettier-ignore
+    const edge = unzip(
+      garbageZip([
+        ['a', 64 * MiB],
+        ['b', 64 * MiB],
+        ['c', 1],
+      ]),
+    )
+    expect(() => edge.get('a')!()).toThrow(/^(?!.*brings the entries)/s) // inflate error, not budget
+    expect(() => edge.get('b')!()).toThrow(/^(?!.*brings the entries)/s) // exactly 128 MiB is within budget
+    expect(() => edge.get('c')!()).toThrow(
+      /c brings the entries read to 134217729 bytes, over the 134217728/,
+    )
+    const mid = unzip(
+      garbageZip([
+        ['a', 60 * MiB],
+        ['b', 60 * MiB],
+        ['c', 10 * MiB],
+      ]),
+    )
+    expect(() => mid.get('a')!()).toThrow(/^(?!.*brings the entries)/s)
+    expect(() => mid.get('b')!()).toThrow(/^(?!.*brings the entries)/s)
+    expect(() => mid.get('c')!()).toThrow(/c brings the entries read/)
+    const entries = unzip(
+      zip([
+        ['a.bin', Buffer.alloc(60 << 20)],
+        ['b.bin', Buffer.alloc(60 << 20)],
+      ]),
+    )
+    expect(entries.get('a.bin')!()).toHaveLength(60 << 20) // a real, in-budget zip still reads
+    expect(entries.get('b.bin')!()).toHaveLength(60 << 20)
+    expect(unzip(zip([['s.bin', Buffer.from('hi')]])).get('s.bin')!().toString()).toBe('hi')
+  })
+
+  it('refuses a folder file by its size before reading any of it', () => {
+    const dir = mkdtempSync(join(TMP, 'huge-'))
+    writeFileSync(join(dir, 'big.bin'), '')
+    truncateSync(join(dir, 'big.bin'), 3 * 2 ** 30) // sparse: reading it would fail or exhaust memory
+    try {
+      expect(() => openMap(dir, 'x').read('big.bin')).toThrow(/big\.bin states/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a folder file that grows or shrinks after its size is charged', () => {
+    const dir = mkdtempSync(join(TMP, 'grow-'))
+    const f = join(dir, 'g.bin')
+    const charged: number[] = []
+    const charge = (_: string, size: number) => void charged.push(size)
+    writeFileSync(f, Buffer.alloc(100, 1))
+    expect(readBounded(f, 'g.bin', charge)).toHaveLength(100)
+    expect(() => readBounded(f, 'g.bin', charge, () => appendFileSync(f, Buffer.alloc(50 << 20)))).toThrow(/g\.bin changed size/) // prettier-ignore
+    writeFileSync(f, Buffer.alloc(100, 1))
+    expect(() => readBounded(f, 'g.bin', charge, () => writeFileSync(f, Buffer.alloc(10)))).toThrow(/g\.bin changed size/) // prettier-ignore
+    expect(charged).toEqual([100, 100, 100])
+    expect(() => readBounded(dir, 'd', charge)).toThrow(/d is not a regular file/) // a directory is no capture file
+  })
+
+  it('holds a capture folder to the same entry cap and total', () => {
+    const dir = mkdtempSync(join(TMP, 'budget-'))
+    const sparse = (n: string, size: number) => {
+      writeFileSync(join(dir, n), '')
+      truncateSync(join(dir, n), size)
+    }
+    const MiB = 1 << 20
+    sparse('big.bin', 64 * MiB + 1)
+    expect(() => openMap(dir, 'x').read('big.bin')).toThrow(
+      /big\.bin states \d+ bytes, over the 67108864/,
+    )
+    for (const n of ['a', 'b', 'c']) sparse(n, 50 * MiB)
+    const { read } = openMap(dir, 'x')
+    expect(read('a')).toHaveLength(50 * MiB)
+    expect(read('a')).toHaveLength(50 * MiB) // read again: cached, charged once
+    expect(read('b')).toHaveLength(50 * MiB)
+    expect(() => read('c')).toThrow(/c brings the entries read/)
+    expect(read('absent')).toBeNull()
   })
 
   it('makes a damaged PNG a capture error: that map unavailable, the run goes on', () => {
