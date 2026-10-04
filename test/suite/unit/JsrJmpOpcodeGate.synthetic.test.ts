@@ -61,15 +61,22 @@ function cart(): RomFile {
   return rom
 }
 
+const pathLine = (at: number, n: number): string =>
+  `Object dispatch at ${hx(at, 6)} is not the stock routine, found ${Array(n).fill('00').join(' ')}: objects are drawn from the stock tables, not verified against this ROM.`
+const hx = (n: number, w: number): string => '$' + n.toString(16).toUpperCase().padStart(w, '0')
+/** The refusal line for a handler whose opcode at `opAt` was `found` rather than `want`. */
+const refusal = (at: number, opAt: number, want: number, found: number): string =>
+  `Handler ${hx(at, 6)} refused: the byte at ${hx(opAt, 6)} is ${hx(found, 2)}, not the ${hx(want, 2)} opcode it reads through, so the object is not drawn.`
+
 type Handler = (c: ReturnType<typeof makeCursor>) => void
 
 /** The drawn tiles (row-major, empties dropped) and every reason recorded. */
-function run(handler: Handler, at: number, size: number, rom: RomFile) {
+function run(handler: Handler, at: number, size: number, rom: RomFile, bare = false) {
   const grid = createGrid(1)
   const cur = makeCursor(grid, rom, 1, 4, 5, 0x25, size)
   cur.handlerAddr = at
   const unverified: string[] = []
-  cur.draw = { vertical: false, unverified, primitives: [], draw: () => false }
+  if (!bare) cur.draw = { vertical: false, unverified, primitives: [], draw: () => false }
   handler(cur)
   return { tiles: grid.flat().filter(t => t !== TILE_EMPTY), unverified }
 }
@@ -100,10 +107,16 @@ describe('opcode gates behind resolveJsrTarget, resolveJmpTarget and handle_0DB5
         const r = run(handler, at, size, rom)
         expect(r.tiles, `opcode $${op.toString(16)}`).toEqual([])
         expect(r.unverified, `opcode $${op.toString(16)}`).toHaveLength(1)
-        expect(r.unverified[0]).toMatch(/refused/)
+        expect(r.unverified[0]).toBe(refusal(at, opAt, good, op))
         swept++
       }
       expect(swept).toBe(255)
+    })
+
+    it(`${name}: with no draw sink (null-sink callers) a refusal still draws nothing`, () => {
+      const rom = cart()
+      rom.writeAt(opAt, [0x22])
+      expect(run(handler, at, size, rom, true).tiles).toEqual([])
     })
   }
 
@@ -113,11 +126,11 @@ describe('opcode gates behind resolveJsrTarget, resolveJmpTarget and handle_0DB5
     // Tileset 0's dispatcher at $0DA500; its table, after the 10-byte preamble, routes object 1 here.
     rom.writeAt(0x0da41e, [0x00, 0xa5, 0x0d])
     rom.writeAt(0x0da500 + 10, [0x66, 0xf0, 0x0d])
-    const obj = {
+    const obj = (y: number) => ({
       type: 'standard' as const,
       screen: 0,
       x: 1,
-      y: 2,
+      y,
       objectNumber: 1,
       settings: 0x11,
       newScreen: false,
@@ -125,10 +138,15 @@ describe('opcode gates behind resolveJsrTarget, resolveJmpTarget and handle_0DB5
       raw: [0, 0, 0x11],
       objectType: 1,
       param: 0x11,
-    }
+    })
     const sink = { unverified: [] as string[], primitives: [], draw: () => false }
-    const grid = expandMap([obj], 1, rom, 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, sink) // prettier-ignore
+    const grid = expandMap([obj(2), obj(8)], 1, rom, 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, sink) // prettier-ignore
     expect(grid.flat().filter(t => t !== TILE_EMPTY)).toEqual([])
-    expect(sink.unverified.filter(u => /refused/.test(u))).toHaveLength(1)
+    // Two refused objects, one refusal line (deduped); the rest is notePath's findings.
+    expect(sink.unverified).toEqual([
+      pathLine(0x0da415, 9),
+      pathLine(0x0da500, 10),
+      refusal(FILL, FILL + 2, JMP, 0x22),
+    ])
   })
 })

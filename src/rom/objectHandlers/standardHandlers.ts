@@ -561,7 +561,8 @@ export function handle_0DB571(cur: Cursor): void {
   // LDA.L DATA_0DB569,X at handler offset +11 (operand at +12), gated on $BF (#452).
   const tableAddr = readGatedLongOperand(cur, 12)
   if (tableAddr === null) {
-    noteRefused(cur.draw?.unverified, cur.handlerAddr, cur.handlerAddr + 11, 0xbf)
+    const at = cur.handlerAddr + 11
+    noteRefused(cur.draw?.unverified, cur.handlerAddr, at, 0xbf, cur.rom.readByte(at))
     return
   }
   setPage0(cur) // StzTo6ePointer
@@ -675,7 +676,13 @@ function readExistingLow(cur: Cursor): number {
  */
 function resolveAbsTarget(cur: Cursor, opcodeAddr: number, opcode: number): number | null {
   if (cur.rom.readByte(opcodeAddr) !== opcode) {
-    noteRefused(cur.draw?.unverified, cur.handlerAddr, opcodeAddr, opcode)
+    noteRefused(
+      cur.draw?.unverified,
+      cur.handlerAddr,
+      opcodeAddr,
+      opcode,
+      cur.rom.readByte(opcodeAddr),
+    )
     return null
   }
   const lo = cur.rom.readByte(opcodeAddr + 1) ?? 0
