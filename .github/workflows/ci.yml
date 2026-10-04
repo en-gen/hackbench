@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -121,7 +121,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # 22, not the 20 the job above uses: Theia 1.75 pins Electron 42.8.1,
+      # 22: Theia 1.75 pins Electron 42.8.1,
       # whose engines field requires >= 22.12. Matching it rather than
       # passing --ignore-engines, so a future bump is a visible failure here
       # instead of a suppressed one.
