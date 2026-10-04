@@ -344,10 +344,41 @@ describe('ControllerSession', () => {
     const before = JSON.stringify(session.settings.players)
     sent.length = 0
     session.selectPlayer(1)
-    session.selectPlayer(0)
-    frame()
+    // Checked after ONE switch: a switch that moves the keyboard and back would pass a round trip.
     expect(sent).toEqual([])
     expect(JSON.stringify(session.settings.players)).toBe(before)
+    frame()
+    expect(sent).toEqual([])
+    session.selectPlayer(0)
+    expect(JSON.stringify(session.settings.players)).toBe(before)
+  })
+
+  it('two edits queued before load both survive the replay', () => {
+    const { session, saved } = make()
+    session.setPad(1, undefined)
+    session.setStyle('pal')
+    session.load({
+      players: [
+        { keyboard: false, pad: 2 },
+        { keyboard: true, pad: 0 },
+      ],
+      style: 'na',
+    })
+    expect(session.settings.style).toBe('pal')
+    expect(session.settings.players[1].pad).toBeUndefined()
+    expect(session.settings.players[0].pad).toBe(2)
+    expect(saved).toHaveLength(1)
+  })
+
+  it('only the first load counts: a later load keeps edits and saves nothing', () => {
+    const { session, saved } = make()
+    session.load({ players: [{ keyboard: true, pad: 0 }, { keyboard: false }], style: 'na' })
+    session.setStyle('pal')
+    expect(saved).toHaveLength(1)
+    session.load({ players: [{ keyboard: false, pad: 3 }, { keyboard: true }], style: 'na' })
+    expect(session.settings.style).toBe('pal')
+    expect(session.settings.players[0].pad).toBe(0)
+    expect(saved).toHaveLength(1)
   })
 
   it('a tab picked after loading saves normally', () => {
