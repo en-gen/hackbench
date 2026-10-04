@@ -98,20 +98,31 @@ export function drawOverworldArea(
   }
 }
 
+/** The wire form of a drawn view: each layer passed through `crop`, `prioCell` as `crop` leaves it. */
+function okDto(
+  d: { backdrop: number[]; layers: OwHalfLayers; l2Unavailable?: string },
+  width: number,
+  height: number,
+  prioCell: number,
+  crop: (l: OwLayerPixels) => OwLayerPixels,
+): OverworldDto {
+  return {
+    status: 'ok',
+    backdrop: d.backdrop,
+    width,
+    height,
+    prioCell,
+    l1: layerDto(crop(d.layers.l1)),
+    ...(d.layers.l2 ? { l2: layerDto(crop(d.layers.l2)) } : {}),
+    ...(d.l2Unavailable ? { l2Unavailable: d.l2Unavailable } : {}),
+  }
+}
+
 /** The hub: half 0 in area 0's tileset and palette, one 512x512 canvas. */
 export function decodeOverworld(rom: SmwRom, fps: OverworldViewFingerprints = {}): OverworldDto {
   const d = drawOverworldArea(rom, 0, 0, fps)
   if ('reason' in d) return unavailable(d.reason)
-  return {
-    status: 'ok',
-    backdrop: d.backdrop,
-    width: OW_HALF_W,
-    height: OW_HALF_H,
-    prioCell: 8,
-    l1: layerDto(d.layers.l1),
-    ...(d.layers.l2 ? { l2: layerDto(d.layers.l2) } : {}),
-    ...(d.l2Unavailable ? { l2Unavailable: d.l2Unavailable } : {}),
-  }
+  return okDto(d, OW_HALF_W, OW_HALF_H, 8, l => l)
 }
 
 /** An area's camera window over half 1, in the area's own tileset and palette. */
@@ -122,17 +133,7 @@ export function decodeOverworldArea(
 ): OverworldDto {
   const d = drawOverworldArea(rom, area.area, 1, fps)
   if ('reason' in d) return unavailable(d.reason)
-  const crop = (l: OwLayerPixels): OwLayerPixels => cropWindow(l, area.cameraX, area.cameraY)
-  return {
-    status: 'ok',
-    backdrop: d.backdrop,
-    width: OW_WINDOW_W,
-    height: OW_WINDOW_H,
-    prioCell: 1,
-    l1: layerDto(crop(d.layers.l1)),
-    ...(d.layers.l2 ? { l2: layerDto(crop(d.layers.l2)) } : {}),
-    ...(d.l2Unavailable ? { l2Unavailable: d.l2Unavailable } : {}),
-  }
+  return okDto(d, OW_WINDOW_W, OW_WINDOW_H, 1, l => cropWindow(l, area.cameraX, area.cameraY))
 }
 
 /** The explorer's child rows: the areas the ROM names (area 0 is the Overworld row), or why none. */

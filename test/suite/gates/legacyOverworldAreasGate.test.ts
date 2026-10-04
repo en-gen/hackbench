@@ -11,7 +11,7 @@ const root = path.resolve(__dirname, '../../..')
 const LEGACY = /\bloadOverworld(Areas)?\b/
 
 /** Source files under `dir` that mention a legacy loader, except `skip`. */
-export function legacyCallers(dir: string, skip: (file: string) => boolean): string[] {
+function legacyCallers(dir: string, skip: (file: string) => boolean): string[] {
   const hits: string[] = []
   const walk = (d: string): void => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {

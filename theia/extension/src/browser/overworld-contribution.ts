@@ -41,9 +41,12 @@ export class OverworldContribution implements CommandContribution, MenuContribut
   async openOverworld(activate = true): Promise<OverworldViewWidget> {
     // Concurrent calls share one create-and-attach, so the view is added once.
     this.attaching ??= this.attachOverworld().finally(() => (this.attaching = undefined))
-    const view = await this.attaching
-    // A single click on the explorer row reveals without taking focus, so the
-    // arrow keys keep walking the list (preview-tabs.ts); a double-click activates.
+    return this.show(await this.attaching, activate)
+  }
+
+  /** A single click on the explorer row reveals without taking focus, so the
+   *  arrow keys keep walking the list (preview-tabs.ts); a double-click activates. */
+  protected async show(view: OverworldViewWidget, activate: boolean): Promise<OverworldViewWidget> {
     if (activate) await this.shell.activateWidget(view.id)
     else await this.shell.revealWidget(view.id)
     return view
@@ -56,9 +59,7 @@ export class OverworldContribution implements CommandContribution, MenuContribut
       { area },
     )
     if (!view.isAttached) await this.shell.addWidget(view, { area: 'main' })
-    if (activate) await this.shell.activateWidget(view.id)
-    else await this.shell.revealWidget(view.id)
-    return view
+    return this.show(view, activate)
   }
 
   protected async attachOverworld(): Promise<OverworldViewWidget> {
