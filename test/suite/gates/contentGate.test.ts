@@ -1072,6 +1072,24 @@ refs/heads/b ${head()} refs/heads/b ${zero}
       expect(r.err).toMatch(/refs\/tags\/bigtag/)
     })
 
+    it('push: a tag-body refusal still prints the pushed ref hits and names the tag', () => {
+      addBareRemote('origin')
+      pushToRemote('origin')
+      writeFile('game.smc', 'not a rom')
+      run('git', ['add', 'game.smc'])
+      run('git', ['commit', '-q', '-m', 'a'])
+      run('git', ['tag', '-a', 'bigpushtag', '-m', 'x'.repeat(1900)])
+      const line = `refs/heads/a ${head()} refs/heads/a ${'0'.repeat(40)}\n`
+      const res = spawnSync('node', ['tools/scripts/check-content.mjs', 'push', 'origin'], {
+        cwd: dir,
+        input: line,
+        env: { ...process.env, CONTENT_GATE_MAX_BLOB_BYTES: '1000' },
+      })
+      expect(res.status).toBe(2)
+      expect(res.stdout.toString()).toMatch(/BLOCKED \(rom-ext\): game\.smc/)
+      expect(res.stderr.toString()).toMatch(/refs\/tags\/bigpushtag.*per-file limit/)
+    })
+
     it('history reads many small tags in chunks, not one read', () => {
       for (let i = 0; i < 30; i++) run('git', ['tag', '-a', `c${i}`, '-m', `tag ${i} `.repeat(70)])
       const traceFile = path.join(
