@@ -1158,7 +1158,6 @@ export function readBounded(
   charge: (name: string, size: number) => void,
   afterSize?: () => void,
 ): Buffer {
-  // prettier-ignore
   const fd = openSync(f, 'r')
   try {
     const st = fstatSync(fd)
