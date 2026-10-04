@@ -2505,18 +2505,17 @@ function staircaseVariantA(cur: Cursor): void {
  *
  *   Same table layout as variant A, but the staircase descends to the right
  *   instead of the left: step i at (col0 + i, row0 + i), with preceding
- *   tiles on the row filled with $3F (page 0) and an $F3 edge next to the
- *   step cap.
+ *   tiles on the row filled with $3F (page 0) and an edge next to the cap.
  *
- *   For each step i in 0..H (total H+1 steps):
+ *   Row i in 0..H (cap rows):
  *     (col0 + 0 .. col0 + i - 2, row0 + i): $3F fill (page 0)   -- (i-1) tiles
- *     (col0 + i - 1, row0 + i):             step edge ($F3, page 1)  if i >= 1
- *     (col0 + i, row0 + i):                 step cap ($CE, page 1)
- *
- *   No separate ground row (unlike variant A) -- the bottom step IS the
- *   terminating row.
+ *     (col0 + i - 1, row0 + i):             step edge (page 1)  if i >= 1
+ *     (col0 + i, row0 + i):                 step cap (page 1)
+ *   Row H+1 has the H fills and the edge but no cap: the exit test
+ *   (bank_0D.asm:4962-4963) sits after the edge and before the cap, with
+ *   _0 = H+1 (4946-4947), so the routine draws H+2 rows (#361).
  */
-function staircaseVariantB(cur: Cursor): void {
+export function staircaseVariantB(cur: Cursor): void {
   const X = cur.size & 0x03
   const H = (cur.size >> 4) & 0x0f
   const base = cur.handlerAddr
@@ -2533,7 +2532,7 @@ function staircaseVariantB(cur: Cursor): void {
   const col0 = cur.col,
     row0 = cur.row
 
-  for (let i = 0; i <= H; i++) {
+  for (let i = 0; i <= H + 1; i++) {
     cur.row = row0 + i
     cur.col = col0
     // (i - 1) fills on page 0.
@@ -2546,9 +2545,11 @@ function staircaseVariantB(cur: Cursor): void {
       setPage1(cur)
       writeTileAdvance(cur, edgeTile)
     }
-    // Step cap.
-    setPage1(cur)
-    writeTileAdvance(cur, capTile)
+    // Step cap; the last row stops after the edge.
+    if (i <= H) {
+      setPage1(cur)
+      writeTileAdvance(cur, capTile)
+    }
   }
 
   cur.col = col0
@@ -3839,9 +3840,10 @@ export function handle_0DBA4C(cur: Cursor): void {
   const H = (cur.size >> 4) & 0x0f
   for (let r = 0; r < H; r++) {
     advanceRowRaw(cur)
-    // Body tile: page 1 only when X < 2 (CPX #$02 / BPL skip-page1).
+    // Sta1To6ePointer stores the high byte at this cell (bank_0D.asm:2107-2110), so
+    // skipping it for X >= 2 (4403-4405) leaves the cell's own high byte (#458).
     if (X < 2) setPage1(cur)
-    else setPage0(cur)
+    else cur.page = ((cur.grid[cur.row]?.[cur.col] ?? 0) >> 8) & 1
     writeTile(cur, bodyTile)
   }
 }
