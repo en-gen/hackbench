@@ -1,7 +1,7 @@
 /**
  * Everything the emulator view keeps about controllers: who drives which
  * player, the hub that combines devices, the per-frame pad poll, the release
- * on blur, and persistence. No Theia imports; the browser primitives it needs
+ * on losing focus, and persistence. No Theia imports; the browser primitives it needs
  * arrive through SessionDeps so a test drives it with fakes.
  */
 import { HeldButtons } from './emulator-input'
@@ -25,11 +25,11 @@ export interface SessionDeps {
    * the user ranks highest, and later ones say nothing about where they are.
    * Best effort anyway: Chromium folds es-MX to es-419 and en-CA to en-GB.
    */
-  language: string
+  language(): string
   save(settings: ControllerSettings): void
   /** The game is running in a visible panel. */
   isLive(): boolean
-  /** document.hasFocus(), read each frame: blur/focus events misfire around iframes. */
+  /** document.hasFocus(), read each frame. No blur event is used: focus moving into the core's iframe fires one while the window keeps focus. */
   hasFocus(): boolean
   requestFrame(cb: () => void): number
   cancelFrame(handle: number): void
@@ -75,7 +75,6 @@ export class ControllerSession {
     }
     this.frame = this.deps.requestFrame(tick)
     this.unlisten = [
-      this.deps.listen('blur', () => this.releaseAll()),
       this.deps.listen('gamepadconnected', () => this.padsOpen && this.onChange?.()),
       this.deps.listen('gamepaddisconnected', () => this.padsOpen && this.onChange?.()),
     ]
@@ -127,7 +126,7 @@ export class ControllerSession {
   }
 
   scheme(): ControllerScheme {
-    return resolveScheme(this.settings.style, resolveRegion(this.osCountry, [this.deps.language]))
+    return resolveScheme(this.settings.style, resolveRegion(this.osCountry, [this.deps.language()]))
   }
 
   togglePads(open = !this.padsOpen): void {

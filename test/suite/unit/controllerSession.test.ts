@@ -11,7 +11,7 @@ function pad(down: number[] = [], connected = true): PadLike {
   }
 }
 
-function make(language = 'en-US') {
+function make(initialLanguage = 'en-US') {
   const sent: Array<[number, number, boolean]> = []
   const saved: unknown[] = []
   const listeners = new Map<string, () => void>()
@@ -19,13 +19,14 @@ function make(language = 'en-US') {
     pads: [null, null] as Array<PadLike | null>,
     live: true,
     focused: true,
+    language: initialLanguage,
     frame: undefined as (() => void) | undefined,
     reads: 0,
   }
   const session = new ControllerSession({
     send: (port, b, p) => sent.push([port, b, p]),
     getPads: () => (env.reads++, env.pads),
-    language,
+    language: () => env.language,
     save: s => saved.push(s),
     isLive: () => env.live,
     hasFocus: () => env.focused,
@@ -71,12 +72,12 @@ describe('ControllerSession', () => {
     expect(sent).toEqual([[0, 3, true]])
   })
 
-  it('blur releases everything and an unfocused window is not polled', () => {
-    const { env, sent, listeners, frame } = make()
+  it('losing focus releases once and an unfocused window is not polled', () => {
+    const { env, sent, frame } = make()
     env.pads = [pad([0]), null]
     frame()
     env.focused = false
-    listeners.get('blur')!()
+    frame()
     frame()
     expect(sent).toEqual([
       [0, 0, true],
@@ -85,6 +86,15 @@ describe('ControllerSession', () => {
     env.focused = true
     frame()
     expect(sent.at(-1)).toEqual([0, 0, true])
+  })
+
+  it('a blur event alone (focus moving into an iframe) does not release', () => {
+    const { listeners, env, sent, frame } = make()
+    env.pads = [pad([0]), null]
+    frame()
+    expect(listeners.has('blur')).toBe(false)
+    frame()
+    expect(sent).toEqual([[0, 0, true]])
   })
 
   it('an already-unfocused window is not polled from the first frame', () => {
@@ -180,6 +190,12 @@ describe('ControllerSession', () => {
     expect(session.connectedPads().map(p => p.standard)).toEqual([true, false])
   })
 
+  it('lists pads with their real array index', () => {
+    const { env, session } = make()
+    env.pads = [pad(), null, pad(), pad([], false)]
+    expect(session.connectedPads().map(p => p.index)).toEqual([0, 2])
+  })
+
   it('routes the keyboard to the assigned player, and to nobody when unassigned', () => {
     const { session, sent } = make()
     expect(session.key('ArrowRight', true)).toBe(true)
@@ -236,6 +252,13 @@ describe('ControllerSession', () => {
   it('the fallback reads navigator.language only, not later languages', () => {
     expect(make('de').session.scheme()).toBe('pal')
     expect(make('en-CA').session.scheme()).toBe('na')
+  })
+
+  it('reads the language when the scheme is resolved, not once at construction', () => {
+    const { session, env } = make('ja-JP')
+    expect(session.scheme()).toBe('pal')
+    env.language = 'en-US'
+    expect(session.scheme()).toBe('na')
   })
 
   it('prefers the OS country over the languages, and falls back when it is empty', () => {

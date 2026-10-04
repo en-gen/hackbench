@@ -212,10 +212,9 @@ test('losing focus releases held pad buttons and an unfocused window is not poll
   await bootWithSpy(page, 'Release')
   await page.evaluate(() => setPads(pad(0, [9])))
   await expect.poll(() => seen(page)).toEqual([[0, 3, 1]])
-  // Gating reads document.hasFocus() each frame; blur only triggers the release.
+  // Gating reads document.hasFocus() each frame; no blur event is involved.
   await page.evaluate(() => {
     document.hasFocus = () => false
-    window.dispatchEvent(new Event('blur'))
   })
   await expect
     .poll(() => seen(page))

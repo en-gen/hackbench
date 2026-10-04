@@ -72,7 +72,7 @@ export class EmulatorWidget extends ReactWidget {
   protected readonly controllers = new ControllerSession({
     send: (port, b, pressed) => this.driver.setButton(b, pressed, port),
     getPads: () => navigator.getGamepads?.() ?? [],
-    language: navigator.language,
+    language: () => navigator.language,
     save: settings => void this.storage.setData(CONTROLLERS_KEY, settings),
     isLive: () => this.isVisible && this.driver.isRunning(),
     hasFocus: () => document.hasFocus(),

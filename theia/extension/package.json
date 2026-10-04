@@ -45,9 +45,11 @@
     },
     {
       "frontend": "lib/theia/extension/src/browser/emulator-frontend-module",
-      "frontendElectron": "lib/theia/extension/src/electron-browser/os-locale-electron-frontend-module",
-      "electronMain": "lib/theia/extension/src/electron-main/os-locale-main-module",
       "backend": "lib/theia/extension/src/node/emulator-backend-module"
+    },
+    {
+      "frontendElectron": "lib/theia/extension/src/electron-browser/os-locale-electron-frontend-module",
+      "electronMain": "lib/theia/extension/src/electron-main/os-locale-main-module"
     },
     {
       "frontend": "lib/theia/extension/src/browser/map16-frontend-module",

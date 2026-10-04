@@ -4,7 +4,6 @@ import {
   DEFAULT_ASSIGNMENTS,
   assignKeyboard,
   assignPad,
-  MAX_PAD_INDEX,
   localeRegion,
   parseControllerSettings,
   resolveRegion,
@@ -178,14 +177,14 @@ describe('parseControllerSettings: exclusivity and bounds', () => {
     ])
   })
 
-  it('accepts the highest pad index and rejects the next', () => {
+  it('keeps pad 3 and drops pad 4 (literals, not the constant)', () => {
     const p = parseControllerSettings({
       players: [
-        { keyboard: false, pad: MAX_PAD_INDEX },
-        { keyboard: false, pad: MAX_PAD_INDEX + 1 },
+        { keyboard: false, pad: 3 },
+        { keyboard: false, pad: 4 },
       ],
     })
-    expect(p.players.map(a => a.pad)).toEqual([MAX_PAD_INDEX, undefined])
+    expect(p.players.map(a => a.pad)).toEqual([3, undefined])
   })
 
   it('needs exactly two players', () => {
