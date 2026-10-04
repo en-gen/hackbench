@@ -219,7 +219,15 @@ describe('a reached gh is unauthenticated (no-shell spawn)', { timeout: 90000 },
 
 describe('setup lifecycle', () => {
   const saved = { ...process.env }
+  // A failed assertion before an explicit teardown used to strand the shim dir.
+  const made: string[] = []
+  const install = () => {
+    const t = setup()
+    if (t) made.push(process.env.HB_NO_REAL_GH_DIR!)
+    return t
+  }
   afterEach(() => {
+    for (const d of made.splice(0)) fs.rmSync(d, { recursive: true, force: true })
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k]
     Object.assign(process.env, saved)
   })
@@ -228,7 +236,9 @@ describe('setup lifecycle', () => {
     const missing = path.join(os.tmpdir(), 'hb-nogh-stale-does-not-exist').replaceAll(path.sep, '/')
     process.env.HB_NO_REAL_GH_DIR = missing
     process.env.PATH = missing + path.delimiter + process.env.PATH // leads PATH, so only existsSync can reject it
-    const teardown = setup()
+    const sibling = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-sibling-'))
+    made.push(sibling)
+    const teardown = install()
     expect(teardown).toBeTypeOf('function')
     const dir = process.env.HB_NO_REAL_GH_DIR!
     expect(dir).not.toContain('stale-does-not-exist')
@@ -237,13 +247,14 @@ describe('setup lifecycle', () => {
     ;(teardown as () => void)()
     expect(fs.existsSync(dir)).toBe(false)
     expect(process.env.HB_NO_REAL_GH_DIR).toBeUndefined()
+    expect(fs.existsSync(sibling)).toBe(true) // teardown removes only the dir it made
   })
 
   it('reinstalls when the dir exists but is not first on PATH', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-nogh-notfirst-'))
     process.env.HB_NO_REAL_GH_DIR = d.replaceAll(path.sep, '/')
     try {
-      const teardown = setup()
+      const teardown = install()
       const dir = process.env.HB_NO_REAL_GH_DIR!
       expect(dir).not.toBe(d.replaceAll(path.sep, '/'))
       ;(teardown as () => void)()
@@ -290,13 +301,14 @@ describe('assertGuardActive (pure, fake dirs only)', () => {
   ])('throws for %s', (_n, env) => {
     expect(() => assertGuardActive(env)).toThrow(/guard inactive/)
   })
-  it('throws when the dir exists but holds no shims', () => {
-    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-ag2-')).replaceAll(path.sep, '/')
+  it.each([[[]], [['gh']], [['gh.cmd']]])('throws when the dir holds only %j', shims => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-ag2-')).replaceAll(path.sep, '/')
     try {
-      const env = { ...good, HB_NO_REAL_GH_DIR: empty, PATH: empty + path.delimiter + 'x' }
+      for (const f of shims) fs.writeFileSync(path.join(d, f), '')
+      const env = { ...good, HB_NO_REAL_GH_DIR: d, PATH: d + path.delimiter + 'x' }
       expect(() => assertGuardActive(env)).toThrow(/guard inactive/)
     } finally {
-      fs.rmSync(empty, { recursive: true, force: true })
+      fs.rmSync(d, { recursive: true, force: true })
     }
   })
 })
