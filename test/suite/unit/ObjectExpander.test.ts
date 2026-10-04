@@ -2328,7 +2328,8 @@ describe('handle_0DB49E (vertical pipe) bottom-merge fix', () => {
     rom.writeAt(DATA_49C, [0x0a, 0x0c])
     stampLongOperand(rom, HANDLER, 16, DATA_49C)
 
-    // JSR CODE_0DB4D9 at handler+19: stamp 2-byte target in same bank ($0D)
+    // JSR CODE_0DB4D9 at handler+19: opcode, then 2-byte target in same bank ($0D)
+    rom.writeAt(HANDLER + 19, [0x20])
     rom.writeAt(HANDLER + 20, [TOP_MERGE & 0xff, (TOP_MERGE >> 8) & 0xff])
 
     // JMP CODE_0DB4C0 at handler+22: 2-byte target
@@ -2338,6 +2339,7 @@ describe('handle_0DB49E (vertical pipe) bottom-merge fix', () => {
     //   TYA CLC ADC#$10 TAY BCC(+2) JSR_CODE_0DA987 DEC_0 BNE LDA.L JMP
     // We only need to stamp:
     //   JMP CODE_0DB4FE at BODY_LOOP+18 (opcode $4C), operand at +19..+20
+    rom.writeAt(BODY_LOOP + 18, [0x4c])
     rom.writeAt(BODY_LOOP + 19, [BOT_MERGE & 0xff, (BOT_MERGE >> 8) & 0xff])
 
     // Top merge helper CODE_0DB4D9:
