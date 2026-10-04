@@ -16,7 +16,7 @@
  * separately below because CgramOracle excludes column 0 from its own
  * comparison for a different reason (it is never sampled by rendering, not
  * that it holds no data) and column 1 is written by a routine rather than a
- * table, so there is no static address for a table lookup to find.
+ * table: its value is the LDA #imm operand inside LoadPalette, not a table entry.
  */
 
 import { RomFile } from './RomFile'
@@ -96,7 +96,9 @@ function col1Cell(rom: RomFile, cgramRow: number): AttributedCell {
     written: true,
     color: bgr555ToRgba(word),
     table: 'LoadPalette (LoadCol8Pal)',
-    romAddr: addr,
+    // The 16-bit immediate sits one byte past the opcode; an edit through
+    // romAddr must never touch the opcode (#270).
+    romAddr: addr + 1,
   }
 }
 

@@ -23,6 +23,8 @@ const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 
 const { RomFile } = require('../../extension/lib/src/rom/RomFile')
+const { WorkingRom } = require('../../extension/lib/src/project/WorkingRom')
+const { loromToOffset, hasCopierHeader } = require('../../extension/lib/src/rom/addressing')
 const { loadBackAreaColors } = require('../../extension/lib/src/rom/PaletteLoader')
 const { bgr555ToRgba } = require('../../extension/lib/src/rom/GraphicsDecoder')
 
@@ -549,8 +551,8 @@ test("a reloaded window's explorer still opens tabs", async ({ page }) => {
  * cites rather than the array PaletteLoader's own toDto call used to build
  * it: comparing a cell to the same data that produced it is a tautology
  * that cannot fail when a cell is attributed but never actually read from
- * where it claims. Column 1 cites the LDA #imm opcode address rather than a
- * colour's own address, so its bytes are read and gated separately.
+ * where it claims. Column 1 cites the LDA #imm operand; the opcode one byte
+ * before it is gated separately.
  */
 test("every written cell's colour matches the actual ROM bytes at the address it cites", async ({
   page,
@@ -577,12 +579,22 @@ test("every written cell's colour matches the actual ROM bytes at the address it
 
           let expected
           if (cell.table === 'LoadPalette (LoadCol8Pal)') {
-            const buf = rom.readAt(cell.romAddr, 3)
-            expect(buf, `${g.id} opcode at $${cell.romAddr.toString(16)} unreadable`).not.toBeNull()
-            expect(buf[0], `${g.id} opcode at $${cell.romAddr.toString(16)} is not LDA #imm`).toBe(
-              0xa9,
-            )
-            expected = bgr555ToRgba(buf.readUInt16LE(1))
+            // romAddr is the LDA #imm operand (#270); the opcode sits one byte before.
+            const op = rom.readAt(cell.romAddr - 1, 1)
+            const buf = rom.readAt(cell.romAddr, 2)
+            expect(
+              op,
+              `${g.id} opcode at $${(cell.romAddr - 1).toString(16)} unreadable`,
+            ).not.toBeNull()
+            expect(
+              buf,
+              `${g.id} operand at $${cell.romAddr.toString(16)} unreadable`,
+            ).not.toBeNull()
+            expect(
+              op[0],
+              `${g.id} opcode at $${(cell.romAddr - 1).toString(16)} is not LDA #imm`,
+            ).toBe(0xa9)
+            expected = bgr555ToRgba(buf.readUInt16LE(0))
             checkedCol1++
           } else {
             const buf = rom.readAt(cell.romAddr, 2)
@@ -1187,6 +1199,45 @@ test('Ctrl+Z after a hex-field edit undoes the edit, not just the text', async (
   // repainted swatch.
   const after = fs.existsSync(opsDir) ? fs.readdirSync(opsDir).filter(f => f.endsWith('.json')) : []
   expect(after).toHaveLength(0)
+})
+
+test('editing column 1 writes the LDA operand, never the opcode (#270)', async ({ page }) => {
+  const dir = path.join(tmp, 'Col1Edit')
+  const p = await openProject(page, dir)
+  const id = await openTab(page, p.manifestPath, 'bg')
+  const swatch = page
+    .locator(`${sel(id)} .hb-palette-variant`)
+    .first()
+    .locator('.hb-palette-swatch')
+    .nth(1)
+  const before = parseRgbTriplet(await swatch.evaluate(e => getComputedStyle(e).backgroundColor))
+  await swatch.click()
+  const hex = page.locator(`${sel(id)} .hb-palette-inspector-hex`)
+  await hex.fill('03E0')
+  await hex.press('Enter')
+  await page.waitForTimeout(1000)
+
+  await expect(page.locator(`${sel(id)} .hb-palette-inspector-from-error`)).toHaveCount(0)
+  const after = parseRgbTriplet(await swatch.evaluate(e => getComputedStyle(e).backgroundColor))
+  expect(after).toEqual(bgr555ToRgbTriplet(0x03e0))
+  expect(after).not.toEqual(before)
+
+  const opsDir = path.join(dir, 'ops')
+  const opFiles = fs.readdirSync(opsDir).filter(f => f.endsWith('.json'))
+  expect(opFiles).toHaveLength(1)
+  const layer = JSON.parse(fs.readFileSync(path.join(opsDir, opFiles[0]), 'utf8'))
+  expect(layer.ops).toEqual([{ address: '$00ABF0', old: '$7FDD', new: '$03E0' }])
+
+  // The same header detection RomFile uses, passed to both, so a headered
+  // HB_ROM maps $00ABF0 to the right byte instead of 512 early.
+  const raw = new Uint8Array(fs.readFileSync(ROM))
+  const headered = hasCopierHeader(raw.length)
+  const working = new WorkingRom(raw, headered)
+  working.append(layer)
+  const bytes = working.bytes()
+  const at = a => bytes[loromToOffset(a, bytes.length, headered)]
+  expect(at(0x00abef)).toBe(0xa9)
+  expect(at(0x00abfa)).toBe(0xa9)
 })
 
 test('the palette explorer speaks of ROMs, never cartridges', async ({ page }) => {

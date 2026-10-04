@@ -5,11 +5,21 @@ import {
   countCustomPaletteLevels,
   readLevelCol1,
   AttributedGroup,
+  ADDR_COL1_BG_LDA,
+  ADDR_COL1_OBJ_LDA,
 } from '../../../src/rom/PaletteStockTables'
-import { loadRomPalettes, loadBackAreaColors, ADDR_BACK_AREA } from '../../../src/rom/PaletteLoader'
+import {
+  loadRomPalettes,
+  loadBackAreaColors,
+  buildLevelCgram,
+  ADDR_BACK_AREA,
+} from '../../../src/rom/PaletteLoader'
 import { bgr555ToRgba } from '../../../src/rom/GraphicsDecoder'
 import { INVICTUS, VANILLA, hasRom, romPath } from '../support/corpus'
 import { plantPaletteCol1ReachPath } from '../support/syntheticGfxCart'
+import { rgbaToBgr555 } from '../../../theia/extension/src/browser/palette-color-format'
+import { WorkingRom } from '../../../src/project/WorkingRom'
+import { loromToOffset } from '../../../src/rom/addressing'
 
 const ROM_PATH = romPath(VANILLA)
 const romPresent = hasRom(VANILLA)
@@ -157,7 +167,7 @@ describe.skipIf(!romPresent)('buildStockTables (vanilla cart)', () => {
     })
   })
 
-  it('column 1 reads the LoadCol8Pal opcode: $7FDD for CGRAM rows 0-7, $7FFF for rows 8-15', () => {
+  it('column 1 reads the LoadCol8Pal operand: $7FDD for CGRAM rows 0-7, $7FFF for rows 8-15', () => {
     // bgr555ToRgba(0x7FDD) = [239,247,255,255], bgr555ToRgba(0x7FFF) = [255,255,255,255]
     // (independently verified: r5=(v)&0x1F, g5=(v>>5)&0x1F, b5=(v>>10)&0x1F, each c5<<3|c5>>2).
     const bg = group('bg')
@@ -330,6 +340,97 @@ describe('back area colors stay out of the palette rows', () => {
           }),
         ),
       )
+    }
+  })
+})
+
+// #270: the Palettes view edits through AttributedCell.romAddr, so for column
+// 1 that must be the LDA #imm OPERAND (opcode + 1), never the opcode.
+// SMWDisX bank_00.asm:5597 / :5601.
+describe('column 1 edit target (#270)', () => {
+  const hex4 = (n: number): string => `$${n.toString(16).toUpperCase().padStart(4, '0')}`
+
+  function synthRom(): RomFile {
+    const rom = new RomFile('synthetic', Buffer.alloc(0x200000, 0))
+    rom.writeAt(0x00ffd5, [0x20])
+    plantPaletteCol1ReachPath(rom)
+    return rom
+  }
+  const cellAt = (rom: RomFile, cgramRow: number) =>
+    buildStockTables(rom).find(g => g.id === 'sprite_sets')!.variants[0].rows[cgramRow - 4][1]
+
+  // Distinct operands per site, so a row routed to the wrong site changes the
+  // color as well as the address. Covers every group's CGRAM rows 0-15
+  // (bg 0, fg 2, sprite_sets 4-13, player 8, sp_ef 14) with no corpus.
+  it('every group routes CGRAM rows 0-7 to the BG operand and 8-15 to the OBJ operand', () => {
+    const rom = synthRom()
+    rom.writeAt(ADDR_COL1_BG_LDA + 1, [0x11, 0x11])
+    rom.writeAt(ADDR_COL1_OBJ_LDA + 1, [0x22, 0x22])
+    const seen = new Set<number>()
+    for (const g of buildStockTables(rom)) {
+      if (g.cgRamRow === null) continue
+      g.variants[0].rows.forEach((row, ri) => {
+        const cgramRow = g.cgRamRow! + ri
+        seen.add(cgramRow)
+        const bg = cgramRow <= 7
+        expect(row[1], `${g.id} row ${cgramRow}`).toMatchObject({
+          romAddr: (bg ? ADDR_COL1_BG_LDA : ADDR_COL1_OBJ_LDA) + 1,
+          color: bgr555ToRgba(bg ? 0x1111 : 0x2222),
+        })
+      })
+    }
+    expect([...seen].sort((x, y) => x - y)).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    ])
+  })
+
+  // Not the Theia setWord/RPC path (needs a project on disk): the same
+  // old/new words that path forwards, applied through WorkingRom.append, then
+  // read back through the Palettes cell and buildLevelCgram, which the gfx
+  // and map16 decoders feed from readLevelCol1.
+  it('an edit at romAddr lands in the operand, keeps the opcode, and reads back via cell, readLevelCol1 and buildLevelCgram', () => {
+    const rom = synthRom()
+    for (const [row, opcode] of [
+      [7, ADDR_COL1_BG_LDA],
+      [8, ADDR_COL1_OBJ_LDA],
+    ] as const) {
+      const cell = cellAt(rom, row)
+      const [r, g, b] = cell.color as unknown as number[]
+      const oldWord = rgbaToBgr555({ r, g, b, a: 255 })
+      const working = new WorkingRom(new Uint8Array(rom.buffer), false)
+      working.append({
+        id: 'e',
+        label: 'e',
+        scope: 'edit',
+        ops: [
+          {
+            address: `$${(cell.romAddr as number).toString(16)}`,
+            old: hex4(oldWord),
+            new: '$1234',
+          },
+        ],
+      })
+      const edited = new RomFile('synthetic', Buffer.from(working.bytes()))
+      const o = loromToOffset(opcode, edited.buffer.length, false) as number
+      expect(edited.buffer[o]).toBe(0xa9)
+      expect(cellAt(edited, row)).toMatchObject({ written: true, color: bgr555ToRgba(0x1234) })
+      const col1 = readLevelCol1(edited)
+      expect(col1).toMatchObject(row <= 7 ? { bg: 0x1234 } : { obj: 0x1234 })
+      if ('reason' in col1) throw new Error(col1.reason)
+      const cgram = buildLevelCgram(loadRomPalettes(edited), 0, 0, 0, col1)
+      expect(cgram.rows[row][1]).toEqual(bgr555ToRgba(0x1234))
+    }
+  })
+
+  it('refuses (no target) for every non-LDA opcode byte at either site', () => {
+    for (const site of [ADDR_COL1_BG_LDA, ADDR_COL1_OBJ_LDA]) {
+      for (let op = 0; op < 256; op++) {
+        if (op === 0xa9) continue
+        const rom = synthRom()
+        rom.writeAt(site, [op])
+        const row = site === ADDR_COL1_BG_LDA ? 7 : 8
+        expect(cellAt(rom, row).romAddr, `opcode ${op} at ${site}`).toBeNull()
+      }
     }
   })
 })
