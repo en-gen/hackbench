@@ -22,6 +22,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { RomIdentity, romIdentity } from './Project'
+import { readRomBounded } from './BoundedRead'
 import { appDataDir } from './appData'
 
 export const REGISTRY_VERSION = 1
@@ -61,7 +62,7 @@ export class RomRegistry {
    */
   register(romPath: string): RomIdentity {
     const absolute = path.resolve(romPath)
-    const identity = romIdentity(new Uint8Array(fs.readFileSync(absolute)))
+    const identity = romIdentity(readRomBounded(absolute))
 
     const data = this.read()
     data.roms[identity.sha256] = {
@@ -83,16 +84,23 @@ export class RomRegistry {
    * longer that cartridge.
    */
   resolve(sha256: string): string | null {
+    return this.resolveVerified(sha256)?.path ?? null
+  }
+
+  /**
+   * As `resolve`, plus the bytes that were hashed, so a caller builds from
+   * what was verified instead of re-reading a path that may have changed.
+   */
+  resolveVerified(sha256: string): { path: string; bytes: Uint8Array } | null {
     const entry = this.read().roms[sha256]
     if (!entry || !fs.existsSync(entry.path)) return null
 
-    let actual: RomIdentity
     try {
-      actual = romIdentity(new Uint8Array(fs.readFileSync(entry.path)))
+      const bytes = readRomBounded(entry.path)
+      return romIdentity(bytes).sha256 === sha256 ? { path: entry.path, bytes } : null
     } catch {
       return null
     }
-    return actual.sha256 === sha256 ? entry.path : null
   }
 
   /** Every remembered cartridge, most recently seen first. */
