@@ -40,7 +40,7 @@ flowchart TB
 |------|-----------|----------------|
 | `theia/extension/` | the application: widgets, commands, RPC servers | yes |
 | `src/rom/` | ROM parsing and decoding, no shell imports | yes |
-| `src/project/` | `.hbproj`, layer stack, working copy, IPS export | yes |
+| `src/project/` | `.hbproj`, layer stack, working copy, BPS or IPS export | yes |
 | `src/providers/`, `src/webview/`, `src/extension.ts` + its `src/`-root helpers | the original VS Code extension | no, reference only |
 | `test/suite/` | the Vitest suite | yes |
 | `tools/` | Mesen capture scripts, the commit gates | as needed |

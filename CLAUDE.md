@@ -18,7 +18,7 @@ call.
 
 It is NOT a VS Code extension. That origin survives under `src/providers/` and `src/webview/` as a reference implementation for reading SMW data: not shipped, no new features.
 
-Work is non-destructive and project-based. A `.hbproj` project references a ROM by identity and never copies it; every edit is an ordered patch layer under `ops/`; `Export Patch` diffs the working copy into a real `.ips`. See [docs/architecture/project-format.md](docs/architecture/project-format.md).
+Work is non-destructive and project-based. A `.hbproj` project references a ROM by identity and never copies it; every edit is an ordered patch layer under `ops/`; `Export Patch` diffs the working copy into a real `.bps` (IPS as an option). See [docs/architecture/project-format.md](docs/architecture/project-format.md).
 
 ## Branches and commits
 
@@ -104,7 +104,7 @@ may not import anything that touches a file.
 | `Project.ts`                        | `.hbproj` manifest, ROM identity, directory layout          |
 | `WorkingRom.ts`                     | the store: base bytes with every layer applied, in order    |
 | `OpsStore.ts`                       | persists layers under `ops/`, undone ones under `ops/redo/` |
-| `ExportPatch.ts`                    | diffs the working copy into a real `.ips`                   |
+| `ExportPatch.ts`                    | diffs the working copy into a real `.bps` (or `.ips`)       |
 | `RomRegistry.ts`, `CoreRegistry.ts` | per-machine paths to the ROM and the libretro core          |
 
 A view that shows ROM content must read the WORKING COPY, never the base

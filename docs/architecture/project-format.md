@@ -51,7 +51,7 @@ MyHack/
     redo/            layers that undo took back off the stack
   levels/            created with the project
   snapshots/         created with the project
-  export/            .ips output from Export Patch
+  export/            .bps output from Export Patch (.ips optional)
   saves/             the emulator's save game (SRAM: the game's own progress
                      data, not ROM content; see SaveStore.ts)
   meta/              user metadata, one JSON file per concern
@@ -113,7 +113,7 @@ write bytes any other way.
 ## Export
 
 **Export Patch** diffs the base ROM against the exportable working
-copy and writes a real `.ips` under `export/`.
+copy and writes a real `.bps` (`.ips` on request) under `export/`.
 
 Two details matter:
 
