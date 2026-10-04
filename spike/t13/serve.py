@@ -3,6 +3,8 @@
 # one origin so the page can fetch the core, the harness, and the ROM without
 # hitting CORS: no bare filesystem exposure (each prefix maps to one fixed dir
 # or one fixed file), unlike rooting http.server at C:\.
+import re
+import secrets
 import sys
 import mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -16,18 +18,31 @@ PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 8805  # T13's assigned port
 
 mimetypes.add_type("application/wasm", ".wasm")
 
+# Per-run secret: /save needs it, so a foreign page cannot write evidence.
+TOKEN = secrets.token_urlsafe(24)
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
 
 class Handler(BaseHTTPRequestHandler):
-    def _serve_file(self, path: Path, content_type: str | None = None):
+    def _serve_file(self, path: Path, content_type: str | None = None, inject: str | None = None):
         if not path.is_file():
             self.send_error(404, f"not found: {path}")
             return
         data = path.read_bytes()
+        if inject:
+            data = f'<script>window.SAVE_TOKEN="{inject}"</script>'.encode() + data
         ctype = content_type or mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+        evidence = "evidence" in path.resolve().parts
+        if evidence:
+            ctype = "text/plain; charset=utf-8"
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        if evidence:
+            # saved evidence is untrusted bytes: never active same-origin content
+            self.send_header("Content-Disposition", "attachment")
+            self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(data)
 
@@ -38,13 +53,24 @@ class Handler(BaseHTTPRequestHandler):
         if not self.path.startswith("/save"):
             self.send_error(404, "unknown POST route")
             return
+        origin = self.headers.get("Origin")
+        if origin is not None and origin != "http://" + self.headers.get("Host", ""):
+            self.send_error(403, "foreign origin")
+            return
+        if not secrets.compare_digest(self.headers.get("X-Save-Token", ""), TOKEN):
+            self.send_error(403, "bad token")
+            return
         name = (self.path.split("name=", 1) + [""])[1].split("&")[0]
-        if not name or "/" in name or ".." in name:
+        if not NAME_RE.fullmatch(name):
             self.send_error(400, "bad name")
             return
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
-        out = T0_DIR / "evidence" / name
+        ev = T0_DIR / "evidence"
+        out = ev / name
+        if not out.resolve().is_relative_to(ev.resolve()):
+            self.send_error(400, "bad name")
+            return
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(body)
         self.send_response(200)
@@ -55,7 +81,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         p = self.path.split("?", 1)[0]
         if p == "/" or p == "":
-            self._serve_file(T0_DIR / "index.html", "text/html")
+            self._serve_file(T0_DIR / "index.html", "text/html", inject=TOKEN)
         elif p == "/rom":
             if ROM_PATH is None:
                 self.send_error(404, "no ROM configured")
