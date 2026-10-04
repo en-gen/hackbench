@@ -140,7 +140,7 @@ describe('IPS decode budget', () => {
 
   it('rejects a patch whose decoded writes exceed the budget, without expanding it', () => {
     const t = Date.now()
-    expect(decodeIps(rleIps(257))).toBeNull() // 257 * 65535 > 2^24
+    expect(decodeIps(rleIps(1000))).toBeNull() // ~65M writes, far past 2^24
     expect(Date.now() - t).toBeLessThan(500)
   })
 
@@ -159,5 +159,22 @@ describe('IPS decode budget', () => {
     ])
     expect(decodeIps(ips, 3)).toHaveLength(3)
     expect(decodeIps(ips, 2)).toBeNull()
+  })
+
+  it('accepts a real-size patch (~3M writes) under the default budget', () => {
+    expect(decodeIps(rleIps(46))).toHaveLength(46 * 0xffff)
+  })
+
+  it('counts every byte of a literal record against the budget', () => {
+    const ips = Uint8Array.from([
+      0x50, 0x41, 0x54, 0x43, 0x48, 0, 0, 0, 0, 3, 1, 2, 3, 0x45, 0x4f, 0x46,
+    ])
+    expect(decodeIps(ips, 3)).toHaveLength(3)
+    expect(decodeIps(ips, 2)).toBeNull()
+  })
+
+  it('refuses a budget that would disable the limit', () => {
+    for (const b of [NaN, -1, 1.5, Infinity])
+      expect(() => decodeIps(rleIps(1), b)).toThrow(RangeError)
   })
 })

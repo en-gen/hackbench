@@ -27,7 +27,7 @@ const EOF_MARKER = [0x45, 0x4f, 0x46] // "EOF"
 const EOF_AS_OFFSET = 0x454f46
 const MAX_OFFSET = 0xffffff
 const MAX_RECORD = 0xffff
-// Offsets are 24 bits, so 16 MiB of distinct writes is the format's own ceiling; more is overlapping garbage.
+// Record headers address 24-bit offsets (16 MiB); a patch writing more bytes than that is overlapping or runaway data.
 const MAX_DECODED_WRITES = 1 << 24
 
 /** Consecutive patches collapse into one record; this is where that happens. */
@@ -80,8 +80,11 @@ export function encodeIps(patches: readonly Patch[]): Uint8Array {
  * decoded halfway would apply halfway, and a half-applied ROM looks like a
  * mysterious rendering bug rather than a corrupt file. Records that would
  * expand past `budget` writes are rejected the same way, before expansion.
+ * `budget` exists for tests; it must be a non-negative safe integer.
  */
 export function decodeIps(bytes: Uint8Array, budget = MAX_DECODED_WRITES): Patch[] | null {
+  if (!Number.isSafeInteger(budget) || budget < 0)
+    throw new RangeError('IPS budget must be a non-negative safe integer')
   if (bytes.length < MAGIC.length + EOF_MARKER.length) return null
   if (!MAGIC.every((b, i) => bytes[i] === b)) return null
 
