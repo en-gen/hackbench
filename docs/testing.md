@@ -487,9 +487,14 @@ Known limits, stated as such:
 
 - A test that blanks or deletes the token variables, or builds an env without
   spreading `process.env`, is outside the guard.
-- A no-shell spawn of `gh` on win32 skips the shim and runs the real gh.exe;
-  it is unauthenticated through the env, but `gh auth token --user` may still
-  reach the OS keyring. PLACEHOLDER, wording pending the owner's decision.
+- On Windows a test that spawns `gh` without a shell skips the shims and runs
+  the real gh.exe. The sentinel token keeps it unauthenticated, except that
+  `gh auth token --user <login>` reads that account's token from Windows
+  Credential Manager. A test can only reach it by naming the account
+  deliberately, so the guard does not block it.
+- `assertGuardActive` is satisfied by reusing a leftover `hb-nogh-*` dir and
+  setting the sentinel by hand. `accept.sh` still cannot post in that state,
+  because the shim `gh` it reaches always fails.
 
 ## Playwright never touches your app data
 
