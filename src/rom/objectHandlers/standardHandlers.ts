@@ -3815,17 +3815,19 @@ export function handle_0DB9C0(cur: Cursor): void {
 /**
  * CODE_0DBA4C (bank_0D.asm line 4386) -- vertical slope-shoulder stripe
  * (object 52 in tilesets 0/7/12). Single-column vertical line; the top row uses
- * DATA_0DBA44[X] (page 1), and all following rows use DATA_0DBA48[X] with a
- * page-1 prefix that only applies when X < 2.
+ * DATA_0DBA44[X] (page 1), and all following rows use DATA_0DBA48[X].
  *
  * Size byte: HHHHVVVV
- *   V (low nibble, X)  = variant index (0-3) selecting both tables.
+ *   V (low nibble, X)  = the full nibble (0-15) indexing both tables.
  *   H (high nibble)    = count (H rows written below the top).
+ *
+ * X >= 2 body cells keep the cell's own high byte: Sta1To6ePointer stores it at
+ * the current cell (bank_0D.asm:2107-2110) and CPX #$02 / BPL skips it
+ * (4403-4405), so the port reads the page from the grid (#458).
  *
  * ASM path: JSR Sta1To6ePointer once up-front, then STA top tile, JMP to
  * CODE_0DBA74 (advance row, DEC _0, BPL; bank_0D.asm:4408-4411), which runs
- * the body H times. Each body write: CPX #$02 / BPL skip / JSR Sta1To6ePointer,
- * then STA body tile.
+ * the body H times.
  */
 export function handle_0DBA4C(cur: Cursor): void {
   const X = cur.size & 0x0f
@@ -3841,8 +3843,6 @@ export function handle_0DBA4C(cur: Cursor): void {
   const H = (cur.size >> 4) & 0x0f
   for (let r = 0; r < H; r++) {
     advanceRowRaw(cur)
-    // Sta1To6ePointer stores the high byte at this cell (bank_0D.asm:2107-2110), so
-    // skipping it for X >= 2 (4403-4405) leaves the cell's own high byte (#458).
     if (X < 2) setPage1(cur)
     else cur.page = ((cur.grid[cur.row]?.[cur.col] ?? 0) >> 8) & 1
     writeTile(cur, bodyTile)

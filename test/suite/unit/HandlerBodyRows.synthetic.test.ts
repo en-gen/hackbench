@@ -23,8 +23,8 @@ import { Cursor, makeCursor, TileGrid } from '../../../src/rom/objectHandlers/cu
 import {
   handle_0DBA0A,
   handle_0DBA4C,
-  handle_0DEE17,
   handle_0DC341,
+  handle_0DEE17,
   handle_0DEF67,
   staircaseVariantB,
 } from '../../../src/rom/objectHandlers/standardHandlers'
@@ -165,7 +165,7 @@ describe('0DBA4C (std $34) draws a top tile and exactly H body tiles (synthetic 
             1,
             size >> 4,
             () => p1(top[X]),
-            () => (X < 2 || fill >> 8 ? p1(body[X]) : p0(body[X])),
+            () => (X < 2 || fill > 0xff ? p1(body[X]) : p0(body[X])),
             fill,
           )
           expect(got, `size $${size.toString(16)}`).toEqual(want)
@@ -181,6 +181,14 @@ describe('0DBA4C (std $34) draws a top tile and exactly H body tiles (synthetic 
       handle_0DBA4C(cur)
       expect([g[ROW][COL], g[ROW + 1][COL], g[ROW + 2][COL]]).toEqual([0x122, 0x42, 0x142])
       expect(g[ROW + 3][COL]).toBe(TILE_EMPTY)
+    })
+
+    it('size $12 past the last column: a cell with no entry has high byte 0', () => {
+      const g = createGrid(3)
+      const cur = makeCursor(g, rom, 0, 48, ROW, 0x34, 0x12)
+      cur.handlerAddr = addr
+      handle_0DBA4C(cur)
+      expect([g[ROW][48], g[ROW + 1][48]]).toEqual([0x122, 0x42])
     })
 
     it('size $00 draws the top tile only, size $20 draws two body tiles', () => {
