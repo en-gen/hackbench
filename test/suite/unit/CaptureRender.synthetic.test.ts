@@ -26,6 +26,7 @@ import {
   pngRgba,
   runCapture,
   spriteFrame,
+  unzip,
 } from '../../../tools/scripts/capture_render'
 import { addr64, captureFiles, idAt, NAMES, POS } from './fixtures/captureFixture'
 
@@ -1045,6 +1046,35 @@ describe('PNG decode', () => {
     // A palette PNG reads each index through PLTE.
     const plte = Buffer.from([1, 2, 3, 4, 5, 6])
     expect([...pngRgba(png(2, 1, () => [], { rows: Buffer.from([0, 1, 0]), plte }))!.px]).toEqual([4, 5, 6, 255, 1, 2, 3, 255]) // prettier-ignore
+  })
+
+  it('refuses a PNG whose IHDR states more than a capture picture before inflating it', () => {
+    const big = png(2, 1, () => [0, 0, 0])
+    for (const [w, h] of [
+      [100000, 1],
+      [1, 100000],
+      [1024, 1024],
+    ]) {
+      big.writeUInt32BE(w, 16)
+      big.writeUInt32BE(h, 20)
+      expect(() => pngRgba(big)).toThrow(`states ${w}x${h}`)
+    }
+    expect(pngRgba(png(512, 478, () => [1, 2, 3]))!.w).toBe(512) // a hi-res interlaced frame still reads
+  })
+
+  it('refuses a zip whose entries are each under the entry cap but together over the budget', () => {
+    const chunk = Buffer.alloc(60 << 20) // zeros deflate to a few KiB
+    const entries = unzip(
+      zip([
+        ['a.bin', chunk],
+        ['b.bin', chunk],
+        ['c.bin', chunk],
+      ]),
+    )
+    expect(entries.get('a.bin')!()).toHaveLength(chunk.length)
+    expect(entries.get('b.bin')!()).toHaveLength(chunk.length)
+    expect(() => entries.get('c.bin')!()).toThrow(/c\.bin brings the entries read to/)
+    expect(unzip(zip([['s.bin', Buffer.from('hi')]])).get('s.bin')!().toString()).toBe('hi')
   })
 
   it('makes a damaged PNG a capture error: that map unavailable, the run goes on', () => {

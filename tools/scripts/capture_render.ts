@@ -40,8 +40,13 @@ type Regs = Record<(typeof REGS)[number], number>
 export const TILE_ID_RULE = '(high & 1) * 256 + low'
 export const VERTICAL_RULE = '(col//16)*$100 + (row%16)*$10 + col%16'
 const PIPE_RANGE = /Map16Pointers\[\$([0-9a-f]+)\.\.\$([0-9a-f]+)\]/i
-/** The largest zip entry read, far above any capture file. */
-const MAX_ENTRY = 256 << 20
+/** The largest zip entry read, far above any capture file (the largest is a 64 KiB VRAM dump or a layer PNG). */
+const MAX_ENTRY = 64 << 20
+/** All entries a capture may expand to together; a map's seven required files are well under 1 MiB. */
+const MAX_TOTAL = 128 << 20
+/** A layer picture is one SNES frame, at most 512x478 (hi-res, interlaced): 1 << 18 pixels, 1024 on a side. */
+const MAX_PNG_PIXELS = 1 << 18
+const MAX_PNG_SIDE = 1024
 
 /** One of Mesen's layer pictures: layer_<name>.png and the files beside it. */
 interface Ref {
@@ -145,6 +150,8 @@ export function pngRgba(b: Buffer): { w: number; h: number; px: Uint8ClampedArra
   }
   const bpp = { 2: 3, 6: 4, 3: 1 }[type]
   if (depth !== 8 || lace || !bpp || (type === 3 && !plte)) return null
+  if (w > MAX_PNG_SIDE || h > MAX_PNG_SIDE || w * h > MAX_PNG_PIXELS)
+    throw new CaptureFileError(`a PNG states ${w}x${h}, over the ${MAX_PNG_SIDE} per side and ${MAX_PNG_PIXELS} pixels a capture picture can be`) // prettier-ignore
   const stride = w * bpp
   let raw: Buffer
   try {
@@ -1096,6 +1103,7 @@ export function unzip(zip: Buffer): Map<string, () => Buffer> {
   while (end >= 0 && zip.readUInt32LE(end) !== 0x06054b50) end--
   if (end < 0) fail('no end of central directory')
   const out = new Map<string, () => Buffer>()
+  let total = 0
   let o = zip.readUInt32LE(end + 16)
   for (let k = zip.readUInt16LE(end + 10); k > 0; k--) {
     if (o + 46 > zip.length || zip.readUInt32LE(o) !== 0x02014b50) fail('bad central directory')
@@ -1109,6 +1117,8 @@ export function unzip(zip: Buffer): Map<string, () => Buffer> {
     const read = () => {
       if (method !== 0 && method !== 8) fail(`${name} uses compression method ${method}`)
       if (size > MAX_ENTRY) fail(`${name} states ${size} bytes, over the ${MAX_ENTRY} this reads`)
+      total += size
+      if (total > MAX_TOTAL) fail(`${name} brings the entries read to ${total} bytes, over the ${MAX_TOTAL} a capture may expand to`) // prettier-ignore
       if (local + 30 > zip.length || zip.readUInt32LE(local) !== 0x04034b50) fail(`${name} has no local header`) // prettier-ignore
       const at = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28)
       let data = zip.subarray(at, at + packed)
