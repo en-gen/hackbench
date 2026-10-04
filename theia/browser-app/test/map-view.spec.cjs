@@ -1420,11 +1420,11 @@ for (const next of [0x106, 0x109]) {
     await page.locator(`${root(0x105)} [data-control="zoom-actual"]`).click()
     await expect.poll(() => zoomOf(page, 0x105)).toBe(1)
     await page.evaluate(
-      async ({ mp, next }) => {
-        const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261')
+      async ({ mp, next, first }) => {
+        const w = getSvc('ApplicationShell').getWidgetById(`hackbench.map-view:${first}`)
         await w.open({ manifestPath: mp, index: next, label: next.toString(16), iconClass: '' })
       },
-      { mp: project.manifestPath, next },
+      { mp: project.manifestPath, next, first: 0x105 },
     )
     opened.push(`hackbench.map-view:${next}`)
     await expect(
