@@ -36,6 +36,15 @@ HackBench asks you to locate it rather than failing. The registry
 re-validates on every resolve, because you can move or replace a file
 underneath a stale entry.
 
+You can also move the registration without waiting for a failure: **Project
+Properties...** has a **Local workstation** section with the registered ROM
+and emulator core paths, each with **Browse...**. A ROM pick is hashed on
+the backend and refused if it is not this project's base ROM (both hashes
+are shown); retargeting a project to a different ROM is not possible. The
+core pick uses the same validation as `Change Emulator Core...`, and the core
+registry holds one core per machine, so it applies to every project. Nothing
+is written until Save; Cancel discards both picks.
+
 ## Layout
 
 One manifest at the root of the data it describes, the way `package.json`

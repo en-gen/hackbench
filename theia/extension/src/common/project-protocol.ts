@@ -40,6 +40,16 @@ export interface ProjectDto extends HackMetadataDto {
   baseRom: RomIdentityDto
 }
 
+/** Where this machine keeps the ROM and the emulator core. Null: not located / not set up. */
+export interface WorkstationPathsDto {
+  romPath: string | null
+  corePath: string | null
+}
+
+/** `mismatch` carries both full hashes; the dialog shortens them. */
+export type RomCheckDto =
+  { status: 'ok' } | { status: 'mismatch'; picked: string; expected: string }
+
 /** Metadata is optional at creation: an author need not have a summary yet. */
 export interface CreateProjectRequest extends Partial<HackMetadataDto> {
   romPath: string
@@ -346,6 +356,15 @@ export interface ProjectService {
    * by hash can find it later. Per-user, never written into a project.
    */
   registerRom(romPath: string): Promise<RomIdentityDto>
+
+  /** The registered ROM and core paths, for Project Properties' Local workstation section. */
+  workstationPaths(manifestPath: string): Promise<WorkstationPathsDto>
+
+  /** Hash a candidate ROM against the project's base ROM. Registers nothing. */
+  checkRom(manifestPath: string, romPath: string): Promise<RomCheckDto>
+
+  /** Re-check, then register the ROM's new path. A different ROM is refused. */
+  relocateRom(manifestPath: string, romPath: string): Promise<RomCheckDto>
 
   /**
    * Change what the hack says about itself.

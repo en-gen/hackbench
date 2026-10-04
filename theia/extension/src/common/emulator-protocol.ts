@@ -72,6 +72,9 @@ export interface EmulatorService {
    */
   locateCore(jsPath: string): Promise<LocateCoreResult>
 
+  /** The validation `locateCore` runs, without remembering the core. */
+  checkCore(jsPath: string): Promise<LocateCoreResult>
+
   /** The registered core's bytes, ready to instantiate. */
   coreFiles(): Promise<CoreFilesResult>
 

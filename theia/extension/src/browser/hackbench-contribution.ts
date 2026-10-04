@@ -29,7 +29,12 @@ import { NewProjectDialog } from './new-project-dialog'
 import { MapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
 import { PreviewTabs } from './preview-tabs'
 import { MapViewWidget, MAP_VIEW_ID } from './map-view-widget'
-import { ProjectPropertiesDialog } from './project-properties-dialog'
+import { EmulatorService } from '../common/emulator-protocol'
+import { ProjectFrontendClient } from './project-push-client'
+import { Map16FrontendClient } from './map16-push-client'
+import { GfxFrontendClient } from './gfx-push-client'
+import { PaletteFrontendClient } from './palette-push-client'
+import { describeRomMismatch, ProjectPropertiesDialog } from './project-properties-dialog'
 import { ProjectContext } from './project-context'
 import { FileDialogService } from '@theia/filesystem/lib/browser'
 import { PROJECT_EXT } from '../../../../src/project/Project'
@@ -124,6 +129,11 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
   @inject(ApplicationShell) protected readonly shell!: ApplicationShell
   @inject(ProjectPropertiesDialog) protected readonly properties!: ProjectPropertiesDialog
   @inject(ProjectContext) protected readonly context!: ProjectContext
+  @inject(EmulatorService) protected readonly emulator!: EmulatorService
+  @inject(ProjectFrontendClient) protected readonly pushClient!: ProjectFrontendClient
+  @inject(Map16FrontendClient) protected readonly map16Push!: Map16FrontendClient
+  @inject(GfxFrontendClient) protected readonly gfxPush!: GfxFrontendClient
+  @inject(PaletteFrontendClient) protected readonly palettePush!: PaletteFrontendClient
   @inject(FileDialogService) protected readonly fileDialog!: FileDialogService
   @inject(QuickInputService) protected readonly quickInput!: QuickInputService
 
@@ -424,11 +434,56 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
     const changes = await this.properties.editFor(current)
     if (!changes) return
 
+    // Both picks are re-validated before anything is written: a file can
+    // change after Browse. Writes then run ROM, core, metadata; a failure
+    // reports exactly what already applied, and any registry write still
+    // refreshes the views.
+    const { pendingRomPath, pendingCorePath } = this.properties
+    const applied: string[] = []
     try {
+      if (pendingRomPath) {
+        const check = await this.projects.checkRom(open.manifestPath, pendingRomPath)
+        if (check.status === 'mismatch') throw new Error(describeRomMismatch(check))
+      }
+      if (pendingCorePath) {
+        const core = await this.emulator.checkCore(pendingCorePath)
+        if (core.status === 'invalid') throw new Error(core.message)
+      }
+      if (pendingRomPath) {
+        const moved = await this.projects.relocateRom(open.manifestPath, pendingRomPath)
+        if (moved.status === 'mismatch') throw new Error(describeRomMismatch(moved))
+        applied.push('ROM location')
+      }
+      if (pendingCorePath) {
+        const core = await this.emulator.locateCore(pendingCorePath)
+        if (core.status === 'invalid') throw new Error(core.message)
+        applied.push('emulator core')
+      }
       this.context.current = await this.projects.updateProject(open.manifestPath, changes)
+      applied.push('properties')
       this.messages.info(`Saved properties for ${changes.title}`)
     } catch (err) {
-      this.messages.error(`Could not save properties: ${(err as Error).message}`)
+      // The message may already end in a full stop.
+      this.messages.error(
+        `Could not save properties: ${(err as Error).message.replace(/\.$/, '')}. ` +
+          `Applied: ${applied.length ? applied.join(', ') : 'nothing'}.`,
+      )
+    } finally {
+      // Views waiting on a ROM or core re-read on these, the same pushes a
+      // working-copy edit sends. Each view type listens to its own client.
+      const romMoved = applied.includes('ROM location')
+      const registryWritten = romMoved || applied.includes('emulator core')
+      if (registryWritten) {
+        this.pushClient.onWorkingCopyChanged(open.manifestPath)
+        // Re-announce the project: the GFX and music explorers and the
+        // emulator reload on the context, not on pushes. A full save already did.
+        if (!applied.includes('properties')) this.context.current = this.context.current // eslint-disable-line no-self-assign
+      }
+      if (romMoved) {
+        for (const client of [this.map16Push, this.gfxPush, this.palettePush]) {
+          client.onWorkingCopyChanged(open.manifestPath)
+        }
+      }
     }
   }
 

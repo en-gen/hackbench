@@ -19,9 +19,7 @@ import { EnvVariablesServer } from '@theia/core/lib/common/env-variables'
 import { MessageService } from '@theia/core/lib/common'
 import { CreateProjectRequest, ProjectService } from '../common/project-protocol'
 import { PROJECT_EXT } from '../../../../src/project/Project'
-
-/** Extensions a dumped SNES cart normally carries. */
-const ROM_FILTER = { 'SNES ROM': ['sfc', 'smc', 'rom'] }
+import { ROM_FILTER } from './file-filters'
 
 @injectable()
 export class NewProjectDialogProps extends DialogProps {}

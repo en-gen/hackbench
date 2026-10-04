@@ -2626,3 +2626,44 @@ test('plain wheel still scrolls the Map16 strip and does not touch zoom', async 
   expect(scrollAfter).toBeGreaterThan(scrollBefore)
   expect(await page.locator(ctl('zoom-indicator')).textContent()).toBe(`${DEFAULT_ZOOM}x`)
 })
+
+test('a Map16 view waiting on a missing ROM repaints after Project Properties relocates it (#527)', async ({
+  page,
+}) => {
+  // The project's only registered copy is deleted right after createProject
+  // and before anything calls workingRoms.get (a cache hit never re-reads the
+  // file), so the view opens in rom-not-located. The view is opened directly:
+  // explorer rows do not exist while the ROM is missing.
+  const gone = path.join(tmp, 'gone.sfc')
+  fs.copyFileSync(ROM, gone)
+  const project = await createProject(page, path.join(tmp, 'Revive'), 'Revive', gone)
+  fs.rmSync(gone)
+  await page.evaluate(async manifestPath => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map16-view', {
+      layer: 'fg',
+    })
+    await w.open({ manifestPath, label: 'Map16 Foreground', layer: 'fg' })
+    await getSvc('ApplicationShell').addWidget(w, { area: 'main' })
+    await getSvc('ApplicationShell').activateWidget(w.id)
+  }, project.manifestPath)
+  await expect(page.locator(`${FG} .hb-map16-empty`)).toContainText('Locate')
+
+  const moved = path.join(tmp, 'moved.sfc')
+  fs.copyFileSync(ROM, moved)
+  await page.evaluate(
+    async ({ p, moved }) => {
+      getSvc('ProjectContext').current = p
+      const dlg = getSvc('ProjectPropertiesDialog')
+      dlg.fileDialog.showOpenDialog = async () => ({ path: { fsPath: () => moved } })
+      void getSvc('CommandRegistry').executeCommand('hackbench.project.properties')
+    },
+    { p: project, moved },
+  )
+  await page.waitForSelector('.hb-dialog-facts', { timeout: 15000 })
+  await page.locator('.dialogBlock button:has-text("Browse...")').first().click()
+  await expect
+    .poll(() => page.locator('.dialogBlock input[readonly]').first().inputValue())
+    .toBe(moved)
+  await page.locator('.dialogBlock .theia-button.main').click()
+  await page.waitForSelector(`${FG} .hb-map16-preview-canvas`, { timeout: 15000 })
+})

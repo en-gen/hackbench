@@ -10,7 +10,9 @@
  * the Theia module as a constant, the same way RomRegistry is used directly
  * by each `*ServiceImpl` today.
  */
-import { openProject, Project, RomIdentity } from './Project'
+import * as path from 'path'
+import { openProject, Project, RomIdentity, romIdentity } from './Project'
+import { readRomBounded } from './BoundedRead'
 import { RomRegistry } from './RomRegistry'
 import { RomFile } from '../rom/RomFile'
 import { Layer, WorkingRom } from './WorkingRom'
@@ -93,6 +95,9 @@ function addrHex(romAddr: number): string {
   return `$${romAddr.toString(16).toUpperCase().padStart(6, '0')}`
 }
 
+/** `mismatch` names both hashes in full so a caller can shorten them for display. */
+export type RomCheck = { status: 'ok' } | { status: 'mismatch'; picked: string; expected: string }
+
 export class WorkingRomRegistry {
   private readonly cache = new Map<string, WorkingRomEntry>()
   /**
@@ -113,6 +118,52 @@ export class WorkingRomRegistry {
    */
   register(romPath: string): RomIdentity {
     return this.registry.register(romPath)
+  }
+
+  /**
+   * Where this machine keeps the project's base ROM, re-verified, or null.
+   * Only for the Local workstation display; views read `get()`, never a path.
+   */
+  workstationRomPath(manifestPath: string): string | null {
+    return this.registry.resolve(openProject(manifestPath).baseRom.sha256)
+  }
+
+  /** Whether the ROM at `romPath` is this project's base ROM. Registers nothing. */
+  checkRom(manifestPath: string, romPath: string): RomCheck {
+    const expected = openProject(manifestPath).baseRom.sha256
+    const picked = romIdentity(readRomBounded(romPath)).sha256
+    return picked === expected ? { status: 'ok' } : { status: 'mismatch', picked, expected }
+  }
+
+  /**
+   * Point this machine at another copy of the project's own ROM (#527). A
+   * different ROM is refused: retargeting a project is out of scope.
+   *
+   * The file is read ONCE: hashed, then registered and header-checked from
+   * those same bytes, so a file swapped mid-call can neither land in the
+   * registry under its own hash nor give a header state for other bytes.
+   * Every cached project on this ROM learns the new path; one whose
+   * copier-header state changed is dropped, so the next `get` rebuilds it
+   * (Export Patch depends on that state). Callers push a refresh after.
+   */
+  relocate(manifestPath: string, romPath: string): RomCheck {
+    const expected = openProject(manifestPath).baseRom.sha256
+    const absolute = path.resolve(romPath)
+    const bytes = readRomBounded(absolute)
+    const picked = romIdentity(bytes).sha256
+    if (picked !== expected) return { status: 'mismatch', picked, expected }
+    this.registry.registerBytes(absolute, bytes)
+    const headered = RomFile.fromBytes(absolute, Buffer.from(bytes)).hasHeader
+    for (const [manifest, entry] of [...this.cache]) {
+      if (entry.project.baseRom.sha256 !== expected) continue
+      if (entry.working.hasCopierHeader !== headered) {
+        this.cache.delete(manifest)
+        this.stamps.delete(manifest)
+      } else {
+        entry.romPath = absolute
+      }
+    }
+    return { status: 'ok' }
   }
 
   /**

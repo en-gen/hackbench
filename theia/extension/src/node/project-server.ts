@@ -12,6 +12,7 @@ import {
   romIdentity,
   updateProject,
 } from '../../../../src/project/Project'
+import { CoreRegistry } from '../../../../src/project/CoreRegistry'
 import { RecentProjects } from '../../../../src/project/RecentProjects'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -53,10 +54,12 @@ import {
   ProjectService,
   ProjectServiceClient,
   RecentProjectDto,
+  RomCheckDto,
   RomIdentityDto,
   SetMapGroupsResult,
   SwitchFlagsDto,
   SwitchStateDto,
+  WorkstationPathsDto,
 } from '../common/project-protocol'
 import { WorkingCopyNotifier } from './working-copy-notifier'
 
@@ -135,6 +138,21 @@ export class ProjectServiceImpl implements ProjectService {
 
   async identifyRom(romPath: string): Promise<RomIdentityDto> {
     return romIdentity(readRomBounded(romPath))
+  }
+
+  async workstationPaths(manifestPath: string): Promise<WorkstationPathsDto> {
+    return {
+      romPath: this.workingRoms.workstationRomPath(manifestPath),
+      corePath: new CoreRegistry().current()?.jsPath ?? null,
+    }
+  }
+
+  async checkRom(manifestPath: string, romPath: string): Promise<RomCheckDto> {
+    return this.workingRoms.checkRom(manifestPath, romPath)
+  }
+
+  async relocateRom(manifestPath: string, romPath: string): Promise<RomCheckDto> {
+    return this.workingRoms.relocate(manifestPath, romPath)
   }
 
   async registerRom(romPath: string): Promise<RomIdentityDto> {

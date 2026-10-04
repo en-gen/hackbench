@@ -14,7 +14,7 @@ import { inject, injectable } from '@theia/core/shared/inversify'
 import * as fs from 'fs' // core files only; the ROM comes from the working copy
 import { createHash } from 'crypto'
 import { WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
-import { CoreRegistry } from '../../../../src/project/CoreRegistry'
+import { CoreRegistry, validateCore } from '../../../../src/project/CoreRegistry'
 import * as saves from '../../../../src/project/SaveStore'
 import * as path from 'path'
 import {
@@ -48,6 +48,13 @@ export class EmulatorServiceImpl implements EmulatorService {
     } catch (err) {
       return { status: 'invalid', message: (err as Error).message }
     }
+  }
+
+  async checkCore(jsPath: string): Promise<LocateCoreResult> {
+    const check = validateCore(path.resolve(jsPath))
+    return check.ok
+      ? { status: 'ok', core: { label: path.basename(jsPath) } }
+      : { status: 'invalid', message: check.message ?? 'Not a usable core' }
   }
 
   async coreFiles(): Promise<CoreFilesResult> {
