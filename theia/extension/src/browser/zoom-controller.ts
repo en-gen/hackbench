@@ -241,8 +241,9 @@ export class ZoomController implements Disposable {
       const canvas = canvasOf()
       if (!canvas) return
       const rect = canvas.getBoundingClientRect()
-      const clientX = node.getBoundingClientRect().left + node.clientWidth / 2
-      const clientY = node.getBoundingClientRect().top + node.clientHeight / 2
+      const box = node.getBoundingClientRect()
+      const clientX = box.left + node.clientWidth / 2
+      const clientY = box.top + node.clientHeight / 2
       pending = {
         contentX: (clientX - rect.left) / this.value,
         contentY: (clientY - rect.top) / this.value,
@@ -255,7 +256,7 @@ export class ZoomController implements Disposable {
     return {
       dispose: () => {
         cancelFollowUp()
-        if (this.anchorCentre) this.anchorCentre = undefined
+        this.anchorCentre = undefined
         node.removeEventListener('wheel', listener)
       },
       restoreAnchor: () => {
