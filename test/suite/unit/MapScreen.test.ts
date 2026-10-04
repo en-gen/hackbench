@@ -33,6 +33,7 @@ import { parseLevelHeader } from '../../../src/rom/LevelParser'
 import * as ParserReal from '../../../src/rom/LevelParser'
 import type * as ParserMod from '../../../src/rom/LevelParser'
 import { drawInterpreted } from '../../../src/rom/objectHandlers/interpretedDraw'
+import { VANILLA_PRIMITIVES } from '../../../src/rom/objectHandlers/interpret'
 import {
   PIPE_VARIANT_TILE_COUNT,
   PIPE_VARIANT_TILE_START,
@@ -535,7 +536,11 @@ describe('buildL1Inputs (synthetic)', () => {
     const spy = vi.mocked(Expander.expandMap)
     spy.mockClear()
     buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
-    expect(spy.mock.calls[0]![8]).toMatchObject({ unverified: [], draw: drawInterpreted })
+    expect(spy.mock.calls[0]![8]).toMatchObject({
+      unverified: [],
+      draw: drawInterpreted,
+      primitives: VANILLA_PRIMITIVES,
+    })
   })
 
   it.each([0x09, 0x0b, 0x10])(
