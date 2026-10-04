@@ -91,6 +91,8 @@ describe('ci-aggregate.mjs', () => {
     [{ CODE: '' }],
     [{ CODE: 'maybe' }],
     [{ SPIKE: 'skipped' }],
+    [{ UNIT: 'skipped' }],
+    [{ STATIC: 'skipped' }],
     [{ CHANGES: 'failure', CODE: '', STATIC: 'skipped', UNIT: 'skipped', SPIKE: 'skipped' }],
     [{ CONTENT: 'failure' }],
     [{ CONTENT: 'skipped' }],
