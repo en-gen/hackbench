@@ -113,6 +113,7 @@ async function bootWithSpy(page, name) {
 }
 
 const seen = page => page.evaluate(() => window.__hbSeen)
+const selectTab = (page, n) => page.locator(`${VIEW} [role="tab"]:has-text("Player ${n}")`).click()
 const openFlyout = async page => {
   await page.locator(`${VIEW} button[aria-label="Controllers"]`).click()
   await expect(page.locator(`${VIEW} .hb-pad-flyout`)).toBeVisible()
@@ -266,6 +267,7 @@ test('a key held while the keyboard moves to player 2 is released on port 0', as
   await page.evaluate(async () => (await getWidget('hackbench.emulator-view')).node.focus())
   await page.keyboard.down('KeyZ')
   expect(await seen(page)).toEqual([[0, 0, 1]])
+  await selectTab(page, 2)
   await page.locator(`${VIEW} input[aria-label="Player 2 keyboard"]`).check()
   expect(await seen(page), 'the held key stuck on port 0').toEqual([
     [0, 0, 1],
@@ -293,14 +295,19 @@ test('the drawing lights what each player is sending, including d-pad, L/R and S
       player,
     )
   expect(await lit(1)).toEqual([])
+  // Only the selected player's drawing exists; P2's is reachable through its tab.
+  await expect(page.locator(`${VIEW} [data-player="2"]`)).toHaveCount(0)
   // P1: right face (A, 8), d-pad up (4), LB (L, 10), start (3).
   await page.evaluate(() => setPads(pad(0, [1, 12, 4, 9]), pad(1, [3])))
   await expect.poll(() => lit(1)).toEqual([3, 4, 8, 10])
   // P2: top face (X, 9), and only P2.
-  expect(await lit(2)).toEqual([9])
+  await selectTab(page, 2)
+  await expect(page.locator(`${VIEW} [data-player="1"]`)).toHaveCount(0)
+  await expect.poll(() => lit(2)).toEqual([9])
   await page.evaluate(() => setPads(null, null))
-  await expect.poll(() => lit(1)).toEqual([])
   await expect.poll(() => lit(2)).toEqual([])
+  await selectTab(page, 1)
+  await expect.poll(() => lit(1)).toEqual([])
   // Every pressable part exists in the drawing: B Y Sel Start U D L R A X L R.
   const parts = await page.evaluate(() =>
     [...document.querySelectorAll('#hackbench\\.emulator-view [data-player="1"] [data-btn]')]
@@ -308,6 +315,40 @@ test('the drawing lights what each player is sending, including d-pad, L/R and S
       .sort((a, b) => a - b),
   )
   expect(parts).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+})
+
+test('tabs: aria roles, keyboard navigation, activity dot, and the selection persists', async ({
+  page,
+}) => {
+  test.setTimeout(120000)
+  await bootWithSpy(page, 'Tabs')
+  await openFlyout(page)
+  const tab = n => page.locator(`${VIEW} [role="tab"]:has-text("Player ${n}")`)
+  await expect(page.locator(`${VIEW} [role="tablist"]`)).toBeVisible()
+  await expect(tab(1)).toHaveAttribute('aria-selected', 'true')
+  await expect(tab(2)).toHaveAttribute('aria-selected', 'false')
+  // Arrow keys move between tabs.
+  await tab(1).focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(tab(2)).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator(`${VIEW} [data-player="2"]`)).toBeVisible()
+  // P1 holds a button while the P2 tab is selected: P1's dot lights, P2's does not.
+  await page.evaluate(() => setPads(pad(0, [0]), null))
+  await expect(tab(1).locator('.hb-pad-dot')).toHaveCount(1)
+  await expect(tab(2).locator('.hb-pad-dot')).toHaveCount(0)
+  await page.evaluate(() => setPads(null, null))
+  await expect(tab(1).locator('.hb-pad-dot')).toHaveCount(0)
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
+  await page.waitForTimeout(4000)
+  await page.addScriptTag({ content: GET_SVC })
+  const selected = await page.evaluate(async () => {
+    const w = await getWidget('hackbench.emulator-view')
+    await new Promise(r => setTimeout(r, 500))
+    return w.controllers.settings.selectedPlayer
+  })
+  expect(selected).toBe(1)
 })
 
 test('the keyboard follows its player assignment', async ({ page }) => {
@@ -320,8 +361,11 @@ test('the keyboard follows its player assignment', async ({ page }) => {
   ])
   await openFlyout(page)
   await page.evaluate(() => (window.__hbSeen.length = 0))
+  await selectTab(page, 2)
   await page.locator(`${VIEW} input[aria-label="Player 2 keyboard"]`).check()
+  await selectTab(page, 1)
   await expect(page.locator(`${VIEW} input[aria-label="Player 1 keyboard"]`)).not.toBeChecked()
+  await selectTab(page, 2)
   await page.evaluate(async () => (await getWidget('hackbench.emulator-view')).node.focus())
   await page.keyboard.press('ArrowRight')
   expect(await seen(page)).toEqual([
@@ -346,11 +390,13 @@ test('pad assignment is chosen per player, exclusive, and survives a reload', as
   const p1 = page.locator(`${VIEW} select[aria-label="Player 1 gamepad"]`)
   const p2 = page.locator(`${VIEW} select[aria-label="Player 2 gamepad"]`)
   await expect(p1).toHaveValue('0')
+  await selectTab(page, 2)
   await expect(p2).toHaveValue('1')
   // Giving P2 pad 0 takes it from P1.
   await p2.selectOption('0')
-  await expect(p1).toHaveValue('')
   await expect(p2).toHaveValue('0')
+  await selectTab(page, 1)
+  await expect(p1).toHaveValue('')
   await page.evaluate(() => (window.__hbSeen.length = 0))
   await page.evaluate(() => setPads(pad(0, [0]), null))
   await expect.poll(() => seen(page)).toEqual([[1, 0, 1]])

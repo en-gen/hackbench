@@ -822,6 +822,8 @@ export class EmulatorWidget extends ReactWidget {
             scheme={this.controllers.scheme()}
             pads={this.controllers.connectedPads()}
             pressed={port => this.controllers.hub.pressed(port)}
+            active={player => this.controllers.isActive(player)}
+            onSelect={player => this.controllers.selectPlayer(player)}
             onKeyboard={(player, on) => this.controllers.setKeyboard(player, on)}
             onPad={(player, pad) => this.controllers.setPad(player, pad)}
             onStyle={style => this.controllers.setStyle(style)}

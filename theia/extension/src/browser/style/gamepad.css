@@ -15,8 +15,9 @@
   width: min(320px, 100%);
   padding: 4px 8px 8px;
   overflow-y: auto;
-  background: var(--theia-editorWidget-background);
-  border-left: 1px solid var(--theia-editorWidget-border);
+  /* Fallbacks are VS Code Dark Modern: editorWidget.background, editorWidget.border. */
+  background: var(--theia-editorWidget-background, #252526);
+  border-left: 1px solid var(--theia-editorWidget-border, #454545);
   box-shadow: -4px 0 8px rgba(0, 0, 0, 0.25);
   animation: hb-pad-slide-in 0.15s ease-out;
 }
@@ -42,10 +43,9 @@
   gap: 4px;
 }
 
-.hb-pad-title,
-.hb-pad-player h4 {
+.hb-pad-title {
   margin: 0;
-  font-size: var(--theia-ui-font-size1);
+  font-size: var(--theia-ui-font-size1, 13px);
   font-weight: 600;
 }
 
@@ -76,4 +76,45 @@
    with gradients or live inside <use>, where a fill override cannot reach. */
 .hb-pad-art .hb-pad-on {
   filter: brightness(2.4) saturate(1.3) drop-shadow(0 0 6px var(--theia-focusBorder, #5b9cf6));
+}
+
+.hb-pad-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--theia-editorWidget-border, #454545);
+}
+
+.hb-pad-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--theia-descriptionForeground, #9d9d9d);
+  font: inherit;
+  cursor: pointer;
+}
+
+.hb-pad-tab:hover {
+  color: var(--theia-foreground, #cccccc);
+}
+
+.hb-pad-tab-on {
+  color: var(--theia-foreground, #cccccc);
+  border-bottom-color: var(--theia-focusBorder, #5b9cf6);
+}
+
+.hb-pad-tab:focus-visible {
+  outline: 1px solid var(--theia-focusBorder, #5b9cf6);
+  outline-offset: -1px;
+}
+
+/* Lit while that player has any button held. */
+.hb-pad-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--theia-focusBorder, #5b9cf6);
 }

@@ -144,6 +144,15 @@ export class ControllerSession {
     this.change({ players: assignPad(this.settings.players, player, pad) })
   }
 
+  selectPlayer(player: number): void {
+    this.change({ selectedPlayer: player === 1 ? 1 : 0 })
+  }
+
+  /** The player is sending something now, for the tab's activity dot. */
+  isActive(player: number): boolean {
+    return this.hub.pressed(player).size > 0
+  }
+
   setStyle(style: ControllerStyle): void {
     this.change({ style })
   }

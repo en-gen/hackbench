@@ -17,6 +17,8 @@ export type ControllerScheme = 'na' | 'pal'
 export interface ControllerSettings {
   players: PlayerAssignment[]
   style: ControllerStyle
+  /** The fly-out tab: 0 is Player 1. */
+  selectedPlayer: number
 }
 
 export const PLAYER_COUNT = 2
@@ -163,7 +165,11 @@ function exclusive(players: PlayerAssignment[]): PlayerAssignment[] {
 
 /** Anything stored that is not usable falls back to the defaults. */
 export function parseControllerSettings(raw: unknown): ControllerSettings {
-  const fallback = { players: DEFAULT_ASSIGNMENTS.map(a => ({ ...a })), style: 'auto' as const }
+  const fallback = {
+    players: DEFAULT_ASSIGNMENTS.map(a => ({ ...a })),
+    style: 'auto' as const,
+    selectedPlayer: 0,
+  }
   if (typeof raw !== 'object' || raw === null) return fallback
   const { players, style } = raw as Record<string, unknown>
   const parsed = Array.isArray(players) ? players.map(parsePlayer) : []
@@ -171,5 +177,6 @@ export function parseControllerSettings(raw: unknown): ControllerSettings {
   return {
     players: ok ? exclusive(parsed as PlayerAssignment[]) : fallback.players,
     style: style === 'na' || style === 'pal' ? style : 'auto',
+    selectedPlayer: (raw as Record<string, unknown>).selectedPlayer === 1 ? 1 : 0,
   }
 }

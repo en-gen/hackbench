@@ -275,6 +275,33 @@ describe('ControllerSession', () => {
     expect(us.session.scheme()).toBe('na')
   })
 
+  it('persists the selected tab and loads it back', () => {
+    const { session, saved } = make()
+    session.selectPlayer(1)
+    expect(session.settings.selectedPlayer).toBe(1)
+    expect((saved.at(-1) as { selectedPlayer: number }).selectedPlayer).toBe(1)
+    session.selectPlayer(7)
+    expect(session.settings.selectedPlayer).toBe(0)
+    const fresh = make().session
+    fresh.load({ players: [{ keyboard: true }, { keyboard: false }], selectedPlayer: 1 })
+    expect(fresh.settings.selectedPlayer).toBe(1)
+  })
+
+  it('a tab is active while its player holds a button, whichever tab is selected', () => {
+    const { session, env, frame } = make()
+    session.selectPlayer(1)
+    expect([session.isActive(0), session.isActive(1)]).toEqual([false, false])
+    env.pads = [pad([0]), null]
+    frame()
+    expect([session.isActive(0), session.isActive(1)]).toEqual([true, false])
+    env.pads = [null, pad([1])]
+    frame()
+    expect([session.isActive(0), session.isActive(1)]).toEqual([false, true])
+    env.pads = [null, null]
+    frame()
+    expect(session.isActive(1)).toBe(false)
+  })
+
   it('togglePads sets and flips, and notifies', () => {
     const { session } = make()
     let n = 0

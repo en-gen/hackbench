@@ -101,6 +101,7 @@ describe('parseControllerSettings', () => {
       expect(parseControllerSettings(raw)).toEqual({
         players: DEFAULT_ASSIGNMENTS,
         style: 'auto',
+        selectedPlayer: 0,
       })
     }
   })
@@ -116,6 +117,7 @@ describe('parseControllerSettings', () => {
         { keyboard: true, pad: undefined },
       ],
       style: 'na',
+      selectedPlayer: 0,
     })
     expect(parseControllerSettings({ ...saved, style: 'ntsc' }).style).toBe('auto')
   })
@@ -202,5 +204,20 @@ describe('assignKeyboard off', () => {
       { keyboard: true, pad: undefined },
     ]
     expect(assignKeyboard(both, 0, false).map(a => a.keyboard)).toEqual([false, true])
+  })
+})
+
+describe('selectedPlayer', () => {
+  it('defaults to Player 1 for settings stored without it', () => {
+    expect(
+      parseControllerSettings({ players: DEFAULT_ASSIGNMENTS, style: 'na' }).selectedPlayer,
+    ).toBe(0)
+    expect(parseControllerSettings(undefined).selectedPlayer).toBe(0)
+  })
+  it('round-trips 1 and rejects anything else', () => {
+    expect(parseControllerSettings({ selectedPlayer: 1 }).selectedPlayer).toBe(1)
+    for (const v of [2, -1, '1', null, 0.5]) {
+      expect(parseControllerSettings({ selectedPlayer: v }).selectedPlayer).toBe(0)
+    }
   })
 })

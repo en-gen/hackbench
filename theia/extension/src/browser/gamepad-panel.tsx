@@ -72,6 +72,8 @@ export interface GamepadPanelProps {
   scheme: ControllerScheme
   pads: ConnectedPad[]
   pressed(port: number): ReadonlySet<number>
+  active(player: number): boolean
+  onSelect(player: number): void
   onKeyboard(player: number, on: boolean): void
   onPad(player: number, pad: number | undefined): void
   onStyle(style: ControllerStyle): void
@@ -94,18 +96,46 @@ export function GamepadPanel(props: GamepadPanelProps): React.ReactElement {
           <span className="codicon codicon-close" />
         </button>
       </div>
-      {settings.players.map((player, i) => (
+      <div className="hb-pad-tabs" role="tablist" aria-label="Players">
+        {settings.players.map((_, i) => (
+          <button
+            key={i}
+            role="tab"
+            id={`hb-pad-tab-${i}`}
+            aria-selected={settings.selectedPlayer === i}
+            aria-controls="hb-pad-tabpanel"
+            tabIndex={settings.selectedPlayer === i ? 0 : -1}
+            className={`hb-pad-tab${settings.selectedPlayer === i ? ' hb-pad-tab-on' : ''}`}
+            onClick={() => props.onSelect(i)}
+            onKeyDown={e => {
+              if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+              e.preventDefault()
+              props.onSelect(1 - i)
+              document.getElementById(`hb-pad-tab-${1 - i}`)?.focus()
+            }}
+          >
+            Player {i + 1}
+            {props.active(i) && (
+              <span className="hb-pad-dot" data-active="true" aria-label="active" />
+            )}
+          </button>
+        ))}
+      </div>
+      <div
+        id="hb-pad-tabpanel"
+        role="tabpanel"
+        aria-labelledby={`hb-pad-tab-${settings.selectedPlayer}`}
+      >
         <PlayerRow
-          key={i}
-          index={i}
-          player={player}
+          index={settings.selectedPlayer}
+          player={settings.players[settings.selectedPlayer]}
           scheme={scheme}
           pads={pads}
-          pressed={props.pressed(i)}
+          pressed={props.pressed(settings.selectedPlayer)}
           onKeyboard={props.onKeyboard}
           onPad={props.onPad}
         />
-      ))}
+      </div>
       <label className="hb-pad-field">
         <span>Controller style</span>
         <select
@@ -138,7 +168,6 @@ function PlayerRow(props: PlayerRowProps): React.ReactElement {
   const missing = player.pad !== undefined && !pads.some(p => p.index === player.pad)
   return (
     <section className="hb-pad-player" data-player-row={index + 1}>
-      <h4>Player {index + 1}</h4>
       <ControllerDrawing player={index} scheme={props.scheme} pressed={props.pressed} />
       <label className="hb-pad-field">
         <input
