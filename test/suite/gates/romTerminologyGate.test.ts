@@ -14,6 +14,8 @@ import * as path from 'path'
 import * as ts from 'typescript'
 
 const ROOT = path.resolve(__dirname, '../../..')
+// US spelling in UI text (#273). Also catches "colours" and "recolour".
+const UK_COLOR = /colour/i
 const SCANNED = ['theia/extension/src', 'src/rom', 'src/project']
 const BANNED = /cartridge|\bcarts?\b/i
 
@@ -70,6 +72,32 @@ describe('ROM terminology gate', () => {
       ' cart',
       'Reading the cartridge...',
       'Reload the cart',
+    ])
+  })
+
+  it('no user-facing string says colour (US spelling, #273)', () => {
+    const files = SCANNED.flatMap(d => sourceFiles(path.join(ROOT, d)))
+    expect(files.length).toBeGreaterThan(100)
+    const offenders = files.flatMap(f =>
+      userText(fs.readFileSync(f, 'utf8'), f)
+        .filter(s => UK_COLOR.test(s))
+        .map(s => `${path.relative(ROOT, f)}: ${JSON.stringify(s)}`),
+    )
+    expect(offenders).toEqual([])
+  })
+
+  it('colour check flags literals and template text, never a comment', () => {
+    const planted = [
+      '// a colour in a comment',
+      "const a = 'Back area colour'",
+      'const b = `not a 6-digit css colour: ${x}`',
+      'const c = <b title="Pick a colour">Colours</b>',
+    ].join('\n')
+    expect(userText(planted).filter(s => UK_COLOR.test(s))).toEqual([
+      'Back area colour',
+      'not a 6-digit css colour: ',
+      'Pick a colour',
+      'Colours',
     ])
   })
 })

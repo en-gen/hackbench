@@ -38,7 +38,7 @@ export function cssColor(c: PaletteColorDto): string {
 /** "#rrggbb" (an `<input type="color">`'s value) to a BGR555 hex word. */
 export function cssHexToBgr555(cssHex: string): string {
   const m = /^#?([0-9a-fA-F]{6})$/.exec(cssHex.trim())
-  if (!m) throw new Error(`not a 6-digit css colour: ${JSON.stringify(cssHex)}`)
+  if (!m) throw new Error(`not a 6-digit css color: ${JSON.stringify(cssHex)}`)
   const n = parseInt(m[1], 16)
   return formatBgr555({ r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff, a: 255 })
 }

@@ -894,7 +894,7 @@ function relocatedOverworld(rom: RomFile, at: number, dbrBank: number): PaletteA
   const flat = targets.find(t => new Set(t.colors).size < 2)
   if (flat) {
     return blind(
-      `CGRAM $${hex2(flat.cgramIdx)} reads one repeated colour from ` +
+      `CGRAM $${hex2(flat.cgramIdx)} reads one repeated color from ` +
         `$${hex6(flat.tableAddr)}, so nothing there animates.`,
     )
   }
