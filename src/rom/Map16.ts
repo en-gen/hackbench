@@ -636,7 +636,7 @@ function scanL2Map16Table(rom: RomFile): Map16Read<number[]> {
   const bound = le16(code, 26)
   if (bound === 0 || bound % 2 !== 0)
     return refuse('the L2 (background) fill loop bound is not a pointer count')
-  // The loop fills Map16Pointers, a 1024-byte (512-entry) WRAM array (SMWDisX rammap.asm:1443).
+  // The loop fills Map16Pointers, a 1024-byte WRAM array (SMWDisX rammap.asm:1443).
   if (bound / 2 > MAP16_TOTAL_TILES) {
     return refuse(
       `the L2 (background) fill loop bound ${bound / 2} exceeds the ${MAP16_TOTAL_TILES} entries Map16Pointers holds`,
