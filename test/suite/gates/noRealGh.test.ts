@@ -3,12 +3,12 @@
  * AUTHENTICATED gh reachable (issue #486). Offline only: with the sentinel
  * token set, gh and git-credential never reach the network for these calls.
  */
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, afterAll } from 'vitest'
 import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import setup, { guardEnv, SENTINEL, TOKEN_VARS } from '../support/noRealGh'
+import setup, { assertGuardActive, guardEnv, SENTINEL, TOKEN_VARS } from '../support/noRealGh'
 
 // Hardcoded on purpose: importing TOKEN_VARS would let a dropped name pass unseen.
 const FOUR_TOKENS = ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN']
@@ -42,7 +42,7 @@ describe('guardEnv (pure)', () => {
     expect(guardEnv({}, '/cfg').GIT_CONFIG_PARAMETERS).toBe("'credential.helper'=''")
   })
   it.each(['Credential.Helper', 'credential.HELPER', 'credential.https://github.com.helper'])(
-    'appends when the last entry is %j with an empty value',
+    'last entry %j with an empty value: appends only when URL-scoped',
     key => {
       const o = guardEnv(
         { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: key, GIT_CONFIG_VALUE_0: '' },
@@ -261,5 +261,42 @@ describe('setup lifecycle', () => {
     delete process.env.GITHUB_TOKEN
     expect(setup()).toBeUndefined()
     for (const v of TOKEN_VARS) expect(isSentinel(process.env[v])).toBe(true)
+  })
+})
+
+describe('assertGuardActive (pure, fake dirs only)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-ag-')).replaceAll(path.sep, '/')
+  fs.writeFileSync(path.join(dir, 'gh'), '')
+  fs.writeFileSync(path.join(dir, 'gh.cmd'), '')
+  const good: NodeJS.ProcessEnv = {
+    HB_NO_REAL_GH_DIR: dir,
+    PATH: dir + path.delimiter + '/usr/bin',
+    GH_TOKEN: SENTINEL,
+  }
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  it('accepts a real guard environment', () => {
+    expect(() => assertGuardActive(good)).not.toThrow()
+  })
+  it.each([
+    ['missing marker var', { ...good, HB_NO_REAL_GH_DIR: undefined }],
+    ['dir not first on PATH', { ...good, PATH: '/usr/bin' + path.delimiter + dir }],
+    [
+      'forged dir that does not exist',
+      { ...good, HB_NO_REAL_GH_DIR: '/forged', PATH: '/forged' + path.delimiter + '/usr/bin' },
+    ],
+    ['absent token', { ...good, GH_TOKEN: undefined }],
+    ['wrong token', { ...good, GH_TOKEN: 'something-else' }],
+  ])('throws for %s', (_n, env) => {
+    expect(() => assertGuardActive(env)).toThrow(/guard inactive/)
+  })
+  it('throws when the dir exists but holds no shims', () => {
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-ag2-')).replaceAll(path.sep, '/')
+    try {
+      const env = { ...good, HB_NO_REAL_GH_DIR: empty, PATH: empty + path.delimiter + 'x' }
+      expect(() => assertGuardActive(env)).toThrow(/guard inactive/)
+    } finally {
+      fs.rmSync(empty, { recursive: true, force: true })
+    }
   })
 })

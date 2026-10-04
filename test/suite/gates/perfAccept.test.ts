@@ -13,17 +13,14 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
+import { assertGuardActive } from '../support/noRealGh'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const script = path.join(repoRoot, 'tools', 'perf', 'accept.sh')
 
 // Fail closed: this file once posted real perf-nightly statuses. If the suite
 // guard did not run (a config without globalSetup), refuse before any case.
-beforeAll(() => {
-  const dir = process.env.HB_NO_REAL_GH_DIR
-  if (!dir || !(process.env.PATH ?? '').startsWith(dir + path.delimiter))
-    throw new Error('noRealGh guard inactive (#486): register it as globalSetup, refusing to run')
-})
+beforeAll(() => assertGuardActive(process.env))
 
 type Result = { status: number; output: string }
 

@@ -70,6 +70,23 @@ export function guardEnv(env: NodeJS.ProcessEnv, configDir: string): NodeJS.Proc
   return out
 }
 
+/**
+ * Fail-closed self-check for a test that must never reach a real gh. Marker
+ * variables alone are forgeable (a made-up dir put on PATH passed), so it also
+ * demands the dir exists with both shims and the token holds the sentinel.
+ */
+export function assertGuardActive(env: NodeJS.ProcessEnv): void {
+  const dir = env.HB_NO_REAL_GH_DIR
+  const ok =
+    !!dir &&
+    (env.PATH ?? '').startsWith(dir + path.delimiter) &&
+    fs.existsSync(path.join(dir, 'gh')) &&
+    fs.existsSync(path.join(dir, 'gh.cmd')) &&
+    env.GH_TOKEN === SENTINEL
+  if (!ok)
+    throw new Error('noRealGh guard inactive (#486): register it as globalSetup, refusing to run')
+}
+
 export default function setup(): (() => void) | void {
   // Idempotent only while the dir still exists AND leads PATH; a stale value
   // inherited from a dead run must not suppress installation.
