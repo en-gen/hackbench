@@ -37,11 +37,16 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
+          # Fail closed: anything but exactly true/false (missing script,
+          # crash) fails this step, and the aggregate rejects an empty code.
+          # --no-renames lists the old path of a code-to-docs rename too.
           if [ "$EVENT" != "pull_request" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
+            CODE=true
           else
-            echo "code=$(git diff --name-only "$BASE" "$GITHUB_SHA" | bash tools/scripts/ci-changes.sh)" >> "$GITHUB_OUTPUT"
+            CODE=$(git diff --no-renames --name-only "$BASE" "$GITHUB_SHA" | node tools/scripts/ci-changes.mjs)
           fi
+          [ "$CODE" = true ] || [ "$CODE" = false ] || { echo "bad filter output: '$CODE'"; exit 1; }
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
   # Always runs, docs included: em-dashes and ROM bytes land in .md too.
   # Node builtins only, so no npm ci.
@@ -80,7 +85,7 @@ jobs:
   static:
     name: Static checks
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -118,7 +123,7 @@ jobs:
   unit:
     name: Unit tests
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -159,32 +164,31 @@ jobs:
   spike:
     name: Spike serve hardening
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: python3 spike/test_serve_hardening.py
 
   # The required check "Build & Test" lives on as the gate over the jobs
-  # above, so branch protection is unchanged. Skipped heavy jobs (docs-only
-  # PR) pass; failed or cancelled ones, and a failed `changes`, do not.
+  # above, so branch protection is unchanged. The verdict is in
+  # tools/scripts/ci-aggregate.mjs (fails closed, tested in ciGate.test.ts).
   build-and-test:
     name: Build & Test
     needs: [changes, content, static, unit, spike]
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
-      - name: Require every job to have passed or been skipped
+      - uses: actions/checkout@v7
+      - name: Require every job to have passed, or been skipped on a docs-only change
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          CODE: ${{ needs.changes.outputs.code }}
           CHANGES: ${{ needs.changes.result }}
           CONTENT: ${{ needs.content.result }}
-        run: |
-          echo "results: $RESULTS"
-          [ "$CHANGES" = success ] && [ "$CONTENT" = success ] || exit 1
-          for r in $RESULTS; do
-            case "$r" in success | skipped) ;; *) exit 1 ;; esac
-          done
+          STATIC: ${{ needs.static.result }}
+          UNIT: ${{ needs.unit.result }}
+          SPIKE: ${{ needs.spike.result }}
+        run: node tools/scripts/ci-aggregate.mjs
 
   # Split out because it needs the Theia workspace installed (~780MB, 734
   # packages) while everything above needs only the root install. Lint and
@@ -199,7 +203,7 @@ jobs:
   theia-typecheck:
     name: Theia type-check
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code != 'false'
     runs-on: ubuntu-latest
 
     steps:
