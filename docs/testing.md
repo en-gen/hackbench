@@ -142,7 +142,17 @@ helpers with hand-crafted byte sequences or literal inputs. Examples:
   into the expander.
 
 These run in CI on Node 22 and are the project's primary
-correctness gate.
+correctness gate, except on a docs-only pull request (see below).
+
+CI jobs (`.github/workflows/ci.yml`): `Changes` decides the rest; `Content
+policy` always runs; `Static checks` (lint, format, type-checks, compile),
+`Unit tests`, `Spike serve hardening` and `Theia type-check` run in parallel.
+A pull request whose changed paths are all under `docs/` or end in `.md`
+(`tools/scripts/ci-changes.mjs`) skips those four; pushes and manual runs
+never skip. The required `Build & Test` check is an aggregate over the jobs
+(`tools/scripts/ci-aggregate.mjs`): it fails on an unreadable filter result
+or a heavy job skipped when code changed. `ciGate.test.ts` plants both
+failures.
 
 ### 2. ROM-dependent tests (skipped in CI, run locally if ROM present)
 

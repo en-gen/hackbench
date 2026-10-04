@@ -20,10 +20,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    name: Build & Test
+  # Decides whether anything outside docs changed. A job-level `if` on the
+  # heavy jobs (not `paths-ignore`) keeps every required check reporting:
+  # a skipped job counts as passing. Pushes and manual runs run everything.
+  changes:
+    name: Changes
     runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Fail closed: anything but exactly true/false (missing script,
+          # crash) fails this step, and the aggregate rejects an empty code.
+          # --no-renames lists the old path of a code-to-docs rename too.
+          if [ "$EVENT" != "pull_request" ]; then
+            CODE=true
+          else
+            CODE=$(git diff --no-renames --name-only "$BASE" "$GITHUB_SHA" | node tools/scripts/ci-changes.mjs)
+          fi
+          [ "$CODE" = true ] || [ "$CODE" = false ] || { echo "bad filter output: '$CODE'"; exit 1; }
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
+  # Always runs, docs included: em-dashes and ROM bytes land in .md too.
+  # Node builtins only, so no npm ci.
+  content:
+    name: Content policy
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -33,10 +62,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
 
       - name: Content policy (no ROM-derived bytes)
         run: |
@@ -57,17 +82,27 @@ jobs:
         if: ${{ !github.event.repository.private }}
         run: node tools/scripts/check-content.mjs history
 
+  static:
+    name: Static checks
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Lint
         run: npm run lint
 
       - name: Format
         run: npm run format:check
-
-      # The spike probe servers are throwaway but bind a local port and write
-      # files; this proves their /save and GET hardening (stdlib only, no ROM).
-      # ubuntu-latest ships python3 >= 3.10, which the servers' annotations need.
-      - name: Spike serve hardening
-        run: python3 spike/test_serve_hardening.py
 
       - name: Type-check
         run: npx tsc --noEmit
@@ -83,6 +118,23 @@ jobs:
         run: npm run compile
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+
+  # No test reads webpack output, so this does not wait on `static`.
+  unit:
+    name: Unit tests
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
 
       # Exhaustive byte-flip sweeps run 2-4x slower under v8 coverage on Node 22
       # than on Node 20 (same sweep: 14 s vs 47 s on CI), past the 5 s default.
@@ -106,6 +158,38 @@ jobs:
           path: coverage/
           retention-days: 14
 
+  # The spike probe servers are throwaway but bind a local port and write
+  # files; this proves their /save and GET hardening (stdlib only, no ROM).
+  # ubuntu-latest ships python3 >= 3.10, which the servers' annotations need.
+  spike:
+    name: Spike serve hardening
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 spike/test_serve_hardening.py
+
+  # The required check "Build & Test" lives on as the gate over the jobs
+  # above, so branch protection is unchanged. The verdict is in
+  # tools/scripts/ci-aggregate.mjs (fails closed, tested in ciGate.test.ts).
+  build-and-test:
+    name: Build & Test
+    needs: [changes, content, static, unit, spike]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Require every job to have passed, or been skipped on a docs-only change
+        env:
+          CODE: ${{ needs.changes.outputs.code }}
+          CHANGES: ${{ needs.changes.result }}
+          CONTENT: ${{ needs.content.result }}
+          STATIC: ${{ needs.static.result }}
+          UNIT: ${{ needs.unit.result }}
+          SPIKE: ${{ needs.spike.result }}
+        run: node tools/scripts/ci-aggregate.mjs
+
   # Split out because it needs the Theia workspace installed (~780MB, 734
   # packages) while everything above needs only the root install. Lint and
   # format already cover theia/ from the root job and need no Theia types,
@@ -118,6 +202,8 @@ jobs:
   # CI has a lawful ROM.
   theia-typecheck:
     name: Theia type-check
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
     runs-on: ubuntu-latest
 
     steps:
