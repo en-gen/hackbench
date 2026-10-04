@@ -298,7 +298,11 @@ async function main() {
 video: ${await clip.path()}`)
 }
 
-main().catch(e => {
-  console.error('DEMO FAILED:', e.message)
-  process.exit(1)
-})
+if (require.main === module) {
+  main().catch(e => {
+    console.error('DEMO FAILED:', e.message)
+    process.exit(1)
+  })
+}
+
+module.exports = { OVERLAY }
