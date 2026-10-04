@@ -341,14 +341,25 @@ test('tabs: aria roles, keyboard navigation, activity dot, and the selection per
 
   await page.reload({ waitUntil: 'domcontentloaded' })
   await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
-  await page.waitForTimeout(4000)
   await page.addScriptTag({ content: GET_SVC })
-  const selected = await page.evaluate(async () => {
-    const w = await getWidget('hackbench.emulator-view')
-    await new Promise(r => setTimeout(r, 500))
-    return w.controllers.settings.selectedPlayer
-  })
-  expect(selected).toBe(1)
+  // Retry until the shell has bound the emulator contribution; no fixed wait.
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        try {
+          await revealEmulator()
+          return true
+        } catch {
+          return false
+        }
+      }),
+    )
+    .toBe(true)
+  await openFlyout(page)
+  // The stored selection is what the UI shows, not just what the model holds.
+  await expect(tab(2)).toHaveAttribute('aria-selected', 'true')
+  await expect(tab(1)).toHaveAttribute('aria-selected', 'false')
+  await expect(page.locator(`${VIEW} [role="tabpanel"] [data-player="2"]`)).toBeVisible()
 })
 
 test('the keyboard follows its player assignment', async ({ page }) => {

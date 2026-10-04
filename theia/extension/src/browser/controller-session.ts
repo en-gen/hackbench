@@ -46,6 +46,9 @@ export class ControllerSession {
   private readonly keyboard: HeldButtons
   private osCountry: string | undefined
   private touched = false
+  private loaded = false
+  /** A tab picked before the stored settings arrived; it wins over the stored one. */
+  private pendingTab: number | undefined
   private wasLive = false
   private frame: number | undefined
   private unlisten: Array<() => void> = []
@@ -105,9 +108,15 @@ export class ControllerSession {
   /** Stored settings; ignored if the user already changed something this session. */
   load(raw: unknown): void {
     if (this.touched) return
+    const first = !this.loaded
+    this.loaded = true
     // A key held while the stored assignment moves the keyboard would stick on its old port.
     this.releaseAll()
     this.settings = parseControllerSettings(raw)
+    if (first && this.pendingTab !== undefined) {
+      this.settings = { ...this.settings, selectedPlayer: this.pendingTab }
+      this.deps.save(this.settings)
+    }
     this.onChange?.()
   }
 
@@ -145,7 +154,15 @@ export class ControllerSession {
   }
 
   selectPlayer(player: number): void {
-    this.change({ selectedPlayer: player === 1 ? 1 : 0 })
+    const selectedPlayer = player === 1 ? 1 : 0
+    if (!this.loaded) {
+      // Saving now would write the defaults over what is still being read.
+      this.pendingTab = selectedPlayer
+      this.settings = { ...this.settings, selectedPlayer }
+      this.onChange?.()
+      return
+    }
+    this.change({ selectedPlayer })
   }
 
   /** The player is sending something now, for the tab's activity dot. */

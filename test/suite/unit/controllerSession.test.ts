@@ -277,6 +277,7 @@ describe('ControllerSession', () => {
 
   it('persists the selected tab and loads it back', () => {
     const { session, saved } = make()
+    session.load(undefined)
     session.selectPlayer(1)
     expect(session.settings.selectedPlayer).toBe(1)
     expect((saved.at(-1) as { selectedPlayer: number }).selectedPlayer).toBe(1)
@@ -285,6 +286,30 @@ describe('ControllerSession', () => {
     const fresh = make().session
     fresh.load({ players: [{ keyboard: true }, { keyboard: false }], selectedPlayer: 1 })
     expect(fresh.settings.selectedPlayer).toBe(1)
+  })
+
+  it('a tab picked before the stored settings load saves nothing, then wins over the stored tab', () => {
+    const { session, saved } = make()
+    session.selectPlayer(1)
+    expect(session.settings.selectedPlayer).toBe(1)
+    expect(saved, 'defaults were saved over unread settings').toEqual([])
+    session.load({
+      players: [{ keyboard: false, pad: 2 }, { keyboard: true }],
+      style: 'pal',
+      selectedPlayer: 0,
+    })
+    expect(session.settings.selectedPlayer).toBe(1)
+    expect(session.settings.style).toBe('pal')
+    expect(session.settings.players[0].pad).toBe(2)
+    expect(saved).toHaveLength(1)
+    expect((saved[0] as { style: string }).style).toBe('pal')
+  })
+
+  it('a tab picked after loading saves normally', () => {
+    const { session, saved } = make()
+    session.load(undefined)
+    session.selectPlayer(1)
+    expect(saved).toHaveLength(1)
   })
 
   it('a tab is active while its player holds a button, whichever tab is selected', () => {
