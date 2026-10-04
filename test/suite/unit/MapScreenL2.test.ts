@@ -305,7 +305,9 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([1, 0, true])
     // The VerticalTable (the map's isVertical) is not what the entry code tests.
     expect(dy(0x03, 3)).toBe(0x20 - 0xc0) // F600 bit 5 clear: no high bytes, though the map is vertical
-    expect(dy(0x23, 3, false)).toBe(0x320 - 0xc0) // bit 5 set: both, though the map is horizontal
+    expect(dy(0x23, 3, false)).toBe(0x320 - 0xc0)
+    expect(dy(0x23, 1, false)).toBe(0x320 - 0x3c0) // L2's high byte follows F600 too
+    expect(dy(0x03, 1)).toBe(0x20 - 0xc0) // and is absent when bit 5 is clear, gate or no gate // bit 5 set: both, though the map is horizontal
   })
 
   it('tileset 3 ORs palette bit 2 into every L2 object subtile, and no image tile', () => {
