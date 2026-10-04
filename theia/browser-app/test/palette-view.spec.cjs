@@ -24,7 +24,7 @@ const ROM = process.env.HB_ROM || romPath(VANILLA)
 
 const { RomFile } = require('../../extension/lib/src/rom/RomFile')
 const { WorkingRom } = require('../../extension/lib/src/project/WorkingRom')
-const { loromToOffset } = require('../../extension/lib/src/rom/addressing')
+const { loromToOffset, hasCopierHeader } = require('../../extension/lib/src/rom/addressing')
 const { loadBackAreaColors } = require('../../extension/lib/src/rom/PaletteLoader')
 const { bgr555ToRgba } = require('../../extension/lib/src/rom/GraphicsDecoder')
 
@@ -1228,10 +1228,14 @@ test('editing column 1 writes the LDA operand, never the opcode (#270)', async (
   const layer = JSON.parse(fs.readFileSync(path.join(opsDir, opFiles[0]), 'utf8'))
   expect(layer.ops).toEqual([{ address: '$00ABF0', old: '$7FDD', new: '$03E0' }])
 
-  const working = new WorkingRom(new Uint8Array(fs.readFileSync(ROM)), false)
+  // The same header detection RomFile uses, passed to both, so a headered
+  // HB_ROM maps $00ABF0 to the right byte instead of 512 early.
+  const raw = new Uint8Array(fs.readFileSync(ROM))
+  const headered = hasCopierHeader(raw.length)
+  const working = new WorkingRom(raw, headered)
   working.append(layer)
   const bytes = working.bytes()
-  const at = a => bytes[loromToOffset(a, bytes.length, false)]
+  const at = a => bytes[loromToOffset(a, bytes.length, headered)]
   expect(at(0x00abef)).toBe(0xa9)
   expect(at(0x00abfa)).toBe(0xa9)
 })
