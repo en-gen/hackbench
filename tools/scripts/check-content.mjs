@@ -478,6 +478,8 @@ export const DEFAULT_MAX_BLOB_BYTES = 32 << 20
 export const DEFAULT_MAX_TOTAL_BYTES = 128 << 20
 const MAX_BLOB_BYTES = envBytes('CONTENT_GATE_MAX_BLOB_BYTES', DEFAULT_MAX_BLOB_BYTES)
 const MAX_TOTAL_BYTES = envBytes('CONTENT_GATE_MAX_TOTAL_BYTES', DEFAULT_MAX_TOTAL_BYTES)
+/** The limits actually in force (defaults unless the test env overrides). */
+export const effectiveLimits = () => ({ blob: MAX_BLOB_BYTES, total: MAX_TOTAL_BYTES })
 
 const spawnFailure = res => res.error?.message ?? res.stderr
 
@@ -603,7 +605,10 @@ function evaluateEntries(entries, messages = [], whole = false) {
   } catch (err) {
     if (err instanceof GateError) {
       // A budget refusal must not hide path-rule hits, which need no content.
-      err.hits = list.flatMap(e => checkPath(e.path).map(h => ({ ...h, commit: e.commit })))
+      err.hits = [
+        ...hits,
+        ...list.flatMap(e => checkPath(e.path).map(h => ({ ...h, commit: e.commit }))),
+      ]
     }
     throw err
   }
@@ -647,7 +652,7 @@ function reviewedMessages() {
 
 /** Annotated tag bodies (lightweight tags carry no message). One extra
  * git call total, never one per tag. */
-function tagBodyHits() {
+function tagBodyHits(whole = false) {
   const res = spawnGit([
     'for-each-ref',
     '--format=%(objectname) %(objecttype) %(refname)',
@@ -665,7 +670,7 @@ function tagBodyHits() {
     }
   }
   if (tagShas.length === 0) return []
-  const objs = batchReadObjects(tagShas)
+  const objs = batchReadObjects(tagShas, undefined, whole)
   const hits = []
   for (const sha of tagShas) {
     const buf = objs.get(sha)
@@ -768,9 +773,14 @@ function runPush(remote, stdinText) {
   for (const localSha of localShas) {
     requireCommit(localSha, 'pushed ref')
     const { entries, messages } = walkRawDiff([localSha, '--not', ...known])
-    hits.push(...evaluateEntries(entries, messages, known.length === 0))
+    try {
+      hits.push(...evaluateEntries(entries, messages, known.length === 0))
+    } catch (err) {
+      if (err instanceof GateError) err.hits = [...hits, ...err.hits]
+      throw err
+    }
   }
-  hits.push(...tagBodyHits())
+  hits.push(...tagBodyHits(known.length === 0))
   return dedupeReport(hits)
 }
 
@@ -780,7 +790,7 @@ function runHistory() {
     throw new GateError('history mode refuses a shallow clone: run against full history')
   }
   const { entries, messages } = walkRawDiff(['--all'], { reverse: true })
-  const hits = [...evaluateEntries(entries, messages, true), ...tagBodyHits()]
+  const hits = [...evaluateEntries(entries, messages, true), ...tagBodyHits(true)]
 
   // Fail on any blob/tree reachable only via a tag/ref pointing at it
   // directly, never via a commit's tree walk. `rev-list --objects` prints

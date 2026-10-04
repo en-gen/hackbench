@@ -943,6 +943,86 @@ describe(
       expect(gate(100, 2000, 'history').status).toBe(2)
     })
 
+    it('three small annotated tags pass in history mode under a tiny total', () => {
+      for (let i = 0; i < 3; i++) run('git', ['tag', '-a', `t${i}`, '-m', `tag ${i} `.repeat(150)])
+      expect(gate(5000, 2000, 'history').status).toBe(0)
+    })
+
+    it('history reads in more than one cat-file --batch spawn when over the total', () => {
+      for (let i = 0; i < 30; i++) writeFile(`src/c${i}.txt`, small(i))
+      run('git', ['add', 'src'])
+      run('git', ['commit', '-q', '-m', 'many'])
+      const traceFile = path.join(os.tmpdir(), `contentgate-trace-${process.pid}-${Date.now()}.txt`)
+      const res = spawnSync('node', ['tools/scripts/check-content.mjs', 'history'], {
+        cwd: dir,
+        env: {
+          ...process.env,
+          GIT_TRACE: traceFile,
+          CONTENT_GATE_MAX_BLOB_BYTES: '5000',
+          CONTENT_GATE_MAX_TOTAL_BYTES: '2000',
+        },
+      })
+      expect(res.status).toBe(0)
+      const trace = fs.readFileSync(traceFile, 'utf8')
+      fs.rmSync(traceFile, { force: true })
+      const spawns = trace.match(/git cat-file --batch\s*$/gm) ?? []
+      expect(spawns.length).toBeGreaterThanOrEqual(2)
+    })
+
+    function pushGate(maxTotal: number): number {
+      const line = `refs/heads/x ${head()} refs/heads/x ${'0'.repeat(40)}\n`
+      const res = spawnSync('node', ['tools/scripts/check-content.mjs', 'push', 'origin'], {
+        cwd: dir,
+        input: line,
+        env: {
+          ...process.env,
+          CONTENT_GATE_MAX_BLOB_BYTES: '5000',
+          CONTENT_GATE_MAX_TOTAL_BYTES: String(maxTotal),
+        },
+      })
+      return res.status ?? -1
+    }
+
+    it('push to an empty remote reads whole history in chunks and passes', () => {
+      addBareRemote('origin')
+      for (let i = 0; i < 30; i++) writeFile(`src/p${i}.txt`, small(i))
+      run('git', ['add', 'src'])
+      run('git', ['commit', '-q', '-m', 'many'])
+      expect(pushGate(2000)).toBe(0)
+    })
+
+    it('push to a non-empty remote whose new commits exceed the total is refused', () => {
+      addBareRemote('origin')
+      pushToRemote('origin')
+      for (let i = 0; i < 30; i++) writeFile(`src/q${i}.txt`, small(i))
+      run('git', ['add', 'src'])
+      run('git', ['commit', '-q', '-m', 'many'])
+      expect(pushGate(2000)).toBe(2)
+    })
+
+    it('push: hits from an earlier ref are still printed when a later ref is refused', () => {
+      addBareRemote('origin')
+      pushToRemote('origin')
+      const base = head()
+      writeFile('early.dat2', Buffer.from([0x61, 0x00, 0x62]))
+      run('git', ['add', 'early.dat2'])
+      run('git', ['commit', '-q', '-m', 'early'])
+      const early = head()
+      run('git', ['checkout', '-q', '-b', 'other', base])
+      writeFile('late.txt', 'x'.repeat(2000))
+      run('git', ['add', 'late.txt'])
+      run('git', ['commit', '-q', '-m', 'late'])
+      const zero = '0'.repeat(40)
+      const input = `refs/heads/a ${early} refs/heads/a ${zero}\nrefs/heads/b ${head()} refs/heads/b ${zero}\n`
+      const res = spawnSync('node', ['tools/scripts/check-content.mjs', 'push', 'origin'], {
+        cwd: dir,
+        input,
+        env: { ...process.env, CONTENT_GATE_MAX_BLOB_BYTES: '1000' },
+      })
+      expect(res.status).toBe(2)
+      expect(res.stdout.toString()).toMatch(/early\.dat2/)
+    })
+
     it('an annotated tag body over the per-blob limit is refused in history mode', () => {
       run('git', ['tag', '-a', 'v1', '-m', 'x'.repeat(2000)])
       const r = gate(1000, 1_000_000, 'history')
