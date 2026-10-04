@@ -12,6 +12,13 @@ import setup, { guardEnv, SENTINEL, TOKEN_VARS } from '../support/noRealGh'
 
 const REAL_TOKEN = /gh[opsu]_|github_pat_/
 const isSentinel = (v: string | undefined) => v === SENTINEL
+const credFill = (env: NodeJS.ProcessEnv, args: string[] = []) =>
+  spawnSync('git', [...args, 'credential', 'fill'], {
+    input: 'protocol=https\nhost=github.com\n\n',
+    encoding: 'utf8',
+    timeout: 20000,
+    env,
+  })
 
 describe('guardEnv (pure)', () => {
   const real = Object.fromEntries(TOKEN_VARS.map(v => [v, 'ghp_realtoken']))
@@ -77,10 +84,11 @@ describe('guardEnv (pure)', () => {
     expect(o.GIT_CONFIG_KEY_1).toBe('credential.helper')
     expect(o.GIT_CONFIG_VALUE_1).toBe('')
   })
-  it.each(['-1', 'abc', '1000', '99999999999', '1.5', ''])('rejects GIT_CONFIG_COUNT=%j', c => {
-    if (c === '')
-      return expect(guardEnv({ GIT_CONFIG_COUNT: c }, '/cfg').GIT_CONFIG_COUNT).toBe('1')
+  it.each(['-1', 'abc', '1000', '99999999999', '1.5'])('rejects GIT_CONFIG_COUNT=%j', c => {
     expect(() => guardEnv({ GIT_CONFIG_COUNT: c }, '/cfg')).toThrow(/GIT_CONFIG_COUNT/)
+  })
+  it('treats an empty GIT_CONFIG_COUNT as zero', () => {
+    expect(guardEnv({ GIT_CONFIG_COUNT: '' }, '/cfg').GIT_CONFIG_COUNT).toBe('1')
   })
   it('sets the config dir, keeps other variables, does not mutate its input', () => {
     expect(out.GH_CONFIG_DIR).toBe('/cfg')
@@ -114,12 +122,7 @@ describe('a reached gh is unauthenticated (no-shell spawn)', { timeout: 90000 },
         path.join(home, '.gitconfig'),
         '[credential]\n\thelper = "!f() { echo password=fake-helper-pw; }; f"\n',
       )
-      const r = spawnSync('git', ['credential', 'fill'], {
-        input: 'protocol=https\nhost=github.com\n\n',
-        encoding: 'utf8',
-        timeout: 20000,
-        env: { ...process.env, HOME: home, USERPROFILE: home },
-      })
+      const r = credFill({ ...process.env, HOME: home, USERPROFILE: home })
       expect(/^password=/m.test(r.stdout)).toBe(false)
     } finally {
       fs.rmSync(home, { recursive: true, force: true })
@@ -138,12 +141,7 @@ describe('a reached gh is unauthenticated (no-shell spawn)', { timeout: 90000 },
         [{ ...base }, ['-c', `core.askPass=${ask}`]],
       ]
       for (const [e, cfg] of cases) {
-        const r = spawnSync('git', [...cfg, 'credential', 'fill'], {
-          input: 'protocol=https\nhost=github.com\n\n',
-          encoding: 'utf8',
-          timeout: 20000,
-          env: { ...guardEnv(e, home), GCM_INTERACTIVE: 'never' },
-        })
+        const r = credFill({ ...guardEnv(e, home), GCM_INTERACTIVE: 'never' }, cfg)
         expect(/^password=fake-askpass-pw/m.test(r.stdout)).toBe(false)
       }
     } finally {
@@ -152,12 +150,7 @@ describe('a reached gh is unauthenticated (no-shell spawn)', { timeout: 90000 },
   })
 
   it('git credential fill for github.com yields the sentinel or nothing', () => {
-    const r = spawnSync('git', ['credential', 'fill'], {
-      input: 'protocol=https\nhost=github.com\n\n',
-      encoding: 'utf8',
-      timeout: 20000,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' },
-    })
+    const r = credFill({ ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' })
     expect(REAL_TOKEN.test(`${r.stdout}${r.stderr}`)).toBe(false)
     const pw = /^password=(.*)$/m.exec(r.stdout)?.[1]
     if (pw !== undefined) expect(isSentinel(pw.trim())).toBe(true)
