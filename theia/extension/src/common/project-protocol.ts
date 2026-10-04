@@ -231,10 +231,8 @@ export type MapScreenResult =
       planes: Record<MapPlaneKey, string | null>
       /** Why the animated tiles are drawn from unverified or no frames, when they are. */
       note?: string
-      /** Why the background is not drawn (its planes are then null), when it is not. */
-      l2Note?: string
-      /** Why the planes' stacking order is unverified for this ROM, when it is. */
-      orderNote?: string
+      /** Caveats on the layers: a background that is not drawn, a layer order that is unverified. */
+      layerNotes: string[]
       /** The back area (CGRAM color 0), RGB: its own layer under L1. */
       backdrop: [number, number, number]
     }

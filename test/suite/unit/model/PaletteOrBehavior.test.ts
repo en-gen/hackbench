@@ -11,7 +11,7 @@ import { SubTile } from '../../../../src/rom/model/tiles/SubTile'
 import { type SubtileQuad } from '../../../../src/rom/model/tiles/Tile'
 import { StaticQuadBehavior } from '../../../../src/rom/model/tiles/behaviors/StaticQuadBehavior'
 import { PaletteOrBehavior } from '../../../../src/rom/model/tiles/behaviors/PaletteOrBehavior'
-import { l2PaletteOrForTileset } from '../../../../src/rom/model/L2Factory'
+import { l2PaletteOrForTileset } from '../../../../src/rom/L2Loader'
 
 function quadWithPalettes(palettes: readonly [number, number, number, number]): SubtileQuad {
   const sub = (pal: number) =>

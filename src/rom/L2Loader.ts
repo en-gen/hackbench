@@ -260,6 +260,9 @@ const DATA_05FA00_ADDR = 0x05fa00
  * both Layer1YPos+1 and Layer2YPos+1 (bank_05.asm:7386-7393).
  */
 const DATA_05F600_ADDR = 0x05f600
+/** DATA_05F000 (per-level settings, high nibble indexes DATA_05D710) and DATA_05D710 (VertLayer2Setting). */
+const DATA_05F000_ADDR = 0x05f000
+const DATA_05D710_ADDR = 0x05d710
 
 /**
  * SNES address of DATA_05D70C - initial Layer2YPos low-byte table.
@@ -309,6 +312,10 @@ export function readInitialLayer2YPos(rom: RomFile, levelId: number, isVertical 
   }
 
   if (!isVertical) return loByte
+  // The game writes Layer2YPos+1 only when VertLayer2Setting != 3 (bank_05.asm:7390-7393);
+  // that setting is DATA_05D710[DATA_05F000[level] >> 4] (bank_05.asm:7270-7278).
+  const setting = rom.readByte(DATA_05D710_ADDR + ((rom.readByte(DATA_05F000_ADDR + levelId) ?? 0) >> 4)) ?? 0 // prettier-ignore
+  if (setting === 3) return loByte
   const hiByte = (rom.readByte(DATA_05F600_ADDR + levelId) ?? 0) & 0x1f
   return (hiByte << 8) | loByte
 }

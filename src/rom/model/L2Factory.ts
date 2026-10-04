@@ -27,8 +27,6 @@ import { StaticQuadBehavior } from './tiles/behaviors/StaticQuadBehavior'
 import { makeTransparentPlaceholderChar, quadFromMap16 } from './tiles/TileFactory'
 import { Tile } from './tiles/Tile'
 
-export { l2PaletteOrForTileset }
-
 /**
  * Wrap each L1 tile's behavior in `PaletteOrBehavior` when L2 needs the
  * tileset-3 OR mask. When `mask === 0` the L1 atlas is reused as-is so

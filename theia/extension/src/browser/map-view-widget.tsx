@@ -263,8 +263,7 @@ export class MapViewWidget extends ReactWidget {
       l.screenCount !== r.screenCount ||
       l.orientation !== r.orientation ||
       l.note !== r.note ||
-      l.l2Note !== r.l2Note ||
-      l.orderNote !== r.orderNote ||
+      l.layerNotes.join() !== r.layerNotes.join() ||
       l.backdrop.join() !== r.backdrop.join()
     ) {
       // The first reply sizes the strip; the screens in view follow once it is laid out.
@@ -462,19 +461,11 @@ export class MapViewWidget extends ReactWidget {
             {this.screenError}
           </div>
         )}
-        <div className="hb-map-view-note" data-note="l2-no-parallax">
-          The background is drawn at 1:1 with the foreground; its parallax scrolling is not shown.
-        </div>
-        {this.mapLayout?.l2Note && (
-          <div className="hb-map-view-note hb-map-view-error" data-note="l2-unavailable">
-            {`The background is not drawn: ${this.mapLayout.l2Note}`}
+        {this.mapLayout?.layerNotes.map(n => (
+          <div key={n} className="hb-map-view-note" data-note="layers">
+            {n}
           </div>
-        )}
-        {this.mapLayout?.orderNote && (
-          <div className="hb-map-view-note hb-map-view-error" data-note="layer-order">
-            {`Layer order unverified, drawn as BG mode 1: ${this.mapLayout.orderNote}`}
-          </div>
-        )}
+        ))}
         {this.renderStrip()}
         <AfterCommit run={this.sync} />
         <details className="hb-map-view-header" data-control="header-panel">

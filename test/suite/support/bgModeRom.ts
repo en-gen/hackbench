@@ -1,6 +1,6 @@
 /**
  * A 512 KB ROM holding just the three byte runs `readLevelBgMode` pins, at their
- * stock addresses (bank_05.asm:428 and 592-597, bank_00.asm:464-465), so a test
+ * stock addresses (bank_05.asm:428 and 591-597, bank_00.asm:464-465), so a test
  * can plant, drop or flip each one without a cart.
  */
 import { RomFile } from '../../../src/rom/RomFile'
@@ -27,7 +27,6 @@ export function bgModeRom(operand = 1, ...extra: Run[]): RomFile {
     [IRQ_AT, IRQ_BYTES],
     ...extra,
   ] as Run[])
-    // prettier-ignore
     rom.writeAt(addr, bytes)
   return rom
 }

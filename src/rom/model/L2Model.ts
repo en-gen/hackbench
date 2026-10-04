@@ -6,6 +6,7 @@
  * table, plus the shift that puts L2 where the game shows it.
  */
 import type { SmwRom } from '../SmwRom'
+import { hex3s as hex3 } from '../hex'
 import {
   isPresetPtr,
   l2PaletteOrForTileset,
@@ -27,14 +28,14 @@ export interface L2Inputs {
   grid: (number | null)[][]
   /** Definitions by id, with the tileset-3 palette OR already applied. */
   tiles: readonly (Map16Tile | undefined)[]
-  /** Pixels the grid sits below its row, `Layer1YPos - Layer2YPos` at level start (#113); 0 for an image. */
+  /**
+   * Pixels the grid sits below its row, `Layer1YPos - Layer2YPos` at level start (#113), image or
+   * objects alike: Layer2YPos comes from DATA_05D70C either way (bank_05.asm:7323-7328).
+   */
   dy: number
 }
 
-/** `l2: null` is a map with no L2 data, which is not a refusal. */
-export type L2Result = { ok: true; l2: L2Inputs | null } | { ok: false; reason: string }
-
-const hex3 = (n: number) => `$${n.toString(16).toUpperCase().padStart(3, '0')}`
+export type L2Result = { ok: true; l2: L2Inputs } | { ok: false; reason: string }
 
 /**
  * The OR the strip uploader applies to every L2 object-stream subtile in
@@ -51,8 +52,10 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
   const refuse = (reason: string): L2Result => ({ ok: false, reason })
   const ptr = readL2Pointer(rom.rom, index)
   if (ptr === null) return refuse(`The L2 pointer of map ${hex3(index)} is outside the ROM`)
-  if (ptr === 0) return { ok: true, l2: null }
   const { screenCount: screens, isVertical, header } = l1
+  // The map's primary-entrance values (DATA_05F400 / D708 / D70C): a secondary entrance
+  // (DATA_05FC00 and friends) can start the level elsewhere, which this view does not read.
+  const dy = (): number => readInitialLayer1YPos(rom.rom, index, isVertical) - readInitialLayer2YPos(rom.rom, index, isVertical) // prettier-ignore
   try {
     if (isPresetPtr(ptr)) {
       const preset = loadL2Preset(rom.rom, ptr)
@@ -63,7 +66,7 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
       const rows = isVertical ? screens * SCREEN_H_VERT : 27
       return {
         ok: true,
-        l2: { kind: 'image', grid: tilePresetGrid(preset, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: 0 }, // prettier-ignore
+        l2: { kind: 'image', grid: tilePresetGrid(preset, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy() }, // prettier-ignore
       }
     }
     const vertical = rom.getVerticalTable()
@@ -80,7 +83,7 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
         kind: 'objects',
         grid: objects.grid.map(row => row.map(id => (id === L2_EMPTY_TILE ? null : id))),
         tiles: withPaletteOr(l1.map16.tiles, l2PaletteOrForTileset(header.objectTileset)),
-        dy: readInitialLayer1YPos(rom.rom, index, isVertical) - readInitialLayer2YPos(rom.rom, index, l2Vertical), // prettier-ignore
+        dy: dy(),
       },
     }
   } catch (err) {

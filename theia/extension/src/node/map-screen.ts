@@ -28,7 +28,7 @@ import {
   type L1InputsResult,
 } from '../../../../src/rom/model/L1Model'
 import { buildL2Inputs, type L2Inputs, type L2Result } from '../../../../src/rom/model/L2Model'
-import { readLevelBgMode } from '../../../../src/rom/BgMode'
+import { readLevelBgMode, type BgModeResult } from '../../../../src/rom/BgMode'
 import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
 import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
 import { renderMap16Tile } from '../../../../src/rom/TileRenderer'
@@ -68,8 +68,9 @@ export function cellDef(model: L1Inputs, id: number, screen: number): Map16Tile 
 export const SWITCHES_OFF: SwitchStateDto = { blue: false, silver: false, onOff: false }
 
 /** A plane's RGBA, or null when no pixel drew in it (the wire sends no image for it). */
-export type L1Planes = Record<'l1Low' | 'l1High', Uint8ClampedArray | null>
-export type L2Planes = Record<'l2Low' | 'l2High', Uint8ClampedArray | null>
+type Plane = Uint8ClampedArray | null
+export type L1Planes = Record<'l1Low' | 'l1High', Plane>
+export type L2Planes = Record<'l2Low' | 'l2High', Plane>
 
 /** One cell as drawn, and the Map16 entry whose subtile priorities route its quadrants. */
 interface DrawnCell {
@@ -78,18 +79,19 @@ interface DrawnCell {
 }
 
 /**
- * One screen of one layer as two RGBA planes: each cell's 8x8 quadrants copied
- * into the plane their subtile priority bit (bit 13) picks, `dy` pixels below
- * their grid row (rows outside the screen are clipped). The planes never
+ * One screen of one layer as [low, high] RGBA planes: each cell's 8x8 quadrants
+ * copied into the plane their subtile priority bit (bit 13) picks, `dy` pixels
+ * below their grid row. With a finite `period` the shifted grid wraps in it, as
+ * the PPU's BG plane does; rows outside the screen are clipped. The planes never
  * overlap, clear where no tile draws.
  */
-function drawPlanes<L extends MapPlaneKey, H extends MapPlaneKey>(
-  keys: readonly [L, H],
+function drawPlanes(
   isVertical: boolean,
   screen: number,
-  dy: number,
+  rows: number,
+  { dy, period = Infinity }: { dy: number; period?: number },
   cellAt: (x: number, y: number) => DrawnCell | undefined,
-): Record<L | H, Uint8ClampedArray | null> {
+): [Plane, Plane] {
   const { w, h } = screenTiles(isVertical)
   const x0 = isVertical ? 0 : screen * w
   const top = isVertical ? screen * h * 16 : 0
@@ -97,28 +99,36 @@ function drawPlanes<L extends MapPlaneKey, H extends MapPlaneKey>(
   const height = h * 16
   const planes = [0, 1].map(() => new Uint8ClampedArray(width * height * 4))
   const drew = [false, false]
-  const firstRow = Math.max(0, Math.floor((top - dy) / 16))
-  for (let y = firstRow; y * 16 + dy < top + height; y++)
-    for (let x = 0; x < w; x++) {
-      const cell = cellAt(x0 + x, y)
-      if (!cell) continue
-      for (const [qx, qy, sub] of [
-        [0, 0, cell.owner.tl],
-        [8, 0, cell.owner.tr],
-        [0, 8, cell.owner.bl],
-        [8, 8, cell.owner.br],
-      ] as const) {
-        const p = sub.priority ? 1 : 0
-        for (let py = qy; py < qy + 8; py++) {
-          const outY = y * 16 + py + dy - top
-          if (outY < 0 || outY >= height) continue
-          const row = cell.rgba.subarray((py * 16 + qx) * 4, (py * 16 + qx + 8) * 4)
-          if (!drew[p]) drew[p] = row.some((v, i) => i % 4 === 3 && v !== 0)
-          planes[p]!.set(row, (outY * width + x * 16 + qx) * 4)
+  for (let y = 0; y < rows; y++) {
+    const shifted = y * 16 + dy
+    const base = Number.isFinite(period) ? ((shifted % period) + period) % period : shifted
+    // Every copy of this row, one per period, that reaches the screen.
+    const copies = Number.isFinite(period) ? Math.ceil((top + height - base) / period) : 1
+    for (let k = Math.ceil((top - 15 - base) / period) || 0; k < copies; k++) {
+      const at = base + k * (Number.isFinite(period) ? period : 0)
+      if (at + 16 <= top || at >= top + height) continue
+      for (let x = 0; x < w; x++) {
+        const cell = cellAt(x0 + x, y)
+        if (!cell) continue
+        for (const [qx, qy, sub] of [
+          [0, 0, cell.owner.tl],
+          [8, 0, cell.owner.tr],
+          [0, 8, cell.owner.bl],
+          [8, 8, cell.owner.br],
+        ] as const) {
+          const p = sub.priority ? 1 : 0
+          for (let py = qy; py < qy + 8; py++) {
+            const outY = at + py - top
+            if (outY < 0 || outY >= height) continue
+            const row = cell.rgba.subarray((py * 16 + qx) * 4, (py * 16 + qx + 8) * 4)
+            if (!drew[p]) drew[p] = row.some((v, i) => i % 4 === 3 && v !== 0)
+            planes[p]!.set(row, (outY * width + x * 16 + qx) * 4)
+          }
         }
       }
     }
-  return { [keys[0]]: drew[0] ? planes[0] : null, [keys[1]]: drew[1] ? planes[1] : null } as Record<L | H, Uint8ClampedArray | null> // prettier-ignore
+  }
+  return [drew[0] ? planes[0]! : null, drew[1] ? planes[1]! : null]
 }
 
 /** The chars the switches that are on swap in (#573): a char input, never a grid remap. */
@@ -140,16 +150,23 @@ export function drawL1Planes(
   vram = vramFor(model, switches),
 ): L1Planes {
   const palette = { colors: model.colors }
-  return drawPlanes(['l1Low', 'l1High'], model.isVertical, screen, 0, (x, y) => {
-    const id = model.grid[y]?.[x]
-    const def = id === undefined ? undefined : cellDef(model, id, screen)
-    if (!def) return undefined
-    const rgba = renderMap16Tile(def, vram, palette)
-    const art = model.switchArt.get(def.id)
-    const ghost = art && ghostOf(rgba, art.off, art.alts, c => c.rgba)
-    if (ghost) overlayHidden(rgba, 16, 0, 0, ghost)
-    return { rgba, owner: ghost ? (model.map16.tiles[def.id] ?? def) : def }
-  })
+  const [l1Low, l1High] = drawPlanes(
+    model.isVertical,
+    screen,
+    model.grid.length,
+    { dy: 0 },
+    (x, y) => {
+      const id = model.grid[y]?.[x]
+      const def = id === undefined ? undefined : cellDef(model, id, screen)
+      if (!def) return undefined
+      const rgba = renderMap16Tile(def, vram, palette)
+      const art = model.switchArt.get(def.id)
+      const ghost = art && ghostOf(rgba, art.off, art.alts, c => c.rgba)
+      if (ghost) overlayHidden(rgba, 16, 0, 0, ghost)
+      return { rgba, owner: ghost ? (model.map16.tiles[def.id] ?? def) : def }
+    },
+  )
+  return { l1Low, l1High }
 }
 
 /** L2 (background) of one screen, from the same chars and palette as L1. */
@@ -161,14 +178,24 @@ export function drawL2Planes(
 ): L2Planes {
   const palette = { colors: model.colors }
   const drawn = new Map<number, Uint8ClampedArray>()
-  return drawPlanes(['l2Low', 'l2High'], model.isVertical, screen, l2.dy, (x, y) => {
-    const id = l2.grid[y]?.[x]
-    const def = id == null ? undefined : l2.tiles[id]
-    if (!def) return undefined
-    let rgba = drawn.get(def.id)
-    if (!rgba) drawn.set(def.id, (rgba = renderMap16Tile(def, vram, palette)))
-    return { rgba, owner: def }
-  })
+  // BG2 is a 64x64-tile plane (bank_00.asm:1270-1271): 512 px, so a shifted grid wraps in it.
+  // A taller grid is a vertical map's scrolling stack, not one plane, and is not wrapped.
+  const period = l2.grid.length <= 32 ? 512 : Infinity
+  const [l2Low, l2High] = drawPlanes(
+    model.isVertical,
+    screen,
+    l2.grid.length,
+    { dy: l2.dy, period },
+    (x, y) => {
+      const id = l2.grid[y]?.[x]
+      const def = id == null ? undefined : l2.tiles[id]
+      if (!def) return undefined
+      let rgba = drawn.get(def.id)
+      if (!rgba) drawn.set(def.id, (rgba = renderMap16Tile(def, vram, palette)))
+      return { rgba, owner: def }
+    },
+  )
+  return { l2Low, l2High }
 }
 
 /** What the map tab draws: L1's inputs plus the background and the layer-order verdict. */
@@ -199,7 +226,7 @@ export function screenResult(
   const { w, h } = screenTiles(model.isVertical)
   const vram = vramFor(model, switches)
   const l2 = model.l2?.ok ? model.l2.l2 : null
-  const drawn: Partial<Record<MapPlaneKey, Uint8ClampedArray | null>> = {
+  const drawn: Partial<Record<MapPlaneKey, Plane>> = {
     ...drawL1Planes(model, screen, switches, vram),
     ...(l2 && drawL2Planes(model, l2, screen, vram)),
   }
@@ -217,8 +244,10 @@ export function screenResult(
       }),
     ) as Record<MapPlaneKey, string | null>,
     note: [...model.unverified, model.animNote].filter(Boolean).join(' ') || undefined,
-    l2Note: model.l2 && !model.l2.ok ? model.l2.reason : undefined,
-    orderNote: model.orderNote,
+    layerNotes: [
+      model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',
+      model.orderNote ? `Layer order unverified, drawn as BG mode 1: ${model.orderNote}` : '',
+    ].filter(Boolean),
     backdrop: [model.backArea[0], model.backArea[1], model.backArea[2]],
   }
 }
@@ -244,11 +273,12 @@ export function buildMapInputs(
   rom: SmwRom,
   index: number,
   flags: SwitchFlagsDto,
+  bgMode: () => BgModeResult = () => readLevelBgMode(rom.rom),
   l1: typeof buildL1Inputs = buildL1Inputs,
 ): MapInputsResult {
   const built = l1(rom, index, flags)
   if (!built.ok) return built
-  const bg = readLevelBgMode(rom.rom)
+  const bg = bgMode()
   return {
     ok: true,
     inputs: { ...built.inputs, l2: buildL2Inputs(rom, index, built.inputs), orderNote: bg.ok ? undefined : bg.reason }, // prettier-ignore
@@ -263,6 +293,8 @@ export function buildMapInputs(
 export class L1ModelCache {
   private readonly byBytes = new WeakMap<Uint8Array, Map<string, MapInputsResult>>()
   private readonly arts = new WeakMap<Uint8Array, Record<Palace, PalaceArt>>()
+  /** The BG mode reading scans the ROM, so it is made once per bytes, not per map. */
+  private readonly modes = new WeakMap<Uint8Array, BgModeResult>()
 
   constructor(private readonly build: typeof buildMapInputs = buildMapInputs) {}
 
@@ -274,7 +306,9 @@ export class L1ModelCache {
     if (!built) {
       // A copy: the working copy's array is shared and must not be mutated.
       try {
-        built = this.build(new SmwRom(RomFile.fromBytes(romPath, Buffer.from(bytes))), index, flags)
+        const rom = new SmwRom(RomFile.fromBytes(romPath, Buffer.from(bytes)))
+        const bgMode = () => this.modes.get(bytes) ?? this.modes.set(bytes, readLevelBgMode(rom.rom)).get(bytes)! // prettier-ignore
+        built = this.build(rom, index, flags, bgMode)
       } catch (err) {
         built = { ok: false, reason: (err as Error).message }
       }

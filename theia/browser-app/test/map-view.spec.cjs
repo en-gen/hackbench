@@ -415,23 +415,30 @@ test('a reused tab going from a horizontal to a vertical map draws screen 0', as
  * The L1 (foreground) toggle: off shows only the level's backdrop (no L1
  * pixel on screen, and not the theme), on shows exactly the picture again.
  */
+/**
+ * A layer toggle's face: pressed, named, and the owner's icon with its own bar (top, middle or
+ * bottom) in the button's color and the others dimmed.
+ */
+async function expectLayerToggle(page, index, control, label, bar) {
+  const button = page.locator(`${root(index)} [data-control="${control}"]`)
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  await expect(button).toHaveAttribute('aria-label', label)
+  await expect(button).toHaveAttribute('title', label)
+  const bars = await button
+    .locator('svg rect')
+    .evaluateAll(rs => rs.map(r => ({ y: r.getAttribute('y'), fill: getComputedStyle(r).fill })))
+  const color = await button.evaluate(b => getComputedStyle(b).color)
+  expect(bars.map(b => b.y)).toEqual(['1', '6', '11'])
+  bars.forEach((b, i) => (i === bar ? expect(b.fill).toBe(color) : expect(b.fill).not.toBe(color)))
+  return button
+}
+
 test('the L1 toggle hides and restores the foreground, per tab', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await expectEveryVisibleScreenDrawn(page, 0x105)
-  const l1 = page.locator(`${root(0x105)} [data-control="layer-l1"]`)
+  const l1 = await expectLayerToggle(page, 0x105, 'layer-l1', 'Foreground', 1)
   const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
-  await expect(l1).toHaveAttribute('aria-pressed', 'true')
-  await expect(l1).toHaveAttribute('aria-label', 'Foreground')
-  await expect(l1).toHaveAttribute('title', 'Foreground')
-  // The owner's icon: three bars, the middle one in the button's own color.
-  const bars = await l1
-    .locator('svg rect')
-    .evaluateAll(rs => rs.map(r => ({ y: r.getAttribute('y'), fill: getComputedStyle(r).fill })))
-  const color = await l1.evaluate(b => getComputedStyle(b).color)
-  expect(bars.map(b => b.y)).toEqual(['1', '6', '11'])
-  expect(bars[1].fill).toBe(color)
-  expect(bars[0].fill).not.toBe(color)
 
   const shown = await shownPixels(page, strip)
   expect(shown.colors).toBeGreaterThan(4)
@@ -510,18 +517,8 @@ test('the Background toggle hides and restores both L2 canvases, per tab', async
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await expectEveryVisibleScreenDrawn(page, 0x105)
-  const l2 = page.locator(`${root(0x105)} [data-control="layer-l2"]`)
+  const l2 = await expectLayerToggle(page, 0x105, 'layer-l2', 'Background', 2)
   const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
-  await expect(l2).toHaveAttribute('aria-pressed', 'true')
-  await expect(l2).toHaveAttribute('aria-label', 'Background')
-  await expect(l2).toHaveAttribute('title', 'Background')
-  // Three bars, the bottom one in the button's own color.
-  const bars = await l2
-    .locator('svg rect')
-    .evaluateAll(rs => rs.map(r => ({ y: r.getAttribute('y'), fill: getComputedStyle(r).fill })))
-  const color = await l2.evaluate(b => getComputedStyle(b).color)
-  expect(bars[2].fill).toBe(color)
-  expect(bars[1].fill).not.toBe(color)
   // Foreground, then Background, beside each other.
   const order = await page
     .locator(`${root(0x105)} .hb-map-view-toolbar [data-control^="layer-"]`)
@@ -576,7 +573,7 @@ async function colorOnScreen(page, selector, x, y) {
   }, png)
 }
 
-test('L2 shows under L1: a clear L1 pixel shows the background, not the back area', async ({
+test('L2 shows above the back area: a clear L1 pixel shows the background, not the back area', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
@@ -639,16 +636,51 @@ test('the canvas stack is l2Low, l1Low, l2High, l1High, bottom to top', async ({
   expect(stack[0].z).toBeGreaterThan(0)
 })
 
-test('the details say the background is drawn at 1:1, with no parallax', async ({ page }) => {
+test('a map the ROM reads fully carries no layer note', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
-  const note = page.locator(`${root(0x105)} [data-note="l2-no-parallax"]`)
-  await expect(note).toBeVisible()
-  await expect(note).toContainText('1:1')
-  await expect(note).toContainText('parallax')
-  // The vanilla ROM reads: no refusal and no unverified-order note.
-  await expect(page.locator(`${root(0x105)} [data-note="l2-unavailable"]`)).toHaveCount(0)
-  await expect(page.locator(`${root(0x105)} [data-note="layer-order"]`)).toHaveCount(0)
+  await expect(page.locator(`${root(0x105)} [data-note="layers"]`)).toHaveCount(0)
+})
+
+/**
+ * $0E7's L2 (an object stream, tileset 1) draws Map16 tile 349 under L1's tile 352 at column 0,
+ * row 13 (measured on vanilla); both are opaque at pixel (3, 211) of screen 0, both low priority.
+ * Setting tile 349's top-left priority bit in the working copy moves that quadrant to l2High,
+ * which BG mode 1 stacks over l1Low: the pixel shown must turn into L2's. The composite is read
+ * from the canvases in their z-index order, so reordering MAP_PLANE_KEYS turns this red.
+ */
+test('an L2 priority tile draws over an L1 low tile, from a working-copy edit', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0xe7)
+  const spot = { x: 3, y: 13 * 16 + 3 }
+  const read = () =>
+    page.evaluate(
+      ({ rootSel, spot }) => {
+        const px = c => Array.from(c.getContext('2d').getImageData(spot.x, spot.y, 1, 1).data)
+        const planes = planesOf(rootSel, 0)
+        const by = k => planes.find(c => c.dataset.plane === k)
+        const shown = composeCanvases(planes, spot.x, spot.y, 1, 1)
+        return { shown: Array.from(shown), l1Low: px(by('l1Low')), l2High: px(by('l2High')) }
+      },
+      { rootSel: root(0xe7), spot },
+    )
+  const before = await read()
+  expect(before.l1Low[3], 'L1 is opaque there').toBe(255)
+  expect(before.l2High[3], 'no L2 priority yet').toBe(0)
+  expect(before.shown).toEqual(before.l1Low)
+
+  const edit = await page.evaluate(
+    ({ mp }) =>
+      getSvc('Symbol(Map16Service)').setQuadrantField(mp, 1, 'fg', { bg: 0, fg: 0 }, 349, 'tl', 'priority', true), // prettier-ignore
+    { mp: project.manifestPath },
+  )
+  expect(edit.status).toBe('ok')
+  await expect.poll(async () => (await read()).l2High[3], { timeout: 15000 }).toBe(255)
+  const after = await read()
+  expect(after.shown, 'the pixel is L2 priority color').toEqual(after.l2High)
+  expect(after.shown).not.toEqual(after.l1Low)
 })
 
 /**
